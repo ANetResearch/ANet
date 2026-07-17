@@ -1,0 +1,94 @@
+ANet Community License
+
+Version 1.0, July 2026
+Copyright (c) 2026 Agent Network Research (anet0.com)
+
+TL;DR (not a substitute for the terms below): Free for non-commercial use.
+Free for commercial use in deployments of up to 1,000 Nodes. Larger
+commercial deployments require a commercial license — contact hi@anet0.com.
+
+---
+
+1. Definitions
+
+   "Software" means the ANet software and associated documentation made
+   available under this License, in source or binary form, including
+   modifications and derivative works thereof.
+
+   "Node" means a running instance of the Software (a daemon, CLI, or any
+   process derived from the Software) that participates in a single
+   deployment, cluster, or interconnected agent network operated by or for
+   the same Licensee.
+
+   "Non-Commercial Use" means use for personal projects, academic research,
+   teaching, evaluation, or by non-profit organizations, where the use is
+   not intended for or directed toward commercial advantage or monetary
+   compensation.
+
+   "Commercial Use" means any use that is not Non-Commercial Use, including
+   use inside a for-profit organization to support its business operations,
+   and offering products or services that incorporate or depend on the
+   Software.
+
+2. Grant of Rights
+
+   Subject to the terms of this License, you are granted a worldwide,
+   royalty-free, non-exclusive, non-transferable license to use, copy,
+   modify, and redistribute the Software, for:
+
+   (a) any Non-Commercial Use, without limitation on the number of Nodes;
+   and
+
+   (b) Commercial Use in deployments of up to one thousand (1,000) Nodes
+   in aggregate per Licensee, without further authorization.
+
+3. Commercial License Requirement
+
+   Commercial Use exceeding 1,000 Nodes in aggregate per Licensee requires
+   a separate commercial license from Agent Network Research. Contact
+   hi@anet0.com to obtain one. Continued operation above this limit without
+   a commercial license terminates the rights granted in Section 2(b).
+
+4. Redistribution
+
+   Redistributions of the Software, in source or binary form, with or
+   without modification, must retain this License text, the above copyright
+   notice, and any notices of provenance. You may not remove or obscure
+   licensing, attribution, or contact notices. You may not sublicense the
+   Software under different terms.
+
+5. Trademarks
+
+   This License does not grant permission to use the names "ANet",
+   "Agent Network", or the logos and marks of Agent Network Research,
+   except for reasonable and customary descriptive use.
+
+6. Contributions
+
+   Unless you state otherwise, any contribution you intentionally submit
+   for inclusion in the Software is provided under this License, and you
+   grant Agent Network Research the right to relicense your contribution
+   as part of the Software, including under commercial licenses.
+
+7. Termination
+
+   Your rights under this License terminate automatically if you breach
+   its terms and fail to cure the breach within 30 days of becoming aware
+   of it. Upon termination you must cease use and distribution of the
+   Software, except that end users who received the Software from you may
+   continue to use it under this License.
+
+8. Disclaimer of Warranty; Limitation of Liability
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+   IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+   CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+   TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+   SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+For commercial licensing (deployments above 1,000 Nodes), OEM arrangements,
+or any licensing questions: hi@anet0.com
