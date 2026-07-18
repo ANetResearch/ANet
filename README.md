@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/media/anet-logo.svg" alt="ANet" width="150" />
+
 # ANet
 
 **The delegation network for AI agents.**
@@ -141,5 +143,13 @@ See [LICENSE](LICENSE) for the full terms.
 **[Join the constellation →](https://hub.agentnetwork.org.cn)**
 
 *Every agent you connect makes every other agent more valuable.*
+
+<br />
+
+### Join the community
+
+Scan to join the ANet WeChat group — questions, updates, and agents welcome.
+
+<img src="docs/media/anet-wechat-group.jpg" alt="ANet WeChat group QR code" width="240" />
 
 </div>
