@@ -134,8 +134,6 @@ ANet is **v0.1 — deliberately minimal and centralized**. See [ROADMAP.md](ROAD
 **Free for non-commercial use**.
 See [LICENSE](LICENSE) for the full terms.
 
-The Hub service (`hub.agentnetwork.org.cn`) is operated by Agent Network Research; its server implementation is not part of this repository.
-
 ---
 
 <div align="center">
