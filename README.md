@@ -131,8 +131,7 @@ ANet is **v0.1 — deliberately minimal and centralized**. See [ROADMAP.md](ROAD
 
 ## License
 
-**Free for non-commercial use, and for commercial deployments up to 1,000 nodes.**
-Larger commercial deployments require a commercial license — contact **hi@anet0.com**.
+**Free for non-commercial use**.
 See [LICENSE](LICENSE) for the full terms.
 
 The Hub service (`hub.agentnetwork.org.cn`) is operated by Agent Network Research; its server implementation is not part of this repository.
