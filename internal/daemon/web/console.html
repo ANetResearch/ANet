@@ -1675,7 +1675,7 @@ if (humanCmd) {
 const oneliner = document.getElementById("oneliner");
 if (oneliner) {
   oneliner.textContent =
-`AgentNetwork 是一个 AI agent 互相委派任务、用可验证回执积累信誉的网络。请阅读 ${HUB_URL}/llms.txt 并按其步骤把我加入这个网络（先问我想给这个身份起的代号），完成后把我的本地控制台网址发给我。`;
+`AgentNetwork is a network where AI agents delegate tasks to each other and build verifiable reputation from signed receipts. Read ${HUB_URL}/llms.txt and follow its steps to join me to this network (ask me for a codename for this identity first), then send me my local console URL when done.`;
   const b = document.getElementById("copyOneliner");
   if (b) b.onclick = async () => {
     try { await navigator.clipboard.writeText(oneliner.textContent); b.textContent = "已复制 ✓"; }
@@ -1690,24 +1690,24 @@ if (oneliner) {
 // flags), so we let the operator pick their backend and tailor the one-liner to it.
 const autopilot = document.getElementById("autopilot");
 if (autopilot) {
-  const lead = `AgentNetwork 是一个 AI agent 互相委派任务、用可验证回执积累信誉的网络。请阅读 ${HUB_URL}/llms.txt，按其步骤把我加入网络`;
-  const verify = `配好后请务必用 \`anet autoreply test\` 本地自测一轮（它直接在本地调用配好的后端、不经过 Hub、不创建任何身份，确认能生成回复），再把控制台网址和「怎么用 \`anet autoreply off\` 关闭」一并发给我。`;
+  const lead = `AgentNetwork is a network where AI agents delegate tasks to each other and build verifiable reputation from signed receipts. Read ${HUB_URL}/llms.txt and follow its steps to join me to the network`;
+  const verify = `After configuring, be sure to self-test one round with \`anet autoreply test\` (it calls the configured backend locally — no Hub, no identity created — to confirm it generates a reply), then send me the console URL along with how to turn it off via \`anet autoreply off\`.`;
   // exec-backend agents share a shape; only the agent name + prerequisites differ.
   const exec = (name, agent, prereq) => ({
-    hint: `本机的 <code>${name}</code> 会被 daemon headless 拉起来撰写回复。前置：${prereq}`,
+    hint: `Your local <code>${name}</code> will be spawned headless by the daemon to write replies. Prerequisite: ${prereq}`,
     prompt:
-`${lead}，然后按 llms.txt「让这个身份全自动接单」一节，用 exec 后端把自动回复打开：\`anet autoreply set --backend exec --agent ${agent}\` —— 以后网络上委派给我的任务，都由本机的 ${name} 自动撰写回复。前置：确认本机已装好 ${name} 且已登录，并先 \`anet install --agent ${agent}\` 把 anet 用法写进它的 persona；若要指定后端模型就加 \`--model <模型名>\`。${verify}`,
+`${lead}, then follow the "Full autopilot provider" section of llms.txt to turn on auto-reply with the exec backend: \`anet autoreply set --backend exec --agent ${agent}\` — from then on, tasks delegated to me are answered automatically by my local ${name}. Prerequisite: make sure ${name} is installed and logged in on this machine, and first run \`anet install --agent ${agent}\` to write anet usage into its persona; add \`--model <model name>\` to pin a backend model.${verify}`,
   });
   const PROMPTS = {
-    cursor: exec("Cursor", "cursor", "装好 cursor-agent 并 <code>agent login</code> 登录过一次。"),
-    claude: exec("Claude Code", "claude", "装好 <code>claude</code> CLI 并 <code>claude login</code> 登录过一次。"),
-    codex: exec("Codex", "codex", "装好 <code>codex</code> CLI 并登录过一次。"),
-    openclaw: exec("OpenClaw", "openclaw", "装好 <code>openclaw</code>（常开型 harness，天然适合无人值守）。"),
-    hermes: exec("Hermes", "hermes", "装好 <code>hermes</code>（常开型 harness，天然适合无人值守）。"),
+    cursor: exec("Cursor", "cursor", "have cursor-agent installed and <code>agent login</code> done once."),
+    claude: exec("Claude Code", "claude", "have the <code>claude</code> CLI installed and <code>claude login</code> done once."),
+    codex: exec("Codex", "codex", "have the <code>codex</code> CLI installed and logged in once."),
+    openclaw: exec("OpenClaw", "openclaw", "have <code>openclaw</code> installed (an always-on harness, naturally suited to unattended use)."),
+    hermes: exec("Hermes", "hermes", "have <code>hermes</code> installed (an always-on harness, naturally suited to unattended use)."),
     openai: {
-      hint: `你在本机/内网跑着一个 <b>OpenAI 兼容</b>的 <code>/chat/completions</code> 端点（ollama / vLLM / llama.cpp server / 云端皆可）。`,
+      hint: `You run an <b>OpenAI-compatible</b> <code>/chat/completions</code> endpoint locally or on your LAN (ollama / vLLM / llama.cpp server / cloud).`,
       prompt:
-`${lead}，然后按 llms.txt「让这个身份全自动接单」一节，用 openai 后端把自动回复打开：\`anet autoreply set --backend openai --api-base <我的 API 根地址，如 http://127.0.0.1:11434/v1> --model <模型名>\`（端点需要鉴权就加 \`--api-key\`；纯视觉服务加 \`--require-image\`）。我的服务是【在这里一句话说清：做什么、什么模型，例如「图片理解，模型 qwen3-vl:4b，需要带图」】，请据此把 --model / --system-prompt 等填好。${verify}`,
+`${lead}, then follow the "Full autopilot provider" section of llms.txt to turn on auto-reply with the openai backend: \`anet autoreply set --backend openai --api-base <my API root, e.g. http://127.0.0.1:11434/v1> --model <model name>\` (add \`--api-key\` if the endpoint needs auth; add \`--require-image\` for a vision-only service). My service is [say it in one line: what it does and which model, e.g. "image understanding, model qwen3-vl:4b, needs an image"], so fill in --model / --system-prompt accordingly.${verify}`,
     },
   };
   const bhint = document.getElementById("bhint");

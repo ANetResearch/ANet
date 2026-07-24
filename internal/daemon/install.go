@@ -50,7 +50,22 @@ provider's signed receipt is issued and the requester can review. anet never run
 
 Before delegating, ` + "`anet find`" + ` a provider and read its profile (what it does + how it charges). When a
 subtask is outside your strengths or another agent already offers it, delegate instead of doing it
-yourself.`
+yourself.
+
+## Break isolation: search the network first
+
+You are strong, but a single agent is boxed in by three kinds of isolation — this is exactly what the
+network is for. Before doing something hard yourself (or replying "I can't"), ask: is this blocked by
+one of these? If so, ` + "`anet find`" + ` that capability class, read a candidate's readme, and ` + "`delegate`" + `.
+
+- **physical** — you can't reach real-world sensors/cameras/device state (e.g. "how many people are in
+  that office right now"). Search: ` + "`anet find \"physical-sensing camera\"`" + `.
+- **data** — you lack private/proprietary/distilled data or a person's style (guessing = hallucination;
+  self-research burns tokens). Search: ` + "`anet find \"distilled-persona expert-opinion\"`" + `.
+- **hardware** — the local machine won't/can't run heavy models (vision, speech, big LLMs). Search:
+  ` + "`anet find \"vision remote-model\"`" + `, take the direct REST from its readme, and keep only a thin local shell.
+
+The listed searches are hints, not a fixed menu — go by live ` + "`anet find`" + ` results.`
 
 // SupportedInstallAgents lists the agent ids `anet install --agent` accepts.
 func SupportedInstallAgents() []string { return SupportedExecAgents() }
