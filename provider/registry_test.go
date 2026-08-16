@@ -13,10 +13,10 @@ type fake struct {
 	caps []string
 }
 
-func (f *fake) ID() string                                        { return f.id }
-func (f *fake) Capabilities(context.Context) ([]string, error)    { return f.caps, nil }
-func (f *fake) Describe(context.Context) (string, error)          { return "", nil }
-func (f *fake) Health(context.Context) error                      { return nil }
+func (f *fake) ID() string                                     { return f.id }
+func (f *fake) Capabilities(context.Context) ([]string, error) { return f.caps, nil }
+func (f *fake) Describe(context.Context) (string, error)       { return "", nil }
+func (f *fake) Health(context.Context) error                   { return nil }
 func (f *fake) Invoke(_ context.Context, c Call) (effect.Effect, error) {
 	return effect.Effect{Status: effect.Unverified, Message: c.Capability}, nil
 }
