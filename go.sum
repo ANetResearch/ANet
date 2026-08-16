@@ -1,7 +1,7 @@
 filippo.io/edwards25519 v1.2.0 h1:crnVqOiS4jqYleHd9vaKZ+HKtHfllngJIiOpNpoJsjo=
 filippo.io/edwards25519 v1.2.0/go.mod h1:xzAOLCNug/yB62zG1bQ8uziwrIqIuxhctzJT18Q77mc=
-github.com/ANetResearch/ANetCore v0.1.1 h1:0/veE/VFl9zmHNpCS+MzDxTdqTAmkwDeElRLr6hruEk=
-github.com/ANetResearch/ANetCore v0.1.1/go.mod h1:IgjH/eTqFz5fOVxUuICgE/9L5gINVnwa3zLrd486cY0=
+github.com/ANetResearch/ANetCore v0.2.0 h1:rHiL/ZFfAUyFzgFxOtoW6gBw16opOTYrN3zW2Mu8lB0=
+github.com/ANetResearch/ANetCore v0.2.0/go.mod h1:IgjH/eTqFz5fOVxUuICgE/9L5gINVnwa3zLrd486cY0=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/fxamacker/cbor/v2 v2.9.2 h1:X4Ksno9+x3cz0TZv69ec1hxP/+tymuR8PXQJyDwfh78=
