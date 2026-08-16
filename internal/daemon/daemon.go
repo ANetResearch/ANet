@@ -3,14 +3,17 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/provider"
+	"github.com/ANetResearch/ANet/provider/anetlink"
 	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/tsir"
-	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // Daemon is one operator's anet v0.1 process: a self-certifying identity (KEL), a durable local
@@ -23,6 +26,10 @@ type Daemon struct {
 	layout Layout
 	self   *identity.Controller
 	ix     *interactions.Store
+
+	// providers is the C1 capability registry (K207): the only doorway
+	// through which this daemon acquires callable capabilities.
+	providers *provider.Registry
 
 	// ctx is the daemon's lifetime context (the relay poll loop runs under it); cancel stops it on Close.
 	ctx    context.Context
@@ -73,6 +80,16 @@ func New(layout Layout) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel,
 		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1)}
+	d.providers = provider.NewRegistry()
+	if pc := cfg.Providers; pc != nil && pc.ANetLink != nil && pc.ANetLink.Socket != "" {
+		rctx, rcancel := context.WithTimeout(ctx, 5*time.Second)
+		if err := d.providers.Register(rctx, anetlink.New("anetlink", pc.ANetLink.Socket)); err != nil {
+			log.Printf("anet: anetlink provider unavailable: %v (device capabilities off until restart)", err)
+		} else {
+			log.Printf("anet: anetlink provider registered (%d capabilities)", len(d.providers.Capabilities()))
+		}
+		rcancel()
+	}
 	if cfg.HubURL != "" {
 		d.startRelayLoop(cfg.HubURL)
 	}

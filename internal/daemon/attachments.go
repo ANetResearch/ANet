@@ -14,9 +14,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANet/internal/protocol/delegation"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANetCore/anetcid"
 )
 
 // maxAttachmentBytes bounds a single attachment. Larger payloads must be split or (future) uploaded to a

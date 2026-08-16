@@ -30,6 +30,10 @@ type Config struct {
 	Pricing string `json:"pricing,omitempty"` // free-form pricing text (no settlement in v0.1)
 	// AcceptDelegations lets this daemon accept + STORE tasks delegated to it through the Hub relay, for
 	// the operator's EXTERNAL agent to work on-demand (`inbox` → `thread`/`message`/`end`). It is a *bool so that an
+	// Providers configures C1 capability providers. ANetLink connects the
+	// physical-world runtime over its UDS socket (anetlinkd --c1-socket).
+	Providers *ProvidersConfig `json:"providers,omitempty"`
+
 	// UNSET/omitted key means "accept" (see AcceptsDelegations): anyone who installs anet can receive tasks
 	// out of the box, so "list my agent" is just `anet daemon &`. Accepting only STORES the task (its
 	// TaskDoc signature is verified first); anet runs no model. Set `"accept_delegations": false` to opt out.
@@ -151,4 +155,14 @@ func SaveConfig(l Layout, c Config) error {
 		return err
 	}
 	return writeFileAtomic(l.ConfigPath(), b, 0o600)
+}
+
+// ProvidersConfig wires capability providers into the daemon.
+type ProvidersConfig struct {
+	ANetLink *ANetLinkProviderConfig `json:"anetlink,omitempty"`
+}
+
+// ANetLinkProviderConfig points at a running anetlinkd C1 socket.
+type ANetLinkProviderConfig struct {
+	Socket string `json:"socket"`
 }

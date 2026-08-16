@@ -19,10 +19,10 @@ import (
 	"strings"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
-	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANet/internal/protocol/delegation"
 	"github.com/ANetResearch/ANet/internal/protocol/evidence"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANetCore/anetcid"
 )
 
 // InboxItem is one inbound (delegated-to-us) task shown to the operator.
@@ -475,6 +475,16 @@ func (d *Daemon) ingestDelegate(payload []byte) bool {
 		log.Printf("anet: store inbound first message: %v", err)
 	} else if err := d.storeMsgAttachments(dr.InteractionID, seq, dr.Attachments); err != nil {
 		log.Printf("anet: store inbound attachments: %v", err)
+	}
+	// C1: a capability call a local provider resolves is executed
+	// deterministically right here; anything else flows to auto-reply.
+	if capID, args, ok := capabilityCall(td); ok {
+		cctx, cancel := context.WithTimeout(d.ctx, capabilityInvokeTimeout)
+		handled := d.tryCapability(cctx, dr.InteractionID, capID, args)
+		cancel()
+		if handled {
+			return true
+		}
 	}
 	return true
 }

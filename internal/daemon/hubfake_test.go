@@ -19,8 +19,8 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
-	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANet/internal/protocol/evidence"
+	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/tsir"
 )
 
