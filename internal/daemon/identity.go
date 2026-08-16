@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ANetResearch/ANet/internal/protocol/identity"
+	"github.com/ANetResearch/ANetCore/identity"
 )
 
 // LoadOrGenerateIdentity loads the daemon's persisted identity (identity.kel), or, on first run,

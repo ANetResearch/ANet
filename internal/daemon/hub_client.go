@@ -16,7 +16,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ANetResearch/ANet/internal/protocol/identity"
+	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANet/internal/protocol/relayauth"
 )
 

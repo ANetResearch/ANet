@@ -19,9 +19,9 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
-	"github.com/ANetResearch/ANet/internal/protocol/coredet"
+	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANet/internal/protocol/evidence"
-	"github.com/ANetResearch/ANet/internal/protocol/tsir"
+	"github.com/ANetResearch/ANetCore/tsir"
 )
 
 // fakeHubAgent is one registered agent's row in the fake registry.

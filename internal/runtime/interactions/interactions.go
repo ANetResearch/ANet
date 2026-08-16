@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite" // pure-Go driver (A3: no cgo in distributed runtime)
 )
 
 // ErrBadInput is returned for missing required fields.
@@ -122,7 +122,7 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("interactions: mkdir: %w", err)
 	}
-	db, err := sql.Open("sqlite3", filepath.Join(dir, "interactions.db")+"?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=15000")
+	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db")+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(15000)")
 	if err != nil {
 		return nil, fmt.Errorf("interactions: open db: %w", err)
 	}

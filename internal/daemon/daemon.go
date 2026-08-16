@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ANetResearch/ANet/internal/protocol/aobj"
-	"github.com/ANetResearch/ANet/internal/protocol/coredet"
-	"github.com/ANetResearch/ANet/internal/protocol/identity"
-	"github.com/ANetResearch/ANet/internal/protocol/tsir"
+	"github.com/ANetResearch/ANetCore/aobj"
+	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/tsir"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 

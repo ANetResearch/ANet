@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/protocol/evidence"
-	"github.com/ANetResearch/ANet/internal/protocol/identity"
+	"github.com/ANetResearch/ANetCore/identity"
 )
 
 func TestReceiptSignVerifyRoundTrip(t *testing.T) {
