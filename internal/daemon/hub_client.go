@@ -16,8 +16,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANet/internal/protocol/relayauth"
+	"github.com/ANetResearch/ANetCore/identity"
 )
 
 // maxHubResponse bounds a decoded Hub response body. It is generous because `find` / `GET /agents/{aid}`
