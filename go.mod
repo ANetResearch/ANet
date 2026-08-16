@@ -3,7 +3,7 @@ module github.com/ANetResearch/ANet
 go 1.26.1
 
 require (
-	github.com/ANetResearch/ANetCore v0.2.0
+	github.com/ANetResearch/ANetCore v0.3.0
 	modernc.org/sqlite v1.56.0
 )
 

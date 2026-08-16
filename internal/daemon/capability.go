@@ -198,6 +198,13 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 		log.Printf("anet: capability %s: store result: %v", capID, err)
 		return false
 	}
+	if _, lerr := d.ledger.Append(EvCapabilityEffect, map[string]any{
+		"interaction_id": interactionID, "capability": capID, "caller_aid": ix.PeerAID,
+		"status": res.Status, "verifiable": res.Verifiable, "metrics": res.Metrics,
+		"result_cid": resultCID,
+	}); lerr != nil {
+		log.Printf("anet: capability %s: evidence ledger: %v", capID, lerr)
+	}
 	rr := &delegation.ResultResp{Status: delegation.StatusDone, Deliverable: deliverable, Receipt: receiptBytes}
 	payload, err := rr.Marshal()
 	if err != nil {

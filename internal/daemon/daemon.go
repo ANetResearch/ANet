@@ -31,6 +31,10 @@ type Daemon struct {
 	// through which this daemon acquires callable capabilities.
 	providers *provider.Registry
 
+	// ledger is the local P6 evidence chain (C5): capability effects and
+	// issued receipts, signed and fork-evident.
+	ledger *evidenceLedger
+
 	// ctx is the daemon's lifetime context (the relay poll loop runs under it); cancel stops it on Close.
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -80,6 +84,11 @@ func New(layout Layout) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel,
 		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1)}
+	led, err := openEvidenceLedger(layout.EvidenceLedgerPath(), self)
+	if err != nil {
+		return nil, err
+	}
+	d.ledger = led
 	d.providers = provider.NewRegistry()
 	if pc := cfg.Providers; pc != nil && pc.ANetLink != nil && pc.ANetLink.Socket != "" {
 		rctx, rcancel := context.WithTimeout(ctx, 5*time.Second)
@@ -111,6 +120,9 @@ func (d *Daemon) Close() error {
 	var err error
 	d.closeOnce.Do(func() {
 		d.cancel()
+		if d.ledger != nil {
+			_ = d.ledger.Close()
+		}
 		d.mu.Lock()
 		ix := d.ix
 		d.ix = nil
