@@ -24,10 +24,10 @@ package evidence
 import (
 	"errors"
 
-	"github.com/ANetResearch/ANet/internal/protocol/anetcid"
-	"github.com/ANetResearch/ANet/internal/protocol/aobj"
-	"github.com/ANetResearch/ANet/internal/protocol/coredet"
-	"github.com/ANetResearch/ANet/internal/protocol/identity"
+	"github.com/ANetResearch/ANetCore/anetcid"
+	"github.com/ANetResearch/ANetCore/aobj"
+	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/identity"
 )
 
 // RatingMin/RatingMax bound a review score (inclusive).

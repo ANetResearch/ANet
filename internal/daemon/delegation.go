@@ -19,7 +19,7 @@ import (
 	"strings"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
-	"github.com/ANetResearch/ANet/internal/protocol/anetcid"
+	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANet/internal/protocol/delegation"
 	"github.com/ANetResearch/ANet/internal/protocol/evidence"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"

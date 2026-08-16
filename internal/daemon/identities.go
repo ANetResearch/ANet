@@ -24,7 +24,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ANetResearch/ANet/internal/protocol/identity"
+	"github.com/ANetResearch/ANetCore/identity"
 )
 
 // controlPortBase is where auto-allocation starts scanning (matches the historical single-daemon default,
