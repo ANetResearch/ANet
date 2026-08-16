@@ -392,6 +392,11 @@ func (d *Daemon) maybeFinalize(ctx context.Context, interactionID string) error 
 	if err := d.relaySend(ctx, ix.PeerAID, hubapi.RelayKindResult, ix.ID, payload); err != nil {
 		return fmt.Errorf("anet: ended locally but relaying the receipt failed: %w", err)
 	}
+	if _, lerr := d.ledger.Append(EvReceipt, map[string]any{
+		"interaction_id": ix.ID, "requester_aid": ix.PeerAID, "result_cid": resultCID,
+	}); lerr != nil {
+		log.Printf("anet: receipt evidence ledger: %v", lerr)
+	}
 	return nil
 }
 

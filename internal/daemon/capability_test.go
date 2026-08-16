@@ -103,6 +103,14 @@ func TestCapabilityDelegationRoundTrip(t *testing.T) {
 	if !strings.Contains(r, `"status":"OK"`) || !strings.Contains(r, `"power_state":1`) || !strings.Contains(r, `"verifiable":true`) {
 		t.Fatalf("deliverable must carry the honest effect, got %q", r)
 	}
+
+	// C5: the effect must be on the provider daemon's evidence chain.
+	prov.ledger.mu.Lock()
+	seq := prov.ledger.nextSeq
+	prov.ledger.mu.Unlock()
+	if seq == 0 {
+		t.Fatal("capability effect never reached the evidence ledger")
+	}
 }
 
 // TestCapabilityUnresolvableFallsThrough: nobody provides the capability →
