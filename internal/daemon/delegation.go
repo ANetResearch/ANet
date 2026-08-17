@@ -566,5 +566,15 @@ func (d *Daemon) ingestResult(interactionID string, payload []byte) bool {
 		log.Printf("anet: store result: %v", err)
 		return false
 	}
+	// C5: the requester records the receipt it accepted on its own chain, so
+	// both sides of a completed interaction carry evidence — a provider's
+	// ledger alone cannot prove what a requester acknowledged.
+	if _, lerr := d.ledger.Append(EvResultAccepted, map[string]any{
+		"interaction_id": interactionID,
+		"result_cid":     resultCID,
+		"receipt_bytes":  len(rr.Receipt),
+	}); lerr != nil {
+		log.Printf("anet: result evidence ledger: %v", lerr)
+	}
 	return true
 }

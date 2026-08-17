@@ -160,6 +160,15 @@ func (d *Daemon) DelegateAtts(ctx context.Context, providerAID, goal string, att
 	if err := d.relaySend(ctx, providerAID, hubapi.RelayKindDelegate, id, payload); err != nil {
 		return "", err
 	}
+	// C5: a requester's chain should show what it asked for, not only what
+	// it received.
+	if _, lerr := d.ledger.Append(EvDelegationSent, map[string]any{
+		"interaction_id": id,
+		"provider_aid":   providerAID,
+		"request_cid":    requestCID,
+	}); lerr != nil {
+		log.Printf("anet: delegation evidence ledger: %v", lerr)
+	}
 	return id, nil
 }
 
