@@ -20,8 +20,16 @@ import (
 // EvCapabilityEffect records one executed capability call and its effect.
 const EvCapabilityEffect = "anet.capability.effect"
 
-// EvReceipt records an issued interaction receipt.
+// EvReceipt records an issued interaction receipt (provider side).
 const EvReceipt = "anet.interaction.receipt"
+
+// EvDelegationSent records a task this node delegated to someone else.
+const EvDelegationSent = "anet.delegation.sent"
+
+// EvResultAccepted records a result this node received and accepted —
+// the requester-side counterpart of EvReceipt, so a completed interaction
+// leaves evidence on BOTH chains.
+const EvResultAccepted = "anet.result.accepted"
 
 type evidenceLedger struct {
 	mu      sync.Mutex

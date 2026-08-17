@@ -143,3 +143,69 @@ func TestCapabilityUnresolvableFallsThrough(t *testing.T) {
 		t.Fatalf("unresolvable capability must stay pending inbound: %+v", inbox)
 	}
 }
+
+// TestBothSidesRecordEvidence pins the C5 property that real deployment
+// exposed: after a completed interaction, the REQUESTER's chain must carry
+// what it delegated and what it accepted — a provider's ledger alone cannot
+// prove what the other side acknowledged.
+func TestBothSidesRecordEvidence(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	if err := req.RegisterWithHub(ctx, srv.URL, "Requester", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Provider", []string{"haiku"}, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+
+	id, err := req.Delegate(ctx, prov.AID(), "write a haiku", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// delegating must already leave a trace on the requester's chain
+	req.ledger.mu.Lock()
+	afterDelegate := req.ledger.nextSeq
+	req.ledger.mu.Unlock()
+	if afterDelegate == 0 {
+		t.Fatal("delegating must be recorded on the requester's evidence chain")
+	}
+
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.SendMessage(ctx, id, "signed bytes drift", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RequestEnd(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.AcceptEnd(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := req.Results(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	req.ledger.mu.Lock()
+	reqSeq := req.ledger.nextSeq
+	req.ledger.mu.Unlock()
+	prov.ledger.mu.Lock()
+	provSeq := prov.ledger.nextSeq
+	prov.ledger.mu.Unlock()
+
+	if provSeq == 0 {
+		t.Fatal("the provider must record the receipt it issued")
+	}
+	if reqSeq <= afterDelegate {
+		t.Fatalf("the requester must record the accepted result too (seq %d → %d)", afterDelegate, reqSeq)
+	}
+}
