@@ -48,3 +48,25 @@ type ReviewView struct {
 	CompletedAt   uint64 `json:"completed_at"` // provider's receipt time (unix millis)
 	CreatedAt     uint64 `json:"created_at"`   // review time (unix millis)
 }
+
+// C2 — the Hub wire contract's own version.
+//
+// The daemon, the hub and ANetLink each depend only on ANetCore, which is
+// what keeps them from knowing about each other. That discipline is worth
+// nothing if they silently disagree about which contract they are speaking:
+// the three repos had drifted onto three different kernel versions at once,
+// and nothing on the wire could have told anybody. So each side states the
+// contract version it speaks, on every request and every response.
+//
+// The version belongs to the wire, not to a shared Go symbol — the hub has
+// its own declaration of the same number, which is the point: two programs
+// that never import each other still have to agree, and a header is how
+// they say so.
+//
+// Absent means "before this existed" and is accepted. A daemon that speaks
+// a newer contract than the hub is the case worth refusing, and the hub
+// refuses it with a message naming both numbers.
+const (
+	WireVersion       = 1
+	WireVersionHeader = "X-ANet-Wire"
+)
