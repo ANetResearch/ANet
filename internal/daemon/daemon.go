@@ -23,9 +23,11 @@ import (
 // which reads tasks via the CLI (`inbox`/`thread`) and drives the conversation with `anet message` /
 // `anet end`.
 type Daemon struct {
-	layout Layout
-	self   *identity.Controller
-	ix     *interactions.Store
+	// wireWarnOnce keeps the C2 version-mismatch notice to one line.
+	wireWarnOnce sync.Once
+	layout       Layout
+	self         *identity.Controller
+	ix           *interactions.Store
 
 	// providers is the C1 capability registry (K207): the only doorway
 	// through which this daemon acquires callable capabilities.

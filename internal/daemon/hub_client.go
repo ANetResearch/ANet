@@ -6,11 +6,15 @@ package daemon
 // is centralized, so the Hub is the single service every daemon talks to.
 
 import (
+	"log"
+	"strconv"
+
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/ANetResearch/ANet/internal/hubapi"
 	"io"
 	"net/http"
 	"net/url"
@@ -124,11 +128,14 @@ func (d *Daemon) hubGet(ctx context.Context, hubURL, path string, query url.Valu
 }
 
 func (d *Daemon) hubDo(req *http.Request, path string, out any) error {
+	// Every request states the C2 contract version this daemon speaks.
+	req.Header.Set(hubapi.WireVersionHeader, strconv.Itoa(hubapi.WireVersion))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("anet: hub %s: %w", path, err)
 	}
 	defer resp.Body.Close()
+	d.noteHubWire(resp.Header.Get(hubapi.WireVersionHeader))
 	// Cap the response to bound memory against a hostile/broken Hub. It must comfortably exceed the
 	// largest legitimate body — `find`/`GET /agents/{aid}` can list many agents or reviews carrying full
 	// interaction transcripts — so it is generous; a truncated body would fail to JSON-decode.
@@ -147,4 +154,22 @@ func (d *Daemon) hubDo(req *http.Request, path string, out any) error {
 		return json.Unmarshal(respBody, out)
 	}
 	return nil
+}
+
+// noteHubWire reports a hub speaking a different C2 contract, once.
+//
+// Not fatal: a version gap usually degrades rather than breaks, and
+// stranding a working deployment over a header would be worse than the
+// drift it warns about. But it must be said out loud — the failure this
+// exists to catch is the silent one, where both sides carry on and quietly
+// disagree about what a field means.
+func (d *Daemon) noteHubWire(v string) {
+	if v == "" || v == strconv.Itoa(hubapi.WireVersion) {
+		return
+	}
+	d.wireWarnOnce.Do(func() {
+		log.Printf("anet: hub speaks wire contract %s, this daemon speaks %d — "+
+			"fields either side does not know are ignored; upgrade the older one",
+			v, hubapi.WireVersion)
+	})
 }
