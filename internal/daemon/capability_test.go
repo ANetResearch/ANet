@@ -1,7 +1,11 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -208,4 +212,109 @@ func TestBothSidesRecordEvidence(t *testing.T) {
 	if reqSeq <= afterDelegate {
 		t.Fatalf("the requester must record the accepted result too (seq %d → %d)", afterDelegate, reqSeq)
 	}
+}
+
+// quirkyProvider reports a reading it had to correct, the way a real
+// vendor adapter does: the device put 2212.93 on the wire and the
+// correction turned it into 22.13 °C.
+type quirkyProvider struct{}
+
+func (quirkyProvider) ID() string { return "quirky" }
+func (quirkyProvider) Capabilities(context.Context) ([]string, error) {
+	return []string{"sensor.temperature@aqara/th-1"}, nil
+}
+func (quirkyProvider) Describe(context.Context) (string, error) { return "", nil }
+func (quirkyProvider) Health(context.Context) error             { return nil }
+func (quirkyProvider) Invoke(context.Context, provider.Call) (effect.Effect, error) {
+	return effect.Effect{
+		Status: effect.OK,
+		Record: &tsir.EffectRecord{Metrics: map[string]float64{"temperature": 22.13}},
+		Evidence: &effect.Evidence{
+			Protocol: "zigbee", ObservedState: "2212.93", Quirk: "aqara.temp.scale100",
+			VerifyTrust: 2, AuthTrust: 1, NativeAck: true,
+		},
+	}, nil
+}
+
+// A correction reaches every surface or none — including the chain.
+//
+// The ledger used to record status, verifiability, metrics and the result
+// CID: everything about what happened and nothing about how we know it. A
+// corrected reading is not what the device put on the wire, and a chain
+// that cannot tell the two apart cannot audit the correction, which is the
+// one thing evidence exists for. This is the process boundary where that
+// was quietly being lost.
+func TestEvidenceProvenanceReachesTheChain(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	if err := prov.Providers().Register(ctx, quirkyProvider{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := req.DelegateCapability(ctx, prov.AID(),
+		"sensor.temperature@aqara/th-1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := lastLedgerPayload(t, prov, EvCapabilityEffect)
+	ev, ok := rec["evidence"].(map[string]any)
+	if !ok {
+		t.Fatalf("the effect's provenance is missing from the chain: %+v", rec)
+	}
+	if ev["quirk"] != "aqara.temp.scale100" {
+		t.Errorf("the correction must be named on the chain, got %v", ev["quirk"])
+	}
+	if ev["observed_state"] != "2212.93" {
+		t.Errorf("what the device actually reported must survive, got %v", ev["observed_state"])
+	}
+	if ev["protocol"] != "zigbee" {
+		t.Errorf("protocol = %v, want zigbee", ev["protocol"])
+	}
+	// Trust is evidence too: a readback (V2) and an independent confirmation
+	// (V3) are not interchangeable, and the chain has to keep them apart.
+	if fmt.Sprint(ev["verify_trust"]) != "2" || fmt.Sprint(ev["auth_trust"]) != "1" {
+		t.Errorf("trust levels lost: verify=%v auth=%v", ev["verify_trust"], ev["auth_trust"])
+	}
+}
+
+// lastLedgerPayload returns the payload of the most recent event of a kind.
+func lastLedgerPayload(t *testing.T, d *Daemon, kind string) map[string]any {
+	t.Helper()
+	b, err := os.ReadFile(d.layout.EvidenceLedgerPath())
+	if err != nil {
+		t.Fatalf("read evidence chain: %v", err)
+	}
+	var found map[string]any
+	for _, line := range bytes.Split(b, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		// ael.EventRecord carries cbor tags, not json ones, so the JSONL
+		// on disk uses the Go field names.
+		var rec struct {
+			EventType string         `json:"EventType"`
+			Payload   map[string]any `json:"Payload"`
+		}
+		if err := json.Unmarshal(line, &rec); err != nil {
+			continue
+		}
+		if rec.EventType == kind {
+			found = rec.Payload
+		}
+	}
+	if found == nil {
+		t.Fatalf("no %s event on the chain", kind)
+	}
+	return found
 }

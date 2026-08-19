@@ -93,7 +93,7 @@ func New(layout Layout) (*Daemon, error) {
 	if pc := cfg.Providers; pc != nil && pc.ANetLink != nil && pc.ANetLink.Socket != "" {
 		rctx, rcancel := context.WithTimeout(ctx, 5*time.Second)
 		if err := d.providers.Register(rctx, anetlink.New("anetlink", pc.ANetLink.Socket)); err != nil {
-			log.Printf("anet: anetlink provider unavailable: %v (device capabilities off until restart)", err)
+			log.Printf("anet: anetlink provider unavailable: %v (its capabilities stay off until restart)", err)
 		} else {
 			log.Printf("anet: anetlink provider registered (%d capabilities)", len(d.providers.Capabilities()))
 		}

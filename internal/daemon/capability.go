@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ANetResearch/ANetCore/effect"
 	"log"
 	"time"
 
@@ -158,10 +159,12 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 		return false
 	}
 	res := capabilityResult{Capability: capID}
+	var provenance *effect.Evidence
 	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID, CallerAID: ix.PeerAID})
 	if err != nil {
 		res.Status, res.Message = "FAILED", err.Error()
 	} else {
+		provenance = eff.Evidence
 		res.Status, res.Verifiable, res.Message = string(eff.Status), eff.Verifiable(), eff.Message
 		if eff.Record != nil {
 			res.Metrics = eff.Record.Metrics
@@ -198,11 +201,45 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 		log.Printf("anet: capability %s: store result: %v", capID, err)
 		return false
 	}
-	if _, lerr := d.ledger.Append(EvCapabilityEffect, map[string]any{
+	// The chain records the provenance, not just the outcome.
+	//
+	// It used to store status, verifiability, metrics and the result CID —
+	// everything about *what happened* and nothing about *how we know*. A
+	// provider that corrected a vendor deviation says so in Evidence.Quirk,
+	// and a corrected reading is not the value the device put on the wire:
+	// dropping the label here breaks the rule the correction layer is built
+	// on — a correction reaches every surface or none — precisely at the
+	// process boundary where it is hardest to notice. The trust levels
+	// belong here for the same reason: an effect verified by an independent
+	// read (V3) and one taken on the device's word (V2) are different
+	// evidence, and the chain is where that distinction has to survive.
+	ev := map[string]any{
 		"interaction_id": interactionID, "capability": capID, "caller_aid": ix.PeerAID,
 		"status": res.Status, "verifiable": res.Verifiable, "metrics": res.Metrics,
 		"result_cid": resultCID,
-	}); lerr != nil {
+	}
+	if e := provenance; e != nil {
+		prov := map[string]any{}
+		if e.Protocol != "" {
+			prov["protocol"] = e.Protocol
+		}
+		if e.ObservedState != "" {
+			prov["observed_state"] = e.ObservedState
+		}
+		if e.Quirk != "" {
+			prov["quirk"] = e.Quirk
+		}
+		if e.NativeAck {
+			prov["native_ack"] = true
+		}
+		if e.LatencyMS > 0 {
+			prov["latency_ms"] = e.LatencyMS
+		}
+		prov["verify_trust"] = e.VerifyTrust
+		prov["auth_trust"] = e.AuthTrust
+		ev["evidence"] = prov
+	}
+	if _, lerr := d.ledger.Append(EvCapabilityEffect, ev); lerr != nil {
 		log.Printf("anet: capability %s: evidence ledger: %v", capID, lerr)
 	}
 	rr := &delegation.ResultResp{Status: delegation.StatusDone, Deliverable: deliverable, Receipt: receiptBytes}
