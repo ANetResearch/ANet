@@ -49,6 +49,9 @@ type fakeHub struct {
 	agents  map[string]*fakeHubAgent
 	mailbox []*fakeHubMsg
 	reviews map[string]hubapi.ReviewView // interaction_id → stored review (one per interaction)
+	// relaySends counts deliveries the hub actually carried, so a test can
+	// tell "the hub delivered it" from "something else did".
+	relaySends int
 }
 
 // newFakeHub starts an httptest server backed by a fresh fake Hub and cleans it up with the test.
@@ -57,7 +60,23 @@ func newFakeHub(t *testing.T) *httptest.Server {
 	h := &fakeHub{agents: map[string]*fakeHubAgent{}, reviews: map[string]hubapi.ReviewView{}}
 	srv := httptest.NewServer(h.handler())
 	t.Cleanup(srv.Close)
+	hubsByURL.Store(srv.URL, h)
 	return srv
+}
+
+// hubsByURL lets a test reach the fake behind a server URL.
+var hubsByURL sync.Map
+
+// relayCount reports how many deliveries this hub carried.
+func relayCountFor(url string) int {
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		return 0
+	}
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.relaySends
 }
 
 func (h *fakeHub) handler() http.Handler {
@@ -315,6 +334,7 @@ func (h *fakeHub) hRelaySend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.mu.Lock()
+	h.relaySends++
 	defer h.mu.Unlock()
 	if _, ok := h.agents[req.ToAID]; !ok {
 		fakeHubJSON(w, http.StatusNotFound, map[string]string{"error": "recipient not registered"})
