@@ -3,13 +3,12 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/provider"
-	"github.com/ANetResearch/ANet/provider/anetlink"
 	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
@@ -23,6 +22,8 @@ import (
 // which reads tasks via the CLI (`inbox`/`thread`) and drives the conversation with `anet message` /
 // `anet end`.
 type Daemon struct {
+	// modules are the optional subsystems this build carries.
+	modules []module.Module
 	// wireWarnOnce keeps the C2 version-mismatch notice to one line.
 	wireWarnOnce sync.Once
 	layout       Layout
@@ -92,14 +93,9 @@ func New(layout Layout) (*Daemon, error) {
 	}
 	d.ledger = led
 	d.providers = provider.NewRegistry()
-	if pc := cfg.Providers; pc != nil && pc.ANetLink != nil && pc.ANetLink.Socket != "" {
-		rctx, rcancel := context.WithTimeout(ctx, 5*time.Second)
-		if err := d.providers.Register(rctx, anetlink.New("anetlink", pc.ANetLink.Socket)); err != nil {
-			log.Printf("anet: anetlink provider unavailable: %v (its capabilities stay off until restart)", err)
-		} else {
-			log.Printf("anet: anetlink provider registered (%d capabilities)", len(d.providers.Capabilities()))
-		}
-		rcancel()
+	if err := d.startModules(ctx, cfg); err != nil {
+		cancel()
+		return nil, err
 	}
 	if cfg.HubURL != "" {
 		d.startRelayLoop(cfg.HubURL)

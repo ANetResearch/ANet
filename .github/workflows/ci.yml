@@ -67,3 +67,16 @@ jobs:
         run: |
           go build -tags "${{ matrix.tags }}" -o /tmp/anet ./cmd/anet
           /tmp/anet --help >/dev/null
+      # Absent, not merely disabled. A tag that only skips a registration
+      # while the code still links is pluggability in name only, and it is
+      # what the first version of this seam actually shipped.
+      - name: the module's code must be out of the binary
+        run: |
+          go build -o /tmp/anet-full ./cmd/anet
+          go build -tags "${{ matrix.tags }}" -o /tmp/anet-lean ./cmd/anet
+          mod="${{ matrix.tags }}"; mod="${mod#no_}"
+          full=$(go tool nm /tmp/anet-full | grep -c "provider/$mod\|module/$mod" || true)
+          lean=$(go tool nm /tmp/anet-lean | grep -c "provider/$mod\|module/$mod" || true)
+          echo "$mod symbols: full=$full lean=$lean"
+          test "$full" -gt 0 || (echo "the full build should contain $mod" && exit 1)
+          test "$lean" -eq 0 || (echo "$mod is still linked into the lean build" && exit 1)
