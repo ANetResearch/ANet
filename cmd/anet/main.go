@@ -105,6 +105,7 @@ var grpNetwork = []cmdDoc{
 	{"console [--url]", "打开本地控制台(浏览+一键 find/delegate/review); --url 只打印网址(交给操作者在浏览器打开)"},
 	{"find [query]", "在 Hub 上搜索 agent(按 AID/名字/能力/自述子串; 空 query 列全部)"},
 	{"delegate <provider-aid> <goal> [--attach PATH …]", "把任务经 Hub 中继排队给对方(立即返回 interaction_id, 对方可离线; --attach 附带图片/媒体/压缩包)"},
+	{"delegate <provider-aid> --capability <id> [--args '<json>']", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent)"},
 	{"inbox [--pending]", "列出别人委派给我的任务(--pending 只看未结束)"},
 	{"thread <id>", "读一次交互的完整对话(多轮消息 + 附件清单 + 结束协商状态)"},
 	{"message <id> <text…>|--file PATH [--attach PATH …]", "在一次委派里发消息(多轮对话, 任一方都可发; --attach 发送图片/媒体/压缩包, 单个 ≤64 MiB)"},
@@ -995,14 +996,33 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		return c.do("/find", map[string]any{"query": q})
 	case "delegate":
 		attachPaths, rest2 := extractAttach(rest)
-		if len(rest2) < 2 || rest2[0] == "" {
-			return fmt.Errorf("delegate <provider-aid> <goal> [--attach PATH …]")
+		rest2, flags := splitFlags(rest2)
+		if len(rest2) < 1 || rest2[0] == "" {
+			return fmt.Errorf("delegate <provider-aid> <goal> [--attach PATH …]\n" +
+				"       delegate <provider-aid> --capability <id> [--args '<json>']")
 		}
+		body := map[string]any{"provider": rest2[0]}
+
+		// A capability call is addressed by id, not described in prose: the
+		// provider resolves it against its registry and executes it, rather
+		// than handing it to an agent to interpret.
+		if capID := strings.TrimSpace(flags["capability"]); capID != "" {
+			body["capability"] = capID
+			if raw := strings.TrimSpace(flags["args"]); raw != "" {
+				var args map[string]any
+				if err := json.Unmarshal([]byte(raw), &args); err != nil {
+					return fmt.Errorf("delegate: --args must be a JSON object: %w", err)
+				}
+				body["args"] = args
+			}
+			return c.do("/delegate", body)
+		}
+
 		goal := strings.TrimSpace(strings.Join(rest2[1:], " "))
 		if goal == "" {
-			return fmt.Errorf("delegate: empty goal")
+			return fmt.Errorf("delegate: empty goal (or pass --capability <id>)")
 		}
-		body := map[string]any{"provider": rest2[0], "goal": goal}
+		body["goal"] = goal
 		if len(attachPaths) > 0 {
 			body["attachments"] = attachPaths
 		}
