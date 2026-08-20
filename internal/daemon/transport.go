@@ -80,13 +80,20 @@ func (d *Daemon) relaySend(ctx context.Context, toAID, kind, interactionID strin
 		}
 		err := t.Send(ctx, toAID, kind, interactionID, payload)
 		if err == nil {
+			d.noteTransport(t.Name(), nil)
 			return nil
 		}
 		lastErr = err
-		// Worth a line: a direct transport quietly failing on every
-		// delegation, with the hub silently covering for it, is the kind of
-		// degradation that goes unnoticed until the hub is down too.
-		log.Printf("anet: transport %s: %v (falling through)", t.Name(), err)
+		// Logged on the transition, not on every message.
+		//
+		// A direct transport quietly failing while the hub covers for it is
+		// degradation worth knowing about — but a node behind NAT fails
+		// this way on every single delegation, and a line each would bury
+		// the log in the steady state. A benchmark made that concrete: the
+		// fall-through path emitted 200,000 lines and never finished
+		// reporting. So: one line when it starts failing, one when it
+		// recovers, silence in between.
+		d.noteTransport(t.Name(), err)
 	}
 	if lastErr == nil {
 		return fmt.Errorf("anet: no transport can reach %s", toAID)
@@ -94,10 +101,35 @@ func (d *Daemon) relaySend(ctx context.Context, toAID, kind, interactionID strin
 	return lastErr
 }
 
+// noteTransport reports a transport's health only when it changes.
+func (d *Daemon) noteTransport(name string, err error) {
+	d.transportMu.Lock()
+	defer d.transportMu.Unlock()
+	if d.transportFailing == nil {
+		d.transportFailing = map[string]string{}
+	}
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
+	prev, seen := d.transportFailing[name]
+	switch {
+	case err != nil && (!seen || prev != msg):
+		log.Printf("anet: transport %s: %v (falling through; hub is carrying delivery)", name, err)
+		d.transportFailing[name] = msg
+	case err == nil && seen:
+		log.Printf("anet: transport %s: recovered", name)
+		delete(d.transportFailing, name)
+	}
+}
+
 // transportState is the daemon's registry of extra delivery paths.
 type transportState struct {
 	transportMu     sync.RWMutex
 	extraTransports []module.Transport
+	// transportFailing remembers which transports are currently failing and
+	// with what, so health is logged on change rather than per message.
+	transportFailing map[string]string
 }
 
 // Inbound gives transports somewhere to deliver what they receive.
