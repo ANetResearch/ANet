@@ -86,6 +86,20 @@ type Module interface {
 	Stop(ctx context.Context) error
 }
 
+// Confidential is implemented by a module holding values that must never
+// appear in anything this node publishes publicly — INV-2.
+//
+// Optional, and one-directional on purpose. The org module knows its org
+// id is confidential; the daemon knows only that some string must not
+// leave. Asking the daemon to understand what an org is, so that it could
+// decide for itself, is how the organisation feature got into thirty-five
+// daemon files last time.
+type Confidential interface {
+	// ForbiddenTokens returns strings that must not appear in a public
+	// publication. Called on every publish, so it must be cheap.
+	ForbiddenTokens() []string
+}
+
 // Factory builds a module from its configuration block. Returning (nil, nil)
 // means "compiled in, not configured" — the ordinary case for a module the
 // operator has not asked for.

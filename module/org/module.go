@@ -108,6 +108,23 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 
 func (m *Module) Stop(context.Context) error { return nil }
 
+// ForbiddenTokens declares the org id confidential — INV-2.
+//
+// Which org a node belongs to is not public information, and a node that
+// publishes its org id has disclosed its membership to everyone whether or
+// not it published a credential. The daemon screens what it publishes
+// against whatever comes back here; it is not told what an org is, and
+// this is the whole of what it learns.
+func (m *Module) ForbiddenTokens() []string {
+	id, err := m.OrgID()
+	if err != nil || id == "" {
+		return nil
+	}
+	return []string{id}
+}
+
+var _ module.Confidential = (*Module)(nil)
+
 // OrgID is the org this module serves.
 //
 // It is derived from the genesis rather than stored: the id IS the hash of

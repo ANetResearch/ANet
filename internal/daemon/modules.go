@@ -3,12 +3,14 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/inv2"
 	"github.com/ANetResearch/ANet/provider"
 )
 
@@ -41,6 +43,34 @@ func (d *Daemon) startModules(ctx context.Context, cfg Config) error {
 	if names := module.Compiled(); len(names) > 0 {
 		log.Printf("anet: modules compiled in: %s (started: %d)",
 			strings.Join(names, ","), len(d.modules))
+	}
+	return nil
+}
+
+// screenPublication refuses to publish anything carrying a module's
+// confidential data — INV-2.
+//
+// The check runs at the chokepoint rather than at each call site, because
+// the leak that matters is the one nobody thought about: a summary an
+// agent wrote for itself, a capability name generated from an internal
+// id. Every public publication passes through here, and a module that
+// holds a secret declares it rather than the daemon guessing.
+func (d *Daemon) screenPublication(what string, body any) error {
+	var forbidden []string
+	for _, m := range d.modules {
+		if c, ok := m.(module.Confidential); ok {
+			forbidden = append(forbidden, c.ForbiddenTokens()...)
+		}
+	}
+	if len(forbidden) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	if err := inv2.Screen(b, forbidden); err != nil {
+		return fmt.Errorf("anet: refusing to publish %s: %w", what, err)
 	}
 	return nil
 }
