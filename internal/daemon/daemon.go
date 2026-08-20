@@ -22,6 +22,8 @@ import (
 // which reads tasks via the CLI (`inbox`/`thread`) and drives the conversation with `anet message` /
 // `anet end`.
 type Daemon struct {
+	// transportState carries the optional delivery paths modules add.
+	transportState
 	// modules are the optional subsystems this build carries.
 	modules []module.Module
 	// wireWarnOnce keeps the C2 version-mismatch notice to one line.

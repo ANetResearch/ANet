@@ -215,20 +215,6 @@ func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 // --- relay HTTP client ---
 
 // relaySend enqueues a message into toAID's Hub mailbox.
-func (d *Daemon) relaySend(ctx context.Context, toAID, kind, interactionID string, payload []byte) error {
-	hub := d.config().HubURL
-	if hub == "" {
-		return fmt.Errorf("anet: no hub configured")
-	}
-	body := map[string]any{
-		"to_aid":         toAID,
-		"from_aid":       d.AID(),
-		"kind":           kind,
-		"interaction_id": interactionID,
-		"payload":        base64.StdEncoding.EncodeToString(payload),
-	}
-	return d.hubPost(ctx, hub, "/relay/send", body, nil)
-}
 
 // relayMsg is one message pulled from this daemon's mailbox.
 type relayMsg struct {
