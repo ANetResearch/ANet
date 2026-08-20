@@ -47,15 +47,42 @@ func (b *Blackboard) NewStamp() HLC { return b.clock.Now() }
 // returns added=true iff the unit was new (not already present). Idempotent: re-adding the same
 // unit ID is a no-op overwrite returning added=false.
 func (b *Blackboard) Add(u *CogUnit, resolve KELResolver, msgTime int64) (added bool, err error) {
+	// The unit's id is the CID of its signed preimage, so computing it is a
+	// hash and knowing it is enough to recognise a unit already merged.
+	id, err := u.ID()
+	if err != nil {
+		return false, err
+	}
+
+	// A unit already on the board is left exactly as it is.
+	//
+	// Two reasons, and the second is the important one. Re-adding is the
+	// common case — members replay their contributions whenever they sync —
+	// and verification cost the same as a first add, which measured as the
+	// dominant cost of a sync. And the envelope is detached: it is NOT in
+	// the preimage the id covers, so two units can share an id and carry
+	// different signatures. The old path verified and then overwrote the
+	// stored copy, which is safe only because it verified; skipping the
+	// verification while keeping the overwrite would let a forged envelope
+	// replace a checked one. Returning early does neither.
+	b.mu.Lock()
+	if u.TaskID != "" {
+		if ph := b.phases[u.TaskID]; ph != "" && ph != PhaseActive {
+			b.mu.Unlock()
+			return false, ErrTaskNotActive
+		}
+	}
+	if _, exists := b.store[id]; exists {
+		b.mu.Unlock()
+		return false, nil
+	}
+	b.mu.Unlock()
+
 	kel, ok := resolve(u.Author)
 	if !ok {
 		return false, ErrUnitUnknownAuthor
 	}
 	if err := u.Verify(kel, msgTime); err != nil {
-		return false, err
-	}
-	id, err := u.ID()
-	if err != nil {
 		return false, err
 	}
 	b.clock.Merge(u.Stamp)
@@ -69,6 +96,8 @@ func (b *Blackboard) Add(u *CogUnit, resolve KELResolver, msgTime int64) (added 
 			return false, ErrTaskNotActive
 		}
 	}
+	// Re-checked after verification: a Conclude may have landed while this
+	// unit was being verified, and a frozen task must not accept it.
 	_, exists := b.store[id]
 	b.store[id] = u
 	b.mu.Unlock()
