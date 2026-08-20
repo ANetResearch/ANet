@@ -66,10 +66,15 @@ func NewLayout(root string) Layout {
 	return Layout{Root: root}
 }
 
-func (l Layout) ConfigPath() string         { return filepath.Join(l.Root, "config.json") }
-func (l Layout) IdentityPath() string       { return filepath.Join(l.Root, "identity.kel") }
-func (l Layout) ControlTokenPath() string   { return filepath.Join(l.Root, "control_token.txt") }
-func (l Layout) LogPath() string            { return filepath.Join(l.Root, "daemon.log") }
+func (l Layout) ConfigPath() string       { return filepath.Join(l.Root, "config.json") }
+func (l Layout) IdentityPath() string     { return filepath.Join(l.Root, "identity.kel") }
+func (l Layout) ControlTokenPath() string { return filepath.Join(l.Root, "control_token.txt") }
+func (l Layout) LogPath() string          { return filepath.Join(l.Root, "daemon.log") }
+
+// EvidenceLedgerPath is the local evidence chain. The .jsonl name is
+// historical — the records are CBOR now (see ledger.go) — and the path is
+// kept so an upgrading node continues its own chain instead of silently
+// starting a second one beside it.
 func (l Layout) EvidenceLedgerPath() string { return filepath.Join(l.Root, "evidence.ael.jsonl") }
 
 // InteractionsDir holds the local delegation log (inbound tasks + outbound delegations); see

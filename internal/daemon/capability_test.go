@@ -290,6 +290,11 @@ func TestEvidenceProvenanceReachesTheChain(t *testing.T) {
 }
 
 // lastLedgerPayload returns the payload of the most recent event of a kind.
+//
+// It reads through the ledger's own decoder rather than parsing the file:
+// a test that re-implements the storage format is a test that keeps
+// passing after the format changes underneath it, which is how the chain
+// came to be stored in an encoding that could not represent it.
 func lastLedgerPayload(t *testing.T, d *Daemon, kind string) map[string]any {
 	t.Helper()
 	b, err := os.ReadFile(d.layout.EvidenceLedgerPath())
@@ -301,23 +306,53 @@ func lastLedgerPayload(t *testing.T, d *Daemon, kind string) map[string]any {
 		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
-		// ael.EventRecord carries cbor tags, not json ones, so the JSONL
-		// on disk uses the Go field names.
-		var rec struct {
-			EventType string         `json:"EventType"`
-			Payload   map[string]any `json:"Payload"`
-		}
-		if err := json.Unmarshal(line, &rec); err != nil {
-			continue
+		rec, err := decodeRecord(line)
+		if err != nil {
+			t.Fatalf("decode evidence line: %v", err)
 		}
 		if rec.EventType == kind {
-			found = rec.Payload
+			found = plainMap(rec.Payload)
 		}
 	}
 	if found == nil {
 		t.Fatalf("no %s event on the chain", kind)
 	}
 	return found
+}
+
+// plainMap re-keys a CBOR-decoded payload for assertions. CBOR decodes a
+// map into map[any]any because its keys need not be strings; ours always
+// are.
+func plainMap(v any) map[string]any {
+	switch m := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			out[k] = plainValue(val)
+		}
+		return out
+	case map[any]any:
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			out[fmt.Sprint(k)] = plainValue(val)
+		}
+		return out
+	}
+	return nil
+}
+
+func plainValue(v any) any {
+	switch t := v.(type) {
+	case map[any]any, map[string]any:
+		return plainMap(t)
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = plainValue(e)
+		}
+		return out
+	}
+	return v
 }
 
 // A capability call must be reachable from outside the daemon.
