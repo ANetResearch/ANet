@@ -99,3 +99,41 @@ type transportState struct {
 	transportMu     sync.RWMutex
 	extraTransports []module.Transport
 }
+
+// Inbound gives transports somewhere to deliver what they receive.
+func (d *Daemon) Inbound() module.Inbound { return inbound{d} }
+
+// inbound routes a message that arrived over any transport into exactly the
+// same path as one pulled from the hub mailbox.
+//
+// This is the property that matters: a delegation that came over a direct
+// peer connection and one that came from the hub are the same delegation,
+// verified the same way, and the daemon cannot tell them apart. A transport
+// is a route, not a trust boundary — the payload is end-to-end verifiable,
+// so a peer process that lies produces a message that fails verification
+// rather than one that gets believed because of how it arrived.
+type inbound struct{ d *Daemon }
+
+func (in inbound) Receive(_ context.Context, fromAID, kind, interactionID string, payload []byte) error {
+	ok := in.d.dispatch(relayMsg{
+		FromAID:       fromAID,
+		Kind:          kind,
+		InteractionID: interactionID,
+	}, payload)
+	if !ok {
+		// dispatch returns false for a transient failure it wants retried.
+		// Reporting it lets the transport decline to ack, so the sender
+		// re-delivers rather than the message being lost.
+		return fmt.Errorf("anet: %s from %s not accepted", kind, fromAID)
+	}
+	return nil
+}
+
+var _ module.TransportHost = moduleHost{}
+
+// Inbound on moduleHost so a transport module reaches it through the same
+// narrow Host every other module gets.
+func (h moduleHost) Inbound() module.Inbound { return h.d.Inbound() }
+
+// RegisterTransport lets a transport module add its path.
+func (h moduleHost) RegisterTransport(t module.Transport) { h.d.RegisterTransport(t) }

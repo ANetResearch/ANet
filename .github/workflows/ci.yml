@@ -47,6 +47,8 @@ jobs:
       matrix:
         tags:
           - "no_anetlink"
+          - "no_p2p"
+          - "no_p2p,no_anetlink"
           # Reserved for the anet3 subsystems as they land. Each name is
           # claimed here first so the seam is enforced from the module's
           # first commit rather than retrofitted after it has spread:
@@ -74,7 +76,7 @@ jobs:
         run: |
           go build -o /tmp/anet-full ./cmd/anet
           go build -tags "${{ matrix.tags }}" -o /tmp/anet-lean ./cmd/anet
-          mod="${{ matrix.tags }}"; mod="${mod#no_}"
+          mod="${{ matrix.tags }}"; mod="${mod%%,*}"; mod="${mod#no_}"
           full=$(go tool nm /tmp/anet-full | grep -c "provider/$mod\|module/$mod" || true)
           lean=$(go tool nm /tmp/anet-lean | grep -c "provider/$mod\|module/$mod" || true)
           echo "$mod symbols: full=$full lean=$lean"
