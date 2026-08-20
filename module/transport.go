@@ -46,9 +46,21 @@ type Inbound interface {
 }
 
 // TransportHost is what a transport module may use of the daemon: the
-// narrow Host, plus a way to hand inbound traffic back.
+// narrow Host, plus a way to register a delivery path and hand inbound
+// traffic back.
 type TransportHost interface {
 	Host
 	// Inbound is where a transport delivers what it receives.
 	Inbound() Inbound
+	// RegisterTransport adds this module's delivery path to the daemon's
+	// list.
+	//
+	// Declared here rather than reached for at runtime. The p2p module
+	// used to get at it with an unchecked type assertion on the host —
+	// which panics against a host that does not have it, and, worse, walks
+	// straight past the interface whose entire job is to be the list of
+	// things a module is allowed to want. A seam a module can step around
+	// is not a seam; the v1 organisation feature did not need a type
+	// assertion to spread, only the absence of something saying no.
+	RegisterTransport(Transport)
 }

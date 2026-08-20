@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net"
 	"path/filepath"
 	"sync"
@@ -20,6 +21,10 @@ import (
 // and nothing else, which is exactly what a real one built on libp2p,
 // ironwood or anything else would look like from this side.
 type fakePeer struct {
+	// hold, when set, defers every send reply until it is closed, so
+	// replies come back in whatever order the goroutines win.
+	hold chan struct{}
+
 	t  *testing.T
 	ln net.Listener
 
@@ -75,12 +80,29 @@ func (p *fakePeer) serve(c net.Conn) {
 			p.mu.Lock()
 			ok := p.reachable[f.To]
 			p.mu.Unlock()
-			_ = enc.Encode(frame{Op: opReach, Reachable: ok})
+			_ = enc.Encode(frame{Op: opReach, ID: f.ID, Reachable: ok})
 		case opSend:
 			p.mu.Lock()
 			p.sent = append(p.sent, f)
 			p.mu.Unlock()
-			_ = enc.Encode(frame{Op: opSend})
+			p.mu.Lock()
+			hold := p.hold
+			p.mu.Unlock()
+			reply := frame{Op: opSend, ID: f.ID}
+			if hold != nil {
+				// Held mode: answer out of order, the way any peer that
+				// handles deliveries concurrently does — and fail the odd
+				// interactions. Which reply carries the error is the whole
+				// question: matched by id it lands on the send that asked,
+				// matched by arrival order it lands on whichever send
+				// happened to be next in the queue.
+				if n := len(f.IX); n > 0 && (f.IX[n-1]-'0')%2 == 1 {
+					reply.Error = "no route to peer"
+				}
+				go func(r frame) { <-hold; p.mu.Lock(); _ = enc.Encode(r); p.mu.Unlock() }(reply)
+				continue
+			}
+			_ = enc.Encode(reply)
 		}
 	}
 }
@@ -264,5 +286,135 @@ func TestPeerProcessDownIsSimplyUnreachable(t *testing.T) {
 
 	if err := tr.Send(context.Background(), "aid-any", "delegate", "ix-1", []byte("x")); err == nil {
 		t.Fatal("sending with no peer process must fail so the caller falls through to the hub")
+	}
+}
+
+// replier is an Inbound that answers on the same transport, which is what
+// a daemon does with every delegation it accepts.
+type replier struct {
+	tr   *Transport
+	mu   sync.Mutex
+	err  error
+	done chan struct{}
+}
+
+func (r *replier) Receive(ctx context.Context, from, kind, ix string, _ []byte) error {
+	err := r.tr.Send(ctx, from, "result", ix, []byte("result bytes"))
+	r.mu.Lock()
+	r.err = err
+	r.mu.Unlock()
+	close(r.done)
+	return err
+}
+
+// Answering an inbound delegation over the same transport must work.
+//
+// It deadlocked. Inbound delivery ran inline in the session's read loop,
+// and answering means Send, and Send waits for a reply that only that read
+// loop can deliver. So the loop waited on the daemon, the daemon waited on
+// the loop, and it unwound only when Send hit its timeout — at which point
+// the transport reported failure and the delegation fell through to the
+// hub. Every capability call is exactly this shape: receive a delegation,
+// return a result. The one module whose whole purpose is to carry
+// delegations directly could not carry a single one to completion.
+//
+// Nothing in the suite caught it because every test drove one direction at
+// a time. It took two daemons and a real peer process, where the symptom
+// was a peer log full of "receiving daemon did not accept".
+func TestAnsweringAnInboundMessageDoesNotDeadlock(t *testing.T) {
+	peer := newFakePeer(t)
+	r := &replier{done: make(chan struct{})}
+	tr := dialTransport(t, peer, r)
+	r.tr = tr
+
+	peer.push(frame{Op: opRecv, From: "aid-peer", Kind: "delegate", IX: "ix-1",
+		Payload: base64.StdEncoding.EncodeToString([]byte("delegation"))})
+
+	select {
+	case <-r.done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the daemon never finished handling the inbound message (deadlocked)")
+	}
+	r.mu.Lock()
+	err := r.err
+	r.mu.Unlock()
+	if err != nil {
+		t.Fatalf("answering over the same transport failed: %v", err)
+	}
+	// And the answer has to have actually gone out, promptly.
+	waitFor(t, func() bool { return peer.sentCount() == 1 }, "the reply to reach the peer")
+}
+
+// A reply and an ack are both writes to one connection. Two encoders
+// writing concurrently interleave, and an interleaved JSON frame is a
+// connection the peer process can no longer parse.
+func TestConcurrentInboundAndOutboundDoNotCorruptTheWire(t *testing.T) {
+	peer := newFakePeer(t)
+	rec := &recorder{}
+	tr := dialTransport(t, peer, rec)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_ = tr.Send(context.Background(), "aid-peer", "message",
+				fmt.Sprintf("ix-%d", i), []byte("payload"))
+		}(i)
+		peer.push(frame{Op: opRecv, From: "aid-peer", Kind: "message",
+			IX:      fmt.Sprintf("in-%d", i),
+			Payload: base64.StdEncoding.EncodeToString([]byte("inbound"))})
+	}
+	wg.Wait()
+	// The peer must still be able to parse what we sent: a corrupted frame
+	// kills its decoder and everything after it is lost.
+	waitFor(t, func() bool { return peer.sentCount() == 20 }, "all 20 sends to arrive intact")
+	waitFor(t, func() bool { return rec.count() == 20 }, "all 20 inbound messages to be delivered")
+}
+
+// A reply belongs to the request that asked for it.
+//
+// The wire had no request ids: replies were matched first-in-first-out,
+// resting on "a peer answers in the order it was asked". No peer author is
+// told that, the daemon cannot check it, and the first peer process
+// written against this wire broke it within the hour — it had to handle
+// deliveries off its read loop to avoid a deadlock of its own, and that
+// made its replies concurrent.
+//
+// The failure it produces is the worst kind. Two sends in flight, replies
+// swapped: one delegation is reported delivered because the other one was.
+// Nothing errors, nothing retries, and the message is simply gone.
+func TestRepliesAreMatchedToTheirRequests(t *testing.T) {
+	peer := newFakePeer(t)
+	peer.mu.Lock()
+	hold := make(chan struct{})
+	peer.hold = hold
+	peer.mu.Unlock()
+	tr := dialTransport(t, peer, &recorder{})
+
+	// One send that will fail and one that will succeed, answered in
+	// whichever order the peer's goroutines happen to win.
+	const n = 8
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = tr.Send(context.Background(), "aid-peer", "message",
+				fmt.Sprintf("ix-%d", i), []byte("payload"))
+		}(i)
+	}
+	waitFor(t, func() bool { return peer.sentCount() == n }, "all sends to reach the peer")
+	close(hold)
+	wg.Wait()
+	// The peer failed exactly the odd ones. Any other pattern means a
+	// reply landed on the wrong request.
+	for i, err := range errs {
+		wantErr := i%2 == 1
+		if (err != nil) != wantErr {
+			t.Errorf("send ix-%d: err=%v, want error=%v — a reply landed on the wrong request",
+				i, err, wantErr)
+		}
 	}
 }

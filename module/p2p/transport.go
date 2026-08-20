@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -28,6 +29,18 @@ import (
 // be able to speak it with its standard library.
 type frame struct {
 	Op string `json:"op"`
+	// ID correlates a request with its reply, and a peer process must echo
+	// it back unchanged.
+	//
+	// This wire had no ids: replies were matched first-in-first-out on the
+	// grounds that a peer answers in the order it was asked. That is a
+	// constraint the daemon cannot check and a peer author will not think
+	// about — the first peer process written against this wire broke it
+	// within the hour, by handling a delivery off its read loop so it would
+	// not deadlock. Under load the failure is a delegation reported
+	// delivered because another one succeeded, which is the worst kind: it
+	// looks like success.
+	ID string `json:"id,omitempty"`
 	// Addressing. AIDs, never peer ids: what the peer stack calls its nodes
 	// is its own business.
 	To   string `json:"to,omitempty"`
@@ -62,13 +75,11 @@ type Transport struct {
 	mu     sync.Mutex
 	conn   net.Conn
 	enc    *json.Encoder
-	br     *bufio.Reader
 	closed bool
 
-	// pending correlates a request with its reply. The peer process answers
-	// in order on one connection, so a queue is enough and there is no need
-	// for request ids on the wire.
-	replies chan frame
+	// pending maps a request id to the caller waiting for its reply.
+	pending map[string]chan frame
+	nextID  uint64
 }
 
 func (t *Transport) Name() string { return name }
@@ -105,30 +116,36 @@ func (t *Transport) session(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	replies := make(chan frame, 8)
-
 	t.mu.Lock()
 	if t.closed {
 		t.mu.Unlock()
 		c.Close()
 		return errors.New("closed")
 	}
-	t.conn, t.enc, t.br, t.replies = c, json.NewEncoder(c), bufio.NewReader(c), replies
+	t.conn, t.enc, t.pending = c, json.NewEncoder(c), map[string]chan frame{}
 	t.mu.Unlock()
 
 	defer func() {
 		t.mu.Lock()
 		if t.conn == c {
-			t.conn, t.enc, t.br, t.replies = nil, nil, nil, nil
+			t.conn, t.enc = nil, nil
+			// Everyone still waiting on this session is waiting forever.
+			// Closing their channels turns that into a prompt error and a
+			// fall-through to the hub, rather than each caller sitting out
+			// its own timeout.
+			for id, ch := range t.pending {
+				close(ch)
+				delete(t.pending, id)
+			}
+			t.pending = nil
 		}
 		t.mu.Unlock()
 		c.Close()
-		close(replies)
 	}()
 
 	// Tell the peer process which AID it is carrying for, so it can
 	// announce us to the network under the identity the daemon owns.
-	if err := json.NewEncoder(c).Encode(frame{Op: opHello, Self: t.selfAID}); err != nil {
+	if err := t.write(c, frame{Op: opHello, Self: t.selfAID}); err != nil {
 		return err
 	}
 
@@ -140,16 +157,32 @@ func (t *Transport) session(ctx context.Context) error {
 		}
 		switch f.Op {
 		case opRecv:
-			t.deliverInbound(ctx, c, f)
+			// Off the loop, and this is the whole of the bug it fixes.
+			//
+			// Handling an inbound delegation means answering it, answering
+			// means Send, and Send waits for a reply that only this loop can
+			// deliver. Run inline, the loop waited on the daemon while the
+			// daemon waited on the loop, and it unwound on Send's timeout —
+			// so the transport reported failure and every capability call
+			// fell through to the hub. A transport that cannot carry a
+			// reply is not carrying anything.
+			go t.deliverInbound(ctx, c, f)
 		default:
-			select {
-			case replies <- f:
-			default:
-				// A reply nobody is waiting for: the request timed out and
-				// moved on. Dropping it is right — the delegation already
-				// went to the hub, and delivering it now would be a
-				// duplicate.
+			t.mu.Lock()
+			ch, waiting := t.pending[f.ID]
+			if waiting {
+				delete(t.pending, f.ID)
 			}
+			t.mu.Unlock()
+			if !waiting {
+				// A reply nobody is waiting for: the request timed out and
+				// moved on, or the peer process answered something it was
+				// never asked. Dropping it is right — the delegation
+				// already went to the hub, and acting on it now would be a
+				// duplicate.
+				continue
+			}
+			ch <- f
 		}
 	}
 }
@@ -169,7 +202,27 @@ func (t *Transport) deliverInbound(ctx context.Context, c net.Conn, f frame) {
 		log.Printf("anet: p2p: inbound %s from %s: %v", f.Kind, f.From, err)
 		return
 	}
-	_ = json.NewEncoder(c).Encode(frame{Op: opAck, IX: f.IX})
+	_ = t.write(c, frame{Op: opAck, IX: f.IX})
+}
+
+// write serialises one frame onto the session connection.
+//
+// One writer, because there are now several: request sends, inbound acks,
+// and the opening hello. Two json.Encoders on one connection interleave
+// their bytes, and an interleaved frame is a connection the peer process
+// can no longer parse — it loses not one message but every message after
+// it.
+//
+// The connection is passed in rather than read from the struct so a
+// handler that outlives its session writes to the connection it was
+// serving, never the next one.
+func (t *Transport) write(c net.Conn, f frame) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.conn != c || t.enc == nil {
+		return errors.New("p2p: session closed")
+	}
+	return t.enc.Encode(f)
 }
 
 // Reachable asks the peer process whether it can reach an AID right now.
@@ -197,21 +250,36 @@ func (t *Transport) Send(ctx context.Context, toAID, kind, ix string, payload []
 	return nil
 }
 
-// roundTrip sends one frame and waits for the next reply.
+// roundTrip sends one frame and waits for the reply carrying its id.
 func (t *Transport) roundTrip(ctx context.Context, f frame) (frame, error) {
+	ch := make(chan frame, 1)
 	t.mu.Lock()
-	enc, replies := t.enc, t.replies
-	t.mu.Unlock()
-	if enc == nil {
+	conn := t.conn
+	if conn == nil || t.pending == nil {
+		t.mu.Unlock()
 		return frame{}, errors.New("p2p: peer process not connected")
 	}
-	if err := enc.Encode(f); err != nil {
+	t.nextID++
+	f.ID = strconv.FormatUint(t.nextID, 10)
+	t.pending[f.ID] = ch
+	t.mu.Unlock()
+
+	forget := func() {
+		t.mu.Lock()
+		if t.pending != nil {
+			delete(t.pending, f.ID)
+		}
+		t.mu.Unlock()
+	}
+	if err := t.write(conn, f); err != nil {
+		forget()
 		return frame{}, err
 	}
 	select {
 	case <-ctx.Done():
+		forget()
 		return frame{}, ctx.Err()
-	case r, ok := <-replies:
+	case r, ok := <-ch:
 		if !ok {
 			return frame{}, errors.New("p2p: peer process went away")
 		}
