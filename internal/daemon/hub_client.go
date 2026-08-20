@@ -50,6 +50,9 @@ func (d *Daemon) RegisterWithHub(ctx context.Context, hubURL, name string, caps 
 		"key_state_seq":  seq,
 		"sig":            sig,
 	}
+	if err := d.screenPublication("this node's registration", body); err != nil {
+		return err
+	}
 	return d.hubPost(ctx, hubURL, "/register", body, nil)
 }
 
@@ -65,6 +68,9 @@ func (d *Daemon) PublishProfile(ctx context.Context, hubURL, summary, readme, pr
 		"ts":            ts,
 		"key_state_seq": seq,
 		"sig":           sig,
+	}
+	if err := d.screenPublication("this node's profile", body); err != nil {
+		return err
 	}
 	return d.hubPost(ctx, hubURL, "/profile", body, nil)
 }
