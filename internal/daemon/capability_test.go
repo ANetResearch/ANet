@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -317,4 +318,89 @@ func lastLedgerPayload(t *testing.T, d *Daemon, kind string) map[string]any {
 		t.Fatalf("no %s event on the chain", kind)
 	}
 	return found
+}
+
+// A capability call must be reachable from outside the daemon.
+//
+// DelegateCapability existed and worked, and nothing in the product could
+// call it: the control API accepted only provider+goal, so `anet delegate
+// --capability …` put the capability id into the goal text, where no
+// resolver looks. Both repositories' suites passed throughout — each fakes
+// the other, and the capability round-trip test calls the method
+// in-process. What surfaced it was a joint run against a real hub, a real
+// ANetLink and real mock hardware: the delegation arrived, the provider
+// could have served it, and the camera did not move.
+func TestCapabilityCallIsReachableThroughTheControlAPI(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	lamp := &lampProvider{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+
+	// Exactly what the CLI posts for `delegate <aid> --capability <id> --args …`.
+	body, _ := json.Marshal(map[string]any{
+		"provider":   prov.AID(),
+		"capability": "light.onoff@sim/lamp-1",
+		"args":       map[string]any{"on": true},
+	})
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest("POST", "/delegate", bytes.NewReader(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	req.hDelegate(rec, httpReq)
+
+	if rec.Code != 200 {
+		t.Fatalf("delegate with a capability = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		InteractionID string `json:"interaction_id"`
+		Capability    string `json:"capability"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Capability != "light.onoff@sim/lamp-1" {
+		t.Fatalf("the response must confirm it was a capability call: %s", rec.Body.String())
+	}
+
+	// The provider must execute it rather than queue it for an agent.
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(lamp.invoked) != 1 {
+		t.Fatalf("the provider should have invoked the capability, got %d calls", len(lamp.invoked))
+	}
+	if on, _ := lamp.invoked[0].Args["on"].(bool); !on {
+		t.Fatalf("the args must survive the round trip: %+v", lamp.invoked[0].Args)
+	}
+}
+
+// A delegation with neither goal nor capability is refused, and one with a
+// goal alone still works — the capability path is an addition, not a
+// replacement.
+func TestDelegateStillRequiresGoalOrCapability(t *testing.T) {
+	srv := newFakeHub(t)
+	d := newTestDaemon(t, srv.URL, false)
+
+	body, _ := json.Marshal(map[string]any{"provider": "some-aid"})
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/delegate", bytes.NewReader(body))
+	r.Header.Set("Content-Type", "application/json")
+	d.hDelegate(rec, r)
+
+	if rec.Code != 400 {
+		t.Fatalf("neither goal nor capability must be refused, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "capability") {
+		t.Errorf("the error should mention both ways to ask: %s", rec.Body.String())
+	}
 }

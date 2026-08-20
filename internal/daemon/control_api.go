@@ -505,13 +505,40 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 		Provider    string   `json:"provider"`
 		Goal        string   `json:"goal"`
 		Attachments []string `json:"attachments"` // local file paths the daemon reads (images/media/archives)
+		// Capability turns this into a C1 capability call: the provider
+		// resolves it against its registry and executes it deterministically
+		// instead of handing it to an agent.
+		Capability string         `json:"capability,omitempty"`
+		Args       map[string]any `json:"args,omitempty"`
 	}
-	if err := readJSON(r, &req); err != nil || req.Provider == "" || req.Goal == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider (AID) + goal required"})
+	if err := readJSON(r, &req); err != nil || req.Provider == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider (AID) required"})
+		return
+	}
+	// A capability call needs no goal: the capability id IS the request.
+	if req.Capability == "" && req.Goal == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "goal or capability required"})
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)
 	defer cancel()
+	if req.Capability != "" {
+		// This path existed on the Daemon and was reachable from nothing.
+		// A joint run against a real hub, a real ANetLink and real mock
+		// hardware is what surfaced it: the delegation arrived, the
+		// provider could have executed it, and the capability id was
+		// sitting in the goal text where no resolver looks. Both repos'
+		// suites passed throughout, because each fakes the other and the
+		// capability round-trip test calls DelegateCapability in-process.
+		id, err := d.DelegateCapability(ctx, req.Provider, req.Capability, req.Args)
+		if err != nil {
+			relayError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"interaction_id": id, "status": "queued", "capability": req.Capability})
+		return
+	}
 	id, err := d.Delegate(ctx, req.Provider, req.Goal, req.Attachments)
 	if err != nil {
 		relayError(w, err)
