@@ -6,6 +6,8 @@ import (
 	"log"
 	"strings"
 
+	"github.com/ANetResearch/ANetCore/identity"
+
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -81,6 +83,12 @@ type moduleHost struct{ d *Daemon }
 
 func (h moduleHost) AID() string                   { return h.d.AID() }
 func (h moduleHost) Providers() *provider.Registry { return h.d.providers }
+
+// ResolveKEL answers only for peers this node has verified itself. See
+// peerkel.go for why that bound is the point rather than a limitation.
+func (h moduleHost) ResolveKEL(aid string) ([]identity.SignedEvent, bool) {
+	return h.d.peers.resolve(aid)
+}
 func (h moduleHost) RecordEvidence(kind string, payload any) error {
 	_, err := h.d.ledger.Append(kind, payload)
 	return err

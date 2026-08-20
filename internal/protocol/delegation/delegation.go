@@ -144,6 +144,17 @@ func VerifyDelegateReq(r *DelegateReq) (requesterAID string, td *tsir.TaskDoc, t
 	return r.Envelope.SignerAID, &doc, r.TaskDoc, nil
 }
 
+// VerifiedKEL returns the requester's key history from a DelegateReq whose
+// signature has already been checked.
+//
+// Separate from VerifyDelegateReq on purpose: this returns a key history
+// that is only trustworthy because verification passed, and a caller that
+// reaches for it without having verified is making a mistake the signature
+// should have caught.
+func VerifiedKEL(r *DelegateReq) ([]identity.SignedEvent, error) {
+	return identity.UnmarshalKEL(r.KEL)
+}
+
 // TaskGoal extracts the human-readable goal from a TaskDoc's first task (Body preferred, else Summary).
 func TaskGoal(td *tsir.TaskDoc) string {
 	if td == nil || len(td.Tasks) == 0 {
