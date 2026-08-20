@@ -32,3 +32,38 @@ jobs:
         env:
           CGO_ENABLED: "1"   # -race needs cgo; runners ship gcc
         run: go test -race ./...
+
+  # "Pluggable" is a property the build proves, not a claim in a design
+  # document. v1's organisation feature was pluggable in exactly the same
+  # sense — right up to the point where removing it took an axe and 683,852
+  # deleted lines. Every module gets pulled on its own, and then all of them
+  # together, on every commit.
+  pluggable:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        tags:
+          - "no_anetlink"
+          # Reserved for the anet3 subsystems as they land. Each name is
+          # claimed here first so the seam is enforced from the module's
+          # first commit rather than retrofitted after it has spread:
+          #   no_p2p         peer-to-peer transport
+          #   no_blackboard  shared-brain coordination
+          #   no_store       distributed storage
+          #   no_org         organisation management
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build without the module
+        run: go build -tags "${{ matrix.tags }}" ./...
+      - name: test without the module
+        run: go test -tags "${{ matrix.tags }}" ./...
+      - name: the binary must still start
+        run: |
+          go build -tags "${{ matrix.tags }}" -o /tmp/anet ./cmd/anet
+          /tmp/anet --help >/dev/null
