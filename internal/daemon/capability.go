@@ -134,12 +134,70 @@ func (d *Daemon) DelegateCapability(ctx context.Context, providerAID, capID stri
 }
 
 // capabilityResult is the deterministic deliverable of a capability call.
+//
+// Evidence travels with it. It did not, and that made every read in the
+// system write-only across the wire: a capability reports what it read in
+// Evidence.ObservedState — the CID a store wrote, the bytes it read back,
+// the position a camera reported, the org a node serves — and the only
+// other channel is Metrics, which is map[string]float64 and cannot hold a
+// CID, a blob or a list. So `cas.put` told the caller how many bytes it
+// stored but not where, and `cas.get` could not be called at all.
+//
+// The provenance belongs here for a second reason, which is the one that
+// generalises. A provider that corrected a vendor deviation says so in
+// Evidence.Quirk, and a corrected reading is not the value the device put
+// on the wire. That correction was reaching this node's own chain and
+// stopping there — so the peer consuming the result, the one party who
+// cannot check for itself, was the only party not told. A correction
+// reaches every surface or none.
+//
+// The deliverable is what the receipt's ResultCID covers, so a provider
+// that ships provenance is signing it: claiming V3 for a value it took on
+// the device's word is now a signed claim rather than a private note.
 type capabilityResult struct {
 	Capability string             `json:"capability"`
 	Status     string             `json:"status"`
 	Verifiable bool               `json:"verifiable"`
 	Metrics    map[string]float64 `json:"metrics,omitempty"`
 	Message    string             `json:"message,omitempty"`
+	Evidence   map[string]any     `json:"evidence,omitempty"`
+}
+
+// provenanceOf renders an effect's evidence for both surfaces that carry it.
+//
+// One function on purpose. The chain and the deliverable have to agree —
+// evidence that differs depending on who is reading it is worse than no
+// evidence — and two field lists that must stay identical are two field
+// lists that will not. A map rather than a struct because encoding/json
+// sorts map keys, so the deliverable stays byte-stable for the CID the
+// receipt signs.
+func provenanceOf(e *effect.Evidence) map[string]any {
+	if e == nil {
+		return nil
+	}
+	prov := map[string]any{
+		"verify_trust": e.VerifyTrust,
+		"auth_trust":   e.AuthTrust,
+	}
+	if e.Protocol != "" {
+		prov["protocol"] = e.Protocol
+	}
+	if e.Requested != "" {
+		prov["requested"] = e.Requested
+	}
+	if e.ObservedState != "" {
+		prov["observed_state"] = e.ObservedState
+	}
+	if e.Quirk != "" {
+		prov["quirk"] = e.Quirk
+	}
+	if e.NativeAck {
+		prov["native_ack"] = true
+	}
+	if e.LatencyMS > 0 {
+		prov["latency_ms"] = e.LatencyMS
+	}
+	return prov
 }
 
 // tryCapability resolves and executes a capability call, answering with the
@@ -159,13 +217,12 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 		return false
 	}
 	res := capabilityResult{Capability: capID}
-	var provenance *effect.Evidence
 	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID, CallerAID: ix.PeerAID})
 	if err != nil {
 		res.Status, res.Message = "FAILED", err.Error()
 	} else {
-		provenance = eff.Evidence
 		res.Status, res.Verifiable, res.Message = string(eff.Status), eff.Verifiable(), eff.Message
+		res.Evidence = provenanceOf(eff.Evidence)
 		if eff.Record != nil {
 			res.Metrics = eff.Record.Metrics
 		}
@@ -201,43 +258,16 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 		log.Printf("anet: capability %s: store result: %v", capID, err)
 		return false
 	}
-	// The chain records the provenance, not just the outcome.
-	//
-	// It used to store status, verifiability, metrics and the result CID —
-	// everything about *what happened* and nothing about *how we know*. A
-	// provider that corrected a vendor deviation says so in Evidence.Quirk,
-	// and a corrected reading is not the value the device put on the wire:
-	// dropping the label here breaks the rule the correction layer is built
-	// on — a correction reaches every surface or none — precisely at the
-	// process boundary where it is hardest to notice. The trust levels
-	// belong here for the same reason: an effect verified by an independent
-	// read (V3) and one taken on the device's word (V2) are different
-	// evidence, and the chain is where that distinction has to survive.
+	// The chain records the provenance, not just the outcome — the same
+	// provenance the requester was sent, from the same value, so the two
+	// accounts of one effect cannot disagree.
 	ev := map[string]any{
 		"interaction_id": interactionID, "capability": capID, "caller_aid": ix.PeerAID,
 		"status": res.Status, "verifiable": res.Verifiable, "metrics": res.Metrics,
 		"result_cid": resultCID,
 	}
-	if e := provenance; e != nil {
-		prov := map[string]any{}
-		if e.Protocol != "" {
-			prov["protocol"] = e.Protocol
-		}
-		if e.ObservedState != "" {
-			prov["observed_state"] = e.ObservedState
-		}
-		if e.Quirk != "" {
-			prov["quirk"] = e.Quirk
-		}
-		if e.NativeAck {
-			prov["native_ack"] = true
-		}
-		if e.LatencyMS > 0 {
-			prov["latency_ms"] = e.LatencyMS
-		}
-		prov["verify_trust"] = e.VerifyTrust
-		prov["auth_trust"] = e.AuthTrust
-		ev["evidence"] = prov
+	if res.Evidence != nil {
+		ev["evidence"] = res.Evidence
 	}
 	if _, lerr := d.ledger.Append(EvCapabilityEffect, ev); lerr != nil {
 		log.Printf("anet: capability %s: evidence ledger: %v", capID, lerr)

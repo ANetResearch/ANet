@@ -4,6 +4,8 @@ go 1.26.6
 
 require (
 	github.com/ANetResearch/ANetCore v0.4.2
+	github.com/ipfs/go-cid v0.6.2
+	github.com/multiformats/go-multihash v0.2.3
 	modernc.org/sqlite v1.56.0
 )
 
@@ -18,14 +20,12 @@ require (
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/ipfs/go-cid v0.6.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/multiformats/go-base32 v0.1.0 // indirect
 	github.com/multiformats/go-base36 v0.2.0 // indirect
 	github.com/multiformats/go-multibase v0.3.0 // indirect
-	github.com/multiformats/go-multihash v0.2.3 // indirect
 	github.com/multiformats/go-varint v0.1.0 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

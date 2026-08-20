@@ -37,8 +37,17 @@ func fakeLinkd(t *testing.T) string {
 			http.Error(w, "unknown capability", http.StatusUnprocessableEntity)
 			return
 		}
+		// The documented C1 response carries provenance. The fake omitted
+		// it, so the shim could drop the whole block and every test still
+		// passed — a fake that serves less than the contract tests less
+		// than the contract.
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status": "OK", "metrics": map[string]float64{"power_state": 1},
+			"evidence": map[string]any{
+				"requested": "light.onoff=on", "protocol": "zigbee",
+				"native_ack": true, "observed_state": "on", "latency_ms": 12,
+				"verify_trust": 3, "auth_trust": 2, "quirk": "aqara.onoff.invert",
+			},
 		})
 	})
 	ln, err := net.Listen("unix", sock)
@@ -98,5 +107,35 @@ func TestRegistryIntegration(t *testing.T) {
 	eff, err := p.Invoke(context.Background(), provider.Call{Capability: "light.onoff@sim/lamp-1", Args: map[string]any{"on": true}})
 	if err != nil || eff.Status != effect.OK {
 		t.Fatalf("end-to-end through registry failed: %+v %v", eff, err)
+	}
+}
+
+// Provenance has to survive C1, or the daemon records and forwards a value
+// with no account of how it was obtained.
+//
+// It did not survive: the shim decoded status, metrics and message and
+// ignored the evidence block entirely. A corrected reading arrived as a
+// bare number with nothing saying it had been corrected, and an effect
+// confirmed by an independent readback (V3) was indistinguishable from one
+// taken on the device's word. Every test passed, because the fake did not
+// send evidence either.
+func TestProvenanceSurvivesTheShim(t *testing.T) {
+	sock := fakeLinkd(t)
+	p := New("anetlink", sock)
+	eff, err := p.Invoke(context.Background(),
+		provider.Call{Capability: "light.onoff@sim/lamp-1", Args: map[string]any{"on": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if eff.Evidence == nil {
+		t.Fatal("the effect arrived with no provenance at all")
+	}
+	want := effect.Evidence{
+		Requested: "light.onoff=on", Protocol: "zigbee", NativeAck: true,
+		ObservedState: "on", LatencyMS: 12, VerifyTrust: 3, AuthTrust: 2,
+		Quirk: "aqara.onoff.invert",
+	}
+	if *eff.Evidence != want {
+		t.Errorf("provenance mangled crossing C1:\n got %+v\nwant %+v", *eff.Evidence, want)
 	}
 }

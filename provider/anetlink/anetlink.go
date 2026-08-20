@@ -112,6 +112,27 @@ func (p *Provider) Invoke(ctx context.Context, call provider.Call) (effect.Effec
 		Status  string             `json:"status"`
 		Metrics map[string]float64 `json:"metrics"`
 		Message string             `json:"message"`
+		// Evidence is how ANetLink knows what it is telling us: which
+		// protocol carried the call, whether the device itself acknowledged,
+		// what a readback actually reported, and which vendor correction was
+		// applied to the number.
+		//
+		// It was on the wire and this decoder ignored it, so every device
+		// effect reached the daemon stripped of its provenance — a corrected
+		// reading arriving as a bare value with nothing saying it had been
+		// corrected, and a V4 readback indistinguishable from a V1 "I sent
+		// it". The daemon then honestly recorded and forwarded the nothing
+		// it had been given.
+		Evidence *struct {
+			Requested     string `json:"requested"`
+			Protocol      string `json:"protocol"`
+			NativeAck     bool   `json:"native_ack"`
+			ObservedState string `json:"observed_state"`
+			LatencyMS     int64  `json:"latency_ms"`
+			VerifyTrust   uint8  `json:"verify_trust"`
+			AuthTrust     uint8  `json:"auth_trust"`
+			Quirk         string `json:"quirk"`
+		} `json:"evidence"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return effect.Effect{}, err
@@ -119,6 +140,13 @@ func (p *Provider) Invoke(ctx context.Context, call provider.Call) (effect.Effec
 	e := effect.Effect{Status: effect.Status(out.Status), Message: out.Message}
 	if len(out.Metrics) > 0 {
 		e.Record = &tsir.EffectRecord{Metrics: out.Metrics}
+	}
+	if ev := out.Evidence; ev != nil {
+		e.Evidence = &effect.Evidence{
+			Requested: ev.Requested, Protocol: ev.Protocol, NativeAck: ev.NativeAck,
+			ObservedState: ev.ObservedState, LatencyMS: ev.LatencyMS,
+			VerifyTrust: ev.VerifyTrust, AuthTrust: ev.AuthTrust, Quirk: ev.Quirk,
+		}
 	}
 	return e, nil
 }
