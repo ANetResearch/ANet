@@ -259,3 +259,55 @@ func signedUnit(t *testing.T, ctrl *identity.Controller, taskID string, body []b
 func nowMS() int64 { return time.Now().UnixMilli() }
 
 var _ module.Host = (*testHost)(nil)
+
+// A unit already on the board is not replaced by a second copy carrying a
+// different signature.
+//
+// The envelope is detached: it is not covered by the id, so two units can
+// share an id and carry different signatures — one genuine, one forged. The
+// merge path used to verify and then overwrite the stored copy, which was
+// safe only because it verified every time. It now returns early instead,
+// which is both cheaper and stricter: the board keeps the copy it checked.
+func TestExistingUnitIsNotReplacedByAForgedCopy(t *testing.T) {
+	author := newController(t)
+	attacker := newController(t)
+	board := New("node-1")
+	resolve := func(aid string) ([]identity.SignedEvent, bool) {
+		if aid == author.AID() {
+			return author.KEL(), true
+		}
+		return attacker.KEL(), true
+	}
+	now := nowMS()
+
+	genuine := signedUnit(t, author, "task-1", []byte("original thought"))
+	added, err := board.Add(genuine, resolve, now)
+	if err != nil || !added {
+		t.Fatalf("the genuine unit must merge: added=%v err=%v", added, err)
+	}
+	id, err := genuine.ID()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Same signed preimage — therefore the same id — with the envelope
+	// swapped for one this board would not accept.
+	forged := *genuine
+	forged.Envelope = nil
+
+	added, err = board.Add(&forged, resolve, now)
+	if err != nil {
+		t.Fatalf("a duplicate must be a quiet no-op, got %v", err)
+	}
+	if added {
+		t.Fatal("a duplicate must not report itself as newly added")
+	}
+
+	stored, ok := board.Get(id)
+	if !ok {
+		t.Fatal("the unit must still be on the board")
+	}
+	if stored.Envelope == nil {
+		t.Fatal("the board kept the unsigned copy — a forged envelope replaced a verified one")
+	}
+}

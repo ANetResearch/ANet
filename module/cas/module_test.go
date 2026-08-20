@@ -194,3 +194,19 @@ func TestDirIsRequired(t *testing.T) {
 		t.Fatalf("a CAS without a directory must be refused, got %v", err)
 	}
 }
+
+// benchStarted is the benchmark's counterpart to started(t).
+func benchStarted(b *testing.B) (*Module, *casHost) {
+	b.Helper()
+	h := &casHost{reg: provider.NewRegistry()}
+	m := &Module{cfg: Config{Dir: b.TempDir()}}
+	if err := m.Start(context.Background(), h); err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { m.Stop(context.Background()) })
+	return m, h
+}
+
+func benchCall(capID string, args map[string]any) provider.Call {
+	return provider.Call{Capability: capID, Args: args}
+}
