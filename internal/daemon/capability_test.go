@@ -289,6 +289,86 @@ func TestEvidenceProvenanceReachesTheChain(t *testing.T) {
 	}
 }
 
+// A read has to be able to return what it read.
+//
+// It could not. A capability reports its reading in Evidence.ObservedState
+// — the CID a store wrote, the units on a board, the org a node serves —
+// and the deliverable carried status, verifiability and metrics only.
+// Metrics are map[string]float64, so there was no channel for a CID, a
+// blob, or a list: every read in the system was write-only across the
+// wire, and cas.get could not be called at all because cas.put had no way
+// to tell the caller the CID it wrote.
+//
+// Both suites passed throughout. The requester test asserted on a lamp,
+// whose answer fits in a metric; the module tests call Invoke in-process,
+// where the Effect is right there. It took two daemons and a real store.
+func TestAReadReturnsWhatItRead(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	if err := prov.Providers().Register(ctx, quirkyProvider{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := req.DelegateCapability(ctx, prov.AID(),
+		"sensor.temperature@aqara/th-1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	results, err := req.Results(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("results = %+v, want one", results)
+	}
+	var got capabilityResult
+	if err := json.Unmarshal([]byte(results[0].Result), &got); err != nil {
+		t.Fatalf("deliverable is not a capability result: %v", err)
+	}
+	if got.Evidence == nil {
+		t.Fatal("the requester received no provenance at all")
+	}
+	if got.Evidence["observed_state"] != "2212.93" {
+		t.Errorf("the reading did not reach the requester: %v", got.Evidence["observed_state"])
+	}
+	// The correction has to reach the peer above all: it is the one party
+	// that cannot check the device for itself.
+	if got.Evidence["quirk"] != "aqara.temp.scale100" {
+		t.Errorf("the correction was not disclosed to the requester: %v", got.Evidence["quirk"])
+	}
+	if fmt.Sprint(got.Evidence["verify_trust"]) != "2" || fmt.Sprint(got.Evidence["auth_trust"]) != "1" {
+		t.Errorf("trust levels lost on the wire: %+v", got.Evidence)
+	}
+
+	// And the two accounts of one effect must agree. Evidence that differs
+	// depending on who reads it is worse than none: it lets a provider tell
+	// its own chain one thing and its peer another, which is precisely what
+	// a signed receipt over the deliverable is supposed to prevent.
+	chain := lastLedgerPayload(t, prov, EvCapabilityEffect)
+	onChain, _ := chain["evidence"].(map[string]any)
+	if onChain == nil {
+		t.Fatal("no provenance on the provider chain")
+	}
+	for k, v := range got.Evidence {
+		if fmt.Sprint(onChain[k]) != fmt.Sprint(v) {
+			t.Errorf("evidence disagrees on %q: chain=%v requester=%v", k, onChain[k], v)
+		}
+	}
+	if len(onChain) != len(got.Evidence) {
+		t.Errorf("chain evidence has %d fields, the requester got %d", len(onChain), len(got.Evidence))
+	}
+}
+
 // lastLedgerPayload returns the payload of the most recent event of a kind.
 //
 // It reads through the ledger's own decoder rather than parsing the file:
