@@ -33,6 +33,8 @@ type Config struct {
 	// Providers configures C1 capability providers. ANetLink connects the
 	// physical-world runtime over its UDS socket (anetlinkd --c1-socket).
 	Providers *ProvidersConfig `json:"providers,omitempty"`
+	// Modules configures optional subsystems by name (see module.Module).
+	Modules ModulesConfig `json:"modules,omitempty"`
 
 	// UNSET/omitted key means "accept" (see AcceptsDelegations): anyone who installs anet can receive tasks
 	// out of the box, so "list my agent" is just `anet daemon &`. Accepting only STORES the task (its
@@ -156,6 +158,11 @@ func SaveConfig(l Layout, c Config) error {
 	}
 	return writeFileAtomic(l.ConfigPath(), b, 0o600)
 }
+
+// Modules carries per-module configuration blocks, keyed by module name.
+// A module that lands later takes its block from here rather than growing
+// the daemon a typed field for it.
+type ModulesConfig map[string]json.RawMessage
 
 // ProvidersConfig wires capability providers into the daemon.
 type ProvidersConfig struct {
