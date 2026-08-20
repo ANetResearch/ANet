@@ -101,7 +101,7 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	m.stop = cancel
 	go m.tr.run(runCtx)
 
-	th.(interface{ RegisterTransport(module.Transport) }).RegisterTransport(m.tr)
+	th.RegisterTransport(m.tr)
 	return nil
 }
 
