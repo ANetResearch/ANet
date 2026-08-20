@@ -53,6 +53,8 @@ jobs:
           - "no_blackboard,no_p2p,no_anetlink"
           - "no_org"
           - "no_org,no_blackboard,no_p2p,no_anetlink"
+          - "no_cas"
+          - "no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
           # Reserved for the anet3 subsystems as they land. Each name is
           # claimed here first so the seam is enforced from the module's
           # first commit rather than retrofitted after it has spread:
