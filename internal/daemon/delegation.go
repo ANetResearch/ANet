@@ -459,6 +459,14 @@ func (d *Daemon) ingestDelegate(payload []byte) bool {
 		return true
 	}
 	requesterAID, td, taskDocBytes, err := delegation.VerifyDelegateReq(dr)
+	if err == nil {
+		// The signature just passed against this key history, so it is one
+		// this node can vouch for. Remembering it is what lets a module
+		// answer "whose key signed this" later — see peerkel.go.
+		if kel, kerr := delegation.VerifiedKEL(dr); kerr == nil {
+			d.peers.remember(requesterAID, kel)
+		}
+	}
 	if err != nil {
 		log.Printf("anet: drop unverifiable delegation: %v", err)
 		return true

@@ -36,6 +36,8 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/ANetResearch/ANetCore/identity"
+
 	"github.com/ANetResearch/ANet/provider"
 )
 
@@ -54,6 +56,21 @@ type Host interface {
 	// RecordEvidence appends to this node's own chain. Modules produce
 	// evidence like everything else; they do not get a private ledger.
 	RecordEvidence(eventType string, payload any) error
+
+	// ResolveKEL returns a peer's key history, if this node has verified
+	// one. Added for the shared blackboard, which must be able to answer
+	// "whose key signed this contribution" before merging it.
+	//
+	// Widening this interface is meant to be a deliberate act — it is the
+	// list of things a subsystem is allowed to want, and the moment it
+	// grows is the moment that went unmarked in v1. This one earns its
+	// place: verifying authorship is not something a module can do with an
+	// AID alone, and the alternative was a board that accepts anything.
+	//
+	// It answers only for peers this node has actually talked to. The hub
+	// holds KELs but does not publish them, so a node vouches for what it
+	// verified itself and for nothing else.
+	ResolveKEL(aid string) ([]identity.SignedEvent, bool)
 }
 
 // Module is an optional daemon subsystem.
