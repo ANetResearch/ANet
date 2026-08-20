@@ -1,19 +1,23 @@
 // The daemon's local P6 evidence ledger (C5 收口): every capability effect
 // and issued receipt is appended to a per-DID, signed, fork-evident hash
-// chain (ANetCore/ael). Storage is an append-only JSONL file rebuilt and
-// verified through ael.Import on every open — a tampered or forked file
-// refuses to load rather than silently serving doctored history.
+// chain (ANetCore/ael). Storage is an append-only file of base64
+// CoreDet-CBOR records, one per line, rebuilt and verified through
+// ael.Import on every open — a tampered or forked file refuses to load
+// rather than silently serving doctored history. See encodeRecord for why
+// the encoding is CBOR and not the JSON the .jsonl path still suggests.
 package daemon
 
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
 
 	"github.com/ANetResearch/ANetCore/ael"
+	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 )
 
@@ -60,11 +64,11 @@ func openEvidenceLedger(path string, self *identity.Controller) (*evidenceLedger
 			if len(line) == 0 {
 				continue
 			}
-			var r ael.EventRecord
-			if err := json.Unmarshal(line, &r); err != nil {
+			r, err := decodeRecord(line)
+			if err != nil {
 				return nil, fmt.Errorf("anet: evidence ledger corrupt line: %w", err)
 			}
-			recs = append(recs, &r)
+			recs = append(recs, r)
 		}
 		if err := l.led.Import(recs, l.kel); err != nil {
 			return nil, fmt.Errorf("anet: evidence ledger refuses to load (tamper/fork?): %w", err)
@@ -102,7 +106,7 @@ func (l *evidenceLedger) Append(eventType string, payload any) (string, error) {
 	if err := l.led.Append(rec, l.kel); err != nil {
 		return "", err
 	}
-	line, err := json.Marshal(rec)
+	line, err := encodeRecord(rec)
 	if err != nil {
 		return "", err
 	}
@@ -120,4 +124,61 @@ func (l *evidenceLedger) Close() error {
 		return l.f.Close()
 	}
 	return nil
+}
+
+// The chain is stored as base64 CoreDet-CBOR, one record per line.
+//
+// It used to be JSON, and JSON cannot hold this record. An event id is
+// derived from the CBOR preimage of the record, and CBOR distinguishes a
+// byte string from a text string where JSON does not: a payload carrying
+// bytes — a receipt, a signature, any binary at all — comes back from JSON
+// as base64 text, the preimage no longer matches, and the id fails to
+// re-derive.
+//
+// The failure is not subtle when it lands. The ledger verifies before use,
+// so the daemon refuses to start with "tamper/fork?" against a chain it
+// wrote itself, on the first restart after accepting a result. It is latent
+// until then, which is why nothing caught it: every test builds a fresh
+// chain, and a chain is only read back on a restart with history.
+//
+// Storing the canonical encoding removes the class of bug rather than the
+// instance. Base64 keeps the file line-oriented, so it stays appendable and
+// a corrupt line stays one line.
+func encodeRecord(rec *ael.EventRecord) ([]byte, error) {
+	b, err := coredet.Marshal(rec)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, base64.StdEncoding.EncodedLen(len(b)))
+	base64.StdEncoding.Encode(out, b)
+	return out, nil
+}
+
+// decodeRecord reads one line, accepting the JSON that older daemons wrote.
+//
+// A node upgrading has a chain on disk in the old format, and refusing to
+// start would be a worse failure than the one this fixes. Old records that
+// carry no bytes re-derive correctly and are read as before; one that does
+// carry bytes fails verification here exactly as it did — the format change
+// cannot retroactively repair a line whose type information is already
+// gone, and pretending otherwise would mean accepting a record whose id
+// does not match its content.
+func decodeRecord(line []byte) (*ael.EventRecord, error) {
+	if len(line) > 0 && line[0] == '{' {
+		var r ael.EventRecord
+		if err := json.Unmarshal(line, &r); err != nil {
+			return nil, err
+		}
+		return &r, nil
+	}
+	raw := make([]byte, base64.StdEncoding.DecodedLen(len(line)))
+	n, err := base64.StdEncoding.Decode(raw, line)
+	if err != nil {
+		return nil, err
+	}
+	var r ael.EventRecord
+	if err := coredet.Unmarshal(raw[:n], &r); err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
