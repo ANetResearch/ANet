@@ -9,8 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ANetResearch/ANetCore/evidence"
+
 	"github.com/ANetResearch/ANet/internal/hubapi"
-	"github.com/ANetResearch/ANet/internal/protocol/evidence"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 

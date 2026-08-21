@@ -16,13 +16,14 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
-	"github.com/ANetResearch/ANet/internal/protocol/delegation"
-	"github.com/ANetResearch/ANet/internal/protocol/evidence"
-	"github.com/ANetResearch/ANet/internal/protocol/relayauth"
-	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANetCore/anetcid"
+	"github.com/ANetResearch/ANetCore/delegation"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/relayauth"
+
+	"github.com/ANetResearch/ANet/internal/hubapi"
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // relayPollInterval is how often the background loop pulls this daemon's Hub mailbox. Kept short
@@ -207,6 +208,9 @@ func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 			Result: string(ix.Result), RequestCID: ix.RequestCID, ResultCID: ix.ResultCID,
 			ReceiptCID: receiptCID, Receipt: base64.StdEncoding.EncodeToString(ix.Receipt),
 			Reviewed: len(ix.Review) > 0,
+			// The key the receipt was checked against travels with it, so a
+			// holder can re-check rather than take this node's word for it.
+			ProviderKEL: encodedKEL(d.peers, ix.PeerAID),
 		})
 	}
 	return out, nil
@@ -367,4 +371,19 @@ func (d *Daemon) dispatch(m relayMsg, payload []byte) (ack bool) {
 	default:
 		return true // unknown kind — drop
 	}
+}
+
+// encodedKEL returns a peer's verified key history, base64, or "" if this
+// node has never verified one. Empty is the honest answer: this node
+// vouches for the peers it has actually checked and for nobody else.
+func encodedKEL(p *peerKELs, aid string) string {
+	kel, ok := p.resolve(aid)
+	if !ok {
+		return ""
+	}
+	b, err := identity.MarshalKEL(kel)
+	if err != nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(b)
 }

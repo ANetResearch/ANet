@@ -6,13 +6,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ANetResearch/ANet/internal/runtime/interactions"
-	"github.com/ANetResearch/ANet/module"
-	"github.com/ANetResearch/ANet/provider"
 	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/tsir"
+
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/provider"
 )
 
 // Daemon is one operator's anet v0.1 process: a self-certifying identity (KEL), a durable local

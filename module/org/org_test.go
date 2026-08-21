@@ -4,8 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ANetResearch/ANet/module/org"
 	"github.com/ANetResearch/ANetCore/identity"
+
+	"github.com/ANetResearch/ANet/module/org"
 )
 
 const (

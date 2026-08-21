@@ -4,11 +4,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ANetResearch/ANet/module/inv1"
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+
+	"github.com/ANetResearch/ANet/module/inv1"
 )
 
 // OrgScopedObject marks a Credential as org-scoped (INV-1 runtime type tag): a membership credential

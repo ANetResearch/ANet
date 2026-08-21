@@ -6,8 +6,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ANetResearch/ANet/module/blackboard"
 	"github.com/ANetResearch/ANetCore/identity"
+
+	"github.com/ANetResearch/ANet/module/blackboard"
 )
 
 const msgTime = int64(1_000_000)

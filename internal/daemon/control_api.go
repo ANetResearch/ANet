@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ANetResearch/ANet/internal/protocol/delegation"
+	"github.com/ANetResearch/ANetCore/delegation"
 )
 
 // The control plane is a LOCAL HTTP API (loopback by default) the CLI uses to drive a running daemon.

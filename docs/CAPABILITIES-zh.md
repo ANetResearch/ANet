@@ -10,7 +10,7 @@
 | **仅可用** | 代码在跑,没有直接测试,靠上层间接覆盖 |
 | **未做** | 不存在,或只有占位 |
 
-**当前规模**:11,540 行实现 / 5,762 行测试,152 个测试 + 13 个基准,
+**当前规模**:约 11,000 行实现 / 5,400 行测试(三个 wire 包已移入 ANetCore),143 个测试 + 13 个基准,
 `go.sum` 82 条,race 干净。联调 20/20。
 
 ---
@@ -24,8 +24,10 @@
 | 身份(KEL/AID) | ANetCore `identity` | 联调验证 | 一个 runtime = 一个 agent = 一个 AID |
 | 能力注册表 (C1) | `provider/` | 联调验证 | daemon 只认 provider/capability/evidence,**不认"设备"** |
 | 委派生命周期 | `internal/daemon/relay.go` `delegation.go` | 联调验证 | find → delegate → 多轮消息 → end → review |
-| 委派验签 | `internal/protocol/delegation` | 单测覆盖 | 8 种冒充方式逐一被拒(换 KEL、冒名、改任务、无签名、缺 ix、坏 TaskDoc、空任务、坏 KEL) |
-| 中继鉴权 | `internal/protocol/relayauth` | 单测覆盖 | 四种 action 域分离、5 分钟重放窗口、preimage 字节钉死 |
+| 委派验签 | ANetCore `delegation` | 单测覆盖 | 8 种冒充方式逐一被拒(换 KEL、冒名、改任务、无签名、缺 ix、坏 TaskDoc、空任务、坏 KEL) |
+| **收据验证** | ANetCore `delegation.VerifyResult` | 联调验证 | 请求方接受结果前逐项绑定;7 种"持有效签名仍撒谎"的方式被拒 |
+| **第三方验证** | `anet verify` | 联调验证 | 无 daemon、无 hub、无网络;实测通过与拒绝各一次 |
+| 中继鉴权 | ANetCore `relayauth` | 单测覆盖 | 四种 action 域分离、5 分钟重放窗口、preimage 字节钉死 |
 | 证据链 (P6/C5) | `internal/daemon/ledger.go` | 联调验证 | base64 CoreDet-CBOR、verify-before-use、88 条记录重启通过 |
 | 收据 + 评价 | `internal/protocol/evidence` | 联调验证 | ResultCID 覆盖交付物,provider 签发 |
 | 传输列表 | `internal/daemon/transport.go` | 联调验证 | hub 是兜底,不是唯一;dispatch 513ns |
@@ -87,9 +89,9 @@ ANetMock ← ANetLink ← anet daemon(provider) → ANetHub ← anet daemon(requ
 
 | 缺口 | 影响 | 状态 |
 |---|---|---|
-| `relayauth` 在 ANet 与 ANetHub 各有一份**副本** | 两份必须逐字节相同,靠人 | 已在两侧钉死字节的测试;**真正的修法是移进 ANetCore**,尚未做 |
+| ~~三个 wire 包各有两份副本~~ | ~~`delegation` 已实质分叉 28 行~~ | **已解决**:三个包收进 ANetCore v0.5.3,两仓共用一份 |
 | 治理纪元 `govepoch` | org 只接受 epoch 0 | 等 ANetCore 的 `ascpevo.GovernanceCert` |
-| C5 证据链无查询接口 | 链只写不读,运维看不到自己的证据 | 未做 |
+| C5 证据链无查询接口 | 链只写不读,运维看不到自己的证据 | 未做(`anet verify` 已让收据可查,链本身仍不可查) |
 | `internal/hubapi` 无测试 | 纯类型,风险低 | 仅可用 |
 | `module/anetlink` 无直接测试 | 81 行薄封装,`provider/anetlink` 有 3 个测试 | 仅可用 |
 | 自动回复未进联调 | 只在单测里跑过 | 单测覆盖 |

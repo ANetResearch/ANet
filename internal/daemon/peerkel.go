@@ -77,3 +77,21 @@ func (p *peerKELs) len() int {
 	defer p.mu.RUnlock()
 	return len(p.kels)
 }
+
+// rememberProviderKEL stores a provider's key history after a completion
+// verified against it.
+//
+// Verified is the precondition here exactly as it is for remember: this is
+// called on the success arm of VerifyResult and nowhere else. Until now the
+// cache only ever learned requesters, because inbound delegation was the
+// only path that verified a stranger's key.
+func (d *Daemon) rememberProviderKEL(raw []byte, aid string) {
+	if len(raw) == 0 || aid == "" {
+		return
+	}
+	kel, err := identity.UnmarshalKEL(raw)
+	if err != nil {
+		return
+	}
+	d.peers.remember(aid, kel)
+}

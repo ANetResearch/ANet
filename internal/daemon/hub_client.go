@@ -6,22 +6,22 @@ package daemon
 // is centralized, so the Hub is the single service every daemon talks to.
 
 import (
-	"log"
-	"strconv"
-
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/ANetResearch/ANet/internal/hubapi"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
-	"github.com/ANetResearch/ANet/internal/protocol/relayauth"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/relayauth"
+
+	"github.com/ANetResearch/ANet/internal/hubapi"
 )
 
 // maxHubResponse bounds a decoded Hub response body. It is generous because `find` / `GET /agents/{aid}`

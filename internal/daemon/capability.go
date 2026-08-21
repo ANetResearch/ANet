@@ -16,18 +16,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ANetResearch/ANetCore/effect"
 	"log"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/delegation"
+	"github.com/ANetResearch/ANetCore/effect"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
-	"github.com/ANetResearch/ANet/internal/protocol/delegation"
-	"github.com/ANetResearch/ANet/internal/protocol/evidence"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -272,7 +272,16 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 	if _, lerr := d.ledger.Append(EvCapabilityEffect, ev); lerr != nil {
 		log.Printf("anet: capability %s: evidence ledger: %v", capID, lerr)
 	}
-	rr := &delegation.ResultResp{Status: delegation.StatusDone, Deliverable: deliverable, Receipt: receiptBytes}
+	// The receipt travels with the key that signed it. A delegation has
+	// always carried the requester's KEL inline; the answer carried no
+	// provider KEL, so the requester could not check what it accepted.
+	selfKEL, err := identity.MarshalKEL(d.self.KEL())
+	if err != nil {
+		log.Printf("anet: capability %s: marshal KEL: %v", capID, err)
+		return false
+	}
+	rr := &delegation.ResultResp{Status: delegation.StatusDone, Deliverable: deliverable,
+		Receipt: receiptBytes, KEL: selfKEL}
 	payload, err := rr.Marshal()
 	if err != nil {
 		return false

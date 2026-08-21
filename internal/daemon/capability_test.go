@@ -10,7 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
+	"github.com/ANetResearch/ANetCore/evidence"
+	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/provider"
@@ -517,5 +520,107 @@ func TestDelegateStillRequiresGoalOrCapability(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "capability") {
 		t.Errorf("the error should mention both ways to ask: %s", rec.Body.String())
+	}
+}
+
+// The requester must actually check the receipt it accepts.
+//
+// It did not, and could not: Receipt.Verify had zero call sites in this
+// repository, and a completion carried no provider KEL, so there was no
+// key to check against. The requester stored whatever bytes arrived and
+// wrote "result accepted" on its own evidence chain.
+//
+// This asserts the check ran and passed, from the chain — not from the
+// absence of an error, which is what the old path also produced.
+func TestAnAcceptedResultWasActuallyVerified(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	if err := prov.Providers().Register(ctx, &lampProvider{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
+		map[string]any{"on": true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := req.Results(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := lastLedgerPayload(t, req, EvResultAccepted)
+	if rec["receipt_verified"] != true {
+		t.Fatalf("the chain must record that the receipt was checked, got %v\n"+
+			"A chain saying only \"accepted\" cannot tell an audited completion "+
+			"from one nobody could audit.", rec["receipt_verified"])
+	}
+
+	// And the provider's key is now known, which is what makes it possible.
+	if _, ok := req.peers.resolve(prov.AID()); !ok {
+		t.Error("verifying a completion must leave the provider's KEL known")
+	}
+}
+
+// A completion that does not answer the request is refused, not stored.
+func TestAResultForDifferentContentIsRefused(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A provider signing a real receipt, then delivering other bytes.
+	rc := &evidence.Receipt{
+		InteractionID: id, RequesterAID: req.AID(), ProviderAID: prov.AID(),
+		RequestCID: "bafyrequest", ResultCID: "bafynotwhatwesend", CompletedAt: uint64(nowMillis()),
+	}
+	if err := rc.Sign(prov.self); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := rc.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kel, err := identity.MarshalKEL(prov.self.KEL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := (&delegation.ResultResp{
+		Status: delegation.StatusDone, Deliverable: []byte(`{"status":"OK"}`),
+		Receipt: receipt, KEL: kel,
+	}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req.ingestResult(id, payload)
+
+	results, err := req.Results(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
+		if r.InteractionID == id {
+			t.Fatal("a result whose receipt covers different content must not be stored as done")
+		}
 	}
 }
