@@ -68,47 +68,72 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: anetpeer --socket S --peer P --rendezvous DIR")
 		os.Exit(2)
 	}
-	if err := os.MkdirAll(*rv, 0o755); err != nil {
-		log.Fatal(err)
-	}
-	p := &peer{peerSocket: *peerSock, rendezvous: *rv, acks: map[string]chan struct{}{}}
-
-	_ = os.Remove(*peerSock)
-	pl, err := net.Listen("unix", *peerSock)
+	p, err := start(*sock, *peerSock, *rv)
 	if err != nil {
-		log.Fatalf("anetpeer: peer wire: %v", err)
-	}
-	go p.servePeers(pl)
-
-	_ = os.Remove(*sock)
-	dl, err := net.Listen("unix", *sock)
-	if err != nil {
-		log.Fatalf("anetpeer: daemon wire: %v", err)
+		log.Fatalf("anetpeer: %v", err)
 	}
 	log.Printf("anetpeer: daemon on %s, peers on %s, rendezvous %s", *sock, *peerSock, *rv)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sig
-		p.forget()
-		dl.Close()
-		pl.Close()
-		os.Exit(0)
-	}()
+	<-sig
+	p.stop()
+}
 
-	for {
-		c, err := dl.Accept()
-		if err != nil {
-			return
+// start brings both listeners up and serves them.
+//
+// Separated from main so a test can run two of these in one process and
+// drive a real module/p2p transport against them. The client half and this
+// half are the two sides of one contract, and both of them had the same
+// deadlock — handling a request inline on the loop that has to deliver its
+// answer. Testing them apart is what let that ship twice.
+func start(sock, peerSock, rendezvous string) (*peer, error) {
+	if err := os.MkdirAll(rendezvous, 0o755); err != nil {
+		return nil, err
+	}
+	p := &peer{peerSocket: peerSock, rendezvous: rendezvous, acks: map[string]chan struct{}{}}
+
+	_ = os.Remove(peerSock)
+	pl, err := net.Listen("unix", peerSock)
+	if err != nil {
+		return nil, fmt.Errorf("peer wire: %w", err)
+	}
+	_ = os.Remove(sock)
+	dl, err := net.Listen("unix", sock)
+	if err != nil {
+		pl.Close()
+		return nil, fmt.Errorf("daemon wire: %w", err)
+	}
+	p.peerLn, p.daemonLn = pl, dl
+	go p.servePeers(pl)
+	go func() {
+		for {
+			c, err := dl.Accept()
+			if err != nil {
+				return
+			}
+			go p.serveDaemon(c)
 		}
-		go p.serveDaemon(c)
+	}()
+	return p, nil
+}
+
+// stop closes both listeners and withdraws this AID from the rendezvous.
+func (p *peer) stop() {
+	p.forget()
+	if p.daemonLn != nil {
+		p.daemonLn.Close()
+	}
+	if p.peerLn != nil {
+		p.peerLn.Close()
 	}
 }
 
 type peer struct {
 	peerSocket string
 	rendezvous string
+	peerLn     net.Listener
+	daemonLn   net.Listener
 
 	mu   sync.Mutex
 	self string
