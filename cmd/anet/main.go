@@ -37,10 +37,16 @@ func main() {
 	}
 	cmd, rest := args[0], args[1:]
 	fail := func(err error) {
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
+		if err == nil {
+			return
 		}
+		// A verdict already printed to stdout exits non-zero without a
+		// second, emptier line: "this receipt does not verify" is an
+		// answer, not a malfunction of the tool.
+		if err.Error() != "" {
+			fmt.Fprintln(os.Stderr, "error:", err)
+		}
+		os.Exit(1)
 	}
 	switch cmd {
 	case "daemon":
@@ -57,6 +63,12 @@ func main() {
 		fail(runID(rest))
 	case "version", "--version", "-v":
 		fmt.Println("anet", daemon.Version)
+	case "verify":
+		// Above the daemon resolution on purpose: checking a receipt takes
+		// a receipt and a key history and nothing else. Requiring a running
+		// daemon would make "anyone can verify" mean "anyone running our
+		// software", which is a different and much smaller claim.
+		fail(verify(layout, rest))
 	case "logs":
 		printLogs(layout, rest)
 	case "install":

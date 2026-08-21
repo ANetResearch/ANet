@@ -18,11 +18,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
-	"github.com/ANetResearch/ANet/internal/protocol/delegation"
-	"github.com/ANetResearch/ANet/internal/protocol/evidence"
-	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANetCore/anetcid"
+	"github.com/ANetResearch/ANetCore/delegation"
+	"github.com/ANetResearch/ANetCore/evidence"
+	"github.com/ANetResearch/ANetCore/identity"
+
+	"github.com/ANetResearch/ANet/internal/hubapi"
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // InboxItem is one inbound (delegated-to-us) task shown to the operator.
@@ -45,6 +47,11 @@ type ResultItem struct {
 	ReceiptCID    string `json:"receipt_cid"`
 	Receipt       string `json:"receipt"`
 	Reviewed      bool   `json:"reviewed"`
+	// ProviderKEL is the key history the receipt was verified against,
+	// base64. Handed out so a holder of this result can re-check it
+	// themselves rather than taking this daemon's word for it — which is
+	// the whole point of a signed receipt.
+	ProviderKEL string `json:"provider_kel,omitempty"`
 }
 
 // ReviewResult is the outcome of signing a review.
@@ -384,7 +391,12 @@ func (d *Daemon) maybeFinalize(ctx context.Context, interactionID string) error 
 	if err := d.ix.SetResult(ix.ID, transcript, resultCID, receiptBytes); err != nil {
 		return err
 	}
-	rr := &delegation.ResultResp{Status: delegation.StatusDone, Deliverable: transcript, Receipt: receiptBytes}
+	selfKEL, err := identity.MarshalKEL(d.self.KEL())
+	if err != nil {
+		return fmt.Errorf("anet: marshal KEL: %w", err)
+	}
+	rr := &delegation.ResultResp{Status: delegation.StatusDone, Deliverable: transcript,
+		Receipt: receiptBytes, KEL: selfKEL}
 	payload, err := rr.Marshal()
 	if err != nil {
 		return err
@@ -567,6 +579,40 @@ func (d *Daemon) ingestResult(interactionID string, payload []byte) bool {
 		log.Printf("anet: result cid: %v", err)
 		return false
 	}
+
+	// Verify the receipt before accepting the work it certifies.
+	//
+	// The signature is the least of it. It says some provider signed some
+	// receipt; VerifyResult additionally binds the receipt to this
+	// interaction, to us as the requester, to the provider we actually
+	// delegated to, and — the one that matters — to the hash of the bytes
+	// in front of us. A provider holding a valid signature can otherwise
+	// return one result with a receipt for another.
+	//
+	// A failed check drops the result rather than storing it. The
+	// interaction stays open, which is the honest outcome: we have not been
+	// given a completion we can stand behind, and the alternative is
+	// recording one on our own evidence chain.
+	ix, ixErr := d.ix.Get(interactionID)
+	var expectProvider string
+	if ixErr == nil {
+		expectProvider = ix.PeerAID
+	}
+	verified := false
+	switch _, verr := delegation.VerifyResult(rr, interactionID, d.AID(), expectProvider, uint64(nowMillis())); {
+	case verr == nil:
+		verified = true
+		d.rememberProviderKEL(rr.KEL, expectProvider)
+	case errors.Is(verr, delegation.ErrUnverifiable):
+		// An older provider sends no key history. Accept the work and say
+		// so on the chain: not knowing is not the same as knowing it is
+		// fine, and a completion is where collapsing the two costs most.
+		log.Printf("anet: %s: result accepted UNVERIFIED (provider sent no KEL)", interactionID)
+	default:
+		log.Printf("anet: %s: REFUSING result: %v", interactionID, verr)
+		return true // do not retry: the payload is what it is
+	}
+
 	if err := d.ix.SetResult(interactionID, rr.Deliverable, resultCID, rr.Receipt); err != nil {
 		if errors.Is(err, interactions.ErrNotFound) {
 			return true // unknown interaction — drop
@@ -581,6 +627,10 @@ func (d *Daemon) ingestResult(interactionID string, payload []byte) bool {
 		"interaction_id": interactionID,
 		"result_cid":     resultCID,
 		"receipt_bytes":  len(rr.Receipt),
+		// Whether we could check it is evidence too. A chain that records
+		// only "accepted" cannot later tell an audited completion from one
+		// nobody was able to audit.
+		"receipt_verified": verified,
 	}); lerr != nil {
 		log.Printf("anet: result evidence ledger: %v", lerr)
 	}

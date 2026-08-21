@@ -4,10 +4,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ANetResearch/ANet/module/blackboard"
-	"github.com/ANetResearch/ANet/module/inv1"
 	"github.com/ANetResearch/ANetCore/adp"
 	"github.com/ANetResearch/ANetCore/tsir"
+
+	"github.com/ANetResearch/ANet/module/blackboard"
+	"github.com/ANetResearch/ANet/module/inv1"
 )
 
 // The runtime INV-1 guard rejects org-scoped objects on a commons publish path — by value, by pointer,

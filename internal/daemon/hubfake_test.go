@@ -18,10 +18,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
-	"github.com/ANetResearch/ANet/internal/protocol/evidence"
 	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/tsir"
+
+	"github.com/ANetResearch/ANet/internal/hubapi"
 )
 
 // fakeHubAgent is one registered agent's row in the fake registry.

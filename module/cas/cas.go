@@ -25,10 +25,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ANetResearch/ANetCore/anetcid"
 	cid "github.com/ipfs/go-cid"
 	mh "github.com/multiformats/go-multihash"
-
-	"github.com/ANetResearch/ANetCore/anetcid"
 )
 
 // ErrCorrupt is returned by Get when the on-disk blob's content no longer hashes to
