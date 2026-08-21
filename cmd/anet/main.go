@@ -855,21 +855,33 @@ func runAutoReply(c *client, rest []string) error {
 	}
 }
 
+// splitFlags separates positional arguments from --flags.
+//
+// Both spellings, because the CLI already accepted --attach=PATH and this
+// accepted only --capability VALUE. `anet delegate AID --capability=cas.put`
+// parsed as a flag literally named "capability=cas.put" set to "true", the
+// capability went missing, and the command failed complaining about an
+// empty goal. The user typed the form the tool taught them one flag
+// earlier.
 func splitFlags(rest []string) (pos []string, flags map[string]string) {
 	flags = map[string]string{}
 	for i := 0; i < len(rest); i++ {
 		a := rest[i]
-		if strings.HasPrefix(a, "--") {
-			key := strings.TrimPrefix(a, "--")
-			if i+1 < len(rest) && !strings.HasPrefix(rest[i+1], "--") {
-				flags[key] = rest[i+1]
-				i++
-			} else {
-				flags[key] = "true"
-			}
-		} else {
+		if !strings.HasPrefix(a, "--") {
 			pos = append(pos, a)
+			continue
 		}
+		key := strings.TrimPrefix(a, "--")
+		if k, v, found := strings.Cut(key, "="); found {
+			flags[k] = v
+			continue
+		}
+		if i+1 < len(rest) && !strings.HasPrefix(rest[i+1], "--") {
+			flags[key] = rest[i+1]
+			i++
+			continue
+		}
+		flags[key] = "true"
 	}
 	return pos, flags
 }
