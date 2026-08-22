@@ -107,7 +107,7 @@ ink93(普通用户)+ emax(纯 hub)+ dmax(服务节点)三节点跨公网跑通�
 | ~~D-2~~ | ~~C5 证据链查询接口~~ | — | **已完成**。`anet evidence`、控制面 `POST /evidence`、MCP `evidence_read`;每条带 id / prev_id / 签名,可核而非可信;`head.state` 暴露 QUARANTINED |
 | ~~D-3~~ | ~~按 C1 能力 id 发现~~ | — | **已完成**。`anet find --cap <id>`、控制面 `capability` 字段、MCP `agents_find.capability`;支持 `ptz.*` 族查询 |
 | ~~D-12~~ | ~~广告的 caps 与实际服务的能力 id 是两份清单~~ | — | **已完成**。注册时由 daemon 把 provider 真正提供的 id 折进去 —— 精确查找一上线就把这个错位暴露了:节点报 `digest`、实际服务 `text.digest` |
-| **D-4** | federation 感知 | **H-4** | 中。daemon 侧 grep 不到一个 federation 字样 |
+| **D-4** | federation 感知 | — | 中。hub 侧目录联邦已通(子面 B),daemon 现在能从 `home_hub` 看到一个 agent 住在别的 hub 上,但还不会跨 hub 投递给它 |
 | **D-5** | 结算 | **H-3** | 中。`pricing` 只是展示字符串 |
 | **D-6** | 治理纪元 `govepoch` | **C-1** | 低。org 目前只接受 epoch 0 |
 | ~~D-7~~ | ~~崩溃恢复语义未验证~~ | — | **已完成**。中继在处理**之后**才 ack(对的:先 ack 会丢工作),代价是崩在中间会重投。查出并修掉两处:重投的委派会**再执行一次**(第二次物理效果、第二张收据、第二条链记录),重投的结果会**在证据链上多记一条**。投递是 at-least-once 且只能如此;执行不是 |
@@ -135,8 +135,9 @@ admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 
 | ~~H-1~~ | ~~发现是 `LIKE %q%` 子串匹配~~ | — | **已完成**。`agent_cap` 索引表 + `?cap=` 精确/前缀查询,保留原有逗号 OR 语义;旧库自动 backfill(生产上已验:升级前注册的 dmax 升级后可按 id 查到) |
 | ~~H-2~~ | ~~不发布 KEL~~ | — | **已完成**。`GET /agents/{aid}/kel`;`anet verify --receipt X --hub URL` 自己取密钥历史。第三方验证闭环打通:只有收据 + hub 地址即可核验,通过与拒绝各实测一次 |
 | **H-3** | 无结算 | **D-5** | 一个委派网络没有结算是 demo |
-| **H-4** | federation 只做了投递面 | **D-4** | 目录联邦、信誉联邦未做 |
-| **H-5** | 测试密度偏低 | — | 6,949 行实现对 35 个测试;webui 2,316 行基本无测试 |
+| ~~H-4~~ | ~~federation 只做了投递面~~ | — | **子面 B 已完成**:`GET /fed/v1/cards` 游标同步、三档可见性(默认 hub-local)、拉取而非推送、一跳纪律。**信誉联邦仍未做** → H-7 |
+| **H-7** | 信誉联邦未做 | — | 低。跨 hub 的评分聚合。收据与评价本就可被第三方独立核验,所以这更多是聚合与呈现,不是新的信任模型 |
+| **H-5** | 测试密度偏低 | — | 本轮 35 → 48 个测试(卡片、能力索引、目录联邦)。webui 2,316 行仍基本无测试 |
 | **H-6** | 部署链路上有三层体积上限 | — | daemon 控制面 / hub / **nginx**。只改前两层无效 —— nginx vhost 默认 1m 才是公网路径的真瓶颈。emax 已改 512m,但这是手工的服务器配置,不在任何仓库里 |
 
 ---
