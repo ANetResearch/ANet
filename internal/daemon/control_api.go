@@ -136,6 +136,7 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /threads", d.hThreads)
 	api.HandleFunc("POST /thread", d.hThread)
 	api.HandleFunc("POST /identities", d.hIdentities)
+	api.HandleFunc("POST /evidence", d.hEvidence)
 	// The local web console is served OUTSIDE the bearer wrapper (a browser navigation cannot send an
 	// Authorization header); loopback-only makes this safe. The page then calls the token-guarded API
 	// above with the injected token. Everything else stays bearer-gated.
@@ -812,4 +813,29 @@ func (d *Daemon) hReview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// hEvidence serves this node's own evidence chain.
+//
+// The chain was write-only for its whole existence: every capability
+// effect, receipt and accepted result went onto it and nothing could read
+// it back. That is a strange shape for an audit substrate — the operator
+// accumulating the evidence was the one person who could not look at it,
+// and "verify before use" was enforced against a file nobody ever saw.
+func (d *Daemon) hEvidence(w http.ResponseWriter, r *http.Request) {
+	var q EvidenceQuery
+	if err := readJSON(r, &q); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if d.ledger == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"head": EvidenceHead{State: "ACTIVE"}, "records": []EvidenceRecord{}})
+		return
+	}
+	head, recs := d.ledger.Evidence(q)
+	if recs == nil {
+		recs = []EvidenceRecord{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"head": head, "records": recs})
 }

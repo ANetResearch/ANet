@@ -134,6 +134,30 @@ func New(c Control, version string) *mcp.Server {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "evidence_read",
+		Description: "Read this node's own evidence chain — a signed, append-only, fork-evident " +
+			"record of every capability effect it executed, every receipt it issued and every " +
+			"result it accepted. Use it to show that work actually happened: each entry carries " +
+			"its id, the id of the entry before it, and the signature, so a reader can check the " +
+			"chain instead of trusting this node. If head.state is QUARANTINED, a fork was " +
+			"detected and nothing on this chain should be relied on.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in evidenceIn) (*mcp.CallToolResult, passthrough, error) {
+		body := map[string]any{}
+		if in.EventType != "" {
+			body["event_type"] = in.EventType
+		}
+		if in.Since > 0 {
+			body["since"] = in.Since
+		}
+		if in.Limit > 0 {
+			body["limit"] = in.Limit
+		}
+		out := passthrough{}
+		err := c.Call(ctx, "/evidence", body, &out)
+		return nil, out, err
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "node_status",
 		Description: "This node's own identity and state: its AID, which hub it is registered " +
 			"with, which capability modules are compiled in, and what it is currently working on.",
@@ -199,6 +223,12 @@ type resultView struct {
 	ResultCID     string `json:"result_cid"`
 	ReceiptCID    string `json:"receipt_cid"`
 	Reviewed      bool   `json:"reviewed"`
+}
+
+type evidenceIn struct {
+	EventType string `json:"event_type,omitempty" jsonschema:"keep only this kind, e.g. anet.capability.effect"`
+	Since     uint64 `json:"since,omitempty" jsonschema:"only entries at or after this sequence number"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"how many to return, newest last; default 50"`
 }
 
 type inboxIn struct {

@@ -182,3 +182,139 @@ func decodeRecord(line []byte) (*ael.EventRecord, error) {
 	}
 	return &r, nil
 }
+
+// EvidenceRecord is one event as an operator sees it.
+//
+// Every field an outsider needs to re-derive the id and re-check the
+// chain travels: the preimage fields, the signature, and the link to the
+// record before it. A read surface that returned only "what happened"
+// would make the chain a log, and the whole point of a hash chain is that
+// a reader can check it rather than believe it.
+type EvidenceRecord struct {
+	Seq       uint64         `json:"seq"`
+	ID        string         `json:"id"`
+	PrevID    string         `json:"prev_id"`
+	EventType string         `json:"event_type"`
+	Timestamp int64          `json:"timestamp"`
+	SignerAID string         `json:"signer_aid"`
+	Payload   map[string]any `json:"payload,omitempty"`
+	Sig       string         `json:"sig,omitempty"` // base64, detached over the preimage
+}
+
+// EvidenceQuery filters a read of this node's own chain.
+type EvidenceQuery struct {
+	// EventType, when set, keeps only events of that kind.
+	EventType string `json:"event_type,omitempty"`
+	// Since keeps events with Seq >= Since.
+	Since uint64 `json:"since,omitempty"`
+	// Limit caps the number returned, newest last. Zero means the default.
+	Limit int `json:"limit,omitempty"`
+}
+
+// EvidenceHead summarises the chain itself.
+type EvidenceHead struct {
+	ChainDID string `json:"chain_did"`
+	HeadID   string `json:"head_id"`
+	Length   uint64 `json:"length"`
+	// State is ACTIVE, or QUARANTINED if a fork was detected. A node
+	// serving evidence from a quarantined chain has to say so — that is
+	// the one fact a reader most needs and would never think to ask for.
+	State string `json:"state"`
+}
+
+const (
+	defaultEvidenceLimit = 50
+	maxEvidenceLimit     = 1000
+)
+
+// Evidence reads this node's own chain.
+//
+// It serves from the verified in-memory ledger, never by re-reading the
+// file. The chain is verified once at open and refuses to load if it does
+// not re-derive; a second read path that parsed the file directly would
+// be an unverified view of the same bytes, and the difference between the
+// two would surface as an argument about whose copy is right.
+func (l *evidenceLedger) Evidence(q EvidenceQuery) (EvidenceHead, []EvidenceRecord) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	head := EvidenceHead{ChainDID: l.did, Length: l.nextSeq, State: l.led.State(l.did)}
+	if head.State == "" {
+		// No chain yet: nothing has been recorded. ACTIVE is the honest
+		// answer — an empty chain is not a broken one.
+		head.State = ael.ChainActive
+	}
+	if l.nextSeq > 0 {
+		head.HeadID = l.prevID
+	}
+
+	limit := q.Limit
+	if limit <= 0 {
+		limit = defaultEvidenceLimit
+	}
+	if limit > maxEvidenceLimit {
+		limit = maxEvidenceLimit
+	}
+
+	all := l.led.Events(l.did)
+	out := make([]EvidenceRecord, 0, limit)
+	for _, r := range all {
+		if r.Seq < q.Since {
+			continue
+		}
+		if q.EventType != "" && r.EventType != q.EventType {
+			continue
+		}
+		out = append(out, EvidenceRecord{
+			Seq: r.Seq, ID: r.ID, PrevID: r.PrevID, EventType: r.EventType,
+			Timestamp: r.Timestamp, SignerAID: r.SignerAID,
+			Payload: plainMap(r.Payload),
+			Sig:     base64.StdEncoding.EncodeToString(r.Sig),
+		})
+	}
+	// Newest last, and the tail is what an operator wants: "what just
+	// happened" is the question being asked almost every time.
+	if len(out) > limit {
+		out = out[len(out)-limit:]
+	}
+	return head, out
+}
+
+// plainMap re-keys a CBOR-decoded payload for JSON. CBOR decodes a map
+// into map[any]any because its keys need not be strings; ours always are.
+func plainMap(v any) map[string]any {
+	switch m := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			out[k] = plainValue(val)
+		}
+		return out
+	case map[any]any:
+		out := make(map[string]any, len(m))
+		for k, val := range m {
+			out[fmt.Sprint(k)] = plainValue(val)
+		}
+		return out
+	}
+	return nil
+}
+
+func plainValue(v any) any {
+	switch t := v.(type) {
+	case map[any]any, map[string]any:
+		return plainMap(t)
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = plainValue(e)
+		}
+		return out
+	case []byte:
+		// Bytes are why this chain is CBOR and not JSON. Rendering them as
+		// base64 here is a display choice and says so, rather than letting
+		// the encoder guess.
+		return base64.StdEncoding.EncodeToString(t)
+	}
+	return v
+}

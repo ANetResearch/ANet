@@ -403,41 +403,6 @@ func lastLedgerPayload(t *testing.T, d *Daemon, kind string) map[string]any {
 	return found
 }
 
-// plainMap re-keys a CBOR-decoded payload for assertions. CBOR decodes a
-// map into map[any]any because its keys need not be strings; ours always
-// are.
-func plainMap(v any) map[string]any {
-	switch m := v.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(m))
-		for k, val := range m {
-			out[k] = plainValue(val)
-		}
-		return out
-	case map[any]any:
-		out := make(map[string]any, len(m))
-		for k, val := range m {
-			out[fmt.Sprint(k)] = plainValue(val)
-		}
-		return out
-	}
-	return nil
-}
-
-func plainValue(v any) any {
-	switch t := v.(type) {
-	case map[any]any, map[string]any:
-		return plainMap(t)
-	case []any:
-		out := make([]any, len(t))
-		for i, e := range t {
-			out[i] = plainValue(e)
-		}
-		return out
-	}
-	return v
-}
-
 // A capability call must be reachable from outside the daemon.
 //
 // DelegateCapability existed and worked, and nothing in the product could

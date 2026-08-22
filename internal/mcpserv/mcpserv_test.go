@@ -74,7 +74,7 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	}
 	want := []string{
 		"agents_find", "task_delegate", "task_results",
-		"task_inbox", "task_message", "task_end", "node_status",
+		"task_inbox", "task_message", "task_end", "evidence_read", "node_status",
 	}
 	for _, name := range want {
 		if _, ok := got[name]; !ok {
@@ -93,6 +93,11 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	}
 	if d := got["task_delegate"]; !strings.Contains(d, "cannot be repudiated") {
 		t.Error("task_delegate must say the delegation is signed and attributable")
+	}
+	// A quarantined chain is the one fact a reader most needs and would
+	// never think to ask for.
+	if d := got["evidence_read"]; !strings.Contains(d, "QUARANTINED") {
+		t.Error("evidence_read must warn that a forked chain cannot be relied on")
 	}
 }
 
