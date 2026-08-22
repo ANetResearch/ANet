@@ -216,6 +216,16 @@ import sys,json;print(len(json.load(sys.stdin).get('agents') or []))")
 # Third-party verifiability, from the hub alone.
 kel=$(curl -s -m 10 "$HUB/agents/$A/kel" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("kel",""))')
 [ -n "$kel" ] && ok "hub 公布了 A 的密钥历史,陌生人可以自行验签" || no "hub 不发布密钥历史"
+# The directory entry must be the agent's own words, not the hub's.
+card=$(curl -s -m 10 "$HUB/agents/$A/card")
+echo "$card" | python3 -c "
+import sys,json
+c=json.load(sys.stdin)
+assert c['subject_did']=='$A', 'subject mismatch'
+assert 'text.digest' in c['capabilities'], c['capabilities']
+assert c['envelope']['signer_aid']=='$A'
+" 2>/dev/null && ok "目录里 A 的条目是 A 自己签的(能力在签名内,hub 改不动)" \
+  || no "A 没有已签名的卡片: $(echo "$card" | head -c 160)"
 
 # ── 3. every pair can actually reach the others ─────────────────
 hd "3  三者两两连通"
