@@ -37,6 +37,7 @@ import (
 	"sync"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -71,6 +72,57 @@ type Host interface {
 	// holds KELs but does not publish them, so a node vouches for what it
 	// verified itself and for nothing else.
 	ResolveKEL(aid string) ([]identity.SignedEvent, bool)
+
+	// PaymentSeam hands over the ability to act as this node in a
+	// payment. Absent when there is no hub, which is also when there is
+	// no ledger and nothing can be charged.
+	//
+	// One method, and it grants more than the others do: what comes back
+	// can sign as this node. That is not a detail to leave implicit, so
+	// it is named — PaymentSeam, not Identity, not Keys — and it is worth
+	// saying why the smaller grant does not work. A payment module could
+	// be given the hub's identity read-only and would then be able to
+	// verify what it is told and unable to authorise anything, because an
+	// authorization the payer did not sign is not an authorization. The
+	// signing is the payment.
+	//
+	// So the trade is deliberate: signing leaves the kernel, and in
+	// exchange 800 lines of facilitator client, voucher door and
+	// redemption path leave with it — including a PUBLIC listener, which
+	// is a security posture nothing else in the kernel has. A build with
+	// -tags no_x402 has none of it, which it could not claim while the
+	// code sat in the kernel being linked in regardless.
+	PaymentSeam() (PaymentSeam, bool)
+}
+
+// PaymentSeam is exactly what a payment subsystem needs of the node.
+//
+// Narrow on purpose, and named after what it is for rather than what it
+// contains: a reader asking "what can the payment module do to my key"
+// should find the answer in one place.
+type PaymentSeam interface {
+	// Sign signs one object's preimage as this node, returning the
+	// signature and the key-state sequence it was made under.
+	Sign(preimage []byte) (sig []byte, keyStateSeq uint64)
+	// HubIdentity is the hub this node settles on: its AID and its
+	// verified key history. The AID goes into every authorization's
+	// network field, so a payment signed for one hub cannot be replayed
+	// at another; the key history is what makes the hub's settlement
+	// receipts checkable rather than merely received.
+	HubIdentity() (aid string, kel []identity.SignedEvent, ok bool)
+	// HubURL is where to reach that hub.
+	HubURL() string
+	// ReadEvidence reads this node's own chain back, newest last, for one
+	// event type.
+	//
+	// Here rather than on Host because it is the read half of a write
+	// Host already grants, and because the payment module has the one use
+	// that needs it: a voucher is spent once, the guard must survive a
+	// restart, and the chain is where the redemption was recorded. A
+	// control nobody can consult is not a control — the alternative was a
+	// second persistence layer holding the same facts, which is how two
+	// records of one event start disagreeing.
+	ReadEvidence(eventType string, limit int) []map[string]any
 }
 
 // Module is an optional daemon subsystem.
@@ -98,6 +150,70 @@ type Confidential interface {
 	// ForbiddenTokens returns strings that must not appear in a public
 	// publication. Called on every publish, so it must be cheap.
 	ForbiddenTokens() []string
+}
+
+// Payer is implemented by a module that can charge for work and pay for
+// it — the x402 subsystem.
+//
+// Optional, and type-asserted at build time exactly like Confidential.
+// The kernel therefore never imports the module (K207): it knows only
+// that something may be able to price and settle, and answers honestly
+// when nothing can.
+//
+// A build without it does not silently do paid work for free. A priced
+// capability is refused with a message saying this build cannot take
+// payment, because "I cannot charge you, so I will not do it" is true and
+// "here, have it" is a decision nobody made.
+type Payer interface {
+	// Price reports what a capability costs here and whether it costs
+	// anything. Free is (0, false), never (0, true).
+	Price(capID string) (uint64, bool)
+	// Quote builds the PAYMENT_REQUIRED body for a priced capability.
+	Quote(capID string, price uint64) *payment.PaymentRequired
+	// Authorize signs a payment for one interaction and returns the
+	// marshalled payload, ready to ride with a delegation. The kernel
+	// drives the delegation; this signs the money.
+	Authorize(opt payment.PaymentOption, interactionID string) ([]byte, error)
+	// Settle presents a payment to the facilitator and reports what
+	// happened, including the hub's signed receipt when it sent one.
+	Settle(ctx context.Context, raw []byte) (Settlement, error)
+	// VerifyReceipt checks a hub settlement receipt, pinning the signer to
+	// this node's own hub and the payer to expectPayer. Reports what the
+	// receipt says either way: "the provider told us it was paid" and "the
+	// hub signed that it moved the credit" are different facts, and a
+	// caller that cannot tell them apart will record the stronger.
+	VerifyReceipt(receiptB64, expectPayer string) (ReceiptFacts, bool)
+	// Balance reads this node's standing off the custodian.
+	Balance(ctx context.Context) (map[string]any, error)
+	// Redeem gives credit back to the hub against an external reference.
+	Redeem(ctx context.Context, amount uint64, reference string) (map[string]any, error)
+	// RedeemURL is this node's public voucher face, or empty. It goes in
+	// the signed card so a gateway can tell buyers where to collect.
+	RedeemURL() string
+	// Serve brings up whatever public face the module needs. Called once,
+	// after Start, by the kernel that owns the process lifetime.
+	Serve(ctx context.Context) error
+}
+
+// ReceiptFacts is what a settlement receipt says, once checked.
+type ReceiptFacts struct {
+	Payee  string
+	AuthID string
+	Amount uint64
+}
+
+// Settlement is a completed payment as the kernel needs to see it.
+//
+// Deliberately not the x402 response type: the kernel carries these
+// fields into a result and onto a chain and has no business with the
+// rest. Receipt stays base64 rather than parsed, because the kernel is
+// passing it through to whoever can check it and checking is not its job.
+type Settlement struct {
+	Transaction string
+	Amount      string
+	Network     string
+	Receipt     string // base64 CoreDet-CBOR, empty if the hub signed nothing
+	Failed      string // non-empty when the payment did not settle, and why
 }
 
 // Factory builds a module from its configuration block. Returning (nil, nil)
@@ -140,6 +256,25 @@ func Compiled() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// BuildOne instantiates a single registered module from its config
+// block, for callers that want one rather than the set.
+//
+// Exists because a module's factory is the only thing standing between an
+// operator's typo and a daemon that starts without the capabilities they
+// asked for, and testing that through Build meant standing up every other
+// module too. Returns (nil, nil) for "compiled in, not configured", the
+// same as Build does.
+func BuildOne(name string, cfg []byte) (Module, error) {
+	regMu.Lock()
+	defer regMu.Unlock()
+	for _, r := range registry {
+		if r.name == name {
+			return r.factory(cfg)
+		}
+	}
+	return nil, fmt.Errorf("module %q is not compiled into this build", name)
 }
 
 // Build instantiates every compiled-in module that is configured.

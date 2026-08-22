@@ -1,4 +1,6 @@
-package daemon
+//go:build !no_x402
+
+package x402
 
 import (
 	"context"
@@ -38,6 +40,12 @@ import (
 // subsystem. Putting the objects, the settlement and the quote in the
 // kernel and the redemption behind a build tag would be half a feature
 // each side of a seam.
+
+// EvCapabilityEffect is the kernel's event type for a capability that
+// ran. Named here with the same string on purpose: work bought through
+// this door is as accountable as work delegated through the relay, and a
+// separate event type would make it look like a separate kind of work.
+const EvCapabilityEffect = "anet.capability.effect"
 
 // EvVoucherRedeemed records a voucher this node honoured.
 //
@@ -103,16 +111,16 @@ func (s *spentVouchers) release(id string) {
 }
 
 // load reads previously redeemed voucher ids off this node's own chain.
-func (s *spentVouchers) load(d *Daemon) {
+func (s *spentVouchers) load(m *Module) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.loaded || d.ledger == nil {
+	if s.loaded || m.seam == nil {
 		return
 	}
 	s.loaded = true
-	_, recs := d.ledger.Evidence(EvidenceQuery{EventType: EvVoucherRedeemed, Limit: maxSpentReplay})
+	recs := m.seam.ReadEvidence(EvVoucherRedeemed, maxSpentReplay)
 	for _, r := range recs {
-		if id, ok := r.Payload["voucher_id"].(string); ok && id != "" {
+		if id, ok := r["voucher_id"].(string); ok && id != "" {
 			s.ids[id] = true
 		}
 	}
@@ -129,20 +137,20 @@ func (s *spentVouchers) load(d *Daemon) {
 const maxSpentReplay = 10000
 
 // redeemHandler serves the public voucher face.
-func (d *Daemon) redeemHandler() http.Handler {
+func (m *Module) redeemHandler() http.Handler {
 	mux := http.NewServeMux()
 	// A GET says what this is, for whoever finds the port. Being findable
 	// and unexplained is its own small hazard.
 	mux.HandleFunc("GET /x402/redeem", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"aid":     d.AID(),
+			"aid":     m.AID(),
 			"accepts": payment.SchemeCredit,
-			"network": payment.CreditNetwork(d.hubAID()),
+			"network": payment.CreditNetwork(m.hubAID()),
 			"how": "POST a hub-signed voucher here with the capability it bought. " +
 				"Buy one from this node's hub; the hub takes the payment and never sees the work.",
 		})
 	})
-	mux.HandleFunc("POST /x402/redeem", d.hRedeem)
+	mux.HandleFunc("POST /x402/redeem", m.hRedeem)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -150,7 +158,7 @@ func (d *Daemon) redeemHandler() http.Handler {
 }
 
 // hRedeem verifies a voucher and does the work it paid for.
-func (d *Daemon) hRedeem(w http.ResponseWriter, r *http.Request) {
+func (m *Module) hRedeem(w http.ResponseWriter, r *http.Request) {
 	var req redeemRequest
 	if err := readJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -158,7 +166,7 @@ func (d *Daemon) hRedeem(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), redeemTimeout)
 	defer cancel()
-	res, code := d.RedeemVoucher(ctx, req)
+	res, code := m.RedeemVoucher(ctx, req)
 	writeJSON(w, code, res)
 }
 
@@ -169,14 +177,14 @@ const redeemTimeout = 10 * time.Minute
 
 // RedeemVoucher is the whole check-and-do, separated from HTTP so it is testable
 // without a listener and callable from anywhere else that grows a need.
-func (d *Daemon) RedeemVoucher(ctx context.Context, req redeemRequest) (map[string]any, int) {
+func (m *Module) RedeemVoucher(ctx context.Context, req redeemRequest) (map[string]any, int) {
 	refuse := func(code int, reason string, detail map[string]any) (map[string]any, int) {
-		if d.ledger != nil {
+		if m.host != nil {
 			payload := map[string]any{"reason": reason, "capability": req.Capability}
 			for k, v := range detail {
 				payload[k] = v
 			}
-			if _, err := d.ledger.Append(EvVoucherRefused, payload); err != nil {
+			if err := m.record(EvVoucherRefused, payload); err != nil {
 				log.Printf("anet: voucher refusal evidence: %v", err)
 			}
 		}
@@ -197,17 +205,17 @@ func (d *Daemon) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 	// Who signed it has to be our hub, checked against our hub's key
 	// history rather than against the AID the voucher names itself. An
 	// object that names its own signer proves only that somebody signed.
-	hubAID := d.hubAID()
+	hubAID := m.hubAID()
 	if hubAID == "" {
 		return refuse(http.StatusServiceUnavailable,
 			"this node has no hub, so it cannot tell whose signature to trust", nil)
 	}
-	kel, err := d.hubKEL()
+	kel, err := m.hubKEL()
 	if err != nil {
 		return refuse(http.StatusServiceUnavailable, "cannot read the hub's key history: "+err.Error(), nil)
 	}
-	if err := v.Verify(kel, hubAID, d.AID(), req.Capability,
-		payment.CreditNetwork(hubAID), nowMillis()); err != nil {
+	if err := v.Verify(kel, hubAID, m.AID(), req.Capability,
+		payment.CreditNetwork(hubAID), time.Now().UnixMilli()); err != nil {
 		return refuse(http.StatusPaymentRequired, err.Error(), map[string]any{"payer": v.Payer})
 	}
 	if v.ArgsCID != "" {
@@ -225,22 +233,22 @@ func (d *Daemon) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 	if err != nil {
 		return refuse(http.StatusInternalServerError, err.Error(), nil)
 	}
-	d.spent.load(d)
-	if !d.spent.claim(id) {
+	m.spent.load(m)
+	if !m.spent.claim(id) {
 		return refuse(http.StatusConflict, "this voucher has already been redeemed",
 			map[string]any{"voucher_id": id, "payer": v.Payer})
 	}
 
-	if d.providers == nil {
-		d.spent.release(id)
+	if m.host.Providers() == nil {
+		m.spent.release(id)
 		return refuse(http.StatusServiceUnavailable, "this node serves no capabilities", nil)
 	}
-	p, ok := d.providers.Resolve(req.Capability)
+	p, ok := m.host.Providers().Resolve(req.Capability)
 	if !ok {
 		// Paid for, and we cannot do it. Release the claim: the buyer
 		// should be able to take this to the hub, and a voucher we
 		// consumed without working is one they cannot show is unspent.
-		d.spent.release(id)
+		m.spent.release(id)
 		return refuse(http.StatusNotFound,
 			"this node does not serve "+req.Capability, map[string]any{"payer": v.Payer})
 	}
@@ -249,11 +257,11 @@ func (d *Daemon) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 	// leave a redeemed voucher looking unredeemed. The buyer whose work
 	// was interrupted has a real complaint and the evidence to make it;
 	// the alternative lets a crash be farmed for free work.
-	if _, lerr := d.ledger.Append(EvVoucherRedeemed, map[string]any{
+	if lerr := m.record(EvVoucherRedeemed, map[string]any{
 		"voucher_id": id, "auth_id": v.AuthID, "payer": v.Payer,
 		"capability": v.Capability, "amount": v.Amount, "network": v.Network,
 	}); lerr != nil {
-		d.spent.release(id)
+		m.spent.release(id)
 		log.Printf("anet: voucher evidence: %v", lerr)
 		return refuse(http.StatusInternalServerError, "could not record the redemption", nil)
 	}
@@ -267,7 +275,7 @@ func (d *Daemon) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 		out["status"] = string(eff.Status)
 		out["verifiable"] = eff.Verifiable()
 		out["message"] = eff.Message
-		out["evidence"] = provenanceOf(eff.Evidence)
+		out["evidence"] = provider.Provenance(eff.Evidence)
 		if eff.Record != nil {
 			out["metrics"] = eff.Record.Metrics
 		}
@@ -275,7 +283,7 @@ func (d *Daemon) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 	// The effect goes on the chain like any other, so paid-by-voucher work
 	// is as accountable as work delegated through the relay. Different
 	// door, same evidence.
-	if _, lerr := d.ledger.Append(EvCapabilityEffect, map[string]any{
+	if lerr := m.record(EvCapabilityEffect, map[string]any{
 		"interaction_id": id, "capability": req.Capability,
 		"status": out["status"], "via": "voucher",
 	}); lerr != nil {
@@ -285,8 +293,8 @@ func (d *Daemon) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 }
 
 // startRedeemFace brings up the public voucher listener, if configured.
-func (d *Daemon) startRedeemFace(ctx context.Context) error {
-	addr := d.config().VoucherAddr
+func (m *Module) startRedeemFace(ctx context.Context) error {
+	addr := m.cfg.VoucherAddr
 	if addr == "" {
 		return nil
 	}
@@ -294,10 +302,7 @@ func (d *Daemon) startRedeemFace(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("anet: voucher face on %s: %w", addr, err)
 	}
-	srv := &http.Server{Handler: d.redeemHandler(), ReadHeaderTimeout: 10 * time.Second}
-	d.mu.Lock()
-	d.redeemSrv = srv
-	d.mu.Unlock()
+	srv := &http.Server{Handler: m.redeemHandler(), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("anet: voucher redemption face on %s (public: buyers reach it directly, the hub does not)", ln.Addr())
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

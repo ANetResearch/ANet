@@ -39,6 +39,15 @@ func (d *Daemon) startModules(ctx context.Context, cfg Config) error {
 			return err
 		}
 		d.modules = append(d.modules, m)
+		// A module that can take and make payments becomes this node's
+		// payer. Type-asserted rather than imported, exactly like
+		// Confidential above: the kernel knows that something may be able
+		// to price and settle, and never which package it came from.
+		if p, ok := m.(module.Payer); ok {
+			d.mu.Lock()
+			d.pay = p
+			d.mu.Unlock()
+		}
 	}
 	if names := module.Compiled(); len(names) > 0 {
 		log.Printf("anet: modules compiled in: %s (started: %d)",

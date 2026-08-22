@@ -203,42 +203,12 @@ type paidView struct {
 	Receipt     string `json:"receipt,omitempty"` // base64 CoreDet-CBOR payment.Receipt
 }
 
-// provenanceOf renders an effect's evidence for both surfaces that carry it.
-//
-// One function on purpose. The chain and the deliverable have to agree —
-// evidence that differs depending on who is reading it is worse than no
-// evidence — and two field lists that must stay identical are two field
-// lists that will not. A map rather than a struct because encoding/json
-// sorts map keys, so the deliverable stays byte-stable for the CID the
-// receipt signs.
-func provenanceOf(e *effect.Evidence) map[string]any {
-	if e == nil {
-		return nil
-	}
-	prov := map[string]any{
-		"verify_trust": e.VerifyTrust,
-		"auth_trust":   e.AuthTrust,
-	}
-	if e.Protocol != "" {
-		prov["protocol"] = e.Protocol
-	}
-	if e.Requested != "" {
-		prov["requested"] = e.Requested
-	}
-	if e.ObservedState != "" {
-		prov["observed_state"] = e.ObservedState
-	}
-	if e.Quirk != "" {
-		prov["quirk"] = e.Quirk
-	}
-	if e.NativeAck {
-		prov["native_ack"] = true
-	}
-	if e.LatencyMS > 0 {
-		prov["latency_ms"] = e.LatencyMS
-	}
-	return prov
-}
+// provenanceOf renders an effect's evidence for every surface that
+// carries it. It lives in the provider package so the voucher door in
+// module/x402 uses the SAME function: evidence that differs depending on
+// which door a caller came through is worse than no evidence, and two
+// field lists that must stay identical are two field lists that will not.
+func provenanceOf(e *effect.Evidence) map[string]any { return provider.Provenance(e) }
 
 // tryCapability resolves and executes a capability call, answering with the
 // effect + signed receipt. Returns false when no provider serves it (the
@@ -273,36 +243,39 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 	// evidence model can speak about — the effect and the payment are
 	// both on both chains, so a refund is an argument two parties can
 	// have with records, rather than one party's word.
-	if price, priced := priceOf(p, capID); priced {
+	if price, priced := priceOfCapability(p, capID); priced {
+		payer := d.payer()
+		if payer == nil {
+			// Priced work on a build that cannot charge. Refused, not
+			// done: "I cannot take your money, so I will not do it" is
+			// true, and doing it anyway is a decision nobody made.
+			res.Status = string(effect.Unavailable)
+			res.Message = errNoPayments().Error()
+			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil)
+			return true
+		}
 		if len(paymentRaw) == 0 {
 			return d.answerPaymentRequired(ctx, interactionID, capID, price, ix)
 		}
-		st, serr := d.settle(ctx, paymentRaw)
-		if serr != nil || st == nil || !st.Success {
-			reason := "settlement refused"
+		st, serr := payer.Settle(ctx, paymentRaw)
+		if serr != nil || st.Failed != "" {
+			reason := st.Failed
 			if serr != nil {
 				reason = serr.Error()
-			} else if st != nil && st.ErrorReason != "" {
-				reason = st.ErrorReason
 			}
 			res.Status, res.Message = string(effect.PaymentRequired), reason
-			res.Payment = d.paymentRequired(capID, price)
+			res.Payment = payer.Quote(capID, price)
 			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil)
 			return true
 		}
 		if _, lerr := d.ledger.Append(EvPaymentSettled, map[string]any{
 			"interaction_id": interactionID, "capability": capID,
-			"transaction": st.Transaction, "payer": st.Payer,
-			"amount": st.Amount, "network": st.Network,
+			"transaction": st.Transaction, "amount": st.Amount, "network": st.Network,
 		}); lerr != nil {
 			log.Printf("anet: payment evidence: %v", lerr)
 		}
-		res.Paid = &paidView{Transaction: st.Transaction, Amount: st.Amount, Network: st.Network}
-		// The hub signed a statement that it moved the credit. Carry it:
-		// it is the only part of this the payer can check for itself.
-		if enc, ok := st.Extensions[payment.ExtReceipt].(string); ok && enc != "" {
-			res.Paid.Receipt = enc
-		}
+		res.Paid = &paidView{Transaction: st.Transaction, Amount: st.Amount,
+			Network: st.Network, Receipt: st.Receipt}
 	}
 
 	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID, CallerAID: ix.PeerAID})

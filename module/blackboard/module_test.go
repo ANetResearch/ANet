@@ -311,3 +311,8 @@ func TestExistingUnitIsNotReplacedByAForgedCopy(t *testing.T) {
 		t.Fatal("the board kept the unsigned copy — a forged envelope replaced a verified one")
 	}
 }
+
+// PaymentSeam: none of these modules take money, and a host that offered
+// one would be lending them an ability they must not have. False is the
+// honest answer and the one a node without a hub gives too.
+func (h *testHost) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }

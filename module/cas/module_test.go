@@ -210,3 +210,8 @@ func benchStarted(b *testing.B) (*Module, *casHost) {
 func benchCall(capID string, args map[string]any) provider.Call {
 	return provider.Call{Capability: capID, Args: args}
 }
+
+// PaymentSeam: none of these modules take money, and a host that offered
+// one would be lending them an ability they must not have. False is the
+// honest answer and the one a node without a hub gives too.
+func (h *casHost) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }

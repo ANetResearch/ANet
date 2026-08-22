@@ -253,3 +253,8 @@ func TestConcurrentTrafficBothWays(t *testing.T) {
 		return alice.box.count() == n && bob.box.count() == n
 	})
 }
+
+// PaymentSeam: none of these modules take money, and a host that offered
+// one would be lending them an ability they must not have. False is the
+// honest answer and the one a node without a hub gives too.
+func (h *host) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }
