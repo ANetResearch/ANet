@@ -48,3 +48,18 @@ type CapabilityProvider interface {
 	// capability of this provider temporarily unavailable.
 	Health(ctx context.Context) error
 }
+
+// Priced is implemented by a provider whose capabilities cost something.
+//
+// Optional, and the daemon does the gating rather than the provider. A
+// provider knows what its work is worth; whether a particular caller has
+// paid is about the interaction, and putting that in every provider would
+// mean every author of a capability writing payment code — which is how
+// you get seven subtly different ideas of what "paid" means.
+type Priced interface {
+	// Price reports what a capability costs, in the hub's credit units,
+	// and whether it costs anything at all. Free is (0, false), not
+	// (0, true): a caller should not have to read a payment requirement
+	// to learn there is none.
+	Price(capability string) (uint64, bool)
+}

@@ -35,6 +35,10 @@ type Daemon struct {
 	self         *identity.Controller
 	ix           *interactions.Store
 
+	// cachedHubAID names the ledger this node settles on, fetched once
+	// from the hub. Two hubs are two networks and a credit on one is not
+	// a credit on the other, so an authorization has to say which.
+	cachedHubAID string
 	// providers is the C1 capability registry (docs/CONTRACTS-zh.md): the only doorway
 	// through which this daemon acquires callable capabilities.
 	providers *provider.Registry
