@@ -1,6 +1,6 @@
 # C1 — CapabilityProvider 合同（能力提供者）
 
-> anet4 五合同之一（总纲见 anet 母仓 docs/K207）。Go 包：`provider/`。
+> anet4 五合同之一（总纲见 docs/CONTRACTS-zh.md）。Go 包：`provider/`。
 
 ## 一句话
 

@@ -35,7 +35,7 @@ type Daemon struct {
 	self         *identity.Controller
 	ix           *interactions.Store
 
-	// providers is the C1 capability registry (K207): the only doorway
+	// providers is the C1 capability registry (docs/CONTRACTS-zh.md): the only doorway
 	// through which this daemon acquires callable capabilities.
 	providers *provider.Registry
 

@@ -1,4 +1,4 @@
-// Capability delegation — C1 over the wire (K207/K209).
+// Capability delegation — C1 over the wire (docs/CONTRACTS-zh.md).
 //
 // Convention (uses only signed, CID-significant TaskDoc fields):
 //   - Tasks[0].Requires carries {ID: <capability-id>, Type: "capability",
