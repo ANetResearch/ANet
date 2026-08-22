@@ -775,3 +775,80 @@ func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
 		t.Errorf("the operator's label was dropped: %v", caps)
 	}
 }
+
+// A redelivered chat message must not become a second line.
+//
+// The transcript is what the receipt is taken over, so a duplicate is not
+// cosmetic. Deduping by body would be worse than not deduping: people
+// repeat themselves, and an agent that says "ok" twice means it twice.
+// Only an id minted by the sender — the one party present on every
+// delivery path — can distinguish the two.
+func TestARedeliveredChatMessageIsStoredOnce(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	if err := req.RegisterWithHub(ctx, srv.URL, "A", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "B", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	id, err := req.Delegate(ctx, prov.AID(), "do a thing", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	base := countMessages(t, prov, id)
+
+	payload, err := (&delegation.ChatMsg{
+		Kind: delegation.ChatText, Body: "on my way", MsgID: "msg_deadbeef",
+	}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov.ingestMessage(id, req.AID(), payload)
+	if got := countMessages(t, prov, id); got != base+1 {
+		t.Fatalf("first delivery stored %d messages", got-base)
+	}
+	prov.ingestMessage(id, req.AID(), payload)
+	if got := countMessages(t, prov, id); got != base+1 {
+		t.Errorf("a redelivery added a second line to the transcript (now %d)", got-base)
+	}
+
+	// Saying the same thing again is a different event, and must land.
+	again, err := (&delegation.ChatMsg{
+		Kind: delegation.ChatText, Body: "on my way", MsgID: "msg_cafebabe",
+	}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov.ingestMessage(id, req.AID(), again)
+	if got := countMessages(t, prov, id); got != base+2 {
+		t.Errorf("repeating yourself must be recorded, got %d", got-base)
+	}
+
+	// An older sender mints no id. Its messages must still land, every
+	// one of them — an empty id is not an identity they all share.
+	for i := 0; i < 2; i++ {
+		old, err := (&delegation.ChatMsg{Kind: delegation.ChatText, Body: "no id here"}).Marshal()
+		if err != nil {
+			t.Fatal(err)
+		}
+		prov.ingestMessage(id, req.AID(), old)
+	}
+	if got := countMessages(t, prov, id); got != base+4 {
+		t.Errorf("messages without ids must not dedupe against each other, got %d", got-base)
+	}
+}
+
+func countMessages(t *testing.T, d *Daemon, ixID string) int {
+	t.Helper()
+	msgs, err := d.ix.Messages(ixID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(msgs)
+}

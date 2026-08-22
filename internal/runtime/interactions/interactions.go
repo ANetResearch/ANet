@@ -165,9 +165,14 @@ func (s *Store) migrate() error {
 		   sender_aid TEXT NOT NULL,
 		   kind TEXT NOT NULL,
 		   body TEXT NOT NULL DEFAULT '',
-		   created_at TEXT NOT NULL
+		   created_at TEXT NOT NULL,
+		   -- Sender-minted, so a redelivery can be told from a repetition.
+		   -- The unique index over it is partial (see migrate): an older
+		   -- sender mints none, and "unknown" is not an identity.
+		   msg_id TEXT NOT NULL DEFAULT ''
 		 )`,
 		`CREATE INDEX IF NOT EXISTS idx_msg_ix ON message(interaction_id, seq)`,
+
 		// Binary attachments carried by messages (images / media / archives). Bytes stored inline;
 		// integrity pinned by cid = anetcid.SumRaw(data).
 		`CREATE TABLE IF NOT EXISTS attachment (
@@ -187,6 +192,16 @@ func (s *Store) migrate() error {
 		if _, err := s.db.Exec(q); err != nil {
 			return fmt.Errorf("interactions: migrate: %w", err)
 		}
+	}
+	// Best-effort add of msg_id to a pre-existing message table, before any
+	// index that names it.
+	if _, err := s.db.Exec(`ALTER TABLE message ADD COLUMN msg_id TEXT NOT NULL DEFAULT ''`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		return fmt.Errorf("interactions: migrate add msg_id: %w", err)
+	}
+	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_dedupe
+		 ON message(interaction_id, msg_id) WHERE msg_id != ''`); err != nil {
+		return fmt.Errorf("interactions: migrate msg dedupe index: %w", err)
 	}
 	// Best-effort add of the end-negotiation columns to a pre-existing interaction table (a duplicate
 	// column error just means an already-migrated db).
@@ -275,21 +290,64 @@ func (s *Store) Get(id string) (*Interaction, error) {
 
 // AddMessage appends one entry to an interaction's conversation log and bumps the interaction's
 // updated_at so it sorts to the top of the chat list. Returns the new message seq.
+// AddMessage records a message with no sender-minted id — the local side
+// of a conversation, where there is nothing to deduplicate against.
 func (s *Store) AddMessage(interactionID, senderAID, kind, body string) (int64, error) {
+	seq, _, err := s.AddMessageID(interactionID, senderAID, kind, body, "")
+	return seq, err
+}
+
+// AddMessageID records a relayed message, ignoring one already stored
+// under the same sender-minted id.
+//
+// stored is false for a redelivery, which the caller needs in order to
+// tell "handled" from "handled again": a duplicate is not an error — the
+// relay is at-least-once by design — but it must not become a second line
+// in the transcript the receipt is taken over.
+func (s *Store) AddMessageID(interactionID, senderAID, kind, body, msgID string) (seq int64, stored bool, err error) {
 	if interactionID == "" || senderAID == "" || kind == "" {
-		return 0, fmt.Errorf("%w: interaction_id, sender and kind required", ErrBadInput)
+		return 0, false, fmt.Errorf("%w: interaction_id, sender and kind required", ErrBadInput)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if msgID != "" {
+		// The partial unique index makes this the whole of the dedupe: a
+		// second delivery of the same id inserts nothing and affects no
+		// rows, and there is no read-then-write to race with.
+		res, err := s.db.Exec(
+			`INSERT OR IGNORE INTO message(interaction_id,sender_aid,kind,body,created_at,msg_id)
+			 VALUES(?,?,?,?,?,?)`,
+			interactionID, senderAID, kind, body, now, msgID)
+		if err != nil {
+			return 0, false, err
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return 0, false, err
+		}
+		if n == 0 {
+			var prior int64
+			if err := s.db.QueryRow(
+				`SELECT seq FROM message WHERE interaction_id=? AND msg_id=?`,
+				interactionID, msgID).Scan(&prior); err != nil {
+				return 0, false, err
+			}
+			return prior, false, nil
+		}
+		_, _ = s.db.Exec(`UPDATE interaction SET updated_at=? WHERE id=?`, now, interactionID)
+		seq, err := res.LastInsertId()
+		return seq, true, err
+	}
 	res, err := s.db.Exec(
 		`INSERT INTO message(interaction_id,sender_aid,kind,body,created_at) VALUES(?,?,?,?,?)`,
 		interactionID, senderAID, kind, body, now)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	_, _ = s.db.Exec(`UPDATE interaction SET updated_at=? WHERE id=?`, now, interactionID)
-	return res.LastInsertId()
+	seq, err = res.LastInsertId()
+	return seq, true, err
 }
 
 // Messages returns an interaction's conversation log, oldest first.
