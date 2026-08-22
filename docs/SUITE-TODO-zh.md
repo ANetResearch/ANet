@@ -6,7 +6,7 @@
 (见 [REWRITE-from-anet3-zh.md](REWRITE-from-anet3-zh.md))。一份活文档放在正在退役的
 仓库里,既推不上去也不会有人改。
 
-- **最后核准**:2026-08-22(逐仓跑了 `git log`、`go test`、目录与导出面扫描)
+- **最后核准**:2026-08-22(C-3/C-6 当日完成)(逐仓跑了 `git log`、`go test`、目录与导出面扫描)
 - **条目编号**:`C-n` ANetCore · `D-n` daemon · `H-n` Hub · `L-n` Link · `M-n` Mock。
   编号只增不减 —— 完成的条目移到 DONE 并保留编号,这样跨文档引用不会失效。
 - **维护约定**:改动落地后同时改这里。一份只列已完成项的清单,读起来永远像完成了;
@@ -70,9 +70,10 @@ ANetMock 连 ANetCore 都不依赖 —— 它若发出成品 `Effect`,就把被�
 
 | # | 条目 | 阻塞 | 备注 |
 |---|---|---|---|
-| **C-1** | `ascpevo.GovernanceCert` 未落地 | **阻塞 D-6** | 治理纪元需要它。把协议类型抄进模块以免等待,正是上次造出两个分叉内核的做法 |
+| **C-1** | 治理纪元需要的 `GovernanceCert` | **阻塞 D-6** | **不要整包搬 `ascpevo`**:那是 631 行实验性协议(composite 内核、k*(T)、EVoI、Agent DNA),在 anet4 里**零消费者**。只有 `GovernanceCert` + `VerifyGovernanceCert` 约 120 行有用途。按 scope.md,单一消费者需要配一条 golden 向量才够格。等 D-6 真要做时再取那 120 行 |
 | **C-2** | design3 剩余 8 个协议包是否收录未决 | — | ascp/axp/acc/anrp/aet/clmp/alp,约 6K 行。判据是 scope.md:确定性、无 I/O、且至少两个应用需要 |
-| **C-3** | golden 向量未覆盖新增包 | — | 现有向量只有 AET/TSIR CID、suite key、AObj、CID_RAW。`evidence`/`delegation` 无向量,而它们正是最需要跨实现一致的 |
+| ~~C-3~~ | ~~golden 向量未覆盖新增包~~ | — | **已完成 v0.6.0**:7 条 wire 向量 + 冻结的一致性身份 `identity.SuiteController` |
+| ~~C-6~~ | ~~评价互锁只在 Hub 内部~~ | — | **已完成 v0.6.1**:`evidence.VerifyInterlock`,10 项检查,第三方可独立复核 |
 | ~~C-4~~ | ~~`K207` 被三个 README 引用但不存在~~ | — | **不成立**。`K207-anet4-module-architecture.md` 存在于 anet3 单体仓的 `docs/`。真正的问题变成:anet4 的架构文档留在被退役的仓库里 → 见 **C-5** |
 | **C-5** | anet4 设计文档(K207/K208/K209/K211)仍在 anet3 单体仓 | — | 三个 README 跨仓引用一个正在退役的仓库。应迁入各自仓的 `docs/` |
 
