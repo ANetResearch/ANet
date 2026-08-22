@@ -63,6 +63,11 @@ func main() {
 		fail(runID(rest))
 	case "version", "--version", "-v":
 		fmt.Println("anet", daemon.Version)
+	case "mcp":
+		// Serves over stdio, so it must not share the process with
+		// anything that prints: a stray line on stdout is a protocol
+		// framing error to the client.
+		fail(runMCP(layout))
 	case "verify":
 		// Above the daemon resolution on purpose: checking a receipt takes
 		// a receipt and a key history and nothing else. Requiring a running
