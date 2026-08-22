@@ -488,18 +488,50 @@ func (d *Daemon) ingestDelegate(payload []byte) bool {
 		log.Printf("anet: delegation cid: %v", err)
 		return false
 	}
+	// Have we seen this delegation before?
+	//
+	// The relay acks a message only once it has been handled, which is the
+	// right order — acking first would lose work whenever a node died mid
+	// task. The cost is the other side of that coin: a crash between doing
+	// the work and acking leaves the message in the mailbox, and the next
+	// poll delivers it again. That window spans signing a receipt, writing
+	// the evidence chain and relaying the result, so it is not small.
+	//
+	// Delivery is at-least-once and cannot be otherwise. Execution is what
+	// must not be: re-running is a second physical effect for a capability
+	// that has one, a second signed receipt for work that happened once,
+	// and a second entry on the chain of a node whose whole claim is that
+	// its chain says what happened.
+	prior, seen := d.ix.Get(dr.InteractionID)
+	alreadyAnswered := seen == nil && len(prior.Receipt) > 0
+	if alreadyAnswered {
+		// Answered already. Re-sending the result is deliberate rather
+		// than lazy: the redelivery means our first answer may never have
+		// reached the requester, and the receipt is signed over content
+		// that has not changed, so sending it again is the same statement
+		// rather than a new one.
+		log.Printf("anet: %s redelivered; re-sending the answer we already signed", dr.InteractionID)
+		d.resendResult(dr.InteractionID, prior)
+		return true
+	}
+
 	goal := delegation.TaskGoal(td)
 	if err := d.ix.Put(dr.InteractionID, interactions.RoleInbound, requesterAID, goal, requestCID, taskDocBytes); err != nil {
 		log.Printf("anet: store inbound delegation: %v", err)
 		return false
 	}
-	// Record the goal as the first conversation message (from the requester) so the chat starts with it,
-	// carrying any attachments the requester sent up front.
-	seq, err := d.ix.AddMessage(dr.InteractionID, requesterAID, interactions.MsgText, goal)
-	if err != nil {
-		log.Printf("anet: store inbound first message: %v", err)
-	} else if err := d.storeMsgAttachments(dr.InteractionID, seq, dr.Attachments); err != nil {
-		log.Printf("anet: store inbound attachments: %v", err)
+	// Record the goal as the first conversation message — but only the
+	// first time. A redelivery that got this far is one we accepted and had
+	// not finished; repeating the opening line would put the requester's
+	// words into the transcript twice, and the transcript is what the
+	// receipt will be taken over.
+	if seen != nil {
+		seq, err := d.ix.AddMessage(dr.InteractionID, requesterAID, interactions.MsgText, goal)
+		if err != nil {
+			log.Printf("anet: store inbound first message: %v", err)
+		} else if err := d.storeMsgAttachments(dr.InteractionID, seq, dr.Attachments); err != nil {
+			log.Printf("anet: store inbound attachments: %v", err)
+		}
 	}
 	// C1: a capability call a local provider resolves is executed
 	// deterministically right here; anything else flows to auto-reply.
@@ -580,6 +612,19 @@ func (d *Daemon) ingestResult(interactionID string, payload []byte) bool {
 		return false
 	}
 
+	// Have we already accepted this one?
+	//
+	// Same window as the delegation side, landing somewhere worse. A
+	// result is acked after it is stored, so a crash in between means the
+	// next poll delivers it again. Storing identical content twice is
+	// harmless; appending "result accepted" to the chain twice is not — it
+	// would record a node accepting two results for one interaction, and a
+	// chain that miscounts what happened is worse than no chain, because
+	// it is believed.
+	if prior, err := d.ix.Get(interactionID); err == nil && len(prior.Receipt) > 0 {
+		return true
+	}
+
 	// Verify the receipt before accepting the work it certifies.
 	//
 	// The signature is the least of it. It says some provider signed some
@@ -635,4 +680,28 @@ func (d *Daemon) ingestResult(interactionID string, payload []byte) bool {
 		log.Printf("anet: result evidence ledger: %v", lerr)
 	}
 	return true
+}
+
+// resendResult relays an answer this node already signed.
+//
+// Best-effort on purpose: if it fails the message stays unacked and the
+// next poll tries again, which is the same loop that got us here and the
+// one that eventually delivers.
+func (d *Daemon) resendResult(interactionID string, ix *interactions.Interaction) {
+	selfKEL, err := identity.MarshalKEL(d.self.KEL())
+	if err != nil {
+		return
+	}
+	payload, err := (&delegation.ResultResp{
+		Status: delegation.StatusDone, Deliverable: ix.Result,
+		Receipt: ix.Receipt, KEL: selfKEL,
+	}).Marshal()
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+	defer cancel()
+	if err := d.relaySend(ctx, ix.PeerAID, hubapi.RelayKindResult, interactionID, payload); err != nil {
+		log.Printf("anet: %s: re-sending the answer: %v", interactionID, err)
+	}
 }

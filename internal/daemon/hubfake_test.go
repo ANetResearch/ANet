@@ -415,3 +415,30 @@ func (h *fakeHub) hRelayAck(w http.ResponseWriter, r *http.Request) {
 	}
 	fakeHubJSON(w, http.StatusOK, map[string]any{"acked": acked})
 }
+
+// onlyRelayPayload returns the single queued relay payload of a kind for a
+// recipient — the bytes the hub is holding, so a test can redeliver
+// exactly what a real second poll would deliver.
+func onlyRelayPayload(t *testing.T, srv *httptest.Server, toAID, kind string) []byte {
+	t.Helper()
+	v, ok := hubsByURL.Load(srv.URL)
+	if !ok {
+		t.Fatal("no fake hub for this server")
+	}
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var found []byte
+	for _, m := range h.mailbox {
+		if m.toAID == toAID && m.kind == kind {
+			if found != nil {
+				t.Fatalf("more than one %s queued for %s", kind, toAID)
+			}
+			found = m.payload
+		}
+	}
+	if found == nil {
+		t.Fatalf("no %s queued for %s", kind, toAID)
+	}
+	return found
+}
