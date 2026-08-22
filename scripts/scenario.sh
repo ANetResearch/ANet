@@ -399,5 +399,67 @@ print(ms[-1].get('body','') if ms else '')" 2>/dev/null)
   fi
 fi
 
+# ── 7. two hubs ────────────────────────────────────────────────
+hd "7  第二个 hub:目录联邦与跨 hub 结算"
+HUB2_PORT=$((HUB_PORT+1))
+HUB2=http://127.0.0.1:$HUB2_PORT
+rm -rf "$ROOT/hub2"; mkdir -p "$ROOT/hub2"
+
+# Hub 1's identity, so hub 2 can name it as a peer.
+H1=$(curl -s -m 10 "$HUB/hub/identity" | python3 -c 'import sys,json;print(json.load(sys.stdin)["aid"])')
+setsid "$BIN/anet-hub" --addr "127.0.0.1:$HUB2_PORT" --data "$ROOT/hub2" >"$ROOT/hub2.log" 2>&1 </dev/null &
+for _ in $(seq 1 30); do curl -sf -m 2 "$HUB2/healthz" >/dev/null && break; sleep 1; done
+H2=$(curl -s -m 10 "$HUB2/hub/identity" | python3 -c 'import sys,json;print(json.load(sys.stdin)["aid"])')
+[ -n "$H2" ] && ok "第二个 hub 起来了" || no "第二个 hub 起不来: $(tail -2 "$ROOT/hub2.log")"
+
+# Both hubs peer with each other, discovery on. Written as config and the
+# hubs restarted, because that is how an operator actually turns this on.
+for pair in "hub:$H2:$HUB2" "hub2:$H1:$HUB"; do
+  d=${pair%%:*}; rest=${pair#*:}; aid=${rest%%:*}; ep=${rest#*:}
+  cat > "$ROOT/$d/federation.json" <<CFG
+{"delivery":"allowlist","discovery":"allowlist","home":"$([ "$d" = hub ] && echo "$HUB" || echo "$HUB2")",
+ "peers":[{"aid":"$aid","endpoint":"$ep"}]}
+CFG
+done
+pgrep -x anet-hub | xargs -r kill -TERM 2>/dev/null; sleep 2
+setsid "$BIN/anet-hub" --addr "127.0.0.1:$HUB_PORT"  --data "$ROOT/hub"  >>"$ROOT/hub.log"  2>&1 </dev/null &
+setsid "$BIN/anet-hub" --addr "127.0.0.1:$HUB2_PORT" --data "$ROOT/hub2" >>"$ROOT/hub2.log" 2>&1 </dev/null &
+for _ in $(seq 1 30); do curl -sf -m 2 "$HUB2/healthz" >/dev/null && curl -sf -m 2 "$HUB/healthz" >/dev/null && break; sleep 1; done
+grep -q "discovery=" "$ROOT/hub.log" && ok "两个 hub 互为 peer,discovery 已开" \
+  || no "discovery 没开:$(grep federation "$ROOT/hub.log" | tail -2)"
+
+# An agent on hub 2, visible to the federation.
+mkdir -p "$ROOT/D/.anet"
+cat > "$ROOT/D/.anet/config.json" <<CFG
+{"control_addr":"127.0.0.1:29513","hub_url":"$HUB2","name":"NodeD","caps":["remote.digest"],
+ "accept_delegations":true,
+ "modules":{"service":{"capabilities":[
+   {"id":"remote.digest","url":"http://127.0.0.1:29520","description":"sha256, on the other hub"}]}}}
+CFG
+setsid env HOME="$ROOT/D" "$BIN/anet" daemon >"$ROOT/D.log" 2>&1 </dev/null &
+sleep 4
+ctl D /hub-register "{\"hub\":\"$HUB2\",\"name\":\"NodeD\",\"caps\":[\"remote.digest\"]}" >/dev/null
+D=$(aid_of D)
+# Visibility is opt-in and hub-local by default — a card federates only
+# when its own agent says so, signed, because a setting anyone else could
+# change is not a setting.
+ctl D /visibility '{"visibility":"federated"}' >/dev/null
+sleep 3
+
+# Hub 1 pulls hub 2's directory.
+for _ in $(seq 1 20); do
+  seen=$(curl -s -m 10 "$HUB/agents?cap=remote.digest" | python3 -c "
+import sys,json;print(len(json.load(sys.stdin).get('agents') or []))")
+  [ "$seen" = "1" ] && break
+  sleep 3
+done
+[ "${seen:-0}" = "1" ] && ok "hub1 从 hub2 学到了 NodeD 的卡片(按能力 id 可查)" \
+  || no "目录没有跨过去(hub1 看到 ${seen:-0} 个)"
+home=$(curl -s -m 10 "$HUB/agents?cap=remote.digest" | python3 -c "
+import sys,json
+a=(json.load(sys.stdin).get('agents') or [{}])[0]
+print(a.get('home_hub',''))")
+[ -n "$home" ] && ok "学来的条目带着 home hub($home),知道该往哪投" || no "学来的条目没有 home hub"
+
 printf '\n\033[1m── %d 通过, %d 失败 ──\033[0m\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

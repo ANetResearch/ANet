@@ -187,3 +187,23 @@ func (d *Daemon) noteHubWire(v string) {
 			v, hubapi.WireVersion)
 	})
 }
+
+// SetVisibility tells the hub how far this node is willing to be
+// published: hub-local, federated or public.
+//
+// The agent decides and the agent signs, because this is the setting
+// that decides whether other hubs learn it exists — one that anyone else
+// could change is not a setting. Default is hub-local, and the
+// conservative default is the point: a card cannot be recalled from a hub
+// that already has it.
+func (d *Daemon) SetVisibility(ctx context.Context, visibility string) error {
+	hub := d.config().HubURL
+	if hub == "" {
+		return fmt.Errorf("anet: no hub configured")
+	}
+	ts, seq, sig := d.signRelayAuth(relayauth.ActionProfile)
+	body := map[string]any{
+		"visibility": visibility, "ts": ts, "key_state_seq": seq, "sig": sig,
+	}
+	return d.hubPost(ctx, hub, "/agents/"+url.PathEscape(d.AID())+"/visibility", body, nil)
+}
