@@ -551,7 +551,7 @@ func (d *Daemon) ingestDelegate(payload []byte) bool {
 	// deterministically right here; anything else flows to auto-reply.
 	if capID, args, ok := capabilityCall(td); ok {
 		cctx, cancel := context.WithTimeout(d.ctx, capabilityInvokeTimeout)
-		handled := d.tryCapability(cctx, dr.InteractionID, capID, args)
+		handled := d.tryCapabilityPaid(cctx, dr.InteractionID, capID, args, dr.Payment)
 		cancel()
 		if handled {
 			return true

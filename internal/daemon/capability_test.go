@@ -3,12 +3,15 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/ANetResearch/ANetCore/payment"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
@@ -851,4 +854,140 @@ func countMessages(t *testing.T, d *Daemon, ixID string) int {
 		t.Fatal(err)
 	}
 	return len(msgs)
+}
+
+// pricedProvider costs money and says so.
+type pricedProvider struct {
+	price   uint64
+	invoked int
+}
+
+func (p *pricedProvider) ID() string { return "priced" }
+func (p *pricedProvider) Capabilities(context.Context) ([]string, error) {
+	return []string{"work.do"}, nil
+}
+func (p *pricedProvider) Describe(context.Context) (string, error) { return "", nil }
+func (p *pricedProvider) Health(context.Context) error             { return nil }
+func (p *pricedProvider) Price(cap string) (uint64, bool) {
+	if cap == "work.do" {
+		return p.price, true
+	}
+	return 0, false
+}
+func (p *pricedProvider) Invoke(context.Context, provider.Call) (effect.Effect, error) {
+	p.invoked++
+	return effect.Effect{
+		Status: effect.OK,
+		Record: &tsir.EffectRecord{Metrics: map[string]float64{"done": 1}},
+		Evidence: &effect.Evidence{Protocol: "test", Requested: "work.do",
+			NativeAck: true, VerifyTrust: 1},
+	}, nil
+}
+
+// Priced work is quoted, not refused — and the quote is a real answer.
+//
+// A provider that wants paying has not failed, so PAYMENT_REQUIRED is its
+// own status; and the quote is signed, receipted and recorded like any
+// other result, because a price nobody can point back at is not a price.
+func TestPricedWorkIsQuotedNotRefused(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	work := &pricedProvider{price: 120}
+	if err := prov.Providers().Register(ctx, work); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+
+	id, err := req.DelegateCapability(ctx, prov.AID(), "work.do", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if work.invoked != 0 {
+		t.Fatalf("unpaid work was done %d times", work.invoked)
+	}
+	if _, err := req.Results(ctx); err != nil {
+		t.Fatal(err)
+	}
+	quote := lastResultFor(t, req, id)
+	if quote.Status != string(effect.PaymentRequired) {
+		t.Fatalf("status = %s, want PAYMENT_REQUIRED", quote.Status)
+	}
+	if quote.Payment == nil || len(quote.Payment.Accepts) == 0 {
+		t.Fatal("the quote carried no price")
+	}
+	opt := quote.Payment.Accepts[0]
+	if opt.Scheme != payment.SchemeCredit || opt.Amount != "120" || opt.PayTo != prov.AID() {
+		t.Errorf("quote = %+v", opt)
+	}
+	// The quote is on the provider's own chain, like any answer.
+	if got := lastLedgerPayload(t, prov, EvCapabilityEffect)["status"]; got != string(effect.PaymentRequired) {
+		t.Errorf("the quote is not on the chain as such: %v", got)
+	}
+}
+
+// An authorization names the work it pays for, so it cannot be spent on
+// anything else the provider is owed for.
+func TestAnAuthorizationIsBoundToItsInteraction(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	d := newTestDaemon(t, srv.URL, false)
+	if err := d.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	opt := payment.PaymentOption{
+		Scheme: payment.SchemeCredit, Network: payment.CreditNetwork("did:anet:hub"),
+		Amount: "50", Asset: payment.AssetCredit, PayTo: "did:anet:provider",
+	}
+	pp, err := d.Authorize(opt, "ix-42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := base64.StdEncoding.DecodeString(pp.Payload["authorization"].(string))
+	auth, err := payment.UnmarshalAuthorization(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auth.InteractionID != "ix-42" {
+		t.Errorf("authorization is not bound to the work: %q", auth.InteractionID)
+	}
+	if auth.Payer != d.AID() {
+		t.Errorf("payer = %s, want this node", auth.Payer)
+	}
+	if err := auth.Verify(d.self.KEL(), time.Now().UnixMilli()); err != nil {
+		t.Errorf("our own authorization does not verify: %v", err)
+	}
+	// Signing it put it on our chain: an authorization we cannot show we
+	// signed is one we cannot dispute later.
+	if got := lastLedgerPayload(t, d, EvPaymentAuthorized)["interaction_id"]; got != "ix-42" {
+		t.Errorf("the authorization is not on our chain: %v", got)
+	}
+}
+
+func lastResultFor(t *testing.T, d *Daemon, ixID string) capabilityResult {
+	t.Helper()
+	results, err := d.Results(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
+		if r.InteractionID == ixID {
+			var out capabilityResult
+			if err := json.Unmarshal([]byte(r.Result), &out); err != nil {
+				t.Fatal(err)
+			}
+			return out
+		}
+	}
+	t.Fatalf("no result for %s", ixID)
+	return capabilityResult{}
 }

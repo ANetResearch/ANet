@@ -25,6 +25,7 @@ import (
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -75,7 +76,26 @@ func capabilityCall(td *tsir.TaskDoc) (capID string, args map[string]any, ok boo
 // DelegateCapability delegates a capability invocation to providerAID. The
 // TaskDoc carries the capability in Requires and args in Contexts — both
 // inside the signed canonical preimage.
+// DelegateCapability delegates a capability call, optionally paying for it.
 func (d *Daemon) DelegateCapability(ctx context.Context, providerAID, capID string, args map[string]any) (string, error) {
+	return d.delegateCapabilityPaid(ctx, providerAID, capID, args, nil)
+}
+
+func (d *Daemon) delegateCapabilityPaid(ctx context.Context, providerAID, capID string,
+	args map[string]any, paymentJSON []byte) (string, error) {
+	id, err := newInteractionID()
+	if err != nil {
+		return "", err
+	}
+	return d.delegateCapabilityWithID(ctx, id, providerAID, capID, args, paymentJSON)
+}
+
+// delegateCapabilityWithID takes the interaction id from the caller,
+// because a paid delegation must name the id its authorization was signed
+// over — minting a fresh one here would leave the payment pointing at
+// work that never happened.
+func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, capID string,
+	args map[string]any, paymentJSON []byte) (string, error) {
 	hub := d.config().HubURL
 	if hub == "" {
 		return "", fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
@@ -108,10 +128,6 @@ func (d *Daemon) DelegateCapability(ctx context.Context, providerAID, capID stri
 	if err != nil {
 		return "", err
 	}
-	id, err := newInteractionID()
-	if err != nil {
-		return "", err
-	}
 	if err := d.ix.Put(id, interactions.RoleOutbound, providerAID, goal, requestCID, doc); err != nil {
 		return "", err
 	}
@@ -123,6 +139,9 @@ func (d *Daemon) DelegateCapability(ctx context.Context, providerAID, capID stri
 		return "", err
 	}
 	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, KEL: kelB, InteractionID: id}
+	if len(paymentJSON) > 0 {
+		dr.Payment = paymentJSON
+	}
 	payload, err := dr.Marshal()
 	if err != nil {
 		return "", err
@@ -161,6 +180,19 @@ type capabilityResult struct {
 	Metrics    map[string]float64 `json:"metrics,omitempty"`
 	Message    string             `json:"message,omitempty"`
 	Evidence   map[string]any     `json:"evidence,omitempty"`
+	// Payment is the x402 402 body when the provider wants paying, so a
+	// caller learns the price from the answer rather than from a document.
+	Payment *payment.PaymentRequired `json:"payment_required,omitempty"`
+	// Paid names the settlement that let this run, so the caller holds a
+	// transaction id it can point at.
+	Paid *paidView `json:"paid,omitempty"`
+}
+
+// paidView is the settlement, as the payer sees it in the result.
+type paidView struct {
+	Transaction string `json:"transaction"`
+	Amount      string `json:"amount"`
+	Network     string `json:"network"`
 }
 
 // provenanceOf renders an effect's evidence for both surfaces that carry it.
@@ -204,6 +236,12 @@ func provenanceOf(e *effect.Evidence) map[string]any {
 // effect + signed receipt. Returns false when no provider serves it (the
 // task then flows to auto-reply exactly as before).
 func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string, args map[string]any) bool {
+	return d.tryCapabilityPaid(ctx, interactionID, capID, args, nil)
+}
+
+// tryCapabilityPaid is tryCapability with the delegation's payment, if it
+// carried one.
+func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID string, args map[string]any, paymentRaw []byte) bool {
 	if d.providers == nil {
 		return false
 	}
@@ -217,6 +255,43 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 		return false
 	}
 	res := capabilityResult{Capability: capID}
+
+	// Priced work is answered with a price, not attempted and refused.
+	//
+	// The settle happens before the work, and the ordering is the whole
+	// question. Settling after would mean doing the work and then finding
+	// out we cannot be paid; settling before means a payer whose work
+	// then fails has paid for a failure. The second is the one the
+	// evidence model can speak about — the effect and the payment are
+	// both on both chains, so a refund is an argument two parties can
+	// have with records, rather than one party's word.
+	if price, priced := priceOf(p, capID); priced {
+		if len(paymentRaw) == 0 {
+			return d.answerPaymentRequired(ctx, interactionID, capID, price, ix)
+		}
+		st, serr := d.settle(ctx, paymentRaw)
+		if serr != nil || st == nil || !st.Success {
+			reason := "settlement refused"
+			if serr != nil {
+				reason = serr.Error()
+			} else if st != nil && st.ErrorReason != "" {
+				reason = st.ErrorReason
+			}
+			res.Status, res.Message = string(effect.PaymentRequired), reason
+			res.Payment = d.paymentRequired(capID, price)
+			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil)
+			return true
+		}
+		if _, lerr := d.ledger.Append(EvPaymentSettled, map[string]any{
+			"interaction_id": interactionID, "capability": capID,
+			"transaction": st.Transaction, "payer": st.Payer,
+			"amount": st.Amount, "network": st.Network,
+		}); lerr != nil {
+			log.Printf("anet: payment evidence: %v", lerr)
+		}
+		res.Paid = &paidView{Transaction: st.Transaction, Amount: st.Amount, Network: st.Network}
+	}
+
 	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID, CallerAID: ix.PeerAID})
 	if err != nil {
 		res.Status, res.Message = "FAILED", err.Error()
@@ -227,6 +302,17 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 			res.Metrics = eff.Record.Metrics
 		}
 	}
+	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, eff.Evidence)
+}
+
+// deliverCapabilityResult signs, stores, records and relays one answer.
+//
+// Shared with the payment-required path, which is an answer like any
+// other: it is signed, it goes on the chain, and it is delivered. A
+// provider that quoted a price has told the caller something true about
+// this interaction, and a quote nobody can point back at is not a quote.
+func (d *Daemon) deliverCapabilityResult(ctx context.Context, interactionID, capID string,
+	ix *interactions.Interaction, res capabilityResult, prov *effect.Evidence) bool {
 	deliverable, err := json.Marshal(res)
 	if err != nil {
 		return false

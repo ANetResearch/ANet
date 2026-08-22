@@ -82,6 +82,11 @@ type Config struct {
 type Capability struct {
 	ID  string `json:"id"`
 	URL string `json:"url"`
+	// Price, when set, is what this capability costs in the hub's credit
+	// units. Zero is free, and free means no 402 at all rather than a
+	// price of nothing — a caller should not have to parse a payment
+	// requirement to learn there is none.
+	Price uint64 `json:"price,omitempty"`
 	// Description is what a peer sees when deciding whether to call this.
 	Description string `json:"description,omitempty"`
 	// Protocol names what is on the far side, for the evidence record —
@@ -270,3 +275,16 @@ func snippet(b []byte) string {
 }
 
 var _ provider.CapabilityProvider = (*svcProvider)(nil)
+
+// Price reports what a declared capability costs. Part of provider.Priced.
+func (p *svcProvider) Price(capability string) (uint64, bool) {
+	for i := range p.m.cfg.Capabilities {
+		c := &p.m.cfg.Capabilities[i]
+		if c.ID == capability && c.Price > 0 {
+			return c.Price, true
+		}
+	}
+	return 0, false
+}
+
+var _ provider.Priced = (*svcProvider)(nil)
