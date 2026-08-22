@@ -41,13 +41,22 @@ func New(c Control, version string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "agents_find",
-		Description: "Search the network for agents that can do something, by free-text query " +
-			"over their name, declared capabilities and self-description. Returns each agent's " +
-			"AID (its permanent identity — use this to delegate), name, capabilities and rating. " +
-			"An empty query lists everyone.",
+		Description: "Find agents on the network. Two ways, and they answer different questions. " +
+			"Give `capability` when you know the exact id you need — \"cas.put\", or " +
+			"\"ptz.*\" for a whole family — and you get only agents that actually serve it. " +
+			"Give `query` to search their names and self-descriptions in prose, which will " +
+			"also match an agent that merely talks about the thing. Returns each agent's AID " +
+			"(its permanent identity — use this to delegate), name, capabilities and rating. " +
+			"Both empty lists everyone.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in findIn) (*mcp.CallToolResult, findOut, error) {
+		body := map[string]any{}
+		if in.Capability != "" {
+			body["capability"] = in.Capability
+		} else {
+			body["query"] = in.Query
+		}
 		var out findOut
-		err := c.Call(ctx, "/find", map[string]any{"query": in.Query}, &out)
+		err := c.Call(ctx, "/find", body, &out)
 		return nil, out, err
 	})
 
@@ -182,7 +191,8 @@ func New(c Control, version string) *mcp.Server {
 type passthrough map[string]any
 
 type findIn struct {
-	Query string `json:"query" jsonschema:"what you need done, in plain words; empty lists every agent"`
+	Query      string `json:"query,omitempty" jsonschema:"what you need done, in plain words"`
+	Capability string `json:"capability,omitempty" jsonschema:"an exact capability id, or a family like ptz.*"`
 }
 
 type findOut struct {

@@ -727,3 +727,51 @@ func TestARedeliveredResultIsRecordedOnce(t *testing.T) {
 		t.Errorf("a redelivered result added %d more chain entries", got-afterFirst)
 	}
 }
+
+// What a node advertises and what it actually serves must be the same list.
+//
+// They were two lists kept in step by hand, and nothing checked. A node
+// could register "digest" while its provider answered "text.digest" —
+// harmless while discovery searched prose, because "digest" is a substring
+// of the goal text and the caller found it anyway. The moment discovery
+// became exact, that node stopped being findable for the thing it does,
+// and the directory was confidently wrong rather than merely vague.
+func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	d := newTestDaemon(t, srv.URL, true)
+	if err := d.Providers().Register(ctx, &lampProvider{}); err != nil {
+		t.Fatal(err)
+	}
+	// The operator writes a human label; the daemon knows the ids.
+	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	agents, err := d.Find(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var caps []string
+	for _, a := range agents {
+		if a.AID == d.AID() {
+			caps = a.Caps
+		}
+	}
+	has := func(want string) bool {
+		for _, c := range caps {
+			if c == want {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("light.onoff@sim/lamp-1") {
+		t.Errorf("the id this node will actually answer is not advertised: %v", caps)
+	}
+	// The operator's own word is kept, not replaced: "devices" is not a
+	// capability id and is still how a person says what they offer.
+	if !has("devices") {
+		t.Errorf("the operator's label was dropped: %v", caps)
+	}
+}

@@ -105,7 +105,8 @@ ink93(普通用户)+ emax(纯 hub)+ dmax(服务节点)三节点跨公网跑通�
 |---|---|---|---|
 | ~~D-1~~ | ~~MCP 接入面~~ | — | **已完成**。`anet mcp` stdio 服务,7 个工具(agents_find / task_delegate / task_results / task_inbox / task_message / task_end / node_status),`no_mcp` 可减。依赖代价 24 条(82 → 100) |
 | ~~D-2~~ | ~~C5 证据链查询接口~~ | — | **已完成**。`anet evidence`、控制面 `POST /evidence`、MCP `evidence_read`;每条带 id / prev_id / 签名,可核而非可信;`head.state` 暴露 QUARANTINED |
-| **D-3** | 按 C1 能力 id 发现 | **H-1** | 中。能力 id 精确、结构化、机器可解析,而查找路径完全不用它 |
+| ~~D-3~~ | ~~按 C1 能力 id 发现~~ | — | **已完成**。`anet find --cap <id>`、控制面 `capability` 字段、MCP `agents_find.capability`;支持 `ptz.*` 族查询 |
+| ~~D-12~~ | ~~广告的 caps 与实际服务的能力 id 是两份清单~~ | — | **已完成**。注册时由 daemon 把 provider 真正提供的 id 折进去 —— 精确查找一上线就把这个错位暴露了:节点报 `digest`、实际服务 `text.digest` |
 | **D-4** | federation 感知 | **H-4** | 中。daemon 侧 grep 不到一个 federation 字样 |
 | **D-5** | 结算 | **H-3** | 中。`pricing` 只是展示字符串 |
 | **D-6** | 治理纪元 `govepoch` | **C-1** | 低。org 目前只接受 epoch 0 |
@@ -131,7 +132,7 @@ admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 
 
 | # | 条目 | 阻塞 | 备注 |
 |---|---|---|---|
-| **H-1** | 发现是 `LIKE %q%` 子串匹配 | **D-3** | `aid LIKE ? OR name LIKE ? OR caps LIKE ? OR summary LIKE ? OR readme LIKE ?`。C1 能力 id 完全没用上 |
+| ~~H-1~~ | ~~发现是 `LIKE %q%` 子串匹配~~ | — | **已完成**。`agent_cap` 索引表 + `?cap=` 精确/前缀查询,保留原有逗号 OR 语义;旧库自动 backfill(生产上已验:升级前注册的 dmax 升级后可按 id 查到) |
 | ~~H-2~~ | ~~不发布 KEL~~ | — | **已完成**。`GET /agents/{aid}/kel`;`anet verify --receipt X --hub URL` 自己取密钥历史。第三方验证闭环打通:只有收据 + hub 地址即可核验,通过与拒绝各实测一次 |
 | **H-3** | 无结算 | **D-5** | 一个委派网络没有结算是 demo |
 | **H-4** | federation 只做了投递面 | **D-4** | 目录联邦、信誉联邦未做 |

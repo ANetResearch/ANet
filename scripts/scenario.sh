@@ -203,7 +203,15 @@ print(sum(1 for x in ['$A','$B','$C'] if x in ags))")
 found=$(ctl C /find '{"query":"digest"}' | python3 -c "
 import sys,json
 print(next((a['name'] for a in json.load(sys.stdin).get('agents') or [] if a['aid']=='$A'), ''))")
-[ "$found" = "NodeA" ] && ok "C 按能力找到了 A" || no "C 没找到 A(得到 '$found')"
+[ "$found" = "NodeA" ] && ok "C 用散文找到了 A" || no "C 没找到 A(得到 '$found')"
+# The exact question, which the prose search cannot express.
+byid=$(ctl C /find '{"capability":"text.digest"}' | python3 -c "
+import sys,json
+print(next((a['name'] for a in json.load(sys.stdin).get('agents') or [] if a['aid']=='$A'), ''))")
+[ "$byid" = "NodeA" ] && ok "C 按能力 id 精确找到了 A" || no "按 id 没找到 A(得到 '$byid')"
+none=$(ctl C /find '{"capability":"nobody.serves.this"}' | python3 -c "
+import sys,json;print(len(json.load(sys.stdin).get('agents') or []))")
+[ "$none" = "0" ] && ok "无人提供的能力返回空,而不是退回散文搜索" || no "无人提供的能力返回了 $none 个"
 
 # Third-party verifiability, from the hub alone.
 kel=$(curl -s -m 10 "$HUB/agents/$A/kel" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("kel",""))')

@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
+
+	"github.com/ANetResearch/ANet/internal/hubapi"
 )
 
 // The control plane is a LOCAL HTTP API (loopback by default) the CLI uses to drive a running daemon.
@@ -478,11 +480,19 @@ func (d *Daemon) hAutoReplyTest(w http.ResponseWriter, r *http.Request) {
 func (d *Daemon) hFind(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Query string `json:"query"`
+		// Capability asks the exact question instead: who serves this id.
+		Capability string `json:"capability"`
 	}
 	_ = readJSON(r, &req)
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
 	defer cancel()
-	agents, err := d.Find(ctx, req.Query)
+	var agents []hubapi.AgentView
+	var err error
+	if capID := strings.TrimSpace(req.Capability); capID != "" {
+		agents, err = d.FindByCapability(ctx, capID)
+	} else {
+		agents, err = d.Find(ctx, req.Query)
+	}
 	if err != nil {
 		relayError(w, err)
 		return
