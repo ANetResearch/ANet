@@ -1021,8 +1021,15 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		}
 		return nil
 	case "find":
-		q := strings.TrimSpace(strings.Join(rest, " "))
-		return c.do("/find", map[string]any{"query": q})
+		// --cap asks the exact question: who serves this capability id.
+		// "cas.put" means that id; "ptz.*" means that family. Without it
+		// the hub searches prose, which will return an agent that merely
+		// mentions the words.
+		pos, flags := splitFlags(rest)
+		if capID := strings.TrimSpace(flags["cap"]); capID != "" {
+			return c.do("/find", map[string]any{"capability": capID})
+		}
+		return c.do("/find", map[string]any{"query": strings.TrimSpace(strings.Join(pos, " "))})
 	case "delegate":
 		attachPaths, rest2 := extractAttach(rest)
 		rest2, flags := splitFlags(rest2)

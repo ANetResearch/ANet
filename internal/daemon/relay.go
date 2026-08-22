@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/anetcid"
@@ -24,6 +26,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/provider"
 )
 
 // relayPollInterval is how often the background loop pulls this daemon's Hub mailbox. Kept short
@@ -56,6 +59,7 @@ func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []st
 	}
 	quota := d.cfg.GuestQuota()
 	d.mu.Unlock()
+	caps = withServedCapabilities(caps, d.providers)
 	if err := d.RegisterWithHub(ctx, hubURL, name, caps, quota); err != nil {
 		return err
 	}
@@ -88,6 +92,29 @@ func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []st
 }
 
 // Find searches the Hub registry (substring over AID/name/caps).
+// FindByCapability asks who serves a capability id.
+//
+// A different question from Find, and deliberately not a better-phrased
+// version of it. A capability id is exact and structured, so this is a
+// membership test: "cas.put" means that id, and "ptz.*" means that
+// family. Find asks the hub to search prose, which will happily return an
+// agent that merely mentions the words.
+func (d *Daemon) FindByCapability(ctx context.Context, capID string) ([]hubapi.AgentView, error) {
+	hub := d.config().HubURL
+	if hub == "" {
+		return nil, fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
+	}
+	var resp struct {
+		Agents []hubapi.AgentView `json:"agents"`
+	}
+	q := url.Values{}
+	q.Set("cap", capID)
+	if err := d.hubGet(ctx, hub, "/agents", q, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Agents, nil
+}
+
 func (d *Daemon) Find(ctx context.Context, query string) ([]hubapi.AgentView, error) {
 	hub := d.config().HubURL
 	if hub == "" {
@@ -386,4 +413,39 @@ func encodedKEL(p *peerKELs, aid string) string {
 		return ""
 	}
 	return base64.StdEncoding.EncodeToString(b)
+}
+
+// withServedCapabilities folds this node's actual capability ids into what
+// it advertises.
+//
+// The advertised list and the served list were two separate things kept in
+// step by hand, and nothing checked. A node could register "digest" while
+// its provider answered "text.digest" — harmless while discovery searched
+// prose, because "digest" is a substring of the goal text and the caller
+// found it anyway. The moment discovery became exact, that node stopped
+// being findable for the thing it actually does, and the directory was
+// confidently wrong rather than vague.
+//
+// Operator labels are kept alongside rather than replaced. "coding" is not
+// a capability id and is still how a person describes what they offer;
+// what changes is that the ids a provider will actually answer are in
+// there too, put there by the daemon that knows them.
+func withServedCapabilities(declared []string, reg *provider.Registry) []string {
+	if reg == nil {
+		return declared
+	}
+	served := reg.Capabilities()
+	if len(served) == 0 {
+		return declared
+	}
+	seen := make(map[string]bool, len(declared)+len(served))
+	out := make([]string, 0, len(declared)+len(served))
+	for _, c := range append(append([]string{}, declared...), served...) {
+		if c = strings.TrimSpace(c); c != "" && !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
