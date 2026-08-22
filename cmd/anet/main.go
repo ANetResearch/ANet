@@ -1122,6 +1122,14 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		return c.do("/end-accept", map[string]any{"interaction_id": arg(0)})
 	case "results":
 		return c.do("/results", map[string]any{})
+	case "visibility":
+		// How far this node is willing to be published: hub-local (the
+		// default), federated, or public. The agent decides, because this
+		// is what lets other hubs learn it exists.
+		if len(rest) < 1 {
+			return fmt.Errorf("visibility <hub-local|federated|public>")
+		}
+		return c.do("/visibility", map[string]any{"visibility": strings.TrimSpace(rest[0])})
 	case "evidence":
 		// This node's own chain: what it did, in the order it did it, with
 		// the ids and signatures a reader needs to check the links rather

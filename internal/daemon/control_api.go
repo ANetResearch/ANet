@@ -139,6 +139,7 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /thread", d.hThread)
 	api.HandleFunc("POST /identities", d.hIdentities)
 	api.HandleFunc("POST /evidence", d.hEvidence)
+	api.HandleFunc("POST /visibility", d.hVisibility)
 	// The local web console is served OUTSIDE the bearer wrapper (a browser navigation cannot send an
 	// Authorization header); loopback-only makes this safe. The page then calls the token-guarded API
 	// above with the injected token. Everything else stays bearer-gated.
@@ -860,4 +861,23 @@ func (d *Daemon) hEvidence(w http.ResponseWriter, r *http.Request) {
 		recs = []EvidenceRecord{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"head": head, "records": recs})
+}
+
+// hVisibility sets how far this node is published.
+func (d *Daemon) hVisibility(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Visibility string `json:"visibility"`
+	}
+	if err := readJSON(r, &req); err != nil || req.Visibility == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "visibility required: hub-local, federated or public"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
+	defer cancel()
+	if err := d.SetVisibility(ctx, req.Visibility); err != nil {
+		relayError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"visibility": req.Visibility, "status": "set"})
 }
