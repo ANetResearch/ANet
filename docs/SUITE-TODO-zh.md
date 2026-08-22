@@ -88,8 +88,8 @@ ANetMock 连 ANetCore 都不依赖 —— 它若发出成品 `Effect`,就把被�
 证据链 P6/C5(含 `receipt_verified`) · 收据+评价 · 传输列表 · 对端 KEL 缓存 ·
 控制面 20 端点 · CLI 26 个子命令 · 自动回复(exec + vision)
 
-**七个可插拔模块**(`-tags no_<name>` 后符号数为 0,`go tool nm` 验证):
-`anetlink` · `cas` · `blackboard` · `org` · `p2p` · `inv1` · `inv2`
+**七个可插拔模块 + MCP 北向**(`-tags no_<name>` 后符号数为 0,`go tool nm` 验证):
+`anetlink` · `cas` · `blackboard` · `org` · `p2p` · `inv1` · `inv2` · `mcp`
 
 **anet3 迁移完成**,`internal/golden` 对 anet3 钉死四个规范 id(org_id、CogUnit id、
 凭证 CID、blob CID),四个全等。
@@ -100,7 +100,7 @@ ANetMock 连 ANetCore 都不依赖 —— 它若发出成品 `Effect`,就把被�
 
 | # | 条目 | 依赖 | 优先级 |
 |---|---|---|---|
-| **D-1** | **MCP 接入面** | 无 | **高**。今天 agent 只能被 exec 成子进程取 stdout,提示词里还得写"不要自己驱动 anet" —— 那是缺工具面的补丁。ANetLink 已有 `northbound/mcpserv` 可参照 |
+| ~~D-1~~ | ~~MCP 接入面~~ | — | **已完成**。`anet mcp` stdio 服务,7 个工具(agents_find / task_delegate / task_results / task_inbox / task_message / task_end / node_status),`no_mcp` 可减。依赖代价 24 条(82 → 100) |
 | **D-2** | **C5 证据链查询接口** | 无 | **高**。链只写不读,运维看不到自己节点的证据 |
 | **D-3** | 按 C1 能力 id 发现 | **H-1** | 中。能力 id 精确、结构化、机器可解析,而查找路径完全不用它 |
 | **D-4** | federation 感知 | **H-4** | 中。daemon 侧 grep 不到一个 federation 字样 |
