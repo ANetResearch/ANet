@@ -105,4 +105,4 @@ ANetMock ← ANetLink ← anet daemon(provider) → ANetHub ← anet daemon(requ
 - **org-central 及六个卫星**(anet3 的 5,033 行):`module/org` 只回答
   "这份凭证是不是这个组织的有效成员"。看板、任务循环、群密钥若要存在,
   是 org-central 自己通过 C1 提供能力,不是 daemon 里多七个包。
-- 细节见 [MIGRATION-anet3-zh.md](MIGRATION-anet3-zh.md)。
+- 细节见 [REWRITE-from-anet3-zh.md](REWRITE-from-anet3-zh.md)。
