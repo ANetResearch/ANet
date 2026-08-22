@@ -15,12 +15,14 @@
 //	anetfixture cogunit       --home DIR [--task T] [--type claim] --body TEXT
 //	anetfixture org-genesis   --home DIR [--nonce N]
 //	anetfixture org-credential --home DIR --genesis B64 --subject AID [--role member]
+//	anetfixture x402-authorize --home DIR --pay-to AID --amount N --network hub:AID [--interaction ID]
 //
 // Each prints one base64 line, ready for `anet delegate … --args`.
 package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -29,6 +31,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/module/blackboard"
 	"github.com/ANetResearch/ANet/module/org"
@@ -48,6 +51,8 @@ func main() {
 		err = cmdOrgCredential(os.Args[2:])
 	case "aid":
 		err = cmdAID(os.Args[2:])
+	case "x402-authorize":
+		err = cmdX402Authorize(os.Args[2:])
 	default:
 		usage()
 	}
@@ -58,7 +63,8 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: anetfixture cogunit|org-genesis|org-credential|aid --home DIR [...]")
+	fmt.Fprintln(os.Stderr,
+		"usage: anetfixture cogunit|org-genesis|org-credential|aid|x402-authorize --home DIR [...]")
 	os.Exit(2)
 }
 
@@ -214,6 +220,63 @@ func cmdOrgCredential(args []string) error {
 		return err
 	}
 	fmt.Fprintln(os.Stderr, "credential cid:", cid)
+	fmt.Println(base64.StdEncoding.EncodeToString(b))
+	return nil
+}
+
+// cmdX402Authorize signs an x402 payment the way an HTTP client would.
+//
+// The gateway's buyer is not necessarily a daemon — it is whoever holds a
+// key and can make an HTTP request — so the joint run needs to be able to
+// pay from outside the daemon. Doing it here, with the daemon's own
+// identity, means the hub resolves the payer's key history exactly as it
+// would for any stranger, and a signature the hub cannot check fails for
+// the right reason.
+//
+// Prints one base64 line: the PAYMENT-SIGNATURE header value.
+func cmdX402Authorize(args []string) error {
+	fs := flag.NewFlagSet("x402-authorize", flag.ExitOnError)
+	home := fs.String("home", "", "daemon data dir")
+	payTo := fs.String("pay-to", "", "payee AID")
+	amount := fs.Uint64("amount", 0, "credits")
+	network := fs.String("network", "", "ledger, e.g. hub:<aid>")
+	interaction := fs.String("interaction", "", "what this pays for")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *payTo == "" || *amount == 0 || *network == "" {
+		return fmt.Errorf("--pay-to, --amount and --network are required")
+	}
+	c, err := load(*home)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	auth := &payment.Authorization{
+		PayTo: *payTo, Amount: *amount, Network: *network,
+		Nonce:    fmt.Sprintf("fixture-%d", now.UnixNano()),
+		IssuedAt: now.UnixMilli(), NotAfter: now.Add(5 * time.Minute).UnixMilli(),
+		InteractionID: *interaction,
+	}
+	if err := auth.Sign(c); err != nil {
+		return err
+	}
+	raw, err := auth.Marshal()
+	if err != nil {
+		return err
+	}
+	pp := payment.PaymentPayload{
+		X402Version: payment.Version,
+		Accepted: payment.PaymentOption{
+			Scheme: payment.SchemeCredit, Network: *network,
+			Amount: payment.Amount(*amount), Asset: payment.AssetCredit, PayTo: *payTo,
+		},
+		Payload: map[string]any{"authorization": base64.StdEncoding.EncodeToString(raw)},
+	}
+	b, err := json.Marshal(pp)
+	if err != nil {
+		return err
+	}
 	fmt.Println(base64.StdEncoding.EncodeToString(b))
 	return nil
 }

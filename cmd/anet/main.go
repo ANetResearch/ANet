@@ -122,7 +122,9 @@ var grpNetwork = []cmdDoc{
 	{"console [--url]", "打开本地控制台(浏览+一键 find/delegate/review); --url 只打印网址(交给操作者在浏览器打开)"},
 	{"find [query]", "在 Hub 上搜索 agent(按 AID/名字/能力/自述子串; 空 query 列全部)"},
 	{"delegate <provider-aid> <goal> [--attach PATH …]", "把任务经 Hub 中继排队给对方(立即返回 interaction_id, 对方可离线; --attach 附带图片/媒体/压缩包)"},
-	{"delegate <provider-aid> --capability <id> [--args '<json>']", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent)"},
+	{"delegate <provider-aid> --capability <id> [--args '<json>'] [--pay]", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent); --pay 表示对方若报价就照价付款再执行"},
+	{"balance", "看本节点在 hub 账本上的余额与近期流水(余额托管在 hub, 事件在自己链上)"},
+	{"redeem <amount> [--ref <reference>]", "把 credit 兑付回 hub(额度真的离开流通, hub 为取走的数额签字)"},
 	{"inbox [--pending]", "列出别人委派给我的任务(--pending 只看未结束)"},
 	{"thread <id>", "读一次交互的完整对话(多轮消息 + 附件清单 + 结束协商状态)"},
 	{"message <id> <text…>|--file PATH [--attach PATH …]", "在一次委派里发消息(多轮对话, 任一方都可发; --attach 发送图片/媒体/压缩包, 单个 ≤64 MiB)"},
@@ -261,6 +263,9 @@ func usageAll() {
   anet end <interaction_id>   propose ending the task (both sides agree ⇒ the requester can review)
   anet accept-end <interaction_id>   accept the peer's end proposal (same as 'end', clearer intent)
   anet results                pull the conversation for tasks you delegated that have ended (with the receipt)
+  anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay accepts a quoted price and runs the work
+  anet balance                what your hub's ledger says you can spend, and the entries behind it
+  anet redeem <amount> [--ref <reference>]   give credit back to the hub against an external reference (it signs for what it took)
   anet review <interaction_id> <rating 1-5> [comment]   sign a review of an ended delegation (uploads to your Hub)
   anet version                print version
 `)
@@ -1044,6 +1049,11 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// than handing it to an agent to interpret.
 		if capID := strings.TrimSpace(flags["capability"]); capID != "" {
 			body["capability"] = capID
+			// --pay: if the provider quotes a price, pay it and delegate
+			// again rather than handing the quote back.
+			if flags["pay"] == "true" {
+				body["pay"] = true
+			}
 			if raw := strings.TrimSpace(flags["args"]); raw != "" {
 				var args map[string]any
 				if err := json.Unmarshal([]byte(raw), &args); err != nil {
@@ -1122,6 +1132,30 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		return c.do("/end-accept", map[string]any{"interaction_id": arg(0)})
 	case "results":
 		return c.do("/results", map[string]any{})
+	case "redeem":
+		// Credit back out. What the reference buys is between this node's
+		// operator and its hub — anet signs the withdrawal and keeps the
+		// hub's signed statement of what it took, and claims nothing
+		// about the other side of the trade.
+		pos, flags := splitFlags(rest)
+		if len(pos) < 1 {
+			return fmt.Errorf("redeem <amount> [--ref <reference>]")
+		}
+		n, err := strconv.ParseUint(pos[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("redeem: amount must be a whole number of credits: %w", err)
+		}
+		ref := strings.TrimSpace(flags["ref"])
+		if ref == "" && len(pos) > 1 {
+			ref = strings.Join(pos[1:], " ")
+		}
+		return c.do("/redeem", map[string]any{"amount": n, "reference": ref})
+	case "balance", "credits":
+		// What this node's hub says it is worth, and the entries behind it.
+		// The hub is the custodian of the number; `anet evidence --type
+		// anet.payment.settled` is where the events that moved it are, and
+		// the two disagreeing is a thing you can now see.
+		return c.do("/balance", map[string]any{})
 	case "visibility":
 		// How far this node is willing to be published: hub-local (the
 		// default), federated, or public. The agent decides, because this

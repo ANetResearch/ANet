@@ -20,6 +20,8 @@ import (
 
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/evidence"
+	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -43,13 +45,20 @@ type fakeHubMsg struct {
 	delivered     bool
 }
 
-// fakeHub is the in-memory Hub: registry + relay mailboxes + verified-review store.
+// fakeHub is the in-memory Hub: registry + relay mailboxes + verified-review store
+// + the credit ledger it is custodian of.
 type fakeHub struct {
 	mu      sync.Mutex
 	nextID  int64
 	agents  map[string]*fakeHubAgent
 	mailbox []*fakeHubMsg
 	reviews map[string]hubapi.ReviewView // interaction_id → stored review (one per interaction)
+	// The credit side. Balances are the hub's, which is the whole point of
+	// the custody note in pay.go — the fake holds them the same way.
+	self    *identity.Controller
+	balance map[string]uint64
+	entries map[string][]map[string]any
+	settled map[string]string // authorization id → transaction, so replay is idempotent
 	// relaySends counts deliveries the hub actually carried, so a test can
 	// tell "the hub delivered it" from "something else did".
 	relaySends int
@@ -58,7 +67,24 @@ type fakeHub struct {
 // newFakeHub starts an httptest server backed by a fresh fake Hub and cleans it up with the test.
 func newFakeHub(t *testing.T) *httptest.Server {
 	t.Helper()
-	h := &fakeHub{agents: map[string]*fakeHubAgent{}, reviews: map[string]hubapi.ReviewView{}}
+	self, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &fakeHub{
+		agents: map[string]*fakeHubAgent{}, reviews: map[string]hubapi.ReviewView{},
+		self:    self,
+		balance: map[string]uint64{}, entries: map[string][]map[string]any{},
+		settled: map[string]string{},
+	}
+	// The hub is an agent on its own registry, so its settlement
+	// signatures can be checked the same way everyone else's are.
+	selfKEL, err := identity.MarshalKEL(self.KEL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.agents[self.AID()] = &fakeHubAgent{
+		view: hubapi.AgentView{AID: self.AID(), Name: "hub"}, kel: selfKEL}
 	srv := httptest.NewServer(h.handler())
 	t.Cleanup(srv.Close)
 	hubsByURL.Store(srv.URL, h)
@@ -90,6 +116,14 @@ func (h *fakeHub) handler() http.Handler {
 	mux.HandleFunc("POST /relay/send", h.hRelaySend)
 	mux.HandleFunc("POST /relay/poll", h.hRelayPoll)
 	mux.HandleFunc("POST /relay/ack", h.hRelayAck)
+	// The facilitator half of the contract. A fake that serves only the
+	// endpoints the happy path happens to touch is how a seam gets shipped
+	// unconnected — the real hub answers these, so this one does too.
+	mux.HandleFunc("GET /hub/identity", h.hIdentity)
+	mux.HandleFunc("GET /agents/{aid}/kel", h.hAgentKEL)
+	mux.HandleFunc("POST /x402/settle", h.hSettle)
+	mux.HandleFunc("GET /agents/{aid}/balance", h.hBalance)
+	mux.HandleFunc("GET /agents/{aid}/ledger", h.hLedgerRead)
 	return mux
 }
 
@@ -441,4 +475,187 @@ func onlyRelayPayload(t *testing.T, srv *httptest.Server, toAID, kind string) []
 		t.Fatalf("no %s queued for %s", kind, toAID)
 	}
 	return found
+}
+
+// hIdentity is how a node learns which hub's ledger its credits live on.
+// The AID goes into every authorization's network field, so a payment
+// signed for one hub cannot be replayed at another.
+func (h *fakeHub) hIdentity(w http.ResponseWriter, _ *http.Request) {
+	fakeHubJSON(w, http.StatusOK, map[string]string{"aid": h.self.AID()})
+}
+
+// grant credits an account, standing in for the admin grant and the
+// registration allowance the real hub has.
+func (h *fakeHub) grant(aid string, amount uint64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.balance[aid] += amount
+	h.entries[aid] = append(h.entries[aid], map[string]any{
+		"kind": "grant", "delta": amount, "balance": h.balance[aid]})
+}
+
+func balanceOf(url, aid string) uint64 {
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		return 0
+	}
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.balance[aid]
+}
+
+// hSettle is the facilitator: verify the payer's signature over the
+// authorization, move the credit, and sign a receipt saying it did.
+//
+// It verifies rather than trusting, unlike the rest of this fake, because
+// verification is the property under test — a settlement that took an
+// unsigned authorization would let the paid-work test pass with the
+// signature stripped out.
+func (h *fakeHub) hSettle(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PaymentPayload payment.PaymentPayload `json:"paymentPayload"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		fakeHubJSON(w, http.StatusBadRequest, payment.SettlementResponse{
+			Success: false, ErrorReason: "malformed"})
+		return
+	}
+	encoded, _ := req.PaymentPayload.Payload["authorization"].(string)
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
+			Success: false, ErrorReason: "authorization not base64"})
+		return
+	}
+	auth, err := payment.UnmarshalAuthorization(raw)
+	if err != nil {
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
+			Success: false, ErrorReason: "authorization malformed"})
+		return
+	}
+	h.mu.Lock()
+	payer := h.agents[auth.Payer]
+	h.mu.Unlock()
+	if payer == nil {
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
+			Success: false, ErrorReason: "payer unknown to this hub"})
+		return
+	}
+	kel, err := identity.UnmarshalKEL(payer.kel)
+	if err != nil {
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
+			Success: false, ErrorReason: "payer key history unreadable"})
+		return
+	}
+	if err := auth.Verify(kel, time.Now().UnixMilli()); err != nil {
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
+			Success: false, ErrorReason: "bad signature: " + err.Error()})
+		return
+	}
+	authID, err := auth.ID()
+	if err != nil {
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false, ErrorReason: err.Error()})
+		return
+	}
+	h.mu.Lock()
+	if tx, done := h.settled[authID]; done {
+		h.mu.Unlock()
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
+			Success: true, Transaction: tx, Network: auth.Network, Payer: auth.Payer})
+		return
+	}
+	if h.balance[auth.Payer] < auth.Amount {
+		h.mu.Unlock()
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
+			Success: false, ErrorReason: payment.ReasonInsufficientFunds})
+		return
+	}
+	h.balance[auth.Payer] -= auth.Amount
+	h.balance[auth.PayTo] += auth.Amount
+	tx := "tx-" + authID
+	h.settled[authID] = tx
+	h.entries[auth.Payer] = append(h.entries[auth.Payer], map[string]any{
+		"kind": "debit", "delta": auth.Amount, "balance": h.balance[auth.Payer], "tx": tx})
+	h.entries[auth.PayTo] = append(h.entries[auth.PayTo], map[string]any{
+		"kind": "credit", "delta": auth.Amount, "balance": h.balance[auth.PayTo], "tx": tx})
+	h.mu.Unlock()
+
+	rec := &payment.Receipt{
+		AuthID: authID, Payer: auth.Payer, PayTo: auth.PayTo,
+		Amount: auth.Amount, Network: auth.Network, SettleAt: time.Now().UnixMilli(),
+	}
+	if err := rec.Sign(h.self); err != nil {
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false, ErrorReason: err.Error()})
+		return
+	}
+	recRaw, err := rec.Marshal()
+	if err != nil {
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false, ErrorReason: err.Error()})
+		return
+	}
+	fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
+		Success: true, Transaction: tx, Network: auth.Network, Payer: auth.Payer,
+		Amount: payment.Amount(auth.Amount),
+		Extensions: map[string]any{
+			payment.ExtReceipt: base64.StdEncoding.EncodeToString(recRaw),
+		},
+	})
+}
+
+func (h *fakeHub) hBalance(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	// "credits", the field the real hub uses. A fake answering a
+	// different key is a fake that certifies a wire the system does not
+	// have — which is exactly how the daemon shipped reading a balance of
+	// zero off a funded account.
+	fakeHubJSON(w, http.StatusOK, map[string]any{
+		"aid": r.PathValue("aid"), "credits": h.balance[r.PathValue("aid")]})
+}
+
+func (h *fakeHub) hLedgerRead(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	es := h.entries[r.PathValue("aid")]
+	if es == nil {
+		es = []map[string]any{}
+	}
+	fakeHubJSON(w, http.StatusOK, map[string]any{"entries": es})
+}
+
+func (h *fakeHub) hAgentKEL(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	a := h.agents[r.PathValue("aid")]
+	h.mu.Unlock()
+	if a == nil {
+		fakeHubJSON(w, http.StatusNotFound, map[string]string{"error": "unknown agent"})
+		return
+	}
+	fakeHubJSON(w, http.StatusOK, map[string]string{
+		"aid": r.PathValue("aid"), "kel": base64.StdEncoding.EncodeToString(a.kel)})
+}
+
+// grantOn credits an account on the fake hub behind url.
+func grantOn(url, aid string, amount uint64) {
+	if v, ok := hubsByURL.Load(url); ok {
+		v.(*fakeHub).grant(aid, amount)
+	}
+}
+
+func hubAIDOf(url string) string {
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		return ""
+	}
+	return v.(*fakeHub).self.AID()
+}
+
+func hubKELOf(t *testing.T, url string) []identity.SignedEvent {
+	t.Helper()
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		t.Fatal("no fake hub at " + url)
+	}
+	return v.(*fakeHub).self.KEL()
 }

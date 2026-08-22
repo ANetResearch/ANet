@@ -75,6 +75,7 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	want := []string{
 		"agents_find", "task_delegate", "task_results",
 		"task_inbox", "task_message", "task_end", "evidence_read", "node_status",
+		"credit_balance",
 	}
 	for _, name := range want {
 		if _, ok := got[name]; !ok {
@@ -98,6 +99,15 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	// never think to ask for.
 	if d := got["evidence_read"]; !strings.Contains(d, "QUARANTINED") {
 		t.Error("evidence_read must warn that a forked chain cannot be relied on")
+	}
+	// pay=true spends the operator's money. A model reading only "set
+	// pay=true to run the work" would have no idea it was authorized to,
+	// so the description has to say whose credit it is.
+	if d := got["task_delegate"]; !strings.Contains(d, "ask its operator") {
+		t.Error("task_delegate must tell the model that paying spends the operator's credit")
+	}
+	if d := got["credit_balance"]; !strings.Contains(d, "custodian") {
+		t.Error("credit_balance must say the hub holds the balance, not this node")
 	}
 }
 

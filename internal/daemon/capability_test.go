@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ANetResearch/ANetCore/payment"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -990,4 +991,399 @@ func lastResultFor(t *testing.T, d *Daemon, ixID string) capabilityResult {
 	}
 	t.Fatalf("no result for %s", ixID)
 	return capabilityResult{}
+}
+
+// The loop that had never run: quote → authorize → settle → work.
+//
+// Every piece of this existed and compiled for a month, and no test and
+// no caller ever put them in a line. That is the same mistake as the
+// module seam nothing imported, and it is why this test asserts the whole
+// arc rather than each step: a step that passes in isolation is exactly
+// what was already true.
+func TestThePaidLoopClosesEndToEnd(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	work := &pricedProvider{price: 120}
+	if err := prov.Providers().Register(ctx, work); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	grantOn(srv.URL, req.AID(), 500)
+
+	// 1. Ask, and be quoted.
+	quoteID, err := req.DelegateCapability(ctx, prov.AID(), "work.do", map[string]any{"n": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := req.Results(ctx); err != nil {
+		t.Fatal(err)
+	}
+	quote := lastResultFor(t, req, quoteID)
+	if quote.Status != string(effect.PaymentRequired) {
+		t.Fatalf("step 1: status = %s, want PAYMENT_REQUIRED", quote.Status)
+	}
+	if work.invoked != 0 {
+		t.Fatalf("step 1: unpaid work was done %d times", work.invoked)
+	}
+
+	// 2. Pay it, and ask again. A second interaction, because the first
+	// ended with a real answer that stays on both chains.
+	paidID, err := req.PayAndRetry(ctx, prov.AID(), "work.do", map[string]any{"n": 1}, quote.Payment)
+	if err != nil {
+		t.Fatalf("step 2: %v", err)
+	}
+	if paidID == quoteID {
+		t.Error("step 2: paying must not overwrite the interaction the quote lives in")
+	}
+
+	// 3. The provider settles before working.
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if work.invoked != 1 {
+		t.Fatalf("step 3: paid work ran %d times, want 1", work.invoked)
+	}
+	if _, err := req.Results(ctx); err != nil {
+		t.Fatal(err)
+	}
+	done := lastResultFor(t, req, paidID)
+	if done.Status != string(effect.OK) {
+		t.Fatalf("step 3: status = %s (%s), want OK", done.Status, done.Message)
+	}
+	if done.Paid == nil || done.Paid.Transaction == "" {
+		t.Fatal("step 3: the result does not say it was paid for")
+	}
+
+	// 4. The credit actually moved. A loop that reports success without
+	// this is the failure mode worth testing for.
+	if got := balanceOf(srv.URL, req.AID()); got != 380 {
+		t.Errorf("step 4: payer balance = %d, want 380", got)
+	}
+	if got := balanceOf(srv.URL, prov.AID()); got != 120 {
+		t.Errorf("step 4: provider balance = %d, want 120", got)
+	}
+
+	// 5. The hub's signed statement reached the payer. Without it the
+	// payer holds a transaction string it cannot check, which is the
+	// provider's word for the provider having been paid.
+	if done.Paid.Receipt == "" {
+		t.Fatal("step 5: the hub's settlement receipt did not travel")
+	}
+	raw, err := base64.StdEncoding.DecodeString(done.Paid.Receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := payment.UnmarshalReceipt(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rec.Verify(hubKELOf(t, srv.URL), hubAIDOf(srv.URL), time.Now().UnixMilli()); err != nil {
+		t.Errorf("step 5: the settlement receipt does not verify: %v", err)
+	}
+	if rec.Payer != req.AID() || rec.PayTo != prov.AID() || rec.Amount != 120 {
+		t.Errorf("step 5: receipt = %+v", rec)
+	}
+
+	// 6. Both chains carry it, which is the whole custody bargain: the
+	// balance is the hub's, the record is the parties'.
+	if got := lastLedgerPayload(t, req, EvPaymentAuthorized)["interaction_id"]; got != paidID {
+		t.Errorf("step 6: payer's authorization is not on its chain: %v", got)
+	}
+	payerSettled := lastLedgerPayload(t, req, EvPaymentSettled)
+	if payerSettled["interaction_id"] != paidID {
+		t.Errorf("step 6: payer's settlement is not on its chain: %v", payerSettled)
+	}
+	if payerSettled["verified"] != true {
+		t.Errorf("step 6: the payer recorded a settlement it could not verify: %v", payerSettled)
+	}
+	if got := lastLedgerPayload(t, prov, EvPaymentSettled)["interaction_id"]; got != paidID {
+		t.Errorf("step 6: payee's settlement is not on its chain: %v", got)
+	}
+
+	// 7. And the payer can read its own standing off the custodian.
+	bal, err := req.Balance(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bal["balance"] != int64(380) {
+		t.Errorf("step 7: reported balance = %v, want 380", bal["balance"])
+	}
+}
+
+// Paying more than you have must fail as a payment, not as the work.
+//
+// The distinction is the point: a caller told FAILED would look for a bug
+// in the capability. PAYMENT_REQUIRED with a reason tells it the truth,
+// which is that the work is fine and the money is not.
+func TestPayingWithoutCreditIsRefusedAsAPayment(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	work := &pricedProvider{price: 120}
+	if err := prov.Providers().Register(ctx, work); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	grantOn(srv.URL, req.AID(), 10) // not enough
+
+	quoted := &payment.PaymentRequired{
+		X402Version: payment.Version,
+		Accepts: []payment.PaymentOption{{
+			Scheme: payment.SchemeCredit, Network: payment.CreditNetwork(hubAIDOf(srv.URL)),
+			Amount: "120", Asset: payment.AssetCredit, PayTo: prov.AID(),
+		}},
+	}
+	id, err := req.PayAndRetry(ctx, prov.AID(), "work.do", nil, quoted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if work.invoked != 0 {
+		t.Fatalf("work ran %d times for a payment that did not settle", work.invoked)
+	}
+	if _, err := req.Results(ctx); err != nil {
+		t.Fatal(err)
+	}
+	res := lastResultFor(t, req, id)
+	if res.Status != string(effect.PaymentRequired) {
+		t.Fatalf("status = %s, want PAYMENT_REQUIRED", res.Status)
+	}
+	if !strings.Contains(res.Message, payment.ReasonInsufficientFunds) {
+		t.Errorf("the payer is not told why: %q", res.Message)
+	}
+	if got := balanceOf(srv.URL, req.AID()); got != 10 {
+		t.Errorf("a refused payment moved credit: balance = %d", got)
+	}
+}
+
+// A settlement presented twice must move the credit once.
+//
+// Redelivery is normal here — the relay acks after processing, so a crash
+// in between replays the delegation — and a facilitator that charged per
+// delivery would bill for the network's retries.
+func TestSettlingTheSameAuthorizationTwiceChargesOnce(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	d := newTestDaemon(t, srv.URL, false)
+	if err := d.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	grantOn(srv.URL, d.AID(), 500)
+	opt := payment.PaymentOption{
+		Scheme: payment.SchemeCredit, Network: payment.CreditNetwork(hubAIDOf(srv.URL)),
+		Amount: "120", Asset: payment.AssetCredit, PayTo: "did:anet:provider",
+	}
+	pp, err := d.Authorize(opt, "ix-replay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(pp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := d.settle(ctx, raw)
+	if err != nil || !first.Success {
+		t.Fatalf("first settlement: %v %+v", err, first)
+	}
+	second, err := d.settle(ctx, raw)
+	if err != nil || !second.Success {
+		t.Fatalf("a replay must be idempotent, not an error: %v %+v", err, second)
+	}
+	if first.Transaction != second.Transaction {
+		t.Errorf("the replay settled separately: %s vs %s", first.Transaction, second.Transaction)
+	}
+	if got := balanceOf(srv.URL, d.AID()); got != 380 {
+		t.Errorf("charged twice: balance = %d, want 380", got)
+	}
+}
+
+// The voucher path: paid at the hub, worked here, and the hub saw neither
+// the request nor the result.
+func TestAVoucherBuysWorkTheHubNeverSees(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	prov := newTestDaemon(t, srv.URL, true)
+	work := &pricedProvider{price: 120}
+	if err := prov.Providers().Register(ctx, work); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+
+	v := signVoucher(t, srv.URL, prov.AID(), "work.do", "buyer-1", "nonce-1")
+	res, code := prov.RedeemVoucher(ctx, redeemRequest{
+		Voucher: v, Capability: "work.do", Args: map[string]any{"n": 1}})
+	if code != 200 {
+		t.Fatalf("redeem = %d %v", code, res)
+	}
+	if res["status"] != string(effect.OK) {
+		t.Fatalf("status = %v", res["status"])
+	}
+	if work.invoked != 1 {
+		t.Fatalf("work ran %d times, want 1", work.invoked)
+	}
+	// The effect is on the chain like any other. A second door to the same
+	// work must not be a door around the evidence.
+	eff := lastLedgerPayload(t, prov, EvCapabilityEffect)
+	if eff["via"] != "voucher" {
+		t.Errorf("the chain does not record how this was paid for: %v", eff)
+	}
+	if got := lastLedgerPayload(t, prov, EvVoucherRedeemed)["payer"]; got != "buyer-1" {
+		t.Errorf("the redemption is not on the chain: %v", got)
+	}
+}
+
+// Every way of getting free work out of the voucher door.
+func TestTheVoucherDoorRefusesWhatItShould(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	prov := newTestDaemon(t, srv.URL, true)
+	work := &pricedProvider{price: 120}
+	if err := prov.Providers().Register(ctx, work); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	other := newTestDaemon(t, srv.URL, true)
+	if err := other.RegisterWithHub(ctx, srv.URL, "Other", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		req  redeemRequest
+		code int
+	}{
+		{"no voucher at all", redeemRequest{Capability: "work.do"}, http.StatusPaymentRequired},
+		{"not base64", redeemRequest{Voucher: "!!!", Capability: "work.do"}, http.StatusPaymentRequired},
+		{"random bytes", redeemRequest{
+			Voucher:    base64.StdEncoding.EncodeToString([]byte("nonsense")),
+			Capability: "work.do"}, http.StatusPaymentRequired},
+		{"bought from somebody else, presented here", redeemRequest{
+			Voucher:    signVoucher(t, srv.URL, other.AID(), "work.do", "buyer-1", "n-a"),
+			Capability: "work.do"}, http.StatusPaymentRequired},
+		{"bought a different capability", redeemRequest{
+			Voucher:    signVoucher(t, srv.URL, prov.AID(), "work.cheap", "buyer-1", "n-b"),
+			Capability: "work.do"}, http.StatusPaymentRequired},
+		{"signed by somebody who is not our hub", redeemRequest{
+			Voucher:    forgeVoucher(t, prov.AID(), "work.do", "buyer-1", "n-c"),
+			Capability: "work.do"}, http.StatusPaymentRequired},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := work.invoked
+			res, code := prov.RedeemVoucher(ctx, tc.req)
+			if code != tc.code {
+				t.Errorf("code = %d, want %d (%v)", code, tc.code, res)
+			}
+			if work.invoked != before {
+				t.Error("work was done for a voucher that should have been refused")
+			}
+		})
+	}
+	// And the refusals are on the chain, so an operator can find out its
+	// node is turning away every buyer.
+	if got := lastLedgerPayload(t, prov, EvVoucherRefused)["reason"]; got == nil || got == "" {
+		t.Error("refusals are not recorded")
+	}
+}
+
+// A voucher is a bearer object. Presenting it twice must buy one job.
+func TestAVoucherIsSpentOnce(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	prov := newTestDaemon(t, srv.URL, true)
+	work := &pricedProvider{price: 120}
+	if err := prov.Providers().Register(ctx, work); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	v := signVoucher(t, srv.URL, prov.AID(), "work.do", "buyer-1", "nonce-once")
+	req := redeemRequest{Voucher: v, Capability: "work.do"}
+	if _, code := prov.RedeemVoucher(ctx, req); code != 200 {
+		t.Fatalf("first redemption failed: %d", code)
+	}
+	if _, code := prov.RedeemVoucher(ctx, req); code != http.StatusConflict {
+		t.Errorf("second redemption = %d, want 409", code)
+	}
+	if work.invoked != 1 {
+		t.Errorf("work ran %d times for one voucher", work.invoked)
+	}
+
+	// And the guard survives a restart, because it is read back off the
+	// chain rather than held only in memory. A buyer who kept a voucher
+	// over a crash must not get a second job out of it.
+	prov.spent = newSpentVouchers()
+	if _, code := prov.RedeemVoucher(ctx, req); code != http.StatusConflict {
+		t.Errorf("after a restart the voucher was spendable again: %d", code)
+	}
+	if work.invoked != 1 {
+		t.Errorf("work ran %d times across the restart", work.invoked)
+	}
+}
+
+// signVoucher mints one signed by the fake hub behind url.
+func signVoucher(t *testing.T, url, payTo, capID, payer, nonce string) string {
+	t.Helper()
+	v := &payment.Voucher{
+		AuthID: "auth-" + nonce, Payer: payer, PayTo: payTo, Capability: capID,
+		Amount: 120, Network: payment.CreditNetwork(hubAIDOf(url)),
+		NotAfter: time.Now().Add(time.Minute).UnixMilli(), Nonce: nonce,
+	}
+	vv, ok := hubsByURL.Load(url)
+	if !ok {
+		t.Fatal("no fake hub")
+	}
+	if err := v.Sign(vv.(*fakeHub).self); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := v.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+// forgeVoucher mints a perfectly valid voucher signed by a stranger.
+func forgeVoucher(t *testing.T, payTo, capID, payer, nonce string) string {
+	t.Helper()
+	impostor, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := &payment.Voucher{
+		AuthID: "auth-" + nonce, Payer: payer, PayTo: payTo, Capability: capID,
+		Amount: 120, Network: payment.CreditNetwork(impostor.AID()),
+		NotAfter: time.Now().Add(time.Minute).UnixMilli(), Nonce: nonce,
+	}
+	if err := v.Sign(impostor); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := v.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(raw)
 }

@@ -139,6 +139,8 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /thread", d.hThread)
 	api.HandleFunc("POST /identities", d.hIdentities)
 	api.HandleFunc("POST /evidence", d.hEvidence)
+	api.HandleFunc("POST /balance", d.hBalance)
+	api.HandleFunc("POST /redeem", d.hRedeemCredit)
 	api.HandleFunc("POST /visibility", d.hVisibility)
 	// The local web console is served OUTSIDE the bearer wrapper (a browser navigation cannot send an
 	// Authorization header); loopback-only makes this safe. The page then calls the token-guarded API
@@ -233,6 +235,13 @@ func (d *Daemon) ServeControl(ctx context.Context) error {
 	// identity switcher across all locally-running daemons. Best-effort; removed on shutdown.
 	d.writeRegistry()
 	defer removeRegistryEntry(d.config().ControlAddr)
+	// The public voucher face, if the operator asked for one. Fatal on
+	// failure rather than logged and skipped: a node configured to sell
+	// work and silently not listening would take payments at its hub that
+	// nobody could ever redeem.
+	if err := d.startRedeemFace(ctx); err != nil {
+		return err
+	}
 	srv := &http.Server{Handler: d.ControlHandler(token), ReadHeaderTimeout: 5 * time.Second}
 	drained := make(chan struct{})
 	go func() {
@@ -534,6 +543,10 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 		// instead of handing it to an agent.
 		Capability string         `json:"capability,omitempty"`
 		Args       map[string]any `json:"args,omitempty"`
+		// Pay makes this a paying delegation: a PAYMENT_REQUIRED answer is
+		// paid for and the work delegated again, rather than handed back
+		// to the caller as a quote to act on.
+		Pay bool `json:"pay,omitempty"`
 	}
 	if err := readJSON(r, &req); err != nil || req.Provider == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider (AID) required"})
@@ -554,6 +567,19 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 		// sitting in the goal text where no resolver looks. Both repos'
 		// suites passed throughout, because each fakes the other and the
 		// capability round-trip test calls DelegateCapability in-process.
+		if req.Pay {
+			id, quote, err := d.DelegateAndPay(ctx, req.Provider, req.Capability, req.Args)
+			if err != nil {
+				relayError(w, err)
+				return
+			}
+			out := map[string]any{"interaction_id": id, "status": "queued", "capability": req.Capability}
+			if quote != nil {
+				out["paid"] = quote
+			}
+			writeJSON(w, http.StatusOK, out)
+			return
+		}
 		id, err := d.DelegateCapability(ctx, req.Provider, req.Capability, req.Args)
 		if err != nil {
 			relayError(w, err)
@@ -861,6 +887,38 @@ func (d *Daemon) hEvidence(w http.ResponseWriter, r *http.Request) {
 		recs = []EvidenceRecord{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"head": head, "records": recs})
+}
+
+// hBalance reads this node's credit standing off its hub.
+func (d *Daemon) hBalance(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
+	defer cancel()
+	out, err := d.Balance(ctx)
+	if err != nil {
+		relayError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// hRedeemCredit takes credit back out of the hub's ledger.
+func (d *Daemon) hRedeemCredit(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Amount    uint64 `json:"amount"`
+		Reference string `json:"reference"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
+	defer cancel()
+	out, err := d.RedeemCredit(ctx, req.Amount, req.Reference)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "result": out})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // hVisibility sets how far this node is published.

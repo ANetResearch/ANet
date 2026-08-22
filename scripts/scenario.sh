@@ -146,7 +146,18 @@ c["name"] = "NodeA"
 c["caps"] = ["digest"]
 c["modules"] = {"service": {"capabilities": [
     {"id": "text.digest", "url": "http://127.0.0.1:29520",
-     "description": "sha256 of the text you send"}]}}
+     "description": "sha256 of the text you send"},
+    # The same work, priced. Two capabilities behind one service so the
+    # free and paid paths are compared against identical output — a paid
+    # path that quietly did something else would otherwise look like it
+    # was working.
+    {"id": "text.digest.paid", "url": "http://127.0.0.1:29520", "price": 25,
+     "description": "sha256, 25 credits"}]}}
+# A's public voucher face: where a buyer who paid at the hub brings the
+# voucher. The hub never sees this address's traffic, which is the whole
+# point of selling access rather than proxying it.
+c["voucher_addr"] = "127.0.0.1:29530"
+c["voucher_url"] = "http://127.0.0.1:29530/x402/redeem"
 json.dump(c, open(p, "w"), indent=1)
 PY
 python3 - "$(home_of B)/.anet/config.json" <<'PY'
@@ -173,7 +184,7 @@ done
 [ "$up" = 3 ] && ok "三个 daemon 各自起来了(三个身份,三个 HOME)" || no "只有 $up/3 起来"
 
 # The documented join: `anet hub-register <hub> --name … --caps …`.
-ctl A /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeA\",\"caps\":[\"digest\"]}" >/dev/null
+ctl A /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeA\",\"caps\":[\"digest\",\"text.digest.paid\"]}" >/dev/null
 ctl B /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeB\",\"caps\":[\"chat\"]}" >/dev/null
 ctl C /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeC\",\"caps\":[]}" >/dev/null
 sleep 2
@@ -400,6 +411,138 @@ print(ms[-1].get('body','') if ms else '')" 2>/dev/null)
 fi
 
 # ── 7. two hubs ────────────────────────────────────────────────
+hd "6.5  付费闭环:报价 → 授权 → 结算 → 干活"
+# The loop every piece of which existed and none of which had ever run in
+# a line. Asserted end to end because that is exactly the shape of the
+# gap: each step passed on its own for a month.
+balance_of(){ ctl "$1" /balance '{}' | python3 -c 'import sys,json;print(json.load(sys.stdin).get("balance",-1))'; }
+ev_count(){ # ev_count <node> <event-type>
+  ctl "$1" /evidence "{\"event_type\":\"$2\",\"limit\":200}" \
+    | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("records") or []))'
+}
+
+c_before=$(balance_of C); a_before=$(balance_of A)
+info "开工前:C=$c_before A=$a_before(注册赠额)"
+[ "${c_before:-0}" -gt 0 ] 2>/dev/null && ok "注册赠额到账,新节点不必等人来充值就能试" \
+  || no "C 没有余额($c_before),付费路径无从测起"
+
+# 1. Ask without paying. A quote is an answer, not a failure.
+quote=$(cap C "$A" text.digest.paid '{"text":"pay me"}')
+qs=$(echo "$quote" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))')
+qa=$(echo "$quote" | python3 -c '
+import sys,json
+p=json.load(sys.stdin).get("payment_required") or {}
+a=(p.get("accepts") or [{}])[0]
+print(a.get("amount",""))')
+[ "$qs" = "PAYMENT_REQUIRED" ] && ok "不付钱时拿到的是报价(PAYMENT_REQUIRED),不是报错" \
+  || no "状态是 $qs,期望 PAYMENT_REQUIRED"
+[ "$qa" = "25" ] && ok "报价说明了价钱(25 credits),且带着可付的 rail" || no "报价里没有价钱:$quote"
+[ "$(balance_of C)" = "$c_before" ] && ok "只问价没扣钱" || no "报价过程动了余额"
+
+# 2. Pay it. One call, and the quote's interaction stays on both chains.
+paid=$(ctl C /delegate "{\"provider\":\"$A\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"pay me\"},\"pay\":true}")
+pix=$(echo "$paid" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
+[ -n "$pix" ] && ok "--pay 走通了报价→付款→重投的整条路" || no "付费投递失败:$paid"
+res=""
+for _ in $(seq 1 60); do
+  res=$(ctl C /results '{}' | python3 -c "
+import sys,json
+for x in json.load(sys.stdin).get('results') or []:
+    if x['interaction_id']=='$pix': print(x['result']); break
+")
+  [ -n "$res" ] && break
+  sleep 1
+done
+ps=$(echo "$res" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))' 2>/dev/null)
+[ "$ps" = "OK" ] && ok "付过钱之后,活真的干了(OK)" || no "付费后状态是 $ps:$res"
+
+# 3. The result carries the hub's own signature over the settlement —
+#    not the provider's word that the provider was paid.
+prcpt=$(echo "$res" | python3 -c '
+import sys,json
+p=json.load(sys.stdin).get("paid") or {}
+print(p.get("receipt",""))' 2>/dev/null)
+[ -n "$prcpt" ] && ok "结算收据随结果回来了(hub 签的,付款方可自证)" \
+  || no "结果里没有结算收据,付款方只有一句'对方说收到了'"
+
+# 4. The credit moved, both ways.
+c_after=$(balance_of C); a_after=$(balance_of A)
+[ "$((c_before - c_after))" = "25" ] && ok "付款方扣了 25" || no "付款方 $c_before → $c_after"
+[ "$((a_after - a_before))" = "25" ] && ok "收款方进了 25" || no "收款方 $a_before → $a_after"
+
+# 5. Both chains carry the event. This is the custody bargain: the
+#    balance is the hub's, the record is the parties'.
+[ "$(ev_count C anet.payment.authorized)" -gt 0 ] && ok "付款方链上有 anet.payment.authorized" \
+  || no "付款方链上没有授权记录"
+[ "$(ev_count C anet.payment.settled)" -gt 0 ] && ok "付款方链上有 anet.payment.settled(且验过 hub 签名)" \
+  || no "付款方链上没有结算记录"
+[ "$(ev_count A anet.payment.settled)" -gt 0 ] && ok "收款方链上有 anet.payment.settled" \
+  || no "收款方链上没有结算记录"
+
+# 6. The free twin returns the same bytes. A paid path that quietly did
+#    something else would otherwise look like it was working.
+freeres=$(cap C "$A" text.digest '{"text":"pay me"}')
+fd=$(echo "$freeres" | python3 -c 'import sys,json;print((json.load(sys.stdin).get("metrics") or {}).get("length",""))' 2>/dev/null)
+pd=$(echo "$res"     | python3 -c 'import sys,json;print((json.load(sys.stdin).get("metrics") or {}).get("length",""))' 2>/dev/null)
+[ -n "$pd" ] && [ "$fd" = "$pd" ] && ok "付费与免费路径给出同一份结果,钱买的是执行不是别的东西"   || no "付费路径的结果与免费路径不一致($fd vs $pd)"
+
+hd "6.6  x402 网关:在 hub 付钱,到 daemon 取货"
+# The hub sells access and stops. It never sees the request or the
+# result — the buyer takes a voucher to the agent directly.
+HUBAID=$(curl -s -m 10 "$HUB/hub/identity" | python3 -c 'import sys,json;print(json.load(sys.stdin)["aid"])')
+RES_URL="$HUB/x402/resource/$A/text.digest.paid"
+q=$(curl -s -m 10 -D "$ROOT/402.hdr" "$RES_URL")
+code=$(head -1 "$ROOT/402.hdr" | awk '{print $2}')
+[ "$code" = "402" ] && ok "未付款时 hub 回 402(这是 x402 的第一句话)" || no "hub 回了 $code"
+grep -qi '^PAYMENT-REQUIRED:' "$ROOT/402.hdr" && ok "402 带 PAYMENT-REQUIRED 头" || no "402 没带 PAYMENT-REQUIRED 头"
+redeem=$(echo "$q" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("redeem_at",""))')
+[ "$redeem" = "http://127.0.0.1:29530/x402/redeem" ] \
+  && ok "报价里写明了取货地址($redeem)—— hub 不代理内容" || no "报价没给取货地址:$q"
+gprice=$(echo "$q" | python3 -c '
+import sys,json
+print(((json.load(sys.stdin).get("accepts") or [{}])[0]).get("amount",""))')
+[ "$gprice" = "25" ] && ok "价钱来自 A 自己签的卡片,hub 只能拒卖不能改价" || no "网关报价 $gprice"
+
+# Pay at the gateway, using C's key. anetfixture signs the authorization
+# with the same code path the daemon uses.
+sig=$("$BIN/anetfixture" x402-authorize --home "$(home_of C)/.anet" \
+        --pay-to "$A" --amount 25 --network "hub:$HUBAID" --interaction "gw-1" 2>/dev/null)
+if [ -n "$sig" ]; then
+  vres=$(curl -s -m 20 -H "PAYMENT-SIGNATURE: $sig" -D "$ROOT/gw.hdr" "$RES_URL")
+  vcode=$(head -1 "$ROOT/gw.hdr" | awk '{print $2}')
+  voucher=$(echo "$vres" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("voucher",""))' 2>/dev/null)
+  [ "$vcode" = "200" ] && [ -n "$voucher" ] && ok "付款后拿到的是凭证,不是结果 —— hub 见不到内容" \
+    || no "网关付款失败($vcode): $vres"
+  grep -qi '^PAYMENT-RESPONSE:' "$ROOT/gw.hdr" && ok "结算响应带 PAYMENT-RESPONSE 头" || no "没带 PAYMENT-RESPONSE 头"
+  if [ -n "$voucher" ]; then
+    out=$(curl -s -m 60 -H 'Content-Type: application/json' \
+          -d "{\"voucher\":\"$voucher\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"via voucher\"}}" \
+          "$redeem")
+    vs=$(echo "$out" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))' 2>/dev/null)
+    [ "$vs" = "OK" ] && ok "凭证在 daemon 上兑成了真活(hub 全程没碰请求和结果)" || no "兑付失败:$out"
+    again=$(curl -s -m 30 -H 'Content-Type: application/json' \
+            -d "{\"voucher\":\"$voucher\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"via voucher\"}}" \
+            "$redeem")
+    ae=$(echo "$again" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("error",""))' 2>/dev/null)
+    case "$ae" in *already*) ok "同一张凭证第二次被拒(一次性由 daemon 把关)";; *) no "凭证被重复兑付:$again";; esac
+  fi
+else
+  info "anetfixture 不支持 x402-authorize,跳过网关付款(仅验了 402 面)"
+fi
+
+hd "6.7  兑付:credit 也能出去,且 hub 的负债可被数出来"
+sup(){ curl -s -m 10 "$HUB/x402/supply" | python3 -c "import sys,json;print(json.load(sys.stdin)['supply']['$1'])"; }
+out1=$(sup outstanding); bal1=$(sup balances)
+[ "$out1" = "$bal1" ] && ok "账是平的:未清偿 $out1 == 各账户合计 $bal1" || no "账不平:$out1 vs $bal1"
+rd=$(ctl A /redeem '{"amount":10,"reference":"scenario-inv-1"}')
+rv=$(echo "$rd" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("verified",""))' 2>/dev/null)
+[ "$rv" = "True" ] && ok "兑付成功,且 hub 为取走的额度签了字(节点已验签)" || no "兑付没有可验证的收据:$rd"
+out2=$(sup outstanding); bal2=$(sup balances)
+[ "$((out1 - out2))" = "10" ] && ok "hub 的未清偿负债确实降了 10 —— credit 真的出去了" \
+  || no "兑付后负债 $out1 → $out2"
+[ "$out2" = "$bal2" ] && ok "兑付之后账仍然是平的" || no "兑付把账做歪了:$out2 vs $bal2"
+[ "$(ev_count A anet.credit.redeemed)" -gt 0 ] && ok "兑付记在了本节点自己的链上" || no "兑付没上链"
+
 hd "7  第二个 hub:目录联邦与跨 hub 结算"
 HUB2_PORT=$((HUB_PORT+1))
 HUB2=http://127.0.0.1:$HUB2_PORT
@@ -460,6 +603,35 @@ import sys,json
 a=(json.load(sys.stdin).get('agents') or [{}])[0]
 print(a.get('home_hub',''))")
 [ -n "$home" ] && ok "学来的条目带着 home hub($home),知道该往哪投" || no "学来的条目没有 home hub"
+
+# Reputation across the boundary. The ratings are signed evidence, so a
+# peer can withhold them but cannot invent them — and the receiving hub
+# keeps them per source rather than folding them into one number, because
+# a hub can mint accounts and review its own agents.
+D_IX="ix-fed-$(date +%s)"
+r=$(cap C "$D" remote.digest '{"text":"cross-hub"}' 2>/dev/null)
+rs=$(echo "$r" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))' 2>/dev/null)
+if [ "$rs" = "OK" ]; then
+  ok "跨 hub 的能力调用真的执行了(C 在 hub1,D 在 hub2)"
+else
+  info "跨 hub 调用未完成($rs),信誉联邦仍按已有评价检查"
+fi
+# hub2 serves its reviews; hub1 pulls them. Even with no review present,
+# the stream and the per-source shape must be right — a reputation
+# endpoint that 404s is one nobody can build on.
+rep=$(curl -s -m 10 "$HUB/agents/$D/reputation")
+haspeers=$(echo "$rep" | python3 -c '
+import sys,json
+r=json.load(sys.stdin).get("reputation") or {}
+print("yes" if "peers" in r and "combined" in r and "concentration" in r else "no")' 2>/dev/null)
+[ "$haspeers" = "yes" ] && ok "信誉按来源分开发布(local / peers / combined + 集中度)" \
+  || no "信誉端点没有按来源拆分:$rep"
+note=$(echo "$rep" | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("note","")))' 2>/dev/null)
+[ "${note:-0}" -gt 40 ] && ok "合并值旁边写明了它不能证明什么(peer 可自建账号刷评价)" \
+  || no "合并评分没有附带告诫"
+strm=$(curl -sf -m 10 "$HUB2/fed/v1/reviews?cursor=0" | python3 -c '
+import sys,json;d=json.load(sys.stdin);print("ok" if "reviews" in d and "cursor" in d else "bad")' 2>/dev/null)
+[ "$strm" = "ok" ] && ok "hub2 开着信誉同步流(带游标,拉取式)" || no "信誉同步流不可用"
 
 printf '\n\033[1m── %d 通过, %d 失败 ──\033[0m\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
