@@ -34,9 +34,17 @@
 #
 # Shipping binaries to these hosts, learned the hard way twice:
 #
-#   gzip -9 -k anet-hub && cp anet-hub.gz anet-hub-$(date +%Y%m%d-%H%M).gz
-#   rsync -z --partial --timeout=300 anet-hub-VERSION.gz host:/root/
-#   ssh host 'sha256sum -c <<< "SHA  anet-hub-VERSION.gz"'
+#   V=$(date +%Y%m%d-%H%M); gzip -9 -c anet-hub > anet-hub-$V.gz
+#   rsync -z --partial anet-hub-$V.gz root@cmax.chatchat.space:/root/   # fast
+#   ssh root@cmax 'for h in emax fmax; do
+#       rsync -z --partial anet-hub-'$V'.gz root@$h.chatchat.space:/root/; done'
+#   ssh root@HOST 'sha256sum -c <<< "SHA  anet-hub-$V.gz"'
+#
+# RELAY THROUGH CMAX. The home uplink to emax and fmax runs at a few tens
+# of KB/s — a 5MB binary took the better part of an hour and sometimes
+# stalled. cmax has fast paths to both (all three are in the same cloud)
+# and can ssh to them, so pushing once to cmax and fanning out from there
+# turns half an hour into a couple of minutes.
 #
 # A VERSIONED filename, and NOT --append-verify. The uplink is slow enough
 # that --partial is worth having, but --append-verify assumes the remote
