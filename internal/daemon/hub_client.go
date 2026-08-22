@@ -50,6 +50,14 @@ func (d *Daemon) RegisterWithHub(ctx context.Context, hubURL, name string, caps 
 		"key_state_seq":  seq,
 		"sig":            sig,
 	}
+	// The card carries the same claims, signed by the node making them.
+	// The challenge above proves who is calling; only this proves what
+	// they said. See card.go.
+	if card, cerr := d.signedCard(name, caps); cerr == nil {
+		body["card"] = json.RawMessage(card)
+	} else {
+		log.Printf("anet: registering without a signed card: %v", cerr)
+	}
 	if err := d.screenPublication("this node's registration", body); err != nil {
 		return err
 	}
