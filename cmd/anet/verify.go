@@ -4,6 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -34,17 +37,37 @@ import (
 func verify(layout daemon.Layout, rest []string) error {
 	pos, flags := splitFlags(rest)
 
-	if r, k := flags["receipt"], flags["kel"]; r != "" || k != "" {
-		if r == "" || k == "" {
-			return fmt.Errorf("verify: --receipt and --kel go together (the receipt alone proves nothing without the key that signed it)")
+	if r := flags["receipt"]; r != "" {
+		kel := flags["kel"]
+		if kel == "" {
+			// A receipt names the AID that signed it, so the key history
+			// can be fetched rather than supplied — from any hub that
+			// knows the signer. The receipt is still the thing being
+			// checked; the hub only hands over a public log, and holding
+			// it lets you check signatures, never make them.
+			hub := flags["hub"]
+			if hub == "" {
+				return fmt.Errorf("verify: give --kel, or --hub URL to fetch the signer's key history\n" +
+					"       (a receipt alone proves nothing without the key that signed it)")
+			}
+			var err error
+			kel, err = fetchKEL(hub, r)
+			if err != nil {
+				return err
+			}
 		}
-		return verifyOffline(r, k, flags["result"])
+		return verifyOffline(r, kel, flags["result"])
+	}
+	if flags["kel"] != "" {
+		return fmt.Errorf("verify: --kel needs a --receipt to check")
 	}
 	if len(pos) < 1 {
 		return fmt.Errorf("verify <interaction-id>\n" +
-			"       verify --receipt <base64> --kel <base64> [--result FILE]\n\n" +
-			"The second form needs no daemon and no hub: anyone holding a receipt\n" +
-			"and the signer's key history can check it offline.")
+			"       verify --receipt <base64> --kel <base64> [--result FILE]\n" +
+			"       verify --receipt <base64> --hub <url>    [--result FILE]\n\n" +
+			"The second form needs nothing at all: a receipt and the signer's key\n" +
+			"history are enough, offline. The third fetches that key history from a\n" +
+			"hub, for a stranger who was handed a receipt and nothing else.")
 	}
 	return verifyStored(layout, pos[0])
 }
@@ -173,3 +196,43 @@ func (quietError) Error() string { return "" }
 // that covers exactly the bytes it writes to disk.
 func anetcidSum(b []byte) (string, error) { return anetcid.Sum(b) }
 func base64Std(b []byte) string           { return base64.StdEncoding.EncodeToString(b) }
+
+// fetchKEL asks a hub for the key history of whoever signed this receipt.
+//
+// The AID comes out of the receipt, so the caller does not have to know
+// who signed it — which is the ordinary case for a third party handed a
+// receipt and asked whether it is real.
+func fetchKEL(hubURL, receiptB64 string) (string, error) {
+	rb, err := base64.StdEncoding.DecodeString(strings.TrimSpace(receiptB64))
+	if err != nil {
+		return "", fmt.Errorf("verify: receipt is not base64: %w", err)
+	}
+	rc, err := evidence.UnmarshalReceipt(rb)
+	if err != nil {
+		return "", fmt.Errorf("verify: undecodable receipt: %w", err)
+	}
+	if rc.ProviderAID == "" {
+		return "", fmt.Errorf("verify: the receipt names no signer")
+	}
+	u := strings.TrimSuffix(hubURL, "/") + "/agents/" + url.PathEscape(rc.ProviderAID) + "/kel"
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Get(u)
+	if err != nil {
+		return "", fmt.Errorf("verify: fetch key history: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("verify: %s does not know %s (hub returned %d)",
+			hubURL, rc.ProviderAID, resp.StatusCode)
+	}
+	var out struct {
+		KEL string `json:"kel"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return "", fmt.Errorf("verify: hub reply: %w", err)
+	}
+	if out.KEL == "" {
+		return "", fmt.Errorf("verify: %s published no key history for %s", hubURL, rc.ProviderAID)
+	}
+	fmt.Printf("· key history for %s fetched from %s\n", rc.ProviderAID, hubURL)
+	return out.KEL, nil
+}

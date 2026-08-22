@@ -12,18 +12,21 @@ import (
 	"github.com/ANetResearch/ANet/internal/daemon"
 )
 
-// A receipt and the key that signed it are useless apart, so the flags go
-// together. Verifying with only one would either check nothing, or check a
-// signature against a key of the caller's own choosing.
+// A receipt and the key that signed it are useless apart. A receipt alone
+// is checkable only if the key can be fetched, so the refusal has to say
+// which of the two ways forward the caller has — not merely that
+// something is missing.
 func TestVerifyRequiresBothHalves(t *testing.T) {
-	for _, argv := range [][]string{{"--receipt", "abc"}, {"--kel", "abc"}} {
-		err := verify(daemon.Layout{}, argv)
-		if err == nil || !strings.Contains(err.Error(), "go together") {
-			t.Errorf("%v: expected a refusal explaining why, got %v", argv, err)
-		}
+	err := verify(daemon.Layout{}, []string{"--receipt", "abc"})
+	if err == nil || !strings.Contains(err.Error(), "--hub") {
+		t.Errorf("a lone receipt must be told it can fetch the key, got %v", err)
+	}
+	if err := verify(daemon.Layout{}, []string{"--kel", "abc"}); err == nil ||
+		!strings.Contains(err.Error(), "needs a --receipt") {
+		t.Errorf("a lone key has nothing to check, got %v", err)
 	}
 	if err := verify(daemon.Layout{}, nil); err == nil ||
-		!strings.Contains(err.Error(), "needs no daemon") {
+		!strings.Contains(err.Error(), "nothing at all") {
 		t.Errorf("bare usage must say the offline form exists, got %v", err)
 	}
 }
