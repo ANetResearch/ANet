@@ -99,9 +99,9 @@ PROV_AID=$($FIX aid --home "$PROV/.anet")
 grep -q "modules:" run/prov.log && printf '  provider modules: %s\n' "$(grep -m1 'modules:' run/prov.log | sed 's/.*modules: //')"
 curl -sf -m 5 "http://$RC/ping" >/dev/null && ok "requester up (it refused to start before the ledger fix)" || no "requester still will not start: $(tail -2 run/req.log)"
 curl -sf -m 5 "http://$PC/ping" >/dev/null && ok "provider up" || no "provider down: $(tail -2 run/prov.log)"
-rc /hub-register '{"hub_url":"http://127.0.0.1:29088","name":"Requester"}' >/dev/null
+rc /hub-register '{"hub":"http://127.0.0.1:29088","name":"Requester"}' >/dev/null
 curl -s -m 30 -H "Authorization: Bearer $(cat $PROV/.anet/control_token.txt)" -H 'Content-Type: application/json' \
-  -d '{"hub_url":"http://127.0.0.1:29088","name":"JointNode"}' "http://$PC/hub-register" >/dev/null
+  -d '{"hub":"http://127.0.0.1:29088","name":"JointNode"}' "http://$PC/hub-register" >/dev/null
 printf '  requester %s\n  provider  %s\n  org       %s\n' "$REQ_AID" "$PROV_AID" "$ORG_ID"
 
 # ptz reads one camera's pan/tilt/zoom out of the mock's scene — the ground

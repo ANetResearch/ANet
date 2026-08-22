@@ -95,6 +95,7 @@ ANetMock 连 ANetCore 都不依赖 —— 它若发出成品 `Effect`,就把被�
 凭证 CID、blob CID),四个全等。
 
 **联调 20/20**(`scripts/joint.sh`,四仓六进程)。
+**场景 24/24**(`scripts/scenario.sh`,一个谁也不认识的 hub + 三个节点加入;`--live` 加本地 caption 模型与租用前沿模型)。
 
 ### TODO
 
@@ -107,7 +108,7 @@ ANetMock 连 ANetCore 都不依赖 —— 它若发出成品 `Effect`,就把被�
 | **D-5** | 结算 | **H-3** | 中。`pricing` 只是展示字符串 |
 | **D-6** | 治理纪元 `govepoch` | **C-1** | 低。org 目前只接受 epoch 0 |
 | **D-7** | 崩溃恢复语义未验证 | 无 | 中。daemon 中途挂掉,in-flight 委派处于什么状态,没测过 |
-| **D-8** | 自动回复未进联调 | 无 | 中。只在单测里跑过 |
+| ~~D-8~~ | ~~自动回复未进联调~~ | — | **已完成**。`scripts/scenario.sh --live` 里 B 用 OpenRouter 真的回答了 C |
 | **D-9** | 分发形态 | 无 | 中。今天需 `go build` + 终端。桌面 app / 浏览器扩展 / 托管三选待议 |
 | **D-10** | 三处无直接测试 | 无 | 低。`module/anetlink`(81 行薄封装)、`internal/hubapi`(纯类型)、`tools/anetfixture`(联调工具本身) |
 

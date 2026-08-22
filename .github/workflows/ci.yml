@@ -55,6 +55,9 @@ jobs:
           - "no_org,no_blackboard,no_p2p,no_anetlink"
           - "no_cas"
           - "no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
+          - "no_service"
+          - "no_mcp"
+          - "no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
           # Reserved for the anet3 subsystems as they land. Each name is
           # claimed here first so the seam is enforced from the module's
           # first commit rather than retrofitted after it has spread:
@@ -83,8 +86,56 @@ jobs:
           go build -o /tmp/anet-full ./cmd/anet
           go build -tags "${{ matrix.tags }}" -o /tmp/anet-lean ./cmd/anet
           mod="${{ matrix.tags }}"; mod="${mod%%,*}"; mod="${mod#no_}"
-          full=$(go tool nm /tmp/anet-full | grep -c "provider/$mod\|module/$mod" || true)
-          lean=$(go tool nm /tmp/anet-lean | grep -c "provider/$mod\|module/$mod" || true)
+          # Most modules live under module/ or provider/; the MCP
+          # northbound lives at internal/mcpserv, so the pattern has to
+          # name it. A symbol check that cannot see the code it is
+          # checking passes for the wrong reason.
+          pat="provider/$mod|module/$mod"
+          [ "$mod" = mcp ] && pat="internal/mcpserv"
+          full=$(go tool nm /tmp/anet-full | grep -cE "$pat" || true)
+          lean=$(go tool nm /tmp/anet-lean | grep -cE "$pat" || true)
           echo "$mod symbols: full=$full lean=$lean"
           test "$full" -gt 0 || (echo "the full build should contain $mod" && exit 1)
           test "$lean" -eq 0 || (echo "$mod is still linked into the lean build" && exit 1)
+
+  # A hub that knows nobody, and three nodes that join it.
+  #
+  # The unit suites prove each side against a fake of the other, which is
+  # exactly where every defect this project has shipped was living. This
+  # job runs the real thing: a hub on an empty directory, three daemons
+  # with three identities that join the way the hub's own web page tells a
+  # person to, and a capability call that crosses two processes and a
+  # relay before its receipt is checked by a fourth party holding nothing
+  # but files.
+  #
+  # Hermetic on purpose — loopback only, no secrets, no internet. The
+  # richer version of this scenario (a local caption model in a container
+  # on one node, a rented frontier model on another) lives in the same
+  # script behind --live and runs on demand, because a test that needs an
+  # API key cannot gate a merge: it fails when someone else's quota runs
+  # out, and a test that fails for reasons outside the diff teaches people
+  # to ignore it.
+  scenario:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ANetResearch/ANetHub
+          path: .hub
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build the binaries the scenario drives
+        run: |
+          mkdir -p /tmp/anet-scenario/bin
+          go build -o /tmp/anet-scenario/bin/anet ./cmd/anet
+          go build -o /tmp/anet-scenario/bin/anetfixture ./tools/anetfixture
+          cd .hub && go build -o /tmp/anet-scenario/bin/anet-hub ./cmd/anet-hub
+      - name: three nodes join a hub and use each other
+        run: bash scripts/scenario.sh
+      - name: what the nodes logged, if it failed
+        if: failure()
+        run: tail -n 60 /tmp/anet-scenario/*.log /tmp/anet-scenario/*/.anet/daemon.log || true

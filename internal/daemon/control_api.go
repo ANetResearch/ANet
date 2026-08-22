@@ -155,9 +155,21 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	return top
 }
 
-// maxControlBody caps a control-plane request body (defense-in-depth; the control plane is local +
-// token-gated, so this only bounds a self-inflicted oversized request).
-const maxControlBody = 1 << 20
+// maxControlBody caps a control-plane request body.
+//
+// A gigabyte, because 1 MiB was the wrong kind of limit: a capability
+// call carries its arguments as JSON, so an image handed to an
+// image-capability had about 750 KB of headroom once base64 inflated it.
+// The cap was defending a local, token-gated socket against its own
+// operator, and the cost was that the obvious first thing anyone tries
+// did not work.
+//
+// It is a memory ceiling as much as a size one — the body is buffered to
+// decode the JSON — so this is headroom, not a recommendation. And it is
+// not the only limit on the path: a payload still has to cross the hub,
+// which caps its own bodies, so raising this alone does not make an
+// arbitrarily large call deliverable.
+const maxControlBody = 1 << 30
 
 // maxUploadBody caps a multipart upload (console attach). One attachment is bounded to maxAttachmentBytes
 // (64 MiB); this leaves headroom for a couple of files plus multipart framing in a single request.
