@@ -71,11 +71,11 @@ ANetMock 连 ANetCore 都不依赖 —— 它若发出成品 `Effect`,就把被�
 | # | 条目 | 阻塞 | 备注 |
 |---|---|---|---|
 | **C-1** | 治理纪元需要的 `GovernanceCert` | **阻塞 D-6** | **不要整包搬 `ascpevo`**:那是 631 行实验性协议(composite 内核、k*(T)、EVoI、Agent DNA),在 anet4 里**零消费者**。只有 `GovernanceCert` + `VerifyGovernanceCert` 约 120 行有用途。按 scope.md,单一消费者需要配一条 golden 向量才够格。等 D-6 真要做时再取那 120 行 |
-| **C-2** | design3 剩余 8 个协议包是否收录未决 | — | ascp/axp/acc/anrp/aet/clmp/alp,约 6K 行。判据是 scope.md:确定性、无 I/O、且至少两个应用需要 |
 | ~~C-3~~ | ~~golden 向量未覆盖新增包~~ | — | **已完成 v0.6.0**:7 条 wire 向量 + 冻结的一致性身份 `identity.SuiteController` |
 | ~~C-6~~ | ~~评价互锁只在 Hub 内部~~ | — | **已完成 v0.6.1**:`evidence.VerifyInterlock`,10 项检查,第三方可独立复核 |
 | ~~C-4~~ | ~~`K207` 被三个 README 引用但不存在~~ | — | **不成立**。`K207-anet4-module-architecture.md` 存在于 anet3 单体仓的 `docs/`。真正的问题变成:anet4 的架构文档留在被退役的仓库里 → 见 **C-5** |
-| **C-5** | anet4 设计文档(K207/K208/K209/K211)仍在 anet3 单体仓 | — | 三个 README 跨仓引用一个正在退役的仓库。应迁入各自仓的 `docs/` |
+| ~~C-5~~ | ~~anet4 架构文档仍在 anet3 单体仓~~ | — | **部分完成**:K207 → `ANet/docs/CONTRACTS-zh.md`,源码引用已改指本仓。K208(federation 草案)待 H-4 时迁入 ANetHub |
+| **C-2** | design3 剩余协议包是否收录 | — | **默认答案是"不"**,除非出现第二个消费者或一条 golden 向量。ascpevo 的判例:631 行实验协议只为 120 行有用途的部分而整包搬入,是用臃肿修臃肿 |
 
 ---
 

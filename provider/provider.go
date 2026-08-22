@@ -1,9 +1,9 @@
-// Package provider defines C1 — the CapabilityProvider contract (K207 §3):
+// Package provider defines C1 — the CapabilityProvider contract (docs/CONTRACTS-zh.md §3):
 // the only doorway through which the ANet daemon acquires callable
 // capabilities. Native agents, external agent connectors, and physical-world
 // runtimes (ANetLink) all enter through this one interface.
 //
-// Red line (the org lesson, K207): the daemon must never know what stands
+// Red line (the org lesson, docs/CONTRACTS-zh.md): the daemon must never know what stands
 // behind a provider — in particular it must never know the concept of a
 // "device". A provider declares capabilities, can be invoked, and returns
 // effects. Nothing else crosses the boundary.
