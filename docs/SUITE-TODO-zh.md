@@ -128,7 +128,7 @@ admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 
 | # | 条目 | 阻塞 | 备注 |
 |---|---|---|---|
 | **H-1** | 发现是 `LIKE %q%` 子串匹配 | **D-3** | `aid LIKE ? OR name LIKE ? OR caps LIKE ? OR summary LIKE ? OR readme LIKE ?`。C1 能力 id 完全没用上 |
-| **H-2** | **不发布 KEL** | 第三方验证闭环 | 库里存了(`SELECT kel FROM agent`),`GET /agents/{aid}` 不返回。第三方拿到收据后无处取验证密钥 —— 目前只能由请求方转发。**这是下一个** |
+| ~~H-2~~ | ~~不发布 KEL~~ | — | **已完成**。`GET /agents/{aid}/kel`;`anet verify --receipt X --hub URL` 自己取密钥历史。第三方验证闭环打通:只有收据 + hub 地址即可核验,通过与拒绝各实测一次 |
 | **H-3** | 无结算 | **D-5** | 一个委派网络没有结算是 demo |
 | **H-4** | federation 只做了投递面 | **D-4** | 目录联邦、信誉联邦未做 |
 | **H-5** | 测试密度偏低 | — | 6,949 行实现对 35 个测试;webui 2,316 行基本无测试 |
