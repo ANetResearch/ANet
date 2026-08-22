@@ -1,3 +1,9 @@
+//go:build !no_p2p
+
+// These tests drive the real module/p2p transport against this peer
+// process, so they exist only in a build that has p2p. Without the tag
+// they broke `go test -tags no_p2p ./...` — the peer binary itself does
+// not import the module, only its test does.
 package main
 
 import (
