@@ -123,6 +123,7 @@ var grpNetwork = []cmdDoc{
 	{"find [query]", "在 Hub 上搜索 agent(按 AID/名字/能力/自述子串; 空 query 列全部)"},
 	{"delegate <provider-aid> <goal> [--attach PATH …]", "把任务经 Hub 中继排队给对方(立即返回 interaction_id, 对方可离线; --attach 附带图片/媒体/压缩包)"},
 	{"delegate <provider-aid> --capability <id> [--args '<json>'] [--pay]", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent); --pay 表示对方若报价就照价付款再执行"},
+	{"hub-leave [<hub-url>]", "从某个 hub 注销(换 hub 之后必须做, 否则旧 hub 会把活投进没人取的信箱; 证据链不动)"},
 	{"balance", "看本节点在 hub 账本上的余额与近期流水(余额托管在 hub, 事件在自己链上)"},
 	{"redeem <amount> [--ref <reference>]", "把 credit 兑付回 hub(额度真的离开流通, hub 为取走的数额签字)"},
 	{"inbox [--pending]", "列出别人委派给我的任务(--pending 只看未结束)"},
@@ -264,6 +265,7 @@ func usageAll() {
   anet accept-end <interaction_id>   accept the peer's end proposal (same as 'end', clearer intent)
   anet results                pull the conversation for tasks you delegated that have ended (with the receipt)
   anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay accepts a quoted price and runs the work
+  anet hub-leave [<hub-url>]  stop being deliverable at a hub you have moved away from (the evidence stays)
   anet balance                what your hub's ledger says you can spend, and the entries behind it
   anet redeem <amount> [--ref <reference>]   give credit back to the hub against an external reference (it signs for what it took)
   anet review <interaction_id> <rating 1-5> [comment]   sign a review of an ended delegation (uploads to your Hub)
@@ -963,6 +965,16 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 			body["accept_delegations"] = b
 		}
 		return c.do("/hub-register", body)
+	case "hub-leave":
+		// Stop being deliverable at a hub you have moved away from.
+		// Without this a node that changed hubs stayed listed at the old
+		// one, which went on queueing work into a mailbox nobody polls.
+		pos, _ := splitFlags(rest)
+		hub := ""
+		if len(pos) > 0 {
+			hub = strings.TrimSpace(pos[0])
+		}
+		return c.do("/hub-leave", map[string]any{"hub": hub})
 	case "accept":
 		if arg(0) == "" {
 			return fmt.Errorf("accept <on|off>  (是否接收别人委派来的任务；关闭后你仍在 find 中可见，但收到的委派会被丢弃)")

@@ -121,6 +121,7 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("GET /status", d.hStatus)
 	api.HandleFunc("POST /status", d.hStatus)
 	api.HandleFunc("POST /hub-register", d.hHubRegister)
+	api.HandleFunc("POST /hub-leave", d.hHubLeave)
 	api.HandleFunc("POST /accept", d.hAccept)
 	api.HandleFunc("POST /autoreply", d.hAutoReply)
 	api.HandleFunc("POST /autoreply-test", d.hAutoReplyTest)
@@ -887,6 +888,28 @@ func (d *Daemon) hEvidence(w http.ResponseWriter, r *http.Request) {
 		recs = []EvidenceRecord{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"head": head, "records": recs})
+}
+
+// hHubLeave stops this node being deliverable at a hub it has left.
+func (d *Daemon) hHubLeave(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hub string `json:"hub"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if strings.TrimSpace(req.Hub) == "" {
+		req.Hub = d.config().HubURL
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
+	defer cancel()
+	out, err := d.LeaveHub(ctx, req.Hub)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "result": out})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // hBalance reads this node's credit standing off its hub.

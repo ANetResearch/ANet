@@ -8,6 +8,8 @@ github.com/ANetResearch/ANetCore v0.9.0 h1:Vd3alHzX6FrR1zO1Km1BNCitE5vo0KS4motMT
 github.com/ANetResearch/ANetCore v0.9.0/go.mod h1:XM6jAq55gxbkyVBWGj6N8ko0A5XkoSoQp5w2XSttN1E=
 github.com/ANetResearch/ANetCore v0.11.0 h1:d4urulL/krNc6/eRAgLQGQP9wpEr9jtSvceGuf0d210=
 github.com/ANetResearch/ANetCore v0.11.0/go.mod h1:XM6jAq55gxbkyVBWGj6N8ko0A5XkoSoQp5w2XSttN1E=
+github.com/ANetResearch/ANetCore v0.12.0 h1:D/qGmVHqca1ZFTmp71bbQs5qQ+gLHUur5RfVDWT80oM=
+github.com/ANetResearch/ANetCore v0.12.0/go.mod h1:XM6jAq55gxbkyVBWGj6N8ko0A5XkoSoQp5w2XSttN1E=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/fxamacker/cbor/v2 v2.9.2 h1:X4Ksno9+x3cz0TZv69ec1hxP/+tymuR8PXQJyDwfh78=

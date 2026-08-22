@@ -207,3 +207,32 @@ func (d *Daemon) SetVisibility(ctx context.Context, visibility string) error {
 	}
 	return d.hubPost(ctx, hub, "/agents/"+url.PathEscape(d.AID())+"/visibility", body, nil)
 }
+
+// LeaveHub stops this node being deliverable at a hub.
+//
+// The other half of registering, and it was missing. A node repointed at
+// a second hub left a live registration behind: the old hub went on
+// listing it and went on accepting delegations for it into a mailbox that
+// would never be polled again. Work addressed there was accepted, queued,
+// and silently swallowed — found in production, by a cross-hub call that
+// was relayed into a dead mailbox instead of crossing.
+//
+// hubURL is given rather than read from the config, because by the time
+// you want to leave a hub you have usually already pointed the config at
+// the new one. Leaving is something you do to a hub you are no longer
+// configured for.
+//
+// The evidence stays where it is. What goes is the routing.
+func (d *Daemon) LeaveHub(ctx context.Context, hubURL string) (map[string]any, error) {
+	hubURL = strings.TrimRight(strings.TrimSpace(hubURL), "/")
+	if hubURL == "" {
+		return nil, fmt.Errorf("anet: name the hub to leave")
+	}
+	ts, seq, sig := d.signRelayAuth(relayauth.ActionProfile)
+	body := map[string]any{"ts": ts, "key_state_seq": seq, "sig": sig}
+	var out map[string]any
+	if err := d.hubPost(ctx, hubURL, "/agents/"+url.PathEscape(d.AID())+"/deregister", body, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
