@@ -86,7 +86,7 @@ ANetMock 连 ANetCore 都不依赖 —— 它若发出成品 `Effect`,就把被�
 **内核**:身份与多身份 · 能力注册表 C1 · 委派生命周期 · 委派验签(8 种冒充被拒) ·
 **收据验证**(7 种"持有效签名仍撒谎"被拒) · **第三方验证 `anet verify`**(无 daemon/hub/网络) ·
 证据链 P6/C5(含 `receipt_verified`) · 收据+评价 · 传输列表 · 对端 KEL 缓存 ·
-控制面 20 端点 · CLI 26 个子命令 · 自动回复(exec + vision)
+控制面 21 端点 · CLI 28 个子命令 · 自动回复(exec + vision)
 
 **七个可插拔模块 + MCP 北向**(`-tags no_<name>` 后符号数为 0,`go tool nm` 验证):
 `anetlink` · `cas` · `blackboard` · `org` · `p2p` · `inv1` · `inv2` · `mcp`
@@ -101,7 +101,7 @@ ANetMock 连 ANetCore 都不依赖 —— 它若发出成品 `Effect`,就把被�
 | # | 条目 | 依赖 | 优先级 |
 |---|---|---|---|
 | ~~D-1~~ | ~~MCP 接入面~~ | — | **已完成**。`anet mcp` stdio 服务,7 个工具(agents_find / task_delegate / task_results / task_inbox / task_message / task_end / node_status),`no_mcp` 可减。依赖代价 24 条(82 → 100) |
-| **D-2** | **C5 证据链查询接口** | 无 | **高**。链只写不读,运维看不到自己节点的证据 |
+| ~~D-2~~ | ~~C5 证据链查询接口~~ | — | **已完成**。`anet evidence`、控制面 `POST /evidence`、MCP `evidence_read`;每条带 id / prev_id / 签名,可核而非可信;`head.state` 暴露 QUARANTINED |
 | **D-3** | 按 C1 能力 id 发现 | **H-1** | 中。能力 id 精确、结构化、机器可解析,而查找路径完全不用它 |
 | **D-4** | federation 感知 | **H-4** | 中。daemon 侧 grep 不到一个 federation 字样 |
 | **D-5** | 结算 | **H-3** | 中。`pricing` 只是展示字符串 |
@@ -128,7 +128,7 @@ admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 
 | # | 条目 | 阻塞 | 备注 |
 |---|---|---|---|
 | **H-1** | 发现是 `LIKE %q%` 子串匹配 | **D-3** | `aid LIKE ? OR name LIKE ? OR caps LIKE ? OR summary LIKE ? OR readme LIKE ?`。C1 能力 id 完全没用上 |
-| **H-2** | **不发布 KEL** | 第三方验证闭环 | 库里存了(`SELECT kel FROM agent`),`GET /agents/{aid}` 不返回。第三方拿到收据后无处取验证密钥 —— 目前只能由请求方转发 |
+| **H-2** | **不发布 KEL** | 第三方验证闭环 | 库里存了(`SELECT kel FROM agent`),`GET /agents/{aid}` 不返回。第三方拿到收据后无处取验证密钥 —— 目前只能由请求方转发。**这是下一个** |
 | **H-3** | 无结算 | **D-5** | 一个委派网络没有结算是 demo |
 | **H-4** | federation 只做了投递面 | **D-4** | 目录联邦、信誉联邦未做 |
 | **H-5** | 测试密度偏低 | — | 6,949 行实现对 35 个测试;webui 2,316 行基本无测试 |

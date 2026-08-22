@@ -1115,6 +1115,30 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		return c.do("/end-accept", map[string]any{"interaction_id": arg(0)})
 	case "results":
 		return c.do("/results", map[string]any{})
+	case "evidence":
+		// This node's own chain: what it did, in the order it did it, with
+		// the ids and signatures a reader needs to check the links rather
+		// than believe them.
+		_, flags := splitFlags(rest)
+		body := map[string]any{}
+		if t := strings.TrimSpace(flags["type"]); t != "" {
+			body["event_type"] = t
+		}
+		if v := strings.TrimSpace(flags["since"]); v != "" {
+			n, err := strconv.ParseUint(v, 10, 64)
+			if err != nil {
+				return fmt.Errorf("evidence: --since takes a sequence number: %w", err)
+			}
+			body["since"] = n
+		}
+		if v := strings.TrimSpace(flags["limit"]); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("evidence: --limit takes a number: %w", err)
+			}
+			body["limit"] = n
+		}
+		return c.do("/evidence", body)
 	case "review":
 		pos, _ := splitFlags(rest)
 		if len(pos) < 2 {
