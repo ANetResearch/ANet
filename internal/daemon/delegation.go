@@ -10,6 +10,7 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,7 @@ import (
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -701,7 +703,80 @@ func (d *Daemon) ingestResult(interactionID string, payload []byte) bool {
 	}); lerr != nil {
 		log.Printf("anet: result evidence ledger: %v", lerr)
 	}
+	d.recordSettlement(interactionID, rr.Deliverable)
 	return true
+}
+
+// recordSettlement puts the payer's half of a payment on the payer's own
+// chain, having checked the hub's signature over it first.
+//
+// The provider already recorded being paid. Without this the payer had
+// only the authorization it signed — proof that it offered to pay, not
+// that it did — and would have to ask the hub, the custodian, whether the
+// custodian had taken its money. Both sides now carry the event, which is
+// what the arrangement was always supposed to mean: the balance is the
+// hub's, and the record is the parties'.
+//
+// Failure here does not fail the result. The work arrived and is good;
+// what is missing is our note about the payment, and dropping a delivered
+// result over a bookkeeping problem would be the worse trade. It is
+// logged rather than swallowed.
+func (d *Daemon) recordSettlement(interactionID string, deliverable []byte) {
+	if d.ledger == nil || len(deliverable) == 0 {
+		return
+	}
+	var res struct {
+		Paid *struct {
+			Transaction string `json:"transaction"`
+			Amount      string `json:"amount"`
+			Network     string `json:"network"`
+			Receipt     string `json:"receipt"`
+		} `json:"paid"`
+	}
+	if err := json.Unmarshal(deliverable, &res); err != nil || res.Paid == nil {
+		return
+	}
+	entry := map[string]any{
+		"interaction_id": interactionID,
+		"transaction":    res.Paid.Transaction,
+		"amount":         res.Paid.Amount,
+		"network":        res.Paid.Network,
+		"payee":          "",
+	}
+	// Verified is the point of the entry. "The provider told us it was
+	// paid" and "the hub signed that it moved the credit" are different
+	// facts, and a chain that cannot tell them apart is one that will be
+	// read as claiming the stronger.
+	verified := false
+	if res.Paid.Receipt != "" {
+		if raw, err := base64.StdEncoding.DecodeString(res.Paid.Receipt); err == nil {
+			if rec, err := payment.UnmarshalReceipt(raw); err == nil {
+				entry["payee"] = rec.PayTo
+				entry["auth_id"] = rec.AuthID
+				entry["receipt"] = res.Paid.Receipt
+				if hubAID := d.hubAID(); hubAID != "" {
+					kel, kerr := d.hubKEL()
+					if kerr == nil {
+						// The signer is pinned to our hub, not merely
+						// read off the object: a receipt naming its own
+						// signer proves only that somebody signed it.
+						if err := rec.Verify(kel, hubAID, nowMillis()); err == nil {
+							verified = rec.Payer == d.AID()
+							if !verified {
+								log.Printf("anet: %s: settlement receipt is for %s, not us", interactionID, rec.Payer)
+							}
+						} else {
+							log.Printf("anet: %s: settlement receipt did not verify: %v", interactionID, err)
+						}
+					}
+				}
+			}
+		}
+	}
+	entry["verified"] = verified
+	if _, err := d.ledger.Append(EvPaymentSettled, entry); err != nil {
+		log.Printf("anet: settlement evidence: %v", err)
+	}
 }
 
 // resendResult relays an answer this node already signed.

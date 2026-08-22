@@ -14,6 +14,18 @@ type Config struct {
 	// WARNING: the control plane is guarded ONLY by a bearer token over cleartext HTTP — keep it on
 	// 127.0.0.1 unless you front it with TLS + auth.
 	ControlAddr string `json:"control_addr"`
+
+	// VoucherAddr, when set, opens a PUBLIC listener where buyers redeem
+	// hub-signed vouchers directly against this node — see redeem.go.
+	// Unlike ControlAddr this is meant to be reachable from outside, so
+	// setting it is a deliberate act, not a default.
+	VoucherAddr string `json:"voucher_addr,omitempty"`
+
+	// VoucherURL is the address the world reaches VoucherAddr at, which
+	// is what goes in this node's signed card. Separate because a listen
+	// address is routinely 0.0.0.0 or a container port and publishing one
+	// would advertise somewhere nobody can get to.
+	VoucherURL string `json:"voucher_url,omitempty"`
 	// HubURL is the official Hub base URL (registry + relay + reviews). When set, the daemon runs a
 	// background loop polling the Hub relay to receive delegations and results.
 	HubURL string `json:"hub_url,omitempty"`

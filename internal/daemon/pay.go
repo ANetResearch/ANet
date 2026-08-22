@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
+	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -247,4 +248,265 @@ func (d *Daemon) PayAndRetry(ctx context.Context, providerAID, capID string,
 		return "", err
 	}
 	return d.delegateCapabilityWithID(ctx, id, providerAID, capID, args, raw)
+}
+
+// DelegateAndPay delegates, and pays if the provider asks to be paid.
+//
+// One call because that is the shape a caller wants: "do this, and if it
+// costs something, buy it". The quote is still a real interaction with a
+// real receipt — this does not hide it, it acts on it — and the paid
+// interaction is a second one, because the first ended with an answer
+// that is true and worth keeping.
+//
+// Returns the paid interaction's id, and what was paid, so a caller that
+// wanted to know the price before committing can read it afterwards and
+// a caller that did not can ignore it.
+func (d *Daemon) DelegateAndPay(ctx context.Context, providerAID, capID string,
+	args map[string]any) (string, *payment.PaymentOption, error) {
+	id, err := d.DelegateCapability(ctx, providerAID, capID, args)
+	if err != nil {
+		return "", nil, err
+	}
+	quote, err := d.awaitQuote(ctx, id)
+	if err != nil {
+		return "", nil, err
+	}
+	if quote == nil {
+		return id, nil, nil // free, and already delegated
+	}
+	paidID, err := d.PayAndRetry(ctx, providerAID, capID, args, quote)
+	if err != nil {
+		return "", nil, err
+	}
+	var opt *payment.PaymentOption
+	if len(quote.Accepts) > 0 {
+		opt = &quote.Accepts[0]
+	}
+	return paidID, opt, nil
+}
+
+// awaitQuote waits for the first answer and reports a price if one came.
+//
+// nil means the work was free and is already done or under way — the
+// absence of a 402 is how x402 says free, and it is how this says it too.
+func (d *Daemon) awaitQuote(ctx context.Context, interactionID string) (*payment.PaymentRequired, error) {
+	deadline := time.Now().Add(quoteWait)
+	for time.Now().Before(deadline) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		results, err := d.Results(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range results {
+			if r.InteractionID != interactionID {
+				continue
+			}
+			var res capabilityResult
+			if err := json.Unmarshal([]byte(r.Result), &res); err != nil {
+				return nil, err
+			}
+			if res.Status == string(effect.PaymentRequired) {
+				if res.Payment == nil {
+					return nil, fmt.Errorf("anet: provider asked to be paid but quoted no price")
+				}
+				return res.Payment, nil
+			}
+			return nil, nil // answered, and not with a price
+		}
+		time.Sleep(time.Second)
+	}
+	return nil, fmt.Errorf("anet: no answer within %s, so nothing to pay for yet", quoteWait)
+}
+
+// quoteWait bounds how long a caller waits to learn a price. Short,
+// because a quote is computed rather than performed: a provider that
+// cannot say what something costs inside a minute is not going to.
+const quoteWait = 60 * time.Second
+
+// Balance reads this node's credit standing off its hub, with the recent
+// entries that produced it.
+//
+// The hub is asked because the hub is the custodian — that is the deal
+// stated at the top of this file, and pretending a local number were
+// authoritative would misrepresent it. What makes the arrangement
+// survivable is the second half: every line here has a counterpart on
+// somebody's signed chain, so a balance that disagrees with the evidence
+// is a balance that can be shown to be wrong.
+func (d *Daemon) Balance(ctx context.Context) (map[string]any, error) {
+	hub := d.config().HubURL
+	if hub == "" {
+		return nil, fmt.Errorf("anet: no hub configured, so there is no ledger to read")
+	}
+	get := func(path string, into any) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, hub+path, nil)
+		if err != nil {
+			return err
+		}
+		resp, err := (&http.Client{Timeout: hubCallTimeout}).Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("anet: hub answered %s for %s", resp.Status, path)
+		}
+		return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(into)
+	}
+	// The hub's field is "credits" (aghub.Balance). Reading "balance"
+	// here silently reported zero for every funded account — the request
+	// succeeded, the JSON parsed, and the number was wrong, which is the
+	// quietest way for a wire mismatch to fail.
+	var bal struct {
+		Credits int64 `json:"credits"`
+	}
+	if err := get("/agents/"+d.AID()+"/balance", &bal); err != nil {
+		return nil, err
+	}
+	out := map[string]any{
+		"aid": d.AID(), "hub": hub, "network": payment.CreditNetwork(d.hubAID()),
+		"asset": payment.AssetCredit, "balance": bal.Credits,
+	}
+	var led struct {
+		Entries []map[string]any `json:"entries"`
+	}
+	if err := get("/agents/"+d.AID()+"/ledger", &led); err == nil {
+		out["entries"] = led.Entries
+	}
+	return out, nil
+}
+
+// hubKEL fetches and caches the hub's key history.
+//
+// Needed because the hub signs settlements, and a settlement receipt is
+// only worth having if the signature can be checked. The hub publishes
+// every agent's KEL at this path including its own, so nothing special is
+// required — the custodian is an agent on its own registry, and being
+// checkable the same way everyone else is, is the point.
+func (d *Daemon) hubKEL() ([]identity.SignedEvent, error) {
+	aid := d.hubAID()
+	if aid == "" {
+		return nil, fmt.Errorf("anet: no hub, so no key history to check settlements against")
+	}
+	if kel, ok := d.peers.resolve(aid); ok {
+		return kel, nil
+	}
+	hub := d.config().HubURL
+	resp, err := (&http.Client{Timeout: hubCallTimeout}).Get(hub + "/agents/" + aid + "/kel")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("anet: hub answered %s for its own key history", resp.Status)
+	}
+	var out struct {
+		KEL string `json:"kel"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return nil, err
+	}
+	raw, err := base64.StdEncoding.DecodeString(out.KEL)
+	if err != nil {
+		return nil, err
+	}
+	kel, err := identity.UnmarshalKEL(raw)
+	if err != nil {
+		return nil, err
+	}
+	// remember verifies before storing, so a hub that served a forked or
+	// unverifiable history is refused here rather than trusted later.
+	d.peers.remember(aid, kel)
+	if kel, ok := d.peers.resolve(aid); ok {
+		return kel, nil
+	}
+	return nil, fmt.Errorf("anet: the hub's key history did not verify")
+}
+
+// EvCreditRedeemed records credit this node took back out.
+const EvCreditRedeemed = "anet.credit.redeemed"
+
+// RedeemCredit gives credit back to the hub against an external reference.
+//
+// Signed as a payment to the hub, because that is what it is: the agent
+// authorises the hub to take N credits, and the hub destroys them and
+// says under signature that it did. What the reference is worth outside
+// this ledger is between the operator and the agent — this code does not
+// model it and does not pretend to.
+//
+// The receipt comes back and goes on this node's chain. Without it the
+// agent has a smaller balance and nothing to point at, which is the worst
+// possible shape for the one operation that gives money away.
+func (d *Daemon) RedeemCredit(ctx context.Context, amount uint64, reference string) (map[string]any, error) {
+	if amount == 0 {
+		return nil, fmt.Errorf("anet: redeem what?")
+	}
+	hub := d.config().HubURL
+	if hub == "" {
+		return nil, fmt.Errorf("anet: no hub, so no ledger to redeem from")
+	}
+	hubAID := d.hubAID()
+	if hubAID == "" {
+		return nil, fmt.Errorf("anet: cannot learn this hub's identity, so cannot sign a redemption to it")
+	}
+	pp, err := d.Authorize(payment.PaymentOption{
+		Scheme:  payment.SchemeCredit,
+		Network: payment.CreditNetwork(hubAID),
+		Amount:  payment.Amount(amount),
+		Asset:   payment.AssetCredit,
+		PayTo:   hubAID,
+	}, "redeem:"+reference)
+	if err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(map[string]any{
+		"x402Version": payment.Version, "paymentPayload": pp, "reference": reference})
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hub+"/x402/redeem", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: hubCallTimeout}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		msg, _ := out["error"].(string)
+		if msg == "" {
+			msg = resp.Status
+		}
+		return out, fmt.Errorf("anet: redemption refused: %s", msg)
+	}
+	entry := map[string]any{"amount": amount, "reference": reference,
+		"auth_id": out["auth_id"], "verified": false}
+	// Verified means the hub signed for what it took. A chain that
+	// recorded the redemption either way could not later tell a
+	// documented withdrawal from an undocumented one.
+	if enc, ok := out["receipt"].(string); ok && enc != "" {
+		entry["receipt"] = enc
+		if raw, derr := base64.StdEncoding.DecodeString(enc); derr == nil {
+			if rec, rerr := payment.UnmarshalReceipt(raw); rerr == nil {
+				if kel, kerr := d.hubKEL(); kerr == nil {
+					if rec.Verify(kel, hubAID, nowMillis()) == nil &&
+						rec.Payer == d.AID() && rec.Amount == amount {
+						entry["verified"] = true
+					}
+				}
+			}
+		}
+	}
+	if _, lerr := d.ledger.Append(EvCreditRedeemed, entry); lerr != nil {
+		log.Printf("anet: redemption evidence: %v", lerr)
+	}
+	out["verified"] = entry["verified"]
+	return out, nil
 }

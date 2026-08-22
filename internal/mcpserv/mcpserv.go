@@ -67,7 +67,11 @@ func New(c Control, version string) *mcp.Server {
 			"\"ptz.absolute@onvif/camera-006\") with `args` for a deterministic call the " +
 			"provider executes directly. Returns an interaction id; the work is asynchronous, " +
 			"so poll task_results. This signs a task contract under your identity — the " +
-			"delegation is attributable to you and cannot be repudiated.",
+			"delegation is attributable to you and cannot be repudiated. A provider may " +
+			"answer PAYMENT_REQUIRED with a price instead of doing the work; that is a real " +
+			"answer, not an error. Set pay=true to authorize the quoted price and have the " +
+			"work run — you are spending this node's credit, so ask its operator first " +
+			"unless they have already told you to.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in delegateIn) (*mcp.CallToolResult, delegateOut, error) {
 		if in.Provider == "" {
 			return nil, delegateOut{}, fmt.Errorf("provider AID is required — find one with agents_find")
@@ -81,6 +85,9 @@ func New(c Control, version string) *mcp.Server {
 			body["capability"] = in.Capability
 			if len(in.Args) > 0 {
 				body["args"] = in.Args
+			}
+			if in.Pay {
+				body["pay"] = true
 			}
 		default:
 			body["goal"] = in.Goal
@@ -167,6 +174,19 @@ func New(c Control, version string) *mcp.Server {
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name: "credit_balance",
+		Description: "What this node can spend, as its hub accounts for it, with the recent " +
+			"entries behind the number. The hub is the custodian of the balance — it is not " +
+			"held on this machine — but every entry has a counterpart on somebody's signed " +
+			"evidence chain, so a balance that disagrees with the evidence can be shown to " +
+			"be wrong. Read this before setting pay=true on task_delegate.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, passthrough, error) {
+		var out passthrough
+		err := c.Call(ctx, "/balance", map[string]any{}, &out)
+		return nil, out, err
+	})
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name: "node_status",
 		Description: "This node's own identity and state: its AID, which hub it is registered " +
 			"with, which capability modules are compiled in, and what it is currently working on.",
@@ -213,12 +233,23 @@ type delegateIn struct {
 	Goal       string         `json:"goal,omitempty" jsonschema:"what you want done, in prose; omit when using capability"`
 	Capability string         `json:"capability,omitempty" jsonschema:"a capability id for a deterministic call"`
 	Args       map[string]any `json:"args,omitempty" jsonschema:"arguments for the capability call"`
+	Pay        bool           `json:"pay,omitempty" jsonschema:"if the provider charges for this capability, pay the quoted price and run it, instead of returning the quote"`
 }
 
 type delegateOut struct {
-	InteractionID string `json:"interaction_id"`
-	Status        string `json:"status"`
-	Capability    string `json:"capability,omitempty"`
+	InteractionID string   `json:"interaction_id"`
+	Status        string   `json:"status"`
+	Capability    string   `json:"capability,omitempty"`
+	Paid          *paidOut `json:"paid,omitempty"`
+}
+
+// paidOut is what was actually paid, reported back so a caller that used
+// pay=true still learns the price rather than only the fact of a charge.
+type paidOut struct {
+	Amount  string `json:"amount"`
+	Asset   string `json:"asset"`
+	Network string `json:"network"`
+	PayTo   string `json:"payTo"`
 }
 
 type resultsOut struct {

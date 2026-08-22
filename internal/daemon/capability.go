@@ -189,10 +189,18 @@ type capabilityResult struct {
 }
 
 // paidView is the settlement, as the payer sees it in the result.
+//
+// Receipt is the hub's own signed statement that the credit moved, passed
+// through untouched. Without it the payer has a transaction string it
+// cannot check — it would be taking the provider's word that the provider
+// was paid, which is precisely the word least worth taking. With it, the
+// payer can verify against the hub's key history, and so can a stranger
+// handed nothing but the receipt.
 type paidView struct {
 	Transaction string `json:"transaction"`
 	Amount      string `json:"amount"`
 	Network     string `json:"network"`
+	Receipt     string `json:"receipt,omitempty"` // base64 CoreDet-CBOR payment.Receipt
 }
 
 // provenanceOf renders an effect's evidence for both surfaces that carry it.
@@ -290,6 +298,11 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 			log.Printf("anet: payment evidence: %v", lerr)
 		}
 		res.Paid = &paidView{Transaction: st.Transaction, Amount: st.Amount, Network: st.Network}
+		// The hub signed a statement that it moved the credit. Carry it:
+		// it is the only part of this the payer can check for itself.
+		if enc, ok := st.Extensions[payment.ExtReceipt].(string); ok && enc != "" {
+			res.Paid.Receipt = enc
+		}
 	}
 
 	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID, CallerAID: ix.PeerAID})

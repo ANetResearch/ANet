@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -25,6 +26,12 @@ import (
 type Daemon struct {
 	// peers remembers key histories verified on the ingest path.
 	peers *peerKELs
+
+	// spent is the one-time guard for redeemed vouchers, and redeemSrv the
+	// public face that consumes them. Both are inert unless voucher_addr
+	// is configured.
+	spent     *spentVouchers
+	redeemSrv *http.Server
 	// transportState carries the optional delivery paths modules add.
 	transportState
 	// modules are the optional subsystems this build carries.
@@ -94,7 +101,7 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, fmt.Errorf("anet: open interactions store: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, peers: newPeerKELs(),
+	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, peers: newPeerKELs(), spent: newSpentVouchers(),
 		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1)}
 	led, err := openEvidenceLedger(layout.EvidenceLedgerPath(), self)
 	if err != nil {
