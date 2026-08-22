@@ -156,8 +156,8 @@ c["modules"] = {"service": {"capabilities": [
 # A's public voucher face: where a buyer who paid at the hub brings the
 # voucher. The hub never sees this address's traffic, which is the whole
 # point of selling access rather than proxying it.
-c["voucher_addr"] = "127.0.0.1:29530"
-c["voucher_url"] = "http://127.0.0.1:29530/x402/redeem"
+c["modules"]["x402"] = {"voucher_addr": "127.0.0.1:29530",
+                        "voucher_url": "http://127.0.0.1:29530/x402/redeem"}
 json.dump(c, open(p, "w"), indent=1)
 PY
 python3 - "$(home_of B)/.anet/config.json" <<'PY'
@@ -616,6 +616,45 @@ if [ "$rs" = "OK" ]; then
 else
   info "跨 hub 调用未完成($rs),信誉联邦仍按已有评价检查"
 fi
+# Now actually review it, and watch the rating cross. Asserting the shape
+# of the endpoint proves the endpoint; only a review that travels proves
+# the federation. The half that was missing until this ran: a cross-hub
+# interaction could not be reviewed AT ALL, because both hubs asked "are
+# both parties registered here" and neither could answer yes.
+if [ "$rs" = "OK" ]; then
+  cix=$(ctl C /results '{}' | python3 -c "
+import sys,json
+for x in json.load(sys.stdin).get('results') or []:
+    if x.get('provider')=='$D': print(x['interaction_id']); break")
+  if [ -n "$cix" ]; then
+    ctl C /review "{\"interaction_id\":\"$cix\",\"rating\":5,\"comment\":\"cross-hub\"}" >/dev/null 2>&1
+    sleep 2
+    lr=$(curl -s -m 10 "$HUB/agents/$D/reputation" | python3 -c "
+import sys,json;print((json.load(sys.stdin).get('reputation') or {}).get('local',{}).get('reviews',0))")
+    [ "${lr:-0}" -ge 1 ] && ok "跨 hub 的活可以被评价了(评价方的 hub 收下了它自己用户的评分)" \
+      || no "跨 hub 交互仍然无法评价(hub1 本地评价数 ${lr:-0})"
+    # hub2 拉过去,并且落在 peer 那一列而不是本地列
+    for _ in $(seq 1 20); do
+      pr=$(curl -s -m 10 "$HUB2/agents/$D/reputation" | python3 -c "
+import sys,json
+r=json.load(sys.stdin).get('reputation') or {}
+print(len(r.get('peers') or []))" 2>/dev/null)
+      [ "${pr:-0}" -ge 1 ] && break
+      sleep 3
+    done
+    [ "${pr:-0}" -ge 1 ] && ok "评分经信誉同步流真的到了 hub2,并记在 peer 来源下" \
+      || no "评分没有跨过去(hub2 的 peers 列为空)"
+    lc=$(curl -s -m 10 "$HUB2/agents/$D/reputation" | python3 -c "
+import sys,json
+r=json.load(sys.stdin).get('reputation') or {}
+print(r.get('local',{}).get('reviews',0))" 2>/dev/null)
+    [ "${lc:-0}" = "0" ] && ok "它没有被并进 hub2 的本地计数(来源分得清)" \
+      || no "peer 的评分混进了本地列(${lc})"
+  else
+    info "找不到 C→D 的交互 id,跳过跨 hub 评价"
+  fi
+fi
+
 # hub2 serves its reviews; hub1 pulls them. Even with no review present,
 # the stream and the per-source shape must be right — a reputation
 # endpoint that 404s is one nobody can build on.

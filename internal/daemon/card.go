@@ -71,7 +71,10 @@ func (d *Daemon) signedCard(name string, caps []string) (json.RawMessage, error)
 // operator has to say what the world sees, because only the operator
 // knows. Configured separately and absent by default.
 func (d *Daemon) publicRedeemURL() string {
-	return strings.TrimSpace(d.config().VoucherURL)
+	if p := d.payer(); p != nil {
+		return strings.TrimSpace(p.RedeemURL())
+	}
+	return ""
 }
 
 // priceList asks the registry what each advertised capability costs.
@@ -89,7 +92,7 @@ func (d *Daemon) priceList(caps []string) map[string]uint64 {
 		if !ok {
 			continue
 		}
-		if price, priced := priceOf(p, capID); priced {
+		if price, priced := priceOfCapability(p, capID); priced {
 			out[capID] = price
 		}
 	}

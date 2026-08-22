@@ -221,3 +221,8 @@ func TestGenesisIsRequired(t *testing.T) {
 		t.Fatalf("a malformed genesis must be refused, got %v", err)
 	}
 }
+
+// PaymentSeam: none of these modules take money, and a host that offered
+// one would be lending them an ability they must not have. False is the
+// honest answer and the one a node without a hub gives too.
+func (h *orgHost) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }

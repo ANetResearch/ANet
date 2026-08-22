@@ -235,11 +235,11 @@ func (d *Daemon) ServeControl(ctx context.Context) error {
 	// identity switcher across all locally-running daemons. Best-effort; removed on shutdown.
 	d.writeRegistry()
 	defer removeRegistryEntry(d.config().ControlAddr)
-	// The public voucher face, if the operator asked for one. Fatal on
-	// failure rather than logged and skipped: a node configured to sell
-	// work and silently not listening would take payments at its hub that
-	// nobody could ever redeem.
-	if err := d.startRedeemFace(ctx); err != nil {
+	// Whatever public faces the modules need. Fatal on failure rather
+	// than logged and skipped: a node configured to sell work and
+	// silently not listening would take payments at its hub that nobody
+	// could ever redeem.
+	if err := d.serveModuleFaces(ctx); err != nil {
 		return err
 	}
 	srv := &http.Server{Handler: d.ControlHandler(token), ReadHeaderTimeout: 5 * time.Second}

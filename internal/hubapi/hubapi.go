@@ -28,6 +28,17 @@ type AgentView struct {
 	AvgRating    float64  `json:"avg_rating"`
 	ReviewCount  int      `json:"review_count"`
 	RegisteredAt string   `json:"registered_at"`
+	// HomeHub is set only on an agent learned from a peer hub: which hub
+	// an agent lives on decides where work for it is delivered.
+	//
+	// It was missing here while the hub had been sending it, so every
+	// federated agent this daemon found arrived with the one fact that
+	// says how to reach it silently dropped. Nothing failed — the field
+	// simply was not in the struct, so encoding/json discarded it and
+	// `anet find --cap` listed agents on other hubs as if they were
+	// local. Found by pinning the wire, which is the only way this class
+	// of drift ever shows up.
+	HomeHub string `json:"home_hub,omitempty"`
 }
 
 // ReviewView is one stored, verified review. Beyond the rating it carries the VERIFIED interaction
