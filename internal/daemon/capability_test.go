@@ -589,3 +589,141 @@ func TestAResultForDifferentContentIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// A delegation delivered twice must be executed once.
+//
+// The relay acks a message only after it has been handled, which is the
+// right order — acking first would lose work on a crash. The cost is that
+// a crash between doing the work and acking leaves the message in the
+// mailbox, and the next poll delivers it again. That window is not small:
+// it spans signing a receipt, writing the evidence chain and relaying the
+// result.
+//
+// Re-executing is not a wasted cycle. It is a second physical effect for
+// a capability that has one, a second signed receipt for work that
+// happened once, a second entry on the evidence chain, and a second
+// result for the requester to reconcile — from a node whose whole claim
+// is that its chain says what happened.
+func TestARedeliveredDelegationIsNotExecutedTwice(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	lamp := &lampProvider{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
+		map[string]any{"on": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The delegation payload, exactly as the hub holds it.
+	payload := onlyRelayPayload(t, srv, prov.AID(), "delegate")
+
+	// Delivered, handled, and then — because the ack never landed —
+	// delivered again.
+	if !prov.ingestDelegate(payload) {
+		t.Fatal("first delivery was refused")
+	}
+	if len(lamp.invoked) != 1 {
+		t.Fatalf("first delivery invoked the capability %d times", len(lamp.invoked))
+	}
+	if !prov.ingestDelegate(payload) {
+		t.Fatal("a redelivery must be acked, not retried forever")
+	}
+
+	if n := len(lamp.invoked); n != 1 {
+		t.Errorf("the lamp was switched %d times for one delegation", n)
+	}
+	// One receipt, not two. A second would be a signed claim about work
+	// that happened once.
+	seq := chainLength(t, prov)
+	if seq != 1 {
+		t.Errorf("the provider chain has %d entries for one delegation", seq)
+	}
+	// And the transcript must not gain a duplicate of the opening message.
+	ix, err := prov.ix.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := prov.ix.Messages(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opening := 0
+	for _, m := range msgs {
+		if m.Body == ix.Goal {
+			opening++
+		}
+	}
+	if opening != 1 {
+		t.Errorf("the opening message appears %d times", opening)
+	}
+}
+
+// chainLength reports how many events this node has recorded.
+func chainLength(t *testing.T, d *Daemon) uint64 {
+	t.Helper()
+	d.ledger.mu.Lock()
+	defer d.ledger.mu.Unlock()
+	return d.ledger.nextSeq
+}
+
+// The same window exists on the requester's side, and it lands on the
+// evidence chain.
+//
+// A result is acked after it is stored, so a crash in between means the
+// next poll delivers it again. Storing it twice is harmless — the content
+// is identical — but appending "result accepted" twice is not: the chain
+// would say a node accepted two results for one interaction, and a chain
+// that miscounts what happened is worse than no chain, because it is
+// believed.
+func TestARedeliveredResultIsRecordedOnce(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	if err := prov.Providers().Register(ctx, &lampProvider{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
+		map[string]any{"on": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	payload := onlyRelayPayload(t, srv, req.AID(), "result")
+
+	before := chainLength(t, req)
+	if !req.ingestResult(id, payload) {
+		t.Fatal("first delivery refused")
+	}
+	afterFirst := chainLength(t, req)
+	if afterFirst != before+1 {
+		t.Fatalf("one result should add one chain entry, got %d", afterFirst-before)
+	}
+	if !req.ingestResult(id, payload) {
+		t.Fatal("a redelivery must be acked, not retried forever")
+	}
+	if got := chainLength(t, req); got != afterFirst {
+		t.Errorf("a redelivered result added %d more chain entries", got-afterFirst)
+	}
+}
