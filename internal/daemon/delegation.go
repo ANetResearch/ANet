@@ -282,12 +282,26 @@ func (d *Daemon) AcceptEnd(ctx context.Context, interactionID string) error {
 // relayChat sends a ChatMsg (text or end negotiation, optionally with attachments) into the peer's Hub
 // mailbox.
 func (d *Daemon) relayChat(ctx context.Context, toAID, interactionID, kind, body string, atts []delegation.Attachment) error {
-	cm := &delegation.ChatMsg{Kind: kind, Body: body, Attachments: atts}
+	msgID, err := newMessageID()
+	if err != nil {
+		return err
+	}
+	cm := &delegation.ChatMsg{Kind: kind, Body: body, Attachments: atts, MsgID: msgID}
 	payload, err := cm.Marshal()
 	if err != nil {
 		return err
 	}
 	return d.relaySend(ctx, toAID, hubapi.RelayKindMessage, interactionID, payload)
+}
+
+// newMessageID mints the identity a receiver dedupes on. The sender is the
+// only party present on every delivery path, so the sender mints it.
+func newMessageID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return "msg_" + hex.EncodeToString(b[:]), nil
 }
 
 // transcriptMsg is one line of the JSON transcript the provider signs (as the receipt's ResultCID) and
@@ -559,10 +573,18 @@ func (d *Daemon) ingestMessage(interactionID, fromAID string, payload []byte) bo
 	}
 	switch cm.Kind {
 	case delegation.ChatText:
-		seq, err := d.ix.AddMessage(interactionID, fromAID, interactions.MsgText, cm.Body)
+		// The sender's id is what tells a redelivery from a repetition.
+		// People repeat themselves and an agent that says "ok" twice means
+		// it twice, so body-matching would drop real messages; only an id
+		// minted by the one party present on every delivery path can say
+		// "this is the message you already have".
+		seq, stored, err := d.ix.AddMessageID(interactionID, fromAID, interactions.MsgText, cm.Body, cm.MsgID)
 		if err != nil {
 			log.Printf("anet: store chat message: %v", err)
 			return false
+		}
+		if !stored {
+			return true // already have it; ack and move on
 		}
 		if err := d.storeMsgAttachments(interactionID, seq, cm.Attachments); err != nil {
 			log.Printf("anet: store chat attachments: %v", err) // metadata stored; bytes rejected/failed
