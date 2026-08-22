@@ -95,6 +95,8 @@ ANetMock 连 ANetCore 都不依赖 —— 它若发出成品 `Effect`,就把被�
 凭证 CID、blob CID),四个全等。
 
 **联调 20/20**(`scripts/joint.sh`,四仓六进程)。
+**实网**:hub.agentnetwork.org.cn 已换成 anet4 的 hub(2026-08-22),
+ink93(普通用户)+ emax(纯 hub)+ dmax(服务节点)三节点跨公网跑通。
 **场景 24/24**(`scripts/scenario.sh`,一个谁也不认识的 hub + 三个节点加入;`--live` 加本地 caption 模型与租用前沿模型)。
 
 ### TODO
@@ -133,6 +135,7 @@ admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 
 | **H-3** | 无结算 | **D-5** | 一个委派网络没有结算是 demo |
 | **H-4** | federation 只做了投递面 | **D-4** | 目录联邦、信誉联邦未做 |
 | **H-5** | 测试密度偏低 | — | 6,949 行实现对 35 个测试;webui 2,316 行基本无测试 |
+| **H-6** | 部署链路上有三层体积上限 | — | daemon 控制面 / hub / **nginx**。只改前两层无效 —— nginx vhost 默认 1m 才是公网路径的真瓶颈。emax 已改 512m,但这是手工的服务器配置,不在任何仓库里 |
 
 ---
 
