@@ -62,7 +62,8 @@ func main() {
 	case "id", "ids", "identity": // manage named identities on this machine
 		fail(runID(rest))
 	case "version", "--version", "-v":
-		fmt.Println("anet", daemon.Version)
+		fmt.Printf("anet %s (commit %s, built %s)\n",
+			daemon.Version, daemon.BuildCommit, daemon.BuildAt)
 	case "mcp":
 		// Serves over stdio, so it must not share the process with
 		// anything that prints: a stray line on stdout is a protocol

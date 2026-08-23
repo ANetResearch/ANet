@@ -51,6 +51,13 @@ func (d *Daemon) pingHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"anet": true, "aid": d.AID(), "name": d.config().Name})
+		// The build is reported here as well as the identity. A check
+		// asking "is the daemon I deployed the one answering" needs an
+		// unauthenticated endpoint to ask, and this is the one everything
+		// already uses to find out whether a node is up.
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"anet": true, "aid": d.AID(), "name": d.config().Name,
+			"version": Version, "commit": BuildCommit, "built_at": BuildAt,
+		})
 	}
 }
