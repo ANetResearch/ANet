@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -100,11 +101,17 @@ type node struct {
 }
 
 func newNode(t *testing.T, dir, rendezvous, name string, box *mailbox) *node {
+	return newNodeAt(t, dir, rendezvous, name, filepath.Join(dir, name+".wire"), box)
+}
+
+// newNodeAt is newNode with the peer-facing address chosen by the caller,
+// so a test can put the peer wire on TCP instead of a Unix socket.
+func newNodeAt(t *testing.T, dir, rendezvous, name, peerAddr string, box *mailbox) *node {
 	t.Helper()
 	p, err := start(
 		filepath.Join(dir, name+".sock"),
-		filepath.Join(dir, name+".wire"),
-		rendezvous)
+		peerAddr,
+		rendezvous, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,3 +265,82 @@ func TestConcurrentTrafficBothWays(t *testing.T) {
 // one would be lending them an ability they must not have. False is the
 // honest answer and the one a node without a hub gives too.
 func (h *host) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }
+
+// An address form must not be guessed wrongly: a path is a socket, a
+// host:port is TCP, and an explicit scheme wins over both.
+func TestAddrKindReadsTheAddressForm(t *testing.T) {
+	for _, tc := range []struct{ in, net, addr string }{
+		{"/run/peer/a.sock", "unix", "/run/peer/a.sock"},
+		{"tcp://10.0.0.1:4100", "tcp", "10.0.0.1:4100"},
+		{"unix:///run/a.sock", "unix", "/run/a.sock"},
+		{"10.0.0.1:4100", "tcp", "10.0.0.1:4100"},
+		{"peer.sock", "unix", "peer.sock"},
+		// A path that also contains a colon is still a path: guessing TCP
+		// here would make a peer listen on the network by accident.
+		{"/run/peer:1/a.sock", "unix", "/run/peer:1/a.sock"},
+	} {
+		n, a := addrKind(tc.in)
+		if n != tc.net || a != tc.addr {
+			t.Errorf("addrKind(%q) = %q,%q want %q,%q", tc.in, n, a, tc.net, tc.addr)
+		}
+	}
+}
+
+// Peers that are not on the same machine.
+//
+// The peer wire was a Unix socket, so two peers had to share a
+// filesystem. That made this process untestable across a real network: it
+// could carry traffic between daemons on one host and nothing else, and
+// the one module that changes how a delegation travels was the one module
+// no live run could exercise.
+//
+// Loopback TCP rather than two machines, so this proves the wire and not
+// the routing. What it establishes is that a peer can listen on and dial
+// an address another machine could reach, which was structurally
+// impossible before.
+func TestPeersReachEachOtherOverTCP(t *testing.T) {
+	dir := t.TempDir()
+	rv := filepath.Join(dir, "rv")
+
+	aliceBox := &mailbox{}
+	bobBox := &mailbox{}
+	alice := newNodeAt(t, dir, rv, "alice", freeTCP(t), aliceBox)
+	bob := newNodeAt(t, dir, rv, "bob", freeTCP(t), bobBox)
+	_ = alice
+	_ = bob
+
+	at := alice.host.transport(t)
+	waitFor(t, "the peers to announce themselves over TCP", func() bool {
+		return at.Reachable(context.Background(), bob.aid)
+	})
+	if err := at.Send(context.Background(), bob.aid, "delegate", "ix-tcp", []byte("over tcp")); err != nil {
+		t.Fatalf("delivery over TCP failed: %v", err)
+	}
+	if got := bobBox.all(); len(got) != 1 || got[0] != "aid-alice/delegate/ix-tcp/over tcp" {
+		t.Fatalf("bob received %v", got)
+	}
+	// And back, because a transport that works one way is half a
+	// transport: the answer travels the same wire.
+	bt := bob.host.transport(t)
+	if err := bt.Send(context.Background(), alice.aid, "result", "ix-tcp", []byte("answer")); err != nil {
+		t.Fatalf("the answer did not travel back over TCP: %v", err)
+	}
+	if got := aliceBox.all(); len(got) != 1 || got[0] != "aid-bob/result/ix-tcp/answer" {
+		t.Fatalf("alice received %v", got)
+	}
+}
+
+// freeTCP picks a loopback port the OS is not using and gives it back, so
+// the peer can bind it.
+func freeTCP(t *testing.T) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return addr
+}
