@@ -8,6 +8,15 @@
 // module that changes how delegations travel was the one module no joint
 // run could exercise.
 //
+// The peer wire runs over TCP as well as a Unix socket, so two peers can
+// be on two machines. Discovery has NOT moved with it: the rendezvous is
+// still a shared directory, which two machines do not have. Crossing a
+// real network therefore needs the directory to be shared some other way
+// — a mounted filesystem, or entries placed by hand — and that is the
+// remaining gap between this and a peer stack that discovers on its own.
+// It is named here rather than left to be found, because "p2p works
+// across machines" is exactly the kind of claim that is half true.
+//
 // This is that implementation, at the smallest size that is honest. It
 // carries real traffic between real daemons on one machine: each peer
 // listens for its daemon on one socket and for other peers on another, and
@@ -36,6 +45,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -62,13 +72,14 @@ type frame struct {
 func main() {
 	sock := flag.String("socket", "", "socket the daemon's p2p module connects to")
 	peerSock := flag.String("peer", "", "socket other anetpeer processes connect to")
-	rv := flag.String("rendezvous", "", "directory mapping AID → peer socket")
+	rv := flag.String("rendezvous", "", "directory mapping AID → peer address")
+	advertise := flag.String("advertise", "", "address other peers should dial (default: --peer)")
 	flag.Parse()
 	if *sock == "" || *peerSock == "" || *rv == "" {
 		fmt.Fprintln(os.Stderr, "usage: anetpeer --socket S --peer P --rendezvous DIR")
 		os.Exit(2)
 	}
-	p, err := start(*sock, *peerSock, *rv)
+	p, err := start(*sock, *peerSock, *rv, *advertise)
 	if err != nil {
 		log.Fatalf("anetpeer: %v", err)
 	}
@@ -87,14 +98,24 @@ func main() {
 // half are the two sides of one contract, and both of them had the same
 // deadlock — handling a request inline on the loop that has to deliver its
 // answer. Testing them apart is what let that ship twice.
-func start(sock, peerSock, rendezvous string) (*peer, error) {
+func start(sock, peerSock, rendezvous, advertise string) (*peer, error) {
 	if err := os.MkdirAll(rendezvous, 0o755); err != nil {
 		return nil, err
 	}
-	p := &peer{peerSocket: peerSock, rendezvous: rendezvous, acks: map[string]chan struct{}{}}
+	p := &peer{peerSocket: peerSock, rendezvous: rendezvous, advertise: advertise,
+		acks: map[string]chan struct{}{}}
 
-	_ = os.Remove(peerSock)
-	pl, err := net.Listen("unix", peerSock)
+	// The peer-facing listener takes either a socket path or a TCP
+	// address, because peers on two machines cannot share a Unix socket.
+	// That was the limit that made this process untestable across a real
+	// network: it could carry traffic between daemons on one host and
+	// nothing else, so the one module that changes how delegations travel
+	// was the one module no live run could exercise.
+	pnet, paddr := addrKind(peerSock)
+	if pnet == "unix" {
+		_ = os.Remove(peerSock)
+	}
+	pl, err := net.Listen(pnet, paddr)
 	if err != nil {
 		return nil, fmt.Errorf("peer wire: %w", err)
 	}
@@ -132,6 +153,7 @@ func (p *peer) stop() {
 type peer struct {
 	peerSocket string
 	rendezvous string
+	advertise  string
 	peerLn     net.Listener
 	daemonLn   net.Listener
 
@@ -261,7 +283,8 @@ func (p *peer) deliver(f frame) error {
 	if !ok {
 		return fmt.Errorf("no peer for %s", f.To)
 	}
-	c, err := net.DialTimeout("unix", sock, 3*time.Second)
+	dnet, daddr := addrKind(sock)
+	c, err := net.DialTimeout(dnet, daddr, 8*time.Second)
 	if err != nil {
 		return err
 	}
@@ -288,7 +311,31 @@ func (p *peer) reply(c net.Conn, f frame) {
 	}
 }
 
-// announce publishes "this AID is reachable at this socket".
+// addrKind splits an address into a network and an address.
+//
+//	tcp://host:port   a peer on another machine
+//	host:port         likewise, when it looks like one
+//	/path/to.sock     a peer on this machine
+//
+// Two forms rather than a flag, because the rendezvous entry is what one
+// peer reads to reach another and it has to say which kind it is. A flag
+// would describe the local peer and say nothing about the remote one.
+func addrKind(a string) (network, addr string) {
+	switch {
+	case strings.HasPrefix(a, "tcp://"):
+		return "tcp", strings.TrimPrefix(a, "tcp://")
+	case strings.HasPrefix(a, "unix://"):
+		return "unix", strings.TrimPrefix(a, "unix://")
+	case strings.Contains(a, "/"):
+		return "unix", a
+	case strings.Contains(a, ":"):
+		return "tcp", a
+	default:
+		return "unix", a
+	}
+}
+
+// announce publishes "this AID is reachable at this address".
 //
 // A directory rather than a DHT. It is the smallest thing that is still a
 // real rendezvous: two peers that have never met find each other through
@@ -300,7 +347,15 @@ func (p *peer) announce(aid string) {
 	p.mu.Lock()
 	p.self = aid
 	p.mu.Unlock()
-	_ = os.WriteFile(filepath.Join(p.rendezvous, aid), []byte(p.peerSocket), 0o644)
+	// What is published is what a peer should dial, which is not always
+	// what this process listens on: a node behind a port mapping listens
+	// on one address and is reachable at another. --advertise says the
+	// second when they differ.
+	reach := p.advertise
+	if reach == "" {
+		reach = p.peerSocket
+	}
+	_ = os.WriteFile(filepath.Join(p.rendezvous, aid), []byte(reach), 0o644)
 }
 
 func (p *peer) forget() {
