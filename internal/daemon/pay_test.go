@@ -318,3 +318,61 @@ func lastResultFor(t *testing.T, d *Daemon, ixID string) capabilityResult {
 	t.Fatalf("no result for %s", ixID)
 	return capabilityResult{}
 }
+
+// Buying through a gateway is something a person does, not only
+// something a test does — so the header they need has to be reachable
+// without a fixture binary.
+//
+// The joint run had been signing gateway payments with anetfixture,
+// which meant the one path a real buyer would take was the one path
+// nothing exercised. A test tool standing in for a user-facing command is
+// the same substitution that hid every other defect this month.
+func TestANodeCanSignAPaymentForAGateway(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	d := newTestDaemon(t, srv.URL, false)
+	if err := d.RegisterWithHub(ctx, srv.URL, "Buyer", nil, GuestDefaultMessages); err != nil {
+		t.Fatal(err)
+	}
+	p := d.payer()
+	if p == nil {
+		t.Fatal("no payer")
+	}
+	raw, err := p.Authorize(payment.PaymentOption{
+		Scheme: payment.SchemeCredit, Network: payment.CreditNetwork(hubAIDOf(srv.URL)),
+		Amount: "30", Asset: payment.AssetCredit, PayTo: "did:anet:seller",
+	}, "gw-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pp payment.PaymentPayload
+	if err := json.Unmarshal(raw, &pp); err != nil {
+		t.Fatal(err)
+	}
+	// The terms a gateway checks before it settles: who is being paid and
+	// how much. A mismatch here reads as the gateway refusing a correct
+	// payment.
+	if pp.Accepted.PayTo != "did:anet:seller" || pp.Accepted.Amount != "30" {
+		t.Errorf("accepted terms = %+v", pp.Accepted)
+	}
+	enc, _ := pp.Payload["authorization"].(string)
+	authRaw, err := base64.StdEncoding.DecodeString(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth, err := payment.UnmarshalAuthorization(authRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.Verify(d.self.KEL(), time.Now().UnixMilli()); err != nil {
+		t.Fatalf("the header a buyer would send does not verify: %v", err)
+	}
+	if auth.Payer != d.AID() {
+		t.Errorf("payer = %s, want this node", auth.Payer)
+	}
+	// Signing is not spending. Nothing has settled until a gateway
+	// presents it, and the balance must be untouched.
+	if got := balanceOf(srv.URL, d.AID()); got != 0 {
+		t.Errorf("signing an authorization moved credit: %d", got)
+	}
+}

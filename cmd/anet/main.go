@@ -123,6 +123,7 @@ var grpNetwork = []cmdDoc{
 	{"find [query]", "在 Hub 上搜索 agent(按 AID/名字/能力/自述子串; 空 query 列全部)"},
 	{"delegate <provider-aid> <goal> [--attach PATH …]", "把任务经 Hub 中继排队给对方(立即返回 interaction_id, 对方可离线; --attach 附带图片/媒体/压缩包)"},
 	{"delegate <provider-aid> --capability <id> [--args '<json>'] [--pay]", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent); --pay 表示对方若报价就照价付款再执行"},
+	{"x402-authorize --pay-to <aid> --amount <n>", "为 x402 网关签一笔付款, 只打印 PAYMENT-SIGNATURE 的值(可直接管进 curl)"},
 	{"hub-leave [<hub-url>]", "从某个 hub 注销(换 hub 之后必须做, 否则旧 hub 会把活投进没人取的信箱; 证据链不动)"},
 	{"balance", "看本节点在 hub 账本上的余额与近期流水(余额托管在 hub, 事件在自己链上)"},
 	{"redeem <amount> [--ref <reference>]", "把 credit 兑付回 hub(额度真的离开流通, hub 为取走的数额签字)"},
@@ -1144,6 +1145,29 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		return c.do("/end-accept", map[string]any{"interaction_id": arg(0)})
 	case "results":
 		return c.do("/results", map[string]any{})
+	case "x402-authorize", "pay-header":
+		// Sign a payment for an x402 gateway and print the header value.
+		// The gateway takes this, settles it, and hands back a voucher;
+		// the work then happens at the provider, not at the gateway.
+		_, flags := splitFlags(rest)
+		amount, err := strconv.ParseUint(strings.TrimSpace(flags["amount"]), 10, 64)
+		if err != nil || amount == 0 {
+			return fmt.Errorf("x402-authorize --pay-to <aid> --amount <n> [--network hub:<aid>] [--interaction <id>]")
+		}
+		body := map[string]any{
+			"pay_to": strings.TrimSpace(flags["pay-to"]),
+			"amount": amount,
+		}
+		if v := strings.TrimSpace(flags["network"]); v != "" {
+			body["network"] = v
+		}
+		if v := strings.TrimSpace(flags["interaction"]); v != "" {
+			body["interaction_id"] = v
+		}
+		// Only the header value on stdout, so it can be piped straight
+		// into a curl. Everything else about this command is noise to the
+		// one thing a caller wants.
+		return c.doField("/x402-authorize", body, "value")
 	case "redeem":
 		// Credit back out. What the reference buys is between this node's
 		// operator and its hub — anet signs the withdrawal and keeps the
@@ -1278,5 +1302,34 @@ func (c *client) do(path string, body any) error {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("daemon returned %d", resp.StatusCode)
 	}
+	return nil
+}
+
+// doField prints one field of a JSON response and nothing else.
+//
+// For output meant to be piped. `anet x402-authorize` produces a header
+// value that goes straight into a curl, and a caller doing that should
+// not have to pick it out of a formatted object — nor should they get a
+// pretty-printed blob when what they piped into expects one line.
+func (c *client) doField(path string, body any, field string) error {
+	b, code, err := c.fetch(path, body)
+	if err != nil {
+		return err
+	}
+	var out map[string]any
+	if jerr := json.Unmarshal(b, &out); jerr != nil {
+		return fmt.Errorf("%s", strings.TrimSpace(string(b)))
+	}
+	if code != http.StatusOK {
+		if msg, _ := out["error"].(string); msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return fmt.Errorf("%s", strings.TrimSpace(string(b)))
+	}
+	v, ok := out[field].(string)
+	if !ok || v == "" {
+		return fmt.Errorf("anet: the daemon returned no %s", field)
+	}
+	fmt.Println(v)
 	return nil
 }
