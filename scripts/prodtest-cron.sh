@@ -37,6 +37,11 @@ out="$RESULTS/$stamp.log"
 # Pass FULL=1 to run the writing half, for a release check.
 mode=--no-write
 [ "${FULL:-0}" = 1 ] && mode=""
+# Section 11 restarts a production hub and a production daemon. Never on
+# a schedule: an hourly job that restarts the network it is watching is
+# an outage generator, and the backlog each restart leaves would make the
+# next hour's run report failures it caused itself.
+export RESTART=0
 
 start=$(date -u +%s)
 # shellcheck disable=SC2086

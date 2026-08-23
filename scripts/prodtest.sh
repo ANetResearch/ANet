@@ -44,6 +44,18 @@
 #   bash scripts/prodtest.sh              run everything
 #   bash scripts/prodtest.sh --no-write   read-only checks (no delegations,
 #                                         no payments, no ratings)
+#   RESTART=0 bash scripts/prodtest.sh    skip section 11
+#
+# Do not run two full passes back to back. Section 11 restarts cmax three
+# times on purpose, and although it waits for the daemon to answer again
+# before returning, the relay backlog it produced takes longer than that
+# to drain. A second pass started immediately afterwards intermittently
+# reports two failures in section 9b that belong to the first pass.
+#
+# Measured, not assumed: a single pass is clean, a pass immediately after
+# another is not, and a pass after a few minutes is clean again. Use
+# RESTART=0 for the second pass, or leave a gap. The hourly scheduled run
+# uses --no-write and never reaches section 11.
 #
 # Shipping binaries to these hosts, learned the hard way twice:
 #
@@ -81,6 +93,7 @@ CMAX_HOST=root@cmax.chatchat.space; CMAX_HOME=/root/anet4;            CMAX_PORT=
 DMAX_HOST=root@dmax.chatchat.space; DMAX_HOME=/data/anet-node/home;   DMAX_PORT=29610
 EMAX_HOST=root@emax.chatchat.space
 INK_HOME=${INK_HOME:-/tmp/anet-prod/ink93};                           INK_PORT=29615
+INK_BIN=${INK_BIN:-/tmp/deploy/anet}
 
 pass=0; fail=0; skip=0
 ok(){ printf '\033[1;32m  ✓ %s\033[0m\n' "$*"; pass=$((pass+1)); }
@@ -548,14 +561,29 @@ else
     # It has to arrive in the provider's inbox before either side can
     # talk. Delivery is the relay, so this also proves the mailbox works
     # for something other than a capability call.
+    # --pending, because the inbox is capped at 100 entries and cmax has
+    # been accumulating them all week: a new delegation sorts behind the
+    # backlog and never appears in the page that is returned. Scanning the
+    # first hundred reported a delivery failure on a delivery that had
+    # worked.
     seen=0
     for _ in $(seq 1 30); do
-      seen=$(ctl cmax /inbox '{}' | jq_ "
-print(len([x for x in (d.get('tasks') or d.get('inbox') or []) if x.get('interaction_id')=='$cix']))")
+      seen=$(ctl cmax /inbox '{"pending":true}' | jq_ "
+print(len([x for x in (d.get('inbox') or []) if x.get('interaction_id')=='$cix']))")
       [ "${seen:-0}" -ge 1 ] && break
       sleep 2
     done
-    [ "${seen:-0}" -ge 1 ] && ok "对方收件箱里出现了这次委派" || no "委派没进对方收件箱"
+    if [ "${seen:-0}" -ge 1 ]; then
+      ok "对方收件箱里出现了这次委派"
+    else
+      # Falling back to the thread: arrival is what is being checked, and
+      # the provider having the interaction at all proves it. A cap on
+      # one listing is not a delivery failure.
+      alt=$(ctl cmax /thread "{\"interaction_id\":\"$cix\"}" | jq_ "
+print('yes' if (d.get('thread') or {}).get('interaction_id') else '')")
+      [ "$alt" = yes ] && ok "委派到了对方那里(收件箱首页已被积压占满,按 id 查得到)" \
+        || no "委派没到对方那里"
+    fi
 
     # The field is "body". Sending "text" is accepted by the HTTP layer
     # and rejected by the daemon as an empty message, so the first version
@@ -628,6 +656,150 @@ print('ok' if 'messages' in d else 'bad')")
   [ "$e" = 200 ] && ok "会话可以结束" || no "结束会话返回 $e"
 fi
 
+# ── 9d. the read surfaces, for content rather than status ───────
+hd "9d 展示面的内容对不对"
+# These all answered 200 and nobody had looked at what they said. A page
+# stating something untrue is the failure this project cares about most,
+# and a status code cannot detect it.
+g=$(curl -sf -m 30 "$EMAX_HUB/graph")
+gn=$(echo "$g" | jq_ "print(len(d.get('nodes') or []))")
+ge=$(echo "$g" | jq_ "print(len(d.get('edges') or []))")
+dangling=$(echo "$g" | jq_ "
+nodes={n['aid'] for n in (d.get('nodes') or [])}
+bad={a for e in (d.get('edges') or []) for a in (e.get('source'),e.get('target')) if a and a not in nodes}
+print(len(bad))")
+[ "${dangling:-1}" = 0 ] \
+  && ok "/graph 自洽:$gn 个节点 $ge 条边,没有悬空边" \
+  || no "/graph 有 $dangling 个 AID 出现在边里却没有节点"
+# Nodes reconstructed from an edge are marked, so a reader can tell a
+# departed agent from one still being routed to.
+unreg=$(echo "$g" | jq_ "
+print(len([n for n in (d.get('nodes') or []) if not n.get('registered')]))")
+info "其中 $unreg 个已不在本 hub 注册(离开了或长期未取信)"
+
+st=$(curl -sf -m 30 "$EMAX_HUB/stats")
+sa=$(echo "$st" | jq_ "print(d.get('agents',-1))")
+sr=$(echo "$st" | jq_ "print(d.get('reviews',-1))")
+sav=$(echo "$st" | jq_ "print(d.get('avg_rating',-1))")
+listed=$(curl -sf -m 30 "$EMAX_HUB/agents" | jq_ "print(len(d.get('agents') or []))")
+[ "$sa" = "$listed" ] \
+  && ok "/stats 的 agents($sa)与目录里实际列出的一致" \
+  || no "/stats 说 $sa 个 agent,目录列出 $listed 个"
+# The mean must lie inside the range a rating can take. A figure outside
+# it means the aggregate is computed over something that is not ratings.
+awk_ok=$(python3 -c "
+a=$sav
+print('ok' if a==0 or (1<=a<=5) else 'bad')")
+[ "$awk_ok" = ok ] && ok "/stats 的均分 $sav 落在 1-5 之内(或为 0 表示无评价)" \
+  || no "/stats 均分 $sav 不是一个合法评分"
+[ "${sr:-0}" -ge 0 ] && ok "/stats 评价数 $sr" || no "/stats 评价数异常"
+
+llms=$(curl -sf -m 30 "$EMAX_HUB/llms.txt")
+n=$(printf '%s' "$llms" | wc -c)
+[ "$n" -gt 2000 ] && ok "/llms.txt 有内容($n 字节)" || no "/llms.txt 只有 $n 字节"
+# It is a CLI guide for an agent, not HTTP API documentation — it teaches
+# `anet register`, not POST /register. The first version of this check
+# looked for endpoints and reported a problem with the page rather than
+# with the check.
+#
+# What matters is that the commands it teaches exist. A guide naming a
+# command the binary does not have sends an agent to "unknown command",
+# and this page is the only instruction most of them will read.
+miss=0
+# Matched as substrings, not as "anet <cmd>": the page teaches
+# `anet --id <name> hub-register …`, and looking for the two words
+# adjacent reported a gap in the documentation that was a gap in the
+# check.
+for cmd in "hub-register" " find" " delegate" "anet id new"; do
+  case "$llms" in *"$cmd"*) ;; *) miss=$((miss+1)); info "llms.txt 没有教 $cmd";; esac
+done
+[ "$miss" = 0 ] && ok "/llms.txt 教的命令覆盖了加入与委派" || no "$miss 条关键命令未提及"
+if [ -x "$INK_BIN" ]; then
+  helpall=$("$INK_BIN" help --all 2>/dev/null)
+  unknown=0
+  # Only lines that are actually commands: fenced blocks and lines
+  # beginning with `anet`. Scanning the prose matched "install / update
+  # anet to the latest" as a command named `to`, and reported four
+  # non-existent commands in a document that names none.
+  for cmd in $(printf '%s' "$llms" \
+      | grep -E '^\s*(\$ )?anet ' \
+      | grep -oE '^\s*(\$ )?anet (--id [^ ]+ )?[a-z][a-z-]+' \
+      | awk '{print $NF}' | sort -u); do
+    case "$cmd" in daemon|help|version|up|down|stop|id|mcp|verify|logs|install|console|status) continue;; esac
+    case "$helpall" in *"anet $cmd"*) ;; *) unknown=$((unknown+1)); info "llms.txt 教了 anet $cmd,help 里没有";; esac
+  done
+  [ "$unknown" = 0 ] && ok "llms.txt 教的每条命令这个构建都有" \
+    || no "$unknown 条命令在这个构建里不存在"
+fi
+
+# ── 9e. the x402 facilitator surface ────────────────────────────
+hd "9e x402 facilitator:verify 与 settle 必须给同一个答案"
+# verify and settle share decoding and diverge afterwards. Nothing
+# checked that they agree — a verify that says yes to a payment settle
+# then refuses, or the reverse, is a facilitator giving two answers about
+# the same authorization.
+sup=$(viafmax /x402/supported | jq_ "
+k=(d.get('kinds') or [{}])[0]
+print(k.get('scheme','')+'/'+k.get('network','')[:12])")
+[ -n "$sup" ] && ok "/x402/supported 公布了它结算的轨($sup…)" || no "/x402/supported 无内容"
+
+if ! has dmax; then
+  sk "verify 要 dmax 签一张授权"
+else
+  sig=$(ctl dmax /x402-authorize "{\"pay_to\":\"$DMAX_AID\",\"amount\":7,\"network\":\"hub:$F_AID\",\"interaction_id\":\"verify-probe\"}" \
+        | jq_ "print(d.get('value',''))")
+  if [ -z "$sig" ]; then
+    no "签不出授权"
+  else
+    pp=$(printf '%s' "$sig" | base64 -d 2>/dev/null)
+    vr=$(ssh -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
+          -d '{\"x402Version\":2,\"paymentPayload\":$pp}' '$FMAX_HUB/x402/verify'")
+    valid=$(echo "$vr" | jq_ "print(d.get('isValid'))")
+    [ "$valid" = True ] && ok "verify 说这张授权可以结算" \
+      || no "verify 拒绝了一张好授权: $(echo "$vr" | jq_ "print(d.get('invalidReason',''))")"
+
+    sr2=$(ssh -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
+          -d '{\"x402Version\":2,\"paymentPayload\":$pp}' '$FMAX_HUB/x402/settle'")
+    ok2=$(echo "$sr2" | jq_ "print(d.get('success'))")
+    if [ "$valid" = "$ok2" ] || { [ "$valid" = True ] && [ "$ok2" = True ]; }; then
+      ok "settle 的结论与 verify 一致(都为 $ok2)"
+    else
+      no "verify 说 $valid,settle 说 $ok2 —— facilitator 对同一张授权给了两个答案"
+    fi
+
+    # The same authorization a second time: verify must now say it is
+    # spent, or a caller would be told a settled payment is still good.
+    vr2=$(ssh -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
+          -d '{\"x402Version\":2,\"paymentPayload\":$pp}' '$FMAX_HUB/x402/verify'")
+    again=$(echo "$vr2" | jq_ "print(d.get('isValid'))")
+    reason=$(echo "$vr2" | jq_ "print(d.get('invalidReason',''))")
+    if [ "$again" = False ]; then
+      ok "结算之后 verify 改口说不行($reason)"
+    else
+      no "已结算的授权 verify 仍说可以 —— 调用方会以为还能再花一次"
+    fi
+  fi
+fi
+
+# ── 9f. redemptions are listed where the agent can find them ────
+hd "9f 兑付记录查得到"
+if ! has dmax; then
+  sk "要 dmax 的控制面"
+else
+  before=$(viafmax "/agents/$DMAX_AID/redemptions" | jq_ "print(len(d.get('redemptions') or []))")
+  ctl dmax /redeem '{"amount":3,"reference":"prodtest-list"}' >/dev/null 2>&1
+  sleep 2
+  lst=$(viafmax "/agents/$DMAX_AID/redemptions")
+  after=$(echo "$lst" | jq_ "print(len(d.get('redemptions') or []))")
+  [ "${after:-0}" -gt "${before:-0}" ] \
+    && ok "兑付出现在列表里($before → $after 条)" || no "兑付没有出现在列表里"
+  match=$(echo "$lst" | jq_ "
+r=[x for x in (d.get('redemptions') or []) if x.get('reference')=='prodtest-list']
+print('ok' if r and r[0].get('amount')==3 and r[0].get('aid') else 'bad')")
+  [ "$match" = ok ] \
+    && ok "列表里的金额与 reference 与刚才兑付的一致" || no "列表内容对不上"
+fi
+
 # ── 10. what a node can check for itself ────────────────────────
 hd "10  节点自查:审计发放链 + 对账"
 if ! has dmax; then
@@ -654,6 +826,124 @@ else
     ok "对账把差异报了出来,而不是让它不可见"
   fi
 fi
+
+# ── 11. restarts, with work in flight ───────────────────────────
+hd "11  重启:活还在路上的时候"
+# joint.sh proves the evidence chain survives a restart. Nothing checked
+# what happens to work that is in flight, which is where the interesting
+# failures are — and where D-7 already found two: a redelivered
+# delegation executed a second time, and a redelivered result was
+# recorded on the chain twice.
+#
+# Guarded, because it restarts a production hub. RESTART=0 skips it.
+if [ "${RESTART:-1}" = 0 ]; then
+  sk "重启测试已按 RESTART=0 跳过"
+elif ! has ink93 || ! has cmax; then
+  sk "重启测试要 ink93 与 cmax 两侧"
+else
+  # 11a — the hub restarts while a message is queued for a node that is
+  # not collecting it. The mailbox is SQLite, so it should survive; what
+  # is being checked is that it does.
+  info "11a hub 重启,消息还在队列里"
+  ssh -o ConnectTimeout=20 $CMAX_HOST "systemctl stop anet4" >/dev/null 2>&1
+  sleep 2
+  qix=$(ctl ink93 /delegate "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest\",\"args\":{\"text\":\"restart-a\"}}" \
+        | jq_ "print(d.get('interaction_id',''))")
+  if [ -z "$qix" ]; then
+    no "投递没排上队"
+  else
+    ssh -o ConnectTimeout=20 $EMAX_HOST "systemctl restart anet-hub" >/dev/null 2>&1
+    for _ in $(seq 1 20); do curl -sf -m 5 "$EMAX_HUB/healthz" >/dev/null && break; sleep 2; done
+    ok "hub 重启后恢复服务"
+    ssh -o ConnectTimeout=20 $CMAX_HOST "systemctl start anet4" >/dev/null 2>&1
+    got=""
+    for _ in $(seq 1 45); do
+      got=$(ctl ink93 /results '{}' | jq_ "
+for x in d.get('results') or []:
+    if x['interaction_id']=='$qix': print(x['result']); break")
+      [ -n "$got" ] && break
+      sleep 2
+    done
+    [ "$(echo "$got" | jq_ "print(d.get('status',''))")" = OK ] \
+      && ok "排队中的活跨过了 hub 重启,仍然被送到并完成" \
+      || no "hub 重启后这条投递丢了: ${got:0:120}"
+  fi
+
+  # 11b — the provider restarts between receiving and answering. The
+  # interaction is in its own store, so it should pick up where it left
+  # off rather than losing the request.
+  info "11b 提供方收到之后、回答之前重启"
+  bix=$(ctl ink93 /delegate "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest\",\"args\":{\"text\":\"restart-b\"}}" \
+        | jq_ "print(d.get('interaction_id',''))")
+  sleep 3   # long enough for it to arrive, short enough to interrupt
+  ssh -o ConnectTimeout=20 $CMAX_HOST "systemctl restart anet4" >/dev/null 2>&1
+  got=""
+  for _ in $(seq 1 45); do
+    got=$(ctl ink93 /results '{}' | jq_ "
+for x in d.get('results') or []:
+    if x['interaction_id']=='$bix': print(x['result']); break")
+    [ -n "$got" ] && break
+    sleep 2
+  done
+  [ "$(echo "$got" | jq_ "print(d.get('status',''))")" = OK ] \
+    && ok "提供方重启后仍然答复了这次委派" \
+    || no "提供方重启丢了这次委派: ${got:0:120}"
+
+  # 11c — the one that has actually gone wrong. Delivery is at-least-once
+  # (the relay acks after processing, so a crash in between replays), and
+  # execution must not be. A redelivered delegation must not run the work
+  # a second time, issue a second receipt, or add a second chain record.
+  info "11c 答复之后、ack 之前重启:重投不得重复执行"
+  before=$(ctl cmax /evidence '{"event_type":"anet.capability.effect","limit":500}' \
+           | jq_ "print(len(d.get('records') or []))")
+  cix2=$(ctl ink93 /delegate "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest\",\"args\":{\"text\":\"restart-c\"}}" \
+         | jq_ "print(d.get('interaction_id',''))")
+  # Restart repeatedly while it is being handled, so at least one restart
+  # lands in the window between answering and the ack.
+  for _ in 1 2 3; do
+    sleep 2
+    ssh -o ConnectTimeout=20 $CMAX_HOST "systemctl restart anet4" >/dev/null 2>&1
+  done
+  got=""
+  for _ in $(seq 1 60); do
+    got=$(ctl ink93 /results '{}' | jq_ "
+for x in d.get('results') or []:
+    if x['interaction_id']=='$cix2': print(x['result']); break")
+    [ -n "$got" ] && break
+    sleep 2
+  done
+  [ "$(echo "$got" | jq_ "print(d.get('status',''))")" = OK ] \
+    && ok "反复重启之后这次委派仍然完成了" || no "反复重启后没有结果"
+  after=$(ctl cmax /evidence '{"event_type":"anet.capability.effect","limit":500}' \
+          | jq_ "print(len(d.get('records') or []))")
+  grew=$(( ${after:-0} - ${before:-0} ))
+  # One delegation, one execution. More than one means a redelivery was
+  # executed again — the failure D-7 fixed, which had never been checked
+  # against a real restart.
+  [ "$grew" -le 1 ] \
+    && ok "链上只多了 $grew 条能力效果 —— 重投没有导致重复执行" \
+    || no "链上多了 $grew 条能力效果,一次委派被执行了多次"
+  # And the requester must not have recorded two acceptances for one
+  # interaction.
+  acc=$(ctl ink93 /evidence '{"event_type":"anet.result.accepted","limit":500}' \
+        | jq_ "
+print(len([r for r in (d.get('records') or []) if (r.get('payload') or {}).get('interaction_id')=='$cix2']))")
+  [ "${acc:-0}" -le 1 ] \
+    && ok "请求方对这次交互只记了 ${acc:-0} 条接受" \
+    || no "请求方记了 $acc 条接受,一次交互被当成多次完成"
+
+  # Leave the topology settled. This section restarts cmax three times,
+  # and a run started immediately afterwards catches it mid-recovery and
+  # reports failures that belong to this section rather than to what it
+  # is testing. Waiting here is cheaper than a run that is intermittently
+  # and inexplicably red.
+  for _ in $(seq 1 30); do
+    ssh -o ConnectTimeout=10 $CMAX_HOST "curl -sf -m 5 http://127.0.0.1:$CMAX_PORT/ping >/dev/null" 2>/dev/null && break
+    sleep 2
+  done
+  info "重启测试结束,节点已恢复"
+fi
+
 
 printf '\n\033[1m── %d 通过, %d 失败, %d 跳过 ──\033[0m\n' "$pass" "$fail" "$skip"
 [ "$fail" -eq 0 ]

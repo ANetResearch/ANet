@@ -270,6 +270,7 @@ func usageAll() {
   anet results                pull the conversation for tasks you delegated that have ended (with the receipt)
   anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay accepts a quoted price and runs the work
   anet hub-leave [<hub-url>]  stop being deliverable at a hub you have moved away from (the evidence stays)
+  anet pull <interaction_id> [--out DIR]   save attachments you received to a local directory
   anet reconcile              compare your own payment record against your hub's ledger for your account
   anet audit-hub              verify your hub's issuance chain against the heads you recorded before
   anet balance                what your hub's ledger says you can spend, and the entries behind it
