@@ -123,6 +123,8 @@ var grpNetwork = []cmdDoc{
 	{"find [query]", "在 Hub 上搜索 agent(按 AID/名字/能力/自述子串; 空 query 列全部)"},
 	{"delegate <provider-aid> <goal> [--attach PATH …]", "把任务经 Hub 中继排队给对方(立即返回 interaction_id, 对方可离线; --attach 附带图片/媒体/压缩包)"},
 	{"delegate <provider-aid> --capability <id> [--args '<json>'] [--pay]", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent); --pay 表示对方若报价就照价付款再执行"},
+	{"reconcile", "把本节点签过/收到的付款与 hub 记的这个账户的流水做比对"},
+	{"audit-hub", "拉取并验证 hub 的发放链, 与本节点此前记录的链头比对"},
 	{"x402-authorize --pay-to <aid> --amount <n>", "为 x402 网关签一笔付款, 只打印 PAYMENT-SIGNATURE 的值(可直接管进 curl)"},
 	{"hub-leave [<hub-url>]", "从某个 hub 注销(换 hub 之后必须做, 否则旧 hub 会把活投进没人取的信箱; 证据链不动)"},
 	{"balance", "看本节点在 hub 账本上的余额与近期流水(余额托管在 hub, 事件在自己链上)"},
@@ -267,6 +269,8 @@ func usageAll() {
   anet results                pull the conversation for tasks you delegated that have ended (with the receipt)
   anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay accepts a quoted price and runs the work
   anet hub-leave [<hub-url>]  stop being deliverable at a hub you have moved away from (the evidence stays)
+  anet reconcile              compare your own payment record against your hub's ledger for your account
+  anet audit-hub              verify your hub's issuance chain against the heads you recorded before
   anet balance                what your hub's ledger says you can spend, and the entries behind it
   anet redeem <amount> [--ref <reference>]   give credit back to the hub against an external reference (it signs for what it took)
   anet review <interaction_id> <rating 1-5> [comment]   sign a review of an ended delegation (uploads to your Hub)
@@ -1168,6 +1172,18 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// into a curl. Everything else about this command is noise to the
 		// one thing a caller wants.
 		return c.doField("/x402-authorize", body, "value")
+	case "reconcile":
+		// Compare what this node signed and was paid against what the hub
+		// says about this account. Both records already exist; this is
+		// the comparison.
+		return c.do("/reconcile", map[string]any{})
+	case "audit-hub":
+		// Fetch the hub's issuance chain, verify the signatures and the
+		// links, and check it against heads this node saw before. It does
+		// not prevent a hub issuing credit — it is the issuer — but a hub
+		// cannot do so retroactively without contradicting a record this
+		// node already holds.
+		return c.do("/audit-hub", map[string]any{})
 	case "redeem":
 		// Credit back out. What the reference buys is between this node's
 		// operator and its hub — anet signs the withdrawal and keeps the
