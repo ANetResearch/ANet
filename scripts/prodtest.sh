@@ -265,6 +265,22 @@ cbal_before=$(ctl cmax /balance '{}' | jq_ "print(d.get('balance',''))")
 info "开工前:ink93=$bal_before cmax=$cbal_before"
 if [ -z "$bal_before" ]; then
   no "ink93 读不到余额(hub 是旧构建,或本节点无 x402 模块)"
+elif [ "$bal_before" -lt 25 ]; then
+  # The writing run spends 25 credits each time and the payer starts with
+  # only the registration grant, so a few runs exhaust it. That is the
+  # test consuming its own budget, not a defect — but reporting it as a
+  # failure makes a self-inflicted shortfall look like a broken payment
+  # path, which is worse than not running the section at all.
+  #
+  # Funding is an operator action, deliberately: who may create credit is
+  # a policy question this round does not answer, so there is no remote
+  # path and there should not be one yet. On the hub that holds the
+  # ledger:
+  #
+  #   systemctl stop anet-hub
+  #   anet-hub -data <dir> -grant <aid> -amount 500 -reason "prodtest"
+  #   systemctl start anet-hub
+  sk "ink93 只剩 $bal_before credits,不够跑付费闭环(测试把自己的赠额花完了;见脚本内的充值说明)"
 else
   q=$(ctl ink93 /delegate "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"pay\"}}" \
       | jq_ "print(d.get('interaction_id',''))")
