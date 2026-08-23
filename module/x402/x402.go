@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
@@ -40,6 +42,20 @@ type Config struct {
 	// advertises somewhere nobody can get to. Only the operator knows
 	// what the world sees.
 	VoucherURL string `json:"voucher_url,omitempty"`
+	// WitnessHub makes this node pin its hub's issuance head
+	// periodically, recording it on its own evidence chain and offering
+	// a signed attestation back to the hub.
+	//
+	// Off by default. A node may be a trimmed build that serves nothing
+	// and only talks to its hub; making such a node do work for the
+	// network is not something it asked for. A node that turns this on
+	// gains the most direct benefit — independent evidence about the
+	// ledger its own balance lives on.
+	WitnessHub bool `json:"witness_hub,omitempty"`
+	// WitnessEverySeconds is the interval. Default one hour: what an
+	// auditor needs is a head from an hour ago, not from ninety seconds
+	// ago, and pinning faster multiplies stored attestations for nothing.
+	WitnessEverySeconds int `json:"witness_every_seconds,omitempty"`
 }
 
 // Module is the payment subsystem.
@@ -95,8 +111,39 @@ func (m *Module) Start(_ context.Context, h module.Host) error {
 
 func (m *Module) Stop(context.Context) error { return nil }
 
-// Serve brings up the public voucher face, if configured.
-func (m *Module) Serve(ctx context.Context) error { return m.startRedeemFace(ctx) }
+// Serve brings up the public voucher face and the witness loop, if
+// either is configured.
+func (m *Module) Serve(ctx context.Context) error {
+	if m.cfg.WitnessHub {
+		go m.witnessLoop(ctx)
+	}
+	return m.startRedeemFace(ctx)
+}
+
+// witnessLoop pins the hub's issuance head on a slow cadence.
+func (m *Module) witnessLoop(ctx context.Context) {
+	every := time.Duration(m.cfg.WitnessEverySeconds) * time.Second
+	if every <= 0 {
+		every = time.Hour
+	}
+	// One pass shortly after start, so a node restarted after a long
+	// absence does not leave a gap before its first pin.
+	t := time.NewTimer(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if seq, id, err := m.WitnessHub(ctx); err != nil {
+			log.Printf("anet: witnessing the hub: %v", err)
+		} else if id != "" {
+			log.Printf("anet: pinned hub issuance head seq=%d", seq)
+		}
+		t.Reset(every)
+	}
+}
 
 // Price reports what a capability costs, asking the provider that serves
 // it. The provider knows what its work is worth; whether a caller has

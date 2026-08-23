@@ -190,6 +190,19 @@ type Payer interface {
 	// RedeemURL is this node's public voucher face, or empty. It goes in
 	// the signed card so a gateway can tell buyers where to collect.
 	RedeemURL() string
+	// Reconcile compares this node's own payment history against the
+	// hub's ledger for this account, and AuditIssuance verifies the
+	// hub's supply chain against heads this node recorded earlier.
+	//
+	// Both return a report rather than an error on disagreement: a
+	// discrepancy is a finding to show somebody, not a failure of the
+	// call.
+	Reconcile(ctx context.Context) (any, error)
+	AuditIssuance(ctx context.Context) (any, error)
+	// WitnessHub records the hub's current issuance head on this node's
+	// own chain. Opt-in — see the module's own documentation for why a
+	// trimmed node should not be made to do this.
+	WitnessHub(ctx context.Context) (uint64, string, error)
 	// Serve brings up whatever public face the module needs. Called once,
 	// after Start, by the kernel that owns the process lifetime.
 	Serve(ctx context.Context) error

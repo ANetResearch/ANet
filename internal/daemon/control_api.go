@@ -145,6 +145,8 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /balance", d.hBalance)
 	api.HandleFunc("POST /redeem", d.hRedeemCredit)
 	api.HandleFunc("POST /x402-authorize", d.hX402Authorize)
+	api.HandleFunc("POST /reconcile", d.hReconcile)
+	api.HandleFunc("POST /audit-hub", d.hAuditHub)
 	api.HandleFunc("POST /visibility", d.hVisibility)
 	// The local web console is served OUTSIDE the bearer wrapper (a browser navigation cannot send an
 	// Authorization header); loopback-only makes this safe. The page then calls the token-guarded API
@@ -969,6 +971,42 @@ func (d *Daemon) hX402Authorize(w http.ResponseWriter, r *http.Request) {
 		"amount":  req.Amount,
 		"network": network,
 	})
+}
+
+// hReconcile compares this node's payment history against the hub's
+// ledger for this account.
+func (d *Daemon) hReconcile(w http.ResponseWriter, r *http.Request) {
+	p := d.payer()
+	if p == nil {
+		relayError(w, errNoPayments())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
+	defer cancel()
+	out, err := p.Reconcile(ctx)
+	if err != nil {
+		relayError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// hAuditHub verifies the hub's issuance chain against heads this node
+// recorded earlier.
+func (d *Daemon) hAuditHub(w http.ResponseWriter, r *http.Request) {
+	p := d.payer()
+	if p == nil {
+		relayError(w, errNoPayments())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
+	defer cancel()
+	out, err := p.AuditIssuance(ctx)
+	if err != nil {
+		relayError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // hBalance reads this node's credit standing off its hub.
