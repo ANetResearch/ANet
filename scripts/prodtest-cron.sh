@@ -44,6 +44,7 @@ bash "$HERE/prodtest.sh" $mode >"$out" 2>&1
 status=$?
 elapsed=$(( $(date -u +%s) - start ))
 
+self=$(cat "$HERE/VERSION" 2>/dev/null || echo unstamped)
 summary=$(grep -oE '── [0-9]+ 通过, [0-9]+ 失败.*' "$out" | tail -1)
 [ -z "$summary" ] && summary="(no summary — the run did not reach the end)"
 
@@ -51,9 +52,9 @@ summary=$(grep -oE '── [0-9]+ 通过, [0-9]+ 失败.*' "$out" | tail -1)
 # died halfway leaves no summary line, and that has to be as visible as a
 # failing check.
 if [ "$status" -eq 0 ]; then
-    echo "prodtest ok in ${elapsed}s — $summary ($out)"
+    echo "prodtest ok in ${elapsed}s [$self] — $summary ($out)"
 else
-    echo "prodtest FAILED (exit $status) in ${elapsed}s — $summary ($out)" >&2
+    echo "prodtest FAILED (exit $status) in ${elapsed}s [$self] — $summary ($out)" >&2
     # The failing lines inline, so an operator reading the journal does
     # not have to go and open the file to learn what broke.
     grep -E '✗' "$out" | sed 's/^/  /' >&2

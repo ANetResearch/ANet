@@ -140,6 +140,45 @@ for x in d.get('results') or []:
 }
 
 # ── 1. both hubs are up, and both can be verified ───────────────
+hd "0  跑的是哪一版"
+# What every component reports it was built from.
+#
+# A stale copy of this script sat on cmax reporting failures for three
+# hours against hubs that were fine: it expected an endpoint the
+# deployment had moved away from, and nothing connected the deployed
+# script to the repository it came from. The components now say which
+# commit they are, so a disagreement is visible instead of being
+# diagnosed from symptoms.
+#
+# Reported, not asserted. A rolling upgrade legitimately has two versions
+# running at once, and failing the run for that would make the check
+# useless during exactly the operation it should be watching. What it
+# flags is an UNSTAMPED build, which means somebody built without
+# scripts/build.sh and the comparison can no longer be made at all.
+SELF_COMMIT=$(cat "$(dirname "$0")/VERSION" 2>/dev/null || echo unstamped)
+info "本脚本: $SELF_COMMIT"
+unstamped=0
+for pair in "emax hub:$EMAX_HUB/healthz"; do
+  n=${pair%%:*}; u=${pair#*:}
+  v=$(curl -sf -m 20 "$u" | jq_ "print(d.get('commit',''))")
+  info "$n: ${v:-(不报版本)}"
+  { [ -z "$v" ] || [ "$v" = unknown ]; } && unstamped=$((unstamped+1))
+done
+fv=$(viafmax /healthz | jq_ "print(d.get('commit',''))")
+info "fmax hub: ${fv:-(不报版本)}"
+{ [ -z "$fv" ] || [ "$fv" = unknown ]; } && unstamped=$((unstamped+1))
+for n in cmax ink93 dmax; do
+  case $n in
+    ink93) pv=$(curl -sf -m 5 "http://127.0.0.1:$INK_PORT/ping" | jq_ "print(d.get('commit',''))") ;;
+    cmax)  pv=$(ssh -o ConnectTimeout=10 $CMAX_HOST "curl -sf -m 5 http://127.0.0.1:$CMAX_PORT/ping" 2>/dev/null | jq_ "print(d.get('commit',''))") ;;
+    dmax)  pv=$(ssh -o ConnectTimeout=10 $DMAX_HOST "curl -sf -m 5 http://127.0.0.1:$DMAX_PORT/ping" 2>/dev/null | jq_ "print(d.get('commit',''))") ;;
+  esac
+  [ -n "$pv" ] && info "$n daemon: $pv"
+  [ "$pv" = unknown ] && unstamped=$((unstamped+1))
+done
+[ "$unstamped" -eq 0 ] && ok "每个组件都说得出自己是哪一版" \
+  || no "$unstamped 个组件报不出构建版本(未用 scripts/build.sh 构建,比对无从做起)"
+
 hd "1  两个 hub 都在,而且都能被验证"
 curl -sf -m 20 "$EMAX_HUB/healthz" >/dev/null && ok "emax hub 在(经 nginx/TLS)" || no "emax hub 不可达"
 viafmax /healthz | grep -q '"status":"ok"' && ok "fmax hub 在" || no "fmax hub 不可达"

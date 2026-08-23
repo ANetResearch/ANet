@@ -43,6 +43,14 @@ func DaemonsDir() string {
 // Version is the anet release version (single source of truth in internal/version).
 const Version = version.V
 
+// BuildCommit and BuildAt are what this binary was built from, stamped
+// at link time. Empty-looking values mean an unstamped build, which says
+// so rather than inventing a plausible commit.
+var (
+	BuildCommit = version.Commit
+	BuildAt     = version.BuiltAt
+)
+
 // Layout is the daemon's on-disk layout rooted at a data dir (default ~/.anet, env ANET_DATA_DIR).
 type Layout struct{ Root string }
 
