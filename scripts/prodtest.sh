@@ -179,6 +179,28 @@ done
 [ "$unstamped" -eq 0 ] && ok "每个组件都说得出自己是哪一版" \
   || no "$unstamped 个组件报不出构建版本(未用 scripts/build.sh 构建,比对无从做起)"
 
+# The page the hub serves is embedded in the hub binary, and building the
+# binary did not rebuild it. The embedded copy sat five deployments
+# behind: every change to the page reached the repository, passed its
+# tests, and never reached production. Nothing noticed because nothing
+# looked at the served page.
+#
+# Checked by a marker the current page contains and the stale one did
+# not. It is a weak assertion — it proves this string is present, not
+# that the bundle is current — but it is the assertion that would have
+# caught the failure, and a strong one would need the hub to report the
+# bundle's hash, which is worth doing only if this recurs.
+page=$(curl -sf -m 30 "$EMAX_HUB/" 2>/dev/null)
+if [ -z "$page" ]; then
+  no "hub 不提供网页"
+else
+  ok "hub 提供网页($(printf '%s' "$page" | wc -c) 字节)"
+  case "$page" in
+    *静默*) ok "网页含当前构建的标记(联邦/静默标识已上线)";;
+    *) no "网页缺当前构建的标记 —— 嵌入的 bundle 落后于仓库(build.sh 没跑前端?)";;
+  esac
+fi
+
 hd "1  两个 hub 都在,而且都能被验证"
 curl -sf -m 20 "$EMAX_HUB/healthz" >/dev/null && ok "emax hub 在(经 nginx/TLS)" || no "emax hub 不可达"
 viafmax /healthz | grep -q '"status":"ok"' && ok "fmax hub 在" || no "fmax hub 不可达"
@@ -500,6 +522,104 @@ else
   no "跨 hub 委派没排上队"
 fi
 
+fi
+
+# ── 9b. delegation as a conversation ────────────────────────────
+hd "9b 多轮对话:委派不是一次调用"
+# The design says a delegation is a conversation — messages both ways, an
+# end that both sides agree to, a receipt over the transcript. The live
+# run only ever exercised a single capability call, so the whole
+# conversational path was untested outside scenario.sh.
+if ! has ink93 || ! has cmax; then
+  sk "多轮对话要 ink93 与 cmax 两侧的控制面"
+else
+  cix=$(ctl ink93 /delegate "{\"provider\":\"$CMAX_AID\",\"goal\":\"prodtest 多轮对话\"}" \
+        | jq_ "print(d.get('interaction_id',''))")
+  if [ -z "$cix" ]; then
+    no "散文委派没排上队"
+  else
+    ok "散文委派排上了($cix)"
+    # It has to arrive in the provider's inbox before either side can
+    # talk. Delivery is the relay, so this also proves the mailbox works
+    # for something other than a capability call.
+    seen=0
+    for _ in $(seq 1 30); do
+      seen=$(ctl cmax /inbox '{}' | jq_ "
+print(len([x for x in (d.get('tasks') or d.get('inbox') or []) if x.get('interaction_id')=='$cix']))")
+      [ "${seen:-0}" -ge 1 ] && break
+      sleep 2
+    done
+    [ "${seen:-0}" -ge 1 ] && ok "对方收件箱里出现了这次委派" || no "委派没进对方收件箱"
+
+    # The field is "body". Sending "text" is accepted by the HTTP layer
+    # and rejected by the daemon as an empty message, so the first version
+    # of this silently sent nothing and reported a broken conversation.
+    ctl cmax  /message "{\"interaction_id\":\"$cix\",\"body\":\"收到,正在看\"}" >/dev/null 2>&1
+    ctl ink93 /message "{\"interaction_id\":\"$cix\",\"body\":\"好,谢谢\"}" >/dev/null 2>&1
+    sleep 14
+    # The messages hang off the thread, not off the response root. The
+    # first version read the root, found nothing, and reported a broken
+    # conversation on a conversation that had worked.
+    turns=$(ctl ink93 /thread "{\"interaction_id\":\"$cix\"}" | jq_ "
+print(len(((d.get('thread') or {}).get('messages')) or []))")
+    # The goal plus both messages: three. Two would mean one direction
+    # arrived and the other did not, which is the failure worth naming.
+    [ "${turns:-0}" -ge 3 ] && ok "双向消息都到了($turns 条在同一个 thread 里)" \
+      || no "thread 里只有 ${turns:-0} 条(期望 3:目标 + 双方各一条)"
+
+    # Ending is mutual: one side proposes, the other accepts, and only
+    # then does the provider sign a receipt over the transcript.
+    ctl ink93 /end "{\"interaction_id\":\"$cix\"}" >/dev/null 2>&1
+    sleep 6
+    ctl cmax /end-accept "{\"interaction_id\":\"$cix\"}" >/dev/null 2>&1
+    got=""
+    for _ in $(seq 1 30); do
+      got=$(ctl ink93 /results '{}' | jq_ "
+for x in d.get('results') or []:
+    if x['interaction_id']=='$cix': print('yes' if x.get('receipt') else 'norecipt'); break")
+      [ -n "$got" ] && break
+      sleep 2
+    done
+    case "$got" in
+      yes) ok "双方同意结束后,提供方对整份transcript 出具了签名收据";;
+      norecipt) no "结束了但没有收据";;
+      *) no "结束协商没有完成";;
+    esac
+  fi
+fi
+
+# ── 9c. guest mode ──────────────────────────────────────────────
+hd "9c 游客模式:没注册的人也能先试"
+# The first thing a stranger touches. Four endpoints, and until now zero
+# production coverage — a path that is broken here is broken for
+# everybody who has not joined yet, which is everybody at first.
+g=$(curl -sf -m 30 -X POST -H 'Content-Type: application/json' -d '{}' "$EMAX_HUB/guest/start")
+gs=$(echo "$g" | jq_ "print(d.get('session',''))")
+gr=$(echo "$g" | jq_ "print(d.get('remaining',''))")
+gh=$(echo "$g" | jq_ "print(d.get('handler',''))")
+if [ -z "$gs" ]; then
+  no "开不了游客会话: ${g:0:140}"
+else
+  ok "陌生人开出了会话(接待方 $gh,余额 $gr 条)"
+  sent=$(curl -sf -m 60 -X POST -H 'Content-Type: application/json' \
+    -d "{\"session\":\"$gs\",\"body\":\"prodtest 游客消息\"}" "$EMAX_HUB/guest/send")
+  left=$(echo "$sent" | jq_ "print(d.get('remaining',''))")
+  if [ -n "$left" ] && [ "$left" -lt "$gr" ] 2>/dev/null; then
+    ok "发一条,配额从 $gr 降到 $left —— 试聊是有限的,且限额真的在减"
+  else
+    no "配额没有递减($gr → ${left:-?}): ${sent:0:120}"
+  fi
+  # Polling returns whatever the handler has said so far, which may be
+  # nothing yet — the handler is a real agent and answers when it
+  # answers. What is being checked is that the endpoint works and the
+  # session is live, not that a reply has arrived.
+  pl=$(curl -sf -m 30 -X POST -H 'Content-Type: application/json' \
+    -d "{\"session\":\"$gs\"}" "$EMAX_HUB/guest/poll" | jq_ "
+print('ok' if 'messages' in d else 'bad')")
+  [ "$pl" = ok ] && ok "轮询端点可用,会话仍然存在" || no "轮询失败"
+  e=$(curl -s -o /dev/null -w '%{http_code}' -m 30 -X POST -H 'Content-Type: application/json' \
+    -d "{\"session\":\"$gs\"}" "$EMAX_HUB/guest/end")
+  [ "$e" = 200 ] && ok "会话可以结束" || no "结束会话返回 $e"
 fi
 
 # ── 10. what a node can check for itself ────────────────────────
