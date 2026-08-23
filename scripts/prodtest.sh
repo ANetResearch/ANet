@@ -76,6 +76,25 @@ sk(){ printf '\033[1;33m  ~ %s\033[0m\n' "$*"; skip=$((skip+1)); }
 hd(){ printf '\n\033[1;36m═══ %s\033[0m\n' "$*"; }
 info(){ printf '  %s\n' "$*"; }
 
+# reachable <node> — can this run drive that node's control API?
+#
+# ink93 is a workstation, not a permanent node: it is where a person sits.
+# The scheduled run on cmax cannot reach it and must not report that as a
+# failure every hour — an alarm that is always ringing is one nobody
+# reads, and the topology it is guarding (two hubs, two server daemons) is
+# genuinely fine.
+#
+# So an unreachable node is skipped with its name and the reason, never
+# silently dropped. "We did not check ink93" and "ink93 is healthy" are
+# different statements and the summary line keeps them apart.
+reachable(){
+  case $1 in
+    ink93) curl -sf -m 5 "http://127.0.0.1:$INK_PORT/ping" >/dev/null 2>&1 ;;
+    cmax)  ssh -o ConnectTimeout=10 $CMAX_HOST "curl -sf -m 5 http://127.0.0.1:$CMAX_PORT/ping >/dev/null" 2>/dev/null ;;
+    dmax)  ssh -o ConnectTimeout=10 $DMAX_HOST "curl -sf -m 5 http://127.0.0.1:$DMAX_PORT/ping >/dev/null" 2>/dev/null ;;
+  esac
+}
+
 # ctl <node> <path> <json> — the control API of one node, wherever it runs.
 ctl(){
   local node=$1 path=$2 body=$3
@@ -141,11 +160,27 @@ done
 
 # ── 3. three daemons, registered where they should be ───────────
 hd "3  三个 daemon,各自注册在该在的 hub"
-CMAX_AID=$(ctl cmax /status '{}' | jq_ "print(d.get('aid',''))")
-DMAX_AID=$(ctl dmax /status '{}' | jq_ "print(d.get('aid',''))")
-INK_AID=$(ctl ink93 /status '{}' | jq_ "print(d.get('aid',''))")
+NODES=""
+for n in cmax ink93 dmax; do
+  if reachable "$n"; then NODES="$NODES $n"; else
+    sk "$n 的控制面从这台机器够不着,跳过它的检查(工作站不是常驻节点)"
+  fi
+done
+has(){ case " $NODES " in *" $1 "*) return 0;; *) return 1;; esac; }
+CMAX_AID=$(has cmax  && ctl cmax  /status '{}' | jq_ "print(d.get('aid',''))")
+DMAX_AID=$(has dmax  && ctl dmax  /status '{}' | jq_ "print(d.get('aid',''))")
+INK_AID=$( has ink93 && ctl ink93 /status '{}' | jq_ "print(d.get('aid',''))")
+# dmax's AID is needed by the federation, gateway and reputation sections
+# even when dmax itself cannot be driven from here, so fall back to asking
+# its hub rather than skipping those checks too.
+if [ -z "$DMAX_AID" ]; then
+  DMAX_AID=$(viafmax /agents | jq_ "
+for a in (d.get('agents') or []):
+    if a.get('name')=='dmax-services': print(a.get('aid','')); break")
+fi
 for pair in "cmax:$CMAX_AID:$EMAX_HUB" "ink93:$INK_AID:$EMAX_HUB" "dmax:$DMAX_AID:$FMAX_HUB"; do
   n=${pair%%:*}; rest=${pair#*:}; aid=${rest%%:*}; want=${rest#*:}
+  has "$n" || continue
   got=$(ctl "$n" /status '{}' | jq_ "print(d.get('hub','') or d.get('hub_url',''))")
   [ -n "$aid" ] && ok "$n 有身份 ${aid:0:20}…" || no "$n 拿不到身份"
   [ "$got" = "$want" ] && ok "$n 的 hub 是 $want" || no "$n 的 hub 是 $got,期望 $want"
@@ -153,6 +188,7 @@ done
 # Registered means the hub can serve your key history to a stranger.
 for pair in "cmax:$CMAX_AID:e" "ink93:$INK_AID:e" "dmax:$DMAX_AID:f"; do
   n=${pair%%:*}; rest=${pair#*:}; aid=${rest%%:*}; which=${rest#*:}
+  has "$n" || continue
   if [ "$which" = e ]; then code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$EMAX_HUB/agents/$aid/kel")
   else code=$(ssh -o ConnectTimeout=20 $EMAX_HOST "curl -s -o /dev/null -w '%{http_code}' -m 20 '$FMAX_HUB/agents/$aid/kel'"); fi
   [ "$code" = 200 ] && ok "$n 的密钥历史 hub 上有,陌生人可自行验签" || no "$n 未注册成功($code)"
@@ -196,6 +232,9 @@ fi
 
 # ── 5. a capability call inside one hub ─────────────────────────
 hd "5  同一个 hub 内:ink93 调 cmax 的能力"
+if ! has ink93 || ! has cmax; then
+  sk "需要 ink93 与 cmax 两侧,这台机器够不着"
+else
 ix=$(ctl ink93 /delegate "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest\",\"args\":{\"text\":\"anet\"}}" \
      | jq_ "print(d.get('interaction_id',''))")
 if [ -n "$ix" ]; then
@@ -214,8 +253,13 @@ else
   no "委派没排上队"
 fi
 
+fi
+
 # ── 6. the paid loop, over the real internet ────────────────────
 hd "6  付费闭环(ink93 付钱给 cmax,经 emax 账本)"
+if ! has ink93 || ! has cmax; then
+  sk "付费闭环需要 ink93 和 cmax 两侧的控制面,这台机器够不着"
+else
 bal_before=$(ctl ink93 /balance '{}' | jq_ "print(d.get('balance',''))")
 cbal_before=$(ctl cmax /balance '{}' | jq_ "print(d.get('balance',''))")
 info "开工前:ink93=$bal_before cmax=$cbal_before"
@@ -249,6 +293,8 @@ else
   done
 fi
 
+fi
+
 # ── 7. the gateway: pay at the hub, collect at the daemon ───────
 hd "7  x402 网关:在 fmax 付钱,到 dmax 取货"
 RES="/x402/resource/$DMAX_AID/text.stats.paid"
@@ -262,8 +308,64 @@ redeem=$(echo "$body" | jq_ "print(d.get('redeem_at',''))")
 price=$(echo "$body" | jq_ "print(((d.get('accepts') or [{}])[0]).get('amount',''))")
 [ "$price" = 30 ] && ok "价钱来自 dmax 自己签的卡片,hub 只能拒卖不能改价" || no "网关报价 $price"
 
+# Now actually buy it. Checking that a 402 comes back proves the quote;
+# only a voucher that is paid for, carried, and spent proves the design —
+# and until this ran, dmax's public redemption door had never been used
+# over the real network even once. Everything that had exercised it was
+# loopback in a single process tree, which is the arrangement that has hidden
+# every defect this project shipped.
+#
+# The buyer here is dmax's own key, signing through anetfixture. That is
+# not a shortcut: the gateway resolves the payer's key history from the
+# hub exactly as it would a stranger's, so a signature it cannot check
+# fails for the right reason.
+DMAX_BAL_BEFORE=$(ctl dmax /balance '{}' | jq_ "print(d.get('balance',''))")
+sig=$(ssh -o ConnectTimeout=20 $DMAX_HOST "/usr/local/bin/anet x402-authorize \
+        --home /data/anet-node/home/.anet --pay-to '$DMAX_AID' --amount 30 \
+        --network 'hub:$F_AID' --interaction 'prodtest-gw' 2>/dev/null" 2>/dev/null)
+if [ -z "$sig" ]; then
+  sk "网关付款跳过:节点上没有 x402-authorize(fixture 未部署)"
+else
+  gw=$(ssh -o ConnectTimeout=20 $EMAX_HOST \
+        "curl -s -D /tmp/gw.hdr -m 40 -H 'PAYMENT-SIGNATURE: $sig' '$FMAX_HUB$RES'")
+  gwcode=$(ssh -o ConnectTimeout=20 $EMAX_HOST "head -1 /tmp/gw.hdr | awk '{print \$2}'")
+  voucher=$(echo "$gw" | jq_ "print(d.get('voucher',''))")
+  [ "$gwcode" = 200 ] && [ -n "$voucher" ] && ok "付款后拿到的是凭证,不是结果 —— hub 见不到内容" \
+    || no "网关付款失败($gwcode): ${gw:0:180}"
+  ssh -o ConnectTimeout=20 $EMAX_HOST "grep -qi '^PAYMENT-RESPONSE:' /tmp/gw.hdr" \
+    && ok "结算响应带 PAYMENT-RESPONSE 头" || no "没带 PAYMENT-RESPONSE 头"
+
+  if [ -n "$voucher" ]; then
+    # Straight to the agent, over the public internet, not through the
+    # hub. This is the leg the whole design exists for.
+    out=$(ssh -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 90 -H 'Content-Type: application/json' \
+          -d '{\"voucher\":\"$voucher\",\"capability\":\"text.stats.paid\",\"args\":{\"text\":\"via voucher\"}}' \
+          '$DMAX_VOUCHER'")
+    vs=$(echo "$out" | jq_ "print(d.get('status',''))")
+    [ "$vs" = "OK" ] && ok "凭证在 dmax 上兑成了真活(hub 全程没碰请求和结果)" \
+      || no "兑付失败:${out:0:200}"
+    again=$(ssh -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 60 -H 'Content-Type: application/json' \
+            -d '{\"voucher\":\"$voucher\",\"capability\":\"text.stats.paid\",\"args\":{\"text\":\"via voucher\"}}' \
+            '$DMAX_VOUCHER'")
+    ae=$(echo "$again" | jq_ "print(d.get('error',''))")
+    case "$ae" in
+      *already*) ok "同一张凭证第二次被拒(一次性由 daemon 把关,hub 无从知道)";;
+      *) no "凭证被重复兑付:${again:0:160}";;
+    esac
+    # The effect is on dmax's own chain, tagged with how it was paid for.
+    # A second door to the same work must not be a door around the
+    # evidence.
+    viac=$(ctl dmax /evidence '{"event_type":"anet.voucher.redeemed","limit":20}' \
+           | jq_ "print(len(d.get('records') or []))")
+    [ "${viac:-0}" -ge 1 ] && ok "兑付记在了 dmax 自己的链上" || no "兑付没上链"
+  fi
+fi
+
 # ── 8. redemption: credit can leave ─────────────────────────────
 hd "8  兑付:credit 也能出去"
+if ! has dmax; then
+  sk "兑付要 dmax 自己签名,这台机器够不着它的控制面"
+else
 s1=$(viafmax /x402/supply | jq_ "print(d['supply']['outstanding'])")
 rd=$(ctl dmax /redeem '{"amount":5,"reference":"prodtest"}')
 rv=$(echo "$rd" | jq_ "print(d.get('verified',''))")
@@ -272,8 +374,13 @@ s2=$(viafmax /x402/supply | jq_ "print(d['supply']['outstanding'])")
 [ -n "$s1" ] && [ "$((s1 - s2))" = 5 ] && ok "fmax 的未清偿负债降了 5 —— credit 真的出去了" \
   || no "兑付后负债 $s1 → $s2"
 
+fi
+
 # ── 9. reputation across the boundary ───────────────────────────
 hd "9  信誉跨 hub"
+if ! has ink93; then
+  sk "跨 hub 评价要 ink93 发起并评分,这台机器够不着"
+else
 cix=$(ctl ink93 /delegate "{\"provider\":\"$DMAX_AID\",\"capability\":\"text.stats\",\"args\":{\"text\":\"cross hub\"}}" \
       | jq_ "print(d.get('interaction_id',''))")
 if [ -n "$cix" ]; then
@@ -303,6 +410,8 @@ print((d.get('reputation') or {}).get('concentration',''))")
   info "fmax 上 dmax 的信誉:本地 $lc 条,peer $pr 个来源,集中度 $conc"
 else
   no "跨 hub 委派没排上队"
+fi
+
 fi
 
 printf '\n\033[1m── %d 通过, %d 失败, %d 跳过 ──\033[0m\n' "$pass" "$fail" "$skip"

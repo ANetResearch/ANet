@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
+	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 )
@@ -142,6 +144,7 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /evidence", d.hEvidence)
 	api.HandleFunc("POST /balance", d.hBalance)
 	api.HandleFunc("POST /redeem", d.hRedeemCredit)
+	api.HandleFunc("POST /x402-authorize", d.hX402Authorize)
 	api.HandleFunc("POST /visibility", d.hVisibility)
 	// The local web console is served OUTSIDE the bearer wrapper (a browser navigation cannot send an
 	// Authorization header); loopback-only makes this safe. The page then calls the token-guarded API
@@ -910,6 +913,62 @@ func (d *Daemon) hHubLeave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// hX402Authorize signs a payment for an x402 resource server.
+//
+// Exists because buying through a gateway is something a person does, not
+// only something a test does. The gateway wants a PAYMENT-SIGNATURE
+// header; producing one needs this node's key, which never leaves the
+// daemon — so the daemon signs and hands back the header value.
+//
+// It does NOT settle anything. The signature authorises a payment the
+// gateway may then present to its facilitator; until it does, nothing has
+// moved. Handing out an authorization is closer to writing a cheque than
+// to spending, and the window and nonce are what keep it that way.
+func (d *Daemon) hX402Authorize(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PayTo         string `json:"pay_to"`
+		Amount        uint64 `json:"amount"`
+		Network       string `json:"network"`
+		InteractionID string `json:"interaction_id"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if req.PayTo == "" || req.Amount == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "pay_to and amount are required"})
+		return
+	}
+	p := d.payer()
+	if p == nil {
+		relayError(w, errNoPayments())
+		return
+	}
+	network := strings.TrimSpace(req.Network)
+	if network == "" {
+		// Default to this node's own hub, which is the only ledger it can
+		// actually draw on. Naming another one is allowed — a buyer may
+		// hold credit somewhere else — but it has to be deliberate.
+		network = payment.CreditNetwork(d.hubAID())
+	}
+	raw, err := p.Authorize(payment.PaymentOption{
+		Scheme: payment.SchemeCredit, Network: network,
+		Amount: payment.Amount(req.Amount), Asset: payment.AssetCredit, PayTo: req.PayTo,
+	}, req.InteractionID)
+	if err != nil {
+		relayError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"header":  payment.HeaderPaymentSignature,
+		"value":   base64.StdEncoding.EncodeToString(raw),
+		"pay_to":  req.PayTo,
+		"amount":  req.Amount,
+		"network": network,
+	})
 }
 
 // hBalance reads this node's credit standing off its hub.

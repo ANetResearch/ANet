@@ -33,13 +33,32 @@ func (h hubTransport) Send(ctx context.Context, toAID, kind, interactionID strin
 	if hub == "" {
 		return fmt.Errorf("anet: no hub configured")
 	}
-	return h.d.hubPost(ctx, hub, "/relay/send", map[string]any{
+	var out struct {
+		Warning string `json:"warning"`
+		Quiet   bool   `json:"recipient_quiet"`
+	}
+	if err := h.d.hubPost(ctx, hub, "/relay/send", map[string]any{
 		"to_aid":         toAID,
 		"from_aid":       h.d.AID(),
 		"kind":           kind,
 		"interaction_id": interactionID,
 		"payload":        base64.StdEncoding.EncodeToString(payload),
-	}, nil)
+	}, &out); err != nil {
+		return err
+	}
+	// The hub knows the recipient has not collected its mail in a long
+	// time, and said so. Passing that through is the whole value of it
+	// having said so — a warning recorded where nobody reads it is the
+	// same as no warning, and this project has shipped that mistake
+	// enough times to recognise the shape.
+	//
+	// Logged once per send rather than swallowed: the alternative is an
+	// operator watching a delegation sit unanswered with no idea that the
+	// other end stopped running last Tuesday.
+	if out.Quiet && out.Warning != "" {
+		h.d.noteQuietPeer(toAID, out.Warning)
+	}
+	return nil
 }
 
 // transports returns the delivery paths in preference order.
@@ -169,3 +188,30 @@ func (h moduleHost) Inbound() module.Inbound { return h.d.Inbound() }
 
 // RegisterTransport lets a transport module add its path.
 func (h moduleHost) RegisterTransport(t module.Transport) { h.d.RegisterTransport(t) }
+
+// noteQuietPeer reports a recipient that has stopped collecting its mail.
+//
+// Once per peer per state change, like noteTransport above and for the
+// same reason: a chat with a quiet peer sends a message every few
+// seconds, and a line each would bury the log in exactly the situation
+// where the operator most needs to read it.
+func (d *Daemon) noteQuietPeer(aid, warning string) {
+	d.mu.Lock()
+	if d.quietPeers == nil {
+		d.quietPeers = map[string]bool{}
+	}
+	already := d.quietPeers[aid]
+	d.quietPeers[aid] = true
+	d.mu.Unlock()
+	if !already {
+		log.Printf("anet: %s", warning)
+	}
+}
+
+// noteLivePeer clears the quiet mark when a peer answers, so a later
+// silence is reported again rather than assumed already known.
+func (d *Daemon) noteLivePeer(aid string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.quietPeers, aid)
+}

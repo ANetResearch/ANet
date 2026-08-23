@@ -1,0 +1,14 @@
+[Unit]
+Description=ANet live two-hub check
+Documentation=file:/opt/anet-prodtest/prodtest.sh
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/anet-prodtest
+ExecStart=/opt/anet-prodtest/prodtest-cron.sh
+# journald rotates; a shell redirect does not. The runner writes its own
+# dated files and prints one summary line here.
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=30min

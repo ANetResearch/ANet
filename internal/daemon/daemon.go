@@ -30,6 +30,11 @@ type Daemon struct {
 	// configured. Nil is the ordinary state of a build with -tags
 	// no_x402, and every payment surface says so rather than pretending.
 	pay module.Payer
+
+	// quietPeers remembers which peers the hub has reported as no longer
+	// collecting their mail, so the warning is logged on the transition
+	// rather than on every message.
+	quietPeers map[string]bool
 	// transportState carries the optional delivery paths modules add.
 	transportState
 	// modules are the optional subsystems this build carries.

@@ -1,0 +1,18 @@
+[Unit]
+Description=Run the ANet live two-hub check hourly
+
+[Timer]
+# Hourly, and deliberately not more often. What this watches — federation,
+# clocks, ledgers, whether a node is still collecting its mail — changes
+# on the scale of minutes to days, and a tighter loop would add load to
+# the very hubs it is checking without finding anything sooner.
+OnCalendar=hourly
+# Spread across the hour so several checks never land on the same second
+# as each other or as a cron everybody else also set to :00.
+RandomizedDelaySec=10min
+# A machine that was off must not skip silently and leave an hour-shaped
+# hole in the history.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

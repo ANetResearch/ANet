@@ -388,6 +388,13 @@ func (d *Daemon) kickAutoReply() {
 // dispatch handles one mailbox message and reports whether it should be acked (removed). Malformed or
 // unwanted messages are acked so they do not clog the mailbox; a transient store failure is NOT acked.
 func (d *Daemon) dispatch(m relayMsg, payload []byte) (ack bool) {
+	// Anything arriving from a peer means that peer is running. Clearing
+	// the mark here means a later silence is reported again rather than
+	// assumed already known — a warning that fires once and never again
+	// is one that stops being true without saying so.
+	if m.FromAID != "" {
+		d.noteLivePeer(m.FromAID)
+	}
 	switch m.Kind {
 	case hubapi.RelayKindDelegate:
 		return d.ingestDelegate(payload)
