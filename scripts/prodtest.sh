@@ -155,7 +155,13 @@ hd "0  跑的是哪一版"
 # useless during exactly the operation it should be watching. What it
 # flags is an UNSTAMPED build, which means somebody built without
 # scripts/build.sh and the comparison can no longer be made at all.
-SELF_COMMIT=$(cat "$(dirname "$0")/VERSION" 2>/dev/null || echo unstamped)
+# The shipped copy carries a VERSION file written by ship-prodtest.sh.
+# A copy running from the repository has no such file and reads its commit
+# from git instead, so "unstamped" means neither — a copy somebody moved
+# by hand, which is the case worth naming.
+SELF_COMMIT=$(cat "$(dirname "$0")/VERSION" 2>/dev/null \
+  || git -C "$(dirname "$0")" rev-parse --short HEAD 2>/dev/null \
+  || echo unstamped)
 info "本脚本: $SELF_COMMIT"
 unstamped=0
 for pair in "emax hub:$EMAX_HUB/healthz"; do
