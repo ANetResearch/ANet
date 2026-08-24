@@ -1362,15 +1362,23 @@ else
 
   # Rate limiting is the only thing standing between a guess and the
   # surface, so it has to actually engage.
+  #
+  # 25 attempts, because the limit is 20 per minute per source. A check
+  # that stops below the threshold can never fail and therefore asserts
+  # nothing — the first version stopped at 8 and reported an
+  # inconclusive line that read like a pass.
+  #
+  # The cost is that this source IP is locked out for a minute after
+  # each run. That is the limiter working, and it is the point.
   last=""
-  for _ in 1 2 3 4 5 6 7 8; do
+  for _ in $(seq 1 25); do
     last=$(curl -s -m 30 -X POST "$EMAX_HUB/admin/api/login" \
       -H 'content-type: application/json' -d '{"token":"definitely-not-it"}' \
       -o /dev/null -w '%{http_code}')
   done
   [ "$last" = 429 ] \
-    && ok "连续猜测被限流挡住(429)" \
-    || info "连续 8 次错误口令后仍返回 $last —— 限流窗口可能比这轮长"
+    && ok "连续猜测越过阈值后被限流挡住(429)" \
+    || no "25 次错误口令之后仍返回 $last —— 限流没有生效"
 fi
 
 # ── 10. what a node can check for itself ────────────────────────
