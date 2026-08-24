@@ -44,19 +44,85 @@ const paymentWindow = 5 * time.Minute
 const hubCallTimeout = 30 * time.Second
 
 // paymentRequired builds the x402 402 body for a priced capability.
+//
+// Our own hub's ledger first, then every ledger our hub says it will
+// clear against. The second group is what makes a cross-hub purchase
+// possible: a buyer registered elsewhere holds no credit here, and if the
+// only offered rail is this hub's own it can do nothing but be told it
+// has insufficient funds.
+//
+// Ours is offered first because it is the one settlement is cheapest and
+// most certain on — no second hub has to be reachable for it to complete.
+// The buyer picks; this only says what would be accepted.
 func (m *Module) paymentRequired(capID string, price uint64) *payment.PaymentRequired {
-	return &payment.PaymentRequired{
-		X402Version: payment.Version,
-		Resource:    &payment.Resource{URL: "anet:capability/" + capID, Description: capID},
-		Accepts: []payment.PaymentOption{{
+	opt := func(network string) payment.PaymentOption {
+		return payment.PaymentOption{
 			Scheme:            payment.SchemeCredit,
-			Network:           payment.CreditNetwork(m.hubAID()),
+			Network:           network,
 			Amount:            payment.Amount(price),
 			Asset:             payment.AssetCredit,
 			PayTo:             m.AID(),
 			MaxTimeoutSeconds: int(paymentWindow / time.Second),
-		}},
+		}
 	}
+	accepts := []payment.PaymentOption{opt(payment.CreditNetwork(m.hubAID()))}
+	for _, n := range m.clearableNetworks() {
+		if n != accepts[0].Network {
+			accepts = append(accepts, opt(n))
+		}
+	}
+	return &payment.PaymentRequired{
+		X402Version: payment.Version,
+		Resource:    &payment.Resource{URL: "anet:capability/" + capID, Description: capID},
+		Accepts:     accepts,
+	}
+}
+
+// HomeNetwork is the ledger this node's credits live on.
+func (m *Module) HomeNetwork() string {
+	if m.seam == nil {
+		return ""
+	}
+	hub := m.hubAID()
+	if hub == "" {
+		return ""
+	}
+	return payment.CreditNetwork(hub)
+}
+
+// clearableNetworks is what our hub's facilitator says it will settle on,
+// minus our own, cached.
+//
+// Cached because a 402 is on the hot path of every priced call and the
+// answer changes only when an operator edits federation.json. Failure is
+// silent and cached as empty for the same interval: a hub that cannot be
+// asked right now should not stop us quoting our own ledger, and the next
+// refresh will pick the peers up.
+func (m *Module) clearableNetworks() []string {
+	const ttl = 5 * time.Minute
+	m.clearMu.Lock()
+	defer m.clearMu.Unlock()
+	if time.Since(m.clearAt) < ttl {
+		return m.clearNets
+	}
+	m.clearAt = time.Now()
+	m.clearNets = nil
+	if m.hubURL() == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), hubCallTimeout)
+	defer cancel()
+	var sup payment.Supported
+	if err := m.getJSON(ctx, "/x402/supported", &sup); err != nil {
+		return nil
+	}
+	mine := payment.CreditNetwork(m.hubAID())
+	for _, k := range sup.Kinds {
+		if k.Scheme == payment.SchemeCredit && k.Network != mine && k.Network != "" {
+			m.clearNets = append(m.clearNets, k.Network)
+		}
+	}
+	return m.clearNets
 }
 
 // EvPaymentAuthorized records that this node signed an authorization.

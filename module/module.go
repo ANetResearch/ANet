@@ -190,6 +190,10 @@ type Payer interface {
 	// RedeemURL is this node's public voucher face, or empty. It goes in
 	// the signed card so a gateway can tell buyers where to collect.
 	RedeemURL() string
+	// HomeNetwork is the ledger this node's own credits live on, so a
+	// caller offered several rails can pick the one it can actually pay
+	// from. Empty when this node has no hub.
+	HomeNetwork() string
 	// Reconcile compares this node's own payment history against the
 	// hub's ledger for this account, and AuditIssuance verifies the
 	// hub's supply chain against heads this node recorded earlier.
