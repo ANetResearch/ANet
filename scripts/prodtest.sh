@@ -984,6 +984,11 @@ else
     || no "emax 只报出 ${n:-0} 条账本,跨 hub 买方无从付款"
 
   e0=$(esup outstanding); f0=$(fsup outstanding)
+  # Cumulative, and reduced only by an operator running `anet-hub -clear`.
+  # Earlier sections of this script also pay across hubs (the gateway in
+  # section 7 is one), so the totals here are not this payment's amount —
+  # only the delta is.
+  due0=$(esup due_to_peers); owed0=$(fsup owed_by_peers)
   t0=$(( ${e0:-0} + ${f0:-0} ))
   info "付款前:emax outstanding=$e0 fmax outstanding=$f0 合计=$t0"
 
@@ -1009,7 +1014,7 @@ else
     for _ in 1 2 3 4 5 6; do
       e1=$(esup outstanding); f1=$(fsup outstanding)
       due=$(esup due_to_peers); owed=$(fsup owed_by_peers)
-      [ "${due:-0}" != 0 ] && [ "${owed:-0}" != 0 ] && break
+      [ "${due:-0}" != "${due0:-0}" ] && [ "${owed:-0}" != "${owed0:-0}" ] && break
       sleep 5
     done
     t1=$(( ${e1:-0} + ${f1:-0} ))
@@ -1019,12 +1024,13 @@ else
       && ok "联邦总供给不变($t0),一次付款只造了一份 credit" \
       || no "联邦总供给从 $t0 变成 $t1 —— 一次付款在两个账本上各造了一份"
 
-    [ "${due:-0}" = "$amt" ] \
-      && ok "付款方 hub 记下欠款 $due" \
-      || no "付款方 hub 的 due_to_peers=$due,应为 $amt"
-    [ "${owed:-0}" = "$amt" ] \
-      && ok "收款方 hub 记下应收 $owed,与对方欠款对称" \
-      || no "收款方 hub 的 owed_by_peers=$owed,应为 $amt"
+    dd=$(( ${due:-0} - ${due0:-0} )); dw=$(( ${owed:-0} - ${owed0:-0} ))
+    [ "$dd" = "$amt" ] \
+      && ok "付款方 hub 的欠款增加了 $dd(累计 $due)" \
+      || no "付款方 hub 的 due_to_peers 增加了 $dd,应为 $amt"
+    [ "$dw" = "$amt" ] \
+      && ok "收款方 hub 的应收增加了 $dw(累计 $owed),与对方欠款对称" \
+      || no "收款方 hub 的 owed_by_peers 增加了 $dw,应为 $amt"
 
     # Both chains must still account for their own supply. A cross-hub
     # payment retires credit on one hub and issues it on the other; a

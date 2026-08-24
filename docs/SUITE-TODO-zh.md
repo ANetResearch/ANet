@@ -251,4 +251,20 @@ H-2 (发布 KEL) ────────────────────►
 再加一个不是联调发现、而是**清点时发现**的:收据从来没人验过。
 `Receipt.Verify` 在 daemon 里调用点为零,且不可能不为零 —— 回程根本不带 provider 的 KEL。
 
-结论:`scripts/joint.sh` 是仓库的一部分,不是脚手架。
+还有一类,只有**双 hub 实网**能发现,单 hub 联调造不出来:
+
+7. 跨 hub 付款在两个账本上各造一份 credit —— 付款方 hub 不分本地与否给 payee 记贷,
+   收款方 hub 凭收据又记一次。两个 hub 各自内部一致(各自 balances == outstanding),
+   所以任何一侧的供给检查都看不到;能看到的只有两侧之和
+8. 跨 hub 的 credit 变动两侧都不入发放链 —— `chain_outstanding == outstanding` 在
+   跨 hub 付款那一刻在两侧同时失效,失效原因是漏记而非账本有问题
+9. 卖方 402 只报自己 hub 的账本 —— credits 在别处的买方只能收到 insufficient funds,
+   跨 hub 清算路径存在而无法到达。`ClearFromPeer` / `SettleOwed` / `hub_owed` 因此
+   写好之后长期零触发
+10. `/agents/{aid}/ledger` 默认 100 条且不标记 —— `anet reconcile` 拿一页之和对全额
+    余额,凡历史超过一页的账户都报出一个由上限而非账本产生的差异
+11. p2p 会合点是共享文件系统目录 —— 两台主机没有共享目录,唯一为绕开 hub 而建的
+    模块只能在同一台机器上的节点之间使用,恰好是不需要它的那种情况
+
+结论:`scripts/joint.sh` 是仓库的一部分,不是脚手架。`scripts/prodtest.sh` 同理 ——
+上面第 7 到 11 条,没有一条能在单机上造出来。
