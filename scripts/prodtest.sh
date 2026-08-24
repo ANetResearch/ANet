@@ -993,7 +993,7 @@ else
   info "付款前:emax outstanding=$e0 fmax outstanding=$f0 合计=$t0"
 
   out=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
-    "export ANET_HOME=$CMAX_HOME; timeout 240 $CMAX_BIN delegate $DMAX_AID \
+    "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 240 $CMAX_BIN delegate $DMAX_AID \
      --capability text.stats.paid --args '{\"text\":\"prodtest cross-hub\"}' --pay" 2>&1)
   net=$(echo "$out" | jq_ "print((d.get('paid') or {}).get('network',''))")
   amt=$(echo "$out" | jq_ "print((d.get('paid') or {}).get('amount',''))")
@@ -1278,7 +1278,7 @@ else
   before=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
     "grep -c 'delivered delegate' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
   out=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
-    "export ANET_HOME=$CMAX_HOME; timeout 180 $CMAX_BIN delegate $DMAX_AID \
+    "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
      --capability text.stats --args '{\"text\":\"prodtest p2p\"}'" 2>&1)
   pix=$(echo "$out" | jq_ "print(d.get('interaction_id',''))")
   if [ -z "$pix" ]; then
@@ -1304,7 +1304,7 @@ else
     got=""
     for _ in $(seq 1 24); do
       got=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
-        "export ANET_HOME=$CMAX_HOME; $CMAX_BIN results" 2>/dev/null | jq_ "
+        "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
 for x in d.get('results') or []:
     if x.get('interaction_id') == '$pix':
         print('OK' if '\"status\":\"OK\"' in (x.get('result') or '') else '?')
@@ -1417,7 +1417,7 @@ print(','.join(a.get('aid','') for a in (d.get('agents') or [])))")
   esac
 
   out=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
-    "export ANET_HOME=$CMAX_HOME; timeout 180 $CMAX_BIN delegate $DMAX_AID \
+    "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
      --capability '$LIGHT' --args '{\"on\":true}'" 2>&1)
   lix=$(echo "$out" | jq_ "print(d.get('interaction_id',''))")
   if [ -z "$lix" ]; then
@@ -1426,7 +1426,7 @@ print(','.join(a.get('aid','') for a in (d.get('agents') or [])))")
     got=""
     for _ in $(seq 1 30); do
       got=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
-        "export ANET_HOME=$CMAX_HOME; $CMAX_BIN results" 2>/dev/null | jq_ "
+        "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
 for x in d.get('results') or []:
     if x.get('interaction_id') == '$lix':
         print(x.get('result') or ''); break")
@@ -1491,19 +1491,35 @@ done
 
 # Leaving: routing goes, evidence stays. Run with a throwaway identity so
 # nothing in the live topology is deregistered.
+# A throwaway node, not a throwaway config: hub-register goes through a
+# daemon's control plane, so an identity with no daemon cannot register.
+# Its own port and its own data dir, so it can never be confused with a
+# live node — which is exactly the confusion that made ANET_HOME count as
+# pinning in the first place.
 TMPH=$(mktemp -d)
-if ANET_HOME="$TMPH" "$INK_BIN" hub-register "$EMAX_HUB" \
+mkdir -p "$TMPH/.anet"
+cat > "$TMPH/.anet/config.json" <<'JSON'
+{"control_addr": "127.0.0.1:29671", "accept_delegations": false}
+JSON
+ANET_DATA_DIR="$TMPH/.anet" setsid "$INK_BIN" daemon >"$TMPH/daemon.log" 2>&1 </dev/null &
+LEAVER_PID=$!
+for _ in $(seq 1 20); do
+  curl -sf -m 3 http://127.0.0.1:29671/ping >/dev/null 2>&1 && break
+  sleep 1
+done
+if ANET_DATA_DIR="$TMPH/.anet" "$INK_BIN" hub-register "$EMAX_HUB" \
      --name prodtest-leaver --caps probe.noop >/dev/null 2>&1; then
-  LA=$(ANET_HOME="$TMPH" "$INK_BIN" status 2>/dev/null | jq_ "print(d.get('aid',''))")
+  LA=$(ANET_DATA_DIR="$TMPH/.anet" "$INK_BIN" status 2>/dev/null | jq_ "print(d.get('aid',''))")
 else
   LA=""
+  info "  临时 daemon 日志:$(tail -2 "$TMPH/daemon.log" 2>/dev/null | tr '\n' ' ')"
 fi
 if [ -z "$LA" ]; then
   sk "临时身份注册失败,跳过 hub-leave 检查"
 else
   code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$EMAX_HUB/agents/$LA")
   [ "$code" = 200 ] && ok "临时身份注册上了 hub" || no "临时身份没能注册($code)"
-  if ANET_HOME="$TMPH" "$INK_BIN" hub-leave "$EMAX_HUB" >/dev/null 2>&1; then
+  if ANET_DATA_DIR="$TMPH/.anet" "$INK_BIN" hub-leave "$EMAX_HUB" >/dev/null 2>&1; then
     ok "hub-leave 被接受(由 agent 自己签名)"
   else
     no "hub-leave 被拒"
@@ -1519,11 +1535,18 @@ print(','.join(a.get('aid','') for a in (d.get('agents') or [])))")
   esac
   # And the identity is still resolvable, because evidence about it must
   # not become unverifiable just because it left.
+  # Proof outlives routing. Deregistering deleted the agent row, which
+  # held the only copy of the KEL, so the hub went on serving every
+  # receipt and review this agent had signed and could no longer produce
+  # the key that checks them. `anet verify --receipt --hub` broke for
+  # every agent that had ever left. Caught here as an info line first,
+  # then fixed and promoted to an assertion.
   kc=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$EMAX_HUB/agents/$LA/kel")
   [ "$kc" = 200 ] \
-    && ok "它的密钥历史仍然查得到 —— 离开不该让已经发生的事变得无法核验" \
-    || info "注销后密钥历史返回 $kc"
+    && ok "它的密钥历史仍然查得到 —— 离开删的是路由,不是证据" \
+    || no "注销后密钥历史返回 $kc —— 它签过的收据在这个 hub 上再也验不了"
 fi
+kill "$LEAVER_PID" 2>/dev/null
 rm -rf "$TMPH"
 
 # ── 9r. the taskboard ───────────────────────────────────────────
@@ -1613,7 +1636,7 @@ hd "9s 自动回复:委派到达 → 调模型 → 答复经 hub 回来"
 # needs a model credential, and a check that fails for want of a key
 # teaches an operator to ignore red.
 ar=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
-  "export ANET_HOME=$CMAX_HOME; $CMAX_BIN autoreply show" 2>/dev/null)
+  "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN autoreply show" 2>/dev/null)
 case "$ar" in
   *backend*) ok "cmax 配了自动回复后端";;
   *) sk "cmax 未配自动回复(需要模型凭据)"; ar="";;
@@ -1623,7 +1646,7 @@ if [ -n "$ar" ]; then
   # failure here is a credential or endpoint problem, and separating it
   # from the network path is what makes the next assertion readable.
   t=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
-    "export ANET_HOME=$CMAX_HOME; timeout 120 $CMAX_BIN autoreply test '一句话回答:1+1 等于几'" 2>&1)
+    "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 120 $CMAX_BIN autoreply test '一句话回答:1+1 等于几'" 2>&1)
   [ "$(echo "$t" | jq_ "print(d.get('status',''))")" = ok ] \
     && ok "后端本地自检通过(不经 hub)" \
     || no "后端自检失败:$(printf '%s' "$t" | head -c 160)"

@@ -123,6 +123,8 @@ ink93(普通用户)+ emax(纯 hub)+ dmax(服务节点)三节点跨公网跑通�
 | ~~D-7~~ | ~~崩溃恢复语义未验证~~ | — | **已完成**。中继在处理**之后**才 ack(对的:先 ack 会丢工作),代价是崩在中间会重投。查出并修掉两处:重投的委派会**再执行一次**(第二次物理效果、第二张收据、第二条链记录),重投的结果会**在证据链上多记一条**。投递是 at-least-once 且只能如此;执行不是 |
 | ~~D-11~~ | ~~重投的聊天消息会在记录里重复~~ | — | **已完成**。ANetCore v0.7.0 给 `ChatMsg` 加了发送方铸造的 `MsgID`(key 9,可选),接收端用 `(interaction_id, msg_id)` 的**部分**唯一索引去重 —— 部分是因为旧发送方不铸 id,而"未知"不是一种身份 |
 | ~~D-8~~ | ~~自动回复未进联调~~ | — | **已完成**。`scripts/scenario.sh --live` 里 B 用 OpenRouter 真的回答了 C |
+| ~~D-24~~ | ~~`ANET_HOME` 会让命令操作到别的身份~~ | — | **已完成**。`SelectionIsExplicit` 的清单是 `--id/ANET_ID/ANET_DATA_DIR/current`,漏了 `ANET_HOME`。设置它会移动身份容器,但容器里还没有 config 时,解析回落到 uid 指针,操作到当时正在跑的那个 daemon 上。实际后果:`ANET_HOME=/tmp/x anet hub-register <hub> --name throwaway` 把线上节点的 name 与 caps 在真 hub 上改成了 throwaway 那一套。这正是 strict 路径存在要防的事,由清单里唯一漏掉的那个变量造成。发现于用临时身份给 hub-leave 写生产断言 |
+| ~~D-25~~ | ~~自动回复只在 scenario 里跑过~~ | — | **已完成**。没有任何生产节点配过它,所以"节点无人值守也能作答"这条路径从未跨过真网络。现在 cmax 上接 OpenAI 兼容后端,prodtest 9s 断言:委派到达 → 调模型 → 答复经真 hub 回到发起方。缺凭据时跳过而不是失败 —— 为缺 key 报红会教运营者忽略红色 |
 | **D-9** | 分发形态 | 无 | 中。今天需 `go build` + 终端。桌面 app / 浏览器扩展 / 托管三选待议 |
 | ~~D-10~~ | ~~三处无直接测试~~ | — | **已完成**。`internal/hubapi` 钉住跨仓库字段名(第一次跑就抓到 `home_hub` 漂移:hub 一直在发,daemon 结构体里没有,于是每个联邦来的 agent 都被悄悄抹掉了"该去哪找它");`module/anetlink` 测工厂校验 + 用反射守住 C1 红线(daemon 永远不该知道"设备"是什么);`tools/anetfixture` 现在是联调网关付款的依赖,测它签出来的授权 hub 真的会认、两次不同 nonce、缺参数报得清楚 |
 
@@ -162,6 +164,8 @@ admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 
 | ~~H-8~~ | ~~hub 从不公布自己的密钥历史~~ | — | **已完成**。它给所有 agent 发 KEL,唯独不发自己的——而它签结算、签兑付收据、签凭证。"托管方做了什么你可以自己验"于是对对象成立、对系统不成立。**这个洞只有联调能发现**:我写的 fake hub 把自己注册进了 registry,真 hub 没有,fake 比真货更完整 |
 | ~~H-9~~ | ~~credit 只进不出~~ | — | **已完成**。`POST /x402/redeem` 销毁额度并签字;`GET /x402/supply` 公布已发行/已兑付/未清偿,且 `outstanding == balances` 是任何人都能自己算的等式——发放同时记 hub 自己那一行的负数,全账求和恒为零。`POST /federation/clear` 让 `hub_owed` 能降下来,不再只升不降 |
 | ~~H-10~~ | ~~hub 只是 facilitator,不是 resource server~~ | — | **已完成**。`GET /x402/resource/{aid}/{capability}`:未付款回 402 + `PAYMENT-REQUIRED`,付款后回 `PAYMENT-RESPONSE` 与一张**凭证**。**网关只卖门票不代理内容**——hub 全程见不到请求与结果,这和中继"只搬读不懂的字节"是同一条性质。价钱与取货地址都读自 agent 自己签的卡片,所以 hub 能拒卖、不能改价、不能把买家指到自己的机器上 |
+| **H-22** | 静默两档的时间跨越只在单测里 | — | 一小时标记静默、一个月退出可浏览列表,两个阈值在实网上无法产生 —— 要么等,要么改生产数据。prodtest 9q 断言的是单测覆盖不到的那一半:信号确实取自真实取信而不是心跳端点、"无记录"不被当成"已静默"、`hub-leave` 删路由留证据。**跨越本身仍然只有单测**,这是有意的取舍,不是漏测 |
+| **H-6b** | taskboard 在套件里没有客户端 | — | 九个变更端点都要 KEL 签名的挑战,而包自身测试之外没有任何东西能产生一个 —— 板子可读不可用,实网上从未被碰过。prodtest 9r 现在用 `anetfixture relay-sign` 驱动它,一张卡走完 created→ready→claimed→submitted→accepted,乱序与未签名都被真的拒掉。**如果 agent 真要用这块板子,它需要 `anet task` 一类的真命令** —— 那是另一个决定,不是这条检查该顺手做的事 |
 | **H-5** | 测试密度偏低 | — | 本轮 35 → 48 个测试(卡片、能力索引、目录联邦)。webui 2,316 行仍基本无测试 |
 | ~~H-6~~ | ~~部署链路上有三层体积上限~~ | — | **已完成**。 把决定性的那层放进仓库,并在文件头写明三层的名字与位置 |
 
@@ -182,6 +186,7 @@ btmesh · ble · thread · mqttbridge · habridge(19 个 HA domain) · sim
 
 | # | 条目 | 依赖 | 备注 |
 |---|---|---|---|
+| ~~L-4~~ | ~~ANetLink 从未进过生产,依赖落后九个小版本~~ | — | **已完成**。ANetCore 钉在 v0.4.2 而其余三仓在 v0.13.1,daemon 与 ANetLink 之间的 C1 线协从未被验证过是否还对得上。换到 v0.13.1 后无需任何改动、317 测试全绿 —— 漂的是版本钉不是线协,但这一点在跑之前无从得知。现在 dmax 上跑 anetlinkd(sim 适配器),prodtest 9p 断言整条链:适配器发布设备 → 运行时上 C1 口 → daemon 把真实能力 id 折进注册 → hub 索引 → 另一台机器另一个 hub 的节点委派它。实网 `light.onoff@sim/lamp-1`,`power_state=1`。能力 id 里带着设备,而 daemon 仍然不知道"设备"是什么 —— 这就是 C1 |
 | **L-1** | L2 真机测试 | 真机 + 凭据 | PTZ / 事件 / JPEG 抓拍(onvif-server 只实现 Profile S);海康 ISAPI 与大华 CGI **不存在模拟器** |
 | **L-2** | 厂商云适配器:一个都没有 | — | 生态缺口。对标同类产品这是主要差距 |
 | **L-3** | 自动发现只有 ONVIF WS-Discovery | — | 其余协议靠配置 |
