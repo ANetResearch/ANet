@@ -37,11 +37,15 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -72,11 +76,13 @@ type frame struct {
 func main() {
 	sock := flag.String("socket", "", "socket the daemon's p2p module connects to")
 	peerSock := flag.String("peer", "", "socket other anetpeer processes connect to")
-	rv := flag.String("rendezvous", "", "directory mapping AID → peer address")
+	rv := flag.String("rendezvous", "",
+		"where to look peers up: a hub URL (http://… or https://…) or a local directory")
 	advertise := flag.String("advertise", "", "address other peers should dial (default: --peer)")
 	flag.Parse()
 	if *sock == "" || *peerSock == "" || *rv == "" {
-		fmt.Fprintln(os.Stderr, "usage: anetpeer --socket S --peer P --rendezvous DIR")
+		fmt.Fprintln(os.Stderr,
+			"usage: anetpeer --socket S --peer P --rendezvous <hub-url|dir> [--advertise ADDR]")
 		os.Exit(2)
 	}
 	p, err := start(*sock, *peerSock, *rv, *advertise)
@@ -99,8 +105,17 @@ func main() {
 // deadlock — handling a request inline on the loop that has to deliver its
 // answer. Testing them apart is what let that ship twice.
 func start(sock, peerSock, rendezvous, advertise string) (*peer, error) {
-	if err := os.MkdirAll(rendezvous, 0o755); err != nil {
-		return nil, err
+	// A hub URL or a local directory. The directory was the original and
+	// only works when both peers share a filesystem, which two machines
+	// do not — so a transport built to carry traffic between hosts could
+	// only be used by nodes on one host. A hub already knows who exists,
+	// so it can answer "where do I dial this AID"; what it learns is that
+	// two peers looked each other up, and nothing about what they then
+	// did, because the payload never goes near it.
+	if !isURL(rendezvous) {
+		if err := os.MkdirAll(rendezvous, 0o755); err != nil {
+			return nil, err
+		}
 	}
 	p := &peer{peerSocket: peerSock, rendezvous: rendezvous, advertise: advertise,
 		acks: map[string]chan struct{}{}}
@@ -153,6 +168,7 @@ func (p *peer) stop() {
 type peer struct {
 	peerSocket string
 	rendezvous string
+	hubCache   map[string]hubEntry
 	advertise  string
 	peerLn     net.Listener
 	daemonLn   net.Listener
@@ -335,11 +351,18 @@ func addrKind(a string) (network, addr string) {
 	}
 }
 
+// isURL reports whether the rendezvous is a hub rather than a directory.
+func isURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
 // announce publishes "this AID is reachable at this address".
 //
-// A directory rather than a DHT. It is the smallest thing that is still a
-// real rendezvous: two peers that have never met find each other through
-// it, and neither daemon learns what it is.
+// Against a directory rendezvous this process writes the entry itself.
+// Against a hub it does not: publishing is a signed statement about the
+// daemon's identity, and this process holds no key — deliberately, since
+// it is the one carrying other people's traffic. The daemon publishes
+// with `anet p2p-advertise`, and this process only reads.
 func (p *peer) announce(aid string) {
 	if aid == "" {
 		return
@@ -355,6 +378,15 @@ func (p *peer) announce(aid string) {
 	if reach == "" {
 		reach = p.peerSocket
 	}
+	if isURL(p.rendezvous) {
+		// Said once at startup rather than silently skipped: an operator
+		// who expected this process to register is otherwise left with a
+		// peer nobody can find and nothing pointing at why.
+		log.Printf("anetpeer: rendezvous is a hub; publish this node's address with "+
+			"`anet p2p-advertise %s` (this process holds no key and cannot sign for %s)",
+			reach, aid)
+		return
+	}
 	_ = os.WriteFile(filepath.Join(p.rendezvous, aid), []byte(reach), 0o644)
 }
 
@@ -362,9 +394,11 @@ func (p *peer) forget() {
 	p.mu.Lock()
 	self := p.self
 	p.mu.Unlock()
-	if self != "" {
-		_ = os.Remove(filepath.Join(p.rendezvous, self))
+	if self == "" || isURL(p.rendezvous) {
+		// Nothing to withdraw: against a hub this process never published.
+		return
 	}
+	_ = os.Remove(filepath.Join(p.rendezvous, self))
 }
 
 func (p *peer) lookup(aid string) (string, bool) {
@@ -374,9 +408,72 @@ func (p *peer) lookup(aid string) (string, bool) {
 	if aid == "" || aid == self {
 		return "", false
 	}
+	if isURL(p.rendezvous) {
+		return p.lookupHub(aid)
+	}
 	b, err := os.ReadFile(filepath.Join(p.rendezvous, aid))
 	if err != nil {
 		return "", false
 	}
 	return string(b), true
+}
+
+// hubLookupTimeout bounds one rendezvous query.
+//
+// Short, because this is asked before a send and the hub is waiting
+// behind it as the fallback: a slow directory must not make every
+// delegation slow. A query that times out reads as "not reachable
+// directly", which is the honest answer — we do not know where to dial.
+const hubLookupTimeout = 5 * time.Second
+
+// hubCacheTTL is how long a looked-up address is trusted.
+//
+// Addresses change rarely and a send asks before every delivery, so
+// without this a busy node would query the hub once per message. Short
+// enough that a peer that moved is re-found within the minute.
+const hubCacheTTL = time.Minute
+
+// lookupHub asks the hub where an AID can be dialled.
+func (p *peer) lookupHub(aid string) (string, bool) {
+	p.mu.Lock()
+	if e, ok := p.hubCache[aid]; ok && time.Since(e.at) < hubCacheTTL {
+		p.mu.Unlock()
+		return e.addr, e.addr != ""
+	}
+	p.mu.Unlock()
+
+	addr := ""
+	ctx, cancel := context.WithTimeout(context.Background(), hubLookupTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		strings.TrimSuffix(p.rendezvous, "/")+"/agents/"+url.PathEscape(aid)+"/p2p", nil)
+	if err == nil {
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			defer resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				var out struct {
+					Addr string `json:"addr"`
+				}
+				if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out) == nil {
+					addr = strings.TrimSpace(out.Addr)
+				}
+			}
+			// A 404 means the peer published nothing, which is a real and
+			// stable answer — cached as "no address" so a node that never
+			// lists itself is not queried before every send.
+		}
+	}
+	p.mu.Lock()
+	if p.hubCache == nil {
+		p.hubCache = map[string]hubEntry{}
+	}
+	p.hubCache[aid] = hubEntry{addr: addr, at: time.Now()}
+	p.mu.Unlock()
+	return addr, addr != ""
+}
+
+// hubEntry is one cached rendezvous answer, including "no address".
+type hubEntry struct {
+	addr string
+	at   time.Time
 }

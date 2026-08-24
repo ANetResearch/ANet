@@ -236,3 +236,38 @@ func (d *Daemon) LeaveHub(ctx context.Context, hubURL string) (map[string]any, e
 	}
 	return out, nil
 }
+
+// AdvertisePeerAddress publishes where this node can be dialled directly,
+// so peers on other machines can find it.
+//
+// The daemon does this rather than the peer process, because publishing
+// is a signed statement about this node's identity and the peer process
+// holds no key. It learns the address it is reachable at from its
+// operator and tells nobody; the daemon says so under its own signature.
+// Keeping it this way means the peer process — the one carrying other
+// people's traffic — never needs anything that could speak as this node.
+//
+// In the kernel and untagged, alongside hub-leave and the profile
+// publish, because it is the same kind of thing: a signed statement
+// about this node, sent to its own hub. It names no transport and does
+// not reach the p2p module — a build with -tags no_p2p can still publish
+// an address, and one without a hub is told there is nowhere to publish
+// it. What consumes the address is a module; saying it is not.
+//
+// An empty address withdraws the entry. Withdrawing and deregistering are
+// different decisions: a node can stop accepting direct connections and
+// go on receiving work through the hub.
+func (d *Daemon) AdvertisePeerAddress(ctx context.Context, addr string) (map[string]any, error) {
+	hubURL := strings.TrimRight(strings.TrimSpace(d.config().HubURL), "/")
+	if hubURL == "" {
+		return nil, fmt.Errorf("anet: this node has no hub, so there is nowhere to publish an address")
+	}
+	ts, seq, sig := d.signRelayAuth(relayauth.ActionProfile)
+	body := map[string]any{"addr": strings.TrimSpace(addr),
+		"ts": ts, "key_state_seq": seq, "sig": sig}
+	var out map[string]any
+	if err := d.hubPost(ctx, hubURL, "/agents/"+url.PathEscape(d.AID())+"/p2p", body, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}

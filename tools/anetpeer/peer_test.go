@@ -10,7 +10,11 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -343,4 +347,70 @@ func freeTCP(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return addr
+}
+
+// Two peers on different machines must be able to find each other.
+//
+// The rendezvous was a shared filesystem directory, so a transport built
+// to carry traffic between hosts could only be used by nodes on one host
+// — the one case that does not need it. A hub URL is accepted instead,
+// and the address is read from the hub over HTTP.
+func TestAHubCanBeTheRendezvous(t *testing.T) {
+	var asked []string
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		aid := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/agents/"), "/p2p")
+		asked = append(asked, aid)
+		if aid != "aid-remote" {
+			// Published nothing. 404 rather than an empty address: a
+			// caller must be able to tell "not listed" from "listed at
+			// nowhere", because the first falls back to the hub.
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"error":"not listed"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"aid":"aid-remote","addr":"tcp://10.9.9.9:39100"}`))
+	}))
+	defer hub.Close()
+
+	p := &peer{rendezvous: hub.URL, self: "aid-local"}
+	addr, ok := p.lookup("aid-remote")
+	if !ok || addr != "tcp://10.9.9.9:39100" {
+		t.Fatalf("lookup = %q %v, want the hub's answer", addr, ok)
+	}
+	if addr, ok := p.lookup("aid-nobody"); ok || addr != "" {
+		t.Errorf("an unlisted peer looked reachable: %q %v", addr, ok)
+	}
+
+	// Answers are cached, including "no address". A send asks before
+	// every delivery, so without this a busy node queries the hub once
+	// per message — and the negative answer is the common one.
+	n := len(asked)
+	p.lookup("aid-remote")
+	p.lookup("aid-nobody")
+	if len(asked) != n {
+		t.Errorf("the hub was asked %d more times; answers are not cached", len(asked)-n)
+	}
+}
+
+// A hub rendezvous must not be treated as a directory path.
+//
+// announce writes a file named after the AID into the rendezvous; doing
+// that with a URL would create a directory tree named "http:" beside the
+// process and publish nothing. Publishing is the daemon's job there,
+// because it is a signed statement and this process holds no key.
+func TestAHubRendezvousIsNotWrittenTo(t *testing.T) {
+	dir := t.TempDir()
+	p := &peer{rendezvous: "https://hub.example.org", advertise: "tcp://1.2.3.4:5"}
+	p.announce("aid-local")
+	p.forget()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ents) != 0 {
+		t.Errorf("announce wrote %d entries next to a URL rendezvous", len(ents))
+	}
+	if !isURL("http://x") || !isURL("https://x") || isURL("/tmp/rv") || isURL("rv") {
+		t.Error("isURL does not separate a hub from a directory")
+	}
 }
