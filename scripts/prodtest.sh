@@ -1190,7 +1190,17 @@ else
     # write them will never have counterparts. What matters is that the
     # discrepancy is reported rather than invisible.
     miss=$(echo "$rec" | jq_ "print(len(d.get('missing_from_hub') or []))")
-    info "dmax 对账有 $miss 项对不上(余额 $rb vs 流水 $rd)—— 早于流水修复的历史记录不会有对应项"
+    # Two different facts, and merging them hides the one that matters.
+    # The sums agreeing means the hub's own ledger is internally
+    # consistent for this account; items not matching means this node
+    # holds payment records the hub has no entry for. A run can have the
+    # first and not the second.
+    if [ "$rb" = "$rd" ]; then
+      ok "hub 的账本对这个账户自洽(余额 $rb == 流水合计 $rd)"
+      info "另有 $miss 项本机记录在 hub 上找不到对应条目 —— 早于结算写流水那次修复的历史"
+    else
+      info "余额 $rb 与流水合计 $rd 不等,另有 $miss 项对不上"
+    fi
     ok "对账把差异报了出来,而不是让它不可见"
   fi
 fi
