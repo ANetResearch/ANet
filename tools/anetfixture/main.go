@@ -16,6 +16,7 @@
 //	anetfixture org-genesis   --home DIR [--nonce N]
 //	anetfixture org-credential --home DIR --genesis B64 --subject AID [--role member]
 //	anetfixture x402-authorize --home DIR --pay-to AID --amount N --network hub:AID [--interaction ID]
+//	anetfixture relay-sign    --home DIR --action task.create
 //
 // Each prints one base64 line, ready for `anet delegate … --args`.
 package main
@@ -32,6 +33,7 @@ import (
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
+	"github.com/ANetResearch/ANetCore/relayauth"
 
 	"github.com/ANetResearch/ANet/module/blackboard"
 	"github.com/ANetResearch/ANet/module/org"
@@ -53,6 +55,8 @@ func main() {
 		err = cmdAID(os.Args[2:])
 	case "x402-authorize":
 		err = cmdX402Authorize(os.Args[2:])
+	case "relay-sign":
+		err = cmdRelaySign(os.Args[2:])
 	default:
 		usage()
 	}
@@ -64,7 +68,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr,
-		"usage: anetfixture cogunit|org-genesis|org-credential|aid|x402-authorize --home DIR [...]")
+		"usage: anetfixture cogunit|org-genesis|org-credential|aid|x402-authorize|relay-sign --home DIR [...]")
 	os.Exit(2)
 }
 
@@ -278,5 +282,48 @@ func cmdX402Authorize(args []string) error {
 		return err
 	}
 	fmt.Println(base64.StdEncoding.EncodeToString(b))
+	return nil
+}
+
+// cmdRelaySign signs a hub action challenge as this daemon.
+//
+// The hub gates every mutating action behind a signature over
+// (action, aid, timestamp), and several of those actions have no client
+// in this suite. The taskboard is the clearest case: nine mutation
+// endpoints, reachable on the production hub, and nothing outside the
+// package's own tests can produce a signature for one — so the board can
+// be read and not used, and no live run had ever touched it.
+//
+// A fixture rather than an `anet` subcommand because that is what this
+// is for: a check that needs a signature, not a product surface nobody
+// asked for. If agents are meant to use the board, they need real
+// commands, and that is a separate decision.
+//
+// Prints the three fields the hub wants, as JSON, ready to be merged
+// into a request body.
+func cmdRelaySign(args []string) error {
+	fs := flag.NewFlagSet("relay-sign", flag.ExitOnError)
+	home := fs.String("home", "", "daemon data dir")
+	action := fs.String("action", "", "action name, e.g. task.create")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *action == "" {
+		return fmt.Errorf("-action is required")
+	}
+	c, err := load(*home)
+	if err != nil {
+		return err
+	}
+	ts := uint64(time.Now().UnixMilli())
+	sig, seq := c.Sign(relayauth.Preimage(*action, c.AID(), ts))
+	out, err := json.Marshal(map[string]any{
+		"aid": c.AID(), "ts": ts, "key_state_seq": seq,
+		"sig": base64.StdEncoding.EncodeToString(sig),
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(out))
 	return nil
 }

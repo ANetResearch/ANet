@@ -132,11 +132,22 @@ func ResolveLayout(idFlag string) Layout {
 }
 
 // SelectionIsExplicit reports whether the operator pinned a specific identity (via --id/ANET_ID/
-// ANET_DATA_DIR/a non-default `current`). When true, the CLI resolves the control plane STRICTLY — it
-// talks only to that identity's own daemon and never falls back to the uid pointer (which, with several
-// daemons running, could otherwise silently target the wrong one).
+// ANET_HOME/ANET_DATA_DIR/a non-default `current`). When true, the CLI resolves the control plane
+// STRICTLY — it talks only to that identity's own daemon and never falls back to the uid pointer (which,
+// with several daemons running, could otherwise silently target the wrong one).
+//
+// ANET_HOME was missing from this list, and the effect was the failure the strict path exists to
+// prevent. Setting it moves the identity container, so a command run with it set is aimed at an identity
+// under that container — but with no config there yet, the resolver fell through to the uid pointer and
+// operated on whichever daemon happened to be running. `ANET_HOME=/tmp/x anet hub-register <hub> --name
+// throwaway` re-registered the LIVE node under that name and capability list, on the real hub. Found by
+// using a throwaway identity to write a production check for hub-leave.
+//
+// Pinning a container is pinning: an operator who has said "use this home" has said which identity they
+// mean, and answering with a different one is worse than answering with an error.
 func SelectionIsExplicit(idFlag string) bool {
-	return idFlag != "" || os.Getenv("ANET_ID") != "" || os.Getenv("ANET_DATA_DIR") != "" || CurrentIdentity() != "default"
+	return idFlag != "" || os.Getenv("ANET_ID") != "" || os.Getenv("ANET_HOME") != "" ||
+		os.Getenv("ANET_DATA_DIR") != "" || CurrentIdentity() != "default"
 }
 
 // loadConfigNoCreate reads config.json WITHOUT the side effect of writing a default file when absent (used
