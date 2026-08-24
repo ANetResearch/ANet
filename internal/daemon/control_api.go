@@ -124,6 +124,7 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /status", d.hStatus)
 	api.HandleFunc("POST /hub-register", d.hHubRegister)
 	api.HandleFunc("POST /hub-leave", d.hHubLeave)
+	api.HandleFunc("POST /p2p-advertise", d.hP2PAdvertise)
 	api.HandleFunc("POST /accept", d.hAccept)
 	api.HandleFunc("POST /autoreply", d.hAutoReply)
 	api.HandleFunc("POST /autoreply-test", d.hAutoReplyTest)
@@ -910,6 +911,25 @@ func (d *Daemon) hHubLeave(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
 	defer cancel()
 	out, err := d.LeaveHub(ctx, req.Hub)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "result": out})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// hP2PAdvertise publishes this node's direct address on its hub.
+func (d *Daemon) hP2PAdvertise(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Addr string `json:"addr"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
+	defer cancel()
+	out, err := d.AdvertisePeerAddress(ctx, req.Addr)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "result": out})
 		return

@@ -270,6 +270,7 @@ func usageAll() {
   anet results                pull the conversation for tasks you delegated that have ended (with the receipt)
   anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay accepts a quoted price and runs the work
   anet hub-leave [<hub-url>]  stop being deliverable at a hub you have moved away from (the evidence stays)
+  anet p2p-advertise [<addr>]   publish where peers can dial you directly (empty withdraws it; needs the p2p module)
   anet pull <interaction_id> [--out DIR]   save attachments you received to a local directory
   anet reconcile              compare your own payment record against your hub's ledger for your account
   anet audit-hub              verify your hub's issuance chain against the heads you recorded before
@@ -972,6 +973,14 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 			body["accept_delegations"] = b
 		}
 		return c.do("/hub-register", body)
+	case "p2p-advertise":
+		// The address a peer should dial, published on the hub so peers
+		// on other machines can find this node. Empty withdraws it.
+		addr := ""
+		if len(rest) > 0 {
+			addr = rest[0]
+		}
+		return c.do("/p2p-advertise", map[string]any{"addr": addr})
 	case "hub-leave":
 		// Stop being deliverable at a hub you have moved away from.
 		// Without this a node that changed hubs stayed listed at the old

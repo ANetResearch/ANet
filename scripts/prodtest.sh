@@ -89,7 +89,7 @@ FMAX_HUB=${FMAX_HUB:-http://39.107.76.243:4001}
 DMAX_VOUCHER=${DMAX_VOUCHER:-http://210.45.70.176:4002/x402/redeem}
 
 # node → ssh host : HOME : control port. ink93 is local.
-CMAX_HOST=root@cmax.chatchat.space; CMAX_HOME=/root/anet4;            CMAX_PORT=29610
+CMAX_HOST=root@cmax.chatchat.space; CMAX_HOME=/root/anet4;            CMAX_PORT=29610; CMAX_BIN=/usr/local/bin/anet4
 DMAX_HOST=root@dmax.chatchat.space; DMAX_HOME=/data/anet-node/home;   DMAX_PORT=29610
 EMAX_HOST=root@emax.chatchat.space
 INK_HOME=${INK_HOME:-/tmp/anet-prod/ink93};                           INK_PORT=29615
@@ -948,6 +948,218 @@ for x in reversed(d.get('results') or []):
       *) no "没有从 hub 取密钥历史";;
     esac
   fi
+fi
+
+# ── 9j. one payment across two hubs creates credit once ─────────
+hd "9j 跨 hub 付款:一次付款只造一份 credit,债务两侧对称"
+# The invariant the whole credit design rests on, and it had never been
+# exercised against two live hubs. It failed in two ways when it was.
+#
+# The payer's hub credited the payee whether or not the payee banked
+# there, and the payee's hub credited it again on the peer's signed
+# receipt — one payment, two credits, and the federation's total supply
+# grew by the amount paid. Each hub stayed internally consistent, so
+# neither hub's own supply check could see it.
+#
+# Neither side recorded the movement on its issuance chain either, so
+# chain_outstanding == outstanding failed on both hubs the moment a
+# cross-hub payment happened.
+#
+# What is checked here is the sum across both hubs, because that is the
+# only place a double credit shows up.
+if ! has cmax || ! reachable "$EMAX_HUB/healthz"; then
+  sk "跨 hub 付款要 cmax 与两个 hub 都在"
+elif [ -z "$DMAX_AID" ]; then
+  sk "找不到 dmax 的 AID"
+else
+  esup(){ curl -s -m 30 "$EMAX_HUB/x402/supply" | jq_ "print(d['supply'].get('$1'))"; }
+  fsup(){ viafmax /x402/supply | jq_ "print(d['supply'].get('$1'))"; }
+
+  # Both hubs must offer each other's ledger, or a cross-hub buyer has
+  # no rail to pay on and the clearing path cannot be reached at all.
+  sup=$(curl -s -m 30 "$EMAX_HUB/x402/supported")
+  n=$(echo "$sup" | jq_ "print(len(d.get('kinds') or []))")
+  [ "${n:-0}" -ge 2 ] \
+    && ok "emax 报出 $n 条可结算账本(自己 + 愿意清算的对端)" \
+    || no "emax 只报出 ${n:-0} 条账本,跨 hub 买方无从付款"
+
+  e0=$(esup outstanding); f0=$(fsup outstanding)
+  t0=$(( ${e0:-0} + ${f0:-0} ))
+  info "付款前:emax outstanding=$e0 fmax outstanding=$f0 合计=$t0"
+
+  out=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+    "export ANET_HOME=$CMAX_HOME; timeout 240 $CMAX_BIN delegate $DMAX_AID \
+     --capability text.stats.paid --args '{\"text\":\"prodtest cross-hub\"}' --pay" 2>&1)
+  net=$(echo "$out" | jq_ "print((d.get('paid') or {}).get('network',''))")
+  amt=$(echo "$out" | jq_ "print((d.get('paid') or {}).get('amount',''))")
+  if [ -z "$amt" ]; then
+    no "跨 hub 付款没有成交:$(printf '%s' "$out" | head -3 | tr '\n' ' ')"
+  else
+    ok "cmax 付了 $amt,选中的账本是 ${net#hub:}"
+    # The buyer must pay on its OWN hub's ledger. Taking the first
+    # offered rail meant taking the seller's, which is the one a
+    # cross-hub buyer holds no balance on.
+    case "$net" in
+      *"$(curl -s -m 30 "$EMAX_HUB/x402/supply" | jq_ "print(d.get('hub',''))")"*)
+        ok "买方付在自己 hub 的账本上";;
+      *) no "买方付在了别人的账本上:$net";;
+    esac
+
+    # Settlement crosses two hubs; give it room.
+    for _ in 1 2 3 4 5 6; do
+      e1=$(esup outstanding); f1=$(fsup outstanding)
+      due=$(esup due_to_peers); owed=$(fsup owed_by_peers)
+      [ "${due:-0}" != 0 ] && [ "${owed:-0}" != 0 ] && break
+      sleep 5
+    done
+    t1=$(( ${e1:-0} + ${f1:-0} ))
+    info "付款后:emax outstanding=$e1 fmax outstanding=$f1 合计=$t1"
+
+    [ "$t0" = "$t1" ] \
+      && ok "联邦总供给不变($t0),一次付款只造了一份 credit" \
+      || no "联邦总供给从 $t0 变成 $t1 —— 一次付款在两个账本上各造了一份"
+
+    [ "${due:-0}" = "$amt" ] \
+      && ok "付款方 hub 记下欠款 $due" \
+      || no "付款方 hub 的 due_to_peers=$due,应为 $amt"
+    [ "${owed:-0}" = "$amt" ] \
+      && ok "收款方 hub 记下应收 $owed,与对方欠款对称" \
+      || no "收款方 hub 的 owed_by_peers=$owed,应为 $amt"
+
+    # Both chains must still account for their own supply. A cross-hub
+    # payment retires credit on one hub and issues it on the other; a
+    # chain that recorded neither would understate one and overstate the
+    # other while both hubs reported themselves consistent.
+    for h in emax fmax; do
+      [ $h = emax ] && ag=$(esup chain_agrees) || ag=$(fsup chain_agrees)
+      [ "$ag" = True ] \
+        && ok "$h 的发放链仍与账本一致(跨 hub 变动已入链)" \
+        || no "$h 的发放链与账本不一致 —— 跨 hub 变动没入链"
+    done
+  fi
+fi
+
+# ── 9k. the MCP surface, against the real network ───────────────
+hd "9k MCP 面:发现 → 委派 → 取回结果,全走实网"
+# MCP is what an agent actually reaches ANet through, and it had only
+# ever been exercised against a fake control plane. A tool surface that
+# works against a fake and not against the network is the shape that
+# fails at the moment it matters.
+#
+# Driven over the stdio protocol directly (scripts/mcpcall.py) rather
+# than through an MCP client library, so the check has no dependency the
+# daemon does not already have.
+if ! has ink93; then
+  sk "MCP 检查要 ink93 本机"
+elif ! command -v python3 >/dev/null 2>&1; then
+  sk "要 python3 来驱动 stdio 协议"
+else
+  MCP="python3 $(dirname "$0")/mcpcall.py $INK_BIN"
+
+  tools=$(HOME=$INK_HOME $MCP list 2>&1)
+  n=$(echo "$tools" | jq_ "print(len(d.get('tools') or []))")
+  [ "${n:-0}" -ge 9 ] \
+    && ok "MCP 服务器起来了,报出 $n 个工具" \
+    || no "MCP 工具面不完整(${n:-0} 个):$(printf '%s' "$tools" | head -2 | tr '\n' ' ')"
+
+  st=$(HOME=$INK_HOME $MCP call node_status '{}' 2>&1)
+  case "$st" in
+    *"$EMAX_HUB"*) ok "node_status 经 MCP 报出真实 hub 地址";;
+    *) no "node_status 没报出 hub:$(printf '%s' "$st" | head -c 160)";;
+  esac
+
+  fnd=$(HOME=$INK_HOME $MCP call agents_find '{"capability":"text.digest"}' 2>&1)
+  case "$fnd" in
+    *"$CMAX_AID"*) ok "agents_find 经 MCP 在生产 hub 上找到了 cmax";;
+    *) no "agents_find 没找到 cmax:$(printf '%s' "$fnd" | head -c 160)";;
+  esac
+
+  dl=$(HOME=$INK_HOME $MCP call task_delegate \
+    "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest\",\"args\":{\"text\":\"prodtest mcp\"}}" 2>&1)
+  mix=$(echo "$dl" | python3 -c "
+import sys,json
+try: print(json.loads(json.loads(sys.stdin.read())['text']).get('interaction_id',''))
+except Exception: print('')")
+  if [ -z "$mix" ]; then
+    no "task_delegate 经 MCP 没有排上队:$(printf '%s' "$dl" | head -c 200)"
+  else
+    ok "task_delegate 经 MCP 排上了 ${mix:0:14}…"
+    got=""
+    for _ in $(seq 1 20); do
+      rr=$(HOME=$INK_HOME $MCP call task_results '{}' 2>&1)
+      got=$(echo "$rr" | python3 -c "
+import sys,json
+try: d=json.loads(json.loads(sys.stdin.read())['text'])
+except Exception: raise SystemExit
+for r in d.get('results') or []:
+    if r.get('interaction_id')=='$mix':
+        print(json.dumps({'status':'OK' if '\"status\":\"OK\"' in (r.get('result') or '') else '?',
+                          'receipt':bool(r.get('receipt_cid'))}))
+        break")
+      [ -n "$got" ] && break
+      sleep 5
+    done
+    if [ -z "$got" ]; then
+      no "task_results 经 MCP 没等到结果"
+    else
+      case "$got" in
+        *'"status": "OK"'*) ok "task_results 经 MCP 取回了 OK 的结果";;
+        *) no "结果状态不是 OK:$got";;
+      esac
+      case "$got" in
+        *'"receipt": true'*) ok "MCP 取回的结果带 receipt CID —— 证据面没有在这条路上丢失";;
+        *) no "MCP 取回的结果没有 receipt CID";;
+      esac
+    fi
+  fi
+fi
+
+# ── 9l. the hub as a peer rendezvous ────────────────────────────
+hd "9l p2p 会合:hub 兼做地址目录,两台机器上的节点才找得到对方"
+# The p2p transport can carry traffic between machines. Discovery could
+# not: it was a shared filesystem directory, which two hosts do not have,
+# so the one module built to avoid the hub could only be used by nodes on
+# one box — the case that does not need it.
+#
+# The hub answers "where do I dial this AID". Publishing is signed by the
+# node itself, so the hub cannot list an agent that did not ask to be
+# listed, and withdrawal is separate from deregistration.
+if ! has ink93 || ! reachable "$EMAX_HUB/healthz"; then
+  sk "会合检查要 ink93 与 emax hub"
+else
+  addr="tcp://198.51.100.7:39100"
+  pub=$(ctl ink93 /p2p-advertise "{\"addr\":\"$addr\"}" 2>&1)
+  case "$pub" in
+    *published*) ok "ink93 用自己的签名把直连地址发布到了 hub";;
+    *) no "发布失败:$(printf '%s' "$pub" | head -c 200)";;
+  esac
+
+  got=$(curl -s -m 30 "$EMAX_HUB/agents/$INK_AID/p2p" | jq_ "print(d.get('addr',''))")
+  [ "$got" = "$addr" ] \
+    && ok "任何人都能从 hub 查到这个地址($got)" \
+    || no "查回来的地址是 '$got',应为 '$addr'"
+
+  # The cost of the feature is that the hub now holds a list of
+  # addresses. It is published, so whoever pays that cost can see it.
+  cnt=$(curl -s -m 30 "$EMAX_HUB/p2p/peers" | jq_ "print(d.get('count'))")
+  [ "${cnt:-0}" -ge 1 ] \
+    && ok "hub 公开自己持有的地址目录($cnt 条)—— 这个特性的代价是可见的" \
+    || no "地址目录读不到"
+
+  # Not listed must be answerable as "not listed", not as an empty
+  # address: the first falls back to the hub, the second would be dialled.
+  code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$EMAX_HUB/agents/$CMAX_AID/p2p")
+  [ "$code" = 404 ] \
+    && ok "没发布地址的节点返回 404,而不是一个空地址" \
+    || info "cmax 也发布了地址(HTTP $code),这条检查这次不成立"
+
+  wd=$(ctl ink93 /p2p-advertise '{"addr":""}' 2>&1)
+  case "$wd" in
+    *withdrawn*) ok "撤回成功 —— 停止直连与注销 hub 是两件事";;
+    *) no "撤回失败:$(printf '%s' "$wd" | head -c 200)";;
+  esac
+  code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$EMAX_HUB/agents/$INK_AID/p2p")
+  [ "$code" = 404 ] && ok "撤回之后 hub 不再报这个地址" || no "撤回后仍能查到(HTTP $code)"
 fi
 
 # ── 10. what a node can check for itself ────────────────────────
