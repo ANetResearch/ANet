@@ -1168,6 +1168,82 @@ else
   [ "$code" = 404 ] && ok "撤回之后 hub 不再报这个地址" || no "撤回后仍能查到(HTTP $code)"
 fi
 
+# ── 9m. witnessing, checked the way a reader would ──────────────
+hd "9m 见证:陌生人能自己验一条见证品"
+# Witnessing has been running in production since it shipped — the two
+# hubs pin each other hourly — and nothing here asserted anything about
+# it. The whole value of a witness is that a rewritten chain becomes
+# provable, and that rests on a reader being able to check an attestation
+# without trusting anybody.
+#
+# Two things were missing when this check was written. /agents/{aid}/kel
+# served only locally registered agents, and a witness is a peer hub, so
+# the key needed to check the signature could not be obtained. And `anet
+# verify` knew only receipts, so no command could check one. The endpoint
+# told readers to verify each signature and neither half of that was
+# possible.
+#
+# Rewrite detection itself stays in the unit suites: producing a real
+# rewrite means editing a production chain, and a test that has to
+# corrupt the thing it is testing does not belong against live data.
+for h in emax fmax; do
+  [ $h = emax ] && W=$(curl -s -m 30 "$EMAX_HUB/x402/witnesses") || W=$(viafmax /x402/witnesses)
+  n=$(echo "$W" | jq_ "print(len(d.get('attestations') or []))")
+  if [ "${n:-0}" = 0 ]; then
+    no "$h 上一条见证品都没有 —— 这条链只对已有旧副本的读者可验"
+    continue
+  fi
+  ok "$h 被见证 $n 次"
+  wc_=$(echo "$W" | jq_ "print((d.get('health') or {}).get('witnesses'))")
+  st=$(echo "$W" | jq_ "print((d.get('health') or {}).get('stale_seconds') or 0)")
+  uw=$(echo "$W" | jq_ "print((d.get('health') or {}).get('unwitnessed_records'))")
+  info "$h 见证者 $wc_ 个,最近一次 ${st}s 前,未被见证的记录 $uw 条"
+  # One witness is one witness. Saying so is the point of publishing the
+  # list rather than only the count.
+  [ "${wc_:-0}" -ge 1 ] && ok "$h 的见证者名单是公布的,不是只给一个数" \
+    || no "$h 没有公布见证者名单"
+
+  # Where to go and check, which is what makes the instruction followable.
+  ep=$(echo "$W" | jq_ "print(len(d.get('witness_endpoints') or {}))")
+  [ "${ep:-0}" -ge 1 ] \
+    && ok "$h 公布了见证者的地址,读者能自己去问" \
+    || no "$h 只给了见证者 AID,读者无从解析"
+
+  # The check itself: take one attestation and verify it with nothing but
+  # the hub URL, exactly as a stranger would.
+  at=$(echo "$W" | jq_ "
+xs = d.get('attestations') or []
+print(xs[0]['attestation'] if xs else '')")
+  wa=$(echo "$W" | jq_ "
+xs = d.get('attestations') or []
+print(xs[0]['witness_aid'] if xs else '')")
+  if [ $h = emax ]; then
+    # A stranger holding only the hub URL: the command resolves the
+    # witness itself.
+    out=$("$INK_BIN" verify --attestation "$at" --hub "$EMAX_HUB" 2>&1)
+  else
+    # cmax and ink93 cannot reach fmax, so the key history comes back
+    # through emax and the check runs offline here. That exercises the
+    # other half: a reader who was handed the two objects and has no
+    # network at all.
+    wk=$(viafmax "/agents/$wa/kel" | jq_ "print(d.get('kel',''))")
+    if [ -z "$wk" ]; then
+      no "fmax 不提供见证者 $wa 的密钥历史,读者无从验签"
+      continue
+    fi
+    ok "fmax 提供了见证者的密钥历史 —— 见证品因此可验"
+    out=$("$INK_BIN" verify --attestation "$at" --kel "$wk" 2>&1)
+  fi
+  case "$out" in
+    *"signature verifies"*) ok "$h 的见证品验通了(无 daemon、无密钥)";;
+    *) no "$h 的见证品验不过: $(printf '%s' "$out" | head -2 | tr '\n' ' ')";;
+  esac
+  case "$out" in
+    *"does not say the"*) ok "输出区分了 见证过 与 链是诚实的";;
+    *) no "输出没有区分 见证过 与 链是诚实的";;
+  esac
+done
+
 # ── 10. what a node can check for itself ────────────────────────
 hd "10  节点自查:审计发放链 + 对账"
 if ! has dmax; then

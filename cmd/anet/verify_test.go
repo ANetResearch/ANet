@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/ANetResearch/ANetCore/ael"
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 
@@ -103,4 +106,65 @@ func kelOf(t *testing.T, c *identity.Controller) string {
 		t.Fatal(err)
 	}
 	return base64Std(b)
+}
+
+// A witness attestation must be checkable with the same command a
+// receipt is, and by a stranger.
+//
+// A hub's /x402/witnesses publishes signed attestations and tells the
+// reader to resolve each witness and verify the signature. This command
+// knew only receipts, so the instruction named a step with no tool behind
+// it — and witnessing is the entire basis for believing a hub has not
+// rewritten its own issuance chain.
+func TestVerifyingAWitnessAttestation(t *testing.T) {
+	witness, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	att := &ael.HeadAttestation{
+		ChainDID: "bafyreihubchaindidplaceholderxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+		Seq:      7, HeadID: "bafyreiheadidplaceholderxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+		ObservedAt: time.Now().UnixMilli(),
+	}
+	if err := att.Sign(witness); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := att.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	attB64 := base64.StdEncoding.EncodeToString(raw)
+	kelRaw, err := identity.MarshalKEL(witness.KEL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	kelB64 := base64.StdEncoding.EncodeToString(kelRaw)
+
+	if err := verify(daemon.Layout{}, []string{
+		"--attestation", attB64, "--kel", kelB64}); err != nil {
+		t.Errorf("a genuine attestation was refused: %v", err)
+	}
+
+	// The signature is what is checked, so another party's key must not
+	// pass. Accepting any key would make the command say "verified" about
+	// arithmetic it never did.
+	other, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherKEL, err := identity.MarshalKEL(other.KEL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verify(daemon.Layout{}, []string{"--attestation", attB64,
+		"--kel", base64.StdEncoding.EncodeToString(otherKEL)}); err == nil {
+		t.Error("an attestation verified under the wrong key history")
+	}
+
+	// And with neither a key nor a hub it must say which of the two ways
+	// forward the caller has, naming the witness so they can go find it.
+	err = verify(daemon.Layout{}, []string{"--attestation", attB64})
+	if err == nil || !strings.Contains(err.Error(), "--hub") {
+		t.Errorf("a lone attestation must be told it can fetch the key, got %v", err)
+	}
 }

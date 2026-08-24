@@ -414,3 +414,51 @@ func TestAHubRendezvousIsNotWrittenTo(t *testing.T) {
 		t.Error("isURL does not separate a hub from a directory")
 	}
 }
+
+// A peer that banks on another hub must still be findable.
+//
+// The address directory is per-hub: a node publishes where it can be
+// dialled to the hub that verified its signature. Asking only our own hub
+// therefore failed in exactly the case this transport exists for — two
+// nodes on two hubs — and returned a flat "not listed" with nowhere to go
+// next. Our hub names the home hub instead of relaying the answer, so
+// what it vouches for stays what it checked.
+func TestAPeerOnAnotherHubIsFoundViaTheReferral(t *testing.T) {
+	var homeAsked int
+	home := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		homeAsked++
+		_, _ = w.Write([]byte(`{"aid":"aid-remote","addr":"tcp://10.9.9.9:39100"}`))
+	}))
+	defer home.Close()
+
+	ours := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		if strings.Contains(r.URL.Path, "aid-remote") {
+			_, _ = w.Write([]byte(`{"error":"banks elsewhere","home_hub":"` + home.URL + `"}`))
+			return
+		}
+		// No referral: this AID is not known anywhere, and the referral
+		// must not be invented.
+		_, _ = w.Write([]byte(`{"error":"not listed"}`))
+	}))
+	defer ours.Close()
+
+	p := &peer{rendezvous: ours.URL, self: "aid-local"}
+	addr, ok := p.lookup("aid-remote")
+	if !ok || addr != "tcp://10.9.9.9:39100" {
+		t.Fatalf("lookup = %q %v, want the home hub's answer", addr, ok)
+	}
+	if homeAsked != 1 {
+		t.Errorf("the home hub was asked %d times, want 1", homeAsked)
+	}
+
+	// A 404 with no referral stays a 404: nothing to follow, and
+	// inventing a second request would be asking a hub about an agent it
+	// just said it does not know.
+	if addr, ok := p.lookup("aid-nobody"); ok || addr != "" {
+		t.Errorf("an unreferred peer looked reachable: %q %v", addr, ok)
+	}
+	if homeAsked != 1 {
+		t.Errorf("the home hub was asked again for an unreferred AID")
+	}
+}

@@ -271,6 +271,7 @@ func usageAll() {
   anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay accepts a quoted price and runs the work
   anet hub-leave [<hub-url>]  stop being deliverable at a hub you have moved away from (the evidence stays)
   anet p2p-advertise [<addr>]   publish where peers can dial you directly (empty withdraws it; needs the p2p module)
+  anet verify --attestation <b64> --hub <url>   check a witness's statement about a hub's chain head
   anet pull <interaction_id> [--out DIR]   save attachments you received to a local directory
   anet reconcile              compare your own payment record against your hub's ledger for your account
   anet audit-hub              verify your hub's issuance chain against the heads you recorded before
