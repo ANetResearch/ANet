@@ -249,6 +249,15 @@ func fetchKELFor(hubURL, aid string) (string, error) {
 	if out.KEL == "" {
 		return "", fmt.Errorf("verify: %s published no key history for %s", hubURL, aid)
 	}
+	// Said out loud, because it is the difference between a check that
+	// needed nothing and one that asked a hub. A verifier that cannot
+	// tell those apart will record the stronger.
+	//
+	// Printed here rather than at the two call sites: it was at one of
+	// them, and splitting the fetch out of the receipt path dropped it
+	// for that path while the attestation path had its own copy. One
+	// place, both callers.
+	fmt.Printf("· key history for %s fetched from %s\n", aid, hubURL)
 	return out.KEL, nil
 }
 
@@ -289,7 +298,6 @@ func verifyAttestation(attB64, kelB64, hubURL string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("· key history for %s… fetched from %s\n", short(witness), hubURL)
 	}
 	kb, err := base64.StdEncoding.DecodeString(strings.TrimSpace(kelB64))
 	if err != nil {

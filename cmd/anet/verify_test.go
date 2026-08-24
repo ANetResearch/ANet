@@ -2,6 +2,10 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -167,4 +171,65 @@ func TestVerifyingAWitnessAttestation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--hub") {
 		t.Errorf("a lone attestation must be told it can fetch the key, got %v", err)
 	}
+}
+
+// Fetching a key history from a hub must be said out loud.
+//
+// "I checked this with nothing" and "I asked a hub for the key" are
+// different claims, and a verifier that cannot tell them apart will
+// record the stronger. The line existed on the receipt path and had no
+// test; splitting the fetch out for the attestation path dropped it, and
+// the whole suite stayed green. Production caught it.
+func TestVerifySaysWhereTheKeyCameFrom(t *testing.T) {
+	c, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kelRaw, err := identity.MarshalKEL(c.KEL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asked string
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = r.URL.Path
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"kel": base64.StdEncoding.EncodeToString(kelRaw)})
+	}))
+	defer hub.Close()
+
+	out := captureStdout(t, func() {
+		if _, err := fetchKELFor(hub.URL, c.AID()); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(asked, c.AID()) {
+		t.Errorf("the hub was asked for %q, not the AID", asked)
+	}
+	if !strings.Contains(out, "fetched from") || !strings.Contains(out, hub.URL) {
+		t.Errorf("the fetch was silent, so a reader cannot tell it from an offline check: %q", out)
+	}
+	if !strings.Contains(out, c.AID()) {
+		t.Errorf("the line does not say whose key was fetched: %q", out)
+	}
+}
+
+// captureStdout collects what a function prints.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	done := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		_, _ = io.Copy(&b, r)
+		done <- b.String()
+	}()
+	fn()
+	_ = w.Close()
+	os.Stdout = old
+	return <-done
 }
