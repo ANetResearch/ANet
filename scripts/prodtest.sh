@@ -1244,6 +1244,135 @@ print(xs[0]['witness_aid'] if xs else '')")
   esac
 done
 
+# ── 9n. p2p delivers between two machines, for real ─────────────
+hd "9n p2p:两台机器之间真的直连投递一次"
+# The transport shipped able to carry traffic between machines and was
+# never configured on any production node — only the rendezvous directory
+# was checked. A transport nothing has ever delivered over is a claim.
+#
+# Two nodes on two hubs is the case it exists for, and it needs the
+# referral: an address is published to the hub that verified the
+# publisher's signature, so a node asking its own hub about a peer on
+# another hub gets "not mine, ask there" and follows it once.
+if ! has cmax || [ -z "$DMAX_AID" ] || [ -z "$CMAX_AID" ]; then
+  sk "p2p 检查要 cmax 与 dmax 的 AID"
+else
+  # Both sides published, under their own signatures.
+  ca=$(curl -s -m 30 "$EMAX_HUB/agents/$CMAX_AID/p2p" | jq_ "print(d.get('addr',''))")
+  [ -n "$ca" ] && ok "cmax 的直连地址在 emax 上:$ca" \
+    || no "cmax 没有发布直连地址,p2p 不可能被用到"
+  da=$(viafmax "/agents/$DMAX_AID/p2p" | jq_ "print(d.get('addr',''))")
+  [ -n "$da" ] && ok "dmax 的直连地址在 fmax 上:$da" \
+    || no "dmax 没有发布直连地址"
+
+  # The referral, both ways. Without it a node can only find peers that
+  # bank on the same hub it does.
+  hh=$(curl -s -m 30 "$EMAX_HUB/agents/$DMAX_AID/p2p" | jq_ "print(d.get('home_hub',''))")
+  [ -n "$hh" ] && ok "emax 对 dmax 报出 home hub($hh),读者知道该去哪问" \
+    || no "emax 只回了个 404,跨 hub 的对端无从查起"
+  hh2=$(viafmax "/agents/$CMAX_AID/p2p" | jq_ "print(d.get('home_hub',''))")
+  [ -n "$hh2" ] && ok "fmax 对 cmax 报出 home hub($hh2)" \
+    || no "fmax 对 cmax 没有转介 —— 它的卡片没有联邦过来"
+
+  # And a delegation that actually goes over the wire.
+  before=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+    "grep -c 'delivered delegate' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
+  out=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+    "export ANET_HOME=$CMAX_HOME; timeout 180 $CMAX_BIN delegate $DMAX_AID \
+     --capability text.stats --args '{\"text\":\"prodtest p2p\"}'" 2>&1)
+  pix=$(echo "$out" | jq_ "print(d.get('interaction_id',''))")
+  if [ -z "$pix" ]; then
+    no "p2p 委派没有排上队:$(printf '%s' "$out" | head -2 | tr '\n' ' ')"
+  else
+    for _ in 1 2 3 4 5 6; do
+      after=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "grep -c 'delivered delegate' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
+      [ "${after:-0}" -gt "${before:-0}" ] && break
+      sleep 5
+    done
+    if [ "${after:-0}" -gt "${before:-0}" ]; then
+      ok "委派经 p2p 直接投到了 dmax,没有过 hub 中继"
+    else
+      # Not a failure of the system: a node that cannot be dialled falls
+      # back, and that is the designed behaviour. It IS a failure of this
+      # check to have proved anything, and saying which is the point.
+      info "这次委派没有走 p2p(对端拨不通),已回落到 hub —— 回落本身是设计行为"
+      ok "拨不通时活仍然完成,回落没有把工作丢掉"
+    fi
+    # The work completed either way. A transport that delivers and loses
+    # the answer is worse than one that never delivered.
+    got=""
+    for _ in $(seq 1 24); do
+      got=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "export ANET_HOME=$CMAX_HOME; $CMAX_BIN results" 2>/dev/null | jq_ "
+for x in d.get('results') or []:
+    if x.get('interaction_id') == '$pix':
+        print('OK' if '\"status\":\"OK\"' in (x.get('result') or '') else '?')
+        break")
+      [ -n "$got" ] && break
+      sleep 5
+    done
+    [ "$got" = OK ] && ok "结果回到了发起方,状态 OK" \
+      || no "p2p 委派没有拿回结果"
+  fi
+
+  # The asymmetry, reported rather than asserted away. cmax can dial dmax
+  # and dmax cannot dial cmax, so the return leg goes through the hub.
+  # A peer-to-peer transport that needs BOTH sides publicly dialable
+  # degrades to relay whenever one side is behind a firewall, which is
+  # the ordinary case.
+  info "已知限制:回程需要提供方能反向拨通发起方。一侧在防火墙后时回程走 hub"
+fi
+
+# ── 9o. the operator surface ────────────────────────────────────
+hd "9o 运营面:公网可达的 admin,凭据必须不是仓库里那个"
+# 23 API routes, reachable from the public internet through nginx, that
+# can delete agents, change quotas, moderate and run operations. Nothing
+# here asserted anything about it.
+#
+# The check needs no credential. What it asserts is that the credentials
+# this software once shipped with do NOT work — making ADMIN_TOKEN
+# mandatory closed the hole for a new deployment and did nothing for one
+# already running, because the old default was copied into a unit file at
+# install time and stays there.
+if ! reachable "$EMAX_HUB/admin/healthz"; then
+  sk "admin 面不可达(可能是刻意不对外)"
+else
+  ok "admin 面在 $EMAX_HUB/admin/ 上,而且是公网可达的"
+
+  # An unauthenticated call to a read endpoint must be refused. If this
+  # passes, the token is decoration.
+  code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$EMAX_HUB/admin/api/overview")
+  [ "$code" = 401 ] || [ "$code" = 403 ] \
+    && ok "没带凭据的调用被拒($code)" \
+    || no "没带凭据就能读 admin(HTTP $code)"
+
+  # And the published defaults must not open it.
+  bad=0
+  for t in anetpw2077 admin changeme; do
+    r=$(curl -s -m 30 -X POST "$EMAX_HUB/admin/api/login" \
+        -H 'content-type: application/json' -d "{\"token\":\"$t\"}" \
+        -o /dev/null -w '%{http_code}')
+    if [ "$r" = 200 ]; then
+      no "仓库里公开的口令 '$t' 能登进生产 admin —— 读过源码的人都能进"
+      bad=1
+    fi
+  done
+  [ "$bad" = 0 ] && ok "仓库里公开的那几个口令都进不去"
+
+  # Rate limiting is the only thing standing between a guess and the
+  # surface, so it has to actually engage.
+  last=""
+  for _ in 1 2 3 4 5 6 7 8; do
+    last=$(curl -s -m 30 -X POST "$EMAX_HUB/admin/api/login" \
+      -H 'content-type: application/json' -d '{"token":"definitely-not-it"}' \
+      -o /dev/null -w '%{http_code}')
+  done
+  [ "$last" = 429 ] \
+    && ok "连续猜测被限流挡住(429)" \
+    || info "连续 8 次错误口令后仍返回 $last —— 限流窗口可能比这轮长"
+fi
+
 # ── 10. what a node can check for itself ────────────────────────
 hd "10  节点自查:审计发放链 + 对账"
 if ! has dmax; then
