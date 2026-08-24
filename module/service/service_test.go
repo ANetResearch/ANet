@@ -159,3 +159,8 @@ func TestMalformedConfigIsRefusedAtStartup(t *testing.T) {
 // one would be lending them an ability they must not have. False is the
 // honest answer and the one a node without a hub gives too.
 func (h *host) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }
+
+// This host grants no hub seam. Nothing here talks to a hub as this node,
+// and a test host that handed out a signing grant it does not need would
+// be a wider surface than the thing under test.
+func (*host) HubSeam() (module.HubSeam, bool) { return nil, false }

@@ -93,6 +93,41 @@ type Host interface {
 	// -tags no_x402 has none of it, which it could not claim while the
 	// code sat in the kernel being linked in regardless.
 	PaymentSeam() (PaymentSeam, bool)
+
+	// HubSeam hands over the ability to act as this node against its own
+	// hub: one signature and the hub's address. Absent when there is no
+	// hub.
+	//
+	// A second way to reach the node's key, which is the largest thing
+	// this interface does, so the reason for a second one is worth
+	// stating. PaymentSeam grants Sign, HubIdentity, HubURL and
+	// ReadEvidence. A module that only needs to authenticate a request to
+	// its own hub needs two of those, and handing it the payment seam
+	// would give it the hub's key history and this node's evidence for no
+	// reason. This seam is strictly smaller, not a duplicate: the choice
+	// is between two grants of different sizes, and the smaller one is
+	// what a hub client should get.
+	//
+	// It is still a signing grant. Anything holding it can authenticate
+	// as this node to its hub — create, claim and complete work on the
+	// node's behalf. That is what a hub client is for and it is not a
+	// detail to leave implicit.
+	HubSeam() (HubSeam, bool)
+}
+
+// HubSeam is what a module needs to act as this node against its hub.
+//
+// Two methods, and the first is the whole grant: signing as this node is
+// how the hub knows who is calling. Named after the relationship rather
+// than after any one module, because several subsystems legitimately need
+// to talk to the hub and none of them should need the payment seam to do
+// it.
+type HubSeam interface {
+	// Sign signs one challenge preimage as this node, returning the
+	// signature and the key-state sequence it was made under.
+	Sign(preimage []byte) (sig []byte, keyStateSeq uint64)
+	// HubURL is where this node's hub lives.
+	HubURL() string
 }
 
 // PaymentSeam is exactly what a payment subsystem needs of the node.

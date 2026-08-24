@@ -369,3 +369,8 @@ func mintVoucher(t *testing.T, signer *identity.Controller,
 	}
 	return base64.StdEncoding.EncodeToString(raw)
 }
+
+// This host grants no hub seam. Nothing here talks to a hub as this node,
+// and a test host that handed out a signing grant it does not need would
+// be a wider surface than the thing under test.
+func (*testHost) HubSeam() (module.HubSeam, bool) { return nil, false }

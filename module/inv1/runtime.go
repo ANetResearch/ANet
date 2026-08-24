@@ -29,11 +29,12 @@ type OrgScoped interface {
 // visited set). Call it at every commons publish boundary (discovery.Announce, the commons boards) as
 // the runtime INV-1 tripwire that complements the static import scan.
 //
-// LIMIT: it inspects the STATIC type graph, so it cannot see through an interface field (e.g. an
-// `any` holding an org object at runtime) — those dynamic types are invisible to a type walk. At the
-// current call sites the published types (anrp.NameRecord, adp.AgentCard) carry no OrgScoped type, so
-// the guard passes; its value is catching a FUTURE refactor that routes an org-scoped object (directly
-// or embedded as a field) to a commons publish. A nil value passes.
+// It walks the static type graph AND, where a type cannot answer, the actual values: everything this
+// daemon publishes travels as map[string]any, so a type-only walk reached `interface{}`, found no
+// marker, and passed. A runtime tripwire blind to runtime values is not a tripwire.
+//
+// A nil value passes. The value walk is bounded by depth and by a visited-pointer set, so a
+// self-referential structure terminates.
 func GuardCommonsPublish(v any) error {
 	if v == nil {
 		return nil
@@ -42,7 +43,87 @@ func GuardCommonsPublish(v any) error {
 	if typeContainsOrgScoped(reflect.TypeOf(v), marker, map[reflect.Type]bool{}) {
 		return ErrOrgScopedOnCommons
 	}
+	// Then the values, because the type walk alone could not see the only
+	// boundary this repository has.
+	//
+	// The static walk cannot look through an interface field: the type is
+	// `any` and what it holds is a runtime fact. Everything published
+	// here travels as map[string]any, so the walk reached `interface{}`,
+	// found no marker, and passed — a runtime tripwire that could not see
+	// runtime values, guarding the one path it was finally attached to
+	// and proving nothing about it.
+	//
+	// Values are walked only where types cannot answer: an interface, and
+	// the containers that can hold one. Depth is bounded by the same
+	// visited-pointer discipline the type walk uses, so a self-
+	// referential structure terminates.
+	if valueContainsOrgScoped(reflect.ValueOf(v), marker, 0, map[uintptr]bool{}) {
+		return ErrOrgScopedOnCommons
+	}
 	return nil
+}
+
+// maxValueDepth bounds the value walk. Published bodies are shallow maps;
+// anything deeper than this is not a publication shape and the guard
+// should not spend the stack on it.
+const maxValueDepth = 24
+
+// valueContainsOrgScoped walks actual values to find an org-scoped object
+// hiding behind an interface, which the type walk is blind to.
+func valueContainsOrgScoped(v reflect.Value, marker reflect.Type, depth int, seen map[uintptr]bool) bool {
+	if !v.IsValid() || depth > maxValueDepth {
+		return false
+	}
+	t := v.Type()
+	if t.Implements(marker) || (v.CanAddr() && reflect.PtrTo(t).Implements(marker)) {
+		return true
+	}
+	switch v.Kind() {
+	case reflect.Interface:
+		if v.IsNil() {
+			return false
+		}
+		return valueContainsOrgScoped(v.Elem(), marker, depth+1, seen)
+	case reflect.Ptr:
+		if v.IsNil() {
+			return false
+		}
+		// One visit per address: a cycle would otherwise not terminate.
+		if p := v.Pointer(); seen[p] {
+			return false
+		} else {
+			seen[p] = true
+		}
+		if reflect.PtrTo(v.Elem().Type()).Implements(marker) {
+			return true
+		}
+		return valueContainsOrgScoped(v.Elem(), marker, depth+1, seen)
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			if valueContainsOrgScoped(v.Index(i), marker, depth+1, seen) {
+				return true
+			}
+		}
+	case reflect.Map:
+		for _, k := range v.MapKeys() {
+			if valueContainsOrgScoped(k, marker, depth+1, seen) ||
+				valueContainsOrgScoped(v.MapIndex(k), marker, depth+1, seen) {
+				return true
+			}
+		}
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			// Unexported fields cannot be read through reflection, and the
+			// type walk already covered their declared types.
+			if !t.Field(i).IsExported() {
+				continue
+			}
+			if valueContainsOrgScoped(v.Field(i), marker, depth+1, seen) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // typeContainsOrgScoped reports whether t — or any type reachable from it — implements OrgScoped. The

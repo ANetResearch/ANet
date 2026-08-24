@@ -8,7 +8,10 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/blackboard"
+	"github.com/ANetResearch/ANet/module/inv1"
 	"github.com/ANetResearch/ANet/module/inv2"
+	"github.com/ANetResearch/ANet/module/org"
 )
 
 // The typed provider config keeps working: an existing config file must not
@@ -84,3 +87,40 @@ func (confidentialModule) Name() string                             { return "fa
 func (confidentialModule) Start(context.Context, module.Host) error { return nil }
 func (confidentialModule) Stop(context.Context) error               { return nil }
 func (m confidentialModule) ForbiddenTokens() []string              { return []string{m.token} }
+
+// The other half of INV-1, at the boundary that actually exists here.
+//
+// GuardCommonsPublish had no call site anywhere in this repository while
+// its own documentation said every publish boundary calls it. The
+// boundaries it was written for — a gossip announce, the commons boards
+// — belong to the previous generation and were not carried over, so the
+// invariant held vacuously and the guard watched nothing.
+//
+// What a node registers IS read by parties it never chose: the hub syncs
+// it to federation peers and serves it from a browsable directory. That
+// is the commons in anet4, and this is the check that it is guarded.
+func TestAnOrgObjectCannotBePublishedToTheHub(t *testing.T) {
+	// No confidential module: INV-1 must not be conditional on running
+	// one. The screening used to return early when nothing declared a
+	// secret, which would have skipped this entirely.
+	d := &Daemon{}
+	cred := org.Credential{OrgID: "org-1", Subject: "did:anet:x", Role: org.RoleMember}
+	if err := d.screenPublication("this node's registration", map[string]any{
+		"aid": "did:anet:me", "name": "node", "card": cred,
+	}); !errors.Is(err, inv1.ErrOrgScopedOnCommons) {
+		t.Errorf("a membership credential reached the hub: %v", err)
+	}
+	// A CogUnit is org-scoped too: what a node is thinking about is not
+	// something the directory gets to hold.
+	if err := d.screenPublication("this node's registration", map[string]any{
+		"aid": "did:anet:me", "notes": []any{&blackboard.CogUnit{TaskID: "t"}},
+	}); !errors.Is(err, inv1.ErrOrgScopedOnCommons) {
+		t.Errorf("a CogUnit reached the hub: %v", err)
+	}
+	// And an ordinary registration still goes out.
+	if err := d.screenPublication("this node's registration", map[string]any{
+		"aid": "did:anet:me", "name": "node", "caps": []any{"text.stats"},
+	}); err != nil {
+		t.Errorf("an ordinary registration was refused: %v", err)
+	}
+}

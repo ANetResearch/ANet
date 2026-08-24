@@ -113,6 +113,26 @@ func (h moduleHost) PaymentSeam() (module.PaymentSeam, bool) {
 	return paymentSeam{d: h.d}, true
 }
 
+// HubSeam is the narrow grant: sign as this node, and where its hub is.
+//
+// Separate from the payment seam and strictly smaller. A module that
+// authenticates requests to its own hub needs a signature and an address;
+// giving it the payment seam would hand over the hub's key history and
+// this node's evidence log for no reason.
+func (h moduleHost) HubSeam() (module.HubSeam, bool) {
+	if h.d == nil || h.d.config().HubURL == "" {
+		return nil, false
+	}
+	return hubSeam{d: h.d}, true
+}
+
+// hubSeam implements module.HubSeam over the daemon.
+type hubSeam struct{ d *Daemon }
+
+func (s hubSeam) Sign(preimage []byte) ([]byte, uint64) { return s.d.self.Sign(preimage) }
+
+func (s hubSeam) HubURL() string { return s.d.config().HubURL }
+
 // answerPaymentRequired quotes a price instead of doing the work.
 //
 // A full answer, not a refusal: signed, receipted, on the chain and

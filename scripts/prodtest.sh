@@ -1042,6 +1042,51 @@ else
         && ok "$h 的发放链仍与账本一致(跨 hub 变动已入链)" \
         || no "$h 的发放链与账本不一致 —— 跨 hub 变动没入链"
     done
+
+    # And the debt has to be dischargeable, not merely recordable.
+    #
+    # H-21 fixed "hub_owed only ever rose" on the creditor side. The
+    # debtor side then grew the same shape: due_to_peers accumulated with
+    # nothing that had ever reduced it in production. `-clear -payee` was
+    # written and had zero live runs, so what looked like a working
+    # clearing loop was half a loop.
+    #
+    # The discharge is signed by the debtor hub and DELIVERED to the
+    # creditor: a statement sitting on the debtor's own disk discharges
+    # nothing. Only after the creditor accepts does the debtor reduce its
+    # own record — reducing first would leave the two hubs disagreeing
+    # about a debt one of them still shows.
+    dueNow=$(esup due_to_peers)
+    if [ "${dueNow:-0}" -le 0 ]; then
+      info "emax 当前无对外负债,跳过清偿"
+    else
+      out=$(ssh -o ConnectTimeout=30 $EMAX_HOST "
+        systemctl stop anet-hub
+        /data/projs/anet-hub/bin/anet-hub -data /data/projs/anet-hub/data \
+          -clear $F_AID -amount $dueNow -reason prodtest-clear \
+          -peer-endpoint $FMAX_HUB -payee $DMAX_AID 2>&1 | tail -3
+        systemctl start anet-hub" 2>&1)
+      for _ in $(seq 1 20); do reachable "$EMAX_HUB/healthz" && break; sleep 2; done
+      case "$out" in
+        *delivered*) ok "emax 签了 $dueNow 的清偿并投递给 fmax";;
+        *) no "清偿没有投递成功:$(printf '%s' "$out" | tail -2 | tr '\n' ' ')";;
+      esac
+      # Both sides, because a discharge that only one hub believes in is
+      # the disagreement this is meant to prevent.
+      [ "$(esup due_to_peers)" = 0 ] \
+        && ok "emax 的对外负债归零" || no "emax 仍欠 $(esup due_to_peers)"
+      [ "$(fsup owed_by_peers)" = 0 ] \
+        && ok "fmax 的应收归零 —— 两侧对同一笔债务的看法一致" \
+        || no "fmax 仍记着 $(fsup owed_by_peers) 的应收"
+      # Clearing must not have moved anyone's supply: it settles a claim
+      # between hubs, not credit held by users.
+      for h in emax fmax; do
+        [ $h = emax ] && ag=$(esup chain_agrees) || ag=$(fsup chain_agrees)
+        [ "$ag" = True ] \
+          && ok "$h 清偿之后发放链仍与账本一致" \
+          || no "$h 清偿动了供给"
+      done
+    fi
   fi
 fi
 
