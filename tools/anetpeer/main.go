@@ -442,26 +442,22 @@ func (p *peer) lookupHub(aid string) (string, bool) {
 	}
 	p.mu.Unlock()
 
-	addr := ""
 	ctx, cancel := context.WithTimeout(context.Background(), hubLookupTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		strings.TrimSuffix(p.rendezvous, "/")+"/agents/"+url.PathEscape(aid)+"/p2p", nil)
-	if err == nil {
-		if resp, err := http.DefaultClient.Do(req); err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				var out struct {
-					Addr string `json:"addr"`
-				}
-				if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out) == nil {
-					addr = strings.TrimSpace(out.Addr)
-				}
-			}
-			// A 404 means the peer published nothing, which is a real and
-			// stable answer — cached as "no address" so a node that never
-			// lists itself is not queried before every send.
-		}
+	addr, home := askHub(ctx, p.rendezvous, aid)
+	// The directory is per-hub, and a peer registered on another hub
+	// publishes its address there. Asking only our own hub therefore
+	// failed in exactly the case this transport exists for: two nodes on
+	// two hubs. Our hub does not relay the answer — an address is
+	// published to the hub that verified the publisher's signature, and a
+	// second hub repeating it would be vouching for hearsay — so it names
+	// the home hub and we ask that one ourselves.
+	//
+	// One hop only. A chain of referrals is a redirect loop waiting to
+	// happen, and the hub that holds the card is the last one that can
+	// know anything.
+	if addr == "" && home != "" && home != p.rendezvous {
+		addr, _ = askHub(ctx, home, aid)
 	}
 	p.mu.Lock()
 	if p.hubCache == nil {
@@ -476,4 +472,35 @@ func (p *peer) lookupHub(aid string) (string, bool) {
 type hubEntry struct {
 	addr string
 	at   time.Time
+}
+
+// askHub asks one hub where an AID can be dialled.
+//
+// Returns the address if that hub holds one, and otherwise the home hub
+// it names — "not mine, ask there" is a different answer from "nobody
+// published one", and merging them loses the only thing that makes the
+// cross-hub case work.
+func askHub(ctx context.Context, hubURL, aid string) (addr, home string) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		strings.TrimSuffix(hubURL, "/")+"/agents/"+url.PathEscape(aid)+"/p2p", nil)
+	if err != nil {
+		return "", ""
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", ""
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Addr    string `json:"addr"`
+		HomeHub string `json:"home_hub"`
+	}
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out) != nil {
+		return "", ""
+	}
+	if resp.StatusCode == http.StatusOK {
+		return strings.TrimSpace(out.Addr), ""
+	}
+	// A 404 is a real and stable answer, and it may carry a pointer.
+	return "", strings.TrimSpace(out.HomeHub)
 }

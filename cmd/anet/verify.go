@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/ael"
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
@@ -58,16 +59,21 @@ func verify(layout daemon.Layout, rest []string) error {
 		}
 		return verifyOffline(r, kel, flags["result"])
 	}
+	if a := flags["attestation"]; a != "" {
+		return verifyAttestation(a, flags["kel"], flags["hub"])
+	}
 	if flags["kel"] != "" {
-		return fmt.Errorf("verify: --kel needs a --receipt to check")
+		return fmt.Errorf("verify: --kel needs a --receipt or --attestation to check")
 	}
 	if len(pos) < 1 {
 		return fmt.Errorf("verify <interaction-id>\n" +
 			"       verify --receipt <base64> --kel <base64> [--result FILE]\n" +
-			"       verify --receipt <base64> --hub <url>    [--result FILE]\n\n" +
+			"       verify --receipt <base64> --hub <url>    [--result FILE]\n" +
+			"       verify --attestation <base64> --hub <url>\n\n" +
 			"The second form needs nothing at all: a receipt and the signer's key\n" +
 			"history are enough, offline. The third fetches that key history from a\n" +
-			"hub, for a stranger who was handed a receipt and nothing else.")
+			"hub, for a stranger who was handed a receipt and nothing else.\n" +
+			"The fourth checks a witness attestation from a hub's /x402/witnesses.")
 	}
 	return verifyStored(layout, pos[0])
 }
@@ -214,7 +220,17 @@ func fetchKEL(hubURL, receiptB64 string) (string, error) {
 	if rc.ProviderAID == "" {
 		return "", fmt.Errorf("verify: the receipt names no signer")
 	}
-	u := strings.TrimSuffix(hubURL, "/") + "/agents/" + url.PathEscape(rc.ProviderAID) + "/kel"
+	return fetchKELFor(hubURL, rc.ProviderAID)
+}
+
+// fetchKELFor asks a hub for one AID's key history.
+//
+// Split out from fetchKEL, which could only start from a receipt. A
+// witness attestation names its signer the same way and needs the same
+// lookup; tying the fetch to the receipt type meant the only object that
+// could be resolved was the only object the command already handled.
+func fetchKELFor(hubURL, aid string) (string, error) {
+	u := strings.TrimSuffix(hubURL, "/") + "/agents/" + url.PathEscape(aid) + "/kel"
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Get(u)
 	if err != nil {
 		return "", fmt.Errorf("verify: fetch key history: %w", err)
@@ -222,7 +238,7 @@ func fetchKEL(hubURL, receiptB64 string) (string, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("verify: %s does not know %s (hub returned %d)",
-			hubURL, rc.ProviderAID, resp.StatusCode)
+			hubURL, aid, resp.StatusCode)
 	}
 	var out struct {
 		KEL string `json:"kel"`
@@ -231,8 +247,76 @@ func fetchKEL(hubURL, receiptB64 string) (string, error) {
 		return "", fmt.Errorf("verify: hub reply: %w", err)
 	}
 	if out.KEL == "" {
-		return "", fmt.Errorf("verify: %s published no key history for %s", hubURL, rc.ProviderAID)
+		return "", fmt.Errorf("verify: %s published no key history for %s", hubURL, aid)
 	}
-	fmt.Printf("· key history for %s fetched from %s\n", rc.ProviderAID, hubURL)
 	return out.KEL, nil
+}
+
+// verifyAttestation checks a witness's statement about a chain head.
+//
+// A hub's /x402/witnesses publishes attestations and tells the reader to
+// resolve each witness and check the signature. Nothing could do that:
+// this command knew only receipts, so the instruction named a step with
+// no tool behind it. Evidence published with no way to check it is not
+// evidence, and witnessing is the entire basis for believing a hub has
+// not rewritten its own issuance chain.
+//
+// What it proves and what it does not, stated because the difference is
+// the whole point: a verifying attestation means this witness signed
+// "chain X had head H at sequence N when I looked". It does NOT mean the
+// chain is honest — it means that if the hub ever serves a different
+// record at sequence N, this signed statement contradicts it and nobody
+// has to take anyone's word for which came first.
+func verifyAttestation(attB64, kelB64, hubURL string) error {
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(attB64))
+	if err != nil {
+		return fmt.Errorf("verify: attestation is not base64: %w", err)
+	}
+	att, err := ael.UnmarshalHeadAttestation(raw)
+	if err != nil {
+		return fmt.Errorf("verify: undecodable attestation: %w", err)
+	}
+	if att.Envelope == nil || att.Envelope.SignerAID == "" {
+		return fmt.Errorf("verify: the attestation names no witness")
+	}
+	witness := att.Envelope.SignerAID
+	if kelB64 == "" {
+		if hubURL == "" {
+			return fmt.Errorf("verify: give --kel, or --hub URL to fetch the witness's key history\n"+
+				"       (the witness is %s)", witness)
+		}
+		kelB64, err = fetchKELFor(hubURL, witness)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("· key history for %s… fetched from %s\n", short(witness), hubURL)
+	}
+	kb, err := base64.StdEncoding.DecodeString(strings.TrimSpace(kelB64))
+	if err != nil {
+		return fmt.Errorf("verify: key history is not base64: %w", err)
+	}
+	kel, err := identity.UnmarshalKEL(kb)
+	if err != nil {
+		return fmt.Errorf("verify: undecodable key history: %w", err)
+	}
+	if err := att.Verify(kel, witness, time.Now().UnixMilli()); err != nil {
+		fmt.Printf("✗ the attestation does not verify: %v\n", err)
+		return fmt.Errorf("verify: attestation refused")
+	}
+	fmt.Printf("✓ signature verifies under %s…\n", short(witness))
+	fmt.Printf("  chain    %s…\n", short(att.ChainDID))
+	fmt.Printf("  head     seq %d, id %s…\n", att.Seq, short(att.HeadID))
+	fmt.Printf("  observed %s\n", time.UnixMilli(att.ObservedAt).UTC().Format(time.RFC3339))
+	fmt.Println("  this says the witness saw that head at that time. It does not say the")
+	fmt.Println("  chain is honest — it says a different record at that sequence would")
+	fmt.Println("  contradict a statement the witness signed.")
+	return nil
+}
+
+// short trims an AID for display without pretending it is the whole thing.
+func short(s string) string {
+	if len(s) > 16 {
+		return s[:16]
+	}
+	return s
 }
