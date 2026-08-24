@@ -158,13 +158,7 @@ func (d *Daemon) PayAndRetry(ctx context.Context, providerAID, capID string,
 	if quoted == nil || len(quoted.Accepts) == 0 {
 		return "", fmt.Errorf("anet: nothing to pay — the answer carried no accepted rails")
 	}
-	var opt *payment.PaymentOption
-	for i := range quoted.Accepts {
-		if quoted.Accepts[i].Scheme == payment.SchemeCredit {
-			opt = &quoted.Accepts[i]
-			break
-		}
-	}
+	opt := pickRail(p, quoted.Accepts)
 	if opt == nil {
 		return "", fmt.Errorf("anet: this node can pay %q and the provider accepts none of it",
 			payment.SchemeCredit)
@@ -210,11 +204,7 @@ func (d *Daemon) DelegateAndPay(ctx context.Context, providerAID, capID string,
 	if err != nil {
 		return "", nil, err
 	}
-	var opt *payment.PaymentOption
-	if len(quote.Accepts) > 0 {
-		opt = &quote.Accepts[0]
-	}
-	return paidID, opt, nil
+	return paidID, pickRail(d.payer(), quote.Accepts), nil
 }
 
 // awaitQuote waits for the first answer and reports a price if one came.
@@ -353,4 +343,36 @@ func (d *Daemon) serveModuleFaces(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// pickRail chooses which offered rail to pay on.
+//
+// Our own hub's ledger when it is offered, because that is the one this
+// node actually holds credit on. Taking the first credit option instead
+// was correct while a provider only ever offered its own hub — a provider
+// that also offers the ledgers its hub will clear against lists its own
+// first, so the first option is the one a cross-hub buyer has no balance
+// on, and paying it can only fail for insufficient funds.
+//
+// Falls back to the first credit option, which is the single-hub case and
+// also the honest answer when our own ledger is not among those offered:
+// try, and let the facilitator say no.
+func pickRail(p module.Payer, accepts []payment.PaymentOption) *payment.PaymentOption {
+	var first *payment.PaymentOption
+	var home string
+	if p != nil {
+		home = p.HomeNetwork()
+	}
+	for i := range accepts {
+		if accepts[i].Scheme != payment.SchemeCredit {
+			continue
+		}
+		if home != "" && accepts[i].Network == home {
+			return &accepts[i]
+		}
+		if first == nil {
+			first = &accepts[i]
+		}
+	}
+	return first
 }

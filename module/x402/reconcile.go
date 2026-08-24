@@ -30,6 +30,12 @@ type ReconcileReport struct {
 	// hub contradicting itself, which is worth seeing.
 	Balance int64 `json:"balance"`
 	Derived int64 `json:"derived_from_entries"`
+	// Entries is how many the hub holds for this account, and Truncated
+	// says the page returned was not all of them. Both are reported so a
+	// reader can tell "the ledger disagrees" from "I only looked at part
+	// of it".
+	Entries   int  `json:"hub_entries"`
+	Truncated bool `json:"hub_entries_truncated,omitempty"`
 	// Chain events this node holds, and how many found a counterpart.
 	Authorized int `json:"authorized_on_chain"`
 	Settled    int `json:"settled_on_chain"`
@@ -72,13 +78,31 @@ func (m *Module) reconcile(ctx context.Context) (ReconcileReport, error) {
 			Reason string `json:"reason"`
 			At     string `json:"at"`
 		} `json:"entries"`
+		Total     int   `json:"total"`
+		Sum       int64 `json:"sum"`
+		Truncated bool  `json:"truncated"`
 	}
-	if err := m.getJSON(ctx, "/agents/"+m.AID()+"/ledger", &led); err != nil {
+	if err := m.getJSON(ctx, "/agents/"+m.AID()+"/ledger?limit=500", &led); err != nil {
 		return rep, err
 	}
-	for _, e := range led.Entries {
-		rep.Derived += e.Delta
+	// The account total, not the sum of the page.
+	//
+	// The endpoint returns the newest hundred by default and said nothing
+	// about it, so summing what came back compared a page against a
+	// balance and reported a discrepancy on every account with more
+	// history than that. dmax showed 866 against entries summing to -109,
+	// which was the cap, not the ledger.
+	//
+	// An older hub sends no total; falling back to the page is then the
+	// best available and the truncation flag says whether to trust it.
+	if led.Total > 0 {
+		rep.Derived = led.Sum
+	} else {
+		for _, e := range led.Entries {
+			rep.Derived += e.Delta
+		}
 	}
+	rep.Entries, rep.Truncated = led.Total, led.Truncated
 	// The hub's own two numbers must agree with each other. They are both
 	// its statements, so this catches a hub that is inconsistent rather
 	// than one that is dishonest — but an inconsistent ledger is a real

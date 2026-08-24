@@ -26,6 +26,7 @@ type fakeIssuer struct {
 	ctrl    *identity.Controller
 	records []*ael.EventRecord
 	entries []map[string]any
+	page    int
 	balance int64
 }
 
@@ -93,7 +94,25 @@ func (f *fakeIssuer) serve(t *testing.T) *httptest.Server {
 		_ = json.NewEncoder(w).Encode(map[string]any{"credits": f.balance})
 	})
 	mux.HandleFunc("GET /agents/{aid}/ledger", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"entries": f.entries})
+		// Mirrors the hub: entries is a page, total and sum cover the
+		// account. f.page caps what is returned so a test can reproduce
+		// an account with more history than one page.
+		page := f.entries
+		if f.page > 0 && len(page) > f.page {
+			page = page[:f.page]
+		}
+		var sum int64
+		for _, e := range f.entries {
+			sum += asInt64(e["delta"])
+		}
+		out := map[string]any{
+			"entries": page, "total": len(f.entries), "sum": sum,
+			"returned": len(page),
+		}
+		if len(page) < len(f.entries) {
+			out["truncated"] = true
+		}
+		_ = json.NewEncoder(w).Encode(out)
 	})
 	mux.HandleFunc("POST /x402/witness", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "stored"})
@@ -347,5 +366,44 @@ func TestACleanAccountReconciles(t *testing.T) {
 	// look wrong.
 	if len(rep.Unexplained) != 1 || !strings.Contains(rep.Unexplained[0], "normal") {
 		t.Errorf("unexplained = %v", rep.Unexplained)
+	}
+}
+
+// Reconciling must use the account total, not the page it was handed.
+//
+// The ledger endpoint returns the newest hundred by default and said
+// nothing about it, so summing what came back compared a page against a
+// balance. Every account with more history than one page reported a
+// discrepancy that was the cap rather than the ledger — dmax showed a
+// balance of 866 against entries summing to -109, and the check that was
+// meant to detect a hub contradicting itself was reporting a difference
+// it had manufactured.
+func TestReconcileUsesTheAccountTotalNotThePage(t *testing.T) {
+	hub, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeIssuer{ctrl: hub, balance: 300, page: 2}
+	// Six entries summing to 300; a two-entry page sums to 200.
+	for _, d := range []int64{100, 100, 50, 25, 15, 10} {
+		f.entries = append(f.entries, map[string]any{"delta": d, "reason": "registration grant"})
+	}
+	m, _ := hubbedModule(t, f)
+
+	rep, err := m.reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Derived != 300 {
+		t.Errorf("derived = %d, want 300 — the page was summed instead of the account",
+			rep.Derived)
+	}
+	if !rep.Agrees {
+		t.Errorf("a consistent account was reported as disagreeing: %v", rep.Problems)
+	}
+	// And the reader is told there was more than the page, so "the ledger
+	// agrees" and "I only saw part of it" stay distinguishable.
+	if rep.Entries != 6 || !rep.Truncated {
+		t.Errorf("entries=%d truncated=%v, want 6/true", rep.Entries, rep.Truncated)
 	}
 }

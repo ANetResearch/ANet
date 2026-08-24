@@ -68,6 +68,12 @@ type Module struct {
 	mu        sync.Mutex
 	cachedHub string
 	cachedKEL []identity.SignedEvent
+
+	// Which peer ledgers our hub will clear against, cached: asked once
+	// per interval rather than on every 402.
+	clearMu   sync.Mutex
+	clearAt   time.Time
+	clearNets []string
 }
 
 // New builds the module. Returning (nil, nil) means compiled in and not

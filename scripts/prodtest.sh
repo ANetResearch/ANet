@@ -94,6 +94,8 @@ DMAX_HOST=root@dmax.chatchat.space; DMAX_HOME=/data/anet-node/home;   DMAX_PORT=
 EMAX_HOST=root@emax.chatchat.space
 INK_HOME=${INK_HOME:-/tmp/anet-prod/ink93};                           INK_PORT=29615
 INK_BIN=${INK_BIN:-/tmp/deploy/anet}
+FIXTURE=${FIXTURE:-/tmp/deploy/anetfixture}
+CMAX_HOME_LOCAL=${CMAX_HOME_LOCAL:-}
 
 pass=0; fail=0; skip=0
 ok(){ printf '\033[1;32m  ✓ %s\033[0m\n' "$*"; pass=$((pass+1)); }
@@ -137,6 +139,19 @@ jq_(){ python3 -c "import sys,json
 try: d=json.load(sys.stdin)
 except Exception: print(''); raise SystemExit
 $1" 2>/dev/null; }
+
+# cap <node> <provider-aid> <capability> <args-json> — call and wait.
+#
+# The capability path rather than a prose goal: it runs deterministically
+# in the provider's registry and comes back with evidence, so a check can
+# assert on what happened rather than on what an agent decided to say.
+cap(){
+  local ix
+  ix=$(ctl "$1" /delegate "{\"provider\":\"$2\",\"capability\":\"$3\",\"args\":$4}" \
+       | jq_ "print(d.get('interaction_id',''))")
+  [ -z "$ix" ] && { echo '{"status":"","error":"delegate refused"}'; return 1; }
+  wait_result "$1" "$ix" 40
+}
 
 # wait_result <node> <interaction_id> [tries] — poll until an answer lands.
 wait_result(){
@@ -798,6 +813,141 @@ r=[x for x in (d.get('redemptions') or []) if x.get('reference')=='prodtest-list
 print('ok' if r and r[0].get('amount')==3 and r[0].get('aid') else 'bad')")
   [ "$match" = ok ] \
     && ok "列表里的金额与 reference 与刚才兑付的一致" || no "列表内容对不上"
+fi
+
+# ── 9g. the modules that carry caller-signed objects ────────────
+hd "9g cas / blackboard / org:调用方签名的对象跨机验签"
+# I previously judged these not worth production coverage because they
+# open no ports and do not talk between machines. That was wrong on both
+# counts that matter:
+#
+#   blackboard.add and org.verify take an object the CALLER signed, so
+#   the provider must resolve the caller's key history through the real
+#   hub over TLS. On loopback it resolves against a local fake.
+#
+#   cas.put carries a blob as delegation arguments, so it crosses the
+#   real relay with the real body limits — nginx at 512m and the control
+#   plane's own cap, both of which had been configured and never tried.
+if ! has ink93 || ! has cmax; then
+  sk "要 ink93 与 cmax 两侧"
+else
+  # cas: content addressing, and the CID must be the hash of what was put.
+  # The argument is "body" and the CID comes back as observed_state
+  # directly, not wrapped in JSON.
+  payload="prodtest cas $(date -u +%s)"
+  blob=$(printf '%s' "$payload" | base64 -w0)
+  r=$(cap ink93 "$CMAX_AID" cas.put "{\"body\":\"$blob\"}")
+  cid=$(echo "$r" | jq_ "print((d.get('evidence') or {}).get('observed_state',''))")
+  [ -n "$cid" ] && ok "cas.put 跨机返回了 CID(${cid:0:18}…)" || no "cas.put 没有返回 CID: ${r:0:140}"
+  if [ -n "$cid" ]; then
+    g=$(cap ink93 "$CMAX_AID" cas.get "{\"cid\":\"$cid\"}")
+    gs=$(echo "$g" | jq_ "print(d.get('status',''))")
+    gb=$(echo "$g" | jq_ "print(int((d.get('metrics') or {}).get('bytes',0)))")
+    want=$(printf '%s' "$payload" | wc -c)
+    # The byte count is what the effect reports. Content addressing is
+    # asserted the other way round below: putting the same bytes again
+    # must yield the same CID, and different bytes a different one.
+    { [ "$gs" = OK ] && [ "$gb" = "$want" ]; } \
+      && ok "cas.get 跨机取回 $gb 字节,与放进去的长度一致" \
+      || no "cas.get 状态 $gs 字节 $gb(期望 $want)"
+    again=$(cap ink93 "$CMAX_AID" cas.put "{\"body\":\"$blob\"}" \
+            | jq_ "print((d.get('evidence') or {}).get('observed_state',''))")
+    [ "$again" = "$cid" ] && ok "同样的字节得到同一个 CID(内容寻址成立)" \
+      || no "同样的字节得到了不同的 CID"
+    other=$(cap ink93 "$CMAX_AID" cas.put "{\"body\":\"$(printf '%s!' "$payload" | base64 -w0)\"}" \
+            | jq_ "print((d.get('evidence') or {}).get('observed_state',''))")
+    [ -n "$other" ] && [ "$other" != "$cid" ] && ok "不同的字节得到不同的 CID" \
+      || no "不同的内容得到了同一个 CID"
+    miss=$(cap ink93 "$CMAX_AID" cas.get '{"cid":"bafyreiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}')
+    ms=$(echo "$miss" | jq_ "print(d.get('status',''))")
+    [ "$ms" != OK ] && ok "取一个不存在的 CID 会诚实失败($ms),而不是返回空" \
+      || no "不存在的 CID 也返回了 OK"
+  fi
+
+  # blackboard: the unit is signed by ink93 and merged by cmax, so cmax
+  # has to fetch ink93's key history from the hub to check it.
+  unit=$("$INK_BIN" --id x 2>/dev/null >/dev/null; \
+         "$FIXTURE" cogunit --home "$INK_HOME/.anet" --body "prodtest 跨机共脑" 2>/dev/null | tail -1)
+  if [ -z "$unit" ]; then
+    sk "本机没有 anetfixture,跳过 blackboard"
+  else
+    b=$(cap ink93 "$CMAX_AID" blackboard.add "{\"unit\":\"$unit\"}")
+    bs=$(echo "$b" | jq_ "print(d.get('status',''))")
+    [ "$bs" = OK ] \
+      && ok "共脑合并成功 —— 提供方经真 hub 解析了调用方的密钥历史并验签" \
+      || no "blackboard.add 失败(跨机验签?): ${b:0:160}"
+    # A tampered unit must be refused, or the signature check is theatre.
+    bad=$(printf '%s' "$unit" | sed 's/.$/A/')
+    br=$(cap ink93 "$CMAX_AID" blackboard.add "{\"unit\":\"$bad\"}")
+    brs=$(echo "$br" | jq_ "print(d.get('status',''))")
+    [ "$brs" != OK ] && ok "被改过的贡献被拒($brs)" || no "篡改过的贡献也被接受了"
+  fi
+
+  # org: a credential signed by the founder, verified by a node that
+  # holds the same genesis.
+  oi=$(cap ink93 "$CMAX_AID" org.info '{}')
+  os=$(echo "$oi" | jq_ "print(d.get('status',''))")
+  [ "$os" = OK ] && ok "org.info 报出它服务的组织" || no "org.info 失败: ${oi:0:140}"
+fi
+
+# ── 9h. a large attachment across the real relay ────────────────
+hd "9h 大附件穿过真中继"
+# nginx is set to 512m and the control plane has its own cap. Both were
+# configured and neither had been tried: a limit nobody has crossed is a
+# number in a file.
+if ! has ink93 || ! has cmax; then
+  sk "要 ink93 与 cmax 两侧"
+else
+  att=$(mktemp); head -c $((2*1024*1024)) /dev/urandom > "$att"
+  aix=$(curl -s -m 300 -H "Authorization: Bearer $(cat "$INK_HOME/.anet/control_token.txt")" \
+        -F "provider=$CMAX_AID" -F "goal=prodtest 附件" -F "attachment=@$att" \
+        "http://127.0.0.1:$INK_PORT/delegate" | jq_ "print(d.get('interaction_id',''))")
+  if [ -z "$aix" ]; then
+    no "带附件的委派没排上队(控制面或 nginx 的 body 上限?)"
+  else
+    ok "2 MiB 附件的委派被接受了"
+    seen=""
+    for _ in $(seq 1 40); do
+      seen=$(ctl cmax /thread "{\"interaction_id\":\"$aix\"}" | jq_ "
+t=d.get('thread') or {}
+n=sum(len(m.get('attachments') or []) for m in (t.get('messages') or []))
+print(n if n else '')")
+      [ -n "$seen" ] && break
+      sleep 3
+    done
+    [ -n "$seen" ] && ok "附件跨过 nginx 与中继到达对方($seen 个)" \
+      || no "附件没有到达对方"
+  fi
+  rm -f "$att"
+fi
+
+# ── 9i. a stranger verifies a receipt ───────────────────────────
+hd "9i 陌生人只拿收据与 hub 地址就能验通"
+# The outward promise of the whole evidence surface, and it had been
+# checked only on loopback. Here the KEL comes from the production hub
+# over TLS and the verifier holds nothing else.
+if ! has ink93; then
+  sk "要 ink93"
+else
+  rc=$(ctl ink93 /results '{}' | jq_ "
+for x in reversed(d.get('results') or []):
+    if x.get('receipt'): print(x['receipt']); break")
+  if [ -z "$rc" ]; then
+    no "没有可验的收据"
+  else
+    out=$("$INK_BIN" verify --receipt "$rc" --hub "$EMAX_HUB" 2>&1)
+    # The tool prints "✓ signature verifies under <aid>" on success and
+    # names what it checked. Matching on the marker rather than on a word
+    # that appears in both outcomes.
+    case "$out" in
+      *"signature verifies"*) ok "陌生人用收据 + hub 地址验通了(无 daemon、无密钥)";;
+      *) no "第三方验证失败: $(printf '%s' "$out" | head -2 | tr '\n' ' ')";;
+    esac
+    case "$out" in
+      *"fetched from"*) ok "密钥历史是从生产 hub 现取的,验证方不预置任何东西";;
+      *) no "没有从 hub 取密钥历史";;
+    esac
+  fi
 fi
 
 # ── 10. what a node can check for itself ────────────────────────
