@@ -462,3 +462,8 @@ func TestAPeerOnAnotherHubIsFoundViaTheReferral(t *testing.T) {
 		t.Errorf("the home hub was asked again for an unreferred AID")
 	}
 }
+
+// This host grants no hub seam. Nothing here talks to a hub as this node,
+// and a test host that handed out a signing grant it does not need would
+// be a wider surface than the thing under test.
+func (*host) HubSeam() (module.HubSeam, bool) { return nil, false }

@@ -10,6 +10,7 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/inv1"
 	"github.com/ANetResearch/ANet/module/inv2"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -65,6 +66,32 @@ func (d *Daemon) startModules(ctx context.Context, cfg Config) error {
 // id. Every public publication passes through here, and a module that
 // holds a secret declares it rather than the daemon guessing.
 func (d *Daemon) screenPublication(what string, body any) error {
+	// INV-1 first: no org-scoped object may reach a path a third party
+	// can read.
+	//
+	// GuardCommonsPublish had no call site anywhere in this repository,
+	// while its own documentation said every publish boundary calls it.
+	// The boundaries it was written for — a gossip announce, the commons
+	// boards — belong to the previous generation and were not carried
+	// over, so the invariant held vacuously and the guard stood watch
+	// over nothing.
+	//
+	// This is the boundary anet4 actually has. What a node registers is
+	// synced to federation peers and served from a browsable directory,
+	// so it is read by parties the node never chose. The peer-to-peer
+	// transport is NOT such a path and is deliberately not guarded: it
+	// addresses one named peer over a direct connection, which is the
+	// same exposure as the hub relay that already carries CogUnits by
+	// design. Guarding it would block a legitimate delivery while proving
+	// nothing — the payload there is already bytes, and the guard reads
+	// static types.
+	//
+	// The two invariants sit together because they answer the same
+	// question about the same bytes: INV-1 asks whether the TYPE may go
+	// out, INV-2 whether these VALUES may.
+	if err := inv1.GuardCommonsPublish(body); err != nil {
+		return fmt.Errorf("anet: refusing to publish %s: %w", what, err)
+	}
 	var forbidden []string
 	for _, m := range d.modules {
 		if c, ok := m.(module.Confidential); ok {
