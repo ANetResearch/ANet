@@ -1381,6 +1381,284 @@ else
     || no "25 次错误口令之后仍返回 $last —— 限流没有生效"
 fi
 
+# ── 9p. a device capability, end to end across machines ─────────
+hd "9p ANetLink:设备能力从 dmax 的适配器穿到 cmax 的委派"
+# ANetLink is the one repository in the suite that had never been in
+# production. Its ANetCore pin sat nine minor versions behind the other
+# three, and nothing checked whether the C1 wire between the daemon and
+# an ANetLink runtime still matched — the pin lag turned out to be a lag
+# and not an incompatibility, but that was not knowable without running
+# it.
+#
+# What is asserted here is the whole chain: an adapter publishes a
+# device, the runtime serves it on the C1 socket, the daemon folds the
+# real capability id into what it registers, the hub indexes it, and a
+# node on another machine and another hub delegates to it.
+#
+# The capability id carries the device — light.onoff@sim/lamp-1 — and the
+# daemon still knows nothing about what a device is. That is C1: the
+# kernel routes an id it cannot interpret.
+LIGHT=light.onoff@sim/lamp-1
+if [ -z "$DMAX_AID" ] || ! has cmax; then
+  sk "设备检查要 cmax 与 dmax 的 AID"
+else
+  dcaps=$(viafmax "/agents/$DMAX_AID" | jq_ "print(','.join((d.get('agent') or {}).get('caps') or []))")
+  case "$dcaps" in
+    *"$LIGHT"*) ok "hub 目录里有设备能力 $LIGHT";;
+    *) no "hub 目录里没有 $LIGHT —— ANetLink 的能力没有到达注册表";;
+  esac
+  # Findable by id, not only present on the card: precise discovery is
+  # what a caller actually uses.
+  found=$(viafmax "/agents?cap=$LIGHT" | jq_ "
+print(','.join(a.get('aid','') for a in (d.get('agents') or [])))")
+  case "$found" in
+    *"$DMAX_AID"*) ok "按能力 id 精确查得到 dmax";;
+    *) no "按 $LIGHT 查不到 dmax";;
+  esac
+
+  out=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+    "export ANET_HOME=$CMAX_HOME; timeout 180 $CMAX_BIN delegate $DMAX_AID \
+     --capability '$LIGHT' --args '{\"on\":true}'" 2>&1)
+  lix=$(echo "$out" | jq_ "print(d.get('interaction_id',''))")
+  if [ -z "$lix" ]; then
+    no "设备委派没有排上队:$(printf '%s' "$out" | head -2 | tr '\n' ' ')"
+  else
+    got=""
+    for _ in $(seq 1 30); do
+      got=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "export ANET_HOME=$CMAX_HOME; $CMAX_BIN results" 2>/dev/null | jq_ "
+for x in d.get('results') or []:
+    if x.get('interaction_id') == '$lix':
+        print(x.get('result') or ''); break")
+      [ -n "$got" ] && break
+      sleep 5
+    done
+    [ "$(echo "$got" | jq_ "print(d.get('status',''))")" = OK ] \
+      && ok "跨机点亮了 dmax 上的那盏灯,状态 OK" \
+      || no "设备委派没有拿回 OK:${got:0:160}"
+    # The effect carries the observed state, which is what separates
+    # "the call returned" from "the device did something".
+    ps=$(echo "$got" | jq_ "print((d.get('metrics') or {}).get('power_state'))")
+    [ "$ps" = 1 ] \
+      && ok "效果里带着观测到的状态(power_state=$ps),不只是调用成功" \
+      || no "效果里没有可核对的设备状态:power_state=$ps"
+  fi
+fi
+
+# ── 9q. liveness and leaving ────────────────────────────────────
+hd "9q 活跃信号与离开:静默两档、注销删路由留证据"
+# H-15 shipped two tiers — marked quiet after an hour without collecting
+# mail, out of the browsable listing after a month — and production
+# asserted nothing about either. hub-leave was verified by hand once.
+#
+# The hour and the month cannot be produced in a live run without waiting
+# or editing production data, and they are covered by unit tests that set
+# the timestamp directly. What a live run CAN prove is the part those
+# tests cannot: that the signal is really being written by real polling,
+# and that a hub with no record says "unknown" rather than "quiet".
+for h in emax fmax; do
+  [ $h = emax ] && A=$(curl -s -m 30 "$EMAX_HUB/agents?all=1") || A=$(viafmax "/agents?all=1")
+  fresh=$(echo "$A" | jq_ "
+import datetime
+now = datetime.datetime.now(datetime.timezone.utc)
+bad = []
+for a in d.get('agents') or []:
+    ls = a.get('last_seen') or ''
+    if not ls:
+        continue
+    t = datetime.datetime.fromisoformat(ls.replace('Z', '+00:00'))
+    if (now - t).total_seconds() > 3600:
+        bad.append(a.get('name'))
+print(','.join(x for x in bad if x))")
+  seen=$(echo "$A" | jq_ "
+print(sum(1 for a in (d.get('agents') or []) if a.get('last_seen')))")
+  [ "${seen:-0}" -ge 1 ] \
+    && ok "$h 记录了 ${seen} 个 agent 的取信时间 —— 活跃信号取自真实轮询,不是心跳端点" \
+    || no "$h 一个取信时间都没有,静默判定没有依据"
+  [ -z "$fresh" ] \
+    && ok "$h 上没有超过一小时未取信的 agent" \
+    || info "$h 上这些已超过一小时未取信:$fresh"
+  # Quiet must be a claim the hub can support. An agent it has never seen
+  # poll has no timestamp, and reporting that as quiet would be the hub
+  # asserting something it does not know.
+  wrong=$(echo "$A" | jq_ "
+print(','.join(a.get('name','?') for a in (d.get('agents') or [])
+                if not a.get('last_seen') and a.get('quiet')))")
+  [ -z "$wrong" ] \
+    && ok "$h 没有把 无记录 当成 已静默" \
+    || no "$h 把无记录的 agent 报成静默:$wrong"
+done
+
+# Leaving: routing goes, evidence stays. Run with a throwaway identity so
+# nothing in the live topology is deregistered.
+TMPH=$(mktemp -d)
+if ANET_HOME="$TMPH" "$INK_BIN" hub-register "$EMAX_HUB" \
+     --name prodtest-leaver --caps probe.noop >/dev/null 2>&1; then
+  LA=$(ANET_HOME="$TMPH" "$INK_BIN" status 2>/dev/null | jq_ "print(d.get('aid',''))")
+else
+  LA=""
+fi
+if [ -z "$LA" ]; then
+  sk "临时身份注册失败,跳过 hub-leave 检查"
+else
+  code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$EMAX_HUB/agents/$LA")
+  [ "$code" = 200 ] && ok "临时身份注册上了 hub" || no "临时身份没能注册($code)"
+  if ANET_HOME="$TMPH" "$INK_BIN" hub-leave "$EMAX_HUB" >/dev/null 2>&1; then
+    ok "hub-leave 被接受(由 agent 自己签名)"
+  else
+    no "hub-leave 被拒"
+  fi
+  # Routing gone: it must no longer be findable by the capability it
+  # advertised. Being listed as a bare node is fine — what must go is
+  # deliverability.
+  still=$(curl -s -m 30 "$EMAX_HUB/agents?cap=probe.noop" | jq_ "
+print(','.join(a.get('aid','') for a in (d.get('agents') or [])))")
+  case "$still" in
+    *"$LA"*) no "注销之后仍能按能力查到它 —— 活还会被投进一个没人轮询的信箱";;
+    *) ok "注销之后按能力查不到了,路由是真的删了";;
+  esac
+  # And the identity is still resolvable, because evidence about it must
+  # not become unverifiable just because it left.
+  kc=$(curl -s -m 30 -o /dev/null -w '%{http_code}' "$EMAX_HUB/agents/$LA/kel")
+  [ "$kc" = 200 ] \
+    && ok "它的密钥历史仍然查得到 —— 离开不该让已经发生的事变得无法核验" \
+    || info "注销后密钥历史返回 $kc"
+fi
+rm -rf "$TMPH"
+
+# ── 9r. the taskboard ───────────────────────────────────────────
+hd "9r taskboard:一张卡片走完整个流转,越权与乱序被真的拒掉"
+# Running on the production hub since it shipped, reachable, and never
+# touched by a live run. The reason it was never touched is worth stating
+# plainly: the board has NO CLIENT in this suite. Nine mutation endpoints,
+# each gated behind a KEL-signed challenge, and nothing outside the
+# package's own tests could produce one — so it could be read and not
+# used. prodtest drives it with anetfixture's signer. If agents are meant
+# to use the board they need real commands, and that is a separate
+# decision from this check.
+tbsign() {
+  "$FIXTURE" relay-sign --home "$INK_HOME/.anet" --action "task.$1" 2>/dev/null
+}
+tbpost() {
+  local action=$1 extra=$2
+  local sig; sig=$(tbsign "$action")
+  [ -z "$sig" ] && { echo '{"error":"could not sign"}'; return; }
+  python3 - "$sig" "$extra" <<'PY' > /tmp/prodtest-tb-body.json
+import json, sys
+b = json.loads(sys.argv[1]); b.update(json.loads(sys.argv[2]))
+print(json.dumps(b))
+PY
+  curl -s -m 30 -X POST "$EMAX_HUB/tasks/$action" \
+    -H 'content-type: application/json' -d @/tmp/prodtest-tb-body.json
+}
+tbstate() { echo "$1" | jq_ "
+c = d.get('card') or {}
+print((c.get('state','') + '/' + c.get('column','')) if c else '')"; }
+
+if [ ! -x "$FIXTURE" ]; then
+  sk "taskboard 检查需要 anetfixture"
+else
+  r=$(tbpost create '{"title":"prodtest card","column":"backlog","taskdoc_cid":"bafyreiez5ziuzobff7qdlcklemjevbwu43sxakol3gydk7ifushu7t4i3u"}')
+  CARD=$(echo "$r" | jq_ "print((d.get('card') or {}).get('id',''))")
+  if [ -z "$CARD" ]; then
+    no "建卡失败:$(printf '%s' "$r" | head -c 160)"
+  else
+    ok "在生产 hub 上建了一张卡($CARD)"
+    # A card must carry the document it is about. A board of titles is a
+    # board of intentions.
+    [ "$(tbstate "$r")" = created/backlog ] \
+      && ok "新卡状态 created/backlog" || no "新卡状态是 $(tbstate "$r")"
+
+    # Out of order must be refused. This is the half that matters: a
+    # board that accepts any transition records a story rather than a
+    # process.
+    bad=$(tbpost accept "{\"card_id\":\"$CARD\"}")
+    case "$(echo "$bad" | jq_ "print(d.get('error',''))")" in
+      *"only submitted cards are accepted"*) ok "未提交就验收被拒";;
+      *) no "未提交的卡片被验收了:$(printf '%s' "$bad" | head -c 140)";;
+    esac
+
+    for step in "move ready" "claim -" "submit -" "accept -"; do
+      a=${step%% *}; extra=${step#* }
+      if [ "$extra" = - ]; then body="{\"card_id\":\"$CARD\"}"
+      else body="{\"card_id\":\"$CARD\",\"column\":\"$extra\"}"; fi
+      [ "$a" = submit ] && body="{\"card_id\":\"$CARD\",\"note\":\"prodtest\"}"
+      st=$(tbstate "$(tbpost "$a" "$body")")
+      [ -n "$st" ] && info "  $a → $st" || no "$a 这一步失败了"
+    done
+    final=$(curl -s -m 30 "$EMAX_HUB/tasks/cards/$CARD" | jq_ "
+c = d.get('card') or {}
+print(c.get('state','') + '/' + c.get('column',''))")
+    [ "$final" = accepted/done ] \
+      && ok "卡片走完 created→ready→claimed→submitted→accepted,落在 done" \
+      || no "卡片停在 $final"
+
+    # And an unsigned mutation must be refused, or the signature is
+    # decoration.
+    uc=$(curl -s -m 30 -o /dev/null -w '%{http_code}' -X POST "$EMAX_HUB/tasks/claim" \
+      -H 'content-type: application/json' -d "{\"card_id\":\"$CARD\"}")
+    [ "$uc" = 401 ] || [ "$uc" = 403 ] \
+      && ok "没签名的改动被拒($uc)" || no "没签名就能改板子(HTTP $uc)"
+  fi
+fi
+
+# ── 9s. auto-reply ──────────────────────────────────────────────
+hd "9s 自动回复:委派到达 → 调模型 → 答复经 hub 回来"
+# Auto-reply had only ever run in `scenario --live`. No production node
+# was configured for it, so the path that makes a node answer without a
+# human — the one an unattended agent actually depends on — had never
+# crossed a real network.
+#
+# Skipped rather than failed when cmax has no backend configured: this
+# needs a model credential, and a check that fails for want of a key
+# teaches an operator to ignore red.
+ar=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+  "export ANET_HOME=$CMAX_HOME; $CMAX_BIN autoreply show" 2>/dev/null)
+case "$ar" in
+  *backend*) ok "cmax 配了自动回复后端";;
+  *) sk "cmax 未配自动回复(需要模型凭据)"; ar="";;
+esac
+if [ -n "$ar" ]; then
+  # The backend answers at all, checked without touching the hub. A
+  # failure here is a credential or endpoint problem, and separating it
+  # from the network path is what makes the next assertion readable.
+  t=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+    "export ANET_HOME=$CMAX_HOME; timeout 120 $CMAX_BIN autoreply test '一句话回答:1+1 等于几'" 2>&1)
+  [ "$(echo "$t" | jq_ "print(d.get('status',''))")" = ok ] \
+    && ok "后端本地自检通过(不经 hub)" \
+    || no "后端自检失败:$(printf '%s' "$t" | head -c 160)"
+
+  # And the whole path: ink93 delegates a conversational task, cmax's
+  # loop picks it up, calls the model, and the answer comes back through
+  # the real hub.
+  aix=$(ctl ink93 /delegate \
+    "{\"provider\":\"$CMAX_AID\",\"goal\":\"用一句话说明什么是默克尔树\"}" \
+    | jq_ "print(d.get('interaction_id',''))")
+  if [ -z "$aix" ]; then
+    no "对话委派没有排上队"
+  else
+    reply=""
+    for _ in $(seq 1 30); do
+      reply=$(ctl ink93 /thread "{\"interaction_id\":\"$aix\"}" | jq_ "
+t = d.get('thread') or {}
+ms = [m for m in (t.get('messages') or []) if m.get('from') != 'me']
+print(ms[-1].get('body','') if ms else '')")
+      [ -n "$reply" ] && break
+      sleep 6
+    done
+    if [ -n "$reply" ]; then
+      ok "cmax 自动答复了,经真 hub 回到 ink93(${#reply} 字节)"
+      info "  ${reply:0:80}"
+    else
+      no "等了三分钟没有自动答复"
+    fi
+    # The runaway guard has to exist, or an auto-replying pair can talk
+    # to each other until somebody notices the bill.
+    mx=$(echo "$ar" | jq_ "print(d.get('max_auto_replies') or 0)")
+    info "  失控护栏 max_auto_replies=${mx:-默认 30}"
+  fi
+fi
+
 # ── 10. what a node can check for itself ────────────────────────
 hd "10  节点自查:审计发放链 + 对账"
 if ! has dmax; then
