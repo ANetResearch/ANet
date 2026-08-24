@@ -1623,6 +1623,45 @@ tbstate() { echo "$1" | jq_ "
 c = d.get('card') or {}
 print((c.get('state','') + '/' + c.get('column','')) if c else '')"; }
 
+# The module client, which is what an agent would actually use.
+#
+# The fixture path below proves the wire; this proves an agent can reach
+# it without one. Both matter: the fixture was written because there was
+# no client, and a client that exists and is never exercised is how the
+# board got into this state to begin with.
+if [ -n "$INK_AID" ] && has cmax; then
+  tbcaps=$(curl -s -m 30 "$EMAX_HUB/agents/$INK_AID" | jq_ "
+print(','.join((d.get('agent') or {}).get('caps') or []))")
+  case "$tbcaps" in
+    *task.board*)
+      ok "ink93 通过 module/taskboard 提供了看板能力"
+      out=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $INK_AID \
+         --capability task.board --args '{}'" 2>&1)
+      bix=$(echo "$out" | jq_ "print(d.get('interaction_id',''))")
+      got=""
+      for _ in $(seq 1 24); do
+        got=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+          "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
+for x in d.get('results') or []:
+    if x.get('interaction_id') == '$bix':
+        print(x.get('result') or ''); break")
+        [ -n "$got" ] && break
+        sleep 5
+      done
+      [ "$(echo "$got" | jq_ "print(d.get('status',''))")" = OK ] \
+        && ok "另一台机器经模块读到了板子:$(echo "$got" | jq_ "print(d.get('message',''))")" \
+        || no "模块读板失败:${got:0:140}"
+      # The board's own answer has to come back as evidence, not a count
+      # this node computed and asks to be believed.
+      case "$got" in
+        *observed_state*) ok "效果里带着板子自己的答复";;
+        *) no "效果里没有板子的原始答复";;
+      esac;;
+    *) info "ink93 未配 taskboard 模块,跳过模块侧检查";;
+  esac
+fi
+
 if [ ! -x "$FIXTURE" ]; then
   sk "taskboard 检查需要 anetfixture"
 else

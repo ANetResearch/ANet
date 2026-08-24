@@ -125,6 +125,7 @@ ink93(普通用户)+ emax(纯 hub)+ dmax(服务节点)三节点跨公网跑通�
 | ~~D-8~~ | ~~自动回复未进联调~~ | — | **已完成**。`scripts/scenario.sh --live` 里 B 用 OpenRouter 真的回答了 C |
 | ~~D-24~~ | ~~`ANET_HOME` 会让命令操作到别的身份~~ | — | **已完成**。`SelectionIsExplicit` 的清单是 `--id/ANET_ID/ANET_DATA_DIR/current`,漏了 `ANET_HOME`。设置它会移动身份容器,但容器里还没有 config 时,解析回落到 uid 指针,操作到当时正在跑的那个 daemon 上。实际后果:`ANET_HOME=/tmp/x anet hub-register <hub> --name throwaway` 把线上节点的 name 与 caps 在真 hub 上改成了 throwaway 那一套。这正是 strict 路径存在要防的事,由清单里唯一漏掉的那个变量造成。发现于用临时身份给 hub-leave 写生产断言 |
 | ~~D-25~~ | ~~自动回复只在 scenario 里跑过~~ | — | **已完成**。没有任何生产节点配过它,所以"节点无人值守也能作答"这条路径从未跨过真网络。现在 cmax 上接 OpenAI 兼容后端,prodtest 9s 断言:委派到达 → 调模型 → 答复经真 hub 回到发起方。缺凭据时跳过而不是失败 —— 为缺 key 报红会教运营者忽略红色 |
+| ~~D-26~~ | ~~INV-1 的运行时守卫零调用点~~ | — | **已完成**。`inv1.GuardCommonsPublish` 在本仓无任何调用点,而它的 doc.go 写着"每个发布边界都调用它" —— 它为之而写的 gossip/DHT 边界属于上一代,拆分时没带过来,不变式一直空成立。现接到 `screenPublication`(注册与档案发布),那是 anet4 真正会被第三方读到的路径。**p2p 发送路径刻意不接**:点对点直连一个具名对端,暴露面与 hub 中继相同,而中继本就按设计承载 CogUnit;接上去会拦掉正当路径,且那里载荷已是字节而守卫读静态类型。守卫本身也补了值遍历 —— 本仓发布的一切都是 `map[string]any`,只走类型图会在 `interface{}` 处通过,看不见运行时值的运行时绊线不是绊线 |
 | **D-9** | 分发形态 | 无 | 中。今天需 `go build` + 终端。桌面 app / 浏览器扩展 / 托管三选待议 |
 | ~~D-10~~ | ~~三处无直接测试~~ | — | **已完成**。`internal/hubapi` 钉住跨仓库字段名(第一次跑就抓到 `home_hub` 漂移:hub 一直在发,daemon 结构体里没有,于是每个联邦来的 agent 都被悄悄抹掉了"该去哪找它");`module/anetlink` 测工厂校验 + 用反射守住 C1 红线(daemon 永远不该知道"设备"是什么);`tools/anetfixture` 现在是联调网关付款的依赖,测它签出来的授权 hub 真的会认、两次不同 nonce、缺参数报得清楚 |
 
@@ -165,7 +166,7 @@ admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 
 | ~~H-9~~ | ~~credit 只进不出~~ | — | **已完成**。`POST /x402/redeem` 销毁额度并签字;`GET /x402/supply` 公布已发行/已兑付/未清偿,且 `outstanding == balances` 是任何人都能自己算的等式——发放同时记 hub 自己那一行的负数,全账求和恒为零。`POST /federation/clear` 让 `hub_owed` 能降下来,不再只升不降 |
 | ~~H-10~~ | ~~hub 只是 facilitator,不是 resource server~~ | — | **已完成**。`GET /x402/resource/{aid}/{capability}`:未付款回 402 + `PAYMENT-REQUIRED`,付款后回 `PAYMENT-RESPONSE` 与一张**凭证**。**网关只卖门票不代理内容**——hub 全程见不到请求与结果,这和中继"只搬读不懂的字节"是同一条性质。价钱与取货地址都读自 agent 自己签的卡片,所以 hub 能拒卖、不能改价、不能把买家指到自己的机器上 |
 | **H-22** | 静默两档的时间跨越只在单测里 | — | 一小时标记静默、一个月退出可浏览列表,两个阈值在实网上无法产生 —— 要么等,要么改生产数据。prodtest 9q 断言的是单测覆盖不到的那一半:信号确实取自真实取信而不是心跳端点、"无记录"不被当成"已静默"、`hub-leave` 删路由留证据。**跨越本身仍然只有单测**,这是有意的取舍,不是漏测 |
-| **H-6b** | taskboard 在套件里没有客户端 | — | 九个变更端点都要 KEL 签名的挑战,而包自身测试之外没有任何东西能产生一个 —— 板子可读不可用,实网上从未被碰过。prodtest 9r 现在用 `anetfixture relay-sign` 驱动它,一张卡走完 created→ready→claimed→submitted→accepted,乱序与未签名都被真的拒掉。**如果 agent 真要用这块板子,它需要 `anet task` 一类的真命令** —— 那是另一个决定,不是这条检查该顺手做的事 |
+| ~~H-6b~~ | ~~taskboard 在套件里没有客户端~~ | — | 九个变更端点都要 KEL 签名的挑战,而包自身测试之外没有任何东西能产生一个 —— 板子可读不可用,实网上从未被碰过。**已完成**。现在有 `module/taskboard`(`no_taskboard`,符号数 22 → 0,CI 矩阵已同步),三个能力:读板、建卡、领取。不是九个 —— 读板、放活、接活是 agent 参与所需,move/block/reject 是人在 UI 里做的协调。`module.Host` 为此新增 `HubSeam`(只有 Sign 与 HubURL),它比 `PaymentSeam` **小**而不是重复:一个只需向自己 hub 认证的模块拿到付费口,等于白拿 hub 的密钥历史与本节点的证据。prodtest 9r 两侧都测:`anetfixture relay-sign` 驱动完整流转(created→ready→claimed→submitted→accepted,乱序与未签名被拒),模块侧证明 agent 不用 fixture 也能参与 |
 | **H-5** | 测试密度偏低 | — | 本轮 35 → 48 个测试(卡片、能力索引、目录联邦)。webui 2,316 行仍基本无测试 |
 | ~~H-6~~ | ~~部署链路上有三层体积上限~~ | — | **已完成**。 把决定性的那层放进仓库,并在文件头写明三层的名字与位置 |
 
@@ -186,6 +187,7 @@ btmesh · ble · thread · mqttbridge · habridge(19 个 HA domain) · sim
 
 | # | 条目 | 依赖 | 备注 |
 |---|---|---|---|
+| ~~L-5~~ | ~~ADAP(C4)从未有适配器说过它~~ | — | **已完成**。实现与插件接线俱全,而包自身测试之外零使用 —— "第三方进程能服务设备、运行时分辨不出差别"是一条没有实况证据的设计属性。新增 `cmd/adapdemo`(照线协手写、不 import adap 包,那是第三方作者的处境)。第一次真跑查出三个缺陷:① `runtime.Invoke` 对 Profile 为 nil 的设备解引用,整个进程 panic,而 claim 与 describe 之间的窗口每个适配器都要经过、且从 C1 socket 可达;② `c1serv`/`mcpserv` 用 `Profile.Protocol` 拼设备 key 而运行时用 `Adapter.Info().Name` 存,编译进来的适配器两者恰好相同所以一直没暴露,ADAP 让它们天然不同,于是这类适配器的能力全部广告得出去、调不到;③ `onDescribe` 对一个解码干净但零能力的 profile 回 `accepted: true`(`DeviceProfile` 无 json tag,写 `capabilities` 而非 `Caps` 会让整列表消失且不报错)。实网:`climate.setpoint` 报 OK/verify_trust 2,`climate.boost` 报 UNVERIFIED |
 | ~~L-4~~ | ~~ANetLink 从未进过生产,依赖落后九个小版本~~ | — | **已完成**。ANetCore 钉在 v0.4.2 而其余三仓在 v0.13.1,daemon 与 ANetLink 之间的 C1 线协从未被验证过是否还对得上。换到 v0.13.1 后无需任何改动、317 测试全绿 —— 漂的是版本钉不是线协,但这一点在跑之前无从得知。现在 dmax 上跑 anetlinkd(sim 适配器),prodtest 9p 断言整条链:适配器发布设备 → 运行时上 C1 口 → daemon 把真实能力 id 折进注册 → hub 索引 → 另一台机器另一个 hub 的节点委派它。实网 `light.onoff@sim/lamp-1`,`power_state=1`。能力 id 里带着设备,而 daemon 仍然不知道"设备"是什么 —— 这就是 C1 |
 | **L-1** | L2 真机测试 | 真机 + 凭据 | PTZ / 事件 / JPEG 抓拍(onvif-server 只实现 Profile S);海康 ISAPI 与大华 CGI **不存在模拟器** |
 | **L-2** | 厂商云适配器:一个都没有 | — | 生态缺口。对标同类产品这是主要差距 |
