@@ -1934,6 +1934,57 @@ for x in d.get('results') or []:
         && ok "效果记名的协议是 $proto,不是笼统的一句 device" \
         || no "效果记的协议是 $vproto,应为 $proto"
     done
+
+    # The two frontends that were empty directories until they were
+    # written. A suite that counted six and could start four is why these
+    # are asserted rather than assumed.
+    #
+    # Modbus reads a register and Zigbee flips a switch, because the two
+    # exercise opposite halves: one is a value only the device knows, the
+    # other is a state this call changed and read back.
+    mb=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+      "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
+       --capability 'sensor.temperature@modbus/climate-004' --args '{}'" 2>&1)
+    mix=$(echo "$mb" | jq_ "print(d.get('interaction_id',''))")
+    mgot=""
+    for _ in $(seq 1 24); do
+      mgot=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
+for x in d.get('results') or []:
+    if x.get('interaction_id') == '$mix':
+        print(x.get('result') or ''); break")
+      [ -n "$mgot" ] && break
+      sleep 5
+    done
+    [ "$(echo "$mgot" | jq_ "print(d.get('status',''))")" = OK ] \
+      && ok "Modbus 从真寄存器读到了温度" \
+      || no "Modbus 读取失败:${mgot:0:140}"
+    [ "$(echo "$mgot" | jq_ "print((d.get('evidence') or {}).get('protocol',''))")" = modbus ] \
+      && ok "效果记名的协议是 modbus" || no "Modbus 效果没有记名协议"
+
+    zb=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+      "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
+       --capability 'switch.onoff@mqttbridge/light-083' --args '{\"on\":true}'" 2>&1)
+    zix=$(echo "$zb" | jq_ "print(d.get('interaction_id',''))")
+    zgot=""
+    for _ in $(seq 1 24); do
+      zgot=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
+for x in d.get('results') or []:
+    if x.get('interaction_id') == '$zix':
+        print(x.get('result') or ''); break")
+      [ -n "$zgot" ] && break
+      sleep 5
+    done
+    [ "$(echo "$zgot" | jq_ "print(d.get('status',''))")" = OK ] \
+      && ok "Zigbee 开关翻转并读回成功" \
+      || no "Zigbee 调用失败:${zgot:0:140}"
+    # ON, not 1: a client reading the boolean the way zigbee2mqtt
+    # actually publishes it got an empty string until the mock's two
+    # halves were made to agree.
+    [ "$(echo "$zgot" | jq_ "print((d.get('evidence') or {}).get('observed_state',''))")" = ON ] \
+      && ok "读回是 ON —— 线上是厂商编码,不是内部数值" \
+      || no "Zigbee 读回不是 ON"
   fi
 fi
 
