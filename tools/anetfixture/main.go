@@ -57,6 +57,8 @@ func main() {
 		err = cmdX402Authorize(os.Args[2:])
 	case "relay-sign":
 		err = cmdRelaySign(os.Args[2:])
+	case "org-id":
+		err = cmdOrgID(os.Args[2:])
 	default:
 		usage()
 	}
@@ -68,7 +70,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr,
-		"usage: anetfixture cogunit|org-genesis|org-credential|aid|x402-authorize|relay-sign --home DIR [...]")
+		"usage: anetfixture cogunit|org-genesis|org-credential|aid|x402-authorize|relay-sign|org-id --home DIR [...]")
 	os.Exit(2)
 }
 
@@ -325,5 +327,37 @@ func cmdRelaySign(args []string) error {
 		return err
 	}
 	fmt.Println(string(out))
+	return nil
+}
+
+// cmdOrgID derives an org's id from its genesis.
+//
+// The id is the hash of the genesis preimage, so anyone holding the
+// genesis can compute it — which is exactly why the id is confidential
+// and the genesis is not something to publish either. Needed by a check
+// that has to know the value a node must never disclose in order to
+// verify that it does not.
+func cmdOrgID(args []string) error {
+	fs := flag.NewFlagSet("org-id", flag.ExitOnError)
+	genesis := fs.String("genesis", "", "base64 genesis")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *genesis == "" {
+		return fmt.Errorf("--genesis is required")
+	}
+	raw, err := base64.StdEncoding.DecodeString(*genesis)
+	if err != nil {
+		return fmt.Errorf("--genesis not base64: %w", err)
+	}
+	var g org.Genesis
+	if err := coredet.Unmarshal(raw, &g); err != nil {
+		return fmt.Errorf("--genesis malformed: %w", err)
+	}
+	id, err := g.OrgID()
+	if err != nil {
+		return err
+	}
+	fmt.Println(id)
 	return nil
 }
