@@ -1424,6 +1424,25 @@ else
   [ "$last" = 429 ] \
     && ok "连续猜测越过阈值后被限流挡住(429)" \
     || no "25 次错误口令之后仍返回 $last —— 限流没有生效"
+
+  # The recovery surface is the most powerful thing behind this
+  # credential: it can put back an agent an operator deleted, which means
+  # it can also put back one they deleted on purpose.
+  #
+  # Exercised without a credential, because the live token is the
+  # operator's and using it here would mean a test that mutates the
+  # production registry. What CAN be asserted from outside is that the
+  # route exists and is closed — an open restore endpoint is a way to
+  # resurrect a delisted agent.
+  # GET for the listing, POST for the restore: calling each with the
+  # method it actually takes, or a 405 would pass for the wrong reason.
+  for spec in "GET /admin/api/deleted" "POST /admin/api/deleted/did:anet:x/restore"; do
+    m=${spec%% *}; ep=${spec#* }
+    code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' -X "$m" "$EMAX_HUB$ep" 2>/dev/null)
+    { [ "$code" = 401 ] || [ "$code" = 403 ]; } \
+      && ok "恢复入口 $m $ep 未鉴权时被拒($code)" \
+      || no "恢复入口 $m $ep 未鉴权返回 $code —— 它能把已注销的 agent 放回来"
+  done
 fi
 
 # ── 9p. a device capability, end to end across machines ─────────
