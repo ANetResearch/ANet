@@ -1898,6 +1898,83 @@ for x in d.get('results') or []:
     [ "$(echo "$got2" | jq_ "print(d.get('status',''))")" = UNVERIFIED ] \
       && ok "未探测的流报 UNVERIFIED,而不是把 发出去了 说成 确认了" \
       || no "stream.rtsp 状态是 $(echo "$got2" | jq_ "print(d.get('status',''))"),应为 UNVERIFIED"
+
+    # The two vendor wire formats L-1 says have no simulator. They do
+    # now, and these are the adapters that had only ever been tested
+    # against fakes written by the same people who wrote them.
+    #
+    # system.info because it reads something only the device knows — its
+    # model and firmware — so a wrong answer cannot come from the
+    # adapter's own assumptions.
+    for vend in "hikvision/camera-107 isapi DS-2CD2143G0-I" \
+                "dahua/camera-108 dahua-cgi IPC-HFW4431R-Z"; do
+      set -- $vend
+      dev=$1; proto=$2; model=$3
+      vout=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
+         --capability 'system.info@$dev' --args '{}'" 2>&1)
+      vix=$(echo "$vout" | jq_ "print(d.get('interaction_id',''))")
+      vgot=""
+      for _ in $(seq 1 24); do
+        vgot=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+          "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
+for x in d.get('results') or []:
+    if x.get('interaction_id') == '$vix':
+        print(x.get('result') or ''); break")
+        [ -n "$vgot" ] && break
+        sleep 5
+      done
+      vobs=$(echo "$vgot" | jq_ "print((d.get('evidence') or {}).get('observed_state',''))")
+      vproto=$(echo "$vgot" | jq_ "print((d.get('evidence') or {}).get('protocol',''))")
+      case "$vobs" in
+        *"$model"*) ok "$proto 从真协议读回了型号($vobs)";;
+        *) no "$proto 没有读回设备型号:$vobs";;
+      esac
+      [ "$vproto" = "$proto" ] \
+        && ok "效果记名的协议是 $proto,不是笼统的一句 device" \
+        || no "效果记的协议是 $vproto,应为 $proto"
+    done
+  fi
+fi
+
+# ── 9v. ANetLink's own MCP surface ──────────────────────────────
+hd "9v ANetLink MCP:列设备 → 用列表给的名字直接调用"
+# Four tools, never driven outside the package's own tests. The one thing
+# a model client does — read a tool's output, fill the next tool's input
+# from it — is the thing this checks, because it is the thing that was
+# broken: the listing published "key" while the invoke took "device", so
+# following the obvious path failed with "unexpected additional
+# properties".
+if [ -z "$DMAX_AID" ]; then
+  sk "MCP 面检查要 dmax"
+else
+  mcpout=$(ssh -o ConnectTimeout=30 $CMAX_HOST \
+    "ssh -o ConnectTimeout=20 root@dmax.chatchat.space 'bash /root/ship/mcp-probe.sh'" 2>/dev/null)
+  if [ -z "$mcpout" ]; then
+    sk "ANetLink MCP 探针不可用(/root/ship/mcp-probe.sh 未部署)"
+  else
+    case "$mcpout" in
+      *devices_list*) ok "ANetLink MCP 起来了,报出了工具";;
+      *) no "MCP 没有列出工具";;
+    esac
+    # The listing has to publish the field the invoke takes, under that
+    # name. Anything else makes a client guess.
+    case "$mcpout" in
+      *'\"device\":\"'*) ok "devices_list 报出的字段就叫 device";;
+      *) no "devices_list 没有报出 device 字段 —— 客户端得靠猜";;
+    esac
+    # And the invoke, called with exactly that value, has to work.
+    case "$mcpout" in
+      *'\"id\":4'*|*'"id":4'*) : ;;
+      *) no "MCP invoke 没有回应";;
+    esac
+    case "$mcpout" in
+      *"DS-2CD2143G0-I"*)
+        ok "经 MCP 从真 ISAPI 读回了型号 —— 列表给的名字可以直接拿去调用";;
+      *"unexpected additional properties"*)
+        no "MCP 列表与调用对同一个东西用了两个名字";;
+      *) no "MCP invoke 没有拿回设备信息";;
+    esac
   fi
 fi
 
