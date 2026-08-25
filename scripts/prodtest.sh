@@ -1866,9 +1866,15 @@ for x in d.get('results') or []:
     [ "$(echo "$got" | jq_ "print(d.get('status',''))")" = OK ] \
       && ok "跨机把 mock 摄像头转过去了,状态 OK" \
       || no "PTZ 委派没有拿回 OK:${got:0:160}"
+    # A readback, not a particular one. The first version asserted
+    # "pan 0→", which held only on a camera that had never been moved —
+    # a PTZ head accumulates, so every run after the first started
+    # somewhere else and the check failed on a correct result. An
+    # assertion that encodes the first run's state tests the run, not the
+    # system.
     obs=$(echo "$got" | jq_ "print((d.get('evidence') or {}).get('observed_state',''))")
     case "$obs" in
-      *"pan 0→"*) ok "效果里带着真实读回($obs)";;
+      *"pan "*"→"*) ok "效果里带着真实读回($obs)";;
       *) no "效果里没有可核对的读回:$obs";;
     esac
 
