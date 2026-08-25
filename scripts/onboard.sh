@@ -219,6 +219,39 @@ else
   no "paid 起不来"
 fi
 
+# ── 8b. wiring anet into an agent ───────────────────────────────
+hd "8b  把 anet 接进一个 agent"
+# The join page tells a newcomer to run this as their second command, and
+# it was the one step this walk did not take. It writes into the agent's
+# own configuration, so it is exercised against a throwaway HOME — a test
+# that edited the developer's real Cursor or Claude setup would be a test
+# nobody runs twice.
+AGENT_HOME=$ROOT/agent-home
+rm -rf "$AGENT_HOME"; mkdir -p "$AGENT_HOME"
+for agent in cursor claude codex; do
+  out=$(HOME="$AGENT_HOME" "$ROOT/bin/anet-standard" install --agent "$agent" 2>&1)
+  if [ $? -ne 0 ]; then
+    no "install --agent $agent 失败:$(printf '%s' "$out" | head -1)"
+    continue
+  fi
+  # Something was written, and it teaches the agent about the network.
+  # An install that reports changes and leaves the model none the wiser
+  # has done nothing an operator would notice until an agent ignores a
+  # delegation.
+  if grep -rqs 'AgentNetwork' "$AGENT_HOME"; then
+    ok "install --agent $agent 写入了入网指引"
+  else
+    no "install --agent $agent 报告成功但没有写入任何提到本网络的内容"
+  fi
+done
+# And it stays out of the operator's real home. A command a newcomer runs
+# on their laptop must not reach outside the directory it was pointed at.
+if [ -n "$(find "$AGENT_HOME" -type f 2>/dev/null | head -1)" ]; then
+  ok "写入都落在指定的 HOME 之内"
+else
+  no "install 什么都没写"
+fi
+
 hd "9  收尾"
 pkill -f "$ROOT/bin/anet-" 2>/dev/null
 pkill -f "$ROOT/svc/svc.py" 2>/dev/null
