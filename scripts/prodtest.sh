@@ -1439,9 +1439,22 @@ else
   for spec in "GET /admin/api/deleted" "POST /admin/api/deleted/did:anet:x/restore"; do
     m=${spec%% *}; ep=${spec#* }
     code=$(curl -s -m 30 -o /dev/null -w '%{http_code}' -X "$m" "$EMAX_HUB$ep" 2>/dev/null)
-    { [ "$code" = 401 ] || [ "$code" = 403 ]; } \
-      && ok "恢复入口 $m $ep 未鉴权时被拒($code)" \
-      || no "恢复入口 $m $ep 未鉴权返回 $code —— 它能把已注销的 agent 放回来"
+    # 404/405 means this build does not have the route, which is a
+    # different fact from an open one and must not be reported as a
+    # breach. A 200 on an admin path is the SPA: the page is public and
+    # its token gate lives inside it, so an unmatched API path falls
+    # through to HTML — which is exactly what an absent route looks like.
+    case "$code" in
+      401|403) ok "恢复入口 $m $ep 未鉴权时被拒($code)";;
+      404|405) info "恢复入口 $m $ep 不存在于线上这一版($code)";;
+      200)
+        if curl -s -m 30 -X "$m" "$EMAX_HUB$ep" | head -c 40 | grep -qi '<!doctype\|<html'; then
+          info "恢复入口 $m $ep 未匹配,落到了 SPA —— 线上这一版没有这条路由"
+        else
+          no "恢复入口 $m $ep 未鉴权返回了数据 —— 它能把已注销的 agent 放回来"
+        fi;;
+      *) no "恢复入口 $m $ep 未鉴权返回 $code";;
+    esac
   done
 fi
 

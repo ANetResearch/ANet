@@ -167,6 +167,7 @@ admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 
 | ~~H-10~~ | ~~hub 只是 facilitator,不是 resource server~~ | — | **已完成**。`GET /x402/resource/{aid}/{capability}`:未付款回 402 + `PAYMENT-REQUIRED`,付款后回 `PAYMENT-RESPONSE` 与一张**凭证**。**网关只卖门票不代理内容**——hub 全程见不到请求与结果,这和中继"只搬读不懂的字节"是同一条性质。价钱与取货地址都读自 agent 自己签的卡片,所以 hub 能拒卖、不能改价、不能把买家指到自己的机器上 |
 | **H-22** | 静默两档的时间跨越只在单测里 | — | 一小时标记静默、一个月退出可浏览列表,两个阈值在实网上无法产生 —— 要么等,要么改生产数据。prodtest 9q 断言的是单测覆盖不到的那一半:信号确实取自真实取信而不是心跳端点、"无记录"不被当成"已静默"、`hub-leave` 删路由留证据。**跨越本身仍然只有单测**,这是有意的取舍,不是漏测 |
 | ~~H-6b~~ | ~~taskboard 在套件里没有客户端~~ | — | 九个变更端点都要 KEL 签名的挑战,而包自身测试之外没有任何东西能产生一个 —— 板子可读不可用,实网上从未被碰过。**已完成**。现在有 `module/taskboard`(`no_taskboard`,符号数 22 → 0,CI 矩阵已同步),三个能力:读板、建卡、领取。不是九个 —— 读板、放活、接活是 agent 参与所需,move/block/reject 是人在 UI 里做的协调。`module.Host` 为此新增 `HubSeam`(只有 Sign 与 HubURL),它比 `PaymentSeam` **小**而不是重复:一个只需向自己 hub 认证的模块拿到付费口,等于白拿 hub 的密钥历史与本节点的证据。prodtest 9r 两侧都测:`anetfixture relay-sign` 驱动完整流转(created→ready→claimed→submitted→accepted,乱序与未签名被拒),模块侧证明 agent 不用 fixture 也能参与 |
+| ~~H-23~~ | ~~admin 23 个路由零直接测试;归档删除只有写没有读~~ | — | **已完成**。鉴权是这些路由唯一共同的防线且**逐条**挂上,漏挂一条就是公网可达的无鉴权写入口。现在路由表从 mux 枚举、条数写死并断言(手写清单会朝最要紧的方向过期:新路由正是最可能忘记挂鉴权的)。写测试时发现归档只有 `ArchiveDeletedAgent` 没有读取或恢复 —— "任何删除都可逆"对字节成立、对运营者不成立,唯一办法是手工开 SQLite。补上 `DeletedAgents`/`RestoreDeletedAgent` 并接到 admin 面 |
 | **H-5** | 测试密度偏低 | — | Go 侧持续增长。webui 2,737 行从 42 → 54 个测试:导出 `Transcript`/`Review`、拆出 `Column` 之后,详情弹窗与任务板可测了。仍未覆盖:ChatDialog(283 行)、JoinSection(235 行)、Header/Hero/Footer/Starfield/Toast |
 | ~~H-6~~ | ~~部署链路上有三层体积上限~~ | — | **已完成**。 把决定性的那层放进仓库,并在文件头写明三层的名字与位置 |
 
@@ -189,6 +190,7 @@ btmesh · ble · thread · mqttbridge · habridge(19 个 HA domain) · sim
 |---|---|---|---|
 | ~~L-5~~ | ~~ADAP(C4)从未有适配器说过它~~ | — | **已完成**。实现与插件接线俱全,而包自身测试之外零使用 —— "第三方进程能服务设备、运行时分辨不出差别"是一条没有实况证据的设计属性。新增 `cmd/adapdemo`(照线协手写、不 import adap 包,那是第三方作者的处境)。第一次真跑查出三个缺陷:① `runtime.Invoke` 对 Profile 为 nil 的设备解引用,整个进程 panic,而 claim 与 describe 之间的窗口每个适配器都要经过、且从 C1 socket 可达;② `c1serv`/`mcpserv` 用 `Profile.Protocol` 拼设备 key 而运行时用 `Adapter.Info().Name` 存,编译进来的适配器两者恰好相同所以一直没暴露,ADAP 让它们天然不同,于是这类适配器的能力全部广告得出去、调不到;③ `onDescribe` 对一个解码干净但零能力的 profile 回 `accepted: true`(`DeviceProfile` 无 json tag,写 `capabilities` 而非 `Caps` 会让整列表消失且不报错)。实网:`climate.setpoint` 报 OK/verify_trust 2,`climate.boost` 报 UNVERIFIED |
 | ~~L-4~~ | ~~ANetLink 从未进过生产,依赖落后九个小版本~~ | — | **已完成**。ANetCore 钉在 v0.4.2 而其余三仓在 v0.13.1,daemon 与 ANetLink 之间的 C1 线协从未被验证过是否还对得上。换到 v0.13.1 后无需任何改动、317 测试全绿 —— 漂的是版本钉不是线协,但这一点在跑之前无从得知。现在 dmax 上跑 anetlinkd(sim 适配器),prodtest 9p 断言整条链:适配器发布设备 → 运行时上 C1 口 → daemon 把真实能力 id 折进注册 → hub 索引 → 另一台机器另一个 hub 的节点委派它。实网 `light.onoff@sim/lamp-1`,`power_state=1`。能力 id 里带着设备,而 daemon 仍然不知道"设备"是什么 —— 这就是 C1 |
+| ~~L-6~~ | ~~realworld 层从未跑过~~ | — | **已完成**。`test/realworld` 用 docker 起真 mosquitto / 第三方 Modbus server / Home Assistant / OPC UA / RTSP,覆盖 7 个适配器,而这一整层从未运行 —— **opcua 与 habridge 两个适配器因此根本没被驱动过**。在 dmax 上跑通(镜像经 cmax 中转:dmax 直连 Docker Hub 不通,镜像源只放行官方库)。第一次跑查出:mediamtx 用 `--network host` 加固定端口,在已占端口的机器上退出而 `up.sh` 照常打印 "L1 rig up" 并无条件写入相机地址,测试以"摄像头不可达"失败 —— 真话且毫无帮助;Matter 容器 npm 解析失败而宿主正常(`--network host` 不共享解析器语义);`down.sh` 漏删相机架两个容器。相机端口现可整体挪开,用不到的 mediamtx 服务一律关掉(MoQ 就是某个版本新增的) |
 | **L-1** | L2 真机测试 | 真机 + 凭据 | PTZ / 事件 / JPEG 抓拍(onvif-server 只实现 Profile S);海康 ISAPI 与大华 CGI **不存在模拟器** |
 | **L-2** | 厂商云适配器:一个都没有 | — | 生态缺口。对标同类产品这是主要差距 |
 | **L-3** | 自动发现只有 ONVIF WS-Discovery | — | 其余协议靠配置 |
@@ -218,9 +220,11 @@ f6 资产拆解为语义数据
 
 | # | 条目 | 备注 |
 |---|---|---|
+| ~~M-4~~ | ~~modbus 与 mqtt 前端是两个空目录~~ | **已完成**。文档写着六个协议前端,而 `frontend/modbus` 与 `frontend/mqtt` **从没写过** —— 实际能起四个,且 z2m 需要运营者自备 broker 所以也从未运行。补齐:一个最小 MQTT broker(`-mqtt own` 起内建实例)与每设备一个 Modbus TCP server。第一次被真客户端驱动就查出两个缺陷:MBAP 长度字段偏移读错(2:4 而非 4:6),每个请求都像零长度帧、服务器直接断连;读写两个方向的编码分别推导,只做对一个方向会得到"读得对、设到错值"的设备 —— 比失败更糟,因为客户端被告知 OK。z2m 侧另查出:注册表把 `state` 声明为 binary 而发布时给数值,按真实线格式读布尔的客户端拿到空串 |
+| ~~M-5~~ | ~~ANetMock 没有 CI~~ | **已完成**。五仓里唯一没有的。除 vet/test/race 外加三段:每个前端必须真的起来(两个前端曾是空目录数月,套件数着它们而从没启动过 —— 编译通过只证明代码能解析)、目录里每个 venue 都能起、同一 venue 两次描述同一栋楼 |
+| ~~M-1~~ | ~~只有 office 一个场景~~ | **已完成**。加入 industrial:26 meter / 23 industrial / 49 个 Modbus 前端(office 15),灯 14(office 24)。渲染弱点写在 Blurb 里而不是藏着。新增 `scene.Build(v)` —— 选哪个 composer 此前散在调用方 |
 | ~~M-3~~ | ~~ANetMock 从未真的驱动过 ANetLink~~ | **已完成**。它存在就是为了用真 SOAP / ISAPI / Dahua CGI 线格式测适配器,`joint.sh` 的注释里画着这条链而从未真跑过 —— 于是适配器一直只对着写适配器的人自己写的 fake 被测。现在 dmax 上跑 office 场景(148 台设备、10 个 ONVIF 端点),`anetlinkd -tags adap,onvif` 接上其中两台,41 个能力上了实网 hub。跨机委派实测:`ptz.move` 报 OK 且带真实读回(`pan 0→0.03`),`stream.rtsp` 报 UNVERIFIED 并说明"URI 已给出、流未探测"。**L-1 的性质因此变了**:PTZ 与抓拍不再是"不存在模拟器",而是"没有对真机测过",那是更小的缺口 |
-| **M-1** | 只有 office 一个场景 | 回滚后的刻意选择:打磨一个胜过五个都丑。`-venue` 帮助曾仍在宣传另外四个,2026-08-22 已改正 |
-| **M-2** | 测试密度偏低 | 5,910 行对 29 个测试 |
+| **M-2** | 测试密度偏低 | 29 → 43 个测试(modbus 5、mqtt broker 7、z2m 2)。`cmd/anetmock`、`frontend/onvif`、`frontend/isapi`、`frontend/dahua` 仍无测试 |
 
 ---
 
