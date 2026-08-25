@@ -1766,6 +1766,135 @@ print(ms[-1].get('body','') if ms else '')")
   fi
 fi
 
+# ── 9t. the two invariants, on a node that can actually break them ──
+hd "9t 两条不变式:org 数据不进公开发布"
+# Both invariants are enforced at one chokepoint — what this node
+# publishes to its hub — and both were, at one time or another, mechanisms
+# with nothing behind them. INV-1's runtime guard had no call site at all
+# until it was wired here. INV-2 has a producer (the org module declares
+# its org id confidential) and had never been exercised against a live
+# node.
+#
+# cmax is the node that can break them: it runs the org module, so it
+# holds a real confidential value, and it publishes a profile to a real
+# hub that federates and serves a browsable directory.
+if ! has cmax; then
+  sk "不变式检查要 cmax(它是配了 org 的那个节点)"
+else
+  orgcaps=$(ctl cmax /status '{}' | jq_ "print(','.join(d.get('caps') or []))")
+  case "$orgcaps" in
+    *org.info*) ok "cmax 配了 org 模块 —— 它持有一个真的机密值";;
+    *) sk "cmax 未配 org,不变式无从检验"; orgcaps="";;
+  esac
+  if [ -n "$orgcaps" ]; then
+    # The org id, derived the way anyone would: from the genesis the node
+    # is configured with.
+    # The value the node must never disclose, derived the way anyone
+    # holding the genesis would derive it.
+    GEN=$(ssh -o ConnectTimeout=20 $CMAX_HOST "python3 - <<'PY'
+import json
+print(json.load(open('$CMAX_HOME/.anet/config.json'))['modules']['org']['genesis'])
+PY" 2>/dev/null)
+    OID=$([ -n "$GEN" ] && "$FIXTURE" org-id --genesis "$GEN" 2>/dev/null)
+    if [ -z "$OID" ]; then
+      no "取不到 cmax 的 org id"
+    else
+      # Publishing something that carries the org id must be refused. The
+      # realistic leak is not a field somebody added on purpose — it is
+      # prose an agent wrote about itself.
+      before=$(ctl cmax /status '{}' | jq_ "print(d.get('summary',''))")
+      out=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 60 $CMAX_BIN profile set \
+         --summary 'prodtest $OID'" 2>&1)
+      case "$out" in
+        *"confidential token"*|*inv2*)
+          ok "含机密值的 profile 被拒 —— INV-2 在生产上真的在跑";;
+        *) no "含机密值的 profile 发出去了:$(printf '%s' "$out" | head -2 | tr '\n' ' ')";;
+      esac
+      # And an ordinary profile still publishes. A guard that refuses
+      # everything protects nothing and gets switched off.
+      ok2=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 60 $CMAX_BIN profile set \
+         --summary '$before'" 2>&1)
+      case "$ok2" in
+        *error*) no "普通 profile 也被拒了:$(printf '%s' "$ok2" | head -2 | tr '\n' ' ')";;
+        *) ok "普通 profile 照常发布,档案已还原";;
+      esac
+    fi
+  fi
+fi
+
+# ── 9u. a real protocol, end to end ─────────────────────────────
+hd "9u ANetMock:真 ONVIF 设备穿过适配器、daemon、hub 到另一台机器"
+# ANetMock exists to test ANetLink's adapters against real wire formats —
+# real SOAP, real ISAPI, real Dahua CGI — and joint.sh names the chain in
+# a comment while never running it. So the adapters were tested against
+# fakes written by the same people who wrote the adapters, which is the
+# arrangement every defect this month has been found hiding in.
+#
+# It also covers what L-1 says has no simulator: PTZ and snapshot. Those
+# are not "no simulator exists" any more; they are "no REAL camera has
+# been tested", which is a different and smaller gap.
+PTZ=ptz.move@onvif/camera-006
+RTSP=stream.rtsp@onvif/camera-007
+if [ -z "$DMAX_AID" ] || ! has cmax; then
+  sk "ANetMock 检查要 cmax 与 dmax"
+else
+  dcaps=$(viafmax "/agents/$DMAX_AID" | jq_ "print(','.join((d.get('agent') or {}).get('caps') or []))")
+  case "$dcaps" in
+    *"$PTZ"*) ok "hub 目录里有 mock 摄像头的 PTZ 能力";;
+    *) sk "dmax 未接 ANetMock,跳过"; dcaps="";;
+  esac
+  if [ -n "$dcaps" ]; then
+    # A device that can be read back reports OK and carries the readback.
+    # "I sent it" and "I confirmed it" are different claims and the
+    # adapter has to make the right one.
+    out=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+      "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
+       --capability '$PTZ' --args '{\"pan\":0.3,\"tilt\":0.1}'" 2>&1)
+    pix=$(echo "$out" | jq_ "print(d.get('interaction_id',''))")
+    got=""
+    for _ in $(seq 1 30); do
+      got=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
+for x in d.get('results') or []:
+    if x.get('interaction_id') == '$pix':
+        print(x.get('result') or ''); break")
+      [ -n "$got" ] && break
+      sleep 5
+    done
+    [ "$(echo "$got" | jq_ "print(d.get('status',''))")" = OK ] \
+      && ok "跨机把 mock 摄像头转过去了,状态 OK" \
+      || no "PTZ 委派没有拿回 OK:${got:0:160}"
+    obs=$(echo "$got" | jq_ "print((d.get('evidence') or {}).get('observed_state',''))")
+    case "$obs" in
+      *"pan 0→"*) ok "效果里带着真实读回($obs)";;
+      *) no "效果里没有可核对的读回:$obs";;
+    esac
+
+    # And one that cannot be verified must say so, however cleanly the
+    # call succeeded. A stream URI is what the camera claims until
+    # somebody probes it.
+    out2=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+      "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
+       --capability '$RTSP' --args '{}'" 2>&1)
+    rix=$(echo "$out2" | jq_ "print(d.get('interaction_id',''))")
+    got2=""
+    for _ in $(seq 1 30); do
+      got2=$(ssh -o ConnectTimeout=20 $CMAX_HOST \
+        "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
+for x in d.get('results') or []:
+    if x.get('interaction_id') == '$rix':
+        print(x.get('result') or ''); break")
+      [ -n "$got2" ] && break
+      sleep 5
+    done
+    [ "$(echo "$got2" | jq_ "print(d.get('status',''))")" = UNVERIFIED ] \
+      && ok "未探测的流报 UNVERIFIED,而不是把 发出去了 说成 确认了" \
+      || no "stream.rtsp 状态是 $(echo "$got2" | jq_ "print(d.get('status',''))"),应为 UNVERIFIED"
+  fi
+fi
+
 # ── 10. what a node can check for itself ────────────────────────
 hd "10  节点自查:审计发放链 + 对账"
 if ! has dmax; then

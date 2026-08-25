@@ -167,7 +167,7 @@ admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 
 | ~~H-10~~ | ~~hub 只是 facilitator,不是 resource server~~ | — | **已完成**。`GET /x402/resource/{aid}/{capability}`:未付款回 402 + `PAYMENT-REQUIRED`,付款后回 `PAYMENT-RESPONSE` 与一张**凭证**。**网关只卖门票不代理内容**——hub 全程见不到请求与结果,这和中继"只搬读不懂的字节"是同一条性质。价钱与取货地址都读自 agent 自己签的卡片,所以 hub 能拒卖、不能改价、不能把买家指到自己的机器上 |
 | **H-22** | 静默两档的时间跨越只在单测里 | — | 一小时标记静默、一个月退出可浏览列表,两个阈值在实网上无法产生 —— 要么等,要么改生产数据。prodtest 9q 断言的是单测覆盖不到的那一半:信号确实取自真实取信而不是心跳端点、"无记录"不被当成"已静默"、`hub-leave` 删路由留证据。**跨越本身仍然只有单测**,这是有意的取舍,不是漏测 |
 | ~~H-6b~~ | ~~taskboard 在套件里没有客户端~~ | — | 九个变更端点都要 KEL 签名的挑战,而包自身测试之外没有任何东西能产生一个 —— 板子可读不可用,实网上从未被碰过。**已完成**。现在有 `module/taskboard`(`no_taskboard`,符号数 22 → 0,CI 矩阵已同步),三个能力:读板、建卡、领取。不是九个 —— 读板、放活、接活是 agent 参与所需,move/block/reject 是人在 UI 里做的协调。`module.Host` 为此新增 `HubSeam`(只有 Sign 与 HubURL),它比 `PaymentSeam` **小**而不是重复:一个只需向自己 hub 认证的模块拿到付费口,等于白拿 hub 的密钥历史与本节点的证据。prodtest 9r 两侧都测:`anetfixture relay-sign` 驱动完整流转(created→ready→claimed→submitted→accepted,乱序与未签名被拒),模块侧证明 agent 不用 fixture 也能参与 |
-| **H-5** | 测试密度偏低 | — | 本轮 35 → 48 个测试(卡片、能力索引、目录联邦)。webui 2,316 行仍基本无测试 |
+| **H-5** | 测试密度偏低 | — | Go 侧持续增长。webui 2,737 行从 42 → 54 个测试:导出 `Transcript`/`Review`、拆出 `Column` 之后,详情弹窗与任务板可测了。仍未覆盖:ChatDialog(283 行)、JoinSection(235 行)、Header/Hero/Footer/Starfield/Toast |
 | ~~H-6~~ | ~~部署链路上有三层体积上限~~ | — | **已完成**。 把决定性的那层放进仓库,并在文件头写明三层的名字与位置 |
 
 ---
@@ -218,6 +218,7 @@ f6 资产拆解为语义数据
 
 | # | 条目 | 备注 |
 |---|---|---|
+| ~~M-3~~ | ~~ANetMock 从未真的驱动过 ANetLink~~ | **已完成**。它存在就是为了用真 SOAP / ISAPI / Dahua CGI 线格式测适配器,`joint.sh` 的注释里画着这条链而从未真跑过 —— 于是适配器一直只对着写适配器的人自己写的 fake 被测。现在 dmax 上跑 office 场景(148 台设备、10 个 ONVIF 端点),`anetlinkd -tags adap,onvif` 接上其中两台,41 个能力上了实网 hub。跨机委派实测:`ptz.move` 报 OK 且带真实读回(`pan 0→0.03`),`stream.rtsp` 报 UNVERIFIED 并说明"URI 已给出、流未探测"。**L-1 的性质因此变了**:PTZ 与抓拍不再是"不存在模拟器",而是"没有对真机测过",那是更小的缺口 |
 | **M-1** | 只有 office 一个场景 | 回滚后的刻意选择:打磨一个胜过五个都丑。`-venue` 帮助曾仍在宣传另外四个,2026-08-22 已改正 |
 | **M-2** | 测试密度偏低 | 5,910 行对 29 个测试 |
 

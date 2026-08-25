@@ -35,9 +35,9 @@ rm -rf "$ROOT"; mkdir -p "$ROOT/bin"
 
 hd "0  按发行版设计构建每一档"
 declare -A PROFILE=(
- [min]="no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
- [standard]="no_x402,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
- [paid]="no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
+ [min]="no_x402,no_service,no_mcp,no_taskboard,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
+ [standard]="no_x402,no_mcp,no_taskboard,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
+ [paid]="no_mcp,no_taskboard,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
 )
 # Through build.sh, so the binaries carry a commit stamp. Building with a
 # bare `go build` here would leave every profile reporting "unknown", and
