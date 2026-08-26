@@ -391,6 +391,21 @@ else
 bal_before=$(ctl ink93 /balance '{}' | jq_ "print(d.get('balance',''))")
 cbal_before=$(ctl cmax /balance '{}' | jq_ "print(d.get('balance',''))")
 info "开工前:ink93=$bal_before cmax=$cbal_before"
+# Say something while there is still time to act.
+#
+# The section spends 25 a run and simply went quiet the day the balance
+# reached zero — a skip that appeared only once the budget was already
+# gone, in a run where nothing could be done about it. Ten runs of warning
+# is the difference between a note an operator reads and a section that
+# stopped covering the payment path without anyone deciding to stop
+# covering it.
+if [ -n "$bal_before" ] && [ "$bal_before" -ge 25 ] && [ "$bal_before" -lt 250 ]; then
+  info "  ⚠ ink93 余额 $bal_before,约够 $((bal_before / 25)) 轮。充值:"
+  info "    ssh root@emax.chatchat.space"
+  info "    systemctl stop anet-hub && /data/projs/anet-hub/bin/anet-hub \\"
+  info "      -data /data/projs/anet-hub/data -grant $INK_AID -amount 2000 \\"
+  info "      -reason prodtest && systemctl start anet-hub"
+fi
 if [ -z "$bal_before" ]; then
   no "ink93 读不到余额(hub 是旧构建,或本节点无 x402 模块)"
 elif [ "$bal_before" -lt 25 ]; then

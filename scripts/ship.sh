@@ -148,6 +148,42 @@ for host in emax fmax cmax dmax; do
   echo "$out" | grep -q "$host ok" && ok "$host 安装完成" || no "$host 安装失败"
 done
 
+# ── 4b. the local node ──────────────────────────────────────────
+hd "4b  本机节点"
+# ink93 is the fourth daemon and it was not in this script, so it was
+# updated by hand every time — which is the practice this file exists to
+# replace. It runs from a plain directory rather than a unit, so it is
+# stopped by the pid holding its control port: matching on the command
+# line would also match this script's own invocation.
+INK_HOME=${INK_HOME:-/tmp/anet-prod/ink93}
+INK_PORT=${INK_PORT:-29615}
+INK_BIN=${INK_BIN:-/tmp/deploy/anet}
+if [ -d "$INK_HOME/.anet" ]; then
+  pid=$(ss -ltnp 2>/dev/null | grep ":$INK_PORT " | grep -oP 'pid=\K[0-9]+' | head -1)
+  [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null
+  # Wait for the port, not a fixed sleep: the copy below fails with "text
+  # file busy" while the old process still holds the binary.
+  for _ in $(seq 1 20); do
+    ss -ltn 2>/dev/null | grep -q ":$INK_PORT " || break
+    sleep 1
+  done
+  if cp -f "$STAGE/anet" "$INK_BIN" && chmod +x "$INK_BIN"; then
+    cp -f "$STAGE/anetfixture" "$(dirname "$INK_BIN")/anetfixture" 2>/dev/null
+    chmod +x "$(dirname "$INK_BIN")/anetfixture" 2>/dev/null
+    HOME="$INK_HOME" setsid "$INK_BIN" daemon >/tmp/ink93-daemon.log 2>&1 </dev/null &
+    for _ in $(seq 1 20); do
+      curl -sf -m 2 "http://127.0.0.1:$INK_PORT/ping" >/dev/null 2>&1 && break
+      sleep 1
+    done
+    curl -sf -m 3 "http://127.0.0.1:$INK_PORT/ping" >/dev/null 2>&1 \
+      && ok "ink93 已更新并起来了" || no "ink93 更新后没有起来"
+  else
+    no "ink93 二进制替换失败(旧进程还占着?)"
+  fi
+else
+  info "本机没有 $INK_HOME,跳过"
+fi
+
 # ── 5. verify ───────────────────────────────────────────────────
 hd "5  验证跑的是刚装的那一版"
 HUBC=$( cd "$ROOT/ANetHub" && git rev-parse --short HEAD 2>/dev/null )
@@ -170,6 +206,7 @@ check "emax admin" "curl -sf -m 20 https://hub.agentnetwork.org.cn/admin/healthz
 check "fmax hub"   "ssh -o ConnectTimeout=20 root@emax.chatchat.space 'curl -sf -m 10 http://39.107.76.243:4001/healthz'" "$HUBC"
 check "cmax daemon" "ssh -o ConnectTimeout=20 $RELAY 'curl -sf -m 10 http://127.0.0.1:29610/ping'" "$ANETC"
 check "dmax daemon" "ssh -o ConnectTimeout=20 $RELAY \"ssh root@dmax.chatchat.space 'curl -sf -m 10 http://127.0.0.1:29610/ping'\"" "$ANETC"
+[ -d "$INK_HOME/.anet" ] && check "ink93 daemon" "curl -sf -m 5 http://127.0.0.1:$INK_PORT/ping" "$ANETC"
 
 printf '\n\033[1m── %d 通过, %d 失败 ──\033[0m\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
