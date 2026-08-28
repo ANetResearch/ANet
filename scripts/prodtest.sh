@@ -94,7 +94,17 @@ DMAX_HOST=root@dmax.chatchat.space; DMAX_HOME=/data/anet-node/home;   DMAX_PORT=
 EMAX_HOST=root@emax.chatchat.space
 INK_HOME=${INK_HOME:-/tmp/anet-prod/ink93};                           INK_PORT=29615
 INK_BIN=${INK_BIN:-/tmp/deploy/anet}
+# Whether the local tools exist at all.
+#
+# INK_BIN and FIXTURE default to paths on the workstation this script is
+# usually run from, and the scheduled copy runs on cmax where neither is
+# present. Seven checks then failed with "no such file" — which reads as a
+# broken system and is a missing tool. A check that cannot run has to say
+# so; only a check that ran and got the wrong answer is a failure.
+HAVE_INK_BIN=0; [ -x "$INK_BIN" ] && HAVE_INK_BIN=1
+HAVE_FIXTURE=0
 FIXTURE=${FIXTURE:-/tmp/deploy/anetfixture}
+[ -x "$FIXTURE" ] && HAVE_FIXTURE=1
 CMAX_HOME_LOCAL=${CMAX_HOME_LOCAL:-}
 
 pass=0; fail=0; skip=0
@@ -1246,6 +1256,9 @@ hd "9m 见证:陌生人能自己验一条见证品"
 # Rewrite detection itself stays in the unit suites: producing a real
 # rewrite means editing a production chain, and a test that has to
 # corrupt the thing it is testing does not belong against live data.
+if [ "$HAVE_INK_BIN" = 0 ]; then
+  sk "见证品的独立验签需要 anet 二进制($INK_BIN 不在这台机器上)"
+fi
 for h in emax fmax; do
   [ $h = emax ] && W=$(curl -s -m 30 "$EMAX_HUB/x402/witnesses") || W=$(viafmax /x402/witnesses)
   n=$(echo "$W" | jq_ "print(len(d.get('attestations') or []))")
@@ -1277,6 +1290,10 @@ print(xs[0]['attestation'] if xs else '')")
   wa=$(echo "$W" | jq_ "
 xs = d.get('attestations') or []
 print(xs[0]['witness_aid'] if xs else '')")
+  # Without the command there is nothing to verify with, and the checks
+  # above — that the attestations exist, that the witnesses are named and
+  # reachable — have already run and are worth having on their own.
+  [ "$HAVE_INK_BIN" = 0 ] && continue
   if [ $h = emax ]; then
     # A stranger holding only the hub URL: the command resolves the
     # witness itself.
@@ -1785,11 +1802,21 @@ if [ -n "$ar" ]; then
   # And the whole path: ink93 delegates a conversational task, cmax's
   # loop picks it up, calls the model, and the answer comes back through
   # the real hub.
-  aix=$(ctl ink93 /delegate \
-    "{\"provider\":\"$CMAX_AID\",\"goal\":\"用一句话说明什么是默克尔树\"}" \
-    | jq_ "print(d.get('interaction_id',''))")
+  #
+  # Needs a requester this machine can drive. The scheduled copy runs on
+  # cmax and cannot reach ink93's control port, so without this the whole
+  # section reported "the delegation did not queue" — a missing requester
+  # dressed as a broken auto-reply.
+  if ! has ink93; then
+    sk "自动回复的整条路径需要一个本机够得着的发起方(ink93)"
+    aix=""
+  else
+    aix=$(ctl ink93 /delegate \
+      "{\"provider\":\"$CMAX_AID\",\"goal\":\"用一句话说明什么是默克尔树\"}" \
+      | jq_ "print(d.get('interaction_id',''))")
+  fi
   if [ -z "$aix" ]; then
-    no "对话委派没有排上队"
+    [ "$(has ink93 && echo y)" = y ] && no "对话委派没有排上队"
   else
     reply=""
     for _ in $(seq 1 30); do
@@ -1842,8 +1869,10 @@ else
 import json
 print(json.load(open('$CMAX_HOME/.anet/config.json'))['modules']['org']['genesis'])
 PY" 2>/dev/null)
-    OID=$([ -n "$GEN" ] && "$FIXTURE" org-id --genesis "$GEN" 2>/dev/null)
-    if [ -z "$OID" ]; then
+    OID=$([ -n "$GEN" ] && [ "$HAVE_FIXTURE" = 1 ] && "$FIXTURE" org-id --genesis "$GEN" 2>/dev/null)
+    if [ -z "$OID" ] && [ "$HAVE_FIXTURE" = 0 ]; then
+      sk "推导 org id 需要 anetfixture($FIXTURE 不在这台机器上)"
+    elif [ -z "$OID" ]; then
       no "取不到 cmax 的 org id"
     else
       # Publishing something that carries the org id must be refused. The
