@@ -1,0 +1,20 @@
+[Unit]
+Description=Run the ANetLink real-service tier daily
+
+[Timer]
+# Daily, not hourly. This tier starts five containers — Home Assistant
+# among them — exercises seven adapters against them, and stops them
+# again. What it watches is whether an adapter still speaks a protocol
+# correctly, and a protocol does not drift between one hour and the next;
+# what does drift is the image behind :stable, which moves on the scale of
+# days. Running it hourly would spend an order of magnitude more machine
+# time to learn the same thing a day later.
+OnCalendar=daily
+# Away from the hour the hub checks run, so a busy machine is not doing
+# both at once.
+RandomizedDelaySec=45min
+# A machine that was off must not skip silently.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

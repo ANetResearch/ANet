@@ -184,6 +184,34 @@ else
   info "本机没有 $INK_HOME,跳过"
 fi
 
+# ── 4c. the check that runs hourly ──────────────────────────────
+hd "4c  定时检查"
+# Shipping binaries and not shipping the check that watches them leaves an
+# hourly run testing a version of the system that no longer exists. That
+# is what happened: cmax ran a copy from weeks earlier — a third the
+# length, missing every section added since — and reported green the whole
+# time. Green against the wrong questions is worse than red, because
+# nobody looks.
+#
+# ship-prodtest.sh was written for exactly this and nothing called it.
+if bash scripts/ship-prodtest.sh >/dev/null 2>&1; then
+  deployed=$(ssh -o ConnectTimeout=20 "$RELAY" 'cat /opt/anet-prodtest/VERSION 2>/dev/null')
+  here=$( git rev-parse --short HEAD 2>/dev/null )
+  case "$deployed" in
+    "$here"*) ok "定时检查已同步到 $deployed";;
+    *) no "定时检查是 ${deployed:-未知},本地是 $here";;
+  esac
+  # Length, because a stale copy that happens to carry the right VERSION
+  # would still be the wrong script. The number is what the hourly run
+  # actually exercises.
+  n=$(ssh -o ConnectTimeout=20 "$RELAY" 'grep -c "" /opt/anet-prodtest/prodtest.sh 2>/dev/null')
+  m=$(grep -c "" scripts/prodtest.sh)
+  [ "${n:-0}" = "$m" ] && ok "定时检查与本地同为 $m 行" \
+    || no "定时检查 $n 行,本地 $m 行"
+else
+  no "定时检查推送失败"
+fi
+
 # ── 5. verify ───────────────────────────────────────────────────
 hd "5  验证跑的是刚装的那一版"
 HUBC=$( cd "$ROOT/ANetHub" && git rev-parse --short HEAD 2>/dev/null )

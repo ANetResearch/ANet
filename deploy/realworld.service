@@ -1,0 +1,19 @@
+[Unit]
+Description=ANetLink real-service tier (mosquitto / Modbus / Home Assistant / OPC UA / Matter)
+Documentation=file:/opt/anet-realworld/run.sh
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/anet-realworld
+ExecStart=/opt/anet-realworld/run.sh
+# The tier brings containers up and must take them down even when the run
+# fails, or the next one meets a Matter device whose pairing window closed
+# hours ago and reads that as a discovery fault.
+ExecStopPost=/opt/anet-realworld/down.sh
+# Long enough for image pulls on a cold machine; short enough that a hung
+# run does not hold the timer for a day.
+TimeoutStartSec=45min
+StandardOutput=journal
+StandardError=journal
