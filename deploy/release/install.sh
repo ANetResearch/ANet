@@ -10,16 +10,38 @@
 #   curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --system # → /usr/local/bin (sudo)
 #   curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --prefix DIR
 #
+# Install and join a hub in one line:
+#   curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
+#     --hub https://hub.agentnetwork.org.cn --name my-debian-box
+#
 # Flags:
 #   --system        Install to /usr/local/bin (uses sudo if needed).
 #   --user          Install to $HOME/.local/bin (default).
 #   --prefix DIR    Install into DIR (overrides the above).
 #   --base URL      Download base (overrides auto list; or set ANET_INSTALL_BASE).
+#   --hub URL       Start the node and register it with this hub.
+#   --name NAME     The name to register under (default: this machine's hostname).
+#   --shell         Install the variant that can run operator-approved commands
+#                   on this machine. See "--shell" below before using it.
 #   --help          Show this help.
+#
+# --shell installs a DIFFERENT BINARY, not a setting.
+#
+# The default binary cannot execute anything on the machine it runs on: the
+# module that would do it is not compiled in, which `go tool nm` can be made
+# to confirm on the downloaded file. `--shell` fetches the build that has it.
+# Even that build runs nothing until an operator writes a `modules.shell`
+# config block naming the commands, and lists the AIDs allowed to call them;
+# an empty list refuses everyone. Full contract: docs/SHELL-zh.md in the
+# repository.
 set -eu
 
 BINARY="anet"
 DL_PATH="/dl"
+# ASSET_PREFIX selects the variant. It is a different download, not a flag
+# passed to the same one, so a machine that was never meant to run commands
+# has a binary that cannot.
+ASSET_PREFIX="anet"
 
 # Download bases tried in order (first that serves the tarball wins). ANET_INSTALL_BASE jumps the queue.
 BASES="${ANET_INSTALL_BASE:-} https://agentnetwork.org.cn https://hub.agentnetwork.org.cn"
@@ -27,6 +49,8 @@ BASES="${ANET_INSTALL_BASE:-} https://agentnetwork.org.cn https://hub.agentnetwo
 PREFIX=""
 USER_MODE=1
 BASE_OVERRIDE=""
+HUB=""
+NODE_NAME=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -36,6 +60,11 @@ while [ $# -gt 0 ]; do
     --prefix=*)   PREFIX="${1#--prefix=}" ;;
     --base)       BASE_OVERRIDE="$2"; shift ;;
     --base=*)     BASE_OVERRIDE="${1#--base=}" ;;
+    --hub)        HUB="$2"; shift ;;
+    --hub=*)      HUB="${1#--hub=}" ;;
+    --name)       NODE_NAME="$2"; shift ;;
+    --name=*)     NODE_NAME="${1#--name=}" ;;
+    --shell)      ASSET_PREFIX="anet-shell" ;;
     -h|--help)    sed -n '2,20p' "$0" 2>/dev/null || true; exit 0 ;;
     *)            echo "Error: unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -62,7 +91,7 @@ case "$ARCH" in
   *) echo "Error: unsupported architecture: $ARCH (amd64/arm64 only)" >&2; exit 1 ;;
 esac
 PLAT="${OS_TAG}-${ARCH_TAG}"
-ASSET="${BINARY}-${PLAT}"
+ASSET="${ASSET_PREFIX}-${PLAT}"
 
 # --- sha256 helper (linux: sha256sum, macOS: shasum -a 256) ---
 sha256() {
@@ -75,7 +104,11 @@ TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
 # --- pick a working base and download the gzip'd binary + checksums ---
-echo "→ Installing ${BINARY} for ${PLAT}"
+if [ "$ASSET_PREFIX" = "anet-shell" ]; then
+  echo "→ Installing ${BINARY} for ${PLAT} (shell variant: CAN run operator-approved commands on this machine)"
+else
+  echo "→ Installing ${BINARY} for ${PLAT}"
+fi
 FOUND_BASE=""
 for BASE in $BASES; do
   [ -n "$BASE" ] || continue
@@ -150,6 +183,40 @@ case ":$PATH:" in
     echo "  then open a new terminal (or run the export now)."
     ;;
 esac
+
+# --- optionally start the node and join a hub ---
+#
+# Done here rather than left as two commands in the output, because "install
+# it on the new box and have it show up" is one intention, and the step most
+# often skipped is the one that makes the machine reachable at all.
+#
+# Registration is open: the hub verifies that the key history derives the
+# claimed AID and that the node can sign a challenge, which proves the node
+# controls its identity. It does not gate WHO may join, so there is no
+# invite token to pass here. What a node will DO for a caller is decided by
+# the node, not by the hub.
+if [ -n "$HUB" ]; then
+  [ -n "$NODE_NAME" ] || NODE_NAME="$(hostname 2>/dev/null || echo anet-node)"
+  echo
+  echo "→ Starting the node…"
+  if "$DEST" up >/dev/null 2>&1; then
+    # `up` returns once the control port is listening, but registration
+    # needs the daemon to have finished opening its ledger.
+    i=0; while [ $i -lt 20 ]; do
+      "$DEST" status >/dev/null 2>&1 && break
+      i=$((i+1)); sleep 1
+    done
+    echo "→ Registering with ${HUB} as \"${NODE_NAME}\"…"
+    if "$DEST" hub-register "$HUB" --name "$NODE_NAME"; then
+      echo "✓ Joined ${HUB}"
+    else
+      echo "Warning: registration did not complete. The node is running; retry with:" >&2
+      echo "    anet hub-register $HUB --name $NODE_NAME" >&2
+    fi
+  else
+    echo "Warning: the node did not start. Start it by hand with: anet up" >&2
+  fi
+fi
 
 cat <<EOF
 

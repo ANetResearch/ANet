@@ -24,11 +24,17 @@ func reset(t *testing.T) {
 	t.Helper()
 	regMu.Lock()
 	saved := append([]registration(nil), registry...)
+	savedOptIn := map[string]bool{}
+	for k, v := range optInNames {
+		savedOptIn[k] = v
+	}
 	registry = nil
+	optInNames = map[string]bool{}
 	regMu.Unlock()
 	t.Cleanup(func() {
 		regMu.Lock()
 		registry = saved
+		optInNames = savedOptIn
 		regMu.Unlock()
 	})
 }
@@ -68,6 +74,43 @@ func TestConfiguredButCompiledOutIsAnError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no_p2p") {
 		t.Errorf("the error should name the tag that would explain it: %v", err)
+	}
+}
+
+// An additive tag fails the same way but must name a different flag.
+//
+// `no_shell` does not exist. Sending an operator to look for it costs
+// them the time it takes to discover that, and then leaves them no closer
+// to the answer, which is that this build was never asked to include the
+// module.
+func TestConfiguringAnOptInModuleNamesTheTagThatWouldAddIt(t *testing.T) {
+	reset(t)
+	DeclareOptIn("shell")
+
+	_, err := Build(map[string][]byte{"shell": []byte(`{"commands":{}}`)})
+	if err == nil {
+		t.Fatal("configuring a module that is not in the build must be refused")
+	}
+	if !strings.Contains(err.Error(), "-tags shell") {
+		t.Errorf("the error must name the tag that would add it: %v", err)
+	}
+	if strings.Contains(err.Error(), "no_shell") {
+		t.Errorf("it must not point at a subtractive tag that does not exist: %v", err)
+	}
+}
+
+// The declaration has to survive in a build that contains none of the
+// module's code, which is the only build where the message is needed.
+func TestOptInNamesAreKnownWithoutTheModuleBeingRegistered(t *testing.T) {
+	reset(t)
+	DeclareOptIn("shell")
+	if !optInName("shell") {
+		t.Fatal("an opt-in name must be known while the module is absent")
+	}
+	for _, n := range Compiled() {
+		if n == "shell" {
+			t.Fatal("declaring the name must not register the module")
+		}
 	}
 }
 
