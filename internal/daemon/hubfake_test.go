@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/adp"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
@@ -59,6 +60,9 @@ type fakeHub struct {
 	balance map[string]uint64
 	entries map[string][]map[string]any
 	settled map[string]string // authorization id → transaction, so replay is idempotent
+	// cardHighWater is the per-subject high water the card gate compares
+	// against — the same rule the real hub keeps in agent_card.seq.
+	cardHighWater map[string]uint64
 	// relaySends counts deliveries the hub actually carried, so a test can
 	// tell "the hub delivered it" from "something else did".
 	relaySends int
@@ -73,8 +77,9 @@ func newFakeHub(t *testing.T) *httptest.Server {
 	}
 	h := &fakeHub{
 		agents: map[string]*fakeHubAgent{}, reviews: map[string]hubapi.ReviewView{},
-		self:    self,
-		balance: map[string]uint64{}, entries: map[string][]map[string]any{},
+		cardHighWater: map[string]uint64{},
+		self:          self,
+		balance:       map[string]uint64{}, entries: map[string][]map[string]any{},
 		settled: map[string]string{},
 	}
 	// The hub is an agent on its own registry, so its settlement
@@ -137,14 +142,15 @@ func fakeHubJSON(w http.ResponseWriter, code int, v any) {
 // Hub derives the AID from the KEL and verifies a signed challenge; the fake trusts the caller.
 func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		AID           string   `json:"aid"`
-		Name          string   `json:"name"`
-		Caps          []string `json:"caps"`
-		Summary       string   `json:"summary"`
-		Readme        string   `json:"readme"`
-		Pricing       string   `json:"pricing"`
-		GuestMessages *int     `json:"guest_messages"`
-		KEL           string   `json:"kel"`
+		AID           string          `json:"aid"`
+		Name          string          `json:"name"`
+		Caps          []string        `json:"caps"`
+		Summary       string          `json:"summary"`
+		Readme        string          `json:"readme"`
+		Pricing       string          `json:"pricing"`
+		GuestMessages *int            `json:"guest_messages"`
+		KEL           string          `json:"kel"`
+		Card          json.RawMessage `json:"card"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AID == "" || req.KEL == "" {
 		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "aid + kel required"})
@@ -155,6 +161,41 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "kel not base64"})
 		return
 	}
+	// The card gate, with the same rule the real hub applies.
+	//
+	// This fake used not to read the card field at all. That made every
+	// card-related defect invisible on this side: the daemon minted a
+	// sequence, the fake stored an agent, both suites went green, and the
+	// hub refused the registration in production. A fake that implements
+	// only the happy path is a fake that agrees with whatever the code
+	// does — see the STALE_SEQ defect this arrived with.
+	if len(req.Card) > 0 {
+		kelEvents, kerr := identity.UnmarshalKEL(kelBytes)
+		if kerr != nil {
+			fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "kel undecodable"})
+			return
+		}
+		var card adp.AgentCard
+		if err := json.Unmarshal(req.Card, &card); err != nil {
+			fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "card malformed"})
+			return
+		}
+		if card.SubjectDID != req.AID {
+			fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "card subject is not the registrant"})
+			return
+		}
+		h.mu.Lock()
+		high := h.cardHighWater[req.AID]
+		h.mu.Unlock()
+		if _, err := adp.AdmitCard(&card, time.Now(), high, kelEvents, map[uint16]bool{1: true}, nil); err != nil {
+			fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "card refused: " + err.Error()})
+			return
+		}
+		h.mu.Lock()
+		h.cardHighWater[req.AID] = card.Seq
+		h.mu.Unlock()
+	}
+
 	quota := 5 // the real Hub's guestDefaultQuota
 	if req.GuestMessages != nil {
 		quota = *req.GuestMessages

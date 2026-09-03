@@ -54,11 +54,6 @@ const ExtPricing = "anet.pricing"
 const EndpointRedeem = "x402-redeem"
 
 // signedCard mints and signs this node's current card.
-//
-// Seq is the registration time in seconds. ADP admits a card only if its
-// seq exceeds the highest already seen for that subject, which makes a
-// replayed older card a no-op rather than a rollback — and using the
-// clock means two registrations a second apart cannot tie.
 func (d *Daemon) signedCard(name string, caps []string) (json.RawMessage, error) {
 	return d.signedCardWithPrices(name, caps, d.priceList(caps))
 }
@@ -102,12 +97,59 @@ func (d *Daemon) priceList(caps []string) map[string]uint64 {
 	return out
 }
 
+// cardSeq is this node's next card sequence: seeded from the clock,
+// guaranteed to exceed every sequence this process has already minted.
+//
+// ADP admits a card only if its seq EXCEEDS the highest the hub has seen
+// for that subject, which is what makes a replayed older card a no-op
+// rather than a rollback. The number was the registration time in
+// seconds, and the comment here claimed that "two registrations a second
+// apart cannot tie" — true, and beside the point. Two registrations in
+// the SAME second tie, and are then refused with STALE_SEQ.
+//
+// That is not an edge case. `anet hub-register` twice in a row does it;
+// so does a node that registers and immediately re-registers after its
+// capability list changes. The second call failed for a reason that had
+// nothing to do with what it was doing. Found by the admission joint test
+// (scripts/joint-invite.sh), whose "an existing node re-registers without
+// an invite" step failed against a hub that had nothing to do with it.
+//
+// The fix belongs here rather than in the hub: the high-water rule is
+// correct, and the party that must mint strictly increasing numbers is
+// the party that signs them.
+//
+// Seconds are kept as the unit on purpose. Switching to milliseconds
+// would also break the tie, and would multiply every sequence by a
+// thousand — after which a node that ever downgraded to an older build
+// could never update its card again, because its second-resolution
+// sequence would sit permanently below the hub's high water. The counter
+// only ever advances past real time when there are ties, by one per tie,
+// and drifts back to the clock as soon as they stop.
+//
+// Remaining hole, stated rather than papered over: a clock that steps
+// BACKWARDS across a daemon restart lands below the hub's high water, and
+// the node cannot update its card until the clock catches up. Closing it
+// needs the sequence persisted across restarts; the failure is visible
+// (STALE_SEQ), self-healing, and out of scope for this defect.
+func (d *Daemon) cardSeq() uint64 {
+	for {
+		last := d.lastCardSeq.Load()
+		seq := uint64(time.Now().Unix())
+		if seq <= last {
+			seq = last + 1
+		}
+		if d.lastCardSeq.CompareAndSwap(last, seq) {
+			return seq
+		}
+	}
+}
+
 func (d *Daemon) signedCardWithPrices(name string, caps []string, prices map[string]uint64) (json.RawMessage, error) {
 	now := time.Now()
 	card := &adp.AgentCard{
 		SubjectDID:         d.AID(),
 		CardSchema:         adp.CardSchema{Major: cardSchemaMajor},
-		Seq:                uint64(now.Unix()),
+		Seq:                d.cardSeq(),
 		IssuedAt:           now.Unix(),
 		NotBefore:          now.Add(-1 * time.Minute).Unix(),
 		Capabilities:       caps,
