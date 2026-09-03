@@ -272,12 +272,18 @@ M2 之后实现超出了设计:付费(D-5/D-17)、见证(H-18)、静默(H-15)、
 |---|---|---|
 | 单元 + mutation | `go test`,改坏实现确认断言会红 | 每条新断言 |
 | 跨进程 | `scripts/joint.sh`(四仓六进程)、`joint-shell.sh`(hub + 两 daemon)、`joint-invite.sh`(准入) | 两边各自伪造对方时全绿的那类缺陷 |
+| 白板容器 | dmax 上 `debian:12` 容器 + 真 hub + ink93 调用方,21 项 | 真实新用户路径:白板系统缺什么、一行安装能不能跑、跨公网调用一台容器里的机器 |
 | 单机多节点 | `scripts/scenario.sh`(一个谁也不认识的 hub + 三个节点;`--live` 接真模型) | 新用户路径、付费闭环 |
 | 实网 | `scripts/prodtest.sh`(emax + fmax 两 hub,cmax / ink93 / dmax 三 daemon,每小时) | 只有双 hub 才能造出的缺陷 |
 | 真实服务 | `scripts/realworld.sh`(docker 起 mosquitto / Modbus / HA / OPC UA / Matter) | 七个适配器对着真协议 |
 | 拔插头 | CI `pluggable` + `optin` | 符号数两个方向 |
 
 [SUITE-TODO-zh.md §八](SUITE-TODO-zh.md) 记录了十一个只有联调或双 hub 实网才能发现的缺陷。结论不变:`joint.sh` 与 `prodtest.sh` 是仓库的一部分,不是脚手架。
+
+**白板容器这一层查出的两件事**,单测与联调都看不见,因为两者都跑在已经装好东西的
+机器上:`debian:12` 既没有 `curl` 也没有 `ca-certificates`(缺后者 HTTPS 直接失败),
+`uptime` 这类顺手会写进命令表的东西属于 `procps` 也不在;以及"改配置重启后没有
+重新注册,能力就不在目录里"这条,它不报错,只是让节点查不到。
 
 ---
 
@@ -287,7 +293,8 @@ M2 之后实现超出了设计:付费(D-5/D-17)、见证(H-18)、静默(H-15)、
 
 | # | 位置 | 行为 | 影响 | 发现方式 | 状态 |
 |---|---|---|---|---|---|
-| 1 | ANetHub `AdmitCard` 高水位检查 | 同一节点短时间内第二次注册时 card.seq 未超过高水位,被当作回滚拒绝(`STALE_SEQ`) | 节点快速重复注册失败;与准入无关,准入关着也发生 | `joint-invite.sh` 第 4 步 | 待修 |
+| ~~1~~ | ~~daemon `signedCardWithPrices`~~ | ~~卡片序号是秒级时钟,同一秒内两次注册携带同号,第二次被 hub 拒收 `STALE_SEQ`~~ | ~~连续两次 `hub-register` 失败~~ | ~~`joint-invite.sh` 第 4 步~~ | **已修**。序号改为以时钟为种子、保证超过本进程已铸出的每一个号;单位仍是秒,以免降级路径被永久锁死。fake hub 一并补上卡片准入 —— 补之前回归测试是空过的 |
+| 1 | daemon 启动路径 | 改了模块配置并重启后,daemon 不会重新向 hub 注册,能力清单是 `hub-register` 那一刻折进去的 | hub 上的 `caps` 保持旧值,该节点在 `anet find --cap` 里查不到;按 AID 直接委派仍可用,所以漏做这步不报错 | dmax 上白板 Debian 容器的实测(§9 容器验证) | 文档已补,daemon 侧待定 |
 | 2 | ANet `tryCapabilityPaid` | 能力解析不出时返回 false,委派落到 auto-reply;未配 auto-reply 的节点永不作答 | 请求方拿到超时,与"节点宕了"无法区分,而不是 `UNAVAILABLE` | `joint-shell.sh` 第 7 步 | 待定:改它影响所有模块的应答语义 |
 | 3 | 准入的运营面 | 只有 hub CLI(`-invite-*`),admin 面与 webui 无对应页 | 运营者需登录机器 | 本轮 | 待做 |
 | 4 | `anet-edge` 档 | 设计有,未单独发布;设备能力在 full 里 | 边缘盒子拿到的是 full | §5.3 | 待定 |

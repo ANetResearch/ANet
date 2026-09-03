@@ -65,11 +65,12 @@ footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font
 </head>
 <body>
 <div class="page">
-<nav class="toc"><p class="eyebrow">目录</p><a class="l2" href="#0-先决定装哪个变体">0 · 先决定装哪个变体</a><a class="l2" href="#1-一行安装并入网">1 · 一行安装并入网</a><a class="l2" href="#2-确认状态">2 · 确认状态</a><a class="l2" href="#3-让它可以被远程执行命令-仅-shell-变体">3 · 让它可以被远程执行命令(仅 shell 变体)</a><a class="l3" href="#3-1-写配置块">3.1 写配置块</a><a class="l3" href="#3-2-建名单文件">3.2 建名单文件</a><a class="l3" href="#3-3-重启节点-让配置生效">3.3 重启节点,让配置生效</a><a class="l3" href="#3-4-把调用方加进名单">3.4 把调用方加进名单</a><a class="l3" href="#3-5-从对面试一下">3.5 从对面试一下</a><a class="l2" href="#4-收权">4 · 收权</a><a class="l2" href="#5-让它开机自启">5 · 让它开机自启</a><a class="l2" href="#6-排查">6 · 排查</a></nav>
+<nav class="toc"><p class="eyebrow">目录</p><a class="l2" href="#0-先决定装哪个变体">0 · 先决定装哪个变体</a><a class="l2" href="#1-一行安装并入网">1 · 一行安装并入网</a><a class="l2" href="#2-确认状态">2 · 确认状态</a><a class="l2" href="#3-让它可以被远程执行命令-仅-shell-变体">3 · 让它可以被远程执行命令(仅 shell 变体)</a><a class="l3" href="#3-1-写配置块">3.1 写配置块</a><a class="l3" href="#3-2-建名单文件">3.2 建名单文件</a><a class="l3" href="#3-3-重启节点并-重新注册">3.3 重启节点并重新注册</a><a class="l3" href="#3-4-把调用方加进名单">3.4 把调用方加进名单</a><a class="l3" href="#3-5-从对面试一下">3.5 从对面试一下</a><a class="l2" href="#4-收权">4 · 收权</a><a class="l2" href="#5-让它开机自启">5 · 让它开机自启</a><a class="l2" href="#6-排查">6 · 排查</a></nav>
 <main>
 <header class="mast"><p class="eyebrow">ANet · Debian 接入</p><h1>在一台崭新的 Debian 机器上接入 ANet</h1></header>
 <p>面向:刚装好系统的 Debian 12/13(amd64 或 arm64),要接入 <code>https://hub.agentnetwork.org.cn</code>, 并且希望这台机器能被网络另一端的 agent 要求执行几条运维命令。</p>
 <p>全程不需要 Go、不需要 C 工具链,只要 <code>curl</code> 和出站 HTTPS。</p>
+<blockquote><strong>真的白板系统要先补两样。</strong> <code>debian:12</code> 这类最小系统既没有 <code>curl</code> 也没有 <code>ca-certificates</code>,没有后者 HTTPS 会直接失败;<code>uptime</code> 这类顺手会写进命令表的 东西也不在(属于 <code>procps</code>)。 ``<code>sh apt-get update &amp;&amp; apt-get install -y curl ca-certificates procps </code>``</blockquote>
 <h2 id="0-先决定装哪个变体">0 · 先决定装哪个变体</h2>
 <p>发布里每个平台有两个二进制,差别是<strong>这个二进制能做什么</strong>,不是配置项。</p>
 <div class="tw"><table><thead><tr><th>变体</th><th>能不能在本机执行命令</th></tr></thead><tbody><tr><td><code>anet</code>(默认)</td><td><strong>不能</strong>。<code>module/shell</code> 根本没编进去</td></tr><tr><td><code>anet-shell</code>(<code>--shell</code>)</td><td>能,但要先配置并列名单</td></tr></tbody></table></div>
@@ -126,8 +127,10 @@ anet version         # 版本、commit、以及这个二进制里有哪些模块
 sudo touch /etc/anet/shell-allow
 sudo chmod 600 /etc/anet/shell-allow</pre></div>
 <p><strong>先留空。</strong> 空名单拒绝所有远程调用,这是对的起点。</p>
-<h3 id="3-3-重启节点-让配置生效">3.3 重启节点,让配置生效</h3>
-<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet stop &amp;&amp; anet up</pre></div>
+<h3 id="3-3-重启节点并-重新注册">3.3 重启节点并<strong>重新注册</strong></h3>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet stop &amp;&amp; anet up
+anet hub-register https://hub.agentnetwork.org.cn --name $(hostname)</pre></div>
+<p>两条都要。重启让配置生效,但<strong>能力清单是 <code>hub-register</code> 那一刻折进注册的</strong> —— 只重启不重新注册,hub 那边的 <code>caps</code> 仍是空的,别人 <code>anet find --cap shell.run@…</code> 找不到这台机器。按 AID 直接委派仍然可用(能力由本节点解析),所以这个漏做不会 报错,只是让节点在目录里查不到。实测于 dmax 上的容器。</p>
 <p>启动时如果名单为空,会打印一行提醒:<code>no caller is allowed</code>。这行是预期的。</p>
 <h3 id="3-4-把调用方加进名单">3.4 把调用方加进名单</h3>
 <p>在<strong>要发起调用的那台机器</strong>上拿它的 AID:</p>

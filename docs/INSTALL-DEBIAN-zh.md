@@ -5,6 +5,14 @@
 
 全程不需要 Go、不需要 C 工具链,只要 `curl` 和出站 HTTPS。
 
+> **真的白板系统要先补两样。** `debian:12` 这类最小系统既没有 `curl` 也没有
+> `ca-certificates`,没有后者 HTTPS 会直接失败;`uptime` 这类顺手会写进命令表的
+> 东西也不在(属于 `procps`)。
+>
+> ```sh
+> apt-get update && apt-get install -y curl ca-certificates procps
+> ```
+
 ## 0 · 先决定装哪个变体
 
 发布里每个平台有两个二进制,差别是**这个二进制能做什么**,不是配置项。
@@ -120,11 +128,17 @@ sudo chmod 600 /etc/anet/shell-allow
 
 **先留空。** 空名单拒绝所有远程调用,这是对的起点。
 
-### 3.3 重启节点,让配置生效
+### 3.3 重启节点并**重新注册**
 
 ```sh
 anet stop && anet up
+anet hub-register https://hub.agentnetwork.org.cn --name $(hostname)
 ```
+
+两条都要。重启让配置生效,但**能力清单是 `hub-register` 那一刻折进注册的** ——
+只重启不重新注册,hub 那边的 `caps` 仍是空的,别人 `anet find --cap shell.run@…`
+找不到这台机器。按 AID 直接委派仍然可用(能力由本节点解析),所以这个漏做不会
+报错,只是让节点在目录里查不到。实测于 dmax 上的容器。
 
 启动时如果名单为空,会打印一行提醒:`no caller is allowed`。这行是预期的。
 
