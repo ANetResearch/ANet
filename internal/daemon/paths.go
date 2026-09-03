@@ -49,6 +49,12 @@ const Version = version.V
 var (
 	BuildCommit = version.Commit
 	BuildAt     = version.BuiltAt
+	// BuildTags is the tag string this binary was compiled with, empty for
+	// a default build. Two binaries at the same commit are not the same
+	// binary if one was built with -tags shell and can run commands on its
+	// host, and an operator auditing a fleet has to be able to read that
+	// off the binary rather than off which file they think they copied.
+	BuildTags = version.Tags
 )
 
 // Layout is the daemon's on-disk layout rooted at a data dir (default ~/.anet, env ANET_DATA_DIR).

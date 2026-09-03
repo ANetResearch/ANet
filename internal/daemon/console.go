@@ -57,7 +57,7 @@ func (d *Daemon) pingHandler() http.HandlerFunc {
 		// already uses to find out whether a node is up.
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"anet": true, "aid": d.AID(), "name": d.config().Name,
-			"version": Version, "commit": BuildCommit, "built_at": BuildAt,
+			"version": Version, "commit": BuildCommit, "built_at": BuildAt, "tags": BuildTags,
 		})
 	}
 }
