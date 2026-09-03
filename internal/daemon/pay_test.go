@@ -83,10 +83,10 @@ func TestPricedWorkIsQuotedNotRefused(t *testing.T) {
 	if err := prov.Providers().Register(ctx, work); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -136,10 +136,10 @@ func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 	if err := prov.Providers().Register(ctx, work); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	grantOn(srv.URL, req.AID(), 500)
@@ -261,10 +261,10 @@ func TestPayingWithoutCreditIsRefusedAsAPayment(t *testing.T) {
 	if err := prov.Providers().Register(ctx, work); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	grantOn(srv.URL, req.AID(), 10) // not enough
@@ -331,7 +331,7 @@ func TestANodeCanSignAPaymentForAGateway(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
 	d := newTestDaemon(t, srv.URL, false)
-	if err := d.RegisterWithHub(ctx, srv.URL, "Buyer", nil, GuestDefaultMessages); err != nil {
+	if err := d.RegisterWithHub(ctx, srv.URL, "Buyer", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	p := d.payer()

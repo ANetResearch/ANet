@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>在一台崭新的 Debian 机器上接入 ANet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#FAFAF7;--surface:#FFFFFF;--sunken:#F1F2EE;--ink:#16191A;--ink-2:#3D4644;--ink-3:#6B7573;
+  --rule:#DFE2DC;--rule-2:#C9CEC6;--accent:#0F6E5C;--accent-soft:#E4F0EC;--deny:#A8452C;--deny-soft:#F6E7E1;
+  --code-ground:#14201D;--code-ink:#DCE7E2;--code-dim:#7E948D;--code-accent:#7FD3B8;
+  --f-sans:"IBM Plex Sans","Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}}
+:root[data-theme="dark"]{
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-sans);font-size:16px;line-height:1.72;-webkit-font-smoothing:antialiased}
+.page{max-width:86rem;margin:0 auto;padding:0 1.5rem 6rem;display:grid;grid-template-columns:16rem minmax(0,1fr);gap:3rem}
+@media (max-width:900px){.page{grid-template-columns:1fr;gap:0}}
+nav.toc{position:sticky;top:1.25rem;align-self:start;max-height:calc(100vh - 2.5rem);overflow-y:auto;padding-top:3.6rem;font-size:.82rem}
+@media (max-width:900px){nav.toc{position:static;max-height:none;padding-top:1.5rem;border-bottom:1px solid var(--rule);margin-bottom:1rem}}
+nav.toc .eyebrow{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .6rem}
+nav.toc a{display:block;color:var(--ink-2);text-decoration:none;padding:.18rem 0 .18rem .75rem;border-left:2px solid transparent;line-height:1.45}
+nav.toc a.l3{padding-left:1.6rem;font-size:.78rem;color:var(--ink-3)}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--accent);border-left-color:var(--accent)}
+main{min-width:0;max-width:72ch}
+.mast{padding:3.5rem 0 1.25rem;border-bottom:1px solid var(--rule);margin-bottom:2rem}
+.mast .eyebrow{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .9rem}
+h1{font-size:clamp(1.8rem,1.2rem + 2vw,2.6rem);line-height:1.15;font-weight:700;letter-spacing:-.02em;margin:0;text-wrap:balance}
+h2{font-size:1.45rem;font-weight:600;letter-spacing:-.014em;margin:3rem 0 .9rem;padding-top:.5rem;text-wrap:balance}
+h2::before{content:"";display:block;width:2.25rem;height:2px;background:var(--accent);margin-bottom:.9rem}
+h3{font-size:1.08rem;font-weight:600;margin:2rem 0 .6rem}
+h4{font-size:.95rem;font-weight:600;margin:1.5rem 0 .4rem;color:var(--ink-2)}
+p{margin:0 0 1rem}
+a{color:var(--accent)}
+hr{border:none;border-top:1px solid var(--rule);margin:2.5rem 0}
+blockquote{border-left:2px solid var(--accent);background:var(--accent-soft);padding:.85rem 1rem;margin:0 0 1.25rem;color:var(--ink-2);border-radius:0 4px 4px 0;font-size:.95rem}
+blockquote strong{color:var(--ink)}
+ul,ol{margin:0 0 1rem;padding-left:1.25rem}li{margin-bottom:.35rem}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);padding:.1em .34em;border-radius:3px;word-break:break-word}
+.code{position:relative;background:var(--code-ground);border-radius:6px;margin:0 0 1.25rem;overflow:hidden}
+.code pre{margin:0;padding:1rem 1.1rem;overflow-x:auto;font-family:var(--f-mono);font-size:.82rem;line-height:1.7;color:var(--code-ink);tab-size:2}
+.copy{position:absolute;top:.5rem;right:.5rem;font-family:var(--f-mono);font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;color:var(--code-dim);background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:4px;padding:.2rem .5rem;cursor:pointer}
+.copy:hover,.copy:focus-visible{color:var(--code-accent);border-color:rgba(127,211,184,.45)}
+.tw{overflow-x:auto;margin:0 0 1.25rem;border:1px solid var(--rule);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:.87rem}
+th,td{text-align:left;padding:.58rem .8rem;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.55}
+thead th{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:500;background:var(--sunken);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td code{background:transparent;padding:0;font-size:.82em}
+.mast + .tw table{font-size:.85rem}
+footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font-size:.8rem;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="page">
+<nav class="toc"><p class="eyebrow">目录</p><a class="l2" href="#0-先决定装哪个变体">0 · 先决定装哪个变体</a><a class="l2" href="#1-一行安装并入网">1 · 一行安装并入网</a><a class="l2" href="#2-确认状态">2 · 确认状态</a><a class="l2" href="#3-让它可以被远程执行命令-仅-shell-变体">3 · 让它可以被远程执行命令(仅 shell 变体)</a><a class="l3" href="#3-1-写配置块">3.1 写配置块</a><a class="l3" href="#3-2-建名单文件">3.2 建名单文件</a><a class="l3" href="#3-3-重启节点-让配置生效">3.3 重启节点,让配置生效</a><a class="l3" href="#3-4-把调用方加进名单">3.4 把调用方加进名单</a><a class="l3" href="#3-5-从对面试一下">3.5 从对面试一下</a><a class="l2" href="#4-收权">4 · 收权</a><a class="l2" href="#5-让它开机自启">5 · 让它开机自启</a><a class="l2" href="#6-排查">6 · 排查</a></nav>
+<main>
+<header class="mast"><p class="eyebrow">ANet · Debian 接入</p><h1>在一台崭新的 Debian 机器上接入 ANet</h1></header>
+<p>面向:刚装好系统的 Debian 12/13(amd64 或 arm64),要接入 <code>https://hub.agentnetwork.org.cn</code>, 并且希望这台机器能被网络另一端的 agent 要求执行几条运维命令。</p>
+<p>全程不需要 Go、不需要 C 工具链,只要 <code>curl</code> 和出站 HTTPS。</p>
+<h2 id="0-先决定装哪个变体">0 · 先决定装哪个变体</h2>
+<p>发布里每个平台有两个二进制,差别是<strong>这个二进制能做什么</strong>,不是配置项。</p>
+<div class="tw"><table><thead><tr><th>变体</th><th>能不能在本机执行命令</th></tr></thead><tbody><tr><td><code>anet</code>(默认)</td><td><strong>不能</strong>。<code>module/shell</code> 根本没编进去</td></tr><tr><td><code>anet-shell</code>(<code>--shell</code>)</td><td>能,但要先配置并列名单</td></tr></tbody></table></div>
+<p>不确定就装默认版。以后要换,重跑一次带 <code>--shell</code> 的安装即可,身份和数据都在 <code>~/.anet</code>,不受影响。</p>
+<p>装完可以自己核对,这不是一句承诺:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet version
+# anet 0.1.7 (commit …, built …)
+# modules: anetlink,blackboard,cas,org,p2p,service,taskboard,x402         ← 默认版
+# modules: anetlink,blackboard,cas,org,p2p,service,shell,taskboard,x402   ← shell 版</pre></div>
+<p><code>modules:</code> 那行是从二进制里<strong>实际链接进来的</strong>模块注册表读出来的,不是构建时刻进去 的一个字符串,所以它不会说谎。不信任这个输出的话,直接查二进制本身:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">strings &quot;$(command -v anet)&quot; | grep -c &#x27;shell\.run@&#x27;    # 默认版 → 0,shell 版 → 1
+go tool nm &quot;$(command -v anet)&quot; | grep -c module/shell   # 默认版 → 0,shell 版 → 23(需装 Go)</pre></div>
+<p>发布的二进制保留符号表就是为了让第二条能跑。</p>
+<h2 id="1-一行安装并入网">1 · 一行安装并入网</h2>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
+  --hub https://hub.agentnetwork.org.cn \
+  --name $(hostname)</pre></div>
+<p>要能执行命令的那个变体,加 <code>--shell</code>:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --shell \
+  --hub https://hub.agentnetwork.org.cn \
+  --name $(hostname)</pre></div>
+<p>这一条做了四件事:按平台下载对应二进制、比对 sha256、装到 <code>~/.local/bin/anet</code>、 启动节点并注册到 hub。输出末尾会打印本机的 AID。</p>
+<p>装到 <code>/usr/local/bin</code> 用 <code>--system</code>(会用 sudo)。</p>
+<p><code>~/.local/bin</code> 不在 PATH 时脚本会提示,按提示加一行到 <code>~/.bashrc</code> 即可。</p>
+<p><strong>hub 注册是开放的,没有邀请码。</strong> hub 校验的是"密钥历史能推出所声称的 AID"和 "能签出挑战",也就是证明你控制这个身份;它不限制谁能注册。这不构成风险: <strong>这台机器愿意为谁做什么,是这台机器决定的,不是 hub 决定的</strong> —— 见第 3 节的名单。</p>
+<h2 id="2-确认状态">2 · 确认状态</h2>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet status          # AID、数据目录、控制口
+anet version         # 版本、commit、以及这个二进制里有哪些模块</pre></div>
+<p>在 hub 上应该能看到它:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">curl -s https://hub.agentnetwork.org.cn/agents | grep &quot;$(anet status | grep -o &#x27;bafyrei[a-z0-9]*&#x27; | head -1)&quot;</pre></div>
+<h2 id="3-让它可以被远程执行命令-仅-shell-变体">3 · 让它可以被远程执行命令(仅 shell 变体)</h2>
+<p>三道闸门,少任何一道都执行不了:二进制里有这个模块、有配置块、名单里有调用方。 第 1 节装的是 shell 变体,第一道已过。下面配后两道。</p>
+<h3 id="3-1-写配置块">3.1 写配置块</h3>
+<p>编辑 <code>~/.anet/config.json</code>,加一个 <code>modules.shell</code>:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-jsonc">{
+  &quot;modules&quot;: {
+    &quot;shell&quot;: {
+      &quot;commands&quot;: {
+        &quot;uptime&quot;:      { &quot;run&quot;: &quot;uptime&quot;, &quot;description&quot;: &quot;负载与运行时长&quot; },
+        &quot;disk&quot;:        { &quot;run&quot;: &quot;df -h&quot; },
+        &quot;tail-syslog&quot;: { &quot;run&quot;: &quot;journalctl -n 200 --no-pager&quot; },
+        &quot;restart-app&quot;: { &quot;run&quot;: &quot;systemctl restart myapp&quot;, &quot;description&quot;: &quot;重启业务进程&quot; }
+      },
+      &quot;allow_file&quot;: &quot;/etc/anet/shell-allow&quot;,
+      &quot;timeout_s&quot;: 60,
+      &quot;max_output_bytes&quot;: 65536
+    }
+  }
+}</pre></div>
+<p>只有 <code>commands</code> 里列出的命令能被调用,能力 id 是 <code>shell.run@uptime</code> 这种形式。 要开放任意命令得显式加 <code>&quot;allow_arbitrary&quot;: true</code>,默认不开。</p>
+<blockquote>命令名会随节点的能力清单通告到 hub 目录,任何能浏览目录的人都看得到这台机器 <strong>可以被要求做什么</strong>(看不到能不能做成,也拿不到执行权)。不想公开的命令, 名字别带信息。</blockquote>
+<h3 id="3-2-建名单文件">3.2 建名单文件</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">sudo mkdir -p /etc/anet
+sudo touch /etc/anet/shell-allow
+sudo chmod 600 /etc/anet/shell-allow</pre></div>
+<p><strong>先留空。</strong> 空名单拒绝所有远程调用,这是对的起点。</p>
+<h3 id="3-3-重启节点-让配置生效">3.3 重启节点,让配置生效</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet stop &amp;&amp; anet up</pre></div>
+<p>启动时如果名单为空,会打印一行提醒:<code>no caller is allowed</code>。这行是预期的。</p>
+<h3 id="3-4-把调用方加进名单">3.4 把调用方加进名单</h3>
+<p>在<strong>要发起调用的那台机器</strong>上拿它的 AID:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet status | grep -o &#x27;bafyrei[a-z0-9]*&#x27; | head -1</pre></div>
+<p>回到 Debian 机器,把这个 AID 写进名单:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">echo &#x27;bafyrei……对方的AID&#x27; | sudo tee -a /etc/anet/shell-allow</pre></div>
+<p><strong>不需要重启。</strong> 名单文件每次调用都重读,写进去下一次调用就生效。</p>
+<h3 id="3-5-从对面试一下">3.5 从对面试一下</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet delegate &lt;Debian机器的AID&gt; --capability shell.run@uptime
+anet results</pre></div>
+<p>应该拿到 <code>OK</code> 和 uptime 的输出。</p>
+<h2 id="4-收权">4 · 收权</h2>
+<p>删掉那一行,或者直接删掉整个文件:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">sudo sed -i &#x27;/对方的AID/d&#x27; /etc/anet/shell-allow
+# 或者一次性全撤:
+sudo rm /etc/anet/shell-allow</pre></div>
+<p>下一次调用即被拒,不用重启。文件不存在等同空名单(拒绝所有),不是错误、更不是放行。</p>
+<p>彻底不干了:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet hub-leave     # 从 hub 注销
+anet stop</pre></div>
+<h2 id="5-让它开机自启">5 · 让它开机自启</h2>
+<p><code>anet up</code> 起的进程不跨重启。真机上用 systemd:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">sudo tee /etc/systemd/system/anet.service &gt;/dev/null &lt;&lt;EOF
+[Unit]
+Description=ANet daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$USER
+Environment=ANET_DATA_DIR=$HOME/.anet
+ExecStart=$HOME/.local/bin/anet daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+anet stop                       # 先停掉手工起的那个
+sudo systemctl daemon-reload
+sudo systemctl enable --now anet
+systemctl status anet --no-pager</pre></div>
+<p><strong><code>User=</code> 决定命令以谁的身份执行。</strong> shell 模块不提权、不调 sudo: <code>User=root</code> 的 daemon 才能跑 root 命令,<code>User=你自己</code> 就只能跑你自己能跑的。 这是安装期的决定,写在 unit 文件里、看得见,不是模块能授予的东西。</p>
+<p>要跑 root 级运维命令就把 <code>User=</code> 设成 <code>root</code>,并把 <code>ANET_DATA_DIR</code> 改到 <code>/root/.anet</code>。<strong>这一步之后,名单里的每个 AID 都能在这台机器上以 root 跑你列出的 那几条命令</strong>,名单要按这个前提来写。</p>
+<h2 id="6-排查">6 · 排查</h2>
+<div class="tw"><table><thead><tr><th>现象</th><th>原因</th></tr></thead><tbody><tr><td><code>module &quot;shell&quot; is configured but not compiled into this build (it needs -tags shell…)</code></td><td>装的是默认变体,重跑安装带 <code>--shell</code></td></tr><tr><td>调用回 <code>UNAVAILABLE</code>,消息是 <code>does not accept commands from …</code></td><td>调用方 AID 不在名单里</td></tr><tr><td>调用回 <code>UNAVAILABLE</code>,消息是 <code>carry no caller identity</code></td><td>本机直调需要配 <code>&quot;allow_local&quot;: true</code></td></tr><tr><td>委派一直没有结果,超时</td><td>该能力这台机器没有提供。核对能力 id,<code>shell.list</code> 能报出它有哪些</td></tr><tr><td>命令回 <code>FAILED</code> 带退出码</td><td>命令真的失败了,<code>observed_state</code> 里有 stderr</td></tr></tbody></table></div>
+<p>节点自己的日志在 <code>~/.anet/daemon.log</code>。</p>
+<p>完整的配置项、行为约定与已知取舍见 <a href="shell.html">SHELL-zh.md</a>。</p>
+<footer>ANet · agentnetwork.org.cn · 源码 github.com/ANetResearch</footer>
+</main>
+</div>
+<script>
+document.querySelectorAll(".copy").forEach(function(b){b.addEventListener("click",function(){
+  var t=b.parentElement.querySelector("pre").innerText.replace(/[ \t]+$/gm,"");
+  navigator.clipboard.writeText(t).then(function(){var o=b.textContent;b.textContent="已复制";setTimeout(function(){b.textContent=o},1400)}).catch(function(){});
+})});
+</script>
+</body>
+</html>

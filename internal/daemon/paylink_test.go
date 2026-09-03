@@ -31,10 +31,10 @@ func TestPricedWorkIsRefusedWhenThisBuildCannotCharge(t *testing.T) {
 	// the requester keeps one so the test exercises "they cannot charge",
 	// not "we cannot pay".
 	withoutPayments(prov)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 

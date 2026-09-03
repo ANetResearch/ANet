@@ -54,10 +54,10 @@ func TestRelayDelegationRoundTrip(t *testing.T) {
 	prov := newTestDaemon(t, srv.URL, true)
 
 	// Both must be registered so the relay knows their mailboxes + KELs (for poll auth + review verify).
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatalf("register requester: %v", err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Bakery Bot", []string{"haiku"}, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Bakery Bot", []string{"haiku"}, GuestDefaultMessages, ""); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}
 
@@ -198,10 +198,10 @@ func TestRelayDelegationRefusedWhenNotAccepting(t *testing.T) {
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, false) // NOT accepting
 
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Closed Bot", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Closed Bot", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.Delegate(ctx, prov.AID(), "do something", nil); err != nil {
@@ -229,10 +229,10 @@ func TestRelayAttachmentRoundTrip(t *testing.T) {
 
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatalf("register requester: %v", err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Coder", []string{"coding"}, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Coder", []string{"coding"}, GuestDefaultMessages, ""); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}
 

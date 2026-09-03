@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>shell 模块:在宿主机上执行运营者批准的命令</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#FAFAF7;--surface:#FFFFFF;--sunken:#F1F2EE;--ink:#16191A;--ink-2:#3D4644;--ink-3:#6B7573;
+  --rule:#DFE2DC;--rule-2:#C9CEC6;--accent:#0F6E5C;--accent-soft:#E4F0EC;--deny:#A8452C;--deny-soft:#F6E7E1;
+  --code-ground:#14201D;--code-ink:#DCE7E2;--code-dim:#7E948D;--code-accent:#7FD3B8;
+  --f-sans:"IBM Plex Sans","Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}}
+:root[data-theme="dark"]{
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-sans);font-size:16px;line-height:1.72;-webkit-font-smoothing:antialiased}
+.page{max-width:86rem;margin:0 auto;padding:0 1.5rem 6rem;display:grid;grid-template-columns:16rem minmax(0,1fr);gap:3rem}
+@media (max-width:900px){.page{grid-template-columns:1fr;gap:0}}
+nav.toc{position:sticky;top:1.25rem;align-self:start;max-height:calc(100vh - 2.5rem);overflow-y:auto;padding-top:3.6rem;font-size:.82rem}
+@media (max-width:900px){nav.toc{position:static;max-height:none;padding-top:1.5rem;border-bottom:1px solid var(--rule);margin-bottom:1rem}}
+nav.toc .eyebrow{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .6rem}
+nav.toc a{display:block;color:var(--ink-2);text-decoration:none;padding:.18rem 0 .18rem .75rem;border-left:2px solid transparent;line-height:1.45}
+nav.toc a.l3{padding-left:1.6rem;font-size:.78rem;color:var(--ink-3)}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--accent);border-left-color:var(--accent)}
+main{min-width:0;max-width:72ch}
+.mast{padding:3.5rem 0 1.25rem;border-bottom:1px solid var(--rule);margin-bottom:2rem}
+.mast .eyebrow{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .9rem}
+h1{font-size:clamp(1.8rem,1.2rem + 2vw,2.6rem);line-height:1.15;font-weight:700;letter-spacing:-.02em;margin:0;text-wrap:balance}
+h2{font-size:1.45rem;font-weight:600;letter-spacing:-.014em;margin:3rem 0 .9rem;padding-top:.5rem;text-wrap:balance}
+h2::before{content:"";display:block;width:2.25rem;height:2px;background:var(--accent);margin-bottom:.9rem}
+h3{font-size:1.08rem;font-weight:600;margin:2rem 0 .6rem}
+h4{font-size:.95rem;font-weight:600;margin:1.5rem 0 .4rem;color:var(--ink-2)}
+p{margin:0 0 1rem}
+a{color:var(--accent)}
+hr{border:none;border-top:1px solid var(--rule);margin:2.5rem 0}
+blockquote{border-left:2px solid var(--accent);background:var(--accent-soft);padding:.85rem 1rem;margin:0 0 1.25rem;color:var(--ink-2);border-radius:0 4px 4px 0;font-size:.95rem}
+blockquote strong{color:var(--ink)}
+ul,ol{margin:0 0 1rem;padding-left:1.25rem}li{margin-bottom:.35rem}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);padding:.1em .34em;border-radius:3px;word-break:break-word}
+.code{position:relative;background:var(--code-ground);border-radius:6px;margin:0 0 1.25rem;overflow:hidden}
+.code pre{margin:0;padding:1rem 1.1rem;overflow-x:auto;font-family:var(--f-mono);font-size:.82rem;line-height:1.7;color:var(--code-ink);tab-size:2}
+.copy{position:absolute;top:.5rem;right:.5rem;font-family:var(--f-mono);font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;color:var(--code-dim);background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:4px;padding:.2rem .5rem;cursor:pointer}
+.copy:hover,.copy:focus-visible{color:var(--code-accent);border-color:rgba(127,211,184,.45)}
+.tw{overflow-x:auto;margin:0 0 1.25rem;border:1px solid var(--rule);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:.87rem}
+th,td{text-align:left;padding:.58rem .8rem;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.55}
+thead th{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:500;background:var(--sunken);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td code{background:transparent;padding:0;font-size:.82em}
+.mast + .tw table{font-size:.85rem}
+footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font-size:.8rem;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="page">
+<nav class="toc"><p class="eyebrow">目录</p><a class="l2" href="#与其它模块相反的-tag-方向">与其它模块相反的 tag 方向</a><a class="l2" href="#编进去-开着">编进去 ≠ 开着</a><a class="l2" href="#配置">配置</a><a class="l2" href="#暴露的能力">暴露的能力</a><a class="l2" href="#收权">收权</a><a class="l2" href="#行为约定">行为约定</a><a class="l2" href="#联调覆盖">联调覆盖</a><a class="l2" href="#已知取舍">已知取舍</a></nav>
+<main>
+<header class="mast"><p class="eyebrow">ANet · shell 模块</p><h1>shell 模块:在宿主机上执行运营者批准的命令</h1></header>
+<p><strong>编译 tag:<code>shell</code>(加法)。默认构建不含本模块。</strong></p>
+<p>面向的场景:一台开发板或远程机器上跑着 anet daemon,需要从网络另一端触发 重启服务、读日志、烧固件这类操作,并拿到回显;权限随时可收回。</p>
+<h2 id="与其它模块相反的-tag-方向">与其它模块相反的 tag 方向</h2>
+<p>其余可选子系统一律"默认在、<code>-tags no_&lt;name&gt;</code> 去掉"。本模块相反:默认不在, <code>-tags shell</code> 才编进去。</p>
+<p>理由是两种 tag 出错的代价不对称。减法 tag 写错,后果是某人想去掉的模块没去掉; 加法 tag 写错,后果是命令执行能力进了所有没要过它的构建。需要靠"记得去掉"来 保护的人,恰好是没听说过这个 tag 的人。</p>
+<p>判据同样是符号数,方向反过来:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre>go build -o /tmp/a ./cmd/anet            &amp;&amp; go tool nm /tmp/a | grep -c module/shell  # 必须 0
+go build -tags shell -o /tmp/b ./cmd/anet &amp;&amp; go tool nm /tmp/b | grep -c module/shell  # 必须 &gt; 0</pre></div>
+<p>CI 的 <code>optin</code> job 每次提交两个方向都验。</p>
+<h2 id="编进去-开着">编进去 ≠ 开着</h2>
+<p>带 <code>shell</code> 的构建在没有 <code>modules.shell</code> 配置块时不注册任何能力,不执行任何命令。 "这个二进制有这个能力"和"这台机器现在接受远程命令"是两个独立决定。</p>
+<p>第三个决定是名单:配置块写了、命令也定义了,但 <code>allow</code> / <code>allow_file</code> 为空时, <strong>所有远程调用一律拒绝</strong>。空名单是拒绝所有,不是放行所有。</p>
+<p>不带调用方身份的调用(<code>CallerAID</code> 为空)同样默认拒绝,需要显式 <code>allow_local: true</code>。 这条不是为了防谁,是为了防字段忘填:<code>CallerAID</code> 的零值就是空字符串,把空当作 "本机、可信"意味着将来任何一处新调用点漏填,都会静默绕过整份名单。默认拒绝 让同一个疏忽表现为一次看得见的拒绝。</p>
+<h2 id="配置">配置</h2>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-json">{&quot;modules&quot;: {&quot;shell&quot;: {
+  &quot;commands&quot;: {
+    &quot;restart-app&quot;:  {&quot;run&quot;: &quot;systemctl restart myapp&quot;, &quot;description&quot;: &quot;重启业务进程&quot;},
+    &quot;tail-log&quot;:     {&quot;run&quot;: &quot;journalctl -u myapp -n 200 --no-pager&quot;},
+    &quot;flash&quot;:        {&quot;run&quot;: &quot;/opt/tools/flash.sh&quot;, &quot;args&quot;: true, &quot;timeout_s&quot;: 600}
+  },
+  &quot;allow_file&quot;: &quot;/etc/anet/shell-allow&quot;,
+  &quot;timeout_s&quot;: 30,
+  &quot;max_output_bytes&quot;: 65536
+}}}</pre></div>
+<div class="tw"><table><thead><tr><th>字段</th><th>含义</th></tr></thead><tbody><tr><td><code>commands.&lt;name&gt;.run</code></td><td>命令行,经 <code>/bin/sh -c</code> 执行</td></tr><tr><td><code>commands.&lt;name&gt;.args</code></td><td>允许调用方追加参数(默认 false)</td></tr><tr><td><code>commands.&lt;name&gt;.dir</code></td><td>工作目录</td></tr><tr><td><code>commands.&lt;name&gt;.timeout_s</code></td><td>该命令的超时,覆盖全局值</td></tr><tr><td><code>allow</code></td><td>允许调用的 AID 内联列表</td></tr><tr><td><code>allow_local</code></td><td>放行不带调用方身份的调用,默认 false</td></tr><tr><td><code>allow_file</code></td><td>允许调用的 AID 文件,一行一个,<code>#</code> 起注释</td></tr><tr><td><code>allow_arbitrary</code></td><td>开放 <code>shell.exec</code>(任意命令),默认 false</td></tr><tr><td><code>timeout_s</code></td><td>全局超时,默认 30,上限 1800</td></tr><tr><td><code>max_output_bytes</code></td><td>回显上限,默认 65536,上限 4 MiB</td></tr><tr><td><code>shell</code></td><td>解释器,默认 <code>/bin/sh</code></td></tr></tbody></table></div>
+<p><code>allow</code> 与 <code>allow_file</code> 互斥,同时给出在加载期报错。</p>
+<h2 id="暴露的能力">暴露的能力</h2>
+<div class="tw"><table><thead><tr><th>能力 id</th><th>行为</th></tr></thead><tbody><tr><td><code>shell.list</code></td><td>报告本节点定义了哪些命令、谁在名单上</td></tr><tr><td><code>shell.run@&lt;name&gt;</code></td><td>执行一条已定义命令</td></tr><tr><td><code>shell.exec</code></td><td>执行调用方给的任意命令;仅在 <code>allow_arbitrary</code> 为 true 时存在</td></tr></tbody></table></div>
+<p><code>shell.exec</code> 不开时既不出现在能力卡上,也不接受按名调用。</p>
+<h2 id="收权">收权</h2>
+<p><code>allow_file</code> <strong>每次调用重读</strong>,不缓存。删掉一行、或删掉整个文件,下一次调用即生效, 不需要重启 daemon。文件不存在等同空名单(拒绝所有),不是错误、也不是放行。</p>
+<p><code>allow</code> 内联列表改完需要重载配置,所以生产上建议用 <code>allow_file</code>。</p>
+<h2 id="行为约定">行为约定</h2>
+<ul><li><strong>不提权。</strong> 命令以 daemon 自己的用户身份运行。要 root 就要让 daemon 以 root 运行, 那是安装期的决定,写在 unit 文件里、看得见。本模块不调用 sudo、不 setuid。</li><li><strong>参数不会变成命令。</strong> <code>args: true</code> 时调用方给的 <code>argv</code> 逐个单引号包裹后追加, 命令行归运营者、参数归网络,两者不能混成一个东西。</li><li><strong>超时杀整个进程组。</strong> 只杀 shell 会把它启动的子进程留在机器上,没有句柄能再找到它们。</li><li><strong>回显有上限。</strong> 超出部分截断,并在输出里写明截断,不静默截。</li><li><strong>诚实效果状态。</strong> 退出码 0 → <code>OK</code>;非 0 → <code>FAILED</code> 并带退出码与 stderr; 超时被杀 → <code>FAILED</code> 且 message 说明被杀。不会出现"被杀了但报 OK、输出为空"。</li><li><strong>每次执行都上证据链。</strong> 事件 <code>anet.shell.command</code> 记录谁调的、跑了什么、退出码、 耗时;被拒的调用记 <code>anet.shell.refused</code>,含调用方 AID。回显本身不入链(可能很大, 也可能含命令打印的任意内容)。</li></ul>
+<h2 id="联调覆盖">联调覆盖</h2>
+<p><code>scripts/joint-shell.sh</code> 起一个 hub 加两个 daemon,跨进程走真实委派路径,验 18 项。 单元测试自己构造 <code>provider.Call</code>,断言的是测试文件自己写进去的 <code>CallerAID</code>; 整套授权都压在这个字段上,而"到达 Invoke 的是验签后的身份、不是调用方自称的值" 只有真委派能证明。脚本里 3/7 就是这一条。</p>
+<p>其余在实网路径上验的:名单文件不存在时拒绝、参数元字符不被解释、非零退出回 FAILED 且 stderr 完整、删名单行后下一次调用即被拒(不重启)、加回后即恢复、<code>shell.exec</code> 不出现在 hub 目录里且按名调用不执行。</p>
+<h2 id="已知取舍">已知取舍</h2>
+<p><code>run</code> 经 shell 执行,运营者可以直接写平时敲的命令(管道、重定向、<code>&amp;&amp;</code>),代价是 运营者自己写进 <code>run</code> 的内容不受任何限制。这条线划在"运营者写的"和"网络传来的"之间, 后者才是被引号隔离的那一侧。</p>
+<p><strong>命令名会进 hub 目录。</strong> 节点向 hub 通告的是它实际会应答的能力 id,所以 <code>shell.run@restart-app</code> 这类名字对任何能浏览目录的人可见。这不给出访问权(名单仍然拦着), 但确实公开了"这台机器可以被要求做什么"。不希望公开的命令,名字就不要带信息。</p>
+<p><code>shell.list</code> 只把<strong>名单条数</strong>回给远程调用方,不回 AID 列表 —— 一个被接受的调用方 不该顺带拿到本节点信任的其余机器名单。本机调用(CallerAID 为空)拿到完整列表, 那是运营者在读自己的配置。</p>
+<footer>ANet · agentnetwork.org.cn · 源码 github.com/ANetResearch</footer>
+</main>
+</div>
+<script>
+document.querySelectorAll(".copy").forEach(function(b){b.addEventListener("click",function(){
+  var t=b.parentElement.querySelector("pre").innerText.replace(/[ \t]+$/gm,"");
+  navigator.clipboard.writeText(t).then(function(){var o=b.textContent;b.textContent="已复制";setTimeout(function(){b.textContent=o},1400)}).catch(function(){});
+})});
+</script>
+</body>
+</html>

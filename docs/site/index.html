@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ANet 文档</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#FAFAF7;--surface:#FFFFFF;--sunken:#F1F2EE;--ink:#16191A;--ink-2:#3D4644;--ink-3:#6B7573;
+  --rule:#DFE2DC;--rule-2:#C9CEC6;--accent:#0F6E5C;--accent-soft:#E4F0EC;--deny:#A8452C;--deny-soft:#F6E7E1;
+  --code-ground:#14201D;--code-ink:#DCE7E2;--code-dim:#7E948D;--code-accent:#7FD3B8;
+  --f-sans:"IBM Plex Sans","Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}}
+:root[data-theme="dark"]{
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-sans);font-size:16px;line-height:1.72;-webkit-font-smoothing:antialiased}
+.page{max-width:86rem;margin:0 auto;padding:0 1.5rem 6rem;display:grid;grid-template-columns:16rem minmax(0,1fr);gap:3rem}
+@media (max-width:900px){.page{grid-template-columns:1fr;gap:0}}
+nav.toc{position:sticky;top:1.25rem;align-self:start;max-height:calc(100vh - 2.5rem);overflow-y:auto;padding-top:3.6rem;font-size:.82rem}
+@media (max-width:900px){nav.toc{position:static;max-height:none;padding-top:1.5rem;border-bottom:1px solid var(--rule);margin-bottom:1rem}}
+nav.toc .eyebrow{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .6rem}
+nav.toc a{display:block;color:var(--ink-2);text-decoration:none;padding:.18rem 0 .18rem .75rem;border-left:2px solid transparent;line-height:1.45}
+nav.toc a.l3{padding-left:1.6rem;font-size:.78rem;color:var(--ink-3)}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--accent);border-left-color:var(--accent)}
+main{min-width:0;max-width:72ch}
+.mast{padding:3.5rem 0 1.25rem;border-bottom:1px solid var(--rule);margin-bottom:2rem}
+.mast .eyebrow{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .9rem}
+h1{font-size:clamp(1.8rem,1.2rem + 2vw,2.6rem);line-height:1.15;font-weight:700;letter-spacing:-.02em;margin:0;text-wrap:balance}
+h2{font-size:1.45rem;font-weight:600;letter-spacing:-.014em;margin:3rem 0 .9rem;padding-top:.5rem;text-wrap:balance}
+h2::before{content:"";display:block;width:2.25rem;height:2px;background:var(--accent);margin-bottom:.9rem}
+h3{font-size:1.08rem;font-weight:600;margin:2rem 0 .6rem}
+h4{font-size:.95rem;font-weight:600;margin:1.5rem 0 .4rem;color:var(--ink-2)}
+p{margin:0 0 1rem}
+a{color:var(--accent)}
+hr{border:none;border-top:1px solid var(--rule);margin:2.5rem 0}
+blockquote{border-left:2px solid var(--accent);background:var(--accent-soft);padding:.85rem 1rem;margin:0 0 1.25rem;color:var(--ink-2);border-radius:0 4px 4px 0;font-size:.95rem}
+blockquote strong{color:var(--ink)}
+ul,ol{margin:0 0 1rem;padding-left:1.25rem}li{margin-bottom:.35rem}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);padding:.1em .34em;border-radius:3px;word-break:break-word}
+.code{position:relative;background:var(--code-ground);border-radius:6px;margin:0 0 1.25rem;overflow:hidden}
+.code pre{margin:0;padding:1rem 1.1rem;overflow-x:auto;font-family:var(--f-mono);font-size:.82rem;line-height:1.7;color:var(--code-ink);tab-size:2}
+.copy{position:absolute;top:.5rem;right:.5rem;font-family:var(--f-mono);font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;color:var(--code-dim);background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:4px;padding:.2rem .5rem;cursor:pointer}
+.copy:hover,.copy:focus-visible{color:var(--code-accent);border-color:rgba(127,211,184,.45)}
+.tw{overflow-x:auto;margin:0 0 1.25rem;border:1px solid var(--rule);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:.87rem}
+th,td{text-align:left;padding:.58rem .8rem;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.55}
+thead th{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:500;background:var(--sunken);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td code{background:transparent;padding:0;font-size:.82em}
+.mast + .tw table{font-size:.85rem}
+footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font-size:.8rem;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="page">
+<nav class="toc"><p class="eyebrow">目录</p><a class="l2" href="#从这里开始">从这里开始</a><a class="l2" href="#一行安装">一行安装</a><a class="l2" href="#全部文档">全部文档</a><a class="l2" href="#源码">源码</a></nav>
+<main>
+<header class="mast"><p class="eyebrow">ANet 文档</p><h1>ANet 文档</h1></header>
+<p><strong>AI agent 之间能力互联的基础设施。它本身不运行任何模型。</strong></p>
+<p>真正做事的是接入者自己的 agent、服务或设备。ANet 提供自证明身份、发现与投递、委派账本、可验证证据,以及一个能力面。</p>
+<hr>
+<h2 id="从这里开始">从这里开始</h2>
+<div class="tw"><table><thead><tr><th>你是</th><th>读</th></tr></thead><tbody><tr><td>想知道这套东西是什么、为什么这样切</td><td><a href="design.html">设计文档</a></td></tr><tr><td>要接入、要提供能力、要运营 hub</td><td><a href="guide.html">使用说明</a></td></tr><tr><td>要选一个构建</td><td><a href="distributions.html">发行版</a></td></tr><tr><td>手上有一台崭新的机器</td><td><a href="install-debian.html">Debian 接入手册</a></td></tr></tbody></table></div>
+<h2 id="一行安装">一行安装</h2>
+<div class="code"><button class="copy" type="button">复制</button><pre>curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
+  --hub https://hub.agentnetwork.org.cn --name $(hostname)</pre></div>
+<p>装到 <code>~/.local/bin/anet</code>,不需要 sudo,不需要 Go,不需要 C 工具链。</p>
+<hr>
+<h2 id="全部文档">全部文档</h2>
+<div class="tw"><table><thead><tr><th>文档</th><th>内容</th></tr></thead><tbody><tr><td><a href="design.html">设计文档</a></td><td>期待的形态与当前实现的对照:五条契约、模块清单、发行版、每一处偏离的理由、按影响排序的缺口</td></tr><tr><td><a href="guide.html">使用说明</a></td><td>按"你要做什么"组织:安装、入网、委派、提供能力、收费、远程执行命令、运营 hub、排查</td></tr><tr><td><a href="distributions.html">发行版</a></td><td>六档减法构建加一个正交开关,实测体积与攻击面,以及"为什么按体积分档站不住"</td></tr><tr><td><a href="install-debian.html">Debian 接入手册</a></td><td>从空系统到接入并开放可随时收回的远程命令执行权限</td></tr><tr><td><a href="shell.html">shell 模块</a></td><td>唯一在宿主机执行命令的模块:加法 tag、三道闸门、行为约定、已知取舍</td></tr><tr><td><a href="payment.html">付费</a></td><td>标价、报价、结算、凭证兑付、对账与审计 hub 的发放链</td></tr><tr><td><a href="contracts.html">五合同架构</a></td><td>2026-08-16 的设计原文,保留未改。与今天不符处以设计文档为准</td></tr><tr><td><a href="suite-todo.html">现状与 TODO</a></td><td>活文档:五仓逐项状态,以及"哪些缺陷只有联调能发现"</td></tr><tr><td><a href="architecture.html">代码架构</a></td><td>仓库结构、协议栈、运行时、控制面、命令表</td></tr><tr><td><a href="capabilities.html">功能清单</a></td><td>每项能力的完备程度四档判据与性能实测</td></tr><tr><td><a href="auto-reply.html">自动回复</a></td><td>把外部 CLI agent 或 OpenAI 兼容端点变成常驻接单服务</td></tr><tr><td><a href="rewrite-from-anet3.html">从 anet3 重写</a></td><td>哪些东西刻意没有带过来,以及为什么</td></tr></tbody></table></div>
+<hr>
+<h2 id="源码">源码</h2>
+<div class="tw"><table><thead><tr><th>仓</th><th>角色</th></tr></thead><tbody><tr><td><a href="https://github.com/ANetResearch/ANetCore">ANetCore</a></td><td>协议内核,纯逻辑零 I/O,黄金向量钉死</td></tr><tr><td><a href="https://github.com/ANetResearch/ANet">ANet</a></td><td>daemon:唯一有生命周期的进程</td></tr><tr><td>ANetHub</td><td>目录、中继、评价验证、结算、联邦</td></tr><tr><td>ANetLink</td><td>物理世界运行时 + 14 个协议适配器</td></tr><tr><td>ANetMock</td><td>用真实线协模拟被控硬件</td></tr></tbody></table></div>
+<p><a href="https://github.com/ANetResearch/ANet/releases/tag/v0.1.7">Release v0.1.7</a> · 每平台两个变体,默认构建不含 shell 模块,<code>go tool nm</code> 可自行核对。</p>
+<footer>ANet · agentnetwork.org.cn · 源码 github.com/ANetResearch</footer>
+</main>
+</div>
+<script>
+document.querySelectorAll(".copy").forEach(function(b){b.addEventListener("click",function(){
+  var t=b.parentElement.querySelector("pre").innerText.replace(/[ \t]+$/gm,"");
+  navigator.clipboard.writeText(t).then(function(){var o=b.textContent;b.textContent="已复制";setTimeout(function(){b.textContent=o},1400)}).catch(function(){});
+})});
+</script>
+</body>
+</html>

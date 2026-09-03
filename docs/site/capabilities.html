@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>anet daemon 功能清单与完备程度</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#FAFAF7;--surface:#FFFFFF;--sunken:#F1F2EE;--ink:#16191A;--ink-2:#3D4644;--ink-3:#6B7573;
+  --rule:#DFE2DC;--rule-2:#C9CEC6;--accent:#0F6E5C;--accent-soft:#E4F0EC;--deny:#A8452C;--deny-soft:#F6E7E1;
+  --code-ground:#14201D;--code-ink:#DCE7E2;--code-dim:#7E948D;--code-accent:#7FD3B8;
+  --f-sans:"IBM Plex Sans","Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}}
+:root[data-theme="dark"]{
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-sans);font-size:16px;line-height:1.72;-webkit-font-smoothing:antialiased}
+.page{max-width:86rem;margin:0 auto;padding:0 1.5rem 6rem;display:grid;grid-template-columns:16rem minmax(0,1fr);gap:3rem}
+@media (max-width:900px){.page{grid-template-columns:1fr;gap:0}}
+nav.toc{position:sticky;top:1.25rem;align-self:start;max-height:calc(100vh - 2.5rem);overflow-y:auto;padding-top:3.6rem;font-size:.82rem}
+@media (max-width:900px){nav.toc{position:static;max-height:none;padding-top:1.5rem;border-bottom:1px solid var(--rule);margin-bottom:1rem}}
+nav.toc .eyebrow{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .6rem}
+nav.toc a{display:block;color:var(--ink-2);text-decoration:none;padding:.18rem 0 .18rem .75rem;border-left:2px solid transparent;line-height:1.45}
+nav.toc a.l3{padding-left:1.6rem;font-size:.78rem;color:var(--ink-3)}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--accent);border-left-color:var(--accent)}
+main{min-width:0;max-width:72ch}
+.mast{padding:3.5rem 0 1.25rem;border-bottom:1px solid var(--rule);margin-bottom:2rem}
+.mast .eyebrow{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .9rem}
+h1{font-size:clamp(1.8rem,1.2rem + 2vw,2.6rem);line-height:1.15;font-weight:700;letter-spacing:-.02em;margin:0;text-wrap:balance}
+h2{font-size:1.45rem;font-weight:600;letter-spacing:-.014em;margin:3rem 0 .9rem;padding-top:.5rem;text-wrap:balance}
+h2::before{content:"";display:block;width:2.25rem;height:2px;background:var(--accent);margin-bottom:.9rem}
+h3{font-size:1.08rem;font-weight:600;margin:2rem 0 .6rem}
+h4{font-size:.95rem;font-weight:600;margin:1.5rem 0 .4rem;color:var(--ink-2)}
+p{margin:0 0 1rem}
+a{color:var(--accent)}
+hr{border:none;border-top:1px solid var(--rule);margin:2.5rem 0}
+blockquote{border-left:2px solid var(--accent);background:var(--accent-soft);padding:.85rem 1rem;margin:0 0 1.25rem;color:var(--ink-2);border-radius:0 4px 4px 0;font-size:.95rem}
+blockquote strong{color:var(--ink)}
+ul,ol{margin:0 0 1rem;padding-left:1.25rem}li{margin-bottom:.35rem}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);padding:.1em .34em;border-radius:3px;word-break:break-word}
+.code{position:relative;background:var(--code-ground);border-radius:6px;margin:0 0 1.25rem;overflow:hidden}
+.code pre{margin:0;padding:1rem 1.1rem;overflow-x:auto;font-family:var(--f-mono);font-size:.82rem;line-height:1.7;color:var(--code-ink);tab-size:2}
+.copy{position:absolute;top:.5rem;right:.5rem;font-family:var(--f-mono);font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;color:var(--code-dim);background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:4px;padding:.2rem .5rem;cursor:pointer}
+.copy:hover,.copy:focus-visible{color:var(--code-accent);border-color:rgba(127,211,184,.45)}
+.tw{overflow-x:auto;margin:0 0 1.25rem;border:1px solid var(--rule);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:.87rem}
+th,td{text-align:left;padding:.58rem .8rem;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.55}
+thead th{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:500;background:var(--sunken);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td code{background:transparent;padding:0;font-size:.82em}
+.mast + .tw table{font-size:.85rem}
+footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font-size:.8rem;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="page">
+<nav class="toc"><p class="eyebrow">目录</p><a class="l2" href="#一-内核-不可插拔">一、内核(不可插拔)</a><a class="l2" href="#二-可插拔模块">二、可插拔模块</a><a class="l3" href="#性能实测-xeon-e5-2603-v4-1-70ghz">性能实测(Xeon E5-2603 v4 @1.70GHz)</a><a class="l2" href="#三-联调覆盖-scripts-joint-sh-四仓六进程">三、联调覆盖(scripts/joint.sh,四仓六进程)</a><a class="l2" href="#四-已知缺口-按重要性">四、已知缺口(按重要性)</a><a class="l2" href="#五-刻意不做">五、刻意不做</a></nav>
+<main>
+<header class="mast"><p class="eyebrow">ANet · 功能清单与完备程度</p><h1>anet daemon 功能清单与完备程度</h1></header>
+<p>对照的是<strong>当前仓库里跑得起来的东西</strong>,不是设计意图。每一项的"完备程度" 按四档给,判据写在后面:</p>
+<div class="tw"><table><thead><tr><th>档位</th><th>判据</th></tr></thead><tbody><tr><td><strong>联调验证</strong></td><td>有单测,且在 <code>scripts/joint.sh</code> 里跨进程真的跑通</td></tr><tr><td><strong>单测覆盖</strong></td><td>有针对性的单测(含否定用例),但没进联调</td></tr><tr><td><strong>仅可用</strong></td><td>代码在跑,没有直接测试,靠上层间接覆盖</td></tr><tr><td><strong>未做</strong></td><td>不存在,或只有占位</td></tr></tbody></table></div>
+<p><strong>当前规模</strong>:约 11,000 行实现 / 5,400 行测试(三个 wire 包已移入 ANetCore),143 个测试 + 13 个基准, <code>go.sum</code> 82 条,race 干净。联调 20/20。</p>
+<hr>
+<h2 id="一-内核-不可插拔">一、内核(不可插拔)</h2>
+<p>内核是"拔掉就不是 anet daemon"的部分,没有构建标签。</p>
+<div class="tw"><table><thead><tr><th>能力</th><th>位置</th><th>完备程度</th><th>说明</th></tr></thead><tbody><tr><td>身份(KEL/AID)</td><td>ANetCore <code>identity</code></td><td>联调验证</td><td>一个 runtime = 一个 agent = 一个 AID</td></tr><tr><td>能力注册表 (C1)</td><td><code>provider/</code></td><td>联调验证</td><td>daemon 只认 provider/capability/evidence,<strong>不认"设备"</strong></td></tr><tr><td>委派生命周期</td><td><code>internal/daemon/relay.go</code> <code>delegation.go</code></td><td>联调验证</td><td>find → delegate → 多轮消息 → end → review</td></tr><tr><td>委派验签</td><td>ANetCore <code>delegation</code></td><td>单测覆盖</td><td>8 种冒充方式逐一被拒(换 KEL、冒名、改任务、无签名、缺 ix、坏 TaskDoc、空任务、坏 KEL)</td></tr><tr><td><strong>收据验证</strong></td><td>ANetCore <code>delegation.VerifyResult</code></td><td>联调验证</td><td>请求方接受结果前逐项绑定;7 种"持有效签名仍撒谎"的方式被拒</td></tr><tr><td><strong>第三方验证</strong></td><td><code>anet verify</code></td><td>联调验证</td><td>无 daemon、无 hub、无网络;实测通过与拒绝各一次</td></tr><tr><td>中继鉴权</td><td>ANetCore <code>relayauth</code></td><td>单测覆盖</td><td>四种 action 域分离、5 分钟重放窗口、preimage 字节钉死</td></tr><tr><td>证据链 (P6/C5)</td><td><code>internal/daemon/ledger.go</code></td><td>联调验证</td><td>base64 CoreDet-CBOR、verify-before-use、88 条记录重启通过</td></tr><tr><td>收据 + 评价</td><td><code>internal/protocol/evidence</code></td><td>联调验证</td><td>ResultCID 覆盖交付物,provider 签发</td></tr><tr><td>传输列表</td><td><code>internal/daemon/transport.go</code></td><td>联调验证</td><td>hub 是兜底,不是唯一;dispatch 513ns</td></tr><tr><td>对端 KEL 缓存</td><td><code>internal/daemon/peerkel.go</code></td><td>单测覆盖</td><td>只记住自己验过的,上限 512</td></tr><tr><td>控制面 (20 端点)</td><td><code>internal/daemon/control_api.go</code></td><td>联调验证</td><td>bearer + loopback;console 单独放在 bearer 外</td></tr><tr><td>CLI (33 子命令)</td><td><code>cmd/anet</code></td><td>单测覆盖</td><td>参数解析刚补测试并修了 <code>--key=value</code></td></tr><tr><td>自动回复</td><td><code>internal/daemon/autoreply*.go</code></td><td>单测覆盖</td><td>含 vision;未进联调</td></tr><tr><td>身份管理(多身份)</td><td><code>internal/daemon/identities.go</code></td><td>仅可用</td><td><code>anet id ls/new/use/rm</code></td></tr></tbody></table></div>
+<h2 id="二-可插拔模块">二、可插拔模块</h2>
+<p><code>-tags no_&lt;name&gt;</code> 后二进制里<strong>符号数为 0</strong>,CI 用 <code>go tool nm</code> 计数,不是"配置关掉"。</p>
+<div class="tw"><table><thead><tr><th>模块</th><th>能力 id</th><th>行数</th><th>测试</th><th>完备程度</th></tr></thead><tbody><tr><td><code>anetlink</code></td><td>由 ANetLink 提供(<code>ptz.absolute@onvif/camera-006</code> 等)</td><td>81+168</td><td>3</td><td>联调验证</td></tr><tr><td><code>cas</code></td><td><code>cas.put</code> <code>cas.get</code> <code>cas.has</code> <code>cas.stat</code></td><td>477</td><td>19+4基准</td><td>联调验证</td></tr><tr><td><code>blackboard</code></td><td><code>blackboard.add</code> <code>blackboard.snapshot</code> <code>blackboard.conclude</code></td><td>772</td><td>16+3基准</td><td>联调验证</td></tr><tr><td><code>org</code></td><td><code>org.verify</code> <code>org.info</code></td><td>737</td><td>21+3基准</td><td>联调验证</td></tr><tr><td><code>p2p</code></td><td>(传输,不是能力)</td><td>416</td><td>8</td><td>联调验证</td></tr><tr><td><code>inv1</code></td><td>(不变式守卫)</td><td>92</td><td>1</td><td>单测覆盖</td></tr><tr><td><code>inv2</code></td><td>(不变式守卫)</td><td>102</td><td>3</td><td>联调验证</td></tr></tbody></table></div>
+<h3 id="性能实测-xeon-e5-2603-v4-1-70ghz">性能实测(Xeon E5-2603 v4 @1.70GHz)</h3>
+<div class="tw"><table><thead><tr><th>操作</th><th>耗时</th><th>备注</th></tr></thead><tbody><tr><td>传输 dispatch</td><td>513 ns</td><td>每次委派都走,必须可忽略</td></tr><tr><td>黑板 add(首次,验签)</td><td>281 µs</td><td>成本是验签</td></tr><tr><td>黑板 add(重复)</td><td>3.4 µs</td><td><strong>83× 快</strong>:先算 id 提前返回,且严格更安全</td></tr><tr><td>黑板 snapshot(4096 单元)</td><td>2.5 ms</td><td>线性</td></tr><tr><td>CAS put 1MB</td><td>6.4 ms</td><td>164 MB/s</td></tr><tr><td>CAS get 1MB(读回重哈希)</td><td>6.7 ms</td><td>158 MB/s</td></tr><tr><td>org 验证(founder 签发)</td><td>307 µs</td><td>一次签名验证</td></tr><tr><td>org 验证(admin 签发)</td><td>614 µs</td><td>两跳链,两次验证</td></tr><tr><td>凭证序列化</td><td>3.5 µs</td><td></td></tr></tbody></table></div>
+<h2 id="三-联调覆盖-scripts-joint-sh-四仓六进程">三、联调覆盖(<code>scripts/joint.sh</code>,四仓六进程)</h2>
+<div class="code"><button class="copy" type="button">复制</button><pre>ANetMock ← ANetLink ← anet daemon(provider) → ANetHub ← anet daemon(requester)
+                            ↕                              ↕
+                        anetpeer ←─── rendezvous ───→ anetpeer</pre></div>
+<p>20 项检查:设备 PTZ 真实移动 + 携带 provenance;CAS 按内容寻址往返 + 未知 CID 诚实失败;黑板签名合并 + 快照 + 幂等 + 篡改被拒;org 凭证验证 + 过期被拒 + INV-2 拒绝泄露;p2p 双向直连;证据链重启。</p>
+<p><strong>联调是唯一发现这五个缺陷的手段</strong>——两边单测各自伪造对方,全绿:</p>
+<ol><li>能力委派路径无人可达(<code>--capability</code> 落进 goal 文本)</li><li>读能力跨线只写不读(CID/blob/列表放在 <code>ObservedState</code>,不上线)</li><li>ANetLink 的 C1 线丢弃 quirk 标签</li><li>证据链用无法表达自身 id 的编码落盘</li><li>p2p 传输送不回一个回复(入站处理占住读循环)</li></ol>
+<h2 id="四-已知缺口-按重要性">四、已知缺口(按重要性)</h2>
+<div class="tw"><table><thead><tr><th>缺口</th><th>影响</th><th>状态</th></tr></thead><tbody><tr><td><s>三个 wire 包各有两份副本</s></td><td><s><code>delegation</code> 已实质分叉 28 行</s></td><td><strong>已解决</strong>:三个包收进 ANetCore v0.5.3,两仓共用一份</td></tr><tr><td>治理纪元 <code>govepoch</code></td><td>org 只接受 epoch 0</td><td>等 ANetCore 的 <code>ascpevo.GovernanceCert</code></td></tr><tr><td>C5 证据链无查询接口</td><td>链只写不读,运维看不到自己的证据</td><td>未做(<code>anet verify</code> 已让收据可查,链本身仍不可查)</td></tr><tr><td><code>internal/hubapi</code> 无测试</td><td>纯类型,风险低</td><td>仅可用</td></tr><tr><td><code>module/anetlink</code> 无直接测试</td><td>81 行薄封装,<code>provider/anetlink</code> 有 3 个测试</td><td>仅可用</td></tr><tr><td>自动回复未进联调</td><td>只在单测里跑过</td><td>单测覆盖</td></tr><tr><td><code>anetfixture</code> 无单测</td><td>是联调工具本身,由 joint.sh 端到端使用</td><td>仅可用</td></tr></tbody></table></div>
+<h2 id="五-刻意不做">五、刻意不做</h2>
+<ul><li><strong>libp2p commons 织物</strong>(anet3 的 2,352 行):进程外。构建标签移除代码, 从不移除 <code>go.mod</code> 依赖;82 条 go.sum 对上千模块树不值。 <code>tools/anetpeer</code> 是那份契约的参考实现(302 行,3 个跨真实传输的测试)。</li><li><strong>org-central 及六个卫星</strong>(anet3 的 5,033 行):<code>module/org</code> 只回答 "这份凭证是不是这个组织的有效成员"。看板、任务循环、群密钥若要存在, 是 org-central 自己通过 C1 提供能力,不是 daemon 里多七个包。</li><li>细节见 <a href="rewrite-from-anet3.html">REWRITE-from-anet3-zh.md</a>。</li></ul>
+<footer>ANet · agentnetwork.org.cn · 源码 github.com/ANetResearch</footer>
+</main>
+</div>
+<script>
+document.querySelectorAll(".copy").forEach(function(b){b.addEventListener("click",function(){
+  var t=b.parentElement.querySelector("pre").innerText.replace(/[ \t]+$/gm,"");
+  navigator.clipboard.writeText(t).then(function(){var o=b.textContent;b.textContent="已复制";setTimeout(function(){b.textContent=o},1400)}).catch(function(){});
+})});
+</script>
+</body>
+</html>

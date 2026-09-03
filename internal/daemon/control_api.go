@@ -417,6 +417,11 @@ func (d *Daemon) hHubRegister(w http.ResponseWriter, r *http.Request) {
 		Caps              []string `json:"caps"`
 		GuestMessages     *int     `json:"guest_messages"`
 		AcceptDelegations *bool    `json:"accept_delegations"`
+		// Token is an admission token for a hub that requires one. It is
+		// passed through and not stored: it is spent on arrival, and a
+		// spent credential kept on disk is a credential that can leak
+		// long after it bought anything.
+		Token string `json:"token"`
 	}
 	if err := readJSON(r, &req); err != nil || req.Hub == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "hub URL required"})
@@ -424,7 +429,7 @@ func (d *Daemon) hHubRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
 	defer cancel()
-	if err := d.HubRegister(ctx, req.Hub, req.Name, req.Caps, req.GuestMessages, req.AcceptDelegations); err != nil {
+	if err := d.HubRegister(ctx, req.Hub, req.Name, req.Caps, req.GuestMessages, req.AcceptDelegations, req.Token); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
