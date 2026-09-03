@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/aobj"
@@ -41,9 +42,13 @@ type Daemon struct {
 	modules []module.Module
 	// wireWarnOnce keeps the C2 version-mismatch notice to one line.
 	wireWarnOnce sync.Once
-	layout       Layout
-	self         *identity.Controller
-	ix           *interactions.Store
+	// lastCardSeq is the highest sequence this process has minted for its
+	// own AgentCard. See cardSeq — the clock alone cannot keep the number
+	// strictly increasing, and the hub refuses a card that does not.
+	lastCardSeq atomic.Uint64
+	layout      Layout
+	self        *identity.Controller
+	ix          *interactions.Store
 
 	// cachedHubAID names the ledger this node settles on, fetched once
 	// from the hub. Two hubs are two networks and a credit on one is not
