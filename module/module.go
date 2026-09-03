@@ -278,6 +278,30 @@ type registration struct {
 	factory Factory
 }
 
+// optInNames holds the names of modules whose build tag is ADDITIVE:
+// absent from the default build, present only with `-tags <name>`.
+//
+// Declared through DeclareOptIn from a file with no build tag, which is
+// the only thing that works here. The registry holds what the build
+// linked; this map has to name a module that is deliberately NOT linked,
+// so it cannot be filled from the module's own registration — that
+// registration is exactly what the tag removed.
+var optInNames = map[string]bool{}
+
+// DeclareOptIn records that a module is reached by an additive tag.
+//
+// Names only, no code: the point is for a build that does NOT contain the
+// module to still be able to say which flag would have brought it in.
+// Telling an operator to check for `no_shell` when no such tag exists
+// sends them looking for a flag that was never there.
+func DeclareOptIn(names ...string) {
+	regMu.Lock()
+	defer regMu.Unlock()
+	for _, n := range names {
+		optInNames[n] = true
+	}
+}
+
 var (
 	regMu    sync.Mutex
 	registry []registration
@@ -293,12 +317,19 @@ func Register(name string, f Factory) {
 			panic("module: duplicate registration " + name)
 		}
 	}
-	registry = append(registry, registration{name, f})
+	registry = append(registry, registration{name: name, factory: f})
 }
 
 // Compiled lists the module names in this build, sorted. The daemon logs it
 // at startup so an operator can see what their binary actually contains
 // rather than what the documentation says it might.
+// optInName reports whether an absent module is an additive one.
+func optInName(name string) bool {
+	regMu.Lock()
+	defer regMu.Unlock()
+	return optInNames[name]
+}
+
 func Compiled() []string {
 	regMu.Lock()
 	defer regMu.Unlock()
@@ -353,9 +384,15 @@ func Build(cfg map[string][]byte) ([]Module, error) {
 	}
 	for name := range cfg {
 		if !known[name] {
+			// The hint has to name the tag that actually governs this
+			// module. An additive module is missing because nobody asked
+			// for it, not because somebody removed it.
+			hint := fmt.Sprintf("built with no_%s?", name)
+			if optInName(name) {
+				hint = fmt.Sprintf("it needs -tags %s, which the default build does not use", name)
+			}
 			return nil, fmt.Errorf(
-				"module %q is configured but not compiled into this build (built with no_%s?)",
-				name, name)
+				"module %q is configured but not compiled into this build (%s)", name, hint)
 		}
 	}
 	return out, nil

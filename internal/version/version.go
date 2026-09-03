@@ -10,7 +10,7 @@ package version
 // That is fine for "which release is this" and useless for "is the thing
 // I just deployed the thing that is running", which is the question that
 // actually comes up.
-const V = "0.1.6"
+const V = "0.1.7"
 
 // Commit and BuiltAt are stamped at build time:
 //
@@ -23,6 +23,16 @@ const V = "0.1.6"
 var (
 	Commit  = "unknown"
 	BuiltAt = "unknown"
+	// Tags is the build tag string this binary was compiled with, empty
+	// for a default build.
+	//
+	// Stamped for the same reason as Commit, and it answers a question
+	// Commit cannot: two binaries at the same commit are not the same
+	// binary if one of them was built with `-tags shell` and can execute
+	// commands on its host. An operator auditing a fleet needs that
+	// difference to be readable from the binary rather than inferred
+	// from which file they think they copied.
+	Tags = ""
 )
 
 // Full is the version as a service reports it.
@@ -31,5 +41,6 @@ func Full() map[string]string {
 		"version":  V,
 		"commit":   Commit,
 		"built_at": BuiltAt,
+		"tags":     Tags,
 	}
 }

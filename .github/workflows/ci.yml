@@ -33,6 +33,53 @@ jobs:
           CGO_ENABLED: "1"   # -race needs cgo; runners ship gcc
         run: go test -race ./...
 
+  # The opt-in tags, which are checked the other way round.
+  #
+  # Every module above is in by default and subtracted with `no_<name>`.
+  # `shell` is the exception: it executes commands on the machine hosting
+  # the daemon, so the default build must not contain it and a build must
+  # ask. That inverts the assertion — the DEFAULT binary is the one whose
+  # symbol count has to be zero — and inverts what a mistake costs. A
+  # broken subtractive tag ships a module somebody wanted removed; a
+  # broken opt-in tag ships command execution to everybody who never
+  # asked for it, which is why it is a separate job rather than another
+  # row in the matrix above.
+  optin:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ["shell"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # The default `go test ./...` cannot see tagged code at all, so
+      # without this the module's own tests never run anywhere.
+      - name: gofmt, vet and test with the module in
+        run: |
+          test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+          go vet -tags "${{ matrix.tag }}" ./...
+          go test -tags "${{ matrix.tag }}" ./...
+      - name: the binary must still start both ways
+        run: |
+          go build -o /tmp/anet-default ./cmd/anet
+          go build -tags "${{ matrix.tag }}" -o /tmp/anet-optin ./cmd/anet
+          /tmp/anet-default --help >/dev/null
+          /tmp/anet-optin --help >/dev/null
+      - name: the module must be absent by default and present when asked
+        run: |
+          mod="${{ matrix.tag }}"
+          pat="module/$mod"
+          def=$(go tool nm /tmp/anet-default | grep -cE "$pat" || true)
+          opt=$(go tool nm /tmp/anet-optin | grep -cE "$pat" || true)
+          echo "$mod symbols: default=$def opt-in=$opt"
+          test "$def" -eq 0 || (echo "$mod is linked into the DEFAULT build" && exit 1)
+          test "$opt" -gt 0 || (echo "-tags $mod did not link $mod in" && exit 1)
+
   # "Pluggable" is a property the build proves, not a claim in a design
   # document. v1's organisation feature was pluggable in exactly the same
   # sense — right up to the point where removing it took an axe and 683,852
