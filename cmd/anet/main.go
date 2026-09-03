@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/module"
 )
 
 func main() {
@@ -64,6 +65,21 @@ func main() {
 	case "version", "--version", "-v":
 		fmt.Printf("anet %s (commit %s, built %s)\n",
 			daemon.Version, daemon.BuildCommit, daemon.BuildAt)
+		// Which optional subsystems are in THIS binary, read off the
+		// registry rather than off a build-time stamp.
+		//
+		// version.Tags records the tag string the build was given, and a
+		// `go build -tags shell` with no -X ldflag produces a binary that
+		// has the module and reports no tags — a field that can say
+		// "default" about a binary which can run commands on its host is
+		// worse than no field. The registry cannot be wrong about this:
+		// a module is in the list because its init() ran, which happened
+		// because the linker kept it.
+		mods := module.Compiled()
+		if len(mods) == 0 {
+			mods = []string{"(none)"}
+		}
+		fmt.Printf("modules: %s\n", strings.Join(mods, ","))
 	case "mcp":
 		// Serves over stdio, so it must not share the process with
 		// anything that prints: a stray line on stdout is a protocol
