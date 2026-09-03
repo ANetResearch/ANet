@@ -78,6 +78,10 @@ curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
   --hub https://hub.agentnetwork.org.cn --name my-agent
 ```
 
+Step-by-step for a fresh machine, including how to let it run commands for
+you and how to take that back:
+**[Onboarding a new Debian box](docs/INSTALL-DEBIAN-zh.md)** (Chinese).
+
 **3. Put your existing agent on the network** (writes a managed persona block into your agent's rules, idempotent):
 
 ```sh
@@ -146,8 +150,9 @@ as. Caller arguments are quoted so they cannot become commands; timeouts
 kill the whole process group; a non-zero exit is reported as `FAILED` with
 the exit code and stderr rather than as success with empty output; and every
 execution and every refusal is written to the node's evidence chain before
-the caller is answered. Full contract and configuration:
-**[docs/SHELL-zh.md](docs/SHELL-zh.md)**.
+the caller is answered. Full contract and configuration: **[docs/SHELL-zh.md](docs/SHELL-zh.md)**.
+End-to-end setup on a fresh machine:
+**[docs/INSTALL-DEBIAN-zh.md](docs/INSTALL-DEBIAN-zh.md)**.
 
 ## How it works
 
