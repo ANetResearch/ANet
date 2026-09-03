@@ -41,7 +41,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DIST="$ROOT/dist"
 REL_DIR="$(cd "$(dirname "$0")" && pwd)"
-LDFLAGS='-s -w'
+# -w drops DWARF; -s would ALSO drop the symbol table, and is deliberately
+# not used.
+#
+# The pluggability claim is that a downloaded binary can be checked, not
+# merely trusted: `go tool nm anet | grep -c module/shell` must be able to
+# answer 0 on the file a user actually has. `-s` makes that command return
+# "no symbols" — which reads like a passing check while proving nothing. The
+# 1.4 MB it saves (14,320 K → 15,760 K) is not worth turning a verifiable
+# property back into a promise.
+LDFLAGS='-w' 
 
 info() { printf '\033[1;36m== %s ==\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m✓ %s\033[0m\n' "$*"; }
@@ -100,6 +109,9 @@ info "verify: the default build must not contain module/shell"
 for plat in $TARGETS; do
   case "$plat" in "$(go env GOOS)-$(go env GOARCH)") ;; *) continue ;; esac
   gunzip -kf "$DIST/anet-${plat}.gz" && gunzip -kf "$DIST/anet-shell-${plat}.gz"
+  # A stripped binary answers 0 here for the wrong reason, so the absence of
+  # symbols is itself a failure rather than a pass.
+  go tool nm "$DIST/anet-${plat}" >/dev/null 2>&1 || die "no symbol table in the shipped binary: the check below would pass vacuously"
   d=$(go tool nm "$DIST/anet-${plat}" | grep -c 'module/shell' || true)
   s=$(go tool nm "$DIST/anet-shell-${plat}" | grep -c 'module/shell' || true)
   rm -f "$DIST/anet-${plat}" "$DIST/anet-shell-${plat}"
