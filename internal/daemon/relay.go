@@ -49,7 +49,9 @@ const freshPollTimeout = 12 * time.Second
 // relay poll loop so delegations and results start flowing. guestMessages, when non-nil, updates this
 // agent's guest-mode trial quota (persisted); acceptDelegations, when non-nil, updates whether this
 // daemon stores inbound tasks; nil leaves the current setting unchanged.
-func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []string, guestMessages *int, acceptDelegations *bool) error {
+// invite carries an admission token to a hub that requires one; empty
+// otherwise, and never written to config — see RegisterWithHub.
+func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []string, guestMessages *int, acceptDelegations *bool, invite string) error {
 	d.mu.Lock()
 	if guestMessages != nil {
 		d.cfg.GuestMessages = guestMessages
@@ -60,7 +62,7 @@ func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []st
 	quota := d.cfg.GuestQuota()
 	d.mu.Unlock()
 	caps = withServedCapabilities(caps, d.providers)
-	if err := d.RegisterWithHub(ctx, hubURL, name, caps, quota); err != nil {
+	if err := d.RegisterWithHub(ctx, hubURL, name, caps, quota, invite); err != nil {
 		return err
 	}
 	d.mu.Lock()

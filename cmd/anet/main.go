@@ -969,9 +969,16 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 	case "hub-register":
 		pos, flags := splitFlags(rest)
 		if len(pos) < 1 || pos[0] == "" {
-			return fmt.Errorf("hub-register <url> [--name NAME] [--caps a,b] [--guest-messages N] [--accept-delegations true|false]")
+			return fmt.Errorf("hub-register <url> [--name NAME] [--caps a,b] [--token INVITE] " +
+				"[--guest-messages N] [--accept-delegations true|false]")
 		}
 		body := map[string]any{"hub": pos[0], "name": flags["name"]}
+		// Only sent when given. A hub that admits openly has no use for
+		// it, and sending an empty string would make the two cases look
+		// different on the wire when they are not.
+		if v := strings.TrimSpace(flags["token"]); v != "" {
+			body["token"] = v
+		}
 		if v := flags["caps"]; v != "" {
 			body["caps"] = strings.Split(v, ",")
 		}

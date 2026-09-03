@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>发行版设计:按需求裁剪的 anet daemon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#FAFAF7;--surface:#FFFFFF;--sunken:#F1F2EE;--ink:#16191A;--ink-2:#3D4644;--ink-3:#6B7573;
+  --rule:#DFE2DC;--rule-2:#C9CEC6;--accent:#0F6E5C;--accent-soft:#E4F0EC;--deny:#A8452C;--deny-soft:#F6E7E1;
+  --code-ground:#14201D;--code-ink:#DCE7E2;--code-dim:#7E948D;--code-accent:#7FD3B8;
+  --f-sans:"IBM Plex Sans","Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}}
+:root[data-theme="dark"]{
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-sans);font-size:16px;line-height:1.72;-webkit-font-smoothing:antialiased}
+.page{max-width:86rem;margin:0 auto;padding:0 1.5rem 6rem;display:grid;grid-template-columns:16rem minmax(0,1fr);gap:3rem}
+@media (max-width:900px){.page{grid-template-columns:1fr;gap:0}}
+nav.toc{position:sticky;top:1.25rem;align-self:start;max-height:calc(100vh - 2.5rem);overflow-y:auto;padding-top:3.6rem;font-size:.82rem}
+@media (max-width:900px){nav.toc{position:static;max-height:none;padding-top:1.5rem;border-bottom:1px solid var(--rule);margin-bottom:1rem}}
+nav.toc .eyebrow{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .6rem}
+nav.toc a{display:block;color:var(--ink-2);text-decoration:none;padding:.18rem 0 .18rem .75rem;border-left:2px solid transparent;line-height:1.45}
+nav.toc a.l3{padding-left:1.6rem;font-size:.78rem;color:var(--ink-3)}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--accent);border-left-color:var(--accent)}
+main{min-width:0;max-width:72ch}
+.mast{padding:3.5rem 0 1.25rem;border-bottom:1px solid var(--rule);margin-bottom:2rem}
+.mast .eyebrow{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .9rem}
+h1{font-size:clamp(1.8rem,1.2rem + 2vw,2.6rem);line-height:1.15;font-weight:700;letter-spacing:-.02em;margin:0;text-wrap:balance}
+h2{font-size:1.45rem;font-weight:600;letter-spacing:-.014em;margin:3rem 0 .9rem;padding-top:.5rem;text-wrap:balance}
+h2::before{content:"";display:block;width:2.25rem;height:2px;background:var(--accent);margin-bottom:.9rem}
+h3{font-size:1.08rem;font-weight:600;margin:2rem 0 .6rem}
+h4{font-size:.95rem;font-weight:600;margin:1.5rem 0 .4rem;color:var(--ink-2)}
+p{margin:0 0 1rem}
+a{color:var(--accent)}
+hr{border:none;border-top:1px solid var(--rule);margin:2.5rem 0}
+blockquote{border-left:2px solid var(--accent);background:var(--accent-soft);padding:.85rem 1rem;margin:0 0 1.25rem;color:var(--ink-2);border-radius:0 4px 4px 0;font-size:.95rem}
+blockquote strong{color:var(--ink)}
+ul,ol{margin:0 0 1rem;padding-left:1.25rem}li{margin-bottom:.35rem}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);padding:.1em .34em;border-radius:3px;word-break:break-word}
+.code{position:relative;background:var(--code-ground);border-radius:6px;margin:0 0 1.25rem;overflow:hidden}
+.code pre{margin:0;padding:1rem 1.1rem;overflow-x:auto;font-family:var(--f-mono);font-size:.82rem;line-height:1.7;color:var(--code-ink);tab-size:2}
+.copy{position:absolute;top:.5rem;right:.5rem;font-family:var(--f-mono);font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;color:var(--code-dim);background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:4px;padding:.2rem .5rem;cursor:pointer}
+.copy:hover,.copy:focus-visible{color:var(--code-accent);border-color:rgba(127,211,184,.45)}
+.tw{overflow-x:auto;margin:0 0 1.25rem;border:1px solid var(--rule);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:.87rem}
+th,td{text-align:left;padding:.58rem .8rem;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.55}
+thead th{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:500;background:var(--sunken);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td code{background:transparent;padding:0;font-size:.82em}
+.mast + .tw table{font-size:.85rem}
+footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font-size:.8rem;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="page">
+<nav class="toc"><p class="eyebrow">目录</p><a class="l2" href="#先看数据">先看数据</a><a class="l2" href="#攻击面-每个模块带来什么">攻击面:每个模块带来什么</a><a class="l2" href="#六种交付形态-外加一条正交的开关">六种交付形态,外加一条正交的开关</a><a class="l3" href="#1-anet-min-只是接入">1 · anet-min —— 只是接入</a><a class="l3" href="#2-anet-standard-接入-提供服务">2 · anet-standard —— 接入 + 提供服务</a><a class="l3" href="#3-anet-paid-接入-服务-收费">3 · anet-paid —— 接入 + 服务 + 收费</a><a class="l3" href="#4-anet-agent-给-ai-编码助手用">4 · anet-agent —— 给 AI 编码助手用</a><a class="l3" href="#5-anet-p2p-不想经过-hub">5 · anet-p2p —— 不想经过 hub</a><a class="l3" href="#6-anet-full-全部">6 · anet-full —— 全部</a><a class="l3" href="#正交项-shell-允许远程执行本机命令">正交项 · +shell —— 允许远程执行本机命令</a><a class="l2" href="#实测-每个形态都编译并符号级验证过">实测(每个形态都编译并符号级验证过)</a><a class="l2" href="#组合矩阵">组合矩阵</a><a class="l2" href="#这些说法是怎么验证的">这些说法是怎么验证的</a><a class="l2" href="#待决问题">待决问题</a><a class="l2" href="#不打算做的">不打算做的</a></nav>
+<main>
+<header class="mast"><p class="eyebrow">ANet 发行版</p><h1>发行版设计:按需求裁剪的 anet daemon</h1></header>
+<p><strong>状态:设计稿,未发布。</strong> 本文整理可能的交付形态与对应的用户场景,供讨论; 不代表已经决定要发布这些组合。</p>
+<h2 id="先看数据">先看数据</h2>
+<p>裁剪的直觉理由通常是"体积"。实测结果不支持这个理由:</p>
+<p>(下列数字重测于 2026-09-03,go 1.26,<code>-trimpath -ldflags &quot;-s -w&quot;</code>。)</p>
+<div class="tw"><table><thead><tr><th>构建</th><th>体积</th><th>省下</th></tr></thead><tbody><tr><td>默认(不含 shell)</td><td>14,320 K</td><td>—</td></tr><tr><td>去掉全部九个减法模块</td><td>12,096 K</td><td>15%</td></tr></tbody></table></div>
+<p>单独去掉每个模块:</p>
+<div class="tw"><table><thead><tr><th>tag</th><th>省下</th><th>占可省总量</th></tr></thead><tbody><tr><td><code>no_mcp</code></td><td>1,900 K</td><td><strong>85%</strong></td></tr><tr><td><code>no_x402</code></td><td>124 K</td><td>5%</td></tr><tr><td><code>no_cas</code></td><td>60 K</td><td>2%</td></tr><tr><td><code>no_blackboard</code></td><td>44 K</td><td>1%</td></tr><tr><td><code>no_org</code></td><td>32 K</td><td>1%</td></tr><tr><td><code>no_p2p</code></td><td>28 K</td><td>1%</td></tr><tr><td><code>no_taskboard</code></td><td>24 K</td><td>1%</td></tr><tr><td><code>no_anetlink</code></td><td>20 K</td><td>&lt;1%</td></tr><tr><td><code>no_service</code></td><td>16 K</td><td>&lt;1%</td></tr></tbody></table></div>
+<p>加法 tag 反过来算 —— 加进去多少:</p>
+<div class="tw"><table><thead><tr><th>tag</th><th>加上</th></tr></thead><tbody><tr><td><code>shell</code></td><td>28 K</td></tr></tbody></table></div>
+<p><strong>结论:除 MCP 外,没有一个模块对体积有实质影响。</strong> 剩下的 17.6 MB 是 Go 运行时、 <code>net/http</code>、加密库和 SQLite 驱动,与模块无关。</p>
+<p>依赖数同理:默认构建链接 307 个包,<code>no_mcp</code> 降到 273(MCP SDK 及其 jsonschema 依赖), 九个减法 tag 全用上降到 264。<code>-tags shell</code> 加 1 个。</p>
+<p>所以<strong>按体积分发行版是站不住的</strong>。真正值得分的维度有三个:</p>
+<ol><li><strong>攻击面</strong> —— 这个构建会打开什么、接受什么</li><li><strong>可被要求做什么</strong> —— 一个没有付费模块的节点不可能被诱导付款</li><li><strong>运维复杂度</strong> —— 要配几个块、有几种失败模式</li></ol>
+<h2 id="攻击面-每个模块带来什么">攻击面:每个模块带来什么</h2>
+<div class="tw"><table><thead><tr><th>模块</th><th>打开的入口</th><th>出站行为</th></tr></thead><tbody><tr><td><code>x402</code></td><td><strong>公开 HTTP 监听口</strong>(配了 <code>voucher_addr</code> 时)</td><td>向 hub 发结算、拉发放链</td></tr><tr><td><code>p2p</code></td><td><strong>入站对等连接</strong></td><td>主动连对等节点</td></tr><tr><td><code>mcp</code></td><td>stdio 服务(由本机进程启动)</td><td>无</td></tr><tr><td><code>service</code></td><td>无</td><td>向本机 HTTP 服务发请求</td></tr><tr><td><code>anetlink</code></td><td>无</td><td>连 ANetLink 的 unix socket</td></tr><tr><td><code>cas</code> / <code>blackboard</code> / <code>org</code></td><td>无</td><td>无</td></tr><tr><td><code>shell</code></td><td>无(经 hub 或 p2p 到达)</td><td><strong>在宿主机上执行命令</strong></td></tr></tbody></table></div>
+<p>只有 <code>x402</code> 和 <code>p2p</code> 会让节点<strong>接受外部连接</strong>。这是分发行版最实在的一条线。</p>
+<p><code>shell</code> 不开端口,但它是唯一一个把网络请求变成本机命令执行的模块,因此单独占一条线: 它是本文里唯一用<strong>加法 tag</strong> 的模块,默认构建不含它。见 <a href="shell.html">SHELL-zh.md</a>。</p>
+<h2 id="六种交付形态-外加一条正交的开关">六种交付形态,外加一条正交的开关</h2>
+<h3 id="1-anet-min-只是接入">1 · <code>anet-min</code> —— 只是接入</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre>-tags no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink</pre></div>
+<p><strong>给谁</strong>:只想让自己的 agent 接入网络、找人、委派任务的用户。不提供服务、不收钱、 不参与共脑。</p>
+<p><strong>能做</strong>:注册到 hub、<code>find</code>、<code>delegate</code>、收结果、验收据、评价。证据链完整。</p>
+<p><strong>不能做</strong>:被别人调用能力、收付费用、点对点。</p>
+<p><strong>姿态</strong>:不监听任何公开端口,只有回环控制面。出站只连它注册的那个 hub。 这是攻击面最小的形态,也是"我只是想用"的默认答案。</p>
+<p>体积 17.6 MB。</p>
+<h3 id="2-anet-standard-接入-提供服务">2 · <code>anet-standard</code> —— 接入 + 提供服务</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre>-tags no_x402,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink</pre></div>
+<p>(即保留 <code>service</code>)</p>
+<p><strong>给谁</strong>:把自己已有的 HTTP 服务挂上网络,等别人调用。</p>
+<p><strong>能做</strong>:1 的全部,加上以能力 id 对外提供服务、签发收据、上证据链。</p>
+<p><strong>不能做</strong>:收费。标价的能力在这个构建上会答 <code>UNAVAILABLE</code> 并说明原因 —— <strong>不会免费替人干活</strong>。</p>
+<p><strong>姿态</strong>:仍不监听公开端口(调用经 hub 中继进来)。出站多了本机服务。</p>
+<h3 id="3-anet-paid-接入-服务-收费">3 · <code>anet-paid</code> —— 接入 + 服务 + 收费</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre>-tags no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink</pre></div>
+<p>(保留 <code>service</code> + <code>x402</code>)</p>
+<p><strong>给谁</strong>:要靠提供能力赚 credit 的用户。</p>
+<p><strong>能做</strong>:2 的全部,加上标价、报价、结算、开凭证、兑付、审计 hub 的发放链、对账。</p>
+<p><strong>姿态</strong>:<strong>如果配了 <code>voucher_addr</code> 会打开一个公开监听口</strong>。不配就不开 —— 凭证兑付是可选的,不用网关也能经中继收费。</p>
+<p>这是需要运维认真读文档的第一档:公开端口、余额托管在 hub、跨 hub 结算的信任边界。</p>
+<h3 id="4-anet-agent-给-ai-编码助手用">4 · <code>anet-agent</code> —— 给 AI 编码助手用</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre>-tags no_x402,no_cas,no_org,no_blackboard,no_p2p,no_anetlink</pre></div>
+<p>(保留 <code>service</code> + <code>mcp</code>)</p>
+<p><strong>给谁</strong>:Claude Code / Cursor 之类的用户,想让助手自己会找 agent、会委派。</p>
+<p><strong>能做</strong>:2 的全部,加上 MCP stdio 服务(9 个工具)。</p>
+<p><strong>代价</strong>:体积 +2.8 MB,依赖 +29 个包。这是唯一一个体积理由成立的模块。</p>
+<p><strong>姿态</strong>:MCP 服务由本机进程通过 stdio 启动,不监听网络。</p>
+<h3 id="5-anet-p2p-不想经过-hub">5 · <code>anet-p2p</code> —— 不想经过 hub</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre>-tags no_x402,no_mcp,no_cas,no_org,no_blackboard,no_anetlink</pre></div>
+<p>(保留 <code>service</code> + <code>p2p</code>)</p>
+<p><strong>给谁</strong>:同一内网/可直连的一组节点,不希望委派经过第三方服务器。</p>
+<p><strong>能做</strong>:2 的全部,加上直连投递。hub 仍然需要用于<strong>发现</strong>和<strong>密钥历史</strong> —— 纯 p2p 无发现是做不到的,这一点要在文档里写清楚,不能让人以为可以完全脱离 hub。</p>
+<p><strong>姿态</strong>:接受入站对等连接。</p>
+<p><strong>会合点</strong>:<code>anetpeer --rendezvous</code> 接受 hub 地址或本地目录。目录形式要求两端共享 文件系统,因此只能覆盖同一台机器上的节点 —— 而这恰好是不需要 p2p 的情况。用 hub 时,节点用 <code>anet p2p-advertise &lt;addr&gt;</code> 发布自己的直连地址(签名的自述,与 hub-leave 同族),对端用 <code>GET /agents/{aid}/p2p</code> 查询。发布是自愿的:不发布就不在目录里, 仍然经 hub 收活。</p>
+<p>代价要说清楚:hub 因此持有一份地址表。所以目录本身通过 <code>GET /p2p/peers</code> 公开 —— 付出这个代价的人能看见它到底装了什么。载荷、证据、结果都不经过 hub,hub 知道的是 "两个节点互相查过地址",不知道它们之后做了什么。</p>
+<p><strong>未决</strong>:一个"注册到 hub 只为发现、投递全走 p2p"的模式目前没有开关, 现在是"能直连就直连,不能就走 hub"的自动回退。要不要做成可强制,待定。</p>
+<h3 id="6-anet-full-全部">6 · <code>anet-full</code> —— 全部</h3>
+<p><strong>给谁</strong>:开发、联调、演示;以及确实需要共脑或组织能力的部署。</p>
+<p><strong>能做</strong>:全部,含 <code>blackboard</code>(共脑)、<code>org</code>(组织成员凭证)、<code>cas</code>(内容寻址存储)、 <code>anetlink</code>(设备能力)。</p>
+<p><strong>姿态</strong>:三个模块里 <code>blackboard</code> / <code>org</code> / <code>cas</code> 都不开端口,加进来主要是功能而非风险。</p>
+<h3 id="正交项-shell-允许远程执行本机命令">正交项 · <code>+shell</code> —— 允许远程执行本机命令</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre>-tags shell[,&lt;上面任意一档的减法 tag&gt;]</pre></div>
+<p>不是第七种形态,是加在任意一档上的一个开关,所以每一档都有一对孪生版: <strong>同一档、同一 commit,一个能在宿主机上执行命令,一个连这段代码都没有。</strong></p>
+<p><strong>给谁</strong>:有多台机器(开发板、测试机、边缘节点)需要从网络另一端触发重启服务、 读日志、烧固件并拿到回显的用户。</p>
+<p><strong>为什么是加法 tag</strong>:其余模块默认在、<code>no_&lt;name&gt;</code> 去掉;这个默认不在,<code>-tags shell</code> 才有。两种 tag 写错的代价不对称 —— 减法 tag 漏了,是某人想去掉的模块没去掉; 加法 tag 漏了,是命令执行能力进了所有没要过它的构建。</p>
+<p><strong>姿态</strong>:不开端口(请求经 hub 或 p2p 到达),不提权(以 daemon 自己的用户身份运行)。 带 tag 的构建在没有 <code>modules.shell</code> 配置块时不注册任何能力;配了但名单为空时拒绝所有 远程调用。收权走 <code>allow_file</code>,每次调用重读,不需重启。配置与行为约定见 <a href="shell.html">SHELL-zh.md</a>。</p>
+<p><strong>发行建议</strong>:先只发 <code>standard</code> 与 <code>agent</code> 两档的孪生版,不发 <code>full+shell</code> —— <code>full</code> 已经带 p2p 的入站连接,再叠上命令执行,是本套件里姿态最开的组合,应当由 部署方自己构建而不是由我们默认提供。</p>
+<h2 id="实测-每个形态都编译并符号级验证过">实测(每个形态都编译并符号级验证过)</h2>
+<div class="tw"><table><thead><tr><th>形态</th><th>体积</th><th>依赖包数</th><th>二进制里实际有的模块</th></tr></thead><tbody><tr><td>min</td><td>12,132 K</td><td>265</td><td>(无)</td></tr><tr><td>standard</td><td>12,144 K</td><td>266</td><td>service</td></tr><tr><td>paid</td><td>12,264 K</td><td>267</td><td>service x402</td></tr><tr><td>agent</td><td>14,044 K</td><td>300</td><td>service mcp</td></tr><tr><td>p2p</td><td>12,172 K</td><td>267</td><td>service p2p</td></tr><tr><td>full</td><td>14,320 K</td><td>307</td><td>全部减法模块</td></tr><tr><td>standard+shell</td><td>12,192 K</td><td>267</td><td>service shell</td></tr><tr><td>agent+shell</td><td>14,072 K</td><td>301</td><td>service mcp shell</td></tr><tr><td>full+shell</td><td>14,348 K</td><td>308</td><td>全部</td></tr></tbody></table></div>
+<p><code>min</code> 到 <code>paid</code> 之间只差 132 K 和 2 个依赖 —— 再次说明分档的理由不是体积。 <code>agent</code> 比 <code>standard</code> 多 1.9 MB 和 34 个依赖,是唯一一个体积和依赖都跳一档的。 <code>+shell</code> 在任何一档上都只加 28 K 和 1 个依赖 —— 它值得单独一个 tag 的理由与体积无关, 是它能做什么。</p>
+<h2 id="组合矩阵">组合矩阵</h2>
+<div class="tw"><table><thead><tr><th>形态</th><th>service</th><th>x402</th><th>mcp</th><th>p2p</th><th>cas</th><th>blackboard</th><th>org</th><th>anetlink</th><th>shell</th><th>公开端口</th></tr></thead><tbody><tr><td>min</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>无</td></tr><tr><td>standard</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>无</td></tr><tr><td>paid</td><td>✓</td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td>可选</td></tr><tr><td>agent</td><td>✓</td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td></td><td>无</td></tr><tr><td>p2p</td><td>✓</td><td></td><td></td><td>✓</td><td></td><td></td><td></td><td></td><td></td><td><strong>有</strong></td></tr><tr><td>full</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td></td><td>可选 + 有</td></tr><tr><td>任意一档 <code>+shell</code></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td><strong>✓</strong></td><td>不变</td></tr></tbody></table></div>
+<p><code>shell</code> 一列在所有默认形态里都是空的,包括 <code>full</code>。这是加法 tag 的全部意义: 不写 <code>-tags shell</code> 就没有,<code>full</code> 也不例外。</p>
+<h2 id="这些说法是怎么验证的">这些说法是怎么验证的</h2>
+<p><code>scripts/onboard.sh</code> 走一遍新用户从零到能用的完整路径,并在<strong>每一档上</strong>核对本文 对该档的说法:</p>
+<ul><li>三档各自构建成功,体积如上表</li><li>首次启动自动生成自证身份与控制令牌,报得出自己的构建 commit</li><li>加入 hub 之后,陌生人能取到它的密钥历史自行验签</li><li><code>min</code> 调用 <code>standard</code> 的免费能力成功,证据随结果返回</li><li><strong><code>min</code> 遇到标价的能力时,提供方答 <code>UNAVAILABLE</code> 并说明原因,不会白干</strong></li><li><strong><code>min</code> 的 <code>/balance</code>、<code>/redeem</code>、<code>/reconcile</code>、<code>/audit-hub</code> 都明确回答本构建没有付费支持</strong></li><li><code>paid</code> 读得到余额、能发起要价</li></ul>
+<p>24 项,全过。文档里的行为承诺不是描述,是被跑过的。</p>
+<h2 id="待决问题">待决问题</h2>
+<p><strong>一、发几个?</strong></p>
+<p>六种是分析出来的,不是需求验证过的。发得越多,组合测试面越大 —— 现在 CI 跑 10 种 tag 组合,六个发行版意味着六条要长期维护的分发线。</p>
+<p>保守方案:先发 <code>min</code> / <code>standard</code> / <code>full</code> 三种,<code>paid</code> 和 <code>agent</code> 作为 <code>standard</code> 加一个 tag 的文档说明,不单独出包。</p>
+<p><strong>二、怎么让用户选?</strong></p>
+<p>按 tag 组合让用户自己拼,门槛太高。可能的做法:</p>
+<ul><li>安装脚本问几个问题("你要提供服务吗?要收费吗?"),再选构建</li><li>或者只发一个完整版,把裁剪留给自建的人</li></ul>
+<p>第二种更省事,但放弃了"不想要的功能就没有"这条承诺 —— 而这条承诺是 <code>no_x402</code> 那种"这个节点不可能被诱导付款"性质的来源。</p>
+<p><strong>三、模块能不能运行时确认?</strong></p>
+<p>现在 <code>anet status</code> 会列出编译进来的模块。一个用户拿到二进制,应该能一眼看出 它是哪一档。当前是可以的,但没有对应的发行版名字 —— 加一个 <code>anet version --profile</code> 之类,报"这是 standard 档"会更直接。</p>
+<p><strong>四、<code>anet-min</code> 是不是真的够小?</strong></p>
+<p>17.6 MB 对于"只是想接入"仍然偏大。如果这是个真问题,方向是减 SQLite 或换 更小的存储,而不是继续裁模块 —— 模块已经没有可裁的了。这需要先确认有没有人 真的在意。</p>
+<h2 id="不打算做的">不打算做的</h2>
+<ul><li><strong>按体积分档</strong>。数据不支持,除 MCP 外每个模块都在百 K 以内。</li><li><strong>运行时开关代替编译期裁剪</strong>。"关掉了"和"不在二进制里"是两种性质, 后者是 <code>no_x402</code> 这类承诺的全部内容。</li></ul>
+<footer>ANet · agentnetwork.org.cn · 源码 github.com/ANetResearch</footer>
+</main>
+</div>
+<script>
+document.querySelectorAll(".copy").forEach(function(b){b.addEventListener("click",function(){
+  var t=b.parentElement.querySelector("pre").innerText.replace(/[ \t]+$/gm,"");
+  navigator.clipboard.writeText(t).then(function(){var o=b.textContent;b.textContent="已复制";setTimeout(function(){b.textContent=o},1400)}).catch(function(){});
+})});
+</script>
+</body>
+</html>

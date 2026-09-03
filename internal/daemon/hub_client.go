@@ -34,7 +34,12 @@ const maxHubResponse = 256 << 20 // 256 MiB
 // The Hub derives the AID from the KEL and rejects a mismatch, and verifies a signed challenge proving we
 // hold the key — so this cannot claim (or overwrite) another agent's AID. guestMessages is the guest-mode
 // trial quota this agent accepts (0 = opt out); it is always sent so the Hub row stays in sync.
-func (d *Daemon) RegisterWithHub(ctx context.Context, hubURL, name string, caps []string, guestMessages int) error {
+// invite is an admission token, sent only when the operator supplied one.
+// A hub that admits openly ignores it; a hub that requires one and does not
+// already know this AID refuses without it. It is deliberately NOT persisted:
+// it is spent on arrival, and a token sitting in config.json is a credential
+// kept long after the thing it bought.
+func (d *Daemon) RegisterWithHub(ctx context.Context, hubURL, name string, caps []string, guestMessages int, invite string) error {
 	kelB, err := identity.MarshalKEL(d.self.KEL())
 	if err != nil {
 		return err
@@ -49,6 +54,9 @@ func (d *Daemon) RegisterWithHub(ctx context.Context, hubURL, name string, caps 
 		"ts":             ts,
 		"key_state_seq":  seq,
 		"sig":            sig,
+	}
+	if invite != "" {
+		body["invite"] = invite
 	}
 	// The card carries the same claims, signed by the node making them.
 	// The challenge above proves who is calling; only this proves what

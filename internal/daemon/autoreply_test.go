@@ -61,10 +61,10 @@ func newAutoReplyFixture(t *testing.T, cfg AutoReplyConfig, api *fakeOpenAI) *au
 
 	req := newTestDaemon(t, hub.URL, false)
 	prov := newTestDaemon(t, hub.URL, true)
-	if err := req.RegisterWithHub(ctx, hub.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, hub.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, hub.URL, "Vision Bot", []string{"vision"}, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, hub.URL, "Vision Bot", []string{"vision"}, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	// Re-stop the relay loops HubRegister restarted; the test polls explicitly.

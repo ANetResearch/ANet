@@ -76,10 +76,10 @@ func TestCapabilityDelegationRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", []string{"devices"}, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", []string{"devices"}, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -129,10 +129,10 @@ func TestCapabilityUnresolvableFallsThrough(t *testing.T) {
 
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Plain Bot", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Plain Bot", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -162,10 +162,10 @@ func TestBothSidesRecordEvidence(t *testing.T) {
 
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Requester", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Requester", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Provider", []string{"haiku"}, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Provider", []string{"haiku"}, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -257,10 +257,10 @@ func TestEvidenceProvenanceReachesTheChain(t *testing.T) {
 	if err := prov.Providers().Register(ctx, quirkyProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.DelegateCapability(ctx, prov.AID(),
@@ -314,10 +314,10 @@ func TestAReadReturnsWhatItRead(t *testing.T) {
 	if err := prov.Providers().Register(ctx, quirkyProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.DelegateCapability(ctx, prov.AID(),
@@ -423,10 +423,10 @@ func TestCapabilityCallIsReachableThroughTheControlAPI(t *testing.T) {
 	if err := prov.Providers().Register(ctx, lamp); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -506,10 +506,10 @@ func TestAnAcceptedResultWasActuallyVerified(t *testing.T) {
 	if err := prov.Providers().Register(ctx, &lampProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
@@ -542,10 +542,10 @@ func TestAResultForDifferentContentIsRefused(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1", nil)
@@ -614,10 +614,10 @@ func TestARedeliveredDelegationIsNotExecutedTwice(t *testing.T) {
 	if err := prov.Providers().Register(ctx, lamp); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
@@ -696,10 +696,10 @@ func TestARedeliveredResultIsRecordedOnce(t *testing.T) {
 	if err := prov.Providers().Register(ctx, &lampProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
@@ -744,7 +744,7 @@ func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The operator writes a human label; the daemon knows the ids.
-	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}, nil, nil); err != nil {
+	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}, nil, nil, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -788,10 +788,10 @@ func TestARedeliveredChatMessageIsStoredOnce(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "A", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "A", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "B", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "B", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.Delegate(ctx, prov.AID(), "do a thing", nil)

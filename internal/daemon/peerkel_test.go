@@ -21,10 +21,10 @@ func TestVerifiedPeerKELIsRemembered(t *testing.T) {
 
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil, GuestDefaultMessages); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 

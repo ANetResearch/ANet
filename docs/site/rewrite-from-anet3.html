@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>anet4 是全量重构 —— 从 anet3 继承了什么,没继承什么</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+:root{
+  --ground:#FAFAF7;--surface:#FFFFFF;--sunken:#F1F2EE;--ink:#16191A;--ink-2:#3D4644;--ink-3:#6B7573;
+  --rule:#DFE2DC;--rule-2:#C9CEC6;--accent:#0F6E5C;--accent-soft:#E4F0EC;--deny:#A8452C;--deny-soft:#F6E7E1;
+  --code-ground:#14201D;--code-ink:#DCE7E2;--code-dim:#7E948D;--code-accent:#7FD3B8;
+  --f-sans:"IBM Plex Sans","Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}}
+:root[data-theme="dark"]{
+  --ground:#101413;--surface:#171C1B;--sunken:#1D2422;--ink:#E8EDEA;--ink-2:#BDC7C3;--ink-3:#8B9793;
+  --rule:#2A3230;--rule-2:#3A4441;--accent:#4FBFA3;--accent-soft:#17302A;--deny:#E08D74;--deny-soft:#2E1E19;
+  --code-ground:#0B1210;--code-ink:#DCE7E2;--code-dim:#6E827C;--code-accent:#7FD3B8;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--f-sans);font-size:16px;line-height:1.72;-webkit-font-smoothing:antialiased}
+.page{max-width:86rem;margin:0 auto;padding:0 1.5rem 6rem;display:grid;grid-template-columns:16rem minmax(0,1fr);gap:3rem}
+@media (max-width:900px){.page{grid-template-columns:1fr;gap:0}}
+nav.toc{position:sticky;top:1.25rem;align-self:start;max-height:calc(100vh - 2.5rem);overflow-y:auto;padding-top:3.6rem;font-size:.82rem}
+@media (max-width:900px){nav.toc{position:static;max-height:none;padding-top:1.5rem;border-bottom:1px solid var(--rule);margin-bottom:1rem}}
+nav.toc .eyebrow{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .6rem}
+nav.toc a{display:block;color:var(--ink-2);text-decoration:none;padding:.18rem 0 .18rem .75rem;border-left:2px solid transparent;line-height:1.45}
+nav.toc a.l3{padding-left:1.6rem;font-size:.78rem;color:var(--ink-3)}
+nav.toc a:hover,nav.toc a:focus-visible{color:var(--accent);border-left-color:var(--accent)}
+main{min-width:0;max-width:72ch}
+.mast{padding:3.5rem 0 1.25rem;border-bottom:1px solid var(--rule);margin-bottom:2rem}
+.mast .eyebrow{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .9rem}
+h1{font-size:clamp(1.8rem,1.2rem + 2vw,2.6rem);line-height:1.15;font-weight:700;letter-spacing:-.02em;margin:0;text-wrap:balance}
+h2{font-size:1.45rem;font-weight:600;letter-spacing:-.014em;margin:3rem 0 .9rem;padding-top:.5rem;text-wrap:balance}
+h2::before{content:"";display:block;width:2.25rem;height:2px;background:var(--accent);margin-bottom:.9rem}
+h3{font-size:1.08rem;font-weight:600;margin:2rem 0 .6rem}
+h4{font-size:.95rem;font-weight:600;margin:1.5rem 0 .4rem;color:var(--ink-2)}
+p{margin:0 0 1rem}
+a{color:var(--accent)}
+hr{border:none;border-top:1px solid var(--rule);margin:2.5rem 0}
+blockquote{border-left:2px solid var(--accent);background:var(--accent-soft);padding:.85rem 1rem;margin:0 0 1.25rem;color:var(--ink-2);border-radius:0 4px 4px 0;font-size:.95rem}
+blockquote strong{color:var(--ink)}
+ul,ol{margin:0 0 1rem;padding-left:1.25rem}li{margin-bottom:.35rem}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);padding:.1em .34em;border-radius:3px;word-break:break-word}
+.code{position:relative;background:var(--code-ground);border-radius:6px;margin:0 0 1.25rem;overflow:hidden}
+.code pre{margin:0;padding:1rem 1.1rem;overflow-x:auto;font-family:var(--f-mono);font-size:.82rem;line-height:1.7;color:var(--code-ink);tab-size:2}
+.copy{position:absolute;top:.5rem;right:.5rem;font-family:var(--f-mono);font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;color:var(--code-dim);background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:4px;padding:.2rem .5rem;cursor:pointer}
+.copy:hover,.copy:focus-visible{color:var(--code-accent);border-color:rgba(127,211,184,.45)}
+.tw{overflow-x:auto;margin:0 0 1.25rem;border:1px solid var(--rule);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:.87rem}
+th,td{text-align:left;padding:.58rem .8rem;border-bottom:1px solid var(--rule);vertical-align:top;line-height:1.55}
+thead th{font-family:var(--f-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:500;background:var(--sunken);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+td code{background:transparent;padding:0;font-size:.82em}
+.mast + .tw table{font-size:.85rem}
+footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font-size:.8rem;color:var(--ink-3)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="page">
+<nav class="toc"><p class="eyebrow">目录</p><a class="l2" href="#一-已迁移-daemon-内的可插拔模块">一、已迁移：daemon 内的可插拔模块</a><a class="l2" href="#二-故意留在进程外-p2p-commons-织物">二、故意留在进程外：p2p commons 织物</a><a class="l2" href="#三-故意不搬-org-central-服务端">三、故意不搬：org-central 服务端</a><a class="l2" href="#四-暂缓-有明确的解锁条件">四、暂缓，有明确的解锁条件</a><a class="l2" href="#五-验证方式">五、验证方式</a></nav>
+<main>
+<header class="mast"><p class="eyebrow">ANet · 从 anet3 重写</p><h1>anet4 是全量重构 —— 从 anet3 继承了什么,没继承什么</h1></header>
+<p><strong>先把定位说清楚,因为这份文档以前把它说反了。</strong></p>
+<p>anet4 不是 anet3 的迁移版本。anet3(AgentNetwork 单体仓)的 daemon 一个就有 <strong>45,903 行</strong>;anet4 的 daemon 是 <strong>11,437 行</strong>,套件五仓合计 61,506 行,而且拆成了 互不依赖的五个仓 + 一个零 I/O 的协议内核。这不是把旧东西搬过来。</p>
+<p>从 anet3 <strong>刻意复用</strong>的是 1,796 行纯逻辑算法包 —— 占 anet4 全部代码的约 <strong>3%</strong>:</p>
+<div class="tw"><table><thead><tr><th>复用的包</th><th>行数</th><th>为什么值得复用</th></tr></thead><tbody><tr><td><code>blackboard</code></td><td>498</td><td>add-wins OR-Set + HLC,已在三节点实测中收敛过</td></tr><tr><td><code>org</code></td><td>697</td><td>单签凭证链 founder → admin → member,规范已冻结</td></tr><tr><td><code>cas</code></td><td>225</td><td>内容寻址,读回重新哈希</td></tr><tr><td><code>aelstore</code></td><td>254</td><td>P6 证据链的落盘</td></tr><tr><td><code>inv1</code> / <code>inv2</code></td><td>122</td><td>两条不变式守卫</td></tr></tbody></table></div>
+<p>复用的判据只有一条:<strong>确定性、无 I/O、且线格式已被规范钉死</strong>。这类代码重写一遍 只会换来新 bug 和一次不兼容。其余一切 —— 内核、模块接缝、五个契约(C1–C5)、 传输列表、证据面、CLI、Hub、设备层 —— 全部是新写的。</p>
+<p><strong>线格式没有变</strong>,这是可验证的而不是声称的:<code>internal/golden</code> 把 org_id、CogUnit id、 凭证 CID、blob CID 四个承重标识钉在 anet3 算出的值上,四个逐字节相同。复用旧算法 而悄悄改了线,等于把家族劈成两半。</p>
+<blockquote>上一版这份文档的开头写的是"anet4 的 daemon 不是重写,是把 anet3 里已经跑通的 东西搬过来"。那句话是错的,而且错得有害 —— 它让一次 4 倍瘦身的重构听起来像一次 端口移植,也让"为什么不直接用 anet3"这个问题没有答案。答案是:anet3 过于臃肿, 而臃肿不是可以搬运掉的东西。</blockquote>
+<p>这份文档的其余部分是账目:<strong>哪些搬了、哪些故意没搬、为什么。</strong> "没搬"必须写下来 —— 一份只列已完成项的迁移清单,读起来永远像完成了。</p>
+<h2 id="一-已迁移-daemon-内的可插拔模块">一、已迁移：daemon 内的可插拔模块</h2>
+<p>每个模块都带自己的构建标签，<code>-tags no_&lt;name&gt;</code> 之后二进制里<strong>符号级为零</strong> （CI 用 <code>go tool nm</code> 计数验证，不是"配置关掉"）。</p>
+<div class="tw"><table><thead><tr><th>anet3 (<code>internal/v3rt/</code>)</th><th>anet4</th><th>行数</th><th>说明</th></tr></thead><tbody><tr><td><code>blackboard</code></td><td><code>module/blackboard</code></td><td>498</td><td>共脑协同黑板：add-wins OR-Set + HLC + 任务相位机</td></tr><tr><td><code>cas</code></td><td><code>module/cas</code></td><td>225</td><td>分布式存储：内容寻址，读回重新哈希</td></tr><tr><td><code>org</code></td><td><code>module/org</code></td><td>697</td><td>组织成员：genesis + 单签凭证链（founder → admin → member）</td></tr><tr><td><code>inv1</code></td><td><code>module/inv1</code></td><td>83</td><td>INV-1：org 数据不得进入 p2p</td></tr><tr><td><code>inv2</code></td><td><code>module/inv2</code></td><td>39</td><td>INV-2：公开发布不得携带 org 数据</td></tr><tr><td><code>transport</code></td><td><code>module/transport.go</code> + <code>module/p2p</code></td><td>246</td><td>传输列表；p2p 走进程外</td></tr><tr><td><code>aelstore</code></td><td><code>internal/daemon/ledger.go</code></td><td>254</td><td>P6 证据链的落盘与 verify-before-use</td></tr></tbody></table></div>
+<p><strong>互操作已验证</strong>：<code>internal/golden</code> 把四个承重对象的规范 id 钉在 anet3 算出来的值上——org_id、CogUnit id、凭证 CID、blob CID，逐个相同。搬运 没有悄悄改线。</p>
+<h2 id="二-故意留在进程外-p2p-commons-织物">二、故意留在进程外：p2p commons 织物</h2>
+<div class="tw"><table><thead><tr><th>anet3 包</th><th>行数</th><th>去向</th></tr></thead><tbody><tr><td><code>alpnet</code> / <code>axpnet</code> / <code>psrouter</code></td><td>782</td><td>peer 进程</td></tr><tr><td><code>discovery</code></td><td>429</td><td>peer 进程</td></tr><tr><td><code>commonsboard</code> / <code>commonscards</code> / <code>commonsaet</code></td><td>773</td><td>peer 进程</td></tr><tr><td><code>commonsmatch</code> / <code>commonsengage</code></td><td>368</td><td>peer 进程</td></tr></tbody></table></div>
+<p><strong>理由是算术，不是偏好。</strong> anet4 内核解析 82 条 <code>go.sum</code>、两个直接依赖； anet3 的 libp2p 栈带进 32 个 libp2p 模块、上千条依赖树。构建标签移除的是 <strong>代码</strong>，从来不是 <code>go.mod</code> 里的<strong>依赖</strong>：每次构建照样解析，CI 照样下载， 供应链审计照样要覆盖。为一个默认关闭的模块把内核依赖面扩大十二倍，是错的 交易。</p>
+<p>所以 daemon 侧只有一个 <code>module/p2p</code> 客户端，用一行一个 JSON 帧的小协议 跟 peer 进程说话，把它当成普通 <code>module.Transport</code>。daemon 学不到 peer id、 multiaddr、pubsub topic —— C1 对设备划的那条线，在传输上再划一次。</p>
+<p><code>tools/anetpeer</code> 是这条线的参考实现：同机两个 daemon 通过一个 rendezvous 目录互相找到、直连投递，端到端确认。它<strong>不是</strong> libp2p peer 的替代品（没有 NAT 穿透、没有目录之外的发现），它是那份契约的完整陈述，两百行可读完。</p>
+<h2 id="三-故意不搬-org-central-服务端">三、故意不搬：org-central 服务端</h2>
+<div class="tw"><table><thead><tr><th>anet3 包</th><th>行数</th><th>为什么不搬</th></tr></thead><tbody><tr><td><code>orgcentral</code></td><td>2791</td><td>中心化 org 服务端，不是 daemon 的能力</td></tr><tr><td><code>board</code></td><td>1022</td><td>org 看板 / DAG</td></tr><tr><td><code>orgstore</code></td><td>375</td><td>org 产物归集</td></tr><tr><td><code>loops</code></td><td>338</td><td>循环任务定义</td></tr><tr><td><code>keychain</code></td><td>243</td><td>org 群组密钥</td></tr><tr><td><code>im</code></td><td>155</td><td>成员间点对点消息</td></tr><tr><td><code>svcreg</code></td><td>109</td><td>org 内服务注册</td></tr></tbody></table></div>
+<p><strong>这正是 v1 的教训本身。</strong> 组织功能在 v1 里长进了三十五个 daemon 文件， 1.3.0-v3 开源时需要一把斧头和 683,852 行删除。缺的从来不是纪律，是接缝。 anet4 的 <code>module/org</code> 只回答一件事：<strong>这份凭证是不是这个组织的有效成员</strong>。 它不持有看板、不排任务、不存产物、不发群密钥。这些若要存在，是 org-central 自己的服务，通过 C1 提供能力，而不是 daemon 里多出七个包。</p>
+<h2 id="四-暂缓-有明确的解锁条件">四、暂缓，有明确的解锁条件</h2>
+<div class="tw"><table><thead><tr><th>项</th><th>阻塞在</th><th>说明</th></tr></thead><tbody><tr><td>治理纪元 <code>govepoch</code></td><td>ANetCore 的 <code>ascpevo.GovernanceCert</code></td><td>需要 design3 协议包落地。把协议类型抄进模块以免等待，正是上次造出两个分叉内核的做法</td></tr><tr><td><code>hybridsearch</code> (712)</td><td>无技术阻塞</td><td>FTS5 双语混合检索。是个合理的候选模块，但它是<strong>功能</strong>，不是 anet3 意义上的"可插拔能力"；没有需求前不搬</td></tr><tr><td><code>node</code> (261)</td><td>—</td><td>anet3 的集成装配层，已被 anet4 自己的 daemon 取代</td></tr></tbody></table></div>
+<h2 id="五-验证方式">五、验证方式</h2>
+<ul><li><strong>单元</strong>：每个模块自带测试；<code>inv1</code>/<code>inv2</code> 用反射钉结构，新增字段会让测试失败而不是悄悄通过。</li><li><strong>性能</strong>：<code>module</code> 基准。黑板重复 add 曾与首次 add 同价（315µs）且<strong>不安全</strong>——验证跑在存在性检查之前，随后覆盖已存对象；提前返回后 3.3µs，快 95 倍且严格更安全。</li><li><strong>互操作</strong>：<code>internal/golden</code> 对 anet3 钉死四个规范 id。</li><li><strong>联调</strong>：四仓六进程（ANetMock ← ANetLink ← daemon → ANetHub ← daemon）， 逐项跑设备控制、CAS、黑板、org、p2p、证据链重启。当前 18/18。 联调是唯一发现下列缺陷的手段——两边的单测各自伪造对方，全绿： 能力委派路径无人可达、读能力跨线只写不读、C1 丢弃 quirk 标签、 证据链用无法表达自身 id 的编码落盘、p2p 传输无法送回一个回复。</li></ul>
+<footer>ANet · agentnetwork.org.cn · 源码 github.com/ANetResearch</footer>
+</main>
+</div>
+<script>
+document.querySelectorAll(".copy").forEach(function(b){b.addEventListener("click",function(){
+  var t=b.parentElement.querySelector("pre").innerText.replace(/[ \t]+$/gm,"");
+  navigator.clipboard.writeText(t).then(function(){var o=b.textContent;b.textContent="已复制";setTimeout(function(){b.textContent=o},1400)}).catch(function(){});
+})});
+</script>
+</body>
+</html>

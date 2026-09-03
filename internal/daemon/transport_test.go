@@ -140,10 +140,10 @@ func twoRegistered(t *testing.T, srv *httptest.Server) (*Daemon, string) {
 	ctx := context.Background()
 	d := newTestDaemon(t, srv.URL, false)
 	peer := newTestDaemon(t, srv.URL, true)
-	if err := d.RegisterWithHub(ctx, srv.URL, "Sender", nil, GuestDefaultMessages); err != nil {
+	if err := d.RegisterWithHub(ctx, srv.URL, "Sender", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := peer.RegisterWithHub(ctx, srv.URL, "Peer", nil, GuestDefaultMessages); err != nil {
+	if err := peer.RegisterWithHub(ctx, srv.URL, "Peer", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
 	return d, peer.AID()

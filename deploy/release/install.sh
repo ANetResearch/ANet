@@ -21,6 +21,9 @@
 #   --base URL      Download base (overrides auto list; or set ANET_INSTALL_BASE).
 #   --hub URL       Start the node and register it with this hub.
 #   --name NAME     The name to register under (default: this machine's hostname).
+#   --token INVITE  An admission token, for a hub that admits by invite only.
+#                   Not needed by a hub that admits openly, which is the default;
+#                   its operator tells you if you need one.
 #   --shell         Install the variant that can run operator-approved commands
 #                   on this machine. See "--shell" below before using it.
 #   --help          Show this help.
@@ -51,6 +54,7 @@ USER_MODE=1
 BASE_OVERRIDE=""
 HUB=""
 NODE_NAME=""
+INVITE=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -64,6 +68,8 @@ while [ $# -gt 0 ]; do
     --hub=*)      HUB="${1#--hub=}" ;;
     --name)       NODE_NAME="$2"; shift ;;
     --name=*)     NODE_NAME="${1#--name=}" ;;
+    --token)      INVITE="$2"; shift ;;
+    --token=*)    INVITE="${1#--token=}" ;;
     --shell)      ASSET_PREFIX="anet-shell" ;;
     -h|--help)    sed -n '2,20p' "$0" 2>/dev/null || true; exit 0 ;;
     *)            echo "Error: unknown flag: $1" >&2; exit 2 ;;
@@ -190,11 +196,13 @@ esac
 # it on the new box and have it show up" is one intention, and the step most
 # often skipped is the one that makes the machine reachable at all.
 #
-# Registration is open: the hub verifies that the key history derives the
-# claimed AID and that the node can sign a challenge, which proves the node
-# controls its identity. It does not gate WHO may join, so there is no
-# invite token to pass here. What a node will DO for a caller is decided by
-# the node, not by the hub.
+# The hub verifies that the key history derives the claimed AID and that the
+# node can sign a challenge, which proves the node controls its identity.
+# Whether it also gates WHO may join is the operator's choice: a hub admits
+# openly by default, and one that has turned admission on needs --token. What
+# a node will DO for a caller is decided by the node either way, not by the
+# hub — the hub knowing somebody is not the same as this machine agreeing to
+# run commands for them.
 if [ -n "$HUB" ]; then
   [ -n "$NODE_NAME" ] || NODE_NAME="$(hostname 2>/dev/null || echo anet-node)"
   echo
@@ -207,11 +215,24 @@ if [ -n "$HUB" ]; then
       i=$((i+1)); sleep 1
     done
     echo "→ Registering with ${HUB} as \"${NODE_NAME}\"…"
-    if "$DEST" hub-register "$HUB" --name "$NODE_NAME"; then
+    # An `if`, not `[ -n "$INVITE" ] && set -- …`: under `set -e` that AND
+    # list returns non-zero whenever there is no token, and the script
+    # would exit just before the registration it was asked to do.
+    if [ -n "$INVITE" ]; then
+      set -- hub-register "$HUB" --name "$NODE_NAME" --token "$INVITE"
+    else
+      set -- hub-register "$HUB" --name "$NODE_NAME"
+    fi
+    if "$DEST" "$@"; then
       echo "✓ Joined ${HUB}"
     else
       echo "Warning: registration did not complete. The node is running; retry with:" >&2
-      echo "    anet hub-register $HUB --name $NODE_NAME" >&2
+      if [ -n "$INVITE" ]; then
+        echo "    anet hub-register $HUB --name $NODE_NAME --token <your invite>" >&2
+      else
+        echo "    anet hub-register $HUB --name $NODE_NAME" >&2
+        echo "  If this hub admits by invite only, ask its operator for a token and add --token." >&2
+      fi
     fi
   else
     echo "Warning: the node did not start. Start it by hand with: anet up" >&2
