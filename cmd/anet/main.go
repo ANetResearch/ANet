@@ -304,7 +304,7 @@ func usageAllText() string {
   anet id rm <name> --purge   permanently delete an identity (key + history)
   anet --id <name> <cmd>      run any command against a specific identity (ANET_ID env works too)
   anet install --agent <` + agentChoices() + `>   wire anet into an agent so its LLM knows how to use it
-  anet hub-register <url> [--name N] [--caps a,b] [--guest-messages N] [--accept-delegations true|false]   register on the official Hub (guest trial default 5; 0 opts out)
+  anet hub-register <url> [--name N] [--caps a,b] [--token INVITE] [--guest-messages N] [--accept-delegations true|false]   register on a Hub (--token only if it admits by invite; guest trial default 5, 0 opts out)
   anet accept <on|off>        toggle whether you accept delegated tasks (default on; persisted, effective immediately)
   anet autoreply set --backend exec --agent <cursor|claude|…>   auto-answer inbound tasks by spawning a local coding agent (live, no restart)
   anet autoreply set --backend openai --api-base URL --model M   auto-answer inbound tasks with your OpenAI-compatible API
