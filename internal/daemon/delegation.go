@@ -52,6 +52,12 @@ type ResultItem struct {
 	// themselves rather than taking this daemon's word for it — which is
 	// the whole point of a signed receipt.
 	ProviderKEL string `json:"provider_kel,omitempty"`
+	// ReceiptVerified is "verified", "unverified", or "" for a result
+	// stored before this node recorded the distinction. Three states
+	// because two would merge "we checked and it holds" with "we had no
+	// way to check", and those differ most exactly where a caller is
+	// about to act on the result.
+	ReceiptVerified string `json:"receipt_verified,omitempty"`
 }
 
 // ReviewResult is the outcome of signing a review.
@@ -402,7 +408,9 @@ func (d *Daemon) maybeFinalize(ctx context.Context, interactionID string) error 
 	if err != nil {
 		return err
 	}
-	if err := d.ix.SetResult(ix.ID, transcript, resultCID, receiptBytes); err != nil {
+	// Our own signature over our own transcript.
+	if err := d.ix.SetResult(ix.ID, transcript, resultCID, receiptBytes,
+		interactions.VerificationVerified); err != nil {
 		return err
 	}
 	selfKEL, err := identity.MarshalKEL(d.self.KEL())
@@ -680,7 +688,16 @@ func (d *Daemon) ingestResult(interactionID string, payload []byte) bool {
 		return true // do not retry: the payload is what it is
 	}
 
-	if err := d.ix.SetResult(interactionID, rr.Deliverable, resultCID, rr.Receipt); err != nil {
+	// Record which of the two arms above we came through. Until this was
+	// stored, the ledger knew (EvResultAccepted carries receipt_verified)
+	// but nothing reading the interaction back did — so a caller deciding
+	// whether to act on the result could not tell a checked receipt from
+	// one nobody could check.
+	seen := interactions.VerificationUnverified
+	if verified {
+		seen = interactions.VerificationVerified
+	}
+	if err := d.ix.SetResult(interactionID, rr.Deliverable, resultCID, rr.Receipt, seen); err != nil {
 		if errors.Is(err, interactions.ErrNotFound) {
 			return true // unknown interaction — drop
 		}

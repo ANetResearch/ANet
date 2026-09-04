@@ -136,12 +136,18 @@ func (s *spentVouchers) load(m *Module) {
 // a set this deep covers far more history than any live voucher can span.
 const maxSpentReplay = 10000
 
+// redeemPath is the only path this module answers redemptions on. Named
+// rather than written twice because voucher_url is validated against it:
+// a card whose x402-redeem endpoint does not end here sends a buyer who
+// has already paid to a door this node does not open.
+const redeemPath = "/x402/redeem"
+
 // redeemHandler serves the public voucher face.
 func (m *Module) redeemHandler() http.Handler {
 	mux := http.NewServeMux()
 	// A GET says what this is, for whoever finds the port. Being findable
 	// and unexplained is its own small hazard.
-	mux.HandleFunc("GET /x402/redeem", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET "+redeemPath, func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"aid":     m.AID(),
 			"accepts": payment.SchemeCredit,
@@ -150,7 +156,7 @@ func (m *Module) redeemHandler() http.Handler {
 				"Buy one from this node's hub; the hub takes the payment and never sees the work.",
 		})
 	})
-	mux.HandleFunc("POST /x402/redeem", m.hRedeem)
+	mux.HandleFunc("POST "+redeemPath, m.hRedeem)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -227,6 +233,33 @@ func (m *Module) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 			return refuse(http.StatusPaymentRequired,
 				"this voucher pinned different arguments", map[string]any{"payer": v.Payer})
 		}
+	}
+
+	// The amount has to match what THIS node charges, not what the
+	// voucher says it is worth.
+	//
+	// The voucher's signature is the hub's, and it certifies that the hub
+	// moved that much credit — not that the amount is the price. Between
+	// the buyer and here, the price passes through the hub twice: it
+	// quotes it, and it signs a voucher for it. A hub quoting below the
+	// published price would otherwise be caught by nobody: the buyer has
+	// no independent copy of the price, and this end never compared.
+	//
+	// Priced==false means this node does not sell this capability for
+	// credit, so any amount is the wrong amount. Refusing rather than
+	// serving it free keeps "we have no price" from being the cheapest
+	// way to buy.
+	want, priced := m.Price(req.Capability)
+	if !priced {
+		return refuse(http.StatusPaymentRequired,
+			"this node publishes no credit price for "+req.Capability,
+			map[string]any{"payer": v.Payer, "paid": v.Amount})
+	}
+	if v.Amount < want {
+		return refuse(http.StatusPaymentRequired,
+			fmt.Sprintf("this voucher is for %d credits and %s costs %d",
+				v.Amount, req.Capability, want),
+			map[string]any{"payer": v.Payer, "paid": v.Amount, "price": want})
 	}
 
 	id, err := v.ID()

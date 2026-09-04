@@ -103,28 +103,61 @@ func (m *Module) auditIssuance(ctx context.Context) (AuditReport, error) {
 	}
 	rep.Entries, rep.HeadID, rep.HeadSeq = len(out.Entries), out.HeadID, out.HeadSeq
 
-	ledger := ael.NewLedger()
+	// Every record is decoded and its signature checked here, and the
+	// linking is checked separately below.
+	//
+	// This used to be done by feeding each record to ael.Ledger.Append and
+	// treating a nil return as "this record is on the chain". It is not
+	// what that return value says. ael's Append is built for out-of-order
+	// gossip import: a record whose seq is past the head is verified,
+	// parked in the staging buffer, and reported as accepted, because the
+	// predecessor is expected to arrive later. So a hub that deleted an
+	// entry from the middle of its issuance chain and served the rest
+	// unaltered got seq 0 accepted as genesis and everything after the gap
+	// accepted into staging, and the audit reported verified:true.
+	// Deleting an entry is the most direct way a hub rewrites its supply
+	// history, which is the one thing this audit exists to find.
+	//
+	// The cost of checking here is that this module now states the linking
+	// rules itself instead of borrowing ael's. They are part of the
+	// evidence wire contract (genesis sentinel, seq+1, prev_id = the id
+	// before it) rather than ael's private choices, and TestAuditRejects*
+	// build their chains with ael's own signing so a divergence shows up.
+	recs := make([]*ael.EventRecord, 0, len(out.Entries))
 	seen := map[uint64]string{}
+	sound := true
 	for _, e := range out.Entries {
 		raw, derr := base64.StdEncoding.DecodeString(e.Record)
 		if derr != nil {
 			rep.Problems = append(rep.Problems, fmt.Sprintf("seq %d: record not base64", e.Seq))
+			sound = false
 			continue
 		}
 		var rec ael.EventRecord
 		if uerr := coredet.Unmarshal(raw, &rec); uerr != nil {
 			rep.Problems = append(rep.Problems, fmt.Sprintf("seq %d: record undecodable", e.Seq))
+			sound = false
 			continue
 		}
-		if aerr := ledger.Append(&rec, kel); aerr != nil {
+		if verr := rec.Verify(kel); verr != nil {
 			rep.Problems = append(rep.Problems,
-				fmt.Sprintf("seq %d does not verify: %v", e.Seq, aerr))
+				fmt.Sprintf("seq %d does not verify: %v", e.Seq, verr))
+			sound = false
 			continue
 		}
+		// Verify authenticates the signer against the hub's key history
+		// but says nothing about which chain the record belongs to. A
+		// record the hub signed for some other chain is not part of its
+		// issuance history and must not be counted into the supply.
+		if rep.ChainDID != "" && rec.ChainDID != rep.ChainDID {
+			rep.Problems = append(rep.Problems, fmt.Sprintf(
+				"seq %d is a record on chain %s, not on this hub's own chain",
+				rec.Seq, rec.ChainDID))
+			sound = false
+			continue
+		}
+		recs = append(recs, &rec)
 		seen[rec.Seq] = rec.ID
-		// Totals from the signed record, not from the JSON column beside
-		// it. The column is rendered by the hub; the record is what it
-		// signed, and the two differing is exactly what an audit is for.
 		// Totals come from the signed record's own event type and
 		// payload, never from the JSON columns beside it. Those are
 		// rendered by the hub and are not what it signed; a hub whose
@@ -137,6 +170,16 @@ func (m *Module) auditIssuance(ctx context.Context) (AuditReport, error) {
 		case evCreditRetired:
 			rep.Retired += amount
 		}
+	}
+
+	// Linking is checked only over records that all decoded and verified.
+	// A record that did not decode leaves a hole whose seq is known only
+	// from the hub's own JSON column, so a gap reported across it would be
+	// naming the hub for something that could equally be damage in
+	// transit. The undecodable record is already a problem in its own
+	// right, so nothing is lost by not compounding it.
+	if sound {
+		rep.Problems = append(rep.Problems, checkChainLinks(recs)...)
 	}
 
 	// Against what this node saw before. A hub that rewrote its supply
@@ -153,6 +196,91 @@ func (m *Module) auditIssuance(ctx context.Context) (AuditReport, error) {
 	}
 	rep.Verified = len(rep.Problems) == 0
 	return rep, nil
+}
+
+// checkChainLinks reports the ways a served issuance chain fails to be a
+// chain: a first entry that is not the genesis record, a seq that does not
+// follow the one before it, or a prev_id that does not name the record
+// before it. The records handed to it have already been decoded and had
+// their signatures checked.
+//
+// Kept apart from signature verification because the two answer different
+// questions, and the case this exists for passes the first while failing
+// the second: when a hub drops one of its own entries, every record it
+// still serves is correctly signed and only the shape of what is left
+// shows what happened.
+//
+// The chain was requested with from=0, so a first entry that is not the
+// genesis record is the hub declining to serve the start of its history
+// rather than a window the caller asked for.
+func checkChainLinks(recs []*ael.EventRecord) []string {
+	if len(recs) == 0 {
+		return nil
+	}
+	// Order first, and nothing else if it is wrong. The genesis and gap
+	// checks below read the served order as the chain order; run against a
+	// reordered or duplicated page they would report entries missing where
+	// nothing is missing, which is a worse answer than saying the page
+	// cannot be followed.
+	var problems []string
+	for i := 1; i < len(recs); i++ {
+		prev, cur := recs[i-1], recs[i]
+		switch {
+		case cur.Seq > prev.Seq:
+			continue
+		case cur.Seq == prev.Seq && cur.ID == prev.ID:
+			problems = append(problems, fmt.Sprintf(
+				"seq %d was served twice, so its amount is counted twice in the totals below",
+				cur.Seq))
+		case cur.Seq == prev.Seq:
+			problems = append(problems, fmt.Sprintf(
+				"seq %d was served as both %s and %s: the hub holds two different records "+
+					"for one position on its chain",
+				cur.Seq, short(prev.ID), short(cur.ID)))
+		default:
+			problems = append(problems, fmt.Sprintf(
+				"seq %d was served after seq %d: the entries are not in chain order, "+
+					"so what the hub holds cannot be followed from here",
+				cur.Seq, prev.Seq))
+		}
+	}
+	if len(problems) > 0 {
+		return problems
+	}
+	if first := recs[0]; first.Seq != 0 || first.PrevID != ael.GenesisPrev() {
+		problems = append(problems, fmt.Sprintf(
+			"the chain begins at seq %d with prev_id %s rather than at the genesis entry: "+
+				"the hub was asked for its history from seq 0 and did not serve the start of it",
+			first.Seq, short(first.PrevID)))
+	}
+	for i := 1; i < len(recs); i++ {
+		prev, cur := recs[i-1], recs[i]
+		if cur.Seq > prev.Seq+1 {
+			problems = append(problems, fmt.Sprintf(
+				"the chain jumps from seq %d to seq %d: %s missing between them, "+
+					"so the totals below are of what the hub chose to serve",
+				prev.Seq, cur.Seq, countEntries(cur.Seq-prev.Seq-1)))
+			// The prev_id of the entry after a gap names a record that was
+			// not served, so checking the link here would only restate the
+			// gap under a second heading.
+			continue
+		}
+		if cur.PrevID != prev.ID {
+			problems = append(problems, fmt.Sprintf(
+				"seq %d names %s as the entry before it, but seq %d is %s",
+				cur.Seq, short(cur.PrevID), prev.Seq, short(prev.ID)))
+		}
+	}
+	return problems
+}
+
+// countEntries keeps the gap message readable for a gap of one, which is
+// the common case: one entry removed.
+func countEntries(n uint64) string {
+	if n == 1 {
+		return "1 entry is"
+	}
+	return fmt.Sprintf("%d entries are", n)
 }
 
 // priorHead is a head this node recorded earlier.

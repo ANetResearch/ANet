@@ -47,17 +47,27 @@ func (h hubTransport) Send(ctx context.Context, toAID, kind, interactionID strin
 		return err
 	}
 	// The hub knows the recipient has not collected its mail in a long
-	// time, and said so. Passing that through is the whole value of it
-	// having said so — a warning recorded where nobody reads it is the
-	// same as no warning, and this project has shipped that mistake
-	// enough times to recognise the shape.
+	// time, and said so. What it said is kept against the recipient's AID
+	// so the caller that just sent can report it (see QuietPeer): the
+	// daemon log is where the operator of THIS node reads, and the person
+	// who needs the fact is whoever typed `anet delegate`.
 	//
-	// Logged once per send rather than swallowed: the alternative is an
-	// operator watching a delegation sit unanswered with no idea that the
+	// Recorded on every send rather than only logged: an operator watching
+	// a delegation sit unanswered otherwise has no way to learn that the
 	// other end stopped running last Tuesday.
-	if out.Quiet && out.Warning != "" {
+	switch {
+	case out.Quiet && out.Warning != "":
 		h.d.noteQuietPeer(toAID, out.Warning)
+	case !out.Quiet:
+		// The hub answered and did not raise the mark, so a mark left over
+		// from an earlier send is no longer what the hub says. Dropping it
+		// keeps the reported state to what was last actually observed —
+		// otherwise a peer that came back would be reported quiet forever,
+		// since only inbound traffic clears it.
+		h.d.noteLivePeer(toAID)
 	}
+	// Quiet with no sentence to pass on is left alone: nothing to report
+	// and nothing to retract. The hub sets both fields together.
 	return nil
 }
 
@@ -198,14 +208,32 @@ func (h moduleHost) RegisterTransport(t module.Transport) { h.d.RegisterTranspor
 func (d *Daemon) noteQuietPeer(aid, warning string) {
 	d.mu.Lock()
 	if d.quietPeers == nil {
-		d.quietPeers = map[string]bool{}
+		d.quietPeers = map[string]string{}
 	}
-	already := d.quietPeers[aid]
-	d.quietPeers[aid] = true
+	_, already := d.quietPeers[aid]
+	d.quietPeers[aid] = warning
 	d.mu.Unlock()
 	if !already {
 		log.Printf("anet: %s", warning)
 	}
+}
+
+// QuietPeer returns the hub's most recent statement that aid has stopped
+// collecting its mail, or "" when the hub has made none (or has since
+// answered without it).
+//
+// This is how a control-plane handler reports what the hub said about the
+// recipient of the send it just made. The alternative — returning the flag
+// up through relaySend — would have to travel through module.Transport,
+// which is a delivery contract shared with transports that have no notion
+// of a mailbox to be quiet about. The cost of reading it back out of the
+// daemon instead is that the answer is "the last thing the hub said about
+// this peer", not "what the hub said about this exact send"; those differ
+// only if another send to the same peer interleaves.
+func (d *Daemon) QuietPeer(aid string) string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.quietPeers[aid]
 }
 
 // noteLivePeer clears the quiet mark when a peer answers, so a later

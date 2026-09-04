@@ -176,7 +176,7 @@ func TestResultsPaginatesBeyondStoreDefaultLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := req.ix.SetResult(id, []byte("result"), resultCID, receiptBytes); err != nil {
+		if err := req.ix.SetResult(id, []byte("result"), resultCID, receiptBytes, interactions.VerificationVerified); err != nil {
 			t.Fatal(err)
 		}
 	}

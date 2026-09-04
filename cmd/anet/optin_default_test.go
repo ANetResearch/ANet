@@ -27,10 +27,19 @@ func TestDefaultBuildHasNoOptInModules(t *testing.T) {
 // registry: a build-time stamp says whatever the builder passed, and
 // `go build -tags shell` with no -X ldflag would have it report a default
 // build that can in fact run commands.
+//
+// The assertion is on the rendered report, not on the registry length. A
+// build with every subtraction tag set holds no modules and is a variant
+// CI builds and tests; asserting the registry is non-empty failed on it
+// for a property the report already provides. What has to hold in every
+// variant is that the line names something an operator can read.
 func TestCompiledListIsUsableAsAVariantReport(t *testing.T) {
-	got := strings.Join(module.Compiled(), ",")
+	got := compiledModulesReport()
 	if got == "" {
 		t.Fatal("a build with no modules at all cannot be told apart from a broken registry")
+	}
+	if len(module.Compiled()) == 0 && got != "(none)" {
+		t.Fatalf("a kernel-only build must say so explicitly, got %q", got)
 	}
 	if strings.Contains(got, "shell") {
 		t.Fatalf("default build reports shell: %q", got)

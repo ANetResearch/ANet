@@ -240,6 +240,10 @@ func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 			// The key the receipt was checked against travels with it, so a
 			// holder can re-check rather than take this node's word for it.
 			ProviderKEL: encodedKEL(d.peers, ix.PeerAID),
+			// Per-result, unlike ProviderKEL: that is a per-peer cache, so
+			// one verified interaction with a provider would otherwise make
+			// every later unverified one from it look checked.
+			ReceiptVerified: string(ix.ReceiptVerified),
 		})
 	}
 	return out, nil

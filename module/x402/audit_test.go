@@ -407,3 +407,229 @@ func TestReconcileUsesTheAccountTotalNotThePage(t *testing.T) {
 		t.Errorf("entries=%d truncated=%v, want 6/true", rep.Entries, rep.Truncated)
 	}
 }
+
+// --- The served chain must actually be a chain ---
+//
+// These cover the shape of what the hub serves rather than the signature
+// on each record. They exist because verification used to be delegated to
+// ael.Ledger.Append, whose nil return means "verified and accepted for
+// import", not "linked to the record before it": a future-seq record is
+// staged and accepted while the gap is still open, so a hub that deleted
+// an entry from the middle of its issuance chain audited clean.
+
+// drop removes one seq from what the hub serves and leaves every other
+// record exactly as it was signed. That is what deleting a row from a
+// hub's issuance table looks like from outside: nothing is forged, an
+// entry is simply gone.
+func (f *fakeIssuer) drop(seq uint64) {
+	kept := make([]*ael.EventRecord, 0, len(f.records))
+	for _, r := range f.records {
+		if r.Seq != seq {
+			kept = append(kept, r)
+		}
+	}
+	f.records = kept
+}
+
+// issueWithPrev signs a record whose prev_id is whatever the caller says.
+// The signature and the id are genuine — the id derives from a preimage
+// that includes prev_id — so the record verifies on its own and fails only
+// as a link.
+func (f *fakeIssuer) issueWithPrev(t *testing.T, prev string, amount int64) {
+	t.Helper()
+	seq := uint64(0)
+	if n := len(f.records); n > 0 {
+		seq = f.records[n-1].Seq + 1
+	}
+	rec := &ael.EventRecord{
+		ChainDID: f.ctrl.AID(), Seq: seq, PrevID: prev, EventType: evCreditIssued,
+		VersionMajor: ael.VersionMajor2,
+		Payload:      map[string]any{"aid": "did:anet:a", "amount": amount, "reason": "test"},
+		Timestamp:    time.Now().UnixMilli(), CriticalExtensions: []string{},
+	}
+	if err := rec.Sign(f.ctrl); err != nil {
+		t.Fatal(err)
+	}
+	f.records = append(f.records, rec)
+}
+
+func issuerWithChain(t *testing.T, n int) *fakeIssuer {
+	t.Helper()
+	hub, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeIssuer{ctrl: hub}
+	for i := 0; i < n; i++ {
+		f.issue(t, evCreditIssued, "did:anet:a", 100)
+	}
+	return f
+}
+
+func auditOf(t *testing.T, f *fakeIssuer) AuditReport {
+	t.Helper()
+	m, _ := hubbedModule(t, f)
+	rep, err := m.auditIssuance(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rep
+}
+
+// The case the audit exists for: the hub deletes one of its own entries
+// and serves the rest untouched. Every remaining record is correctly
+// signed, so only the shape of what is left shows what happened.
+func TestAuditRejectsAChainWithAnEntryDeletedFromTheMiddle(t *testing.T) {
+	f := issuerWithChain(t, 4)
+	if rep := auditOf(t, f); !rep.Verified {
+		t.Fatalf("the intact chain did not verify: %v", rep.Problems)
+	}
+	f.drop(2)
+
+	rep := auditOf(t, f)
+	if rep.Verified {
+		t.Fatal("a chain with an entry deleted from the middle audited clean")
+	}
+	if len(rep.Problems) != 1 {
+		t.Fatalf("problems = %v", rep.Problems)
+	}
+	// The report says where the hole is, because "something is wrong with
+	// this hub's chain" is not something an operator can act on.
+	for _, want := range []string{"seq 1", "seq 3", "1 entry is missing"} {
+		if !strings.Contains(rep.Problems[0], want) {
+			t.Errorf("the report does not say %q: %v", want, rep.Problems)
+		}
+	}
+	// And the totals are still reported, marked by the problem above as
+	// covering only what the hub served: 300, not the 400 it issued.
+	if rep.Issued != 300 {
+		t.Errorf("issued = %d, want 300 (the served entries)", rep.Issued)
+	}
+}
+
+// A wider hole is reported as a wider hole.
+func TestAuditReportsHowManyEntriesAreMissing(t *testing.T) {
+	f := issuerWithChain(t, 5)
+	f.drop(1)
+	f.drop(2)
+
+	rep := auditOf(t, f)
+	if rep.Verified {
+		t.Fatal("a chain missing two entries audited clean")
+	}
+	if len(rep.Problems) != 1 || !strings.Contains(rep.Problems[0], "2 entries are missing") {
+		t.Errorf("problems = %v", rep.Problems)
+	}
+}
+
+// from=0 asks for the whole history, so a chain that starts anywhere but
+// at the genesis record is short at the front.
+func TestAuditRejectsAChainThatDoesNotStartAtGenesis(t *testing.T) {
+	f := issuerWithChain(t, 3)
+	f.drop(0)
+
+	rep := auditOf(t, f)
+	if rep.Verified {
+		t.Fatal("a chain served without its genesis entry audited clean")
+	}
+	if len(rep.Problems) != 1 ||
+		!strings.Contains(rep.Problems[0], "did not serve the start of it") {
+		t.Errorf("problems = %v", rep.Problems)
+	}
+}
+
+// A record served twice is counted twice in the totals, so it is a
+// finding rather than a harmless duplicate delivery.
+func TestAuditRejectsAnEntryServedTwice(t *testing.T) {
+	f := issuerWithChain(t, 3)
+	f.records = []*ael.EventRecord{f.records[0], f.records[1], f.records[1], f.records[2]}
+
+	rep := auditOf(t, f)
+	if rep.Verified {
+		t.Fatal("a chain serving one entry twice audited clean")
+	}
+	if len(rep.Problems) != 1 || !strings.Contains(rep.Problems[0], "served twice") {
+		t.Fatalf("problems = %v", rep.Problems)
+	}
+	// The report has to be readable against the totals it sits beside:
+	// the doubled entry is in them.
+	if rep.Issued != 400 {
+		t.Errorf("issued = %d, want 400 — the duplicate is counted, which is why it is reported",
+			rep.Issued)
+	}
+}
+
+// The chain is followed in the order it is served, so entries out of
+// order are a finding: the verifier cannot tell a reordered page from a
+// rewritten one, and saying so is the honest answer.
+func TestAuditRejectsEntriesServedOutOfOrder(t *testing.T) {
+	f := issuerWithChain(t, 3)
+	f.records[1], f.records[2] = f.records[2], f.records[1]
+
+	rep := auditOf(t, f)
+	if rep.Verified {
+		t.Fatal("a chain served out of order audited clean")
+	}
+	if len(rep.Problems) == 0 || !strings.Contains(rep.Problems[0], "not in chain order") {
+		t.Errorf("problems = %v", rep.Problems)
+	}
+}
+
+// Contiguous seqs whose prev_id does not name the record before them.
+// Each record verifies on its own; only the link is wrong.
+func TestAuditRejectsABrokenPrevLink(t *testing.T) {
+	f := issuerWithChain(t, 2)
+	f.issueWithPrev(t, f.records[0].ID, 100) // seq 2 pointing back at seq 0
+
+	rep := auditOf(t, f)
+	if rep.Verified {
+		t.Fatal("a chain whose links do not close audited clean")
+	}
+	if len(rep.Problems) != 1 || !strings.Contains(rep.Problems[0], "names") {
+		t.Fatalf("problems = %v", rep.Problems)
+	}
+	if !strings.Contains(rep.Problems[0], "seq 2") {
+		t.Errorf("the report does not say which entry: %v", rep.Problems)
+	}
+}
+
+// A record the hub signed for a different chain is not part of its
+// issuance history. The signature checks out, which is exactly why the
+// signature is not the whole test.
+func TestAuditRejectsARecordFromAnotherChain(t *testing.T) {
+	f := issuerWithChain(t, 2)
+	stray := &ael.EventRecord{
+		ChainDID: "did:anet:somewhere-else", Seq: 2, PrevID: f.records[1].ID,
+		EventType: evCreditIssued, VersionMajor: ael.VersionMajor2,
+		Payload:   map[string]any{"aid": "did:anet:a", "amount": 9000, "reason": "test"},
+		Timestamp: time.Now().UnixMilli(), CriticalExtensions: []string{},
+	}
+	if err := stray.Sign(f.ctrl); err != nil {
+		t.Fatal(err)
+	}
+	f.records = append(f.records, stray)
+
+	rep := auditOf(t, f)
+	if rep.Verified {
+		t.Fatal("a record on another chain was counted into this hub's supply")
+	}
+	if len(rep.Problems) != 1 || !strings.Contains(rep.Problems[0], "not on this hub's own chain") {
+		t.Fatalf("problems = %v", rep.Problems)
+	}
+	if rep.Issued != 200 {
+		t.Errorf("issued = %d, want 200 — the stray record was counted", rep.Issued)
+	}
+}
+
+// An intact chain still audits clean. Without this the checks above are
+// satisfied by a verifier that refuses everything.
+func TestAuditAcceptsAnIntactChain(t *testing.T) {
+	f := issuerWithChain(t, 6)
+	rep := auditOf(t, f)
+	if !rep.Verified {
+		t.Fatalf("an intact chain reported problems: %v", rep.Problems)
+	}
+	if rep.Issued != 600 || rep.Entries != 6 {
+		t.Errorf("issued=%d entries=%d, want 600/6", rep.Issued, rep.Entries)
+	}
+}

@@ -379,7 +379,10 @@ func (d *Daemon) deliverCapabilityResult(ctx context.Context, interactionID, cap
 	if err != nil {
 		return false
 	}
-	if err := d.ix.SetResult(interactionID, deliverable, resultCID, receiptBytes); err != nil {
+	// Signed with this node's own key a few lines up, so there is nothing
+	// to take on trust.
+	if err := d.ix.SetResult(interactionID, deliverable, resultCID, receiptBytes,
+		interactions.VerificationVerified); err != nil {
 		log.Printf("anet: capability %s: store result: %v", capID, err)
 		return false
 	}
