@@ -726,10 +726,14 @@ st=$(curl -sf -m 30 "$EMAX_HUB/stats")
 sa=$(echo "$st" | jq_ "print(d.get('agents',-1))")
 sr=$(echo "$st" | jq_ "print(d.get('reviews',-1))")
 sav=$(echo "$st" | jq_ "print(d.get('avg_rating',-1))")
+sf=$(echo "$st" | jq_ "print(d.get('federated_agents',0))")
 listed=$(curl -sf -m 30 "$EMAX_HUB/agents" | jq_ "print(len(d.get('agents') or []))")
-[ "$sa" = "$listed" ] \
-  && ok "/stats 的 agents($sa)与目录里实际列出的一致" \
-  || no "/stats 说 $sa 个 agent,目录列出 $listed 个"
+# 目录里既有本 hub 注册的,也有从对等 hub 学来的,而 /stats 把两者分开报 ——
+# "在我们这里注册的"与"别人告诉我们的"是两种断言,合成一个数会让 hub 报出它
+# 并不拥有的覆盖面。所以要对的是两者之和,不是 agents 单独一项。
+[ "$((sa + sf))" = "$listed" ] \
+  && ok "/stats($sa 本地 + $sf 联邦)与目录里实际列出的 $listed 个一致" \
+  || no "/stats 说 $sa 本地 + $sf 联邦 = $((sa + sf)),目录列出 $listed 个"
 # The mean must lie inside the range a rating can take. A figure outside
 # it means the aggregate is computed over something that is not ratings.
 awk_ok=$(python3 -c "
@@ -833,9 +837,16 @@ if ! has dmax; then
 else
   before=$(viafmax "/agents/$DMAX_AID/redemptions" | jq_ "print(len(d.get('redemptions') or []))")
   ctl dmax /redeem '{"amount":3,"reference":"prodtest-list"}' >/dev/null 2>&1
-  sleep 2
-  lst=$(viafmax "/agents/$DMAX_AID/redemptions")
-  after=$(echo "$lst" | jq_ "print(len(d.get('redemptions') or []))")
+  # 轮询而不是睡 2 秒。兑付要从 dmax 走到 fmax 再落库,固定 2 秒在实网上不够,
+  # 于是这条断言会红,而下一条("金额与 reference 对得上")却绿 —— 两条自相
+  # 矛盾的结论,说明红的那条测的是等待时间,不是这件事成没成。
+  after=0
+  for _ in $(seq 1 30); do
+    lst=$(viafmax "/agents/$DMAX_AID/redemptions")
+    after=$(echo "$lst" | jq_ "print(len(d.get('redemptions') or []))")
+    [ "${after:-0}" -gt "${before:-0}" ] && break
+    sleep 2
+  done
   [ "${after:-0}" -gt "${before:-0}" ] \
     && ok "兑付出现在列表里($before → $after 条)" || no "兑付没有出现在列表里"
   match=$(echo "$lst" | jq_ "
