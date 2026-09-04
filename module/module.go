@@ -288,6 +288,28 @@ type registration struct {
 // registration is exactly what the tag removed.
 var optInNames = map[string]bool{}
 
+// extraCompiled names optional subsystems that are compiled in but are
+// NOT module.Module registrations.
+//
+// The MCP northbound is one: it lives in internal/mcpserv and is reached
+// as a CLI subcommand, so it never registers here — and `anet version`,
+// which reads Compiled(), reported `modules: service` for a build that
+// carried nine working MCP tools. A line that claims to say what is in the
+// binary and omits part of it is worse than no line, because the
+// documentation tells people to identify their build by reading it.
+//
+// Declared from a file carrying the same build tag as the subsystem, so
+// the list is derived from what the linker kept, not from what somebody
+// remembered to write down.
+var extraCompiled []string
+
+// DeclareCompiled records a compiled-in subsystem that is not a Module.
+func DeclareCompiled(names ...string) {
+	regMu.Lock()
+	defer regMu.Unlock()
+	extraCompiled = append(extraCompiled, names...)
+}
+
 // DeclareOptIn records that a module is reached by an additive tag.
 //
 // Names only, no code: the point is for a build that does NOT contain the
@@ -333,10 +355,11 @@ func optInName(name string) bool {
 func Compiled() []string {
 	regMu.Lock()
 	defer regMu.Unlock()
-	out := make([]string, 0, len(registry))
+	out := make([]string, 0, len(registry)+len(extraCompiled))
 	for _, r := range registry {
 		out = append(out, r.name)
 	}
+	out = append(out, extraCompiled...)
 	sort.Strings(out)
 	return out
 }

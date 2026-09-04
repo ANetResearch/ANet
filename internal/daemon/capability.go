@@ -247,7 +247,38 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 	}
 	p, ok := d.providers.Resolve(capID)
 	if !ok {
-		return false
+		// Falling through is right only when something will answer.
+		//
+		// A capability this node has no provider for is deliberately
+		// handed to the auto-reply path: the id may still be a task an
+		// agent can carry out, and TestCapabilityUnresolvableFallsThrough
+		// pins that. What was missing is the other half. With no auto-reply
+		// configured, nothing answers at all: the interaction sits at
+		// queued forever with no error, no effect status and nothing on
+		// either chain, and the requester cannot tell "does not serve it"
+		// from "is down" from "still working".
+		//
+		// That is what the honest-effect-status rule exists to prevent, and
+		// it was the most-encountered confusing behaviour in the release
+		// matrix — it made every unconfigured capability, including
+		// shell.exec on a node that never enabled it, look like a hang.
+		//
+		// So: hand it on when an agent is standing by, and answer when
+		// nobody is.
+		if d.config().AutoReply != nil {
+			return false
+		}
+		ix, err := d.ix.Get(interactionID)
+		if err != nil {
+			return false
+		}
+		res := capabilityResult{
+			Capability: capID,
+			Status:     string(effect.Unavailable),
+			Message:    "this node does not serve " + capID,
+		}
+		d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil)
+		return true
 	}
 	ix, err := d.ix.Get(interactionID)
 	if err != nil {

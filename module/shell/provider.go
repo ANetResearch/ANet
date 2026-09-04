@@ -176,6 +176,18 @@ func (p *shellProvider) named(ctx context.Context, call provider.Call, cmdName s
 	if !ok {
 		return effect.Effect{}, fmt.Errorf("shell: no command %q", cmdName)
 	}
+	// Every key the caller sent has to be one this node acts on.
+	//
+	// Refusing an unknown key is the same rule as refusing arguments to a
+	// command declared without them, and it was missing for the general
+	// case: a caller who wrote "args" or "arguments" instead of "argv" had
+	// them dropped, and the command ran with none — reporting OK for
+	// something it had not been asked to do. Silently discarding part of a
+	// request and then calling the result a success is the failure this
+	// module is meant not to have. Found by the release matrix.
+	if err := onlyKnownArgs(call.Args, "argv"); err != nil {
+		return effect.Effect{}, fmt.Errorf("shell: %s: %w", cmdName, err)
+	}
 	line := c.Run
 	if c.Args {
 		extra, err := quoteArgv(call.Args["argv"])
@@ -198,6 +210,9 @@ func (p *shellProvider) named(ctx context.Context, call provider.Call, cmdName s
 func (p *shellProvider) arbitrary(ctx context.Context, call provider.Call) (effect.Effect, error) {
 	if !p.m.cfg.AllowArbitrary {
 		return effect.Effect{}, fmt.Errorf("shell: arbitrary commands are not enabled on this node")
+	}
+	if err := onlyKnownArgs(call.Args, "command", "dir"); err != nil {
+		return effect.Effect{}, fmt.Errorf("shell: exec: %w", err)
 	}
 	line, _ := call.Args["command"].(string)
 	if strings.TrimSpace(line) == "" {
@@ -315,6 +330,33 @@ func (p *shellProvider) record(kind string, payload map[string]any) {
 		return
 	}
 	_ = p.m.host.RecordEvidence(kind, payload)
+}
+
+// onlyKnownArgs refuses a request carrying a key this node would ignore.
+//
+// A dropped key is a request half-executed, and the caller is told OK.
+// Naming the accepted keys back is what lets somebody who mistyped one fix
+// it without reading the source.
+func onlyKnownArgs(args map[string]any, known ...string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	ok := make(map[string]bool, len(known))
+	for _, k := range known {
+		ok[k] = true
+	}
+	var bad []string
+	for k := range args {
+		if !ok[k] {
+			bad = append(bad, k)
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	sort.Strings(bad)
+	return fmt.Errorf("unknown argument %q (this call takes: %s)",
+		strings.Join(bad, "\", \""), strings.Join(known, ", "))
 }
 
 // quoteArgv renders caller-supplied arguments for a shell command line.
