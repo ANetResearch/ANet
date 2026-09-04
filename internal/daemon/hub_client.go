@@ -40,6 +40,20 @@ const maxHubResponse = 256 << 20 // 256 MiB
 // it is spent on arrival, and a token sitting in config.json is a credential
 // kept long after the thing it bought.
 func (d *Daemon) RegisterWithHub(ctx context.Context, hubURL, name string, caps []string, guestMessages int, invite string) error {
+	// One registration at a time — see Daemon.regMu.
+	d.regMu.Lock()
+	defer d.regMu.Unlock()
+	return d.registerWithHubLocked(ctx, hubURL, name, caps, guestMessages, invite)
+}
+
+// registerWithHubLocked is RegisterWithHub with regMu already held.
+//
+// Split out so the startup refresh can read the config and register under
+// the same lock. Reading it outside left a window: the refresh could load
+// the capability list, an explicit `hub-register` could then write a new
+// one and publish it, and the refresh's request — still carrying the old
+// list — would land afterwards and undo it.
+func (d *Daemon) registerWithHubLocked(ctx context.Context, hubURL, name string, caps []string, guestMessages int, invite string) error {
 	kelB, err := identity.MarshalKEL(d.self.KEL())
 	if err != nil {
 		return err
@@ -242,7 +256,45 @@ func (d *Daemon) LeaveHub(ctx context.Context, hubURL string) (map[string]any, e
 	if err := d.hubPost(ctx, hubURL, "/agents/"+url.PathEscape(d.AID())+"/deregister", body, &out); err != nil {
 		return out, err
 	}
+	d.forgetHubIfCurrent(hubURL)
 	return out, nil
+}
+
+// forgetHubIfCurrent stops this node treating a hub it just left as its own.
+//
+// Deregistering removed the routing at the hub. Locally, hub_url stayed —
+// so the relay loop went on polling the hub that had just refused this
+// node, once a second, forever: every poll rejected, every rejection a
+// log line, about 7.9 MB of daemon.log a day with no rotation, surviving
+// restarts because the address was still in config.json. `anet status`
+// still reported the hub and the opening banner still said "Registered
+// with Hub", because both read hub_url and nothing else.
+//
+// Conditional on purpose. The documented way to move house is to register
+// with the new hub and THEN leave the old one, and in that order hub_url
+// already names the new hub — clearing it unconditionally would unregister
+// the node from the hub it had just joined. So this only forgets the hub
+// the node is actually pointed at.
+//
+// Found by the release matrix, on min and paid, on Ubuntu and Debian.
+func (d *Daemon) forgetHubIfCurrent(left string) {
+	left = strings.TrimRight(strings.TrimSpace(left), "/")
+	d.mu.Lock()
+	current := strings.TrimRight(strings.TrimSpace(d.cfg.HubURL), "/")
+	if current == "" || current != left {
+		d.mu.Unlock()
+		return
+	}
+	d.cfg.HubURL = ""
+	cfg := d.cfg
+	d.mu.Unlock()
+
+	// Stop polling before persisting: the loop is what produces the log
+	// flood, and a failure to write the config should not leave it running.
+	d.stopRelayLoop()
+	if err := SaveConfig(d.layout, cfg); err != nil {
+		log.Printf("anet: left %s but could not clear hub_url: %v", left, err)
+	}
 }
 
 // AdvertisePeerAddress publishes where this node can be dialled directly,

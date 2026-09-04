@@ -3,6 +3,10 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -126,11 +130,17 @@ func (d *Daemon) priceList(caps []string) map[string]uint64 {
 // only ever advances past real time when there are ties, by one per tie,
 // and drifts back to the clock as soon as they stop.
 //
-// Remaining hole, stated rather than papered over: a clock that steps
-// BACKWARDS across a daemon restart lands below the hub's high water, and
-// the node cannot update its card until the clock catches up. Closing it
-// needs the sequence persisted across restarts; the failure is visible
-// (STALE_SEQ), self-healing, and out of scope for this defect.
+// The counter is also PERSISTED, which the first version of this fix left
+// out on the reading that a restart takes longer than the one-second
+// resolution. It does not: a restart inside the same second starts a fresh
+// in-memory counter from the same clock value and collides with the hub's
+// high water. That was survivable while registration only happened when an
+// operator asked for it; once the daemon began re-publishing its
+// capabilities at startup, every quick restart hit it.
+//
+// Persisting also closes the other half — a clock that steps BACKWARDS
+// across a restart no longer lands below the high water, because the file
+// remembers where the node had got to.
 func (d *Daemon) cardSeq() uint64 {
 	for {
 		last := d.lastCardSeq.Load()
@@ -139,9 +149,37 @@ func (d *Daemon) cardSeq() uint64 {
 			seq = last + 1
 		}
 		if d.lastCardSeq.CompareAndSwap(last, seq) {
+			d.persistCardSeq(seq)
 			return seq
 		}
 	}
+}
+
+// cardSeqPath is where the counter survives a restart. Its own file rather
+// than a config field: it is written on every registration and read once,
+// and rewriting the whole config for a counter would put an operator's
+// hand-edited settings in the path of a background refresh.
+func (d *Daemon) cardSeqPath() string { return filepath.Join(d.layout.Root, "card_seq") }
+
+func (d *Daemon) persistCardSeq(seq uint64) {
+	if err := os.WriteFile(d.cardSeqPath(), []byte(strconv.FormatUint(seq, 10)), 0o600); err != nil {
+		// Not fatal: the clock still supplies a value, and the failure mode
+		// is the one this file exists to narrow, not a new one.
+		log.Printf("anet: could not persist the card sequence: %v", err)
+	}
+}
+
+// loadCardSeq seeds the counter from the last sequence this node minted.
+func (d *Daemon) loadCardSeq() {
+	b, err := os.ReadFile(d.cardSeqPath())
+	if err != nil {
+		return
+	}
+	n, err := strconv.ParseUint(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil {
+		return
+	}
+	d.lastCardSeq.Store(n)
 }
 
 func (d *Daemon) signedCardWithPrices(name string, caps []string, prices map[string]uint64) (json.RawMessage, error) {

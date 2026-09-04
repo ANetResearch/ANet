@@ -104,10 +104,32 @@ func (s paymentSeam) ReadEvidence(eventType string, limit int) []map[string]any 
 	return out
 }
 
-// PaymentSeam implements module.Host. Absent when there is no hub, which
-// is also when there is no ledger and nothing can be charged.
+// PaymentSeam implements module.Host: the ability to act as this node in
+// a payment. Absent only when there is no node.
+//
+// It used to be withheld while no hub was configured, on the reading that
+// "no hub means no ledger and nothing can be charged". That reading is
+// true of the moment and wrong about the grant. A module takes this seam
+// ONCE, at Start, and holds it for the process lifetime; a fresh data
+// directory necessarily has an empty hub_url at Start, so the x402 module
+// received nil and kept it. `hub-register` then wrote the hub into the
+// config and every other subsystem picked it up live, while balance,
+// audit-hub, reconcile, redeem, x402-authorize and `delegate --pay` went
+// on answering "no hub configured" until the daemon was restarted.
+//
+// There is no ordering that avoided it: `hub-register` needs a running
+// daemon, so daemon-then-register is the only possible first run, and
+// that is exactly the sequence that broke. Every new install of a build
+// carrying x402 landed on it. Found by the release matrix on the paid
+// variant, on both Debian and Ubuntu.
+//
+// So the seam is granted whenever there is a daemon behind it, and
+// "where does this node bank" is answered live by HubURL — which already
+// read the config on every call, and which every consumer already checks
+// for empty before doing anything. The grant says what a module may do;
+// it does not snapshot where.
 func (h moduleHost) PaymentSeam() (module.PaymentSeam, bool) {
-	if h.d == nil || h.d.config().HubURL == "" {
+	if h.d == nil {
 		return nil, false
 	}
 	return paymentSeam{d: h.d}, true
@@ -119,8 +141,11 @@ func (h moduleHost) PaymentSeam() (module.PaymentSeam, bool) {
 // authenticates requests to its own hub needs a signature and an address;
 // giving it the payment seam would hand over the hub's key history and
 // this node's evidence log for no reason.
+// Granted whenever there is a daemon, for the same reason PaymentSeam is:
+// a module holds the seam for its lifetime, and a node that joins a hub
+// after start must not need a restart to notice.
 func (h moduleHost) HubSeam() (module.HubSeam, bool) {
-	if h.d == nil || h.d.config().HubURL == "" {
+	if h.d == nil {
 		return nil, false
 	}
 	return hubSeam{d: h.d}, true
