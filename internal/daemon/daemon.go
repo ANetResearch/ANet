@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -46,9 +47,15 @@ type Daemon struct {
 	// own AgentCard. See cardSeq — the clock alone cannot keep the number
 	// strictly increasing, and the hub refuses a card that does not.
 	lastCardSeq atomic.Uint64
-	layout      Layout
-	self        *identity.Controller
-	ix          *interactions.Store
+	// regMu serialises registrations. The card sequence has to increase as
+	// the HUB sees it, and a monotonic counter only orders the minting: two
+	// registrations in flight at once can arrive in the opposite order, and
+	// the earlier-minted one is then refused as a rollback. Holding this
+	// across mint-and-send is what makes arrival order match mint order.
+	regMu  sync.Mutex
+	layout Layout
+	self   *identity.Controller
+	ix     *interactions.Store
 
 	// cachedHubAID names the ledger this node settles on, fetched once
 	// from the hub. Two hubs are two networks and a credit on one is not
@@ -116,6 +123,7 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, err
 	}
 	d.ledger = led
+	d.loadCardSeq()
 	d.providers = provider.NewRegistry()
 	if err := d.startModules(ctx, cfg); err != nil {
 		cancel()
@@ -123,11 +131,77 @@ func New(layout Layout) (*Daemon, error) {
 	}
 	if cfg.HubURL != "" {
 		d.startRelayLoop(cfg.HubURL)
+		d.refreshRegistration()
 	}
 	if cfg.AutoReply != nil {
 		d.startAutoReply(*cfg.AutoReply)
 	}
 	return d, nil
+}
+
+// refreshRegistration re-publishes what this node serves, in the background.
+//
+// The capability list a hub advertises is folded in at hub-register time
+// and never afterwards. Modules are wired at start, so their capabilities
+// change whenever the build or the config changes — and a restart, which
+// is exactly how an operator applies such a change, did not tell the hub.
+// The heartbeat kept refreshing last_seen, so the node looked healthy
+// while its advertised capabilities were whatever they had been at the
+// last explicit registration.
+//
+// The removal direction is the worse one. A hub goes on advertising a
+// capability the node has dropped; `anet find --cap` returns it as a live
+// answer; a delegation sent on the strength of that lands in the path
+// nobody serves, where the requester gets no error, the provider logs
+// nothing and neither chain records anything.
+//
+// Background and non-fatal on purpose: a daemon must come up when its hub
+// is unreachable, and this is a refresh of something the hub already has,
+// not a precondition for running. Found by the release matrix.
+// The config is read inside the goroutine, not captured at start: an
+// explicit `hub-register` can land first, and a refresh carrying the
+// snapshot from before it would overwrite what the operator just set.
+func (d *Daemon) refreshRegistration() {
+	go func() {
+		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+		defer cancel()
+		// Read and register under one lock, so an explicit hub-register
+		// racing this cannot be overwritten by a stale snapshot.
+		d.regMu.Lock()
+		defer d.regMu.Unlock()
+		cfg := d.config()
+		if cfg.HubURL == "" {
+			return // left the hub between start and now
+		}
+		caps := withServedCapabilities(cfg.Caps, d.providers)
+		if err := d.registerWithHubLocked(ctx, cfg.HubURL, cfg.Name, caps, cfg.GuestQuota(), ""); err != nil {
+			// Not an error the operator must act on: the node runs either
+			// way, and the next explicit hub-register will carry it.
+			log.Printf("anet: could not refresh this node's registration with %s: %v", cfg.HubURL, err)
+			return
+		}
+		if !sameStrings(cfg.Caps, caps) {
+			log.Printf("anet: refreshed capabilities at %s: %v", cfg.HubURL, caps)
+		}
+	}()
+}
+
+// sameStrings reports whether two capability lists have the same members.
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	seen := make(map[string]int, len(a))
+	for _, x := range a {
+		seen[x]++
+	}
+	for _, x := range b {
+		seen[x]--
+		if seen[x] < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // AID is the daemon's agent identifier.

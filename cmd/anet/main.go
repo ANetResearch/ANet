@@ -49,6 +49,11 @@ func main() {
 		}
 		os.Exit(1)
 	}
+	// A misspelled flag is a typo, not a silent no-op. See knownFlags.
+	if err := checkFlags(cmd, rest); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(2)
+	}
 	switch cmd {
 	case "daemon":
 		if hasFlag(rest, "--detach", "-d") {
@@ -421,7 +426,25 @@ func runDaemonDetached(layout daemon.Layout) error {
 		return fmt.Errorf("start daemon: %w", err)
 	}
 	pid := c.Process.Pid
-	_ = c.Process.Release()
+	// Keep the handle and reap in the background instead of releasing it.
+	//
+	// The child is already in its own session, so it outlives this process
+	// either way; what the handle buys is the exit status. Without it,
+	// every failure that happens AFTER the fork — a module configured but
+	// not compiled in, a module name the registry does not know, a service
+	// capability with no url, a control port already taken — was reported
+	// as the same "did not become ready within 8s", after eight seconds of
+	// polling a process that had already exited in about twenty
+	// milliseconds with the exact reason on its way to the log.
+	//
+	// The asymmetry is what made it worth fixing: a config.json that does
+	// not parse is caught before the fork and named immediately, so the
+	// product plainly can say what is wrong. Seven of the eighteen cells in
+	// the release matrix reported this, on both distributions and across
+	// six variants.
+	died := make(chan error, 1)
+	go func() { died <- c.Wait() }()
+
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		if localDaemonUp(layout) {
@@ -434,9 +457,70 @@ func runDaemonDetached(layout daemon.Layout) error {
 				label, pid, layout.Root, stopHint(name))
 			return runClient(layout, "status", nil, true)
 		}
-		time.Sleep(150 * time.Millisecond)
+		select {
+		case werr := <-died:
+			// It wrote its reason to the log on the way out; say it here
+			// rather than sending the operator to go and look.
+			return daemonStartFailed(layout, werr)
+		case <-time.After(150 * time.Millisecond):
+		}
 	}
 	return fmt.Errorf("daemon did not become ready within 8s — check the log: anet logs")
+}
+
+// daemonStartFailed reports why a detached daemon exited, quoting the log.
+//
+// The child logs the specific cause and then exits; the parent is the only
+// one with a terminal. Reading the tail back is what turns "it did not
+// start" into "it did not start because …".
+func daemonStartFailed(layout daemon.Layout, werr error) error {
+	reason := lastLogLines(layout.LogPath(), 4)
+	if reason == "" {
+		if werr != nil {
+			return fmt.Errorf("the daemon exited immediately (%v) and wrote nothing to the log: %s",
+				werr, layout.LogPath())
+		}
+		return fmt.Errorf("the daemon exited immediately and wrote nothing to the log: %s", layout.LogPath())
+	}
+	return fmt.Errorf("the daemon exited immediately:\n%s\n(full log: anet logs)", reason)
+}
+
+// lastLogLines returns the final n non-empty lines of a log file.
+//
+// Bounded read from the end: a daemon.log can be large, and this runs on
+// the failure path of a command a person is watching.
+func lastLogLines(path string, n int) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	const window = 8 << 10
+	size, err := f.Seek(0, io.SeekEnd)
+	if err != nil {
+		return ""
+	}
+	if size > window {
+		if _, err := f.Seek(-window, io.SeekEnd); err != nil {
+			return ""
+		}
+	} else if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return ""
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+	var keep []string
+	for _, ln := range strings.Split(string(b), "\n") {
+		if ln = strings.TrimRight(ln, "\r"); strings.TrimSpace(ln) != "" {
+			keep = append(keep, "  "+ln)
+		}
+	}
+	if len(keep) > n {
+		keep = keep[len(keep)-n:]
+	}
+	return strings.Join(keep, "\n")
 }
 
 // stopHint returns the identity suffix for a "stop it with `anet stop<hint>`" message (" <name>" for a
@@ -912,6 +996,108 @@ func runAutoReply(c *client, rest []string) error {
 // capability went missing, and the command failed complaining about an
 // empty goal. The user typed the form the tool taught them one flag
 // earlier.
+
+// knownFlags is what each command accepts. A flag not listed here is a
+// typo, and saying so is the whole point of the table.
+//
+// splitFlags collects every --flag into a map and each command reads the
+// keys it knows about; nothing ever looked at the rest. So a misspelled or
+// invented flag was accepted, dropped, and the command ran as if it had
+// not been given — `anet find --capability text.digest` returned the
+// unfiltered directory with exit status 0, indistinguishable from a query
+// that genuinely matched everything. The same CLI rejects an unknown
+// COMMAND, so the two halves disagreed about whether a typo is an error.
+//
+// One table rather than nineteen call-site signatures: the check happens
+// once, at dispatch, and the accepted set for every command is readable in
+// one place. Commands with no flags map to an empty list, which is not the
+// same as being absent — absent means "not checked".
+//
+// Found by the release matrix on the standard variant.
+var knownFlags = map[string][]string{
+	// local
+	"daemon":   {"detach"},
+	"up":       {"detach"},
+	"stop":     {"all"},
+	"down":     {"all"},
+	"id":       {"purge", "all"},
+	"ids":      {"purge", "all"},
+	"identity": {"purge", "all"},
+	"install":  {"agent", "work-dir", "model", "command"},
+	"verify":   {"receipt", "kel", "result", "hub", "attestation"},
+	"logs":     {"all"},
+	"help":     {"all"},
+	"mcp":      {},
+	"version":  {},
+
+	// through the control plane
+	"status":         {},
+	"hub-register":   {"name", "caps", "token", "guest-messages", "accept-delegations"},
+	"hub-leave":      {},
+	"p2p-advertise":  {},
+	"accept":         {},
+	"autoreply":      {"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir", "extra-args", "openclaw-agent", "require-image", "usage-hint", "error-reply"},
+	"auto-reply":     {"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir", "extra-args", "openclaw-agent", "require-image", "usage-hint", "error-reply"},
+	"profile":        {"summary", "readme", "pricing"},
+	"console":        {"url"},
+	"find":           {"cap"},
+	"delegate":       {"capability", "args", "pay", "attach"},
+	"inbox":          {"pending"},
+	"thread":         {},
+	"message":        {"file", "attach"},
+	"msg":            {"file", "attach"},
+	"pull":           {"out"},
+	"end":            {},
+	"accept-end":     {},
+	"results":        {},
+	"x402-authorize": {"pay-to", "amount", "network", "interaction"},
+	"pay-header":     {"pay-to", "amount", "network", "interaction"},
+	"reconcile":      {},
+	"audit-hub":      {},
+	"redeem":         {"ref"},
+	"balance":        {},
+	"credits":        {},
+	"visibility":     {},
+	"evidence":       {"type", "since", "limit"},
+	"review":         {},
+}
+
+// checkFlags refuses a flag the command does not accept.
+//
+// Only flags — positional arguments are each command's own business, and
+// several take a free-form goal or message that may begin with anything.
+// A command with no entry in the table is not checked, so adding a command
+// without adding its flags fails open rather than rejecting valid usage;
+// the test in args_test.go is what keeps the table from drifting.
+func checkFlags(cmd string, rest []string) error {
+	known, ok := knownFlags[cmd]
+	if !ok {
+		return nil
+	}
+	allowed := make(map[string]bool, len(known))
+	for _, k := range known {
+		allowed[k] = true
+	}
+	for _, a := range rest {
+		if !strings.HasPrefix(a, "--") || a == "--" {
+			continue
+		}
+		key := strings.TrimPrefix(a, "--")
+		if k, _, found := strings.Cut(key, "="); found {
+			key = k
+		}
+		if key == "" || allowed[key] {
+			continue
+		}
+		if len(known) == 0 {
+			return fmt.Errorf("anet %s takes no flags, and --%s is not one", cmd, key)
+		}
+		return fmt.Errorf("anet %s: unknown flag --%s (it accepts: --%s)",
+			cmd, key, strings.Join(known, ", --"))
+	}
+	return nil
+}
+
 func splitFlags(rest []string) (pos []string, flags map[string]string) {
 	flags = map[string]string{}
 	for i := 0; i < len(rest); i++ {

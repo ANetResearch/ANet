@@ -150,9 +150,27 @@ type moduleHost struct{ d *Daemon }
 func (h moduleHost) AID() string                   { return h.d.AID() }
 func (h moduleHost) Providers() *provider.Registry { return h.d.providers }
 
-// ResolveKEL answers only for peers this node has verified itself. See
-// peerkel.go for why that bound is the point rather than a limitation.
+// ResolveKEL answers for peers this node has verified itself, and for the
+// node itself. See peerkel.go for why the first bound is the point rather
+// than a limitation.
+//
+// This node's own key history was missing, and the omission was not
+// harmless: the peers table records only key histories seen on the INBOUND
+// delegation path, so a node never has its own. `org.verify` therefore
+// returned FAILED "org: issuer KEL unresolvable" for every credential the
+// verifying node had itself issued — which is exactly the single-node
+// organisation that `anetfixture org-genesis --home <data dir>` produces.
+// The same credential verified fine on a second node configured with the
+// same genesis, so the failing condition was "the issuer is me", not
+// "the issuer is the founder".
+//
+// A node vouching for its own key history is the strongest case of the
+// rule this method exists to enforce, not an exception to it: it holds the
+// private key. Found by the release matrix on the full variant.
 func (h moduleHost) ResolveKEL(aid string) ([]identity.SignedEvent, bool) {
+	if aid != "" && aid == h.d.AID() {
+		return h.d.self.KEL(), true
+	}
 	return h.d.peers.resolve(aid)
 }
 func (h moduleHost) RecordEvidence(kind string, payload any) error {

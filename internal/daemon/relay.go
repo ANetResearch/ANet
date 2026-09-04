@@ -298,6 +298,20 @@ func (d *Daemon) signRelayAuth(action string) (ts, seq uint64, sigB64 string) {
 
 // --- background poll loop ---
 
+// stopRelayLoop cancels the running loop, if any, and starts none.
+//
+// Separate from startRelayLoop because "poll a different hub" and "poll
+// nothing" are different intentions, and the second one had no way to be
+// expressed: a node that left its hub kept polling it.
+func (d *Daemon) stopRelayLoop() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.relayStop != nil {
+		d.relayStop()
+		d.relayStop = nil
+	}
+}
+
 // startRelayLoop cancels any running loop and starts a fresh one against hubURL, under the daemon ctx.
 func (d *Daemon) startRelayLoop(hubURL string) {
 	d.mu.Lock()

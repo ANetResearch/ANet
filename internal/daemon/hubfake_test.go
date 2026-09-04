@@ -63,6 +63,9 @@ type fakeHub struct {
 	// cardHighWater is the per-subject high water the card gate compares
 	// against — the same rule the real hub keeps in agent_card.seq.
 	cardHighWater map[string]uint64
+	// departedKEL keeps a deregistered agent's key history, so a receipt it
+	// signed before leaving can still be verified.
+	departedKEL map[string][]byte
 	// relaySends counts deliveries the hub actually carried, so a test can
 	// tell "the hub delivered it" from "something else did".
 	relaySends int
@@ -78,6 +81,7 @@ func newFakeHub(t *testing.T) *httptest.Server {
 	h := &fakeHub{
 		agents: map[string]*fakeHubAgent{}, reviews: map[string]hubapi.ReviewView{},
 		cardHighWater: map[string]uint64{},
+		departedKEL:   map[string][]byte{},
 		self:          self,
 		balance:       map[string]uint64{}, entries: map[string][]map[string]any{},
 		settled: map[string]string{},
@@ -114,6 +118,7 @@ func relayCountFor(url string) int {
 func (h *fakeHub) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /register", h.hRegister)
+	mux.HandleFunc("POST /agents/{aid}/deregister", h.hDeregister)
 	mux.HandleFunc("POST /profile", h.hProfile)
 	mux.HandleFunc("GET /agents", h.hAgents)
 	mux.HandleFunc("GET /agents/{aid}", h.hAgent)
@@ -222,6 +227,38 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 		a.view.Summary, a.view.Readme, a.view.Pricing = req.Summary, req.Readme, req.Pricing
 	}
 	fakeHubJSON(w, http.StatusOK, map[string]any{"aid": req.AID, "status": "registered"})
+}
+
+// hDeregister mirrors POST /agents/{aid}/deregister.
+//
+// The fake had no deregister at all, so hub-leave answered 404 here while
+// working against the real hub — the same shape of gap as the card gate:
+// a fake that implements only the happy path agrees with whatever the code
+// does. It removes the routing and keeps the evidence, which is the real
+// hub's rule: reviews and balances record things that happened, and
+// deleting them to tidy the directory would be rewriting history.
+func (h *fakeHub) hDeregister(w http.ResponseWriter, r *http.Request) {
+	aid := r.PathValue("aid")
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	a, ok := h.agents[aid]
+	if !ok {
+		fakeHubJSON(w, http.StatusNotFound, map[string]string{"error": "no such agent"})
+		return
+	}
+	// Undelivered mail is reported rather than dropped silently: somebody
+	// sent work and is waiting for it.
+	undelivered := 0
+	for _, m := range h.mailbox {
+		if m.toAID == aid && !m.delivered {
+			undelivered++
+		}
+	}
+	delete(h.agents, aid)
+	h.departedKEL[aid] = a.kel // evidence stays verifiable after the routing goes
+	fakeHubJSON(w, http.StatusOK, map[string]any{
+		"aid": aid, "status": "deregistered", "undelivered": undelivered,
+	})
 }
 
 // hProfile mirrors POST /profile (signature challenge skipped).

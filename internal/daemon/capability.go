@@ -149,6 +149,28 @@ func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, 
 	if err := d.relaySend(ctx, providerAID, hubapi.RelayKindDelegate, id, payload); err != nil {
 		return "", err
 	}
+	// C5: a requester's chain should show what it asked for, not only what
+	// it received.
+	//
+	// The prose path has recorded this since it existed (relay.go); this
+	// one never did. The consequence was not limited to requests still in
+	// flight: after a capability call completed successfully, the
+	// requester's chain held only anet.result.accepted — interaction id,
+	// result CID, receipt, receipt_verified — with no provider, no request
+	// CID and no capability id. So a node could prove what it accepted and
+	// could not prove, from its own chain, what it had asked whom to do.
+	//
+	// The capability id is carried in addition to what the prose path
+	// records, because "which capability" is the question this path exists
+	// to answer. Found by the release matrix.
+	if _, lerr := d.ledger.Append(EvDelegationSent, map[string]any{
+		"interaction_id": id,
+		"provider_aid":   providerAID,
+		"request_cid":    requestCID,
+		"capability":     capID,
+	}); lerr != nil {
+		log.Printf("anet: capability delegation evidence ledger: %v", lerr)
+	}
 	return id, nil
 }
 
