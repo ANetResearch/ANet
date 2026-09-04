@@ -2,7 +2,7 @@ package daemon
 
 // agents.go — shared registry for wiring anet into external coding agents (`anet install --agent`)
 // and for headless one-shot invocation (`auto_reply.backend = "exec"`). Supported: cursor, claude,
-// codex, openclaw, hermes.
+// codex, opencode, openclaw, hermes.
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -20,6 +21,7 @@ const (
 	agentCursor   = "cursor"
 	agentClaude   = "claude"
 	agentCodex    = "codex"
+	agentOpenCode = "opencode"
 	agentOpenClaw = "openclaw"
 	agentHermes   = "hermes"
 )
@@ -55,6 +57,7 @@ func agentRegistry() []agentSpec {
 		{id: agentCursor, displayName: "Cursor Agent", defaultModel: "auto", detectBin: detectCursorBin, install: installCursor, invoke: invokeCursor},
 		{id: agentClaude, displayName: "Claude Code", defaultModel: "haiku", detectBin: detectClaudeBin, install: installClaude, invoke: invokeClaude},
 		{id: agentCodex, displayName: "Codex CLI", detectBin: detectCodexBin, install: installCodex, invoke: invokeCodex},
+		{id: agentOpenCode, displayName: "opencode", detectBin: detectOpenCodeBin, install: installOpenCode, invoke: invokeOpenCode},
 		{id: agentOpenClaw, displayName: "OpenClaw", detectBin: detectOpenClawBin, install: installOpenClaw, invoke: invokeOpenClaw},
 		{id: agentHermes, displayName: "hermes-agent", detectBin: detectHermesBin, install: installHermesCLI, invoke: invokeHermes},
 	}
@@ -118,16 +121,43 @@ func lookPathFirst(names ...string) (string, error) {
 	return "", fmt.Errorf("%s not found on PATH", strings.Join(names, ", "))
 }
 
+// runCmd runs one agent CLI to completion, or kills it and everything it started when ctx expires.
+//
+// The process group and the WaitDelay are both load-bearing. A coding agent CLI is a launcher: it
+// spawns model calls, language servers, sometimes a shell of its own. CommandContext's own watchdog
+// signals only the process it started, so on a timeout the launcher died and its children kept the
+// stdout pipe open — and cmd.Run blocks until that pipe reaches EOF. The configured timeout was
+// therefore not a bound on anything: a hung agent held the auto-reply loop for as long as its
+// children lived, and a node with one stuck task stopped answering everything else.
+//
+// Measured before the fix: a 2s timeout against an agent that slept 60s returned after 60s.
+//
+// cmd.Cancel replaces that watchdog rather than racing it — two killers waiting on the same Wait
+// means which one wins decides whether the group survives. WaitDelay then bounds the wait for any
+// pipe still held by something that escaped the group entirely (a child that called setsid).
 func runCmd(ctx context.Context, dir string, env []string, bin string, args ...string) (stdout, stderr []byte, err error) {
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = dir
 	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // negative pid: the whole group
+	}
+	cmd.WaitDelay = 3 * time.Second
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 	err = cmd.Run()
+	// A killed group reports the kill, not the timeout that caused it. Say which it was, because
+	// "signal: killed" sends an operator looking for an OOM that did not happen.
+	if ctxErr := ctx.Err(); err != nil && ctxErr != nil {
+		err = fmt.Errorf("%w (agent did not finish: %v)", ctxErr, err)
+	}
 	return outBuf.Bytes(), errBuf.Bytes(), err
 }
 
@@ -296,6 +326,37 @@ func invokeCodex(ctx context.Context, o execInvokeOpts) (string, error) {
 	reply := trimReply(string(stdout))
 	if reply == "" {
 		return "", fmt.Errorf("codex exec returned empty output")
+	}
+	return reply, nil
+}
+
+// --- opencode: opencode run --print-logs=false [-m MODEL] PROMPT ---
+
+func detectOpenCodeBin() (string, error) {
+	return lookPathFirst("opencode")
+}
+
+// invokeOpenCode runs one non-interactive opencode turn.
+//
+// `opencode run` prints the assistant's reply on stdout and exits, which is exactly the shape this
+// backend needs. No model is passed unless the operator named one: opencode resolves its own default
+// from the provider the user has configured, and there is no model id that is both cheap and valid
+// across the providers it supports — naming one here would break the node for anybody on a different
+// provider, which is worse than a default that costs more than necessary.
+func invokeOpenCode(ctx context.Context, o execInvokeOpts) (string, error) {
+	args := []string{"run"}
+	if o.Model != "" {
+		args = append(args, "--model", o.Model)
+	}
+	args = append(args, o.ExtraArgs...)
+	args = append(args, o.Prompt)
+	stdout, stderr, err := runCmd(ctx, o.WorkDir, o.Env, o.Command, args...)
+	if err != nil {
+		return "", cmdError(o.Command, args, stdout, stderr, err)
+	}
+	reply := trimReply(string(stdout))
+	if reply == "" {
+		return "", fmt.Errorf("opencode run returned empty output")
 	}
 	return reply, nil
 }
