@@ -411,3 +411,30 @@ func (l *limitedWriter) Write(p []byte) (int, error) {
 	l.n -= len(p)
 	return len(p), nil
 }
+
+// InvokeTimeout tells the daemon how long this command may take, so the
+// bound the operator configured is the bound that applies.
+//
+// Without this the daemon's own 60-second constant won, silently: the
+// module validated timeout_s up to its ceiling, the operator set 20
+// minutes, and the command was killed at one. The two layers each had a
+// timeout and only the shorter one was ever visible.
+func (p *shellProvider) InvokeTimeout(capability string) (time.Duration, bool) {
+	if p.m == nil {
+		return 0, false
+	}
+	name, ok := strings.CutPrefix(capability, runPrefix)
+	if !ok {
+		// shell.list is a table lookup; shell.exec has no per-command
+		// entry, so both take the module-wide bound.
+		if capability == CapList {
+			return 0, false
+		}
+		return p.m.timeout(Command{}), true
+	}
+	cmd, ok := p.m.cfg.Commands[name]
+	if !ok {
+		return 0, false
+	}
+	return p.m.timeout(cmd), true
+}

@@ -16,9 +16,9 @@ import (
 // happened to be first in the list.
 func TestUnknownFlagsAreRefused(t *testing.T) {
 	for _, tc := range []struct{ cmd, flag string }{
-		{"find", "--capability"},
+		{"find", "--capabilty"}, // one letter out
 		{"hub-register", "--nmae"},
-		{"delegate", "--cap"}, // the real one is --capability
+		{"delegate", "--caps"}, // plural; the real ones are --cap / --capability
 		{"redeem", "--reff"},
 		{"evidence", "--kind"}, // the real one is --type
 	} {
@@ -211,9 +211,21 @@ func TestEveryFlagTheSourceReadsIsInTheTable(t *testing.T) {
 		if b.depth != 1 {
 			continue
 		}
+		// The last case ends where the switch does, not where the file
+		// does. Without this every helper defined below the dispatch is
+		// attributed to whichever command happens to be last — which is
+		// how a shared capFlag() helper made this test demand that
+		// `review` accept --cap.
 		end := len(lines)
+		closing := strings.Repeat("\t", b.depth) + "}"
+		for i := b.start + 1; i < len(lines); i++ {
+			if lines[i] == closing {
+				end = i
+				break
+			}
+		}
 		for _, nb := range blocks[bi+1:] {
-			if nb.depth <= b.depth {
+			if nb.depth <= b.depth && nb.start < end {
 				end = nb.start
 				break
 			}

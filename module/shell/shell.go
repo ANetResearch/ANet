@@ -76,7 +76,18 @@ const runPrefix = "shell.run@"
 // or a reply that never ends.
 const (
 	defaultTimeout = 30 * time.Second
-	maxTimeout     = 30 * time.Minute
+	// maxTimeout is a ceiling, not a policy: the operator picks the real
+	// bound per command. It went from 30 minutes to a day because the
+	// work people actually put behind this — a build, an image flash, a
+	// model conversion on a board — routinely runs past half an hour, and
+	// a ceiling below the real work turns "configure a timeout" into
+	// "discover the timeout was ignored".
+	//
+	// Not unbounded. The timeout is the only thing that ever reclaims a
+	// wedged process group: it is what turns "stuck forever, invisible"
+	// into "FAILED, killed after N, and here is the output so far". A day
+	// is past any real command and still finite.
+	maxTimeout = 24 * time.Hour
 	// defaultMaxOutput bounds what comes back. A command that prints a
 	// gigabyte would otherwise be carried through the hub relay and into
 	// the caller's evidence chain.

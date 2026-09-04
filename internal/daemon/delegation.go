@@ -20,6 +20,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
+	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 
@@ -558,13 +559,75 @@ func (d *Daemon) ingestDelegate(payload []byte) bool {
 	// C1: a capability call a local provider resolves is executed
 	// deterministically right here; anything else flows to auto-reply.
 	if capID, args, ok := capabilityCall(td); ok {
+		return d.runCapabilityCall(dr.InteractionID, capID, args, dr.Payment)
+	}
+	return true
+}
+
+// runCapabilityCall invokes a capability, on this goroutine when it is
+// quick and on its own when the provider says it will not be.
+//
+// The poll loop dispatches synchronously, which is right for work
+// measured in milliseconds and wrong for work measured in hours: this
+// call sits inside pollOnce holding pollMu, so an hour-long command is
+// an hour in which the node collects no mail at all, acks nothing, and
+// looks dead to everyone waiting on it. Sixty seconds was the constant
+// that kept that from happening; raising it without moving the work off
+// the loop would just make the freeze longer.
+//
+// The message is acked as soon as a long call is accepted, not when it
+// finishes. That is deliberate and it is the at-most-once choice: an
+// unacked message is redelivered, and re-running a command that flashes
+// firmware or applies a migration is worse than losing the record that
+// it started. A node that dies mid-command leaves the interaction open
+// with no result, which is the honest outcome — the requester sees work
+// that never came back rather than a completion that did not happen.
+func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]any, payment []byte) bool {
+	if d.providers == nil {
+		return true
+	}
+	p, ok := d.providers.Resolve(capID)
+	if !ok {
+		// Unresolved: keep the existing behaviour exactly (hand to
+		// auto-reply, or answer UNAVAILABLE when nothing else will).
 		cctx, cancel := context.WithTimeout(d.ctx, capabilityInvokeTimeout)
-		handled := d.tryCapabilityPaid(cctx, dr.InteractionID, capID, args, dr.Payment)
-		cancel()
-		if handled {
+		defer cancel()
+		d.tryCapabilityPaid(cctx, interactionID, capID, args, payment)
+		return true
+	}
+	bound, long := invokeBound(p, capID)
+	if !long {
+		cctx, cancel := context.WithTimeout(d.ctx, bound)
+		defer cancel()
+		d.tryCapabilityPaid(cctx, interactionID, capID, args, payment)
+		return true
+	}
+	select {
+	case d.longCalls <- struct{}{}:
+	default:
+		// Said, not queued. See maxConcurrentLongCalls.
+		cctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+		defer cancel()
+		ix, err := d.ix.Get(interactionID)
+		if err != nil {
 			return true
 		}
+		d.deliverCapabilityResult(cctx, interactionID, capID, ix, capabilityResult{
+			Status: string(effect.Unavailable),
+			Message: fmt.Sprintf("this node is already running %d long tasks, which is as many as it accepts",
+				maxConcurrentLongCalls),
+		}, nil)
+		return true
 	}
+	log.Printf("anet: %s: %s may take up to %s — running it off the poll loop", interactionID, capID, bound)
+	d.longCallsWG.Add(1)
+	go func() {
+		defer d.longCallsWG.Done()
+		defer func() { <-d.longCalls }()
+		cctx, cancel := context.WithTimeout(d.ctx, bound)
+		defer cancel()
+		d.tryCapabilityPaid(cctx, interactionID, capID, args, payment)
+	}()
 	return true
 }
 

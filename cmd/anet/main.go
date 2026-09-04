@@ -1084,10 +1084,14 @@ var knownFlags = map[string][]string{
 		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
 		"poll-interval", "max-history", "api-timeout", "max-auto-replies",
 	},
-	"profile":        {"summary", "readme", "pricing"},
-	"console":        {"url", "print"},
-	"find":           {"cap"},
-	"delegate":       {"capability", "args", "pay", "attach"},
+	"profile": {"summary", "readme", "pricing"},
+	"console": {"url", "print"},
+	// Both spellings on both commands. They named the same thing two ways
+	// and each rejected the other's, so the obvious two-step — find a node
+	// by capability, then call it — made you change the word halfway
+	// through. Neither name is worth breaking scripts over, so both work.
+	"find":           {"cap", "capability"},
+	"delegate":       {"cap", "capability", "args", "pay", "attach"},
 	"inbox":          {"pending"},
 	"thread":         {},
 	"message":        {"file", "attach"},
@@ -1315,7 +1319,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// the hub searches prose, which will return an agent that merely
 		// mentions the words.
 		pos, flags := splitFlags(rest)
-		if capID := strings.TrimSpace(flags["cap"]); capID != "" {
+		if capID := capFlag(flags); capID != "" {
 			return c.do("/find", map[string]any{"capability": capID})
 		}
 		return c.do("/find", map[string]any{"query": strings.TrimSpace(strings.Join(pos, " "))})
@@ -1331,7 +1335,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// A capability call is addressed by id, not described in prose: the
 		// provider resolves it against its registry and executes it, rather
 		// than handing it to an agent to interpret.
-		if capID := strings.TrimSpace(flags["capability"]); capID != "" {
+		if capID := capFlag(flags); capID != "" {
 			body["capability"] = capID
 			// --pay: if the provider quotes a price, pay it and delegate
 			// again rather than handing the quote back.
@@ -1644,4 +1648,14 @@ func (c *client) doField(path string, body any, field string) error {
 // agent meant remembering three places and the help was one edit away from lying about what works.
 func agentChoices() string {
 	return strings.Join(daemon.SupportedExecAgents(), "|")
+}
+
+// capFlag reads the capability id under either spelling. --cap and
+// --capability mean the same thing and always did; only the accepted
+// name differed between commands.
+func capFlag(flags map[string]string) string {
+	if v := strings.TrimSpace(flags["capability"]); v != "" {
+		return v
+	}
+	return strings.TrimSpace(flags["cap"])
 }

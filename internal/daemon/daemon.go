@@ -49,6 +49,17 @@ type Daemon struct {
 	// own AgentCard. See cardSeq — the clock alone cannot keep the number
 	// strictly increasing, and the hub refuses a card that does not.
 	lastCardSeq atomic.Uint64
+	// longCalls bounds how many long-running capability invocations run
+	// at once. A buffered channel rather than a counter because the
+	// bound has to be enforced at the moment of accepting, and a
+	// non-blocking send is exactly "take a slot if one is free, and say
+	// so if not" — see runCapabilityCall and maxConcurrentLongCalls.
+	longCalls chan struct{}
+	// longCallsWG counts the long-running invocations in flight, so
+	// shutdown can wait for them instead of pulling the interaction store
+	// out from under them. Without it a call still delivering its result
+	// when Close ran found d.ix already nil.
+	longCallsWG sync.WaitGroup
 	// regMu serialises registrations. The card sequence has to increase as
 	// the HUB sees it, and a monotonic counter only orders the minting: two
 	// registrations in flight at once can arrive in the opposite order, and
@@ -119,7 +130,8 @@ func New(layout Layout) (*Daemon, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, peers: newPeerKELs(),
-		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1)}
+		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1),
+		longCalls: make(chan struct{}, maxConcurrentLongCalls)}
 	led, err := openEvidenceLedger(layout.EvidenceLedgerPath(), self)
 	if err != nil {
 		return nil, err
@@ -217,13 +229,25 @@ func (d *Daemon) RequestStop() { d.stopOnce.Do(func() { close(d.stop) }) }
 func (d *Daemon) Close() error {
 	var err error
 	d.closeOnce.Do(func() {
+		// Cancel first: a long-running invocation derives its context
+		// from d.ctx, so this is what tells one to stop. Then wait for it
+		// to actually be done, because what it does on the way out is
+		// write its result — to the store this function is about to
+		// close.
 		d.cancel()
+		drained := waitFor(&d.longCallsWG, longCallDrainTimeout)
 		if d.ledger != nil {
 			_ = d.ledger.Close()
 		}
 		d.mu.Lock()
 		ix := d.ix
-		d.ix = nil
+		// Only clear the handle when nothing is still using it. A
+		// straggler that finds the store closed gets an error it can
+		// log; one that finds it nil takes the process down with it, and
+		// shutdown is exactly when that is least useful.
+		if drained {
+			d.ix = nil
+		}
 		d.mu.Unlock()
 		if ix != nil {
 			err = ix.Close()
@@ -267,3 +291,23 @@ func (d *Daemon) signTaskDoc(goal string) ([]byte, *aobj.Envelope, error) {
 }
 
 func nowMillis() int64 { return time.Now().UnixMilli() }
+
+// longCallDrainTimeout bounds how long shutdown waits for in-flight
+// long-running invocations. Generous enough for a cancelled provider to
+// return and write its result, short enough that `anet stop` does not
+// appear to hang — a caller who has to wait out an hour-long build to
+// stop the daemon will reach for SIGKILL, which is the outcome the wait
+// exists to avoid.
+const longCallDrainTimeout = 10 * time.Second
+
+// waitFor waits on wg for at most d, reporting whether it drained.
+func waitFor(wg *sync.WaitGroup, d time.Duration) bool {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(d):
+		return false
+	}
+}

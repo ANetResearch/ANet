@@ -11,6 +11,7 @@ package provider
 
 import (
 	"context"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
 )
@@ -62,4 +63,31 @@ type Priced interface {
 	// (0, true): a caller should not have to read a payment requirement
 	// to learn there is none.
 	Price(capability string) (uint64, bool)
+}
+
+// LongRunning is implemented by a provider whose work can legitimately
+// take longer than the daemon's default invocation bound.
+//
+// Optional, and the provider is the only one who can answer it. The
+// daemon bounds an invocation so a stuck provider cannot wedge it, but
+// the right bound depends entirely on what the capability does: turning
+// a camera is milliseconds, building an image on a board is an hour, and
+// a single constant cannot be right for both. The constant that was
+// there assumed every provider is local and therefore fast — true for
+// the device, storage and blackboard providers it was written for, and
+// false the moment a provider runs an operator's own command.
+//
+// Declaring a bound also declares that the call may outlive the mailbox
+// poll that delivered it: the daemon runs such calls off the poll loop,
+// because a poll loop blocked for an hour is a node that has stopped
+// collecting its mail for an hour.
+type LongRunning interface {
+	// InvokeTimeout reports how long this capability may take, and
+	// whether this provider wants to set the bound at all. (0, false)
+	// means "use the daemon's default", which is also what a provider
+	// that does not implement this interface gets.
+	//
+	// It is asked per capability because one provider can serve both a
+	// health check and a firmware flash.
+	InvokeTimeout(capability string) (time.Duration, bool)
 }
