@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -66,6 +67,108 @@ func TestKnownFlagsAreAccepted(t *testing.T) {
 func TestPositionalArgumentsAreNotChecked(t *testing.T) {
 	if err := checkFlags("delegate", []string{"aid", "--", "-not-a-flag"}); err != nil {
 		t.Fatalf("a bare -- and a dashed positional must pass: %v", err)
+	}
+}
+
+// The checker must accept everything the help promises.
+//
+// This is the direction that actually hurts. The first version of the table
+// was written by scanning `flags["…"]` in the top-level case blocks, which
+// misses every other way a flag is read — `hasFlag(rest, "--print")`, and
+// the map literals `runAutoReply` iterates. Seven flags were left out, and
+// `anet up --all`, `anet console --print` and
+// `anet autoreply set --poll-interval 10` — all documented, all implemented
+// — started exiting 2. A hand-maintained allowlist drifts toward refusing
+// valid input, which is worse than the silence it replaced.
+//
+// So the test reads the user-facing contract instead of the code: every
+// `--flag` that `anet help --all` shows for a command has to be accepted for
+// that command. Found by the documentation fact-check, not by this suite's
+// earlier drift test.
+func TestTheFlagCheckerAcceptsEverythingTheHelpPromises(t *testing.T) {
+	help := usageAllText()
+	cmdRe := regexp.MustCompile(`^\s+anet ([a-z0-9-]+)`)
+	flagRe := regexp.MustCompile(`--([a-z0-9-]+)`)
+
+	seen := 0
+	for _, line := range strings.Split(help, "\n") {
+		m := cmdRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		cmd := m[1]
+		if _, checked := knownFlags[cmd]; !checked {
+			continue // not gated; see checkFlags
+		}
+		for _, f := range flagRe.FindAllStringSubmatch(line, -1) {
+			flag := f[1]
+			// `--all` in `logs [N|--all]` and the like are real; a bare
+			// `--` never appears. Nothing else to exclude.
+			if err := checkFlags(cmd, []string{"--" + flag, "v"}); err != nil {
+				t.Errorf("help says `anet %s … --%s` but the checker refuses it: %v", cmd, flag, err)
+			}
+			seen++
+		}
+	}
+	if seen < 15 {
+		t.Fatalf("only %d documented flags were checked — the help parse is probably broken", seen)
+	}
+}
+
+// Every flag the source documents anywhere must be accepted by something.
+//
+// The test above reads `anet help --all`, which attributes flags to commands
+// precisely — and misses the ones documented in a command's own usage string.
+// `--poll-interval`, `--max-history`, `--api-timeout` and `--max-auto-replies`
+// live in the string `runAutoReply` prints, so leaving them out of the table
+// broke `anet autoreply set` while that test stayed green.
+//
+// This one gives up on attribution and asks a weaker question the source can
+// answer: a flag the code tells a user to type must be typeable somewhere. It
+// cannot catch a flag listed under the wrong command; it does catch a flag
+// listed under no command at all, which is the failure that actually happened.
+func TestEveryDocumentedFlagIsAcceptedBySomeCommand(t *testing.T) {
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Not per-command flags:
+	//   version / help — dispatched as commands (`anet --version` is `anet version`)
+	//   id             — a GLOBAL identity selector, pulled out by
+	//                    extractGlobalID before dispatch, so checkFlags never
+	//                    sees it (verified: `anet --id foo status` reaches the
+	//                    daemon lookup for that identity)
+	notFlags := map[string]bool{"version": true, "help": true, "id": true}
+
+	accepted := map[string]bool{}
+	for _, ks := range knownFlags {
+		for _, k := range ks {
+			accepted[k] = true
+		}
+	}
+	// Comments first: one of them describes the general shape as
+	// "--key value" and "--bool", which are not flags any command takes.
+	src = regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAll(src, []byte(" "))
+	src = regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAll(src, []byte(" "))
+	strRe := regexp.MustCompile("`[^`]*`|\"(?:[^\"\\\\]|\\\\.)*\"")
+	flagRe := regexp.MustCompile(`--([a-z][a-z0-9-]+)`)
+	missing := map[string]bool{}
+	for _, lit := range strRe.FindAllString(string(src), -1) {
+		for _, m := range flagRe.FindAllStringSubmatch(lit, -1) {
+			f := m[1]
+			if notFlags[f] || accepted[f] {
+				continue
+			}
+			missing[f] = true
+		}
+	}
+	if len(missing) > 0 {
+		var list []string
+		for f := range missing {
+			list = append(list, "--"+f)
+		}
+		sort.Strings(list)
+		t.Fatalf("the source documents flags no command accepts: %s", strings.Join(list, " "))
 	}
 }
 

@@ -28,13 +28,16 @@ func reset(t *testing.T) {
 	for k, v := range optInNames {
 		savedOptIn[k] = v
 	}
+	savedExtra := append([]string(nil), extraCompiled...)
 	registry = nil
 	optInNames = map[string]bool{}
+	extraCompiled = nil
 	regMu.Unlock()
 	t.Cleanup(func() {
 		regMu.Lock()
 		registry = saved
 		optInNames = savedOptIn
+		extraCompiled = savedExtra
 		regMu.Unlock()
 	})
 }
@@ -96,6 +99,43 @@ func TestConfiguringAnOptInModuleNamesTheTagThatWouldAddIt(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "no_shell") {
 		t.Errorf("it must not point at a subtractive tag that does not exist: %v", err)
+	}
+}
+
+// A compiled-in subsystem that is not a Module gets its own explanation.
+//
+// MCP is in the binary but has no config block: it is a subcommand. Reusing
+// the "not compiled into this build (built with no_mcp?)" message told the
+// operator two false things at once — that it is absent, and that a tag is
+// the reason — and sent them to remove a tag that would not have helped.
+func TestConfiguringACompiledInNonModuleExplainsItself(t *testing.T) {
+	reset(t)
+	DeclareCompiled("mcp")
+
+	_, err := Build(map[string][]byte{"mcp": []byte(`{}`)})
+	if err == nil {
+		t.Fatal("a name that takes no config block must still be refused")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "not compiled into this build") {
+		t.Errorf("the message says it is absent, and it is not: %v", err)
+	}
+	if strings.Contains(msg, "no_mcp") {
+		t.Errorf("the message points at a tag that is not the reason: %v", err)
+	}
+	if !strings.Contains(msg, "subcommand") {
+		t.Errorf("the message should say how it IS reached: %v", err)
+	}
+}
+
+// Compiled() names it, so `anet version` can report it.
+func TestDeclareCompiledShowsUpInTheCompiledList(t *testing.T) {
+	reset(t)
+	Register("service", func([]byte) (Module, error) { return nil, nil })
+	DeclareCompiled("mcp")
+	got := strings.Join(Compiled(), ",")
+	if !strings.Contains(got, "mcp") || !strings.Contains(got, "service") {
+		t.Fatalf("Compiled() must list both kinds: %q", got)
 	}
 }
 

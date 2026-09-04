@@ -345,6 +345,19 @@ func Register(name string, f Factory) {
 // Compiled lists the module names in this build, sorted. The daemon logs it
 // at startup so an operator can see what their binary actually contains
 // rather than what the documentation says it might.
+// declaredCompiled reports whether a name belongs to a compiled-in
+// subsystem that is not a Module — see DeclareCompiled.
+func declaredCompiled(name string) bool {
+	regMu.Lock()
+	defer regMu.Unlock()
+	for _, n := range extraCompiled {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
 // optInName reports whether an absent module is an additive one.
 func optInName(name string) bool {
 	regMu.Lock()
@@ -410,6 +423,18 @@ func Build(cfg map[string][]byte) ([]Module, error) {
 			// The hint has to name the tag that actually governs this
 			// module. An additive module is missing because nobody asked
 			// for it, not because somebody removed it.
+			// Three different reasons a name in "modules" is not a module
+			// here, and they send an operator to three different places.
+			if declaredCompiled(name) {
+				// Compiled in, but not a Module — it has no config block at
+				// all. Saying "not compiled into this build" would be false,
+				// and pointing at no_%s would send them to remove a tag that
+				// is not the reason.
+				return nil, fmt.Errorf(
+					"%q is part of this build but is not configured under \"modules\": "+
+						"it is reached as a subcommand (anet %s), and takes no config block",
+					name, name)
+			}
 			hint := fmt.Sprintf("built with no_%s?", name)
 			if optInName(name) {
 				hint = fmt.Sprintf("it needs -tags %s, which the default build does not use", name)
