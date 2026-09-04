@@ -80,11 +80,7 @@ func main() {
 		// worse than no field. The registry cannot be wrong about this:
 		// a module is in the list because its init() ran, which happened
 		// because the linker kept it.
-		mods := module.Compiled()
-		if len(mods) == 0 {
-			mods = []string{"(none)"}
-		}
-		fmt.Printf("modules: %s\n", strings.Join(mods, ","))
+		fmt.Printf("modules: %s\n", compiledModulesReport())
 	case "mcp":
 		// Serves over stdio, so it must not share the process with
 		// anything that prints: a stray line on stdout is a protocol
@@ -109,6 +105,22 @@ func main() {
 	default:
 		fail(runClient(layout, cmd, rest, explicit))
 	}
+}
+
+// compiledModulesReport renders the module list `anet version` prints.
+//
+// Separate from the print statement because the empty case is a real
+// build: with every subtraction tag set, the registry holds nothing, and
+// CI builds and tests exactly that combination. Printing an empty string
+// there would make a kernel-only binary look like a binary whose registry
+// failed to populate, so the absence is named rather than shown as
+// silence.
+func compiledModulesReport() string {
+	mods := module.Compiled()
+	if len(mods) == 0 {
+		return "(none)"
+	}
+	return strings.Join(mods, ",")
 }
 
 // extractGlobalID pulls a global "--id <name>" (or "--id=name") selector out of args, returning the name
@@ -195,11 +207,24 @@ func shortAID(aid string) string {
 	return aid
 }
 
+// guideBannerCommands is the shortest walk through the network, in the order an operator does it.
+//
+// Every entry is a real subcommand name. The banner is the first line anyone reads, and it was printing
+// "register" and "chat", which are not commands (they are hub-register and message) — a reader who typed
+// what it showed got `unknown command` on their first two attempts. Pinned by
+// TestTheBannerNamesOnlyRealCommands so a future edit cannot reintroduce a word that is not typeable.
+var guideBannerCommands = []string{"hub-register", "find", "delegate", "message", "end", "review"}
+
+// guideBanner is the one-line orientation printed under the version.
+func guideBanner() string {
+	return strings.Join(guideBannerCommands, " · ") + " — anet moves signed tasks; your agent does the work"
+}
+
 // guide prints a STATE-AWARE introduction: it queries the running daemon and shows what to do next in
-// the centralized v0.1 model — register on the Hub, find agents, delegate, chat, end, review.
+// the centralized v0.1 model — register on the Hub, find agents, delegate, message, end, review.
 func guide(layout daemon.Layout) {
 	fmt.Printf("anet %s — the agent collaboration network (v0.1, centralized via the official Hub)\n", daemon.Version)
-	fmt.Println("register · find · delegate · chat · end · review — anet moves signed tasks; your agent does the work")
+	fmt.Println(guideBanner())
 	fmt.Println()
 
 	var st map[string]any
@@ -1557,10 +1582,32 @@ func (c *client) do(path string, body any) error {
 	} else {
 		fmt.Println(string(out))
 	}
+	// A "warning" field is repeated as its own line.
+	//
+	// The daemon puts one there for a fact that does not change the outcome but does change what to
+	// expect next: `delegate` carries through the hub's "the recipient has not collected its mail for
+	// three days", and the task is queued regardless — quiet is not dead, and one poll by the provider
+	// collects everything waiting. As one key inside a pretty-printed object it reads as noise, and the
+	// operator finds out by watching an answer not arrive.
+	if warn := jsonStringField(out, "warning"); warn != "" {
+		fmt.Println("note:", warn)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("daemon returned %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// jsonStringField reads one top-level string field out of a JSON response, "" if the body is not an
+// object or the field is absent or not a string. Deliberately silent: it is used for advisory output,
+// where an unparsable body has already been printed verbatim by the caller.
+func jsonStringField(body []byte, field string) string {
+	var m map[string]any
+	if json.Unmarshal(body, &m) != nil {
+		return ""
+	}
+	v, _ := m[field].(string)
+	return v
 }
 
 // doField prints one field of a JSON response and nothing else.

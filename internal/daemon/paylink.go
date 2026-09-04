@@ -278,6 +278,28 @@ func (d *Daemon) awaitQuote(ctx context.Context, interactionID string) (*payment
 				if res.Payment == nil {
 					return nil, fmt.Errorf("anet: provider asked to be paid but quoted no price")
 				}
+				// A quote is only worth the signature behind it. Accepting
+				// a completion this node could not verify is deliberate —
+				// the work was still done, and dropping it would lose a
+				// real result. A quote is the opposite case: nothing was
+				// delivered, and acting on it spends credit on a price
+				// that nothing binds to the provider.
+				//
+				// The gap this closes: delegation.VerifyResult returns
+				// ErrUnverifiable as soon as a result carries no key
+				// history, before it checks the receipt signature, the
+				// provider binding, the interaction binding or the
+				// deliverable hash. /relay/send is unauthenticated by
+				// design, so anything able to write to this node's mailbox
+				// with a known interaction id could otherwise state a
+				// price here and be paid it.
+				if r.ReceiptVerified != string(interactions.VerificationVerified) {
+					return nil, fmt.Errorf(
+						"anet: refusing to pay on a quote this node could not verify "+
+							"(interaction %s, receipt %s) — pay it deliberately with "+
+							"`anet x402-authorize` if you have checked it another way",
+						interactionID, verificationWord(r.ReceiptVerified))
+				}
 				return res.Payment, nil
 			}
 			return nil, nil // answered, and not with a price
@@ -285,6 +307,20 @@ func (d *Daemon) awaitQuote(ctx context.Context, interactionID string) (*payment
 		time.Sleep(time.Second)
 	}
 	return nil, fmt.Errorf("anet: no answer within %s, so nothing to pay for yet", quoteWait)
+}
+
+// verificationWord renders the three states for a person reading an
+// error, keeping "unknown" distinct from "unverified" rather than
+// flattening both into "not verified".
+func verificationWord(v string) string {
+	switch v {
+	case string(interactions.VerificationVerified):
+		return "verified"
+	case string(interactions.VerificationUnverified):
+		return "could not be checked"
+	default:
+		return "predates this check"
+	}
 }
 
 // quoteWait bounds how long a caller waits to learn a price. Short,

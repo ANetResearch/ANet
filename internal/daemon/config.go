@@ -3,7 +3,9 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 )
 
 // Config is the daemon's persisted configuration (config.json). v0.1 is centralized: the daemon is a
@@ -105,9 +107,35 @@ func (c Config) GuestQuota() int {
 
 // DefaultConfig is the out-of-the-box daemon config. AcceptDelegations defaults on so a fresh install can
 // receive delegated tasks immediately (they are only stored until the operator's agent handles them).
+//
+// ControlAddr here is the HISTORICAL fixed port, and it is a fallback, not what a new data dir gets — see
+// freshConfig. It stays fixed because it is also the answer to "which address would the CLI have tried?"
+// for a dir whose config is missing or unreadable, and that answer has to be the same in every process.
 func DefaultConfig() Config {
 	on := true
 	return Config{ControlAddr: "127.0.0.1:39811", AcceptDelegations: &on}
+}
+
+// freshConfig is the config a data dir with no config.json is created with: DefaultConfig, but with a
+// control port allocated instead of fixed.
+//
+// The fixed port is wrong the moment one machine runs a second identity. Both dirs would name
+// 127.0.0.1:39811; whichever daemon binds first wins, the other fails to start, and the CLI for either
+// identity reaches whichever one holds the port — so a command aimed at one node acts on the other.
+// AllocControlPort is what EnsureLayoutInit has always used; this puts the other config-creating path on
+// the same allocator, so which path first touched a dir stops deciding whether its port collides.
+//
+// The cost is a port scan (one bind attempt per candidate) on first touch of a data dir, and that the
+// port a fresh dir gets is no longer predictable — scripts that assume 39811 must read config.json or
+// pin control_addr themselves.
+func freshConfig() (Config, error) {
+	port, err := AllocControlPort()
+	if err != nil {
+		return Config{}, err
+	}
+	c := DefaultConfig()
+	c.ControlAddr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	return c, nil
 }
 
 // LocalControlAddr returns the control address the CLI would target for this layout (config's value, or
@@ -120,12 +148,20 @@ func LocalControlAddr(l Layout) string {
 	return DefaultConfig().ControlAddr
 }
 
-// LoadConfig reads config.json; if absent it writes (and returns) DefaultConfig so the file exists for
-// the operator to edit. A present-but-malformed file is an error (never silently overwritten).
+// LoadConfig reads config.json; if absent it writes (and returns) freshConfig so the file exists for the
+// operator to edit and the control port is pinned once. A present-but-malformed file is an error (never
+// silently overwritten), and a present file that names a port keeps it — including one that says 39811.
 func LoadConfig(l Layout) (Config, error) {
 	b, err := os.ReadFile(l.ConfigPath())
 	if os.IsNotExist(err) {
-		c := DefaultConfig()
+		c, ferr := freshConfig()
+		if ferr != nil {
+			// Allocation fails only when the entire scan range is taken. Returning the error would
+			// break every command that reads config, not just starting a daemon, so fall back to the
+			// fixed port: the collision then shows up as a bind failure that names the address, which
+			// is a worse answer than a free port and a better one than no config at all.
+			c = DefaultConfig()
+		}
 		if err := SaveConfig(l, c); err != nil {
 			return Config{}, err
 		}

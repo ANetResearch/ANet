@@ -284,12 +284,13 @@ func EnsureLayoutInit(l Layout) (Config, bool, error) {
 		}
 		return cfg, false, nil
 	}
-	port, err := AllocControlPort()
+	// Same allocator, same shape as the config LoadConfig would write for an untouched dir (freshConfig).
+	// Kept as one call rather than two copies of "default config plus a free port": the two creation paths
+	// disagreeing about the port is exactly the collision this allocates to avoid.
+	cfg, err := freshConfig()
 	if err != nil {
 		return Config{}, false, err
 	}
-	on := true
-	cfg := Config{ControlAddr: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), AcceptDelegations: &on}
 	if err := SaveConfig(l, cfg); err != nil {
 		return Config{}, false, err
 	}

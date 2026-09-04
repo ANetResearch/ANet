@@ -16,6 +16,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -374,3 +378,101 @@ func mintVoucher(t *testing.T, signer *identity.Controller,
 // and a test host that handed out a signing grant it does not need would
 // be a wider surface than the thing under test.
 func (*testHost) HubSeam() (module.HubSeam, bool) { return nil, false }
+
+// A voucher_url is signed into this node's card and republished by the
+// hub as the address a buyer redeems at. Nothing downstream checks its
+// shape — the hub checks only that the endpoint exists and its URI is
+// non-empty — so a value that does not open reaches a buyer who has
+// already paid. It has to be refused here or nowhere.
+func TestAVoucherURLABuyerCouldNotOpenIsRefusedAtStartup(t *testing.T) {
+	bad := []struct {
+		name, raw, says string
+	}{
+		{"no scheme", "node.example:8402/x402/redeem", "scheme"},
+		{"a scheme nobody speaks", "ftp://node.example/x402/redeem", "scheme"},
+		{"no host", "https:///x402/redeem", "host"},
+		{"no path at all", "https://node.example:8402", redeemPath},
+		{"a path that is not the redemption door", "https://node.example/redeem", redeemPath},
+		{"the listen address copied across", "http://0.0.0.0:8402/x402/redeem", "listen"},
+		{"not a URL", "https://node.example:8402/x402/redeem\x7f", "not a URL"},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			raw, err := json.Marshal(map[string]string{
+				"voucher_addr": "0.0.0.0:8402", "voucher_url": tc.raw})
+			if err != nil {
+				t.Fatal(err)
+			}
+			m, err := New(raw)
+			if err == nil {
+				t.Fatalf("%q was accepted; a buyer sent there has already paid", tc.raw)
+			}
+			if m != nil {
+				t.Error("a module was returned alongside the error")
+			}
+			// The operator has to be able to fix it from the message
+			// alone, so it says what is wrong and what the value should
+			// look like.
+			if !strings.Contains(err.Error(), tc.says) {
+				t.Errorf("the error does not say %q: %v", tc.says, err)
+			}
+			if !strings.Contains(err.Error(), redeemPath) {
+				t.Errorf("the error does not say what to write instead: %v", err)
+			}
+		})
+	}
+
+	good := []string{
+		"https://node.example/x402/redeem",
+		"http://127.0.0.1:29530/x402/redeem",
+		// Behind a reverse proxy that mounts this node under a prefix.
+		// The requirement is that the path ends at the redemption door,
+		// not that the node is at the root of its host.
+		"https://gateway.example/nodes/n1/x402/redeem",
+	}
+	for _, raw := range good {
+		cfg, err := json.Marshal(map[string]string{
+			"voucher_addr": "0.0.0.0:8402", "voucher_url": raw})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New(cfg); err != nil {
+			t.Errorf("%q is reachable and was refused: %v", raw, err)
+		}
+	}
+
+	// A node that sells nothing configures neither, and still loads.
+	if _, err := New([]byte(`{}`)); err != nil {
+		t.Errorf("an unconfigured module was refused: %v", err)
+	}
+}
+
+// The path a voucher_url is required to end in has to be the path this
+// node actually serves. Checked against the handler rather than against
+// the constant, because a constant agreeing with itself would still let
+// the route move.
+func TestTheRequiredRedeemPathIsThePathThisNodeServes(t *testing.T) {
+	h := newHost(t)
+	mod, err := New([]byte(
+		`{"voucher_addr":"127.0.0.1:0","voucher_url":"https://node.example:8402/x402/redeem"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mod.(*Module)
+	if err := m.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(m.RedeemURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := m.redeemHandler()
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(method, u.Path, strings.NewReader(`{}`)))
+		if rec.Code == http.StatusNotFound {
+			t.Errorf("%s %s is what the card advertises and this node does not serve it",
+				method, u.Path)
+		}
+	}
+}

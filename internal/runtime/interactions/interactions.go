@@ -102,11 +102,33 @@ type Interaction struct {
 	Result     []byte // the deliverable/transcript bytes (once done)
 	Receipt    []byte // provider-signed receipt object (evidence.Receipt.Marshal), once done
 	Review     []byte // requester-signed review object (evidence.Review.Marshal), once submitted (outbound)
-	EndReqBy   string // AID that proposed ending the task ("" = none proposed yet)
-	EndAccBy   string // AID that accepted an end proposal ("" = not yet accepted)
-	CreatedAt  string // RFC3339Nano
-	UpdatedAt  string // RFC3339Nano
+	// ReceiptVerified says whether this node could check the receipt that
+	// came with the result: Verified, Unverified, or Unknown for a row
+	// written before this was recorded. Three states, not two — a
+	// completion nobody could audit is not the same as one that failed
+	// an audit, and neither is the same as one that passed.
+	//
+	// It exists because a caller acting on a result needs to know: paying
+	// a price quoted in an unverified result spends real credit on an
+	// assertion nothing binds to the provider.
+	ReceiptVerified Verification
+	EndReqBy        string // AID that proposed ending the task ("" = none proposed yet)
+	EndAccBy        string // AID that accepted an end proposal ("" = not yet accepted)
+	CreatedAt       string // RFC3339Nano
+	UpdatedAt       string // RFC3339Nano
 }
+
+// Verification is the three-state answer to "could this node check the
+// receipt?". The zero value is Unknown on purpose: a row that predates
+// this column, or any path that forgets to say, reads as "we do not
+// know" rather than as either verdict.
+type Verification string
+
+const (
+	VerificationUnknown    Verification = ""
+	VerificationVerified   Verification = "verified"
+	VerificationUnverified Verification = "unverified"
+)
 
 // Store is the daemon's interaction log.
 type Store struct {
@@ -205,7 +227,7 @@ func (s *Store) migrate() error {
 	}
 	// Best-effort add of the end-negotiation columns to a pre-existing interaction table (a duplicate
 	// column error just means an already-migrated db).
-	for _, col := range []string{"end_req_by", "end_acc_by"} {
+	for _, col := range []string{"end_req_by", "end_acc_by", "receipt_verified"} {
 		if _, err := s.db.Exec(`ALTER TABLE interaction ADD COLUMN ` + col + ` TEXT NOT NULL DEFAULT ''`); err != nil &&
 			!strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("interactions: migrate add %s: %w", col, err)
@@ -232,16 +254,21 @@ func (s *Store) Put(id string, role Role, peerAID, goal, requestCID string, requ
 }
 
 // SetResult attaches the deliverable + result CID + (optional) receipt and marks the interaction done.
-func (s *Store) SetResult(id string, result []byte, resultCID string, receipt []byte) error {
-	return s.finish(id, StatusDone, result, resultCID, receipt)
+//
+// verified is required rather than optional so that every path which
+// completes an interaction has to state what it knew about the receipt.
+// A caller with nothing to say passes VerificationUnknown, which is a
+// different answer from "verified" and is stored as such.
+func (s *Store) SetResult(id string, result []byte, resultCID string, receipt []byte, verified Verification) error {
+	return s.finish(id, StatusDone, result, resultCID, receipt, verified)
 }
 
 // SetFailed marks an interaction failed (e.g. the agent run errored), keeping any diagnostic bytes.
 func (s *Store) SetFailed(id string, detail []byte) error {
-	return s.finish(id, StatusFailed, detail, "", nil)
+	return s.finish(id, StatusFailed, detail, "", nil, VerificationUnknown)
 }
 
-func (s *Store) finish(id string, st Status, result []byte, resultCID string, receipt []byte) error {
+func (s *Store) finish(id string, st Status, result []byte, resultCID string, receipt []byte, verified Verification) error {
 	if id == "" {
 		return fmt.Errorf("%w: id required", ErrBadInput)
 	}
@@ -249,8 +276,8 @@ func (s *Store) finish(id string, st Status, result []byte, resultCID string, re
 	defer s.mu.Unlock()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	res, err := s.db.Exec(
-		`UPDATE interaction SET status=?, result=?, result_cid=?, receipt=?, updated_at=? WHERE id=?`,
-		string(st), result, resultCID, receipt, now, id)
+		`UPDATE interaction SET status=?, result=?, result_cid=?, receipt=?, receipt_verified=?, updated_at=? WHERE id=?`,
+		string(st), result, resultCID, receipt, string(verified), now, id)
 	if err != nil {
 		return err
 	}
@@ -280,7 +307,7 @@ func (s *Store) SetReview(id string, review []byte) error {
 }
 
 // ixColumns is the shared SELECT column list for scanning an Interaction (keep in sync with scanRows).
-const ixColumns = `seq,id,role,peer_aid,goal,status,request_cid,request_doc,result_cid,result,receipt,review,end_req_by,end_acc_by,created_at,updated_at`
+const ixColumns = `seq,id,role,peer_aid,goal,status,request_cid,request_doc,result_cid,result,receipt,review,receipt_verified,end_req_by,end_acc_by,created_at,updated_at`
 
 // Get returns one interaction by id.
 func (s *Store) Get(id string) (*Interaction, error) {
@@ -501,13 +528,14 @@ func scanOne(row scanner) (*Interaction, error) {
 
 func scanRows(sc scanner) (*Interaction, error) {
 	ix := &Interaction{}
-	var role, status string
+	var role, status, verified string
 	if err := sc.Scan(&ix.Seq, &ix.ID, &role, &ix.PeerAID, &ix.Goal, &status,
 		&ix.RequestCID, &ix.RequestDoc, &ix.ResultCID, &ix.Result, &ix.Receipt, &ix.Review,
-		&ix.EndReqBy, &ix.EndAccBy, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
+		&verified, &ix.EndReqBy, &ix.EndAccBy, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
 		return nil, err
 	}
 	ix.Role = Role(role)
 	ix.Status = Status(status)
+	ix.ReceiptVerified = Verification(verified)
 	return ix, nil
 }

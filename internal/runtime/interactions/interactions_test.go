@@ -28,7 +28,7 @@ func TestInboundLifecycle(t *testing.T) {
 	if err != nil || len(pending) != 1 {
 		t.Fatalf("pending = %d (%v)", len(pending), err)
 	}
-	if err := s.SetResult("ix_1", []byte("DELIVERABLE"), "cid_res", []byte("RECEIPT")); err != nil {
+	if err := s.SetResult("ix_1", []byte("DELIVERABLE"), "cid_res", []byte("RECEIPT"), interactions.VerificationVerified); err != nil {
 		t.Fatalf("set result: %v", err)
 	}
 	if got, _ := s.List(interactions.RoleInbound, interactions.StatusQueued, 0, 0); len(got) != 0 {

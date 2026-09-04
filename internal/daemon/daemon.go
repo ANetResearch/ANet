@@ -33,10 +33,12 @@ type Daemon struct {
 	// no_x402, and every payment surface says so rather than pretending.
 	pay module.Payer
 
-	// quietPeers remembers which peers the hub has reported as no longer
-	// collecting their mail, so the warning is logged on the transition
-	// rather than on every message.
-	quietPeers map[string]bool
+	// quietPeers maps a peer AID to the hub's most recent "this recipient is
+	// not collecting its mail" sentence about it. Presence is the mark, so
+	// the warning is logged on the transition rather than on every message,
+	// and the text is kept rather than discarded because the caller that
+	// just sent to that peer is who needs to read it (see QuietPeer).
+	quietPeers map[string]string
 	// transportState carries the optional delivery paths modules add.
 	transportState
 	// modules are the optional subsystems this build carries.

@@ -543,7 +543,7 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 			relayError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"interaction_id": id, "status": "delegated"})
+		d.writeDelegated(w, provider, map[string]any{"interaction_id": id, "status": "delegated"})
 		return
 	}
 	var req struct {
@@ -589,7 +589,7 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 			if quote != nil {
 				out["paid"] = quote
 			}
-			writeJSON(w, http.StatusOK, out)
+			d.writeDelegated(w, req.Provider, out)
 			return
 		}
 		id, err := d.DelegateCapability(ctx, req.Provider, req.Capability, req.Args)
@@ -597,7 +597,7 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 			relayError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
+		d.writeDelegated(w, req.Provider, map[string]any{
 			"interaction_id": id, "status": "queued", "capability": req.Capability})
 		return
 	}
@@ -606,7 +606,23 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 		relayError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"interaction_id": id, "status": "queued"})
+	d.writeDelegated(w, req.Provider, map[string]any{"interaction_id": id, "status": "queued"})
+}
+
+// writeDelegated answers a successful delegation, carrying through what the hub said about the
+// recipient when it said the recipient has stopped collecting its mail.
+//
+// The hub returns recipient_quiet + warning on /relay/send; the daemon used to consume them for its own
+// log and answer the CLI with the interaction id alone, so the person who typed `anet delegate` was the
+// one party who did not learn that the provider had been silent for days. The task is still queued —
+// quiet is not dead, and one poll by the provider collects everything waiting — so this adds a field,
+// never a refusal.
+func (d *Daemon) writeDelegated(w http.ResponseWriter, providerAID string, out map[string]any) {
+	if warn := d.QuietPeer(providerAID); warn != "" {
+		out["recipient_quiet"] = true
+		out["warning"] = warn
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // hInbox lists inbound (delegated-to-us) tasks; pending=true shows only the still-queued backlog. It

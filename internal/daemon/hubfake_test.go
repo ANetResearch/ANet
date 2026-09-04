@@ -10,6 +10,7 @@ package daemon
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -69,6 +70,28 @@ type fakeHub struct {
 	// relaySends counts deliveries the hub actually carried, so a test can
 	// tell "the hub delivered it" from "something else did".
 	relaySends int
+	// lastSeen is when each agent last collected its mail — the real hub's
+	// agent.last_seen_at, updated by register and by every poll. It is what
+	// /relay/send answers recipient_quiet from, so a fake without it makes
+	// the whole liveness contract invisible on this side.
+	lastSeen map[string]time.Time
+}
+
+// fakeHubQuietAfter mirrors aghub.QuietAfter: how long without collecting
+// mail before the hub reports a recipient as quiet.
+const fakeHubQuietAfter = time.Hour
+
+// fakeHubRoundDuration renders a gap the way the real hub's roundDuration
+// does, so the sentence a test sees is the sentence production produces.
+func fakeHubRoundDuration(d time.Duration) string {
+	switch {
+	case d >= 48*time.Hour:
+		return fmt.Sprintf("%d days", int(d.Hours()/24))
+	case d >= 2*time.Hour:
+		return fmt.Sprintf("%d hours", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%d minutes", int(d.Minutes()))
+	}
 }
 
 // newFakeHub starts an httptest server backed by a fresh fake Hub and cleans it up with the test.
@@ -84,7 +107,8 @@ func newFakeHub(t *testing.T) *httptest.Server {
 		departedKEL:   map[string][]byte{},
 		self:          self,
 		balance:       map[string]uint64{}, entries: map[string][]map[string]any{},
-		settled: map[string]string{},
+		settled:  map[string]string{},
+		lastSeen: map[string]time.Time{},
 	}
 	// The hub is an agent on its own registry, so its settlement
 	// signatures can be checked the same way everyone else's are.
@@ -222,6 +246,9 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 	a.view.Caps = req.Caps
 	a.view.GuestQuota = quota
 	a.kel = kelBytes
+	// Registering counts as being seen: the real hub writes last_seen_at on
+	// register too, so a node that just joined is never reported quiet.
+	h.lastSeen[req.AID] = time.Now()
 	// Optional profile carried on the registration (usually set later via /profile).
 	if req.Summary != "" || req.Readme != "" || req.Pricing != "" {
 		a.view.Summary, a.view.Readme, a.view.Pricing = req.Summary, req.Readme, req.Pricing
@@ -459,7 +486,33 @@ func (h *fakeHub) hRelaySend(w http.ResponseWriter, r *http.Request) {
 		interactionID: req.InteractionID, payload: payload,
 		createdAt: time.Now().UTC().Format(time.RFC3339Nano),
 	})
-	fakeHubJSON(w, http.StatusOK, map[string]any{"id": h.nextID, "status": "queued"})
+	out := map[string]any{"id": h.nextID, "status": "queued"}
+	// Queued either way, and the sender is told when the recipient has not
+	// collected its mail in a long time — word for word what the real hub
+	// puts on this response. A never-seen agent is unknown, not quiet.
+	if seen, ok := h.lastSeen[req.ToAID]; ok {
+		if gap := time.Since(seen); gap > fakeHubQuietAfter {
+			out["recipient_quiet"] = true
+			out["warning"] = fmt.Sprintf(
+				"queued, but %s has not collected its mail for %s — it may not be running",
+				req.ToAID, fakeHubRoundDuration(gap))
+		}
+	}
+	fakeHubJSON(w, http.StatusOK, out)
+}
+
+// backdateLastSeen makes an agent look like it stopped collecting its mail
+// `ago` ago, the way aghub.SetLastSeenForTest does on the real hub — the
+// only way to exercise the quiet path without waiting an hour.
+func backdateLastSeen(url, aid string, ago time.Duration) {
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		return
+	}
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.lastSeen[aid] = time.Now().Add(-ago)
 }
 
 // fakeHubMsgView is the wire shape of a mailbox message (payload base64) — identical to the Hub's.
@@ -488,6 +541,8 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	// Collecting mail IS the liveness signal the real hub records (SeenPolling).
+	h.lastSeen[req.AID] = time.Now()
 	out := []fakeHubMsgView{}
 	for _, m := range h.mailbox {
 		if m.toAID != req.AID || m.delivered {

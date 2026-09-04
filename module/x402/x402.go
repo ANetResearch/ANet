@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -95,7 +98,60 @@ func New(raw []byte) (module.Module, error) {
 			"x402: voucher_addr and voucher_url must be set together " +
 				"(one is where to listen, the other is what the world sees)")
 	}
+	if err := checkVoucherURL(m.cfg.VoucherURL); err != nil {
+		return nil, err
+	}
 	return m, nil
+}
+
+// checkVoucherURL refuses a voucher_url a buyer could not open.
+//
+// The value is signed into this node's card as the x402-redeem endpoint
+// and republished by the hub as the address to redeem at. Nothing between
+// here and the buyer looks at its shape: the hub checks that the endpoint
+// exists and that its URI is non-empty, and forwards whatever it was
+// given. A value with no path, or with no scheme at all, therefore
+// travelled all the way to a buyer who had already paid before it turned
+// out not to open. Found while reading the card a prodtest node
+// published.
+//
+// Missing pieces are refused rather than filled in. Completing a
+// half-written address would leave the operator believing the value in
+// their config is the one being advertised, and the next person to read
+// that config would have no way to tell the two apart. The cost is that
+// an operator who was getting away with a sloppy value now has to fix it
+// before the daemon starts, which is the same trade the half-configured
+// check above makes.
+func checkVoucherURL(raw string) error {
+	if raw == "" {
+		return nil // not selling through a gateway; see New
+	}
+	const want = "an absolute URL ending in " + redeemPath +
+		", such as https://node.example:8402" + redeemPath
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("x402: voucher_url %q is not a URL (%v); it must be %s", raw, err, want)
+	}
+	switch {
+	case u.Scheme != "http" && u.Scheme != "https":
+		return fmt.Errorf("x402: voucher_url %q has no http:// or https:// scheme; "+
+			"it must be %s", raw, want)
+	case u.Host == "":
+		return fmt.Errorf("x402: voucher_url %q names no host; it must be %s", raw, want)
+	case !strings.HasSuffix(u.Path, redeemPath):
+		return fmt.Errorf("x402: voucher_url %q does not end in %s, which is the only path "+
+			"this module answers redemptions on, so a buyer sent there would get nothing; "+
+			"it must be %s", raw, redeemPath, want)
+	}
+	// A listen address is not a destination. voucher_addr is routinely
+	// 0.0.0.0 and copying it into voucher_url is the easiest mistake to
+	// make here, since the two sit next to each other in the config.
+	if ip := net.ParseIP(u.Hostname()); ip != nil && ip.IsUnspecified() {
+		return fmt.Errorf("x402: voucher_url %q advertises %s, which is an address to listen "+
+			"on rather than one a buyer can reach; it must name the host the world sees this "+
+			"node at, as %s", raw, u.Hostname(), want)
+	}
+	return nil
 }
 
 func (m *Module) Name() string { return "x402" }

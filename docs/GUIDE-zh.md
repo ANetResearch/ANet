@@ -227,7 +227,7 @@ anet x402-authorize --pay-to <aid> --amount 25 --network hub:<hub-aid>    # 手�
 可选的凭证兑付口:
 
 ```json
-{"modules": {"x402": {"voucher_addr": "0.0.0.0:4002", "voucher_url": "http://1.2.3.4:4002", "witness_hub": true}}}
+{"modules": {"x402": {"voucher_addr": "0.0.0.0:4002", "voucher_url": "http://1.2.3.4:4002/x402/redeem", "witness_hub": true}}}
 ```
 
 **`voucher_addr` 会打开一个公开监听口**,买家拿 hub 签的凭证直接来兑。不配就不开,经中继照样能收费。NAT 后的节点不能这样卖。`witness_hub` 让本节点定期为 hub 的发放链做见证,默认关。
@@ -316,17 +316,37 @@ anet-hub --data /data/anet-hub -invite-required false                           
 
 ### 7.4 联邦:与别的 hub 相连
 
-`<data>/federation.json`,缺席即关闭:
+`<data>/federation.json`,文件缺席即全部关闭:
 
 ```json
 {
   "delivery": "allowlist",
-  "peers": [{"aid": "bafyrei…对方hub的AID", "endpoint": "https://hub.example.org"}],
+  "discovery": "allowlist",
+  "home": "https://hub.example.org",
+  "peers": [{"aid": "bafyrei…对方hub的AID", "endpoint": "https://peer.example.org"}],
   "witness": "on"
 }
 ```
 
-三个子面都是拉取:投递(`/fed/v1/forward`,一跳)、目录(`/fed/v1/cards`,游标同步,每 15 轮全量重读一次自愈)、评价证据(`/fed/v1/reviews`,收方用与本地相同的互锁验证复核,按来源分列不合并)。`witness` 默认开:互相为对方的发放链做见证。
+五个字段,以 `ANetHub/internal/federation/federation.go` 的 `Config` 为准:
+
+| 字段 | 取值 | 缺省 | 作用 |
+| --- | --- | --- | --- |
+| `delivery` | `off` / `allowlist` | `off` | 投递面:是否把本地投不到的消息转给 `peers` |
+| `discovery` | `off` / `allowlist` | `off`(缺省即关) | 发现面:是否对外发布本 hub 的目录与评价证据,并拉取对方的 |
+| `home` | 本 hub 的公网地址 | 空 | 写进本 hub 对外发的每张 card,作为路由提示。留空的 card 只说明谁存在、不说明去哪里找 |
+| `peers` | `[{aid, endpoint}]` | 空 | 静态对端表(v0.1 无 hub 自动发现)。**为空时两个面都不生效**,无论开关怎么写 |
+| `witness` | `on` / `off` | `on` | 是否定期拉取并签名固定对端的发放链头。只在 `discovery` 打开时才起作用 |
+
+两个面独立开关(K208 §0):替对方转投递和对外发布对方的目录是两个决定,可以只做前者。
+
+`/fed/v1` 下三条路由,方向不一样,配的时候要分清(`POST /federation/clear` 属于结算,见 7.5):
+
+- **投递是推送**。本 hub 收到一条投给本地没有的 AID 的消息时,按 `peers` 顺序 `POST /fed/v1/forward`,第一个回 202 的接手,回 404(不是我的 agent)就换下一个。只走一跳:收方只把信投进本地邮箱,不再往外转。信封仍带 `hop`/`seen_hubs`,收方拒绝 `hop > 3` 或自己已在 `seen_hubs` 里(回环),并按 payload CID 去重 7 天。
+- **目录是拉取**。`GET /fed/v1/cards`,游标增量,每 15 轮全量重读一次自愈。拉来的 card 由本 hub 自己决定收不收,别人无法靠推送让本 hub 存下一条目录项。
+- **评价证据是拉取**,与目录同一轮:`GET /fed/v1/reviews`,收方用与本地相同的互锁验证复核,按来源分列不合并。
+
+`witness` 是发现面上的一件事而不是第四个面:见证循环挂在 discovery 打开的分支里,所以 `"discovery": "off"` 配 `"witness": "on"` 不会有任何见证发生。
 
 ### 7.5 结算与发放
 
