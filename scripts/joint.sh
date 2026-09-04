@@ -55,6 +55,22 @@ for x in json.load(sys.stdin).get('results') or []:
 
 hd "0/6  bring the stack up"
 pgrep -x anet | xargs -r kill -TERM 2>/dev/null; sleep 2
+
+# Pin the two control ports this script talks to. RC/PC above are constants,
+# but nothing here used to put them into the configs, so each daemon chose its
+# own (auto-allocation starts at 39811) and every call below went to a port
+# with nothing on it. It worked only against a home somebody had set up by
+# hand once: after a `rm -rf $J` the run turned 19 lines red, all of them
+# downstream of that.
+mkdir -p "$REQ/.anet" "$PROV/.anet"
+python3 - "$REQ/.anet/config.json" "$RC" "$PROV/.anet/config.json" "$PC" <<'CFG'
+import json, os, sys
+for path, addr in ((sys.argv[1], sys.argv[2]), (sys.argv[3], sys.argv[4])):
+    c = json.load(open(path)) if os.path.exists(path) else {"accept_delegations": True}
+    c["control_addr"] = addr
+    json.dump(c, open(path, "w"), indent=1)
+CFG
+
 REQ_AID=$($FIX aid --home "$REQ/.anet")
 GENESIS=$($FIX org-genesis --home "$REQ/.anet" --nonce joint 2>$J/run/orgid.txt)
 ORG_ID=$(sed 's/^org id: //' $J/run/orgid.txt)

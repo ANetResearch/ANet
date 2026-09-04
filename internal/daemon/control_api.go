@@ -10,11 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
@@ -224,13 +227,64 @@ func readMultipartAttachments(r *http.Request) (fields map[string]string, atts [
 	return fields, atts, nil
 }
 
+// listenControl binds the configured control address, and if that address is taken by another daemon
+// AND this node never chose it deliberately, moves to a free port and records the move.
+//
+// The narrow case this exists for: two daemons under different homes starting in the same instant both
+// allocate the same auto-assigned port, because allocation tested the port and let go of it before
+// either bound. The loser used to exit with "address already in use", which for an auto-assigned port
+// is a failure with no operator error behind it and no action for them to take.
+//
+// It is deliberately narrow. A port the operator wrote into config.json is a decision — other things
+// point at it — so a collision there is reported and fatal, not silently worked around. "Auto-assigned"
+// means the address is loopback and inside the allocator's own scan range; anything else is treated as
+// deliberate. That test can misread a hand-written 127.0.0.1:39811 as automatic, which is the safe
+// direction to be wrong in: the new address is persisted to config.json and logged before it is used,
+// so the CLI follows and the operator can see what happened and pin it back.
+func (d *Daemon) listenControl() (net.Listener, error) {
+	addr := d.config().ControlAddr
+	ln, err := net.Listen("tcp", addr)
+	if err == nil {
+		return ln, nil
+	}
+	if !errors.Is(err, syscall.EADDRINUSE) || !autoAssignedControlAddr(addr) {
+		return nil, err
+	}
+	moved, port, aerr := AllocControlListener()
+	if aerr != nil {
+		return nil, err // report the original bind failure, not the scan's
+	}
+	next := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	d.mu.Lock()
+	d.cfg.ControlAddr = next
+	cfg := d.cfg
+	d.mu.Unlock()
+	if serr := SaveConfig(d.layout, cfg); serr != nil {
+		_ = moved.Close()
+		return nil, fmt.Errorf("anet: %s was taken and the new control address could not be saved: %w", addr, serr)
+	}
+	log.Printf("anet: control port %s was taken by another daemon; moved to %s and updated config.json", addr, next)
+	return moved, nil
+}
+
+// autoAssignedControlAddr reports whether an address looks like one this daemon allocated for itself
+// rather than one an operator chose.
+func autoAssignedControlAddr(addr string) bool {
+	host, ps, err := net.SplitHostPort(addr)
+	if err != nil || host != "127.0.0.1" {
+		return false
+	}
+	p, err := strconv.Atoi(ps)
+	return err == nil && p >= controlPortBase && p < controlPortBase+2000
+}
+
 // ServeControl binds the configured control address and serves the control plane until ctx is done.
 func (d *Daemon) ServeControl(ctx context.Context) error {
 	token, err := loadOrGenControlToken(d.layout)
 	if err != nil {
 		return err
 	}
-	ln, err := net.Listen("tcp", d.config().ControlAddr)
+	ln, err := d.listenControl()
 	if err != nil {
 		return err
 	}
