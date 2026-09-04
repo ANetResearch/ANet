@@ -195,3 +195,29 @@ jobs:
       - name: what the nodes logged, if it failed
         if: failure()
         run: tail -n 60 /tmp/anet-scenario/*.log /tmp/anet-scenario/*/.anet/daemon.log || true
+
+  # Fleet control: one machine's agent tool driving anet nodes on several
+  # machines. This is the path the daemon exists for in a multi-machine
+  # setup, and it crosses three process boundaries — control daemon, hub,
+  # worker daemons — so no unit test reaches it. The workers' coding agents
+  # are stubbed: the real claude/codex/cursor/opencode need their own keys
+  # and network, and what is under test here is the anet side.
+  fleet:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+      HUB_SRC: ${{ github.workspace }}/.hub
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: ANetResearch/ANetHub
+          path: .hub
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: an agent tool drives three worker nodes
+        run: bash scripts/joint-fleet.sh
+      - name: what the nodes logged, if it failed
+        if: failure()
+        run: tail -n 60 /tmp/joint-fleet/*.log || true

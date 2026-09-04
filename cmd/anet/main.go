@@ -303,7 +303,7 @@ func usageAllText() string {
   anet id use <name>          make <name> the default so a bare 'anet <cmd>' targets it
   anet id rm <name> --purge   permanently delete an identity (key + history)
   anet --id <name> <cmd>      run any command against a specific identity (ANET_ID env works too)
-  anet install --agent <cursor|claude|codex|openclaw|hermes>   wire anet into an agent so its LLM knows how to use it
+  anet install --agent <` + agentChoices() + `>   wire anet into an agent so its LLM knows how to use it
   anet hub-register <url> [--name N] [--caps a,b] [--guest-messages N] [--accept-delegations true|false]   register on the official Hub (guest trial default 5; 0 opts out)
   anet accept <on|off>        toggle whether you accept delegated tasks (default on; persisted, effective immediately)
   anet autoreply set --backend exec --agent <cursor|claude|…>   auto-answer inbound tasks by spawning a local coding agent (live, no restart)
@@ -938,7 +938,7 @@ func absPath(p string) string {
 // built-in auto-reply loop, so nobody hand-edits config.json. `set` takes effect live (no restart).
 func runAutoReply(c *client, rest []string) error {
 	usage := "autoreply <show|set|test|off>\n" +
-		"  set --backend exec  --agent <cursor|claude|codex|openclaw|hermes> [--model M] [--work-dir DIR] [--system-prompt S]\n" +
+		"  set --backend exec  --agent <" + agentChoices() + "> [--model M] [--work-dir DIR] [--system-prompt S]\n" +
 		"  set --backend openai --api-base URL --model M [--api-key K] [--system-prompt S] [--require-image] [--usage-hint H]\n" +
 		"  common: [--poll-interval SEC] [--max-history N] [--api-timeout SEC] [--max-auto-replies N]\n" +
 		"  test [\"自定义问题\"]    # 本地跑一次配置好的后端验证（不经过 Hub、不建任何身份）\n" +
@@ -1637,4 +1637,11 @@ func (c *client) doField(path string, body any, field string) error {
 	}
 	fmt.Println(v)
 	return nil
+}
+
+// agentChoices renders the supported agent ids for help text, from the registry rather than a hand-kept
+// copy. The three copies that used to exist all said "cursor|claude|codex|openclaw|hermes", so adding an
+// agent meant remembering three places and the help was one edit away from lying about what works.
+func agentChoices() string {
+	return strings.Join(daemon.SupportedExecAgents(), "|")
 }

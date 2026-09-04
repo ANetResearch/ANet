@@ -68,7 +68,7 @@ type AutoReplyConfig struct {
 	Model        string `json:"model,omitempty"`    // openai: model name; exec: optional agent model override
 	SystemPrompt string `json:"system_prompt,omitempty"`
 	// --- "exec" backend (spawn local coding agent) ---
-	Agent         string   `json:"agent,omitempty"`          // cursor|claude|codex|openclaw|hermes
+	Agent         string   `json:"agent,omitempty"`          // one of daemon.SupportedExecAgents()
 	WorkDir       string   `json:"work_dir,omitempty"`       // agent workspace (default: identity data dir)
 	Command       string   `json:"command,omitempty"`        // override agent binary path
 	ExtraArgs     []string `json:"extra_args,omitempty"`     // extra CLI args passed to the agent

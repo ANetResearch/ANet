@@ -60,6 +60,27 @@ func installCodex() ([]string, error) {
 	return []string{"appended anet guidance to " + path}, nil
 }
 
+// installOpenCode writes the anet guidance into opencode's global rules file.
+//
+// opencode reads AGENTS.md, the same convention Codex uses, but from its own config directory rather
+// than ~/.codex — so the two installs do not collide and installing one does not wire the other.
+func installOpenCode() ([]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(dir, "AGENTS.md")
+	block := anetBlockBegin + "\n" + anetGuidance + "\n" + anetBlockEnd + "\n"
+	if err := appendManagedBlock(path, block); err != nil {
+		return nil, err
+	}
+	return []string{"appended anet guidance to " + path}, nil
+}
+
 func installOpenClaw() ([]string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
