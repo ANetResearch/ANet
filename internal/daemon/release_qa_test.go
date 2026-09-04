@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -210,4 +211,50 @@ func TestStartupRepublishesTheCurrentCapabilities(t *testing.T) {
 	}
 	b, _ := json.Marshal(got)
 	t.Fatalf("the restart did not correct the hub's capability list, it still says %s", b)
+}
+
+// A capability this node does not serve gets an answer, not silence.
+//
+// The requester named a capability id, so it is not a task an agent could
+// interpret differently. Returning nothing handed it to the auto-reply
+// path, and a node with no auto-reply never replied: the interaction sat
+// at queued forever with no error, no effect status, and nothing on either
+// chain. The requester could not tell "does not serve it" from "is down"
+// from "still working" — which is the one thing the honest-effect-status
+// rule exists to prevent.
+func TestAnUnservedCapabilityAnswersUnavailable(t *testing.T) {
+	h := newFakeHub(t)
+	defer h.Close()
+	req := newTestDaemon(t, h.URL, true)
+	prov := newTestDaemon(t, h.URL, true)
+	for _, d := range []*Daemon{req, prov} {
+		if err := d.HubRegister(context.Background(), h.URL, "n", nil, nil, nil, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ix, err := req.DelegateCapability(context.Background(), prov.AID(), "nobody.serves.this", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Drive the provider's inbound path.
+	for i := 0; i < 40; i++ {
+		_ = prov.pollOnce(context.Background())
+		_ = req.pollOnce(context.Background())
+		res, _ := req.Results(context.Background())
+		for _, r := range res {
+			if r.InteractionID != ix {
+				continue
+			}
+			if !strings.Contains(r.Result, "UNAVAILABLE") {
+				t.Fatalf("expected UNAVAILABLE, got: %s", r.Result)
+			}
+			if !strings.Contains(r.Result, "nobody.serves.this") {
+				t.Fatalf("the answer should name the capability: %s", r.Result)
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("the requester never got an answer for a capability the provider does not serve")
 }

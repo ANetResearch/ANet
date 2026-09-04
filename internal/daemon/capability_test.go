@@ -122,7 +122,12 @@ func TestCapabilityDelegationRoundTrip(t *testing.T) {
 }
 
 // TestCapabilityUnresolvableFallsThrough: nobody provides the capability →
-// the delegation stays a pending inbound task for auto-reply/human handling.
+// the delegation stays a pending inbound task for auto-reply handling.
+//
+// Conditional on an auto-reply being configured, which is what "something
+// will answer" means. Without one the node now answers UNAVAILABLE rather
+// than leaving the requester waiting forever — see
+// TestAnUnservedCapabilityAnswersUnavailable.
 func TestCapabilityUnresolvableFallsThrough(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -135,6 +140,12 @@ func TestCapabilityUnresolvableFallsThrough(t *testing.T) {
 	if err := prov.RegisterWithHub(ctx, srv.URL, "Plain Bot", nil, GuestDefaultMessages, ""); err != nil {
 		t.Fatal(err)
 	}
+
+	// An agent is standing by, so an id this node serves no provider for is
+	// its to interpret.
+	prov.mu.Lock()
+	prov.cfg.AutoReply = &AutoReplyConfig{Backend: "exec", Agent: "cursor"}
+	prov.mu.Unlock()
 
 	id, err := req.DelegateCapability(ctx, prov.AID(), "ghost.capability", nil)
 	if err != nil {

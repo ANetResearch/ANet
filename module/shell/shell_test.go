@@ -300,6 +300,48 @@ func TestCallerArgumentsCannotBecomeCommands(t *testing.T) {
 	}
 }
 
+// A key this node would ignore is refused, not dropped.
+//
+// A caller who wrote "args" or "arguments" instead of "argv" had them
+// discarded and the command ran with none — and the answer came back OK.
+// Reporting success for a request that was only half carried out is the
+// failure this module exists not to have.
+func TestAnUnknownArgumentKeyIsRefused(t *testing.T) {
+	cfg := Config{AllowLocal: true, Commands: map[string]Command{
+		"say": {Run: "echo", Args: true},
+	}}
+	_, h := started(t, cfg)
+	for _, key := range []string{"args", "arguments", "argX"} {
+		_, err := invoke(t, h, runPrefix+"say", "", map[string]any{key: []any{"x"}})
+		if err == nil {
+			t.Errorf("%q was accepted and silently dropped", key)
+			continue
+		}
+		if !strings.Contains(err.Error(), key) {
+			t.Errorf("the error must name the offending key %q: %v", key, err)
+		}
+		if !strings.Contains(err.Error(), "argv") {
+			t.Errorf("the error should say what IS accepted: %v", err)
+		}
+	}
+	// The documented key still works.
+	if _, err := invoke(t, h, runPrefix+"say", "", map[string]any{"argv": []any{"ok"}}); err != nil {
+		t.Fatalf("the documented key was refused: %v", err)
+	}
+}
+
+func TestExecRefusesAnUnknownArgumentKey(t *testing.T) {
+	cfg := echoCfg()
+	cfg.AllowArbitrary = true
+	_, h := started(t, cfg)
+	if _, err := invoke(t, h, CapExec, "", map[string]any{"cmd": "id"}); err == nil {
+		t.Fatal("shell.exec accepted a key it ignores")
+	}
+	if _, err := invoke(t, h, CapExec, "", map[string]any{"command": "echo ok", "dir": "/"}); err != nil {
+		t.Fatalf("the documented keys were refused: %v", err)
+	}
+}
+
 // Dropping the arguments silently would run something other than what
 // was asked for and then report success for it.
 func TestArgumentsToACommandThatTakesNoneAreRefused(t *testing.T) {
