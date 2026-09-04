@@ -36,9 +36,49 @@ import (
 // RequireTypeCapability marks a TaskDoc requirement as a C1 capability call.
 const RequireTypeCapability = "capability"
 
-// capabilityInvokeTimeout bounds one provider invocation (providers are
-// local: in-process or a UDS hop to anetlinkd).
+// capabilityInvokeTimeout bounds one provider invocation that does not
+// say how long it needs.
+//
+// The original comment read "providers are local: in-process or a UDS hop
+// to anetlinkd", and for the device, storage and blackboard providers it
+// was written for, sixty seconds is generous. It stopped being true the
+// moment a provider runs an operator's own command: the shell module
+// validates timeout_s up to its own ceiling, an operator sets twenty
+// minutes, and this constant killed the command at one — two layers each
+// holding a timeout, only the shorter one ever visible.
+//
+// A provider that knows better now says so; see provider.LongRunning.
 const capabilityInvokeTimeout = 60 * time.Second
+
+// maxConcurrentLongCalls bounds how many long-running invocations this
+// node will have in flight at once.
+//
+// It exists because running them off the poll loop is what makes
+// concurrency possible here at all: while invocations were synchronous
+// the loop was the limit, one at a time. Removing that without putting
+// something in its place would trade "one long task freezes the node"
+// for "twenty long tasks exhaust it", which on the small boards this is
+// aimed at is the worse of the two.
+//
+// Over the limit the caller is told so, rather than queued behind work
+// it cannot see: a requester that gets UNAVAILABLE with a reason can
+// retry or go elsewhere, and one left waiting cannot tell a busy node
+// from a dead one.
+const maxConcurrentLongCalls = 4
+
+// invokeBound reports how long p may take for capID, and whether that is
+// long enough to run off the poll loop.
+func invokeBound(p provider.CapabilityProvider, capID string) (d time.Duration, long bool) {
+	lr, ok := p.(provider.LongRunning)
+	if !ok {
+		return capabilityInvokeTimeout, false
+	}
+	want, declared := lr.InvokeTimeout(capID)
+	if !declared || want <= capabilityInvokeTimeout {
+		return capabilityInvokeTimeout, false
+	}
+	return want, true
+}
 
 // Providers exposes the daemon's capability registry (config wires anetlink;
 // tests and embedders register their own).

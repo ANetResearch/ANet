@@ -73,3 +73,31 @@ func TestEveryAgentIdIsAcceptedByTheFlagChecker(t *testing.T) {
 		}
 	}
 }
+
+// --cap and --capability name the same thing and must both work on both
+// commands. They did not: find took only --cap, delegate took only
+// --capability, and each rejected the other's spelling — so the obvious
+// two-step, find a node by capability and then call it, made you change
+// the word halfway through.
+func TestBothSpellingsOfTheCapabilityFlagWorkEverywhere(t *testing.T) {
+	for _, cmd := range []struct {
+		name string
+		rest func(flag string) []string
+	}{
+		{"find", func(f string) []string { return []string{f, "text.digest"} }},
+		{"delegate", func(f string) []string { return []string{"bafyrei-someone", f, "text.digest"} }},
+	} {
+		for _, flag := range []string{"--cap", "--capability"} {
+			if err := checkFlags(cmd.name, cmd.rest(flag)); err != nil {
+				t.Errorf("anet %s %s: %v", cmd.name, flag, err)
+			}
+		}
+	}
+	// And a near-miss is still refused, or the fix would have been "stop
+	// checking" rather than "accept both".
+	for _, bad := range []string{"--caps", "--capabilty", "--capabilities"} {
+		if err := checkFlags("find", []string{bad, "x"}); err == nil {
+			t.Errorf("anet find %s was accepted", bad)
+		}
+	}
+}

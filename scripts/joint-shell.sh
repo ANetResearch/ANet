@@ -45,7 +45,7 @@ ok(){ printf '\033[1;32m  ✓ %s\033[0m\n' "$*"; pass=$((pass+1)); }
 no(){ printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; fail=$((fail+1)); }
 hd(){ printf '\n\033[1;36m═══ %s\033[0m\n' "$*"; }
 
-hd "0/6  build and bring the stack up"
+hd "0/8  build and bring the stack up"
 rm -rf "$J"; mkdir -p "$J/run"; cd "$J"
 # -tags shell: the default build does not contain the module, so a run of
 # this script against a default binary would pass every deny case for the
@@ -91,6 +91,12 @@ c["modules"] = {"shell": {
         "whoami": {"run": "id -un", "description": "who the daemon runs as"},
         "say":    {"run": "echo", "args": True},
         "fail":   {"run": "echo broke >&2; exit 7"},
+        # Past the daemon's own 60 s default on purpose. The module used to
+        # validate timeout_s up to its ceiling while the daemon killed the
+        # command at sixty seconds regardless — two layers each holding a
+        # timeout, only the shorter one ever visible. 90 s is the shortest
+        # command that can tell the difference.
+        "slow":   {"run": "sleep 75; echo finished-after-75s", "timeout_s": 300},
     },
     "allow_file": allow,
 }}
@@ -121,11 +127,16 @@ pc /hub-register "{\"hub\":\"http://$HUB\",\"name\":\"Board\"}"     >/dev/null
 printf '  requester %s\n  provider  %s\n' "$REQ_AID" "$PROV_AID"
 
 # cap <capability> <args-json> — delegate and wait for the signed answer.
+# cap <capability> <args-json> [轮询次数] — 派活并等结果。
+#
+# 默认 40 次 × 0.5s = 20 秒,对几乎所有命令都够。第三个参数给真正的长命令用:
+# 不给的话,脚本会先于 daemon 放弃,报出来的是"超时"而实际是脚本没等够 ——
+# 一个把自己的耐心当成被测对象的超时。
 cap(){
   local ix; ix=$(rc /delegate "{\"provider\":\"$PROV_AID\",\"capability\":\"$1\",\"args\":$2}" \
                  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
   [ -n "$ix" ] || { echo '{"error":"delegate refused"}'; return 1; }
-  for _ in $(seq 1 40); do
+  for _ in $(seq 1 "${3:-40}"); do
     local r; r=$(rc /results '{}' | python3 -c "
 import sys,json
 for x in json.load(sys.stdin).get('results') or []:
@@ -139,7 +150,7 @@ for x in json.load(sys.stdin).get('results') or []:
 field(){ python3 -c "import sys,json;print(json.load(sys.stdin).get('$1',''))"; }
 state(){ python3 -c "import sys,json;print((json.load(sys.stdin).get('evidence') or {}).get('observed_state',''))"; }
 
-hd "1/7  an allowlist file that does not exist denies, over the real path"
+hd "1/8  an allowlist file that does not exist denies, over the real path"
 # Deleting the file is a plausible way to revoke everything at once, so the
 # absent case must deny rather than error out or open up.
 EFF=$(cap 'shell.run@whoami' '{}')
@@ -147,7 +158,7 @@ EFF=$(cap 'shell.run@whoami' '{}')
   || no "an absent allowlist did not deny: $EFF"
 printf '# who may run commands on the provider\n%s\n' "$REQ_AID" > "$ALLOW"
 
-hd "2/7  a listed caller runs a command on another machine"
+hd "2/8  a listed caller runs a command on another machine"
 EFF=$(cap 'shell.run@whoami' '{}')
 [ "$(echo "$EFF" | field status)" = OK ] && ok "status OK" || no "expected OK, got: $EFF"
 OUT=$(echo "$EFF" | state)
@@ -156,7 +167,7 @@ OUT=$(echo "$EFF" | state)
 [ "$(echo "$OUT" | tr -d '\n')" = "$(id -un)" ] && ok "it ran as the daemon's user, not root" \
   || no "unexpected user: $OUT"
 
-hd "3/7  the AID reaching the module is the VERIFIED one, not a claim"
+hd "3/8  the AID reaching the module is the VERIFIED one, not a claim"
 # This is the check the unit tests cannot make. If the daemon passed an
 # empty or attacker-controlled CallerAID, the allowlist would be decoration
 # and every case below would pass for the wrong reason.
@@ -164,7 +175,7 @@ CHAIN=$(pc /evidence '{"limit":50}')
 echo "$CHAIN" | grep -q "$REQ_AID" && ok "the provider's chain records the requester's AID as the caller" \
   || no "the caller AID is missing from the provider's evidence chain"
 
-hd "4/7  arguments from the network cannot become commands"
+hd "4/8  arguments from the network cannot become commands"
 EFF=$(cap 'shell.run@say' '{"argv":["hi; id","&& id","$(id)"]}')
 OUT=$(echo "$EFF" | state)
 case "$OUT" in
@@ -173,12 +184,12 @@ case "$OUT" in
   *) no "unexpected output: $OUT" ;;
 esac
 
-hd "5/7  a failing command is FAILED, not OK with empty output"
+hd "5/8  a failing command is FAILED, not OK with empty output"
 EFF=$(cap 'shell.run@fail' '{}')
 [ "$(echo "$EFF" | field status)" = FAILED ] && ok "status FAILED" || no "expected FAILED, got: $EFF"
 echo "$EFF" | state | grep -q broke && ok "stderr survived the trip" || no "stderr was lost"
 
-hd "6/7  revoking access takes effect on the next call, with no restart"
+hd "6/8  revoking access takes effect on the next call, with no restart"
 printf '# revoked\n' > "$ALLOW"
 EFF=$(cap 'shell.run@whoami' '{}')
 [ "$(echo "$EFF" | field status)" = UNAVAILABLE ] && ok "the revoked caller is refused" \
@@ -191,7 +202,7 @@ printf '%s\n' "$REQ_AID" > "$ALLOW"
 [ "$(cap 'shell.run@whoami' '{}' | field status)" = OK ] && ok "re-adding the AID also takes effect live" \
   || no "the caller could not be re-admitted without a restart"
 
-hd "7/7  what was never enabled cannot be called"
+hd "7/8  what was never enabled cannot be called"
 # The node advertises the capability ids it will actually answer, so the
 # hub directory is the first place a refusal has to be visible.
 CARD=$(rc /find "{\"query\":\"$PROV_AID\"}")
@@ -203,6 +214,36 @@ echo "$CARD" | grep -q 'shell.exec' && no "shell.exec is advertised without the 
 EFF=$(cap 'shell.exec' '{"command":"id"}')
 echo "$EFF" | state | grep -q 'uid=' && no "arbitrary execution ran without the switch" \
   || ok "nothing executed"
+
+hd "8/8  一条真的跑过一分钟的命令"
+# The bound the operator configured has to be the bound that applies. The
+# module validated timeout_s up to its ceiling while the daemon killed
+# every invocation at 60 s, so a 20-minute command died at one and the
+# only visible sign was a FAILED with no explanation.
+#
+# Timed, because the failure mode is "it came back, just wrong": a killed
+# command also returns, at 60 s, with FAILED.
+START=$(date +%s)
+EFF=$(cap 'shell.run@slow' '{}' 400)
+ELAPSED=$(( $(date +%s) - START ))
+[ "$(echo "$EFF" | field status)" = OK ] \
+  && ok "75 秒的命令跑完了(用时 ${ELAPSED}s)" \
+  || no "75 秒的命令没跑完(用时 ${ELAPSED}s):$(echo "$EFF" | head -c 200)"
+echo "$EFF" | state | grep -q 'finished-after-75s' \
+  && ok "回显是命令跑到最后才有的那一行" \
+  || no "回显里没有命令末尾的输出"
+[ "$ELAPSED" -ge 70 ] && ok "确实等了 ${ELAPSED}s —— 不是被 60 秒截断后凑出来的" \
+  || no "只用了 ${ELAPSED}s,不可能真的跑完 sleep 75"
+
+# 长命令在跑的时候,节点还得能答别的活。轮询循环是同步分发的,所以这一条
+# 验的是长调用确实被移出了那个循环 —— 否则 75 秒里这个节点对谁都不应答。
+( sleep 3; cap 'shell.run@whoami' '{}' > "$J/during.json" ) &
+PARALLEL=$!
+cap 'shell.run@slow' '{}' 400 > "$J/slow2.json"
+wait $PARALLEL
+[ "$(field status < "$J/during.json")" = OK ] \
+  && ok "长命令在跑的同时,另一个调用照常应答" \
+  || no "长命令把节点堵住了:$(head -c 160 "$J/during.json")"
 
 # Known gap, in the kernel rather than this module, so it is reported
 # rather than asserted:
