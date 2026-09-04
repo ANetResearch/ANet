@@ -256,8 +256,15 @@ func guide(layout daemon.Layout) {
 	fmt.Println("Full reference: anet help --all")
 }
 
-func usageAll() {
-	fmt.Print(`anet ` + daemon.Version + ` — anet daemon + CLI (v0.1, centralized)
+func usageAll() { fmt.Print(usageAllText()) }
+
+// usageAllText is the full help, as text.
+//
+// Split from the printing so a test can read it. The help is the contract a
+// user reads before typing, and the flag checker has to accept everything it
+// promises — see TestTheFlagCheckerAcceptsEverythingTheHelpPromises.
+func usageAllText() string {
+	return (`anet ` + daemon.Version + ` — anet daemon + CLI (v0.1, centralized)
 
   anet daemon                 run the daemon in the FOREGROUND (identity + local store + Hub relay client + control plane)
   anet up [name] [--all]      start a node detached so it OUTLIVES this shell (alias: anet daemon --detach) — recommended
@@ -291,7 +298,7 @@ func usageAll() {
   anet results                pull the conversation for tasks you delegated that have ended (with the receipt)
   anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay accepts a quoted price and runs the work
   anet hub-leave [<hub-url>]  stop being deliverable at a hub you have moved away from (the evidence stays)
-  anet p2p-advertise [<addr>]   publish where peers can dial you directly (empty withdraws it; needs the p2p module)
+  anet p2p-advertise [<addr>]   publish where peers can dial you directly (empty withdraws it; works in any build — what CONSUMES the address is the p2p module)
   anet verify --attestation <b64> --hub <url>   check a witness's statement about a hub's chain head
   anet pull <interaction_id> [--out DIR]   save attachments you received to a local directory
   anet reconcile              compare your own payment record against your hub's ledger for your account
@@ -299,6 +306,12 @@ func usageAll() {
   anet balance                what your hub's ledger says you can spend, and the entries behind it
   anet redeem <amount> [--ref <reference>]   give credit back to the hub against an external reference (it signs for what it took)
   anet review <interaction_id> <rating 1-5> [comment]   sign a review of an ended delegation (uploads to your Hub)
+  anet visibility <local|hub-local|federated|public>   how far your entry travels: this hub only, or out to federated hubs
+  anet evidence [--type T] [--since TS] [--limit N]   read this node's own evidence chain (id, prev_id, signature per record)
+  anet x402-authorize --pay-to <aid> --amount <n> [--network hub:<aid>] [--interaction <id>]   sign a PAYMENT-SIGNATURE header for a gateway (alias: pay-header)
+  anet mcp                    serve this network to an MCP client over stdio (Claude Code, Cursor)
+  anet verify <interaction_id>                  check a receipt you already hold locally
+  anet verify --receipt <b64> --kel <b64> [--result FILE]   check one with no daemon, no hub and no network
   anet version                print version
 `)
 }
@@ -1017,7 +1030,7 @@ func runAutoReply(c *client, rest []string) error {
 var knownFlags = map[string][]string{
 	// local
 	"daemon":   {"detach"},
-	"up":       {"detach"},
+	"up":       {"detach", "all"},
 	"stop":     {"all"},
 	"down":     {"all"},
 	"id":       {"purge", "all"},
@@ -1031,15 +1044,23 @@ var knownFlags = map[string][]string{
 	"version":  {},
 
 	// through the control plane
-	"status":         {},
-	"hub-register":   {"name", "caps", "token", "guest-messages", "accept-delegations"},
-	"hub-leave":      {},
-	"p2p-advertise":  {},
-	"accept":         {},
-	"autoreply":      {"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir", "extra-args", "openclaw-agent", "require-image", "usage-hint", "error-reply"},
-	"auto-reply":     {"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir", "extra-args", "openclaw-agent", "require-image", "usage-hint", "error-reply"},
+	"status":        {},
+	"hub-register":  {"name", "caps", "token", "guest-messages", "accept-delegations"},
+	"hub-leave":     {},
+	"p2p-advertise": {},
+	"accept":        {},
+	"autoreply": {
+		"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir",
+		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
+		"poll-interval", "max-history", "api-timeout", "max-auto-replies",
+	},
+	"auto-reply": {
+		"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir",
+		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
+		"poll-interval", "max-history", "api-timeout", "max-auto-replies",
+	},
 	"profile":        {"summary", "readme", "pricing"},
-	"console":        {"url"},
+	"console":        {"url", "print"},
 	"find":           {"cap"},
 	"delegate":       {"capability", "args", "pay", "attach"},
 	"inbox":          {"pending"},
