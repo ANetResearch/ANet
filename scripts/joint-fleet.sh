@@ -37,7 +37,7 @@ cleanup(){
 }
 trap cleanup EXIT
 
-hd "0/6  建栈:一个 hub、一个控制端、三个 worker"
+hd "0/7  建栈:一个 hub、一个控制端、三个 worker"
 rm -rf "$J"; mkdir -p "$J"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CGO_ENABLED=0 go build -o "$J/anet" "$ROOT/cmd/anet" || { echo "build anet failed"; exit 1; }
@@ -103,7 +103,7 @@ done
 [ "$up" = 3 ] && ok "三个 worker 都起来了" || no "只有 $up/3 个 worker 起来了"
 curl -sf -m 5 "http://127.0.0.1:$CTRL_PORT/ping" >/dev/null && ok "控制端起来了" || no "控制端没起来: $(tail -2 "$J/ctrl.log")"
 
-hd "1/6  三个 worker 各自接入 hub,并把本机编码 agent 挂上"
+hd "1/7  三个 worker 各自接入 hub,并把本机编码 agent 挂上"
 declare -a W_AID
 for i in 0 1 2; do
   n=${W_NAMES[$i]}; h=$J/w-$n; p=${W_PORTS[$i]}
@@ -149,7 +149,7 @@ for t in json.load(sys.stdin).get('threads') or []:
   return 1
 }
 
-hd "2/6  一条委派:控制端派活,worker 拉起本机 agent 作答"
+hd "2/7  一条委派:控制端派活,worker 拉起本机 agent 作答"
 IX=$(api "$CTRL_HOME" "$CTRL_PORT" /delegate \
       "{\"provider\":\"${W_AID[0]}\",\"goal\":\"SENTINEL-TASK-ONE\"}" \
       | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
@@ -169,7 +169,7 @@ else
   no "40 秒内没等到答复"; no "(答复内容无从检查)"; no "(提示传递无从检查)"
 fi
 
-hd "3/6  同时派给三台:群控的最小形态"
+hd "3/7  同时派给三台:群控的最小形态"
 declare -a IXS
 for i in 0 1 2; do
   IXS[$i]=$(api "$CTRL_HOME" "$CTRL_PORT" /delegate \
@@ -185,7 +185,7 @@ done
 [ "$got" = 3 ] && ok "三台并发派活全部回话" || no "只有 $got/3 台回了话"
 [ "$wrong" = 0 ] && ok "每台干的是派给它自己的那件事(没有串台)" || no "$wrong 台答复对不上自己的任务"
 
-hd "4/6  一台卡住,不能拖垮另外两台"
+hd "4/7  一台卡住,不能拖垮另外两台"
 api "$J/w-${W_NAMES[1]}" "${W_PORTS[1]}" /autoreply \
     "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-hang.sh\",\"api_timeout_seconds\":5,\"poll_interval_seconds\":1}" >/dev/null
 HANG_IX=$(api "$CTRL_HOME" "$CTRL_PORT" /delegate \
@@ -201,7 +201,7 @@ case "$LIVE" in
   *)             no "一台卡住把整队拖住了" ;;
 esac
 
-hd "5/6  agent 失败与静默:两种都不能冒充成功"
+hd "5/7  agent 失败与静默:两种都不能冒充成功"
 api "$J/w-${W_NAMES[0]}" "${W_PORTS[0]}" /autoreply \
     "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-fail.sh\",\"error_reply\":\"AGENT-FAILED-HERE\",\"poll_interval_seconds\":1}" >/dev/null
 FIX=$(api "$CTRL_HOME" "$CTRL_PORT" /delegate \
@@ -227,7 +227,7 @@ case "$SR" in
   *)                    ok "agent 静默时回了一条可辨认的说明" ;;
 esac
 
-hd "6/6  证据面:干完的活留在两边的链上"
+hd "6/7  证据面:干完的活留在两边的链上"
 # 一次自动答复本身不上链 —— 它是一轮对话,不是一次完成。上链的是收据,而收据
 # 在交互真正结束时才签。所以这里先把交互走完,再看链。若不走完就断言链上有东西,
 # 测的就不是证据面,而是"消息发出去了没有"。
@@ -257,6 +257,33 @@ sleep 2
 LEFT=$(api "$CTRL_HOME" "$CTRL_PORT" /find '{"capability":"code.write"}' \
        | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("agents") or []))')
 [ "$LEFT" = 2 ] && ok "worker 退出后即刻从目录消失(3 → 2)" || no "退出后目录仍有 $LEFT 个,应为 2"
+
+hd "7/7  MCP:编码工具把这张网络当自己的工具用"
+# mcpserv 的单元测试对着 fake Control 验工具表的形状。这里验的是另一件事:
+# `anet mcp` 在 stdio 上说的是不是合法 MCP —— 多一行 stdout 就是 framing 错误,
+# 而那种错误只有真客户端连上来才会显形。探针按 Claude Code / Cursor 的顺序走:
+# initialize → notifications/initialized → tools/list → tools/call。
+MCPOUT=$(python3 "$ROOT/scripts/mcp-probe.py" "$J/anet" "$CTRL_HOME" "$HUB_URL" 2>"$J/mcp.err")
+if [ -z "$MCPOUT" ]; then
+  no "MCP 探针没能完成握手: $(head -c 200 "$J/mcp.err")"
+  no "(工具表无从检查)"; no "(工具调用无从检查)"; no "(错误传递无从检查)"
+else
+  ok "MCP 握手完成,服务名 $(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["server_name"])')"
+  TOOLS=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(",".join(json.load(sys.stdin)["tools"]))')
+  MISSING=""
+  for t in agents_find task_delegate task_results task_inbox task_message task_end evidence_read credit_balance node_status; do
+    case ",$TOOLS," in *,$t,*) ;; *) MISSING="$MISSING $t" ;; esac
+  done
+  [ -z "$MISSING" ] && ok "九个工具全部报给了客户端" || no "工具表缺:$MISSING"
+  NF=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["found"])')
+  [ "$NF" -ge 1 ] && ok "经 MCP 调用 agents_find 找到了 $NF 个 worker(穿到了 hub)" \
+                  || no "经 MCP 调用 agents_find 什么也没找到"
+  SH=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["status_hub"])')
+  [ -n "$SH" ] && ok "node_status 经 MCP 报出了本节点接入的 hub" || no "node_status 经 MCP 没报出 hub"
+  BAD=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["bad_is_error"])')
+  [ "$BAD" = "True" ] && ok "坏参数经 MCP 回的是错误,不是一次成功的空回答" \
+                      || no "坏参数经 MCP 被当成成功了"
+fi
 
 printf '\n\033[1m── %d 通过, %d 失败 ──\033[0m\n' "$pass" "$fail"
 [ "$fail" = 0 ]
