@@ -247,9 +247,49 @@ func portFree(p int) bool {
 	return true
 }
 
+// AllocControlListener claims a loopback control port by BINDING it and returning the open listener,
+// scanning up from controlPortBase past ports already named by a known identity's config.
+//
+// Holding the listener is the difference between this and AllocControlPort. AllocControlPort tests a
+// port by binding and immediately closing, so between that test and the caller's own bind the port is
+// free for anybody — including a second daemon running the same scan at the same moment. Two daemons
+// started together therefore both saw the base port free, both wrote it into their own config, and the
+// loser died with "address already in use". Found by scripts/joint.sh, which starts the provider and
+// the requester in the same instant; sequential creation had never shown it.
+//
+// ListIdentities only sees identities under this process's ANET_HOME, so it does not help at all when
+// the two daemons run under different homes — the bind is the only thing that can arbitrate, which is
+// why it has to be the bind that allocates.
+func AllocControlListener() (net.Listener, int, error) {
+	used := map[int]bool{}
+	ids, _ := ListIdentities()
+	for _, in := range ids {
+		if _, ps, err := net.SplitHostPort(in.ControlAddr); err == nil {
+			if p, e := strconv.Atoi(ps); e == nil {
+				used[p] = true
+			}
+		}
+	}
+	for p := controlPortBase; p < controlPortBase+2000; p++ {
+		if used[p] {
+			continue
+		}
+		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(p)))
+		if err != nil {
+			continue
+		}
+		return ln, p, nil
+	}
+	return nil, 0, fmt.Errorf("no free control port found in %d-%d", controlPortBase, controlPortBase+2000)
+}
+
 // AllocControlPort returns a loopback control port not already claimed by any known identity's config and
 // currently bindable, scanning up from controlPortBase. This is what lets a second identity start without
 // the operator hand-editing config.json to avoid the default-port collision.
+//
+// It cannot hold what it finds — every caller here is writing a config file rather than starting a
+// server — so the port it returns is only known to have been free a moment ago. A daemon binding it
+// must be ready for it to be gone; see AllocControlListener and ServeControl.
 func AllocControlPort() (int, error) {
 	used := map[int]bool{}
 	ids, _ := ListIdentities()
