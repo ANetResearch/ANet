@@ -80,7 +80,15 @@
 # a size match is not a content match.
 set -uo pipefail
 
-# 每个 ssh 都带 -n。不带的时候 ssh 会去读 stdin,而这个脚本在后台运行时 stdin
+# 每个 ssh 都带 -n,并且带会话存活检测。
+#
+# ConnectTimeout 只管建立连接,不管连上之后。实测有一次到 cmax 的 ssh 挂了将近
+# 四分钟没有返回,而它执行的远端命令自己带 `-m 5` —— 卡住的是会话,不是命令。
+# 这个脚本有 53 处 ssh,任何一处这样卡住都会把整轮验证拖到外层 timeout,表现成
+# "跑到一半不动了",而看日志只会以为是某个检查慢。ServerAliveInterval=5 加
+# ServerAliveCountMax=3 让一条死掉的会话在约 15 秒内被放弃。
+#
+# -n 的部分:不带的时候 ssh 会去读 stdin,而这个脚本在后台运行时 stdin
 # 是它自己的输入;第一个 ssh 把它读走,bash 随即看到 EOF 并以 0 退出。表现是
 # 一次"成功"的运行在第 3 节戛然而止,而摘要行根本没打印 —— 一个中途停下却报
 # 成功的验证关卡,比没有关卡更坏。前台运行时看不到,因为那时 stdin 是终端。
@@ -133,8 +141,8 @@ info(){ printf '  %s\n' "$*"; }
 reachable(){
   case $1 in
     ink93) curl -sf -m 5 "http://127.0.0.1:$INK_PORT/ping" >/dev/null 2>&1 ;;
-    cmax)  ssh -n -o ConnectTimeout=10 $CMAX_HOST "curl -sf -m 5 http://127.0.0.1:$CMAX_PORT/ping >/dev/null" 2>/dev/null ;;
-    dmax)  ssh -n -o ConnectTimeout=10 $DMAX_HOST "curl -sf -m 5 http://127.0.0.1:$DMAX_PORT/ping >/dev/null" 2>/dev/null ;;
+    cmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=10 $CMAX_HOST "curl -sf -m 5 http://127.0.0.1:$CMAX_PORT/ping >/dev/null" 2>/dev/null ;;
+    dmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=10 $DMAX_HOST "curl -sf -m 5 http://127.0.0.1:$DMAX_PORT/ping >/dev/null" 2>/dev/null ;;
   esac
 }
 
@@ -144,12 +152,12 @@ ctl(){
   case $node in
     ink93) curl -s -m 180 -H "Authorization: Bearer $(cat "$INK_HOME/.anet/control_token.txt")" \
              -H 'Content-Type: application/json' -d "$body" "http://127.0.0.1:$INK_PORT$path" ;;
-    cmax)  ssh -n -o ConnectTimeout=20 $CMAX_HOST "curl -s -m 180 -H 'Authorization: Bearer '\$(cat $CMAX_HOME/.anet/control_token.txt) -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$CMAX_PORT$path" ;;
-    dmax)  ssh -n -o ConnectTimeout=20 $DMAX_HOST "curl -s -m 180 -H 'Authorization: Bearer '\$(cat $DMAX_HOME/.anet/control_token.txt) -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$DMAX_PORT$path" ;;
+    cmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST "curl -s -m 180 -H 'Authorization: Bearer '\$(cat $CMAX_HOME/.anet/control_token.txt) -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$CMAX_PORT$path" ;;
+    dmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $DMAX_HOST "curl -s -m 180 -H 'Authorization: Bearer '\$(cat $DMAX_HOME/.anet/control_token.txt) -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$DMAX_PORT$path" ;;
   esac
 }
 # viafmax <path> — reach the fmax hub from a host its firewall admits.
-viafmax(){ ssh -n -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 '$FMAX_HUB$1'"; }
+viafmax(){ ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 '$FMAX_HUB$1'"; }
 jq_(){ python3 -c "import sys,json
 try: d=json.load(sys.stdin)
 except Exception: print(''); raise SystemExit
@@ -219,8 +227,8 @@ info "fmax hub: ${fv:-(不报版本)}"
 for n in cmax ink93 dmax; do
   case $n in
     ink93) pv=$(curl -sf -m 5 "http://127.0.0.1:$INK_PORT/ping" | jq_ "print(d.get('commit',''))") ;;
-    cmax)  pv=$(ssh -n -o ConnectTimeout=10 $CMAX_HOST "curl -sf -m 5 http://127.0.0.1:$CMAX_PORT/ping" 2>/dev/null | jq_ "print(d.get('commit',''))") ;;
-    dmax)  pv=$(ssh -n -o ConnectTimeout=10 $DMAX_HOST "curl -sf -m 5 http://127.0.0.1:$DMAX_PORT/ping" 2>/dev/null | jq_ "print(d.get('commit',''))") ;;
+    cmax)  pv=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=10 $CMAX_HOST "curl -sf -m 5 http://127.0.0.1:$CMAX_PORT/ping" 2>/dev/null | jq_ "print(d.get('commit',''))") ;;
+    dmax)  pv=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=10 $DMAX_HOST "curl -sf -m 5 http://127.0.0.1:$DMAX_PORT/ping" 2>/dev/null | jq_ "print(d.get('commit',''))") ;;
   esac
   [ -n "$pv" ] && info "$n daemon: $pv"
   [ "$pv" = unknown ] && unstamped=$((unstamped+1))
@@ -265,7 +273,7 @@ F_AID=$(viafmax /hub/identity | jq_ "print(d.get('aid',''))")
 for pair in "emax:$EMAX_HUB:$E_AID" "fmax:$FMAX_HUB:$F_AID"; do
   n=${pair%%:*}; rest=${pair#*:}; aid=${rest##*:}
   if [ "$n" = emax ]; then code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$EMAX_HUB/agents/$aid/kel")
-  else code=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST "curl -s -o /dev/null -w '%{http_code}' -m 20 '$FMAX_HUB/agents/$aid/kel'"); fi
+  else code=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -o /dev/null -w '%{http_code}' -m 20 '$FMAX_HUB/agents/$aid/kel'"); fi
   [ "$code" = 200 ] && ok "$n hub 公布自己的密钥历史 —— 它签的东西外人能验" \
     || no "$n hub 不公布自己的密钥历史($code):它签的收据谁也验不了"
 done
@@ -333,7 +341,7 @@ for pair in "cmax:$CMAX_AID:e" "ink93:$INK_AID:e" "dmax:$DMAX_AID:f"; do
   n=${pair%%:*}; rest=${pair#*:}; aid=${rest%%:*}; which=${rest#*:}
   has "$n" || continue
   if [ "$which" = e ]; then code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$EMAX_HUB/agents/$aid/kel")
-  else code=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST "curl -s -o /dev/null -w '%{http_code}' -m 20 '$FMAX_HUB/agents/$aid/kel'"); fi
+  else code=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -o /dev/null -w '%{http_code}' -m 20 '$FMAX_HUB/agents/$aid/kel'"); fi
   [ "$code" = 200 ] && ok "$n 的密钥历史 hub 上有,陌生人可自行验签" || no "$n 未注册成功($code)"
 done
 
@@ -472,10 +480,10 @@ fi
 # ── 7. the gateway: pay at the hub, collect at the daemon ───────
 hd "7  x402 网关:在 fmax 付钱,到 dmax 取货"
 RES="/x402/resource/$DMAX_AID/text.stats.paid"
-hdrs=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST "curl -s -D - -o /dev/null -m 30 '$FMAX_HUB$RES'")
+hdrs=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -D - -o /dev/null -m 30 '$FMAX_HUB$RES'")
 echo "$hdrs" | head -1 | grep -q ' 402 ' && ok "未付款时回 402" || no "回的是 $(echo "$hdrs"|head -1)"
 echo "$hdrs" | grep -qi '^PAYMENT-REQUIRED:' && ok "402 带 PAYMENT-REQUIRED 头" || no "没带 PAYMENT-REQUIRED 头"
-body=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 '$FMAX_HUB$RES'")
+body=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 '$FMAX_HUB$RES'")
 redeem=$(echo "$body" | jq_ "print(d.get('redeem_at',''))")
 [ "$redeem" = "$DMAX_VOUCHER" ] && ok "报价写明取货地址($redeem)—— hub 不代理内容" \
   || no "取货地址是 '$redeem',期望 $DMAX_VOUCHER"
@@ -494,31 +502,31 @@ price=$(echo "$body" | jq_ "print(((d.get('accepts') or [{}])[0]).get('amount','
 # hub exactly as it would a stranger's, so a signature it cannot check
 # fails for the right reason.
 DMAX_BAL_BEFORE=$(ctl dmax /balance '{}' | jq_ "print(d.get('balance',''))")
-sig=$(ssh -n -o ConnectTimeout=20 $DMAX_HOST "/usr/local/bin/anet x402-authorize \
+sig=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $DMAX_HOST "/usr/local/bin/anet x402-authorize \
         --home /data/anet-node/home/.anet --pay-to '$DMAX_AID' --amount 30 \
         --network 'hub:$F_AID' --interaction 'prodtest-gw' 2>/dev/null" 2>/dev/null)
 if [ -z "$sig" ]; then
   sk "网关付款跳过:节点上没有 x402-authorize(fixture 未部署)"
 else
-  gw=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST \
+  gw=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST \
         "curl -s -D /tmp/gw.hdr -m 40 -H 'PAYMENT-SIGNATURE: $sig' '$FMAX_HUB$RES'")
-  gwcode=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST "head -1 /tmp/gw.hdr | awk '{print \$2}'")
+  gwcode=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "head -1 /tmp/gw.hdr | awk '{print \$2}'")
   voucher=$(echo "$gw" | jq_ "print(d.get('voucher',''))")
   [ "$gwcode" = 200 ] && [ -n "$voucher" ] && ok "付款后拿到的是凭证,不是结果 —— hub 见不到内容" \
     || no "网关付款失败($gwcode): ${gw:0:180}"
-  ssh -n -o ConnectTimeout=20 $EMAX_HOST "grep -qi '^PAYMENT-RESPONSE:' /tmp/gw.hdr" \
+  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "grep -qi '^PAYMENT-RESPONSE:' /tmp/gw.hdr" \
     && ok "结算响应带 PAYMENT-RESPONSE 头" || no "没带 PAYMENT-RESPONSE 头"
 
   if [ -n "$voucher" ]; then
     # Straight to the agent, over the public internet, not through the
     # hub. This is the leg the whole design exists for.
-    out=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 90 -H 'Content-Type: application/json' \
+    out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 90 -H 'Content-Type: application/json' \
           -d '{\"voucher\":\"$voucher\",\"capability\":\"text.stats.paid\",\"args\":{\"text\":\"via voucher\"}}' \
           '$DMAX_VOUCHER'")
     vs=$(echo "$out" | jq_ "print(d.get('status',''))")
     [ "$vs" = "OK" ] && ok "凭证在 dmax 上兑成了真活(hub 全程没碰请求和结果)" \
       || no "兑付失败:${out:0:200}"
-    again=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 60 -H 'Content-Type: application/json' \
+    again=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 60 -H 'Content-Type: application/json' \
             -d '{\"voucher\":\"$voucher\",\"capability\":\"text.stats.paid\",\"args\":{\"text\":\"via voucher\"}}' \
             '$DMAX_VOUCHER'")
     ae=$(echo "$again" | jq_ "print(d.get('error',''))")
@@ -801,13 +809,13 @@ else
     no "签不出授权"
   else
     pp=$(printf '%s' "$sig" | base64 -d 2>/dev/null)
-    vr=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
+    vr=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
           -d '{\"x402Version\":2,\"paymentPayload\":$pp}' '$FMAX_HUB/x402/verify'")
     valid=$(echo "$vr" | jq_ "print(d.get('isValid'))")
     [ "$valid" = True ] && ok "verify 说这张授权可以结算" \
       || no "verify 拒绝了一张好授权: $(echo "$vr" | jq_ "print(d.get('invalidReason',''))")"
 
-    sr2=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
+    sr2=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
           -d '{\"x402Version\":2,\"paymentPayload\":$pp}' '$FMAX_HUB/x402/settle'")
     ok2=$(echo "$sr2" | jq_ "print(d.get('success'))")
     if [ "$valid" = "$ok2" ] || { [ "$valid" = True ] && [ "$ok2" = True ]; }; then
@@ -818,7 +826,7 @@ else
 
     # The same authorization a second time: verify must now say it is
     # spent, or a caller would be told a settled payment is still good.
-    vr2=$(ssh -n -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
+    vr2=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
           -d '{\"x402Version\":2,\"paymentPayload\":$pp}' '$FMAX_HUB/x402/verify'")
     again=$(echo "$vr2" | jq_ "print(d.get('isValid'))")
     reason=$(echo "$vr2" | jq_ "print(d.get('invalidReason',''))")
@@ -835,22 +843,26 @@ hd "9f 兑付记录查得到"
 if ! has dmax; then
   sk "要 dmax 的控制面"
 else
-  before=$(viafmax "/agents/$DMAX_AID/redemptions" | jq_ "print(len(d.get('redemptions') or []))")
-  ctl dmax /redeem '{"amount":3,"reference":"prodtest-list"}' >/dev/null 2>&1
-  # 轮询而不是睡 2 秒。兑付要从 dmax 走到 fmax 再落库,固定 2 秒在实网上不够,
-  # 于是这条断言会红,而下一条("金额与 reference 对得上")却绿 —— 两条自相
-  # 矛盾的结论,说明红的那条测的是等待时间,不是这件事成没成。
-  after=0
+  # 按数量判断这件事成没成是数不出来的,而且它掩盖过一次真问题:兑付列表是
+  # 分页的,一个做过 100 次以上兑付的账户,新记录进来就把最旧的挤出去,长度
+  # 恒等于上限。上一版据此断言"数量增加",于是它永远红,而紧接着"金额与
+  # reference 对得上"却绿 —— 那条匹配到的是上一轮留下的同名记录。
+  #
+  # 现在用一个唯一的 reference,并对着 total(覆盖整个账户,不受分页影响)判断。
+  REF="prodtest-list-$(date +%s)"
+  before=$(viafmax "/agents/$DMAX_AID/redemptions" | jq_ "print(d.get('total', -1))")
+  ctl dmax /redeem "{\"amount\":3,\"reference\":\"$REF\"}" >/dev/null 2>&1
+  after=-1
   for _ in $(seq 1 30); do
     lst=$(viafmax "/agents/$DMAX_AID/redemptions")
-    after=$(echo "$lst" | jq_ "print(len(d.get('redemptions') or []))")
-    [ "${after:-0}" -gt "${before:-0}" ] && break
+    after=$(echo "$lst" | jq_ "print(d.get('total', -1))")
+    [ "${after:--1}" -gt "${before:--1}" ] && break
     sleep 2
   done
-  [ "${after:-0}" -gt "${before:-0}" ] \
-    && ok "兑付出现在列表里($before → $after 条)" || no "兑付没有出现在列表里"
+  [ "${after:--1}" -gt "${before:--1}" ] \
+    && ok "兑付计入了账户总数($before → $after)" || no "兑付没有计入总数($before → $after)"
   match=$(echo "$lst" | jq_ "
-r=[x for x in (d.get('redemptions') or []) if x.get('reference')=='prodtest-list']
+r=[x for x in (d.get('redemptions') or []) if x.get('reference')=='$REF']
 print('ok' if r and r[0].get('amount')==3 and r[0].get('aid') else 'bad')")
   [ "$match" = ok ] \
     && ok "列表里的金额与 reference 与刚才兑付的一致" || no "列表内容对不上"
@@ -1033,7 +1045,7 @@ else
   t0=$(( ${e0:-0} + ${f0:-0} ))
   info "付款前:emax outstanding=$e0 fmax outstanding=$f0 合计=$t0"
 
-  out=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+  out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
     "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 240 $CMAX_BIN delegate $DMAX_AID \
      --capability text.stats.paid --args '{\"text\":\"prodtest cross-hub\"}' --pay" 2>&1)
   net=$(echo "$out" | jq_ "print((d.get('paid') or {}).get('network',''))")
@@ -1101,7 +1113,7 @@ else
     if [ "${dueNow:-0}" -le 0 ]; then
       info "emax 当前无对外负债,跳过清偿"
     else
-      out=$(ssh -n -o ConnectTimeout=30 $EMAX_HOST "
+      out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=30 $EMAX_HOST "
         systemctl stop anet-hub
         /data/projs/anet-hub/bin/anet-hub -data /data/projs/anet-hub/data \
           -clear $F_AID -amount $dueNow -reason prodtest-clear \
@@ -1368,9 +1380,9 @@ else
     || no "fmax 对 cmax 没有转介 —— 它的卡片没有联邦过来"
 
   # And a delegation that actually goes over the wire.
-  before=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+  before=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
     "grep -c 'delivered delegate' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
-  out=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+  out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
     "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
      --capability text.stats --args '{\"text\":\"prodtest p2p\"}'" 2>&1)
   pix=$(echo "$out" | jq_ "print(d.get('interaction_id',''))")
@@ -1378,7 +1390,7 @@ else
     no "p2p 委派没有排上队:$(printf '%s' "$out" | head -2 | tr '\n' ' ')"
   else
     for _ in 1 2 3 4 5 6; do
-      after=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      after=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "grep -c 'delivered delegate' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
       [ "${after:-0}" -gt "${before:-0}" ] && break
       sleep 5
@@ -1396,7 +1408,7 @@ else
     # the answer is worse than one that never delivered.
     got=""
     for _ in $(seq 1 24); do
-      got=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      got=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
 for x in d.get('results') or []:
     if x.get('interaction_id') == '$pix':
@@ -1541,7 +1553,7 @@ print(','.join(a.get('aid','') for a in (d.get('agents') or [])))")
     *) no "按 $LIGHT 查不到 dmax";;
   esac
 
-  out=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+  out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
     "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
      --capability '$LIGHT' --args '{\"on\":true}'" 2>&1)
   lix=$(echo "$out" | jq_ "print(d.get('interaction_id',''))")
@@ -1550,7 +1562,7 @@ print(','.join(a.get('aid','') for a in (d.get('agents') or [])))")
   else
     got=""
     for _ in $(seq 1 30); do
-      got=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      got=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
 for x in d.get('results') or []:
     if x.get('interaction_id') == '$lix':
@@ -1715,13 +1727,13 @@ print(','.join((d.get('agent') or {}).get('caps') or []))")
   case "$tbcaps" in
     *task.board*)
       ok "ink93 通过 module/taskboard 提供了看板能力"
-      out=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $INK_AID \
          --capability task.board --args '{}'" 2>&1)
       bix=$(echo "$out" | jq_ "print(d.get('interaction_id',''))")
       got=""
       for _ in $(seq 1 24); do
-        got=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+        got=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
           "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
 for x in d.get('results') or []:
     if x.get('interaction_id') == '$bix':
@@ -1799,7 +1811,7 @@ hd "9s 自动回复:委派到达 → 调模型 → 答复经 hub 回来"
 # Skipped rather than failed when cmax has no backend configured: this
 # needs a model credential, and a check that fails for want of a key
 # teaches an operator to ignore red.
-ar=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+ar=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
   "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN autoreply show" 2>/dev/null)
 case "$ar" in
   *backend*) ok "cmax 配了自动回复后端";;
@@ -1809,7 +1821,7 @@ if [ -n "$ar" ]; then
   # The backend answers at all, checked without touching the hub. A
   # failure here is a credential or endpoint problem, and separating it
   # from the network path is what makes the next assertion readable.
-  t=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+  t=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
     "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 120 $CMAX_BIN autoreply test '一句话回答:1+1 等于几'" 2>&1)
   [ "$(echo "$t" | jq_ "print(d.get('status',''))")" = ok ] \
     && ok "后端本地自检通过(不经 hub)" \
@@ -1881,7 +1893,7 @@ else
     # is configured with.
     # The value the node must never disclose, derived the way anyone
     # holding the genesis would derive it.
-    GEN=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST "python3 - <<'PY'
+    GEN=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST "python3 - <<'PY'
 import json
 print(json.load(open('$CMAX_HOME/.anet/config.json'))['modules']['org']['genesis'])
 PY" 2>/dev/null)
@@ -1895,7 +1907,7 @@ PY" 2>/dev/null)
       # realistic leak is not a field somebody added on purpose — it is
       # prose an agent wrote about itself.
       before=$(ctl cmax /status '{}' | jq_ "print(d.get('summary',''))")
-      out=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 60 $CMAX_BIN profile set \
          --summary 'prodtest $OID'" 2>&1)
       case "$out" in
@@ -1905,7 +1917,7 @@ PY" 2>/dev/null)
       esac
       # And an ordinary profile still publishes. A guard that refuses
       # everything protects nothing and gets switched off.
-      ok2=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      ok2=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 60 $CMAX_BIN profile set \
          --summary '$before'" 2>&1)
       case "$ok2" in
@@ -1941,13 +1953,13 @@ else
     # A device that can be read back reports OK and carries the readback.
     # "I sent it" and "I confirmed it" are different claims and the
     # adapter has to make the right one.
-    out=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+    out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
       "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
        --capability '$PTZ' --args '{\"pan\":0.3,\"tilt\":0.1}'" 2>&1)
     pix=$(echo "$out" | jq_ "print(d.get('interaction_id',''))")
     got=""
     for _ in $(seq 1 30); do
-      got=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      got=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
 for x in d.get('results') or []:
     if x.get('interaction_id') == '$pix':
@@ -1973,13 +1985,13 @@ for x in d.get('results') or []:
     # And one that cannot be verified must say so, however cleanly the
     # call succeeded. A stream URI is what the camera claims until
     # somebody probes it.
-    out2=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+    out2=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
       "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
        --capability '$RTSP' --args '{}'" 2>&1)
     rix=$(echo "$out2" | jq_ "print(d.get('interaction_id',''))")
     got2=""
     for _ in $(seq 1 30); do
-      got2=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      got2=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
 for x in d.get('results') or []:
     if x.get('interaction_id') == '$rix':
@@ -2002,13 +2014,13 @@ for x in d.get('results') or []:
                 "dahua/camera-108 dahua-cgi IPC-HFW4431R-Z"; do
       set -- $vend
       dev=$1; proto=$2; model=$3
-      vout=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      vout=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
          --capability 'system.info@$dev' --args '{}'" 2>&1)
       vix=$(echo "$vout" | jq_ "print(d.get('interaction_id',''))")
       vgot=""
       for _ in $(seq 1 24); do
-        vgot=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+        vgot=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
           "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
 for x in d.get('results') or []:
     if x.get('interaction_id') == '$vix':
@@ -2034,13 +2046,13 @@ for x in d.get('results') or []:
     # Modbus reads a register and Zigbee flips a switch, because the two
     # exercise opposite halves: one is a value only the device knows, the
     # other is a state this call changed and read back.
-    mb=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+    mb=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
       "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
        --capability 'sensor.temperature@modbus/climate-004' --args '{}'" 2>&1)
     mix=$(echo "$mb" | jq_ "print(d.get('interaction_id',''))")
     mgot=""
     for _ in $(seq 1 24); do
-      mgot=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      mgot=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
 for x in d.get('results') or []:
     if x.get('interaction_id') == '$mix':
@@ -2054,13 +2066,13 @@ for x in d.get('results') or []:
     [ "$(echo "$mgot" | jq_ "print((d.get('evidence') or {}).get('protocol',''))")" = modbus ] \
       && ok "效果记名的协议是 modbus" || no "Modbus 效果没有记名协议"
 
-    zb=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+    zb=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
       "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
        --capability 'switch.onoff@mqttbridge/light-083' --args '{\"on\":true}'" 2>&1)
     zix=$(echo "$zb" | jq_ "print(d.get('interaction_id',''))")
     zgot=""
     for _ in $(seq 1 24); do
-      zgot=$(ssh -n -o ConnectTimeout=20 $CMAX_HOST \
+      zgot=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
         "export ANET_DATA_DIR=$CMAX_HOME/.anet; $CMAX_BIN results" 2>/dev/null | jq_ "
 for x in d.get('results') or []:
     if x.get('interaction_id') == '$zix':
@@ -2091,8 +2103,8 @@ hd "9v ANetLink MCP:列设备 → 用列表给的名字直接调用"
 if [ -z "$DMAX_AID" ]; then
   sk "MCP 面检查要 dmax"
 else
-  mcpout=$(ssh -n -o ConnectTimeout=30 $CMAX_HOST \
-    "ssh -n -o ConnectTimeout=20 root@dmax.chatchat.space 'bash /root/ship/mcp-probe.sh'" 2>/dev/null)
+  mcpout=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=30 $CMAX_HOST \
+    "ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 root@dmax.chatchat.space 'bash /root/ship/mcp-probe.sh'" 2>/dev/null)
   if [ -z "$mcpout" ]; then
     sk "ANetLink MCP 探针不可用(/root/ship/mcp-probe.sh 未部署)"
   else
@@ -2176,17 +2188,17 @@ else
   # not collecting it. The mailbox is SQLite, so it should survive; what
   # is being checked is that it does.
   info "11a hub 重启,消息还在队列里"
-  ssh -n -o ConnectTimeout=20 $CMAX_HOST "systemctl stop anet4" >/dev/null 2>&1
+  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST "systemctl stop anet4" >/dev/null 2>&1
   sleep 2
   qix=$(ctl ink93 /delegate "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest\",\"args\":{\"text\":\"restart-a\"}}" \
         | jq_ "print(d.get('interaction_id',''))")
   if [ -z "$qix" ]; then
     no "投递没排上队"
   else
-    ssh -n -o ConnectTimeout=20 $EMAX_HOST "systemctl restart anet-hub" >/dev/null 2>&1
+    ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "systemctl restart anet-hub" >/dev/null 2>&1
     for _ in $(seq 1 20); do curl -sf -m 5 "$EMAX_HUB/healthz" >/dev/null && break; sleep 2; done
     ok "hub 重启后恢复服务"
-    ssh -n -o ConnectTimeout=20 $CMAX_HOST "systemctl start anet4" >/dev/null 2>&1
+    ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST "systemctl start anet4" >/dev/null 2>&1
     got=""
     for _ in $(seq 1 45); do
       got=$(ctl ink93 /results '{}' | jq_ "
@@ -2207,7 +2219,7 @@ for x in d.get('results') or []:
   bix=$(ctl ink93 /delegate "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest\",\"args\":{\"text\":\"restart-b\"}}" \
         | jq_ "print(d.get('interaction_id',''))")
   sleep 3   # long enough for it to arrive, short enough to interrupt
-  ssh -n -o ConnectTimeout=20 $CMAX_HOST "systemctl restart anet4" >/dev/null 2>&1
+  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST "systemctl restart anet4" >/dev/null 2>&1
   got=""
   for _ in $(seq 1 45); do
     got=$(ctl ink93 /results '{}' | jq_ "
@@ -2233,7 +2245,7 @@ for x in d.get('results') or []:
   # lands in the window between answering and the ack.
   for _ in 1 2 3; do
     sleep 2
-    ssh -n -o ConnectTimeout=20 $CMAX_HOST "systemctl restart anet4" >/dev/null 2>&1
+    ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST "systemctl restart anet4" >/dev/null 2>&1
   done
   got=""
   for _ in $(seq 1 60); do
@@ -2269,7 +2281,7 @@ print(len([r for r in (d.get('records') or []) if (r.get('payload') or {}).get('
   # is testing. Waiting here is cheaper than a run that is intermittently
   # and inexplicably red.
   for _ in $(seq 1 30); do
-    ssh -n -o ConnectTimeout=10 $CMAX_HOST "curl -sf -m 5 http://127.0.0.1:$CMAX_PORT/ping >/dev/null" 2>/dev/null && break
+    ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=10 $CMAX_HOST "curl -sf -m 5 http://127.0.0.1:$CMAX_PORT/ping >/dev/null" 2>/dev/null && break
     sleep 2
   done
   info "重启测试结束,节点已恢复"
