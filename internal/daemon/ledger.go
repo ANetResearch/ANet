@@ -35,6 +35,14 @@ const EvDelegationSent = "anet.delegation.sent"
 // leaves evidence on BOTH chains.
 const EvResultAccepted = "anet.result.accepted"
 
+// EvLedgerGap records that a trailing record was lost to a torn write and
+// could not be decoded on the next open.
+//
+// The loss goes ON the chain rather than only into a log: a reader checking
+// this chain must be able to see that a record is missing, and a log line is
+// not part of what they verify.
+const EvLedgerGap = "anet.evidence.gap"
+
 type evidenceLedger struct {
 	mu      sync.Mutex
 	led     *ael.Ledger
@@ -55,18 +63,46 @@ func openEvidenceLedger(path string, self *identity.Controller) (*evidenceLedger
 		did:    self.DID(),
 		prevID: ael.GenesisPrev(),
 	}
+	var tornTail []byte
+	var tornErr error
 	if b, err := os.ReadFile(path); err == nil && len(b) > 0 {
 		var recs []*ael.EventRecord
 		sc := bufio.NewScanner(bytes.NewReader(b))
 		sc.Buffer(make([]byte, 1<<20), 1<<24)
+		var lines [][]byte
 		for sc.Scan() {
 			line := sc.Bytes()
 			if len(line) == 0 {
 				continue
 			}
+			lines = append(lines, append([]byte(nil), line...))
+		}
+		for i, line := range lines {
 			r, err := decodeRecord(line)
 			if err != nil {
-				return nil, fmt.Errorf("anet: evidence ledger corrupt line: %w", err)
+				// Position decides, not the error. A process killed mid-Write
+				// can only damage the record it was writing, which is the last
+				// one — the file is append-only and a record is one line. A
+				// line that will not decode anywhere else cannot have come
+				// from a crash, so it stays a refusal.
+				//
+				// Conflating the two costs far more than it protects: tamper
+				// is a rare attack, a torn tail is an ordinary Tuesday (OOM,
+				// power loss, SIGKILL), and treating the second as the first
+				// takes the node off the network until someone edits the file
+				// by hand. Observed on an RK3588 board: the OOM killer landed
+				// mid-append, and the daemon then crash-looped every 5 s under
+				// systemd until repaired manually.
+				//
+				// This is not the chain check. Import below still verifies
+				// signatures and links over everything that did decode, so a
+				// doctored history is still refused — see its error.
+				if i != len(lines)-1 {
+					return nil, fmt.Errorf("anet: evidence ledger corrupt line %d of %d: %w", i+1, len(lines), err)
+				}
+				tornTail = line
+				tornErr = err
+				break
 			}
 			recs = append(recs, r)
 		}
@@ -82,12 +118,47 @@ func openEvidenceLedger(path string, self *identity.Controller) (*evidenceLedger
 	} else if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
+	// Drop the torn line before reopening for append. Leaving it would put a
+	// bad line in the middle of the file, which is the one shape this code
+	// refuses — the next start would fail for a reason that never happened.
+	if tornTail != nil {
+		if err := dropTornTail(path, tornTail); err != nil {
+			return nil, err
+		}
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, err
 	}
 	l.f = f
+	if tornTail != nil {
+		// The gap goes on the chain, so it is verifiable rather than merely
+		// logged. Failing to record it is fatal: starting while silently
+		// missing a record is the one outcome this whole file exists to
+		// prevent.
+		if _, err := l.Append(EvLedgerGap, map[string]any{
+			"reason":       "torn trailing record on open",
+			"decode_error": tornErr.Error(),
+			"lost_bytes":   len(tornTail),
+		}); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("anet: evidence ledger: gap marker could not be written: %w", err)
+		}
+	}
 	return l, nil
+}
+
+// dropTornTail removes the undecodable trailing line from the ledger file.
+func dropTornTail(path string, line []byte) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	i := bytes.LastIndex(b, line)
+	if i < 0 {
+		return fmt.Errorf("anet: evidence ledger: torn line vanished before repair")
+	}
+	return os.WriteFile(path, b[:i], 0o600)
 }
 
 // Append signs and chains one event, verifies it into the in-memory ledger,
@@ -111,6 +182,14 @@ func (l *evidenceLedger) Append(eventType string, payload any) (string, error) {
 		return "", err
 	}
 	if _, err := l.f.Write(append(line, '\n')); err != nil {
+		return "", err
+	}
+	// Durability is the point of an evidence chain: a record the caller was
+	// told exists must survive the power going out a moment later. This also
+	// narrows the window in which a kill can tear a record — without it, the
+	// torn tail above is not an edge case but the normal result of any hard
+	// stop.
+	if err := l.f.Sync(); err != nil {
 		return "", err
 	}
 	l.nextSeq, l.prevID = rec.Seq+1, rec.ID
