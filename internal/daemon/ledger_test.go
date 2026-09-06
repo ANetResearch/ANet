@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/identity"
@@ -221,5 +223,117 @@ func TestReadingAnEmptyChain(t *testing.T) {
 	}
 	if head.HeadID != "" {
 		t.Errorf("an empty chain has no head, got %q", head.HeadID)
+	}
+}
+
+// 一次被杀死的写入只损坏它正在写的那条记录, 那是最后一条。守着它不放会让
+// 节点下线, 而链的完整性由 Import 单独把关 —— 位置能区分这两件事, 错误类型不能。
+//
+// 位置 internal/daemon/ledger.go:openEvidenceLedger; 行为 任何一行解码失败都
+// 返回错误, 调用方 daemon.go:135 直接放弃启动; 影响 一次 OOM 之后 daemon 在
+// systemd 下每 5 秒崩溃重启一次, 节点从网络上消失, 只能手工编辑账本才能恢复;
+// 发现方式 RK3588 板子上转换大模型时 OOM killer 落在 append 中途, 实网复现。
+func TestATornTrailingRecordDoesNotKeepTheNodeDown(t *testing.T) {
+	self, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "e.jsonl")
+
+	led, err := openEvidenceLedger(path, self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := led.Append(EvCapabilityEffect, map[string]any{"n": i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	led.Close()
+
+	good, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 模拟半截写入: 追加一条被截断的记录, 不带换行 —— 进程死在 Write 中途就是这样。
+	torn := []byte("YmFkIHRvcm4gdGFpbCB3aXRob3V0IGEgdmFsaWQgY2Jvcg")
+	if err := os.WriteFile(path, append(append([]byte{}, good...), torn...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := openEvidenceLedger(path, self)
+	if err != nil {
+		t.Fatalf("半截写入不该挡住启动: %v", err)
+	}
+	defer reopened.Close()
+
+	// 丢失必须记在链上, 而不是只进日志 —— 校验链的人看不到日志。
+	_, recs := reopened.Evidence(EvidenceQuery{Limit: 100})
+	var gaps int
+	for _, r := range recs {
+		if r.EventType == EvLedgerGap {
+			gaps++
+		}
+	}
+	if gaps != 1 {
+		t.Fatalf("应有 1 条 %s 事件记录这次丢失, 实得 %d", EvLedgerGap, gaps)
+	}
+	if len(recs) != 4 {
+		t.Fatalf("三条原记录加一条缺口标记应为 4, 实得 %d", len(recs))
+	}
+
+	// 修好之后还能继续追加, 且再开一次不再报缺口。
+	if _, err := reopened.Append(EvReceipt, map[string]any{"after": "repair"}); err != nil {
+		t.Fatal(err)
+	}
+	reopened.Close()
+	again, err := openEvidenceLedger(path, self)
+	if err != nil {
+		t.Fatalf("修复后再开应正常: %v", err)
+	}
+	defer again.Close()
+	_, recs2 := again.Evidence(EvidenceQuery{Limit: 100})
+	if len(recs2) != 5 {
+		t.Fatalf("再开后应为 5 条, 实得 %d", len(recs2))
+	}
+}
+
+// 中间一行坏掉不可能由崩溃造成 —— 文件是追加式的, 崩溃只能伤到正在写的那条。
+// 所以这种形态仍然拒绝启动, 宽容到这里就是纵容篡改。
+func TestCorruptionInTheMiddleStillRefusesToLoad(t *testing.T) {
+	self, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "e.jsonl")
+
+	led, err := openEvidenceLedger(path, self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		if _, err := led.Append(EvCapabilityEffect, map[string]any{"n": i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	led.Close()
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimRight(b, "\n"), []byte("\n"))
+	if len(lines) != 3 {
+		t.Fatalf("前置条件: 应有 3 行, 实得 %d", len(lines))
+	}
+	lines[1] = []byte("bm90IGEgdmFsaWQgcmVjb3JkIGF0IGFsbCwgaW4gdGhlIG1pZGRsZQ")
+	if err := os.WriteFile(path, append(bytes.Join(lines, []byte("\n")), '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := openEvidenceLedger(path, self); err == nil {
+		t.Fatal("中间行损坏必须拒绝启动")
+	} else if !strings.Contains(err.Error(), "corrupt line 2 of 3") {
+		t.Fatalf("错误应点明是第几行, 实得: %v", err)
 	}
 }
