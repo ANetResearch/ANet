@@ -44,10 +44,14 @@ ADDITIVE="shell taskboard"
 # wires it into coding tools. a2a is the exception A2A-DESIGN §16 names:
 # the derived pattern would not see the SDK, and an a2a-go that stays
 # linked after module/a2a is gone is the half of the claim that matters.
+# The MCP SDK is named for the same reason: it is 85% of what no_mcp saves
+# (docs/DISTRIBUTIONS-zh.md), and a no_mcp build that still linked it
+# through some other import would pass a check that looked only at ours.
+# Only the in-tree parts are required in the full build (see intree).
 pattern() {
   case $1 in
     a2a) echo 'module/a2a|a2aproject/a2a-go' ;;
-    mcp) echo 'internal/mcpserv|internal/agentwire' ;;
+    mcp) echo 'internal/mcpserv|internal/agentwire|modelcontextprotocol/go-sdk' ;;
     *)   echo "provider/$1|module/$1" ;;
   esac
 }
