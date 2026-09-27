@@ -112,8 +112,8 @@ type doctorReport struct {
 		Deny               []string `json:"deny"`
 		PublicCapabilities []string `json:"public_capabilities"`
 	} `json:"inbound"`
-	Payments  daemon.PaymentsConfig `json:"payments"`
-	Payees    []string              `json:"payees"`
+	Payments  daemon.SpendLimits `json:"payments"`
+	Payees    []string           `json:"payees"`
 	AutoReply struct {
 		Configured       bool   `json:"configured"`
 		Backend          string `json:"backend"`

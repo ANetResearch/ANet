@@ -61,15 +61,24 @@ const (
 	defaultPayeesFile  = "payees.allow"
 )
 
-// spendLimits is the payments block with every default applied.
-type spendLimits struct {
-	AutoMax, AgentMax, AgentDailyMax, ExplicitMax, DailyMax uint64
-	PayeesFile                                              string // "" = no payee list
+// SpendLimits is the payments block with every default applied: what
+// AdmitSpend enforces, and what `anet doctor` reports from the file.
+type SpendLimits struct {
+	AutoMax       uint64 `json:"auto_max"`
+	AgentMax      uint64 `json:"agent_max"`
+	AgentDailyMax uint64 `json:"agent_daily_max"`
+	ExplicitMax   uint64 `json:"explicit_max"`
+	DailyMax      uint64 `json:"daily_max"`
+	PayeesFile    string `json:"payees_file"` // "" = no payee list
 }
 
+// Limits returns the effective limits of a payments block; a nil block
+// has every default.
+func (p *PaymentsConfig) Limits() SpendLimits { return p.limits() }
+
 // limits returns the effective limits of a payments block.
-func (p *PaymentsConfig) limits() spendLimits {
-	l := spendLimits{ExplicitMax: defaultExplicitMax, DailyMax: defaultDailyMax, PayeesFile: defaultPayeesFile}
+func (p *PaymentsConfig) limits() SpendLimits {
+	l := SpendLimits{ExplicitMax: defaultExplicitMax, DailyMax: defaultDailyMax, PayeesFile: defaultPayeesFile}
 	if p == nil {
 		return l
 	}
@@ -84,6 +93,25 @@ func (p *PaymentsConfig) limits() spendLimits {
 		l.PayeesFile = *p.PayeesFile
 	}
 	return l
+}
+
+// defaultPayments is the payments block of a fresh install with every key
+// written out (SI-5): nothing is paid without a person, a person may pay
+// small amounts, and the payee list is on and empty. `anet init` and a
+// config loaded without the block write exactly this.
+func defaultPayments() PaymentsConfig {
+	em, dm, pf := uint64(defaultExplicitMax), uint64(defaultDailyMax), defaultPayeesFile
+	return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}
+}
+
+// migratePayments gives a config without a payments block the defaults and
+// marks it for rewriting, so the file on disk states the limits explicitly.
+func migratePayments(c *Config) {
+	if c.Payments == nil {
+		p := defaultPayments()
+		c.Payments = &p
+		c.rewriteConfig = true
+	}
 }
 
 // Refusal codes of AdmitSpend. Stable: the control plane returns them as
@@ -339,10 +367,18 @@ func (d *Daemon) SetSpendLimits(set map[string]uint64, payeesFile *string) error
 		pf := *payeesFile
 		cur.PayeesFile = &pf
 	}
+	prev := d.cfg.Payments
 	next.Payments = &cur
 	d.cfg = next
 	d.mu.Unlock()
 	if err := SaveConfig(d.layout, next); err != nil {
+		// A caller told the change failed must not find it in force: put
+		// the limits back, unless another write has replaced them since.
+		d.mu.Lock()
+		if d.cfg.Payments == next.Payments {
+			d.cfg.Payments = prev
+		}
+		d.mu.Unlock()
 		return err
 	}
 	after := cur.limits()

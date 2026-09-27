@@ -290,10 +290,10 @@ type PolicyState struct {
 	ConfigPresent bool   `json:"config_present"`
 	// ConfigError is set when config.json cannot be read or parsed, or
 	// fails the daemon's start-up check; the daemon would not start.
-	ConfigError string         `json:"config_error,omitempty"`
-	Config      Config         `json:"-"`
-	Inbound     InboundConfig  `json:"inbound"`
-	Payments    PaymentsConfig `json:"payments"`
+	ConfigError string        `json:"config_error,omitempty"`
+	Config      Config        `json:"-"`
+	Inbound     InboundConfig `json:"inbound"`
+	Payments    SpendLimits   `json:"payments"`
 	// The lists, resolved against the data directory and read now.
 	AllowPath  string   `json:"allow_path"`
 	DenyPath   string   `json:"deny_path"`
@@ -343,7 +343,7 @@ func ReadPolicy(l Layout) (PolicyState, error) {
 	}
 	st.Config = cfg
 	st.Inbound = cfg.inbound()
-	st.Payments = cfg.payments()
+	st.Payments = cfg.Payments.Limits()
 	resolve := func(name string) string {
 		if name == "" || filepath.IsAbs(name) {
 			return name
