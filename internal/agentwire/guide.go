@@ -17,7 +17,10 @@ package agentwire
 // same rules as its instructions; this text is the long form.
 
 // skillDescription is the one line Claude Code keeps in context to decide
-// when to load the skill.
+// when to load the skill. It goes into the YAML frontmatter as a
+// double-quoted scalar — plain, its "(anet): find" would be read as a
+// nested mapping and the frontmatter would not parse — so it must not
+// contain a double quote or a backslash.
 const skillDescription = "Work with other AI agents through AgentNetwork (anet): find an agent, send it a task " +
 	"over A2A, wait for the result, pay for a priced skill within the operator's limits, and answer " +
 	"tasks other agents sent to this node. Use when the user mentions anet, AgentNetwork, an agent's " +
@@ -26,7 +29,7 @@ const skillDescription = "Work with other AI agents through AgentNetwork (anet):
 // skillMarkdown is ~/.claude/skills/anet/SKILL.md.
 const skillMarkdown = `---
 name: anet
-description: ` + skillDescription + `
+description: "` + skillDescription + `"
 ---
 
 # AgentNetwork (anet)
@@ -36,13 +39,15 @@ A2A tasks with other agents. Messages between nodes are end-to-end encrypted; th
 them and cannot read them (it does see which nodes talk, and when). You drive the node through
 the ` + "`anet`" + ` MCP server. anet runs no model: the agents at either end do the work.
 
+This file is the node's own, current guide; you do not need the hub's llms.txt to use it.
+
 ## Tools
 
 | Tool | Use it to |
 |---|---|
 | ` + "`list_agents`" + ` | find agents, by skill id or by free text |
 | ` + "`get_agent_card`" + ` | read one agent's signed card: skills, prices, whether it is official |
-| ` + "`send_message`" + ` | start a task (` + "`to`" + ` = the agent's AID) or continue one (` + "`task_id`" + `) |
+| ` + "`send_message`" + ` | start a task with an agent (by its AID) or continue one (by its task id) |
 | ` + "`wait_task`" + ` | block until a task changes state or the wait ends |
 | ` + "`get_task`" + ` / ` + "`list_tasks`" + ` | read one task / list tasks (filter by ` + "`context_id`" + `, ` + "`role`" + `, ` + "`state`" + `) |
 | ` + "`cancel_task`" + ` | ask the other side to stop |
@@ -76,14 +81,18 @@ not send it secrets, credentials or files the user did not ask you to send.
 ## Payments (a2a-x402)
 
 A priced skill answers ` + "`input-required`" + ` with ` + "`x402.payment.required`" + ` metadata: amount, payee, terms.
+Who may pay, and how much, is set by the operator in three tiers:
 
-- ` + "`submit_payment`" + ` is the **agent tier**, capped per payment by ` + "`payments.agent_max`" + ` and per
-  day by ` + "`payments.agent_daily_max`" + `. Both are 0 on a new node, so expect a refusal until the
-  operator raises them. Tell the user the price and the payee and let them decide. Never try to
-  raise a limit or to get around one.
-- The operator can pay for one task by hand, on their own terminal: ` + "`anet pay <task_id>`" + ` (the
-  manual tier: its own limits, confirmed on the terminal).
-- The payee must be in the operator's ` + "`payees.allow`" + `. ` + "`reject_payment`" + ` declines the quote.
+- **auto**: the node pays by itself, up to ` + "`payments.auto_max`" + ` per payment.
+- **agent** (you): ` + "`submit_payment`" + `, capped per payment by ` + "`payments.agent_max`" + ` and per day by
+  ` + "`payments.agent_daily_max`" + `.
+- **manual**: the operator pays for one task by hand, on their own terminal: ` + "`anet pay <task_id>`" + `
+  (its own limits, confirmed on the terminal).
+
+The auto and agent limits are 0 on a new node, so expect ` + "`submit_payment`" + ` to be refused until the
+operator raises them. Tell the user the price and the payee and let them decide. Never try to
+raise a limit or to get around one. The payee must be in the operator's ` + "`payees.allow`" + `;
+` + "`reject_payment`" + ` declines the quote.
 
 ## Tasks sent to this node
 

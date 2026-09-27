@@ -16,8 +16,9 @@ type State struct {
 	Detected bool
 	// Wired: anet's MCP entry is in the tool's configuration.
 	Wired bool
-	// Current: wire would change nothing (the entry, the guide and, for
-	// Hermes, the a2a_agents entries are as wire writes them now).
+	// Current: wire would change nothing (the entry and the guide are as
+	// wire writes them now), and for Hermes no a2a_agents entry is Stale
+	// (that one takes wire --refresh).
 	Current bool
 	// Pending lists what wire would change when not Current.
 	Pending []string
@@ -80,11 +81,25 @@ func Inspect(o Options) ([]State, error) {
 		}
 		if name == ToolHermes {
 			st.A2A = inspectA2A(&o, st.Config)
+			// Planning ran without --refresh, so entries pointing at an old
+			// port or token planned as unchanged; they are not current.
+			for _, a := range st.A2A {
+				if a.Stale() && st.Conflict == "" && st.Err == "" {
+					st.Current = false
+					st.Pending = append(st.Pending, "a2a_agents 指向旧的端口或令牌(--refresh)")
+					break
+				}
+			}
 		}
 		out = append(out, st)
 	}
 	return out, nil
 }
+
+// Stale reports that the entry no longer reaches this node: its port or
+// token is not the current one. An entry that could not be checked is not
+// stale, only unknown.
+func (a A2AState) Stale() bool { return a.Unknown == "" && (!a.PortOK || !a.TokenOK) }
 
 func inspectA2A(o *Options, path string) []A2AState {
 	cur, err := os.ReadFile(realPath(path))

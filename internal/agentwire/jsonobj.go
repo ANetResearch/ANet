@@ -29,6 +29,8 @@ type jsonMember struct {
 
 // parseObject reads a JSON object. Empty input is an empty object, so a
 // file that exists but was truncated to nothing is treated like a new one.
+// A key that appears twice is an error; only this object's own members are
+// checked, which are the ones anet edits.
 func parseObject(data []byte) (*jsonObject, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return &jsonObject{}, nil
@@ -42,6 +44,7 @@ func parseObject(data []byte) (*jsonObject, error) {
 		return nil, fmt.Errorf("not a JSON object")
 	}
 	obj := &jsonObject{}
+	seen := map[string]bool{}
 	for dec.More() {
 		kt, err := dec.Token()
 		if err != nil {
@@ -51,6 +54,13 @@ func parseObject(data []byte) (*jsonObject, error) {
 		if !ok {
 			return nil, fmt.Errorf("object key is not a string")
 		}
+		// The tools read these files with JavaScript's JSON.parse, where
+		// the last of two same-named members wins. Editing the first would
+		// report success for an entry the tool never sees.
+		if seen[key] {
+			return nil, fmt.Errorf("duplicate key %q", key)
+		}
+		seen[key] = true
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
 			return nil, err

@@ -462,6 +462,43 @@ func TestCodexConflictStopsTheTool(t *testing.T) {
 	}
 }
 
+// An inline `mcp_servers = { … }` is closed in TOML: appending anet's
+// [mcp_servers.anet] after it would make Codex refuse its whole config
+// ("Cannot declare ('mcp_servers', 'anet') twice"), so wire stops even when
+// the inline table has no anet entry, and unwire has nothing to say about it.
+func TestCodexInlineServersTableIsAConflict(t *testing.T) {
+	for name, cfg := range map[string]string{
+		"inline":       "model = \"m\"\nmcp_servers = { docs = { command = \"docs-mcp\" } }\n",
+		"empty inline": "mcp_servers = {}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHost(t)
+			h.write(".codex/config.toml", cfg, 0o644)
+			r := one(t, h.wire(ToolCodex), Conflict)
+			var ce *ConflictError
+			if !errors.As(r.Err, &ce) || ce.Line == 0 || !strings.Contains(ce.What, "行内表") {
+				t.Fatalf("want a conflict naming the inline table and its line: %v", r.Err)
+			}
+			if h.read(".codex/config.toml") != cfg || h.exists(".codex/AGENTS.md") || len(h.backups()) > 0 {
+				t.Fatal("a conflicted tool must be left entirely alone")
+			}
+			rs := h.unwire(ToolCodex)
+			if rs[0].Status != NotWired || len(rs[0].Notes) != 0 {
+				t.Fatalf("unwire: %+v", rs[0])
+			}
+		})
+	}
+	// A dotted key under the root is not closed; the block can follow it.
+	h := newHost(t)
+	cfg := "mcp_servers.docs.command = \"docs-mcp\"\n"
+	h.write(".codex/config.toml", cfg, 0o644)
+	one(t, h.wire(ToolCodex), Written)
+	one(t, h.unwire(ToolCodex), Removed)
+	if h.read(".codex/config.toml") != cfg {
+		t.Fatalf("round trip changed the file:\n%s", h.read(".codex/config.toml"))
+	}
+}
+
 // Look-alikes are not conflicts.
 func TestCodexLookAlikesAreNotConflicts(t *testing.T) {
 	for name, cfg := range map[string]string{
@@ -623,6 +660,57 @@ func TestLegacyPersonaIsMigrated(t *testing.T) {
 	}
 }
 
+// The persona block the old `anet install --agent openclaw` appended to
+// ~/.openclaw/AGENTS.md is out of date and told the agent to take work from
+// anyone. OpenClaw is not wired any more, so --all (either way) and the old
+// command itself take the block out; the operator's own text stays.
+func TestLegacyOpenClawPersonaIsRemoved(t *testing.T) {
+	legacy := "<!-- anet:begin (managed by `anet install`) -->\n## AgentNetwork (anet)\n\n" +
+		"- Provide work to others (earn by completing their tasks):\n<!-- anet:end -->\n"
+	mine := "# OpenClaw rules\n\nBe careful.\n"
+
+	h := newHost(t)
+	rs := h.wire()
+	for _, r := range rs {
+		if r.Tool == LegacyOpenClaw {
+			t.Fatalf("wire --all reported OpenClaw with nothing of anet's there: %+v", r)
+		}
+	}
+
+	h = newHost(t)
+	h.write(".openclaw/AGENTS.md", mine+"\n"+legacy, 0o644)
+	rs = h.wire()
+	last := rs[len(rs)-1]
+	if last.Tool != LegacyOpenClaw || last.Status != Removed || len(last.Backups) != 1 {
+		t.Fatalf("wire --all: %+v", last)
+	}
+	if got := h.read(".openclaw/AGENTS.md"); got != mine {
+		t.Fatalf("AGENTS.md after wire --all:\n%q", got)
+	}
+	// A named wire leaves OpenClaw alone; it is not one of the tools.
+	h.write(".openclaw/AGENTS.md", mine+"\n"+legacy, 0o644)
+	for _, r := range h.wire(ToolCodex) {
+		if r.Tool == LegacyOpenClaw {
+			t.Fatal("wire codex touched OpenClaw")
+		}
+	}
+	rs = h.unwire()
+	if last := rs[len(rs)-1]; last.Tool != LegacyOpenClaw || last.Status != Removed || h.read(".openclaw/AGENTS.md") != mine {
+		t.Fatalf("unwire --all: %+v\n%s", last, h.read(".openclaw/AGENTS.md"))
+	}
+
+	// The old command: a file that held only the block is removed.
+	h = newHost(t)
+	h.write(".openclaw/AGENTS.md", legacy, 0o644)
+	r, err := RemoveLegacyOpenClaw(h.opts())
+	if err != nil || r.Status != Removed || h.exists(".openclaw/AGENTS.md") {
+		t.Fatalf("RemoveLegacyOpenClaw: %+v, %v", r, err)
+	}
+	if r, err := RemoveLegacyOpenClaw(h.opts()); err != nil || r.Status != NotWired {
+		t.Fatalf("second RemoveLegacyOpenClaw: %+v, %v", r, err)
+	}
+}
+
 // The guide says what this release does, with the §12 tool names, and
 // none of what the old persona said that stopped being true.
 func TestGuideTextIsCurrent(t *testing.T) {
@@ -643,10 +731,24 @@ func TestGuideTextIsCurrent(t *testing.T) {
 	}
 	for _, want := range []string{"list_agents", "get_agent_card", "get_task", "list_tasks", "cancel_task",
 		"reply_task", "reject_payment", "inbound_pending", "get_balance", "audit", "node_status",
-		"agent_max", "agent_daily_max", "payees.allow", "closed", "anet peers trust", "anet inbound policy approve"} {
+		"agent_max", "agent_daily_max", "auto_max", "payees.allow", "closed", "anet peers trust",
+		"anet inbound policy approve", "llms.txt"} {
 		if !strings.Contains(skillMarkdown, want) {
 			t.Errorf("SKILL.md does not mention %q", want)
 		}
+	}
+	// The frontmatter is YAML: the description is a double-quoted scalar
+	// (a plain one containing ": " does not parse), so it may not contain
+	// a quote or a backslash of its own.
+	front := strings.SplitN(skillMarkdown, "\n---\n", 2)[0]
+	var desc string
+	for _, l := range strings.Split(front, "\n") {
+		if v, ok := strings.CutPrefix(l, "description: "); ok {
+			desc = v
+		}
+	}
+	if len(desc) < 2 || desc[0] != '"' || desc[len(desc)-1] != '"' || strings.ContainsAny(desc[1:len(desc)-1], "\"\\") {
+		t.Errorf("SKILL.md description is not a clean double-quoted YAML scalar: %s", desc)
 	}
 	// The persona rides in every Codex/opencode/Hermes session.
 	if n := len(personaMarkdown); n > 1600 {
@@ -694,6 +796,43 @@ func TestModesAreKept(t *testing.T) {
 	one(t, h.wire(ToolClaude), Written)
 	if m := h.mode(".claude.json"); m != 0o600 {
 		t.Fatalf("new ~/.claude.json is %o, want 0600", m)
+	}
+}
+
+// A link that points at nothing is neither replaced by a file nor
+// followed to create one somewhere else.
+func TestDanglingSymlinkIsNotReplaced(t *testing.T) {
+	h := newHost(t)
+	if err := os.MkdirAll(h.p(".cursor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := h.p("dotfiles/cursor/mcp.json")
+	if err := os.Symlink(target, h.p(".cursor/mcp.json")); err != nil {
+		t.Fatal(err)
+	}
+	r := one(t, h.wire(ToolCursor), Failed)
+	if !strings.Contains(r.Err.Error(), "符号链接") {
+		t.Fatalf("unclear error: %v", r.Err)
+	}
+	fi, err := os.Lstat(h.p(".cursor/mcp.json"))
+	if err != nil || fi.Mode()&fs.ModeSymlink == 0 {
+		t.Fatal("the link was replaced")
+	}
+	if _, err := os.Stat(target); err == nil {
+		t.Fatal("wire created the link's target")
+	}
+}
+
+// Two members with one name: the tools (JSON.parse) use the last one, so
+// editing the first would report an entry the tool never reads. anet
+// refuses instead, and changes nothing.
+func TestDuplicateJSONKeysAreRefused(t *testing.T) {
+	h := newHost(t)
+	cfg := "{\"mcpServers\": {\"a\": {}}, \"mcpServers\": {\"b\": {}}}\n"
+	h.write(".cursor/mcp.json", cfg, 0o644)
+	r := one(t, h.wire(ToolCursor), Failed)
+	if !strings.Contains(r.Err.Error(), "duplicate") || h.read(".cursor/mcp.json") != cfg {
+		t.Fatalf("%v\n%s", r.Err, h.read(".cursor/mcp.json"))
 	}
 }
 

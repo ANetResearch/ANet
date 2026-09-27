@@ -69,7 +69,7 @@ type agentsArgs struct {
 // next flag or tool name.
 func parseAgentsArgs(rest []string) (agentsArgs, error) {
 	var a agentsArgs
-	isTool := map[string]bool{}
+	isTool := map[string]bool{"claude-code": true}
 	for _, t := range agentwire.Tools() {
 		isTool[t] = true
 	}
@@ -80,7 +80,7 @@ func parseAgentsArgs(rest []string) (agentsArgs, error) {
 			}
 		}
 	}
-	inA2A := false
+	inA2A, sawA2A := false, false
 	for _, arg := range rest {
 		switch {
 		case arg == "--all":
@@ -88,10 +88,10 @@ func parseAgentsArgs(rest []string) (agentsArgs, error) {
 		case arg == "--refresh":
 			a.refresh, inA2A = true, false
 		case arg == "--a2a":
-			inA2A = true
+			inA2A, sawA2A = true, true
 		case strings.HasPrefix(arg, "--a2a="):
 			addAIDs(strings.TrimPrefix(arg, "--a2a="))
-			inA2A = true
+			inA2A, sawA2A = true, true
 		case strings.HasPrefix(arg, "--"):
 			return a, fmt.Errorf("anet agents:不认识的参数 %s", arg)
 		case inA2A && !isTool[strings.ToLower(arg)]:
@@ -103,6 +103,11 @@ func parseAgentsArgs(rest []string) (agentsArgs, error) {
 	}
 	if a.all && len(a.tools) > 0 {
 		return a, fmt.Errorf("--all 与工具名不能同时给出")
+	}
+	// `--a2a` with nothing after it would otherwise be a plain wire, and a
+	// plain unwire removes the MCP entries as well as every token.
+	if sawA2A && len(a.a2a) == 0 {
+		return a, fmt.Errorf("--a2a 后面要跟至少一个远端 agent 的 AID")
 	}
 	return a, nil
 }
@@ -195,6 +200,13 @@ func agentsStatus(opts agentwire.Options) error {
 	}
 	fmt.Printf("anet agents(anet %s,数据目录 %s)\n", opts.Bin, opts.DataDir)
 	for _, s := range states {
+		fix := "anet agents wire " + s.Tool
+		for _, a := range s.A2A {
+			if a.Stale() {
+				fix += " --refresh"
+				break
+			}
+		}
 		var line string
 		switch {
 		case s.Conflict != "":
@@ -204,7 +216,7 @@ func agentsStatus(opts agentwire.Options) error {
 		case s.Wired && s.Current:
 			line = "已接入,最新"
 		case s.Wired:
-			line = "已接入,需要更新(anet agents wire " + s.Tool + ")"
+			line = "已接入,需要更新(" + fix + ")"
 		case !s.Detected:
 			line = "未安装"
 		default:
@@ -221,7 +233,7 @@ func agentsStatus(opts agentwire.Options) error {
 			case a.PortOK && a.TokenOK:
 				fmt.Printf("            a2a %s:正常\n", a.AID)
 			default:
-				fmt.Printf("            a2a %s:端口或令牌已变(anet agents wire --refresh)\n", a.AID)
+				fmt.Printf("            a2a %s:端口或令牌已变(anet agents wire hermes --refresh)\n", a.AID)
 			}
 		}
 	}
@@ -240,10 +252,18 @@ func runInstall(layout daemon.Layout, rest []string) error {
 	if agent == "" {
 		return fmt.Errorf("install --agent <%s>(新写法:anet agents wire <工具>)", strings.Join(agentwire.Tools(), "|"))
 	}
-	if agent == "openclaw" {
-		// The old install wrote a persona file here; the exec auto-reply
-		// never read it (it builds its own prompt), so nothing is lost for
-		// `autoreply set --backend exec --agent openclaw`.
+	if agent == agentwire.LegacyOpenClaw {
+		// The old install wrote a persona block into ~/.openclaw/AGENTS.md;
+		// the exec auto-reply never read it (it builds its own prompt), so
+		// nothing is lost for `autoreply set --backend exec --agent
+		// openclaw`. What that block says is out of date, so it goes.
+		if opts, err := wireOptions(layout); err == nil {
+			if r, err := agentwire.RemoveLegacyOpenClaw(opts); err == nil && r.Status != agentwire.NotWired {
+				if perr := printWireResults("unwire", []agentwire.Result{r}, opts); perr != nil {
+					return perr
+				}
+			}
+		}
 		return fmt.Errorf("OpenClaw 不在 anet agents wire 支持的工具内(它的 MCP 配置方式没有核实过)," +
 			"这一步不再写任何东西;自动接单(autoreply set --backend exec --agent openclaw)不需要它。" +
 			"要让 OpenClaw 调用 anet,请在 OpenClaw 里把 `anet mcp` 注册为 stdio MCP 服务并设置环境变量 ANET_DATA_DIR")

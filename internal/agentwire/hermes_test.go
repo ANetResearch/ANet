@@ -99,8 +99,8 @@ func TestHermesA2AEntries(t *testing.T) {
 	// fixes it.
 	h.setA2A("127.0.0.1:39901", "tok-2")
 	st := hermesState(t, h)
-	if len(st.A2A) != 1 || st.A2A[0].PortOK || st.A2A[0].TokenOK {
-		t.Fatalf("inspect did not notice the change: %+v", st.A2A)
+	if len(st.A2A) != 1 || st.A2A[0].PortOK || st.A2A[0].TokenOK || !st.A2A[0].Stale() || st.Current {
+		t.Fatalf("inspect did not notice the change: %+v", st)
 	}
 	one(t, h.wire(ToolHermes), UpToDate) // without --refresh, nothing
 	one(t, h.wireWith(h.hermesOpts(true), ToolHermes), Written)
@@ -109,8 +109,8 @@ func TestHermesA2AEntries(t *testing.T) {
 		!strings.Contains(cfg, "127.0.0.1:39901/a2a/v1/agents/"+aidA) {
 		t.Fatalf("--refresh did not rewrite the entry:\n%s", cfg)
 	}
-	if st := hermesState(t, h); !st.A2A[0].PortOK || !st.A2A[0].TokenOK {
-		t.Fatalf("inspect after refresh: %+v", st.A2A)
+	if st := hermesState(t, h); !st.A2A[0].PortOK || !st.A2A[0].TokenOK || !st.Current {
+		t.Fatalf("inspect after refresh: %+v", st)
 	}
 
 	// A second agent joins the first.
@@ -119,11 +119,18 @@ func TestHermesA2AEntries(t *testing.T) {
 		t.Fatalf("entries: %+v", st.A2A)
 	}
 
-	// unwire --a2a removes only the named entry.
+	// unwire --a2a removes only the named entry; the file still holds a
+	// token, so it is left 0600 even if someone widened it meanwhile.
+	if err := os.Chmod(h.p(".hermes/config.yaml"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	one(t, h.unwireWith(h.hermesOpts(false, aidA), ToolHermes), Removed)
 	cfg = h.read(".hermes/config.yaml")
 	if strings.Contains(cfg, aidA) || !strings.Contains(cfg, aidB) || !strings.Contains(cfg, "  anet:\n") {
 		t.Fatalf("unwire --a2a %s removed the wrong things:\n%s", aidA, cfg)
+	}
+	if m := h.mode(".hermes/config.yaml"); m != 0o600 {
+		t.Fatalf("config.yaml still holds a token and is %o, want 0600", m)
 	}
 
 	// A full unwire takes the MCP entry and every token, and gives back
@@ -191,6 +198,10 @@ func TestHermesMCPServersForms(t *testing.T) {
 		"unmanaged anet":     {cfg: "mcp_servers:\n  anet:\n    command: anet\n    args: [mcp]\n", conflict: true},
 		"unmanaged quoted":   {cfg: "mcp_servers:\n  \"anet\":\n    command: x\n", conflict: true},
 		"non-empty flow map": {cfg: "mcp_servers: {fs: {command: npx}}\n", conflict: true},
+		// A list is not a map: an anet: key among its items would make the
+		// file unreadable, whether the items are indented or not.
+		"sequence":          {cfg: "mcp_servers:\n  - fs\nmodel: x\n", conflict: true},
+		"sequence at col 0": {cfg: "mcp_servers:\n- fs\nmodel: x\n", conflict: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := newHost(t)

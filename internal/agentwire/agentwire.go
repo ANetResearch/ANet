@@ -243,7 +243,9 @@ func selectTools(names []string, all bool) ([]tool, bool, error) {
 
 // Wire registers anet in the named tools, or with all=true (or no names) in
 // every supported tool that is installed. Explicitly named tools are wired
-// even when not detected: the operator asked for that one.
+// even when not detected: the operator asked for that one. With all, the
+// persona block an old `anet install --agent openclaw` left behind is taken
+// out as well (see LegacyOpenClaw).
 func Wire(o Options, names []string, all bool) ([]Result, error) {
 	if err := o.normalize(); err != nil {
 		return nil, err
@@ -272,12 +274,56 @@ func Wire(o Options, names []string, all bool) ([]Result, error) {
 		changes, err := t.planWire(&o)
 		out = append(out, finish(&o, r, changes, nil, err, Written, UpToDate))
 	}
+	if implicit {
+		if r, found := legacyOpenClaw(&o); found {
+			out = append(out, r)
+		}
+	}
 	return out, nil
 }
 
+// LegacyOpenClaw is the name results about ~/.openclaw/AGENTS.md carry.
+// OpenClaw is not a tool wire supports — how it registers an MCP server is
+// unverified — but the old `anet install --agent openclaw` appended its
+// persona block there, and that block describes a network that no longer
+// exists and tells the agent to list itself and take work from anyone.
+const LegacyOpenClaw = "openclaw"
+
+func openclawAgentsMD(o *Options) string { return filepath.Join(o.Home, ".openclaw", "AGENTS.md") }
+
+// legacyOpenClaw removes the old persona block from OpenClaw's AGENTS.md.
+// found is false when there is none, so --all reports OpenClaw only when
+// there was something of anet's to take out.
+func legacyOpenClaw(o *Options) (Result, bool) {
+	r := Result{Tool: LegacyOpenClaw}
+	c, err := planDropTextBlock(o, openclawAgentsMD(o), "旧版 anet 指引块(OpenClaw 不在支持的工具内)")
+	if err == nil && c == nil {
+		return r, false
+	}
+	var changes []change
+	if c != nil {
+		changes = append(changes, *c)
+	}
+	return finish(o, r, changes, nil, err, Removed, NotWired), true
+}
+
+// RemoveLegacyOpenClaw is legacyOpenClaw for `anet install --agent
+// openclaw`, the command that wrote the block.
+func RemoveLegacyOpenClaw(o Options) (Result, error) {
+	if err := o.normalize(); err != nil {
+		return Result{}, err
+	}
+	r, found := legacyOpenClaw(&o)
+	if !found {
+		r.Status = NotWired
+	}
+	return r, nil
+}
+
 // Unwire removes what Wire added from the named tools, or from every
-// supported tool with all=true (or no names). With Options.A2A set, only
-// those Hermes a2a_agents entries are removed.
+// supported tool with all=true (or no names), the old OpenClaw persona
+// block included. With Options.A2A set, only those Hermes a2a_agents
+// entries are removed.
 func Unwire(o Options, names []string, all bool) ([]Result, error) {
 	if err := o.normalize(); err != nil {
 		return nil, err
@@ -297,6 +343,11 @@ func Unwire(o Options, names []string, all bool) ([]Result, error) {
 		}
 		changes, notes, err := t.planUnwire(&o)
 		out = append(out, finish(&o, r, changes, notes, err, Removed, NotWired))
+	}
+	if (all || len(names) == 0) && len(o.A2A) == 0 {
+		if r, found := legacyOpenClaw(&o); found {
+			out = append(out, r)
+		}
 	}
 	return out, nil
 }

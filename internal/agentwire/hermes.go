@@ -323,8 +323,12 @@ func (t hermesTool) planUnwire(o *Options) ([]change, []string, error) {
 	var changes []change
 	if src != string(cur) {
 		out := splitLines(src)
-		changes = append(changes, change{path: path, before: cur, after: []byte(src), del: onlyBlank(out),
-			note: "删除 " + strings.Join(what, "、") + ":" + short(o, path)})
+		c := change{path: path, before: cur, after: []byte(src), del: onlyBlank(out),
+			note: "删除 " + strings.Join(what, "、") + ":" + short(o, path)}
+		if len(a2aEntriesOf(src, path)) > 0 {
+			c.narrow = 0o600 // the entries left behind still carry the token
+		}
+		changes = append(changes, c)
 	}
 	if len(o.A2A) == 0 {
 		p, err := planDropTextBlock(o, hermesSoul(o), "anet 指引块")
