@@ -19,7 +19,8 @@ import (
 // The check is structural: every package in this module that declares both
 // an Invoke method and a Price(string) (uint64, bool) method is a priced
 // provider, and its non-test sources must not select a field named
-// CallerAID.
+// CallerAID. Such a provider learns the caller through Call.VerifiedCaller,
+// which is empty at the voucher door (TestVerifiedCallerIsEmptyAtTheVoucherDoor).
 func TestNoPricedProviderReadsCallerAID(t *testing.T) {
 	root, err := filepath.Abs("..")
 	if err != nil {

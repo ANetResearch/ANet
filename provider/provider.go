@@ -50,6 +50,22 @@ const (
 	ViaVoucher = "voucher"
 )
 
+// VerifiedCaller returns CallerAID when the daemon authenticated it (a call
+// that came through the relay, Via == ViaRelay), and "" otherwise.
+//
+// It is the way for a provider that implements Priced to learn who is
+// calling, for logging or to pass to its own backend: at the voucher door
+// the answer is "", because there the AID says who paid, not who is
+// asking. Such a provider still must not read CallerAID itself (the
+// structural test in this package checks that), and it must not grant
+// anything on the strength of an empty answer.
+func (c Call) VerifiedCaller() string {
+	if c.Via != ViaRelay {
+		return ""
+	}
+	return c.CallerAID
+}
+
 // CapabilityProvider is C1. Implementations must be safe for concurrent use.
 type CapabilityProvider interface {
 	// ID is the stable provider identifier, unique within one daemon.
