@@ -28,21 +28,29 @@ import (
 func (d *Daemon) admitCardMark(v *a2acard.Verified) error {
 	self := d.AID()
 	if d.ix != nil {
+		next := v.Mark()
 		found, err := d.ix.UpdatePeerCardMark(v.AID, func(seq uint64, hash []byte) (uint64, []byte, bool, error) {
-			stored := persistedCardMark(seq, hash)
+			row := persistedCardMark(seq, hash)
+			stored := row
+			if stored == nil && seq > 0 {
+				// A seq kept without its hash: still a floor. An older
+				// card is a rollback; one under that seq cannot be told
+				// from a fork, so it is taken and its hash recorded.
+				stored = &a2acard.Mark{Seq: seq, PayloadHash: next.PayloadHash}
+			}
 			// A mark this process admitted before the row existed (the
 			// peer became known meanwhile) may be the higher one.
 			if m, ok := cardMarks.get(self, v.AID); ok && (stored == nil || m.Seq > stored.Seq) {
 				stored = &m
 			}
-			dec, err := a2acard.CheckHighWater(stored, v.Mark())
-			if err != nil {
+			if _, err := a2acard.CheckHighWater(stored, next); err != nil {
 				return 0, nil, false, err
 			}
-			// Same: the card is refreshed, nothing to write unless the row
-			// had no hash yet.
-			write := dec == a2acard.Advance || len(hash) != len(v.PayloadHash)
-			return v.Seq, append([]byte(nil), v.PayloadHash[:]...), write, nil
+			// The same card again is a refresh: written only when the row
+			// does not hold it yet (no hash kept, or the mark came from
+			// the cache), so that a restart still knows it.
+			write := row == nil || *row != next
+			return next.Seq, append([]byte(nil), next.PayloadHash[:]...), write, nil
 		})
 		if found {
 			if err == nil {

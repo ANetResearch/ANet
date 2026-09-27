@@ -80,6 +80,38 @@ func TestTheCardHighWaterIsPersistedForKnownPeers(t *testing.T) {
 		t.Fatalf("stored mark %d/%d, want 6/3", seq, h)
 	}
 
+	// A mark the cache holds above the row's (admitted while the row did
+	// not hold it) is written when that card is seen again, so a restart
+	// keeps it.
+	if err := cardMarks.admit(self, card(known, 8, 4)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.admitCardMark(card(known, 8, 4)); err != nil {
+		t.Fatalf("the cached card again: %v", err)
+	}
+	if seq, h := mark(); seq != 8 || h != 4 {
+		t.Fatalf("stored mark %d/%d, want the cached 8/4", seq, h)
+	}
+
+	// A row that kept a seq but no hash still refuses an older card, and
+	// records the hash of a card under its seq.
+	const legacy = "did:anet:legacy-peer"
+	if err := d.ix.UpdatePeerIdentity(legacy, func(*interactions.PeerIdentity) (*interactions.PeerIdentity, error) {
+		return &interactions.PeerIdentity{PinnedReason: interactions.PinOutbound, CardSeq: 5}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	forgetCardMarks(self)
+	if err := d.admitCardMark(card(legacy, 4, 1)); !a2acard.IsCode(err, a2acard.CodeSeqRollback) {
+		t.Fatalf("an older card than a hashless row's seq: %v, want a rollback", err)
+	}
+	if err := d.admitCardMark(card(legacy, 5, 2)); err != nil {
+		t.Fatalf("the card under a hashless row's seq: %v", err)
+	}
+	if p, err := d.ix.PeerIdentity(legacy); err != nil || p.CardSeq != 5 || len(p.CardHash) != 32 || p.CardHash[0] != 2 {
+		t.Fatalf("hashless row after its card: %+v %v", p, err)
+	}
+
 	// A stranger: held in memory only.
 	if err := d.admitCardMark(card(stranger, 7, 1)); err != nil {
 		t.Fatal(err)

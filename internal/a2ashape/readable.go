@@ -37,11 +37,17 @@ const (
 )
 
 // clean makes a peer-written string safe to put in a sentence: control
-// characters (newlines included) become spaces, and it is cut to max runes.
+// characters (newlines included) become spaces, invisible format
+// characters (bidirectional overrides and isolates, zero-width joiners) are
+// dropped so that a payee or an amount reads as it is, and it is cut to max
+// runes.
 func clean(s string, max int) string {
 	s = strings.Map(func(r rune) rune {
-		if r == utf8.RuneError || unicode.IsControl(r) {
+		switch {
+		case r == utf8.RuneError || unicode.IsControl(r):
 			return ' '
+		case unicode.Is(unicode.Cf, r):
+			return -1
 		}
 		return r
 	}, s)
@@ -126,17 +132,24 @@ func (p *projector) paymentNote(meta map[string]any) string {
 		// This node is the provider: its own quote, nothing to pay.
 		return "Quoted: " + summary + "."
 	}
-	return "The provider asks to be paid " + summary + ". " + payHint(p.ix.ID)
+	s, _ := meta[KeyX402Status].(string)
+	return "The provider asks to be paid " + summary + ". " + payHint(p.ix.ID, s == PaymentFailed)
 }
 
-// payHint tells a client that does not speak a2a-x402 how a quote gets
-// paid (A2A-DESIGN §8.6, §8.7): anet pays within its automatic spending
-// tier by itself; above it the task waits for the operator.
-func payHint(taskID string) string {
-	return "A client that does not use a2a-x402 need not do anything within this node's automatic " +
-		"spending tier: anet pays it. Above that tier the task waits here until the operator decides, " +
-		"with the anet MCP tool submit_payment or `anet pay " + taskID + "`; an a2a-x402 client answers " +
-		"with x402.payment.payload instead."
+// payHint tells a client how a quote on this node's task gets paid
+// (A2A-DESIGN §8.6, §8.7): anet pays within its automatic spending tier by
+// itself, once per quote and never again after a failed payment; otherwise
+// the task waits for a decision. An a2a-x402 client decides by asking this
+// node to sign — payment-submitted with no payload, since a payload of the
+// client's own is refused (client_payload_unsupported).
+func payHint(taskID string, failed bool) string {
+	first := "Within this node's automatic spending tier anet pays by itself; above it the task waits here for a decision"
+	if failed {
+		first = "After a failed payment anet does not pay again by itself: the task waits here for a decision"
+	}
+	return first + " — the operator's `anet pay " + taskID + "`, or an agent's anet MCP tool submit_payment. " +
+		"An a2a-x402 client answers on this task with x402.payment.status payment-submitted and no " +
+		"x402.payment.payload (this node signs; anet.payment.accept names the option when there are several)."
 }
 
 // quoteSummary renders the accepted options of an x402 PaymentRequired
