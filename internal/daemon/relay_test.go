@@ -546,3 +546,51 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 		t.Fatalf("%d envelopes dropped as unknown-ix, want %d", n, flood)
 	}
 }
+
+// An envelope held back at the tail of the mailbox is still retried, and
+// holding it costs the hub no extra requests: every round is one poll
+// (relayCursor). A round that finds nothing after the cursor sends the next
+// round back to the head rather than polling the head itself, so a
+// stranger who keeps one message held cannot double how often this node
+// calls its hub.
+func TestAHeldEnvelopeIsRetriedAtOnePollPerRound(t *testing.T) {
+	srv, _, prov := registeredPair(t)
+	prov.stopRelayLoop()
+	prov.pollMu.Lock()
+	prov.pollMu.Unlock()
+	ctx := context.Background()
+	var clock atomic.Uint64
+	clock.Store(uint64(time.Now().UnixMilli()))
+	prov.clock = clock.Load
+
+	injectEnvelope(t, srv, prov.AID(), craft(t, newStranger(t), prov, seal.TypeMessage,
+		"ix_not_held_tail", chatBody(t, "noise", ""), nil))
+	polls0 := relayPollsFor(srv.URL, prov.AID())
+	tries0 := counter(prov, transientUnknownIX)
+	const rounds = 6
+	for i := 0; i < rounds; i++ {
+		if err := prov.pollOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := relayPollsFor(srv.URL, prov.AID()) - polls0; n != rounds {
+		t.Fatalf("%d rounds made %d poll requests, want one each", rounds, n)
+	}
+	if n := counter(prov, transientUnknownIX) - tries0; n < rounds/2 {
+		t.Fatalf("the held envelope was tried %d times in %d rounds, want at least every other round", n, rounds)
+	}
+	if n := len(queuedFor(t, srv, prov.AID())); n != 1 {
+		t.Fatalf("%d envelopes queued, want the held one", n)
+	}
+
+	// Past the window it turns permanent and is acknowledged.
+	clock.Add(uint64((unknownIXWait + time.Minute).Milliseconds()))
+	for i := 0; i < 2; i++ {
+		if err := prov.pollOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(queuedFor(t, srv, prov.AID())); n != 0 {
+		t.Fatalf("%d envelopes still queued two rounds after the window", n)
+	}
+}

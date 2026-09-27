@@ -310,10 +310,16 @@ func (d *Daemon) relayPoll(ctx context.Context, after int64) ([]hubapi.RelayMess
 // over the hub's byte budget would do the same with fewer.
 //
 // After a page that held something back, the next poll asks for what was
-// queued after that page. When nothing is, the same round goes back to the
-// head, so held envelopes are still tried every round the mailbox has
-// nothing newer, and are acknowledged once they succeed or turn permanent
-// (expired, or past the window).
+// queued after that page. When nothing is, the next round goes back to the
+// head, so held envelopes are tried again every other round while the
+// mailbox has nothing newer, and are acknowledged once they succeed or turn
+// permanent (expired, or past the window).
+//
+// A round is one poll request, never two. Going back to the head in the
+// same round would retry held envelopes every round, but it would also
+// double this node's requests to the hub (each one a signature check and a
+// liveness write there) for as long as anything is held, and a stranger can
+// keep something held with one message every ten minutes.
 //
 // In memory only: after a restart the first poll reads from the head,
 // which is what every poll did before the cursor existed. The ids are the
@@ -430,7 +436,7 @@ func (d *Daemon) pollFresh(ctx context.Context) {
 //
 // A poll starts at the relay cursor (relayCursor), so envelopes held back
 // in an earlier round do not stand in front of newer ones; when nothing is
-// queued after the cursor, the round reads from the head instead.
+// queued after the cursor, the next round reads from the head again.
 func (d *Daemon) pollOnce(ctx context.Context) error {
 	hub := d.config().HubURL
 	after := d.relayCur.get(hub)
@@ -439,10 +445,10 @@ func (d *Daemon) pollOnce(ctx context.Context) error {
 		return err
 	}
 	if len(msgs) == 0 && after > 0 {
-		// Nothing newer: back to the head for what was held back.
-		if msgs, err = d.relayPoll(ctx, 0); err != nil {
-			return err
-		}
+		// Nothing newer: the next round goes back to the head for what
+		// was held back. Not this one: one request per round.
+		d.relayCur.set(hub, 0)
+		return nil
 	}
 	var acked []int64
 	var last int64
