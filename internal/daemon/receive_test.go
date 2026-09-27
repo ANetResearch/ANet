@@ -125,7 +125,7 @@ func TestAMessageForAnUnknownTaskGetsTaskNotFound(t *testing.T) {
 	}
 	msgs, _ := req.ix.Messages(ix)
 	if got.State != interactions.StateFailed || len(msgs) == 0 ||
-		msgs[len(msgs)-1].Kind != interactions.MsgStatus || !strings.Contains(msgs[len(msgs)-1].Metadata, "TaskNotFound") {
+		msgs[len(msgs)-1].Kind != interactions.MsgStatus || !strings.Contains(msgs[len(msgs)-1].Metadata, `"anet.a2aError":"TaskNotFoundError"`) {
 		t.Fatalf("requester interaction = %s %+v, want failed with a TaskNotFound status", got.State, msgs)
 	}
 }
@@ -842,6 +842,16 @@ func TestARedeliveredDelegateResendsTheAnswer(t *testing.T) {
 	res, err := req.Results(ctx)
 	if err != nil || len(res) != 1 {
 		t.Fatalf("the re-sent answer did not land: %v %v", res, err)
+	}
+	// The re-sent answer carries the metadata the first did, not only the
+	// state: anet.effect_status (and anet.reason, anet.retry_after_ms when
+	// there are any) exist nowhere else.
+	got, err := req.ix.Get(res[0].InteractionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.ResultMeta, `"anet.effect_status"`) {
+		t.Fatalf("re-sent answer metadata %q", got.ResultMeta)
 	}
 }
 

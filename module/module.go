@@ -32,13 +32,16 @@ package module
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/provider"
 )
 
@@ -146,7 +149,181 @@ type Host interface {
 	// anything; the daemon refuses to start when the declaration conflicts
 	// with the policy, and refuses a later policy write that would.
 	DeclareUntrustedBackend()
+
+	// StateDir is a directory the named module may keep its own files in:
+	// <data dir>/modules/<module>/, created 0700 when first asked for. It
+	// returns "" for a name that is not a plain directory name, and for a
+	// directory that cannot be made private to this user (a symbolic link,
+	// another uid's); a module that needs one does not start without it.
+	//
+	// Added for the local A2A interface (A2A-DESIGN §11.1), which must
+	// bind the same port after a restart — clients have its address
+	// written into their configuration — and so has to remember it
+	// somewhere. The alternatives were a module that guesses at the
+	// daemon's data directory, which is the daemon's layout leaking into
+	// every module that copies the guess, or a module with nowhere to put
+	// state, which pushes that state into the kernel. A directory per
+	// module keeps each one's files apart; it is not a boundary between
+	// modules, which share a process.
+	StateDir(module string) string
+
+	// TaskSeam hands over the tasks this node starts as a requester, in
+	// their A2A form: sending a task to a remote agent, reading, listing,
+	// cancelling and watching it, paying for it, and finding agents.
+	// Absent when the kernel offers no such seam.
+	//
+	// Added for the local A2A interface (A2A-DESIGN §11.1), and it grants
+	// a great deal: what comes back sends work to other nodes as this
+	// node, under its key, and authorizes payments from its account. That
+	// is exactly what a local A2A client asks for, so the grant is the
+	// point rather than a leak — what keeps it narrower than the control
+	// token is its shape. Every call names one remote agent and reaches
+	// only this node's outbound tasks with that agent; tasks delegated TO
+	// this node never pass through it (§11.2); and a payment goes through
+	// the kernel's spending policy at the agent tier (§8.6), the one place
+	// that policy is enforced, rather than through PaymentSeam, which
+	// would let the module sign without asking it.
+	TaskSeam() (TaskSeam, bool)
 }
+
+// Task, TaskEvent and TaskPage are the kernel's A2A projection
+// (internal/a2ashape): the JSON the control plane and MCP return, as Go
+// values. Aliases rather than types of their own, so that there is one
+// definition of what a Task looks like and a module converts it to an SDK
+// type by a JSON round trip that the projection's tests pin.
+type (
+	Task      = a2ashape.Task
+	TaskEvent = a2ashape.TaskEvent
+	TaskPage  = a2ashape.TaskPage
+)
+
+// TaskSeam is what the local A2A interface needs of the kernel
+// (A2A-DESIGN §11.1): the A2A operations on this node's outbound tasks.
+//
+// Every method that takes peerAID acts only on an interaction this node
+// started (role outbound) whose peer is peerAID. Anything else — another
+// agent's task, a task delegated to this node, no task at all — is
+// a2ashape.ErrTaskNotFound, the same error whichever it was, so a client
+// holding one agent's URL learns nothing about the node's other tasks
+// [C17]. Errors are a2ashape.Error values, matched with errors.Is.
+type TaskSeam interface {
+	// Send is SendMessage: a new task when req.Message has no task id,
+	// otherwise a message on that task. Unless req.ReturnImmediately, it
+	// returns once the task is terminal or interrupted (input-required).
+	Send(ctx context.Context, peerAID string, req TaskSend) (Task, error)
+	// Get is GetTask. historyLen bounds the history (nil: all of it).
+	Get(ctx context.Context, peerAID, taskID string, historyLen *int) (Task, error)
+	// List is ListTasks over this node's tasks with peerAID, most recent
+	// state change first.
+	List(ctx context.Context, peerAID string, f TaskFilter) (TaskPage, error)
+	// Cancel is CancelTask (§4.2). A cancel after a payment was submitted
+	// leaves the task working with anet.cancel_requested.
+	Cancel(ctx context.Context, peerAID, taskID string) (Task, error)
+	// Watch is SubscribeToTask: the task as it is now and its later
+	// events, taken together so that no change falls between them. The
+	// channel closes after the terminal status update, when ctx ends, or
+	// when the watcher falls too far behind (it may Watch again).
+	Watch(ctx context.Context, peerAID, taskID string) (Task, <-chan TaskEvent, error)
+	// Agents lists the remote agents a client may address.
+	Agents(ctx context.Context, q AgentQuery) ([]RemoteAgent, error)
+	// Card is one remote agent, with its verified network card if it has
+	// one.
+	Card(ctx context.Context, aid string) (RemoteAgent, error)
+	// Pay answers a payment-required task (§8.7): submit signs an
+	// authorization within the agent-tier limits and sends it; reject
+	// declines. The purpose is always task-agent.
+	Pay(ctx context.Context, peerAID, taskID string, decision PayDecision) (Task, error)
+}
+
+// TaskSend is one SendMessage as the local A2A interface received it.
+type TaskSend struct {
+	// Message is the client's message. Its TaskID names the task to
+	// continue; empty starts a new one. Its ContextID, if set, must be a
+	// context of this node's tasks with the same agent, or new.
+	Message a2ashape.Message
+	// ReturnImmediately returns as soon as the task exists (A2A
+	// return_immediately); otherwise Send waits for a terminal or
+	// interrupted state.
+	ReturnImmediately bool
+	// HistoryLength bounds the history in the returned task.
+	HistoryLength *int
+	// AcceptedOutputModes are the media types the client accepts.
+	AcceptedOutputModes []string
+	// Metadata is the request's own metadata (SendMessageRequest.metadata),
+	// apart from the message's.
+	Metadata map[string]any
+	// Extensions are the extension URIs the client activated for this
+	// request, from A2A-Extensions and X-A2A-Extensions merged.
+	Extensions []string
+}
+
+// TaskFilter selects tasks for List (A2A ListTasksRequest).
+type TaskFilter struct {
+	ContextID string
+	// State is an A2A task state name (TASK_STATE_WORKING); empty means
+	// any. a2ashape.StoreState reads it.
+	State string
+	// PageSize is 1 to 100; 0 means 50 (a2ashape.PageSize).
+	PageSize  int
+	PageToken string
+	// HistoryLen bounds each task's history (nil: all of it).
+	HistoryLen *int
+	// UpdatedAfter keeps tasks whose status changed at or after it.
+	UpdatedAfter *time.Time
+	// IncludeArtifacts includes the artifacts, which are left out by
+	// default.
+	IncludeArtifacts bool
+}
+
+// AgentQuery asks for remote agents (A2A-DESIGN §10.5). Skill and Tag are
+// sent to the hub's registry; Query is free text matched here against the
+// cards that come back and never sent, because the words are the user's
+// intent and the hub has no need of them.
+type AgentQuery struct {
+	Skill  string `json:"skill,omitempty"`
+	Tag    string `json:"tag,omitempty"`
+	Query  string `json:"q,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+	Cursor string `json:"cursor,omitempty"`
+}
+
+// RemoteAgent is a remote agent as this node sees it: the registry entry
+// (§10.5) and this node's own check of its card, which the proxy card is
+// built from (§11.3).
+type RemoteAgent struct {
+	AID string `json:"aid"`
+	// Card is the agent's A2A network card, the exact bytes served; empty
+	// when the agent publishes none.
+	Card json.RawMessage `json:"card,omitempty"`
+	// Verification is this node's check of Card: "VERIFIED", or
+	// "UNVERIFIED" with VerificationError saying why. HubVerification is
+	// what the hub said, which is not a substitute.
+	Verification      string `json:"verification"`
+	VerificationError string `json:"verificationError,omitempty"`
+	HubVerification   string `json:"hubVerification,omitempty"`
+	Name              string `json:"name,omitempty"`
+	HomeHub           string `json:"homeHub,omitempty"`
+	LastSeen          string `json:"lastSeen,omitempty"`
+	Quiet             bool   `json:"quiet,omitempty"`
+	ReviewCount       int    `json:"reviewCount,omitempty"`
+	AvgRating         any    `json:"avgRating,omitempty"`
+}
+
+// PayDecision answers a payment-required task.
+type PayDecision struct {
+	// Decision is PaySubmit or PayReject.
+	Decision string
+	// Accept is the chosen option, copied unchanged from
+	// x402.payment.required.accepts (anet.payment.accept). It may be
+	// omitted when there is only one.
+	Accept json.RawMessage
+}
+
+// PayDecision values.
+const (
+	PaySubmit = "submit"
+	PayReject = "reject"
+)
 
 // HubSeam is what a module needs to act as this node against its hub.
 //

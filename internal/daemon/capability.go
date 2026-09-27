@@ -524,7 +524,8 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 		// Signed with this node's own key a few lines up, so there is
 		// nothing to take on trust.
 		if err := tx.Finish(interactionID, interactions.Finish{State: state, Result: deliverable,
-			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified}); err != nil {
+			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified,
+			Meta: metaBytes}); err != nil {
 			return err
 		}
 		var err error
