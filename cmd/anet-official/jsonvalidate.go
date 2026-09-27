@@ -105,6 +105,12 @@ func handleJSONValidate(ctx context.Context, _ *env, body []byte) (any, error) {
 		res.SchemaIssues = sv.schemaIssues.out()
 		res.Truncated = sv.errsTruncated || sv.schemaIssues.truncated
 		res.Unsupported = sortedKeys(sv.unsupported)
+		if len(res.Unsupported) > maxIssues {
+			res.Unsupported, res.Truncated = res.Unsupported[:maxIssues], true
+		}
+		for i, u := range res.Unsupported {
+			res.Unsupported[i] = clip(u, maxReportedPath)
+		}
 	}
 	res.Verdict = verdict.String()
 	if verdict != vUnknown {
@@ -130,8 +136,10 @@ func parseStrictJSON(text string) (any, []string, *jsonSyntaxError) {
 	dec := json.NewDecoder(strings.NewReader(text))
 	dec.UseNumber()
 	var dupes []string
-	var parse func(path string, depth int) (any, error)
-	parse = func(path string, depth int) (any, error) {
+	// The location is a linked list rendered only for a duplicate: building
+	// a pointer string for every member costs depth × key length each.
+	var parse func(path *ipath, depth int) (any, error)
+	parse = func(path *ipath, depth int) (any, error) {
 		if depth > maxJSONDepth {
 			return nil, fmt.Errorf("nesting deeper than %d", maxJSONDepth)
 		}
@@ -153,9 +161,9 @@ func parseStrictJSON(text string) (any, []string, *jsonSyntaxError) {
 					if !ok {
 						return nil, errors.New("object member name is not a string")
 					}
-					p := ptr(path, key)
+					p := path.child(key)
 					if _, dup := obj[key]; dup && len(dupes) < maxIssues {
-						dupes = append(dupes, p)
+						dupes = append(dupes, clip(p.String(), maxReportedPath))
 					}
 					v, err := parse(p, depth+1)
 					if err != nil {
@@ -170,7 +178,7 @@ func parseStrictJSON(text string) (any, []string, *jsonSyntaxError) {
 			case '[':
 				arr := []any{}
 				for dec.More() {
-					v, err := parse(ptr(path, len(arr)), depth+1)
+					v, err := parse(path.item(len(arr)), depth+1)
 					if err != nil {
 						return nil, err
 					}
@@ -186,7 +194,7 @@ func parseStrictJSON(text string) (any, []string, *jsonSyntaxError) {
 			return t, nil
 		}
 	}
-	v, err := parse("", 0)
+	v, err := parse(nil, 0)
 	if err == nil {
 		if _, terr := dec.Token(); terr != io.EOF {
 			err = errors.New("data after the end of the JSON value")

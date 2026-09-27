@@ -271,29 +271,55 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 // the host that can open a socket and try.
 const minTokenBytes = 16
 
-// tokenPath expands and checks a token_file value.
+// tokenPath expands and checks a token_file value. A variable that is not
+// set, or set to "", is an error rather than an empty string: outside
+// systemd "${CREDENTIALS_DIRECTORY}/token" would otherwise name /token.
 func tokenPath(raw string) (string, error) {
-	p := os.ExpandEnv(raw)
+	var unset []string
+	p := os.Expand(raw, func(k string) string {
+		v, ok := os.LookupEnv(k)
+		if !ok || v == "" {
+			unset = append(unset, k)
+		}
+		return v
+	})
+	if len(unset) > 0 {
+		return "", fmt.Errorf("service: token_file %q: %s is not set", raw, strings.Join(unset, ", "))
+	}
 	if p == "" || !filepath.IsAbs(p) {
 		return "", fmt.Errorf("service: token_file %q must be an absolute path (after expanding variables)", raw)
 	}
 	return p, nil
 }
 
-// readToken reads a token file: its first line, trimmed.
+// maxTokenFileBytes bounds what is read of a token file; a token is one
+// short line.
+const maxTokenFileBytes = 4096
+
+// readToken reads a token file: its first line, trimmed. The mode is taken
+// from the file that was opened, not from the path, so what was checked is
+// what is read.
 func readToken(raw string) (string, error) {
 	p, err := tokenPath(raw)
 	if err != nil {
 		return "", err
 	}
-	fi, err := os.Stat(p)
+	f, err := os.Open(p)
 	if err != nil {
 		return "", fmt.Errorf("token_file: %w", err)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return "", fmt.Errorf("token_file: %w", err)
+	}
+	if !fi.Mode().IsRegular() {
+		return "", fmt.Errorf("token_file %s is not a regular file", p)
 	}
 	if fi.Mode().Perm()&0o007 != 0 {
 		return "", fmt.Errorf("token_file %s is accessible to other users (mode %04o); chmod o-rwx", p, fi.Mode().Perm())
 	}
-	b, err := os.ReadFile(p)
+	b, err := io.ReadAll(io.LimitReader(f, maxTokenFileBytes))
 	if err != nil {
 		return "", fmt.Errorf("token_file: %w", err)
 	}

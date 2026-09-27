@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/ANetResearch/ANetCore/a2acard"
 )
 
 // described is a fake provider that says something about some of its
@@ -111,5 +113,15 @@ func TestVerifiedCallerIsEmptyAtTheVoucherDoor(t *testing.T) {
 		if got != c.want {
 			t.Errorf("Via=%q: VerifiedCaller() = %q, want %q", c.via, got, c.want)
 		}
+	}
+}
+
+// The limits are ANetCore a2acard's, repeated so that the provider package
+// does not link the card code; they must not drift apart.
+func TestSkillLimitsAreTheCardLimits(t *testing.T) {
+	if MaxSkillNameBytes != a2acard.MaxNameBytes || MaxSkillDescriptionBytes != a2acard.MaxDescriptionBytes ||
+		MaxSkillTags != a2acard.MaxTagsPerSkill {
+		t.Errorf("provider limits %d/%d/%d, a2acard %d/%d/%d", MaxSkillNameBytes, MaxSkillDescriptionBytes, MaxSkillTags,
+			a2acard.MaxNameBytes, a2acard.MaxDescriptionBytes, a2acard.MaxTagsPerSkill)
 	}
 }

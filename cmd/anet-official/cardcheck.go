@@ -88,7 +88,18 @@ type cardResult struct {
 	Anet       *anetReport    `json:"anet,omitempty"`
 }
 
-func handleCardValidate(_ context.Context, e *env, body []byte) (any, error) {
+// Bounds on the work one check may do. Each signature is verified with
+// every candidate key over two payloads, each a hash of the whole card, and
+// each did:anet key is found by replaying the KEL: with no bound, a 160 KiB
+// card of 700 signatures and 16 keys ran for fifteen seconds. Real cards
+// carry one or two signatures and KELs of a few events; anet hubs admit at
+// most a2acard.MaxSignatures signatures, and so many are checked here.
+const (
+	maxCheckedSignatures = a2acard.MaxSignatures
+	maxKELEvents         = 256
+)
+
+func handleCardValidate(ctx context.Context, e *env, body []byte) (any, error) {
 	var a cardArgs
 	if err := decodeArgs(body, &a); err != nil {
 		return nil, err
@@ -113,6 +124,9 @@ func handleCardValidate(_ context.Context, e *env, body []byte) (any, error) {
 		if kel, err = identity.UnmarshalKEL(b); err != nil {
 			return nil, badArgs("\"kel\" is not an anet KEL: %v", err)
 		}
+		if len(kel) > maxKELEvents {
+			return nil, badArgs("\"kel\" has %d events; at most %d are checked", len(kel), maxKELEvents)
+		}
 	}
 	var keys []jwk
 	if len(a.JWKS) > 0 {
@@ -125,10 +139,17 @@ func handleCardValidate(_ context.Context, e *env, body []byte) (any, error) {
 	if a.NowMS != nil {
 		now = *a.NowMS
 	}
-	return checkCard(raw, keys, kel, now), nil
+	return checkCardCtx(ctx, raw, keys, kel, now)
 }
 
 func checkCard(raw []byte, keys []jwk, kel []identity.SignedEvent, nowMS int64) *cardResult {
+	res, _ := checkCardCtx(context.Background(), raw, keys, kel, nowMS)
+	return res
+}
+
+// checkCardCtx checks a card, and gives up with errBudget when ctx is done
+// between two signatures.
+func checkCardCtx(ctx context.Context, raw []byte, keys []jwk, kel []identity.SignedEvent, nowMS int64) (*cardResult, error) {
 	res := &cardResult{Profile: "a2a", Signatures: []sigReport{}}
 	var is issues
 	defer func() {
@@ -153,12 +174,12 @@ func checkCard(raw []byte, keys []jwk, kel []identity.SignedEvent, nowMS int64) 
 	v, _, serr := parseStrictJSON(string(raw))
 	if serr != nil {
 		is.add(sevError, "", "syntax", "not JSON: %s at byte %d", serr.msg, serr.offset)
-		return res
+		return res, nil
 	}
 	card, ok := v.(map[string]any)
 	if !ok {
 		is.add(sevError, "", "type", "an AgentCard is a JSON object")
-		return res
+		return res, nil
 	}
 	if len(raw) > a2acard.MaxCardBytes {
 		is.add(sevWarning, "", "size", "the card is %d bytes; anet hubs admit cards up to %d", len(raw), a2acard.MaxCardBytes)
@@ -192,10 +213,21 @@ func checkCard(raw []byte, keys []jwk, kel []identity.SignedEvent, nowMS int64) 
 	// Signatures.
 	sigs, _ := card["signatures"].([]any)
 	for i, s := range sigs {
+		if i == maxCheckedSignatures {
+			is.add(sevWarning, "/signatures", "signatures_not_checked",
+				"the card carries %d signatures; only the first %d were checked", len(sigs), maxCheckedSignatures)
+			break
+		}
+		if ctx.Err() != nil {
+			return res, errBudget
+		}
 		res.Signatures = append(res.Signatures, checkSignature(i, s, asGiven, strippedPayload, keys, kel, &is))
 	}
 	if len(sigs) == 0 {
 		is.add(sevInfo, "/signatures", "unsigned", "the card is not signed; A2A clients SHOULD verify at least one signature before trusting a card")
+	}
+	if ctx.Err() != nil {
+		return res, errBudget
 	}
 
 	// The anet admission rules, for a card that claims to be an anet card.
@@ -203,7 +235,7 @@ func checkCard(raw []byte, keys []jwk, kel []identity.SignedEvent, nowMS int64) 
 		res.Profile = "anet"
 		res.Anet = checkAnetRules(raw, kel, nowMS, &is)
 	}
-	return res
+	return res, nil
 }
 
 // Proto field kinds.

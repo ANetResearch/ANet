@@ -99,8 +99,8 @@ func TestDeploySamplesMatchTheTable(t *testing.T) {
 	ports := map[string]string{}
 	for id, group := range identities {
 		env := readEnv(t, filepath.Join(root, id, "backend.env"))
-		if env["GROUPS"] != group {
-			t.Errorf("%s: GROUPS=%s, want %s", id, env["GROUPS"], group)
+		if env["CAP_GROUPS"] != group {
+			t.Errorf("%s: CAP_GROUPS=%s, want %s", id, env["CAP_GROUPS"], group)
 		}
 		if _, err := loopbackListenAddr(env["LISTEN"]); err != nil {
 			t.Errorf("%s: %v", id, err)

@@ -298,9 +298,12 @@ func TestBadTokensAreRefused(t *testing.T) {
 		"too short":      `{"token_file":"` + writeToken(t, "short", 0o600) + `","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
 		"relative":       `{"token_file":"token","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
 		"unset variable": `{"token_file":"${ANET_TEST_UNSET_VARIABLE}","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
-		"missing file":   `{"token_file":"/nonexistent/anet/token","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
-		"cleartext":      `{"token_file":"` + good + `","capabilities":[{"id":"x","url":"http://example.com/x"}]}`,
-		"cap cleartext":  `{"capabilities":[{"id":"x","url":"http://10.0.0.1/x","token_file":"` + good + `"}]}`,
+		// Unset, "${CREDENTIALS_DIRECTORY}/token" would name /token.
+		"unset in path": `{"token_file":"${ANET_TEST_UNSET_VARIABLE}/token","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"directory":     `{"token_file":"` + filepath.Dir(good) + `","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"missing file":  `{"token_file":"/nonexistent/anet/token","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"cleartext":     `{"token_file":"` + good + `","capabilities":[{"id":"x","url":"http://example.com/x"}]}`,
+		"cap cleartext": `{"capabilities":[{"id":"x","url":"http://10.0.0.1/x","token_file":"` + good + `"}]}`,
 	}
 	for name, cfg := range cases {
 		if err := start(cfg); err == nil {

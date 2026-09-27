@@ -424,3 +424,96 @@ func TestCardArguments(t *testing.T) {
 		t.Errorf("card object: %+v %v", out, err)
 	}
 }
+
+// The work of one check is bounded: at most a2acard.MaxSignatures
+// signatures are verified (700 signatures against 16 keys of one kid held
+// a core for fifteen seconds), a KEL is at most maxKELEvents long, and a
+// passed deadline stops the check between signatures.
+func TestCardWorkIsBounded(t *testing.T) {
+	e := testEnv(t)
+	var keys []any
+	for i := 0; i < 16; i++ {
+		pub, _, _ := ed25519.GenerateKey(rand.Reader)
+		keys = append(keys, map[string]any{"kty": "OKP", "crv": "Ed25519", "kid": "k", "x": b64u(pub)})
+	}
+	card := a2aCard()
+	var sigs []any
+	for i := 0; i < 300; i++ {
+		sigs = append(sigs, map[string]any{"protected": b64u([]byte(`{"alg":"EdDSA","kid":"k"}`)), "signature": b64u(make([]byte, 64))})
+	}
+	card["signatures"] = sigs
+	card["description"] = strings.Repeat("d", 100<<10)
+	args := mustJSON(t, map[string]any{"card": card, "jwks": map[string]any{"keys": keys}})
+
+	out, err := handleCardValidate(context.Background(), e, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := out.(*cardResult)
+	if len(res.Signatures) != maxCheckedSignatures || codes(res)["signatures_not_checked"] != sevWarning {
+		t.Errorf("%d signature reports, issues %v", len(res.Signatures), codes(res))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := handleCardValidate(ctx, e, args); err != errBudget {
+		t.Errorf("past the deadline: err = %v, want the budget error", err)
+	}
+
+	c, _ := identity.Incept()
+	for i := 0; i < maxKELEvents; i++ {
+		if err := c.Rotate(uint64(1_790_000_000_000 + i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kel, err := identity.MarshalKEL(c.KEL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	long := mustJSON(t, map[string]any{"card": a2aCard(), "kel": base64.StdEncoding.EncodeToString(kel)})
+	if _, err := handleCardValidate(context.Background(), e, long); err == nil || !strings.Contains(err.Error(), "events") {
+		t.Errorf("a KEL of %d events: err = %v", len(c.KEL()), err)
+	}
+}
+
+// An anet card with more signatures than a hub admits is rejected by the
+// anet rules, and still only the first signatures are verified.
+func TestAnetCardWithTooManySignatures(t *testing.T) {
+	c, _ := identity.Incept()
+	const now = 1_790_000_000_000
+	var card map[string]any
+	if err := json.Unmarshal(anetCard(t, c, now), &card); err != nil {
+		t.Fatal(err)
+	}
+	sigs := card["signatures"].([]any)
+	for len(sigs) <= a2acard.MaxSignatures {
+		sigs = append(sigs, sigs[0])
+	}
+	card["signatures"] = sigs
+	res := checkCard(mustJSON(t, card), nil, c.KEL(), now)
+	if res.Anet == nil || res.Anet.Result != "rejected" || res.Anet.Code != string(a2acard.CodeTooLarge) {
+		t.Errorf("anet: %+v", res.Anet)
+	}
+	if len(res.Signatures) != maxCheckedSignatures || res.Signatures[0].Result != "verified" {
+		t.Errorf("signatures: %d, first %+v", len(res.Signatures), res.Signatures[0])
+	}
+}
+
+// The example published on the card is a card this checker passes: it is
+// the first thing an agent tries, and it should show a clean report.
+func TestCardExampleIsClean(t *testing.T) {
+	for _, c := range allCapabilities() {
+		if c.ID != "a2a.card.validate" {
+			continue
+		}
+		for _, ex := range c.Examples {
+			out, err := handleCardValidate(context.Background(), testEnv(t), []byte(ex))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res := out.(*cardResult); !res.Valid || res.Warnings != 0 {
+				t.Errorf("example %s: %+v", ex, res.Issues)
+			}
+		}
+	}
+}
