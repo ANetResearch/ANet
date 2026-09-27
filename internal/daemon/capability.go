@@ -31,6 +31,7 @@ import (
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/provider"
 )
 
@@ -388,6 +389,9 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{reason: "payments_unavailable"})
 			return true
 		}
+		if d.refuseUnboundPriced(ctx, ix, capID) {
+			return true
+		}
 		switch {
 		case ix.PayState == interactions.PayCompleted:
 			// Settled: by the retry loop, or before a redelivery.
@@ -418,6 +422,24 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 		}
 	}
 	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, eff.Evidence, resultOpts{})
+}
+
+// refuseUnboundPriced answers a priced call whose TaskDoc carries no task
+// nonce, and reports whether it did. The payment's binding is
+// PayBind(ix, anet.nonce) (§2 X4); such a call is rejected with
+// task_nonce_required rather than quoted, so the two sides never disagree
+// over what an empty nonce binds (0017 Q19). A task whose payment flow
+// already began (an older row) is left alone.
+func (d *Daemon) refuseUnboundPriced(ctx context.Context, ix *interactions.Interaction, capID string) bool {
+	if ix.TaskNonce != "" || ix.PayState != interactions.PayNone {
+		return false
+	}
+	res := capabilityResult{Capability: capID, Status: string(effect.Unavailable),
+		Message: "a priced call must carry the task nonce (TaskDoc context " + NonceContextKey +
+			") its payment is bound to"}
+	d.deliverCapabilityResult(ctx, ix.ID, capID, ix, res, nil,
+		resultOpts{state: interactions.StateRejected, reason: x402a2a.ReasonTaskNonceRequired})
+	return true
 }
 
 // stateForEffect maps a capability effect status to the task state and

@@ -329,8 +329,11 @@ func TestAccountReadsAreSignedByTheAccountHolder(t *testing.T) {
 		seq, _ := strconv.ParseUint(r.Header.Get(relayauth.HeaderSeq), 10, 64)
 		sig, err := relayauth.DecodeSig(r.Header.Get(relayauth.HeaderSig))
 		action := relayauth.ActionBalance
-		if strings.Contains(r.URL.Path, "/ledger") {
+		switch {
+		case strings.Contains(r.URL.Path, "/ledger"):
 			action = relayauth.ActionLedger
+		case strings.Contains(r.URL.Path, "/redemptions"):
+			action = relayauth.ActionRedemptions
 		}
 		pre := relayauth.PreimageV2(action, h.AID(), h.hub.AID(), ts, r.Method, r.URL.RequestURI(), nil)
 		if err != nil || r.Header.Get(relayauth.HeaderAID) != h.AID() ||
@@ -340,9 +343,12 @@ func TestAccountReadsAreSignedByTheAccountHolder(t *testing.T) {
 			return
 		}
 		seen = append(seen, action)
-		if action == relayauth.ActionBalance {
+		switch action {
+		case relayauth.ActionBalance:
 			_, _ = w.Write([]byte(`{"aid":"x","credits":42}`))
-		} else {
+		case relayauth.ActionRedemptions:
+			_, _ = w.Write([]byte(`{"redemptions":[{"auth_id":"a1","amount":3,"reference":"inv-7"}],"total":1,"sum":3}`))
+		default:
 			_, _ = w.Write([]byte(`{"entries":[]}`))
 		}
 	}))
@@ -353,7 +359,13 @@ func TestAccountReadsAreSignedByTheAccountHolder(t *testing.T) {
 	if err != nil || out["balance"] != int64(42) {
 		t.Fatalf("balance = %v, %v", out, err)
 	}
-	if strings.Join(seen, ",") != "balance,ledger" {
+	if strings.Join(seen, ",") != "balance,ledger,redemptions" {
 		t.Errorf("signed reads: %v", seen)
+	}
+	// The withdrawals come back with the balance, so an agent finds one by
+	// its reference through its own control plane (prodtest 9f).
+	red, _ := out["redemptions"].([]HubRedemption)
+	if len(red) != 1 || red[0].Reference != "inv-7" || red[0].AuthID != "a1" || out["redeemed_sum"] != uint64(3) {
+		t.Errorf("redemptions in the balance: %v", out)
 	}
 }

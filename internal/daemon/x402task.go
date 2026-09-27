@@ -100,14 +100,12 @@ func storedReceipts(ix *interactions.Interaction) []json.RawMessage {
 	return out
 }
 
-// receiptList is pay_receipts plus extra, as metadata carries it.
+// receiptList is pay_receipts plus extra, as metadata carries it: never
+// null, and every failure with transaction "" (x402receipts.go).
 func receiptList(ix *interactions.Interaction, extra ...json.RawMessage) []json.RawMessage {
 	out := storedReceipts(ix)
 	out = append(out, extra...)
-	if out == nil {
-		out = []json.RawMessage{}
-	}
-	return out
+	return normalizeReceipts(out)
 }
 
 // payloadAuth reads the anet-credit authorization inside a PaymentPayload.
@@ -913,8 +911,11 @@ func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte
 		}
 		return
 	case x402a2a.StatusFailed:
+		// The payment sent has a definite outcome, and it is not sent
+		// again: pay_payload is cleared, so a quote repeated after this is
+		// paid, if at all, with a new authorization and a decision (Q11).
 		upd := interactions.PayUpdate{From: []string{interactions.PaySubmitted, interactions.PayRequired, interactions.PayFailed},
-			State: interactions.PayState(interactions.PayFailed)}
+			State: interactions.PayState(interactions.PayFailed), Payload: []byte{}}
 		if quote != nil {
 			upd.Required, upd.QuoteExpiresAt = quote, &expires
 		}
@@ -942,6 +943,10 @@ func (d *Daemon) autoPay(ctx context.Context, ixID string, resend bool) {
 	}
 	if r, ok := isSpendRefusal(err); ok {
 		log.Printf("anet: %s: the quote needs an operator's decision (%s); pay it with `anet pay %s`", ixID, r.Code, ixID)
+		return
+	}
+	if errors.Is(err, errAutoPaidOnce) || errors.Is(err, errNoResend) {
+		log.Printf("anet: %s: %v; pay it with `anet pay %s`", ixID, err, ixID)
 		return
 	}
 	log.Printf("anet: %s: not paid automatically: %v", ixID, err)
@@ -1079,6 +1084,10 @@ var (
 // the first has no outcome is an operator's decision (§8.3).
 var errNoResend = errors.New("anet: the quote changed while a payment was outstanding; a new authorization needs a decision")
 
+// errAutoPaidOnce refuses a second automatic authorization for a task: the
+// automatic tier pays a task at most once (§8.3, 0017 Q11).
+var errAutoPaidOnce = errors.New("anet: this task was already paid automatically once; another payment needs a decision")
+
 // PayRefusal is a decision refused with an a2a-x402 outcome (§8.7): the
 // caller is told payment-failed with Code and Reason, and nothing was
 // signed or sent.
@@ -1166,6 +1175,15 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 	raw, authID, reused := d.reusablePayment(ix, *opt)
 	if raw == nil && req.resendOnly {
 		return out, errNoResend
+	}
+	if raw == nil && req.Purpose == module.PurposeTaskAuto && len(ix.PayAuthIDs) > 0 {
+		// §8.3 (0017 Q11): the automatic tier signs at most one
+		// authorization per task. Once one was signed for it, a new one —
+		// after a definite failure, or on new terms — is a person's or an
+		// agent's decision; the task waits with needs_operator_approval.
+		// Sending the same authorization again (reused above) is not a
+		// second payment and stays automatic.
+		return out, errAutoPaidOnce
 	}
 	if raw == nil {
 		signed, err := p.Authorize(*opt, ix.ID, x402a2a.PayBind(ix.ID, ix.TaskNonce), req.Purpose)
@@ -1352,6 +1370,9 @@ func canonicalJSON(b []byte) ([]byte, bool) {
 	return out, err == nil
 }
 
+// maxPeerReceipts bounds the receipt list taken from one provider message.
+const maxPeerReceipts = 128
+
 // notePaymentReceipts verifies and records the receipts a provider sent
 // on a status or a result (§8.3; §4.2: also when the task has ended here).
 //
@@ -1367,13 +1388,29 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 	if !ok || len(list) == 0 {
 		return
 	}
+	if len(list) > maxPeerReceipts {
+		// The newest: a provider keeps 64 (interactions.maxPayReceipts), so
+		// a longer list is not an honest history, and each item may cost a
+		// signature check and an evidence record here.
+		list = list[len(list)-maxPeerReceipts:]
+	}
 	ix, err := d.ix.Get(ixID)
 	if err != nil || ix.Role != interactions.RoleOutbound {
 		return
 	}
-	if all, err := json.Marshal(list); err == nil && len(list) >= len(storedReceipts(ix)) {
-		if _, err := d.ix.SetPayment(ixID, interactions.PayUpdate{Receipts: all}); err != nil {
-			log.Printf("anet: %s: store the receipts: %v", ixID, err)
+	if len(list) >= len(storedReceipts(ix)) {
+		// Stored as a local client will be shown it: failures with
+		// transaction "" (Q18), whatever form the provider sent.
+		items := make([]json.RawMessage, 0, len(list))
+		for _, item := range list {
+			if b, err := json.Marshal(item); err == nil {
+				items = append(items, b)
+			}
+		}
+		if all, err := json.Marshal(normalizeReceipts(items)); err == nil {
+			if _, err := d.ix.SetPayment(ixID, interactions.PayUpdate{Receipts: all}); err != nil {
+				log.Printf("anet: %s: store the receipts: %v", ixID, err)
+			}
 		}
 	}
 	// What this node already recorded for the task.

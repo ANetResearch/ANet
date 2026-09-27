@@ -519,6 +519,21 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 			return p.synthesized("Payment completed.", map[string]any{
 				KeyX402Status: PaymentCompleted, KeyX402Receipts: rc}), nil
 		}
+		if ix.PayState != interactions.PayNone {
+			// Quoted, and completed with no settlement on record: the
+			// final message still carries the (empty) receipts (a2a-x402
+			// §7, 0017 Q18), and no payment status for a quote that
+			// simply ended unpaid.
+			meta := map[string]any{KeyX402Receipts: []any{}}
+			text := "The task completed; no payment settled."
+			if st := p.finalX402Status(); st != "" {
+				meta[KeyX402Status] = st
+				if st == PaymentCompleted {
+					text = "Payment completed."
+				}
+			}
+			return p.synthesized(text, meta), nil
+		}
 	case interactions.StateFailed, interactions.StateRejected, interactions.StateCanceled:
 		switch {
 		case p.cap != nil && !p.quoted() && p.cap.Message != "":
@@ -531,11 +546,21 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 			// as the result.
 			msg = p.synthesized(string(ix.Result), nil)
 		}
-		// a2a-x402: once a payment settled, the final message carries the
-		// receipts (§8.2).
-		if rc := p.x402Receipts(); rc != nil {
+		// a2a-x402 §7: the final message of a task that took part in the
+		// payment flow carries the receipts — the whole history, possibly
+		// empty: a declined quote, a lapsed one, a cancel before paying
+		// (§8.2, 0017 Q18).
+		rc := p.x402Receipts()
+		if rc == nil && ix.PayState != interactions.PayNone {
+			rc = []any{}
+		}
+		if rc != nil {
 			if msg == nil {
-				msg = p.synthesized("The task ended after a payment settled.", nil)
+				text := "The task ended after a payment settled."
+				if !anySettled(rc) {
+					text = "The task ended; nothing was paid."
+				}
+				msg = p.synthesized(text, nil)
 			}
 			// A copy: a stored row's metadata is also why.
 			meta := make(map[string]any, len(msg.Metadata)+2)
@@ -547,7 +572,9 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 				msg.Metadata[KeyX402Receipts] = rc
 			}
 			if _, ok := msg.Metadata[KeyX402Status]; !ok {
-				msg.Metadata[KeyX402Status] = p.x402Status()
+				if st := p.finalX402Status(); st != "" {
+					msg.Metadata[KeyX402Status] = st
+				}
 			}
 			// A payment failure's code goes in the message as well as
 			// the task's metadata (a2a-x402 §9).
@@ -643,6 +670,30 @@ func (p *projector) x402Status() string {
 		}
 	}
 	return ""
+}
+
+// finalX402Status is x402.payment.status on a terminal task's final
+// message: the kernel's reading when it gave one, else the stored
+// pay_state's; none for a quote that ended unpaid (nothing is due).
+func (p *projector) finalX402Status() string {
+	if p.kernelPayment() {
+		st, _ := p.payment[KeyX402Status].(string)
+		return st
+	}
+	if p.ix.PayState == interactions.PayRequired {
+		return ""
+	}
+	return p.x402Status()
+}
+
+// anySettled reports whether a receipt list holds a successful settlement.
+func anySettled(rc []any) bool {
+	for _, r := range rc {
+		if m, ok := r.(map[string]any); ok && m["success"] == true {
+			return true
+		}
+	}
+	return false
 }
 
 // x402Receipts is x402.payment.receipts: the stored settlement responses,

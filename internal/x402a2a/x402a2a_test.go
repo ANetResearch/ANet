@@ -35,11 +35,36 @@ func TestTheWireStringsArePinned(t *testing.T) {
 		CodeInsufficientFunds: "INSUFFICIENT_FUNDS", CodeInvalidSignature: "INVALID_SIGNATURE",
 		CodeExpiredPayment: "EXPIRED_PAYMENT", CodeDuplicateNonce: "DUPLICATE_NONCE",
 		CodeNetworkMismatch: "NETWORK_MISMATCH", CodeInvalidAmount: "INVALID_AMOUNT",
-		CodeSettlementFailed: "SETTLEMENT_FAILED",
-		KeyAccept:            "anet.payment.accept",
+		CodeSettlementFailed:        "SETTLEMENT_FAILED",
+		KeyAccept:                   "anet.payment.accept",
+		ExtensionURIv01:             "https://github.com/google-a2a/a2a-x402/v0.1",
+		ExtAuthID:                   "anet.auth_id",
+		ReasonTaskNonceRequired:     "task_nonce_required",
+		ReasonExtensionNotActivated: "payment_extension_not_activated",
 	} {
 		if got != want {
 			t.Errorf("%q, want %q", got, want)
+		}
+	}
+}
+
+// Activation recognises the v0.2 URI this node declares and the v0.1 URI
+// the official reference library sends (0017 Q18); nothing else, and no
+// near miss.
+func TestActivationRecognisesBothURIs(t *testing.T) {
+	for _, c := range []struct {
+		uris []string
+		want bool
+	}{
+		{nil, false},
+		{[]string{ExtensionURI}, true},
+		{[]string{"https://example.org/other", " " + ExtensionURIv01 + " "}, true},
+		{[]string{"https://github.com/google-a2a/a2a-x402/v0.2"}, false},
+		{[]string{ExtensionURI + "/"}, false},
+		{[]string{"https://github.com/google-agentic-commerce/a2a-x402"}, false},
+	} {
+		if got := Activated(c.uris); got != c.want {
+			t.Errorf("Activated(%q) = %v, want %v", c.uris, got, c.want)
 		}
 	}
 }
