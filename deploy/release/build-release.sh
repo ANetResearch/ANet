@@ -51,7 +51,8 @@
 # and compiled in (go:embed), so it has to be committed before the build
 # that carries it. `--official` writes and signs it from
 # deploy/official/official-agents.txt; a release build refuses to start when
-# the committed pair does not verify, is signed by another key, or would
+# the committed pair does not verify, is signed by another key, lists other
+# agents than official-agents.txt, is refused by internal/official, or would
 # expire before the release does (or within ANET_OFFICIAL_MIN_DAYS).
 #
 # Output (dist/):
@@ -228,19 +229,63 @@ EOF_ASSETS
   exit 0
 fi
 
+# ── the official manifest (A2A-DESIGN §15) ───────────────────────────────
+# official_entries <out>: the agents of deploy/official/official-agents.txt,
+# one manifest line each, in the layout --official writes and the release
+# build compares with what is committed. Everything the Go reader
+# (internal/official) would refuse is refused here first, with the line.
+official_entries() {
+  local out="$1" line id oaid hub caps name seen_ids=" " seen_aids=" " n=0 line_no=0
+  [ -f "$OFF_SRC" ] || die "missing $OFF_SRC"
+  : > "$out"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line_no=$((line_no + 1))
+    line="${line#"${line%%[![:space:]]*}"}"
+    case "$line" in ''|'#'*) continue ;; esac
+    # read, not `set -- $line`: no glob expansion of a name like "*".
+    read -r id oaid hub caps name <<<"$line"
+    [ -n "$name" ] || die "official-agents.txt line $line_no: want <id> <aid> <hub> <caps|-> <name…>"
+    [[ "$id" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || die "line $line_no: id '$id' must be [a-z0-9-], at most 64"
+    [[ "$oaid" =~ ^[a-z0-9]{1,128}$ ]] || die "line $line_no: '$oaid' is not an AID"
+    [[ "$hub" =~ ^https?://[^/?#@[:space:]]+(/[^?#[:space:]]*)?$ ]] || die "line $line_no: hub '$hub' is not an http(s) base URL"
+    [ "$caps" = - ] && caps=""
+    [ -z "$caps" ] || [[ "$caps" =~ ^[a-z0-9][a-z0-9._-]{0,127}(,[a-z0-9][a-z0-9._-]{0,127})*$ ]] \
+      || die "line $line_no: caps '$caps' must be comma-separated capability ids"
+    case "$name" in *'"'*|*'\'*) die "line $line_no: the name may not contain a double quote or backslash" ;; esac
+    # A control character (a tab inside the name) is not valid in a JSON
+    # string, and the reader refuses it.
+    [[ "$name" =~ [[:cntrl:]] ]] && die "line $line_no: the name contains a control character"
+    [ "$(printf '%s' "$name" | wc -c)" -le 128 ] || die "line $line_no: the name is longer than 128 bytes"
+    case "$seen_ids" in *" $id "*) die "line $line_no: id $id is listed twice" ;; esac
+    case "$seen_aids" in *" $oaid "*) die "line $line_no: aid $oaid is listed twice" ;; esac
+    seen_ids="$seen_ids$id "; seen_aids="$seen_aids$oaid "
+    printf '    {"id": "%s", "name": "%s", "aid": "%s", "hub": "%s", "caps": [%s]}\n' \
+      "$id" "$name" "$oaid" "$hub" "$(json_list "$caps")" >> "$out"
+    n=$((n + 1))
+  done < "$OFF_SRC"
+  [ "$n" -le 256 ] || die "$n official agents, more than the reader accepts (256)"
+}
+
+# official_reader_accepts: the reader that matters is the binary's — build
+# a throwaway test binary from this checkout and let internal/official
+# judge the pair it embeds (signature, key, strict layout; not the date).
+official_reader_accepts() {
+  ( cd "$ROOT" && go test -count=1 -run '^TestTheEmbeddedManifestVerifies$' ./internal/official/ >/dev/null )
+}
+
 # ── --official: write and sign the official manifest ─────────────────────
 # One field per line and one agent per line, the layout the release-build
 # check below reads with sed. The Go reader (internal/official) is strict:
 # unknown members, a duplicate AID or id, a malformed field or a
 # key_fingerprint that is not the signer's are refused, and a binary with a
 # refused manifest marks no one — so the result is read back by that reader
-# before this mode reports success.
+# before this mode reports success, and the committed pair is put back when
+# it is refused.
 if [ "$MODE" = official ]; then
   check_key
   OFF_TTL="${ANET_OFFICIAL_TTL_DAYS:-365}"
   case "$OFF_TTL" in ''|*[!0-9]*) die "ANET_OFFICIAL_TTL_DAYS must be a number of days" ;; esac
   [ "$OFF_TTL" -ge 1 ] && [ "$OFF_TTL" -le 731 ] || die "ANET_OFFICIAL_TTL_DAYS must be between 1 and 731"
-  [ -f "$OFF_SRC" ] || die "missing $OFF_SRC"
   PREV_SEQ=0
   if [ -f "$OFF_MF" ]; then
     PREV_SEQ="$(sed -n 's/^  "seq": \([0-9][0-9]*\),$/\1/p' "$OFF_MF")"
@@ -250,31 +295,10 @@ if [ "$MODE" = official ]; then
   OFF_EXPIRES="$(utc $((NOW + OFF_TTL * 86400)))"
 
   ENTRIES="$(mktemp)"
-  trap 'rm -f "$ENTRIES" "$OFF_MF.new" "$OFF_MF.new.sig"' EXIT
-  SEEN_IDS=" "; SEEN_AIDS=" "; N=0; LINE_NO=0
-  while IFS= read -r line || [ -n "$line" ]; do
-    LINE_NO=$((LINE_NO + 1))
-    line="${line#"${line%%[![:space:]]*}"}"
-    case "$line" in ''|'#'*) continue ;; esac
-    # read, not `set -- $line`: no glob expansion of a name like "*".
-    read -r id oaid hub caps name <<<"$line"
-    [ -n "$name" ] || die "official-agents.txt line $LINE_NO: want <id> <aid> <hub> <caps|-> <name…>"
-    [[ "$id" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || die "line $LINE_NO: id '$id' must be [a-z0-9-], at most 64"
-    [[ "$oaid" =~ ^[a-z0-9]{1,128}$ ]] || die "line $LINE_NO: '$oaid' is not an AID"
-    [[ "$hub" =~ ^https?://[^/?#@[:space:]]+(/[^?#[:space:]]*)?$ ]] || die "line $LINE_NO: hub '$hub' is not an http(s) base URL"
-    [ "$caps" = - ] && caps=""
-    [ -z "$caps" ] || [[ "$caps" =~ ^[a-z0-9][a-z0-9._-]{0,127}(,[a-z0-9][a-z0-9._-]{0,127})*$ ]] \
-      || die "line $LINE_NO: caps '$caps' must be comma-separated capability ids"
-    case "$name" in *'"'*|*'\'*) die "line $LINE_NO: the name may not contain a double quote or backslash" ;; esac
-    [ "$(printf '%s' "$name" | wc -c)" -le 128 ] || die "line $LINE_NO: the name is longer than 128 bytes"
-    case "$SEEN_IDS" in *" $id "*) die "line $LINE_NO: id $id is listed twice" ;; esac
-    case "$SEEN_AIDS" in *" $oaid "*) die "line $LINE_NO: aid $oaid is listed twice" ;; esac
-    SEEN_IDS="$SEEN_IDS$id "; SEEN_AIDS="$SEEN_AIDS$oaid "
-    printf '    {"id": "%s", "name": "%s", "aid": "%s", "hub": "%s", "caps": [%s]}\n' \
-      "$id" "$name" "$oaid" "$hub" "$(json_list "$caps")" >> "$ENTRIES"
-    N=$((N + 1))
-  done < "$OFF_SRC"
-  [ "$N" -le 256 ] || die "$N official agents, more than the reader accepts (256)"
+  OFF_PREV="$(mktemp -d)"
+  trap 'rm -rf "$ENTRIES" "$OFF_PREV" "$OFF_MF.new" "$OFF_MF.new.sig"' EXIT
+  official_entries "$ENTRIES"
+  N="$(wc -l < "$ENTRIES" | tr -d ' ')"
 
   info "official manifest: seq $SEQ, $N agent(s), valid until $OFF_EXPIRES"
   {
@@ -294,21 +318,29 @@ if [ "$MODE" = official ]; then
     printf '}\n'
   } > "$OFF_MF.new"
   sign "$OFF_MF.new" "$OFFICIAL_NAMESPACE"
+  for f in "$OFF_MF" "$OFF_MF.sig"; do
+    if [ -f "$f" ]; then cp -p "$f" "$OFF_PREV/"; fi
+  done
   mv "$OFF_MF.new.sig" "$OFF_MF.sig"
   mv "$OFF_MF.new" "$OFF_MF"
-  # The reader that matters is the binary's: build a throwaway one from
-  # this checkout and let internal/official judge the pair it embeds.
-  ( cd "$ROOT" && go test -count=1 -run '^TestTheEmbeddedManifestVerifies$' ./internal/official/ >/dev/null ) \
-    || die "internal/official refuses the manifest just written; run: go test -run TestTheEmbeddedManifestVerifies -v ./internal/official/"
+  if ! official_reader_accepts; then
+    for f in manifest.json manifest.json.sig; do
+      if [ -f "$OFF_PREV/$f" ]; then cp -p "$OFF_PREV/$f" "$ROOT/internal/official/$f"; else rm -f "$ROOT/internal/official/$f"; fi
+    done
+    die "internal/official refuses the manifest just written (the previous pair is back in place); run: go test -run TestTheEmbeddedManifestVerifies -v ./internal/official/"
+  fi
   ok "internal/official/manifest.json(.sig): seq $SEQ, $N agent(s), valid until $OFF_EXPIRES"
   echo "  commit internal/official/manifest.json and manifest.json.sig, then build the release"
   exit 0
 fi
 
 # check_official: the official manifest this commit embeds verifies against
-# the committed release key in its namespace, names the signing key, and
-# stays valid past the release being cut — a binary installed on the
-# release's last day still marks the official agents for a while after.
+# the committed release key in its namespace, names the signing key, lists
+# exactly the agents deploy/official/official-agents.txt does (an edit to
+# the source that was never signed is not released as if it were), is read
+# by internal/official, and stays valid past the release being cut — a
+# binary installed on the release's last day still marks the official
+# agents for a while after.
 check_official() {
   [ "$MODE" = unsigned ] && return 0
   [ -f "$OFF_MF" ] && [ -f "$OFF_MF.sig" ] || die "missing internal/official/manifest.json(.sig) — run build-release.sh --official"
@@ -316,6 +348,18 @@ check_official() {
     || die "internal/official/manifest.json.sig does not verify in namespace $OFFICIAL_NAMESPACE — run build-release.sh --official and commit"
   grep -qF "  \"key_fingerprint\": \"$KEY_FP\"," "$OFF_MF" \
     || die "internal/official/manifest.json does not name the signing key $KEY_FP — run build-release.sh --official and commit"
+  local want got n
+  want="$(mktemp)"; got="$(mktemp)"
+  official_entries "$want"
+  grep '^    {"id": ' "$OFF_MF" | sed 's/,$//' > "$got" || true
+  n="$(wc -l < "$want" | tr -d ' ')"
+  if ! cmp -s "$want" "$got"; then
+    rm -f "$want" "$got"
+    die "internal/official/manifest.json does not list the agents deploy/official/official-agents.txt does — run build-release.sh --official and commit"
+  fi
+  rm -f "$want" "$got"
+  official_reader_accepts \
+    || die "internal/official refuses the committed manifest — run: go test -run TestTheEmbeddedManifestVerifies -v ./internal/official/"
   local exp min_days min
   exp="$(sed -n 's/^  "expires_at": "\(.*\)",$/\1/p' "$OFF_MF")"
   min_days="${ANET_OFFICIAL_MIN_DAYS:-180}"
@@ -324,7 +368,7 @@ check_official() {
   # The timestamps have one fixed shape, so they compare as strings.
   [[ "$exp" > "$EXPIRES" ]] && [[ "$exp" > "$min" ]] \
     || die "the official manifest expires at ${exp:-?}: before the release ($EXPIRES) or within $min_days days — run build-release.sh --official and commit"
-  ok "official manifest: $(sed -n 's/^  "seq": \([0-9]*\),$/seq \1/p' "$OFF_MF"), valid until $exp"
+  ok "official manifest: $(sed -n 's/^  "seq": \([0-9]*\),$/seq \1/p' "$OFF_MF"), $n agent(s), valid until $exp"
 }
 
 # ── what is being released ───────────────────────────────────────────────
