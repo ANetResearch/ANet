@@ -1011,6 +1011,7 @@ func (d *Daemon) receiveMaintenance(ctx context.Context) {
 		case <-t.C:
 			d.purgeReplay()
 			d.maintainKeyRing()
+			d.pruneRetention() // daily in effect: the cutoff moves once a day (evidence_mode.go)
 		case <-m.C:
 			// The inbound policy's periodic work (inbound.go, pending.go):
 			// the refusal and acceptance summaries, expiry of held
