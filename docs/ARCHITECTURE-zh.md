@@ -2,7 +2,7 @@
 
 > 本文档面向想快速看懂当前这一版工程的人:先讲清楚**它是什么、边界在哪**,再自底向上把**每一层、每个包、每条命令**串起来,最后用一次完整的任务生命周期把所有东西缝在一起。
 >
-> v0.2 是"对齐 A2A"的版本:任务是 A2A Task,付款是 a2a-x402,本机有 A2A 接口,MCP 工具按 A2A 概念命名;daemon 之间的消息端到端加密后经 hub 中继;新节点默认谁的任务都不接。设计与取舍见 [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md),已知局限见 [KNOWN-LIMITATIONS-zh.md](KNOWN-LIMITATIONS-zh.md)。0.1.x 与 v0.2 不互通(§七)。
+> v0.2 是"对齐 A2A"的版本:任务是 A2A Task,付款是 a2a-x402,本机有 A2A 接口,MCP 工具按 A2A 概念命名;daemon 之间的消息端到端加密后经 hub 中继;新节点默认谁的任务都不接。设计与取舍见 [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md),已知局限见 [KNOWN-LIMITATIONS-zh.md](KNOWN-LIMITATIONS-zh.md)。本文描述的是 v0.2 的软件;0.1.x 的 hub 与 daemon 以明文中继任务内容,hub 读得到。两代互不相通(§七),官方 hub 在 v0.2 发布时同批切换。
 
 ---
 
@@ -321,7 +321,7 @@ anet --id req  results
 anet --id req  review <ix> 5 "fast and delightful"
 ```
 
-联调脚本(`scripts/joint*.sh`、`scenario.sh`、`onboard.sh`)各自构建所需的二进制,不依赖仓库里的任何预编译文件。
+联调脚本(`scripts/joint*.sh`、`scenario.sh`、`onboard.sh`)用的都是新构建的二进制:`joint.sh` 与 `scenario.sh` 按脚本头部的说明先构建到各自的工作目录,其余脚本自己 `go build`;不依赖仓库根目录里的任何预编译文件。
 
 ---
 

@@ -486,7 +486,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -H
 
 **Hermes**:`anet agents wire hermes --a2a <aid>[,<aid>…]` 在 `~/.hermes/config.yaml` 的 `a2a_agents` 下为每个指定的远端 agent 写一条(键是 AID,`url` 为本机代理基址,`auth: {type: bearer, token}`,`timeout: 3600`,不写 `capabilities` 与 `tenant`),文件保持 0600;写了 `a2a_agents`,Hermes 的 `a2a_call` 等工具才会出现。端口或令牌变化后 `anet agents wire hermes --refresh`;`anet agents unwire hermes` 删掉带令牌的条目。与 Hermes 配合时要知道:
 
-- `a2a_call` 是一问一答的阻塞调用。对方追问(`input-required`)后,Hermes 只带 contextId 续写,anet 按规范视为同一 context 里的新任务;多轮对话用 anet MCP 的 `send_message(task_id=…)`。
+- `a2a_call` 是一问一答的阻塞调用。对方追问(`input-required`)后,Hermes 只带 contextId 续写、不带 taskId。这个 context 里恰有一个发往同一 agent、停在 `input-required` 的文本任务时,anet 把续写接到这个任务上(对规范的宽松处理,只在本机 A2A 接口上);没有或不止一个时,按规范在该 context 里新建任务。要确定地续写某个任务,用 anet MCP 的 `send_message(task_id=…)`。
 - 超时后不要让模型直接重试:先 `list_tasks(context_id=…)` 找回原任务。
 - `a2a_discover` 取卡片时不带令牌,会得到 401;看卡片用 MCP `get_agent_card`。
 - 不要对 anet 条目用 `a2a_orchestrate` 的 `*`:它会扇出到全部条目,可能产生多笔付费任务。

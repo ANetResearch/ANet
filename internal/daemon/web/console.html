@@ -1019,7 +1019,7 @@ function renderConversation(id) {
 
   let msgs = "";
   for (const m of (t.messages || [])) {
-    if (m.kind === "end_request") { msgs += chatBubble("sys", (m.from === "me" ? "你" : themName) + " 提议结束任务"); continue; }
+    if (m.kind === "end_request") { msgs += chatBubble("sys", (m.from === "me" ? "你" : themName) + " 请求结束任务"); continue; }
     if (m.kind === "end_accept") continue; // v0.1 handshake row; no longer sent
     if (m.kind === "cancel") { msgs += chatBubble("sys", (m.from === "me" ? "你" : themName) + " 取消了任务"); continue; }
     if (m.kind && m.kind !== "text") continue; // status / payment control rows are not chat
