@@ -96,13 +96,14 @@ anet delegate <provider-aid> --capability text.digest.paid --args '{"text":"hi"}
 | agent(`task-agent`) | MCP `submit_payment`;本机 A2A 客户端在同一任务上发 `payment-submitted` | `agent_max` | 计入 `agent_daily_max` 与 `daily_max` |
 | 人工(`task-manual`) | `anet pay <ix>`,在终端上确认 | `explicit_max` | `daily_max` |
 | 网关(`gateway`) | `anet delegate --pay`、`anet x402-authorize` | `explicit_max` | `daily_max` |
-| 兑付(`redeem`) | `anet redeem` | `explicit_max` | `daily_max`,不受收款方名单约束 |
+| 兑付(`redeem`) | `anet redeem`,在终端上确认 | `explicit_max` | `daily_max`,不受收款方名单约束 |
 
 - 新节点**什么都不自动花**:自动档与 agent 档都是 0。经 MCP 或本机 A2A 接口提交的付款属于 agent 档,不视为你本人的同意。
-- 收款方名单 `payees.allow`(数据目录下,一行一个 AID,手工编辑):键非空即启用,文件缺失等于空表;`anet init` 建一个空文件。名单外的收款方一律拒绝(兑付除外,它的收款方是 hub)。
+- 收款方名单 `payees.allow`(数据目录下,一行一个 AID):用 `anet payees list|add|remove` 管理(`add` 要在终端上确认,每次变更写 `anet.policy.changed`),也可以直接编辑文件;键非空即启用,文件缺失等于空表;`anet init` 建一个空文件。名单外的收款方一律拒绝(兑付除外,它的收款方是 hub)。名单关闭(`payees_file` 为空)时 `anet payees` 不能编辑。
 - 改上限:`anet payments set auto_max=… agent_max=… agent_daily_max=… explicit_max=… daily_max=…`,要在终端上确认;`anet payments` 显示当前上限与最近 24 小时签过的授权额。日累计按**已签授权额**计,不是已结算额。
+- agent 档超出上限或收款方不在名单上时**不报错**:任务仍停在 `input-required`,`anet.reason=needs_operator_approval`,`status.message` 写明你在终端上要先做的步骤(例如 `anet payees add <AID>`、`anet payments set explicit_max=…`),再 `anet pay <ix>`;`/tasks/pay` 以 200 返回并带 `spend_refusal`。什么都没签、没发。人工、网关与兑付档超限仍直接拒绝(403)。
 - 控制台不能授权付款。终端确认在 CLI 进程里做,挡得住只经 MCP 或 A2A 接口行事的 agent,挡不住能读控制令牌的本机程序([已知局限](KNOWN-LIMITATIONS-zh.md)第 13 条)。
-- 付费演示要先把演示 agent 的 AID 写进 `payees.allow`,并在终端上放开 agent 档上限。
+- 付费演示要先 `anet payees add <演示 agent 的 AID>`,并在终端上放开 agent 档上限。
 
 ### 二、hub 上的 x402 门面(买家不必是 daemon)
 
