@@ -4,7 +4,7 @@ package main
 // (A2A-DESIGN SI-4, SI-10, §17):
 //
 //	anetfixture seal       --home DIR --hub URL --to AID [--type message|delegate] [--ix ID] [--text T]
-//	                       [--as AID] [--kel self|claimed] [--no-msg-id]
+//	                       [--as AID] [--kel self|claimed] [--no-msg-id] [--metadata JSON]
 //	anetfixture relay-send --to AID --envelope B64|@FILE [--home DIR --hub URL] [--p2p ADDR]
 //
 // seal builds a sealed envelope exactly as a daemon would (seal.Seal, the
@@ -157,11 +157,17 @@ func cmdSeal(args []string) error {
 	kelOf := fs.String("kel", "self", "inner KEL: self (the signer's) or claimed (the claimed sender's, from the hub)")
 	noMsgID := fs.Bool("no-msg-id", false,
 		"leave ChatMsg.MsgID empty, so only the envelope's replay record (from, mid) tells two copies apart")
+	metadata := fs.String("metadata", "",
+		"a message's ChatMsg.Metadata, a JSON object (e.g. an x402 payment-submitted with its payload)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *hub == "" || *to == "" {
 		return fmt.Errorf("--hub and --to are required")
+	}
+	meta, err := messageMetadata(*metadata)
+	if err != nil {
+		return err
 	}
 	c, err := load(*home)
 	if err != nil {
@@ -170,6 +176,9 @@ func cmdSeal(args []string) error {
 	from := c.AID()
 	if *as != "" {
 		from = *as
+	}
+	if meta != nil && *typ != "message" && *typ != seal.TypeMessage {
+		return fmt.Errorf("--metadata is a message's; a delegate carries none here")
 	}
 	now := uint64(time.Now().UnixMilli())
 
@@ -181,7 +190,7 @@ func cmdSeal(args []string) error {
 		if *ix == "" {
 			return fmt.Errorf("--ix is required for a message: it names the interaction it belongs to")
 		}
-		cm := &delegation.ChatMsg{Kind: delegation.ChatText, Body: *text}
+		cm := &delegation.ChatMsg{Kind: delegation.ChatText, Body: *text, Metadata: meta}
 		if !*noMsgID {
 			cm.MsgID = randomID("msg_")
 		}
@@ -263,6 +272,28 @@ func cmdSeal(args []string) error {
 	fmt.Fprintf(os.Stderr, "ix: %s\nmid: %s\n", *ix, hex.EncodeToString(inner.MID))
 	fmt.Println(base64.StdEncoding.EncodeToString(env))
 	return nil
+}
+
+// messageMetadata checks --metadata: empty, or one JSON object, returned
+// compacted. It is how scripts/scenario.sh sends a payment message as the
+// requester itself, with terms its daemon would never sign (an amount
+// below the quote, another payee), to see the provider's merchant check
+// refuse them (A2A-DESIGN §8.4). The receiver reads ChatMsg.Metadata as a
+// JSON object; anything else would be refused for being malformed, which
+// is not the refusal under test.
+func messageMetadata(v string) ([]byte, error) {
+	if strings.TrimSpace(v) == "" {
+		return nil, nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(v), &obj); err != nil || obj == nil {
+		return nil, fmt.Errorf("--metadata must be a JSON object: %v", err)
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, []byte(v)); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // readEnvelope takes the --envelope value: base64, or @FILE holding it.
