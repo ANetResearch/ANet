@@ -6,7 +6,7 @@ package daemon
 //	POST /tasks/get     GetTask
 //	POST /tasks/list    ListTasks, with role and peer filters
 //	POST /tasks/cancel  CancelTask
-//	POST /tasks/wait    wait for a terminal or input-required state newer than after_seq
+//	POST /tasks/wait    wait until the task is terminal or waits for this node (newer than after_seq)
 //	POST /tasks/reply   the provider's answer on a task delegated to this node
 //	POST /agents/list   discovery: verified network cards by skill/tag, free text matched here
 //	POST /agents/card   one agent's network card (original bytes) and this node's verification
@@ -35,6 +35,16 @@ import (
 // taskWaitCap bounds the timeout a caller may ask a control-plane call to
 // block for.
 const taskWaitCap = time.Hour
+
+// taskBodyMax bounds a /tasks/send or /tasks/reply body, which may carry
+// files as base64 raw parts: the local A2A interface's limit (A2A-DESIGN
+// §11.4), well under the control plane's general one. Each file is held to
+// maxAttachmentBytes on its own.
+const taskBodyMax = 96 << 20
+
+// keyWait marks a /tasks/wait answer whose bound elapsed first: the task
+// is returned as it is, still running.
+const keyWait = "anet.wait"
 
 // registerTaskRoutes adds the /tasks/* routes to the control plane.
 func (d *Daemon) registerTaskRoutes(api *routeMux) {
@@ -133,6 +143,7 @@ func (r *tasksSendReq) message() a2ashape.Message {
 }
 
 func (d *Daemon) hTasksSend(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, taskBodyMax)
 	var req tasksSendReq
 	if err := readJSON(r, &req); err != nil {
 		badTaskRequest(w, "body: %v", err)
@@ -240,11 +251,13 @@ func (d *Daemon) hTasksCancel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, t)
 }
 
-// hTasksWait blocks until the task is terminal or input-required at a
-// state_seq above after_seq (every task view carries its state_seq as
-// metadata anet.state_seq), or timeout_ms elapses. Without after_seq a task
-// already waiting for input returns at once. A timed-out wait answers the
-// task as it is, with metadata anet.wait = "timed_out".
+// hTasksWait blocks until the task is terminal, or waits for this node at
+// a state_seq above after_seq (every task view carries its state_seq as
+// metadata anet.state_seq), or timeout_ms elapses. Waiting for this node is
+// input-required on a task it sent, and any other state on a task
+// delegated to it (the requester answered). Without after_seq such a task
+// returns at once. A timed-out wait answers the task as it is, with
+// metadata anet.wait = "timed_out".
 func (d *Daemon) hTasksWait(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TaskID        string `json:"task_id"`
@@ -281,7 +294,7 @@ func (d *Daemon) hTasksWait(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if timedOut {
-		t.Metadata["anet.wait"] = "timed_out"
+		t.Metadata[keyWait] = "timed_out"
 	}
 	writeJSON(w, http.StatusOK, t)
 }
@@ -304,6 +317,7 @@ type replyReq struct {
 }
 
 func (d *Daemon) hTasksReply(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, taskBodyMax)
 	var req replyReq
 	if err := readJSON(r, &req); err != nil {
 		badTaskRequest(w, "body: %v", err)
@@ -350,7 +364,7 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 		if req.Message != nil {
 			m = *req.Message
 		}
-		if in, err = parseTaskInput(m); err != nil {
+		if in, err = parseTaskInput(m, a2ashape.RoleAgent); err != nil {
 			return a2ashape.Task{}, err
 		}
 		if in.capID != "" {
@@ -368,12 +382,12 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 		if in == nil {
 			return a2ashape.Task{}, bad("a reply that asks for input needs text or files")
 		}
-		_, err = d.sendMessage(sctx, ix.ID, text, in.atts, nil)
+		_, err = d.sendMessage(sctx, ix.ID, text, in.atts, nil, true)
 	case interactions.StateWorking:
 		if in == nil {
 			err = d.SendStatus(sctx, ix.ID, interactions.StateWorking, "", nil)
 		} else {
-			_, err = d.sendMessage(sctx, ix.ID, text, in.atts, map[string]any{"anet.state": string(interactions.StateWorking)})
+			_, err = d.sendMessage(sctx, ix.ID, text, in.atts, map[string]any{a2ashape.KeyState: string(interactions.StateWorking)}, true)
 		}
 	case interactions.StateCompleted:
 		if in != nil {
@@ -383,7 +397,7 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 			// and would be left out.) The requester sees input-required
 			// for the moment between this message and the result, as with
 			// an auto-reply that completes.
-			if _, err = d.sendMessage(sctx, ix.ID, text, in.atts, nil); err != nil {
+			if _, err = d.sendMessage(sctx, ix.ID, text, in.atts, nil, true); err != nil {
 				break
 			}
 		}

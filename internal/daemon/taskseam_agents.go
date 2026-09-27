@@ -6,9 +6,11 @@ package daemon
 // The hub's statement that a card verified is recorded (hubVerification)
 // but not relied on: every card is checked again with ANetCore a2acard
 // against the signer's KEL, and the card must be signed by the AID it is
-// listed under. Free-text search never leaves this node: the hub is asked
-// by skill and tag only, and the text is matched locally against the
-// cards it returned.
+// listed under. A card must also not be older than one this process has
+// already admitted for that agent (the params.seq high-water rule, §10.3):
+// a hub serving an earlier, validly signed card is refused. Free-text
+// search never leaves this node: the hub is asked by skill and tag only,
+// and the text is matched locally against the cards it returned.
 
 import (
 	"context"
@@ -20,6 +22,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/identity"
@@ -194,9 +197,57 @@ func (d *Daemon) verifyCardInto(ra *module.RemoteAgent, resolve a2acard.Resolver
 	case v.AID != ra.AID:
 		ra.VerificationError = fmt.Sprintf("the card is signed by %s, not %s", v.AID, ra.AID)
 	default:
+		if err := cardMarks.admit(d.AID(), v); err != nil {
+			ra.VerificationError = err.Error()
+			return
+		}
 		ra.Verification = cardVerified
 		ra.Name = v.Name
 	}
+}
+
+// cardMarkCap bounds the high-water marks one process keeps.
+const cardMarkCap = 4096
+
+// cardMarkCache is the params.seq high water of the cards this process
+// has admitted, per (this node, card AID) — tests run several nodes in
+// one process. It lives in memory: a restart forgets it, and the first
+// card seen after one is taken as the mark. Past cardMarkCap entries an
+// arbitrary one is forgotten, which loses only that agent's protection.
+type cardMarkCache struct {
+	mu sync.Mutex
+	m  map[string]a2acard.Mark
+}
+
+var cardMarks cardMarkCache
+
+// admit applies a2acard.CheckHighWater to a verified card and records its
+// mark when it advances. A rolled-back or forked card is an error.
+func (c *cardMarkCache) admit(self string, v *a2acard.Verified) error {
+	key := self + "\x00" + v.AID
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var stored *a2acard.Mark
+	if m, ok := c.m[key]; ok {
+		stored = &m
+	}
+	dec, err := a2acard.CheckHighWater(stored, v.Mark())
+	if err != nil {
+		return err
+	}
+	if dec == a2acard.Advance {
+		if c.m == nil {
+			c.m = map[string]a2acard.Mark{}
+		}
+		if _, ok := c.m[key]; !ok && len(c.m) >= cardMarkCap {
+			for k := range c.m {
+				delete(c.m, k)
+				break
+			}
+		}
+		c.m[key] = v.Mark()
+	}
+	return nil
 }
 
 // cardKELResolver resolves a card signer's KEL: the one this node holds

@@ -69,13 +69,20 @@ func TestFindByClientMessage(t *testing.T) {
 	if ix, err := s.FindByClientMessage(q); err != nil || ix.ID != "ix_2" {
 		t.Fatalf("find with peer = %v %v", ix, err)
 	}
+	// No context: the peer's tasks in every context (a client that gave no
+	// contextId retries without one).
+	if ix, err := s.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
+		PeerAID: "peer-b", ClientMsgID: "m-1"}); err != nil || ix.ID != "ix_3" {
+		t.Fatalf("find by peer = %v %v, want ix_3", ix, err)
+	}
 	for name, miss := range map[string]interactions.ClientMessageQuery{
-		"other peer":    {Role: interactions.RoleOutbound, ContextID: "ctx-1", PeerAID: "peer-b", ClientMsgID: "m-1"},
-		"other task":    {Role: interactions.RoleOutbound, ContextID: "ctx-1", TaskID: "ix_1", ClientMsgID: "m-1"},
-		"other id":      {Role: interactions.RoleOutbound, ContextID: "ctx-1", ClientMsgID: "m-2"},
-		"other context": {Role: interactions.RoleOutbound, ContextID: "ctx-9", ClientMsgID: "m-1"},
-		"inbound":       {Role: interactions.RoleInbound, ContextID: "ctx-1", ClientMsgID: "m-1"},
-		"no context":    {Role: interactions.RoleOutbound, ClientMsgID: "m-1"},
+		"other peer":             {Role: interactions.RoleOutbound, ContextID: "ctx-1", PeerAID: "peer-b", ClientMsgID: "m-1"},
+		"other task":             {Role: interactions.RoleOutbound, ContextID: "ctx-1", TaskID: "ix_1", ClientMsgID: "m-1"},
+		"other id":               {Role: interactions.RoleOutbound, ContextID: "ctx-1", ClientMsgID: "m-2"},
+		"other context":          {Role: interactions.RoleOutbound, ContextID: "ctx-9", ClientMsgID: "m-1"},
+		"inbound":                {Role: interactions.RoleInbound, ContextID: "ctx-1", ClientMsgID: "m-1"},
+		"no scope":               {Role: interactions.RoleOutbound, ClientMsgID: "m-1"},
+		"no context, other peer": {Role: interactions.RoleOutbound, PeerAID: "peer-c", ClientMsgID: "m-1"},
 	} {
 		if _, err := s.FindByClientMessage(miss); !errors.Is(err, interactions.ErrNotFound) {
 			t.Errorf("%s: %v, want ErrNotFound", name, err)
@@ -112,6 +119,14 @@ func TestContextPeersAndMergeMessageMeta(t *testing.T) {
 	msgs, _ := s.Messages("ix_1")
 	if msgs[0].Metadata != `{"a2a.messageId":"m-1","k":"v"}` {
 		t.Fatalf("merged metadata = %s", msgs[0].Metadata)
+	}
+	// A nil value removes its key; removing an absent key changes nothing.
+	if err := s.MergeMessageMeta("ix_1", seq, map[string]any{interactions.ClientMessageIDKey: nil, "gone": nil}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, _ = s.Messages("ix_1")
+	if msgs[0].Metadata != `{"k":"v"}` {
+		t.Fatalf("metadata after removal = %s", msgs[0].Metadata)
 	}
 	if err := s.MergeMessageMeta("ix_2", seq, map[string]any{"x": 1}); !errors.Is(err, interactions.ErrNotFound) {
 		t.Fatalf("merge into a message of another interaction: %v", err)
