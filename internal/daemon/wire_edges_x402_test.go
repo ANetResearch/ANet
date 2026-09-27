@@ -218,7 +218,13 @@ func TestACancelPendingOnAPaymentThatFailsIsCarriedOut(t *testing.T) {
 	if st := getIX(t, prov, id).State; st.IsTerminal() {
 		t.Fatalf("setup: the provider ended the task (%s) before the requester heard of the failure", st)
 	}
-	poll(t, req) // payment-failed: the pending cancel is carried out
+	// payment-failed: the pending cancel is carried out. The provider's
+	// status leaves through its retry queue, which a loaded machine (the
+	// whole suite under -race) can deliver after the first poll here.
+	waitUntil(t, "the requester to carry out the pending cancel", func() bool {
+		poll(t, req)
+		return getIX(t, req, id).State == interactions.StateCanceled
+	})
 	if rix := getIX(t, req, id); rix.State != interactions.StateCanceled {
 		t.Fatalf("requester after the failed payment: %s / %q, want canceled", rix.State, rix.PayState)
 	}
