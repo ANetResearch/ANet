@@ -30,11 +30,13 @@ import (
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/moduletest"
 	"github.com/ANetResearch/ANet/provider"
 )
 
 // testHost is the node, as the module is allowed to see it.
 type testHost struct {
+	moduletest.NopHost
 	self *identity.Controller
 	hub  *identity.Controller
 	url  string
@@ -93,8 +95,7 @@ func (h *testHost) RecordEvidence(kind string, payload any) error {
 	h.events = append(h.events, hostEvent{kind: kind, payload: m})
 	return nil
 }
-func (h *testHost) ResolveKEL(string) ([]identity.SignedEvent, bool) { return nil, false }
-func (h *testHost) PaymentSeam() (module.PaymentSeam, bool)          { return h, true }
+func (h *testHost) PaymentSeam() (module.PaymentSeam, bool) { return h, true }
 
 func (h *testHost) Sign(pre []byte) ([]byte, uint64) { return h.self.Sign(pre) }
 func (h *testHost) HubURL() string                   { return h.url }
@@ -401,11 +402,6 @@ func mintVoucher(t *testing.T, signer *identity.Controller,
 	return base64.StdEncoding.EncodeToString(raw)
 }
 
-// This host grants no hub seam. Nothing here talks to a hub as this node,
-// and a test host that handed out a signing grant it does not need would
-// be a wider surface than the thing under test.
-func (*testHost) HubSeam() (module.HubSeam, bool) { return nil, false }
-
 // Admit is the kernel admission seam (module.Host). The test host admits
 // every call unless refuse is set, and records each call so a test can
 // check what the voucher door asked for.
@@ -423,13 +419,6 @@ func (h *testHost) Admit(caller, capID string, argsLen int) (func(), string) {
 		h.mu.Unlock()
 	}, ""
 }
-
-func (*testHost) DeclareUntrustedBackend() {}
-
-// StateDir and TaskSeam complete module.Host. This test host keeps no
-// module state and offers no task seam; nothing under test uses either.
-func (*testHost) StateDir(string) string            { return "" }
-func (*testHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }
 
 type admitCall struct {
 	caller, capID string
