@@ -1,0 +1,1866 @@
+{
+ "hermes_plugin_commit": "b1bb9031",
+ "cards": {
+  "no_token": {
+   "name": "hermes-test",
+   "description": "Hermes Agent",
+   "url": "http://127.0.0.1:9900/",
+   "version": "1.0.0",
+   "provider": {
+    "organization": "Hermes Agent",
+    "url": "http://127.0.0.1:9900/"
+   },
+   "supportedInterfaces": [
+    {
+     "url": "http://127.0.0.1:9900/",
+     "protocolBinding": "JSONRPC",
+     "protocolVersion": "1.0"
+    }
+   ],
+   "capabilities": {
+    "streaming": true,
+    "pushNotifications": true,
+    "stateTransitionHistory": false,
+    "extendedAgentCard": false
+   },
+   "defaultInputModes": [
+    "text/plain"
+   ],
+   "defaultOutputModes": [
+    "text/plain"
+   ],
+   "skills": [
+    {
+     "id": "toolset.web",
+     "name": "web",
+     "description": "Hermes 'web' capabilities",
+     "tags": [
+      "web"
+     ]
+    }
+   ]
+  },
+  "token": {
+   "name": "hermes-test",
+   "description": "Hermes Agent",
+   "url": "http://127.0.0.1:9900/",
+   "version": "1.0.0",
+   "provider": {
+    "organization": "Hermes Agent",
+    "url": "http://127.0.0.1:9900/"
+   },
+   "supportedInterfaces": [
+    {
+     "url": "http://127.0.0.1:9900/",
+     "protocolBinding": "JSONRPC",
+     "protocolVersion": "1.0"
+    }
+   ],
+   "capabilities": {
+    "streaming": true,
+    "pushNotifications": true,
+    "stateTransitionHistory": false,
+    "extendedAgentCard": false
+   },
+   "defaultInputModes": [
+    "text/plain"
+   ],
+   "defaultOutputModes": [
+    "text/plain"
+   ],
+   "skills": [
+    {
+     "id": "toolset.web",
+     "name": "web",
+     "description": "Hermes 'web' capabilities",
+     "tags": [
+      "web"
+     ]
+    }
+   ],
+   "securitySchemes": {
+    "bearer": {
+     "type": "http",
+     "scheme": "bearer"
+    }
+   },
+   "security": [
+    {
+     "bearer": []
+    }
+   ]
+  }
+ },
+ "provider_responses": {
+  "completed": {
+   "jsonrpc": "2.0",
+   "id": "rpc-1",
+   "result": {
+    "task": {
+     "id": "task-0000000000000000",
+     "contextId": "ctx-anet",
+     "status": {
+      "state": "TASK_STATE_COMPLETED",
+      "timestamp": "2026-09-27T00:00:00.000Z",
+      "message": {
+       "role": "ROLE_AGENT",
+       "parts": [
+        {
+         "text": "the answer",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "00000000000000000000000000000000",
+       "contextId": "ctx-anet"
+      }
+     },
+     "artifacts": [
+      {
+       "artifactId": "00000000000000000000000000000000",
+       "parts": [
+        {
+         "text": "the answer",
+         "mediaType": "text/plain"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  "completed, empty reply": {
+   "jsonrpc": "2.0",
+   "id": "rpc-1",
+   "result": {
+    "task": {
+     "id": "task-0000000000000000",
+     "contextId": "ctx-anet",
+     "status": {
+      "state": "TASK_STATE_COMPLETED",
+      "timestamp": "2026-09-27T00:00:00.000Z"
+     }
+    }
+   }
+  },
+  "input-required": {
+   "jsonrpc": "2.0",
+   "id": "rpc-1",
+   "result": {
+    "task": {
+     "id": "task-0000000000000000",
+     "contextId": "ctx-anet",
+     "status": {
+      "state": "TASK_STATE_INPUT_REQUIRED",
+      "timestamp": "2026-09-27T00:00:00.000Z",
+      "message": {
+       "role": "ROLE_AGENT",
+       "parts": [
+        {
+         "text": "which city?",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "00000000000000000000000000000000",
+       "contextId": "ctx-anet"
+      }
+     }
+    }
+   }
+  },
+  "failed, reply timeout": {
+   "jsonrpc": "2.0",
+   "id": "rpc-1",
+   "result": {
+    "task": {
+     "id": "task-0000000000000000",
+     "contextId": "ctx-anet",
+     "status": {
+      "state": "TASK_STATE_FAILED",
+      "timestamp": "2026-09-27T00:00:00.000Z",
+      "message": {
+       "role": "ROLE_AGENT",
+       "parts": [
+        {
+         "text": "[agent did not reply in time]",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "00000000000000000000000000000000",
+       "contextId": "ctx-anet"
+      }
+     }
+    }
+   }
+  },
+  "rejected, anti-loop": {
+   "jsonrpc": "2.0",
+   "id": "rpc-1",
+   "result": {
+    "task": {
+     "id": "task-0000000000000000",
+     "contextId": "ctx-anet",
+     "status": {
+      "state": "TASK_STATE_REJECTED",
+      "timestamp": "2026-09-27T00:00:00.000Z",
+      "message": {
+       "role": "ROLE_AGENT",
+       "parts": [
+        {
+         "text": "Anti-loop protection: context ctx-anet exceeded 5 turns. Start a new context or increase A2A_MAX_PINGPONG_TURNS.",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "00000000000000000000000000000000",
+       "contextId": "ctx-anet"
+      }
+     }
+    }
+   }
+  }
+ },
+ "cases": [
+  {
+   "name": "text completed",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"artifacts\":[{\"artifactId\":\"anet.reply\",\"name\":\"anet.reply\",\"parts\":[{\"text\":\"waves fold\\nsalt remembers\\nthe shore\"}]},{\"artifactId\":\"anet.receipt\",\"name\":\"anet.receipt\",\"parts\":[{\"data\":{\"completed_at\":1790000000123,\"interaction_id\":\"ix\",\"provider_aid\":\"did:anet:peer\",\"provider_kel\":\"a2VsCg==\",\"receipt\":\"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\",\"receipt_cid\":\"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\",\"request_cid\":\"bafyrequest\",\"requester_aid\":\"did:anet:self\",\"result_cid\":\"bafyresult\",\"verified\":\"verified\"},\"mediaType\":\"application/json\"}]}],\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"write a haiku\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"},{\"messageId\":\"msg_2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"text\":\"waves fold\\nsalt remembers\\nthe shore\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · completed]\nwaves fold\nsalt remembers\nthe shore",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text completed, receipt unverified",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"artifacts\":[{\"artifactId\":\"anet.reply\",\"name\":\"anet.reply\",\"parts\":[{\"text\":\"ok\"}]},{\"artifactId\":\"anet.receipt\",\"name\":\"anet.receipt\",\"parts\":[{\"data\":{\"completed_at\":1790000000123,\"interaction_id\":\"ix\",\"provider_aid\":\"did:anet:peer\",\"provider_kel\":\"a2VsCg==\",\"receipt\":\"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\",\"receipt_cid\":\"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\",\"request_cid\":\"bafyrequest\",\"requester_aid\":\"did:anet:self\",\"result_cid\":\"bafyresult\",\"verified\":\"unverified\"},\"mediaType\":\"application/json\"}]}],\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"g\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"unverified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · completed]\nok",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text completed, reply text and a file",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"artifacts\":[{\"artifactId\":\"anet.reply\",\"name\":\"anet.reply\",\"parts\":[{\"text\":\"here it is\"}]},{\"artifactId\":\"anet.receipt\",\"name\":\"anet.receipt\",\"parts\":[{\"data\":{\"completed_at\":1790000000123,\"interaction_id\":\"ix\",\"provider_aid\":\"did:anet:peer\",\"provider_kel\":\"a2VsCg==\",\"receipt\":\"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\",\"receipt_cid\":\"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\",\"request_cid\":\"bafyrequest\",\"requester_aid\":\"did:anet:self\",\"result_cid\":\"bafyresult\",\"verified\":\"verified\"},\"mediaType\":\"application/json\"}]},{\"artifactId\":\"anet.attachment.0\",\"name\":\"safe-cat.png\",\"parts\":[{\"raw\":\"CQk=\",\"filename\":\"safe-cat.png\",\"mediaType\":\"image/png\",\"metadata\":{\"anet.cid\":\"bafkcat\",\"anet.size\":2}}]}],\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"draw a cat\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"},{\"messageId\":\"msg_2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"text\":\"here it is\"},{\"raw\":\"CQk=\",\"filename\":\"safe-cat.png\",\"mediaType\":\"image/png\",\"metadata\":{\"anet.cid\":\"bafkcat\",\"anet.size\":2}}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · completed]\nhere it is",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text completed, reply is only a file",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"artifacts\":[{\"artifactId\":\"anet.reply\",\"name\":\"anet.reply\",\"parts\":[{\"text\":\"\"}]},{\"artifactId\":\"anet.receipt\",\"name\":\"anet.receipt\",\"parts\":[{\"data\":{\"completed_at\":1790000000123,\"interaction_id\":\"ix\",\"provider_aid\":\"did:anet:peer\",\"provider_kel\":\"a2VsCg==\",\"receipt\":\"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\",\"receipt_cid\":\"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\",\"request_cid\":\"bafyrequest\",\"requester_aid\":\"did:anet:self\",\"result_cid\":\"bafyresult\",\"verified\":\"verified\"},\"mediaType\":\"application/json\"}]},{\"artifactId\":\"anet.attachment.0\",\"name\":\"safe-cat.png\",\"parts\":[{\"raw\":\"CQk=\",\"filename\":\"safe-cat.png\",\"mediaType\":\"image/png\",\"metadata\":{\"anet.cid\":\"bafkcat\",\"anet.size\":2}}]}],\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"draw a cat\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"},{\"messageId\":\"msg_2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"raw\":\"CQk=\",\"filename\":\"safe-cat.png\",\"mediaType\":\"image/png\",\"metadata\":{\"anet.cid\":\"bafkcat\",\"anet.size\":2}}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · completed]\n[data (application/json)]\n{\"completed_at\": 1790000000123, \"interaction_id\": \"ix\", \"provider_aid\": \"did:anet:peer\", \"provider_kel\": \"a2VsCg==\", \"receipt\": \"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\", \"receipt_cid\": \"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\", \"request_cid\": \"bafyrequest\", \"requester_aid\": \"did:anet:self\", \"result_cid\": \"bafyresult\", \"verified\": \"verified\"}",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text completed, provider never spoke",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"artifacts\":[{\"artifactId\":\"anet.receipt\",\"name\":\"anet.receipt\",\"parts\":[{\"data\":{\"completed_at\":1790000000123,\"interaction_id\":\"ix\",\"provider_aid\":\"did:anet:peer\",\"provider_kel\":\"a2VsCg==\",\"receipt\":\"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\",\"receipt_cid\":\"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\",\"request_cid\":\"bafyrequest\",\"requester_aid\":\"did:anet:self\",\"result_cid\":\"bafyresult\",\"verified\":\"verified\"},\"mediaType\":\"application/json\"}]}],\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"ping\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · completed]\n[data (application/json)]\n{\"completed_at\": 1790000000123, \"interaction_id\": \"ix\", \"provider_aid\": \"did:anet:peer\", \"provider_kel\": \"a2VsCg==\", \"receipt\": \"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\", \"receipt_cid\": \"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\", \"request_cid\": \"bafyrequest\", \"requester_aid\": \"did:anet:self\", \"result_cid\": \"bafyresult\", \"verified\": \"verified\"}",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text failed with receipt",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"artifacts\":[{\"artifactId\":\"anet.reply\",\"name\":\"anet.reply\",\"parts\":[{\"text\":\"I cannot do that: out of scope\"}]},{\"artifactId\":\"anet.receipt\",\"name\":\"anet.receipt\",\"parts\":[{\"data\":{\"completed_at\":1790000000123,\"interaction_id\":\"ix\",\"provider_aid\":\"did:anet:peer\",\"provider_kel\":\"a2VsCg==\",\"receipt\":\"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\",\"receipt_cid\":\"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\",\"request_cid\":\"bafyrequest\",\"requester_aid\":\"did:anet:self\",\"result_cid\":\"bafyresult\",\"verified\":\"verified\"},\"mediaType\":\"application/json\"}]}],\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"hack the planet\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"},{\"messageId\":\"msg_2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"text\":\"I cannot do that: out of scope\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"state\":\"TASK_STATE_FAILED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · failed]\nI cannot do that: out of scope",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text failed without receipt",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"g\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.request_cid\":\"bafyrequest\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"message\":{\"messageId\":\"ix.status.3\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"text\":\"provider error: model quota exhausted\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_FAILED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · failed]\nprovider error: model quota exhausted",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text rejected by inbound policy",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"g\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.reason\":\"not_allowed\",\"anet.request_cid\":\"bafyrequest\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"message\":{\"messageId\":\"st_1\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"anet.reason\":\"not_allowed\"},\"parts\":[{\"text\":\"this node did not accept the task: not_allowed\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_REJECTED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · rejected]\nthis node did not accept the task: not_allowed",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text rejected, sandbox unavailable",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"g\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.reason\":\"sandbox_unavailable\",\"anet.request_cid\":\"bafyrequest\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"message\":{\"messageId\":\"st_1\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"anet.reason\":\"sandbox_unavailable\"},\"parts\":[{\"text\":\"this node runs its agent for untrusted peers only inside a sandbox, and the sandbox is unavailable\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_REJECTED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · rejected]\nthis node runs its agent for untrusted peers only inside a sandbox, and the sandbox is unavailable",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text canceled, nothing said",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"g\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.request_cid\":\"bafyrequest\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"state\":\"TASK_STATE_CANCELED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · canceled]\n(no text reply)",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text input-required, question",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"write a haiku\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"},{\"messageId\":\"msg_2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"text\":\"about what?\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.request_cid\":\"bafyrequest\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"message\":{\"messageId\":\"msg_2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"text\":\"about what?\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_INPUT_REQUIRED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · input-required]\nabout what?\n\n(The peer needs more input — answer by calling a2a_call again with context_id 'ctx-5f1e2d3c4b5a6978'.)",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text input-required, question with a file",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"draw a cat\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"},{\"messageId\":\"msg_2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"text\":\"like this?\"},{\"raw\":\"CQk=\",\"filename\":\"safe-cat.png\",\"mediaType\":\"image/png\",\"metadata\":{\"anet.cid\":\"bafkcat\",\"anet.size\":2}}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.request_cid\":\"bafyrequest\",\"anet.role\":\"requester\",\"anet.state_seq\":3},\"status\":{\"message\":{\"messageId\":\"msg_2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"text\":\"like this?\"},{\"raw\":\"CQk=\",\"filename\":\"safe-cat.png\",\"mediaType\":\"image/png\",\"metadata\":{\"anet.cid\":\"bafkcat\",\"anet.size\":2}}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_INPUT_REQUIRED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · input-required]\nlike this?\n[file: safe-cat.png] 4 bytes base64-encoded (image/png)\n\n(The peer needs more input — answer by calling a2a_call again with context_id 'ctx-5f1e2d3c4b5a6978'.)",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "text input-required, payment message with text",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"a2a.messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\"},\"parts\":[{\"text\":\"g\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.request_cid\":\"bafyrequest\",\"anet.role\":\"requester\",\"anet.state_seq\":3,\"x402.payment.status\":\"payment-required\"},\"status\":{\"message\":{\"messageId\":\"msg_2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"x402.payment.required\":{\"accepts\":[{\"amount\":\"5\",\"asset\":\"credit\",\"maxTimeoutSeconds\":600,\"network\":\"hub:did:anet:h\",\"payTo\":\"did:anet:peer\",\"scheme\":\"anet-credit\"}],\"x402Version\":2},\"x402.payment.status\":\"payment-required\"},\"parts\":[{\"text\":\"this costs 5 credits\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_INPUT_REQUIRED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · input-required]\nthis costs 5 credits\n\n(The peer needs more input — answer by calling a2a_call again with context_id 'ctx-5f1e2d3c4b5a6978'.)",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "capability input-required, payment message",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"data\":{\"args\":{\"key\":\"k\"},\"skill\":\"cas.put\"},\"mediaType\":\"application/json\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.peer_aid\":\"did:anet:peer\",\"anet.request_cid\":\"bafyrequest\",\"anet.role\":\"requester\",\"anet.skill\":\"cas.put\",\"anet.state_seq\":2,\"x402.payment.status\":\"payment-required\"},\"status\":{\"message\":{\"messageId\":\"msg_2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"x402.payment.required\":{\"accepts\":[{\"amount\":\"5\",\"asset\":\"credit\",\"maxTimeoutSeconds\":600,\"network\":\"hub:did:anet:h\",\"payTo\":\"did:anet:peer\",\"scheme\":\"anet-credit\"}],\"x402Version\":2},\"x402.payment.status\":\"payment-required\"},\"parts\":[{\"text\":\"\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_INPUT_REQUIRED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · input-required]\n(no text reply)\n\n(The peer needs more input — answer by calling a2a_call again with context_id 'ctx-5f1e2d3c4b5a6978'.)",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "capability input-required, quote with a message",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"data\":{\"args\":{\"key\":\"k\"},\"skill\":\"cas.put\"},\"mediaType\":\"application/json\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.effect_status\":\"PAYMENT_REQUIRED\",\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.skill\":\"cas.put\",\"anet.state_seq\":2,\"x402.payment.status\":\"payment-required\"},\"status\":{\"message\":{\"messageId\":\"ix.status.2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"x402.payment.required\":{\"accepts\":[{\"amount\":\"5\",\"asset\":\"credit\",\"maxTimeoutSeconds\":600,\"network\":\"hub:did:anet:h\",\"payTo\":\"did:anet:peer\",\"scheme\":\"anet-credit\"}],\"x402Version\":2},\"x402.payment.status\":\"payment-required\"},\"parts\":[{\"text\":\"costs 5\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_INPUT_REQUIRED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · input-required]\ncosts 5\n\n(The peer needs more input — answer by calling a2a_call again with context_id 'ctx-5f1e2d3c4b5a6978'.)",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "capability input-required, quote without a message",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"data\":{\"args\":{\"key\":\"k\"},\"skill\":\"cas.put\"},\"mediaType\":\"application/json\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.effect_status\":\"PAYMENT_REQUIRED\",\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.skill\":\"cas.put\",\"anet.state_seq\":2,\"x402.payment.status\":\"payment-required\"},\"status\":{\"message\":{\"messageId\":\"ix.status.2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"x402.payment.required\":{\"accepts\":[{\"amount\":\"5\",\"asset\":\"credit\",\"maxTimeoutSeconds\":600,\"network\":\"hub:did:anet:h\",\"payTo\":\"did:anet:peer\",\"scheme\":\"anet-credit\"}],\"x402Version\":2},\"x402.payment.status\":\"payment-required\"},\"parts\":[{\"text\":\"Payment is required.\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_INPUT_REQUIRED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · input-required]\nPayment is required.\n\n(The peer needs more input — answer by calling a2a_call again with context_id 'ctx-5f1e2d3c4b5a6978'.)",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "capability completed",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"artifacts\":[{\"artifactId\":\"anet.result\",\"name\":\"cas.put\",\"parts\":[{\"data\":{\"capability\":\"cas.put\",\"nonce\":\"n\",\"status\":\"OK\",\"value\":{\"etag\":\"e1\",\"size\":3},\"verifiable\":true},\"mediaType\":\"application/json\"}]},{\"artifactId\":\"anet.receipt\",\"name\":\"anet.receipt\",\"parts\":[{\"data\":{\"completed_at\":1790000000123,\"interaction_id\":\"ix\",\"provider_aid\":\"did:anet:peer\",\"provider_kel\":\"a2VsCg==\",\"receipt\":\"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\",\"receipt_cid\":\"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\",\"request_cid\":\"bafyrequest\",\"requester_aid\":\"did:anet:self\",\"result_cid\":\"bafyresult\",\"verified\":\"verified\"},\"mediaType\":\"application/json\"}]}],\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"data\":{\"args\":{\"key\":\"k\"},\"skill\":\"cas.put\"},\"mediaType\":\"application/json\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.effect_status\":\"OK\",\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.skill\":\"cas.put\",\"anet.state_seq\":2},\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · completed]\n[data (application/json)]\n{\"capability\": \"cas.put\", \"nonce\": \"n\", \"status\": \"OK\", \"value\": {\"etag\": \"e1\", \"size\": 3}, \"verifiable\": true}",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "capability completed, effect unverified",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"artifacts\":[{\"artifactId\":\"anet.result\",\"name\":\"cas.put\",\"parts\":[{\"data\":{\"capability\":\"cas.put\",\"message\":\"sent, no readback\",\"status\":\"UNVERIFIED\",\"verifiable\":false},\"mediaType\":\"application/json\"}]},{\"artifactId\":\"anet.receipt\",\"name\":\"anet.receipt\",\"parts\":[{\"data\":{\"completed_at\":1790000000123,\"interaction_id\":\"ix\",\"provider_aid\":\"did:anet:peer\",\"provider_kel\":\"a2VsCg==\",\"receipt\":\"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\",\"receipt_cid\":\"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\",\"request_cid\":\"bafyrequest\",\"requester_aid\":\"did:anet:self\",\"result_cid\":\"bafyresult\",\"verified\":\"verified\"},\"mediaType\":\"application/json\"}]}],\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"data\":{\"args\":{\"key\":\"k\"},\"skill\":\"cas.put\"},\"mediaType\":\"application/json\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.effect_status\":\"UNVERIFIED\",\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.skill\":\"cas.put\",\"anet.state_seq\":2},\"status\":{\"state\":\"TASK_STATE_COMPLETED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · completed]\n[data (application/json)]\n{\"capability\": \"cas.put\", \"message\": \"sent, no readback\", \"status\": \"UNVERIFIED\", \"verifiable\": false}",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "capability failed",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"artifacts\":[{\"artifactId\":\"anet.result\",\"name\":\"cas.put\",\"parts\":[{\"data\":{\"capability\":\"cas.put\",\"message\":\"boom\",\"status\":\"FAILED\"},\"mediaType\":\"application/json\"}]},{\"artifactId\":\"anet.receipt\",\"name\":\"anet.receipt\",\"parts\":[{\"data\":{\"completed_at\":1790000000123,\"interaction_id\":\"ix\",\"provider_aid\":\"did:anet:peer\",\"provider_kel\":\"a2VsCg==\",\"receipt\":\"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\",\"receipt_cid\":\"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\",\"request_cid\":\"bafyrequest\",\"requester_aid\":\"did:anet:self\",\"result_cid\":\"bafyresult\",\"verified\":\"verified\"},\"mediaType\":\"application/json\"}]}],\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"data\":{\"args\":{\"key\":\"k\"},\"skill\":\"cas.put\"},\"mediaType\":\"application/json\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.effect_status\":\"FAILED\",\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.role\":\"requester\",\"anet.skill\":\"cas.put\",\"anet.state_seq\":2},\"status\":{\"message\":{\"messageId\":\"ix.status.2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"text\":\"boom\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_FAILED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · failed]\n[data (application/json)]\n{\"capability\": \"cas.put\", \"message\": \"boom\", \"status\": \"FAILED\"}",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "capability rejected, busy",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"artifacts\":[{\"artifactId\":\"anet.result\",\"name\":\"cas.put\",\"parts\":[{\"data\":{\"capability\":\"cas.put\",\"message\":\"busy\",\"status\":\"UNAVAILABLE\"},\"mediaType\":\"application/json\"}]},{\"artifactId\":\"anet.receipt\",\"name\":\"anet.receipt\",\"parts\":[{\"data\":{\"completed_at\":1790000000123,\"interaction_id\":\"ix\",\"provider_aid\":\"did:anet:peer\",\"provider_kel\":\"a2VsCg==\",\"receipt\":\"ogGmAWJpeAJtZGlkOmFuZXQ6c2VsZgNtZGlkOmFuZXQ6cGVlcgRrYmFmeXJlcXVlc3QFamJhZnlyZXN1bHQGGwAAAaDEUGx7AvY=\",\"receipt_cid\":\"bafyreia56qlsljpj65vmdo4z3z56ntvuuxggyz7dkz3widtjonnrlge4la\",\"request_cid\":\"bafyrequest\",\"requester_aid\":\"did:anet:self\",\"result_cid\":\"bafyresult\",\"verified\":\"verified\"},\"mediaType\":\"application/json\"}]}],\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"data\":{\"args\":{\"key\":\"k\"},\"skill\":\"cas.put\"},\"mediaType\":\"application/json\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.effect_status\":\"UNAVAILABLE\",\"anet.peer_aid\":\"did:anet:peer\",\"anet.receipt_verified\":\"verified\",\"anet.request_cid\":\"bafyrequest\",\"anet.result_cid\":\"bafyresult\",\"anet.retry_after_ms\":60000,\"anet.role\":\"requester\",\"anet.skill\":\"cas.put\",\"anet.state_seq\":2},\"status\":{\"message\":{\"messageId\":\"ix.status.2\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"text\":\"busy\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_REJECTED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · rejected]\n[data (application/json)]\n{\"capability\": \"cas.put\", \"message\": \"busy\", \"status\": \"UNAVAILABLE\"}",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "capability rejected by policy",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"task-0123456789abcdef\",\"result\":{\"task\":{\"id\":\"ix\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"history\":[{\"messageId\":\"9f2c1e0b7a6d4c3b8e5f1a2b3c4d5e6f\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"parts\":[{\"data\":{\"args\":{\"key\":\"k\"},\"skill\":\"cas.put\"},\"mediaType\":\"application/json\"}],\"role\":\"ROLE_USER\",\"taskId\":\"ix\"}],\"metadata\":{\"anet.effect_status\":\"UNAVAILABLE\",\"anet.peer_aid\":\"did:anet:peer\",\"anet.reason\":\"denied\",\"anet.request_cid\":\"bafyrequest\",\"anet.role\":\"requester\",\"anet.skill\":\"cas.put\",\"anet.state_seq\":2},\"status\":{\"message\":{\"messageId\":\"st_1\",\"contextId\":\"ctx-5f1e2d3c4b5a6978\",\"metadata\":{\"anet.reason\":\"denied\"},\"parts\":[{\"text\":\"this node did not accept the task: denied\"}],\"role\":\"ROLE_AGENT\",\"taskId\":\"ix\"},\"state\":\"TASK_STATE_REJECTED\",\"timestamp\":\"2026-09-21T14:13:20.123Z\"}}}}\n",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978 · rejected]\nthis node did not accept the task: denied",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: legacy bare task, v0.3 parts",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"id\":\"t\",\"contextId\":\"c03\",\"kind\":\"task\",\"status\":{\"state\":\"completed\"},\"artifacts\":[{\"artifactId\":\"a\",\"parts\":[{\"kind\":\"text\",\"text\":\"v0.3 reply\"}]}]}}",
+   "output": "[aidpeer · context c03 · completed]\nv0.3 reply",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: message result",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"message\":{\"role\":\"ROLE_AGENT\",\"messageId\":\"m\",\"parts\":[{\"text\":\"direct\"}]}}}",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978]\ndirect",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: every part kind",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"task\":{\"id\":\"t\",\"contextId\":\"c\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"},\"artifacts\":[{\"artifactId\":\"a\",\"parts\":[{\"text\":\"a\"},{\"text\":null},\"not a part\",{\"url\":\"https://x/y.pdf\",\"filename\":\"y.pdf\",\"mediaType\":\"application/pdf\"},{\"url\":\"https://x/z\",\"name\":\"z\"},{\"url\":\"\"},{\"kind\":\"file\",\"file\":{\"name\":\"f.txt\",\"mimeType\":\"text/plain\",\"fileWithUri\":\"https://x/f.txt\"}},{\"file\":{\"bytes\":\"AAAA\"}},{\"raw\":\"AAECAwQ=\",\"filename\":\"b.bin\",\"mediaType\":\"application/octet-stream\"},{\"raw\":\"\",\"mediaType\":\"\"},{\"data\":{\"é\":\"\\u2028<>&\\n\\\"\\\\\\u0001\",\"f\":[1.5,1e16,1e15,1e-5,0.0001,-0.0,100,1E2,1e400,-7],\"b\":[true,false,null],\"z\":{}},\"mediaType\":\"application/vnd.x+json\"},{\"data\":[]},{\"data\":0},{\"data\":null}]}]}}}",
+   "output": "[aidpeer · context c · completed]\na\n[file: y.pdf] https://x/y.pdf (application/pdf)\n[file: z] https://x/z\n[file: f.txt] https://x/f.txt (text/plain)\n[file: b.bin] 8 bytes base64-encoded (application/octet-stream)\n[file] 0 bytes base64-encoded\n[data (application/vnd.x+json)]\n{\"é\": \" <>&\\n\\\"\\\\\\u0001\", \"f\": [1.5, 1e+16, 1000000000000000.0, 1e-05, 0.0001, -0.0, 100, 100.0, Infinity, -7], \"b\": [true, false, null], \"z\": {}}\n[data (application/json)]\n[]\n[data (application/json)]\n0",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: empty artifact text, then text",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"task\":{\"id\":\"t\",\"contextId\":\"c\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"},\"artifacts\":[{\"artifactId\":\"a\",\"parts\":[{\"text\":\" \\n\\t\"}]},{\"artifactId\":\"b\",\"parts\":[{\"text\":\"second\"}]}]}}}",
+   "output": "[aidpeer · context c · completed]\nsecond",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: no artifacts, null status message",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"task\":{\"id\":\"t\",\"contextId\":\"c\",\"status\":{\"state\":\"TASK_STATE_FAILED\",\"message\":null}}}}",
+   "output": "[aidpeer · context c · failed]\n(no text reply)",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: null result",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":null}",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978]\nNone",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: list result",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":[\"a\",1,2.5,true,null,{\"k\":\"v\",\"q\":\"it's\"}]}",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978]\n['a', 1, 2.5, True, None, {'k': 'v', 'q': \"it's\"}]",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: v0.3 input-required",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"task\":{\"id\":\"t\",\"contextId\":\"c2\",\"status\":{\"state\":\"input-required\",\"message\":{\"parts\":[{\"kind\":\"text\",\"text\":\"which?\"}]}}}}}",
+   "output": "[aidpeer · context c2 · input-required]\nwhich?",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: python whitespace",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"message\":{\"parts\":[{\"text\":\"\\u3000 hi \\u001c\\u0085\"}]}}}",
+   "output": "[aidpeer · context ctx-5f1e2d3c4b5a6978]\nhi",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: repeated key",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"task\":{\"id\":\"t\",\"contextId\":\"c\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"},\"artifacts\":[{\"artifactId\":\"a\",\"parts\":[{\"text\":\"first\"}]}],\"artifacts\":[{\"artifactId\":\"b\",\"parts\":[{\"text\":\"second\"}]}]}}}",
+   "output": "[aidpeer · context c · completed]\nsecond",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: artifacts not a list",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"task\":{\"id\":\"t\",\"contextId\":\"c\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"},\"artifacts\":{\"parts\":[]}}}}",
+   "output": "Error: call to 'aidpeer' failed — 'str' object has no attribute 'get'.",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: null parts",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"task\":{\"id\":\"t\",\"contextId\":\"c\",\"status\":{\"state\":\"TASK_STATE_FAILED\",\"message\":{\"parts\":null}}}}}",
+   "output": "Error: call to 'aidpeer' failed — 'NoneType' object is not iterable.",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: no context sent",
+   "agent": "aidpeer",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"result\":{\"task\":{\"id\":\"t\",\"contextId\":\"server-ctx\",\"status\":{\"state\":\"TASK_STATE_COMPLETED\"},\"artifacts\":[{\"artifactId\":\"a\",\"parts\":[{\"text\":\"hi\"}]}]}}}",
+   "output": "[aidpeer · context server-ctx · completed]\nhi",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-0000000000000000"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: jsonrpc error",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"error\":{\"code\":-32001,\"message\":\"Task not found\"}}",
+   "output": "Peer 'aidpeer' returned an error: Task not found",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: jsonrpc error without message",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "{\"jsonrpc\":\"2.0\",\"id\":\"x\",\"error\":{\"code\":-32603,\"data\":[1.0,\"x\"]}}",
+   "output": "Peer 'aidpeer' returned an error: {'code': -32603, 'data': [1.0, 'x']}",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: http 401",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "",
+   "http_status": 401,
+   "output": "Error: peer 'aidpeer' rejected auth (HTTP 401). Check the configured token.",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: http 429",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "",
+   "http_status": 429,
+   "output": "Error: peer 'aidpeer' rate limited us (HTTP 429). Retry later.",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: http 404",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "",
+   "http_status": 404,
+   "output": "Error: call to 'aidpeer' failed — HTTP 404.",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  },
+  {
+   "name": "edge: read timeout",
+   "agent": "aidpeer",
+   "context_id": "ctx-5f1e2d3c4b5a6978",
+   "response": "",
+   "transport_error": "timed out",
+   "output": "Error: call to 'aidpeer' failed — timed out.",
+   "request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/jsonrpc",
+    "headers": {
+     "Content-Type": "application/json",
+     "A2A-Version": "1.0",
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 3600,
+    "body": {
+     "jsonrpc": "2.0",
+     "id": "<rpc-id>",
+     "method": "SendMessage",
+     "params": {
+      "message": {
+       "role": "ROLE_USER",
+       "parts": [
+        {
+         "text": "hello",
+         "mediaType": "text/plain"
+        }
+       ],
+       "messageId": "<message-id>",
+       "contextId": "ctx-5f1e2d3c4b5a6978"
+      }
+     }
+    }
+   },
+   "card_request": {
+    "url": "http://127.0.0.1:47100/a2a/v1/agents/aidpeer/.well-known/agent-card.json",
+    "headers": {
+     "Authorization": "Bearer a2a-local-token"
+    },
+    "timeout": 30
+   }
+  }
+ ]
+}
