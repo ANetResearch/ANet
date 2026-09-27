@@ -142,9 +142,10 @@ cmax 与 dmax 上跑着生产与准生产服务(见下节)。脚本的保证,以
 需要的改造点(行号以 commit 6295665 为准),以及测试网这边已经提供的对接面。
 
 > 现状(B5-04 之后):`scenario.sh` 已不按进程名停进程(第 1 条),接受 `JOINT_BIN`(本目录 `build.sh` 的产出),
-> 端口段由 `SCENARIO_PORT_BASE` 给出(第 3 条,例如 47155,占 +0…+42),第 8 节两 hub 跨 hub 用例可以放在
-> 一台主机的两个端口段(`XHUB_PORT_BASE2`),或经 ssh 把第二个 hub 与它的 provider 放到另一台主机
-> (`XHUB_HOST2` + `XHUB_ADDR1/2`,例如 Ink89 上跑、Ink90 做第二边;需要 Ink89 能免交互 ssh/scp 到 Ink90)。
+> 端口段由 `SCENARIO_PORT_BASE` 给出(第 3 条,例如 47155,占 +0…+43;端口被占即退出,不停占用者),第 8 节
+> 两 hub 跨 hub 用例可以放在一台主机的两个端口段(`XHUB_PORT_BASE2`,缺省 +50…+53),或经 ssh 把第二个 hub
+> 与它的 provider 放到另一台主机(`XHUB_HOST2` + `XHUB_ADDR1/2`,例如 Ink89 上跑、Ink90 做第二边;需要 Ink89
+> 能免交互 ssh/scp 到 Ink90)。
 > 它仍自己起全部进程,不接入 `deploy.sh` 部署的节点。用法见 `scenario.sh` 文件头。
 
 ### 测试网提供的对接面

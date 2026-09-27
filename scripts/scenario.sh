@@ -42,14 +42,16 @@
 #                       joint.sh; HUB_SRC names the ANetHub checkout)
 #   SCENARIO_PORT_BASE  first port of the block this run uses (default 29500): hub +0,
 #                       second hub +1, daemons +10..+13, service +20, voucher door +30,
-#                       section 8's requesters +40..+42. On the test hosts pick a block
-#                       inside 47100-47499 (scripts/testnet/README.md), e.g. 47155
+#                       section 8's requesters +40..+43. On the test hosts pick a block
+#                       inside 47100-47499 (scripts/testnet/README.md), e.g. 47155. A port
+#                       in use aborts the run; nothing is stopped to free it
 #   HUB_PORT            the first hub alone (default: the port base)
 #   SCENARIO_KEEP=1     leave everything running at the end
 #   Section 8 (defaults: both hubs on this host):
 #   SCENARIO_XHUB=0     skip section 8
-#   XHUB_PORT_BASE2     the second side's block (default port base +50): hub +0,
-#                       providers +1 and +2, their service +3
+#   XHUB_PORT_BASE2     the second side's block (default port base +50, so +50..+53 on
+#                       this host when there is no XHUB_HOST2): hub +0, providers +1 and
+#                       +2, their service +3
 #   XHUB_HOST2          ssh target (user@host) for the second side: its hub, the two
 #                       providers and their service run there. Needs non-interactive ssh
 #                       and scp, python3 and curl there, the same architecture as here
@@ -814,10 +816,10 @@ import sys,json;d=json.load(sys.stdin);print("ok" if "reviews" in d and "cursor"
 # A2A-DESIGN §17:联调行 scenario.sh 与补充用例 C2、C25、C32、C34;支付负面用例对应 SI-9 / §8.4 / §8.5。
 #
 # 两边(side),各有一个 hub,两个 hub 互为联邦对端(投递与目录都开):
-#   side 1  hub1(第 0 节那个 hub,本节以新的 federation.json 重启,绑 XHUB_ADDR1),和三个纯请求方
-#           R、R2、R3:没有能力、不进任何目录,只在 hub1 注册。R 的支出档位能付 20 credit 的单笔。
+#   side 1  hub1(第 0 节那个 hub,本节以新的 federation.json 重启,绑 XHUB_ADDR1),和四个纯请求方
+#           R、R2、R3、R4:没有能力、不进任何目录,只在 hub1 注册。R 的支出档位能付 20 credit 的单笔。
 #   side 2  自己的 hub(X2,空数据目录)与两个 provider:
-#           P  可见性 hub-local(默认),入站 closed,名单上只有 R、R2、R3;两个标价 20 的能力
+#           P  可见性 hub-local(默认),入站 closed,名单上只有 R、R2、R3、R4;两个标价 20 的能力
 #              (xhub.digest.paid;xhub.slow.paid 按 args.sleep 拖时间)。
 #           Q  入站 approve,名单为空;可见性 federated —— 对照:它的卡片连同密钥跨 hub 同步。
 #   side 2 默认也在本机(另一端口段,另一目录);给了 XHUB_HOST2 就经 ssh 在那台主机上起。那边的控制面只绑
@@ -825,7 +827,8 @@ import sys,json;d=json.load(sys.stdin);print("ok" if "reviews" in d and "cursor"
 #
 # 8.1 hub-local provider:hub1 的目录与注册表里没有 P,却能经 /fed/v2/keys 取到它的密钥;R 的委派加密
 #     送达 P,P 的回复加密回到 R;两个 hub 的数据目录与日志里搜不到任务文字。
-# 8.2 开三个要跨过缓存时限的任务(R→P、R2→P、R→Q 待批),重启 P 与 Q,开始计时。
+# 8.2 开三个要跨过缓存时限的任务(R4→P、R2→P、R→Q 待批),重启 P 与 Q,开始计时。R4、R2 此后什么也不做,
+#     P 对它们密钥的记录因此真的与等待一样旧(R 在 8.3/8.4 付款,P 发给它的每条状态都可能先行复核)。
 # 8.3 跨 hub 付费,同一 ix:入口 hub(X2)与账本 hub(hub1)各拒少付与错收款方;P 的商户核对拒少付与
 #     错收款方(付款消息由 R 自己的密钥签、经 anetfixture 发出 —— R 的 daemon 不会签这种条款);然后
 #     正确付款结算一次、活只干一次;重放同一授权、同一绑定另签一张、重发付款消息,都不再多出 credit。
@@ -833,9 +836,12 @@ import sys,json;d=json.load(sys.stdin);print("ok" if "reviews" in d and "cursor"
 #     付款方证据链上都有这一笔结算,且各只一笔。第一种顺序同时是 C25 的"结算未知":入口 hub 答
 #     settlement_pending,provider 用同一授权重试到账本 hub 回来,恰好扣一次、干一次;其间 R 不签第二张授权
 #     (8.3 里账本 hub 也拒同一任务的第二张授权:duplicate_binding)。
-# 8.5 超过缓存时限之后:P(重启过)回复 R 送达;Q 批准待批项并回复,送达跨 hub 的纯请求方(C2)。
+# 8.5 超过缓存时限之后:P(重启过)回复 R4 送达;这次回复触发的密钥复核经 /fed/v2/keys 成功(P 库里
+#     peer_identity.keys_checked_at 回复前超过 10 分钟、回复后前进);Q 批准待批项并回复,送达跨 hub 的
+#     纯请求方 R(C2)。
 # 8.6 C32 mutation:两个 hub 以 -test-no-fed-key-lookup 重启。首次联系 hub-local provider 失败
-#     (R3→P 封不了信封);超时限回复所需的密钥复核失败(P 的日志),回复仍以已存密钥送达 —— §3.5 [C2]
+#     (R3→P 封不了信封,hub1 答 404);超时限回复所需的密钥复核失败(P 的日志,keys_checked_at 不前进),
+#     回复仍以已存密钥送达 —— §3.5 [C2]
 #     的"hub 失败或 404 时继续使用已存"。去掉开关、hub 再重启后 R3→P 恢复,说明差别只来自这条查询。
 #     设计 §17 C32 行写"两例均失败";第二例若真要失败,daemon 就得在 hub 404 时丢掉仍然有效的已存密钥,与
 #     §3.5 [C2] 相反。这里按 §3.5 与实现断言(失败的是复核,不是投递),设计行留待 B6-02 追认。
@@ -847,7 +853,7 @@ if [ "${SCENARIO_XHUB:-1}" != 1 ]; then
 else
 hd "8  两个 hub 之间:加密委派、缓存时限、跨 hub 付费与取消(A2A-DESIGN §17)"
 
-XB1=$((PORT_BASE+40))                          # side 1: R +0, R2 +1, R3 +2
+XB1=$((PORT_BASE+40))                          # side 1: R +0, R2 +1, R3 +2, R4 +3
 XB2=${XHUB_PORT_BASE2:-$((PORT_BASE+50))}      # side 2: hub +0, P +1, Q +2, service +3
 X2_SSH=${XHUB_HOST2:-}
 ADDR1=${XHUB_ADDR1:-127.0.0.1}
@@ -859,11 +865,11 @@ if [ -n "$X2_SSH" ]; then S2=${XHUB_ROOT2:-/tmp/anet-scenario-side2}; else S2=${
 HUB1=http://$ADDR1:$HUB_PORT
 HUB2X=http://$ADDR2:$XB2
 FIX=$BIN/anetfixture
-declare -A XPORT=([R]=$XB1 [R2]=$((XB1+1)) [R3]=$((XB1+2)))
+declare -A XPORT=([R]=$XB1 [R2]=$((XB1+1)) [R3]=$((XB1+2)) [R4]=$((XB1+3)))
 declare -A XPID=()
 # Filled in as the section goes. Declared here because the script runs under set -u, and a step that
 # failed early must fail its own checks, not end the run.
-H1= H2X= P= Q= R= R2= R3= TTL_R= TTL_R2= C2_IX= TTL_R_TEXT= TTL_R2_TEXT= C2_TEXT= PAY_IX=
+H1= H2X= P= Q= R= R2= R3= R4= TTL_R4= TTL_R2= C2_IX= TTL_R4_TEXT= TTL_R2_TEXT= C2_TEXT= PAY_IX=
 T0=$(date +%s)
 # 跨主机时 hub 地址不是回环:别让系统代理截走本脚本、daemon 与 hub 之间的请求。
 export NO_PROXY="$NO_PROXY,$ADDR1,$ADDR2" no_proxy="$no_proxy,$ADDR1,$ADDR2"
@@ -1071,6 +1077,23 @@ p_log_mark(){
   echo "$n"
 }
 p_logged(){ x2 "tail -n +\$(( $(q "${1:-0}") + 1 )) \"\$S2/P/.anet/daemon.log\" 2>/dev/null | grep -q -F -- $(q "$2")"; }
+# p_keys_checked <aid> — "<keys_checked_at> <age ms>" of P's stored record of aid's key set, both by side 2's
+# clock; empty when P holds none. keys_checked_at is when P last fetched or re-verified that set at its hub
+# (internal/daemon/peerkel.go notePeer); a message P seals to aid re-checks it once it is older than the
+# cache time (seal_send.go keysRevalidateMS), and a successful re-check moves it forward.
+p_keys_checked(){
+  x2 "python3 -c $(q 'import os, sqlite3, sys, time
+if not os.path.exists(sys.argv[1]):
+    sys.exit()
+db = sqlite3.connect(sys.argv[1], timeout=15)
+row = db.execute("SELECT keys_checked_at FROM peer_identity WHERE aid=?", (sys.argv[2],)).fetchone()
+if row:
+    print(row[0], int(time.time() * 1000) - row[0])') \"\$S2/P/.anet/interactions/interactions.db\" $(q "$1")" | tail -1
+}
+# keys_rechecked <aid> <since> — P's keys_checked_at for aid is now later than <since>.
+keys_rechecked(){ local v; v=$(p_keys_checked "$1"); v=${v%% *}; [ -n "$v" ] && [ "$v" -gt "${2:-0}" ] 2>/dev/null; }
+# keys_stale <aid> — prints the age in seconds and succeeds when P's record of aid is past the cache time.
+keys_stale(){ local v; v=$(p_keys_checked "$1"); set -- $v; echo "$(( ${2:-0} / 1000 ))"; [ "${2:-0}" -gt 600000 ] 2>/dev/null; }
 # nonce_of <node> <ix> — the task nonce the requester put in its TaskDoc, read from its store (one SELECT;
 # SQLite's own locking makes that safe next to the running daemon).
 # pay_bind = hex(SHA-256("anet/x402-bind/v1" 0 ix 0 nonce)) is what an authorization for that task binds
@@ -1261,7 +1284,7 @@ CFG
   # Side 1's pure requesters: no capabilities, registered at hub1 only.
   rm -rf -- "$XR"; mkdir -p "$XR"
   local n
-  for n in R R2 R3; do
+  for n in R R2 R3 R4; do
     mkdir -p "$XR/$n/.anet"
     cat >"$XR/$n/.anet/config.json" <<CFG
 {"control_addr":"127.0.0.1:${XPORT[$n]}","hub_url":"$HUB1","name":"Node$n",
@@ -1270,21 +1293,21 @@ CFG
     x1_start "$n" || { no "$n 起不来: $(tail -3 "$XR/$n/.anet/daemon.log" 2>/dev/null)"; return 1; }
     xctl "$n" /hub-register "{\"hub\":\"$HUB1\",\"name\":\"Node$n\",\"caps\":[]}" >/dev/null
   done
-  R=$(aid_of_x R); R2=$(aid_of_x R2); R3=$(aid_of_x R3)
-  [ -n "$P" ] && [ -n "$Q" ] && [ -n "$R" ] && [ -n "$R2" ] && [ -n "$R3" ] \
-    || { no "有节点没有 AID(P=$P Q=$Q R=$R R2=$R2 R3=$R3)"; return 1; }
-  # P takes delegations only from the three requesters, by name (written directly: the CLI asks on a TTY;
+  R=$(aid_of_x R); R2=$(aid_of_x R2); R3=$(aid_of_x R3); R4=$(aid_of_x R4)
+  [ -n "$P" ] && [ -n "$Q" ] && [ -n "$R" ] && [ -n "$R2" ] && [ -n "$R3" ] && [ -n "$R4" ] \
+    || { no "有节点没有 AID(P=$P Q=$Q R=$R R2=$R2 R3=$R3 R4=$R4)"; return 1; }
+  # P takes delegations only from the four requesters, by name (written directly: the CLI asks on a TTY;
   # the daemon reads the file on every decision). R may pay P and nobody else.
-  x2 "umask 077; printf '%s\n' $(q "$R") $(q "$R2") $(q "$R3") >\"\$S2/P/.anet/peers.allow\""
+  x2 "umask 077; printf '%s\n' $(q "$R") $(q "$R2") $(q "$R3") $(q "$R4") >\"\$S2/P/.anet/peers.allow\""
   _peer_add "$XR/R/.anet/payees.allow" "$P"
   local reg=0 x
-  for x in "$R" "$R2" "$R3"; do curl -sf -m 10 --noproxy '*' "$HUB1/agents/$x/kel" >/dev/null && reg=$((reg+1)); done
+  for x in "$R" "$R2" "$R3" "$R4"; do curl -sf -m 10 --noproxy '*' "$HUB1/agents/$x/kel" >/dev/null && reg=$((reg+1)); done
   for x in "$P" "$Q"; do curl -sf -m 10 --noproxy '*' "$HUB2X/agents/$x/kel" >/dev/null && reg=$((reg+1)); done
-  [ "$reg" = 5 ] && ok "五个节点各自注册在自己的 hub 上(R、R2、R3 在 hub1;P、Q 在 X2)" \
-    || { no "只有 $reg/5 注册成功"; return 1; }
+  [ "$reg" = 6 ] && ok "六个节点各自注册在自己的 hub 上(R、R2、R3、R4 在 hub1;P、Q 在 X2)" \
+    || { no "只有 $reg/6 注册成功"; return 1; }
   info "P $P(hub-local,closed)"
   info "Q $Q(federated,approve)"
-  info "R $R · R2 $R2 · R3 $R3(纯请求方)"
+  info "R $R · R2 $R2 · R3 $R3 · R4 $R4(纯请求方)"
 }
 
 # ── 8.1 ─────────────────────────────────────────────────────────
@@ -1318,14 +1341,17 @@ xhub_local_provider(){
 # ── 8.2 ─────────────────────────────────────────────────────────
 xhub_ttl_open(){
   hd "8.2  开三个要跨过缓存时限的任务,然后重启 provider"
-  TTL_R_TEXT="xttl-$(canary)"; TTL_R2_TEXT="xttl2-$(canary)"; C2_TEXT="xc2-$(canary)"
-  TTL_R=$(delegate_goal R "$P" "$TTL_R_TEXT" | jget interaction_id)
+  # R4 and R2 do nothing else until their task is answered: P then has sent them nothing since it first
+  # recorded their keys, so its record really is as old as the wait. (R pays in 8.3/8.4, and every status
+  # P sends R there can re-check R's keys once ten minutes have passed — R's reply would prove nothing.)
+  TTL_R4_TEXT="xttl-$(canary)"; TTL_R2_TEXT="xttl2-$(canary)"; C2_TEXT="xc2-$(canary)"
+  TTL_R4=$(delegate_goal R4 "$P" "$TTL_R4_TEXT" | jget interaction_id)
   TTL_R2=$(delegate_goal R2 "$P" "$TTL_R2_TEXT" | jget interaction_id)
   C2_IX=$(delegate_goal R "$Q" "$C2_TEXT" | jget interaction_id)
-  if [ -n "$TTL_R" ] && [ -n "$TTL_R2" ] && waitfor 40 in_inbox P "$TTL_R" && waitfor 40 in_inbox P "$TTL_R2"; then
-    ok "R→P 与 R2→P 两个任务到了 P,等缓存时限之后再答"
+  if [ -n "$TTL_R4" ] && [ -n "$TTL_R2" ] && waitfor 40 in_inbox P "$TTL_R4" && waitfor 40 in_inbox P "$TTL_R2"; then
+    ok "R4→P 与 R2→P 两个任务到了 P,等缓存时限之后再答"
   else
-    no "R→P / R2→P 的任务没到 P(${TTL_R:-无} ${TTL_R2:-无})"
+    no "R4→P / R2→P 的任务没到 P(${TTL_R4:-无} ${TTL_R2:-无})"
   fi
   if [ -n "$C2_IX" ] && waitfor 40 is_held Q "$C2_IX"; then
     [ "$(held_by Q "$C2_IX")" = "$R" ] && ok "R→Q 进了 Q 的待批队列(approve)" || no "Q 的待批项请求方不是 R"
@@ -1573,20 +1599,31 @@ import sys, json
 ags = {a.get("aid") for a in json.load(sys.stdin).get("agents") or []}
 print(("Q" if sys.argv[1] in ags else "") + ("P" if sys.argv[2] in ags else ""))' "$Q" "$P")
   [ "$fedq" = Q ] && ok "hub1 的目录里有 Q(federated),没有 P(hub-local)" || no "hub1 的目录:'$fedq'(期望只有 Q)"
+  # The reply after the cache time. That it arrives is the case; that it really came after the cache time,
+  # and that the re-check it set off went through /fed/v2/keys, are read from P's own record of R4's keys:
+  # older than ten minutes before, moved forward after. (A "no failure in the log" check passed just as
+  # well when no re-check happened at all.)
+  local kc age
+  kc=$(p_keys_checked "$R4"); kc=${kc%% *}
+  age=$(keys_stale "$R4") && ok "P 上次核实 R4 的密钥是 $age 秒前,超过 10 分钟的缓存时限(其间 P 重启过)" \
+    || no "P 对 R4 密钥的记录只有 ${age:-?} 秒(keys_checked_at=${kc:-无}):这次回复不在缓存时限之后"
   reply="xttl-reply-$(canary)"
   mark=$(p_log_mark)
-  ctl2 P /tasks/reply "{\"task_id\":\"$TTL_R\",\"text\":\"$reply\",\"state\":\"completed\"}" >/dev/null
-  waitfor 60 heard_it R "$TTL_R" "$reply" && ok "P 重启后、超过缓存时限才回复,仍送到了 R" || no "R 没收到超时限的回复"
-  sleep 3
-  if p_logged "$mark" "revalidating $R's keys"; then
-    no "P 复核 R 的密钥失败了(日志),而两个 hub 都开着 /fed/v2/keys"
+  ctl2 P /tasks/reply "{\"task_id\":\"$TTL_R4\",\"text\":\"$reply\",\"state\":\"completed\"}" >/dev/null
+  waitfor 60 heard_it R4 "$TTL_R4" "$reply" && ok "P 重启后、超过缓存时限才回复,仍送到了跨 hub 的纯请求方 R4" \
+    || no "R4 没收到超时限的回复"
+  if waitfor 30 keys_rechecked R4 "${kc:-0}"; then
+    ok "这次回复触发的密钥复核成功了:X2 经 /fed/v2/keys 向 hub1 取到 R4 的密钥(keys_checked_at 前进)"
   else
-    ok "这次回复触发的密钥复核没有失败(X2 经 /fed/v2/keys 向 hub1 取到 R 的)"
+    no "P 没有重新核实 R4 的密钥(keys_checked_at 未前进)$(p_logged "$mark" "revalidating $R4's keys" && echo ',日志里复核失败')"
   fi
   [ "$(curl -s -m 20 --noproxy '*' "$HUB2X/agents/$R2/keys" | jget aid)" = "$R2" ] \
     && ok "反方向也通:X2 给得出 hub1 上纯请求方 R2 的密钥" || no "X2 给不出 R2 的密钥"
 
   c2reply="xc2-reply-$(canary)"
+  # The held item came in before T0 (8.2), so it has waited at least this long.
+  [ $(( $(date +%s) - T0 )) -ge 600 ] && ok "待批项已挂了 $(( $(date +%s) - T0 )) 秒以上(超过缓存时限),其间 Q 重启过" \
+    || no "待批项只挂了 $(( $(date +%s) - T0 )) 秒:不在缓存时限之后"
   [ "$(ctl2 Q /inbound/approve "{\"interaction_id\":\"$C2_IX\"}" | jget status)" = approved ] \
     && ok "Q 的运营者在缓存时限之后批准了待批项" || no "Q 批准失败"
   ctl2 Q /tasks/reply "{\"task_id\":\"$C2_IX\",\"text\":\"$c2reply\",\"state\":\"completed\"}" >/dev/null
@@ -1597,14 +1634,18 @@ print(("Q" if sys.argv[1] in ags else "") + ("P" if sys.argv[2] in ags else ""))
 # ── 8.6 ─────────────────────────────────────────────────────────
 xhub_c32(){
   hd "8.6  C32 mutation:两个 hub 关掉 /fed/v2/keys 查询(-test-no-fed-key-lookup)"
-  local reply out ix mark hmark
+  local reply out ix mark hmark kc age
   hmark=$(wc -l <"$ROOT/hub.log")
   hubs_restart -test-no-fed-key-lookup || { no "两个 hub 带开关重启失败: $(tail -2 "$ROOT/hub.log")"; return; }
   tail -n +$((hmark + 1)) "$ROOT/hub.log" | grep -q -F "TEST MODE (-test-no-fed-key-lookup)" \
     && x2 "grep -q -F 'TEST MODE (-test-no-fed-key-lookup)' \"\$S2/hub.log\"" \
     && ok "两个 hub 以测试开关重启(日志写明 TEST MODE)" || { no "hub 没认这个开关(二进制太旧?)"; return; }
   # The reply after the cache time: its key refresh goes through the lookup, and fails; the reply is sealed
-  # with the stored set and still arrives (§3.5 step 1 [C2]).
+  # with the stored set and still arrives (§3.5 step 1 [C2]). Only a reply past the cache time asks the hub
+  # at all, so that is checked first, on P's own record of R2's keys.
+  kc=$(p_keys_checked "$R2"); kc=${kc%% *}
+  age=$(keys_stale "$R2") && ok "P 上次核实 R2 的密钥是 $age 秒前,超过缓存时限" \
+    || no "P 对 R2 密钥的记录只有 ${age:-?} 秒(keys_checked_at=${kc:-无}):这次回复不会去问 hub,mutation 测不到"
   reply="xttl2-reply-$(canary)"
   mark=$(p_log_mark)
   ctl2 P /tasks/reply "{\"task_id\":\"$TTL_R2\",\"text\":\"$reply\",\"state\":\"completed\"}" >/dev/null
@@ -1613,14 +1654,18 @@ xhub_c32(){
   else
     no "超时限回复:P 没有因为关掉查询而复核失败"
   fi
+  keys_rechecked R2 "${kc:-0}" && no "关掉查询后 P 仍刷新了 R2 的密钥记录(密钥从哪来的?)" \
+    || ok "……P 对 R2 的记录没有刷新(8.5 里同样的复核在查询开着时刷新了 R4 的)"
   waitfor 60 heard_it R2 "$TTL_R2" "$reply" && ok "……回复仍以已存密钥送到 R2(§3.5 [C2]:hub 404 时继续用已存)" \
     || no "关掉查询后 R2 没收到回复"
   # First contact with the hub-local provider: no keys, nothing sent.
   [ "$(curl -s -o /dev/null -w '%{http_code}' -m 20 --noproxy '*' "$HUB1/agents/$P/keys")" = 404 ] \
     && ok "hub1 再给不出 P 的密钥(404)" || no "关掉查询后 hub1 仍给出 P 的密钥"
   out=$(delegate_goal R3 "$P" "xc32-$(canary)")
+  # Refused for that reason and no other: the daemon names the hub's answer ("… keys rejected (404): …"),
+  # and a 429 or a hub that is down would fail the delegation too.
   case "$(printf '%s' "$out" | jget error)" in
-    *encryption\ key*|*keys*) ok "首次联系 hub-local 的 P:R3 封不了信封,委派失败" ;;
+    *"encryption keys"*"(404)"*) ok "首次联系 hub-local 的 P:hub1 答 404,R3 封不了信封,委派失败" ;;
     *) no "关掉查询后 R3→P 答:$(printf '%s' "$out" | head -c 200)" ;;
   esac
   # The mutation is that one lookup: Q, whose card and keys federate, is still reachable.
