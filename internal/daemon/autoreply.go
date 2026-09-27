@@ -299,18 +299,20 @@ func (d *Daemon) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier
 // it is done. No-op when nothing is owed. A requester's end request needs no reply: the provider
 // daemon completes on receiving it (A2A-DESIGN §4.2).
 func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, th Thread) error {
+	// The lists are read on every turn, whatever the backend: a peer put
+	// on the deny list stops reaching the model or the agent at the next
+	// turn, not at the next revocation sweep (A2A-DESIGN §5.1).
+	ps := d.readPeers()
+	if ps.denied(th.Peer) {
+		return nil
+	}
 	// The exec backend runs a local program. It runs as before only for a
 	// peer on the trust list; for any other peer it runs in the sandbox
 	// when auto_reply.untrusted=sandbox, and not at all otherwise
-	// (A2A-DESIGN §6). The lists are read on every turn, so a peer taken
-	// off the trust list, or put on the deny list, stops reaching the
+	// (A2A-DESIGN §6). A peer taken off the trust list stops reaching the
 	// agent at the next turn.
 	gate := execGate{}
 	if cfg.Backend == "exec" {
-		ps := d.readPeers()
-		if ps.denied(th.Peer) {
-			return nil
-		}
 		gate.exec, gate.trusted = true, ps.trusted(th.Peer)
 		if !gate.trusted && cfg.UntrustedMode() == UntrustedOff {
 			return nil // left in the inbox for the operator

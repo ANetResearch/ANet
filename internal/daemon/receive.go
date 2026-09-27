@@ -410,14 +410,19 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 	return nil
 }
 
-// authorizeMessage checks an anet.message/1: the sender is not denied, the
-// interaction exists (or is held in the approval queue) and its peer is the
-// sender, in either role. On a trust=peer interaction the sender must still
-// be allowed; on a public_cap interaction only cancel, end_request and
-// payment messages are taken. For an interaction this node does not hold,
-// the message waits (not acknowledged) for unknownIXWait after its send
-// time, in case the delegation is still on its way; after that the sender
-// is told TaskNotFound.
+// authorizeMessage checks an anet.message/1: the interaction exists (or is
+// held in the approval queue), its peer is the sender, in either role, and
+// the sender is not denied. On a trust=peer interaction the sender must
+// still be allowed; on a public_cap interaction only cancel, end_request
+// and payment messages are taken. For an interaction this node does not
+// hold, the message waits (not acknowledged) for unknownIXWait after its
+// send time, in case the delegation is still on its way; after that the
+// sender is told TaskNotFound.
+//
+// The deny list is read after the interaction, not before: a denied peer
+// writing to an interaction this node does not hold is treated exactly as
+// a stranger is — the same wait, the same TaskNotFound, the same notice
+// limiter — so under closed it cannot tell it is denied (X2).
 func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 	cm, err := delegation.UnmarshalChatMsg(m.body)
 	if err != nil {
@@ -428,19 +433,19 @@ func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 		r := d.drop(dropEmptyIX, nil)
 		return &r
 	}
-	ps := d.readPeers()
-	if ps.denied(m.from) {
-		r := d.drop(dropDenied, nil)
-		return &r
-	}
 	ix, res := d.lookupIX(m.ix)
 	if res != nil {
 		return res
 	}
+	ps := d.readPeers()
 	if ix == nil {
 		held, err := d.ix.GetPending(m.ix)
 		switch {
 		case err == nil && held.FromAID == m.from:
+			if ps.denied(m.from) {
+				r := d.drop(dropDenied, nil)
+				return &r
+			}
 			m.cm, m.pendingRoute = cm, true
 			return nil
 		case err != nil && !errors.Is(err, interactions.ErrNotFound):
@@ -453,6 +458,10 @@ func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 		}
 		d.replyTaskNotFound(m)
 		r := d.drop(dropUnknownIX, nil)
+		return &r
+	}
+	if ps.denied(m.from) {
+		r := d.drop(dropDenied, nil)
 		return &r
 	}
 	if ix.PeerAID != m.from {
@@ -510,13 +519,15 @@ func (d *Daemon) authorizeReply(m *rxMsg) *rxResult {
 		}
 		m.rr = rr
 	}
-	if d.readPeers().denied(m.from) {
-		r := d.drop(dropDenied, nil)
-		return &r
-	}
 	ix, res := d.lookupIX(m.ix)
 	if res != nil {
 		return res
+	}
+	if d.readPeers().denied(m.from) && !paidWork(ix) {
+		// Work this node paid for is delivered to it, denied or not
+		// (0017 Q10): the deny sweep leaves such a task open.
+		r := d.drop(dropDenied, nil)
+		return &r
 	}
 	if ix == nil {
 		r := d.drop(dropUnknownIX, nil)
@@ -546,10 +557,11 @@ func (d *Daemon) process(ctx context.Context, m *rxMsg) rxResult {
 		return d.transient(transientReplayCheck, err)
 	}
 	if seen {
-		if m.typ == seal.TypeDelegate {
-			// A redelivered delegation may mean the requester never got
-			// the answer: resend it, or finish work a crash interrupted.
-			d.redeliveredDelegate(ctx, m)
+		// A redelivered delegation may mean the requester never got the
+		// answer: resend it, or finish work a crash interrupted. A re-run
+		// the daemon's stop cut short is not acknowledged (SI-10).
+		if m.typ == seal.TypeDelegate && !d.redeliveredDelegate(ctx, m) {
+			return d.transient(transientStopping, d.ctx.Err())
 		}
 		return d.drop(dropDuplicate, nil)
 	}

@@ -962,7 +962,9 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 		return res
 	}
 	if redelivery {
-		d.redeliveredDelegate(ctx, m)
+		if !d.redeliveredDelegate(ctx, m) {
+			return d.transient(transientStopping, d.ctx.Err())
+		}
 		return res
 	}
 	if !publicCap {
@@ -977,7 +979,12 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 	// natural-language task waits for the operator's agent or auto-reply.
 	if isCap {
 		released = true
-		d.runCapabilityCall(m.ix, capID, args, m.dr.Payment, release)
+		if !d.runCapabilityCall(m.ix, capID, args, m.dr.Payment, release) {
+			// Cut off by the daemon stopping (SI-10): nothing was
+			// answered, and the delegation is not acknowledged, so its
+			// redelivery finds the replay row and runs it again.
+			return d.transient(transientStopping, d.ctx.Err())
+		}
 	}
 	return res
 }
@@ -998,32 +1005,42 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 //     recording the delegation and answering it. Run it again
 //     (at-least-once, as before wire 2).
 //   - A long capability call with no answer: not run again (at-most-once;
-//     see runCapabilityCall). Startup recovery reports it as interrupted.
-func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) {
+//     see runCapabilityCall). Startup recovery reports it as interrupted;
+//     one an earlier process recorded and never marked working, which
+//     startup recovery could not classify (its provider was not
+//     registered yet), is reported here.
+//
+// It returns false when the daemon stopping cut a re-run short: nothing
+// was answered, and the envelope is not to be acknowledged (SI-10).
+func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 	prior, err := d.ix.Get(m.ix)
 	if err != nil {
-		return
+		return true
 	}
 	if len(prior.Receipt) > 0 {
 		log.Printf("anet: %s redelivered; re-sending the answer we already signed", m.ix)
 		d.resendResult(m, prior)
-		return
+		return true
 	}
 	if prior.IsTerminal() {
-		return
+		return true
 	}
 	if _, running := d.running.Load(m.ix); running {
-		return
+		return true
 	}
 	capID, args, ok := capabilityCall(m.td)
 	if !ok {
-		return
+		return true
 	}
 	if d.longCall(capID) {
+		if d.leftoverAction(prior, capID) == leftoverInterrupted && d.leftByEarlierProcess(prior) {
+			d.reportInterrupted(prior, capID)
+			return true
+		}
 		log.Printf("anet: %s: long call %s was interrupted before it answered; not running it again", m.ix, capID)
-		return
+		return true
 	}
-	d.runCapabilityCall(m.ix, capID, args, m.dr.Payment, nil)
+	return d.runCapabilityCall(m.ix, capID, args, m.dr.Payment, nil)
 }
 
 // longCall reports whether a capability runs off the receive path (see
@@ -1074,6 +1091,10 @@ func (d *Daemon) stopRunning(ix string) {
 //
 // release, when not nil, frees the admission slot of a public capability
 // call; it is called when the invocation ends.
+//
+// It returns false only when the daemon stopping cut short a call run on
+// this goroutine, which then recorded nothing (SI-10): the caller does not
+// acknowledge the message that carried it.
 func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]any, payment []byte, release func()) bool {
 	done := func() {
 		if release != nil {
@@ -1123,8 +1144,7 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 		cctx, cancel := context.WithTimeout(d.ctx, bound)
 		rc.cancel = cancel
 		defer cancel()
-		d.tryCapabilityPaid(cctx, interactionID, capID, args, payment)
-		return true
+		return d.tryCapabilityPaid(cctx, interactionID, capID, args, payment) || d.ctx.Err() == nil
 	}
 	if !d.takeLongSlot(interactionID) {
 		defer finish()

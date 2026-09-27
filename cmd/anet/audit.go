@@ -250,11 +250,11 @@ func (f auditFilter) matches(r daemon.EvidenceRecord) bool {
 }
 
 // namesInteraction reports whether a record is about interaction ix: its
-// interaction_id, the interactions a deny canceled, or the held delegation
-// an approval or rejection decided (anet.policy.changed field
-// inbound.pending names it as "from").
+// interaction_id, the interactions a deny canceled or left running because
+// they were paid for, or the held delegation an approval or rejection
+// decided (anet.policy.changed field inbound.pending names it as "from").
 func namesInteraction(r daemon.EvidenceRecord, ix string) bool {
-	if payloadMentions(r.Payload, ix, "interaction_id", "canceled") {
+	if payloadMentions(r.Payload, ix, "interaction_id", "canceled", "skipped_paid") {
 		return true
 	}
 	return r.EventType == "anet.policy.changed" && r.Payload["field"] == "inbound.pending" && r.Payload["from"] == ix
@@ -271,7 +271,8 @@ func peerInteractions(recs []daemon.EvidenceRecord, peer string) map[string]bool
 		if ix, _ := r.Payload["interaction_id"].(string); ix != "" {
 			out[ix] = true
 		}
-		if l, ok := r.Payload["canceled"].([]any); ok {
+		for _, key := range []string{"canceled", "skipped_paid"} {
+			l, _ := r.Payload[key].([]any)
 			for _, e := range l {
 				if ix, _ := e.(string); ix != "" {
 					out[ix] = true
