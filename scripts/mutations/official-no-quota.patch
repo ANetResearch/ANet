@@ -1,0 +1,34 @@
+Mutation for scripts/joint-official.sh 2/8 (B6-01, A2A-DESIGN §5.4): the kernel's admission never
+checks the per-caller or the global per-minute window of a public capability, so every call within
+max_args_bytes and max_inflight is admitted. Never commit it applied.
+
+Apply in a scratch worktree, never in a checkout anything ships from:
+
+    cd ANet && git apply scripts/mutations/official-no-quota.patch
+    go build -o "$MUTBIN/anet" ./cmd/anet    # anet-official, anet-hub, anet-hub-admin into $MUTBIN as usual
+    JOINT_BIN="$MUTBIN" scripts/joint-official.sh
+
+Expected: 2/8 red — requester a's fourth net.echo runs instead of being refused with
+quota_caller_per_min, requester b's third and the stranger's first run instead of being refused with
+quota_global_per_min, and the echo node holds more than the admitted five. The args_too_large case
+stays green: the size is checked before the windows. The unit-level twins are TestAdmissionLimits and
+TestAPublicCapabilityQuotaIsToldToTheCaller in internal/daemon/inbound_test.go.
+
+diff --git a/internal/daemon/inbound.go b/internal/daemon/inbound.go
+index b0a52be..eed5a7d 100644
+--- a/internal/daemon/inbound.go
++++ b/internal/daemon/inbound.go
+@@ -521,11 +521,11 @@ func (d *Daemon) admitAt(now int64, caller, capID string, argsLen int) (release
+ 	// consume quota.
+ 	probe := func(w window, size int64, limit int) bool { return w.take(now, size, limit) }
+ 	switch {
+-	case !probe(cc.minute, minute, pc.PerCallerPerMin):
++	case false && !probe(cc.minute, minute, pc.PerCallerPerMin):
+ 		return nil, admitCallerMinute, cc.minute.retryAfter(now, minute)
+ 	case !probe(cc.day, day, pc.PerCallerPerDay):
+ 		return nil, admitCallerDay, cc.day.retryAfter(now, day)
+-	case !probe(*g, minute, pc.GlobalPerMin):
++	case false && !probe(*g, minute, pc.GlobalPerMin):
+ 		return nil, admitGlobalMinute, g.retryAfter(now, minute)
+ 	}
+ 	cc.minute.take(now, minute, pc.PerCallerPerMin)
