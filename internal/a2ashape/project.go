@@ -32,7 +32,8 @@ package a2ashape
 //     deliverable — anet.reply (the provider's last message in the
 //     transcript the receipt covers) for a text task, anet.result (the
 //     deliverable as a DataPart) for a capability call — then anet.receipt,
-//     then the reply's attachments as file parts.
+//     then the reply's attachments as file parts. A PAYMENT_REQUIRED answer
+//     is a quote, not a result: it has none.
 //   - metadata carries anet.effect_status (capability tasks; always present
 //     once one is terminal), anet.receipt_verified (every completed task and
 //     every task with a receipt), the CIDs, the peer, this node's side, the
@@ -84,6 +85,9 @@ func StateOf(st interactions.State) TaskState {
 // filter. The store's own spelling ("input-required") is accepted too, for
 // a control-plane caller that uses it. ok is false for a state the store
 // never holds (auth-required, unspecified): such a filter matches nothing.
+// ok is also false for a name that is no state at all; the caller tells the
+// two apart with TaskState.Valid, because A2A answers the second with
+// InvalidParams rather than an empty page.
 func StoreState(s TaskState) (interactions.State, bool) {
 	if st := interactions.State(s); st.Valid() {
 		return st, true
@@ -414,6 +418,14 @@ func (p *projector) paymentRequired() bool {
 	if p.ix.PayState == interactions.PayRequired {
 		return true
 	}
+	return p.quoted()
+}
+
+// quoted reports a capability answer that is a quote (PAYMENT_REQUIRED).
+// It is signed and stored like any answer, but it asks for input and
+// delivers nothing: it is not the task's output, and its message is not why
+// a task that later ended (canceled, say) ended.
+func (p *projector) quoted() bool {
 	return p.cap != nil && p.cap.Status == string(effect.PaymentRequired)
 }
 
@@ -457,7 +469,7 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 		}
 	case interactions.StateFailed, interactions.StateRejected, interactions.StateCanceled:
 		switch {
-		case p.cap != nil && p.cap.Message != "":
+		case p.cap != nil && !p.quoted() && p.cap.Message != "":
 			msg = p.synthesized(p.cap.Message, nil)
 		case fresh && provStatus:
 			msg, why = p.fromRow(prov), p.metas[prov]
@@ -484,6 +496,13 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 			}
 			if _, ok := msg.Metadata[KeyX402Status]; !ok {
 				msg.Metadata[KeyX402Status] = p.x402Status()
+			}
+			// A payment failure's code goes in the message as well as
+			// the task's metadata (a2a-x402 §9).
+			if v := p.resultMeta[KeyX402Error]; v != nil {
+				if _, ok := msg.Metadata[KeyX402Error]; !ok {
+					msg.Metadata[KeyX402Error] = v
+				}
 			}
 		}
 		return msg, why
@@ -764,7 +783,9 @@ func capabilityRequest(doc []byte) (capID string, args any, ok bool) {
 // not verify — is reported in the status, not offered as the work.
 func (p *projector) artifacts() []Artifact {
 	ix := p.ix
-	if len(ix.Receipt) == 0 {
+	if len(ix.Receipt) == 0 || p.quoted() {
+		// A quote's receipt covers the quote; the quote is in the status
+		// message, and a stream must not hand it over as the result.
 		return nil
 	}
 	var out []Artifact
