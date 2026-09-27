@@ -348,16 +348,17 @@ check_official() {
     || die "internal/official/manifest.json.sig does not verify in namespace $OFFICIAL_NAMESPACE — run build-release.sh --official and commit"
   grep -qF "  \"key_fingerprint\": \"$KEY_FP\"," "$OFF_MF" \
     || die "internal/official/manifest.json does not name the signing key $KEY_FP — run build-release.sh --official and commit"
-  local want got n
-  want="$(mktemp)"; got="$(mktemp)"
-  official_entries "$want"
-  grep '^    {"id": ' "$OFF_MF" | sed 's/,$//' > "$got" || true
-  n="$(wc -l < "$want" | tr -d ' ')"
-  if ! cmp -s "$want" "$got"; then
-    rm -f "$want" "$got"
-    die "internal/official/manifest.json does not list the agents deploy/official/official-agents.txt does — run build-release.sh --official and commit"
-  fi
-  rm -f "$want" "$got"
+  local n
+  # Removed on any exit, a refusal included; the build's own EXIT trap
+  # replaces this one later, by when the directory is gone.
+  OFF_CHK="$(mktemp -d)"
+  trap 'rm -rf "$OFF_CHK"' EXIT
+  official_entries "$OFF_CHK/want"
+  grep '^    {"id": ' "$OFF_MF" | sed 's/,$//' > "$OFF_CHK/got" || true
+  n="$(wc -l < "$OFF_CHK/want" | tr -d ' ')"
+  cmp -s "$OFF_CHK/want" "$OFF_CHK/got" \
+    || die "internal/official/manifest.json does not list the agents deploy/official/official-agents.txt does — run build-release.sh --official and commit"
+  rm -rf "$OFF_CHK"
   official_reader_accepts \
     || die "internal/official refuses the committed manifest — run: go test -run TestTheEmbeddedManifestVerifies -v ./internal/official/"
   local exp min_days min
