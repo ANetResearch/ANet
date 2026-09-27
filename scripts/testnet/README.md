@@ -37,6 +37,10 @@
   **不要为此去改 cmax 的 ufw**(那是改生产主机配置,需另行征得同意)。
 - **两岛之间不通**:Ink89/90 连不到 cmax/dmax 的任何地址,反之亦然。跨岛联邦只能经 ink88 转发,见下文。
 - 端口段 47100–47499,每台主机一个百位段,整个测试网内唯一。勘察时四台主机与 ink88 的这些 TCP 端口全部空闲。
+  daemon 的本机 A2A 接口(module/a2a,默认开启)钉在控制口+50(47x61–69,official 47x91–99);不钉时它首启从
+  43811 起自选,出段。
+- 带 anetpeer 的 daemon 注册后会 `/p2p-advertise <拨号地址>:<p2p 端口>`(anetpeer 不持密钥,自己发布不了);
+  跨 hub 的对端要等对方 hub 的目录同步(约 2 分钟一轮)学到 home hub 后才会直连。
 - 想测"非覆盖网地址"路径:把 `topology.env` 里 dmax 的拨号/绑定地址改成 `210.45.70.176`。注意 cmax 与 dmax
   同在 210.45.70.0/23,这条路径不经过 NAT;授权主机里**没有**任何一对能走真实的公网 NAT 穿越。
 
@@ -59,7 +63,8 @@ bash scripts/testnet/deploy.sh cmax  daemon
 bash scripts/testnet/deploy.sh ink90 official     # 需要 ANet/cmd/anet-official 已存在并已构建
 # 或一次全部:bash scripts/testnet/deploy.sh everything
 
-bash scripts/testnet/deploy.sh status     # 各主机上跑着什么
+bash scripts/testnet/deploy.sh status     # 各主机上跑着什么(不带主机名会连拓扑里的每一台,含 cmax/dmax;
+                                          # 只用 lab 岛时带主机名,或用只含 ink89/ink90 的 TESTNET_TOPOLOGY)
 bash scripts/testnet/bridge.sh ctl-up     # 远端控制口映射到本机同号端口
 bash scripts/testnet/bridge.sh mirror     # 节点 config/令牌镜像到 $TESTNET_STATE/nodes/,并写 nodes.env
 
@@ -151,6 +156,10 @@ cmax 与 dmax 上跑着生产与准生产服务(见下节)。脚本的保证,以
 - `deploy.sh federate`:替代 scenario 第 7 节"写 federation.json 后重启两个 hub"。
 
 ### 改造点
+
+> 首轮测试网联调(`docs/notes/0021`)之后:joint.sh、joint-shell.sh、joint-invite.sh、joint-fleet.sh 已按路径
+> 收尾、用私有 XDG_RUNTIME_DIR、接受 `JOINT_BIN` 与 `JOINT_PORT_BASE`,scenario.sh 的端口全部由 `HUB_PORT` 偏移,
+> 可在 Ink89/90 上以单机形态运行(第 1、3、9 条对单机运行已解决)。下列各条对"指向已部署的远端节点"仍然成立。
 
 1. **按进程名杀进程(必须先改,否则会杀生产)。** `joint.sh:64` `pgrep -x anet | xargs kill`、`joint.sh:94`
    (anetpeer)、`joint-fleet.sh:35` `pkill -x anet; pkill -x anet-hub`、`scenario.sh:80-82`、`scenario.sh:579`
