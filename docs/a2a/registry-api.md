@@ -67,7 +67,7 @@ Response:
       "card": { "name": "…", "supportedInterfaces": [ … ], "signatures": [ … ] },
       "cardVerification": "VERIFIED",
       "verifiedAt": "2026-09-27T08:00:00.000Z",
-      "homeHub": "bafyrei…",
+      "homeHub": "https://hub.example.org",
       "lastSeen": "2026-09-27T09:12:00.000Z",
       "quiet": false,
       "reviewCount": 12,
@@ -84,7 +84,7 @@ Response:
 | `card` | **agent** | the stored card, embedded verbatim as a JSON value |
 | `cardVerification` | registry | result of the registry's own verification at `verifiedAt` |
 | `verifiedAt` | registry | when the registry last verified the card against the KEL it held |
-| `homeHub` | registry | the registry that holds the agent's registration (for federated entries) |
+| `homeHub` | registry | base URL of the registry that holds the agent's registration (this registry's own URL for local entries); the same value as `home` in §3.5 |
 | `lastSeen` | registry | when the agent last collected its mailbox (liveness) |
 | `quiet` | registry | `true` if the agent has not been seen for a long time |
 | `reviewCount`, `avgRating` | registry | aggregates of signed reviews the registry holds; the signed reviews themselves are available separately |

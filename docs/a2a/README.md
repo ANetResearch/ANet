@@ -12,9 +12,9 @@
 
 | 文件 | 内容 | 目标去处 | 草稿状态 | 所依赖的实现 |
 |---|---|---|---|---|
-| `relay-binding.md` | 中继协议绑定规范草案(`https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1`):tenant=AID 路由、`SealedEnvelope`/`SealedInner` 的 CDDL、签名原像、Padmé、HPKE 参数、relayauth v2、hub 端点与错误码、操作映射(经中继 / 本地回答 / 不支持)、服务参数、错误映射、store-and-forward 下的流式语义、安全考虑与已知局限 | `a2aproject/A2A` 提案 issue → 有 maintainer 赞助后建 `experimental-cpb-anet-relay` 仓库 | 完整初稿 | 信封、密钥集、relayauth v2、hub 中继端点已实现并逐项核对;`a2a.serviceParameters`、`ExtensionSupportRequired`/`VersionNotSupported` 回复、卡片 `url` 规则标为 **(designed)** |
+| `relay-binding.md` | 中继协议绑定规范草案(`https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1`):tenant=AID 路由、`SealedEnvelope`/`SealedInner` 的 CDDL、签名原像、Padmé、HPKE 参数、relayauth v2、hub 端点与错误码、操作映射(经中继 / 本地回答 / 不支持)、服务参数、错误映射、store-and-forward 下的流式语义、安全考虑与已知局限 | `a2aproject/A2A` 提案 issue → 有 maintainer 赞助后建 `experimental-cpb-anet-relay` 仓库 | 完整初稿 | 信封、密钥集、relayauth v2、hub 中继端点、任务镜像与事件总线已实现并逐项核对;`a2a.serviceParameters`、`ExtensionSupportRequired`/`VersionNotSupported` 回复、卡片 `url` 规则、本机 A2A 面(本地回答与流式响应)、`anet.cancel_requested`、同任务付款流标为 **(designed)** |
 | `registry-api.md` | 注册表 API 草案:`GET /a2a/v1/agents`(查询参数、条目形状、包装层是 hub 陈述)、卡片原字节与 ETag、JWKS、`/fed/v2/cards`、卡片准入规则与高水位 | `a2aproject/A2A` 讨论 issue(规范目前明言不规定注册表 API) | 完整初稿,字段拼写待与实现对齐 | 卡片验证、JWKS、高水位已实现(ANetCore `a2acard`);**列表、卡片与 JWKS 端点在 ANetHub 中尚未实现**(目前只把 `a2a_card` 原样存下并回报 `unverified`) |
-| `x402-scheme-anet-credit.md` | `anet-credit` x402 scheme 文档(按 `a2a-x402/schemes/` 格式):托管性质、PaymentRequirements/PaymentPayload、授权对象 CDDL、签名、nonce 与窗口、绑定值、facilitator 职责、收据、跨 hub、`errorReason` 常量与 a2a-x402 错误码映射、两处偏离(`hub:<aid>` 与 CAIP-2;本地签名服务接受未签名的所选项) | `google-agentic-commerce/a2a-x402` 的 `schemes/`(实验性 scheme) | 完整初稿 | facilitator、授权/收据对象已实现并核对;`pay_bind`、商户核对、映射表、§8.7 本地签名流程标为 **(designed)**(C3 未实现) |
+| `x402-scheme-anet-credit.md` | `anet-credit` x402 scheme 文档(按 `a2a-x402/schemes/` 格式):托管性质、PaymentRequirements/PaymentPayload、授权对象 CDDL、签名、nonce 与窗口、绑定值、facilitator 职责、收据、跨 hub、`errorReason` 常量与 a2a-x402 错误码映射、两处偏离(`hub:<aid>` 与 CAIP-2;本地签名服务接受未签名的所选项) | `google-agentic-commerce/a2a-x402` 的 `schemes/`(实验性 scheme;该目录现有文件名形如 `scheme_exact_lightning.md`,提交时改名,例如 `scheme_anet_credit.md`) | 完整初稿 | facilitator、授权/收据对象已实现并核对;`pay_bind`、商户核对、映射表、§8.7 本地签名流程标为 **(designed)**(C3 未实现) |
 | `issue-a2a-go.md` | a2a-go v2.6.0 的 10 条 issue 草稿(A1–A10),每条附复现代码、观察结果、影响、修复建议 | `a2aproject/a2a-go`;**A3、A9 走 GitHub Security Advisories 私下报告,不开公开 issue** | 完整;全部在 2026-09-27 用 a2a-go `ebf17c5` 实际复现 | — |
 | `issue-a2a-x402.md` | a2a-x402 v0.2 规范的 12 条 issue 草稿(X1–X12):激活头、x402 版本、A2A 1.0 示例、状态机缺口、一个任务付两次、签名服务委托、错误码、收据出现时机、传输安全措辞、对 facilitator 的数据最小化、`required: true`、非链网络标识 | `google-agentic-commerce/a2a-x402` | 完整初稿 | — |
 | `proposal-securityscheme.md` | `SecurityScheme` 新变体提议 `SenderSignatureSecurityScheme`(按 A2A ADR 模板):为何现有五种 scheme 都不适用、候选方案比较、proto 改动、规范文字、profile 要求、兼容性 | `a2aproject/A2A` 规范变更提案 | 完整初稿 | anet 当前网络卡片不声明 `securitySchemes`(设计 §10.1);本提议是上游补齐的路径 |
@@ -33,8 +33,9 @@ a2a-go 的 A1–A10 复现是在 scratchpad 里用独立 Go module(`replace` 指
    全字段向量、固定密钥下的端到端交换记录(delegate → status → result)。
 5. **跨 SDK 验证**:A1(默认值剥离)需要用 a2a-python 实际验证一次行为后再提交,草稿中已避免对
    a2a-python 行为下未经验证的断言。
-6. **按各仓库流程提交**:a2a-go 的 PR 需签 Google CLA;A2A 主仓库要求 Conventional Commits 与
-   markdownlint;安全类(A3、A9)只走 Security Advisories。
+6. **按各仓库流程提交**:a2a-go 的 PR 按其 `CONTRIBUTING.md`(先开 issue 讨论方案;本地检出里没有
+   写明 CLA 要求,提交前到 GitHub 上再确认一次);A2A 主仓库要求 Conventional Commits 与 markdownlint,
+   官方扩展/绑定仓库另有 governance 文档里的贡献许可声明;安全类(A3、A9)只走 Security Advisories。
 7. **URI 命名空间**:`agentnetwork.org.cn/a2a/...` 下的绑定与扩展 URI 按 A2A 惯例只是标识符,不要求可访问;
    若产品负责人希望这些 URI 可解析为文档,需要在官网安排路径。进入 A2A 官方层级后 URI 会改为
    `https://a2a-protocol.org/bindings/...`,届时绑定需要出 v2 标识(URI 是签名卡片的一部分)。
@@ -56,7 +57,8 @@ a2a-go 的 A1–A10 复现是在 scratchpad 里用独立 Go module(`replace` 指
 | 只含中继接口的卡片 `capabilities.streaming` 建议为 `true`(草稿列为开放问题 Q4) | relay-binding §12、§17 | C5 |
 | `a2a.serviceParameters`:JSON 对象;`A2A-Extensions` 为 URI 数组,`A2A-Version` 为字符串;缺省版本按 `1.0`;放在 `DelegateReq.Metadata` / `ChatMsg.Metadata` | relay-binding §10.4 | D1(`module/a2a`)、C5 |
 | provider 以 `status{rejected, anet.a2aError: "<错误名去掉 Error 后缀>"}` 报告 `ExtensionSupportRequired`、`VersionNotSupported`(与已实现的 `"TaskNotFound"` 命名一致) | relay-binding §11 | D1、C 系列 daemon 接收侧 |
-| `GetExtendedAgentCard` → `ExtendedAgentCardNotConfiguredError`;推送 4 个操作及带推送配置的 SendMessage → `PushNotificationNotSupportedError` | relay-binding §10.1 | D1 |
+| `GetExtendedAgentCard` → `UnsupportedOperationError`(卡片不声明 `capabilities.extendedAgentCard`,规范 §3.3.4 对此是 MUST);推送 4 个操作及带推送配置的 SendMessage → `PushNotificationNotSupportedError` | relay-binding §10.1、§11 | D1 |
+| 付款已提交后的取消:本地状态不变,任务 metadata 带 `anet.cancel_requested: true` | relay-binding §10.6 | D1、C5 |
 | 注册表列表响应 `{agents, nextCursor}`、`limit` 默认 50 上限 100、`cardVerification` 取值 `VERIFIED`(保留 `STALE`)、ETag 形如 `"sha256-<base64url>"` —— 均为草稿提议,以实现为准 | registry-api §3 | hub 注册表(B4 余项) |
 | `errorReason → x402.payment.error` 映射表,含 hub 实际会发出而设计表未列的 `malformed_payment`、`invalid_payment_requirements`(草稿映射为 `SETTLEMENT_FAILED` + `anet.reason`) | x402-scheme §errorReason | C3(`module/x402`) |
 | 商户调用 `/x402/settle` 必须带 `paymentRequirements`:hub 已强制要求,**当前 `module/x402` 的 `settle` 只发 `{x402Version, paymentPayload}`,在 wire-2 hub 上会被 400 `invalid_payment_requirements` 拒绝** | x402-scheme §Facilitator | C3(需修复) |
@@ -65,8 +67,9 @@ a2a-go 的 A1–A10 复现是在 scratchpad 里用独立 Go module(`replace` 指
 
 ## 与设计文本不同或设计未写明、草稿自行确定之处
 
-- **GetExtendedAgentCard 的错误**:设计只写"不支持";草稿取 `ExtendedAgentCardNotConfiguredError`
-  (规范中更具体的错误,也是 a2a-go 的默认行为)。
+- **GetExtendedAgentCard 的错误**:设计只写"不支持";草稿取 `UnsupportedOperationError`。规范 §3.3.4
+  规定卡片未声明 `capabilities.extendedAgentCard` 时必须返回它,`ExtendedAgentCardNotConfiguredError`
+  只用于声明了支持却没配置的情形(a2a-go 在设置了 capabilities 时也是这样处理的)。
 - **`anet.a2aError` 的取值**:设计写"取 A2A §3.3.2 错误名";代码已实现的是 `"TaskNotFound"`(去掉
   `Error` 后缀)。草稿以代码为准,规定一律去掉后缀。
 - **`/relay/*` 版本头与 relayauth v2 动作**:草稿按代码列出 `keys` 动作(设计 §3.7 的动作表没有它),
