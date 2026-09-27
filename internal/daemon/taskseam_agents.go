@@ -66,11 +66,12 @@ const uncardedCursor = "uncarded:"
 
 // registryWalkPages bounds the registry pages read to learn which agents
 // have a card, for the uncarded entries that follow a page reached by
-// cursor: agentsPageMax each, so a few thousand agents with cards.
+// cursor or asked with a tag: agentsPageMax each, so a few thousand agents
+// with cards.
 const registryWalkPages = 50
 
 // uncardedNote is what a NONE entry says of itself.
-const uncardedNote = "the agent publishes no network card; its name, caps and summary are the hub's statement"
+const uncardedNote = "the agent publishes no network card; all here but the aid is the hub's statement, not signed by the agent"
 
 // listAgents asks the hub registry for agents by skill and tag, verifies
 // each card here, and applies the free-text query locally. With
@@ -119,6 +120,12 @@ func (d *Daemon) listAgents(ctx context.Context, q module.AgentQuery) ([]module.
 	resolve := d.cardKELResolver(hctx)
 	out := make([]module.RemoteAgent, 0, len(page.Agents))
 	for _, e := range page.Agents {
+		if !validAgentID(e.AID) {
+			// Not an agent id. Its card cannot verify for it, and the AID
+			// is all an unverified entry shows (0017 Q24): a hub's text in
+			// its place is not passed on either.
+			continue
+		}
 		ra := module.RemoteAgent{AID: e.AID, Card: e.Card}
 		d.verifyCardInto(&ra, resolve)
 		if ra.Verification == cardVerified {
@@ -141,9 +148,11 @@ func (d *Daemon) listAgents(ctx context.Context, q module.AgentQuery) ([]module.
 	for _, e := range page.Agents {
 		carded[e.AID] = true
 	}
-	if q.Cursor != "" {
-		// Earlier pages listed agents with cards too; the directory lists
-		// them all, and none of them is uncarded.
+	if q.Cursor != "" || q.Tag != "" {
+		// Earlier pages listed agents with cards too, and a tag leaves out
+		// the carded agents whose skills lack it, which the directory
+		// (asked by capability only) still lists: none of them is
+		// uncarded.
 		if carded, err = d.cardedAIDs(hctx, hub, q); err != nil {
 			return nil, "", err
 		}
@@ -172,15 +181,19 @@ func registryQuery(q module.AgentQuery, cursor string, limit int) url.Values {
 	return v
 }
 
-// cardedAIDs is every agent the registry lists for q's skill and tag: the
-// agents with a card, which the uncarded list leaves out. Empty for a hub
-// without the registry.
+// cardedAIDs is every agent the registry lists for q's skill: the agents
+// with a card, which the uncarded list leaves out. Not by q's tag: the
+// directory the uncarded list comes from is asked by capability alone and
+// has no tags, so an agent whose card lacks the tag is still in it, and
+// must not be taken there for one without a card. Empty for a hub without
+// the registry.
 func (d *Daemon) cardedAIDs(ctx context.Context, hub string, q module.AgentQuery) (map[string]bool, error) {
 	out := map[string]bool{}
 	cursor := ""
+	bySkill := module.AgentQuery{Skill: q.Skill}
 	for range registryWalkPages {
 		var page hubapi.A2AAgentList
-		err := d.hubGet(ctx, hub, hubapi.RegistryAgentsPath, registryQuery(q, cursor, agentsPageMax), &page)
+		err := d.hubGet(ctx, hub, hubapi.RegistryAgentsPath, registryQuery(bySkill, cursor, agentsPageMax), &page)
 		if hubStatus(err) == http.StatusNotFound {
 			return out, nil
 		}
@@ -196,7 +209,7 @@ func (d *Daemon) cardedAIDs(ctx context.Context, hub string, q module.AgentQuery
 		cursor = page.NextCursor
 	}
 	return nil, a2ashape.Errorf(a2ashape.ErrUnavailable,
-		"more than %d agents with a card match; narrow the search with skill or tag to list the ones without",
+		"more than %d agents with a card match; narrow the search with skill to list the ones without",
 		registryWalkPages*agentsPageMax)
 }
 
@@ -233,7 +246,7 @@ func (d *Daemon) uncardedAgents(ctx context.Context, hub string, q module.AgentQ
 	var matched []module.RemoteAgent
 	seen := map[string]bool{}
 	for _, a := range resp.Agents {
-		if a.AID == "" || carded[a.AID] || seen[a.AID] {
+		if !validAgentID(a.AID) || carded[a.AID] || seen[a.AID] {
 			continue
 		}
 		seen[a.AID] = true
