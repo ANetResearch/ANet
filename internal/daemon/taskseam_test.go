@@ -12,11 +12,12 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // textMsg is a client message with one text part.
 func textMsg(text, contextID, messageID string) a2ashape.Message {
-	return a2ashape.Message{MessageID: messageID, ContextID: contextID, Role: a2ashape.RoleUser,
+	return a2ashape.Message{ID: messageID, ContextID: contextID, Role: a2ashape.RoleUser,
 		Parts: []a2ashape.Part{a2ashape.TextPart(text)}}
 }
 
@@ -48,7 +49,7 @@ func TestTheTaskSeamIsScopedToOneAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	seam := req.TaskSeam()
-	task, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: textMsg("hello", "ctx-a", "m-1"), ReturnImmediately: true})
+	task, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: textMsg("hello", "ctx-a", "m-1"), ReturnImmediately: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,43 +71,43 @@ func TestTheTaskSeamIsScopedToOneAgent(t *testing.T) {
 	notFound("cancel another agent's task", err)
 	_, _, err = seam.Watch(ctx, other.AID(), task.ID)
 	notFound("watch another agent's task", err)
-	_, err = seam.Send(ctx, other.AID(), a2ashape.TaskSend{Message: followUp(task.ID, "more", "m-2"), ReturnImmediately: true})
+	_, err = seam.Send(ctx, other.AID(), module.TaskSend{Message: followUp(task.ID, "more", "m-2"), ReturnImmediately: true})
 	notFound("follow up another agent's task", err)
 	_, err = seam.Get(ctx, prov.AID(), "ix_inbound", nil)
 	notFound("get an inbound task", err)
-	_, err = seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: followUp("ix_inbound", "more", "m-3"), ReturnImmediately: true})
+	_, err = seam.Send(ctx, prov.AID(), module.TaskSend{Message: followUp("ix_inbound", "more", "m-3"), ReturnImmediately: true})
 	notFound("follow up an inbound task", err)
 	_, err = seam.Get(ctx, prov.AID(), "ix_does_not_exist", nil)
 	notFound("get an unknown task", err)
-	_, err = seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: followUp("ix_chosen_by_client", "new?", "m-4"), ReturnImmediately: true})
+	_, err = seam.Send(ctx, prov.AID(), module.TaskSend{Message: followUp("ix_chosen_by_client", "new?", "m-4"), ReturnImmediately: true})
 	notFound("a client-chosen id for a new task", err)
 	_, err = seam.Get(ctx, "", task.ID, nil)
 	notFound("no agent named", err)
 
 	// Another agent's context: refused, and no task is created.
 	before := outboundCount(t, req)
-	_, err = seam.Send(ctx, other.AID(), a2ashape.TaskSend{Message: textMsg("sneak in", "ctx-a", "m-5"), ReturnImmediately: true})
+	_, err = seam.Send(ctx, other.AID(), module.TaskSend{Message: textMsg("sneak in", "ctx-a", "m-5"), ReturnImmediately: true})
 	notFound("a new task in another agent's context", err)
 	if outboundCount(t, req) != before {
 		t.Fatal("a task was created in another agent's context")
 	}
 
 	// Listing shows each agent only its own tasks.
-	page, err := seam.List(ctx, other.AID(), a2ashape.TaskFilter{})
+	page, err := seam.List(ctx, other.AID(), module.TaskFilter{})
 	if err != nil || len(page.Tasks) != 0 || page.TotalSize != 0 {
 		t.Fatalf("the other agent lists %+v (%v)", page, err)
 	}
-	page, err = seam.List(ctx, prov.AID(), a2ashape.TaskFilter{})
+	page, err = seam.List(ctx, prov.AID(), module.TaskFilter{})
 	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].ID != task.ID {
 		t.Fatalf("the agent lists %+v (%v), want only %s", page, err, task.ID)
 	}
-	page, _ = seam.List(ctx, prov.AID(), a2ashape.TaskFilter{ContextID: "ctx-in"})
+	page, _ = seam.List(ctx, prov.AID(), module.TaskFilter{ContextID: "ctx-in"})
 	if len(page.Tasks) != 0 {
 		t.Fatal("an inbound task's context is listed through the seam")
 	}
 
 	// The right agent in the same context is a second task there.
-	second, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: textMsg("again", "ctx-a", "m-6"), ReturnImmediately: true})
+	second, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: textMsg("again", "ctx-a", "m-6"), ReturnImmediately: true})
 	if err != nil || second.ContextID != "ctx-a" || second.ID == task.ID {
 		t.Fatalf("second task in the context: %+v %v", second, err)
 	}
@@ -120,7 +121,7 @@ func TestClientContextIsKeptAndRetriesAreDeduplicated(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	seam := req.TaskSeam()
-	send := a2ashape.TaskSend{Message: textMsg("summarize", "client-ctx-1", "client-msg-1"), ReturnImmediately: true}
+	send := module.TaskSend{Message: textMsg("summarize", "client-ctx-1", "client-msg-1"), ReturnImmediately: true}
 	task, err := seam.Send(ctx, prov.AID(), send)
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +139,7 @@ func TestClientContextIsKeptAndRetriesAreDeduplicated(t *testing.T) {
 	if n := len(queuedFor(t, srv, prov.AID())); n != 1 {
 		t.Fatalf("%d delegations sent for one client message", n)
 	}
-	page, err := seam.List(ctx, prov.AID(), a2ashape.TaskFilter{ContextID: "client-ctx-1"})
+	page, err := seam.List(ctx, prov.AID(), module.TaskFilter{ContextID: "client-ctx-1"})
 	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].ID != task.ID {
 		t.Fatalf("list by the client's context = %+v (%v)", page, err)
 	}
@@ -146,7 +147,7 @@ func TestClientContextIsKeptAndRetriesAreDeduplicated(t *testing.T) {
 	if len(msgs) != 1 || msgs[0].MsgID == "client-msg-1" || !strings.Contains(msgs[0].Metadata, `"a2a.messageId":"client-msg-1"`) {
 		t.Fatalf("first message = %+v; the client id belongs in metadata, not in msg_id", msgs)
 	}
-	if len(task.History) != 1 || task.History[0].MessageID != "client-msg-1" || task.History[0].Role != a2ashape.RoleUser {
+	if len(task.History) != 1 || task.History[0].ID != "client-msg-1" || task.History[0].Role != a2ashape.RoleUser {
 		t.Fatalf("history = %+v", task.History)
 	}
 	// The provider receives the client's metadata with the goal.
@@ -158,12 +159,12 @@ func TestClientContextIsKeptAndRetriesAreDeduplicated(t *testing.T) {
 		t.Fatalf("provider's first message = %+v", pm)
 	}
 	// Without a contextId the daemon mints one.
-	minted, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: textMsg("other", "", "client-msg-2"), ReturnImmediately: true})
+	minted, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: textMsg("other", "", "client-msg-2"), ReturnImmediately: true})
 	if err != nil || minted.ContextID == "" || minted.ContextID == "client-ctx-1" {
 		t.Fatalf("minted context = %q (%v)", minted.ContextID, err)
 	}
 	// The control plane finds it by context too (MCP list_tasks context_id).
-	cp, err := req.listTasks(controlScope, taskListReq{TaskFilter: a2ashape.TaskFilter{ContextID: "client-ctx-1"}})
+	cp, err := req.listTasks(controlScope, taskListReq{TaskFilter: module.TaskFilter{ContextID: "client-ctx-1"}})
 	if err != nil || len(cp.Tasks) != 1 || cp.Tasks[0].ID != task.ID {
 		t.Fatalf("control plane list by context = %+v (%v)", cp, err)
 	}
@@ -183,7 +184,7 @@ func TestABlockingFollowUpWaitsForTheNextReply(t *testing.T) {
 	// A blocking new task returns once the provider asks its question.
 	first := make(chan result, 1)
 	go func() {
-		task, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: textMsg("plan a trip", "", "m-1")})
+		task, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: textMsg("plan a trip", "", "m-1")})
 		first <- result{task, err}
 	}()
 	var id string
@@ -213,14 +214,14 @@ func TestABlockingFollowUpWaitsForTheNextReply(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the blocking send did not return after the provider's question")
 	}
-	if r.err != nil || r.task.Status.State != a2ashape.StateInputRequired || statusText(r.task) != "where to?" {
+	if r.err != nil || r.task.Status.State != a2ashape.TaskStateInputRequired || statusText(r.task) != "where to?" {
 		t.Fatalf("first answer: %+v %v", r.task.Status, r.err)
 	}
 
 	// The follow-up.
 	second := make(chan result, 1)
 	go func() {
-		task, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: followUp(id, "Kyoto", "m-2")})
+		task, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: followUp(id, "Kyoto", "m-2")})
 		second <- result{task, err}
 	}()
 	waitUntil(t, "the follow-up to be stored", func() bool { return countMsgs(t, req, id) == 3 })
@@ -243,7 +244,7 @@ func TestABlockingFollowUpWaitsForTheNextReply(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the follow-up did not return after the provider's next reply")
 	}
-	if r.err != nil || r.task.Status.State != a2ashape.StateInputRequired || statusText(r.task) != "which month?" {
+	if r.err != nil || r.task.Status.State != a2ashape.TaskStateInputRequired || statusText(r.task) != "which month?" {
 		t.Fatalf("follow-up answer: %+v %v", r.task.Status, r.err)
 	}
 }
@@ -255,8 +256,8 @@ func statusText(t a2ashape.Task) string {
 	}
 	var parts []string
 	for _, p := range t.Status.Message.Parts {
-		if p.Text != nil {
-			parts = append(parts, *p.Text)
+		if p.Kind == a2ashape.PartText {
+			parts = append(parts, p.Text)
 		}
 	}
 	return strings.Join(parts, "")
@@ -273,7 +274,7 @@ func TestSendingToAFailedTaskIsUnsupported(t *testing.T) {
 	if err := req.ix.SetFailed("ix_failed", []byte("broken")); err != nil {
 		t.Fatal(err)
 	}
-	_, err := req.TaskSeam().Send(ctx, prov.AID(), a2ashape.TaskSend{Message: followUp("ix_failed", "try again", "m-1"), ReturnImmediately: true})
+	_, err := req.TaskSeam().Send(ctx, prov.AID(), module.TaskSend{Message: followUp("ix_failed", "try again", "m-1"), ReturnImmediately: true})
 	if !errors.Is(err, a2ashape.ErrUnsupportedOperation) {
 		t.Fatalf("send to a failed task: %v, want UnsupportedOperation", err)
 	}
@@ -294,8 +295,8 @@ func TestURLPartsAreRefused(t *testing.T) {
 	seam := req.TaskSeam()
 	for _, u := range []string{"file:///etc/passwd", "https://example.com/a.pdf", "data:text/plain,hi", "/etc/hosts"} {
 		m := textMsg("read this", "", "")
-		m.Parts = append(m.Parts, a2ashape.Part{URL: u, Filename: "x"})
-		if _, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: m, ReturnImmediately: true}); !errors.Is(err, a2ashape.ErrInvalidParams) {
+		m.Parts = append(m.Parts, a2ashape.URLPart(u, "x", ""))
+		if _, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: m, ReturnImmediately: true}); !errors.Is(err, a2ashape.ErrInvalidParams) {
 			t.Errorf("url %q: %v, want InvalidParams", u, err)
 		}
 	}
@@ -303,28 +304,28 @@ func TestURLPartsAreRefused(t *testing.T) {
 		t.Fatal("a message with a url part created or sent a task")
 	}
 	// On a follow-up as well.
-	task, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: textMsg("start", "", ""), ReturnImmediately: true})
+	task, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: textMsg("start", "", ""), ReturnImmediately: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	m := followUp(task.ID, "", "")
-	m.Parts = []a2ashape.Part{{URL: "file:///etc/shadow"}}
-	if _, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: m, ReturnImmediately: true}); !errors.Is(err, a2ashape.ErrInvalidParams) {
+	m.Parts = []a2ashape.Part{a2ashape.URLPart("file:///etc/shadow", "", "")}
+	if _, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: m, ReturnImmediately: true}); !errors.Is(err, a2ashape.ErrInvalidParams) {
 		t.Fatalf("url part on a follow-up: %v", err)
 	}
 	// A raw file part is an attachment; a DataPart {skill, args} is a
 	// capability call.
 	raw := textMsg("see file", "", "")
-	raw.Parts = append(raw.Parts, a2ashape.FilePart("notes.txt", "text/plain", []byte("hello file")))
-	ft, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: raw, ReturnImmediately: true})
+	raw.Parts = append(raw.Parts, a2ashape.RawPart([]byte("hello file"), "notes.txt", "text/plain"))
+	ft, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: raw, ReturnImmediately: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if atts, _ := req.ix.Attachments(ft.ID); len(atts) != 1 || atts[0].Name != "notes.txt" {
 		t.Fatalf("attachments = %+v", atts)
 	}
-	capMsg := a2ashape.Message{MessageID: "m-cap", Parts: []a2ashape.Part{a2ashape.DataPart(map[string]any{"skill": "echo.say", "args": map[string]any{"x": 1}})}}
-	ct, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: capMsg, ReturnImmediately: true})
+	capMsg := a2ashape.Message{ID: "m-cap", Parts: []a2ashape.Part{a2ashape.DataPart(map[string]any{"skill": "echo.say", "args": map[string]any{"x": 1}})}}
+	ct, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: capMsg, ReturnImmediately: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +334,7 @@ func TestURLPartsAreRefused(t *testing.T) {
 	}
 	mixed := capMsg
 	mixed.Parts = append(mixed.Parts, a2ashape.TextPart("and also"))
-	if _, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: mixed, ReturnImmediately: true}); !errors.Is(err, a2ashape.ErrInvalidParams) {
+	if _, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: mixed, ReturnImmediately: true}); !errors.Is(err, a2ashape.ErrInvalidParams) {
 		t.Fatalf("capability call with text: %v", err)
 	}
 }
@@ -362,7 +363,7 @@ func TestListTasksPages(t *testing.T) {
 	var got []string
 	token := ""
 	for pages := 0; ; pages++ {
-		page, err := seam.List(ctx, "peer-a", a2ashape.TaskFilter{PageSize: 3, PageToken: token})
+		page, err := seam.List(ctx, "peer-a", module.TaskFilter{PageSize: 3, PageToken: token})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -391,26 +392,26 @@ func TestListTasksPages(t *testing.T) {
 			t.Fatalf("order %v, want newest first", got)
 		}
 	}
-	if _, err := seam.List(ctx, "peer-a", a2ashape.TaskFilter{PageSize: 101}); !errors.Is(err, a2ashape.ErrInvalidParams) {
+	if _, err := seam.List(ctx, "peer-a", module.TaskFilter{PageSize: 101}); !errors.Is(err, a2ashape.ErrInvalidParams) {
 		t.Fatalf("pageSize 101: %v", err)
 	}
-	if _, err := seam.List(ctx, "peer-a", a2ashape.TaskFilter{PageToken: "forged"}); !errors.Is(err, a2ashape.ErrInvalidParams) {
+	if _, err := seam.List(ctx, "peer-a", module.TaskFilter{PageToken: "forged"}); !errors.Is(err, a2ashape.ErrInvalidParams) {
 		t.Fatalf("forged token: %v", err)
 	}
 	clock += 1000
 	if _, err := d.ix.SetState(ids[0], interactions.StateWorking); err != nil {
 		t.Fatal(err)
 	}
-	page, err := seam.List(ctx, "peer-a", a2ashape.TaskFilter{State: string(a2ashape.StateWorking)})
+	page, err := seam.List(ctx, "peer-a", module.TaskFilter{State: string(a2ashape.TaskStateWorking)})
 	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].ID != ids[0] || page.TotalSize != 1 {
 		t.Fatalf("status filter = %+v (%v)", page, err)
 	}
 	after := time.UnixMilli(clock - 1)
-	page, err = seam.List(ctx, "peer-a", a2ashape.TaskFilter{UpdatedAfter: &after})
+	page, err = seam.List(ctx, "peer-a", module.TaskFilter{UpdatedAfter: &after})
 	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].ID != ids[0] {
 		t.Fatalf("statusTimestampAfter = %+v (%v)", page, err)
 	}
-	if _, err := seam.List(ctx, "peer-a", a2ashape.TaskFilter{State: "TASK_STATE_SLEEPING"}); !errors.Is(err, a2ashape.ErrInvalidParams) {
+	if _, err := seam.List(ctx, "peer-a", module.TaskFilter{State: "TASK_STATE_SLEEPING"}); !errors.Is(err, a2ashape.ErrInvalidParams) {
 		t.Fatalf("unknown status: %v", err)
 	}
 }
@@ -422,12 +423,12 @@ func TestWatchStreamsStatusThenArtifactsThenTheEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	seam := req.TaskSeam()
-	task, err := seam.Send(ctx, prov.AID(), a2ashape.TaskSend{Message: textMsg("hi", "", "m-1"), ReturnImmediately: true})
+	task, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: textMsg("hi", "", "m-1"), ReturnImmediately: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	snap, events, err := seam.Watch(ctx, prov.AID(), task.ID)
-	if err != nil || snap.Status.State != a2ashape.StateSubmitted {
+	if err != nil || snap.Status.State != a2ashape.TaskStateSubmitted {
 		t.Fatalf("snapshot %+v %v", snap.Status, err)
 	}
 	if err := prov.pollOnce(ctx); err != nil {
@@ -453,7 +454,7 @@ func TestWatchStreamsStatusThenArtifactsThenTheEnd(t *testing.T) {
 			}
 			switch {
 			case e.ArtifactUpdate != nil:
-				kinds = append(kinds, "artifact:"+e.ArtifactUpdate.Artifact.ArtifactID)
+				kinds = append(kinds, "artifact:"+e.ArtifactUpdate.Artifact.ID)
 			case e.StatusUpdate != nil:
 				kinds = append(kinds, "status:"+string(e.StatusUpdate.Status.State))
 			}
@@ -471,7 +472,7 @@ func TestWatchStreamsStatusThenArtifactsThenTheEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if final.Metadata["anet.receipt_verified"] != "verified" || final.Artifacts[0].ArtifactID != "anet.reply" {
+	if final.Metadata["anet.receipt_verified"] != "verified" || final.Artifacts[0].ID != "anet.reply" {
 		t.Fatalf("final task metadata %v artifacts %+v", final.Metadata, final.Artifacts)
 	}
 }
@@ -505,7 +506,7 @@ func TestTaskRoutesOverTheControlPlane(t *testing.T) {
 	}
 	// The provider replies and completes through its own control plane.
 	code, out = call(prov, "/tasks/reply", map[string]any{"task_id": id, "text": "done it", "state": "completed"})
-	if code != http.StatusOK || out["status"].(map[string]any)["state"] != string(a2ashape.StateCompleted) {
+	if code != http.StatusOK || out["status"].(map[string]any)["state"] != string(a2ashape.TaskStateCompleted) {
 		t.Fatalf("reply: %d %v", code, out)
 	}
 	code, out = call(prov, "/tasks/reply", map[string]any{"task_id": id, "text": "more"})
@@ -516,7 +517,7 @@ func TestTaskRoutesOverTheControlPlane(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, out = call(req, "/tasks/wait", map[string]any{"task_id": id, "timeout_ms": 2000})
-	if code != http.StatusOK || out["status"].(map[string]any)["state"] != string(a2ashape.StateCompleted) {
+	if code != http.StatusOK || out["status"].(map[string]any)["state"] != string(a2ashape.TaskStateCompleted) {
 		t.Fatalf("wait: %d %v", code, out)
 	}
 	arts, _ := out["artifacts"].([]any)
@@ -569,7 +570,7 @@ func TestConcurrentCopiesOfOneMessageMakeOneTask(t *testing.T) {
 	_, req, prov := registeredPair(t)
 	ctx := context.Background()
 	seam := req.TaskSeam()
-	send := a2ashape.TaskSend{Message: textMsg("once", "ctx-dup", "m-dup"), ReturnImmediately: true}
+	send := module.TaskSend{Message: textMsg("once", "ctx-dup", "m-dup"), ReturnImmediately: true}
 	ids := make(chan string, 4)
 	for i := 0; i < 4; i++ {
 		go func() {

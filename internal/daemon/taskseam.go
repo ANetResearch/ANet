@@ -49,6 +49,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // DaemonTaskSeam is the daemon's TaskSeam (A2A-DESIGN §11.1): the task
@@ -61,7 +62,7 @@ type DaemonTaskSeam struct{ d *Daemon }
 func (d *Daemon) TaskSeam() *DaemonTaskSeam { return &DaemonTaskSeam{d: d} }
 
 // Send is A2A SendMessage to peerAID.
-func (s *DaemonTaskSeam) Send(ctx context.Context, peerAID string, req a2ashape.TaskSend) (a2ashape.Task, error) {
+func (s *DaemonTaskSeam) Send(ctx context.Context, peerAID string, req module.TaskSend) (a2ashape.Task, error) {
 	sc, err := peerScope(peerAID)
 	if err != nil {
 		return a2ashape.Task{}, err
@@ -79,7 +80,7 @@ func (s *DaemonTaskSeam) Get(_ context.Context, peerAID, taskID string, historyL
 }
 
 // List is A2A ListTasks over this peer's tasks.
-func (s *DaemonTaskSeam) List(_ context.Context, peerAID string, f a2ashape.TaskFilter) (a2ashape.TaskPage, error) {
+func (s *DaemonTaskSeam) List(_ context.Context, peerAID string, f module.TaskFilter) (a2ashape.TaskPage, error) {
 	sc, err := peerScope(peerAID)
 	if err != nil {
 		return a2ashape.TaskPage{}, err
@@ -109,15 +110,37 @@ func (s *DaemonTaskSeam) Watch(ctx context.Context, peerAID, taskID string) (a2a
 }
 
 // Agents lists agents of the network (A2A-DESIGN §10.5).
-func (s *DaemonTaskSeam) Agents(ctx context.Context, q a2ashape.AgentQuery) ([]a2ashape.RemoteAgent, error) {
+func (s *DaemonTaskSeam) Agents(ctx context.Context, q module.AgentQuery) ([]module.RemoteAgent, error) {
 	agents, _, err := s.d.listAgents(ctx, q)
 	return agents, err
 }
 
 // Card returns one agent's network card and this node's verification of it.
-func (s *DaemonTaskSeam) Card(ctx context.Context, aid string) (a2ashape.RemoteAgent, error) {
+func (s *DaemonTaskSeam) Card(ctx context.Context, aid string) (module.RemoteAgent, error) {
 	return s.d.agentCard(ctx, aid)
 }
+
+// Pay answers a payment-required task at the agent tier (A2A-DESIGN §8.7).
+func (s *DaemonTaskSeam) Pay(ctx context.Context, peerAID, taskID string, decision module.PayDecision) (a2ashape.Task, error) {
+	sc, err := peerScope(peerAID)
+	if err != nil {
+		return a2ashape.Task{}, err
+	}
+	ix, err := s.d.scopedTask(sc, taskID)
+	if err != nil {
+		return a2ashape.Task{}, err
+	}
+	if err := s.d.taskPay(ctx, ix, decision); err != nil {
+		return a2ashape.Task{}, err
+	}
+	cur, err := s.d.ix.Get(ix.ID)
+	if err != nil {
+		return a2ashape.Task{}, err
+	}
+	return s.d.taskView(cur, viewOpts{artifacts: true, inline: sc.inline()})
+}
+
+var _ module.TaskSeam = (*DaemonTaskSeam)(nil)
 
 // taskScope limits a task operation. The zero value matches nothing.
 type taskScope struct {
@@ -129,12 +152,16 @@ type taskScope struct {
 
 func peerScope(peerAID string) (taskScope, error) {
 	if peerAID == "" {
-		return taskScope{}, fmt.Errorf("%w: no agent named", a2ashape.ErrTaskNotFound)
+		return taskScope{}, a2ashape.Errorf(a2ashape.ErrTaskNotFound, "no agent named")
 	}
 	return taskScope{peer: peerAID}, nil
 }
 
 var controlScope = taskScope{all: true}
+
+// inline says whether task views for this scope carry attachment bytes
+// (see viewOpts.inline): the A2A interface does, the control plane does not.
+func (sc taskScope) inline() bool { return !sc.all }
 
 // scopedTask finds a task the scope may see.
 func (d *Daemon) scopedTask(sc taskScope, id string) (*interactions.Interaction, error) {
@@ -142,7 +169,7 @@ func (d *Daemon) scopedTask(sc taskScope, id string) (*interactions.Interaction,
 	var err error
 	switch {
 	case id == "":
-		return nil, fmt.Errorf("%w: task id required", a2ashape.ErrInvalidParams)
+		return nil, a2ashape.Errorf(a2ashape.ErrInvalidParams, "task id required")
 	case sc.all:
 		ix, err = d.ix.Get(id)
 	case sc.peer != "":
@@ -151,7 +178,7 @@ func (d *Daemon) scopedTask(sc taskScope, id string) (*interactions.Interaction,
 		err = interactions.ErrNotFound
 	}
 	if errors.Is(err, interactions.ErrNotFound) {
-		return nil, fmt.Errorf("%w: %s", a2ashape.ErrTaskNotFound, id)
+		return nil, a2ashape.Errorf(a2ashape.ErrTaskNotFound, "%s", id)
 	}
 	return ix, err
 }
@@ -164,12 +191,12 @@ func (d *Daemon) getTask(sc taskScope, id string, historyLen *int) (a2ashape.Tas
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	return d.taskView(ix, viewOpts{historyLen: historyLen, artifacts: true})
+	return d.taskView(ix, viewOpts{historyLen: historyLen, artifacts: true, inline: sc.inline()})
 }
 
 func checkHistoryLen(n *int) error {
 	if n != nil && *n < 0 {
-		return fmt.Errorf("%w: historyLength must not be negative", a2ashape.ErrInvalidParams)
+		return a2ashape.Errorf(a2ashape.ErrInvalidParams, "historyLength must not be negative")
 	}
 	return nil
 }
@@ -200,7 +227,7 @@ const taskWaitMax = 60 * time.Second
 // scoped caller it is the scope's peer). wait bounds a blocking call; ≤ 0
 // waits until ctx ends. When the bound elapses the task is returned as it
 // is, not an error: it is still running.
-func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req a2ashape.TaskSend, wait time.Duration) (a2ashape.Task, error) {
+func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req module.TaskSend, wait time.Duration) (a2ashape.Task, error) {
 	if err := checkHistoryLen(req.HistoryLength); err != nil {
 		return a2ashape.Task{}, err
 	}
@@ -213,10 +240,10 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req a2as
 		peer = sc.peer
 	}
 	if peer == "" {
-		return a2ashape.Task{}, fmt.Errorf("%w: the remote agent (to) is required for a new task", a2ashape.ErrInvalidParams)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "the remote agent (to) is required for a new task")
 	}
 	if peer == d.AID() {
-		return a2ashape.Task{}, fmt.Errorf("%w: cannot send a task to this node itself", a2ashape.ErrInvalidParams)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "cannot send a task to this node itself")
 	}
 	in, err := parseTaskInput(msg)
 	if err != nil {
@@ -236,21 +263,21 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req a2as
 			if p != peer {
 				// The same answer as for another agent's task id: a client
 				// scoped to one agent learns nothing about the others.
-				return a2ashape.Task{}, fmt.Errorf("%w: context %s", a2ashape.ErrTaskNotFound, contextID)
+				return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrTaskNotFound, "context %s", contextID)
 			}
 		}
 	}
 	release := func() {}
-	if contextID != "" && msg.MessageID != "" {
-		release = lockSend(d.AID(), contextID, msg.MessageID)
+	if contextID != "" && msg.ID != "" {
+		release = lockSend(d.AID(), contextID, msg.ID)
 		defer release()
 		prior, err := d.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
-			ContextID: contextID, PeerAID: peer, ClientMsgID: msg.MessageID})
+			ContextID: contextID, PeerAID: peer, ClientMsgID: msg.ID})
 		switch {
 		case err == nil:
 			// A retry of a message that already made a task.
 			release()
-			return d.finishSend(ctx, prior.ID, 0, req, wait)
+			return d.finishSend(ctx, sc, prior.ID, 0, req, wait)
 		case !errors.Is(err, interactions.ErrNotFound):
 			return a2ashape.Task{}, err
 		}
@@ -261,13 +288,13 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req a2as
 		}
 	}
 	if d.config().HubURL == "" {
-		return a2ashape.Task{}, fmt.Errorf("%w: this node has no hub (run `anet hub-register` first)", a2ashape.ErrUnavailable)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "this node has no hub (run `anet hub-register` first)")
 	}
 	id, err := newInteractionID()
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	meta := clientMeta(msg)
+	meta := clientMeta(req)
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
 	if in.capID != "" {
@@ -283,7 +310,7 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req a2as
 	}
 	if err != nil {
 		d.failUndelivered(id, err)
-		return a2ashape.Task{}, fmt.Errorf("%w: %v", a2ashape.ErrUnavailable, err)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
 	}
 	if in.capID != "" && len(meta) > 0 {
 		// The capability path writes its first message without metadata;
@@ -301,30 +328,30 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req a2as
 	release()
 	// A new task is written at state_seq 1 and nothing but the provider's
 	// answer moves it on.
-	return d.finishSend(ctx, id, 1, req, wait)
+	return d.finishSend(ctx, sc, id, 1, req, wait)
 }
 
 // appendTask is SendMessage with a taskId: a follow-up on a task.
-func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req a2ashape.TaskSend, wait time.Duration) (a2ashape.Task, error) {
+func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSend, wait time.Duration) (a2ashape.Task, error) {
 	msg := req.Message
 	ix, err := d.scopedTask(sc, msg.TaskID)
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
 	if ix.Role != interactions.RoleOutbound {
-		return a2ashape.Task{}, fmt.Errorf("%w: %s was delegated to this node; answer it with /tasks/reply", a2ashape.ErrInvalidParams, ix.ID)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "%s was delegated to this node; answer it with /tasks/reply", ix.ID)
 	}
 	if msg.ContextID != "" && msg.ContextID != ix.ContextID {
-		return a2ashape.Task{}, fmt.Errorf("%w: task %s is in context %q, not %q", a2ashape.ErrInvalidParams, ix.ID, ix.ContextID, msg.ContextID)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s is in context %q, not %q", ix.ID, ix.ContextID, msg.ContextID)
 	}
 	release := func() {}
-	if msg.MessageID != "" {
-		release = lockSend(d.AID(), ix.ContextID, msg.MessageID)
+	if msg.ID != "" {
+		release = lockSend(d.AID(), ix.ContextID, msg.ID)
 		defer release()
 		if _, err := d.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
-			ContextID: ix.ContextID, TaskID: ix.ID, ClientMsgID: msg.MessageID}); err == nil {
+			ContextID: ix.ContextID, TaskID: ix.ID, ClientMsgID: msg.ID}); err == nil {
 			release()
-			return d.finishSend(ctx, ix.ID, 0, req, wait)
+			return d.finishSend(ctx, sc, ix.ID, 0, req, wait)
 		} else if !errors.Is(err, interactions.ErrNotFound) {
 			return a2ashape.Task{}, err
 		}
@@ -336,42 +363,42 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req a2ashape.Task
 			return a2ashape.Task{}, err
 		}
 		release()
-		return d.finishSend(ctx, ix.ID, after, req, wait)
+		return d.finishSend(ctx, sc, ix.ID, after, req, wait)
 	}
 	if ix.IsTerminal() {
-		return a2ashape.Task{}, fmt.Errorf("%w: task %s is %s and takes no new input", a2ashape.ErrUnsupportedOperation, ix.ID, ix.State)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s is %s and takes no new input", ix.ID, ix.State)
 	}
 	if ix.IsCapability {
-		return a2ashape.Task{}, fmt.Errorf("%w: task %s is a capability call; it takes no follow-up message", a2ashape.ErrUnsupportedOperation, ix.ID)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s is a capability call; it takes no follow-up message", ix.ID)
 	}
 	in, err := parseTaskInput(msg)
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
 	if in.capID != "" {
-		return a2ashape.Task{}, fmt.Errorf("%w: a capability call starts a new task; send it without a taskId", a2ashape.ErrInvalidParams)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "a capability call starts a new task; send it without a taskId")
 	}
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
-	after, err := d.sendMessage(sctx, ix.ID, in.goal(), in.atts, clientMeta(msg))
+	after, err := d.sendMessage(sctx, ix.ID, in.goal(), in.atts, clientMeta(req))
 	switch {
 	case errors.Is(err, ErrTaskTerminal):
-		return a2ashape.Task{}, fmt.Errorf("%w: %v", a2ashape.ErrUnsupportedOperation, err)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "%v", err)
 	case err != nil && after == 0:
 		return a2ashape.Task{}, err
 	case err != nil:
 		// Stored here and not delivered; the peer will not see it.
-		return a2ashape.Task{}, fmt.Errorf("%w: the message was stored but not delivered: %v", a2ashape.ErrUnavailable, err)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "the message was stored but not delivered: %v", err)
 	}
 	release()
-	return d.finishSend(ctx, ix.ID, after, req, wait)
+	return d.finishSend(ctx, sc, ix.ID, after, req, wait)
 }
 
 // finishSend answers a send: at once, or once the task is terminal or
 // interrupted with a state_seq above after. after 0 on a retry means the
 // seq of the original write is not known; any terminal or interrupted
 // state then ends the wait.
-func (d *Daemon) finishSend(ctx context.Context, id string, after int64, req a2ashape.TaskSend, wait time.Duration) (a2ashape.Task, error) {
+func (d *Daemon) finishSend(ctx context.Context, sc taskScope, id string, after int64, req module.TaskSend, wait time.Duration) (a2ashape.Task, error) {
 	var ix *interactions.Interaction
 	var err error
 	if req.ReturnImmediately {
@@ -382,7 +409,7 @@ func (d *Daemon) finishSend(ctx context.Context, id string, after int64, req a2a
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	return d.taskView(ix, viewOpts{historyLen: req.HistoryLength, artifacts: true})
+	return d.taskView(ix, viewOpts{historyLen: req.HistoryLength, artifacts: true, inline: sc.inline()})
 }
 
 // failUndelivered marks a task whose delegation could not be sent. The row
@@ -412,18 +439,24 @@ func (d *Daemon) firstOwnMessage(id string) (int64, bool) {
 }
 
 // clientMeta is the metadata stored and sent with a client's message: the
-// client's own keys, minus the reserved anet.* and x402.* namespaces, and
-// its message id under a2a.messageId.
-func clientMeta(m a2ashape.Message) map[string]any {
+// client's own keys, minus the reserved anet.*, x402.* and a2a.* namespaces;
+// its message id under a2a.messageId; and the extensions it activated as
+// a2a.serviceParameters, the relay's stand-in for the A2A-Extensions header
+// (A2A-DESIGN §3.4).
+func clientMeta(req module.TaskSend) map[string]any {
+	m := req.Message
 	out := map[string]any{}
 	for k, v := range m.Metadata {
-		if strings.HasPrefix(k, "anet.") || strings.HasPrefix(k, "x402.") || k == interactions.ClientMessageIDKey {
+		if strings.HasPrefix(k, "anet.") || strings.HasPrefix(k, "x402.") || strings.HasPrefix(k, "a2a.") {
 			continue
 		}
 		out[k] = v
 	}
-	if m.MessageID != "" {
-		out[interactions.ClientMessageIDKey] = m.MessageID
+	if m.ID != "" {
+		out[a2ashape.KeyMessageID] = m.ID
+	}
+	if len(req.Extensions) > 0 {
+		out[a2ashape.KeyServiceParameters] = map[string]any{"A2A-Extensions": req.Extensions, "A2A-Version": "1.0"}
 	}
 	return out
 }
@@ -490,13 +523,13 @@ func (in *taskInput) goal() string {
 // parseTaskInput applies the input part rules (A2A-DESIGN §11.5 [C44]).
 func parseTaskInput(m a2ashape.Message) (*taskInput, error) {
 	bad := func(format string, a ...any) error {
-		return fmt.Errorf("%w: %s", a2ashape.ErrInvalidParams, fmt.Sprintf(format, a...))
+		return a2ashape.Errorf(a2ashape.ErrInvalidParams, format, a...)
 	}
 	in := &taskInput{}
-	if v, ok := m.Metadata["anet.skill"]; ok {
+	if v, ok := m.Metadata[a2ashape.KeySkill]; ok {
 		id, _ := v.(string)
 		if strings.TrimSpace(id) == "" {
-			return nil, bad("metadata anet.skill must be a capability id")
+			return nil, bad("metadata %s must be a capability id", a2ashape.KeySkill)
 		}
 		in.capID = id
 		if a, ok := m.Metadata["anet.args"]; ok && a != nil {
@@ -510,28 +543,14 @@ func parseTaskInput(m a2ashape.Message) (*taskInput, error) {
 	var loose []map[string]any // data objects that are not {skill, args}
 	var looseJSON []string
 	for i, p := range m.Parts {
-		// A url part is refused whatever else the part carries: the daemon
-		// does not fetch, and does not read local paths (file:), for anyone.
-		if p.URL != "" {
+		switch p.Kind {
+		case a2ashape.PartURL:
+			// Refused whatever the scheme: the daemon does not fetch, and
+			// does not read local paths (file:), for anyone.
 			return nil, bad("part %d: url parts are not accepted (the daemon fetches nothing and reads no local file); send the bytes as a raw part", i)
-		}
-		n := 0
-		if p.Text != nil {
-			n++
-		}
-		if len(p.Raw) > 0 {
-			n++
-		}
-		if len(p.Data) > 0 {
-			n++
-		}
-		if n != 1 {
-			return nil, bad("part %d: exactly one of text, raw or data is required", i)
-		}
-		switch {
-		case p.Text != nil:
-			in.texts = append(in.texts, *p.Text)
-		case len(p.Raw) > 0:
+		case a2ashape.PartText:
+			in.texts = append(in.texts, p.Text)
+		case a2ashape.PartRaw:
 			att, err := attachmentFromBytes(p.Filename, p.Raw)
 			if err != nil {
 				return nil, bad("part %d: %v", i, err)
@@ -540,11 +559,8 @@ func parseTaskInput(m a2ashape.Message) (*taskInput, error) {
 				att.Mime = mt
 			}
 			in.atts = append(in.atts, att)
-		default:
-			var v any
-			if err := json.Unmarshal(p.Data, &v); err != nil {
-				return nil, bad("part %d: data is not JSON: %v", i, err)
-			}
+		case a2ashape.PartData:
+			v := p.Data
 			obj, isObj := v.(map[string]any)
 			if isObj {
 				if sk, ok := obj["skill"]; ok {
@@ -567,8 +583,13 @@ func parseTaskInput(m a2ashape.Message) (*taskInput, error) {
 				}
 				loose = append(loose, obj)
 			}
-			b, _ := json.Marshal(v)
+			b, err := json.Marshal(v)
+			if err != nil {
+				return nil, bad("part %d: data: %v", i, err)
+			}
 			looseJSON = append(looseJSON, string(b))
+		default:
+			return nil, bad("part %d: exactly one of text, raw or data is required", i)
 		}
 	}
 	if in.capID != "" {
@@ -666,7 +687,7 @@ func (d *Daemon) waitTask(ctx context.Context, id string, after int64, max time.
 // taskListReq is a ListTasks request. The fields beyond TaskFilter are the
 // control plane's; a scoped caller cannot set them.
 type taskListReq struct {
-	a2ashape.TaskFilter
+	module.TaskFilter
 	Role    interactions.Role
 	PeerAID string
 }
@@ -680,7 +701,7 @@ const (
 func (d *Daemon) listTasks(sc taskScope, r taskListReq) (a2ashape.TaskPage, error) {
 	f := r.TaskFilter
 	bad := func(format string, a ...any) error {
-		return fmt.Errorf("%w: %s", a2ashape.ErrInvalidParams, fmt.Sprintf(format, a...))
+		return a2ashape.Errorf(a2ashape.ErrInvalidParams, "%s", fmt.Sprintf(format, a...))
 	}
 	size := f.PageSize
 	switch {
@@ -702,16 +723,18 @@ func (d *Daemon) listTasks(sc taskScope, r taskListReq) (a2ashape.TaskPage, erro
 		return a2ashape.TaskPage{Tasks: []a2ashape.Task{}, PageSize: size}, nil
 	}
 	if f.State != "" {
-		st, ok := a2ashape.ANetState(f.State)
+		st, ok := storeState(f.State)
 		if !ok {
 			return a2ashape.TaskPage{}, bad("unknown status %q", f.State)
 		}
-		lf.States = []interactions.State{interactions.State(st)}
+		lf.States = []interactions.State{st}
 	}
 	if f.UpdatedAfter != nil {
-		lf.UpdatedAfter = f.UpdatedAfter.UnixMilli()
+		// "At or after" (module.TaskFilter); state_at is in milliseconds
+		// and the store's bound is strict.
+		lf.UpdatedAfter = f.UpdatedAfter.UnixMilli() - 1
 		if lf.UpdatedAfter <= 0 {
-			// Every state_at is after the epoch; 0 would mean "no bound".
+			// Every state_at is after the epoch; 0 means "no bound".
 			lf.UpdatedAfter = 0
 		}
 	}
@@ -729,7 +752,7 @@ func (d *Daemon) listTasks(sc taskScope, r taskListReq) (a2ashape.TaskPage, erro
 	out := a2ashape.TaskPage{Tasks: make([]a2ashape.Task, 0, len(page.Items)), TotalSize: total,
 		PageSize: size, NextPageToken: page.Next}
 	for _, ix := range page.Items {
-		t, err := d.taskView(ix, viewOpts{historyLen: f.HistoryLen, artifacts: f.IncludeArtifacts})
+		t, err := d.taskView(ix, viewOpts{historyLen: f.HistoryLen, artifacts: f.IncludeArtifacts, inline: sc.inline()})
 		if err != nil {
 			return a2ashape.TaskPage{}, err
 		}
@@ -750,11 +773,21 @@ func (d *Daemon) cancelTask(ctx context.Context, sc taskScope, id string) (a2ash
 	cur, err := d.CancelTask(cctx, ix.ID)
 	switch {
 	case errors.Is(err, ErrNotCancelable):
-		return a2ashape.Task{}, fmt.Errorf("%w: task %s is %s", a2ashape.ErrTaskNotCancelable, ix.ID, stateName(cur, ix))
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrTaskNotCancelable, "task %s is %s", ix.ID, stateName(cur, ix))
 	case err != nil:
 		return a2ashape.Task{}, err
 	}
-	return d.taskView(cur, viewOpts{artifacts: true})
+	return d.taskView(cur, viewOpts{artifacts: true, inline: sc.inline()})
+}
+
+// storeState reads a state filter in either spelling: the A2A enum name
+// (TASK_STATE_WORKING) or the daemon's (working). ok is false for any
+// other value, and for a state the store never holds (auth-required).
+func storeState(s string) (interactions.State, bool) {
+	if st := interactions.State(s); st.Valid() {
+		return st, true
+	}
+	return a2ashape.StoreState(a2ashape.TaskState(s))
 }
 
 func stateName(cur, fallback *interactions.Interaction) interactions.State {
@@ -781,7 +814,7 @@ func (d *Daemon) watchTask(ctx context.Context, sc taskScope, id string) (a2asha
 		cancel()
 		return a2ashape.Task{}, nil, err
 	}
-	first, err := d.taskView(snap, viewOpts{artifacts: true})
+	first, err := d.taskView(snap, viewOpts{artifacts: true, inline: sc.inline()})
 	if err != nil {
 		cancel()
 		return a2ashape.Task{}, nil, err
@@ -792,12 +825,12 @@ func (d *Daemon) watchTask(ctx context.Context, sc taskScope, id string) (a2asha
 		close(out)
 		return first, out, nil
 	}
-	go d.pumpTaskEvents(ctx, snap, events, cancel, out)
+	go d.pumpTaskEvents(ctx, snap, events, cancel, out, sc.inline())
 	return first, out, nil
 }
 
 func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interaction, events <-chan Event,
-	cancel func(), out chan<- a2ashape.TaskEvent) {
+	cancel func(), out chan<- a2ashape.TaskEvent, inline bool) {
 	defer func() { cancel(); close(out) }()
 	lastSeq := snap.StateSeq
 	lastMsg := d.lastPeerMessage(snap)
@@ -832,20 +865,19 @@ func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interact
 		if cur.StateSeq <= lastSeq && msg <= lastMsg {
 			continue
 		}
-		t, err := d.taskView(cur, viewOpts{historyLen: new(int), artifacts: cur.IsTerminal()})
+		t, err := d.taskView(cur, viewOpts{historyLen: new(int), artifacts: cur.IsTerminal(), inline: inline})
 		if err != nil {
 			return
 		}
 		if cur.IsTerminal() {
-			for _, a := range t.Artifacts {
-				if !send(a2ashape.TaskEvent{ArtifactUpdate: &a2ashape.TaskArtifactUpdateEvent{TaskID: t.ID,
-					ContextID: t.ContextID, Artifact: a, LastChunk: true}}) {
+			for _, a := range a2ashape.ArtifactUpdates(t) {
+				if !send(a2ashape.TaskEvent{ArtifactUpdate: &a}) {
 					return
 				}
 			}
 		}
-		if !send(a2ashape.TaskEvent{StatusUpdate: &a2ashape.TaskStatusUpdateEvent{TaskID: t.ID,
-			ContextID: t.ContextID, Status: t.Status, Metadata: t.Metadata}}) {
+		su := a2ashape.StatusUpdate(t)
+		if !send(a2ashape.TaskEvent{StatusUpdate: &su}) {
 			return
 		}
 		lastSeq, lastMsg = cur.StateSeq, msg

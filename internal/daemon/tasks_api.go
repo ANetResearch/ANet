@@ -29,6 +29,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // taskWaitCap bounds the timeout a caller may ask a control-plane call to
@@ -67,14 +68,14 @@ func writeTaskError(w http.ResponseWriter, err error) {
 }
 
 func badTaskRequest(w http.ResponseWriter, format string, a ...any) {
-	writeTaskError(w, fmt.Errorf("%w: %s", a2ashape.ErrInvalidParams, fmt.Sprintf(format, a...)))
+	writeTaskError(w, a2ashape.Errorf(a2ashape.ErrInvalidParams, "%s", fmt.Sprintf(format, a...)))
 }
 
 // waitBound turns a request's timeout_ms into a wait bound.
 func waitBound(ms int64) (time.Duration, error) {
 	switch {
 	case ms < 0:
-		return 0, fmt.Errorf("%w: timeout_ms must not be negative", a2ashape.ErrInvalidParams)
+		return 0, a2ashape.Errorf(a2ashape.ErrInvalidParams, "timeout_ms must not be negative")
 	case ms == 0:
 		return taskWaitMax, nil
 	}
@@ -116,7 +117,7 @@ func (r *tasksSendReq) message() a2ashape.Message {
 	if r.Message != nil {
 		return *r.Message
 	}
-	m := a2ashape.Message{MessageID: r.MessageID, ContextID: r.ContextID, TaskID: r.TaskID,
+	m := a2ashape.Message{ID: r.MessageID, ContextID: r.ContextID, TaskID: r.TaskID,
 		Role: a2ashape.RoleUser, Metadata: r.Metadata}
 	if r.Text != "" {
 		m.Parts = append(m.Parts, a2ashape.TextPart(r.Text))
@@ -142,7 +143,7 @@ func (d *Daemon) hTasksSend(w http.ResponseWriter, r *http.Request) {
 		writeTaskError(w, err)
 		return
 	}
-	ts := a2ashape.TaskSend{Message: req.message(), ReturnImmediately: req.ReturnImmediately, HistoryLength: req.HistoryLength}
+	ts := module.TaskSend{Message: req.message(), ReturnImmediately: req.ReturnImmediately, HistoryLength: req.HistoryLength}
 	if c := req.Configuration; c != nil {
 		ts.ReturnImmediately = ts.ReturnImmediately || c.ReturnImmediately
 		if ts.HistoryLength == nil {
@@ -193,7 +194,7 @@ func (d *Daemon) hTasksList(w http.ResponseWriter, r *http.Request) {
 		badTaskRequest(w, "body: %v", err)
 		return
 	}
-	lr := taskListReq{TaskFilter: a2ashape.TaskFilter{ContextID: req.ContextID, State: req.Status,
+	lr := taskListReq{TaskFilter: module.TaskFilter{ContextID: req.ContextID, State: req.Status,
 		PageSize: req.PageSize, PageToken: req.PageToken, HistoryLen: req.HistoryLength,
 		IncludeArtifacts: req.IncludeArtifacts}, PeerAID: req.Peer}
 	if lr.State == "" {
@@ -319,7 +320,7 @@ func (d *Daemon) hTasksReply(w http.ResponseWriter, r *http.Request) {
 // replyTask carries out a provider's answer (see replyReq).
 func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, error) {
 	bad := func(format string, a ...any) error {
-		return fmt.Errorf("%w: %s", a2ashape.ErrInvalidParams, fmt.Sprintf(format, a...))
+		return a2ashape.Errorf(a2ashape.ErrInvalidParams, "%s", fmt.Sprintf(format, a...))
 	}
 	ix, err := d.scopedTask(controlScope, req.TaskID)
 	if err != nil {
@@ -329,19 +330,19 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 		return a2ashape.Task{}, bad("%s is a task this node sent; follow it up with /tasks/send", ix.ID)
 	}
 	if ix.IsCapability {
-		return a2ashape.Task{}, fmt.Errorf("%w: %s is a capability call; it completes when the capability answers",
-			a2ashape.ErrUnsupportedOperation, ix.ID)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation,
+			"%s is a capability call; it completes when the capability answers", ix.ID)
 	}
 	if ix.IsTerminal() {
-		return a2ashape.Task{}, fmt.Errorf("%w: task %s is %s", a2ashape.ErrUnsupportedOperation, ix.ID, ix.State)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s is %s", ix.ID, ix.State)
 	}
 	state := interactions.StateInputRequired
 	if req.State != "" {
-		s, ok := a2ashape.ANetState(req.State)
+		s, ok := storeState(req.State)
 		if !ok {
 			return a2ashape.Task{}, bad("unknown state %q", req.State)
 		}
-		state = interactions.State(s)
+		state = s
 	}
 	var in *taskInput
 	if req.Message != nil || req.Text != "" {
@@ -392,13 +393,13 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 	case interactions.StateCanceled:
 		_, err = d.CancelTask(sctx, ix.ID)
 		if errors.Is(err, ErrNotCancelable) {
-			err = fmt.Errorf("%w: %v", a2ashape.ErrTaskNotCancelable, err)
+			err = a2ashape.Errorf(a2ashape.ErrTaskNotCancelable, "%v", err)
 		}
 	default:
 		return a2ashape.Task{}, bad("a reply cannot set the state %s", state)
 	}
 	if errors.Is(err, ErrTaskTerminal) {
-		return a2ashape.Task{}, fmt.Errorf("%w: %v", a2ashape.ErrUnsupportedOperation, err)
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "%v", err)
 	}
 	if err != nil {
 		return a2ashape.Task{}, err
@@ -413,7 +414,7 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 // hAgentsList is discovery (MCP list_agents). q is free text; it is matched
 // against the cards here and never sent to the hub (A2A-DESIGN §10.5).
 func (d *Daemon) hAgentsList(w http.ResponseWriter, r *http.Request) {
-	var q a2ashape.AgentQuery
+	var q module.AgentQuery
 	if err := readJSON(r, &q); err != nil {
 		badTaskRequest(w, "body: %v", err)
 		return

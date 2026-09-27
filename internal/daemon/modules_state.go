@@ -38,13 +38,8 @@ func (h moduleHost) StateDir(name string) string {
 	return dir
 }
 
-// TaskSeam is not offered yet.
-//
-// TODO(A2A-DESIGN §11.1, §12): implement over the interaction store and the
-// delegation paths, sharing the control plane's /tasks/* implementation —
-// scoped to role=outbound and peer_aid == peerAID, returning
-// a2ashape.ProjectStored projections, Watch built on d.Watch (eventbus.go)
-// with a2ashape.StatusUpdate / ArtifactUpdates, Pay through the agent-tier
-// spending policy. Until then module/a2a sees (nil, false) and does not
-// start its listener.
-func (h moduleHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }
+// TaskSeam is the daemon's task seam (taskseam.go), scoped per call to one
+// remote agent. It is offered whether or not a hub is configured: a node
+// may register with one after start, and until then a send answers
+// UnavailableError rather than the interface not existing.
+func (h moduleHost) TaskSeam() (module.TaskSeam, bool) { return h.d.TaskSeam(), true }
