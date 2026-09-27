@@ -9,6 +9,7 @@ package daemon
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
@@ -177,5 +178,52 @@ func TestAPaidTaskIsDeliveredAfterItsProviderIsDenied(t *testing.T) {
 	})
 	if counter(req, dropDenied) != 0 {
 		t.Fatalf("%d messages of the paid task dropped as denied", counter(req, dropDenied))
+	}
+}
+
+// 0017 Q3, the payment that does not go through: a cancel sent while the
+// payment was being settled is left pending (the provider ignores it while
+// the payment is submitted); when the provider then says the payment
+// failed, the requester carries the cancel out — the task is canceled on
+// both sides instead of waiting in input-required with the cancel
+// forgotten.
+func TestACancelPendingOnAPaymentThatFailsIsCarriedOut(t *testing.T) {
+	withSettleRetry(t, 50*time.Millisecond)
+	work := &meteredWork{price: 600} // more than the requester's 500 credits
+	hub, req, prov := paidPair(t, work)
+	req.stopRelayLoop()
+	prov.stopRelayLoop()
+	payPolicy(t, req, PaymentsConfig{AutoMax: 1000, AgentDailyMax: 1000, DailyMax: u64(1000)}, prov.AID())
+	settleFaultsOn(hub, "pending") // the first settlement's outcome is not known
+	ctx := context.Background()
+	id, err := req.DelegateCapability(ctx, prov.AID(), "work.do", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poll(t, prov, req) // the quote; paid within the automatic tier
+	if rix := getIX(t, req, id); rix.PayState != interactions.PaySubmitted {
+		t.Fatalf("setup: requester pay_state %q", rix.PayState)
+	}
+	ix, err := req.CancelTask(ctx, id)
+	if err != nil || ix.IsTerminal() {
+		t.Fatalf("cancel while the payment is submitted: %v, state %s (want unchanged)", err, ix.State)
+	}
+	if pm := req.PaymentStatusMeta(ix); pm[x402a2a.KeyCancelRequested] != true {
+		t.Fatalf("status metadata after the cancel: %v", pm)
+	}
+	poll(t, prov) // the payment (outcome unknown), then the cancel (ignored: submitted)
+	waitUntil(t, "the retried settlement to fail", func() bool {
+		return getIX(t, prov, id).PayState == interactions.PayFailed
+	})
+	if st := getIX(t, prov, id).State; st.IsTerminal() {
+		t.Fatalf("setup: the provider ended the task (%s) before the requester heard of the failure", st)
+	}
+	poll(t, req) // payment-failed: the pending cancel is carried out
+	if rix := getIX(t, req, id); rix.State != interactions.StateCanceled {
+		t.Fatalf("requester after the failed payment: %s / %q, want canceled", rix.State, rix.PayState)
+	}
+	poll(t, prov)
+	if pix := getIX(t, prov, id); pix.State != interactions.StateCanceled || work.invoked.Load() != 0 {
+		t.Fatalf("provider: %s, ran %d; want canceled, not run", pix.State, work.invoked.Load())
 	}
 }

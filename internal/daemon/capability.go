@@ -614,9 +614,13 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 //     step 10). One whose payment was taken has no redelivery to bring it
 //     back: its delegation and its payment were acknowledged.
 //   - A short call only recorded is left for the redelivery of its
-//     delegation, which was not acknowledged and runs it again.
+//     delegation, which was not acknowledged and runs it again; an
+//     approved one, whose delegation was acknowledged when it was held,
+//     is run again here.
 //   - A call waiting on a payment (quoted, submitted, or received and not
 //     taken) is the payment flow's (startPayments, §8.3).
+//   - Unpaid work for a peer now on the deny list is not run again: the
+//     revocation sweep cancels it (§5.1). Paid work is (0017 Q10).
 //
 // Short or long is the provider's answer, so it is read from the registry,
 // which the modules have filled by now. A recorded call whose provider is
@@ -629,6 +633,7 @@ func (d *Daemon) recoverInterrupted() {
 		log.Printf("anet: startup recovery: %v", err)
 		return
 	}
+	ps := d.readPeers()
 	for _, ix := range list {
 		if !ix.IsCapability || len(ix.Receipt) > 0 {
 			continue
@@ -636,6 +641,10 @@ func (d *Daemon) recoverInterrupted() {
 		capID, args := storedCall(ix)
 		switch d.leftoverAction(ix, capID) {
 		case leftoverRerun:
+			if ps.denied(ix.PeerAID) && ix.PayState != interactions.PayCompleted {
+				log.Printf("anet: %s: %s was cut off by a restart; its peer is denied, so it is not run again", ix.ID, capID)
+				continue
+			}
 			ix, capID, args := ix, capID, args
 			log.Printf("anet: %s: %s was cut off by a restart; running it again", ix.ID, capID)
 			d.goBackground(func() { d.runCapabilityCall(ix.ID, capID, args, nil, nil) })

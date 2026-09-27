@@ -1130,8 +1130,8 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 		cctx, cancel := context.WithTimeout(d.ctx, capabilityInvokeTimeout)
 		rc.cancel = cancel
 		defer cancel()
-		d.tryCapabilityPaid(cctx, interactionID, capID, args, payment)
-		return true
+		// Answered "not served" unless the stop came first (SI-10).
+		return d.tryCapabilityPaid(cctx, interactionID, capID, args, payment) || d.ctx.Err() == nil
 	}
 	bound, long := invokeBound(p, capID)
 	if long && len(payment) == 0 && d.unpaidPriced(p, capID, interactionID) {

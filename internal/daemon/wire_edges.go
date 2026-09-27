@@ -9,10 +9,15 @@ package daemon
 //     open (A2A-DESIGN §3.6);
 //   - the deny list does not stop the delivery of work this node paid for,
 //     and a deny reports the paid work it left running once (0017 Q10);
+//   - a cancel left pending because a payment was in flight is carried out
+//     when the payment does not go through (0017 Q3);
 //   - follow-ups held with an approval-queue item are recorded by kind
 //     (A2A-DESIGN §5.3).
 
 import (
+	"context"
+	"errors"
+	"log"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
@@ -64,10 +69,15 @@ func (d *Daemon) leftoverAction(ix *interactions.Interaction, capID string) left
 	if !ix.IsCapability || ix.IsTerminal() || len(ix.Receipt) > 0 {
 		return leftoverKeep
 	}
-	if ix.PayState == interactions.PaySubmitted || d.untakenPayment(ix) != nil {
-		// Not executed: the payment's outcome is not known yet, or the
-		// payment was not taken yet, and startPayments presents it again
-		// (A2A-DESIGN §8.3).
+	switch ix.PayState {
+	case interactions.PayNone, interactions.PayCompleted:
+	default:
+		// Priced work runs only once paid (A2A-DESIGN §8.3), so this one
+		// has not run: its payment is being settled or was received and
+		// not taken (startPayments presents it again), or its quote waits
+		// (the quote sweep ends the task when it lapses). Reporting it
+		// interrupted would say an effect might have happened when none
+		// did.
 		return leftoverKeep
 	}
 	resolvable, long := false, false
@@ -80,15 +90,19 @@ func (d *Daemon) leftoverAction(ix *interactions.Interaction, capID string) left
 	switch ix.State {
 	case interactions.StateSubmitted:
 		// Recorded and never marked working. A long call is marked working
-		// before it starts, so this one stopped in between, unless it is
-		// waiting for a payment; a short one is run again by the
-		// redelivery of its delegation.
-		if long && ix.PayState != interactions.PayRequired && ix.PayState != interactions.PayFailed {
+		// before it starts, so this one stopped in between. A short one is
+		// run again by the redelivery of its delegation, which was not
+		// acknowledged — except an approved one: its delegation was
+		// acknowledged when it was held, and nothing will come again.
+		if long {
 			return leftoverInterrupted
+		}
+		if resolvable && ix.Trust == interactions.TrustApproved {
+			return leftoverRerun
 		}
 		return leftoverKeep
 	case interactions.StateWorking:
-		if resolvable && !long && (ix.PayState == interactions.PayNone || ix.PayState == interactions.PayCompleted) {
+		if resolvable && !long {
 			return leftoverRerun
 		}
 		return leftoverInterrupted
@@ -136,15 +150,27 @@ func (d *Daemon) skippedPaidNew(ids []string) []string {
 	return fresh
 }
 
-// skippedPaidKeep forgets the reported ids not in current: tasks that have
-// ended, or whose peer is no longer denied.
-func (d *Daemon) skippedPaidKeep(current map[string]bool) {
+// skippedPaidReported is the set of ids reported so far.
+func (d *Daemon) skippedPaidReported() map[string]bool {
+	out := map[string]bool{}
 	d.peerLists.skippedPaid.Range(func(k, _ any) bool {
-		if id, _ := k.(string); !current[id] {
-			d.peerLists.skippedPaid.Delete(k)
+		if id, _ := k.(string); id != "" {
+			out[id] = true
 		}
 		return true
 	})
+	return out
+}
+
+// skippedPaidForget forgets the ids of reported that are not in current:
+// tasks that have ended, or whose peer is no longer denied. An id reported
+// after reported was read is kept.
+func (d *Daemon) skippedPaidForget(reported, current map[string]bool) {
+	for id := range reported {
+		if !current[id] {
+			d.peerLists.skippedPaid.Delete(id)
+		}
+	}
 }
 
 // denyExtra is the detail of an anet.policy.changed for a deny: the
@@ -156,6 +182,43 @@ func denyExtra(canceled, skippedPaid []string) map[string]any {
 		extra["skipped_paid"] = skippedPaid
 	}
 	return extra
+}
+
+// carryOutRequestedCancel cancels a task this node started whose cancel was
+// sent while its payment was submitted, once the provider says the payment
+// did not go through (a payment-failed, or a new quote). The cancel was
+// left pending only because paid work is not canceled (A2A-DESIGN §4.2,
+// 0017 Q3); with no payment taken the task can be canceled, and that is
+// what the requester asked for, rather than an automatic payment again or
+// a task waiting for another decision. It reports whether a cancel was
+// pending.
+func (d *Daemon) carryOutRequestedCancel(ctx context.Context, ixID string) bool {
+	ix, err := d.ix.Get(ixID)
+	if err != nil || ix.Role != interactions.RoleOutbound || ix.IsTerminal() ||
+		ix.PayState == interactions.PaySubmitted || ix.PayState == interactions.PayCompleted {
+		return false
+	}
+	msgs, err := d.ix.Messages(ixID)
+	if err != nil {
+		return false
+	}
+	requested := false
+	for _, m := range msgs {
+		// A cancel of an unpaid task ends it, so one on a task still open
+		// was sent while a payment was in flight.
+		if m.Kind == interactions.MsgCancel && m.SenderAID == d.AID() {
+			requested = true
+			break
+		}
+	}
+	if !requested {
+		return false
+	}
+	log.Printf("anet: %s: the payment did not go through; carrying out the cancel sent while it was pending", ixID)
+	if _, err := d.CancelTask(ctx, ixID); err != nil && !errors.Is(err, ErrNotCancelable) {
+		log.Printf("anet: %s: carry out the pending cancel: %v", ixID, err)
+	}
+	return true
 }
 
 // heldMessage is a follow-up stored when its approval-queue item was
