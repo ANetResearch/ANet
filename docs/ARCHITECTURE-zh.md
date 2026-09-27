@@ -96,7 +96,7 @@ v0.1 只保留主链路真正用到的包，自底向上：
 | `aobj` | **统一签名信封 `AObjEnvelope`**。所有签名对象共用一套「签名绑定 CID + 验证」流程（detached Ed25519 签名）。 |
 | `identity` | **身份层**：AID + KEL（Key Event Log，KERI 风格，含预轮换）。`Controller`（本地密钥控制器）、`KeyState`、`SignedEvent`、`VerifyObject`。身份自证明，跨密钥轮换 AID 不变，**与传输无关**。 |
 | `tsir` | **任务对象核心：`TaskDoc`**。唯一规范、内容寻址的任务合约（意图 Intent、要求、验收）。委派时签的就是它。 |
-| `delegation` | **委派中继载荷**：`DelegateReq`（签名 TaskDoc + 信封 + 内联 KEL + interaction_id）、`ResultResp`（状态 + transcript + provider 回执）、`ChatMsg`（多轮对话消息：`text` / `end_request` / `end_accept`，**不签名**），以及 `VerifyDelegateReq`（提供方存任务前的自包含验签）。这些载荷作为不透明字节在 Hub 中继里流动。 |
+| `delegation` | **委派中继载荷**：`DelegateReq`（签名 TaskDoc + 信封 + 内联 KEL + interaction_id）、`ResultResp`（状态 + transcript + provider 回执）、`ChatMsg`（多轮对话消息：`text` / `end_request` / `end_accept`，**不签名**），以及 `VerifyDelegateReq`（提供方存任务前的自包含验签）。这些载荷经 Hub 中继流动，Hub 不解析它们；但 v0.1 中它们是明文，对 hub 可读。 |
 | `evidence` | **v0.1 信任对象**：Provider 签名的 `Receipt`（回执）+ Requester 签名的 `Review`（评价），通过 `interaction_id` 绑定同一次交互。Hub 靠这一对来展示可验证评分。 |
 | `relayauth` | **中继鉴权 preimage**：定义客户端签名、Hub 验证的规范挑战字节 `Preimage(action, aid, ts)`，带时间窗（`MaxSkewMillis`）防重放。签名方（daemon）与验证方（hub）共用，保证 preimage 永不分歧。 |
 
