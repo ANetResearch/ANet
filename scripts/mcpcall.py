@@ -221,9 +221,15 @@ def op(s, name, logical):
         for r in (payload(res) or {}).get("results") or []:
             if r.get("interaction_id") != want:
                 continue
+            # A text task's result is prose, which may even parse as a
+            # bare JSON number or string; only an object has a status.
             try:
-                status = json.loads(r.get("result") or "{}").get("status", "")
+                parsed = json.loads(r.get("result") or "{}")
             except ValueError:
+                parsed = None
+            if isinstance(parsed, dict):
+                status = parsed.get("status", "")
+            else:
                 status = "OK" if '"status":"OK"' in (r.get("result") or "") else ""
             out.update(task_id=want, done=True, state="completed",
                        effect_status=status, receipt=bool(r.get("receipt_cid")))

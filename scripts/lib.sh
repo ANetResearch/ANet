@@ -97,8 +97,23 @@ print_status(){
 # The inbound policy is closed by default (A2A-DESIGN §5): a provider takes delegations only from peers
 # on this list. The CLI's `anet peers allow` asks for confirmation on a terminal, which a script does
 # not have; the daemon reads the file on every decision, so no restart is needed.
-peer_allow(){ local d="$1"; shift; local x; for x in "$@"; do grep -qxF "$x" "$d/peers.allow" 2>/dev/null || printf '%s\n' "$x" >> "$d/peers.allow"; done; }
+peer_allow(){ local d="$1"; shift; _peer_add "$d/peers.allow" "$@"; }
 
 # peer_trust DATA_DIR AID…: the same for peers.trust — peers whose tasks may drive this identity's exec
 # auto-reply (the local coding agent).
-peer_trust(){ local d="$1"; shift; local x; for x in "$@"; do grep -qxF "$x" "$d/peers.trust" 2>/dev/null || printf '%s\n' "$x" >> "$d/peers.trust"; done; }
+peer_trust(){ local d="$1"; shift; _peer_add "$d/peers.trust" "$@"; }
+
+# _peer_add FILE AID…: append each AID not yet on the list, one per line. The same shape check as the daemon's
+# own writer (validAIDSyntax: 8–256 printable ASCII, no space, no '#'), because a stray argument or a '#' would
+# otherwise land in the file as a line the daemon reads differently. A last line without its newline would
+# glue onto the appended AID, so one is added first. New files are 0600, as the daemon writes them.
+_peer_add(){
+  local f="$1"; shift; local x
+  for x in "$@"; do
+    case "$x" in *[!!-~]*|*'#'*) die "不是 AID：$x" ;; esac
+    [ "${#x}" -ge 8 ] && [ "${#x}" -le 256 ] || die "不是 AID：$x"
+  done
+  ( umask 077; touch "$f" ) || die "写不了 $f"
+  [ -z "$(tail -c1 "$f")" ] || echo >> "$f"
+  for x in "$@"; do grep -qxF "$x" "$f" || printf '%s\n' "$x" >> "$f"; done
+}
