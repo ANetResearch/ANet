@@ -43,6 +43,33 @@ func messageKind(meta []byte) string {
 	return interactions.MsgText
 }
 
+// maxEvidenceMsgID bounds a message id recorded as it is. This node mints
+// "msg_" and 32 hex digits; a peer's id is its own choice.
+const maxEvidenceMsgID = 128
+
+// evidenceMsgID is the message id as the chain records it. An id this
+// node could have minted, or one of the same modest shape, is kept as it
+// is, so the two sides of one message can be matched. Anything else (too
+// long, or with characters an identifier does not need) is a peer putting
+// something other than an identifier there; the chain is permanent and
+// carries no content, so it gets the CID of the id instead.
+func evidenceMsgID(id string) string {
+	ok := len(id) <= maxEvidenceMsgID
+	for i := 0; ok && i < len(id); i++ {
+		c := id[i]
+		ok = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '_' || c == '-' || c == '.' || c == ':'
+	}
+	if ok {
+		return id
+	}
+	c, err := anetcid.SumRaw([]byte(id))
+	if err != nil {
+		return ""
+	}
+	return "cid:" + c
+}
+
 // messageEvidence is the payload of one message event.
 func messageEvidence(ix, msgID, kind string, payload []byte, attachments int) (map[string]any, error) {
 	c, err := anetcid.Sum(payload)
@@ -51,7 +78,7 @@ func messageEvidence(ix, msgID, kind string, payload []byte, attachments int) (m
 	}
 	return map[string]any{
 		"interaction_id": ix,
-		"msg_id":         msgID,
+		"msg_id":         evidenceMsgID(msgID),
 		"kind":           kind,
 		"cid":            c,
 		"bytes":          len(payload),

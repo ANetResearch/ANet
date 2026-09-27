@@ -995,14 +995,17 @@ func (d *Daemon) purgeReplay() {
 }
 
 // receiveMaintenance runs the periodic housekeeping of the receive path
-// every hour until ctx ends: expired replay rows, and key ring rotation and
-// publication. New runs the first purge itself; the key ring is maintained
-// at start by setupKeyRing and published by the registration refresh.
+// every hour until ctx ends: expired replay rows, key ring rotation and
+// publication, and the public_cap retention sweep. New runs the first purge
+// itself; the key ring is maintained at start by setupKeyRing and published
+// by the registration refresh; the first retention sweep runs here, off the
+// start path.
 func (d *Daemon) receiveMaintenance(ctx context.Context) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
 	m := time.NewTicker(time.Minute)
 	defer m.Stop()
+	d.pruneRetention() // at start too: a node restarted more often than hourly still sweeps
 	for {
 		select {
 		case <-ctx.Done():

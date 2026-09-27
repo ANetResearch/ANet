@@ -396,15 +396,18 @@ func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, at
 	if err != nil {
 		return 0, err
 	}
+	if queued {
+		// Recorded and queued in one write: the message will be delivered
+		// or expire (anet.delivery.expired), so it is on the chain now,
+		// whatever happens to the local copy of its attachments.
+		d.recordMessageSent(ix, msgID, messageKind(metaBytes), payload, len(atts))
+	}
 	if err := d.storeMsgAttachments(interactionID, seq, atts); err != nil {
 		return stateSeq, err
 	}
 	d.publishMessage(interactionID, seq, interactions.MsgText)
 	d.publishState(interactionID)
 	if queued {
-		// Recorded and queued in one write: the message will be delivered
-		// or expire (anet.delivery.expired), so it is on the chain now.
-		d.recordMessageSent(ix, msgID, messageKind(metaBytes), payload, len(atts))
 		if err := d.deliverQueued(ctx, outbox); err != nil {
 			log.Printf("anet: %s: message queued for delivery to %s (%v)", interactionID, ix.PeerAID, err)
 		}
