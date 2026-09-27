@@ -506,7 +506,7 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 	ctx := context.Background()
 	var clock atomic.Uint64
 	clock.Store(uint64(time.Now().UnixMilli()))
-	prov.clock = clock.Load
+	prov.setClock(clock.Load)
 
 	const flood = relayPollLimit + 50
 	stranger := newStranger(t)
@@ -579,7 +579,7 @@ func TestAHeldEnvelopeIsRetriedAtOnePollPerRound(t *testing.T) {
 	ctx := context.Background()
 	var clock atomic.Uint64
 	clock.Store(uint64(time.Now().UnixMilli()))
-	prov.clock = clock.Load
+	prov.setClock(clock.Load)
 
 	injectEnvelope(t, srv, prov.AID(), craft(t, newStranger(t), prov, seal.TypeMessage,
 		"ix_not_held_tail", chatBody(t, "noise", ""), nil))
