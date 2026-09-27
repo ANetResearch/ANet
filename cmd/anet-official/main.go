@@ -332,6 +332,10 @@ type publicCapConfig struct {
 	GlobalPerMin    int    `json:"global_per_min,omitempty"`
 	MaxInflight     int    `json:"max_inflight,omitempty"`
 	MaxArgsBytes    int    `json:"max_args_bytes"`
+	// Evidence is the daemon's evidence mode for calls from strangers.
+	// The official agents keep the result CID and the metrics only
+	// (deploy/official/README.md §5).
+	Evidence string `json:"evidence,omitempty"`
 }
 
 type svcModuleConfig struct {
@@ -364,6 +368,7 @@ func buildServiceConfig(caps []*capability, baseURL, tokenFile string, price uin
 		sc.Inbound.PublicCapabilities = append(sc.Inbound.PublicCapabilities, publicCapConfig{
 			ID: c.ID, PerCallerPerMin: c.Quota.PerCallerPerMin, PerCallerPerDay: c.Quota.PerCallerPerDay,
 			GlobalPerMin: c.Quota.GlobalPerMin, MaxInflight: c.Quota.MaxInflight, MaxArgsBytes: c.MaxArgsBytes,
+			Evidence: "cid",
 		})
 		p := c.Price
 		if p > 0 && price > 0 {

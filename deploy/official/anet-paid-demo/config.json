@@ -13,7 +13,8 @@
         "id": "demo.digest.paid",
         "global_per_min": 300,
         "max_inflight": 8,
-        "max_args_bytes": 4096
+        "max_args_bytes": 4096,
+        "evidence": "cid"
       }
     ]
   },

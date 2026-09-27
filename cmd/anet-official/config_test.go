@@ -136,6 +136,13 @@ func TestDeploySamplesMatchTheTable(t *testing.T) {
 		if !reflect.DeepEqual(cfg.Inbound.PublicCapabilities, want.Inbound.PublicCapabilities) {
 			t.Errorf("%s: public_capabilities differ from `anet-official service-config -groups %s`", id, group)
 		}
+		// The published retention policy (README §5): the chain of an
+		// official agent keeps the result CID and the metrics, not answers.
+		for _, pc := range cfg.Inbound.PublicCapabilities {
+			if pc.Evidence != "cid" {
+				t.Errorf("%s: %s has evidence %q, want cid", id, pc.ID, pc.Evidence)
+			}
+		}
 		var svc svcModuleConfig
 		if err := json.Unmarshal(cfg.Modules["service"], &svc); err != nil {
 			t.Fatalf("%s: modules.service: %v", id, err)

@@ -68,6 +68,19 @@ ANetResearch/ANetLink   物理世界 runtime + 适配器 + AdapterSDK
 | C4 | **Adapter 接口** | anetlink runtime ↔ 协议适配器 | **Go 接口（AdapterSDK），编译期组合**。原 ADAP/UDS 降格为第三方 out-of-tree 逃生舱（extension，随 v4.0 与否见 D43） |
 | C5 | **证据面** | 所有人 → EffectRecord/AEL | ANetCore 类型，design3 原样 |
 
+C5 对公共能力有两种证据模式（A2A-DESIGN §15、§21 第 4 条，决定 Q15），按能力配置在
+`inbound.public_capabilities[].evidence`，只作用于陌生人的调用（`trust=public_cap`）：
+
+| 模式 | `anet.capability.effect` 记什么 |
+|---|---|
+| `cid`（缺省） | 调用方、能力、状态、可核验标志、指标、`result_cid`、终态；provenance 只留 `protocol`、`verify_trust`、`latency_ms`、`native_ack` |
+| `full` | 以上，加完整 provenance（`observed_state`、`requested`、`quirk`、`auth_trust`） |
+
+`result_cid` 两种模式都记：调用方持有结果与签名收据，任何人重算 CID 即可核对，证据链不必保存结果原文。
+允许名单里的对端调用同一能力照常记完整 provenance。`public_cap` 交互在终态 7 天后由 daemon 按天清理
+（`interactions.Store.PruneTerminal`），清理计数记为 `anet.interaction.pruned`。证据事件名集中登记在
+`internal/evtypes`（`anet audit` 的已知事件表由它生成，测试检查每处写链都用登记过的事件名）。
+
 C1 红线（org 教训成文）：**daemon 不得知道"设备"概念**——只知道 provider 声明了
 能力、可被调用、返回证据。接口签名（草案，M0 定稿）：
 
