@@ -1,0 +1,211 @@
+Mutation for scripts/joint.sh section C (B5-02, A2A-DESIGN SI-1 "恢复任一采集源"): the admin gets back
+the channel into an official agent that §9 row "admin 官方 agent" and [C39] removed — a manifest may
+again carry a monitor (the agent's console URL and its token) and datasets.harvest, and the harvest pass
+reads the agent's tasks through that console into datasets/<id>/ and the session index of admin.db, as
+the ai-studio source did with jobs and prompts. Never commit it applied.
+
+Repository: ANetHub
+Expect: SI-1 canary hits
+
+Why this source and not hub-relay: the other removed source read relay_message. Since wire 2 a relay
+row is a sealed envelope, so a restored hub-relay harvest copies ciphertext and finds no canary on its
+own; it hits only together with si1-plaintext-envelope.patch. The content a restored harvest can reach
+from the hub host is an official agent's, which is why SI-1's run includes a call to one.
+
+Apply and run with scripts/mutations/mutate.sh:
+
+    scripts/mutations/mutate.sh canary scripts/mutations/si1-restore-official-harvest.patch
+
+or build on one machine and run on a test host, as described in si1-plaintext-envelope.patch.
+
+Expected: section C red twice over. The admin answers 200 instead of 400 to the manifest joint.sh offers
+with a monitor pointing at the official agent's control plane; the next harvest period (2 s, and the
+POST /api/harvest joint.sh makes) copies the official agent's task list, arguments and echoed result
+included, into datasets/canary-echo/sessions/*.jsonl and admin.db, so the admin data directory holds
+the official-args canary. The hub-side surfaces stay clean. Unit level:
+TestAManifestWithARemovedSectionIsRefused.
+
+diff --git a/internal/admin/harvest.go b/internal/admin/harvest.go
+index 359a43b..7ec3171 100644
+--- a/internal/admin/harvest.go
++++ b/internal/admin/harvest.go
+@@ -1,6 +1,17 @@
+ package admin
+ 
+-import "context"
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"fmt"
++	"io"
++	"net/http"
++	"os"
++	"path/filepath"
++	"strings"
++	"time"
++)
+ 
+ // Harvester is what remains of the dataset harvest: the scheduled run, with
+ // no sources.
+@@ -22,7 +33,8 @@ import "context"
+ // root are neither read nor served; the production cleanup
+ // (deploy/cleanup-content-v0.2.sh) deletes them.
+ type Harvester struct {
+-	root string // datasets root directory earlier versions wrote to
++	root  string // datasets root directory earlier versions wrote to
++	store *Store // MUTATION: the official-agent directory the harvest reads
+ }
+ 
+ // NewHarvester returns a harvester; root is the datasets directory earlier
+@@ -49,5 +61,89 @@ type RunResult struct {
+ // the hub host, which A2A-DESIGN §9 forbids; TestRunAllTouchesNothing
+ // fails if one is added.
+ func (hv *Harvester) RunAll(ctx context.Context) []RunResult {
+-	return []RunResult{}
++	out := []RunResult{}
++	if hv.store == nil {
++		return out
++	}
++	officials, err := hv.store.Officials()
++	if err != nil {
++		return out
++	}
++	for _, m := range officials {
++		if m.Datasets.Harvest && m.Monitor.URL != "" {
++			out = append(out, hv.runMonitor(ctx, m))
++		}
++	}
++	return out
++}
++
++// runMonitor is the MUTATION's restored ai-studio source: the official agent's jobs, fetched through
++// its console with its token, appended under datasets/<id>/ and indexed as sessions.
++func (hv *Harvester) runMonitor(ctx context.Context, m *Manifest) RunResult {
++	res := RunResult{Source: m.ID}
++	tok, err := os.ReadFile(m.Monitor.TokenFile)
++	if err != nil {
++		res.Err = err.Error()
++		return res
++	}
++	body := []byte(`{"include_artifacts":true,"history_length":50,"page_size":100}`)
++	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(m.Monitor.URL, "/")+"/tasks/list",
++		bytes.NewReader(body))
++	if err != nil {
++		res.Err = err.Error()
++		return res
++	}
++	req.Header.Set("Content-Type", "application/json")
++	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(tok)))
++	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
++	if err != nil {
++		res.Err = err.Error()
++		return res
++	}
++	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
++	resp.Body.Close()
++	var page struct {
++		Tasks []json.RawMessage `json:"tasks"`
++	}
++	if err := json.Unmarshal(raw, &page); err != nil {
++		res.Err = fmt.Sprintf("monitor answered %d: %v", resp.StatusCode, err)
++		return res
++	}
++	dir := filepath.Join(hv.root, m.ID, "sessions")
++	if err := os.MkdirAll(dir, 0o755); err != nil {
++		res.Err = err.Error()
++		return res
++	}
++	for _, t := range page.Tasks {
++		var head struct {
++			ID string `json:"id"`
++		}
++		_ = json.Unmarshal(t, &head)
++		if head.ID == "" {
++			continue
++		}
++		data := filepath.Join(dir, safeSessionID(head.ID)+".jsonl")
++		if err := os.WriteFile(data, append(append([]byte{}, t...), '\n'), 0o644); err != nil {
++			continue
++		}
++		goal := string(t)
++		if len(goal) > 4000 {
++			goal = goal[:4000]
++		}
++		if err := hv.store.putHarvestedSession(m.ID, safeSessionID(head.ID), m.AID, goal, data); err == nil {
++			res.Events++
++		}
++	}
++	res.Sessions = res.Events
++	res.Cursor = "monitor:" + time.Now().UTC().Format(time.RFC3339)
++	return res
++}
++
++func safeSessionID(s string) string {
++	return strings.Map(func(r rune) rune {
++		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
++			return r
++		}
++		return '_'
++	}, s)
+ }
+diff --git a/internal/admin/manifest.go b/internal/admin/manifest.go
+index ae4963b..1a9cb1f 100644
+--- a/internal/admin/manifest.go
++++ b/internal/admin/manifest.go
+@@ -34,10 +34,20 @@ type Manifest struct {
+ 	Caps        []string `json:"caps,omitempty"`
+ 	Summary     string   `json:"summary,omitempty"`
+ 	Maintainer  string   `json:"maintainer,omitempty"`
++	// MUTATION (scripts/mutations/si1-restore-official-harvest.patch, in ANet): the channel into an
++	// official agent comes back — its console (monitor, with a token) and a harvest of its jobs.
++	Monitor struct {
++		URL       string `json:"url,omitempty"`
++		Auth      string `json:"auth,omitempty"`
++		TokenFile string `json:"token_file,omitempty"`
++	} `json:"monitor,omitempty"`
++	Datasets struct {
++		Harvest bool `json:"harvest,omitempty"`
++	} `json:"datasets,omitempty"`
+ }
+ 
+ // removedManifestKeys are the manifest sections the admin plane no longer accepts.
+-var removedManifestKeys = []string{"runtime", "monitor", "ops", "datasets"}
++var removedManifestKeys = []string{"runtime", "ops"}
+ 
+ var manifestIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+ 
+diff --git a/internal/admin/server.go b/internal/admin/server.go
+index 0fa5862..3ee2377 100644
+--- a/internal/admin/server.go
++++ b/internal/admin/server.go
+@@ -46,6 +46,9 @@ func NewServer(store *Store, hub *HubDB, hv *Harvester, vec *VecClient, token, b
+ 	if basePath == "" {
+ 		basePath = "/admin"
+ 	}
++	if hv != nil && hv.store == nil {
++		hv.store = store // MUTATION: the harvest reads the official-agent directory
++	}
+ 	return &Server{
+ 		store: store, hub: hub, harvest: hv, vec: vec,
+ 		token: token, base: strings.TrimRight(basePath, "/"),
+diff --git a/internal/admin/store.go b/internal/admin/store.go
+index 861055e..50d2007 100644
+--- a/internal/admin/store.go
++++ b/internal/admin/store.go
+@@ -391,6 +391,15 @@ type SessionRow struct {
+ 	UpdatedAt    string `json:"updated_at"`
+ }
+ 
++// putHarvestedSession is the MUTATION's session writer, goal (task content) included.
++func (s *Store) putHarvestedSession(source, id, provider, goal, dataPath string) error {
++	_, err := s.db.Exec(`INSERT INTO session(source,session_id,provider_aid,goal,status,data_path,updated_at)
++		VALUES(?,?,?,?,?,?,?)
++		ON CONFLICT(source,session_id) DO UPDATE SET goal=excluded.goal, data_path=excluded.data_path,
++		updated_at=excluded.updated_at`, source, id, provider, goal, "harvested", dataPath, nowRFC3339())
++	return err
++}
++
+ // GetSession returns one session index row.
+ func (s *Store) GetSession(source, sessionID string) (SessionRow, error) {
+ 	var r SessionRow

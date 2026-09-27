@@ -12,6 +12,12 @@ Expected: 8/11 red — bad-sig does not move, and a forged text lands in the req
 replayed forgery likewise). The from-mismatch and not-peer checks stay green: they are steps 6 and
 9. The unit-level twin is TestAForgedSenderInjectedAtTheHubIsDropped ("a forged message was stored").
 
+scripts/mutations/mutate.sh build -o "$MUTBIN" scripts/mutations/si4-skip-step7.patch does the
+scratch copy and the build (joint.sh then runs in full, not with JOINT_CANARY_ONLY).
+
+Repository: ANet
+Expect: joint.sh 8/11 red
+
 diff --git a/internal/daemon/receive.go b/internal/daemon/receive.go
 index dec8c69..dcecb13 100644
 --- a/internal/daemon/receive.go
