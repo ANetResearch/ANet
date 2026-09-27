@@ -46,35 +46,19 @@
 ### 2.1 一行安装(macOS / Linux,amd64 与 arm64)
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
+curl -fsSL https://agentnetwork.org.cn/install.sh | sh
 ```
 
-装到 `~/.local/bin/anet`,不需要 sudo。装到 `/usr/local/bin` 加 `--system`。需要 `curl`、`gzip` 与 `ssh-keygen`(OpenSSH 8.1 及以上;macOS 与主流 Linux 自带,缺了脚本会说明怎么装)。
-
-安装脚本先取发布清单 `release.json` 与签名 `release.json.sig`,用脚本内置的发布公钥以 `ssh-keygen -Y verify` 验签,然后逐项核对:清单未过期;版本不低于目标位置已装的 anet;`.gz` 的 sha256(解压前)与解压后二进制的 sha256;新二进制 `anet version` 报出的版本与模块集合等于清单为该变体写的(默认变体不得含 `shell`)。任一项不符即退出,已装的版本不动。没有跳过校验的参数。装完执行 `anet init` 写出显式的安全默认值;带 `--agents` 时再执行 `anet agents wire`;最后打印 `anet doctor` 状态块与一个免费官方 agent(`net.echo`)的示例。
-
-**已经装过的机器用 `anet update`,不要重跑安装脚本。** 它用编进二进制的发布公钥验同一份清单,做同样的核对,然后在同目录写临时文件、rename 原子替换当前二进制;任何一步失败都不碰旧文件。`anet update --check` 只报告有没有新版本。已在运行的 daemon 要 `anet stop --all && anet up --all` 才换成新版本。
-
-**先验脚本再执行。** `curl … | sh` 信任提供脚本的主机(当前与官方 hub 同机)及其 TLS 证书。不想信任主机,就从 GitHub 上的 `SECURITY.md` 或 README 取发布公钥(不要从提供脚本的同一主机取),先验签再执行:
-
-```sh
-curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
-curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
-echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3' > allowed_signers
-ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
-  -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
-```
-
-公钥指纹 `SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA`(**DEV KEY — 正式发布前由产品负责人替换**)。
+装到 `~/.local/bin/anet`,不需要 sudo。装到 `/usr/local/bin` 加 `--system`。
 
 ### 2.2 装完即入网
 
 ```sh
-curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
+curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
   --hub https://hub.agentnetwork.org.cn --name $(hostname)
 ```
 
-这一条按 §2.1 验签并核对后安装,再启动节点、注册到 hub。
+这一条按平台下载二进制、比对 sha256、安装、启动节点、注册到 hub,末尾打印本机 AID。
 
 | flag | 作用 |
 |---|---|
@@ -82,8 +66,6 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 | `--name NAME` | 注册用的名字,默认主机名 |
 | `--token INVITE` | 邀请码。hub 默认开放注册不需要;hub 打开准入后由其运营者给你 |
 | `--shell` | 装能执行命令的变体(§6.6) |
-| `--agents[=LIST]` | 装完把 anet 接入本机检测到的编码 agent(`anet agents wire --all`),或只接 LIST 中的 |
-| `--base URL` | 下载源,只接受 `https://`(也可设 `ANET_INSTALL_BASE`) |
 | `--system` / `--prefix DIR` | 安装位置 |
 
 ### 2.3 确认装到的是哪一个
@@ -110,11 +92,8 @@ go tool nm "$(command -v anet)" | grep -c module/shell   # 默认版 0,shell 版
 ./build.sh --check            # gofmt + vet + 两个 tag 方向的测试,然后构建
 TAGS=shell bash scripts/build.sh                         # 带 shell
 TAGS=no_x402,no_mcp,no_p2p bash scripts/build.sh          # 裁掉三个模块
-ANET_RELEASE_KEY=<私钥路径> ./deploy/release/build-release.sh   # 四平台两变体 + 签名清单 → dist/
-./deploy/release/build-release.sh --unsigned linux-amd64   # 不签名的开发构建(安装器与 anet update 都不接受)
+./deploy/release/build-release.sh                        # 四平台两变体 → dist/
 ```
-
-`build-release.sh` 要求工作区与 HEAD 完全一致(含未跟踪文件);`BuiltAt` 取提交时间,`.gz` 不带时间戳,同一提交可复现同样的 sha256;对四个平台的两个变体都做符号自检;生成 `release.json`(默认 90 天有效,`ANET_RELEASE_TTL_DAYS` 可调)并用 `ssh-keygen -Y sign -n anet-release@agentnetwork.org.cn` 签名清单与 `install.sh`。私钥只经环境变量给出,不入库。长期没有新版本时,在清单到期前用 `--resign` 重签日期。
 
 ---
 

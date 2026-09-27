@@ -1,0 +1,52 @@
+{
+  "control_addr": "127.0.0.1:39821",
+  "hub_url": "https://hub.agentnetwork.org.cn",
+  "name": "anet-echo-e",
+  "summary": "anet official public agent: echo (connectivity check), home hub emax",
+  "inbound": {
+    "policy": "closed",
+    "allow_file": "peers.allow",
+    "deny_file": "peers.deny",
+    "trust_file": "peers.trust",
+    "public_capabilities": [
+      {
+        "id": "net.echo",
+        "per_caller_per_min": 60,
+        "per_caller_per_day": 2000,
+        "global_per_min": 1200,
+        "max_inflight": 16,
+        "max_args_bytes": 4096
+      }
+    ]
+  },
+  "modules": {
+    "service": {
+      "token_file": "${CREDENTIALS_DIRECTORY}/token",
+      "capabilities": [
+        {
+          "id": "net.echo",
+          "url": "http://127.0.0.1:8611/v1/echo/net.echo",
+          "name": "Echo",
+          "description": "Returns the JSON arguments unchanged under \"echo\", with the time this backend received the call and its version. Use it to check that a delegation reaches an anet agent and that its signed result comes back; compare the echo with what you sent. Arguments: any JSON object up to 4 KiB.",
+          "tags": [
+            "echo",
+            "ping",
+            "connectivity",
+            "diagnostics"
+          ],
+          "examples": [
+            "{\"hello\":\"anet\"}",
+            "{\"nonce\":\"4f1c2a\",\"sent_at_ms\":1790000000000}"
+          ],
+          "input_modes": [
+            "application/json"
+          ],
+          "output_modes": [
+            "application/json"
+          ],
+          "timeout_ms": 1000
+        }
+      ]
+    }
+  }
+}
