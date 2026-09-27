@@ -519,6 +519,21 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 			return p.synthesized("Payment completed.", map[string]any{
 				KeyX402Status: PaymentCompleted, KeyX402Receipts: rc}), nil
 		}
+		if ix.PayState != interactions.PayNone {
+			// Quoted, and completed with no settlement on record: the
+			// final message still carries the (empty) receipts (a2a-x402
+			// §7, 0017 Q18), and no payment status for a quote that
+			// simply ended unpaid.
+			meta := map[string]any{KeyX402Receipts: []any{}}
+			text := "The task completed; no payment settled."
+			if st := p.finalX402Status(); st != "" {
+				meta[KeyX402Status] = st
+				if st == PaymentCompleted {
+					text = "Payment completed."
+				}
+			}
+			return p.synthesized(text, meta), nil
+		}
 	case interactions.StateFailed, interactions.StateRejected, interactions.StateCanceled:
 		switch {
 		case p.cap != nil && !p.quoted() && p.cap.Message != "":

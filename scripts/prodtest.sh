@@ -190,6 +190,26 @@ for x in d.get('results') or []:
   echo ''
 }
 
+# task_x402 <node> <ix> <what> — one fact about a task, from /tasks/get:
+#   state | status (x402.payment.status) | amount | payto | option (the
+#   quoted accepts[0] as JSON) | ok_receipts. The x402 keys sit in the
+#   status message's metadata, over the task's.
+task_x402(){
+  ctl "$1" /tasks/get "{\"task_id\":\"$2\"}" | python3 -c '
+import sys,json
+try: d=json.load(sys.stdin)
+except Exception: print(""); raise SystemExit
+what=sys.argv[1]
+st=d.get("status") or {}
+m=dict(d.get("metadata") or {})
+m.update(((st.get("message") or {}).get("metadata")) or {})
+acc=((m.get("x402.payment.required") or {}).get("accepts") or [{}])[0]
+rc=[r for r in (m.get("x402.payment.receipts") or []) if r.get("success")]
+print({"state": st.get("state",""), "status": m.get("x402.payment.status",""),
+       "amount": acc.get("amount",""), "payto": acc.get("payTo",""),
+       "option": json.dumps(acc), "ok_receipts": len(rc)}[what])' "$3" 2>/dev/null
+}
+
 # ── 1. both hubs are up, and both can be verified ───────────────
 hd "0  跑的是哪一版"
 # What every component reports it was built from.
@@ -362,6 +382,33 @@ list_on(){ # list_on <node> <peers.allow|peers.trust> <aid>
   esac
 }
 allow_on(){ list_on "$1" peers.allow "$2"; } # allow_on <node> <aid>
+# can_pay <node> <payee-aid> <amount> — whether <node>'s spending policy
+# (A2A-DESIGN §8.6, SI-5) lets it sign <amount> to <payee> on the manual
+# and gateway tiers (explicit_max, and what is left of daily_max). The
+# payee goes on the node's payees.allow here, the way peers.allow does
+# above: a file the daemon reads on every payment. The limits are the
+# person's to raise on that node's terminal (`anet payments set` asks
+# there), so a node whose limits are too low is skipped with the command
+# rather than changed by this script. The defaults (explicit_max 10,
+# daily_max 50) cover none of the paid sections below.
+can_pay(){
+  local lim pf emx left
+  lim=$(ctl "$1" /payments/status '{}')
+  pf=$(echo "$lim" | jq_ "print(d.get('payees_file',''))")
+  case "$pf" in
+    payees.allow) list_on "$1" payees.allow "$2" ;;
+    '') ;; # no payee list on that node
+    *) info "$1 的收款方名单在 $pf,这里不改它;$2 须在其中" ;;
+  esac
+  emx=$(echo "$lim" | jq_ "print(d.get('explicit_max',''))")
+  left=$(echo "$lim" | jq_ "print(d.get('daily_max',0)-d.get('spent_24h',0))")
+  case "$emx" in ''|*[!0-9]*) emx=0 ;; esac
+  case "$left" in ''|*[!0-9]*) left=0 ;; esac
+  if [ "$emx" -lt "$3" ] || [ "$left" -lt "$3" ]; then
+    sk "$1 的支出上限付不了 $3(explicit_max=$emx,今日余量 $left);在 $1 的终端上:anet payments set explicit_max=$3 daily_max=500"
+    return 1
+  fi
+}
 if has cmax && [ -n "$INK_AID" ]; then allow_on cmax "$INK_AID"; fi
 if has dmax && [ -n "$CMAX_AID" ]; then allow_on dmax "$CMAX_AID"; fi
 if has dmax && [ -n "$INK_AID" ]; then allow_on dmax "$INK_AID"; fi
@@ -480,22 +527,45 @@ elif [ "$bal_before" -lt 25 ]; then
   #   systemctl start anet-hub
   sk "ink93 只剩 $bal_before credits,不够跑付费闭环(测试把自己的赠额花完了;见脚本内的充值说明)"
 else
+  # a2a-x402 in the task (A2A-DESIGN §8.3): the price is a status on the
+  # open task (input-required, x402.payment.required), not a result; the
+  # payment goes on the same interaction, through the manual tier that
+  # `anet pay` uses after a confirmation on a terminal (the script holds
+  # the control token); the result carries the receipts. The old shape —
+  # a PAYMENT_REQUIRED result, then a second delegation with pay:true —
+  # no longer exists: a quote never reaches /results, and pay:true is the
+  # gateway tier.
+  #
+  # ink93 pays cmax only within its spending policy (can_pay).
+  if can_pay ink93 "$CMAX_AID" 25; then
   q=$(ctl ink93 /delegate "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"pay\"}}" \
       | jq_ "print(d.get('interaction_id',''))")
-  qr=$(wait_result ink93 "$q")
-  qs=$(echo "$qr" | jq_ "print(d.get('status',''))")
-  [ "$qs" = PAYMENT_REQUIRED ] && ok "不付钱时拿到报价,不是报错" || no "状态 $qs"
+  qs=""
+  for _ in $(seq 1 40); do
+    qs=$(task_x402 ink93 "$q" status)
+    [ "$qs" = payment-required ] && break
+    sleep 3
+  done
+  [ "$qs" = payment-required ] && [ "$(task_x402 ink93 "$q" state)" = TASK_STATE_INPUT_REQUIRED ] \
+    && ok "不付钱时,任务停在 input-required 等付款(x402.payment.required),不是报错也不是结果" \
+    || no "报价没有出现在任务上(status '$qs',state '$(task_x402 ink93 "$q" state)')"
+  [ "$(task_x402 ink93 "$q" amount)" = 25 ] && [ "$(task_x402 ink93 "$q" payto)" = "$CMAX_AID" ] \
+    && ok "报价写明了价钱(25 credits)和收款方(cmax)" || no "报价条款不对:$(task_x402 ink93 "$q" option)"
   [ "$(ctl ink93 /balance '{}' | jq_ "print(d.get('balance',''))")" = "$bal_before" ] \
     && ok "只问价没扣钱" || no "报价过程动了余额"
 
-  pix=$(ctl ink93 /delegate "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"pay\"},\"pay\":true}" \
-        | jq_ "print(d.get('interaction_id',''))")
-  pr=$(wait_result ink93 "$pix")
+  paid=$(ctl ink93 /tasks/pay-manual "{\"task_id\":\"$q\",\"decision\":\"submit\"}")
+  [ "$(echo "$paid" | jq_ "print(d.get('x402.payment.status',''))")" = payment-submitted ] \
+    && ok "付款在同一个任务上提交(payment-submitted)" || no "付款没有提交:${paid:0:200}"
+  pr=$(wait_result ink93 "$q")
   ps=$(echo "$pr" | jq_ "print(d.get('status',''))")
-  [ "$ps" = OK ] && ok "付过钱之后活真的干了" || no "付费后状态 $ps: ${pr:0:200}"
+  [ "$ps" = OK ] && ok "付过钱之后活在同一个任务上干完了" || no "付费后状态 $ps: ${pr:0:200}"
   rcpt=$(echo "$pr" | jq_ "print((d.get('paid') or {}).get('receipt',''))")
   [ -n "$rcpt" ] && ok "hub 签的结算收据随结果回来了(付款方可自证)" \
     || no "结果里没有结算收据"
+  [ "$(task_x402 ink93 "$q" status)" = payment-completed ] && [ "$(task_x402 ink93 "$q" ok_receipts)" = 1 ] \
+    && ok "任务带 payment-completed 与一张成功收据(x402.payment.receipts)" \
+    || no "任务的付款状态 '$(task_x402 ink93 "$q" status)',成功收据 $(task_x402 ink93 "$q" ok_receipts) 张"
   bal_after=$(ctl ink93 /balance '{}' | jq_ "print(d.get('balance',''))")
   cbal_after=$(ctl cmax /balance '{}' | jq_ "print(d.get('balance',''))")
   [ "$((bal_before - bal_after))" = 25 ] && ok "付款方扣了 25" || no "付款方 $bal_before → $bal_after"
@@ -505,6 +575,7 @@ else
     c=$(ctl "$n" /evidence "{\"event_type\":\"$t\",\"limit\":50}" | jq_ "print(len(d.get('records') or []))")
     [ "${c:-0}" -ge 1 ] && ok "$n 链上有 $t" || no "$n 链上没有 $t"
   done
+  fi
 fi
 
 fi
@@ -534,9 +605,12 @@ price=$(echo "$body" | jq_ "print(((d.get('accepts') or [{}])[0]).get('amount','
 # hub exactly as it would a stranger's, so a signature it cannot check
 # fails for the right reason.
 DMAX_BAL_BEFORE=$(ctl dmax /balance '{}' | jq_ "print(d.get('balance',''))")
+# The binding (--interaction) is unique per run: a hub settles one payment
+# per (payer, binding) (A2A-DESIGN §8.5), so a fixed one is refused with
+# duplicate_binding from the second run on.
 sig=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $DMAX_HOST "/usr/local/bin/anet x402-authorize \
         --home /data/anet-node/home/.anet --pay-to '$DMAX_AID' --amount 30 \
-        --network 'hub:$F_AID' --interaction 'prodtest-gw' 2>/dev/null" 2>/dev/null)
+        --network 'hub:$F_AID' --interaction 'prodtest-gw-$(date +%s)-$$' 2>/dev/null" 2>/dev/null)
 if [ -z "$sig" ]; then
   sk "网关付款跳过:节点上没有 x402-authorize(fixture 未部署)"
 else
@@ -799,23 +873,29 @@ k=(d.get('kinds') or [{}])[0]
 print(k.get('scheme','')+'/'+k.get('network','')[:12])")
 [ -n "$sup" ] && ok "/x402/supported 公布了它结算的轨($sup…)" || no "/x402/supported 无内容"
 
+# The probe is dmax paying itself 7 through its own /x402-authorize (the
+# gateway tier, so within dmax's spending policy: can_pay), bound to a
+# binding unique per run (one settlement per payer and binding, §8.5), and
+# presented with its terms as paymentRequirements, which a wire-2
+# facilitator requires on /verify and /settle alike (x402 v2).
 if ! has dmax; then
   sk "verify 要 dmax 签一张授权"
-else
-  sig=$(ctl dmax /x402-authorize "{\"pay_to\":\"$DMAX_AID\",\"amount\":7,\"network\":\"hub:$F_AID\",\"interaction_id\":\"verify-probe\"}" \
+elif can_pay dmax "$DMAX_AID" 7; then
+  sig=$(ctl dmax /x402-authorize "{\"pay_to\":\"$DMAX_AID\",\"amount\":7,\"network\":\"hub:$F_AID\",\"interaction_id\":\"verify-probe-$(date +%s)-$$\"}" \
         | jq_ "print(d.get('value',''))")
   if [ -z "$sig" ]; then
     no "签不出授权"
   else
     pp=$(printf '%s' "$sig" | base64 -d 2>/dev/null)
+    rq=$(printf '%s' "$pp" | jq_ "print(json.dumps(d.get('accepted') or {}))")
     vr=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
-          -d '{\"x402Version\":2,\"paymentPayload\":$pp}' '$FMAX_HUB/x402/verify'")
+          -d '{\"x402Version\":2,\"paymentPayload\":$pp,\"paymentRequirements\":$rq}' '$FMAX_HUB/x402/verify'")
     valid=$(echo "$vr" | jq_ "print(d.get('isValid'))")
     [ "$valid" = True ] && ok "verify 说这张授权可以结算" \
       || no "verify 拒绝了一张好授权: $(echo "$vr" | jq_ "print(d.get('invalidReason',''))")"
 
     sr2=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
-          -d '{\"x402Version\":2,\"paymentPayload\":$pp}' '$FMAX_HUB/x402/settle'")
+          -d '{\"x402Version\":2,\"paymentPayload\":$pp,\"paymentRequirements\":$rq}' '$FMAX_HUB/x402/settle'")
     ok2=$(echo "$sr2" | jq_ "print(d.get('success'))")
     if [ "$valid" = "$ok2" ] || { [ "$valid" = True ] && [ "$ok2" = True ]; }; then
       ok "settle 的结论与 verify 一致(都为 $ok2)"
@@ -826,7 +906,7 @@ else
     # The same authorization a second time: verify must now say it is
     # spent, or a caller would be told a settled payment is still good.
     vr2=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 -H 'Content-Type: application/json' \
-          -d '{\"x402Version\":2,\"paymentPayload\":$pp}' '$FMAX_HUB/x402/verify'")
+          -d '{\"x402Version\":2,\"paymentPayload\":$pp,\"paymentRequirements\":$rq}' '$FMAX_HUB/x402/verify'")
     again=$(echo "$vr2" | jq_ "print(d.get('isValid'))")
     reason=$(echo "$vr2" | jq_ "print(d.get('invalidReason',''))")
     if [ "$again" = False ]; then
@@ -1052,6 +1132,8 @@ if ! has cmax || ! reachable "$EMAX_HUB/healthz"; then
   sk "跨 hub 付款要 cmax 与两个 hub 都在"
 elif [ -z "$DMAX_AID" ]; then
   sk "找不到 dmax 的 AID"
+elif ! can_pay cmax "$DMAX_AID" 30; then
+  : # cmax's spending policy does not cover dmax's 30 (said by can_pay)
 else
   esup(){ curl -s -m 30 "$EMAX_HUB/x402/supply" | jq_ "print(d['supply'].get('$1'))"; }
   fsup(){ viafmax /x402/supply | jq_ "print(d['supply'].get('$1'))"; }
