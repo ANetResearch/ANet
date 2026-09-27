@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/official"
 )
 
 // testDoctorEnv reads no real home directory and finds no running daemon.
@@ -316,5 +317,33 @@ func TestDoctorFindsAStaleHermesA2AToken(t *testing.T) {
 	}
 	if s := buf.String(); bytes.Contains([]byte(s), []byte("tok-current")) || bytes.Contains([]byte(s), []byte("tok-old")) {
 		t.Fatal("doctor printed a token")
+	}
+}
+
+// doctor reports the official-agent manifest this binary carries, and
+// warns — without failing — once it has expired: from then on no agent is
+// marked official.
+func TestDoctorReportsTheOfficialManifest(t *testing.T) {
+	out, err := doctorJSON(t, freshInit(t), testDoctorEnv(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, _ := out["official"].(map[string]any)
+	if off["status"] != "ok" || off["seq"] == nil || off["expires_at"] == nil {
+		t.Fatalf("official: %v", out["official"])
+	}
+
+	m, err := official.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rep doctorReport
+	var checks []doctorCheck
+	add := func(id, status, detail, hint string) {
+		checks = append(checks, doctorCheck{ID: id, Status: status, Detail: detail, Hint: hint})
+	}
+	officialCheck(add, &rep, m.Expires())
+	if rep.Official.Status != "expired" || len(checks) != 1 || checks[0].Status != stWarn || checks[0].Hint != "anet update" {
+		t.Fatalf("at expiry: %+v %+v", rep.Official, checks)
 	}
 }

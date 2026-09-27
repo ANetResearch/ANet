@@ -571,7 +571,9 @@ func (d *Daemon) hAutoReplyTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"reply": reply, "status": "ok"})
 }
 
-// hFind searches the Hub registry (substring over AID/name/caps).
+// hFind searches the Hub registry (substring over AID/name/caps). Each
+// agent the official manifest lists by AID carries "anet.official": true
+// (official.go).
 func (d *Daemon) hFind(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Query string `json:"query"`
@@ -592,7 +594,7 @@ func (d *Daemon) hFind(w http.ResponseWriter, r *http.Request) {
 		relayError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"agents": agents})
+	writeJSON(w, http.StatusOK, map[string]any{"agents": d.markFound(agents)})
 }
 
 // hDelegate queues a task on a provider AID via the Hub relay and returns an interaction_id immediately.
