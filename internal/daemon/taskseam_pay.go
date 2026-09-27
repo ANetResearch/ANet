@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -29,7 +31,12 @@ import (
 // before the decision: the blocking wait that follows then ends on the
 // first terminal or interrupted state after it, which a submitted payment
 // (the task goes to working) is not.
-func (d *Daemon) taskPaymentMessage(ctx context.Context, ix *interactions.Interaction, msg a2ashape.Message) (int64, error) {
+//
+// A decision PayTask refuses with an a2a-x402 outcome (a payload of the
+// client's own, an option not offered) is not an error: refusal is set and
+// the caller answers with the task and a payment-failed status message
+// (a2ashape.PaymentRefusal). Nothing was signed, sent or stored.
+func (d *Daemon) taskPaymentMessage(ctx context.Context, ix *interactions.Interaction, msg a2ashape.Message) (after int64, refusal *PayRefusal, err error) {
 	var decision string
 	switch msg.Metadata[x402a2a.KeyStatus] {
 	case x402a2a.StatusSubmitted:
@@ -37,31 +44,46 @@ func (d *Daemon) taskPaymentMessage(ctx context.Context, ix *interactions.Intera
 	case x402a2a.StatusRejected:
 		decision = PayDecisionReject
 	default:
-		return 0, a2ashape.Errorf(a2ashape.ErrInvalidParams,
+		return 0, nil, a2ashape.Errorf(a2ashape.ErrInvalidParams,
 			"task %s: a payment message sets %s to %s or %s", ix.ID, x402a2a.KeyStatus,
 			x402a2a.StatusSubmitted, x402a2a.StatusRejected)
 	}
 	accept, err := rawMeta(msg.Metadata, x402a2a.KeyAccept)
 	if err != nil {
-		return 0, a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s: %s: %v", ix.ID, x402a2a.KeyAccept, err)
+		return 0, nil, a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s: %s: %v", ix.ID, x402a2a.KeyAccept, err)
 	}
 	payload, err := rawMeta(msg.Metadata, x402a2a.KeyPayload)
 	if err != nil {
-		return 0, a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s: %s: %v", ix.ID, x402a2a.KeyPayload, err)
+		return 0, nil, a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s: %s: %v", ix.ID, x402a2a.KeyPayload, err)
 	}
-	if decision == PayDecisionSubmit && d.payer() == nil {
-		return 0, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s: %v", ix.ID, errNoPayments())
+	if decision == PayDecisionSubmit && d.payer() == nil && payload == nil {
+		return 0, nil, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s: %v", ix.ID, errNoPayments())
 	}
-	if _, err := d.PayTask(ctx, PayRequest{TaskID: ix.ID, Decision: decision, Accept: accept,
-		Payload: payload, Purpose: module.PurposeTaskAgent}); err != nil {
-		return 0, payTaskError(ix.ID, err)
+	_, err = d.PayTask(ctx, PayRequest{TaskID: ix.ID, Decision: decision, Accept: accept,
+		Payload: payload, Purpose: module.PurposeTaskAgent, ClientMsgID: msg.ID})
+	if errors.As(err, &refusal) {
+		return 0, refusal, nil
 	}
-	return ix.StateSeq, nil
+	if err != nil {
+		return 0, nil, payTaskError(ix.ID, err)
+	}
+	return ix.StateSeq, nil, nil
+}
+
+// withRefusal is t answered with a PayTask refusal (§8.7).
+func withRefusal(t a2ashape.Task, pr *PayRefusal) a2ashape.Task {
+	id, err := newMessageID()
+	if err != nil {
+		id = t.ID + ".payment-refused." + strconv.FormatInt(time.Now().UnixNano(), 36)
+	}
+	return a2ashape.PaymentRefusal(t, id, pr.Outcome.Error, pr.Outcome.Reason,
+		a2ashape.PaymentRefusalDetail(pr.Outcome.Reason))
 }
 
 // taskPay is TaskSeam.Pay: submit or reject at the agent tier, purpose
-// task-agent.
-func (d *Daemon) taskPay(ctx context.Context, ix *interactions.Interaction, decision module.PayDecision) error {
+// task-agent. A refusal with an a2a-x402 outcome (an option not offered)
+// is returned as refusal, not as an error, as taskPaymentMessage does.
+func (d *Daemon) taskPay(ctx context.Context, ix *interactions.Interaction, decision module.PayDecision) (refusal *PayRefusal, err error) {
 	var dec string
 	switch decision.Decision {
 	case module.PaySubmit:
@@ -69,15 +91,18 @@ func (d *Daemon) taskPay(ctx context.Context, ix *interactions.Interaction, deci
 	case module.PayReject:
 		dec = PayDecisionReject
 	default:
-		return a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s: decision must be %q or %q",
+		return nil, a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s: decision must be %q or %q",
 			ix.ID, module.PaySubmit, module.PayReject)
 	}
 	if dec == PayDecisionSubmit && d.payer() == nil {
-		return a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s: %v", ix.ID, errNoPayments())
+		return nil, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s: %v", ix.ID, errNoPayments())
 	}
-	_, err := d.PayTask(ctx, PayRequest{TaskID: ix.ID, Decision: dec, Accept: decision.Accept,
+	_, err = d.PayTask(ctx, PayRequest{TaskID: ix.ID, Decision: dec, Accept: decision.Accept,
 		Purpose: module.PurposeTaskAgent})
-	return payTaskError(ix.ID, err)
+	if errors.As(err, &refusal) {
+		return refusal, nil
+	}
+	return nil, payTaskError(ix.ID, err)
 }
 
 // rawMeta is metadata value k as JSON, nil when absent or null.
@@ -97,11 +122,12 @@ func rawMeta(m map[string]any, k string) (json.RawMessage, error) {
 }
 
 // payTaskError says a PayTask error as an A2A error, the way the control
-// plane's /tasks/pay says it in HTTP (writePayError): a refusal with an
-// a2a-x402 outcome (client payload, option not offered) is the caller's
-// to fix; a decision on a task with nothing to pay, a payment already
-// outstanding or a spending-policy refusal is not an operation this task
-// takes now. Nothing was signed or sent in any of these cases.
+// plane's /tasks/pay says it in HTTP (writePayError): a decision on a task
+// with nothing to pay, a payment already outstanding or a spending-policy
+// refusal is not an operation this task takes now. Nothing was signed or
+// sent in any of these cases. (A refusal with an a2a-x402 outcome is
+// answered as a task by the callers above; the case below only keeps it
+// from turning into an internal error.)
 func payTaskError(id string, err error) error {
 	if err == nil {
 		return nil

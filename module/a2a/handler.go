@@ -11,10 +11,11 @@ package a2a
 // input part rules, waiting on state_seq rather than on the state [C35] —
 // and this file owns what belongs to the A2A face: the service parameters,
 // the tenant, the refusals that need no store (a url part, a push config),
-// the payment message of a local client (§8.7), and the shape of a stream.
+// and the shape of a stream. A local client's payment message (§8.7) is a
+// message like any other here: the kernel recognises it on Send, so its
+// messageId is deduplicated with the rest, and makes the decision.
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"iter"
@@ -96,16 +97,10 @@ func (h *handler) SendMessage(ctx context.Context, r *a2a.SendMessageRequest) (a
 	if err != nil {
 		return nil, err
 	}
-	var t module.Task
-	if isPaymentMessage(req.Message) {
-		var settled bool
-		t, settled, err = h.pay(ctx, info.aid, req)
-		if err == nil && !settled && !req.ReturnImmediately {
-			t, err = h.await(ctx, info.aid, t.ID, stateSeq(t.Metadata), req.HistoryLength)
-		}
-	} else {
-		t, err = h.seam.Send(ctx, info.aid, req)
-	}
+	// A payment message (§8.7) goes the same way as any message: the
+	// kernel's TaskSeam recognises it, deduplicates its messageId, makes
+	// the decision (PayTask) and waits like any send.
+	t, err := h.seam.Send(ctx, info.aid, req)
 	if err != nil {
 		return nil, toSDKError(err)
 	}
@@ -128,25 +123,19 @@ func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRe
 			return
 		}
 		req.ReturnImmediately = true
-		var t module.Task
-		if isPaymentMessage(req.Message) {
-			var settled bool
-			t, settled, err = h.pay(ctx, info.aid, req)
-			if err == nil && settled {
-				// A refusal answered here: nothing was sent, and nothing
-				// will follow.
-				if ev, err := sdkTask(t); err != nil {
-					yield(nil, err)
-				} else {
-					yield(ev, nil)
-				}
-				return
-			}
-		} else {
-			t, err = h.seam.Send(ctx, info.aid, req)
-		}
+		t, err := h.seam.Send(ctx, info.aid, req)
 		if err != nil {
 			yield(nil, toSDKError(err))
+			return
+		}
+		if isPaymentMessage(req.Message) && a2ashape.IsPaymentRefusal(t) {
+			// The kernel refused the payment before signing (§8.7):
+			// nothing was sent, and nothing will follow.
+			if ev, err := sdkTask(t); err != nil {
+				yield(nil, err)
+			} else {
+				yield(ev, nil)
+			}
 			return
 		}
 		after := stateSeq(t.Metadata)
@@ -403,39 +392,6 @@ func ends(state a2ashape.TaskState, seq, after int64, event bool) bool {
 	return state.Interrupted() && (seq > after || (event && seq == 0))
 }
 
-// await waits for a task to end or to wait for the client again, with a
-// state newer than after, and returns it. The client's context bounds the
-// wait; ending it does not cancel the task.
-func (h *handler) await(ctx context.Context, peer, id string, after int64, historyLen *int) (module.Task, error) {
-	for range maxResubscribe {
-		snap, events, err := h.seam.Watch(ctx, peer, id)
-		if err != nil {
-			return module.Task{}, err
-		}
-		if ends(snap.Status.State, stateSeq(snap.Metadata), after, false) {
-			return h.seam.Get(ctx, peer, id, historyLen)
-		}
-	wait:
-		for {
-			select {
-			case <-ctx.Done():
-				return module.Task{}, ctx.Err()
-			case ev, ok := <-events:
-				if !ok {
-					break wait
-				}
-				if state, seq, isStatus := eventState(ev); isStatus && ends(state, seq, after, true) {
-					return h.seam.Get(ctx, peer, id, historyLen)
-				}
-			}
-		}
-		if ctx.Err() != nil {
-			return module.Task{}, ctx.Err()
-		}
-	}
-	return h.seam.Get(ctx, peer, id, historyLen)
-}
-
 // stateSeq reads anet.state_seq, the kernel's count of state writes.
 func stateSeq(meta map[string]any) int64 {
 	switch v := meta[a2ashape.KeyStateSeq].(type) {
@@ -463,135 +419,4 @@ func isPaymentMessage(m a2ashape.Message) bool {
 		}
 	}
 	return false
-}
-
-// pay carries out a local client's payment message. This node is the
-// signing service of a2a-x402 §5.1: the client says payment-submitted and,
-// when the quote offers more than one, which option (anet.payment.accept,
-// copied from x402.payment.required.accepts); the kernel signs within the
-// agent-tier limits and forwards the payment inside the E2E envelope.
-//
-// settled is true when the answer is a refusal made here, which is final
-// for this message: a payload of the client's own (its payer is not this
-// node, so it could not settle even if forwarded), or an option the quote
-// did not offer. The task is returned as it is, with a status message
-// saying payment-failed.
-func (h *handler) pay(ctx context.Context, peer string, req module.TaskSend) (t module.Task, settled bool, err error) {
-	m := req.Message
-	if m.TaskID == "" {
-		return module.Task{}, false, a2a.NewError(a2a.ErrInvalidParams, "a payment message answers a task: taskId is required")
-	}
-	if _, ok := m.Metadata[a2ashape.KeyX402Payload]; ok {
-		t, err := h.seam.Get(ctx, peer, m.TaskID, req.HistoryLength)
-		if err != nil {
-			return module.Task{}, false, err
-		}
-		return paymentFailed(t, reasonClientPayloadUnsupported,
-			"this node signs payments itself; a payload made by the client is not forwarded"), true, nil
-	}
-	status, _ := m.Metadata[a2ashape.KeyX402Status].(string)
-	var d module.PayDecision
-	switch status {
-	case a2ashape.PaymentSubmitted:
-		d.Decision = module.PaySubmit
-		if v, ok := m.Metadata[a2ashape.KeyPaymentAccept]; ok && v != nil {
-			b, err := json.Marshal(v)
-			if err != nil {
-				return module.Task{}, false, a2a.NewError(a2a.ErrInvalidParams, a2ashape.KeyPaymentAccept+" is not JSON")
-			}
-			d.Accept = b
-			t, err := h.seam.Get(ctx, peer, m.TaskID, req.HistoryLength)
-			if err != nil {
-				return module.Task{}, false, err
-			}
-			if !offered(t, b) {
-				return paymentFailed(t, reasonOptionNotOffered,
-					"the chosen option is not one of those in x402.payment.required.accepts"), true, nil
-			}
-		}
-	case a2ashape.PaymentRejected:
-		d.Decision = module.PayReject
-	default:
-		return module.Task{}, false, a2a.NewError(a2a.ErrInvalidParams,
-			"a client's "+a2ashape.KeyX402Status+" is "+a2ashape.PaymentSubmitted+" or "+a2ashape.PaymentRejected)
-	}
-	t, err = h.seam.Pay(ctx, peer, m.TaskID, d)
-	return t, false, err
-}
-
-// Reasons of a refusal made here (internal/x402a2a names the same).
-const (
-	reasonClientPayloadUnsupported = "client_payload_unsupported"
-	reasonOptionNotOffered         = "option_not_offered"
-)
-
-// codeSettlementFailed is the a2a-x402 error code both refusals carry.
-const codeSettlementFailed = "SETTLEMENT_FAILED"
-
-// paymentFailed is t answered with payment-failed: a status message from
-// the agent's side carrying the a2a-x402 keys and anet.reason. The task
-// itself is unchanged — the quote still stands and may be paid properly.
-func paymentFailed(t module.Task, reason, text string) module.Task {
-	msg := a2ashape.Message{
-		ID: a2a.NewMessageID(), ContextID: t.ContextID, TaskID: t.ID, Role: a2ashape.RoleAgent,
-		Parts: []a2ashape.Part{a2ashape.TextPart("payment not submitted: " + text)},
-		Metadata: map[string]any{
-			a2ashape.KeyX402Status: a2ashape.PaymentFailed,
-			a2ashape.KeyX402Error:  codeSettlementFailed,
-			a2ashape.KeyReason:     reason,
-		},
-	}
-	t.Status.Message = &msg
-	return t
-}
-
-// offered reports whether accept is one of the options of the task's
-// payment requirements, compared as canonical JSON (the kernel compares
-// again against the requirements it stored). A task whose requirements are
-// not visible here is left to the kernel.
-func offered(t module.Task, accept []byte) bool {
-	req := paymentRequired(t)
-	if req == nil {
-		return true
-	}
-	accepts, _ := req["accepts"].([]any)
-	want, ok := canonicalJSON(accept)
-	if !ok {
-		return false
-	}
-	for _, a := range accepts {
-		b, err := json.Marshal(a)
-		if err != nil {
-			continue
-		}
-		if got, ok := canonicalJSON(b); ok && bytes.Equal(got, want) {
-			return true
-		}
-	}
-	return false
-}
-
-// paymentRequired finds x402.payment.required on the task's status message
-// or, failing that, its metadata.
-func paymentRequired(t module.Task) map[string]any {
-	if m := t.Status.Message; m != nil {
-		if r, ok := m.Metadata[a2ashape.KeyX402Required].(map[string]any); ok {
-			return r
-		}
-	}
-	r, _ := t.Metadata[a2ashape.KeyX402Required].(map[string]any)
-	return r
-}
-
-// canonicalJSON re-encodes a JSON value with sorted keys and numbers as
-// written.
-func canonicalJSON(b []byte) ([]byte, bool) {
-	dec := json.NewDecoder(bytes.NewReader(b))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return nil, false
-	}
-	out, err := json.Marshal(v)
-	return out, err == nil
 }

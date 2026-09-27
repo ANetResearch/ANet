@@ -47,6 +47,7 @@ import (
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/seal"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
@@ -1038,6 +1039,11 @@ type PayRequest struct {
 	Payload json.RawMessage
 	// Purpose is the spending tier, set by the route (§8.6).
 	Purpose string
+	// ClientMsgID is a local A2A client's own messageId for the payment
+	// message, if it gave one. It is kept on the stored payment message
+	// (a2a.messageId, never sent to the peer), so the same message sent
+	// again finds this one instead of deciding twice (§11.5).
+	ClientMsgID string
 	// resendOnly allows only the authorization sent last, on the same
 	// terms; set for the automatic answer to a quote repeated after a
 	// payment was submitted.
@@ -1120,7 +1126,7 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 	}
 	switch req.Decision {
 	case PayDecisionReject:
-		return d.rejectQuote(ctx, ix)
+		return d.rejectQuote(ctx, ix, req.ClientMsgID)
 	case PayDecisionSubmit:
 	default:
 		return out, fmt.Errorf("anet: decision must be %q or %q", PayDecisionSubmit, PayDecisionReject)
@@ -1179,7 +1185,7 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 	if err != nil {
 		return out, err
 	}
-	if err := d.requesterPaymentMessage(ctx, ix, meta, interactions.StateWorking, func(tx *interactions.Tx) error {
+	if err := d.requesterPaymentMessage(ctx, ix, meta, req.ClientMsgID, interactions.StateWorking, func(tx *interactions.Tx) error {
 		cur, err := tx.Get(ix.ID)
 		if err != nil {
 			return err
@@ -1207,9 +1213,9 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 
 // rejectQuote declines a task's quote: payment-rejected to the provider,
 // the task canceled here (§8.3).
-func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction) (PayOutcome, error) {
+func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction, clientMsgID string) (PayOutcome, error) {
 	meta, _ := json.Marshal(map[string]any{x402a2a.KeyStatus: x402a2a.StatusRejected})
-	err := d.requesterPaymentMessage(ctx, ix, meta, interactions.StateCanceled, func(tx *interactions.Tx) error {
+	err := d.requesterPaymentMessage(ctx, ix, meta, clientMsgID, interactions.StateCanceled, func(tx *interactions.Tx) error {
 		applied, err := tx.SetPayment(ix.ID, interactions.PayUpdate{
 			From:  []string{interactions.PayRequired, interactions.PayFailed},
 			State: interactions.PayState(interactions.PayRejected)})
@@ -1230,12 +1236,21 @@ func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction) 
 
 // requesterPaymentMessage sends a payment message for an outbound task
 // through the retry queue, storing it (metadata only, kind payment) and
-// moving the task to state in the same transaction as write.
+// moving the task to state in the same transaction as write. A local
+// client's messageId, when given, is added to the stored copy only.
 func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.Interaction, meta []byte,
-	state interactions.State, write func(tx *interactions.Tx) error) error {
+	clientMsgID string, state interactions.State, write func(tx *interactions.Tx) error) error {
 	msgID, err := newMessageID()
 	if err != nil {
 		return err
+	}
+	stored := meta
+	if clientMsgID != "" {
+		m := decodeMeta(meta)
+		m[a2ashape.KeyMessageID] = clientMsgID
+		if stored, err = json.Marshal(m); err != nil {
+			return err
+		}
 	}
 	payload, err := (&delegation.ChatMsg{Kind: delegation.ChatText, MsgID: msgID, Metadata: meta}).Marshal()
 	if err != nil {
@@ -1254,7 +1269,7 @@ func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.I
 			return err
 		}
 		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ix.ID, SenderAID: d.AID(),
-			Kind: interactions.MsgPayment, MsgID: msgID, Metadata: meta}); err != nil {
+			Kind: interactions.MsgPayment, MsgID: msgID, Metadata: stored}); err != nil {
 			return err
 		}
 		_, err = tx.SetState(ix.ID, state)

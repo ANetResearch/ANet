@@ -4,12 +4,14 @@ package a2a
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -26,7 +28,9 @@ type fakeSeam struct {
 	agents   []module.RemoteAgent
 
 	sends []module.TaskSend
-	pays  []module.PayDecision
+	// pays are the payment decisions made: through Pay, or through Send
+	// with a payment message, as the kernel routes one (§8.7).
+	pays []module.PayDecision
 	// quote makes new tasks stop at input-required with a payment quote.
 	quote map[string]any
 }
@@ -125,6 +129,10 @@ func (f *fakeSeam) Send(ctx context.Context, peer string, req module.TaskSend) (
 	f.sends = append(f.sends, req)
 	msg := req.Message
 	var ft *fakeTask
+	if msg.TaskID != "" && hasX402(msg.Metadata) {
+		f.mu.Unlock()
+		return f.payMessage(ctx, peer, req)
+	}
 	if msg.TaskID != "" {
 		var err error
 		if ft, err = f.find(peer, msg.TaskID); err != nil {
@@ -307,6 +315,90 @@ func (f *fakeSeam) Pay(_ context.Context, peer, id string, d module.PayDecision)
 		f.answer(id, "paid")
 	}()
 	return t, nil
+}
+
+// payMessage is the kernel's handling of a payment message on Send
+// (internal/daemon taskPaymentMessage): a payload of the client's own or an
+// option the quote does not offer is refused as a task with a
+// payment-failed status message and nothing else happens; submitted and
+// rejected are decisions, as Pay makes them; any other status is
+// InvalidParams.
+func (f *fakeSeam) payMessage(ctx context.Context, peer string, req module.TaskSend) (module.Task, error) {
+	m := req.Message
+	refuse := func(reason string) (module.Task, error) {
+		t, err := f.Get(ctx, peer, m.TaskID, req.HistoryLength)
+		if err != nil {
+			return module.Task{}, err
+		}
+		return a2ashape.PaymentRefusal(t, "refusal-"+m.TaskID, "", reason, a2ashape.PaymentRefusalDetail(reason)), nil
+	}
+	if _, ok := m.Metadata[a2ashape.KeyX402Payload]; ok {
+		return refuse(x402a2a.ReasonClientPayloadUnsupported)
+	}
+	var d module.PayDecision
+	switch m.Metadata[a2ashape.KeyX402Status] {
+	case a2ashape.PaymentSubmitted:
+		d.Decision = module.PaySubmit
+		if v, ok := m.Metadata[a2ashape.KeyPaymentAccept]; ok && v != nil {
+			b, _ := json.Marshal(v)
+			if !f.offered(b) {
+				return refuse(x402a2a.ReasonOptionNotOffered)
+			}
+			d.Accept = b
+		}
+	case a2ashape.PaymentRejected:
+		d.Decision = module.PayReject
+	default:
+		return module.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "a payment message is payment-submitted or payment-rejected")
+	}
+	t, err := f.Pay(ctx, peer, m.TaskID, d)
+	if err != nil || req.ReturnImmediately || d.Decision == module.PayReject {
+		return t, err
+	}
+	// The kernel waits like any send; the scripted answer comes shortly.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if t, err = f.Get(ctx, peer, m.TaskID, req.HistoryLength); err != nil || t.Status.State.Terminal() {
+			return t, err
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return t, nil
+}
+
+// offered compares a chosen option with the quote's accepts, as canonical
+// JSON (the kernel compares with the requirements it stored).
+func (f *fakeSeam) offered(accept []byte) bool {
+	f.mu.Lock()
+	quote := f.quote
+	f.mu.Unlock()
+	accepts, _ := quote["accepts"].([]any)
+	want := canonicalOption(accept)
+	for _, a := range accepts {
+		b, _ := json.Marshal(a)
+		if canonicalOption(b) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func canonicalOption(b []byte) string {
+	var v any
+	if json.Unmarshal(b, &v) != nil {
+		return ""
+	}
+	out, _ := json.Marshal(v)
+	return string(out)
+}
+
+func hasX402(meta map[string]any) bool {
+	for k := range meta {
+		if strings.HasPrefix(k, "x402.") {
+			return true
+		}
+	}
+	return false
 }
 
 var _ module.TaskSeam = (*fakeSeam)(nil)

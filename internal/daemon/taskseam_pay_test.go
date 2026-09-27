@@ -5,7 +5,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -57,16 +56,23 @@ func TestTheTaskSeamPaysThroughTheSameTaskFlow(t *testing.T) {
 	}
 
 	// §8.7: a client's own payload and an option that was not offered are
-	// refused, and nothing is signed.
-	_, err = seam.Send(ctx, prov.AID(), module.TaskSend{ReturnImmediately: true, Message: payMsg(id, map[string]any{
-		x402a2a.KeyStatus: x402a2a.StatusSubmitted, x402a2a.KeyPayload: map[string]any{"x402Version": 2}})})
-	if !errors.Is(err, a2ashape.ErrInvalidParams) || !strings.Contains(err.Error(), x402a2a.ReasonClientPayloadUnsupported) {
-		t.Fatalf("a client's own payload: %v", err)
-	}
-	_, err = seam.Send(ctx, prov.AID(), module.TaskSend{ReturnImmediately: true, Message: payMsg(id, map[string]any{
-		x402a2a.KeyStatus: x402a2a.StatusSubmitted, x402a2a.KeyAccept: map[string]any{"scheme": "exact"}})})
-	if !errors.Is(err, a2ashape.ErrInvalidParams) || !strings.Contains(err.Error(), x402a2a.ReasonOptionNotOffered) {
-		t.Fatalf("an option not offered: %v", err)
+	// refused: the task as it stands, with a payment-failed status message
+	// (SETTLEMENT_FAILED and the reason), and nothing is signed.
+	for reason, meta := range map[string]map[string]any{
+		x402a2a.ReasonClientPayloadUnsupported: {x402a2a.KeyStatus: x402a2a.StatusSubmitted,
+			x402a2a.KeyPayload: map[string]any{"x402Version": 2}},
+		x402a2a.ReasonOptionNotOffered: {x402a2a.KeyStatus: x402a2a.StatusSubmitted,
+			x402a2a.KeyAccept: map[string]any{"scheme": "exact"}},
+	} {
+		task, err = seam.Send(ctx, prov.AID(), module.TaskSend{Message: payMsg(id, meta)})
+		if err != nil {
+			t.Fatalf("%s: %v", reason, err)
+		}
+		m := task.Status.Message
+		if task.Status.State != a2ashape.TaskStateInputRequired || !a2ashape.IsPaymentRefusal(task) || m == nil ||
+			m.Metadata[a2ashape.KeyReason] != reason || m.Metadata[a2ashape.KeyX402Error] != x402a2a.CodeSettlementFailed {
+			t.Fatalf("%s: %+v", reason, task.Status)
+		}
 	}
 	// Above agent_max (0 by default) the agent tier is refused; the task
 	// still waits for an operator.
@@ -79,15 +85,23 @@ func TestTheTaskSeamPaysThroughTheSameTaskFlow(t *testing.T) {
 		t.Fatalf("%d authorizations signed by refused decisions", n)
 	}
 
-	// Within the agent tier the message pays, as task-agent.
+	// Within the agent tier the message pays, as task-agent. Sent twice
+	// with the same messageId (a client retrying), it is one decision: the
+	// second finds the first rather than meeting "payment pending".
 	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10}, prov.AID())
-	task, err = seam.Send(ctx, prov.AID(), module.TaskSend{ReturnImmediately: true, Message: payMsg(id, map[string]any{
-		x402a2a.KeyStatus: x402a2a.StatusSubmitted})})
-	if err != nil {
-		t.Fatal(err)
+	pay := payMsg(id, map[string]any{x402a2a.KeyStatus: x402a2a.StatusSubmitted})
+	pay.ID = "client-pay-1"
+	for i := 0; i < 2; i++ {
+		task, err = seam.Send(ctx, prov.AID(), module.TaskSend{ReturnImmediately: true, Message: pay})
+		if err != nil {
+			t.Fatalf("payment message, send %d: %v", i+1, err)
+		}
+		if task.Metadata[a2ashape.KeyX402Status] != a2ashape.PaymentSubmitted {
+			t.Errorf("after the payment message (send %d): %v", i+1, task.Metadata)
+		}
 	}
-	if task.Metadata[a2ashape.KeyX402Status] != a2ashape.PaymentSubmitted {
-		t.Errorf("after the payment message: %v", task.Metadata)
+	if n := chainEvents(t, req, EvPaymentAuthorized); n != 1 {
+		t.Fatalf("%d authorizations for one payment message sent twice", n)
 	}
 	if ev := lastLedgerPayload(t, req, EvPaymentAuthorized); ev["purpose"] != module.PurposeTaskAgent || ev["interaction_id"] != id {
 		t.Errorf("anet.payment.authorized = %v", ev)
