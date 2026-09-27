@@ -200,6 +200,13 @@ type Interaction struct {
 	PeerKeys  []byte
 	CreatedAt string // RFC3339Nano
 	UpdatedAt string // RFC3339Nano
+
+	// ResultMeta is the metadata object the result carried (anet.reason,
+	// anet.retry_after_ms, anet.effect_status, x402 keys), as JSON, or "".
+	// The deliverable is what the receipt covers; this is what the result
+	// said about it, kept so a later reader — the A2A projection — can
+	// still say why a task was refused and when to retry.
+	ResultMeta string
 }
 
 // IsTerminal reports whether the interaction's state is terminal.
@@ -286,6 +293,7 @@ var interactionAdded = []struct{ name, decl string }{
 	{"quote_expires_at", "INTEGER NOT NULL DEFAULT 0"},
 	{"peer_kel", "BLOB"},
 	{"peer_keys", "BLOB"},
+	{"result_meta", "TEXT NOT NULL DEFAULT ''"},
 }
 
 func (s *Store) migrate() error {
@@ -599,6 +607,8 @@ type Finish struct {
 	// completes an interaction has to state what it knew about the
 	// receipt. A caller with nothing to say passes VerificationUnknown.
 	Verified Verification
+	// Meta is the result's metadata object (JSON), or nil.
+	Meta []byte
 }
 
 // Finish stores a result and moves the interaction to f.State in one guarded
@@ -629,12 +639,12 @@ func finish(e execer, id string, f Finish, nowMS int64) error {
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	q := `UPDATE interaction SET state=?, state_at=?, state_seq=state_seq+1, result=?, result_cid=?, receipt=?,
-	        receipt_verified=?, updated_at=?`
+	        receipt_verified=?, result_meta=?, updated_at=?`
 	if f.State.IsTerminal() {
 		q += `, peer_kel=NULL, peer_keys=NULL`
 	}
 	q += ` WHERE id=? AND state NOT IN ` + terminalSQL
-	res, err := e.Exec(q, string(f.State), nowMS, f.Result, f.ResultCID, f.Receipt, string(f.Verified), now, id)
+	res, err := e.Exec(q, string(f.State), nowMS, f.Result, f.ResultCID, f.Receipt, string(f.Verified), string(f.Meta), now, id)
 	if err != nil {
 		return err
 	}
@@ -707,7 +717,7 @@ func (s *Store) SetReview(id string, review []byte) error {
 // ixColumns is the shared SELECT column list for scanning an Interaction (keep in sync with scanRows).
 const ixColumns = `seq,id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,result_cid,result,receipt,review,
 receipt_verified,end_req_by,end_acc_by,context_id,trust,is_capability,task_nonce,pay_state,pay_required,pay_auth_ids,
-pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,created_at,updated_at`
+pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,created_at,updated_at`
 
 // Get returns one interaction by id.
 func (s *Store) Get(id string) (*Interaction, error) {
@@ -1106,7 +1116,7 @@ func scanRows(sc scanner) (*Interaction, error) {
 		&ix.RequestCID, &ix.RequestDoc, &ix.ResultCID, &ix.Result, &ix.Receipt, &ix.Review,
 		&verified, &ix.EndReqBy, &ix.EndAccBy, &ix.ContextID, &ix.Trust, &capFlag, &ix.TaskNonce,
 		&ix.PayState, &ix.PayRequired, &authIDs, &ix.PayPayload, &ix.PayReceipts, &ix.QuoteExpiresAt,
-		&ix.PeerKEL, &ix.PeerKeys, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
+		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
 		return nil, err
 	}
 	ix.Role = Role(role)

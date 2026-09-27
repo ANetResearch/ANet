@@ -536,3 +536,8 @@ func TestAbsentConfigYieldsNoModule(t *testing.T) {
 // admits every call; the kernel's admission is tested in internal/daemon.
 func (*shellHost) Admit(string, string, int) (func(), string) { return func() {}, "" }
 func (*shellHost) DeclareUntrustedBackend()                   {}
+
+// StateDir and TaskSeam complete module.Host. This test host keeps no
+// module state and offers no task seam; nothing under test uses either.
+func (*shellHost) StateDir(string) string            { return "" }
+func (*shellHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }

@@ -230,3 +230,8 @@ func TestWithoutAHubTheModuleRefusesToStart(t *testing.T) {
 // admits every call; the kernel's admission is tested in internal/daemon.
 func (*fakeHost) Admit(string, string, int) (func(), string) { return func() {}, "" }
 func (*fakeHost) DeclareUntrustedBackend()                   {}
+
+// StateDir and TaskSeam complete module.Host. This test host keeps no
+// module state and offers no task seam; nothing under test uses either.
+func (*fakeHost) StateDir(string) string            { return "" }
+func (*fakeHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }

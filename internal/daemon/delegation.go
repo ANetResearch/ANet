@@ -38,6 +38,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/transcript"
 )
@@ -422,12 +423,8 @@ func hasControlMeta(meta string) bool {
 	if meta == "" {
 		return false
 	}
-	for k := range decodeMeta([]byte(meta)) {
-		if strings.HasPrefix(k, "x402.") || k == "anet.state" {
-			return true
-		}
-	}
-	return false
+	// One rule for the transcript a receipt covers and for the A2A history.
+	return a2ashape.ControlMetadata(decodeMeta([]byte(meta)))
 }
 
 // RequestEnd ends a task from this side. For the provider it completes the task: the provider
@@ -583,7 +580,7 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 	id, err := d.queueSend(ctx, ix.PeerAID, seal.TypeResult, ix.ID, payload, func(tx *interactions.Tx) error {
 		// Our own signature over our own transcript.
 		return tx.Finish(ix.ID, interactions.Finish{State: interactions.StateCompleted, Result: tr,
-			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified})
+			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified, Meta: meta})
 	})
 	if errors.Is(err, interactions.ErrTerminal) {
 		return fmt.Errorf("%w (%s ended before it could be completed)", ErrTaskTerminal, interactionID)
@@ -1339,6 +1336,12 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 		seen = interactions.VerificationVerified
 	}
 	state := resultState(ix, rr)
+	// The result's metadata is kept with it: anet.reason and
+	// anet.retry_after_ms are in no other place (A2A-DESIGN §4.3, §11.5).
+	var resultMeta []byte
+	if len(rr.Metadata) > 0 && json.Valid(rr.Metadata) {
+		resultMeta = rr.Metadata
+	}
 	// The receipt check above read the interaction outside this
 	// transaction. A second copy of the result under another message id can
 	// have committed since, so it is read again under the write lock.
@@ -1357,7 +1360,7 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 			return nil
 		}
 		return tx.Finish(m.ix, interactions.Finish{State: state, Result: rr.Deliverable, ResultCID: resultCID,
-			Receipt: rr.Receipt, Verified: seen})
+			Receipt: rr.Receipt, Verified: seen, Meta: resultMeta})
 	})
 	if res.class != rxAccepted || already {
 		return res
@@ -1468,7 +1471,13 @@ func (d *Daemon) resendResult(interactionID string, ix *interactions.Interaction
 	if err != nil {
 		return
 	}
-	meta, _ := json.Marshal(map[string]any{"anet.state": string(ix.State)})
+	// The metadata the answer first went out with: anet.reason and
+	// anet.retry_after_ms are in no other place. A row from before it was
+	// kept has only the state to say.
+	meta := []byte(ix.ResultMeta)
+	if len(meta) == 0 {
+		meta, _ = json.Marshal(map[string]any{"anet.state": string(ix.State)})
+	}
 	payload, err := (&delegation.ResultResp{
 		Status: delegation.StatusDone, Deliverable: ix.Result,
 		Receipt: ix.Receipt, KEL: selfKEL, Metadata: meta,
