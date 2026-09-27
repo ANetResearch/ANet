@@ -82,7 +82,15 @@ func (cc *controlClient) Call(ctx context.Context, path string, body, out any) e
 			Code   string `json:"code"`
 			Reason string `json:"reason"`
 		}
-		_ = json.Unmarshal(raw, &e)
+		if json.Unmarshal(raw, &e) != nil {
+			// Not the daemon's JSON: a route this daemon does not have
+			// ("404 page not found" from an older build) or a proxy in the
+			// way. Its first line says which better than a bare status.
+			e.Error, _, _ = strings.Cut(strings.TrimSpace(string(raw)), "\n")
+			if len(e.Error) > 200 {
+				e.Error = strings.ToValidUTF8(e.Error[:200], "")
+			}
+		}
 		return &mcpserv.DaemonError{Status: code, Message: e.Error, Code: e.Code, Reason: e.Reason}
 	}
 	if out == nil {
