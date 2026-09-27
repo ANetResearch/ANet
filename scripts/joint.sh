@@ -282,30 +282,38 @@ try:
 except Exception:
     d = None
 print(len(d["inbox"] or []) if isinstance(d, dict) and "inbox" in d else "")'; }
-# received_n <interaction_id> — the provider's anet.delegation.received records naming that interaction.
+# received_n <interaction_id> — the provider's anet.delegation.received records naming that interaction;
+# empty when the chain cannot be read (an unreadable chain holds no record either, and that must not pass
+# for "nothing was recorded").
 received_n(){ pc /evidence '{"event_type":"anet.delegation.received","limit":1000}' | python3 -c '
 import sys, json
 try:
     d = json.load(sys.stdin)
 except Exception:
-    d = {}
-print(sum(1 for r in (d.get("records") or []) if (r.get("payload") or {}).get("interaction_id") == sys.argv[1]))' "$1"; }
-# said_n <interaction_id> <text> — how many messages of the provider's side of that task say exactly <text>.
+    d = None
+if not isinstance(d, dict) or not isinstance(d.get("records"), list):
+    print(""); sys.exit()
+print(sum(1 for r in d["records"] if (r.get("payload") or {}).get("interaction_id") == sys.argv[1]))' "$1"; }
+# said_n <interaction_id> <text> — how many messages of the provider's side of that task say exactly <text>;
+# empty when the task cannot be read (no such task, or the provider is down), for the same reason.
 said_n(){ pc /thread "{\"interaction_id\":\"$1\"}" | python3 -c '
 import sys, json
 try:
-    t = json.load(sys.stdin).get("thread") or {}
+    t = json.load(sys.stdin).get("thread")
 except Exception:
-    t = {}
+    t = None
+if not isinstance(t, dict):
+    print(""); sys.exit()
 print(sum(1 for m in (t.get("messages") or []) if m.get("body") == sys.argv[1]))' "$2"; }
-# took <relay-send-json> <path> — "yes" when that path (hub, p2p) took the envelope.
-took(){ printf '%s' "$1" | python3 -c '
+# took <relay-send-output> <path> — "yes" when that path (hub, p2p) took the envelope. The JSON is the first
+# line; relay-send exits non-zero when a path failed, and its error line follows on the merged stderr.
+took(){ printf '%s\n' "$1" | python3 -c '
 import sys, json
 try:
-    d = json.load(sys.stdin)
+    d = json.loads(sys.stdin.readline())
 except Exception:
-    d = {}
-p = d.get(sys.argv[1]) or {}
+    d = None
+p = (d.get(sys.argv[1]) if isinstance(d, dict) else None) or {}
 print("yes" if p.get("code") == 200 or p.get("ok") is True else "no")' "$2"; }
 
 hd "0/11  binaries, ports, and the stack"
@@ -687,7 +695,8 @@ hd "8/11  a forged sender is refused (SI-4)"
 # its relay v2 requests with the stranger's key, exactly as the stranger's daemon would.
 #
 # The target is a task the requester really has open at the provider, so a forgery that got past step 7
-# would land in a real conversation. (A daemon patched to skip step 7 turns this section red.)
+# would land in a real conversation. A daemon patched to skip step 7 turns this section red; the patch is
+# scripts/mutations/si4-skip-step7.patch, applied in a scratch worktree and run with JOINT_BIN.
 OGOAL="joint open task $(rand)"
 OIX=$(rc /delegate "{\"provider\":\"$PROV_AID\",\"goal\":\"$OGOAL\"}" | jget interaction_id)
 for _ in $(seq 1 40); do [ "$(in_inbox "${OIX:-none}")" = peer ] && break; sleep 0.5; done
@@ -734,8 +743,23 @@ BS2=$(rx_above bad-sig "$BS1")
   && ok "the same forgery handed over the peer wire is refused the same way: bad-sig $BS1 → $BS2" \
   || no "over the peer wire: $(printf '%s' "$R" | head -c 200), bad-sig $BS1 → $BS2"
 
+# The other half of SI-4: a message that is honestly signed — by the stranger, as the stranger — into a
+# task whose peer is the requester. The signature proves who sent it, and that is not the task's peer:
+# step 9 refuses it (not-peer), without writing anything and without an answer.
+NP0=$(rx not-peer)
+NTEXT="not your task $(rand)"
+NMSG=$("$FIX" seal --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --type message --ix "${OIX:-none}" \
+         --text "$NTEXT" 2>/dev/null)
+R=$("$FIX" relay-send --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --envelope "${NMSG:-none}" 2>&1)
+NP1=$(rx_above not-peer "$NP0")
+[ "$(took "$R" hub)" = yes ] && [ "$NP1" -gt "$NP0" ] \
+  && ok "the stranger's own signed message into the requester's task is refused: not-peer $NP0 → $NP1" \
+  || no "the stranger's own message: $(printf '%s' "$R" | head -c 200), not-peer $NP0 → $NP1"
+
 [ "$(said_n "${OIX:-none}" "$FTEXT")" = 0 ] && [ "$(said_n "${OIX:-none}" "$FTEXT2")" = 0 ] \
-  && ok "neither forged text is in the requester's task" || no "a forged message landed in the requester's task"
+  && [ "$(said_n "${OIX:-none}" "$NTEXT")" = 0 ] \
+  && ok "none of the three texts is in the requester's task" \
+  || no "a message from someone other than the requester landed in its task (or the task is unreadable)"
 [ "$(in_inbox "${FDIX:-none}")" = absent ] && [ "$(received_n "${FDIX:-none}")" = 0 ] \
   && ok "the forged delegation is in neither the inbox nor the evidence chain" \
   || no "the forged delegation ${FDIX:-?} reached the provider (inbox: $(in_inbox "${FDIX:-none}"))"
@@ -763,7 +787,14 @@ RIX=$(delegate_cap req org.info '{}')
 REFF=$(result_of req "${RIX:-none}")
 [ "$(printf '%s' "$REFF" | jget status)" = OK ] && ok "a genuine call ran over the peer transport ($RIX)" \
   || no "the genuine call did not run: $(printf '%s' "$REFF" | head -c 200)"
-TEEF=$(ls "$RUN/tee" 2>/dev/null | sort | tail -n +"$((TEE_N + 1))" | grep -m1 -- "-$PROV_AID.env")
+# The peer writes its copy once the provider acknowledged the delegation, and a short call is answered
+# before it is acknowledged: the result can be here a moment before the copy is.
+TEEF=
+for _ in $(seq 1 20); do
+  TEEF=$(ls "$RUN/tee" 2>/dev/null | sort | tail -n +"$((TEE_N + 1))" | grep -m1 -F -- "-$PROV_AID.env")
+  [ -n "$TEEF" ] && break
+  sleep 0.25
+done
 if [ -n "$TEEF" ] && [ -n "$RIX" ]; then
   sleep 1   # the call's own evidence records are written around the result, not before it
   EV2=$(chain_len prov); IN2=$(inbox_n); DUP0=$(rx duplicate); RCV2=$(received_n "$RIX")
