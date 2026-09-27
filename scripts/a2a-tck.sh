@@ -40,7 +40,7 @@
 #   -h, --help           本说明
 #
 # 例:
-#   scripts/a2a-tck.sh --aid "$PEER_AID" --data-dir /tmp/joint-a2a/req --out /tmp/tck-run1
+#   scripts/a2a-tck.sh --aid "$PEER_AID" --data-dir /tmp/joint-a2a-$(id -u)/run/req/.anet --out /tmp/tck-run1
 #   scripts/a2a-tck.sh --aid "$PEER_AID" --scope protocol --level must -- -k "error"
 #
 # 前提与副作用(详见 0019):
