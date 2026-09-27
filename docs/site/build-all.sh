@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 B="python3 docs/site/build.py"
 
 $B docs/DESIGN-zh.md          docs/site/design.html         "ANet 设计文档 · 2026-09-03"
-$B docs/GUIDE-zh.md           docs/site/guide.html          "ANet 使用说明 · 0.1.7"
+$B docs/GUIDE-zh.md           docs/site/guide.html          "ANet 使用说明 · 0.2"
 $B docs/DISTRIBUTIONS-zh.md   docs/site/distributions.html  "ANet 发行版"
 $B docs/SHELL-zh.md           docs/site/shell.html          "ANet · shell 模块"
 $B docs/INSTALL-DEBIAN-zh.md  docs/site/install-debian.html "ANet · Debian 接入"

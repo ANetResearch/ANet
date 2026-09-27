@@ -158,13 +158,20 @@ anet hub-register https://hub.agentnetwork.org.cn --name $(hostname)
 anet status | grep -o 'bafyrei[a-z0-9]*' | head -1
 ```
 
-回到 Debian 机器,把这个 AID 写进名单:
+回到 Debian 机器,把这个 AID 写进**两份**名单:
 
 ```sh
-echo 'bafyrei……对方的AID' | sudo tee -a /etc/anet/shell-allow
+anet peers allow 'bafyrei……对方的AID'                       # 节点的入站名单:允许它把任务交给这台机器(终端确认)
+echo 'bafyrei……对方的AID' | sudo tee -a /etc/anet/shell-allow   # shell 模块自己的名单:允许它执行命令
 ```
 
-**不需要重启。** 名单文件每次调用都重读,写进去下一次调用就生效。
+两层各管一件事。`peers.allow`(数据目录下,`anet peers allow` 写的就是它)是 daemon 的入站策略:
+v0.2 起新节点谁的任务都不接,名单外的调用在进门时就被拒(`rejected`,`anet.reason=not_accepting`),
+根本到不了 shell 模块。`/etc/anet/shell-allow` 是 shell 模块的调用方名单:进了门的调用方,
+还要在这里才能执行命令。只写其中一份,调用都会被拒。没有终端(脚本、自动化)时,
+直接往 `peers.allow` 追加一行 AID 即可。
+
+**不需要重启。** 两份名单都在每次判定时重读,写进去下一次调用就生效。
 
 ### 3.5 从对面试一下
 
@@ -183,6 +190,8 @@ anet results
 sudo sed -i '/对方的AID/d' /etc/anet/shell-allow
 # 或者一次性全撤:
 sudo rm /etc/anet/shell-allow
+# 连任务也不让它交过来:
+anet peers remove 'bafyrei……对方的AID'     # 或 anet peers deny,同时取消它进行中的任务
 ```
 
 下一次调用即被拒,不用重启。文件不存在等同空名单(拒绝所有),不是错误、更不是放行。
@@ -236,7 +245,8 @@ systemctl status anet --no-pager
 | 现象 | 原因 |
 | --- | --- |
 | `module "shell" is configured but not compiled into this build (it needs -tags shell…)` | 装的是默认变体,重跑安装带 `--shell` |
-| 调用回 `UNAVAILABLE`,消息是 `does not accept commands from …` | 调用方 AID 不在名单里 |
+| 调用回 `rejected`,`anet.reason=not_accepting` | 调用方 AID 不在节点的入站名单 `peers.allow` 里(§3.4 第一行) |
+| 调用回 `UNAVAILABLE`,消息是 `does not accept commands from …` | 调用方 AID 不在 shell 名单里 |
 | 调用回 `UNAVAILABLE`,消息是 `carry no caller identity` | 本机直调需要配 `"allow_local": true` |
 | 委派一直没有结果,超时 | 该能力这台机器没有提供。核对能力 id,`shell.list` 能报出它有哪些 |
 | 命令回 `FAILED` 带退出码 | 命令真的失败了,`observed_state` 里有 stderr |
