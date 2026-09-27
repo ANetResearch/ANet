@@ -59,6 +59,7 @@ func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []st
 		return err
 	}
 	d.mu.Lock()
+	prevHub := d.cfg.HubURL
 	d.cfg.HubURL = hubURL
 	d.cfg.Name = name
 	if caps != nil {
@@ -75,6 +76,14 @@ func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []st
 	d.mu.Unlock()
 	if err := SaveConfig(d.layout, cfg); err != nil {
 		return err
+	}
+	if prevHub != hubURL && d.CardPublicationStatus().Sent {
+		// The payment module learns the hub, and so the ledger its prices
+		// are on, from the config, which is written only now: on a node
+		// that had no hub, the card just sent carries no price list
+		// (a2a_card.go). Publish once more with the config in place; a
+		// card that comes out the same is answered "unchanged".
+		d.cardInputsChanged()
 	}
 	// Re-publish any existing self-description so a fresh registration keeps the agent's profile.
 	if cfg.Summary != "" || cfg.Readme != "" || cfg.Pricing != "" {

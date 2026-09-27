@@ -46,7 +46,8 @@ func TestDirectURL(t *testing.T) {
 			t.Errorf("directURL(%q) = %q, %v; want %q", in, got, err, want)
 		}
 	}
-	for _, bad := range []string{"/run/a/wire.sock", "unix:///run/a.sock", "peer.example", ":4001", "tcp://"} {
+	for _, bad := range []string{"/run/a/wire.sock", "unix:///run/a.sock", "peer.example", ":4001", "tcp://",
+		"tcp://peer.example:4001/path", "peer.example:http", "peer.example:0", "peer.example:70000"} {
 		if got, err := directURL(bad); err == nil {
 			t.Errorf("directURL(%q) = %q, want an error", bad, got)
 		}

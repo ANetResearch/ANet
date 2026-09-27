@@ -479,7 +479,9 @@ func (*cardPricedWork) Price(c string) (uint64, bool) { return 5, c == "work.pri
 
 // A priced public skill: with the payment module in the build, the card
 // declares a2a-x402 (required, since every skill is priced) and the signed
-// price list; a -tags no_x402 build carries neither URI. Run under both.
+// price list; a -tags no_x402 build refuses every call to a priced
+// capability, so it lists no such skill and carries neither URI. Run under
+// both.
 func TestPaymentOnTheCardFollowsTheBuild(t *testing.T) {
 	h := newFakeHub(t)
 	d := newCardDaemon(t, "Worker", "")
@@ -490,6 +492,33 @@ func TestPaymentOnTheCardFollowsTheBuild(t *testing.T) {
 	d.mu.Lock()
 	d.cfg.HubURL = h.URL // the payment seam reads the hub from config
 	d.mu.Unlock()
+
+	compiled := false
+	for _, n := range module.Compiled() {
+		compiled = compiled || n == "x402"
+	}
+	if !compiled {
+		if _, _, err := d.networkCard(h.URL); err != errNoPublicSkill {
+			t.Fatalf("a no_x402 build published a skill it refuses: %v", err)
+		}
+		if err := d.Providers().Register(context.Background(), &lampProvider{}); err != nil {
+			t.Fatal(err)
+		}
+		setPublic(d, "work.priced", lampCap)
+		raw, _, err := d.networkCard(h.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v := verifyOwn(t, d, raw)
+		if len(v.Skills) != 1 || v.Skills[0].ID != lampCap {
+			t.Fatalf("skills %+v, want only the free %s", v.Skills, lampCap)
+		}
+		if bytes.Contains(raw, []byte("x402")) || bytes.Contains(raw, []byte(module.ExtPricingURI)) {
+			t.Fatalf("a no_x402 build published a payment URI:\n%s", raw)
+		}
+		return
+	}
+
 	raw, _, err := d.networkCard(h.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -503,16 +532,6 @@ func TestPaymentOnTheCardFollowsTheBuild(t *testing.T) {
 		em := e.(map[string]any)
 		exts[em["uri"].(string)] = em
 	}
-	compiled := false
-	for _, n := range module.Compiled() {
-		compiled = compiled || n == "x402"
-	}
-	if !compiled {
-		if bytes.Contains(raw, []byte("x402")) || bytes.Contains(raw, []byte(module.ExtPricingURI)) {
-			t.Fatalf("a no_x402 build published a payment URI:\n%s", raw)
-		}
-		return
-	}
 	x, ok := exts[module.ExtX402URI]
 	if !ok || x["required"] != true {
 		t.Fatalf("a2a-x402 declaration %v; want required true", x)
@@ -525,6 +544,90 @@ func TestPaymentOnTheCardFollowsTheBuild(t *testing.T) {
 		"prices": []any{map[string]any{"skillId": "work.priced", "amount": "5"}}}
 	if p := exts[module.ExtPricingURI]; p == nil || !reflect.DeepEqual(p["params"], want) {
 		t.Fatalf("pricing %v, want params %v", p, want)
+	}
+}
+
+// A node that cannot take payment (no payment module, as in a -tags
+// no_x402 build) refuses every call to a priced capability
+// (capability.go), so its card does not list one: a directory entry for it
+// would invite calls that can only fail. Build-independent: the payer is
+// removed by hand.
+func TestAPricedSkillIsLeftOffWhenThisNodeCannotCharge(t *testing.T) {
+	h := newFakeHub(t)
+	d := lampNode(t)
+	if err := d.Providers().Register(context.Background(), &cardPricedWork{}); err != nil {
+		t.Fatal(err)
+	}
+	setPublic(d, lampCap, "work.priced")
+	d.mu.Lock()
+	d.pay = nil
+	d.mu.Unlock()
+	raw, _, err := d.networkCard(h.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := verifyOwn(t, d, raw)
+	if len(v.Skills) != 1 || v.Skills[0].ID != lampCap {
+		t.Fatalf("skills %+v, want only the free %s", v.Skills, lampCap)
+	}
+	if bytes.Contains(raw, []byte("work.priced")) {
+		t.Fatalf("the priced skill is on the card:\n%s", raw)
+	}
+}
+
+// The card sent with a registration carries the name registered under,
+// not the one in the config: an explicit hub-register writes its name to
+// the config only after the hub has accepted it.
+func TestTheCardCarriesTheRegisteredName(t *testing.T) {
+	h := newFakeHub(t)
+	d := lampNode(t) // configured name "Lamp Agent"
+	if err := d.RegisterWithHub(context.Background(), h.URL, "Desk Lamp", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	fh := fakeHubAt(t, h.URL)
+	fh.mu.Lock()
+	raw := fh.a2aCards[d.AID()]
+	fh.mu.Unlock()
+	if v := verifyOwn(t, d, raw); v.Name != "Desk Lamp" {
+		t.Fatalf("card name %q, want the registered %q", v.Name, "Desk Lamp")
+	}
+}
+
+// The first hub-register of a node with a priced public skill: the payment
+// module reads the hub from the config, which HubRegister writes after the
+// hub answered, so the node publishes again and the hub ends up with the
+// price list.
+func TestAFirstHubRegisterEndsWithThePriceListPublished(t *testing.T) {
+	compiled := false
+	for _, n := range module.Compiled() {
+		compiled = compiled || n == "x402"
+	}
+	if !compiled {
+		t.Skip("no payment module in this build")
+	}
+	h := newFakeHub(t)
+	d := newCardDaemon(t, "Worker", "")
+	if err := d.Providers().Register(context.Background(), &cardPricedWork{}); err != nil {
+		t.Fatal(err)
+	}
+	setPublic(d, "work.priced")
+	if err := d.HubRegister(context.Background(), h.URL, "Worker", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	fh := fakeHubAt(t, h.URL)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		fh.mu.Lock()
+		raw := fh.a2aCards[d.AID()]
+		fh.mu.Unlock()
+		if bytes.Contains(raw, []byte(module.ExtPricingURI)) {
+			verifyOwn(t, d, raw)
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the hub never received the price list:\n%s", raw)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

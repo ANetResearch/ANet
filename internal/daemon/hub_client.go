@@ -89,7 +89,7 @@ func (d *Daemon) registerWithHubLocked(ctx context.Context, hubURL, name string,
 	}
 	// The A2A network card (a2a_card.go), when this node has a public
 	// skill. The hub reports what it did with it in card_status.
-	a2aCard, a2aSeq := d.cardForRegistration(hubURL, false)
+	a2aCard, a2aSeq := d.cardForRegistration(hubURL, name, false)
 	body.A2ACard = a2aCard
 	if err := d.screenPublication("this node's registration", body); err != nil {
 		return err
