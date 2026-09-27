@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -169,5 +170,45 @@ func TestTheTaskSeamPaysThroughTheSameTaskFlow(t *testing.T) {
 	}
 	if work.invoked.Load() != 1 {
 		t.Errorf("the work ran %d times", work.invoked.Load())
+	}
+}
+
+// A waiter woken by a quote reads the task whole: input-required with the
+// quote, the payment status and the reason it waits. The status row and the
+// payment columns are two writes; the state is announced after both
+// (ingestStatus), so /tasks/wait and a blocking A2A send never answer
+// input-required without the quote (found by scripts/joint-official.sh).
+func TestAWaiterWokenByAQuoteSeesTheQuote(t *testing.T) {
+	work := &meteredWork{price: 5}
+	_, req, prov := paidPair(t, work)
+	ctx := context.Background()
+	id, err := req.DelegateCapability(ctx, prov.AID(), "work.do", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poll(t, prov) // the provider quotes
+	type waited struct {
+		ix  *interactions.Interaction
+		err error
+	}
+	got := make(chan waited, 1)
+	start := getIX(t, req, id).StateSeq
+	go func() {
+		ix, _, err := req.waitTask(ctx, id, start, 10*time.Second)
+		got <- waited{ix, err}
+	}()
+	time.Sleep(50 * time.Millisecond) // let the waiter subscribe
+	poll(t, req)
+	w := <-got
+	if w.err != nil {
+		t.Fatal(w.err)
+	}
+	task, err := req.taskView(w.ix, viewOpts{artifacts: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status.State != a2ashape.TaskStateInputRequired || task.Metadata[a2ashape.KeyX402Status] != a2ashape.PaymentRequired ||
+		task.Metadata[a2ashape.KeyX402Required] == nil || task.Metadata[a2ashape.KeyReason] != x402a2a.ReasonNeedsOperatorApproval {
+		t.Fatalf("the waiter read %s %v", task.Status.State, task.Metadata)
 	}
 }
