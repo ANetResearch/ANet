@@ -190,6 +190,21 @@ cmax 与 dmax 上跑着生产与准生产服务(见下节)。脚本的保证,以
     `10.2.2.88:47301`、把 hub1 映射到 `10.253.20.2:47101`),再 `FEDERATE_BRIDGED=1 deploy.sh federate`。卡片里 hub 的
     `home` 仍是对方岛内地址,依赖 home 直连的路径在跨岛时会失败 —— 这是转发拓扑的限制,不是被测代码的缺陷。
 
+## 自包含联调脚本:joint-a2a.sh
+
+`scripts/joint-a2a.sh`(本机 A2A 接口联调,设计 §17)不接入已部署的节点:它在一台主机上自起 hub、两个 daemon、
+能力后端与应答方,全部在 loopback 上,按路径停止自己起的进程,daemon 用私有 `XDG_RUNTIME_DIR`。在测试主机上:
+
+```bash
+bash scripts/testnet/build.sh                      # 产物里含 a2aprobe 与 a2ashape-hermes.test
+# 把 linux-<arch>/ 与 scripts/ 拷到目标主机后:
+JOINT_BIN=<dir>/linux-amd64 JOINT_PORT_BASE=47170 J=/tmp/joint-a2a-tn bash scripts/joint-a2a.sh
+```
+
+`JOINT_PORT_BASE` 取 47100–47499 内、部署的测试网节点不用的 10 个连续端口(上例 47170–47179;各主机的百位段见
+`topology.env`)。本机 A2A 接口的端口也在这一段内(脚本预写 `a2a_addr.txt`),不用 `JOINT_A2A_ALLOC=1`。
+`JOINT_A2A_TCK=1` 另跑 a2a-tck 并留记录(不作门禁,需要 TCK 源码与 Python venv,见 0019)。
+
 ## 已知限制
 
 - `anet-official` 还没有源码(`ANet/cmd/anet-official` 不存在),`official` 角色部署会在传二进制时拒绝;其启动参数
