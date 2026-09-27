@@ -1,0 +1,29 @@
+Mutation for scripts/joint-official.sh 3/8 (B6-01, A2A-DESIGN §15): anet-official answers without
+checking the bearer token its daemon holds, so anything on the host that can open a loopback socket
+calls the backend directly — around the daemon's admission, quotas and payment — and can write its own
+X-ANet-Caller. Never commit it applied.
+
+Apply in a scratch worktree, never in a checkout anything ships from:
+
+    cd ANet && git apply scripts/mutations/official-no-backend-token.patch
+    go build -o "$MUTBIN/anet-official" ./cmd/anet-official   # anet, anet-hub, anet-hub-admin into $MUTBIN as usual
+    JOINT_BIN="$MUTBIN" scripts/joint-official.sh
+
+Expected: 3/8 red — the calls without a token or with a wrong one are answered 200 (or 404 for the
+unknown path) instead of 401, so the routes can be probed and the backend's log shows fewer than five
+refusals. The daemon's own calls still work: it sends the token, which is now not read. The unit-level
+twin is TestOnlyTheDaemonGetsIn in cmd/anet-official/server_test.go.
+
+diff --git a/cmd/anet-official/server.go b/cmd/anet-official/server.go
+index 2628577..a062b4d 100644
+--- a/cmd/anet-official/server.go
++++ b/cmd/anet-official/server.go
+@@ -144,7 +144,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 	c := s.caps[r.URL.Path]
+-	if !s.authorized(r) {
++	if false && !s.authorized(r) {
+ 		// Before routing, so that without the token every path answers
+ 		// alike and the routes of this instance cannot be probed. No
+ 		// detail: whether the header was missing, malformed or wrong is of
