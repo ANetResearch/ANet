@@ -144,16 +144,13 @@ func (d *Daemon) providerStatus(ctx context.Context, ixID, peer string, state in
 	if err != nil {
 		return err
 	}
-	msgID, err := newMessageID()
-	if err != nil {
-		return err
-	}
+	mid, msgID := newWireMID()
 	payload, err := (&delegation.StatusMsg{State: string(state), Text: text, Metadata: mb, At: d.nowMS()}).Marshal()
 	if err != nil {
 		return err
 	}
 	var seq int64
-	id, err := d.queueSend(ctx, peer, seal.TypeStatus, ixID, payload, func(tx *interactions.Tx) error {
+	id, err := d.queueSendAs(ctx, wireSend{to: peer, typ: seal.TypeStatus, ix: ixID, body: payload, mid: mid}, func(tx *interactions.Tx) error {
 		cur, err := tx.Get(ixID)
 		if err != nil {
 			return err
@@ -1233,16 +1230,13 @@ func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction) 
 // moving the task to state in the same transaction as write.
 func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.Interaction, meta []byte,
 	state interactions.State, write func(tx *interactions.Tx) error) error {
-	msgID, err := newMessageID()
-	if err != nil {
-		return err
-	}
+	mid, msgID := newWireMID()
 	payload, err := (&delegation.ChatMsg{Kind: delegation.ChatText, MsgID: msgID, Metadata: meta}).Marshal()
 	if err != nil {
 		return err
 	}
 	var seq int64
-	id, err := d.queueSend(ctx, ix.PeerAID, seal.TypeMessage, ix.ID, payload, func(tx *interactions.Tx) error {
+	id, err := d.queueSendAs(ctx, wireSend{to: ix.PeerAID, typ: seal.TypeMessage, ix: ix.ID, body: payload, mid: mid}, func(tx *interactions.Tx) error {
 		cur, err := tx.Get(ix.ID)
 		if err != nil {
 			return err

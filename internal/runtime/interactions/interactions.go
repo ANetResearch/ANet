@@ -666,8 +666,14 @@ func finish(e execer, id string, f Finish, nowMS int64) error {
 func (s *Store) SetLateResult(id string, result []byte, resultCID string, receipt []byte, verified Verification) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return setLateResult(s.db, id, result, resultCID, receipt, verified)
+}
+
+// setLateResult is Store.SetLateResult against either the database handle
+// or an open transaction.
+func setLateResult(e execer, id string, result []byte, resultCID string, receipt []byte, verified Verification) (bool, error) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	res, err := s.db.Exec(`UPDATE interaction SET result=?, result_cid=?, receipt=?, receipt_verified=?, updated_at=?
+	res, err := e.Exec(`UPDATE interaction SET result=?, result_cid=?, receipt=?, receipt_verified=?, updated_at=?
 	   WHERE id=? AND state IN `+terminalSQL+` AND (receipt IS NULL OR length(receipt)=0)`,
 		result, resultCID, receipt, string(verified), now, id)
 	if err != nil {

@@ -210,6 +210,10 @@ type TaskSeam interface {
 	// Send is SendMessage: a new task when req.Message has no task id,
 	// otherwise a message on that task. Unless req.ReturnImmediately, it
 	// returns once the task is terminal or interrupted (input-required).
+	// Delivery goes through the node's retry queue: once the message is
+	// recorded it is sent, however long the provider or hub is away; a
+	// delegation or input that expires undelivered, or that the hub
+	// refuses for good, fails the task with anet.reason=undeliverable.
 	Send(ctx context.Context, peerAID string, req TaskSend) (Task, error)
 	// Get is GetTask. historyLen bounds the history (nil: all of it).
 	Get(ctx context.Context, peerAID, taskID string, historyLen *int) (Task, error)

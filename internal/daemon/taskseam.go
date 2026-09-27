@@ -20,8 +20,12 @@ package daemon
 //     daemon mints it. (contextId, client messageId) is the dedupe key: a
 //     retry returns the task the first attempt created (without a
 //     contextId, (agent, messageId): the retry cannot name the context the
-//     daemon minted). A task that could not be delivered does not count,
-//     so a retry after UnavailableError is a new attempt. The client's
+//     daemon minted). The delegation goes through the retry queue (0017
+//     Q5): once the task is recorded the call answers submitted, and an
+//     unreachable provider or hub only delays it. A delegation the queue
+//     gives up on (expired, or refused for good by the hub) fails the task
+//     with anet.reason=undeliverable, and such a task does not count for
+//     the dedupe: a retry of its message is a new attempt. The client's
 //     messageId is stored in message.metadata["a2a.messageId"]; the
 //     envelope carries a daemon-minted id.
 //   - a taskId: a follow-up on that task. A client-chosen id for a task
@@ -45,7 +49,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"mime"
 	"strings"
 	"sync"
@@ -322,8 +325,15 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 		}
 		err = d.delegateInWithID(sctx, id, peer, in.goal(), in.atts, contextID, mb)
 	}
-	if err != nil {
-		d.failUndelivered(id, err)
+	switch {
+	case errors.Is(err, errUndeliverable):
+		// Recorded, and refused for good by the hub on the first attempt:
+		// the task is failed (anet.reason=undeliverable) and answered as it
+		// is. A retry of the same message is a new attempt.
+		release()
+		return d.finishSend(ctx, sc, id, 0, req, wait)
+	case err != nil:
+		// Nothing was recorded: no key for the agent, or the store.
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
 	}
 	if in.capID != "" && len(meta) > 0 {
@@ -394,7 +404,7 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 	}
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
-	after, err := d.sendMessage(sctx, ix.ID, in.goal(), in.atts, clientMeta(req), true)
+	after, err := d.sendMessage(sctx, ix.ID, in.goal(), in.atts, clientMeta(req))
 	switch {
 	case errors.Is(err, ErrTaskTerminal):
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "%v", err)
@@ -422,28 +432,6 @@ func (d *Daemon) finishSend(ctx context.Context, sc taskScope, id string, after 
 		return a2ashape.Task{}, err
 	}
 	return d.taskView(ix, viewOpts{historyLen: req.HistoryLength, artifacts: true, inline: sc.inline()})
-}
-
-// failUndelivered marks a task whose delegation could not be sent. The row
-// exists (it is written before the send), and left as submitted it would
-// look like work in progress forever.
-//
-// The client's message id is taken off its first message: the caller
-// answered UnavailableError, and the client's retry of the same message
-// must be a new attempt, not this failed task returned as its duplicate.
-// It runs under the send lock, before a concurrent retry can look.
-func (d *Daemon) failUndelivered(id string, cause error) {
-	if _, err := d.ix.Get(id); err != nil {
-		return
-	}
-	if first, ok := d.firstOwnMessage(id); ok {
-		if err := d.ix.MergeMessageMeta(id, first, map[string]any{a2ashape.KeyMessageID: nil}); err != nil {
-			log.Printf("anet: %s: %v", id, err)
-		}
-	}
-	if err := d.ix.SetFailed(id, []byte("not delivered: "+cause.Error())); err == nil {
-		d.publishResult(id)
-	}
 }
 
 // firstOwnMessage is the seq of the first message this node stored on id.
