@@ -27,6 +27,10 @@ type InboundTaskHost interface {
 	// message. Each carries anet.peer_aid and anet.trusted (a bool: the
 	// peer is on the trust list) in its metadata, the requester's
 	// a2a.serviceParameters in its messages' metadata, and its files inline.
+	// Its contextId is not the requester's: the kernel derives it from the
+	// peer and the task's context, so tasks one peer sends in one context
+	// share it and two peers never do, whatever context they name (an agent
+	// behind a backend keeps a conversation per context).
 	//
 	// A task from a peer that is not on the trust list is delivered only to
 	// a module that declared an untrusted backend
