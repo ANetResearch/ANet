@@ -35,8 +35,12 @@ func (s *Store) GetFor(id string, role Role, peerAID string) (*Interaction, erro
 // ClientMessageQuery selects the interaction that already holds a message
 // with a client-chosen message id.
 type ClientMessageQuery struct {
-	Role      Role
-	ContextID string // required
+	Role Role
+	// ContextID limits the search to one context. Empty searches every
+	// context of PeerAID (a client that gave no contextId cannot repeat
+	// the one the daemon minted, so its retry is recognised by the peer
+	// and its message id alone).
+	ContextID string
 	// PeerAID, when set, limits the search to interactions with that peer.
 	PeerAID string
 	// TaskID, when set, limits the search to that interaction.
@@ -45,17 +49,22 @@ type ClientMessageQuery struct {
 	ClientMsgID string
 }
 
-// FindByClientMessage returns the interaction in q.ContextID holding a
-// message whose metadata carries ClientMessageIDKey == q.ClientMsgID, or
+// FindByClientMessage returns the interaction holding a message whose
+// metadata carries ClientMessageIDKey == q.ClientMsgID, within q.ContextID,
+// q.PeerAID and q.TaskID as far as they are set (at least one must be), or
 // ErrNotFound. It is how SendMessage recognises a client retry and returns
 // the task it already created instead of creating a second one.
 func (s *Store) FindByClientMessage(q ClientMessageQuery) (*Interaction, error) {
-	if q.ContextID == "" || q.ClientMsgID == "" || q.Role == "" {
+	if q.ClientMsgID == "" || q.Role == "" || (q.ContextID == "" && q.PeerAID == "" && q.TaskID == "") {
 		return nil, ErrNotFound
 	}
 	inner := `SELECT m.interaction_id FROM interaction i JOIN message m ON m.interaction_id = i.id
-	           WHERE i.role=? AND i.context_id=?`
-	args := []any{string(q.Role), q.ContextID}
+	           WHERE i.role=?`
+	args := []any{string(q.Role)}
+	if q.ContextID != "" {
+		inner += ` AND i.context_id=?`
+		args = append(args, q.ContextID)
+	}
 	if q.PeerAID != "" {
 		inner += ` AND i.peer_aid=?`
 		args = append(args, q.PeerAID)
@@ -96,9 +105,9 @@ func (s *Store) ContextPeers(role Role, contextID string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// MergeMessageMeta adds keys to the metadata object of one stored message.
-// Existing keys other than those in add are kept. It is ErrNotFound when the
-// message is not in the interaction.
+// MergeMessageMeta adds keys to the metadata object of one stored message;
+// a nil value removes its key. Existing keys other than those in add are
+// kept. It is ErrNotFound when the message is not in the interaction.
 func (s *Store) MergeMessageMeta(interactionID string, msgSeq int64, add map[string]any) error {
 	if len(add) == 0 {
 		return nil
@@ -119,8 +128,20 @@ func (s *Store) MergeMessageMeta(interactionID string, msgSeq int64, add map[str
 			return fmt.Errorf("interactions: message %d metadata: %w", msgSeq, err)
 		}
 	}
+	changed := false
 	for k, v := range add {
+		if v == nil {
+			if _, ok := m[k]; ok {
+				delete(m, k)
+				changed = true
+			}
+			continue
+		}
 		m[k] = v
+		changed = true
+	}
+	if !changed {
+		return nil
 	}
 	b, err := json.Marshal(m)
 	if err != nil {

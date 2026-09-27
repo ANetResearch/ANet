@@ -2,18 +2,16 @@ package daemon
 
 // taskview.go reads an interaction into its A2A projection. The mapping
 // itself is a2ashape.Project (A2A-DESIGN §11.5, SI-6); this file supplies
-// what only the daemon has: attachment bytes, safe file names, the key
-// history a receipt was checked against, and the state sequence number.
+// what only the daemon has: attachment bytes, safe file names and the key
+// history a receipt was checked against. The projection carries the state
+// sequence number (a2ashape.KeyStateSeq), which a caller passes back to
+// /tasks/wait as after_seq to wait for a state newer than the one it has
+// seen (C35).
 
 import (
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
-
-// keyStateSeq carries the task's state_seq in the projection's metadata. A
-// caller passes it back to /tasks/wait as after_seq to wait for a state
-// newer than the one it has seen (C35), which comparing states cannot do.
-const keyStateSeq = "anet.state_seq"
 
 // viewOpts selects what a task view carries.
 type viewOpts struct {
@@ -57,8 +55,8 @@ func (d *Daemon) taskView(ix *interactions.Interaction, o viewOpts) (a2ashape.Ta
 	}
 	t := a2ashape.Project(a2ashape.Source{Interaction: ix, Messages: msgs, Attachments: atts}, opt)
 	if t.Metadata == nil {
+		// Project always sets it; callers add keys (anet.wait) to it.
 		t.Metadata = map[string]any{}
 	}
-	t.Metadata[keyStateSeq] = ix.StateSeq
 	return t, nil
 }

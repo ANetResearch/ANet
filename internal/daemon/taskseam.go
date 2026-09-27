@@ -18,12 +18,17 @@ package daemon
 //     tasks (TaskNotFound, as for another agent's task id), and an unknown
 //     one starts a new context. Without one the
 //     daemon mints it. (contextId, client messageId) is the dedupe key: a
-//     retry returns the task the first attempt created. The client's
+//     retry returns the task the first attempt created (without a
+//     contextId, (agent, messageId): the retry cannot name the context the
+//     daemon minted). A task that could not be delivered does not count,
+//     so a retry after UnavailableError is a new attempt. The client's
 //     messageId is stored in message.metadata["a2a.messageId"]; the
 //     envelope carries a daemon-minted id.
 //   - a taskId: a follow-up on that task. A client-chosen id for a task
 //     that does not exist is TaskNotFound, never a new task. Input to a
-//     terminal task is UnsupportedOperation (§4.2).
+//     terminal task is UnsupportedOperation (§4.2). A follow-up goes
+//     through the retry queue: once recorded it will be delivered, so a
+//     retry that finds it recorded can wait for the answer.
 //   - metadata["anet.skill"] or a DataPart {skill, args} is a capability
 //     call. Text parts are joined into the goal; a raw file part becomes an
 //     attachment through attachmentFromBytes; a url part of any scheme is
@@ -40,6 +45,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"mime"
 	"strings"
 	"sync"
@@ -205,15 +211,15 @@ func checkHistoryLen(n *int) error {
 
 // sendLocks serializes sends that share a dedupe key, so two copies of one
 // client message sent at once create one task. Keys carry this node's AID
-// (tests run several daemons in one process).
+// (tests run several daemons in one process) and the remote agent.
 var sendLocks keyedLocks
 
 // lockSend takes the dedupe lock of one client message. The returned
 // function releases it and may be called more than once: a send releases it
 // as soon as the message is recorded, before it waits for the answer, and a
 // deferred call covers the error paths.
-func lockSend(aid, contextID, messageID string) func() {
-	release := sendLocks.lock(aid + "\x00" + contextID + "\x00" + messageID)
+func lockSend(scope, contextID, messageID string) func() {
+	release := sendLocks.lock(scope + "\x00" + contextID + "\x00" + messageID)
 	var once sync.Once
 	return func() { once.Do(release) }
 }
@@ -245,7 +251,7 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 	if peer == d.AID() {
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "cannot send a task to this node itself")
 	}
-	in, err := parseTaskInput(msg)
+	in, err := parseTaskInput(msg, a2ashape.RoleUser)
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
@@ -268,8 +274,11 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 		}
 	}
 	release := func() {}
-	if contextID != "" && msg.ID != "" {
-		release = lockSend(d.AID(), contextID, msg.ID)
+	if msg.ID != "" {
+		// Without a contextId the key is (agent, messageId): the lock key
+		// then has an empty context, and the lookup spans the agent's
+		// contexts.
+		release = lockSend(d.AID()+"\x00"+peer, contextID, msg.ID)
 		defer release()
 		prior, err := d.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
 			ContextID: contextID, PeerAID: peer, ClientMsgID: msg.ID})
@@ -346,7 +355,7 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 	}
 	release := func() {}
 	if msg.ID != "" {
-		release = lockSend(d.AID(), ix.ContextID, msg.ID)
+		release = lockSend(d.AID()+"\x00"+ix.PeerAID, ix.ContextID, msg.ID)
 		defer release()
 		if _, err := d.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
 			ContextID: ix.ContextID, TaskID: ix.ID, ClientMsgID: msg.ID}); err == nil {
@@ -371,7 +380,7 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 	if ix.IsCapability {
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s is a capability call; it takes no follow-up message", ix.ID)
 	}
-	in, err := parseTaskInput(msg)
+	in, err := parseTaskInput(msg, a2ashape.RoleUser)
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
@@ -380,15 +389,13 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 	}
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
-	after, err := d.sendMessage(sctx, ix.ID, in.goal(), in.atts, clientMeta(req))
+	after, err := d.sendMessage(sctx, ix.ID, in.goal(), in.atts, clientMeta(req), true)
 	switch {
 	case errors.Is(err, ErrTaskTerminal):
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "%v", err)
-	case err != nil && after == 0:
-		return a2ashape.Task{}, err
 	case err != nil:
-		// Stored here and not delivered; the peer will not see it.
-		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "the message was stored but not delivered: %v", err)
+		// Delivery is queued and cannot fail here; this is the store.
+		return a2ashape.Task{}, err
 	}
 	release()
 	return d.finishSend(ctx, sc, ix.ID, after, req, wait)
@@ -415,9 +422,19 @@ func (d *Daemon) finishSend(ctx context.Context, sc taskScope, id string, after 
 // failUndelivered marks a task whose delegation could not be sent. The row
 // exists (it is written before the send), and left as submitted it would
 // look like work in progress forever.
+//
+// The client's message id is taken off its first message: the caller
+// answered UnavailableError, and the client's retry of the same message
+// must be a new attempt, not this failed task returned as its duplicate.
+// It runs under the send lock, before a concurrent retry can look.
 func (d *Daemon) failUndelivered(id string, cause error) {
 	if _, err := d.ix.Get(id); err != nil {
 		return
+	}
+	if first, ok := d.firstOwnMessage(id); ok {
+		if err := d.ix.MergeMessageMeta(id, first, map[string]any{a2ashape.KeyMessageID: nil}); err != nil {
+			log.Printf("anet: %s: %v", id, err)
+		}
 	}
 	if err := d.ix.SetFailed(id, []byte("not delivered: "+cause.Error())); err == nil {
 		d.publishResult(id)
@@ -521,9 +538,15 @@ func (in *taskInput) goal() string {
 }
 
 // parseTaskInput applies the input part rules (A2A-DESIGN §11.5 [C44]).
-func parseTaskInput(m a2ashape.Message) (*taskInput, error) {
+// role is the side the message speaks for: the user for a requester's
+// message, the agent for a provider's reply. A message may leave its role
+// unset; one that names the other side is refused.
+func parseTaskInput(m a2ashape.Message, role a2ashape.Role) (*taskInput, error) {
 	bad := func(format string, a ...any) error {
 		return a2ashape.Errorf(a2ashape.ErrInvalidParams, format, a...)
+	}
+	if m.Role != role && m.Role != a2ashape.RoleUnspecified {
+		return nil, bad("role must be %s", role)
 	}
 	in := &taskInput{}
 	if v, ok := m.Metadata[a2ashape.KeySkill]; ok {
@@ -619,25 +642,40 @@ func parseTaskInput(m a2ashape.Message) (*taskInput, error) {
 // --- waiting ---
 
 // stopsWait reports whether a state ends a blocking send or a wait: a
-// terminal state, or one in which the agent waits for the client.
-func stopsWait(st interactions.State) bool {
-	return st.IsTerminal() || st == interactions.StateInputRequired
+// terminal state, or one in which the other side waits for this node. On a
+// task this node sent, that is input-required (the agent asks); on a task
+// delegated to it, any state but input-required (the requester answered,
+// or the task is new).
+func stopsWait(role interactions.Role, st interactions.State) bool {
+	if st.IsTerminal() {
+		return true
+	}
+	if role == interactions.RoleInbound {
+		return st != interactions.StateInputRequired
+	}
+	return st == interactions.StateInputRequired
 }
 
-// waitTask blocks until the task is terminal or input-required at a
-// state_seq above after, ctx ends, or max elapses (max ≤ 0: no bound). It
-// returns the task as it then is; timedOut says the bound elapsed first.
+// waitTask blocks until the task is terminal, or waits for this node at a
+// state_seq above after, or ctx ends, or max elapses (max ≤ 0: no bound). It
+// returns the task as it then is; timedOut says the bound — or ctx's
+// deadline — elapsed first: the task runs on (§11.5), and the caller
+// answers it as it is. A canceled ctx is an error: nobody is waiting.
 //
 // It compares sequence numbers, not states (C35): after answering an
 // input-required task the requester waits for the next input-required, and
-// the one it answered has a lower state_seq.
+// the one it answered has a lower state_seq. A terminal task ends the wait
+// whatever its state_seq, because nothing newer can follow it.
 func (d *Daemon) waitTask(ctx context.Context, id string, after int64, max time.Duration) (ix *interactions.Interaction, timedOut bool, err error) {
-	done := func(ix *interactions.Interaction) bool { return ix.StateSeq > after && stopsWait(ix.State) }
 	snap, events, cancel, err := d.Watch(id)
 	if err != nil {
 		return nil, false, err
 	}
 	defer func() { cancel() }()
+	role := snap.Role
+	done := func(ix *interactions.Interaction) bool {
+		return ix.IsTerminal() || (ix.StateSeq > after && stopsWait(role, ix.State))
+	}
 	if done(snap) {
 		return snap, false, nil
 	}
@@ -662,7 +700,7 @@ func (d *Daemon) waitTask(ctx context.Context, id string, after int64, max time.
 				}
 				continue
 			}
-			if e.Kind != EventState || e.StateSeq <= after || !stopsWait(e.State) {
+			if e.Kind != EventState || !(e.State.IsTerminal() || (e.StateSeq > after && stopsWait(role, e.State))) {
 				continue
 			}
 			cur, err := d.ix.Get(id)
@@ -671,7 +709,14 @@ func (d *Daemon) waitTask(ctx context.Context, id string, after int64, max time.
 			}
 			return cur, false, nil
 		case <-ctx.Done():
-			return nil, false, ctx.Err()
+			if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, false, ctx.Err()
+			}
+			cur, err := d.ix.Get(id)
+			if err != nil {
+				return nil, false, err
+			}
+			return cur, true, nil
 		case <-timeout:
 			cur, err := d.ix.Get(id)
 			if err != nil {
@@ -692,23 +737,14 @@ type taskListReq struct {
 	PeerAID string
 }
 
-// Page sizes (A2A ListTasks: 1–100, default 50).
-const (
-	listPageDefault = 50
-	listPageMax     = 100
-)
-
 func (d *Daemon) listTasks(sc taskScope, r taskListReq) (a2ashape.TaskPage, error) {
 	f := r.TaskFilter
 	bad := func(format string, a ...any) error {
 		return a2ashape.Errorf(a2ashape.ErrInvalidParams, "%s", fmt.Sprintf(format, a...))
 	}
-	size := f.PageSize
-	switch {
-	case size == 0:
-		size = listPageDefault
-	case size < 0 || size > listPageMax:
-		return a2ashape.TaskPage{}, bad("pageSize must be between 1 and %d", listPageMax)
+	size, err := a2ashape.PageSize(f.PageSize)
+	if err != nil {
+		return a2ashape.TaskPage{}, err
 	}
 	if err := checkHistoryLen(f.HistoryLen); err != nil {
 		return a2ashape.TaskPage{}, err
@@ -724,15 +760,26 @@ func (d *Daemon) listTasks(sc taskScope, r taskListReq) (a2ashape.TaskPage, erro
 	}
 	if f.State != "" {
 		st, ok := storeState(f.State)
-		if !ok {
+		switch {
+		case ok:
+			lf.States = []interactions.State{st}
+		case a2ashape.TaskState(f.State).Valid():
+			// An A2A state no task here is ever in (auth-required): the
+			// filter is well formed and matches nothing.
+			return a2ashape.TaskPage{Tasks: []a2ashape.Task{}, PageSize: size}, nil
+		default:
 			return a2ashape.TaskPage{}, bad("unknown status %q", f.State)
 		}
-		lf.States = []interactions.State{st}
 	}
 	if f.UpdatedAfter != nil {
-		// "At or after" (module.TaskFilter); state_at is in milliseconds
-		// and the store's bound is strict.
-		lf.UpdatedAfter = f.UpdatedAfter.UnixMilli() - 1
+		// At or after (A2A: "greater than or equal to"). state_at is in
+		// whole milliseconds and the store's bound is strict, so the bound
+		// is the first millisecond not before the time, minus one.
+		ms := f.UpdatedAfter.UnixMilli()
+		if f.UpdatedAfter.After(time.UnixMilli(ms)) {
+			ms++
+		}
+		lf.UpdatedAfter = ms - 1
 		if lf.UpdatedAfter <= 0 {
 			// Every state_at is after the epoch; 0 means "no bound".
 			lf.UpdatedAfter = 0
@@ -814,6 +861,10 @@ func (d *Daemon) watchTask(ctx context.Context, sc taskScope, id string) (a2asha
 		cancel()
 		return a2ashape.Task{}, nil, err
 	}
+	// The newest peer message is read before the first view, which reads
+	// the messages again: one stored in between is then in the view and
+	// also news to the pump (sent twice), never in neither.
+	lastMsg := d.lastPeerMessage(snap)
 	first, err := d.taskView(snap, viewOpts{artifacts: true, inline: sc.inline()})
 	if err != nil {
 		cancel()
@@ -825,15 +876,14 @@ func (d *Daemon) watchTask(ctx context.Context, sc taskScope, id string) (a2asha
 		close(out)
 		return first, out, nil
 	}
-	go d.pumpTaskEvents(ctx, snap, events, cancel, out, sc.inline())
+	go d.pumpTaskEvents(ctx, snap, lastMsg, events, cancel, out, sc.inline())
 	return first, out, nil
 }
 
-func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interaction, events <-chan Event,
+func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interaction, lastMsg int64, events <-chan Event,
 	cancel func(), out chan<- a2ashape.TaskEvent, inline bool) {
 	defer func() { cancel(); close(out) }()
 	lastSeq := snap.StateSeq
-	lastMsg := d.lastPeerMessage(snap)
 	send := func(e a2ashape.TaskEvent) bool {
 		select {
 		case out <- e:
