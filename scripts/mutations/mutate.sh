@@ -10,12 +10,14 @@
 #
 #   mutate.sh list                         the patches, their repository and what each expects
 #   mutate.sh build -o DIR PATCH…          the mutated binary set into DIR (anet, anetfixture, anetpeer,
-#                                          anet-official, anet-hub, anet-hub-admin). For a test host,
-#                                          build here, copy DIR there, and run
+#                                          anet-official, anet-hub, anet-hub-admin, and ANetHub's
+#                                          deploy/hub-db-roll.sh). For a test host, build here, copy DIR
+#                                          there, and run
 #                                            JOINT_BIN=DIR JOINT_CANARY_ONLY=1 J=/tmp/jx scripts/joint.sh
 #   mutate.sh check J                      after such a run: did section C find a canary? Exit 0 when it
 #                                          did (the mutation was caught), 1 when it did not, 2 when there
-#                                          is no section C report under J
+#                                          is no section C report of the latest run under J (reports
+#                                          older than that run's start, J/.joint-dir, are not counted)
 #   mutate.sh canary PATCH…                build, run joint.sh (JOINT_CANARY_ONLY=1) and check, here
 #
 # Environment:
@@ -30,6 +32,8 @@
 # The SI-1 patches (si1-*.patch) are caught by section C alone, which is why `canary` runs joint.sh with
 # JOINT_CANARY_ONLY=1. si4-skip-step7.patch is caught by section 8/11: build it and run joint.sh in full.
 set -uo pipefail
+# SIGINT/SIGTERM end the script through exit, so that the EXIT trap removes the scratch copy.
+trap 'exit 130' INT TERM
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 SCRIPTS=$(cd "$HERE/.." && pwd -P)
 ANET_SRC=$(cd "$SCRIPTS/.." && pwd -P)
@@ -37,7 +41,7 @@ CORE_SRC=${CORE_SRC:-$ANET_SRC/../ANetCore}
 HUB_SRC=${HUB_SRC:-$ANET_SRC/../ANetHub}
 
 die(){ printf 'mutate.sh: %s\n' "$*" >&2; exit 2; }
-usage(){ sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
+usage(){ sed -n '2,/^set -uo pipefail/{/^#/p}' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2; }
 
 # repo_of PATCH — the repository a patch applies to.
 repo_of(){
@@ -99,29 +103,39 @@ cmd_build(){
     IFS=: read -r name repo pkg <<<"$b"
     go build -C "$scratch/$repo" -o "$out/$name" "$pkg" || die "build $name failed"
   done
+  # joint.sh section C takes the hub's backup with it (a patch may change it too).
+  cp "$scratch/ANetHub/deploy/hub-db-roll.sh" "$out/" 2>/dev/null || echo "  (no deploy/hub-db-roll.sh in ANetHub)"
   echo "  mutated binaries in $out"
 }
 
 # cmd_check J — the section C scan reports of a finished run.
 cmd_check(){
   local can=$1/run/canary n
-  ls "$can"/scan-*.json >/dev/null 2>&1 || { echo "no section C report under $can (did section C run?)"; return 2; }
-  n=$(python3 - "$can" <<'PY'
+  # joint.sh rewrites J/.joint-dir as it starts and replaces J/run only later: a run that stopped in
+  # between (another run holding J, a JOINT_BIN without anet) leaves the reports of an earlier run —
+  # perhaps of another mutation, caught — and those must not be read as this one's.
+  [ -f "$1/.joint-dir" ] || { echo "$1 is not a joint.sh work directory (no .joint-dir)"; return 2; }
+  n=$(python3 - "$can" "$1/.joint-dir" <<'PY'
 import glob, json, os, sys
-total, where = 0, {}
+total, where, fresh = 0, {}, 0
+start = os.path.getmtime(sys.argv[2])
 for p in sorted(glob.glob(os.path.join(sys.argv[1], "scan-*.json"))):
     try:
+        if os.path.getmtime(p) < start:
+            continue
         hits = json.load(open(p)).get("hits") or []
     except (OSError, ValueError):
         continue
+    fresh += 1
     total += len(hits)
     for h in hits:
         where.setdefault(os.path.basename(p)[5:-5], set()).add(h["canary"])
 for k in sorted(where):
     print("  %-14s %s" % (k, ", ".join(sorted(where[k]))), file=sys.stderr)
-print(total)
+print(total if fresh else "none")
 PY
 )
+  [ "$n" = none ] && { echo "no section C report of the latest run under $can (did section C run?)"; return 2; }
   if [ "${n:-0}" -gt 0 ]; then
     echo "caught: section C found $n canary hits (above: surface and canaries)"
     return 0
@@ -134,13 +148,17 @@ cmd_canary(){
   [ $# -ge 1 ] || die "canary: no patch given"
   local bin tmp
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/anet-mutbin.XXXXXX") || die "no temporary directory"
+  trap 'rm -rf -- "'"$tmp"'"' EXIT
   bin=$tmp/bin
   ( cmd_build "$bin" "$@" ) || { rm -rf -- "$tmp"; exit 2; }
   local j=${J:-/tmp/joint-mut-$(id -u)}
   echo "  joint.sh, section C only, J=$j"
   JOINT_BIN=$bin JOINT_CANARY_ONLY=1 J=$j bash "$SCRIPTS/joint.sh"
-  echo "  joint.sh exited $? (red is expected)"
+  local rc=$?
   rm -rf -- "$tmp"
+  # 2 is joint.sh refusing to run (die): no section C this time, whatever J still holds.
+  [ "$rc" = 2 ] && { echo "joint.sh did not run (exit 2); nothing to check"; return 2; }
+  echo "  joint.sh exited $rc (red is expected)"
   cmd_check "$j"
 }
 
