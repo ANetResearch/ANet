@@ -100,12 +100,30 @@ info(){ printf '  %s\n' "$*"; }
 # Each daemon is a separate HOME, which is how one machine hosts several
 # identities: one runtime, one agent, one AID.
 home_of(){ echo "$ROOT/$1"; }
+# The control token goes to curl through a file descriptor, never on its command line: the test hosts
+# have other users, and a process's arguments are theirs to read (docs/notes/0015 §4).
 ctl(){ # ctl <node> <path> <json>
   local h; h=$(home_of "$1")
-  local addr; addr=$(python3 -c "import json;print(json.load(open('$h/.anet/config.json'))['control_addr'])")
-  curl -s -m 300 -H "Authorization: Bearer $(cat "$h/.anet/control_token.txt")" \
+  local addr; addr=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["control_addr"])' "$h/.anet/config.json")
+  curl -s -m 300 -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$h/.anet/control_token.txt")") \
        -H 'Content-Type: application/json' -d "$3" "http://$addr$2"
 }
+# ports_free ADDR PORT… — nothing listens on any of these ports at ADDR, and ADDR is an address of this
+# host. Tested the way Go binds (SO_REUSEADDR), so this script's own last run in TIME_WAIT does not count.
+ports_free(){ python3 -c '
+import socket, sys
+addr, busy = sys.argv[1], []
+for p in sys.argv[2:]:
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind((addr, int(p)))
+    except (OSError, ValueError, OverflowError) as e:
+        busy.append("%s:%s (%s)" % (addr, p, getattr(e, "strerror", None) or e))
+    finally:
+        s.close()
+if busy:
+    sys.exit("in use, or not an address of this host: " + ", ".join(busy))' "$@"; }
 aid_of(){ "$BIN/anetfixture" aid --home "$(home_of "$1")/.anet"; }
 
 # cap <from> <to-aid> <capability> <args-json> — delegate and wait
@@ -175,6 +193,18 @@ stop_under "$ROOT"
 xhub_side2_down(){ :; }
 trap '[ "${SCENARIO_KEEP:-0}" = 1 ] || { xhub_side2_down; stop_under "$ROOT" 10; }' EXIT
 trap 'exit 130' INT TERM
+# Every port this run binds on this host, checked before anything starts (an earlier run's processes were
+# stopped just above). A busy port aborts the run and nothing is stopped to free it: on the test hosts it
+# can be a node deploy.sh put there (47100-47499 is the test net's range) or another checkout's run, and a
+# hub or daemon of this run that failed to bind would leave its health check to be answered by that one.
+SCN_PORTS="$HUB_PORT $((HUB_PORT+1)) $((PORT_BASE+10)) $((PORT_BASE+11)) $((PORT_BASE+12)) $((PORT_BASE+13)) $SVC_PORT $VOUCHER_PORT"
+[ "${SCENARIO_XHUB:-1}" = 1 ] && SCN_PORTS="$SCN_PORTS $((PORT_BASE+40)) $((PORT_BASE+41)) $((PORT_BASE+42)) $((PORT_BASE+43))"
+# shellcheck disable=SC2086
+ports_free 127.0.0.1 $SCN_PORTS || { echo "SCENARIO_PORT_BASE=$PORT_BASE 这一段有端口被占:换一段(本脚本不去停占用者)"; exit 1; }
+# Section 8 moves hub1 to XHUB_ADDR1, where a deployed hub may listen without holding the loopback port.
+if [ "${SCENARIO_XHUB:-1}" = 1 ] && [ -n "${XHUB_ADDR1:-}" ] && [ "$XHUB_ADDR1" != 127.0.0.1 ]; then
+  ports_free "$XHUB_ADDR1" "$HUB_PORT" || { echo "XHUB_ADDR1=$XHUB_ADDR1 上 $HUB_PORT 用不了(被占,或不是本机地址)"; exit 1; }
+fi
 rm -rf "$ROOT/hub" "$ROOT/A" "$ROOT/B" "$ROOT/C"
 mkdir -p "$ROOT/hub"
 setsid "$BIN/anet-hub" --addr "127.0.0.1:$HUB_PORT" --data "$ROOT/hub" >"$ROOT/hub.log" 2>&1 </dev/null &
@@ -897,7 +927,7 @@ s2_stop_hub(){
   [ -n "$p" ] || return 0
   kill -TERM "$p" 2>/dev/null; s2_wait_gone "$p" 15 || kill -KILL "$p" 2>/dev/null; return 0
 }
-S2_LIB="_own_path own_dir pids_under stop_under s2_ctl s2_up s2_pid s2_wait_gone s2_start_daemon s2_stop_daemon s2_start_hub s2_stop_hub"
+S2_LIB="_own_path own_dir pids_under stop_under ports_free s2_ctl s2_up s2_pid s2_wait_gone s2_start_daemon s2_stop_daemon s2_start_hub s2_stop_hub"
 # x2 SNIPPET — run a bash snippet on side 2 (here, or on XHUB_HOST2 over ssh), after the library.
 x2(){
   local script
@@ -927,20 +957,26 @@ x1_stop(){ # x1_stop <node>: shutdown, then wait for the port and the process (t
   for ((i = 0; i < 80; i++)); do http_up "http://127.0.0.1:${XPORT[$1]}/ping" || break; sleep 0.25; done
   [ -n "$p" ] || return 0
   for ((i = 0; i < 80; i++)); do kill -0 "$p" 2>/dev/null || return 0; sleep 0.25; done
-  kill -TERM "$p" 2>/dev/null; return 0
+  # Gone before the caller goes on: 8.4 (c) writes this node's store next.
+  kill -TERM "$p" 2>/dev/null
+  for ((i = 0; i < 40; i++)); do kill -0 "$p" 2>/dev/null || return 0; sleep 0.25; done
+  kill -KILL "$p" 2>/dev/null; return 0
 }
+# hub_is <url> <aid> — the hub answering at url is that one. A hub of this run that failed to bind leaves
+# its health check to whatever else listens there; only the identity tells them apart.
+hub_is(){ [ -n "$2" ] && [ "$(curl -s -m 10 --noproxy '*' "$1/hub/identity" | jget aid)" = "$2" ]; }
 # hub1 runs from $BIN/anet-hub and nothing else does once the setup below has run (side 2's hub runs from
 # its own copy), so stopping it by that path stops exactly hub1.
 hub1_start(){ # hub1_start [flag…]
   ( cd "$ROOT" && exec setsid "$BIN/anet-hub" --addr "$ADDR1:$HUB_PORT" --data "$ROOT/hub" "$@" ) >>"$ROOT/hub.log" 2>&1 </dev/null &
-  waitfor 30 http_up "$HUB1/healthz"
+  waitfor 30 http_up "$HUB1/healthz" && hub_is "$HUB1" "$H1"
 }
 hub1_stop(){ stop_under "$BIN/anet-hub" 10; }
-hubs_restart(){ # hubs_restart [flag…]: both hubs, the same flags
+hubs_restart(){ # hubs_restart [flag…]: both hubs, the same flags; each must come back as itself
   local f flags=""
   for f in "$@"; do flags="$flags $(q "$f")"; done
   hub1_stop; x2 "s2_stop_hub" >/dev/null
-  hub1_start "$@" && x2 "s2_start_hub $XB2$flags"
+  hub1_start "$@" && x2 "s2_start_hub $XB2$flags" && hub_is "$HUB2X" "$H2X"
 }
 
 # nctl <node> <path> <json> — any node of this section, whichever side it is on.
@@ -1100,11 +1136,19 @@ xhub_setup(){
   case "$S2" in /*) ;; *) no "XHUB_ROOT2=$S2 不是绝对路径"; return 1 ;; esac
   case "$XB2" in ''|*[!0-9]*) no "XHUB_PORT_BASE2=$XB2 不是端口号"; return 1 ;; esac
   case "$CACHE_WAIT" in ''|*[!0-9]*) no "XHUB_CACHE_WAIT=$CACHE_WAIT 不是秒数"; return 1 ;; esac
-  [ "$CACHE_WAIT" -ge 610 ] || info "XHUB_CACHE_WAIT=$CACHE_WAIT 短于 daemon 的 10 分钟复核间隔:8.5、8.6 的超时限用例不成立"
+  [ "$CACHE_WAIT" -ge 610 ] || info "XHUB_CACHE_WAIT=$CACHE_WAIT 短于 daemon 的 10 分钟复核间隔:8.5、8.6 的超时限前提会判红"
+  if [ -z "$X2_SSH" ]; then
+    local p2
+    for p2 in "$XB2" $((XB2+1)) $((XB2+2)) $((XB2+3)); do
+      case " $SCN_PORTS " in *" $p2 "*) no "XHUB_PORT_BASE2=$XB2 与主段的端口重叠($p2)"; return 1 ;; esac
+    done
+  fi
 
-  # side 2's directory: this user's, writable by no one else, and empty or made by an earlier run.
+  # side 2's directory: this user's, writable by no one else, and empty or made by an earlier run; and its
+  # four ports free once this script's own earlier run there is stopped (a busy one is not ours to stop).
   local s2real
-  s2real=$(x2 "$(cat <<'SNIP'
+  s2real=$(x2 "XB2=$XB2
+$(cat <<'SNIP'
 _own_path "$S2" >/dev/null && own_dir "$S2" || { echo "side 2: $S2 is not a private directory of this user" >&2; exit 1; }
 S2=$(cd "$S2" && pwd -P)
 if [ ! -e "$S2/.scenario-side2" ] && [ -n "$(ls -A "$S2")" ]; then
@@ -1112,16 +1156,18 @@ if [ ! -e "$S2/.scenario-side2" ] && [ -n "$(ls -A "$S2")" ]; then
 fi
 : >"$S2/.scenario-side2"
 stop_under "$S2" 10
+ports_free "$BIND2" "$XB2" && ports_free 127.0.0.1 $((XB2+1)) $((XB2+2)) $((XB2+3)) || exit 1
 rm -rf -- "$S2/bin" "$S2/hub" "$S2/P" "$S2/Q" "$S2/xdg" "$S2/xhub-svc.py"
 rm -f -- "$S2"/*.log "$S2"/*.pid
 mkdir -p "$S2/bin" "$S2/xdg" "$S2/hub" "$S2/P/.anet" "$S2/Q/.anet" && chmod 700 "$S2/xdg" && printf '%s\n' "$S2"
 SNIP
 )" | tail -1)
-  [ -n "$s2real" ] || { no "side 2 的目录 $S2 用不了(见上)"; return 1; }
+  [ -n "$s2real" ] || { no "side 2 的目录 $S2 或端口 $XB2..$((XB2+3)) 用不了(见上)"; return 1; }
   S2=$s2real
   # From here on the EXIT trap stops side 2 as well (on this host it is under $ROOT anyway).
   xhub_side2_down(){
-    x2 "stop_under \"\$S2\" 10" >/dev/null 2>&1
+    x2 "stop_under \"\$S2\" 10" >/dev/null 2>&1 \
+      || echo "  !! 没能停掉 ${X2_SSH:-本机}:$S2 下的进程(ssh 断了?):到那台主机上按路径停 $S2 下的进程" >&2
     [ -z "$X2_SSH" ] || ssh "${X2_SSH_OPTS[@]}" -O exit "$X2_SSH" >/dev/null 2>&1
   }
   if [ -z "$X2_SSH" ]; then
