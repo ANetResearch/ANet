@@ -216,6 +216,93 @@ type peer struct {
 	// limits is the per-source half of the inbound rate limit (A2A-DESIGN
 	// §3.6 step 0); the daemon applies the daemon-wide half.
 	limits *sourceLimits
+	// down holds the peers whose published address could not be dialled
+	// just now (see markDown), keyed by AID.
+	down map[string]downEntry
+}
+
+// downEntry is a published address a dial to has failed, and until when
+// it is reported unreachable.
+type downEntry struct {
+	addr    string
+	until   time.Time
+	backoff time.Duration
+}
+
+// How long an address that could not be dialled is reported unreachable:
+// dialDownMin after the first failure, doubling on every failed retry up to
+// dialDownMax, forgotten on the first delivery that gets through.
+//
+// Without it a published address that cannot be dialled — a peer behind a
+// firewall that drops inbound connections, which is the ordinary case for
+// a node that can only dial out — costs every single message to that peer
+// the transport's whole send timeout before the hub is tried, because the
+// directory keeps answering "here it is" and reach keeps saying yes. On
+// the campus test network (docs/notes/0025) that was three seconds on
+// every message from dmax to cmax, and since the answer to a delegation is
+// sent before the delegation is acknowledged, it also held the ack past the
+// sender's own timeout, so the delegation went a second time through the
+// hub. A peer that comes back is found again at the next retry.
+var (
+	dialDownMin = 30 * time.Second
+	dialDownMax = 10 * time.Minute
+	// timeNow is the clock of the down marks; tests move it.
+	timeNow = time.Now
+)
+
+// markDown records that addr, the published address of aid, could not be
+// dialled. It returns the new window, or 0 when a window for that address
+// is already open (a concurrent send failing changes nothing).
+func (p *peer) markDown(aid, addr string) time.Duration {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := timeNow()
+	e, ok := p.down[aid]
+	switch {
+	case !ok || e.addr != addr:
+		e = downEntry{addr: addr, backoff: dialDownMin}
+	case now.Before(e.until):
+		return 0
+	default:
+		e.backoff *= 2
+		if e.backoff > dialDownMax {
+			e.backoff = dialDownMax
+		}
+	}
+	e.until = now.Add(e.backoff)
+	if p.down == nil {
+		p.down = map[string]downEntry{}
+	}
+	p.down[aid] = e
+	return e.backoff
+}
+
+// isDown reports whether addr, aid's published address, is inside a window
+// opened by markDown. A different address — the peer moved — is not.
+func (p *peer) isDown(aid, addr string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	e, ok := p.down[aid]
+	return ok && e.addr == addr && timeNow().Before(e.until)
+}
+
+// clearDown forgets aid's mark after a delivery got through.
+func (p *peer) clearDown(aid string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.down, aid)
+}
+
+// reachable answers the module's reach question: a peer is reachable when
+// the rendezvous knows where to dial it and that address has not just
+// refused to be dialled.
+//
+// Only this node's own dial counts. A message that arrived from the peer
+// says the peer can reach us, which is exactly what a peer behind a
+// one-way firewall can do and says nothing about the other direction.
+func (p *peer) reachable(aid string) bool {
+	addr, ok := p.lookup(aid)
+	return ok && !p.isDown(aid, addr)
 }
 
 // serveDaemon handles the module's connection: hello, reach, send, and the
@@ -242,8 +329,7 @@ func (p *peer) serveDaemon(c net.Conn) {
 			p.announce(f.Self)
 			log.Printf("anetpeer: carrying %s", f.Self)
 		case "reach":
-			_, ok := p.lookup(f.To)
-			p.reply(c, frame{Op: "reach", ID: f.ID, To: f.To, Reachable: ok})
+			p.reply(c, frame{Op: "reach", ID: f.ID, To: f.To, Reachable: p.reachable(f.To)})
 		case "send":
 			// Off the read loop, and it has to be.
 			//
@@ -450,6 +536,12 @@ func (p *peer) deliver(f frame) error {
 	dnet, daddr := addrKind(sock)
 	c, err := net.DialTimeout(dnet, daddr, 8*time.Second)
 	if err != nil {
+		// Only a failed dial marks the address: an error after the
+		// connection is up (a refusal, a slow ack) is the peer answering.
+		if w := p.markDown(f.To, sock); w > 0 {
+			log.Printf("anetpeer: %s at %s cannot be dialled (%v); reported unreachable for %s, the hub carries its traffic",
+				f.To, sock, err, w)
+		}
 		return err
 	}
 	defer c.Close()
@@ -464,6 +556,7 @@ func (p *peer) deliver(f frame) error {
 	if reply.Error != "" {
 		return fmt.Errorf("%s", reply.Error)
 	}
+	p.clearDown(f.To)
 	return nil
 }
 
