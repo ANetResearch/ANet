@@ -119,11 +119,11 @@ hub 在这个模型里是中继与索引,**不是可信方**。它搬运读不�
 | x402 | `no_x402` | D-17 | 付费曾是 838 行无 tag 的内核代码,外加一个公开监听口。拆出后内核只留"驱动委派",模块拿到具名窄口 `PaymentSeam`。无付费构建对标价能力答 `UNAVAILABLE`,不会免费干 |
 | p2p | `no_p2p` | anet3 | 直连投递;hub 仍用于发现与密钥历史。会合点走 hub 的签名地址目录 |
 | cas / blackboard / org | `no_cas` 等 | anet3 迁移 | 内容寻址存储、共脑、组织凭证。`internal/golden` 对 anet3 钉死四个规范 id |
-| taskboard | `no_taskboard` | H-6b | hub 任务板的客户端:读板、建卡、领取。`module.Host` 为它新增 `HubSeam`,比 `PaymentSeam` 小 |
+| taskboard | **`taskboard`(加法)** | H-6b | hub 任务板的客户端:读板、建卡、领取。`module.Host` 为它新增 `HubSeam`,比 `PaymentSeam` 小。原为减法 `no_taskboard`,随 hub 看板改为加法(A2A-DESIGN §9、§16) |
 | **shell** | **`shell`(加法)** | 2026-09-03 | 在宿主机执行运营者批准的命令。见 §5.5 |
 | inv1 / inv2 | — | anet3 | 不变式守卫:组织范围对象不得进入第三方可读路径;模块声明的机密 token 不得出现在任何发布 |
 
-**tag 方向的偏离。** 设计写的是加法 tag(`anet_<name>`,加了才有)。实现选了减法(`no_<name>`,默认在,去掉才没有),唯一例外是 `shell`。理由:两种写错的代价不对称。减法 tag 漏了,是某人想去掉的模块没去掉;加法 tag 漏了,是某种能力进了所有没要过它的构建。对绝大多数模块,前者代价小;对"在宿主机执行命令"这一个,后者代价大到必须反过来。所以规则是:**默认构建应当是完整的,除非某个能力进错构建的后果比缺失更重。**
+**tag 方向的偏离。** 设计写的是加法 tag(`anet_<name>`,加了才有)。实现选了减法(`no_<name>`,默认在,去掉才没有),例外是 `shell` 与 `taskboard`。理由:两种写错的代价不对称。减法 tag 漏了,是某人想去掉的模块没去掉;加法 tag 漏了,是某种能力进了所有没要过它的构建。对绝大多数模块,前者代价小;对"在宿主机执行命令"这一个,后者代价大到必须反过来。所以规则是:**默认构建应当是完整的,除非某个能力进错构建的后果比缺失更重。** `taskboard` 是第二个:看板把调用方给的标题与备注明文存在 hub 上、对任何人公开,hub 默认不再编入看板,daemon 默认带着客户端只会得到 404,于是两侧一起改为加法(A2A-DESIGN §16)。
 
 ### 5.3 发行版
 
@@ -165,7 +165,7 @@ go build -o full ./cmd/anet;   go tool nm full | grep -c module/<m>     # > 0
 go build -tags no_<m> -o lean ./cmd/anet;   go tool nm lean | grep -c module/<m>   # == 0
 ```
 
-两个方向都验。只验 lean==0 会让一个从未被链接的模块看起来"可插拔"。CI 的 `pluggable` job 对九个减法 tag 逐个及组合验;`optin` job 对加法 tag 反向验(默认 == 0,带 tag > 0),并单独跑 `go test -tags shell ./...`——加法 tag 下的代码 `go test ./...` 根本看不见。开发者本地 `./build.sh --check` 做同样的事。
+两个方向都验。只验 lean==0 会让一个从未被链接的模块看起来"可插拔"。CI 的 `pluggable` job 对减法 tag(`no_anetlink no_p2p no_blackboard no_org no_cas no_service no_mcp no_x402 no_a2a`)逐个及组合验,组合行里的每个模块都逐个检查;`optin` job 对加法 tag(`shell`、`taskboard`)反向验(默认 == 0,带 tag > 0),并单独跑 `go test -tags <tag> ./...`——加法 tag 下的代码 `go test ./...` 根本看不见。符号模式有两个特例:`no_mcp` 为 `internal/mcpserv|internal/agentwire`,`no_a2a` 为 `module/a2a|a2aproject/a2a-go`(派生模式看不见 SDK)。另查 `go list -deps ./internal/mcpserv ./internal/daemon` 不含 `a2aproject`。规则与模式只写在 `scripts/tagcheck.sh` 一处,CI 与开发者本地 `./build.sh --check` 都调用它。
 
 ### 5.5 shell 模块:三道独立的闸门
 
@@ -193,7 +193,7 @@ registry(注册表)· relay(存储转发信箱,KEL 签名鉴权)· reviews(收�
 
 | 设计模块 | 设计 tag | 今天 | 说明 |
 |---|---|---|---|
-| taskboard | `hub_taskboard` | `no_taskboard` | 一致。卡片持 TaskDoc CID,七列 FSM,九个变更端点全部要 KEL 签名 |
+| taskboard | `hub_taskboard` | `taskboard`(加法) | 一致。卡片持 TaskDoc CID,七列 FSM,九个变更端点全部要 KEL 签名。标题与备注明文公开,默认构建不含(A2A-DESIGN §9) |
 | federation.delivery | `hub_fed_delivery` | `no_federation` | 合并成一个 tag。三个子面(投递、目录、评价证据)都在 |
 | federation.discovery | `hub_fed_discovery` | 同上 | "可通信、不可见"靠三档可见性(默认 hub-local)实现 |
 | reviews | `hub_reviews` | **内核** | 有意偏离。评价验证是 hub 存在的支点,一个不验评价的 hub 是普通消息队列 |
@@ -213,8 +213,8 @@ registry(注册表)· relay(存储转发信箱,KEL 签名鉴权)· reviews(收�
 
 | 设计 preset | 今天 |
 |---|---|
-| hub-private(registry + relay + console + taskboard,联邦全关) | `-tags no_federation` |
-| hub-open(private + 联邦) | 默认构建 |
+| hub-private(registry + relay + console + taskboard,联邦全关) | `-tags no_federation,taskboard` |
+| hub-open(private + 联邦) | 默认构建(不含 taskboard;要看板加 `-tags taskboard`) |
 
 ### 6.4 准入
 
