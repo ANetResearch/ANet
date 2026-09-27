@@ -104,6 +104,10 @@ func main() {
 		// The local evidence chain, read and verified from disk with or without a daemon;
 		// `anet audit hub` is audit-hub (A2A-DESIGN §14).
 		if len(rest) > 0 && rest[0] == "hub" {
+			if err := checkFlags("audit-hub", rest[1:]); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(2)
+			}
 			fail(runClient(layout, "audit-hub", rest[1:], explicit))
 			return
 		}

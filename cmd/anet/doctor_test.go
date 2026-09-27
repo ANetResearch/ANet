@@ -242,3 +242,79 @@ func TestDoctorFlagsSandboxWithoutAPIKey(t *testing.T) {
 		t.Fatalf("sandbox without api_key: ok %v %+v", rep.OK, rep.AutoReply)
 	}
 }
+
+// doctor writes nothing, also when it looks for a running daemon: a data
+// directory with a control token but no config.json is left without one.
+// (Finding the address through LoadConfig would create it.)
+func TestDoctorProbingTheDaemonCreatesNoConfig(t *testing.T) {
+	layout := daemon.NewLayout(t.TempDir())
+	if err := os.WriteFile(layout.ControlTokenPath(), []byte("t\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := testDoctorEnv(t)
+	env.running = daemonAnswersAt
+	if _, err := doctorJSON(t, layout, env); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(layout.ConfigPath()); !os.IsNotExist(err) {
+		t.Fatalf("doctor created %s (%v)", layout.ConfigPath(), err)
+	}
+}
+
+// The a2a_agents entries go stale when a2a_token.txt is replaced; doctor
+// says so, points at `anet agents wire --refresh`, and prints neither token.
+func TestDoctorFindsAStaleHermesA2AToken(t *testing.T) {
+	layout := freshInit(t)
+	env := testDoctorEnv(t)
+	for name, body := range map[string]string{"a2a_addr.txt": "127.0.0.1:39900\n", "a2a_token.txt": "tok-current-0123\n"} {
+		if err := os.WriteFile(filepath.Join(layout.Root, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(env.hermesHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(env.hermesHome, "config.yaml")
+	write := func(token string) {
+		yaml := "a2a_agents:\n  - {url: http://127.0.0.1:39900/a2a/v1/agents/bafyreiA, auth: {type: bearer, token: " +
+			token + "}, timeout: 3600}\n"
+		if err := os.WriteFile(cfg, []byte(yaml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("tok-current-0123")
+	rep, err := collectDoctor(layout, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Hermes.A2AToken != "current" || len(rep.Hermes.A2AAgents) != 1 ||
+		rep.Hermes.A2AAgents[0].URL != "http://127.0.0.1:39900/a2a/v1/agents/bafyreiA" || !rep.Hermes.A2AAgents[0].Matches {
+		t.Fatalf("current token: %q %+v", rep.Hermes.A2AToken, rep.Hermes.A2AAgents)
+	}
+	write("tok-old-4567")
+	var buf bytes.Buffer
+	if err := doctorTo(&buf, layout, env, true); err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Hermes struct {
+			A2AToken string `json:"a2a_token"`
+		} `json:"hermes"`
+		Checks []doctorCheck `json:"checks"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	hint := false
+	for _, c := range out.Checks {
+		if c.ID == "hermes.a2a_token" && c.Status == stWarn && c.Hint == "anet agents wire --refresh" {
+			hint = true
+		}
+	}
+	if out.Hermes.A2AToken != "stale" || !hint {
+		t.Fatalf("stale token: %q %+v", out.Hermes.A2AToken, out.Checks)
+	}
+	if s := buf.String(); bytes.Contains([]byte(s), []byte("tok-current")) || bytes.Contains([]byte(s), []byte("tok-old")) {
+		t.Fatal("doctor printed a token")
+	}
+}

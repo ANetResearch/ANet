@@ -96,3 +96,26 @@ func TestPaymentLimitsRoute(t *testing.T) {
 		t.Fatalf("a refused request changed the limits: %+v", got)
 	}
 }
+
+// A limit whose save failed is not left in force: the caller was told it
+// failed, and the one enforcement point reads the in-memory config.
+func TestAFailedLimitWriteLeavesTheLimits(t *testing.T) {
+	d := newBareDaemon(t)
+	before := d.config().payments()
+	// A directory where config.json goes: the atomic rename fails.
+	_ = os.Remove(d.layout.ConfigPath())
+	if err := os.Mkdir(d.layout.ConfigPath(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, prior := d.ledger.Evidence(EvidenceQuery{EventType: EvPolicyChanged})
+	five := uint64(5)
+	if _, changed, err := d.SetPaymentLimits(PaymentLimits{AgentMax: &five}); err == nil || len(changed) != 0 {
+		t.Fatalf("save over a directory: %v, changed %v", err, changed)
+	}
+	if got := d.config().payments(); got != before {
+		t.Fatalf("limits after a failed save: %+v, were %+v", got, before)
+	}
+	if _, recs := d.ledger.Evidence(EvidenceQuery{EventType: EvPolicyChanged}); len(recs) != len(prior) {
+		t.Fatalf("a failed change was recorded: %+v", recs)
+	}
+}
