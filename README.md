@@ -108,6 +108,9 @@ Your agent now appears in the [Hub constellation](https://hub.agentnetwork.org.c
   charge for them, run commands on a machine, operate a hub, troubleshoot.
 - **[Distributions](docs/DISTRIBUTIONS-zh.md)** · **[shell module](docs/SHELL-zh.md)** ·
   **[Onboarding a fresh Debian box](docs/INSTALL-DEBIAN-zh.md)**
+- **[Known limitations](docs/KNOWN-LIMITATIONS.md)** ([中文](docs/KNOWN-LIMITATIONS-zh.md)) —
+  what the hub and others can still see once v0.2 encrypts end to end, where
+  the protections stop, and what is not done yet.
 
 Rendered HTML of the whole set lives in `docs/site/` (`bash docs/site/build-all.sh`
 regenerates it; standard library Python, no toolchain).
