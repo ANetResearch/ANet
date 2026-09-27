@@ -259,15 +259,51 @@ func TestAQuoteAboveTheAutoTierWaitsForADecision(t *testing.T) {
 		_ = json.Unmarshal(b, &out)
 		return resp.StatusCode, out
 	}
+	// Above the agent tier the answer is not an error (§8.3): 200, the task
+	// still waiting (input-required, payment-required) with anet.reason
+	// needs_operator_approval, the policy's code, and a message that says
+	// the operator pays with `anet pay <task>`.
+	//
+	// `anet pay` is bound by explicit_max, daily_max and the payee list as
+	// well, so the message names what the operator has to change first; on
+	// a new node (payee list on and empty) that is `anet payees add`.
 	submit := `{"task_id":"` + id + `","decision":"submit"}`
-	if code, out := pay(submit); code != http.StatusForbidden || out["reason"] != SpendOverSingle {
-		t.Fatalf("agent tier at agent_max 0: %d %v", code, out)
+	addPayee := "`anet payees add " + prov.AID() + "`"
+	held := func(what, code string, first ...string) {
+		t.Helper()
+		status, out := pay(submit)
+		msg, _ := out["message"].(string)
+		if status != http.StatusOK || out["anet.reason"] != x402a2a.ReasonNeedsOperatorApproval ||
+			out["spend_refusal"] != code || out["state"] != string(interactions.StateInputRequired) ||
+			out[x402a2a.KeyStatus] != x402a2a.StatusRequired || !strings.Contains(msg, "anet pay "+id) {
+			t.Fatalf("%s: %d %v", what, status, out)
+		}
+		payAt := strings.Index(msg, "`anet pay "+id+"`")
+		for _, f := range first {
+			if i := strings.Index(msg, f); i < 0 || i > payAt {
+				t.Fatalf("%s: the message does not name %s before `anet pay`: %q", what, f, msg)
+			}
+		}
+		if len(first) == 0 && strings.Contains(msg, ", then ") {
+			t.Fatalf("%s: the message names steps that are not needed: %q", what, msg)
+		}
 	}
+	held("agent tier at agent_max 0", SpendOverSingle, addPayee)
 	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10})
-	if code, out := pay(submit); code != http.StatusForbidden || out["reason"] != SpendPayeeNotAllowed {
-		t.Fatalf("a payee not on the list: %d %v", code, out)
+	held("a payee not on the list", SpendPayeeNotAllowed, addPayee)
+	// The manual tier has no one above it: its refusal stays a refusal.
+	manual, mb := p.req(t, "POST", "/tasks/pay-manual", `{"task_id":"`+id+`","decision":"submit"}`, p.bearer)
+	if manual.StatusCode != http.StatusForbidden || !strings.Contains(string(mb), SpendPayeeNotAllowed) {
+		t.Fatalf("the manual tier to a payee not on the list: %d %s", manual.StatusCode, mb)
 	}
-	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10}, prov.AID())
+	// With the payee on the list, `anet pay` alone is what the operator
+	// runs; above explicit_max as well, raising it comes first.
+	payPolicy(t, req, PaymentsConfig{AgentMax: 1, AgentDailyMax: 10}, prov.AID())
+	held("over agent_max, payee listed", SpendOverSingle)
+	three := uint64(3)
+	payPolicy(t, req, PaymentsConfig{AgentMax: 1, AgentDailyMax: 10, ExplicitMax: &three})
+	held("over agent_max and explicit_max", SpendOverSingle, "`anet payments set explicit_max=5`")
+	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10})
 	if n := chainEvents(t, req, EvPaymentAuthorized); n != 0 {
 		t.Fatalf("refused payments were recorded as authorized: %d", n)
 	}

@@ -190,6 +190,9 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /tasks/pay-manual", d.hTasksPayManual)
 	api.HandleFunc("POST /payments/status", d.hPaymentsStatus)
 	api.HandleFunc("POST /payments/limits", d.hPaymentsLimits)
+	api.HandleFunc("POST /payees/list", d.hPayeesList)
+	api.HandleFunc("POST /payees/add", d.hPayeesAdd)
+	api.HandleFunc("POST /payees/remove", d.hPayeesRemove)
 	// This node's own A2A network card and its publication status
 	// (a2a_card.go). Bearer only.
 	api.HandleFunc("POST /card", d.hCard)

@@ -5,20 +5,30 @@ package daemon
 //
 //	POST /tasks/pay          {task_id, decision: submit|reject, accept?}   purpose task-agent
 //	POST /tasks/pay-manual   {task_id, decision: submit|reject, accept?}   purpose task-manual
-//	POST /payments/status    {}                                            limits and 24 h totals
+//	POST /payments/status    {hub?}                                        limits and 24 h totals
 //	POST /payments/limits    {set: {key: n}, payees_file?}                 change the limits
+//	POST /payees/list        {}                                            the payee list
+//	POST /payees/add         {aid}                                         put a payee on it
+//	POST /payees/remove      {aid}                                         take one off
 //
-// All four are bearer only: none is on the console session list, because
-// a console session cannot authorize a payment (§8.6). The route decides
+// All are bearer only: none is on the console session list, because a
+// console session cannot authorize a payment (§8.6). The route decides
 // the purpose, never the body. /tasks/pay-manual is what `anet pay` calls
-// after a confirmation typed on a terminal, and /payments/limits what
-// `anet payments set` calls after one; the daemon only sees the control
-// token and cannot tell whether a terminal was involved (§21 item 13).
+// after a confirmation typed on a terminal, /payments/limits what `anet
+// payments set` calls after one, and /payees/add what `anet payees add`
+// calls after one; the daemon only sees the control token and cannot tell
+// whether a terminal was involved (§21 item 13).
+//
+// A /tasks/pay above the agent tier is not an error (§8.3): nothing is
+// signed, the task waits for the operator, and the answer (200) says so —
+// anet.reason needs_operator_approval, the policy's spend_refusal code and
+// a message naming `anet pay <task>`.
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -53,6 +63,13 @@ func (d *Daemon) handlePay(w http.ResponseWriter, r *http.Request, purpose strin
 	defer cancel()
 	out, err := d.PayTask(ctx, PayRequest{TaskID: req.TaskID, Decision: req.Decision,
 		Accept: req.Accept, Payload: req.Payload, Purpose: purpose})
+	var hold *PayHold
+	if errors.As(err, &hold) {
+		// The agent tier's answer above its limits: the task waits for
+		// the operator (§8.3).
+		writeJSON(w, http.StatusOK, hold.Outcome)
+		return
+	}
 	if err != nil {
 		writePayError(w, err)
 		return
@@ -88,8 +105,38 @@ func writePayError(w http.ResponseWriter, err error) {
 	writeJSON(w, code, body)
 }
 
-func (d *Daemon) hPaymentsStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, d.SpendStatus())
+// hPaymentsStatus reports the limits and the 24-hour totals. With
+// {"hub": true} it adds the hub this node settles on and the hub's AID —
+// the payee of a redemption, which `anet redeem` shows before it asks —
+// at the cost of learning the hub's identity if it is not known yet.
+func (d *Daemon) hPaymentsStatus(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hub bool `json:"hub"`
+	}
+	if err := readJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return
+	}
+	if !req.Hub {
+		writeJSON(w, http.StatusOK, d.SpendStatus())
+		return
+	}
+	out := struct {
+		SpendStatus
+		Hub      string `json:"hub"`
+		HubAID   string `json:"hub_aid"`
+		HubError string `json:"hub_error,omitempty"`
+	}{SpendStatus: d.SpendStatus(), Hub: d.config().HubURL}
+	if out.Hub != "" {
+		ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
+		defer cancel()
+		aid, _, err := d.hubIdentity(ctx, out.Hub)
+		if err != nil {
+			out.HubError = err.Error()
+		}
+		out.HubAID = aid
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (d *Daemon) hPaymentsLimits(w http.ResponseWriter, r *http.Request) {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,9 +17,14 @@ import (
 	"github.com/ANetResearch/ANet/internal/official"
 )
 
-// testDoctorEnv reads no real home directory and finds no running daemon.
+// testDoctorEnv reads no real home directory, environment or PATH, finds
+// no running daemon, and checks the release record of a binary that is not
+// there.
 func testDoctorEnv(t *testing.T) doctorEnv {
-	return doctorEnv{home: t.TempDir(), hermesHome: filepath.Join(t.TempDir(), "hermes")}
+	return doctorEnv{home: t.TempDir(), hermesHome: filepath.Join(t.TempDir(), "hermes"),
+		exe:      filepath.Join(t.TempDir(), "bin", "anet"),
+		getenv:   func(string) string { return "" },
+		lookPath: func(string) (string, error) { return "", errors.New("not on PATH") }}
 }
 
 func doctorJSON(t *testing.T, layout daemon.Layout, env doctorEnv) (map[string]any, error) {
@@ -177,67 +183,6 @@ func TestDoctorFailsOnlyOnRealProblems(t *testing.T) {
 	}
 }
 
-// writeA2AState writes the local A2A interface's files where module/a2a
-// keeps them: its state directory, not the data dir itself.
-func writeA2AState(t *testing.T, layout daemon.Layout, files map[string]string) {
-	t.Helper()
-	dir := anethome.A2ADir(layout.Root)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for name, body := range files {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-}
-
-// Hermes: a config holding the local A2A token must be 0600, and an
-// a2a_agents URL whose port is not a2a_addr.txt's is pointed at
-// `anet agents wire --refresh`.
-func TestDoctorChecksHermesA2AAgents(t *testing.T) {
-	layout := freshInit(t)
-	env := testDoctorEnv(t)
-	writeA2AState(t, layout, map[string]string{anethome.A2AAddrFile: "127.0.0.1:39900\n"})
-	if err := os.MkdirAll(env.hermesHome, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	yaml := "mcp_servers:\n  anet:\n    command: /usr/local/bin/anet\na2a_agents:\n" +
-		"  - url: http://127.0.0.1:39900/a2a/v1/agents/bafyreiA\n    auth: {type: bearer, token: x}\n" +
-		"  - url: \"http://127.0.0.1:39901/a2a/v1/agents/bafyreiB\"\n"
-	cfg := filepath.Join(env.hermesHome, "config.yaml")
-	if err := os.WriteFile(cfg, []byte(yaml), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	rep, err := collectDoctor(layout, env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := len(rep.Hermes.A2AAgents); n != 2 || !rep.Hermes.A2AAgents[0].Matches || rep.Hermes.A2AAgents[1].Matches {
-		t.Fatalf("a2a_agents = %+v", rep.Hermes.A2AAgents)
-	}
-	var hermesWired, refreshHint bool
-	for _, a := range rep.Agents {
-		if a.Tool == "hermes" && a.Wired {
-			hermesWired = true
-		}
-	}
-	for _, c := range rep.Checks {
-		if c.ID == "hermes.a2a_agents" && c.Status == stWarn && c.Hint == "anet agents wire --refresh" {
-			refreshHint = true
-		}
-	}
-	if !hermesWired || !refreshHint || !rep.OK {
-		t.Fatalf("wired %v refresh hint %v ok %v: %+v", hermesWired, refreshHint, rep.OK, rep.Checks)
-	}
-	if err := os.Chmod(cfg, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if rep, _ = collectDoctor(layout, env); rep.OK {
-		t.Fatal("a readable Hermes config holding the A2A token did not fail")
-	}
-}
-
 // sandbox mode without auto_reply.api_key fails closed at run time; doctor
 // says so.
 func TestDoctorFlagsSandboxWithoutAPIKey(t *testing.T) {
@@ -277,58 +222,43 @@ func TestDoctorProbingTheDaemonCreatesNoConfig(t *testing.T) {
 	}
 }
 
-// The a2a_agents entries go stale when a2a_token.txt is replaced; doctor
-// says so, points at `anet agents wire --refresh`, and prints neither token.
-func TestDoctorFindsAStaleHermesA2AToken(t *testing.T) {
+// version.signature is the check of the release record beside the binary
+// (release.CheckInstalled): unknown without one, unverified with one that
+// does not verify — a warning, not a failure — and never a guess.
+func TestDoctorChecksTheReleaseRecord(t *testing.T) {
 	layout := freshInit(t)
 	env := testDoctorEnv(t)
-	writeA2AState(t, layout, map[string]string{anethome.A2AAddrFile: "127.0.0.1:39900\n",
-		anethome.A2ATokenFile: "tok-current-0123\n"})
-	if err := os.MkdirAll(env.hermesHome, 0o700); err != nil {
+	check := func() (doctorCheck, *doctorReport) {
+		t.Helper()
+		rep, err := collectDoctor(layout, env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range rep.Checks {
+			if c.ID == "version.signature" {
+				return c, rep
+			}
+		}
+		t.Fatal("no version.signature check")
+		return doctorCheck{}, nil
+	}
+	c, rep := check()
+	if c.Status != stUnknown || rep.Version.Signature != "unknown" || !strings.Contains(c.Detail, "anet update") {
+		t.Fatalf("no record: %+v %+v", c, rep.Version)
+	}
+	if err := os.MkdirAll(filepath.Dir(env.exe), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := filepath.Join(env.hermesHome, "config.yaml")
-	write := func(token string) {
-		yaml := "a2a_agents:\n  - {url: http://127.0.0.1:39900/a2a/v1/agents/bafyreiA, auth: {type: bearer, token: " +
-			token + "}, timeout: 3600}\n"
-		if err := os.WriteFile(cfg, []byte(yaml), 0o600); err != nil {
+	for name, body := range map[string]string{env.exe: "#!/bin/sh\n", env.exe + ".release.json": `{"schema":"anet-release/1"}`,
+		env.exe + ".release.json.sig": "-----BEGIN SSH SIGNATURE-----\nAAAA\n-----END SSH SIGNATURE-----\n"} {
+		if err := os.WriteFile(name, []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	write("tok-current-0123")
-	rep, err := collectDoctor(layout, env)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rep.Hermes.A2AToken != "current" || len(rep.Hermes.A2AAgents) != 1 ||
-		rep.Hermes.A2AAgents[0].URL != "http://127.0.0.1:39900/a2a/v1/agents/bafyreiA" || !rep.Hermes.A2AAgents[0].Matches {
-		t.Fatalf("current token: %q %+v", rep.Hermes.A2AToken, rep.Hermes.A2AAgents)
-	}
-	write("tok-old-4567")
-	var buf bytes.Buffer
-	if err := doctorTo(&buf, layout, env, true); err != nil {
-		t.Fatal(err)
-	}
-	var out struct {
-		Hermes struct {
-			A2AToken string `json:"a2a_token"`
-		} `json:"hermes"`
-		Checks []doctorCheck `json:"checks"`
-	}
-	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
-		t.Fatal(err)
-	}
-	hint := false
-	for _, c := range out.Checks {
-		if c.ID == "hermes.a2a_token" && c.Status == stWarn && c.Hint == "anet agents wire --refresh" {
-			hint = true
-		}
-	}
-	if out.Hermes.A2AToken != "stale" || !hint {
-		t.Fatalf("stale token: %q %+v", out.Hermes.A2AToken, out.Checks)
-	}
-	if s := buf.String(); bytes.Contains([]byte(s), []byte("tok-current")) || bytes.Contains([]byte(s), []byte("tok-old")) {
-		t.Fatal("doctor printed a token")
+	c, rep = check()
+	if c.Status != stWarn || rep.Version.Signature != "unverified" || rep.Version.ReleaseRecord != env.exe+".release.json" ||
+		!rep.OK || c.Hint == "" {
+		t.Fatalf("a record that does not verify: %+v %+v ok %v", c, rep.Version, rep.OK)
 	}
 }
 

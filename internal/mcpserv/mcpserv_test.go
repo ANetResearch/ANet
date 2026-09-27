@@ -168,7 +168,8 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	}
 	// Paying spends the operator's money. The model has to learn whose
 	// credit it is, what caps it, and what to do when it is refused.
-	for _, want := range []string{"agent_max", "payees.allow", "anet pay <task_id>", "never try to raise a limit"} {
+	for _, want := range []string{"agent_max", "payees.allow", "anet pay <task_id>", "never try to raise a limit",
+		"needs_operator_approval"} {
 		if !strings.Contains(desc("submit_payment"), want) {
 			t.Errorf("submit_payment must mention %q", want)
 		}
