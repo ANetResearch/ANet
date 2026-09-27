@@ -29,7 +29,7 @@
 //	anetpeer --socket run/a/peer.sock --peer run/a/wire.sock --rendezvous run/rv
 //
 // Delivery is acknowledged end to end: this process does not tell the
-// sender "delivered" until the receiving daemon has accepted the payload.
+// sender "delivered" until the receiving daemon has accepted the envelope.
 // A transport that acks on its own receipt turns a dropped delegation into
 // a silent one, and the whole point of the transport list is that a failed
 // Send falls through to the hub.
@@ -38,6 +38,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -55,23 +56,36 @@ import (
 	"time"
 )
 
-// frame is the module's wire, both sides of it.
+// frame is the module's wire, both sides of it (module/p2p). It carries
+// the recipient AID, the sealed envelope and an ID, and nothing about the
+// sender or the content: those are inside the envelope, which this process
+// cannot open (A2A-DESIGN §3.10).
 type frame struct {
 	Op string `json:"op"`
+	// V is the frame version. A delivery without it, or below
+	// wireVersion, comes from a peer that predates sealed envelopes; it is
+	// refused and not handed to the daemon.
+	V int `json:"v,omitempty"`
 	// ID correlates a request with its reply and must be echoed unchanged.
 	// A peer that answers concurrently — which this one does, because
 	// answering in its read loop deadlocks — would otherwise have its
-	// replies matched to the wrong requests.
+	// replies matched to the wrong requests. For a delivery handed to the
+	// daemon (op recv) this process mints a fresh ID and matches the
+	// daemon's ack on it.
 	ID        string `json:"id,omitempty"`
 	To        string `json:"to,omitempty"`
-	From      string `json:"from,omitempty"`
-	Kind      string `json:"kind,omitempty"`
-	IX        string `json:"ix,omitempty"`
-	Payload   string `json:"payload,omitempty"`
+	Envelope  string `json:"envelope,omitempty"`
 	Reachable bool   `json:"reachable,omitempty"`
 	Error     string `json:"error,omitempty"`
 	Self      string `json:"self,omitempty"`
 }
+
+// wireVersion is the frame version this process speaks.
+const wireVersion = 2
+
+// errOldPeer is the answer to a delivery from a peer that predates wire 2.
+// It names the version the sender needs, so its operator can act on it.
+const errOldPeer = "peer requires anet >= 0.2.0"
 
 func main() {
 	sock := flag.String("socket", "", "socket the daemon's p2p module connects to")
@@ -118,7 +132,7 @@ func start(sock, peerSock, rendezvous, advertise string) (*peer, error) {
 		}
 	}
 	p := &peer{peerSocket: peerSock, rendezvous: rendezvous, advertise: advertise,
-		acks: map[string]chan struct{}{}}
+		acks: map[string]chan struct{}{}, limits: newSourceLimits()}
 
 	// The peer-facing listener takes either a socket path or a TCP
 	// address, because peers on two machines cannot share a Unix socket.
@@ -178,8 +192,13 @@ type peer struct {
 	conn net.Conn
 	enc  *json.Encoder
 
-	// acks correlates a delivery with the receiving daemon's acceptance.
-	acks map[string]chan struct{}
+	// acks correlates a delivery with the receiving daemon's acceptance,
+	// keyed by the ID this process minted for the delivery.
+	acks   map[string]chan struct{}
+	nextID uint64
+	// limits is the per-source half of the inbound rate limit (A2A-DESIGN
+	// §3.6 step 0); the daemon applies the daemon-wide half.
+	limits *sourceLimits
 }
 
 // serveDaemon handles the module's connection: hello, reach, send, and the
@@ -222,19 +241,21 @@ func (p *peer) serveDaemon(c net.Conn) {
 			go func(f frame) {
 				if err := p.deliver(f); err != nil {
 					log.Printf("anetpeer: send to %s: %v", f.To, err)
-					p.reply(c, frame{Op: "send", ID: f.ID, IX: f.IX, Error: err.Error()})
+					p.reply(c, frame{Op: "send", V: wireVersion, ID: f.ID, Error: err.Error()})
 					return
 				}
-				log.Printf("anetpeer: delivered %s %s → %s", f.Kind, f.IX, f.To)
-				p.reply(c, frame{Op: "send", ID: f.ID, IX: f.IX})
+				log.Printf("anetpeer: delivered %d envelope bytes → %s", base64.StdEncoding.DecodedLen(len(f.Envelope)), f.To)
+				p.reply(c, frame{Op: "send", V: wireVersion, ID: f.ID})
 			}(f)
 		case "ack":
 			// Our daemon accepted something we handed it; release the peer
-			// that is waiting to hear so.
+			// that is waiting to hear so. The ID is the one this process
+			// minted for that delivery, so an ack can only release the
+			// delivery it answers.
 			p.mu.Lock()
-			if ch, ok := p.acks[f.IX]; ok {
+			if ch, ok := p.acks[f.ID]; ok {
 				close(ch)
-				delete(p.acks, f.IX)
+				delete(p.acks, f.ID)
 			}
 			p.mu.Unlock()
 		}
@@ -254,18 +275,34 @@ func (p *peer) servePeers(l net.Listener) {
 			if err := json.NewDecoder(bufio.NewReader(c)).Decode(&f); err != nil {
 				return
 			}
-			err := p.handOff(f)
-			out := frame{Op: "send", IX: f.IX}
-			if err != nil {
-				out.Error = err.Error()
-			}
-			_ = json.NewEncoder(c).Encode(out)
+			_ = json.NewEncoder(c).Encode(p.receive(sourceOf(c), f))
 		}()
 	}
 }
 
-// handOff pushes an inbound payload to our daemon and waits for it to say
-// it accepted it.
+// receive decides what to do with one delivery from another peer and
+// returns the reply for it.
+func (p *peer) receive(source string, f frame) frame {
+	if f.V < wireVersion {
+		// A sender from before sealed envelopes. Its payload is plaintext
+		// the daemon would refuse anyway; answering with an error rather
+		// than handing it over means the sender does not record it as
+		// delivered and falls back to its hub.
+		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: errOldPeer}
+	}
+	if !p.limits.allow(source, time.Now()) {
+		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "rate limited; deliver through the hub"}
+	}
+	out := frame{Op: "send", V: wireVersion, ID: f.ID}
+	if err := p.handOff(f); err != nil {
+		out.Error = err.Error()
+	}
+	return out
+}
+
+// handOff pushes an inbound envelope to our daemon and waits for it to say
+// it accepted it. Every delivery gets its own ID, and the daemon's ack is
+// matched on that ID alone.
 func (p *peer) handOff(f frame) error {
 	p.mu.Lock()
 	enc := p.enc
@@ -273,27 +310,96 @@ func (p *peer) handOff(f frame) error {
 		p.mu.Unlock()
 		return fmt.Errorf("no daemon attached")
 	}
+	p.nextID++
+	id := fmt.Sprintf("d%d", p.nextID)
 	ch := make(chan struct{}, 1)
-	p.acks[f.IX] = ch
-	err := enc.Encode(frame{Op: "recv", From: f.From, Kind: f.Kind, IX: f.IX, Payload: f.Payload})
+	p.acks[id] = ch
+	err := enc.Encode(frame{Op: "recv", V: wireVersion, ID: id, To: f.To, Envelope: f.Envelope})
 	p.mu.Unlock()
 	if err != nil {
+		p.mu.Lock()
+		delete(p.acks, id)
+		p.mu.Unlock()
 		return err
 	}
 	select {
 	case <-ch:
 		return nil
-	case <-time.After(10 * time.Second):
+	case <-time.After(handOffTimeout):
 		p.mu.Lock()
-		delete(p.acks, f.IX)
+		delete(p.acks, id)
 		p.mu.Unlock()
-		// Not delivered, and saying so is the point: the daemon falls
-		// through to the hub rather than losing the delegation.
-		return fmt.Errorf("receiving daemon did not accept %s", f.IX)
+		// Not delivered, and saying so is the point: the sender falls
+		// through to the hub rather than losing the message. The daemon
+		// also withholds its ack on purpose when it refuses a delivery
+		// temporarily, and this is how that refusal reaches the sender.
+		return fmt.Errorf("receiving daemon did not accept delivery %s", id)
 	}
 }
 
-// deliver carries one payload to the peer holding the target AID.
+// handOffTimeout bounds how long a delivery waits for the daemon's ack.
+var handOffTimeout = 10 * time.Second
+
+// sourceOf names where a peer connection came from, for the per-source
+// rate limit: the remote host for TCP; for a Unix socket every peer shares
+// one source, because a local socket carries no address.
+func sourceOf(c net.Conn) string {
+	if a, ok := c.RemoteAddr().(*net.TCPAddr); ok {
+		return a.IP.String()
+	}
+	return "unix"
+}
+
+// sourceLimits is a token bucket per source address, bounded in number.
+type sourceLimits struct {
+	mu      sync.Mutex
+	buckets map[string]*sourceBucket
+	order   []string
+}
+
+type sourceBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+// Per-source inbound limit. Lower than the receiving daemon's own limit so
+// one source cannot use all of it.
+const (
+	sourceRatePerSecond = 10
+	sourceBurst         = 50
+	sourceLimitEntries  = 4096
+)
+
+func newSourceLimits() *sourceLimits { return &sourceLimits{buckets: map[string]*sourceBucket{}} }
+
+func (l *sourceLimits) allow(src string, now time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b := l.buckets[src]
+	if b == nil {
+		b = &sourceBucket{tokens: sourceBurst, last: now}
+		l.buckets[src] = b
+		l.order = append(l.order, src)
+		if len(l.order) > sourceLimitEntries {
+			delete(l.buckets, l.order[0])
+			l.order = l.order[1:]
+		}
+	}
+	if el := now.Sub(b.last).Seconds(); el > 0 {
+		b.tokens += el * sourceRatePerSecond
+		if b.tokens > sourceBurst {
+			b.tokens = sourceBurst
+		}
+		b.last = now
+	}
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+// deliver carries one envelope to the peer holding the target AID.
 func (p *peer) deliver(f frame) error {
 	sock, ok := p.lookup(f.To)
 	if !ok {
@@ -306,7 +412,7 @@ func (p *peer) deliver(f frame) error {
 	}
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
-	if err := json.NewEncoder(c).Encode(f); err != nil {
+	if err := json.NewEncoder(c).Encode(frame{Op: "send", V: wireVersion, ID: f.ID, To: f.To, Envelope: f.Envelope}); err != nil {
 		return err
 	}
 	var reply frame

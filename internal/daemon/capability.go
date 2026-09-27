@@ -15,6 +15,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -26,9 +27,9 @@ import (
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
+	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -121,6 +122,16 @@ func (d *Daemon) DelegateCapability(ctx context.Context, providerAID, capID stri
 	return d.delegateCapabilityPaid(ctx, providerAID, capID, args, nil)
 }
 
+// DelegateCapabilityIn is DelegateCapability under a given A2A context id
+// (empty mints one).
+func (d *Daemon) DelegateCapabilityIn(ctx context.Context, providerAID, capID string, args map[string]any, contextID string) (string, error) {
+	id, err := newInteractionID()
+	if err != nil {
+		return "", err
+	}
+	return d.delegateCapabilityCtx(ctx, id, providerAID, capID, args, nil, contextID)
+}
+
 func (d *Daemon) delegateCapabilityPaid(ctx context.Context, providerAID, capID string,
 	args map[string]any, paymentJSON []byte) (string, error) {
 	id, err := newInteractionID()
@@ -136,6 +147,11 @@ func (d *Daemon) delegateCapabilityPaid(ctx context.Context, providerAID, capID 
 // work that never happened.
 func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, capID string,
 	args map[string]any, paymentJSON []byte) (string, error) {
+	return d.delegateCapabilityCtx(ctx, id, providerAID, capID, args, paymentJSON, "")
+}
+
+func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, capID string,
+	args map[string]any, paymentJSON []byte, contextID string) (string, error) {
 	hub := d.config().HubURL
 	if hub == "" {
 		return "", fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
@@ -151,11 +167,22 @@ func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, 
 		}
 		argsJSON = string(b)
 	}
+	if contextID == "" {
+		c, err := newContextID()
+		if err != nil {
+			return "", err
+		}
+		contextID = c
+	}
+	nonce, err := newTaskNonce()
+	if err != nil {
+		return "", err
+	}
 	goal := "invoke capability " + capID
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{{
 		Intent:   tsir.Intent{Summary: goal, Body: goal},
 		Requires: []tsir.Require{{ID: capID, Type: RequireTypeCapability, Necessity: "must"}},
-		Contexts: []tsir.Context{{Key: "args", Value: argsJSON, Format: "json"}},
+		Contexts: []tsir.Context{{Key: "args", Value: argsJSON, Format: "json"}, nonceContext(nonce)},
 	}}}
 	if err := td.Sign(d.self); err != nil {
 		return "", err
@@ -168,17 +195,27 @@ func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, 
 	if err != nil {
 		return "", err
 	}
-	if err := d.ix.Put(id, interactions.RoleOutbound, providerAID, goal, requestCID, doc); err != nil {
+	if err := d.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
+		Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, IsCapability: true,
+		TaskNonce: nonce}); err != nil {
 		return "", err
 	}
-	if _, err := d.ix.AddMessage(id, d.AID(), interactions.MsgText, goal+" args="+argsJSON); err != nil {
+	msgID, err := newMessageID()
+	if err != nil {
 		return "", err
 	}
+	seq, _, err := d.ix.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
+		Kind: interactions.MsgText, Body: goal + " args=" + argsJSON, MsgID: msgID})
+	if err != nil {
+		return "", err
+	}
+	d.publishMessage(id, seq, interactions.MsgText)
+	d.publishState(id)
 	kelB, err := identity.MarshalKEL(d.self.KEL())
 	if err != nil {
 		return "", err
 	}
-	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, KEL: kelB, InteractionID: id}
+	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, KEL: kelB, InteractionID: id, ContextID: contextID}
 	if len(paymentJSON) > 0 {
 		dr.Payment = paymentJSON
 	}
@@ -186,7 +223,7 @@ func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, 
 	if err != nil {
 		return "", err
 	}
-	if err := d.relaySend(ctx, providerAID, hubapi.RelayKindDelegate, id, payload); err != nil {
+	if err := d.relaySend(ctx, providerAID, seal.TypeDelegate, id, payload); err != nil {
 		return "", err
 	}
 	// C5: a requester's chain should show what it asked for, not only what
@@ -236,8 +273,12 @@ func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, 
 // that ships provenance is signing it: claiming V3 for a value it took on
 // the device's word is now a signed claim rather than a private note.
 type capabilityResult struct {
-	Capability string             `json:"capability"`
-	Status     string             `json:"status"`
+	Capability string `json:"capability"`
+	Status     string `json:"status"`
+	// Nonce is the task's anet.nonce (A2A-DESIGN §2 X4): 16 random bytes
+	// in the deliverable, so its CID, which the receipt carries, does not
+	// identify the result to a party that holds only the receipt.
+	Nonce      string             `json:"nonce,omitempty"`
 	Verifiable bool               `json:"verifiable"`
 	Metrics    map[string]float64 `json:"metrics,omitempty"`
 	Message    string             `json:"message,omitempty"`
@@ -273,8 +314,7 @@ type paidView struct {
 func provenanceOf(e *effect.Evidence) map[string]any { return provider.Provenance(e) }
 
 // tryCapability resolves and executes a capability call, answering with the
-// effect + signed receipt. Returns false when no provider serves it (the
-// task then flows to auto-reply exactly as before).
+// effect + signed receipt.
 func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string, args map[string]any) bool {
 	return d.tryCapabilityPaid(ctx, interactionID, capID, args, nil)
 }
@@ -285,57 +325,38 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 	if d.providers == nil {
 		return false
 	}
-	p, ok := d.providers.Resolve(capID)
-	if !ok {
-		// Falling through is right only when something will answer.
-		//
-		// A capability this node has no provider for is deliberately
-		// handed to the auto-reply path: the id may still be a task an
-		// agent can carry out, and TestCapabilityUnresolvableFallsThrough
-		// pins that. What was missing is the other half. With no auto-reply
-		// configured, nothing answers at all: the interaction sits at
-		// queued forever with no error, no effect status and nothing on
-		// either chain, and the requester cannot tell "does not serve it"
-		// from "is down" from "still working".
-		//
-		// That is what the honest-effect-status rule exists to prevent, and
-		// it was the most-encountered confusing behaviour in the release
-		// matrix — it made every unconfigured capability, including
-		// shell.exec on a node that never enabled it, look like a hang.
-		//
-		// So: hand it on when an agent is standing by, and answer when
-		// nobody is.
-		if d.config().AutoReply != nil {
-			return false
-		}
-		ix, err := d.ix.Get(interactionID)
-		if err != nil {
-			return false
-		}
-		res := capabilityResult{
-			Capability: capID,
-			Status:     string(effect.Unavailable),
-			Message:    "this node does not serve " + capID,
-		}
-		d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil)
-		return true
-	}
 	ix, err := d.ix.Get(interactionID)
 	if err != nil {
 		log.Printf("anet: capability %s: load interaction: %v", capID, err)
 		return false
 	}
+	if ix.IsTerminal() {
+		// Canceled (or otherwise ended) before execution started.
+		return true
+	}
+	p, ok := d.providers.Resolve(capID)
+	if !ok {
+		// A capability this node has no provider for is answered, not
+		// handed to auto-reply. Capability interactions never reach the
+		// auto-reply loop (A2A-DESIGN §6), so without an answer the task
+		// would stay open with no error and no effect status, and the
+		// requester could not tell "does not serve it" from "is down".
+		res := capabilityResult{
+			Capability: capID,
+			Status:     string(effect.Unavailable),
+			Message:    "this node does not serve " + capID,
+		}
+		d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{reason: "capability_not_served"})
+		return true
+	}
 	res := capabilityResult{Capability: capID}
 
 	// Priced work is answered with a price, not attempted and refused.
 	//
-	// The settle happens before the work, and the ordering is the whole
-	// question. Settling after would mean doing the work and then finding
-	// out we cannot be paid; settling before means a payer whose work
-	// then fails has paid for a failure. The second is the one the
-	// evidence model can speak about — the effect and the payment are
-	// both on both chains, so a refund is an argument two parties can
-	// have with records, rather than one party's word.
+	// The settle happens before the work. Settling after would mean doing
+	// the work and then finding out we cannot be paid; settling before
+	// means a payer whose work then fails has paid for a failure. The
+	// second is the one the evidence model can speak about.
 	if price, priced := priceOfCapability(p, capID); priced {
 		payer := d.payer()
 		if payer == nil {
@@ -344,7 +365,7 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 			// true, and doing it anyway is a decision nobody made.
 			res.Status = string(effect.Unavailable)
 			res.Message = errNoPayments().Error()
-			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil)
+			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{reason: "payments_unavailable"})
 			return true
 		}
 		if len(paymentRaw) == 0 {
@@ -358,7 +379,7 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 			}
 			res.Status, res.Message = string(effect.PaymentRequired), reason
 			res.Payment = payer.Quote(capID, price)
-			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil)
+			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{})
 			return true
 		}
 		if _, lerr := d.ledger.Append(EvPaymentSettled, map[string]any{
@@ -371,7 +392,8 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 			Network: st.Network, Receipt: st.Receipt}
 	}
 
-	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID, CallerAID: ix.PeerAID})
+	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID,
+		CallerAID: ix.PeerAID, Via: provider.ViaRelay})
 	if err != nil {
 		res.Status, res.Message = "FAILED", err.Error()
 	} else {
@@ -381,23 +403,84 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 			res.Metrics = eff.Record.Metrics
 		}
 	}
-	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, eff.Evidence)
+	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, eff.Evidence, resultOpts{})
 }
 
-// deliverCapabilityResult signs, stores, records and relays one answer.
+// stateForEffect maps a capability effect status to the task state and
+// the metadata the result carries (A2A-DESIGN §4.3). The effect status is
+// carried as anet.effect_status in every case: a completed task does not
+// mean the effect was verified (SI-6).
+//
+//	OK, UNVERIFIED       completed
+//	FAILED               failed
+//	UNAVAILABLE          rejected (failed once a payment has settled)
+//	PAYMENT_REQUIRED     input-required
+func stateForEffect(status string, paid bool) (interactions.State, map[string]any) {
+	meta := map[string]any{"anet.effect_status": status}
+	var st interactions.State
+	switch effect.Status(status) {
+	case effect.OK, effect.Unverified:
+		st = interactions.StateCompleted
+	case effect.Unavailable:
+		st = interactions.StateRejected
+		if paid {
+			st = interactions.StateFailed
+		}
+	case effect.PaymentRequired:
+		st = interactions.StateInputRequired
+	default:
+		st = interactions.StateFailed
+	}
+	meta["anet.state"] = string(st)
+	return st, meta
+}
+
+// resultOpts adjusts how a capability result is recorded.
+type resultOpts struct {
+	// state overrides the state stateForEffect derives.
+	state interactions.State
+	// reason is carried as anet.reason.
+	reason string
+	// retryAfterMS is carried as anet.retry_after_ms (a temporary refusal).
+	retryAfterMS int64
+}
+
+// deliverCapabilityResult signs, stores, records and delivers one answer.
 //
 // Shared with the payment-required path, which is an answer like any
-// other: it is signed, it goes on the chain, and it is delivered. A
-// provider that quoted a price has told the caller something true about
-// this interaction, and a quote nobody can point back at is not a quote.
-func (d *Daemon) deliverCapabilityResult(ctx context.Context, interactionID, capID string,
-	ix *interactions.Interaction, res capabilityResult, prov *effect.Evidence) bool {
+// other: it is signed, it goes on the chain, and it is delivered. The
+// result, its receipt, the state it maps to and the queued delivery commit
+// together; the result goes through the retry queue, so a relay failure is
+// retried rather than lost. The write is guarded: a task that reached a
+// terminal state first (a cancel) is not given a result or a receipt.
+func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID string,
+	ix *interactions.Interaction, res capabilityResult, prov *effect.Evidence, opts resultOpts) bool {
+	// Sealing and sending run under the daemon's context, not the
+	// invocation's: a call stopped by a cancel or by its deadline still has
+	// a result to deliver, and its own context is already done.
+	ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+	defer cancel()
+	if res.Capability == "" {
+		res.Capability = capID
+	}
+	res.Nonce = ix.TaskNonce
+	if res.Nonce == "" {
+		res.Nonce, _ = newTaskNonce()
+	}
+	state, meta := stateForEffect(res.Status, res.Paid != nil)
+	if opts.state != "" {
+		state = opts.state
+		meta["anet.state"] = string(state)
+	}
+	if opts.reason != "" {
+		meta["anet.reason"] = opts.reason
+	}
+	if opts.retryAfterMS > 0 {
+		meta["anet.retry_after_ms"] = opts.retryAfterMS
+	}
 	deliverable, err := json.Marshal(res)
 	if err != nil {
 		return false
-	}
-	if _, err := d.ix.AddMessage(interactionID, d.AID(), interactions.MsgText, string(deliverable)); err != nil {
-		log.Printf("anet: capability %s: record result: %v", capID, err)
 	}
 	resultCID, err := anetcid.Sum(deliverable)
 	if err != nil {
@@ -419,10 +502,40 @@ func (d *Daemon) deliverCapabilityResult(ctx context.Context, interactionID, cap
 	if err != nil {
 		return false
 	}
-	// Signed with this node's own key a few lines up, so there is nothing
-	// to take on trust.
-	if err := d.ix.SetResult(interactionID, deliverable, resultCID, receiptBytes,
-		interactions.VerificationVerified); err != nil {
+	// The receipt travels with the key that signed it, so the requester can
+	// check what it accepts.
+	selfKEL, err := identity.MarshalKEL(d.self.KEL())
+	if err != nil {
+		log.Printf("anet: capability %s: marshal KEL: %v", capID, err)
+		return false
+	}
+	status := delegation.StatusDone
+	if state == interactions.StateFailed || state == interactions.StateRejected {
+		status = delegation.StatusFailed
+	}
+	metaBytes, _ := json.Marshal(meta)
+	payload, err := (&delegation.ResultResp{Status: status, Deliverable: deliverable,
+		Receipt: receiptBytes, KEL: selfKEL, Metadata: metaBytes}).Marshal()
+	if err != nil {
+		return false
+	}
+	var seq int64
+	id, err := d.queueSend(ctx, ix.PeerAID, seal.TypeResult, interactionID, payload, func(tx *interactions.Tx) error {
+		// Signed with this node's own key a few lines up, so there is
+		// nothing to take on trust.
+		if err := tx.Finish(interactionID, interactions.Finish{State: state, Result: deliverable,
+			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified}); err != nil {
+			return err
+		}
+		var err error
+		seq, err = tx.AddMessage(interactionID, d.AID(), interactions.MsgText, string(deliverable))
+		return err
+	})
+	if errors.Is(err, interactions.ErrTerminal) {
+		log.Printf("anet: capability %s: %s ended before its result; no result or receipt recorded", capID, interactionID)
+		return true
+	}
+	if err != nil {
 		log.Printf("anet: capability %s: store result: %v", capID, err)
 		return false
 	}
@@ -432,7 +545,7 @@ func (d *Daemon) deliverCapabilityResult(ctx context.Context, interactionID, cap
 	ev := map[string]any{
 		"interaction_id": interactionID, "capability": capID, "caller_aid": ix.PeerAID,
 		"status": res.Status, "verifiable": res.Verifiable, "metrics": res.Metrics,
-		"result_cid": resultCID,
+		"result_cid": resultCID, "state": string(state),
 	}
 	if res.Evidence != nil {
 		ev["evidence"] = res.Evidence
@@ -440,22 +553,55 @@ func (d *Daemon) deliverCapabilityResult(ctx context.Context, interactionID, cap
 	if _, lerr := d.ledger.Append(EvCapabilityEffect, ev); lerr != nil {
 		log.Printf("anet: capability %s: evidence ledger: %v", capID, lerr)
 	}
-	// The receipt travels with the key that signed it. A delegation has
-	// always carried the requester's KEL inline; the answer carried no
-	// provider KEL, so the requester could not check what it accepted.
-	selfKEL, err := identity.MarshalKEL(d.self.KEL())
-	if err != nil {
-		log.Printf("anet: capability %s: marshal KEL: %v", capID, err)
-		return false
-	}
-	rr := &delegation.ResultResp{Status: delegation.StatusDone, Deliverable: deliverable,
-		Receipt: receiptBytes, KEL: selfKEL}
-	payload, err := rr.Marshal()
-	if err != nil {
-		return false
-	}
-	if err := d.relaySend(ctx, ix.PeerAID, hubapi.RelayKindResult, interactionID, payload); err != nil {
-		log.Printf("anet: capability %s: relay result: %v (stored locally; requester can re-poll)", capID, err)
+	d.publishMessage(interactionID, seq, interactions.MsgText)
+	d.publishResult(interactionID)
+	if err := d.deliverQueued(ctx, id); err != nil {
+		log.Printf("anet: capability %s: result for %s queued for delivery: %v", capID, interactionID, err)
 	}
 	return true
+}
+
+// recoverInterrupted runs at start (A2A-DESIGN §3.6, startup recovery): an
+// inbound long capability call that was working with no result when the
+// previous process stopped is set failed, with effect UNVERIFIED and
+// anet.reason=interrupted, and the requester is told through the retry
+// queue. Whether the effect happened is not known; the result says so
+// rather than guessing either way.
+func (d *Daemon) recoverInterrupted() {
+	list, err := d.ix.ListAll(interactions.ListFilter{Role: interactions.RoleInbound,
+		States: []interactions.State{interactions.StateWorking}})
+	if err != nil {
+		log.Printf("anet: startup recovery: %v", err)
+		return
+	}
+	for _, ix := range list {
+		if !ix.IsCapability || len(ix.Receipt) > 0 {
+			continue
+		}
+		capID := ix.Goal
+		if td, err := decodeTaskDoc(ix.RequestDoc); err == nil {
+			if c, _, ok := capabilityCall(td); ok {
+				capID = c
+			}
+		}
+		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+		d.deliverCapabilityResult(ctx, ix.ID, capID, ix, capabilityResult{
+			Capability: capID,
+			Status:     string(effect.Unverified),
+			Message:    "the provider stopped while this call was running; whether its effect happened is not known",
+		}, nil, resultOpts{state: interactions.StateFailed, reason: "interrupted"})
+		cancel()
+		log.Printf("anet: %s: %s was interrupted by a restart; reported as failed, effect unverified", ix.ID, capID)
+	}
+}
+
+// decodeTaskDoc decodes stored TaskDoc bytes (the request of an
+// interaction). The signature is not checked here; it was checked when the
+// delegation was accepted.
+func decodeTaskDoc(b []byte) (*tsir.TaskDoc, error) {
+	var td tsir.TaskDoc
+	if err := coredet.Unmarshal(b, &td); err != nil {
+		return nil, err
+	}
+	return &td, nil
 }

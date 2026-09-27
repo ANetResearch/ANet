@@ -8,29 +8,87 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"syscall"
 
 	"github.com/ANetResearch/ANet/internal/version"
 )
 
 // DaemonPointerPath is a uid-scoped, HOME-independent file a running daemon writes (and removes on
 // shutdown) so a CLI invoked in a DIFFERENT environment than the operator — e.g. an agent's tool
-// sandbox whose HOME/ANET_DATA_DIR differ — can still locate the live daemon. It is under a fixed
-// /tmp path (NOT os.TempDir(), which honors $TMPDIR and could diverge between the daemon and the agent
-// shell) keyed by uid: same uid → same path, and the 0700 dir / 0600 file confine it to that uid (which
-// can already read the control token). The CLI consults it only as a FALLBACK when its own data dir has
-// no live daemon, so an operator running several daemons with explicit ANET_DATA_DIR is unaffected
-// (the last daemon's pointer simply wins for the no-data-dir fallback case, i.e. the one-daemon norm).
+// sandbox whose HOME/ANET_DATA_DIR differ — can still locate the live daemon. It lives in RuntimeDir,
+// keyed by uid: the 0700 dir / 0600 file confine it to that uid (which can already read the control
+// token). The CLI consults it only as a FALLBACK when its own data dir has no live daemon, so an
+// operator running several daemons with explicit ANET_DATA_DIR is unaffected (the last daemon's
+// pointer simply wins for the no-data-dir fallback case, i.e. the one-daemon norm). Readers use
+// readDaemonPointerFile, which searches every candidate runtime dir.
 func DaemonPointerPath() string {
 	return filepath.Join(RuntimeDir(), "daemon.json")
 }
 
-// RuntimeDir is the uid-scoped, HOME-independent runtime dir (/tmp/anet-<uid>) for cross-process
-// coordination: the single-daemon pointer and the multi-daemon identity registry (see DaemonsDir).
+// RuntimeDir is the uid-scoped, HOME-independent runtime dir this process writes cross-process
+// coordination files to: the single-daemon pointer and the multi-daemon identity registry (see
+// DaemonsDir).
+//
+// It prefers $XDG_RUNTIME_DIR/anet when XDG_RUNTIME_DIR names a private directory of this uid
+// (A2A-DESIGN §7.8), and otherwise uses /tmp/anet-<uid>. The /tmp location is a fixed path rather than
+// os.TempDir() because $TMPDIR can differ between the daemon and an agent's shell. A fixed path under a
+// world-writable directory can be created in advance by another local user, which would redirect the
+// CLI's fallback to a daemon of that user's choosing; every write and read therefore goes through
+// checkPrivateDir, which refuses a directory that is a symbolic link, is owned by another uid, or grants
+// group or other access.
+//
+// A daemon started from a login session and a CLI started without XDG_RUNTIME_DIR resolve different
+// preferred directories. Readers therefore search all candidates (runtimeDirCandidates), including the
+// conventional /run/user/<uid>, so the pointer and registry are found from either environment.
 func RuntimeDir() string {
+	if d := xdgRuntimeAnetDir(os.Getenv("XDG_RUNTIME_DIR")); d != "" {
+		return d
+	}
+	return legacyRuntimeDir()
+}
+
+// legacyRuntimeDir is /tmp/anet-<uid>, the runtime dir used when no private XDG runtime dir exists.
+func legacyRuntimeDir() string {
 	return filepath.Join("/tmp", fmt.Sprintf("anet-%d", os.Getuid()))
+}
+
+// xdgRuntimeAnetDir returns <xdg>/anet when xdg is an absolute path to a private directory of this uid,
+// else "".
+func xdgRuntimeAnetDir(xdg string) string {
+	if xdg == "" || !filepath.IsAbs(xdg) {
+		return ""
+	}
+	if checkPrivateDir(xdg) != nil {
+		return ""
+	}
+	return filepath.Join(xdg, "anet")
+}
+
+// runtimeDirCandidates lists every runtime dir a daemon of this uid may have written to, preferred
+// first and without duplicates: $XDG_RUNTIME_DIR/anet, /run/user/<uid>/anet, /tmp/anet-<uid>. Entries
+// that do not pass checkPrivateDir are left out, so a reader never trusts a directory another uid could
+// have prepared.
+func runtimeDirCandidates() []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(d string) {
+		if d == "" || seen[d] {
+			return
+		}
+		seen[d] = true
+		if checkPrivateDir(d) == nil {
+			out = append(out, d)
+		}
+	}
+	add(xdgRuntimeAnetDir(os.Getenv("XDG_RUNTIME_DIR")))
+	add(xdgRuntimeAnetDir(filepath.Join("/run/user", strconv.Itoa(os.Getuid()))))
+	add(legacyRuntimeDir())
+	return out
 }
 
 // DaemonsDir holds one small file per running daemon — the local "logged-in identities" the web console
@@ -38,6 +96,70 @@ func RuntimeDir() string {
 // after a rename via hub-register) and removes it on shutdown.
 func DaemonsDir() string {
 	return filepath.Join(RuntimeDir(), "daemons")
+}
+
+// errNotPrivateDir reports a directory that failed checkPrivateDir.
+var errNotPrivateDir = errors.New("not a private directory of this user")
+
+// checkPrivateDir verifies that dir is a directory (not a symbolic link to one), owned by this process's
+// uid, with no group or other permission bits.
+func checkPrivateDir(dir string) error {
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		return fmt.Errorf("%s: %w (symbolic link or not a directory)", dir, errNotPrivateDir)
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() {
+		return fmt.Errorf("%s: %w (owned by uid %d)", dir, errNotPrivateDir, st.Uid)
+	}
+	if fi.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("%s: %w (mode %o)", dir, errNotPrivateDir, fi.Mode().Perm())
+	}
+	return nil
+}
+
+// ensurePrivateDir creates dir (and missing parents) with mode 0700 and then verifies it with
+// checkPrivateDir. An existing directory owned by this uid whose mode grants group or other access is
+// narrowed to 0700 first; that state is what an older anet or a permissive umask leaves behind, and
+// narrowing it is safe because this uid owns it. A symbolic link or a directory of another uid is
+// refused.
+func ensurePrivateDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if fi.IsDir() && fi.Mode()&os.ModeSymlink == 0 && fi.Mode().Perm()&0o077 != 0 {
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) == os.Getuid() {
+			if err := os.Chmod(dir, 0o700); err != nil {
+				return err
+			}
+		}
+	}
+	return checkPrivateDir(dir)
+}
+
+// readDaemonPointerFile returns the contents of the first daemon pointer found in the candidate
+// runtime dirs (runtimeDirCandidates).
+func readDaemonPointerFile() ([]byte, error) {
+	var firstErr error
+	for _, d := range runtimeDirCandidates() {
+		b, err := os.ReadFile(filepath.Join(d, "daemon.json"))
+		if err == nil {
+			return b, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr == nil {
+		firstErr = fmt.Errorf("no private runtime dir holds a daemon pointer: %w", os.ErrNotExist)
+	}
+	return nil, firstErr
 }
 
 // Version is the anet release version (single source of truth in internal/version).

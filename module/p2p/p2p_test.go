@@ -20,6 +20,10 @@ import (
 // fakePeer stands in for the out-of-process peer stack: it speaks the wire
 // and nothing else, which is exactly what a real one built on libp2p,
 // ironwood or anything else would look like from this side.
+//
+// Like a real peer process it mints an ID for every delivery it hands the
+// daemon (op recv) and records the daemon's acks by that ID, so a test can
+// tell which delivery an ack answered.
 type fakePeer struct {
 	// hold, when set, defers every send reply until it is closed, so
 	// replies come back in whatever order the goroutines win.
@@ -33,6 +37,8 @@ type fakePeer struct {
 	sent      []frame
 	self      string
 	conns     []net.Conn
+	nextID    int
+	acks      map[string]int // delivery ID → acks received for it
 }
 
 func newFakePeer(t *testing.T) *fakePeer {
@@ -42,7 +48,7 @@ func newFakePeer(t *testing.T) *fakePeer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &fakePeer{t: t, ln: ln, reachable: map[string]bool{}}
+	p := &fakePeer{t: t, ln: ln, reachable: map[string]bool{}, acks: map[string]int{}}
 	t.Cleanup(func() { ln.Close() })
 	go p.accept()
 	return p
@@ -81,6 +87,10 @@ func (p *fakePeer) serve(c net.Conn) {
 			ok := p.reachable[f.To]
 			p.mu.Unlock()
 			_ = enc.Encode(frame{Op: opReach, ID: f.ID, Reachable: ok})
+		case opAck:
+			p.mu.Lock()
+			p.acks[f.ID]++
+			p.mu.Unlock()
 		case opSend:
 			p.mu.Lock()
 			p.sent = append(p.sent, f)
@@ -96,7 +106,7 @@ func (p *fakePeer) serve(c net.Conn) {
 				// question: matched by id it lands on the send that asked,
 				// matched by arrival order it lands on whichever send
 				// happened to be next in the queue.
-				if n := len(f.IX); n > 0 && (f.IX[n-1]-'0')%2 == 1 {
+				if n := len(f.To); n > 0 && (f.To[n-1]-'0')%2 == 1 {
 					reply.Error = "no route to peer"
 				}
 				go func(r frame) { <-hold; p.mu.Lock(); _ = enc.Encode(r); p.mu.Unlock() }(reply)
@@ -107,14 +117,44 @@ func (p *fakePeer) serve(c net.Conn) {
 	}
 }
 
-// push simulates a message arriving from the network.
-func (p *fakePeer) push(f frame) {
+// push simulates an envelope arriving from the network: it mints a
+// delivery ID, hands the daemon a recv frame and returns the ID.
+func (p *fakePeer) push(env []byte) string {
+	p.mu.Lock()
+	p.nextID++
+	id := fmt.Sprintf("d%d", p.nextID)
+	p.mu.Unlock()
+	p.pushFrame(frame{Op: opRecv, V: WireVersion, ID: id, To: "aid-self",
+		Envelope: base64.StdEncoding.EncodeToString(env)})
+	return id
+}
+
+// pushFrame hands the daemon an arbitrary frame.
+func (p *fakePeer) pushFrame(f frame) {
 	p.mu.Lock()
 	conns := append([]net.Conn(nil), p.conns...)
 	p.mu.Unlock()
 	for _, c := range conns {
 		_ = json.NewEncoder(c).Encode(f)
 	}
+}
+
+// acksFor reports how many acks the daemon sent for a delivery ID.
+func (p *fakePeer) acksFor(id string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.acks[id]
+}
+
+// totalAcks is every ack received, for any ID.
+func (p *fakePeer) totalAcks() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	n := 0
+	for _, c := range p.acks {
+		n += c
+	}
+	return n
 }
 
 func (p *fakePeer) setReachable(aid string, ok bool) {
@@ -149,20 +189,25 @@ func (p *fakePeer) helloSelf() string {
 	return p.self
 }
 
-// recorder captures what the transport hands the daemon.
+// recorder captures what the transport hands the daemon. refuse lists
+// envelopes the daemon refuses temporarily (Receive returns an error).
 type recorder struct {
-	mu   sync.Mutex
-	got  []string
-	fail error
+	mu     sync.Mutex
+	got    []string
+	fail   error
+	refuse map[string]bool
 }
 
-func (r *recorder) Receive(_ context.Context, from, kind, ix string, payload []byte) error {
+func (r *recorder) Receive(_ context.Context, env []byte) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.fail != nil {
 		return r.fail
 	}
-	r.got = append(r.got, from+"/"+kind+"/"+ix+"/"+string(payload))
+	if r.refuse[string(env)] {
+		return fmt.Errorf("temporarily refused")
+	}
+	r.got = append(r.got, string(env))
 	return nil
 }
 
@@ -222,14 +267,15 @@ func TestReachabilityComesFromThePeerProcess(t *testing.T) {
 	}
 }
 
-// A payload crosses the socket intact — it is signed by the daemon and the
-// peer process is not expected to understand it.
-func TestSendCarriesThePayloadUnaltered(t *testing.T) {
+// An envelope crosses the socket intact — it is sealed by the daemon and
+// the peer process is not expected to understand it. The frame names the
+// recipient and nothing else about the message.
+func TestSendCarriesTheEnvelopeUnaltered(t *testing.T) {
 	peer := newFakePeer(t)
 	tr := dialTransport(t, peer, &recorder{})
 
-	body := []byte("signed-delegation-bytes")
-	if err := tr.Send(context.Background(), "aid-peer", "delegate", "ix-9", body); err != nil {
+	body := []byte("sealed-envelope-bytes")
+	if err := tr.Send(context.Background(), "aid-peer", body); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, func() bool { return peer.sentCount() == 1 }, "the send to reach the peer")
@@ -237,32 +283,87 @@ func TestSendCarriesThePayloadUnaltered(t *testing.T) {
 	peer.mu.Lock()
 	f := peer.sent[0]
 	peer.mu.Unlock()
-	got, err := base64.StdEncoding.DecodeString(f.Payload)
+	got, err := base64.StdEncoding.DecodeString(f.Envelope)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(got) != string(body) {
-		t.Fatalf("payload = %q, want it unaltered", got)
+		t.Fatalf("envelope = %q, want it unaltered", got)
 	}
-	if f.To != "aid-peer" || f.Kind != "delegate" || f.IX != "ix-9" {
+	if f.To != "aid-peer" || f.V != WireVersion {
 		t.Fatalf("addressing lost: %+v", f)
 	}
 }
 
-// Inbound goes to the daemon by the same door as anything from the hub.
+// Inbound goes to the daemon by the same door as anything from the hub,
+// and is acked with the delivery's own ID.
 func TestInboundReachesTheDaemon(t *testing.T) {
 	peer := newFakePeer(t)
 	rec := &recorder{}
 	dialTransport(t, peer, rec)
 
-	peer.push(frame{Op: opRecv, From: "aid-them", Kind: "result", IX: "ix-3",
-		Payload: base64.StdEncoding.EncodeToString([]byte("payload"))})
+	id := peer.push([]byte("envelope"))
 
-	waitFor(t, func() bool { return rec.count() == 1 }, "the inbound message to reach the daemon")
+	waitFor(t, func() bool { return rec.count() == 1 }, "the inbound envelope to reach the daemon")
 	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	if rec.got[0] != "aid-them/result/ix-3/payload" {
-		t.Fatalf("inbound arrived altered: %q", rec.got[0])
+	got := rec.got[0]
+	rec.mu.Unlock()
+	if got != "envelope" {
+		t.Fatalf("inbound arrived altered: %q", got)
+	}
+	waitFor(t, func() bool { return peer.acksFor(id) == 1 }, "the ack for "+id)
+}
+
+// A delivery the daemon refuses temporarily is not acked, so the peer
+// process reports it undelivered and the sender falls back to the hub
+// (A2A-DESIGN §3.6).
+func TestATemporaryRefusalIsNotAcked(t *testing.T) {
+	peer := newFakePeer(t)
+	rec := &recorder{fail: fmt.Errorf("store busy")}
+	dialTransport(t, peer, rec)
+
+	id := peer.push([]byte("envelope"))
+	time.Sleep(100 * time.Millisecond)
+	if n := peer.acksFor(id); n != 0 {
+		t.Fatalf("a refused delivery was acked %d times", n)
+	}
+}
+
+// Two deliveries in flight to the same recipient, one accepted and one
+// refused: each ack must answer its own delivery. Keyed on anything the
+// two share — the recipient, the envelope, a constant — the accepted one's
+// ack would release the refused one, and the sender of a message the
+// daemon never took would be told it was delivered (C5).
+func TestConcurrentDeliveriesAreAckedByTheirOwnID(t *testing.T) {
+	peer := newFakePeer(t)
+	rec := &recorder{refuse: map[string]bool{"refused": true}}
+	dialTransport(t, peer, rec)
+
+	refusedID := peer.push([]byte("refused"))
+	acceptedID := peer.push([]byte("accepted"))
+
+	waitFor(t, func() bool { return peer.acksFor(acceptedID) == 1 }, "the accepted delivery's ack")
+	time.Sleep(100 * time.Millisecond)
+	if n := peer.acksFor(refusedID); n != 0 {
+		t.Fatalf("the refused delivery %s was acked %d times", refusedID, n)
+	}
+	if n := peer.totalAcks(); n != 1 {
+		t.Fatalf("%d acks for one accepted delivery", n)
+	}
+}
+
+// A delivery frame without the wire version is not handed to the daemon: it
+// comes from a peer process that predates sealed envelopes.
+func TestAnUnversionedDeliveryIsNotHandedToTheDaemon(t *testing.T) {
+	peer := newFakePeer(t)
+	rec := &recorder{}
+	dialTransport(t, peer, rec)
+
+	peer.pushFrame(frame{Op: opRecv, ID: "old-1", To: "aid-self",
+		Envelope: base64.StdEncoding.EncodeToString([]byte("envelope"))})
+	time.Sleep(100 * time.Millisecond)
+	if rec.count() != 0 || peer.acksFor("old-1") != 0 {
+		t.Fatalf("an unversioned delivery reached the daemon (%d) or was acked (%d)", rec.count(), peer.acksFor("old-1"))
 	}
 }
 
@@ -284,7 +385,7 @@ func TestPeerProcessDownIsSimplyUnreachable(t *testing.T) {
 		return !tr.Reachable(context.Background(), "aid-any")
 	}, "the transport to report unreachable once the peer is gone")
 
-	if err := tr.Send(context.Background(), "aid-any", "delegate", "ix-1", []byte("x")); err == nil {
+	if err := tr.Send(context.Background(), "aid-any", []byte("x")); err == nil {
 		t.Fatal("sending with no peer process must fail so the caller falls through to the hub")
 	}
 }
@@ -298,8 +399,8 @@ type replier struct {
 	done chan struct{}
 }
 
-func (r *replier) Receive(ctx context.Context, from, kind, ix string, _ []byte) error {
-	err := r.tr.Send(ctx, from, "result", ix, []byte("result bytes"))
+func (r *replier) Receive(ctx context.Context, _ []byte) error {
+	err := r.tr.Send(ctx, "aid-peer", []byte("result bytes"))
 	r.mu.Lock()
 	r.err = err
 	r.mu.Unlock()
@@ -327,8 +428,7 @@ func TestAnsweringAnInboundMessageDoesNotDeadlock(t *testing.T) {
 	tr := dialTransport(t, peer, r)
 	r.tr = tr
 
-	peer.push(frame{Op: opRecv, From: "aid-peer", Kind: "delegate", IX: "ix-1",
-		Payload: base64.StdEncoding.EncodeToString([]byte("delegation"))})
+	peer.push([]byte("delegation"))
 
 	select {
 	case <-r.done:
@@ -358,12 +458,9 @@ func TestConcurrentInboundAndOutboundDoNotCorruptTheWire(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_ = tr.Send(context.Background(), "aid-peer", "message",
-				fmt.Sprintf("ix-%d", i), []byte("payload"))
+			_ = tr.Send(context.Background(), "aid-peer", []byte(fmt.Sprintf("payload-%d", i)))
 		}(i)
-		peer.push(frame{Op: opRecv, From: "aid-peer", Kind: "message",
-			IX:      fmt.Sprintf("in-%d", i),
-			Payload: base64.StdEncoding.EncodeToString([]byte("inbound"))})
+		peer.push([]byte(fmt.Sprintf("inbound-%d", i)))
 	}
 	wg.Wait()
 	// The peer must still be able to parse what we sent: a corrupted frame
@@ -401,8 +498,7 @@ func TestRepliesAreMatchedToTheirRequests(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			errs[i] = tr.Send(context.Background(), "aid-peer", "message",
-				fmt.Sprintf("ix-%d", i), []byte("payload"))
+			errs[i] = tr.Send(context.Background(), fmt.Sprintf("aid-peer-%d", i), []byte("payload"))
 		}(i)
 	}
 	waitFor(t, func() bool { return peer.sentCount() == n }, "all sends to reach the peer")
@@ -413,7 +509,7 @@ func TestRepliesAreMatchedToTheirRequests(t *testing.T) {
 	for i, err := range errs {
 		wantErr := i%2 == 1
 		if (err != nil) != wantErr {
-			t.Errorf("send ix-%d: err=%v, want error=%v — a reply landed on the wrong request",
+			t.Errorf("send %d: err=%v, want error=%v — a reply landed on the wrong request",
 				i, err, wantErr)
 		}
 	}

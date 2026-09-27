@@ -29,8 +29,17 @@ import (
 // each tool teaches the model that the tools are broken; one that fails to
 // connect sends the operator to look at the daemon, which is where the
 // problem is.
-func runMCP(layout daemon.Layout) error {
-	base, token, err := daemon.ResolveControl(layout)
+//
+// With an explicitly selected identity (--id, ANET_ID, ANET_HOME, ANET_DATA_DIR or a non-default
+// `anet id use`) it resolves strictly: only that identity's own daemon, never the uid-wide pointer to
+// whichever daemon started last (A2A-DESIGN §7.8). An MCP client configured for one identity must not
+// end up driving another.
+func runMCP(layout daemon.Layout, explicit bool) error {
+	resolve := daemon.ResolveControl
+	if explicit {
+		resolve = daemon.ResolveControlStrict
+	}
+	base, token, err := resolve(layout)
 	if err != nil {
 		return diagnoseNoDaemon("http://"+daemon.LocalControlAddr(layout), layout.Root, err)
 	}

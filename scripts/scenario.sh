@@ -97,8 +97,7 @@ for node in A B C; do
   cat > "$h/.anet/config.json" <<CFG
 {
  "control_addr": "127.0.0.1:$port",
- "hub_url": "$HUB",
- "accept_delegations": true
+ "hub_url": "$HUB"
 }
 CFG
   port=$((port+1))
@@ -158,6 +157,10 @@ c["modules"] = {"service": {"capabilities": [
 # point of selling access rather than proxying it.
 c["modules"]["x402"] = {"voucher_addr": "127.0.0.1:29530",
                         "voucher_url": "http://127.0.0.1:29530/x402/redeem"}
+# The voucher door serves only public capabilities, through the kernel's
+# admission check (A2A-DESIGN §5.4). text.digest stays reachable only by
+# the peers A allows; the priced one is public.
+c["inbound"] = {"policy": "closed", "public_capabilities": [{"id": "text.digest.paid"}]}
 json.dump(c, open(p, "w"), indent=1)
 PY
 python3 - "$(home_of B)/.anet/config.json" <<'PY'
@@ -189,6 +192,14 @@ ctl B /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeB\",\"caps\":[\"chat\"]}" 
 ctl C /hub-register "{\"hub\":\"$HUB\",\"name\":\"NodeC\",\"caps\":[]}" >/dev/null
 sleep 2
 A=$(aid_of A); B=$(aid_of B); C=$(aid_of C)
+# Every node runs the default closed inbound policy (A2A-DESIGN §5) and
+# allows the other two by name. Written directly: the CLI's `anet peers
+# allow` asks for confirmation on a terminal. The daemons read the files on
+# every decision, so no restart is needed.
+for node in A B C; do
+  : > "$(home_of "$node")/.anet/peers.allow"
+  for other in "$A" "$B" "$C"; do printf '%s\n' "$other" >> "$(home_of "$node")/.anet/peers.allow"; done
+done
 info "A $A"
 info "B $B"
 info "C $C"
@@ -264,8 +275,9 @@ print(next((x['interaction_id'] for x in (json.load(sys.stdin).get('inbox') or [
     sleep 1
   done
   # Close it either way; an undelivered probe still leaves a local record.
+  # The requester's end asks the provider to complete, and the provider's
+  # daemon completes on its own (A2A-DESIGN §4.2).
   ctl "$1" /end "{\"interaction_id\":\"$ix\"}" >/dev/null 2>&1
-  ctl "$2" /end-accept "{\"interaction_id\":\"$ix\"}" >/dev/null 2>&1
   [ -n "$landed" ]
 }
 for pair in "A B $B" "A C $C" "B A $A" "B C $C" "C A $A" "C B $B"; do
@@ -575,7 +587,6 @@ grep -q "discovery=" "$ROOT/hub.log" && ok "两个 hub 互为 peer,discovery 已
 mkdir -p "$ROOT/D/.anet"
 cat > "$ROOT/D/.anet/config.json" <<CFG
 {"control_addr":"127.0.0.1:29513","hub_url":"$HUB2","name":"NodeD","caps":["remote.digest"],
- "accept_delegations":true,
  "modules":{"service":{"capabilities":[
    {"id":"remote.digest","url":"http://127.0.0.1:29520","description":"sha256, on the other hub"}]}}}
 CFG
@@ -583,6 +594,8 @@ setsid env HOME="$ROOT/D" "$BIN/anet" daemon >"$ROOT/D.log" 2>&1 </dev/null &
 sleep 4
 ctl D /hub-register "{\"hub\":\"$HUB2\",\"name\":\"NodeD\",\"caps\":[\"remote.digest\"]}" >/dev/null
 D=$(aid_of D)
+# D accepts the cross-hub caller C by name.
+printf '%s\n' "$C" > "$ROOT/D/.anet/peers.allow"
 # Visibility is opt-in and hub-local by default — a card federates only
 # when its own agent says so, signed, because a setting anyone else could
 # change is not a setting.

@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,20 +27,17 @@ import (
 // A hub can host an x402 resource server on this node's behalf — take the
 // 402, settle the credit — and hand the buyer a signed voucher instead of
 // the result. The buyer brings the voucher here. The hub therefore never
-// sees the request or the result, which is the same property the relay
-// has and worth keeping for the same reason: it cannot leak what it never
-// held, and cannot be compelled to produce it.
+// sees the request or the result: it cannot leak what it never held, and
+// cannot be compelled to produce it.
 //
 // The cost is stated rather than discovered: this face is public, so the
 // buyer must be able to reach it. A node behind a NAT with no ingress
 // cannot offer this, and should not configure it — the ordinary delegate
 // path through the relay works there and this does not.
 //
-// It lives in the kernel next to pay.go rather than behind a module tag,
-// because it is a second surface onto a kernel function rather than a
-// subsystem. Putting the objects, the settlement and the quote in the
-// kernel and the redemption behind a build tag would be half a feature
-// each side of a seam.
+// Every redemption passes the kernel's admission check (module.Host.Admit)
+// with the hub-attested payer as the caller, so the inbound policy governs
+// this door as it governs the relay.
 
 // EvCapabilityEffect is the kernel's event type for a capability that
 // ran. Named here with the same string on purpose: work bought through
@@ -266,6 +264,20 @@ func (m *Module) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 	if err != nil {
 		return refuse(http.StatusInternalServerError, err.Error(), nil)
 	}
+
+	// The kernel's admission (A2A-DESIGN §5.4): a voucher proves that the
+	// payer paid the hub, not that this node serves the capability to
+	// anyone who pays. The deny list, public_capabilities, the quotas and
+	// the in-flight bound apply here exactly as on the relay path. The
+	// hub-attested payer is the only identity this door has, so it is the
+	// caller the policy is applied to.
+	argsJSON, _ := json.Marshal(req.Args)
+	release, refusal := m.host.Admit(v.Payer, req.Capability, len(argsJSON))
+	if refusal != "" {
+		return refuse(admissionStatus(refusal), "refused by this node's inbound policy: "+refusal,
+			map[string]any{"payer": v.Payer, "policy_reason": refusal})
+	}
+	defer release()
 	m.spent.load(m)
 	if !m.spent.claim(id) {
 		return refuse(http.StatusConflict, "this voucher has already been redeemed",
@@ -299,8 +311,11 @@ func (m *Module) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 		return refuse(http.StatusInternalServerError, "could not record the redemption", nil)
 	}
 
+	// Via=voucher: CallerAID is the payer the hub attested, and whoever
+	// presented the voucher is not authenticated as that payer. A provider
+	// must not authorize on it (provider.Call.Via).
 	eff, err := p.Invoke(ctx, provider.Call{
-		Capability: req.Capability, Args: req.Args, CallID: id, CallerAID: v.Payer})
+		Capability: req.Capability, Args: req.Args, CallID: id, CallerAID: v.Payer, Via: provider.ViaVoucher})
 	out := map[string]any{"capability": req.Capability, "voucher_id": id, "payer": v.Payer}
 	if err != nil {
 		out["status"], out["message"] = string(effect.Failed), err.Error()
@@ -361,4 +376,18 @@ func argsCID(args map[string]any) (string, error) {
 		return "", err
 	}
 	return anetcid.Sum(b)
+}
+
+// admissionStatus is the HTTP status of an admission refusal: 429 for a
+// quota or the in-flight bound (the buyer may retry later), 413 for
+// arguments over the size limit, 403 otherwise (denied, or not a public
+// capability).
+func admissionStatus(refusal string) int {
+	switch {
+	case strings.HasPrefix(refusal, "quota_"), refusal == "max_inflight":
+		return http.StatusTooManyRequests
+	case refusal == "args_too_large":
+		return http.StatusRequestEntityTooLarge
+	}
+	return http.StatusForbidden
 }

@@ -14,8 +14,10 @@ import (
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/provider"
 )
 
@@ -76,10 +78,10 @@ func TestCapabilityDelegationRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", []string{"devices"}, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", []string{"devices"}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,28 +123,21 @@ func TestCapabilityDelegationRoundTrip(t *testing.T) {
 	}
 }
 
-// TestCapabilityUnresolvableFallsThrough: nobody provides the capability →
-// the delegation stays a pending inbound task for auto-reply handling.
-//
-// Conditional on an auto-reply being configured, which is what "something
-// will answer" means. Without one the node now answers UNAVAILABLE rather
-// than leaving the requester waiting forever — see
-// TestAnUnservedCapabilityAnswersUnavailable.
-func TestCapabilityUnresolvableFallsThrough(t *testing.T) {
+// An unresolvable capability is answered, even when an auto-reply agent is configured. Capability
+// interactions never reach auto-reply (A2A-DESIGN §6); before wire 2 an unresolved capability id was
+// handed to the agent, which would now leave it with nothing to answer it. The requester learns
+// "does not serve it" as a rejected task with effect UNAVAILABLE.
+func TestCapabilityUnresolvableIsAnsweredWithAutoReplyConfigured(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
-
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Plain Bot", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Plain Bot", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-
-	// An agent is standing by, so an id this node serves no provider for is
-	// its to interpret.
 	prov.mu.Lock()
 	prov.cfg.AutoReply = &AutoReplyConfig{Backend: "exec", Agent: "cursor"}
 	prov.mu.Unlock()
@@ -154,12 +149,22 @@ func TestCapabilityUnresolvableFallsThrough(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	inbox, err := prov.Inbox(true)
+	pix, err := prov.ix.Get(id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inbox) != 1 || inbox[0].InteractionID != id {
-		t.Fatalf("unresolvable capability must stay pending inbound: %+v", inbox)
+	if pix.State != interactions.StateRejected || !strings.Contains(string(pix.Result), string(effect.Unavailable)) {
+		t.Fatalf("provider interaction = %s %q, want rejected with UNAVAILABLE", pix.State, pix.Result)
+	}
+	if threads, _ := prov.ActiveThreads(); len(threads) != 0 {
+		t.Fatalf("a capability call is in the auto-reply set: %+v", threads)
+	}
+	if err := req.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rix, _ := req.ix.Get(id)
+	if rix.State != interactions.StateRejected || rix.ReceiptVerified != interactions.VerificationVerified {
+		t.Fatalf("requester interaction = %s receipt %q, want rejected and verified", rix.State, rix.ReceiptVerified)
 	}
 }
 
@@ -173,10 +178,10 @@ func TestBothSidesRecordEvidence(t *testing.T) {
 
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Requester", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Requester", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Provider", []string{"haiku"}, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Provider", []string{"haiku"}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -205,9 +210,6 @@ func TestBothSidesRecordEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.AcceptEnd(ctx, id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.Results(ctx); err != nil {
@@ -268,10 +270,10 @@ func TestEvidenceProvenanceReachesTheChain(t *testing.T) {
 	if err := prov.Providers().Register(ctx, quirkyProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.DelegateCapability(ctx, prov.AID(),
@@ -325,10 +327,10 @@ func TestAReadReturnsWhatItRead(t *testing.T) {
 	if err := prov.Providers().Register(ctx, quirkyProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.DelegateCapability(ctx, prov.AID(),
@@ -434,10 +436,10 @@ func TestCapabilityCallIsReachableThroughTheControlAPI(t *testing.T) {
 	if err := prov.Providers().Register(ctx, lamp); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -517,10 +519,10 @@ func TestAnAcceptedResultWasActuallyVerified(t *testing.T) {
 	if err := prov.Providers().Register(ctx, &lampProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
@@ -542,7 +544,7 @@ func TestAnAcceptedResultWasActuallyVerified(t *testing.T) {
 	}
 
 	// And the provider's key is now known, which is what makes it possible.
-	if _, ok := req.peers.resolve(prov.AID()); !ok {
+	if _, ok := req.peerKEL(prov.AID()); !ok {
 		t.Error("verifying a completion must leave the provider's KEL known")
 	}
 }
@@ -553,10 +555,10 @@ func TestAResultForDifferentContentIsRefused(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1", nil)
@@ -588,7 +590,11 @@ func TestAResultForDifferentContentIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req.ingestResult(id, payload)
+	// Sealed and signed by the real provider: the envelope is authentic,
+	// and what is refused is the receipt that does not cover the bytes.
+	if r := receive(t, req, sealFrom(t, prov, req, seal.TypeResult, id, payload)); r.reason != dropResultRefused {
+		t.Fatalf("result outcome = %+v, want %s", r, dropResultRefused)
+	}
 
 	results, err := req.Results(ctx)
 	if err != nil {
@@ -625,10 +631,10 @@ func TestARedeliveredDelegationIsNotExecutedTwice(t *testing.T) {
 	if err := prov.Providers().Register(ctx, lamp); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
@@ -637,29 +643,32 @@ func TestARedeliveredDelegationIsNotExecutedTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The delegation payload, exactly as the hub holds it.
-	payload := onlyRelayPayload(t, srv, prov.AID(), "delegate")
+	// The delegation envelope, exactly as the hub holds it.
+	env := onlyQueuedEnvelope(t, srv, prov.AID())
 
 	// Delivered, handled, and then — because the ack never landed —
 	// delivered again.
-	if !prov.ingestDelegate(payload) {
-		t.Fatal("first delivery was refused")
+	if r := receive(t, prov, env); r.class != rxAccepted {
+		t.Fatalf("first delivery was refused: %+v", r)
 	}
 	if len(lamp.invoked) != 1 {
 		t.Fatalf("first delivery invoked the capability %d times", len(lamp.invoked))
 	}
-	if !prov.ingestDelegate(payload) {
-		t.Fatal("a redelivery must be acked, not retried forever")
+	if r := receive(t, prov, env); !r.ack() {
+		t.Fatalf("a redelivery must be acked, not retried forever: %+v", r)
 	}
 
 	if n := len(lamp.invoked); n != 1 {
 		t.Errorf("the lamp was switched %d times for one delegation", n)
 	}
 	// One receipt, not two. A second would be a signed claim about work
-	// that happened once.
-	seq := chainLength(t, prov)
-	if seq != 1 {
-		t.Errorf("the provider chain has %d entries for one delegation", seq)
+	// that happened once. The chain holds the receipt-bearing effect and the
+	// delegation's receipt event, once each.
+	if n := chainEvents(t, prov, EvCapabilityEffect); n != 1 {
+		t.Errorf("the provider chain has %d effects for one delegation", n)
+	}
+	if n := chainEvents(t, prov, EvDelegationReceived); n != 1 {
+		t.Errorf("the provider chain has %d received events for one delegation", n)
 	}
 	// And the transcript must not gain a duplicate of the opening message.
 	ix, err := prov.ix.Get(id)
@@ -682,6 +691,13 @@ func TestARedeliveredDelegationIsNotExecutedTwice(t *testing.T) {
 }
 
 // chainLength reports how many events this node has recorded.
+// chainEvents counts the events of one type on d's chain.
+func chainEvents(t *testing.T, d *Daemon, typ string) int {
+	t.Helper()
+	_, recs := d.ledger.Evidence(EvidenceQuery{EventType: typ, Limit: 100000})
+	return len(recs)
+}
+
 func chainLength(t *testing.T, d *Daemon) uint64 {
 	t.Helper()
 	d.ledger.mu.Lock()
@@ -707,32 +723,31 @@ func TestARedeliveredResultIsRecordedOnce(t *testing.T) {
 	if err := prov.Providers().Register(ctx, &lampProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
-		map[string]any{"on": true})
-	if err != nil {
+	if _, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
+		map[string]any{"on": true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	payload := onlyRelayPayload(t, srv, req.AID(), "result")
+	env := onlyQueuedEnvelope(t, srv, req.AID())
 
 	before := chainLength(t, req)
-	if !req.ingestResult(id, payload) {
-		t.Fatal("first delivery refused")
+	if r := receive(t, req, env); r.class != rxAccepted {
+		t.Fatalf("first delivery refused: %+v", r)
 	}
 	afterFirst := chainLength(t, req)
 	if afterFirst != before+1 {
 		t.Fatalf("one result should add one chain entry, got %d", afterFirst-before)
 	}
-	if !req.ingestResult(id, payload) {
-		t.Fatal("a redelivery must be acked, not retried forever")
+	if r := receive(t, req, env); !r.ack() {
+		t.Fatalf("a redelivery must be acked, not retried forever: %+v", r)
 	}
 	if got := chainLength(t, req); got != afterFirst {
 		t.Errorf("a redelivered result added %d more chain entries", got-afterFirst)
@@ -755,7 +770,7 @@ func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The operator writes a human label; the daemon knows the ids.
-	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}, nil, nil, ""); err != nil {
+	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -799,10 +814,10 @@ func TestARedeliveredChatMessageIsStoredOnce(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "A", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "A", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "B", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "B", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.Delegate(ctx, prov.AID(), "do a thing", nil)
@@ -820,13 +835,20 @@ func TestARedeliveredChatMessageIsStoredOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prov.ingestMessage(id, req.AID(), payload)
+	// The same envelope twice (the replay table), then the same message
+	// sealed again under a new envelope (the sender's message id).
+	env := sealFrom(t, req, prov, seal.TypeMessage, id, payload)
+	receive(t, prov, env)
 	if got := countMessages(t, prov, id); got != base+1 {
 		t.Fatalf("first delivery stored %d messages", got-base)
 	}
-	prov.ingestMessage(id, req.AID(), payload)
+	receive(t, prov, env)
 	if got := countMessages(t, prov, id); got != base+1 {
 		t.Errorf("a redelivery added a second line to the transcript (now %d)", got-base)
+	}
+	receive(t, prov, sealFrom(t, req, prov, seal.TypeMessage, id, payload))
+	if got := countMessages(t, prov, id); got != base+1 {
+		t.Errorf("a re-sealed copy added a second line to the transcript (now %d)", got-base)
 	}
 
 	// Saying the same thing again is a different event, and must land.
@@ -836,7 +858,7 @@ func TestARedeliveredChatMessageIsStoredOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	prov.ingestMessage(id, req.AID(), again)
+	receive(t, prov, sealFrom(t, req, prov, seal.TypeMessage, id, again))
 	if got := countMessages(t, prov, id); got != base+2 {
 		t.Errorf("repeating yourself must be recorded, got %d", got-base)
 	}
@@ -848,7 +870,7 @@ func TestARedeliveredChatMessageIsStoredOnce(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		prov.ingestMessage(id, req.AID(), old)
+		receive(t, prov, sealFrom(t, req, prov, seal.TypeMessage, id, old))
 	}
 	if got := countMessages(t, prov, id); got != base+4 {
 		t.Errorf("messages without ids must not dedupe against each other, got %d", got-base)

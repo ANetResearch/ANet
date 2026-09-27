@@ -2,25 +2,37 @@ package daemon
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/evidence"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/internal/transcript"
 )
 
 // newTestDaemon builds a daemon rooted at a temp dir wired to hubURL. It stops the background relay loop
 // so the test can drive pollOnce deterministically.
+//
+// accept=true makes the daemon accept delegations from every other daemon this test creates, before or
+// after it: their AIDs are written to its peers.allow (the inbound policy stays closed, as on a fresh
+// install; A2A-DESIGN §5). accept=false leaves the allow list empty, so the daemon refuses every
+// delegation. A test that needs to accept an identity that is not a daemon (a stranger) uses
+// allowPeers.
 func newTestDaemon(t *testing.T, hubURL string, accept bool) *Daemon {
 	t.Helper()
 	root := t.TempDir()
-	cfg := map[string]any{"control_addr": "127.0.0.1:0", "hub_url": hubURL, "accept_delegations": accept}
+	cfg := map[string]any{"control_addr": "127.0.0.1:0", "hub_url": hubURL}
 	b, _ := json.MarshalIndent(cfg, "", "  ")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
@@ -40,12 +52,78 @@ func newTestDaemon(t *testing.T, hubURL string, accept bool) *Daemon {
 	}
 	d.mu.Unlock()
 	t.Cleanup(func() { d.Close() })
+	joinTestGroup(t, d, accept)
 	return d
 }
 
-// TestRelayDelegationRoundTrip exercises the whole v0.1 multi-turn loop through the Hub relay: register →
-// delegate → provider poll → chat both ways → end negotiation (propose + accept) → provider issues the
-// receipt over the transcript → requester poll → review → Hub verify + display the verified transcript.
+// testGroups holds, per test, the daemons newTestDaemon created and which of
+// them accept the others.
+var testGroups sync.Map // *testing.T -> *testGroup
+
+type testGroup struct {
+	mu        sync.Mutex
+	all       []*Daemon
+	accepting []*Daemon
+}
+
+// joinTestGroup adds d to its test's group and keeps the allow lists of the
+// accepting daemons complete.
+func joinTestGroup(t *testing.T, d *Daemon, accept bool) {
+	t.Helper()
+	v, _ := testGroups.LoadOrStore(t, &testGroup{})
+	g := v.(*testGroup)
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, a := range g.accepting {
+		allowPeers(t, a, d.AID())
+	}
+	if accept {
+		for _, o := range g.all {
+			allowPeers(t, d, o.AID())
+		}
+		g.accepting = append(g.accepting, d)
+	}
+	g.all = append(g.all, d)
+	t.Cleanup(func() { testGroups.Delete(t) })
+}
+
+// allowPeers appends AIDs to d's peers.allow, the way scripts and operators
+// do it without the CLI (the CLI's `anet peers allow` requires a TTY).
+func allowPeers(t *testing.T, d *Daemon, aids ...string) {
+	t.Helper()
+	appendPeerFile(t, d, d.config().inbound().AllowFile, aids...)
+}
+
+// trustPeers appends AIDs to d's peers.trust.
+func trustPeers(t *testing.T, d *Daemon, aids ...string) {
+	t.Helper()
+	appendPeerFile(t, d, d.config().inbound().TrustFile, aids...)
+}
+
+// denyPeers appends AIDs to d's peers.deny.
+func denyPeers(t *testing.T, d *Daemon, aids ...string) {
+	t.Helper()
+	appendPeerFile(t, d, d.config().inbound().DenyFile, aids...)
+}
+
+func appendPeerFile(t *testing.T, d *Daemon, name string, aids ...string) {
+	t.Helper()
+	f, err := os.OpenFile(d.peerFile(name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	for _, a := range aids {
+		if _, err := f.WriteString(a + "\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestRelayDelegationRoundTrip exercises the whole multi-turn loop through the Hub relay: register →
+// delegate → provider poll → chat both ways → the requester asks to end → the provider daemon completes
+// and signs the receipt over the v2 transcript → requester poll → review → the Hub stores the review
+// without any task content.
 func TestRelayDelegationRoundTrip(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -54,10 +132,10 @@ func TestRelayDelegationRoundTrip(t *testing.T) {
 	prov := newTestDaemon(t, srv.URL, true)
 
 	// Both must be registered so the relay knows their mailboxes + KELs (for poll auth + review verify).
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatalf("register requester: %v", err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Bakery Bot", []string{"haiku"}, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Bakery Bot", []string{"haiku"}, ""); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}
 
@@ -97,19 +175,19 @@ func TestRelayDelegationRoundTrip(t *testing.T) {
 		t.Fatalf("provider poll reply: %v", err)
 	}
 
-	// 4. end negotiation: the requester proposes ending, the provider accepts → the provider issues the
-	// signed receipt over the transcript and relays it back.
+	// 4. the requester asks to end; the provider daemon completes on its own (A2A-DESIGN §4.2): it
+	// signs the receipt over the transcript and relays it back, without the provider's agent.
 	if err := req.RequestEnd(ctx, id); err != nil {
 		t.Fatalf("request end: %v", err)
 	}
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatalf("provider poll end-request: %v", err)
 	}
-	if err := prov.AcceptEnd(ctx, id); err != nil {
-		t.Fatalf("accept end: %v", err)
+	if pix, _ := prov.ix.Get(id); pix.State != interactions.StateCompleted || len(pix.Receipt) == 0 {
+		t.Fatalf("provider did not complete on the end request: state %s receipt %d bytes", pix.State, len(pix.Receipt))
 	}
 
-	// 5. requester pulls the receipt (interaction becomes done).
+	// 5. requester pulls the receipt (interaction becomes completed).
 	results, err := req.Results(ctx)
 	if err != nil {
 		t.Fatalf("results: %v", err)
@@ -124,6 +202,18 @@ func TestRelayDelegationRoundTrip(t *testing.T) {
 		results[0].ReceiptCID == "" || results[0].Receipt == "" {
 		t.Fatalf("result omitted verifiable evidence: %+v", results[0])
 	}
+	if results[0].State != string(interactions.StateCompleted) || results[0].ReceiptVerified != string(interactions.VerificationVerified) {
+		t.Fatalf("result state %s, receipt %q", results[0].State, results[0].ReceiptVerified)
+	}
+	// The deliverable is a v2 transcript carrying the task nonce (A2A-DESIGN §2 X4).
+	tr, err := transcript.Parse([]byte(results[0].Result))
+	if err != nil || tr.Version != 2 {
+		t.Fatalf("deliverable is not a v2 transcript: %v %q", err, results[0].Result)
+	}
+	rix, _ := req.ix.Get(id)
+	if tr.Nonce == "" || tr.Nonce != rix.TaskNonce {
+		t.Fatalf("transcript nonce %q, task nonce %q", tr.Nonce, rix.TaskNonce)
+	}
 
 	// 6. requester reviews + uploads to the Hub.
 	if _, err := req.SubmitReview(id, 5, "fast and delightful"); err != nil {
@@ -133,7 +223,8 @@ func TestRelayDelegationRoundTrip(t *testing.T) {
 		t.Fatalf("upload review: %v", err)
 	}
 
-	// 7. the Hub shows the verified rating + transcript on the provider.
+	// 7. the Hub shows the rating; it received no task content and says the content binding is
+	// unverified (A2A-DESIGN §9).
 	var got struct {
 		Agent   hubapi.AgentView    `json:"agent"`
 		Reviews []hubapi.ReviewView `json:"reviews"`
@@ -147,8 +238,55 @@ func TestRelayDelegationRoundTrip(t *testing.T) {
 	if got.Agent.ReviewCount != 1 || got.Agent.AvgRating != 5 {
 		t.Fatalf("aggregate = %d/%v, want 1/5", got.Agent.ReviewCount, got.Agent.AvgRating)
 	}
-	if len(got.Reviews) != 1 || !strings.Contains(got.Reviews[0].Deliverable, deliverable) {
-		t.Fatalf("stored review = %+v, want transcript containing %q", got.Reviews, deliverable)
+	if len(got.Reviews) != 1 || got.Reviews[0].ContentBinding != hubapi.ContentBindingUnverified {
+		t.Fatalf("stored review = %+v, want one with content_binding UNVERIFIED", got.Reviews)
+	}
+}
+
+// The review upload body carries the receipt and the review and nothing else: no request TaskDoc, no
+// deliverable (A2A-DESIGN §9, row 评价).
+func TestTheReviewUploadCarriesNoContent(t *testing.T) {
+	var body map[string]any
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"accepted"}`))
+	}))
+	defer hub.Close()
+	d := newTestDaemon(t, "", false)
+	const id = "ix_review_body"
+	if err := d.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: "did:anet:bprovider",
+		Goal: "a secret goal", RequestDoc: []byte("SECRET-REQUEST")}); err != nil {
+		t.Fatal(err)
+	}
+	rc := &evidence.Receipt{InteractionID: id, RequesterAID: d.AID(), ProviderAID: "did:anet:bprovider",
+		RequestCID: "req", ResultCID: "res", CompletedAt: 1}
+	if err := rc.Sign(d.self); err != nil {
+		t.Fatal(err)
+	}
+	rcb, _ := rc.Marshal()
+	if err := d.ix.SetResult(id, []byte("SECRET-DELIVERABLE"), "res", rcb, interactions.VerificationVerified); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SubmitReview(id, 4, "ok"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.UploadReview(context.Background(), hub.URL, id); err != nil {
+		t.Fatal(err)
+	}
+	keys := make([]string, 0, len(body))
+	for k := range body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if strings.Join(keys, ",") != "receipt,review" {
+		t.Fatalf("review upload fields = %v, want receipt and review only", keys)
+	}
+	raw, _ := json.Marshal(body)
+	for _, secret := range []string{"SECRET", base64.StdEncoding.EncodeToString([]byte("SECRET-REQUEST"))} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("review upload carries task content %q", secret)
+		}
 	}
 }
 
@@ -189,8 +327,9 @@ func TestResultsPaginatesBeyondStoreDefaultLimit(t *testing.T) {
 	}
 }
 
-// TestRelayDelegationRefusedWhenNotAccepting verifies a provider that has not opted in drops delegated
-// tasks (they never enter its inbox).
+// TestRelayDelegationRefusedWhenNotAccepting verifies that a provider with an empty allow list under the
+// default closed policy refuses a delegation: it never enters its inbox, and the requester is told
+// status{rejected, anet.reason=not_accepting} (A2A-DESIGN §5.2 row 6).
 func TestRelayDelegationRefusedWhenNotAccepting(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -198,10 +337,10 @@ func TestRelayDelegationRefusedWhenNotAccepting(t *testing.T) {
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, false) // NOT accepting
 
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Closed Bot", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Closed Bot", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.Delegate(ctx, prov.AID(), "do something", nil); err != nil {
@@ -217,6 +356,17 @@ func TestRelayDelegationRefusedWhenNotAccepting(t *testing.T) {
 	if len(inbox) != 0 {
 		t.Fatalf("non-accepting provider stored %d tasks, want 0", len(inbox))
 	}
+	waitUntil(t, "the refusal notice reaches the requester", func() bool {
+		_ = req.pollOnce(ctx)
+		list, _ := req.ix.List(interactions.RoleOutbound, interactions.StateRejected, 0, 0)
+		return len(list) == 1
+	})
+	list, _ := req.ix.List(interactions.RoleOutbound, interactions.StateRejected, 0, 0)
+	msgs, _ := req.ix.Messages(list[0].ID)
+	last := msgs[len(msgs)-1]
+	if last.Kind != interactions.MsgStatus || !strings.Contains(last.Metadata, `"anet.reason":"not_accepting"`) {
+		t.Fatalf("refusal notice = %+v", last)
+	}
 }
 
 // TestRelayAttachmentRoundTrip exercises binary attachments through the whole relay loop: the requester
@@ -229,10 +379,10 @@ func TestRelayAttachmentRoundTrip(t *testing.T) {
 
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatalf("register requester: %v", err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Coder", []string{"coding"}, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Coder", []string{"coding"}, ""); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}
 
@@ -288,23 +438,21 @@ func TestRelayAttachmentRoundTrip(t *testing.T) {
 	if len(files) != 2 {
 		t.Fatalf("pulled %d files, want 2", len(files))
 	}
-	zipBytes, err := os.ReadFile(filepath.Join(outDir, "build.zip"))
+	zipPath := ""
+	for _, f := range files {
+		if f.Name == "build.zip" {
+			zipPath = f.Path
+		}
+	}
+	zipBytes, err := os.ReadFile(zipPath)
 	if err != nil || string(zipBytes) != string(provBytes) {
 		t.Fatalf("pulled build.zip mismatch: err=%v", err)
 	}
 
-	// End the task; the receipt-bound transcript must reference both attachment CIDs (not their bytes).
+	// The provider completes; the receipt-bound transcript must reference both attachment CIDs (not
+	// their bytes).
 	if err := prov.RequestEnd(ctx, id); err != nil {
 		t.Fatalf("provider end: %v", err)
-	}
-	if err := req.pollOnce(ctx); err != nil {
-		t.Fatalf("requester poll end: %v", err)
-	}
-	if err := req.AcceptEnd(ctx, id); err != nil {
-		t.Fatalf("requester accept end: %v", err)
-	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatalf("provider poll accept: %v", err)
 	}
 	results, err := req.Results(ctx)
 	if err != nil {

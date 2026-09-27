@@ -85,7 +85,7 @@ func main() {
 		// Serves over stdio, so it must not share the process with
 		// anything that prints: a stray line on stdout is a protocol
 		// framing error to the client.
-		fail(runMCP(layout))
+		fail(runMCP(layout, explicit))
 	case "verify":
 		// Above the daemon resolution on purpose: checking a receipt takes
 		// a receipt and a key history and nothing else. Requiring a running
@@ -146,14 +146,16 @@ func extractGlobalID(args []string) (id string, rest []string) {
 type cmdDoc struct{ use, desc string }
 
 var grpNetwork = []cmdDoc{
-	{"hub-register <url> [--name N] [--caps a,b] [--guest-messages N] [--accept-delegations true|false]", "在官方 Hub 上注册你的 agent(提交 AID; 访客试玩默认 5 条, 0 关闭)"},
-	{"accept <on|off>", "是否接收别人委派来的任务(默认 on; 关闭后仍在 find 可见, 但委派会被丢弃)"},
+	{"hub-register <url> [--name N] [--caps a,b] [--token INVITE]", "在官方 Hub 上注册你的 agent(提交 AID 与加密公钥)"},
+	{"peers list|allow|trust|deny|remove [<aid>]", "入站名单: allow 可委派, trust 另可驱动本机 exec 自动回复; allow/trust 需在终端确认"},
+	{"inbound policy [closed|approve|open]", "入站策略(默认 closed: 只接受 allow 名单); 放宽为 approve/open 需在终端确认"},
+	{"inbound pending|approve|reject [<id>]", "approve 策略下的待批队列(只列元数据); approve 需在终端确认"},
 	{"autoreply set --backend exec --agent <cursor|claude|…>", "全自动接单: 收到委派就拉起本机编码 agent 撰写回复(热生效, 无需重启)"},
 	{"autoreply set --backend openai --api-base URL --model M", "全自动接单: 用你的 OpenAI 兼容 API 回复(可加 --require-image 等)"},
 	{"autoreply test [\"问题\"]", "本地验证自动回复(不经过 Hub, 不建身份, 零污染)"},
 	{"autoreply show|off", "查看 / 关闭内置自动回复循环"},
 	{"profile set [--summary S] [--readme S|@file] [--pricing S]", "由你的 agent 自述能力与收费(仅展示), 发布到 Hub"},
-	{"console [--url]", "打开本地控制台(浏览+一键 find/delegate/review); --url 只打印网址(交给操作者在浏览器打开)"},
+	{"console [--url]", "打开本地控制台(浏览+委派+评价); --url 只打印一次性网址(60 秒内有效,交给操作者在浏览器打开)"},
 	{"find [query]", "在 Hub 上搜索 agent(按 AID/名字/能力/自述子串; 空 query 列全部)"},
 	{"delegate <provider-aid> <goal> [--attach PATH …]", "把任务经 Hub 中继排队给对方(立即返回 interaction_id, 对方可离线; --attach 附带图片/媒体/压缩包)"},
 	{"delegate <provider-aid> --capability <id> [--args '<json>'] [--pay]", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent); --pay 表示对方若报价就照价付款再执行"},
@@ -167,8 +169,7 @@ var grpNetwork = []cmdDoc{
 	{"thread <id>", "读一次交互的完整对话(多轮消息 + 附件清单 + 结束协商状态)"},
 	{"message <id> <text…>|--file PATH [--attach PATH …]", "在一次委派里发消息(多轮对话, 任一方都可发; --attach 发送图片/媒体/压缩包, 单个 ≤64 MiB)"},
 	{"pull <id> [--out DIR]", "把收到的附件(图片/媒体/压缩包)保存到本地目录(默认当前目录)"},
-	{"end <id>", "提议结束任务(对方也点 end 即达成一致; 双方一致后由委派方评价)"},
-	{"accept-end <id>", "同意对方的结束提议(与 end 等价, 语义更明确)"},
+	{"end <id>", "结束任务: 提供方执行即完成并签回执; 委派方执行即请求对方完成"},
 	{"results", "拉取我委派、现在已结束的任务对话记录(含对方回执)"},
 	{"review <id> <rating 1-5> [comment]", "为已结束的委派签署评价并上传到 Hub"},
 }
@@ -304,22 +305,28 @@ func usageAllText() string {
   anet id rm <name> --purge   permanently delete an identity (key + history)
   anet --id <name> <cmd>      run any command against a specific identity (ANET_ID env works too)
   anet install --agent <` + agentChoices() + `>   wire anet into an agent so its LLM knows how to use it
-  anet hub-register <url> [--name N] [--caps a,b] [--token INVITE] [--guest-messages N] [--accept-delegations true|false]   register on a Hub (--token only if it admits by invite; guest trial default 5, 0 opts out)
-  anet accept <on|off>        toggle whether you accept delegated tasks (default on; persisted, effective immediately)
+  anet hub-register <url> [--name N] [--caps a,b] [--token INVITE]   register on a Hub (--token only if it admits by invite)
+  anet peers list             show the inbound policy and the allow, trust and deny lists
+  anet peers allow|trust <aid>   let a peer delegate to you (trust: also drive your exec auto-reply); asks for confirmation on the terminal
+  anet peers deny|remove <aid>   refuse a peer (cancels its open tasks) / take it off every list
+  anet inbound policy [closed|approve|open]   show or set the inbound policy (default closed); loosening asks for confirmation on the terminal
+  anet inbound pending        list delegations held for approval (metadata only)
+  anet inbound approve|reject <interaction_id>   decide a held delegation (approve asks for confirmation on the terminal)
+  anet accept off             older switch: sets the inbound policy to closed ('accept on' is refused; use 'anet peers allow <aid>')
   anet autoreply set --backend exec --agent <cursor|claude|…>   auto-answer inbound tasks by spawning a local coding agent (live, no restart)
   anet autoreply set --backend openai --api-base URL --model M   auto-answer inbound tasks with your OpenAI-compatible API
   anet autoreply test ["q"]   verify auto-reply locally (never touches the Hub / creates no node)
   anet autoreply show|off     inspect or turn off the built-in auto-reply loop
   anet profile set [--summary S] [--readme S|@file] [--pricing S]   publish your agent's self-description (display-only pricing)
   anet profile show           print the current self-description
-  anet console [--url]        open the local web console (browse + one-click actions); --url just prints the URL for your operator to open
+  anet console [--url]        open the local web console (browse + one-click actions); --url prints a single-use URL (valid 60 s) for your operator to open
   anet find [query]           search the Hub registry (AID/name/caps/profile substring; empty lists all)
   anet delegate <provider-aid> <goal>   queue a task on a provider via the Hub relay (returns interaction_id)
   anet inbox [--pending]      list tasks other agents delegated to you
   anet thread <interaction_id>   read one interaction's full conversation (all messages + end-negotiation state)
   anet message <interaction_id> <text...>|--file PATH   send a message in an interaction (multi-turn chat; either side; anet only relays)
-  anet end <interaction_id>   propose ending the task (both sides agree ⇒ the requester can review)
-  anet accept-end <interaction_id>   accept the peer's end proposal (same as 'end', clearer intent)
+  anet end <interaction_id>   end a task: the provider completes it and signs the receipt; the requester asks the provider to complete
+  anet accept-end <interaction_id>   removed: the provider completes a task itself (use 'anet end')
   anet results                pull the conversation for tasks you delegated that have ended (with the receipt)
   anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay accepts a quoted price and runs the work
   anet hub-leave [<hub-url>]  stop being deliverable at a hub you have moved away from (the evidence stays)
@@ -1070,10 +1077,12 @@ var knownFlags = map[string][]string{
 
 	// through the control plane
 	"status":        {},
-	"hub-register":  {"name", "caps", "token", "guest-messages", "accept-delegations"},
+	"hub-register":  {"name", "caps", "token", "accept-delegations"},
 	"hub-leave":     {},
 	"p2p-advertise": {},
 	"accept":        {},
+	"peers":         {},
+	"inbound":       {},
 	"autoreply": {
 		"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir",
 		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
@@ -1203,36 +1212,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 	case "stop", "down":
 		return stopDaemon(layout, explicit)
 	case "hub-register":
-		pos, flags := splitFlags(rest)
-		if len(pos) < 1 || pos[0] == "" {
-			return fmt.Errorf("hub-register <url> [--name NAME] [--caps a,b] [--token INVITE] " +
-				"[--guest-messages N] [--accept-delegations true|false]")
-		}
-		body := map[string]any{"hub": pos[0], "name": flags["name"]}
-		// Only sent when given. A hub that admits openly has no use for
-		// it, and sending an empty string would make the two cases look
-		// different on the wire when they are not.
-		if v := strings.TrimSpace(flags["token"]); v != "" {
-			body["token"] = v
-		}
-		if v := flags["caps"]; v != "" {
-			body["caps"] = strings.Split(v, ",")
-		}
-		if v, ok := flags["guest-messages"]; ok {
-			n, err := strconv.Atoi(strings.TrimSpace(v))
-			if err != nil || n < 0 {
-				return fmt.Errorf("--guest-messages 需要一个 >=0 的整数（0 表示不接待访客）")
-			}
-			body["guest_messages"] = n
-		}
-		if v, ok := flags["accept-delegations"]; ok {
-			b, err := parseBool(v)
-			if err != nil {
-				return fmt.Errorf("--accept-delegations 需要 true 或 false")
-			}
-			body["accept_delegations"] = b
-		}
-		return c.do("/hub-register", body)
+		return runHubRegister(c, rest)
 	case "p2p-advertise":
 		// The address a peer should dial, published on the hub so peers
 		// on other machines can find this node. Empty withdraws it.
@@ -1252,14 +1232,11 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		}
 		return c.do("/hub-leave", map[string]any{"hub": hub})
 	case "accept":
-		if arg(0) == "" {
-			return fmt.Errorf("accept <on|off>  (是否接收别人委派来的任务；关闭后你仍在 find 中可见，但收到的委派会被丢弃)")
-		}
-		b, err := parseBool(arg(0))
-		if err != nil {
-			return fmt.Errorf("accept <on|off>")
-		}
-		return c.do("/accept", map[string]any{"enabled": b})
+		return runAccept(c, rest)
+	case "peers":
+		return runPeers(c, rest)
+	case "inbound":
+		return runInbound(c, rest)
 	case "autoreply", "auto-reply":
 		return runAutoReply(c, rest)
 	case "profile":
@@ -1291,26 +1268,34 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 			return fmt.Errorf("profile set|show")
 		}
 	case "console":
-		// Prefer the daemon's own console_url (right loopback port + configured Hub). Fall back to a bare
-		// /console on the control base if status is unavailable.
-		target := c.base + "/console"
-		if b, code, err := c.fetch("/status", nil); err == nil && code == 200 {
-			var st struct {
-				ConsoleURL string `json:"console_url"`
+		// The console page carries no credential. This command, which holds the control token, asks the
+		// daemon for a single-use console ticket valid for 60 seconds and opens (or, with --url, prints)
+		// http://127.0.0.1:<port>/console#t=<ticket>. The page trades the ticket for a browser session;
+		// reloading the page needs a new ticket, i.e. running this command again. --id NAME picks the
+		// identity, like every other command.
+		b, code, err := c.fetch("/console/ticket", map[string]any{})
+		if err != nil {
+			return err
+		}
+		var tk struct {
+			URL   string `json:"url"`
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(b, &tk) != nil || code != 200 || tk.URL == "" {
+			if tk.Error == "" {
+				tk.Error = strings.TrimSpace(string(b))
 			}
-			if json.Unmarshal(b, &st) == nil && st.ConsoleURL != "" {
-				target = st.ConsoleURL
-			}
+			return fmt.Errorf("console ticket: HTTP %d: %s", code, tk.Error)
 		}
 		// `--url` (alias `--print`): just print the URL — this is what an onboarding agent hands back to
-		// its operator to open. Without it, best-effort open the operator's browser.
+		// its operator to open. It is single-use and expires after 60 seconds.
 		if hasFlag(rest, "--url", "--print") {
-			fmt.Println(target)
+			fmt.Println(tk.URL)
 			return nil
 		}
-		fmt.Println("opening", target)
-		if err := openBrowser(target); err != nil {
-			fmt.Fprintln(os.Stderr, "(could not auto-open a browser; open the URL above manually)")
+		fmt.Println("opening the console (single-use link, valid 60 s)")
+		if err := openBrowser(tk.URL); err != nil {
+			fmt.Fprintln(os.Stderr, "(could not auto-open a browser; run `anet console --url` and open the printed URL within 60 seconds)")
 		}
 		return nil
 	case "find":
@@ -1403,21 +1388,21 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		if len(pos) < 1 || pos[0] == "" {
 			return fmt.Errorf("pull <interaction_id> [--out DIR]")
 		}
-		body := map[string]any{"interaction_id": pos[0]}
+		// The daemon requires an absolute out_dir and refuses to fall back to its own working directory,
+		// so the default "current directory" is resolved here, in the caller's process.
+		out := "."
 		if o := flags["out"]; o != "" && o != "true" {
-			body["out_dir"] = absPath(o)
+			out = o
 		}
-		return c.do("/pull", body)
+		return c.do("/pull", map[string]any{"interaction_id": pos[0], "out_dir": absPath(out)})
 	case "end":
 		if arg(0) == "" {
 			return fmt.Errorf("end <interaction_id>")
 		}
 		return c.do("/end", map[string]any{"interaction_id": arg(0)})
 	case "accept-end":
-		if arg(0) == "" {
-			return fmt.Errorf("accept-end <interaction_id>")
-		}
-		return c.do("/end-accept", map[string]any{"interaction_id": arg(0)})
+		return fmt.Errorf("accept-end was removed: the provider completes a task itself; " +
+			"a requester asks it to with `anet end <interaction_id>`")
 	case "results":
 		return c.do("/results", map[string]any{})
 	case "x402-authorize", "pay-header":

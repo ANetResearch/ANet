@@ -9,6 +9,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/identity"
 
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/inv1"
 	"github.com/ANetResearch/ANet/module/inv2"
@@ -150,9 +151,16 @@ type moduleHost struct{ d *Daemon }
 func (h moduleHost) AID() string                   { return h.d.AID() }
 func (h moduleHost) Providers() *provider.Registry { return h.d.providers }
 
-// ResolveKEL answers for peers this node has verified itself, and for the
-// node itself. See peerkel.go for why the first bound is the point rather
-// than a limitation.
+// ResolveKEL answers for peers this node holds a record of in
+// peer_identity (peerkel.go), and for the node itself. The record exists
+// only for peers this node accepted a message from or contacted, so the
+// bound is the point rather than a limitation: this node vouches for key
+// histories it verified and for nothing else.
+//
+// A row a module resolves is pinned (reason "issuer") so it is not
+// evicted: a module asks because it is verifying an object signed under
+// that key history — an organisation credential, a blackboard contribution
+// — and losing the record would make the same object unverifiable later.
 //
 // This node's own key history was missing, and the omission was not
 // harmless: the peers table records only key histories seen on the INBOUND
@@ -171,7 +179,16 @@ func (h moduleHost) ResolveKEL(aid string) ([]identity.SignedEvent, bool) {
 	if aid != "" && aid == h.d.AID() {
 		return h.d.self.KEL(), true
 	}
-	return h.d.peers.resolve(aid)
+	kel, ok := h.d.peerKEL(aid)
+	if !ok {
+		return nil, false
+	}
+	if row, err := h.d.ix.PeerIdentity(aid); err == nil && row.PinnedReason == "" {
+		if err := h.d.notePeer(aid, nil, nil, interactions.PinIssuer, false); err != nil {
+			log.Printf("anet: pin %s: %v", aid, err)
+		}
+	}
+	return kel, true
 }
 func (h moduleHost) RecordEvidence(kind string, payload any) error {
 	_, err := h.d.ledger.Append(kind, payload)

@@ -5,9 +5,16 @@
 #   anet          go build ./cmd/anet                              (this repo)
 #   anetfixture   go build ./tools/anetfixture                     (this repo)
 #   anetpeer      go build ./tools/anetpeer                        (this repo)
-#   anetlinkd     go build -tags onvif,hikvision,dahua ./cmd/...   (ANetLink)
-#   anetmock      go build ./cmd/anetmock                          (ANetMock)
+#   anetlinkd     GOWORK=off go build -tags onvif,hikvision,dahua ./cmd/...   (ANetLink)
+#   anetmock      GOWORK=off go build ./cmd/anetmock                          (ANetMock)
 #   anet-hub      go build ./cmd/anet-hub                          (ANetHub)
+#
+# ANet and ANetHub speak wire 2 (sealed envelopes, relayauth v2) and must be
+# built from the same generation: a wire-2 daemon refuses a wire-1 hub and a
+# wire-2 hub answers 426 to a wire-1 daemon. While the ANetCore release they
+# need is not tagged, build both with GOWORK pointing at a workspace holding
+# the three repositories; ANetLink and ANetMock are not in that workspace and
+# are built with GOWORK=off.
 #
 # and these already running:
 #   ./anetmock -venue office -api 127.0.0.1:29080 -base-port 29200
@@ -66,12 +73,18 @@ mkdir -p "$REQ/.anet" "$PROV/.anet"
 python3 - "$REQ/.anet/config.json" "$RC" "$PROV/.anet/config.json" "$PC" <<'CFG'
 import json, os, sys
 for path, addr in ((sys.argv[1], sys.argv[2]), (sys.argv[3], sys.argv[4])):
-    c = json.load(open(path)) if os.path.exists(path) else {"accept_delegations": True}
+    c = json.load(open(path)) if os.path.exists(path) else {}
+    c.pop("accept_delegations", None)  # wire 1; the inbound policy replaces it
     c["control_addr"] = addr
     json.dump(c, open(path, "w"), indent=1)
 CFG
 
 REQ_AID=$($FIX aid --home "$REQ/.anet")
+# The provider runs the default closed inbound policy (A2A-DESIGN §5) and
+# accepts the requester by name. The file is written directly: the CLI's
+# `anet peers allow` asks for confirmation on a terminal, which a script
+# does not have. The daemon reads the file on every decision.
+printf '%s\n' "$REQ_AID" > "$PROV/.anet/peers.allow"
 GENESIS=$($FIX org-genesis --home "$REQ/.anet" --nonce joint 2>$J/run/orgid.txt)
 ORG_ID=$(sed 's/^org id: //' $J/run/orgid.txt)
 

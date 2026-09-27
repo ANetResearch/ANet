@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -17,11 +18,14 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/relayauth"
+	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // maxHubResponse bounds a decoded Hub response body. It is generous because `find` / `GET /agents/{aid}`
@@ -30,20 +34,20 @@ import (
 // acks, so the undelivered backlog stays small in practice; this caps a single poll response.
 const maxHubResponse = 256 << 20 // 256 MiB
 
-// RegisterWithHub publishes this agent's AgentCard + KEL to the Hub so it can be discovered and reviewed.
-// The Hub derives the AID from the KEL and rejects a mismatch, and verifies a signed challenge proving we
-// hold the key — so this cannot claim (or overwrite) another agent's AID. guestMessages is the guest-mode
-// trial quota this agent accepts (0 = opt out); it is always sent so the Hub row stays in sync.
+// RegisterWithHub publishes this agent's AgentCard, KEL and encryption key set to the Hub so it can be
+// discovered, reached and reviewed. The Hub derives the AID from the KEL and rejects a mismatch, and
+// verifies the relayauth v2 signature against that KEL — so this cannot claim (or overwrite) another
+// agent's AID.
 // invite is an admission token, sent only when the operator supplied one.
 // A hub that admits openly ignores it; a hub that requires one and does not
 // already know this AID refuses without it. It is deliberately NOT persisted:
 // it is spent on arrival, and a token sitting in config.json is a credential
 // kept long after the thing it bought.
-func (d *Daemon) RegisterWithHub(ctx context.Context, hubURL, name string, caps []string, guestMessages int, invite string) error {
+func (d *Daemon) RegisterWithHub(ctx context.Context, hubURL, name string, caps []string, invite string) error {
 	// One registration at a time — see Daemon.regMu.
 	d.regMu.Lock()
 	defer d.regMu.Unlock()
-	return d.registerWithHubLocked(ctx, hubURL, name, caps, guestMessages, invite)
+	return d.registerWithHubLocked(ctx, hubURL, name, caps, invite)
 }
 
 // registerWithHubLocked is RegisterWithHub with regMu already held.
@@ -53,61 +57,108 @@ func (d *Daemon) RegisterWithHub(ctx context.Context, hubURL, name string, caps 
 // the capability list, an explicit `hub-register` could then write a new
 // one and publish it, and the refresh's request — still carrying the old
 // list — would land afterwards and undo it.
-func (d *Daemon) registerWithHubLocked(ctx context.Context, hubURL, name string, caps []string, guestMessages int, invite string) error {
+func (d *Daemon) registerWithHubLocked(ctx context.Context, hubURL, name string, caps []string, invite string) error {
 	kelB, err := identity.MarshalKEL(d.self.KEL())
 	if err != nil {
 		return err
 	}
-	ts, seq, sig := d.signRelayAuth(relayauth.ActionRegister)
-	body := map[string]any{
-		"aid":            d.AID(),
-		"name":           name,
-		"caps":           caps,
-		"guest_messages": guestMessages,
-		"kel":            base64.StdEncoding.EncodeToString(kelB),
-		"ts":             ts,
-		"key_state_seq":  seq,
-		"sig":            sig,
+	body := hubapi.RegisterRequest{
+		AID:    d.AID(),
+		Name:   name,
+		Caps:   caps,
+		KEL:    base64.StdEncoding.EncodeToString(kelB),
+		Invite: invite,
 	}
-	if invite != "" {
-		body["invite"] = invite
+	// The key set is restated on every registration, so a hub that lost
+	// it, or a registration after a restart, carries the current one. The
+	// hub answers an identical set at the same seq as unchanged.
+	keysSeq := uint64(0)
+	if d.enc != nil {
+		if ks := d.enc.SignedSet(); len(ks) > 0 {
+			body.EncKeys = base64.StdEncoding.EncodeToString(ks)
+			keysSeq = d.enc.Seq()
+		}
 	}
 	// The card carries the same claims, signed by the node making them.
-	// The challenge above proves who is calling; only this proves what
+	// The request signature proves who is calling; only this proves what
 	// they said. See card.go.
 	if card, cerr := d.signedCard(name, caps); cerr == nil {
-		body["card"] = json.RawMessage(card)
+		body.Card = json.RawMessage(card)
 	} else {
 		log.Printf("anet: registering without a signed card: %v", cerr)
 	}
 	if err := d.screenPublication("this node's registration", body); err != nil {
 		return err
 	}
-	return d.hubPost(ctx, hubURL, "/register", body, nil)
+	var out hubapi.RegisterResponse
+	if err := d.hubSigned(ctx, hubURL, http.MethodPost, "/register", relayauth.ActionRegister, body, &out); err != nil {
+		return err
+	}
+	// A refused key set does not fail the registration (the hub reports it
+	// per field). The registration still stands, so it is logged and the
+	// set is published again through POST /agents/{aid}/keys, whose
+	// answer is unambiguous.
+	if keysSeq != 0 {
+		if keysAccepted(out.KeysStatus) {
+			d.publishedKeySeq.Store(keysSeq)
+		} else {
+			log.Printf("anet: %s did not take this node's encryption keys at registration (keys_status %q: %s); publishing them separately",
+				hubURL, out.KeysStatus, out.KeysError)
+			if err := d.publishKeys(ctx, hubURL); err != nil {
+				log.Printf("anet: publish encryption keys to %s: %v", hubURL, err)
+			}
+		}
+	}
+	return nil
+}
+
+// keysAccepted reads the per-field status a wire-2 hub returns for the
+// enc_keys of a registration: stored, or identical to what it holds.
+func keysAccepted(status string) bool {
+	return status == hubapi.KeysStatusOK || status == hubapi.KeysStatusUnchanged
+}
+
+// publishKeys sends the current signed key set to the hub (POST
+// /agents/{aid}/keys). 200 means the hub holds this set; 409 means it holds
+// a set this one does not supersede, which after a lost key ring file is
+// expected until the clock passes the old seq (seal.NextSeq).
+func (d *Daemon) publishKeys(ctx context.Context, hubURL string) error {
+	if d.enc == nil {
+		return fmt.Errorf("anet: no key ring")
+	}
+	ks, seq := d.enc.SignedSet(), d.enc.Seq()
+	if len(ks) == 0 {
+		return fmt.Errorf("anet: key ring has no signed set")
+	}
+	body := hubapi.KeysPublishRequest{KeySet: base64.StdEncoding.EncodeToString(ks)}
+	if err := d.hubSigned(ctx, hubURL, http.MethodPost, "/agents/"+url.PathEscape(d.AID())+"/keys",
+		relayauth.ActionKeys, body, nil); err != nil {
+		return err
+	}
+	d.publishedKeySeq.Store(seq)
+	return nil
 }
 
 // PublishProfile uploads this agent's self-authored profile (summary/readme/pricing) to the Hub,
-// authenticated by a signed challenge verified against the registered KEL. Pricing is display-only text.
+// authenticated with relayauth v2 against the registered KEL. Pricing is display-only text.
 func (d *Daemon) PublishProfile(ctx context.Context, hubURL, summary, readme, pricing string) error {
-	ts, seq, sig := d.signRelayAuth(relayauth.ActionProfile)
 	body := map[string]any{
-		"aid":           d.AID(),
-		"summary":       summary,
-		"readme":        readme,
-		"pricing":       pricing,
-		"ts":            ts,
-		"key_state_seq": seq,
-		"sig":           sig,
+		"aid":     d.AID(),
+		"summary": summary,
+		"readme":  readme,
+		"pricing": pricing,
 	}
 	if err := d.screenPublication("this node's profile", body); err != nil {
 		return err
 	}
-	return d.hubPost(ctx, hubURL, "/profile", body, nil)
+	return d.hubSigned(ctx, hubURL, http.MethodPost, "/profile", relayauth.ActionProfile, body, nil)
 }
 
-// UploadReview sends the provider-signed receipt + this agent's signed review + the verified interaction
-// content (request TaskDoc + deliverable) for a completed outbound interaction to the Hub, which
-// re-verifies both signatures AND re-hashes the content against the receipt's anchors before storing.
+// UploadReview sends the provider-signed receipt and this agent's signed review for a completed
+// outbound interaction to the Hub, which verifies both signatures and that the review is anchored to
+// the receipt. No task content is sent: the request TaskDoc and the deliverable stay with the two
+// parties (A2A-DESIGN §9, row 评价), and the hub reports the content binding of every review as
+// UNVERIFIED.
 func (d *Daemon) UploadReview(ctx context.Context, hubURL, interactionID string) error {
 	if d.ix == nil {
 		return fmt.Errorf("anet: interactions store unavailable")
@@ -122,20 +173,16 @@ func (d *Daemon) UploadReview(ctx context.Context, hubURL, interactionID string)
 	if len(ix.Review) == 0 {
 		return fmt.Errorf("anet: no review for %s (run `review` first)", interactionID)
 	}
-	if len(ix.RequestDoc) == 0 || len(ix.Result) == 0 {
-		return fmt.Errorf("anet: interaction %s is missing its request/deliverable content", interactionID)
-	}
-	body := map[string]any{
-		"receipt":     base64.StdEncoding.EncodeToString(ix.Receipt),
-		"review":      base64.StdEncoding.EncodeToString(ix.Review),
-		"request_doc": base64.StdEncoding.EncodeToString(ix.RequestDoc),
-		"deliverable": base64.StdEncoding.EncodeToString(ix.Result),
+	body := hubapi.UploadReviewRequest{
+		Receipt: base64.StdEncoding.EncodeToString(ix.Receipt),
+		Review:  base64.StdEncoding.EncodeToString(ix.Review),
 	}
 	return d.hubPost(ctx, hubURL, "/reviews", body, nil)
 }
 
-// hubPost POSTs a JSON body to hubURL+path, treats a non-2xx as an error (surfacing the Hub's message),
-// and decodes a 2xx body into out when out != nil.
+// hubPost POSTs a JSON body to hubURL+path without authentication, treats
+// a non-2xx as an error (surfacing the Hub's message), and decodes a 2xx
+// body into out when out != nil.
 func (d *Daemon) hubPost(ctx context.Context, hubURL, path string, body, out any) error {
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -163,6 +210,66 @@ func (d *Daemon) hubGet(ctx context.Context, hubURL, path string, query url.Valu
 	return d.hubDo(req, path, out)
 }
 
+// hubSigned sends one request authenticated with relayauth v2
+// (A2A-DESIGN §3.7): the signature covers the action, this node's AID,
+// the hub's AID, the time, and a hash of the method, the request target as
+// sent and the exact body bytes. It travels in the X-ANet-* headers, so the
+// body is signed as sent and never contains its own signature.
+//
+// The hub's AID is part of the preimage, so a signature captured by one hub
+// cannot be replayed at another; it comes from GET /hub/identity and is
+// fetched before the first signed call to that hub.
+func (d *Daemon) hubSigned(ctx context.Context, hubURL, method, path, action string, body, out any) error {
+	hubAID, _, err := d.hubIdentity(ctx, hubURL)
+	if err != nil {
+		return err
+	}
+	var raw []byte
+	if body != nil {
+		if raw, err = json.Marshal(body); err != nil {
+			return err
+		}
+	}
+	target := strings.TrimRight(hubURL, "/") + path
+	req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	// Wall clock, not d.nowMS: the hub checks the time against its own
+	// clock, and the test clock only moves the sealed wire.
+	//
+	// Strictly increasing per process. Ed25519 signatures are
+	// deterministic, so two identical requests signed in the same
+	// millisecond would carry the same signature, and the hub's replay
+	// cache would refuse the second one as a replay.
+	ts := uint64(time.Now().UnixMilli())
+	for {
+		last := d.lastSignTS.Load()
+		if ts <= last {
+			ts = last + 1
+		}
+		if d.lastSignTS.CompareAndSwap(last, ts) {
+			break
+		}
+	}
+	sig, seq := d.self.Sign(relayauth.PreimageV2(action, d.AID(), hubAID, ts, method, req.URL.RequestURI(), raw))
+	req.Header.Set(hubapi.HeaderAID, d.AID())
+	req.Header.Set(hubapi.HeaderTS, strconv.FormatUint(ts, 10))
+	req.Header.Set(hubapi.HeaderSeq, strconv.FormatUint(seq, 10))
+	req.Header.Set(hubapi.HeaderSig, relayauth.EncodeSig(sig))
+	return d.hubDo(req, path, out)
+}
+
+// errHubWire is returned for every call to a hub that speaks a wire
+// contract below 2. Such a hub stores and forwards plaintext, and this
+// daemon only speaks sealed envelopes; there is no fallback.
+var errHubWire = errors.New("hub does not speak wire 2")
+
+// hubDo sends the request with this daemon's wire version, refuses a hub
+// below wire 2, and decodes a 2xx body into out.
 func (d *Daemon) hubDo(req *http.Request, path string, out any) error {
 	// Every request states the C2 contract version this daemon speaks.
 	req.Header.Set(hubapi.WireVersionHeader, strconv.Itoa(hubapi.WireVersion))
@@ -171,20 +278,22 @@ func (d *Daemon) hubDo(req *http.Request, path string, out any) error {
 		return fmt.Errorf("anet: hub %s: %w", path, err)
 	}
 	defer resp.Body.Close()
-	d.noteHubWire(resp.Header.Get(hubapi.WireVersionHeader))
 	// Cap the response to bound memory against a hostile/broken Hub. It must comfortably exceed the
 	// largest legitimate body — `find`/`GET /agents/{aid}` can list many agents or reviews carrying full
 	// interaction transcripts — so it is generous; a truncated body would fail to JSON-decode.
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxHubResponse))
+	if werr := d.checkHubWire(req.URL.Host, resp.StatusCode, resp.Header.Get(hubapi.WireVersionHeader), respBody); werr != nil {
+		return werr
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var e struct {
 			Error string `json:"error"`
 		}
 		_ = json.Unmarshal(respBody, &e)
 		if e.Error != "" {
-			return fmt.Errorf("anet: hub %s rejected: %s", path, e.Error)
+			return &hubError{path: path, code: resp.StatusCode, msg: e.Error, retryAfter: resp.Header.Get("Retry-After")}
 		}
-		return fmt.Errorf("anet: hub %s returned %d", path, resp.StatusCode)
+		return &hubError{path: path, code: resp.StatusCode, retryAfter: resp.Header.Get("Retry-After")}
 	}
 	if out != nil {
 		return json.Unmarshal(respBody, out)
@@ -192,23 +301,127 @@ func (d *Daemon) hubDo(req *http.Request, path string, out any) error {
 	return nil
 }
 
-// noteHubWire reports a hub speaking a different C2 contract, once.
-//
-// Not fatal: a version gap usually degrades rather than breaks, and
-// stranding a working deployment over a header would be worse than the
-// drift it warns about. But it must be said out loud — the failure this
-// exists to catch is the silent one, where both sides carry on and quietly
-// disagree about what a field means.
-func (d *Daemon) noteHubWire(v string) {
-	if v == "" || v == strconv.Itoa(hubapi.WireVersion) {
-		return
+// hubError is a non-2xx hub answer. The status code is kept so a caller can
+// tell "recipient unknown" (404) from "try later" (429, 507).
+type hubError struct {
+	path       string
+	code       int
+	msg        string
+	retryAfter string
+}
+
+func (e *hubError) Error() string {
+	s := fmt.Sprintf("anet: hub %s returned %d", e.path, e.code)
+	if e.msg != "" {
+		s = fmt.Sprintf("anet: hub %s rejected (%d): %s", e.path, e.code, e.msg)
 	}
-	d.wireWarnOnce.Do(func() {
-		log.Printf("anet: hub speaks wire contract %s, this daemon speaks %d — "+
-			"fields either side does not know are ignored; upgrade the older one",
-			v, hubapi.WireVersion)
+	if e.retryAfter != "" {
+		s += " (retry after " + e.retryAfter + "s)"
+	}
+	return s
+}
+
+// hubStatus returns the HTTP status of a hub error, or 0.
+func hubStatus(err error) int {
+	var he *hubError
+	if errors.As(err, &he) {
+		return he.code
+	}
+	return 0
+}
+
+// checkHubWire refuses a hub below wire 2 and reports a newer one once.
+//
+// A 426 is the hub refusing this daemon's version; a stated version below 2
+// is this daemon refusing the hub. Both end the call with errHubWire. A
+// response without the header (a pre-versioning hub, or an endpoint the hub
+// serves outside its relay mux such as /hub/identity) is not refused here:
+// a hub that old rejects the wire-2 request bodies on every relay call, so
+// nothing is delivered through it either way.
+func (d *Daemon) checkHubWire(host string, code int, v string, body []byte) error {
+	if code == http.StatusUpgradeRequired {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(body, &e)
+		d.noteWireRefusal(host, fmt.Sprintf("the hub answered 426: %s", strings.TrimSpace(e.Error+" "+string(body))))
+		return fmt.Errorf("anet: hub %s refused this daemon's wire version %d (426): %w", host, hubapi.WireVersion, errHubWire)
+	}
+	if v == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 2 {
+		d.noteWireRefusal(host, "the hub states wire "+v)
+		return fmt.Errorf("anet: hub %s speaks wire %s; this daemon requires wire 2 (sealed envelopes) and does not fall back to plaintext: %w",
+			host, v, errHubWire)
+	}
+	if n > hubapi.WireVersion {
+		d.wireWarnOnce.Do(func() {
+			log.Printf("anet: hub %s speaks wire %d, this daemon speaks %d — upgrade this daemon", host, n, hubapi.WireVersion)
+		})
+	}
+	return nil
+}
+
+// noteWireRefusal logs a refused hub once per process, so a relay loop
+// polling a wire-1 hub every second does not repeat the line.
+func (d *Daemon) noteWireRefusal(host, why string) {
+	d.wireRefuseOnce.Do(func() {
+		log.Printf("anet: refusing to operate against hub %s: %s; this daemon requires ANetHub wire 2 "+
+			"and will not send or accept plaintext relay messages", host, why)
 	})
 }
+
+// hubIdent is one hub's identity as this node pinned it.
+type hubIdent struct {
+	aid string
+	kel []identity.SignedEvent
+}
+
+// hubIdentity returns the AID and KEL of the hub at hubURL, fetching GET
+// /hub/identity on first use and pinning the KEL in peer_identity
+// (pinned_reason "hub"). A later fetch that serves a KEL forking from the
+// pinned one is refused; one that serves an older prefix keeps the pinned
+// KEL (A2A-DESIGN §3.8).
+func (d *Daemon) hubIdentity(ctx context.Context, hubURL string) (string, []identity.SignedEvent, error) {
+	key := strings.TrimRight(hubURL, "/")
+	d.hubIDMu.Lock()
+	if h, ok := d.hubIDs[key]; ok {
+		d.hubIDMu.Unlock()
+		return h.aid, h.kel, nil
+	}
+	d.hubIDMu.Unlock()
+	var out hubapi.HubIdentity
+	cctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
+	defer cancel()
+	if err := d.hubGet(cctx, key, "/hub/identity", nil, &out); err != nil {
+		return "", nil, fmt.Errorf("anet: learn the hub's identity: %w", err)
+	}
+	raw, err := base64.StdEncoding.DecodeString(out.KEL)
+	if err != nil || out.AID == "" {
+		return "", nil, fmt.Errorf("anet: hub %s served an unreadable identity", key)
+	}
+	kel, err := seal.ParseKEL(raw)
+	if err != nil {
+		return "", nil, fmt.Errorf("anet: hub %s identity KEL: %w", key, err)
+	}
+	resolved, err := d.pinPeerKEL(out.AID, kel, interactions.PinHub)
+	if err != nil {
+		return "", nil, fmt.Errorf("anet: hub %s identity: %w", key, err)
+	}
+	d.hubIDMu.Lock()
+	if d.hubIDs == nil {
+		d.hubIDs = map[string]hubIdent{}
+	}
+	d.hubIDs[key] = hubIdent{aid: out.AID, kel: resolved}
+	d.hubIDMu.Unlock()
+	return out.AID, resolved, nil
+}
+
+// hubCallTimeoutShort bounds hub calls made on a send path, where the hub
+// is a fallback and must not stall delivery.
+const hubCallTimeoutShort = 10 * time.Second
 
 // SetVisibility tells the hub how far this node is willing to be
 // published: hub-local, federated or public.
@@ -223,11 +436,9 @@ func (d *Daemon) SetVisibility(ctx context.Context, visibility string) error {
 	if hub == "" {
 		return fmt.Errorf("anet: no hub configured")
 	}
-	ts, seq, sig := d.signRelayAuth(relayauth.ActionProfile)
-	body := map[string]any{
-		"visibility": visibility, "ts": ts, "key_state_seq": seq, "sig": sig,
-	}
-	return d.hubPost(ctx, hub, "/agents/"+url.PathEscape(d.AID())+"/visibility", body, nil)
+	body := map[string]any{"visibility": visibility}
+	return d.hubSigned(ctx, hub, http.MethodPost, "/agents/"+url.PathEscape(d.AID())+"/visibility",
+		relayauth.ActionVisibility, body, nil)
 }
 
 // LeaveHub stops this node being deliverable at a hub.
@@ -250,10 +461,9 @@ func (d *Daemon) LeaveHub(ctx context.Context, hubURL string) (map[string]any, e
 	if hubURL == "" {
 		return nil, fmt.Errorf("anet: name the hub to leave")
 	}
-	ts, seq, sig := d.signRelayAuth(relayauth.ActionProfile)
-	body := map[string]any{"ts": ts, "key_state_seq": seq, "sig": sig}
 	var out map[string]any
-	if err := d.hubPost(ctx, hubURL, "/agents/"+url.PathEscape(d.AID())+"/deregister", body, &out); err != nil {
+	if err := d.hubSigned(ctx, hubURL, http.MethodPost, "/agents/"+url.PathEscape(d.AID())+"/deregister",
+		relayauth.ActionDeregister, map[string]any{}, &out); err != nil {
 		return out, err
 	}
 	d.forgetHubIfCurrent(hubURL)
@@ -322,11 +532,10 @@ func (d *Daemon) AdvertisePeerAddress(ctx context.Context, addr string) (map[str
 	if hubURL == "" {
 		return nil, fmt.Errorf("anet: this node has no hub, so there is nowhere to publish an address")
 	}
-	ts, seq, sig := d.signRelayAuth(relayauth.ActionProfile)
-	body := map[string]any{"addr": strings.TrimSpace(addr),
-		"ts": ts, "key_state_seq": seq, "sig": sig}
+	body := map[string]any{"addr": strings.TrimSpace(addr)}
 	var out map[string]any
-	if err := d.hubPost(ctx, hubURL, "/agents/"+url.PathEscape(d.AID())+"/p2p", body, &out); err != nil {
+	if err := d.hubSigned(ctx, hubURL, http.MethodPost, "/agents/"+url.PathEscape(d.AID())+"/p2p",
+		relayauth.ActionP2P, body, &out); err != nil {
 		return out, err
 	}
 	return out, nil

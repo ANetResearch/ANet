@@ -35,7 +35,7 @@ func TestSeamsAreGrantedBeforeAnyHubIsConfigured(t *testing.T) {
 	if got := seam.HubURL(); got != "" {
 		t.Fatalf("with no hub the address must be empty, got %q", got)
 	}
-	if err := d.HubRegister(context.Background(), h.URL, "n", nil, nil, nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), h.URL, "n", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := seam.HubURL(); got != h.URL {
@@ -52,7 +52,7 @@ func TestLeavingTheCurrentHubForgetsIt(t *testing.T) {
 	h := newFakeHub(t)
 	defer h.Close()
 	d := newTestDaemon(t, h.URL, true)
-	if err := d.HubRegister(context.Background(), h.URL, "n", nil, nil, nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), h.URL, "n", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.LeaveHub(context.Background(), h.URL); err != nil {
@@ -88,10 +88,10 @@ func TestLeavingAnotherHubKeepsTheCurrentOne(t *testing.T) {
 	defer newHub.Close()
 
 	d := newTestDaemon(t, oldHub.URL, true)
-	if err := d.HubRegister(context.Background(), oldHub.URL, "n", nil, nil, nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), oldHub.URL, "n", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.HubRegister(context.Background(), newHub.URL, "n", nil, nil, nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), newHub.URL, "n", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.LeaveHub(context.Background(), oldHub.URL); err != nil {
@@ -111,11 +111,11 @@ func TestACapabilityDelegationIsOnTheRequestersChain(t *testing.T) {
 	h := newFakeHub(t)
 	defer h.Close()
 	d := newTestDaemon(t, h.URL, true)
-	if err := d.HubRegister(context.Background(), h.URL, "req", nil, nil, nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), h.URL, "req", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	other := newTestDaemon(t, h.URL, true)
-	if err := other.HubRegister(context.Background(), h.URL, "prov", nil, nil, nil, ""); err != nil {
+	if err := other.HubRegister(context.Background(), h.URL, "prov", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -176,7 +176,7 @@ func TestStartupRepublishesTheCurrentCapabilities(t *testing.T) {
 	h := newFakeHub(t)
 	defer h.Close()
 	d := newTestDaemon(t, h.URL, true)
-	if err := d.HubRegister(context.Background(), h.URL, "n", []string{"stale.cap"}, nil, nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), h.URL, "n", []string{"stale.cap"}, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,7 +228,7 @@ func TestAnUnservedCapabilityAnswersUnavailable(t *testing.T) {
 	req := newTestDaemon(t, h.URL, true)
 	prov := newTestDaemon(t, h.URL, true)
 	for _, d := range []*Daemon{req, prov} {
-		if err := d.HubRegister(context.Background(), h.URL, "n", nil, nil, nil, ""); err != nil {
+		if err := d.HubRegister(context.Background(), h.URL, "n", nil, ""); err != nil {
 			t.Fatal(err)
 		}
 	}

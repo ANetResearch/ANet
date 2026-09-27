@@ -23,7 +23,7 @@ PORT="${PORT:-39822}"
 cmd_join(){
   prep_identity
   ok "已为「委派方」准备好独立身份目录：${DATA}（控制端口 ${PORT}）"
-  print_join "我主要想找别人干活、自己不接单：注册时不填 --caps 并加 --guest-messages 0，然后运行 anet console --url 把我的本地控制台网址发给我（之后我会在控制台里自己 find / delegate / review）。"
+  print_join "我主要想找别人干活、自己不接单：注册时不填 --caps，然后运行 anet console --url 把我的本地控制台网址发给我（之后我会在控制台里自己 find / delegate / review）。"
 }
 
 case "${1:-join}" in

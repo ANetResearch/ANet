@@ -24,37 +24,44 @@ import (
 // the difference is deliberate. ADAP carries EffectRecords — objects that
 // are already CoreDet-CBOR elsewhere in the family, where a re-encode would
 // be both waste and a chance to lose fidelity. This carries an opaque
-// payload that the daemon signed and will verify itself; the frame around
+// sealed envelope that only the recipient daemon can open; the frame around
 // it is addressing, nothing more. A peer process in another language should
 // be able to speak it with its standard library.
+//
+// A frame carries the recipient AID, the envelope bytes and an ID (A2A-DESIGN
+// §3.10). It carries no sender, no message kind and no interaction id: those
+// are inside the envelope, encrypted to the recipient, and a peer process
+// has no use for them.
 type frame struct {
 	Op string `json:"op"`
+	// V is the wire version of the frame. Every frame this module writes
+	// carries WireVersion; a peer process refuses a delivery without it, so
+	// an older sender that would put plaintext on the wire is told so
+	// instead of being recorded as delivered.
+	V int `json:"v,omitempty"`
 	// ID correlates a request with its reply, and a peer process must echo
 	// it back unchanged.
 	//
-	// This wire had no ids: replies were matched first-in-first-out on the
-	// grounds that a peer answers in the order it was asked. That is a
-	// constraint the daemon cannot check and a peer author will not think
-	// about — the first peer process written against this wire broke it
-	// within the hour, by handling a delivery off its read loop so it would
-	// not deadlock. Under load the failure is a delegation reported
-	// delivered because another one succeeded, which is the worst kind: it
-	// looks like success.
+	// For a delivery the peer process hands to the daemon (op recv), the
+	// peer process mints a fresh ID per delivery and the daemon acks with
+	// that ID. It is the only thing the ack can be matched on: two
+	// deliveries in flight can have the same recipient and even the same
+	// envelope bytes (a retry that overlaps the first attempt).
 	ID string `json:"id,omitempty"`
-	// Addressing. AIDs, never peer ids: what the peer stack calls its nodes
-	// is its own business.
-	To   string `json:"to,omitempty"`
-	From string `json:"from,omitempty"`
-	Kind string `json:"kind,omitempty"`
-	IX   string `json:"ix,omitempty"`
-	// Payload is opaque and end-to-end verifiable — the peer process cannot
-	// forge it and does not need to understand it.
-	Payload string `json:"payload,omitempty"`
+	// To is the recipient AID. An AID, never a peer id: what the peer stack
+	// calls its nodes is its own business.
+	To string `json:"to,omitempty"`
+	// Envelope is the sealed envelope, standard base64. Opaque to the peer
+	// process, which cannot read or forge it.
+	Envelope string `json:"envelope,omitempty"`
 	// Reachable answers an op:"reach" query.
 	Reachable bool   `json:"reachable,omitempty"`
 	Error     string `json:"error,omitempty"`
 	Self      string `json:"self,omitempty"`
 }
+
+// WireVersion is the frame version this module speaks (A2A-DESIGN §3.10).
+const WireVersion = 2
 
 const (
 	opHello = "hello"
@@ -62,6 +69,7 @@ const (
 	opSend  = "send"
 	opRecv  = "recv"
 	opAck   = "ack"
+	opError = "error"
 )
 
 // Transport delivers over a peer process. It satisfies module.Transport.
@@ -145,7 +153,7 @@ func (t *Transport) session(ctx context.Context) error {
 
 	// Tell the peer process which AID it is carrying for, so it can
 	// announce us to the network under the identity the daemon owns.
-	if err := t.write(c, frame{Op: opHello, Self: t.selfAID}); err != nil {
+	if err := t.write(c, frame{Op: opHello, V: WireVersion, Self: t.selfAID}); err != nil {
 		return err
 	}
 
@@ -187,22 +195,34 @@ func (t *Transport) session(ctx context.Context) error {
 	}
 }
 
-// deliverInbound hands a received message to the daemon.
+// deliverInbound hands a received envelope to the daemon and acks it with
+// the delivery's own ID once the daemon has decided it should be acked:
+// accepted, or refused for a reason that will not change on retry. A
+// temporary refusal gets no ack, so the peer process reports the delivery
+// as failed and the sender falls back to the hub (A2A-DESIGN §3.6, §3.10).
 func (t *Transport) deliverInbound(ctx context.Context, c net.Conn, f frame) {
-	payload, err := base64.StdEncoding.DecodeString(f.Payload)
+	if f.V < WireVersion {
+		log.Printf("anet: p2p: ignoring a delivery frame of version %d from the peer process (want %d)", f.V, WireVersion)
+		return
+	}
+	if f.ID == "" {
+		log.Printf("anet: p2p: ignoring a delivery frame without an id")
+		return
+	}
+	env, err := base64.StdEncoding.DecodeString(f.Envelope)
 	if err != nil {
-		log.Printf("anet: p2p: malformed inbound payload: %v", err)
+		log.Printf("anet: p2p: malformed inbound envelope: %v", err)
 		return
 	}
-	// The payload is end-to-end verifiable, so the daemon checks it the
-	// same way it checks anything from the hub mailbox. A peer process that
-	// lies produces a message that fails verification, not one that gets
-	// trusted because it arrived over a direct connection.
-	if err := t.inbound.Receive(ctx, f.From, f.Kind, f.IX, payload); err != nil {
-		log.Printf("anet: p2p: inbound %s from %s: %v", f.Kind, f.From, err)
+	// The envelope is end-to-end sealed and signed, so the daemon checks it
+	// the same way it checks anything from the hub mailbox. A peer process
+	// that lies produces an envelope that fails to open or verify, not one
+	// that gets trusted because it arrived over a direct connection.
+	if err := t.inbound.Receive(ctx, env); err != nil {
+		log.Printf("anet: p2p: inbound delivery %s not acknowledged: %v", f.ID, err)
 		return
 	}
-	_ = t.write(c, frame{Op: opAck, IX: f.IX})
+	_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: f.ID})
 }
 
 // write serialises one frame onto the session connection.
@@ -229,17 +249,17 @@ func (t *Transport) write(c net.Conn, f frame) error {
 func (t *Transport) Reachable(ctx context.Context, toAID string) bool {
 	rctx, cancel := context.WithTimeout(ctx, t.reachTimeout)
 	defer cancel()
-	reply, err := t.roundTrip(rctx, frame{Op: opReach, To: toAID})
+	reply, err := t.roundTrip(rctx, frame{Op: opReach, V: WireVersion, To: toAID})
 	return err == nil && reply.Reachable
 }
 
-// Send delivers one payload to a peer.
-func (t *Transport) Send(ctx context.Context, toAID, kind, ix string, payload []byte) error {
+// Send delivers one envelope to a peer.
+func (t *Transport) Send(ctx context.Context, toAID string, envelope []byte) error {
 	sctx, cancel := context.WithTimeout(ctx, t.dialTimeout)
 	defer cancel()
 	reply, err := t.roundTrip(sctx, frame{
-		Op: opSend, To: toAID, From: t.selfAID, Kind: kind, IX: ix,
-		Payload: base64.StdEncoding.EncodeToString(payload),
+		Op: opSend, V: WireVersion, To: toAID,
+		Envelope: base64.StdEncoding.EncodeToString(envelope),
 	})
 	if err != nil {
 		return err

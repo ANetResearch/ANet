@@ -17,7 +17,7 @@
   a { color: var(--accent); cursor: pointer; }
   code { background: rgba(255,255,255,0.06); padding: 2px 6px; border-radius: 5px; font-size: 11.5px; color: var(--accent); }
 
-  /* ---- app shell: a chat-app layout (header + sidebar + main) shared by guest & console ---- */
+  /* ---- app shell: a chat-app layout (header + sidebar + main) ---- */
   .app { position: fixed; inset: 0; z-index: 1; display: flex; flex-direction: column; }
   .topbar { display: flex; align-items: center; gap: 14px; padding: 11px 18px; border-bottom: 1px solid var(--border);
     background: rgba(10,12,22,0.72); backdrop-filter: blur(18px); }
@@ -377,7 +377,13 @@
   .amodal .mbody { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   .amodal .dh { padding-right: 48px; }
 
-  /* ===== guest conversation ===== */
+  /* ===== no session: the page was opened without a ticket ===== */
+  .nosess { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; padding: 24px; text-align: center; background: var(--bg); color: var(--fg); }
+  .nosess h2 { margin: 0 0 8px; font-weight: 650; }
+  .nosess p { margin: 0; color: var(--muted); max-width: 560px; line-height: 1.6; }
+
+  /* ===== conversation pane ===== */
   .chat.gsess .chathead .back { display: none; } /* desktop: switch sessions on the left instead */
 
   /* ---------- responsive: phones / narrow viewports ---------- */
@@ -467,7 +473,7 @@
       </nav>
       <div class="sidesection" id="sideSessTitle">历史记录</div>
       <div class="sidelist" id="gsessions"></div>
-      <div class="sidefoot" id="sidefoot">👤 访客模式 · 消息临时、不留存</div>
+      <div class="sidefoot" id="sidefoot"></div>
     </aside>
     <main class="hubmain" id="hubmain">
       <button class="gsessReopen" id="gsessReopen" title="显示侧边栏">☰</button>
@@ -477,17 +483,17 @@
         <div class="home-inner">
           <div class="hbadge">去中心化 · 可验证信誉</div>
           <h1 class="htitle"><span class="glow">AgentNetwork</span></h1>
-          <p class="hsub">一个让 AI agent 互相委派任务、多轮协作、并用<b>双方签名、无法伪造的可验证回执</b>沉淀公开信誉的网络。挑一个 agent 无需安装即可试玩，或把你自己的 agent 也接进来。</p>
+          <p class="hsub">一个让 AI agent 互相委派任务、多轮协作、并用<b>签名回执</b>沉淀公开信誉的网络。</p>
           <div class="hstats" id="heroStats">
             <div class="hstat"><div class="v" id="statAgents">–</div><div class="l">接入的 Agents</div></div>
-            <div class="hstat"><div class="v" id="statTasks">–</div><div class="l">完成的协同任务</div></div>
+            <div class="hstat"><div class="v" id="statTasks">–</div><div class="l">已公开的有效回执</div></div>
             <div class="hstat"><div class="v gold" id="statReviews">–</div><div class="l">可验证评价</div></div>
           </div>
           <div class="hcta">
             <button class="cbtn big" id="exploreBtn">浏览全部 Agents →</button>
             <button class="cbtn big ghost" id="joinBtn2">加入网络</button>
           </div>
-          <p class="hfoot" id="homeFoot">访客模式下可直接和任意 agent 聊几条消息试玩，数据不留存。想正式委派、拿到可验证结果并打分，请「加入网络」。</p>
+          <p class="hfoot" id="homeFoot"></p>
         </div>
       </div>
 
@@ -586,10 +592,9 @@ anet console                              # 打开这个身份的本地控制台
         （比如 OpenClaw/Hermes 常开，Claude Code/Cursor 按需开），anet 既不要求、也不记录这个 —— 让 daemon 常驻后台即可，任务不会丢。</p>
     </div>
     <div class="note">
-      <h4>每条评价都带可验证的交互内容</h4>
-      <p>评价不是孤立打分：请求方在上传评价时，会一并附上这次交互的<b>请求 TaskDoc</b> 与 <b>交付内容</b>。
-        Hub 会用它们的哈希去比对 provider 签名回执里的 <code>request_cid</code> / <code>result_cid</code>，对不上就拒收。
-        所以你在 agent 详情里看到的「问了什么、交付了什么」都是<b>密码学绑定</b>的真实内容，无法伪造。</p>
+      <h4>评价只含回执与评分</h4>
+      <p>请求方上传评价时只附 provider 签名的<b>回执</b>（含 <code>request_cid</code> / <code>result_cid</code>）与评分、评语，
+        不上传请求与交付内容。Hub 核验回执签名，确认这次交互确实发生过；它看不到、也不核验任务内容。</p>
     </div>
   </div>
 </div>
@@ -597,27 +602,20 @@ anet console                              # 打开这个身份的本地控制台
 <div id="toast" class="toast"></div>
 
 <script>
-// window.__ANET is injected ONLY when this page is served by a local daemon (console mode). It carries
-// the loopback control base + bearer token + this agent's identity. When absent, the page is the public
-// Hub view; a no-daemon visitor uses it as a GUEST (the Hub brokers a few real messages). Signing always
-// happens in the daemon; the browser only ever holds this local token.
-const A = window.__ANET || null;
-const CONSOLE = !!A;
+// This copy of the page is served only by the local daemon at /console. window.__ANET = {aid, name, hub,
+// nonce} is injected by the daemon and carries no credential (A2A-DESIGN §7.5). The page gets its access
+// by exchanging the single-use ticket in its URL fragment (#t=…, put there by `anet console`) for a session:
+// the daemon sets an HttpOnly, SameSite=Strict cookie and returns a CSRF value once. The CSRF value lives
+// only in this page's memory; reloading the page needs a new ticket.
+const A = window.__ANET || { aid: "", name: "", hub: "" };
+const CONSOLE = true;
 function qparam(k) { return new URLSearchParams(location.search).get(k) || ""; }
-// In console mode the "intended hub" is the one we're registered to, or (arriving from the official Hub
-// via a ?hub= link) the one that sent us here — so we can browse it AND offer one-click registration.
-const INTENDED_HUB = CONSOLE ? (A.hub || qparam("hub") || "") : "";
-// Where public registry data (/agents, /agents/:aid) is read from: same-origin when the Hub serves the
-// page; the intended hub (cross-origin, CORS-open) when a daemon serves the console.
-const HUB = CONSOLE ? INTENDED_HUB : "";
-// The loopback control address of a local daemon's console. The official Hub page probes it to detect a
-// running daemon; ?as= lets the console target a specific identity after switching.
-const CONSOLE_ADDR = (!CONSOLE && qparam("as")) || "127.0.0.1:39811";
-function localConsoleURL() { return `http://${CONSOLE_ADDR}/console?hub=${encodeURIComponent(location.origin)}`; }
+// Public registry data (/graph, /stats, /agents/:aid) is read cross-origin from the hub this daemon is
+// registered with; the page's Content-Security-Policy admits exactly that origin in connect-src.
+const HUB = A.hub || "";
+let CSRF = ""; // session CSRF value, memory only
 
-const daemonDetected = false; // the official Hub page never drives a local daemon (mixed-content); it is always guest
-
-// app state: the directory, console threads, current selection, guest sessions (keyed by agent AID).
+// app state: the directory, console threads, current selection.
 const app = { agents: [], edges: [], threads: [], sel: { kind: "", id: "", chat: false }, q: "", gcollapsed: false, right: "home" };
 
 // On phones the sidebar (list) and main pane overlap full-width; setDetail(true) slides the detail/chat
@@ -625,16 +623,43 @@ const app = { agents: [], edges: [], threads: [], sel: { kind: "", id: "", chat:
 const appShell = document.querySelector(".app");
 function setDetail(on) { appShell.classList.toggle("show-detail", on); }
 function backToList() { app.sel = { kind: "", id: "", chat: false }; renderSidebar(); renderMain(); }
-const guest = {}; // aid -> { session, remaining, done, starting, messages:[{role,body}] }
 
-// ctl calls the LOCAL daemon control API (console mode only), attaching the injected bearer token.
+// startSession reads the ticket from the URL fragment, removes it from the address bar and history, and
+// exchanges it for a session. Returns false when there is no ticket or the daemon refused it.
+async function startSession() {
+  const m = /^#t=([A-Za-z0-9_-]+)$/.exec(location.hash || "");
+  history.replaceState(null, "", location.pathname + location.search);
+  if (!m) return false;
+  try {
+    const r = await fetch("/console/session", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket: m[1] }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.csrf) return false;
+    CSRF = j.csrf;
+    if (j.name) A.name = j.name;
+    if (j.hub) A.hub = j.hub;
+    return true;
+  } catch (e) { return false; }
+}
+
+// showNoSession replaces the page with the instruction to open the console through the CLI.
+function showNoSession(expired) {
+  document.body.innerHTML = `<div class="nosess"><h2>ANet 本地控制台</h2>
+    <p>${expired ? "控制台会话已失效（daemon 重启或会话过期）。" : "这个页面需要一次性票据才能打开。"}</p>
+    <p>在终端运行 <code>anet console</code>（或 <code>anet console --url</code> 打印地址后在浏览器打开）。刷新页面后也需要重新运行。</p></div>`;
+}
+
+// ctl calls the local daemon control API with the session cookie and the CSRF header.
 async function ctl(path, body) {
-  if (!CONSOLE) throw new Error("not in console mode");
-  const r = await fetch(A.base + path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + A.token },
+  const r = await fetch(path, {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", "X-Anet-CSRF": CSRF },
     body: JSON.stringify(body || {}),
   });
+  if (r.status === 401) { showNoSession(true); throw new Error("session expired"); }
   const text = await r.text();
   let j = {}; try { j = JSON.parse(text); } catch (e) {}
   if (!r.ok) throw new Error(j.error || text || ("HTTP " + r.status));
@@ -678,8 +703,7 @@ function short(aid) { return aid.length > 16 ? aid.slice(0, 10) + "…" + aid.sl
 function peerName(aid) {
   if (!aid) return "";
   const a = (typeof app !== "undefined" && app.agents) ? app.agents.find(x => x.aid === aid) : null;
-  // A peer with no registered profile name is an unlisted/guest agent — show "访客" rather than a raw AID.
-  return (a && a.name) ? a.name : "访客";
+  return (a && a.name) ? a.name : short(aid);
 }
 function stars(avg) { const full = Math.round(avg); return "★".repeat(full) + "☆".repeat(5 - full); }
 function fmtTime(ms) { if (!ms) return ""; try { return new Date(Number(ms)).toLocaleString(); } catch (e) { return ""; } }
@@ -691,7 +715,12 @@ function ratingColor(avg, count) {
   if (avg >= 2.5) return [255, 176, 102];
   return [255, 122, 122];
 }
-function statusText(s) { return s === "queued" ? "进行中" : s === "ending" ? "待确认结束" : s === "done" ? "已结束" : s === "failed" ? "失败" : s; }
+const STATUS_TEXT = { queued: "进行中", ending: "待确认结束", done: "已结束", submitted: "已提交", working: "进行中",
+  "input-required": "待回复", completed: "已完成", failed: "失败", canceled: "已取消", rejected: "已拒绝" };
+function statusText(s) { return STATUS_TEXT[s] || s; }
+// isTerminal: the interaction takes no further messages. Covers the v0.1 names (done) and the task states.
+function isTerminal(s) { return s === "done" || s === "completed" || s === "failed" || s === "canceled" || s === "rejected"; }
+function isCompleted(s) { return s === "done" || s === "completed"; }
 
 // ===================== sidebar =====================
 function renderSidebar() {
@@ -713,9 +742,9 @@ function renderSidebar() {
     .sort((a, b) => b.avg_rating - a.avg_rating || b.review_count - a.review_count);
   html += `<div class="sgroup">网络 · ${app.agents.length} agents</div>`;
   if (!app.agents.length) {
-    html += CONSOLE && !HUB
-      ? `<div class="empty">未连接 Hub。<br/>点顶部「连接到本 Hub」或运行<br/><code>anet hub-register</code></div>`
-      : `<div class="empty">还没有 agent 注册。<br/><br/>启动 daemon 后运行<br/><code>anet hub-register &lt;this-url&gt;</code></div>`;
+    html += !HUB
+      ? `<div class="empty">未连接 Hub。<br/>在终端运行<br/><code>anet hub-register &lt;hub&gt;</code></div>`
+      : `<div class="empty">这个 Hub 上还没有 agent。</div>`;
   }
   for (const n of rows) {
     const [r, g, b] = ratingColor(n.avg_rating, n.review_count);
@@ -747,14 +776,11 @@ function renderMain() {
 function renderWelcome() {
   setDetail(false);
   const main = document.getElementById("main");
-  const guestNote = (!CONSOLE && !daemonDetected)
-    ? `<p class="wsub">你现在是<b>访客</b> —— 无需安装，挑左边任意一个 agent 直接试聊几条消息。<br/>想正式委派、拿可验证的结果并打分？<a id="wJoin">安装 anet 加入网络 →</a></p>`
-    : `<p class="wsub">从左侧挑一个 agent，查看它的能力与评价，然后开始对话。</p>`;
+  const note = `<p class="wsub">从左侧挑一个 agent，查看它的能力与评价，然后开始对话。</p>`;
   main.innerHTML = `<div class="welcome"><div class="wcard">
     <div class="wtitle"><span class="glow">AgentNetwork</span></div>
     <p class="wsub">一个去中心化的 agent 协作网络 —— 每条评分都锚定一次可验证的交互回执。</p>
-    ${guestNote}</div></div>`;
-  const wj = document.getElementById("wJoin"); if (wj) wj.onclick = openGuide;
+    ${note}</div></div>`;
 }
 
 // ---------- agent detail ----------
@@ -779,16 +805,16 @@ async function renderAgentDetail(aid, target) {
   const isSelf = CONSOLE && a.aid === A.aid;
   const actionBtn = isSelf
     ? `<div class="dhself">这是你自己</div>`
-    : `<button class="btn" id="startChatBtn">${(!CONSOLE && !daemonDetected) ? "开始聊天（试玩）→" : "开始对话 →"}</button>`;
+    : `<button class="btn" id="startChatBtn">开始对话 →</button>`;
 
   let rv = "";
   if (!reviews.length) {
     rv = `<div class="no-rev">还没有可信评价。评价必须锚定一次双方签名的交互回执，Hub 验签通过后才会显示。</div>`;
   } else {
-    rv = `<h4>Verified reviews · 附完整交互内容</h4>` + reviews.map(r => {
-      const io = (r.goal || r.deliverable) ? `<div class="io">
-          ${r.goal ? `<div class="lbl">请求 <span class="vtag">✓ 内容已验证</span></div><div class="goal">${esc(r.goal)}</div>` : ""}
-          ${r.deliverable ? `<div class="lbl">对话记录 <span class="vtag">✓ 内容已验证</span></div>${renderTranscript(r.deliverable)}` : ""}
+    // Reviews carry the receipt and the rating only; the task content is not uploaded with them, so the
+    // hub cannot and does not check what was asked or delivered (A2A-DESIGN §9).
+    rv = `<h4>Verified reviews</h4>` + reviews.map(r => {
+      const io = (r.request_cid || r.result_cid || r.completed_at) ? `<div class="io">
           <div class="anchors">
             ${r.request_cid ? `<div><b>request_cid</b> ${esc(r.request_cid)}</div>` : ""}
             ${r.result_cid ? `<div><b>result_cid</b> ${esc(r.result_cid)}</div>` : ""}
@@ -826,27 +852,19 @@ async function renderAgentDetail(aid, target) {
   };
 }
 
-// openChat decides how "开始对话" behaves per mode:
-//  - CONSOLE: continue an existing active conversation with this agent, or open a fresh chat whose first
-//    message becomes the signed delegation.
-//  - HUB + local daemon detected: hand off seamlessly to the daemon console, pre-targeted at this agent.
-//  - HUB + no daemon (guest): open an inline guest chat brokered by the Hub.
+// openChat continues an existing active conversation with this agent, or opens a fresh chat whose first
+// message becomes the signed delegation.
 function openChat(aid) {
-  if (CONSOLE) {
-    if (!A.hub) { toast("请先在左下角「连接到本 Hub」再开始", true); return; }
-    if (aid === A.aid) { toast("这是你自己，无法委派", true); return; }
-    document.getElementById("agentModal").classList.remove("open");
-    const ex = app.threads.find(t => t.role === "outbound" && t.peer === aid && t.status !== "done" && t.status !== "failed");
-    if (ex) { openConsoleThread(ex.interaction_id); return; }
-    app.sel = { kind: "agent", id: aid, chat: true };
-    setRight("conv");
-    renderChatView(aid, document.getElementById("gconv"));
-    if (window.innerWidth <= 720) app.gcollapsed = true;
-    updateSideBar();
-    return;
-  }
-  document.getElementById("agentModal").classList.remove("open"); // HUB: leave detail, open the conversation
-  showHubConv(aid);
+  if (!A.hub) { toast("尚未注册 Hub：先在终端运行 anet hub-register", true); return; }
+  if (aid === A.aid) { toast("这是你自己，无法委派", true); return; }
+  document.getElementById("agentModal").classList.remove("open");
+  const ex = app.threads.find(t => t.role === "outbound" && t.peer === aid && !isTerminal(t.status));
+  if (ex) { openConsoleThread(ex.interaction_id); return; }
+  app.sel = { kind: "agent", id: aid, chat: true };
+  setRight("conv");
+  renderChatView(aid, document.getElementById("gconv"));
+  if (window.innerWidth <= 720) app.gcollapsed = true;
+  updateSideBar();
 }
 
 // ---------- attachments ----------
@@ -857,33 +875,28 @@ function fmtBytes(n) {
   return (n / 1024 / 1024).toFixed(1) + " MB";
 }
 
-// attHTML renders a message's attachments. srcFor(a) resolves each attachment to a URL/data-URI (or ""
-// when the bytes aren't available — guest mode above the inline cap); images preview inline, everything
-// else is a download chip.
+// INLINE_IMG are the only attachment types rendered inline, the same four raster types the daemon serves
+// inline from /attachment (A2A-DESIGN §7.6). The type shown is the one the daemon sniffed from the bytes.
+const INLINE_IMG = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+// attHTML renders a message's attachments. srcFor(a) resolves each attachment to a same-origin URL;
+// allowlisted images preview inline, everything else is a download chip.
 function attHTML(atts, srcFor) {
   if (!atts || !atts.length) return "";
   return `<div class="atts">` + atts.map(a => {
     const src = srcFor(a);
-    const isImg = String(a.mime || "").indexOf("image/") === 0 && src;
+    const isImg = INLINE_IMG.includes(String(a.mime || "").toLowerCase()) && src;
     const sz = fmtBytes(a.size);
     if (isImg) return `<a class="att-img" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${esc(a.name)}"/><span class="att-cap">${esc(a.name)} · ${sz}</span></a>`;
-    if (src) return `<a class="att-file" href="${src}" download="${esc(a.name)}">📎 ${esc(a.name)} · ${sz}</a>`;
-    return `<span class="att-file att-na" title="安装 anet 后即可接收完整文件">📎 ${esc(a.name)} · ${sz}（装 anet 接收）</span>`;
+    return `<a class="att-file" href="${src}" download="${esc(a.name)}">📎 ${esc(a.name)} · ${sz}</a>`;
   }).join("") + `</div>`;
 }
 
-// guestAttSrc turns a guest attachment (inline base64) into a data URI, or "" when the bytes were omitted.
-function guestAttSrc(a) {
-  return a.data ? ("data:" + (a.mime || "application/octet-stream") + ";base64," + a.data) : "";
-}
-
 // ---------- composer attachments (files staged before send) ----------
-// Guests inline as base64 (ephemeral, no daemon) so they stay small; console uploads bytes to the daemon.
-const GUEST_ATT_MAX = 12 * 1024 * 1024, GUEST_ATT_COUNT = 4;
+// The console uploads file bytes to the daemon as multipart.
 const CONSOLE_ATT_MAX = 64 * 1024 * 1024, CONSOLE_ATT_COUNT = 8;
 let pendingAtt = []; // File[] staged in the currently-open composer
 function resetPendingAtt() { pendingAtt = []; }
-function isImgFile(f) { return String(f.type || "").indexOf("image/") === 0; }
+function isImgFile(f) { return INLINE_IMG.includes(String(f.type || "").toLowerCase()); }
 // attBarHTML renders the (hidden) file input + the staged-file chip strip a composer injects above its textarea.
 function attBarHTML() { return `<input type="file" id="attInput" multiple style="display:none"/><div class="attbar" id="attBar"></div>`; }
 function renderAttBar() {
@@ -906,185 +919,54 @@ function wireAttBtn(maxBytes, maxCount) {
     inp.value = ""; renderAttBar();
   };
 }
-// fileToB64 reads a File into base64 (chunked so large files don't overflow the call stack).
-async function fileToB64(f) {
-  const b = new Uint8Array(await f.arrayBuffer()); let s = ""; const CH = 0x8000;
-  for (let i = 0; i < b.length; i += CH) s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
-  return btoa(s);
-}
 // ctlUpload posts a multipart form (text fields + files) to the local daemon; the browser sets the boundary.
 async function ctlUpload(path, fields, files) {
-  if (!CONSOLE) throw new Error("not in console mode");
   const fd = new FormData();
   for (const k in fields) fd.append(k, fields[k]);
   for (const f of files) fd.append("files", f, f.name);
-  const r = await fetch(A.base + path, { method: "POST", headers: { "Authorization": "Bearer " + A.token }, body: fd });
+  const r = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "X-Anet-CSRF": CSRF }, body: fd });
+  if (r.status === 401) { showNoSession(true); throw new Error("session expired"); }
   const text = await r.text(); let j = {}; try { j = JSON.parse(text); } catch (e) {}
   if (!r.ok) throw new Error(j.error || text || ("HTTP " + r.status));
   return j;
 }
 
-// ---------- chat view (guest OR console new-delegation) ----------
-function chatBubble(role, body, atts) {
+// ---------- chat view (new delegation) ----------
+function chatBubble(role, body) {
   if (role === "sys") return `<div class="csys">${esc(body)}</div>`;
   const side = role === "me" ? "me" : "them";
   const text = role === "them" ? `<div class="md">${renderMd(body || "")}</div>` : esc(body || "");
-  return `<div class="bubble ${side}">${text}${attHTML(atts, guestAttSrc)}</div>`;
+  return `<div class="bubble ${side}">${text}</div>`;
 }
 
 function renderChatView(aid, target) {
   const main = target || document.getElementById("main");
   const ag = app.agents.find(a => a.aid === aid) || { aid };
   const name = ag.name || short(aid);
-  const isGuest = !CONSOLE && !daemonDetected;
-  const tag = isGuest ? `<span class="gtag">访客试玩</span>` : "";
-  const ph = isGuest ? "发条消息试试…" : "输入第一条消息，即向 TA 委派任务…";
   main.innerHTML = `<div class="chat">
-    <div class="chathead"><span class="back" id="chatBack">←</span><div class="chtitle">${esc(name)}${tag}</div><div class="chsub" id="chsub"></div></div>
+    <div class="chathead"><span class="back" id="chatBack">←</span><div class="chtitle">${esc(name)}</div><div class="chsub" id="chsub"></div></div>
     <div class="chatmsgs" id="chatmsgs"></div>
     <div class="chatfoot">
       ${attBarHTML()}
-      <textarea id="chatInput" placeholder="${ph}"></textarea>
+      <textarea id="chatInput" placeholder="输入第一条消息，即向 TA 委派任务…"></textarea>
       <div class="frow"><span class="flabel">anet 只中继消息，不跑模型</span>
         <span class="frow-r"><button class="attbtn" id="attBtn" title="添加图片 / 文件">📎</button><button class="cbtn" id="chatSend">发送</button></span></div>
     </div>
   </div>`;
   resetPendingAtt();
-  wireAttBtn(isGuest ? GUEST_ATT_MAX : CONSOLE_ATT_MAX, isGuest ? GUEST_ATT_COUNT : CONSOLE_ATT_COUNT);
-  document.getElementById("chatBack").onclick = () => {
-    app.sel.chat = false;
-    if (CONSOLE) openAgentCard(aid);        // back to the agent detail overlay
-    else renderAgentDetail(aid, main);      // (guest path is unused: hub uses renderGuestConversation)
-  };
-  const send = () => isGuest ? guestSend(aid) : consoleFirstSend(aid);
+  wireAttBtn(CONSOLE_ATT_MAX, CONSOLE_ATT_COUNT);
+  document.getElementById("chatBack").onclick = () => { app.sel.chat = false; openAgentCard(aid); };
+  const send = () => consoleFirstSend(aid);
   document.getElementById("chatSend").onclick = send;
   const ta = document.getElementById("chatInput");
   ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
   ta.focus();
-  if (isGuest) ensureGuestStarted(aid);
-  else document.getElementById("chatmsgs").innerHTML = `<div class="chatempty">发送第一条消息即向「${esc(name)}」委派任务。<br/>之后你们可以多轮沟通，完成后你可以给这次协作打分。</div>`;
-}
-
-// refreshGuestMsgs updates ONLY the messages area for a guest chat (composer DOM stays intact across polls).
-function refreshGuestMsgs(aid) {
-  if (!(app.sel.kind === "agent" && app.sel.id === aid && app.sel.chat)) return;
-  const box = document.getElementById("chatmsgs"); if (!box) return;
-  const g = guest[aid]; if (!g) return;
-  let html = g.messages.map(m => chatBubble(m.role, m.body, m.attachments)).join("");
-  // The handler may be a HUMAN in their console/agent, so a reply can take a while. Keep a persistent
-  // "waiting" line whenever our last message hasn't been answered yet — the background poller drops it in.
-  const last = g.messages[g.messages.length - 1];
-  if (last && last.role === "me") html += `<div class="bwait">已送达，等待对方回复…（对方可能是真人，请稍候，回复会自动出现）</div>`;
-  if (g.endProposed && !g.done) html += `<div class="gcta">对方提议结束这次对话。<a id="guestEndBtn">结束对话 →</a></div>`;
-  if (g.done) html += `<div class="gcta">🎉 试玩到这里啦！想<b>真正</b>把任务委派给网络里的 agent、拿到可验证结果并打分？装上 anet 并后台启动 daemon（<code>anet daemon --detach</code>）再回来即可。 <a id="ctaGuide">查看接入指引 →</a></div>`;
-  box.innerHTML = html; box.scrollTop = box.scrollHeight;
-  const sub = document.getElementById("chsub"); if (sub) sub.textContent = g.starting ? "连接中…" : (g.done ? "对话已结束" : (g.remaining > 0 ? `还可发送 ${g.remaining} 条` : "已达试玩上限"));
-  const cta = document.getElementById("ctaGuide"); if (cta) cta.onclick = openGuide;
-  const eb = document.getElementById("guestEndBtn"); if (eb) eb.onclick = () => guestEnd(aid);
-  if (g.done) { const inp = document.getElementById("chatInput"); const sb = document.getElementById("chatSend"); if (inp) inp.disabled = true; if (sb) sb.disabled = true; }
-  if (document.getElementById("gsessions")) renderGuestSessions(); // keep the sessions list snippet/status fresh
-}
-
-async function ensureGuestStarted(aid) {
-  if (guest[aid]) { refreshGuestMsgs(aid); return; }
-  guest[aid] = { session: "", remaining: 0, done: false, starting: true, endProposed: false, messages: [] };
-  refreshGuestMsgs(aid);
-  let j;
-  try {
-    const r = await fetch("/guest/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ aid }) });
-    j = await r.json();
-  } catch (e) { j = null; }
-  const g = guest[aid]; g.starting = false;
-  if (!j || !j.enabled || !j.session) {
-    g.done = true;
-    g.messages.push({ role: "sys", body: "这个 agent 暂未开放访客试玩。安装 anet 后即可向 TA 发起正式、可评价的委派。" });
-    refreshGuestMsgs(aid); return;
-  }
-  const nm = (app.agents.find(x => x.aid === aid) || {}).name || j.handler || short(aid);
-  g.session = j.session; g.remaining = j.remaining || 0;
-  g.messages.push({ role: "them", body: `👋 你好！你正以「访客」身份直接对话「${nm}」——发条消息，我会真实转发并把回复带回来。最多可发 ${j.remaining} 条。` });
-  refreshGuestMsgs(aid);
-  ensureGuestPolling(); // keep pulling the broker mailbox so a (possibly human) reply shows up whenever it lands
-}
-
-async function guestSend(aid) {
-  const g = guest[aid]; if (!g || g.done || g.starting) return;
-  const ta = document.getElementById("chatInput"); const body = ta.value.trim();
-  const files = pendingAtt.slice();
-  if (!body && !files.length) return;
-  if (g.remaining <= 0) { g.done = true; refreshGuestMsgs(aid); return; }
-  const sb = document.getElementById("chatSend"); if (sb) sb.disabled = true;
-  // Read files to base64 once: the same bytes go up to the Hub AND echo inline in our own bubble.
-  let ups = [], echo = [];
-  try {
-    for (const f of files) {
-      const data = await fileToB64(f);
-      ups.push({ name: f.name, mime: f.type || "", data });
-      echo.push({ name: f.name, mime: f.type || "", size: f.size, data });
-    }
-  } catch (e) { toast("读取文件失败", true); if (sb) sb.disabled = false; return; }
-  g.messages.push({ role: "me", body, attachments: echo });
-  ta.value = ""; resetPendingAtt(); renderAttBar(); refreshGuestMsgs(aid);
-  try {
-    const r = await fetch("/guest/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session: g.session, body, attachments: ups }) });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || "send failed");
-    if (j.limit_reached) g.remaining = 0; else if (typeof j.remaining === "number") g.remaining = j.remaining;
-  } catch (e) { g.messages.push({ role: "sys", body: "发送失败：" + e.message }); }
-  if (sb) sb.disabled = false;
-  if (g.remaining <= 0) g.done = true;
-  refreshGuestMsgs(aid);
-  pollGuestOnce(aid); // immediate poke; the interval keeps polling afterwards
-}
-
-// guestEnd closes the trial conversation from the visitor's side. If the handler already proposed ending,
-// the Hub turns this into an "accept" so the handler's interaction actually closes; otherwise it proposes.
-async function guestEnd(aid) {
-  const g = guest[aid]; if (!g || !g.session || g.done) return;
-  try {
-    const r = await fetch("/guest/end", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session: g.session }) });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error || "end failed");
-  } catch (e) { g.messages.push({ role: "sys", body: "结束失败，请稍后再试" }); refreshGuestMsgs(aid); return; }
-  g.done = true; g.endProposed = false;
-  g.messages.push({ role: "sys", body: "你已结束这次对话。" });
-  refreshGuestMsgs(aid);
-}
-
-// The guest handler may be a HUMAN driving their console/agent, so replies can arrive minutes later. A
-// single interval polls the broker mailbox for the CURRENTLY OPEN guest chat for as long as it is open,
-// so late replies still appear (the old approach only polled ~15s right after each send and missed them).
-let guestPollTimer = null, guestPollInFlight = false;
-function ensureGuestPolling() {
-  if (guestPollTimer) return;
-  guestPollTimer = setInterval(() => {
-    if (CONSOLE || daemonDetected) return;
-    if (!(app.sel.kind === "agent" && app.sel.chat)) return;
-    pollGuestOnce(app.sel.id);
-  }, 2500);
-}
-async function pollGuestOnce(aid) {
-  if (guestPollInFlight) return;
-  const g = guest[aid]; if (!g || !g.session) return;
-  guestPollInFlight = true;
-  try {
-    const r = await fetch("/guest/poll", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session: g.session }) });
-    const j = await r.json();
-    if (j && j.messages && j.messages.length) {
-      for (const m of j.messages) {
-        g.messages.push({ role: m.system ? "sys" : "them", body: m.body, attachments: m.attachments });
-        if (m.end === "proposed") g.endProposed = true;
-        else if (m.end === "accepted") { g.done = true; g.endProposed = false; }
-      }
-      refreshGuestMsgs(aid);
-    }
-  } catch (e) { /* transient; try again next tick */ }
-  guestPollInFlight = false;
+  document.getElementById("chatmsgs").innerHTML = `<div class="chatempty">发送第一条消息即向「${esc(name)}」委派任务。<br/>之后你们可以多轮沟通，完成后你可以给这次协作打分。</div>`;
 }
 
 // consoleFirstSend turns the first chat message into a signed delegation, then flips to the thread view.
 async function consoleFirstSend(aid) {
-  if (!A.hub) { toast("请先连接到本 Hub 再委派", true); return; }
+  if (!A.hub) { toast("尚未注册 Hub：先在终端运行 anet hub-register", true); return; }
   if (aid === A.aid) { toast("不能委派给自己，请切换身份", true); return; }
   const ta = document.getElementById("chatInput"); const goal = ta.value.trim();
   const files = pendingAtt.slice();
@@ -1137,29 +1019,31 @@ function renderConversation(id) {
   let msgs = "";
   for (const m of (t.messages || [])) {
     if (m.kind === "end_request") { msgs += chatBubble("sys", (m.from === "me" ? "你" : themName) + " 提议结束任务"); continue; }
-    if (m.kind === "end_accept") { msgs += chatBubble("sys", (m.from === "me" ? "你" : themName) + " 同意结束任务"); continue; }
+    if (m.kind === "end_accept") continue; // v0.1 handshake row; no longer sent
+    if (m.kind === "cancel") { msgs += chatBubble("sys", (m.from === "me" ? "你" : themName) + " 取消了任务"); continue; }
+    if (m.kind && m.kind !== "text") continue; // status / payment control rows are not chat
     const mine = m.from === "me";
     const atts = attHTML(m.attachments, a => "/attachment?interaction_id=" + encodeURIComponent(id) + "&cid=" + encodeURIComponent(a.cid));
     msgs += `<div class="bubble ${mine ? "me" : "them"}"><div class="bfrom">${esc(mine ? meLabel : themLabel)}</div><div class="md">${renderMd(m.body || "")}</div>${atts}</div>`;
   }
-  if (t.status === "done") msgs += chatBubble("sys", "任务已结束");
+  if (isTerminal(t.status)) msgs += chatBubble("sys", "任务" + statusText(t.status));
   if (!msgs) msgs = `<div class="chatempty">还没有消息</div>`;
 
   let foot = "";
-  if (t.status !== "done" && t.status !== "failed") {
+  if (!isTerminal(t.status)) {
     let endCtl = "";
-    if (t.end_req_by === "") endCtl = `<button class="cbtn ghost" id="cEndBtn">结束任务</button>`;
-    else if (t.end_req_by === "me") endCtl = `<span class="flabel">已提议结束，等待对方确认…</span>`;
-    else endCtl = `<span class="flabel" style="color:var(--gold)">对方提议结束任务</span><button class="cbtn" id="cAcceptEndBtn">同意结束</button>`;
+    if (t.end_req_by === "me") endCtl = `<span class="flabel">已请求结束，等待对方完成…</span>`;
+    else if (t.end_req_by) endCtl = `<span class="flabel" style="color:var(--gold)">对方请求结束任务</span><button class="cbtn ghost" id="cEndBtn">结束任务</button>`;
+    else endCtl = `<button class="cbtn ghost" id="cEndBtn">结束任务</button>`;
     foot = `<div class="chatfoot">${attBarHTML()}<textarea id="chatInput" placeholder="输入消息，Enter 发送 / Shift+Enter 换行…"></textarea>
       <div class="frow"><span class="flabel">anet 只中继消息，不跑模型</span><span class="frow-r">${endCtl}<button class="attbtn" id="attBtn" title="添加图片 / 文件">📎</button><button class="cbtn" id="cSendBtn">发送</button></span></div></div>`;
-  } else if (t.status === "done" && !inbound && !t.reviewed) {
+  } else if (isCompleted(t.status) && !inbound && !t.reviewed) {
     foot = `<div class="chatfoot"><div class="frow"><span class="flabel">给这次协作打分</span><div class="starpick" id="cStar" data-rating="5">${"★".repeat(5)}</div></div>
       <textarea id="cComment" placeholder="评价（可选）"></textarea>
-      <div class="frow"><span class="flabel">评价锚定双方签名的回执 + 对话记录，上传到 Hub</span><button class="cbtn" id="cReviewBtn">提交评价</button></div></div>`;
-  } else if (t.status === "done" && !inbound && t.reviewed) {
+      <div class="frow"><span class="flabel">评价锚定对方签名的回执，只上传回执与评分，不上传对话内容</span><button class="cbtn" id="cReviewBtn">提交评价</button></div></div>`;
+  } else if (isCompleted(t.status) && !inbound && t.reviewed) {
     foot = `<div class="chatfoot"><span class="flabel" style="color:var(--green)">✓ 已评价</span></div>`;
-  } else if (t.status === "done" && inbound) {
+  } else if (isCompleted(t.status) && inbound) {
     foot = `<div class="chatfoot"><span class="flabel">任务已结束，等待对方评价。</span></div>`;
   }
 
@@ -1199,12 +1083,8 @@ function renderConversation(id) {
 
   const endBtn = document.getElementById("cEndBtn");
   if (endBtn) endBtn.onclick = async () => { endBtn.disabled = true;
-    try { await ctl("/end", { interaction_id: id }); toast("已提议结束任务"); loadThreads(); }
+    try { await ctl("/end", { interaction_id: id }); toast("已请求结束任务"); loadThreads(); }
     catch (e) { toast("操作失败：" + e.message, true); endBtn.disabled = false; } };
-  const accBtn = document.getElementById("cAcceptEndBtn");
-  if (accBtn) accBtn.onclick = async () => { accBtn.disabled = true;
-    try { await ctl("/end-accept", { interaction_id: id }); toast("已同意结束"); loadThreads(); }
-    catch (e) { toast("操作失败：" + e.message, true); accBtn.disabled = false; } };
   const star = document.getElementById("cStar");
   if (star) star.onclick = ev => { const rect = star.getBoundingClientRect();
     let r = Math.ceil(((ev.clientX - rect.left) / rect.width) * 5); r = Math.max(1, Math.min(5, r));
@@ -1220,7 +1100,7 @@ function renderConversation(id) {
 
 // ===================== data loading =====================
 async function loadDirectory() {
-  if (CONSOLE && !HUB) { app.agents = []; if (app.right === "explore") renderGrid(); return; }
+  if (!HUB) { app.agents = []; if (app.right === "explore") renderGrid(); return; }
   try {
     const r = await fetch(HUB + "/graph"); const g = await r.json();
     app.agents = g.nodes || [];
@@ -1235,10 +1115,11 @@ async function loadDirectory() {
 // (no caps/profile) stay out of the grid, matching the console sidebar's filtering.
 function listedAgents() { return (app.agents || []).filter(a => a.listed !== false); }
 
-// updateHeroStats fills the home tiles from the Hub's /stats endpoint. tasks_completed (interactions that
-// reached a delivered result) and reviews (a voluntary subset) are DISTINCT metrics.
+// updateHeroStats fills the home tiles from the Hub's /stats endpoint. tasks_completed is the number of
+// valid receipts published to the hub (with reviews); the hub no longer learns about other completions.
 async function updateHeroStats() {
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  if (!HUB) return;
   try {
     const r = await fetch(HUB + "/stats"); const s = await r.json();
     set("statAgents", s.agents ?? 0);
@@ -1320,44 +1201,11 @@ function setRight(view) {
 function goHome() { setRight("home"); }
 function goExplore() { setRight("explore"); }
 
-// showHubConv opens the conversation with `aid`. On phones it auto-collapses the rail so the chat gets
-// the full width (the reopen pill / back arrow brings the rail back as a drawer).
-function showHubConv(aid) {
-  setRight("conv");
-  renderGuestConversation(aid);
-  if (window.innerWidth <= 720) app.gcollapsed = true;
-  updateSideBar();
-}
-
-// renderGuestSessions lists every agent the visitor has opened a trial with (the "历史记录"). Clicking
-// one reopens it. Empty until the first trial chat.
-function renderGuestSessions() {
-  updateSideBar();
-  const box = document.getElementById("gsessions"); if (!box) return;
-  const aids = Object.keys(guest);
-  if (!aids.length) { box.innerHTML = `<div class="empty" style="padding:16px 12px;text-align:left">还没有对话。<br/>去「浏览 Agents」挑一个开始试玩。</div>`; return; }
-  box.innerHTML = aids.map(aid => {
-    const g = guest[aid];
-    const ag = app.agents.find(a => a.aid === aid) || { aid };
-    const name = esc(ag.name || short(aid));
-    const active = app.right === "conv" && app.sel.id === aid;
-    const status = g.done ? "已结束" : (g.starting ? "连接中…" : (g.remaining > 0 ? `还可发 ${g.remaining} 条` : "已达上限"));
-    const lastMsg = g.messages.filter(m => m.role !== "sys").slice(-1)[0];
-    const snip = lastMsg ? esc(((lastMsg.role === "me" ? "你: " : "") + lastMsg.body)).slice(0, 42) : status;
-    return `<div class="row agent ${active ? "active" : ""}" data-aid="${esc(aid)}">
-      <span class="dot" style="color:var(--accent)"></span>
-      <span class="meta"><div class="name">${name}</div><div class="aid">${snip}</div></span>
-      <span class="rating"><span class="n">${status}</span></span></div>`;
-  }).join("");
-  box.querySelectorAll(".row.agent").forEach(el => el.onclick = () => showHubConv(el.dataset.aid));
-}
-
-// renderSessions fills the rail's 历史记录/会话 list for whichever mode is active: guest trials (hub) or
-// real signed interactions (console).
-function renderSessions() { if (CONSOLE) renderConsoleSessions(); else renderGuestSessions(); }
+// renderSessions fills the rail's 会话 list with this identity's interactions.
+function renderSessions() { renderConsoleSessions(); }
 
 // renderConsoleSessions lists this identity's real interactions (outbound delegations + inbound tasks)
-// in the rail. Clicking one opens it in the conversation pane. Mirrors the guest sessions list styling.
+// in the rail. Clicking one opens it in the conversation pane.
 function renderConsoleSessions() {
   updateSideBar();
   const box = document.getElementById("gsessions"); if (!box) return;
@@ -1385,54 +1233,17 @@ function openConsoleThread(id) {
   updateSideBar();
 }
 
-function renderGuestConversation(aid) {
-  app.sel = { kind: "agent", id: aid, chat: true };
-  const ag = app.agents.find(a => a.aid === aid) || { aid };
-  const name = esc(ag.name || short(aid));
-  const main = document.getElementById("gconv");
-  main.innerHTML = `<div class="chat gsess">
-    <div class="chathead"><span class="back" id="chatBack">←</span><div class="chtitle">${name}<span class="gtag">访客试玩</span></div><div class="chsub" id="chsub"></div></div>
-    <div class="chatmsgs" id="chatmsgs"></div>
-    <div class="chatfoot">
-      ${attBarHTML()}
-      <textarea id="chatInput" placeholder="发条消息试试…（可 📎 传图片/文件，例如让 TA 识图）"></textarea>
-      <div class="frow"><span class="flabel">anet 只中继消息，不跑模型</span>
-        <span class="frow-r"><button class="attbtn" id="attBtn" title="添加图片 / 文件">📎</button><button class="cbtn" id="chatSend">发送</button></span></div>
-    </div>
-  </div>`;
-  document.getElementById("chatBack").onclick = () => { app.gcollapsed = false; updateSideBar(); }; // mobile: reveal sessions drawer
-  const send = () => guestSend(aid);
-  document.getElementById("chatSend").onclick = send;
-  const ta = document.getElementById("chatInput");
-  ta.onkeydown = e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
-  ta.focus();
-  resetPendingAtt();
-  wireAttBtn(GUEST_ATT_MAX, GUEST_ATT_COUNT);
-  ensureGuestStarted(aid);
-  renderGuestSessions();
-}
-
 async function loadThreads() {
-  if (!CONSOLE) return;
   try {
     const j = await ctl("/threads", {});
     app.threads = j.threads || [];
+    const rail = document.getElementById("gsessions"); if (rail) rail.dataset.loaded = "1"; // session calls work
     renderConsoleSessions();
     if (app.right === "conv" && app.sel.kind === "thread") renderConversation(app.sel.id);
   } catch (e) { /* ignore transient */ }
 }
 
-// ===================== markdown / transcript renderers =====================
-function renderTranscript(s) {
-  let arr = null;
-  try { const p = JSON.parse(s); if (Array.isArray(p)) arr = p; } catch (e) {}
-  if (!arr) return `<pre>${esc(s)}</pre>`;
-  if (!arr.length) return `<div class="tsc-empty">（无对话内容）</div>`;
-  return `<div class="tsc">` + arr.map(m => {
-    const prov = m && m.from === "provider";
-    return `<div class="tsc-msg ${prov ? "prov" : "req"}"><span class="tsc-who">${prov ? "提供方" : "委派方"}</span><div class="md">${renderMd(String(m && m.body || ""))}</div></div>`;
-  }).join("") + `</div>`;
-}
+// ===================== markdown renderer =====================
 function mdInline(s) {
   let h = esc(s);
   h = h.replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -1477,30 +1288,9 @@ function renderMd(src) {
   return out;
 }
 
-// ===================== HUB (guest) entry =====================
-// A visitor to the official Hub page has no local identity — it is always the免安装「访客模式」: browse
-// agents, try one. Users who installed anet don't act here; their daemon prints an identity-bound console
-// URL and they open THAT (it looks identical, see initConsole).
-function initHub() {
-  document.getElementById("topbar").style.display = "none"; // hub uses the sidebar's logo, not the topbar
-  document.getElementById("consoleBody").style.display = "none";
-  document.getElementById("hubwrap").classList.add("on");
-  // Relocate the onboarding guide into the main pane so "加入网络" renders as a view, not a popup.
-  const g = document.getElementById("guide");
-  document.getElementById("hubmain").appendChild(g);
-  g.classList.add("aspane");
-  setRight("home"); // 展示页 first
-  updateSideBar();
-  updateHeroStats(); setInterval(updateHeroStats, 8000);
-  loadDirectory(); setInterval(loadDirectory, 5000);
-}
-
 // ===================== CONSOLE entry =====================
-// The console is served by the local daemon and now shares the EXACT SAME Grok-style shell as the public
-// Hub (collapsible rail → routed main pane). The only visible differences: the rail footer shows
-// "● 已连接 daemon · <你的名字>" instead of "访客模式", and 历史记录 lists this identity's REAL signed
-// interactions (delegate/inbox) instead of ephemeral guest trials. One daemon = one identity, so there is
-// no in-page switcher: to act as another persona you run another daemon and open its URL.
+// The console shares the Grok-style shell (collapsible rail → routed main pane). The rail lists this
+// identity's signed interactions; the status under the logo doubles as the identity switcher.
 function initConsole() {
   document.title = "ANet Console";                              // browser tab title (public hub keeps its own)
   document.getElementById("topbar").style.display = "none";     // rail carries the logo/brand now
@@ -1526,9 +1316,9 @@ function initConsole() {
 }
 
 // renderConsoleStatus shows the daemon connection + identity name directly under the logo, and doubles as
-// an account-style identity switcher: clicking it scans the locally-running daemons (POST /identities) and
-// lets you hop to any other one's console. Each daemon serves the same SPA on its own loopback port with
-// its own bearer token, so "switching" is just navigating to that port — no cross-origin token sharing.
+// an account-style identity switcher: clicking it scans the locally-running daemons (POST /identities).
+// Choosing another identity asks this daemon for a console ticket of that identity (POST /console/switch,
+// A2A-DESIGN §7.4) and navigates to the returned URL; the target daemon then starts its own session.
 function renderConsoleStatus() {
   const el = document.getElementById("sideStatus"); if (!el) return;
   const name = esc(A.name || short(A.aid));
@@ -1551,8 +1341,7 @@ function renderConsoleStatus() {
   document.addEventListener("click", () => menu.classList.remove("on"));
 }
 
-// fillIdentityMenu populates the switcher with every locally-running daemon. Selecting another navigates
-// to its console URL (http://<control_addr>/), which boots the same page with that identity's token.
+// fillIdentityMenu populates the switcher with every locally-running daemon.
 async function fillIdentityMenu(menu) {
   menu.innerHTML = `<div class="ss-item" style="cursor:default;color:var(--muted)">扫描本地 daemon…</div>`;
   let list = [];
@@ -1562,36 +1351,29 @@ async function fillIdentityMenu(menu) {
   list.sort((a, b) => (b.self ? 1 : 0) - (a.self ? 1 : 0) || (a.name || "").localeCompare(b.name || ""));
   menu.innerHTML = list.map(it => {
     const nm = esc(it.name || short(it.aid));
-    return `<div class="ss-item${it.self ? " cur" : ""}" data-addr="${esc(it.control_addr || "")}" data-self="${it.self ? 1 : 0}">`
+    return `<div class="ss-item${it.self ? " cur" : ""}" data-aid="${esc(it.aid || "")}" data-self="${it.self ? 1 : 0}">`
       + `<span class="ss-mark">${it.self ? "✓" : ""}</span>`
       + `<span class="ss-name" style="overflow:hidden;text-overflow:ellipsis">${nm}</span>`
-      + `<span class="ss-aid">${short(it.aid)}</span>`
+      + `<span class="ss-aid">${esc(short(it.aid))}</span>`
     + `</div>`;
   }).join("");
   menu.querySelectorAll('.ss-item[data-self="0"]').forEach(node => {
-    node.onclick = (e) => {
+    node.onclick = async (e) => {
       e.stopPropagation();
-      const addr = node.getAttribute("data-addr");
-      if (addr) location.href = "http://" + addr + "/console";
+      const aid = node.getAttribute("data-aid");
+      if (!aid) return;
+      try { const j = await ctl("/console/switch", { aid }); if (j.url) location.href = j.url; }
+      catch (err) { toast("切换失败：" + err.message, true); }
     };
   });
 }
 
-// renderConsoleFoot keeps the rail footer for the "not yet registered" affordance only; the connected
-// status now lives under the logo (renderConsoleStatus), so a registered console hides the footer.
+// renderConsoleFoot shows, for a daemon not yet registered with a hub, the CLI command that registers it.
+// Registration is not offered in the page: it is a bearer-only control route (A2A-DESIGN §7.3).
 function renderConsoleFoot() {
   const el = document.getElementById("sidefoot"); if (!el) return;
   if (A.hub) { el.style.display = "none"; return; }
-  let html = INTENDED_HUB
-    ? `<a id="connectHub">连接到本 Hub →</a>`
-    : `<span class="flabel">未注册 Hub（<code>anet hub-register</code>）</span>`;
-  el.innerHTML = html;
-  const b = document.getElementById("connectHub");
-  if (b) b.onclick = async () => {
-    b.style.pointerEvents = "none";
-    try { await ctl("/hub-register", { hub: INTENDED_HUB, name: A.name || "" }); toast("已连接 " + INTENDED_HUB); setTimeout(() => location.reload(), 700); }
-    catch (e) { toast("连接失败：" + e.message, true); b.style.pointerEvents = "auto"; }
-  };
+  el.innerHTML = `<span class="flabel">未注册 Hub：在终端运行 <code>anet hub-register &lt;hub&gt;</code></span>`;
 }
 
 // initConsoleTarget handles an incoming ?to= delegation target (e.g. a deep link): open a chat with it.
@@ -1634,7 +1416,7 @@ if (agentModalClose) agentModalClose.onclick = closeAgentModal;
 if (agentModal) agentModal.addEventListener("click", e => { if (e.target === agentModal) closeAgentModal(); });
 addEventListener("keydown", e => { if (e.key === "Escape" && agentModal && agentModal.classList.contains("open")) closeAgentModal(); });
 
-if (CONSOLE) initConsole(); else initHub();
+startSession().then(ok => { if (ok) initConsole(); else showNoSession(false); });
 
 // onboarding guide overlay
 const guide = document.getElementById("guide");
@@ -1642,13 +1424,13 @@ const guide = document.getElementById("guide");
 function openGuide() { setRight("join"); }
 function closeGuide() { guide.classList.remove("open"); }
 document.getElementById("joinBtn").onclick = openGuide;
-document.getElementById("mobBack").onclick = () => { if (CONSOLE) backToList(); };
+document.getElementById("mobBack").onclick = () => backToList();
 document.getElementById("closeGuide").onclick = closeGuide;
 guide.addEventListener("click", e => { if (e.target === guide) closeGuide(); });
 addEventListener("keydown", e => { if (e.key === "Escape") closeGuide(); });
 
 // The hub URL to bake into copy-paste prompts: the page origin (hub mode) or the daemon's Hub (console).
-const HUB_URL = CONSOLE ? (A.hub || INTENDED_HUB || "<官方 Hub 地址，如 http://localhost:8088>") : location.origin;
+const HUB_URL = A.hub || "<官方 Hub 地址，如 https://agentnetwork.org.cn>";
 
 // Step 1: copy the install one-liner (static text lives in the markup).
 const copyInstall = document.getElementById("copyInstall");

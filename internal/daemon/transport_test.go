@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/ANetResearch/ANetCore/seal"
 )
 
 // fakeTransport is a direct path that can be told how to behave.
@@ -17,15 +19,17 @@ type fakeTransport struct {
 
 	mu   sync.Mutex
 	sent []string
+	envs [][]byte
 }
 
 func (f *fakeTransport) Name() string { return f.name }
 func (f *fakeTransport) Reachable(context.Context, string) bool {
 	return f.reachable
 }
-func (f *fakeTransport) Send(_ context.Context, toAID, kind, id string, _ []byte) error {
+func (f *fakeTransport) Send(_ context.Context, toAID string, env []byte) error {
 	f.mu.Lock()
-	f.sent = append(f.sent, kind+"->"+toAID)
+	f.sent = append(f.sent, toAID)
+	f.envs = append(f.envs, append([]byte(nil), env...))
 	f.mu.Unlock()
 	return f.fail
 }
@@ -45,7 +49,7 @@ func TestDirectTransportIsPreferredOverTheHub(t *testing.T) {
 	direct := &fakeTransport{name: "p2p", reachable: true}
 	d.RegisterTransport(direct)
 
-	if err := d.relaySend(context.Background(), peer, "delegate", "ix-1", []byte("x")); err != nil {
+	if err := d.relaySend(context.Background(), peer, seal.TypeDelegate, "ix-1", []byte("x")); err != nil {
 		t.Fatal(err)
 	}
 	if direct.count() != 1 {
@@ -66,7 +70,7 @@ func TestHubCatchesAnUnreachablePeer(t *testing.T) {
 	direct := &fakeTransport{name: "p2p", reachable: false}
 	d.RegisterTransport(direct)
 
-	if err := d.relaySend(context.Background(), peer, "delegate", "ix-1", []byte("x")); err != nil {
+	if err := d.relaySend(context.Background(), peer, seal.TypeDelegate, "ix-1", []byte("x")); err != nil {
 		t.Fatal(err)
 	}
 	if direct.count() != 0 {
@@ -86,7 +90,7 @@ func TestFailedDirectSendFallsThroughToTheHub(t *testing.T) {
 	direct := &fakeTransport{name: "p2p", reachable: true, fail: errors.New("connection reset")}
 	d.RegisterTransport(direct)
 
-	if err := d.relaySend(context.Background(), peer, "delegate", "ix-1", []byte("x")); err != nil {
+	if err := d.relaySend(context.Background(), peer, seal.TypeDelegate, "ix-1", []byte("x")); err != nil {
 		t.Fatal(err)
 	}
 	if direct.count() != 1 {
@@ -106,7 +110,7 @@ func TestEveryPathFailingReportsTheLastError(t *testing.T) {
 	direct := &fakeTransport{name: "p2p", reachable: true, fail: errors.New("connection reset")}
 	d.RegisterTransport(direct)
 
-	err := d.relaySend(context.Background(), "peer-aid", "delegate", "ix-1", []byte("x"))
+	err := d.deliverEnvelope(context.Background(), "peer-aid", []byte("x"))
 	if err == nil {
 		t.Fatal("delivery with no working path must fail")
 	}
@@ -124,7 +128,7 @@ func TestHubOnlyBuildStillDelivers(t *testing.T) {
 	if got := len(d.transports()); got != 1 {
 		t.Fatalf("a build with no transport module should have exactly the hub, got %d", got)
 	}
-	if err := d.relaySend(context.Background(), peer, "message", "ix-1", []byte("x")); err != nil {
+	if err := d.relaySend(context.Background(), peer, seal.TypeMessage, "ix-1", []byte("x")); err != nil {
 		t.Fatal(err)
 	}
 	if n := relayCountFor(srv.URL); n != 1 {
@@ -140,11 +144,35 @@ func twoRegistered(t *testing.T, srv *httptest.Server) (*Daemon, string) {
 	ctx := context.Background()
 	d := newTestDaemon(t, srv.URL, false)
 	peer := newTestDaemon(t, srv.URL, true)
-	if err := d.RegisterWithHub(ctx, srv.URL, "Sender", nil, GuestDefaultMessages, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, srv.URL, "Sender", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := peer.RegisterWithHub(ctx, srv.URL, "Peer", nil, GuestDefaultMessages, ""); err != nil {
+	if err := peer.RegisterWithHub(ctx, srv.URL, "Peer", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	return d, peer.AID()
+}
+
+// §3.5 step 1: a recipient whose encryption keys cannot be resolved gets
+// nothing. The send fails with an error naming the cause, and no transport
+// is handed any bytes — there is no unsealed fallback (SI-3).
+func TestARecipientWithoutKeysIsSentNothing(t *testing.T) {
+	srv := newFakeHub(t)
+	d, _ := twoRegistered(t, srv)
+	direct := &fakeTransport{name: "p2p", reachable: true}
+	d.RegisterTransport(direct)
+	nobody := newStranger(t) // registered nowhere, so the hub has no keys for it
+	err := d.relaySend(context.Background(), nobody.aid, seal.TypeDelegate, "ix-1", []byte("the task in the clear"))
+	if err == nil {
+		t.Fatal("a message to a recipient without keys was reported sent")
+	}
+	if !strings.Contains(err.Error(), "encryption keys") {
+		t.Errorf("the error does not name the missing keys: %v", err)
+	}
+	if n := direct.count(); n != 0 {
+		t.Fatalf("a transport was handed %d messages for a recipient without keys", n)
+	}
+	if n := relayCountFor(srv.URL); n != 0 {
+		t.Fatalf("the hub carried %d messages for a recipient without keys", n)
+	}
 }

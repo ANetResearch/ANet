@@ -4,7 +4,8 @@
 # The role scripts model a tiny real network against the official Hub (or any Hub given via $HUB_URL):
 #   2-provider.sh   服务方：一个后台 daemon（独立身份）登记为「能干活」的 provider，等着接单
 #   3-requester.sh  委派方：一个后台 daemon（独立身份），去 find → 委派 → 多轮沟通 → 结束 → 评价
-#   4-guest.sh      访客：无 daemon，直接用 Hub 的 /guest/* 接口试玩（验证访客模式 + 其临时清理）
+#
+# 访客模式已删除（A2A-DESIGN §9）：hub 不再代陌生人发起委派，也就没有 4-guest.sh。
 #
 # Hub 是官方托管服务；用环境变量 HUB_URL 指定要接入的 Hub（默认官方 https://hub.agentnetwork.org.cn）。
 # 这里集中放「所有角色都要的」东西，让每个角色脚本保持薄薄一层、易读。
@@ -91,3 +92,13 @@ print_status(){
   echo "  数据目录   $DATA"
   echo "  控制台     http://127.0.0.1:$PORT/console?hub=$HUB_URL"
 }
+
+# peer_allow DATA_DIR AID…: put AIDs on that identity's inbound allow list (DATA_DIR/peers.allow).
+# The inbound policy is closed by default (A2A-DESIGN §5): a provider takes delegations only from peers
+# on this list. The CLI's `anet peers allow` asks for confirmation on a terminal, which a script does
+# not have; the daemon reads the file on every decision, so no restart is needed.
+peer_allow(){ local d="$1"; shift; local x; for x in "$@"; do grep -qxF "$x" "$d/peers.allow" 2>/dev/null || printf '%s\n' "$x" >> "$d/peers.allow"; done; }
+
+# peer_trust DATA_DIR AID…: the same for peers.trust — peers whose tasks may drive this identity's exec
+# auto-reply (the local coding agent).
+peer_trust(){ local d="$1"; shift; local x; for x in "$@"; do grep -qxF "$x" "$d/peers.trust" 2>/dev/null || printf '%s\n' "$x" >> "$d/peers.trust"; done; }

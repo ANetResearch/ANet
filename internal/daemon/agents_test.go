@@ -18,7 +18,7 @@ echo "hello from stub agent"
 	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ANET_EXEC_COMMAND", stub)
+	setExecCommand(t, stub)
 
 	reply, err := InvokeAgent(context.Background(), execInvokeOpts{
 		AgentID: "cursor",
@@ -40,7 +40,7 @@ func TestInvokeAgentDefaultsToCheapModel(t *testing.T) {
 	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ANET_EXEC_COMMAND", stub)
+	setExecCommand(t, stub)
 
 	got, err := InvokeAgent(context.Background(), execInvokeOpts{AgentID: "cursor", Prompt: "p", Timeout: 5 * time.Second})
 	if err != nil {

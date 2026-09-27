@@ -531,3 +531,8 @@ func TestAbsentConfigYieldsNoModule(t *testing.T) {
 		t.Fatal("with no configuration the module must not start at all")
 	}
 }
+
+// Admit and DeclareUntrustedBackend complete module.Host. This test host
+// admits every call; the kernel's admission is tested in internal/daemon.
+func (*shellHost) Admit(string, string, int) (func(), string) { return func() {}, "" }
+func (*shellHost) DeclareUntrustedBackend()                   {}

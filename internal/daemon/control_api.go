@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -24,6 +24,7 @@ import (
 	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // The control plane is a LOCAL HTTP API (loopback by default) the CLI uses to drive a running daemon.
@@ -65,7 +66,7 @@ type daemonPointer struct {
 // (best-effort; failures are silent — the pointer is a convenience fallback, not a requirement).
 func writeDaemonPointer(controlAddr, dataDir string) {
 	p := DaemonPointerPath()
-	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+	if err := ensurePrivateDir(filepath.Dir(p)); err != nil {
 		return
 	}
 	b, err := json.Marshal(daemonPointer{ControlAddr: controlAddr, DataDir: dataDir})
@@ -87,13 +88,17 @@ func ResolveControl(layout Layout) (baseURL, token string, err error) {
 		}
 	}
 	// Fallback: the uid-scoped pointer a running daemon published.
-	pb, perr := os.ReadFile(DaemonPointerPath())
+	pb, perr := readDaemonPointerFile()
 	if perr != nil {
 		return "", "", fmt.Errorf("read control token (is the daemon running?): %w", perr)
 	}
 	var dp daemonPointer
 	if json.Unmarshal(pb, &dp) != nil || dp.ControlAddr == "" || dp.DataDir == "" {
 		return "", "", fmt.Errorf("read control token (is the daemon running?): bad daemon pointer")
+	}
+	// The token is about to be sent to the pointer's address; only a loopback address qualifies.
+	if err := checkLoopbackControlAddr(dp.ControlAddr); err != nil {
+		return "", "", fmt.Errorf("daemon pointer: %w", err)
 	}
 	tb, terr := os.ReadFile(NewLayout(dp.DataDir).ControlTokenPath())
 	if terr != nil {
@@ -118,11 +123,12 @@ func ResolveControlStrict(l Layout) (baseURL, token string, err error) {
 	return "http://" + cfg.ControlAddr, strings.TrimSpace(string(b)), nil
 }
 
-// ControlHandler returns the daemon's control-plane HTTP handler (token-guarded). Exposed so tests can
-// drive it via httptest without binding a port. v0.1 is centralized, so the surface is small: identity
-// status, Hub registration + discovery, and the delegation lifecycle over the Hub relay.
+// ControlHandler returns the daemon's control-plane HTTP handler. Exposed so tests can drive it via
+// httptest without binding a port. Every route registered on api below is authenticated (bearer token,
+// or a console session for the routes in ctlsec.go's sessionRoutes); the Host/Origin guard, the console
+// page and the console session routes are added by secureControlPlane (ctlsec.go).
 func (d *Daemon) ControlHandler(token string) http.Handler {
-	api := http.NewServeMux()
+	api := newRouteMux()
 	api.HandleFunc("GET /status", d.hStatus)
 	api.HandleFunc("POST /status", d.hStatus)
 	api.HandleFunc("POST /hub-register", d.hHubRegister)
@@ -152,22 +158,20 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /reconcile", d.hReconcile)
 	api.HandleFunc("POST /audit-hub", d.hAuditHub)
 	api.HandleFunc("POST /visibility", d.hVisibility)
-	// The local web console is served OUTSIDE the bearer wrapper (a browser navigation cannot send an
-	// Authorization header); loopback-only makes this safe. The page then calls the token-guarded API
-	// above with the injected token. Everything else stays bearer-gated.
-	top := http.NewServeMux()
-	top.HandleFunc("GET /console", d.consoleHandler(token))
-	top.HandleFunc("GET /ping", d.pingHandler())
-	top.HandleFunc("GET /attachment", d.attachmentHandler())
-	// A browser landing on the bare root (typed URL, bookmark, or an identity-switcher hop from an older
-	// tab) would otherwise hit the bearer-gated API and get a bare "unauthorized". Redirect GET / to the
-	// console so any human navigation resolves to the web UI. ({$} matches ONLY "/", so the API keeps the
-	// "/" catch-all for its POST endpoints.)
-	top.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/console", http.StatusFound)
-	})
-	top.Handle("/", bearer(token, api))
-	return top
+	// Inbound policy and peer lists (A2A-DESIGN §5; handlers in
+	// inbound_api.go). Bearer only: none of these is a console session
+	// route. The TTY confirmation for allow, trust and approve is made by
+	// the CLI before it calls them (§5.3, §21 item 13).
+	api.HandleFunc("POST /peers/list", d.hPeersList)
+	api.HandleFunc("POST /peers/allow", d.hPeersAllow)
+	api.HandleFunc("POST /peers/trust", d.hPeersTrust)
+	api.HandleFunc("POST /peers/deny", d.hPeersDeny)
+	api.HandleFunc("POST /peers/remove", d.hPeersRemove)
+	api.HandleFunc("POST /inbound/policy", d.hInboundPolicy)
+	api.HandleFunc("POST /inbound/pending", d.hInboundPending)
+	api.HandleFunc("POST /inbound/approve", d.hInboundApprove)
+	api.HandleFunc("POST /inbound/reject", d.hInboundReject)
+	return d.secureControlPlane(token, api)
 }
 
 // maxControlBody caps a control-plane request body.
@@ -192,7 +196,7 @@ const maxUploadBody = 130 << 20 // 130 MiB
 
 // readMultipartAttachments streams a multipart/form-data control request, collecting non-file fields into
 // a map and each file part into a self-verified attachment. It reads parts incrementally (no on-disk temp
-// files) and bounds every file to maxAttachmentBytes; the bearer wrapper already caps the total body.
+// files) and bounds every file to maxAttachmentBytes; the authentication gate already caps the total body.
 func readMultipartAttachments(r *http.Request) (fields map[string]string, atts []delegation.Attachment, err error) {
 	mr, err := r.MultipartReader()
 	if err != nil {
@@ -243,6 +247,11 @@ func readMultipartAttachments(r *http.Request) (fields map[string]string, atts [
 // so the CLI follows and the operator can see what happened and pin it back.
 func (d *Daemon) listenControl() (net.Listener, error) {
 	addr := d.config().ControlAddr
+	// The control plane is loopback-only (A2A-DESIGN §7.1). A non-loopback address is a configuration
+	// error, reported before anything is bound; there is no switch that allows it.
+	if err := checkLoopbackControlAddr(addr); err != nil {
+		return nil, err
+	}
 	ln, err := net.Listen("tcp", addr)
 	if err == nil {
 		return ln, nil
@@ -322,26 +331,6 @@ func (d *Daemon) ServeControl(ctx context.Context) error {
 	return nil
 }
 
-// bearer wraps h with a constant-time bearer-token check.
-func bearer(token string, h http.Handler) http.Handler {
-	want := "Bearer " + token
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got := r.Header.Get("Authorization")
-		if subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		// Web-console uploads (delegate/message with files) arrive as multipart and carry real bytes, so
-		// they need a much larger ceiling than the tiny JSON control calls; everything else stays at 1 MiB.
-		cap := int64(maxControlBody)
-		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-			cap = maxUploadBody
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, cap)
-		h.ServeHTTP(w, r)
-	})
-}
-
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
@@ -367,25 +356,24 @@ func relayError(w http.ResponseWriter, err error) {
 func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
 	cfg := d.config()
 	out := map[string]any{
-		"aid":                d.AID(),
-		"version":            Version,
-		"data_dir":           d.layout.Root,
-		"hub_url":            cfg.HubURL,
-		"name":               cfg.Name,
-		"caps":               cfg.Caps,
-		"summary":            cfg.Summary,
-		"readme":             cfg.Readme,
-		"pricing":            cfg.Pricing,
-		"accept_delegations": cfg.AcceptsDelegations(),
-		"guest_messages":     cfg.GuestQuota(),
-		"console_url":        consoleURL(cfg),
+		"aid":            d.AID(),
+		"version":        Version,
+		"data_dir":       d.layout.Root,
+		"hub_url":        cfg.HubURL,
+		"name":           cfg.Name,
+		"caps":           cfg.Caps,
+		"summary":        cfg.Summary,
+		"readme":         cfg.Readme,
+		"pricing":        cfg.Pricing,
+		"inbound_policy": cfg.inbound().Policy,
+		"console_url":    consoleURL(cfg),
 	}
 	if ar := cfg.AutoReply; ar != nil {
 		backend := ar.Backend
 		if backend == "" {
 			backend = "openai"
 		}
-		entry := map[string]any{"backend": backend}
+		entry := map[string]any{"backend": backend, "untrusted": ar.UntrustedMode()}
 		switch backend {
 		case "exec":
 			entry["agent"] = ar.Agent
@@ -398,6 +386,9 @@ func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
 		}
 		out["auto_reply"] = entry
 	}
+	// Receive outcomes by reason since start (receive.go): every envelope
+	// dropped or held back, and why.
+	out["receive"] = d.ReceiveStats()
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -412,20 +403,15 @@ func (d *Daemon) hShutdown(w http.ResponseWriter, _ *http.Request) {
 	go d.RequestStop()
 }
 
-// consoleURL builds the loopback URL a human opens to drive THIS daemon in the browser (same web UI as
-// the Hub, but bound to this identity). Host is forced to 127.0.0.1 (the control port may bind 0.0.0.0),
-// and the configured Hub is passed through so the console connects to the right Hub. Empty until the
-// control addr is known. This is the URL an onboarding agent hands back to its operator.
+// consoleURL is the address of this daemon's console page. The page opens only with a single-use
+// ticket in its fragment, which `anet console` obtains (session.go); opened without one, the page says
+// to run that command. Empty until the control addr is known.
 func consoleURL(cfg Config) string {
 	_, port, err := net.SplitHostPort(cfg.ControlAddr)
 	if err != nil || port == "" {
 		return ""
 	}
-	u := "http://127.0.0.1:" + port + "/console"
-	if cfg.HubURL != "" {
-		u += "?hub=" + cfg.HubURL
-	}
-	return u
+	return "http://" + consoleHost(cfg.ControlAddr) + ":" + port + "/console"
 }
 
 // hProfile sets this agent's self-authored profile (summary/readme/pricing). Fields omitted from the
@@ -466,11 +452,13 @@ func (d *Daemon) hProfile(w http.ResponseWriter, r *http.Request) {
 // and (re)starts the relay poll loop so delegations/results start flowing.
 func (d *Daemon) hHubRegister(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Hub               string   `json:"hub"`
-		Name              string   `json:"name"`
-		Caps              []string `json:"caps"`
-		GuestMessages     *int     `json:"guest_messages"`
-		AcceptDelegations *bool    `json:"accept_delegations"`
+		Hub  string   `json:"hub"`
+		Name string   `json:"name"`
+		Caps []string `json:"caps"`
+		// AcceptDelegations is the wire-1 switch. true is refused with the
+		// same explanation as POST /accept; false asks for what the closed
+		// policy already does (A2A-DESIGN §5.1).
+		AcceptDelegations *bool `json:"accept_delegations"`
 		// Token is an admission token for a hub that requires one. It is
 		// passed through and not stored: it is spent on arrival, and a
 		// spent credential kept on disk is a credential that can leak
@@ -481,21 +469,32 @@ func (d *Daemon) hHubRegister(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "hub URL required"})
 		return
 	}
+	if req.AcceptDelegations != nil && *req.AcceptDelegations {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errAcceptOn.Error()})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
 	defer cancel()
-	if err := d.HubRegister(ctx, req.Hub, req.Name, req.Caps, req.GuestMessages, req.AcceptDelegations, req.Token); err != nil {
+	if err := d.HubRegister(ctx, req.Hub, req.Name, req.Caps, req.Token); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
+	}
+	if req.AcceptDelegations != nil {
+		if err := d.SetInboundPolicy(PolicyClosed); err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
 	}
 	d.writeRegistry() // refresh the identity entry so the switcher shows the (possibly new) name
 	writeJSON(w, http.StatusOK, map[string]any{
 		"hub": req.Hub, "aid": d.AID(), "status": "registered",
-		"accept_delegations": d.config().AcceptsDelegations(),
+		"inbound_policy": d.config().inbound().Policy,
 	})
 }
 
-// hAccept toggles whether this daemon stores inbound delegated tasks (persisted; effective immediately).
-// This is the CLI-accessible switch for accept_delegations — no need to hand-edit config.json.
+// hAccept is the wire-1 accept_delegations switch (A2A-DESIGN §5.1). "on" used to mean "anyone may
+// delegate" and has no equivalent that is safe to pick for the operator, so it is refused with the
+// three policies and the allow-list command; "off" sets policy closed.
 func (d *Daemon) hAccept(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Enabled bool `json:"enabled"`
@@ -504,13 +503,16 @@ func (d *Daemon) hAccept(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
-	v, err := d.SetAcceptDelegations(req.Enabled)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	if req.Enabled {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errAcceptOn.Error()})
+		return
+	}
+	if err := d.SetInboundPolicy(PolicyClosed); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
 	d.writeRegistry()
-	writeJSON(w, http.StatusOK, map[string]any{"accept_delegations": v, "status": "updated"})
+	writeJSON(w, http.StatusOK, map[string]any{"inbound_policy": PolicyClosed, "status": "updated"})
 }
 
 // hAutoReply reconfigures the built-in auto-reply loop live (see autoreply.go): `{"off":true}` turns it
@@ -531,7 +533,11 @@ func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
 		cfg = &c
 	}
 	if err := d.SetAutoReply(cfg); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		code := http.StatusBadRequest
+		if errors.Is(err, ErrPolicyConflict) {
+			code = http.StatusConflict
+		}
+		writeJSON(w, code, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"auto_reply": cfg, "status": "updated"})
@@ -760,36 +766,62 @@ func (d *Daemon) hPull(w http.ResponseWriter, r *http.Request) {
 }
 
 // attachmentHandler streams one stored attachment's bytes for the local web console to render (inline
-// <img>) or download. Served OUTSIDE the bearer wrapper (like /console) because a browser <img>/<a> load
-// cannot send an Authorization header; loopback-only makes this safe.
+// <img>) or download (A2A-DESIGN §7.6). It sits behind the authentication gate: the console's <img>/<a>
+// loads reach it with the session cookie (a session route without CSRF, see ctlsec.go), the CLI with the
+// bearer token.
+//
+// The peer chooses both the bytes and the declared type, so neither decides how the browser treats the
+// response. The type is sniffed from the bytes (sniffMime), and only the four raster image types in
+// inlineImageTypes are served inline; everything else, SVG and HTML included, is served as
+// application/octet-stream with Content-Disposition: attachment. Every response also carries
+// "Content-Security-Policy: default-src 'none'; sandbox" and nosniff, so even a response a browser does
+// render gets an opaque origin without script. Before this, an attachment declared image/svg+xml or
+// text/html rendered inline on the control-plane origin, where its script could call the control API.
+// Responses are not cached: the previous one-year immutable caching would have kept serving any
+// response cached under the old rules.
 func (d *Daemon) attachmentHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Cache-Control", "no-store")
 		ixID := r.URL.Query().Get("interaction_id")
 		cid := r.URL.Query().Get("cid")
 		if ixID == "" || cid == "" {
 			http.Error(w, "interaction_id + cid required", http.StatusBadRequest)
 			return
 		}
-		name, mimeType, data, err := d.AttachmentBytes(ixID, cid)
+		name, _, data, err := d.AttachmentBytes(ixID, cid)
 		if err != nil {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		if mimeType == "" {
-			mimeType = "application/octet-stream"
-		}
-		w.Header().Set("Content-Type", mimeType)
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
-		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-		// Non-inline-renderable types download with their original name.
-		if !strings.HasPrefix(mimeType, "image/") && !strings.HasPrefix(mimeType, "text/") {
-			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", safeName(name)))
-		}
-		_, _ = w.Write(data)
+		writeAttachment(w, name, data)
 	}
 }
 
-// hEnd proposes ending a task (or accepts the peer's proposal if they already made one).
+// writeAttachment sends attachment bytes with the type decided by sniffing (see attachmentHandler).
+func writeAttachment(w http.ResponseWriter, name string, data []byte) {
+	h := w.Header()
+	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Cache-Control", "no-store")
+	h.Set("Content-Length", strconv.Itoa(len(data)))
+	if sniffed := sniffMime(data); inlineImageTypes[sniffed] {
+		h.Set("Content-Type", sniffed)
+	} else {
+		h.Set("Content-Type", "application/octet-stream")
+		cd := mime.FormatMediaType("attachment", map[string]string{"filename": safeName(name)})
+		if cd == "" {
+			cd = "attachment"
+		}
+		h.Set("Content-Disposition", cd)
+	}
+	_, _ = w.Write(data)
+}
+
+// hEnd ends a task from this side: the provider completes it (signs the receipt and delivers the
+// result); the requester asks the provider to complete it (A2A-DESIGN §4.2).
 func (d *Daemon) hEnd(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		InteractionID string `json:"interaction_id"`
@@ -804,25 +836,19 @@ func (d *Daemon) hEnd(w http.ResponseWriter, r *http.Request) {
 		relayError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"interaction_id": req.InteractionID, "status": "end_proposed"})
+	status := "end_requested"
+	if ix, err := d.ix.Get(req.InteractionID); err == nil && ix.Role == interactions.RoleInbound {
+		status = "completed"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"interaction_id": req.InteractionID, "status": status})
 }
 
-// hEndAccept accepts the peer's end proposal; mutual agreement makes the provider issue the signed receipt.
-func (d *Daemon) hEndAccept(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		InteractionID string `json:"interaction_id"`
-	}
-	if err := readJSON(r, &req); err != nil || strings.TrimSpace(req.InteractionID) == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interaction_id required"})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
-	defer cancel()
-	if err := d.AcceptEnd(ctx, req.InteractionID); err != nil {
-		relayError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"interaction_id": req.InteractionID, "status": "end_accepted"})
+// hEndAccept answered the second step of the wire-1 end negotiation. From wire 2 the provider
+// completes on its own and a requester's `end` is enough (A2A-DESIGN §4.2), so there is nothing to
+// accept; the route answers 410 with that explanation.
+func (d *Daemon) hEndAccept(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusGone, map[string]string{"error": "end-accept was removed: the provider " +
+		"completes a task itself, and the requester's `anet end` asks it to; use `anet end <interaction_id>`"})
 }
 
 // hThreads powers the console's chat view: it best-effort pulls any pending relay messages (so newly
@@ -850,18 +876,16 @@ func (d *Daemon) hThread(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.pollFresh(r.Context()) // best-effort freshness; large inbound transfers are left to the background loop
-	ts, err := d.Threads()
+	t, err := d.Thread(req.InteractionID)
+	if errors.Is(err, interactions.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such interaction: " + req.InteractionID})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	for _, t := range ts {
-		if t.InteractionID == req.InteractionID {
-			writeJSON(w, http.StatusOK, map[string]any{"thread": t})
-			return
-		}
-	}
-	writeJSON(w, http.StatusNotFound, map[string]string{"error": "no such interaction: " + req.InteractionID})
+	writeJSON(w, http.StatusOK, map[string]any{"thread": t})
 }
 
 // hIdentities lists all locally-running anet identities (daemons) so the console can offer an

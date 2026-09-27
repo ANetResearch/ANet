@@ -25,8 +25,61 @@ import (
 // which reads tasks via the CLI (`inbox`/`thread`) and drives the conversation with `anet message` /
 // `anet end`.
 type Daemon struct {
-	// peers remembers key histories verified on the ingest path.
-	peers *peerKELs
+	// enc is this node's encryption key ring (enckeys.go); publishedKeySeq
+	// is the seq of the key set the hub last confirmed holding.
+	enc             *encKeyRing
+	publishedKeySeq atomic.Uint64
+	// clock, when set, replaces the wall clock (unix ms) for the sealed
+	// wire. Tests only.
+	clock func() uint64
+	// hubIDs caches each hub's pinned identity by URL (hub_client.go).
+	hubIDMu sync.Mutex
+	hubIDs  map[string]hubIdent
+	// wireRefuseOnce keeps the "hub below wire 2" notice to one line.
+	wireRefuseOnce sync.Once
+	// lastSignTS is the time of the last relayauth v2 signature, kept
+	// strictly increasing (hubSigned).
+	lastSignTS atomic.Uint64
+
+	// Receive pipeline state (receive.go): the per-message lock, the
+	// refused-envelope list, outcome counters, the transport rate limit,
+	// the refusal-notice limit, the sender keys a refusal is encrypted to,
+	// and the capability calls this process is executing.
+	rxLocks     keyedLocks
+	refused     boundedSet
+	rxStats     rxCounters
+	p2pLimit    p2pLimiter
+	notices     noticeLimiter
+	strangers   strangerCache
+	reval       revalidating
+	running     sync.Map // interaction id -> *runningCall
+	logOnceMu   sync.Mutex
+	logOnceSeen map[string]bool
+	// rxFault, when set, is called inside the receive transaction after the
+	// business writes; an error rolls the transaction back. Tests only.
+	rxFault func(typ string) error
+	// bgWG counts background goroutines that use the store (goBackground),
+	// so Close can wait for them before closing it. bgMu orders their
+	// start against Close's cancel.
+	bgWG sync.WaitGroup
+	bgMu sync.Mutex
+
+	// Inbound policy state (inbound.go): admission counters, the window of
+	// refusal and acceptance counts, the peer-file write lock, and whether
+	// a module declared a backend that accepts untrusted peers.
+	admission        admission
+	inAgg            inboundAgg
+	peerLists        peerLists
+	untrustedBackend atomic.Bool
+	// bus publishes interaction changes to watchers (eventbus.go).
+	bus eventBus
+	// outboxKick wakes the retry loop; outboxLocks serializes attempts at
+	// one queued message (retry.go).
+	outboxKick  chan struct{}
+	outboxLocks keyedLocks
+	// sbRefused remembers outbound auto-reply turns that failed closed
+	// because the sandbox was unavailable (autoreply.go).
+	sbRefused sandboxRefused
 
 	// pay is the payment subsystem, when one is compiled in and
 	// configured. Nil is the ordinary state of a build with -tags
@@ -70,10 +123,6 @@ type Daemon struct {
 	self   *identity.Controller
 	ix     *interactions.Store
 
-	// cachedHubAID names the ledger this node settles on, fetched once
-	// from the hub. Two hubs are two networks and a credit on one is not
-	// a credit on the other, so an authorization has to say which.
-	cachedHubAID string
 	// providers is the C1 capability registry (docs/CONTRACTS-zh.md): the only doorway
 	// through which this daemon acquires callable capabilities.
 	providers *provider.Registry
@@ -129,20 +178,52 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, fmt.Errorf("anet: open interactions store: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, peers: newPeerKELs(),
-		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1),
+	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel,
+		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
 		longCalls: make(chan struct{}, maxConcurrentLongCalls)}
+	if cfg.migratedInbound {
+		// Logged once: the migrated config is saved below without the old
+		// key, so the next start reads an explicit inbound block.
+		log.Printf("anet: accept_delegations is replaced by inbound.policy (A2A-DESIGN §5.1); this node now runs " +
+			"policy closed. Allow a peer with `anet peers allow <aid>` or list public capabilities under inbound.public_capabilities")
+	}
+	if cfg.rewriteConfig {
+		if err := SaveConfig(layout, cfg); err != nil {
+			log.Printf("anet: save migrated config: %v", err)
+		}
+	}
+	in := cfg.inbound()
+	d.notices.configure(in.RejectNotice.PerPeerPerHour, in.RejectNotice.GlobalPerMin)
+	// The key ring exists before anything can publish or receive: a peer
+	// can only seal to keys this node holds on disk.
+	if err := d.setupKeyRing(); err != nil {
+		cancel()
+		ix.Close()
+		return nil, err
+	}
 	led, err := openEvidenceLedger(layout.EvidenceLedgerPath(), self)
 	if err != nil {
 		return nil, err
 	}
 	d.ledger = led
+	d.purgeReplay()
+	d.goBackground(func() { d.receiveMaintenance(ctx) })
 	d.loadCardSeq()
 	d.providers = provider.NewRegistry()
 	if err := d.startModules(ctx, cfg); err != nil {
 		cancel()
 		return nil, err
 	}
+	// The configuration check runs after the modules start, because a
+	// module declares an untrusted backend from Start (A2A-DESIGN §5.1).
+	if err := d.validate(cfg); err != nil {
+		cancel()
+		d.stopModules(context.Background())
+		ix.Close()
+		return nil, err
+	}
+	d.recoverInterrupted()
+	d.goBackground(func() { d.outboxLoop(ctx) })
 	if cfg.HubURL != "" {
 		d.startRelayLoop(cfg.HubURL)
 		d.refreshRegistration()
@@ -176,7 +257,7 @@ func New(layout Layout) (*Daemon, error) {
 // explicit `hub-register` can land first, and a refresh carrying the
 // snapshot from before it would overwrite what the operator just set.
 func (d *Daemon) refreshRegistration() {
-	go func() {
+	d.goBackground(func() {
 		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
 		defer cancel()
 		// Read and register under one lock, so an explicit hub-register
@@ -188,7 +269,7 @@ func (d *Daemon) refreshRegistration() {
 			return // left the hub between start and now
 		}
 		caps := withServedCapabilities(cfg.Caps, d.providers)
-		if err := d.registerWithHubLocked(ctx, cfg.HubURL, cfg.Name, caps, cfg.GuestQuota(), ""); err != nil {
+		if err := d.registerWithHubLocked(ctx, cfg.HubURL, cfg.Name, caps, ""); err != nil {
 			// Not an error the operator must act on: the node runs either
 			// way, and the next explicit hub-register will carry it.
 			log.Printf("anet: could not refresh this node's registration with %s: %v", cfg.HubURL, err)
@@ -197,7 +278,7 @@ func (d *Daemon) refreshRegistration() {
 		if !sameStrings(cfg.Caps, caps) {
 			log.Printf("anet: refreshed capabilities at %s: %v", cfg.HubURL, caps)
 		}
-	}()
+	})
 }
 
 // sameStrings reports whether two capability lists have the same members.
@@ -218,6 +299,23 @@ func sameStrings(a, b []string) bool {
 	return true
 }
 
+// goBackground runs f on its own goroutine and makes Close wait for it.
+// After Close has cancelled the daemon context nothing new is started,
+// because f would find the store closed.
+func (d *Daemon) goBackground(f func()) bool {
+	d.bgMu.Lock()
+	defer d.bgMu.Unlock()
+	if d.ctx.Err() != nil {
+		return false
+	}
+	d.bgWG.Add(1)
+	go func() {
+		defer d.bgWG.Done()
+		f()
+	}()
+	return true
+}
+
 // AID is the daemon's agent identifier.
 func (d *Daemon) AID() string { return d.self.AID() }
 
@@ -234,7 +332,10 @@ func (d *Daemon) Close() error {
 		// to actually be done, because what it does on the way out is
 		// write its result — to the store this function is about to
 		// close.
+		d.bgMu.Lock()
 		d.cancel()
+		d.bgMu.Unlock()
+		d.bgWG.Wait()
 		drained := waitFor(&d.longCallsWG, longCallDrainTimeout)
 		if d.ledger != nil {
 			_ = d.ledger.Close()
@@ -263,23 +364,14 @@ func (d *Daemon) config() Config {
 	return d.cfg
 }
 
-// SetAcceptDelegations toggles whether this daemon stores inbound tasks delegated to it, and persists the
-// change (config.json) so it survives restarts. It takes effect immediately: the running relay loop reads
-// the live config on each inbound message, so no restart is needed. Returns the new value.
-func (d *Daemon) SetAcceptDelegations(enabled bool) (bool, error) {
-	d.mu.Lock()
-	d.cfg.AcceptDelegations = &enabled
-	cfg := d.cfg
-	d.mu.Unlock()
-	if err := SaveConfig(d.layout, cfg); err != nil {
-		return false, err
+// signTaskDoc builds a minimal signed TaskDoc for a goal (the delegation request object). nonce is
+// the task nonce (A2A-DESIGN §2 X4), carried as a private context inside the signed preimage.
+func (d *Daemon) signTaskDoc(goal, nonce string) ([]byte, *aobj.Envelope, error) {
+	task := tsir.Task{Intent: tsir.Intent{Summary: goal, Body: goal}}
+	if nonce != "" {
+		task.Contexts = []tsir.Context{nonceContext(nonce)}
 	}
-	return enabled, nil
-}
-
-// signTaskDoc builds a minimal signed TaskDoc for a goal (the delegation request object).
-func (d *Daemon) signTaskDoc(goal string) ([]byte, *aobj.Envelope, error) {
-	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{{Intent: tsir.Intent{Summary: goal, Body: goal}}}}
+	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{task}}
 	if err := td.Sign(d.self); err != nil {
 		return nil, nil, err
 	}

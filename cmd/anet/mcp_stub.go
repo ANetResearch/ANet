@@ -11,6 +11,6 @@ import (
 // This build has no MCP northbound. Saying so is better than the command
 // not existing: an operator who configured `anet mcp` in a client gets a
 // sentence explaining which build they installed, not "unknown command".
-func runMCP(daemon.Layout) error {
+func runMCP(daemon.Layout, bool) error {
 	return fmt.Errorf("anet mcp: this build was compiled with -tags no_mcp")
 }

@@ -106,10 +106,10 @@ func TestALongCallDoesNotHoldTheMailboxPoll(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Board", []string{"work.slow"}, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Board", []string{"work.slow"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	defer close(slow.release)
@@ -174,10 +174,10 @@ func TestOverTheConcurrencyLimitTheCallerIsToldRatherThanQueued(t *testing.T) {
 	if err := prov.Providers().Register(ctx, slow); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Board", []string{"work.slow"}, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Board", []string{"work.slow"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	defer close(slow.release)

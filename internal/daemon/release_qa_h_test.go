@@ -42,10 +42,10 @@ func TestDelegateCarriesTheHubsQuietWarning(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,10 +88,10 @@ func TestTheQuietMarkIsRetractedWhenThePeerCollectsAgain(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	backdateLastSeen(srv.URL, prov.AID(), 72*time.Hour)

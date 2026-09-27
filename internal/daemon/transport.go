@@ -5,8 +5,12 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 
+	"github.com/ANetResearch/ANetCore/relayauth"
+
+	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -28,21 +32,15 @@ func (h hubTransport) Reachable(context.Context, string) bool {
 	return h.d.config().HubURL != ""
 }
 
-func (h hubTransport) Send(ctx context.Context, toAID, kind, interactionID string, payload []byte) error {
+func (h hubTransport) Send(ctx context.Context, toAID string, envelope []byte) error {
 	hub := h.d.config().HubURL
 	if hub == "" {
 		return fmt.Errorf("anet: no hub configured")
 	}
-	var out struct {
-		Warning string `json:"warning"`
-		Quiet   bool   `json:"recipient_quiet"`
-	}
-	if err := h.d.hubPost(ctx, hub, "/relay/send", map[string]any{
-		"to_aid":         toAID,
-		"from_aid":       h.d.AID(),
-		"kind":           kind,
-		"interaction_id": interactionID,
-		"payload":        base64.StdEncoding.EncodeToString(payload),
+	var out hubapi.RelaySendResponse
+	if err := h.d.hubSigned(ctx, hub, http.MethodPost, "/relay/send", relayauth.ActionSend, hubapi.RelaySendRequest{
+		ToAID:    toAID,
+		Envelope: base64.StdEncoding.EncodeToString(envelope),
 	}, &out); err != nil {
 		return err
 	}
@@ -56,9 +54,9 @@ func (h hubTransport) Send(ctx context.Context, toAID, kind, interactionID strin
 	// a delegation sit unanswered otherwise has no way to learn that the
 	// other end stopped running last Tuesday.
 	switch {
-	case out.Quiet && out.Warning != "":
+	case out.RecipientQuiet && out.Warning != "":
 		h.d.noteQuietPeer(toAID, out.Warning)
-	case !out.Quiet:
+	case !out.RecipientQuiet:
 		// The hub answered and did not raise the mark, so a mark left over
 		// from an earlier send is no longer what the hub says. Dropping it
 		// keeps the reported state to what was last actually observed —
@@ -94,20 +92,21 @@ func (d *Daemon) RegisterTransport(t module.Transport) {
 	d.extraTransports = append(d.extraTransports, t)
 }
 
-// relaySend delivers one payload, trying each transport in order.
+// deliverEnvelope delivers one sealed envelope, trying each transport in
+// order with the same bytes.
 //
 // A transport that reports itself unreachable is skipped without being
 // asked to try; one that fails is logged and the next is tried. Only when
 // every path has failed does the caller see an error, and that error names
 // the last failure rather than a summary — an operator debugging delivery
 // wants to know what the hub said, not that "all transports failed".
-func (d *Daemon) relaySend(ctx context.Context, toAID, kind, interactionID string, payload []byte) error {
+func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []byte) error {
 	var lastErr error
 	for _, t := range d.transports() {
 		if !t.Reachable(ctx, toAID) {
 			continue
 		}
-		err := t.Send(ctx, toAID, kind, interactionID, payload)
+		err := t.Send(ctx, toAID, envelope)
 		if err == nil {
 			d.noteTransport(t.Name(), nil)
 			return nil
@@ -164,28 +163,30 @@ type transportState struct {
 // Inbound gives transports somewhere to deliver what they receive.
 func (d *Daemon) Inbound() module.Inbound { return inbound{d} }
 
-// inbound routes a message that arrived over any transport into exactly the
-// same path as one pulled from the hub mailbox.
+// inbound routes an envelope that arrived over a transport module into the
+// same receive pipeline as one pulled from the hub mailbox (receive.go).
 //
-// This is the property that matters: a delegation that came over a direct
-// peer connection and one that came from the hub are the same delegation,
-// verified the same way, and the daemon cannot tell them apart. A transport
-// is a route, not a trust boundary — the payload is end-to-end verifiable,
-// so a peer process that lies produces a message that fails verification
-// rather than one that gets believed because of how it arrived.
+// A transport is a route, not a trust boundary: the envelope is sealed to
+// this node and signed by its sender, so a peer process that lies produces
+// an envelope that fails to open or verify, not one that is believed
+// because of how it arrived.
+//
+// The one difference from the hub path is step 0 of §3.6: an envelope that
+// arrives directly has not passed the hub's per-sender rate limit, so a
+// daemon-wide limit applies before any decryption work is spent on it. An
+// envelope over the limit is refused with an error, which tells the
+// transport not to acknowledge it; the sender then falls back to the hub,
+// where its own sender budget applies.
 type inbound struct{ d *Daemon }
 
-func (in inbound) Receive(_ context.Context, fromAID, kind, interactionID string, payload []byte) error {
-	ok := in.d.dispatch(relayMsg{
-		FromAID:       fromAID,
-		Kind:          kind,
-		InteractionID: interactionID,
-	}, payload)
-	if !ok {
-		// dispatch returns false for a transient failure it wants retried.
-		// Reporting it lets the transport decline to ack, so the sender
-		// re-delivers rather than the message being lost.
-		return fmt.Errorf("anet: %s from %s not accepted", kind, fromAID)
+func (in inbound) Receive(ctx context.Context, envelope []byte) error {
+	if !in.d.p2pLimit.allow(in.d.nowMS()) {
+		in.d.count(transientP2PRate)
+		return errP2PRateLimited
+	}
+	res := in.d.receiveEnvelope(ctx, envelope)
+	if !res.ack() {
+		return fmt.Errorf("anet: envelope not accepted yet (%s); not acknowledging", res.reason)
 	}
 	return nil
 }
@@ -224,7 +225,7 @@ func (d *Daemon) noteQuietPeer(aid, warning string) {
 //
 // This is how a control-plane handler reports what the hub said about the
 // recipient of the send it just made. The alternative — returning the flag
-// up through relaySend — would have to travel through module.Transport,
+// up through deliverEnvelope — would have to travel through module.Transport,
 // which is a delivery contract shared with transports that have no notion
 // of a mailbox to be quiet about. The cost of reading it back out of the
 // daemon instead is that the answer is "the last thing the hub said about

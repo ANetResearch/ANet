@@ -113,6 +113,39 @@ type Host interface {
 	// node's behalf. That is what a hub client is for and it is not a
 	// detail to leave implicit.
 	HubSeam() (HubSeam, bool)
+
+	// Admit is the kernel's admission check for a capability call that
+	// arrives through a door the inbound policy does not otherwise see
+	// (A2A-DESIGN §5.4). It applies the deny list (read at the moment of
+	// the call), membership of inbound.public_capabilities, the per-caller
+	// and global quotas, the in-flight bound and the argument size limit,
+	// all as configured for the kernel's own relay path.
+	//
+	// Added for the voucher door of the payment module. A voucher proves
+	// that somebody paid the hub; it does not make the capability public,
+	// and without this check that door served any priced capability to any
+	// payer, deny list and quotas included. Implementing the policy inside
+	// the module would give the node two copies of it that could disagree,
+	// and the kernel is the one that owns the lists and the counters.
+	//
+	// On success it returns a release function the caller must call once
+	// when the invocation ends, and an empty refusal. On refusal it returns
+	// a nil release and a reason code (denied, capability_not_public,
+	// args_too_large, quota_caller_per_min, quota_caller_per_day,
+	// quota_global_per_min, max_inflight), which the caller records.
+	Admit(callerAID, capID string, argsLen int) (release func(), refusal string)
+
+	// DeclareUntrustedBackend tells the kernel that this module will forward
+	// work from peers that are not on the inbound trust list to a local
+	// backend (an A2A backend configured with accept_untrusted).
+	//
+	// Added so the kernel's single configuration check (A2A-DESIGN §5.1)
+	// can refuse policy=open together with such a backend without reading
+	// the module's configuration: the kernel knows only that a module made
+	// the declaration. A module calls it from Start, before it forwards
+	// anything; the daemon refuses to start when the declaration conflicts
+	// with the policy, and refuses a later policy write that would.
+	DeclareUntrustedBackend()
 }
 
 // HubSeam is what a module needs to act as this node against its hub.

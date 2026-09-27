@@ -225,3 +225,8 @@ func TestWithoutAHubTheModuleRefusesToStart(t *testing.T) {
 		t.Error("the module started with no hub to talk to")
 	}
 }
+
+// Admit and DeclareUntrustedBackend complete module.Host. This test host
+// admits every call; the kernel's admission is tested in internal/daemon.
+func (*fakeHost) Admit(string, string, int) (func(), string) { return func() {}, "" }
+func (*fakeHost) DeclareUntrustedBackend()                   {}

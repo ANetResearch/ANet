@@ -18,12 +18,14 @@ echo "EXEC-OK: processed delegation"
 	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ANET_EXEC_COMMAND", stub)
+	setExecCommand(t, stub)
 
 	f := newAutoReplyFixture(t, AutoReplyConfig{
 		Backend: "exec",
 		Agent:   "cursor",
 	}, nil)
+	// The exec backend runs the local agent only for a peer on the trust list (A2A-DESIGN §6).
+	trustPeers(t, f.prov, f.req.AID())
 
 	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "say hello via exec", nil)
 	if err != nil {
@@ -44,7 +46,7 @@ func TestExecReplierBuildPromptWithImage(t *testing.T) {
 		Role: "user", Text: "describe",
 		Images: []chatImage{{Mime: "image/png", Data: []byte("fakepng")}},
 	}}
-	prompt, cleanup, err := r.buildPrompt(turns)
+	prompt, cleanup, err := r.buildPrompt(t.TempDir(), turns)
 	defer cleanup()
 	if err != nil {
 		t.Fatal(err)

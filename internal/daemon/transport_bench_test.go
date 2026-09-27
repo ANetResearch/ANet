@@ -23,7 +23,7 @@ func BenchmarkTransportDispatchDirect(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := d.relaySend(ctx, "aid-peer", "message", "ix", benchPayload); err != nil {
+		if err := d.deliverEnvelope(ctx, "aid-peer", benchPayload); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -45,7 +45,7 @@ func BenchmarkTransportDispatchFallThrough(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := d.relaySend(ctx, "aid-peer", "message", "ix", benchPayload); err != nil {
+		if err := d.deliverEnvelope(ctx, "aid-peer", benchPayload); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -86,7 +86,7 @@ type benchTransport struct {
 
 func (t *benchTransport) Name() string                           { return t.name }
 func (t *benchTransport) Reachable(context.Context, string) bool { return t.reachable }
-func (t *benchTransport) Send(context.Context, string, string, string, []byte) error {
+func (t *benchTransport) Send(context.Context, string, []byte) error {
 	return t.fail
 }
 

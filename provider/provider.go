@@ -28,8 +28,27 @@ type Call struct {
 	CallID string
 	// CallerAID is the verified AID of the calling identity, or "" when the
 	// call originates from a local surface (CLI/MCP) before any delegation.
+	// When Via is ViaVoucher it is NOT an authenticated caller; see Via.
 	CallerAID string
+	// Via says which door the call came through: ViaRelay (a delegation
+	// whose sender the daemon authenticated) or ViaVoucher (a hub-signed
+	// voucher presented at the payment module's public face). Empty means
+	// a local surface.
+	//
+	// A voucher is a bearer object: whoever presents it can redeem it. The
+	// daemon fills CallerAID with the payer the hub attested, which says who
+	// paid, not who is asking. A provider must therefore not authorize on
+	// CallerAID when Via is ViaVoucher, and a provider that implements
+	// Priced (the only kind the voucher door serves) must not read
+	// CallerAID at all; a test in this package checks the second rule.
+	Via string
 }
+
+// Values of Call.Via.
+const (
+	ViaRelay   = "relay"
+	ViaVoucher = "voucher"
+)
 
 // CapabilityProvider is C1. Implementations must be safe for concurrent use.
 type CapabilityProvider interface {

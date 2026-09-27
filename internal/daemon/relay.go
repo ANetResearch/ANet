@@ -1,18 +1,20 @@
 package daemon
 
-// relay.go is the daemon's v0.1 transport: a thin client of the official Hub relay (wire types in
-// internal/hubapi; the Hub itself is a separate closed-source service). All
-// delegation traffic flows through it — a requester SENDS a signed delegation into the provider's Hub
-// mailbox, the provider PULLS it (KEL-signed poll), completes it, and SENDS the result back to the
-// requester's mailbox. A single background loop polls this daemon's mailbox and dispatches each message.
-// There is no P2P (that is a later version); the relayed payloads are end-to-end verifiable, so the Hub
-// cannot forge an interaction.
+// relay.go is the daemon's client of the Hub relay, wire 2 (A2A-DESIGN §3.7; wire types in
+// internal/hubapi). A requester SENDS a sealed delegation envelope into the provider's Hub mailbox,
+// the provider PULLS it (relayauth v2 signed poll), completes it, and SENDS a sealed result back to
+// the requester's mailbox. A single background loop polls this daemon's mailbox and runs each
+// envelope through the receive pipeline (receive.go). Every envelope is encrypted to its recipient and
+// signed by its sender inside the encryption, so the Hub can neither read nor forge one; it sees the
+// recipient AID, the authenticated sender at send time, the time and the size.
 
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -23,6 +25,7 @@ import (
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/relayauth"
+	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -46,23 +49,13 @@ const relayCallTimeout = 15 * time.Minute
 const freshPollTimeout = 12 * time.Second
 
 // HubRegister persists the Hub target + profile to config, registers with the Hub, and (re)starts the
-// relay poll loop so delegations and results start flowing. guestMessages, when non-nil, updates this
-// agent's guest-mode trial quota (persisted); acceptDelegations, when non-nil, updates whether this
-// daemon stores inbound tasks; nil leaves the current setting unchanged.
+// relay poll loop so delegations and results start flowing. Whether this node accepts delegations is
+// the inbound policy (A2A-DESIGN §5), not a registration setting.
 // invite carries an admission token to a hub that requires one; empty
 // otherwise, and never written to config — see RegisterWithHub.
-func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []string, guestMessages *int, acceptDelegations *bool, invite string) error {
-	d.mu.Lock()
-	if guestMessages != nil {
-		d.cfg.GuestMessages = guestMessages
-	}
-	if acceptDelegations != nil {
-		d.cfg.AcceptDelegations = acceptDelegations
-	}
-	quota := d.cfg.GuestQuota()
-	d.mu.Unlock()
+func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []string, invite string) error {
 	caps = withServedCapabilities(caps, d.providers)
-	if err := d.RegisterWithHub(ctx, hubURL, name, caps, quota, invite); err != nil {
+	if err := d.RegisterWithHub(ctx, hubURL, name, caps, invite); err != nil {
 		return err
 	}
 	d.mu.Lock()
@@ -148,6 +141,13 @@ func (d *Daemon) Delegate(ctx context.Context, providerAID, goal string, attachP
 
 // DelegateAtts is Delegate with the attachments already assembled (from CLI file paths OR web uploads).
 func (d *Daemon) DelegateAtts(ctx context.Context, providerAID, goal string, atts []delegation.Attachment) (string, error) {
+	return d.DelegateIn(ctx, providerAID, goal, atts, "")
+}
+
+// DelegateIn is DelegateAtts under a given A2A context id. An empty
+// contextID mints one: the requester daemon owns context ids for the tasks
+// it creates (A2A-DESIGN §4.1).
+func (d *Daemon) DelegateIn(ctx context.Context, providerAID, goal string, atts []delegation.Attachment, contextID string) (string, error) {
 	hub := d.config().HubURL
 	if hub == "" {
 		return "", fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
@@ -155,7 +155,18 @@ func (d *Daemon) DelegateAtts(ctx context.Context, providerAID, goal string, att
 	if providerAID == d.AID() {
 		return "", fmt.Errorf("anet: cannot delegate to yourself")
 	}
-	doc, env, err := d.signTaskDoc(goal)
+	if contextID == "" {
+		c, err := newContextID()
+		if err != nil {
+			return "", err
+		}
+		contextID = c
+	}
+	nonce, err := newTaskNonce()
+	if err != nil {
+		return "", err
+	}
+	doc, env, err := d.signTaskDoc(goal, nonce)
 	if err != nil {
 		return "", err
 	}
@@ -167,27 +178,37 @@ func (d *Daemon) DelegateAtts(ctx context.Context, providerAID, goal string, att
 	if err != nil {
 		return "", err
 	}
-	if err := d.ix.Put(id, interactions.RoleOutbound, providerAID, goal, requestCID, doc); err != nil {
+	if err := d.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
+		Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, TaskNonce: nonce}); err != nil {
 		return "", err
 	}
-	// Record the goal as the first conversation message (from us, the requester), with any attachments.
-	seq, err := d.ix.AddMessage(id, d.AID(), interactions.MsgText, goal)
+	// Record the goal as the first conversation message (from us, the requester), with any
+	// attachments. The requester keeps a message id for it too, so its history carries ids.
+	msgID, err := newMessageID()
+	if err != nil {
+		return "", err
+	}
+	seq, _, err := d.ix.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
+		Kind: interactions.MsgText, Body: goal, MsgID: msgID})
 	if err != nil {
 		return "", err
 	}
 	if err := d.storeMsgAttachments(id, seq, atts); err != nil {
 		return "", err
 	}
+	d.publishMessage(id, seq, interactions.MsgText)
+	d.publishState(id)
 	kelB, err := identity.MarshalKEL(d.self.KEL())
 	if err != nil {
 		return "", err
 	}
-	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: env, KEL: kelB, InteractionID: id, Attachments: atts}
+	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: env, KEL: kelB, InteractionID: id, Attachments: atts,
+		ContextID: contextID}
 	payload, err := dr.Marshal()
 	if err != nil {
 		return "", err
 	}
-	if err := d.relaySend(ctx, providerAID, hubapi.RelayKindDelegate, id, payload); err != nil {
+	if err := d.relaySend(ctx, providerAID, seal.TypeDelegate, id, payload); err != nil {
 		return "", err
 	}
 	// C5: a requester's chain should show what it asked for, not only what
@@ -203,7 +224,8 @@ func (d *Daemon) DelegateAtts(ctx context.Context, providerAID, goal string, att
 }
 
 // Results pulls this daemon's mailbox once (so any pending deliverables land in the store) and then lists
-// completed outbound delegations.
+// outbound delegations that carry a result and its receipt, oldest first. The state tells a completed
+// task from a failed or refused one; the deliverable of a capability call carries its effect status.
 func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 	if d.config().HubURL == "" {
 		return nil, fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
@@ -212,11 +234,15 @@ func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 	var list []*interactions.Interaction
 	var since int64
 	for {
-		batch, err := d.ix.List(interactions.RoleOutbound, interactions.StatusDone, since, 1000)
+		batch, err := d.ix.List(interactions.RoleOutbound, "", since, 1000)
 		if err != nil {
 			return nil, err
 		}
-		list = append(list, batch...)
+		for _, ix := range batch {
+			if len(ix.Receipt) > 0 {
+				list = append(list, ix)
+			}
+		}
 		if len(batch) < 1000 {
 			break
 		}
@@ -233,14 +259,14 @@ func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 			return nil, fmt.Errorf("anet: receipt CID for %s: %w", ix.ID, err)
 		}
 		out = append(out, ResultItem{
-			InteractionID: ix.ID, Provider: ix.PeerAID, Goal: ix.Goal,
+			InteractionID: ix.ID, Provider: ix.PeerAID, Goal: ix.Goal, State: string(ix.State),
 			Result: string(ix.Result), RequestCID: ix.RequestCID, ResultCID: ix.ResultCID,
 			ReceiptCID: receiptCID, Receipt: base64.StdEncoding.EncodeToString(ix.Receipt),
 			Reviewed: len(ix.Review) > 0,
 			// The key the receipt was checked against travels with it, so a
 			// holder can re-check rather than take this node's word for it.
-			ProviderKEL: encodedKEL(d.peers, ix.PeerAID),
-			// Per-result, unlike ProviderKEL: that is a per-peer cache, so
+			ProviderKEL: d.encodedPeerKEL(ix.PeerAID),
+			// Per-result, unlike ProviderKEL: that is a per-peer record, so
 			// one verified interaction with a provider would otherwise make
 			// every later unverified one from it look checked.
 			ReceiptVerified: string(ix.ReceiptVerified),
@@ -249,37 +275,24 @@ func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 	return out, nil
 }
 
-// --- relay HTTP client ---
+// --- relay HTTP client (wire 2, A2A-DESIGN §3.7) ---
 
-// relaySend enqueues a message into toAID's Hub mailbox.
-
-// relayMsg is one message pulled from this daemon's mailbox.
-type relayMsg struct {
-	ID            int64  `json:"id"`
-	FromAID       string `json:"from_aid"`
-	Kind          string `json:"kind"`
-	InteractionID string `json:"interaction_id"`
-	Payload       string `json:"payload"`
-}
-
-// relayPoll pulls undelivered messages for this daemon (KEL-signed auth).
-func (d *Daemon) relayPoll(ctx context.Context) ([]relayMsg, error) {
+// relayPoll pulls undelivered envelopes for this daemon. The mailbox is the
+// authenticated caller's; the request carries no AID of its own.
+func (d *Daemon) relayPoll(ctx context.Context) ([]hubapi.RelayMessage, error) {
 	hub := d.config().HubURL
 	if hub == "" {
 		return nil, fmt.Errorf("anet: no hub configured")
 	}
-	ts, seq, sig := d.signRelayAuth(relayauth.ActionPoll)
-	body := map[string]any{"aid": d.AID(), "ts": ts, "key_state_seq": seq, "sig": sig, "limit": 100}
-	var resp struct {
-		Messages []relayMsg `json:"messages"`
-	}
-	if err := d.hubPost(ctx, hub, "/relay/poll", body, &resp); err != nil {
+	var resp hubapi.RelayPollResponse
+	if err := d.hubSigned(ctx, hub, http.MethodPost, "/relay/poll", relayauth.ActionPoll,
+		hubapi.RelayPollRequest{Limit: 100}, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Messages, nil
 }
 
-// relayAck marks messages delivered so they are not redelivered.
+// relayAck tells the hub these envelopes are handled; the hub deletes them.
 func (d *Daemon) relayAck(ctx context.Context, ids []int64) error {
 	if len(ids) == 0 {
 		return nil
@@ -288,16 +301,8 @@ func (d *Daemon) relayAck(ctx context.Context, ids []int64) error {
 	if hub == "" {
 		return fmt.Errorf("anet: no hub configured")
 	}
-	ts, seq, sig := d.signRelayAuth(relayauth.ActionAck)
-	body := map[string]any{"aid": d.AID(), "ts": ts, "key_state_seq": seq, "sig": sig, "ids": ids}
-	return d.hubPost(ctx, hub, "/relay/ack", body, nil)
-}
-
-// signRelayAuth signs the mailbox challenge (relayauth.Preimage) with the current key.
-func (d *Daemon) signRelayAuth(action string) (ts, seq uint64, sigB64 string) {
-	ts = uint64(time.Now().UnixMilli())
-	sig, s := d.self.Sign(relayauth.Preimage(action, d.AID(), ts))
-	return ts, s, base64.StdEncoding.EncodeToString(sig)
+	return d.hubSigned(ctx, hub, http.MethodPost, "/relay/ack", relayauth.ActionAck,
+		hubapi.RelayAckRequest{IDs: ids}, nil)
 }
 
 // --- background poll loop ---
@@ -325,7 +330,7 @@ func (d *Daemon) startRelayLoop(hubURL string) {
 	loopCtx, cancel := context.WithCancel(d.ctx)
 	d.relayStop = cancel
 	d.mu.Unlock()
-	go d.relayLoop(loopCtx)
+	d.goBackground(func() { d.relayLoop(loopCtx) })
 }
 
 func (d *Daemon) relayLoop(ctx context.Context) {
@@ -341,7 +346,9 @@ func (d *Daemon) relayLoop(ctx context.Context) {
 			// than being cut short and redelivered forever.
 			d.pollMu.Lock()
 			pc, cancel := context.WithTimeout(ctx, relayCallTimeout)
-			if err := d.pollOnce(pc); err != nil && ctx.Err() == nil {
+			if err := d.pollOnce(pc); err != nil && ctx.Err() == nil && !errors.Is(err, errHubWire) {
+				// A hub below wire 2 is reported once by checkHubWire;
+				// repeating it every second would fill the log.
 				log.Printf("anet: relay poll: %v", err)
 			}
 			cancel()
@@ -367,31 +374,28 @@ func (d *Daemon) pollFresh(ctx context.Context) {
 	_ = d.pollOnce(pc)
 }
 
-// pollOnce pulls the mailbox, dispatches each message, and acks the ones it processed. If any inbound
-// delegate/message landed (something that may owe an auto-reply), it wakes the auto-reply loop at once
-// so a turn isn't stalled up to a full poll interval waiting for the next tick.
+// pollOnce pulls the mailbox, runs each envelope through the receive
+// pipeline (receive.go) and acks the ones the pipeline says to ack:
+// accepted, or refused for a reason that will not change on retry. An
+// envelope refused for a temporary reason (a store error, a message that
+// arrived before its task) stays in the mailbox and is delivered again on a
+// later poll.
 func (d *Daemon) pollOnce(ctx context.Context) error {
 	msgs, err := d.relayPoll(ctx)
 	if err != nil {
 		return err
 	}
 	var acked []int64
-	owesReply := false
 	for _, m := range msgs {
-		payload, derr := base64.StdEncoding.DecodeString(m.Payload)
+		env, derr := base64.StdEncoding.DecodeString(m.Envelope)
 		if derr != nil {
+			d.count(dropBadTransport)
 			acked = append(acked, m.ID) // undecodable — drop
 			continue
 		}
-		if d.dispatch(m, payload) {
+		if d.receiveEnvelope(ctx, env).ack() {
 			acked = append(acked, m.ID)
-			if m.Kind == hubapi.RelayKindDelegate || m.Kind == hubapi.RelayKindMessage {
-				owesReply = true
-			}
 		}
-	}
-	if owesReply {
-		d.kickAutoReply()
 	}
 	return d.relayAck(ctx, acked)
 }
@@ -403,43 +407,6 @@ func (d *Daemon) kickAutoReply() {
 	case d.autoReplyKick <- struct{}{}:
 	default:
 	}
-}
-
-// dispatch handles one mailbox message and reports whether it should be acked (removed). Malformed or
-// unwanted messages are acked so they do not clog the mailbox; a transient store failure is NOT acked.
-func (d *Daemon) dispatch(m relayMsg, payload []byte) (ack bool) {
-	// Anything arriving from a peer means that peer is running. Clearing
-	// the mark here means a later silence is reported again rather than
-	// assumed already known — a warning that fires once and never again
-	// is one that stops being true without saying so.
-	if m.FromAID != "" {
-		d.noteLivePeer(m.FromAID)
-	}
-	switch m.Kind {
-	case hubapi.RelayKindDelegate:
-		return d.ingestDelegate(payload)
-	case hubapi.RelayKindResult:
-		return d.ingestResult(m.InteractionID, payload)
-	case hubapi.RelayKindMessage:
-		return d.ingestMessage(m.InteractionID, m.FromAID, payload)
-	default:
-		return true // unknown kind — drop
-	}
-}
-
-// encodedKEL returns a peer's verified key history, base64, or "" if this
-// node has never verified one. Empty is the honest answer: this node
-// vouches for the peers it has actually checked and for nobody else.
-func encodedKEL(p *peerKELs, aid string) string {
-	kel, ok := p.resolve(aid)
-	if !ok {
-		return ""
-	}
-	b, err := identity.MarshalKEL(kel)
-	if err != nil {
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString(b)
 }
 
 // withServedCapabilities folds this node's actual capability ids into what

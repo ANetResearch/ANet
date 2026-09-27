@@ -2,12 +2,9 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
@@ -59,37 +56,22 @@ func (s paymentSeam) Sign(preimage []byte) ([]byte, uint64) { return s.d.self.Si
 
 func (s paymentSeam) HubURL() string { return s.d.config().HubURL }
 
-// HubIdentity learns the hub's AID and verified key history.
-//
-// Fetched here rather than in the module because the daemon already has
-// the machinery that verifies a key history before trusting it — peers
-// remembers only what replayed — and two implementations of "is this key
-// history real" is one more than the number that can be right.
+// HubIdentity returns the hub's AID and key history as this node pinned
+// them from GET /hub/identity (hub_client.go): the KEL must replay to the
+// AID and may only ever extend the pinned one, so a hub that later serves a
+// forked or truncated history is not believed.
 func (s paymentSeam) HubIdentity() (string, []identity.SignedEvent, bool) {
 	d := s.d
 	hub := d.config().HubURL
 	if hub == "" {
 		return "", nil, false
 	}
-	aid := d.hubAID()
-	if aid == "" {
-		return "", nil, false
-	}
-	if kel, ok := d.peers.resolve(aid); ok {
-		return aid, kel, true
-	}
-	kel, err := fetchAgentKEL(hub, aid)
+	aid, kel, err := d.hubIdentity(d.ctx, hub)
 	if err != nil {
 		log.Printf("anet: the hub's key history: %v", err)
-		return aid, nil, false
+		return "", nil, false
 	}
-	// remember verifies before storing, so a hub that served a forked or
-	// unverifiable history is refused here rather than trusted later.
-	d.peers.remember(aid, kel)
-	if kel, ok := d.peers.resolve(aid); ok {
-		return aid, kel, true
-	}
-	return aid, nil, false
+	return aid, kel, true
 }
 
 func (s paymentSeam) ReadEvidence(eventType string, limit int) []map[string]any {
@@ -179,7 +161,7 @@ func (d *Daemon) answerPaymentRequired(ctx context.Context, interactionID, capID
 				capID, price, res.Payment.Accepts[0].Network)
 		}
 	}
-	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil)
+	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{})
 }
 
 // PayAndRetry takes a PAYMENT_REQUIRED answer, pays it, and delegates the
@@ -365,55 +347,19 @@ func priceOfCapability(p provider.CapabilityProvider, capID string) (uint64, boo
 	return priced.Price(capID)
 }
 
-// fetchAgentKEL pulls a key history the hub publishes.
-func fetchAgentKEL(hubURL, aid string) ([]identity.SignedEvent, error) {
-	resp, err := (&http.Client{Timeout: hubCallTimeout}).Get(hubURL + "/agents/" + aid + "/kel")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("anet: hub answered %s for %s's key history", resp.Status, aid)
-	}
-	var out struct {
-		KEL string `json:"kel"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return nil, err
-	}
-	raw, err := base64.StdEncoding.DecodeString(out.KEL)
-	if err != nil {
-		return nil, err
-	}
-	return identity.UnmarshalKEL(raw)
-}
-
-// hubAID is the AID of the hub this node settles on, cached from
-// /hub/identity. Empty when there is no hub, which is also when nothing
-// can be charged for.
+// hubAID is the AID of the hub this node settles on, from the pinned hub
+// identity. Empty when there is no hub, which is also when nothing can be
+// charged for.
 func (d *Daemon) hubAID() string {
-	d.mu.Lock()
-	cached := d.cachedHubAID
-	hub := d.cfg.HubURL
-	d.mu.Unlock()
-	if cached != "" || hub == "" {
-		return cached
+	hub := d.config().HubURL
+	if hub == "" {
+		return ""
 	}
-	resp, err := (&http.Client{Timeout: hubCallTimeout}).Get(hub + "/hub/identity")
+	aid, _, err := d.hubIdentity(d.ctx, hub)
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close()
-	var out struct {
-		AID string `json:"aid"`
-	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out) != nil {
-		return ""
-	}
-	d.mu.Lock()
-	d.cachedHubAID = out.AID
-	d.mu.Unlock()
-	return out.AID
+	return aid
 }
 
 // serveModuleFaces brings up the public listeners modules asked for.
