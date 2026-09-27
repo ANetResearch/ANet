@@ -526,8 +526,10 @@ func TestReceiptsOnAStatusAfterTheEndAreRecorded(t *testing.T) {
 }
 
 // §8.6 [C27]: every surface that signs is held to the spending policy.
-// Over its tier's limit each is refused with 403 and its reason, and
-// nothing is signed or recorded.
+// Over its tier's limit nothing is signed or recorded. The manual, gateway
+// and redeem surfaces refuse with 403 and the reason; the agent tier
+// (/tasks/pay) answers 200 with the task still waiting for an operator —
+// needs_operator_approval, and the refusal as spend_refusal (0017 Q26).
 func TestEverySigningSurfaceIsHeldToTheSpendingPolicy(t *testing.T) {
 	work := &meteredWork{price: 5}
 	hub, req, prov := paidPair(t, work)
@@ -556,6 +558,13 @@ func TestEverySigningSurfaceIsHeldToTheSpendingPolicy(t *testing.T) {
 		resp, b := p.req(t, "POST", c.route, c.body, p.bearer)
 		var out map[string]any
 		_ = json.Unmarshal(b, &out)
+		if c.route == "/tasks/pay" {
+			if resp.StatusCode != http.StatusOK || out["spend_refusal"] != SpendOverSingle ||
+				out[x402a2a.KeyReason] != x402a2a.ReasonNeedsOperatorApproval || out["state"] != string(interactions.StateInputRequired) {
+				t.Errorf("%s over its limit: %d %s", c.route, resp.StatusCode, b)
+			}
+			continue
+		}
 		if resp.StatusCode != http.StatusForbidden || out["reason"] != SpendOverSingle {
 			t.Errorf("%s over its limit: %d %s", c.route, resp.StatusCode, b)
 		}

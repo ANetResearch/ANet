@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/official"
 )

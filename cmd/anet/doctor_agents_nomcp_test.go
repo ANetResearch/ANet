@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/internal/anethome"
 )
 
 // Hermes: a config holding the local A2A token must be 0600, and an
@@ -21,11 +21,11 @@ import (
 func TestDoctorChecksHermesA2AAgents(t *testing.T) {
 	layout := freshInit(t)
 	env := testDoctorEnv(t)
-	a2aDir := module.StatePath(layout.Root, module.A2AModuleName)
+	a2aDir := anethome.A2ADir(layout.Root)
 	if err := os.MkdirAll(a2aDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(a2aDir, module.A2AAddrFile), []byte("127.0.0.1:39900\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(a2aDir, anethome.A2AAddrFile), []byte("127.0.0.1:39900\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(env.hermesHome, 0o700); err != nil {
@@ -72,11 +72,11 @@ func TestDoctorChecksHermesA2AAgents(t *testing.T) {
 func TestDoctorFindsAStaleHermesA2AToken(t *testing.T) {
 	layout := freshInit(t)
 	env := testDoctorEnv(t)
-	a2aDir := module.StatePath(layout.Root, module.A2AModuleName)
+	a2aDir := anethome.A2ADir(layout.Root)
 	if err := os.MkdirAll(a2aDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range map[string]string{module.A2AAddrFile: "127.0.0.1:39900\n", module.A2ATokenFile: "tok-current-0123\n"} {
+	for name, body := range map[string]string{anethome.A2AAddrFile: "127.0.0.1:39900\n", anethome.A2ATokenFile: "tok-current-0123\n"} {
 		if err := os.WriteFile(filepath.Join(a2aDir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}

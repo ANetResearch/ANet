@@ -19,8 +19,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
-	"github.com/ANetResearch/ANet/module"
 )
 
 // inspectAgents reads the tools' configuration files.
@@ -41,15 +41,15 @@ func inspectAgents(layout daemon.Layout, env doctorEnv) agentsView {
 	if err != nil {
 		return v
 	}
-	a2aDir := module.StatePath(layout.Root, module.A2AModuleName)
+	a2aDir := anethome.A2ADir(layout.Root)
 	addr := ""
-	if ab, err := os.ReadFile(filepath.Join(a2aDir, module.A2AAddrFile)); err == nil {
+	if ab, err := os.ReadFile(filepath.Join(a2aDir, anethome.A2AAddrFile)); err == nil {
 		addr = strings.TrimSpace(string(ab))
 	}
 	v.a2a = hermesA2AAgents(string(b), addr)
 	// Only entries on this node's A2A port are this node's; the token is
 	// compared for those (entries of another identity carry its token).
-	tok := hermesTokenState(string(b), statFile(filepath.Join(a2aDir, module.A2ATokenFile)))
+	tok := hermesTokenState(string(b), statFile(filepath.Join(a2aDir, anethome.A2ATokenFile)))
 	for i := range v.a2a {
 		v.a2a[i].Token = "unknown"
 		if v.a2a[i].Matches {
