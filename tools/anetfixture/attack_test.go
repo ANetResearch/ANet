@@ -225,6 +225,50 @@ func TestSealMakesTheEnvelopeItClaimsToMake(t *testing.T) {
 	})
 }
 
+// --metadata puts a JSON object into the sealed ChatMsg, which is how
+// scripts/scenario.sh sends a payment message as the requester with terms
+// its daemon would not sign. What the provider reads must be exactly that
+// object, from a genuine sender: a payment refused because the envelope or
+// the metadata was malformed would pass the scenario's negative cases for
+// the wrong reason. A value that is not an object is refused here, and so
+// is metadata on a delegate, which has nowhere to carry it.
+func TestSealCarriesAMessagesMetadata(t *testing.T) {
+	hub := newFakeHub(t)
+	_, prov := withIdentity(t)
+	reqDir, req := withIdentity(t)
+	provKP := hub.register(t, prov)
+	hub.register(t, req)
+	meta := `{"x402.payment.status": "payment-submitted", "x402.payment.payload": {"x402Version": 2}}`
+	op := sealWith(t, prov.AID(), provKP, "--home", reqDir, "--hub", hub.URL, "--to", prov.AID(),
+		"--type", "message", "--ix", "ix_pay", "--metadata", meta)
+	now := uint64(time.Now().UnixMilli())
+	if err := seal.VerifyInnerSig(&op.Inner, op.Preimage, op.KEL, now, time.Hour); err != nil || op.Inner.From != req.AID() {
+		t.Fatalf("not a genuine envelope from the requester: from %s, %v", op.Inner.From, err)
+	}
+	cm, err := delegation.UnmarshalChatMsg(op.Inner.Body)
+	if err != nil || cm.Kind != delegation.ChatText || cm.Body != "" || cm.MsgID == "" {
+		t.Fatalf("body = %+v, %v", cm, err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(cm.Metadata, &got); err != nil {
+		t.Fatalf("metadata %q: %v", cm.Metadata, err)
+	}
+	if got["x402.payment.status"] != "payment-submitted" || got["x402.payment.payload"] == nil {
+		t.Fatalf("metadata = %v", got)
+	}
+
+	for _, bad := range [][]string{
+		{"--type", "message", "--ix", "ix_pay", "--metadata", `["not", "an", "object"]`},
+		{"--type", "message", "--ix", "ix_pay", "--metadata", `null`},
+		{"--type", "delegate", "--metadata", `{"k": 1}`},
+	} {
+		args := append([]string{"--home", reqDir, "--hub", hub.URL, "--to", prov.AID()}, bad...)
+		if err := cmdSeal(args); err == nil {
+			t.Errorf("seal %v: accepted", bad)
+		}
+	}
+}
+
 // replayAID is the AID a KEL replays to — what the receiver's step 6
 // compares with inner.from.
 func replayAID(t *testing.T, kel []identity.SignedEvent) string {
