@@ -1,9 +1,21 @@
 package a2ashape
 
-// Metadata keys. Every key anet puts on an A2A object is named here, once,
-// so that the daemon, the control plane, MCP and module/a2a spell it the
-// same way and a test can pin the string (A2A-DESIGN §17: "扩展 URI 与
-// metadata 键两侧钉字符串").
+import (
+	"github.com/ANetResearch/ANetCore/payment"
+
+	"github.com/ANetResearch/ANet/internal/x402a2a"
+)
+
+// Metadata keys. Every key anet puts on an A2A object is named here, so
+// that the daemon, the control plane, MCP and module/a2a spell it the same
+// way and a test can pin the string (A2A-DESIGN §17: "扩展 URI 与 metadata
+// 键两侧钉字符串").
+//
+// The a2a-x402 vocabulary, and the anet.* keys the payment flow shares
+// with the projection (anet.reason, anet.cancel_requested,
+// anet.payment.accept), are defined once, in internal/x402a2a, which the
+// payment flow in the kernel and module/x402 use; the names below are
+// aliases of those constants, not a second spelling of the strings.
 
 // Task metadata (A2A-DESIGN §11.5). The two SI-6 keys are the reason the
 // rest exist: an A2A COMPLETED says the task ended normally and nothing
@@ -37,10 +49,12 @@ const (
 	KeyStateSeq = "anet.state_seq"
 	// KeyTrust is how an inbound task was admitted (peer, public,
 	// public_cap, approved); absent on this node's own tasks.
-	KeyTrust           = "anet.trust"
-	KeyReason          = "anet.reason"
-	KeyRetryAfterMS    = "anet.retry_after_ms"
-	KeyCancelRequested = "anet.cancel_requested"
+	KeyTrust        = "anet.trust"
+	KeyReason       = x402a2a.KeyReason
+	KeyRetryAfterMS = "anet.retry_after_ms"
+	// KeyCancelRequested marks a requester's task whose cancel was sent
+	// after its payment was submitted (§4.2, 0017 Q3).
+	KeyCancelRequested = x402a2a.KeyCancelRequested
 )
 
 // Keys reserved on the daemon-to-daemon wire (A2A-DESIGN §3.4) and on
@@ -64,32 +78,33 @@ const (
 	KeyTrusted = "anet.trusted"
 )
 
-// a2a-x402 v0.2 keys (A2A-DESIGN §8.2). Reserved here; the payment flow
-// (§8.3) fills them.
+// a2a-x402 v0.2 keys (A2A-DESIGN §8.2), as internal/x402a2a defines them.
 const (
-	X402ExtensionURI = "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2"
+	X402ExtensionURI = x402a2a.ExtensionURI
 
-	KeyX402Status   = "x402.payment.status"
-	KeyX402Required = "x402.payment.required"
-	KeyX402Payload  = "x402.payment.payload"
-	KeyX402Receipts = "x402.payment.receipts"
-	KeyX402Error    = "x402.payment.error"
+	KeyX402Status   = x402a2a.KeyStatus
+	KeyX402Required = x402a2a.KeyRequired
+	KeyX402Payload  = x402a2a.KeyPayload
+	KeyX402Receipts = x402a2a.KeyReceipts
+	KeyX402Error    = x402a2a.KeyError
 	// KeyPaymentAccept is the option a local client chose, copied from
 	// x402.payment.required.accepts (§8.7).
-	KeyPaymentAccept = "anet.payment.accept"
+	KeyPaymentAccept = x402a2a.KeyAccept
+	// KeyQuoteExpiresAt is when a quote lapses (unix ms).
+	KeyQuoteExpiresAt = x402a2a.KeyQuoteExpiresAt
 	// KeySettlementReceipt is where a settlement response carries the
-	// hub's signed receipt, in its extensions.
-	KeySettlementReceipt = "anet.settlement.receipt"
+	// hub's signed receipt, in its extensions (ANetCore payment.ExtReceipt).
+	KeySettlementReceipt = payment.ExtReceipt
 )
 
 // x402.payment.status values.
 const (
-	PaymentRequired  = "payment-required"
-	PaymentSubmitted = "payment-submitted"
-	PaymentVerified  = "payment-verified"
-	PaymentCompleted = "payment-completed"
-	PaymentFailed    = "payment-failed"
-	PaymentRejected  = "payment-rejected"
+	PaymentRequired  = x402a2a.StatusRequired
+	PaymentSubmitted = x402a2a.StatusSubmitted
+	PaymentVerified  = x402a2a.StatusVerified
+	PaymentCompleted = x402a2a.StatusCompleted
+	PaymentFailed    = x402a2a.StatusFailed
+	PaymentRejected  = x402a2a.StatusRejected
 )
 
 // anet.receipt_verified values. Three, not two: "we checked and it holds",

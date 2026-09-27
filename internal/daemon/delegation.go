@@ -422,10 +422,10 @@ func stateOnMessage(fromRequester bool, kind string, meta []byte, payState strin
 		case interactions.MsgText:
 			return interactions.StateWorking
 		case interactions.MsgPayment:
-			switch m["x402.payment.status"] {
-			case "payment-submitted":
+			switch m[x402a2a.KeyStatus] {
+			case x402a2a.StatusSubmitted:
 				return interactions.StateWorking
-			case "payment-rejected":
+			case x402a2a.StatusRejected:
 				// The provider cancels in onRequesterPayment, which sends
 				// status{canceled} in the same write; only an open quote
 				// is declined (§4.2).
@@ -453,7 +453,7 @@ func decodeMeta(b []byte) map[string]any {
 
 // hasPaymentStatus reports whether metadata carries x402.payment.status.
 func hasPaymentStatus(meta []byte) bool {
-	_, ok := decodeMeta(meta)["x402.payment.status"]
+	_, ok := decodeMeta(meta)[x402a2a.KeyStatus]
 	return ok
 }
 

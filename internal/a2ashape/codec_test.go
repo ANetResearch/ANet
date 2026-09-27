@@ -346,7 +346,15 @@ func TestKeyStrings(t *testing.T) {
 		a2ashape.KeyX402Receipts:      "x402.payment.receipts",
 		a2ashape.KeyX402Error:         "x402.payment.error",
 		a2ashape.KeyPaymentAccept:     "anet.payment.accept",
+		a2ashape.KeyQuoteExpiresAt:    "anet.quote_expires_at",
+		a2ashape.KeySettlementReceipt: "anet.settlement.receipt",
 		a2ashape.X402ExtensionURI:     "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2",
+		a2ashape.PaymentRequired:      "payment-required",
+		a2ashape.PaymentSubmitted:     "payment-submitted",
+		a2ashape.PaymentVerified:      "payment-verified",
+		a2ashape.PaymentCompleted:     "payment-completed",
+		a2ashape.PaymentFailed:        "payment-failed",
+		a2ashape.PaymentRejected:      "payment-rejected",
 	}
 	for got, want := range pinned {
 		if got != want {
