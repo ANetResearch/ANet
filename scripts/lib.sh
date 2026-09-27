@@ -32,7 +32,9 @@ _resolve_anet(){
   fi
   printf '%s' "$b"
 }
-ANET="$(_resolve_anet)"
+# A caller that has its own binary (the joint scripts, which build one) sets ANET before sourcing, and
+# nothing is looked up or built here.
+ANET="${ANET:-$(_resolve_anet)}"
 
 # a: run anet as DATA's identity (each role has its own data dir = its own AID). Requires $DATA set.
 a(){ ANET_DATA_DIR="$DATA" "$ANET" "$@"; }
@@ -116,4 +118,93 @@ _peer_add(){
   ( umask 077; touch "$f" ) || die "写不了 $f"
   [ -z "$(tail -c1 "$f")" ] || echo >> "$f"
   for x in "$@"; do grep -qxF "$x" "$f" || printf '%s\n' "$x" >> "$f"; done
+}
+
+# ── stopping processes by path ───────────────────────────────────
+# The joint scripts share machines with other checkouts and, on the test hosts, with production daemons
+# (docs/notes/0015 §4: cmax and dmax run production anet daemons and hubs as root, some inside containers
+# that root on the host can see). Stopping "every process called anet" there stops those too. These
+# helpers stop only what was started from a path the caller owns: a process of this user whose
+# executable is that path or lies under it, or whose first or second argv entry does (an interpreter
+# running a script from there). Linux only (/proc); elsewhere they find nothing.
+
+# _own_path PATH: PATH made absolute with symlinks resolved, or failure for a path no script may claim:
+# the filesystem root, a top-level directory, the usual bin directories, $HOME. A mistyped J or ROOT
+# must not turn into "stop everything I run".
+_own_path(){
+  local p=$1 r
+  case "$p" in /*) ;; *) return 1 ;; esac
+  if [ -d "$p" ]; then r=$(cd "$p" 2>/dev/null && pwd -P) || return 1
+  elif [ -e "$p" ]; then r=$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)/$(basename "$p") || return 1
+  else r=${p%/}   # gone already; a process may still run from it ("… (deleted)")
+  fi
+  case "$r" in /*/*) ;; *) return 1 ;; esac
+  case "$r" in
+    /usr/bin|/usr/sbin|/usr/local|/usr/local/bin|/usr/local/sbin|/usr/lib|/var/tmp|/run/user) return 1 ;;
+  esac
+  if [ -n "${HOME:-}" ]; then
+    local h; h=$(cd "$HOME" 2>/dev/null && pwd -P) || h=$HOME
+    case "$r" in "$h"|"$h/bin"|"$h/.local"|"$h/.local/bin"|"$h/go"|"$h/go/bin") return 1 ;; esac
+  fi
+  printf '%s' "$r"
+}
+
+# pids_under PATH: pids of this user's processes started from PATH (see above). The calling shell's own
+# process group is never listed, so a script never matches itself, its subshells or its pipeline.
+# One python3 pass over /proc: forking readlink per process is seconds on a host with thousands.
+pids_under(){
+  local root; root=$(_own_path "$1") || return 0
+  python3 - "$root" "$$" <<'PY'
+import os, sys
+root, shell = sys.argv[1], int(sys.argv[2])
+uid = os.geteuid()
+def pgid(p):
+    try:
+        return os.getpgid(p)
+    except OSError:
+        return None
+def under(x):
+    return x == root or x.startswith(root + "/")
+mine = pgid(shell)
+for e in os.listdir("/proc"):
+    if not e.isdigit() or int(e) == shell:
+        continue
+    d = "/proc/" + e
+    try:
+        if os.stat(d).st_uid != uid:
+            continue
+    except OSError:
+        continue
+    try:
+        exe = os.readlink(d + "/exe")
+    except OSError:
+        exe = ""
+    if exe.endswith(" (deleted)"):
+        exe = exe[:-len(" (deleted)")]
+    try:
+        with open(d + "/cmdline", "rb") as f:
+            argv = [a.decode(errors="replace") for a in f.read().split(b"\0")[:2]]
+    except OSError:
+        argv = []
+    if any(under(x) for x in [exe] + argv if x):
+        if mine is not None and pgid(int(e)) == mine:
+            continue
+        print(e)
+PY
+}
+
+# stop_under PATH [SECONDS]: SIGTERM everything pids_under PATH lists, wait up to SECONDS (default 5)
+# for it to exit, then SIGKILL what is left. Nothing outside PATH is signalled.
+stop_under(){
+  local pids i n=$(( ${2:-5} * 5 ))
+  pids=$(pids_under "$1")
+  [ -n "$pids" ] || return 0
+  kill -TERM $pids 2>/dev/null
+  for ((i = 0; i < n; i++)); do
+    sleep 0.2
+    pids=$(pids_under "$1")
+    [ -n "$pids" ] || return 0
+  done
+  kill -KILL $pids 2>/dev/null
+  return 0
 }

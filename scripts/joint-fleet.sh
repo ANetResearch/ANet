@@ -23,6 +23,12 @@ CTRL_PORT=29190          # 控制端
 W_PORTS=(29191 29192 29193)
 W_NAMES=(alpha beta gamma)
 
+# lib.sh for stop_under: 收尾按路径停进程(可执行文件在 $J 之下的),不按进程名 —— 按名字会停掉
+# 整台机器上的 anet 与 anet-hub,包括别的工作树的联调和测试主机上的生产进程(docs/notes/0015 §4)。
+ANET=$J/anet
+# shellcheck source=lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+
 pass=0; fail=0
 ok(){   printf '\033[1;32m  ✓ %s\033[0m\n' "$*"; pass=$((pass+1)); }
 no(){   printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; fail=$((fail+1)); }
@@ -32,12 +38,12 @@ cleanup(){
   for p in "${W_PORTS[@]}" "$CTRL_PORT"; do
     curl -s -m 2 -X POST "http://127.0.0.1:$p/stop" >/dev/null 2>&1 || true
   done
-  pkill -x anet 2>/dev/null; pkill -x anet-hub 2>/dev/null
-  sleep 1
+  stop_under "$J" 10
 }
 trap cleanup EXIT
 
 hd "0/7  建栈:一个 hub、一个控制端、三个 worker"
+stop_under "$J" 10   # 上一次被强杀的运行留下的进程占着端口
 rm -rf "$J"; mkdir -p "$J"
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CGO_ENABLED=0 go build -o "$J/anet" "$ROOT/cmd/anet" || { echo "build anet failed"; exit 1; }

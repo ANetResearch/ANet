@@ -38,6 +38,11 @@ HUB=http://127.0.0.1:$HUB_PORT
 SCENARIO_ENV=${SCENARIO_ENV:-$HOME/.config/anet-scenario.env}
 CAPTION_URL=${CAPTION_URL:-http://127.0.0.1:8099/caption}
 
+# lib.sh for stop_under: this script stops what it started by path, never by process name.
+ANET=$BIN/anet
+# shellcheck source=lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
 pass=0; fail=0
 ok(){ printf '\033[1;32m  ✓ %s\033[0m\n' "$*"; pass=$((pass+1)); }
 no(){ printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; fail=$((fail+1)); }
@@ -77,10 +82,23 @@ for x in json.load(sys.stdin).get('results') or []:
 
 # ── 0. a hub that knows nobody ──────────────────────────────────
 hd "0  一个谁也不认识的 hub"
-pgrep -x anet | xargs -r kill -TERM 2>/dev/null
-pgrep -x anet-hub | xargs -r kill -TERM 2>/dev/null
-pgrep -f 'scenario-svc' | xargs -r kill -TERM 2>/dev/null
-sleep 2
+# 只停本脚本自己起的进程:可执行文件或脚本参数在 $ROOT 之下的(lib.sh stop_under)。按进程名杀
+# 会停掉整台机器上的 anet 与 anet-hub —— 别的工作树的联调,以及测试主机上以同一用户跑着的生产
+# daemon 与 hub(docs/notes/0015 §4)。为此二进制必须从 $ROOT 下运行:SCENARIO_BIN 指向别处时
+# 先拷进 $ROOT/bin。
+mkdir -p "$ROOT/bin"
+if [ "$(cd "$BIN" 2>/dev/null && pwd -P)" != "$(cd "$ROOT/bin" && pwd -P)" ]; then
+  for b in anet anet-hub anetfixture; do
+    [ -x "$BIN/$b" ] || { echo "SCENARIO_BIN=$BIN 里没有 $b"; exit 1; }
+  done
+  stop_under "$ROOT/bin"
+  for b in anet anet-hub anetfixture; do cp "$BIN/$b" "$ROOT/bin/$b" || exit 1; done
+  BIN=$ROOT/bin
+fi
+stop_under "$ROOT"
+# 收尾:任何退出路径都停掉本次起的全部进程(日志与数据目录留着看)。SCENARIO_KEEP=1 则留着进程。
+trap '[ "${SCENARIO_KEEP:-0}" = 1 ] || stop_under "$ROOT" 10' EXIT
+trap 'exit 130' INT TERM
 rm -rf "$ROOT/hub" "$ROOT/A" "$ROOT/B" "$ROOT/C"
 mkdir -p "$ROOT/hub"
 setsid "$BIN/anet-hub" --addr "127.0.0.1:$HUB_PORT" --data "$ROOT/hub" >"$ROOT/hub.log" 2>&1 </dev/null &
@@ -576,7 +594,8 @@ for pair in "hub:$H2:$HUB2" "hub2:$H1:$HUB"; do
  "peers":[{"aid":"$aid","endpoint":"$ep"}]}
 CFG
 done
-pgrep -x anet-hub | xargs -r kill -TERM 2>/dev/null; sleep 2
+# 只停本脚本的两个 hub(从 $BIN/anet-hub 起的),不碰机器上别的 hub。
+stop_under "$BIN/anet-hub" 10
 setsid "$BIN/anet-hub" --addr "127.0.0.1:$HUB_PORT"  --data "$ROOT/hub"  >>"$ROOT/hub.log"  2>&1 </dev/null &
 setsid "$BIN/anet-hub" --addr "127.0.0.1:$HUB2_PORT" --data "$ROOT/hub2" >>"$ROOT/hub2.log" 2>&1 </dev/null &
 for _ in $(seq 1 30); do curl -sf -m 2 "$HUB2/healthz" >/dev/null && curl -sf -m 2 "$HUB/healthz" >/dev/null && break; sleep 1; done
