@@ -222,36 +222,60 @@ else
 fi
 
 # ── 8b. wiring anet into an agent ───────────────────────────────
-hd "8b  把 anet 接进一个 agent"
+hd "8b  把 anet 接进编码 agent(anet agents wire)"
 # The join page tells a newcomer to run this as their second command, and
-# it was the one step this walk did not take. It writes into the agent's
+# it was the one step this walk did not take. It writes into the agents'
 # own configuration, so it is exercised against a throwaway HOME — a test
 # that edited the developer's real Cursor or Claude setup would be a test
-# nobody runs twice.
+# nobody runs twice. PATH is narrowed so a claude CLI installed for the
+# operator is not the one doing the registration here.
+#
+# wire registers `anet mcp`, so it lives in builds with MCP; the profiles
+# above are all -tags no_mcp, and the standard one must say so instead.
 AGENT_HOME=$ROOT/agent-home
 rm -rf "$AGENT_HOME"; mkdir -p "$AGENT_HOME"
-for agent in cursor claude codex; do
-  out=$(HOME="$AGENT_HOME" "$ROOT/bin/anet-standard" install --agent "$agent" 2>&1)
+if go build -ldflags "$STAMP" -o "$ROOT/bin/anet-default" ./cmd/anet 2>/dev/null; then
+  ok "默认构建(带 MCP)构建成功"
+else
+  no "默认构建失败"
+fi
+out=$(HOME="$AGENT_HOME" "$ROOT/bin/anet-standard" agents wire claude 2>&1)
+if [ $? -ne 0 ] && printf '%s' "$out" | grep -q no_mcp; then
+  ok "no_mcp 构建拒绝 agents wire 并说明原因"
+else
+  no "no_mcp 构建对 agents wire 的回答不对:$(printf '%s' "$out" | head -1)"
+fi
+for agent in claude codex cursor opencode hermes; do
+  out=$(env HOME="$AGENT_HOME" PATH=/usr/bin:/bin ANET_DATA_DIR="$AGENT_HOME/.anet" \
+    "$ROOT/bin/anet-default" agents wire "$agent" 2>&1)
   if [ $? -ne 0 ]; then
-    no "install --agent $agent 失败:$(printf '%s' "$out" | head -1)"
-    continue
-  fi
-  # Something was written, and it teaches the agent about the network.
-  # An install that reports changes and leaves the model none the wiser
-  # has done nothing an operator would notice until an agent ignores a
-  # delegation.
-  if grep -rqs 'AgentNetwork' "$AGENT_HOME"; then
-    ok "install --agent $agent 写入了入网指引"
-  else
-    no "install --agent $agent 报告成功但没有写入任何提到本网络的内容"
+    no "agents wire $agent 失败:$(printf '%s' "$out" | tail -1)"
   fi
 done
-# And it stays out of the operator's real home. A command a newcomer runs
-# on their laptop must not reach outside the directory it was pointed at.
-if [ -n "$(find "$AGENT_HOME" -type f 2>/dev/null | head -1)" ]; then
-  ok "写入都落在指定的 HOME 之内"
+# Each tool's own file names this binary by absolute path and `mcp`.
+for f in .claude.json .codex/config.toml .cursor/mcp.json .config/opencode/opencode.json .hermes/config.yaml; do
+  if grep -qs "$ROOT/bin/anet-default" "$AGENT_HOME/$f"; then
+    ok "$f 写入了 anet mcp"
+  else
+    no "$f 没有 anet 的 MCP 条目"
+  fi
+done
+grep -qs 'AgentNetwork' "$AGENT_HOME/.claude/skills/anet/SKILL.md" \
+  && ok "Claude Code 技能写好了" || no "没有 ~/.claude/skills/anet/SKILL.md"
+out=$(env HOME="$AGENT_HOME" PATH=/usr/bin:/bin ANET_DATA_DIR="$AGENT_HOME/.anet" \
+  "$ROOT/bin/anet-default" agents wire --all 2>&1)
+if printf '%s' "$out" | grep -q '已写'; then
+  no "第二次 wire 又改了文件:$(printf '%s' "$out" | grep '已写' | head -1)"
 else
-  no "install 什么都没写"
+  ok "第二次 wire 什么都没改"
+fi
+env HOME="$AGENT_HOME" PATH=/usr/bin:/bin ANET_DATA_DIR="$AGENT_HOME/.anet" \
+  "$ROOT/bin/anet-default" agents unwire --all >/dev/null 2>&1
+left=$(find "$AGENT_HOME" -type f ! -name '*.anet-bak-*' 2>/dev/null | head -3)
+if [ -z "$left" ]; then
+  ok "unwire --all 之后只剩备份"
+else
+  no "unwire --all 之后还有文件:$left"
 fi
 
 hd "9  收尾"

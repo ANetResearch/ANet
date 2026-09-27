@@ -94,8 +94,10 @@ func main() {
 		fail(verify(layout, rest))
 	case "logs":
 		printLogs(layout, rest)
-	case "install":
-		fail(runInstall(rest))
+	case "install": // older name for `anet agents wire <tool>`
+		fail(runInstall(layout, rest))
+	case "agents": // register the MCP server with local coding agents; files only, no daemon
+		fail(runAgents(layout, rest))
 	case "help", "-h", "--help":
 		if len(rest) > 0 && (rest[0] == "--all" || rest[0] == "all") {
 			usageAll()
@@ -304,7 +306,10 @@ func usageAllText() string {
   anet id use <name>          make <name> the default so a bare 'anet <cmd>' targets it
   anet id rm <name> --purge   permanently delete an identity (key + history)
   anet --id <name> <cmd>      run any command against a specific identity (ANET_ID env works too)
-  anet install --agent <` + agentChoices() + `>   wire anet into an agent so its LLM knows how to use it
+  anet agents wire [--all|<tool>…] [--refresh] [--a2a <aid>…]   register anet's MCP server and guide with claude|codex|cursor|opencode|hermes (backs up every file it edits)
+  anet agents unwire [--all|<tool>…] [--a2a <aid>…]   remove what wire added, Hermes a2a_agents tokens included
+  anet agents                 show which coding agents are wired, and whether Hermes' a2a_agents still match this node
+  anet install --agent <tool>   older name for 'anet agents wire <tool>'
   anet hub-register <url> [--name N] [--caps a,b] [--token INVITE]   register on a Hub (--token only if it admits by invite)
   anet peers list             show the inbound policy and the allow, trust and deny lists
   anet peers allow|trust <aid>   let a peer delegate to you (trust: also drive your exec auto-reply); asks for confirmation on the terminal
@@ -313,7 +318,7 @@ func usageAllText() string {
   anet inbound pending        list delegations held for approval (metadata only)
   anet inbound approve|reject <interaction_id>   decide a held delegation (approve asks for confirmation on the terminal)
   anet accept off             older switch: sets the inbound policy to closed ('accept on' is refused; use 'anet peers allow <aid>')
-  anet autoreply set --backend exec --agent <cursor|claude|…>   auto-answer inbound tasks by spawning a local coding agent (live, no restart)
+  anet autoreply set --backend exec --agent <` + agentChoices() + `>   auto-answer inbound tasks by spawning a local coding agent (live, no restart)
   anet autoreply set --backend openai --api-base URL --model M   auto-answer inbound tasks with your OpenAI-compatible API
   anet autoreply test ["q"]   verify auto-reply locally (never touches the Hub / creates no node)
   anet autoreply show|off     inspect or turn off the built-in auto-reply loop
@@ -341,7 +346,7 @@ func usageAllText() string {
   anet visibility <local|hub-local|federated|public>   how far your entry travels: this hub only, or out to federated hubs
   anet evidence [--type T] [--since TS] [--limit N]   read this node's own evidence chain (id, prev_id, signature per record)
   anet x402-authorize --pay-to <aid> --amount <n> [--network hub:<aid>] [--interaction <id>]   sign a PAYMENT-SIGNATURE header for a gateway (alias: pay-header)
-  anet mcp                    serve this network to an MCP client over stdio (Claude Code, Cursor)
+  anet mcp                    serve this network to an MCP client over stdio (register it with 'anet agents wire')
   anet verify <interaction_id>                  check a receipt you already hold locally
   anet verify --receipt <b64> --kel <b64> [--result FILE]   check one with no daemon, no hub and no network
   anet version                print version
@@ -835,28 +840,6 @@ func diagnoseNoDaemon(base, dataDir string, cause error) error {
 	return fmt.Errorf("%s", strings.TrimRight(b.String(), "\n"))
 }
 
-// runInstall wires anet into an external agent (e.g. hermes) so its LLM knows how to use anet.
-func runInstall(rest []string) error {
-	pos, flags := splitFlags(rest)
-	agent := flags["agent"]
-	if agent == "" && len(pos) > 0 {
-		agent = pos[0]
-	}
-	if agent == "" {
-		return fmt.Errorf("install --agent <%s>", strings.Join(daemon.SupportedInstallAgents(), "|"))
-	}
-	changes, err := daemon.InstallAgent(agent)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("anet wired into %s:\n", agent)
-	for _, c := range changes {
-		fmt.Println("  -", c)
-	}
-	fmt.Println("The agent's LLM now sees anet in its persona. Make sure `anet daemon` is running so it can use it.")
-	return nil
-}
-
 func printLogs(layout daemon.Layout, rest []string) {
 	p := layout.LogPath()
 	b, err := os.ReadFile(p)
@@ -1069,6 +1052,7 @@ var knownFlags = map[string][]string{
 	"ids":      {"purge", "all"},
 	"identity": {"purge", "all"},
 	"install":  {"agent", "work-dir", "model", "command"},
+	"agents":   {"all", "refresh", "a2a"},
 	"verify":   {"receipt", "kel", "result", "hub", "attestation"},
 	"logs":     {"all"},
 	"help":     {"all"},
