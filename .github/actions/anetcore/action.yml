@@ -1,0 +1,64 @@
+name: ANetCore from source until it is tagged
+description: >
+  Builds against an ANetCore checkout when go.mod's ANetCore cannot build
+  this tree, and does nothing once it can.
+
+  ANet and ANetHub on the wire-2 line use packages (seal, a2acard, …) that
+  exist only in ANetCore's unreleased v0.15.0. go.mod still requires
+  v0.14.0, so a plain `go build` fails with "does not contain package
+  …/seal" and every job would be red for a reason outside the diff. Locally
+  a go.work over the three repositories bridges that (A2A-DESIGN §18); this
+  is the same bridge for CI: a workspace file outside the checkout, listing
+  this repository, ANetCore at the ref below and, when a job builds the
+  hub, the ANetHub checkout too.
+
+  Self-retiring: once go.mod requires a tagged ANetCore that builds the
+  tree (and the hub checkout, if any), the probe passes and no workspace is
+  written, so CI builds exactly what `go.mod` ships. Delete the action then.
+
+  The same action is in ANetHub/.github/actions/anetcore; change both.
+inputs:
+  hub:
+    description: Path of an ANetHub checkout under the workspace to add to the workspace ("" for none).
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - id: probe
+      shell: bash
+      env:
+        HUB: ${{ inputs.hub }}
+      run: |
+        need=false
+        for d in . ${HUB:+"$HUB"}; do
+          if ! (cd "$d" && GOWORK=off go list -deps ./... >/dev/null 2>&1); then
+            echo "$d: go.mod's ANetCore does not build this tree; using a workspace"
+            need=true
+          fi
+        done
+        echo "need=$need" >>"$GITHUB_OUTPUT"
+    - if: steps.probe.outputs.need == 'true'
+      uses: actions/checkout@v4
+      with:
+        repository: ANetResearch/ANetCore
+        # Pinned to the redesign branch while it is the only place the
+        # wire-2 packages exist. Replace with the v0.15.0 commit (or drop
+        # this action) in the same push as the go.mod bump (A2A-DESIGN §18).
+        ref: a2a-redesign-wip
+        path: .core
+    - if: steps.probe.outputs.need == 'true'
+      shell: bash
+      env:
+        HUB: ${{ inputs.hub }}
+      run: |
+        # Out of the checkout, so `gofmt -l .` and `git status` see only
+        # this repository.
+        core="$RUNNER_TEMP/anetcore"
+        rm -rf "$core" && mv .core "$core"
+        mods=("$GITHUB_WORKSPACE" "$core")
+        [ -n "$HUB" ] && mods+=("$GITHUB_WORKSPACE/$HUB")
+        (cd "$RUNNER_TEMP" && rm -f go.work && GOWORK= go work init "${mods[@]}")
+        echo "GOWORK=$RUNNER_TEMP/go.work" >>"$GITHUB_ENV"
+        echo "ANetCore $(git -C "$core" rev-parse --short HEAD)"
+        cat "$RUNNER_TEMP/go.work"

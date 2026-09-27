@@ -122,11 +122,16 @@ payment code / no peer listener / cannot execute commands" is a claim the
 artifact supports rather than a promise in a document.
 
 Most subsystems are **in by default and subtracted**: `-tags no_x402`,
-`no_p2p`, `no_mcp`, `no_service`, `no_cas`, `no_org`, `no_blackboard`,
-`no_anetlink`, `no_taskboard`. See [Distributions](docs/DISTRIBUTIONS-zh.md)
+`no_p2p`, `no_mcp`, `no_a2a`, `no_service`, `no_cas`, `no_org`,
+`no_blackboard`, `no_anetlink`. See [Distributions](docs/DISTRIBUTIONS-zh.md)
 for the shipping shapes and their measured sizes.
 
-One is the other way round.
+Two are the other way round — **absent unless the build asks**: `shell`
+(below) and `taskboard`, the client for a hub's shared task board. A board
+keeps the titles and notes put on it in the clear and shows them to anyone,
+so neither the default hub nor the default daemon carries one; a hub built
+with `-tags taskboard` and nodes built the same way can use it.
+`bash scripts/tagcheck.sh all` checks every tag in its own direction.
 
 ### Running commands on the machine (`-tags shell`)
 
@@ -135,8 +140,7 @@ callers its operator has listed — the case where you have a fleet of
 development machines and want an agent to restart a service, read a log or
 flash a board and report back what happened.
 
-It is the only module with an **additive** tag: absent unless the build asks
-for it.
+Its tag is **additive**: absent unless the build asks for it.
 
 ```sh
 curl -fsSL https://agentnetwork.org.cn/install.sh | sh          # cannot execute anything

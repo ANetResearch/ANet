@@ -11,6 +11,11 @@ package main
 //
 // Adding an opt-in module means two files here: the tagged import that
 // links it, and this line that names it when it is not linked.
+//
+// taskboard is here because an operator upgrading a node whose config
+// still has a "taskboard" block gets a refusal to start from the default
+// build, and that refusal has to name `-tags taskboard` — the flag that
+// exists — not `no_taskboard`, the one that used to.
 import "github.com/ANetResearch/ANet/module"
 
-func init() { module.DeclareOptIn("shell") }
+func init() { module.DeclareOptIn("shell", "taskboard") }
