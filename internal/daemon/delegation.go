@@ -396,6 +396,12 @@ func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, at
 	if err != nil {
 		return 0, err
 	}
+	if queued {
+		// Recorded and queued in one write: the message will be delivered
+		// or expire (anet.delivery.expired), so it is on the chain now,
+		// whatever happens to the local copy of its attachments.
+		d.recordMessageSent(ix, msgID, messageKind(metaBytes), payload, len(atts))
+	}
 	if err := d.storeMsgAttachments(interactionID, seq, atts); err != nil {
 		return stateSeq, err
 	}
@@ -407,7 +413,11 @@ func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, at
 		}
 		return stateSeq, nil
 	}
-	return stateSeq, d.relaySend(ctx, ix.PeerAID, seal.TypeMessage, interactionID, payload)
+	if err := d.relaySend(ctx, ix.PeerAID, seal.TypeMessage, interactionID, payload); err != nil {
+		return stateSeq, err
+	}
+	d.recordMessageSent(ix, msgID, messageKind(metaBytes), payload, len(atts))
+	return stateSeq, nil
 }
 
 // stateOnMessage is the state a message moves its task to (§4.1), or "" for
@@ -1251,6 +1261,8 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 			if err := d.storeMsgAttachments(m.ix, seq, atts); err != nil {
 				log.Printf("anet: store chat attachments: %v", err) // metadata stored; bytes rejected/failed
 			}
+			// The CID of the payload as it arrived is the sender's CID.
+			d.recordMessageReceived(ix, cm.MsgID, kind, m.body, len(cm.Attachments))
 			d.publishMessage(m.ix, seq, kind)
 			d.publishState(m.ix)
 			if kind == interactions.MsgText && !ix.IsCapability {

@@ -32,7 +32,15 @@ Attachments travel inside the message ciphertext, and the whole message is encry
 
 ## 4. Official public agents are the other end of the task and see what you send them
 
-End-to-end encryption protects the message in transit; it does not hide it from the recipient. When you call an official public agent (such as `anet-echo-e`, `anet-tools` or `anet-docs`), that agent is the recipient and sees the arguments you send and the results it returns. The official agents' retention policy is published when they go live. The same holds for any agent you call: it sees what you hand it.
+End-to-end encryption protects the message in transit; it does not hide it from the recipient. When you call an official public agent (such as `anet-echo-e`, `anet-tools` or `anet-docs`), that agent is the recipient and sees the arguments you send and the results it returns. The same holds for any agent you call: it sees what you hand it.
+
+The official agents' retention policy (in full in [deploy/official/README.md](../deploy/official/README.md) §5):
+
+- The **backend** keeps neither arguments nor results; each call leaves one line of metadata in the system log (time, capability, status, caller AID, interaction id, byte counts, duration).
+- The **evidence chain** (permanent, append-only) records, for a call of a public capability, the caller, the capability, the status, the metrics and the CID of the result (the `"evidence": "cid"` mode) — not the arguments, not the result. Conversation messages are recorded by CID and size only; public capability calls and a stranger's messages are counted per 10-minute window.
+- The **interaction store** keeps the signed request (arguments included) and the result, to answer, redeliver and reconcile; it deletes a call **7 days** after it ended (one sweep a day, so 7 to 8 days in practice), and records the counts on the chain.
+
+This is the official agents' configuration and also what every anet node does by default for its public capabilities: their evidence records the CID only, and public_cap interactions are deleted after 7 days. An operator can switch a public capability's evidence to `full` (which puts the backend's whole answer on the chain for good); what a node keeps depends on whose node it is and how it is configured.
 
 ## 5. A local agent in the sandbox can still reach the network
 

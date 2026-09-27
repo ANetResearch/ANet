@@ -1281,6 +1281,7 @@ func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.I
 	}
 	d.publishMessage(ix.ID, seq, interactions.MsgPayment)
 	d.publishState(ix.ID)
+	d.recordMessageSent(ix, msgID, interactions.MsgPayment, payload, 0)
 	if err := d.deliverQueued(ctx, id); err != nil {
 		log.Printf("anet: %s: payment message queued for delivery (%v)", ix.ID, err)
 	}

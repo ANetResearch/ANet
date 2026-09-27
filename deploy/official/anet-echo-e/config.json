@@ -15,7 +15,8 @@
         "per_caller_per_day": 2000,
         "global_per_min": 1200,
         "max_inflight": 16,
-        "max_args_bytes": 4096
+        "max_args_bytes": 4096,
+        "evidence": "cid"
       }
     ]
   },

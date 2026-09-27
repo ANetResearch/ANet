@@ -228,6 +228,9 @@ anet accept on
 - `name`、`description`、`tags`、`examples`、`input_modes`、`output_modes` 是这个能力的
   A2A skill 描述,进入本节点的卡片;不写时卡片只能按 id 派生。写了不等于公开:
   只有 `inbound.public_capabilities` 里的能力对陌生人开放。
+- 公开能力的调用(不论调用方是否在允许名单里),证据链缺省只记结果的 CID 与指标,不记服务的
+  回复原文(`public_capabilities` 每项的 `"evidence": "cid"`;要连回复一起永久上链写 `"full"`);
+  这类调用在交互库里保存到结束后 7 天,之后按天删除,删除计数记上证据链。
 - `timeout_ms` 可按能力覆盖模块级的值。
 - `token_file`(模块级,或按能力覆盖):文件第一行是令牌,daemon 以
   `Authorization: Bearer <令牌>` 发给服务。回环端口本机任何进程都能连,服务靠它认出
