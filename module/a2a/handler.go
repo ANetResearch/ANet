@@ -14,6 +14,11 @@ package a2a
 // and the shape of a stream. A local client's payment message (§8.7) is a
 // message like any other here: the kernel recognises it on Send, so its
 // messageId is deduplicated with the rest, and makes the decision.
+//
+// One thing depends on the request rather than the task: a client that did
+// not activate a2a-x402 cannot answer a quote itself, so where the kernel
+// says a task waits for a payment decision (needs_operator_approval) such
+// a client is told payment_extension_not_activated (§8.7, forClient).
 
 import (
 	"context"
@@ -25,6 +30,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -99,10 +105,15 @@ func (h *handler) SendMessage(ctx context.Context, r *a2a.SendMessageRequest) (a
 	}
 	// A payment message (§8.7) goes the same way as any message: the
 	// kernel's TaskSeam recognises it, deduplicates its messageId, makes
-	// the decision (PayTask) and waits like any send.
+	// the decision (PayTask) and waits like any send. Its answer is given
+	// as the kernel made it: a payment the operator has to approve says
+	// so, whether or not the extension was activated.
 	t, err := h.seam.Send(ctx, info.aid, req)
 	if err != nil {
 		return nil, toSDKError(err)
+	}
+	if !isPaymentMessage(req.Message) {
+		t = forClient(info, t)
 	}
 	return sdkTask(t)
 }
@@ -128,9 +139,10 @@ func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRe
 			yield(nil, toSDKError(err))
 			return
 		}
-		if isPaymentMessage(req.Message) && a2ashape.IsPaymentRefusal(t) {
-			// The kernel refused the payment before signing (§8.7):
-			// nothing was sent, and nothing will follow.
+		if isPaymentMessage(req.Message) && (a2ashape.IsPaymentRefusal(t) || a2ashape.IsPaymentHold(t)) {
+			// The kernel refused the payment before signing (§8.7), or
+			// held it for the operator above the agent tier (§8.3):
+			// nothing was sent, and nothing follows until someone acts.
 			if ev, err := sdkTask(t); err != nil {
 				yield(nil, err)
 			} else {
@@ -147,7 +159,7 @@ func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRe
 			// for an answer that has come.
 			after = 1
 		}
-		h.stream(ctx, info.aid, t.ID, after, false, yield)
+		h.stream(ctx, info, t.ID, after, false, yield)
 	}
 }
 
@@ -164,7 +176,7 @@ func (h *handler) SubscribeToTask(ctx context.Context, r *a2a.SubscribeToTaskReq
 			yield(nil, a2a.NewError(a2a.ErrInvalidParams, "task id is required"))
 			return
 		}
-		h.stream(ctx, info.aid, string(r.ID), 0, true, yield)
+		h.stream(ctx, info, string(r.ID), 0, true, yield)
 	}
 }
 
@@ -181,7 +193,7 @@ func (h *handler) GetTask(ctx context.Context, r *a2a.GetTaskRequest) (*a2a.Task
 	if err != nil {
 		return nil, toSDKError(err)
 	}
-	return sdkTask(t)
+	return sdkTask(forClient(info, t))
 }
 
 // ListTasks lists this node's tasks with the agent, most recent state
@@ -202,10 +214,11 @@ func (h *handler) ListTasks(ctx context.Context, r *a2a.ListTasksRequest) (*a2a.
 	if err != nil {
 		return nil, toSDKError(err)
 	}
-	if !r.IncludeArtifacts {
-		for i := range page.Tasks {
+	for i := range page.Tasks {
+		if !r.IncludeArtifacts {
 			page.Tasks[i].Artifacts = nil
 		}
+		page.Tasks[i] = forClient(info, page.Tasks[i])
 	}
 	out, err := convert[a2a.ListTasksResponse](page)
 	if err != nil {
@@ -232,7 +245,7 @@ func (h *handler) CancelTask(ctx context.Context, r *a2a.CancelTaskRequest) (*a2
 	if err != nil {
 		return nil, toSDKError(err)
 	}
-	return sdkTask(t)
+	return sdkTask(forClient(info, t))
 }
 
 // The push-notification operations: this interface has no way to reach a
@@ -275,7 +288,8 @@ func (h *handler) GetExtendedAgentCard(context.Context, *a2a.GetExtendedAgentCar
 // A send's stream ends at a terminal state or at an interrupted one newer
 // than its own write (after, a state_seq); a subscription ends at a
 // terminal state or at an interrupted state newer than the one it found.
-func (h *handler) stream(ctx context.Context, peer, id string, after int64, subscribe bool, yield func(a2a.Event, error) bool) {
+func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after int64, subscribe bool, yield func(a2a.Event, error) bool) {
+	peer := info.aid
 	snap, events, err := h.seam.Watch(ctx, peer, id)
 	if err != nil {
 		yield(nil, toSDKError(err))
@@ -292,7 +306,7 @@ func (h *handler) stream(ctx context.Context, peer, id string, after int64, subs
 	for _, a := range snap.Artifacts {
 		seen[a.ID] = true
 	}
-	first, err := sdkTask(snap)
+	first, err := sdkTask(forClient(info, snap))
 	if err != nil {
 		yield(nil, err)
 		return
@@ -330,7 +344,7 @@ func (h *handler) stream(ctx context.Context, peer, id string, after int64, subs
 		if isStatus && state.Terminal() && !h.flushArtifacts(ctx, peer, id, seen, yield) {
 			return
 		}
-		out, err := sdkEvent(ev)
+		out, err := sdkEvent(eventForClient(info, ev))
 		if err != nil {
 			yield(nil, err)
 			return
@@ -409,6 +423,34 @@ func stateSeq(meta map[string]any) int64 {
 }
 
 // --- payments (A2A-DESIGN §8.7) ---
+
+// forClient is t as this request's client is told it: a client that did
+// not activate a2a-x402 reads payment_extension_not_activated where the
+// kernel says the task waits for a payment decision (§8.7). The kernel
+// pays within the automatic tier either way; above it, such a client
+// cannot answer the quote until it activates the extension.
+func forClient(info *reqInfo, t module.Task) module.Task {
+	if x402a2a.Activated(info.requested) {
+		return t
+	}
+	return a2ashape.WithoutX402Extension(t)
+}
+
+// eventForClient is forClient for one stream event.
+func eventForClient(info *reqInfo, ev module.TaskEvent) module.TaskEvent {
+	if x402a2a.Activated(info.requested) {
+		return ev
+	}
+	switch {
+	case ev.StatusUpdate != nil:
+		su := a2ashape.StatusWithoutX402Extension(*ev.StatusUpdate)
+		ev.StatusUpdate = &su
+	case ev.Task != nil:
+		t := a2ashape.WithoutX402Extension(*ev.Task)
+		ev.Task = &t
+	}
+	return ev
+}
 
 // isPaymentMessage reports a message that carries a2a-x402 metadata: a
 // local client answering a payment-required task.

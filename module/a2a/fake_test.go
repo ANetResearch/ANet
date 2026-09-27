@@ -31,8 +31,13 @@ type fakeSeam struct {
 	// pays are the payment decisions made: through Pay, or through Send
 	// with a payment message, as the kernel routes one (§8.7).
 	pays []module.PayDecision
-	// quote makes new tasks stop at input-required with a payment quote.
+	// quote makes new tasks stop at input-required with a payment quote,
+	// waiting as the kernel says a quote above the automatic tier waits
+	// (anet.reason needs_operator_approval).
 	quote map[string]any
+	// hold answers payment-submitted as the kernel does above the agent
+	// tier: the task, still waiting, told the operator decides (§8.3).
+	hold bool
 }
 
 type fakeTask struct {
@@ -163,6 +168,9 @@ func (f *fakeSeam) Send(ctx context.Context, peer string, req module.TaskSend) (
 				Parts:    []a2ashape.Part{a2ashape.TextPart("payment required")},
 				Metadata: map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentRequired, a2ashape.KeyX402Required: f.quote}}
 			f.setState(ft, a2ashape.TaskStateInputRequired, &q)
+			ft.t.Metadata[a2ashape.KeyX402Status] = a2ashape.PaymentRequired
+			ft.t.Metadata[a2ashape.KeyX402Required] = f.quote
+			ft.t.Metadata[a2ashape.KeyReason] = x402a2a.ReasonNeedsOperatorApproval
 			t := copyTask(ft.t)
 			f.mu.Unlock()
 			return t, nil
@@ -298,6 +306,8 @@ func (f *fakeSeam) Pay(_ context.Context, peer, id string, d module.PayDecision)
 		return module.Task{}, err
 	}
 	f.pays = append(f.pays, d)
+	// Decided: the task no longer waits for a decision.
+	delete(ft.t.Metadata, a2ashape.KeyReason)
 	if d.Decision == module.PayReject {
 		f.setState(ft, a2ashape.TaskStateCanceled, nil)
 		f.status(ft)
@@ -345,6 +355,17 @@ func (f *fakeSeam) payMessage(ctx context.Context, peer string, req module.TaskS
 				return refuse(x402a2a.ReasonOptionNotOffered)
 			}
 			d.Accept = b
+		}
+		f.mu.Lock()
+		hold := f.hold
+		f.mu.Unlock()
+		if hold {
+			t, err := f.Get(ctx, peer, m.TaskID, req.HistoryLength)
+			if err != nil {
+				return module.Task{}, err
+			}
+			return a2ashape.PaymentHold(t, "hold-"+m.TaskID, x402a2a.ReasonNeedsOperatorApproval,
+				"Payment not submitted: above agent_max. Run `anet pay "+m.TaskID+"` in a terminal."), nil
 		}
 	case a2ashape.PaymentRejected:
 		d.Decision = module.PayReject

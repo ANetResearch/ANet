@@ -40,6 +40,7 @@ func TestTheWireStringsArePinned(t *testing.T) {
 		ExtensionURIv01:             "https://github.com/google-a2a/a2a-x402/v0.1",
 		ExtAuthID:                   "anet.auth_id",
 		ReasonTaskNonceRequired:     "task_nonce_required",
+		ReasonNeedsOperatorApproval: "needs_operator_approval",
 		ReasonExtensionNotActivated: "payment_extension_not_activated",
 	} {
 		if got != want {

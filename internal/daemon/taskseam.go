@@ -142,7 +142,7 @@ func (s *DaemonTaskSeam) Pay(ctx context.Context, peerAID, taskID string, decisi
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	refusal, err := s.d.taskPay(ctx, ix, decision)
+	answer, err := s.d.taskPay(ctx, ix, decision)
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
@@ -151,8 +151,8 @@ func (s *DaemonTaskSeam) Pay(ctx context.Context, peerAID, taskID string, decisi
 		return a2ashape.Task{}, err
 	}
 	t, err := s.d.taskView(cur, viewOpts{artifacts: true, inline: sc.inline()})
-	if err == nil && refusal != nil {
-		t = withRefusal(t, refusal)
+	if err == nil && answer != nil {
+		t = answer.apply(t)
 	}
 	return t, err
 }
@@ -401,13 +401,14 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 		// A payment decision on the task (A2A-DESIGN §8.7). This is the one
 		// path a local client's payment message takes, so its messageId is
 		// deduplicated above like any other message's.
-		after, refusal, err := d.taskPaymentMessage(ctx, ix, msg)
+		after, answer, err := d.taskPaymentMessage(ctx, ix, msg)
 		if err != nil {
 			return a2ashape.Task{}, err
 		}
 		release()
-		if refusal != nil {
-			// Nothing was signed or sent: the task as it is, told why.
+		if answer != nil {
+			// Nothing was signed or sent: the task as it is, told why
+			// (a refusal, §8.7) or who decides now (the operator, §8.3).
 			cur, err := d.ix.Get(ix.ID)
 			if err != nil {
 				return a2ashape.Task{}, err
@@ -416,7 +417,7 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 			if err != nil {
 				return a2ashape.Task{}, err
 			}
-			return withRefusal(t, refusal), nil
+			return answer.apply(t), nil
 		}
 		return d.finishSend(ctx, sc, ix.ID, after, req, wait)
 	}

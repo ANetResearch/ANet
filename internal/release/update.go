@@ -54,6 +54,9 @@ type Found struct {
 	Asset     Asset
 	Modules   []string // the module set the chosen variant must report
 	Cmp       int      // CompareVersions(Manifest.Version, Current)
+	// Raw and Sig are release.json and its signature as verified, for the
+	// record SaveInstalled keeps beside the installed binary.
+	Raw, Sig []byte
 }
 
 // Check fetches and verifies the manifest. It returns a Found whether the
@@ -115,6 +118,7 @@ func (u *Updater) verify(base string, raw, sig []byte) (*Found, error) {
 	return &Found{
 		Base: base, Manifest: m, Signer: Fingerprint(s.PublicKey),
 		AssetName: name, Asset: a, Modules: m.Variants[u.Variant].Modules, Cmp: cmp,
+		Raw: raw, Sig: sig,
 	}, nil
 }
 
