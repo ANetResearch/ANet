@@ -825,8 +825,9 @@ import sys,json;d=json.load(sys.stdin);print("ok" if "reviews" in d and "cursor"
 #   side 2 默认也在本机(另一端口段,另一目录);给了 XHUB_HOST2 就经 ssh 在那台主机上起。那边的控制面只绑
 #   那台主机的回环,本脚本经 ssh 在那边调用(x2),令牌不出那台主机、不上命令行。两种布局走同一套 x2 代码。
 #
-# 8.1 hub-local provider:hub1 的目录与注册表里没有 P,却能经 /fed/v2/keys 取到它的密钥;R 的委派加密
-#     送达 P,P 的回复加密回到 R;两个 hub 的数据目录与日志里搜不到任务文字。
+# 8.1 hub-local provider:hub1 的目录里没有 P,却能经 /fed/v2/keys 取到它的密钥;名单外的 R2 被拒(之后
+#     才上名单);R 的委派加密送达 P,P 的回复加密回到 R;任务还在 X2 信箱里时(P 离线)与送达之后,两个 hub
+#     的数据目录与日志里都搜不到任务文字。
 # 8.2 开三个要跨过缓存时限的任务(R4→P、R2→P、R→Q 待批),重启 P 与 Q,开始计时。R4、R2 此后什么也不做,
 #     P 对它们密钥的记录因此真的与等待一样旧(R 在 8.3/8.4 付款,P 发给它的每条状态都可能先行复核)。
 # 8.3 跨 hub 付费,同一 ix:入口 hub(X2)与账本 hub(hub1)各拒少付与错收款方;P 的商户核对拒少付与
@@ -1296,9 +1297,10 @@ CFG
   R=$(aid_of_x R); R2=$(aid_of_x R2); R3=$(aid_of_x R3); R4=$(aid_of_x R4)
   [ -n "$P" ] && [ -n "$Q" ] && [ -n "$R" ] && [ -n "$R2" ] && [ -n "$R3" ] && [ -n "$R4" ] \
     || { no "有节点没有 AID(P=$P Q=$Q R=$R R2=$R2 R3=$R3 R4=$R4)"; return 1; }
-  # P takes delegations only from the four requesters, by name (written directly: the CLI asks on a TTY;
-  # the daemon reads the file on every decision). R may pay P and nobody else.
-  x2 "umask 077; printf '%s\n' $(q "$R") $(q "$R2") $(q "$R3") $(q "$R4") >\"\$S2/P/.anet/peers.allow\""
+  # P takes delegations only from the requesters it names (written directly: the CLI asks on a TTY; the
+  # daemon reads the file on every decision). R2 goes on the list in 8.1, after it has been refused as a
+  # stranger. R may pay P and nobody else.
+  x2 "umask 077; printf '%s\n' $(q "$R") $(q "$R3") $(q "$R4") >\"\$S2/P/.anet/peers.allow\""
   _peer_add "$XR/R/.anet/payees.allow" "$P"
   local reg=0 x
   for x in "$R" "$R2" "$R3" "$R4"; do curl -sf -m 10 --noproxy '*' "$HUB1/agents/$x/kel" >/dev/null && reg=$((reg+1)); done
@@ -1312,30 +1314,54 @@ CFG
 
 # ── 8.1 ─────────────────────────────────────────────────────────
 xhub_local_provider(){
-  hd "8.1  hub-local provider:经 /fed/v2/keys 取钥,加密委派与回复"
-  local listed card keys ix word reply
-  listed="$(listed_at "$HUB1/agents" "$P")/$(listed_at "$HUB1/a2a/v1/agents" "$P")"
-  card=$(curl -s -o /dev/null -w '%{http_code}' -m 10 --noproxy '*' "$HUB1/a2a/v1/agents/$P/card")
-  [ "$listed" = 0/0 ] && [ "$card" = 404 ] && ok "hub1 的目录与注册表里没有 P(hub-local 可见性,卡片 404)" \
-    || no "hub1 看得到 P(或读不了列表):/agents 与 /a2a/v1/agents 各 $listed 处,卡片 $card"
+  hd "8.1  hub-local provider:经 /fed/v2/keys 取钥,只认名单,加密委派与回复"
+  local listed keys ix sx word reply hits ctrl
+  # P publishes no A2A card (it has no public capability), so the A2A registry has nothing of it to hide
+  # whatever the visibility; the directory its card would reach is /agents. That it is absent there is
+  # checked again in 8.5, once the directories have had time to sync, with the federated Q as the control.
+  listed=$(listed_at "$HUB1/agents" "$P")
+  [ "$listed" = 0 ] && ok "hub1 的目录里没有 P(hub-local;8.5 目录同步之后以 Q 作对照再查)" \
+    || no "hub1 的目录里 P 出现 $listed 次(? = 读不了列表)"
   keys=$(curl -s -m 20 --noproxy '*' "$HUB1/agents/$P/keys" | jget aid)
-  [ "$keys" = "$P" ] && ok "hub1 却能给出 P 的加密密钥 —— 只能来自向 X2 的 /fed/v2/keys 查询" \
+  [ "$keys" = "$P" ] && ok "hub1 却能给出 P 的加密密钥(来自向 X2 的 /fed/v2/keys 查询;8.6 关掉查询即 404)" \
     || no "hub1 给不出 P 的密钥"
 
+  # Only named peers: R2 is not on P's list yet. It can reach P (the keys come the same way) and is
+  # refused, then named. Without this, P taking R's task would look the same under an open policy.
+  sx=$(delegate_goal R2 "$P" "xstranger-$(canary)" | jget interaction_id)
+  if [ -n "$sx" ] && waitfor 40 state_is R2 "$sx" rejected; then
+    if in_inbox P "$sx"; then no "名单外的 R2 的任务进了 P 的 inbox"; else ok "名单外的 R2 委派 P:被拒(R2 那边 rejected,P 的 inbox 里没有)"; fi
+  else
+    no "名单外的 R2 委派 P 没有被拒(R2 那边是 $(tstate R2 "${sx:-none}"))"
+  fi
+  x2 "printf '%s\n' $(q "$R2") >>\"\$S2/P/.anet/peers.allow\""
+
+  # Encrypted across both hubs, and looked for while it is on them: P is stopped, so R's delegation waits in
+  # P's mailbox at X2. Searched only after delivery, the text would be gone either way (the relay deletes a
+  # row once it is acknowledged) and the search would pass without any encryption. The same search finds
+  # P's AID, so it does reach the hubs' stores.
   word="xhello-$(canary)"; reply="xreply-$(canary)"
+  x2 "s2_stop_daemon P"
   ix=$(delegate_goal R "$P" "$word" | jget interaction_id)
-  [ -n "$ix" ] && ok "R(hub1)把任务委派给了 P(X2):$ix" || { no "R 委派 P 失败"; return; }
+  if [ -n "$ix" ]; then
+    ok "R(hub1)把任务委派给了离线的 P(X2):$ix"
+    hits=$(grep_hub_dirs "$word"); ctrl=$(grep_hub_dirs "$P")
+    [ "$hits" = 0 ] && [ "${ctrl:-0}" -gt 0 ] 2>/dev/null \
+      && ok "任务还在 X2 的信箱里时,两个 hub 的数据目录与日志里搜不到任务文字(同样的搜索找得到 P 的 AID)" \
+      || no "任务在途时 hub 上有 $hits 个文件含任务文字(对照:含 P 的 AID 的文件 ${ctrl:-?} 个)"
+  fi
+  x2 "s2_start_daemon P" || no "P 重新起不来"
+  [ -n "$ix" ] || { no "R 委派 P 失败"; return; }
   if waitfor 40 in_inbox P "$ix"; then
-    [ "$(inbox_trust P "$ix")" = peer ] && ok "P 收到了,按名单接受(trust=peer)" || no "P 收到了,trust=$(inbox_trust P "$ix")"
+    [ "$(inbox_trust P "$ix")" = peer ] && ok "P 上线后收到了,按名单接受(trust=peer)" || no "P 收到了,trust=$(inbox_trust P "$ix")"
   else
     no "P 的 inbox 里没有这个任务"
   fi
   ctl2 P /tasks/reply "{\"task_id\":\"$ix\",\"text\":\"$reply\",\"state\":\"completed\"}" >/dev/null
   waitfor 40 heard_it R "$ix" "$reply" && ok "P 的回复加密回到了 R(跨 hub 纯请求方)" || no "R 没收到 P 的回复"
   waitfor 20 state_is R "$ix" completed && ok "R 那边任务 completed" || no "R 那边任务是 $(tstate R "$ix")"
-  local hits; hits=$(grep_hub_dirs "$word" "$reply")
-  [ "$hits" = 0 ] && ok "两个 hub 的数据目录与日志里都搜不到任务与回复的文字(hub 只搬密文)" \
-    || no "hub 上有 $hits 个文件含任务文字"
+  hits=$(grep_hub_dirs "$word" "$reply")
+  [ "$hits" = 0 ] && ok "送达之后两个 hub 上也搜不到任务与回复的文字" || no "hub 上有 $hits 个文件含任务文字"
 }
 
 # ── 8.2 ─────────────────────────────────────────────────────────
