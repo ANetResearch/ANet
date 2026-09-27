@@ -429,6 +429,7 @@ func (d *Daemon) kickAutoReply() {
 	case d.autoReplyKick <- struct{}{}:
 	default:
 	}
+	d.inFeed.wake() // and the modules' A2A backends (inbound_tasks.go)
 }
 
 // withServedCapabilities folds this node's actual capability ids into what
