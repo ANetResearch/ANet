@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/module"
@@ -127,6 +128,11 @@ type doctorReport struct {
 	Hermes     struct {
 		Config    fileState       `json:"config"`
 		A2AAgents []a2aAgentEntry `json:"a2a_agents"`
+		// A2AToken is whether the entries on this node's A2A port carry the
+		// current local A2A token: "current", "stale" (a2a_token.txt was
+		// replaced since they were written), "unknown" (no token file, or no
+		// entry on this node's port, to compare with) or "no_entries".
+		A2AToken string `json:"a2a_token"`
 	} `json:"hermes"`
 	Checks []doctorCheck `json:"checks"`
 	OK     bool          `json:"ok"`
@@ -137,7 +143,9 @@ type doctorReport struct {
 type doctorEnv struct {
 	home       string // the user's home directory
 	hermesHome string // HERMES_HOME, or ~/.hermes
-	running    func(daemon.Layout) bool
+	// running reports whether a daemon answers at the control address with
+	// the token in tokenPath.
+	running func(addr, tokenPath string) bool
 }
 
 func defaultDoctorEnv() doctorEnv {
@@ -146,7 +154,20 @@ func defaultDoctorEnv() doctorEnv {
 	if hh == "" && home != "" {
 		hh = filepath.Join(home, ".hermes")
 	}
-	return doctorEnv{home: home, hermesHome: hh, running: localDaemonUp}
+	return doctorEnv{home: home, hermesHome: hh, running: daemonAnswersAt}
+}
+
+// daemonAnswersAt is localDaemonUp for the address doctor has already read.
+// localDaemonUp finds the address through LoadConfig, which writes a
+// config.json when there is none, and doctor writes nothing.
+func daemonAnswersAt(addr, tokenPath string) bool {
+	tb, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return false
+	}
+	c := &client{base: "http://" + addr, token: strings.TrimSpace(string(tb)), timeout: 1500 * time.Millisecond}
+	_, code, e := c.fetch("/status", nil)
+	return e == nil && code == 200
 }
 
 // releaseSignature reports whether this binary was checked against a signed
@@ -246,7 +267,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		rep.Control.Addr = daemon.DefaultConfig().ControlAddr
 	}
 	if env.running != nil {
-		rep.Control.Running = env.running(layout)
+		rep.Control.Running = env.running(rep.Control.Addr, layout.ControlTokenPath())
 	}
 	rep.Control.Token = statFile(layout.ControlTokenPath())
 	if rep.Control.Running {
@@ -369,12 +390,27 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		}
 	}
 	rep.Hermes.A2AAgents = []a2aAgentEntry{}
+	rep.Hermes.A2AToken = "no_entries"
 	if env.hermesHome != "" {
 		rep.Hermes.Config = statFile(filepath.Join(env.hermesHome, "config.yaml"))
 	}
 	if rep.Hermes.Config.Present {
 		b, _ := os.ReadFile(rep.Hermes.Config.Path)
 		rep.Hermes.A2AAgents = hermesA2AAgents(string(b), rep.A2A.Addr)
+		// Only entries on this node's A2A port are this node's; the token is
+		// compared for those (entries of another identity carry its token).
+		if slices.ContainsFunc(rep.Hermes.A2AAgents, func(e a2aAgentEntry) bool { return e.Matches }) {
+			rep.Hermes.A2AToken = hermesTokenState(string(b), rep.A2A.Token)
+		} else if len(rep.Hermes.A2AAgents) > 0 {
+			rep.Hermes.A2AToken = "unknown"
+		}
+		switch rep.Hermes.A2AToken {
+		case "stale":
+			add("hermes.a2a_token", stWarn, rep.Hermes.Config.Path+": the a2a_agents entries do not carry the current "+
+				"local A2A token (a2a_token.txt was replaced), so Hermes' calls are refused", "anet agents wire --refresh")
+		case "current":
+			add("hermes.a2a_token", stOK, "the a2a_agents entries carry the current local A2A token", "")
+		}
 		switch {
 		case rep.Hermes.Config.Private:
 			add("hermes.config", stOK, rep.Hermes.Config.Path+" mode "+rep.Hermes.Config.Mode, "")
@@ -563,12 +599,34 @@ func yamlHasChild(text, parent, child string) bool {
 
 var a2aURLRe = regexp.MustCompile(`https?://[^\s"'<>]+/a2a/v1/agents/[^\s"'<>]+`)
 
+// hermesTokenState compares the tokens of the a2a_agents entries with the
+// local A2A token, without reporting either: "current" when the token file's
+// token is in the Hermes config, "stale" when it is not, "unknown" when there
+// is no token file to compare with. The local A2A token does not expire; it
+// goes stale for Hermes when a2a_token.txt is replaced.
+func hermesTokenState(text string, token fileState) string {
+	if !token.Present {
+		return "unknown"
+	}
+	b, err := os.ReadFile(token.Path)
+	tok := strings.TrimSpace(string(b))
+	if err != nil || tok == "" {
+		return "unknown"
+	}
+	if strings.Contains(text, tok) {
+		return "current"
+	}
+	return "stale"
+}
+
 // hermesA2AAgents finds the a2a_agents URLs that point at an anet local A2A
 // interface and compares each one's port with a2aAddr.
 func hermesA2AAgents(text, a2aAddr string) []a2aAgentEntry {
 	_, wantPort, _ := net.SplitHostPort(a2aAddr)
 	out := []a2aAgentEntry{}
 	for _, raw := range a2aURLRe.FindAllString(text, -1) {
+		// A flow mapping ({url: …, auth: …}) leaves its punctuation on the match.
+		raw = strings.TrimRight(raw, ",}]")
 		u, err := url.Parse(raw)
 		if err != nil {
 			continue

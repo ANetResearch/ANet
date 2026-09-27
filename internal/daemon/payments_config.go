@@ -140,11 +140,19 @@ func (d *Daemon) SetPaymentLimits(u PaymentLimits) (PaymentsConfig, []string, er
 		d.mu.Unlock()
 		return p, nil, nil
 	}
+	prev := d.cfg.Payments
 	next.Payments = &p
 	d.cfg = next
 	d.mu.Unlock()
 	if err := SaveConfig(d.layout, next); err != nil {
-		return p, nil, err
+		// A caller told the change failed must not find it in force: put
+		// the limits back, unless another write has replaced them since.
+		d.mu.Lock()
+		if d.cfg.Payments == next.Payments {
+			d.cfg.Payments = prev
+		}
+		d.mu.Unlock()
+		return d.config().payments(), nil, err
 	}
 	keys := make([]string, 0, len(changes))
 	for _, c := range changes {

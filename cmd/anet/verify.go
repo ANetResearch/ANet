@@ -42,6 +42,9 @@ func verify(layout daemon.Layout, rest []string) error {
 		// An exported evidence chain (`anet audit --export DIR`).
 		return verifyChain(dir, flags["kel"], flags["hub"], flags["head"])
 	}
+	if flags["head"] != "" {
+		return fmt.Errorf("verify: --head names a record of an exported chain; it needs --chain DIR")
+	}
 	if r := flags["receipt"]; r != "" {
 		kel := flags["kel"]
 		if kel == "" {

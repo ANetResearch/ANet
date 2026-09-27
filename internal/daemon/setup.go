@@ -23,11 +23,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 )
 
 // InitChange is one thing InitLayout did or found.
@@ -153,10 +151,10 @@ func fillConfig(raw []byte) ([]InitChange, []byte, error) {
 	}
 	var changes []InitChange
 	if v, ok := cur["control_addr"].(string); !ok || v == "" {
+		// The address LoadConfig gives a config without one, so a daemon
+		// already running on it stays reachable. A newly allocated port
+		// is for a data directory that has no config at all.
 		addr := DefaultConfig().ControlAddr
-		if port, perr := AllocControlPort(); perr == nil {
-			addr = net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-		}
 		cur["control_addr"] = addr
 		changes = append(changes, InitChange{Key: "control_addr", Action: "added", Value: addr})
 	}

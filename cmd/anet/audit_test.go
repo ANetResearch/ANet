@@ -108,8 +108,10 @@ func TestAuditAppliesTheDisplayRules(t *testing.T) {
 	}
 
 	byIX := buildAudit(ch, "", auditFilter{interaction: "ix_a"})
+	// The peer's records, and the records of its interactions that do not
+	// name it: the result accepted and the settlement of ix_a.
 	byPeer := buildAudit(ch, "", auditFilter{peer: "bafyreiprovider0001"})
-	if byIX.Summary.Events != 3 || byPeer.Summary.Events != 2 {
+	if byIX.Summary.Events != 3 || byPeer.Summary.Events != 4 {
 		t.Fatalf("filters: interaction %d events, peer %d", byIX.Summary.Events, byPeer.Summary.Events)
 	}
 	since := buildAudit(ch, "", auditFilter{since: time.Now().UnixMilli()})
@@ -173,5 +175,45 @@ func TestAuditExportVerifiesWithVerifyChain(t *testing.T) {
 	kb, _ := identity.MarshalKEL(other.KEL())
 	if err := verifyChain(export(), base64.StdEncoding.EncodeToString(kb), "", ""); !errors.Is(err, errQuiet) {
 		t.Errorf("under another AID's key history: %v", err)
+	}
+}
+
+// A second verified settlement for one interaction is flagged (A2A-DESIGN
+// §8.3), also when a filter shows only the second; an approval of a held
+// delegation is found by its interaction.
+func TestAuditFlagsARepeatedSettlement(t *testing.T) {
+	layout := writeChain(t, []testEvent{
+		{"anet.payment.settled", map[string]any{"interaction_id": "ix_p", "amount": 3, "verified": true}},
+		{"anet.payment.settled", map[string]any{"interaction_id": "ix_q", "amount": 3, "verified": true}},
+		{"anet.payment.settled", map[string]any{"interaction_id": "ix_p", "amount": 3, "verified": true}},
+		{"anet.payment.settled", map[string]any{"interaction_id": "ix_q", "amount": 3, "verified": false}},
+		{"anet.policy.changed", map[string]any{"field": "inbound.pending", "from": "ix_h", "to": "approved",
+			"requester_aid": "bafyreirequester01"}},
+	})
+	ch, err := daemon.ReadEvidenceChain(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := buildAudit(ch, "", auditFilter{})
+	var flagged []uint64
+	for _, ev := range rep.Events {
+		if ev.Flag != "" {
+			flagged = append(flagged, ev.Seq)
+		}
+	}
+	if len(flagged) != 1 || flagged[0] != 2 || rep.Summary.PaymentsRepeated != 1 {
+		t.Fatalf("flagged %v, summary %+v", flagged, rep.Summary)
+	}
+	var out bytes.Buffer
+	renderAudit(&out, rep)
+	if !strings.Contains(out.String(), "a second verified settlement for this interaction") {
+		t.Errorf("not shown:\n%s", out.String())
+	}
+	late := buildAudit(ch, "", auditFilter{since: ch.Records[2].Timestamp})
+	if len(late.Events) == 0 || late.Events[0].Seq != 2 || late.Events[0].Flag == "" {
+		t.Fatalf("with --since after the first settlement: %+v", late.Events)
+	}
+	if held := buildAudit(ch, "", auditFilter{interaction: "ix_h"}); held.Summary.Events != 1 {
+		t.Fatalf("--interaction of a held delegation: %d events", held.Summary.Events)
 	}
 }

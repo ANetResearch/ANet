@@ -110,8 +110,11 @@ type auditEvent struct {
 	Verdict string `json:"verdict,omitempty"`
 	// Status and Success are set for a capability effect; Success is true
 	// only for status OK.
-	Status  string         `json:"status,omitempty"`
-	Success *bool          `json:"success,omitempty"`
+	Status  string `json:"status,omitempty"`
+	Success *bool  `json:"success,omitempty"`
+	// Flag marks what an auditor has to look at: a second verified
+	// settlement for one interaction (A2A-DESIGN §8.3).
+	Flag    string         `json:"flag,omitempty"`
 	Payload map[string]any `json:"payload"`
 }
 
@@ -127,6 +130,7 @@ type auditSummary struct {
 	PaymentsVerified         int            `json:"payments_hub_receipt_verified"`
 	PaymentsUnverified       int            `json:"payments_hub_receipt_unverified"`
 	PaymentsProviderSide     int            `json:"payments_received_hub_response"`
+	PaymentsRepeated         int            `json:"payments_repeated_for_interaction"`
 	PolicyChanges            int            `json:"policy_changes"`
 	Unknown                  int            `json:"unknown_events"`
 }
@@ -155,6 +159,10 @@ type auditFilter struct {
 	since       int64 // unix ms; 0 = none
 	peer        string
 	interaction string
+	// peerIX are the interactions whose records name peer; buildAudit
+	// fills it, so that a record naming only the interaction (a result
+	// accepted, a settlement) is kept too.
+	peerIX map[string]bool
 }
 
 // runAudit is `anet audit [--since D] [--peer AID] [--interaction ID]
@@ -229,13 +237,49 @@ func (f auditFilter) matches(r daemon.EvidenceRecord) bool {
 	if f.since > 0 && r.Timestamp < f.since {
 		return false
 	}
-	if f.interaction != "" && !payloadMentions(r.Payload, f.interaction, "interaction_id", "canceled") {
+	if f.interaction != "" && !namesInteraction(r, f.interaction) {
 		return false
 	}
 	if f.peer != "" && !payloadMentions(r.Payload, f.peer) {
-		return false
+		ix, _ := r.Payload["interaction_id"].(string)
+		if ix == "" || !f.peerIX[ix] {
+			return false
+		}
 	}
 	return true
+}
+
+// namesInteraction reports whether a record is about interaction ix: its
+// interaction_id, the interactions a deny canceled, or the held delegation
+// an approval or rejection decided (anet.policy.changed field
+// inbound.pending names it as "from").
+func namesInteraction(r daemon.EvidenceRecord, ix string) bool {
+	if payloadMentions(r.Payload, ix, "interaction_id", "canceled") {
+		return true
+	}
+	return r.EventType == "anet.policy.changed" && r.Payload["field"] == "inbound.pending" && r.Payload["from"] == ix
+}
+
+// peerInteractions collects the interactions the records that name peer
+// belong to.
+func peerInteractions(recs []daemon.EvidenceRecord, peer string) map[string]bool {
+	out := map[string]bool{}
+	for _, r := range recs {
+		if !payloadMentions(r.Payload, peer) {
+			continue
+		}
+		if ix, _ := r.Payload["interaction_id"].(string); ix != "" {
+			out[ix] = true
+		}
+		if l, ok := r.Payload["canceled"].([]any); ok {
+			for _, e := range l {
+				if ix, _ := e.(string); ix != "" {
+					out[ix] = true
+				}
+			}
+		}
+	}
+	return out
 }
 
 // payloadMentions reports whether a top-level string value, or a string in
@@ -284,11 +328,23 @@ func buildAudit(ch *daemon.EvidenceChain, path string, f auditFilter) *auditRepo
 	s := &rep.Summary
 	s.Source = "counted here from the events listed"
 	s.CapabilityByStatus = map[string]int{}
+	if f.peer != "" {
+		f.peerIX = peerInteractions(ch.Records, f.peer)
+	}
+	// A second verified settlement for one interaction is flagged (§8.3),
+	// counted over the whole chain so that a filter cannot hide which one
+	// came first.
+	settled := map[string]int{}
 	for _, r := range ch.Records {
+		ev := classify(r)
+		repeated := repeatedSettlement(ev, settled)
 		if !f.matches(r) {
 			continue
 		}
-		ev := classify(r)
+		if repeated {
+			ev.Flag = "a second verified settlement for this interaction (A2A-DESIGN §8.3)"
+			s.PaymentsRepeated++
+		}
 		rep.Events = append(rep.Events, ev)
 		s.Events++
 		switch r.EventType {
@@ -365,6 +421,20 @@ func classify(r daemon.EvidenceRecord) auditEvent {
 		}
 	}
 	return ev
+}
+
+// repeatedSettlement counts a verified settlement of the paying side
+// against its interaction, and reports whether one was counted before.
+func repeatedSettlement(ev auditEvent, seen map[string]int) bool {
+	if ev.Type != "anet.payment.settled" || ev.Verdict != verdictVerified {
+		return false
+	}
+	ix, _ := ev.Payload["interaction_id"].(string)
+	if ix == "" {
+		return false
+	}
+	seen[ix]++
+	return seen[ix] > 1
 }
 
 func boolVerdict(v any) string {
@@ -450,7 +520,7 @@ func renderAudit(w io.Writer, rep *auditReport) {
 			if ev.Success != nil && !*ev.Success {
 				note = " (not counted as success)"
 			}
-			fmt.Fprintf(w, "%s status %s%s  %s  [%s]\n", head, ev.Status, note,
+			fmt.Fprintf(w, "%s status %s%s  %s  [%s]\n", head, printable(ev.Status, 40), note,
 				fields(ev.Payload, "status", "metrics", "evidence"), ev.Source)
 		case ev.Verdict != "":
 			what := "receipt"
@@ -461,6 +531,9 @@ func renderAudit(w io.Writer, rep *auditReport) {
 				fields(ev.Payload, "receipt_verified", "verified", "receipt"), ev.Source)
 		default:
 			fmt.Fprintf(w, "%s %s  [%s]\n", head, fields(ev.Payload, "receipt", "evidence"), ev.Source)
+		}
+		if ev.Flag != "" {
+			fmt.Fprintf(w, "         !! %s\n", ev.Flag)
 		}
 	}
 
@@ -481,6 +554,9 @@ func renderAudit(w io.Writer, rep *auditReport) {
 	if s.PaymentsSettled > 0 {
 		fmt.Fprintf(w, "  payments settled   %d: paid with hub receipt verified %d, %s %d; received (hub response) %d\n",
 			s.PaymentsSettled, s.PaymentsVerified, verdictText(verdictUnverified), s.PaymentsUnverified, s.PaymentsProviderSide)
+		if s.PaymentsRepeated > 0 {
+			fmt.Fprintf(w, "  !! %d verified settlement(s) repeat an interaction already paid (marked above)\n", s.PaymentsRepeated)
+		}
 	}
 	fmt.Fprintf(w, "  policy changes     %d\n", s.PolicyChanges)
 	if s.Unknown > 0 {
@@ -626,6 +702,9 @@ func verifyChain(dir, kelB64, hubURL, head string) error {
 		if man == nil || man.SignerAID == "" {
 			return fmt.Errorf("verify --chain: --hub needs manifest.json to know whose key history to fetch; pass --kel instead")
 		}
+		if printable(man.SignerAID, 256) != man.SignerAID || strings.ContainsAny(man.SignerAID, " /") {
+			return fmt.Errorf("verify --chain: manifest.json names %q as the signer, which is not an AID", printable(man.SignerAID, 80))
+		}
 		if kelB64, err = fetchKELFor(hubURL, man.SignerAID); err != nil {
 			return err
 		}
@@ -646,9 +725,11 @@ func verifyChain(dir, kelB64, hubURL, head string) error {
 	if err != nil {
 		return fmt.Errorf("verify --chain: undecodable key history: %w", err)
 	}
+	// An export is someone else's file: what it says is printed through
+	// printable, so it cannot rewrite the verdict on the terminal.
 	ch, err := daemon.VerifyEvidenceLines(daemon.SplitEvidenceLines(chainBytes), kel)
 	if err != nil {
-		fmt.Printf("✗ the chain does NOT verify: %v\n", err)
+		fmt.Printf("✗ the chain does NOT verify: %s\n", printable(err.Error(), 400))
 		return errQuiet
 	}
 	fmt.Printf("✓ %d records verify under %s\n", ch.Head.Length, ch.SignerAID)
@@ -663,7 +744,7 @@ func verifyChain(dir, kelB64, hubURL, head string) error {
 		}
 		if man.HeadID != ch.Head.HeadID || man.Length != ch.Head.Length || man.ChainDID != ch.Head.ChainDID {
 			fmt.Printf("✗ manifest.json says head %s at length %d on %s; the chain has head %s at length %d\n",
-				man.HeadID, man.Length, man.ChainDID, ch.Head.HeadID, ch.Head.Length)
+				printable(man.HeadID, 80), man.Length, printable(man.ChainDID, 120), ch.Head.HeadID, ch.Head.Length)
 			bad = true
 		}
 	}
@@ -675,7 +756,7 @@ func verifyChain(dir, kelB64, hubURL, head string) error {
 			}
 		}
 		if found < 0 {
-			fmt.Printf("✗ the chain does not contain %s: it was cut short or is a different chain\n", head)
+			fmt.Printf("✗ the chain does not contain %s: it was cut short or is a different chain\n", printable(head, 80))
 			bad = true
 		} else {
 			fmt.Printf("✓ contains the given head %s at seq %d (%d records after it)\n", shortID(head),
@@ -683,6 +764,7 @@ func verifyChain(dir, kelB64, hubURL, head string) error {
 		}
 	}
 	if ch.Head.State != "" && ch.Head.State != "ACTIVE" {
+		fmt.Printf("✗ the chain is %s, not ACTIVE\n", ch.Head.State)
 		bad = true
 	}
 	if bad {

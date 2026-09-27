@@ -221,3 +221,20 @@ func TestReadPolicyCreatesNothing(t *testing.T) {
 		t.Fatalf("defaults differ from SI-5 at %v", changed)
 	}
 }
+
+// A config without control_addr is given the address the daemon already
+// uses for it (LoadConfig's fallback), not a new port: init must not move a
+// running daemon out of the CLI's reach.
+func TestInitKeepsTheEffectiveControlAddress(t *testing.T) {
+	l := NewLayout(t.TempDir())
+	if err := os.WriteFile(l.ConfigPath(), []byte(`{"hub_url": "http://hub.example"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before := LocalControlAddr(l)
+	if _, err := InitLayout(l); err != nil {
+		t.Fatal(err)
+	}
+	if got := readConfigObject(t, l)["control_addr"]; got != before {
+		t.Fatalf("control_addr = %v, the daemon uses %s", got, before)
+	}
+}
