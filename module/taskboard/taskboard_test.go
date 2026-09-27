@@ -16,6 +16,7 @@ import (
 	"github.com/ANetResearch/ANetCore/relayauth"
 
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/moduletest"
 	"github.com/ANetResearch/ANet/module/taskboard"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -32,18 +33,14 @@ func (s fakeSeam) HubURL() string                   { return s.url }
 
 // fakeHost is the smallest Host that lets a module start.
 type fakeHost struct {
+	moduletest.NopHost
 	reg  *provider.Registry
 	seam module.HubSeam
 	aid  string
 }
 
-func (h *fakeHost) AID() string                      { return h.aid }
-func (h *fakeHost) Providers() *provider.Registry    { return h.reg }
-func (h *fakeHost) RecordEvidence(string, any) error { return nil }
-func (h *fakeHost) ResolveKEL(string) ([]identity.SignedEvent, bool) {
-	return nil, false
-}
-func (h *fakeHost) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }
+func (h *fakeHost) AID() string                   { return h.aid }
+func (h *fakeHost) Providers() *provider.Registry { return h.reg }
 func (h *fakeHost) HubSeam() (module.HubSeam, bool) {
 	if h.seam == nil {
 		return nil, false
@@ -225,13 +222,3 @@ func TestWithoutAHubTheModuleRefusesToStart(t *testing.T) {
 		t.Error("the module started with no hub to talk to")
 	}
 }
-
-// Admit and DeclareUntrustedBackend complete module.Host. This test host
-// admits every call; the kernel's admission is tested in internal/daemon.
-func (*fakeHost) Admit(string, string, int) (func(), string) { return func() {}, "" }
-func (*fakeHost) DeclareUntrustedBackend()                   {}
-
-// StateDir and TaskSeam complete module.Host. This test host keeps no
-// module state and offers no task seam; nothing under test uses either.
-func (*fakeHost) StateDir(string) string            { return "" }
-func (*fakeHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }

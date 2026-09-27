@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 
@@ -112,14 +113,28 @@ func (d *Daemon) screenPublication(what string, body any) error {
 	return nil
 }
 
-// stopModules shuts them down in reverse order.
+// moduleStopTimeout is the deadline the modules' Stop calls share. It
+// bounds a Stop that honours its context (an http.Server.Shutdown, say);
+// one that ignores it still holds up Close.
+const moduleStopTimeout = 10 * time.Second
+
+// stopModules shuts them down in reverse order of starting. Close calls
+// it, once, on every shutdown — including a failed New, for the modules
+// that had started.
+//
+// d.modules is left as it is. It is written only while New runs, so a
+// reader needs no lock; a control request that outlives the server's
+// shutdown can still be reading it here. And screenPublication takes the
+// confidential tokens from it: emptied, a publication made on the way
+// out would go unscreened (INV-2).
 func (d *Daemon) stopModules(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, moduleStopTimeout)
+	defer cancel()
 	for i := len(d.modules) - 1; i >= 0; i-- {
 		if err := d.modules[i].Stop(ctx); err != nil {
 			log.Printf("anet: module %s: stop: %v", d.modules[i].Name(), err)
 		}
 	}
-	d.modules = nil
 }
 
 // moduleConfig projects the daemon's typed config into the per-module raw

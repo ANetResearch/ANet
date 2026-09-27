@@ -120,9 +120,8 @@ func getIX(t *testing.T, d *Daemon, id string) *interactions.Interaction {
 // shortSettleRetry makes the settlement retry loop fast for one test.
 func shortSettleRetry(t *testing.T, d time.Duration) {
 	t.Helper()
-	old := settleRetryBase
-	settleRetryBase = d
-	t.Cleanup(func() { settleRetryBase = old })
+	old := settleRetryBase.set(d)
+	t.Cleanup(func() { settleRetryBase.set(old) })
 }
 
 // The whole loop on one task: quote, automatic payment within auto_max,
@@ -632,14 +631,14 @@ func TestASettlementInFlightIsResumedAfterARestart(t *testing.T) {
 	payPolicy(t, req, PaymentsConfig{AutoMax: 100, AgentDailyMax: 100, DailyMax: u64(100)}, prov.AID())
 	id, _ := req.DelegateCapability(context.Background(), prov.AID(), "work.do", nil)
 	poll(t, prov, req)
-	settleRetryBase = time.Hour // the first process never retries
-	defer func() { settleRetryBase = 2 * time.Second }()
+	old := settleRetryBase.set(time.Hour) // the first process never retries
+	defer settleRetryBase.set(old)
 	settleFaultsOn(hub, "settle-then-drop")
 	poll(t, prov)
 	if pix := getIX(t, prov, id); pix.PayState != interactions.PaySubmitted || work.invoked.Load() != 0 {
 		t.Fatalf("before the restart: %q, ran %d", pix.PayState, work.invoked.Load())
 	}
-	settleRetryBase = 20 * time.Millisecond
+	settleRetryBase.set(20 * time.Millisecond)
 	prov = reopen(t, prov)
 	if err := prov.Providers().Register(context.Background(), work); err != nil {
 		t.Fatal(err)

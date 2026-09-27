@@ -14,17 +14,18 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/moduletest"
 	"github.com/ANetResearch/ANet/provider"
 )
 
 type orgHost struct {
+	moduletest.NopHost
 	reg  *provider.Registry
 	kels map[string][]identity.SignedEvent
 }
 
-func (h *orgHost) AID() string                      { return "node-1" }
-func (h *orgHost) Providers() *provider.Registry    { return h.reg }
-func (h *orgHost) RecordEvidence(string, any) error { return nil }
+func (h *orgHost) AID() string                   { return "node-1" }
+func (h *orgHost) Providers() *provider.Registry { return h.reg }
 func (h *orgHost) ResolveKEL(aid string) ([]identity.SignedEvent, bool) {
 	k, ok := h.kels[aid]
 	return k, ok
@@ -221,23 +222,3 @@ func TestGenesisIsRequired(t *testing.T) {
 		t.Fatalf("a malformed genesis must be refused, got %v", err)
 	}
 }
-
-// PaymentSeam: none of these modules take money, and a host that offered
-// one would be lending them an ability they must not have. False is the
-// honest answer and the one a node without a hub gives too.
-func (h *orgHost) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }
-
-// This host grants no hub seam. Nothing here talks to a hub as this node,
-// and a test host that handed out a signing grant it does not need would
-// be a wider surface than the thing under test.
-func (*orgHost) HubSeam() (module.HubSeam, bool) { return nil, false }
-
-// Admit and DeclareUntrustedBackend complete module.Host. This test host
-// admits every call; the kernel's admission is tested in internal/daemon.
-func (*orgHost) Admit(string, string, int) (func(), string) { return func() {}, "" }
-func (*orgHost) DeclareUntrustedBackend()                   {}
-
-// StateDir and TaskSeam complete module.Host. This test host keeps no
-// module state and offers no task seam; nothing under test uses either.
-func (*orgHost) StateDir(string) string            { return "" }
-func (*orgHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }

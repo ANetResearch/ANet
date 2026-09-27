@@ -34,15 +34,34 @@ import (
 // allowPeers.
 func newTestDaemon(t *testing.T, hubURL string, accept bool) *Daemon {
 	t.Helper()
+	d := buildTestDaemon(t, hubURL, nil)
+	joinTestGroup(t, d, accept)
+	return d
+}
+
+// newTestDaemonCfg is newTestDaemon with a "modules" block in its config:
+// each entry is marshalled to JSON as that module's configuration. It is
+// how a daemon test runs a module the way an operator configures one —
+// a module that starts only when configured stays off in every other
+// test daemon. The daemon joins the test group as one that accepts
+// nobody; allowPeers opens it.
+func newTestDaemonCfg(t *testing.T, hubURL string, modules map[string]any) *Daemon {
+	t.Helper()
+	d := buildTestDaemon(t, hubURL, modules)
+	joinTestGroup(t, d, false)
+	return d
+}
+
+// buildTestDaemon writes the config, starts the daemon, stops its relay
+// loop and closes it when the test ends.
+func buildTestDaemon(t *testing.T, hubURL string, modules map[string]any) *Daemon {
+	t.Helper()
 	root := t.TempDir()
 	cfg := map[string]any{"control_addr": "127.0.0.1:0", "hub_url": hubURL}
-	b, _ := json.MarshalIndent(cfg, "", "  ")
-	if err := os.MkdirAll(root, 0o700); err != nil {
-		t.Fatal(err)
+	if modules != nil {
+		cfg["modules"] = modules
 	}
-	if err := os.WriteFile(filepath.Join(root, "config.json"), b, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeTestConfig(t, root, cfg)
 	d, err := New(NewLayout(root))
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +74,6 @@ func newTestDaemon(t *testing.T, hubURL string, accept bool) *Daemon {
 	}
 	d.mu.Unlock()
 	t.Cleanup(func() { d.Close() })
-	joinTestGroup(t, d, accept)
 	return d
 }
 

@@ -30,8 +30,9 @@ type Daemon struct {
 	enc             *encKeyRing
 	publishedKeySeq atomic.Uint64
 	// clock, when set, replaces the wall clock (unix ms) for the sealed
-	// wire. Tests only.
-	clock func() uint64
+	// wire. Tests only, through setClock (testhooks.go): the background
+	// loops read it while a test sets it, so it is atomic.
+	clock atomic.Pointer[func() uint64]
 	// hubIDs caches each hub's pinned identity by URL (hub_client.go).
 	hubIDMu sync.Mutex
 	hubIDs  map[string]hubIdent
@@ -56,8 +57,10 @@ type Daemon struct {
 	logOnceMu   sync.Mutex
 	logOnceSeen map[string]bool
 	// rxFault, when set, is called inside the receive transaction after the
-	// business writes; an error rolls the transaction back. Tests only.
-	rxFault func(typ string) error
+	// business writes; an error rolls the transaction back. Tests only,
+	// through setRxFault (testhooks.go), atomic for the same reason as
+	// clock.
+	rxFault atomic.Pointer[func(typ string) error]
 	// bgWG counts background goroutines that use the store (goBackground),
 	// so Close can wait for them before closing it. bgMu orders their
 	// start against Close's cancel.
@@ -205,15 +208,21 @@ func New(layout Layout) (*Daemon, error) {
 	}
 	in := cfg.inbound()
 	d.notices.configure(in.RejectNotice.PerPeerPerHour, in.RejectNotice.GlobalPerMin)
+	// From here on a failed start goes through Close, which releases
+	// whatever had been opened by then — the context, the background
+	// loops, the modules started so far, the ledger and the store — in
+	// the order it does on an ordinary shutdown. In the daemon process a
+	// failed New exits anyway; in a test it would leak all of that.
+	//
 	// The key ring exists before anything can publish or receive: a peer
 	// can only seal to keys this node holds on disk.
 	if err := d.setupKeyRing(); err != nil {
-		cancel()
-		ix.Close()
+		_ = d.Close()
 		return nil, err
 	}
 	led, err := openEvidenceLedger(layout.EvidenceLedgerPath(), self)
 	if err != nil {
+		_ = d.Close()
 		return nil, err
 	}
 	d.ledger = led
@@ -222,15 +231,15 @@ func New(layout Layout) (*Daemon, error) {
 	d.loadCardSeq()
 	d.providers = provider.NewRegistry()
 	if err := d.startModules(ctx, cfg); err != nil {
-		cancel()
+		// The modules that did start are stopped; the one that failed
+		// cleans up after itself.
+		_ = d.Close()
 		return nil, err
 	}
 	// The configuration check runs after the modules start, because a
 	// module declares an untrusted backend from Start (A2A-DESIGN §5.1).
 	if err := d.validate(cfg); err != nil {
-		cancel()
-		d.stopModules(context.Background())
-		ix.Close()
+		_ = d.Close()
 		return nil, err
 	}
 	d.recoverInterrupted()
@@ -335,7 +344,8 @@ func (d *Daemon) AID() string { return d.self.AID() }
 // to call multiple times / concurrently; ServeControl returns after this, unwinding runDaemon's Close.
 func (d *Daemon) RequestStop() { d.stopOnce.Do(func() { close(d.stop) }) }
 
-// Close stops the relay loop and closes the interactions store. Idempotent.
+// Close stops the background loops and the modules, then closes the
+// evidence ledger and the interactions store. Idempotent.
 func (d *Daemon) Close() error {
 	var err error
 	d.closeOnce.Do(func() {
@@ -349,6 +359,13 @@ func (d *Daemon) Close() error {
 		d.bgMu.Unlock()
 		d.bgWG.Wait()
 		drained := waitFor(&d.longCallsWG, longCallDrainTimeout)
+		// The modules stop once the kernel's own work is done (a long
+		// call that did not drain may still be in one), and before the
+		// ledger closes, because a module may record evidence on its way
+		// out. Their Start context is d.ctx, already cancelled, so Stop
+		// is for what that does not reach: a connection, a listener, a
+		// goroutine of the module's own.
+		d.stopModules(context.Background())
 		if d.ledger != nil {
 			_ = d.ledger.Close()
 		}
