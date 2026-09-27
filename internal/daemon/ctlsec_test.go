@@ -220,9 +220,15 @@ func TestEveryRouteIsAllowlistedOrRefusedForASession(t *testing.T) {
 		}
 	}
 	// The routes the design names as bearer-only stay refused.
+	// The task routes (§12) are bearer-only too: a console that later moves
+	// to them needs a sessionRule with jsonFields, never a blanket entry.
 	for _, pat := range []string{"POST /pull", "POST /autoreply", "POST /shutdown", "POST /x402-authorize",
 		"POST /redeem", "POST /reconcile", "POST /hub-leave", "POST /visibility", "POST /p2p-advertise",
-		"POST /console/ticket"} {
+		"POST /console/ticket", "POST /tasks/send", "POST /tasks/get", "POST /tasks/list", "POST /tasks/cancel",
+		"POST /tasks/wait", "POST /tasks/reply", "POST /agents/list", "POST /agents/card"} {
+		if !registered[pat] {
+			t.Errorf("%s is not a registered route", pat)
+		}
 		if _, ok := sessionRoutes[pat]; ok {
 			t.Errorf("%s must be bearer-only", pat)
 		}

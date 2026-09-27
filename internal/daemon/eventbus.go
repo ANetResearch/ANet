@@ -86,6 +86,13 @@ func (b *eventBus) publish(e Event) {
 		}
 		select {
 		case s.ch <- e:
+			// publishState reads the row outside the bus lock, so two
+			// writers can publish their events in the opposite order, or
+			// both publish the later state. Raising the floor on delivery
+			// keeps each subscriber's state events strictly increasing.
+			if e.Kind == EventState && e.StateSeq > s.minState {
+				s.minState = e.StateSeq
+			}
 		default:
 			// A subscriber that does not keep up is dropped rather than
 			// allowed to hold up the writer.

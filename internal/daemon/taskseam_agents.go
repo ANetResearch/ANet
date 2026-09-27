@@ -1,0 +1,262 @@
+package daemon
+
+// taskseam_agents.go is discovery for the A2A surface (A2A-DESIGN §10.5,
+// §11.1 Agents/Card): network cards from the hub registry, verified here.
+//
+// The hub's statement that a card verified is recorded (hubVerification)
+// but not relied on: every card is checked again with ANetCore a2acard
+// against the signer's KEL, and the card must be signed by the AID it is
+// listed under. Free-text search never leaves this node: the hub is asked
+// by skill and tag only, and the text is matched locally against the
+// cards it returned.
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
+	"github.com/ANetResearch/ANetCore/a2acard"
+	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/seal"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
+)
+
+// Verification values of a RemoteAgent.
+const (
+	cardVerified   = "VERIFIED"
+	cardUnverified = "UNVERIFIED"
+)
+
+// Discovery page sizes.
+const (
+	agentsPageDefault = 20
+	agentsPageMax     = 100
+)
+
+// registryEntry is one entry of GET /a2a/v1/agents (A2A-DESIGN §10.5). The
+// wrapper fields are the hub's statements.
+type registryEntry struct {
+	AID              string          `json:"aid"`
+	Card             json.RawMessage `json:"card"`
+	CardVerification string          `json:"cardVerification"`
+	VerifiedAt       string          `json:"verifiedAt"`
+	HomeHub          string          `json:"homeHub"`
+	LastSeen         string          `json:"lastSeen"`
+	Quiet            bool            `json:"quiet"`
+	ReviewCount      int             `json:"reviewCount"`
+	AvgRating        any             `json:"avgRating"`
+}
+
+type registryPage struct {
+	Agents     []registryEntry `json:"agents"`
+	NextCursor string          `json:"nextCursor"`
+}
+
+// listAgents asks the hub registry for agents by skill and tag, verifies
+// each card here, and applies the free-text query locally.
+func (d *Daemon) listAgents(ctx context.Context, q a2ashape.AgentQuery) ([]a2ashape.RemoteAgent, string, error) {
+	hub := d.config().HubURL
+	if hub == "" {
+		return nil, "", fmt.Errorf("%w: this node has no hub (run `anet hub-register` first)", a2ashape.ErrUnavailable)
+	}
+	limit := q.Limit
+	switch {
+	case limit == 0:
+		limit = agentsPageDefault
+	case limit < 0 || limit > agentsPageMax:
+		return nil, "", fmt.Errorf("%w: limit must be between 1 and %d", a2ashape.ErrInvalidParams, agentsPageMax)
+	}
+	v := url.Values{}
+	if q.Skill != "" {
+		v.Set("skill", q.Skill)
+	}
+	if q.Tag != "" {
+		v.Set("tag", q.Tag)
+	}
+	if q.Cursor != "" {
+		v.Set("cursor", q.Cursor)
+	}
+	v.Set("limit", strconv.Itoa(limit))
+	hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
+	defer cancel()
+	var page registryPage
+	err := d.hubGet(hctx, hub, "/a2a/v1/agents", v, &page)
+	if hubStatus(err) == http.StatusNotFound {
+		// A hub without the A2A registry: fall back to its agent directory,
+		// which lists agents without network cards.
+		return d.listAgentsLegacy(hctx, hub, q, limit)
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %v", a2ashape.ErrUnavailable, err)
+	}
+	resolve := d.cardKELResolver(hctx)
+	out := make([]a2ashape.RemoteAgent, 0, len(page.Agents))
+	for _, e := range page.Agents {
+		ra := a2ashape.RemoteAgent{AID: e.AID, Card: e.Card, HubVerification: e.CardVerification,
+			HomeHub: e.HomeHub, LastSeen: e.LastSeen, Quiet: e.Quiet, ReviewCount: e.ReviewCount, AvgRating: e.AvgRating}
+		d.verifyCardInto(&ra, resolve)
+		if q.Query != "" && !cardMatches(e.Card, e.AID, q.Query) {
+			continue
+		}
+		out = append(out, ra)
+	}
+	return out, page.NextCursor, nil
+}
+
+// listAgentsLegacy lists agents from a hub's /agents directory, which has
+// no network cards: each entry is UNVERIFIED. The free-text query is still
+// matched here, not sent.
+func (d *Daemon) listAgentsLegacy(ctx context.Context, hub string, q a2ashape.AgentQuery, limit int) ([]a2ashape.RemoteAgent, string, error) {
+	var resp struct {
+		Agents []struct {
+			AID         string   `json:"aid"`
+			Name        string   `json:"name"`
+			Caps        []string `json:"caps"`
+			Summary     string   `json:"summary"`
+			AvgRating   float64  `json:"avg_rating"`
+			ReviewCount int      `json:"review_count"`
+			HomeHub     string   `json:"home_hub"`
+		} `json:"agents"`
+	}
+	v := url.Values{}
+	if q.Skill != "" {
+		v.Set("cap", q.Skill)
+	}
+	if err := d.hubGet(ctx, hub, "/agents", v, &resp); err != nil {
+		return nil, "", fmt.Errorf("%w: %v", a2ashape.ErrUnavailable, err)
+	}
+	out := []a2ashape.RemoteAgent{}
+	for _, a := range resp.Agents {
+		if q.Tag != "" && !containsFold(strings.Join(a.Caps, " "), q.Tag) {
+			continue
+		}
+		if q.Query != "" && !containsFold(strings.Join(append([]string{a.AID, a.Name, a.Summary}, a.Caps...), "\n"), q.Query) {
+			continue
+		}
+		out = append(out, a2ashape.RemoteAgent{AID: a.AID, Name: a.Name, HomeHub: a.HomeHub,
+			ReviewCount: a.ReviewCount, AvgRating: a.AvgRating,
+			Verification: cardUnverified, VerificationError: "the hub publishes no network card for this agent"})
+		if len(out) == limit {
+			break
+		}
+	}
+	return out, "", nil
+}
+
+// agentCard fetches one agent's network card and verifies it here. An
+// agent without a card is not an error: it is returned UNVERIFIED with an
+// empty card, and the caller describes it by its AID (§11.3).
+func (d *Daemon) agentCard(ctx context.Context, aid string) (a2ashape.RemoteAgent, error) {
+	if _, _, err := a2acard.ParseKID(a2acard.KID(aid, 0)); err != nil || aid == "" {
+		return a2ashape.RemoteAgent{}, fmt.Errorf("%w: %q is not an agent id", a2ashape.ErrInvalidParams, aid)
+	}
+	hub := d.config().HubURL
+	if hub == "" {
+		return a2ashape.RemoteAgent{}, fmt.Errorf("%w: this node has no hub (run `anet hub-register` first)", a2ashape.ErrUnavailable)
+	}
+	hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
+	defer cancel()
+	var card json.RawMessage
+	err := d.hubGet(hctx, hub, "/a2a/v1/agents/"+url.PathEscape(aid)+"/card", nil, &card)
+	switch {
+	case hubStatus(err) == http.StatusNotFound:
+		return a2ashape.RemoteAgent{AID: aid, Verification: cardUnverified,
+			VerificationError: "the agent publishes no network card"}, nil
+	case err != nil:
+		return a2ashape.RemoteAgent{}, fmt.Errorf("%w: %v", a2ashape.ErrUnavailable, err)
+	}
+	ra := a2ashape.RemoteAgent{AID: aid, Card: card}
+	d.verifyCardInto(&ra, d.cardKELResolver(hctx))
+	return ra, nil
+}
+
+// verifyCardInto checks ra.Card and records the outcome on ra. The card
+// must verify and must be signed by ra.AID: a valid card of another agent
+// served under this AID is refused.
+func (d *Daemon) verifyCardInto(ra *a2ashape.RemoteAgent, resolve a2acard.Resolver) {
+	ra.Verification = cardUnverified
+	if len(ra.Card) == 0 {
+		ra.VerificationError = "no card"
+		return
+	}
+	v, err := a2acard.Verify(ra.Card, resolve, d.nowMS())
+	switch {
+	case err != nil:
+		ra.VerificationError = err.Error()
+	case v.AID != ra.AID:
+		ra.VerificationError = fmt.Sprintf("the card is signed by %s, not %s", v.AID, ra.AID)
+	default:
+		ra.Verification = cardVerified
+		ra.Name = v.Name
+	}
+}
+
+// cardKELResolver resolves a card signer's KEL: the one this node holds
+// for the peer, else the hub's copy, which must replay to the AID and not
+// fork from anything stored. Nothing fetched here is stored: reading a
+// directory is not contact with the agent.
+func (d *Daemon) cardKELResolver(ctx context.Context) a2acard.Resolver {
+	return func(aid string) ([]identity.SignedEvent, error) {
+		stored, haveStored := d.peerKEL(aid)
+		if haveStored {
+			return stored, nil
+		}
+		hub := d.config().HubURL
+		if hub == "" {
+			return nil, errors.New("no hub to fetch the key history from")
+		}
+		var resp struct {
+			KEL string `json:"kel"`
+		}
+		if err := d.hubGet(ctx, hub, "/agents/"+url.PathEscape(aid)+"/kel", nil, &resp); err != nil {
+			return nil, err
+		}
+		raw, err := base64.StdEncoding.DecodeString(resp.KEL)
+		if err != nil {
+			return nil, fmt.Errorf("undecodable key history: %w", err)
+		}
+		kel, err := seal.ParseKEL(raw)
+		if err != nil {
+			return nil, err
+		}
+		if got, err := replayedAID(kel); err != nil || got != aid {
+			return nil, fmt.Errorf("the hub's key history for %s does not replay to it", aid)
+		}
+		return kel, nil
+	}
+}
+
+// cardMatches reports whether the free-text query occurs (case-folded) in
+// the card's AID, name, description or skills.
+func cardMatches(card json.RawMessage, aid, query string) bool {
+	var c struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Skills      []struct {
+			ID          string   `json:"id"`
+			Name        string   `json:"name"`
+			Description string   `json:"description"`
+			Tags        []string `json:"tags"`
+			Examples    []string `json:"examples"`
+		} `json:"skills"`
+	}
+	_ = json.Unmarshal(card, &c)
+	fields := []string{aid, c.Name, c.Description}
+	for _, s := range c.Skills {
+		fields = append(fields, s.ID, s.Name, s.Description)
+		fields = append(fields, s.Tags...)
+		fields = append(fields, s.Examples...)
+	}
+	return containsFold(strings.Join(fields, "\n"), query)
+}
+
+func containsFold(s, sub string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(strings.TrimSpace(sub)))
+}

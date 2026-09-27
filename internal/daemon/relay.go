@@ -148,68 +148,82 @@ func (d *Daemon) DelegateAtts(ctx context.Context, providerAID, goal string, att
 // contextID mints one: the requester daemon owns context ids for the tasks
 // it creates (A2A-DESIGN §4.1).
 func (d *Daemon) DelegateIn(ctx context.Context, providerAID, goal string, atts []delegation.Attachment, contextID string) (string, error) {
+	id, err := newInteractionID()
+	if err != nil {
+		return "", err
+	}
+	if err := d.delegateInWithID(ctx, id, providerAID, goal, atts, contextID, nil); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// delegateInWithID is DelegateIn under an interaction id the caller minted,
+// so a caller learns the id of a task whose row was written even when the
+// send then failed (the A2A task path marks such a task failed). meta is
+// the first message's metadata (A2A Message.metadata, a JSON object or
+// nil): stored on the goal message here and carried to the provider as
+// DelegateReq.Metadata.
+func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal string, atts []delegation.Attachment,
+	contextID string, meta []byte) error {
 	hub := d.config().HubURL
 	if hub == "" {
-		return "", fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
+		return fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
 	}
 	if providerAID == d.AID() {
-		return "", fmt.Errorf("anet: cannot delegate to yourself")
+		return fmt.Errorf("anet: cannot delegate to yourself")
 	}
 	if contextID == "" {
 		c, err := newContextID()
 		if err != nil {
-			return "", err
+			return err
 		}
 		contextID = c
 	}
 	nonce, err := newTaskNonce()
 	if err != nil {
-		return "", err
+		return err
 	}
 	doc, env, err := d.signTaskDoc(goal, nonce)
 	if err != nil {
-		return "", err
+		return err
 	}
 	requestCID, err := anetcid.Sum(doc)
 	if err != nil {
-		return "", err
-	}
-	id, err := newInteractionID()
-	if err != nil {
-		return "", err
+		return err
 	}
 	if err := d.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
 		Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, TaskNonce: nonce}); err != nil {
-		return "", err
+		return err
 	}
 	// Record the goal as the first conversation message (from us, the requester), with any
 	// attachments. The requester keeps a message id for it too, so its history carries ids.
 	msgID, err := newMessageID()
 	if err != nil {
-		return "", err
+		return err
 	}
 	seq, _, err := d.ix.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
-		Kind: interactions.MsgText, Body: goal, MsgID: msgID})
+		Kind: interactions.MsgText, Body: goal, MsgID: msgID, Metadata: meta})
 	if err != nil {
-		return "", err
+		return err
 	}
 	if err := d.storeMsgAttachments(id, seq, atts); err != nil {
-		return "", err
+		return err
 	}
 	d.publishMessage(id, seq, interactions.MsgText)
 	d.publishState(id)
 	kelB, err := identity.MarshalKEL(d.self.KEL())
 	if err != nil {
-		return "", err
+		return err
 	}
 	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: env, KEL: kelB, InteractionID: id, Attachments: atts,
-		ContextID: contextID}
+		ContextID: contextID, Metadata: meta}
 	payload, err := dr.Marshal()
 	if err != nil {
-		return "", err
+		return err
 	}
 	if err := d.relaySend(ctx, providerAID, seal.TypeDelegate, id, payload); err != nil {
-		return "", err
+		return err
 	}
 	// C5: a requester's chain should show what it asked for, not only what
 	// it received.
@@ -220,7 +234,7 @@ func (d *Daemon) DelegateIn(ctx context.Context, providerAID, goal string, atts 
 	}); lerr != nil {
 		log.Printf("anet: delegation evidence ledger: %v", lerr)
 	}
-	return id, nil
+	return nil
 }
 
 // Results pulls this daemon's mailbox once (so any pending deliverables land in the store) and then lists
