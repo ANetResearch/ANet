@@ -49,6 +49,25 @@ REPO_DOCS = "https://github.com/ANetResearch/ANet/blob/main/docs/"
 LINK_MODE = "site"
 
 
+def _published() -> set:
+    """The pages build-all.sh renders, by output name.
+
+    A sibling document that is not in the publication set has no page
+    beside this one, so a link to it goes to the repository instead of to
+    a .html that 404s. The set is read from build-all.sh rather than kept
+    here, so there is one list.
+    """
+    script = Path(__file__).resolve().parent / "build-all.sh"
+    try:
+        text = script.read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    return {Path(m.group(1)).name for m in re.finditer(r"^\$B\s+\S+\s+(\S+\.html)", text, re.M)}
+
+
+PUBLISHED = _published()
+
+
 def _href(target: str) -> str:
     if not target.endswith(".md"):
         return target
@@ -56,7 +75,10 @@ def _href(target: str) -> str:
         return REPO_DOCS + target
     # Sibling docs are published beside each other as .html.
     stem = target[:-len("-zh.md")] if target.endswith("-zh.md") else target[:-3]
-    return stem.lower() + ".html"
+    page = stem.lower() + ".html"
+    if "/" in target or (PUBLISHED and page not in PUBLISHED):
+        return REPO_DOCS + target
+    return page
 
 
 # ---------------------------------------------------------------- blocks

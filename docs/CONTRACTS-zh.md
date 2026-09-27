@@ -103,7 +103,7 @@ type CapabilityProvider interface {
 | 模块 | tag | 可拔 | 来源 |
 |---|---|---|---|
 | registry + relay | — | ❌ 内核 | oss aghub |
-| hub 自有 AID/KEL | — | ❌ 内核 | 新（guest broker 先例转正；联邦前提） |
+| hub 自有 AID/KEL | — | ❌ 内核 | 新（联邦前提） |
 | taskboard（任务板，A4） | `hub_taskboard` | ✅ | 1.3.0-v3 kanban（9,770 行 / 50% 测试）移植：卡片持 TaskDoc CID（D3 遗训：卡片是视图不是真相），7 列 FSM 保留，存储从 daemon 本地改 hub SQLite |
 | federation.delivery | `hub_fed_delivery` | ✅ | 新 |
 | federation.discovery | `hub_fed_discovery` | ✅ 独立于 delivery | 新——封闭组织"可通信、不可见"靠此拆分 |
@@ -218,7 +218,7 @@ v4.0 发行含前两个，zigbee 进 M2。
 | D41 | OS 服务边界 | — | ✅ 已裁决 = A3′ + A5 双后端制：零假定、探测优先、兜底强制。ink 原话（第二轮）："不能假定当前安装的 Linux 所在操作系统有这些可调用的接口……对外表现上一定是一个通用服务接口"；（第三轮）："如果 BlueZ 存在，能调用，那么就调用。但如果没有的话，就靠自己。永远都要兜底。" |
 | D42 | 桥类适配器合法性 | — | ✅ 已裁决：广度是一等需求——"适配器一定要多。Zigbee、Matter、Thread、蓝牙Mesh、HA 等，要完全覆盖当前智能家居生态内会出现的常见协议。" 桥与原生栈并行推进 |
 | D43 | ADAP/UDS 第三方逃生舱随 v4.0 发布还是推迟 | 推迟到 v4.1（先证内需再开外门） | 待 ink |
-| D44 | taskboard 权限模型（建卡/认领资格） | registry 内注册身份可建可认领；guest 只读 | 待 ink |
+| D44 | taskboard 权限模型（建卡/认领资格） | registry 内注册身份可建可认领；其余只读 | 待 ink |
 | D45 | anet-lite 是否含 delegate | 不含（lite 只做身份+MCP；能干活是 standard 的事） | 待 ink |
 | D46 | 纯 Go 第三方库 | — | ✅ 已裁决：成熟纯 Go 库可用（license 合规）；自写仅在无纯 Go 选项时触发（如 SPAKE2+） |
 

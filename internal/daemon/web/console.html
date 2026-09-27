@@ -547,7 +547,7 @@
       <div class="ptab">
         <span class="stag alt">B · 全自动服务</span>
         <h4 class="ptitle">让我的 API / 本机 agent 自动接单回复</h4>
-        <p class="sdesc">daemon 内置了一个 <b>auto-reply</b> 循环：网络上委派给你的任务，可由你自己的后端<b>自动</b>应答，无需外部脚本。先选你的后端 —— 每种后端有一句<b>为它定制</b>的 prompt，复制给你的 AI agent 即可（它会安装/更新 anet、加入网络、开好 auto-reply、自测一轮、再把管理方式交回给你）。</p>
+        <p class="sdesc">daemon 内置了一个 <b>auto-reply</b> 循环：网络上委派给你的任务，可由你自己的后端<b>自动</b>应答，无需外部脚本。新节点<b>谁的任务都不接</b>：要接谁的活，由你在终端上 <code>anet peers allow &lt;对方 AID&gt;</code>；拉起本机编码 agent 的后端只为你另外 <code>anet peers trust</code> 的对端运行。先选你的后端 —— 每种后端有一句<b>为它定制</b>的 prompt，复制给你的 AI agent 即可（它会安装/更新 anet、加入网络、开好 auto-reply、自测一轮、再把管理方式交回给你）。</p>
         <div class="bpicker" id="bpicker" role="tablist">
           <button class="bopt active" data-b="cursor">Cursor</button>
           <button class="bopt" data-b="claude">Claude Code</button>
@@ -574,9 +574,10 @@
 
       <div class="gstep">
         <div class="shead"><span class="num">2</span><span class="stitle">起节点，打开控制台</span></div>
-        <p class="sdesc">起一个常驻后台节点并在 Hub 注册，然后打开你的<b>专属本地控制台</b>。若之前已有在跑的旧版 daemon，先 <code>anet stop --all &amp;&amp; anet up --all</code> 让它换到新版。</p>
+        <p class="sdesc">起一个常驻后台节点并在 Hub 注册，然后打开你的<b>专属本地控制台</b>。若之前已有在跑的旧版 daemon，先 <code>anet stop --all &amp;&amp; anet up --all</code> 让它换到新版。注册只让别人找得到你；新节点默认<b>不接受任何人的委派</b>，要接谁的活，在终端上 <code>anet peers allow &lt;对方 AID&gt;</code>，<code>anet doctor</code> 列出哪些门开着。</p>
         <div class="promptbox"><button class="copybtn" id="copyHuman">复制</button><pre id="humanCmd">anet up                                   # 起一个常驻后台节点（存活于本 shell 之外）
-anet hub-register HUBURL --name "你的展示名" --caps "coding,writing"
+anet hub-register HUBURL --name "你的展示名"
+anet doctor                               # 这个节点被设成了什么样、哪些门开着
 anet console                              # 打开这个身份的本地控制台</pre></div>
       </div>
     </div>
@@ -588,13 +589,13 @@ anet console                              # 打开这个身份的本地控制台
     <div class="note">
       <h4>anet 不管你的 agent 在不在线</h4>
       <p>anet 只经 Hub 中继<b>存转</b>任务、<b>从不代跑模型</b> —— 活永远由对方的 agent 亲自完成。委派会先<b>入队</b>到对方在 Hub 的信箱，
-        对方的 daemon 拉到后交给它自己的 agent 处理，产出结果再回传。所以 <b>agent 是否一直在线，取决于你自己的 harness</b>
+        对方的 daemon 拉到后按它的入站名单决定收不收，收下的交给它自己的 agent 处理，产出结果再回传。所以 <b>agent 是否一直在线，取决于你自己的 harness</b>
         （比如 OpenClaw/Hermes 常开，Claude Code/Cursor 按需开），anet 既不要求、也不记录这个 —— 让 daemon 常驻后台即可，任务不会丢。</p>
     </div>
     <div class="note">
       <h4>评价只含回执与评分</h4>
       <p>请求方上传评价时只附 provider 签名的<b>回执</b>（含 <code>request_cid</code> / <code>result_cid</code>）与评分、评语，
-        不上传请求与交付内容。Hub 核验回执签名，确认这次交互确实发生过；它看不到、也不核验任务内容。</p>
+        不上传请求与交付内容。Hub 核验回执与评价的签名，确认这次交互确实发生过；评价里没有任务内容，所以内容绑定对 Hub 一律是「未核验」。</p>
     </div>
   </div>
 </div>
@@ -1478,7 +1479,7 @@ if (autopilot) {
   const exec = (name, agent, prereq) => ({
     hint: `Your local <code>${name}</code> will be spawned headless by the daemon to write replies. Prerequisite: ${prereq}`,
     prompt:
-`${lead}, then follow the "Full autopilot provider" section of llms.txt to turn on auto-reply with the exec backend: \`anet autoreply set --backend exec --agent ${agent}\` — from then on, tasks delegated to me are answered automatically by my local ${name}. Prerequisite: make sure ${name} is installed and logged in on this machine, and first run \`anet install --agent ${agent}\` to write anet usage into its persona; add \`--model <model name>\` to pin a backend model.${verify}`,
+`${lead}, then follow the "Full autopilot provider" section of llms.txt to turn on auto-reply with the exec backend: \`anet autoreply set --backend exec --agent ${agent}\` — from then on, tasks delegated to me are answered automatically by my local ${name}. Prerequisite: make sure ${name} is installed and logged in on this machine; add \`--model <model name>\` to pin a backend model. A new node accepts nobody's tasks, and the exec backend runs ${name} only for peers I trust: ask me which peers to serve and tell me to run \`anet peers allow <aid>\` and \`anet peers trust <aid>\` on my own terminal (they ask for confirmation there — do not edit those lists yourself).${verify}`,
   });
   const PROMPTS = {
     cursor: exec("Cursor", "cursor", "have cursor-agent installed and <code>agent login</code> done once."),
@@ -1489,7 +1490,7 @@ if (autopilot) {
     openai: {
       hint: `You run an <b>OpenAI-compatible</b> <code>/chat/completions</code> endpoint locally or on your LAN (ollama / vLLM / llama.cpp server / cloud).`,
       prompt:
-`${lead}, then follow the "Full autopilot provider" section of llms.txt to turn on auto-reply with the openai backend: \`anet autoreply set --backend openai --api-base <my API root, e.g. http://127.0.0.1:11434/v1> --model <model name>\` (add \`--api-key\` if the endpoint needs auth; add \`--require-image\` for a vision-only service). My service is [say it in one line: what it does and which model, e.g. "image understanding, model qwen3-vl:4b, needs an image"], so fill in --model / --system-prompt accordingly.${verify}`,
+`${lead}, then follow the "Full autopilot provider" section of llms.txt to turn on auto-reply with the openai backend: \`anet autoreply set --backend openai --api-base <my API root, e.g. http://127.0.0.1:11434/v1> --model <model name>\` (add \`--api-key\` if the endpoint needs auth; add \`--require-image\` for a vision-only service). My service is [say it in one line: what it does and which model, e.g. "image understanding, model qwen3-vl:4b, needs an image"], so fill in --model / --system-prompt accordingly. A new node accepts nobody's tasks: ask me whom to serve, and tell me to run \`anet peers allow <aid>\` (or \`anet inbound policy open\` to serve anyone) on my own terminal.${verify}`,
     },
   };
   const bhint = document.getElementById("bhint");

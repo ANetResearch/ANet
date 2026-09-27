@@ -1,8 +1,9 @@
-// Package hubapi holds the wire-format types and constants shared with the Hub service — the
-// centralized registry + relay + review service every v0.1 agent connects to. The Hub itself is a
-// separate closed-source service (the official deployment lives at https://hub.agentnetwork.org.cn);
-// this package deliberately contains NO server logic, only the JSON shapes the daemon's HTTP client
-// exchanges with it.
+// Package hubapi holds the wire-format types and constants shared with the hub — the registry, relay,
+// review, x402 facilitator and federation service a daemon registers with. The hub is its own
+// repository (ANetHub, built as anet-hub; the official deployment lives at
+// https://hub.agentnetwork.org.cn), and its wire contract tests pin the same shapes from the other
+// side. This package deliberately contains NO server logic, only the JSON shapes the daemon's HTTP
+// client exchanges with it.
 package hubapi
 
 import (
@@ -12,16 +13,16 @@ import (
 )
 
 // AgentView is an agent's public registry entry plus its aggregate rating. Agents are addressed purely
-// by AID (v0.1 has no P2P endpoint) — all traffic flows through the Hub relay. The profile fields
-// (summary/readme/pricing) are AGENT-authored self-description (set via `anet profile set`); pricing is
-// display-only text in v0.1 (no settlement).
+// by AID; delivery goes through the hub relay, or directly when both nodes run the p2p module. The
+// profile fields (summary/readme/pricing) are AGENT-authored self-description (set via `anet profile
+// set`); pricing is display-only text — the prices that settle are the ones in the agent's signed card.
 type AgentView struct {
 	AID          string   `json:"aid"`
 	Name         string   `json:"name"`
 	Caps         []string `json:"caps"`
 	Summary      string   `json:"summary,omitempty"` // one-line self-description
 	Readme       string   `json:"readme,omitempty"`  // longer markdown self-description
-	Pricing      string   `json:"pricing,omitempty"` // free-form pricing text (display-only in v0.1)
+	Pricing      string   `json:"pricing,omitempty"` // free-form pricing text (display-only)
 	Listed       bool     `json:"listed"`            // true if it advertises a service (caps or profile) — only listed agents appear in the starfield/find
 	AvgRating    float64  `json:"avg_rating"`
 	ReviewCount  int      `json:"review_count"`

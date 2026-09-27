@@ -85,14 +85,16 @@ footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font
 go tool nm &quot;$(command -v anet)&quot; | grep -c module/shell   # 默认版 → 0,shell 版 → 23(需装 Go)</pre></div>
 <p>发布的二进制保留符号表就是为了让第二条能跑。</p>
 <h2 id="1-一行安装并入网">1 · 一行安装并入网</h2>
-<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
+<p>安装脚本用 <code>ssh-keygen</code> 验发布签名。精简的 Debian(容器镜像、最小安装)可能没有它,先装:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">sudo apt-get install -y curl openssh-client</pre></div>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">curl --proto &#x27;=https&#x27; --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
   --hub https://hub.agentnetwork.org.cn \
   --name $(hostname)</pre></div>
 <p>要能执行命令的那个变体,加 <code>--shell</code>:</p>
-<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --shell \
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">curl --proto &#x27;=https&#x27; --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --shell \
   --hub https://hub.agentnetwork.org.cn \
   --name $(hostname)</pre></div>
-<p>这一条做了四件事:按平台下载对应二进制、比对 sha256、装到 <code>~/.local/bin/anet</code>、 启动节点并注册到 hub。输出末尾会打印本机的 AID。</p>
+<p>这一条做了这些事:取发布清单并用内置发布公钥验签,核对有效期、不降级、<code>.gz</code> 与二进制的 sha256、模块集合(任一不符即退出,不碰已装版本),装到 <code>~/.local/bin/anet</code>,执行 <code>anet init</code>,启动节点并注册到 hub。先验脚本再执行的手动路径见 <code>SECURITY.md</code>。 以后升级用 <code>anet update</code>。</p>
 <p>装到 <code>/usr/local/bin</code> 用 <code>--system</code>(会用 sudo)。</p>
 <p><code>~/.local/bin</code> 不在 PATH 时脚本会提示,按提示加一行到 <code>~/.bashrc</code> 即可。</p>
 <p><strong>hub 注册是开放的,没有邀请码。</strong> hub 校验的是"密钥历史能推出所声称的 AID"和 "能签出挑战",也就是证明你控制这个身份;它不限制谁能注册。这不构成风险: <strong>这台机器愿意为谁做什么,是这台机器决定的,不是 hub 决定的</strong> —— 见第 3 节的名单。</p>
@@ -135,9 +137,11 @@ anet hub-register https://hub.agentnetwork.org.cn --name $(hostname)</pre></div>
 <h3 id="3-4-把调用方加进名单">3.4 把调用方加进名单</h3>
 <p>在<strong>要发起调用的那台机器</strong>上拿它的 AID:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet status | grep -o &#x27;bafyrei[a-z0-9]*&#x27; | head -1</pre></div>
-<p>回到 Debian 机器,把这个 AID 写进名单:</p>
-<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">echo &#x27;bafyrei……对方的AID&#x27; | sudo tee -a /etc/anet/shell-allow</pre></div>
-<p><strong>不需要重启。</strong> 名单文件每次调用都重读,写进去下一次调用就生效。</p>
+<p>回到 Debian 机器,把这个 AID 写进<strong>两份</strong>名单:</p>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet peers allow &#x27;bafyrei……对方的AID&#x27;                       # 节点的入站名单:允许它把任务交给这台机器(终端确认)
+echo &#x27;bafyrei……对方的AID&#x27; | sudo tee -a /etc/anet/shell-allow   # shell 模块自己的名单:允许它执行命令</pre></div>
+<p>两层各管一件事。<code>peers.allow</code>(数据目录下,<code>anet peers allow</code> 写的就是它)是 daemon 的入站策略: v0.2 起新节点谁的任务都不接,名单外的调用在进门时就被拒(<code>rejected</code>,<code>anet.reason=not_accepting</code>), 根本到不了 shell 模块。<code>/etc/anet/shell-allow</code> 是 shell 模块的调用方名单:进了门的调用方, 还要在这里才能执行命令。只写其中一份,调用都会被拒。没有终端(脚本、自动化)时, 直接往 <code>peers.allow</code> 追加一行 AID 即可。</p>
+<p><strong>不需要重启。</strong> 两份名单都在每次判定时重读,写进去下一次调用就生效。</p>
 <h3 id="3-5-从对面试一下">3.5 从对面试一下</h3>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet delegate &lt;Debian机器的AID&gt; --capability shell.run@uptime
 anet results</pre></div>
@@ -146,7 +150,9 @@ anet results</pre></div>
 <p>删掉那一行,或者直接删掉整个文件:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">sudo sed -i &#x27;/对方的AID/d&#x27; /etc/anet/shell-allow
 # 或者一次性全撤:
-sudo rm /etc/anet/shell-allow</pre></div>
+sudo rm /etc/anet/shell-allow
+# 连任务也不让它交过来:
+anet peers remove &#x27;bafyrei……对方的AID&#x27;     # 或 anet peers deny,同时取消它进行中的任务</pre></div>
 <p>下一次调用即被拒,不用重启。文件不存在等同空名单(拒绝所有),不是错误、更不是放行。</p>
 <p>彻底不干了:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet hub-leave     # 从 hub 注销
@@ -178,7 +184,7 @@ systemctl status anet --no-pager</pre></div>
 <p><strong><code>User=</code> 决定命令以谁的身份执行。</strong> shell 模块不提权、不调 sudo: <code>User=root</code> 的 daemon 才能跑 root 命令,<code>User=你自己</code> 就只能跑你自己能跑的。 这是安装期的决定,写在 unit 文件里、看得见,不是模块能授予的东西。</p>
 <p>要跑 root 级运维命令就把 <code>User=</code> 设成 <code>root</code>,并把 <code>ANET_DATA_DIR</code> 改到 <code>/root/.anet</code>。<strong>这一步之后,名单里的每个 AID 都能在这台机器上以 root 跑你列出的 那几条命令</strong>,名单要按这个前提来写。</p>
 <h2 id="6-排查">6 · 排查</h2>
-<div class="tw"><table><thead><tr><th>现象</th><th>原因</th></tr></thead><tbody><tr><td><code>module &quot;shell&quot; is configured but not compiled into this build (it needs -tags shell…)</code></td><td>装的是默认变体,重跑安装带 <code>--shell</code></td></tr><tr><td>调用回 <code>UNAVAILABLE</code>,消息是 <code>does not accept commands from …</code></td><td>调用方 AID 不在名单里</td></tr><tr><td>调用回 <code>UNAVAILABLE</code>,消息是 <code>carry no caller identity</code></td><td>本机直调需要配 <code>&quot;allow_local&quot;: true</code></td></tr><tr><td>委派一直没有结果,超时</td><td>该能力这台机器没有提供。核对能力 id,<code>shell.list</code> 能报出它有哪些</td></tr><tr><td>命令回 <code>FAILED</code> 带退出码</td><td>命令真的失败了,<code>observed_state</code> 里有 stderr</td></tr></tbody></table></div>
+<div class="tw"><table><thead><tr><th>现象</th><th>原因</th></tr></thead><tbody><tr><td><code>module &quot;shell&quot; is configured but not compiled into this build (it needs -tags shell…)</code></td><td>装的是默认变体,重跑安装带 <code>--shell</code></td></tr><tr><td>调用回 <code>rejected</code>,<code>anet.reason=not_accepting</code></td><td>调用方 AID 不在节点的入站名单 <code>peers.allow</code> 里(§3.4 第一行)</td></tr><tr><td>调用回 <code>UNAVAILABLE</code>,消息是 <code>does not accept commands from …</code></td><td>调用方 AID 不在 shell 名单里</td></tr><tr><td>调用回 <code>UNAVAILABLE</code>,消息是 <code>carry no caller identity</code></td><td>本机直调需要配 <code>&quot;allow_local&quot;: true</code></td></tr><tr><td>委派一直没有结果,超时</td><td>该能力这台机器没有提供。核对能力 id,<code>shell.list</code> 能报出它有哪些</td></tr><tr><td>命令回 <code>FAILED</code> 带退出码</td><td>命令真的失败了,<code>observed_state</code> 里有 stderr</td></tr></tbody></table></div>
 <p>节点自己的日志在 <code>~/.anet/daemon.log</code>。</p>
 <p>完整的配置项、行为约定与已知取舍见 <a href="shell.html">SHELL-zh.md</a>。</p>
 <footer>ANet · agentnetwork.org.cn · 源码 github.com/ANetResearch</footer>
