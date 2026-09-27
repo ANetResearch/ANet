@@ -165,7 +165,7 @@ go build -o full ./cmd/anet;   go tool nm full | grep -c module/<m>     # > 0
 go build -tags no_<m> -o lean ./cmd/anet;   go tool nm lean | grep -c module/<m>   # == 0
 ```
 
-两个方向都验。只验 lean==0 会让一个从未被链接的模块看起来"可插拔"。CI 的 `pluggable` job 对减法 tag(`no_anetlink no_p2p no_blackboard no_org no_cas no_service no_mcp no_x402 no_a2a`)逐个及组合验,组合行里的每个模块都逐个检查;`optin` job 对加法 tag(`shell`、`taskboard`)反向验(默认 == 0,带 tag > 0),并单独跑 `go test -tags <tag> ./...`——加法 tag 下的代码 `go test ./...` 根本看不见。符号模式有两个特例:`no_mcp` 为 `internal/mcpserv|internal/agentwire`,`no_a2a` 为 `module/a2a|a2aproject/a2a-go`(派生模式看不见 SDK)。另查 `go list -deps ./internal/mcpserv ./internal/daemon` 不含 `a2aproject`。规则与模式只写在 `scripts/tagcheck.sh` 一处,CI 与开发者本地 `./build.sh --check` 都调用它。
+两个方向都验。只验 lean==0 会让一个从未被链接的模块看起来"可插拔"。CI 的 `pluggable` job 对减法 tag(`no_anetlink no_p2p no_blackboard no_org no_cas no_service no_mcp no_x402 no_a2a`)逐个及组合验,组合行里的每个模块都逐个检查;`optin` job 对加法 tag(`shell`、`taskboard`)反向验(默认 == 0,带 tag > 0),并单独跑 `go test -tags <tag> ./...`——加法 tag 下的代码 `go test ./...` 根本看不见。符号模式有两个特例:`no_mcp` 为 `internal/mcpserv|internal/agentwire|modelcontextprotocol/go-sdk`,`no_a2a` 为 `module/a2a|a2aproject/a2a-go`(派生模式看不见 SDK;SDK 只要求在精简构建里为 0,完整构建只要求本仓的包 > 0)。另查 `go list -deps ./internal/mcpserv ./internal/daemon` 不含 `a2aproject`。规则与模式只写在 `scripts/tagcheck.sh` 一处,CI 与开发者本地 `./build.sh --check` 都调用它。
 
 ### 5.5 shell 模块:三道独立的闸门
 

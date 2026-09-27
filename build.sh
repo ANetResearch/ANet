@@ -40,7 +40,10 @@ cd "$ROOT"
 if [ "$CHECK" -eq 1 ]; then
   bold "gofmt"
   # Auto-format, and report which files changed (empty = already clean).
-  fmtout="$(gofmt -l -w internal cmd)"
+  # The whole tree, as CI's `gofmt -l .` checks it: module/, provider/ and
+  # tools/ used to be left out, so a --check that passed here could still
+  # fail CI's gofmt step.
+  fmtout="$(gofmt -l -w .)"
   [ -n "$fmtout" ] && printf 'formatted:\n%s\n' "$fmtout" || echo "clean"
 
   bold "go vet"

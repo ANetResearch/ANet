@@ -70,6 +70,8 @@
 它和 `taskboard` 是本文里仅有的两个**加法 tag** 模块,默认构建不含它们。见 [SHELL-zh.md](SHELL-zh.md)。
 `taskboard` 是 hub 共享看板的客户端:看板把卡片标题与备注明文存在 hub 上、对任何人公开,
 hub 默认不编入看板,daemon 也就默认不带客户端;要用就 hub 与节点都加 `-tags taskboard`。
+升级注意:配置里还有 `modules.taskboard` 块的节点,换上新的默认构建会拒绝启动(报错指明需要
+`-tags taskboard`)。升级前删掉该块,或改用 `-tags taskboard` 构建。
 
 ## 六种交付形态,外加一条正交的开关
 
@@ -253,7 +255,7 @@ hub 默认不编入看板,daemon 也就默认不带客户端;要用就 hub 与�
 **一、发几个?**
 
 六种是分析出来的,不是需求验证过的。发得越多,组合测试面越大 ——
-现在 CI 的 `pluggable` 矩阵有 18 行 tag 组合(每行逐个检查其中全部模块),六个发行版意味着六条要长期维护的分发线。
+现在 CI 的 `pluggable` 矩阵有 19 行 tag 组合(每行逐个检查其中全部模块),六个发行版意味着六条要长期维护的分发线。
 
 保守方案:先发 `min` / `standard` / `full` 三种,`paid` 和 `agent` 作为
 `standard` 加一个 tag 的文档说明,不单独出包。

@@ -134,6 +134,10 @@ jobs:
           # variants. A design naming combinations nobody builds is a
           # design that will stop compiling without anyone noticing.
           # Whether they take no_a2a is open there (待决问题 五).
+          #
+          # min, first, on its own row: it used to be the all-out row
+          # above, and stopped being that when no_a2a joined it.
+          - "no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
           - "no_x402,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
           - "no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
           - "no_x402,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
@@ -195,10 +199,22 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq bubblewrap
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      # `shell: bash` for pipefail. A step with no shell runs `bash -e`,
+      # where a pipeline's status is tee's, so a failing sandbox test would
+      # pass here as long as it did not skip. The SKIP test is an explicit
+      # exit because errexit ignores a `! cmd` that fails anywhere but last.
+      # And a -run pattern that matched nothing would pass too, which is
+      # why the integration test's PASS line is required as well.
       - name: the sandbox tests run, none skipped
+        shell: bash
         run: |
           go test -count=1 -v -run 'Sandbox|Bwrap' ./internal/daemon/ | tee /tmp/sandbox.out
-          ! grep -- '--- SKIP' /tmp/sandbox.out
+          if grep -- '--- SKIP' /tmp/sandbox.out; then
+            echo "a sandbox test skipped; here that is a failure" >&2
+            exit 1
+          fi
+          grep -q -- '--- PASS: TestSandboxIntegrationConfinesTheAgent' /tmp/sandbox.out \
+            || { echo "the sandbox integration test did not run" >&2; exit 1; }
 
   # A hub that knows nobody, and three nodes that join it.
   #

@@ -47,6 +47,10 @@ runs:
         # this action) in the same push as the go.mod bump (A2A-DESIGN §18).
         ref: a2a-redesign-wip
         path: .core
+        # Moved out of the workspace below, where checkout's post-job
+        # cleanup (it looks under `path`) would never find it to strip the
+        # token again. Nothing here needs git auth after the clone.
+        persist-credentials: false
     - if: steps.probe.outputs.need == 'true'
       shell: bash
       env:
