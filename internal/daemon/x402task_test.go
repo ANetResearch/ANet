@@ -52,6 +52,9 @@ type meteredWork struct {
 	invoked atomic.Int32
 	gate    chan struct{}
 	started chan struct{}
+	// stopped is set when a gated run was asked to stop (its context
+	// ended) before the gate opened.
+	stopped atomic.Bool
 	// status, when set, is the effect every run reports.
 	status effect.Status
 }
@@ -78,6 +81,7 @@ func (p *meteredWork) Invoke(ctx context.Context, _ provider.Call) (effect.Effec
 		select {
 		case <-p.gate:
 		case <-ctx.Done():
+			p.stopped.Store(true)
 		}
 	}
 	st := effect.OK
