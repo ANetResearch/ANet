@@ -401,10 +401,18 @@ install_binary() {
   $SUDO mv -f "$STAGED" "$DEST" || die "could not write $DEST"
   STAGED=""
   record_release
-  # macOS: clear quarantine + ad-hoc sign so the first exec doesn't stall on Gatekeeper.
+  # macOS: clear quarantine so the first exec doesn't stall on Gatekeeper.
+  # Ad-hoc sign only an arm64 binary whose signature does not verify: the
+  # release's darwin/arm64 binaries carry the Go linker's ad-hoc signature
+  # (check_binary has just run this one), darwin/amd64 needs none, and
+  # re-signing rewrites the file, so its sha256 would no longer be the
+  # manifest's and `anet doctor` would report the install unverified.
   if [ "$OS_TAG" = darwin ]; then
     xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
-    if command -v codesign >/dev/null 2>&1; then codesign --force --sign - "$DEST" >/dev/null 2>&1 || true; fi
+    if [ "$ARCH_TAG" = arm64 ] && command -v codesign >/dev/null 2>&1 \
+       && ! codesign --verify "$DEST" >/dev/null 2>&1; then
+      codesign --force --sign - "$DEST" >/dev/null 2>&1 || true
+    fi
   fi
   say ""
   say "✓ Installed anet $VERSION → $DEST"

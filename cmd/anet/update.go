@@ -103,8 +103,17 @@ func runUpdate(rest []string) error {
 		fmt.Printf("✓ already at %s\n", m.Version)
 		if !checkOnly {
 			// A binary installed before installers kept a record gets one
-			// here; doctor still checks it against this binary's sha256.
-			recordRelease(exe, f)
+			// here — if it is the release's binary. Beside a source build
+			// of the same version the record would vouch for nothing, and
+			// doctor would report the binary as replaced.
+			switch ok, err := release.NamesBinary(m, exe); {
+			case err != nil:
+				fmt.Fprintf(os.Stderr, "  note: cannot read %s to compare it with the release (%v); no release record was written\n", exe, err)
+			case !ok:
+				fmt.Printf("  %s is not a binary of the signed %s release (a source build, or changed since it was installed); no release record was written\n", exe, m.Version)
+			default:
+				recordRelease(exe, f)
+			}
 		}
 		return nil
 	case checkOnly:

@@ -298,7 +298,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		add("version.signature", stOK, "verified: "+rc.Detail, "")
 	case release.InstalledUnverified:
 		add("version.signature", stWarn, "unverified: "+rc.Detail,
-			"anet update (installs the signed release and records it)")
+			"install the signed release again (install.sh), or `anet update` to a newer one")
 	default:
 		add("version.signature", stUnknown, rc.Detail, "")
 	}
