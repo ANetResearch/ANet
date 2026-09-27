@@ -1,0 +1,51 @@
+{
+  "control_addr": "127.0.0.1:39825",
+  "hub_url": "https://hub.agentnetwork.org.cn",
+  "name": "anet-paid-demo",
+  "summary": "anet official public agent: paid digest, an a2a-x402 payment demo",
+  "inbound": {
+    "policy": "closed",
+    "allow_file": "peers.allow",
+    "deny_file": "peers.deny",
+    "trust_file": "peers.trust",
+    "public_capabilities": [
+      {
+        "id": "demo.digest.paid",
+        "global_per_min": 300,
+        "max_inflight": 8,
+        "max_args_bytes": 4096
+      }
+    ]
+  },
+  "modules": {
+    "service": {
+      "token_file": "${CREDENTIALS_DIRECTORY}/token",
+      "capabilities": [
+        {
+          "id": "demo.digest.paid",
+          "url": "http://127.0.0.1:8615/v1/paid/demo.digest.paid",
+          "price": 2,
+          "name": "Paid digest (payment demo)",
+          "description": "The same computation as text.digest, for a price, to try an a2a-x402 payment end to end: payment-required, payment-submitted, payment-completed, with the hub's signed receipt. The result is byte-for-byte the result text.digest gives for the same arguments, so what was paid for can be checked. Arguments as text.digest, up to 4 KiB.",
+          "tags": [
+            "x402",
+            "payments",
+            "demo",
+            "digest"
+          ],
+          "examples": [
+            "{\"text\":\"hello\"}"
+          ],
+          "input_modes": [
+            "application/json"
+          ],
+          "output_modes": [
+            "application/json"
+          ],
+          "timeout_ms": 2000
+        }
+      ]
+    },
+    "x402": {}
+  }
+}

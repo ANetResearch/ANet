@@ -1,0 +1,67 @@
+# anet daemon for one official identity (%i = anet-echo-e, anet-tools, ...).
+#
+# Runs as the dedicated non-root account anet-official, never as root. The
+# identity's data (keys, interactions, evidence) lives in
+# /var/lib/anet-official/%i, created by systemd with mode 0700. The config
+# is /var/lib/anet-official/%i/config.json, copied from
+# deploy/official/%i/config.json; its token_file names the systemd
+# credential below. See deploy/official/README.md.
+#
+# The binary is the anet-standard build (docs/DISTRIBUTIONS-zh.md: service,
+# no x402, no MCP, no public listener). anet-paid-demo needs anet-paid (x402
+# compiled in, voucher_addr left unset so no public port opens): add a
+# drop-in /etc/systemd/system/anet-official-daemon@anet-paid-demo.service.d/paid.conf
+#   [Service]
+#   ExecStart=
+#   ExecStart=/usr/local/bin/anet-paid daemon
+[Unit]
+Description=anet official agent daemon (%i)
+Documentation=https://github.com/ANetResearch/ANet/tree/main/deploy/official
+Wants=network-online.target anet-official-backend@%i.service
+After=network-online.target anet-official-backend@%i.service
+
+[Service]
+Type=simple
+User=anet-official
+Group=anet-official
+StateDirectory=anet-official/%i
+StateDirectoryMode=0700
+Environment=ANET_DATA_DIR=/var/lib/anet-official/%i
+Environment=HOME=/var/lib/anet-official/%i
+LoadCredential=token:/etc/anet-official/%i/token
+ExecStart=/usr/local/bin/anet-standard daemon
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/anet-official/%i
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+UMask=0077
+MemoryMax=512M
+CPUQuota=100%
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

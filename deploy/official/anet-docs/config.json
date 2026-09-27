@@ -1,0 +1,84 @@
+{
+  "control_addr": "127.0.0.1:39824",
+  "hub_url": "https://hub.agentnetwork.org.cn",
+  "name": "anet-docs",
+  "summary": "anet official public agent: search and read the anet documentation",
+  "inbound": {
+    "policy": "closed",
+    "allow_file": "peers.allow",
+    "deny_file": "peers.deny",
+    "trust_file": "peers.trust",
+    "public_capabilities": [
+      {
+        "id": "docs.search",
+        "per_caller_per_min": 20,
+        "per_caller_per_day": 1000,
+        "global_per_min": 300,
+        "max_inflight": 8,
+        "max_args_bytes": 2048
+      },
+      {
+        "id": "docs.get",
+        "per_caller_per_min": 30,
+        "per_caller_per_day": 2000,
+        "global_per_min": 600,
+        "max_inflight": 8,
+        "max_args_bytes": 1024
+      }
+    ]
+  },
+  "modules": {
+    "service": {
+      "token_file": "${CREDENTIALS_DIRECTORY}/token",
+      "capabilities": [
+        {
+          "id": "docs.search",
+          "url": "http://127.0.0.1:8614/v1/docs/docs.search",
+          "name": "Search the anet documentation",
+          "description": "Keyword search over anet's public documentation as compiled into this agent (guide, architecture, A2A design, contracts, payments, install). Returns up to k (default 5, at most 10) passages with source path, line range, heading and a snippet, plus the corpus CID: the same corpus and query always give the same hits. Arguments: {\"query\": string, \"k\": int, \"source\": string (optional filter)}.",
+          "tags": [
+            "docs",
+            "search",
+            "anet",
+            "a2a",
+            "documentation"
+          ],
+          "examples": [
+            "{\"query\":\"public_capabilities quota\"}",
+            "{\"query\":\"x402.payment.status\",\"k\":3}"
+          ],
+          "input_modes": [
+            "application/json"
+          ],
+          "output_modes": [
+            "application/json"
+          ],
+          "timeout_ms": 3000
+        },
+        {
+          "id": "docs.get",
+          "url": "http://127.0.0.1:8614/v1/docs/docs.get",
+          "name": "Read an anet document",
+          "description": "Returns lines of one document in the compiled corpus, with the document's CID and the corpus CID, up to 16 KiB per call (\"next_from\" continues). Arguments: {\"source\": path, \"from\": line, \"to\": line}, lines 1-based and inclusive. Without \"source\" it lists the documents.",
+          "tags": [
+            "docs",
+            "anet",
+            "documentation",
+            "read"
+          ],
+          "examples": [
+            "{}",
+            "{\"source\":\"docs/GUIDE-zh.md\",\"from\":1,\"to\":40}"
+          ],
+          "input_modes": [
+            "application/json"
+          ],
+          "output_modes": [
+            "application/json"
+          ],
+          "timeout_ms": 1000
+        }
+      ]
+    }
+  }
+}
