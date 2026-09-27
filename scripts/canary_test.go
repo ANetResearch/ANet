@@ -434,3 +434,115 @@ func TestTheSettlementCheck(t *testing.T) {
 		t.Errorf("no settle bodies: exit %d, want 1: %s", code, out)
 	}
 }
+
+// A file the search could not read is not a file without the canary: a database whose tables cannot be
+// read, or a file this user cannot open, makes the scan exit 2 ("not searched in full"), not 0. A hit
+// elsewhere still reports as a hit.
+func TestTheCanarySearchDoesNotPassOnWhatItCouldNotRead(t *testing.T) {
+	needPython(t)
+	dir := t.TempDir()
+	canaries := writeCanaries(t, dir)
+	broken := filepath.Join(dir, "broken")
+	if err := os.MkdirAll(broken, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// An SQLite header over garbage: the bytes are searched, the tables cannot be.
+	if err := os.WriteFile(filepath.Join(broken, "hub.db"), append([]byte("SQLite format 3\x00"), noise(4000)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := canaryPy(t, "scan", "--canaries", canaries, "--expect", "hub.db", broken); code != 2 ||
+		!strings.Contains(out, "not searched in full") {
+		t.Errorf("an unreadable database: exit %d, want 2: %s", code, out)
+	}
+	if err := os.WriteFile(filepath.Join(broken, "hit.log"), []byte(testCanary), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := canaryPy(t, "scan", "--canaries", canaries, broken); code != 1 {
+		t.Errorf("a hit beside an unreadable database: exit %d, want 1: %s", code, out)
+	}
+
+	if os.Geteuid() != 0 { // root reads a mode-000 file
+		closed := filepath.Join(dir, "closed")
+		if err := os.MkdirAll(closed, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(closed, "ok.log"), noise(10), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(closed, "hub.db-wal"), noise(10), 0o000); err != nil {
+			t.Fatal(err)
+		}
+		if out, code := canaryPy(t, "scan", "--canaries", canaries, closed); code != 2 {
+			t.Errorf("a file that cannot be opened: exit %d, want 2: %s", code, out)
+		}
+	}
+}
+
+// Where the sqlite3 CLI is not installed, canary.py stands in for it so that ANetHub's
+// deploy/hub-db-roll.sh — the backup joint.sh section C searches — runs. Run here against a fixture
+// hub.db whose relay row holds the canary: the backup is written, holds no relay row, and the search
+// finds no canary in it, while the live database it came from still has one.
+func TestTheSQLiteStandInRunsTheHubBackup(t *testing.T) {
+	needLinuxShell(t)
+	roll, err := filepath.Abs(filepath.Join("..", "..", "ANetHub", "deploy", "hub-db-roll.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(roll); err != nil {
+		t.Skipf("no ANetHub checkout beside this repository: %v", err)
+	}
+	dir := t.TempDir()
+	canaries := writeCanaries(t, dir)
+	data := filepath.Join(dir, "hub")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mk := exec.Command("python3", "-c", `
+import sqlite3, sys
+con = sqlite3.connect(sys.argv[1])
+con.execute("PRAGMA journal_mode=WAL")
+con.execute("CREATE TABLE relay_message (id INTEGER PRIMARY KEY AUTOINCREMENT, to_aid TEXT NOT NULL, size INTEGER, created_at INTEGER, payload BLOB)")
+con.execute("CREATE TABLE agents (aid TEXT PRIMARY KEY, name TEXT)")
+con.execute("INSERT INTO relay_message(to_aid,size,created_at,payload) VALUES ('bafyagent', 1, 1, ?)", (b"x" * 700 + sys.argv[2].encode() + b"y" * 900,))
+con.execute("INSERT INTO agents VALUES ('bafyagent', 'a')")
+con.commit()
+`, filepath.Join(data, "hub.db"), testCanary)
+	if out, err := mk.CombinedOutput(); err != nil {
+		t.Skipf("python3 cannot build an sqlite database here: %v %s", err, out)
+	}
+	py, _ := filepath.Abs("canary.py")
+	standin := filepath.Join(dir, "standin")
+	if err := os.MkdirAll(standin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(standin, "sqlite3"),
+		[]byte("#!/bin/sh\nexec python3 '"+py+"' sqlite3 \"$@\"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", roll)
+	cmd.Env = append(os.Environ(), "PATH="+standin+":"+os.Getenv("PATH"), "HUB_DATA_DIR="+data, "FORCE_WEEKLY=1")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("hub-db-roll.sh with the stand-in: %v\n%s", err, out)
+	}
+	backups, _ := filepath.Glob(filepath.Join(data, "hub-backup-*.db"))
+	if len(backups) != 1 {
+		t.Fatalf("backups: %v, want one", backups)
+	}
+	if out, code := canaryPy(t, "sqlite3", backups[0], "SELECT COUNT(*) FROM relay_message;",
+		"SELECT COUNT(*) FROM agents;"); code != 0 || out != "0\n1\n" {
+		t.Errorf("the backup's relay and agent rows: exit %d, %q, want 0 and 1", code, out)
+	}
+	if out, code := canaryPy(t, "scan", "--canaries", canaries, "--expect", filepath.Base(backups[0]), backups[0]); code != 0 {
+		t.Errorf("the backup holds the relay row's canary: exit %d: %s", code, out)
+	}
+	if out, code := canaryPy(t, "scan", "--canaries", canaries, filepath.Join(data, "hub.db")); code != 1 {
+		t.Errorf("the live database no longer holds the canary, so the backup check proves nothing: exit %d: %s", code, out)
+	}
+	// What the stand-in does not do, it refuses, rather than doing something else.
+	if out, code := canaryPy(t, "sqlite3", backups[0], ".dump"); code != 2 {
+		t.Errorf(".dump: exit %d, want 2: %s", code, out)
+	}
+	if out, code := canaryPy(t, "sqlite3", backups[0], "SELECT nothing FROM nowhere;"); code != 1 || !strings.Contains(out, "Error:") {
+		t.Errorf("a failing statement: exit %d, want 1 with the error: %s", code, out)
+	}
+}
