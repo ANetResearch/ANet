@@ -343,8 +343,15 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 
 // tryCapabilityPaid is tryCapability with the delegation's payment, if it
 // carried one.
+//
+// It returns false, having recorded nothing, when the daemon is stopping:
+// a call not started, or one whose failure is the stop's rather than its
+// own, is left open for the next process (SI-10; see cutOffByStop).
 func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID string, args map[string]any, paymentRaw []byte) bool {
 	if d.providers == nil {
+		return false
+	}
+	if d.ctx.Err() != nil {
 		return false
 	}
 	ix, err := d.ix.Get(interactionID)
@@ -413,6 +420,10 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 
 	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID,
 		CallerAID: ix.PeerAID, Via: provider.ViaRelay})
+	if d.cutOffByStop(err, eff) {
+		log.Printf("anet: %s: %s was cut off by the daemon stopping; no result recorded", interactionID, capID)
+		return false
+	}
 	if err != nil {
 		res.Status, res.Message = "FAILED", err.Error()
 	} else {
@@ -590,14 +601,30 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 }
 
 // recoverInterrupted runs at start (A2A-DESIGN §3.6, startup recovery): an
-// inbound long capability call that was working with no result when the
-// previous process stopped is set failed, with effect UNVERIFIED and
-// anet.reason=interrupted, and the requester is told through the retry
-// queue. Whether the effect happened is not known; the result says so
-// rather than guessing either way.
+// inbound capability call the previous process left open with no result is
+// dealt with before any mail is read (leftoverAction).
+//
+//   - A long call, working or only recorded (the process stopped between
+//     committing the delegation and marking it working), is set failed,
+//     with effect UNVERIFIED and anet.reason=interrupted, and the
+//     requester is told through the retry queue. Whether the effect
+//     happened is not known; the result says so rather than guessing
+//     either way. Long calls are not run twice (at-most-once).
+//   - A short call that was working is run again (at-least-once, §3.6
+//     step 10). One whose payment was taken has no redelivery to bring it
+//     back: its delegation and its payment were acknowledged.
+//   - A short call only recorded is left for the redelivery of its
+//     delegation, which was not acknowledged and runs it again.
+//   - A call waiting on a payment (quoted, submitted, or received and not
+//     taken) is the payment flow's (startPayments, §8.3).
+//
+// Short or long is the provider's answer, so it is read from the registry,
+// which the modules have filled by now. A recorded call whose provider is
+// not there cannot be told apart and is left (a redelivery decides); a
+// working one is reported interrupted.
 func (d *Daemon) recoverInterrupted() {
 	list, err := d.ix.ListAll(interactions.ListFilter{Role: interactions.RoleInbound,
-		States: []interactions.State{interactions.StateWorking}})
+		States: []interactions.State{interactions.StateSubmitted, interactions.StateWorking}})
 	if err != nil {
 		log.Printf("anet: startup recovery: %v", err)
 		return
@@ -606,27 +633,30 @@ func (d *Daemon) recoverInterrupted() {
 		if !ix.IsCapability || len(ix.Receipt) > 0 {
 			continue
 		}
-		if ix.PayState == interactions.PaySubmitted || d.untakenPayment(ix) != nil {
-			// Not executed: the payment's outcome is not known yet, or the
-			// payment was not taken yet, and startPayments presents it
-			// again (A2A-DESIGN §8.3).
-			continue
+		capID, args := storedCall(ix)
+		switch d.leftoverAction(ix, capID) {
+		case leftoverRerun:
+			ix, capID, args := ix, capID, args
+			log.Printf("anet: %s: %s was cut off by a restart; running it again", ix.ID, capID)
+			d.goBackground(func() { d.runCapabilityCall(ix.ID, capID, args, nil, nil) })
+		case leftoverInterrupted:
+			d.reportInterrupted(ix, capID)
 		}
-		capID := ix.Goal
-		if td, err := decodeTaskDoc(ix.RequestDoc); err == nil {
-			if c, _, ok := capabilityCall(td); ok {
-				capID = c
-			}
-		}
-		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
-		d.deliverCapabilityResult(ctx, ix.ID, capID, ix, capabilityResult{
-			Capability: capID,
-			Status:     string(effect.Unverified),
-			Message:    "the provider stopped while this call was running; whether its effect happened is not known",
-		}, nil, resultOpts{state: interactions.StateFailed, reason: "interrupted"})
-		cancel()
-		log.Printf("anet: %s: %s was interrupted by a restart; reported as failed, effect unverified", ix.ID, capID)
 	}
+}
+
+// reportInterrupted answers a long capability call that stopped, or never
+// started, in an earlier process: failed, effect UNVERIFIED,
+// anet.reason=interrupted, through the retry queue.
+func (d *Daemon) reportInterrupted(ix *interactions.Interaction, capID string) {
+	ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+	defer cancel()
+	d.deliverCapabilityResult(ctx, ix.ID, capID, ix, capabilityResult{
+		Capability: capID,
+		Status:     string(effect.Unverified),
+		Message:    "the provider stopped while this call was running; whether its effect happened is not known",
+	}, nil, resultOpts{state: interactions.StateFailed, reason: "interrupted"})
+	log.Printf("anet: %s: %s was interrupted by a restart; reported as failed, effect unverified", ix.ID, capID)
 }
 
 // decodeTaskDoc decodes stored TaskDoc bytes (the request of an
