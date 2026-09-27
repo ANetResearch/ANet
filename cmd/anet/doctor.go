@@ -26,6 +26,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/loopguard"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -162,6 +163,11 @@ func defaultDoctorEnv() doctorEnv {
 // localDaemonUp finds the address through LoadConfig, which writes a
 // config.json when there is none, and doctor writes nothing.
 func daemonAnswersAt(addr, tokenPath string) bool {
+	// Only a loopback control address is sent the token (§7.1); the daemon
+	// does not start on any other.
+	if loopguard.CheckLoopbackAddr(addr) != nil {
+		return false
+	}
 	tb, err := os.ReadFile(tokenPath)
 	if err != nil {
 		return false

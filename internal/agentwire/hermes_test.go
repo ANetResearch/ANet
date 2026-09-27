@@ -273,11 +273,15 @@ func TestHermesA2AConflictAndCoexistence(t *testing.T) {
 
 func TestParseA2AAddr(t *testing.T) {
 	for in, want := range map[string]string{
-		"127.0.0.1:39900\n":         "127.0.0.1:39900",
-		"http://127.0.0.1:39900/":   "127.0.0.1:39900",
-		"[::1]:39900":               "[::1]:39900",
-		"localhost:1":               "localhost:1",
-		"127.0.0.2:5":               "127.0.0.2:5",
+		"127.0.0.1:39900\n":       "127.0.0.1:39900",
+		"http://127.0.0.1:39900/": "127.0.0.1:39900",
+		"[::1]:39900":             "[::1]:39900",
+		"localhost:1":             "localhost:1",
+		"LocalHost:7":             "LocalHost:7",
+		// Loopback, but not a name the interface answers to (421).
+		"127.0.0.2:5":               "",
+		"[::ffff:127.0.0.1]:5":      "",
+		"localhost.:5":              "",
 		"0.0.0.0:39900":             "",
 		"192.168.1.2:39900":         "",
 		"example.com:80":            "",
