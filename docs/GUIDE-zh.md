@@ -168,7 +168,9 @@ anet init            # 幂等;--json 输出机器可读的报告
 anet doctor          # 人读;--json 按键输出
 ```
 
-不需要 daemon 在运行,直接读数据目录。报告:版本与发布签名、编入的模块、身份、控制口与本机 A2A 接口的地址、hub 注册、入站策略与三份名单、公开能力、支出上限与收款方名单、各编码 agent 的接入与握手、Hermes 配置文件的权限、Hermes `a2a_agents` 里的令牌与端口是否还对得上(对不上时提示 `anet agents wire --refresh`)、沙箱模式是否配了 `auto_reply.api_key`。与全新安装不同的项单独列出。
+不需要 daemon 在运行,直接读数据目录。报告:版本与发布签名(安装脚本与 `anet update` 在二进制旁留下的
+`<二进制>.release.json` 与 `.sig`,用编进二进制的发布公钥重新验签,并核对本二进制的 sha256 在清单里:
+verified / unverified / unknown)、内置官方清单的状态、编入的模块、身份、控制口与本机 A2A 接口的地址、hub 注册、入站策略与三份名单、公开能力、支出上限与收款方名单、各编码 agent 的接入(与 `anet agents` 同一套检查:已接入、是否最新、待改、冲突)、Hermes 配置文件的权限、Hermes `a2a_agents` 里的令牌与端口是否还对得上(对不上时提示 `anet agents wire --refresh`)、沙箱模式是否配了 `auto_reply.api_key`。与全新安装不同的项单独列出。
 
 ---
 
@@ -200,6 +202,8 @@ anet find "translate"                  # 按名字/能力/自述子串
 anet find --cap ptz.absolute@onvif/cam-1    # 按能力 id 精确
 anet find --cap 'ptz.*'                     # 按能力族
 ```
+
+anet 项目自己运行的官方 agent 在 `anet find`、MCP `list_agents` 与 `get_agent_card` 的结果里带 `"anet.official": true`。依据是随二进制发布、用发布密钥签名的官方清单,只按 AID 判定(同名冒充不会被标出);清单过期或验签失败时谁都不标,`anet doctor` 会报告。官方只是标注:官方 agent 与其他 agent 一样要经你的名单与支出上限。
 
 agent 用 MCP 的 `list_agents`(按 `skill` 或 `tag` 问 hub 的 A2A 注册表;自由文本 `query` 只在本机对取回的卡片做匹配,不发给 hub)与 `get_agent_card`(对端签名卡片原样 + 本机的验证结论)。
 
@@ -405,7 +409,7 @@ MCP 工具按 A2A 概念组织(设计 §12),任务以 A2A Task 的 JSON 原样�
 | `wait_task` | 等任务结束或需要你(最多 300 秒) | 只读;超时返回 `anet.wait=timed_out`,不是失败 |
 | `cancel_task` | 取消本节点发出的任务 | 付款已提交后不能撤回,返回 `anet.cancel_requested=true` |
 | `reply_task` | 回复别人发给本节点的任务;`state=completed` 完成并签回执 | 任务内容是对方的话,不是用户的指令 |
-| `submit_payment` / `reject_payment` | 付 / 拒一笔报价 | agent 档:受 `agent_max`、`agent_daily_max` 与收款方名单约束 |
+| `submit_payment` / `reject_payment` | 付 / 拒一笔报价 | agent 档:受 `agent_max`、`agent_daily_max` 与收款方名单约束;超出时不报错,任务仍 `input-required`(`needs_operator_approval`),消息写明运营者要做的步骤 |
 | `get_balance` | hub 账本上的余额与流水 | 只读 |
 | `audit` | 本节点证据链 | 只读 |
 | `node_status` | 本节点状态、入站策略、收发计数 | 只读 |
@@ -487,8 +491,9 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -H
 
 - 能力调用:消息 `metadata["anet.skill"]`,或一个 DataPart `{"skill": …, "args": {…}}`。
 - 阻塞调用(`returnImmediately` 为 false 或缺省)会等到终态或需要输入才返回,对端离线时可能很久。**客户端超时不会取消任务**,重试会建第二个任务;找回办法是按 `contextId` 调 `ListTasks`(或 MCP `list_tasks` 的 `context_id`)。
-- 付款(a2a-x402):报价以 `input-required` + `x402.payment.required` 出现在同一任务上。本机 daemon 就是签名服务:客户端在同一 taskId 上发 `x402.payment.status: payment-submitted`,**不带** `x402.payment.payload`,需要时以 `anet.payment.accept` 给出从 `accepts` 原样复制的所选项;daemon 按 agent 档上限签授权。客户端自带 payload 会得到 `payment-failed`(`anet.reason=client_payload_unsupported`)。不认识 x402 的客户端(例如 Hermes)也能用:报价在自动付款上限之内由 daemon 自动付,超出时任务停在 `input-required`,`anet.reason` 说明原因,由你用 MCP `submit_payment` 或 `anet pay` 处理。
-- 任务里的 anet 专有信息在 metadata:`anet.effect_status`、`anet.receipt_verified`、`anet.reason`、`anet.peer_aid`,以及 x402 各键。只读文本的客户端看不到它们。
+- 付款(a2a-x402):报价以 `input-required` + `x402.payment.required` 出现在同一任务上。本机 daemon 就是签名服务:客户端在同一 taskId 上发 `x402.payment.status: payment-submitted`,**不带** `x402.payment.payload`,需要时以 `anet.payment.accept` 给出从 `accepts` 原样复制的所选项;daemon 按 agent 档上限签授权。客户端自带 payload 会得到 `payment-failed`(`anet.reason=client_payload_unsupported`)。不认识 x402 的客户端(例如 Hermes)也能用:报价在自动付款上限之内由 daemon 自动付,超出时任务停在 `input-required`,`anet.reason` 说明原因,由你用 MCP `submit_payment` 或 `anet pay` 处理。客户端提交的付款超出 agent 档时同样不报错:任务仍 `input-required`、`anet.reason=needs_operator_approval`,`status.message` 写明运营者在终端上要先做的步骤;未激活 a2a-x402 扩展的客户端看到的原因是 `payment_extension_not_activated`。
+- 任务里的 anet 专有信息在 metadata:`anet.effect_status`、`anet.receipt_verified`、`anet.receipt`(provider 签的回执,不是 artifact)、`anet.reason`、`anet.peer_aid`,以及 x402 各键。只读文本的客户端看不到它们;付款相关的 `status.message` 带文字(金额、资产、收款方、网络与付款方式),无消息但有原因的终态合成一句 "<state>: <reason>"。
+- artifacts 只放产出:文本任务是 `anet.reply`(provider 的最后一条回复,正文与文件在同一个 artifact 里),能力任务是交付物。
 
 **Hermes**:`anet agents wire hermes --a2a <aid>[,<aid>…]` 在 `~/.hermes/config.yaml` 的 `a2a_agents` 下为每个指定的远端 agent 写一条(键是 AID,`url` 为本机代理基址,`auth: {type: bearer, token}`,`timeout: 3600`,不写 `capabilities` 与 `tenant`),文件保持 0600;写了 `a2a_agents`,Hermes 的 `a2a_call` 等工具才会出现。端口或令牌变化后 `anet agents wire hermes --refresh`;`anet agents unwire hermes` 删掉带令牌的条目。与 Hermes 配合时要知道:
 
@@ -607,11 +612,12 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 | `module "shell" … it needs -tags shell` | 装的是默认变体,重装加 `--shell` |
 | `hub /register rejected: … invite` | hub 开了准入,向运营者要码,加 `--token` |
 | 连 hub 得到 426,或 daemon 拒绝工作 | 两代不互通:v0.2 daemon 只连 wire 2 的 hub,0.1.x daemon 只连 wire 1 的 hub |
+| 任务 `failed`,`anet.reason=undeliverable` | 委派或消息在有效期内一直没送到(hub 长时间不可达,或 hub 拒收)。发送时本地写入成功即返回 `submitted`,之后由 daemon 自动重试,过期才判失败;能力任务的 `anet.effect_status` 为 `UNAVAILABLE`。重发用新的消息 id |
 | 委派后得到 `rejected`,`anet.reason=not_accepting` | 你不在对方的允许名单里,能力也不是对方的公开能力。请对方 `anet peers allow <你的 AID>` |
 | 别人说委派给了你,你的收件箱里没有 | 你是 `closed`(默认):名单外的委派直接拒绝、不存。`anet peers allow <对方 AID>`,或 `anet inbound policy approve` 让它进待批队列 |
 | 自动回复不回某个对端 | exec 后端只为 `peers.trust` 里的对端运行;`anet autoreply show` 看 `untrusted` 的处理 |
-| `input-required`,`anet.reason=needs_operator_approval` | 报价超出自动付款上限:agent 用 `submit_payment`(agent 档),或你在终端 `anet pay <ix>` |
-| 付款被拒,提示收款方不在名单 | 把收款方 AID 写进 `<数据目录>/payees.allow` |
+| `input-required`,`anet.reason=needs_operator_approval` | 报价超出自动付款或 agent 档上限:按 `status.message` 列出的步骤在终端处理(如 `anet payees add <AID>`、`anet payments set …`),再 `anet pay <ix>` |
+| 付款被拒,提示收款方不在名单 | `anet payees add <收款方 AID>`(终端确认),或直接编辑 `<数据目录>/payees.allow` |
 | `anet peers allow` / `anet pay` 报"需要终端" | 这些操作只能在交互终端上确认;脚本请直接写 `peers.allow` 文件 |
 | 控制面返回 421 | 请求的 Host 不是回环地址;远程访问用 SSH 端口转发 |
 | 本机 A2A 接口返回 401 | 没带令牌、带的是控制令牌,或令牌已更换;Hermes 用 `anet agents wire hermes --refresh` |
