@@ -22,13 +22,15 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/ANetResearch/ANet/module"
 )
 
 // The interface's files in its state directory. `anet doctor` and
 // `anet agents wire` read them.
 const (
-	AddrFile  = "a2a_addr.txt"
-	TokenFile = "a2a_token.txt"
+	AddrFile  = module.A2AAddrFile
+	TokenFile = module.A2ATokenFile
 )
 
 // Where a first start looks for a free port: 43811-45810 (the range

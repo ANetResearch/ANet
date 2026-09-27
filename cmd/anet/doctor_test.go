@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // testDoctorEnv reads no real home directory and finds no running daemon.
@@ -180,7 +181,11 @@ func TestDoctorFailsOnlyOnRealProblems(t *testing.T) {
 func TestDoctorChecksHermesA2AAgents(t *testing.T) {
 	layout := freshInit(t)
 	env := testDoctorEnv(t)
-	if err := os.WriteFile(filepath.Join(layout.Root, "a2a_addr.txt"), []byte("127.0.0.1:39900\n"), 0o600); err != nil {
+	a2aDir := module.StatePath(layout.Root, module.A2AModuleName)
+	if err := os.MkdirAll(a2aDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(a2aDir, module.A2AAddrFile), []byte("127.0.0.1:39900\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(env.hermesHome, 0o700); err != nil {
@@ -266,8 +271,12 @@ func TestDoctorProbingTheDaemonCreatesNoConfig(t *testing.T) {
 func TestDoctorFindsAStaleHermesA2AToken(t *testing.T) {
 	layout := freshInit(t)
 	env := testDoctorEnv(t)
-	for name, body := range map[string]string{"a2a_addr.txt": "127.0.0.1:39900\n", "a2a_token.txt": "tok-current-0123\n"} {
-		if err := os.WriteFile(filepath.Join(layout.Root, name), []byte(body), 0o600); err != nil {
+	a2aDir := module.StatePath(layout.Root, module.A2AModuleName)
+	if err := os.MkdirAll(a2aDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{module.A2AAddrFile: "127.0.0.1:39900\n", module.A2ATokenFile: "tok-current-0123\n"} {
+		if err := os.WriteFile(filepath.Join(a2aDir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

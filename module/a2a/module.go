@@ -48,7 +48,7 @@ import (
 	"github.com/ANetResearch/ANet/module"
 )
 
-const name = "a2a"
+const name = module.A2AModuleName
 
 func init() {
 	module.Register(name, New)

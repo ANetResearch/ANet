@@ -279,8 +279,10 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 
 	// Local A2A interface (module a2a, §11).
 	rep.A2A.Compiled = slices.Contains(rep.Modules, "a2a")
-	rep.A2A.AddrFile = statFile(filepath.Join(layout.Root, "a2a_addr.txt"))
-	rep.A2A.Token = statFile(filepath.Join(layout.Root, "a2a_token.txt"))
+	// module/a2a keeps them in its state directory (module.StatePath).
+	a2aDir := module.StatePath(layout.Root, module.A2AModuleName)
+	rep.A2A.AddrFile = statFile(filepath.Join(a2aDir, module.A2AAddrFile))
+	rep.A2A.Token = statFile(filepath.Join(a2aDir, module.A2ATokenFile))
 	if rep.A2A.AddrFile.Present {
 		if b, err := os.ReadFile(rep.A2A.AddrFile.Path); err == nil {
 			rep.A2A.Addr = strings.TrimSpace(string(b))

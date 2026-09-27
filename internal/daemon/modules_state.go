@@ -9,7 +9,7 @@ import (
 
 // moduleStateDir is where a module's own files live, under the data
 // directory: modules/<name>/.
-const moduleStateDir = "modules"
+const moduleStateDir = module.StateDirName
 
 // StateDir is <data dir>/modules/<name>/, created 0700 (A2A-DESIGN §11.1).
 // A name that is not a plain directory name — empty, a path, "." or ".." —
