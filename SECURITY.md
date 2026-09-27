@@ -42,7 +42,7 @@ ssh-keygen -Y sign -n anet-release@agentnetwork.org.cn
 The key, as an `allowed_signers` line:
 
 ```
-anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3
+anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3
 ```
 
 | | |
@@ -51,6 +51,7 @@ anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn" s
 | Fingerprint | `SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA` |
 | Next key (pre-committed) | `SHA256:Vqbc5UDOJ7cR1ik5Vmn8NecV66MjpP9OteJ6JFkkhpU` |
 | Namespace / identity | `anet-release@agentnetwork.org.cn` |
+| Second namespace | `anet-official@agentnetwork.org.cn` — the official-agent manifest (below) |
 
 The same key is written into `install.sh` and compiled into every `anet`
 binary (`internal/release/allowed_signers`). The download host
@@ -58,6 +59,22 @@ binary (`internal/release/allowed_signers`). The download host
 the trust: it can refuse to serve a release, but it cannot make the installer
 or `anet update` accept a binary the key did not sign, a release that has
 expired, or one older than what is installed.
+
+### The official-agent manifest
+
+The same key signs one other document, in a namespace of its own so that
+neither signature can stand in for the other: the list of agents the anet
+project runs (`internal/official/manifest.json`, compiled into every binary).
+An agent whose AID is on it is shown with `"anet.official": true` by
+`list_agents`, `anet find` and the local A2A interface; an agent with the same
+name and another AID is not. The mark grants nothing — no admission, trust or
+payment — and a manifest that does not verify, or has expired, marks no one.
+`anet doctor` shows which manifest a binary carries. To check it by hand:
+
+```sh
+ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
+  -n anet-official@agentnetwork.org.cn -s manifest.json.sig < manifest.json
+```
 
 ### Verifying the installer before running it
 
@@ -68,7 +85,7 @@ script) and verify:
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
-echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3' > allowed_signers
+echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3' > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
   -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 ```

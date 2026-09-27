@@ -318,7 +318,7 @@ func (s *server) listAgents(w http.ResponseWriter, r *http.Request) {
 			AID: a.AID, Name: a.Name, URL: base, CardURL: base + "/.well-known/agent-card.json",
 			Verification: a.Verification, VerificationError: a.VerificationError,
 			HubVerification: a.HubVerification, HomeHub: a.HomeHub, LastSeen: a.LastSeen,
-			Quiet: a.Quiet, ReviewCount: a.ReviewCount, AvgRating: a.AvgRating,
+			Quiet: a.Quiet, ReviewCount: a.ReviewCount, AvgRating: a.AvgRating, Official: a.Official,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -344,6 +344,9 @@ type agentEntry struct {
 	Quiet             bool   `json:"quiet,omitempty"`
 	ReviewCount       int    `json:"reviewCount,omitempty"`
 	AvgRating         any    `json:"avgRating,omitempty"`
+	// Official: the agent's AID is on this node's official manifest
+	// (module.RemoteAgent.Official).
+	Official bool `json:"anet.official,omitempty"`
 }
 
 func (s *server) baseURL(aid string) string {

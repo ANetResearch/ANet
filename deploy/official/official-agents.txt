@@ -1,0 +1,31 @@
+# The official agents (A2A-DESIGN §15): the source of the official manifest that
+# `deploy/release/build-release.sh --official` writes to internal/official/manifest.json,
+# signs with the release key (namespace anet-official@agentnetwork.org.cn) and that
+# every anet binary built afterwards carries. An agent listed here, by its AID, is shown
+# with "anet.official": true in list_agents, `anet find` and the local A2A interface's
+# proxy cards. Nothing else about it changes: the mark grants no admission, trust or
+# payment, and nothing here reaches the hub.
+#
+# One agent per line, fields separated by spaces:
+#
+#   <id>  <aid>  <hub base URL>  <cap,cap,…  or ->  <name…>
+#
+#   id    the deployment name (deploy/official/<id>/), [a-z0-9-]
+#   aid   the agent's AID, as `anet status` prints it on its host
+#   hub   the hub it is registered at
+#   caps  its public_capabilities, comma-separated; "-" for none
+#   name  the rest of the line; no double quote or backslash
+#
+# The AIDs are made on the target host when the identities are created
+# (deploy/official/README.md §3), so an agent is added here after it exists:
+#
+#   anet-echo-e     <aid>  https://hub.agentnetwork.org.cn  net.echo  anet-echo-e
+#   anet-echo-f     <aid>  http://39.107.76.243:4001        net.echo  anet-echo-f
+#   anet-tools      <aid>  https://hub.agentnetwork.org.cn  text.stats,text.digest,text.diff,json.validate,a2a.card.validate,a2a.x402.check  anet-tools
+#   anet-docs       <aid>  https://hub.agentnetwork.org.cn  docs.search,docs.get  anet-docs
+#   anet-paid-demo  <aid>  https://hub.agentnetwork.org.cn  demo.digest.paid  anet-paid-demo
+#
+# then `ANET_RELEASE_KEY=… deploy/release/build-release.sh --official`, commit the two
+# files it writes, and cut a release. Removing a line and doing the same withdraws the
+# mark from binaries built afterwards; binaries already installed keep it until their
+# manifest expires (ANET_OFFICIAL_TTL_DAYS, default 365).

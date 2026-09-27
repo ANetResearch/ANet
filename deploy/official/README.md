@@ -170,8 +170,8 @@ C5 证据面对公共能力有两种模式,由各节点配置(契约文档 C5 �
 
 - daemon 内核:公共能力证据"只记 CID"模式的配置项与实现(§6),`public_cap` 交互的
   保存期限清理(§5)。样例配置里没有写这两个键:它们还不存在,写了也不会生效。
-- 官方清单:发布签名密钥签署的官方 AID 清单,随二进制打包,`list_agents` 与代理卡片据此
-  标注 `anet.official: true`(A2A-DESIGN §15)。
+- 官方清单:机制已就绪(§9),但五个身份的 AID 在目标机器上生成,还没有写进
+  `official-agents.txt`;在那之前任何二进制都不会把它们标为官方。
 - 卡片:daemon 生成 A2A 网络卡片时经 `provider.Described` 读取 service 模块配置的
   `name/description/tags/examples/input_modes/output_modes`(A2A-DESIGN §10.2)。
 - 构建:`no_a2a` 落地后,官方身份的构建档加上它(官方 agent 不需要本机 A2A 接口)。
@@ -188,3 +188,45 @@ C5 证据面对公共能力有两种模式,由各节点配置(契约文档 C5 �
   `corpus_cid` 与首条结果);E 只在写模式段。
 - 负责人:官方清单写明维护者与联系方式(docs/notes/0010 §3.5:没有负责人的官方
   agent 会以不可用状态长期挂在目录里)。
+
+## 9. 官方清单与 `anet.official`
+
+客户端靠官方清单认出官方 agent(A2A-DESIGN §15):每个官方身份的 `id`、名称、AID、hub、
+能力,加 `seq` 与有效期,用发布签名密钥在独立命名空间 `anet-official@agentnetwork.org.cn`
+签名(与发布清单 `anet-release@…` 同一把钥,命名空间不同,两种签名互不可冒用),以
+`internal/official/manifest.json(.sig)` 编进每个 anet 二进制。
+
+- **只认 AID。** `list_agents`、`get_agent_card`、`anet find` 与本机 A2A 接口的代理卡片
+  (`anet-origin` 扩展 params)对清单里的 AID 标 `"anet.official": true`;同名、同卡片、
+  同能力而 AID 不同的节点不标(键缺省,不写 false)。
+- **只是标签。** 标注不给官方 agent 任何准入、信任、付款或通道;清单不发给 hub,hub admin
+  只按自己的登记(`id/aid/hub/caps`)展示,不从清单得到任何东西。
+- **失效即不标。** 验签失败或过期的清单不标任何人;`anet doctor` 的 `official` 一项报告
+  清单的 seq、条目数、有效期与签名钥,过期或验不过时给出警告。
+
+更新步骤(持发布私钥的人执行;属于发布,不属于部署):
+
+```sh
+# 1) 身份建好后,把 AID 写进源表(格式见文件头)
+$EDITOR deploy/official/official-agents.txt
+# 2) 生成并签名清单(seq 自动加一,默认有效 365 天:ANET_OFFICIAL_TTL_DAYS)
+ANET_RELEASE_KEY=<发布私钥> deploy/release/build-release.sh --official
+# 3) 提交两份文件,再照常出版本;release 构建会拒绝验不过、签名钥不符、
+#    或有效期短于发布清单/ANET_OFFICIAL_MIN_DAYS(默认 180 天)的官方清单
+git add internal/official/manifest.json internal/official/manifest.json.sig
+```
+
+已安装的二进制只在 `anet update` 之后才认得新清单;撤销某个官方身份同理,旧二进制在其
+清单过期前仍会标它 —— 这是有效期存在的理由。
+
+手工核验(与 `SECURITY.md` 中发布公钥同一行 `allowed_signers`):
+
+```sh
+ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
+  -n anet-official@agentnetwork.org.cn -s manifest.json.sig < manifest.json
+```
+
+联调:`scripts/official-testbin.sh` 用 `go build -overlay` 造一个把指定 AID 视为官方的测试
+二进制(一次性密钥、私钥用后即删,产品代码里没有任何开关),供 joint-official 之类的脚本
+验证"官方实例带标、同名冒充不带标"。
+

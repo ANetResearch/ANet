@@ -162,6 +162,10 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	if !strings.Contains(desc("list_agents"), "never sent to the hub") {
 		t.Error("list_agents must say free text stays on this machine")
 	}
+	if !strings.Contains(desc("list_agents"), "`anet.official: true`") ||
+		!strings.Contains(desc("list_agents"), "A name that looks official is not") {
+		t.Error("list_agents must name the anet.official mark and say a name is not it")
+	}
 	// Paying spends the operator's money. The model has to learn whose
 	// credit it is, what caps it, and what to do when it is refused.
 	for _, want := range []string{"agent_max", "payees.allow", "anet pay <task_id>", "never try to raise a limit"} {

@@ -307,6 +307,11 @@ type RemoteAgent struct {
 	Quiet             bool   `json:"quiet,omitempty"`
 	ReviewCount       int    `json:"reviewCount,omitempty"`
 	AvgRating         any    `json:"avgRating,omitempty"`
+	// Official is true when AID is listed in the official-agent manifest
+	// built into this binary, signed with the release key (A2A-DESIGN §15,
+	// internal/official). The AID alone decides it: a name, a card or a
+	// hub's word never does. It is a label; it grants the agent nothing.
+	Official bool `json:"anet.official,omitempty"`
 }
 
 // PayDecision answers a payment-required task.

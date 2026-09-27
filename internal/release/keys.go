@@ -16,6 +16,17 @@ import (
 // not verify as a release manifest, and the reverse.
 const Namespace = "anet-release@agentnetwork.org.cn"
 
+// OfficialNamespace is the SSHSIG namespace the official-agent manifest
+// is signed in (A2A-DESIGN §15, internal/official).
+//
+// `ssh-keygen -Y sign -n anet-official@agentnetwork.org.cn`. The same key
+// as the releases, in a namespace of its own: the two documents answer
+// different questions — which binary to install, which agents the project
+// runs — and a signature made for one must never be read as the other,
+// whatever the documents' own schema fields say. allowed_signers lists the
+// key for both namespaces, so the one published line checks both.
+const OfficialNamespace = "anet-official@agentnetwork.org.cn"
+
 // Identity is the principal the release key is listed under in
 // allowed_signers, and what `ssh-keygen -Y verify -I` is given.
 const Identity = "anet-release@agentnetwork.org.cn"
@@ -56,8 +67,16 @@ type Trust struct {
 }
 
 // DefaultTrust is the trust built into this binary.
-func DefaultTrust() Trust {
-	keys, err := ParseAllowedSigners(allowedSigners)
+func DefaultTrust() Trust { return embeddedTrust(Namespace) }
+
+// OfficialTrust is the trust built into this binary for the official-agent
+// manifest: the keys allowed_signers lists for OfficialNamespace, and the
+// same next-key commitment — a rotation replaces the key for everything it
+// signs.
+func OfficialTrust() Trust { return embeddedTrust(OfficialNamespace) }
+
+func embeddedTrust(namespace string) Trust {
+	keys, err := ParseAllowedSignersFor(allowedSigners, namespace)
 	if err != nil {
 		// The file is compiled in and pinned by a test; a binary that
 		// cannot read its own release key must not pretend to verify.
@@ -73,6 +92,13 @@ func AllowedSigners() string { return allowedSigners }
 // trust accepts. It returns the parsed signature so a caller can report
 // which key signed.
 func (t Trust) Verify(msg, armoredSig []byte) (*Signature, error) {
+	return t.VerifyIn(Namespace, msg, armoredSig)
+}
+
+// VerifyIn is Verify in another namespace. The namespace is the caller's
+// to name, not the signature's: a reader of the official manifest asks for
+// OfficialNamespace, and a release signature, which says Namespace, fails.
+func (t Trust) VerifyIn(namespace string, msg, armoredSig []byte) (*Signature, error) {
 	s, err := ParseSignature(armoredSig)
 	if err != nil {
 		return nil, err
@@ -81,7 +107,7 @@ func (t Trust) Verify(msg, armoredSig []byte) (*Signature, error) {
 		return nil, fmt.Errorf("signed by %s, which is not the release key (%s)",
 			Fingerprint(s.PublicKey), t.describe())
 	}
-	if err := s.Verify(msg, Namespace); err != nil {
+	if err := s.Verify(msg, namespace); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -110,7 +136,7 @@ func (t Trust) describe() string {
 // ParseAllowedSigners reads the keys listed for Identity, in Namespace,
 // from an allowed_signers file:
 //
-//	anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn" ssh-ed25519 AAAA…
+//	anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAA…
 //
 // Only the options this project writes are understood. A line for another
 // principal, or restricted to namespaces that exclude Namespace, is
@@ -118,6 +144,11 @@ func (t Trust) describe() string {
 // know is an error rather than something to ignore, because ignoring a
 // restriction widens what the key is trusted for.
 func ParseAllowedSigners(text string) ([]ed25519.PublicKey, error) {
+	return ParseAllowedSignersFor(text, Namespace)
+}
+
+// ParseAllowedSignersFor is ParseAllowedSigners for another namespace.
+func ParseAllowedSignersFor(text, namespace string) ([]ed25519.PublicKey, error) {
 	var keys []ed25519.PublicKey
 	for n, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
@@ -139,7 +170,7 @@ func ParseAllowedSigners(text string) ([]ed25519.PublicKey, error) {
 				case "namespaces":
 					nsOK = false
 					for _, ns := range strings.Split(strings.Trim(val, `"`), ",") {
-						if ns == Namespace {
+						if ns == namespace {
 							nsOK = true
 						}
 					}
@@ -166,7 +197,7 @@ func ParseAllowedSigners(text string) ([]ed25519.PublicKey, error) {
 		}
 	}
 	if len(keys) == 0 {
-		return nil, errors.New("allowed_signers: no key for " + Identity + " in namespace " + Namespace)
+		return nil, errors.New("allowed_signers: no key for " + Identity + " in namespace " + namespace)
 	}
 	return keys, nil
 }

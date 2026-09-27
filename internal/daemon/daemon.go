@@ -13,6 +13,7 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/official"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/provider"
@@ -73,6 +74,10 @@ type Daemon struct {
 	untrustedBackend atomic.Bool
 	// bus publishes interaction changes to watchers (eventbus.go).
 	bus eventBus
+	// officials is the official-agent manifest built into this binary,
+	// once verified (official.go); nil when it did not verify, which marks
+	// no agent official.
+	officials atomic.Pointer[official.Manifest]
 	// outboxKick wakes the retry loop; outboxLocks serializes attempts at
 	// one queued message (retry.go).
 	outboxKick  chan struct{}
@@ -190,6 +195,7 @@ func New(layout Layout) (*Daemon, error) {
 	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel,
 		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
 		longCalls: make(chan struct{}, maxConcurrentLongCalls)}
+	d.loadOfficials()
 	if cfg.migratedInbound {
 		// Logged once: the migrated config is saved below without the old
 		// key, so the next start reads an explicit inbound block.

@@ -136,6 +136,45 @@ func (s *Signature) Verify(msg []byte, namespace string) error {
 	return nil
 }
 
+// Sign makes an armored SSHSIG over msg in namespace, with SHA-512, the
+// form `ssh-keygen -Y sign` writes. Nothing in the anet binary calls it:
+// releases and the official manifest are signed with ssh-keygen
+// (deploy/release/build-release.sh). It is here for tests — this
+// package's and internal/official's — which sign with keys they generate,
+// and it is checked against ssh-keygen itself
+// (TestSSHKeygenAcceptsOurTestSigner).
+func Sign(priv ed25519.PrivateKey, msg []byte, namespace string) []byte {
+	pub := priv.Public().(ed25519.PublicKey)
+	d := sha512.Sum512(msg)
+	sig := ed25519.Sign(priv, signedData(namespace, "sha512", d[:]))
+	var sb bytes.Buffer
+	putString(&sb, []byte(keyTypeEd))
+	putString(&sb, sig)
+	var b bytes.Buffer
+	b.WriteString(sshsigMagic)
+	putUint32(&b, sshsigVersion)
+	putString(&b, keyBlob(pub))
+	putString(&b, []byte(namespace))
+	putString(&b, nil)
+	putString(&b, []byte("sha512"))
+	putString(&b, sb.Bytes())
+	return armorSig(b.Bytes())
+}
+
+// armorSig wraps an SSHSIG blob the way ssh-keygen does: 70 columns of
+// base64 between the BEGIN and END lines.
+func armorSig(blob []byte) []byte {
+	enc := base64.StdEncoding.EncodeToString(blob)
+	var out strings.Builder
+	out.WriteString(sshsigBegin + "\n")
+	for len(enc) > 70 {
+		out.WriteString(enc[:70] + "\n")
+		enc = enc[70:]
+	}
+	out.WriteString(enc + "\n" + sshsigEnd + "\n")
+	return []byte(out.String())
+}
+
 // signedData is the blob the signer actually signs.
 func signedData(namespace, hashAlg string, digest []byte) []byte {
 	var b bytes.Buffer
@@ -238,10 +277,14 @@ func dearmor(in []byte) ([]byte, error) {
 }
 
 func putString(b *bytes.Buffer, s []byte) {
-	var n [4]byte
-	binary.BigEndian.PutUint32(n[:], uint32(len(s)))
-	b.Write(n[:])
+	putUint32(b, uint32(len(s)))
 	b.Write(s)
+}
+
+func putUint32(b *bytes.Buffer, v uint32) {
+	var n [4]byte
+	binary.BigEndian.PutUint32(n[:], v)
+	b.Write(n[:])
 }
 
 // reader consumes SSH wire-format fields; the first short read sets err
