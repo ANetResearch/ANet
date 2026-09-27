@@ -42,6 +42,7 @@ import (
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
 )
 
 // rxClass is the outcome class of one envelope.
@@ -479,8 +480,8 @@ func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 // one of the payment messages it takes: x402.payment.status of
 // payment-submitted or payment-rejected.
 func publicCapPayment(meta []byte) bool {
-	switch decodeMeta(meta)["x402.payment.status"] {
-	case "payment-submitted", "payment-rejected":
+	switch decodeMeta(meta)[x402a2a.KeyStatus] {
+	case x402a2a.StatusSubmitted, x402a2a.StatusRejected:
 		return true
 	}
 	return false
