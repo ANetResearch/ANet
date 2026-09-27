@@ -59,11 +59,16 @@ func splitYAMLComment(v string) (string, string) {
 }
 
 // regionEnd is the first line after k that starts another top-level item:
-// anything at column 0 other than a comment or a blank line.
+// anything at column 0 other than a comment or a blank line. A sequence
+// item at column 0 (`- x`) is not one: YAML lets a key's list sit at the
+// key's own indentation, so it still belongs to k.
 func regionEnd(lines []string, k int) int {
 	for j := k + 1; j < len(lines); j++ {
 		l := lines[j]
 		if strings.TrimSpace(l) == "" {
+			continue
+		}
+		if l[0] == '-' && (len(l) == 1 || l[1] == ' ') {
 			continue
 		}
 		if l[0] != ' ' && l[0] != '\t' && l[0] != '#' {
@@ -75,13 +80,22 @@ func regionEnd(lines []string, k int) int {
 
 func indentOf(l string) int { return len(l) - len(strings.TrimLeft(l, " ")) }
 
-// childIndent is the indentation of the mapping's first child, or 2.
-func childIndent(lines []string, k, end int) int {
+// firstChild is the index of the first line under key k that is neither
+// blank nor a comment, or -1.
+func firstChild(lines []string, k, end int) int {
 	for j := k + 1; j < end; j++ {
 		t := strings.TrimSpace(lines[j])
 		if t == "" || strings.HasPrefix(t, "#") {
 			continue
 		}
+		return j
+	}
+	return -1
+}
+
+// childIndent is the indentation of the mapping's first child, or 2.
+func childIndent(lines []string, k, end int) int {
+	if j := firstChild(lines, k, end); j >= 0 {
 		return indentOf(lines[j])
 	}
 	return 2
@@ -151,6 +165,13 @@ func (m yamlMap) set(src, path string, body []string, children []string) (string
 	}
 	if ind == 0 {
 		return "", &ConflictError{Path: path, Line: k + 1, What: m.key + " 不是映射(子项没有缩进)"}
+	}
+	if j := firstChild(lines, k, end); j >= 0 {
+		if t := strings.TrimSpace(lines[j]); t == "-" || strings.HasPrefix(t, "- ") {
+			// A sequence: an `anet:` key among its items would make the
+			// whole file unreadable to Hermes.
+			return "", &ConflictError{Path: path, Line: j + 1, What: m.key + " 是列表,不是映射;anet 无法在其中加入条目"}
+		}
 	}
 	for _, c := range children {
 		if line := hasChildKey(lines, k, end, ind, -1, -1, c); line > 0 {

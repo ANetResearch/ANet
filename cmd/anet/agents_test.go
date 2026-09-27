@@ -24,6 +24,7 @@ func TestAgentsArgs(t *testing.T) {
 		{in: []string{"--a2a", "aid1", "hermes"}, tools: []string{"hermes"}, a2a: []string{"aid1"}},
 		{in: []string{"hermes", "--a2a=aid1,aid2", "--a2a", "aid3"}, tools: []string{"hermes"}, a2a: []string{"aid1", "aid2", "aid3"}},
 		{in: []string{"--a2a", "aid1", "--refresh", "hermes"}, tools: []string{"hermes"}, a2a: []string{"aid1"}, fresh: true},
+		{in: []string{"--a2a", "aid1", "claude-code"}, tools: []string{"claude-code"}, a2a: []string{"aid1"}},
 	} {
 		got, err := parseAgentsArgs(tc.in)
 		if err != nil {
@@ -35,7 +36,10 @@ func TestAgentsArgs(t *testing.T) {
 			t.Errorf("%v: got %+v", tc.in, got)
 		}
 	}
-	for _, bad := range [][]string{{"--all", "claude"}, {"--force"}} {
+	// `unwire hermes --a2a` with the AID forgotten must not fall back to a
+	// plain unwire, which would remove the MCP entry and every token.
+	for _, bad := range [][]string{{"--all", "claude"}, {"--force"}, {"hermes", "--a2a"}, {"--a2a", "hermes"},
+		{"hermes", "--a2a="}} {
 		if _, err := parseAgentsArgs(bad); err == nil {
 			t.Errorf("%v: accepted", bad)
 		}

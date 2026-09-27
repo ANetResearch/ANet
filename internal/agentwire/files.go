@@ -83,9 +83,19 @@ func (c change) apply(o *Options) (string, error) {
 	if !sameContent(cur, c.before) {
 		return "", fmt.Errorf("%s 在 anet 读取之后被改动了,请重新运行", c.path)
 	}
+	// realPath resolves every link that leads somewhere, so a link still
+	// here points at nothing. Writing would replace the operator's link
+	// with a file; following it would create a file wherever it points.
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return "", fmt.Errorf("%s 是指向不存在文件的符号链接,anet 不替换它;请先修正链接", c.path)
+	}
 	perm := c.mode
 	if fi, err := os.Stat(path); err == nil {
 		perm = fi.Mode().Perm()
+	} else if perm == 0 {
+		// A plan that forgot to say is not a reason to create a file
+		// nobody, not even its owner, can read.
+		perm = 0o600
 	}
 	if c.narrow != 0 {
 		perm &= c.narrow
