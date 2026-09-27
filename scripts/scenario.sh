@@ -85,7 +85,15 @@ hd "0  一个谁也不认识的 hub"
 # 只停本脚本自己起的进程:可执行文件或脚本参数在 $ROOT 之下的(lib.sh stop_under)。按进程名杀
 # 会停掉整台机器上的 anet 与 anet-hub —— 别的工作树的联调,以及测试主机上以同一用户跑着的生产
 # daemon 与 hub(docs/notes/0015 §4)。为此二进制必须从 $ROOT 下运行:SCENARIO_BIN 指向别处时
-# 先拷进 $ROOT/bin。
+# 先拷进 $ROOT/bin。$ROOT 也必须是本用户的、别人写不了的目录(lib.sh own_dir):二进制从这里运行,
+# 测试主机上以 root 跑时,别的用户先建好的 /tmp/anet-scenario 能让他换掉要运行的东西。
+_own_path "$ROOT" >/dev/null && own_dir "$ROOT" \
+  || { echo "SCENARIO_ROOT=$ROOT 不能用:不是本用户的私有目录(或是 /、\$HOME 之类)"; exit 1; }
+# 本次起的 daemon 把"当前 daemon"指针与身份注册表写在 $ROOT/xdg,不写本用户的 /tmp/anet-<uid> 或
+# $XDG_RUNTIME_DIR/anet:否则同一用户的真 daemon(测试主机上 root 跑的生产节点,0015 §4)之后的 anet
+# 命令会连到这里的测试节点。身份只由各自的 HOME 决定。
+mkdir -p "$ROOT/xdg" && chmod 700 "$ROOT/xdg" && export XDG_RUNTIME_DIR=$ROOT/xdg || exit 1
+unset ANET_DATA_DIR ANET_HOME ANET_ID
 mkdir -p "$ROOT/bin"
 if [ "$(cd "$BIN" 2>/dev/null && pwd -P)" != "$(cd "$ROOT/bin" && pwd -P)" ]; then
   for b in anet anet-hub anetfixture; do

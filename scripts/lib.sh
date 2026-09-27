@@ -125,8 +125,9 @@ _peer_add(){
 # (docs/notes/0015 §4: cmax and dmax run production anet daemons and hubs as root, some inside containers
 # that root on the host can see). Stopping "every process called anet" there stops those too. These
 # helpers stop only what was started from a path the caller owns: a process of this user whose
-# executable is that path or lies under it, or whose first or second argv entry does (an interpreter
-# running a script from there). Linux only (/proc); elsewhere they find nothing.
+# executable is that path or lies under it, or whose argv[0] does, or — for an interpreter (sh, bash,
+# python…) — whose argv[1] does: the script it runs. Any other process that merely names a file there
+# (`less $ROOT/A.log`, an editor) is left alone. Linux only (/proc); elsewhere they find nothing.
 
 # _own_path PATH: PATH made absolute with symlinks resolved, or failure for a path no script may claim:
 # the filesystem root, a top-level directory, the usual bin directories, $HOME. A mistyped J or ROOT
@@ -138,15 +139,60 @@ _own_path(){
   elif [ -e "$p" ]; then r=$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)/$(basename "$p") || return 1
   else r=${p%/}   # gone already; a process may still run from it ("… (deleted)")
   fi
-  case "$r" in /*/*) ;; *) return 1 ;; esac
-  case "$r" in
-    /usr/bin|/usr/sbin|/usr/local|/usr/local/bin|/usr/local/sbin|/usr/lib|/var/tmp|/run/user) return 1 ;;
-  esac
-  if [ -n "${HOME:-}" ]; then
-    local h; h=$(cd "$HOME" 2>/dev/null && pwd -P) || h=$HOME
-    case "$r" in "$h"|"$h/bin"|"$h/.local"|"$h/.local/bin"|"$h/go"|"$h/go/bin") return 1 ;; esac
-  fi
+  # A single file is judged by the directory it is in as well: /usr/local/bin/anet-hub names the
+  # production hub, not a file some script put there.
+  local x h=""
+  if [ -n "${HOME:-}" ]; then h=$(cd "$HOME" 2>/dev/null && pwd -P) || h=$HOME; fi
+  for x in "$r" "$([ -e "$r" ] && [ ! -d "$r" ] && dirname "$r")"; do
+    [ -n "$x" ] || continue
+    case "$x" in /*/*) ;; *) return 1 ;; esac
+    case "$x" in
+      /usr/bin|/usr/sbin|/usr/local|/usr/local/bin|/usr/local/sbin|/usr/lib|/var/tmp|/run/user) return 1 ;;
+    esac
+    if [ -n "$h" ]; then
+      case "$x" in "$h"|"$h/bin"|"$h/.local"|"$h/.local/bin"|"$h/go"|"$h/go/bin") return 1 ;; esac
+    fi
+  done
   printf '%s' "$r"
+}
+
+# own_dir DIR: create DIR if it is missing (mode 700) and succeed only if it is a directory of this user
+# that no other user can change: DIR and every directory above it owned by this user (or, above it,
+# root), and none writable by another user unless sticky (/tmp) — "another user" being others, or a
+# group with members besides this user (a user-private group under umask 002 is fine). The joint scripts
+# build binaries into their work directory and then run them — as root on the test hosts, which have
+# other users (docs/notes/0015 §2) — so a /tmp/joint-0 that someone else created first would let them
+# swap what runs.
+own_dir(){
+  case "$1" in /*) ;; *) return 1 ;; esac
+  ( umask 077; mkdir -p -- "$1" ) 2>/dev/null || return 1
+  python3 -c '
+import grp, os, pwd, stat, sys
+uid = os.geteuid()
+try:
+    me = pwd.getpwuid(uid).pw_name
+except KeyError:
+    me = None
+def shared(gid):
+    try:
+        members = set(grp.getgrgid(gid).gr_mem)
+    except KeyError:
+        return True
+    members |= {u.pw_name for u in pwd.getpwall() if u.pw_gid == gid}
+    return bool(members - {me})
+def writable_by_others(st):
+    return bool(st.st_mode & 0o002 or (st.st_mode & 0o020 and shared(st.st_gid)))
+p = os.path.realpath(sys.argv[1])
+st = os.stat(p)
+# DIR itself: sticky does not help, another user could still create $J/bin before this script does.
+if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid or writable_by_others(st):
+    sys.exit(1)
+d = p
+while d != "/":
+    d = os.path.dirname(d)
+    st = os.stat(d)
+    if st.st_uid not in (0, uid) or (writable_by_others(st) and not st.st_mode & stat.S_ISVTX):
+        sys.exit(1)' "$1"
 }
 
 # pids_under PATH: pids of this user's processes started from PATH (see above). The calling shell's own
@@ -155,9 +201,11 @@ _own_path(){
 pids_under(){
   local root; root=$(_own_path "$1") || return 0
   python3 - "$root" "$$" <<'PY'
-import os, sys
+import os, re, sys
 root, shell = sys.argv[1], int(sys.argv[2])
 uid = os.geteuid()
+# Interpreters: for these argv[1] is the program, so a script under root runs from there.
+interp = re.compile(r"(ba|da|z|k|mk)?sh|busybox|python[0-9.]*|perl[0-9.]*|ruby[0-9.]*|node")
 def pgid(p):
     try:
         return os.getpgid(p)
@@ -186,7 +234,10 @@ for e in os.listdir("/proc"):
             argv = [a.decode(errors="replace") for a in f.read().split(b"\0")[:2]]
     except OSError:
         argv = []
-    if any(under(x) for x in [exe] + argv if x):
+    names = [exe] + argv[:1]
+    if len(argv) > 1 and interp.fullmatch(os.path.basename(exe or argv[0])):
+        names.append(argv[1])
+    if any(under(x) for x in names if x):
         if mine is not None and pgid(int(e)) == mine:
             continue
         print(e)

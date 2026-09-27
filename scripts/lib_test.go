@@ -38,7 +38,7 @@ func needLinuxShell(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("the helpers read /proc")
 	}
-	for _, b := range []string{"bash", "python3", "sleep", "sh"} {
+	for _, b := range []string{"bash", "python3", "sleep", "sh", "cat"} {
 		if _, err := exec.LookPath(b); err != nil {
 			t.Skipf("%s not on PATH", b)
 		}
@@ -141,11 +141,20 @@ func TestStopUnderStopsOnlyWhatRunsFromThatPath(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Someone reading a file under the path (less, an editor, tail): it names the path as argv[1] but runs
+	// nothing from there. cat on a FIFO blocks in open() with the FIFO as its argument.
+	fifo := filepath.Join(mine, "hub.log")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catBin, _ := exec.LookPath("cat")
+
 	byExe := start(t, "binary under the path", filepath.Join(mine, "bin", "sleep"), "300")
 	deleted := start(t, "binary under the path, deleted since", filepath.Join(mine, "gone", "sleep"), "300")
 	byArg := start(t, "script under the path run by an interpreter", shBin, script)
 	outside := start(t, "sibling directory", filepath.Join(other, "sleep"), "300")
 	system := start(t, "system binary", sleepBin, "300")
+	viewer := start(t, "non-interpreter naming a file under the path", catBin, fifo)
 	if err := os.Remove(filepath.Join(mine, "gone", "sleep")); err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +165,7 @@ func TestStopUnderStopsOnlyWhatRunsFromThatPath(t *testing.T) {
 			t.Errorf("pids_under does not list the %s (pid %d): %q", p.name, p.cmd.Process.Pid, listed)
 		}
 	}
-	for _, p := range []*proc{outside, system} {
+	for _, p := range []*proc{outside, system, viewer} {
 		if containsLine(listed, p.cmd.Process.Pid) {
 			t.Errorf("pids_under lists the %s (pid %d)", p.name, p.cmd.Process.Pid)
 		}
@@ -168,7 +177,7 @@ func TestStopUnderStopsOnlyWhatRunsFromThatPath(t *testing.T) {
 			t.Errorf("stop_under left the %s running", p.name)
 		}
 	}
-	for _, p := range []*proc{outside, system} {
+	for _, p := range []*proc{outside, system, viewer} {
 		if p.exited(0) {
 			t.Errorf("stop_under stopped the %s", p.name)
 		}
@@ -189,14 +198,59 @@ func TestStopUnderStopsOnlyWhatRunsFromThatPath(t *testing.T) {
 func TestOwnPathRefusesPathsNoScriptOwns(t *testing.T) {
 	needLinuxShell(t)
 	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "bin", "anet"), nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A file is judged by its directory too: /usr/bin/env stands for /usr/local/bin/anet-hub, the
+	// production hub a mistyped root would otherwise name.
 	out := libsh(t, home, `
-for p in / /tmp /usr /opt /root /home /usr/local/bin /usr/bin relative/dir "$HOME" "$HOME/bin" "$HOME/.local/bin"; do
+for p in / /tmp /usr /opt /root /home /usr/local/bin /usr/bin relative/dir "$HOME" "$HOME/bin" "$HOME/.local/bin" \
+         /usr/bin/env "$HOME/bin/anet"; do
   _own_path "$p" >/dev/null && echo "claimed $p"
 done
 _own_path "$HOME/joint" >/dev/null || echo "refused $HOME/joint"
 _own_path /tmp/joint-x >/dev/null || echo "refused /tmp/joint-x"
 [ -z "$(pids_under /)" ] || echo "pids_under / listed something"
 true`)
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("unexpected:\n%s", out)
+	}
+}
+
+// A work directory the scripts build binaries into and run them from must be one nobody else can change:
+// as root on a shared test host, a /tmp/joint-0 another user made first would let them swap the binaries.
+func TestOwnDirRefusesDirectoriesOthersCanChange(t *testing.T) {
+	needLinuxShell(t)
+	base := t.TempDir()
+	// Under umask 002 the test's own directory is group-writable; whether its group has other members
+	// depends on the host, so it is made private and the cases below use "others" only.
+	if err := os.Chmod(base, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(name string, mode os.FileMode) {
+		t.Helper()
+		if err := os.Mkdir(filepath.Join(base, name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(filepath.Join(base, name), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("shared", 0o777)                // world-writable, not sticky: anyone may rename what is in it
+	mk("tmplike", 0o777|os.ModeSticky) // like /tmp: others cannot touch entries they do not own
+	out := libsh(t, base, `
+own_dir "$1/fresh/j" || echo "refused a fresh directory"
+[ "$(stat -c %a "$1/fresh/j")" = 700 ] || echo "fresh directory is $(stat -c %a "$1/fresh/j"), want 700"
+own_dir "$1/fresh/j" || echo "refused it the second time"
+own_dir "$1/tmplike/j" || echo "refused a directory under a sticky world-writable one"
+own_dir "$1/shared" && echo "accepted a world-writable directory"
+own_dir "$1/tmplike" && echo "accepted a sticky world-writable directory itself"
+own_dir "$1/shared/j" && echo "accepted a directory under a world-writable, non-sticky one"
+own_dir relative/j && echo "accepted a relative path"
+true`, base)
 	if strings.TrimSpace(out) != "" {
 		t.Errorf("unexpected:\n%s", out)
 	}
