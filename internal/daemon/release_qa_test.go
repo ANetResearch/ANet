@@ -176,6 +176,9 @@ func TestStartupRepublishesTheCurrentCapabilities(t *testing.T) {
 	h := newFakeHub(t)
 	defer h.Close()
 	d := newTestDaemon(t, h.URL, true)
+	// Public, so it is published (0017 Q14); HubRegister writes the config
+	// the restart reads.
+	setPublic(d, "stale.cap")
 	if err := d.HubRegister(context.Background(), h.URL, "n", []string{"stale.cap"}, ""); err != nil {
 		t.Fatal(err)
 	}

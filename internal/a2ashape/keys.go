@@ -52,6 +52,13 @@ const (
 	KeyTrust        = "anet.trust"
 	KeyReason       = x402a2a.KeyReason
 	KeyRetryAfterMS = "anet.retry_after_ms"
+	// KeyReceipt is the provider's signed receipt covering the task's
+	// output, as an object: the receipt (base64 CoreDet-CBOR), its fields
+	// decoded, whether this node verified it, and the provider KEL it was
+	// checked against. Present with the artifacts once a receipt covers a
+	// result. It is evidence, not output, so it is not an artifact
+	// (0017 Q21 P2; it was the anet.receipt artifact before).
+	KeyReceipt = "anet.receipt"
 	// KeyCancelRequested marks a requester's task whose cancel was sent
 	// after its payment was submitted (§4.2, 0017 Q3).
 	KeyCancelRequested = x402a2a.KeyCancelRequested
@@ -128,13 +135,12 @@ const (
 	KeySize = "anet.size"
 )
 
-// Artifact ids. anet.reply and anet.result are the deliverable and come
-// first; anet.receipt follows; attachments are anet.attachment.<n>.
+// Artifact ids: the deliverable, and nothing else. anet.reply is a text
+// task's reply with its files; anet.result a capability call's deliverable.
+// The receipt is task metadata (KeyReceipt).
 const (
-	ArtifactReply            = "anet.reply"
-	ArtifactResult           = "anet.result"
-	ArtifactReceipt          = "anet.receipt"
-	ArtifactAttachmentPrefix = "anet.attachment."
+	ArtifactReply  = "anet.reply"
+	ArtifactResult = "anet.result"
 )
 
 // ReasonUnavailable is the anet.reason given to an UNAVAILABLE capability

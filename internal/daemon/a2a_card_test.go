@@ -431,6 +431,7 @@ func TestFindMatchesLocallyAndDoesNotSendTheQuery(t *testing.T) {
 		name string
 		caps []string
 	}{{a, "Translator", []string{"text.translate"}}, {b, "Painter", []string{"image.paint"}}} {
+		setPublic(x.d, x.caps...) // only public capabilities are published (0017 Q14)
 		if err := x.d.RegisterWithHub(ctx, h.URL, x.name, x.caps, ""); err != nil {
 			t.Fatal(err)
 		}

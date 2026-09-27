@@ -143,6 +143,7 @@ reports a per-field status that does not fail the registration:
 | `unverified` | stored as received, not yet admitted (current reference behaviour) |
 | `invalid` | not a JSON object, or too large; not stored |
 | `ok`, `unchanged`, `conflict` | **(designed)** admitted as new; identical to the stored card; refused by the high-water rule (§5.2) |
+| `withdrawn` | the request carried `"a2a_card": null`: the registry deleted the agent's card and its index entries (a peer registry learns it as a withdrawal, §3.5). An absent member changes nothing |
 
 ### 3.5 Federation between registries: `GET /fed/v2/cards`
 

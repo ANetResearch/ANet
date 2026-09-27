@@ -222,21 +222,21 @@ func TestTextTaskCompleted(t *testing.T) {
 		file.MediaType != "image/png" || file.Metadata[a2ashape.KeyCID] != "bafkimg" {
 		t.Fatalf("reply attachment %+v", file)
 	}
-	// Artifacts: reply, receipt, attachment.
-	if len(sdk.Artifacts) != 3 || sdk.Artifacts[0].ID != a2ashape.ArtifactReply || sdk.Artifacts[1].ID != a2ashape.ArtifactReceipt ||
-		sdk.Artifacts[2].ID != a2ashape.ArtifactAttachmentPrefix+"0" {
+	// Artifacts: the reply only, its text and then its file (0017 Q21 P1);
+	// the receipt is metadata, not output (P2).
+	if len(sdk.Artifacts) != 1 || sdk.Artifacts[0].ID != a2ashape.ArtifactReply || len(sdk.Artifacts[0].Parts) != 2 {
 		t.Fatalf("artifacts %+v", sdk.Artifacts)
 	}
 	if sdk.Artifacts[0].Parts[0].Text() != "waves fold\nsalt remembers\nthe shore" {
 		t.Errorf("reply %+v", sdk.Artifacts[0].Parts)
 	}
-	rc, _ := sdk.Artifacts[1].Parts[0].Data().(map[string]any)
+	if f := sdk.Artifacts[0].Parts[1]; string(f.Raw()) != "\x01\x02\x03" || f.Filename != "safe-.bashrc" {
+		t.Errorf("reply file %+v", f)
+	}
+	rc, _ := sdk.Metadata[a2ashape.KeyReceipt].(map[string]any)
 	if rc["verified"] != "verified" || rc["result_cid"] != "bafyresult" || rc["provider_aid"] != peer ||
 		rc["provider_kel"] != "a2VsCg==" || rc["receipt_cid"] == nil || rc["receipt"] == "" {
-		t.Errorf("receipt artifact %v", rc)
-	}
-	if f := sdk.Artifacts[2].Parts[0]; string(f.Raw()) != "\x01\x02\x03" || f.Filename != "safe-.bashrc" {
-		t.Errorf("attachment artifact %+v", f)
+		t.Errorf("receipt metadata %v", rc)
 	}
 
 	// The same task without inline bytes and without a name sanitizer:
@@ -244,7 +244,7 @@ func TestTextTaskCompleted(t *testing.T) {
 	ref, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{Artifacts: true})
 	must(t, err)
 	sdk = contract(t, ref)
-	f := sdk.Artifacts[2].Parts[0]
+	f := sdk.Artifacts[0].Parts[1]
 	if f.URL() != a2a.URL(a2ashape.AttachmentURI(ix, "bafkimg")) || f.Filename != "" || f.Raw() != nil {
 		t.Fatalf("by-reference part %+v", f)
 	}
@@ -257,7 +257,7 @@ func TestTextTaskCompleted(t *testing.T) {
 	short, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{HistoryLength: &one})
 	must(t, err)
 	sdk = contract(t, short)
-	if len(sdk.History) != 1 || sdk.History[0].ID != "msg_6" || sdk.Artifacts != nil {
+	if len(sdk.History) != 1 || sdk.History[0].ID != "msg_6" || sdk.Artifacts != nil || sdk.Metadata[a2ashape.KeyReceipt] != nil {
 		t.Fatalf("historyLength=1: %+v", sdk)
 	}
 	zero := 0
@@ -384,9 +384,9 @@ func TestCapabilityUnverifiedIsCompletedNotOK(t *testing.T) {
 	if req["skill"] != "cas.put" || args["key"] != "k" || args["n"] != 3.0 {
 		t.Fatalf("request part %v", req)
 	}
-	// The deliverable comes first, then the receipt.
-	if len(sdk.Artifacts) != 2 || sdk.Artifacts[0].ID != a2ashape.ArtifactResult || sdk.Artifacts[1].ID != a2ashape.ArtifactReceipt {
-		t.Fatalf("artifacts %+v", sdk.Artifacts)
+	// The deliverable is the one artifact; the receipt is metadata.
+	if len(sdk.Artifacts) != 1 || sdk.Artifacts[0].ID != a2ashape.ArtifactResult || sdk.Metadata[a2ashape.KeyReceipt] == nil {
+		t.Fatalf("artifacts %+v metadata %v", sdk.Artifacts, sdk.Metadata)
 	}
 	if d, _ := sdk.Artifacts[0].Parts[0].Data().(map[string]any); d["status"] != "UNVERIFIED" {
 		t.Fatalf("deliverable %v", d)

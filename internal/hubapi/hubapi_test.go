@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/payment"
@@ -175,10 +176,28 @@ func TestTheCardStatusValuesArePinned(t *testing.T) {
 	for want, got := range map[string]string{
 		"ok": hubapi.CardStatusOK, "unchanged": hubapi.CardStatusUnchanged, "absent": hubapi.CardStatusAbsent,
 		"invalid": hubapi.CardStatusInvalid, "conflict": hubapi.CardStatusConflict, "unverified": hubapi.CardStatusUnverified,
+		"withdrawn": hubapi.CardStatusWithdrawn,
 	} {
 		if got != want {
 			t.Errorf("card_status %q, want %q — the hub reports these exact strings", got, want)
 		}
+	}
+}
+
+// A registration that withdraws its card sends "a2a_card": null, which
+// the hub reads as the withdrawal; an absent field means no change, so
+// the null must survive omitempty.
+func TestACardWithdrawalIsSentAsNull(t *testing.T) {
+	b, err := json.Marshal(hubapi.RegisterRequest{AID: "a", KEL: "k", A2ACard: json.RawMessage(hubapi.WithdrawCard)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"a2a_card":null`) {
+		t.Fatalf("withdrawal encodes as %s", b)
+	}
+	b, _ = json.Marshal(hubapi.RegisterRequest{AID: "a", KEL: "k"})
+	if strings.Contains(string(b), "a2a_card") {
+		t.Fatalf("no card encodes as %s", b)
 	}
 }
 
