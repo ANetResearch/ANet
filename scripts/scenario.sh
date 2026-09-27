@@ -352,10 +352,12 @@ info "C $C"
 # ── 2. joining is what makes you findable ───────────────────────
 hd "2  加入之后才可被发现"
 # Registered and listed are different states, and the difference is the
-# hub's own rule: it lists what advertises a service. C joined with no
-# capabilities, so it is reachable and not in the directory — which is
-# correct, and a test that demanded three listings would have been
-# demanding a bug.
+# hub's own rule: it lists what advertises a service. A registration
+# advertises public capabilities only (0017 Q14, A2A-DESIGN §10.2): A has
+# one (text.digest.paid); B declares "chat" but makes nothing public, and C
+# declares nothing. Both are reachable and not in the directory — which is
+# correct, and a test that demanded more listings would be demanding a bug.
+# (Before Q14 this expected A and B; docs/notes/0024.)
 reg=0
 for x in "$A" "$B" "$C"; do
   curl -sf -m 10 "$HUB/agents/$x/kel" >/dev/null 2>&1 && reg=$((reg+1))
@@ -364,9 +366,9 @@ done
 listed=$(curl -s -m 10 "$HUB/agents" | python3 -c "
 import sys,json
 ags={a['aid'] for a in json.load(sys.stdin).get('agents') or []}
-print(sum(1 for x in ['$A','$B','$C'] if x in ags))")
-[ "$listed" = 2 ] && ok "目录里只有 A 和 B —— 加入 ≠ 上架,C 没有声明能力" \
-  || no "目录里有 $listed 个,期望 2(只有声明了能力的会被列出)"
+print(''.join(n for n, x in (('A','$A'),('B','$B'),('C','$C')) if x in ags))")
+[ "$listed" = A ] && ok "目录里只有 A —— 加入 ≠ 上架,B 声明的能力没有公开(Q14),C 没有声明能力" \
+  || no "目录里是 '$listed',期望只有 A(只有公开能力会被列出,0017 Q14)"
 found=$(ctl C /find '{"query":"digest"}' | python3 -c "
 import sys,json
 print(next((a['name'] for a in json.load(sys.stdin).get('agents') or [] if a['aid']=='$A'), ''))")
@@ -392,9 +394,11 @@ echo "$card" | python3 -c "
 import sys,json
 c=json.load(sys.stdin)
 assert c['subject_did']=='$A', 'subject mismatch'
-assert 'text.digest' in c['capabilities'], c['capabilities']
+assert 'text.digest.paid' in c['capabilities'], c['capabilities']
+# Q14: the private text.digest and the declared-only digest are not published.
+assert 'text.digest' not in c['capabilities'] and 'digest' not in c['capabilities'], c['capabilities']
 assert c['envelope']['signer_aid']=='$A'
-" 2>/dev/null && ok "目录里 A 的条目是 A 自己签的(能力在签名内,hub 改不动)" \
+" 2>/dev/null && ok "目录里 A 的条目是 A 自己签的(公开能力在签名内,hub 改不动;私有能力不在其中)" \
   || no "A 没有已签名的卡片: $(echo "$card" | head -c 160)"
 
 # ── 3. every pair can actually reach the others ─────────────────
@@ -801,7 +805,8 @@ pin_a2a "$ROOT/D/.anet" $((PORT_BASE + 63))
 cat > "$ROOT/D/.anet/config.json" <<CFG
 {"control_addr":"127.0.0.1:$((PORT_BASE+13))","hub_url":"$HUB2","name":"NodeD","caps":["remote.digest"],
  "modules":{"service":{"capabilities":[
-   {"id":"remote.digest","url":"http://127.0.0.1:$SVC_PORT","description":"sha256, on the other hub"}]}}}
+   {"id":"remote.digest","url":"http://127.0.0.1:$SVC_PORT","description":"sha256, on the other hub"}]}},
+ "inbound":{"policy":"closed","public_capabilities":[{"id":"remote.digest"}]}}
 CFG
 setsid env HOME="$ROOT/D" "$BIN/anet" daemon >"$ROOT/D.log" 2>&1 </dev/null &
 sleep 4
@@ -859,8 +864,9 @@ for x in json.load(sys.stdin).get('results') or []:
 import sys,json;print((json.load(sys.stdin).get('reputation') or {}).get('local',{}).get('reviews',0))")
     [ "${lr:-0}" -ge 1 ] && ok "跨 hub 的活可以被评价了(评价方的 hub 收下了它自己用户的评分)" \
       || no "跨 hub 交互仍然无法评价(hub1 本地评价数 ${lr:-0})"
-    # hub2 拉过去,并且落在 peer 那一列而不是本地列
-    for _ in $(seq 1 20); do
+    # hub2 拉过去,并且落在 peer 那一列而不是本地列。同步节奏空转后放宽到 2 分钟一轮(ANetHub
+    # cmd/anet-hub/wire_federation.go syncLoop),所以等到 150 秒(原 60 秒在测试主机上等不到,0024)。
+    for _ in $(seq 1 50); do
       pr=$(curl -s -m 10 "$HUB2/agents/$D/reputation" | python3 -c "
 import sys,json
 r=json.load(sys.stdin).get('reputation') or {}
@@ -1358,7 +1364,7 @@ CFG
 )
   qcfg=$(cat <<CFG
 {"control_addr":"127.0.0.1:$((XB2+2))","hub_url":"$HUB2X","name":"NodeQ","caps":["xhub.review"],
- "inbound":{"policy":"approve"}}
+ "inbound":{"policy":"approve","public_capabilities":[{"id":"xhub.review"}]}}
 CFG
 )
   x2 "umask 077; printf '%s\n' $(q "$pcfg") >\"\$S2/P/.anet/config.json\"; printf '%s\n' $(q "$qcfg") >\"\$S2/Q/.anet/config.json\"
@@ -1726,7 +1732,7 @@ print(("Q" if sys.argv[1] in ags else "") + ("P" if sys.argv[2] in ags else ""))
   ctl2 P /tasks/reply "{\"task_id\":\"$TTL_R4\",\"text\":\"$reply\",\"state\":\"completed\"}" >/dev/null
   waitfor 60 heard_it R4 "$TTL_R4" "$reply" && ok "P 重启后、超过缓存时限才回复,仍送到了跨 hub 的纯请求方 R4" \
     || no "R4 没收到超时限的回复"
-  if waitfor 30 keys_rechecked R4 "${kc:-0}"; then
+  if waitfor 30 keys_rechecked "$R4" "${kc:-0}"; then
     ok "这次回复触发的密钥复核成功了:X2 经 /fed/v2/keys 向 hub1 取到 R4 的密钥(keys_checked_at 前进)"
   else
     no "P 没有重新核实 R4 的密钥(keys_checked_at 未前进)$(p_logged "$mark" "revalidating $R4's keys" && echo ',日志里复核失败')"
@@ -1768,7 +1774,7 @@ xhub_c32(){
   else
     no "超时限回复:P 没有因为关掉查询而复核失败"
   fi
-  keys_rechecked R2 "${kc:-0}" && no "关掉查询后 P 仍刷新了 R2 的密钥记录(密钥从哪来的?)" \
+  keys_rechecked "$R2" "${kc:-0}" && no "关掉查询后 P 仍刷新了 R2 的密钥记录(密钥从哪来的?)" \
     || ok "……P 对 R2 的记录没有刷新(8.5 里同样的复核在查询开着时刷新了 R4 的)"
   waitfor 60 heard_it R2 "$TTL_R2" "$reply" && ok "……回复仍以已存密钥送到 R2(§3.5 [C2]:hub 404 时继续用已存)" \
     || no "关掉查询后 R2 没收到回复"
