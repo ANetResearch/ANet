@@ -664,7 +664,9 @@ esac
 HCAPS=$(curl -s -m 10 "$HUB_URL/agents/${AID_OF[tools]}" | python3 -c '
 import sys, json
 try:
-    print(" ".join(sorted(json.load(sys.stdin).get("caps") or [])))
+    d = json.load(sys.stdin)
+    # GET /agents/{aid} answers {"agent": {…, "caps": […]}, "reviews": […]}.
+    print(" ".join(sorted((d.get("agent") or d).get("caps") or [])))
 except Exception:
     print("")')
 case " $HCAPS " in
@@ -878,8 +880,13 @@ read -r AMT PAYTO <<<"$PRICE"
 [ "$(printf '%s' "$T" | tq anet.reason)" = needs_operator_approval ] \
   && ok "and waits for the operator (anet.reason=needs_operator_approval): auto_max is 0" \
   || no "the waiting task's reason is '$(printf '%s' "$T" | tq anet.reason)', expected needs_operator_approval"
+# The agent tier over its limit is not an error (0017 Q26): the task stays input-required for the
+# operator, the answer names the refusal (spend_refusal) and what the operator does first. Nothing is
+# signed either way; the checks below confirm it.
 C=$(ctlc a /tasks/pay "{\"task_id\":\"$PIX\",\"decision\":\"submit\"}")
-[ "$C" = 403 ] && ok "an agent (/tasks/pay, agent_max 0) cannot pay it: 403 $(jget reason < "$RUN/ctlc.out")" \
+[ "$C" = 200 ] && [ "$(jget spend_refusal < "$RUN/ctlc.out")" = over_single_limit ] \
+  && [ "$(jget anet.reason < "$RUN/ctlc.out")" = needs_operator_approval ] \
+  && ok "an agent (/tasks/pay, agent_max 0) cannot pay it: the task waits for the operator (spend_refusal over_single_limit)" \
   || no "/tasks/pay on a fresh install answered $C: $(head -c 200 "$RUN/ctlc.out")"
 C=$(ctlc a /tasks/pay-manual "{\"task_id\":\"$PIX\",\"decision\":\"submit\"}")
 [ "$C" = 403 ] && [ "$(jget reason < "$RUN/ctlc.out")" = payee_not_allowed ] \
