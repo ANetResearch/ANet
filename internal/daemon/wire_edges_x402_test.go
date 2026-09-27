@@ -99,6 +99,12 @@ func TestACancelAfterASettledPaymentLeavesTheTaskOpen(t *testing.T) {
 	if pm := req.PaymentStatusMeta(getIX(t, req, id)); pm[x402a2a.KeyCancelRequested] != nil {
 		t.Errorf("a completed task still says its cancel is pending: %v", pm)
 	}
+	// Ignored means not stopped either: a cancel that stopped the running
+	// call would still end completed here, because this provider reports
+	// OK whenever it returns (mutation c34-1, 0026).
+	if work.stopped.Load() {
+		t.Error("the requester's cancel stopped the paid call while it ran")
+	}
 
 	// Quoted, not paid: the cancel ends the task.
 	unpaid := &meteredWork{price: 30}
