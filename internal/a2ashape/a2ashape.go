@@ -250,6 +250,10 @@ func (p Part) MarshalJSON() ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("a2ashape: data part: %w", err)
 		}
+		if string(b) == "null" {
+			// Both readers take "data":null for no data at all.
+			return nil, errors.New("a2ashape: data part with null data")
+		}
 		rm := json.RawMessage(b)
 		w.Data = &rm
 	default:
@@ -438,7 +442,31 @@ func decodeJSON(b []byte) (any, error) {
 	if dec.More() {
 		return nil, errors.New("trailing data after the JSON value")
 	}
-	return v, nil
+	return finite(v), nil
+}
+
+// finite replaces a number too large for a float64 (1e400) with its text.
+// Numbers are otherwise kept as written, but a reader that decodes into
+// float64 — a2a-go, which module/a2a converts to — refuses such a number
+// outright, and the value may be a peer's (message metadata, a
+// deliverable): one of them would make the task, and any ListTasks page
+// holding it, unreadable to the local A2A client.
+func finite(v any) any {
+	switch x := v.(type) {
+	case json.Number:
+		if _, err := x.Float64(); err != nil {
+			return x.String()
+		}
+	case map[string]any:
+		for k, e := range x {
+			x[k] = finite(e)
+		}
+	case []any:
+		for i, e := range x {
+			x[i] = finite(e)
+		}
+	}
+	return v
 }
 
 // decodeObject decodes a JSON object (numbers as json.Number). Anything
