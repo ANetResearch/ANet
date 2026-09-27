@@ -17,13 +17,13 @@ const (
 // setA2A writes the local A2A interface's state files as module/a2a does.
 func (h *host) setA2A(addr, token string) {
 	h.t.Helper()
-	if err := os.MkdirAll(h.data, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(a2aStatePath(h.data, A2AAddrFile)), 0o700); err != nil {
 		h.t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.data, A2AAddrFile), []byte(addr+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(a2aStatePath(h.data, A2AAddrFile), []byte(addr+"\n"), 0o600); err != nil {
 		h.t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(h.data, A2ATokenFile), []byte(token+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(a2aStatePath(h.data, A2ATokenFile), []byte(token+"\n"), 0o600); err != nil {
 		h.t.Fatal(err)
 	}
 }
