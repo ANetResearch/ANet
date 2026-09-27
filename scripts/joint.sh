@@ -574,6 +574,15 @@ PY
   [ "$st" = completed ] && thread_has cr "${T:-none}" "$DONE" 5 \
     && ok "the task completed, and the requester holds the final answer" \
     || no "the task ended '${st:-unknown}' at the requester, or without the final answer"
+  # The hub federates a review only when its subject has opted in (visibility federated or public; a
+  # local subject's hub-local default keeps its reputation on this hub). Without this the review stream
+  # below would answer, correctly, with nothing, and its zero canary hits would mean nothing. Visibility
+  # decides what the directory and the review stream publish about the provider — its card, name and
+  # ratings — never the content of a task, so the SI-1 searches lose nothing: the stream now carries a
+  # review of the canary task, and it is searched like every other surface.
+  v=$(ctl cp /visibility '{"visibility":"federated"}' | jget visibility)
+  [ "$v" = federated ] && ok "the canary provider publishes as federated, so its reviews reach the review stream" \
+    || no "the canary provider's visibility was not set: '${v:-none}'"
   R=$(ctl cr /review "{\"interaction_id\":\"${T:-none}\",\"rating\":5,\"comment\":\"joint canary run\"}")
   [ "$(printf '%s' "$R" | jget uploaded)" = True ] && ok "the requester's review of it went to the hub" \
     || no "the review was not uploaded: $(printf '%s' "$R" | head -c 200)"
