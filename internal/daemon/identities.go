@@ -19,65 +19,38 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/ANetResearch/ANetCore/identity"
+
+	"github.com/ANetResearch/ANet/internal/anethome"
 )
 
 // controlPortBase is where auto-allocation starts scanning (matches the historical single-daemon default,
 // so the FIRST identity created still lands on 39811 and legacy installs are unaffected).
 const controlPortBase = 39811
 
-// identityNameRe constrains identity names to a filesystem- and URL-safe token.
-var identityNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+// The layout itself — the home, <home>/ids/<name>, the name rules and the walk over every identity — is
+// internal/anethome, shared with module/a2a (which may not import this package) so that both port
+// allocators see the same set of identities. The functions below keep the daemon's API.
 
 // ValidIdentityName reports whether name is a legal identity name. "default" is allowed (it maps to the
 // flat home root); the literal "ids" is reserved (it is the container subdir).
-func ValidIdentityName(name string) bool {
-	if name == "" || name == "ids" || len(name) > 64 {
-		return false
-	}
-	return identityNameRe.MatchString(name)
-}
+func ValidIdentityName(name string) bool { return anethome.ValidName(name) }
 
 // AnetHome is the container for named identities: env ANET_HOME, else ~/.anet, else ./.anet. It is
 // deliberately independent of ANET_DATA_DIR (which is a raw single-dir override handled in ResolveLayout).
-func AnetHome() string {
-	if d := os.Getenv("ANET_HOME"); d != "" {
-		return d
-	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return ".anet"
-	}
-	return filepath.Join(home, ".anet")
-}
+func AnetHome() string { return anethome.Home() }
 
 // IdentityLayout returns the data-dir layout for a named identity. "" or "default" → the flat home root
 // (backward compatible); any other name → <home>/ids/<name>.
-func IdentityLayout(name string) Layout {
-	if name == "" || name == "default" {
-		return Layout{Root: AnetHome()}
-	}
-	return Layout{Root: filepath.Join(AnetHome(), "ids", name)}
-}
+func IdentityLayout(name string) Layout { return Layout{Root: anethome.Dir(name)} }
 
 // IdentityNameForDir is the reverse map used for diagnostics: given a data dir, return the identity name
 // ("default" for the home root, the subdir name for <home>/ids/<name>, or "" for an unrelated raw dir).
-func IdentityNameForDir(dir string) string {
-	clean := filepath.Clean(dir)
-	if clean == filepath.Clean(AnetHome()) {
-		return "default"
-	}
-	idsDir := filepath.Clean(filepath.Join(AnetHome(), "ids"))
-	if parent := filepath.Dir(clean); parent == idsDir {
-		return filepath.Base(clean)
-	}
-	return ""
-}
+func IdentityNameForDir(dir string) string { return anethome.NameForDir(dir) }
 
 // currentPath holds the name selected by `anet id use`.
 func currentPath() string { return filepath.Join(AnetHome(), "current") }
@@ -224,14 +197,8 @@ func ListIdentities() ([]IdentityInfo, error) {
 			Running: running[cfg.ControlAddr], Current: name == cur,
 		})
 	}
-	add("default", AnetHome())
-	ents, err := os.ReadDir(filepath.Join(AnetHome(), "ids"))
-	if err == nil {
-		for _, e := range ents {
-			if e.IsDir() && ValidIdentityName(e.Name()) {
-				add(e.Name(), filepath.Join(AnetHome(), "ids", e.Name()))
-			}
-		}
+	for _, id := range anethome.Identities() {
+		add(id.Name, id.Dir)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil

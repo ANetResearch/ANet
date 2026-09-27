@@ -45,10 +45,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/module"
 )
 
-const name = module.A2AModuleName
+const name = anethome.A2AModule
 
 func init() {
 	module.Register(name, New)

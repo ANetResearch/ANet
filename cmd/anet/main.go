@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/loopguard"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -456,8 +457,14 @@ func localDaemonUp(layout daemon.Layout) bool {
 	if err != nil {
 		return false
 	}
+	// The token is sent only to a loopback address (A2A-DESIGN §7.1); a daemon cannot be serving on any
+	// other, since it refuses to start there.
+	addr := daemon.LocalControlAddr(layout)
+	if loopguard.CheckLoopbackAddr(addr) != nil {
+		return false
+	}
 	c := &client{
-		base:    "http://" + daemon.LocalControlAddr(layout),
+		base:    "http://" + addr,
 		token:   strings.TrimSpace(string(tb)),
 		timeout: 1500 * time.Millisecond,
 	}

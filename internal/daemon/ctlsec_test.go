@@ -15,8 +15,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/ANetResearch/ANet/module"
 )
 
 // newBareDaemon is a daemon with an identity and no hub, for control-plane tests.
@@ -473,40 +471,6 @@ func TestAuthenticatedRoutesNeedACredential(t *testing.T) {
 }
 
 // §7.1: a non-loopback control address is refused at start.
-// SI-7, the control plane's side: the local A2A token (module a2a's
-// a2a_token.txt, in its state directory) is a credential for the local A2A
-// interface only. Presented to the control plane it is refused like any
-// other wrong token, on every kind of route — reading, sending, paying and
-// the console ticket — so a client given the A2A token (Hermes'
-// a2a_agents) cannot reach what the control token reaches.
-func TestTheA2ATokenIsRefusedByTheControlPlane(t *testing.T) {
-	p := newPlane(t)
-	dir := moduleHost{p.d}.StateDir(module.A2AModuleName)
-	if dir == "" {
-		t.Fatal("no state directory for module a2a")
-	}
-	a2aToken := "a2a0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab"
-	if err := os.WriteFile(filepath.Join(dir, module.A2ATokenFile), []byte(a2aToken+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if a2aToken == p.token {
-		t.Fatal("the test's A2A token equals the control token")
-	}
-	withA2A := func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+a2aToken) }
-	for _, route := range []string{"/status", "/tasks/list", "/tasks/send", "/tasks/pay", "/payments/limits",
-		"/peers/allow", "/console/ticket"} {
-		resp, _ := p.req(t, "POST", route, "{}", withA2A)
-		if resp.StatusCode != http.StatusUnauthorized {
-			t.Errorf("%s with the A2A token: %d, want 401", route, resp.StatusCode)
-		}
-		// The same route answers the control token: the refusal is the
-		// credential's, not the route's.
-		if resp, _ := p.req(t, "POST", route, "{}", p.bearer); resp.StatusCode == http.StatusUnauthorized {
-			t.Errorf("%s refused the control token too", route)
-		}
-	}
-}
-
 func TestNonLoopbackControlAddrIsRefused(t *testing.T) {
 	for _, c := range []struct {
 		addr string

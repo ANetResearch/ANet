@@ -43,6 +43,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
+	"github.com/ANetResearch/ANet/internal/loopguard"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -121,7 +122,11 @@ func (s *server) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	hdr.Set("X-Content-Type-Options", "nosniff")
 	hdr.Set("Cache-Control", "no-store")
 	hdr.Set("Referrer-Policy", "no-referrer")
-	if !allowedHost(r.Host, s.cfg.port) {
+	// The control plane's Host rule, from the one place both take it
+	// (internal/loopguard): a loopback name and exactly this listener's
+	// port. A name bound to a loopback address by DNS is not enough, which
+	// is what defeats DNS rebinding.
+	if !loopguard.AllowedHost(r.Host, s.cfg.port) {
 		writeError(w, http.StatusMisdirectedRequest, a2a.ErrInvalidRequest,
 			"misdirected request: the local A2A interface answers only to 127.0.0.1, localhost or [::1] on port "+s.cfg.port)
 		return
@@ -364,28 +369,6 @@ func (s *server) serveCard(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
-}
-
-// loopbackName reports whether host (brackets removed) is one of the three
-// names this interface answers to — the control plane's rule
-// (internal/daemon ctlsec.go).
-func loopbackName(host string) bool {
-	switch strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")) {
-	case "127.0.0.1", "localhost", "::1":
-		return true
-	}
-	return false
-}
-
-// allowedHost reports whether a Host header names this listener: a
-// loopback name and exactly its port. A name bound to a loopback address
-// by DNS is not enough, which is what defeats DNS rebinding.
-func allowedHost(host, port string) bool {
-	h, p, err := net.SplitHostPort(host)
-	if err != nil {
-		h, p = host, "80"
-	}
-	return port != "" && p == port && loopbackName(h)
 }
 
 // responseWriter is the ResponseWriter the handlers see. It records

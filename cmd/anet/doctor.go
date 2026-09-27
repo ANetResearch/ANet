@@ -24,7 +24,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/loopguard"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -161,6 +163,11 @@ func defaultDoctorEnv() doctorEnv {
 // localDaemonUp finds the address through LoadConfig, which writes a
 // config.json when there is none, and doctor writes nothing.
 func daemonAnswersAt(addr, tokenPath string) bool {
+	// Only a loopback control address is sent the token (§7.1); the daemon
+	// does not start on any other.
+	if loopguard.CheckLoopbackAddr(addr) != nil {
+		return false
+	}
 	tb, err := os.ReadFile(tokenPath)
 	if err != nil {
 		return false
@@ -279,10 +286,10 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 
 	// Local A2A interface (module a2a, §11).
 	rep.A2A.Compiled = slices.Contains(rep.Modules, "a2a")
-	// module/a2a keeps them in its state directory (module.StatePath).
-	a2aDir := module.StatePath(layout.Root, module.A2AModuleName)
-	rep.A2A.AddrFile = statFile(filepath.Join(a2aDir, module.A2AAddrFile))
-	rep.A2A.Token = statFile(filepath.Join(a2aDir, module.A2ATokenFile))
+	// The module keeps both files in its state directory (anethome.A2ADir),
+	// the same path in every build, no_a2a included.
+	rep.A2A.AddrFile = statFile(filepath.Join(anethome.A2ADir(layout.Root), anethome.A2AAddrFile))
+	rep.A2A.Token = statFile(filepath.Join(anethome.A2ADir(layout.Root), anethome.A2ATokenFile))
 	if rep.A2A.AddrFile.Present {
 		if b, err := os.ReadFile(rep.A2A.AddrFile.Path); err == nil {
 			rep.A2A.Addr = strings.TrimSpace(string(b))
