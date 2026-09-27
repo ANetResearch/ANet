@@ -246,7 +246,7 @@ func addTaskTools(s *mcp.Server, c Control) {
 		Description: "Cancel a task this node sent: the other agent is told to stop, and the task " +
 			"becomes canceled. After a payment was submitted it cannot be taken back: the task stays " +
 			"working with metadata anet.cancel_requested=true and the other side finishes it.",
-		Annotations: sendsToPeer(true),
+		Annotations: endsTask(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in taskIDIn) (*mcp.CallToolResult, any, error) {
 		if in.TaskID == "" {
 			return nil, nil, fmt.Errorf("task_id is required")

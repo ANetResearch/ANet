@@ -160,6 +160,14 @@ func sendsToPeer(idempotent bool) *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{DestructiveHint: ptr(false), IdempotentHint: idempotent, OpenWorldHint: ptr(true)}
 }
 
+// endsTask is cancel_task: it sends to another agent and spends nothing,
+// but a cancel cannot be taken back, so it is marked destructive (the
+// cautious value, as the MCP default is); a second cancel of the same task
+// changes nothing more, so it is idempotent.
+func endsTask() *mcp.ToolAnnotations {
+	return &mcp.ToolAnnotations{DestructiveHint: ptr(true), IdempotentHint: true, OpenWorldHint: ptr(true)}
+}
+
 // spends is a tool that spends this node's credit.
 func spends() *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{DestructiveHint: ptr(true), OpenWorldHint: ptr(true)}

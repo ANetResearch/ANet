@@ -705,7 +705,7 @@ Task 表示 [C21]:
 | `get_task` | `/tasks/get` | `task_results` 单条 | readOnly |
 | `list_tasks` | `/tasks/list`(含 `context_id`、`role`、`state` 过滤) | `task_results` + `task_inbox` | readOnly |
 | `wait_task` | `/tasks/wait` | 新 | readOnly |
-| `cancel_task` | `/tasks/cancel` | 新 | — |
+| `cancel_task` | `/tasks/cancel` | 新 | destructive(取消不可撤销,按默认安全取保守值)、idempotent |
 | `reply_task` | `/tasks/reply` | provider 的 `task_message`/`task_end` | openWorld;始终注册,无可回复任务时返回明确错误 [m] |
 | `submit_payment` / `reject_payment` | `/tasks/pay`(§8.6 agent 档) | `task_delegate.pay` | destructive / — |
 | `get_balance` | — | `credit_balance` | readOnly |
