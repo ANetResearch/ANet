@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/official"
@@ -328,22 +329,36 @@ func TestDoctorReportsTheOfficialManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	off, _ := out["official"].(map[string]any)
-	if off["status"] != "ok" || off["seq"] == nil || off["expires_at"] == nil {
-		t.Fatalf("official: %v", out["official"])
-	}
-
 	m, err := official.Embedded()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var rep doctorReport
-	var checks []doctorCheck
-	add := func(id, status, detail, hint string) {
-		checks = append(checks, doctorCheck{ID: id, Status: status, Detail: detail, Hint: hint})
+	// What --json reports is the embedded manifest, fresh or not by today's
+	// clock: the committed manifest expires (it is re-signed for each
+	// release), and a test that fails on a date fails for no change.
+	wantStatus := "ok"
+	if m.CheckFresh(time.Now()) != nil {
+		wantStatus = "expired"
 	}
-	officialCheck(add, &rep, m.Expires())
-	if rep.Official.Status != "expired" || len(checks) != 1 || checks[0].Status != stWarn || checks[0].Hint != "anet update" {
+	off, _ := out["official"].(map[string]any)
+	if off["status"] != wantStatus || off["seq"] != float64(m.Seq) || off["expires_at"] != m.ExpiresAt ||
+		off["key_fingerprint"] != m.KeyFingerprint || off["agents"] != float64(len(m.Agents)) {
+		t.Fatalf("official: %v, want status %s of the embedded manifest (seq %d)", out["official"], wantStatus, m.Seq)
+	}
+
+	at := func(now time.Time) (doctorReport, []doctorCheck) {
+		var rep doctorReport
+		var checks []doctorCheck
+		add := func(id, status, detail, hint string) {
+			checks = append(checks, doctorCheck{ID: id, Status: status, Detail: detail, Hint: hint})
+		}
+		officialCheck(add, &rep, now)
+		return rep, checks
+	}
+	if rep, checks := at(m.Expires().Add(-time.Hour)); rep.Official.Status != "ok" || len(checks) != 1 || checks[0].Status != stInfo {
+		t.Fatalf("before expiry: %+v %+v", rep.Official, checks)
+	}
+	if rep, checks := at(m.Expires()); rep.Official.Status != "expired" || len(checks) != 1 || checks[0].Status != stWarn || checks[0].Hint != "anet update" {
 		t.Fatalf("at expiry: %+v %+v", rep.Official, checks)
 	}
 }
