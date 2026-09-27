@@ -393,6 +393,10 @@ third parties can witness.
 - MUST settle an authorization id at most once and answer repeats with the original receipt.
 - MUST enforce at most one settlement per `(payer, interaction_id)` for non-empty bindings.
 - MUST NOT settle a payment for another hub's network on its own ledger.
+- Does not authenticate the caller of `/x402/verify` and `/x402/settle` (as in x402). Whoever holds
+  a payload can present it, but it settles only to the payee and for the amount the payer signed,
+  and only once, so a third party that obtains it can move nothing the payer did not authorize. In
+  A2A the payload travels only inside the end-to-end encrypted task messages.
 
 **Merchant.**
 - MUST check, before calling the facilitator: `payTo` is itself, amount at least the quote, binding

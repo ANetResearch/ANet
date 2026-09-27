@@ -365,10 +365,13 @@ over two transports is processed once.
 
 ### 8.1 Versioning
 
-Every hub response carries `X-ANet-Wire: 2`. A request to `/relay/*` without `X-ANet-Wire` or with
-a value below 2 receives **426 Upgrade Required** with a JSON body naming the required version. A
-request declaring a version above the hub's receives 400. A node that finds a hub below wire 2
-refuses to use it. There is no fallback to the earlier, unencrypted relay.
+Every response of the endpoints in §8.3 carries `X-ANet-Wire: 2`, except `GET /hub/identity`, which
+the reference hub serves outside its versioned router (a client learns the wire version from any
+other response, for example the first `/relay/poll`). A request to `/relay/*` without
+`X-ANet-Wire` or with a value below 2 receives **426 Upgrade Required** with a JSON body naming the
+required version (`required_wire`). A request to any of these endpoints declaring a version above
+the hub's receives 400. A node that finds a hub below wire 2 refuses to use it. There is no fallback
+to the earlier, unencrypted relay.
 
 ### 8.2 Request authentication (relayauth v2)
 
@@ -396,8 +399,11 @@ preimage = "anet-relay/v2/" action "/" aid "/" hubAID "/" decimal(ts) "/"
   sent (escaped path, `?`, raw query); `body` is the raw request body (empty if none). The hub reads
   the body (under the endpoint's size cap) and hashes it before decoding it.
 - The hub accepts `|now − ts| <= 5 min` and verifies the signature against the KEL it holds for the
-  signer (identity check at `msgTime = ts`). It then records `(aid, sig)` until `ts + 5 min` and
-  refuses a second use (401). If its replay cache is full it answers 503 rather than evict.
+  signer (identity check at `msgTime = ts`). For `register` the signer may not be known yet, so the
+  hub verifies against the KEL in the request body, which must replay to the `aid` being registered
+  and must extend any KEL the hub already holds for it (409 otherwise). It then records
+  `(aid, sig)` until `ts + 5 min` and refuses a second use (401). If its replay cache is full it
+  answers 503 rather than evict.
 
 This authentication is between the sender and the hub. It exists so that the hub can rate-limit
 and bound storage per sender (§8.4). It is **not** the A2A-level authentication of the sender to
@@ -411,9 +417,9 @@ All request and response bodies are JSON. Binary values (`envelope`, `keyset`, `
 | Endpoint | Auth (action) | Request | Response |
 |---|---|---|---|
 | `GET /hub/identity` | none | — | `{"aid": "<hub AID>", "kel": "<b64 KEL>"}` |
-| `POST /register` | `register` (signer = `aid` in body) | `{"aid", "name", "caps", "kel", "enc_keys"?, "a2a_card"?, …}` | `{"aid", "status", "keys_status", "keys_error"?, "card_status", "card_error"?}`; a key set or card that is refused is reported per field and does not fail the registration |
-| `GET /agents/{aid}/keys` | none | — | 200 `{"aid", "keyset", "kel"}`; 404 none here nor at any peer hub; 429 (federated lookups, per client address); 502 federated lookup failed |
-| `POST /agents/{aid}/keys` | `keys` (signer = path AID) | `{"keyset": "<b64>"}` | 200 `{"aid", "keys_status": "ok" \| "unchanged"}`; 400 does not verify; 409 rollback or fork (§6.3) |
+| `POST /register` | `register` (signer = `aid` in body) | `{"aid", "name", "caps", "kel", "enc_keys"?, "a2a_card"?, …}` | `{"aid", "status", "keys_status", "keys_error"?, "card_status", "card_error"?}`; a key set or card that is refused is reported per field and does not fail the registration. 403 when the hub admits by invitation only and the AID is new to it; 409 when `kel` does not extend the stored KEL; 429 per client address |
+| `GET /agents/{aid}/keys` | none | — | 200 `{"aid", "keyset", "kel"}`; 404 registered here without a key set, or held neither here nor at any peer hub; 429 (federated lookups, per client address); 502 federated lookup failed |
+| `POST /agents/{aid}/keys` | `keys` (signer = path AID) | `{"keyset": "<b64>"}` | 200 `{"aid", "keys_status": "ok" \| "unchanged"}`; 400 does not verify; 401 signer is not the path AID or not registered; 409 rollback or fork (§6.3) |
 | `POST /relay/send` | `send` (signer must be registered at this hub) | `{"to_aid": "<AID>", "envelope": "<b64>"}` | 200 `{"id": n, "status": "queued"}` or `{"status": "forwarded", "via_hub": "<peer hub AID>"}`, optionally `"recipient_quiet": true, "warning": "…"` |
 | `POST /relay/poll` | `poll` (mailbox = signer) | `{"limit": n}` (optional; default 100) | `{"messages": [{"id": n, "envelope": "<b64>"}]}`, oldest first |
 | `POST /relay/ack` | `ack` (mailbox = signer) | `{"ids": [n, …]}` | `{"acked": count}` |
@@ -495,7 +501,7 @@ needs no trust.
 | CancelTask | relayed; local state per §10.6 | `anet.message/1`, kind `cancel` |
 | SubscribeToTask | requester node, from its task mirror (§12) | none |
 | Create / Get / List / Delete push notification config | not supported: `PushNotificationNotSupportedError`; `capabilities.pushNotifications` is `false` | none |
-| GetExtendedAgentCard | not supported: `ExtendedAgentCardNotConfiguredError`; `capabilities.extendedAgentCard` is absent | none |
+| GetExtendedAgentCard | not supported: `capabilities.extendedAgentCard` is absent, so the call is `UnsupportedOperationError` (A2A §3.3.4) | none |
 
 Every core operation is available to the client (A2A §12.1). Three of them are answered without a
 round trip because, under store-and-forward, the client's node is the only party that can answer
@@ -505,6 +511,11 @@ provider's.
 
 Local answers are scoped (A2A §13.1): the node answers only for tasks it started, with the AID of
 the selected interface's `tenant`; any other id is `TaskNotFoundError`, checked before existence.
+
+In the reference node the task mirror (the requester's interaction store) and the per-task event
+bus that these local answers read are implemented; the local A2A interface that exposes them to
+A2A clients, and therefore the exact local error codes of this section, are **(designed,
+A2A-DESIGN §11)**.
 
 ### 10.2 Inner message types and bodies
 
@@ -564,6 +575,10 @@ AObjEnvelope = { 1 => tstr, 2 => uint, 3 => -8, 4 => bstr .size 64, ? 5 => tstr 
 A receiver MUST drop a `StatusMsg` whose `state` is not one of the six values rather than map it to
 a known state.
 
+Unlike the inner envelope map (§7.3), the body maps are extensible without a version change: a
+receiver ignores body keys it does not know. A new body field is therefore always optional, and a
+field whose meaning a receiver must understand needs a new `type` string instead.
+
 Note for reviewers: the request body is anet's own signed task document, not an A2A `Message`.
 This is what the reference implementation carries today, because the provider signs a receipt over
 the request CID. A generic profile that carries A2A ProtoJSON directly is an **open question**
@@ -594,8 +609,10 @@ The `metadata` field of each body is a JSON object. For requests it is the A2A
 |---|---|---|
 | `a2a.serviceParameters` | DelegateReq, ChatMsg | service parameters of the request (below) |
 | `anet.state` | ChatMsg from provider | `"working"` if the message does not ask for input |
+| `anet.state` | ResultResp | the state the result puts the task in: `completed`, `failed`, `rejected` or `input-required` (§10.5) |
+| `anet.effect_status` | ResultResp of a structured skill call | the provider's statement about the call's effect (`OK`, `UNVERIFIED`, `FAILED`, `UNAVAILABLE`, `PAYMENT_REQUIRED`); `completed` does not imply `OK` |
 | `anet.reason` | StatusMsg, ResultResp | machine-readable reason (§11) |
-| `anet.retry_after_ms` | StatusMsg | when a refused request may succeed if retried |
+| `anet.retry_after_ms` | StatusMsg, ResultResp | when a refused request may succeed if retried |
 | `anet.inbound` | StatusMsg | `"pending_approval"` when the task waits for the operator |
 | `anet.a2aError` | StatusMsg | A2A error name (§11) |
 | `x402.payment.*` | all | a2a-x402 v0.2 keys (see `x402-scheme-anet-credit.md`) |
@@ -636,7 +653,7 @@ custom-binding guide suggests `a2a-service-parameters` as an example name; see �
 | provider replies, needs input | `anet.message/1` `text` | `input-required` |
 | provider replies, keeps working | `anet.message/1` `text`, `anet.state: "working"` | `working` |
 | provider reports a state | `anet.status/1` | the state carried |
-| provider completes or fails | `anet.result/1` | `completed` (`done`) / `failed` |
+| provider answers with a result | `anet.result/1` | `anet.state` of the result when it is `completed`, `failed`, `rejected` or `input-required`; otherwise `failed` for status `failed`, `completed` for `done` |
 
 - No transition leaves a terminal state (`completed`, `failed`, `canceled`, `rejected`). A message
   that would do so is recorded but does not change the state.
@@ -646,6 +663,11 @@ custom-binding guide suggests `a2a-service-parameters` as an example name; see �
   that it answers `status{failed, anet.a2aError: "TaskNotFound"}`, rate limited like refusal notices.
 - `end_request` asks the provider to finish a conversational task; the provider node completes it
   on its own and returns `anet.result/1`. It has no A2A counterpart and is not needed by A2A clients.
+- A result is normally final. The exception is a priced structured skill call answered with a
+  quote (`anet.effect_status: PAYMENT_REQUIRED`, `anet.state: input-required`). The reference node
+  currently pays by sending the same work again as a new, prepaid task (`DelegateReq.payment`) and
+  leaves the quoted task in `input-required`. The a2a-x402 same-task flow, in which the payment and
+  the final result arrive on the quoted task itself, is **(designed, `x402-scheme-anet-credit.md`)**.
 
 ### 10.6 Cancel Task
 
@@ -653,9 +675,11 @@ The requester node sends `cancel` and returns the task from its mirror:
 
 - Not yet paid, or no payment involved: the local state becomes `canceled` immediately; the
   provider cancels its work if it can and confirms with `status{canceled}`. No receipt is issued.
-- A payment was already submitted (a2a-x402 `payment-submitted`): the local state does not change;
-  the task is returned as `working` with metadata `anet.cancel_requested: true`, and the outcome is
-  whatever the provider reports next. A provider that has settled a payment does not cancel.
+- A payment was already submitted (a2a-x402 `payment-submitted`): the local state does not change
+  (normally `working`); the cancel is recorded in the task's message log, and the outcome is
+  whatever the provider reports next. A provider that has received or settled a payment does not
+  cancel. **(designed, A2A-DESIGN §11.5)** The local interface marks such a task with metadata
+  `anet.cancel_requested: true`.
 - The task is already terminal: `TaskNotCancelableError`.
 
 ### 10.7 Message parts
@@ -685,10 +709,10 @@ accepted).
 | | provider (message for an unknown task, after the 10-minute window) | `status{failed, anet.a2aError: "TaskNotFound"}` — implemented |
 | `TaskNotCancelableError` | requester (task terminal) | local error |
 | `PushNotificationNotSupportedError` | requester | local error |
-| `UnsupportedOperationError` | requester (input to a terminal task, subscribe to a terminal task) | local error; a provider drops input to a terminal task without reply |
+| `UnsupportedOperationError` | requester (input to a terminal task, subscribe to a terminal task, GetExtendedAgentCard) | local error; a provider drops input to a terminal task without reply |
 | `ContentTypeNotSupportedError` | provider | `status{rejected, anet.a2aError: "ContentTypeNotSupported"}` — not emitted by the reference implementation |
 | `InvalidAgentResponseError` | requester | not surfaced in v1: a malformed or unverifiable provider message is dropped and counted (§7.7), and the task keeps its last state |
-| `ExtendedAgentCardNotConfiguredError` | requester | local error |
+| `ExtendedAgentCardNotConfiguredError` | — | not used: the binding offers no extended card and does not declare `capabilities.extendedAgentCard`, so A2A §3.3.4 requires `UnsupportedOperationError` instead |
 | `ExtensionSupportRequiredError` | provider (a required extension not in `A2A-Extensions`) | `status{rejected, anet.a2aError: "ExtensionSupportRequired"}` — **(designed)** |
 | `VersionNotSupportedError` | provider | `status{rejected, anet.a2aError: "VersionNotSupported"}` — **(designed)** |
 
@@ -717,17 +741,23 @@ choice; the reference node keeps its local record of the task in `submitted` and
   and returns the local stream; `SubscribeToTask` returns the current Task snapshot first and then
   the stream, both obtained atomically (A2A §3.1.6). Each received status, provider message or
   result updates the mirror and emits a `TaskStatusUpdateEvent` or `TaskArtifactUpdateEvent`.
+  (Reference node: the mirror and the event bus, with atomic snapshot-and-subscribe, are
+  implemented; the A2A streaming responses built on them are **(designed)**, see §10.1.)
 - **Previews.** `stream_preview` messages are ephemeral, replace-in-place snapshots of a reply
   being written. A node MAY surface them as artifact updates; they are never stored in history and
   clients MUST NOT rely on them.
-- **Ordering.** Events on one node's stream are totally ordered by that node's per-task sequence
-  number (`state_seq`), which satisfies A2A §3.5.2 for that stream. The binding does **not**
-  guarantee that provider messages arrive in the order sent: a hub mailbox is FIFO per recipient,
-  but a message retried after a failure, or sent over another transport, can overtake an earlier one.
-  Receivers apply the rules of §10.5 (terminal states are final; early follow-ups wait for their task).
+- **Ordering.** Events on one node's stream follow the order in which that node recorded them:
+  state changes carry the node's per-task state sequence number (`state_seq`) and messages their
+  per-task message sequence number, so a subscriber sees each state change once and in order
+  (A2A §3.5.2 for that stream). The binding does **not** guarantee that provider messages arrive in
+  the order sent: a hub mailbox is FIFO per recipient, but a message retried after a failure, or
+  sent over another transport, can overtake an earlier one. Receivers apply the rules of §10.5
+  (terminal states are final; early follow-ups wait for their task). This is weaker than the
+  "events in the order they were generated" of the A2A custom-binding guide and is listed in §15.2.
 - **Reconnection.** A disconnected client re-subscribes; it receives the full current Task and
   then new events. Events that occurred while disconnected are not replayed individually, but
-  history and status in the snapshot reflect them.
+  history and status in the snapshot reflect them. A subscriber that falls behind (its event
+  buffer is full) is disconnected rather than allowed to block the node, and recovers the same way.
 - **Termination.** The stream closes when the task reaches a terminal state.
 - **Latency.** Update latency is the provider's send path plus the requester's poll interval (the
   reference node polls its mailbox once per second, and additionally on interactive reads; the hub
@@ -797,8 +827,8 @@ These are stated so that nobody reads more into "end-to-end encrypted" than it g
    recipient's key store for at most 29 days after sending. There are no per-task ephemeral keys.
 3. Large attachments are buffered whole and sealed in one AEAD operation (envelope limit 96 MiB).
 4. First use is trusted: the first KEL seen for an AID is accepted as carried. A hub or network
-   attacker can present a stale (truncated) KEL to a node that has never seen the AID; rollback
-   protection applies only to AIDs with a stored record.
+   attacker can present a stale (truncated) KEL, or an older key set or card, to a node that has
+   never seen the AID; rollback protection applies only to AIDs with a stored record.
 5. Rotation grace: a signature by a key a rotation retired is accepted for up to 1 hour after the
    rotation if its `ts` predates the rotation. Messages still in a mailbox after that are refused.
    The reference product has no user-facing key rotation yet.
@@ -808,6 +838,17 @@ These are stated so that nobody reads more into "end-to-end encrypted" than it g
    can be long; a client timeout does not cancel the task, and a retry creates a second task.
 9. Payment metadata (payer, payee, amount, time) is visible to the hub that settles payments; see
    `x402-scheme-anet-credit.md`.
+10. End-to-end encryption protects content from the relay, not from the agent being called. An agent
+    (including a publicly operated one) reads every request sent to it; what it keeps is its
+    operator's policy.
+11. Key sets and KELs are public by exact AID. `GET /agents/{aid}/keys` is unauthenticated and, through
+    federation, answers for an AID registered at any peer hub whatever its directory visibility.
+    Anyone who knows an AID can therefore confirm that it is registered and fetch its key history.
+    A registered sender also learns from `recipient_quiet` whether a recipient has polled recently.
+12. Delivery order between two nodes is not guaranteed (§12): a retried or differently routed
+    message can overtake an earlier one.
+13. An absent `A2A-Version` means `1.0` in this binding, where A2A §3.6.2 says 0.3 (§10.4). This is
+    a deliberate deviation: the binding exists only for 1.0.
 
 ## 16. Reference implementation map
 

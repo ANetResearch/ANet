@@ -1,16 +1,21 @@
-# Proposal: a `SecurityScheme` variant for sender-signature authentication
+# ADR-XXX: A `SecurityScheme` variant for sender-signature authentication
 
 > **DRAFT — not submitted; requires product owner approval before any external submission.**
 >
 > **License: to be decided** by the product owner. (Changes to the A2A specification are
 > contributed under the A2A project's license, Apache-2.0.)
 
-| | |
-|---|---|
-| Status | Draft proposal for the A2A specification (`specification/a2a.proto`, spec §4.5, §7) |
-| Format | A2A ADR template (`adrs/adr-template.md`) |
-| Related | `relay-binding.md` §9, `issue-a2a-go.md` A10 |
-| anet today | Network cards omit `securitySchemes`; the relay binding authenticates inside the envelope (A2A-DESIGN §10.1 decides not to define a new scheme type unilaterally). This proposal is how that gap would be closed upstream. |
+**Status:** Proposed (draft; the ADR number is assigned on submission)
+
+**Date:** YYYY-MM-DD (set on submission)
+
+**Decision Makers:** A2A Technical Steering Committee
+
+**Technical Story:** sender-authenticated custom bindings, first the anet relay binding
+(`relay-binding.md` §9); affects `specification/a2a.proto` (`SecurityScheme`) and spec §4.5, §5.7, §7.
+Related: `issue-a2a-go.md` A10.
+
+This document follows the A2A ADR template (`adrs/adr-template.md`).
 
 ## Context
 
@@ -44,16 +49,7 @@ talk to it at all. The agent also cannot offer an extended card, cannot state pe
 and cannot list this binding next to a standard one without violating §5.1 ("Equivalent
 Authentication").
 
-## Decision Drivers
-
-- The card must state truthfully what a caller needs.
-- No shared secret and no prior enrolment: parties meet for the first time.
-- No central issuer: the authenticating party must not become an intermediary that learns who talks
-  to whom.
-- Authentication must survive intermediaries and store-and-forward delivery (hours or days).
-- Compatibility with clients that do not implement the new scheme.
-
-## Why the existing schemes do not fit
+### Why the existing schemes do not fit
 
 | Scheme | Why it does not describe sender-signature authentication |
 |---|---|
@@ -64,6 +60,15 @@ Authentication").
 
 What is missing is not a stronger credential but a different **place** for it: in the message, signed
 by the sender, verifiable by the recipient without anyone else.
+
+## Decision Drivers
+
+- The card must state truthfully what a caller needs.
+- No shared secret and no prior enrolment: parties meet for the first time.
+- No central issuer: the authenticating party must not become an intermediary that learns who talks
+  to whom.
+- Authentication must survive intermediaries and store-and-forward delivery (hours or days).
+- Compatibility with clients that do not implement the new scheme.
 
 ## Considered Options
 
@@ -79,7 +84,41 @@ by the sender, verifiable by the recipient without anyone else.
 4. **Add one variant per concrete format** (an "anet relay" variant, an "RFC 9421" variant, …). Simple
    to validate, but the closed `oneof` would grow with every binding.
 
-## Proposed change
+## Decision Outcome
+
+**Chosen option:** "3. Add a `SecurityScheme` variant for sender signatures"
+
+It is the only option that states the requirement where clients and SDKs already look for it
+(`securitySchemes` / `securityRequirements`), keeps per-skill requirements and the extended card
+available, and lets one agent satisfy §5.1 across a message-signed binding and a standard binding.
+Making it profile-based (rather than option 4) keeps the closed `oneof` from growing with every
+binding: the variant says "the sender signs each message", and a profile URI says how.
+
+### Consequences
+
+#### Positive
+
+- Cards state authentication truthfully for message-signed bindings; clients can decide before
+  contacting the agent whether they can satisfy it.
+- Per-skill `securityRequirements` and the extended agent card become available to such agents.
+- An agent can list a message-signed binding next to a standard binding and satisfy §5.1 by requiring
+  the same scheme on both (with an HTTP signature profile on the standard binding).
+- Authentication that survives intermediaries and gives recipients a verifiable, attributable record
+  of who asked for what.
+
+#### Negative
+
+- A new `oneof` member: SDKs must add a type, and SDKs that reject unknown variants (A10) break on
+  cards that use it until they are fixed; agents should keep offering an alternative requirement where
+  they can during the transition.
+- The meaning is delegated to profile documents; validation of a card cannot check more than the
+  profile URI syntax.
+
+#### Neutral
+
+- No change to the operation semantics or to the other schemes.
+
+## Implementation
 
 ### Protocol buffer
 
@@ -159,7 +198,7 @@ reference and the sender identifier are carried; (3) how the verifier resolves t
 identifier, including key rotation and revocation; (4) freshness and replay rules; (5) how errors are
 reported.
 
-## Profiles
+### Profiles
 
 - `https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1#sender-signature` — `relay-binding.md` §7.4
   and §9: Ed25519 over a CoreDet-CBOR preimage covering sender, key-state sequence, recipient, message
@@ -170,31 +209,26 @@ reported.
   scheme usable with the standard HTTP bindings. It is out of scope for this draft; we would welcome
   co-authors.
 
-## Consequences
+## Related Decisions
 
-### Positive
+- ADR-001 (ProtoJSON serialization): the JSON form of the new message (`senderSignatureSecurityScheme`,
+  `identifierMethods`) follows it.
 
-- Cards state authentication truthfully for message-signed bindings; clients can decide before
-  contacting the agent whether they can satisfy it.
-- Per-skill `securityRequirements` and the extended agent card become available to such agents.
-- An agent can list a message-signed binding next to a standard binding and satisfy §5.1 by requiring
-  the same scheme on both (with an HTTP signature profile on the standard binding).
-- Authentication that survives intermediaries and gives recipients a verifiable, attributable record
-  of who asked for what.
+## References
 
-### Negative
+- A2A specification §4.5 (Security Objects), §5.1 (Functional Equivalence), §5.7 (Field Presence),
+  §7.3–§7.5 (authentication and authorization), §12.6 (custom bindings), §13.3 (extended card).
+- `relay-binding.md` (the anet relay binding, the first profile).
+- `issue-a2a-go.md` A10 (unknown `SecurityScheme` variants).
+- RFC 9421 (HTTP Message Signatures); W3C DID Core (`did:web`, `did:key`).
 
-- A new `oneof` member: SDKs must add a type, and SDKs that reject unknown variants (A10) break on
-  cards that use it until they are fixed; agents should keep offering an alternative requirement where
-  they can during the transition.
-- The meaning is delegated to profile documents; validation of a card cannot check more than the
-  profile URI syntax.
+## Notes
 
-### Neutral
+**anet today.** Network cards omit `securitySchemes`; the relay binding authenticates inside the
+envelope (A2A-DESIGN §10.1 decides not to define a new scheme type unilaterally). This proposal is
+how that gap would be closed upstream.
 
-- No change to the operation semantics or to the other schemes.
-
-## Open questions
+**Open questions.**
 
 1. Should `identifier_methods` be DID-only, or also allow non-DID identifier schemes?
 2. Should the scheme carry a key-discovery hint (like `jku` for card signatures), or is that always
