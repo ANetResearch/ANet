@@ -79,11 +79,11 @@ type PublicCapability struct {
 	GlobalPerMin    int    `json:"global_per_min,omitempty"`
 	MaxInflight     int    `json:"max_inflight,omitempty"`
 	MaxArgsBytes    int    `json:"max_args_bytes,omitempty"`
-	// Evidence is what the chain keeps of a call from a party this node
-	// did not name (trust public_cap): "cid" (the default) keeps the
-	// result CID and the metrics, "full" also keeps the provenance with
-	// the observed state, which is the capability's whole answer. See
-	// evidence_mode.go.
+	// Evidence is what the chain keeps of a call of this capability
+	// (trust public_cap, whoever the caller): "cid" (the default) keeps
+	// the result CID and the metrics, "full" also keeps the provenance
+	// with the observed state, which is the capability's whole answer.
+	// See evidence_mode.go.
 	Evidence string `json:"evidence,omitempty"`
 }
 

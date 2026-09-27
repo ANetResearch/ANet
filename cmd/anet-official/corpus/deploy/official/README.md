@@ -143,16 +143,17 @@ HTTP 状态、调用方 AID、交互 id、入口(`relay`/`voucher`)、入出字�
   能力 id、状态、指标(`metrics`)、`result_cid`,以及说明"效果如何核验"的四项
   (`protocol`、`verify_trust`、`latency_ms`、`native_ack`);不记参数,不记结果,
   不记 `observed_state`(即后端的完整回复)。这是 `public_capabilities` 每项的
-  `"evidence": "cid"`,也是 daemon 的缺省值,样例配置显式写出(§6)。陌生人调用的
-  接收与拒绝按 10 分钟窗口聚合计数(`anet.delegation.received`/`refused_summary`,
+  `"evidence": "cid"`,也是 daemon 的缺省值,样例配置显式写出(§6)。公共能力调用的
+  接收与陌生人请求的拒绝按 10 分钟窗口聚合计数(`anet.delegation.received`/`refused_summary`,
   只记次数、按原因/信任分类计数与前 10 个 AID);对话消息事件
-  (`anet.message.sent/received`)只记 CID 与字节数,陌生人的同样按窗口聚合。
+  (`anet.message.sent/received`)只记 CID 与字节数,`public`/`public_cap` 交互上的同样按窗口聚合。
 - **交互库**(`interactions.db`):保存请求的签名 TaskDoc(含能力参数)、结果交付物、
   付款消息的元数据与收据,用于应答、重投与对账。`trust=public_cap` 的交互在进入终态
   **7 天后**删除:daemon 每小时检查一次,截止时间取当天 0 点(UTC)减 7 天,所以实际
   保存 7–8 天;交互行、它的消息与附件、调用期间暂存的调用方 KEL 与密钥集
   (`peer_kel`/`peer_keys`,交互进入终态时已清空)一并删除。结果还在重发队列里、
-  尚未送达调用方的交互,等队列放手后再删。每次删除写一条
+  尚未送达调用方的交互,等队列放手后再删;付款已提交、尚未结算的交互不删(结算与对账要用
+  其中的付款载荷)。daemon 启动时也清理一次;每批 500 条一个事务。每次删除写一条
   `anet.interaction.pruned` 证据(条数、消息数、附件数、截止时间),不含被删内容。
 - **不删的**:证据链(见上,不含内容);重放表(只有发送方 AID 与消息 id,按消息过期
   时间自行清理);`inbound-refused.log`(被拒请求的时间、AID、交互 id、原因,1 MiB 轮转、
@@ -169,8 +170,10 @@ HTTP 状态、调用方 AID、交互 id、入口(`relay`/`voucher`)、入出字�
 ## 6. 公共能力的证据模式
 
 C5 证据面对公共能力有两种模式,按能力配置在 `inbound.public_capabilities[].evidence`
-(契约文档 C5 写明两种模式)。模式只作用于陌生人的调用(`trust=public_cap`);
-允许名单里的对端调用同一能力,证据链照常记完整 provenance。
+(契约文档 C5 写明两种模式)。模式作用于 `trust=public_cap` 的调用,即列入
+`public_capabilities` 的能力的每一次调用:入站判定第 2 行(A2A-DESIGN §5.2)先于允许名单,
+允许名单里的对端调用公开能力同样按 `public_cap` 准入、按本模式记录、7 天后清理。
+未公开的能力只有允许名单(`trust=peer`)或人工批准的对端能调,证据链照常记完整 provenance。
 
 | 模式 | `anet.capability.effect` 事件内容 | 用途 |
 |---|---|---|

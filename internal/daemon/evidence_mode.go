@@ -15,8 +15,11 @@ package daemon
 // the receipt signed over its CID; anyone can recompute the CID from the
 // result, so the chain does not need the result to back the receipt.
 //
-// The mode applies to calls under trust public_cap only. A caller this node
-// named (allow or trust list) gets the full record whatever the mode.
+// The mode applies to calls under trust public_cap, which is every call of
+// a listed public capability, from a caller on the allow list too: §5.2
+// admits a public capability call at row 2, before the allow list is read.
+// A call of a capability that is not public (an allowed peer's, row 3,
+// trust peer, or an approved one) gets the full record whatever the mode.
 
 import (
 	"fmt"
@@ -99,10 +102,12 @@ func retentionCutoff(now int64) int64 {
 // pruneRetention deletes the public_cap interactions that reached a
 // terminal state before the cutoff, with their messages and attachments,
 // and records the counts on the chain. The receive maintenance loop calls
-// it every hour.
+// it when it starts and then every hour.
 func (d *Daemon) pruneRetention() { d.pruneRetentionAt(int64(d.nowMS())) }
 
-// pruneRetentionAt is pruneRetention at now (unix ms).
+// pruneRetentionAt is pruneRetention at now (unix ms). A sweep that failed
+// part way still records what it deleted before the failure: the store
+// commits in batches (interactions.PruneTerminal).
 func (d *Daemon) pruneRetentionAt(now int64) {
 	if d.ix == nil {
 		return
@@ -111,7 +116,6 @@ func (d *Daemon) pruneRetentionAt(now int64) {
 	n, err := d.ix.PruneTerminal(interactions.TrustPublicCap, cutoff)
 	if err != nil {
 		log.Printf("anet: retention: prune public_cap interactions: %v", err)
-		return
 	}
 	if n.Interactions == 0 {
 		return

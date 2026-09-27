@@ -151,9 +151,9 @@ func TestStrangerMessagesAreAggregated(t *testing.T) {
 	}
 }
 
-// A public capability call from a stranger leaves only the result CID, the
-// metrics and how the effect was checked on the chain in the default (cid)
-// mode; the full mode keeps the provenance, observed state included.
+// A public capability call leaves only the result CID, the metrics and how
+// the effect was checked on the chain in the default (cid) mode, whoever
+// the caller; the full mode keeps the provenance, observed state included.
 func TestPublicCapabilityEvidenceModes(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -208,6 +208,18 @@ func TestPublicCapabilityEvidenceModes(t *testing.T) {
 		t.Fatalf("full mode lost the provenance: %v", full)
 	}
 
+	// A caller on the allow list calling a public capability is admitted
+	// at §5.2 row 2 like anyone else (call checks trust public_cap), so the
+	// capability's mode applies to it too.
+	if err := prov.SetPublicCapabilities([]PublicCapability{{ID: capID}}); err != nil {
+		t.Fatal(err)
+	}
+	allowPeers(t, prov, stranger.AID())
+	ev = call()
+	if raw, _ := json.Marshal(ev); strings.Contains(string(raw), "observed_state") {
+		t.Fatalf("an allowed caller of a public capability got the full record in the cid mode: %s", raw)
+	}
+
 	if err := prov.SetPublicCapabilities([]PublicCapability{{ID: capID, Evidence: "none"}}); err == nil {
 		t.Fatal("an unknown evidence mode was accepted")
 	}
@@ -243,5 +255,26 @@ func TestRetentionSweepPrunesOldPublicCapCalls(t *testing.T) {
 	d.pruneRetentionAt(now + 3600_000)
 	if n := chainEvents(t, d, EvInteractionPruned); n != 1 {
 		t.Fatalf("an empty sweep wrote evidence (%d events)", n)
+	}
+}
+
+// A message id is recorded as it is when it looks like an identifier, and
+// as its CID otherwise: a peer chooses its ids, and the chain carries no
+// content.
+func TestEvidenceMsgIDIsAnIdentifier(t *testing.T) {
+	mine, err := newMessageID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{mine, "", "a2a:0b7e-11.x"} {
+		if got := evidenceMsgID(id); got != id {
+			t.Errorf("evidenceMsgID(%q) = %q, want it unchanged", id, got)
+		}
+	}
+	for _, id := range []string{"the secret plan is in here", strings.Repeat("a", maxEvidenceMsgID+1)} {
+		got := evidenceMsgID(id)
+		if !strings.HasPrefix(got, "cid:") || strings.Contains(got, "secret") || len(got) > maxEvidenceMsgID {
+			t.Errorf("evidenceMsgID(%q) = %q, want the CID of the id", id, got)
+		}
 	}
 }

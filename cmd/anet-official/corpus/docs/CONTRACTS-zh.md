@@ -69,7 +69,8 @@ ANetResearch/ANetLink   物理世界 runtime + 适配器 + AdapterSDK
 | C5 | **证据面** | 所有人 → EffectRecord/AEL | ANetCore 类型，design3 原样 |
 
 C5 对公共能力有两种证据模式（A2A-DESIGN §15、§21 第 4 条，决定 Q15），按能力配置在
-`inbound.public_capabilities[].evidence`，只作用于陌生人的调用（`trust=public_cap`）：
+`inbound.public_capabilities[].evidence`，作用于 `trust=public_cap` 的调用，即公开能力的每一次调用
+（§5.2 第 2 行先于允许名单，允许名单里的对端调用公开能力也是 `public_cap`）：
 
 | 模式 | `anet.capability.effect` 记什么 |
 |---|---|
@@ -77,7 +78,7 @@ C5 对公共能力有两种证据模式（A2A-DESIGN §15、§21 第 4 条，决
 | `full` | 以上，加完整 provenance（`observed_state`、`requested`、`quirk`、`auth_trust`） |
 
 `result_cid` 两种模式都记：调用方持有结果与签名收据，任何人重算 CID 即可核对，证据链不必保存结果原文。
-允许名单里的对端调用同一能力照常记完整 provenance。`public_cap` 交互在终态 7 天后由 daemon 按天清理
+未公开的能力（允许名单 `trust=peer` 或人工批准的调用）照常记完整 provenance。`public_cap` 交互在终态 7 天后由 daemon 按天清理
 （`interactions.Store.PruneTerminal`），清理计数记为 `anet.interaction.pruned`。证据事件名集中登记在
 `internal/evtypes`（`anet audit` 的已知事件表由它生成，测试检查每处写链都用登记过的事件名）。
 
