@@ -1,6 +1,6 @@
 # anet 对齐 A2A:设计文档(v0.2 系列)
 
-状态:r4,2026-09-27。r4 把剩余阶段的已定决定(`docs/notes/0017` Q1–Q27 与 Q24 补充)与实现中记录的偏离(三仓 `integ/round4b` 各合并提交与复核提交的说明,以及其后合入 `integ/round4c` 的 `wp/fix5`)逐节写回正文,使本文描述实现后的真实设计;每处改动在行尾以 `[Qn]` 或 `[impl:<分支或提交>]` 标注来源,已定而尚未落地的写明"(实现待补)"。r3→r4 的逐处清单与仍待产品负责人决定的事项见 `docs/notes/0022-设计r4修订清单.md`。[B6-02]
+状态:r4,2026-09-27。r4 把剩余阶段的已定决定(`docs/notes/0017` Q1–Q27 与 Q24 补充)与实现中记录的偏离(三仓 `integ/round4b` 各合并提交与复核提交的说明,以及其后合入 `integ/round4c` 的 `wp/fix5`)逐节写回正文,使本文描述实现后的真实设计;每处改动在行尾以 `[Qn]` 或 `[impl:<分支或提交>]` 标注来源,已定而尚未落地的写明"(实现待补)"。r3→r4 的逐处清单与仍待产品负责人决定的事项见 `docs/notes/0022-设计r4修订清单.md`。[B6-02] r4 经独立复核对照 `integ/round4c` 代码抽查,修正处标 `[B6-02 复核]`,清单见 `0022` 附。
 沿革:r3,2026-09-26。r1 经六视角对抗评审(54 个 agent;确认 45 条、反驳 3 条、次要 23 条),r2 逐条处理;r2 经闭合核对(42 处未闭合或新不一致),r3 逐条处理。评审记录见 scratchpad `review-confirmed.md` / `review-other.md`(已随 `/tmp` 丢失,结论已写入正文,见 `docs/notes/0012`),文中以 `[Cn]` 引用确认项、`[m]` 引用次要项。
 范围:ANetCore(→ v0.15.0)、ANet(→ v0.2.0)、ANetHub(→ wire 2)。
 依据:勘察报告 01–11(`[R03 §5.1]` 形式引用),A2A 规范 v1.0.1(`Refs/a2a`),a2a-go v2.6.0(`Refs/a2a-go`),a2a-x402 v0.2(`Refs/a2a-x402-spec-v0.2.md`)。
@@ -201,7 +201,7 @@ ANetCore `delegation` 增量(新字段一律 `omitempty`,另立全字段向量 `
 2. 组装 inner(带本节点 `kel` 与 `keys`),签名,填充,HPKE 加密。`exp = ts + 14 天`(等于 hub 未投递 TTL,各 type 相同)。需要重试的外发复用首次信封字节;`now > exp` 时停止重试并写证据事件。
 3. 交给传输列表(p2p 优先,hub 兜底)。`module.Transport.Send(ctx, toAID string, envelope []byte) error`;`module.Inbound.Receive(ctx, envelope []byte) error`。
 4. 需要重试的外发持久化信封字节,重试不重新封装。r4:除 provider 的结果与状态外,requester 的 delegate(文本与能力)、text、end_request 与付款消息一律经同一出站队列(outbox)可靠投递:任务、首条消息与出站行同一事务写入,本地写入成功即返回 `submitted`,暂时性失败按退避重试 [Q5][impl:wp/wire be2fdb3]。出站队列规则 [impl:wp/wire be2fdb3、4f0141b]:
-   - 同一 `(ix, type, 正文摘要)` 再入队返回已有行,不产生第二份;每行都有截止(= 信封 `exp`),下次尝试时间(退避或 `Retry-After`,下限 1 秒、上限 24 小时)不越过截止;
+   - 同一 `(ix, type, 正文摘要)` 再入队返回已有行,不产生第二份;每行都有截止(= 信封 `exp`),下次尝试时间不越过截止:指数退避自 5 秒起、上限 24 小时;hub 给了 `Retry-After` 时按它等,取值限在 1 秒–24 小时 [impl:wp/wire be2fdb3][B6-02 复核];
    - `/relay/send` 的 400/404/413 与收件人 keys 的 404 判为永久拒绝:删行、写 `anet.delivery.expired{reason}`,不再重试;
    - 行被放弃(过期或永久拒绝)时,与"删行"同一事务把出站任务置 `failed`、`anet.reason=undeliverable`(能力任务另带 `anet.effect_status=UNAVAILABLE`),delegate 被放弃时去掉首条消息的客户端 `a2a.messageId`,客户端重试算新的尝试;未送达的 cancel 不改任务;
    - 首次尝试即被永久拒绝时调用方得到错误(A2A 接口与 `/tasks/send` 返回该 failed 任务);取不到或验不过收件人 keys(不是 hub 不可达)时 delegate 直接报错、不写任何行;
@@ -339,7 +339,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 
 文本任务:
 - provider 完成:`reply_task(state=completed)`、`anet end`(provider 侧)或自动回复判定完成 → 签回执(对话记录 v2)→ `anet.result/1`。`/tasks/reply` 的 completed 最终答复经对话记录回执送达,在请求方投影为 `anet.reply` artifact(§11.5)[Q4]。
-- requester 结束请求(`end_request`)→ provider daemon 自动完成(不需要 provider 的 agent)。A2A 面以 SendMessage 的 `metadata["anet.end_request"]=true`(可无正文)表达(§11.5)[Q4]。
+- requester 结束请求(`end_request`)→ provider daemon 自动完成(不需要 provider 的 agent)。A2A 面以 SendMessage 的 `metadata["anet.end_request"]=true`(可无正文)表达(§11.5)[Q4](实现待补:本机 A2A 接口与内核都还不识别该键,A2A 客户端目前无法请求完成;控制面 `/end` 与 CLI 可用)[B6-02 复核]。
 - requester 取消(`cancel`)→ 本地 `canceled`;provider 置 `canceled`、取消长调用、回 `status{canceled}`,不签回执。
 
 能力调用 [C6][C29][C34]:
@@ -405,7 +405,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 - `allow_file`(可委派)、`trust_file`(可驱动本机 exec 与 A2A 后端,§6、§11.6)、`deny_file`:每行一个 AID,每次判定重读,文件不存在等于空,deny 优先。`trust_file` 从 `auto_reply` 移到 `inbound`,exec 与后端共用同一判定 [C9]。
 - 配置校验集中在一个函数,由加载、`POST /autoreply`、入站策略写入共同调用:`open` 与"对非信任对端启用 exec"或"接受非信任对端的后端"不能同时成立,违反者 409,无论先写哪一个 [C8]。后端部分经 `module.Host` 新增的 `DeclareUntrustedBackend()` 完成(理由写在接口注释):`module/a2a` 构建时若存在 `accept_untrusted: true` 的后端即调用它;内核校验函数只读取这一声明,不解析 `modules.*` 配置。后端只经配置文件设置;与 `open` 冲突时加载即拒绝启动,运行时改为 `open` 的写入按同一声明返回 409。
 - 迁移:旧 `accept_delegations` 缺省或 `true` → `closed`,日志提示一次;`false` → `closed`。`anet accept on` 报错并说明三种策略与 `anet peers allow`,非零退出;`accept off` 映射为 `closed`;`hub-register --accept-delegations` 与 `POST /accept` 同样处理 [C8]。
-- 撤销对已有交互生效 [m]:第 9 步对所有入站信封先查 deny;`trust=peer` 的入站交互再查 allow;自动回复每轮对所有后端(不只 exec)重读 trust 与 deny,后端调用返回后再读一次,调用期间被 deny 的对端收不到回复 [impl:wp/wire 1591718、e5e1d8a];对端进入 deny 时,其活动交互置 `canceled` 并写 `anet.policy.changed`。
+- 撤销对已有交互生效 [m]:第 9 步对所有入站信封都查 deny(新 delegate 按 §5.2 第 1 行,已接受交互的重投同样先查;message 先查交互:指向本节点不持有的 ix 时与陌生人同走未知 ix 分支,不因 deny 另答,§2 X2)[impl:wp/wire 1591718][B6-02 复核];`trust=peer` 的入站交互再查 allow;自动回复每轮对所有后端(不只 exec)重读 trust 与 deny,后端调用返回后再读一次,调用期间被 deny 的对端收不到回复 [impl:wp/wire 1591718、e5e1d8a];对端进入 deny 时,其活动交互置 `canceled` 并写 `anet.policy.changed`。
 - deny 撤销遇到已付工作 [Q10]:`pay_state ∈ {submitted, completed}` 的非终态交互不取消(§4.2:付款提交后任一方都不取消),写 `anet.policy.changed{…, skipped_paid:[ix…]}`;该交互照常完成并交付,requester 对已付出站任务照收被 deny 的 provider 的 status/result。0017 Q10 写的是 `completed`,实现把 `submitted` 一并跳过(否则每分钟的撤销扫描会对已提交付款的出站任务反复发 cancel)[impl:wp/x402d fe49f7a][impl:wp/wire 1591718]。`skipped_paid` 在 CLI 与扫描两条路径上每个交互只报告一次;`anet audit --interaction/--peer` 识别它。
 
 ### 5.2 判定顺序(`anet.delegate/1`)
@@ -623,7 +623,7 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 - 只有至少一个 skill 的节点发布网络卡片。skill 有两种来源:本节点在服务的公开能力(`public_capabilities`,§10.2);`inbound.policy=open` 时再加一个 `chat` skill,表示接受自然语言任务(`inputModes`/`outputModes` 为 `text/plain`,从不标价,description 如实说明谁能发这类任务、hub 只搬运密文;本节点恰有 id 为 `chat` 的能力时不加)[Q27][impl:wp/fix5 598755c]。全新安装(closed、无公开能力)不发布。卡片签名、发布与复用:注册时签发,内容不变时复用上次签出的卡(重复注册答 `unchanged`,`seq` 不增长);hub 答 `conflict` 时以新 `seq` 重签一次;修改公开能力、简介或进出 `open` 时重新发布;`POST /card` 查看本节点的卡与 hub 最近一次答复 [impl:wp/cardgen d1cf8f8、0fb65f3]。
 - 撤回:发过卡的节点失去全部 skill(公开能力清空且不再是 `open`)时,注册请求带 `"a2a_card": null`,hub 删除卡片与索引行,名称与 caps 回到本次注册声明的值,答 `card_status: "withdrawn"`(可重复);联邦可见的 agent 另在 `/fed/v2/cards` 写撤回条目(§10.6)。`a2a_card` 缺省仍表示"不变",刷新注册不会误撤。节点把 hub 的确认记在 `a2a_card.json`(`withdrawn_from`),重启不重发;再次发卡时清除。撤回只随注册发出,hub 不可达时不单独重试,等下一次注册(§21)[Q6][impl:wp/proj 78b4963][impl:ANetHub wp/proj 6300c7f]。
 - 注册的 `caps` 与 ADP 卡(及价目)同样只含 `public_capabilities` 中的能力,不暴露私有能力清单;配置里运营者声明的 caps 原样保留 [Q14][impl:wp/proj 78b4963]。
-- `supportedInterfaces`:中继绑定 `{url: <hub 公网基址>/relay, protocolBinding: "https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1", protocolVersion: "1.0", tenant: <AID>}`;p2p 启用且运营者配置了 `advertise` 地址时追加直连条目 `{url: <advertise 地址>, protocolBinding: "https://agentnetwork.org.cn/a2a/bindings/anet-p2p/v1", protocolVersion: "1.0", tenant: <AID>}`(与中继同样按 tenant 路由、承载同样的封装信封)[Q8][impl:wp/cardgen d1cf8f8]。"127.0.0.1 不进入网络卡片"只约束 p2p 直连地址,不约束 hub URL(本机联调的 hub 可以是回环)[Q8]。内核丢弃回环、他人 tenant 或畸形的模块贡献,拒绝第二个中继接口;p2p `advertise` 的端口须为数字且在范围内 [impl:wp/cardgen 0fb65f3]。
+- `supportedInterfaces`:中继绑定 `{url: <hub 公网基址>/relay, protocolBinding: "https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1", protocolVersion: "1.0", tenant: <AID>}`;p2p 启用且运营者配置了 `advertise` 地址时追加直连条目 `{url: "tcp://<host>:<port>"(由 `advertise` 规范化;本地 socket 与缺 host/port 的值启动即拒绝)[impl:wp/cardgen d1cf8f8][B6-02 复核], protocolBinding: "https://agentnetwork.org.cn/a2a/bindings/anet-p2p/v1", protocolVersion: "1.0", tenant: <AID>}`(与中继同样按 tenant 路由、承载同样的封装信封)[Q8][impl:wp/cardgen d1cf8f8]。"127.0.0.1 不进入网络卡片"只约束 p2p 直连地址,不约束 hub URL(本机联调的 hub 可以是回环)[Q8]。内核丢弃回环、他人 tenant 或畸形的模块贡献,拒绝第二个中继接口;p2p `advertise` 的端口须为数字且在范围内 [impl:wp/cardgen 0fb65f3]。
 - `securitySchemes` 省略(认证由绑定内的发送方签名承担);不定义新 scheme 类型。
 - `capabilities.extensions`:`…/anet-card/v1`(`params{aid, seq:"<字符串>", issuedAt, notBefore}`)、a2a-x402 v0.2、`…/anet-pricing/v1`(`params{network, prices:[{skillId, amount:"<字符串>"}]}`)、`…/anet-evidence/v1`。anet-card 与 anet-evidence 由内核写入,模块贡献中出现这两个 URI 或中继绑定一律丢弃 [impl:wp/cardgen d1cf8f8]。
 - 数值一律字符串;必填切片非 nil;`streaming`、`pushNotifications` 显式输出(网络卡片写 `false`)[impl:wp/cardgen d1cf8f8]。
@@ -681,7 +681,7 @@ daemon 侧的发现(控制面 `/agents/list`、`/agents/card`,即 MCP `list_agen
 - 输出字段:本节点自己的核验结果写作 `verification`(`VERIFIED` / `UNVERIFIED` / `NONE`),hub 的 `cardVerification` 另写作 `hubVerification`,后者不能代替前者 [impl:wp/tasksd ee09872][Q24 补充]。`aid` 不是合法 agent id 的条目一律丢弃,防止 hub 在 aid 位置注入文字 [impl:wp/fix5 7113a2e][Q24 补充]。
 - 按验证结果决定外传什么 [Q24][impl:wp/fix5 598755c]:
   - `VERIFIED`:卡片原字节、名称,以及 hub 对该 agent 的陈述(`homeHub`、`lastSeen`、`quiet`、评价数与评分);
-  - `UNVERIFIED`(有卡而本节点验不过):只给 AID、`verification`、a2acard 错误码与按 AID 判定的 `anet.official`;卡片内容(name/description/skills 等)与 hub 的其余陈述一概不给;自由文本只匹配已验证卡片;这样官方标注不会出现在 hub 伪造的内容旁边;
+  - `UNVERIFIED`(有卡而本节点验不过):只给 AID、`verification`、`verificationError`(a2acard 错误码,或本节点的固定说明如 "no card"、"the card is signed by <kid AID>, not <AID>",从不带错误细节)与按 AID 判定的 `anet.official` [impl:wp/fix5 598755c][B6-02 复核];卡片内容(name/description/skills 等)与 hub 的其余陈述一概不给;自由文本只匹配已验证卡片;这样官方标注不会出现在 hub 伪造的内容旁边;
   - `NONE`(不发布网络卡片):只在查询带 `include_uncarded`(缺省 false)时列出,见下条。
 - `include_uncarded`(Q27 (b)):为 true 时,在注册表最后一页之后附上 hub `/agents` 目录中注册表未列出的已注册条目,`verification: "NONE"`,`name`/`caps`/`summary` 等字段只取 hub 陈述并标明"除 aid 外都是 hub 的陈述";官方 AID 的无卡条目不带 hub 文字(同 Q24 的理由);判断"有卡片"时注册表只按 skill 遍历,不按 tag(目录只按 capability 查、没有 tag);分页游标形如 `uncarded:<n>`;无注册表的旧 hub 只在 `include_uncarded` 时列目录。本机 A2A 接口从不设它 [Q27][impl:wp/fix5 598755c、7113a2e]。
 - v1 的 `/find`(hub 目录的子串查询与按 capability 查询)同样适用 Q24:hub 目录的 name/summary 不与 `anet.official` 并列出现,官方 AID 条目只给 AID 与标注,或只在其卡片 VERIFIED 时给内容;沿用 `verification`/`hubVerification` 字段名;非法 AID 条目丢弃 [Q24 补充](实现待补:当前 `/find` 原样返回 hub 目录条目并按 AID 加标注)。
@@ -753,14 +753,14 @@ type TaskSeam interface {
 
 ### 11.4 中间件
 
-Host 白名单(`127.0.0.1`/`localhost`/`[::1]` + 本端口,否则 421,判定与控制面共用 `internal/loopguard`);Bearer(`a2a_token.txt`,常数时间比较;失败 401 + `WWW-Authenticate`,错误体为 `google.rpc.Status`);拒绝带非空 `Origin` 的请求(403);JSON-RPC 与带体的 REST POST 只接受 `application/json`(415);请求体上限 96 MiB(413);`A2A-Extensions` 与 `X-A2A-Extensions` 按逗号拆分合并后改写请求头;`A2A-Version` 缺省按 1.0,显式非 1.x 返回 `VersionNotSupportedError`(也读查询参数,两种绑定各自渲染);响应回显"请求的 ∩ 该 agent 代理卡片声明的"扩展(在处理器之前写出,流式响应的头先于首个事件),a2a-x402 的 v0.1 URI 按 v0.2 激活与回显(§8.1)[Q18];包装的 `ResponseWriter` 实现 `Flusher`;所有响应带 `X-Content-Type-Options: nosniff`、`Cache-Control: no-store`、`Referrer-Policy: no-referrer`。错误按 a2ashape 错误名映射为 a2a 哨兵、文案固定,内部错误只进日志,不外泄包装文字 [impl:wp/moda2a 85afc91、f0b763b][impl:wp/fix5 598755c]。
+按此顺序:Host 白名单(`127.0.0.1`/`localhost`/`[::1]` + 本端口,否则 421,判定与控制面共用 `internal/loopguard`);拒绝带非空 `Origin` 的请求(403);Bearer(`a2a_token.txt`,常数时间比较;失败 401 + `WWW-Authenticate`,错误体为 `google.rpc.Status`)[impl:wp/moda2a 85afc91][B6-02 复核];JSON-RPC 与带体的 REST POST 只接受 `application/json`(415);请求体上限 96 MiB(413);`A2A-Extensions` 与 `X-A2A-Extensions` 按逗号拆分合并后改写请求头;`A2A-Version` 缺省按 1.0,显式非 1.x 返回 `VersionNotSupportedError`(也读查询参数,两种绑定各自渲染);响应回显"请求的 ∩ 该 agent 代理卡片声明的"扩展(在处理器之前写出,流式响应的头先于首个事件),a2a-x402 的 v0.1 URI 按 v0.2 激活与回显(§8.1)[Q18];包装的 `ResponseWriter` 实现 `Flusher`;所有响应带 `X-Content-Type-Options: nosniff`、`Cache-Control: no-store`、`Referrer-Policy: no-referrer`。错误按 a2ashape 错误名映射为 a2a 哨兵、文案固定,内部错误只进日志,不外泄包装文字 [impl:wp/moda2a 85afc91、f0b763b][impl:wp/fix5 598755c]。
 
 ### 11.5 操作映射
 
 | A2A 操作 | 实现 |
 |---|---|
 | SendMessage | 无 taskId → 新建:客户端给出的 contextId 原样保存,否则由本节点铸造;客户端为新任务指定 id → `TaskNotFound`(从不新建);按 `(contextId, 客户端 messageId)` 去重,重复返回已有任务,未给 contextId 时按 `(agent, messageId)`(客户端无法重复本节点铸造的 context);投递被放弃而失败(`undeliverable`)的任务不参与去重,客户端重试算新尝试 [Q5][impl:wp/tasksd a8396fb];客户端 messageId 存入 `message.metadata["a2a.messageId"]`,不作为信封 mid;Hermes 每次调用生成新 messageId,此去重对其超时重试无效。有 taskId → 追加消息,经出站队列可靠投递;终态任务 → `UnsupportedOperation`。`metadata["anet.skill"]` 或 DataPart `{skill, args}` 表示能力调用。`metadata["anet.end_request"]=true`(可无正文)表示请求方请求完成,等同 `end_request`(§4.2)[Q4](实现待补)。带 `x402.payment.status` 的消息按 §8.7 处理。消息的 role 须是请求方一侧(`ROLE_USER`)[impl:wp/tasksd a8396fb]。`return_immediately=false` 时等待到终态或中断态(`input-required`),且须是 `state_seq` 高于本次写入的状态,不提前返回、不把旧问题当答复 [C22][C35] |
-| 只带 contextId 的续写(宽松处理)| 当该 contextId 下恰有一个属于本端点、对端相同、状态为 `input-required` 的出站文本任务时,续写追加到该任务;能力调用、发往能力任务的文本、多个候选,以及控制面与 MCP 一律按规范新建。重试先经 `(contextId, messageId)` 去重。这是对规范的宽松处理,改善 Hermes 等只带 contextId 的客户端,文档写明 [Q22][impl:wp/proj 78b4963] |
+| 只带 contextId 的续写(宽松处理)| 当该 contextId 下恰有一个属于本端点、对端相同、状态为 `input-required` 的出站任务时,续写追加到该任务:文本任务接受任何续写,能力任务只接受带 `x402.*` 元数据的付款消息(等待付款的标价调用因此可只凭 contextId 付款)[impl:wp/proj 78b4963][B6-02 复核];能力调用、发往能力任务的文本、多个候选,以及控制面与 MCP 一律按规范新建。重试先经 `(contextId, messageId)` 去重。这是对规范的宽松处理,改善 Hermes 等只带 contextId 的客户端,文档写明 [Q22][impl:wp/proj 78b4963] |
 | SendStreamingMessage / SubscribeToTask | `Send`(立即返回)+ `Watch` → SSE;首个事件为 Task;终态状态之前先发尚未发过的 artifact 更新(`anet.reply` 在前);被总线踢掉后重订;对终态任务 SubscribeToTask → `UnsupportedOperation`;新任务的"之后"以 `Send` 返回视图的 `state_seq` 为界,对端在 `Send` 返回前已追问或报价时流立即给出该状态;付款消息被拒或被搁置时发出该任务后结束流 [impl:wp/moda2a 85afc91、f0b763b][impl:65cbcdb] |
 | GetTask / ListTasks | interactions;ListTasks 按 `state_at` 降序,支持 `contextId`、`status`、`pageSize`(1–100,缺省 50)、`pageToken`、`historyLength`、`statusTimestampAfter`(按毫秒"不早于")、`includeArtifacts`;`includeArtifacts` 为 false 或缺省时省略 artifacts 与回执;无任务处于的合法状态(如 `auth-required`)匹配为空而非 `InvalidParams` [impl:wp/tasksd a8396fb] |
 | CancelTask | §4.2 |
@@ -795,7 +795,7 @@ Task 表示 [C21][Q21]:
 
 ## 12. 控制面任务路由与 MCP
 
-控制面新增任务路由(返回 `internal/a2ashape` 投影)[C20]:`POST /tasks/send`、`/tasks/get`、`/tasks/list`、`/tasks/cancel`、`/tasks/wait`、`/tasks/pay`(`{task_id, decision: submit|reject, accept?}`,purpose=`task-agent`)、`/tasks/pay-manual`(purpose=`task-manual`,只由 `anet pay` 调用),provider 侧另有 `/tasks/reply`;发现另有 `/agents/list`、`/agents/card`(§10.5)。与 `TaskSeam` 共用实现,但不按 peerAID 限定(控制令牌是全权凭据)[impl:wp/tasksd ee09872]。控制面的投影与本机 A2A 接口的差别:附件给 `anet:attachment?…` 引用而不内联(§11.5);错误映射为 HTTP 状态码并带 A2A 错误名;`/tasks/list` 同时列出两侧任务,`metadata["anet.role"]` 标明本节点一侧 [impl:wp/tasksd d145175][impl:wp/a2ashape 65fcc61]。`/tasks/wait`:终态总是结束等待;调用方的截止时间到时按当时状态答复(标明超时),只有取消的上下文才是错误;对发给本节点的任务,请求方作答(除 `input-required` 外任何状态)即结束等待,provider 因此可以 `reply_task` 后 `wait_task` [impl:wp/tasksd a8396fb]。
+控制面新增任务路由(返回 `internal/a2ashape` 投影)[C20]:`POST /tasks/send`、`/tasks/get`、`/tasks/list`、`/tasks/cancel`、`/tasks/wait`、`/tasks/pay`(`{task_id, decision: submit|reject, accept?}`,purpose=`task-agent`)、`/tasks/pay-manual`(purpose=`task-manual`,只由 `anet pay` 调用),provider 侧另有 `/tasks/reply`;发现另有 `/agents/list`、`/agents/card`(§10.5)。与 `TaskSeam` 共用实现,但不按 peerAID 限定(控制令牌是全权凭据)[impl:wp/tasksd ee09872]。控制面的投影与本机 A2A 接口的差别:附件给 `anet:attachment?…` 引用而不内联(§11.5)——这是 `d145175` 的做法,早于 0017 Q12;Q12 规定 `/tasks/get` 与 GetTask 一样内联总上限 8 MiB、超出给 `metadata["anet.attachment_cid"]` 占位,控制面"一律引用"与之不符,是保留为控制面的设计(给模型的任务更小)还是按 Q12 改,待确认,登记在 `0022` [Q12][B6-02 复核];错误映射为 HTTP 状态码并带 A2A 错误名;`/tasks/list` 同时列出两侧任务,`metadata["anet.role"]` 标明本节点一侧 [impl:wp/tasksd d145175][impl:wp/a2ashape 65fcc61]。`/tasks/wait`:终态总是结束等待;调用方的截止时间到时按当时状态答复(标明超时),只有取消的上下文才是错误;对发给本节点的任务,请求方作答(除 `input-required` 外任何状态)即结束等待,provider 因此可以 `reply_task` 后 `wait_task` [impl:wp/tasksd a8396fb]。
 
 MCP 实际注册 14 个工具,取代旧的 9 个,旧名删除不留别名(`task_delegate` 的 `pay=true` 属 gateway 档、`agents_find` 把自由文本发给 hub,两者都违反设计)[impl:wp/mcp 9309ea7]。每个工具显式给出 readOnly/destructive/idempotent/openWorld 四个提示(MCP 缺省 destructive、openWorld 为 true):
 
@@ -805,7 +805,7 @@ MCP 实际注册 14 个工具,取代旧的 9 个,旧名删除不留别名(`task_
 | `get_agent_card` | `/agents/card`;只有 VERIFIED 才返回卡片,UNVERIFIED 只给原因,NONE 表示对端不发布卡片 [Q24] | 新 | readOnly、openWorld |
 | `send_message` | `/tasks/send`(文本、文件以 raw part 发送、`skill`+`args` 能力调用、可带 `message_id` 防重发、`context_id`、`return_immediately`);`skill` 不是 `open` 节点的 `chat`(那是纯文本,发 text)[Q27] | `task_delegate` + `task_message` | 非 destructive、openWorld |
 | `get_task` | `/tasks/get` | `task_results` 单条 | readOnly(本机) |
-| `list_tasks` | `/tasks/list`(含 `context_id`、`role`=requester\|provider 映射为 outbound\|inbound、`state` 过滤);未给 `history_length` 时缺省 1(每个任务只带最新一条,免得一页任务灌入大量不可信的对端文本),`page_size` 1–100 | `task_results` + `task_inbox` | readOnly(本机) |
+| `list_tasks` | `/tasks/list`(含 `context_id`、`role`=requester\|provider 映射为 outbound\|inbound、`state`、`peer`(AID)过滤 [impl:wp/mcp 9309ea7][B6-02 复核]);未给 `history_length` 时缺省 1(每个任务只带最新一条,免得一页任务灌入大量不可信的对端文本),`page_size` 1–100 | `task_results` + `task_inbox` | readOnly(本机) |
 | `wait_task` | `/tasks/wait`(缺省 30 秒,上限 300 秒) | 新 | readOnly(本机) |
 | `cancel_task` | `/tasks/cancel` | 新 | destructive、idempotent、openWorld(取消不可撤销,按默认安全取保守值;同一任务再取消不改变什么)[Q25][impl:3af0a2c] |
 | `reply_task` | `/tasks/reply` | provider 的 `task_message`/`task_end` | 非 destructive、openWorld;始终注册;不给 `task_id` 时按 submitted/working/input-required 逐一查询可回复的入站文本任务(剔除能力调用),超过一页时说明"还有更多",没有时明确说明并提示待批项见 `inbound_pending` [m][impl:wp/mcp 9d02ee4] |
@@ -884,7 +884,7 @@ mcpserv 原样转发控制面的投影 JSON(不经 map 重编码,大整数与键
 
 - 全部构建 tag 及方向只写在 `scripts/tagcheck.sh` 一处:减法 `no_anetlink no_p2p no_blackboard no_org no_cas no_service no_mcp no_x402 no_a2a`,加法 `shell taskboard`。`tagcheck.sh check <tags>` 按每个 tag 自己的方向检查(减法:默认 > 0、带 tag == 0;加法:默认 == 0、带 tag > 0),未知 tag 报错(拼错的 tag 会静默构建出默认二进制);`deps [tags]` 断言 `go list -deps ./internal/mcpserv ./internal/daemon` 不含 a2aproject(SI-8),`go list` 本身失败不当作通过;`all` 跑每个减法 tag 单独、全部减法合在一起、每个加法 tag 与两次依赖闭包检查。`build.sh --check` 与 CI 共用它 [impl:wp/tagsci 8b4b20a]。
 - 单 tag `no_a2a` 行保留 MCP;SI-8 依赖闭包检查在 CI 的 test 作业与 `tagcheck.sh deps` 中(默认与 `-tags no_a2a`),`internal/mcpserv`、`internal/daemon`、`internal/loopguard`、`internal/anethome` 另有 `go list -deps` 单测 [impl:wp/tagsci 8b4b20a][impl:wp/mcp 9d02ee4][impl:wp/loopguard ef748a4]。
-- CI(`.github/workflows/ci.yml`):pluggable 矩阵 19 行——每个减法 tag 单独一行、全部减法一行、发行档位各一行(含 `anet-min`:`no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink`,它在 `no_a2a` 加入全部减法行后不再与该行相同),组合行逐个检查全部模块并 `go vet`;optin 矩阵等于加法列表;race 作业另跑 `-tags shell,taskboard`;sandbox 作业装 bubblewrap、放开 user namespace,测试出现 SKIP 即失败(`pipefail`,并要求沙箱集成用例的 PASS 行);`joint-shell.sh`、`joint.sh`(仅手动触发)进 CI 且先 `continue-on-error`。`cmd/anet/tags_test.go` 核对四处 tag 列表(`module_<m>.go` 开关文件、`tagcheck.sh`、`optin_tags.go`、CI 矩阵)互相一致 [impl:wp/tagsci 8b4b20a、0eaf00d]。ANetHub CI 的 unplug/optin 矩阵做双向符号检查,optin 作业以 `go list -tags taskboard -deps` 核对不链入 `ANetCore/delegation|tsir`,test 作业装 sqlite3 且部署脚本测试不得跳过,webui 作业比对嵌入页与构建产物 [impl:ANetHub wp/hubops 030f22d、e6df2ec]。
+- CI(`.github/workflows/ci.yml`):pluggable 矩阵 19 行——每个减法 tag 单独一行、按模块逐层叠加的减法组合四行(`no_p2p,no_anetlink` 起至 `no_cas,…,no_anetlink`)[B6-02 复核]、全部减法一行、发行档位各一行(含 `anet-min`:`no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink`,它在 `no_a2a` 加入全部减法行后不再与该行相同),组合行逐个检查全部模块并 `go vet`;optin 矩阵等于加法列表;race 作业另跑 `-tags shell,taskboard`;sandbox 作业装 bubblewrap、放开 user namespace,测试出现 SKIP 即失败(`pipefail`,并要求沙箱集成用例的 PASS 行);`joint-shell.sh`、`joint.sh`(仅手动触发)进 CI 且先 `continue-on-error`。`cmd/anet/tags_test.go` 核对四处 tag 列表(`module_<m>.go` 开关文件、`tagcheck.sh`、`optin_tags.go`、CI 矩阵)互相一致 [impl:wp/tagsci 8b4b20a、0eaf00d]。ANetHub CI 的 unplug/optin 矩阵做双向符号检查,optin 作业以 `go list -tags taskboard -deps` 核对不链入 `ANetCore/delegation|tsir`,test 作业装 sqlite3 且部署脚本测试不得跳过,webui 作业比对嵌入页与构建产物 [impl:ANetHub wp/hubops 030f22d、e6df2ec]。
 - ANet CI 固定 ANetHub 的 checkout ref(暂为 `a2a-redesign-wip`),与第一个 wire-2 变更同批推送时改为 wire-2 hub 的 tag 或 commit [C37]。ANetCore 打 tag 之前,两仓 CI 用同一份复合 action `.github/actions/anetcore`:以 `GOWORK=off go list -deps ./...` 探测 `go.mod` 的 ANetCore 能否编译本树,不能时 checkout ANetCore 到工作区外并写临时 `go.work`(不持久化令牌);打 tag、`go.mod` 升级后自动回到只按 `go.mod` 构建 [impl:wp/tagsci 8b4b20a、0eaf00d][impl:ANetHub wp/tagsci 255d477、106624c]。
 - 迁移注意:taskboard 改加法后,配置里残留 `modules.taskboard` 的节点,新默认构建拒绝启动,错误指向 `-tags taskboard`;升级前检查生产节点配置(§20 G)[impl:wp/tagsci 8b4b20a]。
 - tag 列表的对外说明不新建 `CLAUDE.md`,以 README 与 `docs/DISTRIBUTIONS-zh.md` 为准(`no_a2a` 在减法、`taskboard` 在加法;发行档位是否带 `no_a2a` 是 DISTRIBUTIONS 的待决问题五)[Q20][impl:wp/tagsci 8b4b20a]。
@@ -972,7 +972,7 @@ mcpserv 原样转发控制面的投影 JSON(不经 map 重编码,大整数与键
 
 B 与 C 在 A 完成后并行;同一仓库内按文件归属串行推进。
 
-r4 时点的进度(剩余阶段按 `docs/notes/0014` 的批次推进,已定决定见 `0017`)[B6-02]:A–E 的实现已合入三仓 `integ/round4b`(ANet `17fe0b6`),`wp/fix5`(Q24、Q27、Q18 余项、x402 hub 身份缓存、`/redeem` 带确认的收款方)随后合入 `integ/round4c`(ANet `a2a-redesign-wip` `82e1e9f`);测试网首轮联调(F 的提前段)记录在 `0021`。已定而未落地的:Q4(A2A 面的 `anet.end_request`)、Q12(本机 A2A 接口的附件内联上限)、Q24 补充(v1 `/find`);"E2E 部署后"的对外陈述更正要等部署。F(计划批次 7:全量验证矩阵与按 SI 的对抗评审)与发布准备(批次 8)未开始;G 全部待征得同意,且 Q16(发布签名私钥保管)、Q20(贡献许可证)留待产品负责人决定,清单见 `0022`。
+r4 时点的进度(剩余阶段按 `docs/notes/0014` 的批次推进,已定决定见 `0017`)[B6-02]:A–E 的实现已合入三仓 `integ/round4b`(ANet `17fe0b6`),`wp/fix5`(Q24、Q27、Q18 余项、x402 hub 身份缓存、`/redeem` 带确认的收款方)随后合入 `integ/round4c`(ANet `a2a-redesign-wip` `82e1e9f`);测试网首轮联调(F 的提前段)记录在 `0021`。已定而未落地的:Q4(A2A 面的 `anet.end_request`)、Q12(本机 A2A 接口的附件内联上限;控制面"一律引用"与 Q12 字面不符,待确认,§12)[B6-02 复核]、Q24 补充(v1 `/find`);"E2E 部署后"的对外陈述更正要等部署。F(计划批次 7:全量验证矩阵与按 SI 的对抗评审)与发布准备(批次 8)未开始;G 全部待征得同意,且 Q16(发布签名私钥保管)、Q20(贡献许可证)留待产品负责人决定,清单见 `0022`。
 
 对外陈述更正表(E2E 部署前不出现"hub 看不到内容"的表述)。"立即"各行已改(另补同类的 DESIGN 两处、PAYMENT 一处、ARCHITECTURE:99、SUITE-TODO:169);"E2E 部署后"各行的位置与改后文本、检索到的同类表述及联调依赖的生产配置前提记在 `docs/notes/0016`;v0.2 用户文档改为"v0.2 起"的条件表述(0.1.x 明文中继、两代不互通、官方 hub 随 v0.2 同批切换),不写对现网的"hub 看不到内容" [impl:wp/scripts 4b6175e、1b5294e、5834043][impl:wp/docs 1f59722]:
 
@@ -988,7 +988,7 @@ r4 时点的进度(剩余阶段按 `docs/notes/0014` 的批次推进,已定决�
 
 ## 21. 已知局限(写入对外文档)
 
-第 1–14 条已写入 `docs/KNOWN-LIMITATIONS-zh.md` 与英文版,编号一一对应 [impl:wp/scripts 5834043];第 15–20 条为 r4 新增(来自实现与复核记录、`0021` 测试网首轮),待同步到对外文档 [B6-02]。
+第 1–14 条已写入 `docs/KNOWN-LIMITATIONS-zh.md` 与英文版,编号一一对应 [impl:wp/scripts 5834043];第 15–20 条为 r4 新增(来自实现与复核记录、`0021` 测试网首轮),待同步到对外文档 [B6-02];第 21 条对外文档已有(在"另外需要知道的"一节,不占编号),此处补入设计 [B6-02 复核]。
 
 1. hub 在发送时刻知道"谁发给谁"、何时、多大;来源 IP 可见。
 2. 前向保密以加密密钥生命周期为界:一条消息在发出后至多 29 天内,可被取得收件人磁盘的一方解开。
@@ -1003,10 +1003,11 @@ r4 时点的进度(剩余阶段按 `docs/notes/0014` 的批次推进,已定决�
 11. KEL 轮换没有产品触发路径;轮换宽限默认 1 小时,超过宽限仍在信箱中的旧密钥消息会被拒收。
 12. `A2A-Version` 缺省按 1.0 处理,偏离规范的"缺省按 0.3"。
 13. TTY 门槛(`anet pay`、`anet peers allow`、`anet inbound approve`、修改支出上限)在 CLI 进程内检查,对应的控制面路由凭控制令牌即可调用。它只约束只能经 MCP 工具或本机 A2A 接口行事的 agent。任何能以本用户身份执行命令的 agent(包括 Claude Code 等工具的 Bash,不论有无 TTY),都可以读取控制令牌直接调用这些路由,或直接改 `peers.*`、`config.json` 并重启 daemon。同 uid 下不存在更强的边界,文档如实写明。
-14. 本期不处理(归属与理由):ANetLink `c1.sock` 权限与 `SO_PEERCRED`、按 `caller_aid` 授权(跨仓,ANetLink 单独立项);联邦按卡片 home hub 定向转发(当前按对等表顺序尝试,功能正确);交互级临时密钥;大附件分块;sealed sender;发放链隐私格式;沙箱网络隔离;非 Linux 沙箱。
-15. 没有持久身份记录的对端,每条消息都按首次信任处理:第 6 条的回退防护只覆盖 `peer_identity` 中有记录的对端(允许/信任名单、本节点主动联系过的、经人工批准的)。陌生人的 KEL 与 keys 只进有界内存缓存,仅用于加密拒绝回复,不参与回退比较;`trust=public`/`public_cap` 交互的对端只存在该交互行里、终态后删除(§3.8)。所以对这些对端,第 6 步对每一条消息都重新接受其自证明的 KEL,hub 可以对其中任何一条提供旧的或截断的 KEL(公开能力调用与 `open` 策略下的陌生人任务因此不能依赖对端的轮换历史)。同理,这些对端的卡片高水位只在内存,重启即忘,hub 可以在重启后重放更旧的卡 [impl:wp/proj 78b4963]。
+14. 本期不处理(归属与理由):ANetLink `c1.sock` 权限与 `SO_PEERCRED`、按 `caller_aid` 授权(跨仓,ANetLink 单独立项);联邦按卡片 home hub 定向转发(当前按对等表顺序尝试,功能正确;被尝试到的对等 hub 也会收到这封密文及其收件人 [impl:wp/scripts 5834043][B6-02 复核]);交互级临时密钥;大附件分块;sealed sender;发放链隐私格式;沙箱网络隔离;非 Linux 沙箱。
+15. 没有持久身份记录的对端,每条消息都按首次信任处理:第 6 条的回退防护只覆盖 `peer_identity` 中有记录的对端(允许/信任名单、本节点主动联系过的、经人工批准的)。陌生人的 KEL 与 keys 只进有界内存缓存,仅用于加密拒绝回复,不参与回退比较;`trust=public`/`public_cap` 交互的对端只存在该交互行里、终态后删除(§3.8)。所以对这些对端,第 6 步对每一条消息都重新接受信封内自带的自证明 KEL:KEL 在发送方签名的密文里,hub 改不了;但持有该 AID 已被轮换取代的旧签名钥的一方(旧钥泄露),可以附上截断到旧钥仍为顶端态的 KEL 冒充它,本节点没有已见状态可比(公开能力调用与 `open` 策略下的陌生人任务因此不能依赖对端的轮换历史)[B6-02 复核]。同理,这些对端的卡片高水位只在内存,重启即忘,hub 可以在重启后重放更旧的卡 [impl:wp/proj 78b4963]。
 16. 证据链的完整性有边界:`anet verify --chain` 通过不表示末尾没有被截掉,只有 `--head` 给出从别处得知的记录时才能排除截尾;证据写在业务事务之后,两者之间崩溃会丢事件且不留缺口记录。`anet audit` 不能把"链上没有"当作"没发生"(§14)[impl:wp/cli 971543a][impl:0014 §10 风险 13]。
 17. 官方标注只按 AID,且只来自随二进制内嵌的签名清单:清单过期后不标任何人,直到升级到带新清单的版本;没有独立的吊销通道(靠发布新版本与 `expires_at`),`seq` 不防回退(靠 `anet update` 拒绝降级);标注不给准入、信任、付款或通道。发现结果里只有 VERIFIED 条目的内容来自 agent 签名;`include_uncarded` 列出的 NONE 条目除 AID 外全是 hub 的陈述(§10.5、§15)[Q24][Q27][impl:wp/manifest 76b3ffe]。
 18. 网络卡片的撤回只随注册发出:节点失去全部 skill 时 hub 不可达,撤回不单独重试,等下一次注册(重启、再次 `hub-register` 或卡片输入变化);在此之前 hub 与联邦对端继续列出旧卡 [Q6][impl:wp/proj 78b4963]。
 19. 与 A2A 和 a2a-x402 规范的其他偏离(除第 7、12 条外):只带 contextId 的宽松续写(§11.5)[Q22];本机 A2A 接口不按卡片的 input modes 检查 raw part 的 mediaType(§11.5);`payment-verified` 在 anet 表示已结算扣款,规范与官方参考实现表示验过未扣(§8.2);`x402.payment.required` 是 x402 v2 对象,只认规范示例的 v1 形状的客户端读不懂,需经 anet daemon 签名付款(§2、§8.7)。
 20. deny 不撤销已提交付款的工作:对端进入 deny 时,`pay_state ∈ {submitted, completed}` 的交互照常完成并交付,只在 `anet.policy.changed` 的 `skipped_paid` 中列出(§5.1)[Q10]。
+21. 端到端加密只覆盖 daemon 与 daemon 之间:经本机 A2A 接口接入的客户端自己保存什么不在 anet 的保护范围内(例如 Hermes 把每次往来以明文写进 `~/.hermes/a2a_conversations/` 与 `a2a_audit.jsonl`);§11.6 后端同理。本机 A2A 令牌(`a2a_token.txt`)可以以本节点身份向任何 agent 发任务并在 agent 档上限内付款,读不到发给本节点的任务;`anet agents wire hermes --a2a` 把它写进 0600 的 Hermes 配置。对外文档已在"另外需要知道的"一节写明这两点 [impl:wp/docs 1f59722][B6-02 复核]。
