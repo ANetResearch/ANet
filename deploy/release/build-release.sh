@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # deploy/release/build-release.sh — cross-compile `anet` for every supported
-# platform, in both variants, and stage a self-hosted download tree in dist/.
+# platform, in both variants, write the signed release manifest, and stage a
+# self-hosted download tree in dist/.
 #
 # Pure Go, CGO_ENABLED=0, so cross-compiling is just GOOS/GOARCH.
 #
@@ -11,7 +12,7 @@
 # being a Mac-only path (`shasum`, `clang -arch`), it could not be run from
 # the Linux box where the code is written. That is why dist/ went stale.
 #
-# TWO VARIANTS per platform, which is the whole reason this file changed:
+# TWO VARIANTS per platform:
 #
 #   anet-<os>-<arch>          the default build. Cannot execute commands on
 #                             its host: `module/shell` is not linked in, and
@@ -25,17 +26,53 @@
 # who need it building from source. So both go out, under names that say
 # which is which, and the installer defaults to the one that cannot execute.
 #
+# SIGNED (A2A-DESIGN §13.2). What a user's installer trusts is not this
+# host, nor TLS, nor checksums.txt served next to the binaries — anyone who
+# can replace the binaries can replace that file too. It trusts release.json,
+# signed with the release key:
+#
+#   ssh-keygen -Y sign -n anet-release@agentnetwork.org.cn
+#
+# The manifest names the version, the full commit, the commit time, when it
+# was signed and when it stops being accepted, the sha256 of every .gz and of
+# the binary inside it, the module set each variant must report, and the
+# fingerprint of the next release key. install.sh and `anet update` refuse
+# anything that does not match it. install.sh is signed too (install.sh.sig)
+# so it can be checked before it is run; see SECURITY.md.
+#
 # Output (dist/):
-#   VERSION                     the release version (from internal/version)
-#   anet-<plat>.gz              gzip'd binary, per platform, per variant
-#   anet-shell-<plat>.gz
-#   checksums.txt               sha256 of each *raw* binary (install.sh
-#                               verifies after gunzip)
-#   install.sh                  copied from this dir
+#   release.json, release.json.sig   the signed manifest
+#   anet-<plat>.gz, anet-shell-<plat>.gz
+#   install.sh, install.sh.sig       the installer, signed
+#   checksums.txt                    sha256 of each .gz and raw binary — for
+#                                    people reading by eye; nothing trusts it
+#   VERSION                          the release version, likewise
+#
+# Publishing: install.sh and install.sh.sig at the root of the download
+# host, everything else under /dl/.
 #
 # Usage:
-#   ./deploy/release/build-release.sh                 # every platform, both variants
-#   ./deploy/release/build-release.sh linux-amd64     # only the listed platforms
+#   ANET_RELEASE_KEY=~/.ssh/anet-release ./deploy/release/build-release.sh
+#                                                every platform, both variants
+#   ANET_RELEASE_KEY=… ./deploy/release/build-release.sh linux-amd64
+#                                                only the listed platforms
+#   ANET_RELEASE_KEY=… ./deploy/release/build-release.sh --resign
+#                                                re-date and re-sign the
+#                                                manifest already in dist/,
+#                                                without rebuilding
+#   ./deploy/release/build-release.sh --unsigned [platform…]
+#                                                build without signing; the
+#                                                result is NOT a release and
+#                                                no installer will accept it
+#
+# Environment:
+#   ANET_RELEASE_KEY        path to the release private key. It never lives
+#                           in this repository. A .pub path works too when the
+#                           private key is loaded in ssh-agent.
+#   ANET_RELEASE_TTL_DAYS   how long the manifest is accepted (default 90).
+#                           Past that, installs and updates stop until a newer
+#                           manifest is signed — run --resign before then if
+#                           there is no new release.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -50,30 +87,136 @@ REL_DIR="$(cd "$(dirname "$0")" && pwd)"
 # "no symbols" — which reads like a passing check while proving nothing. The
 # 1.4 MB it saves (14,320 K → 15,760 K) is not worth turning a verifiable
 # property back into a promise.
-LDFLAGS='-w' 
+LDFLAGS='-w'
+VPKG=github.com/ANetResearch/ANet/internal/version
+
+# The trust anchors, read from the Go source so the manifest, the installer
+# and the binary cannot disagree about them. See internal/release/keys.go.
+NAMESPACE=anet-release@agentnetwork.org.cn
+IDENTITY=anet-release@agentnetwork.org.cn
+ALLOWED="$ROOT/internal/release/allowed_signers"
 
 info() { printf '\033[1;36m== %s ==\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m✓ %s\033[0m\n' "$*"; }
 die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
+  else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+size_of() { wc -c < "$1" | tr -d ' '; }
+# utc <epoch> → YYYY-MM-DDTHH:MM:SSZ, the one timestamp shape the manifest
+# uses (install.sh compares these as strings).
+utc() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ; }
+# "a,b,c" → "a", "b", "c"
+json_list() { [ -n "$1" ] && printf '"%s"' "$1" | sed 's/,/", "/g'; true; }
+
+MODE=build
+case "${1:-}" in
+  --resign)   MODE=resign; shift ;;
+  --unsigned) MODE=unsigned; shift ;;
+  -h|--help)  sed -n '2,80p' "$0"; exit 0 ;;
+esac
+
+TTL_DAYS="${ANET_RELEASE_TTL_DAYS:-90}"
+case "$TTL_DAYS" in ''|*[!0-9]*) die "ANET_RELEASE_TTL_DAYS must be a number of days" ;; esac
+[ "$TTL_DAYS" -ge 1 ] && [ "$TTL_DAYS" -le 366 ] || die "ANET_RELEASE_TTL_DAYS must be between 1 and 366"
+
+# ── trust anchors ────────────────────────────────────────────────────────
+[ -f "$ALLOWED" ] || die "missing $ALLOWED"
+KEY_FP="$(awk '{print $3" "$4}' "$ALLOWED" | ssh-keygen -lf - 2>/dev/null | awk '{print $2}')" \
+  || die "cannot read the release key from $ALLOWED"
+[ -n "$KEY_FP" ] || die "cannot read the release key from $ALLOWED (is ssh-keygen installed?)"
+NEXT_FP="$(sed -n 's/^const NextKeyFingerprint = "\(.*\)"$/\1/p' "$ROOT/internal/release/keys.go")"
+
+# check_key: the key we are about to sign with must be the one every binary
+# and installer from this commit trusts. A release signed by any other key
+# would be refused by all of them — better to find that out here.
+check_key() {
+  [ "$MODE" = unsigned ] && return 0
+  command -v ssh-keygen >/dev/null 2>&1 || die "ssh-keygen (OpenSSH ≥ 8.1) is required to sign"
+  [ -n "${ANET_RELEASE_KEY:-}" ] || die "ANET_RELEASE_KEY is not set — point it at the release private key (never commit it), or use --unsigned for a build that is not a release"
+  [ -r "$ANET_RELEASE_KEY" ] || die "ANET_RELEASE_KEY=$ANET_RELEASE_KEY is not readable"
+  local fp
+  fp="$(ssh-keygen -lf "$ANET_RELEASE_KEY" 2>/dev/null | awk '{print $2}')"
+  [ "$fp" = "$KEY_FP" ] || die "ANET_RELEASE_KEY is $fp, but internal/release/allowed_signers trusts $KEY_FP"
+}
+
+# sign <file>: sign, then verify with the committed allowed_signers — the
+# same command a user runs by hand.
+sign() {
+  [ "$MODE" = unsigned ] && return 0
+  rm -f "$1.sig"
+  # Not silenced: with a passphrase on the key, ssh-keygen asks for it.
+  ssh-keygen -Y sign -f "$ANET_RELEASE_KEY" -n "$NAMESPACE" "$1" \
+    || die "signing $(basename "$1") failed"
+  ssh-keygen -Y verify -f "$ALLOWED" -I "$IDENTITY" -n "$NAMESPACE" -s "$1.sig" < "$1" >/dev/null \
+    || die "$(basename "$1").sig does not verify against internal/release/allowed_signers"
+  ok "signed $(basename "$1")  ($KEY_FP)"
+}
+
+NOW="$(date -u +%s)"
+RELEASED="$(utc "$NOW")"
+EXPIRES="$(utc $((NOW + TTL_DAYS * 86400)))"
+
+# ── --resign: new dates on the manifest already in dist/ ─────────────────
+if [ "$MODE" = resign ]; then
+  check_key
+  MF="$DIST/release.json"
+  [ -f "$MF" ] || die "no $MF to re-sign; build a release first"
+  # Every asset the manifest names must still be the file in dist/: a
+  # re-sign vouches for these bytes again, so it looks at them again.
+  grep '^    "anet[a-z0-9-]*": {"variant"' "$MF" | while IFS= read -r line; do
+    name="$(printf '%s' "$line" | sed -n 's/^    "\([a-z0-9-]*\)": .*/\1/p')"
+    want="$(printf '%s' "$line" | sed -n 's/.*"gz_sha256": "\([0-9a-f]*\)".*/\1/p')"
+    [ -f "$DIST/$name.gz" ] || die "$name.gz is named in the manifest but missing from dist/"
+    [ "$(sha256_of "$DIST/$name.gz")" = "$want" ] || die "$name.gz no longer matches the manifest"
+  done
+  sed -e "s/^  \"released_at\": \"[^\"]*\",\$/  \"released_at\": \"$RELEASED\",/" \
+      -e "s/^  \"expires_at\": \"[^\"]*\",\$/  \"expires_at\": \"$EXPIRES\",/" \
+      "$MF" > "$MF.new"
+  grep -q "\"released_at\": \"$RELEASED\"" "$MF.new" && grep -q "\"expires_at\": \"$EXPIRES\"" "$MF.new" \
+    || die "could not rewrite the dates in $MF"
+  mv "$MF.new" "$MF"
+  sign "$MF"
+  ok "re-signed: released $RELEASED, valid until $EXPIRES"
+  exit 0
+fi
+
+# ── what is being released ───────────────────────────────────────────────
 VERSION="$(sed -n 's/.*V = "\([^"]*\)".*/\1/p' "$ROOT/internal/version/version.go")"
 [ -n "$VERSION" ] || die "cannot read version from internal/version/version.go"
-COMMIT="$(cd "$ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-# A release built from uncommitted work is not the commit it names.
-( cd "$ROOT" && git diff --quiet 2>/dev/null ) || die "working tree is dirty — commit before cutting a release"
-BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+COMMIT_FULL="$(cd "$ROOT" && git rev-parse HEAD)"
+COMMIT="$(cd "$ROOT" && git rev-parse --short HEAD)"
+# A release built from uncommitted work is not the commit it names. `git
+# diff --quiet` alone compares the work tree with the index, so staged
+# changes and untracked files passed it; this compares with HEAD and looks
+# at untracked files too (dist/ itself is git-ignored).
+( cd "$ROOT" && git diff --quiet HEAD -- ) || die "working tree differs from HEAD — commit before cutting a release"
+[ -z "$(cd "$ROOT" && git status --porcelain --untracked-files=normal)" ] \
+  || die "untracked or unstaged files present — commit or remove them before cutting a release"
+# BuiltAt is the commit time, not the wall clock: two builds of one commit
+# then carry the same stamp, and with -trimpath and CGO off the same bytes,
+# so anyone can rebuild and compare against the manifest's sha256.
+BUILT="$(cd "$ROOT" && TZ=UTC0 git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)"
+# A release is built from what the commit's go.mod names, not from sibling
+# checkouts a go.work happens to point at: otherwise the manifest names a
+# commit that does not reproduce the binary. Unsigned builds keep the
+# caller's workspace, which is what a development build wants.
+[ "$MODE" = unsigned ] || export GOWORK=off
+GOVERSION="$(go env GOVERSION)"
 
-sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"
-  else shasum -a 256 "$1"; fi
-}
+check_key
 
 ALL="darwin-arm64 darwin-amd64 linux-amd64 linux-arm64"
 TARGETS="${*:-$ALL}"
+for plat in $TARGETS; do
+  case " $ALL " in *" $plat "*) ;; *) die "unknown platform $plat (known: $ALL)" ;; esac
+done
 
-# build_one <platform> <variant-tag> <asset-prefix>
+# build_one <platform> <variant> <variant-tags> <asset-prefix>
 build_one() {
-  local plat="$1" tags="$2" prefix="$3" goos goarch out
+  local plat="$1" variant="$2" tags="$3" prefix="$4" goos goarch out
   goos="${plat%%-*}"; goarch="${plat##*-}"
   out="$DIST/${prefix}-${plat}"
 
@@ -82,47 +225,128 @@ build_one() {
       -ldflags "$LDFLAGS -X $VPKG.Commit=$COMMIT -X $VPKG.BuiltAt=$BUILT -X $VPKG.Tags=$tags" \
       -o "$out" ./cmd/anet/ || die "build failed: $plat ${tags:-default}"
 
-  ( cd "$DIST" && sha256_of "${prefix}-${plat}" >> checksums.txt )
-  gzip -9 -f "$out"
+  local raw_sha raw_size gz_sha gz_size
+  raw_sha="$(sha256_of "$out")"; raw_size="$(size_of "$out")"
+  # -n: no name, no timestamp in the gzip header, so the .gz is as
+  # reproducible as the binary.
+  gzip -9 -n -f "$out"
+  gz_sha="$(sha256_of "$out.gz")"; gz_size="$(size_of "$out.gz")"
+  printf '%s  %s\n%s  %s\n' "$raw_sha" "${prefix}-${plat}" "$gz_sha" "${prefix}-${plat}.gz" >> "$DIST/checksums.txt"
+  printf '    "%s": {"variant": "%s", "os": "%s", "arch": "%s", "gz_sha256": "%s", "gz_size": %s, "sha256": "%s", "size": %s}\n' \
+    "${prefix}-${plat}" "$variant" "$goos" "$goarch" "$gz_sha" "$gz_size" "$raw_sha" "$raw_size" >> "$DIST/.assets"
   ok "dist/${prefix}-${plat}.gz"
 }
 
-VPKG=github.com/ANetResearch/ANet/internal/version
-
-info "release anet v${VERSION} (${COMMIT}) → $DIST"
+info "release anet v${VERSION} (${COMMIT}, built ${BUILT}) → $DIST"
 rm -rf "$DIST"; mkdir -p "$DIST"
 : > "$DIST/checksums.txt"
+: > "$DIST/.assets"
 printf '%s\n' "$VERSION" > "$DIST/VERSION"
 
 for plat in $TARGETS; do
   info "build $plat"
-  build_one "$plat" ""      "anet"
-  build_one "$plat" "shell" "anet-shell"
+  build_one "$plat" default ""      "anet"
+  build_one "$plat" shell   "shell" "anet-shell"
 done
 
 cp "$REL_DIR/install.sh" "$DIST/install.sh"
 
-# The claim each variant's name makes, checked rather than asserted. A
-# default binary that turned out to contain the shell module would be the
-# one defect in this release nobody would notice until it mattered.
-info "verify: the default build must not contain module/shell"
+# ── module sets ──────────────────────────────────────────────────────────
+# What each variant's `anet version` prints on its `modules:` line. That
+# line is read off the module registry, which the linker populates, so it
+# is the binary's own account of what it contains — and the thing
+# install.sh and `anet update` compare against before they install. It is
+# taken from a build for THIS machine, which can run; the symbol check
+# below is what ties every other platform to it.
+info "module sets"
+HOSTBIN="$(mktemp -d)"
+trap 'rm -rf "$HOSTBIN"' EXIT
+host_modules() { # <tags> → modules line of a host build
+  CGO_ENABLED=0 go build -C "$ROOT" -trimpath -tags "$1" \
+    -ldflags "$LDFLAGS -X $VPKG.Commit=$COMMIT -X $VPKG.BuiltAt=$BUILT -X $VPKG.Tags=$1" \
+    -o "$HOSTBIN/anet" ./cmd/anet/ || die "host build failed (${1:-default})"
+  local out ver mods
+  out="$("$HOSTBIN/anet" version)" || die "host build does not run"
+  ver="$(printf '%s\n' "$out" | sed -n '1s/^anet \([^ ]*\) .*/\1/p')"
+  [ "$ver" = "$VERSION" ] || die "host build reports version '$ver', expected $VERSION"
+  mods="$(printf '%s\n' "$out" | sed -n 's/^modules: //p')"
+  [ "$mods" = "(none)" ] && mods=""
+  printf '%s' "$mods"
+}
+MODS_DEFAULT="$(host_modules "")"
+MODS_SHELL="$(host_modules shell)"
+case ",$MODS_DEFAULT," in *,shell,*) die "the default build reports the shell module: $MODS_DEFAULT" ;; esac
+case ",$MODS_SHELL," in *,shell,*) ;; *) die "the shell build does not report the shell module: $MODS_SHELL" ;; esac
+ok "default: $MODS_DEFAULT"
+ok "shell:   $MODS_SHELL"
+
+# ── symbols, on every platform ───────────────────────────────────────────
+# The claim each variant's name makes, checked rather than asserted — on
+# every platform, not only the one this script runs on: `go tool nm` reads
+# ELF and Mach-O alike, and a check that skipped three of four targets left
+# three of four shipped defaults unexamined. Beyond shell/no-shell, every
+# platform's set of linked module packages must equal the first one's, so
+# the module line measured above holds for binaries this machine cannot run.
+info "verify: symbols on every platform"
+pkgset() { go tool nm "$1" | grep -oE 'ANet/(module/[a-z0-9_]+|internal/mcpserv)\.' | sort -u | tr '\n' ' '; }
+REF_D=""; REF_S=""
 for plat in $TARGETS; do
-  case "$plat" in "$(go env GOOS)-$(go env GOARCH)") ;; *) continue ;; esac
   gunzip -kf "$DIST/anet-${plat}.gz" && gunzip -kf "$DIST/anet-shell-${plat}.gz"
   # A stripped binary answers 0 here for the wrong reason, so the absence of
   # symbols is itself a failure rather than a pass.
   go tool nm "$DIST/anet-${plat}" >/dev/null 2>&1 || die "no symbol table in the shipped binary: the check below would pass vacuously"
   d=$(go tool nm "$DIST/anet-${plat}" | grep -c 'module/shell' || true)
   s=$(go tool nm "$DIST/anet-shell-${plat}" | grep -c 'module/shell' || true)
+  pd="$(pkgset "$DIST/anet-${plat}")"; ps="$(pkgset "$DIST/anet-shell-${plat}")"
   rm -f "$DIST/anet-${plat}" "$DIST/anet-shell-${plat}"
   [ "$d" -eq 0 ] || die "the default $plat build contains module/shell ($d symbols)"
   [ "$s" -gt 0 ] || die "the shell $plat build does not contain module/shell"
-  ok "$plat: default=$d shell=$s symbols"
+  [ -n "$REF_D" ] || { REF_D="$pd"; REF_S="$ps"; }
+  [ "$pd" = "$REF_D" ] || die "default $plat links different modules: [$pd] vs [$REF_D]"
+  [ "$ps" = "$REF_S" ] || die "shell $plat links different modules: [$ps] vs [$REF_S]"
+  ok "$plat: default=$d shell=$s module/shell symbols; module packages match"
 done
 
+# ── the manifest ─────────────────────────────────────────────────────────
+# One field per line, one asset per line, in this exact layout: install.sh
+# reads it with sed after verifying the signature, and has no JSON parser
+# to be lenient with.
+info "release.json"
+MF="$DIST/release.json"
+{
+  printf '{\n'
+  printf '  "schema": "anet-release/1",\n'
+  printf '  "version": "%s",\n' "$VERSION"
+  printf '  "commit": "%s",\n' "$COMMIT_FULL"
+  printf '  "built_at": "%s",\n' "$BUILT"
+  printf '  "released_at": "%s",\n' "$RELEASED"
+  printf '  "expires_at": "%s",\n' "$EXPIRES"
+  printf '  "go": "%s",\n' "$GOVERSION"
+  printf '  "key_fingerprint": "%s",\n' "$KEY_FP"
+  printf '  "next_key_fingerprint": "%s",\n' "$NEXT_FP"
+  printf '  "variants": {\n'
+  printf '    "default": {"asset_prefix": "anet", "tags": "", "modules": [%s]},\n' "$(json_list "$MODS_DEFAULT")"
+  printf '    "shell": {"asset_prefix": "anet-shell", "tags": "shell", "modules": [%s]}\n' "$(json_list "$MODS_SHELL")"
+  printf '  },\n'
+  printf '  "assets": {\n'
+  sed '$!s/$/,/' "$DIST/.assets"
+  printf '  }\n'
+  printf '}\n'
+} > "$MF"
+rm -f "$DIST/.assets"
+ok "release.json: $VERSION, valid until $EXPIRES"
+
+sign "$MF"
+sign "$DIST/install.sh"
+
 echo
+if [ "$MODE" = unsigned ]; then
+  printf '\033[1;33m! UNSIGNED — not a release; install.sh and anet update will refuse it\033[0m\n'
+fi
 ok "release staged: $DIST"
-echo "  version     $VERSION  (commit $COMMIT)"
+echo "  version     $VERSION  (commit $COMMIT, built $BUILT)"
 echo "  platforms   $TARGETS"
 echo "  variants    default, shell"
-echo "  checksums   $DIST/checksums.txt"
+echo "  manifest    $MF (valid until $EXPIRES)"
+echo "  key         $KEY_FP   next: ${NEXT_FP:-none}"
+echo "  publish     install.sh + install.sh.sig at the host root; everything else under /dl/"
