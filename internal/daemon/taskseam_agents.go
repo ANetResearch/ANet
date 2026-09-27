@@ -8,7 +8,9 @@ package daemon
 // against the signer's KEL, and the card must be signed by the AID it is
 // listed under. A card must also not be older than one this process has
 // already admitted for that agent (the params.seq high-water rule, §10.3):
-// a hub serving an earlier, validly signed card is refused. Free-text
+// a hub serving an earlier, validly signed card is refused. The mark is
+// kept in peer_identity for a peer this node has a row for, so it survives
+// a restart, and in memory for anyone else (card_highwater.go). Free-text
 // search never leaves this node: the hub is asked by skill and tag only,
 // and the text is matched locally against the cards it returned.
 
@@ -206,7 +208,7 @@ func (d *Daemon) verifyCardInto(ra *module.RemoteAgent, resolve a2acard.Resolver
 	case v.AID != ra.AID:
 		ra.VerificationError = fmt.Sprintf("the card is signed by %s, not %s", v.AID, ra.AID)
 	default:
-		if err := cardMarks.admit(d.AID(), v); err != nil {
+		if err := d.admitCardMark(v); err != nil {
 			ra.VerificationError = err.Error()
 			return
 		}
@@ -220,12 +222,17 @@ const cardMarkCap = 4096
 
 // cardMarkCache is the params.seq high water of the cards this process
 // has admitted, per (this node, card AID) — tests run several nodes in
-// one process. It lives in memory: a restart forgets it, and the first
-// card seen after one is taken as the mark. Past cardMarkCap entries an
-// arbitrary one is forgotten, which loses only that agent's protection.
+// one process. It is what a stranger's card is checked against: a restart
+// forgets it, and the first card seen after one is taken as the mark. Past
+// cardMarkCap entries an arbitrary one is forgotten, which loses only that
+// agent's protection. A peer this node has a peer_identity row for is
+// checked against the persisted mark as well (card_highwater.go).
 type cardMarkCache struct {
 	mu sync.Mutex
 	m  map[string]a2acard.Mark
+	// forks counts, per node, the cards refused as a second card under an
+	// admitted seq (CodeSeqFork): the signer said two things at once.
+	forks map[string]uint64
 }
 
 var cardMarks cardMarkCache

@@ -762,6 +762,10 @@ func TestARedeliveredResultIsRecordedOnce(t *testing.T) {
 // of the goal text and the caller found it anyway. The moment discovery
 // became exact, that node stopped being findable for the thing it does,
 // and the directory was confidently wrong rather than merely vague.
+//
+// And only what it serves publicly (0017 Q14): a capability served to
+// allowed peers only, or an operator's label that is not a public
+// capability, is not published.
 func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -769,22 +773,20 @@ func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
 	if err := d.Providers().Register(ctx, &lampProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	// The operator writes a human label; the daemon knows the ids.
-	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}, ""); err != nil {
-		t.Fatal(err)
-	}
-
-	agents, err := d.Find(ctx, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var caps []string
-	for _, a := range agents {
-		if a.AID == d.AID() {
-			caps = a.Caps
+	advertised := func() []string {
+		t.Helper()
+		agents, err := d.Find(ctx, "")
+		if err != nil {
+			t.Fatal(err)
 		}
+		for _, a := range agents {
+			if a.AID == d.AID() {
+				return a.Caps
+			}
+		}
+		return nil
 	}
-	has := func(want string) bool {
+	has := func(caps []string, want string) bool {
 		for _, c := range caps {
 			if c == want {
 				return true
@@ -792,13 +794,27 @@ func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
 		}
 		return false
 	}
-	if !has("light.onoff@sim/lamp-1") {
-		t.Errorf("the id this node will actually answer is not advertised: %v", caps)
+
+	// Served, not public: nothing is published.
+	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}, ""); err != nil {
+		t.Fatal(err)
 	}
-	// The operator's own word is kept, not replaced: "devices" is not a
-	// capability id and is still how a person says what they offer.
-	if !has("devices") {
-		t.Errorf("the operator's label was dropped: %v", caps)
+	if caps := advertised(); has(caps, "light.onoff@sim/lamp-1") || has(caps, "devices") {
+		t.Fatalf("a capability that is not public was published: %v", caps)
+	}
+
+	// Public: the id this node will actually answer is published; the
+	// operator's label, not a public capability, still is not.
+	setPublic(d, "light.onoff@sim/lamp-1")
+	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	caps := advertised()
+	if !has(caps, "light.onoff@sim/lamp-1") {
+		t.Errorf("the public id this node will actually answer is not advertised: %v", caps)
+	}
+	if has(caps, "devices") {
+		t.Errorf("a label that is not a public capability was published: %v", caps)
 	}
 }
 

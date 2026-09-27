@@ -74,6 +74,10 @@ type issuedCard struct {
 	Seq    uint64          `json:"seq"`
 	KID    string          `json:"kid"`
 	Card   json.RawMessage `json:"card"`
+	// WithdrawnFrom is the hub that confirmed withdrawing this card after
+	// the node lost its last public skill (a2a_card_withdraw.go); empty
+	// while a hub may still list it.
+	WithdrawnFrom string `json:"withdrawn_from,omitempty"`
 }
 
 // CardPublication is what the hub last answered for this node's network
@@ -85,7 +89,8 @@ type CardPublication struct {
 	Sent bool   `json:"sent"`
 	Seq  uint64 `json:"seq,omitempty"`
 	// Status is the hub's card_status: ok, unchanged, unverified, invalid,
-	// conflict or absent. Empty until a registration was answered.
+	// conflict, absent, or withdrawn after a withdrawal (Sent is then
+	// false). Empty until a registration was answered.
 	Status string `json:"status,omitempty"`
 	Error  string `json:"error,omitempty"`
 	At     string `json:"at,omitempty"`
@@ -311,19 +316,16 @@ func (d *Daemon) cardForRegistration(hubURL, name string, fresh bool) (json.RawM
 	card, seq, err := d.networkCardLocked(hubURL, name, fresh)
 	switch {
 	case errors.Is(err, errNoPublicSkill):
-		if prev := d.netCard.lastPub; prev.Sent && prev.Hub == hubURL {
-			// A registration without a2a_card leaves the hub's stored card
-			// in place: /register has no withdrawal yet (hub brief H1).
-			log.Printf("anet: no public skill any more, so no network card is sent; %s keeps listing card seq %d until it can withdraw one",
-				hubURL, prev.Seq)
-		}
 		d.netCard.lastPub = CardPublication{Hub: hubURL, At: time.Now().UTC().Format(time.RFC3339)}
-		return nil, 0
+		// A card published before is withdrawn (0017 Q6), or the hub
+		// would go on listing skills this node no longer serves.
+		return d.cardWithdrawalLocked(hubURL), 0
 	case err != nil:
 		log.Printf("anet: registering without an A2A network card: %v", err)
 		d.netCard.lastPub = CardPublication{Hub: hubURL, Error: err.Error(), At: time.Now().UTC().Format(time.RFC3339)}
 		return nil, 0
 	}
+	d.cardPublishedAgainLocked()
 	return card, seq
 }
 
@@ -396,6 +398,10 @@ func (d *Daemon) cardInputsChanged() {
 func (d *Daemon) afterCardAnswer(ctx context.Context, hubURL string, body hubapi.RegisterRequest, seq uint64, out hubapi.RegisterResponse) {
 	if len(body.A2ACard) == 0 {
 		return // cardForRegistration recorded why
+	}
+	if isCardWithdrawal(body.A2ACard) {
+		d.noteWithdrawalAnswer(hubURL, out)
+		return
 	}
 	if !d.noteCardAnswer(hubURL, seq, out) {
 		return

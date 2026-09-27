@@ -20,6 +20,7 @@ package daemon
 // fake that read payloads could make a test pass that the real hub would fail.
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -139,6 +140,11 @@ type fakeHub struct {
 	a2aMarks      map[string]a2acard.Mark
 	registerCards map[string]string
 	a2aCardSends  int
+	// a2aWithdrawals counts registrations that carried a2a_card: null.
+	a2aWithdrawals int
+	// adpCaps is the capability list of each agent's last admitted ADP
+	// card.
+	adpCaps map[string][]string
 	// agentsQueries records the query string of every GET /agents, so a
 	// test can tell what a search sent to the hub.
 	agentsQueries []string
@@ -184,7 +190,7 @@ func newFakeHub(t *testing.T) *httptest.Server {
 		keysOverride: map[string]hubapi.KeysResponse{},
 		registerKeys: map[string]string{},
 		a2aCards:     map[string][]byte{}, a2aMarks: map[string]a2acard.Mark{},
-		registerCards: map[string]string{},
+		registerCards: map[string]string{}, adpCaps: map[string][]string{},
 	}
 	// The hub is an agent on its own registry, so its settlement
 	// signatures can be checked the same way everyone else's are.
@@ -407,6 +413,7 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 		}
 		h.mu.Lock()
 		h.cardHighWater[req.AID] = card.Seq
+		h.adpCaps[req.AID] = append([]string(nil), card.Capabilities...)
 		h.mu.Unlock()
 	}
 
@@ -431,7 +438,15 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 		out.KeysStatus, out.KeysError = h.admitKeysLocked(a, req.EncKeys, kelEvents)
 	}
 	h.registerKeys[req.AID] = out.KeysStatus
-	if len(req.A2ACard) > 0 {
+	switch {
+	case string(bytes.TrimSpace(req.A2ACard)) == hubapi.WithdrawCard:
+		// 0017 Q6: null withdraws the card (and, as on the real hub, its
+		// high-water mark goes with the row).
+		h.a2aWithdrawals++
+		delete(h.a2aCards, req.AID)
+		delete(h.a2aMarks, req.AID)
+		out.CardStatus = hubapi.CardStatusWithdrawn
+	case len(req.A2ACard) > 0:
 		h.a2aCardSends++
 		out.CardStatus, out.CardError = h.admitA2ACardLocked(req.AID, req.A2ACard, kelEvents)
 	}

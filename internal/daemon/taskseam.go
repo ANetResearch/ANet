@@ -23,7 +23,10 @@ package daemon
 //     daemon minted). A task that could not be delivered does not count,
 //     so a retry after UnavailableError is a new attempt. The client's
 //     messageId is stored in message.metadata["a2a.messageId"]; the
-//     envelope carries a daemon-minted id.
+//     envelope carries a daemon-minted id. One leniency (0017 Q22,
+//     taskseam_context.go): on the A2A interface, a contextId whose only
+//     input-required task of this endpoint waits for it is continued
+//     rather than given a new task.
 //   - a taskId: a follow-up on that task. A client-chosen id for a task
 //     that does not exist is TaskNotFound, never a new task. Input to a
 //     terminal task is UnsupportedOperation (§4.2). A follow-up goes
@@ -295,6 +298,15 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 		case !errors.Is(err, interactions.ErrNotFound):
 			return a2ashape.Task{}, err
 		}
+	}
+	// 0017 Q22: a contextId-only message may continue the one task of this
+	// endpoint that waits for input there (taskseam_context.go).
+	if cont, err := d.continuedTask(sc, peer, contextID, in, msg.Metadata); err != nil {
+		return a2ashape.Task{}, err
+	} else if cont != "" {
+		release() // appendTask takes the same dedupe lock
+		req.Message.TaskID = cont
+		return d.appendTask(ctx, sc, req, wait)
 	}
 	if contextID == "" {
 		if contextID, err = newContextID(); err != nil {

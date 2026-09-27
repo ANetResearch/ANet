@@ -185,8 +185,13 @@ type PeerIdentity struct {
 	// KeysCheckedAt is when the key set was last fetched from a hub or
 	// re-verified, unix ms. The sender uses it to pace hub revalidation.
 	KeysCheckedAt int64
-	// CardSeq is the high-water mark of the peer's signed card.
+	// CardSeq and CardHash are the high-water mark of the peer's A2A
+	// network card: its params.seq and the payload hash (a2acard.Mark)
+	// of the card admitted at that seq. Replaced only under the three-way
+	// high-water rule (A2A-DESIGN §3.8, §10.3); CardHash is empty on a row
+	// written before it was kept.
 	CardSeq      uint64
+	CardHash     []byte
 	PinnedReason string
 	UpdatedAt    int64 // unix ms of the last write
 }
@@ -209,7 +214,7 @@ func (s *Store) SetPeerIdentityCap(n int) {
 	s.peerCap = n
 }
 
-const peerColumns = `aid,kel,kel_len,keyset,keyset_seq,keys_checked_at,card_seq,pinned_reason,updated_at`
+const peerColumns = `aid,kel,kel_len,keyset,keyset_seq,keys_checked_at,card_seq,card_hash,pinned_reason,updated_at`
 
 // PeerIdentity returns the stored row for aid, or ErrNotFound.
 func (s *Store) PeerIdentity(aid string) (*PeerIdentity, error) {
@@ -220,7 +225,7 @@ func getPeer(e execer, aid string) (*PeerIdentity, error) {
 	var p PeerIdentity
 	var seq, card int64
 	err := e.QueryRow(`SELECT `+peerColumns+` FROM peer_identity WHERE aid=?`, aid).Scan(
-		&p.AID, &p.KEL, &p.KELLen, &p.KeySet, &seq, &p.KeysCheckedAt, &card, &p.PinnedReason, &p.UpdatedAt)
+		&p.AID, &p.KEL, &p.KELLen, &p.KeySet, &seq, &p.KeysCheckedAt, &card, &p.CardHash, &p.PinnedReason, &p.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -273,12 +278,12 @@ func (s *Store) UpdatePeerIdentity(aid string, fn func(cur *PeerIdentity) (*Peer
 		next.PinnedReason = cur.PinnedReason
 	}
 	next.UpdatedAt = time.Now().UnixMilli()
-	if _, err := tx.Exec(`INSERT INTO peer_identity(`+peerColumns+`) VALUES(?,?,?,?,?,?,?,?,?)
+	if _, err := tx.Exec(`INSERT INTO peer_identity(`+peerColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(aid) DO UPDATE SET kel=excluded.kel, kel_len=excluded.kel_len, keyset=excluded.keyset,
 		  keyset_seq=excluded.keyset_seq, keys_checked_at=excluded.keys_checked_at, card_seq=excluded.card_seq,
-		  pinned_reason=excluded.pinned_reason, updated_at=excluded.updated_at`,
+		  card_hash=excluded.card_hash, pinned_reason=excluded.pinned_reason, updated_at=excluded.updated_at`,
 		next.AID, next.KEL, next.KELLen, next.KeySet, int64(next.KeySetSeq), next.KeysCheckedAt,
-		int64(next.CardSeq), next.PinnedReason, next.UpdatedAt); err != nil {
+		int64(next.CardSeq), next.CardHash, next.PinnedReason, next.UpdatedAt); err != nil {
 		return err
 	}
 	if cur == nil && next.PinnedReason == "" {
@@ -360,5 +365,5 @@ func (s *Store) migrateWire2() error {
 			return fmt.Errorf("interactions: migrate wire 2: %w", err)
 		}
 	}
-	return nil
+	return s.migratePeerCardHash()
 }

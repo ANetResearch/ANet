@@ -22,23 +22,31 @@ package a2ashape
 //     message for input-required, the x402 payment-required message when a
 //     quote is what it waits for, progress for working, the reason for
 //     failed, rejected and canceled, the settlement for a paid completion.
+//     It always has text a client that reads only text can use
+//     (readable.go, 0017 Q21): a payment message states the quote and how
+//     to get it paid, a row with no body says what its metadata records,
+//     and an ended task with only a reason says "<state>: <reason>".
 //   - history is the message log without its control rows (end requests,
 //     cancels, status updates, payment messages, and text carrying x402.* or
 //     anet.state metadata); the requester is the user and the provider the
 //     agent, on both sides of the task. A capability call carries no
 //     conversation, so its history is the one request, as the DataPart
 //     {skill, args} a client would have sent.
-//   - artifacts appear once a receipt covers a result: first the
-//     deliverable — anet.reply (the provider's last message in the
-//     transcript the receipt covers) for a text task, anet.result (the
-//     deliverable as a DataPart) for a capability call — then anet.receipt,
-//     then the reply's attachments as file parts. A PAYMENT_REQUIRED answer
-//     is a quote, not a result: it has none.
+//   - artifacts are the task's output and nothing else, and appear once a
+//     receipt covers a result: anet.reply for a text task — the provider's
+//     last message in the transcript the receipt covers, its text (when it
+//     has any) and then its files, in one artifact — or anet.result, the
+//     deliverable as a DataPart, for a capability call. A PAYMENT_REQUIRED
+//     answer is a quote, not a result: it has none. (0017 Q21 P1/P2: a
+//     client that takes the first artifact with text as the answer must
+//     find the reply's files there, and must never take the receipt.)
 //   - metadata carries anet.effect_status (capability tasks; always present
 //     once one is terminal), anet.receipt_verified (every completed task and
 //     every task with a receipt), the CIDs, the peer, this node's side, the
 //     state sequence number, and the trust, reason, retry hint, cancel
-//     request and x402 keys when there are any.
+//     request and x402 keys when there are any. With the artifacts it also
+//     carries anet.receipt, the signed receipt that covers them: evidence,
+//     not output.
 
 import (
 	"encoding/base64"
@@ -151,8 +159,10 @@ type Options struct {
 	// HistoryLength keeps the most recent n history messages; nil keeps
 	// all of them and 0 none (A2A historyLength).
 	HistoryLength *int
-	// Artifacts includes the artifacts. GetTask asks for them; ListTasks
-	// leaves them out unless includeArtifacts is set.
+	// Artifacts includes the artifacts and the receipt that covers them
+	// (metadata anet.receipt). GetTask asks for them; ListTasks leaves them
+	// out unless includeArtifacts is set, which keeps a page of tasks free
+	// of receipts and key histories.
 	Artifacts bool
 	// InlineFiles carries attachment bytes in raw parts, read through
 	// LoadFile. Otherwise a file part is a url part naming the attachment
@@ -228,6 +238,9 @@ func Project(src Source, opt Options) Task {
 	t.History = p.history()
 	if opt.Artifacts {
 		t.Artifacts = p.artifacts()
+		if p.hasOutputReceipt() {
+			t.Metadata[KeyReceipt] = p.receiptData()
+		}
 	}
 	return t
 }
@@ -366,13 +379,25 @@ func (p *projector) message(id string, role Role, parts []Part, meta map[string]
 
 // synthesized is an agent message the projection writes itself (there is
 // no stored row saying it). Its id is tied to the state write, so it is the
-// same on every read until the state changes.
-func (p *projector) synthesized(text string, meta map[string]any) *Message {
+// same on every read until the state changes. Empty texts are left out.
+func (p *projector) synthesized(text string, meta map[string]any, more ...string) *Message {
 	id := p.ix.ID + ".status." + strconv.FormatInt(p.ix.StateSeq, 10)
-	return p.message(id, RoleAgent, []Part{TextPart(text)}, meta)
+	var parts []Part
+	for _, s := range append([]string{text}, more...) {
+		if s != "" {
+			parts = append(parts, TextPart(s))
+		}
+	}
+	if len(parts) == 0 {
+		parts = []Part{TextPart(text)} // a message needs a part
+	}
+	return p.message(id, RoleAgent, parts, meta)
 }
 
-// fromRow renders stored message i with its attachments.
+// fromRow renders stored message i with its attachments. A payment row
+// that asks for payment gets the quote and how to pay it as a further text
+// part; a row with neither body nor file gets a sentence saying what its
+// metadata records (readable.go), never an empty text part.
 func (p *projector) fromRow(i int) *Message {
 	m := p.msgs[i]
 	var parts []Part
@@ -384,7 +409,9 @@ func (p *projector) fromRow(i int) *Message {
 	}
 	if len(parts) == 0 {
 		// A status carrying only metadata. A message needs a part.
-		parts = []Part{TextPart(m.Body)}
+		parts = []Part{TextPart(p.placeholder(i))}
+	} else if note := p.paymentNote(p.metas[i]); note != "" {
+		parts = append(parts, TextPart(note))
 	}
 	return p.message(p.msgID(i), p.role(m.SenderAID), parts, p.metas[i])
 }
@@ -531,6 +558,14 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 			// as the result.
 			msg = p.synthesized(string(ix.Result), nil)
 		}
+		if msg == nil {
+			// 0017 Q21 P4: an ended task with a reason says so, for a
+			// client that reads only the status text. The reason is the
+			// one the task's metadata carries.
+			if r, _ := p.metadata(nil)[KeyReason].(string); strings.TrimSpace(r) != "" {
+				msg = p.synthesized(reasonText(ix.State, r), nil)
+			}
+		}
 		// a2a-x402: once a payment settled, the final message carries the
 		// receipts (§8.2).
 		if rc := p.x402Receipts(); rc != nil {
@@ -568,7 +603,9 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 
 // paymentRequiredMessage is the a2a-x402 payment-required message, built
 // from the stored quote. After a failed attempt it says payment-failed,
-// with the code and the receipts, and still carries the quote.
+// with the code and the receipts, and still carries the quote. Its text
+// states the quote and how to get it paid (readable.go), after the
+// provider's own words when its answer had any.
 func (p *projector) paymentRequiredMessage() *Message {
 	text := "Payment is required."
 	if p.cap != nil && p.cap.Message != "" {
@@ -584,7 +621,7 @@ func (p *projector) paymentRequiredMessage() *Message {
 		if meta[KeyX402Status] == PaymentFailed {
 			text = "The payment failed; the quote can be paid again."
 		}
-		return p.synthesized(text, meta)
+		return p.synthesized(text, meta, p.paymentNote(meta))
 	}
 	if p.ix.PayState == interactions.PayFailed {
 		meta[KeyX402Status] = PaymentFailed
@@ -596,7 +633,7 @@ func (p *projector) paymentRequiredMessage() *Message {
 	if req := p.x402Required(); req != nil {
 		meta[KeyX402Required] = req
 	}
-	return p.synthesized(text, meta)
+	return p.synthesized(text, meta, p.paymentNote(meta))
 }
 
 // x402Required is the stored quote: the same-task flow's pay_required, or
@@ -876,19 +913,31 @@ func capabilityRequest(doc []byte) (capID string, args any, ok bool) {
 	return capID, args, true
 }
 
+// hasOutputReceipt reports a receipt that covers the task's output: any
+// stored receipt but a quote's, which covers the quote (the status message
+// carries it).
+func (p *projector) hasOutputReceipt() bool {
+	return len(p.ix.Receipt) > 0 && !p.quoted()
+}
+
 // artifacts are the task's outputs. Nothing is an output until a receipt
 // covers it: the receipt's result CID is what binds the deliverable to the
 // provider, and a result without one — a failure detail, a result that did
-// not verify — is reported in the status, not offered as the work.
+// not verify — is reported in the status, not offered as the work. The
+// receipt itself is evidence and travels in the task's metadata
+// (anet.receipt), so that a client taking the first artifact with text as
+// the answer never takes the receipt (0017 Q21 P2).
+//
+// A text task whose provider never spoke (it ended at the requester's end
+// request) has no output, and so no artifact.
 func (p *projector) artifacts() []Artifact {
 	ix := p.ix
-	if len(ix.Receipt) == 0 || p.quoted() {
+	if !p.hasOutputReceipt() {
 		// A quote's receipt covers the quote; the quote is in the status
 		// message, and a stream must not hand it over as the result.
 		return nil
 	}
 	var out []Artifact
-	var files []interactions.Attachment
 	if ix.IsCapability {
 		if v, err := decodeJSON(ix.Result); err == nil && v != nil {
 			name := p.skill()
@@ -899,30 +948,32 @@ func (p *projector) artifacts() []Artifact {
 		}
 	} else if tr, err := transcript.Parse(ix.Result); err == nil {
 		for i := len(tr.Messages) - 1; i >= 0; i-- {
-			if m := tr.Messages[i]; m.From == "provider" {
-				out = append(out, Artifact{ID: ArtifactReply, Name: ArtifactReply, Parts: []Part{TextPart(m.Body)}})
-				for _, a := range m.Attachments {
-					files = append(files, interactions.Attachment{Name: a.Name, Mime: a.Mime, Size: a.Size, CID: a.CID})
-				}
-				break
+			m := tr.Messages[i]
+			if m.From != "provider" {
+				continue
 			}
+			// The reply is one artifact: its text, when it has any, then
+			// its files (0017 Q21 P1). An empty text part would be read
+			// as "no answer here" by a client that looks for text.
+			var parts []Part
+			if m.Body != "" {
+				parts = append(parts, TextPart(m.Body))
+			}
+			for _, a := range m.Attachments {
+				parts = append(parts, p.filePart(interactions.Attachment{Name: a.Name, Mime: a.Mime, Size: a.Size, CID: a.CID}))
+			}
+			if len(parts) > 0 {
+				out = append(out, Artifact{ID: ArtifactReply, Name: ArtifactReply, Parts: parts})
+			}
+			break
 		}
-	}
-	out = append(out, Artifact{ID: ArtifactReceipt, Name: ArtifactReceipt, Parts: []Part{DataPart(p.receiptData())}})
-	for i, a := range files {
-		part := p.filePart(a)
-		name := part.Filename
-		if name == "" {
-			name = "attachment"
-		}
-		out = append(out, Artifact{ID: ArtifactAttachmentPrefix + strconv.Itoa(i), Name: name, Parts: []Part{part}})
 	}
 	return out
 }
 
-// receiptData is the anet.receipt artifact: the signed receipt as stored,
-// its fields decoded for a reader that does not parse CoreDet-CBOR, and
-// whether this node could check it.
+// receiptData is the anet.receipt metadata value: the signed receipt as
+// stored, its fields decoded for a reader that does not parse CoreDet-CBOR,
+// and whether this node could check it.
 func (p *projector) receiptData() map[string]any {
 	ix := p.ix
 	d := map[string]any{

@@ -211,7 +211,8 @@ type RegisterRequest struct {
 	EncKeys string `json:"enc_keys,omitempty"`
 	// A2ACard is the node's signed A2A network card (A2A-DESIGN §10.1),
 	// the exact bytes a2acard.Sign returned. Absent from a node with no
-	// public skill, which publishes no card.
+	// public skill, which publishes no card; JSON null (WithdrawCard)
+	// asks the hub to withdraw the card it holds (0017 Q6).
 	A2ACard json.RawMessage `json:"a2a_card,omitempty"`
 }
 
@@ -236,10 +237,18 @@ const (
 	CardStatusAbsent    = "absent"    // the registration carried no card
 	CardStatusInvalid   = "invalid"   // did not verify; not stored
 	CardStatusConflict  = "conflict"  // lower seq, or same seq with other content; not stored
+	// CardStatusWithdrawn answers a2a_card: null — the hub holds no card
+	// for the agent now (0017 Q6).
+	CardStatusWithdrawn = "withdrawn"
 	// CardStatusUnverified is a hub that stores the card before its
 	// admission step exists: kept, nothing checked.
 	CardStatusUnverified = "unverified"
 )
+
+// WithdrawCard is the a2a_card value that withdraws the card a hub holds
+// (0017 Q6): JSON null, which omitempty keeps (it is not empty). A hub
+// without the withdrawal answers card_status "invalid".
+const WithdrawCard = "null"
 
 // HubIdentity is the answer to GET /hub/identity: the hub's AID and KEL
 // (standard base64). The daemon needs the AID before its first signed call,

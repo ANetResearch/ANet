@@ -134,7 +134,9 @@ def normalise_task(t):
         t = t["task"]
     md = t.get("metadata") or {}
     state = task_state((t.get("status") or {}).get("state"))
-    receipt = bool(md.get("anet.result_cid")) or any(
+    # The receipt is task metadata (0017 Q21 P2); older daemons sent it as
+    # an artifact.
+    receipt = bool(md.get("anet.result_cid")) or bool(md.get("anet.receipt")) or any(
         (a or {}).get("name") == "anet.receipt" for a in t.get("artifacts") or [])
     return {
         "task_id": t.get("id", ""),
