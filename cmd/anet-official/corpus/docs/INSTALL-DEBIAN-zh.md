@@ -30,8 +30,8 @@
 ```sh
 anet version
 # anet 0.1.7 (commit …, built …)
-# modules: anetlink,blackboard,cas,org,p2p,service,taskboard,x402         ← 默认版
-# modules: anetlink,blackboard,cas,org,p2p,service,shell,taskboard,x402   ← shell 版
+# modules: anetlink,blackboard,cas,mcp,org,p2p,service,x402         ← 默认版
+# modules: anetlink,blackboard,cas,mcp,org,p2p,service,shell,x402   ← shell 版
 ```
 
 `modules:` 那行是从二进制里**实际链接进来的**模块注册表读出来的,不是构建时刻进去
@@ -46,8 +46,14 @@ go tool nm "$(command -v anet)" | grep -c module/shell   # 默认版 → 0,shell
 
 ## 1 · 一行安装并入网
 
+安装脚本用 `ssh-keygen` 验发布签名。精简的 Debian(容器镜像、最小安装)可能没有它,先装:
+
 ```sh
-curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
+sudo apt-get install -y curl openssh-client
+```
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
   --hub https://hub.agentnetwork.org.cn \
   --name $(hostname)
 ```
@@ -55,13 +61,15 @@ curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
 要能执行命令的那个变体,加 `--shell`:
 
 ```sh
-curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --shell \
+curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --shell \
   --hub https://hub.agentnetwork.org.cn \
   --name $(hostname)
 ```
 
-这一条做了四件事:按平台下载对应二进制、比对 sha256、装到 `~/.local/bin/anet`、
-启动节点并注册到 hub。输出末尾会打印本机的 AID。
+这一条做了这些事:取发布清单并用内置发布公钥验签,核对有效期、不降级、`.gz` 与二进制的
+sha256、模块集合(任一不符即退出,不碰已装版本),装到 `~/.local/bin/anet`,执行
+`anet init`,启动节点并注册到 hub。先验脚本再执行的手动路径见 `SECURITY.md`。
+以后升级用 `anet update`。
 
 装到 `/usr/local/bin` 用 `--system`(会用 sudo)。
 
@@ -150,13 +158,20 @@ anet hub-register https://hub.agentnetwork.org.cn --name $(hostname)
 anet status | grep -o 'bafyrei[a-z0-9]*' | head -1
 ```
 
-回到 Debian 机器,把这个 AID 写进名单:
+回到 Debian 机器,把这个 AID 写进**两份**名单:
 
 ```sh
-echo 'bafyrei……对方的AID' | sudo tee -a /etc/anet/shell-allow
+anet peers allow 'bafyrei……对方的AID'                       # 节点的入站名单:允许它把任务交给这台机器(终端确认)
+echo 'bafyrei……对方的AID' | sudo tee -a /etc/anet/shell-allow   # shell 模块自己的名单:允许它执行命令
 ```
 
-**不需要重启。** 名单文件每次调用都重读,写进去下一次调用就生效。
+两层各管一件事。`peers.allow`(数据目录下,`anet peers allow` 写的就是它)是 daemon 的入站策略:
+v0.2 起新节点谁的任务都不接,名单外的调用在进门时就被拒(`rejected`,`anet.reason=not_accepting`),
+根本到不了 shell 模块。`/etc/anet/shell-allow` 是 shell 模块的调用方名单:进了门的调用方,
+还要在这里才能执行命令。只写其中一份,调用都会被拒。没有终端(脚本、自动化)时,
+直接往 `peers.allow` 追加一行 AID 即可。
+
+**不需要重启。** 两份名单都在每次判定时重读,写进去下一次调用就生效。
 
 ### 3.5 从对面试一下
 
@@ -175,6 +190,8 @@ anet results
 sudo sed -i '/对方的AID/d' /etc/anet/shell-allow
 # 或者一次性全撤:
 sudo rm /etc/anet/shell-allow
+# 连任务也不让它交过来:
+anet peers remove 'bafyrei……对方的AID'     # 或 anet peers deny,同时取消它进行中的任务
 ```
 
 下一次调用即被拒,不用重启。文件不存在等同空名单(拒绝所有),不是错误、更不是放行。
@@ -228,7 +245,8 @@ systemctl status anet --no-pager
 | 现象 | 原因 |
 | --- | --- |
 | `module "shell" is configured but not compiled into this build (it needs -tags shell…)` | 装的是默认变体,重跑安装带 `--shell` |
-| 调用回 `UNAVAILABLE`,消息是 `does not accept commands from …` | 调用方 AID 不在名单里 |
+| 调用回 `rejected`,`anet.reason=not_accepting` | 调用方 AID 不在节点的入站名单 `peers.allow` 里(§3.4 第一行) |
+| 调用回 `UNAVAILABLE`,消息是 `does not accept commands from …` | 调用方 AID 不在 shell 名单里 |
 | 调用回 `UNAVAILABLE`,消息是 `carry no caller identity` | 本机直调需要配 `"allow_local": true` |
 | 委派一直没有结果,超时 | 该能力这台机器没有提供。核对能力 id,`shell.list` 能报出它有哪些 |
 | 命令回 `FAILED` 带退出码 | 命令真的失败了,`observed_state` 里有 stderr |

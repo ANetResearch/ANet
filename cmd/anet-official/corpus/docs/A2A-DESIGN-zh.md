@@ -437,7 +437,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 
 ### 8.1 扩展声明
 
-- URI `https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2`;编入 x402 模块且有标价公开 skill 时声明;全部 skill 收费时 `required: true`。经卡片贡献接缝(§10.4)提供。
+- URI `https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2`;编入 x402 模块且有标价公开 skill 时声明;全部 skill 收费时 `required: true`,否则省略 `required` 字段(不写 `false`,§10.1 发布形)。经卡片贡献接缝(§10.4)提供。
 - 激活头同时接受 `A2A-Extensions`(按逗号拆分)与 `X-A2A-Extensions`;响应回显"请求的 ∩ 支持的"扩展。
 
 ### 8.2 元数据键
@@ -535,7 +535,7 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 - 本机 daemon 是 a2a-x402 §5.1 所说的签名服务。本机客户端在同一 taskId 上发 `x402.payment.status: payment-submitted`,**不带** `x402.payment.payload`;以 `anet.payment.accept` 给出从 `x402.payment.required.accepts` 原样复制的所选项(只有一项时可省略)。
 - daemon 核对所选项与本 ix 存储的 requirements 逐字节相同,按 agent 档上限签授权,在 E2E 信封内转发标准 x402 v2 `PaymentPayload`。
 - 客户端自带 `x402.payment.payload` → `x402.payment.status: payment-failed`、`x402.payment.error: SETTLEMENT_FAILED`、`anet.reason=client_payload_unsupported`(其付款方不是本节点,转发也无法结算);所选项不在 accepts → 同上,`anet.reason=option_not_offered`。
-- 代理卡片的 x402 声明 `required` 强制为 false,params `{signer:"anet-daemon", clientPayload:false}`;不论客户端是否激活扩展,代理任务上都出现 x402 状态键。客户端未激活时:auto 档内照常自动付款,超出时 `input-required` + `anet.reason=payment_extension_not_activated`。
+- 代理卡片的 x402 声明不设为必需:省略 `required` 字段,不写 `"required": false`(proto3 普通 bool 的默认值,A2A §8.4.1 要求省略;写出会使按 proto 语义重建载荷的验证方得到另一份签名原像,见 note 0012),params `{signer:"anet-daemon", clientPayload:false}`;不论客户端是否激活扩展,代理任务上都出现 x402 状态键。客户端未激活时:auto 档内照常自动付款,超出时 `input-required` + `anet.reason=payment_extension_not_activated`。
 
 ---
 
@@ -568,20 +568,21 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 - `securitySchemes` 省略(认证由绑定内的发送方签名承担);不定义新 scheme 类型。
 - `capabilities.extensions`:`…/anet-card/v1`(`params{aid, seq:"<字符串>", issuedAt, notBefore}`)、a2a-x402 v0.2、`…/anet-pricing/v1`(`params{network, prices:[{skillId, amount:"<字符串>"}]}`)、`…/anet-evidence/v1`。
 - 数值一律字符串;必填切片非 nil;`streaming`、`pushNotifications` 显式输出。
+- 发布形(`a2acard.CheckPublishForm`,`Sign` 只接受发布形,不自动改写):REQUIRED 字段必须出现且非空(REQUIRED 数组至少一项:`supportedInterfaces`、`defaultInputModes`、`defaultOutputModes`、`skills`、每个 skill 的 `tags`;`name`/`description`/`version`、接口的 `url`/`protocolBinding`/`protocolVersion` 非空);`optional` 字段仅在显式设置时出现,且不为空串;其余字段处于默认值(`false`、`""`、`[]`、`{}`、`null`)时一律省略;不出现 schema 以外的成员;扩展 `params` 内部不出现 `null`/`""`/`[]`/`{}`(a2a-python 会在 Struct 内部删除它们,规范不删,两边原像不同);oneof 消息(`SecurityScheme`、`OAuthFlows`)恰好设置一个成员(a2a-python 与 a2a-go 都拒绝解析设置了两个的对象);a2a-go 每次序列化都写出的成员必须出现(`capabilities.streaming`/`pushNotifications`,以及已弃用的 implicit/password OAuth 流的 `authorizationUrl`/`tokenUrl`/`scopes`),否则 a2a-go 解析—再序列化后载荷改变;`extendedAgentCard` 出现时只能为 `true`。扩展声明用 `a2acard.ExtensionDecl` 构造。
 
 ### 10.2 skills 来源
 
-- C1 可选接口 `provider.Described{ SkillInfo(capability) (SkillInfo, bool) }`,未实现时由 id 派生 name 与 tags。
+- C1 可选接口 `provider.Described{ SkillInfo(capability) (SkillInfo, bool) }`,未实现时由 id 派生 name 与 tags(`a2acard.DefaultSkillName`/`DefaultSkillTags`)。`description` 是 REQUIRED,不得为空串:缺省取 `a2acard.DefaultSkillDescription(id)`(如实写明提供方未给描述);`a2acard.Skill.WithDefaults` 一并补齐。
 - `service` 模块配置每个能力的 `name/description/tags/examples` 并实现 `Described`。
 - 只发布 `public_capabilities` 中的能力。
 
 ### 10.3 签名(ANetCore `a2acard`,标准库实现)
 
 - JWS EdDSA,签名钥为 KEL 当前钥;保护头 `{"alg":"EdDSA","jku":"https://<hub>/agents/<AID>/jwks.json","kid":"did:anet:<AID>#<seq>","typ":"JOSE"}`。`jku`/JWKS 是 hub 的陈述,可信度低于 KEL,文档写明 [m]。
-- 规范化 RFC 8785(含 ECMAScript 数字序列化),对去掉 `signatures` 的卡片计算;存储与转发用原字节。
-- 验证:`signatures` 为空即拒绝;kid 解析;KEL 回放;只接受顶端活跃密钥态;`params.seq` 三分支高水位(相等时规范化载荷须相同);`notBefore ≤ now + 300s`;尺寸与必填项(整卡 ≤ 64 KiB,name ≤ 128,description ≤ 4096,skills ≤ 256,每 skill tags ≤ 16)。
+- 规范化(A2A §8.4.1):先按 a2a.proto 的字段存在性去掉默认值(隐式存在字段的 `""`/`false`/`[]`/`{}` 与非 REQUIRED 字段的 `null`;REQUIRED 字段保留;`optional` 与消息字段设置了就保留;`google.protobuf.Struct` 内部不动;未知成员保留以受签名覆盖),再去掉顶层 `signatures`,再 RFC 8785(含 ECMAScript 数字序列化)。字段表在 `a2acard/schema.go`,与 a2a-python 的 proto 描述符导出结果对照测试。签发只接受发布形(§10.1),发布形上"去默认值"与"原字节"两种载荷相同。验签先按去默认值形式,失败再回退到原字节形式(只去 `signatures`,兼容 a2a-go 签发、线上保留默认值的卡片),结果记录 `CanonicalForm`(`proto-stripped`/`raw`)。存储与转发用原字节;同一陈述的不同字节形(例如多了 `"required": false`)`PayloadHash` 相同(取去默认值形式的哈希),高水位与去重按 `PayloadHash` 比较,不按字节。
+- 验证:`signatures` 为空即拒绝;kid 解析;KEL 回放;只接受顶端活跃密钥态;`params.seq` 三分支高水位(相等时规范化载荷须相同);`notBefore ≤ now + 300s`;尺寸与必填项(整卡 ≤ 64 KiB,name ≤ 128,description ≤ 4096,skills ≤ 256,每 skill tags ≤ 16;REQUIRED 字符串非空、REQUIRED 数组至少一项,同 §10.1 发布形所列)。
 - KEL 解析器(实现 `a2acrypto.KeyResolver`)放在 `module/a2a/kelresolver`,文件带 `//go:build !no_a2a`,只供 `module/a2a` 与契约测试导入;daemon 内核的卡片验证只用 ANetCore `a2acard`。按 kid 取 KEL、回放、核对 AID 后返回顶端公钥 [m]。
-- 契约测试:a2a-go 验证 `a2acard` 签出的卡片;a2a-go 解析—再序列化后签名仍有效;a2a-go 自带的 Ed25519 金标向量由 `a2acard` 验证。
+- 契约测试:a2a-go 验证 `a2acard` 签出的卡片;a2a-go 解析—再序列化后签名仍有效;a2a-go 自带的 Ed25519 金标向量由 `a2acard` 验证。a2a-python 金标向量(`a2acard/testdata/python-vectors.json`,由同目录 `gen_python_vectors.py` 经 proto → `MessageToDict` → 签名生成):网络卡片(含扩展 params、多个 skill)、同一卡片"线上带默认值"的变体、a2a-go 式原字节签名变体、代理卡片形状,以及三张 a2a-python 与规范分歧的卡片(Struct 内空值、空 scope 列表、REQUIRED 空串;`a2acard` 按规范拒绝,发布形排除)。
 
 ### 10.4 模块向卡片贡献内容
 
@@ -617,7 +618,7 @@ daemon 的 `list_agents` 自由文本查询:daemon 按 skill/tag 从 hub 取已�
 ### 11.1 形态
 
 - 配置块缺省时模块照常启用(本机接口是默认产品面);`anet init` 不写 `modules.a2a` 块(否则 `no_a2a` 变体加载配置会失败)[C43]。
-- 端口稳定:首次启动从固定基址扫描(同 `AllocControlPort` 的规则,跳过其他身份占用的端口),选定后写入数据目录状态文件 `a2a_addr.txt`;之后每次启动重绑该端口,冲突时按 `listenControl` 规则重新分配并记日志(已写入的 Hermes 配置随之失效,见 §13.1 doctor)。非回环地址拒绝。
+- 端口稳定:首次启动从固定基址扫描(同 `AllocControlPort` 的规则,跳过其他身份占用的端口),选定后写入模块状态目录的 `a2a_addr.txt`(`<数据目录>/modules/a2a/`,即 `Host.StateDir("a2a")`;令牌 `a2a_token.txt` 同在此目录,`anet doctor` 与 `anet agents wire` 按 `internal/anethome` 的 `A2ADir` 读取);之后每次启动重绑该端口,冲突时按 `listenControl` 规则重新分配并记日志(已写入的 Hermes 配置随之失效,见 §13.1 doctor)。非回环地址拒绝。
 - `module.Host` 增加 `StateDir(module string) string`(模块自有状态目录)与 `TaskSeam() (TaskSeam, bool)`,理由写在接口注释。
 - 依赖 a2a-go 的 `a2a`、`a2asrv`、`a2aext`、`a2acrypto`;不导入 `a2agrpc`、`a2acompat`。
 
@@ -652,8 +653,8 @@ type TaskSeam interface {
 
 ### 11.3 代理卡片
 
-- 由远端网络卡片(本地验证通过后)生成:复制 name/description/skills/defaultModes;`supportedInterfaces` 指向本机两个绑定 URL;`securitySchemes = {"anetLocal": {"httpAuthSecurityScheme": {"scheme": "Bearer"}}}`,且 `securityRequirements: [{"schemes": {"anetLocal": {}}}]` [C18]。
-- `capabilities`:`streaming: true`(描述本机接口,不照抄远端);`pushNotifications: false`;远端声明 x402 或 anet-pricing 时同样声明(x402 `required` 强制 false,§8.7);`anet-origin/v1` params `{originCard, originVerification}` [C19]。
+- 由远端网络卡片(本地验证通过后)生成:复制 name/description/skills/defaultModes;`supportedInterfaces` 指向本机两个绑定 URL;`securitySchemes = {"anetLocal": {"httpAuthSecurityScheme": {"scheme": "Bearer"}}}`,且 `securityRequirements: [{"schemes": {"anetLocal": {}}}]` [C18]。注:空 scope 列表 `{}` 不在发布形内——a2a-python 在签名前会删除空对象,连带删掉整条 requirement,与规范(map 值总是输出)的原像不同,`a2acard.Sign` 会拒签;D1 实现时需给出一个非空 scope(例如 `{"anetLocal": {"list": ["a2a"]}}`,HTTP Bearer 忽略 scope)或另行决定。
+- `capabilities`:`streaming: true`(描述本机接口,不照抄远端);`pushNotifications: false`;远端声明 x402 或 anet-pricing 时同样声明(x402 不设为必需,省略 `required` 字段,§8.7);`anet-origin/v1` params `{originCard, originVerification}` [C19]。
 - 远端无网络卡片时以 AID 生成,`originVerification: "UNVERIFIED"`,skills 放一个 `chat` 占位,description 如实说明。
 - 由本机 daemon 的密钥签名,不带 `jku`。
 
@@ -704,7 +705,7 @@ Task 表示 [C21]:
 | `get_task` | `/tasks/get` | `task_results` 单条 | readOnly |
 | `list_tasks` | `/tasks/list`(含 `context_id`、`role`、`state` 过滤) | `task_results` + `task_inbox` | readOnly |
 | `wait_task` | `/tasks/wait` | 新 | readOnly |
-| `cancel_task` | `/tasks/cancel` | 新 | — |
+| `cancel_task` | `/tasks/cancel` | 新 | destructive(取消不可撤销,按默认安全取保守值)、idempotent |
 | `reply_task` | `/tasks/reply` | provider 的 `task_message`/`task_end` | openWorld;始终注册,无可回复任务时返回明确错误 [m] |
 | `submit_payment` / `reject_payment` | `/tasks/pay`(§8.6 agent 档) | `task_delegate.pay` | destructive / — |
 | `get_balance` | — | `credit_balance` | readOnly |
@@ -754,7 +755,7 @@ mcpserv 原样转发控制面的投影 JSON;描述写明"completed 且 effect_st
 - 后端 `ANet/cmd/anet-official`,独立二进制,每类能力一组 127.0.0.1 路由,daemon 用 `service` 模块挂载;后端以每后端令牌头认证 daemon。
 - 第一批能力:`net.echo`;`text.stats` `text.digest` `text.diff` `json.validate` `a2a.card.validate` `a2a.x402.check`;`docs.search` `docs.get`(构建时打包语料并计算 CID);`demo.digest.paid`。全部确定性、纯计算、不执行命令、不访问外网、不接受 URL。
 - 身份:A1 `anet-echo-e`(emax)、A2 `anet-echo-f`(fmax)、B `anet-tools`、C `anet-docs`、E `anet-paid-demo`;`inbound.policy=closed` + `public_capabilities`。
-- 官方身份由客户端验证:发布签名密钥签署官方清单,随二进制打包;`list_agents` 与代理卡片据此标注 `anet.official: true`。hub admin 只登记 `id/aid/hub/caps`,不登记 runtime/ops/monitor/harvest;运维经 dmax 上的专用非 root 账户与独立工具 [C39]。
+- 官方身份由客户端验证:发布签名密钥签署官方清单,随二进制打包;`list_agents` 与代理卡片据此标注 `anet.official: true`。清单(`internal/official/manifest.json`:`schema`、`seq`、`issued_at`、`expires_at`、`key_fingerprint`、`agents[{id,name,aid,hub,caps}]`)与发布清单同一把钥、独立 SSHSIG 命名空间 `anet-official@agentnetwork.org.cn`(`allowed_signers` 同一行列出两个命名空间),两种签名互不可冒用;只按 AID 判定,验签失败或过期即不标任何人;标注只是标签,不给准入、信任、付款或通道。由 `build-release.sh --official` 从 `deploy/official/official-agents.txt` 生成并签名后提交,release 构建核对。hub admin 只登记 `id/aid/hub/caps`,不登记 runtime/ops/monitor/harvest;运维经 dmax 上的专用非 root 账户与独立工具 [C39]。
 - `service` 模块把已验证调用方与 ix 以 `X-ANet-Caller`、`X-ANet-Call` 传给后端;按能力覆盖超时。公共能力的证据可配置为只记 `result_cid` 与指标(C5 契约文档写明两种模式)。
 - 部署属于生产变更,执行前征求同意。
 

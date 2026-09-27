@@ -189,7 +189,10 @@ C5 证据面对公共能力有两种模式,按能力配置在 `inbound.public_ca
   `official-agents.txt`;在那之前任何二进制都不会把它们标为官方。
 - 卡片:daemon 生成 A2A 网络卡片时经 `provider.Described` 读取 service 模块配置的
   `name/description/tags/examples/input_modes/output_modes`(A2A-DESIGN §10.2)。
-- 构建:`no_a2a` 落地后,官方身份的构建档加上它(官方 agent 不需要本机 A2A 接口)。
+- 构建:`-tags no_a2a` 已可用(`scripts/tagcheck.sh` 检查 module/a2a 与 a2a-go 在该构建里符号为 0)。
+  官方 agent 不需要本机 A2A 接口,`anet-standard`、`anet-paid` 应加上它构建;发布脚本
+  (`deploy/release/build-release.sh`)的两个变体还没有官方身份专用的构建档,在那之前按上面的
+  tag 自行构建。
 
 ## 8. 运维
 
