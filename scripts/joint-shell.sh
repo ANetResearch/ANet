@@ -144,11 +144,15 @@ cap(){
   local ix; ix=$(rc /delegate "{\"provider\":\"$PROV_AID\",\"capability\":\"$1\",\"args\":$2}" \
                  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
   [ -n "$ix" ] || { echo '{"error":"delegate refused"}'; return 1; }
-  for _ in $(seq 1 "${3:-40}"); do
+  result_of "$ix" "${3:-40}"
+}
+# result_of <interaction_id> [轮询次数] — 等那一次调用的结果并打印 effect。
+result_of(){
+  for _ in $(seq 1 "${2:-40}"); do
     local r; r=$(rc /results '{}' | python3 -c "
 import sys,json
 for x in json.load(sys.stdin).get('results') or []:
-    if x['interaction_id']=='$ix': print(x['result']); break
+    if x['interaction_id']=='$1': print(x['result']); break
 ")
     [ -n "$r" ] && { echo "$r"; return 0; }
     sleep 0.5
@@ -218,10 +222,40 @@ echo "$CARD" | grep -q 'shell.run@whoami' && ok "the directory lists the command
   || no "the served commands are not in the directory: $CARD"
 echo "$CARD" | grep -q 'shell.exec' && no "shell.exec is advertised without the switch" \
   || ok "shell.exec is not advertised (allow_arbitrary is off)"
-# Asked for by name anyway. Nothing may execute.
-EFF=$(cap 'shell.exec' '{"command":"id"}')
+# Asked for by name anyway. Nothing may execute, and the requester is told so rather than left to
+# time out: the kernel answers a capability it has no provider for with UNAVAILABLE and
+# anet.reason=capability_not_served (internal/daemon/capability.go tryCapabilityPaid), and the
+# task ends rejected (A2A-DESIGN §4.3).
+XIX=$(rc /delegate "{\"provider\":\"$PROV_AID\",\"capability\":\"shell.exec\",\"args\":{\"command\":\"id\"}}" | field interaction_id)
+EFF=$(result_of "$XIX")
 echo "$EFF" | state | grep -q 'uid=' && no "arbitrary execution ran without the switch" \
   || ok "nothing executed"
+[ "$(echo "$EFF" | field status)" = UNAVAILABLE ] && ok "the requester was told UNAVAILABLE" \
+  || no "an unserved capability was not answered UNAVAILABLE: $(echo "$EFF" | head -c 200)"
+XST=$(rc /thread "{\"interaction_id\":\"$XIX\"}" | python3 -c 'import sys,json;print((json.load(sys.stdin).get("thread") or {}).get("state",""))' 2>/dev/null)
+[ "$XST" = rejected ] && ok "and the task ended rejected, not failed or open" \
+  || no "the unserved call ended '${XST:-unknown}', expected rejected"
+# The reason code travels in the result's metadata, which the control plane shows through the task
+# view (/tasks/get, the A2A projection). A build without that route has no surface for it.
+XCODE=$(curl -s -m 30 -o "$J/xget.json" -w '%{http_code}' -H "Authorization: Bearer $(rtok)" \
+          -H 'Content-Type: application/json' -d "{\"task_id\":\"$XIX\"}" "http://$RC/tasks/get")
+if [ "$XCODE" = 404 ] && ! python3 -c 'import sys,json;json.load(open(sys.argv[1]))' "$J/xget.json" 2>/dev/null; then
+  printf '\033[1;33m  ! 此构建的控制面没有 /tasks/get,anet.reason 无处可查(B1-07 合入后本条为硬断言)\033[0m\n'
+else
+  python3 - "$J/xget.json" <<'PY' && ok "anet.reason=capability_not_served" || no "the reason is not capability_not_served: $(head -c 300 "$J/xget.json")"
+import json, sys
+def reasons(v):
+    if isinstance(v, dict):
+        for k, x in v.items():
+            if k == "anet.reason":
+                yield x
+            yield from reasons(x)
+    elif isinstance(v, list):
+        for x in v:
+            yield from reasons(x)
+sys.exit(0 if "capability_not_served" in reasons(json.load(open(sys.argv[1]))) else 1)
+PY
+fi
 
 hd "8/8  一条真的跑过一分钟的命令"
 # The bound the operator configured has to be the bound that applies. The
@@ -252,18 +286,6 @@ wait $PARALLEL
 [ "$(field status < "$J/during.json")" = OK ] \
   && ok "长命令在跑的同时,另一个调用照常应答" \
   || no "长命令把节点堵住了:$(head -c 160 "$J/during.json")"
-
-# Known gap, in the kernel rather than this module, so it is reported
-# rather than asserted:
-#   位置  internal/daemon/capability.go tryCapabilityPaid
-#   行为  能力解析不出时返回 false,委派落到 auto-reply;未配 auto-reply 的节点
-#         对该次委派永不作答
-#   影响  请求方拿到的是超时,与"节点宕了"无法区分,而不是 UNAVAILABLE
-#   发现  本脚本 7/7 请求未开启的 shell.exec
-case "$(echo "$EFF" | field status)" in
-  UNAVAILABLE|FAILED) ok "the requester was told no" ;;
-  *) printf '\033[1;33m  ! 已知缺口: 未服务的能力不作答,请求方只拿到超时(见脚本内注释)\033[0m\n' ;;
-esac
 
 
 printf '\n\033[1m%d passed, %d failed\033[0m\n' "$pass" "$fail"
