@@ -376,10 +376,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	default:
 		add("auto_reply", stOK, fmt.Sprintf("backend %s; untrusted peers: %s", rep.AutoReply.Backend, rep.AutoReply.Untrusted), "")
 	}
-	if backendAcceptsUntrusted(cfg) {
-		add("a2a.backends", stWarn, "an A2A backend accepts untrusted peers (modules.a2a.backends[].accept_untrusted)",
-			"only with toolless: true; see A2A-DESIGN §11.6")
-	}
+	a2aBackendChecks(add, st.Inbound.Policy, cfg, len(st.Trust)) // doctor_backends.go
 
 	// SI-5.
 	if len(rep.SI5Changed) == 0 {
@@ -461,29 +458,6 @@ func tokenCheck(add func(id, status, detail, hint string), id string, fs fileSta
 	default:
 		add(id, stOK, fs.Path+" mode "+fs.Mode+" (does not expire; replaced by deleting it and restarting)", "")
 	}
-}
-
-// backendAcceptsUntrusted reads modules.a2a.backends for accept_untrusted,
-// without depending on the a2a module's types.
-func backendAcceptsUntrusted(cfg daemon.Config) bool {
-	raw, ok := cfg.Modules["a2a"]
-	if !ok {
-		return false
-	}
-	var m struct {
-		Backends []struct {
-			AcceptUntrusted bool `json:"accept_untrusted"`
-		} `json:"backends"`
-	}
-	if json.Unmarshal(raw, &m) != nil {
-		return false
-	}
-	for _, b := range m.Backends {
-		if b.AcceptUntrusted {
-			return true
-		}
-	}
-	return false
 }
 
 func (a agentWire) detailSuffix() string {

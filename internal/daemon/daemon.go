@@ -76,6 +76,8 @@ type Daemon struct {
 	untrustedBackend atomic.Bool
 	// bus publishes interaction changes to watchers (eventbus.go).
 	bus eventBus
+	// inFeed is the modules subscribed to inbound tasks (inbound_tasks.go).
+	inFeed inboundFeed
 	// outboxKick wakes the retry loop; outboxLocks serializes attempts at
 	// one queued message (retry.go).
 	outboxKick  chan struct{}
@@ -252,6 +254,7 @@ func New(layout Layout) (*Daemon, error) {
 	if cfg.AutoReply != nil {
 		d.startAutoReply(*cfg.AutoReply)
 	}
+	d.inFeed.open() // modules' A2A backends get tasks from here on (inbound_tasks.go)
 	return d, nil
 }
 
