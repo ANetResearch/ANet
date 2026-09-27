@@ -303,8 +303,9 @@ canary_tap(){
 # HUB_DB, of the hub's settlement tables. Exit 0 when at least one settled and nothing is wrong.
 canary_settle(){ TMPDIR=${CANARY_TMP:-${TMPDIR:-/tmp}} python3 "$CANARY_PY" settle --dir "$1" --out "$2" ${3:+--hub-db "$3"}; }
 
-# canary_hits REPORT…: the number of canary hits recorded in scan reports (0 when there are none).
-canary_hits(){
+# canary_report_hits REPORT…: the number of canary hits recorded in canary_scan reports (0 when there are
+# none). (canary_hits, below, is the other search: one needle in files, for joint-official.sh.)
+canary_report_hits(){
   python3 - "$@" <<'PY'
 import json, sys
 n = 0
@@ -314,5 +315,60 @@ for p in sys.argv[1:]:
     except (OSError, ValueError):
         pass
 print(n)
+PY
+}
+
+# ── searching for a canary ───────────────────────────────────────
+# canary_hits NEEDLE PATH…: where NEEDLE is, in the files at PATH (a directory is walked). A byte search
+# for the plain text alone misses most of the places a leak would sit: the hub keeps and serves envelopes,
+# receipts, KELs and authorizations as base64 in JSON; a daemon's evidence chain is base64 CoreDet-CBOR
+# per line; anything may log bytes as hex. So each file is searched for NEEDLE as it is, in hex, and in
+# base64 and base64url at each of the three byte alignments (for alignment i, the encoding of NEEDLE's
+# bytes from i on, cut to whole 3-byte groups: it occurs inside the base64 of any data holding NEEDLE at
+# an offset ≡ -i mod 3, whatever surrounds it). One line per hit: "PATH (encoding)". A file that cannot
+# be read, or a PATH that is missing, is a line too — a search that could not look is not a clean one.
+# The last line is "# searched N": the number of files read, so a caller can tell "nothing found" from
+# "nothing searched". NEEDLE should be 12 bytes or more.
+canary_hits(){
+  python3 - "$@" <<'PY'
+import base64, binascii, os, sys
+needle, paths = sys.argv[1].encode(), sys.argv[2:]
+forms = [("plain", needle), ("hex", binascii.hexlify(needle)), ("HEX", binascii.hexlify(needle).upper())]
+for i in range(3):
+    s = needle[i:]
+    s = s[:len(s) // 3 * 3]
+    if len(s) >= 9:
+        forms += [("base64/%d" % i, base64.b64encode(s)), ("base64url/%d" % i, base64.urlsafe_b64encode(s))]
+seen, uniq = set(), []
+for name, f in forms:
+    if f not in seen:
+        seen.add(f)
+        uniq.append((name, f))
+n = 0
+def check(p):
+    global n
+    try:
+        with open(p, "rb") as fh:
+            data = fh.read()
+    except OSError as e:
+        print("%s (unreadable: %s)" % (p, e.strerror))
+        return
+    n += 1
+    for name, f in uniq:
+        if f in data:
+            print("%s (%s)" % (p, name))
+for p in paths:
+    if os.path.isdir(p) and not os.path.islink(p):
+        for root, dirs, files in os.walk(p):
+            dirs.sort()
+            for fn in sorted(files):
+                fp = os.path.join(root, fn)
+                if os.path.isfile(fp) and not os.path.islink(fp):
+                    check(fp)
+    elif os.path.isfile(p):
+        check(p)
+    else:
+        print("%s (missing)" % p)
+print("# searched %d" % n)
 PY
 }
