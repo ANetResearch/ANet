@@ -1353,6 +1353,9 @@ func canonicalJSON(b []byte) ([]byte, bool) {
 	return out, err == nil
 }
 
+// maxPeerReceipts bounds the receipt list taken from one provider message.
+const maxPeerReceipts = 128
+
 // notePaymentReceipts verifies and records the receipts a provider sent
 // on a status or a result (§8.3; §4.2: also when the task has ended here).
 //
@@ -1367,6 +1370,12 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 	list, ok := m[x402a2a.KeyReceipts].([]any)
 	if !ok || len(list) == 0 {
 		return
+	}
+	if len(list) > maxPeerReceipts {
+		// The newest: a provider keeps 64 (interactions.maxPayReceipts), so
+		// a longer list is not an honest history, and each item may cost a
+		// signature check and an evidence record here.
+		list = list[len(list)-maxPeerReceipts:]
 	}
 	ix, err := d.ix.Get(ixID)
 	if err != nil || ix.Role != interactions.RoleOutbound {

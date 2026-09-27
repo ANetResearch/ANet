@@ -33,6 +33,11 @@ func TestTheFinalMessageOfAQuotedTaskCarriesTheReceipts(t *testing.T) {
 			map[string]any{a2ashape.KeyX402Receipts: []json.RawMessage{}}, nil},
 		{"no kernel reading, declined", interactions.StateCanceled, interactions.PayRejected, nil, "payment-rejected"},
 		{"no kernel reading, canceled with the quote open", interactions.StateCanceled, interactions.PayRequired, nil, nil},
+		// Completed with the quote never paid (a provider that answered
+		// anyway): the receipts, empty, and no payment status.
+		{"completed with the quote open", interactions.StateCompleted, interactions.PayRequired,
+			map[string]any{a2ashape.KeyX402Receipts: []json.RawMessage{}}, nil},
+		{"no kernel reading, completed with the quote open", interactions.StateCompleted, interactions.PayRequired, nil, nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			st := openStore(t)

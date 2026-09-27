@@ -1134,7 +1134,11 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 			// §8.3). A prepaid call is quoted first, so its requester is
 			// told the terms it may pay again on. Only an open quote is
 			// refused: a payment already taken is not touched.
-			if price, priced := priceOfCapability(p, capID); priced && ix.PayState == interactions.PayNone {
+			price, priced := priceOfCapability(p, capID)
+			if priced && d.refuseUnboundPriced(cctx, ix, capID) {
+				return true // no task nonce: rejected, not quoted (Q19)
+			}
+			if priced && ix.PayState == interactions.PayNone {
 				if err := d.recordQuote(cctx, ix, capID, price, false); err != nil && !errors.Is(err, errAlreadyQuoted) {
 					log.Printf("anet: %s: quote for a prepaid call: %v", interactionID, err)
 				}
