@@ -132,6 +132,15 @@ hd "4  一次能力调用的端到端时间"
 # executes, signs a receipt, relays back, the requester verifies. The poll
 # interval dominates and that is the point of measuring it.
 CMAX_AID=$(ctl cmax /status '{}' | jq_ "print(d.get('aid',''))")
+INK_AID=$(ctl ink93 /status '{}' | jq_ "print(d.get('aid',''))")
+# cmax runs the default closed inbound policy (A2A-DESIGN §5): without
+# ink93 on its allow list every call below is refused at once, and what
+# would be timed is the refusal. The same idempotent line prodtest.sh
+# writes; the CLI's `anet peers allow` asks on a terminal.
+if [ -n "$CMAX_AID" ] && [ -n "$INK_AID" ]; then
+  ssh -o ConnectTimeout=20 $CMAX_HOST \
+    "f=$CMAX_HOME/.anet/peers.allow; touch \$f; grep -qxF '$INK_AID' \$f || echo '$INK_AID' >> \$f"
+fi
 if [ -n "$CMAX_AID" ]; then
   f=$(mktemp)
   for i in $(seq 1 "$((N < 5 ? N : 5))"); do
