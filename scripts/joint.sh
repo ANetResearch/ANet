@@ -369,11 +369,17 @@ FIX=$BIN/anetfixture
 PORT_BASE=$(python3 - "${JOINT_PORT_BASE:-}" 10 <<'PY'
 import random, socket, sys
 want, n = sys.argv[1], int(sys.argv[2])
+# "Free" means what the hub and the daemons need: a listener can be opened there. They are Go, and Go
+# listens with SO_REUSEADDR, so a port whose earlier listener closed a minute ago (its accepted
+# connections still in TIME_WAIT) is free for them. A bare bind() says "in use" for that port, and the
+# second run on the same JOINT_PORT_BASE right after the first then refused to start.
 def free(b):
     for p in range(b, b + n):
         s = socket.socket()
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("127.0.0.1", p))
+            s.listen(1)
         except OSError:
             return False
         finally:
