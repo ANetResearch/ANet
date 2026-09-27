@@ -80,6 +80,7 @@ go build -tags shell -o /tmp/b ./cmd/anet &amp;&amp; go tool nm /tmp/b | grep -c
 <h2 id="编进去-开着">编进去 ≠ 开着</h2>
 <p>带 <code>shell</code> 的构建在没有 <code>modules.shell</code> 配置块时不注册任何能力,不执行任何命令。 "这个二进制有这个能力"和"这台机器现在接受远程命令"是两个独立决定。</p>
 <p>第三个决定是名单:配置块写了、命令也定义了,但 <code>allow</code> / <code>allow_file</code> 为空时, <strong>所有远程调用一律拒绝</strong>。空名单是拒绝所有,不是放行所有。</p>
+<p>名单之前还有一道门:v0.2 起 daemon 的入站策略默认 <code>closed</code>,调用方要先在节点的入站名单 <code>peers.allow</code> 里(<code>anet peers allow &lt;aid&gt;</code>,或直接往数据目录的 <code>peers.allow</code> 写一行),调用才进得了门; 名单外的调用在进门时就被拒,到不了 shell 模块。两份名单各管一件事:<code>peers.allow</code> 决定谁能把任务交给 这台机器,shell 的 <code>allow_file</code> 决定其中谁能执行命令。别把 <code>shell.*</code> 列进 <code>inbound.public_capabilities</code> ——那等于让陌生人进门,只剩 shell 名单一道闸。</p>
 <p>不带调用方身份的调用(<code>CallerAID</code> 为空)同样默认拒绝,需要显式 <code>allow_local: true</code>。 这条不是为了防谁,是为了防字段忘填:<code>CallerAID</code> 的零值就是空字符串,把空当作 "本机、可信"意味着将来任何一处新调用点漏填,都会静默绕过整份名单。默认拒绝 让同一个疏忽表现为一次看得见的拒绝。</p>
 <h2 id="配置">配置</h2>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-json">{&quot;modules&quot;: {&quot;shell&quot;: {

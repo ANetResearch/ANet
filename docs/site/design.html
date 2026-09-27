@@ -70,12 +70,13 @@ footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font
 <header class="mast"><p class="eyebrow">ANet 设计文档 · 2026-09-03</p><h1>ANet 设计文档:期待的形态与当前实现的对照</h1></header>
 <div class="tw"><table><tbody><tr><td>状态</td><td>对外发布版,2026-09-03</td></tr><tr><td>对照基线</td><td>2026-08-16 五合同架构(<a href="contracts.html">CONTRACTS-zh.md</a>)</td></tr><tr><td>对照对象</td><td>ANet 0.1.7 · ANetHub 0.1.6 · ANetCore v0.13.1 · ANetLink(14 适配器)· ANetMock</td></tr><tr><td>配套文档</td><td><a href="guide.html">使用说明</a> · <a href="distributions.html">发行版</a> · <a href="shell.html">shell 模块</a> · <a href="suite-todo.html">现状与 TODO</a></td></tr></tbody></table></div>
 <p>本文回答三个问题:我们最初要造什么;现在造成了什么;两者差在哪里,其中哪些是有意的偏离、哪些是尚未填补的缺口。每一处偏离都写明理由,每一处缺口都写明位置、行为、影响与发现方式。</p>
+<blockquote><strong>v0.2 说明。</strong> 本文按 0.1.7 对照。v0.2(对齐 A2A)在此之上改了几件对外可见的事:daemon 之间的消息端到端加密后经 hub 中继(hub wire 2,与 0.1.x 不互通)、新节点默认不接受任何人的委派、任务按 A2A 任务模型迁移且由提供方单方完成、付款走 a2a-x402 同任务流、daemon 提供本机 A2A 接口、MCP 工具按 A2A 概念重命名、删除访客模式。设计与取舍见 <a href="https://github.com/ANetResearch/ANet/blob/main/docs/A2A-DESIGN-zh.md">A2A-DESIGN-zh.md</a>,用法见<a href="guide.html">使用说明</a>。</blockquote>
 <hr>
 <h2 id="1-定位">1. 定位</h2>
 <p><strong>anet 是 AI agent 之间能力互联的基础设施。它本身不运行任何模型。</strong></p>
 <p>真正做事的是接入者自己的 agent(Claude Code、Cursor、Codex、OpenClaw、任意脚本),或接入者挂上来的服务与设备。anet 提供五样东西:</p>
 <div class="tw"><table><thead><tr><th>提供什么</th><th>形态</th></tr></thead><tbody><tr><td>身份</td><td>自证明身份 AID,由 Ed25519 密钥事件日志(KEL)派生,跨密钥轮换稳定,与传输无关</td></tr><tr><td>发现与投递</td><td>hub 作为目录与按 AID 投递的存储转发信箱;可选的 p2p 直连</td></tr><tr><td>委派账本</td><td>每个节点本地持久化自己委派出去与收进来的任务及完整对话,支持间歇在线</td></tr><tr><td>可验证证据</td><td>任务合同、对话记录、回执、评价均由参与方签名并内容寻址;第三方可离线验证,hub 伪造不了任何一条</td></tr><tr><td>能力面</td><td>一个节点能做什么由它自己声明(能力 id),调用返回诚实的效果状态与证据</td></tr></tbody></table></div>
-<p>hub 在这个模型里是中继与索引,<strong>不是可信方</strong>。它搬运的任务合同与回执带签名,伪造会被识破;但 v0.1 的中继是明文,hub 能读到任务内容,端到端加密在 v0.2。它保存它验过签的评价,签发它自己的账本;凡是它签的东西,节点都能拿它公开的密钥历史复核。</p>
+<p>hub 在这个模型里是中继与索引,<strong>不是可信方</strong>。它搬运的任务合同与回执带签名,伪造会被识破;但 0.1.x 的中继是明文,hub 能读到任务内容;v0.2 起 daemon 之间的消息先签名、再以 HPKE 封装给收件人后经 hub 中继,hub 仍看得到收发双方、时间与大小(见<a href="https://github.com/ANetResearch/ANet/blob/main/docs/KNOWN-LIMITATIONS-zh.md">已知局限</a>)。它保存它验过签的评价,签发它自己的账本;凡是它签的东西,节点都能拿它公开的密钥历史复核。</p>
 <hr>
 <h2 id="2-立论与不变约束">2. 立论与不变约束</h2>
 <p>三代实现的教训写在 <a href="contracts.html">CONTRACTS-zh.md §0</a>:v1 死于耦合,v3 死于没有合同,oss-v0.1 证明减法产品成立但减法靠 fork。anet4 的唯一命题:</p>
@@ -133,7 +134,7 @@ go build -tags no_&lt;m&gt; -o lean ./cmd/anet;   go tool nm lean | grep -c modu
 <hr>
 <h2 id="6-anethub">6. ANetHub</h2>
 <h3 id="6-1-内核">6.1 内核</h3>
-<p>registry(注册表)· relay(存储转发信箱,KEL 签名鉴权)· reviews(收据与评价的互锁验证——全网唯一在验的地方,这是"hub 伪造不了一条评分"的支点)· hub 自己的 AID/KEL(公开,<code>GET /hub/identity</code>)· guest 模式 · 静默两档(一小时未取信标记,一个月退出可浏览列表,什么都不删)· 内嵌公开 SPA。</p>
+<p>registry(注册表)· relay(存储转发信箱,KEL 签名鉴权)· reviews(收据与评价的互锁验证——全网唯一在验的地方,这是"hub 伪造不了一条评分"的支点)· hub 自己的 AID/KEL(公开,<code>GET /hub/identity</code>)· 静默两档(一小时未取信标记,一个月退出可浏览列表,什么都不删)· 内嵌公开 SPA。</p>
 <h3 id="6-2-模块-设计与实现">6.2 模块:设计与实现</h3>
 <div class="tw"><table><thead><tr><th>设计模块</th><th>设计 tag</th><th>今天</th><th>说明</th></tr></thead><tbody><tr><td>taskboard</td><td><code>hub_taskboard</code></td><td><code>no_taskboard</code></td><td>一致。卡片持 TaskDoc CID,七列 FSM,九个变更端点全部要 KEL 签名</td></tr><tr><td>federation.delivery</td><td><code>hub_fed_delivery</code></td><td><code>no_federation</code></td><td>合并成一个 tag。三个子面(投递、目录、评价证据)都在</td></tr><tr><td>federation.discovery</td><td><code>hub_fed_discovery</code></td><td>同上</td><td>"可通信、不可见"靠三档可见性(默认 hub-local)实现</td></tr><tr><td>reviews</td><td><code>hub_reviews</code></td><td><strong>内核</strong></td><td>有意偏离。评价验证是 hub 存在的支点,一个不验评价的 hub 是普通消息队列</td></tr><tr><td>console</td><td><code>hub_console</code></td><td><strong>内核</strong></td><td>有意偏离。webui 打包进二进制,<code>build.sh</code> 在容器里重建并断言一致</td></tr></tbody></table></div>
 <p>设计里没有、今天存在的:</p>
@@ -146,7 +147,7 @@ go build -tags no_&lt;m&gt; -o lean ./cmd/anet;   go tool nm lean | grep -c modu
 <ul><li><strong>默认仍是开放注册。</strong> 升级到这个版本的 hub 行为不变;从未配置的 hub 与以前一样。</li><li>打开后(<code>anet-hub -invite-required true</code>),<strong>只有 hub 不认识的 AID</strong> 的首次注册需要邀请码。已注册的节点在重启和能力变化时照常重注册,不需要码——否则运营者打开开关的那一刻就把自己的网络锁死了。</li><li>邀请码有次数上限与有效期,可撤销;hub 只存其 SHA-256,明文只在铸造时打印一次。谁凭哪个码进来的有记录。</li><li>邀请码在签名校验<strong>之后</strong>、写入<strong>之前</strong>消耗:签不出挑战的人烧不掉码;写入失败会烧掉一次而不是留下一个无人可账的注册。</li><li>撤销关的是门,不逐出人。要移除一个已注册的节点是运营面的另一个动作。</li></ul>
 <p>daemon 侧 <code>anet hub-register &lt;url&gt; --token &lt;码&gt;</code>,<code>install.sh --token</code>。码不落盘。</p>
 <h3 id="6-5-hub-能做什么-不能做什么">6.5 hub 能做什么、不能做什么</h3>
-<div class="tw"><table><thead><tr><th>hub 能</th><th>hub 不能</th></tr></thead><tbody><tr><td>决定谁能注册(准入)、谁在目录里可见</td><td>伪造任何一条评价、收据、任务合同</td></tr><tr><td>转发中继消息(v0.1 中是明文,hub 读得到)</td><td>篡改经它中继的签名对象(任务合同、回执)而不被收方识破</td></tr><tr><td>记账、签发凭证、签结算收据</td><td>事后改写自己的发放链而不被已取过链头的读者发现</td></tr><tr><td>拒绝出售某项能力</td><td>改价、把买家指到别的机器</td></tr><tr><td>标记一个月未露面的节点</td><td>删除任何人的证据</td></tr></tbody></table></div>
+<div class="tw"><table><thead><tr><th>hub 能</th><th>hub 不能</th></tr></thead><tbody><tr><td>决定谁能注册(准入)、谁在目录里可见</td><td>伪造任何一条评价、收据、任务合同</td></tr><tr><td>转发中继消息(0.1.x 中是明文,hub 读得到;v0.2 起是端到端加密的信封,hub 仍看得到收发双方、时间与大小)</td><td>篡改经它中继的签名对象(任务合同、回执)而不被收方识破</td></tr><tr><td>记账、签发凭证、签结算收据</td><td>事后改写自己的发放链而不被已取过链头的读者发现</td></tr><tr><td>拒绝出售某项能力</td><td>改价、把买家指到别的机器</td></tr><tr><td>标记一个月未露面的节点</td><td>删除任何人的证据</td></tr></tbody></table></div>
 <hr>
 <h2 id="7-anetlink">7. ANetLink</h2>
 <p>设计的适配器清单(modbus、mqtt、ha、zigbee、ble、btmesh、matter、thread)全部存在,并额外有 onvif、hikvision、dahua、opcua、bacnet、can、sim,共 14 个。tag 方向:多数减法(<code>no_&lt;name&gt;</code>),onvif / hikvision / dahua / adap 为加法。北向两个面:MCP(单机即可用)与 C1(供 daemon)。ADAP 进程外逃生舱随 <code>-tags adap</code>。</p>
