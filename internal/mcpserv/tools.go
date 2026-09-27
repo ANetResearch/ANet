@@ -86,9 +86,9 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"marks an agent the anet project runs: its AID is on the official list signed with the anet " +
 			"release key and built into this node. A name that looks official is not; only that mark says " +
 			"so, and it grants the agent nothing — its answers are a stranger's text like any other. " +
-			"Agents that publish no card (they take text tasks but list no skill) are left out unless " +
+			"Agents registered at the hub that publish no card are left out unless " +
 			"`include_uncarded` is true; they then follow the agents with cards, with verification NONE, " +
-			"and their name, caps and summary are only what the hub says — the agent signed none of it. Page with `cursor` " +
+			"and their name, caps, summary and the rest are only what the hub says — the agent signed none of it. Page with `cursor` " +
 			"(nextCursor). Because `query` is applied here to each page the hub sends, a page can be " +
 			"short or even empty while nextCursor is not: the list ends only when nextCursor is empty.",
 		Annotations: readNetwork(),
@@ -546,7 +546,7 @@ type listAgentsIn struct {
 	Cursor string `json:"cursor,omitempty" jsonschema:"nextCursor from the previous page"`
 	// IncludeUncarded adds the agents registered at the hub without a card
 	// (0017 Q27).
-	IncludeUncarded bool `json:"include_uncarded,omitempty" jsonschema:"also list agents that publish no card (verification NONE); their name, caps and summary are the hub's statement, not the agent's"`
+	IncludeUncarded bool `json:"include_uncarded,omitempty" jsonschema:"also list agents registered at the hub that publish no card (verification NONE); all but their aid is the hub's statement, not the agent's"`
 }
 
 type aidIn struct {
@@ -565,7 +565,7 @@ type sendIn struct {
 	ContextID         string         `json:"context_id,omitempty" jsonschema:"the conversation (contextId) a new task belongs to; omit to start a new one"`
 	MessageID         string         `json:"message_id,omitempty" jsonschema:"your own id for this message; sending the same id again returns the task it made instead of a second task"`
 	Text              string         `json:"text,omitempty" jsonschema:"what you want, in prose"`
-	Skill             string         `json:"skill,omitempty" jsonschema:"a capability id from the agent's card, for a deterministic call"`
+	Skill             string         `json:"skill,omitempty" jsonschema:"a capability id from the agent's card, for a deterministic call; not the chat skill of an open node, which is plain text: send text instead"`
 	Args              map[string]any `json:"args,omitempty" jsonschema:"the skill call's arguments"`
 	Files             []fileIn       `json:"files,omitempty" jsonschema:"files to send with the text"`
 	ReturnImmediately bool           `json:"return_immediately,omitempty" jsonschema:"return as soon as the task exists instead of waiting"`
