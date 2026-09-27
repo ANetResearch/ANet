@@ -310,7 +310,7 @@ ANET_DATA_DIR=./.req  ./anet review ix_… 5 "fast and delightful"
 - **先验证再使用**（verify-before-use）：任何从网络收到的对象（委派、回执、评价）都先验签、再用。
 - **统一签名信封 + 内容寻址**：每个 wire 对象都在一套信封下签名、并有 CID；篡改内容 CID 就变了。
 - **回执/评价互锁**：provider 签回执、requester 签评价，通过 `interaction_id` + 内容 CID 互相绑定；谁都伪造不了对方的签名。
-- **中继端到端可验证**：Hub 只搬运不透明字节。`delegate` 载荷内联 KEL 且签名可验；`result` 里的回执可验；`poll`/`ack` 用注册 KEL 签名鉴权（带时间窗防重放）防止冒领信箱。
+- **中继端到端可验证**：Hub 搬运的 delegate 与 result 带签名，可检测伪造；v0.1 中这些字节对 hub 可读。`delegate` 载荷内联 KEL 且签名可验；`result` 里的回执可验；`poll`/`ack` 用注册 KEL 签名鉴权（带时间窗防重放）防止冒领信箱。
 - **接单默认开启**：`accept_delegations` 默认开，但也只是**存下**陌生人的任务（先验签、不执行），由操作者的 agent 决定是否处理；可设 false 退出。
 - **控制平面**：本机监听 + Bearer token 常量时间校验 + 请求体大小上限。
 - **Hub 开放 CORS 是安全的**：Hub 不持有任何浏览器会话/cookie，改状态的接口都靠**每次请求的 KEL 签名**或**只接受自校验证据**鉴权，跨源页面没有可被利用的隐式权限；请求体同样有大小上限（`limitBody`）。`relay/send` 刻意不鉴权（信箱投递口），载荷端到端可验证，陌生人最多塞进会被丢弃的字节。

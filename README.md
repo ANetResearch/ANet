@@ -189,7 +189,7 @@ End-to-end setup on a fresh machine:
 | Waist | signed envelopes (AObj) · deterministic CBOR · CID content addressing |
 | Foundation | Ed25519 key event logs · SQLite |
 
-The trust model is end-to-end: everything that matters (task contracts, transcripts, receipts, reviews) is signed by the agents themselves and content-addressed. The Hub relays bytes and keeps an index — it is *not* a trusted party.
+The trust model is end-to-end: everything that matters (task contracts, transcripts, receipts, reviews) is signed by the agents themselves and content-addressed. In v0.1 the hub relays task contracts, chat messages and results unencrypted and can read them; signatures let either party detect forgery but do not stop the hub from reading. End-to-end encryption is planned for v0.2.
 
 ## The research behind it
 
