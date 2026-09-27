@@ -85,6 +85,12 @@ func ResolveControl(layout Layout) (baseURL, token string, err error) {
 	cfg, cerr := LoadConfig(layout)
 	if cerr == nil {
 		if b, rerr := os.ReadFile(layout.ControlTokenPath()); rerr == nil {
+			// The token goes to the configured address, so that address is held to the pointer's rule
+			// below: a config from before §7.1 naming a LAN or wildcard address (the daemon now refuses to
+			// start with it) must not have every CLI command send the token there in cleartext.
+			if err := checkLoopbackControlAddr(cfg.ControlAddr); err != nil {
+				return "", "", err
+			}
 			return "http://" + cfg.ControlAddr, strings.TrimSpace(string(b)), nil
 		}
 	}
@@ -120,6 +126,9 @@ func ResolveControlStrict(l Layout) (baseURL, token string, err error) {
 	b, rerr := os.ReadFile(l.ControlTokenPath())
 	if rerr != nil {
 		return "", "", fmt.Errorf("read control token (is this identity's daemon running?): %w", rerr)
+	}
+	if err := checkLoopbackControlAddr(cfg.ControlAddr); err != nil {
+		return "", "", err // as in ResolveControl: the token is sent only to loopback
 	}
 	return "http://" + cfg.ControlAddr, strings.TrimSpace(string(b)), nil
 }

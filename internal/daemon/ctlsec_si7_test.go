@@ -74,3 +74,38 @@ func TestTheLocalA2ATokenIsRefusedByTheControlPlane(t *testing.T) {
 		t.Fatalf("the control token was refused: %d %s", resp.StatusCode, b)
 	}
 }
+
+// The control token is handed out only for a loopback control address. A
+// config from before §7.1 may still name a LAN or wildcard address; the
+// daemon refuses to start with it, and the CLI must not then send the token
+// there in cleartext on every command. Both resolutions refuse it, as the
+// uid-pointer fallback always did.
+func TestTheControlTokenIsResolvedOnlyForALoopbackAddress(t *testing.T) {
+	setup := func(t *testing.T, addr string) Layout {
+		l := NewLayout(t.TempDir())
+		if err := os.WriteFile(l.ConfigPath(), []byte(`{"control_addr":"`+addr+`"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(l.ControlTokenPath(), []byte("tok\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	for _, addr := range []string{"0.0.0.0:39811", "192.0.2.7:39811", ":39811", "127.0.0.2:39811", "example.org:39811"} {
+		l := setup(t, addr)
+		if base, tok, err := ResolveControl(l); err == nil || tok != "" {
+			t.Errorf("ResolveControl with control_addr %s = %q, %q, %v; want an error and no token", addr, base, tok, err)
+		}
+		if base, tok, err := ResolveControlStrict(l); err == nil || tok != "" {
+			t.Errorf("ResolveControlStrict with control_addr %s = %q, %q, %v; want an error and no token", addr, base, tok, err)
+		}
+	}
+	l := setup(t, "127.0.0.1:39811")
+	for name, resolve := range map[string]func(Layout) (string, string, error){
+		"ResolveControl": ResolveControl, "ResolveControlStrict": ResolveControlStrict,
+	} {
+		if base, tok, err := resolve(l); err != nil || base != "http://127.0.0.1:39811" || tok != "tok" {
+			t.Errorf("%s with a loopback control_addr = %q, %q, %v", name, base, tok, err)
+		}
+	}
+}

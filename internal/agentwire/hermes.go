@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/ANetResearch/ANet/internal/loopguard"
 )
 
 // Hermes (hermes-agent): mcp_servers.anet in $HERMES_HOME/config.yaml
@@ -111,6 +113,11 @@ func readA2A(o *Options) (a2aEndpoint, error) {
 // parseA2AAddr accepts host:port (or an http:// URL of one) and requires a
 // loopback host: the interface never listens anywhere else (§11.1), and a
 // token must not be written into a URL that leaves the machine.
+//
+// "Loopback" is the interface's own rule (internal/loopguard): 127.0.0.1,
+// localhost or [::1]. Any other 127/8 or IPv4-mapped address reaches the
+// machine too, but the interface answers such a Host 421, so wiring it
+// would give Hermes an entry that can never work.
 func parseA2AAddr(s string) (string, error) {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "http://")
@@ -119,11 +126,8 @@ func parseA2AAddr(s string) (string, error) {
 	if n, perr := strconv.Atoi(port); err != nil || perr != nil || n < 1 || n > 65535 {
 		return "", fmt.Errorf("%q 不是 host:port", s)
 	}
-	if host != "localhost" {
-		ip := net.ParseIP(host)
-		if ip == nil || !ip.IsLoopback() {
-			return "", fmt.Errorf("%q 不是回环地址", s)
-		}
+	if loopguard.CheckLoopbackAddr(s) != nil {
+		return "", fmt.Errorf("%q 不是回环地址(本机 A2A 接口只在 127.0.0.1、localhost 或 [::1] 上监听)", s)
 	}
 	return net.JoinHostPort(host, port), nil
 }
