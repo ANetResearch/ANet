@@ -145,7 +145,8 @@ func payTaskError(id string, err error) error {
 	case errors.Is(err, ErrNotRequester):
 		return a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s: %v", id, err)
 	case errors.Is(err, ErrTaskTerminal), errors.Is(err, ErrNoQuote), errors.Is(err, ErrPaymentPending),
-		errors.Is(err, ErrQuoteExpired), errors.Is(err, ErrPayeeNotPeer), errors.Is(err, errNoResend):
+		errors.Is(err, ErrQuoteExpired), errors.Is(err, ErrPayeeNotPeer), errors.Is(err, errNoResend),
+		errors.Is(err, errAutoPaidOnce):
 		return a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s: %v", id, err)
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		return err

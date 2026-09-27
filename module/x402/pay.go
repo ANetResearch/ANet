@@ -337,7 +337,48 @@ func (m *Module) Balance(ctx context.Context) (map[string]any, error) {
 	if err := m.signedGet(ctx, "/agents/"+m.AID()+"/ledger", relayauth.ActionLedger, &led); err == nil {
 		out["entries"] = led.Entries
 	}
+	// The withdrawals, from the hub's own list: the one place an agent
+	// finds a redemption by its reference, and served to the account
+	// holder only, like the balance and the ledger (§3.7).
+	if red, err := m.redemptions(ctx); err == nil {
+		out["redemptions"] = red.Redemptions
+		out["redeemed_total"], out["redeemed_sum"] = red.Total, red.Sum
+		if red.Truncated {
+			out["redemptions_truncated"] = true
+		}
+	}
 	return out, nil
+}
+
+// HubRedemption is one withdrawal as the hub lists it
+// (GET /agents/{aid}/redemptions).
+type HubRedemption struct {
+	AuthID    string `json:"auth_id"`
+	Amount    uint64 `json:"amount"`
+	Reference string `json:"reference"`
+	At        string `json:"at,omitempty"`
+}
+
+// hubRedemptions is the hub's redemption list: the newest page, and the
+// count and sum over the whole account.
+type hubRedemptions struct {
+	Redemptions []HubRedemption `json:"redemptions"`
+	Total       int             `json:"total"`
+	Sum         uint64          `json:"sum"`
+	Truncated   bool            `json:"truncated"`
+}
+
+// redemptions reads this node's withdrawals off its hub, signed as this
+// node (relayauth v2, action "redemptions"): the list names every
+// reference the account redeemed against, which is nobody else's
+// business.
+func (m *Module) redemptions(ctx context.Context) (hubRedemptions, error) {
+	var out hubRedemptions
+	err := m.signedGet(ctx, "/agents/"+m.AID()+"/redemptions?limit=500", relayauth.ActionRedemptions, &out)
+	if out.Redemptions == nil {
+		out.Redemptions = []HubRedemption{}
+	}
+	return out, err
 }
 
 // Redeem gives credit back to the hub against an external reference.
