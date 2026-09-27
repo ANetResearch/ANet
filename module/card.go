@@ -1,5 +1,7 @@
 package module
 
+import "github.com/ANetResearch/ANet/internal/x402a2a"
+
 // URIs a module may contribute to this node's A2A network card
 // (A2A-DESIGN §10.1, §10.4). They are part of signed bytes and of hub
 // indexes, so they are fixed strings rather than configuration.
@@ -8,8 +10,9 @@ package module
 // live in ANetCore a2acard (ExtCardURI, BindingRelayURI); a contribution
 // that names either is dropped by the kernel.
 const (
-	// ExtX402URI is the a2a-x402 v0.2 extension (A2A-DESIGN §8.1).
-	ExtX402URI = "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2"
+	// ExtX402URI is the a2a-x402 v0.2 extension (A2A-DESIGN §8.1), as
+	// internal/x402a2a defines it for the payment flow.
+	ExtX402URI = x402a2a.ExtensionURI
 	// ExtPricingURI carries this node's signed price list:
 	// params {network, prices: [{skillId, amount}]}, amounts as decimal
 	// strings. Inside the card signature so a hub cannot quote a price the
