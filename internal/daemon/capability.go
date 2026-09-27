@@ -200,34 +200,6 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 	if err != nil {
 		return "", err
 	}
-	if err := d.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
-		Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, IsCapability: true,
-		TaskNonce: nonce}); err != nil {
-		return "", err
-	}
-	if len(paymentJSON) > 0 {
-		// The prepaid authorization is this task's, so its receipt can be
-		// checked against it when the result comes back (§8.3).
-		authID := ""
-		if _, _, aid, err := payloadAuth(paymentJSON); err == nil {
-			authID = aid
-		}
-		if _, err := d.ix.SetPayment(id, interactions.PayUpdate{
-			State: interactions.PayState(interactions.PaySubmitted), AddAuthID: authID, Payload: paymentJSON}); err != nil {
-			return "", err
-		}
-	}
-	msgID, err := newMessageID()
-	if err != nil {
-		return "", err
-	}
-	seq, _, err := d.ix.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
-		Kind: interactions.MsgText, Body: goal + " args=" + argsJSON, MsgID: msgID})
-	if err != nil {
-		return "", err
-	}
-	d.publishMessage(id, seq, interactions.MsgText)
-	d.publishState(id)
 	kelB, err := identity.MarshalKEL(d.self.KEL())
 	if err != nil {
 		return "", err
@@ -240,9 +212,39 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 	if err != nil {
 		return "", err
 	}
-	if err := d.relaySend(ctx, providerAID, seal.TypeDelegate, id, payload); err != nil {
+	// Recorded and queued together, under the envelope's message id (0017
+	// Q5, Q9); see delegateInWithID.
+	mid, msgID := newWireMID()
+	var seq int64
+	qid, err := d.queueSendAs(ctx, wireSend{to: providerAID, typ: seal.TypeDelegate, ix: id, body: payload, mid: mid,
+		pin: interactions.PinOutbound, strict: true}, func(tx *interactions.Tx) error {
+		if err := tx.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
+			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, IsCapability: true,
+			TaskNonce: nonce}); err != nil {
+			return err
+		}
+		if len(paymentJSON) > 0 {
+			// The prepaid authorization is this task's, so its receipt can
+			// be checked against it when the result comes back (§8.3).
+			authID := ""
+			if _, _, aid, err := payloadAuth(paymentJSON); err == nil {
+				authID = aid
+			}
+			if _, err := tx.SetPayment(id, interactions.PayUpdate{
+				State: interactions.PayState(interactions.PaySubmitted), AddAuthID: authID, Payload: paymentJSON}); err != nil {
+				return err
+			}
+		}
+		var err error
+		seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
+			Kind: interactions.MsgText, Body: goal + " args=" + argsJSON, MsgID: msgID})
+		return err
+	})
+	if err != nil {
 		return "", err
 	}
+	d.publishMessage(id, seq, interactions.MsgText)
+	d.publishState(id)
 	// C5: a requester's chain should show what it asked for, not only what
 	// it received.
 	//
@@ -264,6 +266,9 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 		"capability":     capID,
 	}); lerr != nil {
 		log.Printf("anet: capability delegation evidence ledger: %v", lerr)
+	}
+	if err := d.firstDelivery(ctx, id, qid); err != nil {
+		return "", err
 	}
 	return id, nil
 }

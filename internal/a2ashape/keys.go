@@ -141,3 +141,8 @@ const (
 // answer that carried neither a reason nor a retry hint (A2A-DESIGN §4.3
 // wants one of the two).
 const ReasonUnavailable = "unavailable"
+
+// ReasonUndeliverable is the anet.reason of a task this node asked for
+// whose delegation, or the input it then waited on, could not be delivered
+// to the provider before it expired or was refused for good (0017 Q5).
+const ReasonUndeliverable = "undeliverable"

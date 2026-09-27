@@ -167,11 +167,20 @@ func (d *Daemon) DelegateIn(ctx context.Context, providerAID, goal string, atts 
 }
 
 // delegateInWithID is DelegateIn under an interaction id the caller minted,
-// so a caller learns the id of a task whose row was written even when the
-// send then failed (the A2A task path marks such a task failed). meta is
-// the first message's metadata (A2A Message.metadata, a JSON object or
-// nil): stored on the goal message here and carried to the provider as
-// DelegateReq.Metadata.
+// so a caller learns the id of a task whose row was written even when its
+// delivery then failed for good. meta is the first message's metadata (A2A
+// Message.metadata, a JSON object or nil): stored on the goal message here
+// and carried to the provider as DelegateReq.Metadata.
+//
+// The delegation goes through the retry queue in the same transaction as
+// the task and its first message are recorded (0017 Q5), under the message
+// id the first message is recorded with (0017 Q9). An unreachable hub or
+// provider only delays it; the queue fails the task, with
+// anet.reason=undeliverable, if it expires or the hub refuses it for good
+// (undelivered.go) — on this first attempt that is returned as an error
+// wrapping errUndeliverable, after the task was recorded. A recipient whose
+// keys cannot be resolved or do not verify is an error before anything is
+// written (§3.5 step 1).
 func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal string, atts []delegation.Attachment,
 	contextID string, meta []byte) error {
 	hub := d.config().HubURL
@@ -200,26 +209,6 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 	if err != nil {
 		return err
 	}
-	if err := d.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
-		Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, TaskNonce: nonce}); err != nil {
-		return err
-	}
-	// Record the goal as the first conversation message (from us, the requester), with any
-	// attachments. The requester keeps a message id for it too, so its history carries ids.
-	msgID, err := newMessageID()
-	if err != nil {
-		return err
-	}
-	seq, _, err := d.ix.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
-		Kind: interactions.MsgText, Body: goal, MsgID: msgID, Metadata: meta})
-	if err != nil {
-		return err
-	}
-	if err := d.storeMsgAttachments(id, seq, atts); err != nil {
-		return err
-	}
-	d.publishMessage(id, seq, interactions.MsgText)
-	d.publishState(id)
 	kelB, err := identity.MarshalKEL(d.self.KEL())
 	if err != nil {
 		return err
@@ -230,9 +219,30 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 	if err != nil {
 		return err
 	}
-	if err := d.relaySend(ctx, providerAID, seal.TypeDelegate, id, payload); err != nil {
+	// The goal is the first conversation message (from us, the requester),
+	// kept under the delegation's envelope id: the provider records its
+	// copy under the same id.
+	mid, msgID := newWireMID()
+	var seq int64
+	qid, err := d.queueSendAs(ctx, wireSend{to: providerAID, typ: seal.TypeDelegate, ix: id, body: payload, mid: mid,
+		pin: interactions.PinOutbound, strict: true}, func(tx *interactions.Tx) error {
+		if err := tx.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
+			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, TaskNonce: nonce}); err != nil {
+			return err
+		}
+		var err error
+		seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
+			Kind: interactions.MsgText, Body: goal, MsgID: msgID, Metadata: meta})
+		return err
+	})
+	if err != nil {
 		return err
 	}
+	if err := d.storeMsgAttachments(id, seq, atts); err != nil {
+		log.Printf("anet: %s: store the delegation's attachments: %v", id, err)
+	}
+	d.publishMessage(id, seq, interactions.MsgText)
+	d.publishState(id)
 	// C5: a requester's chain should show what it asked for, not only what
 	// it received.
 	if _, lerr := d.ledger.Append(EvDelegationSent, map[string]any{
@@ -242,6 +252,21 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 	}); lerr != nil {
 		log.Printf("anet: delegation evidence ledger: %v", lerr)
 	}
+	return d.firstDelivery(ctx, id, qid)
+}
+
+// firstDelivery makes the first attempt at a new task's delegation. A
+// temporary failure is left to the retry queue and is not an error; a
+// refusal for good (the task is now failed) is.
+func (d *Daemon) firstDelivery(ctx context.Context, ixID string, qid int64) error {
+	err := d.deliverQueued(ctx, qid)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, errUndeliverable):
+		return fmt.Errorf("anet: %s: %w", ixID, err)
+	}
+	log.Printf("anet: %s: delegation queued for delivery (%v)", ixID, err)
 	return nil
 }
 

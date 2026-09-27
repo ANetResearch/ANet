@@ -608,10 +608,11 @@ func TestTheClientMessageIDKeyIsTheProjections(t *testing.T) {
 	}
 }
 
-// A new task that could not be delivered is failed and answered
-// UnavailableError; the client's retry of the same message is a new
-// attempt, not the failed task handed back as its duplicate. Without a
-// contextId a retry is still recognised, by agent and messageId.
+// A new task whose delegation the hub refuses for good (here 413) is
+// recorded, failed with anet.reason=undeliverable and answered as it is
+// (0017 Q5); the client's retry of the same message is a new attempt, not
+// the failed task handed back as its duplicate. Without a contextId a retry
+// is still recognised, by agent and messageId.
 func TestARetryAfterAnUndeliveredTaskIsANewAttempt(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -624,11 +625,13 @@ func TestARetryAfterAnUndeliveredTaskIsANewAttempt(t *testing.T) {
 	}
 	setHub(func() { fake.maxEnvelope = 1 })
 	send := module.TaskSend{Message: textMsg("hello", "ctx-u", "m-u"), ReturnImmediately: true}
-	if _, err := seam.Send(ctx, prov.AID(), send); !errors.Is(err, a2ashape.ErrUnavailable) {
-		t.Fatalf("send with the hub refusing: %v, want UnavailableError", err)
+	refused, err := seam.Send(ctx, prov.AID(), send)
+	if err != nil || refused.Status.State != a2ashape.TaskStateFailed ||
+		refused.Metadata[a2ashape.KeyReason] != a2ashape.ReasonUndeliverable {
+		t.Fatalf("send with the hub refusing: %s %v (%v), want failed, undeliverable", refused.Status.State, refused.Metadata, err)
 	}
 	failed, err := req.ix.ListAll(interactions.ListFilter{Role: interactions.RoleOutbound})
-	if err != nil || len(failed) != 1 || failed[0].State != interactions.StateFailed {
+	if err != nil || len(failed) != 1 || failed[0].State != interactions.StateFailed || failed[0].ID != refused.ID {
 		t.Fatalf("after the failed send: %+v %v", failed, err)
 	}
 	setHub(func() { fake.maxEnvelope = 0 })
@@ -668,9 +671,9 @@ func TestARetryAfterAnUndeliveredTaskIsANewAttempt(t *testing.T) {
 	}
 }
 
-// A follow-up sent while the hub is unreachable is recorded and queued, not
-// refused: a retry of it finds it recorded, and it reaches the provider once
-// the hub is back.
+// A follow-up sent while the hub is not carrying mail is recorded and
+// queued, not refused: a retry of it finds it recorded, and it reaches the
+// provider once the hub is back.
 func TestAFollowUpIsQueuedWhileTheHubIsDown(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -690,7 +693,7 @@ func TestAFollowUpIsQueuedWhileTheHubIsDown(t *testing.T) {
 	}
 	fake := fakeHubAt(t, srv.URL)
 	fake.mu.Lock()
-	fake.maxEnvelope = 1
+	fake.relayDown = true
 	fake.mu.Unlock()
 	follow := module.TaskSend{Message: followUp(task.ID, "Kyoto", "m-2"), ReturnImmediately: true}
 	got, err := seam.Send(ctx, prov.AID(), follow)
@@ -709,7 +712,7 @@ func TestAFollowUpIsQueuedWhileTheHubIsDown(t *testing.T) {
 		t.Fatalf("outbox = %+v (%v), want the follow-up", rows, err)
 	}
 	fake.mu.Lock()
-	fake.maxEnvelope = 0
+	fake.relayDown = false
 	fake.mu.Unlock()
 	if err := req.deliverQueued(ctx, rows[0].ID); err != nil {
 		t.Fatal(err)

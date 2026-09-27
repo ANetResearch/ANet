@@ -108,6 +108,13 @@ func (t *Tx) Finish(id string, f Finish) error { return finish(t.tx, id, f, t.no
 // SetState is Store.SetState inside the transaction.
 func (t *Tx) SetState(id string, st State) (bool, error) { return setState(t.tx, id, st, t.now) }
 
+// SetLateResult is Store.SetLateResult inside the transaction, so a result
+// that arrives after the task ended commits with its replay row
+// (A2A-DESIGN §3.6 step 10, §4.2).
+func (t *Tx) SetLateResult(id string, result []byte, resultCID string, receipt []byte, verified Verification) (bool, error) {
+	return setLateResult(t.tx, id, result, resultCID, receipt, verified)
+}
+
 // SetPeerKeys is Store.SetPeerKeys inside the transaction.
 func (t *Tx) SetPeerKeys(id string, kel, keys []byte) error { return setPeerKeys(t.tx, id, kel, keys) }
 
