@@ -136,14 +136,19 @@ func (s *DaemonTaskSeam) Pay(ctx context.Context, peerAID, taskID string, decisi
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	if err := s.d.taskPay(ctx, ix, decision); err != nil {
+	refusal, err := s.d.taskPay(ctx, ix, decision)
+	if err != nil {
 		return a2ashape.Task{}, err
 	}
 	cur, err := s.d.ix.Get(ix.ID)
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	return s.d.taskView(cur, viewOpts{artifacts: true, inline: sc.inline()})
+	t, err := s.d.taskView(cur, viewOpts{artifacts: true, inline: sc.inline()})
+	if err == nil && refusal != nil {
+		t = withRefusal(t, refusal)
+	}
+	return t, err
 }
 
 var _ module.TaskSeam = (*DaemonTaskSeam)(nil)
@@ -371,12 +376,26 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 		}
 	}
 	if hasX402Meta(msg.Metadata) {
-		// A payment decision on the task (A2A-DESIGN §8.7).
-		after, err := d.taskPaymentMessage(ctx, ix, msg)
+		// A payment decision on the task (A2A-DESIGN §8.7). This is the one
+		// path a local client's payment message takes, so its messageId is
+		// deduplicated above like any other message's.
+		after, refusal, err := d.taskPaymentMessage(ctx, ix, msg)
 		if err != nil {
 			return a2ashape.Task{}, err
 		}
 		release()
+		if refusal != nil {
+			// Nothing was signed or sent: the task as it is, told why.
+			cur, err := d.ix.Get(ix.ID)
+			if err != nil {
+				return a2ashape.Task{}, err
+			}
+			t, err := d.taskView(cur, viewOpts{historyLen: req.HistoryLength, artifacts: true, inline: sc.inline()})
+			if err != nil {
+				return a2ashape.Task{}, err
+			}
+			return withRefusal(t, refusal), nil
+		}
 		return d.finishSend(ctx, sc, ix.ID, after, req, wait)
 	}
 	if ix.IsTerminal() {

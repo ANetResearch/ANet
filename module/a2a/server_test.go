@@ -34,6 +34,7 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/a2a/kelresolver"
 )
@@ -642,8 +643,11 @@ func TestPaymentMessages(t *testing.T) {
 		if err := json.Unmarshal(e.seam.pays[0].Accept, &accept); err != nil || accept["payTo"] != agentA {
 			t.Fatalf("accept passed on as %s", e.seam.pays[0].Accept)
 		}
-		if len(e.seam.sends) != 1 {
-			t.Fatal("the payment message was also sent as a chat message")
+		// One path for a payment message: the kernel's Send, which makes
+		// the decision (and deduplicates the messageId); the module does
+		// not call Pay around it.
+		if len(e.seam.sends) != 2 || e.seam.sends[1].Message.Metadata[a2ashape.KeyX402Status] != a2ashape.PaymentSubmitted {
+			t.Fatalf("the payment message did not reach the kernel's Send: %+v", e.seam.sends)
 		}
 	})
 	t.Run("client payload", func(t *testing.T) {
@@ -653,7 +657,7 @@ func TestPaymentMessages(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		checkRefused(t, res.(*a2a.Task), reasonClientPayloadUnsupported)
+		checkRefused(t, res.(*a2a.Task), x402a2a.ReasonClientPayloadUnsupported)
 		if len(e.seam.pays) != 0 {
 			t.Fatal("a client payload reached Pay")
 		}
@@ -666,7 +670,7 @@ func TestPaymentMessages(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		checkRefused(t, res.(*a2a.Task), reasonOptionNotOffered)
+		checkRefused(t, res.(*a2a.Task), x402a2a.ReasonOptionNotOffered)
 		if len(e.seam.pays) != 0 {
 			t.Fatal("an option not offered reached Pay")
 		}
@@ -697,7 +701,7 @@ func checkRefused(t *testing.T, task *a2a.Task, reason string) {
 	m := task.Status.Message
 	if task.Status.State != a2a.TaskStateInputRequired || m == nil ||
 		m.Metadata[a2ashape.KeyX402Status] != a2ashape.PaymentFailed ||
-		m.Metadata[a2ashape.KeyX402Error] != codeSettlementFailed || m.Metadata[a2ashape.KeyReason] != reason {
+		m.Metadata[a2ashape.KeyX402Error] != x402a2a.CodeSettlementFailed || m.Metadata[a2ashape.KeyReason] != reason {
 		t.Fatalf("refusal (%s): %+v", reason, task.Status)
 	}
 }
@@ -852,6 +856,48 @@ func TestStreamOfATaskThatAlreadyAsked(t *testing.T) {
 			}
 			if !slices.Equal(states, []a2a.TaskState{a2a.TaskStateInputRequired}) {
 				t.Fatalf("stream %v", states)
+			}
+		})
+	}
+}
+
+// A payment message the kernel refuses before signing (§8.7) ends a stream
+// at once with the refusal: nothing was sent, and nothing will follow.
+func TestStreamOfARefusedPayment(t *testing.T) {
+	option := map[string]any{"scheme": "credit", "network": "hub:x", "amount": "5", "payTo": agentA}
+	for _, binding := range bindings {
+		t.Run(string(binding), func(t *testing.T) {
+			e := newEnv(t)
+			e.seam.quote = map[string]any{"x402Version": 2, "accepts": []any{option}}
+			cl, ctx := e.client(agentA, binding)
+			res, err := cl.SendMessage(ctx, &a2a.SendMessageRequest{Message: textMessage("paid work")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := res.(*a2a.Task)
+			m := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("paying"))
+			m.TaskID, m.ContextID = task.ID, task.ContextID
+			m.Metadata = map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentSubmitted,
+				a2ashape.KeyX402Payload: map[string]any{"x402Version": 2}}
+			ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			var got []*a2a.Task
+			for ev, err := range cl.SendStreamingMessage(ctx, &a2a.SendMessageRequest{Message: m}) {
+				if err != nil {
+					t.Fatalf("stream: %v (after %d events)", err, len(got))
+				}
+				tk, ok := ev.(*a2a.Task)
+				if !ok {
+					t.Fatalf("a refused payment streamed %T", ev)
+				}
+				got = append(got, tk)
+			}
+			if len(got) != 1 {
+				t.Fatalf("stream of a refused payment: %d events", len(got))
+			}
+			checkRefused(t, got[0], x402a2a.ReasonClientPayloadUnsupported)
+			if len(e.seam.pays) != 0 {
+				t.Fatal("a client payload reached a decision")
 			}
 		})
 	}
