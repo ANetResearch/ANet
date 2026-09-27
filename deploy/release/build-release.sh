@@ -40,6 +40,21 @@
 # anything that does not match it. install.sh is signed too (install.sh.sig)
 # so it can be checked before it is run; see SECURITY.md.
 #
+# THE OFFICIAL MANIFEST (A2A-DESIGN §15). Which agents the project runs is
+# not something a binary learns from a hub: it is internal/official/
+# manifest.json — the AID, name, hub and capabilities of each official
+# agent, a seq and a validity period — signed with the same release key in
+# its own namespace,
+#
+#   ssh-keygen -Y sign -n anet-official@agentnetwork.org.cn
+#
+# and compiled in (go:embed), so it has to be committed before the build
+# that carries it. `--official` writes and signs it from
+# deploy/official/official-agents.txt; a release build refuses to start when
+# the committed pair does not verify, is signed by another key, lists other
+# agents than official-agents.txt, is refused by internal/official, or would
+# expire before the release does (or within ANET_OFFICIAL_MIN_DAYS).
+#
 # Output (dist/):
 #   release.json, release.json.sig   the signed manifest
 #   anet-<plat>.gz, anet-shell-<plat>.gz
@@ -60,6 +75,12 @@
 #                                                re-date and re-sign the
 #                                                manifest already in dist/,
 #                                                without rebuilding
+#   ANET_RELEASE_KEY=… ./deploy/release/build-release.sh --official
+#                                                write and sign
+#                                                internal/official/manifest.json
+#                                                from deploy/official/
+#                                                official-agents.txt; commit
+#                                                the two files, then build
 #   ./deploy/release/build-release.sh --unsigned [platform…]
 #                                                build without signing; the
 #                                                result is NOT a release and
@@ -73,6 +94,11 @@
 #                           Past that, installs and updates stop until a newer
 #                           manifest is signed — run --resign before then if
 #                           there is no new release.
+#   ANET_OFFICIAL_TTL_DAYS  --official: how long the official manifest marks
+#                           its agents (default 365, at most 731). A binary
+#                           past it marks no agent official until updated.
+#   ANET_OFFICIAL_MIN_DAYS  a release build: the least validity the committed
+#                           official manifest must have left (default 180).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -93,8 +119,12 @@ VPKG=github.com/ANetResearch/ANet/internal/version
 # The trust anchors, read from the Go source so the manifest, the installer
 # and the binary cannot disagree about them. See internal/release/keys.go.
 NAMESPACE=anet-release@agentnetwork.org.cn
+OFFICIAL_NAMESPACE=anet-official@agentnetwork.org.cn
 IDENTITY=anet-release@agentnetwork.org.cn
 ALLOWED="$ROOT/internal/release/allowed_signers"
+# The official manifest, as committed and embedded, and its source.
+OFF_MF="$ROOT/internal/official/manifest.json"
+OFF_SRC="$ROOT/deploy/official/official-agents.txt"
 
 info() { printf '\033[1;36m== %s ==\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m✓ %s\033[0m\n' "$*"; }
@@ -114,8 +144,9 @@ json_list() { [ -n "$1" ] && printf '"%s"' "$1" | sed 's/,/", "/g'; true; }
 MODE=build
 case "${1:-}" in
   --resign)   MODE=resign; shift ;;
+  --official) MODE=official; shift ;;
   --unsigned) MODE=unsigned; shift ;;
-  -h|--help)  sed -n '2,80p' "$0"; exit 0 ;;
+  -h|--help)  sed -n '2,/^set -euo pipefail/{/^set -euo/!p}' "$0"; exit 0 ;;
 esac
 
 TTL_DAYS="${ANET_RELEASE_TTL_DAYS:-90}"
@@ -142,17 +173,19 @@ check_key() {
   [ "$fp" = "$KEY_FP" ] || die "ANET_RELEASE_KEY is $fp, but internal/release/allowed_signers trusts $KEY_FP"
 }
 
-# sign <file>: sign, then verify with the committed allowed_signers — the
-# same command a user runs by hand.
+# sign <file> [namespace]: sign, then verify with the committed
+# allowed_signers — the same command a user runs by hand. The namespace is
+# the release one unless given: the official manifest is signed in its own.
 sign() {
   [ "$MODE" = unsigned ] && return 0
+  local ns="${2:-$NAMESPACE}"
   rm -f "$1.sig"
   # Not silenced: with a passphrase on the key, ssh-keygen asks for it.
-  ssh-keygen -Y sign -f "$ANET_RELEASE_KEY" -n "$NAMESPACE" "$1" \
+  ssh-keygen -Y sign -f "$ANET_RELEASE_KEY" -n "$ns" "$1" \
     || die "signing $(basename "$1") failed"
-  ssh-keygen -Y verify -f "$ALLOWED" -I "$IDENTITY" -n "$NAMESPACE" -s "$1.sig" < "$1" >/dev/null \
-    || die "$(basename "$1").sig does not verify against internal/release/allowed_signers"
-  ok "signed $(basename "$1")  ($KEY_FP)"
+  ssh-keygen -Y verify -f "$ALLOWED" -I "$IDENTITY" -n "$ns" -s "$1.sig" < "$1" >/dev/null \
+    || die "$(basename "$1").sig does not verify against internal/release/allowed_signers in namespace $ns"
+  ok "signed $(basename "$1")  ($KEY_FP, $ns)"
 }
 
 NOW="$(date -u +%s)"
@@ -196,6 +229,149 @@ EOF_ASSETS
   exit 0
 fi
 
+# ── the official manifest (A2A-DESIGN §15) ───────────────────────────────
+# official_entries <out>: the agents of deploy/official/official-agents.txt,
+# one manifest line each, in the layout --official writes and the release
+# build compares with what is committed. Everything the Go reader
+# (internal/official) would refuse is refused here first, with the line.
+official_entries() {
+  local out="$1" line id oaid hub caps name seen_ids=" " seen_aids=" " n=0 line_no=0
+  [ -f "$OFF_SRC" ] || die "missing $OFF_SRC"
+  : > "$out"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line_no=$((line_no + 1))
+    line="${line#"${line%%[![:space:]]*}"}"
+    case "$line" in ''|'#'*) continue ;; esac
+    # read, not `set -- $line`: no glob expansion of a name like "*".
+    read -r id oaid hub caps name <<<"$line"
+    [ -n "$name" ] || die "official-agents.txt line $line_no: want <id> <aid> <hub> <caps|-> <name…>"
+    [[ "$id" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || die "line $line_no: id '$id' must be [a-z0-9-], at most 64"
+    [[ "$oaid" =~ ^[a-z0-9]{1,128}$ ]] || die "line $line_no: '$oaid' is not an AID"
+    [[ "$hub" =~ ^https?://[^/?#@[:space:]]+(/[^?#[:space:]]*)?$ ]] || die "line $line_no: hub '$hub' is not an http(s) base URL"
+    [ "$caps" = - ] && caps=""
+    [ -z "$caps" ] || [[ "$caps" =~ ^[a-z0-9][a-z0-9._-]{0,127}(,[a-z0-9][a-z0-9._-]{0,127})*$ ]] \
+      || die "line $line_no: caps '$caps' must be comma-separated capability ids"
+    case "$name" in *'"'*|*'\'*) die "line $line_no: the name may not contain a double quote or backslash" ;; esac
+    # A control character (a tab inside the name) is not valid in a JSON
+    # string, and the reader refuses it.
+    [[ "$name" =~ [[:cntrl:]] ]] && die "line $line_no: the name contains a control character"
+    [ "$(printf '%s' "$name" | wc -c)" -le 128 ] || die "line $line_no: the name is longer than 128 bytes"
+    case "$seen_ids" in *" $id "*) die "line $line_no: id $id is listed twice" ;; esac
+    case "$seen_aids" in *" $oaid "*) die "line $line_no: aid $oaid is listed twice" ;; esac
+    seen_ids="$seen_ids$id "; seen_aids="$seen_aids$oaid "
+    printf '    {"id": "%s", "name": "%s", "aid": "%s", "hub": "%s", "caps": [%s]}\n' \
+      "$id" "$name" "$oaid" "$hub" "$(json_list "$caps")" >> "$out"
+    n=$((n + 1))
+  done < "$OFF_SRC"
+  [ "$n" -le 256 ] || die "$n official agents, more than the reader accepts (256)"
+}
+
+# official_reader_accepts: the reader that matters is the binary's — build
+# a throwaway test binary from this checkout and let internal/official
+# judge the pair it embeds (signature, key, strict layout; not the date).
+official_reader_accepts() {
+  ( cd "$ROOT" && go test -count=1 -run '^TestTheEmbeddedManifestVerifies$' ./internal/official/ >/dev/null )
+}
+
+# ── --official: write and sign the official manifest ─────────────────────
+# One field per line and one agent per line, the layout the release-build
+# check below reads with sed. The Go reader (internal/official) is strict:
+# unknown members, a duplicate AID or id, a malformed field or a
+# key_fingerprint that is not the signer's are refused, and a binary with a
+# refused manifest marks no one — so the result is read back by that reader
+# before this mode reports success, and the committed pair is put back when
+# it is refused.
+if [ "$MODE" = official ]; then
+  check_key
+  OFF_TTL="${ANET_OFFICIAL_TTL_DAYS:-365}"
+  case "$OFF_TTL" in ''|*[!0-9]*) die "ANET_OFFICIAL_TTL_DAYS must be a number of days" ;; esac
+  [ "$OFF_TTL" -ge 1 ] && [ "$OFF_TTL" -le 731 ] || die "ANET_OFFICIAL_TTL_DAYS must be between 1 and 731"
+  PREV_SEQ=0
+  if [ -f "$OFF_MF" ]; then
+    PREV_SEQ="$(sed -n 's/^  "seq": \([0-9][0-9]*\),$/\1/p' "$OFF_MF")"
+    [ -n "$PREV_SEQ" ] || die "cannot read seq from $OFF_MF; it is not in the layout this script writes"
+  fi
+  SEQ=$((PREV_SEQ + 1))
+  OFF_EXPIRES="$(utc $((NOW + OFF_TTL * 86400)))"
+
+  ENTRIES="$(mktemp)"
+  OFF_PREV="$(mktemp -d)"
+  trap 'rm -rf "$ENTRIES" "$OFF_PREV" "$OFF_MF.new" "$OFF_MF.new.sig"' EXIT
+  official_entries "$ENTRIES"
+  N="$(wc -l < "$ENTRIES" | tr -d ' ')"
+
+  info "official manifest: seq $SEQ, $N agent(s), valid until $OFF_EXPIRES"
+  {
+    printf '{\n'
+    printf '  "schema": "anet-official/1",\n'
+    printf '  "seq": %s,\n' "$SEQ"
+    printf '  "issued_at": "%s",\n' "$RELEASED"
+    printf '  "expires_at": "%s",\n' "$OFF_EXPIRES"
+    printf '  "key_fingerprint": "%s",\n' "$KEY_FP"
+    if [ "$N" -eq 0 ]; then
+      printf '  "agents": []\n'
+    else
+      printf '  "agents": [\n'
+      sed '$!s/$/,/' "$ENTRIES"
+      printf '  ]\n'
+    fi
+    printf '}\n'
+  } > "$OFF_MF.new"
+  sign "$OFF_MF.new" "$OFFICIAL_NAMESPACE"
+  for f in "$OFF_MF" "$OFF_MF.sig"; do
+    if [ -f "$f" ]; then cp -p "$f" "$OFF_PREV/"; fi
+  done
+  mv "$OFF_MF.new.sig" "$OFF_MF.sig"
+  mv "$OFF_MF.new" "$OFF_MF"
+  if ! official_reader_accepts; then
+    for f in manifest.json manifest.json.sig; do
+      if [ -f "$OFF_PREV/$f" ]; then cp -p "$OFF_PREV/$f" "$ROOT/internal/official/$f"; else rm -f "$ROOT/internal/official/$f"; fi
+    done
+    die "internal/official refuses the manifest just written (the previous pair is back in place); run: go test -run TestTheEmbeddedManifestVerifies -v ./internal/official/"
+  fi
+  ok "internal/official/manifest.json(.sig): seq $SEQ, $N agent(s), valid until $OFF_EXPIRES"
+  echo "  commit internal/official/manifest.json and manifest.json.sig, then build the release"
+  exit 0
+fi
+
+# check_official: the official manifest this commit embeds verifies against
+# the committed release key in its namespace, names the signing key, lists
+# exactly the agents deploy/official/official-agents.txt does (an edit to
+# the source that was never signed is not released as if it were), is read
+# by internal/official, and stays valid past the release being cut — a
+# binary installed on the release's last day still marks the official
+# agents for a while after.
+check_official() {
+  [ "$MODE" = unsigned ] && return 0
+  [ -f "$OFF_MF" ] && [ -f "$OFF_MF.sig" ] || die "missing internal/official/manifest.json(.sig) — run build-release.sh --official"
+  ssh-keygen -Y verify -f "$ALLOWED" -I "$IDENTITY" -n "$OFFICIAL_NAMESPACE" -s "$OFF_MF.sig" < "$OFF_MF" >/dev/null \
+    || die "internal/official/manifest.json.sig does not verify in namespace $OFFICIAL_NAMESPACE — run build-release.sh --official and commit"
+  grep -qF "  \"key_fingerprint\": \"$KEY_FP\"," "$OFF_MF" \
+    || die "internal/official/manifest.json does not name the signing key $KEY_FP — run build-release.sh --official and commit"
+  local n
+  # Removed on any exit, a refusal included; the build's own EXIT trap
+  # replaces this one later, by when the directory is gone.
+  OFF_CHK="$(mktemp -d)"
+  trap 'rm -rf "$OFF_CHK"' EXIT
+  official_entries "$OFF_CHK/want"
+  grep '^    {"id": ' "$OFF_MF" | sed 's/,$//' > "$OFF_CHK/got" || true
+  n="$(wc -l < "$OFF_CHK/want" | tr -d ' ')"
+  cmp -s "$OFF_CHK/want" "$OFF_CHK/got" \
+    || die "internal/official/manifest.json does not list the agents deploy/official/official-agents.txt does — run build-release.sh --official and commit"
+  rm -rf "$OFF_CHK"
+  official_reader_accepts \
+    || die "internal/official refuses the committed manifest — run: go test -run TestTheEmbeddedManifestVerifies -v ./internal/official/"
+  local exp min_days min
+  exp="$(sed -n 's/^  "expires_at": "\(.*\)",$/\1/p' "$OFF_MF")"
+  min_days="${ANET_OFFICIAL_MIN_DAYS:-180}"
+  case "$min_days" in ''|*[!0-9]*) die "ANET_OFFICIAL_MIN_DAYS must be a number of days" ;; esac
+  min="$(utc $((NOW + min_days * 86400)))"
+  # The timestamps have one fixed shape, so they compare as strings.
+  [[ "$exp" > "$EXPIRES" ]] && [[ "$exp" > "$min" ]] \
+    || die "the official manifest expires at ${exp:-?}: before the release ($EXPIRES) or within $min_days days — run build-release.sh --official and commit"
+  ok "official manifest: $(sed -n 's/^  "seq": \([0-9]*\),$/seq \1/p' "$OFF_MF"), $n agent(s), valid until $exp"
+}
+
 # ── what is being released ───────────────────────────────────────────────
 VERSION="$(sed -n 's/.*V = "\([^"]*\)".*/\1/p' "$ROOT/internal/version/version.go")"
 [ -n "$VERSION" ] || die "cannot read version from internal/version/version.go"
@@ -220,6 +396,7 @@ BUILT="$(cd "$ROOT" && TZ=UTC0 git log -1 --date=format-local:%Y-%m-%dT%H:%M:%SZ
 GOVERSION="$(go env GOVERSION)"
 
 check_key
+check_official
 
 ALL="darwin-arm64 darwin-amd64 linux-amd64 linux-arm64"
 TARGETS="${*:-$ALL}"

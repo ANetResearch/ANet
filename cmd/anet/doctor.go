@@ -27,6 +27,7 @@ import (
 	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/loopguard"
+	"github.com/ANetResearch/ANet/internal/official"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -81,7 +82,17 @@ type doctorReport struct {
 		Signature       string `json:"signature"`
 		SignatureDetail string `json:"signature_detail"`
 	} `json:"version"`
-	Modules  []string `json:"modules"`
+	Modules []string `json:"modules"`
+	// Official is the official-agent manifest built into this binary
+	// (A2A-DESIGN §15): "ok", "expired" or "invalid".
+	Official struct {
+		Status         string `json:"status"`
+		Seq            uint64 `json:"seq,omitempty"`
+		Agents         int    `json:"agents"`
+		ExpiresAt      string `json:"expires_at,omitempty"`
+		KeyFingerprint string `json:"key_fingerprint,omitempty"`
+		Error          string `json:"error,omitempty"`
+	} `json:"official"`
 	Identity struct {
 		Present bool   `json:"present"`
 		AID     string `json:"aid"`
@@ -177,6 +188,31 @@ func daemonAnswersAt(addr, tokenPath string) bool {
 	return e == nil && code == 200
 }
 
+// officialCheck reports the official-agent manifest this binary carries:
+// which agents list_agents and anet find will mark "anet.official", and
+// until when. A manifest that does not verify or has expired marks no one;
+// that is a warning, not a failure — the node works, it only cannot tell
+// the project's agents from their namesakes.
+func officialCheck(add func(id, status, detail, hint string), rep *doctorReport, now time.Time) {
+	m, err := official.Embedded()
+	if err != nil {
+		rep.Official.Status, rep.Official.Error = "invalid", err.Error()
+		add("official", stWarn, "the official-agent manifest in this binary does not verify; no agent is marked official: "+err.Error(),
+			"install a signed release: anet update")
+		return
+	}
+	rep.Official.Seq, rep.Official.Agents = m.Seq, len(m.Agents)
+	rep.Official.ExpiresAt, rep.Official.KeyFingerprint = m.ExpiresAt, m.KeyFingerprint
+	if err := m.CheckFresh(now); err != nil {
+		rep.Official.Status = "expired"
+		add("official", stWarn, err.Error()+"; no agent is marked official", "anet update")
+		return
+	}
+	rep.Official.Status = "ok"
+	add("official", stInfo, fmt.Sprintf("official-agent manifest seq %d: %d agent(s) marked anet.official by AID, valid until %s (signed by %s)",
+		m.Seq, len(m.Agents), m.ExpiresAt, m.KeyFingerprint), "")
+}
+
 // releaseSignature reports whether this binary was checked against a signed
 // release manifest (§13.2). The release signing work has not landed in this
 // build, so the answer is "unknown" rather than a guess.
@@ -236,6 +272,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		rep.Modules = []string{}
 	}
 	add("modules", stInfo, compiledModulesReport(), "")
+	officialCheck(add, rep, time.Now())
 
 	// Configuration and policy.
 	st, err := daemon.ReadPolicy(layout)
