@@ -283,21 +283,25 @@ hd "7/7  MCP:编码工具把这张网络当自己的工具用"
 # `anet mcp` 在 stdio 上说的是不是合法 MCP —— 多一行 stdout 就是 framing 错误,
 # 而那种错误只有真客户端连上来才会显形。探针按 Claude Code / Cursor 的顺序走:
 # initialize → notifications/initialized → tools/list → tools/call。
+# 工具名有两代(A2A-DESIGN §12 按 A2A 概念改名),名单集中在 scripts/mcpcall.py;
+# 探针按 tools/list 判断是哪一代,再对照那一代的全表报缺。
 MCPOUT=$(python3 "$ROOT/scripts/mcp-probe.py" "$J/anet" "$CTRL_HOME" "$HUB_URL" 2>"$J/mcp.err")
 if [ -z "$MCPOUT" ]; then
   no "MCP 探针没能完成握手: $(head -c 200 "$J/mcp.err")"
   no "(工具表无从检查)"; no "(工具调用无从检查)"; no "(错误传递无从检查)"
 else
   ok "MCP 握手完成,服务名 $(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["server_name"])')"
-  TOOLS=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(",".join(json.load(sys.stdin)["tools"]))')
-  MISSING=""
-  for t in agents_find task_delegate task_results task_inbox task_message task_end evidence_read credit_balance node_status; do
-    case ",$TOOLS," in *,$t,*) ;; *) MISSING="$MISSING $t" ;; esac
-  done
-  [ -z "$MISSING" ] && ok "九个工具全部报给了客户端" || no "工具表缺:$MISSING"
+  GEN=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["generation"])')
+  NT=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)["tools"]))')
+  MISSING=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(" ".join(json.load(sys.stdin)["missing"]))')
+  if [ "$GEN" = "?" ]; then
+    no "工具表认不出是哪一代工具名($NT 个)"
+  else
+    [ -z "$MISSING" ] && ok "$GEN 代工具全部报给了客户端($NT 个)" || no "工具表缺($GEN 代):$MISSING"
+  fi
   NF=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["found"])')
-  [ "$NF" -ge 1 ] && ok "经 MCP 调用 agents_find 找到了 $NF 个 worker(穿到了 hub)" \
-                  || no "经 MCP 调用 agents_find 什么也没找到"
+  [ "$NF" -ge 1 ] && ok "经 MCP 按能力找到了 $NF 个 worker(穿到了 hub)" \
+                  || no "经 MCP 按能力什么也没找到"
   SH=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["status_hub"])')
   [ -n "$SH" ] && ok "node_status 经 MCP 报出了本节点接入的 hub" || no "node_status 经 MCP 没报出 hub"
   BAD=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["bad_is_error"])')

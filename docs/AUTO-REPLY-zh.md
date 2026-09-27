@@ -223,9 +223,10 @@ anet 委派是**存转**消息（秒级延迟），适合单次分析、异步�
 
 ```
 POST /threads   全部对话（含附件元数据）     POST /pull       附件落盘
-POST /message   回复（可带本地文件附件）     POST /end-accept  同意结束
+POST /message   回复（可带本地文件附件）     POST /end        完成任务（provider 侧，签回执）
 ```
 
 凭据零配置：控制地址在 `<data_dir>/config.json` 的 `control_addr`，Bearer token 在
-`<data_dir>/control_token.txt`。行为语义照抄内置循环即可（无状态判定、用法提示、自动同意结束），
-参考 `internal/daemon/autoreply.go`。
+`<data_dir>/control_token.txt`。行为语义照抄内置循环即可（无状态判定、用法提示），
+参考 `internal/daemon/autoreply.go`。委派方请求结束时，provider 的 daemon 自己完成任务并签回执，
+外部循环不用处理；原来的 `POST /end-accept` 已删除（返回 410）。

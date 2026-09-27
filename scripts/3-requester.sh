@@ -24,6 +24,8 @@ cmd_join(){
   prep_identity
   ok "已为「委派方」准备好独立身份目录：${DATA}（控制端口 ${PORT}）"
   print_join "我主要想找别人干活、自己不接单：注册时不填 --caps，然后运行 anet console --url 把我的本地控制台网址发给我（之后我会在控制台里自己 find / delegate / review）。"
+  warn "对方默认只接受允许名单里的委派（入站策略 closed）：把本身份的 AID（$0 status 可看）交给对方，"
+  warn "由对方加入它的允许名单（同机演示：scripts/2-provider.sh allow <本身份 AID>）。公开能力不需要这一步。"
 }
 
 case "${1:-join}" in

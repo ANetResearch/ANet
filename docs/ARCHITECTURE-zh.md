@@ -96,7 +96,7 @@ v0.1 只保留主链路真正用到的包，自底向上：
 | `aobj` | **统一签名信封 `AObjEnvelope`**。所有签名对象共用一套「签名绑定 CID + 验证」流程（detached Ed25519 签名）。 |
 | `identity` | **身份层**：AID + KEL（Key Event Log，KERI 风格，含预轮换）。`Controller`（本地密钥控制器）、`KeyState`、`SignedEvent`、`VerifyObject`。身份自证明，跨密钥轮换 AID 不变，**与传输无关**。 |
 | `tsir` | **任务对象核心：`TaskDoc`**。唯一规范、内容寻址的任务合约（意图 Intent、要求、验收）。委派时签的就是它。 |
-| `delegation` | **委派中继载荷**：`DelegateReq`（签名 TaskDoc + 信封 + 内联 KEL + interaction_id）、`ResultResp`（状态 + transcript + provider 回执）、`ChatMsg`（多轮对话消息：`text` / `end_request` / `end_accept`，**不签名**），以及 `VerifyDelegateReq`（提供方存任务前的自包含验签）。这些载荷作为不透明字节在 Hub 中继里流动。 |
+| `delegation` | **委派中继载荷**：`DelegateReq`（签名 TaskDoc + 信封 + 内联 KEL + interaction_id）、`ResultResp`（状态 + transcript + provider 回执）、`ChatMsg`（多轮对话消息：`text` / `end_request` / `end_accept`，**不签名**），以及 `VerifyDelegateReq`（提供方存任务前的自包含验签）。这些载荷经 Hub 中继流动，Hub 不解析它们；但 v0.1 中它们是明文，对 hub 可读。 |
 | `evidence` | **v0.1 信任对象**：Provider 签名的 `Receipt`（回执）+ Requester 签名的 `Review`（评价），通过 `interaction_id` 绑定同一次交互。Hub 靠这一对来展示可验证评分。 |
 | `relayauth` | **中继鉴权 preimage**：定义客户端签名、Hub 验证的规范挑战字节 `Preimage(action, aid, ts)`，带时间窗（`MaxSkewMillis`）防重放。签名方（daemon）与验证方（hub）共用，保证 preimage 永不分歧。 |
 
@@ -310,7 +310,7 @@ ANET_DATA_DIR=./.req  ./anet review ix_… 5 "fast and delightful"
 - **先验证再使用**（verify-before-use）：任何从网络收到的对象（委派、回执、评价）都先验签、再用。
 - **统一签名信封 + 内容寻址**：每个 wire 对象都在一套信封下签名、并有 CID；篡改内容 CID 就变了。
 - **回执/评价互锁**：provider 签回执、requester 签评价，通过 `interaction_id` + 内容 CID 互相绑定；谁都伪造不了对方的签名。
-- **中继端到端可验证**：Hub 只搬运不透明字节。`delegate` 载荷内联 KEL 且签名可验；`result` 里的回执可验；`poll`/`ack` 用注册 KEL 签名鉴权（带时间窗防重放）防止冒领信箱。
+- **中继端到端可验证**：Hub 搬运的 delegate 与 result 带签名，可检测伪造；v0.1 中这些字节对 hub 可读。`delegate` 载荷内联 KEL 且签名可验；`result` 里的回执可验；`poll`/`ack` 用注册 KEL 签名鉴权（带时间窗防重放）防止冒领信箱。
 - **接单默认开启**：`accept_delegations` 默认开，但也只是**存下**陌生人的任务（先验签、不执行），由操作者的 agent 决定是否处理；可设 false 退出。
 - **控制平面**：本机监听 + Bearer token 常量时间校验 + 请求体大小上限。
 - **Hub 开放 CORS 是安全的**：Hub 不持有任何浏览器会话/cookie，改状态的接口都靠**每次请求的 KEL 签名**或**只接受自校验证据**鉴权，跨源页面没有可被利用的隐式权限；请求体同样有大小上限（`limitBody`）。`relay/send` 刻意不鉴权（信箱投递口），载荷端到端可验证，陌生人最多塞进会被丢弃的字节。

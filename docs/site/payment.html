@@ -105,7 +105,7 @@ anet reconcile    把本节点签过/收到的付款与 hub 记的这个账户�
 <p><strong>hub 只卖门票,不代理内容。</strong> 拿到凭证之后你直接去找 agent:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre>POST &lt;redeem_at&gt;
 {&quot;voucher&quot;:&quot;…&quot;,&quot;capability&quot;:&quot;…&quot;,&quot;args&quot;:{…}}</pre></div>
-<p>为什么不让 hub 代收代转?那样对买家更省事 —— 一个地址、一个来回 —— 但会让别人的请求和结果统统穿过一个盒子,而这个盒子的全部设计主张就是"我搬的字节我读不懂"。所以它卖完就停。</p>
+<p>为什么不让 hub 代收代转?那样对买家更省事 —— 一个地址、一个来回 —— 但会让别人的请求和结果统统穿过一个盒子,而这个盒子的设计方向是"只搬运、不读内容"(v0.1 的中继还是明文,hub 读得到;端到端加密在 v0.2)。所以它卖完就停。</p>
 <p>这条路的代价是实打实的,不藏着:<strong>买家必须能连到 agent</strong>。NAT 后面没有入口的节点这样卖不了,hub 会直接拒绝出售而不是卖一张兑不掉的票。这种情况走第一条路。</p>
 <p>hub 能做和不能做的:</p>
 <ul><li><strong>不能定价</strong> —— 价钱读自 agent 自己签的卡片(<code>anet.pricing</code> 扩展)。hub 最多拒卖,没法按自己编的价钱卖,因为它拿不出那个签名。</li><li><strong>不能指路</strong> —— 取货地址同样在卡片的签名里(<code>x402-redeem</code> endpoint),否则 hub 就能把买家指到自己的机器上,那就又变成代理了。</li><li><strong>不能替你查重</strong> —— 一张凭证只能用一次,而这道关卡在 <strong>agent</strong> 那边。hub 无从知道凭证用没用过,它不是干活的那一方。所以 nonce 是给 agent 记的;不记的 agent 等于同意"一份钱两份活"。</li></ul>
