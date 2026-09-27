@@ -192,7 +192,10 @@ func checkCardCtx(ctx context.Context, raw []byte, keys []jwk, kel []identity.Si
 	// Default values (§8.4.1) and the two payloads a verifier may compute.
 	stripped, removed := stripDefaults(card, "AgentCard", "")
 	delete(stripped, "signatures")
-	asGiven, err1 := a2acard.SigningPayload(raw)
+	// As given: only "signatures" removed, the payload a2a-go signs
+	// (a2acard.SigningPayload is the proto-stripped form since the
+	// publish-form fix; the stripped form here is this checker's own).
+	asGiven, err1 := a2acard.RawSigningPayload(raw)
 	sb, _ := json.Marshal(stripped)
 	strippedPayload, err2 := a2acard.Canonicalize(sb)
 	if err1 == nil && err2 == nil {

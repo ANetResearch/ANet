@@ -34,6 +34,11 @@ func (h *contractHost) HubSeam() (module.HubSeam, bool)                  { retur
 func (h *contractHost) Admit(string, string, int) (func(), string)       { return func() {}, "" }
 func (h *contractHost) DeclareUntrustedBackend()                         {}
 
+// StateDir and TaskSeam complete module.Host (added with the A2A task
+// surface); the service module uses neither.
+func (h *contractHost) StateDir(string) string            { return "" }
+func (h *contractHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }
+
 // syncBuffer is a log sink the server goroutine writes while the test
 // reads it.
 type syncBuffer struct {
