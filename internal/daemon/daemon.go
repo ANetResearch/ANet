@@ -30,8 +30,9 @@ type Daemon struct {
 	enc             *encKeyRing
 	publishedKeySeq atomic.Uint64
 	// clock, when set, replaces the wall clock (unix ms) for the sealed
-	// wire. Tests only.
-	clock func() uint64
+	// wire. Tests only, through setClock (testhooks.go): the background
+	// loops read it while a test sets it, so it is atomic.
+	clock atomic.Pointer[func() uint64]
 	// hubIDs caches each hub's pinned identity by URL (hub_client.go).
 	hubIDMu sync.Mutex
 	hubIDs  map[string]hubIdent
@@ -56,8 +57,10 @@ type Daemon struct {
 	logOnceMu   sync.Mutex
 	logOnceSeen map[string]bool
 	// rxFault, when set, is called inside the receive transaction after the
-	// business writes; an error rolls the transaction back. Tests only.
-	rxFault func(typ string) error
+	// business writes; an error rolls the transaction back. Tests only,
+	// through setRxFault (testhooks.go), atomic for the same reason as
+	// clock.
+	rxFault atomic.Pointer[func(typ string) error]
 	// bgWG counts background goroutines that use the store (goBackground),
 	// so Close can wait for them before closing it. bgMu orders their
 	// start against Close's cancel.

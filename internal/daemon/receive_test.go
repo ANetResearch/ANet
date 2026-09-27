@@ -327,9 +327,9 @@ func TestEachReceiveStepRefusesWithItsClass(t *testing.T) {
 	}
 
 	// A store error is temporary: not acknowledged, nothing written.
-	prov.rxFault = func(string) error { return errors.New("injected store failure") }
+	prov.setRxFault(func(string) error { return errors.New("injected store failure") })
 	r = receive(t, prov, craft(t, senderOf(req), prov, seal.TypeMessage, id, msg("later"), nil))
-	prov.rxFault = nil
+	prov.setRxFault(nil)
 	if r.class != rxTransient || r.reason != transientStore {
 		t.Fatalf("store failure outcome = %+v", r)
 	}
@@ -511,12 +511,12 @@ func TestAStoreFailureThenRedeliveryIsProcessedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	fail := true
-	prov.rxFault = func(string) error {
+	prov.setRxFault(func(string) error {
 		if fail {
 			return errors.New("injected store failure")
 		}
 		return nil
-	}
+	})
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -994,13 +994,13 @@ func TestATemporaryFailurePastExpiryIsPermanent(t *testing.T) {
 	})
 	var clock atomic.Uint64
 	clock.Store(uint64(time.Now().UnixMilli()))
-	prov.clock = clock.Load
-	prov.rxFault = func(string) error {
+	prov.setClock(clock.Load)
+	prov.setRxFault(func(string) error {
 		clock.Add(120_000) // the store fails at a moment the message has expired
 		return errors.New("injected store failure")
-	}
+	})
 	r := receive(t, prov, env)
-	prov.rxFault = nil
+	prov.setRxFault(nil)
 	if r.class != rxDropped || r.reason != dropExpiredWait {
 		t.Fatalf("store failure past exp: %+v, want class P %s", r, dropExpiredWait)
 	}
@@ -1030,19 +1030,19 @@ func TestADelegationSealedTwiceArrivingTogetherIsRecordedOnce(t *testing.T) {
 
 	inTx := make(chan struct{})
 	var once sync.Once
-	prov.rxFault = func(typ string) error {
+	prov.setRxFault(func(typ string) error {
 		// The first copy holds its transaction open until the second has
 		// had time to pass step 9.
 		once.Do(func() { close(inTx); time.Sleep(300 * time.Millisecond) })
 		return nil
-	}
+	})
 	var wg sync.WaitGroup
 	var r1, r2 rxResult
 	wg.Add(2)
 	go func() { defer wg.Done(); r1 = receive(t, prov, first) }()
 	go func() { defer wg.Done(); <-inTx; r2 = receive(t, prov, second) }()
 	wg.Wait()
-	prov.rxFault = nil
+	prov.setRxFault(nil)
 	if !r1.ack() || !r2.ack() {
 		t.Fatalf("outcomes %+v %+v", r1, r2)
 	}
@@ -1098,17 +1098,17 @@ func TestAResultSealedTwiceArrivingTogetherIsRecordedOnce(t *testing.T) {
 	before := chainLength(t, req)
 	inTx := make(chan struct{})
 	var once sync.Once
-	req.rxFault = func(string) error {
+	req.setRxFault(func(string) error {
 		once.Do(func() { close(inTx); time.Sleep(300 * time.Millisecond) })
 		return nil
-	}
+	})
 	var wg sync.WaitGroup
 	var r1, r2 rxResult
 	wg.Add(2)
 	go func() { defer wg.Done(); r1 = receive(t, req, first) }()
 	go func() { defer wg.Done(); <-inTx; r2 = receive(t, req, second) }()
 	wg.Wait()
-	req.rxFault = nil
+	req.setRxFault(nil)
 	if r1.class != rxAccepted || r2.class != rxAccepted {
 		t.Fatalf("outcomes %+v %+v", r1, r2)
 	}
@@ -1137,7 +1137,7 @@ func TestAStoredKeySetIsRecheckedAfterTenMinutes(t *testing.T) {
 	seq0 := row.KeySetSeq
 	// The provider rotates its encryption key and publishes the new set.
 	start := uint64(time.Now().UnixMilli())
-	prov.clock = func() uint64 { return start + 7*dayMS + 1 }
+	prov.setClock(func() uint64 { return start + 7*dayMS + 1 })
 	prov.maintainKeyRing()
 	newSeq := prov.enc.Seq()
 	if newSeq <= seq0 {
@@ -1146,7 +1146,7 @@ func TestAStoredKeySetIsRecheckedAfterTenMinutes(t *testing.T) {
 	_ = srv
 
 	// Five minutes later the stored set is used as it is.
-	req.clock = func() uint64 { return start + 5*60*1000 }
+	req.setClock(func() uint64 { return start + 5*60*1000 })
 	if err := req.SendMessage(ctx, id, "at five minutes", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -1156,7 +1156,7 @@ func TestAStoredKeySetIsRecheckedAfterTenMinutes(t *testing.T) {
 	}
 	// Eleven minutes later the send still uses it, and the check against
 	// the hub picks up the newer set.
-	req.clock = func() uint64 { return start + 11*60*1000 }
+	req.setClock(func() uint64 { return start + 11*60*1000 })
 	if err := req.SendMessage(ctx, id, "at eleven minutes", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -1262,19 +1262,19 @@ func TestAFailureStatusRacingAResultDoesNotUndoIt(t *testing.T) {
 
 	inTx := make(chan struct{})
 	var once sync.Once
-	req.rxFault = func(typ string) error {
+	req.setRxFault(func(typ string) error {
 		if typ == seal.TypeResult {
 			once.Do(func() { close(inTx); time.Sleep(300 * time.Millisecond) })
 		}
 		return nil
-	}
+	})
 	var wg sync.WaitGroup
 	var r1, r2 rxResult
 	wg.Add(2)
 	go func() { defer wg.Done(); r1 = receive(t, req, result) }()
 	go func() { defer wg.Done(); <-inTx; r2 = receive(t, req, status) }()
 	wg.Wait()
-	req.rxFault = nil
+	req.setRxFault(nil)
 	if r1.class != rxAccepted || !r2.ack() {
 		t.Fatalf("outcomes %+v %+v", r1, r2)
 	}

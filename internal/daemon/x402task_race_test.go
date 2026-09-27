@@ -27,9 +27,8 @@ import (
 // withSettleRetry sets the settlement retry pause for one test.
 func withSettleRetry(t *testing.T, d time.Duration) {
 	t.Helper()
-	old := settleRetryBase
-	settleRetryBase = d
-	t.Cleanup(func() { settleRetryBase = old })
+	old := settleRetryBase.set(d)
+	t.Cleanup(func() { settleRetryBase.set(old) })
 }
 
 // quotedTask delegates work.do from req to prov and delivers the quote.

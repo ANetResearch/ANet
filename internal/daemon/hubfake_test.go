@@ -303,13 +303,16 @@ func (h *fakeHub) verifyAuth(w http.ResponseWriter, r *http.Request, body []byte
 		return fail("timestamp outside the window")
 	}
 	if kel == nil {
+		// a.kel is read under the lock: a register rewrites it.
 		h.mu.Lock()
 		a := h.agents[aid]
+		if a != nil {
+			kel = a.kel
+		}
 		h.mu.Unlock()
 		if a == nil {
 			return fail("unknown agent")
 		}
-		kel = a.kel
 	}
 	events, err := identity.UnmarshalKEL(kel)
 	if err != nil {
@@ -1173,12 +1176,16 @@ func (h *fakeHub) hSettle(w http.ResponseWriter, r *http.Request) {
 	}
 	h.mu.Lock()
 	payer := h.agents[auth.Payer]
+	var payerKEL []byte
+	if payer != nil {
+		payerKEL = payer.kel
+	}
 	h.mu.Unlock()
 	if payer == nil {
 		refuse(payment.ReasonUnknownPayer)
 		return
 	}
-	kel, err := identity.UnmarshalKEL(payer.kel)
+	kel, err := identity.UnmarshalKEL(payerKEL)
 	if err != nil {
 		refuse(payment.ReasonSettlementFailed)
 		return
@@ -1340,13 +1347,17 @@ func (h *fakeHub) hLedgerRead(w http.ResponseWriter, r *http.Request) {
 func (h *fakeHub) hAgentKEL(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	a := h.agents[r.PathValue("aid")]
+	var kel []byte
+	if a != nil {
+		kel = a.kel
+	}
 	h.mu.Unlock()
 	if a == nil {
 		fakeHubJSON(w, http.StatusNotFound, map[string]string{"error": "unknown agent"})
 		return
 	}
 	fakeHubJSON(w, http.StatusOK, map[string]string{
-		"aid": r.PathValue("aid"), "kel": base64.StdEncoding.EncodeToString(a.kel)})
+		"aid": r.PathValue("aid"), "kel": base64.StdEncoding.EncodeToString(kel)})
 }
 
 // grantOn credits an account on the fake hub behind url.
