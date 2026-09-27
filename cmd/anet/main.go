@@ -1,7 +1,9 @@
-// Command anet is the anet v0.1 daemon + CLI. `anet daemon` runs the long-lived process (identity +
-// local delegation store + Hub relay client + local control plane); the other verbs are thin clients
-// that drive the running daemon over its control API. v0.1 is centralized: all traffic flows through the
-// official Hub. See internal/daemon.
+// Command anet is the anet daemon + CLI. `anet daemon` runs the long-lived process (identity and
+// encryption keys, the local task store, the hub relay client, the local control plane, and the modules —
+// among them the local A2A interface on 127.0.0.1); the other verbs are thin clients that drive the
+// running daemon over its control API, except the few that read the data directory directly (init,
+// doctor, audit, agents, verify, update). Daemons exchange sealed, signed envelopes through a hub (or
+// directly over p2p); tasks are A2A tasks. See internal/daemon and docs/A2A-DESIGN-zh.md.
 package main
 
 import (
@@ -167,19 +169,22 @@ func extractGlobalID(args []string) (id string, rest []string) {
 type cmdDoc struct{ use, desc string }
 
 var grpNetwork = []cmdDoc{
-	{"hub-register <url> [--name N] [--caps a,b] [--token INVITE]", "在官方 Hub 上注册你的 agent(提交 AID 与加密公钥)"},
+	{"hub-register <url> [--name N] [--caps a,b] [--token INVITE]", "在 Hub 上注册你的 agent(提交 AID 与加密公钥; 有公开能力时附 A2A 卡片)"},
+	{"doctor", "这个节点被设成了什么样、哪些门开着(读数据目录, 不需要 daemon)"},
+	{"agents wire <claude|codex|cursor|opencode|hermes>", "把 anet 的 MCP 工具与用法说明写进你的编码 agent(--all 接入全部检测到的)"},
 	{"peers list|allow|trust|deny|remove [<aid>]", "入站名单: allow 可委派, trust 另可驱动本机 exec 自动回复; allow/trust 需在终端确认"},
 	{"inbound policy [closed|approve|open]", "入站策略(默认 closed: 只接受 allow 名单); 放宽为 approve/open 需在终端确认"},
 	{"inbound pending|approve|reject [<id>]", "approve 策略下的待批队列(只列元数据); approve 需在终端确认"},
-	{"autoreply set --backend exec --agent <cursor|claude|…>", "全自动接单: 收到委派就拉起本机编码 agent 撰写回复(热生效, 无需重启)"},
-	{"autoreply set --backend openai --api-base URL --model M", "全自动接单: 用你的 OpenAI 兼容 API 回复(可加 --require-image 等)"},
+	{"autoreply set --backend exec --agent <cursor|claude|…>", "全自动接单: 收到 trust 名单里对端的委派就拉起本机编码 agent 撰写回复(热生效, 无需重启)"},
+	{"autoreply set --backend openai --api-base URL --model M", "全自动接单: 用你的 OpenAI 兼容 API 回复已接受的任务(可加 --require-image 等)"},
 	{"autoreply test [\"问题\"]", "本地验证自动回复(不经过 Hub, 不建身份, 零污染)"},
 	{"autoreply show|off", "查看 / 关闭内置自动回复循环"},
 	{"profile set [--summary S] [--readme S|@file] [--pricing S]", "由你的 agent 自述能力与收费(仅展示), 发布到 Hub"},
 	{"console [--url]", "打开本地控制台(浏览+委派+评价); --url 只打印一次性网址(60 秒内有效,交给操作者在浏览器打开)"},
 	{"find [query]", "在 Hub 上搜索 agent(按 AID/名字/能力/自述子串; 空 query 列全部)"},
-	{"delegate <provider-aid> <goal> [--attach PATH …]", "把任务经 Hub 中继排队给对方(立即返回 interaction_id, 对方可离线; --attach 附带图片/媒体/压缩包)"},
-	{"delegate <provider-aid> --capability <id> [--args '<json>'] [--pay]", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent); --pay 表示对方若报价就照价付款再执行"},
+	{"delegate <provider-aid> <goal> [--attach PATH …]", "把任务经 Hub 中继排队给对方(立即返回 interaction_id, 对方可离线; 不在对方允许名单里会被 rejected; --attach 附带图片/媒体/压缩包)"},
+	{"delegate <provider-aid> --capability <id> [--args '<json>'] [--pay]", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent); --pay 表示对方报价就在同一任务里照价付款(受 explicit_max 与 payees.allow 约束)"},
+	{"pay <interaction_id> [--option N] [--reject]", "付(或 --reject 拒付)对方对你所发任务的报价; 付款需在终端确认"},
 	{"reconcile", "把本节点签过/收到的付款与 hub 记的这个账户的流水做比对"},
 	{"audit-hub", "拉取并验证 hub 的发放链, 与本节点此前记录的链头比对"},
 	{"x402-authorize --pay-to <aid> --amount <n>", "为 x402 网关签一笔付款, 只打印 PAYMENT-SIGNATURE 的值(可直接管进 curl)"},
@@ -187,7 +192,7 @@ var grpNetwork = []cmdDoc{
 	{"balance", "看本节点在 hub 账本上的余额与近期流水(余额托管在 hub, 事件在自己链上)"},
 	{"redeem <amount> [--ref <reference>]", "把 credit 兑付回 hub(额度真的离开流通, hub 为取走的数额签字); 需在终端确认金额与收款方"},
 	{"inbox [--pending]", "列出别人委派给我的任务(--pending 只看未结束)"},
-	{"thread <id>", "读一次交互的完整对话(多轮消息 + 附件清单 + 结束协商状态)"},
+	{"thread <id>", "读一次交互的完整对话(多轮消息 + 附件清单 + 任务状态)"},
 	{"message <id> <text…>|--file PATH [--attach PATH …]", "在一次委派里发消息(多轮对话, 任一方都可发; --attach 发送图片/媒体/压缩包, 单个 ≤64 MiB)"},
 	{"pull <id> [--out DIR]", "把收到的附件(图片/媒体/压缩包)保存到本地目录(默认当前目录)"},
 	{"end <id>", "结束任务: 提供方执行即完成并签回执; 委派方执行即请求对方完成"},
@@ -242,10 +247,11 @@ func guideBanner() string {
 	return strings.Join(guideBannerCommands, " · ") + " — anet moves signed tasks; your agent does the work"
 }
 
-// guide prints a STATE-AWARE introduction: it queries the running daemon and shows what to do next in
-// the centralized v0.1 model — register on the Hub, find agents, delegate, message, end, review.
+// guide prints a STATE-AWARE introduction: it queries the running daemon and shows what to do next —
+// register on a hub, decide whose tasks to accept, wire in a coding agent, find agents, delegate,
+// message, end, review.
 func guide(layout daemon.Layout) {
-	fmt.Printf("anet %s — the agent collaboration network (v0.1, centralized via the official Hub)\n", daemon.Version)
+	fmt.Printf("anet %s — the agent network: A2A tasks between agents, relayed by a hub\n", daemon.Version)
 	fmt.Println(guideBanner())
 	fmt.Println()
 
@@ -288,6 +294,7 @@ func guide(layout daemon.Layout) {
 		printNext([][2]string{
 			{"anet hub-register <url> --name <you>", "register so others can find you (submit your AID)"},
 			{`anet profile set --summary "..."`, "if you provide a service, describe it"},
+			{"anet doctor", "see what this node is set up to do (a new node accepts nobody's tasks)"},
 			{"anet console", "open the local web console to browse + act"},
 		})
 		return
@@ -298,6 +305,8 @@ func guide(layout daemon.Layout) {
 	printNext([][2]string{
 		{"anet console", "open the local web console (browse + one-click actions)"},
 		{`anet delegate <aid> "<goal>"`, "queue a task for a provider"},
+		{"anet agents wire --all", "give your coding agents the network as MCP tools"},
+		{"anet peers allow <aid>", "accept tasks from a peer (a new node accepts nobody's)"},
 		{"anet inbox --pending", "see tasks others delegated to you"},
 	})
 	fmt.Println("Full reference: anet help --all")
@@ -311,12 +320,12 @@ func usageAll() { fmt.Print(usageAllText()) }
 // user reads before typing, and the flag checker has to accept everything it
 // promises — see TestTheFlagCheckerAcceptsEverythingTheHelpPromises.
 func usageAllText() string {
-	return (`anet ` + daemon.Version + ` — anet daemon + CLI (v0.1, centralized)
+	return (`anet ` + daemon.Version + ` — anet daemon + CLI (A2A tasks between agents, relayed by a hub)
 
   anet daemon                 run the daemon in the FOREGROUND (identity + local store + Hub relay client + control plane)
   anet up [name] [--all]      start a node detached so it OUTLIVES this shell (alias: anet daemon --detach) — recommended
   anet stop [name] [--all]    gracefully stop a running daemon (alias: anet down) — no kill/PID needed
-  anet status                 show daemon identity + data dir + Hub registration + profile
+  anet status                 show daemon identity + data dir + Hub registration + inbound policy + profile
   anet init [--json]          write the safe defaults into this identity's config and create the empty peer/payee lists (idempotent; never changes an existing value)
   anet doctor [--json]        report what this node is set up to do: version, modules, identity, addresses, hub, inbound policy, spending limits, agent wiring, file permissions
   anet logs [N|--all]         show the daemon log
@@ -338,7 +347,7 @@ func usageAllText() string {
   anet inbound policy [closed|approve|open]   show or set the inbound policy (default closed); loosening asks for confirmation on the terminal
   anet inbound list           list delegations held for approval (metadata only; alias: pending)
   anet inbound approve|reject <interaction_id>   decide a held delegation (approve asks for confirmation on the terminal)
-  anet pay <interaction_id> [--option N] [--reject]   pay (or decline) the price a provider asked for a task you delegated; asks for confirmation on the terminal
+  anet pay <interaction_id> [--option N] [--reject]   pay (or decline) the price a provider asked for a task you delegated; paying asks for confirmation on the terminal
   anet payments [show]        show the spending limits and what was signed in the last 24 hours
   anet payments set <limit>=<n>... [--payees-file PATH]   change auto_max, agent_max, agent_daily_max, explicit_max, daily_max; asks for confirmation on the terminal
   anet payees list            show the payee list: the AIDs this node may pay (payments.payees_file)
@@ -353,14 +362,14 @@ func usageAllText() string {
   anet profile show           print the current self-description
   anet console [--url]        open the local web console (browse + one-click actions); --url prints a single-use URL (valid 60 s) for your operator to open
   anet find [query]           search the Hub registry (AID/name/caps/profile substring; empty lists all)
-  anet delegate <provider-aid> <goal>   queue a task on a provider via the Hub relay (returns interaction_id)
+  anet delegate <provider-aid> <goal>   queue a task on a provider via the Hub relay (returns interaction_id; refused unless the provider accepts you)
   anet inbox [--pending]      list tasks other agents delegated to you
-  anet thread <interaction_id>   read one interaction's full conversation (all messages + end-negotiation state)
+  anet thread <interaction_id>   read one interaction's full conversation (all messages, attachments and task state)
   anet message <interaction_id> <text...>|--file PATH   send a message in an interaction (multi-turn chat; either side; anet only relays)
   anet end <interaction_id>   end a task: the provider completes it and signs the receipt; the requester asks the provider to complete
   anet accept-end <interaction_id>   removed: the provider completes a task itself (use 'anet end')
   anet results                pull the conversation for tasks you delegated that have ended (with the receipt)
-  anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay accepts a quoted price and runs the work
+  anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay pays a quoted price on the same task (limits: explicit_max, payees.allow)
   anet hub-leave [<hub-url>]  stop being deliverable at a hub you have moved away from (the evidence stays)
   anet p2p-advertise [<addr>]   publish where peers can dial you directly (empty withdraws it; works in any build — what CONSUMES the address is the p2p module)
   anet verify --attestation <b64> --hub <url>   check a witness's statement about a hub's chain head
@@ -376,6 +385,7 @@ func usageAllText() string {
   anet evidence [--type T] [--since TS] [--limit N]   read this node's own evidence chain (id, prev_id, signature per record)
   anet x402-authorize --pay-to <aid> --amount <n> [--network hub:<aid>] [--interaction <id>]   sign a PAYMENT-SIGNATURE header for a gateway (alias: pay-header)
   anet mcp                    serve this network to an MCP client over stdio (register it with 'anet agents wire')
+                              (the local A2A interface for any A2A client is on by default: see 'anet doctor' for its address)
   anet verify <interaction_id>                  check a receipt you already hold locally
   anet verify --receipt <b64> --kel <b64> [--result FILE]   check one with no daemon, no hub and no network
   anet verify --chain DIR [--kel <b64>|--hub <url>] [--head ID]   check an evidence chain exported by anet audit

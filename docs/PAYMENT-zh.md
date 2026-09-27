@@ -10,6 +10,8 @@
 
 能力可以标价。买家签一张只对这一次工作有效的授权,hub 移动额度并签字,双方各自把这件事记进自己的证据链。**余额是 hub 的,记录是双方的。**
 
+v0.2 起,经中继的付费调用按 [a2a-x402](https://github.com/google-agentic-commerce/a2a-x402) v0.2 在**同一个 A2A 任务**里完成:报价是任务的 `input-required`,付款、结算收据与结果都落在同一个任务上。付款对象是 x402 v2 的 `PaymentRequired` / `PaymentPayload` / `SettlementResponse`,承载在 `x402.payment.*` 元数据键下;daemon 之间的这些消息与任务内容一样在端到端加密的信封里传递。
+
 ## 托管:先把不好听的说清楚
 
 credit 记在 hub 的库里。hub 可以增发,可以在你不知情时改一个数字,可以收了钱不给你兑付。协议阻止不了这些,代码也阻止不了。
@@ -56,22 +58,51 @@ anet reconcile    把本节点签过/收到的付款与 hub 记的这个账户�
 
 ## 三条路
 
-### 一、经中继的付费委派(最常用)
+### 一、同一任务里的付款(a2a-x402,最常用)
 
 ```
-anet delegate <provider-aid> --capability text.digest.paid --args '{"text":"hi"}' --pay
+anet delegate <provider-aid> --capability text.digest.paid --args '{"text":"hi"}'          # 看报价,自己决定
+anet delegate <provider-aid> --capability text.digest.paid --args '{"text":"hi"}' --pay    # 报价就付(网关档)
 ```
 
-发生了什么:
+发生了什么(同一个任务,`interaction_id` 就是 A2A task id):
 
-1. 先照常投一次。提供方**报价而不是拒绝** —— `PAYMENT_REQUIRED` 是一个完整答案:签了名、有收据、上了链。一句没人能回头指认的报价不算报价。
-2. 你的节点对着报价签一张授权,连同新的委派一起发出去。
-3. 提供方拿授权去 hub 结算,**先结算后干活**。顺序是有意的:后结算意味着干完才发现收不到钱;先结算意味着活失败了钱已经付了。选第二个,因为第二种情况证据模型说得清楚 —— 效果和付款都在两条链上,退款是一场有记录的商量。
-4. 结果回来时带着 hub 签的结算收据,你的节点验完签才记 `anet.payment.settled{verified:true}`。
+1. 先照常投一次。提供方**报价而不是拒绝**:任务进入 `input-required`,元数据 `x402.payment.status: payment-required`,`x402.payment.required` 里是报价(收款方、金额、网络、有效期)。报价 24 小时过期。一句没人能回头指认的报价不算报价,所以它记进提供方的证据链(`anet.payment.quoted`)。
+2. 你的节点按**支出策略**(见下节)决定:在自动档之内,签一张授权并以 `payment-submitted` 发回同一任务;否则任务在本机停在 `input-required`,`anet.reason=needs_operator_approval`,等你或你的 agent 决定(MCP `submit_payment` / `reject_payment`,或终端上 `anet pay <ix>` / `anet pay <ix> --reject`)。拒付时双方都置 `canceled`。
+3. 授权把这一次工作钉住:授权里的交互绑定值是 `pay_bind = hex(SHA-256("anet/x402-bind/v1" 0x00 ‖ ix ‖ 0x00 ‖ task_nonce))`,只对这个任务有效,hub 也无法由它反推交互 id。
+4. 提供方**结算前先核对**:收款方是自己、金额不低于报价、绑定值对得上、付款方式在报价选项内、授权与报价都未过期。不符就回 `payment-failed`,不结算、不执行。
+5. 核对通过,提供方拿授权去 hub 结算,**先结算后干活**。顺序是有意的:后结算意味着干完才发现收不到钱;先结算意味着活失败了钱已经付了。选第二个,因为第二种情况证据模型说得清楚 —— 效果和付款都在两条链上,退款是一场有记录的商量。结算成功后提供方先发 `payment-verified`,再执行。
+6. 结果回来时带 `payment-completed` 与 `x402.payment.receipts`(hub 签的结算收据在收据的 `extensions["anet.settlement.receipt"]`)。你的节点核对收据的授权 id 属于本任务、收款方是对端、金额与授权一致,才记 `anet.payment.settled{verified:true}`。
 
-不带 `--pay` 时你拿到的就是那张报价,自己决定付不付。
+**`payment-verified` 的含义与规范不同。** a2a-x402 规范与参考实现里,`payment-verified` 表示"付款已验过、尚未扣款"(先验、执行、再结算);anet 里它表示**已经扣款**(先结算、再执行)。原因同第 5 步。只按规范理解这个状态的客户端会低估已发生的事:看到 `payment-verified` 时钱已经动了。
+
+付款提交之后:
+
+- 取消不能撤回付款。付款已提交后你再取消,任务仍是 `working`,带 `anet.cancel_requested=true`,等提供方交付;提供方在结算成功后不接受取消,完成并交付,交付不了时回 `failed` 并附结算收据。
+- 结算结果未知(网络错误、超时、hub 回 `settlement_pending`)时,提供方用同一份授权重试到有确定结果;hub 对同一授权按 id 幂等,已扣款的授权总是回原收据。每个任务在得到确定结果之前只有一个未决授权。自动档对一份报价只签一次授权(对方重新报价时重发同一授权);付款确定失败之后不再自动重签,由你或你的 agent 决定,免得对方靠反复报价耗光自动额度。
 
 看余额:`anet balance`。取钱:见下。
+
+### 谁能花钱:三档支出上限
+
+```json
+"payments": { "auto_max": 0, "agent_max": 0, "agent_daily_max": 0,
+              "explicit_max": 10, "daily_max": 50, "payees_file": "payees.allow" }
+```
+
+| 档 | 谁触发 | 单笔上限 | 日累计 |
+|---|---|---|---|
+| 自动(`task-auto`) | daemon 收到报价时自己付 | `auto_max` | 计入 `agent_daily_max` 与 `daily_max` |
+| agent(`task-agent`) | MCP `submit_payment`;本机 A2A 客户端在同一任务上发 `payment-submitted` | `agent_max` | 计入 `agent_daily_max` 与 `daily_max` |
+| 人工(`task-manual`) | `anet pay <ix>`,在终端上确认 | `explicit_max` | `daily_max` |
+| 网关(`gateway`) | `anet delegate --pay`、`anet x402-authorize` | `explicit_max` | `daily_max` |
+| 兑付(`redeem`) | `anet redeem` | `explicit_max` | `daily_max`,不受收款方名单约束 |
+
+- 新节点**什么都不自动花**:自动档与 agent 档都是 0。经 MCP 或本机 A2A 接口提交的付款属于 agent 档,不视为你本人的同意。
+- 收款方名单 `payees.allow`(数据目录下,一行一个 AID,手工编辑):键非空即启用,文件缺失等于空表;`anet init` 建一个空文件。名单外的收款方一律拒绝(兑付除外,它的收款方是 hub)。
+- 改上限:`anet payments set auto_max=… agent_max=… agent_daily_max=… explicit_max=… daily_max=…`,要在终端上确认;`anet payments` 显示当前上限与最近 24 小时签过的授权额。日累计按**已签授权额**计,不是已结算额。
+- 控制台不能授权付款。终端确认在 CLI 进程里做,挡得住只经 MCP 或 A2A 接口行事的 agent,挡不住能读控制令牌的本机程序([已知局限](KNOWN-LIMITATIONS-zh.md)第 13 条)。
+- 付费演示要先把演示 agent 的 AID 写进 `payees.allow`,并在终端上放开 agent 档上限。
 
 ### 二、hub 上的 x402 门面(买家不必是 daemon)
 
@@ -88,7 +119,7 @@ POST <redeem_at>
 {"voucher":"…","capability":"…","args":{…}}
 ```
 
-为什么不让 hub 代收代转?那样对买家更省事 —— 一个地址、一个来回 —— 但会让别人的请求和结果统统穿过一个盒子,而这个盒子的设计方向是"只搬运、不读内容"(v0.1 的中继还是明文,hub 读得到;端到端加密在 v0.2)。所以它卖完就停。
+为什么不让 hub 代收代转?那样对买家更省事 —— 一个地址、一个来回 —— 但会让别人的请求和结果统统以明文穿过 hub,而 hub 在这套设计里只做传输:v0.2 起 daemon 之间的任务内容以端到端加密的信封经 hub 中继(0.1.x 的中继还是明文,hub 读得到)。所以它卖完就停。
 
 这条路的代价是实打实的,不藏着:**买家必须能连到 agent**。NAT 后面没有入口的节点这样卖不了,hub 会直接拒绝出售而不是卖一张兑不掉的票。这种情况走第一条路。
 
@@ -110,6 +141,8 @@ hub 能做和不能做的:
 两个字段必须同时给。只给一个会在启动时被拒 —— 那是会在很久以后才安静失败的形状:要么监听了但没人知道地址,要么卡片指向一个从未打开的端口,两种都在卖收不到的货。
 
 两个字段是分开的,因为监听地址常常是 `0.0.0.0` 或容器内端口,把那种地址签进卡片等于公布一个谁也到不了的门牌。**世界看到的是什么,只有运维知道**。
+
+`voucher_url` 的主机不是回环地址时**只接受 https**,否则 daemon 拒绝启动:凭证是持票人凭据,明文 http 上谁截到谁能兑。兑付口要由你在前面放一个 TLS 终端。兑付口经内核准入:只服务 `inbound.public_capabilities` 里的能力,按 hub 证明的付款方计配额;出示凭证的一方不因此成为已认证的调用方,服务后端收到的 `X-ANet-Via` 是 `voucher`,不带 `X-ANet-Caller`。
 
 ### 三、兑付(把 credit 拿出来)
 
@@ -166,7 +199,13 @@ hub 的。此前 402 只给一条(卖方自己 hub 的),credits 在别处的买�
 
 | 状态 / 字段 | 含义 |
 | --- | --- |
-| `PAYMENT_REQUIRED` | 不是错误。对方要钱,并告诉了你多少 |
+| `input-required` + `x402.payment.status: payment-required` | 不是错误。对方要钱,报价在 `x402.payment.required` |
+| `anet.reason=needs_operator_approval` | 报价超出自动档:agent 用 `submit_payment`,或你在终端 `anet pay <ix>` |
+| `payment-failed` + `x402.payment.error` | 付款没成。`INSUFFICIENT_FUNDS` 余额不够;`INVALID_SIGNATURE`;`EXPIRED_PAYMENT` 授权或报价过期;`DUPLICATE_NONCE` 同一绑定值已付过;`NETWORK_MISMATCH` 付款方式不在报价选项里;`INVALID_AMOUNT` 金额不足;`SETTLEMENT_FAILED` 其余,原始原因在 `anet.reason` |
+| `anet.reason=client_payload_unsupported` | 本机 A2A 客户端自带了 `x402.payment.payload`;本机 daemon 才是签名方,只发 `payment-submitted`(可带 `anet.payment.accept`) |
+| `anet.reason=option_not_offered` | 选的付款方式不在报价的 `accepts` 里 |
+| `anet.cancel_requested=true` | 付款已提交后你取消了;提供方仍会交付 |
+| `PAYMENT_REQUIRED` | 能力的效果状态:要先付款(0.1.x 的报价形式;v0.2 的中继路径上表现为上面第一行) |
 | `insufficient_funds` | 余额不够。活本身没问题 —— 这两件事分开报,是为了不让人去调试一个没坏的能力 |
 | `network_mismatch` | 授权签的是另一个 hub 的账本。跨 hub 时由两 hub 清算,不是本地放行 |
 | `paid.verified: false` | 记了结算,但没能验证 hub 的签名。"不知道"和"知道没问题"是两种状态 |

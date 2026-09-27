@@ -65,13 +65,14 @@ footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font
 </head>
 <body>
 <div class="page">
-<nav class="toc"><p class="eyebrow">目录</p><a class="l2" href="#一句话">一句话</a><a class="l2" href="#托管-先把不好听的说清楚">托管:先把不好听的说清楚</a><a class="l3" href="#供应量是可核验的-发放是可追责的">供应量是可核验的,发放是可追责的</a><a class="l2" href="#三条路">三条路</a><a class="l3" href="#一-经中继的付费委派-最常用">一、经中继的付费委派(最常用)</a><a class="l3" href="#二-hub-上的-x402-门面-买家不必是-daemon">二、hub 上的 x402 门面(买家不必是 daemon)</a><a class="l3" href="#三-兑付-把-credit-拿出来">三、兑付(把 credit 拿出来)</a><a class="l2" href="#hub-之间">hub 之间</a><a class="l2" href="#信誉跨-hub">信誉跨 hub</a><a class="l2" href="#出错时读什么">出错时读什么</a></nav>
+<nav class="toc"><p class="eyebrow">目录</p><a class="l2" href="#一句话">一句话</a><a class="l2" href="#托管-先把不好听的说清楚">托管:先把不好听的说清楚</a><a class="l3" href="#供应量是可核验的-发放是可追责的">供应量是可核验的,发放是可追责的</a><a class="l2" href="#三条路">三条路</a><a class="l3" href="#一-同一任务里的付款-a2a-x402-最常用">一、同一任务里的付款(a2a-x402,最常用)</a><a class="l3" href="#谁能花钱-三档支出上限">谁能花钱:三档支出上限</a><a class="l3" href="#二-hub-上的-x402-门面-买家不必是-daemon">二、hub 上的 x402 门面(买家不必是 daemon)</a><a class="l3" href="#三-兑付-把-credit-拿出来">三、兑付(把 credit 拿出来)</a><a class="l2" href="#hub-之间">hub 之间</a><a class="l2" href="#信誉跨-hub">信誉跨 hub</a><a class="l2" href="#出错时读什么">出错时读什么</a></nav>
 <main>
 <header class="mast"><p class="eyebrow">ANet · 付费</p><h1>付费:x402、凭证、兑付</h1></header>
 <blockquote>付费是一个<strong>可插拔模块</strong>(<code>module/x402</code>)。<code>-tags no_x402</code> 编出来的 daemon 里没有 facilitator 客户端、没有兑付路径、也没有那个公开监听口 —— 符号数为 0,不是"关掉了"。这样的节点遇到标价的能力会<strong>拒绝并说明原因</strong>,而不是免费替人干活。 模块从内核只拿一样东西:以本节点身份签一次名,外加它结算所在 hub 的身份。签名<strong>就是</strong>付款(付款方没签的授权不算授权),所以这个口子小不下去 —— 因此它有名字(<code>module.PaymentSeam</code>)而不是隐含在别处。</blockquote>
 <p>写给要把能力卖出去、或者要花钱买别人能力的人。也写给想知道"钱到底在谁手里"的人 —— 这一节的答案是明确的,而且不好听:<strong>在 hub 手里</strong>。</p>
 <h2 id="一句话">一句话</h2>
 <p>能力可以标价。买家签一张只对这一次工作有效的授权,hub 移动额度并签字,双方各自把这件事记进自己的证据链。<strong>余额是 hub 的,记录是双方的。</strong></p>
+<p>v0.2 起,经中继的付费调用按 <a href="https://github.com/google-agentic-commerce/a2a-x402">a2a-x402</a> v0.2 在<strong>同一个 A2A 任务</strong>里完成:报价是任务的 <code>input-required</code>,付款、结算收据与结果都落在同一个任务上。付款对象是 x402 v2 的 <code>PaymentRequired</code> / <code>PaymentPayload</code> / <code>SettlementResponse</code>,承载在 <code>x402.payment.*</code> 元数据键下;daemon 之间的这些消息与任务内容一样在端到端加密的信封里传递。</p>
 <h2 id="托管-先把不好听的说清楚">托管:先把不好听的说清楚</h2>
 <p>credit 记在 hub 的库里。hub 可以增发,可以在你不知情时改一个数字,可以收了钱不给你兑付。协议阻止不了这些,代码也阻止不了。</p>
 <p>它能做到的是另一件事:<strong>hub 改不掉双方手里已经签好的记录</strong>。</p>
@@ -93,19 +94,27 @@ anet reconcile    把本节点签过/收到的付款与 hub 记的这个账户�
 <ul><li><strong>hub 之间</strong>:默认开,<code>federation.json</code> 里 <code>&quot;witness&quot;:&quot;off&quot;</code> 关掉</li><li><strong>agent</strong>:默认关,<code>modules.x402.witness_hub: true</code> 打开。精简版节点不该被要求为网络干活;打开的节点收益最直接 —— 它拿到了关于自己余额所在账本的独立证据</li></ul>
 <p><strong>仍然做不到的</strong>:阻止发放。hub 是发行方,可以随时创造 credit。变的是它无法<strong>追溯地</strong>或<strong>无声地</strong>做这件事。</p>
 <h2 id="三条路">三条路</h2>
-<h3 id="一-经中继的付费委派-最常用">一、经中继的付费委派(最常用)</h3>
-<div class="code"><button class="copy" type="button">复制</button><pre>anet delegate &lt;provider-aid&gt; --capability text.digest.paid --args &#x27;{&quot;text&quot;:&quot;hi&quot;}&#x27; --pay</pre></div>
-<p>发生了什么:</p>
-<ol><li>先照常投一次。提供方<strong>报价而不是拒绝</strong> —— <code>PAYMENT_REQUIRED</code> 是一个完整答案:签了名、有收据、上了链。一句没人能回头指认的报价不算报价。</li><li>你的节点对着报价签一张授权,连同新的委派一起发出去。</li><li>提供方拿授权去 hub 结算,<strong>先结算后干活</strong>。顺序是有意的:后结算意味着干完才发现收不到钱;先结算意味着活失败了钱已经付了。选第二个,因为第二种情况证据模型说得清楚 —— 效果和付款都在两条链上,退款是一场有记录的商量。</li><li>结果回来时带着 hub 签的结算收据,你的节点验完签才记 <code>anet.payment.settled{verified:true}</code>。</li></ol>
-<p>不带 <code>--pay</code> 时你拿到的就是那张报价,自己决定付不付。</p>
+<h3 id="一-同一任务里的付款-a2a-x402-最常用">一、同一任务里的付款(a2a-x402,最常用)</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre>anet delegate &lt;provider-aid&gt; --capability text.digest.paid --args &#x27;{&quot;text&quot;:&quot;hi&quot;}&#x27;          # 看报价,自己决定
+anet delegate &lt;provider-aid&gt; --capability text.digest.paid --args &#x27;{&quot;text&quot;:&quot;hi&quot;}&#x27; --pay    # 报价就付(网关档)</pre></div>
+<p>发生了什么(同一个任务,<code>interaction_id</code> 就是 A2A task id):</p>
+<ol><li>先照常投一次。提供方<strong>报价而不是拒绝</strong>:任务进入 <code>input-required</code>,元数据 <code>x402.payment.status: payment-required</code>,<code>x402.payment.required</code> 里是报价(收款方、金额、网络、有效期)。报价 24 小时过期。一句没人能回头指认的报价不算报价,所以它记进提供方的证据链(<code>anet.payment.quoted</code>)。</li><li>你的节点按<strong>支出策略</strong>(见下节)决定:在自动档之内,签一张授权并以 <code>payment-submitted</code> 发回同一任务;否则任务在本机停在 <code>input-required</code>,<code>anet.reason=needs_operator_approval</code>,等你或你的 agent 决定(MCP <code>submit_payment</code> / <code>reject_payment</code>,或终端上 <code>anet pay &lt;ix&gt;</code> / <code>anet pay &lt;ix&gt; --reject</code>)。拒付时双方都置 <code>canceled</code>。</li><li>授权把这一次工作钉住:授权里的交互绑定值是 <code>pay_bind = hex(SHA-256(&quot;anet/x402-bind/v1&quot; 0x00 ‖ ix ‖ 0x00 ‖ task_nonce))</code>,只对这个任务有效,hub 也无法由它反推交互 id。</li><li>提供方<strong>结算前先核对</strong>:收款方是自己、金额不低于报价、绑定值对得上、付款方式在报价选项内、授权与报价都未过期。不符就回 <code>payment-failed</code>,不结算、不执行。</li><li>核对通过,提供方拿授权去 hub 结算,<strong>先结算后干活</strong>。顺序是有意的:后结算意味着干完才发现收不到钱;先结算意味着活失败了钱已经付了。选第二个,因为第二种情况证据模型说得清楚 —— 效果和付款都在两条链上,退款是一场有记录的商量。结算成功后提供方先发 <code>payment-verified</code>,再执行。</li><li>结果回来时带 <code>payment-completed</code> 与 <code>x402.payment.receipts</code>(hub 签的结算收据在收据的 <code>extensions[&quot;anet.settlement.receipt&quot;]</code>)。你的节点核对收据的授权 id 属于本任务、收款方是对端、金额与授权一致,才记 <code>anet.payment.settled{verified:true}</code>。</li></ol>
+<p><strong><code>payment-verified</code> 的含义与规范不同。</strong> a2a-x402 规范与参考实现里,<code>payment-verified</code> 表示"付款已验过、尚未扣款"(先验、执行、再结算);anet 里它表示<strong>已经扣款</strong>(先结算、再执行)。原因同第 5 步。只按规范理解这个状态的客户端会低估已发生的事:看到 <code>payment-verified</code> 时钱已经动了。</p>
+<p>付款提交之后:</p>
+<ul><li>取消不能撤回付款。付款已提交后你再取消,任务仍是 <code>working</code>,带 <code>anet.cancel_requested=true</code>,等提供方交付;提供方在结算成功后不接受取消,完成并交付,交付不了时回 <code>failed</code> 并附结算收据。</li><li>结算结果未知(网络错误、超时、hub 回 <code>settlement_pending</code>)时,提供方用同一份授权重试到有确定结果;hub 对同一授权按 id 幂等,已扣款的授权总是回原收据。每个任务在得到确定结果之前只有一个未决授权。自动档对一份报价只签一次授权(对方重新报价时重发同一授权);付款确定失败之后不再自动重签,由你或你的 agent 决定,免得对方靠反复报价耗光自动额度。</li></ul>
 <p>看余额:<code>anet balance</code>。取钱:见下。</p>
+<h3 id="谁能花钱-三档支出上限">谁能花钱:三档支出上限</h3>
+<div class="code"><button class="copy" type="button">复制</button><pre class="lang-json">&quot;payments&quot;: { &quot;auto_max&quot;: 0, &quot;agent_max&quot;: 0, &quot;agent_daily_max&quot;: 0,
+              &quot;explicit_max&quot;: 10, &quot;daily_max&quot;: 50, &quot;payees_file&quot;: &quot;payees.allow&quot; }</pre></div>
+<div class="tw"><table><thead><tr><th>档</th><th>谁触发</th><th>单笔上限</th><th>日累计</th></tr></thead><tbody><tr><td>自动(<code>task-auto</code>)</td><td>daemon 收到报价时自己付</td><td><code>auto_max</code></td><td>计入 <code>agent_daily_max</code> 与 <code>daily_max</code></td></tr><tr><td>agent(<code>task-agent</code>)</td><td>MCP <code>submit_payment</code>;本机 A2A 客户端在同一任务上发 <code>payment-submitted</code></td><td><code>agent_max</code></td><td>计入 <code>agent_daily_max</code> 与 <code>daily_max</code></td></tr><tr><td>人工(<code>task-manual</code>)</td><td><code>anet pay &lt;ix&gt;</code>,在终端上确认</td><td><code>explicit_max</code></td><td><code>daily_max</code></td></tr><tr><td>网关(<code>gateway</code>)</td><td><code>anet delegate --pay</code>、<code>anet x402-authorize</code></td><td><code>explicit_max</code></td><td><code>daily_max</code></td></tr><tr><td>兑付(<code>redeem</code>)</td><td><code>anet redeem</code></td><td><code>explicit_max</code></td><td><code>daily_max</code>,不受收款方名单约束</td></tr></tbody></table></div>
+<ul><li>新节点<strong>什么都不自动花</strong>:自动档与 agent 档都是 0。经 MCP 或本机 A2A 接口提交的付款属于 agent 档,不视为你本人的同意。</li><li>收款方名单 <code>payees.allow</code>(数据目录下,一行一个 AID,手工编辑):键非空即启用,文件缺失等于空表;<code>anet init</code> 建一个空文件。名单外的收款方一律拒绝(兑付除外,它的收款方是 hub)。</li><li>改上限:<code>anet payments set auto_max=… agent_max=… agent_daily_max=… explicit_max=… daily_max=…</code>,要在终端上确认;<code>anet payments</code> 显示当前上限与最近 24 小时签过的授权额。日累计按<strong>已签授权额</strong>计,不是已结算额。</li><li>控制台不能授权付款。终端确认在 CLI 进程里做,挡得住只经 MCP 或 A2A 接口行事的 agent,挡不住能读控制令牌的本机程序(<a href="https://github.com/ANetResearch/ANet/blob/main/docs/KNOWN-LIMITATIONS-zh.md">已知局限</a>第 13 条)。</li><li>付费演示要先把演示 agent 的 AID 写进 <code>payees.allow</code>,并在终端上放开 agent 档上限。</li></ul>
 <h3 id="二-hub-上的-x402-门面-买家不必是-daemon">二、hub 上的 x402 门面(买家不必是 daemon)</h3>
 <div class="code"><button class="copy" type="button">复制</button><pre>GET /x402/resource/{aid}/{capability}</pre></div>
 <p>第一次访问回 <code>402</code> + <code>PAYMENT-REQUIRED</code> 头,body 里有价钱和<strong>取货地址</strong>。带上 <code>PAYMENT-SIGNATURE</code> 再访问一次,hub 结算,回 <code>200</code> + <code>PAYMENT-RESPONSE</code> 头和一张<strong>凭证</strong>。</p>
 <p><strong>hub 只卖门票,不代理内容。</strong> 拿到凭证之后你直接去找 agent:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre>POST &lt;redeem_at&gt;
 {&quot;voucher&quot;:&quot;…&quot;,&quot;capability&quot;:&quot;…&quot;,&quot;args&quot;:{…}}</pre></div>
-<p>为什么不让 hub 代收代转?那样对买家更省事 —— 一个地址、一个来回 —— 但会让别人的请求和结果统统穿过一个盒子,而这个盒子的设计方向是"只搬运、不读内容"(v0.1 的中继还是明文,hub 读得到;端到端加密在 v0.2)。所以它卖完就停。</p>
+<p>为什么不让 hub 代收代转?那样对买家更省事 —— 一个地址、一个来回 —— 但会让别人的请求和结果统统以明文穿过 hub,而 hub 在这套设计里只做传输:v0.2 起 daemon 之间的任务内容以端到端加密的信封经 hub 中继(0.1.x 的中继还是明文,hub 读得到)。所以它卖完就停。</p>
 <p>这条路的代价是实打实的,不藏着:<strong>买家必须能连到 agent</strong>。NAT 后面没有入口的节点这样卖不了,hub 会直接拒绝出售而不是卖一张兑不掉的票。这种情况走第一条路。</p>
 <p>hub 能做和不能做的:</p>
 <ul><li><strong>不能定价</strong> —— 价钱读自 agent 自己签的卡片(<code>anet.pricing</code> 扩展)。hub 最多拒卖,没法按自己编的价钱卖,因为它拿不出那个签名。</li><li><strong>不能指路</strong> —— 取货地址同样在卡片的签名里(<code>x402-redeem</code> endpoint),否则 hub 就能把买家指到自己的机器上,那就又变成代理了。</li><li><strong>不能替你查重</strong> —— 一张凭证只能用一次,而这道关卡在 <strong>agent</strong> 那边。hub 无从知道凭证用没用过,它不是干活的那一方。所以 nonce 是给 agent 记的;不记的 agent 等于同意"一份钱两份活"。</li></ul>
@@ -116,6 +125,7 @@ anet reconcile    把本节点签过/收到的付款与 hub 记的这个账户�
 }}}</pre></div>
 <p>两个字段必须同时给。只给一个会在启动时被拒 —— 那是会在很久以后才安静失败的形状:要么监听了但没人知道地址,要么卡片指向一个从未打开的端口,两种都在卖收不到的货。</p>
 <p>两个字段是分开的,因为监听地址常常是 <code>0.0.0.0</code> 或容器内端口,把那种地址签进卡片等于公布一个谁也到不了的门牌。<strong>世界看到的是什么,只有运维知道</strong>。</p>
+<p><code>voucher_url</code> 的主机不是回环地址时<strong>只接受 https</strong>,否则 daemon 拒绝启动:凭证是持票人凭据,明文 http 上谁截到谁能兑。兑付口要由你在前面放一个 TLS 终端。兑付口经内核准入:只服务 <code>inbound.public_capabilities</code> 里的能力,按 hub 证明的付款方计配额;出示凭证的一方不因此成为已认证的调用方,服务后端收到的 <code>X-ANet-Via</code> 是 <code>voucher</code>,不带 <code>X-ANet-Caller</code>。</p>
 <h3 id="三-兑付-把-credit-拿出来">三、兑付(把 credit 拿出来)</h3>
 <div class="code"><button class="copy" type="button">复制</button><pre>anet redeem 100 --ref invoice-2026-08</pre></div>
 <p>签一张"付给 hub"的授权 —— 因为提现本来就是这件事。credit 真的离开流通(hub 那一行是供应计数器,发放时为负、回笼时为正,全账求和恒为零),hub 签字说明取走了多少、对着哪个外部凭据。</p>
@@ -135,7 +145,7 @@ anet reconcile    把本节点签过/收到的付款与 hub 记的这个账户�
 <p>编不出来,不代表刷不出来:peer 可以在自己 hub 上注册一批账号,给自己人干活、给自己人打分。<strong>那些评价条条为真</strong> —— 真的签名,真的存在的账号,真的完成的交互。互锁证明的是"一个真实交互的真实对手方",不是"一个独立的对手方"。</p>
 <p>所以按来源分开算,并公布 <code>concentration</code>(最大单一来源占比)。<code>4.8 分 / 40 条,其中 38 条来自 hub X</code> 让人自己判断;<code>4.8 分 / 40 条</code> 是在明知道的情况下误导人。合并值也发,因为不发别人也会自己算,但它永远和分解一起发,不单独发。</p>
 <h2 id="出错时读什么">出错时读什么</h2>
-<div class="tw"><table><thead><tr><th>状态 / 字段</th><th>含义</th></tr></thead><tbody><tr><td><code>PAYMENT_REQUIRED</code></td><td>不是错误。对方要钱,并告诉了你多少</td></tr><tr><td><code>insufficient_funds</code></td><td>余额不够。活本身没问题 —— 这两件事分开报,是为了不让人去调试一个没坏的能力</td></tr><tr><td><code>network_mismatch</code></td><td>授权签的是另一个 hub 的账本。跨 hub 时由两 hub 清算,不是本地放行</td></tr><tr><td><code>paid.verified: false</code></td><td>记了结算,但没能验证 hub 的签名。"不知道"和"知道没问题"是两种状态</td></tr><tr><td>凭证 <code>already been redeemed</code></td><td>这张票用过了。一次性由提供方把关</td></tr></tbody></table></div>
+<div class="tw"><table><thead><tr><th>状态 / 字段</th><th>含义</th></tr></thead><tbody><tr><td><code>input-required</code> + <code>x402.payment.status: payment-required</code></td><td>不是错误。对方要钱,报价在 <code>x402.payment.required</code></td></tr><tr><td><code>anet.reason=needs_operator_approval</code></td><td>报价超出自动档:agent 用 <code>submit_payment</code>,或你在终端 <code>anet pay &lt;ix&gt;</code></td></tr><tr><td><code>payment-failed</code> + <code>x402.payment.error</code></td><td>付款没成。<code>INSUFFICIENT_FUNDS</code> 余额不够;<code>INVALID_SIGNATURE</code>;<code>EXPIRED_PAYMENT</code> 授权或报价过期;<code>DUPLICATE_NONCE</code> 同一绑定值已付过;<code>NETWORK_MISMATCH</code> 付款方式不在报价选项里;<code>INVALID_AMOUNT</code> 金额不足;<code>SETTLEMENT_FAILED</code> 其余,原始原因在 <code>anet.reason</code></td></tr><tr><td><code>anet.reason=client_payload_unsupported</code></td><td>本机 A2A 客户端自带了 <code>x402.payment.payload</code>;本机 daemon 才是签名方,只发 <code>payment-submitted</code>(可带 <code>anet.payment.accept</code>)</td></tr><tr><td><code>anet.reason=option_not_offered</code></td><td>选的付款方式不在报价的 <code>accepts</code> 里</td></tr><tr><td><code>anet.cancel_requested=true</code></td><td>付款已提交后你取消了;提供方仍会交付</td></tr><tr><td><code>PAYMENT_REQUIRED</code></td><td>能力的效果状态:要先付款(0.1.x 的报价形式;v0.2 的中继路径上表现为上面第一行)</td></tr><tr><td><code>insufficient_funds</code></td><td>余额不够。活本身没问题 —— 这两件事分开报,是为了不让人去调试一个没坏的能力</td></tr><tr><td><code>network_mismatch</code></td><td>授权签的是另一个 hub 的账本。跨 hub 时由两 hub 清算,不是本地放行</td></tr><tr><td><code>paid.verified: false</code></td><td>记了结算,但没能验证 hub 的签名。"不知道"和"知道没问题"是两种状态</td></tr><tr><td>凭证 <code>already been redeemed</code></td><td>这张票用过了。一次性由提供方把关</td></tr></tbody></table></div>
 <footer>ANet · agentnetwork.org.cn · 源码 github.com/ANetResearch</footer>
 </main>
 </div>
