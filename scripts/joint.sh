@@ -9,13 +9,15 @@
 #   JOINT_BIN=DIR J=/tmp/jx bash scripts/joint.sh    prebuilt binaries, no go on the host
 #
 # Environment:
-#   J                  work directory (default /tmp/joint-<uid>). An existing non-empty directory is
-#                      used only if an earlier run of this script made it (it holds .joint-dir); each
-#                      run replaces $J/bin and $J/run and, besides its marker and lock, touches
-#                      nothing else there.
+#   J                  work directory (default /tmp/joint-<uid>). It must be this user's and writable by
+#                      no one else (lib.sh own_dir): binaries are built there and run. An existing
+#                      non-empty directory is used only if an earlier run of this script made it (it
+#                      holds .joint-dir); each run replaces $J/bin and $J/run and, besides its marker and
+#                      lock, touches nothing else there.
 #   JOINT_BIN          directory with prebuilt anet, anetfixture, anetpeer, anet-hub and optionally
-#                      anet-hub-admin (scripts/testnet/build.sh makes this set). They are copied into
-#                      $J/bin. Unset: built here with go from this checkout and HUB_SRC.
+#                      anet-hub-admin (scripts/testnet/build.sh makes this set, in its linux-<arch>
+#                      directory). They are copied into $J/bin. Unset: built here with go from this
+#                      checkout and HUB_SRC.
 #   HUB_SRC            ANetHub checkout to build from (default: ../ANetHub beside this repository)
 #   JOINT_PORT_BASE    first of 10 consecutive loopback ports; unset = a random free block in
 #                      20000-32000. A port already in use aborts the run; nothing is killed to free it.
@@ -75,9 +77,13 @@ for c in curl python3 setsid; do command -v "$c" >/dev/null || die "$c is requir
 # This script deletes $J/bin and $J/run and stops whatever runs from $J/bin, so it has to be sure
 # $J is its own: a fresh or empty directory, or one an earlier run marked.
 case "$J" in /*) ;; *) J=$PWD/$J ;; esac
-mkdir -p "$J" || die "cannot create $J"
+# Judged before own_dir creates anything, and again once symlinks are resolved.
+_own_path "$J" >/dev/null || die "J=$J is not a directory this script may own (pick something like /tmp/joint-x)"
+own_dir "$J" || die "J=$J is not a private directory of this user (another user owns or can write to it, or to a directory above it); use another J"
 J=$(cd "$J" && pwd -P); BIN=$J/bin; RUN=$J/run; ANET=$BIN/anet
 _own_path "$J" >/dev/null || die "J=$J is not a directory this script may own (pick something like /tmp/joint-x)"
+# Unix socket paths are limited to 107 bytes; the peer sockets are the longest.
+[ ${#RUN} -le 80 ] || die "J is too long for the peer sockets under it ($RUN); use a shorter J"
 if [ ! -e "$J/.joint-dir" ] && [ -n "$(ls -A "$J" 2>/dev/null)" ]; then
   die "$J is not empty and was not made by joint.sh (no .joint-dir); use an empty or new J"
 fi
@@ -88,8 +94,6 @@ if command -v flock >/dev/null; then
   exec 9>"$J/.joint-lock"
   flock -n 9 || die "another joint.sh run is using $J"
 fi
-# Unix socket paths are limited to 107 bytes; the peer sockets are the longest.
-[ ${#RUN} -le 80 ] || die "J is too long for the peer sockets under it ($RUN); use a shorter J"
 
 cleanup(){
   if [ "${JOINT_KEEP:-0}" = 1 ]; then
@@ -136,12 +140,23 @@ wait_down(){ local i; for ((i = 0; i < ${2:-20} * 4; i++)); do up "$1" || return
 # $RUN: otherwise the daemon writes this user's "current daemon" pointer and identity registry
 # (/tmp/anet-<uid>, $XDG_RUNTIME_DIR/anet), and on a host that runs a real daemon as the same user
 # every later `anet` command there would talk to this test node instead.
+declare -A NODE_PID=()
 start_node(){
   ( cd "$RUN" && exec setsid env -u ANET_DATA_DIR -u ANET_HOME -u ANET_ID \
       HOME="$(home_of "$1")" XDG_RUNTIME_DIR="$RUN/xdg" "$BIN/anet" daemon ) >"$2" 2>&1 </dev/null 9>&- &
+  NODE_PID[$1]=$!   # the daemon itself: the subshell execs setsid, which (not a group leader) execs env, then anet
 }
-# stop_node <node> — graceful shutdown through the control API, then wait for the port to close.
-stop_node(){ ctl "$1" /shutdown '{}' >/dev/null; wait_down "$(addr_of "$1")" 15; }
+# stop_node <node> — graceful shutdown through the control API; wait for the port to close and then for
+# the process to exit. The port closes first and the store and the evidence chain after it, and the next
+# start on the same data directory must not overlap that.
+stop_node(){
+  local i p=${NODE_PID[$1]:-}
+  ctl "$1" /shutdown '{}' >/dev/null
+  wait_down "$(addr_of "$1")" 15 || return 1
+  [ -n "$p" ] || return 0
+  for ((i = 0; i < 60; i++)); do kill -0 "$p" 2>/dev/null || return 0; sleep 0.25; done
+  return 1
+}
 
 # node_config <node> <python-expression for "modules"> — a fresh config: the pinned control port,
 # the modules given, nothing else.
@@ -235,7 +250,7 @@ if [ -n "${JOINT_BIN:-}" ]; then
   for b in anet anetfixture anetpeer anet-hub; do
     [ -x "$SRC/$b" ] || die "JOINT_BIN has no $b"
   done
-  case "$SRC" in "$BIN"|"$RUN"|"$RUN"/*) die "JOINT_BIN must not be $BIN or under $RUN: both are replaced" ;; esac
+  case "$SRC" in "$BIN"|"$BIN"/*|"$RUN"|"$RUN"/*) die "JOINT_BIN must not be under $BIN or $RUN: both are replaced" ;; esac
 fi
 # Leftovers of an earlier run in this J — interrupted before its own cleanup — hold ports and files.
 stop_under "$BIN" 10
@@ -245,7 +260,8 @@ mkdir -p "$BIN" "$RUN"
 if [ -n "${JOINT_BIN:-}" ]; then
   # Copied, so that everything this run starts runs from $J/bin and the cleanup can find it there.
   for b in anet anetfixture anetpeer anet-hub anet-hub-admin; do
-    [ -x "$SRC/$b" ] && cp "$SRC/$b" "$BIN/$b"
+    [ -x "$SRC/$b" ] || continue
+    cp "$SRC/$b" "$BIN/$b" || die "cannot copy $SRC/$b into $BIN"
   done
   echo "  binaries: $SRC"
 else
@@ -339,7 +355,7 @@ curl -sf -m 5 "$HUB_URL/healthz" >/dev/null && ok "hub up on an empty data direc
 # The hub admin beside it, reading the hub's data directory the way it does in production. It
 # gets its token through the environment of a subshell, never through argv.
 if [ -x "$BIN/anet-hub-admin" ] && [ "${JOINT_HUB_ADMIN:-1}" != 0 ]; then
-  rand > "$RUN/admin.token"
+  python3 -c 'import secrets;print(secrets.token_hex(32))' > "$RUN/admin.token"
   ( cd "$RUN" && ADMIN_TOKEN=$(cat "$RUN/admin.token") && export ADMIN_TOKEN \
       && exec setsid "$BIN/anet-hub-admin" --addr "$ADMIN_ADDR" --hub-data "$RUN/hub" --data "$RUN/admin" \
            --snapshot-every 2s --harvest-every 2s ) >"$RUN/admin.log" 2>&1 </dev/null 9>&- &
@@ -558,12 +574,17 @@ else
 fi
 # A capability call is no different: no capability is public unless the operator lists it.
 CIX=$(delegate_cap str org.info '{}')
-read -r CST CREASON <<<"$(thread_end str "${CIX:-none}")"
-[ "$CST" = rejected ] && [ "$CREASON" = not_accepting ] \
-  && ok "a capability call from the stranger is refused the same way" \
-  || no "the stranger's capability call ended '${CST:-unknown}' (${CREASON:-no reason}), expected rejected/not_accepting"
-[ "$(in_inbox "${CIX:-none}")" = absent ] && ok "and it left nothing in the inbox either" \
-  || no "the stranger's capability call reached the provider (or its inbox is unreadable)"
+if [ -n "$CIX" ]; then
+  read -r CST CREASON <<<"$(thread_end str "$CIX")"
+  [ "$CST" = rejected ] && [ "$CREASON" = not_accepting ] \
+    && ok "a capability call from the stranger is refused the same way" \
+    || no "the stranger's capability call ended '${CST:-unknown}' (${CREASON:-no reason}), expected rejected/not_accepting"
+  [ "$(in_inbox "$CIX")" = absent ] && ok "and it left nothing in the inbox either" \
+    || no "the stranger's capability call reached the provider (or its inbox is unreadable)"
+else
+  # An id that was never sent is absent from every inbox; that must not read as a pass.
+  no "the stranger's capability call was not even sent"; no "(inbox unchecked)"
+fi
 
 hd "7/8  the allow list is the way in"
 # The same stranger, named on the list. The file is re-read on every decision, so this takes

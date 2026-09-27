@@ -43,8 +43,16 @@ cleanup(){
 trap cleanup EXIT
 
 hd "0/7  建栈:一个 hub、一个控制端、三个 worker"
+# $J 整个删掉重建,并在里面构建二进制再运行:它不能是 /、$HOME 之类(lib.sh _own_path),也必须是本用户
+# 的、别人写不了的目录(lib.sh own_dir)—— 测试主机上以 root 跑,/tmp/joint-fleet 若被别的用户先建好,
+# 他就能换掉要运行的二进制。
+jdir(){ _own_path "$J" >/dev/null && own_dir "$J" || { echo "J=$J 不能用:不是本用户的私有目录(或是 /、\$HOME 之类),换一个 J"; exit 1; }; }
+jdir
 stop_under "$J" 10   # 上一次被强杀的运行留下的进程占着端口
-rm -rf "$J"; mkdir -p "$J"
+rm -rf "$J"; jdir
+# daemon 的"当前 daemon"指针与身份注册表写在 $J/xdg,不覆盖同一用户真 daemon 的(0015 §4)。
+mkdir -p "$J/xdg" && chmod 700 "$J/xdg" && export XDG_RUNTIME_DIR=$J/xdg || exit 1
+unset ANET_DATA_DIR ANET_HOME ANET_ID
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CGO_ENABLED=0 go build -o "$J/anet" "$ROOT/cmd/anet" || { echo "build anet failed"; exit 1; }
 # HUB_SRC lets CI point at wherever it checked ANetHub out; the sibling
