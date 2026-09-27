@@ -43,9 +43,21 @@
 #                      Unset: built here with go from this checkout and HUB_SRC.
 #   HUB_SRC            ANetHub checkout to build from (default: ../ANetHub beside this repository)
 #   JOINT_PORT_BASE    first of 16 consecutive loopback ports; unset = a random free block in
-#                      20000-32000. On the test hosts use the test network's range (47100-47499,
-#                      docs/notes/0015). A port already in use aborts the run; nothing is killed.
+#                      20000-32000. On the test hosts give one inside the test network's range: a
+#                      base in 47x60-47x84 (47460, 47160, …). 47x00-47x59 of each hundred belong to
+#                      the test network's nodes (scripts/testnet/topology.env: hub x01, daemons x11-19,
+#                      anetpeer x31-39, official x41-50, hub admin x51) and are refused, since a node
+#                      that is down for a test leaves its port free. A port already in use aborts the
+#                      run; nothing is killed.
 #   JOINT_HUB_ADMIN    0 = do not start anet-hub-admin (started by default when the binary is there)
+#   JOINT_OFFICIAL_MARK
+#                      1 = show the anet.official mark both ways in 8/8: an observer daemon runs a test
+#                      build whose signed manifest lists this run's tools agent (scripts/official-
+#                      testbin.sh, B5-01; needs go, ssh-keygen and this checkout) and must see that
+#                      agent marked and the impostor of the same name not. Default 1 when this run
+#                      builds its binaries, 0 with JOINT_BIN (the test hosts have no go). Without it the
+#                      mark is "not shown": nothing marks an agent of this run, so "the impostor is not
+#                      marked" would hold of any build and is not counted as passed.
 #   JOINT_KEEP         1 = leave everything running at the end (default: stop it)
 #   JOINT_OFFICIAL_MUTATE
 #                      publish-private = mutation for layer 1: the capability the tools node serves
@@ -58,14 +70,15 @@
 # Section 2/8 waits for the start of a fresh UTC minute (the kernel's quota windows are fixed
 # minutes), so a run takes up to a minute longer than its work.
 #
-# What this run does not show, and where it is shown instead: that the real official AIDs ARE
-# marked anet.official (the signed manifest names production AIDs, and this run cannot sign one:
-# internal/official tests); the seven-day pruning of public_cap interactions (Q15, a clock this run
-# does not move: B3-10's unit test); the structure of the /x402/settle body at the hub (joint.sh's
-# SI-1 section captures it); max_inflight (timing-dependent, internal/daemon tests).
+# What this run does not show, and where it is shown instead: the seven-day pruning of public_cap
+# interactions (Q15, a clock this run does not move: B3-10's unit test); the structure of the
+# /x402/settle body at the hub (joint.sh's SI-1 section captures it); max_inflight (a short capability
+# call runs inside the provider's poll loop, so calls through the relay are never two in flight at
+# once: internal/daemon tests); without JOINT_OFFICIAL_MARK, the anet.official mark (see above).
+# A check that could not be made is counted "not shown" in the last line, never as passed.
 #
 # On the test hosts (scripts/testnet, docs/notes/0015) take the binaries from scripts/testnet/build.sh
-# and a JOINT_PORT_BASE inside 47100-47499. Nothing here stops a process by name, and every daemon
+# and a JOINT_PORT_BASE in 47x60-47x84. Nothing here stops a process by name, and every daemon
 # gets a private XDG_RUNTIME_DIR, so a production daemon of the same user is neither stopped nor
 # shadowed.
 #
@@ -84,9 +97,11 @@ ANET=$BIN/anet
 # shellcheck source=lib.sh
 . "$SCRIPTS/lib.sh"
 
-pass=0; fail=0
+pass=0; fail=0; unshown=0
 ok(){   printf '\033[1;32m  ✓ %s\033[0m\n' "$*"; pass=$((pass+1)); }
 no(){   printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; fail=$((fail+1)); }
+# ns — a check this run could not make: neither passed nor failed, and counted apart in the last line.
+ns(){   printf '\033[1;33m  ~ not shown: %s\033[0m\n' "$*"; unshown=$((unshown+1)); }
 hd(){   printf '\n\033[1;36m═══ %s\033[0m\n' "$*"; }
 note(){ printf '\033[1;33m  ! %s\033[0m\n' "$*"; }
 die(){  printf '\033[1;31mjoint-official.sh: %s\033[0m\n' "$*" >&2; exit 2; }
@@ -94,6 +109,8 @@ for c in curl python3 setsid; do command -v "$c" >/dev/null || die "$c is requir
 
 MUTATE=${JOINT_OFFICIAL_MUTATE:-}
 case "$MUTATE" in ""|publish-private) ;; *) die "JOINT_OFFICIAL_MUTATE=$MUTATE: the only value is publish-private" ;; esac
+if [ -n "${JOINT_BIN:-}" ]; then MARK=${JOINT_OFFICIAL_MARK:-0}; else MARK=${JOINT_OFFICIAL_MARK:-1}; fi
+case "$MARK" in 0|1) ;; *) die "JOINT_OFFICIAL_MARK=$MARK: 0 or 1" ;; esac
 
 # ── the work directory ──────────────────────────────────────────
 # Deleted and re-made on every run ($J/bin, $J/run), and whatever runs from $J/bin is stopped, so it
@@ -145,7 +162,9 @@ NODES=(echo tools paid a b s imp)
 OFFICIAL=(echo tools paid)
 declare -A HOME_OF=() ADDR_OF=() AID_OF=() NAME_OF=() NODE_PID=()
 NAME_OF=([echo]=anet-echo-e [tools]=anet-tools [paid]=anet-paid-demo [a]=requester-a [b]=requester-b
-         [s]=stranger [imp]=anet-tools)
+         [s]=stranger [imp]=anet-tools [o]=observer)
+# o, the observer, is not in NODES: it is started in 8/8 only, from a test build that marks this run's
+# tools agent official (JOINT_OFFICIAL_MARK).
 # The capability the tools node serves and keeps private: its backend answers it, the daemon's
 # service module mounts it, and it is not in public_capabilities. A caller must not get to it.
 PRIVCAP=a2a.x402.check
@@ -170,11 +189,12 @@ ctlc(){
 up(){   curl -sf -m 2 "http://$1/ping" >/dev/null 2>&1; }
 wait_up(){ local i; for ((i = 0; i < ${2:-20} * 4; i++)); do up "$1" && return 0; sleep 0.25; done; return 1; }
 
-# start_node <node> — run a daemon as that node: its own HOME, and an XDG_RUNTIME_DIR under $RUN, so it
-# writes neither this user's "current daemon" pointer nor its identity registry (see joint.sh).
+# start_node <node> [binary] — run a daemon as that node: its own HOME, and an XDG_RUNTIME_DIR under $RUN,
+# so it writes neither this user's "current daemon" pointer nor its identity registry (see joint.sh). The
+# binary is $BIN/anet unless another one under $BIN is named (stop_under $BIN stops it either way).
 start_node(){
   ( cd "$RUN" && exec setsid env -u ANET_DATA_DIR -u ANET_HOME -u ANET_ID \
-      HOME="${HOME_OF[$1]}" XDG_RUNTIME_DIR="$RUN/xdg" "$BIN/anet" daemon ) >"$RUN/$1.out" 2>&1 </dev/null 9>&- &
+      HOME="${HOME_OF[$1]}" XDG_RUNTIME_DIR="$RUN/xdg" "${2:-$BIN/anet}" daemon ) >"$RUN/$1.out" 2>&1 </dev/null 9>&- &
   NODE_PID[$1]=$!
 }
 
@@ -382,7 +402,7 @@ fi
 
 # Sixteen loopback ports: +0 hub, +1 hub admin, +2..+4 the echo, tools and paid backends, +5..+7 their
 # daemons, +8 requester a, +9 requester b, +10 the stranger, +11 the impostor, +12 the impostor's
-# "backend" (reserved and never bound: nothing answers there), +13..+15 spare.
+# "backend" (reserved and never bound: nothing answers there), +13 the observer (8/8), +14..+15 spare.
 PORT_BASE=$(python3 - "${JOINT_PORT_BASE:-}" 16 <<'PY'
 import random, socket, sys
 want, n = sys.argv[1], int(sys.argv[2])
@@ -397,9 +417,19 @@ def free(b):
             s.close()
     return True
 if want:
-    b = int(want)
+    try:
+        b = int(want)
+    except ValueError:
+        sys.exit("JOINT_PORT_BASE=%s is not a number" % want)
     if not 1024 <= b <= 65535 - n:
         sys.exit("JOINT_PORT_BASE=%s is out of range" % want)
+    # The test network's range (scripts/testnet/topology.env): in each hundred, 00-59 are its nodes'
+    # ports. One that is free now may be a node stopped for a test, which must find it free again.
+    taken = [p for p in range(b, b + n) if 47100 <= p <= 47499 and p % 100 < 60]
+    if taken:
+        sys.exit("JOINT_PORT_BASE=%d: %d-%d lie in 47x00-47x59, the test network's node ports "
+                 "(scripts/testnet/topology.env); use a base in 47x60-47x84, e.g. %d"
+                 % (b, taken[0], taken[-1], taken[0] // 100 * 100 + 60))
     if not free(b):
         sys.exit("a port in %d-%d is in use; pick another JOINT_PORT_BASE" % (b, b + n - 1))
     print(b); sys.exit()
@@ -418,6 +448,7 @@ for n in "${NODES[@]}"; do
   ADDR_OF[$n]=127.0.0.1:$((PORT_BASE + i)); HOME_OF[$n]=$RUN/$n; i=$((i + 1))
 done
 DEAD_PORT=$((PORT_BASE + 12))
+ADDR_OF[o]=127.0.0.1:$((PORT_BASE + 13)); HOME_OF[o]=$RUN/o
 echo "  ports:    $PORT_BASE-$((PORT_BASE + 15))   work dir: $J"
 [ -n "$MUTATE" ] && note "MUTATION $MUTATE: $PRIVCAP is published on the tools node; 1/8 must go red"
 
@@ -606,8 +637,10 @@ case " $TPUB " in
   *) ok "$PRIVCAP is served by the tools node and not on its public list" ;;
 esac
 
-# What the network is told. The card lists public capabilities only; the hub's registry entry should too
-# (0017 Q14, owned by the card work).
+# What the network is told. The card lists public capabilities only, and so does the hub's registry
+# entry: 0017 Q14 decided that the registered caps are the public ones, so that a closed node does not
+# publish the list of what it keeps private (implemented on wp/proj; until that is merged the second
+# check below is red, as 6/8 is until B3-10).
 CARD=""
 for _ in $(seq 1 20); do
   CARD=$(ctl a /agents/card "{\"aid\":\"${AID_OF[tools]}\"}" | python3 -c '
@@ -635,9 +668,9 @@ try:
 except Exception:
     print("")')
 case " $HCAPS " in
-  *" $PRIVCAP "*) note "known gap (0017 Q14): the hub registry entry lists the private $PRIVCAP (caps: $HCAPS)" ;;
-  "  ") no "the hub's entry for the tools agent is unreadable" ;;
-  *) ok "the hub registry entry does not list $PRIVCAP" ;;
+  *" $PRIVCAP "*) no "the hub registry entry lists the private $PRIVCAP (caps: $HCAPS; 0017 Q14, wp/proj)" ;;
+  "  ") no "the hub's entry for the tools agent is unreadable or lists no capability" ;;
+  *) ok "the hub registry entry does not list $PRIVCAP either (caps: $HCAPS)" ;;
 esac
 
 IN0=$(inbox_n tools); NA0=$(rx tools not-accepting)
@@ -778,14 +811,19 @@ echo "  backend:  ${L:-<no line for $AEX>}"
 UA=$(grep -c ' status=401 ' "$RUN/backend-echo.log" 2>/dev/null)
 [ "${UA:-0}" -ge 5 ] && ok "every refused knock is in its log ($UA lines with status=401)" \
   || no "the backend logged ${UA:-0} refusals, expected at least 5"
-if grep -qF "$CANARY" "$RUN"/backend-*.log; then no "a backend log holds the canary: it logged what it was asked"
-else ok "no backend log holds the canary: they log who and how much, never what"; fi
+R=$(canary_hits "$CANARY" "$RUN"/backend-*.log); H=$(printf '%s\n' "$R" | grep -v '^# ')
+[ -z "$H" ] && [ "$(printf '%s\n' "$R" | sed -n 's/^# searched //p')" = "${#OFFICIAL[@]}" ] \
+  && ok "no backend log holds the canary, in any encoding: they log who and how much, never what" \
+  || no "the backend logs: ${H:-<not all searched>}"
 
 hd "4/8  compute — an input built to explode ends in budget, within the deadline"
 # json.validate takes a schema. A few hundred bytes — a schema that recurses through three \$refs, and an
 # instance forty levels deep — ask for 3^40 subschema applications. The backend counts the work and gives
 # up at its budget (422 too_complex), or at its deadline (503): either way within timeout_ms, answered as
-# FAILED or UNAVAILABLE, and the backend keeps serving.
+# FAILED or UNAVAILABLE, and the backend keeps serving. (The daemon's service module has the same
+# timeout_ms for the call, so on a slow host its own deadline may be what the requester hears about:
+# UNAVAILABLE, "context deadline exceeded". A deadline noticed between two budget checks is reported a
+# few ms after it passed; up to a second of that is allowed.)
 TO=$(timeout_of json.validate)
 BOMB='{"schema":{"properties":{"a":{"anyOf":[{"$ref":"#"},{"$ref":"#"},{"$ref":"#"}]}},"required":["missing"]},"instance":'$(python3 -c 'print("{\"a\":"*40 + "1" + "}"*40)')'}'
 T0=$(now_ms)
@@ -797,15 +835,16 @@ echo "  effect:   $BST — $(printf '%s' "$BMSG" | head -c 160)   (requester wai
 case "$BST" in
   FAILED) printf '%s' "$BMSG" | grep -q too_complex && ok "the answer is budget exhausted (FAILED, too_complex)" \
             || no "FAILED, but not for its budget: $(printf '%s' "$BMSG" | head -c 200)" ;;
-  UNAVAILABLE) printf '%s' "$BMSG" | grep -q timeout && ok "the answer is out of time (UNAVAILABLE, timeout)" \
+  UNAVAILABLE) printf '%s' "$BMSG" | grep -Eq 'timeout|deadline exceeded' && ok "the answer is out of time (UNAVAILABLE, timeout)" \
             || no "UNAVAILABLE, but not for its deadline: $(printf '%s' "$BMSG" | head -c 200)" ;;
   *) no "the exploding schema came back '$BST': $(printf '%s' "$BEFF" | head -c 200)" ;;
 esac
 L=$(backend_line tools "${BVX:-none}")
 MS=$(field "$L" ms); HS=$(field "$L" status)
 echo "  backend:  ${L:-<no line for $BVX>}"
-[ -n "$MS" ] && [ -n "$TO" ] && [ "$MS" -le "$TO" ] && { [ "$HS" = 422 ] || [ "$HS" = 503 ]; } \
-  && ok "the backend stopped it after $MS ms, within json.validate's $TO ms" \
+{ { [ "$HS" = 422 ] && [ -n "$TO" ] && [ "${MS:-x}" -le "$TO" ] 2>/dev/null; } \
+  || { [ "$HS" = 503 ] && [ -n "$TO" ] && [ "${MS:-x}" -le $((TO + 1000)) ] 2>/dev/null; }; } \
+  && ok "the backend stopped it after $MS ms ($HS), at or within json.validate's $TO ms" \
   || no "the backend's line says status ${HS:-?} after ${MS:-?} ms (deadline ${TO:-?} ms)"
 GVX=$(send_cap a tools json.validate '{"schema":{"type":"object","required":["id"]},"instance":{"id":1}}')
 GEFF=$(result_of a "${GVX:-none}")
@@ -921,13 +960,20 @@ print(len(recs), content, nocid)')
     no "$n: $NCONT of $NREC effect records carry the result (observed_state), $NNOCID OK ones lack result_cid — cid mode (B3-10) is not in effect"
   fi
 done
-if grep -qF "$CANARY" "${HOME_OF[echo]}/.anet/evidence.ael.jsonl" 2>/dev/null; then
-  no "the echo agent's evidence chain holds the canary its caller sent"
-elif [ -s "${HOME_OF[echo]}/.anet/evidence.ael.jsonl" ]; then
-  ok "the echo agent's evidence chain does not hold the canary, which it echoed to its caller in 1/8"
-else
-  no "the echo agent's evidence chain is missing or empty"
-fi
+# The chain file itself: one base64 CoreDet-CBOR record per line, so a plain grep for the canary finds
+# nothing whatever the records hold; canary_hits (lib.sh) looks for its base64 at every alignment too.
+# Every official node got the canary in 1/8 or 5/8; net.echo answered with it.
+for n in "${OFFICIAL[@]}"; do
+  CH=${HOME_OF[$n]}/.anet/evidence.ael.jsonl
+  R=$(canary_hits "$CANARY" "$CH"); H=$(printf '%s\n' "$R" | grep -v '^# ')
+  if [ -n "$H" ]; then
+    no "$n: the evidence chain holds the canary its callers sent: $H"
+  elif [ -s "$CH" ] && [ "$(printf '%s\n' "$R" | sed -n 's/^# searched //p')" = 1 ]; then
+    ok "$n: its evidence chain does not hold the canary, in any encoding"
+  else
+    no "$n: the evidence chain $CH is missing or empty"
+  fi
+done
 
 hd "7/8  the hub never holds the content (SI-1, the official path)"
 # Every official call above carried the canary — in arguments, in a prose task, in a paid call — through
@@ -937,19 +983,33 @@ if [ "$ADMIN" = 1 ]; then
   [ "$(adm POST /api/harvest '{}')" = 200 ] || note "a forced harvest answered $(head -c 120 "$RUN/adm.out")"
 fi
 sleep 5
-HITS=$(grep -a -r -l -F -- "$CANARY" "$RUN/hub" "$RUN/hub.log" \
-         $( [ "$ADMIN" = 1 ] && echo "$RUN/admin" "$RUN/admin.log" ) 2>/dev/null)
-NF=$(find "$RUN/hub" $( [ "$ADMIN" = 1 ] && echo "$RUN/admin" ) -type f 2>/dev/null | wc -l)
-[ -z "$HITS" ] && [ "$NF" -gt 0 ] && ok "no file of the hub or the admin holds the canary ($NF files searched, WAL included, and both logs)" \
-  || no "the canary is in: ${HITS:-<nothing searched>}"
+# Searched as canary_hits does (lib.sh): as it is, in hex, and in base64 at every alignment — the hub
+# keeps envelopes, receipts, KELs and authorizations as base64, where a plain grep would miss a leak.
+SEARCH=("$RUN/hub" "$RUN/hub.log")
+[ "$ADMIN" = 1 ] && SEARCH+=("$RUN/admin" "$RUN/admin.log")
+R=$(canary_hits "$CANARY" "${SEARCH[@]}"); HITS=$(printf '%s\n' "$R" | grep -v '^# ')
+NF=$(printf '%s\n' "$R" | sed -n 's/^# searched //p')
+NH=$(find "$RUN/hub" -type f 2>/dev/null | wc -l)
+[ -z "$HITS" ] && [ "$NH" -gt 0 ] \
+  && ok "no file of the hub or the admin holds the canary, in any encoding ($NF files searched, WAL included, and the logs)" \
+  || no "the canary: ${HITS:-<no hub data file was searched>}"
 mkdir -p "$RUN/scan"
 scan(){ curl -s -m 10 "${@:2}" > "$RUN/scan/$1" 2>/dev/null; }
 scan agents "$HUB_URL/agents"
-for n in "${NODES[@]}"; do scan "agent-$n" "$HUB_URL/agents/${AID_OF[$n]}"; scan "card-$n" "$HUB_URL/agents/${AID_OF[$n]}/card"; done
-scan fed-reviews "$HUB_URL/fed/v1/reviews"; scan stats "$HUB_URL/stats"; scan graph "$HUB_URL/graph"
+for n in "${NODES[@]}"; do
+  for sub in "" /card /ledger /reputation /redemptions /balance; do
+    scan "agent-$n${sub//\//-}" "$HUB_URL/agents/${AID_OF[$n]}$sub"
+  done
+done
+scan fed-reviews "$HUB_URL/fed/v1/reviews"; scan fed-cards "$HUB_URL/fed/v1/cards"
+scan stats "$HUB_URL/stats"; scan graph "$HUB_URL/graph"; scan research "$HUB_URL/research"
+scan x402-issuance "$HUB_URL/x402/issuance"
 if [ "$ADMIN" = 1 ]; then
-  for p in overview agents sessions reviews audit store discover official capabilities; do
+  for p in overview agents sessions reviews audit store discover official capabilities vision deleted; do
     scan "admin-$p" -H @"$RUN/admin.hdr" "http://$ADMIN_ADDR/admin/api/$p"
+  done
+  for n in "${NODES[@]}"; do
+    scan "admin-agent-$n" -H @"$RUN/admin.hdr" "http://$ADMIN_ADDR/admin/api/agents/${AID_OF[$n]}"
   done
   python3 -c '
 import sys, json
@@ -963,10 +1023,10 @@ for s in d.get("sessions") or []:
     scan "admin-session-$src-$id" -H @"$RUN/admin.hdr" "http://$ADMIN_ADDR/admin/api/sessions/$src/$id"
   done
 fi
-SHITS=$(grep -l -F -- "$CANARY" "$RUN/scan"/* 2>/dev/null)
+R=$(canary_hits "$CANARY" "$RUN/scan"); SHITS=$(printf '%s\n' "$R" | grep -v '^# ')
 REAL=$(grep -l -F -- "${AID_OF[tools]}" "$RUN/scan/agent-tools" 2>/dev/null)
 [ -z "$SHITS" ] && [ -n "$REAL" ] \
-  && ok "no answer of the hub or the admin holds it ($(ls "$RUN/scan" | wc -l) endpoints read: agents, cards, reviews, stats, graph, admin)" \
+  && ok "no answer of the hub or the admin holds it ($(printf '%s\n' "$R" | sed -n 's/^# searched //p') answers read: agents, cards, ledgers, reviews, stats, graph, admin)" \
   || no "the canary is in the answers of: ${SHITS:-<none>}; the hub answered /agents/{aid}: ${REAL:+yes}${REAL:-no}"
 if [ "$ADMIN" = 1 ]; then
   BADR=""
@@ -979,7 +1039,7 @@ if [ "$ADMIN" = 1 ]; then
   [ -z "$BADR" ] && ok "the admin has no way into an official agent: insights, acl, monitor, ops are 404 for all three" \
     || no "admin routes into official agents answered:$BADR"
 else
-  note "no hub admin in this run (JOINT_HUB_ADMIN=0 or no anet-hub-admin binary): its half of SI-1 is unchecked"
+  ns "the hub admin's half of SI-1: no hub admin in this run (JOINT_HUB_ADMIN=0 or no anet-hub-admin binary)"
 fi
 
 hd "8/8  identity and disposition — denied is not-accepting; a borrowed name is not official"
@@ -1004,19 +1064,25 @@ NA1=$(rx echo not-accepting)
   || no "the echo node's not-accepting counter went $NA0 → $NA1, expected +3"
 
 # Official is a property of an AID in the signed manifest the client carries (§15), never of a name.
-# The impostor registered as anet-tools; so is this run's tools agent, whose AID is not in the manifest
-# either. Neither may be marked.
-OFF=$( { ctl a /find '{"query":"anet-tools"}'; echo; ctl a /agents/list '{"q":"anet-tools"}'; } | python3 - "${AID_OF[imp]}" <<'PY'
+# The impostor registered as anet-tools, as this run's tools agent did. That the impostor is not marked
+# says something only where marking happens at all: a build whose manifest lists none of this run's AIDs
+# (every release build: its manifest names production AIDs) marks nobody here, and "the impostor is not
+# marked" would hold of it even if it marked by name. So the observer: a daemon built by
+# scripts/official-testbin.sh (B5-01) with a manifest, signed by a throwaway key, that lists this run's
+# tools agent by AID. It must see that agent marked, and the impostor of the same name not.
+#
+# mark_report AID… — from the discovery answers on stdin (/find, /agents/list, /agents/card; one JSON
+# document per line), for each AID "seen|unseen:marked|unmarked:flagged|clean": listed at all; carrying
+# "anet.official": true where the daemon puts it (on the agent entry); carrying anything official-like
+# anywhere in its entry, card included. Then "keyed|unkeyed" (does any entry carry the key at all), then
+# the AIDs of entries named anet-tools that are flagged, or "-".
+mark_report(){ python3 -c '
 import sys, json
-imp = sys.argv[1]
 def flagged(o):
     if isinstance(o, dict):
-        for k, v in o.items():
-            if k in ("anet.official", "official") and v not in (None, False, "", 0):
-                return True
-            if flagged(v):
-                return True
-    elif isinstance(o, list):
+        return any((k in ("anet.official", "official") and v not in (None, False, "", 0)) or flagged(v)
+                   for k, v in o.items())
+    if isinstance(o, list):
         return any(flagged(v) for v in o)
     return False
 def haskey(o):
@@ -1025,29 +1091,88 @@ def haskey(o):
     if isinstance(o, list):
         return any(haskey(v) for v in o)
     return False
-seen, marked, keyed = False, [], False
+entries = []
 for line in sys.stdin:
     try:
         d = json.loads(line)
     except Exception:
         continue
-    for a in d.get("agents") or []:
-        if not isinstance(a, dict):
-            continue
-        keyed = keyed or haskey(a)
-        if a.get("aid") == imp:
-            seen = True
-        if (a.get("name") == "anet-tools" or a.get("aid") == imp) and flagged(a):
-            marked.append(a.get("aid"))
-print("seen" if seen else "unseen", "keyed" if keyed else "unkeyed", ",".join(m or "?" for m in marked) or "-")
-PY
-)
-read -r SEEN KEYED MARKED <<<"$OFF"
-[ "$SEEN" = seen ] && ok "the impostor is found under the name anet-tools" \
-  || no "the impostor did not show up in /find or /agents/list (nothing to check the mark on)"
-[ "$MARKED" = "-" ] && ok "and nothing named anet-tools is marked anet.official: the name buys nothing" \
-  || no "marked anet.official by name: $MARKED"
-[ "$KEYED" = keyed ] || note "no agent in these answers carries an anet.official key at all: this build does not mark official agents yet (B5-01), so the check above holds without it"
+    if not isinstance(d, dict):
+        continue
+    for e in (d.get("agents") if isinstance(d.get("agents"), list) else [d] if d.get("aid") else []):
+        if isinstance(e, dict):
+            if isinstance(e.get("card"), str):
+                try:
+                    e["card"] = json.loads(e["card"])
+                except Exception:
+                    pass
+            entries.append(e)
+out = []
+for aid in sys.argv[1:]:
+    mine = [e for e in entries if e.get("aid") == aid]
+    out.append("%s:%s:%s" % ("seen" if mine else "unseen",
+                             "marked" if any(e.get("anet.official") is True for e in mine) else "unmarked",
+                             "flagged" if any(flagged(e) for e in mine) else "clean"))
+out.append("keyed" if any(haskey(e) for e in entries) else "unkeyed")
+out.append(",".join(sorted({e.get("aid") or "?" for e in entries
+                            if (e.get("name") == "anet-tools" or "anet-tools" in json.dumps(e.get("card") or {}))
+                            and flagged(e)})) or "-")
+print(" ".join(out))' "$@"; }
+# discovery <node> — what that node is told about agents named anet-tools, and the two cards.
+discovery(){
+  ctl "$1" /find '{"query":"anet-tools"}'; echo
+  ctl "$1" /agents/list '{"q":"anet-tools"}'; echo
+  ctl "$1" /agents/card "{\"aid\":\"${AID_OF[tools]}\"}"; echo
+  ctl "$1" /agents/card "{\"aid\":\"${AID_OF[imp]}\"}"; echo
+}
+# As requester a sees it: a build of this checkout, whose manifest lists no AID of this run.
+read -r _ IMPA KEYED MARKED <<<"$(discovery a | mark_report "${AID_OF[tools]}" "${AID_OF[imp]}")"
+[ "${IMPA%%:*}" = seen ] && ok "the impostor is found under the name anet-tools" \
+  || no "the impostor did not show up in /find, /agents/list or /agents/card (nothing to check the mark on)"
+[ "$MARKED" = "-" ] || no "requester a, whose manifest lists no agent of this run, marks by name: $MARKED"
 
-printf '\n\033[1m── %d passed, %d failed ──\033[0m   logs: %s\n' "$pass" "$fail" "$RUN"
+OBS=0; OBS_WHY=""
+if [ "$MARK" != 1 ]; then
+  OBS_WHY="JOINT_OFFICIAL_MARK=0${JOINT_BIN:+ (the default with JOINT_BIN)}"
+elif [ ! -f "$SCRIPTS/official-testbin.sh" ]; then
+  OBS_WHY="scripts/official-testbin.sh is not in this checkout (B5-01 is not merged)"
+elif ! command -v go >/dev/null || ! command -v ssh-keygen >/dev/null; then
+  OBS_WHY="the observer is built here, and go or ssh-keygen is missing"
+else
+  echo "  observer: building a test anet whose manifest lists anet-tools = ${AID_OF[tools]} (log: $RUN/offtest.log)"
+  # official-testbin.sh builds from this checkout and refuses a GOWORK that resolves ./cmd/anet elsewhere.
+  if [ -z "${GOWORK:-}" ] && [ -f "$ROOT/../go.work" ]; then
+    GOWORK=$(cd "$ROOT/.." && pwd -P)/go.work; export GOWORK
+  fi
+  CAPS=$(printf '%s' "$TPUB" | tr ' ' ',')
+  if ( bash "$SCRIPTS/official-testbin.sh" -o "$BIN/offtest" --hub "$HUB_URL" \
+         "anet-tools=${AID_OF[tools]}${CAPS:+:$CAPS}" ) >"$RUN/offtest.log" 2>&1 </dev/null 9>&-; then
+    fresh_config o
+    start_node o "$BIN/offtest/anet"
+    if wait_up "${ADDR_OF[o]}" 30 && AID_OF[o]=$(ctl o /status '{}' | jget aid) && [ -n "${AID_OF[o]}" ] \
+       && [ "$(ctl o /hub-register "{\"hub\":\"$HUB_URL\",\"name\":\"${NAME_OF[o]}\"}" | jget status)" = registered ]; then
+      OBS=1
+    else
+      no "the observer did not come up and register: $(tail -3 "${HOME_OF[o]}/.anet/daemon.log" "$RUN/o.out" 2>/dev/null)"
+    fi
+  else
+    no "official-testbin.sh could not build the observer: $(tail -3 "$RUN/offtest.log")"
+  fi
+fi
+if [ "$OBS" = 1 ]; then
+  read -r TOOLO IMPO _ MARKEDO <<<"$(discovery o | mark_report "${AID_OF[tools]}" "${AID_OF[imp]}")"
+  echo "  observer: tools ${TOOLO:-?}, impostor ${IMPO:-?}, flagged by name: ${MARKEDO:-?}"
+  [ "$TOOLO" = seen:marked:flagged ] \
+    && ok "the observer, whose signed manifest lists the tools agent's AID, marks it anet.official" \
+    || no "the observer's view of the tools agent is ${TOOLO:-unreadable}, expected seen:marked (the mark is not shown for a listed AID)"
+  [ "${IMPO%%:*}" = seen ] && [ "${IMPO##*:}" = clean ] && [ "$MARKEDO" = "${AID_OF[tools]}" ] \
+    && ok "and not the impostor of the same name: the name buys nothing, the AID is what is marked" \
+    || no "the observer's view of the impostor is ${IMPO:-unreadable}; flagged by name: ${MARKEDO:-?} (only ${AID_OF[tools]} may be)"
+elif [ -n "$OBS_WHY" ] && [ -n "${JOINT_OFFICIAL_MARK:-}" ] && [ "$MARK" = 1 ]; then
+  no "JOINT_OFFICIAL_MARK=1, and the observer cannot be built: $OBS_WHY"
+elif [ -n "$OBS_WHY" ]; then
+  ns "the anet.official mark: $OBS_WHY. No build here marks an agent of this run$( [ "$KEYED" = keyed ] || printf ' (no answer carries the key at all)'), so \"the impostor is not marked\" would hold of any build"
+fi
+
+printf '\n\033[1m── %d passed, %d failed, %d not shown ──\033[0m   logs: %s\n' "$pass" "$fail" "$unshown" "$RUN"
 [ "$fail" -eq 0 ]
