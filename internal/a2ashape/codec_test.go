@@ -76,7 +76,7 @@ func fullTask() a2ashape.Task {
 		Artifacts: []a2ashape.Artifact{
 			{ID: a2ashape.ArtifactReply, Name: a2ashape.ArtifactReply, Description: "the reply",
 				Parts: []a2ashape.Part{a2ashape.TextPart("done")}},
-			{ID: a2ashape.ArtifactReceipt, Extensions: []string{"x"}, Metadata: map[string]any{"k": "v"},
+			{ID: a2ashape.ArtifactResult, Extensions: []string{"x"}, Metadata: map[string]any{"k": "v"},
 				Parts: []a2ashape.Part{a2ashape.DataPart(map[string]any{"receipt": "AAEC", "completed_at": 1790000000123})}},
 		},
 		Metadata: map[string]any{
