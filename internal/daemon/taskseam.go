@@ -42,6 +42,7 @@ import (
 	"fmt"
 	"mime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
@@ -180,6 +181,16 @@ func checkHistoryLen(n *int) error {
 // (tests run several daemons in one process).
 var sendLocks keyedLocks
 
+// lockSend takes the dedupe lock of one client message. The returned
+// function releases it and may be called more than once: a send releases it
+// as soon as the message is recorded, before it waits for the answer, and a
+// deferred call covers the error paths.
+func lockSend(aid, contextID, messageID string) func() {
+	release := sendLocks.lock(aid + "\x00" + contextID + "\x00" + messageID)
+	var once sync.Once
+	return func() { once.Do(release) }
+}
+
 // taskWaitMax is how long the control plane blocks a send or a wait when
 // the caller names no limit. The A2A interface has no limit of its own: the
 // client's request context ends the wait.
@@ -229,14 +240,16 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req a2as
 			}
 		}
 	}
+	release := func() {}
 	if contextID != "" && msg.MessageID != "" {
-		unlock := sendLocks.lock(d.AID() + "\x00" + contextID + "\x00" + msg.MessageID)
-		defer unlock()
+		release = lockSend(d.AID(), contextID, msg.MessageID)
+		defer release()
 		prior, err := d.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
 			ContextID: contextID, PeerAID: peer, ClientMsgID: msg.MessageID})
 		switch {
 		case err == nil:
 			// A retry of a message that already made a task.
+			release()
 			return d.finishSend(ctx, prior.ID, 0, req, wait)
 		case !errors.Is(err, interactions.ErrNotFound):
 			return a2ashape.Task{}, err
@@ -283,6 +296,9 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req a2as
 			}
 		}
 	}
+	// Recorded: a retry now finds the task, so it need not wait for this
+	// call to finish waiting.
+	release()
 	// A new task is written at state_seq 1 and nothing but the provider's
 	// answer moves it on.
 	return d.finishSend(ctx, id, 1, req, wait)
@@ -301,11 +317,13 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req a2ashape.Task
 	if msg.ContextID != "" && msg.ContextID != ix.ContextID {
 		return a2ashape.Task{}, fmt.Errorf("%w: task %s is in context %q, not %q", a2ashape.ErrInvalidParams, ix.ID, ix.ContextID, msg.ContextID)
 	}
+	release := func() {}
 	if msg.MessageID != "" {
-		unlock := sendLocks.lock(d.AID() + "\x00" + ix.ContextID + "\x00" + msg.MessageID)
-		defer unlock()
+		release = lockSend(d.AID(), ix.ContextID, msg.MessageID)
+		defer release()
 		if _, err := d.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
 			ContextID: ix.ContextID, TaskID: ix.ID, ClientMsgID: msg.MessageID}); err == nil {
+			release()
 			return d.finishSend(ctx, ix.ID, 0, req, wait)
 		} else if !errors.Is(err, interactions.ErrNotFound) {
 			return a2ashape.Task{}, err
@@ -317,6 +335,7 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req a2ashape.Task
 		if err != nil {
 			return a2ashape.Task{}, err
 		}
+		release()
 		return d.finishSend(ctx, ix.ID, after, req, wait)
 	}
 	if ix.IsTerminal() {
@@ -344,6 +363,7 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req a2ashape.Task
 		// Stored here and not delivered; the peer will not see it.
 		return a2ashape.Task{}, fmt.Errorf("%w: the message was stored but not delivered: %v", a2ashape.ErrUnavailable, err)
 	}
+	release()
 	return d.finishSend(ctx, ix.ID, after, req, wait)
 }
 
