@@ -834,6 +834,12 @@ func TestListTasksFilterEdges(t *testing.T) {
 			t.Errorf("statusTimestampAfter %s: %d tasks (%v), want %d", after.Format(time.RFC3339Nano), len(page.Tasks), err, c.want)
 		}
 	}
+	// A malformed agent id is refused before anything is written.
+	for _, bad := range []string{"../x", "Peer", "did:anet:abc"} {
+		if _, err := d.sendTask(ctx, controlScope, bad, module.TaskSend{Message: textMsg("hi", "", ""), ReturnImmediately: true}, 0); !errors.Is(err, a2ashape.ErrInvalidParams) {
+			t.Errorf("send to %q: %v, want InvalidParams", bad, err)
+		}
+	}
 	// The client speaks as the user.
 	m := textMsg("hi", "", "")
 	m.Role = a2ashape.RoleAgent

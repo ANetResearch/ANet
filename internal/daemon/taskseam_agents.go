@@ -158,7 +158,7 @@ func (d *Daemon) listAgentsLegacy(ctx context.Context, hub string, q module.Agen
 // agent without a card is not an error: it is returned UNVERIFIED with an
 // empty card, and the caller describes it by its AID (§11.3).
 func (d *Daemon) agentCard(ctx context.Context, aid string) (module.RemoteAgent, error) {
-	if _, _, err := a2acard.ParseKID(a2acard.KID(aid, 0)); err != nil || aid == "" {
+	if !validAgentID(aid) {
 		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "%q is not an agent id", aid)
 	}
 	hub := d.config().HubURL
@@ -179,6 +179,15 @@ func (d *Daemon) agentCard(ctx context.Context, aid string) (module.RemoteAgent,
 	ra := module.RemoteAgent{AID: aid, Card: card}
 	d.verifyCardInto(&ra, d.cardKELResolver(hctx))
 	return ra, nil
+}
+
+// validAgentID reports whether aid has the form of an agent id: the
+// character set and length a2acard accepts in a kid, which is what a URL
+// path segment may safely carry. Whether the agent exists is the hub's to
+// say.
+func validAgentID(aid string) bool {
+	_, _, err := a2acard.ParseKID(a2acard.KID(aid, 0))
+	return err == nil
 }
 
 // verifyCardInto checks ra.Card and records the outcome on ra. The card
