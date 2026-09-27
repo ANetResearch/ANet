@@ -26,9 +26,9 @@ func TestAStoreFailureOnTheP2PCopyThenRedeliveryThroughTheHubIsProcessedOnce(t *
 	}
 	env := onlyQueuedEnvelope(t, srv, prov.AID())
 
-	prov.rxFault = func(string) error { return errors.New("injected store failure") }
+	prov.setRxFault(func(string) error { return errors.New("injected store failure") })
 	err = prov.Inbound().Receive(ctx, env)
-	prov.rxFault = nil
+	prov.setRxFault(nil)
 	if err == nil {
 		t.Fatal("a delivery whose store write failed was acknowledged over p2p; the sender would not fall back")
 	}
