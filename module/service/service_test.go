@@ -14,19 +14,20 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/moduletest"
 	_ "github.com/ANetResearch/ANet/module/service"
 	"github.com/ANetResearch/ANet/provider"
 )
 
-type host struct{ reg *provider.Registry }
+type host struct {
+	moduletest.NopHost
+	reg *provider.Registry
+}
 
-func (h *host) AID() string                                      { return "aid-self" }
-func (h *host) Providers() *provider.Registry                    { return h.reg }
-func (h *host) RecordEvidence(string, any) error                 { return nil }
-func (h *host) ResolveKEL(string) ([]identity.SignedEvent, bool) { return nil, false }
+func (h *host) AID() string                   { return "aid-self" }
+func (h *host) Providers() *provider.Registry { return h.reg }
 
 // start builds the module from JSON config, the way the daemon does.
 func start(t *testing.T, cfg string) *provider.Registry {
@@ -157,26 +158,6 @@ func TestMalformedConfigIsRefusedAtStartup(t *testing.T) {
 		}
 	}
 }
-
-// PaymentSeam: none of these modules take money, and a host that offered
-// one would be lending them an ability they must not have. False is the
-// honest answer and the one a node without a hub gives too.
-func (h *host) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }
-
-// This host grants no hub seam. Nothing here talks to a hub as this node,
-// and a test host that handed out a signing grant it does not need would
-// be a wider surface than the thing under test.
-func (*host) HubSeam() (module.HubSeam, bool) { return nil, false }
-
-// Admit and DeclareUntrustedBackend complete module.Host. This test host
-// admits every call; the kernel's admission is tested in internal/daemon.
-func (*host) Admit(string, string, int) (func(), string) { return func() {}, "" }
-func (*host) DeclareUntrustedBackend()                   {}
-
-// StateDir and TaskSeam complete module.Host. This test host keeps no
-// module state and offers no task seam; nothing under test uses either.
-func (*host) StateDir(string) string            { return "" }
-func (*host) TaskSeam() (module.TaskSeam, bool) { return nil, false }
 
 // writeToken writes a token file with the given mode and returns its path.
 func writeToken(t *testing.T, tok string, mode os.FileMode) string {

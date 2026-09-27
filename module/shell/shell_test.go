@@ -13,13 +13,14 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/moduletest"
 	"github.com/ANetResearch/ANet/provider"
 )
 
 type shellHost struct {
+	moduletest.NopHost
 	reg *provider.Registry
 	mu  sync.Mutex
 	ev  []struct {
@@ -40,9 +41,6 @@ func (h *shellHost) RecordEvidence(kind string, payload any) error {
 	}{kind, m})
 	return nil
 }
-func (h *shellHost) ResolveKEL(string) ([]identity.SignedEvent, bool) { return nil, false }
-func (h *shellHost) PaymentSeam() (module.PaymentSeam, bool)          { return nil, false }
-func (h *shellHost) HubSeam() (module.HubSeam, bool)                  { return nil, false }
 
 func (h *shellHost) events(kind string) []map[string]any {
 	h.mu.Lock()
@@ -531,13 +529,3 @@ func TestAbsentConfigYieldsNoModule(t *testing.T) {
 		t.Fatal("with no configuration the module must not start at all")
 	}
 }
-
-// Admit and DeclareUntrustedBackend complete module.Host. This test host
-// admits every call; the kernel's admission is tested in internal/daemon.
-func (*shellHost) Admit(string, string, int) (func(), string) { return func() {}, "" }
-func (*shellHost) DeclareUntrustedBackend()                   {}
-
-// StateDir and TaskSeam complete module.Host. This test host keeps no
-// module state and offers no task seam; nothing under test uses either.
-func (*shellHost) StateDir(string) string            { return "" }
-func (*shellHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }

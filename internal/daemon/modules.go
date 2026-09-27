@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 
@@ -112,8 +113,17 @@ func (d *Daemon) screenPublication(what string, body any) error {
 	return nil
 }
 
-// stopModules shuts them down in reverse order.
+// moduleStopTimeout bounds the modules' Stop calls together, so a module
+// that hangs on its way out cannot keep the daemon from closing its store.
+const moduleStopTimeout = 10 * time.Second
+
+// stopModules shuts them down in reverse order of starting. Close calls
+// it on every shutdown, and New on a failed start for the modules that
+// had started; it is not safe to call while anything may still be using
+// a module.
 func (d *Daemon) stopModules(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, moduleStopTimeout)
+	defer cancel()
 	for i := len(d.modules) - 1; i >= 0; i-- {
 		if err := d.modules[i].Stop(ctx); err != nil {
 			log.Printf("anet: module %s: stop: %v", d.modules[i].Name(), err)

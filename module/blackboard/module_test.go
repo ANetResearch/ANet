@@ -14,19 +14,20 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/moduletest"
 	"github.com/ANetResearch/ANet/provider"
 )
 
 // testHost is a module.Host that resolves only the authors it was given.
 type testHost struct {
+	moduletest.NopHost
 	aid  string
 	reg  *provider.Registry
 	kels map[string][]identity.SignedEvent
 }
 
-func (h *testHost) AID() string                      { return h.aid }
-func (h *testHost) Providers() *provider.Registry    { return h.reg }
-func (h *testHost) RecordEvidence(string, any) error { return nil }
+func (h *testHost) AID() string                   { return h.aid }
+func (h *testHost) Providers() *provider.Registry { return h.reg }
 func (h *testHost) ResolveKEL(aid string) ([]identity.SignedEvent, bool) {
 	k, ok := h.kels[aid]
 	return k, ok
@@ -311,23 +312,3 @@ func TestExistingUnitIsNotReplacedByAForgedCopy(t *testing.T) {
 		t.Fatal("the board kept the unsigned copy — a forged envelope replaced a verified one")
 	}
 }
-
-// PaymentSeam: none of these modules take money, and a host that offered
-// one would be lending them an ability they must not have. False is the
-// honest answer and the one a node without a hub gives too.
-func (h *testHost) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }
-
-// This host grants no hub seam. Nothing here talks to a hub as this node,
-// and a test host that handed out a signing grant it does not need would
-// be a wider surface than the thing under test.
-func (*testHost) HubSeam() (module.HubSeam, bool) { return nil, false }
-
-// Admit and DeclareUntrustedBackend complete module.Host. This test host
-// admits every call; the kernel's admission is tested in internal/daemon.
-func (*testHost) Admit(string, string, int) (func(), string) { return func() {}, "" }
-func (*testHost) DeclareUntrustedBackend()                   {}
-
-// StateDir and TaskSeam complete module.Host. This test host keeps no
-// module state and offers no task seam; nothing under test uses either.
-func (*testHost) StateDir(string) string            { return "" }
-func (*testHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }
