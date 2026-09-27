@@ -88,8 +88,12 @@ type Entry struct {
 // Manifest is the verified official manifest.
 type Manifest struct {
 	Schema string `json:"schema"`
-	// Seq increases with every manifest published; a reader that has seen
-	// one refuses a lower one.
+	// Seq increases with every manifest published (build-release.sh
+	// --official adds one to the committed manifest's). It orders
+	// manifests for people — anet doctor reports it — and is not checked
+	// against anything here: a binary carries exactly one manifest, and
+	// what keeps an old one from being brought back is `anet update`
+	// refusing to install an older release, and expires_at.
 	Seq       uint64 `json:"seq"`
 	IssuedAt  string `json:"issued_at"`
 	ExpiresAt string `json:"expires_at"`

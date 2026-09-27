@@ -5,6 +5,11 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -120,5 +125,59 @@ func TestAgentListMarksOfficialAgents(t *testing.T) {
 				t.Errorf("the namesake: anet.official=%v, want the key absent", v)
 			}
 		}
+	}
+}
+
+// The mark is shown here and used for nothing else: card.go writes it into
+// the proxy card and server.go into the agent list, and no other file of
+// this module reads module.RemoteAgent.Official — not the backend
+// forwarding, not payments, not the task handlers. A use elsewhere would
+// be a channel A2A-DESIGN §15 rules out, and has to be added here on
+// purpose to pass.
+func TestTheOfficialMarkIsOnlyShown(t *testing.T) {
+	allowed := map[string]bool{"card.go": true, "server.go": true}
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	uses := 0
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file, err := parser.ParseFile(fset, f, src, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			var name string
+			switch x := n.(type) {
+			case *ast.SelectorExpr:
+				name = x.Sel.Name
+			case *ast.Ident:
+				name = x.Name
+			default:
+				return true
+			}
+			if name != "Official" && name != "originOfficial" {
+				return true
+			}
+			if _, isIdent := n.(*ast.Ident); isIdent && name == "Official" {
+				return true // a field name in a declaration or composite literal key, not a read
+			}
+			uses++
+			if !allowed[f] {
+				t.Errorf("%s: %s reads the official mark; it is only shown (card.go, server.go)", f, fset.Position(n.Pos()))
+			}
+			return true
+		})
+	}
+	if uses == 0 {
+		t.Fatal("no file reads the mark: the proxy card and the agent list have lost it")
 	}
 }
