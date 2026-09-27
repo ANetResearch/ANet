@@ -114,12 +114,28 @@ func TestAPinnedControlPortIsNotSilentlyMoved(t *testing.T) {
 	root := t.TempDir()
 	l := Layout{Root: root}
 
-	squatter, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	// An ephemeral port outside the allocator's scan range. The kernel's
+	// ephemeral range (32768-60999 on Linux) contains the scan range
+	// (controlPortBase..+2000), so a port from ":0" can land inside it and
+	// read as auto-assigned; the more listeners the test binary opened
+	// before this test, the likelier. Keep asking until one is outside.
+	var squatter net.Listener
+	for i := 0; squatter == nil; i++ {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p := l.Addr().(*net.TCPAddr).Port; p >= controlPortBase && p < controlPortBase+2000 {
+			defer l.Close() // held, so the next ask gets another port
+			if i > 1000 {
+				t.Fatal("no ephemeral port outside the control port scan range")
+			}
+			continue
+		}
+		squatter = l
 	}
 	defer squatter.Close()
-	pinned := squatter.Addr().String() // an ephemeral port, far outside the scan range
+	pinned := squatter.Addr().String()
 
 	cfg := DefaultConfig()
 	cfg.ControlAddr = pinned
