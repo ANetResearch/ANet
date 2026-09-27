@@ -404,6 +404,11 @@ func (h *testHost) Admit(caller, capID string, argsLen int) (func(), string) {
 
 func (*testHost) DeclareUntrustedBackend() {}
 
+// StateDir and TaskSeam complete module.Host. This test host keeps no
+// module state and offers no task seam; nothing under test uses either.
+func (*testHost) StateDir(string) string            { return "" }
+func (*testHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }
+
 type admitCall struct {
 	caller, capID string
 	argsLen       int

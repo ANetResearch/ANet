@@ -236,3 +236,8 @@ func (*orgHost) HubSeam() (module.HubSeam, bool) { return nil, false }
 // admits every call; the kernel's admission is tested in internal/daemon.
 func (*orgHost) Admit(string, string, int) (func(), string) { return func() {}, "" }
 func (*orgHost) DeclareUntrustedBackend()                   {}
+
+// StateDir and TaskSeam complete module.Host. This test host keeps no
+// module state and offers no task seam; nothing under test uses either.
+func (*orgHost) StateDir(string) string            { return "" }
+func (*orgHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }
