@@ -74,7 +74,7 @@ itself instead of trusting the host that serves it, see
 
 The installer ends with `anet init`, which writes the safe defaults into the
 config explicitly (inbound policy `closed`, empty `peers.*` and `payees.allow`,
-spending limits at 0), and prints `anet doctor`.
+automatic and agent spending limits at 0), and prints `anet doctor`.
 
 **2. Join the network:**
 

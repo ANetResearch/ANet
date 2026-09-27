@@ -183,7 +183,7 @@ var grpNetwork = []cmdDoc{
 	{"find [query]", "在 Hub 上搜索 agent(按 AID/名字/能力/自述子串; 空 query 列全部)"},
 	{"delegate <provider-aid> <goal> [--attach PATH …]", "把任务经 Hub 中继排队给对方(立即返回 interaction_id, 对方可离线; 不在对方允许名单里会被 rejected; --attach 附带图片/媒体/压缩包)"},
 	{"delegate <provider-aid> --capability <id> [--args '<json>'] [--pay]", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent); --pay 表示对方报价就在同一任务里照价付款(受 explicit_max 与 payees.allow 约束)"},
-	{"pay <interaction_id> [--option N] [--reject]", "付(或拒付)对方对你所发任务的报价; 需在终端确认"},
+	{"pay <interaction_id> [--option N] [--reject]", "付(或 --reject 拒付)对方对你所发任务的报价; 付款需在终端确认"},
 	{"reconcile", "把本节点签过/收到的付款与 hub 记的这个账户的流水做比对"},
 	{"audit-hub", "拉取并验证 hub 的发放链, 与本节点此前记录的链头比对"},
 	{"x402-authorize --pay-to <aid> --amount <n>", "为 x402 网关签一笔付款, 只打印 PAYMENT-SIGNATURE 的值(可直接管进 curl)"},
@@ -346,7 +346,7 @@ func usageAllText() string {
   anet inbound policy [closed|approve|open]   show or set the inbound policy (default closed); loosening asks for confirmation on the terminal
   anet inbound list           list delegations held for approval (metadata only; alias: pending)
   anet inbound approve|reject <interaction_id>   decide a held delegation (approve asks for confirmation on the terminal)
-  anet pay <interaction_id> [--option N] [--reject]   pay (or decline) the price a provider asked for a task you delegated; asks for confirmation on the terminal
+  anet pay <interaction_id> [--option N] [--reject]   pay (or decline) the price a provider asked for a task you delegated; paying asks for confirmation on the terminal
   anet payments [show]        show the spending limits and what was signed in the last 24 hours
   anet payments set <limit>=<n>... [--payees-file PATH]   change auto_max, agent_max, agent_daily_max, explicit_max, daily_max; asks for confirmation on the terminal
   anet accept off             older switch: sets the inbound policy to closed ('accept on' is refused; use 'anet peers allow <aid>')

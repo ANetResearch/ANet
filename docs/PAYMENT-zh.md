@@ -69,7 +69,7 @@ anet delegate <provider-aid> --capability text.digest.paid --args '{"text":"hi"}
 
 1. 先照常投一次。提供方**报价而不是拒绝**:任务进入 `input-required`,元数据 `x402.payment.status: payment-required`,`x402.payment.required` 里是报价(收款方、金额、网络、有效期)。报价 24 小时过期。一句没人能回头指认的报价不算报价,所以它记进提供方的证据链(`anet.payment.quoted`)。
 2. 你的节点按**支出策略**(见下节)决定:在自动档之内,签一张授权并以 `payment-submitted` 发回同一任务;否则任务在本机停在 `input-required`,`anet.reason=needs_operator_approval`,等你或你的 agent 决定(MCP `submit_payment` / `reject_payment`,或终端上 `anet pay <ix>` / `anet pay <ix> --reject`)。拒付时双方都置 `canceled`。
-3. 授权把这一次工作钉住:授权里的交互绑定值是 `pay_bind = SHA-256("anet/x402-bind/v1" ‖ ix ‖ task_nonce)`,只对这个任务有效,hub 也无法由它反推交互 id。
+3. 授权把这一次工作钉住:授权里的交互绑定值是 `pay_bind = hex(SHA-256("anet/x402-bind/v1" 0x00 ‖ ix ‖ 0x00 ‖ task_nonce))`,只对这个任务有效,hub 也无法由它反推交互 id。
 4. 提供方**结算前先核对**:收款方是自己、金额不低于报价、绑定值对得上、付款方式在报价选项内、授权与报价都未过期。不符就回 `payment-failed`,不结算、不执行。
 5. 核对通过,提供方拿授权去 hub 结算,**先结算后干活**。顺序是有意的:后结算意味着干完才发现收不到钱;先结算意味着活失败了钱已经付了。选第二个,因为第二种情况证据模型说得清楚 —— 效果和付款都在两条链上,退款是一场有记录的商量。结算成功后提供方先发 `payment-verified`,再执行。
 6. 结果回来时带 `payment-completed` 与 `x402.payment.receipts`(hub 签的结算收据在收据的 `extensions["anet.settlement.receipt"]`)。你的节点核对收据的授权 id 属于本任务、收款方是对端、金额与授权一致,才记 `anet.payment.settled{verified:true}`。
