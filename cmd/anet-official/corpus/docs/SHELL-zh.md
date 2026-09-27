@@ -31,6 +31,12 @@ CI 的 `optin` job 每次提交两个方向都验。
 第三个决定是名单:配置块写了、命令也定义了,但 `allow` / `allow_file` 为空时,
 **所有远程调用一律拒绝**。空名单是拒绝所有,不是放行所有。
 
+名单之前还有一道门:v0.2 起 daemon 的入站策略默认 `closed`,调用方要先在节点的入站名单
+`peers.allow` 里(`anet peers allow <aid>`,或直接往数据目录的 `peers.allow` 写一行),调用才进得了门;
+名单外的调用在进门时就被拒,到不了 shell 模块。两份名单各管一件事:`peers.allow` 决定谁能把任务交给
+这台机器,shell 的 `allow_file` 决定其中谁能执行命令。别把 `shell.*` 列进 `inbound.public_capabilities`
+——那等于让陌生人进门,只剩 shell 名单一道闸。
+
 不带调用方身份的调用(`CallerAID` 为空)同样默认拒绝,需要显式 `allow_local: true`。
 这条不是为了防谁,是为了防字段忘填:`CallerAID` 的零值就是空字符串,把空当作
 "本机、可信"意味着将来任何一处新调用点漏填,都会静默绕过整份名单。默认拒绝
