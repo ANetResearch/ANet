@@ -10,8 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
-	"github.com/ANetResearch/ANet/module"
 )
 
 // testDoctorEnv reads no real home directory and finds no running daemon.
@@ -175,19 +175,28 @@ func TestDoctorFailsOnlyOnRealProblems(t *testing.T) {
 	}
 }
 
+// writeA2AState writes the local A2A interface's files where module/a2a
+// keeps them: its state directory, not the data dir itself.
+func writeA2AState(t *testing.T, layout daemon.Layout, files map[string]string) {
+	t.Helper()
+	dir := anethome.A2ADir(layout.Root)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // Hermes: a config holding the local A2A token must be 0600, and an
 // a2a_agents URL whose port is not a2a_addr.txt's is pointed at
 // `anet agents wire --refresh`.
 func TestDoctorChecksHermesA2AAgents(t *testing.T) {
 	layout := freshInit(t)
 	env := testDoctorEnv(t)
-	a2aDir := module.StatePath(layout.Root, module.A2AModuleName)
-	if err := os.MkdirAll(a2aDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(a2aDir, module.A2AAddrFile), []byte("127.0.0.1:39900\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeA2AState(t, layout, map[string]string{anethome.A2AAddrFile: "127.0.0.1:39900\n"})
 	if err := os.MkdirAll(env.hermesHome, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -271,15 +280,8 @@ func TestDoctorProbingTheDaemonCreatesNoConfig(t *testing.T) {
 func TestDoctorFindsAStaleHermesA2AToken(t *testing.T) {
 	layout := freshInit(t)
 	env := testDoctorEnv(t)
-	a2aDir := module.StatePath(layout.Root, module.A2AModuleName)
-	if err := os.MkdirAll(a2aDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	for name, body := range map[string]string{module.A2AAddrFile: "127.0.0.1:39900\n", module.A2ATokenFile: "tok-current-0123\n"} {
-		if err := os.WriteFile(filepath.Join(a2aDir, name), []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	writeA2AState(t, layout, map[string]string{anethome.A2AAddrFile: "127.0.0.1:39900\n",
+		anethome.A2ATokenFile: "tok-current-0123\n"})
 	if err := os.MkdirAll(env.hermesHome, 0o700); err != nil {
 		t.Fatal(err)
 	}

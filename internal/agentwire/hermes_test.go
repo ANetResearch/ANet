@@ -17,14 +17,13 @@ const (
 // setA2A writes the local A2A interface's state files as module/a2a does.
 func (h *host) setA2A(addr, token string) {
 	h.t.Helper()
-	dir := A2AStateDir(h.data) // <data>/modules/a2a, module/a2a's state directory
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(a2aStatePath(h.data, A2AAddrFile)), 0o700); err != nil {
 		h.t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, A2AAddrFile), []byte(addr+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(a2aStatePath(h.data, A2AAddrFile), []byte(addr+"\n"), 0o600); err != nil {
 		h.t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, A2ATokenFile), []byte(token+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(a2aStatePath(h.data, A2ATokenFile), []byte(token+"\n"), 0o600); err != nil {
 		h.t.Fatal(err)
 	}
 }
@@ -274,11 +273,15 @@ func TestHermesA2AConflictAndCoexistence(t *testing.T) {
 
 func TestParseA2AAddr(t *testing.T) {
 	for in, want := range map[string]string{
-		"127.0.0.1:39900\n":         "127.0.0.1:39900",
-		"http://127.0.0.1:39900/":   "127.0.0.1:39900",
-		"[::1]:39900":               "[::1]:39900",
-		"localhost:1":               "localhost:1",
-		"127.0.0.2:5":               "127.0.0.2:5",
+		"127.0.0.1:39900\n":       "127.0.0.1:39900",
+		"http://127.0.0.1:39900/": "127.0.0.1:39900",
+		"[::1]:39900":             "[::1]:39900",
+		"localhost:1":             "localhost:1",
+		"LocalHost:7":             "LocalHost:7",
+		// Loopback, but not a name the interface answers to (421).
+		"127.0.0.2:5":               "",
+		"[::ffff:127.0.0.1]:5":      "",
+		"localhost.:5":              "",
 		"0.0.0.0:39900":             "",
 		"192.168.1.2:39900":         "",
 		"example.com:80":            "",

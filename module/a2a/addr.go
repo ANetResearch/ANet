@@ -23,14 +23,17 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/internal/anethome"
+	"github.com/ANetResearch/ANet/internal/loopguard"
 )
 
 // The interface's files in its state directory. `anet doctor` and
-// `anet agents wire` read them.
+// `anet agents wire` read them, and other identities' allocators read the
+// address, all through internal/anethome, which names them once for every
+// build (no_a2a included).
 const (
-	AddrFile  = module.A2AAddrFile
-	TokenFile = module.A2ATokenFile
+	AddrFile  = anethome.A2AAddrFile
+	TokenFile = anethome.A2ATokenFile
 )
 
 // Where a first start looks for a free port: 43811-45810 (the range
@@ -117,17 +120,19 @@ func autoAssigned(addr string) bool {
 	return err == nil && p >= portBase && p < portBase+portSpan
 }
 
-// checkLoopbackAddr accepts host:port on 127.0.0.1, localhost or [::1].
+// checkLoopbackAddr accepts host:port on 127.0.0.1, localhost or [::1]
+// (internal/loopguard, the control plane's rule) with a real port: unlike
+// the control address, a recorded address is what clients were given.
 func checkLoopbackAddr(addr string) error {
-	host, ps, err := net.SplitHostPort(addr)
-	if err != nil {
+	if err := loopguard.CheckLoopbackAddr(addr); err != nil {
+		if errors.Is(err, loopguard.ErrNotLoopback) {
+			return fmt.Errorf("%q is not a loopback address; the local A2A interface listens only on 127.0.0.1, localhost or [::1]", addr)
+		}
 		return fmt.Errorf("%q is not host:port", addr)
 	}
+	_, ps, _ := net.SplitHostPort(addr)
 	if p, err := strconv.Atoi(ps); err != nil || p < 1 || p > 65535 {
 		return fmt.Errorf("%q has no valid port", addr)
-	}
-	if !loopbackName(host) {
-		return fmt.Errorf("%q is not a loopback address; the local A2A interface listens only on 127.0.0.1, localhost or [::1]", addr)
 	}
 	return nil
 }
@@ -136,26 +141,15 @@ func checkLoopbackAddr(addr string) error {
 // recorded for their own local A2A interface, so a first start does not
 // take the port of an identity that is merely stopped.
 //
-// It sees the identities under ANET_HOME (or ~/.anet), the same set the
-// control plane's allocator consults (internal/daemon AnetHome and
-// ListIdentities); a daemon run from an unrelated data directory is found
-// only by the bind itself.
+// It sees the identities under ANET_HOME (or ~/.anet) through
+// internal/anethome, the same walk the control plane's allocator makes
+// (internal/daemon ListIdentities); a daemon run from an unrelated data
+// directory is found only by the bind itself.
 func otherIdentityPorts(selfDir string) map[int]bool {
 	used := map[int]bool{}
-	home := anetHome()
-	roots := []string{home}
-	if ents, err := os.ReadDir(filepath.Join(home, "ids")); err == nil {
-		for _, e := range ents {
-			if e.IsDir() {
-				roots = append(roots, filepath.Join(home, "ids", e.Name()))
-			}
-		}
-	}
 	self := canonical(selfDir)
-	for _, r := range roots {
-		// The layout of a module's state directory: <data dir>/modules/<name>
-		// (internal/daemon moduleStateDir).
-		dir := filepath.Join(r, "modules", name)
+	for _, id := range anethome.Identities() {
+		dir := anethome.ModuleDir(id.Dir, name)
 		if canonical(dir) == self {
 			continue
 		}
@@ -170,19 +164,6 @@ func otherIdentityPorts(selfDir string) map[int]bool {
 		}
 	}
 	return used
-}
-
-// anetHome is the identity container: ANET_HOME, else ~/.anet (the
-// daemon's AnetHome, which this package may not import).
-func anetHome() string {
-	if d := os.Getenv("ANET_HOME"); d != "" {
-		return d
-	}
-	h, err := os.UserHomeDir()
-	if err != nil || h == "" {
-		return ".anet"
-	}
-	return filepath.Join(h, ".anet")
 }
 
 func canonical(p string) string {

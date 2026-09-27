@@ -618,7 +618,7 @@ daemon 的 `list_agents` 自由文本查询:daemon 按 skill/tag 从 hub 取已�
 ### 11.1 形态
 
 - 配置块缺省时模块照常启用(本机接口是默认产品面);`anet init` 不写 `modules.a2a` 块(否则 `no_a2a` 变体加载配置会失败)[C43]。
-- 端口稳定:首次启动从固定基址扫描(同 `AllocControlPort` 的规则,跳过其他身份占用的端口),选定后写入模块状态目录的 `a2a_addr.txt`(`<数据目录>/modules/a2a/`,即 `Host.StateDir("a2a")`;令牌 `a2a_token.txt` 同在此目录,`anet doctor` 与 `anet agents wire` 按 `module.StatePath` 读取);之后每次启动重绑该端口,冲突时按 `listenControl` 规则重新分配并记日志(已写入的 Hermes 配置随之失效,见 §13.1 doctor)。非回环地址拒绝。
+- 端口稳定:首次启动从固定基址扫描(同 `AllocControlPort` 的规则,跳过其他身份占用的端口),选定后写入模块状态目录的 `a2a_addr.txt`(`<数据目录>/modules/a2a/`,即 `Host.StateDir("a2a")`;令牌 `a2a_token.txt` 同在此目录,`anet doctor` 与 `anet agents wire` 按 `internal/anethome` 的 `A2ADir` 读取);之后每次启动重绑该端口,冲突时按 `listenControl` 规则重新分配并记日志(已写入的 Hermes 配置随之失效,见 §13.1 doctor)。非回环地址拒绝。
 - `module.Host` 增加 `StateDir(module string) string`(模块自有状态目录)与 `TaskSeam() (TaskSeam, bool)`,理由写在接口注释。
 - 依赖 a2a-go 的 `a2a`、`a2asrv`、`a2aext`、`a2acrypto`;不导入 `a2agrpc`、`a2acompat`。
 

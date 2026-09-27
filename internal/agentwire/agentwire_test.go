@@ -930,13 +930,13 @@ func TestGoldenEntries(t *testing.T) {
 	// The a2a state files are read from a temp dir; the data dir written
 	// into the entries is a fixed path so the golden text is stable.
 	data := t.TempDir()
-	if err := os.MkdirAll(A2AStateDir(data), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(a2aStatePath(data, A2AAddrFile)), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(A2AStateDir(data), A2AAddrFile), []byte("127.0.0.1:39900\n"), 0o600); err != nil {
+	if err := os.WriteFile(a2aStatePath(data, A2AAddrFile), []byte("127.0.0.1:39900\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(A2AStateDir(data), A2ATokenFile), []byte("tok-golden\n"), 0o600); err != nil {
+	if err := os.WriteFile(a2aStatePath(data, A2ATokenFile), []byte("tok-golden\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ep, err := readA2A(&Options{DataDir: data})

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
-	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/internal/anethome"
 )
 
 // StateDir gives a module <data dir>/modules/<name>/, private to this user
@@ -29,9 +29,9 @@ func TestModuleStateDir(t *testing.T) {
 		t.Fatalf("StateDir = %q, want %q", got, want)
 	}
 	// The readers without a daemon (`anet doctor`, `anet agents wire`) find
-	// module a2a's files by module.StatePath: it must be this directory.
-	if p := module.StatePath(root, module.A2AModuleName); p != got {
-		t.Fatalf("module.StatePath = %q, StateDir = %q", p, got)
+	// module a2a's files by anethome.A2ADir: it must be this directory.
+	if p := anethome.A2ADir(root); p != got {
+		t.Fatalf("anethome.A2ADir = %q, StateDir = %q", p, got)
 	}
 	for _, d := range []string{got, filepath.Dir(got)} {
 		fi, err := os.Stat(d)
