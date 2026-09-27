@@ -2,7 +2,8 @@
 # One-click build for anet. Run from anywhere; the binary lands at ./anet.
 #
 #   ./build.sh            build the binary (fast)
-#   ./build.sh --check    gofmt + go vet + go test, then build (full pre-commit check)
+#   ./build.sh --check    gofmt + go vet + go test + the build-tag checks, then build
+#                         (full pre-commit check)
 #   ./build.sh -c         same as --check
 #
 # Pure Go: CGO is off and there is no build tag. It used to force CGO_ENABLED=1
@@ -20,8 +21,10 @@ export CGO_ENABLED=0
 # The opt-in tags. `go test ./...` cannot see code behind an additive tag, so
 # a check that does not name them is a check that never compiles, vets or
 # tests those modules — for `shell`, the one module that executes commands on
-# the host, that is the last place to have no coverage.
-OPTIN="shell"
+# the host, that is the last place to have no coverage. taskboard joined it
+# when the hub stopped building its board by default (A2A-DESIGN §16).
+# scripts/tagcheck.sh holds the full lists, both directions.
+OPTIN="shell,taskboard"
 
 CHECK=0
 case "${1:-}" in
@@ -37,7 +40,10 @@ cd "$ROOT"
 if [ "$CHECK" -eq 1 ]; then
   bold "gofmt"
   # Auto-format, and report which files changed (empty = already clean).
-  fmtout="$(gofmt -l -w internal cmd)"
+  # The whole tree, as CI's `gofmt -l .` checks it: module/, provider/ and
+  # tools/ used to be left out, so a --check that passed here could still
+  # fail CI's gofmt step.
+  fmtout="$(gofmt -l -w .)"
   [ -n "$fmtout" ] && printf 'formatted:\n%s\n' "$fmtout" || echo "clean"
 
   bold "go vet"
@@ -49,17 +55,17 @@ if [ "$CHECK" -eq 1 ]; then
   bold "go test -tags $OPTIN"
   go test -tags "$OPTIN" ./...
 
-  # The default binary must not contain the opt-in modules. Checked here and
-  # not only in CI, because this is the script a developer runs before they
-  # push, and "it is absent by default" is the claim the whole tag rests on.
-  bold "opt-in modules must be absent by default"
-  go build -o "$ROOT/.anet-tagcheck" ./cmd/anet/
-  for m in $OPTIN; do
-    n=$(go tool nm "$ROOT/.anet-tagcheck" | grep -c "module/$m" || true)
-    [ "$n" -eq 0 ] || { echo "module/$m is linked into the default build ($n symbols)" >&2; exit 1; }
-    echo "  module/$m absent by default ✓"
-  done
-  rm -f "$ROOT/.anet-tagcheck"
+  # Both directions of every tag, by symbol count: the default binary must
+  # not contain the opt-in modules, and each `no_<name>` must remove all of
+  # its module — alone, and all of them together. Checked here and not only
+  # in CI, because this is the script a developer runs before they push,
+  # and "it is absent from this build" is the claim every tag rests on.
+  # The same script is what CI runs, so the two agree on what a module's
+  # code looks like in a binary.
+  bold "go vet with every subtractive tag"
+  go vet -tags "$(bash "$ROOT/scripts/tagcheck.sh" list | grep '^no_' | paste -sd, -)" ./...
+  bold "build tags, both directions"
+  bash "$ROOT/scripts/tagcheck.sh" all
 fi
 
 bold "build"

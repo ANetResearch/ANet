@@ -91,7 +91,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 ```sh
 anet version
 # anet 0.1.7 (commit 252f873, built 2026-09-03T…)
-# modules: anetlink,blackboard,cas,org,p2p,service,taskboard,x402
+# modules: anetlink,blackboard,cas,mcp,org,p2p,service,x402
 ```
 
 `modules:` 一行是从二进制里实际链接进来的模块注册表读出来的,不是构建时刻进去的字符串。不信任它就直接查文件:

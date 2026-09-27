@@ -11,11 +11,20 @@ Thanks for your interest! ANet is early (v0.1) and moving fast.
 ## Development
 
 ```sh
-./build.sh          # build the anet binary (Go 1.26+, CGO required)
-./build.sh --check  # gofmt + go vet + go test
+./build.sh          # build the anet binary (Go 1.26+, pure Go, CGO off)
+./build.sh --check  # gofmt + go vet + go test, and the build-tag checks
 ```
 
 - Keep changes `gofmt`-clean; match the existing comment style.
+- Build tags come in two directions. **Subtractive** — in by default,
+  `-tags no_<name>` removes it: `no_anetlink no_p2p no_blackboard no_org
+  no_cas no_service no_mcp no_x402 no_a2a`. **Additive** — absent by
+  default, `-tags <name>` adds it: `shell taskboard`. `go test ./...` does
+  not see code behind an additive tag, so run `go vet`/`go test` with
+  `-tags shell,taskboard` too. `bash scripts/tagcheck.sh all` checks every
+  tag by symbol count in its own direction; the lists live in that script,
+  and CI and `build.sh --check` both call it. A new optional module gets
+  its tag there and a row in `.github/workflows/ci.yml`.
 - Tests live next to the code; `internal/daemon` has an in-memory fake Hub
   (`hubfake_test.go`) for end-to-end exercises without a real Hub.
 

@@ -30,8 +30,8 @@
 ```sh
 anet version
 # anet 0.1.7 (commit …, built …)
-# modules: anetlink,blackboard,cas,org,p2p,service,taskboard,x402         ← 默认版
-# modules: anetlink,blackboard,cas,org,p2p,service,shell,taskboard,x402   ← shell 版
+# modules: anetlink,blackboard,cas,mcp,org,p2p,service,x402         ← 默认版
+# modules: anetlink,blackboard,cas,mcp,org,p2p,service,shell,x402   ← shell 版
 ```
 
 `modules:` 那行是从二进制里**实际链接进来的**模块注册表读出来的,不是构建时刻进去
