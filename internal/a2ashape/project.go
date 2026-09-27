@@ -332,9 +332,9 @@ func (p *projector) role(sender string) Role {
 }
 
 // msgID is a message's A2A id: the local client's own id when it gave one,
-// otherwise the sender-minted id, otherwise (a row from before senders
-// kept theirs, or the provider's copy of the opening message) one derived
-// from the row, stable across reads.
+// otherwise the id both sides recorded it under (the envelope's message id
+// in hex, 0017 Q9), otherwise (a row from before messages kept one) one
+// derived from the row, stable across reads.
 func (p *projector) msgID(i int) string {
 	if id, ok := p.metas[i][KeyMessageID].(string); ok && id != "" {
 		return id

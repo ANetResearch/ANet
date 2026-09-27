@@ -564,3 +564,105 @@ func mustIX(t *testing.T, d *Daemon, id string) *interactions.Interaction {
 	}
 	return ix
 }
+
+// A retry is never scheduled past the row's deadline: the row is abandoned,
+// and the task it leaves waiting failed, when the deadline passes, not up
+// to a backoff or a Retry-After later (0017 Q5).
+func TestARetryIsNotScheduledPastTheDeadline(t *testing.T) {
+	_, req, _ := registeredPair(t)
+	now := req.nowMS()
+	far := int64(math.MaxInt64 / 2) // out of the background loop's way
+	id, err := req.ix.EnqueueOutbox(interactions.OutboxItem{IX: "ix_dl", ToAID: "did:anet:x", Type: seal.TypeStatus,
+		Envelope: []byte("env"), Exp: now + 10_000, NextAt: far})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it, err := req.ix.GetOutbox(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = req.rescheduleOutbox(it, &hubError{path: "/relay/send", code: http.StatusTooManyRequests, retryAfter: "3600"})
+	if got, _ := req.ix.GetOutbox(id); got == nil || got.NextAt != int64(it.Exp)+1 {
+		t.Fatalf("next attempt %+v, want right after the deadline %d", got, it.Exp)
+	}
+}
+
+// A requester's follow-up the hub refuses for good on its first attempt is
+// recorded, fails the task (anet.reason=undeliverable) and is an error for
+// the caller, as a refused delegation is; over the task surface the failed
+// task is the answer.
+func TestARefusedFollowUpFailsTheTaskAndSaysSo(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	id, err := req.Delegate(ctx, prov.AID(), "task", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setFake(t, srv.URL, func(h *fakeHub) { h.maxEnvelope = 1 })
+	if err := req.SendMessage(ctx, id, "too big for this hub", nil); !errors.Is(err, errUndeliverable) {
+		t.Fatalf("refused follow-up: %v, want errUndeliverable", err)
+	}
+	if st := stateOf(t, req, id); st != interactions.StateFailed {
+		t.Fatalf("state after a refused follow-up = %s", st)
+	}
+	if m := resultMetaOf(t, req, id); m[a2ashape.KeyReason] != a2ashape.ReasonUndeliverable {
+		t.Fatalf("result meta %v", m)
+	}
+
+	setFake(t, srv.URL, func(h *fakeHub) { h.maxEnvelope = 0 })
+	seam := req.TaskSeam()
+	task, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: textMsg("second", "", "m-a"), ReturnImmediately: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	setFake(t, srv.URL, func(h *fakeHub) { h.maxEnvelope = 1 })
+	got, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: followUp(task.ID, "too big", "m-b"), ReturnImmediately: true})
+	if err != nil || got.Status.State != a2ashape.TaskStateFailed || got.Metadata[a2ashape.KeyReason] != a2ashape.ReasonUndeliverable {
+		t.Fatalf("refused follow-up over the task surface = %s %v (%v)", got.Status.State, got.Metadata, err)
+	}
+}
+
+// 0017 Q9 for a delegation held for approval: the provider records the goal
+// and the held follow-ups, once approved, under the ids the requester
+// recorded them under.
+func TestAnApprovedDelegationKeepsTheRequestersMessageIDs(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	prov := registered(t, srv.URL, "prov")
+	s := registered(t, srv.URL, "stranger")
+	setPolicy(t, prov, PolicyApprove)
+	id, err := s.Delegate(ctx, prov.AID(), "held goal", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SendMessage(ctx, id, "held detail", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RequestEnd(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prov.ApprovePending(id); err != nil {
+		t.Fatal(err)
+	}
+	ids := func(d *Daemon) map[string]string {
+		t.Helper()
+		msgs, err := d.ix.Messages(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]string{}
+		for _, m := range msgs {
+			out[m.Kind+":"+m.Body] = m.MsgID
+		}
+		return out
+	}
+	mine, theirs := ids(s), ids(prov)
+	for _, key := range []string{"text:held goal", "text:held detail", "end_request:"} {
+		if len(mine[key]) != 2*seal.MIDLen || mine[key] != theirs[key] {
+			t.Fatalf("%s: requester %q, provider %q (requester %v, provider %v)", key, mine[key], theirs[key], mine, theirs)
+		}
+	}
+}

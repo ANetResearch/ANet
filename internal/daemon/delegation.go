@@ -389,15 +389,31 @@ func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, at
 	if err != nil {
 		return 0, err
 	}
+	// Recorded and queued: the message goes whatever happens to the local
+	// copy of its files, and an error here would only invite a caller to
+	// send it again under a new id.
 	if err := d.storeMsgAttachments(interactionID, seq, atts); err != nil {
-		return stateSeq, err
+		log.Printf("anet: %s: store the message's attachments: %v", interactionID, err)
 	}
 	d.publishMessage(interactionID, seq, interactions.MsgText)
 	d.publishState(interactionID)
 	if err := d.deliverQueued(ctx, outbox); err != nil {
+		if undeliverableHere(ix, err) {
+			return stateSeq, fmt.Errorf("anet: %s: %w", interactionID, err)
+		}
 		log.Printf("anet: %s: message queued for delivery to %s (%v)", interactionID, ix.PeerAID, err)
 	}
 	return stateSeq, nil
+}
+
+// undeliverableHere reports whether the first attempt at a requester's
+// message was refused for good. The message is recorded and the task it
+// was for is failed (undelivered.go); the caller is told, as for a
+// delegation refused on its first attempt (firstDelivery), rather than
+// answered as if it were on its way. A provider's message refused for good
+// fails nothing and is only logged.
+func undeliverableHere(ix *interactions.Interaction, err error) bool {
+	return ix.Role == interactions.RoleOutbound && errors.Is(err, errUndeliverable)
 }
 
 // stateOnMessage is the state a message moves its task to (§4.1), or "" for
@@ -499,6 +515,9 @@ func (d *Daemon) RequestEnd(ctx context.Context, interactionID string) error {
 	}
 	d.publishMessage(interactionID, seq, interactions.MsgEndRequest)
 	if err := d.deliverQueued(ctx, id); err != nil {
+		if undeliverableHere(ix, err) {
+			return fmt.Errorf("anet: %s: %w", interactionID, err)
+		}
 		log.Printf("anet: %s: end request queued for delivery to %s (%v)", interactionID, ix.PeerAID, err)
 	}
 	return nil

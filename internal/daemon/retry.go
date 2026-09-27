@@ -216,9 +216,20 @@ func (d *Daemon) deliverQueued(ctx context.Context, id int64) error {
 }
 
 // abandonOutbox drops a row that will not be delivered, records why, and
-// fails the task it left waiting (undelivered.go).
+// fails the task it left waiting (undelivered.go), in the transaction that
+// drops the row.
 func (d *Daemon) abandonOutbox(it *interactions.OutboxItem, reason string, cause error) error {
-	if err := d.ix.DeleteOutbox(it.ID); err != nil {
+	u, fails := d.undeliveredTask(it)
+	failed := false
+	if err := d.ix.Update(func(tx *interactions.Tx) error {
+		if fails {
+			var err error
+			if failed, err = failUndeliveredTx(tx, u, it, reason); err != nil {
+				return err
+			}
+		}
+		return tx.DeleteOutbox(it.ID)
+	}); err != nil {
 		return err
 	}
 	lastErr := it.LastError
@@ -234,7 +245,9 @@ func (d *Daemon) abandonOutbox(it *interactions.OutboxItem, reason string, cause
 		}
 	}
 	log.Printf("anet: %s: %s to %s abandoned after %d attempts (%s)", it.IX, it.Type, it.ToAID, it.Attempts, reason)
-	d.failUndelivered(it, reason)
+	if failed {
+		d.publishResult(it.IX)
+	}
 	return &undeliverableError{reason: reason, cause: cause}
 }
 
@@ -247,6 +260,12 @@ func (d *Daemon) rescheduleOutbox(it *interactions.OutboxItem, cause error) erro
 		wait = after
 	}
 	next := int64(d.nowMS()) + wait.Milliseconds()
+	if dl := int64(it.Deadline()); next > dl {
+		// Not past the deadline: a row is abandoned when its deadline
+		// passes, and the task it leaves waiting failed then (0017 Q5),
+		// not up to a backoff later.
+		next = dl + 1
+	}
 	if err := d.ix.RescheduleOutbox(it.ID, n, next, cause.Error()); err != nil {
 		return err
 	}
@@ -350,19 +369,19 @@ func (d *Daemon) flushOutbox(ctx context.Context) { d.flushOutboxAt(ctx, int64(d
 
 // flushOutboxAt attempts once every row due at or before at (unix ms).
 func (d *Daemon) flushOutboxAt(ctx context.Context, at int64) {
-	due, err := d.ix.DueOutbox(at, 100)
+	due, err := d.ix.DueOutboxIDs(at, 100)
 	if err != nil {
 		if ctx.Err() == nil {
 			log.Printf("anet: read outbox: %v", err)
 		}
 		return
 	}
-	for _, it := range due {
+	for _, id := range due {
 		if ctx.Err() != nil {
 			return
 		}
 		cctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
-		_ = d.deliverQueued(cctx, it.ID)
+		_ = d.deliverQueued(cctx, id)
 		cancel()
 	}
 }

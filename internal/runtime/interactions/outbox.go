@@ -160,6 +160,30 @@ func (s *Store) DueOutbox(now int64, limit int) ([]OutboxItem, error) {
 	return s.queryOutbox(`SELECT `+outboxColumns+` FROM outbox WHERE next_at <= ? ORDER BY next_at, id LIMIT ?`, now, limit)
 }
 
+// DueOutboxIDs is DueOutbox without the rows: only their ids. The retry
+// loop reads each row again under its lock, and a batch of rows carrying
+// their envelopes (a delegation with files is up to the hub's 96 MiB cap)
+// is not held in memory at once for that.
+func (s *Store) DueOutboxIDs(now int64, limit int) ([]int64, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(`SELECT id FROM outbox WHERE next_at <= ? ORDER BY next_at, id LIMIT ?`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // Outbox returns the rows queued for an interaction, oldest first.
 func (s *Store) Outbox(ix string) ([]OutboxItem, error) {
 	return s.queryOutbox(`SELECT `+outboxColumns+` FROM outbox WHERE ix=? ORDER BY id`, ix)
@@ -209,6 +233,13 @@ func (s *Store) DeleteOutbox(id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, err := s.db.Exec(`DELETE FROM outbox WHERE id=?`, id)
+	return err
+}
+
+// DeleteOutbox is Store.DeleteOutbox inside the transaction: an abandoned
+// row goes with the state change its abandonment makes.
+func (t *Tx) DeleteOutbox(id int64) error {
+	_, err := t.tx.Exec(`DELETE FROM outbox WHERE id=?`, id)
 	return err
 }
 
