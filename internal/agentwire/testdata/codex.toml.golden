@@ -1,0 +1,8 @@
+# >>> anet (managed by `anet agents wire`; edits inside this block are overwritten) >>>
+[mcp_servers.anet]
+command = "/opt/anet/bin/anet"
+args = ["mcp"]
+env = { ANET_DATA_DIR = "/home/u/.anet" }
+startup_timeout_sec = 30
+tool_timeout_sec = 900
+# <<< anet <<<

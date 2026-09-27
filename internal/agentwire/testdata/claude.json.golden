@@ -1,0 +1,10 @@
+{
+  "type": "stdio",
+  "command": "/opt/anet/bin/anet",
+  "args": [
+    "mcp"
+  ],
+  "env": {
+    "ANET_DATA_DIR": "/home/u/.anet"
+  }
+}

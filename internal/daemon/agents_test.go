@@ -58,19 +58,3 @@ func TestInvokeAgentDefaultsToCheapModel(t *testing.T) {
 		t.Fatalf("explicit model not honored, got %q", got)
 	}
 }
-
-func TestInstallCursorCreatesRule(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	changes, err := InstallAgent("cursor")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(changes) == 0 {
-		t.Fatal("expected changes")
-	}
-	path := filepath.Join(home, ".cursor", "rules", "agentnetwork-anet.mdc")
-	if !strings.Contains(readFile(t, path), "AgentNetwork") {
-		t.Fatal("cursor rule missing guidance")
-	}
-}

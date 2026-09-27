@@ -1,0 +1,8 @@
+  # >>> anet a2a (managed by `anet agents wire`; holds the local A2A token — keep this file 0600) >>>
+  "bafyreiabcdefgh234567":
+    url: "http://127.0.0.1:39900/a2a/v1/agents/bafyreiabcdefgh234567"
+    auth:
+      type: bearer
+      token: "tok-golden"
+    timeout: 3600
+  # <<< anet a2a <<<
