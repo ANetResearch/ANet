@@ -899,6 +899,9 @@ func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte
 		}
 		d.publishState(ixID)
 		d.notePaymentReceipts(ixID, m, false)
+		if prior.PayState == interactions.PaySubmitted && d.carryOutRequestedCancel(ctx, ixID) {
+			return
+		}
 		// Paid automatically once per quote: on the first one, or again
 		// with the same authorization after a re-quote. After a definite
 		// failure a person or an agent decides, so a provider cannot
@@ -919,6 +922,9 @@ func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte
 		d.publishState(ixID)
 	}
 	d.notePaymentReceipts(ixID, m, false)
+	if status == x402a2a.StatusFailed {
+		d.carryOutRequestedCancel(ctx, ixID)
+	}
 }
 
 // autoPay pays a stored quote within the auto tier, or leaves the task for

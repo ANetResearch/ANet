@@ -1031,12 +1031,12 @@ func (d *Daemon) cancelForPolicy(ctx context.Context, aid string) (canceled, ski
 // list. It covers a deny list edited outside the CLI; the CLI path cancels
 // at once. Run from the maintenance loop.
 func (d *Daemon) revocationSweep() {
+	// Only what was reported before this sweep read the list can be
+	// forgotten by it: a deny made meanwhile reports its own, and the
+	// list read below may be older than that deny.
+	reported := d.skippedPaidReported()
 	ps := d.readPeers()
 	if ps.deny == nil {
-		return
-	}
-	if len(ps.deny) == 0 {
-		d.skippedPaidKeep(nil)
 		return
 	}
 	current := map[string]bool{}
@@ -1051,5 +1051,5 @@ func (d *Daemon) revocationSweep() {
 			d.recordPolicyChange("peers.deny", nil, aid, extra)
 		}
 	}
-	d.skippedPaidKeep(current)
+	d.skippedPaidForget(reported, current)
 }

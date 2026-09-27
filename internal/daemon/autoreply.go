@@ -390,6 +390,10 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	rc := replyContext{Role: th.Role, Goal: th.Goal, InteractionID: th.InteractionID, Outbox: outbox}
 	reply, err := d.invokeReplier(rctx, cfg, replier, gate, th, rc, turns)
 	cancel()
+	if d.readPeers().denied(th.Peer) {
+		// Denied while the backend worked: nothing more goes to the peer.
+		return nil
+	}
 	if errors.Is(err, errSandboxUnavailable) {
 		return d.sandboxRefusedTurn(ctx, th)
 	}

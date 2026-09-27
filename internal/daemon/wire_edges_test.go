@@ -517,3 +517,133 @@ func TestApprovedFollowUpsKeepTheirKinds(t *testing.T) {
 		t.Fatalf("capability call's held payment message: %+v", pay)
 	}
 }
+
+// SI-10 on the "not served" answer: a delegation for a capability with no
+// provider, reached after the stop began, is not answered and not
+// acknowledged, rather than acknowledged with nothing recorded — which
+// would leave it open with no redelivery to come.
+func TestAStopBeforeAnUnservedCallIsAnsweredLeavesItUnacknowledged(t *testing.T) {
+	_, req, prov := quietPair(t)
+	const id = "ix_unserved_at_stop"
+	leftOpen(t, req, prov, id, "no.such.cap")
+	prov.cancel() // the stop has begun; Close runs at cleanup
+	if prov.runCapabilityCall(id, "no.such.cap", map[string]any{}, nil, nil) {
+		t.Fatal("a call the stop cut off was reported handled, so its delegation would be acknowledged")
+	}
+	pix, err := prov.ix.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := prov.ix.Outbox(id)
+	if pix.IsTerminal() || len(pix.Result) > 0 || len(rows) != 0 {
+		t.Fatalf("the stop answered: state %s, result %q, %d queued", pix.State, pix.Result, len(rows))
+	}
+}
+
+// §3.6 startup recovery beyond redelivery: an approved call has no
+// redelivery to come (its delegation was acknowledged when it was held),
+// so one left submitted runs at start; a quoted call is not reported
+// interrupted however it came to be working (it never ran: priced work
+// runs once paid); unpaid work of a peer denied since is left to the
+// revocation sweep, not run.
+func TestStartupRecoveryRunsApprovedCallsAndLeavesUnpaidOrDeniedOnes(t *testing.T) {
+	_, req, prov := quietPair(t)
+	ctx := context.Background()
+	lamp := &lampProvider{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	create := func(id, peer, trust string, st interactions.State, pay string) {
+		t.Helper()
+		if err := prov.ix.Create(interactions.New{ID: id, Role: interactions.RoleInbound, PeerAID: peer,
+			Goal: "invoke capability " + lampCap, RequestDoc: capabilityDoc(t, req.self, lampCap), IsCapability: true,
+			Trust: trust, TaskNonce: "bm9uY2U"}); err != nil {
+			t.Fatal(err)
+		}
+		if st != interactions.StateSubmitted {
+			if _, err := prov.ix.SetState(id, st); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if pay != "" {
+			if _, err := prov.ix.SetPayment(id, interactions.PayUpdate{State: interactions.PayState(pay)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	const deniedAID = "did:anet:denied-since"
+	create("ix_approved_left", req.AID(), interactions.TrustApproved, interactions.StateSubmitted, "")
+	create("ix_quoted_working", req.AID(), interactions.TrustPeer, interactions.StateWorking, interactions.PayRequired)
+	create("ix_failed_pay_working", req.AID(), interactions.TrustPeer, interactions.StateWorking, interactions.PayFailed)
+	create("ix_denied_working", deniedAID, interactions.TrustPeer, interactions.StateWorking, "")
+	if err := req.ix.Create(interactions.New{ID: "ix_approved_left", Role: interactions.RoleOutbound,
+		PeerAID: prov.AID(), Goal: "invoke capability " + lampCap, IsCapability: true}); err != nil {
+		t.Fatal(err)
+	}
+	denyPeers(t, prov, deniedAID)
+
+	prov.recoverInterrupted()
+	waitUntil(t, "the approved call to run", func() bool {
+		return stateOf(t, prov, "ix_approved_left") == interactions.StateCompleted
+	})
+	for _, id := range []string{"ix_quoted_working", "ix_failed_pay_working", "ix_denied_working"} {
+		if pix := getIXOf(t, prov, id); pix.State != interactions.StateWorking || len(pix.Receipt) > 0 {
+			t.Errorf("%s: %s with %d receipt bytes; want left working, unanswered", id, pix.State, len(pix.Receipt))
+		}
+	}
+	// Recovery decides before it returns; only the approved call was
+	// started, and it has finished.
+	if len(lamp.invoked) != 1 || lamp.invoked[0].CallID != "ix_approved_left" {
+		t.Fatalf("recovery ran %+v; want only the approved call", lamp.invoked)
+	}
+}
+
+// getIXOf reads an interaction (getIX lives with the payment tests).
+func getIXOf(t *testing.T, d *Daemon, id string) *interactions.Interaction {
+	t.Helper()
+	ix, err := d.ix.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ix
+}
+
+// denyDuring is a replier through which the peer is denied while the
+// backend works.
+type denyDuring struct {
+	inner autoReplier
+	deny  func()
+}
+
+func (r denyDuring) Reply(ctx context.Context, rc replyContext, turns []chatTurn) (string, error) {
+	r.deny()
+	return r.inner.Reply(ctx, rc, turns)
+}
+
+// §5.1: a peer denied while the backend was producing its reply is not
+// sent that reply.
+func TestAReplyIsNotSentToAPeerDeniedWhileTheBackendWorked(t *testing.T) {
+	api := &fakeOpenAI{reply: "hello"}
+	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, api)
+	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "a question", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.prov.pollOnce(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	replier := denyDuring{inner: f.replier, deny: func() { denyPeers(t, f.prov, f.req.AID()) }}
+	f.prov.autoReplyOnce(f.ctx, f.cfg, replier)
+	if n := api.calls.Load(); n != 1 {
+		t.Fatalf("backend called %d times, want 1", n)
+	}
+	msgs, err := f.prov.ix.Messages(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range msgs {
+		if m.SenderAID == f.prov.AID() {
+			t.Fatalf("a reply went to the peer denied during the call: %+v", m)
+		}
+	}
+}
