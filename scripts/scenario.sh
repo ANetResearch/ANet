@@ -1367,31 +1367,57 @@ for o in pr.get("accepts") or []:
   rb0=$(bal R); pb0=$(bal P)
   info "付款前:R=$rb0(hub1 账上)P=$pb0(X2 账上)"
 
-  # The hubs, each on its own (SI-9, §8.5): the entry hub X2 checks before forwarding, the ledger hub
-  # hub1 checks again. Signed with R's own key, bound to this task.
+  # The hubs, each on its own (SI-9, §8.5), with authorizations signed by R's own key and bound to this
+  # task. The ledger hub hub1 is asked directly. The entry hub X2 is asked while hub1 is stopped: X2 hands a
+  # refusal from the ledger hub back as its answer, so with hub1 up an X2 that skipped its own check would
+  # answer exactly the same; with hub1 down, forwarding can only end in settlement_pending, and
+  # invalid_amount / payee_mismatch can only be X2's own.
   n=$(nonce_of R "$ix")
   [ -n "$n" ] || { no "读不到 R 这个任务的 task nonce(interactions.db)"; return; }
   bind=$(pay_bind "$ix" "$n")
   under=$(authorize $((PRICE - 15)) "$P" "$bind")
   wrongpayee=$(authorize "$PRICE" "$Q" "$bind")
   [ -n "$under" ] && [ -n "$wrongpayee" ] || { no "anetfixture x402-authorize 签不出授权"; return; }
-  r=$(settle_at "$HUB2X" "$under" "$req");      [ "$r" = "false invalid_amount" ] && ok "入口 hub X2 拒了少付(invalid_amount),没转发" || no "X2 对少付答 $r"
-  r=$(settle_at "$HUB2X" "$wrongpayee" "$req"); [ "$r" = "false payee_mismatch" ] && ok "入口 hub X2 拒了错收款方(payee_mismatch)" || no "X2 对错收款方答 $r"
-  r=$(settle_at "$HUB1" "$under" "$req");       [ "$r" = "false invalid_amount" ] && ok "账本 hub hub1 自己也拒少付" || no "hub1 对少付答 $r"
-  r=$(settle_at "$HUB1" "$wrongpayee" "$req");  [ "$r" = "false payee_mismatch" ] && ok "账本 hub hub1 自己也拒错收款方" || no "hub1 对错收款方答 $r"
+  r=$(settle_at "$HUB1" "$under" "$req");       [ "$r" = "false invalid_amount" ] && ok "账本 hub hub1 拒了少付(invalid_amount)" || no "hub1 对少付答 $r"
+  r=$(settle_at "$HUB1" "$wrongpayee" "$req");  [ "$r" = "false payee_mismatch" ] && ok "账本 hub hub1 拒了错收款方(payee_mismatch)" || no "hub1 对错收款方答 $r"
+  hub1_stop
+  if http_up "$HUB1/healthz"; then
+    no "hub1 停不下来:入口 hub 自己的核对无从单独验证"
+  else
+    r=$(settle_at "$HUB2X" "$under" "$req")
+    [ "$r" = "false invalid_amount" ] && ok "入口 hub X2 自己拒了少付(账本 hub 停着,这个拒绝不是转来的)" || no "账本 hub 停着时 X2 对少付答 $r"
+    r=$(settle_at "$HUB2X" "$wrongpayee" "$req")
+    [ "$r" = "false payee_mismatch" ] && ok "入口 hub X2 自己拒了错收款方(payee_mismatch)" || no "账本 hub 停着时 X2 对错收款方答 $r"
+  fi
+  hub1_start || { no "hub1 重启失败"; return; }
 
   # The provider's merchant check (§8.4), on the same task: payment messages from R that its daemon would
-  # never sign. Each is refused with its code and the quote stands.
+  # never sign. Each is refused with its code and the quote stands. The hub would refuse the first two as
+  # well, and P would pass that refusal on with the same code; that P refused them itself, before
+  # presenting anything, is in its log ("refused before settlement"). The third pays the right payee the
+  # right amount but is bound to other work: a hub settles that one, only the payee can tell.
+  local mark stolen
+  mark=$(p_log_mark)
   [ "$(pay_as_r "$ix" "$under")" = 200 ] || no "少付的付款消息没送进 hub1"
   waitfor 40 said_meta_n R "$ix" x402.payment.error INVALID_AMOUNT \
-    && ok "P 的商户核对拒了少付:payment-failed / INVALID_AMOUNT,报价仍在" || no "R 没收到 INVALID_AMOUNT"
+    && p_logged "$mark" "$ix: payment refused before settlement: invalid_amount" \
+    && ok "P 的商户核对自己拒了少付(没交给 hub):payment-failed / INVALID_AMOUNT,报价仍在" \
+    || no "少付:R 没收到 INVALID_AMOUNT,或 P 不是自己拒的"
   [ "$(pay_as_r "$ix" "$wrongpayee")" = 200 ] || no "错收款方的付款消息没送进 hub1"
   waitfor 40 said_meta_n R "$ix" anet.reason payee_mismatch \
     && [ "$(said_meta R "$ix" x402.payment.error SETTLEMENT_FAILED)" -ge 1 ] \
-    && ok "P 拒了错收款方:SETTLEMENT_FAILED / anet.reason=payee_mismatch" || no "R 没收到 payee_mismatch"
+    && p_logged "$mark" "$ix: payment refused before settlement: payee_mismatch" \
+    && ok "P 自己拒了错收款方:SETTLEMENT_FAILED / anet.reason=payee_mismatch" \
+    || no "错收款方:R 没收到 payee_mismatch,或 P 不是自己拒的"
+  stolen=$(authorize "$PRICE" "$P" "$(pay_bind "$ix" "other-work-$n")")
+  [ -n "$stolen" ] && [ "$(pay_as_r "$ix" "$stolen")" = 200 ] || no "绑定到别的活的付款消息没送进 hub1"
+  waitfor 40 said_meta_n R "$ix" anet.reason binding_mismatch \
+    && p_logged "$mark" "$ix: payment refused before settlement: binding_mismatch" \
+    && ok "P 拒了绑定到别的活的授权(收款方、金额都对,hub 会收):SETTLEMENT_FAILED / binding_mismatch" \
+    || no "挪用:R 没收到 binding_mismatch,或 P 不是自己拒的"
   rb=$(bal R); pb=$(bal P)
   [ "$rb" = "$rb0" ] && [ "$pb" = "$pb0" ] && [ "$(svc_calls "$text")" = 0 ] \
-    && ok "六次被拒之后谁的余额都没动,活也没干" || no "被拒之后余额 R $rb0→$rb P $pb0→$pb,服务调用 $(svc_calls "$text") 次"
+    && ok "七次被拒之后谁的余额都没动,活也没干" || no "被拒之后余额 R $rb0→$rb P $pb0→$pb,服务调用 $(svc_calls "$text") 次"
 
   # Now the real payment, from R's daemon (task-agent tier), on the same task.
   s=$(nctl R /tasks/pay "{\"task_id\":\"$ix\",\"decision\":\"submit\"}" | jget x402.payment.status)
@@ -1455,11 +1481,17 @@ xhub_cancel_orders(){
     grep -q "$a: .*queued for delivery" "$XR/R/.anet/daemon.log" 2>/dev/null \
       && no "(a) R 的付款或取消没能当场送到 X2(顺序不再确定)"
     hub1_stop
+    local amark; amark=$(p_log_mark)
     x2 "s2_start_daemon P" >/dev/null
     if waitfor 60 got_kind P "$a" cancel; then
       [ "$(tmeta P "$a" x402.payment.status)" = payment-submitted ] && ! state_is P "$a" canceled \
         && ok "(a) P 先收付款、结算未定(账本 hub 停着),再收取消:任务不取消" \
         || no "(a) P:状态 $(tstate P "$a"),付款 $(tmeta P "$a" x402.payment.status)"
+      # Without this the case would pass just the same if hub1 had not really been down: the settlement
+      # would simply have gone through at once, and C25's unknown outcome would never have happened.
+      p_logged "$amark" "$a: settlement outcome not known yet" \
+        && ok "(a) P 的第一次结算没有结果(入口 hub 连不上账本 hub),之后用同一授权重试(C25)" \
+        || no "(a) P 的日志里没有'结算结果未知':结算未知这条路没走到"
     else
       no "(a) P 没收到取消"
     fi
