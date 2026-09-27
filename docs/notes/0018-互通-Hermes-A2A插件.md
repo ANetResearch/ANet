@@ -7,6 +7,12 @@
 
 ## 1. 结论
 
+> **更新(集成 wp/proj,0017 Q21 P1–P4 已落地)**:下文 §3 表中的四个缺口,三个已闭合——回复的文件在
+> `anet.reply` 里(只有文件时 Hermes 读到 `[file: …]`,不再读到回执)、回执移到 task metadata、付款的
+> status.message 带金额/资产/收款方/网络与付款方式说明。剩一个:provider 未发言即 completed 的文本任务,
+> Hermes 只读到头部状态、没有正文(不再把回执当答复)。`TestHermesContract` 已按新形状更新并断言任何形状
+> 都不会把回执读成答复。§3 表保留为勘察时的原始记录。
+
 - **请求侧吻合。** Hermes 取卡片时带 Bearer,从代理卡片里取 JSONRPC 接口 URL,方法名用 v1.0 的 `SendMessage`,
   请求头带 `A2A-Version: 1.0`,消息里不带 `configuration`。按规范这就是阻塞调用。消息里有 contextId、没有 taskId,
   a2a-go 能读,投影类型也能读回(`TestHermesRequestShape`)。

@@ -782,6 +782,20 @@ func hermesReceiptText(reply string) bool {
 	return strings.HasPrefix(reply, "[data (application/json)]\n{\"completed_at\": ") && strings.Contains(reply, `"receipt": "`)
 }
 
+// hermesPaymentHint checks a payment status message as Hermes reads it
+// after 0017 Q21 P3: the provider's own words (or the synthesized first
+// sentence) first, then the quote in words — amount, asset, payee, network
+// — and how to answer it on this task (§8.7: payment-submitted with no
+// x402.payment.payload; the operator's `anet pay`).
+func hermesPaymentHint(first string) func(string) bool {
+	return func(reply string) bool {
+		return strings.HasPrefix(reply, first) &&
+			strings.Contains(reply, "5 credit to did:anet:peer on hub:did:anet:h (anet-credit)") &&
+			strings.Contains(reply, "`anet pay ix`") &&
+			strings.Contains(reply, "payment-submitted and no x402.payment.payload")
+	}
+}
+
 type hermesCase struct {
 	name  string
 	task  func(t *testing.T) a2ashape.Task
@@ -824,7 +838,9 @@ func hermesCases() []hermesCase {
 				must(t, err)
 				return task
 			}},
-		{name: "text completed, reply text and a file", state: "completed", reply: "here it is",
+		// 0017 Q21 P1: the reply's files are in anet.reply, after its text.
+		{name: "text completed, reply text and a file", state: "completed",
+			reply: "here it is\n[file: safe-cat.png] 4 bytes base64-encoded (image/png)",
 			task: func(t *testing.T) a2ashape.Task {
 				st := openStore(t)
 				hermesTextTask(t, st, "ix", "draw a cat")
@@ -837,8 +853,10 @@ func hermesCases() []hermesCase {
 				must(t, err)
 				return task
 			}},
-		{name: "text completed, reply is only a file", state: "completed", check: hermesReceiptText,
-			gap: "anet.reply is an empty text part and the file is a later artifact, so Hermes reads the next artifact with text: anet.receipt",
+		// Q21 P1/P2: anet.reply holds the file (no empty text part), and the
+		// receipt is task metadata, not an artifact Hermes could read.
+		{name: "text completed, reply is only a file", state: "completed",
+			reply: "[file: safe-cat.png] 4 bytes base64-encoded (image/png)",
 			task: func(t *testing.T) a2ashape.Task {
 				st := openStore(t)
 				hermesTextTask(t, st, "ix", "draw a cat")
@@ -851,8 +869,10 @@ func hermesCases() []hermesCase {
 				must(t, err)
 				return task
 			}},
-		{name: "text completed, provider never spoke", state: "completed", check: hermesReceiptText,
-			gap: "no provider turn means no anet.reply, so the first artifact is anet.receipt and Hermes reads the receipt as the answer",
+		// Q21 P2: no provider turn, no artifact — the receipt is metadata now,
+		// so Hermes no longer reads it as the answer; it reads no text.
+		{name: "text completed, provider never spoke", state: "completed", reply: "",
+			gap: "the provider said nothing before the task completed: Hermes reads only the header's state (completed) and no text; the receipt is in metadata, which Hermes does not read",
 			task: func(t *testing.T) a2ashape.Task {
 				st := openStore(t)
 				hermesTextTask(t, st, "ix", "ping")
@@ -939,7 +959,8 @@ func hermesCases() []hermesCase {
 				must(t, err)
 				return task
 			}},
-		{name: "text input-required, payment message with text", state: "input-required", reply: "this costs 5 credits",
+		{name: "text input-required, payment message with text", state: "input-required",
+			check: hermesPaymentHint("this costs 5 credits\n"),
 			task: func(t *testing.T) a2ashape.Task {
 				st := openStore(t)
 				hermesTextTask(t, st, "ix", "g")
@@ -951,8 +972,9 @@ func hermesCases() []hermesCase {
 				quote(&src)
 				return a2ashape.Project(src, hermesOpts)
 			}},
-		{name: "capability input-required, payment message", state: "input-required", reply: "",
-			gap: "a capability call keeps only a payment message's metadata, so status.message is one empty text part: Hermes reads no text, and no amount",
+		// Q21 P3: a stored row with only metadata gets synthesized text.
+		{name: "capability input-required, payment message", state: "input-required",
+			check: hermesPaymentHint("Payment is required. The provider asks to be paid "),
 			task: func(t *testing.T) a2ashape.Task {
 				st := openStore(t)
 				hermesCapTask(t, st, "ix", "", "", "")
@@ -964,7 +986,8 @@ func hermesCases() []hermesCase {
 				quote(&src)
 				return a2ashape.Project(src, hermesOpts)
 			}},
-		{name: "capability input-required, quote with a message", state: "input-required", reply: "costs 5",
+		{name: "capability input-required, quote with a message", state: "input-required",
+			check: hermesPaymentHint("costs 5\n"),
 			task: func(t *testing.T) a2ashape.Task {
 				st := openStore(t)
 				hermesCapTask(t, st, "ix", interactions.StateInputRequired,
@@ -974,8 +997,8 @@ func hermesCases() []hermesCase {
 				must(t, err)
 				return task
 			}},
-		{name: "capability input-required, quote without a message", state: "input-required", reply: "Payment is required.",
-			gap: "the synthesized text names no amount, asset or payee (those are only in x402.payment.required, which Hermes does not read)",
+		{name: "capability input-required, quote without a message", state: "input-required",
+			check: hermesPaymentHint("Payment is required.\nThe provider asks to be paid "),
 			task: func(t *testing.T) a2ashape.Task {
 				st := openStore(t)
 				hermesCapTask(t, st, "ix", interactions.StateInputRequired,
@@ -1117,6 +1140,11 @@ func TestHermesContract(t *testing.T) {
 				}
 			} else if reply != c.reply {
 				t.Errorf("Hermes reads\n %q\nwant\n %q", reply, c.reply)
+			}
+			// 0017 Q21 P2: the receipt is metadata, so no shape may give it
+			// to Hermes' model as the answer.
+			if hermesReceiptText(reply) {
+				t.Errorf("Hermes reads the receipt as the answer: %q", reply)
 			}
 			if c.gap != "" {
 				gaps = append(gaps, c.name+": "+c.gap)
