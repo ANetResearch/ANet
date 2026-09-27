@@ -153,15 +153,19 @@ func rawMeta(m map[string]any, k string) (json.RawMessage, error) {
 
 // payTaskError says a PayTask error as an A2A error, the way the control
 // plane's /tasks/pay says it in HTTP (writePayError): a decision on a task
-// with nothing to pay or a payment already outstanding is not an operation
-// this task takes now. Nothing was signed or sent in any of these cases.
-// (A refusal with an a2a-x402 outcome and a payment held for the operator
-// are answered as the task by the callers above, never as an error.)
+// with nothing to pay, a payment already outstanding or a quote no tier
+// pays (zero_amount) is not an operation this task takes now. Nothing was
+// signed or sent in any of these cases. (A refusal with an a2a-x402
+// outcome and a payment held for the operator are answered as the task by
+// the callers above, never as an error.)
 func payTaskError(id string, err error) error {
 	if err == nil {
 		return nil
 	}
+	var sr *SpendRefusal
 	switch {
+	case errors.As(err, &sr):
+		return a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s: %v", id, sr)
 	case errors.Is(err, interactions.ErrNotFound):
 		return a2ashape.Errorf(a2ashape.ErrTaskNotFound, "%s", id)
 	case errors.Is(err, ErrNotRequester):

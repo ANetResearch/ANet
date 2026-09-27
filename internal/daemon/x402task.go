@@ -1098,8 +1098,9 @@ func (e *PayRefusal) Error() string {
 }
 
 // PayHold is an agent-tier decision to pay that the spending policy did
-// not allow (§8.3, §8.6): above agent_max or agent_daily_max, or to a
-// payee not on the list. Nothing was signed or sent, and the task goes on
+// not allow and an operator can (§8.3, §8.6, operatorDecides): above
+// agent_max, agent_daily_max or daily_max, or to a payee not on the list.
+// Nothing was signed or sent, and the task goes on
 // waiting, input-required with anet.reason needs_operator_approval, for
 // the operator's `anet pay` on a terminal. It is the answer, not a
 // failure: /tasks/pay returns Outcome with 200 and the local A2A interface
@@ -1115,6 +1116,17 @@ func (e *PayHold) Error() string {
 
 func (e *PayHold) Unwrap() error { return e.Refusal }
 
+// operatorDecides reports a spending-policy refusal that an operator can
+// overrule: a limit or the payee list. A quote for nothing (zero_amount)
+// is refused at every tier, so it is not held for anyone.
+func operatorDecides(code string) bool {
+	switch code {
+	case SpendOverSingle, SpendOverAgentDaily, SpendOverDaily, SpendPayeeNotAllowed, SpendPayeesUnread:
+		return true
+	}
+	return false
+}
+
 // holdForOperator is the PayHold for a refused agent-tier payment of opt
 // on ix.
 func (d *Daemon) holdForOperator(ix *interactions.Interaction, opt payment.PaymentOption, r *SpendRefusal) *PayHold {
@@ -1124,18 +1136,55 @@ func (d *Daemon) holdForOperator(ix *interactions.Interaction, opt payment.Payme
 	if out.Status == "" {
 		out.Status = x402a2a.StatusRequired
 	}
-	out.Message = operatorApprovalText(ix.ID, opt, r)
+	out.Message = operatorApprovalText(ix.ID, opt, r, d.manualTierSteps(opt))
 	return &PayHold{Outcome: out, Refusal: r}
 }
 
+// manualTierSteps is what the operator has to change before `anet pay`
+// can pay opt: the manual tier is bound by explicit_max, daily_max and the
+// payee list as well (§8.6), so a hold that named only `anet pay` would
+// lead the operator into a second refusal — on a new node, where the payee
+// list is on and empty, every time. It reads the policy as it stands; the
+// operator's command checks it again.
+func (d *Daemon) manualTierSteps(opt payment.PaymentOption) []string {
+	lim := d.config().Payments.limits()
+	var steps []string
+	if lim.PayeesFile != "" {
+		payees, err := readPeerFile(d.peerFile(lim.PayeesFile))
+		switch {
+		case err != nil:
+			steps = append(steps, "repair the payee list "+lim.PayeesFile)
+		case !payees[opt.PayTo]:
+			steps = append(steps, "`anet payees add "+plainText(opt.PayTo, 256)+"`")
+		}
+	}
+	amount, err := payment.ParseAmount(opt.Amount)
+	if err != nil {
+		return steps
+	}
+	if amount > lim.ExplicitMax {
+		steps = append(steps, fmt.Sprintf("`anet payments set explicit_max=%d`", amount))
+	}
+	if spent := d.SpendStatus().Spent24h; spent+amount > lim.DailyMax {
+		steps = append(steps, fmt.Sprintf("`anet payments set daily_max=%d` (or wait until less was paid in the "+
+			"last 24 hours)", spent+amount))
+	}
+	return steps
+}
+
 // operatorApprovalText says why an agent's payment was not made and who
-// can make it. The amount and the payee are the quote's, as stored; the
-// provider wrote them, so they are made plain before they become text a
-// model reads (the payee was already checked to be the task's peer).
-func operatorApprovalText(ixID string, opt payment.PaymentOption, r *SpendRefusal) string {
+// can make it, and how: first steps, then `anet pay`. The amount and the
+// payee are the quote's, as stored; the provider wrote them, so they are
+// made plain before they become text a model reads (the payee was already
+// checked to be the task's peer).
+func operatorApprovalText(ixID string, opt payment.PaymentOption, r *SpendRefusal, first []string) string {
+	how := "`anet pay " + ixID + "`"
+	if len(first) > 0 {
+		how = strings.Join(first, ", ") + ", then " + how
+	}
 	return fmt.Sprintf("Payment not submitted: %s. The quote (%s %s to %s) is still open: the operator of this "+
-		"node has to approve it by running `anet pay %s` in a terminal. Nothing was signed or sent.",
-		r.Detail, plainText(opt.Amount, 40), plainText(opt.Asset, 40), plainText(opt.PayTo, 256), ixID)
+		"node has to approve it in a terminal: %s. Nothing was signed or sent.",
+		r.Detail, plainText(opt.Amount, 40), plainText(opt.Asset, 40), plainText(opt.PayTo, 256), how)
 }
 
 // plainText is peer-written s without control or bidirectional
@@ -1232,7 +1281,7 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 		if err != nil {
 			if r, ok := isSpendRefusal(err); ok {
 				logSpendRefusal(ix.ID, r)
-				if req.Purpose == module.PurposeTaskAgent {
+				if req.Purpose == module.PurposeTaskAgent && operatorDecides(r.Code) {
 					// Above the agent tier the decision is the operator's
 					// (§8.3): the task waits for it, told why.
 					h := d.holdForOperator(ix, *opt, r)
