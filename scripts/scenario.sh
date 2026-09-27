@@ -33,8 +33,13 @@ LIVE=0
 
 ROOT=${SCENARIO_ROOT:-/tmp/anet-scenario}
 BIN=${SCENARIO_BIN:-$ROOT/bin}
+# Every loopback port this run opens is an offset from HUB_PORT (default 29500): +1 the second hub,
+# +10..+13 nodes A-D, +20 A's service backend, +30 A's x402 voucher door, +40..+43 the nodes' local A2A
+# interfaces (module/a2a; lib.sh pin_a2a). On the test hosts pick HUB_PORT so the block stays inside
+# 47100-47499 (docs/notes/0015), e.g. HUB_PORT=47400.
 HUB_PORT=${HUB_PORT:-29500}
 HUB=http://127.0.0.1:$HUB_PORT
+SVC_PORT=$((HUB_PORT + 20)); VOUCHER_PORT=$((HUB_PORT + 30))
 SCENARIO_ENV=${SCENARIO_ENV:-$HOME/.config/anet-scenario.env}
 CAPTION_URL=${CAPTION_URL:-http://127.0.0.1:8099/caption}
 
@@ -117,9 +122,10 @@ n=$(curl -s -m 5 "$HUB/agents" | python3 -c 'import sys,json;print(len(json.load
 
 # ── 1. three nodes join the documented way ──────────────────────
 hd "1  三个节点按网页上教的方式加入"
-port=29510
+port=$((HUB_PORT + 10))
 for node in A B C; do
   h=$(home_of "$node"); mkdir -p "$h/.anet"
+  pin_a2a "$h/.anet" $((port + 30))
   cat > "$h/.anet/config.json" <<CFG
 {
  "control_addr": "127.0.0.1:$port",
@@ -158,31 +164,31 @@ class H(BaseHTTPRequestHandler):
 
 HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
 PY
-setsid python3 "$ROOT/svc/scenario-svc.py" 29520 >"$ROOT/svc.log" 2>&1 </dev/null &
+setsid python3 "$ROOT/svc/scenario-svc.py" "$SVC_PORT" >"$ROOT/svc.log" 2>&1 </dev/null &
 sleep 1
 
 # A declares it. This is the whole of "putting your own service on the
 # network": an id, and a URL behind it.
-python3 - "$(home_of A)/.anet/config.json" <<'PY'
+python3 - "$(home_of A)/.anet/config.json" "$SVC_PORT" "$VOUCHER_PORT" <<'PY'
 import json, sys
-p = sys.argv[1]
+p, svc, voucher = sys.argv[1], sys.argv[2], sys.argv[3]
 c = json.load(open(p))
 c["name"] = "NodeA"
 c["caps"] = ["digest"]
 c["modules"] = {"service": {"capabilities": [
-    {"id": "text.digest", "url": "http://127.0.0.1:29520",
+    {"id": "text.digest", "url": "http://127.0.0.1:" + svc,
      "description": "sha256 of the text you send"},
     # The same work, priced. Two capabilities behind one service so the
     # free and paid paths are compared against identical output — a paid
     # path that quietly did something else would otherwise look like it
     # was working.
-    {"id": "text.digest.paid", "url": "http://127.0.0.1:29520", "price": 25,
+    {"id": "text.digest.paid", "url": "http://127.0.0.1:" + svc, "price": 25,
      "description": "sha256, 25 credits"}]}}
 # A's public voucher face: where a buyer who paid at the hub brings the
 # voucher. The hub never sees this address's traffic, which is the whole
 # point of selling access rather than proxying it.
-c["modules"]["x402"] = {"voucher_addr": "127.0.0.1:29530",
-                        "voucher_url": "http://127.0.0.1:29530/x402/redeem"}
+c["modules"]["x402"] = {"voucher_addr": "127.0.0.1:" + voucher,
+                        "voucher_url": "http://127.0.0.1:" + voucher + "/x402/redeem"}
 # The voucher door serves only public capabilities, through the kernel's
 # admission check (A2A-DESIGN §5.4). text.digest stays reachable only by
 # the peers A allows; the priced one is public.
@@ -262,8 +268,11 @@ found=$(ctl C /find '{"query":"digest"}' | python3 -c "
 import sys,json
 print(next((a['name'] for a in json.load(sys.stdin).get('agents') or [] if a['aid']=='$A'), ''))")
 [ "$found" = "NodeA" ] && ok "C 用散文找到了 A" || no "C 没找到 A(得到 '$found')"
-# The exact question, which the prose search cannot express.
-byid=$(ctl C /find '{"capability":"text.digest"}' | python3 -c "
+# The exact question, which the prose search cannot express. Asked for A's PUBLIC capability: the
+# directory's capability ids come from the agent's verified A2A card (A2A-DESIGN §10.5), and the card
+# lists only inbound.public_capabilities (§10.1-10.2). text.digest is served to A's allowed peers only,
+# so it is not advertised and cannot be found by id — by design, not a miss.
+byid=$(ctl C /find '{"capability":"text.digest.paid"}' | python3 -c "
 import sys,json
 print(next((a['name'] for a in json.load(sys.stdin).get('agents') or [] if a['aid']=='$A'), ''))")
 [ "$byid" = "NodeA" ] && ok "C 按能力 id 精确找到了 A" || no "按 id 没找到 A(得到 '$byid')"
@@ -605,7 +614,7 @@ code=$(head -1 "$ROOT/402.hdr" | awk '{print $2}')
 [ "$code" = "402" ] && ok "未付款时 hub 回 402(这是 x402 的第一句话)" || no "hub 回了 $code"
 grep -qi '^PAYMENT-REQUIRED:' "$ROOT/402.hdr" && ok "402 带 PAYMENT-REQUIRED 头" || no "402 没带 PAYMENT-REQUIRED 头"
 redeem=$(echo "$q" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("redeem_at",""))')
-[ "$redeem" = "http://127.0.0.1:29530/x402/redeem" ] \
+[ "$redeem" = "http://127.0.0.1:$VOUCHER_PORT/x402/redeem" ] \
   && ok "报价里写明了取货地址($redeem)—— hub 不代理内容" || no "报价没给取货地址:$q"
 gprice=$(echo "$q" | python3 -c '
 import sys,json
@@ -683,10 +692,11 @@ grep -q "discovery=" "$ROOT/hub.log" && ok "两个 hub 互为 peer,discovery 已
 
 # An agent on hub 2, visible to the federation.
 mkdir -p "$ROOT/D/.anet"
+pin_a2a "$ROOT/D/.anet" $((HUB_PORT + 43))
 cat > "$ROOT/D/.anet/config.json" <<CFG
-{"control_addr":"127.0.0.1:29513","hub_url":"$HUB2","name":"NodeD","caps":["remote.digest"],
+{"control_addr":"127.0.0.1:$((HUB_PORT + 13))","hub_url":"$HUB2","name":"NodeD","caps":["remote.digest"],
  "modules":{"service":{"capabilities":[
-   {"id":"remote.digest","url":"http://127.0.0.1:29520","description":"sha256, on the other hub"}]}}}
+   {"id":"remote.digest","url":"http://127.0.0.1:$SVC_PORT","description":"sha256, on the other hub"}]}}}
 CFG
 setsid env HOME="$ROOT/D" "$BIN/anet" daemon >"$ROOT/D.log" 2>&1 </dev/null &
 sleep 4
