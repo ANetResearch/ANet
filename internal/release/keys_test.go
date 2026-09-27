@@ -8,7 +8,8 @@ import (
 
 // The release key as this commit ships it. DEV KEY — 正式发布前由产品负责人替换;
 // replacing the key means changing this constant together with
-// allowed_signers, NextKeyFingerprint, install.sh, SECURITY.md and README.md.
+// allowed_signers, NextKeyFingerprint, install.sh, SECURITY.md, README.md
+// and docs/GUIDE-zh.md.
 const shippedKeyFP = "SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA"
 
 func TestEmbeddedTrust(t *testing.T) {
@@ -53,6 +54,17 @@ func TestTheReleaseKeyIsTheSameEverywhere(t *testing.T) {
 		}
 		if !strings.Contains(text, "ssh-keygen -Y verify -f allowed_signers -I "+Identity) {
 			t.Errorf("%s does not give the manual verification command", doc)
+		}
+	}
+
+	// The user guide repeats the key line and its fingerprint in its
+	// manual-verification block; a stale copy there is a user checking the
+	// installer against a key no release is signed with.
+	guide := repoFile(t, "docs/GUIDE-zh.md")
+	for _, want := range []string{"echo '" + line + "' > allowed_signers", shippedKeyFP,
+		"ssh-keygen -Y verify -f allowed_signers -I " + Identity} {
+		if !strings.Contains(guide, want) {
+			t.Errorf("docs/GUIDE-zh.md does not contain %q", want)
 		}
 	}
 

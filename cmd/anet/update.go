@@ -79,6 +79,9 @@ func runUpdate(rest []string) error {
 
 	fmt.Printf("anet %s (%s variant, %s/%s) at %s\n", version.V, variant, runtime.GOOS, runtime.GOARCH, exe)
 	f, err := u.Check(ctx)
+	if errors.Is(err, release.ErrExpired) {
+		return fmt.Errorf("%w; --base URL checks another mirror", err)
+	}
 	if err != nil {
 		return err
 	}
@@ -94,8 +97,8 @@ func runUpdate(rest []string) error {
 
 	switch {
 	case f.Cmp < 0:
-		return fmt.Errorf("%w: the manifest is %s and this binary is %s; not installing it (a mirror serving an older signed release is refused, not followed)",
-			release.ErrDowngrade, m.Version, version.V)
+		return fmt.Errorf("%w: the manifest at %s is %s and this binary is %s; not installing it (a mirror serving an older signed release is refused, not followed; --base URL checks another mirror)",
+			release.ErrDowngrade, f.Base, m.Version, version.V)
 	case f.Cmp == 0:
 		fmt.Printf("✓ already at %s\n", m.Version)
 		return nil

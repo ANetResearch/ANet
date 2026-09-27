@@ -325,6 +325,35 @@ func TestUpdateIsHTTPSOnly(t *testing.T) {
 	}
 }
 
+func TestNormalizeBase(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://agentnetwork.org.cn":         "https://agentnetwork.org.cn",
+		"https://agentnetwork.org.cn/":        "https://agentnetwork.org.cn",
+		" https://mirror.example/anet/ ":      "https://mirror.example/anet",
+		"https://hub.agentnetwork.org.cn:443": "https://hub.agentnetwork.org.cn:443",
+	} {
+		got, err := normalizeBase(in)
+		if err != nil || got != want {
+			t.Errorf("normalizeBase(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{
+		"http://agentnetwork.org.cn", "ftp://x", "https://", "agentnetwork.org.cn",
+		"https://x/?a=b", "https://x/#f", "https://user:s3cret@mirror.example",
+	} {
+		_, err := normalizeBase(bad)
+		if err == nil {
+			t.Errorf("normalizeBase(%q) accepted", bad)
+			continue
+		}
+		// A credential in a base must not come back out in the error the
+		// CLI prints.
+		if strings.Contains(err.Error(), "s3cret") {
+			t.Errorf("normalizeBase(%q) repeats the password: %v", bad, err)
+		}
+	}
+}
+
 func TestParseVersionOutput(t *testing.T) {
 	v, m, err := ParseVersionOutput("anet 0.2.0 (commit 1a2b3c4, built 2026-09-27T08:33:44Z)\nmodules: cas,mcp\n")
 	if err != nil || v != "0.2.0" || strings.Join(m, ",") != "cas,mcp" {
