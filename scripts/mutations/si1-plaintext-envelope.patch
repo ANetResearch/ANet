@@ -1,0 +1,66 @@
+Mutation for scripts/joint.sh section C (B5-02, A2A-DESIGN SI-1 "关闭加密"): the sealed envelope's
+ciphertext is its plaintext. Seal writes the padded, signed inner message followed by a zero "tag" of
+the AEAD's length, and Open strips it; the HPKE key agreement still runs, so envelopes keep their shape,
+every daemon built with it still understands every other, and the hub (which never opens an envelope)
+accepts them. Everything that crosses the hub is readable there. Never commit it applied.
+
+Repository: ANetCore
+Expect: SI-1 canary hits
+
+Apply and run with scripts/mutations/mutate.sh (it copies the three working trees to a scratch
+directory, applies the patch there and builds the joint binary set from the copy):
+
+    scripts/mutations/mutate.sh canary scripts/mutations/si1-plaintext-envelope.patch
+
+or, for a test host without go:
+
+    scripts/mutations/mutate.sh build -o "$MUTBIN" scripts/mutations/si1-plaintext-envelope.patch
+    JOINT_BIN="$MUTBIN" JOINT_CANARY_ONLY=1 J=/tmp/jx scripts/joint.sh   # on the host
+    scripts/mutations/mutate.sh check /tmp/jx
+
+Expected: section C red. Every goal, chat turn, attachment and argument crosses the hub in the clear,
+so the tap's record of the canary nodes' hub traffic holds each canary (base64 in /relay/send bodies and
+/relay/poll answers), and the hub's data directory usually does too (relay rows until they are
+acknowledged; their pages in the WAL after). The recipients still read everything back, and the
+settlement check stays green: the payment objects never carried content. Unit level: the seal tests
+that open with real HPKE or expect a wrong key to fail (TestOpenRecipientAndKey, TestVEC_SEALED_1, …).
+
+diff --git a/seal/envelope.go b/seal/envelope.go
+index 5dc5928..dcd5e95 100644
+--- a/seal/envelope.go
++++ b/seal/envelope.go
+@@ -288,10 +288,10 @@ func seal(inner *SealedInner, recipient *EncKey, sign SignFunc, hook func(fieldM
+ 	if hook == nil && len(pt) != want {
+ 		return nil, fail(ReasonInternalError, "padded inner is %d bytes, computed %d", len(pt), want)
+ 	}
+-	ct, err := sender.Seal(nil, pt)
+-	if err != nil {
+-		return nil, failWrap(ReasonInternalError, err, "hpke seal")
+-	}
++	// MUTATION (scripts/mutations/si1-plaintext-envelope.patch): the "ciphertext" is the plaintext
++	// followed by a zero tag of the AEAD's length. Never commit this.
++	_ = sender
++	ct := append(append([]byte{}, pt...), make([]byte, 16)...)
+ 	env := SealedEnvelope{V: EnvelopeVersion, To: inner.To, Suite: recipient.Suite, KID: recipient.KID, Enc: enc, CT: ct}
+ 	b, err := env.Marshal()
+ 	if err != nil {
+@@ -411,14 +411,14 @@ func Open(envelope []byte, selfAID string, ring KeyRing) (*Opened, error) {
+ 	if err != nil {
+ 		return nil, failWrap(ReasonBadOuter, err, "hpke info")
+ 	}
+-	r, err := hpke.NewRecipient(outer.Enc, sk, p.kdf, p.aead, info)
+-	if err != nil {
++	if _, err := hpke.NewRecipient(outer.Enc, sk, p.kdf, p.aead, info); err != nil {
+ 		return nil, failWrap(ReasonDecrypt, err, "hpke recipient")
+ 	}
+-	pt, err := r.Open(nil, outer.CT)
+-	if err != nil {
+-		return nil, failWrap(ReasonDecrypt, err, "hpke open")
++	// MUTATION: see Seal.
++	if len(outer.CT) < 16 {
++		return nil, fail(ReasonDecrypt, "short ciphertext")
+ 	}
++	pt := outer.CT[:len(outer.CT)-16]
+ 	fields, inner, err := decodeInner(pt)
+ 	if err != nil {
+ 		return nil, err

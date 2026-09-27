@@ -17,11 +17,11 @@ import (
 	"time"
 )
 
-// The three scripts that used to stop every anet on the machine by name, and joint-a2a.sh, written
-// after them to the same rule.
+// The three scripts that used to stop every anet on the machine by name, joint-a2a.sh, written after
+// them to the same rule, and the mutation runner that drives joint.sh on the same hosts.
 func TestJointScriptsDoNotStopProcessesByName(t *testing.T) {
 	byName := regexp.MustCompile(`\b(pgrep|pkill|killall)\b`)
-	for _, f := range []string{"joint.sh", "scenario.sh", "joint-fleet.sh", "joint-a2a.sh"} {
+	for _, f := range []string{"joint.sh", "scenario.sh", "joint-fleet.sh", "joint-a2a.sh", "mutations/mutate.sh"} {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
