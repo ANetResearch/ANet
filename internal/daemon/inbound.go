@@ -79,6 +79,12 @@ type PublicCapability struct {
 	GlobalPerMin    int    `json:"global_per_min,omitempty"`
 	MaxInflight     int    `json:"max_inflight,omitempty"`
 	MaxArgsBytes    int    `json:"max_args_bytes,omitempty"`
+	// Evidence is what the chain keeps of a call of this capability
+	// (trust public_cap, whoever the caller): "cid" (the default) keeps
+	// the result CID and the metrics, "full" also keeps the provenance
+	// with the observed state, which is the capability's whole answer.
+	// See evidence_mode.go.
+	Evidence string `json:"evidence,omitempty"`
 }
 
 // RejectNoticeConfig bounds refusal replies. The global rate is kept well
@@ -175,6 +181,9 @@ func (p PublicCapability) limits() PublicCapability {
 	if p.MaxArgsBytes <= 0 {
 		p.MaxArgsBytes = defaultCapMaxArgsBytes
 	}
+	if p.Evidence == "" {
+		p.Evidence = EvidenceCID
+	}
 	return p
 }
 
@@ -231,6 +240,9 @@ func validatePolicy(c Config, untrustedBackend bool) error {
 	for _, p := range in.PublicCapabilities {
 		if strings.TrimSpace(p.ID) == "" {
 			return fmt.Errorf("anet: inbound.public_capabilities has an entry without an id")
+		}
+		if err := validEvidenceMode(p); err != nil {
+			return err
 		}
 	}
 	if in.Policy != PolicyOpen {
@@ -582,6 +594,7 @@ type inboundAgg struct {
 	received      int
 	receivedBy    map[string]int
 	receivedAIDs  []string
+	msg           msgAgg // messages on public and public_cap interactions (evidence_msg.go)
 	refusedLogMu  sync.Mutex
 	refusedLogMax int64 // bytes before rotation; 0 = default
 }
@@ -647,8 +660,10 @@ func (d *Daemon) flushInboundSummary(force bool) {
 	start := a.start
 	refused, refusedBy, refusedAIDs := a.refused, a.refusedBy, a.refusedAIDs
 	received, receivedBy, receivedAIDs := a.received, a.receivedBy, a.receivedAIDs
+	msgs := a.msg
 	a.start, a.refused, a.refusedBy, a.refusedAIDs = 0, 0, nil, nil
 	a.received, a.receivedBy, a.receivedAIDs = 0, nil, nil
+	a.msg = msgAgg{}
 	a.mu.Unlock()
 	if d.ledger == nil {
 		return
@@ -669,6 +684,7 @@ func (d *Daemon) flushInboundSummary(force bool) {
 			log.Printf("anet: received summary evidence: %v", err)
 		}
 	}
+	d.appendMessageSummary(msgs, start, now)
 }
 
 // refusedLogName is the local refusal log in the data directory.

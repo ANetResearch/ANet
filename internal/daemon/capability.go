@@ -570,8 +570,10 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 		"status": res.Status, "verifiable": res.Verifiable, "metrics": res.Metrics,
 		"result_cid": resultCID, "state": string(state),
 	}
-	if res.Evidence != nil {
-		ev["evidence"] = res.Evidence
+	// A public_cap call in the cid mode keeps only how the effect was
+	// checked, not what it produced (evidence_mode.go).
+	if prov := d.effectEvidence(ix, capID, res.Evidence); prov != nil {
+		ev["evidence"] = prov
 	}
 	if _, lerr := d.ledger.Append(EvCapabilityEffect, ev); lerr != nil {
 		log.Printf("anet: capability %s: evidence ledger: %v", capID, lerr)

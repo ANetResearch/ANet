@@ -38,6 +38,7 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/evtypes"
 )
 
 // Where the fact an event records came from.
@@ -68,34 +69,32 @@ func verdictText(v string) string {
 
 // eventKind describes a known event type.
 type eventKind struct {
-	label  string
-	source string
+	label    string
+	source   string
+	aggLabel string // label of the aggregated form, when there is one
 }
 
-var knownEvents = map[string]eventKind{
-	"anet.delegation.sent":            {"delegation sent", srcNode},
-	"anet.delegation.received":        {"delegation received", srcPeer},
-	"anet.delegation.refused_summary": {"delegations refused (aggregated)", srcNode},
-	"anet.result.accepted":            {"result accepted", srcPeer},
-	"anet.interaction.receipt":        {"receipt issued", srcNode},
-	"anet.capability.effect":          {"capability executed", srcNode},
-	"anet.payment.settled":            {"payment settled", srcHub},
-	"anet.payment.authorized":         {"payment authorized", srcNode},
-	"anet.payment.quoted":             {"payment quoted", srcNode},
-	"anet.credit.redeemed":            {"credit redeemed", srcHub},
-	"anet.voucher.redeemed":           {"voucher redeemed", srcHub},
-	"anet.voucher.refused":            {"voucher refused", srcNode},
-	"anet.issuance.head_seen":         {"hub issuance head seen", srcHub},
-	"anet.shell.command":              {"shell command run", srcNode},
-	"anet.shell.refused":              {"shell command refused", srcNode},
-	"anet.policy.changed":             {"policy changed", srcNode},
-	"anet.autoreply.invoked":          {"auto-reply invoked", srcNode},
-	"anet.backend.forwarded":          {"forwarded to A2A backend", srcNode},
-	"anet.delivery.expired":           {"delivery expired", srcNode},
-	"anet.evidence.gap":               {"evidence gap (a torn record was lost)", srcNode},
-	"anet.message.sent":               {"message sent", srcNode},
-	"anet.message.received":           {"message received", srcPeer},
+// sourceText is how an event source of the registry is shown.
+var sourceText = map[evtypes.Source]string{
+	evtypes.SourceNode: srcNode,
+	evtypes.SourcePeer: srcPeer,
+	evtypes.SourceHub:  srcHub,
 }
+
+// knownEvents is the evidence event registry (internal/evtypes) as this
+// command shows it. It is built from the registry, not listed here, so an
+// event the node writes is never one its own audit calls unknown.
+var knownEvents = func() map[string]eventKind {
+	m := map[string]eventKind{}
+	for _, e := range evtypes.All() {
+		src, ok := sourceText[e.Source]
+		if !ok {
+			src = srcAny
+		}
+		m[e.Type] = eventKind{label: e.Label, source: src, aggLabel: e.AggregatedLabel}
+	}
+	return m
+}()
 
 type auditEvent struct {
 	Seq    uint64 `json:"seq"`
@@ -396,6 +395,9 @@ func classify(r daemon.EvidenceRecord) auditEvent {
 	}
 	ev.Label, ev.Source = k.label, k.source
 	p := ev.Payload
+	if agg, _ := p["aggregated"].(bool); agg && k.aggLabel != "" {
+		ev.Label = k.aggLabel
+	}
 	switch r.EventType {
 	case "anet.result.accepted":
 		ev.Verdict = boolVerdict(p["receipt_verified"])
@@ -415,10 +417,6 @@ func classify(r daemon.EvidenceRecord) auditEvent {
 		}
 		ok := st == "OK"
 		ev.Status, ev.Success = st, &ok
-	case "anet.delegation.received":
-		if agg, _ := p["aggregated"].(bool); agg {
-			ev.Label = "delegations received (aggregated)"
-		}
 	}
 	return ev
 }

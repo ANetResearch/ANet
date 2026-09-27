@@ -137,39 +137,54 @@ daemon 发给后端的请求头(`module/service`):
 HTTP 状态、调用方 AID、交互 id、入口(`relay`/`voucher`)、入出字节数、耗时。
 不写参数与结果的任何部分。这行日志随 journald 的轮转策略保留。
 
-**daemon(官方身份的数据目录)**,现状:
+**daemon(官方身份的数据目录)**:
 
-- 交互库保存请求的签名 TaskDoc(含能力参数)与结果交付物,目前没有自动清理。
-- 证据链的 `anet.capability.effect` 事件记录 provenance,其中 `observed_state` 就是后端的
-  完整回复;证据链只追加。
+- **证据链**(只追加,永久):公共能力调用的 `anet.capability.effect` 事件只记调用方 AID、
+  能力 id、状态、指标(`metrics`)、`result_cid`,以及说明"效果如何核验"的四项
+  (`protocol`、`verify_trust`、`latency_ms`、`native_ack`);不记参数,不记结果,
+  不记 `observed_state`(即后端的完整回复)。这是 `public_capabilities` 每项的
+  `"evidence": "cid"`,也是 daemon 的缺省值,样例配置显式写出(§6)。公共能力调用的
+  接收与陌生人请求的拒绝按 10 分钟窗口聚合计数(`anet.delegation.received`/`refused_summary`,
+  只记次数、按原因/信任分类计数与前 10 个 AID);对话消息事件
+  (`anet.message.sent/received`)只记 CID 与字节数,`public`/`public_cap` 交互上的同样按窗口聚合。
+- **交互库**(`interactions.db`):保存请求的签名 TaskDoc(含能力参数)、结果交付物、
+  付款消息的元数据与收据,用于应答、重投与对账。`trust=public_cap` 的交互在进入终态
+  **7 天后**删除:daemon 每小时检查一次,截止时间取当天 0 点(UTC)减 7 天,所以实际
+  保存 7–8 天;交互行、它的消息与附件、调用期间暂存的调用方 KEL 与密钥集
+  (`peer_kel`/`peer_keys`,交互进入终态时已清空)一并删除。结果还在重发队列里、
+  尚未送达调用方的交互,等队列放手后再删;付款已提交、尚未结算的交互不删(结算与对账要用
+  其中的付款载荷)。daemon 启动时也清理一次;每批 500 条一个事务。每次删除写一条
+  `anet.interaction.pruned` 证据(条数、消息数、附件数、截止时间),不含被删内容。
+- **不删的**:证据链(见上,不含内容);重放表(只有发送方 AID 与消息 id,按消息过期
+  时间自行清理);`inbound-refused.log`(被拒请求的时间、AID、交互 id、原因,1 MiB 轮转、
+  留一份旧文件)。
+- 删除之后,同一调用方以同一交互 id 重新封装的委派会被当作新调用处理(原信封的重放
+  仍被重放表挡住);公共能力是确定性纯计算,付费能力会重新报价。
 
-**目标策略**(依赖 daemon 内核的两项尚未实现的配置,见 §7):
-
-1. 公共能力的证据事件只记 `result_cid` 与指标(`metrics`、状态、调用方、能力 id),
-   不记 `observed_state`。`result_cid` 足以让持有结果的一方证明结果与收据相符。
-2. `public_cap` 交互的参数与结果按天数清理(建议 7 天),收据与 `result_cid` 保留。
-
-在这两项实现之前,运营者定期清理官方身份的交互库,并如实对外说明现状。
+结果本身已经随签名收据交给调用方;调用方要证明结果,出示结果与收据,任何人重算 CID
+即可核对,不需要官方 agent 保存原文。
 
 **hub**:只见密文信封与路由元数据(§2)。hub admin 对官方 agent 只登记
 `id/aid/hub/caps`,不采集运行数据(A2A-DESIGN §2 "hub admin 采集")。
 
 ## 6. 公共能力的证据模式
 
-C5 证据面对公共能力有两种模式,由各节点配置(契约文档 C5 写明两种模式):
+C5 证据面对公共能力有两种模式,按能力配置在 `inbound.public_capabilities[].evidence`
+(契约文档 C5 写明两种模式)。模式作用于 `trust=public_cap` 的调用,即列入
+`public_capabilities` 的能力的每一次调用:入站判定第 2 行(A2A-DESIGN §5.2)先于允许名单,
+允许名单里的对端调用公开能力同样按 `public_cap` 准入、按本模式记录、7 天后清理。
+未公开的能力只有允许名单(`trust=peer`)或人工批准的对端能调,证据链照常记完整 provenance。
 
 | 模式 | `anet.capability.effect` 事件内容 | 用途 |
 |---|---|---|
-| 完整(默认) | 调用方、能力、状态、指标、`result_cid`、provenance(含 `observed_state`) | 私有能力;事后可从证据链复原结果 |
-| 只记 CID | 调用方、能力、状态、指标、`result_cid` | 公共能力;证据链不再是调用内容的第二份拷贝 |
+| `cid`(缺省) | 调用方、能力、状态、指标、`result_cid`;provenance 只留 `protocol`、`verify_trust`、`latency_ms`、`native_ack` | 公共能力;证据链不再是调用内容的第二份拷贝 |
+| `full` | 以上,加完整 provenance(含 `observed_state`、`requested`、`quirk`、`auth_trust`) | 运营者需要事后从证据链复原陌生人调用结果时显式打开 |
 
-官方公共 agent 用"只记 CID"。结果本身已经随签名收据交给调用方;调用方要证明结果,
-出示结果与收据,任何人重算 CID 即可核对,不需要官方 agent 的证据链里有原文。
+官方公共 agent 一律用 `cid`;`anet-official service-config` 生成的配置带
+`"evidence": "cid"`,`cmd/anet-official` 的测试检查五个样例都是 `cid`。
 
 ## 7. 尚未就绪的依赖
 
-- daemon 内核:公共能力证据"只记 CID"模式的配置项与实现(§6),`public_cap` 交互的
-  保存期限清理(§5)。样例配置里没有写这两个键:它们还不存在,写了也不会生效。
 - 官方清单:发布签名密钥签署的官方 AID 清单,随二进制打包,`list_agents` 与代理卡片据此
   标注 `anet.official: true`(A2A-DESIGN §15)。
 - 卡片:daemon 生成 A2A 网络卡片时经 `provider.Described` 读取 service 模块配置的
