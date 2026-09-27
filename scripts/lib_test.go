@@ -334,3 +334,17 @@ func TestCanaryHitsFindsEncodedCopies(t *testing.T) {
 	}
 }
 
+// lib.sh has two canary searches from two work packages; each keeps its own name, so neither shadows
+// the other when both are sourced: canary_hits (one needle in files, joint-official.sh) and
+// canary_report_hits (hits counted in canary_scan reports, joint.sh section C).
+func TestLibDefinesEachCanaryHelperOnce(t *testing.T) {
+	b, err := os.ReadFile("lib.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fn := range []string{"canary_hits", "canary_report_hits", "canary_new", "canary_scan", "canary_tap", "canary_settle"} {
+		if n := len(regexp.MustCompile(`(?m)^`+fn+`\(\)`).FindAll(b, -1)); n != 1 {
+			t.Errorf("lib.sh defines %s() %d times", fn, n)
+		}
+	}
+}
