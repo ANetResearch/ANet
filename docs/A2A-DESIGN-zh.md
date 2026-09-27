@@ -568,7 +568,7 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 - `securitySchemes` 省略(认证由绑定内的发送方签名承担);不定义新 scheme 类型。
 - `capabilities.extensions`:`…/anet-card/v1`(`params{aid, seq:"<字符串>", issuedAt, notBefore}`)、a2a-x402 v0.2、`…/anet-pricing/v1`(`params{network, prices:[{skillId, amount:"<字符串>"}]}`)、`…/anet-evidence/v1`。
 - 数值一律字符串;必填切片非 nil;`streaming`、`pushNotifications` 显式输出。
-- 发布形(`a2acard.CheckPublishForm`,`Sign` 只接受发布形,不自动改写):REQUIRED 字段必须出现且非空(REQUIRED 数组至少一项:`supportedInterfaces`、`defaultInputModes`、`defaultOutputModes`、`skills`、每个 skill 的 `tags`;`name`/`description`/`version`、接口的 `url`/`protocolBinding`/`protocolVersion` 非空);`optional` 字段仅在显式设置时出现;其余字段处于默认值(`false`、`""`、`[]`、`{}`、`null`)时一律省略;不出现 schema 以外的成员;扩展 `params` 内部不出现 `null`/`""`/`[]`/`{}`(a2a-python 会在 Struct 内部删除它们,规范不删,两边原像不同);`extendedAgentCard` 出现时只能为 `true`。扩展声明用 `a2acard.ExtensionDecl` 构造。
+- 发布形(`a2acard.CheckPublishForm`,`Sign` 只接受发布形,不自动改写):REQUIRED 字段必须出现且非空(REQUIRED 数组至少一项:`supportedInterfaces`、`defaultInputModes`、`defaultOutputModes`、`skills`、每个 skill 的 `tags`;`name`/`description`/`version`、接口的 `url`/`protocolBinding`/`protocolVersion` 非空);`optional` 字段仅在显式设置时出现,且不为空串;其余字段处于默认值(`false`、`""`、`[]`、`{}`、`null`)时一律省略;不出现 schema 以外的成员;扩展 `params` 内部不出现 `null`/`""`/`[]`/`{}`(a2a-python 会在 Struct 内部删除它们,规范不删,两边原像不同);oneof 消息(`SecurityScheme`、`OAuthFlows`)恰好设置一个成员(a2a-python 与 a2a-go 都拒绝解析设置了两个的对象);a2a-go 每次序列化都写出的成员必须出现(`capabilities.streaming`/`pushNotifications`,以及已弃用的 implicit/password OAuth 流的 `authorizationUrl`/`tokenUrl`/`scopes`),否则 a2a-go 解析—再序列化后载荷改变;`extendedAgentCard` 出现时只能为 `true`。扩展声明用 `a2acard.ExtensionDecl` 构造。
 
 ### 10.2 skills 来源
 
