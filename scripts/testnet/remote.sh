@@ -237,7 +237,8 @@ rt_daemon(){
   cfg="$d/home/.anet/config.json"
   if [ ! -f "$cfg" ] || [ "$rewrite" = 1 ]; then
     if [ -n "$cfg64" ]; then
-      printf '%s' "$cfg64" | base64 -d > "$cfg.tmp"
+      # {TOKEN_FILE}: an official node's backend token (rt_official_backend), known only here.
+      printf '%s' "$cfg64" | base64 -d | sed "s|{TOKEN_FILE}|$d/backend/token|g" > "$cfg.tmp"
     else
       printf '{\n "control_addr": "127.0.0.1:%s",\n "hub_url": "%s",\n "name": "tn-%s"%s\n}\n' \
         "$port" "$hub" "$name" "$modules" > "$cfg.tmp"
@@ -260,24 +261,62 @@ rt_daemon(){
   rt_log "daemon $name up on 127.0.0.1:$port (hub $hub)"
 }
 
-# rt_official NAME PORT BACKEND_ARGS...: the anet-official backend on 127.0.0.1:PORT+1. The daemon
-# half is a separate rt_daemon call.
+# rt_official_backend NAME PORT BACKEND_ARGS...: the anet-official backend on 127.0.0.1:PORT+1. {TOKEN_FILE}
+# in the arguments is the backend's bearer token, <node>/backend/token: made here on the first deploy
+# (0600, never leaves the host) and kept across redeploys; the daemon's service module presents the same
+# file (rt_official_config). The daemon half is a separate rt_daemon call.
 rt_official_backend(){
   rt_init
   local name=$1 port=$2; shift 2
-  local bin="$TN_RUNDIR/bin/anet-official" bd
+  local bin="$TN_RUNDIR/bin/anet-official" bd tok a args=()
   [ -x "$bin" ] || rt_die "missing $bin — ANet/cmd/anet-official not built yet"
-  bd=$(rt_node_dir "$name/backend")
-  rt_stop "$name-backend" "$bd"; rt_port_free $((port + 1))
-  rt_write_launcher "$name-backend" "$bd" "$bin" "$@"
-  rt_start "$name-backend" "$bd"
-  sleep 2
-  if [ "$TN_MODE" = system ]; then
-    systemctl is-active -q "$(rt_unit "$name-backend").service" || rt_fail_log "$name-backend" "$bd" "backend exited"
-  else
-    [ -d "/proc/$(cat "$bd/$name-backend.pid")" ] || rt_fail_log "$name-backend" "$bd" "backend exited"
+  bd=$(rt_node_dir "$name/backend"); tok="$bd/token"
+  if [ ! -s "$tok" ]; then
+    ( umask 077; head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$tok.tmp" && mv -f "$tok.tmp" "$tok" )
   fi
+  chmod 0600 "$tok"
+  for a in "$@"; do args+=("${a//\{TOKEN_FILE\}/$tok}"); done
+  rt_stop "$name-backend" "$bd"; rt_port_free $((port + 1))
+  rt_write_launcher "$name-backend" "$bd" "$bin" "${args[@]}"
+  rt_start "$name-backend" "$bd"
+  # /healthz is the one path it answers without the token.
+  rt_wait_http "http://127.0.0.1:$((port + 1))/healthz" 15 || rt_fail_log "$name-backend" "$bd" "backend did not answer /healthz"
   rt_log "official backend $name on 127.0.0.1:$((port + 1))"
+}
+
+# rt_official_config NAME PORT HUB_URL GROUPS REWRITE(0|1): the official daemon's config.json, from
+# `anet-official service-config` (the generator deploy/official is checked against): inbound closed with
+# the groups' public_capabilities, modules.service pointing at 127.0.0.1:PORT+1 with the backend's token
+# file, and the x402 module when the paid group is served. An existing config.json is kept unless
+# REWRITE=1 (tests may have written to it), as rt_daemon does.
+rt_official_config(){
+  rt_init
+  local name=$1 port=$2 hub=$3 groups=$4 rewrite=${5:-0} d cfg tok bin
+  bin="$TN_RUNDIR/bin/anet-official"; [ -x "$bin" ] || rt_die "missing $bin"
+  d=$(rt_node_dir "$name"); tok="$d/backend/token"
+  mkdir -p "$d/home/.anet"; chmod 0700 "$d/home/.anet"
+  cfg="$d/home/.anet/config.json"
+  if [ -f "$cfg" ] && [ "$rewrite" != 1 ]; then
+    rt_log "$name: keeping the existing config.json (REWRITE_CONFIG=1 to replace it)"
+    return 0
+  fi
+  [ -s "$tok" ] || rt_die "$name: no backend token at $tok (the backend is deployed first)"
+  "$bin" service-config -groups "$groups" -url "http://127.0.0.1:$((port + 1))" -token-file "$tok" \
+    > "$d/service-config.json" </dev/null || rt_die "$name: anet-official service-config -groups $groups failed"
+  python3 -c '
+import json, sys
+svc, out, addr, hub, name, groups = sys.argv[1:7]
+s = json.load(open(svc))
+c = {"control_addr": addr, "hub_url": hub, "name": name,
+     "inbound": s["inbound"], "modules": {"service": s["modules"]["service"]}}
+if "paid" in groups.split(","):
+    c["modules"]["x402"] = {}
+with open(out, "w") as f:
+    json.dump(c, f, indent=1)
+' "$d/service-config.json" "$cfg.tmp" "127.0.0.1:$port" "$hub" "tn-$name" "$groups" </dev/null \
+    || rt_die "$name: cannot write config.json"
+  chmod 0600 "$cfg.tmp"; mv -f "$cfg.tmp" "$cfg"
+  rt_log "$name: config.json from anet-official service-config -groups $groups"
 }
 
 # rt_register NAME PORT HUB_URL DISPLAY [P2P_ADDR]: /hub-register through the control API, then, when

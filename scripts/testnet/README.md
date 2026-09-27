@@ -60,7 +60,7 @@ bash scripts/testnet/deploy.sh ink89 daemon
 bash scripts/testnet/deploy.sh ink90 daemon
 bash scripts/testnet/deploy.sh dmax  daemon
 bash scripts/testnet/deploy.sh cmax  daemon
-bash scripts/testnet/deploy.sh ink90 official     # 需要 ANet/cmd/anet-official 已存在并已构建
+bash scripts/testnet/deploy.sh ink90 official     # anet-official 后端 + daemon;能力组见 TESTNET_OFFICIAL_GROUPS
 # 或一次全部:bash scripts/testnet/deploy.sh everything
 
 bash scripts/testnet/deploy.sh status     # 各主机上跑着什么(不带主机名会连拓扑里的每一台,含 cmax/dmax;
@@ -223,8 +223,11 @@ JOINT_BIN=<dir>/linux-amd64 JOINT_PORT_BASE=47170 J=/tmp/joint-a2a-tn bash scrip
 
 ## 已知限制
 
-- `anet-official` 还没有源码(`ANet/cmd/anet-official` 不存在),`official` 角色部署会在传二进制时拒绝;其启动参数
-  `TESTNET_OFFICIAL_ARGS` 与 daemon 配置模板 `TESTNET_OFFICIAL_CONFIG` 是占位,以 official 工作包为准。
+- `official` 角色:后端是 `anet-official serve`(`-listen 127.0.0.1:<控制口+1> -token-file <节点>/backend/token
+  -groups <TESTNET_OFFICIAL_GROUPS>`,默认 `echo,tools,paid`);令牌首次部署时在远端生成(0600,不出主机),
+  daemon 的 `config.json` 在远端由 `anet-official service-config` 生成(inbound closed + public_capabilities +
+  modules.service,含 paid 组时加 x402 模块),与 `deploy/official` 同源。测试网只有一个 official 身份,所以免费组
+  与付费演示在一起;生产按 `deploy/official` 一组一个身份。已有 `config.json` 时保留(`REWRITE_CONFIG=1` 重写)。
 - 瞬态单元与 setsid 进程都不跨重启;主机重启后重跑 deploy(身份与数据保留在目录里)。
 - 用户模式没有自动重启;进程崩溃看 `deploy.sh status` 与节点目录里的日志。
 - deploy 的系统模式沙箱参数只在本机用 `systemd-run --user` 校验过能被解析;首次在 cmax/dmax 部署时先部署一个 hub,
