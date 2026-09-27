@@ -143,11 +143,12 @@ jobs:
           go build -tags "${{ matrix.tags }}" -o /tmp/anet-lean ./cmd/anet
           mod="${{ matrix.tags }}"; mod="${mod%%,*}"; mod="${mod#no_}"
           # Most modules live under module/ or provider/; the MCP
-          # northbound lives at internal/mcpserv, so the pattern has to
-          # name it. A symbol check that cannot see the code it is
-          # checking passes for the wrong reason.
+          # northbound lives at internal/mcpserv and `anet agents wire`
+          # at internal/agentwire, so the pattern has to name both. A
+          # symbol check that cannot see the code it is checking passes
+          # for the wrong reason.
           pat="provider/$mod|module/$mod"
-          [ "$mod" = mcp ] && pat="internal/mcpserv"
+          [ "$mod" = mcp ] && pat="internal/mcpserv|internal/agentwire"
           full=$(go tool nm /tmp/anet-full | grep -cE "$pat" || true)
           lean=$(go tool nm /tmp/anet-lean | grep -cE "$pat" || true)
           echo "$mod symbols: full=$full lean=$lean"

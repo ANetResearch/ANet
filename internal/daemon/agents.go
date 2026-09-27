@@ -1,8 +1,8 @@
 package daemon
 
-// agents.go — shared registry for wiring anet into external coding agents (`anet install --agent`)
-// and for headless one-shot invocation (`auto_reply.backend = "exec"`). Supported: cursor, claude,
-// codex, opencode, openclaw, hermes.
+// agents.go — registry of the external coding agents the exec auto-reply backend can run headless
+// (`auto_reply.backend = "exec"`). Supported: cursor, claude, codex, opencode, openclaw, hermes.
+// Registering anet's MCP server with these tools is internal/agentwire (`anet agents wire`).
 
 import (
 	"bytes"
@@ -53,22 +53,21 @@ type agentSpec struct {
 	// takes no model flag). See InvokeAgent.
 	defaultModel string
 	detectBin    func() (string, error)
-	install      func() ([]string, error)
 	invoke       func(ctx context.Context, o execInvokeOpts) (string, error)
 }
 
 func agentRegistry() []agentSpec {
 	return []agentSpec{
-		{id: agentCursor, displayName: "Cursor Agent", defaultModel: "auto", detectBin: detectCursorBin, install: installCursor, invoke: invokeCursor},
-		{id: agentClaude, displayName: "Claude Code", defaultModel: "haiku", detectBin: detectClaudeBin, install: installClaude, invoke: invokeClaude},
-		{id: agentCodex, displayName: "Codex CLI", detectBin: detectCodexBin, install: installCodex, invoke: invokeCodex},
-		{id: agentOpenCode, displayName: "opencode", detectBin: detectOpenCodeBin, install: installOpenCode, invoke: invokeOpenCode},
-		{id: agentOpenClaw, displayName: "OpenClaw", detectBin: detectOpenClawBin, install: installOpenClaw, invoke: invokeOpenClaw},
-		{id: agentHermes, displayName: "hermes-agent", detectBin: detectHermesBin, install: installHermesCLI, invoke: invokeHermes},
+		{id: agentCursor, displayName: "Cursor Agent", defaultModel: "auto", detectBin: detectCursorBin, invoke: invokeCursor},
+		{id: agentClaude, displayName: "Claude Code", defaultModel: "haiku", detectBin: detectClaudeBin, invoke: invokeClaude},
+		{id: agentCodex, displayName: "Codex CLI", detectBin: detectCodexBin, invoke: invokeCodex},
+		{id: agentOpenCode, displayName: "opencode", detectBin: detectOpenCodeBin, invoke: invokeOpenCode},
+		{id: agentOpenClaw, displayName: "OpenClaw", detectBin: detectOpenClawBin, invoke: invokeOpenClaw},
+		{id: agentHermes, displayName: "hermes-agent", detectBin: detectHermesBin, invoke: invokeHermes},
 	}
 }
 
-// SupportedExecAgents lists agent ids valid for auto_reply.backend=exec and `anet install --agent`.
+// SupportedExecAgents lists agent ids valid for auto_reply.backend=exec.
 func SupportedExecAgents() []string {
 	r := agentRegistry()
 	ids := make([]string, 0, len(r))

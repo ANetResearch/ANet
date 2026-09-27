@@ -1,0 +1,11 @@
+{
+  "type": "local",
+  "command": [
+    "/opt/anet/bin/anet",
+    "mcp"
+  ],
+  "enabled": true,
+  "environment": {
+    "ANET_DATA_DIR": "/home/u/.anet"
+  }
+}
