@@ -668,8 +668,8 @@ func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
 				return err
 			}
 		}
-		if d.rxFault != nil {
-			return d.rxFault(m.typ)
+		if fault := d.testRxFault(); fault != nil {
+			return fault(m.typ)
 		}
 		return nil
 	})
