@@ -48,6 +48,10 @@ const (
 	waitMaxSeconds     = 300
 )
 
+// listHistoryDefault is list_tasks' history_length when the caller gives
+// none: each task's latest message.
+const listHistoryDefault = 1
+
 // waitMS turns a tool's timeout_seconds into the control plane's
 // timeout_ms.
 func waitMS(seconds int) int64 {
@@ -77,7 +81,8 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"send_message to it), its signed A2A network card, and this node's own check of that card: " +
 			"verification is VERIFIED only when the signature checked out against the agent's key " +
 			"history here; what the hub says (hubVerification) is not a substitute. Page with `cursor` " +
-			"(nextCursor).",
+			"(nextCursor). Because `query` is applied here to each page the hub sends, a page can be " +
+			"short or even empty while nextCursor is not: the list ends only when nextCursor is empty.",
 		Annotations: readNetwork(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listAgentsIn) (*mcp.CallToolResult, any, error) {
 		body := map[string]any{}
@@ -117,7 +122,8 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"wait_task, and do not send it again: a resend is a second task. Give a `message_id` of " +
 			"your own to make a retry safe: the same message_id returns the task it already made. " +
 			"input-required with metadata x402.payment.required is a price quote: see " +
-			"submit_payment. " + honesty,
+			"submit_payment. (A quote within the operator's automatic limit, payments.auto_max, 0 on " +
+			"a new node, is paid by the node itself and the task simply goes on.) " + honesty,
 		Annotations: sendsToPeer(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, any, error) {
 		if in.To == "" && in.TaskID == "" {
@@ -180,7 +186,9 @@ func addTaskTools(s *mcp.Server, c Control) {
 		Description: "This node's tasks, most recent state change first. role=requester lists the " +
 			"tasks this node sent; role=provider lists tasks other agents sent to this node (answer " +
 			"them with reply_task). Filter by context_id (one conversation), state (completed, " +
-			"input-required, ...) or peer (an AID). Page with page_token (nextPageToken). " + honesty,
+			"input-required, ...) or peer (an AID). Each task comes with its latest message only " +
+			"unless you ask for more with history_length; get_task reads one task whole. Page with " +
+			"page_token (nextPageToken). " + honesty,
 		Annotations: readLocal(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listTasksIn) (*mcp.CallToolResult, any, error) {
 		role, err := controlRole(in.Role)
@@ -196,6 +204,11 @@ func addTaskTools(s *mcp.Server, c Control) {
 		if in.PageSize > 0 {
 			body["page_size"] = in.PageSize
 		}
+		// A page is up to 50 tasks, and the control plane's default is every
+		// message of each: enough to fill a model's context with other
+		// agents' words it did not ask to read. The latest message is what
+		// a listing is for (the question asked, the answer given).
+		body["history_length"] = listHistoryDefault
 		if in.HistoryLength != nil {
 			body["history_length"] = *in.HistoryLength
 		}
@@ -283,7 +296,9 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"refused, tell the user the price and the payee and let them decide — the operator can " +
 			"pay by hand with `anet pay <task_id>`; never try to raise a limit or get around one. " +
 			"When the quote offers several options, pass the one you chose as `accept`, copied " +
-			"unchanged from x402.payment.required.accepts. Check get_balance first.",
+			"unchanged from x402.payment.required.accepts. Check get_balance first. The answer is " +
+			"the decision, not the task: x402.payment.status payment-submitted means the payment " +
+			"was sent, not that it settled or that the work was done — follow the task with wait_task.",
 		Annotations: spends(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in payIn) (*mcp.CallToolResult, any, error) {
 		if in.TaskID == "" {
@@ -405,35 +420,61 @@ func pendingMetadata(raw json.RawMessage) (json.RawMessage, error) {
 	return json.Marshal(map[string]any{"pending": items})
 }
 
+// replyableStates are the states of a task sent to this node that
+// reply_task can still answer: every one that is not terminal.
+var replyableStates = []string{"submitted", "working", "input-required"}
+
+// replyListSize bounds how many open tasks of each state the refusal names.
+const replyListSize = 20
+
 // noTaskToReply is reply_task without a task id: an explicit refusal that
 // says which tasks there are to answer, or that there are none.
+//
+// It asks for the open states one by one rather than reading the newest
+// page of all inbound tasks: the list is ordered by the last state change,
+// so an open task can sit behind any number of finished ones, and "there
+// is no task" would then be false. Capability calls are left out; they
+// complete when the capability answers, and /tasks/reply refuses them.
 func noTaskToReply(ctx context.Context, c Control) error {
-	var page struct {
-		Tasks []struct {
-			ID     string `json:"id"`
-			Status struct {
-				State string `json:"state"`
-			} `json:"status"`
-		} `json:"tasks"`
-	}
-	var raw json.RawMessage
-	if err := c.Call(ctx, "/tasks/list", map[string]any{"role": "inbound", "page_size": 50, "history_length": 0}, &raw); err != nil {
-		return fmt.Errorf("task_id is required (and the tasks sent to this node could not be listed: %v)", err)
-	}
-	_ = json.Unmarshal(raw, &page)
 	var open []string
-	for _, t := range page.Tasks {
-		if !a2ashape.TaskState(t.Status.State).Terminal() {
-			open = append(open, t.ID)
+	more := false
+	for _, st := range replyableStates {
+		var page struct {
+			Tasks []struct {
+				ID       string         `json:"id"`
+				Metadata map[string]any `json:"metadata"`
+			} `json:"tasks"`
+			NextPageToken string `json:"nextPageToken"`
 		}
+		var raw json.RawMessage
+		if err := c.Call(ctx, "/tasks/list", map[string]any{"role": "inbound", "state": st,
+			"page_size": replyListSize, "history_length": 0}, &raw); err != nil {
+			return fmt.Errorf("task_id is required (and the tasks sent to this node could not be listed: %v)", err)
+		}
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return fmt.Errorf("task_id is required (and the daemon's task list did not parse: %v)", err)
+		}
+		for _, t := range page.Tasks {
+			if _, isCap := t.Metadata[a2ashape.KeySkill]; !isCap {
+				open = append(open, t.ID)
+			}
+		}
+		more = more || page.NextPageToken != ""
 	}
-	if len(open) == 0 {
+	if len(open) == 0 && !more {
 		return fmt.Errorf("there is no task to reply to: no other agent's task is waiting for this node. " +
 			"reply_task answers tasks sent to this node; a new node accepts nobody's until its operator " +
-			"allows them (`anet peers allow <aid>`). To answer a question on a task this node sent, " +
-			"use send_message with its task_id")
+			"allows them (`anet peers allow <aid>`), and tasks held for the operator's approval are in " +
+			"inbound_pending. To answer a question on a task this node sent, use send_message with its task_id")
 	}
-	return fmt.Errorf("task_id is required; tasks waiting for this node's reply: %s", strings.Join(open, ", "))
+	if len(open) == 0 {
+		return fmt.Errorf("task_id is required; list_tasks with role=provider shows the tasks waiting for this node's reply")
+	}
+	list := strings.Join(open, ", ")
+	if more {
+		list += ", and more (list_tasks with role=provider)"
+	}
+	return fmt.Errorf("task_id is required; tasks waiting for this node's reply: %s", list)
 }
 
 // controlRole maps list_tasks' role onto the control plane's: requester is
@@ -527,9 +568,9 @@ type listTasksIn struct {
 	ContextID        string `json:"context_id,omitempty" jsonschema:"only tasks of this conversation"`
 	State            string `json:"state,omitempty" jsonschema:"only tasks in this state: submitted, working, input-required, completed, failed, canceled or rejected"`
 	Peer             string `json:"peer,omitempty" jsonschema:"only tasks with this agent (AID)"`
-	PageSize         int    `json:"page_size,omitempty" jsonschema:"tasks per page"`
+	PageSize         int    `json:"page_size,omitempty" jsonschema:"tasks per page, 1 to 100; default 50"`
 	PageToken        string `json:"page_token,omitempty" jsonschema:"nextPageToken from the previous page"`
-	HistoryLength    *int   `json:"history_length,omitempty" jsonschema:"at most this many messages of history per task"`
+	HistoryLength    *int   `json:"history_length,omitempty" jsonschema:"at most this many of each task's latest messages; default 1, 0 for none"`
 	IncludeArtifacts bool   `json:"include_artifacts,omitempty" jsonschema:"include each task's artifacts (results, receipts, files)"`
 }
 

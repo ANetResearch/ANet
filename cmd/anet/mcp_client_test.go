@@ -30,6 +30,8 @@ func TestControlClientKeepsTheDaemonsAnswer(t *testing.T) {
 		case "/tasks/pay":
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = w.Write([]byte(`{"error":"over the agent limit","reason":"agent_max"}`))
+		case "/tasks/old":
+			http.NotFound(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":"task ix-9 not found","code":"TaskNotFoundError"}`))
@@ -55,6 +57,12 @@ func TestControlClientKeepsTheDaemonsAnswer(t *testing.T) {
 	err = cc.Call(ctx, "/tasks/pay", map[string]any{}, &raw)
 	if !errors.As(err, &de) || de.Status != 403 || de.Reason != "agent_max" {
 		t.Errorf("403: %#v", err)
+	}
+	// A route this daemon does not have answers in plain text; its words
+	// still reach the tool rather than a bare status.
+	err = cc.Call(ctx, "/tasks/old", map[string]any{}, &raw)
+	if !errors.As(err, &de) || de.Status != 404 || !strings.Contains(err.Error(), "404 page not found") {
+		t.Errorf("plain-text 404: %#v", err)
 	}
 
 	// A canceled tool call ends the request.

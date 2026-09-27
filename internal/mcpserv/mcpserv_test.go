@@ -20,6 +20,9 @@ type fakeControl struct {
 	reply map[string]string
 	errs  map[string]error
 	err   error
+	// answer, when set, answers a call by its body; ok false falls back to
+	// reply.
+	answer func(path string, body map[string]any) (string, bool)
 }
 
 type call struct {
@@ -40,7 +43,13 @@ func (f *fakeControl) Call(_ context.Context, path string, body, out any) error 
 	if e := f.errs[path]; e != nil {
 		return e
 	}
-	r, ok := f.reply[path]
+	r, ok := "", false
+	if f.answer != nil {
+		r, ok = f.answer(path, m)
+	}
+	if !ok {
+		r, ok = f.reply[path]
+	}
 	if !ok {
 		r = `{"ok":true}`
 	}
@@ -260,9 +269,13 @@ var requestShapes = []struct {
 	{"list_tasks", map[string]any{"role": "provider", "state": "input-required", "context_id": "ctx-1",
 		"peer": "aid-2", "page_size": 10, "page_token": "p2", "include_artifacts": true},
 		"/tasks/list", map[string]any{"role": "inbound", "state": "input-required", "context_id": "ctx-1",
-			"peer": "aid-2", "page_size": 10.0, "page_token": "p2", "include_artifacts": true}},
+			"peer": "aid-2", "page_size": 10.0, "page_token": "p2", "include_artifacts": true, "history_length": 1.0}},
 	{"list_tasks", map[string]any{"role": "requester"},
-		"/tasks/list", map[string]any{"role": "outbound"}},
+		"/tasks/list", map[string]any{"role": "outbound", "history_length": 1.0}},
+	{"list_tasks", map[string]any{"history_length": 0},
+		"/tasks/list", map[string]any{"history_length": 0.0}},
+	{"list_tasks", map[string]any{"context_id": "ctx-1", "history_length": 40},
+		"/tasks/list", map[string]any{"context_id": "ctx-1", "history_length": 40.0}},
 	{"wait_task", map[string]any{"task_id": "ix-1"},
 		"/tasks/wait", map[string]any{"task_id": "ix-1", "timeout_ms": 30000.0}},
 	{"wait_task", map[string]any{"task_id": "ix-1", "after_seq": 7, "timeout_seconds": 120},
@@ -445,29 +458,63 @@ func TestProjectionIsForwardedUnchanged(t *testing.T) {
 // reply_task is always registered (a node that answers nothing still has
 // it), and says plainly when there is nothing to answer.
 func TestReplyTaskExplainsWhenThereIsNothingToAnswer(t *testing.T) {
-	f := &fakeControl{reply: map[string]string{"/tasks/list": `{"tasks":[],"totalSize":0,"pageSize":50,"nextPageToken":""}`}}
+	open := map[string]string{}
+	f := &fakeControl{answer: func(path string, body map[string]any) (string, bool) {
+		if path != "/tasks/list" {
+			return "", false
+		}
+		st, _ := body["state"].(string)
+		if tasks, ok := open[st]; ok {
+			return tasks, true
+		}
+		return `{"tasks":[],"totalSize":0,"pageSize":20,"nextPageToken":""}`, true
+	}}
 	sess := connect(t, f)
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "reply_task",
 		Arguments: map[string]any{"text": "hello"}})
 	msg, isErr := resultText(t, res, err)
-	if !isErr || !strings.Contains(msg, "there is no task to reply to") {
+	if !isErr || !strings.Contains(msg, "there is no task to reply to") || !strings.Contains(msg, "inbound_pending") {
 		t.Errorf("reply_task with nothing to answer: %q", msg)
 	}
-	last := f.calls[len(f.calls)-1]
-	if last.path != "/tasks/list" || last.body["role"] != "inbound" {
-		t.Errorf("reply_task looked for tasks with %v", last)
+	// It asks for each open state of the tasks sent here. Reading the newest
+	// page of all of them would miss an open task behind finished ones (the
+	// list is ordered by the last state change) and wrongly say "none".
+	var asked []string
+	for _, c := range f.calls {
+		if c.path != "/tasks/list" {
+			t.Errorf("reply_task without a task id called %s", c.path)
+			continue
+		}
+		if c.body["role"] != "inbound" {
+			t.Errorf("reply_task looked for tasks with %v", c.body)
+		}
+		st, _ := c.body["state"].(string)
+		asked = append(asked, st)
+	}
+	if !reflect.DeepEqual(asked, replyableStates) {
+		t.Errorf("reply_task asked for states %v, want %v", asked, replyableStates)
 	}
 
-	// Open tasks are named; finished ones are not.
-	f.reply["/tasks/list"] = `{"tasks":[` +
+	// Open tasks are named; capability calls, which complete by themselves
+	// and cannot be replied to, are not.
+	open["working"] = `{"tasks":[{"id":"ix-c","contextId":"c","status":{"state":"TASK_STATE_WORKING"}}]}`
+	open["input-required"] = `{"tasks":[` +
 		`{"id":"ix-a","contextId":"c","status":{"state":"TASK_STATE_INPUT_REQUIRED"}},` +
-		`{"id":"ix-b","contextId":"c","status":{"state":"TASK_STATE_COMPLETED"}},` +
-		`{"id":"ix-c","contextId":"c","status":{"state":"TASK_STATE_WORKING"}}]}`
+		`{"id":"ix-k","contextId":"c","status":{"state":"TASK_STATE_INPUT_REQUIRED"},"metadata":{"anet.skill":"text.digest"}}]}`
 	res, err = sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "reply_task",
 		Arguments: map[string]any{"text": "hello"}})
 	msg, _ = resultText(t, res, err)
-	if !strings.Contains(msg, "ix-a, ix-c") || strings.Contains(msg, "ix-b") {
+	if !strings.Contains(msg, "ix-c, ix-a") || strings.Contains(msg, "ix-k") || strings.Contains(msg, "and more") {
 		t.Errorf("reply_task must name the open tasks only: %q", msg)
+	}
+
+	// More than one page: say so, and where to look.
+	open["submitted"] = `{"tasks":[{"id":"ix-s","contextId":"c","status":{"state":"TASK_STATE_SUBMITTED"}}],"nextPageToken":"p2"}`
+	res, err = sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "reply_task",
+		Arguments: map[string]any{"text": "hello"}})
+	msg, _ = resultText(t, res, err)
+	if !strings.Contains(msg, "ix-s, ix-c, ix-a") || !strings.Contains(msg, "and more") {
+		t.Errorf("reply_task must say the list goes on: %q", msg)
 	}
 
 	// An id that is not a task sent here: the daemon's answer, and where
