@@ -291,13 +291,15 @@ else
   ok "MCP 握手完成,服务名 $(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["server_name"])')"
   TOOLS=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(",".join(json.load(sys.stdin)["tools"]))')
   MISSING=""
-  for t in agents_find task_delegate task_results task_inbox task_message task_end evidence_read credit_balance node_status; do
+  # A2A-DESIGN §12 的工具表(取代 agents_find/task_delegate/task_results 等旧名)。
+  for t in list_agents get_agent_card send_message get_task list_tasks wait_task cancel_task reply_task \
+           submit_payment reject_payment get_balance audit node_status inbound_pending; do
     case ",$TOOLS," in *,$t,*) ;; *) MISSING="$MISSING $t" ;; esac
   done
-  [ -z "$MISSING" ] && ok "九个工具全部报给了客户端" || no "工具表缺:$MISSING"
+  [ -z "$MISSING" ] && ok "十四个工具全部报给了客户端" || no "工具表缺:$MISSING"
   NF=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["found"])')
-  [ "$NF" -ge 1 ] && ok "经 MCP 调用 agents_find 找到了 $NF 个 worker(穿到了 hub)" \
-                  || no "经 MCP 调用 agents_find 什么也没找到"
+  [ "$NF" -ge 1 ] && ok "经 MCP 调用 list_agents 找到了 $NF 个 worker(穿到了 hub)" \
+                  || no "经 MCP 调用 list_agents 什么也没找到"
   SH=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["status_hub"])')
   [ -n "$SH" ] && ok "node_status 经 MCP 报出了本节点接入的 hub" || no "node_status 经 MCP 没报出 hub"
   BAD=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["bad_is_error"])')

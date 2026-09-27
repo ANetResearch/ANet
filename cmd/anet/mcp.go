@@ -3,11 +3,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -66,24 +68,49 @@ func runMCP(layout daemon.Layout, explicit bool) error {
 // the tool surface is allowed to reach.
 type controlClient struct{ c *client }
 
-func (cc *controlClient) Call(_ context.Context, path string, body, out any) error {
-	raw, code, err := cc.c.fetch(path, body)
+func (cc *controlClient) Call(ctx context.Context, path string, body, out any) error {
+	raw, code, err := cc.fetch(ctx, path, body)
 	if err != nil {
 		return err
 	}
 	if code < 200 || code >= 300 {
-		// Hand the daemon's own message through: it is written for a human
-		// and reads correctly to a model too.
+		// Hand the daemon's own message through, with the names it gave:
+		// it is written for a human and reads correctly to a model too, and
+		// a tool can tell "no such task" from a daemon that is down.
 		var e struct {
-			Error string `json:"error"`
+			Error  string `json:"error"`
+			Code   string `json:"code"`
+			Reason string `json:"reason"`
 		}
-		if json.Unmarshal(raw, &e) == nil && e.Error != "" {
-			return fmt.Errorf("%s", e.Error)
-		}
-		return fmt.Errorf("daemon returned %d", code)
+		_ = json.Unmarshal(raw, &e)
+		return &mcpserv.DaemonError{Status: code, Message: e.Error, Code: e.Code, Reason: e.Reason}
 	}
 	if out == nil {
 		return nil
 	}
 	return json.Unmarshal(raw, out)
+}
+
+// fetch is client.fetch bound to the tool call's context: a client that
+// cancels a call (or goes away) ends the request, rather than leaving a
+// wait_task blocked in the daemon until its own bound.
+func (cc *controlClient) fetch(ctx context.Context, path string, body any) ([]byte, int, error) {
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			return nil, 0, err
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cc.c.base+path, &buf)
+	if err != nil {
+		return nil, 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+cc.c.token)
+	resp, err := (&http.Client{Timeout: cc.c.timeout}).Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer resp.Body.Close()
+	out, err := io.ReadAll(resp.Body)
+	return out, resp.StatusCode, err
 }

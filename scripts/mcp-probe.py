@@ -56,8 +56,8 @@ try:
     names = sorted(t["name"] for t in tools.get("result", {}).get("tools", []))
     out["tools"] = names
 
-    # 真调用一次:按能力找 worker。这一步会穿到 daemon 的控制面再到 hub。
-    r = call("tools/call", {"name": "agents_find", "arguments": {"capability": "code.write"}})
+    # 真调用一次:按能力(skill)找 worker。这一步会穿到 daemon 的控制面再到 hub。
+    r = call("tools/call", {"name": "list_agents", "arguments": {"skill": "code.write"}})
     res = r.get("result", {})
     payload = res.get("structuredContent")
     if payload is None:
@@ -74,7 +74,7 @@ try:
     out["status_hub"] = spayload.get("hub_url", "")
 
     # 错误也要如实回到客户端,而不是变成一次成功的空回答。
-    bad = call("tools/call", {"name": "task_delegate", "arguments": {"provider": "not-an-aid", "goal": "x"}})
+    bad = call("tools/call", {"name": "send_message", "arguments": {"to": "not-an-aid", "text": "x"}})
     out["bad_is_error"] = bool(bad.get("result", {}).get("isError") or bad.get("error"))
 finally:
     try:
