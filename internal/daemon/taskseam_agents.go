@@ -29,6 +29,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -43,25 +44,6 @@ const (
 	agentsPageDefault = 20
 	agentsPageMax     = 100
 )
-
-// registryEntry is one entry of GET /a2a/v1/agents (A2A-DESIGN §10.5). The
-// wrapper fields are the hub's statements.
-type registryEntry struct {
-	AID              string          `json:"aid"`
-	Card             json.RawMessage `json:"card"`
-	CardVerification string          `json:"cardVerification"`
-	VerifiedAt       string          `json:"verifiedAt"`
-	HomeHub          string          `json:"homeHub"`
-	LastSeen         string          `json:"lastSeen"`
-	Quiet            bool            `json:"quiet"`
-	ReviewCount      int             `json:"reviewCount"`
-	AvgRating        any             `json:"avgRating"`
-}
-
-type registryPage struct {
-	Agents     []registryEntry `json:"agents"`
-	NextCursor string          `json:"nextCursor"`
-}
 
 // listAgents asks the hub registry for agents by skill and tag, verifies
 // each card here, and applies the free-text query locally.
@@ -90,8 +72,9 @@ func (d *Daemon) listAgents(ctx context.Context, q module.AgentQuery) ([]module.
 	v.Set("limit", strconv.Itoa(limit))
 	hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
 	defer cancel()
-	var page registryPage
-	err := d.hubGet(hctx, hub, "/a2a/v1/agents", v, &page)
+	// The hub's wire types, pinned against ANetHub (internal/hubapi).
+	var page hubapi.A2AAgentList
+	err := d.hubGet(hctx, hub, hubapi.RegistryAgentsPath, v, &page)
 	if hubStatus(err) == http.StatusNotFound {
 		// A hub without the A2A registry: fall back to its agent directory,
 		// which lists agents without network cards.
@@ -168,7 +151,7 @@ func (d *Daemon) agentCard(ctx context.Context, aid string) (module.RemoteAgent,
 	hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
 	defer cancel()
 	var card json.RawMessage
-	err := d.hubGet(hctx, hub, "/a2a/v1/agents/"+url.PathEscape(aid)+"/card", nil, &card)
+	err := d.hubGet(hctx, hub, hubapi.RegistryAgentsPath+"/"+url.PathEscape(aid)+"/card", nil, &card)
 	switch {
 	case hubStatus(err) == http.StatusNotFound:
 		return module.RemoteAgent{AID: aid, Verification: cardUnverified,
