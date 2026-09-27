@@ -1,24 +1,15 @@
 package main
 
-// peers.go holds `anet peers` and `anet inbound` (A2A-DESIGN §5), and the
-// terminal confirmation that granting commands require.
-//
-// Granting — putting a peer on the allow or trust list, approving a held
-// delegation, loosening the inbound policy — reads a confirmation from
-// /dev/tty and refuses when there is no terminal. An agent that drives
-// this CLI through a tool call has no terminal and cannot grant on its own.
-// The check runs in this process: the daemon only sees the control token
-// and cannot tell whether a caller went through a terminal, and anything
-// that can read the token can call the routes directly (§21 item 13).
+// peers.go holds `anet peers` and `anet inbound` (A2A-DESIGN §5). The
+// commands that grant — allow and trust, approving a held delegation,
+// loosening the inbound policy — confirm on the terminal first (tty.go).
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"strings"
+	"time"
 )
 
 // errAcceptOn is the answer to `anet accept on` and to
@@ -29,35 +20,6 @@ var errAcceptOn = errors.New("`accept on` was removed: it let anyone delegate to
 	"  approve  anyone else is held until you run `anet inbound approve <id>`\n" +
 	"  open     anyone may send a natural-language task (capability calls still need inbound.public_capabilities)\n" +
 	"Set it with `anet inbound policy <closed|approve|open>`.")
-
-// errNoTTY is returned by a granting command run without a terminal.
-var errNoTTY = errors.New("this command grants access and needs a confirmation typed on a terminal (/dev/tty); " +
-	"none is available to this process. Run it yourself in a terminal, or edit the peers files directly " +
-	"(see `anet peers list` for their paths)")
-
-// openTTY opens the controlling terminal. Tests replace it.
-var openTTY = func() (io.ReadWriteCloser, error) { return os.OpenFile("/dev/tty", os.O_RDWR, 0) }
-
-// confirmOnTTY writes prompt to the terminal and reads one line from it. It
-// returns nil only when the answer is "yes".
-func confirmOnTTY(prompt string) error {
-	tty, err := openTTY()
-	if err != nil {
-		return errNoTTY
-	}
-	defer tty.Close()
-	if _, err := fmt.Fprintf(tty, "%s\nType yes to confirm: ", prompt); err != nil {
-		return errNoTTY
-	}
-	line, err := bufio.NewReader(tty).ReadString('\n')
-	if err != nil && line == "" {
-		return errNoTTY
-	}
-	if strings.TrimSpace(strings.ToLower(line)) != "yes" {
-		return fmt.Errorf("not confirmed; nothing changed")
-	}
-	return nil
-}
 
 // runPeers is `anet peers list|allow|trust|deny|remove [<aid>]`.
 func runPeers(c *client, rest []string) error {
@@ -81,7 +43,9 @@ func runPeers(c *client, rest []string) error {
 		if sub == "trust" {
 			what = "delegate tasks to this node AND drive its local agent through exec auto-reply"
 		}
-		if err := confirmOnTTY(fmt.Sprintf("Allow %s to %s?", aid, what)); err != nil {
+		if err := ttyConfirm(func() (string, error) {
+			return fmt.Sprintf("Allow %s to %s?%s", printable(aid, 256), what, peerNote(c, aid)), nil
+		}); err != nil {
 			return err
 		}
 		return c.do("/peers/"+sub, map[string]any{"aid": aid})
@@ -98,7 +62,7 @@ func runPeers(c *client, rest []string) error {
 }
 
 // runInbound is `anet inbound policy [closed|approve|open]`,
-// `anet inbound pending` and `anet inbound approve|reject <id>`.
+// `anet inbound list` (alias pending) and `anet inbound approve|reject <id>`.
 func runInbound(c *client, rest []string) error {
 	pos, _ := splitFlags(rest)
 	sub := ""
@@ -124,13 +88,19 @@ func runInbound(c *client, rest []string) error {
 			return fmt.Errorf("inbound policy closed|approve|open")
 		}
 		return c.do("/inbound/policy", map[string]any{"policy": arg})
-	case "pending":
+	case "pending", "list", "ls":
 		return c.do("/inbound/pending", map[string]any{})
 	case "approve":
 		if arg == "" {
 			return fmt.Errorf("inbound approve <interaction_id>")
 		}
-		if err := confirmOnTTY(fmt.Sprintf("Approve the held delegation %s?%s", arg, pendingNote(c, arg))); err != nil {
+		if err := ttyConfirm(func() (string, error) {
+			note, err := pendingNote(c, arg)
+			if err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("Approve the held delegation %s?%s", printable(arg, 128), note), nil
+		}); err != nil {
 			return err
 		}
 		return c.do("/inbound/approve", map[string]any{"interaction_id": arg})
@@ -140,7 +110,7 @@ func runInbound(c *client, rest []string) error {
 		}
 		return c.do("/inbound/reject", map[string]any{"interaction_id": arg})
 	}
-	return fmt.Errorf("inbound policy [closed|approve|open] | pending | approve <id> | reject <id>")
+	return fmt.Errorf("inbound policy [closed|approve|open] | list | approve <id> | reject <id>")
 }
 
 func policyNote(p string) string {
@@ -151,33 +121,86 @@ func policyNote(p string) string {
 }
 
 // pendingNote describes a held item for the confirmation prompt: who sent
-// it and when, not what it asks.
-func pendingNote(c *client, ix string) string {
+// it, when, and how large, not what it asks (A2A-DESIGN §5.3). An item the
+// daemon does not list is an error, so nobody is asked to approve nothing;
+// when the list cannot be read the prompt goes without the description and
+// the daemon has the last word.
+func pendingNote(c *client, ix string) (string, error) {
 	b, code, err := c.fetch("/inbound/pending", map[string]any{})
 	if err != nil || code != 200 {
-		return ""
+		return "", nil
 	}
 	var out struct {
 		Pending []struct {
 			InteractionID string `json:"interaction_id"`
 			Requester     string `json:"requester"`
+			ArrivedAt     int64  `json:"arrived_at"`
 			Capability    string `json:"capability"`
 			Bytes         int64  `json:"bytes"`
+			Attachments   int    `json:"attachments"`
 		} `json:"pending"`
+	}
+	if json.Unmarshal(b, &out) != nil {
+		return "", nil
+	}
+	for _, p := range out.Pending {
+		if p.InteractionID != ix {
+			continue
+		}
+		s := fmt.Sprintf("\n  from      %s\n  size      %d bytes", printable(p.Requester, 128), p.Bytes)
+		if p.ArrivedAt > 0 {
+			s += "\n  arrived   " + time.UnixMilli(p.ArrivedAt).Local().Format(time.RFC3339)
+		}
+		if p.Attachments > 0 {
+			s += fmt.Sprintf("\n  files     %d attachment(s)", p.Attachments)
+		}
+		if p.Capability != "" {
+			s += "\n  calls     " + printable(p.Capability, 128)
+		}
+		return s + "\nApproving runs it as if this peer were on your allow list, this once.", nil
+	}
+	return "", fmt.Errorf("no held delegation %s (see `anet inbound list`)", ix)
+}
+
+// peerNote describes a peer for the confirmation prompt from the hub
+// directory, when the hub lists it. The directory entry is the peer's own
+// description, not verified by anyone, and the prompt says so; the AID
+// above it is what is being granted.
+func peerNote(c *client, aid string) string {
+	fc := *c
+	fc.timeout = 5 * time.Second
+	b, code, err := fc.fetch("/find", map[string]any{"query": aid})
+	if err != nil || code != 200 {
+		return ""
+	}
+	var out struct {
+		Agents []struct {
+			AID     string `json:"aid"`
+			Name    string `json:"name"`
+			Summary string `json:"summary"`
+			HomeHub string `json:"home_hub"`
+		} `json:"agents"`
 	}
 	if json.Unmarshal(b, &out) != nil {
 		return ""
 	}
-	for _, p := range out.Pending {
-		if p.InteractionID == ix {
-			s := fmt.Sprintf(" It is from %s, %d bytes", p.Requester, p.Bytes)
-			if p.Capability != "" {
-				s += ", a call to " + p.Capability
-			}
-			return s + "."
+	for _, a := range out.Agents {
+		if a.AID != aid {
+			continue
 		}
+		s := "\n  hub directory entry (self-described, not verified):"
+		if a.Name != "" {
+			s += "\n    name     " + printable(a.Name, 80)
+		}
+		if a.Summary != "" {
+			s += "\n    summary  " + printable(a.Summary, 160)
+		}
+		if a.HomeHub != "" {
+			s += "\n    home hub " + printable(a.HomeHub, 120)
+		}
+		return s
 	}
-	return ""
+	return "\n  this AID is not in your hub's directory"
 }
 
 // runHubRegister is `anet hub-register <url> [--name N] [--caps a,b]

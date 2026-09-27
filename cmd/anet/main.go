@@ -100,6 +100,22 @@ func main() {
 		fail(runAgents(layout, rest))
 	case "update":
 		fail(runUpdate(rest))
+	case "init": // write the SI-5 safe defaults explicitly (A2A-DESIGN §13.1); needs no daemon
+		fail(runInit(layout, rest))
+	case "doctor": // read-only report from the data directory; needs no daemon
+		fail(runDoctor(layout, rest))
+	case "audit":
+		// The local evidence chain, read and verified from disk with or without a daemon;
+		// `anet audit hub` is audit-hub (A2A-DESIGN §14).
+		if len(rest) > 0 && rest[0] == "hub" {
+			if err := checkFlags("audit-hub", rest[1:]); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(2)
+			}
+			fail(runClient(layout, "audit-hub", rest[1:], explicit))
+			return
+		}
+		fail(runAudit(layout, rest))
 	case "help", "-h", "--help":
 		if len(rest) > 0 && (rest[0] == "--all" || rest[0] == "all") {
 			usageAll()
@@ -300,6 +316,8 @@ func usageAllText() string {
   anet up [name] [--all]      start a node detached so it OUTLIVES this shell (alias: anet daemon --detach) — recommended
   anet stop [name] [--all]    gracefully stop a running daemon (alias: anet down) — no kill/PID needed
   anet status                 show daemon identity + data dir + Hub registration + profile
+  anet init [--json]          write the safe defaults into this identity's config and create the empty peer/payee lists (idempotent; never changes an existing value)
+  anet doctor [--json]        report what this node is set up to do: version, modules, identity, addresses, hub, inbound policy, spending limits, agent wiring, file permissions
   anet logs [N|--all]         show the daemon log
 
  Identities (run several personas on one machine — e.g. a "coder" and a "delegator"):
@@ -317,7 +335,7 @@ func usageAllText() string {
   anet peers allow|trust <aid>   let a peer delegate to you (trust: also drive your exec auto-reply); asks for confirmation on the terminal
   anet peers deny|remove <aid>   refuse a peer (cancels its open tasks) / take it off every list
   anet inbound policy [closed|approve|open]   show or set the inbound policy (default closed); loosening asks for confirmation on the terminal
-  anet inbound pending        list delegations held for approval (metadata only)
+  anet inbound list           list delegations held for approval (metadata only; alias: pending)
   anet inbound approve|reject <interaction_id>   decide a held delegation (approve asks for confirmation on the terminal)
   anet pay <interaction_id> [--option N] [--reject]   pay (or decline) the price a provider asked for a task you delegated; asks for confirmation on the terminal
   anet payments [show]        show the spending limits and what was signed in the last 24 hours
@@ -344,7 +362,9 @@ func usageAllText() string {
   anet verify --attestation <b64> --hub <url>   check a witness's statement about a hub's chain head
   anet pull <interaction_id> [--out DIR]   save attachments you received to a local directory
   anet reconcile              compare your own payment record against your hub's ledger for your account
-  anet audit-hub              verify your hub's issuance chain against the heads you recorded before
+  anet audit-hub              verify your hub's issuance chain against the heads you recorded before (also: anet audit hub)
+  anet audit [--since 24h|DATE] [--peer AID] [--interaction ID] [--json]   read this node's evidence chain, verified from disk (no daemon needed)
+  anet audit --export DIR     export the whole evidence chain with its key history and a manifest
   anet balance                what your hub's ledger says you can spend, and the entries behind it
   anet redeem <amount> [--ref <reference>]   give credit back to the hub against an external reference (it signs for what it took)
   anet review <interaction_id> <rating 1-5> [comment]   sign a review of an ended delegation (uploads to your Hub)
@@ -354,6 +374,7 @@ func usageAllText() string {
   anet mcp                    serve this network to an MCP client over stdio (register it with 'anet agents wire')
   anet verify <interaction_id>                  check a receipt you already hold locally
   anet verify --receipt <b64> --kel <b64> [--result FILE]   check one with no daemon, no hub and no network
+  anet verify --chain DIR [--kel <b64>|--hub <url>] [--head ID]   check an evidence chain exported by anet audit
   anet update [--check] [--base URL]   verify the signed release manifest with the built-in release key, then replace this binary
   anet version                print version
 `)
@@ -1059,12 +1080,15 @@ var knownFlags = map[string][]string{
 	"identity": {"purge", "all"},
 	"install":  {"agent", "work-dir", "model", "command"},
 	"agents":   {"all", "refresh", "a2a"},
-	"verify":   {"receipt", "kel", "result", "hub", "attestation"},
+	"verify":   {"receipt", "kel", "result", "hub", "attestation", "chain", "head"},
 	"logs":     {"all"},
 	"help":     {"all"},
 	"mcp":      {},
 	"version":  {},
 	"update":   {"check", "base"},
+	"init":     {"json"},
+	"doctor":   {"json"},
+	"audit":    {"since", "peer", "interaction", "json", "export"},
 
 	// through the control plane
 	"status":        {},
