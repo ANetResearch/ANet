@@ -43,6 +43,16 @@ type ReconcileReport struct {
 	Settled    int `json:"settled_on_chain"`
 	Redeemed   int `json:"redeemed_on_chain"`
 	Matched    int `json:"matched"`
+	// HubRedemptions is how many withdrawals the hub lists for this
+	// account (its redemption list, read signed like the ledger), and
+	// RedemptionsMatched how many of this node's recorded redemptions it
+	// lists. RedemptionsUnchecked are recorded redemptions found in
+	// neither the redemption page nor the ledger page while one of them
+	// was truncated: absent from a page is not absent from the account.
+	HubRedemptions       int  `json:"hub_redemptions"`
+	RedemptionsTruncated bool `json:"hub_redemptions_truncated,omitempty"`
+	RedemptionsMatched   int  `json:"redemptions_matched"`
+	RedemptionsUnchecked int  `json:"redemptions_unchecked,omitempty"`
 	// Unexplained entries are hub entries with no counterpart here.
 	// Grants legitimately have none — credit arriving from the operator
 	// has no agent-side event — so these are listed rather than reported
@@ -149,11 +159,51 @@ func (m *Module) reconcile(ctx context.Context) (ReconcileReport, error) {
 		}
 		rep.Missing = append(rep.Missing, note)
 	}
+	// Every redemption this node recorded should be in the hub's list of
+	// this account's withdrawals, under the authorization id the hub
+	// answered with (which is also the reason on its ledger entry).
+	//
+	// This used to look the reference up among the ledger entries' reasons.
+	// The hub writes the authorization id there, never the reference, so
+	// every redemption was reported missing from an honest hub; and the
+	// list that does carry references was not read at all.
+	red, err := m.redemptions(ctx)
+	if err != nil {
+		return rep, err
+	}
+	rep.HubRedemptions, rep.RedemptionsTruncated = red.Total, red.Truncated
+	listedAuth, listedRef := map[string]bool{}, map[string]bool{}
+	for _, r := range red.Redemptions {
+		if r.AuthID != "" {
+			listedAuth[r.AuthID] = true
+		}
+		if r.Reference != "" {
+			listedRef[r.Reference] = true
+		}
+	}
 	for _, ev := range redeemed {
 		ref, _ := ev["reference"].(string)
-		if ref != "" && !hubTx[ref] {
-			rep.Missing = append(rep.Missing,
-				fmt.Sprintf("redemption %q is not in the hub's entries", ref))
+		authID, _ := ev["auth_id"].(string)
+		var found bool
+		if authID != "" {
+			found = listedAuth[authID] || hubTx[authID]
+		} else {
+			// An event without the hub's id (the hub refused, or an
+			// older node): the reference is all there is to go by.
+			found = ref != "" && listedRef[ref]
+		}
+		switch {
+		case found:
+			rep.RedemptionsMatched++
+		case red.Truncated || led.Truncated:
+			rep.RedemptionsUnchecked++
+		case authID == "" && ref == "":
+		default:
+			note := fmt.Sprintf("redemption %q is not in the hub's list of this account's withdrawals", ref)
+			if verified, _ := ev["verified"].(bool); verified {
+				note += " (this node holds the hub's signed receipt for it)"
+			}
+			rep.Missing = append(rep.Missing, note)
 		}
 	}
 	// Hub entries with no counterpart here. A grant is the ordinary case

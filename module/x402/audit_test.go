@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/ANetResearch/ANetCore/ael"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/relayauth"
 )
 
 // fakeHub serves the issuance and ledger endpoints a node audits.
@@ -28,6 +30,32 @@ type fakeIssuer struct {
 	entries []map[string]any
 	page    int
 	balance int64
+	// redemptions is the account's withdrawal list, served newest first.
+	redemptions []map[string]any
+	// node is the account holder: the balance, ledger and redemption
+	// reads are answered only when signed by it (relayauth v2), as the
+	// hub answers them. unsigned counts the reads refused.
+	node     *identity.Controller
+	unsigned int
+}
+
+// holder checks a signed account read the way the hub does (authSelf):
+// relayauth v2 by the AID in the path, over this hub's AID, the method
+// and the request target. It answers 401 itself.
+func (f *fakeIssuer) holder(w http.ResponseWriter, r *http.Request, action string) bool {
+	ts, _ := strconv.ParseUint(r.Header.Get(relayauth.HeaderTS), 10, 64)
+	seq, _ := strconv.ParseUint(r.Header.Get(relayauth.HeaderSeq), 10, 64)
+	sig, err := relayauth.DecodeSig(r.Header.Get(relayauth.HeaderSig))
+	aid := r.PathValue("aid")
+	ok := err == nil && f.node != nil && aid == f.node.AID() && r.Header.Get(relayauth.HeaderAID) == aid &&
+		identity.VerifyObject(f.node.KEL(), aid, seq, ts,
+			relayauth.PreimageV2(action, aid, f.ctrl.AID(), ts, r.Method, r.URL.RequestURI(), nil), sig) == nil
+	if !ok {
+		f.unsigned++
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":"auth"}`))
+	}
+	return ok
 }
 
 func (f *fakeIssuer) issue(t *testing.T, kind, aid string, amount int64) {
@@ -90,10 +118,35 @@ func (f *fakeIssuer) serve(t *testing.T) *httptest.Server {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"chain_did": f.ctrl.AID(), "seq": hseq, "head_id": head})
 	})
-	mux.HandleFunc("GET /agents/{aid}/balance", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /agents/{aid}/balance", func(w http.ResponseWriter, r *http.Request) {
+		if !f.holder(w, r, relayauth.ActionBalance) {
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"credits": f.balance})
 	})
-	mux.HandleFunc("GET /agents/{aid}/ledger", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /agents/{aid}/redemptions", func(w http.ResponseWriter, r *http.Request) {
+		if !f.holder(w, r, relayauth.ActionRedemptions) {
+			return
+		}
+		var sum uint64
+		for _, x := range f.redemptions {
+			sum += uint64(asInt64(x["amount"]))
+		}
+		page := f.redemptions
+		if page == nil {
+			page = []map[string]any{}
+		}
+		out := map[string]any{"redemptions": page, "total": len(f.redemptions), "sum": sum,
+			"returned": len(page)}
+		if f.page > 0 && len(page) > f.page {
+			out["redemptions"], out["returned"], out["truncated"] = page[:f.page], f.page, true
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	})
+	mux.HandleFunc("GET /agents/{aid}/ledger", func(w http.ResponseWriter, r *http.Request) {
+		if !f.holder(w, r, relayauth.ActionLedger) {
+			return
+		}
 		// Mirrors the hub: entries is a page, total and sum cover the
 		// account. f.page caps what is returned so a test can reproduce
 		// an account with more history than one page.
@@ -128,6 +181,7 @@ func hubbedModule(t *testing.T, f *fakeIssuer) (*Module, *testHost) {
 	h := newHost(t)
 	h.hub = f.ctrl
 	h.url = srv.URL
+	f.node = h.self
 	return newModule(t, h), h
 }
 
@@ -366,6 +420,62 @@ func TestACleanAccountReconciles(t *testing.T) {
 	// look wrong.
 	if len(rep.Unexplained) != 1 || !strings.Contains(rep.Unexplained[0], "normal") {
 		t.Errorf("unexplained = %v", rep.Unexplained)
+	}
+}
+
+// Redemptions are reconciled against the hub's list of this account's
+// withdrawals, by the authorization id the hub answered with. They used to
+// be looked up by reference among the ledger entries' reasons, which carry
+// the authorization id, so every redemption on an honest hub was reported
+// missing. All three account reads are signed; the fake refuses others.
+func TestReconcileFindsRedemptionsInTheHubsList(t *testing.T) {
+	hub, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeIssuer{ctrl: hub, balance: 95}
+	f.entries = []map[string]any{
+		{"delta": 100, "reason": "registration grant"},
+		{"delta": -5, "reason": "auth-r1"},
+	}
+	f.redemptions = []map[string]any{{"auth_id": "auth-r1", "amount": 5, "reference": "inv-1"}}
+	m, h := hubbedModule(t, f)
+	_ = h.RecordEvidence(EvCreditRedeemed, map[string]any{
+		"amount": 5, "reference": "inv-1", "auth_id": "auth-r1", "verified": true})
+
+	rep, err := m.reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rep.Agrees || rep.RedemptionsMatched != 1 || rep.HubRedemptions != 1 {
+		t.Fatalf("a listed redemption: agrees=%v matched=%d listed=%d missing=%v",
+			rep.Agrees, rep.RedemptionsMatched, rep.HubRedemptions, rep.Missing)
+	}
+
+	// A redemption this node holds a receipt for, which the hub does not
+	// list: the hub took the credit and does not account for it.
+	_ = h.RecordEvidence(EvCreditRedeemed, map[string]any{
+		"amount": 7, "reference": "inv-2", "auth_id": "auth-r2", "verified": true})
+	rep, err = m.reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Agrees || len(rep.Missing) != 1 || !strings.Contains(rep.Missing[0], "inv-2") ||
+		!strings.Contains(rep.Missing[0], "signed receipt") {
+		t.Fatalf("an unlisted redemption: agrees=%v missing=%v", rep.Agrees, rep.Missing)
+	}
+	if f.unsigned != 0 {
+		t.Errorf("%d account reads went unsigned", f.unsigned)
+	}
+	// The list is the account holder's: a read without its signature is
+	// refused, as the hub refuses it.
+	resp, err := http.Get(h.url + "/agents/" + h.AID() + "/redemptions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("an unsigned read of the redemption list: %d", resp.StatusCode)
 	}
 }
 

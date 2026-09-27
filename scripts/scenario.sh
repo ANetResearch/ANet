@@ -171,6 +171,13 @@ PY
 python3 - "$(home_of C)/.anet/config.json" <<'PY'
 import json, sys
 p = sys.argv[1]; c = json.load(open(p)); c["name"] = "NodeC"
+# C pays for A's priced capability in 6.5. The spending limits are written
+# here, as a person would set them once on a terminal: the defaults (SI-5,
+# A2A-DESIGN §8.6) pay nothing automatically and nothing to anyone off
+# payees.allow, and `anet payments set` asks on a TTY, which a script has
+# not got. The manual tier (explicit_max) is what 6.5 pays through.
+c["payments"] = {"auto_max": 0, "agent_max": 0, "agent_daily_max": 0,
+                 "explicit_max": 100, "daily_max": 200, "payees_file": "payees.allow"}
 json.dump(c, open(p, "w"), indent=1)
 PY
 
@@ -200,6 +207,9 @@ for node in A B C; do
   : > "$(home_of "$node")/.anet/peers.allow"
   for other in "$A" "$B" "$C"; do printf '%s\n' "$other" >> "$(home_of "$node")/.anet/peers.allow"; done
 done
+# C may pay A, and nobody else (payees.allow, read on every payment; the
+# CLI's `anet payees` asks on a TTY, so the file is written directly).
+printf '%s\n' "$A" > "$(home_of C)/.anet/payees.allow"
 info "A $A"
 info "B $B"
 info "C $C"
@@ -423,14 +433,34 @@ print(ms[-1].get('body','') if ms else '')" 2>/dev/null)
 fi
 
 # ── 7. two hubs ────────────────────────────────────────────────
-hd "6.5  付费闭环:报价 → 授权 → 结算 → 干活"
-# The loop every piece of which existed and none of which had ever run in
-# a line. Asserted end to end because that is exactly the shape of the
-# gap: each step passed on its own for a month.
+hd "6.5  付费闭环:报价 → 授权 → 结算 → 干活,都在同一个任务上"
+# a2a-x402 in the task (A2A-DESIGN §8.3): the price is a status on the open
+# task (input-required, x402.payment.required), the payment goes on the
+# same interaction, the provider settles with the hub and then works, and
+# the result carries the receipts. One interaction id from question to
+# answer; a quote is never a result.
 balance_of(){ ctl "$1" /balance '{}' | python3 -c 'import sys,json;print(json.load(sys.stdin).get("balance",-1))'; }
 ev_count(){ # ev_count <node> <event-type>
   ctl "$1" /evidence "{\"event_type\":\"$2\",\"limit\":200}" \
     | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("records") or []))'
+}
+# task_x402 <node> <ix> <what> — one fact about a task, from /tasks/get:
+#   state | status (x402.payment.status) | amount | payto | option (the
+#   quoted accepts[0] as JSON) | ok_receipts | tx (the successful receipt's
+#   transaction). The x402 keys sit in the status message's metadata.
+task_x402(){
+  ctl "$1" /tasks/get "{\"task_id\":\"$2\"}" | python3 -c '
+import sys,json
+d=json.load(sys.stdin); what=sys.argv[1]
+st=d.get("status") or {}
+m=dict(d.get("metadata") or {})
+m.update(((st.get("message") or {}).get("metadata")) or {})
+acc=((m.get("x402.payment.required") or {}).get("accepts") or [{}])[0]
+rc=[r for r in (m.get("x402.payment.receipts") or []) if r.get("success")]
+print({"state": st.get("state",""), "status": m.get("x402.payment.status",""),
+       "amount": acc.get("amount",""), "payto": acc.get("payTo",""),
+       "option": json.dumps(acc), "ok_receipts": len(rc),
+       "tx": rc[0].get("transaction","") if rc else ""}[what])' "$3" 2>/dev/null
 }
 
 c_before=$(balance_of C); a_before=$(balance_of A)
@@ -438,49 +468,88 @@ info "开工前:C=$c_before A=$a_before(注册赠额)"
 [ "${c_before:-0}" -gt 0 ] 2>/dev/null && ok "注册赠额到账,新节点不必等人来充值就能试" \
   || no "C 没有余额($c_before),付费路径无从测起"
 
-# 1. Ask without paying. A quote is an answer, not a failure.
-quote=$(cap C "$A" text.digest.paid '{"text":"pay me"}')
-qs=$(echo "$quote" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))')
-qa=$(echo "$quote" | python3 -c '
-import sys,json
-p=json.load(sys.stdin).get("payment_required") or {}
-a=(p.get("accepts") or [{}])[0]
-print(a.get("amount",""))')
-[ "$qs" = "PAYMENT_REQUIRED" ] && ok "不付钱时拿到的是报价(PAYMENT_REQUIRED),不是报错" \
-  || no "状态是 $qs,期望 PAYMENT_REQUIRED"
-[ "$qa" = "25" ] && ok "报价说明了价钱(25 credits),且带着可付的 rail" || no "报价里没有价钱:$quote"
-[ "$(balance_of C)" = "$c_before" ] && ok "只问价没扣钱" || no "报价过程动了余额"
-
-# 2. Pay it. One call, and the quote's interaction stays on both chains.
-paid=$(ctl C /delegate "{\"provider\":\"$A\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"pay me\"},\"pay\":true}")
-pix=$(echo "$paid" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
-[ -n "$pix" ] && ok "--pay 走通了报价→付款→重投的整条路" || no "付费投递失败:$paid"
-res=""
+# 1. Ask without paying. The answer is a price on the open task.
+PIX=$(ctl C /delegate "{\"provider\":\"$A\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"pay me\"}}" \
+      | python3 -c 'import sys,json;print(json.load(sys.stdin).get("interaction_id",""))')
+qs=""
 for _ in $(seq 1 60); do
-  res=$(ctl C /results '{}' | python3 -c "
-import sys,json
-for x in json.load(sys.stdin).get('results') or []:
-    if x['interaction_id']=='$pix': print(x['result']); break
-")
-  [ -n "$res" ] && break
+  qs=$(task_x402 C "$PIX" status)
+  [ "$qs" = payment-required ] && break
   sleep 1
 done
-ps=$(echo "$res" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))' 2>/dev/null)
-[ "$ps" = "OK" ] && ok "付过钱之后,活真的干了(OK)" || no "付费后状态是 $ps:$res"
-
-# 3. The result carries the hub's own signature over the settlement —
-#    not the provider's word that the provider was paid.
-prcpt=$(echo "$res" | python3 -c '
+[ "$qs" = payment-required ] && [ "$(task_x402 C "$PIX" state)" = TASK_STATE_INPUT_REQUIRED ] \
+  && ok "不付钱时,任务停在 input-required 等付款(x402.payment.required),不是报错也不是结果" \
+  || no "报价没有出现在任务上(status '$qs',state '$(task_x402 C "$PIX" state)')"
+[ "$(task_x402 C "$PIX" amount)" = 25 ] && [ "$(task_x402 C "$PIX" payto)" = "$A" ] \
+  && ok "报价说明了价钱(25 credits)和收款方(A)" || no "报价里的价钱/收款方不对:$(task_x402 C "$PIX" option)"
+inres=$(ctl C /results '{}' | python3 -c "
 import sys,json
-p=json.load(sys.stdin).get("paid") or {}
-print(p.get("receipt",""))' 2>/dev/null)
-[ -n "$prcpt" ] && ok "结算收据随结果回来了(hub 签的,付款方可自证)" \
-  || no "结果里没有结算收据,付款方只有一句'对方说收到了'"
+print(sum(1 for x in json.load(sys.stdin).get('results') or [] if x['interaction_id']=='$PIX'))")
+[ "$inres" = 0 ] && ok "报价不是结果:结果列表里没有这个任务" || no "报价被当成了结果"
+[ "$(balance_of C)" = "$c_before" ] && ok "只问价没扣钱" || no "报价过程动了余额"
 
-# 4. The credit moved, both ways.
+# 2. The hub's half of the merchant check (SI-9): an underpaid
+#    authorization and one to the wrong payee, presented with the quoted
+#    terms, are refused and move nothing. The provider daemon checks the
+#    same terms before it ever asks the hub (daemon unit tests); this is
+#    the hub refusing them on its own.
+HUBAID=$(curl -s -m 10 "$HUB/hub/identity" | python3 -c 'import sys,json;print(json.load(sys.stdin)["aid"])')
+OPT=$(task_x402 C "$PIX" option)
+present(){ # present <pay-to> <amount> <tag> → the hub's errorReason, or "settled"
+  local pp
+  pp=$("$BIN/anetfixture" x402-authorize --home "$(home_of C)/.anet" \
+        --pay-to "$1" --amount "$2" --network "hub:$HUBAID" --interaction "scenario-neg-$3-$(date +%s)" 2>/dev/null)
+  [ -n "$pp" ] || { echo "no-fixture"; return; }
+  python3 - "$pp" "$OPT" <<'PY' | curl -s -m 20 -H 'Content-Type: application/json' -d @- "$HUB/x402/settle" \
+    | python3 -c 'import sys,json;d=json.load(sys.stdin);print("settled" if d.get("success") else d.get("errorReason",""))'
+import base64, json, sys
+pp = json.loads(base64.b64decode(sys.argv[1]))
+print(json.dumps({"x402Version": 2, "paymentPayload": pp, "paymentRequirements": json.loads(sys.argv[2])}))
+PY
+}
+under=$(present "$A" 24 under)
+[ "$under" = invalid_amount ] && ok "少付(24 < 25)被 hub 拒绝(invalid_amount)" || no "少付的授权得到 '$under'"
+wrong=$(present "$B" 25 payee)
+[ "$wrong" = payee_mismatch ] && ok "付给别人(B 而不是 A)被 hub 拒绝(payee_mismatch)" || no "错收款方的授权得到 '$wrong'"
+[ "$(balance_of C)" = "$c_before" ] && [ "$(balance_of A)" = "$a_before" ] \
+  && ok "两笔被拒的付款没有动任何余额" || no "被拒的付款动了余额"
+
+# 3. Pay it, on the same task. The manual tier (`anet pay` calls this
+#    after a confirmation on a terminal; a script holds the control token).
+paid=$(ctl C /tasks/pay-manual "{\"task_id\":\"$PIX\",\"decision\":\"submit\"}")
+ps=$(echo "$paid" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("x402.payment.status",""))' 2>/dev/null)
+[ "$ps" = payment-submitted ] && ok "付款在同一个任务上提交(payment-submitted)" || no "付款没有提交:$paid"
+st=""
+for _ in $(seq 1 60); do
+  st=$(task_x402 C "$PIX" state)
+  [ "$st" = TASK_STATE_COMPLETED ] && break
+  sleep 1
+done
+[ "$st" = TASK_STATE_COMPLETED ] && ok "付过钱之后,活在同一个任务上干完了" || no "付费后任务停在 $st"
+[ "$(task_x402 C "$PIX" status)" = payment-completed ] && [ "$(task_x402 C "$PIX" ok_receipts)" = 1 ] \
+  && ok "结果带着 payment-completed 与一张成功收据(x402.payment.receipts)" \
+  || no "结果的付款状态 '$(task_x402 C "$PIX" status)',成功收据 $(task_x402 C "$PIX" ok_receipts) 张"
+res=$(ctl C /results '{}' | python3 -c "
+import sys,json
+for x in json.load(sys.stdin).get('results') or []:
+    if x['interaction_id']=='$PIX': print(x['result']); break
+")
+rs=$(echo "$res" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))' 2>/dev/null)
+[ "$rs" = OK ] && ok "结果的效果状态是 OK,且就是报价的那个任务" || no "付费任务的结果:$res"
+
+# 4. The credit moved once, both ways, and the payee holds exactly one
+#    ledger entry for the settlement.
 c_after=$(balance_of C); a_after=$(balance_of A)
 [ "$((c_before - c_after))" = "25" ] && ok "付款方扣了 25" || no "付款方 $c_before → $c_after"
 [ "$((a_after - a_before))" = "25" ] && ok "收款方进了 25" || no "收款方 $a_before → $a_after"
+TX=$(task_x402 C "$PIX" tx)
+nent=$(ctl A /balance '{}' | python3 -c "
+import sys,json
+print(sum(1 for e in json.load(sys.stdin).get('entries') or [] if e.get('reason')=='$TX'))")
+[ -n "$TX" ] && [ "$nent" = 1 ] && ok "正确的付款在收款方账上只记了一笔($TX)" \
+  || no "收款方账上这笔结算记了 ${nent:-?} 次(tx '$TX')"
+again=$(ctl C /tasks/pay-manual "{\"task_id\":\"$PIX\",\"decision\":\"submit\"}")
+[ "$(balance_of C)" = "$c_after" ] && ok "对已完成的任务再付一次被拒,余额不动" || no "重复付款动了余额:$again"
 
 # 5. Both chains carry the event. This is the custody bargain: the
 #    balance is the hub's, the record is the parties'.
@@ -490,6 +559,8 @@ c_after=$(balance_of C); a_after=$(balance_of A)
   || no "付款方链上没有结算记录"
 [ "$(ev_count A anet.payment.settled)" -gt 0 ] && ok "收款方链上有 anet.payment.settled" \
   || no "收款方链上没有结算记录"
+[ "$(ev_count A anet.payment.quoted)" -gt 0 ] && ok "收款方链上有它开的报价(anet.payment.quoted)" \
+  || no "收款方链上没有报价记录"
 
 # 6. The free twin returns the same bytes. A paid path that quietly did
 #    something else would otherwise look like it was working.
