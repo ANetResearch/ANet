@@ -52,6 +52,7 @@ func TestTheErrorReasonTableIsPinned(t *testing.T) {
 		"no_pending_quote":             "SETTLEMENT_FAILED",
 		"client_payload_unsupported":   "SETTLEMENT_FAILED",
 		"option_not_offered":           "SETTLEMENT_FAILED",
+		"payer_mismatch":               "SETTLEMENT_FAILED",
 		"something_nobody_listed":      "SETTLEMENT_FAILED",
 	}
 	for reason, want := range cases {
@@ -285,6 +286,23 @@ func TestSettleSendsRequirementsAndNothingAboutTheWork(t *testing.T) {
 		if strings.Contains(string(bodies[0]), forbidden) {
 			t.Errorf("the settle body carries %q: %s", forbidden, bodies[0])
 		}
+	}
+	// The payer writes the payload the provider forwards: what else rode
+	// with the authorization stays with the provider.
+	var stuffed payment.PaymentPayload
+	if err := json.Unmarshal(raw, &stuffed); err != nil {
+		t.Fatal(err)
+	}
+	stuffed.Payload["note"] = "work.secret"
+	stuffed.Extensions = map[string]any{"why": "work.secret"}
+	stuffed.Accepted.Extra = map[string]any{"capability": "work.secret"}
+	rawStuffed, _ := json.Marshal(&stuffed)
+	if _, err := m.Settle(context.Background(), rawStuffed, opt); err != nil {
+		t.Fatal(err)
+	}
+	if last := bodies[len(bodies)-1]; strings.Contains(string(last), "work.secret") ||
+		!strings.Contains(string(last), stuffed.Payload["authorization"].(string)) {
+		t.Errorf("the settle body forwards what the payer added: %s", last)
 	}
 
 	// A refusal carries its reason and code; settlement_pending is not an
