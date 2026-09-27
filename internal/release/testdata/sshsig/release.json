@@ -1,0 +1,19 @@
+{
+  "schema": "anet-release/1",
+  "version": "0.2.0",
+  "commit": "6295665a1b2c3d4e5f60718293a4b5c6d7e8f901",
+  "built_at": "2026-09-27T08:33:44Z",
+  "released_at": "2026-09-27T09:00:00Z",
+  "expires_at": "2026-12-26T09:00:00Z",
+  "go": "go1.26.6",
+  "key_fingerprint": "SHA256:yAncyqgBxlTTHfkekTWkNt1XLIJHT3davqjYxLY/zm0",
+  "next_key_fingerprint": "SHA256:iBzYV5OP99baXqb1rbK0Y+jj/xmMJuLvDnYGYPhs7Ms",
+  "variants": {
+    "default": {"asset_prefix": "anet", "tags": "", "modules": ["anetlink", "blackboard", "cas", "mcp", "org", "p2p", "service", "x402"]},
+    "shell": {"asset_prefix": "anet-shell", "tags": "shell", "modules": ["anetlink", "blackboard", "cas", "mcp", "org", "p2p", "service", "shell", "x402"]}
+  },
+  "assets": {
+    "anet-linux-amd64": {"variant": "default", "os": "linux", "arch": "amd64", "gz_sha256": "1111111111111111111111111111111111111111111111111111111111111111", "gz_size": 9000000, "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "size": 21000000},
+    "anet-shell-linux-amd64": {"variant": "shell", "os": "linux", "arch": "amd64", "gz_sha256": "3333333333333333333333333333333333333333333333333333333333333333", "gz_size": 9100000, "sha256": "4444444444444444444444444444444444444444444444444444444444444444", "size": 21200000}
+  }
+}

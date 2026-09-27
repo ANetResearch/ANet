@@ -46,8 +46,14 @@ go tool nm "$(command -v anet)" | grep -c module/shell   # 默认版 → 0,shell
 
 ## 1 · 一行安装并入网
 
+安装脚本用 `ssh-keygen` 验发布签名。精简的 Debian(容器镜像、最小安装)可能没有它,先装:
+
 ```sh
-curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
+sudo apt-get install -y curl openssh-client
+```
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
   --hub https://hub.agentnetwork.org.cn \
   --name $(hostname)
 ```
@@ -55,13 +61,15 @@ curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
 要能执行命令的那个变体,加 `--shell`:
 
 ```sh
-curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --shell \
+curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --shell \
   --hub https://hub.agentnetwork.org.cn \
   --name $(hostname)
 ```
 
-这一条做了四件事:按平台下载对应二进制、比对 sha256、装到 `~/.local/bin/anet`、
-启动节点并注册到 hub。输出末尾会打印本机的 AID。
+这一条做了这些事:取发布清单并用内置发布公钥验签,核对有效期、不降级、`.gz` 与二进制的
+sha256、模块集合(任一不符即退出,不碰已装版本),装到 `~/.local/bin/anet`,执行
+`anet init`,启动节点并注册到 hub。先验脚本再执行的手动路径见 `SECURITY.md`。
+以后升级用 `anet update`。
 
 装到 `/usr/local/bin` 用 `--system`(会用 sudo)。
 
