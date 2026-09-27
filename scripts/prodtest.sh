@@ -1147,7 +1147,7 @@ else
 
   tools=$(HOME=$INK_HOME $MCP list 2>&1)
   n=$(echo "$tools" | jq_ "print(len(d.get('tools') or []))")
-  [ "${n:-0}" -ge 9 ] \
+  [ "${n:-0}" -ge 14 ] \
     && ok "MCP 服务器起来了,报出 $n 个工具" \
     || no "MCP 工具面不完整(${n:-0} 个):$(printf '%s' "$tools" | head -2 | tr '\n' ' ')"
 
@@ -1157,47 +1157,48 @@ else
     *) no "node_status 没报出 hub:$(printf '%s' "$st" | head -c 160)";;
   esac
 
-  fnd=$(HOME=$INK_HOME $MCP call agents_find '{"capability":"text.digest"}' 2>&1)
+  fnd=$(HOME=$INK_HOME $MCP call list_agents '{"skill":"text.digest"}' 2>&1)
   case "$fnd" in
-    *"$CMAX_AID"*) ok "agents_find 经 MCP 在生产 hub 上找到了 cmax";;
-    *) no "agents_find 没找到 cmax:$(printf '%s' "$fnd" | head -c 160)";;
+    *"$CMAX_AID"*) ok "list_agents 经 MCP 在生产 hub 上找到了 cmax";;
+    *) no "list_agents 没找到 cmax:$(printf '%s' "$fnd" | head -c 160)";;
   esac
 
-  dl=$(HOME=$INK_HOME $MCP call task_delegate \
-    "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest\",\"args\":{\"text\":\"prodtest mcp\"}}" 2>&1)
+  # A2A-DESIGN §12: send_message 建任务(立即返回),wait_task 等终态。
+  dl=$(HOME=$INK_HOME $MCP call send_message \
+    "{\"to\":\"$CMAX_AID\",\"skill\":\"text.digest\",\"args\":{\"text\":\"prodtest mcp\"},\"return_immediately\":true}" 2>&1)
   mix=$(echo "$dl" | python3 -c "
 import sys,json
-try: print(json.loads(json.loads(sys.stdin.read())['text']).get('interaction_id',''))
+try: print(json.loads(json.loads(sys.stdin.read())['text']).get('id',''))
 except Exception: print('')")
   if [ -z "$mix" ]; then
-    no "task_delegate 经 MCP 没有排上队:$(printf '%s' "$dl" | head -c 200)"
+    no "send_message 经 MCP 没有建出任务:$(printf '%s' "$dl" | head -c 200)"
   else
-    ok "task_delegate 经 MCP 排上了 ${mix:0:14}…"
+    ok "send_message 经 MCP 建出了任务 ${mix:0:14}…"
     got=""
-    for _ in $(seq 1 20); do
-      rr=$(HOME=$INK_HOME $MCP call task_results '{}' 2>&1)
+    for _ in $(seq 1 5); do
+      rr=$(HOME=$INK_HOME $MCP call wait_task "{\"task_id\":\"$mix\",\"timeout_seconds\":30}" 2>&1)
       got=$(echo "$rr" | python3 -c "
 import sys,json
 try: d=json.loads(json.loads(sys.stdin.read())['text'])
 except Exception: raise SystemExit
-for r in d.get('results') or []:
-    if r.get('interaction_id')=='$mix':
-        print(json.dumps({'status':'OK' if '\"status\":\"OK\"' in (r.get('result') or '') else '?',
-                          'receipt':bool(r.get('receipt_cid'))}))
-        break")
+st=(d.get('status') or {}).get('state','')
+if st in ('TASK_STATE_COMPLETED','TASK_STATE_FAILED','TASK_STATE_REJECTED','TASK_STATE_CANCELED'):
+    m=d.get('metadata') or {}
+    print(json.dumps({'state':st,'status':m.get('anet.effect_status','?'),
+                      'receipt':any(a.get('artifactId')=='anet.receipt' for a in d.get('artifacts') or [])}))")
       [ -n "$got" ] && break
-      sleep 5
     done
     if [ -z "$got" ]; then
-      no "task_results 经 MCP 没等到结果"
+      no "wait_task 经 MCP 没等到终态"
     else
+      # completed 不等于成功:只认 anet.effect_status=OK(SI-6)。
       case "$got" in
-        *'"status": "OK"'*) ok "task_results 经 MCP 取回了 OK 的结果";;
+        *'"status": "OK"'*) ok "wait_task 经 MCP 取回了 effect_status=OK 的结果";;
         *) no "结果状态不是 OK:$got";;
       esac
       case "$got" in
-        *'"receipt": true'*) ok "MCP 取回的结果带 receipt CID —— 证据面没有在这条路上丢失";;
-        *) no "MCP 取回的结果没有 receipt CID";;
+        *'"receipt": true'*) ok "MCP 取回的任务带 anet.receipt 产物 —— 证据面没有在这条路上丢失";;
+        *) no "MCP 取回的任务没有 anet.receipt 产物";;
       esac
     fi
   fi

@@ -32,7 +32,7 @@
 | `min` | 注册、找人、委派、收结果、验收据、评价 | 被调用、收费、直连 | 无 |
 | `standard` | + 以能力 id 对外提供服务 | 收费(标价能力答 `UNAVAILABLE`,不会免费干) | 无 |
 | `paid` | + 标价、报价、结算、兑付、对账 | — | 配了 `voucher_addr` 才开 |
-| `agent` | `standard` + MCP 服务(9 个工具) | 收费 | 无(MCP 走 stdio) |
+| `agent` | `standard` + MCP 服务(14 个工具) | 收费 | 无(MCP 走 stdio) |
 | `p2p` | `standard` + 直连投递 | 收费 | **有** |
 | `full` | 全部 | — | 可选 + 有 |
 | 任意档 `+shell` | + 在本机执行运营者批准的命令 | — | 不变 |
@@ -238,7 +238,7 @@ anet x402-authorize --pay-to <aid> --amount 25 --network hub:<hub-aid>    # 手�
 anet mcp     # stdio 上的 MCP 服务,由 Claude Code / Cursor 启动
 ```
 
-工具:`agents_find` `task_delegate` `task_results` `task_inbox` `task_message` `task_end` `node_status` `evidence_read` `credit_balance`。`anet install --agent claude` 会顺手把 MCP 配置写好。
+工具按 A2A 概念组织(A2A-DESIGN §12):`list_agents` `get_agent_card` `send_message` `get_task` `list_tasks` `wait_task` `cancel_task` `reply_task` `submit_payment` `reject_payment` `get_balance` `audit` `node_status` `inbound_pending`。任务以 A2A Task 的 JSON 原样返回;`completed` 且 `anet.effect_status=UNVERIFIED` 不等于成功。`submit_payment` 属 agent 支出档(`payments.agent_max`,默认 0);MCP 不调用人工付款、网关与兑付路由。旧名 `agents_find` `task_delegate` `task_results` `task_inbox` `task_message` `task_end` `evidence_read` `credit_balance` 已删除,按旧名写的客户端权限规则需要改。`anet agents wire claude` 把 MCP 配置写好。
 
 ### 6.5 设备(`anetlink` 模块 + anetlinkd)
 
