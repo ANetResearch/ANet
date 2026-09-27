@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/agentwire"
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
-	"github.com/ANetResearch/ANet/module"
 )
 
 const doctorAID = "bafyreiaaaaaaaaaaaaaa"
@@ -38,11 +38,11 @@ func wireForDoctor(t *testing.T, layout daemon.Layout, env doctorEnv, refresh bo
 
 func setLocalA2A(t *testing.T, layout daemon.Layout, addr, token string) {
 	t.Helper()
-	dir := module.StatePath(layout.Root, module.A2AModuleName)
+	dir := anethome.A2ADir(layout.Root)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for name, body := range map[string]string{module.A2AAddrFile: addr + "\n", module.A2ATokenFile: token + "\n"} {
+	for name, body := range map[string]string{anethome.A2AAddrFile: addr + "\n", anethome.A2ATokenFile: token + "\n"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -149,7 +149,7 @@ func TestDoctorReadsAgentwire(t *testing.T) {
 
 	// Without a2a_addr.txt and a2a_token.txt nothing can be compared: said,
 	// not guessed.
-	if err := os.RemoveAll(module.StatePath(layout.Root, module.A2AModuleName)); err != nil {
+	if err := os.RemoveAll(anethome.A2ADir(layout.Root)); err != nil {
 		t.Fatal(err)
 	}
 	rep = collect()
