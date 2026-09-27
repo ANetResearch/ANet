@@ -46,9 +46,9 @@ type Config struct {
 	LegacyAcceptDelegations *bool `json:"accept_delegations,omitempty"`
 	// migratedInbound is set by LoadConfig when it created the inbound
 	// block from a wire-1 config that accepted delegations; New logs it
-	// once. rewriteConfig is set when the file on disk lacks the inbound
-	// block or still carries accept_delegations; New saves the migrated
-	// config.
+	// once. rewriteConfig is set when the file on disk lacks the inbound or
+	// payments block or still carries accept_delegations; New saves the
+	// migrated config.
 	migratedInbound bool
 	rewriteConfig   bool
 	// AutoReply, when set, turns this daemon into a SELF-DRIVING provider: a background loop watches
@@ -58,8 +58,10 @@ type Config struct {
 	// call my API → message back" loop lives in the daemon, driven purely by this config block.
 	// Requires a daemon restart to take effect. See autoreply.go.
 	AutoReply *AutoReplyConfig `json:"auto_reply,omitempty"`
-	// Payments is the spending policy (A2A-DESIGN §8.6; spend.go). A config
-	// without the block gets the defaults of PaymentsConfig.limits.
+	// Payments is the spending policy (A2A-DESIGN §8.6; spend.go). A key
+	// left out gets its default (PaymentsConfig.limits); a config without
+	// the block is given defaultPayments at load and rewritten, so the file
+	// states the limits explicitly (SI-5).
 	Payments *PaymentsConfig `json:"payments,omitempty"`
 	// RotationGrace is how long after a peer's key rotation a message
 	// signed by its previous key, and time-stamped before the rotation, is
@@ -121,16 +123,18 @@ func (c AutoReplyConfig) UntrustedMode() string {
 }
 
 // DefaultConfig is the out-of-the-box daemon config. The inbound block is
-// explicit and closed (SI-5): a fresh install accepts no delegation and runs
-// nothing for anyone until the operator names a peer or a public
-// capability.
+// explicit and closed, and the payments block pays nothing without a person
+// (SI-5): a fresh install accepts no delegation, runs nothing for anyone and
+// spends nothing until the operator names a peer, a public capability or a
+// limit.
 //
 // ControlAddr here is the HISTORICAL fixed port, and it is a fallback, not what a new data dir gets — see
 // freshConfig. It stays fixed because it is also the answer to "which address would the CLI have tried?"
 // for a dir whose config is missing or unreadable, and that answer has to be the same in every process.
 func DefaultConfig() Config {
 	in := defaultInbound()
-	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in}
+	pay := defaultPayments()
+	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in, Payments: &pay}
 }
 
 // freshConfig is the config a data dir with no config.json is created with: DefaultConfig, but with a
@@ -195,6 +199,7 @@ func LoadConfig(l Layout) (Config, error) {
 		c.ControlAddr = DefaultConfig().ControlAddr
 	}
 	migrateInbound(&c)
+	migratePayments(&c)
 	return c, nil
 }
 
