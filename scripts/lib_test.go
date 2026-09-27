@@ -4,6 +4,8 @@
 package scripts
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"io"
 	"os"
 	"os/exec"
@@ -264,4 +266,69 @@ func containsLine(s string, pid int) bool {
 		}
 	}
 	return false
+}
+
+// canary_hits finds a canary however a file holds it — as it is, in hex, in base64 or base64url at any
+// byte offset (a hub stores envelopes and receipts as base64 in JSON; a daemon's evidence chain is base64
+// CBOR per line, where a plain grep finds nothing) — and says so when it could not look.
+func TestCanaryHitsFindsEncodedCopies(t *testing.T) {
+	needLinuxShell(t)
+	dir := t.TempDir()
+	const canary = "cnry0123456789abcdef0123456789abcdef"
+	write := func(name string, b []byte) {
+		t.Helper()
+		p := filepath.Join(dir, "d", name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := map[string]string{}
+	for pre := 0; pre < 3; pre++ {
+		// The canary at every offset mod 3, inside a record the way a chain line or a JSON field holds it.
+		rec := append(append([]byte(strings.Repeat("\x01", pre+5)), canary...), "\x00tail"...)
+		name := "b64-" + strconv.Itoa(pre) + ".ael.jsonl"
+		write(name, []byte("AAAA\n"+base64.StdEncoding.EncodeToString(rec)+"\n"))
+		want[name] = "base64/"
+		name = "url-" + strconv.Itoa(pre) + ".json"
+		write(name, []byte(`{"x":"`+base64.RawURLEncoding.EncodeToString(append([]byte{0xfb, 0xff}, rec...))+`"}`))
+		want[name] = "base64"
+	}
+	write("plain.log", []byte("2026/09/27 call text="+canary+"\n"))
+	want["plain.log"] = "plain"
+	write("hex.txt", []byte("bytes "+hex.EncodeToString([]byte("<"+canary+">"))))
+	want["hex.txt"] = "hex"
+	write("clean.db", []byte("nothing here but cnry0123 and 0123456789abcdef"))
+	out := libsh(t, dir, `canary_hits "$1" "$2/d" "$2/gone"`, canary, dir)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if last := lines[len(lines)-1]; last != "# searched "+strconv.Itoa(len(want)+1) {
+		t.Errorf("last line %q, want the count of files read (%d)", last, len(want)+1)
+	}
+	for name, enc := range want {
+		found := false
+		for _, l := range lines {
+			found = found || (strings.HasPrefix(l, filepath.Join(dir, "d", name)+" (") && strings.Contains(l, enc))
+		}
+		if !found {
+			t.Errorf("%s: no %s hit in\n%s", name, enc, out)
+		}
+	}
+	if strings.Contains(out, "clean.db") {
+		t.Errorf("a file without the canary was reported:\n%s", out)
+	}
+	if !strings.Contains(out, filepath.Join(dir, "gone")+" (missing)") {
+		t.Errorf("a missing path is not reported:\n%s", out)
+	}
+	if os.Geteuid() != 0 {
+		write("locked", []byte(canary))
+		if err := os.Chmod(filepath.Join(dir, "d", "locked"), 0); err != nil {
+			t.Fatal(err)
+		}
+		out := libsh(t, dir, `canary_hits "$1" "$2/d/locked"`, canary, dir)
+		if !strings.Contains(out, "(unreadable") {
+			t.Errorf("an unreadable file passes for a clean one:\n%s", out)
+		}
+	}
 }
