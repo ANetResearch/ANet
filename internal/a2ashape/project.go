@@ -129,6 +129,21 @@ type Source struct {
 	Interaction *interactions.Interaction
 	Messages    []interactions.Message
 	Attachments []interactions.Attachment
+	// Payment is the x402 part of the task's current status as the kernel
+	// derives it from the stored payment columns (the daemon's
+	// PaymentStatusMeta, A2A-DESIGN §8.2): x402.payment.status, .required
+	// and anet.quote_expires_at while a quote waits, .receipts, .error
+	// after a failure, and on the requester's side anet.reason
+	// (needs_operator_approval) and anet.cancel_requested. The payment
+	// flow owns those rules; the projection places what it says.
+	//
+	// nil means nobody derived it (a reader with only the store): the
+	// projection then reads the columns itself. Non-nil, even empty, it is
+	// authoritative for anet.cancel_requested, and for the x402 keys
+	// whenever it has any; a task with nothing quoted in the same-task flow
+	// gives an empty map, and the x402 keys of an older PAYMENT_REQUIRED
+	// answer are still read from the answer.
+	Payment map[string]any
 }
 
 // Options says how much of a task to project and how its files travel.
@@ -244,6 +259,8 @@ type projector struct {
 	cap *capResult
 	// resultMeta is the metadata the result carried.
 	resultMeta map[string]any
+	// payment is Source.Payment.
+	payment map[string]any
 }
 
 func newProjector(src Source, opt Options) *projector {
@@ -269,7 +286,36 @@ func newProjector(src Source, opt Options) *projector {
 		}
 	}
 	p.resultMeta = decodeObject([]byte(ix.ResultMeta))
+	if src.Payment != nil {
+		// Re-read as the projection's own JSON values: the quote in it is
+		// the peer's, and is held to the same rules (finite numbers) as
+		// anything read from the store.
+		p.payment = make(map[string]any, len(src.Payment))
+		for k, v := range src.Payment {
+			b, err := json.Marshal(v)
+			if err != nil {
+				continue
+			}
+			if g, err := decodeJSON(b); err == nil && g != nil {
+				p.payment[k] = g
+			}
+		}
+	}
 	return p
+}
+
+// x402Keys are the keys Source.Payment decides when it has any.
+var x402Keys = []string{KeyX402Status, KeyX402Required, KeyX402Receipts, KeyX402Error, KeyQuoteExpiresAt}
+
+// kernelPayment reports whether the kernel's payment derivation has x402
+// keys to give: the task took part in the same-task flow.
+func (p *projector) kernelPayment() bool {
+	for _, k := range x402Keys {
+		if _, ok := p.payment[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // fromProvider reports whether sender is the task's provider: the peer of
@@ -413,10 +459,16 @@ func (p *projector) requesterCanceled() bool {
 }
 
 // paymentRequired reports a task that waits for a payment: quoted in the
-// same-task flow (pay_state=required), or answered PAYMENT_REQUIRED.
+// same-task flow (pay_state=required, or failed with the quote still open
+// for another attempt), or answered PAYMENT_REQUIRED.
 func (p *projector) paymentRequired() bool {
-	if p.ix.PayState == interactions.PayRequired {
+	switch p.ix.PayState {
+	case interactions.PayRequired:
 		return true
+	case interactions.PayFailed:
+		if !p.ix.IsTerminal() && len(p.ix.PayRequired) > 0 {
+			return true
+		}
 	}
 	return p.quoted()
 }
@@ -499,7 +551,11 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 			}
 			// A payment failure's code goes in the message as well as
 			// the task's metadata (a2a-x402 §9).
-			if v := p.resultMeta[KeyX402Error]; v != nil {
+			v := p.resultMeta[KeyX402Error]
+			if v == nil {
+				v = p.payment[KeyX402Error]
+			}
+			if v != nil {
 				if _, ok := msg.Metadata[KeyX402Error]; !ok {
 					msg.Metadata[KeyX402Error] = v
 				}
@@ -511,13 +567,32 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 }
 
 // paymentRequiredMessage is the a2a-x402 payment-required message, built
-// from the stored quote.
+// from the stored quote. After a failed attempt it says payment-failed,
+// with the code and the receipts, and still carries the quote.
 func (p *projector) paymentRequiredMessage() *Message {
 	text := "Payment is required."
 	if p.cap != nil && p.cap.Message != "" {
 		text = p.cap.Message
 	}
 	meta := map[string]any{KeyX402Status: PaymentRequired}
+	if p.kernelPayment() {
+		for _, k := range x402Keys {
+			if v, ok := p.payment[k]; ok {
+				meta[k] = v
+			}
+		}
+		if meta[KeyX402Status] == PaymentFailed {
+			text = "The payment failed; the quote can be paid again."
+		}
+		return p.synthesized(text, meta)
+	}
+	if p.ix.PayState == interactions.PayFailed {
+		meta[KeyX402Status] = PaymentFailed
+		text = "The payment failed; the quote can be paid again."
+		if rc := p.x402Receipts(); rc != nil {
+			meta[KeyX402Receipts] = rc
+		}
+	}
 	if req := p.x402Required(); req != nil {
 		meta[KeyX402Required] = req
 	}
@@ -637,16 +712,40 @@ func (p *projector) metadata(why map[string]any) map[string]any {
 			m[KeyReason] = ReasonUnavailable
 		}
 	}
-	if !ix.IsTerminal() && p.requesterCanceled() {
+	switch {
+	case p.payment != nil:
+		// The kernel's rule (0017 Q3): the requester's cancel sent while
+		// its payment is submitted or settled.
+		if v, ok := p.payment[KeyCancelRequested]; ok {
+			m[KeyCancelRequested] = v
+		}
+	case !ix.IsTerminal() && p.requesterCanceled():
 		// A cancel after a payment was submitted leaves the task open
 		// (§4.2); the client is told its request is pending.
 		m[KeyCancelRequested] = true
 	}
-	if s := p.x402Status(); s != "" {
-		m[KeyX402Status] = s
+	if p.kernelPayment() {
+		// The same-task flow, as the payment flow reads its own columns.
+		for _, k := range x402Keys {
+			if v, ok := p.payment[k]; ok {
+				m[k] = v
+			}
+		}
+	} else {
+		if s := p.x402Status(); s != "" {
+			m[KeyX402Status] = s
+		}
+		if rc := p.x402Receipts(); rc != nil {
+			m[KeyX402Receipts] = rc
+		}
 	}
-	if rc := p.x402Receipts(); rc != nil {
-		m[KeyX402Receipts] = rc
+	// Why a task waits on a payment (needs_operator_approval) is the
+	// state's reason while it waits; once the task has ended, the reason
+	// that ended it stays, and the payment's is only a fallback.
+	if v, ok := p.payment[KeyReason]; ok {
+		if !ix.IsTerminal() || m[KeyReason] == nil {
+			m[KeyReason] = v
+		}
 	}
 	return m
 }

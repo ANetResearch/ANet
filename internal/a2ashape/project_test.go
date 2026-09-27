@@ -680,3 +680,82 @@ func isNotFound(err error) bool {
 	e, ok := err.(*a2ashape.Error)
 	return ok && e.Name == a2ashape.ErrTaskNotFound.Name
 }
+
+// Source.Payment, the payment flow's own reading of its columns (the
+// daemon's PaymentStatusMeta), decides the x402 keys, why a task waits on a
+// payment, and anet.cancel_requested (A2A-DESIGN §8.2, §11.5, 0017 Q3). A
+// failed attempt that leaves the quote open still asks for payment.
+func TestKernelPaymentMeta(t *testing.T) {
+	quote := `{"x402Version":2,"accepts":[{"scheme":"anet-credit","network":"hub:did:anet:h","amount":"5","payTo":"did:anet:peer"}]}`
+	st := openStore(t)
+	capTask(t, st, "ix_k", interactions.StateInputRequired, "", "")
+	setState(t, st, "ix_k", interactions.StateInputRequired)
+	src, err := a2ashape.Load(st, "ix_k")
+	must(t, err)
+	src.Interaction.PayState = interactions.PayRequired
+	src.Interaction.PayRequired = []byte(quote)
+	src.Payment = map[string]any{
+		a2ashape.KeyX402Status: a2ashape.PaymentRequired, a2ashape.KeyX402Required: json.RawMessage(quote),
+		a2ashape.KeyX402Receipts: []json.RawMessage{}, a2ashape.KeyQuoteExpiresAt: int64(1790086400123),
+		a2ashape.KeyReason: "needs_operator_approval",
+	}
+	sdk := contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	if sdk.Metadata[a2ashape.KeyReason] != "needs_operator_approval" || sdk.Metadata[a2ashape.KeyX402Required] == nil ||
+		sdk.Metadata[a2ashape.KeyQuoteExpiresAt] == nil || sdk.Metadata[a2ashape.KeyX402Status] != "payment-required" {
+		t.Fatalf("waiting: %v", sdk.Metadata)
+	}
+	if m := sdk.Status.Message; m == nil || m.Metadata[a2ashape.KeyX402Required] == nil {
+		t.Fatalf("waiting, status message: %+v", sdk.Status)
+	}
+
+	// A failed attempt (pay_state=failed, still input-required): the
+	// message says payment-failed with the code, and carries the quote.
+	src.Interaction.PayState = interactions.PayFailed
+	src.Payment[a2ashape.KeyX402Status] = a2ashape.PaymentFailed
+	src.Payment[a2ashape.KeyX402Error] = "INSUFFICIENT_FUNDS"
+	src.Payment[a2ashape.KeyX402Receipts] = []json.RawMessage{json.RawMessage(`{"success":false,"errorReason":"insufficient_funds","network":"n","transaction":""}`)}
+	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	m := sdk.Status.Message
+	if sdk.Status.State != a2a.TaskStateInputRequired || m == nil || m.Metadata[a2ashape.KeyX402Status] != "payment-failed" ||
+		m.Metadata[a2ashape.KeyX402Error] != "INSUFFICIENT_FUNDS" || m.Metadata[a2ashape.KeyX402Required] == nil {
+		t.Fatalf("after a failed attempt: %+v", sdk.Status)
+	}
+	if rc, _ := sdk.Metadata[a2ashape.KeyX402Receipts].([]any); len(rc) != 1 || sdk.Metadata[a2ashape.KeyX402Error] != "INSUFFICIENT_FUNDS" {
+		t.Fatalf("after a failed attempt, metadata: %v", sdk.Metadata)
+	}
+
+	// A peer's number too large for a float64 in the quote stays readable.
+	src.Payment[a2ashape.KeyX402Required] = json.RawMessage(`{"x402Version":2,"n":1e400,"accepts":[]}`)
+	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	if r, _ := sdk.Metadata[a2ashape.KeyX402Required].(map[string]any); r["n"] != "1e400" {
+		t.Fatalf("quote number: %v", sdk.Metadata[a2ashape.KeyX402Required])
+	}
+
+	// Once the task has ended, the reason that ended it stays.
+	src.Interaction.State = interactions.StateFailed
+	src.Interaction.ResultMeta = `{"anet.reason":"quote_expired"}`
+	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	if sdk.Metadata[a2ashape.KeyReason] != "quote_expired" {
+		t.Fatalf("terminal reason: %v", sdk.Metadata[a2ashape.KeyReason])
+	}
+
+	// anet.cancel_requested follows the kernel when it derived one: a
+	// cancel on a task nothing was paid for is not a pending request.
+	st = openStore(t)
+	const ix = "ix_kc"
+	must(t, st.Create(interactions.New{ID: ix, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c"}))
+	msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
+	setState(t, st, ix, interactions.StateWorking)
+	msg(t, st, ix, self, interactions.MsgCancel, "", "m2", nil)
+	src, err = a2ashape.Load(st, ix)
+	must(t, err)
+	src.Payment = map[string]any{}
+	if sdk = contract(t, a2ashape.Project(src, a2ashape.Options{})); sdk.Metadata[a2ashape.KeyCancelRequested] != nil {
+		t.Fatalf("cancel_requested without a payment: %v", sdk.Metadata)
+	}
+	src.Payment = map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentSubmitted, a2ashape.KeyCancelRequested: true}
+	if sdk = contract(t, a2ashape.Project(src, a2ashape.Options{})); sdk.Metadata[a2ashape.KeyCancelRequested] != true ||
+		sdk.Metadata[a2ashape.KeyX402Status] != "payment-submitted" {
+		t.Fatalf("cancel_requested after a payment: %v", sdk.Metadata)
+	}
+}

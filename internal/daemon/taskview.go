@@ -3,7 +3,8 @@ package daemon
 // taskview.go reads an interaction into its A2A projection. The mapping
 // itself is a2ashape.Project (A2A-DESIGN §11.5, SI-6); this file supplies
 // what only the daemon has: attachment bytes, safe file names and the key
-// history a receipt was checked against. The projection carries the state
+// history a receipt was checked against, and the payment flow's reading of
+// the task's payment columns (PaymentStatusMeta). The projection carries the state
 // sequence number (a2ashape.KeyStateSeq), which a caller passes back to
 // /tasks/wait as after_seq to wait for a state newer than the one it has
 // seen (C35).
@@ -53,7 +54,10 @@ func (d *Daemon) taskView(ix *interactions.Interaction, o viewOpts) (a2ashape.Ta
 		// holder can check it again (as /results has always done).
 		opt.ProviderKEL = d.encodedPeerKEL(ix.PeerAID)
 	}
-	t := a2ashape.Project(a2ashape.Source{Interaction: ix, Messages: msgs, Attachments: atts}, opt)
+	// The x402 part of the status as the payment flow derives it from its
+	// own columns (A2A-DESIGN §8.2, §11.5); the projection places it.
+	t := a2ashape.Project(a2ashape.Source{Interaction: ix, Messages: msgs, Attachments: atts,
+		Payment: d.PaymentStatusMeta(ix)}, opt)
 	if t.Metadata == nil {
 		// Project always sets it; callers add keys (anet.wait) to it.
 		t.Metadata = map[string]any{}
