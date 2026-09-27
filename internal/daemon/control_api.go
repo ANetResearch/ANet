@@ -171,6 +171,9 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /inbound/pending", d.hInboundPending)
 	api.HandleFunc("POST /inbound/approve", d.hInboundApprove)
 	api.HandleFunc("POST /inbound/reject", d.hInboundReject)
+	// A2A task routes and discovery (A2A-DESIGN §12; tasks_api.go).
+	// Bearer only.
+	d.registerTaskRoutes(api)
 	return d.secureControlPlane(token, api)
 }
 
