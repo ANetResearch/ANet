@@ -199,9 +199,17 @@ func TestAddressRules(t *testing.T) {
 	}
 	// A hand-picked port outside the scan range that is taken is an error,
 	// not a silent move.
-	hold, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	var hold net.Listener
+	for {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !autoAssigned(l.Addr().String()) {
+			hold = l
+			break
+		}
+		defer l.Close() // inside the scan range: not a hand-picked address
 	}
 	defer hold.Close()
 	write(hold.Addr().String())
