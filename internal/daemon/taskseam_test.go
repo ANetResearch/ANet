@@ -563,3 +563,31 @@ func TestAWaitThatTimesOutAnswersTheTask(t *testing.T) {
 		t.Fatal("a wait after the current state_seq returned without a newer state")
 	}
 }
+
+// Two copies of one client message sent at once make one task.
+func TestConcurrentCopiesOfOneMessageMakeOneTask(t *testing.T) {
+	_, req, prov := registeredPair(t)
+	ctx := context.Background()
+	seam := req.TaskSeam()
+	send := a2ashape.TaskSend{Message: textMsg("once", "ctx-dup", "m-dup"), ReturnImmediately: true}
+	ids := make(chan string, 4)
+	for i := 0; i < 4; i++ {
+		go func() {
+			task, err := seam.Send(ctx, prov.AID(), send)
+			if err != nil {
+				ids <- "error: " + err.Error()
+				return
+			}
+			ids <- task.ID
+		}()
+	}
+	first := <-ids
+	for i := 1; i < 4; i++ {
+		if got := <-ids; got != first {
+			t.Fatalf("copies answered %s and %s", first, got)
+		}
+	}
+	if n := outboundCount(t, req); n != 1 {
+		t.Fatalf("%d tasks for one message", n)
+	}
+}
