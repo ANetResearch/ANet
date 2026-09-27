@@ -181,6 +181,9 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /tasks/pay-manual", d.hTasksPayManual)
 	api.HandleFunc("POST /payments/status", d.hPaymentsStatus)
 	api.HandleFunc("POST /payments/limits", d.hPaymentsLimits)
+	// This node's own A2A network card and its publication status
+	// (a2a_card.go). Bearer only.
+	api.HandleFunc("POST /card", d.hCard)
 	return d.secureControlPlane(token, api)
 }
 

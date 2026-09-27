@@ -55,7 +55,7 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		{"KeysPublishRequest", hubapi.KeysPublishRequest{}, []string{"keyset"}},
 		{"KeysPublishResponse", hubapi.KeysPublishResponse{}, []string{"aid", "keys_status"}},
 		{"RegisterRequest", hubapi.RegisterRequest{}, []string{
-			"aid", "caps", "card", "enc_keys", "invite", "kel", "name",
+			"a2a_card", "aid", "caps", "card", "enc_keys", "invite", "kel", "name",
 		}},
 		{"RegisterResponse", hubapi.RegisterResponse{}, []string{
 			"aid", "card_error", "card_status", "keys_error", "keys_status", "status",
@@ -164,6 +164,20 @@ func TestTheKeysStatusValuesArePinned(t *testing.T) {
 	} {
 		if got != want {
 			t.Errorf("keys_status %q, want %q — the hub reports these exact strings", got, want)
+		}
+	}
+}
+
+// card_status is the a2a_card half of the same answer: the daemon re-issues
+// its card under a new seq on "conflict" and takes "ok"/"unchanged" as
+// held. The hub's admission step reports these strings.
+func TestTheCardStatusValuesArePinned(t *testing.T) {
+	for want, got := range map[string]string{
+		"ok": hubapi.CardStatusOK, "unchanged": hubapi.CardStatusUnchanged, "absent": hubapi.CardStatusAbsent,
+		"invalid": hubapi.CardStatusInvalid, "conflict": hubapi.CardStatusConflict, "unverified": hubapi.CardStatusUnverified,
+	} {
+		if got != want {
+			t.Errorf("card_status %q, want %q — the hub reports these exact strings", got, want)
 		}
 	}
 }

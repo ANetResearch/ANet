@@ -59,6 +59,7 @@ func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []st
 		return err
 	}
 	d.mu.Lock()
+	prevHub := d.cfg.HubURL
 	d.cfg.HubURL = hubURL
 	d.cfg.Name = name
 	if caps != nil {
@@ -76,6 +77,14 @@ func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []st
 	if err := SaveConfig(d.layout, cfg); err != nil {
 		return err
 	}
+	if prevHub != hubURL && d.CardPublicationStatus().Sent {
+		// The payment module learns the hub, and so the ledger its prices
+		// are on, from the config, which is written only now: on a node
+		// that had no hub, the card just sent carries no price list
+		// (a2a_card.go). Publish once more with the config in place; a
+		// card that comes out the same is answered "unchanged".
+		d.cardInputsChanged()
+	}
 	// Re-publish any existing self-description so a fresh registration keeps the agent's profile.
 	if cfg.Summary != "" || cfg.Readme != "" || cfg.Pricing != "" {
 		if err := d.PublishProfile(ctx, hubURL, cfg.Summary, cfg.Readme, cfg.Pricing); err != nil {
@@ -86,14 +95,13 @@ func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []st
 	return nil
 }
 
-// Find searches the Hub registry (substring over AID/name/caps).
 // FindByCapability asks who serves a capability id.
 //
 // A different question from Find, and deliberately not a better-phrased
 // version of it. A capability id is exact and structured, so this is a
 // membership test: "cas.put" means that id, and "ptz.*" means that
-// family. Find asks the hub to search prose, which will happily return an
-// agent that merely mentions the words.
+// family. Find searches prose, which will happily return an agent that
+// merely mentions the words.
 func (d *Daemon) FindByCapability(ctx context.Context, capID string) ([]hubapi.AgentView, error) {
 	hub := d.config().HubURL
 	if hub == "" {
@@ -110,6 +118,10 @@ func (d *Daemon) FindByCapability(ctx context.Context, capID string) ([]hubapi.A
 	return resp.Agents, nil
 }
 
+// Find searches the Hub registry (substring over AID/name/summary/readme/caps).
+//
+// The free text never leaves this node (A2A-DESIGN §10.5): the daemon
+// fetches the listing and matches locally (discover.go).
 func (d *Daemon) Find(ctx context.Context, query string) ([]hubapi.AgentView, error) {
 	hub := d.config().HubURL
 	if hub == "" {
@@ -118,14 +130,10 @@ func (d *Daemon) Find(ctx context.Context, query string) ([]hubapi.AgentView, er
 	var resp struct {
 		Agents []hubapi.AgentView `json:"agents"`
 	}
-	q := url.Values{}
-	if query != "" {
-		q.Set("q", query)
-	}
-	if err := d.hubGet(ctx, hub, "/agents", q, &resp); err != nil {
+	if err := d.hubGet(ctx, hub, "/agents", nil, &resp); err != nil {
 		return nil, err
 	}
-	return resp.Agents, nil
+	return matchAgents(resp.Agents, query), nil
 }
 
 // Delegate builds a signed TaskDoc for goal, stores the outbound interaction, and sends the delegation

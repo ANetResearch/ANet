@@ -87,6 +87,10 @@ func (d *Daemon) registerWithHubLocked(ctx context.Context, hubURL, name string,
 	} else {
 		log.Printf("anet: registering without a signed card: %v", cerr)
 	}
+	// The A2A network card (a2a_card.go), when this node has a public
+	// skill. The hub reports what it did with it in card_status.
+	a2aCard, a2aSeq := d.cardForRegistration(hubURL, name, false)
+	body.A2ACard = a2aCard
 	if err := d.screenPublication("this node's registration", body); err != nil {
 		return err
 	}
@@ -94,6 +98,7 @@ func (d *Daemon) registerWithHubLocked(ctx context.Context, hubURL, name string,
 	if err := d.hubSigned(ctx, hubURL, http.MethodPost, "/register", relayauth.ActionRegister, body, &out); err != nil {
 		return err
 	}
+	d.afterCardAnswer(ctx, hubURL, body, a2aSeq, out)
 	// A refused key set does not fail the registration (the hub reports it
 	// per field). The registration still stands, so it is logged and the
 	// set is published again through POST /agents/{aid}/keys, whose
