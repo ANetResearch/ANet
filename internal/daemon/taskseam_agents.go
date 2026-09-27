@@ -26,6 +26,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // Verification values of a RemoteAgent.
@@ -61,17 +62,17 @@ type registryPage struct {
 
 // listAgents asks the hub registry for agents by skill and tag, verifies
 // each card here, and applies the free-text query locally.
-func (d *Daemon) listAgents(ctx context.Context, q a2ashape.AgentQuery) ([]a2ashape.RemoteAgent, string, error) {
+func (d *Daemon) listAgents(ctx context.Context, q module.AgentQuery) ([]module.RemoteAgent, string, error) {
 	hub := d.config().HubURL
 	if hub == "" {
-		return nil, "", fmt.Errorf("%w: this node has no hub (run `anet hub-register` first)", a2ashape.ErrUnavailable)
+		return nil, "", a2ashape.Errorf(a2ashape.ErrUnavailable, "this node has no hub (run `anet hub-register` first)")
 	}
 	limit := q.Limit
 	switch {
 	case limit == 0:
 		limit = agentsPageDefault
 	case limit < 0 || limit > agentsPageMax:
-		return nil, "", fmt.Errorf("%w: limit must be between 1 and %d", a2ashape.ErrInvalidParams, agentsPageMax)
+		return nil, "", a2ashape.Errorf(a2ashape.ErrInvalidParams, "limit must be between 1 and %d", agentsPageMax)
 	}
 	v := url.Values{}
 	if q.Skill != "" {
@@ -94,12 +95,12 @@ func (d *Daemon) listAgents(ctx context.Context, q a2ashape.AgentQuery) ([]a2ash
 		return d.listAgentsLegacy(hctx, hub, q, limit)
 	}
 	if err != nil {
-		return nil, "", fmt.Errorf("%w: %v", a2ashape.ErrUnavailable, err)
+		return nil, "", a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
 	}
 	resolve := d.cardKELResolver(hctx)
-	out := make([]a2ashape.RemoteAgent, 0, len(page.Agents))
+	out := make([]module.RemoteAgent, 0, len(page.Agents))
 	for _, e := range page.Agents {
-		ra := a2ashape.RemoteAgent{AID: e.AID, Card: e.Card, HubVerification: e.CardVerification,
+		ra := module.RemoteAgent{AID: e.AID, Card: e.Card, HubVerification: e.CardVerification,
 			HomeHub: e.HomeHub, LastSeen: e.LastSeen, Quiet: e.Quiet, ReviewCount: e.ReviewCount, AvgRating: e.AvgRating}
 		d.verifyCardInto(&ra, resolve)
 		if q.Query != "" && !cardMatches(e.Card, e.AID, q.Query) {
@@ -113,7 +114,7 @@ func (d *Daemon) listAgents(ctx context.Context, q a2ashape.AgentQuery) ([]a2ash
 // listAgentsLegacy lists agents from a hub's /agents directory, which has
 // no network cards: each entry is UNVERIFIED. The free-text query is still
 // matched here, not sent.
-func (d *Daemon) listAgentsLegacy(ctx context.Context, hub string, q a2ashape.AgentQuery, limit int) ([]a2ashape.RemoteAgent, string, error) {
+func (d *Daemon) listAgentsLegacy(ctx context.Context, hub string, q module.AgentQuery, limit int) ([]module.RemoteAgent, string, error) {
 	var resp struct {
 		Agents []struct {
 			AID         string   `json:"aid"`
@@ -130,9 +131,9 @@ func (d *Daemon) listAgentsLegacy(ctx context.Context, hub string, q a2ashape.Ag
 		v.Set("cap", q.Skill)
 	}
 	if err := d.hubGet(ctx, hub, "/agents", v, &resp); err != nil {
-		return nil, "", fmt.Errorf("%w: %v", a2ashape.ErrUnavailable, err)
+		return nil, "", a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
 	}
-	out := []a2ashape.RemoteAgent{}
+	out := []module.RemoteAgent{}
 	for _, a := range resp.Agents {
 		if q.Tag != "" && !containsFold(strings.Join(a.Caps, " "), q.Tag) {
 			continue
@@ -140,7 +141,7 @@ func (d *Daemon) listAgentsLegacy(ctx context.Context, hub string, q a2ashape.Ag
 		if q.Query != "" && !containsFold(strings.Join(append([]string{a.AID, a.Name, a.Summary}, a.Caps...), "\n"), q.Query) {
 			continue
 		}
-		out = append(out, a2ashape.RemoteAgent{AID: a.AID, Name: a.Name, HomeHub: a.HomeHub,
+		out = append(out, module.RemoteAgent{AID: a.AID, Name: a.Name, HomeHub: a.HomeHub,
 			ReviewCount: a.ReviewCount, AvgRating: a.AvgRating,
 			Verification: cardUnverified, VerificationError: "the hub publishes no network card for this agent"})
 		if len(out) == limit {
@@ -153,13 +154,13 @@ func (d *Daemon) listAgentsLegacy(ctx context.Context, hub string, q a2ashape.Ag
 // agentCard fetches one agent's network card and verifies it here. An
 // agent without a card is not an error: it is returned UNVERIFIED with an
 // empty card, and the caller describes it by its AID (§11.3).
-func (d *Daemon) agentCard(ctx context.Context, aid string) (a2ashape.RemoteAgent, error) {
+func (d *Daemon) agentCard(ctx context.Context, aid string) (module.RemoteAgent, error) {
 	if _, _, err := a2acard.ParseKID(a2acard.KID(aid, 0)); err != nil || aid == "" {
-		return a2ashape.RemoteAgent{}, fmt.Errorf("%w: %q is not an agent id", a2ashape.ErrInvalidParams, aid)
+		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "%q is not an agent id", aid)
 	}
 	hub := d.config().HubURL
 	if hub == "" {
-		return a2ashape.RemoteAgent{}, fmt.Errorf("%w: this node has no hub (run `anet hub-register` first)", a2ashape.ErrUnavailable)
+		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "this node has no hub (run `anet hub-register` first)")
 	}
 	hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
 	defer cancel()
@@ -167,12 +168,12 @@ func (d *Daemon) agentCard(ctx context.Context, aid string) (a2ashape.RemoteAgen
 	err := d.hubGet(hctx, hub, "/a2a/v1/agents/"+url.PathEscape(aid)+"/card", nil, &card)
 	switch {
 	case hubStatus(err) == http.StatusNotFound:
-		return a2ashape.RemoteAgent{AID: aid, Verification: cardUnverified,
+		return module.RemoteAgent{AID: aid, Verification: cardUnverified,
 			VerificationError: "the agent publishes no network card"}, nil
 	case err != nil:
-		return a2ashape.RemoteAgent{}, fmt.Errorf("%w: %v", a2ashape.ErrUnavailable, err)
+		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
 	}
-	ra := a2ashape.RemoteAgent{AID: aid, Card: card}
+	ra := module.RemoteAgent{AID: aid, Card: card}
 	d.verifyCardInto(&ra, d.cardKELResolver(hctx))
 	return ra, nil
 }
@@ -180,7 +181,7 @@ func (d *Daemon) agentCard(ctx context.Context, aid string) (a2ashape.RemoteAgen
 // verifyCardInto checks ra.Card and records the outcome on ra. The card
 // must verify and must be signed by ra.AID: a valid card of another agent
 // served under this AID is refused.
-func (d *Daemon) verifyCardInto(ra *a2ashape.RemoteAgent, resolve a2acard.Resolver) {
+func (d *Daemon) verifyCardInto(ra *module.RemoteAgent, resolve a2acard.Resolver) {
 	ra.Verification = cardUnverified
 	if len(ra.Card) == 0 {
 		ra.VerificationError = "no card"

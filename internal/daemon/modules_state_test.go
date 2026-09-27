@@ -1,9 +1,13 @@
 package daemon
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // StateDir gives a module <data dir>/modules/<name>/, private to this user
@@ -29,7 +33,13 @@ func TestModuleStateDir(t *testing.T) {
 			t.Errorf("StateDir(%q) = %q", bad, d)
 		}
 	}
-	if _, ok := h.TaskSeam(); ok {
-		t.Error("TaskSeam offered before it is implemented")
+	// The seam is offered, and it is the scoped one: without an agent
+	// named it finds nothing.
+	seam, ok := h.TaskSeam()
+	if !ok || seam == nil {
+		t.Fatal("TaskSeam not offered")
+	}
+	if _, err := seam.Get(context.Background(), "", "ix_any", nil); !errors.Is(err, a2ashape.ErrTaskNotFound) {
+		t.Errorf("Get with no agent named: %v, want TaskNotFound", err)
 	}
 }
