@@ -34,12 +34,15 @@
 - **lab 岛**里 hub1↔hub2 是真跨主机联邦,daemon 在两个 hub 上,p2p 走局域网 TCP。
 - **campus 岛**里 hub3 在 dmax;cmax 的 daemon 经 zerotier 注册到 hub3。cmax 的 ufw(INPUT DROP,47xxx 未放行)
   挡住所有入站 —— 这是**有意保留**的真实"对端入站不可达"路径:dmax→cmax 的 p2p 应失败并回落到 hub 中继。
-  **不要为此去改 cmax 的 ufw**(那是改生产主机配置,需另行征得同意)。
+  **不要为此去改 cmax 的 ufw**(那是改生产主机配置,需另行征得同意)。回落的代价与节奏见
+  [`0025`](../../docs/notes/0025-验证-校园网路径.md):一次拨号失败后 anetpeer 在 30 s 起、翻倍到 10 min 的窗口内
+  对该对端答"不可达",窗口内 dmax→cmax 的消息直接走 hub;窗口到期后的第一条仍要多付 3 s 再回落。
 - **两岛之间不通**:Ink89/90 连不到 cmax/dmax 的任何地址,反之亦然。跨岛联邦只能经 ink88 转发,见下文。
 - 端口段 47100–47499,每台主机一个百位段,整个测试网内唯一。勘察时四台主机与 ink88 的这些 TCP 端口全部空闲。
   daemon 的本机 A2A 接口(module/a2a,默认开启)钉在控制口+50(47x61–69,official 47x91–99);不钉时它首启从
   43811 起自选,出段。
-- 带 anetpeer 的 daemon 注册后会 `/p2p-advertise <拨号地址>:<p2p 端口>`(anetpeer 不持密钥,自己发布不了);
+- 带 anetpeer 的 daemon 注册后会 `/p2p-advertise <拨号地址>:<p2p 端口>`(anetpeer 不持密钥,自己发布不了),
+  配置里同时写 `modules.p2p.advertise`,有公开能力的节点的签名 A2A 卡片因此带 `anet-p2p` 直连接口;
   跨 hub 的对端要等对方 hub 的目录同步(约 2 分钟一轮)学到 home hub 后才会直连。
 - 想测"非覆盖网地址"路径:把 `topology.env` 里 dmax 的拨号/绑定地址改成 `210.45.70.176`。注意 cmax 与 dmax
   同在 210.45.70.0/23,这条路径不经过 NAT;授权主机里**没有**任何一对能走真实的公网 NAT 穿越。
