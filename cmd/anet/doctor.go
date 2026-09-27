@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/module"
 )
@@ -279,8 +280,10 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 
 	// Local A2A interface (module a2a, §11).
 	rep.A2A.Compiled = slices.Contains(rep.Modules, "a2a")
-	rep.A2A.AddrFile = statFile(filepath.Join(layout.Root, "a2a_addr.txt"))
-	rep.A2A.Token = statFile(filepath.Join(layout.Root, "a2a_token.txt"))
+	// The module keeps both files in its state directory (anethome.A2ADir),
+	// the same path in every build, no_a2a included.
+	rep.A2A.AddrFile = statFile(filepath.Join(anethome.A2ADir(layout.Root), anethome.A2AAddrFile))
+	rep.A2A.Token = statFile(filepath.Join(anethome.A2ADir(layout.Root), anethome.A2ATokenFile))
 	if rep.A2A.AddrFile.Present {
 		if b, err := os.ReadFile(rep.A2A.AddrFile.Path); err == nil {
 			rep.A2A.Addr = strings.TrimSpace(string(b))

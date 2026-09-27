@@ -4,12 +4,14 @@ import (
 	"log"
 	"path/filepath"
 
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/module"
 )
 
 // moduleStateDir is where a module's own files live, under the data
-// directory: modules/<name>/.
-const moduleStateDir = "modules"
+// directory: modules/<name>/. The name is anethome's, which the CLI and
+// module/a2a use to find the same files without importing this package.
+const moduleStateDir = anethome.ModulesDir
 
 // StateDir is <data dir>/modules/<name>/, created 0700 (A2A-DESIGN §11.1).
 // A name that is not a plain directory name — empty, a path, "." or ".." —

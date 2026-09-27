@@ -26,12 +26,13 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"strings"
+
+	"github.com/ANetResearch/ANet/internal/loopguard"
 )
 
 // apiCSP is sent on every control-plane response except the console page, which sets its own policy.
@@ -155,64 +156,23 @@ func requestPort(r *http.Request) string {
 	return p
 }
 
-// listenerPort is the port of the listener that accepted r. A request constructed in-process (no
-// connection) falls back to the configured control address.
-func listenerPort(r *http.Request, fallbackAddr string) string {
-	if a, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok && a != nil {
-		if _, p, err := net.SplitHostPort(a.String()); err == nil && p != "" {
-			return p
-		}
-	}
-	_, p, _ := net.SplitHostPort(fallbackAddr)
-	return p
-}
-
-// loopbackName reports whether host (without port, brackets removed) is one of the three names the
-// control plane answers to.
-func loopbackName(host string) bool {
-	switch strings.ToLower(strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")) {
-	case "127.0.0.1", "localhost", "::1":
-		return true
-	}
-	return false
-}
-
-// allowedHost reports whether a Host header value names this listener: a loopback name and exactly the
-// listener's port. A Host without a port is accepted only for a listener on port 80, which is what a
-// browser sends for that port.
-func allowedHost(host, port string) bool {
-	h, p, err := net.SplitHostPort(host)
-	if err != nil {
-		h, p = host, "80"
-	}
-	return port != "" && p == port && loopbackName(h)
-}
-
-// allowedOrigin reports whether an Origin header value is a page served by this listener.
-func allowedOrigin(origin, port string) bool {
-	u, err := url.Parse(origin)
-	if err != nil || u.Scheme != "http" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" {
-		return false
-	}
-	return allowedHost(u.Host, port)
-}
-
 // hostGuard enforces the Host allowlist and the Origin check on every request, and sets the headers
-// common to every control-plane response.
+// common to every control-plane response. The rules themselves are internal/loopguard's, shared with the
+// local A2A interface (module/a2a), which applies the same Host rule and refuses every Origin.
 func (d *Daemon) hostGuard(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		port := listenerPort(r, d.config().ControlAddr)
+		port := loopguard.ListenerPort(r, d.config().ControlAddr)
 		hdr := w.Header()
 		hdr.Set("X-Content-Type-Options", "nosniff")
 		hdr.Set("Content-Security-Policy", apiCSP)
 		hdr.Set("Referrer-Policy", "no-referrer")
-		if !allowedHost(r.Host, port) {
+		if !loopguard.AllowedHost(r.Host, port) {
 			writeJSON(w, http.StatusMisdirectedRequest, map[string]string{
 				"error": "misdirected request: the control plane answers only to 127.0.0.1, localhost or [::1] on port " + port,
 			})
 			return
 		}
-		if o := r.Header.Get("Origin"); o != "" && !allowedOrigin(o, port) {
+		if o := r.Header.Get("Origin"); o != "" && !loopguard.AllowedOrigin(o, port) {
 			writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-origin request refused"})
 			return
 		}
@@ -337,13 +297,14 @@ func restrictJSONFields(r *http.Request, allowed []string) string {
 // refused. Other 127/8 addresses are loopback too but are refused, because a client using them would
 // send a Host header the guard rejects.
 func checkLoopbackControlAddr(addr string) error {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return fmt.Errorf("anet: control_addr %q: %w", addr, err)
-	}
-	if loopbackName(host) {
+	err := loopguard.CheckLoopbackAddr(addr)
+	switch {
+	case err == nil:
 		return nil
+	case errors.Is(err, loopguard.ErrNotLoopback):
+		return fmt.Errorf("anet: control_addr %q is not a loopback address; the control plane listens only on "+
+			"127.0.0.1, localhost or [::1] (for remote access use SSH port forwarding to the same port)", addr)
+	default:
+		return fmt.Errorf("anet: control_addr: %w", err)
 	}
-	return fmt.Errorf("anet: control_addr %q is not a loopback address; the control plane listens only on "+
-		"127.0.0.1, localhost or [::1] (for remote access use SSH port forwarding to the same port)", addr)
 }

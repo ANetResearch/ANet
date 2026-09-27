@@ -34,6 +34,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/loopguard"
 )
 
 const (
@@ -336,7 +338,7 @@ func requestTicket(ctx context.Context, controlAddr, token string) (string, erro
 	}
 	pu, err := url.Parse(out.URL)
 	_, want, _ := net.SplitHostPort(controlAddr)
-	if err != nil || pu.Scheme != "http" || pu.Port() != want || !loopbackName(pu.Hostname()) {
+	if err != nil || pu.Scheme != "http" || pu.Port() != want || !loopguard.LoopbackName(pu.Hostname()) {
 		return "", fmt.Errorf("ticket from %s: unexpected console URL", controlAddr)
 	}
 	return out.URL, nil

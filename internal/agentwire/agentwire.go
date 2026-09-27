@@ -39,6 +39,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/anethome"
 )
 
 // Tool names, as typed on the command line.
@@ -50,13 +52,19 @@ const (
 	ToolHermes   = "hermes"
 )
 
-// A2AAddrFile and A2ATokenFile are the local A2A interface's state files in
-// the data dir, written by module/a2a (A2A-DESIGN §11.1, X5). Only Hermes'
-// a2a_agents entries read them.
+// A2AAddrFile and A2ATokenFile are the local A2A interface's state files,
+// written by module/a2a into its state directory in the data dir
+// (anethome.A2ADir: <data dir>/modules/a2a; A2A-DESIGN §11.1, X5). Only
+// Hermes' a2a_agents entries read them, through a2aStatePath.
 const (
-	A2AAddrFile  = "a2a_addr.txt"
-	A2ATokenFile = "a2a_token.txt"
+	A2AAddrFile  = anethome.A2AAddrFile
+	A2ATokenFile = anethome.A2ATokenFile
 )
+
+// a2aStatePath is where module/a2a keeps file for the data dir dataDir.
+func a2aStatePath(dataDir, file string) string {
+	return filepath.Join(anethome.A2ADir(dataDir), file)
+}
 
 // Options is what wiring needs to know about this machine and this node.
 type Options struct {

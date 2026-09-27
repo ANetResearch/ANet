@@ -80,8 +80,8 @@ type a2aEndpoint struct {
 // written by module/a2a when the daemon first serves it; before that, or in
 // a build without the module, there is nothing to point Hermes at.
 func readA2A(o *Options) (a2aEndpoint, error) {
-	addrPath := filepath.Join(o.DataDir, A2AAddrFile)
-	tokPath := filepath.Join(o.DataDir, A2ATokenFile)
+	addrPath := a2aStatePath(o.DataDir, A2AAddrFile)
+	tokPath := a2aStatePath(o.DataDir, A2ATokenFile)
 	ab, err := os.ReadFile(addrPath)
 	if errors.Is(err, fs.ErrNotExist) {
 		return a2aEndpoint{}, fmt.Errorf("找不到 %s:本机 A2A 接口还没有启动过。它由 daemon 的 a2a 模块在第一次启动时写出"+
