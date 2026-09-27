@@ -319,57 +319,93 @@ func (d *Daemon) SendMessageAtts(ctx context.Context, interactionID, body string
 // makes it input-required. A requester message makes it working.
 func (d *Daemon) SendMessageOpts(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
 	meta map[string]any) error {
+	_, err := d.sendMessage(ctx, interactionID, body, atts, meta, false)
+	return err
+}
+
+// sendMessage is SendMessageOpts returning the interaction's state_seq as
+// its own write left it. A caller that then waits for the other side's
+// answer waits for a state_seq above this one (C35): comparing the current
+// state instead would take an earlier input-required for the answer.
+//
+// queued sends through the retry queue (retry.go) in the same transaction
+// as the message is recorded, instead of one relay attempt after it: a
+// recorded message is then a message that will be delivered, and an
+// unreachable hub delays it rather than failing the call. The task
+// surface (taskseam.go) needs that, because a client's retry of a message
+// is recognised as already recorded and is not sent a second time.
+func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
+	meta map[string]any, queued bool) (stateSeq int64, err error) {
 	body = strings.TrimSpace(body)
 	if body == "" && len(atts) == 0 {
-		return fmt.Errorf("anet: empty message (pass text and/or --attach PATH)")
+		return 0, fmt.Errorf("anet: empty message (pass text and/or --attach PATH)")
 	}
 	ix, err := d.ix.Get(interactionID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if ix.IsTerminal() {
-		return fmt.Errorf("%w (%s is %s)", ErrTaskTerminal, interactionID, ix.State)
+		return 0, fmt.Errorf("%w (%s is %s)", ErrTaskTerminal, interactionID, ix.State)
 	}
 	if ix.IsCapability {
-		return fmt.Errorf("anet: %s is a capability call; it carries no conversation", interactionID)
+		return 0, fmt.Errorf("anet: %s is a capability call; it carries no conversation", interactionID)
 	}
 	var metaBytes []byte
 	if len(meta) > 0 {
 		if metaBytes, err = json.Marshal(meta); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	msgID, err := newMessageID()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	next := stateOnMessage(ix.Role == interactions.RoleOutbound, interactions.MsgText, metaBytes, ix.PayState)
+	cm := &delegation.ChatMsg{Kind: delegation.ChatText, Body: body, Attachments: atts, MsgID: msgID, Metadata: metaBytes}
+	payload, err := cm.Marshal()
+	if err != nil {
+		return 0, err
+	}
 	var seq int64
-	err = d.ix.Update(func(tx *interactions.Tx) error {
+	write := func(tx *interactions.Tx) error {
 		var err error
 		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: interactionID,
 			SenderAID: d.AID(), Kind: interactions.MsgText, Body: body, MsgID: msgID, Metadata: metaBytes}); err != nil {
 			return err
 		}
 		if next != "" {
-			_, err = tx.SetState(interactionID, next)
+			if _, err = tx.SetState(interactionID, next); err != nil {
+				return err
+			}
 		}
-		return err
-	})
+		cur, err := tx.Get(interactionID)
+		if err != nil {
+			return err
+		}
+		stateSeq = cur.StateSeq
+		return nil
+	}
+	var outbox int64
+	if queued {
+		outbox, err = d.queueSend(ctx, ix.PeerAID, seal.TypeMessage, interactionID, payload, write)
+	} else {
+		err = d.ix.Update(write)
+	}
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if err := d.storeMsgAttachments(interactionID, seq, atts); err != nil {
-		return err
+		return stateSeq, err
 	}
 	d.publishMessage(interactionID, seq, interactions.MsgText)
 	d.publishState(interactionID)
-	cm := &delegation.ChatMsg{Kind: delegation.ChatText, Body: body, Attachments: atts, MsgID: msgID, Metadata: metaBytes}
-	payload, err := cm.Marshal()
-	if err != nil {
-		return err
+	if queued {
+		if err := d.deliverQueued(ctx, outbox); err != nil {
+			log.Printf("anet: %s: message queued for delivery to %s (%v)", interactionID, ix.PeerAID, err)
+		}
+		return stateSeq, nil
 	}
-	return d.relaySend(ctx, ix.PeerAID, seal.TypeMessage, interactionID, payload)
+	return stateSeq, d.relaySend(ctx, ix.PeerAID, seal.TypeMessage, interactionID, payload)
 }
 
 // stateOnMessage is the state a message moves its task to (§4.1), or "" for
@@ -879,8 +915,10 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 		if publicCap {
 			return nil
 		}
-		// Record the goal as the first conversation message.
-		s, err := tx.AddMessage(m.ix, m.from, interactions.MsgText, goal)
+		// Record the goal as the first conversation message, with the
+		// requester's message metadata (A2A Message.metadata).
+		s, _, err := tx.AddMessageRecord(interactions.MessageRecord{InteractionID: m.ix, SenderAID: m.from,
+			Kind: interactions.MsgText, Body: goal, Metadata: peerMessageMeta(m.dr.Metadata)})
 		seq = s
 		return err
 	})
