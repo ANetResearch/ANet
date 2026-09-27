@@ -616,7 +616,7 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 	id, err := d.queueSend(ctx, ix.PeerAID, seal.TypeResult, ix.ID, payload, func(tx *interactions.Tx) error {
 		// Our own signature over our own transcript.
 		return tx.Finish(ix.ID, interactions.Finish{State: interactions.StateCompleted, Result: tr,
-			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified})
+			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified, Meta: meta})
 	})
 	if errors.Is(err, interactions.ErrTerminal) {
 		return fmt.Errorf("%w (%s ended before it could be completed)", ErrTaskTerminal, interactionID)
@@ -1509,7 +1509,13 @@ func (d *Daemon) resendResult(interactionID string, ix *interactions.Interaction
 	if err != nil {
 		return
 	}
-	meta, _ := json.Marshal(map[string]any{"anet.state": string(ix.State)})
+	// The metadata the answer first went out with: anet.reason and
+	// anet.retry_after_ms are in no other place. A row from before it was
+	// kept has only the state to say.
+	meta := []byte(ix.ResultMeta)
+	if len(meta) == 0 {
+		meta, _ = json.Marshal(map[string]any{"anet.state": string(ix.State)})
+	}
 	payload, err := (&delegation.ResultResp{
 		Status: delegation.StatusDone, Deliverable: ix.Result,
 		Receipt: ix.Receipt, KEL: selfKEL, Metadata: meta,

@@ -484,6 +484,24 @@ func TestCapabilityWithoutAnswer(t *testing.T) {
 	})
 }
 
+// A number no float64 holds, in metadata a peer wrote, reaches the client
+// as text: a2a-go would refuse the whole task over it (and module/a2a with
+// it every ListTasks page the task is on).
+func TestPeerNumbersStayReadable(t *testing.T) {
+	st := openStore(t)
+	const ix = "ix_num"
+	must(t, st.Create(interactions.New{ID: ix, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c"}))
+	msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
+	msg(t, st, ix, peer, interactions.MsgText, "?", "m2", map[string]any{"n": json.RawMessage(`1e400`)})
+	setState(t, st, ix, interactions.StateInputRequired)
+	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{})
+	must(t, err)
+	sdk := contract(t, task)
+	if sdk.Status.Message == nil || sdk.Status.Message.Metadata["n"] != "1e400" {
+		t.Fatalf("status message %+v", sdk.Status.Message)
+	}
+}
+
 // A cancel sent after a payment was submitted leaves the task open; the
 // task says the cancel is pending (§4.2).
 func TestCancelRequested(t *testing.T) {
@@ -521,6 +539,21 @@ func TestPaymentKeys(t *testing.T) {
 	if acc, _ := req["accepts"].([]any); len(acc) != 1 {
 		t.Fatalf("x402.payment.required %v", m.Metadata[a2ashape.KeyX402Required])
 	}
+	// The quote is signed and stored like an answer, but it is not the
+	// task's output: no anet.result for a stream to hand over as the work.
+	task, err = a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true})
+	must(t, err)
+	if sdk = contract(t, task); sdk.Artifacts != nil {
+		t.Fatalf("a quote projected as artifacts: %+v", sdk.Artifacts)
+	}
+	// Nor is its message why the task ended when the requester walks away.
+	msg(t, st, "ix_q", self, interactions.MsgCancel, "", "c1", nil)
+	setState(t, st, "ix_q", interactions.StateCanceled)
+	task, err = a2ashape.ProjectStored(st, "ix_q", a2ashape.Options{Artifacts: true})
+	must(t, err)
+	if sdk = contract(t, task); sdk.Status.State != a2a.TaskStateCanceled || sdk.Status.Message != nil || sdk.Artifacts != nil {
+		t.Fatalf("canceled after a quote: %+v / %+v", sdk.Status, sdk.Artifacts)
+	}
 
 	st = openStore(t)
 	capTask(t, st, "ix_p", interactions.StateCompleted,
@@ -556,6 +589,16 @@ func TestPaymentKeys(t *testing.T) {
 	if rcs, _ := sdk.Status.Message.Metadata[a2ashape.KeyX402Receipts].([]any); len(rcs) != 1 {
 		t.Fatalf("final message receipts %v", sdk.Status.Message.Metadata)
 	}
+	// a2a-x402 §9: a payment failure's code is in the message and in the
+	// task's metadata.
+	src.Interaction.PayState = interactions.PayFailed
+	src.Interaction.ResultMeta = `{"x402.payment.error":"EXPIRED_PAYMENT"}`
+	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	if sdk.Status.Message.Metadata[a2ashape.KeyX402Error] != "EXPIRED_PAYMENT" || sdk.Metadata[a2ashape.KeyX402Error] != "EXPIRED_PAYMENT" ||
+		sdk.Status.Message.Metadata[a2ashape.KeyX402Status] != "payment-failed" {
+		t.Fatalf("payment failure: %+v / %v", sdk.Status.Message.Metadata, sdk.Metadata)
+	}
+	src.Interaction.ResultMeta = ""
 
 	src.Interaction.State = interactions.StateInputRequired
 	src.Interaction.Result, src.Interaction.Receipt, src.Interaction.PayReceipts = nil, nil, nil
@@ -588,6 +631,11 @@ func TestSI6Sweep(t *testing.T) {
 					}
 					task := a2ashape.Project(a2ashape.Source{Interaction: ix}, a2ashape.Options{Artifacts: true})
 					sdk := contract(t, task)
+					// checkSI6 finds capability tasks by anet.skill; a
+					// projection that dropped it would make the check vacuous.
+					if _, hasSkill := sdk.Metadata[a2ashape.KeySkill]; hasSkill != capability {
+						t.Fatalf("%v %s %q: anet.skill present = %v", capability, st, ans, hasSkill)
+					}
 					if sdk.Status.State != a2a.TaskState(a2ashape.StateOf(st)) {
 						t.Fatalf("%v %s %q: projected state %s", capability, st, ans, sdk.Status.State)
 					}
