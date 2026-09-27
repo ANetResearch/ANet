@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
@@ -286,13 +287,26 @@ func (d *Daemon) Balance(ctx context.Context) (map[string]any, error) {
 	return p.Balance(ctx)
 }
 
-func (d *Daemon) RedeemCredit(ctx context.Context, amount uint64, reference string) (map[string]any, error) {
+// RedeemCredit gives amount back to the hub. payTo is the payee the
+// operator confirmed (the hub AID `anet redeem` showed, sent as pay_to): it
+// is required, and the payment module signs only when it is the hub this
+// node settles on now (module.ErrRedeemPayee otherwise), so a redemption
+// confirmed for one hub is never signed to another.
+func (d *Daemon) RedeemCredit(ctx context.Context, amount uint64, reference, payTo string) (map[string]any, error) {
 	p := d.payer()
 	if p == nil {
 		return nil, errNoPayments()
 	}
-	return p.Redeem(ctx, amount, reference)
+	if strings.TrimSpace(payTo) == "" {
+		return nil, errRedeemNoPayee
+	}
+	return p.Redeem(ctx, amount, reference, payTo)
 }
+
+// errRedeemNoPayee is a /redeem that does not say which hub it was
+// confirmed for.
+var errRedeemNoPayee = errors.New("anet: pay_to is required: the hub AID the redemption was confirmed for " +
+	"(`anet redeem` shows it and asks on the terminal); nothing was signed")
 
 // EvPaymentSettled records that this node had a payment settled in its
 // favour. The kernel writes it because the kernel is what knows the

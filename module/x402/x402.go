@@ -69,14 +69,22 @@ type Module struct {
 	seam  module.PaymentSeam
 	spent *spentVouchers
 
+	// The identity of the hub this node settles on, cached for the hub URL
+	// it was learned at (cachedURL). A node that moves to another hub signs
+	// to that hub from its next payment on: a cache kept for the process
+	// would go on signing redemptions, and checking receipts, against the
+	// hub it left.
 	mu        sync.Mutex
+	cachedURL string
 	cachedHub string
 	cachedKEL []identity.SignedEvent
 
 	// Which peer ledgers our hub will clear against, cached: asked once
-	// per interval rather than on every 402.
+	// per interval rather than on every 402, and again when the hub
+	// changes (clearHub is the hub URL they were asked of).
 	clearMu   sync.Mutex
 	clearAt   time.Time
+	clearHub  string
 	clearNets []string
 
 	// lastSignTS is the time of the last signed account read (signedGet),
@@ -308,34 +316,52 @@ func (m *Module) AID() string {
 
 // hubAID is the AID of the hub this node settles on.
 func (m *Module) hubAID() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.cachedHub != "" {
-		return m.cachedHub
-	}
-	if m.seam == nil {
-		return ""
-	}
-	aid, kel, ok := m.seam.HubIdentity()
-	if !ok {
-		return ""
-	}
-	m.cachedHub, m.cachedKEL = aid, kel
+	aid, _ := m.hubIdentity()
 	return aid
 }
+
+// hubIdentity is the AID and verified key history of the hub this node
+// settles on now: the hub at the seam's current HubURL. It is learned once
+// per hub URL; a change of hub (hub-register to another one) is noticed at
+// the next call, which learns the new hub's identity instead of answering
+// with the old one's. Nothing is cached when the identity cannot be had,
+// and nothing is answered when the hub changed while it was being fetched:
+// the identity learned might be either hub's.
+func (m *Module) hubIdentity() (string, []identity.SignedEvent) {
+	if m.seam == nil {
+		return "", nil
+	}
+	url := hubKey(m.seam.HubURL())
+	if url == "" {
+		return "", nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cachedHub != "" && m.cachedURL == url {
+		return m.cachedHub, m.cachedKEL
+	}
+	aid, kel, ok := m.seam.HubIdentity()
+	if !ok || aid == "" || hubKey(m.seam.HubURL()) != url {
+		return "", nil
+	}
+	m.cachedURL, m.cachedHub, m.cachedKEL = url, aid, kel
+	return aid, kel
+}
+
+// hubKey is a hub URL as the caches compare it.
+func hubKey(u string) string { return strings.TrimRight(strings.TrimSpace(u), "/") }
 
 // hubKEL is that hub's verified key history — what makes its settlement
 // receipts checkable rather than merely received.
 func (m *Module) hubKEL() ([]identity.SignedEvent, error) {
-	if m.hubAID() == "" {
+	aid, kel := m.hubIdentity()
+	if aid == "" {
 		return nil, fmt.Errorf("x402: no hub, so no key history to check settlements against")
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if len(m.cachedKEL) == 0 {
+	if len(kel) == 0 {
 		return nil, fmt.Errorf("x402: the hub published no key history this node could verify")
 	}
-	return m.cachedKEL, nil
+	return kel, nil
 }
 
 // hubURL is where the facilitator lives.

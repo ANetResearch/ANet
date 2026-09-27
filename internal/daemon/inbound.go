@@ -818,6 +818,12 @@ func (d *Daemon) SetInboundPolicy(policy string) error {
 		return err
 	}
 	d.recordPolicyChange("inbound.policy", from, policy, nil)
+	if (from == PolicyOpen) != (policy == PolicyOpen) {
+		// An open node lists the chat skill on its network card (0017
+		// Q27): published on opening; on closing, taken off, and the card
+		// withdrawn when nothing else is left on it.
+		d.cardInputsChanged()
+	}
 	return nil
 }
 

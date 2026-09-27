@@ -71,7 +71,7 @@ func TestThePayingSurfacesSayWhenThereIsNoPaymentSupport(t *testing.T) {
 		call func() error
 	}{
 		{"balance", func() error { _, err := d.Balance(ctx); return err }},
-		{"redeem", func() error { _, err := d.RedeemCredit(ctx, 10, "ref"); return err }},
+		{"redeem", func() error { _, err := d.RedeemCredit(ctx, 10, "ref", ""); return err }},
 		{"pay-and-retry", func() error {
 			_, err := d.PayAndRetry(ctx, "did:anet:x", "work.do", nil, nil)
 			return err

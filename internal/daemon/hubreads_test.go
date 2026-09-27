@@ -29,7 +29,7 @@ func TestLedgerReadsAreSigned(t *testing.T) {
 	grantOn(srv.URL, d.AID(), 40)
 	h := fakeHubAt(t, srv.URL)
 
-	rd, err := d.RedeemCredit(ctx, 3, "inv-signed-1")
+	rd, err := d.RedeemCredit(ctx, 3, "inv-signed-1", hubAIDOf(srv.URL))
 	if err != nil || rd["verified"] != true {
 		t.Fatalf("redeem: %v %v", rd, err)
 	}
