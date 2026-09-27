@@ -478,7 +478,11 @@ off = json.load(open(offsvc))
 off.update({"control_addr": ofc, "hub_url": tap, "name": "canary-official"})
 write(offp, off)
 PY
-  for n in cr cp off; do start_node $n "$RUN/$n.log"; done
+  A2A_OFF=16
+  for n in cr cp off; do
+    pin_a2a "$(home_of $n)/.anet" $((PORT_BASE + A2A_OFF)); A2A_OFF=$((A2A_OFF + 1))
+    start_node $n "$RUN/$n.log"
+  done
   for n in cr cp off; do
     wait_up "$(addr_of $n)" 30 \
       || { no "canary node $n did not come up: $(tail -2 "$RUN/$n.log") $(tail -2 "$(home_of $n)/.anet/daemon.log" 2>/dev/null)"; return 1; }
@@ -818,18 +822,26 @@ FIX=$BIN/anetfixture
 # script by the path it runs from.
 cp "$SCRIPTS/canary.py" "$BIN/canary.py" || die "cannot copy canary.py into $BIN"
 
-# Sixteen loopback ports: +0 hub, +1 hub admin, +2 requester, +3 provider, +4 stranger; section C's
+# Twenty-two loopback ports: +0 hub, +1 hub admin, +2 requester, +3 provider, +4 stranger; section C's
 # +5 tap, +6 canary requester, +7 canary provider, +8 official agent, +9 and +10 their anet-official
 # backends, +11 the federation peer hub, +12 an address nothing listens on (the admin's vector
-# service, so that it reaches nothing on a shared host); +13..+15 spare.
-PORT_BASE=$(python3 - "${JOINT_PORT_BASE:-}" 16 <<'PY'
+# service, so that it reaches nothing on a shared host); +13..+15 the local A2A interfaces of the
+# requester, provider and stranger and +16..+18 those of the three canary nodes (module/a2a; lib.sh
+# pin_a2a: unpinned they would take ports outside this block); +19..+21 spare.
+PORT_BASE=$(python3 - "${JOINT_PORT_BASE:-}" 22 <<'PY'
 import random, socket, sys
 want, n = sys.argv[1], int(sys.argv[2])
+# "Free" means what the hub and the daemons need: a listener can be opened there. They are Go, and Go
+# listens with SO_REUSEADDR, so a port whose earlier listener closed a minute ago (its accepted
+# connections still in TIME_WAIT) is free for them. A bare bind() says "in use" for that port, and the
+# second run on the same JOINT_PORT_BASE right after the first then refused to start.
 def free(b):
     for p in range(b, b + n):
         s = socket.socket()
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("127.0.0.1", p))
+            s.listen(1)
         except OSError:
             return False
         finally:
@@ -861,7 +873,7 @@ HUB2_ADDR=127.0.0.1:$((PORT_BASE + 11)); DEAD_ADDR=127.0.0.1:$((PORT_BASE + 12))
 CR=$RUN/cr; CP=$RUN/cp; OFF=$RUN/off; CAN=$RUN/canary; CANARIES=$CAN/canaries.tsv
 CANARY_TMP=$RUN/tmp; mkdir -p "$CANARY_TMP"   # canary.py's database copies; nothing searches it
 CANARY=${JOINT_CANARY:-1}
-echo "  ports:    $PORT_BASE-$((PORT_BASE + 15))   work dir: $J"
+echo "  ports:    $PORT_BASE-$((PORT_BASE + 21))   work dir: $J"
 
 # The device chain: used when asked for, or when it is there.
 MOCK=${JOINT_MOCK:-127.0.0.1:29080}
@@ -926,8 +938,10 @@ fi
 # allow list, the org genesis — can be written before it either.
 mkdir -p "$REQ/.anet" "$PROV/.anet" "$STR/.anet"
 mkdir -p -m 700 "$RUN/xdg"
+A2A_OFF=13
 for n in req prov str; do
   printf '{"control_addr":"%s"}\n' "$(addr_of $n)" > "$(home_of $n)/.anet/config.json"
+  pin_a2a "$(home_of $n)/.anet" $((PORT_BASE + A2A_OFF)); A2A_OFF=$((A2A_OFF + 1))
   start_node $n "$RUN/$n-first.log"
 done
 for n in req prov str; do
