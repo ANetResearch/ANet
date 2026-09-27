@@ -212,7 +212,8 @@ $EDITOR deploy/official/official-agents.txt
 # 2) 生成并签名清单(seq 自动加一,默认有效 365 天:ANET_OFFICIAL_TTL_DAYS)
 ANET_RELEASE_KEY=<发布私钥> deploy/release/build-release.sh --official
 # 3) 提交两份文件,再照常出版本;release 构建会拒绝验不过、签名钥不符、
-#    或有效期短于发布清单/ANET_OFFICIAL_MIN_DAYS(默认 180 天)的官方清单
+#    条目与 official-agents.txt 不一致(改了源表没重签)、internal/official
+#    读不进,或有效期短于发布清单/ANET_OFFICIAL_MIN_DAYS(默认 180 天)的官方清单
 git add internal/official/manifest.json internal/official/manifest.json.sig
 ```
 
