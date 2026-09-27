@@ -105,7 +105,9 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	if m.cfg.declaresUntrusted() {
 		h.DeclareUntrustedBackend()
 	}
-	m.cfg.logBackends()
+	if err := m.startBackends(ctx, h); err != nil {
+		return err
+	}
 	seam, ok := h.TaskSeam()
 	if !ok || seam == nil {
 		log.Printf("anet: a2a: this daemon offers no task seam; the local A2A interface is not started")

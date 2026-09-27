@@ -28,46 +28,52 @@ package a2a
 //   - Each forwarded task is recorded: anet.backend.forwarded{backend,
 //     interaction_id, peer_aid, trusted}.
 //
-// TODO(A2A-DESIGN §11.6): the forwarding itself. It needs a kernel seam this
-// work package does not have: TaskSeam reaches only this node's OUTBOUND
-// tasks (by design, §11.2), and forwarding needs the inbound side — a
-// stream of accepted inbound text tasks with the peer's trust, and a way to
-// answer one (the /tasks/reply path, including completion). The shape that
-// fits the existing seams is an optional Host extension, type-asserted like
-// module.ProxyCardSigner:
+// The tasks come from the kernel through module.InboundTaskHost, which a
+// daemon offers or does not; without it a configured backend is validated,
+// declared, and logged as not forwarding.
 //
-//	type InboundTasks interface {
-//	    // WatchInbound delivers accepted inbound text tasks and their
-//	    // follow-up messages, with anet.peer_aid and anet.trusted set;
-//	    // untrusted peers only when the module declared an untrusted
-//	    // backend.
-//	    WatchInbound(ctx context.Context) (<-chan module.Task, error)
-//	    // Reply answers one: a message, input-required, or completion.
-//	    Reply(ctx context.Context, taskID string, msg a2ashape.Message, state a2ashape.TaskState) (module.Task, error)
-//	}
-//
-// With it, Start runs one loop per backend: a2aclient (JSON-RPC, bearer
-// from token_file) SendMessage with the task's history, the reply mapped
-// back through Reply, the evidence event written with RecordEvidence.
-// Until then a configured backend is validated and declared, and logged as
-// not yet forwarding.
+// A task maps to one task on the backend: the first forward starts it (in
+// the network task's context, so the backend keeps one conversation per
+// context) and each later message from the requester continues it. The
+// backend's answer goes back as this node's reply: a question
+// (input-required) as a question, a final answer as completion. The
+// mapping lives in memory: after a restart a follow-up starts a new task on
+// the backend, in the same context.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"net/url"
+	"os"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/a2aproject/a2a-go/v2/a2a"
+	"github.com/a2aproject/a2a-go/v2/a2aclient"
+	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // Backend is one provider-side A2A backend.
 type Backend struct {
-	// Match is "*" (every accepted text task) or the skill id a task names.
+	// Match is "*" (every accepted text task) or a skill id: a task whose
+	// metadata names that skill (anet.skill) goes to this backend before a
+	// "*" one. Text tasks from the network name none today, so "*" is what
+	// applies to them.
 	Match string `json:"match"`
-	// URL is the backend's A2A base URL: http on loopback, or https.
+	// URL is where the backend's agent card is: its base URL (the card is
+	// at /.well-known/agent-card.json) or the card's own URL. http only on
+	// loopback; https anywhere.
 	URL string `json:"url"`
-	// TokenFile holds the bearer token the daemon presents to the backend.
+	// TokenFile holds the bearer token the daemon presents to the backend,
+	// on the card request and on every call.
 	TokenFile string `json:"token_file,omitempty"`
 	// AcceptUntrusted forwards tasks from peers not on the trust list; it
 	// needs Toolless.
@@ -111,18 +117,6 @@ func (c Config) declaresUntrusted() bool {
 	return false
 }
 
-// logBackends says what the configured backends will do in this build.
-func (c Config) logBackends() {
-	for _, b := range c.Backends {
-		who := "trusted peers"
-		if b.AcceptUntrusted {
-			who = "any admitted peer (toolless; inbound.policy=open is refused with it)"
-		}
-		log.Printf("anet: a2a: backend %s (match %s, %s) is configured but not forwarding yet: "+
-			"accepted tasks stay in the inbox", b.URL, b.Match, who)
-	}
-}
-
 // checkBackendURL accepts http on a loopback host, or https: a task's text
 // goes there, and in the clear only on this machine.
 func checkBackendURL(raw string) error {
@@ -141,4 +135,437 @@ func checkBackendURL(raw string) error {
 		return fmt.Errorf("url %q: plain http only to a loopback host; use https", raw)
 	}
 	return fmt.Errorf("url %q is not an http(s) URL", raw)
+}
+
+// startBackends begins forwarding, if there is anything to forward and a
+// kernel to forward from. A token file that cannot be read is an error:
+// the backend was asked for and cannot be reached as configured.
+func (m *Module) startBackends(ctx context.Context, h module.Host) error {
+	if len(m.cfg.Backends) == 0 {
+		return nil
+	}
+	in, ok := h.(module.InboundTaskHost)
+	if !ok {
+		for _, b := range m.cfg.Backends {
+			log.Printf("anet: a2a: backend %s is configured, but this daemon hands no inbound tasks to modules; "+
+				"accepted tasks stay in the inbox", b.URL)
+		}
+		return nil
+	}
+	f := &forwarder{host: h, in: in, remote: map[string]string{}, busy: map[string]bool{}, pending: map[string]module.Task{},
+		timeout: backendTimeout, sem: make(chan struct{}, maxForwards)}
+	for _, b := range m.cfg.Backends {
+		bc := &backendClient{cfg: b}
+		if b.TokenFile != "" {
+			tok, err := os.ReadFile(b.TokenFile)
+			if err != nil {
+				return fmt.Errorf("a2a: backend %s: token_file: %w", b.URL, err)
+			}
+			if bc.token = strings.TrimSpace(string(tok)); bc.token == "" {
+				return fmt.Errorf("a2a: backend %s: token_file %s is empty", b.URL, b.TokenFile)
+			}
+		}
+		f.backends = append(f.backends, bc)
+	}
+	tasks, err := in.InboundTasks(ctx)
+	if err != nil {
+		return fmt.Errorf("a2a: backends: %w", err)
+	}
+	for _, b := range m.cfg.Backends {
+		who := "trusted peers"
+		if b.AcceptUntrusted {
+			who = "any admitted peer (toolless)"
+		}
+		log.Printf("anet: a2a: forwarding accepted text tasks from %s to the A2A backend %s (match %s)", who, b.URL, b.Match)
+	}
+	go f.run(ctx, tasks)
+	return nil
+}
+
+// How long one forward may take (the backend's whole answer), and how many
+// run at once.
+const (
+	backendTimeout = 30 * time.Minute
+	maxForwards    = 8
+)
+
+// forwarder hands inbound tasks to the backends.
+type forwarder struct {
+	host     module.Host
+	in       module.InboundTaskHost
+	backends []*backendClient
+	timeout  time.Duration
+	sem      chan struct{}
+
+	mu sync.Mutex
+	// remote maps a network task to its task on the backend.
+	remote map[string]string
+	// busy marks a task being forwarded, and pending holds its newest
+	// delivery that arrived meanwhile: one task is forwarded one message
+	// at a time, in order, and a message is never dropped for arriving
+	// while the last one was still with the backend.
+	busy    map[string]bool
+	pending map[string]module.Task
+}
+
+func (f *forwarder) run(ctx context.Context, tasks <-chan module.Task) {
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case t, ok := <-tasks:
+			if !ok {
+				return
+			}
+			f.mu.Lock()
+			if f.busy[t.ID] {
+				f.pending[t.ID] = t
+				f.mu.Unlock()
+				continue
+			}
+			f.busy[t.ID] = true
+			f.mu.Unlock()
+			select {
+			case f.sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer func() { <-f.sem }()
+				for {
+					f.forward(ctx, t)
+					f.mu.Lock()
+					next, more := f.pending[t.ID]
+					delete(f.pending, t.ID)
+					if !more || ctx.Err() != nil {
+						delete(f.busy, t.ID)
+						f.mu.Unlock()
+						return
+					}
+					f.mu.Unlock()
+					t = next
+				}
+			}()
+		}
+	}
+}
+
+// pick is the backend for a task: an exact skill match first, then "*",
+// and only one that serves the task's peer.
+func (f *forwarder) pick(t module.Task, trusted bool) *backendClient {
+	skill, _ := t.Metadata[a2ashape.KeySkill].(string)
+	var star *backendClient
+	for _, b := range f.backends {
+		if !trusted && !b.cfg.AcceptUntrusted {
+			continue
+		}
+		switch b.cfg.Match {
+		case skill:
+			if skill != "" {
+				return b
+			}
+		case "*":
+			if star == nil {
+				star = b
+			}
+		}
+	}
+	return star
+}
+
+// forward sends one task's latest message to its backend and answers the
+// task with what comes back. A failure leaves the task in the inbox.
+func (f *forwarder) forward(ctx context.Context, t module.Task) {
+	trusted, _ := t.Metadata[a2ashape.KeyTrusted].(bool)
+	peer, _ := t.Metadata[a2ashape.KeyPeerAID].(string)
+	b := f.pick(t, trusted)
+	if b == nil {
+		return
+	}
+	last := lastRequesterMessage(t)
+	if last == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, f.timeout)
+	defer cancel()
+
+	msg, params := backendMessage(t, *last, peer, trusted)
+	f.mu.Lock()
+	msg.TaskID = a2a.TaskID(f.remote[t.ID])
+	f.mu.Unlock()
+	res, err := b.send(ctx, msg, params)
+	if err != nil && msg.TaskID != "" && errors.Is(err, a2a.ErrTaskNotFound) {
+		// The backend forgot the task (it restarted): start again in the
+		// same context.
+		msg.TaskID = ""
+		res, err = b.send(ctx, msg, params)
+	}
+	if err != nil {
+		log.Printf("anet: a2a: backend %s: task %s: %v (left in the inbox)", b.cfg.URL, t.ID, err)
+		return
+	}
+	if err := f.host.RecordEvidence("anet.backend.forwarded", map[string]any{
+		"backend": b.cfg.URL, "interaction_id": t.ID, "peer_aid": peer, "trusted": trusted,
+	}); err != nil {
+		log.Printf("anet: a2a: evidence for task %s: %v", t.ID, err)
+	}
+	if bt, ok := res.(*a2a.Task); ok {
+		bt, err = b.settle(ctx, bt)
+		if err != nil {
+			log.Printf("anet: a2a: backend %s: task %s: %v (left in the inbox)", b.cfg.URL, t.ID, err)
+			return
+		}
+		f.mu.Lock()
+		if bt.Status.State.Terminal() {
+			delete(f.remote, t.ID)
+		} else {
+			f.remote[t.ID] = string(bt.ID)
+		}
+		f.mu.Unlock()
+		res = bt
+	}
+	reply, state, ok := replyFrom(res)
+	if !ok {
+		log.Printf("anet: a2a: backend %s: task %s: the answer has no content (left in the inbox)", b.cfg.URL, t.ID)
+		return
+	}
+	reply.TaskID, reply.ContextID = t.ID, t.ContextID
+	if _, err := f.in.ReplyTask(ctx, t.ID, reply, state); err != nil {
+		log.Printf("anet: a2a: task %s: reply from backend %s: %v", t.ID, b.cfg.URL, err)
+	}
+}
+
+// lastRequesterMessage is the requester's latest message, which the kernel
+// guarantees is the last in the history of a task it delivers.
+func lastRequesterMessage(t module.Task) *a2ashape.Message {
+	for i := len(t.History) - 1; i >= 0; i-- {
+		if t.History[i].Role == a2ashape.RoleUser {
+			return &t.History[i]
+		}
+	}
+	return nil
+}
+
+// backendMessage is what the backend receives: the requester's message,
+// its metadata minus the reserved relay key, and who sent it. The service
+// parameters the requester sent across the relay become headers again.
+func backendMessage(t module.Task, m a2ashape.Message, peer string, trusted bool) (*a2a.Message, a2aclient.ServiceParams) {
+	meta := map[string]any{}
+	for k, v := range m.Metadata {
+		if k != a2ashape.KeyServiceParameters {
+			meta[k] = v
+		}
+	}
+	meta[a2ashape.KeyPeerAID] = peer
+	meta[a2ashape.KeyTrusted] = trusted
+	var parts []a2ashape.Part
+	for _, p := range m.Parts {
+		// A reference to this node's attachment store means nothing to
+		// the backend; the kernel delivers files inline.
+		if p.Kind != a2ashape.PartURL {
+			parts = append(parts, p)
+		}
+	}
+	shaped := a2ashape.Message{ID: a2a.NewMessageID(), ContextID: t.ContextID, Role: a2ashape.RoleUser,
+		Parts: parts, Metadata: meta, Extensions: m.Extensions}
+	out, err := convert[a2a.Message](shaped)
+	if err != nil {
+		out = *a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(textOfParts(parts)))
+		out.ContextID, out.Metadata = t.ContextID, meta
+	}
+	params := a2aclient.ServiceParams{}
+	if sp, ok := m.Metadata[a2ashape.KeyServiceParameters].(map[string]any); ok {
+		for k, v := range sp {
+			if !strings.EqualFold(k, a2a.SvcParamExtensions) {
+				continue // the client sets its own A2A-Version
+			}
+			for _, u := range stringList(v) {
+				if u = strings.TrimSpace(u); u != "" {
+					params.Append(a2a.SvcParamExtensions, u)
+				}
+			}
+		}
+	}
+	return &out, params
+}
+
+func stringList(v any) []string {
+	switch x := v.(type) {
+	case string:
+		return strings.Split(x, ",")
+	case []any:
+		var out []string
+		for _, e := range x {
+			if s, ok := e.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case []string:
+		return x
+	}
+	return nil
+}
+
+func textOfParts(parts []a2ashape.Part) string {
+	var b []string
+	for _, p := range parts {
+		if p.Kind == a2ashape.PartText {
+			b = append(b, p.Text)
+		}
+	}
+	return strings.Join(b, "\n")
+}
+
+// replyFrom reads the backend's answer: a message is a final answer; a task
+// answers with its artifacts when it completed and with its status message
+// otherwise, and its state says what the answer leaves the network task in.
+func replyFrom(res a2a.SendMessageResult) (a2ashape.Message, a2ashape.TaskState, bool) {
+	var parts []*a2a.Part
+	state := a2ashape.TaskStateCompleted
+	switch r := res.(type) {
+	case *a2a.Message:
+		parts = r.Parts
+	case *a2a.Task:
+		switch r.Status.State {
+		case a2a.TaskStateCompleted:
+			for _, a := range r.Artifacts {
+				parts = append(parts, a.Parts...)
+			}
+		case a2a.TaskStateInputRequired, a2a.TaskStateAuthRequired:
+			state = a2ashape.TaskStateInputRequired
+		case a2a.TaskStateRejected:
+			state = a2ashape.TaskStateRejected
+		default: // failed, canceled, or still running when time ran out
+			state = a2ashape.TaskStateFailed
+		}
+		if len(parts) == 0 && r.Status.Message != nil {
+			parts = r.Status.Message.Parts
+		}
+		if len(parts) == 0 && state == a2ashape.TaskStateFailed {
+			parts = []*a2a.Part{a2a.NewTextPart("the agent could not complete this task")}
+		}
+	}
+	if len(parts) == 0 {
+		return a2ashape.Message{}, "", false
+	}
+	out, err := convert[[]a2ashape.Part](parts)
+	if err != nil || len(out) == 0 {
+		return a2ashape.Message{}, "", false
+	}
+	return a2ashape.Message{ID: a2a.NewMessageID(), Role: a2ashape.RoleAgent, Parts: out}, state, true
+}
+
+// backendClient is one backend and its A2A client, made from the
+// backend's card on first use and again after a failure.
+type backendClient struct {
+	cfg   Backend
+	token string
+
+	mu     sync.Mutex
+	client *a2aclient.Client
+}
+
+// backendHTTP has no overall timeout: a forward's context bounds each call.
+var backendHTTP = &http.Client{}
+
+func (b *backendClient) get(ctx context.Context) (*a2aclient.Client, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.client != nil {
+		return b.client, nil
+	}
+	var opts []agentcard.ResolveOption
+	if b.token != "" {
+		opts = append(opts, agentcard.WithRequestHeader("Authorization", "Bearer "+b.token))
+	}
+	card, err := (&agentcard.Resolver{Client: backendHTTP}).Resolve(ctx, b.cfg.URL, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("card: %w", err)
+	}
+	cl, err := a2aclient.NewFromCard(ctx, card,
+		a2aclient.WithJSONRPCTransport(backendHTTP), a2aclient.WithRESTTransport(backendHTTP),
+		a2aclient.WithCallInterceptors(bearer{token: b.token}))
+	if err != nil {
+		return nil, err
+	}
+	b.client = cl
+	return cl, nil
+}
+
+func (b *backendClient) drop() {
+	b.mu.Lock()
+	b.client = nil
+	b.mu.Unlock()
+}
+
+// send is one blocking SendMessage.
+func (b *backendClient) send(ctx context.Context, msg *a2a.Message, params a2aclient.ServiceParams) (a2a.SendMessageResult, error) {
+	cl, err := b.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(params) > 0 {
+		ctx = a2aclient.AttachServiceParams(ctx, params)
+	}
+	res, err := cl.SendMessage(ctx, &a2a.SendMessageRequest{Message: msg})
+	if err != nil && !isA2AError(err) {
+		b.drop() // the transport failed: read the card again next time
+	}
+	return res, err
+}
+
+// settle waits for a task the backend returned before it ended or asked
+// back — a backend that does not block — by reading it until it does.
+func (b *backendClient) settle(ctx context.Context, t *a2a.Task) (*a2a.Task, error) {
+	for !t.Status.State.Terminal() && t.Status.State != a2a.TaskStateInputRequired && t.Status.State != a2a.TaskStateAuthRequired {
+		select {
+		case <-ctx.Done():
+			return t, nil // answered as failed: still running when time ran out
+		case <-time.After(time.Second):
+		}
+		cl, err := b.get(ctx)
+		if err != nil {
+			return nil, err
+		}
+		next, err := cl.GetTask(ctx, &a2a.GetTaskRequest{ID: t.ID})
+		if err != nil {
+			if ctx.Err() != nil {
+				return t, nil
+			}
+			return nil, err
+		}
+		t = next
+	}
+	return t, nil
+}
+
+// isA2AError reports an error the backend answered with, as opposed to one
+// of reaching it.
+func isA2AError(err error) bool {
+	for _, e := range []error{a2a.ErrTaskNotFound, a2a.ErrInvalidParams, a2a.ErrUnsupportedOperation,
+		a2a.ErrInternalError, a2a.ErrTaskNotCancelable, a2a.ErrInvalidRequest, a2a.ErrUnauthenticated} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
+}
+
+// bearer presents the backend's token on every call, whatever the
+// backend's card says about security: the operator configured it.
+type bearer struct {
+	a2aclient.PassthroughInterceptor
+	token string
+}
+
+func (i bearer) Before(ctx context.Context, req *a2aclient.Request) (context.Context, any, error) {
+	if i.token != "" {
+		req.ServiceParams["Authorization"] = []string{"Bearer " + i.token}
+	}
+	return ctx, nil, nil
 }
