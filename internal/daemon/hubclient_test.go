@@ -36,7 +36,7 @@ func TestAHubBelowWire2IsRefused(t *testing.T) {
 	if !strings.Contains(err.Error(), "wire 1") {
 		t.Errorf("the error does not say what the hub speaks: %v", err)
 	}
-	if _, err := d.relayPoll(context.Background()); !errors.Is(err, errHubWire) {
+	if _, err := d.relayPoll(context.Background(), 0); !errors.Is(err, errHubWire) {
 		t.Fatalf("poll against a wire-1 hub: %v", err)
 	}
 	if n := relayCountFor(srv.URL); n != 0 {

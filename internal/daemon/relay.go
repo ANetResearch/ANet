@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/anetcid"
@@ -277,19 +278,65 @@ func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 
 // --- relay HTTP client (wire 2, A2A-DESIGN §3.7) ---
 
-// relayPoll pulls undelivered envelopes for this daemon. The mailbox is the
-// authenticated caller's; the request carries no AID of its own.
-func (d *Daemon) relayPoll(ctx context.Context) ([]hubapi.RelayMessage, error) {
+// relayPollLimit is how many envelopes one poll asks the hub for.
+const relayPollLimit = 100
+
+// relayPoll pulls undelivered envelopes for this daemon queued after the
+// mailbox id after (0: from the head). The mailbox is the authenticated
+// caller's; the request carries no AID of its own.
+func (d *Daemon) relayPoll(ctx context.Context, after int64) ([]hubapi.RelayMessage, error) {
 	hub := d.config().HubURL
 	if hub == "" {
 		return nil, fmt.Errorf("anet: no hub configured")
 	}
 	var resp hubapi.RelayPollResponse
 	if err := d.hubSigned(ctx, hub, http.MethodPost, "/relay/poll", relayauth.ActionPoll,
-		hubapi.RelayPollRequest{Limit: 100}, &resp); err != nil {
+		hubapi.RelayPollRequest{Limit: relayPollLimit, AfterID: after}, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Messages, nil
+}
+
+// relayCursor is where the next mailbox poll starts reading (A2A-DESIGN
+// §3.6 step 9, §3.7; decision Q1).
+//
+// An envelope the receive pipeline refuses for a temporary reason (class
+// T: a message that arrived before its delegation, a store error) is not
+// acknowledged and stays in the mailbox. The hub answers oldest first, so
+// without a cursor a page of such envelopes would be the whole answer to
+// every poll until they turn permanent: anyone registered could hold back
+// this node's newer mail for the ten-minute unknown-ix window by sending it
+// a hundred messages for interactions it does not hold, and a few envelopes
+// over the hub's byte budget would do the same with fewer.
+//
+// After a page that held something back, the next poll asks for what was
+// queued after that page. When nothing is, the same round goes back to the
+// head, so held envelopes are still tried every round the mailbox has
+// nothing newer, and are acknowledged once they succeed or turn permanent
+// (expired, or past the window).
+//
+// In memory only: after a restart the first poll reads from the head,
+// which is what every poll did before the cursor existed. The ids are the
+// hub's, so the cursor is kept per hub URL.
+type relayCursor struct {
+	mu    sync.Mutex
+	hub   string
+	after int64
+}
+
+func (c *relayCursor) get(hub string) int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.hub != hub {
+		return 0
+	}
+	return c.after
+}
+
+func (c *relayCursor) set(hub string, after int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.hub, c.after = hub, after
 }
 
 // relayAck tells the hub these envelopes are handled; the hub deletes them.
@@ -380,13 +427,28 @@ func (d *Daemon) pollFresh(ctx context.Context) {
 // envelope refused for a temporary reason (a store error, a message that
 // arrived before its task) stays in the mailbox and is delivered again on a
 // later poll.
+//
+// A poll starts at the relay cursor (relayCursor), so envelopes held back
+// in an earlier round do not stand in front of newer ones; when nothing is
+// queued after the cursor, the round reads from the head instead.
 func (d *Daemon) pollOnce(ctx context.Context) error {
-	msgs, err := d.relayPoll(ctx)
+	hub := d.config().HubURL
+	after := d.relayCur.get(hub)
+	msgs, err := d.relayPoll(ctx, after)
 	if err != nil {
 		return err
 	}
+	if len(msgs) == 0 && after > 0 {
+		// Nothing newer: back to the head for what was held back.
+		if msgs, err = d.relayPoll(ctx, 0); err != nil {
+			return err
+		}
+	}
 	var acked []int64
+	var last int64
+	held := false
 	for _, m := range msgs {
+		last = max(last, m.ID)
 		env, derr := base64.StdEncoding.DecodeString(m.Envelope)
 		if derr != nil {
 			d.count(dropBadTransport)
@@ -395,8 +457,20 @@ func (d *Daemon) pollOnce(ctx context.Context) error {
 		}
 		if d.receiveEnvelope(ctx, env).ack() {
 			acked = append(acked, m.ID)
+		} else {
+			held = true
 		}
 	}
+	// Read on past a page that held something back, and past a full page,
+	// which may have more behind it. A short page with nothing held back
+	// is taken as the end of the mailbox and the next round starts at the
+	// head. (A page the hub cut at its byte budget is short too, but all of
+	// it was acknowledged, so starting over skips nothing.)
+	next := int64(0)
+	if held || len(msgs) >= relayPollLimit {
+		next = last
+	}
+	d.relayCur.set(hub, next)
 	return d.relayAck(ctx, acked)
 }
 
