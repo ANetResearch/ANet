@@ -16,7 +16,9 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -327,4 +329,92 @@ func mustMsgs(t *testing.T, d *Daemon, id string) []interactions.Message {
 		t.Fatal(err)
 	}
 	return msgs
+}
+
+// F7: the console's data routes. /thread and /threads (control plane,
+// allowlisted for a browser session, what console.html and `anet thread`
+// read) render a capability task that ended COMPLETED with effect
+// UNVERIFIED as state "completed" and nothing else: no anet.effect_status,
+// no receipt_verified, and the deliverable is not among the messages. The
+// console shows it as "已完成" and asks for a review (console.html
+// isCompleted/statusText).
+func TestRedteamSI6_ThreadViewDropsEffectStatus(t *testing.T) {
+	req, prov, id := rtPair(t)
+	deliverable := []byte(`{"capability":"text.free","status":"UNVERIFIED","verifiable":false,"message":"sent; no readback"}`)
+	env := rtResult(t, req, prov, id, deliverable, map[string]any{"anet.state": "completed", "anet.effect_status": "UNVERIFIED"}, "")
+	if r := receive(t, req, env); r.class != rxAccepted {
+		t.Fatalf("result not accepted: %+v", r)
+	}
+	if es := rtPath(rtView(t, req, id), "metadata", a2ashape.KeyEffectStatus); es != "UNVERIFIED" {
+		t.Fatalf("precondition: the /tasks projection says %v", es)
+	}
+	th, err := req.Thread(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(th)
+	if th.State != "completed" || strings.Contains(string(b), "UNVERIFIED") || strings.Contains(string(b), "effect") ||
+		strings.Contains(string(b), "receipt_verified") {
+		t.Fatalf("defect not reproduced: %s", b)
+	}
+	t.Logf("ATTACK OK: /thread for an UNVERIFIED effect: %s", b)
+}
+
+// ackLostP2P delivers every envelope to the provider and then reports
+// failure, as module.Transport requires of "a Send that partially
+// succeeded" (module/transport.go) — e.g. p2p's round trip timing out
+// while the receiver was still running a short call before its ack.
+type ackLostP2P struct {
+	to    *Daemon
+	calls atomic.Int32
+}
+
+func (p *ackLostP2P) Name() string                           { return "p2p-ack-lost" }
+func (p *ackLostP2P) Reachable(context.Context, string) bool { return true }
+func (p *ackLostP2P) Send(ctx context.Context, _ string, env []byte) error {
+	p.calls.Add(1)
+	_ = p.to.receiveEnvelope(ctx, env)
+	return errors.New("p2p: no ack within the dial timeout")
+}
+
+// F8: the requester's retry queue abandons a delegation on a permanent hub
+// refusal (here 413, an envelope over the hub's cap, which only p2p could
+// carry) and fails the task with effect UNAVAILABLE — "never delivered, did
+// not run" (undelivered.go) — although the attempt that just failed on the
+// p2p path had delivered it and the provider ran the capability.
+func TestRedteamSI6_AbandonedButDeliveredDelegationIsUnavailable(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	lamp := &lampProvider{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	setFake(t, srv.URL, func(h *fakeHub) { h.maxEnvelope = 1 }) // the hub refuses the envelope for good (413)
+	p2p := &ackLostP2P{to: prov}
+	req.RegisterTransport(p2p)
+
+	_, derr := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1", map[string]any{"on": true})
+	list, err := req.ix.List(interactions.RoleOutbound, "", 0, 10)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("outbound tasks: %v %d", err, len(list))
+	}
+	id := list[0].ID
+	if len(lamp.invoked) != 1 || p2p.calls.Load() != 1 {
+		t.Fatalf("precondition: the provider ran the call %d times (p2p sends %d)", len(lamp.invoked), p2p.calls.Load())
+	}
+	v := rtView(t, req, id)
+	state, es := rtPath(v, "status", "state"), rtPath(v, "metadata", a2ashape.KeyEffectStatus)
+	if state != string(a2ashape.TaskStateFailed) || es != "UNAVAILABLE" {
+		t.Fatalf("defect not reproduced: state=%v effect_status=%v (delegate err %v)", state, es, derr)
+	}
+	t.Logf("ATTACK OK: lamp switched %d time(s); requester says state=%v effect_status=%v reason=%v (DelegateCapability: %v)",
+		len(lamp.invoked), state, es, rtPath(v, "metadata", a2ashape.KeyReason), derr)
 }
