@@ -14,8 +14,14 @@ import (
 )
 
 // servedDaemon runs one daemon's control plane on a loopback listener and returns its layout.
+//
+// ANET_HOME is a temporary directory for the test: daemon.New starts the
+// compiled-in modules, and module/a2a (linked into this package) binds a
+// port and reads the other identities under ANET_HOME to skip their A2A
+// ports. The operator's real ~/.anet is neither read nor raced for a port.
 func servedDaemon(t *testing.T) (daemon.Layout, string) {
 	t.Helper()
+	t.Setenv("ANET_HOME", t.TempDir())
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
