@@ -41,13 +41,25 @@ func a2aBackends(cfg daemon.Config) []a2aBackend {
 
 // a2aBackendChecks adds the a2a.backends checks: a fail for what the daemon
 // refuses to start with, a warning for every backend that serves peers not
-// on the trust list, and what the trusted-only ones will receive.
+// on the trust list, and what the trusted-only ones will receive. Only a
+// match "*" backend receives anything: a task the daemon hands a backend is
+// a text task, and a text task names no skill.
 func a2aBackendChecks(add func(id, status, detail, hint string), policy string, cfg daemon.Config, trusted int) {
 	bs := a2aBackends(cfg)
 	if len(bs) == 0 {
 		return
 	}
 	var trustedOnly []string
+	star := false
+	for _, b := range bs {
+		if strings.TrimSpace(b.Match) == "*" {
+			star = true
+		}
+	}
+	if !star {
+		add("a2a.backends", stInfo, "no A2A backend has match \"*\": text tasks name no skill, so none is forwarded "+
+			"and they are answered as without backends", "set match \"*\" on the backend that should answer text tasks")
+	}
 	for _, b := range bs {
 		switch {
 		case b.AcceptUntrusted && !b.Toolless:
@@ -61,7 +73,7 @@ func a2aBackendChecks(add func(id, status, detail, hint string), policy string, 
 			add("a2a.backends", stWarn, "A2A backend "+b.URL+" takes tasks from peers not on the trust list "+
 				"(accept_untrusted, toolless): allowed and approved peers reach the agent behind it",
 				"keep that agent toolless and on a profile of its own; see A2A-DESIGN §11.6")
-		default:
+		case strings.TrimSpace(b.Match) == "*":
 			trustedOnly = append(trustedOnly, b.URL)
 		}
 	}

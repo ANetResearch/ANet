@@ -14,10 +14,19 @@ package daemon
 //     the moment of the decision. A peer that is not trusted only when a
 //     module declared a backend that accepts untrusted peers
 //     (DeclareUntrustedBackend), which the configuration check refuses
-//     together with policy open (§5.1), so such a peer is one on the allow
-//     list or one the operator approved;
+//     together with policy open (§5.1), and only on a task accepted from a
+//     peer someone named: on the allow list (trust peer) or approved by the
+//     operator. A task a stranger sent while the node ran policy open is
+//     not one, whatever the policy is now;
 //   - with the requester's message the latest turn of the conversation. A
 //     task comes again each time the requester adds a message.
+//
+// Nothing is delivered before the daemon has finished starting (its
+// configuration check runs after the modules start, and a module subscribes
+// from Start), and a feed never holds a decision long: a delivery the
+// module does not take within one interval is decided again on a later
+// scan, so a peer taken off the trust list in the meantime is not delivered
+// on the strength of an old reading.
 //
 // A task that goes to a backend does not also go to the auto-reply agent
 // (autoReplyThread asks backendAnswers first): one of the two answers,
@@ -26,8 +35,9 @@ package daemon
 // leaves the task in the inbox for the operator (MCP reply_task, the CLI),
 // not for the auto-reply agent.
 //
-// What a module receives is the task's A2A projection with its files
-// inline, anet.peer_aid and anet.trusted in its metadata, and a context id
+// What a module receives is the task's A2A projection with its latest
+// message's files inline (inlineLatest), anet.peer_aid and anet.trusted in
+// its metadata, and a context id
 // that is not the requester's (0017 Q23): backendContextID(peer, context).
 // An agent behind a backend (Hermes, for one) keeps one conversation per
 // context, and a context id is the requester's to choose. Two peers that
@@ -59,11 +69,45 @@ var inboundFeedInterval = 3 * time.Second
 // inboundFeedBuffer bounds the deliveries a subscriber may have unread.
 const inboundFeedBuffer = 16
 
+// inboundSettle is how old a task's latest change must be before a scan the
+// ticker started delivers it. The receive path stores a message and then
+// its attachments, and wakes the feeds once both are stored; a timed scan
+// in between would deliver the message without its files and, having
+// delivered it, never again. A variable so tests can shorten it.
+var inboundSettle = 5 * time.Second
+
 // inboundFeed is the set of subscriptions to inbound tasks, each with its
-// own wake-up channel.
+// own wake-up channel, and the gate that holds them until the daemon has
+// started (open).
 type inboundFeed struct {
-	mu   sync.Mutex
-	subs map[chan struct{}]struct{}
+	mu      sync.Mutex
+	subs    map[chan struct{}]struct{}
+	ready   chan struct{}
+	started bool
+}
+
+// readyCh is closed once the daemon has started.
+func (f *inboundFeed) readyCh() <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ready == nil {
+		f.ready = make(chan struct{})
+	}
+	return f.ready
+}
+
+// open lets the feeds deliver: New calls it last, after the configuration
+// check has accepted what the modules declared.
+func (f *inboundFeed) open() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ready == nil {
+		f.ready = make(chan struct{})
+	}
+	if !f.started {
+		f.started = true
+		close(f.ready)
+	}
 }
 
 func (f *inboundFeed) join() chan struct{} {
@@ -104,13 +148,20 @@ func (f *inboundFeed) wake() {
 
 // backendTakes is the one decision of which inbound tasks a module's
 // backend may have: ok says it may, trusted whether the peer is on the
-// trust list. untrustedDeclared is the DeclareUntrustedBackend declaration.
+// trust list. trust is the interaction's admission (interactions.Trust*);
+// untrustedDeclared is the DeclareUntrustedBackend declaration.
 func backendTakes(peer, trust string, isCapability bool, ps peerSets, untrustedDeclared bool) (trusted, ok bool) {
 	if isCapability || trust == interactions.TrustPublicCap || peer == "" || ps.denied(peer) {
 		return false, false
 	}
-	trusted = ps.trusted(peer)
-	return trusted, trusted || untrustedDeclared
+	if ps.trusted(peer) {
+		return true, true
+	}
+	// Not trusted: only a backend declared for untrusted peers, and only a
+	// peer someone named when the task came — never a stranger accepted
+	// under policy open (nor a row from before admissions were recorded).
+	named := trust == interactions.TrustPeer || trust == interactions.TrustApproved
+	return false, untrustedDeclared && named
 }
 
 // backendAnswers reports whether a thread is one a module's backend is
@@ -158,15 +209,26 @@ func (d *Daemon) inboundTasks(ctx context.Context) (<-chan module.Task, error) {
 func (d *Daemon) runInboundFeed(ctx context.Context, kick chan struct{}, out chan<- module.Task) {
 	defer close(out)
 	defer d.inFeed.leave(kick)
-	// sent maps a task to what was last delivered of it (deliveryKey), so
-	// a task is delivered once per message from the requester. It is in
+	select {
+	case <-d.inFeed.readyCh():
+	case <-ctx.Done():
+		return
+	case <-d.ctx.Done():
+		return
+	}
+	// seen holds what a feed knows of each task it may deliver. It is in
 	// memory: after a restart a task that still waits for an answer is
 	// delivered again.
-	sent := map[string]string{}
+	seen := map[string]feedMark{}
 	t := time.NewTicker(inboundFeedInterval)
 	defer t.Stop()
+	// The first scan and every timed one leave out what changed within
+	// inboundSettle (it may be half stored); a wake-up comes once a message
+	// and its files are stored, and delivers everything.
+	settled := func() time.Time { return time.Now().Add(-inboundSettle) }
+	before := settled()
 	for {
-		if !d.feedInbound(ctx, out, sent) {
+		if !d.feedInbound(ctx, out, seen, before) {
 			return
 		}
 		select {
@@ -175,15 +237,25 @@ func (d *Daemon) runInboundFeed(ctx context.Context, kick chan struct{}, out cha
 		case <-d.ctx.Done():
 			return
 		case <-t.C:
+			before = settled()
 		case <-kick:
+			before = time.Time{}
 		}
 	}
 }
 
+// feedMark is what a feed knows of one task: the last change it read the
+// task at (the interaction's updated_at, which every stored message moves),
+// so an unchanged task costs no read of its messages, and what it last
+// delivered of it (deliveryKey), so a task is delivered once per message
+// from the requester.
+type feedMark struct{ at, key string }
+
 // feedInbound delivers every task a backend may have that waits for an
-// answer and was not delivered with its latest message yet. It returns
-// false when the feed is to stop.
-func (d *Daemon) feedInbound(ctx context.Context, out chan<- module.Task, sent map[string]string) bool {
+// answer and was not delivered with its latest message yet, leaving out a
+// task changed after before (zero: none is left out). It returns false when
+// the feed is to stop.
+func (d *Daemon) feedInbound(ctx context.Context, out chan<- module.Task, seen map[string]feedMark, before time.Time) bool {
 	stopped := func() bool { return ctx.Err() != nil || d.ctx.Err() != nil }
 	list, err := d.ix.ListAll(interactions.ListFilter{Role: interactions.RoleInbound, Active: true,
 		ExcludeCapability: true, ExcludeTrust: []string{interactions.TrustPublicCap}})
@@ -202,31 +274,46 @@ func (d *Daemon) feedInbound(ctx context.Context, out chan<- module.Task, sent m
 			continue
 		}
 		live[ix.ID] = true
+		mark := seen[ix.ID]
+		if mark.at != "" && mark.at == ix.UpdatedAt {
+			continue // nothing stored since the last look
+		}
+		if !before.IsZero() {
+			if at, err := time.Parse(time.RFC3339Nano, ix.UpdatedAt); err == nil && at.After(before) {
+				continue // a later scan has it
+			}
+		}
 		view, err := d.taskView(ix, viewOpts{})
 		if err != nil {
 			continue
 		}
 		key, owed := deliveryKey(view)
-		if !owed || sent[ix.ID] == key {
+		if !owed || mark.key == key {
+			seen[ix.ID] = feedMark{at: ix.UpdatedAt, key: mark.key}
 			continue
 		}
-		t, err := d.inboundView(ix, trusted, true)
-		if err != nil {
-			log.Printf("anet: inbound task %s for modules: %v", ix.ID, err)
-			continue
-		}
+		d.inlineLatest(ix.ID, &view)
+		t := inboundView(ix, view, trusted)
+		wait := time.NewTimer(inboundFeedInterval)
 		select {
 		case out <- t:
-			sent[ix.ID] = key
+			wait.Stop()
+			seen[ix.ID] = feedMark{at: ix.UpdatedAt, key: key}
+		case <-wait.C:
+			// The module is busy. What was decided here is decided again on
+			// a later scan, with the lists as they are then.
+			return true
 		case <-ctx.Done():
+			wait.Stop()
 			return false
 		case <-d.ctx.Done():
+			wait.Stop()
 			return false
 		}
 	}
-	for id := range sent {
+	for id := range seen {
 		if !live[id] {
-			delete(sent, id)
+			delete(seen, id)
 		}
 	}
 	return true
@@ -243,12 +330,39 @@ func deliveryKey(t a2ashape.Task) (key string, owed bool) {
 	return strconv.Itoa(n) + ":" + t.History[n-1].ID, true
 }
 
-// inboundView is the task as a module sees it: the projection, anet.trusted,
-// and the backend's context id in place of the requester's.
-func (d *Daemon) inboundView(ix *interactions.Interaction, trusted, inline bool) (a2ashape.Task, error) {
-	t, err := d.taskView(ix, viewOpts{inline: inline})
-	if err != nil {
-		return a2ashape.Task{}, err
+// inlineLatest carries the bytes of the latest message's files, the message
+// a backend is given; earlier messages keep their references (a module had
+// their files with the delivery that brought them). One delivery so holds
+// one message's files, not every file of a long conversation. A file that
+// cannot be read keeps its reference, as in the projection.
+func (d *Daemon) inlineLatest(ixID string, t *a2ashape.Task) {
+	n := len(t.History)
+	if n == 0 {
+		return
+	}
+	m := &t.History[n-1]
+	parts := append([]a2ashape.Part(nil), m.Parts...)
+	for i, p := range parts {
+		cid, _ := p.Metadata[a2ashape.KeyCID].(string)
+		if p.Kind != a2ashape.PartURL || cid == "" {
+			continue
+		}
+		a, err := d.ix.AttachmentData(ixID, cid)
+		if err != nil {
+			log.Printf("anet: inbound task %s for modules: file %s: %v", ixID, cid, err)
+			continue
+		}
+		parts[i].Kind, parts[i].Raw, parts[i].URL = a2ashape.PartRaw, a.Data, ""
+	}
+	m.Parts = parts
+}
+
+// inboundView is the task as a module sees it: the projection t of ix,
+// anet.peer_aid and anet.trusted, and the backend's context id in place of
+// the requester's.
+func inboundView(ix *interactions.Interaction, t a2ashape.Task, trusted bool) a2ashape.Task {
+	if t.Metadata == nil {
+		t.Metadata = map[string]any{}
 	}
 	t.Metadata[a2ashape.KeyPeerAID] = ix.PeerAID
 	t.Metadata[a2ashape.KeyTrusted] = trusted
@@ -262,7 +376,7 @@ func (d *Daemon) inboundView(ix *interactions.Interaction, trusted, inline bool)
 		m.ContextID = cid
 		t.Status.Message = &m
 	}
-	return t, nil
+	return t
 }
 
 // replyInbound answers a task a module was given (ReplyTask). Any other
@@ -309,5 +423,9 @@ func (d *Daemon) replyInbound(ctx context.Context, taskID string, msg a2ashape.M
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	return d.inboundView(cur, trusted, false)
+	view, err := d.taskView(cur, viewOpts{})
+	if err != nil {
+		return a2ashape.Task{}, err
+	}
+	return inboundView(cur, view, trusted), nil
 }
