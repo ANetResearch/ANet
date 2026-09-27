@@ -38,6 +38,10 @@ import (
 func verify(layout daemon.Layout, rest []string) error {
 	pos, flags := splitFlags(rest)
 
+	if dir := flags["chain"]; dir != "" && dir != "true" {
+		// An exported evidence chain (`anet audit --export DIR`).
+		return verifyChain(dir, flags["kel"], flags["hub"], flags["head"])
+	}
 	if r := flags["receipt"]; r != "" {
 		kel := flags["kel"]
 		if kel == "" {
@@ -63,17 +67,19 @@ func verify(layout daemon.Layout, rest []string) error {
 		return verifyAttestation(a, flags["kel"], flags["hub"])
 	}
 	if flags["kel"] != "" {
-		return fmt.Errorf("verify: --kel needs a --receipt or --attestation to check")
+		return fmt.Errorf("verify: --kel needs a --receipt, --attestation or --chain to check")
 	}
 	if len(pos) < 1 {
 		return fmt.Errorf("verify <interaction-id>\n" +
 			"       verify --receipt <base64> --kel <base64> [--result FILE]\n" +
 			"       verify --receipt <base64> --hub <url>    [--result FILE]\n" +
-			"       verify --attestation <base64> --hub <url>\n\n" +
+			"       verify --attestation <base64> --hub <url>\n" +
+			"       verify --chain DIR [--kel <base64>|--hub <url>] [--head ID]\n\n" +
 			"The second form needs nothing at all: a receipt and the signer's key\n" +
 			"history are enough, offline. The third fetches that key history from a\n" +
 			"hub, for a stranger who was handed a receipt and nothing else.\n" +
-			"The fourth checks a witness attestation from a hub's /x402/witnesses.")
+			"The fourth checks a witness attestation from a hub's /x402/witnesses.\n" +
+			"The fifth checks an evidence chain exported by `anet audit --export DIR`.")
 	}
 	return verifyStored(layout, pos[0])
 }

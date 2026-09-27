@@ -171,6 +171,9 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /inbound/pending", d.hInboundPending)
 	api.HandleFunc("POST /inbound/approve", d.hInboundApprove)
 	api.HandleFunc("POST /inbound/reject", d.hInboundReject)
+	// Spending limits (§8.6; payments_config.go). Bearer only; the CLI
+	// asks for the TTY confirmation before it writes.
+	api.HandleFunc("POST /payments/limits", d.hPaymentLimits)
 	return d.secureControlPlane(token, api)
 }
 
