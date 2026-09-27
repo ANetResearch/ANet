@@ -40,7 +40,12 @@ const Identity = "anet-release@agentnetwork.org.cn"
 // DEV KEY — 正式发布前由产品负责人替换. The private half lives outside
 // every repository (ink93:/data/projs/anet-dev/.release-dev-key). Replacing
 // it means replacing this file, NextKeyFingerprint, the line in
-// install.sh, SECURITY.md, README.md and docs/GUIDE-zh.md, in one commit.
+// install.sh, SECURITY.md, README.md and docs/GUIDE-zh.md, in one commit —
+// and re-signing the official manifest with the new key
+// (build-release.sh --official): the one committed now is signed by this
+// key, and a binary whose manifest its own key does not verify marks no
+// agent official (internal/official TestTheEmbeddedManifestVerifies and the
+// release build both refuse it).
 //
 //go:embed allowed_signers
 var allowedSigners string
