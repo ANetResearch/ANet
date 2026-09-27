@@ -23,6 +23,12 @@ CTRL_PORT=29190          # 控制端
 W_PORTS=(29191 29192 29193)
 W_NAMES=(alpha beta gamma)
 
+# lib.sh for stop_under: 收尾按路径停进程(可执行文件在 $J 之下的),不按进程名 —— 按名字会停掉
+# 整台机器上的 anet 与 anet-hub,包括别的工作树的联调和测试主机上的生产进程(docs/notes/0015 §4)。
+ANET=$J/anet
+# shellcheck source=lib.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib.sh"
+
 pass=0; fail=0
 ok(){   printf '\033[1;32m  ✓ %s\033[0m\n' "$*"; pass=$((pass+1)); }
 no(){   printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; fail=$((fail+1)); }
@@ -32,13 +38,21 @@ cleanup(){
   for p in "${W_PORTS[@]}" "$CTRL_PORT"; do
     curl -s -m 2 -X POST "http://127.0.0.1:$p/stop" >/dev/null 2>&1 || true
   done
-  pkill -x anet 2>/dev/null; pkill -x anet-hub 2>/dev/null
-  sleep 1
+  stop_under "$J" 10
 }
 trap cleanup EXIT
 
 hd "0/7  建栈:一个 hub、一个控制端、三个 worker"
-rm -rf "$J"; mkdir -p "$J"
+# $J 整个删掉重建,并在里面构建二进制再运行:它不能是 /、$HOME 之类(lib.sh _own_path),也必须是本用户
+# 的、别人写不了的目录(lib.sh own_dir)—— 测试主机上以 root 跑,/tmp/joint-fleet 若被别的用户先建好,
+# 他就能换掉要运行的二进制。
+jdir(){ _own_path "$J" >/dev/null && own_dir "$J" || { echo "J=$J 不能用:不是本用户的私有目录(或是 /、\$HOME 之类),换一个 J"; exit 1; }; }
+jdir
+stop_under "$J" 10   # 上一次被强杀的运行留下的进程占着端口
+rm -rf "$J"; jdir
+# daemon 的"当前 daemon"指针与身份注册表写在 $J/xdg,不覆盖同一用户真 daemon 的(0015 §4)。
+mkdir -p "$J/xdg" && chmod 700 "$J/xdg" && export XDG_RUNTIME_DIR=$J/xdg || exit 1
+unset ANET_DATA_DIR ANET_HOME ANET_ID
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 CGO_ENABLED=0 go build -o "$J/anet" "$ROOT/cmd/anet" || { echo "build anet failed"; exit 1; }
 # HUB_SRC lets CI point at wherever it checked ANetHub out; the sibling

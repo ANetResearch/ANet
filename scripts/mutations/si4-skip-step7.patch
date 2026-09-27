@@ -1,0 +1,27 @@
+Mutation for scripts/joint.sh 8/11 (B3-05, A2A-DESIGN SI-4): the daemon skips the step 7 signature
+check (§3.6), so an envelope whose inner from claims an allowed peer, carrying that peer's real KEL
+and the attacker's signature, is processed as the peer's. Never commit it applied.
+
+Apply in a scratch worktree, never in a checkout anything ships from:
+
+    cd ANet && git apply scripts/mutations/si4-skip-step7.patch
+    go build -o "$MUTBIN/anet" ./cmd/anet    # anetfixture, anetpeer and anet-hub into $MUTBIN as usual
+    JOINT_BIN="$MUTBIN" scripts/joint.sh
+
+Expected: 8/11 red — bad-sig does not move, and a forged text lands in the requester's task (9/11's
+replayed forgery likewise). The from-mismatch and not-peer checks stay green: they are steps 6 and
+9. The unit-level twin is TestAForgedSenderInjectedAtTheHubIsDropped ("a forged message was stored").
+
+diff --git a/internal/daemon/receive.go b/internal/daemon/receive.go
+index dec8c69..dcecb13 100644
+--- a/internal/daemon/receive.go
++++ b/internal/daemon/receive.go
+@@ -179,7 +179,7 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
+ 	}
+ 
+ 	// Step 7.
+-	if err := seal.VerifyInnerSig(in, op.Preimage, use, now, d.rotationGrace()); err != nil {
++	if err := seal.VerifyInnerSig(in, op.Preimage, use, now, d.rotationGrace()); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {
+ 		return d.drop(reasonOf(err), err)
+ 	}
+ 
