@@ -1712,7 +1712,8 @@ hd "9r taskboard:一张卡片走完整个流转,越权与乱序被真的拒掉"
 # to use the board they need real commands, and that is a separate
 # decision from this check.
 tbsign() {
-  "$FIXTURE" relay-sign --home "$INK_HOME/.anet" --action "task.$1" 2>/dev/null
+  # --v1: the hub's taskboard (an additive build tag) still takes the wire-1 challenge in the body.
+  "$FIXTURE" relay-sign --v1 --home "$INK_HOME/.anet" --action "task.$1" 2>/dev/null
 }
 tbpost() {
   local action=$1 extra=$2
