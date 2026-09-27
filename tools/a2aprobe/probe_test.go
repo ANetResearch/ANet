@@ -46,6 +46,9 @@ type fakeInterface struct {
 	// overRefusal, when set, is the error a payment above the agent tier
 	// gets instead of the spending policy's.
 	overRefusal string
+	// noX402 leaves a2a-x402 off the card, as when the hub serves no
+	// registry: the activator then asks for nothing.
+	noX402 bool
 }
 
 func startFake(t *testing.T, race bool) *fakeInterface {
@@ -97,7 +100,7 @@ func (f *fakeInterface) card(w http.ResponseWriter, r *http.Request) {
 	base := f.srv.URL + agentsPath + "/" + aid
 	verification := "UNVERIFIED"
 	ext := []a2a.AgentExtension{}
-	if aid == fakeAID {
+	if aid == fakeAID && !f.noX402 {
 		verification = "VERIFIED"
 		ext = append(ext, a2a.AgentExtension{URI: x402URI, Params: map[string]any{"signer": "anet-daemon", "clientPayload": false}})
 	}
@@ -492,6 +495,32 @@ func TestOverLimitRefusedForAnotherReasonFails(t *testing.T) {
 	out, _ := runProbe(t, f)
 	if !strings.Contains(out, "FAIL pay-over-limit:") {
 		t.Errorf("no FAIL pay-over-limit:\n%s", out)
+	}
+}
+
+// Without a2a-x402 on the card the client does not activate it, and §8.7
+// gives the quote another reason than the one the kernel gives today: a
+// NOTE, and the flow still runs.
+func TestNotActivatedIsNoted(t *testing.T) {
+	f := startFake(t, false)
+	f.noX402 = true
+	var out bytes.Buffer
+	p := &probe{rep: newReport(&out), agent: fakeAID, token: fakeToken, nonce: "n", timeout: 10 * time.Second,
+		base: "http://" + f.addr() + agentsPath + "/" + fakeAID,
+		st: &runState{Contexts: map[string]string{}, Blocking: map[string]string{}, Immediate: map[string]string{},
+			Stream: map[string]string{}}, rec: loadRecord("")}
+	card := p.cardChecks(context.Background(), false)
+	if card == nil {
+		t.Fatalf("no card:\n%s", out.String())
+	}
+	p.payFlow(context.Background(), card, "paid", "pricey")
+	if p.rep.fails != 0 {
+		t.Fatalf("%d failures:\n%s", p.rep.fails, out.String())
+	}
+	for _, s := range []string{"NOTE pay-not-activated:", "PASS pay-over-limit-task:", "PASS pay:"} {
+		if !strings.Contains(out.String(), s) {
+			t.Errorf("no %q:\n%s", s, out.String())
+		}
 	}
 }
 
