@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
@@ -58,16 +59,20 @@ const securityScheme = "anetLocal"
 // network card is admitted under (ANetCore a2acard.MaxCardBytes).
 const maxOriginCard = 64 << 10
 
+// maxNameBytes is the longest name a card may have (ANetCore
+// a2acard.MaxNameBytes).
+const maxNameBytes = 128
+
 // cardBuilder builds proxy cards for one listener.
 type cardBuilder struct {
-	port string
+	host, port string
 }
 
 // build makes the proxy card for a remote agent, and lists the extension
 // URIs it declares (what the interface echoes back to a client that
 // activates them).
 func (b cardBuilder) build(ra module.RemoteAgent) (map[string]any, []string) {
-	base := "http://127.0.0.1:" + b.port + agentsPath + "/" + ra.AID
+	base := "http://" + listenerURLHost(b.host, b.port) + agentsPath + "/" + ra.AID
 	card := map[string]any{
 		"supportedInterfaces": []any{
 			map[string]any{"url": base + "/jsonrpc", "protocolBinding": string(a2a.TransportProtocolJSONRPC), "protocolVersion": string(a2a.Version)},
@@ -84,17 +89,16 @@ func (b cardBuilder) build(ra module.RemoteAgent) (map[string]any, []string) {
 		"securityRequirements": []any{map[string]any{"schemes": map[string]any{securityScheme: map[string]any{"list": []any{"a2a"}}}}},
 	}
 
-	verification := ra.Verification
-	if verification != verified {
-		verification = unverified
-	}
+	// VERIFIED is said only of a card that is here to be read: without its
+	// bytes, or with bytes that do not parse, the card is a placeholder, and
+	// a placeholder calling its origin verified would be vouching for
+	// nothing.
+	verification := unverified
 	var remote *a2a.AgentCard
-	if verification == verified && len(ra.Card) > 0 {
+	if ra.Verification == verified && len(ra.Card) > 0 {
 		var c a2a.AgentCard
 		if err := json.Unmarshal(ra.Card, &c); err == nil {
-			remote = &c
-		} else {
-			verification = unverified
+			remote, verification = &c, verified
 		}
 	}
 
@@ -203,8 +207,15 @@ func placeholder(card map[string]any, ra module.RemoteAgent) {
 	if name == "" {
 		name = "anet agent " + short(ra.AID)
 	}
-	if len(name) > 128 {
-		name = name[:128]
+	if len(name) > maxNameBytes {
+		// The limit is in bytes (ANetCore a2acard.MaxNameBytes), and the
+		// cut falls between characters: one split in half is not the text
+		// the hub gave, nor valid UTF-8.
+		cut := maxNameBytes
+		for cut > 0 && !utf8.RuneStart(name[cut]) {
+			cut--
+		}
+		name = name[:cut]
 	}
 	card["name"] = name
 	card["description"] = "The anet agent " + ra.AID + ", reached through this node. It has no card this node could " +

@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
@@ -349,6 +351,15 @@ func TestRequestChecks(t *testing.T) {
 		{"form rpc", "POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "application/x-www-form-urlencoded"}, rpcGet, 415},
 		{"bad aid", "GET", agentsPath + "/NOT_AN_AID/.well-known/agent-card.json", map[string]string{"Authorization": bearer}, "", 404},
 		{"this node itself", "GET", agentsPath + "/" + selfAID, map[string]string{"Authorization": bearer}, "", 404},
+		// Every route, the REST binding and the bare card alias included,
+		// is behind the same checks (SI-7).
+		{"rest without a token", "GET", agentsPath + "/" + agentA + "/rest/tasks/task1", nil, "", 401},
+		{"alias card without a token", "GET", agentsPath + "/" + agentA, nil, "", 401},
+		{"console cookie, no bearer", "GET", cardPath, map[string]string{"Cookie": "anet_s_" + e.port + "=session"}, "", 401},
+		{"control token", "POST", rpc, map[string]string{"Authorization": "Bearer " + strings.Repeat("c", 64), "Content-Type": "application/json"}, rpcGet, 401},
+		{"list, foreign host", "GET", agentsPath, map[string]string{"Authorization": bearer, "Host": "evil.example:" + e.port}, "", 421},
+		{"rest, foreign host", "GET", agentsPath + "/" + agentA + "/rest/tasks/task1", map[string]string{"Authorization": bearer, "Host": "evil.example:" + e.port}, "", 421},
+		{"text/plain rest", "POST", agentsPath + "/" + agentA + "/rest/message:send", map[string]string{"Authorization": bearer, "Content-Type": "text/plain"}, `{"message":{}}`, 415},
 		{"card", "GET", cardPath, map[string]string{"Authorization": bearer}, "", 200},
 		{"card at localhost", "GET", cardPath, map[string]string{"Authorization": bearer, "Host": "localhost:" + e.port}, "", 200},
 		{"rpc", "POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "application/json; charset=utf-8"}, rpcGet, 200},
@@ -748,5 +759,100 @@ func TestRawPartsReachTheKernel(t *testing.T) {
 	}
 	if got.Message.ID != msg.ID || got.Metadata["k"] != "v" {
 		t.Fatalf("message id or request metadata lost: %+v", got)
+	}
+}
+
+// A body over the limit is refused before a binding reads it (§11.4).
+func TestBodyLimit(t *testing.T) {
+	e := newEnv(t)
+	s := e.srv.Config.Handler
+	for _, path := range []string{agentsPath + "/" + agentA + "/jsonrpc", agentsPath + "/" + agentA + "/rest/message:send"} {
+		req := httptest.NewRequest("POST", "http://127.0.0.1:"+e.port+path, strings.NewReader(rpcGet))
+		req.Host = "127.0.0.1:" + e.port
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		req.Header.Set("Content-Type", "application/json")
+		req.ContentLength = maxBody + 1
+		rec := httptest.NewRecorder()
+		s.ServeHTTP(rec, req)
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("%s: %d %s, want 413", path, rec.Code, rec.Body)
+		}
+	}
+	if len(e.seam.sends) != 0 {
+		t.Fatal("an oversized request reached the kernel")
+	}
+}
+
+// An agent the kernel calls verified but whose card bytes are missing gets
+// a placeholder, and the placeholder does not call its origin verified.
+func TestProxyCardVerifiedWithoutBytes(t *testing.T) {
+	long := strings.Repeat("é", 100) // 200 bytes: cut to 128 between characters
+	card, _ := cardBuilder{port: "1"}.build(module.RemoteAgent{AID: agentA, Name: long, Verification: verified})
+	if n := card["name"].(string); len(n) > maxNameBytes || !utf8.ValidString(n) || !strings.HasPrefix(long, n) {
+		t.Fatalf("placeholder name %q (%d bytes)", n, len(n))
+	}
+	if card["skills"].([]any)[0].(map[string]any)["id"] != "chat" {
+		t.Fatalf("not a placeholder: %+v", card)
+	}
+	for _, x := range card["capabilities"].(map[string]any)["extensions"].([]any) {
+		x := x.(map[string]any)
+		if x["uri"] == ExtOriginURI && x["params"].(map[string]any)["originVerification"] != unverified {
+			t.Fatalf("a placeholder claims a verified origin: %+v", x)
+		}
+	}
+}
+
+// The URLs in a card reach the listener where it is bound: an interface on
+// [::1] is not at 127.0.0.1.
+func TestCardURLsNameTheListener(t *testing.T) {
+	card, _ := cardBuilder{host: "::1", port: "43811"}.build(module.RemoteAgent{AID: agentA})
+	for _, i := range card["supportedInterfaces"].([]any) {
+		u := i.(map[string]any)["url"].(string)
+		if !strings.HasPrefix(u, "http://[::1]:43811"+agentsPath+"/"+agentA+"/") {
+			t.Fatalf("interface %s", u)
+		}
+	}
+	s := &server{cfg: serverConfig{host: "::1", port: "43811"}}
+	if got := s.baseURL(agentA); got != "http://[::1]:43811"+agentsPath+"/"+agentA {
+		t.Fatalf("base URL %s", got)
+	}
+}
+
+// Only the A2A error reaches the client, not the text of what wraps it.
+func TestWrappedErrorsDoNotLeak(t *testing.T) {
+	err := toSDKError(fmt.Errorf("store at /home/x/.anet: %w", a2a.NewError(a2a.ErrInvalidParams, "bad input")))
+	if !errors.Is(err, a2a.ErrInvalidParams) || err.Error() != "bad input" {
+		t.Fatalf("%v", err)
+	}
+	err = toSDKError(fmt.Errorf("hub said %q: %w", "secret", a2ashape.Errorf(a2ashape.ErrTaskNotFound, "ix at peer")))
+	if !errors.Is(err, a2a.ErrTaskNotFound) || err.Error() != "task not found" {
+		t.Fatalf("%v", err)
+	}
+}
+
+// A new task that is already waiting for the client when the send returns —
+// the agent asked, or quoted, before the stream began — ends the stream at
+// once with that task, rather than holding it open for a newer state.
+func TestStreamOfATaskThatAlreadyAsked(t *testing.T) {
+	for _, binding := range bindings {
+		t.Run(string(binding), func(t *testing.T) {
+			e := newEnv(t)
+			e.seam.quote = map[string]any{"x402Version": 2, "accepts": []any{map[string]any{"scheme": "credit"}}}
+			cl, ctx := e.client(agentA, binding)
+			ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			var states []a2a.TaskState
+			for ev, err := range cl.SendStreamingMessage(ctx, &a2a.SendMessageRequest{Message: textMessage("quote me")}) {
+				if err != nil {
+					t.Fatalf("stream: %v (after %v)", err, states)
+				}
+				if task, ok := ev.(*a2a.Task); ok {
+					states = append(states, task.Status.State)
+				}
+			}
+			if !slices.Equal(states, []a2a.TaskState{a2a.TaskStateInputRequired}) {
+				t.Fatalf("stream %v", states)
+			}
+		})
 	}
 }

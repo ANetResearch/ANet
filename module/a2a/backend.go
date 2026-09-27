@@ -68,9 +68,10 @@ type Backend struct {
 	// "*" one. Text tasks from the network name none today, so "*" is what
 	// applies to them.
 	Match string `json:"match"`
-	// URL is where the backend's agent card is: its base URL (the card is
-	// at /.well-known/agent-card.json) or the card's own URL. http only on
-	// loopback; https anywhere.
+	// URL is where the backend's agent card is: a URL with no path (the
+	// card is then read from /.well-known/agent-card.json) or the card's own
+	// URL. http only on loopback; https anywhere. The interfaces the card
+	// names are held to the same rule.
 	URL string `json:"url"`
 	// TokenFile holds the bearer token the daemon presents to the backend,
 	// on the card request and on every call.
@@ -471,7 +472,13 @@ type backendClient struct {
 }
 
 // backendHTTP has no overall timeout: a forward's context bounds each call.
-var backendHTTP = &http.Client{}
+// It follows no redirect: every request carries the backend's token and a
+// task's text, and a redirect would take both somewhere the url rule
+// (checkBackendURL) never looked at — https to plain http on the same host
+// keeps the Authorization header.
+var backendHTTP = &http.Client{
+	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+}
 
 func (b *backendClient) get(ctx context.Context) (*a2aclient.Client, error) {
 	b.mu.Lock()
@@ -487,6 +494,9 @@ func (b *backendClient) get(ctx context.Context) (*a2aclient.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("card: %w", err)
 	}
+	if err := restrictInterfaces(card); err != nil {
+		return nil, err
+	}
 	cl, err := a2aclient.NewFromCard(ctx, card,
 		a2aclient.WithJSONRPCTransport(backendHTTP), a2aclient.WithRESTTransport(backendHTTP),
 		a2aclient.WithCallInterceptors(bearer{token: b.token}))
@@ -495,6 +505,25 @@ func (b *backendClient) get(ctx context.Context) (*a2aclient.Client, error) {
 	}
 	b.client = cl
 	return cl, nil
+}
+
+// restrictInterfaces keeps the interfaces of a backend's card that the url
+// rule allows: http on a loopback host, or https. The configured URL passed
+// that rule, but the calls go to the URLs the card names, and the card is
+// the backend's own word — an interface in the clear off this machine would
+// receive the task's text and the token, so it is dropped, not used.
+func restrictInterfaces(card *a2a.AgentCard) error {
+	var keep []*a2a.AgentInterface
+	for _, i := range card.SupportedInterfaces {
+		if i != nil && checkBackendURL(i.URL) == nil {
+			keep = append(keep, i)
+		}
+	}
+	if len(keep) == 0 {
+		return errors.New("card: no interface this node sends tasks to (plain http only on a loopback host; https)")
+	}
+	card.SupportedInterfaces = keep
+	return nil
 }
 
 func (b *backendClient) drop() {
