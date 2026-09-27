@@ -342,7 +342,8 @@ func (d *Daemon) AID() string { return d.self.AID() }
 // to call multiple times / concurrently; ServeControl returns after this, unwinding runDaemon's Close.
 func (d *Daemon) RequestStop() { d.stopOnce.Do(func() { close(d.stop) }) }
 
-// Close stops the relay loop and closes the interactions store. Idempotent.
+// Close stops the background loops and the modules, then closes the
+// evidence ledger and the interactions store. Idempotent.
 func (d *Daemon) Close() error {
 	var err error
 	d.closeOnce.Do(func() {
@@ -356,11 +357,12 @@ func (d *Daemon) Close() error {
 		d.bgMu.Unlock()
 		d.bgWG.Wait()
 		drained := waitFor(&d.longCallsWG, longCallDrainTimeout)
-		// The modules stop once nothing in the kernel is calling them
-		// any more, and before the ledger closes, because a module may
-		// record evidence on its way out. Their Start context is d.ctx,
-		// already cancelled, so Stop is for what that does not reach: a
-		// connection, a listener, a goroutine of the module's own.
+		// The modules stop once the kernel's own work is done (a long
+		// call that did not drain may still be in one), and before the
+		// ledger closes, because a module may record evidence on its way
+		// out. Their Start context is d.ctx, already cancelled, so Stop
+		// is for what that does not reach: a connection, a listener, a
+		// goroutine of the module's own.
 		d.stopModules(context.Background())
 		if d.ledger != nil {
 			_ = d.ledger.Close()
