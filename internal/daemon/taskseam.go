@@ -312,7 +312,7 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
 	if in.capID != "" {
-		_, err = d.delegateCapabilityCtx(sctx, id, peer, in.capID, in.args, nil, contextID)
+		_, err = d.delegateCapabilityCtx(sctx, id, "", peer, in.capID, in.args, nil, contextID)
 	} else {
 		var mb []byte
 		if len(meta) > 0 {
