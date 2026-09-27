@@ -59,6 +59,8 @@ A SendMessage sent through the local A2A interface with `return_immediately=fals
 
 To find an earlier task: ListTasks by contextId, or the MCP tool `list_tasks` filtered by `context_id`.
 
+One leniency toward such clients, which departs from the A2A specification: a message that carries a contextId and no taskId continues a task instead of starting one when, in that context, exactly one task this node sent to that agent (the one the endpoint is for) is `input-required` (a capability call is always a new task, and a waiting capability call is continued only by a payment message). With no such task, or with several, the message starts a new task, as the specification says. The control API and MCP are not lenient: name the task.
+
 ## 9. Payments and reviews can be linked; the public issuance chain shows amounts and AIDs
 
 - The hub can link settlement records to public reviews by payer, payee and time. The interaction binding inside a settlement is a one-way hash, and the hub neither stores the interaction id nor can derive it from the binding — but that does not prevent linking by time and by the two parties' identities.
