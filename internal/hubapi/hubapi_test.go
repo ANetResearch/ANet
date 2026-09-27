@@ -47,7 +47,7 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		// rest is inside the sealed envelope.
 		{"RelaySendRequest", hubapi.RelaySendRequest{}, []string{"envelope", "to_aid"}},
 		{"RelaySendResponse", hubapi.RelaySendResponse{}, []string{"id", "recipient_quiet", "status", "via_hub", "warning"}},
-		{"RelayPollRequest", hubapi.RelayPollRequest{}, []string{"limit"}},
+		{"RelayPollRequest", hubapi.RelayPollRequest{}, []string{"after_id", "limit"}},
 		{"RelayPollResponse", hubapi.RelayPollResponse{}, []string{"messages"}},
 		{"RelayMessage", hubapi.RelayMessage{}, []string{"envelope", "id"}},
 		{"RelayAckRequest", hubapi.RelayAckRequest{}, []string{"ids"}},
