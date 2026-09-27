@@ -114,8 +114,20 @@ func (s *Store) MergeMessageMeta(interactionID string, msgSeq int64, add map[str
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return mergeMessageMeta(s.db, interactionID, msgSeq, add)
+}
+
+// MergeMessageMeta is Store.MergeMessageMeta inside the transaction.
+func (t *Tx) MergeMessageMeta(interactionID string, msgSeq int64, add map[string]any) error {
+	if len(add) == 0 {
+		return nil
+	}
+	return mergeMessageMeta(t.tx, interactionID, msgSeq, add)
+}
+
+func mergeMessageMeta(e execer, interactionID string, msgSeq int64, add map[string]any) error {
 	var cur string
-	err := s.db.QueryRow(`SELECT metadata FROM message WHERE seq=? AND interaction_id=?`, msgSeq, interactionID).Scan(&cur)
+	err := e.QueryRow(`SELECT metadata FROM message WHERE seq=? AND interaction_id=?`, msgSeq, interactionID).Scan(&cur)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -147,7 +159,7 @@ func (s *Store) MergeMessageMeta(interactionID string, msgSeq int64, add map[str
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`UPDATE message SET metadata=? WHERE seq=? AND interaction_id=?`, string(b), msgSeq, interactionID)
+	_, err = e.Exec(`UPDATE message SET metadata=? WHERE seq=? AND interaction_id=?`, string(b), msgSeq, interactionID)
 	return err
 }
 

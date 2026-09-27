@@ -121,3 +121,53 @@ func TestALateResultRollsBackWithItsTransaction(t *testing.T) {
 		t.Fatalf("late result = %+v", ix)
 	}
 }
+
+// The retry loop reads due rows by id; a row deleted in a transaction that
+// rolls back is still there, and one deleted in a committed transaction
+// goes with the message metadata written beside it.
+func TestOutboxIDsAndTransactionalDelete(t *testing.T) {
+	s := open(t)
+	due, _ := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_1", ToAID: "peer", Type: "anet.message/1", Body: []byte("a"), NextAt: 10})
+	later, _ := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_1", ToAID: "peer", Type: "anet.message/1", Body: []byte("b"), NextAt: 20})
+	if ids, err := s.DueOutboxIDs(15, 10); err != nil || len(ids) != 1 || ids[0] != due {
+		t.Fatalf("due ids = %v (%v), want [%d]", ids, err, due)
+	}
+	if err := s.Put("ix_1", interactions.RoleOutbound, "peer", "goal", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	seq, _, err := s.AddMessageRecord(interactions.MessageRecord{InteractionID: "ix_1", SenderAID: "me",
+		Kind: interactions.MsgText, Body: "goal", MsgID: "m1", Metadata: []byte(`{"a2a.messageId":"c1","k":"v"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("boom")
+	if err := s.Update(func(tx *interactions.Tx) error {
+		if err := tx.DeleteOutbox(due); err != nil {
+			return err
+		}
+		return boom
+	}); !errors.Is(err, boom) {
+		t.Fatal(err)
+	}
+	if _, err := s.GetOutbox(due); err != nil {
+		t.Fatal("a delete that rolled back removed the row")
+	}
+	if err := s.Update(func(tx *interactions.Tx) error {
+		if err := tx.MergeMessageMeta("ix_1", seq, map[string]any{"a2a.messageId": nil}); err != nil {
+			return err
+		}
+		return tx.DeleteOutbox(due)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetOutbox(due); !errors.Is(err, interactions.ErrNotFound) {
+		t.Fatalf("deleted row: %v", err)
+	}
+	if _, err := s.GetOutbox(later); err != nil {
+		t.Fatal(err)
+	}
+	m, err := s.MessageByMsgID("ix_1", "m1")
+	if err != nil || m.Metadata != `{"k":"v"}` {
+		t.Fatalf("message after the merge = %+v (%v)", m, err)
+	}
+}

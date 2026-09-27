@@ -408,8 +408,13 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 	switch {
 	case errors.Is(err, ErrTaskTerminal):
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "%v", err)
+	case errors.Is(err, errUndeliverable):
+		// Recorded, and refused for good by the hub on the first attempt:
+		// the task is failed (anet.reason=undeliverable) and answered as it
+		// is, as for a new task (sendTask).
 	case err != nil:
-		// Delivery is queued and cannot fail here; this is the store.
+		// Delivery is queued and cannot fail here otherwise; this is the
+		// store.
 		return a2ashape.Task{}, err
 	}
 	release()
