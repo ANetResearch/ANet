@@ -17,17 +17,20 @@
 #
 # The key is generated in a private temporary directory and its private half deleted before the build:
 # nothing else can ever be signed with it. The same overlay makes the binary's release trust that
-# throwaway key, so `anet update` in it refuses every real release — a test binary cannot update itself
-# into production. Never ship it: `anet version` shows a commit ending in "+official-test", and
-# `anet doctor` names the test key.
+# throwaway key, so `anet update` in it refuses every release signed by the current release key. (The
+# pre-committed next key, internal/release NextKeyFingerprint, is compiled Go and not overlaid: after a
+# key rotation such a binary would accept the new key's release and replace itself with it — with a
+# real binary, never with another test one.) Never ship it: `anet version` shows a commit ending in
+# "+official-test", and `anet doctor` names the test key.
 #
 # Usage:
 #   scripts/official-testbin.sh -o OUT [-t TAGS] [--target GOOS/GOARCH] [--hub URL] [--ttl-hours N] \
 #       [ID=]AID[:CAP,CAP…] …
 #
-#   -o OUT        output directory (created 0700; if it exists it must be this user's and not writable
-#                 by others). Written: OUT/anet, OUT/official/{manifest.json,manifest.json.sig,
-#                 allowed_signers,key.pub,overlay.json}
+#   -o OUT        output directory (created 0700; it and every directory above it must be this user's
+#                 or root's and not writable by another user — the joint scripts run the binary, as
+#                 root on the test hosts). Written: OUT/anet, OUT/official/{manifest.json,
+#                 manifest.json.sig,allowed_signers,key.pub,overlay.json}
 #   -t TAGS       build tags, as for build.sh (e.g. "shell")
 #   --target      cross-compile (CGO off), e.g. linux/amd64 for the test hosts; the self-check that runs
 #                 the binary is skipped when it cannot run here
@@ -36,8 +39,9 @@
 #   ID=AID:CAPS   one official agent; ID defaults to official-<n>, CAPS to none
 #
 # Prerequisites: go (with the workspace env sourced, as for any build in this repo — the build must
-# resolve ./cmd/anet to THIS checkout, which is checked), ssh-keygen (OpenSSH ≥ 8.1), python3 (for the
-# self-check). No network, no daemon, no ports, no processes left behind.
+# resolve ./cmd/anet to THIS checkout, which is checked), ssh-keygen (OpenSSH ≥ 8.1), python3 (the
+# directory check, overlay.json and the self-check). No network, no daemon, no ports, no processes
+# left behind.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -55,7 +59,7 @@ ENTRIES=()
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) OUT="${2:?-o needs a directory}"; shift 2 ;;
-    -t) TAGS="${2-}"; shift 2 ;;
+    -t) [ $# -ge 2 ] || die "-t needs TAGS (\"\" for the default build)"; TAGS="$2"; shift 2 ;;
     --target) TARGET="${2:?--target needs GOOS/GOARCH}"; shift 2 ;;
     --hub) HUB="${2:?--hub needs a URL}"; shift 2 ;;
     --ttl-hours) TTL_H="${2:?--ttl-hours needs a number}"; shift 2 ;;
@@ -70,16 +74,48 @@ case "$TTL_H" in ''|*[!0-9]*) die "--ttl-hours must be a number" ;; esac
 [ "$TTL_H" -ge 1 ] || die "--ttl-hours must be at least 1"
 [[ "$HUB" =~ ^https?://[^/?#@[:space:]]+(/[^?#[:space:]]*)?$ ]] || die "--hub '$HUB' is not an http(s) base URL"
 case "$OUT" in /*) ;; *) OUT="$PWD/$OUT" ;; esac
-for c in go ssh-keygen; do command -v "$c" >/dev/null 2>&1 || die "$c is required"; done
+for c in go ssh-keygen python3; do command -v "$c" >/dev/null 2>&1 || die "$c is required"; done
 
 # ── the output directory: this user's, and no one else's to change ────────
-if [ -e "$OUT" ]; then
-  [ -d "$OUT" ] && [ ! -L "$OUT" ] || die "$OUT exists and is not a directory"
-  [ "$(stat -c %u "$OUT")" = "$(id -u)" ] || die "$OUT belongs to another user"
-  case "$(stat -c %A "$OUT")" in ?????w????|????????w?) die "$OUT is writable by other users" ;; esac
-fi
-( umask 077; mkdir -p "$OUT/official" ) || die "cannot create $OUT"
-[ "$(stat -c %u "$OUT/official")" = "$(id -u)" ] || die "$OUT/official belongs to another user"
+# own_dir DIR: scripts/lib.sh's own_dir (wp/jointbase), repeated so this script stands alone. Create
+# DIR if it is missing (mode 700) and succeed only if it is a directory of this user that no other
+# user can change: DIR and every directory above it owned by this user (or, above it, root), and none
+# writable by another user unless sticky (/tmp) — "another user" being others, or a group with members
+# besides this user. A directory someone else controls, anywhere up the path, would let them swap the
+# binary between this build and the run that trusts its official mark.
+own_dir(){
+  case "$1" in /*) ;; *) return 1 ;; esac
+  ( umask 077; mkdir -p -- "$1" ) 2>/dev/null || return 1
+  python3 -c '
+import grp, os, pwd, stat, sys
+uid = os.geteuid()
+try:
+    me = pwd.getpwuid(uid).pw_name
+except KeyError:
+    me = None
+def shared(gid):
+    try:
+        members = set(grp.getgrgid(gid).gr_mem)
+    except KeyError:
+        return True
+    members |= {u.pw_name for u in pwd.getpwall() if u.pw_gid == gid}
+    return bool(members - {me})
+def writable_by_others(st):
+    return bool(st.st_mode & 0o002 or (st.st_mode & 0o020 and shared(st.st_gid)))
+p = os.path.realpath(sys.argv[1])
+st = os.stat(p)
+if not stat.S_ISDIR(st.st_mode) or st.st_uid != uid or writable_by_others(st):
+    sys.exit(1)
+d = p
+while d != "/":
+    d = os.path.dirname(d)
+    st = os.stat(d)
+    if st.st_uid not in (0, uid) or (writable_by_others(st) and not st.st_mode & stat.S_ISVTX):
+        sys.exit(1)' "$1"
+}
+[ ! -L "$OUT" ] || die "$OUT is a symbolic link"
+own_dir "$OUT" || die "$OUT is not a directory only this user can change (it, or a directory above it, belongs to or is writable by another user)"
+own_dir "$OUT/official" || die "$OUT/official is not a directory only this user can change"
 
 # ── the build must be of this checkout ────────────────────────────────────
 DIR="$(go -C "$ROOT" list -f '{{.Dir}}' ./cmd/anet 2>/dev/null)" || die "go cannot resolve ./cmd/anet in $ROOT (source the workspace env.sh)"
