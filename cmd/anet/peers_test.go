@@ -37,7 +37,8 @@ func withTTY(t *testing.T, answer string) *fakeTTY {
 }
 
 // recordingDaemon is a control plane that records the paths it was asked.
-// It holds one delegation, ix_1, for approval.
+// It holds one delegation, ix_1, for approval, and one quote on a task this
+// node delegated (/thread).
 func recordingDaemon(t *testing.T) (*client, func() []string) {
 	t.Helper()
 	var mu sync.Mutex
@@ -48,7 +49,9 @@ func recordingDaemon(t *testing.T) (*client, func() []string) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","pending":[{"interaction_id":"ix_1","requester":"bafyreipeer000000000","bytes":12}],` +
-			`"payments":{"auto_max":0,"agent_max":0}}`))
+			`"auto_max":0,"agent_max":0,` +
+			`"thread":{"role":"outbound","messages":[{"metadata":{"x402.payment.required":{"x402Version":2,"accepts":[` +
+			`{"scheme":"anet-credit","network":"hub:bafyreihub","amount":"5","asset":"credit","payTo":"bafyreipeer000000000"}]}}}]}}`))
 	}))
 	t.Cleanup(srv.Close)
 	return &client{base: srv.URL, token: "t", timeout: 5 * time.Second}, func() []string {
@@ -70,11 +73,15 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 		{"inbound", "approve", "ix_1"},
 		{"inbound", "policy", "open"},
 		{"inbound", "policy", "approve"},
-		{"payments", "limits", "--auto-max", "5"},
-		{"payments", "limits", "--daily-max", "0"},
+		{"payments", "set", "auto_max=5"},
+		{"payments", "set", "daily_max=0"},
+		{"pay", "ix_2"},
 	}
 	// What a prompt may read before asking.
-	readOnly := map[string]bool{"/inbound/pending": true, "/find": true, "/payments/limits": true}
+	readOnly := map[string]bool{"/inbound/pending": true, "/find": true, "/payments/status": true, "/thread": true}
+	// The request a confirmed command ends with.
+	final := map[string]string{"peers": "/peers/", "inbound": "/inbound/", "payments": "/payments/limits",
+		"pay": "/tasks/pay-manual"}
 	for _, args := range grants {
 		c, sent := recordingDaemon(t)
 		withTTY(t, "")
@@ -100,8 +107,8 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 		if err := runClientArgs(c, args); err != nil {
 			t.Errorf("%v confirmed: %v", args, err)
 		}
-		if got := sent(); len(got) < 2 && args[0] == "payments" || len(got) == 0 ||
-			!strings.HasPrefix(got[len(got)-1], "/"+args[0]+"/") {
+		if got := sent(); len(got) < 2 && (args[0] == "payments" || args[0] == "pay") || len(got) == 0 ||
+			!strings.HasPrefix(got[len(got)-1], final[args[0]]) {
 			t.Errorf("%v confirmed: daemon asked %v", args, got)
 		}
 		if !strings.Contains(tty.prompt.String(), "Type yes") {
@@ -111,7 +118,7 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 	for _, args := range [][]string{
 		{"peers", "list"}, {"peers", "deny", "bafyreipeer000000000"}, {"peers", "remove", "bafyreipeer000000000"},
 		{"inbound", "pending"}, {"inbound", "list"}, {"inbound", "reject", "ix_1"}, {"inbound", "policy", "closed"},
-		{"inbound", "policy"}, {"payments", "limits"},
+		{"inbound", "policy"}, {"payments"}, {"payments", "show"}, {"pay", "ix_2", "--reject"},
 	} {
 		c, sent := recordingDaemon(t)
 		withTTY(t, "")
@@ -155,6 +162,8 @@ func runClientArgs(c *client, args []string) error {
 		return runHubRegister(c, args[1:])
 	case "payments":
 		return runPayments(c, args[1:])
+	case "pay":
+		return runPay(c, args[1:])
 	}
 	panic("runClientArgs: " + args[0])
 }
@@ -182,14 +191,23 @@ func TestConfirmationsDescribeWhatTheyGrant(t *testing.T) {
 	}
 	c, _ = recordingDaemon(t)
 	tty = withTTY(t, "yes")
-	if err := runClientArgs(c, []string{"payments", "limits", "--agent-max", "7"}); err != nil {
+	if err := runClientArgs(c, []string{"payments", "set", "agent_max=7"}); err != nil {
 		t.Fatal(err)
 	}
 	if p := tty.prompt.String(); !strings.Contains(p, "agent_max") || !strings.Contains(p, "0 → 7") {
 		t.Errorf("limits prompt: %q", p)
 	}
-	if err := runClientArgs(c, []string{"payments", "limits", "--agent-max", "-1"}); err == nil {
+	if err := runClientArgs(c, []string{"payments", "set", "agent_max=-1"}); err == nil {
 		t.Error("a negative limit was accepted")
+	}
+	// anet pay names the amount, the payee and the task.
+	c, _ = recordingDaemon(t)
+	tty = withTTY(t, "yes")
+	if err := runClientArgs(c, []string{"pay", "ix_2"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := tty.prompt.String(); !strings.Contains(p, "ix_2") || !strings.Contains(p, "5 credit to bafyreipeer000000000") {
+		t.Errorf("pay prompt: %q", p)
 	}
 }
 
