@@ -318,29 +318,39 @@ func (d *Daemon) SendMessageAtts(ctx context.Context, interactionID, body string
 // makes it input-required. A requester message makes it working.
 func (d *Daemon) SendMessageOpts(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
 	meta map[string]any) error {
+	_, err := d.sendMessage(ctx, interactionID, body, atts, meta)
+	return err
+}
+
+// sendMessage is SendMessageOpts returning the interaction's state_seq as
+// its own write left it. A caller that then waits for the other side's
+// answer waits for a state_seq above this one (C35): comparing the current
+// state instead would take an earlier input-required for the answer.
+func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
+	meta map[string]any) (stateSeq int64, err error) {
 	body = strings.TrimSpace(body)
 	if body == "" && len(atts) == 0 {
-		return fmt.Errorf("anet: empty message (pass text and/or --attach PATH)")
+		return 0, fmt.Errorf("anet: empty message (pass text and/or --attach PATH)")
 	}
 	ix, err := d.ix.Get(interactionID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if ix.IsTerminal() {
-		return fmt.Errorf("%w (%s is %s)", ErrTaskTerminal, interactionID, ix.State)
+		return 0, fmt.Errorf("%w (%s is %s)", ErrTaskTerminal, interactionID, ix.State)
 	}
 	if ix.IsCapability {
-		return fmt.Errorf("anet: %s is a capability call; it carries no conversation", interactionID)
+		return 0, fmt.Errorf("anet: %s is a capability call; it carries no conversation", interactionID)
 	}
 	var metaBytes []byte
 	if len(meta) > 0 {
 		if metaBytes, err = json.Marshal(meta); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	msgID, err := newMessageID()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	next := stateOnMessage(ix.Role == interactions.RoleOutbound, interactions.MsgText, metaBytes, ix.PayState)
 	var seq int64
@@ -351,24 +361,31 @@ func (d *Daemon) SendMessageOpts(ctx context.Context, interactionID, body string
 			return err
 		}
 		if next != "" {
-			_, err = tx.SetState(interactionID, next)
+			if _, err = tx.SetState(interactionID, next); err != nil {
+				return err
+			}
 		}
-		return err
+		cur, err := tx.Get(interactionID)
+		if err != nil {
+			return err
+		}
+		stateSeq = cur.StateSeq
+		return nil
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if err := d.storeMsgAttachments(interactionID, seq, atts); err != nil {
-		return err
+		return stateSeq, err
 	}
 	d.publishMessage(interactionID, seq, interactions.MsgText)
 	d.publishState(interactionID)
 	cm := &delegation.ChatMsg{Kind: delegation.ChatText, Body: body, Attachments: atts, MsgID: msgID, Metadata: metaBytes}
 	payload, err := cm.Marshal()
 	if err != nil {
-		return err
+		return stateSeq, err
 	}
-	return d.relaySend(ctx, ix.PeerAID, seal.TypeMessage, interactionID, payload)
+	return stateSeq, d.relaySend(ctx, ix.PeerAID, seal.TypeMessage, interactionID, payload)
 }
 
 // stateOnMessage is the state a message moves its task to (§4.1), or "" for
@@ -882,8 +899,10 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 		if publicCap {
 			return nil
 		}
-		// Record the goal as the first conversation message.
-		s, err := tx.AddMessage(m.ix, m.from, interactions.MsgText, goal)
+		// Record the goal as the first conversation message, with the
+		// requester's message metadata (A2A Message.metadata).
+		s, _, err := tx.AddMessageRecord(interactions.MessageRecord{InteractionID: m.ix, SenderAID: m.from,
+			Kind: interactions.MsgText, Body: goal, Metadata: peerMessageMeta(m.dr.Metadata)})
 		seq = s
 		return err
 	})
