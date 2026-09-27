@@ -5,6 +5,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -74,15 +75,41 @@ func TestTheTaskSeamPaysThroughTheSameTaskFlow(t *testing.T) {
 			t.Fatalf("%s: %+v", reason, task.Status)
 		}
 	}
-	// Above agent_max (0 by default) the agent tier is refused; the task
-	// still waits for an operator.
-	_, err = seam.Send(ctx, prov.AID(), module.TaskSend{ReturnImmediately: true, Message: payMsg(id, map[string]any{
-		x402a2a.KeyStatus: x402a2a.StatusSubmitted})})
-	if !errors.Is(err, a2ashape.ErrUnsupportedOperation) {
-		t.Fatalf("over the agent tier: %v", err)
+	// Above agent_max (0 by default), and to a payee not on the list, the
+	// agent tier is not an error (§8.3): the answer is the task, still
+	// input-required, with anet.reason needs_operator_approval and a status
+	// message that names `anet pay <task>`; the quote stays in it. Through
+	// Send (the payment message) and through Pay alike.
+	held := func(what string, task a2ashape.Task, err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		m := task.Status.Message
+		if task.Status.State != a2ashape.TaskStateInputRequired || !a2ashape.IsPaymentHold(task) || m == nil ||
+			m.Metadata[a2ashape.KeyReason] != x402a2a.ReasonNeedsOperatorApproval ||
+			task.Metadata[a2ashape.KeyReason] != x402a2a.ReasonNeedsOperatorApproval ||
+			m.Metadata[a2ashape.KeyX402Status] != a2ashape.PaymentRequired || m.Metadata[a2ashape.KeyX402Required] == nil {
+			t.Fatalf("%s: %+v", what, task.Status)
+		}
+		if len(m.Parts) == 0 || !strings.Contains(m.Parts[0].Text, "anet pay "+id) {
+			t.Fatalf("%s: the status message does not say how the operator pays: %+v", what, m.Parts)
+		}
 	}
+	task, err = seam.Send(ctx, prov.AID(), module.TaskSend{ReturnImmediately: true, Message: payMsg(id, map[string]any{
+		x402a2a.KeyStatus: x402a2a.StatusSubmitted})})
+	held("over agent_max, payment message", task, err)
+	task, err = seam.Pay(ctx, prov.AID(), id, module.PayDecision{Decision: module.PaySubmit})
+	held("over agent_max, Pay", task, err)
+	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10})
+	task, err = seam.Send(ctx, prov.AID(), module.TaskSend{Message: payMsg(id, map[string]any{
+		x402a2a.KeyStatus: x402a2a.StatusSubmitted})})
+	held("a payee not on the list", task, err)
 	if n := chainEvents(t, req, EvPaymentAuthorized); n != 0 {
-		t.Fatalf("%d authorizations signed by refused decisions", n)
+		t.Fatalf("%d authorizations signed by held decisions", n)
+	}
+	if rix := getIX(t, req, id); rix.State != interactions.StateInputRequired || rix.PayState != interactions.PayRequired {
+		t.Fatalf("after held decisions: %s / %s", rix.State, rix.PayState)
 	}
 
 	// Within the agent tier the message pays, as task-agent. Sent twice

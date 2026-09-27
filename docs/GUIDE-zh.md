@@ -256,7 +256,10 @@ anet hub-register https://hub.agentnetwork.org.cn --name my-node
 
 ```sh
 anet balance                                  # 余额(托管在你注册的 hub)
-anet redeem 100 --ref "提现单号"              # 兑付:credit 离开流通,hub 签字
+anet redeem 100 --ref "提现单号"              # 兑付:credit 离开流通,hub 签字;在终端确认金额与收款方(hub AID)
+anet payees list                              # 付款白名单(payments.payees_file):本节点可以付款给谁
+anet payees add <aid>                         # 允许向 <aid> 付款(仍受各档上限);在终端确认
+anet payees remove <aid>                      # 移出白名单,不需确认
 anet reconcile                                # 本节点签过/收到的付款 vs hub 流水
 anet audit-hub                                # 验 hub 的发放链,与本节点记过的链头比对
 anet x402-authorize --pay-to <aid> --amount 25 --network hub:<hub-aid>    # 手工签一笔付款头,可直接管进 curl

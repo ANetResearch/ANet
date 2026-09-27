@@ -902,3 +902,129 @@ func TestStreamOfARefusedPayment(t *testing.T) {
 		})
 	}
 }
+
+// §8.7: a quote above the automatic tier waits with anet.reason
+// needs_operator_approval; a client that did not activate a2a-x402 is told
+// payment_extension_not_activated instead, on every operation, because it
+// cannot answer the quote itself. The request decides, not the task.
+func TestPaymentReasonDependsOnTheExtension(t *testing.T) {
+	e := newEnv(t)
+	e.seam.quote = map[string]any{"x402Version": 2, "accepts": []any{map[string]any{"amount": "5"}}}
+	hdr := func(activate bool) map[string]string {
+		h := map[string]string{"Authorization": "Bearer " + testToken, "Content-Type": "application/json"}
+		if activate {
+			h["A2A-Extensions"] = a2ashape.X402ExtensionURI
+		}
+		return h
+	}
+	type rpcTask struct {
+		Result struct {
+			Task struct {
+				ID       string         `json:"id"`
+				Metadata map[string]any `json:"metadata"`
+			} `json:"task"`
+			ID       string         `json:"id"`
+			Metadata map[string]any `json:"metadata"`
+		} `json:"result"`
+	}
+	call := func(activate bool, body string) (string, any) {
+		t.Helper()
+		resp, raw := e.raw("POST", agentsPath+"/"+agentA+"/jsonrpc", hdr(activate), body)
+		var out rpcTask
+		if resp.StatusCode != 200 || json.Unmarshal(raw, &out) != nil {
+			t.Fatalf("%d %s", resp.StatusCode, raw)
+		}
+		if out.Result.Task.ID != "" { // SendMessage wraps the task
+			return out.Result.Task.ID, out.Result.Task.Metadata[a2ashape.KeyReason]
+		}
+		return out.Result.ID, out.Result.Metadata[a2ashape.KeyReason]
+	}
+	send := `{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"m%d","role":"ROLE_USER","parts":[{"text":"paid work"}]}}}`
+	id, reason := call(false, fmt.Sprintf(send, 1))
+	if reason != x402a2a.ReasonExtensionNotActivated {
+		t.Fatalf("send without the extension: reason %v", reason)
+	}
+	if _, reason = call(true, fmt.Sprintf(send, 2)); reason != x402a2a.ReasonNeedsOperatorApproval {
+		t.Fatalf("send with the extension: reason %v", reason)
+	}
+	get := `{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"` + id + `"}}`
+	if _, reason = call(false, get); reason != x402a2a.ReasonExtensionNotActivated {
+		t.Fatalf("get without the extension: reason %v", reason)
+	}
+	if _, reason = call(true, get); reason != x402a2a.ReasonNeedsOperatorApproval {
+		t.Fatalf("get with the extension: reason %v", reason)
+	}
+	// The kernel's task is not changed by what one client was told.
+	if tk, _ := e.seam.Get(context.Background(), agentA, id, nil); tk.Metadata[a2ashape.KeyReason] != x402a2a.ReasonNeedsOperatorApproval {
+		t.Fatalf("the kernel's task now says %v", tk.Metadata[a2ashape.KeyReason])
+	}
+	// A task that waits for nothing is left alone.
+	e.seam.quote = nil
+	if _, reason = call(false, fmt.Sprintf(send, 3)); reason != nil {
+		t.Fatalf("an unpriced task: reason %v", reason)
+	}
+}
+
+// A payment above the agent tier (§8.3) is answered with the task, still
+// waiting for the operator — not an error — and a stream of it ends at once:
+// nothing was sent, and nothing follows until the operator acts. The
+// answer keeps needs_operator_approval whether or not the client activated
+// the extension: it did answer the quote.
+func TestAHeldPaymentIsTheTask(t *testing.T) {
+	option := map[string]any{"scheme": "credit", "network": "hub:x", "amount": "5", "payTo": agentA}
+	for _, binding := range bindings {
+		t.Run(string(binding), func(t *testing.T) {
+			e := newEnv(t)
+			e.seam.quote = map[string]any{"x402Version": 2, "accepts": []any{option}}
+			e.seam.hold = true
+			cl, ctx := e.client(agentA, binding)
+			res, err := cl.SendMessage(ctx, &a2a.SendMessageRequest{Message: textMessage("paid work")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			task := res.(*a2a.Task)
+			pay := func() *a2a.Message {
+				m := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart("paying"))
+				m.TaskID, m.ContextID = task.ID, task.ContextID
+				m.Metadata = map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentSubmitted}
+				return m
+			}
+			checkHeld := func(what string, tk *a2a.Task) {
+				t.Helper()
+				m := tk.Status.Message
+				if tk.Status.State != a2a.TaskStateInputRequired || m == nil ||
+					m.Metadata[a2ashape.KeyReason] != x402a2a.ReasonNeedsOperatorApproval ||
+					tk.Metadata[a2ashape.KeyReason] != x402a2a.ReasonNeedsOperatorApproval ||
+					len(m.Parts) == 0 || !strings.Contains(m.Parts[0].Text(), "anet pay "+string(task.ID)) {
+					t.Fatalf("%s: %+v", what, tk.Status)
+				}
+			}
+			res, err = cl.SendMessage(ctx, &a2a.SendMessageRequest{Message: pay()})
+			if err != nil {
+				t.Fatalf("a held payment is not an error: %v", err)
+			}
+			checkHeld("send", res.(*a2a.Task))
+
+			sctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			var got []*a2a.Task
+			for ev, err := range cl.SendStreamingMessage(sctx, &a2a.SendMessageRequest{Message: pay()}) {
+				if err != nil {
+					t.Fatalf("stream: %v (after %d events)", err, len(got))
+				}
+				tk, ok := ev.(*a2a.Task)
+				if !ok {
+					t.Fatalf("a held payment streamed %T", ev)
+				}
+				got = append(got, tk)
+			}
+			if len(got) != 1 {
+				t.Fatalf("stream of a held payment: %d events", len(got))
+			}
+			checkHeld("stream", got[0])
+			if len(e.seam.pays) != 0 {
+				t.Fatal("a held payment reached a decision")
+			}
+		})
+	}
+}

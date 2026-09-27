@@ -37,8 +37,8 @@ func withTTY(t *testing.T, answer string) *fakeTTY {
 }
 
 // recordingDaemon is a control plane that records the paths it was asked.
-// It holds one delegation, ix_1, for approval, and one quote on a task this
-// node delegated (/thread).
+// It holds one delegation, ix_1, for approval, one quote on a task this
+// node delegated (/thread), and a hub it settles on (/payments/status).
 func recordingDaemon(t *testing.T) (*client, func() []string) {
 	t.Helper()
 	var mu sync.Mutex
@@ -49,7 +49,8 @@ func recordingDaemon(t *testing.T) (*client, func() []string) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","pending":[{"interaction_id":"ix_1","requester":"bafyreipeer000000000","bytes":12}],` +
-			`"auto_max":0,"agent_max":0,` +
+			`"auto_max":0,"agent_max":0,"agent_daily_max":0,"explicit_max":10,"daily_max":50,"spent_24h":3,` +
+			`"hub":"https://hub.example","hub_aid":"bafyreihub00000000000",` +
 			`"thread":{"role":"outbound","messages":[{"metadata":{"x402.payment.required":{"x402Version":2,"accepts":[` +
 			`{"scheme":"anet-credit","network":"hub:bafyreihub","amount":"5","asset":"credit","payTo":"bafyreipeer000000000"}]}}}]}}`))
 	}))
@@ -76,12 +77,15 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 		{"payments", "set", "auto_max=5"},
 		{"payments", "set", "daily_max=0"},
 		{"pay", "ix_2"},
+		{"payees", "add", "bafyreipeer000000000"},
+		{"redeem", "5"},
+		{"redeem", "5", "--ref", "invoice 7"},
 	}
 	// What a prompt may read before asking.
 	readOnly := map[string]bool{"/inbound/pending": true, "/find": true, "/payments/status": true, "/thread": true}
 	// The request a confirmed command ends with.
 	final := map[string]string{"peers": "/peers/", "inbound": "/inbound/", "payments": "/payments/limits",
-		"pay": "/tasks/pay-manual"}
+		"pay": "/tasks/pay-manual", "payees": "/payees/add", "redeem": "/redeem"}
 	for _, args := range grants {
 		c, sent := recordingDaemon(t)
 		withTTY(t, "")
@@ -107,7 +111,8 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 		if err := runClientArgs(c, args); err != nil {
 			t.Errorf("%v confirmed: %v", args, err)
 		}
-		if got := sent(); len(got) < 2 && (args[0] == "payments" || args[0] == "pay") || len(got) == 0 ||
+		if got := sent(); len(got) < 2 && (args[0] == "payments" || args[0] == "pay" || args[0] == "payees" ||
+			args[0] == "redeem") || len(got) == 0 ||
 			!strings.HasPrefix(got[len(got)-1], final[args[0]]) {
 			t.Errorf("%v confirmed: daemon asked %v", args, got)
 		}
@@ -119,6 +124,7 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 		{"peers", "list"}, {"peers", "deny", "bafyreipeer000000000"}, {"peers", "remove", "bafyreipeer000000000"},
 		{"inbound", "pending"}, {"inbound", "list"}, {"inbound", "reject", "ix_1"}, {"inbound", "policy", "closed"},
 		{"inbound", "policy"}, {"payments"}, {"payments", "show"}, {"pay", "ix_2", "--reject"},
+		{"payees"}, {"payees", "list"}, {"payees", "remove", "bafyreipeer000000000"},
 	} {
 		c, sent := recordingDaemon(t)
 		withTTY(t, "")
@@ -164,6 +170,10 @@ func runClientArgs(c *client, args []string) error {
 		return runPayments(c, args[1:])
 	case "pay":
 		return runPay(c, args[1:])
+	case "payees":
+		return runPayees(c, args[1:])
+	case "redeem":
+		return runRedeem(c, args[1:])
 	}
 	panic("runClientArgs: " + args[0])
 }
@@ -208,6 +218,58 @@ func TestConfirmationsDescribeWhatTheyGrant(t *testing.T) {
 	}
 	if p := tty.prompt.String(); !strings.Contains(p, "ix_2") || !strings.Contains(p, "5 credit to bafyreipeer000000000") {
 		t.Errorf("pay prompt: %q", p)
+	}
+	// anet redeem names the amount, the payee (the hub's AID) and the
+	// limits it falls under.
+	c, _ = recordingDaemon(t)
+	tty = withTTY(t, "yes")
+	if err := runClientArgs(c, []string{"redeem", "7", "--ref", "invoice 7"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Redeem 7 credits", "bafyreihub00000000000", "https://hub.example", "invoice 7",
+		"explicit_max 10", "daily_max 50", "3 signed"} {
+		if !strings.Contains(tty.prompt.String(), want) {
+			t.Errorf("redeem prompt lacks %q: %q", want, tty.prompt.String())
+		}
+	}
+	// anet payees add names the payee and what it may then be paid.
+	c, _ = recordingDaemon(t)
+	tty = withTTY(t, "yes")
+	if err := runClientArgs(c, []string{"payees", "add", "bafyreipeer000000000"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := tty.prompt.String(); !strings.Contains(p, "pay bafyreipeer000000000") || !strings.Contains(p, "agent_max") ||
+		!strings.Contains(p, "up to 10 each") {
+		t.Errorf("payees add prompt: %q", p)
+	}
+}
+
+// A redemption with no hub to name, or a hub whose identity is not known,
+// ends before the question: there is no payee to show and nothing the
+// daemon could sign to.
+func TestRedeemWithoutAKnownHubDoesNotAsk(t *testing.T) {
+	for name, body := range map[string]string{
+		"no hub":           `{"hub":"","hub_aid":"","explicit_max":10,"daily_max":50}`,
+		"hub not answered": `{"hub":"https://hub.example","hub_aid":"","hub_error":"timeout","explicit_max":10,"daily_max":50}`,
+	} {
+		var paths []string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			paths = append(paths, r.URL.Path)
+			_, _ = w.Write([]byte(body))
+		}))
+		c := &client{base: srv.URL, token: "t", timeout: 5 * time.Second}
+		tty := withTTY(t, "yes")
+		err := runClientArgs(c, []string{"redeem", "5"})
+		srv.Close()
+		if err == nil || !strings.Contains(err.Error(), "nothing was signed") {
+			t.Errorf("%s: %v", name, err)
+		}
+		if strings.Join(paths, ",") != "/payments/status" || tty.prompt.Len() != 0 {
+			t.Errorf("%s: daemon asked %v, prompt %q", name, paths, tty.prompt.String())
+		}
+	}
+	if err := runClientArgs(&client{base: "http://127.0.0.1:1"}, []string{"redeem", "0"}); err == nil {
+		t.Error("redeem 0 was accepted")
 	}
 }
 

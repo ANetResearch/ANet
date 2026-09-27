@@ -35,11 +35,25 @@ func TestTheWireStringsArePinned(t *testing.T) {
 		CodeInsufficientFunds: "INSUFFICIENT_FUNDS", CodeInvalidSignature: "INVALID_SIGNATURE",
 		CodeExpiredPayment: "EXPIRED_PAYMENT", CodeDuplicateNonce: "DUPLICATE_NONCE",
 		CodeNetworkMismatch: "NETWORK_MISMATCH", CodeInvalidAmount: "INVALID_AMOUNT",
-		CodeSettlementFailed: "SETTLEMENT_FAILED",
-		KeyAccept:            "anet.payment.accept",
+		CodeSettlementFailed:        "SETTLEMENT_FAILED",
+		KeyAccept:                   "anet.payment.accept",
+		ReasonNeedsOperatorApproval: "needs_operator_approval",
+		ReasonExtensionNotActivated: "payment_extension_not_activated",
 	} {
 		if got != want {
 			t.Errorf("%q, want %q", got, want)
+		}
+	}
+}
+
+// Activation is by the exact URI; an unknown or near miss is not.
+func TestActivated(t *testing.T) {
+	if !Activated([]string{"https://example/other", ExtensionURI}) {
+		t.Error("the a2a-x402 URI among others does not activate")
+	}
+	for _, uris := range [][]string{nil, {ExtensionURI + "/"}, {"https://example/other"}} {
+		if Activated(uris) {
+			t.Errorf("%q activates", uris)
 		}
 	}
 }

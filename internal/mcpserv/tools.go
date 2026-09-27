@@ -292,9 +292,11 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"x402.payment.required), so that it does the work. This spends this node's credit, and " +
 			"cannot be undone once the provider settles. It is the agent spending tier: each payment " +
 			"is capped by the operator's payments.agent_max and each day by payments.agent_daily_max " +
-			"(both 0 on a new node), and the payee must be in the operator's payees.allow. If it is " +
-			"refused, tell the user the price and the payee and let them decide — the operator can " +
-			"pay by hand with `anet pay <task_id>`; never try to raise a limit or get around one. " +
+			"(both 0 on a new node), and the payee must be in the operator's payees.allow. Above " +
+			"those, nothing is signed: the answer says anet.reason needs_operator_approval (with the " +
+			"limit in spend_refusal and a message) and the task keeps waiting. Then tell the user the " +
+			"price and the payee and let them decide — the operator can pay by hand with " +
+			"`anet pay <task_id>`; never try to raise a limit or get around one. " +
 			"When the quote offers several options, pass the one you chose as `accept`, copied " +
 			"unchanged from x402.payment.required.accepts. Check get_balance first. The answer is " +
 			"the decision, not the task: x402.payment.status payment-submitted means the payment " +
