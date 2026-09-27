@@ -11,8 +11,9 @@
 #
 # 前置(容器侧,见 §0 的注释):
 #   docker run -d --name anet-debian-test --dns 114.114.114.114 debian:12 sleep infinity
-#   apt-get update && apt-get install -y curl ca-certificates
-#   curl -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --shell --system \
+#   apt-get update && apt-get install -y curl ca-certificates openssh-client
+#   (install.sh 用 ssh-keygen 验发布签名,白板 debian:12 没有它)
+#   curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- --shell --system \
 #     --hub https://hub.agentnetwork.org.cn --name dmax-debian-box
 #   然后写 /root/.anet/config.json 的 modules.shell 与 /etc/anet/shell-allow
 #

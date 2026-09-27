@@ -22,13 +22,14 @@ const Identity = "anet-release@agentnetwork.org.cn"
 
 // allowedSigners is the release public key in the allowed_signers format
 // `ssh-keygen -Y verify -f` reads. The same line is embedded in
-// deploy/release/install.sh and printed in SECURITY.md and README.md;
-// keys_test.go fails when any of them drifts from this file.
+// deploy/release/install.sh and printed in SECURITY.md, README.md and
+// docs/GUIDE-zh.md; keys_test.go fails when any of them drifts from this
+// file.
 //
 // DEV KEY — 正式发布前由产品负责人替换. The private half lives outside
 // every repository (ink93:/data/projs/anet-dev/.release-dev-key). Replacing
 // it means replacing this file, NextKeyFingerprint, the line in
-// install.sh and the two documents, in one commit.
+// install.sh, SECURITY.md, README.md and docs/GUIDE-zh.md, in one commit.
 //
 //go:embed allowed_signers
 var allowedSigners string

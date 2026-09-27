@@ -568,8 +568,8 @@
 
       <div class="gstep">
         <div class="shead"><span class="num">1</span><span class="stitle">安装 / 更新 anet</span></div>
-        <p class="sdesc">一行脚本装好命令行（Linux / macOS）。<b>已经装过也请再跑一次——它会原地更新到最新</b>（否则控制台可能是旧版）。你的<b>身份（AID）</b>由本地 anet 生成，无需账号或密码。</p>
-        <div class="promptbox"><button class="copybtn" id="copyInstall">复制</button><pre id="installCmd">curl -fsSL https://agentnetwork.org.cn/install.sh | sh</pre></div>
+        <p class="sdesc">一行脚本装好命令行（Linux / macOS），安装前先验发布签名。<b>已经装过的机器改用 <code>anet update</code></b>：它用编进二进制的发布公钥验签后原地更新到最新（否则控制台可能是旧版）。你的<b>身份（AID）</b>由本地 anet 生成，无需账号或密码。</p>
+        <div class="promptbox"><button class="copybtn" id="copyInstall">复制</button><pre id="installCmd">curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh</pre></div>
       </div>
 
       <div class="gstep">

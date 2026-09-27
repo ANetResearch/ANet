@@ -111,10 +111,12 @@ say()  { printf '%s\n' "$*"; }
 warn() { printf 'Warning: %s\n' "$*" >&2; }
 die()  { printf 'Error: %s\n' "$*" >&2; printf 'Nothing was installed or changed.\n' >&2; exit 1; }
 
-# fetch URL OUT — https only, and never follow a redirect off https.
+# fetch URL OUT [MAXBYTES] — https only, and never follow a redirect off
+# https. MAXBYTES bounds what is read before anything has been verified:
+# the manifest and its signature are small, and anything bigger is not them.
 fetch() {
   curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL --connect-timeout 15 \
-    -H 'Cache-Control: no-cache' -o "$2" "$1"
+    ${3:+--max-filesize "$3"} -H 'Cache-Control: no-cache' -o "$2" "$1"
 }
 
 sha256() {
@@ -266,8 +268,8 @@ fetch_manifest() {
   for b in $BASES; do
     b="${b%/}"
     say "→ release manifest: ${b}/dl/release.json"
-    if fetch "$b/dl/release.json" "$TMP/release.json" 2>"$TMP/curl.err" \
-       && fetch "$b/dl/release.json.sig" "$TMP/release.json.sig" 2>"$TMP/curl.err" \
+    if fetch "$b/dl/release.json" "$TMP/release.json" 1048576 2>"$TMP/curl.err" \
+       && fetch "$b/dl/release.json.sig" "$TMP/release.json.sig" 16384 2>"$TMP/curl.err" \
        && head -c 1 "$TMP/release.json" | grep -q '{' \
        && head -1 "$TMP/release.json.sig" | grep -q '^-----BEGIN SSH SIGNATURE-----$'; then
       BASE="$b"; break
@@ -298,7 +300,8 @@ read_manifest() {
   NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   awk -v now="$NOW" -v until="$EXPIRES" 'BEGIN { exit !(now < until) }' \
     || die "the release manifest expired at $EXPIRES (it is now $NOW here).
-  If this machine's clock is right, the download host is serving a stale release."
+  If this machine's clock is right, $BASE is serving a stale release;
+  --base URL tries another download host (every host is checked the same way)."
 
   VLINE="$(mf_block_line variants "$VARIANT")" || die "release.json has no '$VARIANT' variant"
   MODS="$(printf '%s' "$VLINE" | sed -n 's/.*"modules": \[\([^]]*\)\].*/\1/p' | tr -d '" ')"
@@ -306,6 +309,8 @@ read_manifest() {
   [ "$(field "$ALINE" variant)" = "$VARIANT" ] || die "release.json: $ASSET is not the $VARIANT variant"
   GZ_SHA="$(field "$ALINE" gz_sha256)"
   RAW_SHA="$(field "$ALINE" sha256)"
+  GZ_SIZE="$(printf '%s' "$ALINE" | sed -n 's/.*"gz_size": \([0-9]*\).*/\1/p')"
+  printf '%s' "$GZ_SIZE" | grep -Eq '^[1-9][0-9]*$' || die "release.json: bad gz_size for $ASSET"
   printf '%s' "$GZ_SHA" | grep -Eq '^[0-9a-f]{64}$' || die "release.json: bad gz_sha256 for $ASSET"
   printf '%s' "$RAW_SHA" | grep -Eq '^[0-9a-f]{64}$' || die "release.json: bad sha256 for $ASSET"
   say "  release $VERSION  commit $(printf '%s' "$COMMIT" | cut -c1-12)  valid until $EXPIRES"
@@ -325,7 +330,8 @@ check_downgrade() {
   fi
   case "$(vercmp "$VERSION" "$INSTALLED")" in
     -1) die "$DEST is anet $INSTALLED, newer than the release on offer ($VERSION).
-  Refusing to downgrade. If you meant to, remove $DEST first." ;;
+  Refusing to downgrade. If $BASE is a stale mirror, --base URL tries another
+  download host; if you meant to downgrade, remove $DEST first." ;;
     0)  say "  $DEST is already $INSTALLED; reinstalling the same version" ;;
     *)  say "  upgrading $DEST: $INSTALLED → $VERSION" ;;
   esac
@@ -337,7 +343,7 @@ fetch_asset() {
   else
     say "→ ${ASSET}.gz"
   fi
-  fetch "$BASE/dl/${ASSET}.gz" "$TMP/${ASSET}.gz" || die "could not download $BASE/dl/${ASSET}.gz"
+  fetch "$BASE/dl/${ASSET}.gz" "$TMP/${ASSET}.gz" "$GZ_SIZE" || die "could not download $BASE/dl/${ASSET}.gz"
   # The compressed file first: nothing unverified reaches gunzip.
   got="$(sha256 "$TMP/${ASSET}.gz")"
   [ "$got" = "$GZ_SHA" ] || die "sha256 mismatch for ${ASSET}.gz
@@ -352,10 +358,11 @@ fetch_asset() {
   say "  sha256 ok (.gz and binary)"
 }
 
-# check_binary: ask the new binary what it is. The module line comes from
-# its own registry, so it is the binary's account of what the linker kept.
+# check_binary PATH: ask the new binary what it is. The module line comes
+# from its own registry, so it is the binary's account of what the linker
+# kept.
 check_binary() {
-  out="$("$TMP/$ASSET" version 2>&1)" || die "the downloaded binary does not run on this machine: $out"
+  out="$("$1" version 2>&1)" || die "the downloaded binary does not run on this machine: $out"
   got_ver="$(printf '%s\n' "$out" | sed -n '1s/^anet \([^ ]*\) .*/\1/p')"
   got_mods="$(printf '%s\n' "$out" | sed -n 's/^modules: //p')"
   [ "$got_mods" = "(none)" ] && got_mods=""
@@ -367,23 +374,30 @@ check_binary() {
   say "  modules ok: ${got_mods:-(none)}"
 }
 
-# install_binary: copy beside the destination, then rename over it, so the
-# old binary is either untouched or replaced whole.
+# install_binary: stage the checked download beside the destination, ask
+# the staged copy what it is (check_binary), then rename it over the old
+# one — so the old binary is either untouched or replaced whole. The
+# self-check runs on the staged copy, not in $TMP: /tmp is mounted noexec on
+# many hardened hosts, and the install directory is one binaries run from by
+# definition. A failure removes the staged copy (see cleanup).
 install_binary() {
-  install_to() { # $1: optional command prefix (sudo)
-    $1 mkdir -p "$PREFIX" &&
-    $1 cp "$TMP/$ASSET" "${DEST}.new" &&
-    $1 chmod 755 "${DEST}.new" &&
-    $1 mv -f "${DEST}.new" "$DEST"
-  }
+  SUDO=""
   if mkdir -p "$PREFIX" 2>/dev/null && [ -w "$PREFIX" ]; then
-    install_to "" || die "could not write $DEST"
+    :
   elif [ "$USER_MODE" = 0 ]; then
     say "→ ${PREFIX} needs elevated permission; using sudo…"
-    install_to "sudo" || die "could not write $DEST"
+    SUDO="sudo"
+    $SUDO mkdir -p "$PREFIX" || die "could not create $PREFIX"
   else
     die "cannot write to ${PREFIX}"
   fi
+  # rm first: cp onto an existing path writes through a symlink planted there.
+  STAGED="${DEST}.new"
+  { $SUDO rm -f "$STAGED" && $SUDO cp "$TMP/$ASSET" "$STAGED" && $SUDO chmod 755 "$STAGED"; } \
+    || die "could not write $STAGED"
+  check_binary "$STAGED"
+  $SUDO mv -f "$STAGED" "$DEST" || die "could not write $DEST"
+  STAGED=""
   # macOS: clear quarantine + ad-hoc sign so the first exec doesn't stall on Gatekeeper.
   if [ "$OS_TAG" = darwin ]; then
     xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
@@ -490,16 +504,24 @@ Out of the box this node accepts no delegations and runs nothing for anyone;
 EOF
 }
 
+# cleanup: on any exit, the download dir, and a staged binary that was
+# never renamed into place.
+cleanup() {
+  if [ -n "${STAGED:-}" ]; then ${SUDO:-} rm -f "$STAGED" 2>/dev/null || true; fi
+  rm -rf "$TMP"
+}
+
 main() {
   set -eu
   IDENTITY="anet-release@agentnetwork.org.cn"
   NAMESPACE="anet-release@agentnetwork.org.cn"
+  STAGED=""; SUDO=""
   parse_args "$@"
   detect_platform
   check_tools
 
   TMP="$(mktemp -d)"
-  trap 'rm -rf "$TMP"' EXIT
+  trap cleanup EXIT
   trap 'exit 130' INT TERM HUP
   release_allowed_signers > "$TMP/allowed_signers"
 
@@ -508,8 +530,9 @@ main() {
   read_manifest
   check_downgrade
   fetch_asset
-  check_binary
-  # Every check has passed; only now is anything outside $TMP written.
+  # Signature, expiry, downgrade and both sha256 have passed; only now is
+  # anything outside $TMP written, and the last check (what the binary says
+  # it is) runs on the staged copy before it replaces anything.
   install_binary
   run_init
   join_hub

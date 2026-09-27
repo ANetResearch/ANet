@@ -58,7 +58,7 @@ ollama pull qwen3-vl:4b        # 约 3.3 GB 的轻量视觉模型
 1. **装 anet 并创建身份**（daemon 会常驻后台）：
 
 ```bash
-curl -fsSL https://agentnetwork.org.cn/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh
 anet id new vision             # 「vision」是本机管理这个身份用的代号
 ```
 

@@ -311,13 +311,28 @@ func (u *Updater) get(ctx context.Context, rawURL string, limit int64) ([]byte, 
 }
 
 // normalizeBase accepts an https URL with no query or fragment and
-// returns it without a trailing slash.
+// returns it without a trailing slash. Credentials in the URL are refused
+// rather than carried: the base is printed (`anet update` shows where the
+// manifest came from) and repeated in every error, and nothing here is
+// secret — the release is public and its trust is the signature.
 func normalizeBase(b string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(b))
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("download base %q: must be an https:// URL", b)
+		return "", fmt.Errorf("download base %q: must be an https:// URL", redactBase(b))
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("download base %s: credentials in the URL are not accepted", u.Redacted())
 	}
 	return strings.TrimRight(u.String(), "/"), nil
+}
+
+// redactBase is b with any password masked, for an error about a string
+// that did not parse as the URL it was meant to be.
+func redactBase(b string) string {
+	if u, err := url.Parse(strings.TrimSpace(b)); err == nil {
+		return u.Redacted()
+	}
+	return "(unparseable URL)"
 }
 
 func sha256hex(b []byte) string {

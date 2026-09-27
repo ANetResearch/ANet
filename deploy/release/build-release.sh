@@ -166,17 +166,30 @@ if [ "$MODE" = resign ]; then
   [ -f "$MF" ] || die "no $MF to re-sign; build a release first"
   # Every asset the manifest names must still be the file in dist/: a
   # re-sign vouches for these bytes again, so it looks at them again.
-  grep '^    "anet[a-z0-9-]*": {"variant"' "$MF" | while IFS= read -r line; do
+  ASSET_LINES="$(grep '^    "anet[a-z0-9-]*": {"variant"' "$MF" || true)"
+  [ -n "$ASSET_LINES" ] || die "$MF names no assets in the layout this script writes; rebuild instead of re-signing"
+  while IFS= read -r line; do
     name="$(printf '%s' "$line" | sed -n 's/^    "\([a-z0-9-]*\)": .*/\1/p')"
     want="$(printf '%s' "$line" | sed -n 's/.*"gz_sha256": "\([0-9a-f]*\)".*/\1/p')"
     [ -f "$DIST/$name.gz" ] || die "$name.gz is named in the manifest but missing from dist/"
     [ "$(sha256_of "$DIST/$name.gz")" = "$want" ] || die "$name.gz no longer matches the manifest"
-  done
-  sed -e "s/^  \"released_at\": \"[^\"]*\",\$/  \"released_at\": \"$RELEASED\",/" \
-      -e "s/^  \"expires_at\": \"[^\"]*\",\$/  \"expires_at\": \"$EXPIRES\",/" \
+  done <<EOF_ASSETS
+$ASSET_LINES
+EOF_ASSETS
+  # key_fingerprint names the key that signs, and a reader refuses a
+  # manifest whose key_fingerprint is not the signer's: after a key
+  # rotation, re-signing with the new key must say so. The next-key
+  # commitment is the one this checkout makes. `|` as the sed delimiter
+  # because fingerprints are base64 and contain `/`.
+  sed -e "s|^  \"released_at\": \"[^\"]*\",\$|  \"released_at\": \"$RELEASED\",|" \
+      -e "s|^  \"expires_at\": \"[^\"]*\",\$|  \"expires_at\": \"$EXPIRES\",|" \
+      -e "s|^  \"key_fingerprint\": \"[^\"]*\",\$|  \"key_fingerprint\": \"$KEY_FP\",|" \
+      -e "s|^  \"next_key_fingerprint\": \"[^\"]*\",\$|  \"next_key_fingerprint\": \"$NEXT_FP\",|" \
       "$MF" > "$MF.new"
-  grep -q "\"released_at\": \"$RELEASED\"" "$MF.new" && grep -q "\"expires_at\": \"$EXPIRES\"" "$MF.new" \
-    || die "could not rewrite the dates in $MF"
+  for want in "\"released_at\": \"$RELEASED\"" "\"expires_at\": \"$EXPIRES\"" \
+              "\"key_fingerprint\": \"$KEY_FP\"" "\"next_key_fingerprint\": \"$NEXT_FP\""; do
+    grep -qF "$want" "$MF.new" || { rm -f "$MF.new"; die "could not rewrite $want into $MF"; }
+  done
   mv "$MF.new" "$MF"
   sign "$MF"
   ok "re-signed: released $RELEASED, valid until $EXPIRES"
@@ -261,12 +274,13 @@ cp "$REL_DIR/install.sh" "$DIST/install.sh"
 info "module sets"
 HOSTBIN="$(mktemp -d)"
 trap 'rm -rf "$HOSTBIN"' EXIT
-host_modules() { # <tags> → modules line of a host build
+host_modules() { # <tags> → modules line of a host build, kept at $HOSTBIN/anet-<variant>
+  local bin="$HOSTBIN/anet-${1:-default}"
   CGO_ENABLED=0 go build -C "$ROOT" -trimpath -tags "$1" \
     -ldflags "$LDFLAGS -X $VPKG.Commit=$COMMIT -X $VPKG.BuiltAt=$BUILT -X $VPKG.Tags=$1" \
-    -o "$HOSTBIN/anet" ./cmd/anet/ || die "host build failed (${1:-default})"
+    -o "$bin" ./cmd/anet/ || die "host build failed (${1:-default})"
   local out ver mods
-  out="$("$HOSTBIN/anet" version)" || die "host build does not run"
+  out="$("$bin" version)" || die "host build does not run"
   ver="$(printf '%s\n' "$out" | sed -n '1s/^anet \([^ ]*\) .*/\1/p')"
   [ "$ver" = "$VERSION" ] || die "host build reports version '$ver', expected $VERSION"
   mods="$(printf '%s\n' "$out" | sed -n 's/^modules: //p')"
@@ -285,11 +299,14 @@ ok "shell:   $MODS_SHELL"
 # every platform, not only the one this script runs on: `go tool nm` reads
 # ELF and Mach-O alike, and a check that skipped three of four targets left
 # three of four shipped defaults unexamined. Beyond shell/no-shell, every
-# platform's set of linked module packages must equal the first one's, so
-# the module line measured above holds for binaries this machine cannot run.
+# platform's set of linked module packages must equal that of the host build
+# whose `modules:` line went into the manifest above — not merely the first
+# target's, which need not be this machine's platform — so the module line
+# holds for binaries this machine cannot run.
 info "verify: symbols on every platform"
 pkgset() { go tool nm "$1" | grep -oE 'ANet/(module/[a-z0-9_]+|internal/mcpserv)\.' | sort -u | tr '\n' ' '; }
-REF_D=""; REF_S=""
+REF_D="$(pkgset "$HOSTBIN/anet-default")"; REF_S="$(pkgset "$HOSTBIN/anet-shell")"
+[ -n "$REF_D" ] && [ -n "$REF_S" ] || die "no module packages in the host builds: the comparison below would be vacuous"
 for plat in $TARGETS; do
   gunzip -kf "$DIST/anet-${plat}.gz" && gunzip -kf "$DIST/anet-shell-${plat}.gz"
   # A stripped binary answers 0 here for the wrong reason, so the absence of
@@ -301,9 +318,8 @@ for plat in $TARGETS; do
   rm -f "$DIST/anet-${plat}" "$DIST/anet-shell-${plat}"
   [ "$d" -eq 0 ] || die "the default $plat build contains module/shell ($d symbols)"
   [ "$s" -gt 0 ] || die "the shell $plat build does not contain module/shell"
-  [ -n "$REF_D" ] || { REF_D="$pd"; REF_S="$ps"; }
-  [ "$pd" = "$REF_D" ] || die "default $plat links different modules: [$pd] vs [$REF_D]"
-  [ "$ps" = "$REF_S" ] || die "shell $plat links different modules: [$ps] vs [$REF_S]"
+  [ "$pd" = "$REF_D" ] || die "default $plat links different modules from the host build: [$pd] vs [$REF_D]"
+  [ "$ps" = "$REF_S" ] || die "shell $plat links different modules from the host build: [$ps] vs [$REF_S]"
   ok "$plat: default=$d shell=$s module/shell symbols; module packages match"
 done
 

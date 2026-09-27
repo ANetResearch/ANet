@@ -26,8 +26,9 @@ a fix before public disclosure.
 > **DEV KEY — 正式发布前由产品负责人替换.** The key below is a development
 > key generated for the v0.2.0 release work. It will be replaced before the
 > first public release that carries signatures; when it is, this section,
-> the README, `deploy/release/install.sh` and `internal/release/` change in
-> the same commit, and a test fails if any of them disagrees.
+> the README, `docs/GUIDE-zh.md`, `deploy/release/install.sh` and
+> `internal/release/` change in the same commit, and a test fails if any of
+> them disagrees.
 
 Every release is described by `release.json` — version, full commit, commit
 time, signing time, expiry, the sha256 of each `.gz` and of the binary inside
