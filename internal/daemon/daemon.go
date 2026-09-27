@@ -178,6 +178,10 @@ type Daemon struct {
 	stopOnce sync.Once
 
 	closeOnce sync.Once
+
+	// started is when this process opened the store; an interaction
+	// created before it was left by an earlier process (wire_edges.go).
+	started time.Time
 }
 
 // New builds the daemon: load config + identity, open the interactions store, and (if a Hub is
@@ -199,7 +203,7 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, fmt.Errorf("anet: open interactions store: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel,
+	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(),
 		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
 		longCalls: make(chan struct{}, maxConcurrentLongCalls)}
 	d.loadOfficials()

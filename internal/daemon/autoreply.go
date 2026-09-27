@@ -304,18 +304,20 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	if d.backendAnswers(th) {
 		return nil
 	}
+	// The lists are read on every turn, whatever the backend: a peer put
+	// on the deny list stops reaching the model or the agent at the next
+	// turn, not at the next revocation sweep (A2A-DESIGN §5.1).
+	ps := d.readPeers()
+	if ps.denied(th.Peer) {
+		return nil
+	}
 	// The exec backend runs a local program. It runs as before only for a
 	// peer on the trust list; for any other peer it runs in the sandbox
 	// when auto_reply.untrusted=sandbox, and not at all otherwise
-	// (A2A-DESIGN §6). The lists are read on every turn, so a peer taken
-	// off the trust list, or put on the deny list, stops reaching the
+	// (A2A-DESIGN §6). A peer taken off the trust list stops reaching the
 	// agent at the next turn.
 	gate := execGate{}
 	if cfg.Backend == "exec" {
-		ps := d.readPeers()
-		if ps.denied(th.Peer) {
-			return nil
-		}
 		gate.exec, gate.trusted = true, ps.trusted(th.Peer)
 		if !gate.trusted && cfg.UntrustedMode() == UntrustedOff {
 			return nil // left in the inbox for the operator
@@ -393,6 +395,10 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	rc := replyContext{Role: th.Role, Goal: th.Goal, InteractionID: th.InteractionID, Outbox: outbox}
 	reply, err := d.invokeReplier(rctx, cfg, replier, gate, th, rc, turns)
 	cancel()
+	if d.readPeers().denied(th.Peer) {
+		// Denied while the backend worked: nothing more goes to the peer.
+		return nil
+	}
 	if errors.Is(err, errSandboxUnavailable) {
 		return d.sandboxRefusedTurn(ctx, th)
 	}

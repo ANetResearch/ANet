@@ -122,7 +122,12 @@ type fakeHub struct {
 	maxEnvelope int // 413 above this many envelope bytes
 	senderLimit int // 429 once a sender has sent this many envelopes
 	mailboxCap  int // 507 once a recipient holds this many undelivered envelopes
-	sendsBy     map[string]int
+	// relayDown makes /relay/send answer 503: the hub is up but not
+	// carrying mail, the temporary failure a sender retries.
+	relayDown bool
+	// retryAfter is the Retry-After the 429 answer carries ("" is "1").
+	retryAfter string
+	sendsBy    map[string]int
 	// sigSeen is the relayauth replay cache: (aid, signature) pairs seen
 	// inside the skew window.
 	sigSeen map[string]bool
@@ -864,8 +869,12 @@ func (h *fakeHub) hUploadReview(w http.ResponseWriter, r *http.Request) {
 // hRelaySend mirrors POST /relay/send at wire 2.
 func (h *fakeHub) hRelaySend(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
-	maxEnv := h.maxEnvelope
+	maxEnv, down := h.maxEnvelope, h.relayDown
 	h.mu.Unlock()
+	if down {
+		fakeHubJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "relay unavailable"})
+		return
+	}
 	if maxEnv == 0 {
 		maxEnv = fakeHubDefaultMaxEnvelope
 	}
@@ -910,7 +919,11 @@ func (h *fakeHub) hRelaySend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.senderLimit > 0 && h.sendsBy[sender] >= h.senderLimit {
-		w.Header().Set("Retry-After", "1")
+		ra := h.retryAfter
+		if ra == "" {
+			ra = "1"
+		}
+		w.Header().Set("Retry-After", ra)
 		fakeHubJSON(w, http.StatusTooManyRequests, map[string]string{"error": "sender over its budget"})
 		return
 	}
