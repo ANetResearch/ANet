@@ -203,7 +203,7 @@ func TestToolAnnotations(t *testing.T) {
 		"get_task":        {readOnly: true},
 		"list_tasks":      {readOnly: true},
 		"wait_task":       {readOnly: true},
-		"cancel_task":     {idempotent: true, openWorld: true},
+		"cancel_task":     {destructive: true, idempotent: true, openWorld: true}, // cannot be taken back
 		"reply_task":      {openWorld: true},
 		"submit_payment":  {destructive: true, openWorld: true},
 		"reject_payment":  {idempotent: true, openWorld: true},
