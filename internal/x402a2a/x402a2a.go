@@ -12,10 +12,33 @@ package x402a2a
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 )
 
-// ExtensionURI is the a2a-x402 extension this node implements (§8.1).
+// ExtensionURI is the a2a-x402 extension this node implements (§8.1). It
+// is the only one this node declares, on any card.
 const ExtensionURI = "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2"
+
+// ExtensionURIv01 is the URI the official a2a-x402 reference library
+// (python x402_a2a, types/config.py) activates. It is recognised when a
+// client activates it (0017 Q18), so a client built on that library is
+// treated as speaking x402; it is never declared.
+const ExtensionURIv01 = "https://github.com/google-a2a/a2a-x402/v0.1"
+
+// Activated reports whether a request's activated extensions (the
+// A2A-Extensions and X-A2A-Extensions values, split on commas) include
+// a2a-x402: ExtensionURI or ExtensionURIv01, compared exactly after
+// trimming spaces. Only for recognising activation; what this node
+// declares and echoes is ExtensionURI.
+func Activated(uris []string) bool {
+	for _, u := range uris {
+		switch strings.TrimSpace(u) {
+		case ExtensionURI, ExtensionURIv01:
+			return true
+		}
+	}
+	return false
+}
 
 // Metadata keys (a2a-x402 v0.2 §7).
 const (
@@ -80,6 +103,13 @@ const (
 	ReasonOptionNotOffered         = "option_not_offered"         // the chosen option is not a quoted one (§8.7)
 	ReasonProviderBusy             = "provider_busy"              // no long-call slot; nothing was settled
 	ReasonNeedsOperatorApproval    = "needs_operator_approval"    // the quote is above the automatic tier
+	// ReasonExtensionNotActivated: a local client that did not activate
+	// a2a-x402 is shown a quote above the automatic tier (§8.7).
+	ReasonExtensionNotActivated = "payment_extension_not_activated"
+	// ReasonTaskNonceRequired: a priced capability call whose TaskDoc
+	// carries no anet.nonce is rejected; its payment could not be bound to
+	// it (§2 X4, 0017 Q19).
+	ReasonTaskNonceRequired = "task_nonce_required"
 )
 
 // PayBind is what a task payment's authorization carries as its

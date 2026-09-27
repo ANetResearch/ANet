@@ -84,6 +84,9 @@ type fakeHub struct {
 	// bindings maps payer + binding to the authorization that settled it:
 	// one settlement per (payer, interaction_id) (§8.5).
 	bindings map[string]string
+	// redemptions is each account's withdrawals, oldest first, as the real
+	// hub's credit_redemption rows (GET /agents/{aid}/redemptions).
+	redemptions map[string][]map[string]any
 	// settleBodies are the raw /x402/settle request bodies, in order, so a
 	// test can check what the hub was told (SI-1).
 	settleBodies [][]byte
@@ -248,6 +251,8 @@ func (h *fakeHub) handler() http.Handler {
 	mux.HandleFunc("POST /x402/settle", h.hSettle)
 	mux.HandleFunc("GET /agents/{aid}/balance", h.hBalance)
 	mux.HandleFunc("GET /agents/{aid}/ledger", h.hLedgerRead)
+	mux.HandleFunc("GET /agents/{aid}/redemptions", h.hRedemptions)
+	mux.HandleFunc("POST /x402/redeem", h.hRedeem)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		wire := h.wire
@@ -1067,8 +1072,15 @@ func (h *fakeHub) grant(aid string, amount uint64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.balance[aid] += amount
+	h.entryLocked(aid, "grant", int64(amount), "registration grant")
+}
+
+// entryLocked appends a ledger entry in the real hub's shape (credit_entry:
+// a signed delta, the reason — the authorization id for a settlement — and
+// the time), plus kind, which only this fake has, for debitsOn. h.mu held.
+func (h *fakeHub) entryLocked(aid, kind string, delta int64, reason string) {
 	h.entries[aid] = append(h.entries[aid], map[string]any{
-		"kind": "grant", "delta": amount, "balance": h.balance[aid]})
+		"delta": delta, "reason": reason, "at": time.Now().UTC().Format(time.RFC3339Nano), "kind": kind})
 }
 
 func balanceOf(url, aid string) uint64 {
@@ -1147,9 +1159,13 @@ func (h *fakeHub) hSettle(w http.ResponseWriter, r *http.Request) {
 			Success: false, ErrorReason: payment.ReasonMalformed})
 		return
 	}
+	// ANetHub refusedSettlement: the refused authorization's id is the
+	// transaction, with its payer and amount. The daemon moves the id to
+	// extensions["anet.auth_id"] before a receipt list carries it (Q18).
+	refusedID, _ := auth.ID()
 	refuse := func(reason string) {
 		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false, ErrorReason: reason,
-			Network: auth.Network})
+			Network: auth.Network, Transaction: refusedID, Payer: auth.Payer, Amount: payment.Amount(auth.Amount)})
 	}
 	// ANetHub CheckRequirements, term for term.
 	wantAmount, aerr := payment.ParseAmount(want.Amount)
@@ -1215,7 +1231,8 @@ func (h *fakeHub) hSettle(w http.ResponseWriter, r *http.Request) {
 		tx := h.settled[prior]
 		h.mu.Unlock()
 		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false,
-			ErrorReason: payment.ReasonDuplicateBinding, Network: auth.Network,
+			ErrorReason: payment.ReasonDuplicateBinding, Network: auth.Network, Transaction: authID,
+			Payer: auth.Payer, Amount: payment.Amount(auth.Amount),
 			Extensions: map[string]any{payment.ExtOriginalTransaction: tx}})
 		return
 	}
@@ -1231,10 +1248,8 @@ func (h *fakeHub) hSettle(w http.ResponseWriter, r *http.Request) {
 	if auth.InteractionID != "" {
 		h.bindings[bindKey] = authID
 	}
-	h.entries[auth.Payer] = append(h.entries[auth.Payer], map[string]any{
-		"kind": "debit", "delta": auth.Amount, "balance": h.balance[auth.Payer], "tx": tx})
-	h.entries[auth.PayTo] = append(h.entries[auth.PayTo], map[string]any{
-		"kind": "credit", "delta": auth.Amount, "balance": h.balance[auth.PayTo], "tx": tx})
+	h.entryLocked(auth.Payer, "debit", -int64(auth.Amount), tx)
+	h.entryLocked(auth.PayTo, "credit", int64(auth.Amount), tx)
 	h.mu.Unlock()
 
 	rec := &payment.Receipt{
@@ -1334,7 +1349,133 @@ func (h *fakeHub) hLedgerRead(w http.ResponseWriter, r *http.Request) {
 	if es == nil {
 		es = []map[string]any{}
 	}
-	fakeHubJSON(w, http.StatusOK, map[string]any{"entries": es})
+	var sum int64
+	for _, e := range es {
+		sum += e["delta"].(int64)
+	}
+	// The real hub's page shape: entries, and total and sum over the
+	// whole account (the fake serves every entry, so never truncated).
+	fakeHubJSON(w, http.StatusOK, map[string]any{"aid": r.PathValue("aid"), "entries": es,
+		"total": len(es), "sum": sum, "returned": len(es)})
+}
+
+// hRedemptions lists an account's withdrawals, newest first, to the
+// account holder only (relayauth v2, action "redemptions"), as ANetHub
+// hRedemptions does.
+func (h *fakeHub) hRedemptions(w http.ResponseWriter, r *http.Request) {
+	if who := h.verifyAuth(w, r, nil, relayauth.ActionRedemptions, nil); who != r.PathValue("aid") {
+		if who != "" {
+			fakeHubJSON(w, http.StatusUnauthorized, map[string]string{"error": "auth: not the account holder"})
+		}
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	all := h.redemptions[r.PathValue("aid")]
+	out := make([]map[string]any, 0, len(all))
+	var sum uint64
+	for i := len(all) - 1; i >= 0; i-- {
+		out = append(out, all[i])
+		sum += all[i]["amount"].(uint64)
+	}
+	fakeHubJSON(w, http.StatusOK, map[string]any{"redemptions": out, "total": len(all), "sum": sum,
+		"returned": len(out)})
+}
+
+// hRedeem takes credit out of circulation the way ANetHub Store.Redeem
+// does: a payment authorization signed by the account holder to the hub,
+// settled once (a second presentation answers with the first record), one
+// settlement per binding ("redeem:"+reference), a ledger entry on both
+// rows under the authorization id, and a receipt signed by the hub.
+func (h *fakeHub) hRedeem(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PaymentPayload *payment.PaymentPayload `json:"paymentPayload"`
+		Reference      string                  `json:"reference"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil || req.PaymentPayload == nil {
+		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": payment.ReasonMalformed})
+		return
+	}
+	refuse := func(reason string) {
+		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": reason})
+	}
+	encoded, _ := req.PaymentPayload.Payload["authorization"].(string)
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		refuse(payment.ReasonMalformed)
+		return
+	}
+	auth, err := payment.UnmarshalAuthorization(raw)
+	if err != nil {
+		refuse(payment.ReasonMalformed)
+		return
+	}
+	authID, err := auth.ID()
+	if err != nil {
+		refuse(payment.ReasonMalformed)
+		return
+	}
+	h.mu.Lock()
+	payer := h.agents[auth.Payer]
+	for _, prior := range h.redemptions[auth.Payer] {
+		if prior["auth_id"] == authID {
+			h.mu.Unlock()
+			fakeHubJSON(w, http.StatusOK, prior)
+			return
+		}
+	}
+	h.mu.Unlock()
+	if payer == nil {
+		refuse(payment.ReasonUnknownPayer)
+		return
+	}
+	if auth.PayTo != h.self.AID() {
+		refuse(payment.ReasonPayeeMismatch)
+		return
+	}
+	kel, err := identity.UnmarshalKEL(payer.kel)
+	if err != nil || auth.Verify(kel, time.Now().UnixMilli()) != nil {
+		refuse(payment.ReasonInvalidSignature)
+		return
+	}
+	rec := &payment.Receipt{AuthID: authID, Payer: auth.Payer, PayTo: auth.PayTo,
+		Amount: auth.Amount, Network: auth.Network, SettleAt: time.Now().UnixMilli()}
+	if err := rec.Sign(h.self); err != nil {
+		refuse(payment.ReasonSettlementFailed)
+		return
+	}
+	recRaw, err := rec.Marshal()
+	if err != nil {
+		refuse(payment.ReasonSettlementFailed)
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	bindKey := auth.Payer + "\x00" + auth.InteractionID
+	if prior, taken := h.bindings[bindKey]; taken && auth.InteractionID != "" && prior != authID {
+		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": payment.ReasonDuplicateBinding})
+		return
+	}
+	if h.balance[auth.Payer] < auth.Amount {
+		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": payment.ReasonInsufficientFunds})
+		return
+	}
+	h.balance[auth.Payer] -= auth.Amount
+	h.balance[auth.PayTo] += auth.Amount
+	h.settled[authID] = authID
+	if auth.InteractionID != "" {
+		h.bindings[bindKey] = authID
+	}
+	h.entryLocked(auth.Payer, "redeem", -int64(auth.Amount), authID)
+	h.entryLocked(auth.PayTo, "redeem", int64(auth.Amount), authID)
+	out := map[string]any{"auth_id": authID, "aid": auth.Payer, "amount": auth.Amount,
+		"reference": req.Reference, "at": time.Now().UTC().Format(time.RFC3339Nano),
+		"receipt": base64.StdEncoding.EncodeToString(recRaw)}
+	if h.redemptions == nil {
+		h.redemptions = map[string][]map[string]any{}
+	}
+	h.redemptions[auth.Payer] = append(h.redemptions[auth.Payer], out)
+	fakeHubJSON(w, http.StatusOK, out)
 }
 
 func (h *fakeHub) hAgentKEL(w http.ResponseWriter, r *http.Request) {

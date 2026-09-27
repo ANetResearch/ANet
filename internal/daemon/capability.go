@@ -31,6 +31,7 @@ import (
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/provider"
 )
 
@@ -386,6 +387,18 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 			res.Status = string(effect.Unavailable)
 			res.Message = errNoPayments().Error()
 			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{reason: "payments_unavailable"})
+			return true
+		}
+		if ix.TaskNonce == "" && ix.PayState == interactions.PayNone {
+			// A priced call is bound to its task nonce: the payment's
+			// binding is PayBind(ix, anet.nonce) (§2 X4). A TaskDoc without
+			// one is rejected rather than quoted, so the two sides never
+			// disagree over what an empty nonce binds (0017 Q19).
+			res.Status = string(effect.Unavailable)
+			res.Message = "a priced call must carry the task nonce (TaskDoc context " + NonceContextKey +
+				") its payment is bound to"
+			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil,
+				resultOpts{state: interactions.StateRejected, reason: x402a2a.ReasonTaskNonceRequired})
 			return true
 		}
 		switch {

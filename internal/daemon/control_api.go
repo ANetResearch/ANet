@@ -357,6 +357,13 @@ const hubCallTimeout = 30 * time.Second
 
 // relayError maps a Hub/relay failure to a status: a context deadline → 504, else 400.
 func relayError(w http.ResponseWriter, err error) {
+	if r, ok := isSpendRefusal(err); ok {
+		// §8.6: a spending-policy refusal is 403 with its code, on every
+		// route that signs (/x402-authorize, /delegate pay:true), as on
+		// /tasks/pay.
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "reason": r.Code})
+		return
+	}
 	code := http.StatusBadRequest
 	if errors.Is(err, context.DeadlineExceeded) {
 		code = http.StatusGatewayTimeout
@@ -1166,6 +1173,10 @@ func (d *Daemon) hRedeemCredit(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
 	defer cancel()
 	out, err := d.RedeemCredit(ctx, req.Amount, req.Reference)
+	if r, ok := isSpendRefusal(err); ok {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error(), "reason": r.Code})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "result": out})
 		return

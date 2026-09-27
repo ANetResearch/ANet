@@ -751,6 +751,7 @@ func (d *Daemon) SendStatus(ctx context.Context, interactionID string, state int
 	if ix.IsTerminal() {
 		return fmt.Errorf("%w (%s is %s)", ErrTaskTerminal, interactionID, ix.State)
 	}
+	meta = withTerminalReceipts(ix, state, meta) // Q18
 	var mb []byte
 	if len(meta) > 0 {
 		if mb, err = json.Marshal(meta); err != nil {

@@ -581,7 +581,10 @@ if ! has dmax; then
   sk "兑付要 dmax 自己签名,这台机器够不着它的控制面"
 else
 s1=$(viafmax /x402/supply | jq_ "print(d['supply']['outstanding'])")
-rd=$(ctl dmax /redeem '{"amount":5,"reference":"prodtest"}')
+# 每次唯一的 reference:兑付是付给 hub 的授权,绑定为 "redeem:<reference>",hub 对
+# (付款方, 绑定) 只结算一次(A2A-DESIGN §8.5)。固定写 "prodtest" 时,第二次运行得到
+# duplicate_binding,兑付失败,而失败的是脚本不是 hub。
+rd=$(ctl dmax /redeem "{\"amount\":5,\"reference\":\"prodtest-8-$(date +%s)-$$\"}")
 rv=$(echo "$rd" | jq_ "print(d.get('verified',''))")
 [ "$rv" = True ] && ok "兑付成功,且 dmax 验过 fmax 的签字" || no "兑付没有可验证的收据:${rd:0:160}"
 s2=$(viafmax /x402/supply | jq_ "print(d['supply']['outstanding'])")
@@ -844,7 +847,8 @@ hd "9f 兑付记录查得到:经 dmax 自己的控制面,明细不对陌生人�
 # 按数量判断这件事成没成是数不出来的,而且它掩盖过一次真问题:列表是分页的,
 # 一个做过 100 次以上兑付的账户,新记录进来就把最旧的挤出去,长度恒等于上限。
 # 所以这里按这一笔兑付自己的结算号(hub 把它写成流水条目的 reason)去找,
-# 以及按唯一的 reference 在 dmax 自己的证据链上找,都不数条数。
+# 按唯一的 reference 在 hub 的兑付列表里找(dmax 的 /balance 带回 redemptions,
+# 同样是签名读取),以及在 dmax 自己的证据链上找,都不数条数。
 if ! has dmax; then
   sk "要 dmax 的控制面"
 else
@@ -867,6 +871,19 @@ print(e[0].get('delta','') if e else '')")
     done
     [ "$hit" = -3 ] && ok "dmax 经自己的控制面(签名读取)在 hub 流水里查到这笔 -3" \
       || no "dmax 的控制面读不到这笔兑付的流水(得到 '${hit}';/balance 是否已改为签名读取?)"
+    listed=$(ctl dmax /balance '{}' | jq_ "
+r=[x for x in (d.get('redemptions') or []) if x.get('reference')=='$REF']
+print('%s %s' % (r[0].get('auth_id',''), r[0].get('amount','')) if r else '')")
+    [ "$listed" = "$RAID 3" ] && ok "dmax 经自己的控制面(签名读取)在 hub 的兑付列表里按 reference 查到这笔,结算号与金额对得上" \
+      || no "hub 的兑付列表里找不到 reference=$REF(得到 '${listed}';/balance 是否带回签名读取的 redemptions?)"
+    # 对账按结算号核对兑付(旧实现按 reference 在流水 reason 里找,诚实的 hub 上每笔
+    # 兑付都被报成缺失)。dmax 账户历史长,整体 agrees 受分页与旧数据影响,这里只看
+    # 这一笔:它被列入 matched,且不在 missing_from_hub 里。
+    rec=$(ctl dmax /reconcile '{}' | jq_ "
+m=[x for x in (d.get('missing_from_hub') or []) if '$REF' in x]
+print('ok' if d.get('redemptions_matched',0) >= 1 and not m else 'matched=%s missing=%s' % (d.get('redemptions_matched'), m))")
+    [ "$rec" = ok ] && ok "dmax 对账:这笔兑付在 hub 的兑付列表里核对上了" \
+      || no "dmax 对账没有核对上这笔兑付:${rec:0:200}"
     ev=$(ctl dmax /evidence '{"event_type":"anet.credit.redeemed","limit":50}' | jq_ "
 r=[x for x in (d.get('records') or []) if (x.get('payload') or {}).get('reference')=='$REF']
 print('ok' if r else '')")
