@@ -9,6 +9,7 @@
 #   bash scripts/testnet/build.sh --arch arm64 -o DIR    指定架构 / 输出目录
 #
 # 产物:<输出目录>/linux-<arch>/{anet, anet-<变体>…, anet-hub, anet-hub-admin, anetpeer, anetfixture,
+# a2aprobe 与 a2ashape-hermes.test(scripts/joint-a2a.sh 用;ANet/tools/a2aprobe 存在时),
 # anet-official(ANet/cmd/anet-official 存在时), SHA256SUMS, MANIFEST}。默认输出目录见 topology.env
 # 的 TESTNET_BUILD_DIR(空 = 工作区根下的 .testnet-build)。
 #
@@ -70,6 +71,11 @@ main(){
     done
     go_build "$anet_root" ./tools/anetpeer      "$dir/anetpeer"        "$arch" ""          plain
     go_build "$anet_root" ./tools/anetfixture   "$dir/anetfixture"     "$arch" ""          plain
+    if [ -d "$anet_root/tools/a2aprobe" ]; then
+      # joint-a2a.sh: the a2a-go client, and the Hermes contract as a test binary (hosts have no go).
+      go_build "$anet_root" ./tools/a2aprobe    "$dir/a2aprobe"        "$arch" ""          plain
+      go_test_bin "$anet_root" ./internal/a2ashape "$dir/a2ashape-hermes.test" "$arch"
+    fi
     go_build "$hub_root"  ./cmd/anet-hub        "$dir/anet-hub"        "$arch" "$hub_tags" hub
     go_build "$hub_root"  ./cmd/anet-hub-admin  "$dir/anet-hub-admin"  "$arch" "$hub_tags" hub
     if [ -d "$anet_root/cmd/anet-official" ]; then
@@ -112,6 +118,14 @@ go_build(){
   ( cd "$repo" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath ${tags:+-tags "$tags"} \
       -ldflags "$ld" -o "$outf" "$pkg" ) || tn_die "build failed: $repo $pkg (tags=${tags:-none})"
   printf '  %-16s %-8s tags=%s\n' "$(basename "$outf")" "$commit" "${tags:-<default>}" >&2
+}
+
+# go_test_bin REPO PKG OUT ARCH — the test binary of a package (joint-a2a.sh runs one test of it by name).
+go_test_bin(){
+  local repo=$1 pkg=$2 outf=$3 arch=$4
+  ( cd "$repo" && CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go test -c -trimpath -o "$outf" "$pkg" ) \
+    || tn_die "test binary build failed: $repo $pkg"
+  printf '  %-16s %-8s tags=%s\n' "$(basename "$outf")" "$(repo_commit "$repo")" "<test>" >&2
 }
 
 repo_commit(){
