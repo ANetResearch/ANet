@@ -347,15 +347,19 @@ done
 # peer on it may make the node start its local coding agent. Section 9s
 # adds ink93 to cmax's when cmax runs an exec backend.
 list_on(){ # list_on <node> <peers.allow|peers.trust> <aid>
-  local host home f
+  # An AID is a CID string. Anything else is refused before it goes into a
+  # list file, or into a command run on another machine.
+  case $3 in ''|*[!A-Za-z0-9]*) return 1 ;; esac
+  # New files 0600, as the daemon writes them; a last line without its
+  # newline would glue onto the appended AID, so one is added first.
+  local add="umask 077; touch \$f; [ -z \"\$(tail -c1 \$f)\" ] || echo >> \$f; grep -qxF $3 \$f || echo $3 >> \$f"
   case $1 in
-    cmax) host=$CMAX_HOST; home=$CMAX_HOME ;;
-    dmax) host=$DMAX_HOST; home=$DMAX_HOME ;;
-    ink93) f="$INK_HOME/.anet/$2"; touch "$f"; grep -qxF "$3" "$f" || echo "$3" >> "$f"; return ;;
-    *) return 0 ;;
+    cmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 "$CMAX_HOST" \
+             "f=$CMAX_HOME/.anet/$2; $add" ;;
+    dmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 "$DMAX_HOST" \
+             "f=$DMAX_HOME/.anet/$2; $add" ;;
+    ink93) f="$INK_HOME/.anet/$2" sh -c "$add" ;;
   esac
-  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 "$host" \
-    "f=$home/.anet/$2; touch \$f; grep -qxF '$3' \$f || echo '$3' >> \$f"
 }
 allow_on(){ list_on "$1" peers.allow "$2"; } # allow_on <node> <aid>
 if has cmax && [ -n "$INK_AID" ]; then allow_on cmax "$INK_AID"; fi
@@ -1356,9 +1360,12 @@ done
 
 # ── 9n. p2p delivers between two machines, for real ─────────────
 hd "9n p2p:两台机器之间真的直连投递一次"
-# anetpeer's log line for a carried envelope is "delivered"; the frame no
-# longer says what kind of message is inside (the envelope is sealed), so
-# the count is of deliveries of any kind.
+# anetpeer's log line for a carried envelope is "anetpeer: delivered <n>
+# envelope bytes → <aid>" (the wire-1 line, "anetpeer: delivered delegate
+# …", matches the same prefix); the frame no longer says what kind of
+# message is inside (the envelope is sealed), so the count is of
+# deliveries of any kind. The prefix, not the bare word, so an error line
+# that happens to quote "delivered" is not counted as one.
 # The transport shipped able to carry traffic between machines and was
 # never configured on any production node — only the rendezvous directory
 # was checked. A transport nothing has ever delivered over is a claim.
@@ -1389,7 +1396,7 @@ else
 
   # And a delegation that actually goes over the wire.
   before=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
-    "grep -c 'delivered' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
+    "grep -c 'anetpeer: delivered ' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
   out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
     "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
      --capability text.stats --args '{\"text\":\"prodtest p2p\"}'" 2>&1)
@@ -1399,7 +1406,7 @@ else
   else
     for _ in 1 2 3 4 5 6; do
       after=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
-        "grep -c 'delivered' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
+        "grep -c 'anetpeer: delivered ' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
       [ "${after:-0}" -gt "${before:-0}" ] && break
       sleep 5
     done

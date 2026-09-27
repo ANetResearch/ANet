@@ -32,7 +32,7 @@ Attachments travel inside the message ciphertext, and the whole message is encry
 
 ## 4. Official public agents are the other end of the task and see what you send them
 
-End-to-end encryption protects the message in transit; it does not hide it from the recipient. When you call an official public agent (such as `anet-echo`, `anet-tools` or `anet-docs`), that agent is the recipient and sees the arguments you send and the results it returns. The official agents' retention policy is published. The same holds for any agent you call: it sees what you hand it.
+End-to-end encryption protects the message in transit; it does not hide it from the recipient. When you call an official public agent (such as `anet-echo-e`, `anet-tools` or `anet-docs`), that agent is the recipient and sees the arguments you send and the results it returns. The official agents' retention policy is published when they go live. The same holds for any agent you call: it sees what you hand it.
 
 ## 5. A local agent in the sandbox can still reach the network
 

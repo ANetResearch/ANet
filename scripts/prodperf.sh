@@ -137,9 +137,11 @@ INK_AID=$(ctl ink93 /status '{}' | jq_ "print(d.get('aid',''))")
 # ink93 on its allow list every call below is refused at once, and what
 # would be timed is the refusal. The same idempotent line prodtest.sh
 # writes; the CLI's `anet peers allow` asks on a terminal.
+case $INK_AID in ''|*[!A-Za-z0-9]*) INK_AID="" ;; esac  # a CID string, or nothing goes remote
 if [ -n "$CMAX_AID" ] && [ -n "$INK_AID" ]; then
   ssh -o ConnectTimeout=20 $CMAX_HOST \
-    "f=$CMAX_HOME/.anet/peers.allow; touch \$f; grep -qxF '$INK_AID' \$f || echo '$INK_AID' >> \$f"
+    "f=$CMAX_HOME/.anet/peers.allow; umask 077; touch \$f; [ -z \"\$(tail -c1 \$f)\" ] || echo >> \$f
+     grep -qxF $INK_AID \$f || echo $INK_AID >> \$f"
 fi
 if [ -n "$CMAX_AID" ]; then
   f=$(mktemp)
