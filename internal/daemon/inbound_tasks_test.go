@@ -18,6 +18,8 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient"
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
+	"github.com/ANetResearch/ANetCore/delegation"
+
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
@@ -282,7 +284,8 @@ func TestInboundTasksReachTheBackendOnlyFromTrustedPeers(t *testing.T) {
 
 // A backend that accepts untrusted peers (declared through
 // DeclareUntrustedBackend): an allowed peer's task is delivered, marked
-// untrusted, and can be answered; policy open is refused in either order —
+// untrusted, and can be answered, while a stranger's task accepted under an
+// earlier policy open is not; policy open is refused in either order —
 // written after the declaration, or configured when the daemon starts with a
 // module that declares one.
 func TestInboundTasksWithAnUntrustedBackend(t *testing.T) {
@@ -290,7 +293,22 @@ func TestInboundTasksWithAnUntrustedBackend(t *testing.T) {
 	ctx := context.Background()
 	prov := registered(t, srv.URL, "prov")
 	allowed := registered(t, srv.URL, "allowed")
+	stranger := registered(t, srv.URL, "stranger")
 	allowPeers(t, prov, allowed.AID())
+	// A stranger's task from a time the node ran policy open.
+	if err := prov.SetInboundPolicy(PolicyOpen); err != nil {
+		t.Fatal(err)
+	}
+	old, err := stranger.Delegate(ctx, prov.AID(), "from the open days", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.SetInboundPolicy(PolicyApprove); err != nil {
+		t.Fatal(err)
+	}
 	host := moduleHost{prov}
 	host.DeclareUntrustedBackend()
 	if err := prov.SetInboundPolicy(PolicyOpen); !errors.Is(err, ErrPolicyConflict) {
@@ -319,11 +337,19 @@ func TestInboundTasksWithAnUntrustedBackend(t *testing.T) {
 		t.Fatalf("delivered %s with %v", task.ID, task.Metadata)
 	}
 	answer := a2ashape.Message{Role: a2ashape.RoleAgent, Parts: []a2ashape.Part{a2ashape.TextPart("hi")}}
+	if _, err := host.ReplyTask(ctx, old, answer, a2ashape.TaskStateCompleted); !errors.Is(err, a2ashape.ErrTaskNotFound) {
+		t.Fatalf("ReplyTask on a stranger's task from policy open: %v", err)
+	}
 	if _, err := host.ReplyTask(ctx, id, answer, a2ashape.TaskStateCompleted); err != nil {
 		t.Fatal(err)
 	}
 	if st := stateOf(t, prov, id); st != interactions.StateCompleted {
 		t.Fatalf("state after the answer: %s", st)
+	}
+	select {
+	case x := <-tasks:
+		t.Fatalf("delivered %s (%v) as well", x.ID, x.Metadata[a2ashape.KeyPeerAID])
+	case <-time.After(200 * time.Millisecond):
 	}
 
 	// At start.
@@ -338,6 +364,129 @@ func TestInboundTasksWithAnUntrustedBackend(t *testing.T) {
 			d.Close()
 		}
 		t.Fatalf("start with policy open and a module declaring an untrusted backend: %v", err)
+	}
+}
+
+// backendTakes is the one decision: a trusted peer's text task; an
+// untrusted peer's only under the declaration and only when someone named
+// the peer (allow list, approval) — never a stranger accepted under policy
+// open or a row with no admission recorded; never a capability call, a
+// public capability call or a denied peer.
+func TestBackendTakes(t *testing.T) {
+	ps := peerSets{allow: map[string]bool{"al": true}, trust: map[string]bool{"tr": true, "dn": true},
+		deny: map[string]bool{"dn": true}}
+	cases := []struct {
+		name, peer, trust   string
+		capability, declare bool
+		trusted, ok         bool
+	}{
+		{"trusted", "tr", interactions.TrustPeer, false, false, true, true},
+		{"trusted now, accepted under open", "tr", interactions.TrustPublic, false, false, true, true},
+		{"allowed", "al", interactions.TrustPeer, false, false, false, false},
+		{"allowed, declared", "al", interactions.TrustPeer, false, true, false, true},
+		{"approved, declared", "ap", interactions.TrustApproved, false, true, false, true},
+		{"stranger under open, declared", "st", interactions.TrustPublic, false, true, false, false},
+		{"no admission recorded, declared", "st", "", false, true, false, false},
+		{"denied although trusted", "dn", interactions.TrustPeer, false, true, false, false},
+		{"capability call", "tr", interactions.TrustPeer, true, true, false, false},
+		{"public capability", "tr", interactions.TrustPublicCap, false, true, false, false},
+		{"no peer", "", interactions.TrustPeer, false, true, false, false},
+	}
+	for _, c := range cases {
+		trusted, ok := backendTakes(c.peer, c.trust, c.capability, ps, c.declare)
+		if trusted != c.trusted || ok != c.ok {
+			t.Errorf("%s: trusted %v ok %v, want %v %v", c.name, trusted, ok, c.trusted, c.ok)
+		}
+	}
+	// A deny list that cannot be read refuses everyone.
+	if _, ok := backendTakes("tr", interactions.TrustPeer, false, peerSets{trust: map[string]bool{"tr": true}}, true); ok {
+		t.Error("delivered with the deny list unreadable")
+	}
+}
+
+// The feed delivers nothing before the daemon has started; a timed scan
+// leaves a task that just changed to the wake-up that follows its files
+// being stored; and a delivery carries the latest message's files inline,
+// the earlier ones as references.
+func TestInboundFeedStartSettleAndFiles(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	prov := registered(t, srv.URL, "prov")
+	peer := registered(t, srv.URL, "peer")
+	trustPeers(t, prov, peer.AID())
+	file := func(name, body string) []delegation.Attachment {
+		a, err := attachmentFromBytes(name, []byte(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return []delegation.Attachment{a}
+	}
+	id, err := peer.DelegateIn(ctx, prov.AID(), "with a file", file("one.txt", "the first file"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.SendMessageAtts(ctx, id, "and another", file("two.txt", "the second file")); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	out := make(chan module.Task, 4)
+	seen := map[string]feedMark{}
+	prov.feedInbound(ctx, out, seen, time.Now().Add(-time.Hour))
+	if len(out) != 0 {
+		t.Fatal("a timed scan delivered a task that changed within the settle time")
+	}
+	prov.feedInbound(ctx, out, seen, time.Time{})
+	if len(out) != 1 {
+		t.Fatalf("a wake-up delivered %d tasks, want 1", len(out))
+	}
+	task := <-out
+	var files []a2ashape.Part
+	for _, m := range task.History {
+		for _, p := range m.Parts {
+			if p.Kind == a2ashape.PartRaw || p.Kind == a2ashape.PartURL {
+				files = append(files, p)
+			}
+		}
+	}
+	if len(files) != 2 || files[0].Kind != a2ashape.PartURL || files[1].Kind != a2ashape.PartRaw ||
+		string(files[1].Raw) != "the second file" {
+		t.Fatalf("files in the delivery: %+v", files)
+	}
+	prov.feedInbound(ctx, out, seen, time.Time{})
+	if len(out) != 0 {
+		t.Fatal("delivered again with nothing new")
+	}
+
+	// A daemon that has not finished starting delivers nothing.
+	prov.inFeed.mu.Lock()
+	prov.inFeed.ready, prov.inFeed.started = make(chan struct{}), false
+	prov.inFeed.mu.Unlock()
+	fctx, cancel := context.WithCancel(ctx)
+	t.Cleanup(cancel)
+	tasks, err := moduleHost{prov}.InboundTasks(fctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prov.inFeed.wake()
+	select {
+	case x := <-tasks:
+		t.Fatalf("delivered %s before the daemon started", x.ID)
+	case <-time.After(300 * time.Millisecond):
+	}
+	prov.inFeed.open()
+	select {
+	case x := <-tasks:
+		if x.ID != id {
+			t.Fatalf("delivered %s", x.ID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("nothing delivered once the daemon started")
 	}
 }
 

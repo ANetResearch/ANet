@@ -243,6 +243,7 @@ func New(layout Layout) (*Daemon, error) {
 	if cfg.AutoReply != nil {
 		d.startAutoReply(*cfg.AutoReply)
 	}
+	d.inFeed.open() // modules' A2A backends get tasks from here on (inbound_tasks.go)
 	return d, nil
 }
 

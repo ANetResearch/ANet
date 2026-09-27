@@ -124,6 +124,16 @@ func (c Config) declaresUntrusted() bool {
 	return false
 }
 
+// forwardsText reports a backend for every text task (match "*").
+func (c Config) forwardsText() bool {
+	for _, b := range c.Backends {
+		if b.Match == "*" {
+			return true
+		}
+	}
+	return false
+}
+
 // checkBackendURL accepts http on a loopback host, or https: a task's text
 // goes there, and in the clear only on this machine.
 func checkBackendURL(raw string) error {
@@ -149,6 +159,15 @@ func checkBackendURL(raw string) error {
 // the backend was asked for and cannot be reached as configured.
 func (m *Module) startBackends(ctx context.Context, h module.Host) error {
 	if len(m.cfg.Backends) == 0 {
+		return nil
+	}
+	if !m.cfg.forwardsText() {
+		// A task the kernel delivers is a text task, and names no skill (a
+		// call naming one is a capability call, never delivered). Without
+		// a "*" backend none would be forwarded, and subscribing would only
+		// keep those tasks from the auto-reply agent.
+		log.Printf("anet: a2a: no backend has match \"*\": text tasks from the network name no skill, so none " +
+			"is forwarded; they are answered as without backends (inbox, auto-reply)")
 		return nil
 	}
 	in, ok := h.(module.InboundTaskHost)

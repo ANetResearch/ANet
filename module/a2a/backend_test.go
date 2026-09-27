@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -314,5 +315,37 @@ func TestBackendMatchIsTrimmed(t *testing.T) {
 	h.tasks <- inboundTask("ix1", "bafypeer", true, "hi")
 	if r := h.wait(t); r.msg.Parts[0].Text != "backend: hi" {
 		t.Fatalf("reply %+v", r)
+	}
+}
+
+// subscribeCounter counts the module's subscriptions to inbound tasks.
+type subscribeCounter struct {
+	*inboundHost
+	n atomic.Int32
+}
+
+func (h *subscribeCounter) InboundTasks(ctx context.Context) (<-chan module.Task, error) {
+	h.n.Add(1)
+	return h.inboundHost.InboundTasks(ctx)
+}
+
+// A task the kernel delivers names no skill (one that does is a capability
+// call, never delivered), so without a "*" backend nothing would be
+// forwarded: the module does not subscribe, and the kernel keeps giving
+// those tasks to the inbox and the auto-reply agent.
+func TestBackendWithoutCatchAllDoesNotSubscribe(t *testing.T) {
+	isolateHome(t)
+	h := &subscribeCounter{inboundHost: newInboundHost(t)}
+	m, err := New([]byte(`{"backends":[{"match":"text.summarize","url":"http://127.0.0.1:9","token_file":"` + tokenFile(t) + `"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := m.Start(ctx, h); err != nil {
+		t.Fatal(err)
+	}
+	if n := h.n.Load(); n != 0 {
+		t.Fatalf("subscribed %d times with no \"*\" backend", n)
 	}
 }

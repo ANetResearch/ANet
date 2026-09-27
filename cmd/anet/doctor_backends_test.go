@@ -10,7 +10,8 @@ import (
 // doctor reads modules.a2a.backends (A2A-DESIGN §11.6): a backend that
 // serves untrusted peers is a warning; the two combinations the daemon
 // refuses to start with are failures; a trusted-only backend says what it
-// will receive.
+// will receive, and a configuration without a match "*" backend that it
+// receives nothing.
 func TestDoctorA2ABackends(t *testing.T) {
 	const peer = "bafyreisomepeer000001"
 	cases := []struct {
@@ -25,6 +26,7 @@ func TestDoctorA2ABackends(t *testing.T) {
 		{"untrusted under open", map[string]any{"accept_untrusted": true, "toolless": true}, "open", false, stFail},
 		{"trusted only, nobody trusted", map[string]any{}, "closed", false, stInfo},
 		{"trusted only", map[string]any{}, "closed", true, stOK},
+		{"no catch-all backend", map[string]any{"match": "text.summarize"}, "closed", true, stInfo},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
