@@ -25,6 +25,7 @@ func (d *Daemon) CurrentProfile() Profile {
 // (the CLI merges partial flags with the current values before calling).
 func (d *Daemon) SetProfile(ctx context.Context, p Profile) error {
 	d.mu.Lock()
+	summaryChanged := d.cfg.Summary != p.Summary
 	d.cfg.Summary = p.Summary
 	d.cfg.Readme = p.Readme
 	d.cfg.Pricing = p.Pricing
@@ -32,6 +33,10 @@ func (d *Daemon) SetProfile(ctx context.Context, p Profile) error {
 	d.mu.Unlock()
 	if err := SaveConfig(d.layout, cfg); err != nil {
 		return err
+	}
+	if summaryChanged {
+		// The summary is the network card's description.
+		d.cardInputsChanged()
 	}
 	if cfg.HubURL != "" {
 		return d.PublishProfile(ctx, cfg.HubURL, p.Summary, p.Readme, p.Pricing)
