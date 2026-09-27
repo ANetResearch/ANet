@@ -265,6 +265,8 @@ stop_under(){
 # these are the shell side. CANARY_PY may name a copy: joint.sh runs the tap from its own bin directory,
 # so that stop_under finds it there.
 CANARY_PY=${CANARY_PY:-$_LIB_ROOT/scripts/canary.py}
+# CANARY_TMP: where canary.py puts its private copies of the databases it reads (default $TMPDIR, /tmp).
+# joint.sh points it into its run directory, so that a search killed half way leaves nothing elsewhere.
 
 # canary_new FILE LABEL: mint the canary for one piece of content, record it in FILE (label<TAB>value) and
 # print it. Random, so it can turn up only where that content went. Never a capability id, a profile or
@@ -277,8 +279,9 @@ canary_new(){
 # canary_scan FILE REPORT LABEL [--expect BASENAME]… [--want LABEL]… PATH…: search every byte under
 # the paths for the canaries in FILE, in every encoding canary.py knows; the JSON report goes to REPORT
 # and a one-line summary to stdout. Exit 0 = nothing found (with --want: each wanted label found),
-# 1 = found (with --want: one missing), 2 = nothing to search, or an --expect file not among it.
-canary_scan(){ python3 "$CANARY_PY" scan --canaries "$1" --out "$2" --label "$3" "${@:4}"; }
+# 1 = found (with --want: one missing), 2 = nothing to search, an --expect file not among it, or a file
+# that could not be searched in full.
+canary_scan(){ TMPDIR=${CANARY_TMP:-${TMPDIR:-/tmp}} python3 "$CANARY_PY" scan --canaries "$1" --out "$2" --label "$3" "${@:4}"; }
 
 # canary_tap DIR LISTEN UPSTREAM LOG: start a recording reverse proxy on LISTEN in front of the hub at
 # UPSTREAM, capturing into DIR; print its pid once it listens. Fails when it does not come up.
@@ -298,7 +301,7 @@ canary_tap(){
 # canary_settle TAPDIR REPORT [HUB_DB]: the structured check of every /x402/settle body the tap saw
 # (A2A-DESIGN SI-1: resource, description and extra empty; nothing outside x402 v2's objects), and with
 # HUB_DB, of the hub's settlement tables. Exit 0 when at least one settled and nothing is wrong.
-canary_settle(){ python3 "$CANARY_PY" settle --dir "$1" --out "$2" ${3:+--hub-db "$3"}; }
+canary_settle(){ TMPDIR=${CANARY_TMP:-${TMPDIR:-/tmp}} python3 "$CANARY_PY" settle --dir "$1" --out "$2" ${3:+--hub-db "$3"}; }
 
 # canary_hits REPORT…: the number of canary hits recorded in scan reports (0 when there are none).
 canary_hits(){

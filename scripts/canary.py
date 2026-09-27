@@ -17,8 +17,11 @@ bytes, as lower- and upper-case hex, as standard and URL-safe base64 at each of 
 as base64 of those base64 forms. A gzip file is searched decompressed as well; an SQLite database is
 also read table by table (a value that spills onto overflow pages is not contiguous in the file), from a
 private copy that includes its -wal. Exit 0 when nothing was found, 1 when a canary was found, 2 when
-nothing could be scanned or an --expect file was not among the scanned. With --want the sense flips: exit
-0 when each wanted canary label was found (the positive control that shows the search would see it).
+nothing could be scanned, an --expect file was not among the scanned, or a file was not searched in
+full: unreadable, over the size limit, or an SQLite database whose tables could not be read (python3
+without its sqlite3 module included). A file that disappears while the search walks the tree (a
+journal, a backup's temporary copy) is skipped. With --want the sense flips: exit 0 when each wanted
+canary label was found (the positive control that shows the search would see it).
 
 tap: a reverse proxy the canary nodes use as their hub. Every request and response body is appended raw to
 DIR/traffic.log (so a byte search of that file is a byte search of everything the hub was told and
@@ -30,6 +33,13 @@ settle: each captured /x402/settle request body must be x402 v2's {x402Version, 
 paymentRequirements} with no field outside the x402 v2 objects, and resource, description and extra
 empty wherever they appear (A2A-DESIGN SI-1, X4); at least one must have been answered success:true.
 With --hub-db the hub's settlement tables are also checked to have no such columns and at least one row.
+
+  canary.py sqlite3 DB [.timeout MS | SQL]…
+
+sqlite3: a stand-in for the sqlite3 command line, as much of it as ANetHub's deploy/hub-db-roll.sh uses
+(one database, ".timeout", one statement per argument, rows printed '|'-separated), on python3's own
+SQLite. joint.sh puts it on the backup script's PATH where the sqlite3 CLI is not installed (most of the
+test hosts, docs/notes/0015 §2), so that the hub backup SI-1 names is taken and searched there too.
 """
 
 import argparse
@@ -131,59 +141,79 @@ def find_all(data, needles, where, hits, extra=None):
 
 # ── scan ─────────────────────────────────────────────────────────
 
-def sqlite_rows(path, errors):
+def sqlite_values(path, errors):
     """Every value of every table of the database at path, read from a private copy (with its -wal, so
-    committed pages not yet checkpointed are included). Yields (table, column, rowid, value)."""
+    committed pages not yet checkpointed are included), as a list of (table, column, rowid, value); None
+    when the tables could not be read. The copy is taken while the owner may be writing, so a copy that
+    does not open as a database is taken again, up to three times."""
     if sqlite3 is None:
-        errors.append("%s: python3 has no sqlite3 module; searched as raw bytes only" % path)
-        return
-    tmp = tempfile.mkdtemp(prefix="canary-sqlite-")
-    try:
-        copy = os.path.join(tmp, "db")
-        shutil.copyfile(path, copy)
-        if os.path.isfile(path + "-wal"):
-            shutil.copyfile(path + "-wal", copy + "-wal")
-        con = sqlite3.connect(copy)
-        con.text_factory = bytes
+        errors.append("%s: python3 has no sqlite3 module; its tables were not read" % path)
+        return None
+    last = None
+    for attempt in range(3):
+        if attempt:
+            time.sleep(0.5)
+        tmp = tempfile.mkdtemp(prefix="canary-sqlite-")
         try:
-            tables = [r[0].decode() if isinstance(r[0], bytes) else r[0] for r in
-                      con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-            for t in tables:
-                q = '"' + t.replace('"', '""') + '"'
-                try:
-                    cur = con.execute("SELECT rowid, * FROM %s" % q)
-                except sqlite3.Error:
+            copy = os.path.join(tmp, "db")
+            shutil.copyfile(path, copy)
+            if os.path.isfile(path + "-wal"):
+                shutil.copyfile(path + "-wal", copy + "-wal")
+            con = sqlite3.connect(copy)
+            con.text_factory = bytes
+            out, bad = [], []
+            try:
+                tables = [r[0].decode() if isinstance(r[0], bytes) else r[0] for r in
+                          con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+                for t in tables:
+                    q = '"' + t.replace('"', '""') + '"'
                     try:
-                        cur = con.execute("SELECT NULL, * FROM %s" % q)
-                    except sqlite3.Error as e:
-                        errors.append("%s: table %s: %s" % (path, t, e))
-                        continue
-                cols = [d[0] for d in cur.description][1:]
-                for row in cur:
-                    for c, v in zip(cols, row[1:]):
-                        yield t, c, row[0], v
+                        cur = con.execute("SELECT rowid, * FROM %s" % q)
+                    except sqlite3.Error:
+                        try:
+                            cur = con.execute("SELECT NULL, * FROM %s" % q)
+                        except sqlite3.Error as e:
+                            # A virtual table whose module this python lacks (fts5, rtree): its
+                            # shadow tables hold the data and are read on their own.
+                            bad.append("table %s: %s" % (t, e))
+                            continue
+                    cols = [d[0] for d in cur.description][1:]
+                    for row in cur:
+                        for c, v in zip(cols, row[1:]):
+                            out.append((t, c, row[0], v))
+            finally:
+                con.close()
+            for b in bad:
+                errors.append("%s: %s" % (path, b))
+            return out
+        except FileNotFoundError as e:
+            if not os.path.exists(path):
+                raise  # the database itself is gone
+            last = e   # its -wal went away between the look and the copy: take the copy again
+        except (sqlite3.Error, OSError) as e:
+            last = e
         finally:
-            con.close()
-    except (sqlite3.Error, OSError) as e:
-        errors.append("%s: sqlite: %s" % (path, e))
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+            shutil.rmtree(tmp, ignore_errors=True)
+    errors.append("%s: sqlite: %s (three copies)" % (path, last))
+    return None
 
 
 def scan_file(path, needles, hits, stats, errors):
+    """Search one file. A file that is gone by the time it is read is skipped; one that cannot be searched
+    in full is named in stats["unsearched"], which makes the scan exit 2 rather than pass."""
     try:
         size = os.path.getsize(path)
-    except OSError as e:
-        errors.append("%s: %s" % (path, e))
-        return
-    if size > MAX_FILE:
-        errors.append("%s: %d bytes, larger than the scan limit; not read" % (path, size))
-        return
-    try:
+        if size > MAX_FILE:
+            errors.append("%s: %d bytes, larger than the scan limit; not read" % (path, size))
+            stats["unsearched"].append(path)
+            return
         with open(path, "rb") as f:
             data = f.read()
+    except FileNotFoundError:
+        return
     except OSError as e:
         errors.append("%s: %s" % (path, e))
+        stats["unsearched"].append(path)
         return
     stats["files"] += 1
     stats["bytes"] += len(data)
@@ -198,7 +228,14 @@ def scan_file(path, needles, hits, stats, errors):
             errors.append("%s: gzip: %s" % (path, e))
     if data[:16] == b"SQLite format 3\x00":
         stats["sqlite"] += 1
-        for table, col, rowid, v in sqlite_rows(path, errors):
+        try:
+            rows = sqlite_values(path, errors)
+        except FileNotFoundError:
+            rows = []  # removed while it was being copied; its bytes were searched above
+        if rows is None:
+            stats["unsearched"].append(path)
+            return
+        for table, col, rowid, v in rows:
             if isinstance(v, str):
                 v = v.encode("utf-8", "surrogateescape")
             if isinstance(v, (bytes, bytearray)) and v:
@@ -209,7 +246,7 @@ def cmd_scan(a):
     canaries = load_canaries(a.canaries)
     needles = needles_for(canaries)
     hits, errors = [], []
-    stats = {"files": 0, "bytes": 0, "sqlite": 0, "names": set()}
+    stats = {"files": 0, "bytes": 0, "sqlite": 0, "names": set(), "unsearched": []}
     for p in a.paths:
         if os.path.islink(p):
             continue
@@ -228,7 +265,7 @@ def cmd_scan(a):
     report = {
         "label": a.label, "paths": a.paths, "canaries": len(canaries), "needles": len(needles),
         "files": stats["files"], "bytes": stats["bytes"], "sqlite_databases": stats["sqlite"],
-        "hits": hits, "errors": errors, "expected_missing": missing,
+        "hits": hits, "errors": errors, "expected_missing": missing, "unsearched": stats["unsearched"],
     }
     if a.out:
         with open(a.out, "w") as f:
@@ -240,13 +277,18 @@ def cmd_scan(a):
             a.label, stats["files"], stats["bytes"], stats["sqlite"], ",".join(found) or "nothing",
             "; not found: " + ",".join(lacking) if lacking else ""))
         return 0 if not lacking and stats["files"] else 1
-    if stats["files"] == 0 or missing:
-        print("%s: nothing to scan%s" % (a.label, " (missing: %s)" % ",".join(missing) if missing else ""))
-        return 2
     if hits:
         where = sorted({h["where"] for h in hits})
         print("%s: %d hits of %s in %s" % (a.label, len(hits), ",".join(found), "; ".join(where[:6])))
         return 1
+    if stats["files"] == 0 or missing:
+        print("%s: nothing to scan%s" % (a.label, " (missing: %s)" % ",".join(missing) if missing else ""))
+        return 2
+    if stats["unsearched"]:
+        # Zero hits in what was read says nothing about what was not.
+        print("%s: not searched in full: %s (%s)" % (a.label, "; ".join(stats["unsearched"][:4]),
+                                                     "; ".join(errors[:4])))
+        return 2
     print("%s: 0 hits in %d files, %d bytes, %d databases (%d canaries, %d forms)%s" % (
         a.label, stats["files"], stats["bytes"], stats["sqlite"], len(canaries), len(needles),
         "; %d read errors, see %s" % (len(errors), a.out or "--out") if errors else ""))
@@ -266,6 +308,8 @@ def cmd_tap(a):
     import http.server
     import urllib.parse
 
+    # The record holds what the hub was sent, headers included; on a shared host it is this user's alone.
+    os.umask(0o077)
     up = urllib.parse.urlsplit(a.upstream)
     if up.scheme != "http" or not up.hostname:
         _fatal("tap: --upstream must be http://host:port")
@@ -439,25 +483,36 @@ def cmd_settle(a):
     if a.hub_db:
         hub = {"settled_rows": None, "columns": []}
         errors = []
-        tmp = tempfile.mkdtemp(prefix="canary-hubdb-")
-        try:
-            copy = os.path.join(tmp, "hub.db")
-            shutil.copyfile(a.hub_db, copy)
-            if os.path.isfile(a.hub_db + "-wal"):
-                shutil.copyfile(a.hub_db + "-wal", copy + "-wal")
-            con = sqlite3.connect(copy)
+        # A copy of a database in use may not open; it is taken again, as the scan does.
+        for attempt in range(3):
+            if attempt:
+                time.sleep(0.5)
+            errors, hub["columns"] = [], []
+            tmp = tempfile.mkdtemp(prefix="canary-hubdb-")
             try:
-                hub["settled_rows"] = con.execute("SELECT COUNT(*) FROM credit_settled").fetchone()[0]
-                for t in ("credit_settled", "credit_cleared", "credit_entry", "credit_redemption", "hub_owed"):
-                    for r in con.execute("SELECT name FROM pragma_table_info(?)", (t,)):
-                        if r[0] in _WORK_FIELDS:
-                            hub["columns"].append("%s.%s" % (t, r[0]))
+                copy = os.path.join(tmp, "hub.db")
+                shutil.copyfile(a.hub_db, copy)
+                if os.path.isfile(a.hub_db + "-wal"):
+                    shutil.copyfile(a.hub_db + "-wal", copy + "-wal")
+                con = sqlite3.connect(copy)
+                try:
+                    hub["settled_rows"] = con.execute("SELECT COUNT(*) FROM credit_settled").fetchone()[0]
+                    # Every ledger table, not a list of today's: a new one must not add a column
+                    # that names the work unseen.
+                    tables = [r[0] for r in con.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND "
+                        "(name LIKE 'credit%' OR name LIKE 'hub_%' OR name LIKE '%settle%' OR name LIKE '%x402%')")]
+                    for t in tables:
+                        for r in con.execute("SELECT name FROM pragma_table_info(?)", (t,)):
+                            if r[0] in _WORK_FIELDS:
+                                hub["columns"].append("%s.%s" % (t, r[0]))
+                finally:
+                    con.close()
+                break
+            except Exception as e:  # OSError, sqlite3.Error, or no sqlite3 module at all
+                errors.append(str(e))
             finally:
-                con.close()
-        except Exception as e:  # OSError, sqlite3.Error, or no sqlite3 module at all
-            errors.append(str(e))
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+                shutil.rmtree(tmp, ignore_errors=True)
         hub["errors"] = errors
         report["hub_db"] = hub
         if errors or not hub["settled_rows"] or hub["columns"]:
@@ -470,11 +525,45 @@ def cmd_settle(a):
         report["count"], report["succeeded"],
         "; hub settlement rows %s%s" % (hub["settled_rows"], ", work columns " + ",".join(hub["columns"])
                                         if hub["columns"] else "") if hub else "",
-        "; " + "; ".join(report["violations"][:4]) if report["violations"] else ""))
+        "; " + "; ".join(report["violations"][:4]) if report["violations"] else "") +
+        ("; hub.db not read: %s" % hub["errors"][-1] if hub and hub["errors"] else ""))
     return 0 if ok else 1
 
 
+# ── sqlite3 stand-in ─────────────────────────────────────────────
+
+def cmd_sqlite3(argv):
+    """sqlite3 DB [.timeout MS | SQL]…: what deploy/hub-db-roll.sh asks of the sqlite3 CLI."""
+    if not argv:
+        _fatal("sqlite3: usage: sqlite3 DB [.timeout MS | SQL]...")
+    if sqlite3 is None:
+        _fatal("sqlite3: python3 has no sqlite3 module")
+    # Autocommit, as the CLI runs each statement: VACUUM cannot run inside a transaction.
+    con = sqlite3.connect(argv[0], isolation_level=None, timeout=5)
+    try:
+        for arg in argv[1:]:
+            s = arg.strip()
+            if s.startswith("."):
+                parts = s.split()
+                if parts[0] == ".timeout" and len(parts) == 2 and parts[1].isdigit():
+                    con.execute("PRAGMA busy_timeout=%d" % int(parts[1]))
+                    continue
+                _fatal("sqlite3: this stand-in does not do %r" % s)
+            for row in con.execute(s):
+                print("|".join("" if v is None else v.decode("utf-8", "replace") if isinstance(v, bytes)
+                               else str(v) for v in row))
+    except sqlite3.Error as e:
+        sys.stderr.write("Error: %s\n" % e)
+        return 1
+    finally:
+        con.close()
+    return 0
+
+
 def main(argv):
+    # Not through argparse: an SQL argument is anything, and the CLI it stands in for takes no options here.
+    if argv[:1] == ["sqlite3"]:
+        return cmd_sqlite3(argv[1:])
     p = argparse.ArgumentParser(prog="canary.py", description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd")
     s = sub.add_parser("scan")

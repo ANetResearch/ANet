@@ -16,8 +16,9 @@
 #                      holds .joint-dir); each run replaces $J/bin and $J/run and, besides its marker and
 #                      lock, touches nothing else there.
 #   JOINT_BIN          directory with prebuilt anet, anetfixture, anetpeer, anet-hub and optionally
-#                      anet-hub-admin and anet-official (scripts/testnet/build.sh makes this set, in its
-#                      linux-<arch> directory; scripts/mutations/mutate.sh build makes a mutated one).
+#                      anet-hub-admin, anet-official and ANetHub's hub-db-roll.sh (scripts/testnet/build.sh
+#                      makes the binaries, in its linux-<arch> directory — copy deploy/hub-db-roll.sh in
+#                      beside them; scripts/mutations/mutate.sh build makes a mutated set with it).
 #                      They are copied into $J/bin. Unset: built here with go from this checkout and
 #                      HUB_SRC.
 #   HUB_SRC            ANetHub checkout to build from (default: ../ANetHub beside this repository)
@@ -27,10 +28,11 @@
 #                      section C counts its absence as a failure: its data and API are part of SI-1)
 #   JOINT_CANARY       0 = skip section C, the SI-1 canary (run by default)
 #   JOINT_CANARY_ONLY  1 = stop after section C (what scripts/mutations/mutate.sh runs)
-#   JOINT_HUB_ROLL     the hub's backup script, run once in section C to put a backup into the hub's
-#                      data directory before it is searched (default: deploy/hub-db-roll.sh of HUB_SRC,
-#                      or of ../ANetHub). Needs the sqlite3 CLI; without either the backup is not made
-#                      and the run says so.
+#   JOINT_HUB_ROLL     the hub's backup script, run once in section C (after the first search, since
+#                      it truncates the WAL) to put a backup into the hub's data directory, which is then
+#                      searched again (default: hub-db-roll.sh in JOINT_BIN, else deploy/hub-db-roll.sh of
+#                      HUB_SRC or ../ANetHub). Where the sqlite3 CLI it uses is not installed, canary.py
+#                      stands in for it. Without the script the backup is not made and the run says so.
 #   JOINT_DEVICES      0 = no device chain: anetlink is not configured and 1/11 is skipped;
 #                      1 = the device chain is required; unset = used when it is reachable
 #   JOINT_MOCK         ANetMock API address (default 127.0.0.1:29080)
@@ -63,10 +65,11 @@
 # public_capabilities, as deploy/official ships it) — reach the hub through a recording tap
 # (scripts/canary.py) and exchange a prose goal, chat turns, attachments both ways, a capability call,
 # a paid call settled at the hub and a call to the official agent, each carrying its own random
-# canary. After two admin harvest/snapshot periods (and a hub backup), the hub's data directory, the
-# admin's, the tap's record of everything the hub was sent and answered, the hub's and the admin's
+# canary. After two admin harvest/snapshot periods, the hub's data directory (WAL as the run left it),
+# the admin's, the tap's record of everything the hub was sent and answered, the hub's and the admin's
 # HTTP responses (/agents/{aid}, /fed/v1/reviews, /api/sessions*, …) and their logs are searched for
-# the canaries as raw bytes, hex and base64 (every alignment): no hit may be found. The same search over
+# the canaries as raw bytes, hex and base64 (every alignment): no hit may be found; then the hub's
+# weekly backup is taken (deploy/hub-db-roll.sh) and its data directory searched again. The same search over
 # the recipients' own data must find them (so the search can see what it looks for), the recipients
 # must read each canary back, every /x402/settle body must carry no resource, description or extra, and
 # the admin's removed official-agent routes must answer 404. The search runs again at the end of the
@@ -525,7 +528,11 @@ PY
   CHAT=$(canary_new "$CANARIES" chat);          DONE=$(canary_new "$CANARIES" answer)
   ARG=$(canary_new "$CANARIES" capability-args); PAY=$(canary_new "$CANARIES" paid-args)
   OFFA=$(canary_new "$CANARIES" official-args)
-  [ -n "$G" ] && [ -n "$OFFA" ] || { no "no canaries minted"; return 1; }
+  # Every one, not the first and the last: an empty canary is a piece of content with nothing to find,
+  # and grep -F "" matches any thread, so its read-back would pass as well.
+  for b in "$G" "$ATT1" "$ASK" "$ATT2" "$CHAT" "$DONE" "$ARG" "$PAY" "$OFFA"; do
+    [ -n "$b" ] || { no "a canary was not minted ($(wc -l < "$CANARIES") of 9 in $CANARIES)"; return 1; }
+  done
   CANARY_RAN=1
   # Attachments: the canary between random bytes, as content sits in a binary file.
   python3 - "$CAN/files/report.bin" "$ATT1" "$CAN/files/figure.bin" "$ATT2" <<'PY'
@@ -597,35 +604,72 @@ except Exception:
     && ok "its backend logged the call, with the requester as caller, and not the arguments (A2A-DESIGN §15)" \
     || no "the official backend's log: $(tail -1 "$CAN/off-backend.log" | head -c 200)"
 
-  # Two harvest and snapshot periods of the admin (2 s each), one harvest asked for outright; then a
-  # backup of the hub, as its weekly roll takes one, into the directory that is searched.
+  # Two harvest and snapshot periods of the admin (2 s each), one harvest asked for outright. The hub's
+  # backup is taken after the first search (canary_backup): the backup script checkpoints and truncates
+  # the WAL, and the WAL as the run left it is one of the things searched.
   if [ "$HAVE_ADMIN" = 1 ]; then
     code=$(admin_call POST /harvest '{}')
     [ "$code" = 200 ] || no "POST /admin/api/harvest answered $code"
   fi
   sleep 5
-  local roll=${JOINT_HUB_ROLL:-}
-  if [ -z "$roll" ]; then
-    for b in "${HUB_SRC:-}" "$ROOT/../ANetHub"; do
-      [ -n "$b" ] && [ -f "$b/deploy/hub-db-roll.sh" ] && { roll=$b/deploy/hub-db-roll.sh; break; }
-    done
-  fi
-  if [ -n "$roll" ] && command -v sqlite3 >/dev/null; then
-    if HUB_DATA_DIR="$RUN/hub" FORCE_WEEKLY=1 bash "$roll" >"$CAN/roll.log" 2>&1 \
-       && ls "$RUN/hub"/hub-backup-*.db >/dev/null 2>&1; then
-      ok "the hub's weekly backup was taken into its data directory ($(cd "$RUN/hub" && ls hub-backup-*.db | head -1))"
-    else
-      no "the hub backup (hub-db-roll.sh) failed: $(tail -2 "$CAN/roll.log")"
-    fi
-  else
-    note "no hub backup taken (it needs deploy/hub-db-roll.sh — JOINT_HUB_ROLL, or an ANetHub checkout — and the sqlite3 CLI); a backup is not among what is searched"
-  fi
+
+  # The content went through the tap: the canary nodes' envelopes were sent and fetched there. Without
+  # this, a node that reached the hub some other way would leave the tap's record empty of content, and
+  # its search would pass for having found nothing.
+  R=$(python3 - "$CAN/tap/index.jsonl" <<'PY'
+import collections, json, sys
+n = collections.Counter()
+try:
+    for line in open(sys.argv[1]):
+        e = json.loads(line)
+        if 200 <= e.get("status", 0) < 300:
+            n[e.get("method", "") + " " + e.get("path", "").split("?", 1)[0]] += 1
+except (OSError, ValueError):
+    pass
+print(n["POST /relay/send"], n["POST /relay/ack"], n["POST /x402/settle"])
+PY
+)
+  read -r c1 c2 c3 <<<"$R"
+  [ "${c1:-0}" -ge 4 ] && [ "${c2:-0}" -ge 1 ] && [ "${c3:-0}" -ge 1 ] \
+    && ok "the canary nodes' traffic went through the tap: $c1 envelopes sent, $c2 acknowledged after a poll, $c3 settled" \
+    || no "the tap did not see the canary nodes' traffic (relay/send ${c1:-0}, relay/ack ${c2:-0}, x402/settle ${c3:-0}; want 4+, 1+, 1+): its search would prove nothing"
 
   # What reached the hub's facilitator for the paid call (SI-1, X4): nothing about the work.
   R=$(canary_settle "$CAN/tap" "$CAN/settle.json" "$RUN/hub/hub.db" 2>&1) \
     && ok "every /x402/settle body carries no resource, description or extra, nor anything outside x402 v2 — $R" \
     || no "the settlement the hub saw — $R (details: $CAN/settle.json)"
   return 0
+}
+
+# canary_backup — the hub's weekly backup, taken the way production takes it (ANetHub
+# deploy/hub-db-roll.sh, FORCE_WEEKLY=1) into the hub's data directory, and searched. Where the sqlite3
+# CLI the script needs is not installed (docs/notes/0015 §2: only dmax has it), canary.py stands in for it
+# on the script's PATH, on python3's own SQLite.
+canary_backup(){
+  local roll=${JOINT_HUB_ROLL:-} b sq=""
+  if [ -z "$roll" ]; then
+    for b in "$BIN/hub-db-roll.sh" "$ROOT/../ANetHub/deploy/hub-db-roll.sh"; do
+      [ -f "$b" ] && { roll=$b; break; }
+    done
+  fi
+  if [ -z "$roll" ]; then
+    note "no hub backup taken: no hub-db-roll.sh (put ANetHub's deploy/hub-db-roll.sh in JOINT_BIN, or set JOINT_HUB_ROLL); a backup is not among what is searched"
+    return 0
+  fi
+  if ! command -v sqlite3 >/dev/null; then
+    mkdir -p "$BIN/sqlite3-standin"
+    printf '#!/bin/sh\nexec python3 %q sqlite3 "$@"\n' "$BIN/canary.py" > "$BIN/sqlite3-standin/sqlite3"
+    chmod 700 "$BIN/sqlite3-standin/sqlite3"
+    sq=" (no sqlite3 CLI here: canary.py stood in for it)"
+  fi
+  rm -f "$RUN/hub"/hub-backup-*.db
+  if PATH="${sq:+$BIN/sqlite3-standin:}$PATH" HUB_DATA_DIR="$RUN/hub" FORCE_WEEKLY=1 bash "$roll" >"$CAN/roll.log" 2>&1 \
+     && b=$(cd "$RUN/hub" && ls hub-backup-*.db 2>/dev/null | head -1) && [ -n "$b" ]; then
+    ok "the hub's weekly backup was taken into its data directory ($b)$sq"
+    surface "$1" backup "the hub's backup ($b) and its data directory after the roll" --expect "$b" --expect hub.db "$RUN/hub"
+  else
+    no "the hub backup (hub-db-roll.sh$sq) failed: $(tail -2 "$CAN/roll.log")"
+  fi
 }
 
 # canary_sweep <phase> [controls] — fetch the hub's and the admin's HTTP answers, then search every
@@ -654,7 +698,10 @@ sys.exit(0 if (json.load(open(sys.argv[1])).get("reviews") or []) else 1)' "$d/f
     && ok "the hub's review stream (/fed/v1/reviews) answers and carries the review" \
     || no "the hub's review stream answered $code without the review: $(head -c 160 "$d/fed-reviews.body" 2>/dev/null)"
   if [ "${HAVE_ADMIN:-0}" = 1 ]; then
-    for p in /overview /agents /official /capabilities /store /sessions /reviews /audit /deleted; do
+    # /discover and /vision included: their vector-search client points at this run's dead address
+    # (DEAD_ADDR), so they answer from the lexical fallback and reach nothing outside the run.
+    for p in /overview /agents /official /capabilities /store /sessions /reviews /audit /deleted \
+             '/discover?task=echo' /vision; do
       n=$((n + 1)); printf '%s admin%s\n' "$(fetch_to "$d/admin-$n.body" "http://$ADMIN_ADDR/admin/api$p" admin)" "$p" >> "$d/index.txt"
     done
     for aid in "$REQ_AID" "$PROV_AID" "$STR_AID" "${CR_AID:-}" "${CP_AID:-}" "${OFF_AID:-}"; do
@@ -677,6 +724,27 @@ for r in rows:
     q = lambda s: urllib.parse.quote(str(s or ""), safe="")
     print(q(r.get("source")) + "\t" + q(r.get("session_id")))' "$d/admin-sessions.json")
   fi
+
+  # The answers searched must be answers: a hub or an admin that is down, or refuses, leaves empty or
+  # error bodies, and those hold no canary either. /agents/{aid} of the canary nodes and the admin's
+  # session index are the surfaces SI-1 names; they must have answered 200.
+  local want=()
+  for aid in "${CR_AID:-}" "${CP_AID:-}" "${OFF_AID:-}"; do [ -n "$aid" ] && want+=("/agents/$aid"); done
+  [ "${HAVE_ADMIN:-0}" = 1 ] && want+=(admin/overview admin/agents admin/official admin/sessions)
+  p=$(python3 - "$d/index.txt" "${want[@]}" <<'PY'
+import sys
+got = {}
+try:
+    for line in open(sys.argv[1]):
+        code, _, path = line.rstrip("\n").partition(" ")
+        got[path] = code
+except OSError:
+    pass
+print(" ".join("%s=%s" % (w, got.get(w, "none")) for w in sys.argv[2:] if got.get(w) != "200"))
+PY
+)
+  [ -z "$p" ] && ok "the hub and the admin answered what is searched (${#want[@]} required answers 200)" \
+    || no "answers missing from the search, so its zero hits would not cover them: $p"
 
   surface "$ph" hubdir "hub data directory (hub.db, WAL, backups, federation.db)" --expect hub.db "$RUN/hub"
   if [ "${HAVE_ADMIN:-0}" = 1 ]; then
@@ -711,6 +779,8 @@ if [ -n "${JOINT_BIN:-}" ]; then
     [ -x "$SRC/$b" ] || continue
     cp "$SRC/$b" "$BIN/$b" || die "cannot copy $SRC/$b into $BIN"
   done
+  # The hub's backup script, for section C (scripts/mutations/mutate.sh build puts it there).
+  if [ -f "$SRC/hub-db-roll.sh" ]; then cp "$SRC/hub-db-roll.sh" "$BIN/" || die "cannot copy $SRC/hub-db-roll.sh"; fi
   echo "  binaries: $SRC"
 else
   command -v go >/dev/null || die "go is not on PATH; build elsewhere (scripts/testnet/build.sh) and pass JOINT_BIN"
@@ -741,6 +811,7 @@ else
   if [ -d "$ROOT/cmd/anet-official" ]; then
     go build -C "$ROOT" -o "$BIN/anet-official" ./cmd/anet-official || die "build anet-official failed"
   fi
+  if [ -f "$HUB_SRC/deploy/hub-db-roll.sh" ]; then cp "$HUB_SRC/deploy/hub-db-roll.sh" "$BIN/" || die "cannot copy hub-db-roll.sh"; fi
 fi
 FIX=$BIN/anetfixture
 # The canary tooling runs from $BIN as well: the tap is a long-running process, and stop_under finds a
@@ -788,6 +859,7 @@ CRC=127.0.0.1:$((PORT_BASE + 6)); CPC=127.0.0.1:$((PORT_BASE + 7)); OFC=127.0.0.
 OFF_BACK=127.0.0.1:$((PORT_BASE + 9)); CP_BACK=127.0.0.1:$((PORT_BASE + 10))
 HUB2_ADDR=127.0.0.1:$((PORT_BASE + 11)); DEAD_ADDR=127.0.0.1:$((PORT_BASE + 12))
 CR=$RUN/cr; CP=$RUN/cp; OFF=$RUN/off; CAN=$RUN/canary; CANARIES=$CAN/canaries.tsv
+CANARY_TMP=$RUN/tmp; mkdir -p "$CANARY_TMP"   # canary.py's database copies; nothing searches it
 CANARY=${JOINT_CANARY:-1}
 echo "  ports:    $PORT_BASE-$((PORT_BASE + 15))   work dir: $J"
 
@@ -923,7 +995,7 @@ printf '  requester %s\n  provider  %s\n  stranger  %s\n  org       %s\n' "$REQ_
 if [ "$CANARY" != 0 ]; then
   hd "C  SI-1 canary — the hub and its admin never hold task content"
   canary_flow
-  [ "$CANARY_RAN" = 1 ] && canary_sweep c controls
+  if [ "$CANARY_RAN" = 1 ]; then canary_sweep c controls; canary_backup c; fi
   if [ "${JOINT_CANARY_ONLY:-0}" = 1 ]; then
     printf '\n\033[1m── %d passed, %d failed (JOINT_CANARY_ONLY=1: sections 1-11 not run) ──\033[0m   logs: %s\n' \
       "$pass" "$fail" "$RUN"
