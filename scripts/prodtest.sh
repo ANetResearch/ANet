@@ -342,20 +342,31 @@ done
 # the file the daemon reads on every decision (the CLI's `anet peers allow`
 # asks for confirmation on a terminal). This changes the production nodes'
 # allow lists; the run as a whole needs the product owner's approval.
-allow_on(){ # allow_on <node> <aid>
-  local host home
+#
+# peers.trust is the second list, for the exec auto-reply (§6): only a
+# peer on it may make the node start its local coding agent. Section 9s
+# adds ink93 to cmax's when cmax runs an exec backend.
+list_on(){ # list_on <node> <peers.allow|peers.trust> <aid>
+  # An AID is a CID string. Anything else is refused before it goes into a
+  # list file, or into a command run on another machine.
+  case $3 in ''|*[!A-Za-z0-9]*) return 1 ;; esac
+  # New files 0600, as the daemon writes them; a last line without its
+  # newline would glue onto the appended AID, so one is added first.
+  local add="umask 077; touch \$f; [ -z \"\$(tail -c1 \$f)\" ] || echo >> \$f; grep -qxF $3 \$f || echo $3 >> \$f"
   case $1 in
-    cmax) host=$CMAX_HOST; home=$CMAX_HOME ;;
-    dmax) host=$DMAX_HOST; home=$DMAX_HOME ;;
-    ink93) f="$INK_HOME/.anet/peers.allow"; touch "$f"; grep -qxF "$2" "$f" || echo "$2" >> "$f"; return ;;
-    *) return 0 ;;
+    cmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 "$CMAX_HOST" \
+             "f=$CMAX_HOME/.anet/$2; $add" ;;
+    dmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 "$DMAX_HOST" \
+             "f=$DMAX_HOME/.anet/$2; $add" ;;
+    ink93) f="$INK_HOME/.anet/$2" sh -c "$add" ;;
   esac
-  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 "$host" \
-    "f=$home/.anet/peers.allow; touch \$f; grep -qxF '$2' \$f || echo '$2' >> \$f"
 }
+allow_on(){ list_on "$1" peers.allow "$2"; } # allow_on <node> <aid>
 if has cmax && [ -n "$INK_AID" ]; then allow_on cmax "$INK_AID"; fi
 if has dmax && [ -n "$CMAX_AID" ]; then allow_on dmax "$CMAX_AID"; fi
 if has dmax && [ -n "$INK_AID" ]; then allow_on dmax "$INK_AID"; fi
+# 9r has cmax call ink93's task.board capability.
+if has ink93 && [ -n "$CMAX_AID" ]; then allow_on ink93 "$CMAX_AID"; fi
 
 # Registered means the hub can serve your key history to a stranger.
 for pair in "cmax:$CMAX_AID:e" "ink93:$INK_AID:e" "dmax:$DMAX_AID:f"; do
@@ -824,33 +835,48 @@ else
 fi
 
 # ── 9f. redemptions are listed where the agent can find them ────
-hd "9f 兑付记录查得到"
+hd "9f 兑付记录查得到:经 dmax 自己的控制面,明细不对陌生人公开"
+# 账户的余额、流水与兑付列表只给账户本人:读取须由路径里的 AID 以 relayauth
+# v2 签名,不签名得 401(A2A-DESIGN §3.7)。所以这一节不再从 fmax 匿名读
+# /agents/{aid}/redemptions,而是经 dmax 的控制面 —— 它的 daemon 替它签名读取,
+# 这也正是 agent 自己找这条记录的路。
+#
+# 按数量判断这件事成没成是数不出来的,而且它掩盖过一次真问题:列表是分页的,
+# 一个做过 100 次以上兑付的账户,新记录进来就把最旧的挤出去,长度恒等于上限。
+# 所以这里按这一笔兑付自己的结算号(hub 把它写成流水条目的 reason)去找,
+# 以及按唯一的 reference 在 dmax 自己的证据链上找,都不数条数。
 if ! has dmax; then
   sk "要 dmax 的控制面"
 else
-  # 按数量判断这件事成没成是数不出来的,而且它掩盖过一次真问题:兑付列表是
-  # 分页的,一个做过 100 次以上兑付的账户,新记录进来就把最旧的挤出去,长度
-  # 恒等于上限。上一版据此断言"数量增加",于是它永远红,而紧接着"金额与
-  # reference 对得上"却绿 —— 那条匹配到的是上一轮留下的同名记录。
-  #
-  # 现在用一个唯一的 reference,并对着 total(覆盖整个账户,不受分页影响)判断。
   REF="prodtest-list-$(date +%s)"
-  before=$(viafmax "/agents/$DMAX_AID/redemptions" | jq_ "print(d.get('total', -1))")
-  ctl dmax /redeem "{\"amount\":3,\"reference\":\"$REF\"}" >/dev/null 2>&1
-  after=-1
-  for _ in $(seq 1 30); do
-    lst=$(viafmax "/agents/$DMAX_AID/redemptions")
-    after=$(echo "$lst" | jq_ "print(d.get('total', -1))")
-    [ "${after:--1}" -gt "${before:--1}" ] && break
-    sleep 2
-  done
-  [ "${after:--1}" -gt "${before:--1}" ] \
-    && ok "兑付计入了账户总数($before → $after)" || no "兑付没有计入总数($before → $after)"
-  match=$(echo "$lst" | jq_ "
-r=[x for x in (d.get('redemptions') or []) if x.get('reference')=='$REF']
-print('ok' if r and r[0].get('amount')==3 and r[0].get('aid') else 'bad')")
-  [ "$match" = ok ] \
-    && ok "列表里的金额与 reference 与刚才兑付的一致" || no "列表内容对不上"
+  rd=$(ctl dmax /redeem "{\"amount\":3,\"reference\":\"$REF\"}")
+  RAID=$(echo "$rd" | jq_ "print(d.get('auth_id',''))")
+  if [ -z "$RAID" ]; then
+    no "兑付没有成交:$(printf '%s' "$rd" | head -c 160)"
+  else
+    [ "$(echo "$rd" | jq_ "print(d.get('verified',''))")" = True ] \
+      && ok "兑付成交,hub 为取走的 3 签了收据,dmax 验过" \
+      || no "兑付收据没有验过:$(printf '%s' "$rd" | head -c 160)"
+    hit=""
+    for _ in $(seq 1 15); do
+      hit=$(ctl dmax /balance '{}' | jq_ "
+e=[x for x in (d.get('entries') or []) if x.get('reason')=='$RAID']
+print(e[0].get('delta','') if e else '')")
+      [ -n "$hit" ] && break
+      sleep 2
+    done
+    [ "$hit" = -3 ] && ok "dmax 经自己的控制面(签名读取)在 hub 流水里查到这笔 -3" \
+      || no "dmax 的控制面读不到这笔兑付的流水(得到 '${hit}';/balance 是否已改为签名读取?)"
+    ev=$(ctl dmax /evidence '{"event_type":"anet.credit.redeemed","limit":50}' | jq_ "
+r=[x for x in (d.get('records') or []) if (x.get('payload') or {}).get('reference')=='$REF']
+print('ok' if r else '')")
+    [ "$ev" = ok ] && ok "dmax 自己的证据链上有这笔兑付,reference 对得上" \
+      || no "dmax 的证据链上找不到 reference=$REF 的兑付"
+  fi
+  code=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST \
+    "curl -s -o /dev/null -w '%{http_code}' -m 20 '$FMAX_HUB/agents/$DMAX_AID/redemptions'")
+  [ "$code" = 401 ] && ok "不带签名读兑付列表得 401 —— 明细只给账户本人" \
+    || no "匿名读兑付列表得 $code,应为 401"
 fi
 
 # ── 9g. the modules that carry caller-signed objects ────────────
@@ -1144,61 +1170,59 @@ elif ! command -v python3 >/dev/null 2>&1; then
   sk "要 python3 来驱动 stdio 协议"
 else
   MCP="python3 $(dirname "$0")/mcpcall.py $INK_BIN"
+  # Tool and argument names come from mcpcall.py, which knows both
+  # generations (A2A-DESIGN §12 renamed the tools after A2A's concepts):
+  # `op` picks the tool for the generation this binary serves and answers
+  # in one normalised shape, so this section does not change when the
+  # names do.
 
   tools=$(HOME=$INK_HOME $MCP list 2>&1)
   n=$(echo "$tools" | jq_ "print(len(d.get('tools') or []))")
-  [ "${n:-0}" -ge 9 ] \
-    && ok "MCP 服务器起来了,报出 $n 个工具" \
-    || no "MCP 工具面不完整(${n:-0} 个):$(printf '%s' "$tools" | head -2 | tr '\n' ' ')"
+  gen=$(echo "$tools" | jq_ "print(d.get('generation',''))")
+  miss=$(echo "$tools" | jq_ "print(' '.join(d.get('missing') or []))")
+  if [ -z "$gen" ] || [ "$gen" = "?" ]; then
+    no "MCP 工具面认不出是哪一代工具名(${n:-0} 个):$(printf '%s' "$tools" | head -2 | tr '\n' ' ')"
+  elif [ -n "$miss" ]; then
+    no "MCP 工具面不完整($gen 代,缺:$miss)"
+  else
+    ok "MCP 服务器起来了,报出 $n 个工具($gen 代,齐全)"
+  fi
 
-  st=$(HOME=$INK_HOME $MCP call node_status '{}' 2>&1)
+  st=$(HOME=$INK_HOME $MCP op status '{}' 2>&1)
   case "$st" in
     *"$EMAX_HUB"*) ok "node_status 经 MCP 报出真实 hub 地址";;
     *) no "node_status 没报出 hub:$(printf '%s' "$st" | head -c 160)";;
   esac
 
-  fnd=$(HOME=$INK_HOME $MCP call agents_find '{"capability":"text.digest"}' 2>&1)
+  fnd=$(HOME=$INK_HOME $MCP op find '{"capability":"text.digest"}' 2>&1)
   case "$fnd" in
-    *"$CMAX_AID"*) ok "agents_find 经 MCP 在生产 hub 上找到了 cmax";;
-    *) no "agents_find 没找到 cmax:$(printf '%s' "$fnd" | head -c 160)";;
+    *"$CMAX_AID"*) ok "经 MCP 按能力在生产 hub 上找到了 cmax($(echo "$fnd" | jq_ "print(d.get('tool',''))"))";;
+    *) no "经 MCP 按能力没找到 cmax:$(printf '%s' "$fnd" | head -c 160)";;
   esac
 
-  dl=$(HOME=$INK_HOME $MCP call task_delegate \
-    "{\"provider\":\"$CMAX_AID\",\"capability\":\"text.digest\",\"args\":{\"text\":\"prodtest mcp\"}}" 2>&1)
-  mix=$(echo "$dl" | python3 -c "
-import sys,json
-try: print(json.loads(json.loads(sys.stdin.read())['text']).get('interaction_id',''))
-except Exception: print('')")
+  dl=$(HOME=$INK_HOME $MCP op send \
+    "{\"agent\":\"$CMAX_AID\",\"capability\":\"text.digest\",\"args\":{\"text\":\"prodtest mcp\"}}" 2>&1)
+  mix=$(echo "$dl" | jq_ "print(d.get('task_id',''))")
   if [ -z "$mix" ]; then
-    no "task_delegate 经 MCP 没有排上队:$(printf '%s' "$dl" | head -c 200)"
+    no "经 MCP 的能力调用没有排上队:$(printf '%s' "$dl" | head -c 200)"
   else
-    ok "task_delegate 经 MCP 排上了 ${mix:0:14}…"
-    got=""
+    ok "经 MCP 的能力调用排上了 ${mix:0:14}…($(echo "$dl" | jq_ "print(d.get('tool',''))"))"
+    got=$(echo "$dl" | jq_ "print('y' if d.get('done') else '')")
+    rr=$dl
     for _ in $(seq 1 20); do
-      rr=$(HOME=$INK_HOME $MCP call task_results '{}' 2>&1)
-      got=$(echo "$rr" | python3 -c "
-import sys,json
-try: d=json.loads(json.loads(sys.stdin.read())['text'])
-except Exception: raise SystemExit
-for r in d.get('results') or []:
-    if r.get('interaction_id')=='$mix':
-        print(json.dumps({'status':'OK' if '\"status\":\"OK\"' in (r.get('result') or '') else '?',
-                          'receipt':bool(r.get('receipt_cid'))}))
-        break")
       [ -n "$got" ] && break
       sleep 5
+      rr=$(HOME=$INK_HOME $MCP op result "{\"task\":\"$mix\"}" 2>&1)
+      got=$(echo "$rr" | jq_ "print('y' if d.get('done') else '')")
     done
     if [ -z "$got" ]; then
-      no "task_results 经 MCP 没等到结果"
+      no "经 MCP 没等到结果"
     else
-      case "$got" in
-        *'"status": "OK"'*) ok "task_results 经 MCP 取回了 OK 的结果";;
-        *) no "结果状态不是 OK:$got";;
-      esac
-      case "$got" in
-        *'"receipt": true'*) ok "MCP 取回的结果带 receipt CID —— 证据面没有在这条路上丢失";;
-        *) no "MCP 取回的结果没有 receipt CID";;
-      esac
+      es=$(echo "$rr" | jq_ "print(d.get('effect_status',''))")
+      [ "$es" = OK ] && ok "经 MCP 取回了 OK 的结果" || no "结果的效果状态不是 OK:$(printf '%s' "$rr" | head -c 200)"
+      [ "$(echo "$rr" | jq_ "print('y' if d.get('receipt') else '')")" = y ] \
+        && ok "MCP 取回的结果带 receipt —— 证据面没有在这条路上丢失" \
+        || no "MCP 取回的结果没有 receipt"
     fi
   fi
 fi
@@ -1336,9 +1360,12 @@ done
 
 # ── 9n. p2p delivers between two machines, for real ─────────────
 hd "9n p2p:两台机器之间真的直连投递一次"
-# anetpeer's log line for a carried envelope is "delivered"; the frame no
-# longer says what kind of message is inside (the envelope is sealed), so
-# the count is of deliveries of any kind.
+# anetpeer's log line for a carried envelope is "anetpeer: delivered <n>
+# envelope bytes → <aid>" (the wire-1 line, "anetpeer: delivered delegate
+# …", matches the same prefix); the frame no longer says what kind of
+# message is inside (the envelope is sealed), so the count is of
+# deliveries of any kind. The prefix, not the bare word, so an error line
+# that happens to quote "delivered" is not counted as one.
 # The transport shipped able to carry traffic between machines and was
 # never configured on any production node — only the rendezvous directory
 # was checked. A transport nothing has ever delivered over is a claim.
@@ -1369,7 +1396,7 @@ else
 
   # And a delegation that actually goes over the wire.
   before=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
-    "grep -c 'delivered' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
+    "grep -c 'anetpeer: delivered ' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
   out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
     "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
      --capability text.stats --args '{\"text\":\"prodtest p2p\"}'" 2>&1)
@@ -1379,7 +1406,7 @@ else
   else
     for _ in 1 2 3 4 5 6; do
       after=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
-        "grep -c 'delivered' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
+        "grep -c 'anetpeer: delivered ' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
       [ "${after:-0}" -gt "${before:-0}" ] && break
       sleep 5
     done
@@ -1742,8 +1769,15 @@ for x in d.get('results') or []:
   esac
 fi
 
+# The hub's board is an additive build tag from wire 2 (`-tags taskboard`,
+# A2A-DESIGN §9): a public board stores content on the hub and shows it to
+# anyone, so a hub built without it answers 404 here. That is a hub that
+# does not carry the board, not a broken one.
+tbcode=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$EMAX_HUB/tasks/board")
 if [ ! -x "$FIXTURE" ]; then
   sk "taskboard 检查需要 anetfixture"
+elif [ "$tbcode" = 404 ]; then
+  sk "emax hub 没有编入 taskboard(加法 tag),跳过看板流转"
 else
   r=$(tbpost create '{"title":"prodtest card","column":"backlog","taskdoc_cid":"bafyreiez5ziuzobff7qdlcklemjevbwu43sxakol3gydk7ifushu7t4i3u"}')
   CARD=$(echo "$r" | jq_ "print((d.get('card') or {}).get('id',''))")
@@ -1804,6 +1838,18 @@ ar=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=
 case "$ar" in
   *backend*) ok "cmax 配了自动回复后端";;
   *) sk "cmax 未配自动回复(需要模型凭据)"; ar="";;
+esac
+# An exec backend starts cmax's local coding agent, and does so only for
+# a peer on cmax's peers.trust (A2A-DESIGN §6); for anyone else it stays
+# silent unless auto_reply.untrusted=sandbox. ink93 is the operator's own
+# workstation, so it goes on the list. An openai backend runs no local
+# program and needs no trust.
+case "$ar" in
+  *'"backend": "exec"'*)
+    case "$ar" in
+      *'"untrusted": "sandbox"'*) ;;
+      *) if has ink93 && [ -n "$INK_AID" ]; then list_on cmax peers.trust "$INK_AID"; fi;;
+    esac;;
 esac
 if [ -n "$ar" ]; then
   # The backend answers at all, checked without touching the hub. A
