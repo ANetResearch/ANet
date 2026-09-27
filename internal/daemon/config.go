@@ -58,6 +58,9 @@ type Config struct {
 	// call my API → message back" loop lives in the daemon, driven purely by this config block.
 	// Requires a daemon restart to take effect. See autoreply.go.
 	AutoReply *AutoReplyConfig `json:"auto_reply,omitempty"`
+	// Payments is the spending policy (A2A-DESIGN §8.6; spend.go). A config
+	// without the block gets the defaults of PaymentsConfig.limits.
+	Payments *PaymentsConfig `json:"payments,omitempty"`
 	// RotationGrace is how long after a peer's key rotation a message
 	// signed by its previous key, and time-stamped before the rotation, is
 	// still accepted (A2A-DESIGN §3.6 step 7). A Go duration such as "1h";

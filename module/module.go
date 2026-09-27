@@ -368,7 +368,36 @@ type PaymentSeam interface {
 	// second persistence layer holding the same facts, which is how two
 	// records of one event start disagreeing.
 	ReadEvidence(eventType string, limit int) []map[string]any
+
+	// AdmitSpend is the node's spending policy (A2A-DESIGN §8.6): may this
+	// node sign a payment of amount to payTo for purpose? nil means yes,
+	// and the spend is counted against the daily totals before this
+	// returns; an error says no and counts nothing.
+	//
+	// Added because the payment module is the one place every signature
+	// over money passes through (Authorize, and Redeem through it), while
+	// the limits, the payee list and the per-purpose daily totals are the
+	// operator's policy, which the kernel owns and the control plane edits.
+	// Keeping the policy in the module would give the node two places that
+	// decide how much it may spend, and a module that can sign and also
+	// decides its own limits is a module that has no limits. So the module
+	// asks, and signs only on a yes.
+	//
+	// purpose is one of task-auto, task-agent, task-manual, gateway and
+	// redeem; the kernel refuses any other.
+	AdmitSpend(payTo string, amount uint64, purpose string) error
 }
+
+// Spending purposes: the tiers of A2A-DESIGN §8.6, named by the surface a
+// payment was asked for on. The control-plane route decides the purpose,
+// never the caller's own say-so.
+const (
+	PurposeTaskAuto   = "task-auto"   // the daemon paying a quote on its own, within auto_max
+	PurposeTaskAgent  = "task-agent"  // POST /tasks/pay: MCP submit_payment, a local A2A client
+	PurposeTaskManual = "task-manual" // POST /tasks/pay-manual: `anet pay` after a terminal confirmation
+	PurposeGateway    = "gateway"     // /x402-authorize, /delegate pay:true
+	PurposeRedeem     = "redeem"      // /redeem: credit given back to the hub
+)
 
 // Module is an optional daemon subsystem.
 type Module interface {
@@ -416,12 +445,39 @@ type Payer interface {
 	// Quote builds the PAYMENT_REQUIRED body for a priced capability.
 	Quote(capID string, price uint64) *payment.PaymentRequired
 	// Authorize signs a payment for one interaction and returns the
-	// marshalled payload, ready to ride with a delegation. The kernel
-	// drives the delegation; this signs the money.
-	Authorize(opt payment.PaymentOption, interactionID string) ([]byte, error)
-	// Settle presents a payment to the facilitator and reports what
-	// happened, including the hub's signed receipt when it sent one.
-	Settle(ctx context.Context, raw []byte) (Settlement, error)
+	// marshalled x402 PaymentPayload. The kernel drives the task; this
+	// signs the money.
+	//
+	// ix is the interaction the payment is for and bind is what the
+	// authorization's InteractionID carries: pay_bind(ix, task_nonce) for a
+	// task payment (A2A-DESIGN §2 X4), so the hub, which sees the binding,
+	// cannot read the interaction id from it. purpose names the spending
+	// tier (§8.6); the module asks PaymentSeam.AdmitSpend before it signs
+	// and records ix, bind and purpose on the anet.payment.authorized
+	// event, from which the kernel rebuilds its daily totals at start.
+	Authorize(opt payment.PaymentOption, ix, bind, purpose string) ([]byte, error)
+	// Settle presents a payment to the facilitator together with the terms
+	// it is checked against (x402 v2 paymentRequirements, which an anet hub
+	// requires) and reports what happened, including the hub's signed
+	// receipt when it sent one. An error means the outcome is not known (the
+	// hub could not be reached or answered unreadably); the caller retries
+	// with the same payload, which the hub settles at most once.
+	Settle(ctx context.Context, raw []byte, req payment.PaymentRequirements) (Settlement, error)
+	// CheckPayment is the merchant's check of a payment against what this
+	// node quoted for the task, before anything is settled (A2A-DESIGN
+	// §8.4): the payee is this node, the amount covers the quote, the
+	// binding is the task's, scheme and network are among the quoted
+	// options, and neither the authorization nor the quote has expired.
+	//
+	// It lives with the module because it reads the scheme's own payload
+	// (an anet-credit authorization), which the kernel does not interpret;
+	// the kernel supplies the terms it stored with the task.
+	CheckPayment(raw []byte, t PaymentTerms) PaymentCheck
+	// PaymentError maps a facilitator errorReason, or a reason of this
+	// node's own check, to the a2a-x402 x402.payment.error code (§8.5).
+	// final is false for a reason that is not an outcome
+	// (settlement_pending): no code is sent for it and the caller retries.
+	PaymentError(reason string) (code string, final bool)
 	// VerifyReceipt checks a hub settlement receipt, pinning the signer to
 	// this node's own hub and the payer to expectPayer. Reports what the
 	// receipt says either way: "the provider told us it was paid" and "the
@@ -475,7 +531,58 @@ type Settlement struct {
 	Amount      string
 	Network     string
 	Receipt     string // base64 CoreDet-CBOR, empty if the hub signed nothing
-	Failed      string // non-empty when the payment did not settle, and why
+	Failed      string // non-empty when the payment did not settle: the facilitator's errorReason
+	// Code is the a2a-x402 x402.payment.error for Failed, empty on success
+	// and while Pending.
+	Code string
+	// Pending is set when the facilitator said the outcome is not known yet
+	// (settlement_pending). It is not a failure: the caller presents the
+	// same payload again.
+	Pending bool
+	// Replayed is set when the facilitator answered with an earlier
+	// settlement of the same authorization (anet.replayed).
+	Replayed bool
+	// Response is the facilitator's answer as received. It is what the
+	// task's x402.payment.receipts list carries, so the payer sees the
+	// facilitator's own words rather than the kernel's summary of them.
+	Response *payment.SettlementResponse
+}
+
+// PaymentTerms is what a task was quoted, as CheckPayment compares a
+// payment against it.
+type PaymentTerms struct {
+	// Quoted is the x402 PaymentRequired this node sent for the task; nil
+	// when it sent none.
+	Quoted *payment.PaymentRequired
+	// Bind is the value the authorization's InteractionID must carry.
+	Bind string
+	// Payer, when set, is who must have signed: the task's requester.
+	Payer string
+	// QuoteExpiresAt is when the quote lapses (unix ms); zero for never.
+	QuoteExpiresAt int64
+	// Now is the time of the check (unix ms).
+	Now int64
+}
+
+// PaymentCheck is CheckPayment's answer.
+type PaymentCheck struct {
+	// AuthID is the authorization's content id, when it could be read.
+	AuthID string
+	Payer  string
+	Amount uint64
+	// Requirements is the quoted option the payment was checked against,
+	// as it goes to the facilitator: no extra, no description, no resource
+	// (SI-1). Set when an option matched, even if a later check failed.
+	Requirements payment.PaymentRequirements
+	Matched      bool
+	// Reason is empty when the payment passed, otherwise the x402
+	// errorReason or this node's own reason (binding_mismatch,
+	// no_pending_quote, quote_expired, payer_mismatch).
+	Reason string
+	// Code is the x402.payment.error for Reason.
+	Code string
+	// Detail is a sentence for a person.
+	Detail string
 }
 
 // Factory builds a module from its configuration block. Returning (nil, nil)

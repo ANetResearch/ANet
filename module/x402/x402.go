@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
@@ -77,6 +78,10 @@ type Module struct {
 	clearMu   sync.Mutex
 	clearAt   time.Time
 	clearNets []string
+
+	// lastSignTS is the time of the last signed account read (signedGet),
+	// kept strictly increasing.
+	lastSignTS atomic.Uint64
 }
 
 // New builds the module. Returning (nil, nil) means compiled in and not
@@ -251,24 +256,35 @@ func (m *Module) Quote(capID string, price uint64) *payment.PaymentRequired {
 	return m.paymentRequired(capID, price)
 }
 
-// Settle presents a payment to the hub's facilitator.
-func (m *Module) Settle(ctx context.Context, raw []byte) (module.Settlement, error) {
-	st, err := m.settle(ctx, raw)
+// Settle presents a payment to the hub's facilitator with the terms it is
+// checked against.
+//
+// Three outcomes, kept apart: settled; refused, with the facilitator's
+// reason and its a2a-x402 code; and not known yet — a transport error is
+// returned as an error, and settlement_pending as Pending — which the
+// caller resolves by presenting the same payload again.
+func (m *Module) Settle(ctx context.Context, raw []byte, req payment.PaymentRequirements) (module.Settlement, error) {
+	st, err := m.settle(ctx, raw, req)
 	if err != nil {
 		return module.Settlement{}, err
 	}
 	if st == nil {
-		return module.Settlement{Failed: "no answer from the facilitator"}, nil
+		return module.Settlement{}, fmt.Errorf("x402: no answer from the facilitator")
 	}
 	out := module.Settlement{
-		Transaction: st.Transaction, Amount: st.Amount, Network: st.Network,
+		Transaction: st.Transaction, Amount: st.Amount, Network: st.Network, Response: st,
 	}
 	if !st.Success {
 		out.Failed = st.ErrorReason
 		if out.Failed == "" {
-			out.Failed = "settlement refused"
+			out.Failed = payment.ReasonSettlementFailed
 		}
+		code, final := ErrorCode(out.Failed)
+		out.Code, out.Pending = code, !final
 		return out, nil
+	}
+	if v, ok := st.Extensions[payment.ExtReplayed].(bool); ok && v {
+		out.Replayed = true
 	}
 	// The hub signed a statement that it moved the credit. Carry it: it
 	// is the only part of this the payer can check for itself.
