@@ -22,7 +22,7 @@
 #   JOINT_PORT_BASE    first of 10 consecutive loopback ports; unset = a random free block in
 #                      20000-32000. A port already in use aborts the run; nothing is killed to free it.
 #   JOINT_HUB_ADMIN    0 = do not start anet-hub-admin (started by default when the binary is there)
-#   JOINT_DEVICES      0 = no device chain: anetlink is not configured and 1/8 is skipped;
+#   JOINT_DEVICES      0 = no device chain: anetlink is not configured and 1/11 is skipped;
 #                      1 = the device chain is required; unset = used when it is reachable
 #   JOINT_MOCK         ANetMock API address (default 127.0.0.1:29080)
 #   JOINT_LINK_SOCKET  anetlinkd's C1 socket (default $J/link/c1.sock)
@@ -48,6 +48,11 @@
 #   ANetMock (real ONVIF/Zigbee endpoints) ← ANetLink (adapters, C1 socket)
 #     ← anet daemon "provider" → ANetHub (relay) ← anet daemon "requester"
 #                                               ← anet daemon "stranger" (on no list)
+#
+# Sections 8-10 attack the provider (A2A-DESIGN SI-4, SI-10) with anetfixture seal / relay-send /
+# relay-sign: the stranger injects envelopes that claim the requester, replays captured ones, and
+# the same envelope is delivered over p2p and the hub at once. They assert on the provider's receive
+# counters (/status .receive), its inbox, its task threads and its evidence chain.
 #
 # Every call below crosses at least two process boundaries. That is the point: both repos' suites
 # fake each other, and every defect this run has found so far lived exactly in the gap the fakes
@@ -244,7 +249,66 @@ print("absent")' "$1"
 # evidence.observed_state: metrics are float64 and cannot hold a CID, a blob or a list.
 state(){ python3 -c "import sys,json;print((json.load(sys.stdin).get('evidence') or {}).get('observed_state',''))" 2>/dev/null; }
 
-hd "0/8  binaries, ports, and the stack"
+# ── the provider's receive side, for the attack sections (8-10) ─
+# rx <reason> — the provider's receive counter for that reason (A2A-DESIGN §3.6; /status .receive);
+# 0 when it has not counted any, or when the status cannot be read.
+rx(){ pc /status '{}' | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+r = d.get("receive") if isinstance(d, dict) else None
+print((r or {}).get(sys.argv[1], 0))' "$1"; }
+# rx_above <reason> <n> [seconds] — wait until that counter is above n; print the value it reached. A copy
+# that came through the hub is counted at the provider's next mailbox poll, not when the hub took it.
+rx_above(){ local i v=0; for ((i = 0; i < ${3:-20} * 2; i++)); do v=$(rx "$1"); [ "${v:-0}" -gt "$2" ] && break; sleep 0.5; done; echo "${v:-0}"; }
+# chain_len <node> — the node's evidence chain length, less its refusal summaries: those are written when
+# a ten-minute window closes, whenever that falls, and "nothing was written" must not depend on how long
+# the run took. Empty when the chain cannot be read.
+chain_len(){ ctl "$1" /evidence '{"event_type":"anet.delegation.refused_summary","limit":1000}' | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+n = (d.get("head") or {}).get("length") if isinstance(d, dict) else None
+print("" if n is None else n - len(d.get("records") or []))'; }
+# inbox_n — how many interactions the provider holds as the provider; empty when unreadable.
+inbox_n(){ pc /inbox '{}' | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = None
+print(len(d["inbox"] or []) if isinstance(d, dict) and "inbox" in d else "")'; }
+# received_n <interaction_id> — the provider's anet.delegation.received records naming that interaction.
+received_n(){ pc /evidence '{"event_type":"anet.delegation.received","limit":1000}' | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+print(sum(1 for r in (d.get("records") or []) if (r.get("payload") or {}).get("interaction_id") == sys.argv[1]))' "$1"; }
+# said_n <interaction_id> <text> — how many messages of the provider's side of that task say exactly <text>.
+said_n(){ pc /thread "{\"interaction_id\":\"$1\"}" | python3 -c '
+import sys, json
+try:
+    t = json.load(sys.stdin).get("thread") or {}
+except Exception:
+    t = {}
+print(sum(1 for m in (t.get("messages") or []) if m.get("body") == sys.argv[1]))' "$2"; }
+# took <relay-send-json> <path> — "yes" when that path (hub, p2p) took the envelope.
+took(){ printf '%s' "$1" | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = {}
+p = d.get(sys.argv[1]) or {}
+print("yes" if p.get("code") == 200 or p.get("ok") is True else "no")' "$2"; }
+
+hd "0/11  binaries, ports, and the stack"
 if [ -n "${JOINT_BIN:-}" ]; then
   SRC=$(cd "$JOINT_BIN" 2>/dev/null && pwd -P) || die "JOINT_BIN=$JOINT_BIN is not a directory"
   for b in anet anetfixture anetpeer anet-hub; do
@@ -344,7 +408,7 @@ case "${JOINT_DEVICES:-}" in
   *) if link_live && mock_live; then DEVICES=1; else DEVICES=0; fi ;;
 esac
 [ "$DEVICES" = 1 ] && echo "  devices:  anetlinkd at $LINK_SOCK, ANetMock at $MOCK" \
-                   || echo "  devices:  none (anetlink not configured, 1/8 skipped)"
+                   || echo "  devices:  none (anetlink not configured, 1/11 skipped)"
 
 # The hub, on an empty data directory.
 ( cd "$RUN" && exec setsid "$BIN/anet-hub" --addr "$HUB_ADDR" --data "$RUN/hub" ) >"$RUN/hub.log" 2>&1 </dev/null 9>&- &
@@ -395,9 +459,10 @@ peer_allow "$PROV/.anet" "$REQ_AID"
 
 # Two peer processes sharing a rendezvous directory. Without them the p2p module is the one module
 # that changes how delegations travel and the one module no joint run could exercise.
+# The requester's keeps a copy of every envelope it carried (--tee-dir), for the replay section (9/11).
 mkdir -p "$RUN/rv" "$RUN/peer"
 ( cd "$RUN" && exec setsid "$BIN/anetpeer" --socket "$RUN/peer/req.sock" --peer "$RUN/peer/req.wire" \
-    --rendezvous "$RUN/rv" ) >"$RUN/peer-req.log" 2>&1 </dev/null 9>&- &
+    --rendezvous "$RUN/rv" --tee-dir "$RUN/tee" ) >"$RUN/peer-req.log" 2>&1 </dev/null 9>&- &
 ( cd "$RUN" && exec setsid "$BIN/anetpeer" --socket "$RUN/peer/prov.sock" --peer "$RUN/peer/prov.wire" \
     --rendezvous "$RUN/rv" ) >"$RUN/peer-prov.log" 2>&1 </dev/null 9>&- &
 for _ in $(seq 1 20); do [ -S "$RUN/peer/req.sock" ] && [ -S "$RUN/peer/prov.sock" ] && break; sleep 0.25; done
@@ -435,7 +500,7 @@ REG_S=$(sc /hub-register "{\"hub\":\"$HUB_URL\",\"name\":\"Stranger\"}" | jget s
   && ok "all three registered at the hub" || no "registration failed: req=$REG_R prov=$(printf '%s' "$REG_P" | head -c 120) str=$REG_S"
 printf '  requester %s\n  provider  %s\n  stranger  %s\n  org       %s\n' "$REQ_AID" "$PROV_AID" "$STR_AID" "$ORG_ID"
 
-hd "1/8  device control — daemon → ANetLink → ANetMock (ONVIF PTZ)"
+hd "1/11  device control — daemon → ANetLink → ANetMock (ONVIF PTZ)"
 if [ "$DEVICES" = 1 ]; then
   # ptz reads one camera's pan/tilt/zoom out of the mock's scene — the ground truth, independent
   # of anything the daemon reports about itself.
@@ -470,7 +535,7 @@ else
   note "skipped: no device chain (JOINT_DEVICES=0, or no anetlinkd/ANetMock reachable)"
 fi
 
-hd "2/8  distributed storage — cas.put / cas.get round trip"
+hd "2/11  distributed storage — cas.put / cas.get round trip"
 BLOB=$(printf 'joint run %s' "$(date -u +%FT%TZ)" | base64 -w0)
 PUT=$(cap cas.put "{\"body\":\"$BLOB\"}")
 CID=$(echo "$PUT" | state)
@@ -483,7 +548,7 @@ BAD=$(cap cas.get '{"cid":"bafyreiaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 echo "$BAD" | grep -qi 'failed\|not found\|no such' && ok "an unknown CID fails honestly rather than returning nothing" \
   || no "an unknown CID did not fail: $(echo "$BAD" | head -c 200)"
 
-hd "3/8  shared brain — blackboard.add / snapshot (requester signs, provider verifies)"
+hd "3/11  shared brain — blackboard.add / snapshot (requester signs, provider verifies)"
 UNIT=$("$FIX" cogunit --home "$REQ/.anet" --task joint-1 --type claim --body "the camera reached its commanded position" 2>"$RUN/unit.txt")
 UNIT_ID=$(sed 's/^unit id: //' "$RUN/unit.txt")
 ADD=$(cap blackboard.add "{\"unit\":\"$UNIT\"}")
@@ -505,7 +570,7 @@ REJ=$(cap blackboard.add "{\"unit\":\"$FORGED\"}")
 echo "$REJ" | grep -qi 'failed\|signature\|verif\|malformed' && ok "a tampered unit is refused" \
   || no "a tampered unit was accepted: $(echo "$REJ" | head -c 300)"
 
-hd "4/8  org membership — org.verify against the configured genesis"
+hd "4/11  org membership — org.verify against the configured genesis"
 CRED=$("$FIX" org-credential --home "$REQ/.anet" --genesis "$GENESIS" --subject "$PROV_AID" --role member 2>/dev/null)
 V=$(cap org.verify "{\"credential\":\"$CRED\"}")
 echo "  verify:  $(echo "$V" | head -c 300)"
@@ -532,7 +597,7 @@ CLEAN=$(pc /profile '{"summary":"I operate devices over ANetLink","readme":"","p
 [ "$(printf '%s' "$CLEAN" | jget status)" = profile_set ] && ok "an ordinary profile still publishes" \
   || no "an ordinary profile did not publish: $(printf '%s' "${CLEAN:-<no answer>}" | head -c 200)"
 
-hd "5/8  peer-to-peer — a delegation that never touches the hub"
+hd "5/11  peer-to-peer — a delegation that never touches the hub"
 delivered(){ grep -c delivered "$1" 2>/dev/null || true; }
 BEFORE_P2P=$(delivered "$RUN/peer-req.log")
 BEFORE_BACK=$(delivered "$RUN/peer-prov.log")
@@ -547,7 +612,7 @@ AFTER_BACK=$(delivered "$RUN/peer-prov.log")
 [ "$AFTER_BACK" -gt "$BEFORE_BACK" ] && ok "the result came back the same way ($BEFORE_BACK → $AFTER_BACK)" \
   || no "the provider's peer carried nothing: $(tail -2 "$RUN/peer-prov.log")"
 
-hd "6/8  a stranger is refused — closed is the default, not a setting"
+hd "6/11  a stranger is refused — closed is the default, not a setting"
 # Nothing in the provider's config names a policy; closed is what it gets (A2A-DESIGN §5.1). The
 # stranger is registered at the same hub, can look the provider up and seal to it, and is on no
 # list: §5.2 row 6 refuses it with anet.reason=not_accepting, the same answer a denied peer gets,
@@ -586,7 +651,7 @@ else
   no "the stranger's capability call was not even sent"; no "(inbox unchecked)"
 fi
 
-hd "7/8  the allow list is the way in"
+hd "7/11  the allow list is the way in"
 # The same stranger, named on the list. The file is re-read on every decision, so this takes
 # effect on the next delegation, with no restart; the call goes through the hub, since the
 # stranger has no peer transport.
@@ -613,7 +678,158 @@ read -r RST RREASON <<<"$(thread_end str "${RIX:-none}")"
   && ok "off the list again, the next call is refused (no restart)" \
   || no "after removal the call ended '${RST:-unknown}' (${RREASON:-no reason}), expected rejected/not_accepting"
 
-hd "8/8  evidence — the chain survives the run and a restart"
+hd "8/11  a forged sender is refused (SI-4)"
+# The hub authenticates who POSTs an envelope (relay v2), never who the sealed inner message says it is
+# from: it cannot read it. So any registered agent can put into the provider's mailbox an envelope whose
+# inner from is the requester, a peer the provider allows. What stands in the way is the provider's own
+# receive pipeline — step 6 (the inner KEL must replay to inner.from) and step 7 (the signature must
+# verify under that KEL). The attacker is the stranger, off the list again since 7/11; anetfixture signs
+# its relay v2 requests with the stranger's key, exactly as the stranger's daemon would.
+#
+# The target is a task the requester really has open at the provider, so a forgery that got past step 7
+# would land in a real conversation. (A daemon patched to skip step 7 turns this section red.)
+OGOAL="joint open task $(rand)"
+OIX=$(rc /delegate "{\"provider\":\"$PROV_AID\",\"goal\":\"$OGOAL\"}" | jget interaction_id)
+for _ in $(seq 1 40); do [ "$(in_inbox "${OIX:-none}")" = peer ] && break; sleep 0.5; done
+[ -n "$OIX" ] && [ "$(in_inbox "$OIX")" = peer ] && ok "the requester has a task open at the provider ($OIX)" \
+  || no "the requester's open task did not reach the provider"
+sleep 1   # the acceptance's evidence record is written after the inbox row
+EV0=$(chain_len prov); IN0=$(inbox_n); FM0=$(rx from-mismatch); BS0=$(rx bad-sig)
+
+# A delegation that claims the requester and carries the stranger's own KEL. Sent with relay-sign and
+# curl, which is also the check that the fixture's relay v2 headers are what a wire-2 hub accepts.
+FDEL=$("$FIX" seal --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --type delegate \
+         --as "$REQ_AID" --kel self --text "forged: run this for the requester" 2>"$RUN/forge-del.txt")
+FDIX=$(sed -n 's/^ix: //p' "$RUN/forge-del.txt")
+printf '{"to_aid":"%s","envelope":"%s"}' "$PROV_AID" "$FDEL" > "$RUN/forge-del.json"
+"$FIX" relay-sign --home "$STR/.anet" --hub "$HUB_URL" --action send --method POST --path /relay/send \
+  --body-file "$RUN/forge-del.json" > "$RUN/forge-del.hdr" 2>"$RUN/forge-del.err"
+CODE=$(curl -s -o "$RUN/forge-del.out" -w '%{http_code}' -m 20 -H @"$RUN/forge-del.hdr" \
+         -H 'Content-Type: application/json' --data-binary @"$RUN/forge-del.json" "$HUB_URL/relay/send")
+[ -n "$FDEL" ] && [ "$CODE" = 200 ] \
+  && ok "the hub took the stranger's send, signed by anetfixture relay-sign (it cannot see inside)" \
+  || no "the relay-sign request was refused ($CODE): $(head -c 200 "$RUN/forge-del.out") $(head -c 200 "$RUN/forge-del.err") $(head -c 200 "$RUN/forge-del.txt")"
+FM1=$(rx_above from-mismatch "$FM0")
+[ "$FM1" -gt "$FM0" ] && ok "the provider refused it at step 6: from-mismatch $FM0 → $FM1" \
+  || no "from-mismatch stayed at $FM1; receive counters: $(pc /status '{}' | jget receive | head -c 300)"
+
+# A message into the open task that claims the requester and carries the requester's real KEL, as the
+# hub serves it: step 6 passes, and the signature is the stranger's. Once through the hub, and once,
+# with another text, straight over the peer wire — a direct path is a route, not a trust boundary.
+FTEXT="forged $(rand)"
+"$FIX" seal --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --type message --ix "${OIX:-none}" \
+  --as "$REQ_AID" --kel claimed --text "$FTEXT" > "$RUN/forge-msg.env" 2>"$RUN/forge-msg.txt"
+R=$("$FIX" relay-send --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --envelope @"$RUN/forge-msg.env" 2>&1)
+[ "$(took "$R" hub)" = yes ] && ok "a message claiming the requester was queued at the hub" \
+  || no "the forged message was not queued: $(printf '%s' "$R" | head -c 200) $(head -c 200 "$RUN/forge-msg.txt")"
+BS1=$(rx_above bad-sig "$BS0")
+[ "$BS1" -gt "$BS0" ] && ok "the provider refused it at step 7: bad-sig $BS0 → $BS1" \
+  || no "bad-sig stayed at $BS1"
+FTEXT2="forged over p2p $(rand)"
+FMSG2=$("$FIX" seal --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --type message --ix "${OIX:-none}" \
+          --as "$REQ_AID" --kel claimed --text "$FTEXT2" 2>/dev/null)
+R=$("$FIX" relay-send --p2p "$RUN/peer/prov.wire" --to "$PROV_AID" --envelope "${FMSG2:-none}" 2>&1)
+BS2=$(rx_above bad-sig "$BS1")
+[ "$(took "$R" p2p)" = yes ] && [ "$BS2" -gt "$BS1" ] \
+  && ok "the same forgery handed over the peer wire is refused the same way: bad-sig $BS1 → $BS2" \
+  || no "over the peer wire: $(printf '%s' "$R" | head -c 200), bad-sig $BS1 → $BS2"
+
+[ "$(said_n "${OIX:-none}" "$FTEXT")" = 0 ] && [ "$(said_n "${OIX:-none}" "$FTEXT2")" = 0 ] \
+  && ok "neither forged text is in the requester's task" || no "a forged message landed in the requester's task"
+[ "$(in_inbox "${FDIX:-none}")" = absent ] && [ "$(received_n "${FDIX:-none}")" = 0 ] \
+  && ok "the forged delegation is in neither the inbox nor the evidence chain" \
+  || no "the forged delegation ${FDIX:-?} reached the provider (inbox: $(in_inbox "${FDIX:-none}"))"
+EV1=$(chain_len prov); IN1=$(inbox_n)
+[ -n "$EV0" ] && [ "$EV1" = "$EV0" ] && [ -n "$IN0" ] && [ "$IN1" = "$IN0" ] \
+  && ok "nothing was written: $IN1 interactions and $EV1 evidence records, as before" \
+  || no "the provider changed: interactions ${IN0:-?} → ${IN1:-?}, evidence ${EV0:-?} → ${EV1:-?}"
+
+hd "9/11  a replayed envelope does nothing"
+# The hub keeps no record of what it relayed, and could not recognise a sealed envelope it had seen
+# before; each relay-send below is signed afresh, so its replay cache for signatures does not apply
+# either. Whether a replay does anything is decided by the provider alone: a forgery fails again, and a
+# genuine envelope finds its (from, mid) in the replay table (§3.6 step 10).
+BS3=$(rx bad-sig)
+R=$("$FIX" relay-send --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --envelope @"$RUN/forge-msg.env" 2>&1)
+BS4=$(rx_above bad-sig "$BS3")
+[ "$(took "$R" hub)" = yes ] && [ "$BS4" -gt "$BS3" ] && [ "$(said_n "${OIX:-none}" "$FTEXT")" = 0 ] \
+  && ok "the forged bytes again: queued by the hub, refused again by the provider (bad-sig $BS3 → $BS4)" \
+  || no "the replayed forgery: $(printf '%s' "$R" | head -c 160), bad-sig $BS3 → $BS4"
+
+# A genuine one: a capability call the requester's peer carried directly and kept a copy of
+# (anetpeer --tee-dir), replayed by the stranger through the hub and over the peer wire at once.
+TEE_N=$(ls "$RUN/tee" 2>/dev/null | wc -l)
+RIX=$(delegate_cap req org.info '{}')
+REFF=$(result_of req "${RIX:-none}")
+[ "$(printf '%s' "$REFF" | jget status)" = OK ] && ok "a genuine call ran over the peer transport ($RIX)" \
+  || no "the genuine call did not run: $(printf '%s' "$REFF" | head -c 200)"
+TEEF=$(ls "$RUN/tee" 2>/dev/null | sort | tail -n +"$((TEE_N + 1))" | grep -m1 -- "-$PROV_AID.env")
+if [ -n "$TEEF" ] && [ -n "$RIX" ]; then
+  sleep 1   # the call's own evidence records are written around the result, not before it
+  EV2=$(chain_len prov); IN2=$(inbox_n); DUP0=$(rx duplicate); RCV2=$(received_n "$RIX")
+  R=$("$FIX" relay-send --home "$STR/.anet" --hub "$HUB_URL" --p2p "$RUN/peer/prov.wire" --to "$PROV_AID" \
+        --envelope @"$RUN/tee/$TEEF" 2>&1)
+  [ "$(took "$R" hub)" = yes ] && [ "$(took "$R" p2p)" = yes ] \
+    && ok "the captured envelope was taken on both paths: nothing on the way can tell it is a replay" \
+    || no "the replay was not delivered: $(printf '%s' "$R" | head -c 200)"
+  DUP1=$(rx_above duplicate "$((DUP0 + 1))")
+  [ "$DUP1" -ge "$((DUP0 + 2))" ] && ok "both copies were recognised as already processed: duplicate $DUP0 → $DUP1" \
+    || no "duplicate went $DUP0 → $DUP1, expected at least +2"
+  sleep 1
+  EV3=$(chain_len prov); IN3=$(inbox_n); RCV3=$(received_n "$RIX")
+  [ -n "$IN2" ] && [ "$IN3" = "$IN2" ] && [ -n "$EV2" ] && [ "$EV3" = "$EV2" ] && [ "$RCV2" = 1 ] && [ "$RCV3" = 1 ] \
+    && ok "processed once: $IN3 interactions and $EV3 evidence records as before, one delegation.received for it" \
+    || no "the replay changed the provider: interactions $IN2 → $IN3, evidence $EV2 → $EV3, delegation.received $RCV2 → $RCV3"
+else
+  no "the requester's peer kept no copy of the call to replay (anetpeer --tee-dir: $(ls "$RUN/tee" 2>/dev/null | wc -l) files)"
+  no "(replay delivery unchecked)"; no "(replay processing unchecked)"
+fi
+
+hd "10/11  one envelope over p2p and the hub at once is processed once (SI-10)"
+# A fresh message, sealed with the requester's own key — everything about it genuine — and carrying no
+# message id of its own, so that nothing but the envelope's replay record can tell the two copies
+# apart. anetfixture hands the same bytes to the provider's peer and to the hub at the same instant; the
+# peer answers once the provider has decided, and the hub copy follows at the provider's next poll. The
+# exact interleaving is the daemon's unit test (TestTheSameEnvelopeOverP2PAndHubIsProcessedOnce); this
+# is the deployed binaries agreeing with it.
+STEXT="one envelope, two paths $(rand)"
+SMSG=$("$FIX" seal --home "$REQ/.anet" --hub "$HUB_URL" --to "$PROV_AID" --type message --ix "${OIX:-none}" \
+         --no-msg-id --text "$STEXT" 2>/dev/null)
+DUP2=$(rx duplicate)
+R=$("$FIX" relay-send --home "$REQ/.anet" --hub "$HUB_URL" --p2p "$RUN/peer/prov.wire" --to "$PROV_AID" \
+      --envelope "${SMSG:-none}" 2>&1)
+[ "$(took "$R" hub)" = yes ] && [ "$(took "$R" p2p)" = yes ] && ok "both paths took the message" \
+  || no "a path did not take the message: $(printf '%s' "$R" | head -c 200)"
+DUP3=$(rx_above duplicate "$DUP2")
+[ "$DUP3" -gt "$DUP2" ] && ok "the second copy was recognised: duplicate $DUP2 → $DUP3" \
+  || no "no duplicate was counted ($DUP2 → $DUP3)"
+N=$(said_n "${OIX:-none}" "$STEXT")
+[ "$N" = 1 ] && ok "the message is in the task once" || no "the message is in the task ${N:-?} times"
+
+# The same for a new task: one delegation on both paths at once is one interaction, with one
+# anet.delegation.received record.
+IN4=$(inbox_n); DUP4=$(rx duplicate)
+SDEL=$("$FIX" seal --home "$REQ/.anet" --hub "$HUB_URL" --to "$PROV_AID" --type delegate \
+         --text "joint two-path task $(rand)" 2>"$RUN/twopath.txt")
+SDIX=$(sed -n 's/^ix: //p' "$RUN/twopath.txt")
+R=$("$FIX" relay-send --home "$REQ/.anet" --hub "$HUB_URL" --p2p "$RUN/peer/prov.wire" --to "$PROV_AID" \
+      --envelope "${SDEL:-none}" 2>&1)
+[ "$(took "$R" hub)" = yes ] && [ "$(took "$R" p2p)" = yes ] && ok "both paths took the delegation" \
+  || no "a path did not take the delegation: $(printf '%s' "$R" | head -c 200)"
+DUP5=$(rx_above duplicate "$DUP4")
+sleep 1
+IN5=$(inbox_n); RCV5=$(received_n "${SDIX:-none}")
+[ "$DUP5" -gt "$DUP4" ] && [ "$(in_inbox "${SDIX:-none}")" = peer ] && [ -n "$IN4" ] && [ "$IN5" = "$((IN4 + 1))" ] \
+  && [ "$RCV5" = 1 ] \
+  && ok "one task and one evidence record: interactions $IN4 → $IN5, duplicate $DUP4 → $DUP5" \
+  || no "two-path delegation: interactions ${IN4:-?} → ${IN5:-?}, delegation.received $RCV5, duplicate $DUP4 → $DUP5"
+# The last case of SI-10 — a copy that hits a store failure, is not acknowledged, and is delivered
+# again — needs a fault a released daemon does not have. The daemon's unit tests cover it on both paths:
+# TestAStoreFailureThenRedeliveryIsProcessedOnce (hub, then hub) and
+# TestAStoreFailureOnTheP2PCopyThenRedeliveryThroughTheHubIsProcessedOnce (p2p, then hub, then p2p).
+note "store failure then redelivery: covered by internal/daemon unit tests (no fault injection in a release build)"
+
+hd "11/11  evidence — the chain survives the run and a restart"
 # Both chains must hold what this run did. Zero records is a failure, not a pass: it is what a
 # run looks like in which the provider never came up.
 REC=$(rc /evidence '{"limit":1}' | jget head length)

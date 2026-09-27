@@ -93,13 +93,15 @@ func main() {
 	rv := flag.String("rendezvous", "",
 		"where to look peers up: a hub URL (http://… or https://…) or a local directory")
 	advertise := flag.String("advertise", "", "address other peers should dial (default: --peer)")
+	tee := flag.String("tee-dir", "",
+		"testing: write a copy of every envelope this peer delivered for its daemon into this directory")
 	flag.Parse()
 	if *sock == "" || *peerSock == "" || *rv == "" {
 		fmt.Fprintln(os.Stderr,
-			"usage: anetpeer --socket S --peer P --rendezvous <hub-url|dir> [--advertise ADDR]")
+			"usage: anetpeer --socket S --peer P --rendezvous <hub-url|dir> [--advertise ADDR] [--tee-dir DIR]")
 		os.Exit(2)
 	}
-	p, err := start(*sock, *peerSock, *rv, *advertise)
+	p, err := startWith(*sock, *peerSock, *rv, *advertise, *tee)
 	if err != nil {
 		log.Fatalf("anetpeer: %v", err)
 	}
@@ -119,6 +121,16 @@ func main() {
 // deadlock — handling a request inline on the loop that has to deliver its
 // answer. Testing them apart is what let that ship twice.
 func start(sock, peerSock, rendezvous, advertise string) (*peer, error) {
+	return startWith(sock, peerSock, rendezvous, advertise, "")
+}
+
+// startWith is start with a tee directory (see tee); "" keeps none.
+func startWith(sock, peerSock, rendezvous, advertise, teeDir string) (*peer, error) {
+	if teeDir != "" {
+		if err := os.MkdirAll(teeDir, 0o700); err != nil {
+			return nil, fmt.Errorf("tee dir: %w", err)
+		}
+	}
 	// A hub URL or a local directory. The directory was the original and
 	// only works when both peers share a filesystem, which two machines
 	// do not — so a transport built to carry traffic between hosts could
@@ -131,7 +143,7 @@ func start(sock, peerSock, rendezvous, advertise string) (*peer, error) {
 			return nil, err
 		}
 	}
-	p := &peer{peerSocket: peerSock, rendezvous: rendezvous, advertise: advertise,
+	p := &peer{peerSocket: peerSock, rendezvous: rendezvous, advertise: advertise, teeDir: teeDir,
 		acks: map[string]chan struct{}{}, limits: newSourceLimits()}
 
 	// The peer-facing listener takes either a socket path or a TCP
@@ -192,6 +204,11 @@ type peer struct {
 	conn net.Conn
 	enc  *json.Encoder
 
+	// teeDir, when set, receives a copy of every envelope delivered for
+	// the daemon (see tee); teeN numbers them.
+	teeDir string
+	teeN   uint64
+
 	// acks correlates a delivery with the receiving daemon's acceptance,
 	// keyed by the ID this process minted for the delivery.
 	acks   map[string]chan struct{}
@@ -245,6 +262,7 @@ func (p *peer) serveDaemon(c net.Conn) {
 					return
 				}
 				log.Printf("anetpeer: delivered %d envelope bytes → %s", base64.StdEncoding.DecodedLen(len(f.Envelope)), f.To)
+				p.tee(f)
 				p.reply(c, frame{Op: "send", V: wireVersion, ID: f.ID})
 			}(f)
 		case "ack":
@@ -259,6 +277,30 @@ func (p *peer) serveDaemon(c net.Conn) {
 			}
 			p.mu.Unlock()
 		}
+	}
+}
+
+// tee keeps a copy of an envelope this process delivered for its daemon,
+// as <n>-<to>.env holding the standard base64 of the bytes, written only
+// once the receiving side accepted it.
+//
+// For tests only. The joint run replays these exact bytes through the hub
+// and over the peer wire again (A2A-DESIGN SI-10): a replay test that
+// re-sealed the message would test a new message, not a replay. The copy
+// is of what this process already carries — sealed to the recipient and
+// unreadable here — so it reveals nothing this process did not hold.
+func (p *peer) tee(f frame) {
+	if p.teeDir == "" {
+		return
+	}
+	p.mu.Lock()
+	p.teeN++
+	n := p.teeN
+	p.mu.Unlock()
+	to := strings.NewReplacer("/", "_", string(filepath.Separator), "_").Replace(f.To)
+	name := filepath.Join(p.teeDir, fmt.Sprintf("%06d-%s.env", n, to))
+	if err := os.WriteFile(name, []byte(f.Envelope+"\n"), 0o600); err != nil {
+		log.Printf("anetpeer: tee: %v", err)
 	}
 }
 
