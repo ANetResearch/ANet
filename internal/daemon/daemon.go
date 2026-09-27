@@ -102,6 +102,9 @@ type Daemon struct {
 	// own AgentCard. See cardSeq — the clock alone cannot keep the number
 	// strictly increasing, and the hub refuses a card that does not.
 	lastCardSeq atomic.Uint64
+	// netCard is this node's A2A network card as last issued, and what the
+	// hub last said about it (a2a_card.go).
+	netCard netCardState
 	// longCalls bounds how many long-running capability invocations run
 	// at once. A buffered channel rather than a counter because the
 	// bound has to be enforced at the moment of accepting, and a

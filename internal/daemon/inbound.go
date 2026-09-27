@@ -818,6 +818,8 @@ func (d *Daemon) SetPublicCapabilities(caps []PublicCapability) error {
 		return err
 	}
 	d.recordPolicyChange("inbound.public_capabilities", from, caps, nil)
+	// The network card lists the public capabilities (A2A-DESIGN §10.2).
+	d.cardInputsChanged()
 	return nil
 }
 
