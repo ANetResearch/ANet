@@ -62,6 +62,8 @@ func (d *Daemon) registerWithHubLocked(ctx context.Context, hubURL, name string,
 	if err != nil {
 		return err
 	}
+	// Only public capabilities are published (an internal note item, published_caps.go).
+	caps = d.publicOnly(caps)
 	body := hubapi.RegisterRequest{
 		AID:    d.AID(),
 		Name:   name,
