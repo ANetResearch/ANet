@@ -9,22 +9,40 @@ package interactions
 // The envelope bytes are stored once sealed, so every retry sends the same
 // bytes (§3.3: a retry is never a second message). A row whose envelope
 // could not be sealed at enqueue time (the recipient's keys were not
-// available) keeps the body and is sealed by the retry loop.
+// available) keeps the body and the message id it will be sealed under, and
+// is sealed by the retry loop. Every row has a deadline (exp) from the
+// moment it is queued, sealed or not.
+//
+// A row carries a digest of its body: the same body queued again for the
+// same interaction and type is the row already there, not a second one.
 
 import (
+	"crypto/sha256"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
 
 // OutboxItem is one queued outbound message.
 type OutboxItem struct {
-	ID        int64
-	IX        string
-	ToAID     string
-	Type      string // inner type, e.g. anet.result/1
-	Body      []byte // the message body, kept until the envelope is sealed
-	Envelope  []byte // sealed envelope bytes; empty until sealed
-	Exp       uint64 // the envelope's exp (unix ms); 0 until sealed
+	ID       int64
+	IX       string
+	ToAID    string
+	Type     string // inner type, e.g. anet.result/1
+	Body     []byte // the message body, kept until the envelope is sealed
+	Envelope []byte // sealed envelope bytes; empty until sealed
+	// Exp is the row's deadline (unix ms): the envelope's exp once sealed,
+	// and the exp it will be sealed with before that. A row from before
+	// deadlines were kept for unsealed rows has 0 (see Deadline).
+	Exp uint64
+	// MID is the inner message id the row is sealed under (16 bytes), kept
+	// so a row sealed late carries the id this node recorded for the
+	// message when it was queued. Empty on older rows.
+	MID []byte
+	// Digest is SHA-256 of the body: the dedupe key within (IX, Type).
+	// EnqueueOutbox computes it from Body when it is not given.
+	Digest    []byte
 	Attempts  int
 	NextAt    int64 // unix ms
 	LastError string
@@ -53,13 +71,47 @@ func (s *Store) migrateOutbox() error {
 			return fmt.Errorf("interactions: migrate outbox: %w", err)
 		}
 	}
+	for _, col := range []struct{ name, decl string }{
+		{"mid", "BLOB"},
+		{"digest", "BLOB"},
+	} {
+		if err := addColumn(s.db, "outbox", col.name, col.decl); err != nil {
+			return err
+		}
+	}
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_outbox_ix ON outbox(ix, typ)`); err != nil {
+		return fmt.Errorf("interactions: migrate outbox: %w", err)
+	}
 	return nil
 }
 
-const outboxColumns = `id,ix,to_aid,typ,body,envelope,exp,attempts,next_at,last_error,created_at`
+const outboxColumns = `id,ix,to_aid,typ,body,envelope,exp,attempts,next_at,last_error,created_at,mid,digest`
+
+// OutboxLifetimeMS is how long a row is kept when it carries no deadline of
+// its own (a row queued unsealed before deadlines were recorded): 14 days
+// from when it was queued, the lifetime of every message (A2A-DESIGN §3.5).
+const OutboxLifetimeMS = 14 * 24 * 3600 * 1000
+
+// Deadline is when the row is abandoned (unix ms): its exp, or, for an
+// older unsealed row without one, 14 days after it was queued.
+func (it *OutboxItem) Deadline() uint64 {
+	if it.Exp != 0 {
+		return it.Exp
+	}
+	return uint64(it.CreatedAt) + OutboxLifetimeMS
+}
+
+// OutboxDigest is the dedupe digest of a row's body.
+func OutboxDigest(body []byte) []byte {
+	h := sha256.Sum256(body)
+	return h[:]
+}
 
 // EnqueueOutbox records a message to deliver, inside the transaction that
-// produced it, due immediately. It returns the row id.
+// produced it, due immediately. It returns the row id. A row for the same
+// interaction and type with the same body digest is already the message:
+// its id is returned and nothing is inserted, so a message queued twice is
+// sent once.
 func (t *Tx) EnqueueOutbox(it OutboxItem) (int64, error) {
 	return enqueueOutbox(t.tx, it)
 }
@@ -75,10 +127,25 @@ func enqueueOutbox(e execer, it OutboxItem) (int64, error) {
 	if it.IX == "" || it.ToAID == "" || it.Type == "" || (len(it.Envelope) == 0 && len(it.Body) == 0) {
 		return 0, fmt.Errorf("%w: outbox item needs an interaction, a recipient, a type and a body or envelope", ErrBadInput)
 	}
+	if len(it.Digest) == 0 && len(it.Body) > 0 {
+		it.Digest = OutboxDigest(it.Body)
+	}
+	if len(it.Digest) > 0 {
+		var prior int64
+		err := e.QueryRow(`SELECT id FROM outbox WHERE ix=? AND typ=? AND digest=? ORDER BY id LIMIT 1`,
+			it.IX, it.Type, it.Digest).Scan(&prior)
+		switch {
+		case err == nil:
+			return prior, nil
+		case !errors.Is(err, sql.ErrNoRows):
+			return 0, err
+		}
+	}
 	now := time.Now().UnixMilli()
-	res, err := e.Exec(`INSERT INTO outbox(ix,to_aid,typ,body,envelope,exp,attempts,next_at,last_error,created_at)
-	   VALUES(?,?,?,?,?,?,0,?,'',?)`,
-		it.IX, it.ToAID, it.Type, it.Body, nilIfEmpty(it.Envelope), int64(it.Exp), it.NextAt, now)
+	res, err := e.Exec(`INSERT INTO outbox(ix,to_aid,typ,body,envelope,exp,attempts,next_at,last_error,created_at,mid,digest)
+	   VALUES(?,?,?,?,?,?,0,?,'',?,?,?)`,
+		it.IX, it.ToAID, it.Type, nilIfEmpty(it.Body), nilIfEmpty(it.Envelope), int64(it.Exp), it.NextAt, now,
+		nilIfEmpty(it.MID), nilIfEmpty(it.Digest))
 	if err != nil {
 		return 0, err
 	}
@@ -91,6 +158,30 @@ func (s *Store) DueOutbox(now int64, limit int) ([]OutboxItem, error) {
 		limit = 100
 	}
 	return s.queryOutbox(`SELECT `+outboxColumns+` FROM outbox WHERE next_at <= ? ORDER BY next_at, id LIMIT ?`, now, limit)
+}
+
+// DueOutboxIDs is DueOutbox without the rows: only their ids. The retry
+// loop reads each row again under its lock, and a batch of rows carrying
+// their envelopes (a delegation with files is up to the hub's 96 MiB cap)
+// is not held in memory at once for that.
+func (s *Store) DueOutboxIDs(now int64, limit int) ([]int64, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.db.Query(`SELECT id FROM outbox WHERE next_at <= ? ORDER BY next_at, id LIMIT ?`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // Outbox returns the rows queued for an interaction, oldest first.
@@ -117,8 +208,8 @@ func (s *Store) OutboxLen() (int, error) {
 	return n, err
 }
 
-// SetOutboxEnvelope stores the sealed envelope of a row; the body is no
-// longer needed and is cleared.
+// SetOutboxEnvelope stores the sealed envelope of a row and its exp; the
+// body is no longer needed and is cleared.
 func (s *Store) SetOutboxEnvelope(id int64, envelope []byte, exp uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -145,6 +236,13 @@ func (s *Store) DeleteOutbox(id int64) error {
 	return err
 }
 
+// DeleteOutbox is Store.DeleteOutbox inside the transaction: an abandoned
+// row goes with the state change its abandonment makes.
+func (t *Tx) DeleteOutbox(id int64) error {
+	_, err := t.tx.Exec(`DELETE FROM outbox WHERE id=?`, id)
+	return err
+}
+
 func (s *Store) queryOutbox(q string, args ...any) ([]OutboxItem, error) {
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
@@ -156,11 +254,31 @@ func (s *Store) queryOutbox(q string, args ...any) ([]OutboxItem, error) {
 		var it OutboxItem
 		var exp int64
 		if err := rows.Scan(&it.ID, &it.IX, &it.ToAID, &it.Type, &it.Body, &it.Envelope, &exp,
-			&it.Attempts, &it.NextAt, &it.LastError, &it.CreatedAt); err != nil {
+			&it.Attempts, &it.NextAt, &it.LastError, &it.CreatedAt, &it.MID, &it.Digest); err != nil {
 			return nil, err
 		}
 		it.Exp = uint64(exp)
 		out = append(out, it)
 	}
 	return out, rows.Err()
+}
+
+// MessageByMsgID returns the message of an interaction stored under msgID,
+// or ErrNotFound. The retry queue uses it to learn what an abandoned row
+// was (its MID names the message, A2A-DESIGN 0017 Q9).
+func (s *Store) MessageByMsgID(interactionID, msgID string) (*Message, error) {
+	if interactionID == "" || msgID == "" {
+		return nil, ErrNotFound
+	}
+	var m Message
+	err := s.db.QueryRow(`SELECT seq,interaction_id,sender_aid,kind,body,msg_id,metadata,created_at FROM message
+	   WHERE interaction_id=? AND msg_id=?`, interactionID, msgID).
+		Scan(&m.Seq, &m.InteractionID, &m.SenderAID, &m.Kind, &m.Body, &m.MsgID, &m.Metadata, &m.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
 }

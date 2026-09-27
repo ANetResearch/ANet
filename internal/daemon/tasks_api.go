@@ -382,12 +382,12 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 		if in == nil {
 			return a2ashape.Task{}, bad("a reply that asks for input needs text or files")
 		}
-		_, err = d.sendMessage(sctx, ix.ID, text, in.atts, nil, true)
+		_, err = d.sendMessage(sctx, ix.ID, text, in.atts, nil)
 	case interactions.StateWorking:
 		if in == nil {
 			err = d.SendStatus(sctx, ix.ID, interactions.StateWorking, "", nil)
 		} else {
-			_, err = d.sendMessage(sctx, ix.ID, text, in.atts, map[string]any{a2ashape.KeyState: string(interactions.StateWorking)}, true)
+			_, err = d.sendMessage(sctx, ix.ID, text, in.atts, map[string]any{a2ashape.KeyState: string(interactions.StateWorking)})
 		}
 	case interactions.StateCompleted:
 		if in != nil {
@@ -397,7 +397,7 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 			// and would be left out.) The requester sees input-required
 			// for the moment between this message and the result, as with
 			// an auto-reply that completes.
-			if _, err = d.sendMessage(sctx, ix.ID, text, in.atts, nil, true); err != nil {
+			if _, err = d.sendMessage(sctx, ix.ID, text, in.atts, nil); err != nil {
 				break
 			}
 		}

@@ -89,6 +89,7 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 		IX: m.ix, FromAID: m.from, ArrivedAt: int64(d.nowMS()), MsgTS: m.ts, KeyState: m.ksn,
 		Capability: capID, RequestCID: requestCID, Bytes: int64(len(m.body)),
 		Delegate: delegateBytes, KEL: kelBytes, Keys: keys, ContextID: m.dr.ContextID, Attachments: atts,
+		MsgID: wireMsgID("", m.mid),
 	}
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
 		if err := tx.PutPending(item, in.Pending.MaxTotal, in.Pending.MaxPerPeer); err != nil {
@@ -121,7 +122,7 @@ func (d *Daemon) routePendingMessage(m *rxMsg) rxResult {
 			return err
 		})
 	}
-	f := interactions.PendingFollowup{Kind: cm.Kind, Body: cm.Body, MsgID: cm.MsgID, At: int64(d.nowMS())}
+	f := interactions.PendingFollowup{Kind: cm.Kind, Body: cm.Body, MsgID: wireMsgID(cm.MsgID, m.mid), At: int64(d.nowMS())}
 	if len(cm.Metadata) > 0 && json.Valid(cm.Metadata) {
 		f.Metadata = json.RawMessage(cm.Metadata)
 	}
@@ -175,7 +176,9 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 	capID, _, isCap := capabilityCall(td)
 	goal := delegation.TaskGoal(td)
 	var goalSeq int64
+	var held []heldMessage
 	err = d.ix.Update(func(tx *interactions.Tx) error {
+		held = held[:0]
 		ok, err := tx.DeletePending(ixID)
 		if err != nil {
 			return err
@@ -193,25 +196,21 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 			Trust: interactions.TrustApproved, IsCapability: isCap, TaskNonce: taskNonce(td)}); err != nil {
 			return err
 		}
-		goalSeq, err = tx.AddMessage(ixID, item.FromAID, interactions.MsgText, goal)
+		// Under the delegation's envelope id and with the requester's
+		// message metadata, as ingestDelegate records an accepted one, so
+		// both sides name the goal alike (0017 Q9).
+		goalSeq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ixID, SenderAID: item.FromAID,
+			Kind: interactions.MsgText, Body: goal, MsgID: item.MsgID, Metadata: peerMessageMeta(dr.Metadata)})
 		if err != nil {
 			return err
 		}
 		for _, f := range item.Followups {
-			switch f.Kind {
-			case delegation.ChatText:
-				if _, _, err := tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ixID,
-					SenderAID: item.FromAID, Kind: interactions.MsgText, Body: f.Body, MsgID: f.MsgID,
-					Metadata: f.Metadata}); err != nil {
-					return err
-				}
-				if _, err := tx.SetState(ixID, interactions.StateWorking); err != nil {
-					return err
-				}
-			case delegation.ChatEndRequest:
-				if _, err := tx.AddMessage(ixID, item.FromAID, interactions.MsgEndRequest, ""); err != nil {
-					return err
-				}
+			m, err := addHeldFollowup(tx, ixID, item.FromAID, isCap, f)
+			if err != nil {
+				return err
+			}
+			if m.seq > 0 {
+				held = append(held, m)
 			}
 		}
 		return nil
@@ -220,6 +219,9 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 		return nil, err
 	}
 	d.publishMessage(ixID, goalSeq, interactions.MsgText)
+	for _, m := range held {
+		d.publishMessage(ixID, m.seq, m.kind)
+	}
 	if err := d.notePeer(item.FromAID, kel, keys, "", false); err != nil {
 		log.Printf("anet: record %s's identity after approval: %v", item.FromAID, err)
 	}

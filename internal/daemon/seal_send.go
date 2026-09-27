@@ -8,8 +8,10 @@ package daemon
 //     verified with expectAID = the recipient (C0) and against any stored
 //     KEL for it (§3.8);
 //  2. build the inner message with this node's full KEL and current signed
-//     key set, a fresh 16-byte message id and exp = ts + 14 days, sign it
-//     and seal it (seal.Seal);
+//     key set, a 16-byte message id and exp = ts + 14 days, sign it and
+//     seal it (seal.Seal). A message this node records is sealed under the
+//     id it was recorded with (newWireMID), and a retry-queue row sealed
+//     late under the deadline it was queued with (sealOpts);
 //  3. hand the envelope to the transport list, p2p first, hub last. Every
 //     transport receives the same bytes.
 //
@@ -19,6 +21,7 @@ package daemon
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -48,8 +51,10 @@ const keysRevalidateMS = 10 * 60 * 1000
 // a recipient. Nothing is sent.
 var errNoRecipientKeys = errors.New("no usable encryption key for the recipient")
 
-// relaySend seals one message to toAID and delivers it. It is the only
-// function that turns a message body into bytes on a transport.
+// relaySend seals one message to toAID and makes one attempt to deliver
+// it, with nothing persisted. Messages on an interaction do not use it:
+// every one goes through the retry queue (queueSendAs, 0017 Q5), which
+// seals with the same functions and delivers with deliverEnvelope.
 //
 // The recipient record is pinned "outbound" when the interaction is one
 // this node started: that relationship is this node's decision and the
@@ -73,7 +78,27 @@ func (d *Daemon) relaySend(ctx context.Context, toAID, typ, interactionID string
 // peer_identity row that already exists (the requester is also a named
 // peer) is used in its place.
 func (d *Daemon) sealEnvelope(ctx context.Context, toAID, typ, interactionID string, body []byte) ([]byte, error) {
-	pin := ""
+	return d.sealEnvelopeOpts(ctx, toAID, typ, interactionID, body, sealOpts{})
+}
+
+// sealOpts fixes what sealWith otherwise chooses itself.
+type sealOpts struct {
+	// mid is the inner message id; nil mints a fresh one. A message this
+	// node records under its wire id (0017 Q9) is sealed under the id it
+	// was recorded with.
+	mid []byte
+	// exp is the inner exp (unix ms); 0 is ts + 14 days. A retry-queue row
+	// sealed late keeps the deadline it was queued with.
+	exp uint64
+	// pin is the peer_identity pin for a recipient resolved here. Empty
+	// derives it from the interaction row; a new delegation, whose row is
+	// written after it is sealed, names it.
+	pin string
+}
+
+// sealEnvelopeOpts is sealEnvelope with the message id, exp or pin fixed.
+func (d *Daemon) sealEnvelopeOpts(ctx context.Context, toAID, typ, interactionID string, body []byte, o sealOpts) ([]byte, error) {
+	pin := o.pin
 	ix, ixErr := d.ix.Get(interactionID)
 	if ixErr == nil && ix.Role == interactions.RoleOutbound {
 		pin = interactions.PinOutbound
@@ -82,11 +107,11 @@ func (d *Daemon) sealEnvelope(ctx context.Context, toAID, typ, interactionID str
 		(ix.Trust == interactions.TrustPublic || ix.Trust == interactions.TrustPublicCap) {
 		now := d.nowMS()
 		if ks, ok := interactionKeySet(ix, now); ok {
-			return d.sealWith(toAID, typ, interactionID, body, ks.set)
+			return d.sealWithOpts(toAID, typ, interactionID, body, ks.set, o)
 		}
 		if row, err := d.ix.PeerIdentity(toAID); err == nil {
 			if ks, ok := d.storedKeySet(row, now); ok {
-				return d.sealWith(toAID, typ, interactionID, body, ks.set)
+				return d.sealWithOpts(toAID, typ, interactionID, body, ks.set, o)
 			}
 		}
 		return nil, fmt.Errorf("anet: %s: %w: the requester's key set on this interaction is gone or expired", toAID, errNoRecipientKeys)
@@ -95,15 +120,30 @@ func (d *Daemon) sealEnvelope(ctx context.Context, toAID, typ, interactionID str
 	if err != nil {
 		return nil, err
 	}
-	return d.sealWith(toAID, typ, interactionID, body, keys.set)
+	return d.sealWithOpts(toAID, typ, interactionID, body, keys.set, o)
 }
 
 // sealWith seals to a key set the caller already resolved.
 func (d *Daemon) sealWith(toAID, typ, interactionID string, body []byte, set *seal.EncKeySet) ([]byte, error) {
+	return d.sealWithOpts(toAID, typ, interactionID, body, set, sealOpts{})
+}
+
+// sealWithOpts is sealWith with the message id or exp fixed.
+func (d *Daemon) sealWithOpts(toAID, typ, interactionID string, body []byte, set *seal.EncKeySet, o sealOpts) ([]byte, error) {
 	if toAID == d.AID() {
 		return nil, fmt.Errorf("anet: refusing to seal a message to this node itself")
 	}
 	now := d.nowMS()
+	mid, exp := o.mid, o.exp
+	if mid == nil {
+		mid = seal.NewMID()
+	}
+	if exp == 0 {
+		exp = now + messageLifetimeMS
+	}
+	if exp <= now {
+		return nil, fmt.Errorf("anet: %s to %s: the message expired before it could be sealed", typ, toAID)
+	}
 	key, err := seal.SelectKey(set, now)
 	if err != nil {
 		return nil, fmt.Errorf("anet: %s: %w: %v", toAID, errNoRecipientKeys, err)
@@ -122,9 +162,9 @@ func (d *Daemon) sealWith(toAID, typ, interactionID string, body []byte, set *se
 		To:          toAID,
 		Type:        typ,
 		IX:          interactionID,
-		MID:         seal.NewMID(),
+		MID:         mid,
 		TS:          now,
-		Exp:         now + messageLifetimeMS,
+		Exp:         exp,
 		Body:        body,
 		KEL:         kel,
 		Keys:        own,
@@ -134,6 +174,28 @@ func (d *Daemon) sealWith(toAID, typ, interactionID string, body []byte, set *se
 		return nil, fmt.Errorf("anet: seal %s to %s: %w", typ, toAID, err)
 	}
 	return env, nil
+}
+
+// newWireMID mints the inner message id of a message this node records,
+// with the msg_id it is recorded under: the id in hex (0017 Q9). The
+// receiver records the same hex of the same id, so both sides name a
+// message alike, and a projection's messageId is the same on both.
+func newWireMID() (mid []byte, msgID string) {
+	mid = seal.NewMID()
+	return mid, hex.EncodeToString(mid)
+}
+
+// wireMsgID is the msg_id a received message is recorded under: the id the
+// sender put in the message body when it did (a chat message carries one),
+// otherwise the envelope's inner id in hex (0017 Q9).
+func wireMsgID(bodyID string, mid []byte) string {
+	if bodyID != "" {
+		return bodyID
+	}
+	if len(mid) == 0 {
+		return ""
+	}
+	return hex.EncodeToString(mid)
 }
 
 // recipientKeys is §3.5 step 1.

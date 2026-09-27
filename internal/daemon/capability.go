@@ -201,34 +201,6 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 	if err != nil {
 		return "", err
 	}
-	if err := d.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
-		Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, IsCapability: true,
-		TaskNonce: nonce}); err != nil {
-		return "", err
-	}
-	if len(paymentJSON) > 0 {
-		// The prepaid authorization is this task's, so its receipt can be
-		// checked against it when the result comes back (§8.3).
-		authID := ""
-		if _, _, aid, err := payloadAuth(paymentJSON); err == nil {
-			authID = aid
-		}
-		if _, err := d.ix.SetPayment(id, interactions.PayUpdate{
-			State: interactions.PayState(interactions.PaySubmitted), AddAuthID: authID, Payload: paymentJSON}); err != nil {
-			return "", err
-		}
-	}
-	msgID, err := newMessageID()
-	if err != nil {
-		return "", err
-	}
-	seq, _, err := d.ix.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
-		Kind: interactions.MsgText, Body: goal + " args=" + argsJSON, MsgID: msgID})
-	if err != nil {
-		return "", err
-	}
-	d.publishMessage(id, seq, interactions.MsgText)
-	d.publishState(id)
 	kelB, err := identity.MarshalKEL(d.self.KEL())
 	if err != nil {
 		return "", err
@@ -241,9 +213,39 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 	if err != nil {
 		return "", err
 	}
-	if err := d.relaySend(ctx, providerAID, seal.TypeDelegate, id, payload); err != nil {
+	// Recorded and queued together, under the envelope's message id (0017
+	// Q5, Q9); see delegateInWithID.
+	mid, msgID := newWireMID()
+	var seq int64
+	qid, err := d.queueSendAs(ctx, wireSend{to: providerAID, typ: seal.TypeDelegate, ix: id, body: payload, mid: mid,
+		pin: interactions.PinOutbound, strict: true}, func(tx *interactions.Tx) error {
+		if err := tx.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
+			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, IsCapability: true,
+			TaskNonce: nonce}); err != nil {
+			return err
+		}
+		if len(paymentJSON) > 0 {
+			// The prepaid authorization is this task's, so its receipt can
+			// be checked against it when the result comes back (§8.3).
+			authID := ""
+			if _, _, aid, err := payloadAuth(paymentJSON); err == nil {
+				authID = aid
+			}
+			if _, err := tx.SetPayment(id, interactions.PayUpdate{
+				State: interactions.PayState(interactions.PaySubmitted), AddAuthID: authID, Payload: paymentJSON}); err != nil {
+				return err
+			}
+		}
+		var err error
+		seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
+			Kind: interactions.MsgText, Body: goal + " args=" + argsJSON, MsgID: msgID})
+		return err
+	})
+	if err != nil {
 		return "", err
 	}
+	d.publishMessage(id, seq, interactions.MsgText)
+	d.publishState(id)
 	// C5: a requester's chain should show what it asked for, not only what
 	// it received.
 	//
@@ -265,6 +267,9 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 		"capability":     capID,
 	}); lerr != nil {
 		log.Printf("anet: capability delegation evidence ledger: %v", lerr)
+	}
+	if err := d.firstDelivery(ctx, id, qid); err != nil {
+		return "", err
 	}
 	return id, nil
 }
@@ -339,8 +344,15 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 
 // tryCapabilityPaid is tryCapability with the delegation's payment, if it
 // carried one.
+//
+// It returns false, having recorded nothing, when the daemon is stopping:
+// a call not started, or one whose failure is the stop's rather than its
+// own, is left open for the next process (SI-10; see cutOffByStop).
 func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID string, args map[string]any, paymentRaw []byte) bool {
 	if d.providers == nil {
+		return false
+	}
+	if d.ctx.Err() != nil {
 		return false
 	}
 	ix, err := d.ix.Get(interactionID)
@@ -412,6 +424,10 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 
 	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID,
 		CallerAID: ix.PeerAID, Via: provider.ViaRelay})
+	if d.cutOffByStop(err, eff) {
+		log.Printf("anet: %s: %s was cut off by the daemon stopping; no result recorded", interactionID, capID)
+		return false
+	}
 	if err != nil {
 		res.Status, res.Message = "FAILED", err.Error()
 	} else {
@@ -609,43 +625,71 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 }
 
 // recoverInterrupted runs at start (A2A-DESIGN §3.6, startup recovery): an
-// inbound long capability call that was working with no result when the
-// previous process stopped is set failed, with effect UNVERIFIED and
-// anet.reason=interrupted, and the requester is told through the retry
-// queue. Whether the effect happened is not known; the result says so
-// rather than guessing either way.
+// inbound capability call the previous process left open with no result is
+// dealt with before any mail is read (leftoverAction).
+//
+//   - A long call, working or only recorded (the process stopped between
+//     committing the delegation and marking it working), is set failed,
+//     with effect UNVERIFIED and anet.reason=interrupted, and the
+//     requester is told through the retry queue. Whether the effect
+//     happened is not known; the result says so rather than guessing
+//     either way. Long calls are not run twice (at-most-once).
+//   - A short call that was working is run again (at-least-once, §3.6
+//     step 10). One whose payment was taken has no redelivery to bring it
+//     back: its delegation and its payment were acknowledged.
+//   - A short call only recorded is left for the redelivery of its
+//     delegation, which was not acknowledged and runs it again; an
+//     approved one, whose delegation was acknowledged when it was held,
+//     is run again here.
+//   - A call waiting on a payment (quoted, submitted, or received and not
+//     taken) is the payment flow's (startPayments, §8.3).
+//   - Unpaid work for a peer now on the deny list is not run again: the
+//     revocation sweep cancels it (§5.1). Paid work is (0017 Q10).
+//
+// Short or long is the provider's answer, so it is read from the registry,
+// which the modules have filled by now. A recorded call whose provider is
+// not there cannot be told apart and is left (a redelivery decides); a
+// working one is reported interrupted.
 func (d *Daemon) recoverInterrupted() {
 	list, err := d.ix.ListAll(interactions.ListFilter{Role: interactions.RoleInbound,
-		States: []interactions.State{interactions.StateWorking}})
+		States: []interactions.State{interactions.StateSubmitted, interactions.StateWorking}})
 	if err != nil {
 		log.Printf("anet: startup recovery: %v", err)
 		return
 	}
+	ps := d.readPeers()
 	for _, ix := range list {
 		if !ix.IsCapability || len(ix.Receipt) > 0 {
 			continue
 		}
-		if ix.PayState == interactions.PaySubmitted || d.untakenPayment(ix) != nil {
-			// Not executed: the payment's outcome is not known yet, or the
-			// payment was not taken yet, and startPayments presents it
-			// again (A2A-DESIGN §8.3).
-			continue
-		}
-		capID := ix.Goal
-		if td, err := decodeTaskDoc(ix.RequestDoc); err == nil {
-			if c, _, ok := capabilityCall(td); ok {
-				capID = c
+		capID, args := storedCall(ix)
+		switch d.leftoverAction(ix, capID) {
+		case leftoverRerun:
+			if ps.denied(ix.PeerAID) && ix.PayState != interactions.PayCompleted {
+				log.Printf("anet: %s: %s was cut off by a restart; its peer is denied, so it is not run again", ix.ID, capID)
+				continue
 			}
+			ix, capID, args := ix, capID, args
+			log.Printf("anet: %s: %s was cut off by a restart; running it again", ix.ID, capID)
+			d.goBackground(func() { d.runCapabilityCall(ix.ID, capID, args, nil, nil) })
+		case leftoverInterrupted:
+			d.reportInterrupted(ix, capID)
 		}
-		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
-		d.deliverCapabilityResult(ctx, ix.ID, capID, ix, capabilityResult{
-			Capability: capID,
-			Status:     string(effect.Unverified),
-			Message:    "the provider stopped while this call was running; whether its effect happened is not known",
-		}, nil, resultOpts{state: interactions.StateFailed, reason: "interrupted"})
-		cancel()
-		log.Printf("anet: %s: %s was interrupted by a restart; reported as failed, effect unverified", ix.ID, capID)
 	}
+}
+
+// reportInterrupted answers a long capability call that stopped, or never
+// started, in an earlier process: failed, effect UNVERIFIED,
+// anet.reason=interrupted, through the retry queue.
+func (d *Daemon) reportInterrupted(ix *interactions.Interaction, capID string) {
+	ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+	defer cancel()
+	d.deliverCapabilityResult(ctx, ix.ID, capID, ix, capabilityResult{
+		Capability: capID,
+		Status:     string(effect.Unverified),
+		Message:    "the provider stopped while this call was running; whether its effect happened is not known",
+	}, nil, resultOpts{state: interactions.StateFailed, reason: "interrupted"})
+	log.Printf("anet: %s: %s was interrupted by a restart; reported as failed, effect unverified", ix.ID, capID)
 }
 
 // decodeTaskDoc decodes stored TaskDoc bytes (the request of an

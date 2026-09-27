@@ -61,6 +61,10 @@ type PendingItem struct {
 	ContextID   string
 	Attachments []PendingAttachment
 	Followups   []PendingFollowup
+	// MsgID is the id the goal is recorded under once approved: the
+	// delegation's envelope message id in hex, the id the requester
+	// recorded it under (0017 Q9). Empty on items held before it was kept.
+	MsgID string
 }
 
 func (s *Store) migratePending() error {
@@ -88,17 +92,17 @@ func (s *Store) migratePending() error {
 			return fmt.Errorf("interactions: migrate pending: %w", err)
 		}
 	}
-	return nil
+	return addColumn(s.db, "pending", "msg_id", "TEXT NOT NULL DEFAULT ''")
 }
 
-const pendingColumns = `ix,from_aid,arrived_at,msg_ts,key_state,capability,request_cid,bytes,delegate,kel,keys,context_id,attachments,followups`
+const pendingColumns = `ix,from_aid,arrived_at,msg_ts,key_state,capability,request_cid,bytes,delegate,kel,keys,context_id,attachments,followups,msg_id`
 
 func scanPending(sc scanner) (*PendingItem, error) {
 	var p PendingItem
 	var ts, ks int64
 	var atts, fus string
 	if err := sc.Scan(&p.IX, &p.FromAID, &p.ArrivedAt, &ts, &ks, &p.Capability, &p.RequestCID, &p.Bytes,
-		&p.Delegate, &p.KEL, &p.Keys, &p.ContextID, &atts, &fus); err != nil {
+		&p.Delegate, &p.KEL, &p.Keys, &p.ContextID, &atts, &fus, &p.MsgID); err != nil {
 		return nil, err
 	}
 	p.MsgTS, p.KeyState = uint64(ts), uint64(ks)
@@ -141,9 +145,9 @@ func (t *Tx) PutPending(p PendingItem, maxTotal, maxPerPeer int) error {
 	if err != nil {
 		return err
 	}
-	_, err = t.tx.Exec(`INSERT INTO pending(`+pendingColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err = t.tx.Exec(`INSERT INTO pending(`+pendingColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.IX, p.FromAID, p.ArrivedAt, int64(p.MsgTS), int64(p.KeyState), p.Capability, p.RequestCID, p.Bytes,
-		p.Delegate, p.KEL, p.Keys, p.ContextID, string(atts), "")
+		p.Delegate, p.KEL, p.Keys, p.ContextID, string(atts), "", p.MsgID)
 	return err
 }
 

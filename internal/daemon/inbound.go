@@ -269,7 +269,12 @@ func (d *Daemon) validate(c Config) error {
 // peerLists serializes writes to the three peer files. Reads are not
 // locked: a file is replaced atomically, so a reader sees the old or the
 // new list.
-type peerLists struct{ mu sync.Mutex }
+type peerLists struct {
+	mu sync.Mutex
+	// skippedPaid holds the paid interactions a deny already reported as
+	// left running (0017 Q10), so the minute sweep reports each once.
+	skippedPaid sync.Map // interaction id -> struct{}
+}
 
 // peerFile resolves a configured list path against the data directory.
 func (d *Daemon) peerFile(name string) string {
@@ -945,6 +950,9 @@ type PeerListResult struct {
 	Pinned   string   `json:"pinned,omitempty"`
 	PinError string   `json:"pin_error,omitempty"`
 	Canceled []string `json:"canceled,omitempty"`
+	// SkippedPaid are the peer's interactions left running because a
+	// payment was submitted or settled on them (0017 Q10).
+	SkippedPaid []string `json:"skipped_paid,omitempty"`
 }
 
 // AllowPeer adds aid to the allow list (or the trust list when list is
@@ -983,9 +991,10 @@ func (d *Daemon) DenyPeer(ctx context.Context, aid string) (PeerListResult, erro
 		return PeerListResult{}, err
 	}
 	res := PeerListResult{AID: aid, List: ListDeny, Changed: changed}
-	res.Canceled = d.cancelForPolicy(ctx, aid)
-	if changed || len(res.Canceled) > 0 {
-		d.recordPolicyChange("peers.deny", nil, aid, map[string]any{"canceled": res.Canceled})
+	res.Canceled, res.SkippedPaid = d.cancelForPolicy(ctx, aid)
+	d.skippedPaidNew(res.SkippedPaid)
+	if changed || len(res.Canceled) > 0 || len(res.SkippedPaid) > 0 {
+		d.recordPolicyChange("peers.deny", nil, aid, denyExtra(res.Canceled, res.SkippedPaid))
 	}
 	return res, nil
 }
@@ -1008,42 +1017,55 @@ func (d *Daemon) RemovePeer(aid string) (PeerListResult, error) {
 
 // cancelForPolicy cancels every active interaction with aid, in both roles.
 // Inbound ones tell the requester (status canceled); outbound ones tell the
-// provider (cancel). It returns the canceled interaction ids.
-func (d *Daemon) cancelForPolicy(ctx context.Context, aid string) []string {
+// provider (cancel). It returns the canceled interaction ids, and the ids
+// it left running because a payment was submitted or settled on them.
+func (d *Daemon) cancelForPolicy(ctx context.Context, aid string) (canceled, skippedPaid []string) {
 	list, err := d.ix.ListAll(interactions.ListFilter{PeerAID: aid, Active: true})
 	if err != nil {
 		log.Printf("anet: list interactions with %s: %v", aid, err)
-		return nil
+		return nil, nil
 	}
-	var out []string
 	for _, ix := range list {
 		if ix.PayState == interactions.PaySubmitted || ix.PayState == interactions.PayCompleted {
 			// A task whose payment was submitted is not canceled by either
-			// side (§4.2): paid work is delivered, and a requester's cancel
-			// leaves its task open. Sending that cancel again on every
-			// sweep would only repeat it.
+			// side (§4.2): paid work is completed and delivered (0017
+			// Q10), and a requester's cancel leaves its task open. Sending
+			// that cancel again on every sweep would only repeat it.
+			skippedPaid = append(skippedPaid, ix.ID)
 			continue
 		}
 		if _, err := d.CancelTask(ctx, ix.ID); err != nil {
 			log.Printf("anet: cancel %s after denying %s: %v", ix.ID, aid, err)
 			continue
 		}
-		out = append(out, ix.ID)
+		canceled = append(canceled, ix.ID)
 	}
-	return out
+	return canceled, skippedPaid
 }
 
 // revocationSweep cancels active interactions whose peer is on the deny
 // list. It covers a deny list edited outside the CLI; the CLI path cancels
 // at once. Run from the maintenance loop.
 func (d *Daemon) revocationSweep() {
+	// Only what was reported before this sweep read the list can be
+	// forgotten by it: a deny made meanwhile reports its own, and the
+	// list read below may be older than that deny.
+	reported := d.skippedPaidReported()
 	ps := d.readPeers()
-	if ps.deny == nil || len(ps.deny) == 0 {
+	if ps.deny == nil {
 		return
 	}
+	current := map[string]bool{}
 	for aid := range ps.deny {
-		if ids := d.cancelForPolicy(d.ctx, aid); len(ids) > 0 {
-			d.recordPolicyChange("peers.deny", nil, aid, map[string]any{"canceled": ids, "detected": "sweep"})
+		ids, skipped := d.cancelForPolicy(d.ctx, aid)
+		for _, id := range skipped {
+			current[id] = true
+		}
+		if fresh := d.skippedPaidNew(skipped); len(ids) > 0 || len(fresh) > 0 {
+			extra := denyExtra(ids, fresh)
+			extra["detected"] = "sweep"
+			d.recordPolicyChange("peers.deny", nil, aid, extra)
 		}
 	}
+	d.skippedPaidForget(reported, current)
 }

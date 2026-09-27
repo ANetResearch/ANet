@@ -144,16 +144,13 @@ func (d *Daemon) providerStatus(ctx context.Context, ixID, peer string, state in
 	if err != nil {
 		return err
 	}
-	msgID, err := newMessageID()
-	if err != nil {
-		return err
-	}
+	mid, msgID := newWireMID()
 	payload, err := (&delegation.StatusMsg{State: string(state), Text: text, Metadata: mb, At: d.nowMS()}).Marshal()
 	if err != nil {
 		return err
 	}
 	var seq int64
-	id, err := d.queueSend(ctx, peer, seal.TypeStatus, ixID, payload, func(tx *interactions.Tx) error {
+	id, err := d.queueSendAs(ctx, wireSend{to: peer, typ: seal.TypeStatus, ix: ixID, body: payload, mid: mid}, func(tx *interactions.Tx) error {
 		cur, err := tx.Get(ixID)
 		if err != nil {
 			return err
@@ -902,6 +899,9 @@ func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte
 		}
 		d.publishState(ixID)
 		d.notePaymentReceipts(ixID, m, false)
+		if prior.PayState == interactions.PaySubmitted && d.carryOutRequestedCancel(ctx, ixID) {
+			return
+		}
 		// Paid automatically once per quote: on the first one, or again
 		// with the same authorization after a re-quote. After a definite
 		// failure a person or an agent decides, so a provider cannot
@@ -925,6 +925,9 @@ func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte
 		d.publishState(ixID)
 	}
 	d.notePaymentReceipts(ixID, m, false)
+	if status == x402a2a.StatusFailed {
+		d.carryOutRequestedCancel(ctx, ixID)
+	}
 }
 
 // autoPay pays a stored quote within the auto tier, or leaves the task for
@@ -1259,14 +1262,14 @@ func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction, 
 // client's messageId, when given, is added to the stored copy only.
 func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.Interaction, meta []byte,
 	clientMsgID string, state interactions.State, write func(tx *interactions.Tx) error) error {
-	msgID, err := newMessageID()
-	if err != nil {
-		return err
-	}
+	// The message id is the envelope's inner id (0017 Q9), the same on
+	// both sides.
+	mid, msgID := newWireMID()
 	stored := meta
 	if clientMsgID != "" {
 		m := decodeMeta(meta)
 		m[a2ashape.KeyMessageID] = clientMsgID
+		var err error
 		if stored, err = json.Marshal(m); err != nil {
 			return err
 		}
@@ -1276,7 +1279,7 @@ func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.I
 		return err
 	}
 	var seq int64
-	id, err := d.queueSend(ctx, ix.PeerAID, seal.TypeMessage, ix.ID, payload, func(tx *interactions.Tx) error {
+	id, err := d.queueSendAs(ctx, wireSend{to: ix.PeerAID, typ: seal.TypeMessage, ix: ix.ID, body: payload, mid: mid}, func(tx *interactions.Tx) error {
 		cur, err := tx.Get(ix.ID)
 		if err != nil {
 			return err
