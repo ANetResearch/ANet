@@ -1579,10 +1579,17 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 	})
 	if res.class == rxAccepted {
 		d.publishMessage(m.ix, seq, interactions.MsgStatus)
-		d.publishState(m.ix)
 		if carriesPayment(meta) {
+			// The payment columns go in before the state is announced: the
+			// status row and the quote are two writes, and a waiter woken
+			// by the state (/tasks/wait, a blocking A2A send) reads the task
+			// at that moment. Announced first, it read input-required
+			// without the quote, the payment status or the reason it waits.
+			// onProviderPayment announces the state itself once the quote
+			// is stored, before paying it automatically.
 			d.onProviderPayment(ctx, m.ix, meta)
 		}
+		d.publishState(m.ix)
 	}
 	return res
 }
