@@ -21,6 +21,24 @@
 // A service that CAN say more returns an `evidence` object and that is
 // used instead, the same shape ANetLink puts on C1. Letting a config file
 // assert V4 would make the trust axis a preference.
+//
+// What the service is told about the call travels in headers, never in the
+// body, so a service written against the plain JSON contract keeps working:
+//
+//	Authorization: Bearer <token>   when token_file is set: the daemon proves
+//	                                itself to the service
+//	X-ANet-Caller: <AID>            the caller, only when the daemon
+//	                                authenticated it (a relayed delegation)
+//	X-ANet-Call: <id>               the interaction id (the voucher id at the
+//	                                voucher door)
+//	X-ANet-Via: relay|voucher       which door the call came through
+//	X-ANet-Capability: <id>         the capability being invoked
+//
+// The token matters because a service on 127.0.0.1 is reachable by every
+// process on the host, including a local agent in the auto-reply sandbox
+// (A2A-DESIGN §6). Without it the service cannot tell the daemon from
+// anything else that can open a loopback socket, and X-ANet-Caller would be
+// a header anyone could write.
 package service
 
 import (
@@ -29,7 +47,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -55,18 +78,70 @@ func init() {
 		if len(cfg.Capabilities) == 0 {
 			return nil, fmt.Errorf("service: no capabilities declared")
 		}
-		seen := map[string]bool{}
-		for i, c := range cfg.Capabilities {
-			if c.ID == "" || c.URL == "" {
-				return nil, fmt.Errorf("service: capability %d needs both id and url", i)
-			}
-			if seen[c.ID] {
-				return nil, fmt.Errorf("service: capability %q declared twice", c.ID)
-			}
-			seen[c.ID] = true
+		if err := cfg.check(); err != nil {
+			return nil, err
 		}
 		return &Module{cfg: cfg}, nil
 	})
+}
+
+// check refuses a configuration before the node advertises anything from
+// it. Every limit here is one the card or the transport would otherwise
+// enforce later, where the failure is harder to trace back to this file.
+func (cfg *Config) check() error {
+	if cfg.TimeoutMS < 0 {
+		return fmt.Errorf("service: timeout_ms must not be negative")
+	}
+	if cfg.TokenFile != "" {
+		if _, err := tokenPath(cfg.TokenFile); err != nil {
+			return err
+		}
+	}
+	seen := map[string]bool{}
+	for i, c := range cfg.Capabilities {
+		if c.ID == "" || c.URL == "" {
+			return fmt.Errorf("service: capability %d needs both id and url", i)
+		}
+		if seen[c.ID] {
+			return fmt.Errorf("service: capability %q declared twice", c.ID)
+		}
+		seen[c.ID] = true
+		u, err := url.Parse(c.URL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return fmt.Errorf("service: capability %q: url %q is not an http(s) URL", c.ID, c.URL)
+		}
+		if c.TimeoutMS < 0 {
+			return fmt.Errorf("service: capability %q: timeout_ms must not be negative", c.ID)
+		}
+		if c.TokenFile != "" {
+			if _, err := tokenPath(c.TokenFile); err != nil {
+				return fmt.Errorf("service: capability %q: %w", c.ID, err)
+			}
+		}
+		// A bearer token sent in cleartext to another host is a token given
+		// to every hop on the way. Loopback never leaves the machine; any
+		// other host is reached over https or not with a token.
+		if cfg.tokenFileFor(&cfg.Capabilities[i]) != "" && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+			return fmt.Errorf("service: capability %q: a token is only sent over https or to a loopback address, not to %s", c.ID, u.Host)
+		}
+		if len(c.Name) > provider.MaxSkillNameBytes {
+			return fmt.Errorf("service: capability %q: name is %d bytes, limit %d", c.ID, len(c.Name), provider.MaxSkillNameBytes)
+		}
+		if len(c.Description) > provider.MaxSkillDescriptionBytes {
+			return fmt.Errorf("service: capability %q: description is %d bytes, limit %d", c.ID, len(c.Description), provider.MaxSkillDescriptionBytes)
+		}
+		if len(c.Tags) > provider.MaxSkillTags {
+			return fmt.Errorf("service: capability %q: %d tags, limit %d", c.ID, len(c.Tags), provider.MaxSkillTags)
+		}
+		for _, list := range [][]string{c.Tags, c.Examples, c.InputModes, c.OutputModes} {
+			for _, v := range list {
+				if strings.TrimSpace(v) == "" {
+					return fmt.Errorf("service: capability %q: empty entry in tags, examples or modes", c.ID)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // Config lists what this node offers and where each one lives.
@@ -74,8 +149,17 @@ type Config struct {
 	Capabilities []Capability `json:"capabilities"`
 	// TimeoutMS bounds one call. A capability that hangs holds a
 	// delegation open, and the requester is waiting on the other side of a
-	// hub.
+	// hub. A capability's own timeout_ms overrides it.
 	TimeoutMS int `json:"timeout_ms,omitempty"`
+	// TokenFile names a file whose first line is the bearer token sent to
+	// every service of this module (Authorization: Bearer). A capability's
+	// own token_file overrides it, so services run by different people
+	// need not share one secret.
+	//
+	// The path must be absolute; $VAR and ${VAR} are expanded, so a systemd
+	// credential can be named as "${CREDENTIALS_DIRECTORY}/token". The file
+	// is read once at start and must not be readable by other users.
+	TokenFile string `json:"token_file,omitempty"`
 }
 
 // Capability is one offering: an id the network calls, and a URL behind it.
@@ -92,23 +176,154 @@ type Capability struct {
 	// Protocol names what is on the far side, for the evidence record —
 	// "http" unless the service is fronting something more specific.
 	Protocol string `json:"protocol,omitempty"`
+
+	// Name, Tags, Examples, InputModes and OutputModes describe the
+	// capability as an A2A skill, together with Description
+	// (provider.Described, A2A-DESIGN §10.2). They are what an A2A client
+	// reads on this node's card; left empty, the card says only what the
+	// id says. Publishing a skill does not make it callable: only
+	// capabilities in inbound.public_capabilities reach the card.
+	Name        string   `json:"name,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Examples    []string `json:"examples,omitempty"`
+	InputModes  []string `json:"input_modes,omitempty"`
+	OutputModes []string `json:"output_modes,omitempty"`
+
+	// TimeoutMS overrides the module's timeout_ms for this capability. A
+	// digest that takes more than two seconds is broken; a transcription
+	// that takes two minutes is working. One bound cannot say both.
+	TimeoutMS int `json:"timeout_ms,omitempty"`
+	// TokenFile overrides the module's token_file for this capability.
+	TokenFile string `json:"token_file,omitempty"`
+}
+
+// tokenFileFor is the token file that applies to c, or "".
+func (cfg *Config) tokenFileFor(c *Capability) string {
+	if c.TokenFile != "" {
+		return c.TokenFile
+	}
+	return cfg.TokenFile
+}
+
+// defaultTimeout bounds a call when neither the capability nor the module
+// sets timeout_ms.
+const defaultTimeout = 2 * time.Minute
+
+// timeoutFor is how long one call of c may take, and whether the operator
+// set it (rather than it being the default).
+func (cfg *Config) timeoutFor(c *Capability) (time.Duration, bool) {
+	if c.TimeoutMS > 0 {
+		return time.Duration(c.TimeoutMS) * time.Millisecond, true
+	}
+	if cfg.TimeoutMS > 0 {
+		return time.Duration(cfg.TimeoutMS) * time.Millisecond, true
+	}
+	return defaultTimeout, false
 }
 
 // Module registers the declared capabilities.
 type Module struct {
 	cfg Config
 	cli *http.Client
+	// tokens maps a capability id to the bearer token sent with its calls;
+	// a capability without a token_file is absent.
+	tokens map[string]string
 }
 
 func (m *Module) Name() string { return name }
 
 func (m *Module) Start(ctx context.Context, h module.Host) error {
-	to := time.Duration(m.cfg.TimeoutMS) * time.Millisecond
-	if to == 0 {
-		to = 2 * time.Minute
+	// Each call carries its own deadline (timeoutFor), so the client has
+	// none: one client-wide bound would be the shortest or the longest
+	// capability's, and wrong for the others.
+	m.cli = &http.Client{
+		// A redirect would resend the call, headers and all, to a URL the
+		// operator did not configure. The service answers where it was
+		// told to live, or the call fails and says so.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
-	m.cli = &http.Client{Timeout: to}
+	m.tokens = map[string]string{}
+	read := map[string]string{}
+	for i := range m.cfg.Capabilities {
+		c := &m.cfg.Capabilities[i]
+		f := m.cfg.tokenFileFor(c)
+		if f == "" {
+			if isLoopbackURL(c.URL) {
+				log.Printf("service: %s has no token_file; any process on this host can call %s directly", c.ID, c.URL)
+			}
+			continue
+		}
+		tok, ok := read[f]
+		if !ok {
+			var err error
+			if tok, err = readToken(f); err != nil {
+				return fmt.Errorf("service: capability %q: %w", c.ID, err)
+			}
+			read[f] = tok
+		}
+		m.tokens[c.ID] = tok
+	}
 	return h.Providers().Register(ctx, &svcProvider{m: m})
+}
+
+// minTokenBytes is the shortest token accepted. A token is a password the
+// daemon presents on every call; a short one is guessable by anything on
+// the host that can open a socket and try.
+const minTokenBytes = 16
+
+// tokenPath expands and checks a token_file value.
+func tokenPath(raw string) (string, error) {
+	p := os.ExpandEnv(raw)
+	if p == "" || !filepath.IsAbs(p) {
+		return "", fmt.Errorf("service: token_file %q must be an absolute path (after expanding variables)", raw)
+	}
+	return p, nil
+}
+
+// readToken reads a token file: its first line, trimmed.
+func readToken(raw string) (string, error) {
+	p, err := tokenPath(raw)
+	if err != nil {
+		return "", err
+	}
+	fi, err := os.Stat(p)
+	if err != nil {
+		return "", fmt.Errorf("token_file: %w", err)
+	}
+	if fi.Mode().Perm()&0o007 != 0 {
+		return "", fmt.Errorf("token_file %s is accessible to other users (mode %04o); chmod o-rwx", p, fi.Mode().Perm())
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return "", fmt.Errorf("token_file: %w", err)
+	}
+	tok := string(b)
+	if i := strings.IndexAny(tok, "\r\n"); i >= 0 {
+		tok = tok[:i]
+	}
+	tok = strings.TrimSpace(tok)
+	if len(tok) < minTokenBytes {
+		return "", fmt.Errorf("token_file %s: token is %d bytes, at least %d required", p, len(tok), minTokenBytes)
+	}
+	for _, r := range tok {
+		if r <= ' ' || r == 0x7f {
+			return "", fmt.Errorf("token_file %s: token contains whitespace or control characters", p)
+		}
+	}
+	return tok, nil
+}
+
+func isLoopbackURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && isLoopbackHost(u.Hostname())
+}
+
+func isLoopbackHost(h string) bool {
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (m *Module) Stop(context.Context) error { return nil }
@@ -154,11 +369,31 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 	if err != nil {
 		return effect.Effect{}, err
 	}
+	to, _ := p.m.cfg.timeoutFor(target)
+	ctx, cancel := context.WithTimeout(ctx, to)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.URL, bytes.NewReader(body))
 	if err != nil {
 		return effect.Effect{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if tok := p.m.tokens[target.ID]; tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	// Only a caller the daemon authenticated is named. At the voucher door
+	// the AID is the payer the hub attested, and a service that authorized
+	// on it would let whoever holds a voucher act as its payer
+	// (provider.Call.Via).
+	if caller := call.VerifiedCaller(); caller != "" {
+		req.Header.Set(HeaderCaller, caller)
+	}
+	if call.CallID != "" {
+		req.Header.Set(HeaderCall, call.CallID)
+	}
+	if call.Via != "" {
+		req.Header.Set(HeaderVia, call.Via)
+	}
+	req.Header.Set(HeaderCapability, target.ID)
 
 	started := time.Now()
 	resp, err := p.m.cli.Do(req)
@@ -177,8 +412,16 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 	latency := time.Since(started).Milliseconds()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// 503 and 429 are the service saying "not now": busy, or out of
+		// time under load. UNAVAILABLE, like an unreachable service, so the
+		// requester knows a retry may succeed; every other refusal is an
+		// answer about this call, and FAILED.
+		st := effect.Failed
+		if resp.StatusCode == http.StatusServiceUnavailable || resp.StatusCode == http.StatusTooManyRequests {
+			st = effect.Unavailable
+		}
 		return effect.Effect{
-			Status:  effect.Failed,
+			Status:  st,
 			Message: fmt.Sprintf("service %s: HTTP %d: %s", call.Capability, resp.StatusCode, snippet(raw)),
 			Evidence: &effect.Evidence{
 				Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency,
@@ -288,3 +531,63 @@ func (p *svcProvider) Price(capability string) (uint64, bool) {
 }
 
 var _ provider.Priced = (*svcProvider)(nil)
+
+// Headers the module sets on every call. They are part of the contract
+// with the services behind it, so they are fixed names, not configuration.
+const (
+	HeaderCaller     = "X-ANet-Caller"
+	HeaderCall       = "X-ANet-Call"
+	HeaderVia        = "X-ANet-Via"
+	HeaderCapability = "X-ANet-Capability"
+)
+
+func (p *svcProvider) capability(id string) *Capability {
+	for i := range p.m.cfg.Capabilities {
+		if p.m.cfg.Capabilities[i].ID == id {
+			return &p.m.cfg.Capabilities[i]
+		}
+	}
+	return nil
+}
+
+// SkillInfo describes a declared capability as an A2A skill, from its
+// configuration. Part of provider.Described.
+func (p *svcProvider) SkillInfo(capability string) (provider.SkillInfo, bool) {
+	c := p.capability(capability)
+	if c == nil {
+		return provider.SkillInfo{}, false
+	}
+	si := provider.SkillInfo{
+		Name: c.Name, Description: c.Description,
+		Tags: c.Tags, Examples: c.Examples,
+		InputModes: c.InputModes, OutputModes: c.OutputModes,
+	}
+	if si.Name == "" && si.Description == "" && len(si.Tags) == 0 && len(si.Examples) == 0 &&
+		len(si.InputModes) == 0 && len(si.OutputModes) == 0 {
+		return provider.SkillInfo{}, false
+	}
+	return si, true
+}
+
+var _ provider.Described = (*svcProvider)(nil)
+
+// InvokeTimeout reports the bound the operator set for a capability. Part
+// of provider.LongRunning.
+//
+// Without it the daemon's own bound applied on top of timeout_ms, and a
+// capability configured for three minutes was stopped at one, with only
+// the shorter of two limits ever visible. A capability whose bound is the
+// default says nothing and gets the daemon's.
+func (p *svcProvider) InvokeTimeout(capability string) (time.Duration, bool) {
+	c := p.capability(capability)
+	if c == nil {
+		return 0, false
+	}
+	to, set := p.m.cfg.timeoutFor(c)
+	if !set {
+		return 0, false
+	}
+	return to, true
+}
+
+var _ provider.LongRunning = (*svcProvider)(nil)
