@@ -277,11 +277,28 @@ func failureReceipt(reason, network string) json.RawMessage {
 	return b
 }
 
+// The pay_state values a payment failure may move from. A payment refused
+// before it was taken (the merchant check, no room to run it, a lapsed
+// quote) leaves an open quote; a settlement the facilitator refused ends a
+// submitted one. Neither may touch the other: a refusal of a second
+// payment must not end the settlement of the first (§8.3 [C25]).
+var (
+	payOpen      = []string{interactions.PayRequired, interactions.PayFailed}
+	paySubmitted = []string{interactions.PaySubmitted}
+)
+
+// errPayStateMoved aborts a payment write whose pay_state changed since
+// the caller read it; nothing is written and nothing is sent.
+var errPayStateMoved = errors.New("anet: the task's payment state changed")
+
 // paymentFailed records a definite payment failure on an inbound task and
 // tells the requester: payment-failed with the code, the reason and every
 // receipt so far. The task waits for another payment while its quote
-// stands, and fails once it has lapsed.
-func (d *Daemon) paymentFailed(ctx context.Context, ixID, reason, code, detail string, receipt json.RawMessage) {
+// stands, and fails once it has lapsed. from is the pay_state the failure
+// applies to (payOpen or paySubmitted); a task whose pay_state moved on
+// since is left alone and told nothing.
+func (d *Daemon) paymentFailed(ctx context.Context, ixID string, from []string, reason, code, detail string,
+	receipt json.RawMessage) {
 	ix, err := d.ix.Get(ixID)
 	if err != nil || ix.IsTerminal() {
 		return
@@ -309,12 +326,18 @@ func (d *Daemon) paymentFailed(ctx context.Context, ixID, reason, code, detail s
 		text += " (" + detail + ")"
 	}
 	err = d.providerStatus(ctx, ixID, ix.PeerAID, state, text, meta, true, func(tx *interactions.Tx) error {
-		_, err := tx.SetPayment(ixID, interactions.PayUpdate{
-			From:  []string{interactions.PayRequired, interactions.PayFailed, interactions.PaySubmitted},
+		applied, err := tx.SetPayment(ixID, interactions.PayUpdate{From: from,
 			State: interactions.PayState(interactions.PayFailed), AddReceipt: receipt})
+		if err == nil && !applied {
+			return errPayStateMoved
+		}
 		return err
 	})
-	if err != nil && !errors.Is(err, ErrTaskTerminal) {
+	switch {
+	case err == nil, errors.Is(err, ErrTaskTerminal):
+	case errors.Is(err, errPayStateMoved):
+		log.Printf("anet: %s: payment refusal (%s) not sent: the task's payment moved on", ixID, reason)
+	default:
 		log.Printf("anet: %s: payment-failed status: %v", ixID, err)
 	}
 }
@@ -359,12 +382,31 @@ func (d *Daemon) takePayment(ctx context.Context, ix *interactions.Interaction, 
 	chk := p.CheckPayment(raw, d.paymentTerms(ix))
 	if chk.Reason != "" {
 		log.Printf("anet: %s: payment refused before settlement: %s (%s)", ix.ID, chk.Reason, chk.Detail)
-		d.paymentFailed(ctx, ix.ID, chk.Reason, chk.Code, chk.Detail, failureReceipt(chk.Reason, chk.Requirements.Network))
+		d.paymentFailed(ctx, ix.ID, payOpen, chk.Reason, chk.Code, chk.Detail,
+			failureReceipt(chk.Reason, chk.Requirements.Network))
 		return false
 	}
-	applied, err := d.ix.SetPayment(ix.ID, interactions.PayUpdate{
-		From:  []string{interactions.PayRequired, interactions.PayFailed},
-		State: interactions.PayState(interactions.PaySubmitted), AuthIDs: []string{chk.AuthID}, Payload: raw})
+	// Taken under the write lock, and only on a task still open: a cancel
+	// or a lapsed quote that ended the task since it was read wins, and
+	// the payment is not presented (§4.2 [C34]). Once this commits, the
+	// task is not canceled (CancelTask reads pay_state under the same lock).
+	var applied bool
+	err := d.ix.Update(func(tx *interactions.Tx) error {
+		cur, err := tx.Get(ix.ID)
+		if err != nil {
+			return err
+		}
+		if cur.IsTerminal() {
+			return ErrTaskTerminal
+		}
+		applied, err = tx.SetPayment(ix.ID, interactions.PayUpdate{From: payOpen,
+			State: interactions.PayState(interactions.PaySubmitted), AuthIDs: []string{chk.AuthID}, Payload: raw})
+		return err
+	})
+	if errors.Is(err, ErrTaskTerminal) {
+		log.Printf("anet: %s: a payment arrived for a task that ended; not presented", ix.ID)
+		return false
+	}
 	if err != nil {
 		log.Printf("anet: %s: record the payment: %v", ix.ID, err)
 		return false
@@ -406,7 +448,7 @@ func (d *Daemon) settleTaskPayment(ctx context.Context, ixID string, first bool)
 	}
 	req, ok := quotedRequirements(ix)
 	if !ok {
-		d.paymentFailed(ctx, ixID, payment.ReasonSettlementFailed, "", "the stored payment matches no quoted option",
+		d.paymentFailed(ctx, ixID, paySubmitted, payment.ReasonSettlementFailed, "", "the stored payment matches no quoted option",
 			failureReceipt(payment.ReasonSettlementFailed, ""))
 		return false
 	}
@@ -423,7 +465,7 @@ func (d *Daemon) settleTaskPayment(ctx context.Context, ixID string, first bool)
 		}
 		return false
 	case st.Failed != "":
-		d.paymentFailed(ctx, ixID, st.Failed, st.Code, "", failedSettlement(st, req.Network))
+		d.paymentFailed(ctx, ixID, paySubmitted, st.Failed, st.Code, "", failedSettlement(st, req.Network))
 		return false
 	}
 	// §8.4: a replayed answer is accepted only for the authorization this
@@ -432,12 +474,12 @@ func (d *Daemon) settleTaskPayment(ctx context.Context, ixID string, first bool)
 	if st.Receipt != "" {
 		facts, _ := p.VerifyReceipt(st.Receipt, ix.PeerAID)
 		if len(ix.PayAuthIDs) == 0 || facts.AuthID != ix.PayAuthIDs[0] {
-			d.paymentFailed(ctx, ixID, payment.ReasonSettlementFailed, "", "the facilitator's receipt is for another payment",
+			d.paymentFailed(ctx, ixID, paySubmitted, payment.ReasonSettlementFailed, "", "the facilitator's receipt is for another payment",
 				failureReceipt(payment.ReasonSettlementFailed, req.Network))
 			return false
 		}
 	} else if st.Replayed {
-		d.paymentFailed(ctx, ixID, payment.ReasonSettlementFailed, "", "a replayed settlement without a receipt",
+		d.paymentFailed(ctx, ixID, paySubmitted, payment.ReasonSettlementFailed, "", "a replayed settlement without a receipt",
 			failureReceipt(payment.ReasonSettlementFailed, req.Network))
 		return false
 	}
@@ -450,24 +492,30 @@ func (d *Daemon) settleTaskPayment(ctx context.Context, ixID string, first bool)
 	meta := map[string]any{x402a2a.KeyStatus: x402a2a.StatusVerified, x402a2a.KeyReceipts: receiptList(cur, rb)}
 	err = d.providerStatus(ctx, ixID, ix.PeerAID, interactions.StateWorking, "payment settled; working", meta, true,
 		func(tx *interactions.Tx) error {
-			applied, err := tx.SetPayment(ixID, interactions.PayUpdate{From: []string{interactions.PaySubmitted},
+			applied, err := tx.SetPayment(ixID, interactions.PayUpdate{From: paySubmitted,
 				State: interactions.PayState(interactions.PayCompleted), AddReceipt: rb})
 			if err == nil && !applied {
-				return errAlreadyQuoted
+				return errPayStateMoved
 			}
 			return err
 		})
-	if errors.Is(err, errAlreadyQuoted) {
+	if errors.Is(err, errPayStateMoved) {
 		return false // settled by another attempt, which carries on
 	}
 	if err != nil && !errors.Is(err, ErrTaskTerminal) {
+		// The hub settled and this node could not write it down. The
+		// payment stays submitted, and presenting it again is answered
+		// with the same receipt.
 		log.Printf("anet: %s: record the settlement: %v", ixID, err)
+		if first {
+			d.ensureSettling(ixID)
+		}
 		return false
 	}
 	if errors.Is(err, ErrTaskTerminal) {
 		// Paid, but the task ended here meanwhile. Record the money; the
 		// payer is shown the receipt with whatever answer it gets.
-		if _, perr := d.ix.SetPayment(ixID, interactions.PayUpdate{From: []string{interactions.PaySubmitted},
+		if _, perr := d.ix.SetPayment(ixID, interactions.PayUpdate{From: paySubmitted,
 			State: interactions.PayState(interactions.PayCompleted), AddReceipt: rb}); perr != nil {
 			log.Printf("anet: %s: record the settlement: %v", ixID, perr)
 		}
@@ -638,13 +686,17 @@ func (d *Daemon) onRequesterPayment(ctx context.Context, ixID string, prior *int
 		err := d.providerStatus(ctx, ixID, prior.PeerAID, interactions.StateCanceled, "the requester declined to pay",
 			map[string]any{x402a2a.KeyStatus: x402a2a.StatusRejected, x402a2a.KeyReceipts: receiptList(prior)},
 			true, func(tx *interactions.Tx) error {
-				_, err := tx.SetPayment(ixID, interactions.PayUpdate{
-					From:  []string{interactions.PayRequired, interactions.PayFailed},
+				// Only an open quote is declined: a payment taken since
+				// the row was read keeps the task (§4.1, §4.2).
+				applied, err := tx.SetPayment(ixID, interactions.PayUpdate{From: payOpen,
 					State: interactions.PayState(interactions.PayRejected)})
+				if err == nil && !applied {
+					return errPayStateMoved
+				}
 				return err
 			})
 		if err != nil {
-			log.Printf("anet: %s: canceled on payment-rejected; notice: %v", ixID, err)
+			log.Printf("anet: %s: payment-rejected not applied: %v", ixID, err)
 		}
 	case x402a2a.StatusSubmitted:
 		// The payload as the requester sent it.
@@ -671,7 +723,7 @@ func (d *Daemon) onRequesterPayment(ctx context.Context, ixID string, prior *int
 			return
 		}
 		if len(raw) == 0 {
-			d.paymentFailed(ctx, ixID, payment.ReasonMalformed, "", "payment-submitted carried no payload",
+			d.paymentFailed(ctx, ixID, payOpen, payment.ReasonMalformed, "", "payment-submitted carried no payload",
 				failureReceipt(payment.ReasonMalformed, ""))
 			return
 		}
@@ -702,6 +754,28 @@ func (d *Daemon) startPayments(ctx context.Context) {
 		log.Printf("anet: %s: a payment was being settled when the daemon stopped; presenting it again", ix.ID)
 		d.ensureSettling(ix.ID)
 	}
+	if open, err := d.ix.ListPayState(interactions.RoleInbound, payOpen, true); err == nil {
+		for _, ix := range open {
+			meta := d.untakenPayment(ix)
+			if meta == nil {
+				continue
+			}
+			log.Printf("anet: %s: a payment had arrived and was not taken when the daemon stopped; taking it now", ix.ID)
+			ix := ix
+			// After the same pause as a resumed settlement, off the start
+			// path: taking it goes to the hub.
+			d.goBackground(func() {
+				t := time.NewTimer(settleRetryBase)
+				defer t.Stop()
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+				}
+				d.onRequesterPayment(ctx, ix.ID, ix, meta)
+			})
+		}
+	}
 	d.goBackground(func() {
 		t := time.NewTicker(quoteSweepEvery)
 		defer t.Stop()
@@ -714,6 +788,36 @@ func (d *Daemon) startPayments(ctx context.Context) {
 			}
 		}
 	})
+}
+
+// untakenPayment is the metadata of a payment-submitted that arrived for an
+// inbound priced call and was not taken: the message commits with the task
+// set working, and the merchant check and the submitted write follow it,
+// so a stop in between leaves the task working with its quote still open
+// and the message acknowledged, never to come again. It is read back from
+// the task's log and handled at start as if it had just arrived; the
+// merchant check and the hub's one settlement per binding make that safe
+// to repeat. nil for any other task.
+func (d *Daemon) untakenPayment(ix *interactions.Interaction) []byte {
+	if ix.Role != interactions.RoleInbound || !ix.IsCapability || ix.State != interactions.StateWorking ||
+		(ix.PayState != interactions.PayRequired && ix.PayState != interactions.PayFailed) {
+		return nil
+	}
+	msgs, err := d.ix.Messages(ix.ID)
+	if err != nil {
+		return nil
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		m := msgs[i]
+		if m.Kind != interactions.MsgPayment || m.SenderAID != ix.PeerAID {
+			continue
+		}
+		if decodeMeta([]byte(m.Metadata))[x402a2a.KeyStatus] == x402a2a.StatusSubmitted {
+			return []byte(m.Metadata)
+		}
+		return nil
+	}
+	return nil
 }
 
 // expireQuotes fails every inbound task whose quote lapsed unpaid (§8.3).
@@ -733,7 +837,7 @@ func (d *Daemon) expireQuotes(ctx context.Context) {
 			network = pr.Accepts[0].Network
 		}
 		sctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
-		d.paymentFailed(sctx, ix.ID, x402a2a.ReasonQuoteExpired, "", "the quote expired unpaid",
+		d.paymentFailed(sctx, ix.ID, payOpen, x402a2a.ReasonQuoteExpired, "", "the quote expired unpaid",
 			failureReceipt(x402a2a.ReasonQuoteExpired, network))
 		cancel()
 	}
@@ -741,6 +845,16 @@ func (d *Daemon) expireQuotes(ctx context.Context) {
 
 // ---------------------------------------------------------------------------
 // Requester
+
+// carriesPayment reports whether a provider's status metadata has an x402
+// part: a payment status, or receipts alone (a canceled notice on a task
+// that was quoted carries its receipts and no status).
+func carriesPayment(meta []byte) bool {
+	m := decodeMeta(meta)
+	_, status := m[x402a2a.KeyStatus]
+	_, receipts := m[x402a2a.KeyReceipts]
+	return status || receipts
+}
 
 // onProviderPayment handles the x402 part of a status from the provider of
 // an outbound task, after it was stored.
@@ -793,7 +907,7 @@ func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte
 		// failure a person or an agent decides, so a provider cannot
 		// drain the automatic tier by quoting again and again.
 		if prior.PayState == interactions.PayNone || prior.PayState == interactions.PaySubmitted {
-			d.autoPay(ctx, ixID)
+			d.autoPay(ctx, ixID, prior.PayState == interactions.PaySubmitted)
 		}
 		return
 	case x402a2a.StatusFailed:
@@ -811,12 +925,16 @@ func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte
 }
 
 // autoPay pays a stored quote within the auto tier, or leaves the task for
-// an operator.
-func (d *Daemon) autoPay(ctx context.Context, ixID string) {
+// an operator. With resend set (a quote again after a payment was
+// submitted) it only sends the same authorization again: the one already
+// sent has no definite outcome, and a new one is not signed until it has
+// (§8.3 [C13][C25]).
+func (d *Daemon) autoPay(ctx context.Context, ixID string, resend bool) {
 	if d.payer() == nil {
 		return
 	}
-	_, err := d.PayTask(ctx, PayRequest{TaskID: ixID, Decision: PayDecisionSubmit, Purpose: module.PurposeTaskAuto})
+	_, err := d.PayTask(ctx, PayRequest{TaskID: ixID, Decision: PayDecisionSubmit, Purpose: module.PurposeTaskAuto,
+		resendOnly: resend})
 	if err == nil {
 		return
 	}
@@ -889,7 +1007,8 @@ func (d *Daemon) PaymentStatusMeta(ix *interactions.Interaction) map[string]any 
 	if reason := PaymentReason(ix); reason != "" {
 		out[x402a2a.KeyReason] = reason
 	}
-	if ix.Role == interactions.RoleOutbound && ix.PayState == interactions.PaySubmitted && !ix.IsTerminal() {
+	if ix.Role == interactions.RoleOutbound && !ix.IsTerminal() &&
+		(ix.PayState == interactions.PaySubmitted || ix.PayState == interactions.PayCompleted) {
 		if msgs, err := d.ix.Messages(ix.ID); err == nil {
 			for _, m := range msgs {
 				if m.Kind == interactions.MsgCancel && m.SenderAID == d.AID() {
@@ -919,6 +1038,10 @@ type PayRequest struct {
 	Payload json.RawMessage
 	// Purpose is the spending tier, set by the route (§8.6).
 	Purpose string
+	// resendOnly allows only the authorization sent last, on the same
+	// terms; set for the automatic answer to a quote repeated after a
+	// payment was submitted.
+	resendOnly bool
 }
 
 // PayOutcome is what a decision did.
@@ -943,6 +1066,11 @@ var (
 	ErrNotRequester   = errors.New("anet: only the requester of a task pays for it")
 	ErrPayeeNotPeer   = errors.New("anet: the quoted payee is not the task's provider")
 )
+
+// errNoResend refuses an automatic payment of a repeated quote whose terms
+// are not those of the authorization sent last: a new authorization while
+// the first has no outcome is an operator's decision (§8.3).
+var errNoResend = errors.New("anet: the quote changed while a payment was outstanding; a new authorization needs a decision")
 
 // PayRefusal is a decision refused with an a2a-x402 outcome (§8.7): the
 // caller is told payment-failed with Code and Reason, and nothing was
@@ -1029,6 +1157,9 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 		return out, ErrPayeeNotPeer
 	}
 	raw, authID, reused := d.reusablePayment(ix, *opt)
+	if raw == nil && req.resendOnly {
+		return out, errNoResend
+	}
 	if raw == nil {
 		signed, err := p.Authorize(*opt, ix.ID, x402a2a.PayBind(ix.ID, ix.TaskNonce), req.Purpose)
 		if err != nil {

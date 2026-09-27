@@ -236,8 +236,11 @@ func (m *Module) settle(ctx context.Context, raw []byte, req payment.PaymentRequ
 	if err := json.Unmarshal(raw, &pp); err != nil {
 		return nil, fmt.Errorf("x402: payment payload malformed: %w", err)
 	}
+	// The payer wrote this object; only what the facilitator settles on
+	// goes on: the authorization, not whatever else rode with it.
 	pp.Accepted.Extra = nil
 	pp.Extensions = nil
+	pp.Payload = map[string]any{"authorization": pp.Payload["authorization"]}
 	req = sanitizeRequirements(req)
 	body, err := json.Marshal(payment.FacilitatorRequest{
 		X402Version: payment.Version, PaymentPayload: &pp, PaymentRequirements: &req,
@@ -259,8 +262,11 @@ func (m *Module) settle(ctx context.Context, raw []byte, req payment.PaymentRequ
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
 		return nil, fmt.Errorf("x402: the facilitator answered %s unreadably: %w", resp.Status, err)
 	}
-	if resp.StatusCode >= 500 && out.ErrorReason == "" {
-		// A server error with no reason is not an outcome.
+	if resp.StatusCode/100 != 2 && out.ErrorReason == "" {
+		// An error status with no errorReason is not the facilitator's
+		// answer but something in front of it (a proxy, a rate limit, a
+		// restart): not an outcome, so the payment is presented again.
+		// The hub states a reason on every refusal it makes.
 		return nil, fmt.Errorf("x402: the facilitator answered %s", resp.Status)
 	}
 	return &out, nil

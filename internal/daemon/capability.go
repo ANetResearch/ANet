@@ -461,8 +461,9 @@ type resultOpts struct {
 
 // deliverCapabilityResult signs, stores, records and delivers one answer.
 //
-// Shared with the payment-required path, which is an answer like any
-// other: it is signed, it goes on the chain, and it is delivered. The
+// Not used for a quote: a price is a status on the open task
+// (quoteCapability), never a result, because a receipted result ends the
+// task and the payment arrives on the same task (A2A-DESIGN §8.3). The
 // result, its receipt, the state it maps to and the queued delivery commit
 // together; the result goes through the retry queue, so a relay failure is
 // retried rather than lost. The write is guarded: a task that reached a
@@ -599,9 +600,10 @@ func (d *Daemon) recoverInterrupted() {
 		if !ix.IsCapability || len(ix.Receipt) > 0 {
 			continue
 		}
-		if ix.PayState == interactions.PaySubmitted {
-			// Not executed: the payment's outcome is not known yet, and
-			// startPayments presents it again (A2A-DESIGN §8.3).
+		if ix.PayState == interactions.PaySubmitted || d.untakenPayment(ix) != nil {
+			// Not executed: the payment's outcome is not known yet, or the
+			// payment was not taken yet, and startPayments presents it
+			// again (A2A-DESIGN §8.3).
 			continue
 		}
 		capID := ix.Goal

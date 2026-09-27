@@ -611,11 +611,13 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 //
 //   - Requester, no payment submitted: the task is canceled locally and the provider is sent a
 //     cancel through the retry queue.
-//   - Requester, a payment submitted: the local state does not change; the cancel is sent and the
-//     provider's status or result decides (it does not cancel paid work). The returned interaction
-//     is still open; its conversation log carries the cancel.
+//   - Requester, a payment submitted or settled: the local state does not change; the cancel is
+//     sent and the provider's status or result decides (it does not cancel paid work). The
+//     returned interaction is still open; its conversation log carries the cancel.
 //   - Provider: the task is canceled, a running capability call is asked to stop, and the
-//     requester is sent status{canceled} through the retry queue.
+//     requester is sent status{canceled} through the retry queue. A capability call whose payment
+//     was taken is not canceled (ErrNotCancelable); the pay_state is read again under the write
+//     lock, so a payment and a cancel racing each other cannot both win.
 func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interactions.Interaction, error) {
 	ix, err := d.ix.Get(interactionID)
 	if err != nil {
@@ -657,9 +659,15 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 		if err != nil {
 			return err
 		}
+		paid := cur.PayState == interactions.PaySubmitted || cur.PayState == interactions.PayCompleted
+		if cur.Role == interactions.RoleInbound && cur.IsCapability && paid {
+			// A payment taken since the row was read: the paid work is
+			// not canceled (§4.2 [C34]).
+			return ErrNotCancelable
+		}
 		cancelState := true
 		if cur.Role == interactions.RoleOutbound {
-			cancelState = cur.PayState != interactions.PaySubmitted
+			cancelState = !paid
 		}
 		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ix.ID,
 			SenderAID: d.AID(), Kind: interactions.MsgCancel, MsgID: msgID}); err != nil {
@@ -1087,8 +1095,15 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 			// A payment for a call this node has no room to run: it is
 			// not settled, and the task waits for another payment rather
 			// than ending with the requester's money taken (A2A-DESIGN
-			// §8.3).
-			d.paymentFailed(cctx, interactionID, x402a2a.ReasonProviderBusy, "",
+			// §8.3). A prepaid call is quoted first, so its requester is
+			// told the terms it may pay again on. Only an open quote is
+			// refused: a payment already taken is not touched.
+			if price, priced := priceOfCapability(p, capID); priced && ix.PayState == interactions.PayNone {
+				if err := d.recordQuote(cctx, ix, capID, price, false); err != nil && !errors.Is(err, errAlreadyQuoted) {
+					log.Printf("anet: %s: quote for a prepaid call: %v", interactionID, err)
+				}
+			}
+			d.paymentFailed(cctx, interactionID, payOpen, x402a2a.ReasonProviderBusy, "",
 				fmt.Sprintf("this node is already running %d long tasks; try again later", maxConcurrentLongCalls),
 				failureReceipt(x402a2a.ReasonProviderBusy, ""))
 			return true
@@ -1463,7 +1478,7 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 	sm, ix := m.sm, m.existing
 	if ix.IsTerminal() {
 		res := d.commitRx(m, nil)
-		if res.class == rxAccepted && hasPaymentStatus(sm.Metadata) {
+		if res.class == rxAccepted && carriesPayment(sm.Metadata) {
 			// §4.2: a settlement is a fact about money this node paid,
 			// whatever became of the task here.
 			d.notePaymentReceipts(m.ix, decodeMeta(sm.Metadata), true)
@@ -1487,7 +1502,7 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 	if res.class == rxAccepted {
 		d.publishMessage(m.ix, seq, interactions.MsgStatus)
 		d.publishState(m.ix)
-		if hasPaymentStatus(meta) {
+		if carriesPayment(meta) {
 			d.onProviderPayment(ctx, m.ix, meta)
 		}
 	}
