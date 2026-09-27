@@ -20,9 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/identity"
-
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/moduletest"
 	_ "github.com/ANetResearch/ANet/module/p2p"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -36,19 +35,16 @@ import (
 
 // host is the narrow face a transport module gets from the daemon.
 type host struct {
+	moduletest.NopHost
 	aid string
 	mu  sync.Mutex
 	trs []module.Transport
 	in  module.Inbound
 }
 
-func (h *host) AID() string                      { return h.aid }
-func (h *host) Providers() *provider.Registry    { return provider.NewRegistry() }
-func (h *host) RecordEvidence(string, any) error { return nil }
-func (h *host) ResolveKEL(string) ([]identity.SignedEvent, bool) {
-	return nil, false
-}
-func (h *host) Inbound() module.Inbound { return h.in }
+func (h *host) AID() string                   { return h.aid }
+func (h *host) Providers() *provider.Registry { return provider.NewRegistry() }
+func (h *host) Inbound() module.Inbound       { return h.in }
 func (h *host) RegisterTransport(t module.Transport) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -383,11 +379,6 @@ func TestConcurrentTrafficBothWays(t *testing.T) {
 	})
 }
 
-// PaymentSeam: none of these modules take money, and a host that offered
-// one would be lending them an ability they must not have. False is the
-// honest answer and the one a node without a hub gives too.
-func (h *host) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }
-
 // An address form must not be guessed wrongly: a path is a socket, a
 // host:port is TCP, and an explicit scheme wins over both.
 func TestAddrKindReadsTheAddressForm(t *testing.T) {
@@ -580,18 +571,3 @@ func TestAPeerOnAnotherHubIsFoundViaTheReferral(t *testing.T) {
 		t.Errorf("the home hub was asked again for an unreferred AID")
 	}
 }
-
-// This host grants no hub seam. Nothing here talks to a hub as this node,
-// and a test host that handed out a signing grant it does not need would
-// be a wider surface than the thing under test.
-func (*host) HubSeam() (module.HubSeam, bool) { return nil, false }
-
-// Admit and DeclareUntrustedBackend complete module.Host. This test host
-// admits every call; the kernel's admission is tested in internal/daemon.
-func (*host) Admit(string, string, int) (func(), string) { return func() {}, "" }
-func (*host) DeclareUntrustedBackend()                   {}
-
-// StateDir and TaskSeam complete module.Host. This test host keeps no
-// module state and offers no task seam; nothing under test uses either.
-func (*host) StateDir(string) string            { return "" }
-func (*host) TaskSeam() (module.TaskSeam, bool) { return nil, false }

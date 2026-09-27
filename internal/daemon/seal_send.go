@@ -288,10 +288,11 @@ func (d *Daemon) sendNotice(toAID, interactionID string, body []byte) {
 	})
 }
 
-// nowMS is the daemon's clock in unix milliseconds. Tests replace clock.
+// nowMS is the daemon's clock in unix milliseconds. Tests replace it with
+// setClock.
 func (d *Daemon) nowMS() uint64 {
-	if d.clock != nil {
-		return d.clock()
+	if clock := d.testClock(); clock != nil {
+		return clock()
 	}
 	return uint64(time.Now().UnixMilli())
 }

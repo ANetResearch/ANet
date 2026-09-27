@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/coredet"
@@ -63,14 +64,16 @@ func TestTheKeyRingRotatesAndRetires(t *testing.T) {
 	start := d.nowMS()
 	first := keySetOf(t, d)
 	firstKID := first.Keys[0].KID
-	clock := start
-	d.clock = func() uint64 { return clock }
+	// Atomic: the daemon's own loops read the clock while the test moves it.
+	var clock atomic.Uint64
+	clock.Store(start)
+	d.setClock(clock.Load)
 
-	clock = start + 6*dayMS
+	clock.Store(start + 6*dayMS)
 	if changed, err := d.enc.maintain(d.self.Sign, d.self.CurrentSeq()); err != nil || changed {
 		t.Fatalf("day 6: changed=%v err=%v, want no rotation yet", changed, err)
 	}
-	clock = start + 7*dayMS + 1
+	clock.Store(start + 7*dayMS + 1)
 	changed, err := d.enc.maintain(d.self.Sign, d.self.CurrentSeq())
 	if err != nil || !changed {
 		t.Fatalf("day 7: changed=%v err=%v, want a rotation", changed, err)
@@ -83,12 +86,12 @@ func TestTheKeyRingRotatesAndRetires(t *testing.T) {
 		t.Fatal("keys are not in ascending not_before order")
 	}
 	// Senders choose the newest valid key.
-	if k, err := seal.SelectKey(second, clock); err != nil || !bytes.Equal(k.KID, second.Keys[1].KID) {
+	if k, err := seal.SelectKey(second, clock.Load()); err != nil || !bytes.Equal(k.KID, second.Keys[1].KID) {
 		t.Fatalf("sender would choose %v (%v), want the new key", k, err)
 	}
 
 	// Past the first key's expiry plus retention: its private half is gone.
-	clock = start + seal.KeyLifetimeMS + seal.KeyRetentionMS + 1
+	clock.Store(start + seal.KeyLifetimeMS + seal.KeyRetentionMS + 1)
 	if _, err := d.enc.maintain(d.self.Sign, d.self.CurrentSeq()); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +115,7 @@ func TestTheKeyRingRotatesAndRetires(t *testing.T) {
 	d2 := newTestDaemon(t, "", true)
 	s2 := keySetOf(t, d2)
 	c2 := d2.nowMS()
-	d2.clock = func() uint64 { return c2 + seal.KeyLifetimeMS + seal.KeyRetentionMS - 3600*1000 }
+	d2.setClock(func() uint64 { return c2 + seal.KeyLifetimeMS + seal.KeyRetentionMS - 3600*1000 })
 	if _, ok := d2.enc.Key(s2.Keys[0].KID); !ok {
 		t.Fatal("a private key was dropped inside its retention")
 	}
@@ -181,7 +184,7 @@ func TestARotationIsPublished(t *testing.T) {
 	srv, _, prov := registeredPair(t)
 	fake := fakeHubAt(t, srv.URL)
 	start := prov.nowMS()
-	prov.clock = func() uint64 { return start + 7*dayMS + 1 }
+	prov.setClock(func() uint64 { return start + 7*dayMS + 1 })
 	prov.maintainKeyRing()
 	fake.mu.Lock()
 	stored := append([]byte(nil), fake.agents[prov.AID()].keyset...)
@@ -223,7 +226,7 @@ func TestAKeyRingThatCannotBeSavedIsNotUsed(t *testing.T) {
 	path := prov.enc.path
 	prov.enc.path = filepath.Join(blocker, "enc_keys.cbor")
 	start := prov.nowMS()
-	prov.clock = func() uint64 { return start + 7*dayMS + 1 }
+	prov.setClock(func() uint64 { return start + 7*dayMS + 1 })
 	prov.maintainKeyRing()
 	if !bytes.Equal(prov.enc.SignedSet(), before) || prov.enc.Seq() != seq0 {
 		t.Fatal("a key set that could not be saved is attached to outgoing messages")

@@ -407,8 +407,13 @@ type Module interface {
 	// Start brings the module up. An error is fatal to the daemon: a module
 	// that was compiled in and configured but cannot run is an operator
 	// error, and starting without it would be silent capability loss.
+	// ctx lives as long as the daemon. A Start that fails releases what it
+	// opened itself: Stop is called only for a module that started.
 	Start(ctx context.Context, h Host) error
-	// Stop shuts it down.
+	// Stop shuts it down. The daemon calls it once, when it closes (or
+	// fails to start after this module did): after Start's ctx is
+	// cancelled and before the evidence ledger closes, so RecordEvidence
+	// still works. Its own ctx carries the shutdown deadline.
 	Stop(ctx context.Context) error
 }
 

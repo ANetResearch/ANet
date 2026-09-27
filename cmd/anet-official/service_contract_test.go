@@ -15,29 +15,21 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/module"
+	"github.com/ANetResearch/ANet/module/moduletest"
 	_ "github.com/ANetResearch/ANet/module/service"
 	"github.com/ANetResearch/ANet/provider"
 )
 
 // contractHost is the least module.Host the service module needs.
-type contractHost struct{ reg *provider.Registry }
+type contractHost struct {
+	moduletest.NopHost
+	reg *provider.Registry
+}
 
-func (h *contractHost) AID() string                                      { return "aid-official" }
-func (h *contractHost) Providers() *provider.Registry                    { return h.reg }
-func (h *contractHost) RecordEvidence(string, any) error                 { return nil }
-func (h *contractHost) ResolveKEL(string) ([]identity.SignedEvent, bool) { return nil, false }
-func (h *contractHost) PaymentSeam() (module.PaymentSeam, bool)          { return nil, false }
-func (h *contractHost) HubSeam() (module.HubSeam, bool)                  { return nil, false }
-func (h *contractHost) Admit(string, string, int) (func(), string)       { return func() {}, "" }
-func (h *contractHost) DeclareUntrustedBackend()                         {}
-
-// StateDir and TaskSeam complete module.Host (added with the A2A task
-// surface); the service module uses neither.
-func (h *contractHost) StateDir(string) string            { return "" }
-func (h *contractHost) TaskSeam() (module.TaskSeam, bool) { return nil, false }
+func (h *contractHost) AID() string                   { return "aid-official" }
+func (h *contractHost) Providers() *provider.Registry { return h.reg }
 
 // syncBuffer is a log sink the server goroutine writes while the test
 // reads it.

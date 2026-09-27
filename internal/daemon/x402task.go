@@ -60,9 +60,10 @@ const EvPaymentQuoted = "anet.payment.quoted"
 const quoteLifetime = 24 * time.Hour
 
 // Settlement retry backoff for an outcome that is not known yet. Variables
-// so tests can shorten them.
+// so tests can shorten them; the base is a knob (testhooks.go) because a
+// test shortens it while an earlier daemon's loop may still read it.
 var (
-	settleRetryBase = 2 * time.Second
+	settleRetryBase = newKnob(2 * time.Second)
 	settleRetryMax  = 5 * time.Minute
 	// quoteSweepEvery is how often lapsed quotes are failed.
 	quoteSweepEvery = time.Minute
@@ -584,7 +585,7 @@ func (d *Daemon) ensureSettling(ixID string) {
 // (§8.3: never a new authorization, never a second input-required), then
 // executes the paid call.
 func (d *Daemon) settleLoop(ixID string) {
-	delay := settleRetryBase
+	delay := settleRetryBase.get()
 	for {
 		t := time.NewTimer(delay)
 		select {
@@ -766,7 +767,7 @@ func (d *Daemon) startPayments(ctx context.Context) {
 			// After the same pause as a resumed settlement, off the start
 			// path: taking it goes to the hub.
 			d.goBackground(func() {
-				t := time.NewTimer(settleRetryBase)
+				t := time.NewTimer(settleRetryBase.get())
 				defer t.Stop()
 				select {
 				case <-ctx.Done():
