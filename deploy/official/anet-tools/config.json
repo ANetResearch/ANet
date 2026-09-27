@@ -137,7 +137,7 @@
           "id": "json.validate",
           "url": "http://127.0.0.1:8613/v1/tools/json.validate",
           "name": "JSON and JSON Schema validation",
-          "description": "Checks JSON syntax (with line and column of the first error, and duplicate member names) and, when a schema is given, validates against JSON Schema 2020-12 (draft-07 accepted). Errors carry JSON Pointers into the instance and the schema. Arguments: \"json\" (text) or \"instance\" (value), optional \"schema\". Only local $ref (\"#...\") is followed; remote references are reported, never fetched. Keywords it does not evaluate are listed and make the verdict \"unknown\" rather than \"valid\". Up to 512 KiB of JSON.",
+          "description": "Checks JSON syntax (with line and column of the first error, and duplicate member names) and, when a schema is given, validates against JSON Schema 2020-12 (draft-07 accepted). Errors carry JSON Pointers into the instance and the schema. Arguments: \"json\" (text) or \"instance\" (value), optional \"schema\". Only local $ref (\"#...\") is followed; remote references are reported, never fetched. Keywords it does not evaluate are listed and make the verdict \"unknown\" rather than \"valid\". Numbers in \"instance\" and \"schema\" reach this agent as JSON values and may be rounded to doubles on the way; send the document as \"json\" text to check exact numbers. Up to 512 KiB of JSON.",
           "tags": [
             "json",
             "json-schema",
@@ -169,7 +169,7 @@
             "signature"
           ],
           "examples": [
-            "{\"card_json\":\"{\\\"name\\\":\\\"Recipe Agent\\\",...}\"}"
+            "{\"card\":{\"name\":\"Recipe Agent\",\"description\":\"Finds recipes.\",\"version\":\"1.0.0\",\"supportedInterfaces\":[{\"url\":\"https://recipes.example.com/a2a/v1\",\"protocolBinding\":\"JSONRPC\",\"protocolVersion\":\"1.0\"}],\"capabilities\":{\"streaming\":false},\"defaultInputModes\":[\"text/plain\"],\"defaultOutputModes\":[\"application/json\"],\"skills\":[{\"id\":\"find\",\"name\":\"Find recipes\",\"description\":\"Finds recipes by ingredient.\",\"tags\":[\"food\"]}]}}"
           ],
           "input_modes": [
             "application/json"

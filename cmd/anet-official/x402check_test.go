@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
@@ -212,5 +213,28 @@ func TestX402AnetCredit(t *testing.T) {
 	}
 	if res := x402Check(t, settle("3")); res.Valid {
 		t.Errorf("a receipt for another amount must be reported: %+v", res.Issues)
+	}
+}
+
+// maxTimeoutSeconds is read from the literal: a positive integer however
+// written, and a huge exponent costs nothing (big.Rat parsed each
+// "1e999999" in tens of milliseconds; 600 of them in a 64 KiB argument held
+// a core for half a minute).
+func TestX402TimeoutIsReadFromTheLiteral(t *testing.T) {
+	for lit, ok := range map[string]bool{
+		"60": true, "6e1": true, "60.0": true, "1e999999": true,
+		"0": false, "-1": false, "1.5": false, "1e-999999": false, `"60"`: false,
+	} {
+		req := strings.Replace(reqV2, `"maxTimeoutSeconds":60`, `"maxTimeoutSeconds":`+lit, 1)
+		res := x402Check(t, `{"object":`+req+`,"kind":"payment_requirements"}`)
+		if got := issueCodes(res)["type"] != sevError; got != ok {
+			t.Errorf("maxTimeoutSeconds %s: accepted %v, want %v (%+v)", lit, got, ok, res.Issues)
+		}
+	}
+	accepts := strings.Repeat(`{"maxTimeoutSeconds":1e999999},`, 3000)
+	began := time.Now()
+	x402Check(t, `{"object":{"x402Version":2,"accepts":[`+accepts+reqV2+`]}}`)
+	if d := time.Since(began); d > 5*time.Second {
+		t.Errorf("3000 huge timeouts took %v", d)
 	}
 }

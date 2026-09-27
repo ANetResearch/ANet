@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func validateJSON(t *testing.T, args string) *jsonValidateResult {
@@ -180,5 +182,110 @@ func TestJSONValidateArguments(t *testing.T) {
 	// Without a schema, a value instance is valid JSON by construction.
 	if res := validateJSON(t, `{"instance":[1,2]}`); res.Verdict != "valid" || res.SchemaChecked {
 		t.Errorf("no schema: %+v", res)
+	}
+}
+
+// Numbers are compared by value and typed from the literal, however large;
+// arithmetic on a number too large to compute with is "unknown", never a
+// guess.
+func TestJSONSchemaLargeNumbers(t *testing.T) {
+	cases := []struct {
+		name, schema, instance, verdict string
+	}{
+		{"huge integer is an integer", `{"type":"integer"}`, `1e999999`, "valid"},
+		{"huge fraction is not", `{"type":"integer"}`, `1e-999999`, "invalid"},
+		{"const by value", `{"const":1e999999}`, `10e999998`, "valid"},
+		{"const differs", `{"const":1e999999}`, `1e999998`, "invalid"},
+		{"enum by value", `{"enum":[0.5, 1e400]}`, `10e399`, "valid"},
+		{"uniqueItems by value", `{"uniqueItems":true}`, `[1e999999, 10e999998]`, "invalid"},
+		{"minimum on a huge instance", `{"minimum":0}`, `1e999999`, "unknown"},
+		{"huge minimum in the schema", `{"minimum":1e999999}`, `1`, "unknown"},
+		{"maxLength written with an exponent", `{"maxLength":2e0}`, `"abc"`, "invalid"},
+		{"maxLength beyond 2^31", `{"maxLength":1e999999}`, `"abc"`, "valid"},
+		{"minimum within the bound", `{"minimum":1e300}`, `1e299`, "invalid"},
+	}
+	for _, c := range cases {
+		res := validateJSON(t, `{"schema":`+c.schema+`,"instance":`+c.instance+`}`)
+		if res.Verdict != c.verdict {
+			t.Errorf("%s: %s, want %s (%+v %+v)", c.name, res.Verdict, c.verdict, res.Errors, res.SchemaIssues)
+		}
+	}
+}
+
+// Work is charged in proportion to what it reads, not per subschema, so an
+// input built to multiply one expensive operation stops at the budget. Each
+// case ran for seconds to an hour, past its deadline, when the budget
+// counted only subschema applications; each must now run out of budget
+// (deterministically: no deadline is set).
+func TestJSONSchemaWorkIsCharged(t *testing.T) {
+	bigString := `"` + strings.Repeat("a", 128<<10) + `"`
+	digits := `"` + strings.Repeat("0", 128<<10) + `"`
+	repeat := func(item string, n int) string {
+		parts := make([]string, n)
+		for i := range parts {
+			parts[i] = item
+		}
+		return strings.Join(parts, ",")
+	}
+	keys := make([]string, 10000)
+	for i := range keys {
+		keys[i] = `"k` + strconv.Itoa(i) + `":0`
+	}
+	patterns := make([]string, 2000)
+	for i := range patterns {
+		patterns[i] = `{"pattern":"[a-z]{1000}` + strconv.Itoa(i) + `"}`
+	}
+	distinct := strings.Join(patterns, ",")
+	cases := []struct {
+		name, args string
+	}{
+		{"enum over a large value, 2000 times", `{"schema":{"anyOf":[` + repeat(`{"enum":[1]}`, 2000) + `]},"instance":[` + bigString + `]}`},
+		{"pattern over a large string, 2000 times", `{"schema":{"anyOf":[` + repeat(`{"pattern":"[a-z]{1000}"}`, 2000) + `]},"instance":` + digits + `}`},
+		{"2000 distinct large patterns", `{"schema":{"anyOf":[` + distinct + `]},"instance":"0"}`},
+		{"length of a large string, 2000 times", `{"schema":{"anyOf":[` + repeat(`{"minLength":1000000}`, 2000) + `]},"instance":` + bigString + `}`},
+		{"arithmetic on large exponents", `{"schema":{"items":{"type":"integer","minimum":0,"multipleOf":3}},"instance":[` + repeat(`1e999`, 40000) + `]}`},
+		{"property scans, 400 times", `{"schema":{"anyOf":[` + repeat(`{"additionalProperties":{"type":"integer"},"required":["zz"]}`, 400) + `]},"instance":{` + strings.Join(keys, ",") + `}}`},
+	}
+	for _, c := range cases {
+		began := time.Now()
+		_, err := handleJSONValidate(context.Background(), nil, []byte(c.args))
+		if !errors.Is(err, errBudget) {
+			t.Errorf("%s: err = %v, want the budget error", c.name, err)
+		}
+		// A backstop only: the unbudgeted versions took from 16 s to an hour.
+		if d := time.Since(began); d > 15*time.Second {
+			t.Errorf("%s: ran %v", c.name, d)
+		}
+	}
+}
+
+// A deadline that has passed stops the evaluation at the next look, which
+// comes after a bounded amount of work however it was spent.
+func TestJSONSchemaStopsAtTheDeadline(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	args := `{"schema":{"anyOf":[` + strings.Repeat(`{"enum":[1]},`, 50) + `{"enum":[2]}]},"instance":[` +
+		`"` + strings.Repeat("a", 100<<10) + `"]}`
+	if _, err := handleJSONValidate(ctx, nil, []byte(args)); !errors.Is(err, errBudget) {
+		t.Errorf("past the deadline: err = %v, want the budget error", err)
+	}
+}
+
+// A report quotes names and values from the input; each quotation is cut,
+// so the report stays readable and under the service module's 1 MiB.
+func TestJSONReportsAreBounded(t *testing.T) {
+	long := strings.Repeat("q", 100<<10)
+	res := validateJSON(t, `{"schema":{"additionalProperties":false},"instance":{"`+long+`1":1,"`+long+`2":2}}`)
+	if res.Verdict != "invalid" || len(res.Errors) != 2 {
+		t.Fatalf("%+v", res)
+	}
+	for _, e := range res.Errors {
+		if len(e.Instance) > maxReportedPath || len(e.Message) > maxReportedMessage {
+			t.Errorf("error of %d+%d bytes", len(e.Instance), len(e.Message))
+		}
+	}
+	res = validateJSON(t, `{"json":"{\"`+long+`\":1,\"`+long+`\":2}"}`)
+	if len(res.DuplicateKeys) != 1 || len(res.DuplicateKeys[0]) > maxReportedPath {
+		t.Errorf("duplicate key report: %d entries", len(res.DuplicateKeys))
 	}
 }

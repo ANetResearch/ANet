@@ -62,7 +62,25 @@ func (is *issues) add(sev, path, code, format string, a ...any) {
 	if len(a) > 0 {
 		msg = fmt.Sprintf(format, a...)
 	}
-	is.list = append(is.list, issue{Severity: sev, Path: path, Code: code, Message: msg})
+	is.list = append(is.list, issue{Severity: sev, Path: clip(path, maxReportedPath), Code: code,
+		Message: clip(msg, maxReportedMessage)})
+}
+
+// Bounds on what one finding quotes. A message or a JSON Pointer can carry
+// a member name or a value from the checked input, which may be hundreds
+// of KiB; a report is for reading, and the service module takes at most
+// 1 MiB of it.
+const (
+	maxReportedPath    = 1024
+	maxReportedMessage = 512
+)
+
+// clip cuts s to at most n bytes at a character boundary, marking the cut.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return truncateUTF8(s, n-len("…")) + "…"
 }
 
 func (is *issues) errors() int {

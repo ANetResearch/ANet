@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"reflect"
 	"regexp"
+	"regexp/syntax"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,6 +37,13 @@ import (
 // Each schema object is compiled once, on first use, into a cschema that
 // holds its keywords already parsed; evaluation then does no map lookups
 // on the schema and no number parsing of schema values.
+//
+// The budget counts work, not only subschema applications: an enum
+// comparison, a pattern match or a property scan costs in proportion to
+// the size of what it reads (charge). Counting applications alone let
+// {"anyOf": [2000 × {"pattern": ...}]} over one 400 KiB string run for a
+// minute on 2,000 steps, far past the deadline, which a handler that never
+// reaches a budget check cannot see.
 
 // verdict is the tri-state result of applying a schema.
 type verdict uint8
@@ -90,6 +98,9 @@ const (
 	maxSchemaSteps  = 2_000_000
 	maxSchemaErrors = 100
 	maxSchemaDepth  = 256
+	// budgetCheckEvery is how many steps may pass between two looks at the
+	// deadline.
+	budgetCheckEvery = 4096
 )
 
 // ipath is an instance location, built as a linked list so that descending
@@ -144,6 +155,7 @@ type cschema struct {
 	minLength, maxLength                           int // -1 when absent
 	pattern                                        *regexp.Regexp
 	patternSrc                                     string
+	patternCost                                    int // program size, for the budget
 
 	minItems, maxItems       int
 	uniqueItems              bool
@@ -157,6 +169,7 @@ type cschema struct {
 	depRequired        []depReq
 	depSchemas         []depSchema
 	props              map[string]*cschema
+	propOrder          []string // the names in props, sorted
 	patProps           []patProp
 	addl               *cschema
 	propNames          *cschema
@@ -179,18 +192,30 @@ type depSchema struct {
 }
 
 type patProp struct {
-	re *regexp.Regexp // nil when RE2 cannot compile it
-	s  *cschema
+	re   *regexp.Regexp // nil when RE2 cannot compile it
+	cost int
+	s    *cschema
 }
 
 type schemaValidator struct {
-	ctx      context.Context
-	root     any
-	anchors  map[string]any
-	compiled map[uintptr]*cschema
-	steps    int
-	depth    int
-	active   map[activeKey]bool
+	ctx       context.Context
+	root      any
+	anchors   map[string]any
+	compiled  map[uintptr]*cschema
+	steps     int
+	nextCheck int
+	// err is set, and stays set, when the budget or the deadline ran out;
+	// every evaluation after that returns at once.
+	err    error
+	depth  int
+	active map[activeKey]bool
+	// rats caches instance numbers as rationals: the same literal is
+	// compared against many subschemas.
+	rats map[json.Number]*big.Rat
+	// keys caches the sorted member names of instance objects.
+	keys map[uintptr][]string
+	// patterns caches compiled patterns by source.
+	patterns map[string]*compiledPattern
 
 	errs          []schemaError
 	errsTruncated bool
@@ -210,7 +235,9 @@ type activeKey struct {
 
 func newSchemaValidator(ctx context.Context, root any) *schemaValidator {
 	v := &schemaValidator{ctx: ctx, root: root, anchors: map[string]any{}, compiled: map[uintptr]*cschema{},
-		active: map[activeKey]bool{}, unsupported: map[string]bool{}, noted: map[string]bool{}}
+		active: map[activeKey]bool{}, unsupported: map[string]bool{}, noted: map[string]bool{},
+		rats: map[json.Number]*big.Rat{}, keys: map[uintptr][]string{},
+		patterns: map[string]*compiledPattern{}, nextCheck: budgetCheckEvery}
 	v.collectAnchors(root, 0)
 	if m, ok := root.(map[string]any); ok {
 		if s, ok := m["$schema"].(string); ok {
@@ -255,7 +282,86 @@ func (v *schemaValidator) run(inst any) (verdict, error) {
 	if v.compileErr != nil {
 		return vUnknown, v.compileErr
 	}
+	if v.err != nil {
+		return vUnknown, v.err
+	}
 	return v.apply(inst, root, nil, true)
+}
+
+// charge spends n steps of the budget and reports whether any is left. It
+// looks at the deadline every budgetCheckEvery steps, however they were
+// spent.
+func (v *schemaValidator) charge(n int) bool {
+	if v.err != nil {
+		return false
+	}
+	v.steps += n
+	if v.steps > maxSchemaSteps {
+		v.err = errBudget
+		return false
+	}
+	if v.steps >= v.nextCheck {
+		v.nextCheck = v.steps + budgetCheckEvery
+		if v.ctx.Err() != nil {
+			v.err = errBudget
+			return false
+		}
+	}
+	return true
+}
+
+// canonOf is canon(x), charged by the length of what it wrote.
+func (v *schemaValidator) canonOf(x any) string {
+	s := canon(x)
+	v.charge(len(s)/32 + 1)
+	return s
+}
+
+// ratOf is ratOf(n) for an instance number, cached and charged.
+func (v *schemaValidator) ratOf(n json.Number) (*big.Rat, bool) {
+	if r, ok := v.rats[n]; ok {
+		return r, r != nil
+	}
+	v.charge(len(n)/16 + 1)
+	r, ok := ratOf(n)
+	if !ok {
+		r = nil
+	} else {
+		v.charge((r.Num().BitLen() + r.Denom().BitLen()) / 64)
+	}
+	v.rats[n] = r
+	return r, ok
+}
+
+// patternCost is the size of the program RE2 runs for p: matching costs
+// about this much per byte of input.
+func patternCost(p string) int {
+	re, err := syntax.Parse(p, syntax.Perl)
+	if err != nil {
+		return 1
+	}
+	prog, err := syntax.Compile(re.Simplify())
+	if err != nil {
+		return 1
+	}
+	return max(len(prog.Inst), 1)
+}
+
+// matchCost is what matching a pattern of the given cost against s is
+// charged.
+func matchCost(s string, cost int) int { return len(s)*cost/256 + 1 }
+
+// sortedKeysOf is sortedKeys(obj), sorted once per object: a scan of the
+// same object under many subschemas then costs one lookup per member.
+func (v *schemaValidator) sortedKeysOf(obj map[string]any) []string {
+	id := reflect.ValueOf(obj).Pointer()
+	if ks, ok := v.keys[id]; ok && len(ks) == len(obj) {
+		return ks
+	}
+	ks := sortedKeys(obj)
+	v.charge(len(ks) * 4)
+	v.keys[id] = ks
+	return ks
 }
 
 // unsupportedKeywords are keywords this validator does not evaluate. A
@@ -281,9 +387,8 @@ func (v *schemaValidator) compile(s any, loc string, depth int) *cschema {
 		c := &cschema{loc: loc, minLength: -1, maxLength: -1, minItems: -1, maxItems: -1,
 			minContains: -1, maxContains: -1, minProps: -1, maxProps: -1}
 		v.compiled[id] = c
-		v.steps++
-		if v.steps > maxSchemaSteps {
-			v.compileErr = errBudget
+		if !v.charge(len(t) + 1) {
+			v.compileErr = v.err
 			return c
 		}
 		v.compileObject(c, t, loc, depth)
@@ -342,14 +447,14 @@ func (v *schemaValidator) compileObject(c *cschema, s map[string]any, loc string
 		if list, isList := e.([]any); isList {
 			c.hasEnum = true
 			for _, x := range list {
-				c.enum = append(c.enum, canon(x))
+				c.enum = append(c.enum, v.canonOf(x))
 			}
 		} else {
 			bad("enum", "enum must be an array")
 		}
 	}
 	if k, ok := s["const"]; ok {
-		cc := canon(k)
+		cc := v.canonOf(k)
 		c.konst = &cc
 	}
 	subList := func(k string) []*cschema {
@@ -389,6 +494,16 @@ func (v *schemaValidator) compileObject(c *cschema, s map[string]any, loc string
 			return nil
 		}
 		r, ok := ratOf(raw)
+		if n, isNum := raw.(json.Number); !ok && isNum {
+			if _, valid := decimalOf(string(n)); valid {
+				// A number, just not one this validator computes with.
+				v.schemaIssues.add(sevWarning, kw(k), "number_out_of_range",
+					"%s %.40s is too large or too precise to evaluate", k, string(n))
+				c.unknown = append(c.unknown, kw(k))
+				v.unsupported[kw(k)] = true
+				return nil
+			}
+		}
 		if !ok || (positive && r.Sign() <= 0) {
 			if positive {
 				bad(k, "%s must be a number greater than 0", k)
@@ -407,16 +522,24 @@ func (v *schemaValidator) compileObject(c *cschema, s map[string]any, loc string
 		if !ok {
 			return -1
 		}
-		r, ok := ratOf(raw)
-		if !ok || !r.IsInt() || r.Sign() < 0 || !r.Num().IsInt64() {
+		num, isNum := raw.(json.Number)
+		d, ok := decimalOf(string(num))
+		if !isNum || !ok || !d.isInteger() || (d.neg && !d.isZero()) {
 			bad(k, "%s must be a non-negative integer", k)
 			return -1
 		}
-		n := r.Num().Int64()
-		if n > 1<<31 {
-			n = 1 << 31
+		if d.isZero() {
+			return 0
 		}
-		return int(n)
+		// Anything past 2^31 bounds nothing a 512 KiB instance can hold.
+		if !d.exp.IsInt64() || d.exp.Int64()+int64(len(d.digits)) > 10 {
+			return 1 << 31
+		}
+		r, _ := new(big.Int).SetString(d.digits+strings.Repeat("0", int(d.exp.Int64())), 10)
+		if r == nil || !r.IsInt64() || r.Int64() > 1<<31 {
+			return 1 << 31
+		}
+		return int(r.Int64())
 	}
 	c.minLength, c.maxLength = count("minLength"), count("maxLength")
 	c.minItems, c.maxItems = count("minItems"), count("maxItems")
@@ -424,7 +547,7 @@ func (v *schemaValidator) compileObject(c *cschema, s map[string]any, loc string
 	c.minProps, c.maxProps = count("minProperties"), count("maxProperties")
 	if p, ok := s["pattern"].(string); ok {
 		c.patternSrc = p
-		if c.pattern = v.regexp(p, kw("pattern")); c.pattern == nil {
+		if c.pattern, c.patternCost = v.regexp(p, kw("pattern")); c.pattern == nil {
 			c.unknown = append(c.unknown, kw("pattern"))
 		}
 	}
@@ -480,18 +603,19 @@ func (v *schemaValidator) compileObject(c *cschema, s map[string]any, loc string
 	}
 	if props, ok := s["properties"].(map[string]any); ok {
 		c.props = make(map[string]*cschema, len(props))
-		for _, name := range sortedKeys(props) {
+		c.propOrder = sortedKeys(props)
+		for _, name := range c.propOrder {
 			c.props[name] = sub(props[name], ptr(kw("properties"), name))
 		}
 	}
 	if pats, ok := s["patternProperties"].(map[string]any); ok {
 		for _, p := range sortedKeys(pats) {
 			l := ptr(kw("patternProperties"), p)
-			re := v.regexp(p, l)
+			re, cost := v.regexp(p, l)
 			if re == nil {
 				c.unknown = append(c.unknown, l)
 			}
-			c.patProps = append(c.patProps, patProp{re: re, s: sub(pats[p], l)})
+			c.patProps = append(c.patProps, patProp{re: re, cost: cost, s: sub(pats[p], l)})
 		}
 	}
 	c.addl = subOne("additionalProperties")
@@ -539,15 +663,31 @@ func (v *schemaValidator) resolveRef(ref string) (any, string, string) {
 	return cur, frag, ""
 }
 
-func (v *schemaValidator) regexp(p, loc string) *regexp.Regexp {
-	re, err := regexp.Compile(p)
-	if err != nil {
-		v.schemaIssues.add(sevWarning, loc, "pattern_unsupported",
-			"pattern %q does not compile as RE2 (%v); ECMA-262 features such as lookaround are not supported", p, err)
-		v.unsupported[loc] = true
-		return nil
+// compiledPattern is one pattern source, compiled once per validation.
+type compiledPattern struct {
+	re   *regexp.Regexp // nil when RE2 cannot compile it
+	cost int
+	err  error
+}
+
+// regexp compiles pattern p found at loc, charging the budget by the size
+// of its program: a schema can name thousands of patterns, and compiling
+// one of "[a-z]{1000}" is a thousand instructions.
+func (v *schemaValidator) regexp(p, loc string) (*regexp.Regexp, int) {
+	cp, ok := v.patterns[p]
+	if !ok {
+		cp = &compiledPattern{cost: patternCost(p)}
+		if v.charge(cp.cost*4 + len(p)/16) {
+			cp.re, cp.err = regexp.Compile(p)
+		}
+		v.patterns[p] = cp
 	}
-	return re
+	if cp.err != nil {
+		v.schemaIssues.add(sevWarning, loc, "pattern_unsupported",
+			"pattern %q does not compile as RE2 (%v); ECMA-262 features such as lookaround are not supported", p, cp.err)
+		v.unsupported[loc] = true
+	}
+	return cp.re, cp.cost
 }
 
 func (v *schemaValidator) fail(record bool, p *ipath, loc, kw, format string, a ...any) verdict {
@@ -555,7 +695,8 @@ func (v *schemaValidator) fail(record bool, p *ipath, loc, kw, format string, a 
 		if len(v.errs) >= maxSchemaErrors {
 			v.errsTruncated = true
 		} else {
-			v.errs = append(v.errs, schemaError{Instance: p.String(), Schema: loc, Keyword: kw, Message: fmt.Sprintf(format, a...)})
+			v.errs = append(v.errs, schemaError{Instance: clip(p.String(), maxReportedPath), Schema: clip(loc, maxReportedPath),
+				Keyword: kw, Message: clip(fmt.Sprintf(format, a...), maxReportedMessage)})
 		}
 	}
 	return vFail
@@ -565,12 +706,8 @@ func (v *schemaValidator) fail(record bool, p *ipath, loc, kw, format string, a 
 // record, definite failures are recorded; inside anyOf, oneOf, not, if and
 // contains, branches run without recording.
 func (v *schemaValidator) apply(inst any, c *cschema, p *ipath, record bool) (verdict, error) {
-	v.steps++
-	if v.steps > maxSchemaSteps {
-		return vUnknown, errBudget
-	}
-	if v.steps&4095 == 0 && v.ctx.Err() != nil {
-		return vUnknown, errBudget
+	if !v.charge(1) {
+		return vUnknown, v.err
 	}
 	v.depth++
 	defer func() { v.depth-- }()
@@ -611,6 +748,9 @@ func (v *schemaValidator) apply(inst any, c *cschema, p *ipath, record bool) (ve
 		}
 	}
 	if c.types != nil {
+		if n, ok := inst.(json.Number); ok {
+			v.charge(len(n)/64 + 1) // typeOf reads the literal
+		}
 		got := typeOf(inst)
 		ok := false
 		for _, w := range c.types {
@@ -624,7 +764,8 @@ func (v *schemaValidator) apply(inst any, c *cschema, p *ipath, record bool) (ve
 		}
 	}
 	if c.hasEnum {
-		ci := canon(inst)
+		ci := v.canonOf(inst)
+		v.charge(len(c.enum))
 		found := false
 		for _, e := range c.enum {
 			if e == ci {
@@ -636,7 +777,7 @@ func (v *schemaValidator) apply(inst any, c *cschema, p *ipath, record bool) (ve
 			res = and(res, v.fail(record, p, ptr(c.loc, "enum"), "enum", "value is not one of the %d allowed values", len(c.enum)))
 		}
 	}
-	if c.konst != nil && canon(inst) != *c.konst {
+	if c.konst != nil && v.canonOf(inst) != *c.konst {
 		res = and(res, v.fail(record, p, ptr(c.loc, "const"), "const", "value is not the required constant"))
 	}
 
@@ -711,7 +852,13 @@ func (v *schemaValidator) apply(inst any, c *cschema, p *ipath, record bool) (ve
 	case map[string]any:
 		res = and(res, v.checkObject(t, c, p, record, sub))
 	}
-	return res, err
+	if err == nil {
+		err = v.err
+	}
+	if err != nil {
+		return vUnknown, err
+	}
+	return res, nil
 }
 
 func typeOf(inst any) string {
@@ -721,10 +868,7 @@ func typeOf(inst any) string {
 	case bool:
 		return "boolean"
 	case json.Number:
-		if isIntegerLiteral(string(t)) {
-			return "integer"
-		}
-		if r, ok := ratOf(t); ok && r.IsInt() {
+		if isIntegerLiteral(string(t)) || numberIsInteger(t) {
 			return "integer"
 		}
 		return "number"
@@ -752,20 +896,11 @@ func isIntegerLiteral(s string) bool {
 	return true
 }
 
-func ratOf(v any) (*big.Rat, bool) {
-	n, ok := v.(json.Number)
-	if !ok {
-		return nil, false
-	}
-	r, ok := new(big.Rat).SetString(string(n))
-	return r, ok
-}
-
 func (v *schemaValidator) checkNumber(n json.Number, c *cschema, p *ipath, record bool) verdict {
 	if c.minimum == nil && c.maximum == nil && c.exclMin == nil && c.exclMax == nil && c.multipleOf == nil {
 		return vPass
 	}
-	x, ok := ratOf(n)
+	x, ok := v.ratOf(n)
 	if !ok {
 		return vUnknown
 	}
@@ -780,6 +915,7 @@ func (v *schemaValidator) checkNumber(n json.Number, c *cschema, p *ipath, recor
 	check(c.exclMin, "exclusiveMinimum", ">", func(r int) bool { return r > 0 })
 	check(c.exclMax, "exclusiveMaximum", "<", func(r int) bool { return r < 0 })
 	if c.multipleOf != nil {
+		v.charge((x.Num().BitLen() + x.Denom().BitLen() + c.multipleOf.Num().BitLen() + c.multipleOf.Denom().BitLen()) / 64)
 		if q := new(big.Rat).Quo(x, c.multipleOf); !q.IsInt() {
 			res = and(res, v.fail(record, p, ptr(c.loc, "multipleOf"), "multipleOf", "%s is not a multiple of %s", n, c.multipleOf.RatString()))
 		}
@@ -790,6 +926,7 @@ func (v *schemaValidator) checkNumber(n json.Number, c *cschema, p *ipath, recor
 func (v *schemaValidator) checkString(str string, c *cschema, p *ipath, record bool) verdict {
 	res := vPass
 	if c.minLength >= 0 || c.maxLength >= 0 {
+		v.charge(len(str)/64 + 1)
 		length := utf8.RuneCountInString(str)
 		if c.minLength >= 0 && length < c.minLength {
 			res = and(res, v.fail(record, p, ptr(c.loc, "minLength"), "minLength", "length %d is less than %d", length, c.minLength))
@@ -798,7 +935,7 @@ func (v *schemaValidator) checkString(str string, c *cschema, p *ipath, record b
 			res = and(res, v.fail(record, p, ptr(c.loc, "maxLength"), "maxLength", "length %d is more than %d", length, c.maxLength))
 		}
 	}
-	if c.pattern != nil && !c.pattern.MatchString(str) {
+	if c.pattern != nil && v.charge(matchCost(str, c.patternCost)) && !c.pattern.MatchString(str) {
 		res = and(res, v.fail(record, p, ptr(c.loc, "pattern"), "pattern", "does not match pattern %q", c.patternSrc))
 	}
 	return res
@@ -817,7 +954,10 @@ func (v *schemaValidator) checkArray(arr []any, c *cschema, p *ipath, record boo
 	if c.uniqueItems {
 		seen := make(map[string]int, len(arr))
 		for i, e := range arr {
-			k := canon(e)
+			k := v.canonOf(e)
+			if v.err != nil {
+				return vUnknown
+			}
 			if j, dup := seen[k]; dup {
 				res = and(res, v.fail(record, p.item(i), ptr(c.loc, "uniqueItems"), "uniqueItems", "item %d equals item %d", i, j))
 				break
@@ -892,7 +1032,23 @@ func (v *schemaValidator) checkObject(obj map[string]any, c *cschema, p *ipath, 
 	if c.props == nil && c.patProps == nil && c.addl == nil && c.propNames == nil {
 		return res
 	}
-	for _, name := range sortedKeys(obj) {
+	if c.patProps == nil && c.addl == nil && c.propNames == nil {
+		// Only "properties": look up the schema's names in the object
+		// rather than scanning every member. Same order as the scan below.
+		if !v.charge(len(c.propOrder)) {
+			return vUnknown
+		}
+		for _, name := range c.propOrder {
+			if val, ok := obj[name]; ok {
+				res = and(res, sub(val, c.props[name], p.child(name), record))
+			}
+		}
+		return res
+	}
+	if !v.charge(2 * len(obj)) {
+		return vUnknown
+	}
+	for _, name := range v.sortedKeysOf(obj) {
 		val := obj[name]
 		cp := p.child(name)
 		matched := false
@@ -901,7 +1057,7 @@ func (v *schemaValidator) checkObject(obj map[string]any, c *cschema, p *ipath, 
 			res = and(res, sub(val, s, cp, record))
 		}
 		for _, pp := range c.patProps {
-			if pp.re != nil && pp.re.MatchString(name) {
+			if pp.re != nil && v.charge(matchCost(name, pp.cost)) && pp.re.MatchString(name) {
 				matched = true
 				res = and(res, sub(val, pp.s, cp, record))
 			}
@@ -922,7 +1078,8 @@ func (v *schemaValidator) checkObject(obj map[string]any, c *cschema, p *ipath, 
 
 // canon renders a JSON value so that two values are equal exactly when
 // their renderings are: numbers by value (1 and 1.0 are equal), objects
-// with sorted member names.
+// with sorted member names, strings length-prefixed rather than quoted
+// (unambiguous, and a copy rather than a rune-by-rune escape).
 func canon(v any) string {
 	var b strings.Builder
 	writeCanon(&b, v)
@@ -940,13 +1097,13 @@ func writeCanon(b *strings.Builder, v any) {
 			b.WriteString("false")
 		}
 	case json.Number:
-		if r, ok := ratOf(t); ok {
-			b.WriteString("n" + r.RatString())
+		if d, ok := decimalOf(string(t)); ok {
+			b.WriteString("n" + d.canonical())
 		} else {
 			b.WriteString("n?" + string(t))
 		}
 	case string:
-		b.WriteString(strconv.Quote(t))
+		writeCanonString(b, t)
 	case []any:
 		b.WriteByte('[')
 		for i, e := range t {
@@ -967,7 +1124,7 @@ func writeCanon(b *strings.Builder, v any) {
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			b.WriteString(strconv.Quote(k))
+			writeCanonString(b, k)
 			b.WriteByte(':')
 			writeCanon(b, t[k])
 		}
@@ -975,4 +1132,11 @@ func writeCanon(b *strings.Builder, v any) {
 	default:
 		fmt.Fprintf(b, "?%v", t)
 	}
+}
+
+func writeCanonString(b *strings.Builder, s string) {
+	b.WriteByte('s')
+	b.WriteString(strconv.Itoa(len(s)))
+	b.WriteByte(':')
+	b.WriteString(s)
 }

@@ -210,8 +210,9 @@ anet accept on
 - `timeout_ms` 可按能力覆盖模块级的值。
 - `token_file`(模块级,或按能力覆盖):文件第一行是令牌,daemon 以
   `Authorization: Bearer <令牌>` 发给服务。回环端口本机任何进程都能连,服务靠它认出
-  daemon。要求绝对路径(可写 `${CREDENTIALS_DIRECTORY}/token` 这类环境变量)、其他用户
-  不可读、至少 16 字节;令牌只发往回环地址或 https 地址,请求不跟随重定向。
+  daemon。要求绝对路径(可写 `${CREDENTIALS_DIRECTORY}/token` 这类环境变量,变量未设置时
+  拒绝启动)、普通文件、其他用户不可读、至少 16 字节;令牌只发往回环地址或 https 地址,
+  请求不跟随重定向。
 - 服务还会收到 `X-ANet-Caller`(已验证的调用方 AID,只有经中继、签名已验证的调用才有;
   凭证兑付口不带)、`X-ANet-Call`(交互 id)、`X-ANet-Via`(`relay`/`voucher`)、
   `X-ANet-Capability`。

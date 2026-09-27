@@ -75,7 +75,8 @@ func allCapabilities() []*capability {
 				"JSON Pointers into the instance and the schema. Arguments: \"json\" (text) or \"instance\" (value), " +
 				"optional \"schema\". Only local $ref (\"#...\") is followed; remote references are reported, never " +
 				"fetched. Keywords it does not evaluate are listed and make the verdict \"unknown\" rather than \"valid\". " +
-				"Up to 512 KiB of JSON.",
+				"Numbers in \"instance\" and \"schema\" reach this agent as JSON values and may be rounded to doubles on " +
+				"the way; send the document as \"json\" text to check exact numbers. Up to 512 KiB of JSON.",
 			Tags:         []string{"json", "json-schema", "validation", "lint"},
 			Examples:     []string{`{"json":"{\"a\": 1, \"a\": 2}"}`, `{"schema":{"type":"object","required":["id"]},"instance":{"name":"x"}}`},
 			MaxArgsBytes: 512 << 10,
@@ -93,8 +94,11 @@ func allCapabilities() []*capability {
 				"PS256/384/512, over both the card as given and the card with defaults removed. anet network cards are " +
 				"also checked against the anet admission rules. Arguments: \"card\" (object) or \"card_json\" (exact text). " +
 				"Keys are never fetched.",
-			Tags:         []string{"a2a", "agent-card", "validation", "jws", "signature"},
-			Examples:     []string{`{"card_json":"{\"name\":\"Recipe Agent\",...}"}`},
+			Tags: []string{"a2a", "agent-card", "validation", "jws", "signature"},
+			Examples: []string{`{"card":{"name":"Recipe Agent","description":"Finds recipes.","version":"1.0.0",` +
+				`"supportedInterfaces":[{"url":"https://recipes.example.com/a2a/v1","protocolBinding":"JSONRPC","protocolVersion":"1.0"}],` +
+				`"capabilities":{"streaming":false},"defaultInputModes":["text/plain"],"defaultOutputModes":["application/json"],` +
+				`"skills":[{"id":"find","name":"Find recipes","description":"Finds recipes by ingredient.","tags":["food"]}]}}`},
 			MaxArgsBytes: 160 << 10,
 			Timeout:      2 * time.Second,
 			Quota:        quota{PerCallerPerMin: 20, PerCallerPerDay: 600, GlobalPerMin: 300, MaxInflight: 8},

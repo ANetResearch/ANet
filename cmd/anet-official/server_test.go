@@ -113,6 +113,13 @@ func TestOnlyTheDaemonGetsIn(t *testing.T) {
 			t.Errorf("%s: HTTP %d, want %d (%s)", c.name, w.Code, c.want, w.Body.String())
 		}
 	}
+	// Without the token every path answers alike, so the routes of an
+	// instance cannot be probed.
+	for _, p := range []string{path, "/v1/tools/text.digest", "/nope"} {
+		if w := do(t, s, p, `{}`, withHeader("Authorization", "")); w.Code != http.StatusUnauthorized {
+			t.Errorf("%s without a token: HTTP %d, want 401", p, w.Code)
+		}
+	}
 }
 
 // A backend started for one group has no route for another, so a token
@@ -177,6 +184,16 @@ func TestErrorsAreClassified(t *testing.T) {
 	s.caps[routeOf(heavy)] = heavy
 	if w := do(t, s, routeOf(heavy), `{}`); w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("step budget: HTTP %d, want 422 (the same input will run out again)", w.Code)
+	}
+	// A result the service module could not read whole is refused here,
+	// with the reason, rather than cut into something that is not JSON.
+	huge := &capability{ID: "x.huge", Group: "tools", MaxArgsBytes: 64, Timeout: time.Second,
+		Handle: func(context.Context, *env, []byte) (any, error) {
+			return map[string]string{"x": strings.Repeat("y", maxResultBytes)}, nil
+		}}
+	s.caps[routeOf(huge)] = huge
+	if w := do(t, s, routeOf(huge), `{}`); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "result_too_large") {
+		t.Errorf("oversized result: HTTP %d %.200s", w.Code, w.Body.String())
 	}
 }
 
@@ -252,12 +269,19 @@ func TestTokenFileRules(t *testing.T) {
 	if tok, err := readToken("${ANET_TEST_CRED}/good"); err != nil || tok != testToken {
 		t.Errorf("expanded path: %q %v", tok, err)
 	}
+	sub := filepath.Join(dir, "sub")
+	if err := os.Mkdir(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	for name, p := range map[string]string{
 		"world-readable": write("wr", testToken, 0o604),
 		"short":          write("short", "abc", 0o600),
 		"inner space":    write("space", "0123456789 abcdef0123", 0o600),
 		"relative":       "good",
 		"missing":        filepath.Join(dir, "missing"),
+		"directory":      sub,
+		// Unset, "${CREDENTIALS_DIRECTORY}/token" would name /token.
+		"unset variable": "${ANET_TEST_UNSET_CRED}/good",
 	} {
 		if _, err := readToken(p); err == nil {
 			t.Errorf("%s: must be refused", name)

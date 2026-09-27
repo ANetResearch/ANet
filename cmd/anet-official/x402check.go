@@ -495,7 +495,7 @@ func checkRequirements(v any, path string, ver int, is *issues) {
 	}
 	if t, ok := m["maxTimeoutSeconds"]; !ok {
 		is.add(sevError, ptr(path, "maxTimeoutSeconds"), "required", "maxTimeoutSeconds is required")
-	} else if r, ok := ratOf(t); !ok || !r.IsInt() || r.Sign() <= 0 {
+	} else if !isPositiveInteger(t) {
 		is.add(sevError, ptr(path, "maxTimeoutSeconds"), "type", "maxTimeoutSeconds must be a positive integer")
 	}
 	optType(m, "extra", path, "object", is)
@@ -661,4 +661,16 @@ func checkAnetReceipt(v any, resp map[string]any, path string, is *issues) {
 	}
 	is.add(sevInfo, path, "anet_receipt", "hub-signed receipt for authorization %s (%d on %s); verify it with the hub's KEL (anet verify)",
 		rc.AuthID, rc.Amount, rc.Network)
+}
+
+// isPositiveInteger reports whether v is a JSON number with a positive
+// integer value, read from the literal (see decimalOf) so that a huge
+// exponent costs nothing.
+func isPositiveInteger(v any) bool {
+	n, ok := v.(json.Number)
+	if !ok {
+		return false
+	}
+	d, ok := decimalOf(string(n))
+	return ok && !d.isZero() && !d.neg && d.isInteger()
 }

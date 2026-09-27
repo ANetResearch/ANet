@@ -35,6 +35,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -185,20 +186,39 @@ const minTokenBytes = 16
 
 // readToken reads the bearer token: the file's first line, trimmed. The
 // rules are those of module/service, so a file one side accepts the other
-// accepts too.
-func readToken(path string) (string, error) {
-	path = os.ExpandEnv(path)
+// accepts too: variables must be set, the path absolute, the file regular
+// and closed to other users.
+func readToken(raw string) (string, error) {
+	var unset []string
+	path := os.Expand(raw, func(k string) string {
+		v, ok := os.LookupEnv(k)
+		if !ok || v == "" {
+			unset = append(unset, k)
+		}
+		return v
+	})
+	if len(unset) > 0 {
+		return "", fmt.Errorf("-token-file %q: %s is not set", raw, strings.Join(unset, ", "))
+	}
 	if !filepath.IsAbs(path) {
 		return "", fmt.Errorf("-token-file %q must be an absolute path", path)
 	}
-	fi, err := os.Stat(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return "", err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !fi.Mode().IsRegular() {
+		return "", fmt.Errorf("token file %s is not a regular file", path)
 	}
 	if fi.Mode().Perm()&0o007 != 0 {
 		return "", fmt.Errorf("token file %s is accessible to other users (mode %04o); chmod o-rwx", path, fi.Mode().Perm())
 	}
-	b, err := os.ReadFile(path)
+	b, err := io.ReadAll(io.LimitReader(f, 4096))
 	if err != nil {
 		return "", err
 	}

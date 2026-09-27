@@ -99,6 +99,10 @@ type server struct {
 // maxInflight is the process-wide bound on concurrent calls.
 const maxInflight = 64
 
+// maxResultBytes is the largest result returned: module/service reads at
+// most 1 MiB of a reply.
+const maxResultBytes = 1 << 20
+
 func newServer(e *env, caps []*capability, token string, logger *log.Logger) *server {
 	s := &server{env: e, caps: map[string]*capability{}, token: sha256.Sum256([]byte(token)),
 		logger: logger, inflight: make(chan struct{}, maxInflight)}
@@ -139,18 +143,20 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": s.env.version, "corpus_cid": s.env.corpus.CID})
 		return
 	}
-	c, ok := s.caps[r.URL.Path]
-	if !ok {
-		writeError(w, http.StatusNotFound, "not_found", "no capability at "+r.URL.Path)
-		return
-	}
+	c := s.caps[r.URL.Path]
 	if !s.authorized(r) {
-		// No detail: whether the header was missing, malformed or wrong is
-		// of use only to someone guessing. Logged, because on a host where
+		// Before routing, so that without the token every path answers
+		// alike and the routes of this instance cannot be probed. No
+		// detail: whether the header was missing, malformed or wrong is of
+		// use only to someone guessing. Logged, because on a host where
 		// only the daemon holds the token, a refusal is something else on
 		// the host knocking.
 		s.logCall(r, c, http.StatusUnauthorized, 0, 0, s.env.now())
 		writeError(w, http.StatusUnauthorized, "unauthorized", "missing or wrong bearer token")
+		return
+	}
+	if c == nil {
+		writeError(w, http.StatusNotFound, "not_found", "no capability at "+r.URL.Path)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -190,9 +196,15 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		out, err = marshalResult(res)
-		if err != nil {
+		switch {
+		case err != nil:
 			status = http.StatusInternalServerError
 			out = errorBody("internal", "encoding the result failed")
+		case len(out) > maxResultBytes:
+			// The service module reads at most 1 MiB and would report a
+			// cut reply as not JSON; say what happened instead.
+			status = http.StatusUnprocessableEntity
+			out = errorBody("result_too_large", fmt.Sprintf("the result is %d bytes, more than the %d this service returns", len(out), maxResultBytes))
 		}
 	case errors.As(err, new(*argError)):
 		status, out = http.StatusBadRequest, errorBody("bad_args", err.Error())
@@ -241,6 +253,10 @@ func (s *server) authorized(r *http.Request) bool {
 // result — this process keeps no copy of what it was asked or answered
 // (deploy/official/README.md, content policy).
 func (s *server) logCall(r *http.Request, c *capability, status, in, out int, started time.Time) {
+	capID := "-"
+	if c != nil {
+		capID = c.ID
+	}
 	caller := r.Header.Get(headerCaller)
 	if caller == "" {
 		caller = "-"
@@ -254,7 +270,7 @@ func (s *server) logCall(r *http.Request, c *capability, status, in, out int, st
 		via = "-"
 	}
 	s.logger.Printf("call cap=%s status=%d caller=%s call=%s via=%s in=%d out=%d ms=%d",
-		c.ID, status, safeLogField(caller), safeLogField(call), safeLogField(via), in, out,
+		capID, status, safeLogField(caller), safeLogField(call), safeLogField(via), in, out,
 		s.env.now().Sub(started).Milliseconds())
 }
 

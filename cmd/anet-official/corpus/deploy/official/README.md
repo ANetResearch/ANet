@@ -25,7 +25,7 @@
 - `config.json`:daemon 配置(放到 `/var/lib/anet-official/<身份>/config.json`)。
   `inbound.policy=closed`,只有 `public_capabilities` 里的能力对陌生人开放;
   `modules.service` 把这些能力挂到本机后端。
-- `backend.env`:后端实例参数 `LISTEN`、`GROUPS`(放到 `/etc/anet-official/<身份>/backend.env`)。
+- `backend.env`:后端实例参数 `LISTEN`、`CAP_GROUPS`(放到 `/etc/anet-official/<身份>/backend.env`)。
 
 `public_capabilities` 与 `modules.service` 两段由程序生成,不要手改:
 
@@ -56,7 +56,9 @@ anet-official service-config -groups tools -url http://127.0.0.1:8613
    两项因此取默认值。超限回 `rejected` 并带 `anet.retry_after_ms`。
 3. **后端自身**:只监听回环地址、只应答回环 Host、只认本身份 daemon 的令牌;
    每个能力有参数上限(与 `max_args_bytes` 相同)与超时;进程级并发上限 64;
-   只做确定性纯计算,不执行命令、不访问网络、不读文件、不接受 URL。
+   只做确定性纯计算,不执行命令、不访问网络、不读文件、不接受 URL。Go 无法中途终止一个
+   计算,所以超时靠计算自己的预算兑现:模式匹配、枚举比较、大数运算、签名验证都按工作量
+   计入预算并定期看截止时间,一次调用不会在 daemon 放弃之后继续占着 CPU。
 4. **hub**:只做与内容无关的流量计量(认证发送后按发送方限流)。
 5. **处置**:官方 agent 本地按证据链与后端调用日志统计,把滥用的 AID 写进该身份的
    `peers.deny`(每次判定重读,无需重启)。
@@ -109,9 +111,11 @@ sudo -u anet-official env ANET_DATA_DIR=/var/lib/anet-official/anet-tools \
   `LoadCredential=token:…` 取得它:systemd 把它复制到只有该单元可读的凭据目录。
   daemon 配置里写 `"token_file": "${CREDENTIALS_DIRECTORY}/token"`(service 模块展开
   环境变量);后端命令行写 `-token-file %d/token`。
-- 两端都要求:绝对路径、不可被其他用户读取、至少 16 字节、不含空白。
+- 两端都要求:路径中的环境变量已设置、绝对路径、普通文件、不可被其他用户读取、
+  至少 16 字节、不含空白。
 - service 模块只把令牌发往回环地址或 https 地址;请求不跟随重定向。
-- 后端对令牌做常数时间比较(两侧先取 SHA-256 再比),错误回 401,不说明原因。
+- 后端对令牌做常数时间比较(两侧先取 SHA-256 再比),错误回 401,不说明原因;
+  令牌检查在路由之前,没有令牌的请求无论路径一律 401,探不出本实例开了哪些能力。
 - 轮换:写新令牌,依次重启该身份的后端与 daemon。
 
 daemon 发给后端的请求头(`module/service`):
