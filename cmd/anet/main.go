@@ -185,7 +185,7 @@ var grpNetwork = []cmdDoc{
 	{"x402-authorize --pay-to <aid> --amount <n>", "为 x402 网关签一笔付款, 只打印 PAYMENT-SIGNATURE 的值(可直接管进 curl)"},
 	{"hub-leave [<hub-url>]", "从某个 hub 注销(换 hub 之后必须做, 否则旧 hub 会把活投进没人取的信箱; 证据链不动)"},
 	{"balance", "看本节点在 hub 账本上的余额与近期流水(余额托管在 hub, 事件在自己链上)"},
-	{"redeem <amount> [--ref <reference>]", "把 credit 兑付回 hub(额度真的离开流通, hub 为取走的数额签字)"},
+	{"redeem <amount> [--ref <reference>]", "把 credit 兑付回 hub(额度真的离开流通, hub 为取走的数额签字); 需在终端确认金额与收款方"},
 	{"inbox [--pending]", "列出别人委派给我的任务(--pending 只看未结束)"},
 	{"thread <id>", "读一次交互的完整对话(多轮消息 + 附件清单 + 结束协商状态)"},
 	{"message <id> <text…>|--file PATH [--attach PATH …]", "在一次委派里发消息(多轮对话, 任一方都可发; --attach 发送图片/媒体/压缩包, 单个 ≤64 MiB)"},
@@ -367,7 +367,7 @@ func usageAllText() string {
   anet audit [--since 24h|DATE] [--peer AID] [--interaction ID] [--json]   read this node's evidence chain, verified from disk (no daemon needed)
   anet audit --export DIR     export the whole evidence chain with its key history and a manifest
   anet balance                what your hub's ledger says you can spend, and the entries behind it
-  anet redeem <amount> [--ref <reference>]   give credit back to the hub against an external reference (it signs for what it took)
+  anet redeem <amount> [--ref <reference>]   give credit back to the hub against an external reference (it signs for what it took); asks for confirmation on the terminal
   anet review <interaction_id> <rating 1-5> [comment]   sign a review of an ended delegation (uploads to your Hub)
   anet visibility <local|hub-local|federated|public>   how far your entry travels: this hub only, or out to federated hubs
   anet evidence [--type T] [--since TS] [--limit N]   read this node's own evidence chain (id, prev_id, signature per record)
@@ -1472,20 +1472,9 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// Credit back out. What the reference buys is between this node's
 		// operator and its hub — anet signs the withdrawal and keeps the
 		// hub's signed statement of what it took, and claims nothing
-		// about the other side of the trade.
-		pos, flags := splitFlags(rest)
-		if len(pos) < 1 {
-			return fmt.Errorf("redeem <amount> [--ref <reference>]")
-		}
-		n, err := strconv.ParseUint(pos[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("redeem: amount must be a whole number of credits: %w", err)
-		}
-		ref := strings.TrimSpace(flags["ref"])
-		if ref == "" && len(pos) > 1 {
-			ref = strings.Join(pos[1:], " ")
-		}
-		return c.do("/redeem", map[string]any{"amount": n, "reference": ref})
+		// about the other side of the trade. The manual tier: confirmed
+		// on the terminal (pay.go).
+		return runRedeem(c, rest)
 	case "balance", "credits":
 		// What this node's hub says it is worth, and the entries behind it.
 		// The hub is the custodian of the number; `anet evidence --type

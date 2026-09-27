@@ -919,9 +919,10 @@ func TestDiscoveryAppliesTheCardHighWater(t *testing.T) {
 // Discovery asks the hub by skill and tag only; the free text is matched
 // here against the cards that come back and is never sent (A2A-DESIGN
 // §10.5). The hub's word that a card verified is recorded, not taken: an
-// unsigned card is UNVERIFIED. A card is returned as the bytes served.
+// unsigned card is UNVERIFIED, and neither returned nor searched (0017
+// Q24). A verified card is returned as the bytes served.
 func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
-	const cardA = `{"name": "Kyoto guide", "description": "trips", "skills": [{"id": "plan", "name": "Plan"}]}`
+	kyoto := newCardAgent(t, "Kyoto guide", "trips", "plan")
 	var mu sync.Mutex
 	var asked []*url.URL
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -932,11 +933,18 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 		switch r.URL.Path {
 		case "/a2a/v1/agents":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"agents":[{"aid":"agenta","card":%s,"cardVerification":"VERIFIED"},`+
-				`{"aid":"agentb","card":{"name":"Tax helper","skills":[]},"cardVerification":"VERIFIED"}],"nextCursor":"c2"}`, cardA)
-		case "/a2a/v1/agents/agenta/card":
+			fmt.Fprintf(w, `{"agents":[{"aid":%q,"card":%s,"cardVerification":"VERIFIED"},`+
+				`{"aid":"agentb","card":{"name":"Kyoto tax helper","skills":[]},"cardVerification":"VERIFIED"}],"nextCursor":"c2"}`,
+				kyoto.aid, kyoto.card)
+		case "/a2a/v1/agents/" + kyoto.aid + "/card":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, cardA)
+			_, _ = w.Write(kyoto.card)
+		case "/a2a/v1/agents/agentb/card":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"name":"Kyoto tax helper","skills":[]}`)
+		case "/agents/" + kyoto.aid + "/kel":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"aid":%q,"kel":%q}`, kyoto.aid, kyoto.kel)
 		default:
 			http.NotFound(w, r)
 		}
@@ -948,15 +956,23 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(agents) != 1 || agents[0].AID != "agenta" || next != "c2" {
-		t.Fatalf("agents %+v next %q, want only agenta", agents, next)
+	if len(agents) != 1 || agents[0].AID != kyoto.aid || next != "c2" {
+		t.Fatalf("agents %+v next %q, want only the verified Kyoto guide", agents, next)
 	}
-	if a := agents[0]; a.Verification != cardUnverified || a.HubVerification != "VERIFIED" {
-		t.Fatalf("verification %q (hub %q): an unsigned card must not verify", a.Verification, a.HubVerification)
+	if a := agents[0]; a.Verification != cardVerified || a.HubVerification != "VERIFIED" {
+		t.Fatalf("verification %q (hub %q)", a.Verification, a.HubVerification)
 	}
-	card, err := d.agentCard(ctx, "agenta")
-	if err != nil || string(card.Card) != cardA || card.Verification != cardUnverified {
-		t.Fatalf("card = %s %q (%v), want the bytes served, unverified", card.Card, card.Verification, err)
+	all, _, err := d.listAgents(ctx, module.AgentQuery{Skill: "plan"})
+	if err != nil || len(all) != 2 || all[1].AID != "agentb" || all[1].Verification != cardUnverified ||
+		all[1].HubVerification != "" || len(all[1].Card) != 0 {
+		t.Fatalf("the unsigned card: %v %+v", err, all)
+	}
+	card, err := d.agentCard(ctx, kyoto.aid)
+	if err != nil || string(card.Card) != string(kyoto.card) || card.Verification != cardVerified {
+		t.Fatalf("card = %s %q (%v), want the bytes served, verified", card.Card, card.Verification, err)
+	}
+	if card, err := d.agentCard(ctx, "agentb"); err != nil || len(card.Card) != 0 || card.Verification != cardUnverified {
+		t.Fatalf("unsigned card = %s %q (%v), want no bytes, unverified", card.Card, card.Verification, err)
 	}
 	if _, err := d.agentCard(ctx, "../agents"); !errors.Is(err, a2ashape.ErrInvalidParams) {
 		t.Fatalf("a malformed agent id: %v", err)
