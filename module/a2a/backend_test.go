@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -87,6 +88,12 @@ type testBackend struct {
 const backendToken = "backend-token"
 
 func newTestBackend(t *testing.T) *testBackend {
+	return newTestBackendAt(t, func(base string) string { return base })
+}
+
+// newTestBackendAt is a test backend whose card names its interface at
+// iface(its own base URL).
+func newTestBackendAt(t *testing.T, iface func(base string) string) *testBackend {
 	b := &testBackend{}
 	exec := a2asrv.AgentExecutorFunc(func(_ context.Context, ec *a2asrv.ExecutorContext) iter.Seq2[a2a.Event, error] {
 		return func(yield func(a2a.Event, error) bool) {
@@ -126,7 +133,7 @@ func newTestBackend(t *testing.T) *testBackend {
 	}))
 	t.Cleanup(b.srv.Close)
 	card := &a2a.AgentCard{Name: "backend", Description: "d", Version: "1",
-		SupportedInterfaces: []*a2a.AgentInterface{a2a.NewAgentInterface(b.srv.URL+"/rpc", a2a.TransportProtocolJSONRPC)},
+		SupportedInterfaces: []*a2a.AgentInterface{a2a.NewAgentInterface(iface(b.srv.URL)+"/rpc", a2a.TransportProtocolJSONRPC)},
 		DefaultInputModes:   []string{"text/plain"}, DefaultOutputModes: []string{"text/plain"},
 		Skills: []a2a.AgentSkill{{ID: "chat", Name: "chat", Description: "d", Tags: []string{"chat"}}}}
 	mux.Handle("/.well-known/agent-card.json", a2asrv.NewStaticAgentCardHandler(card))
@@ -279,5 +286,33 @@ func TestBackendTokenFileMustBeReadable(t *testing.T) {
 	}
 	if err := m.Start(context.Background(), newInboundHost(t)); err == nil {
 		t.Fatal("started with an unreadable token file")
+	}
+}
+
+// The calls go where the backend's card points, and the card is held to the
+// url rule too: an interface in plain http off this machine receives
+// neither the task nor the token. (0.0.0.0 reaches this machine's listener
+// on Linux, so without the rule the forward would succeed.)
+func TestBackendCardInterfacesFollowTheURLRule(t *testing.T) {
+	b := newTestBackendAt(t, func(base string) string { return strings.Replace(base, "127.0.0.1", "0.0.0.0", 1) })
+	h := newInboundHost(t)
+	startBackendModule(t, h, `{"backends":[{"match":" * ","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
+	h.tasks <- inboundTask("ix1", "bafypeer", true, "hello")
+	time.Sleep(300 * time.Millisecond)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if b.n() != 0 || len(h.replies) != 0 || len(h.evidence) != 0 {
+		t.Fatalf("forwarded through a card interface in the clear: calls %d, replies %+v", b.n(), h.replies)
+	}
+}
+
+// A match is held trimmed: " * " is the catch-all, not a skill.
+func TestBackendMatchIsTrimmed(t *testing.T) {
+	b := newTestBackend(t)
+	h := newInboundHost(t)
+	startBackendModule(t, h, `{"backends":[{"match":" * ","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
+	h.tasks <- inboundTask("ix1", "bafypeer", true, "hi")
+	if r := h.wait(t); r.msg.Parts[0].Text != "backend: hi" {
+		t.Fatalf("reply %+v", r)
 	}
 }

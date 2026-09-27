@@ -41,6 +41,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +68,10 @@ func New(raw []byte) (module.Module, error) {
 		if err := dec.Decode(&cfg); err != nil {
 			return nil, fmt.Errorf("a2a: %w", err)
 		}
+	}
+	for i := range cfg.Backends {
+		// Held as matched: " * " is "*", not a skill nobody has.
+		cfg.Backends[i].Match = strings.TrimSpace(cfg.Backends[i].Match)
 	}
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -125,9 +130,9 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	if err != nil {
 		return fmt.Errorf("a2a: %w", err)
 	}
-	_, port, _ := net.SplitHostPort(ln.Addr().String())
+	host, port, _ := net.SplitHostPort(ln.Addr().String())
 	signer, _ := h.(module.ProxyCardSigner)
-	s := newServer(seam, serverConfig{token: token, port: port, self: h.AID(), signer: signer})
+	s := newServer(seam, serverConfig{token: token, host: host, port: port, self: h.AID(), signer: signer})
 	srv := &http.Server{
 		Handler: s,
 		// No WriteTimeout: a blocking SendMessage waits for the remote

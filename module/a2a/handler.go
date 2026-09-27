@@ -149,7 +149,16 @@ func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRe
 			yield(nil, toSDKError(err))
 			return
 		}
-		h.stream(ctx, info.aid, t.ID, stateSeq(t.Metadata), false, yield)
+		after := stateSeq(t.Metadata)
+		if req.Message.TaskID == "" && after > 1 {
+			// A new task: the task comes back as it is when Send returns,
+			// and a question the agent asked before that is already in it.
+			// The send's own write is the task's first state (state_seq 1);
+			// waiting past the question instead would hold the stream open
+			// for an answer that has come.
+			after = 1
+		}
+		h.stream(ctx, info.aid, t.ID, after, false, yield)
 	}
 }
 

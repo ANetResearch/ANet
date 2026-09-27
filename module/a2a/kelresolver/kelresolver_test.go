@@ -14,6 +14,8 @@ import (
 
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/identity"
+
+	"github.com/ANetResearch/ANet/module"
 )
 
 func controller(t *testing.T) *identity.Controller {
@@ -99,5 +101,33 @@ func TestRefusals(t *testing.T) {
 	_, err := kels(nil).ResolveKey(ctx, a2acard.KID(c.AID(), 0), "")
 	if !errors.Is(err, ErrUnknownAID) {
 		t.Fatalf("unknown AID: %v", err)
+	}
+}
+
+// kelHost answers ResolveKEL from a map; the rest of module.Host is not
+// used by FromHost.
+type kelHost struct {
+	module.Host
+	kels map[string][]identity.SignedEvent
+}
+
+func (h kelHost) ResolveKEL(aid string) ([]identity.SignedEvent, bool) {
+	kel, ok := h.kels[aid]
+	return kel, ok
+}
+
+// FromHost resolves through the key histories the daemon verified, and an
+// AID it has none for is unknown rather than fetched from anywhere.
+func TestFromHost(t *testing.T) {
+	c := controller(t)
+	card, sig := signedCard(t, c)
+	ctx := context.Background()
+	v := a2acrypto.NewVerifier(a2acrypto.VerifierConfig{KeyResolver: FromHost(kelHost{kels: map[string][]identity.SignedEvent{c.AID(): c.KEL()}})})
+	if err := v.Verify(ctx, card, &sig); err != nil {
+		t.Fatalf("verify through the host: %v", err)
+	}
+	_, err := FromHost(kelHost{}).ResolveKey(ctx, a2acard.KID(c.AID(), c.CurrentSeq()), "https://hub.example/jwks.json")
+	if !errors.Is(err, ErrUnknownAID) {
+		t.Fatalf("an AID the host has no history for: %v", err)
 	}
 }

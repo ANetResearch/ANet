@@ -31,11 +31,12 @@ const (
 	TokenFile = "a2a_token.txt"
 )
 
-// Where a first start looks for a free port: the 2000 ports after the
-// control plane's own scan range (39811-41810, internal/daemon
-// controlPortBase), so the two allocators never compete.
+// Where a first start looks for a free port: 43811-45810 (the range
+// docs/notes/0014 B3-07 names), clear of the control plane's own scan range
+// (39811-41810, internal/daemon controlPortBase) with room between them, so
+// the two allocators never compete.
 const (
-	portBase = 41811
+	portBase = 43811
 	portSpan = 2000
 )
 

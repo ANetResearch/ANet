@@ -54,10 +54,22 @@ const maxBody = 96 << 20
 const agentsPath = "/a2a/v1/agents"
 
 type serverConfig struct {
-	token  string
+	token string
+	// host and port are the listener's own address, which the URLs in the
+	// cards and the agent list name: an address bound on [::1] is not
+	// reached at 127.0.0.1. An empty host is 127.0.0.1.
+	host   string
 	port   string
 	self   string
 	signer module.ProxyCardSigner // nil: cards are served unsigned
+}
+
+// listenerURLHost is host:port for a URL that reaches the listener.
+func listenerURLHost(host, port string) string {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
 }
 
 type server struct {
@@ -69,7 +81,7 @@ type server struct {
 
 func newServer(seam module.TaskSeam, cfg serverConfig) *server {
 	s := &server{cfg: cfg, seam: seam}
-	s.cards = newCardCache(seam, cardBuilder{port: cfg.port}, cfg.signer)
+	s.cards = newCardCache(seam, cardBuilder{host: cfg.host, port: cfg.port}, cfg.signer)
 	h := &handler{seam: seam}
 	opts := []a2asrv.TransportOption{
 		a2asrv.WithTransportKeepAlive(15 * time.Second),
@@ -335,7 +347,7 @@ type agentEntry struct {
 }
 
 func (s *server) baseURL(aid string) string {
-	return (&url.URL{Scheme: "http", Host: net.JoinHostPort("127.0.0.1", s.cfg.port), Path: agentsPath + "/" + aid}).String()
+	return (&url.URL{Scheme: "http", Host: listenerURLHost(s.cfg.host, s.cfg.port), Path: agentsPath + "/" + aid}).String()
 }
 
 // serveCard writes the proxy card's bytes exactly as signed.

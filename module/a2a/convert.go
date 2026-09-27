@@ -79,7 +79,10 @@ func toSDKError(err error) error {
 	}
 	var sdk *a2a.Error
 	if errors.As(err, &sdk) {
-		return err
+		// The A2A error itself, not what wraps it: a binding writes the
+		// message of the error it is given, and a wrapper's text is not
+		// the client's to read.
+		return sdk
 	}
 	switch {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
