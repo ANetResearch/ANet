@@ -111,9 +111,27 @@ func DefaultName(aid string) string {
 }
 
 // DefaultMode is the default input and output mode of a network card: the
-// media type of C1 arguments and effects. Every public skill is a
-// capability call; natural-language tasks are not public (A2A-DESIGN §5).
+// media type of C1 arguments and effects. Every public capability is a
+// capability call; the one text skill, ChatSkill, states its own modes.
 const DefaultMode = "application/json"
+
+// ChatSkill is the skill a node whose inbound policy is open publishes for
+// natural-language tasks (0017 Q27): not a capability, never priced, and
+// described as it is — who may send such a task and what the hub does with
+// it — so a directory reader is not led to expect more.
+func ChatSkill() Skill {
+	return Skill{
+		ID:   module.ChatSkillID,
+		Name: "chat",
+		Description: "Send this agent a task in natural language, as text rather than a skill call; it answers " +
+			"in the task, and may ask back. By default an anet node takes such tasks only from peers its operator " +
+			"has allowed, or from anyone when its inbound policy is open, as this node's is. The hub only carries " +
+			"the messages: they are end-to-end encrypted and signed by the sender, and the hub cannot read them.",
+		Tags:        []string{"chat"},
+		InputModes:  []string{"text/plain"},
+		OutputModes: []string{"text/plain"},
+	}
+}
 
 // SkillFor describes capability capID as a skill: what the provider
 // declares (provider.Described), with the gaps filled from the id

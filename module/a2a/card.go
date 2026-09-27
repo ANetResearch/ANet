@@ -10,9 +10,11 @@ package a2a
 // interface's bearer token, so it is signed by this node's key (kid
 // did:anet:<this AID>#<seq>, no jku: there is no JWKS to point at, and a
 // client that wants to check it resolves this node's KEL). What the remote
-// agent said about itself is carried inside, whole: anet-origin/v1 holds its
-// network card's bytes and whether this node verified them, and a client
-// that wants the agent's own word checks that signature.
+// agent said about itself is carried inside, whole, when this node verified
+// it: anet-origin/v1 holds its network card's bytes, and a client that
+// wants the agent's own word checks that signature. A card this node could
+// not verify is not carried in any form (0017 Q24): the proxy card is then
+// the one for an agent without a card, made from the AID.
 //
 // The card is written in the publish form (A2A-DESIGN §10.1, A2A §8.4.1):
 // every REQUIRED member present and non-empty, every member at its default
@@ -28,7 +30,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
@@ -42,8 +43,9 @@ const (
 	// ExtOriginURI says which remote agent a proxy card stands for:
 	// params {aid, originVerification, originCard?, anet.official?},
 	// originCard being the remote network card's bytes, base64url without
-	// padding, and anet.official true when this node's official manifest
-	// lists the agent by that AID (A2A-DESIGN §15).
+	// padding, present only when originVerification is VERIFIED, and
+	// anet.official true when this node's official manifest lists the
+	// agent by that AID (A2A-DESIGN §15).
 	ExtOriginURI  = "https://agentnetwork.org.cn/a2a/ext/anet-origin/v1"
 	extPricingURI = "https://agentnetwork.org.cn/a2a/ext/anet-pricing/v1"
 )
@@ -64,10 +66,6 @@ const originOfficial = "anet.official"
 // maxOriginCard bounds the remote card carried in anet-origin: the limit a
 // network card is admitted under (ANetCore a2acard.MaxCardBytes).
 const maxOriginCard = 64 << 10
-
-// maxNameBytes is the longest name a card may have (ANetCore
-// a2acard.MaxNameBytes).
-const maxNameBytes = 128
 
 // cardBuilder builds proxy cards for one listener.
 type cardBuilder struct {
@@ -109,7 +107,10 @@ func (b cardBuilder) build(ra module.RemoteAgent) (map[string]any, []string) {
 	}
 
 	origin := map[string]any{"aid": ra.AID, "originVerification": verification}
-	if n := len(ra.Card); n > 0 && n <= maxOriginCard {
+	// The remote card's bytes only when they verified: a card that did not
+	// is not passed on in any form (0017 Q24), and the proxy card is then
+	// the one for an agent without a card.
+	if n := len(ra.Card); remote != nil && n <= maxOriginCard {
 		origin["originCard"] = base64.RawURLEncoding.EncodeToString(ra.Card)
 	}
 	// This node's statement, like the rest of the proxy card: the AID is on
@@ -211,27 +212,17 @@ func copyVerified(card map[string]any, c *a2a.AgentCard) {
 	card["skills"] = skills
 }
 
-// placeholder fills a card for an agent with no verified card of its own.
-// It says so rather than guessing: the name is the hub directory's (not
-// signed by the agent), and the one skill is plain conversation.
+// placeholder fills a card for an agent with no verified card of its own:
+// no card at all, or one this node could not verify, which are shown the
+// same way (0017 Q24). It is made from the AID alone and says so: nothing
+// the hub states about the agent — a name, a description, a forged card's
+// words — is put next to this node's signature, or next to the official
+// mark in anet-origin, which is decided by the AID. The one skill is plain
+// conversation.
 func placeholder(card map[string]any, ra module.RemoteAgent) {
-	name := strings.TrimSpace(ra.Name)
-	if name == "" {
-		name = "anet agent " + short(ra.AID)
-	}
-	if len(name) > maxNameBytes {
-		// The limit is in bytes (ANetCore a2acard.MaxNameBytes), and the
-		// cut falls between characters: one split in half is not the text
-		// the hub gave, nor valid UTF-8.
-		cut := maxNameBytes
-		for cut > 0 && !utf8.RuneStart(name[cut]) {
-			cut--
-		}
-		name = name[:cut]
-	}
-	card["name"] = name
+	card["name"] = "anet agent " + short(ra.AID)
 	card["description"] = "The anet agent " + ra.AID + ", reached through this node. It has no card this node could " +
-		"verify, so nothing here comes from the agent itself: the name is the hub directory's, and its skills are unknown."
+		"verify, so nothing here comes from the agent itself: the name is made from its AID, and its skills are unknown."
 	card["version"] = "unknown"
 	card["defaultInputModes"] = []any{"text/plain"}
 	card["defaultOutputModes"] = []any{"text/plain"}

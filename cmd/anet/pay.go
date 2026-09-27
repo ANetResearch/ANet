@@ -196,7 +196,16 @@ func limitsPrompt(c *client, set map[string]uint64, payeesFile string, setPayees
 // list), so it is confirmed on the terminal with the amount and the payee —
 // the hub's AID, the key the authorization is signed to — before anything
 // is signed.
+//
+// The payee shown is the payee sent: /redeem carries it as pay_to, and the
+// daemon signs only to that hub, refusing when the node settles on another
+// by then (a hub-register in between), so what the operator confirmed and
+// what is signed cannot differ. A build without the payment module says so
+// before anything is asked.
 func runRedeem(c *client, rest []string) error {
+	if !paymentsCompiled() {
+		return errNoPaymentModule
+	}
 	pos, flags := splitFlags(rest)
 	if len(pos) < 1 {
 		return fmt.Errorf("redeem <amount> [--ref <reference>]")
@@ -212,19 +221,25 @@ func runRedeem(c *client, rest []string) error {
 	if ref == "" && len(pos) > 1 {
 		ref = strings.Join(pos[1:], " ")
 	}
-	if err := ttyConfirm(func() (string, error) { return redeemPrompt(c, n, ref) }); err != nil {
+	var payee string
+	if err := ttyConfirm(func() (string, error) {
+		prompt, hubAID, err := redeemPrompt(c, n, ref)
+		payee = hubAID
+		return prompt, err
+	}); err != nil {
 		return err
 	}
-	return c.do("/redeem", map[string]any{"amount": n, "reference": ref})
+	return c.do("/redeem", map[string]any{"amount": n, "reference": ref, "pay_to": payee})
 }
 
 // redeemPrompt names the amount, the payee and the limits it falls under,
-// from /payments/status with the hub. Without a hub AID there is no payee
-// to name and nothing the daemon could sign to, so it ends without asking.
-func redeemPrompt(c *client, amount uint64, ref string) (string, error) {
+// from /payments/status with the hub, and returns the payee it named.
+// Without a hub AID there is no payee to name and nothing the daemon could
+// sign to, so it ends without asking.
+func redeemPrompt(c *client, amount uint64, ref string) (string, string, error) {
 	b, code, err := c.fetch("/payments/status", map[string]any{"hub": true})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	var st struct {
 		Hub         string `json:"hub"`
@@ -237,15 +252,15 @@ func redeemPrompt(c *client, amount uint64, ref string) (string, error) {
 	}
 	if json.Unmarshal(b, &st) != nil || code != 200 {
 		if st.Error != "" {
-			return "", fmt.Errorf("redeem: %s", st.Error)
+			return "", "", fmt.Errorf("redeem: %s", st.Error)
 		}
-		return "", fmt.Errorf("redeem: the daemon answered %d", code)
+		return "", "", fmt.Errorf("redeem: the daemon answered %d", code)
 	}
 	switch {
 	case st.Hub == "":
-		return "", fmt.Errorf("redeem: this node has no hub (anet hub-register <url>); nothing was signed")
+		return "", "", fmt.Errorf("redeem: this node has no hub (anet hub-register <url>); nothing was signed")
 	case st.HubAID == "":
-		return "", fmt.Errorf("redeem: the identity of the hub %s is not known (%s); nothing was signed",
+		return "", "", fmt.Errorf("redeem: the identity of the hub %s is not known (%s); nothing was signed",
 			printable(st.Hub, 256), printable(st.HubError, 256))
 	}
 	var sb strings.Builder
@@ -260,7 +275,7 @@ func redeemPrompt(c *client, amount uint64, ref string) (string, error) {
 		sb.WriteString("\n  above these limits the daemon refuses it; `anet payments set` changes them")
 	}
 	sb.WriteString("\nThis cannot be undone.")
-	return sb.String(), nil
+	return sb.String(), st.HubAID, nil
 }
 
 // runPayees is `anet payees list`, `anet payees add <aid>` and

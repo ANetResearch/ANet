@@ -44,6 +44,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2asrv"
 
 	"github.com/ANetResearch/ANet/internal/loopguard"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -203,7 +204,7 @@ func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 		if len(info.requested) > 0 {
 			// Answered before the handler runs: a stream's headers go out
 			// before its first event.
-			info.active = intersect(info.requested, s.cards.extensions(r.Context(), aid))
+			info.active = activate(info.requested, s.cards.extensions(r.Context(), aid))
 			if len(info.active) > 0 {
 				w.Header().Set(a2a.SvcParamExtensions, strings.Join(info.active, ", "))
 			}
@@ -261,10 +262,24 @@ func checkVersion(r *http.Request) error {
 
 var versionRe = regexp.MustCompile(`^1(\.[0-9]+){0,2}$`)
 
-func intersect(requested, supported []string) []string {
+// activate is the extensions a request activates: those it asks for that
+// the agent's proxy card declares, in the order asked. a2a-x402 is
+// recognised by either URI x402a2a.Activated accepts — the v0.2 one the
+// card declares, or the v0.1 one the official reference library
+// (x402_a2a) sends (0017 Q18) — and is active as the v0.2 URI: that is
+// what the kernel is told and what the response echoes. The v0.1 URI is
+// only recognised, never declared or echoed.
+func activate(requested, supported []string) []string {
 	var out []string
 	for _, u := range requested {
-		if slices.Contains(supported, u) {
+		switch {
+		case slices.Contains(supported, u):
+		case x402a2a.Activated([]string{u}) && slices.Contains(supported, x402a2a.ExtensionURI):
+			u = x402a2a.ExtensionURI
+		default:
+			continue
+		}
+		if !slices.Contains(out, u) {
 			out = append(out, u)
 		}
 	}
@@ -319,12 +334,16 @@ func (s *server) listAgents(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		base := s.baseURL(a.AID)
-		out.Agents = append(out.Agents, agentEntry{
-			AID: a.AID, Name: a.Name, URL: base, CardURL: base + "/.well-known/agent-card.json",
-			Verification: a.Verification, VerificationError: a.VerificationError,
-			HubVerification: a.HubVerification, HomeHub: a.HomeHub, LastSeen: a.LastSeen,
-			Quiet: a.Quiet, ReviewCount: a.ReviewCount, AvgRating: a.AvgRating, Official: a.Official,
-		})
+		e := agentEntry{AID: a.AID, URL: base, CardURL: base + "/.well-known/agent-card.json",
+			Verification: a.Verification, VerificationError: a.VerificationError, Official: a.Official}
+		if a.Verification == verified {
+			// Only a verified agent is described: of any other, what a
+			// hub says is not shown beside the official mark (0017 Q24),
+			// and its proxy card is the one made from the AID.
+			e.Name, e.HubVerification, e.HomeHub, e.LastSeen = a.Name, a.HubVerification, a.HomeHub, a.LastSeen
+			e.Quiet, e.ReviewCount, e.AvgRating = a.Quiet, a.ReviewCount, a.AvgRating
+		}
+		out.Agents = append(out.Agents, e)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

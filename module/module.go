@@ -33,6 +33,7 @@ package module
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -283,34 +284,71 @@ type TaskFilter struct {
 // sent to the hub's registry; Query is free text matched here against the
 // cards that come back and never sent, because the words are the user's
 // intent and the hub has no need of them.
+//
+// IncludeUncarded also lists the agents registered at the hub that publish
+// no network card (0017 Q27): after the registry's last page, the entries
+// of the hub's /agents directory the registry does not list, each with
+// Verification "NONE" and only what the hub states about it. The local A2A
+// interface never sets it.
 type AgentQuery struct {
-	Skill  string `json:"skill,omitempty"`
-	Tag    string `json:"tag,omitempty"`
-	Query  string `json:"q,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
-	Cursor string `json:"cursor,omitempty"`
+	Skill           string `json:"skill,omitempty"`
+	Tag             string `json:"tag,omitempty"`
+	Query           string `json:"q,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+	Cursor          string `json:"cursor,omitempty"`
+	IncludeUncarded bool   `json:"include_uncarded,omitempty"`
 }
+
+// Verification values of a RemoteAgent.
+const (
+	// CardVerified: this node checked the agent's network card against the
+	// agent's key history.
+	CardVerified = "VERIFIED"
+	// CardUnverified: the agent has a card and this node could not verify
+	// it. Nothing of the card is passed on (0017 Q24).
+	CardUnverified = "UNVERIFIED"
+	// CardNone: the agent publishes no network card. What is known of it is
+	// the hub's statement (0017 Q27).
+	CardNone = "NONE"
+)
 
 // RemoteAgent is a remote agent as this node sees it: the registry entry
 // (§10.5) and this node's own check of its card, which the proxy card is
 // built from (§11.3).
+//
+// What an entry carries depends on Verification (0017 Q24, Q27):
+//
+//   - VERIFIED: the card's bytes, its name, and the hub's statements about
+//     the agent (home hub, liveness, reviews);
+//   - UNVERIFIED: the AID, the verification and its reason, and Official.
+//     Nothing of the card and nothing else the hub said: a hub that
+//     serves a forged card must not see its words shown, least of all
+//     beside the official mark;
+//   - NONE: the agent publishes no card; Name, Caps, Summary and the rest
+//     are the hub's statement, not the agent's signed word (only listed on
+//     request, AgentQuery.IncludeUncarded). An official AID without a card
+//     is shown as UNVERIFIED is, for the same reason.
 type RemoteAgent struct {
 	AID string `json:"aid"`
 	// Card is the agent's A2A network card, the exact bytes served; empty
-	// when the agent publishes none.
+	// unless the card verified.
 	Card json.RawMessage `json:"card,omitempty"`
-	// Verification is this node's check of Card: "VERIFIED", or
-	// "UNVERIFIED" with VerificationError saying why. HubVerification is
-	// what the hub said, which is not a substitute.
+	// Verification is this node's check of Card: CardVerified,
+	// CardUnverified with VerificationError saying why, or CardNone.
+	// HubVerification is what the hub said, which is not a substitute.
 	Verification      string `json:"verification"`
 	VerificationError string `json:"verificationError,omitempty"`
 	HubVerification   string `json:"hubVerification,omitempty"`
 	Name              string `json:"name,omitempty"`
-	HomeHub           string `json:"homeHub,omitempty"`
-	LastSeen          string `json:"lastSeen,omitempty"`
-	Quiet             bool   `json:"quiet,omitempty"`
-	ReviewCount       int    `json:"reviewCount,omitempty"`
-	AvgRating         any    `json:"avgRating,omitempty"`
+	// Caps and Summary are the hub directory's, set only on a NONE entry:
+	// the capability ids and one-line description the agent registered.
+	Caps        []string `json:"caps,omitempty"`
+	Summary     string   `json:"summary,omitempty"`
+	HomeHub     string   `json:"homeHub,omitempty"`
+	LastSeen    string   `json:"lastSeen,omitempty"`
+	Quiet       bool     `json:"quiet,omitempty"`
+	ReviewCount int      `json:"reviewCount,omitempty"`
+	AvgRating   any      `json:"avgRating,omitempty"`
 	// Official is true when AID is listed in the official-agent manifest
 	// built into this binary, signed with the release key (A2A-DESIGN §15,
 	// internal/official). The AID alone decides it: a name, a card or a
@@ -408,6 +446,12 @@ const (
 	PurposeRedeem     = "redeem"      // /redeem: credit given back to the hub
 )
 
+// ErrRedeemPayee is Payer.Redeem's refusal of a redemption whose confirmed
+// payee is not the hub this node settles on now: the operator agreed to pay
+// one hub and the authorization would be signed to another (the node changed
+// hubs in between, or the caller named the wrong one). Nothing is signed.
+var ErrRedeemPayee = errors.New("the payee confirmed for this redemption is not the hub this node settles on")
+
 // Module is an optional daemon subsystem.
 type Module interface {
 	// Name is the module's stable name; it matches its build tag, so
@@ -501,7 +545,11 @@ type Payer interface {
 	// Balance reads this node's standing off the custodian.
 	Balance(ctx context.Context) (map[string]any, error)
 	// Redeem gives credit back to the hub against an external reference.
-	Redeem(ctx context.Context, amount uint64, reference string) (map[string]any, error)
+	// payTo is the hub AID the operator confirmed (anet redeem shows it
+	// before asking): the authorization is signed only when it is the AID
+	// of the hub this node settles on now, else ErrRedeemPayee and nothing
+	// is signed.
+	Redeem(ctx context.Context, amount uint64, reference, payTo string) (map[string]any, error)
 	// RedeemURL is this node's public voucher face, or empty. It goes in
 	// the signed card so a gateway can tell buyers where to collect.
 	RedeemURL() string

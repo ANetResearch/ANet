@@ -227,7 +227,7 @@ func TestARefusedSpendSignsAndRecordsNothing(t *testing.T) {
 	}
 	// Redeem goes through the same gate, as a redeem.
 	h.spends = nil
-	if _, err := m.Redeem(context.Background(), 5, "ref"); err == nil {
+	if _, err := m.Redeem(context.Background(), 5, "ref", h.hub.AID()); err == nil {
 		t.Error("a refused redemption went ahead")
 	}
 	if len(h.spends) != 1 || h.spends[0].purpose != module.PurposeRedeem || h.spends[0].payTo != h.hub.AID() {

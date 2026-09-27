@@ -7,8 +7,12 @@ package daemon
 //
 // The card is signed with the key this node's KEL currently designates
 // (ANetCore a2acard). It is published only by a node with at least one
-// public skill: a fresh install serves nobody, and A2A requires skills to
-// be non-empty. The kernel writes the relay interface at the node's hub
+// skill: a public capability it serves, or — when its inbound policy is
+// open — the chat skill for natural-language tasks (0017 Q27,
+// netcard.ChatSkill). A fresh install (closed, nothing public) serves
+// nobody, and A2A requires skills to be non-empty; a node that goes back to
+// closed or approve with no public capability withdraws its card
+// (a2a_card_withdraw.go). The kernel writes the relay interface at the node's hub
 // and the anet-card and anet-evidence extensions; modules add their own
 // interfaces (p2p) and extensions (x402, pricing) through
 // module.CardContributor. The kernel never imports an A2A library.
@@ -54,7 +58,8 @@ const cardNotBeforeSkew = time.Minute
 const networkCardFile = "a2a_card.json"
 
 // errNoPublicSkill is why no card is built: A2A requires at least one
-// skill, and this node lists no public capability it serves.
+// skill, and this node lists no public capability it serves and does not
+// take natural-language tasks from anyone (its inbound policy is not open).
 var errNoPublicSkill = errors.New("anet: no public skill, so no network card is published")
 
 // netCardState is this node's issued card and what the hub last said
@@ -131,6 +136,22 @@ func (d *Daemon) publicSkillIDs() []string {
 		out = out[:a2acard.MaxSkills]
 	}
 	return out
+}
+
+// publishesChat reports whether the card lists the chat skill: the inbound
+// policy is open, so anyone may send this node a natural-language task
+// (A2A-DESIGN §5.2 row 5). Not when a capability of that id exists here:
+// public, it is listed as itself; private, a chat skill would name it.
+func (d *Daemon) publishesChat() bool {
+	if d.config().inbound().Policy != PolicyOpen {
+		return false
+	}
+	if d.providers != nil {
+		if _, ok := d.providers.Resolve(module.ChatSkillID); ok {
+			return false
+		}
+	}
+	return true
 }
 
 // networkCard returns this node's signed network card for hubURL, reusing
@@ -227,15 +248,27 @@ func (d *Daemon) selfKELResolver(aid string) ([]identity.SignedEvent, error) {
 // it; the card sent with that registration must carry the same name as the
 // registration and its ADP card.
 func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
-	skills := d.publicSkillIDs()
-	if len(skills) == 0 {
+	caps := d.publicSkillIDs()
+	chat := d.publishesChat()
+	if len(caps) == 0 && !chat {
 		return netcard.Input{}, errNoPublicSkill
 	}
 	cfg := d.config()
 	in := netcard.Input{AID: d.AID(), Name: name, Description: cfg.Summary, Version: Version, HubURL: hubURL}
-	for _, id := range skills {
+	for _, id := range caps {
 		p, _ := d.providers.Resolve(id)
 		in.Skills = append(in.Skills, netcard.SkillFor(p, id))
+	}
+	if chat {
+		if len(in.Skills) == a2acard.MaxSkills {
+			in.Skills = in.Skills[:a2acard.MaxSkills-1]
+		}
+		in.Skills = append(in.Skills, netcard.ChatSkill())
+		sort.SliceStable(in.Skills, func(i, j int) bool { return in.Skills[i].ID < in.Skills[j].ID })
+	}
+	skills := make([]string, 0, len(in.Skills))
+	for _, s := range in.Skills {
+		skills = append(skills, s.ID)
 	}
 	cc := module.CardContext{AID: d.AID(), HubURL: hubURL, Skills: append([]string(nil), skills...)}
 	for _, m := range d.cardContributors() {
@@ -446,7 +479,8 @@ func (d *Daemon) hCard(w http.ResponseWriter, _ *http.Request) {
 		out["card"] = card
 	case errors.Is(err, errNoPublicSkill):
 		out["reason"] = "no public skill: list a capability this node serves (and, in a build without payments, " +
-			"one without a price) under inbound.public_capabilities to publish a card"
+			"one without a price) under inbound.public_capabilities, or open the inbound policy to take " +
+			"natural-language tasks from anyone (the card then lists a chat skill), to publish a card"
 	default:
 		out["reason"] = err.Error()
 	}

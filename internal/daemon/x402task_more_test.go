@@ -550,10 +550,10 @@ func TestEverySigningSurfaceIsHeldToTheSpendingPolicy(t *testing.T) {
 	}
 	p := newPlaneFor(t, req, token)
 	for _, c := range []struct{ route, body string }{
-		{"/tasks/pay", `{"task_id":"` + id + `","decision":"submit"}`},        // task-agent: agent_max 1
-		{"/tasks/pay-manual", `{"task_id":"` + id + `","decision":"submit"}`}, // task-manual: explicit_max 2
-		{"/x402-authorize", `{"pay_to":"` + prov.AID() + `","amount":3}`},     // gateway: explicit_max 2
-		{"/redeem", `{"amount":3,"reference":"c27-redeem"}`},                  // redeem: explicit_max 2
+		{"/tasks/pay", `{"task_id":"` + id + `","decision":"submit"}`},                        // task-agent: agent_max 1
+		{"/tasks/pay-manual", `{"task_id":"` + id + `","decision":"submit"}`},                 // task-manual: explicit_max 2
+		{"/x402-authorize", `{"pay_to":"` + prov.AID() + `","amount":3}`},                     // gateway: explicit_max 2
+		{"/redeem", `{"amount":3,"reference":"c27-redeem","pay_to":"` + hubAIDOf(hub) + `"}`}, // redeem: explicit_max 2
 	} {
 		resp, b := p.req(t, "POST", c.route, c.body, p.bearer)
 		var out map[string]any
