@@ -40,8 +40,10 @@ import (
 // (A2A-DESIGN §10.1); anet-origin is the proxy card's own.
 const (
 	// ExtOriginURI says which remote agent a proxy card stands for:
-	// params {aid, originVerification, originCard?}, originCard being the
-	// remote network card's bytes, base64url without padding.
+	// params {aid, originVerification, originCard?, anet.official?},
+	// originCard being the remote network card's bytes, base64url without
+	// padding, and anet.official true when this node's official manifest
+	// lists the agent by that AID (A2A-DESIGN §15).
 	ExtOriginURI  = "https://agentnetwork.org.cn/a2a/ext/anet-origin/v1"
 	extPricingURI = "https://agentnetwork.org.cn/a2a/ext/anet-pricing/v1"
 )
@@ -54,6 +56,10 @@ const (
 
 // securityScheme names this interface's bearer token in the cards.
 const securityScheme = "anetLocal"
+
+// originOfficial is the anet-origin param that marks an official agent:
+// true, or absent (§10.1: no false, no empty values inside params).
+const originOfficial = "anet.official"
 
 // maxOriginCard bounds the remote card carried in anet-origin: the limit a
 // network card is admitted under (ANetCore a2acard.MaxCardBytes).
@@ -105,6 +111,12 @@ func (b cardBuilder) build(ra module.RemoteAgent) (map[string]any, []string) {
 	origin := map[string]any{"aid": ra.AID, "originVerification": verification}
 	if n := len(ra.Card); n > 0 && n <= maxOriginCard {
 		origin["originCard"] = base64.RawURLEncoding.EncodeToString(ra.Card)
+	}
+	// This node's statement, like the rest of the proxy card: the AID is on
+	// the official manifest it carries. It does not depend on the remote
+	// card, which the agent writes about itself.
+	if ra.Official {
+		origin[originOfficial] = true
 	}
 	exts := []any{map[string]any{
 		"uri":         ExtOriginURI,

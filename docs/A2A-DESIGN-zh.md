@@ -755,7 +755,7 @@ mcpserv 原样转发控制面的投影 JSON;描述写明"completed 且 effect_st
 - 后端 `ANet/cmd/anet-official`,独立二进制,每类能力一组 127.0.0.1 路由,daemon 用 `service` 模块挂载;后端以每后端令牌头认证 daemon。
 - 第一批能力:`net.echo`;`text.stats` `text.digest` `text.diff` `json.validate` `a2a.card.validate` `a2a.x402.check`;`docs.search` `docs.get`(构建时打包语料并计算 CID);`demo.digest.paid`。全部确定性、纯计算、不执行命令、不访问外网、不接受 URL。
 - 身份:A1 `anet-echo-e`(emax)、A2 `anet-echo-f`(fmax)、B `anet-tools`、C `anet-docs`、E `anet-paid-demo`;`inbound.policy=closed` + `public_capabilities`。
-- 官方身份由客户端验证:发布签名密钥签署官方清单,随二进制打包;`list_agents` 与代理卡片据此标注 `anet.official: true`。hub admin 只登记 `id/aid/hub/caps`,不登记 runtime/ops/monitor/harvest;运维经 dmax 上的专用非 root 账户与独立工具 [C39]。
+- 官方身份由客户端验证:发布签名密钥签署官方清单,随二进制打包;`list_agents` 与代理卡片据此标注 `anet.official: true`。清单(`internal/official/manifest.json`:`schema`、`seq`、`issued_at`、`expires_at`、`key_fingerprint`、`agents[{id,name,aid,hub,caps}]`)与发布清单同一把钥、独立 SSHSIG 命名空间 `anet-official@agentnetwork.org.cn`(`allowed_signers` 同一行列出两个命名空间),两种签名互不可冒用;只按 AID 判定,验签失败或过期即不标任何人;标注只是标签,不给准入、信任、付款或通道。由 `build-release.sh --official` 从 `deploy/official/official-agents.txt` 生成并签名后提交,release 构建核对。hub admin 只登记 `id/aid/hub/caps`,不登记 runtime/ops/monitor/harvest;运维经 dmax 上的专用非 root 账户与独立工具 [C39]。
 - `service` 模块把已验证调用方与 ix 以 `X-ANet-Caller`、`X-ANet-Call` 传给后端;按能力覆盖超时。公共能力的证据可配置为只记 `result_cid` 与指标(C5 契约文档写明两种模式)。
 - 部署属于生产变更,执行前征求同意。
 

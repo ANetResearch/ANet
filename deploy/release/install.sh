@@ -39,7 +39,7 @@
 #
 #   curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
 #   curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
-#   echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3' > allowed_signers
+#   echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3' > allowed_signers
 #   ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
 #     -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 #
@@ -77,7 +77,7 @@
 # Same line as internal/release/allowed_signers, SECURITY.md and README.md;
 # a test in internal/release keeps them equal.
 release_allowed_signers() {
-  echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3'
+  echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3'
 }
 # Printed in messages only; ssh-keygen checks the key itself.
 release_key_fingerprint() {

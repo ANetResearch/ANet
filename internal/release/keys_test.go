@@ -20,6 +20,11 @@ func TestEmbeddedTrust(t *testing.T) {
 	if fp := Fingerprint(tr.Keys[0]); fp != shippedKeyFP {
 		t.Fatalf("embedded key is %s, want %s", fp, shippedKeyFP)
 	}
+	// The same key signs the official-agent manifest, in its own namespace.
+	off := OfficialTrust()
+	if len(off.Keys) != 1 || Fingerprint(off.Keys[0]) != shippedKeyFP {
+		t.Fatalf("the official namespace trusts %d keys, want exactly the release key", len(off.Keys))
+	}
 	if !fpRe.MatchString(NextKeyFingerprint) || NextKeyFingerprint == shippedKeyFP {
 		t.Fatalf("NextKeyFingerprint %q must be a different SHA256 fingerprint", NextKeyFingerprint)
 	}
@@ -74,8 +79,13 @@ func TestTheReleaseKeyIsTheSameEverywhere(t *testing.T) {
 	if !strings.Contains(src, "\nconst NextKeyFingerprint = \""+NextKeyFingerprint+"\"\n") {
 		t.Error("keys.go's NextKeyFingerprint line changed shape; build-release.sh reads it with sed")
 	}
+	// It signs the release in Namespace and the official manifest in
+	// OfficialNamespace, and checks the committed official manifest in the
+	// latter.
 	build := repoFile(t, "deploy/release/build-release.sh")
-	for _, want := range []string{"-n \"$NAMESPACE\"", "NAMESPACE=" + Namespace, "IDENTITY=" + Identity,
+	for _, want := range []string{"-n \"$ns\"", `local ns="${2:-$NAMESPACE}"`, "NAMESPACE=" + Namespace,
+		"OFFICIAL_NAMESPACE=" + OfficialNamespace, `sign "$OFF_MF.new" "$OFFICIAL_NAMESPACE"`,
+		`-n "$OFFICIAL_NAMESPACE" -s "$OFF_MF.sig"`, "IDENTITY=" + Identity,
 		"internal/release/allowed_signers"} {
 		if !strings.Contains(build, want) {
 			t.Errorf("build-release.sh does not contain %q", want)

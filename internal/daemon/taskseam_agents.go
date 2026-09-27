@@ -2,6 +2,7 @@ package daemon
 
 // taskseam_agents.go is discovery for the A2A surface (A2A-DESIGN §10.5,
 // §11.1 Agents/Card): network cards from the hub registry, verified here.
+// Each agent is marked official, or not, by its AID alone (official.go).
 //
 // The hub's statement that a card verified is recorded (hubVerification)
 // but not relied on: every card is checked again with ANetCore a2acard
@@ -94,6 +95,7 @@ func (d *Daemon) listAgents(ctx context.Context, q module.AgentQuery) ([]module.
 		if q.Query != "" && !cardMatches(e.Card, e.AID, q.Query) {
 			continue
 		}
+		d.markOfficial(&ra)
 		out = append(out, ra)
 	}
 	return out, page.NextCursor, nil
@@ -130,7 +132,7 @@ func (d *Daemon) listAgentsLegacy(ctx context.Context, hub string, q module.Agen
 			continue
 		}
 		out = append(out, module.RemoteAgent{AID: a.AID, Name: a.Name, HomeHub: a.HomeHub,
-			ReviewCount: a.ReviewCount, AvgRating: a.AvgRating,
+			ReviewCount: a.ReviewCount, AvgRating: a.AvgRating, Official: d.IsOfficial(a.AID),
 			Verification: cardUnverified, VerificationError: "the hub publishes no network card for this agent"})
 		if len(out) == limit {
 			break
@@ -156,13 +158,14 @@ func (d *Daemon) agentCard(ctx context.Context, aid string) (module.RemoteAgent,
 	err := d.hubGet(hctx, hub, hubapi.RegistryAgentsPath+"/"+url.PathEscape(aid)+"/card", nil, &card)
 	switch {
 	case hubStatus(err) == http.StatusNotFound:
-		return module.RemoteAgent{AID: aid, Verification: cardUnverified,
+		return module.RemoteAgent{AID: aid, Verification: cardUnverified, Official: d.IsOfficial(aid),
 			VerificationError: "the agent publishes no network card"}, nil
 	case err != nil:
 		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
 	}
 	ra := module.RemoteAgent{AID: aid, Card: card}
 	d.verifyCardInto(&ra, d.cardKELResolver(hctx))
+	d.markOfficial(&ra)
 	return ra, nil
 }
 

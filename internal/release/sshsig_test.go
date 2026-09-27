@@ -285,3 +285,31 @@ func TestSSHKeygenAcceptsOurTestSigner(t *testing.T) {
 		t.Fatalf("ssh-keygen refused the test signer's signature: %v\n%s", err, out)
 	}
 }
+
+// The two namespaces the release key signs in do not cross: a release
+// signature is not an official-manifest signature, nor the reverse, and a
+// key listed for only one of them is trusted for only that one.
+func TestReleaseAndOfficialNamespacesDoNotCross(t *testing.T) {
+	pub, priv := newKey(t)
+	tr := Trust{Keys: []ed25519.PublicKey{pub}}
+	msg := []byte("m")
+	if _, err := tr.VerifyIn(OfficialNamespace, msg, Sign(priv, msg, OfficialNamespace)); err != nil {
+		t.Fatalf("official signature: %v", err)
+	}
+	if _, err := tr.VerifyIn(OfficialNamespace, msg, Sign(priv, msg, Namespace)); err == nil {
+		t.Error("a release signature verified as an official one")
+	}
+	if _, err := tr.Verify(msg, Sign(priv, msg, OfficialNamespace)); err == nil {
+		t.Error("an official signature verified as a release one")
+	}
+
+	only := func(ns string) string {
+		return Identity + ` namespaces="` + ns + `" ` + AuthorizedKey(pub) + "\n"
+	}
+	if _, err := ParseAllowedSignersFor(only(Namespace), OfficialNamespace); err == nil {
+		t.Error("a key listed for releases only was trusted for the official manifest")
+	}
+	if keys, err := ParseAllowedSignersFor(only(Namespace+","+OfficialNamespace), OfficialNamespace); err != nil || len(keys) != 1 {
+		t.Errorf("a key listed for both: %v", err)
+	}
+}
