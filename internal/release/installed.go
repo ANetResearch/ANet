@@ -166,6 +166,20 @@ func CheckInstalled(exe string, trust Trust, now time.Time) InstalledCheck {
 	return out
 }
 
+// NamesBinary reports whether m names the binary at exe by its sha256, as
+// one of its assets: what CheckInstalled requires before it calls a binary
+// verified. `anet update` asks it before recording a release it did not
+// install, so that a source build of the same version is not given a
+// record that cannot vouch for it.
+func NamesBinary(m *Manifest, exe string) (bool, error) {
+	sum, err := fileSHA256(exe)
+	if err != nil {
+		return false, err
+	}
+	_, ok := assetBySHA256(m, sum)
+	return ok, nil
+}
+
 // assetBySHA256 is the asset whose binary has sha256 sum.
 func assetBySHA256(m *Manifest, sum string) (string, bool) {
 	names := make([]string, 0, len(m.Assets))

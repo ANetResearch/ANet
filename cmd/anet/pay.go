@@ -298,7 +298,9 @@ func runPayees(c *client, rest []string) error {
 }
 
 // payeePrompt says what putting aid on the payee list allows: payments to
-// it within each tier's limits, which it lists as they stand.
+// it within each tier's limits, which it lists as they stand. With the
+// list turned off there is nothing to add to — every payee is already
+// allowed — so it ends without asking.
 func payeePrompt(c *client, aid string) (string, error) {
 	b, code, err := c.fetch("/payments/status", map[string]any{})
 	if err != nil {
@@ -308,13 +310,19 @@ func payeePrompt(c *client, aid string) (string, error) {
 		return "", fmt.Errorf("payees: the daemon answered %d: %s", code, strings.TrimSpace(string(b)))
 	}
 	var st struct {
-		AutoMax       uint64 `json:"auto_max"`
-		AgentMax      uint64 `json:"agent_max"`
-		AgentDailyMax uint64 `json:"agent_daily_max"`
-		ExplicitMax   uint64 `json:"explicit_max"`
-		DailyMax      uint64 `json:"daily_max"`
+		AutoMax       uint64  `json:"auto_max"`
+		AgentMax      uint64  `json:"agent_max"`
+		AgentDailyMax uint64  `json:"agent_daily_max"`
+		ExplicitMax   uint64  `json:"explicit_max"`
+		DailyMax      uint64  `json:"daily_max"`
+		PayeesFile    *string `json:"payees_file"`
 	}
 	_ = json.Unmarshal(b, &st)
+	if st.PayeesFile != nil && *st.PayeesFile == "" {
+		return "", fmt.Errorf("payees: the payee list is off (payments.payees_file is empty), so every payee is " +
+			"already allowed within the limits; nothing was changed. `anet payments set --payees-file payees.allow` " +
+			"turns it on")
+	}
 	return fmt.Sprintf("Allow this node to pay %s?%s\n"+
 		"  Payments to it are then possible within the spending limits:\n"+
 		"    automatic   up to %d each (auto_max)\n"+

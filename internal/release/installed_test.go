@@ -45,6 +45,10 @@ func TestInstalledRecord(t *testing.T) {
 		t.Fatalf("install directory holds %d entries, want the binary and the two record files", len(ents))
 	}
 
+	if ok, err := NamesBinary(found.Manifest, exe); !ok || err != nil {
+		t.Fatalf("the installed binary is not named by its manifest: %v %v", ok, err)
+	}
+
 	got := CheckInstalled(exe, trust, f.now)
 	if got.Status != InstalledVerified || got.Version != "0.2.0" || got.Signer != Fingerprint(f.pub) ||
 		!strings.HasPrefix(got.Asset, "anet-") || got.Expired {
@@ -67,6 +71,9 @@ func TestInstalledRecord(t *testing.T) {
 	}
 	if got := CheckInstalled(exe, trust, f.now); got.Status != InstalledUnverified || !strings.Contains(got.Detail, "not one") {
 		t.Fatalf("a replaced binary: %+v", got)
+	}
+	if ok, err := NamesBinary(found.Manifest, exe); ok || err != nil {
+		t.Fatalf("a replaced binary is named by the manifest: %v %v", ok, err)
 	}
 	if err := os.WriteFile(exe, f.bin, 0o755); err != nil {
 		t.Fatal(err)

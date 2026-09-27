@@ -273,6 +273,27 @@ func TestRedeemWithoutAKnownHubDoesNotAsk(t *testing.T) {
 	}
 }
 
+// With the payee list turned off every payee is already allowed: `anet
+// payees add` says so and ends before the question, instead of asking and
+// then being refused.
+func TestPayeesAddWithTheListOffDoesNotAsk(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		_, _ = w.Write([]byte(`{"auto_max":0,"agent_max":0,"agent_daily_max":0,"explicit_max":10,"daily_max":50,"payees_file":""}`))
+	}))
+	defer srv.Close()
+	c := &client{base: srv.URL, token: "t", timeout: 5 * time.Second}
+	tty := withTTY(t, "yes")
+	err := runClientArgs(c, []string{"payees", "add", "bafyreipeer000000000"})
+	if err == nil || !strings.Contains(err.Error(), "payee list is off") {
+		t.Fatalf("payees add with the list off: %v", err)
+	}
+	if strings.Join(paths, ",") != "/payments/status" || tty.prompt.Len() != 0 {
+		t.Fatalf("daemon asked %v, prompt %q", paths, tty.prompt.String())
+	}
+}
+
 // Text from elsewhere cannot rewrite a prompt: control and bidi characters
 // are dropped and length is bounded.
 func TestPrintableStripsTerminalControl(t *testing.T) {
