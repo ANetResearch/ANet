@@ -1,0 +1,60 @@
+# anet-official backend for one official identity (%i = anet-echo-e, anet-tools, ...).
+#
+# Install: /etc/anet-official/%i/backend.env (LISTEN, CAP_GROUPS) and
+# /etc/anet-official/%i/token (root:root 0600; the daemon of the same
+# identity presents it). See deploy/official/README.md.
+#
+# The backend keeps no state and needs nothing but a loopback socket, so it
+# runs as a transient user with no writable path and no network beyond
+# localhost. The token reaches it through systemd credentials, readable by
+# this unit only.
+[Unit]
+Description=anet official agent backend (%i)
+Documentation=https://github.com/ANetResearch/ANet/tree/main/deploy/official
+After=network.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=/etc/anet-official/%i/backend.env
+LoadCredential=token:/etc/anet-official/%i/token
+ExecStart=/usr/local/bin/anet-official serve -listen ${LISTEN} -groups ${CAP_GROUPS} -token-file %d/token
+Restart=on-failure
+RestartSec=2s
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+UMask=0077
+MemoryMax=256M
+CPUQuota=100%
+TasksMax=64
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

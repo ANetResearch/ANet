@@ -213,13 +213,30 @@ anet accept on
 
 ```json
 {"modules": {"service": {
+  "token_file": "/home/me/.anet/service.token",
   "capabilities": [
-    {"id": "text.digest", "url": "http://127.0.0.1:8080/digest", "description": "摘要"},
+    {"id": "text.digest", "url": "http://127.0.0.1:8080/digest",
+     "name": "Text digest", "description": "SHA-256 of a text. Args: {\"text\": string}",
+     "tags": ["hash", "text"], "examples": ["{\"text\":\"hello\"}"], "timeout_ms": 2000},
     {"id": "image.inspect", "url": "http://127.0.0.1:8080/inspect", "price": 25, "protocol": "json"}
   ],
   "timeout_ms": 30000
 }}}
 ```
+
+- daemon 把调用参数(JSON 对象)POST 到 `url`,读回一个 JSON 对象。
+- `name`、`description`、`tags`、`examples`、`input_modes`、`output_modes` 是这个能力的
+  A2A skill 描述,进入本节点的卡片;不写时卡片只能按 id 派生。写了不等于公开:
+  只有 `inbound.public_capabilities` 里的能力对陌生人开放。
+- `timeout_ms` 可按能力覆盖模块级的值。
+- `token_file`(模块级,或按能力覆盖):文件第一行是令牌,daemon 以
+  `Authorization: Bearer <令牌>` 发给服务。回环端口本机任何进程都能连,服务靠它认出
+  daemon。要求绝对路径(可写 `${CREDENTIALS_DIRECTORY}/token` 这类环境变量,变量未设置时
+  拒绝启动)、普通文件、其他用户不可读、至少 16 字节;令牌只发往回环地址或 https 地址,
+  请求不跟随重定向。
+- 服务还会收到 `X-ANet-Caller`(已验证的调用方 AID,只有经中继、签名已验证的调用才有;
+  凭证兑付口不带)、`X-ANet-Call`(交互 id)、`X-ANet-Via`(`relay`/`voucher`)、
+  `X-ANet-Capability`。
 
 改完配置要**重启并重新注册**:
 
