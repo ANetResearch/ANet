@@ -16,9 +16,14 @@
 //	anetfixture org-genesis   --home DIR [--nonce N]
 //	anetfixture org-credential --home DIR --genesis B64 --subject AID [--role member]
 //	anetfixture x402-authorize --home DIR --pay-to AID --amount N --network hub:AID [--interaction ID]
-//	anetfixture relay-sign    --home DIR --action task.create
+//	anetfixture relay-sign    --home DIR --hub URL --action send --method POST --path /relay/send --body-file F
+//	anetfixture relay-sign    --home DIR --v1 --action task.create
+//	anetfixture seal          --home DIR --hub URL --to AID [--as AID --kel self|claimed] …   (attack.go)
+//	anetfixture relay-send    --to AID --envelope B64|@FILE [--home DIR --hub URL] [--p2p ADDR] (attack.go)
 //
-// Each prints one base64 line, ready for `anet delegate … --args`.
+// The first four print one base64 line, ready for `anet delegate … --args`.
+// relay-sign prints request headers, seal an envelope, relay-send one JSON
+// line per delivery.
 package main
 
 import (
@@ -26,8 +31,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/coredet"
@@ -57,6 +64,10 @@ func main() {
 		err = cmdX402Authorize(os.Args[2:])
 	case "relay-sign":
 		err = cmdRelaySign(os.Args[2:])
+	case "seal":
+		err = cmdSeal(os.Args[2:])
+	case "relay-send":
+		err = cmdRelaySend(os.Args[2:])
 	case "org-id":
 		err = cmdOrgID(os.Args[2:])
 	default:
@@ -70,7 +81,7 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr,
-		"usage: anetfixture cogunit|org-genesis|org-credential|aid|x402-authorize|relay-sign|org-id --home DIR [...]")
+		"usage: anetfixture cogunit|org-genesis|org-credential|aid|x402-authorize|relay-sign|seal|relay-send|org-id --home DIR [...]")
 	os.Exit(2)
 }
 
@@ -287,26 +298,40 @@ func cmdX402Authorize(args []string) error {
 	return nil
 }
 
-// cmdRelaySign signs a hub action challenge as this daemon.
+// cmdRelaySign signs one hub request as this daemon, with relayauth v2
+// (A2A-DESIGN §3.7) unless --v1 is given.
 //
-// The hub gates every mutating action behind a signature over
-// (action, aid, timestamp), and several of those actions have no client
-// in this suite. The taskboard is the clearest case: nine mutation
-// endpoints, reachable on the production hub, and nothing outside the
-// package's own tests can produce a signature for one — so the board can
-// be read and not used, and no live run had ever touched it.
+// The hub gates every mutating action behind a signature, and several of
+// those actions have no client in this suite. v2 binds the signature to one
+// request on one hub: the action, the signer, the hub's AID, the time, and
+// a hash of the method, the request target and the exact body bytes. So the
+// request is named here in full, and the output is the headers that carry
+// the signature, one "Name: value" line each, ready for `curl -H @FILE`
+// with the body sent as `--data-binary @FILE` of the same file:
+//
+//	anetfixture relay-sign --home H --hub URL --action send \
+//	    --method POST --path /relay/send --body-file req.json > hdr
+//	curl -H @hdr -H 'Content-Type: application/json' --data-binary @req.json URL/relay/send
+//
+// --v1 prints the wire-1 challenge (aid, ts, key_state_seq, sig) as JSON to
+// merge into a request body. The hub's taskboard, an additive build tag,
+// still authenticates that way; nothing on the hub's own wire-2 endpoints
+// accepts it.
 //
 // A fixture rather than an `anet` subcommand because that is what this
 // is for: a check that needs a signature, not a product surface nobody
-// asked for. If agents are meant to use the board, they need real
-// commands, and that is a separate decision.
-//
-// Prints the three fields the hub wants, as JSON, ready to be merged
-// into a request body.
+// asked for.
 func cmdRelaySign(args []string) error {
 	fs := flag.NewFlagSet("relay-sign", flag.ExitOnError)
 	home := fs.String("home", "", "daemon data dir")
-	action := fs.String("action", "", "action name, e.g. task.create")
+	action := fs.String("action", "", "action name: send, poll, ack, keys, … (v1: e.g. task.create)")
+	hub := fs.String("hub", "", "hub URL; its AID is part of what v2 signs")
+	hubAID := fs.String("hub-aid", "", "the hub's AID, instead of asking --hub for it")
+	method := fs.String("method", http.MethodPost, "HTTP method as sent")
+	path := fs.String("path", "", "request target as sent, path and query (e.g. /relay/send)")
+	body := fs.String("body", "", "request body, exactly as sent")
+	bodyFile := fs.String("body-file", "", "read the request body from this file (the bytes curl will send)")
+	v1 := fs.Bool("v1", false, "wire-1 challenge JSON for the hub taskboard (additive tag)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -317,16 +342,42 @@ func cmdRelaySign(args []string) error {
 	if err != nil {
 		return err
 	}
-	ts := uint64(time.Now().UnixMilli())
-	sig, seq := c.Sign(relayauth.Preimage(*action, c.AID(), ts))
-	out, err := json.Marshal(map[string]any{
-		"aid": c.AID(), "ts": ts, "key_state_seq": seq,
-		"sig": base64.StdEncoding.EncodeToString(sig),
-	})
-	if err != nil {
-		return err
+	if *v1 {
+		ts := uint64(time.Now().UnixMilli())
+		sig, seq := c.Sign(relayauth.Preimage(*action, c.AID(), ts))
+		out, err := json.Marshal(map[string]any{
+			"aid": c.AID(), "ts": ts, "key_state_seq": seq,
+			"sig": base64.StdEncoding.EncodeToString(sig),
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(out))
+		return nil
 	}
-	fmt.Println(string(out))
+	if *path == "" || !strings.HasPrefix(*path, "/") {
+		return fmt.Errorf("--path is required and starts with /: v2 signs the request target (the wire-1 form is --v1)")
+	}
+	if *body != "" && *bodyFile != "" {
+		return fmt.Errorf("--body or --body-file, not both")
+	}
+	raw := []byte(*body)
+	if *bodyFile != "" {
+		if raw, err = os.ReadFile(*bodyFile); err != nil {
+			return err
+		}
+	}
+	if *hubAID == "" {
+		if *hub == "" {
+			return fmt.Errorf("--hub or --hub-aid is required: v2 signs the hub's AID")
+		}
+		if *hubAID, err = hubAIDOf(*hub); err != nil {
+			return err
+		}
+	}
+	for _, h := range v2Headers(c, *hubAID, *action, strings.ToUpper(*method), *path, raw) {
+		fmt.Printf("%s: %s\n", h[0], h[1])
+	}
 	return nil
 }
 
