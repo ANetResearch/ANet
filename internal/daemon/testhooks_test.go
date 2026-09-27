@@ -9,8 +9,9 @@ import (
 )
 
 // directHookWrite is a test writing the clock or the receive fault
-// without the setters: an assignment, or a Store on the atomic field.
-var directHookWrite = regexp.MustCompile(`\.(clock|rxFault)\s*(=[^=]|\.Store\()`)
+// without the setters: an assignment, or a Store, Swap or CompareAndSwap
+// on the atomic field.
+var directHookWrite = regexp.MustCompile(`\.(clock|rxFault)\s*(=([^=]|$)|\.(Store|Swap|CompareAndSwap)\()`)
 
 // No test sets a hook on a running daemon except through setClock and
 // setRxFault (testhooks.go). The daemon's loops read both while the test
@@ -60,5 +61,33 @@ func TestTheHookSettersRoundTrip(t *testing.T) {
 	d.setRxFault(nil)
 	if d.testRxFault() != nil {
 		t.Fatal("setRxFault(nil) left the fault in place")
+	}
+}
+
+// The scan's pattern, on the shapes it must catch and the ones it must
+// leave alone — so the scan cannot pass by matching nothing. The shapes
+// it must catch are split at the dot, or the scan would find them here.
+func TestTheHookScanCatchesEveryShape(t *testing.T) {
+	for _, line := range []string{
+		"\td." + "clock = func() uint64 { return 1 }",
+		"\tprov." + "rxFault = nil",
+		"\td." + "clock =",
+		"\td." + "clock.Store(&f)",
+		"\treq." + "rxFault.Swap(nil)",
+	} {
+		if !directHookWrite.MatchString(line) {
+			t.Errorf("not caught: %q", line)
+		}
+	}
+	for _, line := range []string{
+		"\td.setClock(clock.Load)",
+		"\tprov.setRxFault(nil)",
+		"\tclock.Store(start + 6*dayMS)",
+		"\tif d.clock == nil {",
+		"\tif fault := d.testRxFault(); fault != nil {",
+	} {
+		if directHookWrite.MatchString(line) {
+			t.Errorf("caught by mistake: %q", line)
+		}
 	}
 }

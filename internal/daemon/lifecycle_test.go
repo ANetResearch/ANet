@@ -80,6 +80,12 @@ func (m *recModule) Stop(context.Context) error {
 	return nil
 }
 
+// ForbiddenTokens makes lifecycle_rec a Confidential module: its secret
+// must never reach a publication, before Close or after.
+func (m *recModule) ForbiddenTokens() []string { return []string{m.secret()} }
+
+func (m *recModule) secret() string { return "lifecycle-secret-" + m.id }
+
 func (m *recModule) snapshot() (stops int, ctxDone bool, evidence error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -165,6 +171,45 @@ func TestCloseStopsTheModules(t *testing.T) {
 	}
 }
 
+// Stopping the modules does not take them out of the publication screen.
+// A control request can outlive the server's shutdown and publish while
+// Close runs, or after it; that publication still meets every module's
+// confidential tokens (INV-2), and reading the module list meanwhile is
+// not a data race.
+func TestClosingLeavesThePublicationScreenInPlace(t *testing.T) {
+	mods, id := recConfig(t)
+	d := newTestDaemonCfg(t, "", mods)
+	m := recFor(t, id)
+	body := map[string]any{"name": "node " + m.secret()}
+	if err := d.screenPublication("a test body", body); err == nil {
+		t.Fatal("the module's secret was not screened while the daemon ran")
+	}
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if d.screenPublication("a test body", body) == nil {
+				t.Error("the module's secret passed the screen while the daemon closed")
+				return
+			}
+		}
+	}()
+	_ = d.Close()
+	close(stop)
+	<-done
+	if stops, _, _ := m.snapshot(); stops != 1 {
+		t.Fatalf("Close stopped the module %d times, want 1", stops)
+	}
+	if err := d.screenPublication("a test body", body); err == nil {
+		t.Fatal("after Close the module's secret passes the screen")
+	}
+}
+
 // A start that fails after a module came up stops that module and
 // releases the store and the ledger; the module that failed is not
 // stopped, it cleans up after itself.
@@ -207,6 +252,9 @@ func TestAFailedLedgerOpenClosesTheStore(t *testing.T) {
 	if err == nil {
 		d.Close()
 		t.Fatal("a daemon whose ledger cannot be opened came up")
+	}
+	if !strings.Contains(err.Error(), filepath.Base(NewLayout(root).EvidenceLedgerPath())) {
+		t.Fatalf("the start failed somewhere other than the ledger: %v", err)
 	}
 	if open := openFilesUnder(t, root); len(open) > 0 {
 		t.Fatalf("a failed start left files open: %v", open)
