@@ -64,22 +64,39 @@ const (
 )
 
 // namesakeHub is a hub whose registry and directory list the official
-// agent and the imposter under the same name, with the same skill.
-func namesakeHub(t *testing.T) *httptest.Server {
+// agent and the imposter under the same name, with the same skill. The hub
+// also calls the imposter official, in every spelling a hub could use: a
+// hub's word is not what the mark is made of.
+func namesakeHub(t *testing.T) *httptest.Server { return namesakeHubWith(t, true) }
+
+// namesakeHubWith is namesakeHub; without registry the hub is one of the
+// older kind, with the /agents directory only and no network cards, so the
+// agent list falls back to the directory and a card lookup finds nothing.
+func namesakeHubWith(t *testing.T, registry bool) *httptest.Server {
 	t.Helper()
 	card := `{"name": "anet-tools", "description": "the official text tools", "skills": [{"id": "text.stats", "name": "text.stats"}]}`
+	const hubSaysOfficial = `"anet.official":true,"official":true,"Official":true`
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(hubapi.WireVersionHeader, strconv.Itoa(hubapi.WireVersion))
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/a2a/v1/agents":
+			if !registry {
+				http.NotFound(w, r)
+				return
+			}
 			fmt.Fprintf(w, `{"agents":[{"aid":%q,"card":%s,"cardVerification":"VERIFIED"},`+
-				`{"aid":%q,"card":%s,"cardVerification":"VERIFIED"}],"nextCursor":""}`, offAID, card, imposterAID, card)
+				`{"aid":%q,"card":%s,"cardVerification":"VERIFIED",%s}],"nextCursor":""}`,
+				offAID, card, imposterAID, card, hubSaysOfficial)
 		case "/a2a/v1/agents/" + offAID + "/card", "/a2a/v1/agents/" + imposterAID + "/card":
+			if !registry {
+				http.NotFound(w, r)
+				return
+			}
 			fmt.Fprint(w, card)
 		case "/agents":
 			fmt.Fprintf(w, `{"agents":[{"aid":%q,"name":"anet-tools","caps":["text.stats"],"listed":true},`+
-				`{"aid":%q,"name":"anet-tools","caps":["text.stats"],"listed":true}]}`, offAID, imposterAID)
+				`{"aid":%q,"name":"anet-tools","caps":["text.stats"],"listed":true,%s}]}`, offAID, imposterAID, hubSaysOfficial)
 		default:
 			http.NotFound(w, r)
 		}
@@ -88,17 +105,11 @@ func namesakeHub(t *testing.T) *httptest.Server {
 	return hub
 }
 
-// The contract of the mark (A2A-DESIGN §15): the key is "anet.official",
-// its value is true, and it appears on the agent whose AID the manifest
-// lists — in /agents/list and /agents/card (MCP list_agents,
-// get_agent_card) and in /find (anet find) — and on no other. The imposter
-// has the same name, the same card and the same skill, and is not marked:
-// the key is absent, not false. [mut] Lookup by name → the imposter is
-// marked and this is red.
-func TestOfficialAgentsAreMarkedByAIDOnly(t *testing.T) {
-	hub := namesakeHub(t)
-	d := newTestDaemon(t, hub.URL, false)
-	d.officials.Store(testOfficials(t, false, offAID))
+// markedByAID calls the control plane of d the way list_agents,
+// get_agent_card and anet find do, and fails unless the official agent
+// carries "anet.official": true and the imposter is listed without the key.
+func markedByAID(t *testing.T, d *Daemon) {
+	t.Helper()
 	p := newPlaneFor(t, d, "tok")
 	call := func(path, body string) []byte {
 		t.Helper()
@@ -161,10 +172,37 @@ func TestOfficialAgentsAreMarkedByAIDOnly(t *testing.T) {
 	if v := one(imposterAID); v != nil {
 		t.Errorf("/agents/card: the imposter carries anet.official=%v", v)
 	}
+}
+
+// The contract of the mark (A2A-DESIGN §15): the key is "anet.official",
+// its value is true, and it appears on the agent whose AID the manifest
+// lists — in /agents/list and /agents/card (MCP list_agents,
+// get_agent_card) and in /find (anet find) — and on no other. The imposter
+// has the same name, the same card and the same skill, and the hub calls
+// it official; it is not marked: the key is absent, not false. [mut]
+// Lookup by name → the imposter is marked and this is red.
+func TestOfficialAgentsAreMarkedByAIDOnly(t *testing.T) {
+	d := newTestDaemon(t, namesakeHub(t).URL, false)
+	d.officials.Store(testOfficials(t, false, offAID))
+	markedByAID(t, d)
 	// The kernel's answer is the same one.
 	if !d.IsOfficial(offAID) || d.IsOfficial(imposterAID) || d.IsOfficial("anet-tools") || d.IsOfficial("") {
 		t.Error("IsOfficial answers by something other than the AID")
 	}
+}
+
+// A hub without the A2A registry: the agent list comes from its /agents
+// directory and a card lookup finds no card. Each of those answers is
+// UNVERIFIED and still marked by AID alone, the same way. [mut] drop the
+// mark from listAgentsLegacy or from agentCard's no-card answer → red.
+func TestOfficialMarkWithoutNetworkCards(t *testing.T) {
+	d := newTestDaemon(t, namesakeHubWith(t, false).URL, false)
+	d.officials.Store(testOfficials(t, false, offAID))
+	agents, _, err := d.listAgents(context.Background(), module.AgentQuery{Skill: "text.stats"})
+	if err != nil || len(agents) != 2 || agents[0].Verification != cardUnverified {
+		t.Fatalf("setup: the legacy directory was not what listed the agents: %v %+v", err, agents)
+	}
+	markedByAID(t, d)
 }
 
 // Without a verified manifest, or with an expired one, nobody is marked.
@@ -184,11 +222,44 @@ func TestNoOrExpiredManifestMarksNoOne(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Both agents are listed, so "nobody is marked" is about them and
+		// not about an empty list.
+		if len(agents) != 2 {
+			t.Fatalf("%s: %d agents listed, want the official one and the imposter", name, len(agents))
+		}
 		for _, a := range agents {
 			if a.Official {
 				t.Errorf("%s: %s is marked official", name, a.AID)
 			}
 		}
+		if ra, err := d.agentCard(ctx, offAID); err != nil || ra.AID != offAID || ra.Official {
+			t.Errorf("%s: the card of the listed AID: %v %+v", name, err, ra)
+		}
+		found, err := d.Find(ctx, "anet-tools")
+		if err != nil || len(found) != 2 {
+			t.Fatalf("%s: find: %v %d", name, err, len(found))
+		}
+		for _, f := range d.markFound(found) {
+			if f.Official {
+				t.Errorf("%s: find marks %s official", name, f.AID)
+			}
+		}
+	}
+}
+
+// A daemon starts with the manifest built into its binary, verified: the
+// one internal/official.Embedded reads. [mut] New without loadOfficials →
+// no manifest, and this is red (the embedded one lists no agent yet, so
+// nothing else would notice).
+func TestTheDaemonLoadsTheEmbeddedManifest(t *testing.T) {
+	want, err := official.Embedded()
+	if err != nil {
+		t.Fatalf("the embedded manifest does not verify: %v", err)
+	}
+	d := newTestDaemon(t, namesakeHub(t).URL, false)
+	got := d.officials.Load()
+	if got == nil || got.Seq != want.Seq || got.KeyFingerprint != want.KeyFingerprint || len(got.Agents) != len(want.Agents) {
+		t.Fatalf("the daemon holds %+v, want the embedded manifest (seq %d)", got, want.Seq)
 	}
 }
 
@@ -237,13 +308,16 @@ func TestTheOfficialMarkGrantsNoAdmission(t *testing.T) {
 // purpose, to pass.
 func TestTheOfficialManifestIsReadOnlyForLabels(t *testing.T) {
 	allowed := map[string]map[string]bool{
-		"official.go":        {"officials": true, "IsOfficial": true, "markOfficial": true, "markFound": true, "official": true},
+		"official.go":        {"officials": true, "IsOfficial": true, "markOfficial": true, "markFound": true, "official": true, "Official": true},
 		"daemon.go":          {"officials": true, "loadOfficials": true, "official": true},
 		"taskseam_agents.go": {"IsOfficial": true, "markOfficial": true},
 		"control_api.go":     {"markFound": true},
 	}
+	// Official is the mark itself (module.RemoteAgent.Official,
+	// foundAgent.Official): reading it back, e.g. from agentCard on the
+	// admission path, is as much a use of the manifest as asking it.
 	watched := map[string]bool{"officials": true, "IsOfficial": true, "markOfficial": true, "markFound": true,
-		"loadOfficials": true, "official": true}
+		"loadOfficials": true, "official": true, "Official": true}
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
