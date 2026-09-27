@@ -855,7 +855,7 @@ func backdateLastSeen(url, aid string, ago time.Duration) {
 }
 
 // hRelayPoll mirrors POST /relay/poll — undelivered envelopes for the
-// authenticated caller, oldest first.
+// authenticated caller with an id above after_id (0: all), oldest first.
 func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	body, ok := h.readBody(w, r, 1<<16)
 	if !ok {
@@ -870,6 +870,10 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
+	if req.AfterID < 0 {
+		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "after_id must not be negative"})
+		return
+	}
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 100
@@ -879,8 +883,9 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	// Collecting mail IS the liveness signal the real hub records (SeenPolling).
 	h.lastSeen[aid] = time.Now()
 	out := []hubapi.RelayMessage{}
+	// h.mailbox is in id order: ids come from nextID and rows are appended.
 	for _, m := range h.mailbox {
-		if m.toAID != aid {
+		if m.toAID != aid || m.id <= req.AfterID {
 			continue
 		}
 		out = append(out, hubapi.RelayMessage{ID: m.id, Envelope: base64.StdEncoding.EncodeToString(m.payload)})

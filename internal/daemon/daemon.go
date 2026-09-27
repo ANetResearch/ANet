@@ -150,6 +150,8 @@ type Daemon struct {
 	// transfers) and a read command's best-effort freshness poll never run concurrently — otherwise two
 	// goroutines would download the same large attachment at once and could double-ingest it.
 	pollMu sync.Mutex
+	// relayCur is where the next mailbox poll starts (relay.go).
+	relayCur relayCursor
 
 	// stop is closed by RequestStop to ask ServeControl to shut down (the `anet stop` control command),
 	// so a resident daemon can be stopped gracefully without kill/SIGTERM.

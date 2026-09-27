@@ -12,9 +12,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/evidence"
+	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -465,5 +468,81 @@ func TestRelayAttachmentRoundTrip(t *testing.T) {
 		if !strings.Contains(results[0].Result, want) {
 			t.Fatalf("transcript %q missing %q", results[0].Result, want)
 		}
+	}
+}
+
+// Envelopes held back in the mailbox do not stand in front of newer mail
+// (A2A-DESIGN §3.6 step 9, §3.7; decision Q1). A stranger fills the
+// provider's mailbox with more than a page of signed messages for
+// interactions it does not hold — each one class T for the unknown-ix
+// window, so none is acknowledged — and a real delegation queued behind
+// them is taken on the next round. Without the relay cursor every poll is
+// handed the same first page and the delegation waits out the window.
+func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	// The test drives the rounds: no background poll may move the cursor.
+	// Taking pollMu once waits out a round already under way.
+	prov.stopRelayLoop()
+	prov.pollMu.Lock()
+	prov.pollMu.Unlock()
+	ctx := context.Background()
+	var clock atomic.Uint64
+	clock.Store(uint64(time.Now().UnixMilli()))
+	prov.clock = clock.Load
+
+	const flood = relayPollLimit + 50
+	stranger := newStranger(t)
+	for i := 0; i < flood; i++ {
+		injectEnvelope(t, srv, prov.AID(), craft(t, stranger, prov, seal.TypeMessage,
+			fmt.Sprintf("ix_not_held_%03d", i), chatBody(t, "noise", ""), nil))
+	}
+	id, err := req.Delegate(ctx, prov.AID(), "queued behind the flood", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queued := func() int { return len(queuedFor(t, srv, prov.AID())) }
+	taken := func() bool {
+		_, err := prov.ix.Get(id)
+		return err == nil
+	}
+
+	// Round 1: the first page, every envelope held back.
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := counter(prov, transientUnknownIX); n != relayPollLimit {
+		t.Fatalf("round 1 held back %d envelopes, want the first page of %d", n, relayPollLimit)
+	}
+	if taken() {
+		t.Fatal("setup: the delegation was on the first page")
+	}
+	if n := queued(); n != flood+1 {
+		t.Fatalf("round 1 acknowledged %d envelopes; a class T envelope must stay", flood+1-n)
+	}
+
+	// Round 2: read on after that page.
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !taken() {
+		t.Fatal("the delegation queued behind a page of held-back envelopes was not taken on the next round")
+	}
+	if n := queued(); n != flood {
+		t.Fatalf("%d envelopes left after round 2, want the %d held back", n, flood)
+	}
+
+	// Past the window the held envelopes turn permanent (TaskNotFound) and
+	// are acknowledged on the way back through the mailbox.
+	clock.Add(uint64((unknownIXWait + time.Minute).Milliseconds()))
+	for round := 0; round < 4 && queued() > 0; round++ {
+		if err := prov.pollOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := queued(); n != 0 {
+		t.Fatalf("%d envelopes still queued after the window; they were not retried from the head", n)
+	}
+	if n := counter(prov, dropUnknownIX); n != flood {
+		t.Fatalf("%d envelopes dropped as unknown-ix, want %d", n, flood)
 	}
 }

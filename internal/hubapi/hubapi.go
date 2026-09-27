@@ -133,8 +133,14 @@ type RelaySendResponse struct {
 
 // RelayPollRequest is the body of POST /relay/poll. The mailbox polled is
 // the authenticated X-ANet-AID.
+//
+// AfterID is the cursor (decision Q1): when set, only envelopes with an id
+// above it are returned, oldest first, under the same limit and byte
+// budget. Zero is the whole mailbox and is left out of the body, so a
+// request without a cursor is the same bytes as before the field existed.
 type RelayPollRequest struct {
-	Limit int `json:"limit"`
+	Limit   int   `json:"limit"`
+	AfterID int64 `json:"after_id,omitempty"`
 }
 
 // RelayPollResponse is the answer to POST /relay/poll.
