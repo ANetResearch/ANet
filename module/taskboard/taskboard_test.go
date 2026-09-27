@@ -1,4 +1,4 @@
-//go:build !no_taskboard
+//go:build taskboard
 
 package taskboard_test
 

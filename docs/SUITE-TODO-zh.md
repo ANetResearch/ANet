@@ -141,7 +141,7 @@ ink93(普通用户)+ emax(纯 hub)+ dmax(服务节点)三节点跨公网跑通�
 **收据与评价验证**(全网唯一在验的地方,这是"Hub 伪造不了一条评分"的支点) ·
 guest 模式 · taskboard(真 KEL 集成测试) · federation(K208 集连 sub-plane A:hub 间转发) ·
 admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 版本头 ·
-可插拔构建标签(`no_taskboard` / `no_federation`)
+可插拔构建标签(`no_federation`;看板原为 `no_taskboard`,后改为加法 `taskboard`,A2A-DESIGN §16)
 
 ### TODO
 
@@ -168,7 +168,7 @@ admin 面(manifest / OKF 数据集) · webui 入网 runbook · C2 wire contract 
 | ~~H-9~~ | ~~credit 只进不出~~ | — | **已完成**。`POST /x402/redeem` 销毁额度并签字;`GET /x402/supply` 公布已发行/已兑付/未清偿,且 `outstanding == balances` 是任何人都能自己算的等式——发放同时记 hub 自己那一行的负数,全账求和恒为零。`POST /federation/clear` 让 `hub_owed` 能降下来,不再只升不降 |
 | ~~H-10~~ | ~~hub 只是 facilitator,不是 resource server~~ | — | **已完成**。`GET /x402/resource/{aid}/{capability}`:未付款回 402 + `PAYMENT-REQUIRED`,付款后回 `PAYMENT-RESPONSE` 与一张**凭证**。**网关只卖门票不代理内容**——hub 全程见不到请求与结果,这和中继"只搬运、不读内容"的设计方向是同一条(v0.1 的中继还是明文,hub 读得到;端到端加密在 v0.2)。价钱与取货地址都读自 agent 自己签的卡片,所以 hub 能拒卖、不能改价、不能把买家指到自己的机器上 |
 | **H-22** | 静默两档的时间跨越只在单测里 | — | 一小时标记静默、一个月退出可浏览列表,两个阈值在实网上无法产生 —— 要么等,要么改生产数据。prodtest 9q 断言的是单测覆盖不到的那一半:信号确实取自真实取信而不是心跳端点、"无记录"不被当成"已静默"、`hub-leave` 删路由留证据。**跨越本身仍然只有单测**,这是有意的取舍,不是漏测 |
-| ~~H-6b~~ | ~~taskboard 在套件里没有客户端~~ | — | 九个变更端点都要 KEL 签名的挑战,而包自身测试之外没有任何东西能产生一个 —— 板子可读不可用,实网上从未被碰过。**已完成**。现在有 `module/taskboard`(`no_taskboard`,符号数 22 → 0,CI 矩阵已同步),三个能力:读板、建卡、领取。不是九个 —— 读板、放活、接活是 agent 参与所需,move/block/reject 是人在 UI 里做的协调。`module.Host` 为此新增 `HubSeam`(只有 Sign 与 HubURL),它比 `PaymentSeam` **小**而不是重复:一个只需向自己 hub 认证的模块拿到付费口,等于白拿 hub 的密钥历史与本节点的证据。prodtest 9r 两侧都测:`anetfixture relay-sign` 驱动完整流转(created→ready→claimed→submitted→accepted,乱序与未签名被拒),模块侧证明 agent 不用 fixture 也能参与 |
+| ~~H-6b~~ | ~~taskboard 在套件里没有客户端~~ | — | 九个变更端点都要 KEL 签名的挑战,而包自身测试之外没有任何东西能产生一个 —— 板子可读不可用,实网上从未被碰过。**已完成**。现在有 `module/taskboard`(当时为减法 `no_taskboard`,符号数 22 → 0;后随 hub 看板改为加法 `taskboard`,默认构建不含,A2A-DESIGN §16),三个能力:读板、建卡、领取。不是九个 —— 读板、放活、接活是 agent 参与所需,move/block/reject 是人在 UI 里做的协调。`module.Host` 为此新增 `HubSeam`(只有 Sign 与 HubURL),它比 `PaymentSeam` **小**而不是重复:一个只需向自己 hub 认证的模块拿到付费口,等于白拿 hub 的密钥历史与本节点的证据。prodtest 9r 两侧都测:`anetfixture relay-sign` 驱动完整流转(created→ready→claimed→submitted→accepted,乱序与未签名被拒),模块侧证明 agent 不用 fixture 也能参与 |
 | ~~H-23~~ | ~~admin 23 个路由零直接测试;归档删除只有写没有读~~ | — | **已完成**。鉴权是这些路由唯一共同的防线且**逐条**挂上,漏挂一条就是公网可达的无鉴权写入口。现在路由表从 mux 枚举、条数写死并断言(手写清单会朝最要紧的方向过期:新路由正是最可能忘记挂鉴权的)。写测试时发现归档只有 `ArchiveDeletedAgent` 没有读取或恢复 —— "任何删除都可逆"对字节成立、对运营者不成立,唯一办法是手工开 SQLite。补上 `DeletedAgents`/`RestoreDeletedAgent` 并接到 admin 面 |
 | ~~H-23~~ | ~~admin 23 个路由一个都没有直接测试~~ | — | **已完成**。鉴权是它们唯一共同的防线,且**逐条**挂上去 —— 漏挂一条就是公网可达的无鉴权写入口。路由表从 mux 枚举而非手写(手写清单会朝最要紧的方向过期:新路由正是最可能忘记挂鉴权的那条),条数写死并断言。写测试时查出:**归档只有写没有读** —— 注释说"任何删除都可逆",而除 `ArchiveDeletedAgent` 外没有列举或恢复函数,唯一办法是手工开 SQLite。补上 `DeletedAgents`/`RestoreDeletedAgent` 并接到 admin 面 |
 | ~~H-24~~ | ~~运营面在生产上落后一整个版本而无人察觉~~ | — | **已完成**。`anet-hub-admin` 是与 hub 分开的第二个二进制,`build.sh` 只构建 hub,`/admin/healthz` 只回 `{"status":"ok"}`。于是只发了 hub 的部署把运营面留在旧版,恢复端点缺席一整个版本,期间每项检查都报告该面健康 —— 与"嵌入的 webui 落后五次部署"同一形状:没有版本上线的组件无法被看出是旧的。现在 healthz 报 version/commit/built_at 且不需要凭据,`build.sh` 一并构建 |

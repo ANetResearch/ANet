@@ -1,4 +1,4 @@
-//go:build !no_taskboard
+//go:build taskboard
 
 // Package taskboard is this node's client for the hub's shared task board.
 //
@@ -16,9 +16,13 @@
 // checklist longer. They remain available over HTTP to anything that
 // signs.
 //
-// Optional, like everything else that is not the kernel: `-tags
-// no_taskboard` leaves it out, and a node that never touches a board
-// should not carry a client for one.
+// ADDITIVE: absent unless the build asks for it with `-tags taskboard`.
+// It was subtractive (`no_taskboard`) while the board was part of every
+// hub. The board stores the titles and notes a caller hands it in the
+// clear and serves them to anyone, so the hub stopped building it by
+// default (A2A-DESIGN §9, §16), and a default daemon carrying a client
+// for a board its hub does not have would only ever get a 404. The
+// operator who runs a hub built with its board builds this side too.
 package taskboard
 
 import (
