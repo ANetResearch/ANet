@@ -6,6 +6,8 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/ANetResearch/ANetCore/payment"
+
 	"github.com/ANetResearch/ANet/internal/hubapi"
 )
 
@@ -59,6 +61,16 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 			"aid", "card_error", "card_status", "keys_error", "keys_status", "status",
 		}},
 		{"HubIdentity", hubapi.HubIdentity{}, []string{"aid", "kel"}},
+		// The facilitator contract as the daemon speaks it (module/x402
+		// settle, A2A-DESIGN §8.5): paymentRequirements is required by the
+		// hub. Mirrors ANetHub internal/aghub/wirecontract_test.go
+		// TestTheFacilitatorContractIsPinned.
+		{"FacilitatorRequest", payment.FacilitatorRequest{}, []string{
+			"paymentPayload", "paymentRequirements", "x402Version"}},
+		{"PaymentRequirements", payment.PaymentRequirements{}, []string{
+			"amount", "asset", "maxTimeoutSeconds", "network", "payTo", "scheme"}},
+		{"SettlementResponse", payment.SettlementResponse{}, []string{
+			"amount", "errorReason", "network", "payer", "success", "transaction"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

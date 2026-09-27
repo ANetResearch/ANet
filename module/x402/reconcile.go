@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"sort"
+
+	"github.com/ANetResearch/ANetCore/relayauth"
 )
 
 // Reconciling this node's own record against the hub's.
@@ -67,7 +69,7 @@ func (m *Module) reconcile(ctx context.Context) (ReconcileReport, error) {
 	var bal struct {
 		Credits int64 `json:"credits"`
 	}
-	if err := m.getJSON(ctx, "/agents/"+m.AID()+"/balance", &bal); err != nil {
+	if err := m.signedGet(ctx, "/agents/"+m.AID()+"/balance", relayauth.ActionBalance, &bal); err != nil {
 		return rep, err
 	}
 	rep.Balance = bal.Credits
@@ -82,7 +84,7 @@ func (m *Module) reconcile(ctx context.Context) (ReconcileReport, error) {
 		Sum       int64 `json:"sum"`
 		Truncated bool  `json:"truncated"`
 	}
-	if err := m.getJSON(ctx, "/agents/"+m.AID()+"/ledger?limit=500", &led); err != nil {
+	if err := m.signedGet(ctx, "/agents/"+m.AID()+"/ledger?limit=500", relayauth.ActionLedger, &led); err != nil {
 		return rep, err
 	}
 	// The account total, not the sum of the page.

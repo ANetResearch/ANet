@@ -25,6 +25,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/module"
 )
 
 // The control plane is a LOCAL HTTP API (loopback by default) the CLI uses to drive a running daemon.
@@ -171,6 +172,12 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /inbound/pending", d.hInboundPending)
 	api.HandleFunc("POST /inbound/approve", d.hInboundApprove)
 	api.HandleFunc("POST /inbound/reject", d.hInboundReject)
+	// Payment decisions and spending limits (A2A-DESIGN §8.6, §12;
+	// handlers in tasks_pay.go). Bearer only.
+	api.HandleFunc("POST /tasks/pay", d.hTasksPay)
+	api.HandleFunc("POST /tasks/pay-manual", d.hTasksPayManual)
+	api.HandleFunc("POST /payments/status", d.hPaymentsStatus)
+	api.HandleFunc("POST /payments/limits", d.hPaymentsLimits)
 	return d.secureControlPlane(token, api)
 }
 
@@ -1078,7 +1085,7 @@ func (d *Daemon) hX402Authorize(w http.ResponseWriter, r *http.Request) {
 	raw, err := p.Authorize(payment.PaymentOption{
 		Scheme: payment.SchemeCredit, Network: network,
 		Amount: payment.Amount(req.Amount), Asset: payment.AssetCredit, PayTo: req.PayTo,
-	}, req.InteractionID)
+	}, req.InteractionID, req.InteractionID, module.PurposeGateway)
 	if err != nil {
 		relayError(w, err)
 		return

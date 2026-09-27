@@ -3,14 +3,16 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 
+	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/payment"
+	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
 )
 
 // storeQuote plants a PAYMENT_REQUIRED answer for an interaction with a
@@ -48,45 +50,59 @@ func storeQuote(t *testing.T, d *Daemon, id string, seen interactions.Verificati
 	}
 }
 
-// A quote is not work that was done. Accepting a completion this node
-// could not verify is deliberate — the work happened, and dropping it
-// would lose a real result. A quote is the opposite: nothing was
-// delivered, and acting on it spends credit.
+// A quote is acted on only when the task's provider stated it.
 //
-// The reachable path: delegation.VerifyResult returns ErrUnverifiable as
-// soon as a result carries no key history, and does so BEFORE it checks
-// the receipt signature, the provider binding, the interaction binding
-// or the deliverable hash — so an unverified result has had none of
-// those checked. /relay/send is unauthenticated by design, so anything
-// that can write to this node's mailbox with a known interaction id can
-// state a price. Before this, DelegateAndPay paid it.
+// It used to arrive as a result, and a result with no key history was
+// accepted UNVERIFIED before any of its bindings were checked — so
+// anything able to write to this node's mailbox with a known interaction
+// id could state a price and be paid it. A quote is now a status on the
+// task (A2A-DESIGN §8.3): it is stored only from an envelope the task's
+// provider signed (SI-4), and a result that says PAYMENT_REQUIRED is not a
+// quote at all.
 func TestAnUnverifiedQuoteIsNotPaidAutomatically(t *testing.T) {
 	srv := newFakeHub(t)
 	d := newTestDaemon(t, srv.URL, false)
 
-	storeQuote(t, d, "ix_injected", interactions.VerificationUnverified, "999999")
-	_, err := d.awaitQuote(context.Background(), "ix_injected")
-	if err == nil {
-		t.Fatal("an unverified quote was accepted for automatic payment")
-	}
-	if !strings.Contains(err.Error(), "could not verify") {
-		t.Errorf("refusal does not say why: %v", err)
-	}
-
-	// A row written before this node recorded the distinction is unknown,
-	// not verified. Treating "we never wrote it down" as a pass would
-	// leave every pre-upgrade interaction payable.
-	storeQuote(t, d, "ix_legacy", interactions.VerificationUnknown, "10")
-	if _, err := d.awaitQuote(context.Background(), "ix_legacy"); err == nil {
-		t.Error("a quote with no recorded verdict was accepted for automatic payment")
+	// The old shape, planted as a result in every verification state: not
+	// a price to pay.
+	for _, seen := range []interactions.Verification{interactions.VerificationUnverified,
+		interactions.VerificationUnknown, interactions.VerificationVerified} {
+		id := "ix_result_" + string(seen)
+		storeQuote(t, d, id, seen, "999999")
+		q, err := d.awaitQuote(context.Background(), id)
+		if err != nil || q != nil {
+			t.Errorf("a PAYMENT_REQUIRED result (%q) was taken as a quote: %+v %v", seen, q, err)
+		}
 	}
 
-	// And the honest case still works, or the check would be a denial of
-	// the whole paid path rather than a check.
-	storeQuote(t, d, "ix_good", interactions.VerificationVerified, "25")
-	q, err := d.awaitQuote(context.Background(), "ix_good")
+	// A status from someone other than the task's provider is not taken.
+	_, req, prov := registeredPair(t)
+	stranger := registered(t, srv.URL, "stranger")
+	id, err := req.DelegateCapability(context.Background(), prov.AID(), "work.do", nil)
 	if err != nil {
-		t.Fatalf("a verified quote was refused: %v", err)
+		t.Fatal(err)
+	}
+	meta, _ := json.Marshal(map[string]any{x402a2a.KeyStatus: x402a2a.StatusRequired,
+		x402a2a.KeyRequired: payment.PaymentRequired{X402Version: 2, Accepts: []payment.PaymentOption{{
+			Scheme: payment.SchemeCredit, Network: "hub:x", Amount: "999999", PayTo: stranger.AID()}}}})
+	body, _ := (&delegation.StatusMsg{State: delegation.StateInputRequired, Metadata: meta, At: 1}).Marshal()
+	if r := receive(t, req, sealFrom(t, stranger, req, seal.TypeStatus, id, body)); r.class != rxDropped {
+		t.Fatalf("a stranger's quote: %+v", r)
+	}
+	if ix, _ := req.ix.Get(id); ix.PayState != interactions.PayNone || len(ix.PayRequired) != 0 {
+		t.Fatalf("a stranger's quote was stored: %q", ix.PayState)
+	}
+
+	// And the honest case still works: a quote stored on the task.
+	raw, _ := json.Marshal(payment.PaymentRequired{X402Version: 2, Accepts: []payment.PaymentOption{{
+		Scheme: payment.SchemeCredit, Network: "hub:x", Amount: "25", PayTo: prov.AID()}}})
+	if _, err := req.ix.SetPayment(id, interactions.PayUpdate{State: interactions.PayState(interactions.PayRequired),
+		Required: raw}); err != nil {
+		t.Fatal(err)
+	}
+	q, err := req.awaitQuote(context.Background(), id)
+	if err != nil {
+		t.Fatalf("a stored quote was refused: %v", err)
 	}
 	if q == nil || len(q.Accepts) != 1 || q.Accepts[0].Amount != "25" {
 		t.Fatalf("wrong quote returned: %+v", q)

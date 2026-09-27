@@ -275,12 +275,18 @@ func TestAPublicCapabilityCallTakesNoText(t *testing.T) {
 		t.Fatalf("payment message on a public_cap call: %+v", r)
 	}
 	msgs, _ := prov.ix.Messages(id)
-	if len(msgs) != before+1 {
-		t.Fatalf("messages %d → %d, want one payment message added", before, len(msgs))
+	// The payment message, and the provider's answer to it: nothing was
+	// quoted for this free call, so there is nothing to pay (A2A-DESIGN
+	// §8.5, no_pending_quote), and the call is not run again.
+	if len(msgs) != before+2 {
+		t.Fatalf("messages %d → %d, want the payment message and its answer", before, len(msgs))
 	}
-	last := msgs[len(msgs)-1]
-	if last.Kind != interactions.MsgPayment || last.Body != "" || !strings.Contains(last.Metadata, "payment-submitted") {
-		t.Fatalf("stored payment message = %+v", last)
+	pm, answer := msgs[len(msgs)-2], msgs[len(msgs)-1]
+	if pm.Kind != interactions.MsgPayment || pm.Body != "" || !strings.Contains(pm.Metadata, "payment-submitted") {
+		t.Fatalf("stored payment message = %+v", pm)
+	}
+	if answer.Kind != interactions.MsgStatus || !strings.Contains(answer.Metadata, `"anet.reason":"no_pending_quote"`) {
+		t.Fatalf("answer to a payment nobody asked for = %+v", answer)
 	}
 	prov.autoReplyOnce(ctx, arCfg, replier)
 	if n := api.calls.Load(); n != 0 {
