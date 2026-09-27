@@ -12,15 +12,33 @@
 # 前置(都在 $J,默认 /tmp/joint-fleet):
 #   anet        go build ./cmd/anet
 #   anet-hub    go build ./cmd/anet-hub   (ANetHub)
-# 两者都由本脚本自己构建。
+# 两者默认由本脚本自己构建。
+#
+# 环境变量:
+#   JOINT_BIN        预编译二进制目录(含 anet、anet-hub;scripts/testnet/build.sh 的产物),拷进 $J,
+#                    不构建、不需要 go(测试主机上没有 go)
+#   JOINT_PORT_BASE  hub = BASE,控制端 = BASE+2,三个 worker = BASE+3..BASE+5,四个 daemon 的本机 A2A
+#                    接口 = BASE+6..BASE+9(测试主机用 47100–47499,docs/notes/0015);不设 = 历来的
+#                    29188 / 29190 / 29191–29193,A2A 接口由 daemon 从 43811 起自选
 set -uo pipefail
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
 
 J=${J:-/tmp/joint-fleet}
-HUB_ADDR=127.0.0.1:29188
+if [ -n "${JOINT_PORT_BASE:-}" ]; then
+  [[ "$JOINT_PORT_BASE" =~ ^[0-9]+$ ]] && [ "$JOINT_PORT_BASE" -ge 1024 ] && [ "$JOINT_PORT_BASE" -le 65526 ] \
+    || { echo "JOINT_PORT_BASE=$JOINT_PORT_BASE 不是端口"; exit 2; }
+  HUB_ADDR=127.0.0.1:$JOINT_PORT_BASE
+  CTRL_PORT=$((JOINT_PORT_BASE + 2))
+  W_PORTS=($((JOINT_PORT_BASE + 3)) $((JOINT_PORT_BASE + 4)) $((JOINT_PORT_BASE + 5)))
+  # 四个 daemon 的本机 A2A 接口(lib.sh pin_a2a):控制端、三个 worker
+  A2A_PORTS=($((JOINT_PORT_BASE + 6)) $((JOINT_PORT_BASE + 7)) $((JOINT_PORT_BASE + 8)) $((JOINT_PORT_BASE + 9)))
+else
+  A2A_PORTS=()
+  HUB_ADDR=127.0.0.1:29188
+  CTRL_PORT=29190          # 控制端
+  W_PORTS=(29191 29192 29193)
+fi
 HUB_URL=http://$HUB_ADDR
-CTRL_PORT=29190          # 控制端
-W_PORTS=(29191 29192 29193)
 W_NAMES=(alpha beta gamma)
 
 # lib.sh for stop_under: 收尾按路径停进程(可执行文件在 $J 之下的),不按进程名 —— 按名字会停掉
@@ -54,11 +72,18 @@ rm -rf "$J"; jdir
 mkdir -p "$J/xdg" && chmod 700 "$J/xdg" && export XDG_RUNTIME_DIR=$J/xdg || exit 1
 unset ANET_DATA_DIR ANET_HOME ANET_ID
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+if [ -n "${JOINT_BIN:-}" ]; then
+  for b in anet anet-hub; do
+    [ -x "$JOINT_BIN/$b" ] || { echo "JOINT_BIN 里没有 $b"; exit 1; }
+    cp "$JOINT_BIN/$b" "$J/$b" || { echo "拷不了 $JOINT_BIN/$b"; exit 1; }
+  done
+else
 CGO_ENABLED=0 go build -o "$J/anet" "$ROOT/cmd/anet" || { echo "build anet failed"; exit 1; }
 # HUB_SRC lets CI point at wherever it checked ANetHub out; the sibling
 # directory is the local layout.
 HUB_SRC=${HUB_SRC:-$ROOT/../ANetHub}
 CGO_ENABLED=0 go build -C "$HUB_SRC" -o "$J/anet-hub" ./cmd/anet-hub || { echo "build hub failed ($HUB_SRC)"; exit 1; }
+fi
 cd "$J"
 
 # 四种桩,实现被替代方的完整契约,不只是快乐路径。
@@ -87,8 +112,9 @@ sleep 3
 curl -sf -m 5 "$HUB_URL/agents" >/dev/null && ok "hub 起来了" || no "hub 没起来: $(tail -2 "$J/hub.log")"
 
 # 每个节点一个 HOME,控制端口写死,免得自动分配之后脚本找不到它们。
-mkhome(){  # mkhome <dir> <port>
+mkhome(){  # mkhome <dir> <port> [a2a-port]
   mkdir -p "$1/.anet"
+  [ -z "${3:-}" ] || pin_a2a "$1/.anet" "$3"
   python3 -c "
 import json,os,sys
 p=sys.argv[1]+'/.anet/config.json'
@@ -98,10 +124,10 @@ c['control_addr']='127.0.0.1:'+sys.argv[2]
 json.dump(c,open(p,'w'),indent=1)" "$1" "$2"
 }
 CTRL_HOME=$J/ctrl
-mkhome "$CTRL_HOME" "$CTRL_PORT"
+mkhome "$CTRL_HOME" "$CTRL_PORT" "${A2A_PORTS[0]:-}"
 setsid env HOME="$CTRL_HOME" ./anet daemon >"$J/ctrl.log" 2>&1 </dev/null &
 for i in 0 1 2; do
-  mkhome "$J/w-${W_NAMES[$i]}" "${W_PORTS[$i]}"
+  mkhome "$J/w-${W_NAMES[$i]}" "${W_PORTS[$i]}" "${A2A_PORTS[$((i + 1))]:-}"
   setsid env HOME="$J/w-${W_NAMES[$i]}" ./anet daemon >"$J/w-${W_NAMES[$i]}.log" 2>&1 </dev/null &
 done
 sleep 4

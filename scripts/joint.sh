@@ -365,7 +365,8 @@ else
 fi
 FIX=$BIN/anetfixture
 
-# Ten loopback ports: +0 hub, +1 hub admin, +2 requester, +3 provider, +4 stranger, +5..+9 spare.
+# Ten loopback ports: +0 hub, +1 hub admin, +2 requester, +3 provider, +4 stranger, +5..+7 their local
+# A2A interfaces (module/a2a; lib.sh pin_a2a), +8..+9 spare.
 PORT_BASE=$(python3 - "${JOINT_PORT_BASE:-}" 10 <<'PY'
 import random, socket, sys
 want, n = sys.argv[1], int(sys.argv[2])
@@ -448,8 +449,10 @@ fi
 # allow list, the org genesis — can be written before it either.
 mkdir -p "$REQ/.anet" "$PROV/.anet" "$STR/.anet"
 mkdir -p -m 700 "$RUN/xdg"
+A2A_OFF=5
 for n in req prov str; do
   printf '{"control_addr":"%s"}\n' "$(addr_of $n)" > "$(home_of $n)/.anet/config.json"
+  pin_a2a "$(home_of $n)/.anet" $((PORT_BASE + A2A_OFF)); A2A_OFF=$((A2A_OFF + 1))
   start_node $n "$RUN/$n-first.log"
 done
 for n in req prov str; do

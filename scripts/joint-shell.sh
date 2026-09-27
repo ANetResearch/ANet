@@ -11,14 +11,37 @@
 # Two daemons and a hub, all built from this repo:
 #   requester ──delegate──> hub relay ──> provider (built with -tags shell)
 #
-# Requires ANetHub checked out beside this repo (../ANetHub).
+# Requires ANetHub checked out beside this repo (../ANetHub), or prebuilt binaries:
+#
+#   JOINT_BIN        directory with anet-shell (anet built with -tags shell), anetfixture and anet-hub —
+#                    scripts/testnet/build.sh --variant shell=shell makes that set. They are copied into
+#                    $J; nothing is built and go is not needed.
+#   JOINT_PORT_BASE  hub, requester, provider on 127.0.0.1:BASE, BASE+1, BASE+2, and the two daemons'
+#                    local A2A interfaces on BASE+3, BASE+4 (on the test hosts use 47100-47499,
+#                    docs/notes/0015). Unset: the historical 29188, 29198, 29199, and A2A from 43811 up.
+#   J                work directory (default /tmp/joint-shell); deleted and rebuilt, so it has to be a
+#                    private directory of this user (lib.sh own_dir).
+#
+# The daemons get a private XDG_RUNTIME_DIR under $J, and everything is stopped by path at the end
+# (lib.sh stop_under), never by process name.
 set -uo pipefail
+umask 077
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
 cd "$(dirname "$0")/.."
 ROOT=$PWD
 J=${J:-/tmp/joint-shell}
 HUB_SRC=${HUB_SRC:-$ROOT/../ANetHub}
-HUB=127.0.0.1:29188; RC=127.0.0.1:29198; PC=127.0.0.1:29199
+if [ -n "${JOINT_PORT_BASE:-}" ]; then
+  [[ "$JOINT_PORT_BASE" =~ ^[0-9]+$ ]] && [ "$JOINT_PORT_BASE" -ge 1024 ] && [ "$JOINT_PORT_BASE" -le 65530 ] \
+    || { echo "JOINT_PORT_BASE=$JOINT_PORT_BASE is not a port"; exit 2; }
+  HUB=127.0.0.1:$JOINT_PORT_BASE; RC=127.0.0.1:$((JOINT_PORT_BASE + 1)); PC=127.0.0.1:$((JOINT_PORT_BASE + 2))
+else
+  HUB=127.0.0.1:29188; RC=127.0.0.1:29198; PC=127.0.0.1:29199
+fi
+# lib.sh for own_dir and stop_under. ANET is set first so sourcing it looks nothing up.
+ANET=$J/anet
+# shellcheck source=lib.sh
+. "$ROOT/scripts/lib.sh"
 
 # Everything this script starts, killed on any exit path.
 #
@@ -35,8 +58,9 @@ cleanup(){
   for p in "${KIDS[@]:-}"; do [ -n "$p" ] && kill -KILL "$p" 2>/dev/null; done
   # Belt and braces: anything that re-execed or forked away from its
   # recorded PID is still identifiable by the path it was started from,
-  # and $J is a directory this script owns.
-  pkill -KILL -f "^$J/anet" 2>/dev/null
+  # and $J is a directory this script owns. By path (lib.sh), not pkill:
+  # on the test hosts a pattern is one typo away from a production daemon.
+  stop_under "$J" 5
 }
 trap cleanup EXIT INT TERM
 
@@ -46,14 +70,28 @@ no(){ printf '\033[1;31m  ✗ %s\033[0m\n' "$*"; fail=$((fail+1)); }
 hd(){ printf '\n\033[1;36m═══ %s\033[0m\n' "$*"; }
 
 hd "0/8  build and bring the stack up"
-rm -rf "$J"; mkdir -p "$J/run"; cd "$J"
+jdir(){ _own_path "$J" >/dev/null && own_dir "$J" || { echo "J=$J is not a private directory of this user (or is /, \$HOME…); use another J"; exit 2; }; }
+jdir
+stop_under "$J" 5   # leftovers of a run that was killed before its cleanup hold the ports
+rm -rf "$J"; jdir; mkdir -p "$J/run"; cd "$J"
+# The daemons' "current daemon" pointer and identity registry go to $J/xdg, not this user's.
+mkdir -p -m 0700 "$J/xdg" && export XDG_RUNTIME_DIR=$J/xdg || exit 1
+unset ANET_DATA_DIR ANET_HOME ANET_ID
 # -tags shell: the default build does not contain the module, so a run of
 # this script against a default binary would pass every deny case for the
 # wrong reason.
+if [ -n "${JOINT_BIN:-}" ]; then
+  for b in anet-shell anetfixture anet-hub; do
+    [ -x "$JOINT_BIN/$b" ] || { echo "JOINT_BIN has no $b (scripts/testnet/build.sh --variant shell=shell)"; exit 1; }
+  done
+  cp "$JOINT_BIN/anet-shell" "$J/anet" && cp "$JOINT_BIN/anetfixture" "$J/anetfixture" \
+    && cp "$JOINT_BIN/anet-hub" "$J/anet-hub" || { echo "cannot copy from JOINT_BIN"; exit 1; }
+else
 ( cd "$ROOT" && go build -tags shell -o "$J/anet" ./cmd/anet ) || { echo "build anet failed"; exit 1; }
 ( cd "$ROOT" && go build -o "$J/anetfixture" ./tools/anetfixture ) || exit 1
 [ -d "$HUB_SRC" ] || { echo "ANetHub not found at $HUB_SRC (set HUB_SRC)"; exit 1; }
 ( cd "$HUB_SRC" && go build -o "$J/anet-hub" ./cmd/anet-hub ) || { echo "build hub failed"; exit 1; }
+fi
 FIX=$J/anetfixture
 
 "$J/anet-hub" --addr "$HUB" --data "$J/run/hub" >"$J/run/hub.log" 2>&1 </dev/null &
@@ -63,7 +101,15 @@ curl -sf -m 5 "http://$HUB/health" >/dev/null 2>&1 || curl -sf -m 5 "http://$HUB
   || { echo "hub did not come up: $(tail -3 "$J/run/hub.log")"; exit 1; }
 
 REQ=$J/run/req; PROV=$J/run/prov
-mkdir -p "$REQ" "$PROV"
+mkdir -p "$REQ/.anet" "$PROV/.anet"
+# The control ports are pinned before the first start too: a data dir with no config.json gets the
+# first free port from 39811 up, outside the block this run was given.
+printf '{"control_addr":"%s"}\n' "$RC" > "$REQ/.anet/config.json"
+printf '{"control_addr":"%s"}\n' "$PC" > "$PROV/.anet/config.json"
+# And their local A2A interfaces (lib.sh pin_a2a): with a block, its next two ports.
+if [ -n "${JOINT_PORT_BASE:-}" ]; then
+  pin_a2a "$REQ/.anet" $((JOINT_PORT_BASE + 3)); pin_a2a "$PROV/.anet" $((JOINT_PORT_BASE + 4))
+fi
 
 # First start creates the identities. The AIDs cannot be known before this
 # — the allowlist names the requester, so the allowlist cannot be written

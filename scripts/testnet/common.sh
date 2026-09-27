@@ -67,8 +67,8 @@ tn_ports_of(){
   p=$(tn_node_port "$n"); pp=$(tn_node_peer "$n")
   case "$(tn_node_role "$n")" in
     hub)      echo "$p"; echo $((p + 50)) ;;
-    daemon)   echo "$p"; [ "$pp" = - ] || echo "$pp" ;;
-    official) echo "$p"; echo $((p + 1)); [ "$pp" = - ] || echo "$pp" ;;
+    daemon)   echo "$p"; echo $((p + 50)); [ "$pp" = - ] || echo "$pp" ;;
+    official) echo "$p"; echo $((p + 1)); echo $((p + 50)); [ "$pp" = - ] || echo "$pp" ;;
   esac
 }
 

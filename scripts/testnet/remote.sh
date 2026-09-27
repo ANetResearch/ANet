@@ -241,7 +241,14 @@ rt_daemon(){
   else
     rt_log "$name: keeping the existing config.json (REWRITE_CONFIG=1 to replace it)"
   fi
-  rt_stop "$name" "$d"; rt_port_free "$port"
+  # The local A2A interface (module/a2a, on by default) at control port + 50, inside the testnet's
+  # block. Unpinned, a first start takes the first free loopback port from 43811 (module/a2a/addr.go).
+  local a2a="$d/home/.anet/modules/a2a"
+  mkdir -p "$a2a"; chmod 0700 "$d/home/.anet/modules" "$a2a"
+  if [ ! -s "$a2a/a2a_addr.txt" ] || [ "$rewrite" = 1 ]; then
+    ( umask 077; printf '127.0.0.1:%s\n' $((port + 50)) > "$a2a/a2a_addr.txt" )
+  fi
+  rt_stop "$name" "$d"; rt_port_free "$port"; rt_port_free $((port + 50))
   rt_write_launcher "$name" "$d" "$bin" daemon
   rt_start "$name" "$d"
   rt_wait_http "http://127.0.0.1:$port/ping" 30 || rt_fail_log "$name" "$d" "daemon $name did not answer /ping"

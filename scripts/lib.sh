@@ -120,6 +120,13 @@ _peer_add(){
   for x in "$@"; do grep -qxF "$x" "$f" || printf '%s\n' "$x" >> "$f"; done
 }
 
+# pin_a2a DATA_DIR PORT: where that identity's local A2A interface (module/a2a, on by default) listens:
+# 127.0.0.1:PORT. Unpinned, its first start takes the first free loopback port from 43811
+# (module/a2a/addr.go allocate) — outside the port block a run was given, and on the test hosts outside
+# 47100-47499 (docs/notes/0015). This is the file the module itself records the address in; an address
+# written here is bound as it stands, and a port taken by someone else fails the start rather than moving.
+pin_a2a(){ ( umask 077; mkdir -p "$1/modules/a2a" && printf '127.0.0.1:%s\n' "$2" > "$1/modules/a2a/a2a_addr.txt" ); }
+
 # ── stopping processes by path ───────────────────────────────────
 # The joint scripts share machines with other checkouts and, on the test hosts, with production daemons
 # (docs/notes/0015 §4: cmax and dmax run production anet daemons and hubs as root, some inside containers
