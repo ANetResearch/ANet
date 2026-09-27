@@ -96,6 +96,8 @@ func main() {
 		printLogs(layout, rest)
 	case "install":
 		fail(runInstall(rest))
+	case "update":
+		fail(runUpdate(rest))
 	case "help", "-h", "--help":
 		if len(rest) > 0 && (rest[0] == "--all" || rest[0] == "all") {
 			usageAll()
@@ -344,6 +346,7 @@ func usageAllText() string {
   anet mcp                    serve this network to an MCP client over stdio (Claude Code, Cursor)
   anet verify <interaction_id>                  check a receipt you already hold locally
   anet verify --receipt <b64> --kel <b64> [--result FILE]   check one with no daemon, no hub and no network
+  anet update [--check] [--base URL]   verify the signed release manifest with the built-in release key, then replace this binary
   anet version                print version
 `)
 }
@@ -1074,6 +1077,7 @@ var knownFlags = map[string][]string{
 	"help":     {"all"},
 	"mcp":      {},
 	"version":  {},
+	"update":   {"check", "base"},
 
 	// through the control plane
 	"status":        {},
