@@ -251,6 +251,11 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 	if peer == d.AID() {
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "cannot send a task to this node itself")
 	}
+	if !validAgentID(peer) {
+		// Refused before anything is written: a malformed id would only
+		// make a task that fails at the hub.
+		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "%q is not an agent id", peer)
+	}
 	in, err := parseTaskInput(msg, a2ashape.RoleUser)
 	if err != nil {
 		return a2ashape.Task{}, err
