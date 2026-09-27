@@ -694,7 +694,7 @@ func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
 // to peer_identity.
 func (d *Daemon) replyTaskNotFound(m *rxMsg) {
 	if d.sendNoticeStatus(m, delegation.StateFailed, "this node has no task "+m.ix,
-		map[string]any{"anet.a2aError": "TaskNotFound"}) {
+		map[string]any{"anet.a2aError": "TaskNotFoundError"}) {
 		d.count(noticeTaskNotFound)
 	}
 }

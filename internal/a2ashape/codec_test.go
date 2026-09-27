@@ -190,7 +190,7 @@ func TestPartShapes(t *testing.T) {
 }
 
 func TestPartRefusals(t *testing.T) {
-	for _, p := range []a2ashape.Part{{}, {Kind: a2ashape.PartURL}} {
+	for _, p := range []a2ashape.Part{{}, {Kind: a2ashape.PartURL}, a2ashape.DataPart(nil)} {
 		if _, err := json.Marshal(p); err == nil {
 			t.Errorf("encoded a part with no content: %+v", p)
 		}
@@ -217,6 +217,23 @@ func TestDataNumbersExact(t *testing.T) {
 	}
 	if got := string(mustJSON(t, p)); got != `{"data":{"n":12345678901234567890}}` {
 		t.Fatalf("got %s", got)
+	}
+}
+
+// A number no float64 holds cannot reach a2a-go, which refuses it and with
+// it the whole task; the projection carries it as text.
+func TestDataNumbersOutOfRange(t *testing.T) {
+	var p a2ashape.Part
+	if err := json.Unmarshal([]byte(`{"data":{"big":1e400,"list":[-1e999,1],"tiny":1e-400}}`), &p); err != nil {
+		t.Fatal(err)
+	}
+	b := mustJSON(t, p)
+	if string(b) != `{"data":{"big":"1e400","list":["-1e999",1],"tiny":1e-400}}` {
+		t.Fatalf("got %s", b)
+	}
+	var sdk a2a.Part
+	if err := json.Unmarshal(b, &sdk); err != nil {
+		t.Fatalf("a2a-go cannot read %s: %v", b, err)
 	}
 }
 

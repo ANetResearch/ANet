@@ -152,7 +152,9 @@ type Host interface {
 
 	// StateDir is a directory the named module may keep its own files in:
 	// <data dir>/modules/<module>/, created 0700 when first asked for. It
-	// returns "" for a name that is not a plain directory name.
+	// returns "" for a name that is not a plain directory name, and for a
+	// directory that cannot be made private to this user (a symbolic link,
+	// another uid's); a module that needs one does not start without it.
 	//
 	// Added for the local A2A interface (A2A-DESIGN §11.1), which must
 	// bind the same port after a restart — clients have its address
