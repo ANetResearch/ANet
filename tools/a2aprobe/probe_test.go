@@ -40,6 +40,12 @@ type fakeInterface struct {
 	// race makes a text task's blocking answer arrive as input-required
 	// with the answer, the task completing a moment later.
 	race bool
+	// waitAnyway makes a send with returnImmediately wait like a blocking
+	// one (with race: until the answer, at input-required).
+	waitAnyway bool
+	// overRefusal, when set, is the error a payment above the agent tier
+	// gets instead of the spending policy's.
+	overRefusal string
 }
 
 func startFake(t *testing.T, race bool) *fakeInterface {
@@ -79,7 +85,8 @@ func (f *fakeInterface) agent(aid string) *fakeAgent {
 	defer f.mu.Unlock()
 	a, ok := f.agents[aid]
 	if !ok {
-		a = &fakeAgent{aid: aid, race: f.race, tasks: map[a2a.TaskID]*a2a.Task{}, calls: map[string]int{}}
+		a = &fakeAgent{aid: aid, race: f.race, waitAnyway: f.waitAnyway, overRefusal: f.overRefusal,
+			tasks: map[a2a.TaskID]*a2a.Task{}, calls: map[string]int{}}
 		f.agents[aid] = a
 	}
 	return a
@@ -117,12 +124,14 @@ func (f *fakeInterface) card(w http.ResponseWriter, r *http.Request) {
 // capability calls to "paid" and "pricey" quoted, the §8.7 payment
 // message and its refusals.
 type fakeAgent struct {
-	aid   string
-	race  bool
-	mu    sync.Mutex
-	tasks map[a2a.TaskID]*a2a.Task
-	order []a2a.TaskID
-	calls map[string]int
+	aid         string
+	race        bool
+	waitAnyway  bool
+	overRefusal string
+	mu          sync.Mutex
+	tasks       map[a2a.TaskID]*a2a.Task
+	order       []a2a.TaskID
+	calls       map[string]int
 }
 
 var fakeOption = map[string]any{"scheme": "anet-credit", "network": "hub:x", "amount": "5", "payTo": fakeAID, "maxTimeoutSeconds": 600}
@@ -191,7 +200,7 @@ func (a *fakeAgent) SendMessage(ctx context.Context, r *a2a.SendMessageRequest) 
 	text := partsText(m.Parts)
 	switch {
 	case strings.Contains(text, holdMark):
-	case r.Config != nil && r.Config.ReturnImmediately:
+	case r.Config != nil && r.Config.ReturnImmediately && !a.waitAnyway:
 		go func() {
 			time.Sleep(50 * time.Millisecond)
 			a.mu.Lock()
@@ -243,7 +252,12 @@ func (a *fakeAgent) pay(t *a2a.Task, status string, meta map[string]any) (a2a.Se
 		return refuse(reasonOptionNotOffered)
 	}
 	if t.Metadata[keySkill] == "pricey" {
-		return nil, a2a.NewError(a2a.ErrUnsupportedOperation, "above agent_max; an operator can pay it with `anet pay`")
+		msg := "task " + string(t.ID) + ": spending policy refused a task-agent payment (" + spendOverSingle +
+			"): 15 is above the task-agent limit of 10 per payment; an operator can pay it with `anet pay`"
+		if a.overRefusal != "" {
+			msg = a.overRefusal
+		}
+		return nil, a2a.NewError(a2a.ErrUnsupportedOperation, msg)
 	}
 	text, _ := t.Metadata["fake.text"].(string)
 	a.calls[str(t.Metadata[keySkill])]++
@@ -454,6 +468,30 @@ func TestAnswerAtInputRequiredIsNoted(t *testing.T) {
 		if c.Name == "text-blocking" && c.WantState != "input-required" {
 			t.Errorf("text-blocking recorded as %s", c.WantState)
 		}
+	}
+}
+
+// A send with returnImmediately that waits for the answer anyway ends at
+// input-required, which is not terminal: it must fail all the same.
+func TestImmediateThatWaitsFails(t *testing.T) {
+	f := startFake(t, true)
+	f.waitAnyway = true
+	out, _ := runProbe(t, f)
+	for _, tag := range []string{"jsonrpc", "rest"} {
+		if !strings.Contains(out, "FAIL "+tag+"-send-immediate:") {
+			t.Errorf("no FAIL %s-send-immediate:\n%s", tag, out)
+		}
+	}
+}
+
+// A payment above the agent tier refused for some other reason — no quote,
+// a payee not allowed — says nothing about the limit and must fail.
+func TestOverLimitRefusedForAnotherReasonFails(t *testing.T) {
+	f := startFake(t, false)
+	f.overRefusal = "task x: spending policy refused a task-agent payment (payee_not_allowed)"
+	out, _ := runProbe(t, f)
+	if !strings.Contains(out, "FAIL pay-over-limit:") {
+		t.Errorf("no FAIL pay-over-limit:\n%s", out)
 	}
 }
 
