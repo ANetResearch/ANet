@@ -167,7 +167,12 @@ rt_install_bins(){
   rt_init
   local inc="$TN_RUNDIR/bin/.incoming" f b
   [ -f "$inc/SHA256SUMS" ] || rt_die "no SHA256SUMS in $inc"
-  ( cd "$inc" && sha256sum --quiet --ignore-missing -c SHA256SUMS ) || rt_die "checksum mismatch after transfer"
+  # Only when binaries came: with every binary already current, .incoming holds just SHA256SUMS and
+  # MANIFEST, and coreutils >= 9 answers --ignore-missing with nothing to check by failing ("no file was
+  # verified") — which made every redeploy of an unchanged build die here.
+  if [ -n "$(find "$inc" -maxdepth 1 -type f ! -name SHA256SUMS ! -name MANIFEST -print -quit)" ]; then
+    ( cd "$inc" && sha256sum --quiet --ignore-missing -c SHA256SUMS ) || rt_die "checksum mismatch after transfer"
+  fi
   for f in "$inc"/*; do
     [ -f "$f" ] || continue
     b=$(basename "$f")
@@ -275,22 +280,33 @@ rt_official_backend(){
   rt_log "official backend $name on 127.0.0.1:$((port + 1))"
 }
 
-# rt_register NAME PORT HUB_URL DISPLAY: /hub-register through the control API. The bearer token is
-# read into a 0600 header file inside the node dir, so it never appears in a command line.
+# rt_register NAME PORT HUB_URL DISPLAY [P2P_ADDR]: /hub-register through the control API, then, when
+# the node has an anetpeer, /p2p-advertise of its dial address. anetpeer uses the hub as rendezvous but
+# holds no key, so it cannot publish the address itself; without this no peer ever dials it and every
+# delegation goes through the hubs. The bearer token is read into a 0600 header file inside the node dir,
+# so it never appears in a command line.
 rt_register(){
   rt_init
-  local name=$1 port=$2 hub=$3 display=$4 d tok out
+  local name=$1 port=$2 hub=$3 display=$4 p2p=${5:-} d tok out
   d="$TN_RUNDIR/nodes/$name"; tok="$d/home/.anet/control_token.txt"
   [ -s "$tok" ] || rt_die "$name has no control token yet"
   ( umask 077; printf 'Authorization: Bearer %s\n' "$(tr -d '\n' < "$tok")" > "$d/.ctl-header" )
   out=$(curl -s --noproxy '*' -m 60 -H @"$d/.ctl-header" -H 'Content-Type: application/json' \
         -d "{\"hub\":\"$hub\",\"name\":\"$display\"}" "http://127.0.0.1:$port/hub-register" </dev/null || true)
-  rm -f "$d/.ctl-header"
   case "$out" in
-    *'"error"'*|'') rt_die "$name: hub-register failed: $(printf '%s' "${out:-no answer}" | head -c 300)" ;;
+    *'"error"'*|'') rm -f "$d/.ctl-header"; rt_die "$name: hub-register failed: $(printf '%s' "${out:-no answer}" | head -c 300)" ;;
     *registered*)   rt_log "$name registered at $hub as $display" ;;
     *)              rt_log "$name: hub-register answered: $(printf '%s' "$out" | head -c 300)" ;;
   esac
+  if [ -n "$p2p" ]; then
+    out=$(curl -s --noproxy '*' -m 60 -H @"$d/.ctl-header" -H 'Content-Type: application/json' \
+          -d "{\"addr\":\"$p2p\"}" "http://127.0.0.1:$port/p2p-advertise" </dev/null || true)
+    case "$out" in
+      *published*) rt_log "$name advertised its peer address $p2p at $hub" ;;
+      *)           rm -f "$d/.ctl-header"; rt_die "$name: p2p-advertise $p2p failed: $(printf '%s' "${out:-no answer}" | head -c 300)" ;;
+    esac
+  fi
+  rm -f "$d/.ctl-header"
 }
 
 # rt_aid NAME PORT: print the daemon's AID from GET /status (token via a 0600 header file, as above).

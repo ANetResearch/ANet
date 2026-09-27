@@ -17,7 +17,8 @@
 #
 # 环境变量:
 #   TESTNET_RUN_ID=tn1     运行标识(目录与单元名都带它)
-#   REGISTER=1             daemon 起来后向它的 hub /hub-register(名字 tn-<节点>);0 = 不注册
+#   REGISTER=1             daemon 起来后向它的 hub /hub-register(名字 tn-<节点>),有 anetpeer 的再
+#                          /p2p-advertise 它的拨号地址(否则没有对端会直连它);0 = 都不做
 #   HUB_ADMIN=0            1 = 每个 hub 旁起 anet-hub-admin(127.0.0.1:<hub端口+50>,令牌只存远端 0600 文件)
 #   REWRITE_CONFIG=0       1 = 覆盖已有的 daemon config.json(默认保留:身份与测试写入的配置跨重部署保留)
 #   FEDERATE_BRIDGED=0     1 = federate 时也写跨岛对(先 bridge.sh fed-up)
@@ -152,7 +153,9 @@ deploy_node(){
       tn_remote "$host" rt_daemon "$n" "$port" "$hub_url" "$(tn_node_bin "$n")" \
         "$(tn_host_bind "$host")" "$pport" "$(tn_host_dial "$host")" "$cfg64" "$REWRITE_CONFIG"
       if [ "$REGISTER" = 1 ]; then
-        tn_remote "$host" rt_register "$n" "$port" "$hub_url" "tn-$n"
+        local adv=""
+        [ "$pport" = - ] || adv="$(tn_host_dial "$host"):$pport"
+        tn_remote "$host" rt_register "$n" "$port" "$hub_url" "tn-$n" "$adv"
       fi
       ;;
   esac
