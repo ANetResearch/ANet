@@ -311,3 +311,51 @@ func TestTheManifestReaderIsALeaf(t *testing.T) {
 		}
 	}
 }
+
+// "Labels only", across the repository: the manifest is read by the daemon
+// (which labels agents, internal/daemon/official.go, where a test pins
+// which files may ask it) and by anet doctor (which reports it), and by no
+// other package — not the payment, admission or delivery code, not a
+// module, not the MCP server. A new importer is a new use and has to be
+// added here on purpose. Each tag that adds files (shell, no_a2a, no_mcp)
+// is asked too: a tagged file can import what the default build does not.
+func TestOnlyTheLabellersImportTheManifest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs go list")
+	}
+	gobin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("no go command on PATH")
+	}
+	const self = "github.com/ANetResearch/ANet/internal/official"
+	allowed := map[string]bool{
+		"github.com/ANetResearch/ANet/internal/daemon": true,
+		"github.com/ANetResearch/ANet/cmd/anet":        true,
+	}
+	for _, tags := range []string{"", "shell", "no_a2a", "no_mcp"} {
+		out, err := exec.Command(gobin, "list", "-tags", tags, "-f",
+			"{{.ImportPath}}{{range .Imports}} {{.}}{{end}}", "github.com/ANetResearch/ANet/...").CombinedOutput()
+		if err != nil {
+			t.Fatalf("go list -tags %q: %v\n%s", tags, err, out)
+		}
+		importers := 0
+		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			f := strings.Fields(line)
+			if len(f) == 0 {
+				continue
+			}
+			for _, imp := range f[1:] {
+				if imp != self {
+					continue
+				}
+				importers++
+				if !allowed[f[0]] {
+					t.Errorf("-tags %q: %s imports internal/official; the manifest is for labels only", tags, f[0])
+				}
+			}
+		}
+		if importers == 0 {
+			t.Errorf("-tags %q: nothing imports internal/official (is the go list output what this test reads?)", tags)
+		}
+	}
+}
