@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/aobj"
@@ -103,12 +104,13 @@ func (m *Module) clearableNetworks() []string {
 	const ttl = 5 * time.Minute
 	m.clearMu.Lock()
 	defer m.clearMu.Unlock()
-	if time.Since(m.clearAt) < ttl {
+	hub := hubKey(m.hubURL())
+	if hub == m.clearHub && time.Since(m.clearAt) < ttl {
 		return m.clearNets
 	}
-	m.clearAt = time.Now()
+	m.clearAt, m.clearHub = time.Now(), hub
 	m.clearNets = nil
-	if m.hubURL() == "" {
+	if hub == "" {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), hubCallTimeout)
@@ -392,7 +394,14 @@ func (m *Module) redemptions(ctx context.Context) (hubRedemptions, error) {
 // The receipt comes back and goes on this node's chain. Without it the
 // agent has a smaller balance and nothing to point at, which is the worst
 // possible shape for the one operation that gives money away.
-func (m *Module) Redeem(ctx context.Context, amount uint64, reference string) (map[string]any, error) {
+//
+// payTo is the payee the operator confirmed: the hub AID `anet redeem`
+// showed before asking. The authorization is signed to the hub this node
+// settles on now, and only when that is payTo; otherwise the node changed
+// hubs since the question was asked, or the caller named another payee,
+// and the redemption is refused (module.ErrRedeemPayee) before anything is
+// signed, so what was confirmed and what is signed cannot differ.
+func (m *Module) Redeem(ctx context.Context, amount uint64, reference, payTo string) (map[string]any, error) {
 	if amount == 0 {
 		return nil, fmt.Errorf("x402: redeem what?")
 	}
@@ -403,6 +412,10 @@ func (m *Module) Redeem(ctx context.Context, amount uint64, reference string) (m
 	hubAID := m.hubAID()
 	if hubAID == "" {
 		return nil, fmt.Errorf("x402: cannot learn this hub's identity, so cannot sign a redemption to it")
+	}
+	if payTo = strings.TrimSpace(payTo); payTo != hubAID || hubKey(m.hubURL()) != hubKey(hub) {
+		return nil, fmt.Errorf("x402: %w: confirmed %q, the hub at %s is %s; nothing was signed",
+			module.ErrRedeemPayee, payTo, hub, hubAID)
 	}
 	pp, err := m.Authorize(payment.PaymentOption{
 		Scheme:  payment.SchemeCredit,

@@ -643,7 +643,9 @@ hd "6.7  兑付:credit 也能出去,且 hub 的负债可被数出来"
 sup(){ curl -s -m 10 "$HUB/x402/supply" | python3 -c "import sys,json;print(json.load(sys.stdin)['supply']['$1'])"; }
 out1=$(sup outstanding); bal1=$(sup balances)
 [ "$out1" = "$bal1" ] && ok "账是平的:未清偿 $out1 == 各账户合计 $bal1" || no "账不平:$out1 vs $bal1"
-rd=$(ctl A /redeem '{"amount":10,"reference":"scenario-inv-1"}')
+# 兑付要带运营者确认过的收款方(hub 的 AID;`anet redeem` 在终端上给人看的就是它),daemon 只签给它。
+HAID=$(ctl A /payments/status '{"hub":true}' | python3 -c 'import sys,json;print(json.load(sys.stdin).get("hub_aid",""))' 2>/dev/null)
+rd=$(ctl A /redeem "{\"amount\":10,\"reference\":\"scenario-inv-1\",\"pay_to\":\"$HAID\"}")
 rv=$(echo "$rd" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("verified",""))' 2>/dev/null)
 [ "$rv" = "True" ] && ok "兑付成功,且 hub 为取走的额度签了字(节点已验签)" || no "兑付没有可验证的收据:$rd"
 out2=$(sup outstanding); bal2=$(sup balances)

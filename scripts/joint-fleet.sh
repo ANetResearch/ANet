@@ -122,6 +122,10 @@ hd "1/7  三个 worker 各自接入 hub,并把本机编码 agent 挂上"
 declare -a W_AID
 for i in 0 1 2; do
   n=${W_NAMES[$i]}; h=$J/w-$n; p=${W_PORTS[$i]}
+  # hub 目录只收公开能力(0017 Q14),所以 code.write 要列进 public_capabilities 才进目录。它只是
+  # 这类文本任务 worker 的目录标签:没有提供方服务它,节点不发 A2A 卡片(策略 closed,无可服务的
+  # 公开 skill),对它的能力调用照样被拒;经 MCP 找它们要 include_uncarded(7/7,0017 Q27)。
+  api "$h" "$p" /inbound/policy '{"public_capabilities":[{"id":"code.write"}]}' >/dev/null
   api "$h" "$p" /hub-register "{\"hub\":\"$HUB_URL\",\"name\":\"worker-$n\",\"caps\":[\"code.write\"]}" >/dev/null
   # exec 后端 + 桩:agent 用 claude 这一档,binary 用 command 覆盖掉。
   api "$h" "$p" /autoreply "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-ok.sh\",\"poll_interval_seconds\":1}" >/dev/null
@@ -313,9 +317,20 @@ else
   else
     [ -z "$MISSING" ] && ok "$GEN 代工具全部报给了客户端($NT 个)" || no "工具表缺($GEN 代):$MISSING"
   fi
+  # worker 没有 A2A 卡片(见 1/7):list_agents 缺省不列它们,带 include_uncarded 才列,
+  # 且每条都是 verification NONE —— 名字与能力是 hub 的陈述(0017 Q27,0021 F7)。
   NF=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["found"])')
-  [ "$NF" -ge 1 ] && ok "经 MCP 按能力找到了 $NF 个 worker(穿到了 hub)" \
-                  || no "经 MCP 按能力什么也没找到"
+  NN=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("found_none",0))')
+  ND=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("found_default",""))')
+  if [ "$GEN" = v2 ]; then
+    [ "$NF" -ge 1 ] && [ "$NN" = "$NF" ] && ok "经 MCP(include_uncarded)按能力找到了 $NF 个 worker,都是无卡片条目 NONE(穿到了 hub)" \
+                    || no "经 MCP(include_uncarded)按能力找到 $NF 个,其中 NONE $NN 个"
+    [ "$ND" = 0 ] && ok "不带 include_uncarded 时 list_agents 只列有卡片的 agent(worker 无卡片,0 个)" \
+                  || no "不带 include_uncarded 时列出了 ${ND:-?} 个无卡片的 worker"
+  else
+    [ "$NF" -ge 1 ] && ok "经 MCP 按能力找到了 $NF 个 worker(穿到了 hub)" \
+                    || no "经 MCP 按能力什么也没找到"
+  fi
   SH=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["status_hub"])')
   [ -n "$SH" ] && ok "node_status 经 MCP 报出了本节点接入的 hub" || no "node_status 经 MCP 没报出 hub"
   BAD=$(printf '%s' "$MCPOUT" | python3 -c 'import sys,json;print(json.load(sys.stdin)["bad_is_error"])')

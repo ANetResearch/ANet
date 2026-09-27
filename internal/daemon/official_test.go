@@ -108,7 +108,8 @@ func namesakeHubWith(t *testing.T, registry bool) *httptest.Server {
 // markedByAID calls the control plane of d the way list_agents,
 // get_agent_card and anet find do, and fails unless the official agent
 // carries "anet.official": true and the imposter is listed without the key.
-func markedByAID(t *testing.T, d *Daemon) {
+// listBody is the /agents/list request.
+func markedByAID(t *testing.T, d *Daemon, listBody string) {
 	t.Helper()
 	p := newPlaneFor(t, d, "tok")
 	call := func(path, body string) []byte {
@@ -151,7 +152,7 @@ func markedByAID(t *testing.T, d *Daemon) {
 		}
 	}
 
-	raw := call("/agents/list", `{"skill":"text.stats"}`)
+	raw := call("/agents/list", listBody)
 	if !strings.Contains(string(raw), `"anet.official":true`) {
 		t.Fatalf("/agents/list does not spell the mark \"anet.official\":true: %s", raw)
 	}
@@ -184,25 +185,32 @@ func markedByAID(t *testing.T, d *Daemon) {
 func TestOfficialAgentsAreMarkedByAIDOnly(t *testing.T) {
 	d := newTestDaemon(t, namesakeHub(t).URL, false)
 	d.officials.Store(testOfficials(t, false, offAID))
-	markedByAID(t, d)
+	markedByAID(t, d, `{"skill":"text.stats"}`)
 	// The kernel's answer is the same one.
 	if !d.IsOfficial(offAID) || d.IsOfficial(imposterAID) || d.IsOfficial("anet-tools") || d.IsOfficial("") {
 		t.Error("IsOfficial answers by something other than the AID")
 	}
 }
 
-// A hub without the A2A registry: the agent list comes from its /agents
-// directory and a card lookup finds no card. Each of those answers is
-// UNVERIFIED and still marked by AID alone, the same way. [mut] drop the
-// mark from listAgentsLegacy or from agentCard's no-card answer → red.
+// A hub without the A2A registry: asked with include_uncarded (0017 Q27),
+// the agent list comes from its /agents directory, and a card lookup finds
+// no card. Each of those answers is NONE and still marked by AID alone, the
+// same way; the official AID carries none of the hub's words beside the
+// mark, the imposter carries the hub's. [mut] drop the mark from
+// uncardedAgent or from agentCard's no-card answer → red.
 func TestOfficialMarkWithoutNetworkCards(t *testing.T) {
 	d := newTestDaemon(t, namesakeHubWith(t, false).URL, false)
 	d.officials.Store(testOfficials(t, false, offAID))
-	agents, _, err := d.listAgents(context.Background(), module.AgentQuery{Skill: "text.stats"})
-	if err != nil || len(agents) != 2 || agents[0].Verification != cardUnverified {
-		t.Fatalf("setup: the legacy directory was not what listed the agents: %v %+v", err, agents)
+	agents, _, err := d.listAgents(context.Background(), module.AgentQuery{Skill: "text.stats", IncludeUncarded: true})
+	if err != nil || len(agents) != 2 || agents[0].Verification != cardNone {
+		t.Fatalf("setup: the directory was not what listed the agents: %v %+v", err, agents)
 	}
-	markedByAID(t, d)
+	for _, a := range agents {
+		if hubWords := a.Name != "" || a.Caps != nil; hubWords == (a.AID == offAID) {
+			t.Errorf("%s: name %q caps %v", a.AID, a.Name, a.Caps)
+		}
+	}
+	markedByAID(t, d, `{"skill":"text.stats","include_uncarded":true}`)
 }
 
 // Without a verified manifest, or with an expired one, nobody is marked.

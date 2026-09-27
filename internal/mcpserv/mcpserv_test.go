@@ -166,6 +166,17 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 		!strings.Contains(desc("list_agents"), "A name that looks official is not") {
 		t.Error("list_agents must name the anet.official mark and say a name is not it")
 	}
+	// 0017 Q24, Q27: what an UNVERIFIED and a NONE entry are, and that the
+	// fields of the latter are the hub's word.
+	for _, want := range []string{"include_uncarded", "verification NONE", "only what the hub says",
+		"UNVERIFIED entry", "nothing of the card"} {
+		if !strings.Contains(desc("list_agents"), want) {
+			t.Errorf("list_agents must say %q", want)
+		}
+	}
+	if !strings.Contains(desc("get_agent_card"), "Only a VERIFIED card is returned") {
+		t.Error("get_agent_card must say an unverified card is not returned")
+	}
 	// Paying spends the operator's money. The model has to learn whose
 	// credit it is, what caps it, and what to do when it is refused.
 	for _, want := range []string{"agent_max", "payees.allow", "anet pay <task_id>", "never try to raise a limit"} {
@@ -258,6 +269,10 @@ var requestShapes = []struct {
 		"/agents/list", map[string]any{"skill": "text.digest", "q": "summaries", "limit": 5.0}},
 	{"list_agents", map[string]any{"tag": "docs", "cursor": "c2"},
 		"/agents/list", map[string]any{"tag": "docs", "cursor": "c2"}},
+	{"list_agents", map[string]any{"skill": "code.write", "include_uncarded": true},
+		"/agents/list", map[string]any{"skill": "code.write", "include_uncarded": true}},
+	{"list_agents", map[string]any{"skill": "code.write", "include_uncarded": false},
+		"/agents/list", map[string]any{"skill": "code.write"}},
 	{"get_agent_card", map[string]any{"aid": "aid-1"},
 		"/agents/card", map[string]any{"aid": "aid-1"}},
 	{"send_message", map[string]any{"to": "aid-1", "text": "translate this"},

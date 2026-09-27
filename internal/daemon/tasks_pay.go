@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -88,8 +89,38 @@ func writePayError(w http.ResponseWriter, err error) {
 	writeJSON(w, code, body)
 }
 
-func (d *Daemon) hPaymentsStatus(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, d.SpendStatus())
+// hPaymentsStatus reports the limits and the 24-hour totals. With
+// {"hub": true} it adds the hub this node settles on and the hub's AID —
+// the payee of a redemption, which `anet redeem` shows before it asks —
+// at the cost of learning the hub's identity if it is not known yet.
+func (d *Daemon) hPaymentsStatus(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Hub bool `json:"hub"`
+	}
+	if err := readJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return
+	}
+	if !req.Hub {
+		writeJSON(w, http.StatusOK, d.SpendStatus())
+		return
+	}
+	out := struct {
+		SpendStatus
+		Hub      string `json:"hub"`
+		HubAID   string `json:"hub_aid"`
+		HubError string `json:"hub_error,omitempty"`
+	}{SpendStatus: d.SpendStatus(), Hub: d.config().HubURL}
+	if out.Hub != "" {
+		ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
+		defer cancel()
+		aid, _, err := d.hubIdentity(ctx, out.Hub)
+		if err != nil {
+			out.HubError = err.Error()
+		}
+		out.HubAID = aid
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (d *Daemon) hPaymentsLimits(w http.ResponseWriter, r *http.Request) {

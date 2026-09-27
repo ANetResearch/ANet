@@ -658,7 +658,9 @@ s1=$(viafmax /x402/supply | jq_ "print(d['supply']['outstanding'])")
 # 每次唯一的 reference:兑付是付给 hub 的授权,绑定为 "redeem:<reference>",hub 对
 # (付款方, 绑定) 只结算一次(A2A-DESIGN §8.5)。固定写 "prodtest" 时,第二次运行得到
 # duplicate_binding,兑付失败,而失败的是脚本不是 hub。
-rd=$(ctl dmax /redeem "{\"amount\":5,\"reference\":\"prodtest-8-$(date +%s)-$$\"}")
+# 兑付带运营者确认过的收款方(hub 的 AID),daemon 只签给它(换过 hub 就拒签)。
+HAID=$(ctl dmax /payments/status '{"hub":true}' | jq_ "print(d.get('hub_aid',''))")
+rd=$(ctl dmax /redeem "{\"amount\":5,\"reference\":\"prodtest-8-$(date +%s)-$$\",\"pay_to\":\"$HAID\"}")
 rv=$(echo "$rd" | jq_ "print(d.get('verified',''))")
 [ "$rv" = True ] && ok "兑付成功,且 dmax 验过 fmax 的签字" || no "兑付没有可验证的收据:${rd:0:160}"
 s2=$(viafmax /x402/supply | jq_ "print(d['supply']['outstanding'])")
@@ -933,7 +935,8 @@ if ! has dmax; then
   sk "要 dmax 的控制面"
 else
   REF="prodtest-list-$(date +%s)"
-  rd=$(ctl dmax /redeem "{\"amount\":3,\"reference\":\"$REF\"}")
+  HAID=$(ctl dmax /payments/status '{"hub":true}' | jq_ "print(d.get('hub_aid',''))")
+  rd=$(ctl dmax /redeem "{\"amount\":3,\"reference\":\"$REF\",\"pay_to\":\"$HAID\"}")
   RAID=$(echo "$rd" | jq_ "print(d.get('auth_id',''))")
   if [ -z "$RAID" ]; then
     no "兑付没有成交:$(printf '%s' "$rd" | head -c 160)"

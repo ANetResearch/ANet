@@ -1171,11 +1171,14 @@ func (d *Daemon) hBalance(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// hRedeemCredit takes credit back out of the hub's ledger.
+// hRedeemCredit takes credit back out of the hub's ledger. pay_to is the
+// hub AID the operator confirmed; a redemption without it, or whose hub is
+// not the one this node would sign to now, is refused unsigned.
 func (d *Daemon) hRedeemCredit(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Amount    uint64 `json:"amount"`
 		Reference string `json:"reference"`
+		PayTo     string `json:"pay_to"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -1183,7 +1186,17 @@ func (d *Daemon) hRedeemCredit(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
 	defer cancel()
-	out, err := d.RedeemCredit(ctx, req.Amount, req.Reference)
+	out, err := d.RedeemCredit(ctx, req.Amount, req.Reference, req.PayTo)
+	switch {
+	case errors.Is(err, errRedeemNoPayee):
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "reason": "pay_to_required"})
+		return
+	case errors.Is(err, module.ErrRedeemPayee):
+		// Confirmed for one hub, would be signed to another: the node
+		// changed hubs since the question was asked. Ask again.
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "reason": "payee_mismatch"})
+		return
+	}
 	if sr, ok := isSpendRefusal(err); ok {
 		// §8.6: refused by the spending policy, as on every signing route.
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error(), "reason": sr.Code})

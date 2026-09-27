@@ -186,3 +186,91 @@ func limitsPrompt(c *client, set map[string]uint64, payeesFile string, setPayees
 	}
 	return sb.String(), nil
 }
+
+// runRedeem is `anet redeem <amount> [--ref <reference>]`: give credit back
+// to the hub, which destroys it and signs for what it took. It is a
+// payment to the hub (purpose redeem: explicit_max and daily_max, no payee
+// list), so it is confirmed on the terminal with the amount and the payee —
+// the hub's AID, the key the authorization is signed to — before anything
+// is signed.
+//
+// The payee shown is the payee sent: /redeem carries it as pay_to, and the
+// daemon signs only to that hub, refusing when the node settles on another
+// by then (a hub-register in between), so what the operator confirmed and
+// what is signed cannot differ. A build without the payment module says so
+// before anything is asked.
+func runRedeem(c *client, rest []string) error {
+	if !paymentsCompiled() {
+		return errNoPaymentModule
+	}
+	pos, flags := splitFlags(rest)
+	if len(pos) < 1 {
+		return fmt.Errorf("redeem <amount> [--ref <reference>]")
+	}
+	n, err := strconv.ParseUint(pos[0], 10, 64)
+	if err != nil {
+		return fmt.Errorf("redeem: amount must be a whole number of credits: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("redeem: the amount must be above 0")
+	}
+	ref := strings.TrimSpace(flags["ref"])
+	if ref == "" && len(pos) > 1 {
+		ref = strings.Join(pos[1:], " ")
+	}
+	var payee string
+	if err := ttyConfirm(func() (string, error) {
+		prompt, hubAID, err := redeemPrompt(c, n, ref)
+		payee = hubAID
+		return prompt, err
+	}); err != nil {
+		return err
+	}
+	return c.do("/redeem", map[string]any{"amount": n, "reference": ref, "pay_to": payee})
+}
+
+// redeemPrompt names the amount, the payee and the limits it falls under,
+// from /payments/status with the hub, and returns the payee it named.
+// Without a hub AID there is no payee to name and nothing the daemon could
+// sign to, so it ends without asking.
+func redeemPrompt(c *client, amount uint64, ref string) (string, string, error) {
+	b, code, err := c.fetch("/payments/status", map[string]any{"hub": true})
+	if err != nil {
+		return "", "", err
+	}
+	var st struct {
+		Hub         string `json:"hub"`
+		HubAID      string `json:"hub_aid"`
+		HubError    string `json:"hub_error"`
+		ExplicitMax uint64 `json:"explicit_max"`
+		DailyMax    uint64 `json:"daily_max"`
+		Spent24h    uint64 `json:"spent_24h"`
+		Error       string `json:"error"`
+	}
+	if json.Unmarshal(b, &st) != nil || code != 200 {
+		if st.Error != "" {
+			return "", "", fmt.Errorf("redeem: %s", st.Error)
+		}
+		return "", "", fmt.Errorf("redeem: the daemon answered %d", code)
+	}
+	switch {
+	case st.Hub == "":
+		return "", "", fmt.Errorf("redeem: this node has no hub (anet hub-register <url>); nothing was signed")
+	case st.HubAID == "":
+		return "", "", fmt.Errorf("redeem: the identity of the hub %s is not known (%s); nothing was signed",
+			printable(st.Hub, 256), printable(st.HubError, 256))
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Redeem %d credits: give them back to your hub, which destroys them and signs for what it took.", amount)
+	fmt.Fprintf(&sb, "\n  payee      %s (the hub at %s)", printable(st.HubAID, 256), printable(st.Hub, 256))
+	if ref != "" {
+		fmt.Fprintf(&sb, "\n  reference  %s", printable(ref, 256))
+	}
+	fmt.Fprintf(&sb, "\n  limits     explicit_max %d per payment; daily_max %d (%d signed in the last 24 hours)",
+		st.ExplicitMax, st.DailyMax, st.Spent24h)
+	if amount > st.ExplicitMax || st.Spent24h+amount > st.DailyMax {
+		sb.WriteString("\n  above these limits the daemon refuses it; `anet payments set` changes them")
+	}
+	sb.WriteString("\nThis cannot be undone.")
+	return sb.String(), st.HubAID, nil
+}

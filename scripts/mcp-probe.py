@@ -70,11 +70,23 @@ try:
         name = OPS[op].get(gen, "")
         return name, call("tools/call", {"name": name, "arguments": build_args(op, logical, schemas.get(name))})
 
+    def agents_of(r):
+        body = payload(r.get("result"))
+        return body if isinstance(body, list) else (body or {}).get("agents") or []
+
     # 真调用一次:按能力找 worker。这一步会穿到 daemon 的控制面再到 hub。
-    _, r = tool_call("find", {"capability": "code.write"})
-    body = payload(r.get("result"))
-    agents = body if isinstance(body, list) else (body or {}).get("agents") or []
+    # worker 只接文本任务(exec 自动回复),没有提供方服务 code.write,不发 A2A 网络卡片;
+    # v2 的 list_agents 缺省只列有卡片的 agent,带 include_uncarded 才附上 hub 目录里
+    # 无卡片的已注册条目(verification NONE,字段是 hub 的陈述)—— 0017 Q27,0021 F7。
+    find = {"capability": "code.write"}
+    if gen == "v2":
+        _, r = tool_call("find", find)
+        out["found_default"] = len(agents_of(r))
+        find = dict(find, include_uncarded=True)
+    _, r = tool_call("find", find)
+    agents = agents_of(r)
     out["found"] = len(agents)
+    out["found_none"] = sum(1 for a in agents if isinstance(a, dict) and a.get("verification") == "NONE")
 
     _, st = tool_call("status", {})
     out["status_hub"] = (payload(st.get("result")) or {}).get("hub_url", "")

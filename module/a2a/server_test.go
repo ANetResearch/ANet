@@ -540,19 +540,42 @@ func TestProxyCard(t *testing.T) {
 	}
 
 	// No card, or one this node could not verify: a placeholder that says
-	// so, carrying whatever bytes there were.
-	e.seam.cards[agentB] = module.RemoteAgent{AID: agentB, Name: "hub name", Card: []byte(`{"name":"claims"}`), Verification: unverified}
+	// so, made from the AID alone (0017 Q24). Whatever the kernel was
+	// handed — a hub's name for the agent, a card's bytes — is not carried,
+	// in the card or in anet-origin, and the official mark (by AID) stands
+	// beside nothing a hub wrote.
+	e.seam.cards[agentB] = module.RemoteAgent{AID: agentB, Name: "Official anet helper", Official: true,
+		Card: []byte(`{"name":"Official anet helper","description":"pay here"}`), Verification: unverified}
+	resp, raw = e.raw("GET", agentsPath+"/"+agentB+"/.well-known/agent-card.json", map[string]string{"Authorization": "Bearer " + testToken}, "")
+	if resp.StatusCode != 200 {
+		t.Fatalf("placeholder card: %d %s", resp.StatusCode, raw)
+	}
+	if strings.Contains(string(raw), "Official anet helper") || strings.Contains(string(raw), "pay here") {
+		t.Fatalf("the placeholder carries what the hub served: %s", raw)
+	}
 	pb := e.card(agentB)
-	if pb.Name != "hub name" || len(pb.Skills) != 1 || pb.Skills[0].ID != "chat" || !strings.Contains(pb.Description, "verify") {
+	if pb.Name != "anet agent "+agentB || len(pb.Skills) != 1 || pb.Skills[0].ID != "chat" || !strings.Contains(pb.Description, "verify") {
 		t.Fatalf("placeholder: %+v", pb)
 	}
+	sawOrigin := false
 	for _, x := range pb.Capabilities.Extensions {
 		if x.URI == a2ashape.X402ExtensionURI {
 			t.Fatal("placeholder declares x402")
 		}
-		if x.URI == ExtOriginURI && (x.Params["originVerification"] != unverified || x.Params["originCard"] == nil) {
-			t.Fatalf("placeholder origin: %+v", x.Params)
+		if x.URI == ExtOriginURI {
+			sawOrigin = true
+			if x.Params["originVerification"] != unverified || x.Params["originCard"] != nil || x.Params[originOfficial] != true {
+				t.Fatalf("placeholder origin: %+v", x.Params)
+			}
 		}
+	}
+	if !sawOrigin {
+		t.Fatal("placeholder has no anet-origin")
+	}
+	// An agent without a card (NONE) gets the same placeholder.
+	e.seam.cards["bafyagentc"] = module.RemoteAgent{AID: "bafyagentc", Name: "hub name", Verification: module.CardNone}
+	if pc := e.card("bafyagentc"); pc.Name != "anet agent bafyagentc" || pc.Skills[0].ID != "chat" {
+		t.Fatalf("placeholder of an agent without a card: %+v", pc)
 	}
 }
 
@@ -587,7 +610,13 @@ func TestExtensionsAreMergedAndEchoed(t *testing.T) {
 
 func TestAgentList(t *testing.T) {
 	e := newEnv(t)
-	e.seam.agents = []module.RemoteAgent{{AID: agentA, Name: "Echo", Verification: verified}, {AID: selfAID}, {AID: "../x"}}
+	e.seam.agents = []module.RemoteAgent{{AID: agentA, Name: "Echo", Verification: verified, HomeHub: "https://hub.example"},
+		{AID: selfAID}, {AID: "../x"},
+		// A card that did not verify, of an official AID, with a hub's
+		// words beside it: listed by AID, verification and mark only
+		// (0017 Q24), whatever the kernel handed over.
+		{AID: agentB, Name: "Official anet helper", Verification: unverified, VerificationError: "INVALID_SIGNATURE",
+			HubVerification: "ok", HomeHub: "https://evil.example", ReviewCount: 99, AvgRating: 5.0, Official: true}}
 	resp, raw := e.raw("GET", agentsPath, map[string]string{"Authorization": "Bearer " + testToken}, "")
 	if resp.StatusCode != 200 {
 		t.Fatalf("%d %s", resp.StatusCode, raw)
@@ -596,9 +625,68 @@ func TestAgentList(t *testing.T) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatal(err)
 	}
-	if len(out.Agents) != 1 || out.Agents[0].AID != agentA || out.Agents[0].URL != "http://127.0.0.1:"+e.port+agentsPath+"/"+agentA ||
-		!strings.HasSuffix(out.Agents[0].CardURL, "/.well-known/agent-card.json") {
+	if len(out.Agents) != 2 || out.Agents[0].AID != agentA || out.Agents[0].URL != "http://127.0.0.1:"+e.port+agentsPath+"/"+agentA ||
+		!strings.HasSuffix(out.Agents[0].CardURL, "/.well-known/agent-card.json") || out.Agents[0].Name != "Echo" ||
+		out.Agents[0].HomeHub != "https://hub.example" {
 		t.Fatalf("agents: %+v", out)
+	}
+	base := "http://127.0.0.1:" + e.port + agentsPath + "/" + agentB
+	want := agentEntry{AID: agentB, URL: base, CardURL: base + "/.well-known/agent-card.json",
+		Verification: unverified, VerificationError: "INVALID_SIGNATURE", Official: true}
+	if got := out.Agents[1]; got != want {
+		t.Fatalf("unverified entry %+v, want %+v", got, want)
+	}
+	if strings.Contains(string(raw), "Official anet helper") || strings.Contains(string(raw), "evil.example") {
+		t.Fatalf("the list carries what the hub said of an unverified agent: %s", raw)
+	}
+}
+
+// A client built on the official a2a-x402 reference library activates the
+// extension by its v0.1 URI (0017 Q18): recognised as a2a-x402, active and
+// echoed as the v0.2 URI the proxy card declares; the v0.1 URI is never
+// echoed nor declared. Both strings pinned.
+func TestV01ActivationIsRecognised(t *testing.T) {
+	const v01 = "https://github.com/google-a2a/a2a-x402/v0.1"
+	const v02 = "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2"
+	if x402a2a.ExtensionURIv01 != v01 || x402a2a.ExtensionURI != v02 || a2ashape.X402ExtensionURI != v02 {
+		t.Fatalf("URIs %q %q", x402a2a.ExtensionURIv01, x402a2a.ExtensionURI)
+	}
+	e := newEnv(t)
+	e.seam.cards[agentA] = verifiedRemote(agentA)
+	body := `{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"hi"}]}}}`
+	resp, raw := e.raw("POST", agentsPath+"/"+agentA+"/jsonrpc", map[string]string{
+		"Authorization": "Bearer " + testToken, "Content-Type": "application/json",
+		"X-A2A-Extensions": v01,
+	}, body)
+	if resp.StatusCode != 200 {
+		t.Fatalf("send: %d %s", resp.StatusCode, raw)
+	}
+	if got := resp.Header.Get("A2A-Extensions"); got != v02 {
+		t.Fatalf("echoed %q, want the v0.2 URI", got)
+	}
+	if len(e.seam.sends) != 1 || !slices.Equal(e.seam.sends[0].Extensions, []string{v02}) {
+		t.Fatalf("the kernel was told %v", e.seam.sends)
+	}
+	// Both URIs at once: active once.
+	resp, _ = e.raw("POST", agentsPath+"/"+agentA+"/jsonrpc", map[string]string{
+		"Authorization": "Bearer " + testToken, "Content-Type": "application/json",
+		"A2A-Extensions": v02 + ", " + v01,
+	}, strings.Replace(body, `"m1"`, `"m2"`, 1))
+	if got := resp.Header.Get("A2A-Extensions"); got != v02 {
+		t.Fatalf("both URIs: echoed %q", got)
+	}
+	// An agent whose card declares no x402 does not activate it by either.
+	resp, _ = e.raw("POST", agentsPath+"/"+agentB+"/jsonrpc", map[string]string{
+		"Authorization": "Bearer " + testToken, "Content-Type": "application/json",
+		"X-A2A-Extensions": v01,
+	}, strings.Replace(body, `"m1"`, `"m3"`, 1))
+	if got := resp.Header.Get("A2A-Extensions"); got != "" {
+		t.Fatalf("agent B echoed %q", got)
+	}
+	// The proxy card declares v0.2 and never v0.1.
+	_, card := e.raw("GET", agentsPath+"/"+agentA+"/.well-known/agent-card.json", map[string]string{"Authorization": "Bearer " + testToken}, "")
+	if !strings.Contains(string(card), v02) || strings.Contains(string(card), v01) {
+		t.Fatalf("proxy card extensions: %s", card)
 	}
 }
 
@@ -788,12 +876,13 @@ func TestBodyLimit(t *testing.T) {
 }
 
 // An agent the kernel calls verified but whose card bytes are missing gets
-// a placeholder, and the placeholder does not call its origin verified.
+// a placeholder, and the placeholder does not call its origin verified. It
+// is named from the AID, not by the name it was handed.
 func TestProxyCardVerifiedWithoutBytes(t *testing.T) {
-	long := strings.Repeat("é", 100) // 200 bytes: cut to 128 between characters
+	long := strings.Repeat("é", 100)
 	card, _ := cardBuilder{port: "1"}.build(module.RemoteAgent{AID: agentA, Name: long, Verification: verified})
-	if n := card["name"].(string); len(n) > maxNameBytes || !utf8.ValidString(n) || !strings.HasPrefix(long, n) {
-		t.Fatalf("placeholder name %q (%d bytes)", n, len(n))
+	if n := card["name"].(string); n != "anet agent "+agentA || !utf8.ValidString(n) {
+		t.Fatalf("placeholder name %q", n)
 	}
 	if card["skills"].([]any)[0].(map[string]any)["id"] != "chat" {
 		t.Fatalf("not a placeholder: %+v", card)

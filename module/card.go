@@ -25,6 +25,10 @@ const (
 	// interface. Like the relay binding it routes by tenant, which is the
 	// node's AID, and carries the same sealed envelopes.
 	BindingP2PURI = "https://agentnetwork.org.cn/a2a/bindings/anet-p2p/v1"
+	// ChatSkillID is the skill a node whose inbound policy is open lists
+	// for natural-language tasks (0017 Q27): not a capability, and never
+	// priced. A capability of that id, where one exists, is not it.
+	ChatSkillID = "chat"
 )
 
 // CardContext is what the kernel tells a contributor about the network
@@ -42,8 +46,10 @@ type CardContext struct {
 	// HubURL is the hub the card is published to, without a trailing
 	// slash.
 	HubURL string
-	// Skills are the capability ids the card publishes as skills, sorted.
-	// Never empty: a node with no public skill publishes no card.
+	// Skills are the ids of the skills the card publishes, sorted: the
+	// public capabilities this node serves and, on a node whose inbound
+	// policy is open, ChatSkillID (natural-language tasks, never priced).
+	// Never empty: a node with no skill publishes no card.
 	Skills []string
 }
 
