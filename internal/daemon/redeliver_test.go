@@ -292,7 +292,7 @@ func TestAnUnsealedRowExpires(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := req.nowMS()
-	req.clock = func() uint64 { return now + messageLifetimeMS + 60_000 }
+	req.setClock(func() uint64 { return now + messageLifetimeMS + 60_000 })
 	for _, row := range []int64{id, legacy} {
 		if err := req.deliverQueued(ctx, row); !errors.Is(err, errUndeliverable) {
 			t.Fatalf("row %d past its deadline: %v, want errUndeliverable", row, err)
@@ -327,12 +327,12 @@ func TestALateResultCommitsWithItsReplayRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	fail := true
-	req.rxFault = func(typ string) error {
+	req.setRxFault(func(typ string) error {
 		if fail && typ == seal.TypeResult {
 			return errors.New("injected store failure")
 		}
 		return nil
-	}
+	})
 	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -343,10 +343,17 @@ func TestALateResultCommitsWithItsReplayRow(t *testing.T) {
 		t.Fatalf("the failed result was acknowledged (%d left)", n)
 	}
 	fail = false
-	if err := req.pollOnce(ctx); err != nil {
-		t.Fatal(err)
+	// The mailbox cursor (B3-11) reads past a row held back this round and
+	// comes back to it on a later one: at most two more rounds.
+	var cur *interactions.Interaction
+	for round := 0; round < 3; round++ {
+		if err := req.pollOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if cur, err = req.ix.Get(id); err == nil && len(cur.Receipt) != 0 {
+			break
+		}
 	}
-	cur, err := req.ix.Get(id)
 	if err != nil || cur.State != interactions.StateCanceled || len(cur.Receipt) == 0 || len(cur.Result) == 0 {
 		t.Fatalf("the redelivered late result = %+v (%v), want it recorded on the canceled task", cur, err)
 	}
@@ -418,7 +425,7 @@ func TestAnUndeliveredDelegationFailsTheTask(t *testing.T) {
 		t.Fatalf("outbox = %+v", rows)
 	}
 	now := req.nowMS()
-	req.clock = func() uint64 { return now + messageLifetimeMS + 60_000 }
+	req.setClock(func() uint64 { return now + messageLifetimeMS + 60_000 })
 	if err := req.deliverQueued(ctx, rows[0].ID); err != nil && !errors.Is(err, errUndeliverable) {
 		t.Fatal(err)
 	}
@@ -430,7 +437,7 @@ func TestAnUndeliveredDelegationFailsTheTask(t *testing.T) {
 		t.Fatalf("evidence %v", ev)
 	}
 	// The client's retry of the message is a new attempt.
-	req.clock = nil
+	req.setClock(nil)
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
 	retry, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: textMsg("hello", "", "m-x"), ReturnImmediately: true})
 	if err != nil || retry.ID == task.ID {
@@ -487,7 +494,7 @@ func TestRequesterMessagesGoThroughTheQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := req.nowMS()
-	req.clock = func() uint64 { return now + messageLifetimeMS + 60_000 }
+	req.setClock(func() uint64 { return now + messageLifetimeMS + 60_000 })
 	req.flushOutboxAt(ctx, int64(req.nowMS()))
 	if st := stateOf(t, req, id2); st != interactions.StateCanceled {
 		t.Fatalf("state after an undelivered cancel = %s", st)
