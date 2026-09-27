@@ -171,6 +171,9 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /inbound/pending", d.hInboundPending)
 	api.HandleFunc("POST /inbound/approve", d.hInboundApprove)
 	api.HandleFunc("POST /inbound/reject", d.hInboundReject)
+	// This node's own A2A network card and its publication status
+	// (a2a_card.go). Bearer only.
+	api.HandleFunc("POST /card", d.hCard)
 	return d.secureControlPlane(token, api)
 }
 

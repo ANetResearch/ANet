@@ -209,6 +209,10 @@ type RegisterRequest struct {
 	// base64, published with every registration so a re-registration
 	// after a restart also restates it.
 	EncKeys string `json:"enc_keys,omitempty"`
+	// A2ACard is the node's signed A2A network card (A2A-DESIGN §10.1),
+	// the exact bytes a2acard.Sign returned. Absent from a node with no
+	// public skill, which publishes no card.
+	A2ACard json.RawMessage `json:"a2a_card,omitempty"`
 }
 
 // RegisterResponse is the answer to POST /register. KeysStatus and
@@ -222,6 +226,20 @@ type RegisterResponse struct {
 	CardStatus string `json:"card_status"`
 	CardError  string `json:"card_error,omitempty"`
 }
+
+// Values of card_status in the /register answer: what the hub did with
+// the a2a_card field (A2A-DESIGN §3.7, §10.3). Same names and meaning as
+// keys_status.
+const (
+	CardStatusOK        = "ok"        // verified and stored: the first card, or a higher seq
+	CardStatusUnchanged = "unchanged" // same seq and same signed content as stored
+	CardStatusAbsent    = "absent"    // the registration carried no card
+	CardStatusInvalid   = "invalid"   // did not verify; not stored
+	CardStatusConflict  = "conflict"  // lower seq, or same seq with other content; not stored
+	// CardStatusUnverified is a hub that stores the card before its
+	// admission step exists: kept, nothing checked.
+	CardStatusUnverified = "unverified"
+)
 
 // HubIdentity is the answer to GET /hub/identity: the hub's AID and KEL
 // (standard base64). The daemon needs the AID before its first signed call,

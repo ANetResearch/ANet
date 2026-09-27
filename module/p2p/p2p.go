@@ -46,6 +46,9 @@ func init() {
 		if cfg.Socket == "" {
 			return nil, fmt.Errorf("socket is required")
 		}
+		if err := checkAdvertise(cfg.Advertise); err != nil {
+			return nil, err
+		}
 		return &Module{cfg: cfg}, nil
 	})
 }
@@ -61,6 +64,13 @@ type Config struct {
 	// ReachTimeoutMS bounds the reachability question, which is asked
 	// before every send and must therefore be cheap.
 	ReachTimeoutMS int `json:"reach_timeout_ms"`
+	// Advertise is the address other peers dial to reach this node's peer
+	// process directly ("tcp://host:port" or "host:port"), the same value
+	// given to `anet p2p-advertise`. When set, the node's network card
+	// carries a direct interface for it (card.go). Empty, the card has
+	// none: a peer process listening on a local socket has nothing a
+	// remote reader could dial.
+	Advertise string `json:"advertise,omitempty"`
 }
 
 // Module registers the peer transport.
@@ -68,6 +78,17 @@ type Module struct {
 	cfg  Config
 	tr   *Transport
 	stop context.CancelFunc
+}
+
+// checkAdvertise refuses an advertise value a remote peer could not
+// dial, at start rather than as an interface silently missing from the
+// card.
+func checkAdvertise(a string) error {
+	if a == "" {
+		return nil
+	}
+	_, err := directURL(a)
+	return err
 }
 
 func (m *Module) Name() string { return name }

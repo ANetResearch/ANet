@@ -33,6 +33,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/adp"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/evidence"
@@ -113,6 +114,18 @@ type fakeHub struct {
 	authFailures int
 	// registerKeys is the keys_status of each agent's last registration.
 	registerKeys map[string]string
+	// a2aCards holds each agent's admitted A2A network card (raw bytes) and
+	// a2aMarks its params.seq high water, the admission hub brief H1
+	// describes: a2acard.Verify, then CheckHighWater. registerCards is the
+	// card_status of each agent's last registration, and a2aCardSends
+	// counts registrations that carried a card.
+	a2aCards      map[string][]byte
+	a2aMarks      map[string]a2acard.Mark
+	registerCards map[string]string
+	a2aCardSends  int
+	// agentsQueries records the query string of every GET /agents, so a
+	// test can tell what a search sent to the hub.
+	agentsQueries []string
 }
 
 // fakeHubDefaultMaxEnvelope is the real hub's per-envelope cap (96 MiB).
@@ -154,6 +167,8 @@ func newFakeHub(t *testing.T) *httptest.Server {
 		sendsBy:  map[string]int{}, sigSeen: map[string]bool{},
 		keysOverride: map[string]hubapi.KeysResponse{},
 		registerKeys: map[string]string{},
+		a2aCards:     map[string][]byte{}, a2aMarks: map[string]a2acard.Mark{},
+		registerCards: map[string]string{},
 	}
 	// The hub is an agent on its own registry, so its settlement
 	// signatures can be checked the same way everyone else's are.
@@ -400,7 +415,45 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 		out.KeysStatus, out.KeysError = h.admitKeysLocked(a, req.EncKeys, kelEvents)
 	}
 	h.registerKeys[req.AID] = out.KeysStatus
+	if len(req.A2ACard) > 0 {
+		h.a2aCardSends++
+		out.CardStatus, out.CardError = h.admitA2ACardLocked(req.AID, req.A2ACard, kelEvents)
+	}
+	h.registerCards[req.AID] = out.CardStatus
 	fakeHubJSON(w, http.StatusOK, out)
+}
+
+// admitA2ACardLocked admits an A2A network card for a registering agent
+// (A2A-DESIGN §3.7, §10.3; hub brief H1): verified against the submitted
+// KEL, then the params.seq rule against the stored mark. The caller holds
+// h.mu.
+func (h *fakeHub) admitA2ACardLocked(aid string, raw []byte, kel []identity.SignedEvent) (string, string) {
+	v, err := a2acard.Verify(raw, func(a string) ([]identity.SignedEvent, error) {
+		if a != aid {
+			return nil, fmt.Errorf("not the registrant")
+		}
+		return kel, nil
+	}, uint64(time.Now().UnixMilli()))
+	if err != nil {
+		return hubapi.CardStatusInvalid, err.Error()
+	}
+	if v.AID != aid {
+		return hubapi.CardStatusInvalid, "card is signed for another AID"
+	}
+	var stored *a2acard.Mark
+	if m, ok := h.a2aMarks[aid]; ok {
+		stored = &m
+	}
+	dec, err := a2acard.CheckHighWater(stored, v.Mark())
+	if err != nil {
+		return hubapi.CardStatusConflict, err.Error()
+	}
+	h.a2aCards[aid] = append([]byte(nil), raw...)
+	h.a2aMarks[aid] = v.Mark()
+	if dec == a2acard.Same {
+		return hubapi.CardStatusUnchanged, ""
+	}
+	return hubapi.CardStatusOK, ""
 }
 
 // admitKeysLocked applies the publisher rules of §3.1 to a key set for a
@@ -647,6 +700,7 @@ func (h *fakeHub) hAgents(w http.ResponseWriter, r *http.Request) {
 	q := strings.ToLower(r.URL.Query().Get("q"))
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.agentsQueries = append(h.agentsQueries, r.URL.RawQuery)
 	agents := []hubapi.AgentView{}
 	for _, a := range h.agents {
 		v := h.viewWithAggregates(a)
