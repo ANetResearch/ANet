@@ -29,7 +29,9 @@
 #   5. the binary reports the version and the module set it names for its
 #      variant (the default variant must not contain `shell`)
 #
-# There is no flag to skip any of these.
+# There is no flag to skip any of these. The manifest and its signature are
+# kept beside the installed binary (anet.release.json, anet.release.json.sig)
+# so that `anet doctor` can check them, and the binary, again later.
 #
 # WHAT IS NOT: this script itself, when it is piped into sh. `curl | sh`
 # trusts the host that served it and that host's TLS certificate. To not
@@ -398,6 +400,7 @@ install_binary() {
   check_binary "$STAGED"
   $SUDO mv -f "$STAGED" "$DEST" || die "could not write $DEST"
   STAGED=""
+  record_release
   # macOS: clear quarantine + ad-hoc sign so the first exec doesn't stall on Gatekeeper.
   if [ "$OS_TAG" = darwin ]; then
     xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
@@ -417,6 +420,20 @@ install_binary() {
   if [ -n "$INSTALLED" ]; then
     say "  Daemons already running keep the old binary until restarted: anet stop --all && anet up --all"
   fi
+}
+
+# record_release: keep the manifest this install was checked against, and
+# its signature, beside the binary ($DEST.release.json and .sig; `anet
+# update` writes the same pair). `anet doctor` verifies them again with the
+# release key inside the binary and compares the binary's sha256 with the
+# manifest. The install does not depend on them, so a failure is a warning.
+record_release() {
+  for f in release.json.sig release.json; do
+    { $SUDO rm -f "${DEST}.$f" && $SUDO cp "$TMP/$f" "${DEST}.$f" && $SUDO chmod 644 "${DEST}.$f"; } || {
+      warn "could not write ${DEST}.$f; anet doctor will report the release signature as unknown"
+      return 0
+    }
+  done
 }
 
 # From here on the binary is installed; a step that fails is reported and

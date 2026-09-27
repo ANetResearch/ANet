@@ -80,7 +80,23 @@ const (
 	ReasonOptionNotOffered         = "option_not_offered"         // the chosen option is not a quoted one (§8.7)
 	ReasonProviderBusy             = "provider_busy"              // no long-call slot; nothing was settled
 	ReasonNeedsOperatorApproval    = "needs_operator_approval"    // the quote is above the automatic tier
+	// ReasonExtensionNotActivated is needs_operator_approval as a local A2A
+	// client that did not activate this extension is told it (§8.7): it
+	// cannot answer the quote itself until it does.
+	ReasonExtensionNotActivated = "payment_extension_not_activated"
 )
+
+// Activated reports whether a request's A2A-Extensions (as the local A2A
+// interface merged them) activate a2a-x402. The one place that decides
+// which URIs count (0017 Q18 adds the reference library's v0.1 here).
+func Activated(uris []string) bool {
+	for _, u := range uris {
+		if u == ExtensionURI {
+			return true
+		}
+	}
+	return false
+}
 
 // PayBind is what a task payment's authorization carries as its
 // InteractionID (A2A-DESIGN §2 X4):

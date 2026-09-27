@@ -15,16 +15,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/release"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -52,32 +51,64 @@ type fileState struct {
 	Private bool `json:"private"`
 }
 
+// agentWire is one coding tool as doctor reports it: from agentwire.Inspect
+// (doctor_agents.go), or in a -tags no_mcp build from a read of the tool's
+// configuration file (doctor_agents_nomcp.go).
 type agentWire struct {
 	Tool    string `json:"tool"`
 	Config  string `json:"config"`
-	Present bool   `json:"present"` // the tool's config file exists
-	Wired   bool   `json:"wired"`   // it has an anet entry
-	Detail  string `json:"detail,omitempty"`
+	Present bool   `json:"present"` // the tool is on this machine
+	Wired   bool   `json:"wired"`   // its configuration has anet's entry
+	// Current is set when `anet agents wire` would change nothing; Pending
+	// says what it would change otherwise.
+	Current  bool     `json:"current"`
+	Pending  []string `json:"pending,omitempty"`
+	Conflict string   `json:"conflict,omitempty"` // a same-named entry anet does not manage
+	Error    string   `json:"error,omitempty"`    // the tool could not be checked
+	Detail   string   `json:"detail,omitempty"`
 	// Handshake is whether the tool was started and answered through
 	// anet's MCP server. doctor does not start tools: "not_checked".
 	Handshake string `json:"handshake"`
 }
 
+// a2aAgentEntry is one Hermes a2a_agents entry pointing at this node's
+// local A2A interface. Matches is whether its address is a2a_addr.txt's;
+// Token whether it carries a2a_token.txt's token: "current", "stale" or
+// "unknown" (Unknown says why it could not be compared). Either one off
+// is what `anet agents wire --refresh` repairs (0017 Q13).
 type a2aAgentEntry struct {
 	URL     string `json:"url"`
+	AID     string `json:"aid,omitempty"`
 	Port    string `json:"port"`
 	Matches bool   `json:"matches_a2a_addr"`
+	Token   string `json:"token"`
+	Unknown string `json:"unknown,omitempty"`
+}
+
+// agentsView is what the build's probe found: the tools, Hermes'
+// configuration file, and its a2a_agents entries.
+type agentsView struct {
+	tools        []agentWire
+	hermesConfig string
+	a2a          []a2aAgentEntry
+	// note is said once about the probe itself (a no_mcp build); err is
+	// set when the tools could not be inspected at all.
+	note, err string
 }
 
 type doctorReport struct {
 	Schema  string `json:"schema"`
 	DataDir string `json:"data_dir"`
 	Version struct {
-		Version         string `json:"version"`
-		Commit          string `json:"commit"`
-		Built           string `json:"built"`
+		Version string `json:"version"`
+		Commit  string `json:"commit"`
+		Built   string `json:"built"`
+		// Signature is the check of the release record the installer left
+		// beside this binary (release.CheckInstalled): verified,
+		// unverified or unknown.
 		Signature       string `json:"signature"`
 		SignatureDetail string `json:"signature_detail"`
+		ReleaseRecord   string `json:"release_record,omitempty"`
 	} `json:"version"`
 	Modules  []string `json:"modules"`
 	Identity struct {
@@ -128,10 +159,10 @@ type doctorReport struct {
 	Hermes     struct {
 		Config    fileState       `json:"config"`
 		A2AAgents []a2aAgentEntry `json:"a2a_agents"`
-		// A2AToken is whether the entries on this node's A2A port carry the
-		// current local A2A token: "current", "stale" (a2a_token.txt was
-		// replaced since they were written), "unknown" (no token file, or no
-		// entry on this node's port, to compare with) or "no_entries".
+		// A2AToken sums up the entries' tokens: "stale" when one does not
+		// carry the current local A2A token (a2a_token.txt was replaced
+		// since it was written), "current" when those that can be compared
+		// do, "unknown" when none can be, and "no_entries".
 		A2AToken string `json:"a2a_token"`
 	} `json:"hermes"`
 	Checks []doctorCheck `json:"checks"`
@@ -139,10 +170,17 @@ type doctorReport struct {
 }
 
 // doctorEnv is what doctor reads outside the data directory. Tests replace
-// it so no real home directory is read.
+// it so no real home directory, environment or PATH is read.
 type doctorEnv struct {
 	home       string // the user's home directory
 	hermesHome string // HERMES_HOME, or ~/.hermes
+	// exe is this binary, whose release record is checked and which the
+	// coding tools' entries should run ("": the running executable).
+	exe string
+	// getenv and lookPath are what the tool probe reads the environment
+	// and PATH with (nil: os.Getenv, exec.LookPath).
+	getenv   func(string) string
+	lookPath func(string) (string, error)
 	// running reports whether a daemon answers at the control address with
 	// the token in tokenPath.
 	running func(addr, tokenPath string) bool
@@ -155,6 +193,33 @@ func defaultDoctorEnv() doctorEnv {
 		hh = filepath.Join(home, ".hermes")
 	}
 	return doctorEnv{home: home, hermesHome: hh, running: daemonAnswersAt}
+}
+
+// env reads an environment variable; HERMES_HOME is the one doctor
+// already resolved.
+func (e doctorEnv) env(k string) string {
+	if k == "HERMES_HOME" && e.hermesHome != "" {
+		return e.hermesHome
+	}
+	if e.getenv != nil {
+		return e.getenv(k)
+	}
+	return os.Getenv(k)
+}
+
+// binary is the running anet binary, symlinks resolved.
+func (e doctorEnv) binary() string {
+	if e.exe != "" {
+		return e.exe
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = r
+	}
+	return exe
 }
 
 // daemonAnswersAt is localDaemonUp for the address doctor has already read.
@@ -170,11 +235,15 @@ func daemonAnswersAt(addr, tokenPath string) bool {
 	return e == nil && code == 200
 }
 
-// releaseSignature reports whether this binary was checked against a signed
-// release manifest (§13.2). The release signing work has not landed in this
-// build, so the answer is "unknown" rather than a guess.
-var releaseSignature = func() (status, detail string) {
-	return stUnknown, "this build has no release-manifest check (anet update / release.json)"
+// releaseCheck checks the record install.sh or `anet update` left beside
+// this binary (§13.2): the manifest verified again with the release key
+// compiled in, and this binary's sha256 found in it.
+func releaseCheck(env doctorEnv) release.InstalledCheck {
+	exe := env.binary()
+	if exe == "" {
+		return release.InstalledCheck{Status: release.InstalledUnknown, Detail: "cannot locate this binary"}
+	}
+	return release.CheckInstalled(exe, release.DefaultTrust(), time.Now())
 }
 
 func runDoctor(layout daemon.Layout, rest []string) error {
@@ -221,9 +290,18 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	}
 
 	rep.Version.Version, rep.Version.Commit, rep.Version.Built = daemon.Version, daemon.BuildCommit, daemon.BuildAt
-	rep.Version.Signature, rep.Version.SignatureDetail = releaseSignature()
+	rc := releaseCheck(env)
+	rep.Version.Signature, rep.Version.SignatureDetail, rep.Version.ReleaseRecord = rc.Status, rc.Detail, rc.Record
 	add("version", stInfo, fmt.Sprintf("anet %s (commit %s, built %s)", daemon.Version, daemon.BuildCommit, daemon.BuildAt), "")
-	add("version.signature", rep.Version.Signature, rep.Version.SignatureDetail, "")
+	switch rc.Status {
+	case release.InstalledVerified:
+		add("version.signature", stOK, "verified: "+rc.Detail, "")
+	case release.InstalledUnverified:
+		add("version.signature", stWarn, "unverified: "+rc.Detail,
+			"anet update (installs the signed release and records it)")
+	default:
+		add("version.signature", stUnknown, rc.Detail, "")
+	}
 	rep.Modules = module.Compiled()
 	if rep.Modules == nil {
 		rep.Modules = []string{}
@@ -382,30 +460,49 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	}
 
 	// Coding tools and Hermes (§13.1).
-	rep.Agents = probeAgentWiring(env)
+	av := inspectAgents(layout, env) // doctor_agents.go; doctor_agents_nomcp.go in a no_mcp build
+	rep.Agents = av.tools
+	if rep.Agents == nil {
+		rep.Agents = []agentWire{}
+	}
+	if av.err != "" {
+		add("agents", stUnknown, "the coding tools could not be inspected: "+av.err, "")
+	}
+	if av.note != "" {
+		add("agents", stInfo, av.note, "")
+	}
+	rep.Hermes.A2AAgents = av.a2a
+	if rep.Hermes.A2AAgents == nil {
+		rep.Hermes.A2AAgents = []a2aAgentEntry{}
+	}
+	rep.Hermes.A2AToken = a2aTokenSummary(rep.Hermes.A2AAgents)
+	stale := rep.Hermes.A2AToken == "stale" || rep.A2A.Addr != "" &&
+		slices.ContainsFunc(rep.Hermes.A2AAgents, func(e a2aAgentEntry) bool { return e.Unknown == "" && !e.Matches })
 	for _, a := range rep.Agents {
+		fix := "anet agents wire " + a.Tool
+		if a.Tool == "hermes" && stale {
+			fix += " --refresh"
+		}
 		switch {
-		case a.Wired:
+		case a.Conflict != "":
+			add("agents."+a.Tool, stWarn, "conflict: "+a.Conflict, "")
+		case a.Error != "":
+			add("agents."+a.Tool, stWarn, "cannot check "+a.Config+": "+a.Error, "")
+		case a.Wired && a.Current:
 			add("agents."+a.Tool, stOK, "anet wired in "+a.Config+a.detailSuffix(), "")
+		case a.Wired:
+			add("agents."+a.Tool, stWarn, "anet wired in "+a.Config+", not current: "+strings.Join(a.Pending, "; "), fix)
 		case a.Present:
-			add("agents."+a.Tool, stInfo, "installed, anet not wired ("+a.Config+")", "anet agents wire "+a.Tool)
+			add("agents."+a.Tool, stInfo, "installed, anet not wired ("+a.Config+")", fix)
 		}
 	}
-	rep.Hermes.A2AAgents = []a2aAgentEntry{}
-	rep.Hermes.A2AToken = "no_entries"
-	if env.hermesHome != "" {
-		rep.Hermes.Config = statFile(filepath.Join(env.hermesHome, "config.yaml"))
+	if av.hermesConfig != "" {
+		rep.Hermes.Config = statFile(av.hermesConfig)
 	}
 	if rep.Hermes.Config.Present {
-		b, _ := os.ReadFile(rep.Hermes.Config.Path)
-		rep.Hermes.A2AAgents = hermesA2AAgents(string(b), rep.A2A.Addr)
-		// Only entries on this node's A2A port are this node's; the token is
-		// compared for those (entries of another identity carry its token).
-		if slices.ContainsFunc(rep.Hermes.A2AAgents, func(e a2aAgentEntry) bool { return e.Matches }) {
-			rep.Hermes.A2AToken = hermesTokenState(string(b), rep.A2A.Token)
-		} else if len(rep.Hermes.A2AAgents) > 0 {
-			rep.Hermes.A2AToken = "unknown"
-		}
+		// 0017 Q13: an entry "expires" when its token is no longer
+		// a2a_token.txt's or its port no longer a2a_addr.txt's; wire
+		// --refresh rewrites both.
 		switch rep.Hermes.A2AToken {
 		case "stale":
 			add("hermes.a2a_token", stWarn, rep.Hermes.Config.Path+": the a2a_agents entries do not carry the current "+
@@ -425,7 +522,9 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		}
 		for _, e := range rep.Hermes.A2AAgents {
 			switch {
-			case rep.A2A.Addr == "":
+			case e.Unknown != "":
+				add("hermes.a2a_agents", stUnknown, e.URL+": cannot compare with the local A2A interface ("+e.Unknown+")", "")
+			case rep.A2A.Addr == "" && !e.Matches:
 				add("hermes.a2a_agents", stUnknown, e.URL+": no a2a_addr.txt to compare the port with", "")
 			case !e.Matches:
 				add("hermes.a2a_agents", stWarn, e.URL+": port "+e.Port+" is not the local A2A port ("+rep.A2A.Addr+")",
@@ -486,163 +585,37 @@ func (a agentWire) detailSuffix() string {
 	return "; " + a.Detail
 }
 
-// probeAgentWiring looks for an anet entry in each coding tool's own
-// configuration file, where `anet agents wire` (internal/agentwire) puts it.
-// It reads files only; whether the tool can start `anet mcp` is not
-// checked (Handshake "not_checked"). When agentwire lands it should report
-// this itself, and this probe is the fallback for a no_mcp build.
-func probeAgentWiring(env doctorEnv) []agentWire {
-	out := []agentWire{}
-	add := func(tool, cfg string, present, wired bool, detail string) {
-		out = append(out, agentWire{Tool: tool, Config: cfg, Present: present, Wired: wired, Detail: detail,
-			Handshake: "not_checked"})
+// a2aTokenSummary sums up the tokens of the a2a_agents entries (see
+// doctorReport.Hermes.A2AToken).
+func a2aTokenSummary(entries []a2aAgentEntry) string {
+	if len(entries) == 0 {
+		return "no_entries"
 	}
-	if env.home != "" {
-		probeHomeTools(env.home, add)
-	}
-
-	if env.hermesHome != "" {
-		hermes := filepath.Join(env.hermesHome, "config.yaml")
-		hp, hw := false, false
-		if b, err := os.ReadFile(hermes); err == nil {
-			hp, hw = true, yamlHasChild(string(b), "mcp_servers", "anet")
-		}
-		add("hermes", hermes, hp, hw, "")
-	}
-	return out
-}
-
-// probeHomeTools looks at the tools whose configuration lives under the
-// home directory.
-func probeHomeTools(h string, add func(tool, cfg string, present, wired bool, detail string)) {
-	claude := filepath.Join(h, ".claude.json")
-	p, w := jsonHasPath(claude, "mcpServers", "anet")
-	detail := ""
-	if fileExists(filepath.Join(h, ".claude", "skills", "anet", "SKILL.md")) {
-		detail = "skill ~/.claude/skills/anet/SKILL.md present"
-	}
-	add("claude-code", claude, p || fileExists(filepath.Join(h, ".claude")), w, detail)
-
-	codex := filepath.Join(h, ".codex", "config.toml")
-	cp, cw := false, false
-	if b, err := os.ReadFile(codex); err == nil {
-		cp = true
-		for _, ln := range strings.Split(string(b), "\n") {
-			t := strings.ReplaceAll(strings.TrimSpace(ln), " ", "")
-			if t == "[mcp_servers.anet]" || t == `[mcp_servers."anet"]` {
-				cw = true
-			}
+	sum := "unknown"
+	for _, e := range entries {
+		switch e.Token {
+		case "stale":
+			return "stale"
+		case "current":
+			sum = "current"
 		}
 	}
-	add("codex", codex, cp, cw, "")
-
-	cursor := filepath.Join(h, ".cursor", "mcp.json")
-	p, w = jsonHasPath(cursor, "mcpServers", "anet")
-	add("cursor", cursor, p || fileExists(filepath.Join(h, ".cursor")), w, "")
-
-	opencode := filepath.Join(h, ".config", "opencode", "opencode.json")
-	p, w = jsonHasPath(opencode, "mcp", "anet")
-	add("opencode", opencode, p, w, "")
+	return sum
 }
 
-// jsonHasPath reports whether a JSON file exists and has the nested key
-// path keys.
-func jsonHasPath(path string, keys ...string) (present, wired bool) {
-	b, err := os.ReadFile(path)
+// urlPort is the port of a URL, the scheme's default when it names none.
+func urlPort(raw string) string {
+	u, err := url.Parse(raw)
 	if err != nil {
-		return false, false
+		return ""
 	}
-	var m map[string]any
-	if json.Unmarshal(b, &m) != nil {
-		return true, false
+	if p := u.Port(); p != "" {
+		return p
 	}
-	var cur any = m
-	for _, k := range keys {
-		mm, ok := cur.(map[string]any)
-		if !ok {
-			return true, false
-		}
-		if cur, ok = mm[k]; !ok {
-			return true, false
-		}
+	if u.Scheme == "https" {
+		return "443"
 	}
-	return true, true
-}
-
-// yamlHasChild reports whether a top-level YAML mapping key has a child
-// key: `parent:` at some indent, then `child:` indented deeper before the
-// block ends. A line scan, not a parser; the module has no YAML dependency
-// and needs none for this.
-func yamlHasChild(text, parent, child string) bool {
-	in, indent := false, 0
-	for _, ln := range strings.Split(text, "\n") {
-		body := ln
-		if i := strings.Index(body, " #"); i >= 0 {
-			body = body[:i]
-		}
-		t := strings.TrimSpace(body)
-		if t == "" || strings.HasPrefix(t, "#") {
-			continue
-		}
-		ind := len(body) - len(strings.TrimLeft(body, " \t"))
-		if in {
-			if ind <= indent {
-				in = false
-			} else if strings.HasPrefix(t, child+":") || strings.HasPrefix(t, `"`+child+`":`) {
-				return true
-			}
-		}
-		if !in && (t == parent+":" || t == `"`+parent+`":`) {
-			in, indent = true, ind
-		}
-	}
-	return false
-}
-
-var a2aURLRe = regexp.MustCompile(`https?://[^\s"'<>]+/a2a/v1/agents/[^\s"'<>]+`)
-
-// hermesTokenState compares the tokens of the a2a_agents entries with the
-// local A2A token, without reporting either: "current" when the token file's
-// token is in the Hermes config, "stale" when it is not, "unknown" when there
-// is no token file to compare with. The local A2A token does not expire; it
-// goes stale for Hermes when a2a_token.txt is replaced.
-func hermesTokenState(text string, token fileState) string {
-	if !token.Present {
-		return "unknown"
-	}
-	b, err := os.ReadFile(token.Path)
-	tok := strings.TrimSpace(string(b))
-	if err != nil || tok == "" {
-		return "unknown"
-	}
-	if strings.Contains(text, tok) {
-		return "current"
-	}
-	return "stale"
-}
-
-// hermesA2AAgents finds the a2a_agents URLs that point at an anet local A2A
-// interface and compares each one's port with a2aAddr.
-func hermesA2AAgents(text, a2aAddr string) []a2aAgentEntry {
-	_, wantPort, _ := net.SplitHostPort(a2aAddr)
-	out := []a2aAgentEntry{}
-	for _, raw := range a2aURLRe.FindAllString(text, -1) {
-		// A flow mapping ({url: …, auth: …}) leaves its punctuation on the match.
-		raw = strings.TrimRight(raw, ",}]")
-		u, err := url.Parse(raw)
-		if err != nil {
-			continue
-		}
-		port := u.Port()
-		if port == "" {
-			port = "80"
-			if u.Scheme == "https" {
-				port = "443"
-			}
-		}
-		out = append(out, a2aAgentEntry{URL: raw, Port: port, Matches: wantPort != "" && port == wantPort})
-	}
-	return out
+	return "80"
 }
 
 // renderDoctor prints the report for a person.

@@ -260,13 +260,28 @@ func TestAQuoteAboveTheAutoTierWaitsForADecision(t *testing.T) {
 		_ = json.Unmarshal(b, &out)
 		return resp.StatusCode, out
 	}
+	// Above the agent tier the answer is not an error (§8.3): 200, the task
+	// still waiting (input-required, payment-required) with anet.reason
+	// needs_operator_approval, the policy's code, and a message that says
+	// the operator pays with `anet pay <task>`.
 	submit := `{"task_id":"` + id + `","decision":"submit"}`
-	if code, out := pay(submit); code != http.StatusForbidden || out["reason"] != SpendOverSingle {
-		t.Fatalf("agent tier at agent_max 0: %d %v", code, out)
+	held := func(what, code string) {
+		t.Helper()
+		status, out := pay(submit)
+		msg, _ := out["message"].(string)
+		if status != http.StatusOK || out["anet.reason"] != x402a2a.ReasonNeedsOperatorApproval ||
+			out["spend_refusal"] != code || out["state"] != string(interactions.StateInputRequired) ||
+			out[x402a2a.KeyStatus] != x402a2a.StatusRequired || !strings.Contains(msg, "anet pay "+id) {
+			t.Fatalf("%s: %d %v", what, status, out)
+		}
 	}
+	held("agent tier at agent_max 0", SpendOverSingle)
 	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10})
-	if code, out := pay(submit); code != http.StatusForbidden || out["reason"] != SpendPayeeNotAllowed {
-		t.Fatalf("a payee not on the list: %d %v", code, out)
+	held("a payee not on the list", SpendPayeeNotAllowed)
+	// The manual tier has no one above it: its refusal stays a refusal.
+	manual, mb := p.req(t, "POST", "/tasks/pay-manual", `{"task_id":"`+id+`","decision":"submit"}`, p.bearer)
+	if manual.StatusCode != http.StatusForbidden || !strings.Contains(string(mb), SpendPayeeNotAllowed) {
+		t.Fatalf("the manual tier to a payee not on the list: %d %s", manual.StatusCode, mb)
 	}
 	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10}, prov.AID())
 	if n := chainEvents(t, req, EvPaymentAuthorized); n != 0 {

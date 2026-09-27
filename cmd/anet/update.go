@@ -101,6 +101,11 @@ func runUpdate(rest []string) error {
 			release.ErrDowngrade, f.Base, m.Version, version.V)
 	case f.Cmp == 0:
 		fmt.Printf("✓ already at %s\n", m.Version)
+		if !checkOnly {
+			// A binary installed before installers kept a record gets one
+			// here; doctor still checks it against this binary's sha256.
+			recordRelease(exe, f)
+		}
 		return nil
 	case checkOnly:
 		fmt.Printf("→ %s is available; run `anet update` to install it\n", m.Version)
@@ -112,9 +117,21 @@ func runUpdate(rest []string) error {
 		return fmt.Errorf("%w (nothing was changed: %s is still %s)", err, exe, version.V)
 	}
 	fmt.Printf("✓ updated %s: %s → %s (sha256 of .gz and binary match the signed manifest)\n", exe, version.V, m.Version)
+	recordRelease(exe, f)
 	fmt.Println("  Daemons already running keep the old binary until restarted:")
 	fmt.Println("    anet stop --all && anet up --all")
 	return nil
+}
+
+// recordRelease keeps the verified manifest and its signature beside the
+// binary (<binary>.release.json and .sig), where `anet doctor` verifies
+// them again and compares the binary with them. Failing to write them does
+// not undo an update that has happened; it is said, and doctor then
+// reports the signature as unknown.
+func recordRelease(exe string, f *release.Found) {
+	if err := release.SaveInstalled(exe, f.Raw, f.Sig); err != nil {
+		fmt.Fprintf(os.Stderr, "  note: the release record was not written beside %s (%v); `anet doctor` will report the signature as unknown\n", exe, err)
+	}
 }
 
 func shortCommit(c string) string {

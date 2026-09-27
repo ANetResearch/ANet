@@ -41,7 +41,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/payment"
@@ -1062,6 +1065,11 @@ type PayOutcome struct {
 	// Reused is set when the authorization sent is one signed earlier for
 	// the same terms (§8.3: a re-quote on the same terms).
 	Reused bool `json:"reused,omitempty"`
+	// SpendRefusal and Message are set on a decision held for the operator
+	// (PayHold): the spending policy's code, and what happens now, for a
+	// person or an agent to read.
+	SpendRefusal string `json:"spend_refusal,omitempty"`
+	Message      string `json:"message,omitempty"`
 }
 
 // Errors of PayTask.
@@ -1087,6 +1095,59 @@ type PayRefusal struct {
 
 func (e *PayRefusal) Error() string {
 	return fmt.Sprintf("anet: payment refused: %s (%s)", e.Outcome.Error, e.Outcome.Reason)
+}
+
+// PayHold is an agent-tier decision to pay that the spending policy did
+// not allow (§8.3, §8.6): above agent_max or agent_daily_max, or to a
+// payee not on the list. Nothing was signed or sent, and the task goes on
+// waiting, input-required with anet.reason needs_operator_approval, for
+// the operator's `anet pay` on a terminal. It is the answer, not a
+// failure: /tasks/pay returns Outcome with 200 and the local A2A interface
+// returns the task (a2ashape.PaymentHold). Unwrap gives the refusal.
+type PayHold struct {
+	Outcome PayOutcome
+	Refusal *SpendRefusal
+}
+
+func (e *PayHold) Error() string {
+	return fmt.Sprintf("anet: payment held for the operator: %v", e.Refusal)
+}
+
+func (e *PayHold) Unwrap() error { return e.Refusal }
+
+// holdForOperator is the PayHold for a refused agent-tier payment of opt
+// on ix.
+func (d *Daemon) holdForOperator(ix *interactions.Interaction, opt payment.PaymentOption, r *SpendRefusal) *PayHold {
+	out := PayOutcome{TaskID: ix.ID, State: string(ix.State), PayState: ix.PayState,
+		Reason: x402a2a.ReasonNeedsOperatorApproval, SpendRefusal: r.Code}
+	out.Status, _ = d.PaymentStatusMeta(ix)[x402a2a.KeyStatus].(string)
+	if out.Status == "" {
+		out.Status = x402a2a.StatusRequired
+	}
+	out.Message = operatorApprovalText(ix.ID, opt, r)
+	return &PayHold{Outcome: out, Refusal: r}
+}
+
+// operatorApprovalText says why an agent's payment was not made and who
+// can make it. The amount and the payee are the quote's, as stored; the
+// provider wrote them, so they are made plain before they become text a
+// model reads (the payee was already checked to be the task's peer).
+func operatorApprovalText(ixID string, opt payment.PaymentOption, r *SpendRefusal) string {
+	return fmt.Sprintf("Payment not submitted: %s. The quote (%s %s to %s) is still open: the operator of this "+
+		"node has to approve it by running `anet pay %s` in a terminal. Nothing was signed or sent.",
+		r.Detail, plainText(opt.Amount, 40), plainText(opt.Asset, 40), plainText(opt.PayTo, 256), ixID)
+}
+
+// plainText is peer-written s without control or bidirectional
+// formatting characters, cut to max bytes.
+func plainText(s string, max int) string {
+	s = strings.Map(func(r rune) rune {
+		if r == utf8.RuneError || unicode.IsControl(r) || isBidiFormat(r) {
+			return -1
+		}
+		return r
+	}, s)
+	return truncateUTF8(s, max)
 }
 
 // PayTask carries out a decision on a task's quote: submit signs (or, on
@@ -1171,6 +1232,12 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 		if err != nil {
 			if r, ok := isSpendRefusal(err); ok {
 				logSpendRefusal(ix.ID, r)
+				if req.Purpose == module.PurposeTaskAgent {
+					// Above the agent tier the decision is the operator's
+					// (§8.3): the task waits for it, told why.
+					h := d.holdForOperator(ix, *opt, r)
+					return h.Outcome, h
+				}
 				return out, r
 			}
 			return out, err
