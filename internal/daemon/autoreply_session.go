@@ -25,6 +25,7 @@ type execSessionStore struct {
 	mu   sync.Mutex
 	path string
 	m    map[string]string
+	aid  string // this identity's AID, read once; names its exec work dirs (pruneExcept)
 }
 
 func newExecSessionStore(root string) *execSessionStore {
@@ -72,13 +73,18 @@ func (s *execSessionStore) del(key string) {
 // pruneExcept drops session bindings whose interaction is no longer active (ended, failed, or gone).
 // Interaction ids are globally unique and never reused, so an id absent from the live active set will
 // never be resumed again — pruning it just keeps the file bounded as tasks complete (and mops up any
-// binding orphaned by an abrupt requester exit).
+// binding orphaned by an abrupt requester exit). The per-interaction exec work dirs of the same
+// interactions are removed too (pruneExecWorkDirs).
 func (s *execSessionStore) pruneExcept(active map[string]bool) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.aid == "" {
+		s.aid = ReadIdentityAID(Layout{Root: filepath.Dir(s.path)})
+	}
+	pruneExecWorkDirs(s.aid, active)
 	changed := false
 	for k := range s.m {
 		if !active[k] {

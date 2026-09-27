@@ -151,7 +151,26 @@ func checkVoucherURL(raw string) error {
 			"on rather than one a buyer can reach; it must name the host the world sees this "+
 			"node at, as %s", raw, u.Hostname(), want)
 	}
+	// A buyer presents a bearer voucher at this door, so a non-loopback
+	// address must be https (A2A-DESIGN §2, row hub 网关/凭证兑付; §18):
+	// over plain http anyone on the path can read the voucher and redeem it
+	// first. The module does not terminate TLS itself; the operator puts a
+	// TLS terminator in front of voucher_addr and advertises its address.
+	if u.Scheme != "https" && !loopbackHost(u.Hostname()) {
+		return fmt.Errorf("x402: voucher_url %q uses %s:// on a non-loopback host; the redemption door "+
+			"carries bearer vouchers and must be reached over https — put a TLS terminator in front of "+
+			"voucher_addr and advertise its https:// address ending in %s", raw, u.Scheme, redeemPath)
+	}
 	return nil
+}
+
+// loopbackHost reports whether host is a loopback address or localhost.
+func loopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (m *Module) Name() string { return "x402" }

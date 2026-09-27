@@ -33,7 +33,10 @@ func registryEntryFile(controlAddr string) string {
 // identity switcher. Best-effort — a missing registry just means the switcher shows only the current
 // identity.
 func (d *Daemon) writeRegistry() {
-	if err := os.MkdirAll(DaemonsDir(), 0o700); err != nil {
+	if err := ensurePrivateDir(RuntimeDir()); err != nil {
+		return
+	}
+	if err := ensurePrivateDir(DaemonsDir()); err != nil {
 		return
 	}
 	cfg := d.config()
@@ -50,26 +53,36 @@ func removeRegistryEntry(controlAddr string) { _ = os.Remove(registryEntryFile(c
 // listRegistry returns all recorded local identities. It may include stale entries for daemons that
 // crashed without cleaning up; the console confirms liveness before offering them (a dead one simply
 // fails to load when navigated to).
+//
+// Every candidate runtime dir is read (runtimeDirCandidates), because a daemon started with
+// XDG_RUNTIME_DIR registers under it while a CLI or console started without it would otherwise look
+// only in /tmp/anet-<uid>. A registry dir that fails checkPrivateDir is skipped. Entries are
+// de-duplicated by control address, preferred runtime dir first.
 func listRegistry() ([]IdentityEntry, error) {
-	ents, err := os.ReadDir(DaemonsDir())
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := make([]IdentityEntry, 0, len(ents))
-	for _, e := range ents {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+	var out []IdentityEntry
+	seen := map[string]bool{}
+	for _, rd := range runtimeDirCandidates() {
+		dir := filepath.Join(rd, "daemons")
+		if checkPrivateDir(dir) != nil {
 			continue
 		}
-		b, rerr := os.ReadFile(filepath.Join(DaemonsDir(), e.Name()))
-		if rerr != nil {
+		ents, err := os.ReadDir(dir)
+		if err != nil {
 			continue
 		}
-		var ie IdentityEntry
-		if json.Unmarshal(b, &ie) == nil && ie.AID != "" && ie.ControlAddr != "" {
-			out = append(out, ie)
+		for _, e := range ents {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			b, rerr := os.ReadFile(filepath.Join(dir, e.Name()))
+			if rerr != nil {
+				continue
+			}
+			var ie IdentityEntry
+			if json.Unmarshal(b, &ie) == nil && ie.AID != "" && ie.ControlAddr != "" && !seen[ie.ControlAddr] {
+				seen[ie.ControlAddr] = true
+				out = append(out, ie)
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ControlAddr < out[j].ControlAddr })

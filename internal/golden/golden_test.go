@@ -17,6 +17,9 @@ package golden_test
 import (
 	"testing"
 
+	"github.com/ANetResearch/ANetCore/anetcid"
+
+	"github.com/ANetResearch/ANet/internal/transcript"
 	"github.com/ANetResearch/ANet/module/blackboard"
 	"github.com/ANetResearch/ANet/module/cas"
 	"github.com/ANetResearch/ANet/module/org"
@@ -121,3 +124,39 @@ func TestBlobCIDMatchesAnet3(t *testing.T) {
 		t.Fatalf("blob cid drifted from anet3:\n got %s\nwant %s", got, goldenBlobCID)
 	}
 }
+
+// The v2 transcript (A2A-DESIGN §2 X4) is the deliverable a provider signs
+// when it completes a text task: its CID is the receipt's ResultCID. Both
+// daemons and any third party re-deriving that CID must produce these exact
+// bytes from these messages, so the encoding is pinned here, bytes and CID.
+func TestTranscriptV2Vector(t *testing.T) {
+	msgs := []transcript.Message{
+		{From: "requester", Body: "summarise the attached report"},
+		{From: "provider", Body: "done — see the attachment",
+			Attachments: []transcript.Attachment{{Name: "summary.md", Mime: "text/markdown", Size: 42,
+				CID: "bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"}}},
+	}
+	b, err := transcript.EncodeV2("AAECAwQFBgcICQoLDA0ODw", msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(b) != goldenTranscriptV2 {
+		t.Fatalf("v2 transcript bytes drifted:\n got %s\nwant %s", b, goldenTranscriptV2)
+	}
+	cid, err := anetcid.Sum(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cid != goldenTranscriptV2CID {
+		t.Fatalf("v2 transcript CID drifted:\n got %s\nwant %s", cid, goldenTranscriptV2CID)
+	}
+	back, err := transcript.Parse(b)
+	if err != nil || back.Version != 2 || back.Nonce != "AAECAwQFBgcICQoLDA0ODw" || len(back.Messages) != 2 {
+		t.Fatalf("v2 vector does not read back: %+v %v", back, err)
+	}
+}
+
+const (
+	goldenTranscriptV2    = `{"v":2,"nonce":"AAECAwQFBgcICQoLDA0ODw","messages":[{"from":"requester","body":"summarise the attached report"},{"from":"provider","body":"done — see the attachment","attachments":[{"name":"summary.md","mime":"text/markdown","size":42,"cid":"bafkreihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku"}]}]}`
+	goldenTranscriptV2CID = "bafyreiaux65ezlwakald3ufckawk4i57we2tmcxzbd667h2ntqrzdrkbca"
+)

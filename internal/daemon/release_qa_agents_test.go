@@ -40,7 +40,7 @@ printf '%s\n' "$*"
 // the listing is what an operator picks from.
 func TestEveryRegisteredAgentInvokesWithThePrompt(t *testing.T) {
 	stub := argvStub(t)
-	t.Setenv("ANET_EXEC_COMMAND", stub)
+	setExecCommand(t, stub)
 	for _, id := range SupportedExecAgents() {
 		t.Run(id, func(t *testing.T) {
 			got, err := InvokeAgent(context.Background(), execInvokeOpts{
@@ -63,7 +63,7 @@ func TestEveryRegisteredAgentInvokesWithThePrompt(t *testing.T) {
 // directory the daemon happens to be in.
 func TestEveryRegisteredAgentRunsInTheRequestedWorkDir(t *testing.T) {
 	stub := argvStub(t)
-	t.Setenv("ANET_EXEC_COMMAND", stub)
+	setExecCommand(t, stub)
 	work := t.TempDir()
 	pwdStub := filepath.Join(t.TempDir(), "pwd.sh")
 	if err := os.WriteFile(pwdStub, []byte("#!/bin/sh\npwd\n"), 0o755); err != nil {
@@ -73,7 +73,7 @@ func TestEveryRegisteredAgentRunsInTheRequestedWorkDir(t *testing.T) {
 		t.Run(id, func(t *testing.T) {
 			// codex writes its reply to -o, so read the cwd off stdout by
 			// using a stub that ignores -o entirely.
-			t.Setenv("ANET_EXEC_COMMAND", pwdStub)
+			setExecCommand(t, pwdStub)
 			got, err := InvokeAgent(context.Background(), execInvokeOpts{
 				AgentID: id, Prompt: "p", WorkDir: work, Timeout: 10 * time.Second,
 			})
@@ -98,7 +98,7 @@ func TestAFailingAgentIsAnErrorNotAnEmptyReply(t *testing.T) {
 	if err := os.WriteFile(stub, []byte("#!/bin/sh\necho 'boom' >&2\nexit 3\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ANET_EXEC_COMMAND", stub)
+	setExecCommand(t, stub)
 	for _, id := range SupportedExecAgents() {
 		t.Run(id, func(t *testing.T) {
 			reply, err := InvokeAgent(context.Background(), execInvokeOpts{
@@ -122,7 +122,7 @@ func TestAnAgentThatSaysNothingIsAnError(t *testing.T) {
 	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ANET_EXEC_COMMAND", stub)
+	setExecCommand(t, stub)
 	for _, id := range SupportedExecAgents() {
 		t.Run(id, func(t *testing.T) {
 			reply, err := InvokeAgent(context.Background(), execInvokeOpts{
@@ -143,7 +143,7 @@ func TestAHungAgentIsCutOffAtTheTimeout(t *testing.T) {
 	if err := os.WriteFile(stub, []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("ANET_EXEC_COMMAND", stub)
+	setExecCommand(t, stub)
 	start := time.Now()
 	_, err := InvokeAgent(context.Background(), execInvokeOpts{
 		AgentID: "claude", Prompt: "p", Timeout: 2 * time.Second,

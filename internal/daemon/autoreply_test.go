@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // fakeOpenAI is a minimal OpenAI-compatible /chat/completions endpoint that records the last request
@@ -61,10 +63,10 @@ func newAutoReplyFixture(t *testing.T, cfg AutoReplyConfig, api *fakeOpenAI) *au
 
 	req := newTestDaemon(t, hub.URL, false)
 	prov := newTestDaemon(t, hub.URL, true)
-	if err := req.RegisterWithHub(ctx, hub.URL, "Alice", nil, GuestDefaultMessages, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, hub.URL, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, hub.URL, "Vision Bot", []string{"vision"}, GuestDefaultMessages, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, hub.URL, "Vision Bot", []string{"vision"}, ""); err != nil {
 		t.Fatal(err)
 	}
 	// Re-stop the relay loops HubRegister restarted; the test polls explicitly.
@@ -232,10 +234,8 @@ func TestAutoReplyOutbound(t *testing.T) {
 	api := &fakeOpenAI{reply: "sure, here is more detail"}
 	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, api)
 
-	// The peer must accept the delegation we're about to send it (the fixture's requester defaults to off).
-	if _, err := f.req.SetAcceptDelegations(true); err != nil {
-		t.Fatal(err)
-	}
+	// The peer must accept the delegation we're about to send it (the fixture's requester allows no one).
+	allowPeers(t, f.req, f.prov.AID())
 	// The autopilot provider INITIATES by delegating out to the requester.
 	id, err := f.prov.Delegate(f.ctx, f.req.AID(), "can you look into X?", nil)
 	if err != nil {
@@ -259,7 +259,8 @@ func TestAutoReplyOutbound(t *testing.T) {
 }
 
 // TestAutoReplyCapProposesEnd verifies the runaway guard: once we have auto-sent max_auto_replies messages
-// in one interaction, we propose `end` instead of replying again — so two autopilots cannot loop forever.
+// in one interaction, the provider completes the task instead of replying again — so two autopilots
+// cannot loop forever. (Before wire 2 it proposed an end the requester had to accept.)
 func TestAutoReplyCapProposesEnd(t *testing.T) {
 	api := &fakeOpenAI{reply: "reply"}
 	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test", MaxAutoReplies: 1}, api)
@@ -289,18 +290,19 @@ func TestAutoReplyCapProposesEnd(t *testing.T) {
 	}
 	ended := false
 	for _, th := range ts {
-		if th.InteractionID == id && th.EndReqBy == "them" {
+		if th.InteractionID == id && th.State == string(interactions.StateCompleted) {
 			ended = true
 		}
 	}
 	if !ended {
-		t.Fatal("expected the provider to propose end at the auto-reply cap")
+		t.Fatal("expected the provider to complete the task at the auto-reply cap")
 	}
 }
 
 // TestAutoReplyDoneSentinelProposesEnd verifies completion-awareness: when the backend appends the
-// task-done marker, the loop strips it, still delivers the surrounding text, and proposes end — so two
-// autopilots converge on a finished deliverable instead of chatting until the runaway cap.
+// task-done marker, the loop strips it, still delivers the surrounding text, and the provider completes
+// the task — so two autopilots converge on a finished deliverable instead of chatting until the runaway
+// cap.
 func TestAutoReplyDoneSentinelProposesEnd(t *testing.T) {
 	api := &fakeOpenAI{reply: "here is your function: def f(): pass\n" + autoReplyDoneSentinel}
 	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, api)
@@ -329,12 +331,12 @@ func TestAutoReplyDoneSentinelProposesEnd(t *testing.T) {
 	}
 	ended := false
 	for _, th := range ts {
-		if th.InteractionID == id && th.EndReqBy == "them" {
+		if th.InteractionID == id && th.State == string(interactions.StateCompleted) {
 			ended = true
 		}
 	}
 	if !ended {
-		t.Fatal("expected the provider to propose end after the task-done marker")
+		t.Fatal("expected the provider to complete the task after the task-done marker")
 	}
 }
 
@@ -405,5 +407,130 @@ func TestNewAutoReplierValidation(t *testing.T) {
 	}
 	if _, err := newAutoReplier(AutoReplyConfig{Backend: "exec"}, layout); err == nil {
 		t.Fatal("want error for exec without agent")
+	}
+}
+
+// execStub installs a stub agent that answers with a fixed line and counts
+// its runs in a file.
+func execStub(t *testing.T) (runs func() int) {
+	t.Helper()
+	dir := t.TempDir()
+	count := filepath.Join(dir, "runs")
+	stub := filepath.Join(dir, "stub.sh")
+	script := "#!/bin/sh\necho run >> " + count + "\necho EXEC-OK\n"
+	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	setExecCommand(t, stub)
+	return func() int {
+		b, _ := os.ReadFile(count)
+		return strings.Count(string(b), "run")
+	}
+}
+
+// The exec backend runs the local agent only for a peer on the trust list
+// (A2A-DESIGN §6). An allowed but untrusted peer, with auto_reply.untrusted
+// off, gets nothing and the agent is not started; once trusted it is, and
+// every run is recorded as anet.autoreply.invoked.
+func TestExecRunsOnlyForTrustedPeers(t *testing.T) {
+	runs := execStub(t)
+	f := newAutoReplyFixture(t, AutoReplyConfig{Backend: "exec", Agent: "cursor"}, nil)
+	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "run something", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	if n := runs(); n != 0 {
+		t.Fatalf("the agent ran %d times for an untrusted peer", n)
+	}
+	if n := chainEvents(t, f.prov, EvAutoReplyInvoked); n != 0 {
+		t.Fatalf("%d invocations recorded for an untrusted peer", n)
+	}
+	trustPeers(t, f.prov, f.req.AID())
+	f.prov.autoReplyOnce(f.ctx, f.cfg, f.replier)
+	trustedRuns := runs() // the cursor agent is started once or twice per turn (session create + send)
+	if trustedRuns == 0 {
+		t.Fatal("the agent did not run for a trusted peer")
+	}
+	if got := f.lastPeerMsg(t, id); got.Body != "EXEC-OK" {
+		t.Fatalf("reply %q", got.Body)
+	}
+	_, recs := f.prov.ledger.Evidence(EvidenceQuery{EventType: EvAutoReplyInvoked})
+	if len(recs) != 1 {
+		t.Fatalf("%d invocation events, want 1", len(recs))
+	}
+	ev := string(mustJSON(t, recs[0]))
+	for _, want := range []string{`"trusted":true`, `"sandboxed":false`, `"exit":"ok"`, `"agent":"cursor"`, id, f.req.AID()} {
+		if !strings.Contains(ev, want) {
+			t.Errorf("invocation event lacks %s: %s", want, ev)
+		}
+	}
+	// Taken off the trust list, the peer stops reaching the agent at the next turn.
+	if err := os.WriteFile(f.prov.peerFile(f.prov.config().inbound().TrustFile), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.req.SendMessage(f.ctx, id, "again", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	if n := runs(); n != trustedRuns {
+		t.Fatalf("the agent ran again after the peer left the trust list (%d → %d runs)", trustedRuns, n)
+	}
+}
+
+// auto_reply.untrusted=sandbox fails closed by direction when the sandbox
+// cannot be used (A2A-DESIGN §6; here: no auto_reply.api_key): an inbound
+// task is answered status{rejected, anet.reason=sandbox_unavailable}; an
+// outbound one sends nothing and is not retried until a new message. The
+// agent is never started unconfined.
+func TestSandboxUnavailableFailsClosed(t *testing.T) {
+	runs := execStub(t)
+	f := newAutoReplyFixture(t, AutoReplyConfig{Backend: "exec", Agent: "cursor", Untrusted: UntrustedSandbox}, nil)
+	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "run something", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	if n := runs(); n != 0 {
+		t.Fatalf("the agent ran %d times without a sandbox", n)
+	}
+	if st := stateOf(t, f.prov, id); st != interactions.StateRejected {
+		t.Fatalf("inbound task after a refused sandbox turn: %s", st)
+	}
+	if meta := awaitState(t, f.req, id, interactions.StateRejected); meta["anet.reason"] != reasonSandboxUnavailble {
+		t.Fatalf("requester told %v", meta)
+	}
+	_, recs := f.prov.ledger.Evidence(EvidenceQuery{EventType: EvAutoReplyInvoked})
+	if len(recs) != 1 || !strings.Contains(string(mustJSON(t, recs[0])), `"exit":"sandbox_unavailable"`) ||
+		!strings.Contains(string(mustJSON(t, recs[0])), `"sandboxed":false`) {
+		t.Fatalf("invocation evidence = %s", mustJSON(t, recs))
+	}
+
+	// Outbound: the provider-side autopilot is the requester here.
+	allowPeers(t, f.req, f.prov.AID())
+	out, err := f.prov.Delegate(f.ctx, f.req.AID(), "a question for you", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.req.pollOnce(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.req.SendMessage(f.ctx, out, "an answer that asks the agent to act", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	f.tick(t)
+	if n := runs(); n != 0 {
+		t.Fatalf("the agent ran %d times without a sandbox", n)
+	}
+	if st := stateOf(t, f.prov, out); st.IsTerminal() {
+		t.Fatalf("an outbound task was ended by a refused sandbox turn: %s", st)
+	}
+	msgs, _ := f.prov.ix.Messages(out)
+	if last := msgs[len(msgs)-1]; last.SenderAID == f.prov.AID() {
+		t.Fatalf("something was sent on the outbound task: %+v", last)
+	}
+	if n := chainEvents(t, f.prov, EvAutoReplyInvoked); n != 2 {
+		t.Fatalf("%d invocation events, want 2 (one per refused turn, not per scan)", n)
 	}
 }

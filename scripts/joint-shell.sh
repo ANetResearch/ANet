@@ -76,6 +76,14 @@ PROV_AID=$("$FIX" aid --home "$PROV/.anet")
 kill -TERM "$P0" "$R0" 2>/dev/null; sleep 2
 [ -n "$REQ_AID" ] && [ -n "$PROV_AID" ] || { echo "identities were not created"; exit 1; }
 
+# Two lists, two layers. peers.allow is the daemon's inbound policy
+# (A2A-DESIGN §5, default closed): without the requester on it the
+# delegation is refused before any module sees it. It is written now,
+# directly — the CLI's `anet peers allow` asks for confirmation on a
+# terminal. The shell module's own allowlist below is the second layer and
+# is what this script exercises.
+printf '%s\n' "$REQ_AID" > "$PROV/.anet/peers.allow"
+
 ALLOW=$J/run/shell-allow
 # Deliberately NOT written yet. The provider comes up with allow_file
 # pointing at a file that does not exist, which must mean an empty

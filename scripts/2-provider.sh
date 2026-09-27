@@ -23,6 +23,8 @@ cmd_join(){
   prep_identity
   ok "已为「服务方」准备好独立身份目录：${DATA}（控制端口 ${PORT}）"
   print_join "把我登记成一个能干活的 provider（按你的真实能力填 --caps，例如 coding,frontend）、写好自述，然后运行 anet console --url 把我的本地控制台网址发给我。"
+  warn "入站策略默认 closed：只接受允许名单里的委派。要接某个委派方的活，在终端里运行"
+  warn "  ANET_DATA_DIR=\"${DATA}\" $ANET peers allow <对方 AID>   （需要在终端确认；脚本可用 lib.sh 的 peer_allow）"
 }
 
 case "${1:-join}" in

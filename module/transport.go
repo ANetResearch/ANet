@@ -2,7 +2,7 @@ package module
 
 import "context"
 
-// Transport is how a delegation reaches another node.
+// Transport is how a message reaches another node.
 //
 // The daemon has always had exactly one: the hub relay. That is the right
 // default and it is not going away — a hub is reachable when nothing else
@@ -10,12 +10,17 @@ import "context"
 // offline. What it is not is the only way two nodes on the same network
 // should have to talk to each other.
 //
-// So delivery becomes a list of transports rather than a hardcoded call.
-// The contract is written in ANet's own terms — an AID, a kind, an
-// interaction id, bytes — and deliberately not in any transport's terms. A
-// peer-to-peer module speaks libp2p internally and libp2p appears nowhere
-// here; that is what keeps the daemon from learning about peer ids,
-// multiaddrs and pubsub topics the way it once learned about organisations.
+// So delivery is a list of transports rather than a hardcoded call. The
+// contract is written in ANet's own terms — a recipient AID and the bytes of
+// one sealed envelope (A2A-DESIGN §3.3, §3.5) — and deliberately not in any
+// transport's terms. A peer-to-peer module speaks its own protocol
+// internally and none of it appears here; that is what keeps the daemon from
+// learning about peer ids, multiaddrs and pubsub topics the way it once
+// learned about organisations.
+//
+// A transport sees no sender, no message type and no interaction id. They
+// are inside the envelope, encrypted to the recipient, and a transport has
+// no reason to know them: it routes by recipient AID alone.
 type Transport interface {
 	// Name identifies the transport in logs and configuration.
 	Name() string
@@ -26,23 +31,32 @@ type Transport interface {
 	// every delegation pay for an optimisation that may not apply.
 	Reachable(ctx context.Context, toAID string) bool
 
-	// Send delivers one payload. Returning an error means the caller moves
-	// on to the next transport, so a Send that partially succeeded must
-	// report failure — a delegation delivered twice is worse than one
-	// delivered late.
-	Send(ctx context.Context, toAID, kind, interactionID string, payload []byte) error
+	// Send delivers one envelope. Returning an error means the caller moves
+	// on to the next transport with the same envelope bytes, so a Send that
+	// partially succeeded must report failure. A duplicate delivery is
+	// harmless — the receiver drops a second copy of the same envelope by
+	// its (sender, message id) replay record — whereas a lost one is not.
+	Send(ctx context.Context, toAID string, envelope []byte) error
 }
 
 // Inbound receives what a transport delivers to this node. The daemon
 // implements it; transports call it.
 //
-// Deliberately the same shape as Send: a message that arrived over
+// Deliberately the same shape as Send: an envelope that arrived over
 // peer-to-peer and one that arrived from the hub mailbox are the same
-// message, and the daemon must not be able to tell them apart. Anything
-// that needs to know which path a delegation took is asking for a
-// distinction the evidence model already carries.
+// envelope, opened and verified the same way. Anything that needs to know
+// which path a message took is asking for a distinction the evidence model
+// already carries.
 type Inbound interface {
-	Receive(ctx context.Context, fromAID, kind, interactionID string, payload []byte) error
+	// Receive processes one envelope. nil means the transport should
+	// acknowledge the delivery to its sender: the envelope was accepted, or
+	// it was refused for a reason that will not change on retry (a bad
+	// signature, a wrong recipient, an expired message). A non-nil error is
+	// a temporary refusal (a storage error, a rate limit, a message that
+	// arrived before the task it belongs to): the transport must not
+	// acknowledge, so the sender retries or falls back to the hub
+	// (A2A-DESIGN §3.6 failure classes).
+	Receive(ctx context.Context, envelope []byte) error
 }
 
 // TransportHost is what a transport module may use of the daemon: the

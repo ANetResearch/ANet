@@ -17,29 +17,32 @@ func open(t *testing.T) *interactions.Store {
 	return s
 }
 
-// An inbound task is stored queued, then transitions to done carrying the deliverable + receipt; List
-// with a status filter reflects the transition.
+// An inbound task is stored submitted, then transitions to completed carrying the deliverable +
+// receipt; List with a state filter reflects the transition.
 func TestInboundLifecycle(t *testing.T) {
 	s := open(t)
 	if err := s.Put("ix_1", interactions.RoleInbound, "did:anet:requester", "bake bread", "cid_req", []byte("TASKDOC")); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	pending, err := s.List(interactions.RoleInbound, interactions.StatusQueued, 0, 0)
+	pending, err := s.List(interactions.RoleInbound, interactions.StateSubmitted, 0, 0)
 	if err != nil || len(pending) != 1 {
 		t.Fatalf("pending = %d (%v)", len(pending), err)
 	}
 	if err := s.SetResult("ix_1", []byte("DELIVERABLE"), "cid_res", []byte("RECEIPT"), interactions.VerificationVerified); err != nil {
 		t.Fatalf("set result: %v", err)
 	}
-	if got, _ := s.List(interactions.RoleInbound, interactions.StatusQueued, 0, 0); len(got) != 0 {
-		t.Fatalf("still %d queued after done", len(got))
+	if got, _ := s.List(interactions.RoleInbound, interactions.StateSubmitted, 0, 0); len(got) != 0 {
+		t.Fatalf("still %d submitted after completion", len(got))
 	}
 	ix, err := s.Get("ix_1")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if ix.Status != interactions.StatusDone || string(ix.Result) != "DELIVERABLE" || string(ix.Receipt) != "RECEIPT" || ix.ResultCID != "cid_res" {
-		t.Fatalf("bad done state: %+v", ix)
+	if ix.State != interactions.StateCompleted || string(ix.Result) != "DELIVERABLE" || string(ix.Receipt) != "RECEIPT" || ix.ResultCID != "cid_res" {
+		t.Fatalf("bad completed state: %+v", ix)
+	}
+	if !ix.IsTerminal() {
+		t.Fatal("completed interaction does not report terminal")
 	}
 	if string(ix.RequestDoc) != "TASKDOC" {
 		t.Fatalf("request doc not persisted: %q", ix.RequestDoc)

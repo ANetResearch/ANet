@@ -42,6 +42,11 @@ type testHost struct {
 
 	mu     sync.Mutex
 	events []hostEvent
+	// refuse, when set, is the refusal Admit returns; admits records the
+	// calls and inflight the admitted calls not yet released.
+	refuse   string
+	admits   []admitCall
+	inflight int
 }
 
 type hostEvent struct {
@@ -379,6 +384,31 @@ func mintVoucher(t *testing.T, signer *identity.Controller,
 // be a wider surface than the thing under test.
 func (*testHost) HubSeam() (module.HubSeam, bool) { return nil, false }
 
+// Admit is the kernel admission seam (module.Host). The test host admits
+// every call unless refuse is set, and records each call so a test can
+// check what the voucher door asked for.
+func (h *testHost) Admit(caller, capID string, argsLen int) (func(), string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.admits = append(h.admits, admitCall{caller: caller, capID: capID, argsLen: argsLen})
+	if h.refuse != "" {
+		return nil, h.refuse
+	}
+	h.inflight++
+	return func() {
+		h.mu.Lock()
+		h.inflight--
+		h.mu.Unlock()
+	}, ""
+}
+
+func (*testHost) DeclareUntrustedBackend() {}
+
+type admitCall struct {
+	caller, capID string
+	argsLen       int
+}
+
 // A voucher_url is signed into this node's card and republished by the
 // hub as the address a buyer redeems at. Nothing downstream checks its
 // shape — the hub checks only that the endpoint exists and its URI is
@@ -394,6 +424,7 @@ func TestAVoucherURLABuyerCouldNotOpenIsRefusedAtStartup(t *testing.T) {
 		{"no path at all", "https://node.example:8402", redeemPath},
 		{"a path that is not the redemption door", "https://node.example/redeem", redeemPath},
 		{"the listen address copied across", "http://0.0.0.0:8402/x402/redeem", "listen"},
+		{"plain http on a public host", "http://node.example:8402/x402/redeem", "https"},
 		{"not a URL", "https://node.example:8402/x402/redeem\x7f", "not a URL"},
 	}
 	for _, tc := range bad {
@@ -474,5 +505,74 @@ func TestTheRequiredRedeemPathIsThePathThisNodeServes(t *testing.T) {
 			t.Errorf("%s %s is what the card advertises and this node does not serve it",
 				method, u.Path)
 		}
+	}
+}
+
+// The voucher door goes through the kernel's admission check with the
+// hub-attested payer as the caller (A2A-DESIGN §5.4). A refusal is refused
+// before the voucher is spent and before any work, it is recorded as
+// anet.voucher.refused with the policy reason code, and an admitted call
+// releases its slot when the work ends.
+func TestTheVoucherDoorGoesThroughAdmission(t *testing.T) {
+	h := newHost(t)
+	m := newModule(t, h)
+	w := withWork(t, h, 120)
+
+	for _, tc := range []struct {
+		refusal string
+		code    int
+	}{
+		{"denied", http.StatusForbidden},
+		{"capability_not_public", http.StatusForbidden},
+		{"quota_caller_per_min", http.StatusTooManyRequests},
+		{"max_inflight", http.StatusTooManyRequests},
+		{"args_too_large", http.StatusRequestEntityTooLarge},
+	} {
+		h.mu.Lock()
+		h.refuse = tc.refusal
+		h.mu.Unlock()
+		v := signVoucher(t, h, h.AID(), "work.do", "buyer-9", "n-"+tc.refusal)
+		res, code := m.RedeemVoucher(context.Background(), redeemRequest{Voucher: v, Capability: "work.do",
+			Args: map[string]any{"n": 1}})
+		if code != tc.code {
+			t.Errorf("%s: code %d, want %d (%v)", tc.refusal, code, tc.code, res)
+		}
+		if w.invoked != 0 {
+			t.Fatalf("%s: work ran although admission refused it", tc.refusal)
+		}
+	}
+	refs := h.eventsOf(EvVoucherRefused)
+	if len(refs) != 5 {
+		t.Fatalf("%d refusals recorded, want 5", len(refs))
+	}
+	for _, r := range refs {
+		if r.payload["policy_reason"] == nil || r.payload["payer"] != "buyer-9" {
+			t.Errorf("refusal without its policy reason or payer: %+v", r.payload)
+		}
+	}
+	if red := h.eventsOf(EvVoucherRedeemed); len(red) != 0 {
+		t.Fatalf("a refused voucher was recorded as spent: %+v", red)
+	}
+
+	// Admitted: the payer is the caller the policy was asked about, the
+	// argument size is passed, and the slot is released after the work.
+	h.mu.Lock()
+	h.refuse, h.admits = "", nil
+	h.mu.Unlock()
+	v := signVoucher(t, h, h.AID(), "work.do", "buyer-9", "n-ok")
+	if _, code := m.RedeemVoucher(context.Background(), redeemRequest{Voucher: v, Capability: "work.do",
+		Args: map[string]any{"n": 1}}); code != 200 {
+		t.Fatalf("admitted redemption = %d", code)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.admits) != 1 || h.admits[0].caller != "buyer-9" || h.admits[0].capID != "work.do" || h.admits[0].argsLen != len(`{"n":1}`) {
+		t.Fatalf("admission asked %+v", h.admits)
+	}
+	if h.inflight != 0 {
+		t.Fatalf("admission slot not released: %d in flight", h.inflight)
+	}
+	if w.invoked != 1 {
+		t.Fatalf("work ran %d times", w.invoked)
 	}
 }

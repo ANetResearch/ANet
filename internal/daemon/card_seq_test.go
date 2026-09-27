@@ -22,7 +22,7 @@ func TestTwoRegistrationsInTheSameSecondBothSucceed(t *testing.T) {
 	d := newTestDaemon(t, h.URL, true)
 
 	for i, name := range []string{"First", "Second", "Third"} {
-		if err := d.RegisterWithHub(context.Background(), h.URL, name, []string{"work.do"}, 5, ""); err != nil {
+		if err := d.RegisterWithHub(context.Background(), h.URL, name, []string{"work.do"}, ""); err != nil {
 			t.Fatalf("registration %d (%s) was refused: %v", i+1, name, err)
 		}
 	}
@@ -60,7 +60,7 @@ func TestTheSequenceSurvivesARestart(t *testing.T) {
 	h := newFakeHub(t)
 	defer h.Close()
 	d := newTestDaemon(t, h.URL, true)
-	if err := d.RegisterWithHub(context.Background(), h.URL, "a", nil, 5, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), h.URL, "a", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	first := d.lastCardSeq.Load()
@@ -77,7 +77,7 @@ func TestTheSequenceSurvivesARestart(t *testing.T) {
 	if got := d2.lastCardSeq.Load(); got < first {
 		t.Fatalf("the restarted node forgot where it had got to: %d < %d", got, first)
 	}
-	if err := d2.RegisterWithHub(context.Background(), h.URL, "a", nil, 5, ""); err != nil {
+	if err := d2.RegisterWithHub(context.Background(), h.URL, "a", nil, ""); err != nil {
 		t.Fatalf("registering immediately after a restart was refused: %v", err)
 	}
 }

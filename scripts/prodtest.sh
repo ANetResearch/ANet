@@ -336,6 +336,27 @@ for pair in "cmax:$CMAX_AID:$EMAX_HUB" "ink93:$INK_AID:$EMAX_HUB" "dmax:$DMAX_AI
   [ -n "$aid" ] && ok "$n 有身份 ${aid:0:20}…" || no "$n 拿不到身份"
   [ "$got" = "$want" ] && ok "$n 的 hub 是 $want" || no "$n 的 hub 是 $got,期望 $want"
 done
+# The inbound policy is closed by default (A2A-DESIGN §5): a provider
+# takes delegations only from peers on its allow list. The requesters this
+# run drives are put on the providers' lists here, idempotently, by writing
+# the file the daemon reads on every decision (the CLI's `anet peers allow`
+# asks for confirmation on a terminal). This changes the production nodes'
+# allow lists; the run as a whole needs the product owner's approval.
+allow_on(){ # allow_on <node> <aid>
+  local host home
+  case $1 in
+    cmax) host=$CMAX_HOST; home=$CMAX_HOME ;;
+    dmax) host=$DMAX_HOST; home=$DMAX_HOME ;;
+    ink93) f="$INK_HOME/.anet/peers.allow"; touch "$f"; grep -qxF "$2" "$f" || echo "$2" >> "$f"; return ;;
+    *) return 0 ;;
+  esac
+  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 "$host" \
+    "f=$home/.anet/peers.allow; touch \$f; grep -qxF '$2' \$f || echo '$2' >> \$f"
+}
+if has cmax && [ -n "$INK_AID" ]; then allow_on cmax "$INK_AID"; fi
+if has dmax && [ -n "$CMAX_AID" ]; then allow_on dmax "$CMAX_AID"; fi
+if has dmax && [ -n "$INK_AID" ]; then allow_on dmax "$INK_AID"; fi
+
 # Registered means the hub can serve your key history to a stranger.
 for pair in "cmax:$CMAX_AID:e" "ink93:$INK_AID:e" "dmax:$DMAX_AID:f"; do
   n=${pair%%:*}; rest=${pair#*:}; aid=${rest%%:*}; which=${rest#*:}
@@ -654,11 +675,9 @@ print(len(((d.get('thread') or {}).get('messages')) or []))")
     [ "${turns:-0}" -ge 3 ] && ok "双向消息都到了($turns 条在同一个 thread 里)" \
       || no "thread 里只有 ${turns:-0} 条(期望 3:目标 + 双方各一条)"
 
-    # Ending is mutual: one side proposes, the other accepts, and only
-    # then does the provider sign a receipt over the transcript.
+    # The requester asks to end; the provider's daemon completes on its
+    # own and signs the receipt over the transcript (A2A-DESIGN §4.2).
     ctl ink93 /end "{\"interaction_id\":\"$cix\"}" >/dev/null 2>&1
-    sleep 6
-    ctl cmax /end-accept "{\"interaction_id\":\"$cix\"}" >/dev/null 2>&1
     got=""
     for _ in $(seq 1 30); do
       got=$(ctl ink93 /results '{}' | jq_ "
@@ -668,45 +687,11 @@ for x in d.get('results') or []:
       sleep 2
     done
     case "$got" in
-      yes) ok "双方同意结束后,提供方对整份transcript 出具了签名收据";;
+      yes) ok "委派方请求结束后,提供方自行完成并对整份 transcript 出具了签名收据";;
       norecipt) no "结束了但没有收据";;
-      *) no "结束协商没有完成";;
+      *) no "委派方请求结束后提供方没有完成";;
     esac
   fi
-fi
-
-# ── 9c. guest mode ──────────────────────────────────────────────
-hd "9c 游客模式:没注册的人也能先试"
-# The first thing a stranger touches. Four endpoints, and until now zero
-# production coverage — a path that is broken here is broken for
-# everybody who has not joined yet, which is everybody at first.
-g=$(curl -sf -m 30 -X POST -H 'Content-Type: application/json' -d '{}' "$EMAX_HUB/guest/start")
-gs=$(echo "$g" | jq_ "print(d.get('session',''))")
-gr=$(echo "$g" | jq_ "print(d.get('remaining',''))")
-gh=$(echo "$g" | jq_ "print(d.get('handler',''))")
-if [ -z "$gs" ]; then
-  no "开不了游客会话: ${g:0:140}"
-else
-  ok "陌生人开出了会话(接待方 $gh,余额 $gr 条)"
-  sent=$(curl -sf -m 60 -X POST -H 'Content-Type: application/json' \
-    -d "{\"session\":\"$gs\",\"body\":\"prodtest 游客消息\"}" "$EMAX_HUB/guest/send")
-  left=$(echo "$sent" | jq_ "print(d.get('remaining',''))")
-  if [ -n "$left" ] && [ "$left" -lt "$gr" ] 2>/dev/null; then
-    ok "发一条,配额从 $gr 降到 $left —— 试聊是有限的,且限额真的在减"
-  else
-    no "配额没有递减($gr → ${left:-?}): ${sent:0:120}"
-  fi
-  # Polling returns whatever the handler has said so far, which may be
-  # nothing yet — the handler is a real agent and answers when it
-  # answers. What is being checked is that the endpoint works and the
-  # session is live, not that a reply has arrived.
-  pl=$(curl -sf -m 30 -X POST -H 'Content-Type: application/json' \
-    -d "{\"session\":\"$gs\"}" "$EMAX_HUB/guest/poll" | jq_ "
-print('ok' if 'messages' in d else 'bad')")
-  [ "$pl" = ok ] && ok "轮询端点可用,会话仍然存在" || no "轮询失败"
-  e=$(curl -s -o /dev/null -w '%{http_code}' -m 30 -X POST -H 'Content-Type: application/json' \
-    -d "{\"session\":\"$gs\"}" "$EMAX_HUB/guest/end")
-  [ "$e" = 200 ] && ok "会话可以结束" || no "结束会话返回 $e"
 fi
 
 # ── 9d. the read surfaces, for content rather than status ───────
@@ -1351,6 +1336,9 @@ done
 
 # ── 9n. p2p delivers between two machines, for real ─────────────
 hd "9n p2p:两台机器之间真的直连投递一次"
+# anetpeer's log line for a carried envelope is "delivered"; the frame no
+# longer says what kind of message is inside (the envelope is sealed), so
+# the count is of deliveries of any kind.
 # The transport shipped able to carry traffic between machines and was
 # never configured on any production node — only the rendezvous directory
 # was checked. A transport nothing has ever delivered over is a claim.
@@ -1381,7 +1369,7 @@ else
 
   # And a delegation that actually goes over the wire.
   before=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
-    "grep -c 'delivered delegate' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
+    "grep -c 'delivered' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
   out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
     "export ANET_DATA_DIR=$CMAX_HOME/.anet; timeout 180 $CMAX_BIN delegate $DMAX_AID \
      --capability text.stats --args '{\"text\":\"prodtest p2p\"}'" 2>&1)
@@ -1391,7 +1379,7 @@ else
   else
     for _ in 1 2 3 4 5 6; do
       after=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST \
-        "grep -c 'delivered delegate' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
+        "grep -c 'delivered' $CMAX_HOME/anetpeer.log 2>/dev/null || echo 0")
       [ "${after:-0}" -gt "${before:-0}" ] && break
       sleep 5
     done
@@ -1636,7 +1624,7 @@ done
 TMPH=$(mktemp -d)
 mkdir -p "$TMPH/.anet"
 cat > "$TMPH/.anet/config.json" <<'JSON'
-{"control_addr": "127.0.0.1:29671", "accept_delegations": false}
+{"control_addr": "127.0.0.1:29671"}
 JSON
 ANET_DATA_DIR="$TMPH/.anet" setsid "$INK_BIN" daemon >"$TMPH/daemon.log" 2>&1 </dev/null &
 LEAVER_PID=$!

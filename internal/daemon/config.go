@@ -30,22 +30,27 @@ type Config struct {
 	Summary string `json:"summary,omitempty"` // one-line description
 	Readme  string `json:"readme,omitempty"`  // longer markdown description
 	Pricing string `json:"pricing,omitempty"` // free-form pricing text (no settlement in v0.1)
-	// AcceptDelegations lets this daemon accept + STORE tasks delegated to it through the Hub relay, for
-	// the operator's EXTERNAL agent to work on-demand (`inbox` → `thread`/`message`/`end`). It is a *bool so that an
 	// Providers configures C1 capability providers. ANetLink connects the
 	// physical-world runtime over its UDS socket (anetlinkd --c1-socket).
 	Providers *ProvidersConfig `json:"providers,omitempty"`
 	// Modules configures optional subsystems by name (see module.Module).
 	Modules ModulesConfig `json:"modules,omitempty"`
-
-	// UNSET/omitted key means "accept" (see AcceptsDelegations): anyone who installs anet can receive tasks
-	// out of the box, so "list my agent" is just `anet daemon &`. Accepting only STORES the task (its
-	// TaskDoc signature is verified first); anet runs no model. Set `"accept_delegations": false` to opt out.
-	AcceptDelegations *bool `json:"accept_delegations,omitempty"`
-	// GuestMessages is how many guest-mode trial messages a no-daemon visitor may send this agent (published
-	// to the Hub at register). Unset ⇒ GuestDefaultMessages (5) — every agent greets guests out of the box;
-	// set 0 to opt out entirely. It is a *int so an omitted key means "default", not "0".
-	GuestMessages *int `json:"guest_messages,omitempty"`
+	// Inbound is the inbound policy (A2A-DESIGN §5.1): who may delegate to
+	// this node, who may drive its local agents, and which capabilities are
+	// public. A config without the block is given the defaults of
+	// defaultInbound (policy closed) at load; see migrateInbound.
+	Inbound *InboundConfig `json:"inbound,omitempty"`
+	// LegacyAcceptDelegations is the wire-1 accept_delegations key. It is
+	// read only to migrate it (A2A-DESIGN §5.1: absent or true → closed,
+	// false → closed) and is never written back.
+	LegacyAcceptDelegations *bool `json:"accept_delegations,omitempty"`
+	// migratedInbound is set by LoadConfig when it created the inbound
+	// block from a wire-1 config that accepted delegations; New logs it
+	// once. rewriteConfig is set when the file on disk lacks the inbound
+	// block or still carries accept_delegations; New saves the migrated
+	// config.
+	migratedInbound bool
+	rewriteConfig   bool
 	// AutoReply, when set, turns this daemon into a SELF-DRIVING provider: a background loop watches
 	// inbound conversations and answers them by calling the operator's own service (e.g. a self-hosted
 	// small model behind an OpenAI-compatible REST API). This keeps anet's core promise — anet itself
@@ -53,6 +58,13 @@ type Config struct {
 	// call my API → message back" loop lives in the daemon, driven purely by this config block.
 	// Requires a daemon restart to take effect. See autoreply.go.
 	AutoReply *AutoReplyConfig `json:"auto_reply,omitempty"`
+	// RotationGrace is how long after a peer's key rotation a message
+	// signed by its previous key, and time-stamped before the rotation, is
+	// still accepted (A2A-DESIGN §3.6 step 7). A Go duration such as "1h";
+	// empty means 1h. A longer grace lets older mailbox messages through
+	// and lets a stolen pre-rotation key sign back-dated messages for as
+	// long.
+	RotationGrace string `json:"rotation_grace,omitempty"`
 }
 
 // AutoReplyConfig configures the daemon's built-in auto-reply loop (see autoreply.go). Backend selects
@@ -62,6 +74,12 @@ type Config struct {
 // the same autoReplier seam without changing this loop.
 type AutoReplyConfig struct {
 	Backend string `json:"backend,omitempty"` // reply engine: "openai" (default) or "exec"
+	// Untrusted says what the exec backend does for a peer that is not on
+	// the inbound trust list (A2A-DESIGN §6): "off" (the default; the local
+	// agent is not run for that peer) or "sandbox" (run it in the sandbox,
+	// which fails closed when the sandbox is unavailable). The openai
+	// backend runs no local program and is not gated by it.
+	Untrusted string `json:"untrusted,omitempty"`
 	// --- "openai" backend ---
 	APIBase      string `json:"api_base,omitempty"` // e.g. http://127.0.0.1:11434/v1
 	APIKey       string `json:"api_key,omitempty"`  // bearer key, if the endpoint needs one
@@ -84,36 +102,32 @@ type AutoReplyConfig struct {
 	MaxAutoReplies      int `json:"max_auto_replies,omitempty"`      // runaway guard: max messages we auto-send per interaction before proposing end (default 30)
 }
 
-// GuestDefaultMessages is the out-of-the-box guest trial-message quota when GuestMessages is unset. It
-// mirrors the Hub's default so the daemon and Hub agree without a shared constant.
-const GuestDefaultMessages = 5
+// Values of AutoReplyConfig.Untrusted.
+const (
+	UntrustedOff     = "off"
+	UntrustedSandbox = "sandbox"
+)
 
-// AcceptsDelegations reports whether this daemon should accept delegated tasks. Missing/unset defaults to
-// true (so pre-existing configs that predate the field, and fresh installs, accept out of the box); only an
-// explicit `false` opts out.
-func (c Config) AcceptsDelegations() bool { return c.AcceptDelegations == nil || *c.AcceptDelegations }
-
-// GuestQuota reports how many guest trial messages this agent accepts. Unset defaults to
-// GuestDefaultMessages; a negative value is clamped to 0 (opt out).
-func (c Config) GuestQuota() int {
-	if c.GuestMessages == nil {
-		return GuestDefaultMessages
+// UntrustedMode is the effective auto_reply.untrusted value: "off" unless
+// the operator set "sandbox".
+func (c AutoReplyConfig) UntrustedMode() string {
+	if c.Untrusted == UntrustedSandbox {
+		return UntrustedSandbox
 	}
-	if *c.GuestMessages < 0 {
-		return 0
-	}
-	return *c.GuestMessages
+	return UntrustedOff
 }
 
-// DefaultConfig is the out-of-the-box daemon config. AcceptDelegations defaults on so a fresh install can
-// receive delegated tasks immediately (they are only stored until the operator's agent handles them).
+// DefaultConfig is the out-of-the-box daemon config. The inbound block is
+// explicit and closed (SI-5): a fresh install accepts no delegation and runs
+// nothing for anyone until the operator names a peer or a public
+// capability.
 //
 // ControlAddr here is the HISTORICAL fixed port, and it is a fallback, not what a new data dir gets — see
 // freshConfig. It stays fixed because it is also the answer to "which address would the CLI have tried?"
 // for a dir whose config is missing or unreadable, and that answer has to be the same in every process.
 func DefaultConfig() Config {
-	on := true
-	return Config{ControlAddr: "127.0.0.1:39811", AcceptDelegations: &on}
+	in := defaultInbound()
+	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in}
 }
 
 // freshConfig is the config a data dir with no config.json is created with: DefaultConfig, but with a
@@ -177,7 +191,25 @@ func LoadConfig(l Layout) (Config, error) {
 	if c.ControlAddr == "" {
 		c.ControlAddr = DefaultConfig().ControlAddr
 	}
+	migrateInbound(&c)
 	return c, nil
+}
+
+// migrateInbound gives a config without an inbound block the closed default
+// and drops the wire-1 accept_delegations key (A2A-DESIGN §5.1). Every
+// value of the old key maps to closed: "accept" used to mean "anyone", and
+// no allow list exists yet to carry that forward to.
+func migrateInbound(c *Config) {
+	c.rewriteConfig = c.Inbound == nil || c.LegacyAcceptDelegations != nil
+	if c.Inbound == nil {
+		in := defaultInbound()
+		c.Inbound = &in
+		// A config that said accept_delegations=false asked for what closed
+		// does, so there is nothing to tell the operator.
+		c.migratedInbound = c.LegacyAcceptDelegations == nil || *c.LegacyAcceptDelegations
+	}
+	c.LegacyAcceptDelegations = nil
+	c.Inbound.normalize()
 }
 
 // SaveConfig writes config.json (0600) verbatim, creating the root dir if needed. It writes exactly the

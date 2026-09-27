@@ -29,14 +29,36 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		want  []string
 	}{
 		{"AgentView", hubapi.AgentView{}, []string{
-			"aid", "avg_rating", "caps", "guest_quota", "home_hub", "listed",
+			"aid", "avg_rating", "caps", "home_hub", "listed",
 			"name", "pricing", "readme", "registered_at", "review_count", "summary",
 		}},
+		// No goal, no deliverable: the hub holds no task content (A2A-DESIGN
+		// §9). Mirrors ANetHub internal/aghub/wirecontract_test.go.
 		{"ReviewView", hubapi.ReviewView{}, []string{
-			"comment", "completed_at", "created_at", "deliverable", "goal",
+			"comment", "completed_at", "content_binding", "created_at",
 			"interaction_id", "rating", "receipt_cid", "request_cid",
 			"result_cid", "reviewer_aid", "subject_aid",
 		}},
+		{"UploadReviewRequest", hubapi.UploadReviewRequest{}, []string{"receipt", "review"}},
+		// Relay v2 (A2A-DESIGN §3.7). No sender, kind or interaction id
+		// appears in any of these: the hub routes by to_aid alone and the
+		// rest is inside the sealed envelope.
+		{"RelaySendRequest", hubapi.RelaySendRequest{}, []string{"envelope", "to_aid"}},
+		{"RelaySendResponse", hubapi.RelaySendResponse{}, []string{"id", "recipient_quiet", "status", "via_hub", "warning"}},
+		{"RelayPollRequest", hubapi.RelayPollRequest{}, []string{"limit"}},
+		{"RelayPollResponse", hubapi.RelayPollResponse{}, []string{"messages"}},
+		{"RelayMessage", hubapi.RelayMessage{}, []string{"envelope", "id"}},
+		{"RelayAckRequest", hubapi.RelayAckRequest{}, []string{"ids"}},
+		{"KeysResponse", hubapi.KeysResponse{}, []string{"aid", "kel", "keyset"}},
+		{"KeysPublishRequest", hubapi.KeysPublishRequest{}, []string{"keyset"}},
+		{"KeysPublishResponse", hubapi.KeysPublishResponse{}, []string{"aid", "keys_status"}},
+		{"RegisterRequest", hubapi.RegisterRequest{}, []string{
+			"aid", "caps", "card", "enc_keys", "invite", "kel", "name",
+		}},
+		{"RegisterResponse", hubapi.RegisterResponse{}, []string{
+			"aid", "card_error", "card_status", "keys_error", "keys_status", "status",
+		}},
+		{"HubIdentity", hubapi.HubIdentity{}, []string{"aid", "kel"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -109,23 +131,48 @@ func fillStrings(v reflect.Value) reflect.Value {
 		case reflect.Bool:
 			f.SetBool(true)
 		case reflect.Slice:
+			if f.Type() == reflect.TypeOf(json.RawMessage(nil)) {
+				// A raw JSON field needs a valid JSON value, not a zero byte.
+				f.Set(reflect.ValueOf(json.RawMessage(`{}`)))
+				continue
+			}
 			f.Set(reflect.MakeSlice(f.Type(), 1, 1))
 		}
 	}
 	return v
 }
 
-// The relay wire kinds are strings both sides switch on. A typo on one
-// side routes a delegation to a handler that does not exist, and the
-// message is acked and gone.
-func TestTheRelayKindsArePinned(t *testing.T) {
-	for name, got := range map[string]string{
-		"delegate": hubapi.RelayKindDelegate,
-		"message":  hubapi.RelayKindMessage,
-		"result":   hubapi.RelayKindResult,
+// keys_status is reported by the hub in another repository and read by
+// the daemon to decide whether to publish its key set again; a value
+// spelled differently on one side reads as a refusal.
+func TestTheKeysStatusValuesArePinned(t *testing.T) {
+	for want, got := range map[string]string{
+		"ok": hubapi.KeysStatusOK, "unchanged": hubapi.KeysStatusUnchanged, "absent": hubapi.KeysStatusAbsent,
+		"invalid": hubapi.KeysStatusInvalid, "conflict": hubapi.KeysStatusConflict,
 	} {
-		if got != name {
-			t.Errorf("relay kind = %q, want %q — the hub switches on this string", got, name)
+		if got != want {
+			t.Errorf("keys_status %q, want %q — the hub reports these exact strings", got, want)
+		}
+	}
+}
+
+// The wire version and the relay v2 authentication header names are
+// strings the hub in another repository matches exactly. A daemon that
+// states version 1, or signs under a header the hub does not read, is
+// refused on every signed call.
+func TestTheWireVersionAndAuthHeadersArePinned(t *testing.T) {
+	if hubapi.WireVersion != 2 {
+		t.Errorf("WireVersion = %d, want 2 (sealed envelopes, relayauth v2)", hubapi.WireVersion)
+	}
+	for want, got := range map[string]string{
+		"X-ANet-Wire": hubapi.WireVersionHeader,
+		"X-ANet-AID":  hubapi.HeaderAID,
+		"X-ANet-TS":   hubapi.HeaderTS,
+		"X-ANet-Seq":  hubapi.HeaderSeq,
+		"X-ANet-Sig":  hubapi.HeaderSig,
+	} {
+		if got != want {
+			t.Errorf("header = %q, want %q", got, want)
 		}
 	}
 }

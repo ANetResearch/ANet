@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -33,11 +34,15 @@ type execInvokeOpts struct {
 	WorkDir       string
 	Model         string
 	OpenClawAgent string
-	Command       string // optional binary override (config or ANET_EXEC_COMMAND)
+	Command       string // optional binary override (config, or execCommandForTest in tests)
 	ExtraArgs     []string
-	Env           []string
-	Timeout       time.Duration
-	SessionID     string // resume this agent-native chat/session instead of a fresh one (cursor: --resume)
+	// Env is the agent's complete environment (see execEnv); nothing else from the daemon's
+	// environment is inherited.
+	Env       []string
+	Timeout   time.Duration
+	SessionID string // resume this agent-native chat/session instead of a fresh one (cursor: --resume)
+	// Sandbox, when set, runs the agent inside the bubblewrap sandbox it describes.
+	Sandbox *sandboxPlan
 }
 
 type agentSpec struct {
@@ -95,7 +100,7 @@ func InvokeAgent(ctx context.Context, o execInvokeOpts) (string, error) {
 		o.Model = spec.defaultModel // cheapest tier by default for an unattended provider
 	}
 	if o.Command == "" {
-		o.Command = os.Getenv("ANET_EXEC_COMMAND") // test hook: path to a stub binary
+		o.Command = execCommandForTest
 	}
 	if o.Command == "" {
 		bin, err := spec.detectBin()
@@ -106,6 +111,10 @@ func InvokeAgent(ctx context.Context, o execInvokeOpts) (string, error) {
 	}
 	if o.Timeout <= 0 {
 		o.Timeout = autoReplyDefaultAPITimeout
+	}
+	if o.Env == nil {
+		// A caller that assembled no environment gets the allowlisted one, never the daemon's own.
+		o.Env = execEnv(AutoReplyConfig{Agent: o.AgentID}, o.Sandbox != nil, "")
 	}
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	defer cancel()
@@ -122,6 +131,8 @@ func lookPathFirst(names ...string) (string, error) {
 }
 
 // runCmd runs one agent CLI to completion, or kills it and everything it started when ctx expires.
+// It runs in o.WorkDir with exactly o.Env as its environment, and inside the sandbox when o.Sandbox is
+// set.
 //
 // The process group and the WaitDelay are both load-bearing. A coding agent CLI is a launcher: it
 // spawns model calls, language servers, sometimes a shell of its own. CommandContext's own watchdog
@@ -134,13 +145,21 @@ func lookPathFirst(names ...string) (string, error) {
 //
 // cmd.Cancel replaces that watchdog rather than racing it — two killers waiting on the same Wait
 // means which one wins decides whether the group survives. WaitDelay then bounds the wait for any
-// pipe still held by something that escaped the group entirely (a child that called setsid).
-func runCmd(ctx context.Context, dir string, env []string, bin string, args ...string) (stdout, stderr []byte, err error) {
-	cmd := exec.CommandContext(ctx, bin, args...)
-	cmd.Dir = dir
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
+// pipe still held by something that escaped the group entirely (a child that called setsid). A
+// sandboxed agent runs under bwrap --die-with-parent in its own PID namespace, so killing bwrap ends
+// every process inside.
+func runCmd(ctx context.Context, o execInvokeOpts, bin string, args ...string) (stdout, stderr []byte, err error) {
+	if o.Sandbox != nil {
+		bin, args, err = o.Sandbox.wrap(o.WorkDir, bin, args)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd.Dir = o.WorkDir
+	// Always set, even when empty: a nil Env would make the child inherit the daemon's whole
+	// environment.
+	cmd.Env = append([]string{}, o.Env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
@@ -184,7 +203,13 @@ func agentExecEnv(cfg AutoReplyConfig) []string {
 	return out
 }
 
-func cmdError(bin string, args []string, stdout, stderr []byte, err error) error {
+// cmdError describes a failed agent run for the local log: the binary name and the agent's own output.
+// The argument list is left out because it contains the whole prompt. A sandbox refusal is returned
+// unchanged so callers can still recognise errSandboxUnavailable.
+func cmdError(bin string, _ []string, stdout, stderr []byte, err error) error {
+	if errors.Is(err, errSandboxUnavailable) {
+		return err
+	}
 	msg := strings.TrimSpace(string(stderr))
 	if msg == "" {
 		msg = strings.TrimSpace(string(stdout))
@@ -192,7 +217,7 @@ func cmdError(bin string, args []string, stdout, stderr []byte, err error) error
 	if msg == "" {
 		msg = err.Error()
 	}
-	return fmt.Errorf("%s %s: %s", filepath.Base(bin), strings.Join(args, " "), truncate(msg, 400))
+	return fmt.Errorf("%s: %s", filepath.Base(bin), truncate(msg, 400))
 }
 
 // --- cursor: agent -p --output-format text [--model] [--workspace] PROMPT ---
@@ -224,7 +249,7 @@ func invokeCursor(ctx context.Context, o execInvokeOpts) (string, error) {
 	if filepath.Base(bin) == "cursor" {
 		args = append([]string{"agent"}, args...)
 	}
-	stdout, stderr, err := runCmd(ctx, o.WorkDir, o.Env, bin, args...)
+	stdout, stderr, err := runCmd(ctx, o, bin, args...)
 	if err != nil {
 		return "", cmdError(bin, args, stdout, stderr, err)
 	}
@@ -246,12 +271,12 @@ func invokeCursor(ctx context.Context, o execInvokeOpts) (string, error) {
 
 // cursorCreateChat opens a fresh Cursor chat and returns its id (`cursor-agent create-chat`), so that
 // each anet interaction gets its own persistent session and later turns resume it with only the new
-// message. Resolves the binary the same way InvokeAgent does (config override → ANET_EXEC_COMMAND →
+// message. Resolves the binary the same way InvokeAgent does (config override → execCommandForTest →
 // autodetect) so the test stub is honored.
 func cursorCreateChat(ctx context.Context, o execInvokeOpts) (string, error) {
 	bin := o.Command
 	if bin == "" {
-		bin = os.Getenv("ANET_EXEC_COMMAND")
+		bin = execCommandForTest
 	}
 	if bin == "" {
 		b, err := detectCursorBin()
@@ -264,7 +289,7 @@ func cursorCreateChat(ctx context.Context, o execInvokeOpts) (string, error) {
 	if filepath.Base(bin) == "cursor" {
 		args = append([]string{"agent"}, args...)
 	}
-	stdout, stderr, err := runCmd(ctx, o.WorkDir, o.Env, bin, args...)
+	stdout, stderr, err := runCmd(ctx, o, bin, args...)
 	if err != nil {
 		return "", cmdError(bin, args, stdout, stderr, err)
 	}
@@ -290,7 +315,7 @@ func invokeClaude(ctx context.Context, o execInvokeOpts) (string, error) {
 	}
 	args = append(args, o.ExtraArgs...)
 	args = append(args, o.Prompt)
-	stdout, stderr, err := runCmd(ctx, o.WorkDir, o.Env, o.Command, args...)
+	stdout, stderr, err := runCmd(ctx, o, o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
@@ -308,7 +333,13 @@ func detectCodexBin() (string, error) {
 }
 
 func invokeCodex(ctx context.Context, o execInvokeOpts) (string, error) {
-	outFile := filepath.Join(os.TempDir(), fmt.Sprintf("anet-codex-%d.txt", time.Now().UnixNano()))
+	// The reply file lives in the work dir: a sandboxed codex has its own empty /tmp, and the work dir
+	// is the one location both sides see. It is private to this interaction either way.
+	dir := o.WorkDir
+	if dir == "" {
+		dir = os.TempDir()
+	}
+	outFile := filepath.Join(dir, fmt.Sprintf(".anet-codex-%d.txt", time.Now().UnixNano()))
 	defer os.Remove(outFile)
 	args := []string{"exec", "--full-auto", "--ephemeral", "-o", outFile}
 	if o.WorkDir != "" {
@@ -316,7 +347,7 @@ func invokeCodex(ctx context.Context, o execInvokeOpts) (string, error) {
 	}
 	args = append(args, o.ExtraArgs...)
 	args = append(args, o.Prompt)
-	stdout, stderr, err := runCmd(ctx, o.WorkDir, o.Env, o.Command, args...)
+	stdout, stderr, err := runCmd(ctx, o, o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
@@ -350,7 +381,7 @@ func invokeOpenCode(ctx context.Context, o execInvokeOpts) (string, error) {
 	}
 	args = append(args, o.ExtraArgs...)
 	args = append(args, o.Prompt)
-	stdout, stderr, err := runCmd(ctx, o.WorkDir, o.Env, o.Command, args...)
+	stdout, stderr, err := runCmd(ctx, o, o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
@@ -374,7 +405,7 @@ func invokeOpenClaw(ctx context.Context, o execInvokeOpts) (string, error) {
 	}
 	args := []string{"agent", "--local", "--json", "--agent", agentName, "--message", o.Prompt}
 	args = append(args, o.ExtraArgs...)
-	stdout, stderr, err := runCmd(ctx, o.WorkDir, o.Env, o.Command, args...)
+	stdout, stderr, err := runCmd(ctx, o, o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
@@ -414,7 +445,7 @@ func invokeHermes(ctx context.Context, o execInvokeOpts) (string, error) {
 		args = []string{"-z", o.Prompt}
 	}
 	args = append(args, o.ExtraArgs...)
-	stdout, stderr, err := runCmd(ctx, o.WorkDir, o.Env, o.Command, args...)
+	stdout, stderr, err := runCmd(ctx, o, o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}

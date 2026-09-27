@@ -78,7 +78,8 @@ mkhome(){  # mkhome <dir> <port>
   python3 -c "
 import json,os,sys
 p=sys.argv[1]+'/.anet/config.json'
-c=json.load(open(p)) if os.path.exists(p) else {'accept_delegations':True}
+c=json.load(open(p)) if os.path.exists(p) else {}
+c.pop('accept_delegations',None)  # wire 1; the inbound policy replaces it
 c['control_addr']='127.0.0.1:'+sys.argv[2]
 json.dump(c,open(p,'w'),indent=1)" "$1" "$2"
 }
@@ -113,6 +114,15 @@ for i in 0 1 2; do
   W_AID[$i]=$(api "$h" "$p" /status '{}' | python3 -c 'import sys,json;print(json.load(sys.stdin).get("aid",""))')
 done
 api "$CTRL_HOME" "$CTRL_PORT" /hub-register "{\"hub\":\"$HUB_URL\",\"name\":\"fleet-control\"}" >/dev/null
+# 入站策略默认 closed(A2A-DESIGN §5):worker 只接受 allow 名单里的委派,
+# exec 自动回复只为 trust 名单里的对端拉起本机 agent。控制端两份名单都进。
+# 直接写文件:CLI 的 `anet peers allow/trust` 要在终端确认,脚本没有终端;
+# daemon 每次判定都重读这两个文件。
+CTRL_AID=$(api "$CTRL_HOME" "$CTRL_PORT" /status '{}' | python3 -c 'import sys,json;print(json.load(sys.stdin).get("aid",""))')
+for i in 0 1 2; do
+  printf '%s\n' "$CTRL_AID" > "$J/w-${W_NAMES[$i]}/.anet/peers.allow"
+  printf '%s\n' "$CTRL_AID" > "$J/w-${W_NAMES[$i]}/.anet/peers.trust"
+done
 sleep 2
 # 控制端只派活、不提供能力,按设计不进公开目录(没有 caps 也没有 profile 的
 # 纯请求方是不上架的),所以这里数的是 worker。
@@ -238,7 +248,8 @@ api "$J/w-${W_NAMES[0]}" "${W_PORTS[0]}" /autoreply \
     "{\"backend\":\"exec\",\"agent\":\"claude\",\"command\":\"$J/agent-ok.sh\",\"poll_interval_seconds\":1}" >/dev/null
 wait_reply "$ALPHA_IX" 40 >/dev/null
 api "$CTRL_HOME" "$CTRL_PORT" /end "{\"interaction_id\":\"$ALPHA_IX\"}" >/dev/null
-# worker 那边的自动答复循环会接受结束并回签收据;给它几轮 poll 的时间。
+# 委派方的 end 只是请求:worker 的 daemon 收到后自己完成任务并签回执,不经
+# 自动答复、不需要 worker 的 agent(A2A-DESIGN §4.2)。给它几轮 poll 的时间。
 CHAIN=0
 for _ in $(seq 1 40); do
   CHAIN=$(api "$J/w-${W_NAMES[0]}" "${W_PORTS[0]}" /evidence '{"limit":200}' \
@@ -250,6 +261,15 @@ done
 CEV=$(api "$CTRL_HOME" "$CTRL_PORT" /evidence '{"limit":200}' \
       | python3 -c 'import sys,json;print(json.load(sys.stdin)["head"]["length"])' 2>/dev/null || echo 0)
 [ "${CEV:-0}" -gt 0 ] && ok "控制端链上也有 $CEV 条记录(两边各自可自证)" || no "控制端链是空的"
+ASTATE=""
+for _ in $(seq 1 20); do
+  ASTATE=$(api "$CTRL_HOME" "$CTRL_PORT" /thread "{\"interaction_id\":\"$ALPHA_IX\"}" \
+           | python3 -c 'import sys,json;print((json.load(sys.stdin).get("thread") or {}).get("state",""))' 2>/dev/null)
+  [ "$ASTATE" = completed ] && break
+  sleep 1
+done
+[ "$ASTATE" = completed ] && ok "委派方的 end 之后任务在两边都是 completed(provider 单方完成)" \
+  || no "委派方的 end 之后任务状态是 ${ASTATE:-空},应为 completed"
 
 # 撤销:把 worker 从 hub 摘掉,控制端就不该再找得到它
 api "$J/w-${W_NAMES[2]}" "${W_PORTS[2]}" /hub-leave '{}' >/dev/null

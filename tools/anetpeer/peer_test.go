@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -64,21 +65,29 @@ func (h *host) transport(t *testing.T) module.Transport {
 }
 
 // mailbox records what arrived, and can answer over the transport the way
-// a daemon answers a delegation.
+// a daemon answers a delegation. An envelope starting with "delegate:"
+// is answered with "result:<rest>" to replyTo; one listed in refuse is
+// refused temporarily (Receive returns an error, so no ack).
 type mailbox struct {
 	mu      sync.Mutex
 	got     []string
 	replyOn func() module.Transport
+	replyTo string
 	replied chan error
+	refuse  map[string]bool
 }
 
-func (m *mailbox) Receive(ctx context.Context, from, kind, ix string, payload []byte) error {
+func (m *mailbox) Receive(ctx context.Context, env []byte) error {
 	m.mu.Lock()
-	m.got = append(m.got, fmt.Sprintf("%s/%s/%s/%s", from, kind, ix, payload))
-	reply := m.replyOn
+	if m.refuse[string(env)] {
+		m.mu.Unlock()
+		return fmt.Errorf("temporarily refused")
+	}
+	m.got = append(m.got, string(env))
+	reply, to := m.replyOn, m.replyTo
 	m.mu.Unlock()
-	if reply != nil && kind == "delegate" {
-		err := reply().Send(ctx, from, "result", ix, []byte("the result"))
+	if reply != nil && strings.HasPrefix(string(env), "delegate:") {
+		err := reply().Send(ctx, to, []byte("result:"+strings.TrimPrefix(string(env), "delegate:")))
 		m.replied <- err
 		return err
 	}
@@ -168,7 +177,7 @@ func TestTwoNodesDelegateAndAnswerDirectly(t *testing.T) {
 	rv := filepath.Join(dir, "rv")
 
 	alice := newNode(t, dir, rv, "alice", &mailbox{})
-	bobBox := &mailbox{replied: make(chan error, 1)}
+	bobBox := &mailbox{replied: make(chan error, 1), replyTo: "aid-alice"}
 	bob := newNode(t, dir, rv, "bob", bobBox)
 	bobBox.mu.Lock()
 	bobBox.replyOn = func() module.Transport { return bob.host.transport(t) }
@@ -179,10 +188,10 @@ func TestTwoNodesDelegateAndAnswerDirectly(t *testing.T) {
 		return at.Reachable(context.Background(), bob.aid)
 	})
 
-	if err := at.Send(context.Background(), bob.aid, "delegate", "ix-1", []byte("do the thing")); err != nil {
+	if err := at.Send(context.Background(), bob.aid, []byte("delegate:do the thing")); err != nil {
 		t.Fatalf("delivery failed: %v", err)
 	}
-	if got := bobBox.all(); len(got) != 1 || got[0] != "aid-alice/delegate/ix-1/do the thing" {
+	if got := bobBox.all(); len(got) != 1 || got[0] != "delegate:do the thing" {
 		t.Fatalf("bob received %v", got)
 	}
 	// Bob answered inside Receive, over his own transport. If either half
@@ -196,8 +205,119 @@ func TestTwoNodesDelegateAndAnswerDirectly(t *testing.T) {
 		t.Fatal("bob never finished answering — deadlocked")
 	}
 	waitFor(t, "the result to reach alice", func() bool { return alice.box.count() == 1 })
-	if got := alice.box.all(); got[0] != "aid-bob/result/ix-1/the result" {
+	if got := alice.box.all(); got[0] != "result:do the thing" {
 		t.Errorf("alice received %v", got)
+	}
+}
+
+// Two deliveries to the same daemon at once, one of which the daemon
+// refuses temporarily: each sender learns the outcome of its own delivery.
+// The peer keys the daemon's ack on the ID it minted for each delivery; an
+// ack keyed on anything the two share would tell the refused sender its
+// message was delivered, and it would never fall back to the hub (C5).
+func TestConcurrentDeliveriesGetTheirOwnOutcome(t *testing.T) {
+	old := handOffTimeout
+	handOffTimeout = time.Second
+	t.Cleanup(func() { handOffTimeout = old })
+	dir := t.TempDir()
+	rv := filepath.Join(dir, "rv")
+	alice := newNode(t, dir, rv, "alice", &mailbox{})
+	bobBox := &mailbox{refuse: map[string]bool{"second": true}}
+	bob := newNode(t, dir, rv, "bob", bobBox)
+	at := alice.host.transport(t)
+	waitFor(t, "the peers to find each other", func() bool {
+		return at.Reachable(context.Background(), bob.aid)
+	})
+	var wg sync.WaitGroup
+	errs := map[string]error{}
+	var mu sync.Mutex
+	for _, env := range []string{"first", "second"} {
+		wg.Add(1)
+		go func(env string) {
+			defer wg.Done()
+			err := at.Send(context.Background(), bob.aid, []byte(env))
+			mu.Lock()
+			errs[env] = err
+			mu.Unlock()
+		}(env)
+	}
+	wg.Wait()
+	if errs["first"] != nil {
+		t.Errorf("the accepted delivery reported failure: %v", errs["first"])
+	}
+	if errs["second"] == nil {
+		t.Error("the refused delivery was reported delivered")
+	}
+}
+
+// A delivery frame without the wire version comes from a peer that
+// predates sealed envelopes. It gets an error naming the release it needs,
+// and the daemon never sees it (A2A-DESIGN §3.10).
+func TestAnUnversionedDeliveryIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	box := &mailbox{}
+	newNode(t, dir, filepath.Join(dir, "rv"), "bob", box)
+	c, err := net.Dial("unix", filepath.Join(dir, "bob.wire"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := json.NewEncoder(c).Encode(map[string]any{
+		"op": "send", "id": "old-1", "to": "aid-bob", "payload": "cGxhaW50ZXh0"}); err != nil {
+		t.Fatal(err)
+	}
+	var reply frame
+	if err := json.NewDecoder(c).Decode(&reply); err != nil {
+		t.Fatal(err)
+	}
+	if reply.Op != "error" || reply.ID != "old-1" || reply.Error != errOldPeer {
+		t.Fatalf("reply = %+v, want an error naming the required release", reply)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := box.count(); n != 0 {
+		t.Fatalf("the daemon received %d unversioned deliveries", n)
+	}
+}
+
+// One source cannot use the whole inbound budget: past its burst, its
+// deliveries are refused before they reach the daemon and it falls back to
+// the hub (A2A-DESIGN §3.6 step 0).
+func TestASourceOverItsRateIsRefused(t *testing.T) {
+	l := newSourceLimits()
+	now := time.Now()
+	for i := 0; i < sourceBurst; i++ {
+		if !l.allow("10.0.0.1", now) {
+			t.Fatalf("delivery %d inside the burst was refused", i)
+		}
+	}
+	if l.allow("10.0.0.1", now) {
+		t.Fatal("a source past its burst was allowed")
+	}
+	if !l.allow("10.0.0.2", now) {
+		t.Fatal("another source was charged for the first one's traffic")
+	}
+	if !l.allow("10.0.0.1", now.Add(time.Second)) {
+		t.Fatal("the bucket does not refill")
+	}
+}
+
+// The per-source limit is applied to every delivery from another peer,
+// before the delivery is handed to the daemon: past its burst a source gets
+// an error and its sender falls back to the hub (A2A-DESIGN §3.6 step 0).
+func TestDeliveriesFromOneSourceAreLimited(t *testing.T) {
+	p := &peer{acks: map[string]chan struct{}{}, limits: newSourceLimits()}
+	f := frame{Op: "send", V: wireVersion, ID: "x", To: "aid-self", Envelope: "ZW52"}
+	for i := 0; i < sourceBurst; i++ {
+		if out := p.receive("10.0.0.9", f); strings.Contains(out.Error, "rate limited") {
+			t.Fatalf("delivery %d inside the burst was rate limited", i)
+		}
+	}
+	out := p.receive("10.0.0.9", f)
+	if out.Op != "error" || !strings.Contains(out.Error, "rate limited") {
+		t.Fatalf("delivery past the burst: %+v, want a rate-limit error", out)
+	}
+	if out := p.receive("10.0.0.10", f); strings.Contains(out.Error, "rate limited") {
+		t.Fatal("another source was charged for the first one's deliveries")
 	}
 }
 
@@ -215,7 +335,7 @@ func TestAnUnknownAIDIsUnreachable(t *testing.T) {
 	if d := time.Since(start); d > 2*time.Second {
 		t.Errorf("answering 'unreachable' took %s — the hub is waiting behind this", d)
 	}
-	if err := at.Send(context.Background(), "aid-nobody", "delegate", "ix-1", []byte("x")); err == nil {
+	if err := at.Send(context.Background(), "aid-nobody", []byte("x")); err == nil {
 		t.Error("delivering to nobody must fail, so the caller retries elsewhere")
 	}
 	// And a node must not consider itself reachable through the network.
@@ -245,13 +365,11 @@ func TestConcurrentTrafficBothWays(t *testing.T) {
 		wg.Add(2)
 		go func(i int) {
 			defer wg.Done()
-			errs[i] = at.Send(context.Background(), bob.aid, "message",
-				fmt.Sprintf("a-%d", i), []byte("from alice"))
+			errs[i] = at.Send(context.Background(), bob.aid, []byte(fmt.Sprintf("a-%d", i)))
 		}(i)
 		go func(i int) {
 			defer wg.Done()
-			errs[n+i] = bt.Send(context.Background(), alice.aid, "message",
-				fmt.Sprintf("b-%d", i), []byte("from bob"))
+			errs[n+i] = bt.Send(context.Background(), alice.aid, []byte(fmt.Sprintf("b-%d", i)))
 		}(i)
 	}
 	wg.Wait()
@@ -317,19 +435,19 @@ func TestPeersReachEachOtherOverTCP(t *testing.T) {
 	waitFor(t, "the peers to announce themselves over TCP", func() bool {
 		return at.Reachable(context.Background(), bob.aid)
 	})
-	if err := at.Send(context.Background(), bob.aid, "delegate", "ix-tcp", []byte("over tcp")); err != nil {
+	if err := at.Send(context.Background(), bob.aid, []byte("over tcp")); err != nil {
 		t.Fatalf("delivery over TCP failed: %v", err)
 	}
-	if got := bobBox.all(); len(got) != 1 || got[0] != "aid-alice/delegate/ix-tcp/over tcp" {
+	if got := bobBox.all(); len(got) != 1 || got[0] != "over tcp" {
 		t.Fatalf("bob received %v", got)
 	}
 	// And back, because a transport that works one way is half a
 	// transport: the answer travels the same wire.
 	bt := bob.host.transport(t)
-	if err := bt.Send(context.Background(), alice.aid, "result", "ix-tcp", []byte("answer")); err != nil {
+	if err := bt.Send(context.Background(), alice.aid, []byte("answer")); err != nil {
 		t.Fatalf("the answer did not travel back over TCP: %v", err)
 	}
-	if got := aliceBox.all(); len(got) != 1 || got[0] != "aid-bob/result/ix-tcp/answer" {
+	if got := aliceBox.all(); len(got) != 1 || got[0] != "answer" {
 		t.Fatalf("alice received %v", got)
 	}
 }
@@ -467,3 +585,8 @@ func TestAPeerOnAnotherHubIsFoundViaTheReferral(t *testing.T) {
 // and a test host that handed out a signing grant it does not need would
 // be a wider surface than the thing under test.
 func (*host) HubSeam() (module.HubSeam, bool) { return nil, false }
+
+// Admit and DeclareUntrustedBackend complete module.Host. This test host
+// admits every call; the kernel's admission is tested in internal/daemon.
+func (*host) Admit(string, string, int) (func(), string) { return func() {}, "" }
+func (*host) DeclareUntrustedBackend()                   {}

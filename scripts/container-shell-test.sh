@@ -54,6 +54,11 @@ for x in d.get('results') or []:
 field(){ python3 -c "import sys,json;print(json.load(sys.stdin).get('$1',''))" 2>/dev/null; }
 state(){ python3 -c "import sys,json;print((json.load(sys.stdin).get('evidence') or {}).get('observed_state',''))" 2>/dev/null; }
 
+# 两层名单。/root/.anet/peers.allow 是 daemon 的入站策略(A2A-DESIGN §5,默认
+# closed):调用方不在里面,委派在到达任何模块之前就被拒。脚本直接写这个文件 ——
+# CLI 的 `anet peers allow` 要在终端确认。下面的 shell-allow 是 shell 模块自己的
+# 第二层名单,本脚本验的是它。
+box "echo '$CALLER' > /root/.anet/peers.allow"
 # 从空名单开始,并确保能力已经通告到目录 —— 能力清单是 hub-register 那一刻
 # 折进去的,改了配置光重启不会更新它。
 box ': > /etc/anet/shell-allow'

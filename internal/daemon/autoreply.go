@@ -35,15 +35,16 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 const (
@@ -77,27 +78,6 @@ type replyContext struct {
 	// to deliver here (instead of calling `anet message` itself); the daemon sends them WITH the reply
 	// text as one message and owns end negotiation. Empty if the daemon could not create it.
 	Outbox string
-}
-
-// collectOutboxFiles returns the plain files a backend dropped in its outbox (top-level only), sorted for
-// stable ordering. These are attached to the auto-reply the daemon sends.
-func collectOutboxFiles(dir string) []string {
-	if dir == "" {
-		return nil
-	}
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var files []string
-	for _, e := range ents {
-		if e.IsDir() {
-			continue
-		}
-		files = append(files, filepath.Join(dir, e.Name()))
-	}
-	sort.Strings(files)
-	return files
 }
 
 // stripDoneSentinel reports whether reply carries the completion marker and returns the reply with the
@@ -200,16 +180,27 @@ func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
 		}
 	}
 	d.mu.Lock()
+	next := d.cfg
+	next.AutoReply = cfg
+	// The same check as at start and on inbound policy writes (A2A-DESIGN
+	// §5.1): policy open together with exec for untrusted peers is refused
+	// whichever of the two is written last.
+	if err := validatePolicy(next, d.untrustedBackend.Load()); err != nil {
+		d.mu.Unlock()
+		return err
+	}
+	from := d.cfg.AutoReply
 	if d.autoReplyStop != nil {
 		d.autoReplyStop()
 		d.autoReplyStop = nil
 	}
-	d.cfg.AutoReply = cfg
+	d.cfg = next
 	saved := d.cfg
 	d.mu.Unlock()
 	if err := SaveConfig(d.layout, saved); err != nil {
 		return err
 	}
+	d.recordPolicyChange("auto_reply", autoReplySummary(from), autoReplySummary(cfg), nil)
 	if cfg != nil {
 		d.startAutoReply(*cfg)
 	} else {
@@ -291,8 +282,11 @@ func (d *Daemon) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier
 		if ctx.Err() != nil {
 			return
 		}
-		if th.Status == "done" || th.Status == "failed" {
-			continue // finished interactions get no further replies (receipt already issued)
+		if interactions.State(th.State).IsTerminal() || th.IsCapability || th.Trust == interactions.TrustPublicCap {
+			// Ended interactions get no further replies, and capability calls
+			// never reach auto-reply (A2A-DESIGN §6): ActiveThreads already
+			// leaves them out; this keeps the rule where it is applied.
+			continue
 		}
 		if err := d.autoReplyThread(ctx, cfg, replier, th); err != nil {
 			log.Printf("anet: auto-reply %s: %v", th.InteractionID, err)
@@ -300,19 +294,30 @@ func (d *Daemon) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier
 	}
 }
 
-// autoReplyThread services ONE conversation (inbound or outbound): accept a pending end proposal, or
-// produce the reply we owe (usage hint / backend answer / error report). No-op when nothing is owed.
+// autoReplyThread services ONE conversation (inbound or outbound): produce the reply we owe (usage
+// hint / backend answer / error report), or end the task at the runaway cap or when the backend says
+// it is done. No-op when nothing is owed. A requester's end request needs no reply: the provider
+// daemon completes on receiving it (A2A-DESIGN §4.2).
 func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, th Thread) error {
-	// The peer proposed ending and we have not answered → accept, so the receipt is issued.
-	if th.EndReqBy == "them" && th.EndAccBy == "" {
-		hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
-		defer cancel()
-		if err := d.AcceptEnd(hctx, th.InteractionID); err != nil {
-			return fmt.Errorf("accept end: %w", err)
+	// The exec backend runs a local program. It runs as before only for a
+	// peer on the trust list; for any other peer it runs in the sandbox
+	// when auto_reply.untrusted=sandbox, and not at all otherwise
+	// (A2A-DESIGN §6). The lists are read on every turn, so a peer taken
+	// off the trust list, or put on the deny list, stops reaching the
+	// agent at the next turn.
+	gate := execGate{}
+	if cfg.Backend == "exec" {
+		ps := d.readPeers()
+		if ps.denied(th.Peer) {
+			return nil
 		}
-		sharedExecSessionStore(d.layout.Root).del(th.InteractionID) // free the agent session bound to this interaction
-		log.Printf("anet: auto-reply %s: peer proposed ending — accepted", th.InteractionID)
-		return nil
+		gate.exec, gate.trusted = true, ps.trusted(th.Peer)
+		if !gate.trusted && cfg.UntrustedMode() == UntrustedOff {
+			return nil // left in the inbox for the operator
+		}
+		if !gate.trusted && d.sandboxRefusedBefore(th) {
+			return nil // this turn already failed closed; wait for a new message
+		}
 	}
 
 	turns, hasImage, err := d.conversationTurns(th, cfg.MaxHistory)
@@ -333,7 +338,8 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	}
 	ourReplies := 0
 	for _, m := range th.Messages {
-		if m.Kind == "text" && m.From == "me" && (m.Body != "" || len(m.Attachments) > 0) {
+		if m.Kind == interactions.MsgText && m.From == "me" && (m.Body != "" || len(m.Attachments) > 0) &&
+			!hasControlMeta(string(m.Metadata)) {
 			ourReplies++
 		}
 	}
@@ -367,36 +373,41 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	}
 	// Attachment outbox: the backend drops any files it wants to deliver here so it never has to call
 	// `anet message` itself (doing so caused duplicate sends + a leaked done-marker). The daemon sends the
-	// reply text + these files as ONE message and owns end negotiation. Creation failure is non-fatal —
-	// we just fall back to text-only replies.
-	outbox, obErr := os.MkdirTemp(d.layout.Root, "exec-outbox-")
+	// reply text + these files as ONE message and owns end negotiation. It lives in the interaction's
+	// exec work dir, outside the data dir (autoreply_exec.go). Creation failure is non-fatal — we just
+	// fall back to text-only replies.
+	outbox, cleanupOutbox, obErr := d.newExecOutbox(th.InteractionID)
 	if obErr != nil {
+		log.Printf("anet: auto-reply %s: no outbox: %v", th.InteractionID, obErr)
 		outbox = ""
 	} else {
-		defer os.RemoveAll(outbox)
+		defer cleanupOutbox()
 	}
 
 	rctx, cancel := context.WithTimeout(ctx, timeout)
-	reply, err := replier.Reply(rctx, replyContext{Role: th.Role, Goal: th.Goal, InteractionID: th.InteractionID, Outbox: outbox}, turns)
+	rc := replyContext{Role: th.Role, Goal: th.Goal, InteractionID: th.InteractionID, Outbox: outbox}
+	reply, err := d.invokeReplier(rctx, cfg, replier, gate, th, rc, turns)
 	cancel()
+	if errors.Is(err, errSandboxUnavailable) {
+		return d.sandboxRefusedTurn(ctx, th)
+	}
 	if err != nil {
 		// Report the failure to the requester as a normal message. That reply is ours, so the loop will
-		// not retry this turn — no error storm; the requester can simply ask again.
-		log.Printf("anet: auto-reply %s: backend failed: %v", th.InteractionID, err)
-		errReply := cfg.ErrorReply
-		if errReply == "" {
-			errReply = autoReplyDefaultErrorReply
-		}
-		return d.sendAutoReply(ctx, th.InteractionID, errReply+"\n\n(technical detail: "+err.Error()+")")
+		// not retry this turn — no error storm; the requester can simply ask again. The peer gets the
+		// configured error reply and a reference id; the detail goes to the local log only.
+		return d.sendAutoReply(ctx, th.InteractionID, autoReplyFailureReply(cfg, th.InteractionID, err))
 	}
 
 	// Completion-aware backends append autoReplyDoneSentinel when the task is finished. Send whatever text
 	// remains (plus any files the backend dropped in the outbox) as one message, then propose ending so the
 	// interaction actually closes instead of drifting into pleasantries until the runaway cap.
 	reply, done := stripDoneSentinel(reply)
-	atts := collectOutboxFiles(outbox)
+	atts, oerr := collectOutbox(outbox)
+	if oerr != nil {
+		return d.sendAutoReply(ctx, th.InteractionID, autoReplyFailureReply(cfg, th.InteractionID, fmt.Errorf("outbox: %w", oerr)))
+	}
 	if reply != "" || len(atts) > 0 {
-		if err := d.sendAutoReplyAtts(ctx, th.InteractionID, reply, atts); err != nil {
+		if err := d.sendAutoReplyAttachments(ctx, th.InteractionID, reply, atts); err != nil {
 			return err
 		}
 		doneNote := ""
@@ -440,8 +451,9 @@ func (d *Daemon) conversationTurns(th Thread, maxHistory int) (turns []chatTurn,
 		maxHistory = autoReplyDefaultMaxHistory
 	}
 	for _, m := range th.Messages {
-		if m.Kind != "text" || (m.Body == "" && len(m.Attachments) == 0) {
-			continue // end-negotiation handshakes and empty rows are not conversation
+		if m.Kind != interactions.MsgText || (m.Body == "" && len(m.Attachments) == 0) ||
+			hasControlMeta(string(m.Metadata)) {
+			continue // end requests, cancels, status and payment messages, and empty rows are not conversation
 		}
 		turn := chatTurn{Role: "assistant", Text: m.Body}
 		if m.From == "them" {
@@ -547,4 +559,113 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// EvAutoReplyInvoked records one run of the exec auto-reply backend
+// (A2A-DESIGN §6): which agent, for which interaction and peer, whether the
+// peer was trusted, whether the run was sandboxed, how it ended and how
+// long it took.
+const EvAutoReplyInvoked = "anet.autoreply.invoked"
+
+// execGate is the auto-reply gating decision for one turn.
+type execGate struct {
+	exec    bool // the backend runs a local program
+	trusted bool // the peer is on the trust list
+}
+
+// invokeReplier runs the backend for one turn under the gating decision: a
+// trusted peer (or a backend that runs no local program) goes to the
+// configured replier; an untrusted peer under untrusted=sandbox goes to
+// runSandboxed, which never falls back to an unconfined run. Every exec run
+// is recorded as anet.autoreply.invoked.
+func (d *Daemon) invokeReplier(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, gate execGate,
+	th Thread, rc replyContext, turns []chatTurn) (string, error) {
+	if !gate.exec {
+		return replier.Reply(ctx, rc, turns)
+	}
+	start := time.Now()
+	var reply string
+	var err error
+	sandboxed := false
+	if gate.trusted {
+		reply, err = replier.Reply(ctx, rc, turns)
+	} else {
+		var res sandboxResult
+		res, err = d.runSandboxed(ctx, sandboxRequest{Cfg: cfg, RC: rc, Turns: turns})
+		reply, sandboxed = res.Reply, res.Sandboxed
+	}
+	exit := "ok"
+	switch {
+	case errors.Is(err, errSandboxUnavailable):
+		exit = "sandbox_unavailable"
+	case err != nil:
+		exit = "error"
+	}
+	d.recordAutoReplyInvoked(cfg, th, gate.trusted, sandboxed, exit, time.Since(start))
+	return reply, err
+}
+
+func (d *Daemon) recordAutoReplyInvoked(cfg AutoReplyConfig, th Thread, trusted, sandboxed bool, exit string, dur time.Duration) {
+	if d.ledger == nil {
+		return
+	}
+	if _, err := d.ledger.Append(EvAutoReplyInvoked, map[string]any{
+		"agent": cfg.Agent, "interaction_id": th.InteractionID, "peer_aid": th.Peer,
+		"trusted": trusted, "sandboxed": sandboxed, "exit": exit, "duration_ms": dur.Milliseconds(),
+	}); err != nil {
+		log.Printf("anet: auto-reply evidence: %v", err)
+	}
+}
+
+// sandboxRefused remembers outbound turns that failed closed, so the loop
+// does not retry them every few seconds; a new message from the peer is a
+// new turn.
+type sandboxRefused struct {
+	mu sync.Mutex
+	m  map[string]int // interaction id -> message count at refusal
+}
+
+// sandboxRefusedTurn fails a turn closed when the sandbox is unavailable
+// (A2A-DESIGN §6), by direction: an inbound task is answered
+// status{rejected, anet.reason=sandbox_unavailable}; an outbound one (this
+// node is the requester) sends nothing and stays in the inbox. The refused
+// run was recorded by invokeReplier.
+func (d *Daemon) sandboxRefusedTurn(ctx context.Context, th Thread) error {
+	if th.Role == string(interactions.RoleInbound) {
+		sctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
+		defer cancel()
+		return d.SendStatus(sctx, th.InteractionID, interactions.StateRejected,
+			"this node runs its agent for untrusted peers only inside a sandbox, and the sandbox is unavailable",
+			map[string]any{"anet.reason": reasonSandboxUnavailble})
+	}
+	d.sbRefused.mu.Lock()
+	if d.sbRefused.m == nil {
+		d.sbRefused.m = map[string]int{}
+	}
+	d.sbRefused.m[th.InteractionID] = len(th.Messages)
+	d.sbRefused.mu.Unlock()
+	log.Printf("anet: auto-reply %s: sandbox unavailable; nothing sent, the task stays in the inbox", th.InteractionID)
+	return nil
+}
+
+// sandboxRefusedBefore reports whether this turn of th already failed closed.
+func (d *Daemon) sandboxRefusedBefore(th Thread) bool {
+	d.sbRefused.mu.Lock()
+	defer d.sbRefused.mu.Unlock()
+	n, ok := d.sbRefused.m[th.InteractionID]
+	return ok && n == len(th.Messages)
+}
+
+// autoReplySummary is the part of an auto-reply configuration a policy
+// change event records: the backend, the agent and the untrusted mode. Keys,
+// prompts and paths are left out.
+func autoReplySummary(c *AutoReplyConfig) map[string]any {
+	if c == nil {
+		return nil
+	}
+	backend := c.Backend
+	if backend == "" {
+		backend = "openai"
+	}
+	return map[string]any{"backend": backend, "agent": c.Agent, "untrusted": c.UntrustedMode()}
 }

@@ -231,3 +231,8 @@ func (h *orgHost) PaymentSeam() (module.PaymentSeam, bool) { return nil, false }
 // and a test host that handed out a signing grant it does not need would
 // be a wider surface than the thing under test.
 func (*orgHost) HubSeam() (module.HubSeam, bool) { return nil, false }
+
+// Admit and DeclareUntrustedBackend complete module.Host. This test host
+// admits every call; the kernel's admission is tested in internal/daemon.
+func (*orgHost) Admit(string, string, int) (func(), string) { return func() {}, "" }
+func (*orgHost) DeclareUntrustedBackend()                   {}
