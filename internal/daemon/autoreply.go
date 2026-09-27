@@ -299,6 +299,11 @@ func (d *Daemon) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier
 // it is done. No-op when nothing is owed. A requester's end request needs no reply: the provider
 // daemon completes on receiving it (A2A-DESIGN §4.2).
 func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, th Thread) error {
+	// A task a module's A2A backend is given is answered there, not here
+	// as well (A2A-DESIGN §11.6, inbound_tasks.go).
+	if d.backendAnswers(th) {
+		return nil
+	}
 	// The exec backend runs a local program. It runs as before only for a
 	// peer on the trust list; for any other peer it runs in the sandbox
 	// when auto_reply.untrusted=sandbox, and not at all otherwise

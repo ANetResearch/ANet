@@ -25,6 +25,10 @@ package a2a
 //     a2a.serviceParameters the requester sent, restored as headers. All
 //     requests use one token, so a backend cannot tell peers apart by its
 //     credential and must read anet.peer_aid.
+//   - The agent behind a backend should be a service agent of its own (for
+//     Hermes, a separate profile), not the session the operator works in:
+//     what reaches it is work from other nodes, and it would land in the
+//     operator's own conversation (0017 Q23).
 //   - Each forwarded task is recorded: anet.backend.forwarded{backend,
 //     interaction_id, peer_aid, trusted}.
 //
@@ -33,8 +37,10 @@ package a2a
 // declared, and logged as not forwarding.
 //
 // A task maps to one task on the backend: the first forward starts it (in
+// the context the kernel gives the task, which it derives from the peer and
 // the network task's context, so the backend keeps one conversation per
-// context) and each later message from the requester continues it. The
+// peer and context and two peers never share one) and each later message
+// from the requester continues it. The
 // backend's answer goes back as this node's reply: a question
 // (input-required) as a question, a final answer as completion. The
 // mapping lives in memory: after a restart a follow-up starts a new task on
@@ -118,6 +124,16 @@ func (c Config) declaresUntrusted() bool {
 	return false
 }
 
+// forwardsText reports a backend for every text task (match "*").
+func (c Config) forwardsText() bool {
+	for _, b := range c.Backends {
+		if b.Match == "*" {
+			return true
+		}
+	}
+	return false
+}
+
 // checkBackendURL accepts http on a loopback host, or https: a task's text
 // goes there, and in the clear only on this machine.
 func checkBackendURL(raw string) error {
@@ -143,6 +159,15 @@ func checkBackendURL(raw string) error {
 // the backend was asked for and cannot be reached as configured.
 func (m *Module) startBackends(ctx context.Context, h module.Host) error {
 	if len(m.cfg.Backends) == 0 {
+		return nil
+	}
+	if !m.cfg.forwardsText() {
+		// A task the kernel delivers is a text task, and names no skill (a
+		// call naming one is a capability call, never delivered). Without
+		// a "*" backend none would be forwarded, and subscribing would only
+		// keep those tasks from the auto-reply agent.
+		log.Printf("anet: a2a: no backend has match \"*\": text tasks from the network name no skill, so none " +
+			"is forwarded; they are answered as without backends (inbox, auto-reply)")
 		return nil
 	}
 	in, ok := h.(module.InboundTaskHost)

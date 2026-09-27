@@ -26,12 +26,21 @@ type InboundTaskHost interface {
 	// the history. A task comes again each time the requester adds a
 	// message. Each carries anet.peer_aid and anet.trusted (a bool: the
 	// peer is on the trust list) in its metadata, the requester's
-	// a2a.serviceParameters in its messages' metadata, and its files inline.
+	// a2a.serviceParameters in its messages' metadata, and the files of its
+	// latest message inline (earlier messages' files as references: they
+	// came inline with the delivery that brought them).
+	// Its contextId is not the requester's: the kernel derives it from the
+	// peer and the task's context, so tasks one peer sends in one context
+	// share it and two peers never do, whatever context they name (an agent
+	// behind a backend keeps a conversation per context).
 	//
-	// A task from a peer that is not on the trust list is delivered only to
-	// a module that declared an untrusted backend
-	// (Host.DeclareUntrustedBackend). A task delivered here is not also
-	// given to the auto-reply agent. The channel closes when ctx ends.
+	// A task from a peer that is not on the trust list is delivered only
+	// once a module has declared an untrusted backend
+	// (Host.DeclareUntrustedBackend), and only from a peer someone named (on
+	// the allow list, or approved) — the declaration is the node's, not one
+	// module's. A task delivered here is not also given to the auto-reply
+	// agent. Nothing is delivered before the daemon has finished starting.
+	// The channel closes when ctx ends.
 	InboundTasks(ctx context.Context) (<-chan Task, error)
 
 	// ReplyTask answers an inbound task as this node: msg is the answer,
