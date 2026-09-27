@@ -310,7 +310,11 @@ func (d *Daemon) refreshRegistration() {
 			return
 		}
 		if !sameStrings(cfg.Caps, caps) {
-			log.Printf("anet: refreshed capabilities at %s: %v", cfg.HubURL, caps)
+			// What the hub was sent, which is only the public ones
+			// (registerWithHubLocked, an internal note item). The served list printed
+			// here read as if the private ones had been published
+			// (an internal note).
+			log.Printf("anet: refreshed capabilities at %s: %v", cfg.HubURL, d.publicOnly(caps))
 		}
 	})
 }
