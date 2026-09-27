@@ -47,6 +47,23 @@ type testHost struct {
 	refuse   string
 	admits   []admitCall
 	inflight int
+	// spendRefusal, when set, is what AdmitSpend answers; spends records
+	// the calls.
+	spendRefusal error
+	spends       []spendCall
+}
+
+type spendCall struct {
+	payTo   string
+	amount  uint64
+	purpose string
+}
+
+func (h *testHost) AdmitSpend(payTo string, amount uint64, purpose string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.spends = append(h.spends, spendCall{payTo, amount, purpose})
+	return h.spendRefusal
 }
 
 type hostEvent struct {
@@ -129,7 +146,7 @@ func TestAnAuthorizationIsBoundToItsInteraction(t *testing.T) {
 		Scheme: payment.SchemeCredit, Network: payment.CreditNetwork(h.hub.AID()),
 		Amount: "50", Asset: payment.AssetCredit, PayTo: "did:anet:provider",
 	}
-	raw, err := m.Authorize(opt, "ix-42")
+	raw, err := m.Authorize(opt, "ix-42", "bind-42", module.PurposeTaskAgent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +163,7 @@ func TestAnAuthorizationIsBoundToItsInteraction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if auth.InteractionID != "ix-42" {
+	if auth.InteractionID != "bind-42" {
 		t.Errorf("authorization is not bound to the work: %q", auth.InteractionID)
 	}
 	if auth.Payer != h.AID() {
@@ -161,8 +178,13 @@ func TestAnAuthorizationIsBoundToItsInteraction(t *testing.T) {
 	// Signing it put it on our chain: an authorization we cannot show we
 	// signed is one we cannot dispute later.
 	evs := h.eventsOf(EvPaymentAuthorized)
-	if len(evs) != 1 || evs[0].payload["interaction_id"] != "ix-42" {
-		t.Errorf("the authorization is not on our chain: %+v", evs)
+	if len(evs) != 1 || evs[0].payload["interaction_id"] != "ix-42" ||
+		evs[0].payload["pay_bind"] != "bind-42" || evs[0].payload["purpose"] != module.PurposeTaskAgent {
+		t.Errorf("the authorization is not on our chain as signed: %+v", evs)
+	}
+	// The spending policy was asked, with the terms that were then signed.
+	if len(h.spends) != 1 || h.spends[0] != (spendCall{"did:anet:provider", 50, module.PurposeTaskAgent}) {
+		t.Errorf("AdmitSpend calls = %+v", h.spends)
 	}
 }
 

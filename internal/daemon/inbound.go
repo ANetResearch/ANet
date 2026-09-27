@@ -999,6 +999,13 @@ func (d *Daemon) cancelForPolicy(ctx context.Context, aid string) []string {
 	}
 	var out []string
 	for _, ix := range list {
+		if ix.PayState == interactions.PaySubmitted || ix.PayState == interactions.PayCompleted {
+			// A task whose payment was submitted is not canceled by either
+			// side (§4.2): paid work is delivered, and a requester's cancel
+			// leaves its task open. Sending that cancel again on every
+			// sweep would only repeat it.
+			continue
+		}
 		if _, err := d.CancelTask(ctx, ix.ID); err != nil {
 			log.Printf("anet: cancel %s after denying %s: %v", ix.ID, aid, err)
 			continue

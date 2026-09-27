@@ -373,6 +373,8 @@ func (s *Store) migrate() error {
 		// Listing is newest state change first, with (state_at, seq) as the cursor.
 		`CREATE INDEX IF NOT EXISTS idx_ix_state_at ON interaction(state_at, seq)`,
 		`CREATE INDEX IF NOT EXISTS idx_ix_context ON interaction(context_id)`,
+		// The payment sweeps (ListPayState) read the few quoted rows only.
+		`CREATE INDEX IF NOT EXISTS idx_ix_pay ON interaction(role, pay_state)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			return fmt.Errorf("interactions: migrate index: %w", err)

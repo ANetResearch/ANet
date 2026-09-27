@@ -41,6 +41,8 @@ import (
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/transcript"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
+	"github.com/ANetResearch/ANet/provider"
 )
 
 // ErrTaskTerminal is returned when new input is sent to an interaction in a
@@ -409,8 +411,10 @@ func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, at
 }
 
 // stateOnMessage is the state a message moves its task to (§4.1), or "" for
-// no change. fromRequester says who sent it. A payment-rejected after a
-// submitted payment does not cancel: the provider decides (§4.2).
+// no change. fromRequester says who sent it. A payment-rejected is not
+// written here: the provider cancels an open quote together with its
+// notice (onRequesterPayment), and after a submitted payment it does not
+// cancel at all (§4.2).
 func stateOnMessage(fromRequester bool, kind string, meta []byte, payState string) interactions.State {
 	m := decodeMeta(meta)
 	if fromRequester {
@@ -422,9 +426,9 @@ func stateOnMessage(fromRequester bool, kind string, meta []byte, payState strin
 			case "payment-submitted":
 				return interactions.StateWorking
 			case "payment-rejected":
-				if payState != interactions.PaySubmitted {
-					return interactions.StateCanceled
-				}
+				// The provider cancels in onRequesterPayment, which sends
+				// status{canceled} in the same write; only an open quote
+				// is declined (§4.2).
 			}
 		}
 		return ""
@@ -640,11 +644,13 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 //
 //   - Requester, no payment submitted: the task is canceled locally and the provider is sent a
 //     cancel through the retry queue.
-//   - Requester, a payment submitted: the local state does not change; the cancel is sent and the
-//     provider's status or result decides (it does not cancel paid work). The returned interaction
-//     is still open; its conversation log carries the cancel.
+//   - Requester, a payment submitted or settled: the local state does not change; the cancel is
+//     sent and the provider's status or result decides (it does not cancel paid work). The
+//     returned interaction is still open; its conversation log carries the cancel.
 //   - Provider: the task is canceled, a running capability call is asked to stop, and the
-//     requester is sent status{canceled} through the retry queue.
+//     requester is sent status{canceled} through the retry queue. A capability call whose payment
+//     was taken is not canceled (ErrNotCancelable); the pay_state is read again under the write
+//     lock, so a payment and a cancel racing each other cannot both win.
 func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interactions.Interaction, error) {
 	ix, err := d.ix.Get(interactionID)
 	if err != nil {
@@ -657,17 +663,21 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 	if err != nil {
 		return nil, err
 	}
+	if ix.Role == interactions.RoleInbound && ix.IsCapability &&
+		(ix.PayState == interactions.PaySubmitted || ix.PayState == interactions.PayCompleted) {
+		// Paid work is completed and delivered, or answered failed with
+		// the receipt; it is not canceled once the money moved (§4.2).
+		return ix, ErrNotCancelable
+	}
 	var typ string
 	var payload []byte
-	cancelState := true
 	if ix.Role == interactions.RoleOutbound {
 		typ = seal.TypeMessage
 		payload, err = (&delegation.ChatMsg{Kind: delegation.KindCancel, MsgID: msgID}).Marshal()
-		cancelState = ix.PayState != interactions.PaySubmitted
 	} else {
 		typ = seal.TypeStatus
 		payload, err = (&delegation.StatusMsg{State: delegation.StateCanceled,
-			Text: "the provider canceled the task", At: d.nowMS()}).Marshal()
+			Text: "the provider canceled the task", At: d.nowMS(), Metadata: canceledPaymentMeta(ix)}).Marshal()
 	}
 	if err != nil {
 		return nil, err
@@ -675,6 +685,23 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 	var seq int64
 	id, err := d.queueSend(ctx, ix.PeerAID, typ, ix.ID, payload, func(tx *interactions.Tx) error {
 		var err error
+		// Read again under the write lock: a payment submitted since the
+		// row was read (the auto tier, another caller) keeps the task
+		// open, and the provider's answer decides (§4.2).
+		cur, err := tx.Get(ix.ID)
+		if err != nil {
+			return err
+		}
+		paid := cur.PayState == interactions.PaySubmitted || cur.PayState == interactions.PayCompleted
+		if cur.Role == interactions.RoleInbound && cur.IsCapability && paid {
+			// A payment taken since the row was read: the paid work is
+			// not canceled (§4.2 [C34]).
+			return ErrNotCancelable
+		}
+		cancelState := true
+		if cur.Role == interactions.RoleOutbound {
+			cancelState = !paid
+		}
 		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ix.ID,
 			SenderAID: d.AID(), Kind: interactions.MsgCancel, MsgID: msgID}); err != nil {
 			return err
@@ -1077,6 +1104,11 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 		return true
 	}
 	bound, long := invokeBound(p, capID)
+	if long && len(payment) == 0 && d.unpaidPriced(p, capID, interactionID) {
+		// Only a quote to give (A2A-DESIGN §8.3): computed, not performed,
+		// so it is answered here and takes no long-call slot.
+		long = false
+	}
 	if !long {
 		defer finish()
 		cctx, cancel := context.WithTimeout(d.ctx, bound)
@@ -1085,15 +1117,30 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 		d.tryCapabilityPaid(cctx, interactionID, capID, args, payment)
 		return true
 	}
-	select {
-	case d.longCalls <- struct{}{}:
-	default:
+	if !d.takeLongSlot(interactionID) {
 		defer finish()
 		// Said, not queued. See maxConcurrentLongCalls.
 		cctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
 		defer cancel()
 		ix, err := d.ix.Get(interactionID)
 		if err != nil {
+			return true
+		}
+		if len(payment) > 0 {
+			// A payment for a call this node has no room to run: it is
+			// not settled, and the task waits for another payment rather
+			// than ending with the requester's money taken (A2A-DESIGN
+			// §8.3). A prepaid call is quoted first, so its requester is
+			// told the terms it may pay again on. Only an open quote is
+			// refused: a payment already taken is not touched.
+			if price, priced := priceOfCapability(p, capID); priced && ix.PayState == interactions.PayNone {
+				if err := d.recordQuote(cctx, ix, capID, price, false); err != nil && !errors.Is(err, errAlreadyQuoted) {
+					log.Printf("anet: %s: quote for a prepaid call: %v", interactionID, err)
+				}
+			}
+			d.paymentFailed(cctx, interactionID, payOpen, x402a2a.ReasonProviderBusy, "",
+				fmt.Sprintf("this node is already running %d long tasks; try again later", maxConcurrentLongCalls),
+				failureReceipt(x402a2a.ReasonProviderBusy, ""))
 			return true
 		}
 		d.deliverCapabilityResult(cctx, interactionID, capID, ix, capabilityResult{
@@ -1119,6 +1166,37 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 		d.tryCapabilityPaid(cctx, interactionID, capID, args, payment)
 	}()
 	return true
+}
+
+// unpaidPriced reports whether a call is priced and not yet paid for, so
+// that running it now can only produce a quote.
+func (d *Daemon) unpaidPriced(p provider.CapabilityProvider, capID, interactionID string) bool {
+	if _, priced := priceOfCapability(p, capID); !priced || d.payer() == nil {
+		return false
+	}
+	ix, err := d.ix.Get(interactionID)
+	return err == nil && ix.PayState != interactions.PayCompleted
+}
+
+// takeLongSlot takes a long-call slot when one is free. A call already
+// paid for is not refused for being busy — the requester's money moved —
+// so it waits for a slot instead; only the settlement retry loop reaches
+// that wait, off the receive path.
+func (d *Daemon) takeLongSlot(interactionID string) bool {
+	select {
+	case d.longCalls <- struct{}{}:
+		return true
+	default:
+	}
+	if ix, err := d.ix.Get(interactionID); err != nil || ix.PayState != interactions.PayCompleted {
+		return false
+	}
+	select {
+	case d.longCalls <- struct{}{}:
+		return true
+	case <-d.ctx.Done():
+		return false
+	}
 }
 
 // busyRetryAfterMS is the retry hint given with an UNAVAILABLE answer that
@@ -1177,6 +1255,9 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 			d.publishState(m.ix)
 			if kind == interactions.MsgText && !ix.IsCapability {
 				d.kickAutoReply()
+			}
+			if kind == interactions.MsgPayment && fromRequester {
+				d.onRequesterPayment(ctx, m.ix, ix, cm.Metadata)
 			}
 		}
 		return res
@@ -1423,7 +1504,9 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	if _, lerr := d.ledger.Append(EvResultAccepted, ev); lerr != nil {
 		log.Printf("anet: result evidence ledger: %v", lerr)
 	}
-	d.recordSettlement(m.ix, rr.Deliverable)
+	// §4.2: the receipts are verified and recorded even when the task
+	// ended here first.
+	d.notePaymentReceipts(m.ix, decodeMeta(rr.Metadata), late)
 	d.publishResult(m.ix)
 	return res
 }
@@ -1432,10 +1515,16 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 // started, from its provider (checked in step 9): the status is stored as
 // a status message and the task moves to the state it carries. A status
 // for a task already terminal here changes nothing.
-func (d *Daemon) ingestStatus(_ context.Context, m *rxMsg) rxResult {
+func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 	sm, ix := m.sm, m.existing
 	if ix.IsTerminal() {
-		return d.commitRx(m, nil)
+		res := d.commitRx(m, nil)
+		if res.class == rxAccepted && carriesPayment(sm.Metadata) {
+			// §4.2: a settlement is a fact about money this node paid,
+			// whatever became of the task here.
+			d.notePaymentReceipts(m.ix, decodeMeta(sm.Metadata), true)
+		}
+		return res
 	}
 	var meta []byte
 	if len(sm.Metadata) > 0 && json.Valid(sm.Metadata) {
@@ -1454,51 +1543,11 @@ func (d *Daemon) ingestStatus(_ context.Context, m *rxMsg) rxResult {
 	if res.class == rxAccepted {
 		d.publishMessage(m.ix, seq, interactions.MsgStatus)
 		d.publishState(m.ix)
-	}
-	return res
-}
-
-// recordSettlement puts the payer's half of a payment on the payer's own
-// chain, having checked the hub's signature over it first.
-//
-// Failure here does not fail the result. The work arrived and is good;
-// what is missing is our note about the payment, and dropping a delivered
-// result over a bookkeeping problem would be the worse trade.
-func (d *Daemon) recordSettlement(interactionID string, deliverable []byte) {
-	if d.ledger == nil || len(deliverable) == 0 {
-		return
-	}
-	var res struct {
-		Paid *paidView `json:"paid"`
-	}
-	if err := json.Unmarshal(deliverable, &res); err != nil || res.Paid == nil {
-		return
-	}
-	entry := map[string]any{
-		"interaction_id": interactionID,
-		"transaction":    res.Paid.Transaction,
-		"amount":         res.Paid.Amount,
-		"network":        res.Paid.Network,
-	}
-	// Verified is the point of the entry. "The provider told us it was
-	// paid" and "the hub signed that it moved the credit" are different
-	// facts, and a chain that cannot tell them apart is one that will be
-	// read as claiming the stronger.
-	verified := false
-	if p := d.payer(); p != nil && res.Paid.Receipt != "" {
-		if facts, ok := p.VerifyReceipt(res.Paid.Receipt, d.AID()); ok {
-			verified = true
-			entry["payee"] = facts.Payee
-			entry["auth_id"] = facts.AuthID
-			entry["receipt"] = res.Paid.Receipt
-		} else {
-			log.Printf("anet: %s: settlement receipt did not check out", interactionID)
+		if carriesPayment(meta) {
+			d.onProviderPayment(ctx, m.ix, meta)
 		}
 	}
-	entry["verified"] = verified
-	if _, err := d.ledger.Append(EvPaymentSettled, entry); err != nil {
-		log.Printf("anet: settlement evidence: %v", err)
-	}
+	return res
 }
 
 // resendResult relays an answer this node already signed, for a
@@ -1511,11 +1560,22 @@ func (d *Daemon) resendResult(interactionID string, ix *interactions.Interaction
 	}
 	// The metadata the answer first went out with: anet.reason and
 	// anet.retry_after_ms are in no other place. A row from before it was
-	// kept has only the state to say.
-	meta := []byte(ix.ResultMeta)
-	if len(meta) == 0 {
-		meta, _ = json.Marshal(map[string]any{"anet.state": string(ix.State)})
+	// kept has only the state and, for a capability, the effect status to
+	// say.
+	m := decodeMeta([]byte(ix.ResultMeta))
+	if len(m) == 0 {
+		m["anet.state"] = string(ix.State)
+		if ix.IsCapability {
+			var res capabilityResult
+			if json.Unmarshal(ix.Result, &res) == nil && res.Status != "" {
+				m["anet.effect_status"] = res.Status
+			}
+		}
 	}
+	// The payment part as it stands now: receipts and payment-completed
+	// follow the row, not the first send.
+	paymentResultMeta(ix, m)
+	meta, _ := json.Marshal(m)
 	payload, err := (&delegation.ResultResp{
 		Status: delegation.StatusDone, Deliverable: ix.Result,
 		Receipt: ix.Receipt, KEL: selfKEL, Metadata: meta,

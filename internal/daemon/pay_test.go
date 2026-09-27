@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +22,9 @@ import (
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
+	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/x402"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -69,11 +71,9 @@ func (p *pricedProvider) Invoke(context.Context, provider.Call) (effect.Effect, 
 	}, nil
 }
 
-// Priced work is quoted, not refused — and the quote is a real answer.
-//
-// A provider that wants paying has not failed, so PAYMENT_REQUIRED is its
-// own status; and the quote is signed, receipted and recorded like any
-// other result, because a price nobody can point back at is not a price.
+// Priced work is quoted, not refused, on the task itself (A2A-DESIGN
+// §8.3): the task waits in input-required with the price, and the quote is
+// on the provider's chain as anet.payment.quoted.
 func TestPricedWorkIsQuotedNotRefused(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -100,33 +100,34 @@ func TestPricedWorkIsQuotedNotRefused(t *testing.T) {
 	if work.invoked != 0 {
 		t.Fatalf("unpaid work was done %d times", work.invoked)
 	}
-	if _, err := req.Results(ctx); err != nil {
+	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	quote := lastResultFor(t, req, id)
-	if quote.Status != string(effect.PaymentRequired) {
-		t.Fatalf("status = %s, want PAYMENT_REQUIRED", quote.Status)
+	rix, _ := req.ix.Get(id)
+	if rix.State != interactions.StateInputRequired || rix.PayState != interactions.PayRequired {
+		t.Fatalf("requester: state %s pay_state %q, want input-required / required", rix.State, rix.PayState)
 	}
-	if quote.Payment == nil || len(quote.Payment.Accepts) == 0 {
+	q := storedQuote(rix)
+	if q == nil || len(q.Accepts) == 0 {
 		t.Fatal("the quote carried no price")
 	}
-	opt := quote.Payment.Accepts[0]
+	opt := q.Accepts[0]
 	if opt.Scheme != payment.SchemeCredit || opt.Amount != "120" || opt.PayTo != prov.AID() {
 		t.Errorf("quote = %+v", opt)
 	}
-	// The quote is on the provider's own chain, like any answer.
-	if got := lastLedgerPayload(t, prov, EvCapabilityEffect)["status"]; got != string(effect.PaymentRequired) {
-		t.Errorf("the quote is not on the chain as such: %v", got)
+	if len(rix.Receipt) != 0 {
+		t.Error("a quote is not a result: nothing was done, and nothing is receipted")
+	}
+	got := lastLedgerPayload(t, prov, EvPaymentQuoted)
+	if got["interaction_id"] != id || got["amount"] != "120" || got["pay_to"] != prov.AID() {
+		t.Errorf("the quote is not on the provider's chain: %v", got)
 	}
 }
 
-// The loop that had never run: quote → authorize → settle → work.
-//
-// Every piece of this existed and compiled for a month, and no test and
-// no caller ever put them in a line. That is the same mistake as the
-// module seam nothing imported, and it is why this test asserts the whole
-// arc rather than each step: a step that passes in isolation is exactly
-// what was already true.
+// The prepaid path (DelegateReq.Payment, kept by A2A-DESIGN §8.3):
+// quote → authorize → a new task carrying the payment → settle → work.
+// The provider checks it against the quote it makes for that task and
+// settles it on the same path as a payment on the task.
 func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -143,6 +144,7 @@ func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	grantOn(srv.URL, req.AID(), 500)
+	payPolicy(t, req, PaymentsConfig{ExplicitMax: u64(200), DailyMax: u64(1000)}, prov.AID())
 
 	// 1. Ask, and be quoted.
 	quoteID, err := req.DelegateCapability(ctx, prov.AID(), "work.do", map[string]any{"n": 1})
@@ -152,25 +154,25 @@ func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := req.Results(ctx); err != nil {
+	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	quote := lastResultFor(t, req, quoteID)
-	if quote.Status != string(effect.PaymentRequired) {
-		t.Fatalf("step 1: status = %s, want PAYMENT_REQUIRED", quote.Status)
+	qix, _ := req.ix.Get(quoteID)
+	quote := storedQuote(qix)
+	if quote == nil {
+		t.Fatalf("step 1: no quote stored (pay_state %q)", qix.PayState)
 	}
 	if work.invoked != 0 {
 		t.Fatalf("step 1: unpaid work was done %d times", work.invoked)
 	}
 
-	// 2. Pay it, and ask again. A second interaction, because the first
-	// ended with a real answer that stays on both chains.
-	paidID, err := req.PayAndRetry(ctx, prov.AID(), "work.do", map[string]any{"n": 1}, quote.Payment)
+	// 2. Pay it up front on a new task.
+	paidID, err := req.PayAndRetry(ctx, prov.AID(), "work.do", map[string]any{"n": 1}, quote)
 	if err != nil {
 		t.Fatalf("step 2: %v", err)
 	}
 	if paidID == quoteID {
-		t.Error("step 2: paying must not overwrite the interaction the quote lives in")
+		t.Error("step 2: the prepaid call must be a task of its own")
 	}
 
 	// 3. The provider settles before working.
@@ -180,8 +182,10 @@ func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 	if work.invoked != 1 {
 		t.Fatalf("step 3: paid work ran %d times, want 1", work.invoked)
 	}
-	if _, err := req.Results(ctx); err != nil {
-		t.Fatal(err)
+	for i := 0; i < 2; i++ {
+		if err := req.pollOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 	done := lastResultFor(t, req, paidID)
 	if done.Status != string(effect.OK) {
@@ -191,8 +195,7 @@ func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 		t.Fatal("step 3: the result does not say it was paid for")
 	}
 
-	// 4. The credit actually moved. A loop that reports success without
-	// this is the failure mode worth testing for.
+	// 4. The credit actually moved, once.
 	if got := balanceOf(srv.URL, req.AID()); got != 380 {
 		t.Errorf("step 4: payer balance = %d, want 380", got)
 	}
@@ -200,9 +203,7 @@ func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 		t.Errorf("step 4: provider balance = %d, want 120", got)
 	}
 
-	// 5. The hub's signed statement reached the payer. Without it the
-	// payer holds a transaction string it cannot check, which is the
-	// provider's word for the provider having been paid.
+	// 5. The hub's signed statement reached the payer and verifies.
 	if done.Paid.Receipt == "" {
 		t.Fatal("step 5: the hub's settlement receipt did not travel")
 	}
@@ -221,17 +222,16 @@ func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 		t.Errorf("step 5: receipt = %+v", rec)
 	}
 
-	// 6. Both chains carry it, which is the whole custody bargain: the
-	// balance is the hub's, the record is the parties'.
-	if got := lastLedgerPayload(t, req, x402.EvPaymentAuthorized)["interaction_id"]; got != paidID {
-		t.Errorf("step 6: payer's authorization is not on its chain: %v", got)
+	// 6. Both chains carry it.
+	auth := lastLedgerPayload(t, req, x402.EvPaymentAuthorized)
+	pix, _ := req.ix.Get(paidID)
+	if auth["interaction_id"] != paidID || auth["purpose"] != module.PurposeGateway ||
+		auth["pay_bind"] != x402a2a.PayBind(paidID, pix.TaskNonce) {
+		t.Errorf("step 6: payer's authorization is not on its chain as signed: %v", auth)
 	}
 	payerSettled := lastLedgerPayload(t, req, EvPaymentSettled)
-	if payerSettled["interaction_id"] != paidID {
-		t.Errorf("step 6: payer's settlement is not on its chain: %v", payerSettled)
-	}
-	if payerSettled["verified"] != true {
-		t.Errorf("step 6: the payer recorded a settlement it could not verify: %v", payerSettled)
+	if payerSettled["interaction_id"] != paidID || payerSettled["verified"] != true {
+		t.Errorf("step 6: payer's settlement is not on its chain, verified: %v", payerSettled)
 	}
 	if got := lastLedgerPayload(t, prov, EvPaymentSettled)["interaction_id"]; got != paidID {
 		t.Errorf("step 6: payee's settlement is not on its chain: %v", got)
@@ -247,11 +247,9 @@ func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 	}
 }
 
-// Paying more than you have must fail as a payment, not as the work.
-//
-// The distinction is the point: a caller told FAILED would look for a bug
-// in the capability. PAYMENT_REQUIRED with a reason tells it the truth,
-// which is that the work is fine and the money is not.
+// Paying more than you have fails as a payment, not as the work: the task
+// is told payment-failed with INSUFFICIENT_FUNDS and waits for another
+// payment (A2A-DESIGN §8.3, §8.5).
 func TestPayingWithoutCreditIsRefusedAsAPayment(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -268,6 +266,7 @@ func TestPayingWithoutCreditIsRefusedAsAPayment(t *testing.T) {
 		t.Fatal(err)
 	}
 	grantOn(srv.URL, req.AID(), 10) // not enough
+	payPolicy(t, req, PaymentsConfig{ExplicitMax: u64(200), DailyMax: u64(1000)}, prov.AID())
 
 	quoted := &payment.PaymentRequired{
 		X402Version: payment.Version,
@@ -286,20 +285,23 @@ func TestPayingWithoutCreditIsRefusedAsAPayment(t *testing.T) {
 	if work.invoked != 0 {
 		t.Fatalf("work ran %d times for a payment that did not settle", work.invoked)
 	}
-	if _, err := req.Results(ctx); err != nil {
+	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	res := lastResultFor(t, req, id)
-	if res.Status != string(effect.PaymentRequired) {
-		t.Fatalf("status = %s, want PAYMENT_REQUIRED", res.Status)
+	rix, _ := req.ix.Get(id)
+	if rix.State != interactions.StateInputRequired || rix.PayState != interactions.PayFailed {
+		t.Fatalf("requester: state %s pay_state %q, want input-required / failed", rix.State, rix.PayState)
 	}
-	if !strings.Contains(res.Message, payment.ReasonInsufficientFunds) {
-		t.Errorf("the payer is not told why: %q", res.Message)
+	_, meta := lastStatusMeta(t, req, id)
+	if meta[x402a2a.KeyStatus] != x402a2a.StatusFailed || meta[x402a2a.KeyError] != "INSUFFICIENT_FUNDS" ||
+		meta["anet.reason"] != payment.ReasonInsufficientFunds {
+		t.Errorf("the payer is not told why: %v", meta)
 	}
 	if got := balanceOf(srv.URL, req.AID()); got != 10 {
 		t.Errorf("a refused payment moved credit: balance = %d", got)
 	}
 }
+
 func lastResultFor(t *testing.T, d *Daemon, ixID string) capabilityResult {
 	t.Helper()
 	results, err := d.Results(context.Background())
@@ -334,6 +336,7 @@ func TestANodeCanSignAPaymentForAGateway(t *testing.T) {
 	if err := d.RegisterWithHub(ctx, srv.URL, "Buyer", nil, ""); err != nil {
 		t.Fatal(err)
 	}
+	payPolicy(t, d, PaymentsConfig{ExplicitMax: u64(30)}, "did:anet:seller")
 	p := d.payer()
 	if p == nil {
 		t.Fatal("no payer")
@@ -341,7 +344,7 @@ func TestANodeCanSignAPaymentForAGateway(t *testing.T) {
 	raw, err := p.Authorize(payment.PaymentOption{
 		Scheme: payment.SchemeCredit, Network: payment.CreditNetwork(hubAIDOf(srv.URL)),
 		Amount: "30", Asset: payment.AssetCredit, PayTo: "did:anet:seller",
-	}, "gw-1")
+	}, "gw-1", "gw-1", module.PurposeGateway)
 	if err != nil {
 		t.Fatal(err)
 	}
