@@ -61,7 +61,7 @@ func signWith(t *testing.T, card map[string]any, hdr map[string]string, payload 
 
 func payloadAsGiven(t *testing.T, card map[string]any) []byte {
 	t.Helper()
-	p, err := a2acard.SigningPayload(mustJSON(t, card))
+	p, err := a2acard.RawSigningPayload(mustJSON(t, card))
 	if err != nil {
 		t.Fatal(err)
 	}
