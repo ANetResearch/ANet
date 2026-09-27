@@ -102,6 +102,9 @@ type fakeHub struct {
 	// relaySends counts deliveries the hub actually carried, so a test can
 	// tell "the hub delivered it" from "something else did".
 	relaySends int
+	// relayPolls counts the /relay/poll requests each AID made, so a test
+	// can tell how many requests a poll round costs the hub.
+	relayPolls map[string]int
 	// lastSeen is when each agent last collected its mail — the real hub's
 	// agent.last_seen_at, updated by register and by every poll. It is what
 	// /relay/send answers recipient_quiet from, so a fake without it makes
@@ -223,6 +226,18 @@ func relayCountFor(url string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.relaySends
+}
+
+// relayPollsFor reports how many mailbox polls this hub answered for aid.
+func relayPollsFor(url, aid string) int {
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		return 0
+	}
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.relayPolls[aid]
 }
 
 func (h *fakeHub) handler() http.Handler {
@@ -925,7 +940,7 @@ func backdateLastSeen(url, aid string, ago time.Duration) {
 }
 
 // hRelayPoll mirrors POST /relay/poll — undelivered envelopes for the
-// authenticated caller, oldest first.
+// authenticated caller with an id above after_id (0: all), oldest first.
 func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	body, ok := h.readBody(w, r, 1<<16)
 	if !ok {
@@ -940,6 +955,10 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
+	if req.AfterID < 0 {
+		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "after_id must not be negative"})
+		return
+	}
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 100
@@ -948,9 +967,14 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	defer h.mu.Unlock()
 	// Collecting mail IS the liveness signal the real hub records (SeenPolling).
 	h.lastSeen[aid] = time.Now()
+	if h.relayPolls == nil {
+		h.relayPolls = map[string]int{}
+	}
+	h.relayPolls[aid]++
 	out := []hubapi.RelayMessage{}
+	// h.mailbox is in id order: ids come from nextID and rows are appended.
 	for _, m := range h.mailbox {
-		if m.toAID != aid {
+		if m.toAID != aid || m.id <= req.AfterID {
 			continue
 		}
 		out = append(out, hubapi.RelayMessage{ID: m.id, Envelope: base64.StdEncoding.EncodeToString(m.payload)})
