@@ -22,6 +22,7 @@ package daemon
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -76,6 +77,21 @@ type fakeHub struct {
 	balance map[string]uint64
 	entries map[string][]map[string]any
 	settled map[string]string // authorization id → transaction, so replay is idempotent
+	// settledReceipt is each settled authorization's signed receipt, so a
+	// replay answers with the original (A2A-DESIGN §8.5).
+	settledReceipt map[string]string
+	// bindings maps payer + binding to the authorization that settled it:
+	// one settlement per (payer, interaction_id) (§8.5).
+	bindings map[string]string
+	// settleBodies are the raw /x402/settle request bodies, in order, so a
+	// test can check what the hub was told (SI-1).
+	settleBodies [][]byte
+	// settleFaults are applied to the next /x402/settle calls, one each:
+	// "pending" answers settlement_pending without settling, "settle-then-pending"
+	// settles and then answers settlement_pending (the hub committed after
+	// the caller stopped listening), "drop" closes the connection before
+	// settling, "settle-then-drop" settles and then closes it.
+	settleFaults []string
 	// cardHighWater is the per-subject high water the card gate compares
 	// against — the same rule the real hub keeps in agent_card.seq.
 	cardHighWater map[string]uint64
@@ -148,7 +164,7 @@ func newFakeHub(t *testing.T) *httptest.Server {
 		departedKEL:   map[string][]byte{},
 		self:          self,
 		balance:       map[string]uint64{}, entries: map[string][]map[string]any{},
-		settled:  map[string]string{},
+		settled: map[string]string{}, settledReceipt: map[string]string{}, bindings: map[string]string{},
 		lastSeen: map[string]time.Time{},
 		wire:     hubapi.WireVersion,
 		sendsBy:  map[string]int{}, sigSeen: map[string]bool{},
@@ -1020,68 +1036,147 @@ func balanceOf(url, aid string) uint64 {
 // unsigned authorization would let the paid-work test pass with the
 // signature stripped out.
 func (h *fakeHub) hSettle(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PaymentPayload payment.PaymentPayload `json:"paymentPayload"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		fakeHubJSON(w, http.StatusBadRequest, payment.SettlementResponse{
-			Success: false, ErrorReason: "malformed"})
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		fakeHubJSON(w, http.StatusBadRequest, payment.SettlementResponse{Success: false, ErrorReason: payment.ReasonMalformed})
 		return
 	}
-	encoded, _ := req.PaymentPayload.Payload["authorization"].(string)
+	h.mu.Lock()
+	h.settleBodies = append(h.settleBodies, body)
+	fault := ""
+	if len(h.settleFaults) > 0 {
+		fault, h.settleFaults = h.settleFaults[0], h.settleFaults[1:]
+	}
+	h.mu.Unlock()
+	drop := func() {
+		if hj, ok := w.(http.Hijacker); ok {
+			if c, _, err := hj.Hijack(); err == nil {
+				_ = c.Close()
+				return
+			}
+		}
+		panic(http.ErrAbortHandler)
+	}
+	switch fault {
+	case "drop":
+		drop()
+		return
+	case "pending":
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false,
+			ErrorReason: payment.ReasonSettlementPending})
+		return
+	}
+	// The real hub's request shape (payment.FacilitatorRequest): without
+	// paymentRequirements it refuses, as ANetHub readFacilitatorRequest does.
+	var req payment.FacilitatorRequest
+	if err := json.Unmarshal(body, &req); err != nil || req.PaymentPayload == nil {
+		fakeHubJSON(w, http.StatusBadRequest, payment.SettlementResponse{
+			Success: false, ErrorReason: payment.ReasonMalformed})
+		return
+	}
+	if req.PaymentRequirements == nil {
+		fakeHubJSON(w, http.StatusBadRequest, payment.SettlementResponse{
+			Success: false, ErrorReason: payment.ReasonInvalidRequirements})
+		return
+	}
+	pp, want := req.PaymentPayload, req.PaymentRequirements
+	encoded, _ := pp.Payload["authorization"].(string)
 	raw, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil {
 		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
-			Success: false, ErrorReason: "authorization not base64"})
+			Success: false, ErrorReason: payment.ReasonMalformed})
 		return
 	}
 	auth, err := payment.UnmarshalAuthorization(raw)
 	if err != nil {
 		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
-			Success: false, ErrorReason: "authorization malformed"})
+			Success: false, ErrorReason: payment.ReasonMalformed})
+		return
+	}
+	refuse := func(reason string) {
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false, ErrorReason: reason,
+			Network: auth.Network})
+	}
+	// ANetHub CheckRequirements, term for term.
+	wantAmount, aerr := payment.ParseAmount(want.Amount)
+	accepted, perr := payment.ParseAmount(pp.Accepted.Amount)
+	switch {
+	case aerr != nil || want.PayTo == "" || want.Network == "":
+		refuse(payment.ReasonInvalidRequirements)
+		return
+	case want.Scheme != payment.SchemeCredit || pp.Accepted.Scheme != want.Scheme:
+		refuse(payment.ReasonUnsupportedScheme)
+		return
+	case pp.Accepted.Network != want.Network || auth.Network != want.Network:
+		refuse(payment.ReasonNetworkMismatch)
+		return
+	case auth.PayTo != want.PayTo || pp.Accepted.PayTo != auth.PayTo:
+		refuse(payment.ReasonPayeeMismatch)
+		return
+	case perr != nil || accepted != auth.Amount || auth.Amount < wantAmount:
+		refuse(payment.ReasonInvalidAmount)
 		return
 	}
 	h.mu.Lock()
 	payer := h.agents[auth.Payer]
 	h.mu.Unlock()
 	if payer == nil {
-		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
-			Success: false, ErrorReason: "payer unknown to this hub"})
+		refuse(payment.ReasonUnknownPayer)
 		return
 	}
 	kel, err := identity.UnmarshalKEL(payer.kel)
 	if err != nil {
-		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
-			Success: false, ErrorReason: "payer key history unreadable"})
-		return
-	}
-	if err := auth.Verify(kel, time.Now().UnixMilli()); err != nil {
-		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
-			Success: false, ErrorReason: "bad signature: " + err.Error()})
+		refuse(payment.ReasonSettlementFailed)
 		return
 	}
 	authID, err := auth.ID()
 	if err != nil {
-		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false, ErrorReason: err.Error()})
+		refuse(payment.ReasonMalformed)
+		return
+	}
+	// A settled authorization answers with its original receipt at any
+	// time, before the window is checked (§8.5).
+	h.mu.Lock()
+	if tx, done := h.settled[authID]; done {
+		rec := h.settledReceipt[authID]
+		h.mu.Unlock()
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
+			Success: true, Transaction: tx, Network: auth.Network, Payer: auth.Payer,
+			Amount:     payment.Amount(auth.Amount),
+			Extensions: map[string]any{payment.ExtReceipt: rec, payment.ExtReplayed: true}})
+		return
+	}
+	h.mu.Unlock()
+	if err := auth.Verify(kel, time.Now().UnixMilli()); err != nil {
+		reason := payment.ReasonInvalidSignature
+		if errors.Is(err, payment.ErrExpired) || errors.Is(err, payment.ErrBadWindow) {
+			reason = payment.ReasonExpiredPayment
+		}
+		refuse(reason)
 		return
 	}
 	h.mu.Lock()
-	if tx, done := h.settled[authID]; done {
+	bindKey := auth.Payer + "\x00" + auth.InteractionID
+	if prior, taken := h.bindings[bindKey]; taken && auth.InteractionID != "" && prior != authID {
+		tx := h.settled[prior]
 		h.mu.Unlock()
-		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
-			Success: true, Transaction: tx, Network: auth.Network, Payer: auth.Payer})
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false,
+			ErrorReason: payment.ReasonDuplicateBinding, Network: auth.Network,
+			Extensions: map[string]any{payment.ExtOriginalTransaction: tx}})
 		return
 	}
 	if h.balance[auth.Payer] < auth.Amount {
 		h.mu.Unlock()
-		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
-			Success: false, ErrorReason: payment.ReasonInsufficientFunds})
+		refuse(payment.ReasonInsufficientFunds)
 		return
 	}
 	h.balance[auth.Payer] -= auth.Amount
 	h.balance[auth.PayTo] += auth.Amount
 	tx := "tx-" + authID
 	h.settled[authID] = tx
+	if auth.InteractionID != "" {
+		h.bindings[bindKey] = authID
+	}
 	h.entries[auth.Payer] = append(h.entries[auth.Payer], map[string]any{
 		"kind": "debit", "delta": auth.Amount, "balance": h.balance[auth.Payer], "tx": tx})
 	h.entries[auth.PayTo] = append(h.entries[auth.PayTo], map[string]any{
@@ -1093,24 +1188,75 @@ func (h *fakeHub) hSettle(w http.ResponseWriter, r *http.Request) {
 		Amount: auth.Amount, Network: auth.Network, SettleAt: time.Now().UnixMilli(),
 	}
 	if err := rec.Sign(h.self); err != nil {
-		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false, ErrorReason: err.Error()})
+		refuse(payment.ReasonSettlementFailed)
 		return
 	}
 	recRaw, err := rec.Marshal()
 	if err != nil {
-		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false, ErrorReason: err.Error()})
+		refuse(payment.ReasonSettlementFailed)
+		return
+	}
+	recB64 := base64.StdEncoding.EncodeToString(recRaw)
+	h.mu.Lock()
+	h.settledReceipt[authID] = recB64
+	h.mu.Unlock()
+	switch fault {
+	case "settle-then-drop":
+		drop()
+		return
+	case "settle-then-pending":
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false,
+			ErrorReason: payment.ReasonSettlementPending})
 		return
 	}
 	fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{
 		Success: true, Transaction: tx, Network: auth.Network, Payer: auth.Payer,
-		Amount: payment.Amount(auth.Amount),
-		Extensions: map[string]any{
-			payment.ExtReceipt: base64.StdEncoding.EncodeToString(recRaw),
-		},
+		Amount:     payment.Amount(auth.Amount),
+		Extensions: map[string]any{payment.ExtReceipt: recB64},
 	})
 }
 
+// settleFaultsOn queues faults for the next settle calls of the hub at url.
+func settleFaultsOn(url string, faults ...string) {
+	v, _ := hubsByURL.Load(url)
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.settleFaults = append(h.settleFaults, faults...)
+}
+
+// settleBodiesOn returns the /x402/settle bodies the hub at url received.
+func settleBodiesOn(url string) [][]byte {
+	v, _ := hubsByURL.Load(url)
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([][]byte(nil), h.settleBodies...)
+}
+
+// debitsOn counts the debits the hub at url made from aid.
+func debitsOn(url, aid string) int {
+	v, _ := hubsByURL.Load(url)
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, e := range h.entries[aid] {
+		if e["kind"] == "debit" {
+			n++
+		}
+	}
+	return n
+}
+
 func (h *fakeHub) hBalance(w http.ResponseWriter, r *http.Request) {
+	// The account holder only (relayauth v2), as the real hub serves it.
+	if who := h.verifyAuth(w, r, nil, relayauth.ActionBalance, nil); who != r.PathValue("aid") {
+		if who != "" {
+			fakeHubJSON(w, http.StatusUnauthorized, map[string]string{"error": "auth: not the account holder"})
+		}
+		return
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	// "credits", the field the real hub uses. A fake answering a
@@ -1122,6 +1268,12 @@ func (h *fakeHub) hBalance(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *fakeHub) hLedgerRead(w http.ResponseWriter, r *http.Request) {
+	if who := h.verifyAuth(w, r, nil, relayauth.ActionLedger, nil); who != r.PathValue("aid") {
+		if who != "" {
+			fakeHubJSON(w, http.StatusUnauthorized, map[string]string{"error": "auth: not the account holder"})
+		}
+		return
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	es := h.entries[r.PathValue("aid")]

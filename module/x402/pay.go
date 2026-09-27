@@ -17,6 +17,7 @@ import (
 	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
+	"github.com/ANetResearch/ANetCore/relayauth"
 
 	"github.com/ANetResearch/ANet/module"
 )
@@ -134,22 +135,34 @@ const EvPaymentSettled = "anet.payment.settled"
 // EvCreditRedeemed records credit this node took back out.
 const EvCreditRedeemed = "anet.credit.redeemed"
 
-// Authorize signs a payment for one delegation and records it.
+// Authorize signs a payment for one task and records it.
 //
 // The authorization names the amount, the payee, the hub whose ledger it
-// settles on and the interaction it pays for. Every one of those is
-// inside the signature, so it cannot be re-aimed at other work, a larger
-// sum, a different provider or a different hub.
+// settles on and the binding of the work it pays for. Every one of those
+// is inside the signature, so it cannot be re-aimed at other work, a
+// larger sum, a different provider or a different hub.
 //
-// Returns the marshalled PaymentPayload, ready to ride with a delegation.
-// The kernel drives the delegation; this signs the money.
-func (m *Module) Authorize(opt payment.PaymentOption, interactionID string) ([]byte, error) {
+// The node's spending policy is asked first (PaymentSeam.AdmitSpend,
+// A2A-DESIGN §8.6), and nothing is signed or recorded when it says no.
+// That is the only gate: every signature over money this module makes —
+// a task payment, a gateway authorization, a redemption — passes through
+// here, so a limit cannot be stepped around by picking another door.
+//
+// bind is what the authorization's InteractionID carries. For a task it
+// is pay_bind(ix, task_nonce), which the hub sees and cannot reverse to
+// the interaction id; ix itself goes only on this node's own chain.
+//
+// Returns the marshalled PaymentPayload.
+func (m *Module) Authorize(opt payment.PaymentOption, ix, bind, purpose string) ([]byte, error) {
 	if m.seam == nil {
 		return nil, fmt.Errorf("x402: no hub, so nothing can be paid for")
 	}
 	amount, err := payment.ParseAmount(opt.Amount)
 	if err != nil {
 		return nil, err
+	}
+	if err := m.seam.AdmitSpend(opt.PayTo, amount, purpose); err != nil {
+		return nil, fmt.Errorf("x402: not authorized by this node's spending policy: %w", err)
 	}
 	var nonce [12]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
@@ -161,7 +174,7 @@ func (m *Module) Authorize(opt payment.PaymentOption, interactionID string) ([]b
 		Nonce:         hex.EncodeToString(nonce[:]),
 		IssuedAt:      now.UnixMilli(),
 		NotAfter:      now.Add(paymentWindow).UnixMilli(),
-		InteractionID: interactionID,
+		InteractionID: bind,
 	}
 	// Signed through the seam rather than with a key this module holds.
 	// The node's controller never leaves the kernel; what crosses is the
@@ -182,27 +195,39 @@ func (m *Module) Authorize(opt payment.PaymentOption, interactionID string) ([]b
 		return nil, err
 	}
 	// On our chain before it leaves: an authorization we cannot show we
-	// signed is one we cannot dispute later.
+	// signed is one we cannot dispute later. The purpose is what the
+	// kernel rebuilds its daily totals from after a restart.
 	if lerr := m.record(EvPaymentAuthorized, map[string]any{
-		"interaction_id": interactionID, "authorization_id": id,
-		"pay_to": opt.PayTo, "amount": opt.Amount, "network": opt.Network,
+		"interaction_id": ix, "pay_bind": bind, "purpose": purpose,
+		"authorization_id": id,
+		"pay_to":           opt.PayTo, "amount": opt.Amount, "network": opt.Network,
 	}); lerr != nil {
 		return nil, lerr
 	}
+	// The accepted option travels as quoted, minus anything that describes
+	// the work: the facilitator sees this object (SI-1).
+	accepted := opt
+	accepted.Extra = nil
 	return json.Marshal(&payment.PaymentPayload{
 		X402Version: payment.Version,
-		Accepted:    opt,
+		Accepted:    accepted,
 		Payload:     map[string]any{"authorization": base64.StdEncoding.EncodeToString(raw)},
 	})
 }
 
-// settle presents an authorization to the hub's facilitator.
+// settle presents an authorization to the hub's facilitator, with the
+// terms it is checked against.
 //
 // The provider settles because the provider is the payee, which is the
 // shape x402 gives it: the resource server asks the facilitator, not the
 // client. A caller that settled its own payment would be reporting that
 // it had paid.
-func (m *Module) settle(ctx context.Context, raw []byte) (*payment.SettlementResponse, error) {
+//
+// The body is x402 v2's {x402Version, paymentPayload, paymentRequirements}.
+// Neither object carries a description, an extra or a resource: the hub
+// learns who pays whom how much on which ledger for which binding, and
+// nothing about the work (SI-1).
+func (m *Module) settle(ctx context.Context, raw []byte, req payment.PaymentRequirements) (*payment.SettlementResponse, error) {
 	hub := m.hubURL()
 	if hub == "" {
 		return nil, fmt.Errorf("x402: no hub configured, so no facilitator to settle with")
@@ -211,25 +236,32 @@ func (m *Module) settle(ctx context.Context, raw []byte) (*payment.SettlementRes
 	if err := json.Unmarshal(raw, &pp); err != nil {
 		return nil, fmt.Errorf("x402: payment payload malformed: %w", err)
 	}
-	body, err := json.Marshal(map[string]any{
-		"x402Version": payment.Version, "paymentPayload": &pp,
+	pp.Accepted.Extra = nil
+	pp.Extensions = nil
+	req = sanitizeRequirements(req)
+	body, err := json.Marshal(payment.FacilitatorRequest{
+		X402Version: payment.Version, PaymentPayload: &pp, PaymentRequirements: &req,
 	})
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hub+"/x402/settle", bytes.NewReader(body))
+	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, hub+"/x402/settle", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: hubCallTimeout}).Do(req)
+	hreq.Header.Set("Content-Type", "application/json")
+	resp, err := (&http.Client{Timeout: hubCallTimeout}).Do(hreq)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	var out payment.SettlementResponse
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("x402: the facilitator answered %s unreadably: %w", resp.Status, err)
+	}
+	if resp.StatusCode >= 500 && out.ErrorReason == "" {
+		// A server error with no reason is not an outcome.
+		return nil, fmt.Errorf("x402: the facilitator answered %s", resp.Status)
 	}
 	return &out, nil
 }
@@ -279,21 +311,6 @@ func (m *Module) Balance(ctx context.Context) (map[string]any, error) {
 	if hub == "" {
 		return nil, fmt.Errorf("x402: no hub configured, so there is no ledger to read")
 	}
-	get := func(path string, into any) error {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, hub+path, nil)
-		if err != nil {
-			return err
-		}
-		resp, err := (&http.Client{Timeout: hubCallTimeout}).Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("x402: hub answered %s for %s", resp.Status, path)
-		}
-		return json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(into)
-	}
 	// "credits", the field the hub actually sends. Reading "balance" here
 	// once reported zero for every funded account — the request
 	// succeeded, the JSON parsed, and the number was wrong, which is the
@@ -301,7 +318,7 @@ func (m *Module) Balance(ctx context.Context) (map[string]any, error) {
 	var bal struct {
 		Credits int64 `json:"credits"`
 	}
-	if err := get("/agents/"+m.AID()+"/balance", &bal); err != nil {
+	if err := m.signedGet(ctx, "/agents/"+m.AID()+"/balance", relayauth.ActionBalance, &bal); err != nil {
 		return nil, err
 	}
 	out := map[string]any{
@@ -311,7 +328,7 @@ func (m *Module) Balance(ctx context.Context) (map[string]any, error) {
 	var led struct {
 		Entries []map[string]any `json:"entries"`
 	}
-	if err := get("/agents/"+m.AID()+"/ledger", &led); err == nil {
+	if err := m.signedGet(ctx, "/agents/"+m.AID()+"/ledger", relayauth.ActionLedger, &led); err == nil {
 		out["entries"] = led.Entries
 	}
 	return out, nil
@@ -346,7 +363,7 @@ func (m *Module) Redeem(ctx context.Context, amount uint64, reference string) (m
 		Amount:  payment.Amount(amount),
 		Asset:   payment.AssetCredit,
 		PayTo:   hubAID,
-	}, "redeem:"+reference)
+	}, "", "redeem:"+reference, module.PurposeRedeem)
 	if err != nil {
 		return nil, err
 	}

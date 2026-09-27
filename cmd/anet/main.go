@@ -312,6 +312,9 @@ func usageAllText() string {
   anet inbound policy [closed|approve|open]   show or set the inbound policy (default closed); loosening asks for confirmation on the terminal
   anet inbound pending        list delegations held for approval (metadata only)
   anet inbound approve|reject <interaction_id>   decide a held delegation (approve asks for confirmation on the terminal)
+  anet pay <interaction_id> [--option N] [--reject]   pay (or decline) the price a provider asked for a task you delegated; asks for confirmation on the terminal
+  anet payments [show]        show the spending limits and what was signed in the last 24 hours
+  anet payments set <limit>=<n>... [--payees-file PATH]   change auto_max, agent_max, agent_daily_max, explicit_max, daily_max; asks for confirmation on the terminal
   anet accept off             older switch: sets the inbound policy to closed ('accept on' is refused; use 'anet peers allow <aid>')
   anet autoreply set --backend exec --agent <cursor|claude|…>   auto-answer inbound tasks by spawning a local coding agent (live, no restart)
   anet autoreply set --backend openai --api-base URL --model M   auto-answer inbound tasks with your OpenAI-compatible API
@@ -1083,6 +1086,8 @@ var knownFlags = map[string][]string{
 	"accept":        {},
 	"peers":         {},
 	"inbound":       {},
+	"pay":           {"option", "reject"},
+	"payments":      {"payees-file"},
 	"autoreply": {
 		"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir",
 		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
@@ -1237,6 +1242,10 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		return runPeers(c, rest)
 	case "inbound":
 		return runInbound(c, rest)
+	case "pay":
+		return runPay(c, rest)
+	case "payments":
+		return runPayments(c, rest)
 	case "autoreply", "auto-reply":
 		return runAutoReply(c, rest)
 	case "profile":

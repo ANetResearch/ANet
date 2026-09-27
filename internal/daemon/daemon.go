@@ -81,6 +81,12 @@ type Daemon struct {
 	// because the sandbox was unavailable (autoreply.go).
 	sbRefused sandboxRefused
 
+	// spend holds the payments signed in the last 24 hours, for the
+	// spending policy (spend.go); settling tracks the task payments whose
+	// settlement is being retried (x402task.go).
+	spend    spendBook
+	settling sync.Map // interaction id -> struct{}
+
 	// pay is the payment subsystem, when one is compiled in and
 	// configured. Nil is the ordinary state of a build with -tags
 	// no_x402, and every payment surface says so rather than pretending.
@@ -223,6 +229,7 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, err
 	}
 	d.recoverInterrupted()
+	d.startPayments(ctx)
 	d.goBackground(func() { d.outboxLoop(ctx) })
 	if cfg.HubURL != "" {
 		d.startRelayLoop(cfg.HubURL)

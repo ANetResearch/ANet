@@ -129,7 +129,7 @@ func (d *Daemon) DelegateCapabilityIn(ctx context.Context, providerAID, capID st
 	if err != nil {
 		return "", err
 	}
-	return d.delegateCapabilityCtx(ctx, id, providerAID, capID, args, nil, contextID)
+	return d.delegateCapabilityCtx(ctx, id, "", providerAID, capID, args, nil, contextID)
 }
 
 func (d *Daemon) delegateCapabilityPaid(ctx context.Context, providerAID, capID string,
@@ -147,10 +147,13 @@ func (d *Daemon) delegateCapabilityPaid(ctx context.Context, providerAID, capID 
 // work that never happened.
 func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, capID string,
 	args map[string]any, paymentJSON []byte) (string, error) {
-	return d.delegateCapabilityCtx(ctx, id, providerAID, capID, args, paymentJSON, "")
+	return d.delegateCapabilityCtx(ctx, id, "", providerAID, capID, args, paymentJSON, "")
 }
 
-func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, capID string,
+// delegateCapabilityCtx sends a capability call as interaction id. nonce is
+// the task nonce, minted here when empty; a prepaid call mints it first,
+// because its payment is bound to it (pay_bind).
+func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerAID, capID string,
 	args map[string]any, paymentJSON []byte, contextID string) (string, error) {
 	hub := d.config().HubURL
 	if hub == "" {
@@ -174,9 +177,11 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, cap
 		}
 		contextID = c
 	}
-	nonce, err := newTaskNonce()
-	if err != nil {
-		return "", err
+	if nonce == "" {
+		var err error
+		if nonce, err = newTaskNonce(); err != nil {
+			return "", err
+		}
 	}
 	goal := "invoke capability " + capID
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{{
@@ -199,6 +204,18 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, cap
 		Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, IsCapability: true,
 		TaskNonce: nonce}); err != nil {
 		return "", err
+	}
+	if len(paymentJSON) > 0 {
+		// The prepaid authorization is this task's, so its receipt can be
+		// checked against it when the result comes back (§8.3).
+		authID := ""
+		if _, _, aid, err := payloadAuth(paymentJSON); err == nil {
+			authID = aid
+		}
+		if _, err := d.ix.SetPayment(id, interactions.PayUpdate{
+			State: interactions.PayState(interactions.PaySubmitted), AddAuthID: authID, Payload: paymentJSON}); err != nil {
+			return "", err
+		}
 	}
 	msgID, err := newMessageID()
 	if err != nil {
@@ -351,12 +368,15 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 	}
 	res := capabilityResult{Capability: capID}
 
-	// Priced work is answered with a price, not attempted and refused.
+	// Priced work is answered with a price, not attempted and refused
+	// (A2A-DESIGN §8.3): the task waits in input-required with the quote,
+	// and the payment arrives on the same task.
 	//
 	// The settle happens before the work. Settling after would mean doing
 	// the work and then finding out we cannot be paid; settling before
-	// means a payer whose work then fails has paid for a failure. The
-	// second is the one the evidence model can speak about.
+	// means a payer whose work then fails has paid for a failure, and is
+	// shown the receipt with the failure. The second is the one the
+	// evidence model can speak about.
 	if price, priced := priceOfCapability(p, capID); priced {
 		payer := d.payer()
 		if payer == nil {
@@ -368,28 +388,22 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{reason: "payments_unavailable"})
 			return true
 		}
-		if len(paymentRaw) == 0 {
-			return d.answerPaymentRequired(ctx, interactionID, capID, price, ix)
-		}
-		st, serr := payer.Settle(ctx, paymentRaw)
-		if serr != nil || st.Failed != "" {
-			reason := st.Failed
-			if serr != nil {
-				reason = serr.Error()
+		switch {
+		case ix.PayState == interactions.PayCompleted:
+			// Settled: by the retry loop, or before a redelivery.
+		case len(paymentRaw) == 0:
+			return d.quoteCapability(ctx, ix, capID, price)
+		default:
+			if !d.takePayment(ctx, ix, capID, price, paymentRaw) {
+				return true
 			}
-			res.Status, res.Message = string(effect.PaymentRequired), reason
-			res.Payment = payer.Quote(capID, price)
-			d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{})
-			return true
+			cur, err := d.ix.Get(interactionID)
+			if err != nil || cur.IsTerminal() {
+				return true
+			}
+			ix = cur
 		}
-		if _, lerr := d.ledger.Append(EvPaymentSettled, map[string]any{
-			"interaction_id": interactionID, "capability": capID,
-			"transaction": st.Transaction, "amount": st.Amount, "network": st.Network,
-		}); lerr != nil {
-			log.Printf("anet: payment evidence: %v", lerr)
-		}
-		res.Paid = &paidView{Transaction: st.Transaction, Amount: st.Amount,
-			Network: st.Network, Receipt: st.Receipt}
+		res.Paid = paidViewOf(ix)
 	}
 
 	eff, err := p.Invoke(ctx, provider.Call{Capability: capID, Args: args, CallID: interactionID,
@@ -467,7 +481,14 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 	if res.Nonce == "" {
 		res.Nonce, _ = newTaskNonce()
 	}
-	state, meta := stateForEffect(res.Status, res.Paid != nil)
+	// The payment columns as they stand now: a settlement may have landed
+	// since the caller read the row.
+	if cur, err := d.ix.Get(interactionID); err == nil {
+		ix = cur
+	}
+	paid := ix.PayState == interactions.PayCompleted
+	state, meta := stateForEffect(res.Status, paid)
+	paymentResultMeta(ix, meta)
 	if opts.state != "" {
 		state = opts.state
 		meta["anet.state"] = string(state)
@@ -576,6 +597,11 @@ func (d *Daemon) recoverInterrupted() {
 	}
 	for _, ix := range list {
 		if !ix.IsCapability || len(ix.Receipt) > 0 {
+			continue
+		}
+		if ix.PayState == interactions.PaySubmitted {
+			// Not executed: the payment's outcome is not known yet, and
+			// startPayments presents it again (A2A-DESIGN §8.3).
 			continue
 		}
 		capID := ix.Goal

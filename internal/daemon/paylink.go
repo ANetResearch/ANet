@@ -3,15 +3,16 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -140,38 +141,15 @@ func (s hubSeam) Sign(preimage []byte) ([]byte, uint64) { return s.d.self.Sign(p
 
 func (s hubSeam) HubURL() string { return s.d.config().HubURL }
 
-// answerPaymentRequired quotes a price instead of doing the work.
+// PayAndRetry pays a quote up front and delegates the same work again as
+// a new task carrying the payment (DelegateReq.Payment, A2A-DESIGN §8.3:
+// kept, and checked and settled on the same path as a payment on the
+// task). A gateway-tier payment (§8.6).
 //
-// A full answer, not a refusal: signed, receipted, on the chain and
-// delivered like any other. A provider that quoted a price has told the
-// caller something true about this interaction, and a quote nobody can
-// point back at is not a quote.
-func (d *Daemon) answerPaymentRequired(ctx context.Context, interactionID, capID string,
-	price uint64, ix *interactions.Interaction) bool {
-	p := d.payer()
-	res := capabilityResult{
-		Capability: capID,
-		Status:     string(effect.PaymentRequired),
-		Message:    fmt.Sprintf("%s costs %d credits", capID, price),
-	}
-	if p != nil {
-		res.Payment = p.Quote(capID, price)
-		if len(res.Payment.Accepts) > 0 {
-			res.Message = fmt.Sprintf("%s costs %d credits on %s",
-				capID, price, res.Payment.Accepts[0].Network)
-		}
-	}
-	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, nil, resultOpts{})
-}
-
-// PayAndRetry takes a PAYMENT_REQUIRED answer, pays it, and delegates the
-// same work again.
-//
-// A second delegation rather than a resumption of the first, and that is
-// the honest shape: the first interaction ended with a real answer — a
-// quote — which is signed, receipted and on both chains. Re-opening it to
-// pretend the quote never happened would erase the only record that the
-// price was ever stated.
+// The interaction id and the task nonce are minted before the
+// authorization, since the authorization is bound to both: that binding
+// is what stops the payment being reusable on any other work this
+// provider is owed for.
 //
 // It picks the first option it can pay. A caller wanting a different rail
 // signs the authorization itself and delegates directly; this is the
@@ -190,27 +168,30 @@ func (d *Daemon) PayAndRetry(ctx context.Context, providerAID, capID string,
 		return "", fmt.Errorf("anet: this node can pay %q and the provider accepts none of it",
 			payment.SchemeCredit)
 	}
-	// The interaction id has to be minted before the authorization, since
-	// the authorization names it: that binding is what stops the payment
-	// being reusable on any other work this provider is owed for.
+	if opt.PayTo != providerAID {
+		return "", ErrPayeeNotPeer
+	}
 	id, err := newInteractionID()
 	if err != nil {
 		return "", err
 	}
-	raw, err := p.Authorize(*opt, id)
+	nonce, err := newTaskNonce()
 	if err != nil {
 		return "", err
 	}
-	return d.delegateCapabilityWithID(ctx, id, providerAID, capID, args, raw)
+	raw, err := p.Authorize(*opt, id, x402a2a.PayBind(id, nonce), module.PurposeGateway)
+	if err != nil {
+		return "", err
+	}
+	return d.delegateCapabilityCtx(ctx, id, nonce, providerAID, capID, args, raw, "")
 }
 
 // DelegateAndPay delegates, and pays if the provider asks to be paid.
 //
 // One call because that is the shape a caller wants: "do this, and if it
-// costs something, buy it". The quote is still a real interaction with a
-// real receipt — this does not hide it, it acts on it — and the paid
-// interaction is a second one, because the first ended with an answer
-// that is true and worth keeping.
+// costs something, buy it". The quote arrives on the task as
+// input-required and the payment goes on the same task (A2A-DESIGN §8.3),
+// as a gateway-tier payment (§8.6: /delegate pay:true).
 func (d *Daemon) DelegateAndPay(ctx context.Context, providerAID, capID string,
 	args map[string]any) (string, *payment.PaymentOption, error) {
 	if d.payer() == nil {
@@ -227,63 +208,48 @@ func (d *Daemon) DelegateAndPay(ctx context.Context, providerAID, capID string,
 	if quote == nil {
 		return id, nil, nil // free, and already delegated
 	}
-	paidID, err := d.PayAndRetry(ctx, providerAID, capID, args, quote)
+	if _, err := d.PayTask(ctx, PayRequest{TaskID: id, Decision: PayDecisionSubmit,
+		Purpose: module.PurposeGateway}); err != nil && !errors.Is(err, ErrPaymentPending) {
+		return "", nil, err
+	}
+	ix, err := d.ix.Get(id)
 	if err != nil {
 		return "", nil, err
 	}
-	return paidID, pickRail(d.payer(), quote.Accepts), nil
+	var pp payment.PaymentPayload
+	if json.Unmarshal(ix.PayPayload, &pp) != nil {
+		return id, nil, nil
+	}
+	return id, &pp.Accepted, nil
 }
 
-// awaitQuote waits for the first answer and reports a price if one came.
+// awaitQuote waits for the provider's first answer to a task and reports
+// the price if it asked for one.
 //
-// nil means the work was free and is already done or under way — the
-// absence of a 402 is how x402 says free, and it is how this says it too.
+// nil means the work was free and is already done — the absence of a
+// quote is how x402 says free, and it is how this says it too. A quote is
+// read from the task's stored pay_required, which only a status from the
+// task's provider writes: the envelope it arrived in was signed by the
+// provider (A2A-DESIGN §3.6, SI-4), so a price cannot be injected by
+// anything that merely knows the interaction id.
 func (d *Daemon) awaitQuote(ctx context.Context, interactionID string) (*payment.PaymentRequired, error) {
 	deadline := time.Now().Add(quoteWait)
 	for time.Now().Before(deadline) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		results, err := d.Results(ctx)
+		d.pollFresh(ctx)
+		ix, err := d.ix.Get(interactionID)
 		if err != nil {
 			return nil, err
 		}
-		for _, r := range results {
-			if r.InteractionID != interactionID {
-				continue
+		if ix.PayState != interactions.PayNone {
+			if q := storedQuote(ix); q != nil {
+				return q, nil
 			}
-			var res capabilityResult
-			if err := json.Unmarshal([]byte(r.Result), &res); err != nil {
-				return nil, err
-			}
-			if res.Status == string(effect.PaymentRequired) {
-				if res.Payment == nil {
-					return nil, fmt.Errorf("anet: provider asked to be paid but quoted no price")
-				}
-				// A quote is only worth the signature behind it. Accepting
-				// a completion this node could not verify is deliberate —
-				// the work was still done, and dropping it would lose a
-				// real result. A quote is the opposite case: nothing was
-				// delivered, and acting on it spends credit on a price
-				// that nothing binds to the provider.
-				//
-				// The gap this closes: delegation.VerifyResult returns
-				// ErrUnverifiable as soon as a result carries no key
-				// history, before it checks the receipt signature, the
-				// provider binding, the interaction binding or the
-				// deliverable hash. /relay/send is unauthenticated by
-				// design, so anything able to write to this node's mailbox
-				// with a known interaction id could otherwise state a
-				// price here and be paid it.
-				if r.ReceiptVerified != string(interactions.VerificationVerified) {
-					return nil, fmt.Errorf(
-						"anet: refusing to pay on a quote this node could not verify "+
-							"(interaction %s, receipt %s) — pay it deliberately with "+
-							"`anet x402-authorize` if you have checked it another way",
-						interactionID, verificationWord(r.ReceiptVerified))
-				}
-				return res.Payment, nil
-			}
+			return nil, fmt.Errorf("anet: provider asked to be paid but quoted no price")
+		}
+		if ix.IsTerminal() {
 			return nil, nil // answered, and not with a price
 		}
 		time.Sleep(time.Second)
