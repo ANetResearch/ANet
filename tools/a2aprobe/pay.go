@@ -29,6 +29,15 @@ const (
 	reasonOptionNotOffered      = "option_not_offered"
 	reasonClientPayload         = "client_payload_unsupported"
 	reasonNeedsOperatorApproval = "needs_operator_approval"
+	// reasonNotActivated is the reason §8.7 gives a quote above the auto
+	// tier when the client did not activate a2a-x402.
+	reasonNotActivated = "payment_extension_not_activated"
+	// spendOverSingle is the spending policy's refusal code for a payment
+	// above the tier's single limit (agent_max here). The kernel's refusal
+	// of an over-limit payment message names it; a refusal that does not
+	// is some other refusal (no quote, a payee not allowed, a payment
+	// pending) and proves nothing about the limit.
+	spendOverSingle = "over_single_limit"
 )
 
 // payFlow runs the flow on paid (a price within the agent tier) and on
@@ -47,6 +56,11 @@ func (p *probe) payFlow(ctx context.Context, card *a2a.AgentCard, paid, pricey s
 		return
 	}
 	p.st.Paid = string(t.ID)
+	if r := str(taskMeta(t, keyReason)); !p.x402 && r != reasonNotActivated {
+		// Without a2a-x402 on the card the activator asked for nothing.
+		p.rep.note("pay-not-activated", "the client did not activate a2a-x402 (the card does not declare it); "+
+			"§8.7 then says %s=%s above the auto tier, the task says %q", keyReason, reasonNotActivated, r)
+	}
 
 	// An option the quote did not offer: refused here, nothing signed; the
 	// quote stands.
@@ -91,7 +105,8 @@ func (p *probe) payFlow(ctx context.Context, card *a2a.AgentCard, paid, pricey s
 	res, err = p.payMessage(ctx, cl, t2, map[string]any{keyX402Status: paySubmitted, keyAccept: opt2}, "")
 	switch {
 	case err != nil:
-		p.rep.check(errIs(err, a2a.ErrUnsupportedOperation, ""), "pay-over-limit", "refused: %v", errText(err))
+		p.rep.check(errIs(err, a2a.ErrUnsupportedOperation, "") && strings.Contains(err.Error(), spendOverSingle),
+			"pay-over-limit", "refused, naming %s: %v", spendOverSingle, errText(err))
 	default:
 		p.rep.check(res.Status.State == a2a.TaskStateInputRequired && str(taskMeta(res, keyReason)) == reasonNeedsOperatorApproval &&
 			str(taskMeta(res, keyX402Status)) != paySubmitted, "pay-over-limit",
@@ -100,8 +115,10 @@ func (p *probe) payFlow(ctx context.Context, card *a2a.AgentCard, paid, pricey s
 	gctx, cancel = opCtx(ctx, 30*time.Second)
 	g, err = cl.GetTask(gctx, &a2a.GetTaskRequest{ID: t2.ID})
 	cancel()
+	reason := str(metaOf(g, keyReason))
+	waits := reason == reasonNeedsOperatorApproval || (!p.x402 && reason == reasonNotActivated)
 	p.rep.check(err == nil && g.Status.State == a2a.TaskStateInputRequired && str(taskMeta(g, keyX402Status)) == payRequired &&
-		str(taskMeta(g, keyReason)) == reasonNeedsOperatorApproval, "pay-over-limit-task",
+		waits, "pay-over-limit-task",
 		"the task waits: %s, %s=%v, %s=%v (%v)", stateOf(g), keyX402Status, metaOf(g, keyX402Status), keyReason, metaOf(g, keyReason), errText(err))
 
 	// Declined: payment-rejected ends the task here and at the provider.

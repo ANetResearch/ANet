@@ -46,6 +46,9 @@ type probe struct {
 	timeout time.Duration
 	st      *runState
 	rec     *hermesRecord
+	// x402 is whether the proxy card declares a2a-x402, and so whether
+	// a2aext's activator asks for it on the payment calls.
+	x402 bool
 }
 
 // bindings are the two the local interface offers (§11.2), with the names
@@ -291,6 +294,7 @@ func (p *probe) cardChecks(ctx context.Context, registry bool) *a2a.AgentCard {
 			p.rep.check(!e.Required, "card-x402-optional", "the proxy card does not make a2a-x402 required (§8.7)")
 		}
 	}
+	p.x402 = x402
 	if registry {
 		p.rep.check(verification == "VERIFIED", "card-origin", "the agent's network card, verified by this node: %q", verification)
 		p.rep.check(x402, "card-x402", "the proxy card declares a2a-x402 for an agent with a priced public skill")
@@ -338,7 +342,12 @@ func (p *probe) textFlow(ctx context.Context, card *a2a.AgentCard, tag string, b
 	cancel()
 	if t, terr := asTask(res); err == nil && terr == nil {
 		p.st.Immediate[tag] = string(t.ID)
-		p.rep.check(!t.Status.State.Terminal() && t.ContextID == ctxID, tag+"-send-immediate",
+		// Before the agent could have answered: submitted or working. Not
+		// merely "not terminal" — a send that ignored returnImmediately and
+		// waited ends at input-required with the answer, which is not
+		// terminal either.
+		early := t.Status.State == a2a.TaskStateSubmitted || t.Status.State == a2a.TaskStateWorking
+		p.rep.check(early && t.ContextID == ctxID, tag+"-send-immediate",
 			"answered in %s at %s, contextId kept %v", took.Round(time.Millisecond), t.Status.State, t.ContextID == ctxID)
 		if done := p.waitTerminal(ctx, cl, t.ID, tag+"-send-immediate-done"); done != nil {
 			p.checkDoneText(tag+"-send-immediate-done", done, echoPrefix+text)
