@@ -239,7 +239,20 @@ func Build(in Input) ([]byte, error) {
 			Examples: s.Examples, InputModes: s.InputModes, OutputModes: s.OutputModes})
 	}
 
+	// Contributions should have passed Interface and Extension; what the
+	// ordering reads is checked here too, so one that did not is an error
+	// rather than a panic. The rest is left to CheckPublishForm below.
 	ifaces := append([]map[string]any(nil), in.Interfaces...)
+	for i, it := range ifaces {
+		b, bok := it["protocolBinding"].(string)
+		u, uok := it["url"].(string)
+		if !bok || !uok || b == "" || u == "" {
+			return nil, fmt.Errorf("netcard: interface %d has no url or protocolBinding", i)
+		}
+		if b == a2acard.BindingRelayURI {
+			return nil, fmt.Errorf("netcard: interface %d repeats the relay binding the kernel writes", i)
+		}
+	}
 	sort.SliceStable(ifaces, func(i, j int) bool {
 		bi, bj := ifaces[i]["protocolBinding"].(string), ifaces[j]["protocolBinding"].(string)
 		if bi != bj {
@@ -259,6 +272,11 @@ func Build(in Input) ([]byte, error) {
 		{"uri": module.ExtEvidenceURI, "description": evidenceExtDescription},
 	}
 	exts := append([]map[string]any(nil), in.Extensions...)
+	for i, e := range exts {
+		if u, ok := e["uri"].(string); !ok || u == "" {
+			return nil, fmt.Errorf("netcard: extension %d has no uri", i)
+		}
+	}
 	sort.SliceStable(exts, func(i, j int) bool { return exts[i]["uri"].(string) < exts[j]["uri"].(string) })
 	seenExt := map[string]bool{a2acard.ExtCardURI: true, module.ExtEvidenceURI: true}
 	for _, e := range exts {
@@ -441,6 +459,15 @@ func paramsProblem(v any, path string) string {
 		for i, e := range t {
 			if e == "" {
 				return path + "[" + strconv.Itoa(i) + "] is an empty string"
+			}
+		}
+	case map[string]string:
+		if len(t) == 0 {
+			return path + " is an empty object"
+		}
+		for k, e := range t {
+			if e == "" {
+				return path + "." + k + " is an empty string"
 			}
 		}
 	case string:

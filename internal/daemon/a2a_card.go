@@ -95,11 +95,14 @@ type CardPublication struct {
 // inbound.public_capabilities that a provider on this node serves, sorted
 // and de-duplicated. The ids are the exact strings the inbound check
 // admits. A public capability nobody serves is left out: a directory entry
-// for it would be an invitation to call something that cannot answer.
+// for it would be an invitation to call something that cannot answer. So
+// is a priced one on a node that cannot take payment (a -tags no_x402
+// build, or no payment module): capability.go refuses every call to it.
 func (d *Daemon) publicSkillIDs() []string {
 	if d.providers == nil {
 		return nil
 	}
+	canCharge := d.payer() != nil
 	seen := map[string]bool{}
 	var out []string
 	for _, p := range d.config().inbound().PublicCapabilities {
@@ -108,9 +111,14 @@ func (d *Daemon) publicSkillIDs() []string {
 			continue
 		}
 		seen[id] = true
-		if _, ok := d.providers.Resolve(id); ok {
-			out = append(out, id)
+		prov, ok := d.providers.Resolve(id)
+		if !ok {
+			continue
 		}
+		if _, priced := priceOfCapability(prov, id); priced && !canCharge {
+			continue
+		}
+		out = append(out, id)
 	}
 	sort.Strings(out)
 	if len(out) > a2acard.MaxSkills {
@@ -123,21 +131,24 @@ func (d *Daemon) publicSkillIDs() []string {
 // networkCard returns this node's signed network card for hubURL, reusing
 // the last issued card when nothing it says has changed. It returns
 // errNoPublicSkill when there is nothing to publish.
+//
+// The card's name is the configured one; a registration passes the name it
+// registers under instead (cardForRegistration).
 func (d *Daemon) networkCard(hubURL string) (json.RawMessage, uint64, error) {
 	d.netCard.mu.Lock()
 	defer d.netCard.mu.Unlock()
-	return d.networkCardLocked(hubURL, false)
+	return d.networkCardLocked(hubURL, d.config().Name, false)
 }
 
-// networkCardLocked is networkCard with netCard.mu held. fresh forces a
-// new seq even when the content is unchanged, which is how a hub's
-// conflict answer is resolved.
-func (d *Daemon) networkCardLocked(hubURL string, fresh bool) (json.RawMessage, uint64, error) {
+// networkCardLocked is networkCard with netCard.mu held, for a card named
+// name. fresh forces a new seq even when the content is unchanged, which is
+// how a hub's conflict answer is resolved.
+func (d *Daemon) networkCardLocked(hubURL, name string, fresh bool) (json.RawMessage, uint64, error) {
 	hubURL = strings.TrimRight(strings.TrimSpace(hubURL), "/")
 	if hubURL == "" {
 		return nil, 0, fmt.Errorf("anet: no hub, so no relay interface for a network card")
 	}
-	in, err := d.cardInput(hubURL)
+	in, err := d.cardInput(hubURL, name)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -202,16 +213,21 @@ func (d *Daemon) selfKELResolver(aid string) ([]identity.SignedEvent, error) {
 }
 
 // cardInput gathers what the card says, with seq and times left zero:
-// name and description from the config (the profile summary), one skill
-// per public capability, and the modules' contributions, each put in
-// publish form or dropped with a log line.
-func (d *Daemon) cardInput(hubURL string) (netcard.Input, error) {
+// name, description from the config (the profile summary), one skill per
+// public capability, and the modules' contributions, each put in publish
+// form or dropped with a log line.
+//
+// name is passed rather than read from the config because an explicit
+// hub-register writes its name to the config only after the hub accepted
+// it; the card sent with that registration must carry the same name as the
+// registration and its ADP card.
+func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 	skills := d.publicSkillIDs()
 	if len(skills) == 0 {
 		return netcard.Input{}, errNoPublicSkill
 	}
 	cfg := d.config()
-	in := netcard.Input{AID: d.AID(), Name: cfg.Name, Description: cfg.Summary, Version: Version, HubURL: hubURL}
+	in := netcard.Input{AID: d.AID(), Name: name, Description: cfg.Summary, Version: Version, HubURL: hubURL}
 	for _, id := range skills {
 		p, _ := d.providers.Resolve(id)
 		in.Skills = append(in.Skills, netcard.SkillFor(p, id))
@@ -286,15 +302,21 @@ func (d *Daemon) persistIssuedCardLocked() {
 	}
 }
 
-// cardForRegistration is the a2a_card of a registration: the card, or nil
-// when this node publishes none. A card that cannot be built is logged
-// and left out; it does not stop the registration.
-func (d *Daemon) cardForRegistration(hubURL string, fresh bool) (json.RawMessage, uint64) {
+// cardForRegistration is the a2a_card of a registration under name: the
+// card, or nil when this node publishes none. A card that cannot be built
+// is logged and left out; it does not stop the registration.
+func (d *Daemon) cardForRegistration(hubURL, name string, fresh bool) (json.RawMessage, uint64) {
 	d.netCard.mu.Lock()
 	defer d.netCard.mu.Unlock()
-	card, seq, err := d.networkCardLocked(hubURL, fresh)
+	card, seq, err := d.networkCardLocked(hubURL, name, fresh)
 	switch {
 	case errors.Is(err, errNoPublicSkill):
+		if prev := d.netCard.lastPub; prev.Sent && prev.Hub == hubURL {
+			// A registration without a2a_card leaves the hub's stored card
+			// in place: /register has no withdrawal yet (hub brief H1).
+			log.Printf("anet: no public skill any more, so no network card is sent; %s keeps listing card seq %d until it can withdraw one",
+				hubURL, prev.Seq)
+		}
 		d.netCard.lastPub = CardPublication{Hub: hubURL, At: time.Now().UTC().Format(time.RFC3339)}
 		return nil, 0
 	case err != nil:
@@ -378,11 +400,14 @@ func (d *Daemon) afterCardAnswer(ctx context.Context, hubURL string, body hubapi
 	if !d.noteCardAnswer(hubURL, seq, out) {
 		return
 	}
-	card, seq := d.cardForRegistration(hubURL, true)
+	card, seq := d.cardForRegistration(hubURL, body.Name, true)
 	if len(card) == 0 {
 		return
 	}
 	body.A2ACard = card
+	// The first attempt registered this AID, so an admission token has
+	// been spent and is not sent again (RegisterWithHub).
+	body.Invite = ""
 	// The ADP card of the first attempt was admitted at its seq, so the
 	// second attempt carries a newly minted one (card.go).
 	if body.Card != nil {
@@ -414,7 +439,8 @@ func (d *Daemon) hCard(w http.ResponseWriter, _ *http.Request) {
 	case err == nil:
 		out["card"] = card
 	case errors.Is(err, errNoPublicSkill):
-		out["reason"] = "no public skill: list a served capability under inbound.public_capabilities to publish a card"
+		out["reason"] = "no public skill: list a capability this node serves (and, in a build without payments, " +
+			"one without a price) under inbound.public_capabilities to publish a card"
 	default:
 		out["reason"] = err.Error()
 	}

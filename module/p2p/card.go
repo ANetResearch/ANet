@@ -5,6 +5,7 @@ package p2p
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/ANetResearch/ANet/module"
@@ -46,7 +47,7 @@ func directURL(a string) (string, error) {
 		return "", fmt.Errorf("p2p: advertise %q is a local socket; give the host:port other machines dial", a)
 	}
 	host, port, err := net.SplitHostPort(addr)
-	if err != nil || host == "" || port == "" {
+	if n, perr := strconv.Atoi(port); err != nil || host == "" || perr != nil || n < 1 || n > 65535 {
 		return "", fmt.Errorf("p2p: advertise %q is not host:port", a)
 	}
 	return "tcp://" + net.JoinHostPort(host, port), nil

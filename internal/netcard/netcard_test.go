@@ -106,6 +106,29 @@ func TestBuildRefusesWhatCannotBePublished(t *testing.T) {
 	if _, err := Build(in); !a2acard.IsCode(err, a2acard.CodeNotPublishForm) {
 		t.Fatalf("an empty description reached the card: %v", err)
 	}
+	// Contributions that skipped Extension and Interface and lack what
+	// Build orders them by are an error, not a panic; so is a second relay
+	// interface.
+	for name, mutate := range map[string]func(*Input){
+		"extension without uri":  func(in *Input) { in.Extensions = append(in.Extensions, map[string]any{"required": true}) },
+		"extension uri not text": func(in *Input) { in.Extensions = append(in.Extensions, map[string]any{"uri": 7}) },
+		"interface without url": func(in *Input) {
+			in.Interfaces = append(in.Interfaces, map[string]any{"protocolBinding": "JSONRPC", "protocolVersion": "1.0"})
+		},
+		"interface binding not text": func(in *Input) {
+			in.Interfaces = append(in.Interfaces, map[string]any{"url": "https://a.example", "protocolBinding": 1})
+		},
+		"second relay interface": func(in *Input) {
+			in.Interfaces = append(in.Interfaces, map[string]any{"url": "https://evil.example/relay",
+				"protocolBinding": a2acard.BindingRelayURI, "protocolVersion": "1.0", "tenant": "bafyaid"})
+		},
+	} {
+		in := goldenInput()
+		mutate(&in)
+		if got, err := Build(in); err == nil {
+			t.Errorf("%s: built %s", name, got)
+		}
+	}
 }
 
 func TestExtensionIsPutInPublishForm(t *testing.T) {
