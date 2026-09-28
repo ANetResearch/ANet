@@ -3,8 +3,9 @@
 
 a2a-tck's scenarios/*.feature tell the system under test what to do from the client's messageId
 prefix (tck-complete-task, tck-input-required, tck-artifact-text, ...). Through anet the system under
-test is the remote provider, and the client's messageId reaches it as the id of the user message in
-the task's history, so the provider's agent can follow the scenarios over its own control plane
+test is the remote provider, and the client's messageId reaches it in the metadata of the user message
+in the task's history (a2a.messageId; the message's own id is the envelope's, redteam F33), so the
+provider's agent can follow the scenarios over its own control plane
 (/tasks/list, /tasks/reply — what MCP reply_task uses), the way tools/a2aprobe's responder answers
 "echo: <text>". docs/notes/0019 §3.3, 0023 §3.
 
@@ -84,7 +85,10 @@ while True:
         hist = t.get("history") or []
         if not hist or hist[-1].get("role") != "ROLE_USER":
             continue
-        mid = hist[-1].get("messageId") or ""
+        # The client's messageId is in the message's metadata: a provider's view of a message the requester
+        # wrote carries the envelope's id as messageId, and a2a.messageId only as the requester's metadata
+        # (internal/a2ashape project.go msgID, redteam F33). Before that fix it was the messageId itself.
+        mid = (hist[-1].get("metadata") or {}).get("a2a.messageId") or hist[-1].get("messageId") or ""
         turn = (mid, sum(1 for m in hist if m.get("role") == "ROLE_USER"))
         if answered.get(t["id"]) == turn:
             continue
