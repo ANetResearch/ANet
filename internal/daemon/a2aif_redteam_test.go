@@ -8,7 +8,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 )
