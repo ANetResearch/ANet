@@ -58,6 +58,8 @@ anet 0.2.1 是 0.2.0 的补丁版。它修复了用真实客户端(A2A 官方 Py
   的配置按 15 分钟。`anet doctor` 报告它(`tasks.no_response`),读不懂的值让 daemon 拒绝启动。
 - 提供方执行长能力调用时,开始执行即发 `status{working}`,请求方不会把执行中的调用当作没有回答。0.2.0 的提供方不发:它的
   长调用超过期限时,请求方报 `no_response`,结果到达后作为迟到的结果记录。
+- 文本任务同理:交给 A2A 后端(§3.2)或自动回复的任务,首轮一分钟仍未作答时,提供方发 `status{working}`;一分钟内作答的不多发
+  消息。由人或运营者的 agent 手工作答、需要较久的,可以先用 MCP `reply_task`(`state` 为 `working`)告知在办。
 - 见已知局限第 27 条:这个期限分不清"拒绝了但没说"与"只是慢"。
 
 ### 3.2 A2A 后端:转发失败后重试
@@ -65,9 +67,11 @@ anet 0.2.1 是 0.2.0 的补丁版。它修复了用真实客户端(A2A 官方 Py
 转发给提供侧 A2A 后端(`modules.a2a.backends`)的文本任务,如果后端当时不可用(尚未监听、正在重启),要到 daemon 重启
 才会再转发,期间一直留在收件箱。
 
-现在,因后一次可能成功的原因失败的转发——没连上后端(socket 还不存在、拒绝连接、超时)或后端答 5xx——会重试:首次等 5 秒,
-每次翻倍,两次之间最多 **`retry.max_interval`**(2 分钟),自首次尝试起超过 **`retry.give_up_after`**(10 分钟)即放弃。
-期间任务状态不变。每次重试之前 daemon 重新判定这个任务还能不能交给后端:对端不再在信任名单、任务已被作答、请求方有了更新的
+现在,后端没有接下消息的转发会重试:载有消息的请求还没有完整写出就失败(socket 还不存在、拒绝连接、连接超时,或取卡片时
+后端答 5xx),或后端答 503。首次等 5 秒,每次翻倍,两次之间最多 **`retry.max_interval`**(2 分钟),自首次尝试起超过
+**`retry.give_up_after`**(10 分钟)即放弃。消息一经完整写给后端,后端就可能已在执行:此后连接中断或超时、后端答 500、502、
+504 都不重试,免得请求方的任务执行两次。期间任务状态不变;等待重试的任务让出并发名额,一个停掉的后端不会挡住其他后端的
+任务。每次重试之前 daemon 重新判定这个任务还能不能交给后端:对端不再在信任名单、任务已被作答、请求方有了更新的
 消息,都会结束重试。每次尝试带同一个消息 id,后端可以识别重试。socket 路径与监听者核验不过、4xx、A2A 错误、答复无内容的
 失败不重试。
 
@@ -86,6 +90,10 @@ Claude Code 拒收的工具结果(缺省 25 000 token),模型连任务 id 都拿
 的办法——终端 `anet task get <task_id> --full`,文件 `anet pull <task_id>`。工具结果以文本与 structuredContent 各带一份
 任务,合计仍在 Claude Code 缺省上限之内。
 
+- 任务 metadata 放不下时(例如对方给了很长的 `anet.reason`),只去掉过大的值,本节点对任务的陈述照旧保留:
+  `anet.effect_status`、`anet.reason`(不太长时)、`anet.role`、`anet.receipt_verified`、`anet.peer_aid` 等。此前
+  `list_tasks` 在这种情况下只留下截断标记。
+
 - 新 CLI 命令:`anet task get <task_id> [--full] [--history N]`,输出任务的 A2A 投影;不带 `--full` 时按同一上限截断。
 - 控制面:`/tasks/send`、`/tasks/get`、`/tasks/wait`、`/tasks/cancel`、`/tasks/reply` 接受可选的 `max_task_bytes`
   (0 为缺省,返回整个任务;负数 400)。
@@ -96,7 +104,8 @@ Ubuntu 缺省 umask 002 下,用户建的目录都是 0775、组为该用户自�
 ("writable by group …, set socket_group")。
 
 现在,组可写的目录在其组是 socket 属主或 daemon 用户的用户私有组时接受:组名与用户名相同、是该用户的主组、组里没有别人、
-也不是别的账户的主组(读 `/etc/passwd` 与 `/etc/group`;LDAP 等 NSS 来源的账户不算)。其他组可写的目录仍然拒绝,除非
+也不是别的账户的主组(读 `/etc/passwd` 与 `/etc/group`;LDAP 等 NSS 来源的账户不算,`/etc/nsswitch.conf` 让账户或组
+还从 files、systemd 以外的来源查找的主机上不认私有组)。其他组可写的目录仍然拒绝,除非
 `socket_group` 指名该组。它信任了什么,见已知局限第 26 条。
 
 ## 4. 需要知道的行为变化
@@ -105,17 +114,19 @@ Ubuntu 缺省 umask 002 下,用户建的目录都是 0775、组为该用户自�
 |---|---|---|
 | 对端什么都没回的任务 | 一直 `submitted` | 超过 `no_response_after`(15 分钟)后 `failed`、`no_response`、效果 `UNVERIFIED` |
 | 长能力调用(提供方) | 请求方在结果到达前一直看到 `submitted` | 提供方开始执行时发 `status{working}` |
+| A2A 后端或自动回复的首轮超过一分钟(提供方) | 请求方在回复前一直看到 `submitted` | 提供方发 `status{working}` |
 | 返回单个任务的 MCP 工具 | 整个任务 | 限在约 24 KB,截掉的部分有说明 |
-| 转发 A2A 后端失败 | 留在收件箱直到重启 | 按退避重试,最多 10 分钟 |
+| 转发 A2A 后端失败 | 留在收件箱直到重启 | 后端没接下消息(没连上、503)时按退避重试,最多 10 分钟;接下之后的失败不重试 |
 | 证据 | — | 新类型 `anet.task.no_response`、`anet.backend.failed` |
 | 由用户私有组可写的 socket 目录 | 拒绝 | 接受 |
 | `anet init` 写的 `config.json` | — | 带 `no_response_after` |
-| 模块:`module.InboundTaskHost` | `InboundTasks`、`ReplyTask` | 另有 `InboundTask` |
+| 模块:`module.InboundTaskHost` | `InboundTasks`、`ReplyTask` | 另有 `InboundTask`;`ReplyTask` 另接受不带消息的 `working` |
 
 ## 5. 已知局限
 
 新增第 27 条:`no_response_after` 内什么都没收到的任务,即使对方只是慢(人还没回、0.2.0 提供方的长调用、离线更久的 agent)
-也判失败,之后到达的追问不保存。第 26 条补充了用户私有组。完整列表见 [KNOWN-LIMITATIONS-zh.md](KNOWN-LIMITATIONS-zh.md)。
+也判失败,之后到达的追问不保存;提供方可以先回 `working` 避免。第 26 条补充了用户私有组。完整列表见
+[KNOWN-LIMITATIONS-zh.md](KNOWN-LIMITATIONS-zh.md)。
 
 ## 6. 版本与构件
 

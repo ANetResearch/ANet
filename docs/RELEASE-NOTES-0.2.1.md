@@ -76,6 +76,10 @@ without reopening it. The failure is recorded as `anet.task.no_response`.
 - A provider running a long capability call now sends `status{working}` when the call starts, so its
   requester does not take the running call for silence. A 0.2.0 provider does not; a long call of its
   that runs past the deadline is reported `no_response` and its result, when it comes, recorded late.
+- Text tasks likewise: when a provider's A2A backend (3.2) or its auto-reply has spent a minute on a task's
+  first turn without answering, the provider sends `status{working}`; a turn answered within the minute
+  costs no extra message. A person or an agent answering by hand who needs longer can say so first with
+  MCP `reply_task`, `state` `working`.
 - See known limitation 27: the deadline cannot tell "refused without saying so" from "slow".
 
 ### 3.2 A2A backends: a failed forward is tried again
@@ -83,14 +87,18 @@ without reopening it. The failure is recorded as `anet.task.no_response`.
 A text task forwarded to a provider-side A2A backend (`modules.a2a.backends`) whose backend was down —
 not listening yet, restarting — stayed in the inbox until the daemon restarted.
 
-A forward that failed for a reason a later attempt may fix — the backend not reached (no socket yet,
-connection refused, a timeout) or answering 5xx — is now tried again: first after 5 s, doubling, at most
+A forward the backend did not take is now tried again: one that failed before the request carrying the
+message was written whole (no socket yet, connection refused, a connect timeout, or the backend's card
+answering 5xx), or that the backend answered 503. The first retry comes after 5 s, doubling, at most
 **`retry.max_interval`** (2 minutes) between attempts, until **`retry.give_up_after`** (10 minutes) has
-passed since the first. The task stays as it is meanwhile. Before each attempt the daemon decides again
-whether the task may still go to a backend: a peer taken off the trust list, a task answered meanwhile, or
-a newer message from the requester ends the retries. Every attempt carries the same message id, so a
-backend can tell a retry. A refusal by the socket-path and listener checks, a 4xx, an A2A error, or an
-answer without content is not retried.
+passed since the first. Once the message was written to the backend, the backend may be running it: a
+connection lost or timed out after that, or a 500, 502 or 504, is not retried, so that the requester's
+task never runs twice. The task stays as it is meanwhile, and a task waiting to be tried again gives up
+its place among the forwards running at once, so a backend that is down does not hold up the others.
+Before each attempt the daemon decides again whether the task may still go to a backend: a peer taken off
+the trust list, a task answered meanwhile, or a newer message from the requester ends the retries. Every
+attempt carries the same message id, so a backend can tell a retry. A refusal by the socket-path and
+listener checks, a 4xx, an A2A error, or an answer without content is not retried.
 
 - Configuration: `"modules": {"a2a": {"retry": {"max_interval": "2m", "give_up_after": "10m"}, "backends":
   […]}}` (Go durations; `"give_up_after": "0"` does not retry). `anet doctor` reports them
@@ -109,6 +117,11 @@ replaced by a notice of its size, marked `anet.truncated`, that says how to read
 `anet task get <task_id> --full` in a terminal, and `anet pull <task_id>` for its files. The tool result,
 which carries the task twice (as text and as structured content), stays under the Claude Code default.
 
+- When a task's metadata does not fit (a peer sent a very long `anet.reason`, say), only the values too
+  large to keep are dropped; what this node says about the task stays: `anet.effect_status`,
+  `anet.reason` (when not too long), `anet.role`, `anet.receipt_verified`, `anet.peer_aid` and the like.
+  `list_tasks` used to keep only the truncation mark in that case.
+
 - New CLI command: `anet task get <task_id> [--full] [--history N]` — the task as the A2A projection;
   without `--full` it is held to the same bound.
 - Control plane: `/tasks/send`, `/tasks/get`, `/tasks/wait`, `/tasks/cancel` and `/tasks/reply` take an
@@ -122,8 +135,9 @@ and the socket-path check refused a backend socket there ("writable by group …
 A group-writable directory is now accepted when its group is the user-private group of the socket's owner
 or of the daemon's user: named as the user, the user's primary group, with no other member and no other
 account's primary group (read from `/etc/passwd` and `/etc/group`; an account from LDAP or another NSS
-source does not qualify). Any other group-writable directory is still refused unless `socket_group` names
-its group. Known limitation 26 says what this trusts.
+source does not qualify, and on a host whose `/etc/nsswitch.conf` looks accounts or groups up anywhere
+but the files and systemd no group does). Any other group-writable directory is still refused unless
+`socket_group` names its group. Known limitation 26 says what this trusts.
 
 ## 4. Behavior changes to know about
 
@@ -131,19 +145,20 @@ its group. Known limitation 26 says what this trusts.
 |---|---|---|
 | A task that hears nothing from its peer | stays `submitted` | `failed`, `no_response`, effect `UNVERIFIED` after `no_response_after` (15 min) |
 | A long capability call (provider side) | the requester sees `submitted` until the result | the provider sends `status{working}` when it starts |
+| An A2A backend's or auto-reply's first turn past a minute (provider side) | the requester sees `submitted` until the reply | the provider sends `status{working}` |
 | MCP tools that return one task | the whole task | held to about 24 KB, with a notice of what was cut |
-| A failed forward to an A2A backend | left in the inbox until a restart | retried with backoff for up to 10 min |
+| A failed forward to an A2A backend | left in the inbox until a restart | retried with backoff for up to 10 min when the backend did not take the message (not reached, 503); not after it did |
 | Evidence | — | new types `anet.task.no_response`, `anet.backend.failed` |
 | A socket directory group-writable by a user-private group | refused | accepted |
 | `config.json` written by `anet init` | — | carries `no_response_after` |
-| For modules: `module.InboundTaskHost` | `InboundTasks`, `ReplyTask` | also `InboundTask` |
+| For modules: `module.InboundTaskHost` | `InboundTasks`, `ReplyTask` | also `InboundTask`; `ReplyTask` also takes `working` without a message |
 
 ## 5. Known limitations
 
 Item 27 is new: a task that hears nothing for `no_response_after` fails even when the other side is only
 slow (a person who has not answered yet, a long call on a 0.2.0 provider, an agent offline for longer),
-and a question that arrives after that is not kept. Item 26 now covers user-private groups. The full list:
-[KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md).
+and a question that arrives after that is not kept; a provider can say `working` first to avoid it.
+Item 26 now covers user-private groups. The full list: [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md).
 
 ## 6. Versions and artifacts
 

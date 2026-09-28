@@ -178,11 +178,11 @@ A2A 规范要求请求没带 `A2A-Version` 时按 0.3 处理;anet 的本机 A2A 
 
 TCP 后端须在配置里显式写 `allow_tcp: true`;连接落在本机上时(回环地址,或本机自己的网卡地址),只有在 Linux 上、且监听者与 daemon 是同一个用户时才会发送,其他平台一律拒绝。所以只能监听 TCP 的第三方后端(例如 Hermes 默认的 `127.0.0.1:9900`)只能在 Linux 上、以 daemon 的用户运行。连到另一台主机的后端靠 TLS 认证。
 
-没有配置 `expected_uid`/`expected_user` 时,daemon 信任的是 socket 所在的目录链:root、daemon 自己的用户、socket 的属主,以及配置的 `socket_group` 的成员,都能换上自己的后端。与 daemon 同一用户的进程本来就能读取令牌与配置(第 13 条)。自 0.2.1 起,可由 socket 属主或 daemon 用户的私有组(组名与用户名相同、是其主组、没有其他成员,按 `/etc/passwd`、`/etc/group` 判定)写的目录(Debian/Ubuntu 缺省的 0775)视同该用户独占;有人把别的账户加进这个组,之后 daemon 按组内有他人拒绝,但在那之前它和该用户一样能改动这些目录。
+没有配置 `expected_uid`/`expected_user` 时,daemon 信任的是 socket 所在的目录链:root、daemon 自己的用户、socket 的属主,以及配置的 `socket_group` 的成员,都能换上自己的后端。与 daemon 同一用户的进程本来就能读取令牌与配置(第 13 条)。自 0.2.1 起,可由 socket 属主或 daemon 用户的私有组(组名与用户名相同、是其主组、没有其他成员,按 `/etc/passwd`、`/etc/group` 判定)写的目录(Debian/Ubuntu 缺省的 0775)视同该用户独占。这两个文件在每条新连接时都重读,别的账户一经在其中加进这个组,目录即被拒绝;以这两个文件看不到的方式取得该组权限的账户,则和该用户一样能改动这些目录:凭组密码用 `newgrp`(`/etc/gshadow`,daemon 读不到;Debian/Ubuntu 的用户私有组缺省锁定组密码),或来自目录服务——所以 `/etc/nsswitch.conf` 让账户或组还从 files、systemd 以外的来源查找的主机上,没有组算私有组。
 
 ## 27. 15 分钟内对方什么都没回的任务判失败,哪怕对方只是慢
 
-你发出的任务,委派送出后 15 分钟内(`config.json` 的 `no_response_after`)对方没有回任何状态、消息或结果,daemon 就把它判为 `failed`,`anet.reason=no_response`,效果按"不知道"报(`anet.effect_status=UNVERIFIED`)。这是为了不让任务永远停在 `submitted`:对方拒绝任务的通知有限速,超出的静默丢弃,你原本永远等不到回答。代价是 daemon 分不清"拒绝了但没说"与"只是慢":人工处理、迟迟没回的文本任务,0.2.0 版本对方执行中的长调用(0.2.1 起的对方开始执行时会先回 `working`),离线超过 15 分钟的 agent,也都会这样结束。之后到达的结果仍会验签并记录在这个任务上,但终态之后对方发来的追问与中间回复不会保存。需要长时间等待时,把 `no_response_after` 调大(如 `"24h"`),或设为 `"0"` 关闭。
+你发出的任务,委派送出后 15 分钟内(`config.json` 的 `no_response_after`)对方没有回任何状态、消息或结果,daemon 就把它判为 `failed`,`anet.reason=no_response`,效果按"不知道"报(`anet.effect_status=UNVERIFIED`)。这是为了不让任务永远停在 `submitted`:对方拒绝任务的通知有限速,超出的静默丢弃,你原本永远等不到回答。代价是 daemon 分不清"拒绝了但没说"与"只是慢":人工处理、迟迟没回的文本任务,0.2.0 版本对方执行中的长调用,离线超过 15 分钟的 agent,也都会这样结束。0.2.1 起,对方开始执行长调用时、其 A2A 后端或自动回复在一个任务的首轮上花了一分钟时,都会先回 `working`;人或 agent 手工作答的,也可以先回 `working`(MCP `reply_task` 的 `state` 为 `working`)。之后到达的结果仍会验签并记录在这个任务上,但终态之后对方发来的追问与中间回复不会保存。需要长时间等待时,把 `no_response_after` 调大(如 `"24h"`),或设为 `"0"` 关闭。
 
 ---
 

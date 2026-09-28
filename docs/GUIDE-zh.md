@@ -338,7 +338,8 @@ anet autoreply show                                                # 看当前�
 - 组可写的目录:Debian/Ubuntu 缺省 umask 002 下,你新建的目录是 0775、组是你的私有组(组名与用户名相同、是你的主组、
   组里没有别人)。这样的组能写的你本来就能写,daemon 把它当作只有你能写的目录接受(服务用户的私有组同样);
   组里还有别人时仍拒绝,除非用下面的 `socket_group` 声明信任这个组。判定读 `/etc/passwd` 与 `/etc/group`,
-  由 LDAP 等提供的账户不算私有组,这时把目录改成 0700/0750 即可。
+  由 LDAP 等提供的账户不算私有组,`/etc/nsswitch.conf` 让账户或组还从 sss、ldap 等处查找的主机上也不认私有组,
+  这时把目录改成 0700/0750 即可。
 - 可选:`expected_uid` 或 `expected_user`(监听进程必须是这个用户,socket 也须属于它、你或 root);
   `socket_group`(允许组可写的 socket 目录,须是这个组;组里的成员与服务同等信任)。三项都是模块级。
 - **仍用 TCP**:写 `http://127.0.0.1:端口/…` 并在模块里加 `"allow_tcp": true`,否则 daemon 拒绝启动。
@@ -642,7 +643,7 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 | `module "shell" … it needs -tags shell` | 装的是默认变体,重装加 `--shell` |
 | `hub /register rejected: … invite` | hub 开了准入,向运营者要码,放进 `ANET_INVITE`(或 `--token-file`)再注册 |
 | 连 hub 得到 426,或 daemon 拒绝工作 | 两代不互通:v0.2 daemon 只连 wire 2 的 hub,0.1.x daemon 只连 wire 1 的 hub |
-| 任务 `failed`,`anet.reason=no_response` | 委派送出后 15 分钟内对方什么都没回(没有状态、消息或结果):对方可能拒绝了而没有通知你(拒绝通知按对端限速,超出的静默丢弃)、还没收取、或正在执行。效果按"不知道"报(`anet.effect_status=UNVERIFIED`),不要当作没执行而原样重发;对方之后送来的结果仍会记录在这个任务上。期限由 `config.json` 的 `no_response_after` 设定(Go 时长,缺省 `15m`,`"0"` 关闭),`anet doctor` 的 `tasks.no_response` 显示当前值 |
+| 任务 `failed`,`anet.reason=no_response` | 委派送出后 15 分钟内对方什么都没回(没有状态、消息或结果):对方可能拒绝了而没有通知你(拒绝通知按对端限速,超出的静默丢弃)、还没收取、或正在执行。效果按"不知道"报(`anet.effect_status=UNVERIFIED`),不要当作没执行而原样重发;对方之后送来的结果仍会记录在这个任务上。期限由 `config.json` 的 `no_response_after` 设定(Go 时长,缺省 `15m`,`"0"` 关闭),`anet doctor` 的 `tasks.no_response` 显示当前值。反过来,你作为提供方要较久才能回复时,先用 `reply_task`(`state` 为 `working`)告诉对方在办;交给 A2A 后端或自动回复的任务,首轮一分钟未答时 daemon 会自动回 `working` |
 | 任务 `failed`,`anet.reason=undeliverable` | 委派或消息在有效期内一直没送到(hub 长时间不可达,或 hub 拒收)。发送时本地写入成功即返回 `submitted`,之后由 daemon 自动重试,过期才判失败;能力任务的 `anet.effect_status` 为 `UNAVAILABLE`。重发用新的消息 id |
 | 委派后得到 `rejected`,`anet.reason=not_accepting` | 你不在对方的允许名单里,能力也不是对方的公开能力。请对方 `anet peers allow <你的 AID>` |
 | 别人说委派给了你,你的收件箱里没有 | 你是 `closed`(默认):名单外的委派直接拒绝、不存。`anet peers allow <对方 AID>`,或 `anet inbound policy approve` 让它进待批队列 |
