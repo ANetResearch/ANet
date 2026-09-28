@@ -474,6 +474,7 @@ B: 收到 payment-submitted:分派给能力执行器(不进自动回复,复用 r
       未知(传输错误、超时、`settlement_pending`)→ 不回 input-required,用同一 payload 重试直到确定;重启恢复 submitted 行
 A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与授权一致,结算响应的 transaction == 收据 AuthID 且 network == 收据 network → 证据;同一 ix 第二张成功收据(另一个 AuthID)写证据并在 audit 标出 [m]
    核验之后才存列表,每项带本节点结论;只有核验通过才置 pay_state=completed(§8.2 末段)[redteam:F11]
+   本节点此刻取不到自己 hub 的身份(重启后 hub 未应答、消息经 p2p 到达)时收据无法核验:不记证据、不算"核验未通过",存为 unverified,下次送达时再核验;之前记成未通过,之后同一交易号的送达都按"已记录"跳过,已结算的任务永远停在 submitted [redteam:F11]
 ```
 
 - 报价 24 小时过期:provider 置 `failed` + `payment-failed`/`EXPIRED_PAYMENT`;未付报价计入按调用方配额;requester 不对过期报价签授权 [m]。

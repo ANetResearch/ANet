@@ -1628,7 +1628,9 @@ const maxPeerReceipts = 128
 // the task, paying the task's provider, for that authorization's amount.
 // It is recorded once (by transaction) as anet.payment.settled, verified or
 // not; a second verified settlement for one task is recorded and marked.
-// Only a verified one moves pay_state to completed.
+// Only a verified one moves pay_state to completed. One that cannot be
+// checked yet, because this node cannot learn its hub's identity right
+// now, is not recorded, so that its next delivery is checked.
 //
 // The list is the provider's whole history for the task (§8.2), failures
 // included, and is stored as pay_receipts after the check, each success
@@ -1683,6 +1685,15 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 	})
 	defer d.storePeerReceipts(ixID, list, verifiedTx)
 	p := d.payer()
+	// A hub receipt is checked against this node's hub's key history.
+	// While that cannot be had — restarted, its hub not answering, the
+	// provider's message come over p2p (§3.6) — a settlement cannot be
+	// checked, which is not the same as not checking out: it is left
+	// unrecorded, stored unverified (storePeerReceipts), and checked when
+	// it comes again. Recorded as refused, every later delivery of it was
+	// skipped as already recorded, and a task paid and settled stayed
+	// payment-submitted for good [redteam:F11].
+	uncheckable := p != nil && p.HomeNetwork() == ""
 	for _, item := range list {
 		rb, err := json.Marshal(item)
 		if err != nil {
@@ -1692,6 +1703,12 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 		if json.Unmarshal(rb, &sr) != nil || !sr.Success || sr.Transaction == "" || recorded[sr.Transaction] {
 			continue
 		}
+		enc, _ := sr.Extensions[payment.ExtReceipt].(string)
+		if uncheckable && enc != "" {
+			log.Printf("anet: %s: settlement %q not checked yet: this node cannot learn its hub's identity now; "+
+				"it is checked when the provider sends it again", ixID, plainText(sr.Transaction, 128))
+			continue
+		}
 		recorded[sr.Transaction] = true
 		entry := map[string]any{"interaction_id": ixID, "transaction": sr.Transaction,
 			"amount": sr.Amount, "network": sr.Network}
@@ -1699,7 +1716,6 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 			entry["after_terminal"] = true
 		}
 		verified := false
-		enc, _ := sr.Extensions[payment.ExtReceipt].(string)
 		switch {
 		case p == nil:
 			entry["refused"] = "this build has no payment module to check the receipt with"
