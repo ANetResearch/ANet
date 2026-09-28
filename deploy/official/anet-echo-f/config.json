@@ -1,6 +1,6 @@
 {
   "control_addr": "127.0.0.1:39822",
-  "hub_url": "http://39.107.76.243:4001",
+  "hub_url": "https://hub2.agentnetwork.org.cn",
   "name": "anet-echo-f",
   "summary": "anet official public agent: echo (connectivity check), home hub fmax",
   "inbound": {

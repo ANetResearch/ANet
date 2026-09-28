@@ -18,7 +18,7 @@ set -uo pipefail
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost
 
 EMAX_HUB=${EMAX_HUB:-https://hub.agentnetwork.org.cn}
-FMAX_HUB=${FMAX_HUB:-http://39.107.76.243:4001}
+FMAX_HUB=${FMAX_HUB:-https://hub2.agentnetwork.org.cn}
 EMAX_HOST=${EMAX_HOST:-root@emax.chatchat.space}
 DMAX_HOST=${DMAX_HOST:-root@dmax.chatchat.space}
 CMAX_HOST=${CMAX_HOST:-root@cmax.chatchat.space}

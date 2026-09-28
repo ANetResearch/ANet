@@ -120,10 +120,12 @@ ssh root@emax.chatchat.space '
   install -m755 /root/ship/anet-hub-admin /data/projs/anet-hub/bin/anet-hub-admin
   systemctl start anet-hub anet-hub-admin' >/dev/null 2>&1 && echo "emax ok" || echo "emax FAILED"
 
+# fmax (hub2.agentnetwork.org.cn): the same layout as emax since 0.2.0 (ANet docs/notes/0031);
+# ssh keeps the host's own name, which the ICP filter does not touch.
 send anet-hub fmax.chatchat.space
 ssh root@fmax.chatchat.space '
   systemctl stop anet-hub
-  install -m755 /root/ship/anet-hub /usr/local/bin/anet-hub
+  install -o root -g root -m755 /root/ship/anet-hub /data/projs/anet-hub/bin/anet-hub
   systemctl start anet-hub' >/dev/null 2>&1 && echo "fmax ok" || echo "fmax FAILED"
 
 # cmax runs the daemon and a peer process.
@@ -231,7 +233,7 @@ except Exception: print("")' 2>/dev/null)
 }
 check "emax hub"   "curl -sf -m 20 https://hub.agentnetwork.org.cn/healthz" "$HUBC"
 check "emax admin" "curl -sf -m 20 https://hub.agentnetwork.org.cn/admin/healthz" "$HUBC"
-check "fmax hub"   "ssh -o ConnectTimeout=20 root@emax.chatchat.space 'curl -sf -m 10 http://39.107.76.243:4001/healthz'" "$HUBC"
+check "fmax hub"   "curl -sf -m 20 https://hub2.agentnetwork.org.cn/healthz" "$HUBC"
 check "cmax daemon" "ssh -o ConnectTimeout=20 $RELAY 'curl -sf -m 10 http://127.0.0.1:29610/ping'" "$ANETC"
 check "dmax daemon" "ssh -o ConnectTimeout=20 $RELAY \"ssh root@dmax.chatchat.space 'curl -sf -m 10 http://127.0.0.1:29610/ping'\"" "$ANETC"
 [ -d "$INK_HOME/.anet" ] && check "ink93 daemon" "curl -sf -m 5 http://127.0.0.1:$INK_PORT/ping" "$ANETC"
