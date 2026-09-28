@@ -42,9 +42,9 @@
 #                      anet-hub-admin (scripts/testnet/build.sh makes this set). Copied into $J/bin.
 #                      Unset: built here with go from this checkout and HUB_SRC.
 #   HUB_SRC            ANetHub checkout to build from (default: ../ANetHub beside this repository)
-#   JOINT_PORT_BASE    first of 16 consecutive loopback ports; unset = a random free block in
+#   JOINT_PORT_BASE    first of 24 consecutive loopback ports; unset = a random free block in
 #                      20000-32000. On the test hosts give one inside the test network's range: a
-#                      base in 47x60-47x84 (47460, 47160, …). 47x00-47x59 of each hundred belong to
+#                      base in 47x60-47x76 (47460, 47160, …). 47x00-47x59 of each hundred belong to
 #                      the test network's nodes (scripts/testnet/topology.env: hub x01, daemons x11-19,
 #                      anetpeer x31-39, official x41-50, hub admin x51) and are refused, since a node
 #                      that is down for a test leaves its port free. A port already in use aborts the
@@ -78,7 +78,7 @@
 # A check that could not be made is counted "not shown" in the last line, never as passed.
 #
 # On the test hosts (scripts/testnet, docs/notes/0015) take the binaries from scripts/testnet/build.sh
-# and a JOINT_PORT_BASE in 47x60-47x84. Nothing here stops a process by name, and every daemon
+# and a JOINT_PORT_BASE in 47x60-47x76. Nothing here stops a process by name, and every daemon
 # gets a private XDG_RUNTIME_DIR, so a production daemon of the same user is neither stopped nor
 # shadowed.
 #
@@ -400,17 +400,24 @@ else
   fi
 fi
 
-# Sixteen loopback ports: +0 hub, +1 hub admin, +2..+4 the echo, tools and paid backends, +5..+7 their
-# daemons, +8 requester a, +9 requester b, +10 the stranger, +11 the impostor, +12 the impostor's
-# "backend" (reserved and never bound: nothing answers there), +13 the observer (8/8), +14..+15 spare.
-PORT_BASE=$(python3 - "${JOINT_PORT_BASE:-}" 16 <<'PY'
+# Twenty-four loopback ports: +0 hub, +1 hub admin, +2..+4 the echo, tools and paid backends, +5..+7
+# their daemons, +8 requester a, +9 requester b, +10 the stranger, +11 the impostor, +12 the impostor's
+# "backend" (reserved and never bound: nothing answers there), +13 the observer (8/8), +14..+15 spare,
+# +16..+23 the local A2A interfaces of the eight daemons (module/a2a is on by default; unpinned, each
+# takes a port from 43811 up, outside this block: 0021 F3, lib.sh pin_a2a).
+PORT_BASE=$(python3 - "${JOINT_PORT_BASE:-}" 24 <<'PY'
 import random, socket, sys
 want, n = sys.argv[1], int(sys.argv[2])
+# Free for a Go listener, which binds with SO_REUSEADDR: a port whose earlier listener closed a moment
+# ago (connections still in TIME_WAIT) is free for the hub and the daemons, and a bare bind() would
+# refuse a second run on the same base right after the first (0021 F1, as joint.sh has it).
 def free(b):
     for p in range(b, b + n):
         s = socket.socket()
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("127.0.0.1", p))
+            s.listen(1)
         except OSError:
             return False
         finally:
@@ -428,7 +435,7 @@ if want:
     taken = [p for p in range(b, b + n) if 47100 <= p <= 47499 and p % 100 < 60]
     if taken:
         sys.exit("JOINT_PORT_BASE=%d: %d-%d lie in 47x00-47x59, the test network's node ports "
-                 "(scripts/testnet/topology.env); use a base in 47x60-47x84, e.g. %d"
+                 "(scripts/testnet/topology.env); use a base in 47x60-47x76, e.g. %d"
                  % (b, taken[0], taken[-1], taken[0] // 100 * 100 + 60))
     if not free(b):
         sys.exit("a port in %d-%d is in use; pick another JOINT_PORT_BASE" % (b, b + n - 1))
@@ -449,7 +456,10 @@ for n in "${NODES[@]}"; do
 done
 DEAD_PORT=$((PORT_BASE + 12))
 ADDR_OF[o]=127.0.0.1:$((PORT_BASE + 13)); HOME_OF[o]=$RUN/o
-echo "  ports:    $PORT_BASE-$((PORT_BASE + 15))   work dir: $J"
+declare -A A2A_PORT_OF=()
+i=16
+for n in "${NODES[@]}" o; do A2A_PORT_OF[$n]=$((PORT_BASE + i)); i=$((i + 1)); done
+echo "  ports:    $PORT_BASE-$((PORT_BASE + 23))   work dir: $J"
 [ -n "$MUTATE" ] && note "MUTATION $MUTATE: $PRIVCAP is published on the tools node; 1/8 must go red"
 
 # The hub, on an empty data directory.
@@ -510,6 +520,7 @@ mkdir -p -m 700 "$RUN/xdg"
 official_config(){
   local n=$1
   mkdir -p "${HOME_OF[$n]}/.anet"
+  pin_a2a "${HOME_OF[$n]}/.anet" "${A2A_PORT_OF[$n]}" || die "cannot pin the $n node's local A2A interface"
   "$BIN/anet-official" service-config -groups "$n" -url "http://127.0.0.1:${BACKEND_PORT[$n]}" \
       -token-file "$RUN/official/$n.token" > "$RUN/official/$n.service.json" \
     || die "anet-official service-config -groups $n failed"
@@ -547,6 +558,7 @@ fresh_config(){
   ( cd "$RUN" && exec env -u ANET_HOME -u ANET_ID HOME="${HOME_OF[$1]}" ANET_DATA_DIR="${HOME_OF[$1]}/.anet" \
       XDG_RUNTIME_DIR="$RUN/xdg" "$BIN/anet" init ) >"$RUN/$1-init.log" 2>&1 </dev/null 9>&- \
     || die "anet init failed for $1: $(tail -3 "$RUN/$1-init.log")"
+  pin_a2a "${HOME_OF[$1]}/.anet" "${A2A_PORT_OF[$1]}" || die "cannot pin the $1 node's local A2A interface"
 }
 for n in a b s imp; do fresh_config "$n"; done
 # The impostor offers text.digest under the tools agent's name, from a backend that does not exist:

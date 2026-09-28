@@ -63,6 +63,16 @@ func TestTheSequenceSurvivesARestart(t *testing.T) {
 	if err := d.RegisterWithHub(context.Background(), h.URL, "a", nil, ""); err != nil {
 		t.Fatal(err)
 	}
+	// A restart: the first process is gone before the second starts.
+	// Closing it also waits for its startup refresh (refreshRegistration),
+	// which registers in the background and mints from the same counter.
+	// Left running, that refresh could mint after d2 had read card_seq,
+	// and d2's first sequence then tied with what the hub already held —
+	// STALE_SEQ in about 1 run in 75, a race of two live daemons on one
+	// data directory, which a restart never has.
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
 	first := d.lastCardSeq.Load()
 	if first == 0 {
 		t.Fatal("nothing was minted")
