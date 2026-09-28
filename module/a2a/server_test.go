@@ -92,8 +92,17 @@ func (e *env) card(aid string) *a2a.AgentCard {
 }
 
 // client is an unmodified a2a-go client for aid over one binding, with the
-// token in a CredentialsService.
+// token in a CredentialsService, and a context that ends in ten seconds.
 func (e *env) client(aid string, binding a2a.TransportProtocol) (*a2aclient.Client, context.Context) {
+	e.t.Helper()
+	return e.clientWithin(aid, binding, 10*time.Second)
+}
+
+// clientWithin is client with a context that ends after d. Ten seconds is
+// plenty for the ordinary calls, not for an event of megabytes of JSON under
+// -race on a loaded machine: the server's encoding of one alone took over
+// ten seconds there (docs/notes/0029, stream_bound_test.go).
+func (e *env) clientWithin(aid string, binding a2a.TransportProtocol, d time.Duration) (*a2aclient.Client, context.Context) {
 	e.t.Helper()
 	creds := a2aclient.NewInMemoryCredentialsStore()
 	creds.Set("s1", securityScheme, testToken)
@@ -105,7 +114,7 @@ func (e *env) client(aid string, binding a2a.TransportProtocol) (*a2aclient.Clie
 	if err != nil {
 		e.t.Fatalf("client: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), d)
 	e.t.Cleanup(cancel)
 	return cl, a2aclient.AttachSessionID(ctx, "s1")
 }
