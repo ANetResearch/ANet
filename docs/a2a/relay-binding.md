@@ -2,9 +2,11 @@
 
 > **DRAFT — not submitted; requires product owner approval before any external submission.**
 >
-> **License: to be decided.** The product owner has not chosen a license for this text or for the
-> reference implementation. Note that an *official* A2A binding must be Apache-2.0
-> (A2A `docs/topics/extension-and-binding-governance.md`, "Licensing").
+> **License: Apache-2.0**, as an *official* A2A binding must be (A2A
+> `docs/topics/extension-and-binding-governance.md`, "Licensing"): this text is licensed under the
+> Apache License 2.0 alone (ANet `LICENSE`, Section 3a). The reference implementation listed below
+> stays under the ANet Open Source License in the anet repositories; each portion submitted to an
+> A2A repository is contributed, as submitted, under Apache-2.0 (Section 3b).
 
 | | |
 |---|---|

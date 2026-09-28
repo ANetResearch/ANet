@@ -13,7 +13,7 @@ cryptographically verifiable results — across vendors, across machines, across
 
 [![Paper](https://img.shields.io/badge/arXiv-2607.15053-b31b1b.svg)](https://arxiv.org/abs/2607.15053)
 [![Position Paper](https://img.shields.io/badge/TST-Position%20Paper-blue.svg)](https://www.sciopen.com/article/10.26599/TST.2026.9010062)
-[![License](https://img.shields.io/badge/license-ANet%20Community-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0%20(modified)-green.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](go.mod)
 
 </div>
@@ -292,8 +292,21 @@ Cutting a release (both variants, every platform):
 
 ## License
 
-**Free for non-commercial use**.
-See [LICENSE](LICENSE) for the full terms.
+ANet is released under the **ANet Open Source License**, a modified Apache License 2.0
+(the same structure as [Dify's](https://github.com/langgenius/dify/blob/main/LICENSE)):
+
+- **Use it commercially.** Embed the daemon, the CLI or ANetCore in your product, and run daemons
+  and hubs for your own organization, with no node limit.
+- **Two added conditions.** Operating a *multi-tenant hosted hub*, a hub offered as a service to
+  unrelated organizations or individuals, needs written authorization (a non-commercial hub
+  federated with the anet network is exempt), and the ANet logo and copyright notices in the hub
+  web UI, the consoles and the CLI stay in place.
+- **The A2A work is plain Apache-2.0.** Everything in [`docs/a2a/`](docs/a2a/) (the relay binding,
+  the registry API, the `anet-credit` scheme and the proposals) is Apache-2.0, and the code we
+  contribute to the A2A project goes upstream under Apache-2.0.
+
+See [LICENSE](LICENSE) for the full terms. Commercial licensing and questions: hi@anet0.com.
+Releases before 0.2.0 were published under the ANet Community License 1.0 and stay under it.
 
 ---
 

@@ -5,8 +5,12 @@
 
 > **全部是草稿,均未提交。** 任何一份对外提交(开 issue、发 PR、发安全通告、在社区讨论区贴出)之前,
 > 必须先得到产品负责人同意(设计 §2 "对外提交与发布"、§20 阶段 G)。
-> **许可证待定。** 规范文本与参考实现以何种许可证贡献,由产品负责人决定;注意 A2A 组织下的
-> *官方* 扩展与绑定强制 Apache-2.0(A2A `docs/topics/extension-and-binding-governance.md`)。
+> **许可证:Apache-2.0。** 本目录全部文件(规范文本、绑定草案、提案、scheme 文档、issue 草稿及其中的
+> 测试向量与代码片段)只按 Apache License 2.0 授权,不带 ANet 开源许可证的附加条件(ANet `LICENSE`
+> 第 3 节;本目录另放 Apache-2.0 原文 `LICENSE`)。参考实现(ANetCore、ANetHub、ANet 中实现这些草稿的代码)
+> 在各仓仍按 ANet 开源许可证授权;由 Agent Network Research(或经其书面许可)提交给 A2A 上游(`a2aproject/*`、
+> `google-agentic-commerce/a2a-x402`)的部分,以提交时的形态按 Apache-2.0 授权(`LICENSE` 第 3 节 b),
+> 满足 A2A *官方* 扩展与绑定强制 Apache-2.0 的要求(A2A `docs/topics/extension-and-binding-governance.md`)。
 
 ## 索引与状态
 
@@ -24,7 +28,9 @@ a2a-go 的 A1–A10 复现是在 scratchpad 里用独立 Go module(`replace` 指
 
 ## 对外提交的前置条件
 
-1. **产品负责人同意**,并选定许可证(规范文本、scheme 文档、参考实现各自是否 Apache-2.0)。
+1. **产品负责人同意**(每一份提交各一次)。许可证已定(2026-09-28,`docs/notes/0027` G1.2):规范文本、
+   scheme 文档与 issue 草稿是 Apache-2.0;参考实现代码提交上游时按 Apache-2.0 贡献。提交时去掉各草稿文首的
+   DRAFT 与许可证说明块;官方扩展/绑定仓库的贡献许可声明(governance "Contributor License Grant")由提交人确认。
 2. **标记为 (designed) 的条目落地或删除**:提交前每一处 **(designed)** 必须要么已有实现并与文字一致,
    要么从草稿中拿掉。对应工作包见下节。
 3. **注册表实现到位**:`registry-api.md` 的 §3.1–§3.2、`card_status` 的 `ok/unchanged/conflict`、

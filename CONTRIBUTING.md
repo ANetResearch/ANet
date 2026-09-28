@@ -36,8 +36,14 @@ CGO_ENABLED=1 go test -race -timeout 45m ./...   # the race detector
 
 ## Licensing of contributions
 
-By submitting a contribution you agree it is provided under the ANet
-Community License (see LICENSE, Section 6).
+ANet is released under the ANet Open Source License, a modified Apache
+License 2.0 (see [LICENSE](LICENSE)). By submitting a contribution you agree
+that it is provided under that License, including its contributor terms
+(LICENSE, Section 2): Agent Network Research may make the license stricter or
+more relaxed, may use your contribution commercially (including its hosted hub
+and cloud operations), and may submit it to an A2A project repository under
+Apache-2.0 alone. Contributions to `docs/a2a/` are Apache-2.0 (LICENSE,
+Section 3).
 
 ## Security issues
 

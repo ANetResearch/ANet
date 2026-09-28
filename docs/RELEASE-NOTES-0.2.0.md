@@ -152,6 +152,12 @@ the mark is a label and grants nothing.
   it, and an uncertain failure is treated as "possibly delivered".
 - Evidence of public capabilities records only the result CID by default (`"evidence": "cid"`), which
   can be set to `full` per capability.
+- License: anet, ANetCore and the hub move from the ANet Community License 1.0 to the ANet Open Source
+  License, a modified Apache License 2.0 (`LICENSE`). Commercial use has no node limit; operating a
+  multi-tenant hosted hub for third parties needs written authorization (a non-commercial hub
+  federated with the anet network is exempt); the ANet logo and copyright notices in the hub web UI,
+  the consoles and the CLI must stay. The A2A drafts in `docs/a2a/` are Apache-2.0. Copies of 0.1.x
+  stay under the license they came with.
 
 ---
 
