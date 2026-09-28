@@ -43,6 +43,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -264,21 +265,7 @@ func ListenerUIDs(addr string) ([]int, error) {
 	if uid, ok := foreignForTest(ap); ok {
 		return []int{uid}, nil
 	}
-	ents, err := readTables(func(e sockEntry) bool {
-		if e.state != stateListen || e.local.Port() != ap.Port() {
-			return false
-		}
-		switch la := e.local.Addr(); {
-		case la == ap.Addr():
-			return true
-		case !la.IsUnspecified():
-			return false
-		case la.Is4():
-			return ap.Addr().Is4()
-		default:
-			return true // [::], which on a dual-stack socket holds the IPv4 port too
-		}
-	})
+	ents, err := readTables(func(e sockEntry) bool { return holds(e, ap) })
 	if err != nil {
 		return nil, err
 	}
@@ -289,20 +276,45 @@ func ListenerUIDs(addr string) ([]int, error) {
 	return out, nil
 }
 
+// holds reports whether e is a listener holding ap: on that address, or on the wildcard address of its
+// family with the same port.
+func holds(e sockEntry, ap netip.AddrPort) bool {
+	if e.state != stateListen || e.local.Port() != ap.Port() {
+		return false
+	}
+	switch la := e.local.Addr(); {
+	case la == ap.Addr():
+		return true
+	case !la.IsUnspecified():
+		return false
+	case la.Is4():
+		return ap.Addr().Is4()
+	default:
+		return true // [::], which on a dual-stack socket holds the IPv4 port too
+	}
+}
+
 // serverUID returns the uid owning the server end of the connection local -> far.
+//
+// The server end is in the table from the moment the listener saw the SYN: as a request socket
+// (SYN_RECV), printed with the listener's uid, then as a connection in the listener's accept queue,
+// then as the socket of the process that accepted it. Until accept() the connection belongs to no
+// process (inode 0) and the uid printed for it is not the server's (see sockEntry), so it is judged by
+// the listener that holds it — the only socket from which it can be accepted. One read of the table
+// yields both.
 func serverUID(local, far netip.AddrPort) (int, error) {
 	if uid, ok := foreignForTest(far); ok {
 		return uid, nil
 	}
 	var ents []sockEntry
 	var err error
-	// The server end is in the table from the moment the listener saw the SYN (as SYN_RECV, carrying the
-	// listener's uid). A short retry covers a table read that races the handshake's last step.
+	serverEnd := func(e sockEntry) bool {
+		return (e.state == stateEstablished || e.state == stateSynRecv) && e.local == far && e.remote == local
+	}
+	// A short retry covers a table read that races the handshake's last step.
 	for attempt := 0; attempt < 3; attempt++ {
-		ents, err = readTables(func(e sockEntry) bool {
-			return (e.state == stateEstablished || e.state == stateSynRecv) && e.local == far && e.remote == local
-		})
-		if err != nil || len(ents) > 0 {
+		ents, err = readTables(func(e sockEntry) bool { return serverEnd(e) || holds(e, far) })
+		if err != nil || slices.ContainsFunc(ents, serverEnd) {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -310,16 +322,34 @@ func serverUID(local, far netip.AddrPort) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if len(ents) == 0 {
-		return 0, fmt.Errorf("localpeer: the server end of %s -> %s is not in the socket table; the token was not sent", local, far)
-	}
-	uid := ents[0].uid
-	for _, e := range ents[1:] {
-		if e.uid != uid {
-			return 0, fmt.Errorf("localpeer: %s: ambiguous socket table entries; the token was not sent", far)
+	var uids, listeners []int
+	byListener := false
+	for _, e := range ents {
+		switch {
+		case e.state == stateListen:
+			listeners = append(listeners, e.uid)
+		case e.state == stateEstablished && e.inode == 0:
+			byListener = true // not accepted yet
+		default:
+			uids = append(uids, e.uid)
 		}
 	}
-	return uid, nil
+	if !slices.ContainsFunc(ents, serverEnd) {
+		return 0, fmt.Errorf("localpeer: the server end of %s -> %s is not in the socket table; the token was not sent", local, far)
+	}
+	if byListener {
+		if len(listeners) == 0 {
+			return 0, fmt.Errorf("localpeer: no listener holds %s any more; the token was not sent", far)
+		}
+		uids = append(uids, listeners...)
+	}
+	// Every socket that could be the server end must be this user's; report one that is not.
+	for _, u := range uids {
+		if u != os.Getuid() {
+			return u, nil
+		}
+	}
+	return os.Getuid(), nil
 }
 
 // addrPort converts a TCP address, unmapping an IPv4-mapped IPv6 address.

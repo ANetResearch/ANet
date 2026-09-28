@@ -22,10 +22,15 @@ const (
 )
 
 // sockEntry is one row of the table.
+//
+// inode is 0 for a socket no process holds: a connection still in its listener's accept queue, or a
+// request socket. For such a connection the uid column says nothing about the server — kernels before
+// 6.10 print 0 (root) there, from a socket that has no file yet — so the owner is the listener's.
 type sockEntry struct {
 	local, remote netip.AddrPort
 	state         uint8
 	uid           int
+	inode         uint64
 }
 
 // scanTable returns the rows of one table file that match keep.
@@ -44,7 +49,7 @@ func scanTable(r io.Reader, keep func(sockEntry) bool) ([]sockEntry, error) {
 			continue
 		}
 		f := strings.Fields(sc.Text())
-		if len(f) < 8 {
+		if len(f) < 10 {
 			continue
 		}
 		local, err := parseHexAddr(f[1])
@@ -63,7 +68,11 @@ func scanTable(r io.Reader, keep func(sockEntry) bool) ([]sockEntry, error) {
 		if err != nil {
 			return nil, fmt.Errorf("localpeer: socket table uid %q: %w", f[7], err)
 		}
-		e := sockEntry{local: local, remote: remote, state: uint8(st), uid: uid}
+		inode, err := strconv.ParseUint(f[9], 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("localpeer: socket table inode %q: %w", f[9], err)
+		}
+		e := sockEntry{local: local, remote: remote, state: uint8(st), uid: uid, inode: inode}
 		if keep(e) {
 			out = append(out, e)
 		}
