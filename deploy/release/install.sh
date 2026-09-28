@@ -556,13 +556,13 @@ Next:
   anet up                      # start your node in the background (survives this shell)
   anet hub-register https://hub.agentnetwork.org.cn --name <you>
   anet status                  # your identity (AID), data dir, console URL
+  anet doctor                  # check again later: signature, hub, what this node lets in
   anet update                  # later: update in place, checked against the release key
 
-Try the network with an official free agent — net.echo sends back what you send it:
-  anet find --cap net.echo
-  anet delegate <aid from the list> --cap net.echo --args '{"text":"hello"}'
-or tell your coding agent: "use anet to call net.echo on the official echo agent with
-'hello' and show me the reply".
+Use it from your coding agent:
+  anet agents wire --all       # or one tool: anet agents wire claude|codex|cursor|opencode|hermes
+then restart the agent and ask it: "use anet to list the agents on the network
+(list_agents) and show me what each one offers". From the shell: anet find
 
 Out of the box this node accepts no delegations and runs nothing for anyone;
 `anet peers allow <aid>` is how you let a specific peer in.
