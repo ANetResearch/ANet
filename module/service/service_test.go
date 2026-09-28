@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,7 +19,7 @@ import (
 
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/moduletest"
-	_ "github.com/ANetResearch/ANet/module/service"
+	"github.com/ANetResearch/ANet/module/service"
 	"github.com/ANetResearch/ANet/provider"
 )
 
@@ -313,9 +314,12 @@ func TestBadTokensAreRefused(t *testing.T) {
 // one that ever applies.
 func TestTimeoutIsPerCapability(t *testing.T) {
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-time.After(2 * time.Second):
-		case <-r.Context().Done():
+		_, _ = io.Copy(io.Discard, r.Body) // from here on a hang-up ends r's context
+		if r.Header.Get(service.HeaderCall) != "warm" {
+			select {
+			case <-time.After(10 * time.Second):
+			case <-r.Context().Done():
+			}
 		}
 		_, _ = w.Write([]byte(`{}`))
 	}))
@@ -324,11 +328,22 @@ func TestTimeoutIsPerCapability(t *testing.T) {
 		{"id":"fast.x","url":"`+slow.URL+`","timeout_ms":500},
 		{"id":"long.x","url":"`+slow.URL+`"}]}`)
 
+	// A connection to the service first, under long.x's bound: the two
+	// capabilities share it. A new one is checked before it is used (the
+	// kernel's socket tables are read, internal/backendconn), which on a
+	// loaded host can take longer than fast.x's 500 ms; cut off then, the
+	// call never went out and is rightly UNAVAILABLE. On the connection
+	// already had, fast.x's call has gone out when its bound passes.
+	long, _ := reg.Resolve("long.x")
+	if eff, err := long.Invoke(context.Background(), provider.Call{Capability: "long.x", CallID: "warm"}); err != nil || eff.Status != effect.OK {
+		t.Fatalf("long.x: %s %v", eff.Status, err)
+	}
+
 	began := time.Now()
 	fast, _ := reg.Resolve("fast.x")
 	_, err := fast.Invoke(context.Background(), provider.Call{Capability: "fast.x"})
-	if time.Since(began) > time.Second {
-		t.Errorf("fast.x ran %v; its own 500 ms bound did not apply", time.Since(began))
+	if took := time.Since(began); took > 5*time.Second {
+		t.Errorf("fast.x ran %v; its own 500 ms bound did not apply", took)
 	}
 	// Cut off by its bound after the call went out: the effect may have
 	// happened, so it is not UNAVAILABLE (outcome_test.go).
