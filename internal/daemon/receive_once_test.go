@@ -97,6 +97,78 @@ func TestConcurrentCopiesOfAPublicCallAreJudgedOnce(t *testing.T) {
 	}
 }
 
+// The same delegation sealed twice (two message ids) and delivered at once,
+// with the public capability at its max_inflight edge: the second copy
+// waits for the first to create the interaction and is a redelivery of it,
+// not a second admission refused with `rejected`.
+func TestADelegationSealedTwiceAtTheQuotaEdgeIsJudgedOnce(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	lamp := &lampProvider{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	prov.mu.Lock()
+	in := prov.cfg.inbound()
+	in.PublicCapabilities = []PublicCapability{{ID: lampCap, MaxInflight: 1}}
+	prov.cfg.Inbound = &in
+	prov.mu.Unlock()
+
+	id, err := req.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := onlyQueuedEnvelope(t, srv, prov.AID())
+	clearMailbox(t, srv, prov.AID())
+	op, err := seal.Open(first, prov.AID(), prov.enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := craft(t, senderOf(req), prov, seal.TypeDelegate, id, op.Inner.Body, nil)
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once bool
+	prov.setRxFault(func(typ string) error {
+		if typ == seal.TypeDelegate && !once {
+			once = true
+			close(entered)
+			<-release
+		}
+		return nil
+	})
+	firstDone := make(chan rxResult, 1)
+	go func() { firstDone <- prov.receiveEnvelope(ctx, first) }()
+	<-entered
+	secondDone := make(chan rxResult, 1)
+	go func() { secondDone <- prov.receiveEnvelope(ctx, second) }()
+	select {
+	case r := <-secondDone:
+		t.Fatalf("the second copy was decided while the first was still committing: %+v", r)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	if r := <-firstDone; r.class != rxAccepted {
+		t.Fatalf("first copy: %+v", r)
+	}
+	r2 := <-secondDone
+	prov.setRxFault(nil)
+	if !r2.ack() || r2.reason == dropRefusedPrefix+admitInflightLimit {
+		t.Fatalf("second copy: %+v", r2)
+	}
+	if n := counter(prov, dropRefusedPrefix+admitInflightLimit); n != 0 {
+		t.Fatalf("the second copy was refused by admission %d times", n)
+	}
+	if n := len(lamp.invoked); n != 1 {
+		t.Fatalf("capability ran %d times", n)
+	}
+	if err := req.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if cur, err := req.ix.Get(id); err != nil || cur.State != interactions.StateCompleted {
+		t.Fatalf("requester: %+v %v, want completed", cur, err)
+	}
+}
+
 // A refused delegation's second copy, arriving while the first is being
 // refused, is not refused (and answered) again: it finds the first's
 // entry once the lock is free.

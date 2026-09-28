@@ -49,6 +49,7 @@ type Daemon struct {
 	// redeliveries, the sender keys a refusal is encrypted to,
 	// and the capability calls this process is executing.
 	rxLocks     keyedLocks
+	rxIXLocks   keyedLocks // (from, ix) of a delegation, taken after rxLocks
 	refused     boundedSet
 	rxStats     rxCounters
 	p2pLimit    p2pLimiter
