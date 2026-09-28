@@ -146,6 +146,12 @@ const (
 	// content id the bytes are fetched by (GET /attachment on the control
 	// plane, or `anet pull`); the part's url names the same attachment.
 	KeyAttachmentCID = "anet.attachment_cid"
+	// KeyTruncated marks, in a stream event, what was cut to keep the
+	// event within MaxStreamEventBytes (stream.go): a message or artifact
+	// whose parts were replaced by a notice (with anet.size, the bytes it
+	// had as JSON), the metadata of one, or a task whose older history was
+	// left out. Its value is true. GetTask gives the whole of it.
+	KeyTruncated = "anet.truncated"
 )
 
 // Artifact ids: the deliverable, and nothing else. anet.reply is a text
