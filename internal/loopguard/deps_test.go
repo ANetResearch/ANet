@@ -32,7 +32,7 @@ func goListDeps(t *testing.T, pkg string) []string {
 // (the daemon would carry it, SI-8). The daemon, which now imports both,
 // and the MCP server stay free of the SDK too (A2A-DESIGN SI-8 names both).
 func TestSharedPackagesStayFreeOfTheDaemonAndTheSDK(t *testing.T) {
-	for _, pkg := range []string{modPath + "/internal/loopguard", modPath + "/internal/anethome"} {
+	for _, pkg := range []string{modPath + "/internal/loopguard", modPath + "/internal/anethome", modPath + "/internal/localpeer"} {
 		for _, d := range goListDeps(t, pkg) {
 			if d == modPath+"/internal/daemon" || strings.HasPrefix(d, sdkPath) || strings.HasPrefix(d, modPath+"/module") {
 				t.Errorf("%s depends on %s", pkg, d)

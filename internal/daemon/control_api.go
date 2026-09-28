@@ -24,6 +24,7 @@ import (
 	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
+	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 )
@@ -297,8 +298,27 @@ func (d *Daemon) listenControl() (net.Listener, error) {
 		_ = moved.Close()
 		return nil, fmt.Errorf("anet: %s was taken and the new control address could not be saved: %w", addr, serr)
 	}
-	log.Printf("anet: control port %s was taken by another daemon; moved to %s and updated config.json", addr, next)
+	// The holder may be another identity's daemon, or another local user's process. Either way no
+	// client of ours sent it the control token: they verify the listener first (internal/localpeer,
+	// A2A-DESIGN §7.1 [redteam:F18]).
+	log.Printf("anet: control port %s was taken by another process%s; moved to %s and updated config.json",
+		addr, portHolder(addr), next)
 	return moved, nil
+}
+
+// portHolder describes who holds a taken port, for a log line: " (uid N, another user)" when the socket
+// table names a uid other than this one, "" otherwise.
+func portHolder(addr string) string {
+	uids, err := localpeer.ListenerUIDs(addr)
+	if err != nil {
+		return ""
+	}
+	for _, u := range uids {
+		if u != os.Getuid() {
+			return fmt.Sprintf(" (uid %d, another user)", u)
+		}
+	}
+	return ""
 }
 
 // autoAssignedControlAddr reports whether an address looks like one this daemon allocated for itself

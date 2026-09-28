@@ -24,6 +24,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/loopguard"
 	"github.com/ANetResearch/ANet/internal/official"
 	"github.com/ANetResearch/ANet/internal/release"
@@ -144,6 +145,12 @@ type doctorReport struct {
 		AddrFile fileState `json:"addr_file"`
 		Addr     string    `json:"addr"`
 		Token    fileState `json:"token_file"`
+		// PortConflict is the record module/a2a leaves while the interface
+		// is down because another process held its port (A2A-DESIGN §11.1
+		// [redteam:F18]); PortHolderUIDs the uids the socket table shows
+		// listening on Addr, when this system has one.
+		PortConflict   string `json:"port_conflict,omitempty"`
+		PortHolderUIDs []int  `json:"port_holder_uids,omitempty"`
 	} `json:"a2a"`
 	Hub struct {
 		URL        string `json:"url"`
@@ -197,6 +204,9 @@ type doctorEnv struct {
 	// running reports whether a daemon answers at the control address with
 	// the token in tokenPath.
 	running func(addr, tokenPath string) bool
+	// listenerUIDs returns the uids listening on an address, from the
+	// socket table (nil: not checked; see internal/localpeer).
+	listenerUIDs func(addr string) ([]int, error)
 }
 
 func defaultDoctorEnv() doctorEnv {
@@ -205,7 +215,7 @@ func defaultDoctorEnv() doctorEnv {
 	if hh == "" && home != "" {
 		hh = filepath.Join(home, ".hermes")
 	}
-	return doctorEnv{home: home, hermesHome: hh, running: daemonAnswersAt}
+	return doctorEnv{home: home, hermesHome: hh, running: daemonAnswersAt, listenerUIDs: localpeer.ListenerUIDs}
 }
 
 // env reads an environment variable; HERMES_HOME is the one doctor
@@ -410,14 +420,38 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 			rep.A2A.Addr = strings.TrimSpace(string(b))
 		}
 	}
+	if b, err := os.ReadFile(filepath.Join(anethome.A2ADir(layout.Root), anethome.A2AConflictFile)); err == nil {
+		rep.A2A.PortConflict = strings.TrimSpace(string(b))
+	}
+	const freePort = "free the port (stop the process holding it), restart the node (anet stop && anet up), then: anet agents wire --refresh"
 	switch {
 	case !rep.A2A.Compiled && rep.A2A.Addr == "":
 		add("a2a", stInfo, "the local A2A interface is not in this build (no_a2a)", "")
 	case rep.A2A.Addr == "":
 		add("a2a", stWarn, "no "+rep.A2A.AddrFile.Path+": the local A2A interface has not started in this data directory yet",
 			"anet up")
+	case rep.A2A.PortConflict != "":
+		// The interface stays down rather than move away from the port its
+		// clients were given (A2A-DESIGN §11.1 [redteam:F18]).
+		add("a2a", stFail, "the local A2A interface is not running: "+rep.A2A.PortConflict, freePort)
 	default:
 		add("a2a", stOK, "local A2A interface at http://"+rep.A2A.Addr+"/a2a/v1/agents", "")
+	}
+	// Who listens on the recorded port. Clients configured with it (Hermes'
+	// a2a_agents entries) send the local A2A token there without asking, so
+	// a listener of another user is a credential leak in progress — above
+	// all while the daemon is down, when nothing else notices.
+	if rep.A2A.Addr != "" && env.listenerUIDs != nil {
+		if uids, err := env.listenerUIDs(rep.A2A.Addr); err == nil {
+			rep.A2A.PortHolderUIDs = uids
+			for _, u := range uids {
+				if u != os.Getuid() {
+					add("a2a.port", stFail, fmt.Sprintf("%s is held by uid %d, another local user: clients configured with this "+
+						"address send the local A2A token to that process", rep.A2A.Addr, u), freePort)
+					break
+				}
+			}
+		}
 	}
 	if rep.A2A.Compiled || rep.A2A.Token.Present {
 		tokenCheck(add, "a2a.token", rep.A2A.Token)

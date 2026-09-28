@@ -424,12 +424,13 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 1. Host 白名单:`127.0.0.1:<port>`、`localhost:<port>`、`[::1]:<port>`,否则 421。删除 `control_allow_remote`;`control_addr` 非回环拒绝启动;远程访问用 SSH 端口转发 [C10]。
 2. 控制台票据:`anet console` 用控制令牌取 60 秒单次票据,打开 `/console#t=<ticket>`;页面清除片段后换取会话。票据不经浏览器命令行传递 [redteam:F19]:进程参数对所有本机用户可读(`/proc/<pid>/cmdline`),读到的一方可抢先兑换。`POST /console/ticket {"launcher":true}` 时 daemon 在私有运行时目录(0700)写一个 0600 的一次性 HTML 重定向页 `console-<随机>.html`(`O_EXCL|O_NOFOLLOW`),CLI 只把该文件路径交给 xdg-open/open;票据兑换、到期(定时器,不依赖后续请求)或被挤出时 daemon 删除该文件,下次写入时清掉上次 daemon 留下的过期页。`anet console --url` 仍把 URL 打到标准输出供手动打开;不支持 launcher 的旧 daemon 不退回把 URL 放进命令行,而是报错提示重启或用 `--url`。cookie 名 `anet_s_<port>`、`HttpOnly; SameSite=Strict; Path=/`;CSRF 值只在页面内存中,无端点可凭 cookie 取回,刷新需新票据 [C10]。
 3. 会话路由白名单(与 `console.html` 实际调用一致)[C10][C41]:只读(`/status` `/threads` `/thread` `/inbox` `/results` `/evidence` `/balance` `/identities` `/find`)、`GET /attachment`、multipart 的 `/delegate` 与 `/message`(JSON `attachments` 路径字段与 `pay:true` 拒绝)、`/end`、`/review`、`POST /console/switch`。其余一律 bearer-only,包括 `/pull`、`/autoreply*`、入站/peers/trust 写入、`/hub-register`(移到 CLI)、`/hub-leave`、`/visibility`、`/p2p-advertise`、`/shutdown`、`/x402-authorize`、`/redeem`、`/reconcile`。测试遍历全部路由。
-4. 身份切换:`POST /console/switch {aid}`,当前 daemon 从 `RunningDaemons()` 找到目标、读取其控制令牌(同 uid)、向目标取票据,返回目标控制台 URL。
+4. 身份切换:`POST /console/switch {aid}`,当前 daemon 从 `RunningDaemons()` 找到目标、读取其控制令牌(同 uid)、向目标取票据,返回目标控制台 URL。注册表的 `/ping` 只说明该端口有人应答(崩溃后留下的条目可能已被其他本机用户占用),取票据的连接先经第 10 条的核实 [redteam:F18]。
 5. `console.html` 改造:注入不含令牌的 `window.__ANET{aid,name,hub,nonce}`;`ctl` 改为 cookie + `X-Anet-CSRF`;删除访客代码、评价的 goal/deliverable 渲染与"附完整交互内容"文案;`tasks_completed` 标签按 §9 改;附件内联判断改用四种图片类型白名单;删除"连接到本 Hub"按钮与 `ctl("/hub-register")`(未注册时只显示 CLI 命令 `anet hub-register`),删除"同意结束"按钮与 `ctl("/end-accept")`,结束 UI 只保留 `/end`。CSP:脚本 nonce,`frame-ancestors 'none'`,`connect-src 'self' <cfg.HubURL 源>`;加载测试断言目录数据仍能显示。
 6. `/attachment` [C11]:按 `http.DetectContentType` 嗅探,只有 png/jpeg/gif/webp 内联,其余 `application/octet-stream` + `Content-Disposition: attachment`;所有响应加 `Content-Security-Policy: default-src 'none'; sandbox` 与 `nosniff`;去掉 `immutable` 一年缓存;收到附件时把 `Mime` 改写为嗅探结果。
 7. `/pull` [C42]:总是写入新子目录 `<out_dir>/anet-<ix前12>/`(Mkdir + Lstat,拒绝符号链接);已存在的子目录须属于本 uid、不是符号链接、group/other 不可写,否则拒绝(`out_dir` 可能是 `/tmp` 这类共享目录,别的本机用户可先建同名目录)[redteam:F20];子目录只打开一次,文件相对该目录 fd 创建(`os.Root`,openat 语义),并核对打开的目录与检查的是同一文件,消除"检查后按路径写"期间被替换成符号链接的窗口 [redteam:F20];文件以 `O_CREATE|O_EXCL|O_WRONLY|O_NOFOLLOW` 打开,已存在且内容 CID 相同视为已取回,否则换名;`safeName` 中和前导点、去控制与双向字符、限长;空或相对 `out_dir` 返回 400;`out_dir`、数据目录与 exec 工作目录均先经 `filepath.EvalSymlinks` 解析为真实路径后再比较前缀,拒绝落在后两者之内的 `out_dir`。
 8. `/ping` 去掉 `Access-Control-Allow-Origin: *`。运行时目录校验非符号链接、属主、0700,优先 `$XDG_RUNTIME_DIR`。`anet mcp` 在显式选定身份时用严格解析。
 9. 策略类写入写 `anet.policy.changed{field, from, to}`。
+10. 客户端在确认监听者是本机本用户的 daemon 之前不发送控制令牌(`internal/localpeer`)[redteam:F18]:回环端口任何本机用户都能绑,daemon 未运行时(`anet up` 之前、崩溃或重启后)端口是空的,且端口可预测。Linux 上从 `/proc/net/tcp`、`/proc/net/tcp6` 查**本连接**服务端 socket 的 uid,须等于本进程 uid(检查与发送在同一连接上,无窗口;不需要 daemon 配合,旧 daemon 也能通过);其他平台及读不到套接字表时用挑战-应答:在同一连接上 `GET /ping?proof=<nonce>`,daemon 回 `HMAC(由令牌派生的钥, nonce ‖ 接受该连接的监听地址)`,客户端核对后才发令牌——绑定监听地址使把挑战转给别处真 daemon 的中继无效。CLI 全部命令(含 `anet up` 第一步的探测、不带参数的 `anet`、`doctor`)、`anet mcp`、`/console/switch`(第 4 条)与 a2aprobe 都经此。控制口被占时 daemon 仍换到空闲端口并写 `config.json`(客户端随之跟随,令牌未外发)。
 
 ---
 
@@ -618,7 +619,9 @@ daemon 的 `list_agents` 自由文本查询:daemon 按 skill/tag 从 hub 取已�
 ### 11.1 形态
 
 - 配置块缺省时模块照常启用(本机接口是默认产品面);`anet init` 不写 `modules.a2a` 块(否则 `no_a2a` 变体加载配置会失败)[C43]。
-- 端口稳定:首次启动从固定基址扫描(同 `AllocControlPort` 的规则,跳过其他身份占用的端口),选定后写入模块状态目录的 `a2a_addr.txt`(`<数据目录>/modules/a2a/`,即 `Host.StateDir("a2a")`;令牌 `a2a_token.txt` 同在此目录,`anet doctor` 与 `anet agents wire` 按 `internal/anethome` 的 `A2ADir` 读取);之后每次启动重绑该端口,冲突时按 `listenControl` 规则重新分配并记日志(已写入的 Hermes 配置随之失效,见 §13.1 doctor)。非回环地址拒绝。
+- 端口稳定:首次启动从固定基址扫描(同 `AllocControlPort` 的规则,跳过其他身份占用的端口),选定后写入模块状态目录的 `a2a_addr.txt`(`<数据目录>/modules/a2a/`,即 `Host.StateDir("a2a")`;令牌 `a2a_token.txt` 同在此目录,`anet doctor` 与 `anet agents wire` 按 `internal/anethome` 的 `A2ADir` 读取);之后每次启动重绑该端口。非回环地址拒绝。
+- 记录的端口被占时**不换端口** [redteam:F18]:已写入的客户端(Hermes `a2a_agents`、脚本)不核实监听者,换端口后它们会一直把 Bearer 令牌发给旧端口上的占用者,而令牌在新端口上仍然有效。改为:本机 A2A 接口不启动(daemon 其余部分照常运行——否则占一个端口就能让节点停摆),写 `a2a_port_conflict.txt`(端口、占用者、令牌是否已轮换)并记 ERROR 日志,`anet up` 在终端上警告,`anet doctor` 以 fail 报告;占用者不能证明是本 uid(套接字表显示其他 uid,或本系统无法判定)时同时轮换 `a2a_token.txt`,客户端可能已发出的旧令牌作废。处理顺序:释放端口 → 重启节点(`anet stop && anet up`)→ `anet agents wire --refresh`。成功绑定时删除冲突记录。
+- 端口必须改时(`a2a_addr.txt` 缺失而令牌已存在)新选端口并同时轮换令牌 [redteam:F18]。
 - `module.Host` 增加 `StateDir(module string) string`(模块自有状态目录)与 `TaskSeam() (TaskSeam, bool)`,理由写在接口注释。
 - 依赖 a2a-go 的 `a2a`、`a2asrv`、`a2aext`、`a2acrypto`;不导入 `a2agrpc`、`a2acompat`。
 
@@ -722,7 +725,7 @@ mcpserv 原样转发控制面的投影 JSON;描述写明"completed 且 effect_st
 ### 13.1 命令
 
 - `anet init`:幂等写出显式安全默认值(SI-5 的全部键),创建空的 `peers.*`、`payees.allow`;已有配置只补缺省键并报告差异。
-- `anet doctor [--json]`:版本与签名、模块、身份、控制与 A2A 地址、hub 注册、入站策略、支出上限、各编码工具接入与握手、Hermes 配置文件权限、令牌是否过期、`a2a_agents` 各 URL 的端口是否等于 `a2a_addr.txt`(不一致时提示 `anet agents wire --refresh`)、sandbox 模式是否配置了 `auto_reply.api_key`。
+- `anet doctor [--json]`:版本与签名、模块、身份、控制与 A2A 地址、hub 注册、入站策略、支出上限、各编码工具接入与握手、Hermes 配置文件权限、令牌是否过期、`a2a_agents` 各 URL 的端口是否等于 `a2a_addr.txt`(不一致时提示 `anet agents wire --refresh`)、sandbox 模式是否配置了 `auto_reply.api_key`;本机 A2A 端口冲突记录(`a2a_port_conflict.txt`,fail)与 `a2a_addr.txt` 端口的占用者(Linux 套接字表显示其他 uid 时 fail——daemon 停机期间也能发现正在收集令牌的占用者)[redteam:F18]。
 - `anet agents wire|unwire [--all|<tool>…] [--refresh]`(`internal/agentwire`,`//go:build !no_mcp`):
   - Claude Code:`claude mcp add -s user anet -- <abs>/anet mcp`;技能写 `~/.claude/skills/anet/SKILL.md`。
   - Codex:`~/.codex/config.toml` 托管块;非托管同名表报告冲突并停止。
@@ -879,5 +882,5 @@ B 与 C 在 A 完成后并行;同一仓库内按文件归属串行推进。
 10. 通过 curl|sh 从 agentnetwork.org.cn 或 hub 域名首次安装时,信任提供脚本的主机(当前与官方 hub 同机);按 hub 的 llms.txt 行事的 agent 执行的是该 hub 提供的指令。安装后 `anet update` 只依赖发布密钥。
 11. KEL 轮换没有产品触发路径;轮换宽限默认 1 小时,超过宽限仍在信箱中的旧密钥消息会被拒收。
 12. `A2A-Version` 缺省按 1.0 处理,偏离规范的"缺省按 0.3"。
-13. TTY 门槛(`anet pay`、`anet peers allow`、`anet inbound approve`、修改支出上限)在 CLI 进程内检查,对应的控制面路由凭控制令牌即可调用。它只约束只能经 MCP 工具或本机 A2A 接口行事的 agent。任何能以本用户身份执行命令的 agent(包括 Claude Code 等工具的 Bash,不论有无 TTY),都可以读取控制令牌直接调用这些路由,或直接改 `peers.*`、`config.json` 并重启 daemon。同 uid 下不存在更强的边界,文档如实写明。
+13. TTY 门槛(`anet pay`、`anet peers allow`、`anet inbound approve`、修改支出上限)在 CLI 进程内检查,对应的控制面路由凭控制令牌即可调用。它只约束只能经 MCP 工具或本机 A2A 接口行事的 agent。任何能以本用户身份执行命令的 agent(包括 Claude Code 等工具的 Bash,不论有无 TTY),都可以读取控制令牌直接调用这些路由,或直接改 `peers.*`、`config.json` 并重启 daemon。同 uid 下不存在更强的边界,文档如实写明。对**其他本机用户**(不同 uid),anet 自己的客户端在发送控制令牌前核实监听者(§7 第 10 条),票据与邀请码不进命令行(§7 第 2 条、§13.2);但本机 A2A 接口的第三方客户端(Hermes 等)按写入的地址发送 Bearer 令牌、不核实监听者:daemon 停机期间别的本机用户占住记录的端口、收集令牌、再在 daemon 启动前放开端口,daemon 无从察觉(占用期间运行 `anet doctor` 可以发现;daemon 启动时发现端口被占则不启动接口并轮换令牌,§11.1)[redteam:F18]。
 14. 本期不处理(归属与理由):ANetLink `c1.sock` 权限与 `SO_PEERCRED`、按 `caller_aid` 授权(跨仓,ANetLink 单独立项);联邦按卡片 home hub 定向转发(当前按对等表顺序尝试,功能正确);交互级临时密钥;大附件分块;sealed sender;发放链隐私格式;沙箱网络隔离;非 Linux 沙箱。
