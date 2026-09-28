@@ -201,7 +201,8 @@ func backendTransportChecks(add func(id, status, detail, hint string), cfg daemo
 }
 
 // a2aRetryCheck reports modules.a2a.retry (A2A-DESIGN §11.6): how long a
-// forward that failed for a reason a retry may fix is tried again. Read
+// forward the backend did not take — not reached, or answered 503 — is
+// tried again. Read
 // here rather than through module/a2a, which a no_a2a build does not have;
 // the defaults are the module's.
 func a2aRetryCheck(add func(id, status, detail, hint string), cfg daemon.Config) {
@@ -234,7 +235,7 @@ func a2aRetryCheck(add func(id, status, detail, hint string), cfg daemon.Config)
 			"the task stays in the inbox until the daemon restarts or the requester writes again", "")
 		return
 	}
-	detail := fmt.Sprintf("a forward that fails because the backend is not reachable or answers 5xx is tried again for up to %s, "+
+	detail := fmt.Sprintf("a forward the backend did not take (not reachable, or answering 503) is tried again for up to %s, "+
 		"waiting at most %s between attempts (modules.a2a.retry)", giveUp, max(maxInterval, 5*time.Second))
 	if giveUp >= 15*time.Minute {
 		add("a2a.backends.retry", stInfo, detail+"; requesters fail a task they hear nothing about for 15m by default "+
