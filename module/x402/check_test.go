@@ -52,6 +52,7 @@ func TestTheErrorReasonTableIsPinned(t *testing.T) {
 		"no_pending_quote":             "SETTLEMENT_FAILED",
 		"client_payload_unsupported":   "SETTLEMENT_FAILED",
 		"option_not_offered":           "SETTLEMENT_FAILED",
+		"rail_not_payable":             "SETTLEMENT_FAILED",
 		"payer_mismatch":               "SETTLEMENT_FAILED",
 		"something_nobody_listed":      "SETTLEMENT_FAILED",
 	}
