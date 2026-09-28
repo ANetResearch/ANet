@@ -847,8 +847,22 @@ func (s *Store) AddAttachment(interactionID string, msgSeq int64, a Attachment) 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return addAttachment(s.db, interactionID, msgSeq, a)
+}
+
+// AddAttachment is Store.AddAttachment inside the transaction: a received
+// message's files commit with the message and its replay row, or not at
+// all (A2A-DESIGN §3.6 step 10).
+func (t *Tx) AddAttachment(interactionID string, msgSeq int64, a Attachment) error {
+	if interactionID == "" || a.CID == "" {
+		return fmt.Errorf("%w: interaction_id and attachment cid required", ErrBadInput)
+	}
+	return addAttachment(t.tx, interactionID, msgSeq, a)
+}
+
+func addAttachment(e execer, interactionID string, msgSeq int64, a Attachment) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err := s.db.Exec(
+	_, err := e.Exec(
 		`INSERT INTO attachment(interaction_id,msg_seq,name,mime,size,cid,data,created_at) VALUES(?,?,?,?,?,?,?,?)`,
 		interactionID, msgSeq, a.Name, a.Mime, a.Size, a.CID, a.Data, now)
 	return err
