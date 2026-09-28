@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -162,6 +163,14 @@ func (m *Module) Authorize(opt payment.PaymentOption, ix, bind, purpose string) 
 	amount, err := payment.ParseAmount(opt.Amount)
 	if err != nil {
 		return nil, err
+	}
+	// Not a payment on any credit ledger: hubs book amounts as int64, and
+	// one without the range check booked such an amount backwards (red
+	// team si9). A quote for it is the provider's to have got wrong;
+	// nothing is signed, and the spending policy is not asked.
+	if amount > math.MaxInt64 {
+		return nil, fmt.Errorf("x402: %s: %d is more than a credit ledger can hold; nothing was signed",
+			payment.ReasonInvalidAmount, amount)
 	}
 	if err := m.seam.AdmitSpend(opt.PayTo, amount, purpose); err != nil {
 		return nil, fmt.Errorf("x402: not authorized by this node's spending policy: %w", err)

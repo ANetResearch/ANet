@@ -130,7 +130,11 @@ func (f *fakeIssuer) serve(t *testing.T) *httptest.Server {
 		}
 		var sum uint64
 		for _, x := range f.redemptions {
-			sum += uint64(asInt64(x["amount"]))
+			n, err := asInt64(x["amount"])
+			if err != nil || n < 0 {
+				t.Errorf("fake redemption amount %v: %v", x["amount"], err)
+			}
+			sum += uint64(n)
 		}
 		page := f.redemptions
 		if page == nil {
@@ -156,7 +160,11 @@ func (f *fakeIssuer) serve(t *testing.T) *httptest.Server {
 		}
 		var sum int64
 		for _, e := range f.entries {
-			sum += asInt64(e["delta"])
+			n, err := asInt64(e["delta"])
+			if err != nil {
+				t.Errorf("fake ledger entry delta: %v", err)
+			}
+			sum += n
 		}
 		out := map[string]any{
 			"entries": page, "total": len(f.entries), "sum": sum,

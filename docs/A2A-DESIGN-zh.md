@@ -479,11 +479,12 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 
 ### 8.4 商户核对(provider,结算前)
 
-`auth.PayTo == 本节点`;`auth.Amount ≥ 报价`;`auth.InteractionID == pay_bind(ix, task_nonce)`;scheme/network ∈ 已报价选项;授权未过期;报价未过期。不符 → `payment-failed` + 错误码(§8.5 映射表;收款方不符、绑定不符、无待付报价均为 `SETTLEMENT_FAILED` + `anet.reason`,金额不足 `INVALID_AMOUNT`,scheme/network 不在已报价选项 `NETWORK_MISMATCH`,授权或报价过期 `EXPIRED_PAYMENT`),不结算、不执行。`anet.replayed=true` 仅当收据 `AuthID` == 本 ix 已持久化的 `auth_id` 时接受。
+`auth.PayTo == 本节点`;`报价 ≤ auth.Amount ≤ 2^63-1`(账本以 int64 记账,超出的金额在未修复的 hub 上反向记账;凭证兑付同样拒绝超出的金额)[redteam:si9];`auth.InteractionID == pay_bind(ix, task_nonce)`;scheme/network ∈ 已报价选项;授权未过期;报价未过期。不符 → `payment-failed` + 错误码(§8.5 映射表;收款方不符、绑定不符、无待付报价均为 `SETTLEMENT_FAILED` + `anet.reason`,金额不足 `INVALID_AMOUNT`,scheme/network 不在已报价选项 `NETWORK_MISMATCH`,授权或报价过期 `EXPIRED_PAYMENT`),不结算、不执行。`anet.replayed=true` 仅当收据 `AuthID` == 本 ix 已持久化的 `auth_id` 时接受。
 
 ### 8.5 hub facilitator [C26][C13][C25]
 
 - `CheckRequirements(auth, req)`:比较 `payTo`、`amount ≥ req.amount`、`network`、`scheme`,只解码授权,不需要 KEL。
+- 金额范围 [redteam:si9]:线上金额(授权、收据、requirements、discharge)是 uint64,账本是 int64。所有入口只接受 1..2^63-1:`parseAuth`(verify、settle 本地与转发、redeem、网关共用;转发前即拒)、`CheckRequirements`(required amount 超范围为 `invalid_payment_requirements`)、对端收据(`ClearPeerSettlement`、`ClearFromPeer`)、对端 discharge(`SettleOwed`)、`IssueOwedSettlement`、`DischargeDue`、`anet-hub -clear`、网关价格;拒绝为 `invalid_amount`。每处换算经同一个函数(`internal/aghub/amount.go`),不写裸 `int64(…)`;反向换算(已结算重放、兑付回显)遇到库中 ≤ 0 的旧行不重签收据、不回显溢出值。部署附只读核查脚本 `deploy/audit-amount-overflow.sql`。节点侧:商户核对、凭证兑付、签名(`Authorize`)同样拒绝 > 2^63-1,支出策略的日累计按饱和加法比较,发放链审计把不是正 int64 的金额列为问题而不计入合计。
 - `SettlePayment` 拆成内部 `settleAuth`(无 requirements,供已自行核对的调用方)与公开 `SettleWithRequirements`(`hX402Settle` 用)。
 - 入口 hub(network ≠ 本 hub):先 `CheckRequirements`,再把 `{x402Version, paymentPayload, paymentRequirements}` 转发给账本 hub;回执 `PayTo/Amount` 与 requirements 一致才 `ClearFromPeer`。账本 hub:`decodeAuth` 后再 `CheckRequirements`,`paymentRequirements` 必填。
 - `Redeem` 保留 `payTo == hubAID` 检查并调用 `settleAuth`;网关以 `{payTo: aid, amount: price}` 构造 requirements,凭证金额取结算额。

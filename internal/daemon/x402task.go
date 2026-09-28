@@ -1178,9 +1178,9 @@ func (d *Daemon) manualTierSteps(opt payment.PaymentOption) []string {
 	if amount > lim.ExplicitMax {
 		steps = append(steps, fmt.Sprintf("`anet payments set explicit_max=%d`", amount))
 	}
-	if spent := d.SpendStatus().Spent24h; spent+amount > lim.DailyMax {
+	if total := spendSum(d.SpendStatus().Spent24h, amount); total > lim.DailyMax {
 		steps = append(steps, fmt.Sprintf("`anet payments set daily_max=%d` (or wait until less was paid in the "+
-			"last 24 hours)", spent+amount))
+			"last 24 hours)", total))
 	}
 	return steps
 }
