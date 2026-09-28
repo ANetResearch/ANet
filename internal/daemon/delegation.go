@@ -1750,9 +1750,10 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 // delegation; it passed steps 1-9, so its sender is the requester.
 //
 //   - The answer is still in the retry queue: that row is the answer. It is
-//     made due now and the loop woken; no second copy is queued, so the
-//     requester gets one answer, not one per redelivery. A row that was
-//     never sealed is sealed now, to the key set the delegation carried.
+//     made due now, with every row queued ahead of it for the requester,
+//     and the loop woken; no second copy is queued, so the requester gets
+//     one answer, not one per redelivery. A row that was never sealed is
+//     sealed now, to the key set the delegation carried.
 //   - Otherwise the answer is sealed again, to the key set the redelivered
 //     delegation carried (m.noticeKeys, verified in step 8 or the stored
 //     one). A public or public_cap interaction keeps its requester's keys
@@ -1769,11 +1770,22 @@ func (d *Daemon) resendResult(m *rxMsg, ix *interactions.Interaction) {
 		keys = m.noticeKeys.set
 	}
 	if rows, err := d.ix.Outbox(ix.ID); err == nil {
+		var queue []*interactions.OutboxItem
+		answer := false
 		for i := range rows {
-			if r := &rows[i]; r.Type == seal.TypeResult {
-				d.hurryQueued(r, keys)
-				return
+			if r := &rows[i]; r.ToAID == ix.PeerAID {
+				queue = append(queue, r)
+				answer = answer || r.Type == seal.TypeResult
 			}
+		}
+		if answer {
+			// The whole queue, not the answer alone: a task's messages go
+			// out in order, so the answer waits for what was queued ahead
+			// of it, and that would sit out its backoff ([redteam:F23]).
+			for _, r := range queue {
+				d.hurryQueued(r, keys)
+			}
+			return
 		}
 	}
 	selfKEL, err := identity.MarshalKEL(d.self.KEL())
