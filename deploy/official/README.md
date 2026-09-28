@@ -118,9 +118,12 @@ sudo -u anet-official env ANET_DATA_DIR=/var/lib/anet-official/anet-tools \
 - 目录是后端单元的 `RuntimeDirectory=anet-official/%i`,属于该单元的动态用户、模式 0755,位于 root 所有的
   `/run/anet-official` 之下;后端停止时 systemd 删除它,别的账户无法在这个路径上放自己的 socket。
 - socket 由 `anet-official serve -listen unix:… -socket-group anet-official-ipc` 创建:先清理无人监听的陈旧 socket,
-  设组 `anet-official-ipc`、模式 0660。后端与同身份的 daemon 都以 `SupplementaryGroups=anet-official-ipc` 入组,
-  只有它们(与 root)能连接。后端单元因此不用 `PrivateUsers=`(用户命名空间里该组会映射为 nobody),
-  另有 `PrivateNetwork=yes`、`RestrictAddressFamilies=AF_UNIX`,完全不碰网络。
+  设组 `anet-official-ipc`、模式 0660。五个身份的后端与 daemon 都以 `SupplementaryGroups=anet-official-ipc` 入组
+  (共用一个组),只有它们(与 root)能连接;连上别的身份的 socket 也没有那个身份的令牌(下文)。后端单元因此不用
+  `PrivateUsers=`(用户命名空间里该组会映射为 nobody),另有 `PrivateNetwork=yes`、`RestrictAddressFamilies=AF_UNIX`,
+  完全不碰网络。设组是一次 `chown(2)`,而 systemd 的 `@privileged` 系统调用集含 `@chown`:单元在
+  `SystemCallFilter=~@privileged` 之后以 `SystemCallFilter=@chown` 放回它(没有这一行,后端启动即以
+  `chown …: operation not permitted` 退出;`cmd/anet-official` 的测试钉住)。
 - daemon 的 service 模块每建一条连接先核对:从 `/` 到 socket 的每一级只有 root、daemon 用户或 socket 的属主
   能改动,socket 的属主就是其目录的属主;连接后用 `SO_PEERCRED` 核对监听进程的 uid 等于 socket 的属主。
   任何一项不符都不发送,调用按 UNAVAILABLE 报告。动态用户的 uid 每次启动可能不同,所以配置里不写

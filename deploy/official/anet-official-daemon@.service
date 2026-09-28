@@ -10,7 +10,8 @@
 # The service module reaches the backend on its Unix socket,
 # /run/anet-official/%i/backend.sock (mode 0660, group anet-official-ipc):
 # SupplementaryGroups= below puts this unit in that group, as the backend
-# unit is (docs/notes/0030 N1).
+# units are (docs/notes/0030 N1); the group is shared by every official
+# identity, and each backend still answers only its own daemon's token.
 #
 # The binary is the anet-standard build (docs/DISTRIBUTIONS-zh.md: service,
 # no x402, no MCP, no public listener). anet-paid-demo needs anet-paid (x402

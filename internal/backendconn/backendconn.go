@@ -24,11 +24,12 @@
 // owner otherwise. A failed check sends nothing.
 //
 // TCP (http:// and https://) stays possible, but only with allow_tcp: true. A TCP connection that lands
-// on a loopback address is then checked the way anet's own clients check the daemon (A2A-DESIGN §7 item
-// 10 [redteam:F18]): the kernel's socket table must show the listener owned by this daemon's uid, or
-// nothing is sent. Where the table cannot be read (every system but Linux) a loopback TCP backend cannot
-// be verified and is refused. A connection to another host is authenticated by TLS, or carries no token
-// (the modules refuse a token over plain http to another host).
+// on this machine — a loopback address, or one of the host's own addresses (onThisHost) — is then
+// checked the way anet's own clients check the daemon (A2A-DESIGN §7 item 10 [redteam:F18]): the
+// kernel's socket table must show the listener owned by this daemon's uid, or nothing is sent. Where the
+// table cannot be read (every system but Linux) such a TCP backend cannot be verified and is refused. A
+// connection to another host is authenticated by TLS, or carries no token (the modules refuse a token
+// over plain http to another host).
 //
 // Connections never go through an HTTP proxy: the checks are about the socket the request travels on.
 //
@@ -311,21 +312,21 @@ func (r Rules) checkPeer(c net.Conn, sock string, owner int) error {
 	return nil
 }
 
-// checkTCP checks a TCP connection before anything is written to it: a listener on loopback must be
+// checkTCP checks a TCP connection before anything is written to it: a listener on this machine must be
 // this daemon's user's; another host is left to TLS, or gets no token (the modules' URL rules).
 func (r Rules) checkTCP(c net.Conn) error {
 	ta, ok := c.RemoteAddr().(*net.TCPAddr)
 	if !ok {
 		return refuse(c.RemoteAddr().String(), "not a TCP connection")
 	}
-	if !ta.IP.IsLoopback() {
+	if !onThisHost(ta, c.LocalAddr()) {
 		return nil
 	}
 	where := ta.String()
 	uid, err := localpeer.OwnerUID(c)
 	switch {
 	case errors.Is(err, localpeer.ErrNoSocketTable):
-		return refuse(where, "this system has no socket table to tell who holds a loopback port (only Linux does); serve the backend on a Unix socket (unix:///path)")
+		return refuse(where, "this system has no socket table to tell who holds a port on this host (only Linux does); serve the backend on a Unix socket (unix:///path)")
 	case err != nil:
 		return refuse(where, "%v", err)
 	case uid != r.self:
@@ -333,6 +334,19 @@ func (r Rules) checkTCP(c net.Conn) error {
 			"a backend that runs as another user belongs on a Unix socket shared with it (unix:///path)", uid, r.self)
 	}
 	return nil
+}
+
+// onThisHost reports a connection whose far end is on this machine: a loopback address, the
+// unspecified address (which the kernel connects to loopback), or one of this host's own addresses —
+// a URL naming the host's LAN or public address still reaches a local listener, whose port any local
+// user can take as on loopback. A connection to an address of this host leaves from that same address
+// (it is routed through the local table), so the two ends of the connection share it.
+func onThisHost(far *net.TCPAddr, local net.Addr) bool {
+	if far.IP.IsLoopback() || far.IP.IsUnspecified() {
+		return true
+	}
+	la, ok := local.(*net.TCPAddr)
+	return ok && la.IP.Equal(far.IP)
 }
 
 // meta is what the checks read of a path entry.

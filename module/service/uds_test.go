@@ -142,12 +142,30 @@ func TestASocketListenerThatIsNotTheExpectedUserIsNotCalled(t *testing.T) {
 	}
 }
 
-// A service that is down is unavailable, and the message says why.
+// A service that is down is unavailable, and the message says so without naming the socket's path
+// (the caller is on the network; the path is this host's directories, the log has it).
 func TestAMissingSocketIsUnavailable(t *testing.T) {
-	reg := start(t, `{"capabilities":[{"id":"x.do","url":"unix://`+filepath.Join(t.TempDir(), "gone.sock")+`"}]}`)
+	dir := t.TempDir()
+	gone := filepath.Join(dir, "gone.sock")
+	reg := start(t, `{"capabilities":[{"id":"x.do","url":"unix://`+gone+`"}]}`)
 	eff := invokeCall(t, reg, relayCall("x.do"))
 	if eff.Status != effect.Unavailable || !strings.Contains(eff.Message, "is the backend running") {
 		t.Fatalf("status %s: %s", eff.Status, eff.Message)
+	}
+	if strings.Contains(eff.Message, dir) {
+		t.Fatalf("the caller is told the socket's path: %s", eff.Message)
+	}
+	// A socket nobody listens on (a backend that died without removing it): the same.
+	ln, err := net.Listen("unix", filepath.Join(dir, "dead.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.(*net.UnixListener).SetUnlinkOnClose(false)
+	ln.Close()
+	reg = start(t, `{"capabilities":[{"id":"x.do","url":"unix://`+filepath.Join(dir, "dead.sock")+`"}]}`)
+	eff = invokeCall(t, reg, relayCall("x.do"))
+	if eff.Status != effect.Unavailable || strings.Contains(eff.Message, dir) || !strings.Contains(eff.Message, "nothing was sent") {
+		t.Fatalf("a dead socket: status %s: %s", eff.Status, eff.Message)
 	}
 }
 

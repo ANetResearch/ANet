@@ -13,8 +13,10 @@
 # The socket (docs/notes/0030 N1): /run/anet-official/%i/backend.sock, in a
 # RuntimeDirectory this unit's user owns under root's /run/anet-official, so
 # no other account can put a socket there while the backend is down; mode
-# 0660 with group anet-official-ipc, which this unit and the daemon unit of
-# the same identity join through SupplementaryGroups=. Before sending
+# 0660 with group anet-official-ipc, which the backend and daemon units of
+# every official identity join through SupplementaryGroups= (one group for
+# all of them: a member that opens another identity's socket still lacks
+# that identity's token). Before sending
 # anything the daemon checks the path and that the process listening is the
 # socket's owner (SO_PEERCRED). A loopback TCP port offered neither: any
 # local user could take it while this unit restarted.
@@ -67,6 +69,11 @@ MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged
+# @privileged includes @chown, and serve -socket-group gives the socket to
+# anet-official-ipc with chown(2): allowed back after the line above, or the
+# backend exits with "chown ...: operation not permitted". A process can only
+# chown a file it owns to a group it is in; no capability is granted here.
+SystemCallFilter=@chown
 SystemCallErrorNumber=EPERM
 UMask=0077
 MemoryMax=256M
