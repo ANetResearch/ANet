@@ -239,7 +239,7 @@ PreimageV2(action, aid, hubAID, ts, method, pathAndQuery, body) =
 
 - action:`send` `poll` `ack` `register` `profile` `visibility` `deregister` `p2p` `balance` `ledger` `redemptions`。
 - hub 在大小上限内读取原始请求体字节后先算哈希再解码。
-- hub 缓存 `(aid, sig)` 至窗口结束,拒绝重放。
+- hub 缓存 `(aid, sig)` 至窗口结束,拒绝重放。缓存按签名方分片,条目按窗口终点排序、到期即出,窗口结束前不淘汰;每个 AID 至多 32768 条活跃条目(且不少于发送令牌桶在最长窗口内可签数的两倍),超出只对该 AID 回 429 + `Retry-After`;全局上限(1<<20)满时只拒绝持有不少于平均份额(上限 ÷ 持有条目的签名方数,至少 1)的签名方(503 + `Retry-After`),其余照常准入。原先全局满即对所有签名方回 503,一个注册 AID 以未来时间戳的签名 poll 就能让全 hub 停止中继 [redteam:F4]。
 - daemon 在注册前以 `GET /hub/identity`(或现有等价端点)取得 hub AID 与 KEL。
 
 端点:
@@ -252,10 +252,10 @@ PreimageV2(action, aid, hubAID, ts, method, pathAndQuery, body) =
 | `GET /agents/{aid}/keys` | — | `{aid, keyset, kel}`(b64) | 本地注册、联邦卡片,或经 `/fed/v2/keys/{aid}` 查询 |
 | `POST /agents/keys:lookup` | `{aid}`(≤ 4 KiB) | 同上;400 无 `aid`;413 | 与 GET 相同,AID 在请求体而不在请求行:发送方从自己的地址查收件方,代理日志若记请求行就留下"该地址写给该 AID"[redteam:F3] |
 | `POST /agents/{aid}/keys` | `{keyset}` | 200 / 409 | 自证明:hub 以已存 KEL 验证 + 发布方高水位 |
-| `POST /register` | 现有 + `enc_keys` + `a2a_card` | 现有 + 各字段状态 | 删 `guest_messages`;KEL 须为已存延伸 |
+| `POST /register` | 现有 + `enc_keys` + `a2a_card` | 现有 + 各字段状态 | 删 `guest_messages`;KEL 须为已存延伸;KEL 不超过 `seal.MaxKELEvents`/`seal.MaxKELBytes`(256 事件 / 64 KiB,与发送方对所收 KEL 的上限一致),超出 400。`GET`/`POST /agents/{aid}/keys` 与 JWKS 对上限之前存下的超长 KEL 一律拒绝,不回放 [redteam:F36] |
 | `GET /agents/{aid}/ledger`、`/balance`、兑付列表 | — | 本人签名 GET 才返回明细;无签名 401 | 同步修改 daemon `Balance`/`Reconcile` 与 prodtest 9f |
 
-hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s 突发 200;每收件方未投递 5000 条或 1 GiB;未投递 TTL 14 天;单次 poll 预算 48 MiB;`/register` 按 IP 限速。
+hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s 突发 200;每收件方未投递 5000 条或 1 GiB;未投递 TTL 14 天;单次 poll 预算 48 MiB;`/register` 按 IP 限速。taskboard(加法 tag,挂在 hub 根 mux 上,不经内核的 `limitBody`)的写入路由自带 64 KiB 请求体上限,先只解码鉴权字段核签名,通过后才解码内容 [redteam:F38]。
 
 `relay_message` 只保留 `id, to_aid, payload, size, created_at`;迁移重建表;`PRAGMA secure_delete=ON`。
 
@@ -275,6 +275,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 - `/fed/v1/forward` 信封删除 `from_aid`、`kind`、`interaction_id`,签名原像同步修改,联邦线协版本递增。
 - 新增 `GET /fed/v2/keys/{aid}`:由发起 hub 签名、只接受对等表中的 hub;返回任一本地注册 AID 的 `{keyset, kel}`,不论可见性;请求方 hub 只为发起查询的 daemon 缓存,不进目录与索引 [C32]。
 - 联邦卡片条目增加 `keys`。
+- 对端 hub 的 KEL 在首次经 `/hub/identity` 取回时解码并回放,推出的 AID 须等于配置的对端 AID 才写入 `fed_peer_kel` 固定(对端自报的 `aid` 字段只是声明);打开库时丢弃不回放到其键 AID 的旧固定,下次使用时重新取回。对端端点仍可配置为 `http://`:首次取回时的中间人能让取回失败,但不能再让本 hub 固定并公开他人的 KEL [redteam:F34]。
 - `FedReview` 删除内容字段;修空串被解码为非 nil 空切片而触发内容绑定的问题(R09 §5 第 9 点)。
 - `/fed/v2/cards`(§10.6)。
 
@@ -602,7 +603,7 @@ x402 模块贡献 a2a-x402 与 anet-pricing;p2p 贡献直连接口。`no_x402` �
 |---|---|
 | `GET /a2a/v1/agents?skill=&tag=&q=&cursor=&limit=` | 只返回 `Browsable` 且卡片验证 OK 的条目;条目 `{aid, card(原字节), cardVerification, verifiedAt, homeHub, lastSeen, quiet, reviewCount, avgRating}`;包装层是 hub 陈述 |
 | `GET /a2a/v1/agents/{aid}/card` | 原字节;`ETag`、`Cache-Control: max-age=300`、`If-None-Match` |
-| `GET /agents/{aid}/jwks.json` | 由 KEL 推导,只含活跃密钥态 |
+| `GET /agents/{aid}/jwks.json` | 由 KEL 推导,只含活跃密钥态;推导结果按存储 KEL 字节的 SHA-256 缓存(KEL 变了即另一个键),未鉴权的重复读取不再逐次回放 KEL [redteam:F36] |
 
 索引 `agent_skill`、`agent_tag` 只在卡片准入成功后重建;现有 `/agents` 形状不变,有 A2A 卡的条目的 name/caps 从已验证卡片派生。
 
