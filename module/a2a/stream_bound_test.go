@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
@@ -53,8 +52,13 @@ func TestAStreamStaysReadableWhateverAPeerSends(t *testing.T) {
 				e := newEnv(t)
 				// Each first event is megabytes of JSON to build, encode
 				// and decode: under -race on a busy machine that alone
-				// passed the ten seconds of e.client (docs/notes/0029).
-				cl, ctx := e.clientWithin(agentA, binding, 2*time.Minute)
+				// passed the ten seconds of e.client (docs/notes/0029), and
+				// the history's 8 MiB takes most of a minute on a loaded
+				// one. What is tested is that the event arrives, readable
+				// and cut, not how fast: the calls wait for it however long
+				// that takes, and a stream that never delivers is caught by
+				// go test's -timeout, which shows every goroutine.
+				cl, ctx := e.clientWithin(agentA, binding, 0)
 				e.seam.quote = map[string]any{"accepts": []any{}} // leaves the task waiting
 				res, err := cl.SendMessage(ctx, &a2a.SendMessageRequest{Message: textMessage("q")})
 				if err != nil {

@@ -98,10 +98,11 @@ func (e *env) client(aid string, binding a2a.TransportProtocol) (*a2aclient.Clie
 	return e.clientWithin(aid, binding, 10*time.Second)
 }
 
-// clientWithin is client with a context that ends after d. Ten seconds is
-// plenty for the ordinary calls, not for an event of megabytes of JSON under
-// -race on a loaded machine: the server's encoding of one alone took over
-// ten seconds there (docs/notes/0029, stream_bound_test.go).
+// clientWithin is client with a context that ends after d, or with the
+// test when d is 0. Ten seconds is plenty for the ordinary calls, not for
+// an event of megabytes of JSON under -race on a loaded machine: the
+// server's encoding of one alone took over ten seconds there
+// (docs/notes/0029, stream_bound_test.go).
 func (e *env) clientWithin(aid string, binding a2a.TransportProtocol, d time.Duration) (*a2aclient.Client, context.Context) {
 	e.t.Helper()
 	creds := a2aclient.NewInMemoryCredentialsStore()
@@ -114,7 +115,10 @@ func (e *env) clientWithin(aid string, binding a2a.TransportProtocol, d time.Dur
 	if err != nil {
 		e.t.Fatalf("client: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), d)
+	ctx, cancel := context.WithCancel(context.Background())
+	if d > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), d)
+	}
 	e.t.Cleanup(cancel)
 	return cl, a2aclient.AttachSessionID(ctx, "s1")
 }
