@@ -618,7 +618,10 @@ PY
 fi
 
 # The canary: random, so that it is in nothing public (a capability id or a profile text would be).
-CANARY="cnry$(rand)$(rand)"
+# Minted as joint.sh mints its canaries (lib.sh canary_new): with "~?~" in it, every base64 form of it
+# differs between the standard and the URL-safe alphabet, so canary_hits's base64url search is one this
+# run depends on (docs/notes/0026 §6 item 4).
+CANARY=$(canary_new "$RUN/canaries.tsv" official) && [ -n "$CANARY" ] || die "no canary could be minted (canary.py mint)"
 echo "  canary:   $CANARY"
 
 hd "1/8  admission — closed, and only public capabilities get in"

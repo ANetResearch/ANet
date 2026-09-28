@@ -46,6 +46,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/seal"
 
+	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -392,7 +393,8 @@ func permanentRefusal(err error) (string, bool) {
 		}
 		return "", false
 	}
-	if he.code == http.StatusNotFound && strings.HasPrefix(he.path, "/agents/") && strings.HasSuffix(he.path, "/keys") {
+	if he.code == http.StatusNotFound && (he.path == hubapi.KeysLookupPath ||
+		strings.HasPrefix(he.path, "/agents/") && strings.HasSuffix(he.path, "/keys")) {
 		return undeliveredUnknown, true
 	}
 	return "", false

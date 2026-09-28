@@ -41,7 +41,7 @@
 
 ### X1 发送方对 hub 是否可见 → 认证发送,hub 不存储
 
-- `/relay/send` 要求发送方以 relayauth v2(§3.7)认证,发送方必须是本 hub 已注册的 AID。hub 用它做按发送方的限流与配额,**不写入** `relay_message`,日志只记收件方与字节数。`/register` 另加按 IP 的限速(AID 可无限生成,否则按发送方限流对轮换 AID 无效)[C15f]。
+- `/relay/send` 要求发送方以 relayauth v2(§3.7)认证,发送方必须是本 hub 已注册的 AID。hub 用它做按发送方的限流与配额,**不写入** `relay_message`,hub 进程也不逐条记录中继。hub 前面的反向代理同样不留下"谁发给谁":随仓库下发的 nginx 配置(ANetHub `deploy/nginx-hub.conf`、`.example`)对 hub 虚拟主机关闭访问日志,错误日志只记 `crit`(`error` 级的行带客户端地址与请求行),由主机 logrotate 至多保留 14 天;daemon 在给对端写之前查的密钥、卡片与验卡用的 KEL,请求行都不含对端(§3.5 第 1 步、§3.7 端点表)[redteam:F3]。`/register` 另加按 IP 的限速(AID 可无限生成,否则按发送方限流对轮换 AID 无效)[C15f]。
 - 理由:匿名发送下 hub 只能按 IP 限流;发送方身份在 E2E 之后本就可由 IP 与时间关联推出(R03 §4.5)。删除的是**存储中的社交图**。
 - 代价(§21):hub 在发送时刻知道"谁发给谁"。sealed sender + 投递令牌列为后续(信封外层保留字段 7)。
 
@@ -53,7 +53,7 @@
 
 ### X3 纯请求方节点的加密公钥 → `EncKeySet`,每条消息随信封携带
 
-- 加密公钥是独立签名对象 `EncKeySet`(§3.1),注册到 hub,`GET /agents/{aid}/keys` 取回;hub 对非本地 AID 经联邦 `/fed/v2/keys/{aid}` 按精确 AID 查询(不进目录、不进索引)[C32]。
+- 加密公钥是独立签名对象 `EncKeySet`(§3.1),注册到 hub,`POST /agents/keys:lookup`(AID 在请求体)取回,`GET /agents/{aid}/keys` 为旧 daemon 与读者保留 [redteam:F3];hub 对非本地 AID 经联邦 `/fed/v2/keys/{aid}` 按精确 AID 查询(不进目录、不进索引)[C32]。
 - **每条**内层消息都携带发送方的 `kel` 与 `keys`(几百字节,Padmé 取整后差异不可见)。接收路径因此不做任何网络请求 [C2]。
 - `EncKeySet` 验证必须绑定预期 AID:发送侧预期 = 收件人 `to`,接收侧预期 = `inner.from` [C0]。
 
@@ -197,7 +197,7 @@ ANetCore `delegation` 增量(新字段一律 `omitempty`,另立全字段向量 `
 
 ### 3.5 发送流程
 
-1. **解析收件人公钥**:持久表 `peer_identity`(§3.8)中有有效 keyset 即用;每 10 分钟尽力向 hub 复核(复核成功的时刻记在 `peer_identity.keys_checked_at`),hub 失败或 404 时继续使用已存,直到无有效键 [C2][impl:wp/scenario 28808b8]。无记录时 `GET {hub}/agents/{aid}/keys` → `VerifyEncKeySet(signed, to, kel, now)`,KEL 须与已存延伸(§3.8)→ 写入 `peer_identity`(本节点主动联系对端,属授权上下文)。取不到即以明确错误失败,不降级。
+1. **解析收件人公钥**:持久表 `peer_identity`(§3.8)中有有效 keyset 即用;每 10 分钟尽力向 hub 复核(复核成功的时刻记在 `peer_identity.keys_checked_at`),hub 失败或 404 时继续使用已存,直到无有效键 [C2][impl:wp/scenario 28808b8]。无记录时 `POST {hub}/agents/keys:lookup`(`{aid}` 在请求体,请求行不含收件方;hub 以不带 JSON 错误的 405/404 表示没有该路由时,回退 `GET {hub}/agents/{aid}/keys`)[redteam:F3] → `VerifyEncKeySet(signed, to, kel, now)`,KEL 须与已存延伸(§3.8)→ 写入 `peer_identity`(本节点主动联系对端,属授权上下文)。取不到即以明确错误失败,不降级。
 2. 组装 inner(带本节点 `kel` 与 `keys`),签名,填充,HPKE 加密。`exp = ts + 14 天`(等于 hub 未投递 TTL,各 type 相同)。需要重试的外发复用首次信封字节;`now > exp` 时停止重试并写证据事件。
 3. 交给传输列表(p2p 优先,hub 兜底)。`module.Transport.Send(ctx, toAID string, envelope []byte) error`;`module.Inbound.Receive(ctx, envelope []byte) error`。
 4. 需要重试的外发持久化信封字节,重试不重新封装。r4:除 provider 的结果与状态外,requester 的 delegate(文本与能力)、text、end_request 与付款消息一律经同一出站队列(outbox)可靠投递:任务、首条消息与出站行同一事务写入,本地写入成功即返回 `submitted`,暂时性失败按退避重试 [Q5][impl:wp/wire be2fdb3]。出站队列规则 [impl:wp/wire be2fdb3、4f0141b]:
@@ -257,7 +257,8 @@ PreimageV2(action, aid, hubAID, ts, method, pathAndQuery, body) =
 
 - action:`send` `poll` `ack` `register` `profile` `visibility` `deregister` `p2p` `balance` `ledger` `redemptions`。
 - hub 在大小上限内读取原始请求体字节后先算哈希再解码。
-- hub 缓存 `(aid, sig)` 至窗口结束,拒绝重放。
+- hub 缓存 `(aid, sig)` 至窗口结束,拒绝重放。缓存按签名方分片,条目按窗口终点排序、到期即出,窗口结束前不淘汰;每个 AID 至多 32768 条活跃条目(且不少于发送令牌桶在最长窗口内可签数的两倍),超出只对该 AID 回 429 + `Retry-After`;全局上限(1<<20)满时只拒绝持有不少于平均份额(上限 ÷ 持有条目的签名方数,至少 1)的签名方(503 + `Retry-After`),其余照常准入。原先全局满即对所有签名方回 503,一个注册 AID 以未来时间戳的签名 poll 就能让全 hub 停止中继 [redteam:F4]。邀请制 hub 上,本 hub 不认识且没有可用邀请的注册在回放 KEL 与验签之前即 403,不进重放缓存:否则陌生人每次换一个新 AID 注册,都在验签后占一个签名方再被拒,压低所有人的份额 [redteam:F4]。份额随持有条目的签名方数下降,这一点不变:开放注册的 hub 上,一方持有 n 个已注册 AID 并让它们合计填满缓存(约 1,700 个签名请求/秒),就把份额压到 1<<20 ÷ n,窗口内用量高于此的 agent 在缓存满期间得到 503;n 的上限是每 IP(IPv6 为每 /64)的注册限速 [C15f]。
+- hub 对它持有的 KEL 验签(每个签名请求对签名方的存储 KEL;未鉴权路由上 `/x402/verify`、`/x402/settle` 的付款方、`/reviews` 的双方、联邦卡片 keyset 与 `/x402/resource` 卡片的所属方)时,进程内每条 KEL 只回放一次:hub 打开存储时安装 ANetCore `identity.ReplayCache`(按 KEL 编码的 SHA-256 键控,64 MiB、LRU),建于 `identity.Replay` 的每个 Verify 都经它。请求说明了所签内容时(relayauth v2、taskboard 挑战、支付授权、评价),先用 KEL 在所声明 `key_state_seq` 处给出的密钥核签名,核不过即以 `VerifyObject` 对它的同一拒绝返回,不回放 KEL。原先 `/register` 限了 KEL 长度之后,这些路由仍在每个请求上先整条回放 KEL 再看签名:带全零签名、点名一个上限处 KEL 的未鉴权 `POST /relay/poll` 让 hub 付出整条回放(约 40 ms)后才 401 [redteam:F36]。
 - daemon 在注册前以 `GET /hub/identity`(或现有等价端点)取得 hub AID 与 KEL。
 
 端点:
@@ -268,13 +269,15 @@ PreimageV2(action, aid, hubAID, ts, method, pathAndQuery, body) =
 | `POST /relay/poll` | `{limit, after_id?}` + 认证头 | `{messages:[{id, envelope}]}` | 只返回 `id > after_id` 的行,按 id 升序;`limit` 与 48 MiB 预算不变(预算从游标处起算,首条照旧必返);缺省或 0 与旧行为相同,负数 400 [Q1][impl:ANetHub wp/relayhol 8a5755c] |
 | `POST /relay/ack` | `{ids}` + 认证头 | 200 | ack 即删 |
 | `GET /agents/{aid}/keys` | — | `{aid, keyset, kel}`(b64) | 本地注册、联邦卡片,或经 `/fed/v2/keys/{aid}` 查询 |
+| `POST /agents/keys:lookup` | `{aid}`(≤ 4 KiB) | 同上;400 无 `aid`;413 | 与 GET 相同,AID 在请求体而不在请求行:发送方从自己的地址查收件方,代理日志若记请求行就留下"该地址写给该 AID"[redteam:F3] |
+| `POST /agents/kel:lookup`、`POST /a2a/v1/agents/card:lookup` | `{aid}`(≤ 4 KiB) | 同 `GET /agents/{aid}/kel`、`GET /a2a/v1/agents/{aid}/card`;400、413 同上 | daemon 取对端卡片(A2A 代理卡片、MCP `get_agent_card`)与验卡用的 KEL,AID 在请求体;没有该路由的 hub 以不带 JSON 错误的 405/404 答复时回退 GET [redteam:F3] |
 | `POST /agents/{aid}/keys` | `{keyset}` | 200 / 409 | 自证明:hub 以已存 KEL 验证 + 发布方高水位 |
-| `POST /register` | 现有 + `enc_keys` + `a2a_card` | 现有 + 各字段状态 | 删 `guest_messages`;KEL 须为已存延伸。`card_status` 取值 `ok` `unchanged` `absent` `invalid` `conflict` `withdrawn`(删去 `unverified`),`card_error` 以 a2acard 错误码开头 [impl:ANetHub wp/hubreg 23ed2c8];`a2a_card` 缺省表示不变,JSON `null` 表示撤回(§10.1)[Q6] |
+| `POST /register` | 现有 + `enc_keys` + `a2a_card` | 现有 + 各字段状态 | 删 `guest_messages`;KEL 须为已存延伸;KEL 不超过 `seal.MaxKELEvents`/`seal.MaxKELBytes`(256 事件 / 64 KiB,与发送方对所收 KEL 的上限一致),超出 400。`GET`/`POST /agents/{aid}/keys` 与 JWKS 对上限之前存下的超长 KEL 一律拒绝,不回放 [redteam:F36]。`card_status` 取值 `ok` `unchanged` `absent` `invalid` `conflict` `withdrawn`(删去 `unverified`),`card_error` 以 a2acard 错误码开头 [impl:ANetHub wp/hubreg 23ed2c8];`a2a_card` 缺省表示不变,JSON `null` 表示撤回(§10.1)[Q6] |
 | `GET /agents/{aid}/ledger`、`/balance`、`/redemptions` | — | 本人签名 GET 才返回明细;无签名 401 | daemon 的 `Balance`、`Reconcile` 与兑付列表一律以 relayauth v2 签名读取(action `balance`/`ledger`/`redemptions`);对账按 hub 兑付列表的 `auth_id` 匹配,列表被截断时计入 `redemptions_unchecked` 而不报缺失 [impl:wp/c3more 9a34c97] |
 
 daemon 的信箱游标(防队头阻塞)[Q1][impl:wp/relayhol 374dd12、6060020]:游标按 hub URL 记在内存。本页有判为 T、不 ack 的行,或整页取满时,下一轮从本页最大 id 之后继续;游标之后为空时只把游标归零,下一轮从信箱头部读(每轮恒为一次签名 poll,T 行至少隔轮重试一次);T 行在窗口到期或转为 P 后照常 ack。重启后游标归零,等同旧行为。
 
-hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s 突发 200;每收件方未投递 5000 条或 1 GiB;未投递 TTL 14 天;单次 poll 预算 48 MiB;`/register` 按 IP 限速。前置 nginx 的 `client_max_body_size` 须不小于 hub 的 `/relay/send` 体上限(base64(96 MiB) + 64 KiB),部署样例为 129m [impl:ANetHub wp/hubops 030f22d]。
+hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s 突发 200;每收件方未投递 5000 条或 1 GiB;未投递 TTL 14 天;单次 poll 预算 48 MiB;`/register` 按 IP 限速。前置 nginx 的 `client_max_body_size` 须不小于 hub 的 `/relay/send` 体上限(base64(96 MiB) + 64 KiB),部署样例为 129m [impl:ANetHub wp/hubops 030f22d]。taskboard(加法 tag,挂在 hub 根 mux 上,不经内核的 `limitBody`)的写入路由自带 64 KiB 请求体上限,先只解码鉴权字段核签名,通过后才解码内容 [redteam:F38]。
 
 `relay_message` 只保留 `id, to_aid, payload, size, created_at`;迁移重建表;`PRAGMA secure_delete=ON`。迁移时 wire-1 的行(含未投递的明文载荷)一行不复制,新表为空、自增计数延续;丢弃条数(未投递/已投递)与迁移时刻在同一事务写入 `hub_meta`(键 `relay_v2_*`,只有计数与时刻)并记一行日志,清理脚本据此报告 [Q17][impl:ANetHub wp/hubops 030f22d]。
 
@@ -294,6 +297,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 - `/fed/v1/forward` 信封删除 `from_aid`、`kind`、`interaction_id`,签名原像同步修改,联邦线协版本递增。
 - 新增 `GET /fed/v2/keys/{aid}`:由发起 hub 签名、只接受对等表中的 hub;返回任一本地注册 AID 的 `{keyset, kel}`,不论可见性;请求方 hub 只为发起查询的 daemon 缓存,不进目录与索引 [C32]。
 - 联邦卡片条目增加 `keys`。
+- 对端 hub 的 KEL 在首次经 `/hub/identity` 取回时解码并回放,推出的 AID 须等于配置的对端 AID 才写入 `fed_peer_kel` 固定(对端自报的 `aid` 字段只是声明);打开库时丢弃不回放到其键 AID 的旧固定,下次使用时重新取回。对端端点仍可配置为 `http://`:首次取回时的中间人能让取回失败,但不能再让本 hub 固定并公开他人的 KEL [redteam:F34]。未固定的对端 KEL 每次使用都会重新取回,而一次使用可以是内核上未鉴权的 `GET /agents/{对端}/kel`:因此同一对端的取回一次一个,等待中的使用共享那次取回的失败而不各自再取;对端发来不能证明其 AID 的 KEL 之后 1 分钟内不再取回(对端宕机等传输失败不设等待,恢复后的下一次使用即固定);取回的 KEL 以 `seal.ParseKEL` 的上限解码,先以 icp 核对 AID(一次验签)再回放其余事件。`identity.Replay` 对长度不是 32 字节的 icp/rot 密钥返回错误而不是在 `ed25519.Verify` 中 panic——修正之前固定下的这种 KEL 曾会让 hub 在打开库时 panic [redteam:F34]。
 - `FedReview` 删除内容字段;修空串被解码为非 nil 空切片而触发内容绑定的问题(R09 §5 第 9 点)。
 - `/fed/v2/cards`(§10.6)。
 
@@ -688,8 +692,8 @@ x402 模块贡献 a2a-x402 与 anet-pricing;p2p 贡献直连接口。`no_x402` �
 | 端点 | 行为 |
 |---|---|
 | `GET /a2a/v1/agents?skill=&tag=&q=&cursor=&limit=` | 只返回 `Browsable` 且卡片验证 OK 的条目;条目 `{aid, card(原字节), cardVerification, verifiedAt, homeHub, lastSeen, quiet, reviewCount, avgRating}`(`cardVerification` 取值 `"ok"`);包装层是 hub 陈述。列表 `{agents, nextCursor}`;`limit` 缺省 50、上限 200;`cursor` 不透明;`q` ≤ 256 字节(只供 web UI);空的 `skill=`/`tag=`、非法 `limit`/`cursor` 回 400;`homeHub` 取 hub 的 `-public-url`(缺省回退请求来源)[impl:ANetHub wp/hubreg 23ed2c8、c3204c8][impl:ANetHub wp/proj 6300c7f] |
-| `GET /a2a/v1/agents/{aid}/card` | 原字节;`ETag`(sha256 hex)、`Cache-Control: max-age=300`、`If-None-Match` 命中 304;无卡或未验证 404 |
-| `GET /agents/{aid}/jwks.json` | 由 KEL 推导,只含活跃密钥态;同样带 ETag 与 304 |
+| `GET /a2a/v1/agents/{aid}/card` | 原字节;`ETag`(sha256 hex)、`Cache-Control: max-age=300`、`If-None-Match` 命中 304;无卡或未验证 404。`POST /a2a/v1/agents/card:lookup`(`{aid}` 在请求体)答复相同,daemon 用它,请求行不含对端 [redteam:F3] |
+| `GET /agents/{aid}/jwks.json` | 由 KEL 推导,只含活跃密钥态;同样带 ETag 与 304;推导结果按存储 KEL 字节的 SHA-256 缓存(KEL 变了即另一个键),未鉴权的重复读取不再逐次回放 KEL [redteam:F36] |
 
 索引 `agent_skill`、`agent_tag` 只在卡片准入成功后重建;现有 `/agents` 形状不变,有 A2A 卡的条目的 name/caps 从已验证卡片派生(准入时覆盖 `agent.name` 与 `agent_cap`)。每次注册都用刚写入的 KEL 重验已存卡片:KEL 轮换后旧钥签的卡得 `KEY_NOT_CURRENT`,从注册表下架直到 agent 重签;卡片中继接口指向的 hub 与本 hub 基址不一致只记日志,不拒收 [impl:ANetHub wp/hubreg 23ed2c8][impl:ANetHub wp/proj 6300c7f]。卡片与 JWKS 端点允许浏览器条件请求(CORS 暴露 `ETag`、放行 `If-None-Match`)[impl:ANetHub wp/hubreg c3204c8]。
 
@@ -1009,9 +1013,9 @@ r4 时点的进度(剩余阶段按 `docs/notes/0014` 的批次推进,已定决�
 
 ## 21. 已知局限(写入对外文档)
 
-第 1–14 条已写入 `docs/KNOWN-LIMITATIONS-zh.md` 与英文版,编号一一对应 [impl:wp/scripts 5834043];第 15–20 条为 r4 新增(来自实现与复核记录、`0021` 测试网首轮),待同步到对外文档 [B6-02];第 21 条对外文档已有(在"另外需要知道的"一节,不占编号),此处补入设计 [B6-02 复核]。
+第 1–14 条已写入 `docs/KNOWN-LIMITATIONS-zh.md` 与英文版,编号一一对应 [impl:wp/scripts 5834043];第 15–20 条为 r4 新增(来自实现与复核记录、`0021` 测试网首轮),待同步到对外文档 [B6-02];第 21 条对外文档已有(在"另外需要知道的"一节,不占编号),此处补入设计 [B6-02 复核]。第 22、23 条为红队修复轮新增(拒收表下限、陌生人未知任务消息),同样待同步到对外文档 [redteam:F5][redteam:F25]。
 
-1. hub 在发送时刻知道"谁发给谁"、何时、多大;来源 IP 可见。
+1. hub 在发送时刻知道"谁发给谁"、何时、多大;来源 IP 可见。hub 主机上的反向代理若保留访问日志,会把来源地址、时间、请求行(多数含 AID)与响应大小写到磁盘,足以在 ack 删行之后重建社交图;随仓库下发的 nginx 配置不保留 hub 的访问日志、错误日志只记 `crit`,由主机 logrotate 至多保留 14 天,运营者换用别的配置则可能保留。daemon 在给对端写之前查的密钥、卡片与验卡用的 KEL(`POST /agents/keys:lookup`、`/a2a/v1/agents/card:lookup`、`/agents/kel:lookup`)请求行都不含对端——A2A 客户端经 daemon 与对端通信时先取代理卡片,daemon 为此取对端卡片与 KEL,只改密钥查询时这两行仍点名对端;p2p 地址查询(anetpeer `GET /agents/{aid}/p2p`)与旧版 daemon 仍在请求行里带对端 AID [redteam:F3]。
 2. 前向保密以加密密钥生命周期为界:一条消息在发出后至多 29 天内,可被取得收件人磁盘的一方解开。
 3. 大附件整体缓冲、单次 AEAD。
 4. 官方公共 agent 是端点,能看到调用内容;其保存策略公开写明。

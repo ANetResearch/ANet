@@ -4,9 +4,11 @@
 package scripts
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/hex"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -331,6 +333,69 @@ func TestCanaryHitsFindsEncodedCopies(t *testing.T) {
 		if !strings.Contains(out, "(unreadable") {
 			t.Errorf("an unreadable file passes for a clean one:\n%s", out)
 		}
+	}
+}
+
+// joint-official.sh searches for its canary with canary_hits, and minted it from hex digits: every base64
+// form of it was the same bytes in the URL-safe alphabet, so canary_hits's base64url needles were never the
+// ones that found anything, and a canary_hits that had lost them passed every run (the gap
+// docs/notes/0026 §6 item 4 closed for joint.sh). It now mints with canary_new, like joint.sh, and
+// canary_hits finds such a canary in URL-safe base64 only, at each alignment, and percent-encoded in a URL,
+// where its '?' does not travel as it is.
+func TestCanaryHitsFindsAMintedCanaryInURLSafeBase64AndInAURL(t *testing.T) {
+	needLinuxShell(t)
+	needPython(t)
+	dir := t.TempDir()
+	canary := strings.TrimSpace(libsh(t, dir, `canary_new "$1" official`, filepath.Join(dir, "canaries.tsv")))
+	if !strings.Contains(canary, "~?~") {
+		t.Fatalf("canary_new minted %q", canary)
+	}
+	d := filepath.Join(dir, "d")
+	if err := os.MkdirAll(d, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{}
+	for k := 0; k < 3; k++ {
+		stream := append(append(noise(k), canary...), noise(7)...)
+		content := []byte(`{"blob":"` + base64.URLEncoding.EncodeToString(stream) + `"}`)
+		for _, n := range b64Aligned([]byte(canary), base64.StdEncoding) {
+			if bytes.Contains(content, []byte(n)) {
+				t.Fatalf("alignment %d: the URL-safe file holds a standard needle; the case tests nothing", k)
+			}
+		}
+		name := "urlsafe-" + strconv.Itoa(k)
+		want[name] = "(base64url/"
+		if err := os.WriteFile(filepath.Join(d, name), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, content := range map[string]string{
+		"query":   "GET /x?q=" + url.QueryEscape("see "+canary) + " HTTP/1.1",
+		"path":    "/agents/" + url.PathEscape(canary) + "/card",
+		"tilde7E": strings.ReplaceAll(url.QueryEscape(canary), "~", "%7E"),
+	} {
+		want[name] = "(url"
+		if err := os.WriteFile(filepath.Join(d, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := libsh(t, dir, `canary_hits "$1" "$2"`, canary, d)
+	for name, enc := range want {
+		found := false
+		for _, l := range strings.Split(out, "\n") {
+			found = found || (strings.HasPrefix(l, filepath.Join(d, name)+" ") && strings.Contains(l, enc))
+		}
+		if !found {
+			t.Errorf("%s: no %s hit in\n%s", name, enc, out)
+		}
+	}
+
+	b, err := os.ReadFile("joint-official.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`(?m)^CANARY=\$\(canary_new `).Match(b) || regexp.MustCompile(`(?m)^CANARY="cnry`).Match(b) {
+		t.Error("joint-official.sh does not mint its canary with canary_new")
 	}
 }
 

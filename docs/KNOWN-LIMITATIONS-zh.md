@@ -14,9 +14,11 @@
 
 消息内容是加密的,hub 读不到;但在你发送的那一刻,hub 知道:
 
-- **发送方**:往 hub 投递要以你的身份签名认证,hub 据此按发送方限流。hub 不把发送方写进中继存储,日志里也只记收件方与字节数,但发送时刻它是知道的。
+- **发送方**:往 hub 投递要以你的身份签名认证,hub 据此按发送方限流。hub 不把发送方写进中继存储,hub 进程也不逐条记录中继,但发送时刻它是知道的。
 - **收件方**、**时间**、**大小**:大小按 Padmé 规则取整,只暴露量级,不暴露精确字节数。
 - **来源 IP**。
+
+**hub 前面的反向代理。** hub 的请求行多数带 AID(`/agents/<aid>/…`、`/a2a/v1/agents/<aid>/card`、`/fed/v2/keys/<aid>`),且来自客户端地址。保留访问日志的代理会把它们连同时间与响应大小写到 hub 主机的磁盘上,足以在 hub 删掉消息之后重建谁在何时与谁通信、多大。随 hub 下发的代理配置(ANetHub `deploy/nginx-hub.conf` 与 `nginx-hub.conf.example`)因此不保留 hub 的访问日志,错误日志只记 `crit` 级(更低级别的行带客户端地址与请求行),由主机 logrotate 轮转,按 Debian/Ubuntu 默认至多保留 14 天。运营者改用别的配置,就可能保留这类日志。你的 daemon 在给对端写之前查对端的加密公钥、卡片与验卡用的 KEL(A2A 客户端经 daemon 与对端通信时先取的代理卡片即由此而来),都把对端 AID 放在请求体里(`POST /agents/keys:lookup`、`/a2a/v1/agents/card:lookup`、`/agents/kel:lookup`),这些查询的请求行不含对端;p2p 地址查询(p2p 开启时 `anetpeer` 发出的 `GET /agents/{aid}/p2p`)与早于本版的 daemon 仍会在请求行里带对端 AID。
 
 跨 hub 投递时,经手的对等 hub 同样看得到收件方与大小。连发送方也对 hub 隐藏(sealed sender)是后续工作,本版没有。
 

@@ -16,9 +16,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -52,7 +54,8 @@ func canaryPy(t *testing.T, args ...string) (string, int) {
 	return "", -1
 }
 
-const testCanary = "anet-canary-goal-0123456789abcdef01234567"
+// testCanary has the shape canary.py mint gives (lib.sh canary_new): two random halves around "~?~".
+const testCanary = "anet-canary-goal-0123456789ab~?~cdef01234567"
 
 func writeCanaries(t *testing.T, dir string) string {
 	t.Helper()
@@ -132,13 +135,119 @@ func TestTheCanarySearchSeesEveryEncoding(t *testing.T) {
 	if err := os.MkdirAll(clean, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	other := "anet-canary-goal-0123456789abXdef01234567"
+	other := "anet-canary-goal-0123456789ab~?~cdXf01234567"
 	if err := os.WriteFile(filepath.Join(clean, "blob"), []byte("anet-canary-goal- and "+other+" and "+
 		base64.StdEncoding.EncodeToString([]byte(other))), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if out, code := canaryPy(t, "scan", "--canaries", canaries, clean); code != 0 {
 		t.Errorf("a directory without the canary: exit %d, want 0: %s", code, out)
+	}
+}
+
+// b64Aligned is canary.py's _b64_aligned: the encodings of raw that appear in enc(stream) wherever raw
+// sits, one per alignment, whole 3-byte groups only.
+func b64Aligned(raw []byte, enc *base64.Encoding) []string {
+	var out []string
+	for j := 0; j < 3; j++ {
+		k := (len(raw) - j) / 3 * 3
+		if k >= 12 {
+			out = append(out, enc.EncodeToString(raw[j:j+k]))
+		}
+	}
+	return out
+}
+
+// Every canary lib.sh mints differs between standard and URL-safe base64 at every alignment, so the
+// URL-safe search is one a joint run depends on. With the old alphabet (letters, digits, '-') the two
+// forms were the same bytes: canary.py dropped the URL-safe needles as duplicates, and a scanner that had
+// lost them passed every run (docs/notes/0026 §6 item 4, mutation si1-6).
+func TestCanaryNewMintsCanariesWhoseURLSafeBase64Differs(t *testing.T) {
+	needPython(t)
+	dir := t.TempDir()
+	file := filepath.Join(dir, "canaries.tsv")
+	var minted []string
+	for i := 0; i < 6; i++ {
+		v := strings.TrimSpace(libsh(t, dir, `canary_new "$1" goal`, file))
+		minted = append(minted, v)
+	}
+	shape := regexp.MustCompile(`^anet-canary-goal-[0-9a-f]{12}~\?~[0-9a-f]{12}$`)
+	seen := map[string]bool{}
+	for _, v := range minted {
+		if !shape.MatchString(v) {
+			t.Fatalf("canary_new minted %q", v)
+		}
+		if seen[v] {
+			t.Fatalf("canary_new minted %q twice", v)
+		}
+		seen[v] = true
+		std, url := b64Aligned([]byte(v), base64.StdEncoding), b64Aligned([]byte(v), base64.URLEncoding)
+		if len(std) != 3 {
+			t.Fatalf("%q: %d alignments", v, len(std))
+		}
+		for j := range std {
+			if std[j] == url[j] {
+				t.Errorf("%q: standard and URL-safe base64 are the same at alignment %d (%s)", v, j, std[j])
+			}
+		}
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "goal\t" + strings.Join(minted, "\ngoal\t") + "\n"; string(b) != want {
+		t.Fatalf("canaries file:\n%s\nwant:\n%s", b, want)
+	}
+}
+
+// Content that reaches the hub side as URL-safe base64 only is found, at each alignment; for this canary
+// the standard needles alone would not find it.
+func TestTheCanarySearchSeesURLSafeBase64(t *testing.T) {
+	needPython(t)
+	dir := t.TempDir()
+	canaries := writeCanaries(t, dir)
+	for k := 0; k < 3; k++ {
+		stream := append(append(noise(k), testCanary...), noise(7)...)
+		content := []byte(`{"blob":"` + base64.URLEncoding.EncodeToString(stream) + `"}`)
+		for _, n := range b64Aligned([]byte(testCanary), base64.StdEncoding) {
+			if bytes.Contains(content, []byte(n)) {
+				t.Fatalf("alignment %d: the URL-safe file holds a standard needle; the case tests nothing", k)
+			}
+		}
+		d := filepath.Join(dir, fmt.Sprintf("b64url-%d", k))
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "blob"), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, code := canaryPy(t, "scan", "--canaries", canaries, "--label", "b64url", d)
+		if code != 1 {
+			t.Errorf("URL-safe base64 at alignment %d: exit %d, want 1 (found): %s", k, code, out)
+		}
+	}
+}
+
+// The canary's '?' is percent-encoded when content travels in a URL; the search looks for that form.
+func TestTheCanarySearchSeesPercentEncoding(t *testing.T) {
+	needPython(t)
+	dir := t.TempDir()
+	canaries := writeCanaries(t, dir)
+	for name, content := range map[string]string{
+		"query":   "GET /x?q=" + url.QueryEscape("see "+testCanary) + " HTTP/1.1",
+		"path":    "/agents/" + url.PathEscape(testCanary) + "/card",
+		"tilde7E": strings.ReplaceAll(url.QueryEscape(testCanary), "~", "%7E"),
+	} {
+		d := filepath.Join(dir, name)
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "log"), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if out, code := canaryPy(t, "scan", "--canaries", canaries, "--label", name, d); code != 1 {
+			t.Errorf("%s (%s): exit %d, want 1 (found): %s", name, content, code, out)
+		}
 	}
 }
 
