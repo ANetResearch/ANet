@@ -365,6 +365,14 @@ func (s *Store) migrate() error {
 		 ON message(interaction_id, msg_id) WHERE msg_id != ''`); err != nil {
 		return fmt.Errorf("interactions: migrate msg dedupe index: %w", err)
 	}
+	// FindByClientMessage looks a message up by its client message id through
+	// this index: the expression is the one its query tests, character for
+	// character. metadata comes after body in the row, so without the index
+	// every lookup read every message body of the peer's tasks
+	// (docs/notes/0035).
+	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_msg_client ON message(` + clientMsgIDExpr("") + `)`); err != nil {
+		return fmt.Errorf("interactions: migrate client message index: %w", err)
+	}
 	for _, col := range interactionAdded {
 		if err := addColumn(s.db, "interaction", col.name, col.decl); err != nil {
 			return err
@@ -382,6 +390,14 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_ix_pay ON interaction(role, pay_state)`,
 		// HasOutboundWith, asked for a message whose task is not held.
 		`CREATE INDEX IF NOT EXISTS idx_ix_peer ON interaction(peer_aid, role)`,
+		// Listing (ListPage, Count) reads this index alone: it carries the
+		// order and every column a ListFilter tests but receipt and
+		// context_id (see listIndex). A row holds goal, request_doc and
+		// result, megabytes each for a long message, and SQLite reaches a
+		// later column only through the overflow pages of the ones before
+		// it; a listing that sorted or filtered rows read all of that for
+		// every match (docs/notes/0035: 13–33 s per ListTasks).
+		`CREATE INDEX IF NOT EXISTS idx_ix_list ON interaction(state_at, seq, role, peer_aid, state, is_capability, trust, context_id)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			return fmt.Errorf("interactions: migrate index: %w", err)
@@ -1027,8 +1043,10 @@ func (f ListFilter) where() (string, []any, error) {
 		if err != nil {
 			return "", nil, err
 		}
-		conds = append(conds, `(state_at < ? OR (state_at = ? AND seq < ?))`)
-		args = append(args, at, at, seq)
+		// A row value, not "state_at < ? OR (state_at = ? AND seq < ?)":
+		// SQLite reads it as one range of idx_ix_list, in order.
+		conds = append(conds, `(state_at, seq) < (?, ?)`)
+		args = append(args, at, seq)
 	}
 	if len(conds) == 0 {
 		return "", args, nil
@@ -1048,12 +1066,11 @@ func (s *Store) ListPage(f ListFilter) (Page, error) {
 	if limit > 1000 {
 		limit = 1000
 	}
-	where, args, err := f.where()
+	q, args, err := f.pageSQL(limit + 1)
 	if err != nil {
 		return Page{}, err
 	}
-	args = append(args, limit+1)
-	items, err := s.query(`SELECT `+ixColumns+` FROM interaction`+where+` ORDER BY state_at DESC, seq DESC LIMIT ?`, args...)
+	items, err := s.pageRows(q, args)
 	if err != nil {
 		return Page{}, err
 	}
@@ -1064,6 +1081,86 @@ func (s *Store) ListPage(f ListFilter) (Page, error) {
 		p.Next = strconv.FormatInt(last.StateAt, 10) + "." + strconv.FormatInt(last.Seq, 10)
 	}
 	return p, nil
+}
+
+// pageSQL is the first step of ListPage: the seqs of up to limit rows
+// matching f, in listing order, read from the index (listIndex).
+func (f ListFilter) pageSQL(limit int) (string, []any, error) {
+	where, args, err := f.where()
+	if err != nil {
+		return "", nil, err
+	}
+	return `SELECT seq FROM interaction` + f.listIndex() + where + ` ORDER BY state_at DESC, seq DESC LIMIT ?`,
+		append(args, limit), nil
+}
+
+// countSQL is Count's query, read from the index as pageSQL is.
+func (f ListFilter) countSQL() (string, []any, error) {
+	f.Cursor = ""
+	where, args, err := f.where()
+	if err != nil {
+		return "", nil, err
+	}
+	return `SELECT COUNT(*) FROM interaction` + f.listIndex() + where, args, nil
+}
+
+// listIndex pins a listing to idx_ix_list, which covers everything a filter
+// tests but receipt and holds the listing order: left to itself SQLite
+// takes the role or peer index for the equality and then reads each
+// matching row to sort it. A context filter keeps idx_ix_context — a
+// context holds a handful of tasks, and the covering index would be read
+// whole to find them.
+func (f ListFilter) listIndex() string {
+	if f.ContextID != "" {
+		return ""
+	}
+	return ` INDEXED BY idx_ix_list`
+}
+
+// pageRows runs pageSQL's query and reads the rows it names, in its order.
+func (s *Store) pageRows(q string, args []any) ([]*Interaction, error) {
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	var seqs []int64
+	for rows.Next() {
+		var seq int64
+		if err := rows.Scan(&seq); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		seqs = append(seqs, seq)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(seqs) == 0 {
+		return nil, nil
+	}
+	ph := make([]string, len(seqs))
+	in := make([]any, len(seqs))
+	for i, seq := range seqs {
+		ph[i], in[i] = "?", seq
+	}
+	items, err := s.query(`SELECT `+ixColumns+` FROM interaction WHERE seq IN (`+strings.Join(ph, ",")+`)`, in...)
+	if err != nil {
+		return nil, err
+	}
+	bySeq := make(map[int64]*Interaction, len(items))
+	for _, ix := range items {
+		bySeq[ix.Seq] = ix
+	}
+	out := make([]*Interaction, 0, len(seqs))
+	for _, seq := range seqs {
+		if ix := bySeq[seq]; ix != nil { // gone between the two reads: left out
+			out = append(out, ix)
+		}
+	}
+	return out, nil
 }
 
 // ListAll returns every interaction matching f, most recent state change
@@ -1097,13 +1194,12 @@ func (s *Store) HasOutboundWith(peer string) (bool, error) {
 
 // Count returns how many interactions match f (Cursor and Limit ignored).
 func (s *Store) Count(f ListFilter) (int, error) {
-	f.Cursor = ""
-	where, args, err := f.where()
+	q, args, err := f.countSQL()
 	if err != nil {
 		return 0, err
 	}
 	var n int
-	err = s.db.QueryRow(`SELECT COUNT(*) FROM interaction`+where, args...).Scan(&n)
+	err = s.db.QueryRow(q, args...).Scan(&n)
 	return n, err
 }
 
