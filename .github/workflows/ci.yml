@@ -6,15 +6,15 @@ on:
   # The joint job below runs only when asked; see there.
   workflow_dispatch:
 
-# Every Go job starts with ./.github/actions/anetcore: while ANetCore
-# v0.15.0 is untagged, go.mod cannot build this tree and the action puts a
-# pinned ANetCore checkout in a workspace. It does nothing once go.mod can.
+# The Go jobs build exactly what go.mod names (ANetCore v0.15.0). The
+# workspace bridge used while v0.15.0 was untagged (.github/actions/anetcore,
+# A2A-DESIGN §18) was removed when go.mod moved to the tag.
 #
-# Jobs that build the hub check ANetHub out at a pinned ref [C37]. A wire-2
-# daemon refuses a wire-1 hub and a wire-2 hub answers 426 to a wire-1
-# daemon, so the hub's default branch is not a hub this tree can talk to
-# until both land. The ref goes to the wire-2 hub's tag or commit in the
-# same push as the first wire-2 change (A2A-DESIGN §16, §18).
+# Jobs that build the hub check ANetHub out at a pinned ref [C37]: v0.2.0,
+# the wire-2 hub released with anet 0.2.0. A wire-2 daemon refuses a wire-1
+# hub and a wire-2 hub answers 426 to a wire-1 daemon, so the pin moves only
+# together with a change of wire (A2A-DESIGN §16, §18). The hub checkout
+# builds against its own go.mod.
 
 jobs:
   test:
@@ -26,7 +26,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: ./.github/actions/anetcore
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: vet
@@ -48,7 +47,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: ./.github/actions/anetcore
       - name: tests under the race detector
         env:
           CGO_ENABLED: "1"   # -race needs cgo; runners ship gcc
@@ -85,7 +83,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: ./.github/actions/anetcore
       # The default `go test ./...` cannot see tagged code at all, so
       # without this the module's own tests never run anywhere.
       - name: gofmt, vet and test with the module in
@@ -157,7 +154,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: ./.github/actions/anetcore
       - name: build and vet without the module
         run: |
           go build -tags "${{ matrix.tags }}" ./...
@@ -196,7 +192,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: ./.github/actions/anetcore
       - name: bubblewrap, and user namespaces it can use
         run: |
           sudo apt-get update -qq
@@ -245,14 +240,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: a2a-redesign-wip   # pinned; see the note at the top
+          ref: v0.2.0   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: ./.github/actions/anetcore
-        with:
-          hub: .hub
       - name: build the binaries the scenario drives
         run: |
           mkdir -p /tmp/anet-scenario/bin
@@ -281,14 +273,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: a2a-redesign-wip   # pinned; see the note at the top
+          ref: v0.2.0   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: ./.github/actions/anetcore
-        with:
-          hub: .hub
       - name: an agent tool drives three worker nodes
         run: bash scripts/joint-fleet.sh
       - name: what the nodes logged, if it failed
@@ -315,14 +304,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: a2a-redesign-wip   # pinned; see the note at the top
+          ref: v0.2.0   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: ./.github/actions/anetcore
-        with:
-          hub: .hub
       - name: a shell provider behind a real hub
         run: bash scripts/joint-shell.sh
       - name: what the nodes logged, if it failed
@@ -352,14 +338,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: a2a-redesign-wip   # pinned; see the note at the top
+          ref: v0.2.0   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: ./.github/actions/anetcore
-        with:
-          hub: .hub
       - name: build the binaries joint.sh drives, start the hub
         run: |
           mkdir -p "$J/run"
