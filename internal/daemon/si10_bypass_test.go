@@ -335,3 +335,57 @@ func TestACommittedDirectDeliveryIsNeverRefused(t *testing.T) {
 		t.Fatalf("a committed duplicate was refused: %v", err)
 	}
 }
+
+// [redteam:F23] bypass (liveness): a provider's answers to one task go out
+// in order, so its result waits behind a status queued before it. A
+// redelivered delegation — the requester showing it is there and still
+// waiting — made only the result row due at once; the status ahead of it
+// stayed in its backoff (up to 24 h), and the result behind it with it,
+// where before the order it went out on the next pass. Now every row
+// queued for the task to the requester is made due.
+func TestARedeliveredDelegationHurriesTheWholeAnswerQueue(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	clk := &sharedClock{now: uint64(time.Now().UnixMilli())}
+	prov.setClock(clk.fn())
+	id, err := req.Delegate(ctx, prov.AID(), "a text task", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := onlyQueuedEnvelope(t, srv, prov.AID())
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The hub stops carrying mail: a status, then the completion, queue up
+	// in that order, the status backing off.
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
+	if err := prov.SendStatus(ctx, id, interactions.StateWorking, "on it", nil); err != nil {
+		t.Logf("status: %v", err)
+	}
+	if err := prov.CompleteTask(ctx, id); err != nil {
+		t.Logf("complete: %v", err)
+	}
+	rows, _ := prov.ix.Outbox(id)
+	if len(rows) != 2 || rows[1].Type != seal.TypeResult {
+		t.Fatalf("setup: provider outbox %+v, want a status and then the result", rows)
+	}
+	if uint64(rows[0].NextAt) <= clk.now {
+		t.Fatalf("setup: the status is due already")
+	}
+	// The hub is back, and the requester sends its delegation again.
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
+	injectEnvelope(t, srv, prov.AID(), env)
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	prov.flushOutbox(ctx)
+	if rows, _ := prov.ix.Outbox(id); len(rows) != 0 {
+		t.Fatalf("after the redelivery %d answers still wait (the first due at +%d ms)", len(rows), rows[0].NextAt-int64(clk.now))
+	}
+	if err := req.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if cur, _ := req.ix.Get(id); cur.State != interactions.StateCompleted {
+		t.Fatalf("requester: %s, want completed", cur.State)
+	}
+}
