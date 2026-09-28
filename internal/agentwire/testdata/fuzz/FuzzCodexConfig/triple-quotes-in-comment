@@ -1,0 +1,2 @@
+go test fuzz v1
+string("x = 1 # \"\"\" old note\n[mcp_servers.anet]\ncommand = \"x\"\n")

@@ -32,7 +32,7 @@ import (
 // install; A2A-DESIGN §5). accept=false leaves the allow list empty, so the daemon refuses every
 // delegation. A test that needs to accept an identity that is not a daemon (a stranger) uses
 // allowPeers.
-func newTestDaemon(t *testing.T, hubURL string, accept bool) *Daemon {
+func newTestDaemon(t testing.TB, hubURL string, accept bool) *Daemon {
 	t.Helper()
 	d := buildTestDaemon(t, hubURL, nil)
 	joinTestGroup(t, d, accept)
@@ -45,7 +45,7 @@ func newTestDaemon(t *testing.T, hubURL string, accept bool) *Daemon {
 // a module that starts only when configured stays off in every other
 // test daemon. The daemon joins the test group as one that accepts
 // nobody; allowPeers opens it.
-func newTestDaemonCfg(t *testing.T, hubURL string, modules map[string]any) *Daemon {
+func newTestDaemonCfg(t testing.TB, hubURL string, modules map[string]any) *Daemon {
 	t.Helper()
 	d := buildTestDaemon(t, hubURL, modules)
 	joinTestGroup(t, d, false)
@@ -54,7 +54,7 @@ func newTestDaemonCfg(t *testing.T, hubURL string, modules map[string]any) *Daem
 
 // buildTestDaemon writes the config, starts the daemon, stops its relay
 // loop and closes it when the test ends.
-func buildTestDaemon(t *testing.T, hubURL string, modules map[string]any) *Daemon {
+func buildTestDaemon(t testing.TB, hubURL string, modules map[string]any) *Daemon {
 	t.Helper()
 	root := t.TempDir()
 	cfg := map[string]any{"control_addr": "127.0.0.1:0", "hub_url": hubURL}
@@ -89,7 +89,7 @@ type testGroup struct {
 
 // joinTestGroup adds d to its test's group and keeps the allow lists of the
 // accepting daemons complete.
-func joinTestGroup(t *testing.T, d *Daemon, accept bool) {
+func joinTestGroup(t testing.TB, d *Daemon, accept bool) {
 	t.Helper()
 	v, _ := testGroups.LoadOrStore(t, &testGroup{})
 	g := v.(*testGroup)
@@ -110,13 +110,13 @@ func joinTestGroup(t *testing.T, d *Daemon, accept bool) {
 
 // allowPeers appends AIDs to d's peers.allow, the way scripts and operators
 // do it without the CLI (the CLI's `anet peers allow` requires a TTY).
-func allowPeers(t *testing.T, d *Daemon, aids ...string) {
+func allowPeers(t testing.TB, d *Daemon, aids ...string) {
 	t.Helper()
 	appendPeerFile(t, d, d.config().inbound().AllowFile, aids...)
 }
 
 // trustPeers appends AIDs to d's peers.trust.
-func trustPeers(t *testing.T, d *Daemon, aids ...string) {
+func trustPeers(t testing.TB, d *Daemon, aids ...string) {
 	t.Helper()
 	appendPeerFile(t, d, d.config().inbound().TrustFile, aids...)
 }
@@ -127,7 +127,7 @@ func denyPeers(t *testing.T, d *Daemon, aids ...string) {
 	appendPeerFile(t, d, d.config().inbound().DenyFile, aids...)
 }
 
-func appendPeerFile(t *testing.T, d *Daemon, name string, aids ...string) {
+func appendPeerFile(t testing.TB, d *Daemon, name string, aids ...string) {
 	t.Helper()
 	f, err := os.OpenFile(d.peerFile(name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {

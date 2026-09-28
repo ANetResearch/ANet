@@ -338,7 +338,7 @@ func TestEachReceiveStepRefusesWithItsClass(t *testing.T) {
 	}
 }
 
-func mustMarshal(t *testing.T, v interface{ Marshal() ([]byte, error) }) []byte {
+func mustMarshal(t testing.TB, v interface{ Marshal() ([]byte, error) }) []byte {
 	t.Helper()
 	b, err := v.Marshal()
 	if err != nil {
