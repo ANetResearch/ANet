@@ -133,6 +133,12 @@ const (
 const (
 	KeyCID  = "anet.cid"
 	KeySize = "anet.size"
+	// KeyAttachmentCID marks a file part that carries the file's metadata
+	// and not its bytes (0017 Q12): in the history and in stream events
+	// always, and past the inline limit of a task read. Its value is the
+	// content id the bytes are fetched by (GET /attachment on the control
+	// plane, or `anet pull`); the part's url names the same attachment.
+	KeyAttachmentCID = "anet.attachment_cid"
 )
 
 // Artifact ids: the deliverable, and nothing else. anet.reply is a text

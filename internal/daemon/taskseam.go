@@ -176,8 +176,10 @@ func peerScope(peerAID string) (taskScope, error) {
 
 var controlScope = taskScope{all: true}
 
-// inline says whether task views for this scope carry attachment bytes
-// (see viewOpts.inline): the A2A interface does, the control plane does not.
+// inline says whether one task read for this scope carries attachment
+// bytes (see viewOpts.inline): the A2A interface does, up to the inline
+// limit and never in the history, and the control plane does not. A list
+// and a stream never do, for either (0017 Q12).
 func (sc taskScope) inline() bool { return !sc.all }
 
 // scopedTask finds a task the scope may see.
@@ -829,7 +831,9 @@ func (d *Daemon) listTasks(sc taskScope, r taskListReq) (a2ashape.TaskPage, erro
 	out := a2ashape.TaskPage{Tasks: make([]a2ashape.Task, 0, len(page.Items)), TotalSize: total,
 		PageSize: size, NextPageToken: page.Next}
 	for _, ix := range page.Items {
-		t, err := d.taskView(ix, viewOpts{historyLen: f.HistoryLen, artifacts: f.IncludeArtifacts, inline: sc.inline()})
+		// A page carries no file bytes: up to a hundred tasks, each with
+		// files a peer chose (0017 Q12). A client reads one with GetTask.
+		t, err := d.taskView(ix, viewOpts{historyLen: f.HistoryLen, artifacts: f.IncludeArtifacts})
 		if err != nil {
 			return a2ashape.TaskPage{}, err
 		}
@@ -895,7 +899,10 @@ func (d *Daemon) watchTask(ctx context.Context, sc taskScope, id string) (a2asha
 	// the messages again: one stored in between is then in the view and
 	// also news to the pump (sent twice), never in neither.
 	lastMsg := d.lastPeerMessage(snap)
-	first, err := d.taskView(snap, viewOpts{artifacts: true, inline: sc.inline()})
+	// A stream carries files as metadata, never bytes, the snapshot
+	// included (0017 Q12): an event is one SSE line, and a file inline in
+	// it would be sent again with every event that repeats it.
+	first, err := d.taskView(snap, viewOpts{artifacts: true})
 	if err != nil {
 		cancel()
 		return a2ashape.Task{}, nil, err
@@ -906,12 +913,12 @@ func (d *Daemon) watchTask(ctx context.Context, sc taskScope, id string) (a2asha
 		close(out)
 		return first, out, nil
 	}
-	go d.pumpTaskEvents(ctx, snap, lastMsg, events, cancel, out, sc.inline())
+	go d.pumpTaskEvents(ctx, snap, lastMsg, events, cancel, out)
 	return first, out, nil
 }
 
 func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interaction, lastMsg int64, events <-chan Event,
-	cancel func(), out chan<- a2ashape.TaskEvent, inline bool) {
+	cancel func(), out chan<- a2ashape.TaskEvent) {
 	defer func() { cancel(); close(out) }()
 	lastSeq := snap.StateSeq
 	send := func(e a2ashape.TaskEvent) bool {
@@ -945,7 +952,7 @@ func (d *Daemon) pumpTaskEvents(ctx context.Context, snap *interactions.Interact
 		if cur.StateSeq <= lastSeq && msg <= lastMsg {
 			continue
 		}
-		t, err := d.taskView(cur, viewOpts{historyLen: new(int), artifacts: cur.IsTerminal(), inline: inline})
+		t, err := d.taskView(cur, viewOpts{historyLen: new(int), artifacts: cur.IsTerminal()})
 		if err != nil {
 			return
 		}

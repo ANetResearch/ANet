@@ -143,7 +143,8 @@ func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRe
 			// The kernel refused the payment before signing (§8.7), or
 			// held it for the operator above the agent tier (§8.3):
 			// nothing was sent, and nothing follows until someone acts.
-			if ev, err := sdkTask(t); err != nil {
+			// A stream event: files as metadata (0017 Q12).
+			if ev, err := sdkTask(a2ashape.ByReference(t)); err != nil {
 				yield(nil, err)
 			} else {
 				yield(ev, nil)
@@ -288,6 +289,12 @@ func (h *handler) GetExtendedAgentCard(context.Context, *a2a.GetExtendedAgentCar
 // A send's stream ends at a terminal state or at an interrupted one newer
 // than its own write (after, a state_seq); a subscription ends at a
 // terminal state or at an interrupted state newer than the one it found.
+//
+// No event carries a file's bytes, only its metadata (0017 Q12): the
+// kernel's stream views carry none, and every event is passed through
+// a2ashape.EventByReference on its way out as well, so that an event is
+// never one SSE line longer than a client can read (a2a-go's reader stops
+// at 10 MB) whatever a peer sent.
 func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after int64, subscribe bool, yield func(a2a.Event, error) bool) {
 	peer := info.aid
 	snap, events, err := h.seam.Watch(ctx, peer, id)
@@ -306,7 +313,7 @@ func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after in
 	for _, a := range snap.Artifacts {
 		seen[a.ID] = true
 	}
-	first, err := sdkTask(forClient(info, snap))
+	first, err := sdkTask(forClient(info, a2ashape.ByReference(snap)))
 	if err != nil {
 		yield(nil, err)
 		return
@@ -344,7 +351,7 @@ func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after in
 		if isStatus && state.Terminal() && !h.flushArtifacts(ctx, peer, id, seen, yield) {
 			return
 		}
-		out, err := sdkEvent(eventForClient(info, ev))
+		out, err := sdkEvent(eventForClient(info, a2ashape.EventByReference(ev)))
 		if err != nil {
 			yield(nil, err)
 			return
@@ -373,7 +380,7 @@ func (h *handler) flushArtifacts(ctx context.Context, peer, id string, seen map[
 			continue
 		}
 		seen[au.Artifact.ID] = true
-		out, err := sdkEvent(module.TaskEvent{ArtifactUpdate: &au})
+		out, err := sdkEvent(a2ashape.EventByReference(module.TaskEvent{ArtifactUpdate: &au}))
 		if err != nil {
 			yield(nil, err)
 			return false

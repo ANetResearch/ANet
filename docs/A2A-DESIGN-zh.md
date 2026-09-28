@@ -683,6 +683,7 @@ Task 表示 [C21]:
 - `artifacts`:完成的文本任务首位是 TextPart artifact `anet.reply`(回执覆盖的对话记录中 provider 的最后一条);能力任务首位是交付物 DataPart;其后是 `anet.receipt`(DataPart)与附件(FilePart,文件名经 `safeName`)。
 - `status.message`:付款导致的 `input-required` 带 x402 `payment-required` 消息;文本任务的 `input-required` 带 provider 最近一条消息;`working` 可带进度;失败/拒绝带原因。
 - `history`:消息表,不含控制行;requester=user、provider=agent。
+- 文件(0017 Q12)[redteam:F32]:`history` 与流式事件(首个 Task 快照、状态更新、产物更新)只给附件元数据——url part `anet:attachment?interaction_id=…&cid=…`,metadata `anet.cid`、`anet.size`、`anet.attachment_cid`,以及文件名与类型,不带字节;单个任务的读取(GetTask、SendMessage 的应答、CancelTask、付款应答)按"先产物、后 `status.message`"内联,合计至多 8 MiB(`a2ashape.MaxInlineBytes`),超出的文件给同样的占位,且不读入内存;ListTasks 一律不内联;控制面 `/tasks/*` 一律占位,字节经 `GET /attachment` 或 `anet pull` 取。`module/a2a` 对流中每个事件再做一次 `EventByReference`,保证单条 SSE 行不因对端文件超过客户端的读取上限(a2a-go 为 10 MB)。
 - `metadata`:`anet.effect_status`(仅能力任务)、`anet.receipt_verified`(`verified`/`unverified`/`unknown`)、`anet.request_cid`、`anet.result_cid`、`anet.peer_aid`、`anet.reason`、`anet.retry_after_ms`、`anet.cancel_requested`、x402 键。
 
 阻塞调用与客户端超时:客户端超时不会取消任务,任务继续运行(auto 档内可能已付款),客户端重试会建第二个任务;找回方式:按 contextId 的 ListTasks,或 MCP `list_tasks` 的 `context_id` 过滤。文档与 §21 写明。
