@@ -455,7 +455,7 @@ func TestSpotAFollowUpNeverOvertakesItsDelegation(t *testing.T) {
 	// out now.
 	d = &rows[0]
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
-	clk.now = start + uint64((25*time.Minute+30*time.Second).Milliseconds())
+	clk.now = start + uint64((25*time.Minute + 30*time.Second).Milliseconds())
 	if uint64(d.NextAt) <= clk.now {
 		t.Fatalf("setup: the delegation is due already")
 	}
