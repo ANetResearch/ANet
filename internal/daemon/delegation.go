@@ -1621,6 +1621,10 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	if len(rr.Metadata) > 0 && json.Valid(rr.Metadata) {
 		resultMeta = rr.Metadata
 	}
+	// The payment receipts it carries are checked now and their pay
+	// columns written with the result ([redteam:F28]); the evidence is
+	// recorded once that commits.
+	rp := d.planReceipts(m.ix, decodeMeta(rr.Metadata), false)
 	// The receipt check above read the interaction outside this
 	// transaction. A second copy of the result under another message id can
 	// have committed since, so it is read again under the write lock.
@@ -1639,11 +1643,16 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 			// failure leaves neither, so the redelivered result is
 			// recorded then (§3.6 step 10).
 			late = true
-			_, err := tx.SetLateResult(m.ix, rr.Deliverable, resultCID, rr.Receipt, seen)
+			if _, err := tx.SetLateResult(m.ix, rr.Deliverable, resultCID, rr.Receipt, seen); err != nil {
+				return err
+			}
+			return rp.applyTx(tx, m.ix)
+		}
+		if err := tx.Finish(m.ix, interactions.Finish{State: state, Result: rr.Deliverable, ResultCID: resultCID,
+			Receipt: rr.Receipt, Verified: seen, Meta: resultMeta}); err != nil {
 			return err
 		}
-		return tx.Finish(m.ix, interactions.Finish{State: state, Result: rr.Deliverable, ResultCID: resultCID,
-			Receipt: rr.Receipt, Verified: seen, Meta: resultMeta})
+		return rp.applyTx(tx, m.ix)
 	})
 	if res.class != rxAccepted || already {
 		return res
@@ -1665,7 +1674,12 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	}
 	// §4.2: the receipts are verified and recorded even when the task
 	// ended here first.
-	d.notePaymentReceipts(m.ix, decodeMeta(rr.Metadata), late)
+	if rp != nil && late {
+		for _, e := range rp.entries {
+			e["after_terminal"] = true
+		}
+	}
+	d.recordReceipts(rp)
 	d.publishResult(m.ix)
 	return res
 }
@@ -1677,17 +1691,33 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 	sm, ix := m.sm, m.existing
 	if ix.IsTerminal() {
-		res := d.commitRx(m, nil)
-		if res.class == rxAccepted && carriesPayment(sm.Metadata) {
+		var rp *receiptPlan
+		if carriesPayment(sm.Metadata) {
 			// §4.2: a settlement is a fact about money this node paid,
-			// whatever became of the task here.
-			d.notePaymentReceipts(m.ix, decodeMeta(sm.Metadata), true)
+			// whatever became of the task here. Its pay columns commit
+			// with the replay row ([redteam:F28]).
+			rp = d.planReceipts(m.ix, decodeMeta(sm.Metadata), true)
+		}
+		res := d.commitRx(m, func(tx *interactions.Tx) error { return rp.applyTx(tx, m.ix) })
+		if res.class == rxAccepted {
+			d.recordReceipts(rp)
 		}
 		return res
 	}
 	var meta []byte
 	if len(sm.Metadata) > 0 && json.Valid(sm.Metadata) {
 		meta = sm.Metadata
+	}
+	// The payment part (a quote, a failed payment, receipts) is written in
+	// the transaction of the status that carries it, with its state and
+	// replay row ([redteam:F28]): a storage error leaves the status
+	// unacknowledged and its redelivery stores both. It also means a waiter
+	// woken by the state (/tasks/wait, a blocking A2A send) never reads
+	// input-required without the quote, the payment status or the reason
+	// it waits.
+	var pp *providerPayment
+	if carriesPayment(meta) {
+		pp = d.planProviderPayment(m.ix, meta)
 	}
 	var seq int64
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
@@ -1696,20 +1726,19 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 			Kind: interactions.MsgStatus, Body: sm.Text, MsgID: wireMsgID("", m.mid), Metadata: meta}); err != nil {
 			return err
 		}
-		_, err = tx.SetState(m.ix, interactions.State(sm.State))
-		return err
+		if _, err = tx.SetState(m.ix, interactions.State(sm.State)); err != nil {
+			return err
+		}
+		if pp != nil {
+			return pp.applyTx(tx, m.ix)
+		}
+		return nil
 	})
 	if res.class == rxAccepted {
 		d.publishMessage(m.ix, seq, interactions.MsgStatus)
-		if carriesPayment(meta) {
-			// The payment columns go in before the state is announced: the
-			// status row and the quote are two writes, and a waiter woken
-			// by the state (/tasks/wait, a blocking A2A send) reads the task
-			// at that moment. Announced first, it read input-required
-			// without the quote, the payment status or the reason it waits.
-			// onProviderPayment announces the state itself once the quote
-			// is stored, before paying it automatically.
-			d.onProviderPayment(ctx, m.ix, meta)
+		if pp != nil {
+			// Announces the state itself before paying automatically.
+			d.afterProviderPayment(ctx, m.ix, pp)
 		}
 		d.publishState(m.ix)
 	}
