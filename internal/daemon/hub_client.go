@@ -1,7 +1,7 @@
 package daemon
 
 // hub_client.go is the daemon's HTTP client to the official Hub (wire types in internal/hubapi; the Hub
-// itself is a separate closed-source service): registry publish,
+// itself is a separate service, ANetResearch/ANetHub): registry publish,
 // verifiable-review upload, and the shared request helpers the relay client (relay.go) builds on. v0.1
 // is centralized, so the Hub is the single service every daemon talks to.
 
