@@ -191,14 +191,23 @@ func TestASecondStartDoesNotReplaceTheRunningDaemonsToken(t *testing.T) {
 	rt := t.TempDir()
 	_ = os.Chmod(rt, 0o700)
 	t.Setenv("XDG_RUNTIME_DIR", rt)
-	probe, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := probe.Addr().String()
-	probe.Close()
-	if autoAssignedControlAddr(addr) {
-		t.Skipf("%s falls in the auto-assigned range", addr)
+	// A chosen port, outside the auto-assigned range (39811-41810), which
+	// lies inside Linux's ephemeral range: one probe in fourteen lands in
+	// it, and the test used to skip then (docs/notes/0029).
+	var addr string
+	for i := 0; ; i++ {
+		probe, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		addr = probe.Addr().String()
+		probe.Close()
+		if !autoAssignedControlAddr(addr) {
+			break
+		}
+		if i == 50 {
+			t.Skipf("every port the kernel offered fell in the auto-assigned range (last %s)", addr)
+		}
 	}
 	root := t.TempDir()
 	cfg, _ := json.Marshal(map[string]any{"control_addr": addr})
