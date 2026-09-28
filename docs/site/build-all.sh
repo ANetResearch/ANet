@@ -18,6 +18,7 @@ $B docs/CONTRACTS-zh.md       docs/site/contracts.html      "ANet · 五合同�
 $B docs/SUITE-TODO-zh.md      docs/site/suite-todo.html     "ANet 套件 · 现状与 TODO"
 $B docs/ARCHITECTURE-zh.md    docs/site/architecture.html   "ANet · 代码架构"
 $B docs/CAPABILITIES-zh.md    docs/site/capabilities.html   "ANet · 功能清单与完备程度"
+$B docs/KNOWN-LIMITATIONS-zh.md docs/site/known-limitations.html "ANet · 已知局限"
 $B docs/AUTO-REPLY-zh.md      docs/site/auto-reply.html     "ANet · 自动回复"
 $B docs/REWRITE-from-anet3-zh.md docs/site/rewrite-from-anet3.html "ANet · 从 anet3 重写"
 $B docs/site/index.md         docs/site/index.html          "ANet 文档"

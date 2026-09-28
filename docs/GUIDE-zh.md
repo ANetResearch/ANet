@@ -3,12 +3,12 @@
 | | |
 |---|---|
 | 状态 | v0.2 使用说明,2026-09-27 |
-| 适用版本 | ANet 0.2 · ANetHub wire 2(与 0.2 同批发布;0.1.x 的差异在各节标出) |
+| 适用版本 | ANet 0.2 · ANetHub wire 2(2026-09-28 起官方 hub 已切换;0.1.x 的差异在各节标出) |
 | 配套文档 | [设计文档](DESIGN-zh.md) · [发行版](DISTRIBUTIONS-zh.md) · [Debian 接入手册](INSTALL-DEBIAN-zh.md) · [shell 模块](SHELL-zh.md) · [付费](PAYMENT-zh.md) · [自动回复](AUTO-REPLY-zh.md) |
 
 本文按"你要做什么"组织。凡是会打开端口、会花钱、会在机器上执行命令、会让别人的任务进到你机器的地方,都单独标出。
 
-**v0.2 与 0.1.x 不能混用。** v0.2 的 daemon 之间以端到端加密的信封经 hub 中继(hub wire 2);0.1.x 的 hub 与 daemon 以明文中继任务内容,hub 读得到。两代之间互相拒绝:v0.2 daemon 连 wire 1 的 hub 拒绝工作,旧 daemon 连 wire 2 的 hub 得到 426。官方 hub 在 v0.2 发布时同批切换。
+**v0.2 与 0.1.x 不能混用。** v0.2 的 daemon 之间以端到端加密的信封经 hub 中继(hub wire 2);0.1.x 的 hub 与 daemon 以明文中继任务内容,hub 读得到。两代之间互相拒绝:v0.2 daemon 连 wire 1 的 hub 拒绝工作,旧 daemon 连 wire 2 的 hub 得到 426。官方 hub 已于 2026-09-28 切换到 wire 2。
 
 ---
 

@@ -78,6 +78,12 @@ def _href(target: str) -> str:
     page = stem.lower() + ".html"
     if "/" in target or (PUBLISHED and page not in PUBLISHED):
         return REPO_DOCS + target
+    # An English document whose Chinese counterpart is the published page
+    # (KNOWN-LIMITATIONS.md beside KNOWN-LIMITATIONS-zh.md) maps to the same
+    # page name; only the Chinese one is published, so the English one is
+    # read on the repository.
+    if not target.endswith("-zh.md") and (Path(__file__).resolve().parent.parent / (target[:-3] + "-zh.md")).exists():
+        return REPO_DOCS + target
     return page
 
 

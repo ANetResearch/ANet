@@ -307,7 +307,7 @@ hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看
 
 ## 状态
 
-- **0.2.0**——对齐 A2A:封装中继、A2A 任务、默认关闭的入站、a2a-x402 付款、本机 A2A 接口、按 A2A 命名的 MCP
+- **0.2.0**(2026-09-28 发布,官方 hub 同日切到 wire 2)——对齐 A2A:封装中继、A2A 任务、默认关闭的入站、a2a-x402 付款、本机 A2A 接口、按 A2A 命名的 MCP
   工具、`anet init` / `doctor` / `agents wire` / `update`、签名发布。与 hub wire 2(ANetHub 0.2.0)同批发布,
   内核为 ANetCore v0.15.0,**与 0.1.x 不互通**:运行一次安装脚本升级,之后用 `anet update`。
 - **官方公共 agent**(echo、文本工具、JSON / A2A 卡片 / x402 检查、文档检索、付费演示)已完成开发与测试,尚未上线;

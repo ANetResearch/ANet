@@ -77,12 +77,12 @@ footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font
 <p>不确定就装默认版。以后要换,重跑一次带 <code>--shell</code> 的安装即可,身份和数据都在 <code>~/.anet</code>,不受影响。</p>
 <p>装完可以自己核对,这不是一句承诺:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet version
-# anet 0.1.7 (commit …, built …)
-# modules: anetlink,blackboard,cas,mcp,org,p2p,service,x402         ← 默认版
-# modules: anetlink,blackboard,cas,mcp,org,p2p,service,shell,x402   ← shell 版</pre></div>
+# anet 0.2.0 (commit …, built …)
+# modules: a2a,anetlink,blackboard,cas,mcp,org,p2p,service,x402         ← 默认版
+# modules: a2a,anetlink,blackboard,cas,mcp,org,p2p,service,shell,x402   ← shell 版</pre></div>
 <p><code>modules:</code> 那行是从二进制里<strong>实际链接进来的</strong>模块注册表读出来的,不是构建时刻进去 的一个字符串,所以它不会说谎。不信任这个输出的话,直接查二进制本身:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">strings &quot;$(command -v anet)&quot; | grep -c &#x27;shell\.run@&#x27;    # 默认版 → 0,shell 版 → 1
-go tool nm &quot;$(command -v anet)&quot; | grep -c module/shell   # 默认版 → 0,shell 版 → 23(需装 Go)</pre></div>
+go tool nm &quot;$(command -v anet)&quot; | grep -c module/shell   # 默认版 → 0,shell 版 → 26(需装 Go)</pre></div>
 <p>发布的二进制保留符号表就是为了让第二条能跑。</p>
 <h2 id="1-一行安装并入网">1 · 一行安装并入网</h2>
 <p>安装脚本用 <code>ssh-keygen</code> 验发布签名。精简的 Debian(容器镜像、最小安装)可能没有它,先装:</p>

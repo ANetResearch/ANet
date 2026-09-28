@@ -340,7 +340,7 @@ read from the binary itself. Release builds (four platforms, both variants, sign
 
 ## Status
 
-- **0.2.0** — A2A alignment: sealed relay, A2A tasks, default-closed inbound, a2a-x402 payments, the local
+- **0.2.0** (released 2026-09-28; the official hubs run wire 2 since then) — A2A alignment: sealed relay, A2A tasks, default-closed inbound, a2a-x402 payments, the local
   A2A interface, MCP tools named after A2A, `anet init` / `doctor` / `agents wire` / `update`, signed
   releases. It ships with hub wire 2 (ANetHub 0.2.0) on ANetCore v0.15.0, and **does not interoperate with
   0.1.x**: upgrade by running the installer once, then `anet update`.
