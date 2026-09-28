@@ -220,7 +220,7 @@ ANetCore `delegation` 增量(新字段一律 `omitempty`,另立全字段向量 `
 
 - 第 9 步拒绝的信封只进内存有界 LRU,不写持久重放表 [C15c]。
 - 直连路径的 ack 在第 10 步事务提交时给出,不等其后的副作用(能力执行、答复发送);答复照常经重试队列发出。临时拒绝回 nack(带原因),发送方立即转 hub。经直连接受的短能力调用在该事务内记为 `working`,进程在执行前停止时由启动恢复重跑(至少一次),因为不会再有重投 [0017 Q29]。
-- 信箱轮询从游标之后读(0017 Q1);游标之后总有新信时也至少每 10 轮从队头读一次,被暂扣的消息得以重试、窗口到期的得以转 P [redteam:F24]。
+- 信箱轮询从游标之后读(0017 Q1);游标之后总有新信时也至少每 10 轮回头读一次暂扣的消息,使其得以重试、窗口到期的得以转 P [redteam:F24]。回头读有自己的位置,从队头逐页向后,读到前向游标处或信箱末尾再回到队头;前向游标从不后退,其余各轮照常读新信。只用一个游标时,回头读把前向读也拉回队头,暂扣超过约 10 页(大信封按 hub 的轮询字节预算可一页一条)就再也读不到其后的新信 [redteam:F24 复核]。每轮仍只发一次请求。
 - 重放表、`pending`、`peer_identity` 与交互表同在 `interactions.db`,使第 10 步的同事务写入成立。
 - 启动恢复:非终态且无结果的长能力调用交互置 `failed`,`anet.reason=interrupted`、`anet.effect_status=UNVERIFIED`(效果是否发生未知),经结果重试队列通知请求方 [C1]。本进程正在执行的调用不属遗留;传输模块交来的入站在 `New` 全部完成(所有模块启动、启动恢复与付款恢复)之后才处理,此前到达的等待,等不到(其 context 结束、daemon 停止)则判 T [redteam:F30]。
 - 嵌套对象(TaskDoc、回执)在第 7 步通过后以 `msgTime = inner.ts` 验证,使用第 6 步解析的 KEL [C4b][C4d]。
@@ -803,7 +803,7 @@ mcpserv 原样转发控制面的投影 JSON;描述写明"completed 且 effect_st
 | C12 | 600 个新 AID 委派、以及 600 个新 AID 调用公开能力之后,允许名单对端的截断 KEL 均被拒 |
 | m | ix 碰撞:B 以 A 的出站 ix 发 delegate(能力与文本各一例),A 不执行、不改变该交互的 role/state/result |
 | C19 | 未知 ix 的 message/cancel 在 10 分钟窗口内不 ack,delegate 随后到达时正常处理;超窗回 TaskNotFound;陌生人立即回 TaskNotFound,有关系的发送方至多 32 条在等待 [redteam:F25] |
-| redteam | 直连误投回落 hub(F22);取消撤回未送出的委派、cancel 不先于 delegate(F23);持续暂扣流不钉住信箱游标(F24);附件/报价/收据写入失败后不 ack、重投写全(F27、F28);启动中的直连投递等恢复完成(F30);可能已送达的放弃判 UNVERIFIED(F12);直连在提交时 ack、超时对齐(Q29) |
+| redteam | 直连误投回落 hub(F22);取消撤回未送出的委派、cancel 不先于 delegate(F23);持续暂扣流不钉住信箱游标、大量暂扣页不饿死新信(F24);附件/报价/收据写入失败后不 ack、重投写全(F27、F28);启动中的直连投递等恢复完成(F30);可能已送达的放弃判 UNVERIFIED(F12);直连在提交时 ack、超时对齐(Q29) |
 | C6/C29 | 长能力调用中收到 `end_request`:不签对话记录回执,结果送达;`public_cap` 交互上带 text part 的 `payment-submitted` 被接受并结算,正文不存;双方开启 exec 自动回复走完报价→付款→完成,后端调用 0 次;报价后 end_request → canceled 且无回执 |
 | C8/C9 | `open` 与"对非信任对端启用 exec/后端"按两种顺序在运行时写入均得 409;allow 但不在 trust 中的对端、`open` 下的陌生人都不到达 fake 后端 |
 | C22 | 客户端给出的 contextId 原样保存并可由 ListTasks 找回 |

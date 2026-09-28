@@ -9,6 +9,9 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
@@ -107,5 +110,62 @@ func TestADirectFollowUpThatOvertakesItsDelegationArrivesAfterIt(t *testing.T) {
 		if m.Kind == interactions.MsgStatus && decodeMeta([]byte(m.Metadata))["anet.a2aError"] == "TaskNotFoundError" {
 			t.Fatalf("the requester was told TaskNotFound: %+v", m)
 		}
+	}
+}
+
+// [redteam:F24] bypass: the cursor fix sends a round back to the head of the
+// mailbox every relayHeadEvery rounds, and the rounds in between read on
+// from where the last one stopped. A mailbox holding more than
+// relayHeadEvery+1 pages of held envelopes was therefore never read past
+// them: the forward read was reset to the head before it got there, and
+// everything queued behind them — every new message for this node — waited
+// until the held ones turned permanent, however often the node polled. Pages
+// are short when envelopes are large (the hub's poll byte budget), so a few
+// dozen held envelopes are enough; a peer the node deals with may hold 32
+// at a time, and can send them again when they expire. Now the rounds that
+// go back over held envelopes keep their own place, and the rounds between
+// them read on from the forward cursor, which never goes back.
+func TestHeldPagesDoNotStarveNewMail(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	peer := newStranger(t)
+	allowPeers(t, prov, peer.aid)
+	const held = 2*relayHeadEvery + 4
+	for i := 0; i < held; i++ {
+		injectEnvelope(t, srv, prov.AID(), craft(t, peer, prov, seal.TypeMessage,
+			"ix_early_"+time.Duration(i).String(), chatBody(t, "x", ""), nil))
+	}
+	// One envelope per page, as for large envelopes.
+	setFake(t, srv.URL, func(h *fakeHub) { h.pollPage = 1 })
+	id, err := req.Delegate(ctx, prov.AID(), "new work", nil)
+	if err != nil {
+		t.Fatalf("delegate: %v", err)
+	}
+	const rounds = 3 * held
+	takenAt := -1
+	for i := 0; i < rounds && takenAt < 0; i++ {
+		if err := prov.pollOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := prov.ix.Get(id); err == nil {
+			takenAt = i
+		}
+	}
+	if takenAt < 0 {
+		t.Fatalf("the new delegation was not read in %d rounds behind %d held envelopes (%v)", rounds, held, prov.ReceiveStats())
+	}
+	// The held envelopes are still gone back to, page by page: each is
+	// read again within two rounds per page.
+	before := counter(prov, transientUnknownIX)
+	for i := 0; i < 2*held+2; i++ {
+		if err := prov.pollOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := counter(prov, transientUnknownIX) - before; n < held {
+		t.Fatalf("%d held envelopes read %d times in %d rounds; not every one was gone back to", held, n, 2*held+2)
+	}
+	if n := len(queuedFor(t, srv, prov.AID())); n != held {
+		t.Fatalf("%d envelopes queued, want the %d held", n, held)
 	}
 }
