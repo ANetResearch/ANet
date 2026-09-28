@@ -13,8 +13,6 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/seal"
-
-	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // migratedV01Node builds a node upgraded from wire 1, where
@@ -125,45 +123,10 @@ func TestRedteamSI5_MigratedV01StrangerKeepsStandingUnderClosed(t *testing.T) {
 	t.Logf("DEFECT: after migration to closed (doctor: all SI-5 defaults) a v0.1-accepted stranger still writes into %s", legacyIX)
 }
 
-// SetInboundPolicy puts the new policy in force before it saves the
-// config, and does not put it back when the save fails (SetSpendLimits
-// does: "a caller told the change failed must not find it in force"). The
-// CLI reports the change as failed, config.json and `anet doctor` say
-// closed, and the running daemon accepts strangers' tasks under open.
-func TestRedteamSI5_FailedPolicySaveLeavesOpenInForceWhileDoctorSaysClosed(t *testing.T) {
-	srv := newFakeHub(t)
-	ctx := context.Background()
-	prov := registered(t, srv.URL, "prov")
-	stranger := registered(t, srv.URL, "stranger")
+// (F7 — on the migrated node the legacy stranger's delegate swap ran a
+// capability the node never made public — is fixed; its regression test is
+// redelivery_bind_test.go, TestARedeliveryOnAMigratedRowCannotRunACapability.)
 
-	// The save fails (here: the data directory is not writable).
-	if err := os.Chmod(prov.layout.Root, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	err := prov.SetInboundPolicy(PolicyOpen)
-	if cerr := os.Chmod(prov.layout.Root, 0o700); cerr != nil {
-		t.Fatal(cerr)
-	}
-	if err == nil {
-		t.Skip("the save did not fail (running as root?)")
-	}
-	st, rerr := ReadPolicy(prov.layout)
-	if rerr != nil {
-		t.Fatal(rerr)
-	}
-	if v, _ := st.SI5(); v["inbound.policy"] != PolicyClosed {
-		t.Fatalf("setup: doctor view %v", v["inbound.policy"])
-	}
-	id, derr := stranger.Delegate(ctx, prov.AID(), "task from a stranger", nil)
-	if derr != nil {
-		t.Fatal(derr)
-	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	ix, gerr := prov.ix.Get(id)
-	if gerr != nil || ix.Trust != interactions.TrustPublic {
-		t.Fatalf("attack failed: %+v %v", ix, gerr)
-	}
-	t.Logf("DEFECT: SetInboundPolicy returned %q, doctor says closed, daemon accepted stranger task %s as trust=public", err, id)
-}
+// (F9 — SetInboundPolicy put the policy in force before saving it and kept
+// it when the save failed — is fixed; its regression test is
+// policy_save_test.go.)

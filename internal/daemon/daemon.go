@@ -159,8 +159,17 @@ type Daemon struct {
 	cancel context.CancelFunc
 
 	// mu guards cfg and the relay-loop lifecycle (cfg + hub target can change via hub-register).
-	mu            sync.Mutex
-	cfg           Config
+	mu  sync.Mutex
+	cfg Config
+	// cfgWrite serializes every write of config.json (policy writes,
+	// spending limits, auto-reply, profile, hub registration, the control
+	// address): each reads the config, saves the changed copy, and only
+	// then puts the field it changed in force (updateConfig). A write that
+	// failed to save is not in force and a later save does not carry it to
+	// disk; and two writes at once can neither leave memory and disk
+	// disagreeing — one saving a copy read before the other took effect —
+	// nor lose one of the two (redteam F9).
+	cfgWrite      sync.Mutex
 	relayStop     context.CancelFunc // cancels the currently-running relay poll loop, if any
 	autoReplyStop context.CancelFunc // cancels the currently-running auto-reply loop, if any
 

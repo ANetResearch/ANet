@@ -222,13 +222,29 @@ func (l Layout) EnsureRoot() error { return os.MkdirAll(l.Root, 0o700) }
 
 // writeFileAtomic writes data to path durably: write a sibling temp file then rename over the target,
 // so a crash mid-write leaves either the old file or the new one — never a torn file. The temp file
-// inherits perm; rename is atomic within one filesystem (temp is a sibling, so same fs).
+// is given perm; rename is atomic within one filesystem (temp is a sibling, so same fs).
+//
+// Each write has a temp file of its own. With one fixed name, two writes at once (two config writes
+// from the control plane, say) wrote into the same file, and the rename could put a mix of the two
+// in place: a config.json that no longer parses, and a daemon that then refuses to start (found on
+// the review of redteam F9).
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, perm); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
+	if err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Chmod(tmp, perm)
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}

@@ -30,11 +30,12 @@ import (
 // Two modes, and the second is the one that matters:
 //
 //	anet verify <interaction-id>
-//	anet verify --receipt B64 --kel B64 [--result FILE]
+//	anet verify --receipt B64 --kel B64 [--result FILE] [--request FILE]
 //
 // The second needs no daemon, no hub, no network, and no trust in either.
 // It takes a receipt, the signer's key history, and optionally the bytes
-// the receipt claims to cover, and answers from arithmetic alone.
+// the receipt claims to cover and the request it claims to answer, and
+// answers from arithmetic alone.
 func verify(layout daemon.Layout, rest []string) error {
 	pos, flags := splitFlags(rest)
 
@@ -64,7 +65,7 @@ func verify(layout daemon.Layout, rest []string) error {
 				return err
 			}
 		}
-		return verifyOffline(r, kel, flags["result"])
+		return verifyOffline(r, kel, flags["result"], flags["request"])
 	}
 	if a := flags["attestation"]; a != "" {
 		return verifyAttestation(a, flags["kel"], flags["hub"])
@@ -74,8 +75,8 @@ func verify(layout daemon.Layout, rest []string) error {
 	}
 	if len(pos) < 1 {
 		return fmt.Errorf("verify <interaction-id>\n" +
-			"       verify --receipt <base64> --kel <base64> [--result FILE]\n" +
-			"       verify --receipt <base64> --hub <url>    [--result FILE]\n" +
+			"       verify --receipt <base64> --kel <base64> [--result FILE] [--request FILE]\n" +
+			"       verify --receipt <base64> --hub <url>    [--result FILE] [--request FILE]\n" +
 			"       verify --attestation <base64> --hub <url>\n" +
 			"       verify --chain DIR [--kel <base64>|--hub <url>] [--head ID]\n\n" +
 			"The second form needs nothing at all: a receipt and the signer's key\n" +
@@ -99,6 +100,7 @@ func verifyStored(layout daemon.Layout, interactionID string) error {
 		Results []struct {
 			InteractionID string `json:"interaction_id"`
 			Provider      string `json:"provider"`
+			RequestCID    string `json:"request_cid"`
 			ResultCID     string `json:"result_cid"`
 			Receipt       string `json:"receipt"`
 			ProviderKEL   string `json:"provider_kel"`
@@ -122,29 +124,43 @@ func verifyStored(layout daemon.Layout, interactionID string) error {
 			return fmt.Errorf("verify: no key history for %s — this node never verified one, "+
 				"so it cannot vouch for the receipt and neither should you", r.Provider)
 		}
-		return report(r.Receipt, r.ProviderKEL, r.ResultCID, "")
+		// The request too, as the daemon binds it when the result arrives
+		// (redteam F15): a row stored before it did is checked here.
+		return report(r.Receipt, r.ProviderKEL, r.ResultCID, "", r.RequestCID, "")
 	}
 	return fmt.Errorf("verify: no completed interaction %s", interactionID)
 }
 
-func verifyOffline(receiptB64, kelB64, resultPath string) error {
-	expectCID := ""
-	if resultPath != "" {
-		body, err := os.ReadFile(resultPath)
-		if err != nil {
-			return err
-		}
-		cid, err := anetcid.Sum(body)
-		if err != nil {
-			return err
-		}
-		expectCID = cid
+func verifyOffline(receiptB64, kelB64, resultPath, requestPath string) error {
+	expectCID, err := fileCID(resultPath)
+	if err != nil {
+		return err
 	}
-	return report(receiptB64, kelB64, expectCID, resultPath)
+	expectRequest, err := fileCID(requestPath)
+	if err != nil {
+		return err
+	}
+	return report(receiptB64, kelB64, expectCID, resultPath, expectRequest, requestPath)
 }
 
-// report performs the check and prints what was and was not established.
-func report(receiptB64, kelB64, expectResultCID, resultPath string) error {
+// fileCID is the CID of the file at path, or "" for no path.
+func fileCID(path string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return anetcid.Sum(body)
+}
+
+// report performs the check and prints what was and was not established:
+// the signature, then — when given — that the receipt covers the result
+// bytes and answers the request (redteam F15: a provider can sign a receipt
+// naming any request, so a receipt checked without its request says nothing
+// about what was asked).
+func report(receiptB64, kelB64, expectResultCID, resultPath, expectRequestCID, requestPath string) error {
 	rb, err := base64.StdEncoding.DecodeString(strings.TrimSpace(receiptB64))
 	if err != nil {
 		return fmt.Errorf("verify: receipt is not base64: %w", err)
@@ -195,6 +211,21 @@ func report(receiptB64, kelB64, expectResultCID, resultPath string) error {
 		return errQuiet
 	default:
 		fmt.Println("\n✓ and it covers exactly the result bytes checked.")
+	}
+	switch {
+	case expectRequestCID == "":
+		fmt.Println("  note: the request was not checked — pass --request FILE (the request's bytes) to bind")
+		fmt.Println("        this receipt to what was asked.")
+	case expectRequestCID != rc.RequestCID:
+		what := "the request this node sent"
+		if requestPath != "" {
+			what = requestPath
+		}
+		fmt.Printf("\n✗ but it is NOT a receipt for %s\n", what)
+		fmt.Printf("  receipt answers %s\n  the request is  %s\n", rc.RequestCID, expectRequestCID)
+		return errQuiet
+	default:
+		fmt.Println("✓ and it answers exactly the request checked.")
 	}
 	return nil
 }

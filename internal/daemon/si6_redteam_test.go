@@ -10,8 +10,8 @@ package daemon
 // provider, so steps 1-9 of the receive pipeline accept it. What is tested is
 // whether what the peer controls can stand in for what this node knows, in
 // the A2A projection that the control plane, MCP and module/a2a all return.
-// (F1, which runs the real service module on the provider, is in
-// si6_service_redteam_test.go behind !no_service.)
+// (F1, which runs the real service module on the provider, is fixed; its
+// regression test is service_outcome_test.go, behind !no_service.)
 
 import (
 	"context"
@@ -190,34 +190,17 @@ func TestRedteamSI6_PeerStatusMetadataContradictsTaskMetadata(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// F5: a receipt that names another request. VerifyResultWithKEL binds the
-// interaction, the parties and the result CID, not the request CID; the
-// result is accepted, anet.receipt_verified=verified, and the anet.receipt
-// in the same projection names a request this node never sent.
-func TestRedteamSI6_ReceiptForAnotherRequestIsVerified(t *testing.T) {
-	req, prov, id := rtPair(t)
-	deliverable := []byte(`{"capability":"text.free","status":"OK","verifiable":false}`)
-	env := rtResult(t, req, prov, id, deliverable, map[string]any{"anet.state": "completed"},
-		"bafkreinotwhatthisnodeasked")
-	if r := receive(t, req, env); r.class != rxAccepted {
-		t.Fatalf("result not accepted: %+v", r)
-	}
-	v := rtView(t, req, id)
-	own := rtPath(v, "metadata", a2ashape.KeyRequestCID)
-	inReceipt := rtPath(v, "metadata", a2ashape.KeyReceipt, "request_cid")
-	rv := rtPath(v, "metadata", a2ashape.KeyReceiptVerified)
-	if rv != a2ashape.ReceiptVerified || inReceipt != "bafkreinotwhatthisnodeasked" || own == inReceipt {
-		t.Fatalf("defect not reproduced: receipt_verified=%v own request=%v receipt's request=%v", rv, own, inReceipt)
-	}
-	t.Logf("ATTACK OK: receipt_verified=%v for a receipt of request %v; this node asked %v", rv, inReceipt, own)
-}
-
+// F5 (a receipt that names another request, verified) is fixed: the
+// requester binds the receipt's request CID (receipt_request_test.go).
+//
 // F5b: a text task. The provider's transcript (the deliverable its receipt
 // covers) puts words in this node's mouth that this node never sent. The
 // receipt verifies — it binds interaction, parties and result CID, not what
 // the transcript says the requester said, which this node holds in its own
 // message log — so the task shows anet.receipt_verified=verified, and this
-// node then signs a review anchored to that receipt.
+// node then signs a review anchored to that receipt. Decided as documented
+// scope, not changed: what a transcript receipt covers is written in
+// A2A-DESIGN §2 X4 and §21 item 15, and KNOWN-LIMITATIONS (F15).
 func TestRedteamSI6_TranscriptMisquotingRequesterIsVerified(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()

@@ -922,6 +922,9 @@ func (d *Daemon) SubmitReview(interactionID string, rating int, comment string) 
 	if err != nil {
 		return zero, fmt.Errorf("anet: receipt corrupt: %w", err)
 	}
+	if err := receiptBindsTask(rc, ix, d.AID()); err != nil {
+		return zero, err
+	}
 	receiptCID, err := rc.CID()
 	if err != nil {
 		return zero, err
@@ -949,6 +952,36 @@ func (d *Daemon) SubmitReview(interactionID string, rating int, comment string) 
 		return zero, err
 	}
 	return ReviewResult{InteractionID: interactionID, Subject: ix.PeerAID, Rating: rating}, nil
+}
+
+// receiptBindsTask checks, before this node signs a review anchored to it,
+// that a stored receipt is about the task it is stored on: this
+// interaction, this node as requester, the provider it delegated to, the
+// request it sent and the result it holds. ingestResult checked the same
+// when the result arrived; a row stored before it bound the request (or by
+// any path that did not check) is checked here too, because the review is
+// what vouches for the receipt to a third party (evidence.VerifyInterlock)
+// — a review of a receipt for a request never made would vouch for that
+// request (redteam F15). An empty stored request CID (a row from before
+// request CIDs were kept) skips that one binding, as ingestResult does.
+func receiptBindsTask(rc *evidence.Receipt, ix *interactions.Interaction, self string) error {
+	switch {
+	case rc.InteractionID != ix.ID:
+		return fmt.Errorf("anet: the receipt stored on %s is for interaction %s; not reviewing it", ix.ID, rc.InteractionID)
+	case rc.RequesterAID != self:
+		return fmt.Errorf("anet: the receipt stored on %s names requester %s, not this node; not reviewing it",
+			ix.ID, rc.RequesterAID)
+	case rc.ProviderAID != ix.PeerAID:
+		return fmt.Errorf("anet: the receipt stored on %s is signed for provider %s, not %s; not reviewing it",
+			ix.ID, rc.ProviderAID, ix.PeerAID)
+	case ix.RequestCID != "" && rc.RequestCID != ix.RequestCID:
+		return fmt.Errorf("anet: the receipt stored on %s is for request %s, not the request this node sent (%s); "+
+			"not reviewing it", ix.ID, rc.RequestCID, ix.RequestCID)
+	case ix.ResultCID != "" && rc.ResultCID != ix.ResultCID:
+		return fmt.Errorf("anet: the receipt stored on %s covers result %s, not the result held (%s); not reviewing it",
+			ix.ID, rc.ResultCID, ix.ResultCID)
+	}
+	return nil
 }
 
 // recordReceived writes anet.delegation.received for a delegation from a
@@ -1623,15 +1656,19 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 
 	// Verify the receipt before accepting the work it certifies.
 	//
-	// VerifyResultWithKEL binds the receipt to this interaction, to us as
-	// the requester, to the provider we actually delegated to, and to the
-	// hash of the bytes in front of us. The provider KEL is the one resolved
-	// from the envelope (§3.6 step 6), and the revocation gate is evaluated
-	// at the message time (C4b, C4d).
+	// VerifyResultForRequest binds the receipt to this interaction, to us
+	// as the requester, to the provider we actually delegated to, to the
+	// request we sent (its CID, as we stored it when we sent it) and to the
+	// hash of the bytes in front of us. The provider KEL is the one
+	// resolved from the envelope (§3.6 step 6), and the revocation gate is
+	// evaluated at the message time (C4b, C4d). Without the request binding
+	// a provider could sign a receipt for a request never made, and a
+	// review this node anchors to it would vouch for that request to anyone
+	// who checks the interlock (redteam F15).
 	//
 	// A failed check drops the result rather than storing it.
 	verified := false
-	switch _, verr := delegation.VerifyResultWithKEL(rr, m.kel, m.ix, d.AID(), ix.PeerAID, m.ts); {
+	switch _, verr := delegation.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts); {
 	case verr == nil:
 		verified = true
 	case errors.Is(verr, delegation.ErrUnverifiable):

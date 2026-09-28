@@ -588,11 +588,12 @@ func readRegular(f *os.File, limit int64) ([]byte, error) {
 }
 
 // sendAutoReplyAttachments sends the auto-reply text plus the attachments collected from the outbox as
-// one relayed message.
-func (d *Daemon) sendAutoReplyAttachments(ctx context.Context, interactionID, body string, atts []delegation.Attachment) error {
+// one relayed message, with meta as its metadata (a final reply's, or none).
+func (d *Daemon) sendAutoReplyAttachments(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
+	meta map[string]any) error {
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
-	return d.SendMessageAtts(sctx, interactionID, body, atts)
+	return d.SendMessageOpts(sctx, interactionID, body, atts, meta)
 }
 
 // --- failure reporting ---

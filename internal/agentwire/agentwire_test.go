@@ -723,7 +723,10 @@ func TestGuideTextIsCurrent(t *testing.T) {
 			}
 		}
 		for _, want := range []string{"AgentNetwork", "send_message", "wait_task", "anet.effect_status",
-			"anet.receipt_verified", "submit_payment", "anet peers allow", "anet pay <task_id>"} {
+			"anet.receipt_verified", "submit_payment", "anet peers allow", "anet pay <task_id>",
+			// Red-team F10: failed + UNVERIFIED is "may have happened", and
+			// the agent is the one that would send it again.
+			"do not send it again as if it had not run"} {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s does not mention %q", name, want)
 			}

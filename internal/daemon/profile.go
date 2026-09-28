@@ -24,14 +24,15 @@ func (d *Daemon) CurrentProfile() Profile {
 // this agent is registered with a Hub — publishes it (signed). Callers pass the complete desired state
 // (the CLI merges partial flags with the current values before calling).
 func (d *Daemon) SetProfile(ctx context.Context, p Profile) error {
-	d.mu.Lock()
-	summaryChanged := d.cfg.Summary != p.Summary
-	d.cfg.Summary = p.Summary
-	d.cfg.Readme = p.Readme
-	d.cfg.Pricing = p.Pricing
-	cfg := d.cfg
-	d.mu.Unlock()
-	if err := SaveConfig(d.layout, cfg); err != nil {
+	var summaryChanged bool
+	cfg, err := d.updateConfig(func(c *Config) error {
+		summaryChanged = c.Summary != p.Summary
+		c.Summary, c.Readme, c.Pricing = p.Summary, p.Readme, p.Pricing
+		return nil
+	}, func(live *Config) {
+		live.Summary, live.Readme, live.Pricing = p.Summary, p.Readme, p.Pricing
+	})
+	if err != nil {
 		return err
 	}
 	if summaryChanged {

@@ -218,9 +218,12 @@ func TestTextTaskCompleted(t *testing.T) {
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("history\n got %q\nwant %q", got, want)
 	}
-	if file := sdk.History[3].Parts[1]; string(file.Raw()) != "\x01\x02\x03" || file.Filename != "safe-.bashrc" ||
-		file.MediaType != "image/png" || file.Metadata[a2ashape.KeyCID] != "bafkimg" {
-		t.Fatalf("reply attachment %+v", file)
+	// The history carries a file's metadata, never its bytes (an internal note item):
+	// name, type, size and the content id to fetch it by.
+	if file := sdk.History[3].Parts[1]; file.Raw() != nil || file.URL() != a2a.URL(a2ashape.AttachmentURI(ix, "bafkimg")) ||
+		file.Filename != "safe-.bashrc" || file.MediaType != "image/png" || file.Metadata[a2ashape.KeyCID] != "bafkimg" ||
+		file.Metadata[a2ashape.KeyAttachmentCID] != "bafkimg" || file.Metadata[a2ashape.KeySize] != 3.0 {
+		t.Fatalf("reply attachment in the history %+v", file)
 	}
 	// Artifacts: the reply only, its text and then its file (an internal note item P1);
 	// the receipt is metadata, not output (P2).

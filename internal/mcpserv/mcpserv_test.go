@@ -152,6 +152,11 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 		if !strings.Contains(desc(n), "not the same as forged") {
 			t.Errorf("%s must say that an unverified receipt is not a forged one", n)
 		}
+		// Red-team F10: failed + UNVERIFIED is "may have happened", and the
+		// agent is the one that would send it again.
+		if !strings.Contains(desc(n), "do not resend it as if it had not run") {
+			t.Errorf("%s must say that a failed task with effect_status=UNVERIFIED is not to be resent", n)
+		}
 	}
 	if !strings.Contains(desc("send_message"), "cannot be repudiated") {
 		t.Error("send_message must say the request is signed and attributable")
@@ -199,7 +204,8 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 
 	// The short rules go to every client on connect.
 	ins := sess.InitializeResult().Instructions
-	for _, want := range []string{"anet.effect_status=UNVERIFIED is not success", "wait_task", "submit_payment", "untrusted"} {
+	for _, want := range []string{"anet.effect_status=UNVERIFIED is not success", "wait_task", "submit_payment", "untrusted",
+		"do not resend it as if it had not run"} {
 		if !strings.Contains(ins, want) {
 			t.Errorf("server instructions must mention %q; got %q", want, ins)
 		}
