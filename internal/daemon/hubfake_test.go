@@ -95,7 +95,9 @@ type fakeHub struct {
 	// "pending" answers settlement_pending without settling, "settle-then-pending"
 	// settles and then answers settlement_pending (the hub committed after
 	// the caller stopped listening), "drop" closes the connection before
-	// settling, "settle-then-drop" settles and then closes it.
+	// settling, "settle-then-drop" settles and then closes it,
+	// "foreign-receipt" settles nothing and answers success, flagged as a
+	// replay, with the receipt of an authorization settled earlier.
 	settleFaults []string
 	// cardHighWater is the per-subject high water the card gate compares
 	// against — the same rule the real hub keeps in agent_card.seq.
@@ -1185,6 +1187,17 @@ func (h *fakeHub) hSettle(w http.ResponseWriter, r *http.Request) {
 	case "pending":
 		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: false,
 			ErrorReason: payment.ReasonSettlementPending})
+		return
+	case "foreign-receipt":
+		h.mu.Lock()
+		var tx, rec string
+		for id, r := range h.settledReceipt {
+			tx, rec = h.settled[id], r
+			break
+		}
+		h.mu.Unlock()
+		fakeHubJSON(w, http.StatusOK, payment.SettlementResponse{Success: true, Transaction: tx,
+			Extensions: map[string]any{payment.ExtReceipt: rec, payment.ExtReplayed: true}})
 		return
 	}
 	// The real hub's request shape (payment.FacilitatorRequest): without
