@@ -163,8 +163,15 @@ type doctorReport struct {
 		Deny               []string `json:"deny"`
 		PublicCapabilities []string `json:"public_capabilities"`
 	} `json:"inbound"`
-	Payments  daemon.SpendLimits `json:"payments"`
-	Payees    []string           `json:"payees"`
+	Payments daemon.SpendLimits `json:"payments"`
+	Payees   []string           `json:"payees"`
+	// Tasks is what this node does with the tasks it sends: no_response_after
+	// (A2A-DESIGN §4.2), the effective value ("0s" is off), and whether
+	// config.json sets it.
+	Tasks struct {
+		NoResponseAfter string `json:"no_response_after"`
+		Configured      bool   `json:"configured"`
+	} `json:"tasks"`
 	AutoReply struct {
 		Configured       bool   `json:"configured"`
 		Backend          string `json:"backend"`
@@ -497,6 +504,21 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		add("payments", stWarn, payDetail+" — automatic or agent payments to any payee", "")
 	} else {
 		add("payments", stOK, payDetail, "")
+	}
+
+	// Tasks this node sends (§4.2): how long one may hear nothing at all
+	// from its peer before it fails as no_response.
+	rep.Tasks.Configured = strings.TrimSpace(cfg.NoResponseAfter) != ""
+	if after, ok := cfg.NoResponseAfterValue(); !ok {
+		rep.Tasks.NoResponseAfter = cfg.NoResponseAfter
+		add("tasks.no_response", stFail, fmt.Sprintf("no_response_after %q is not a duration; the daemon refuses to start", cfg.NoResponseAfter),
+			`write a Go duration such as "15m", or "0" to turn it off`)
+	} else if rep.Tasks.NoResponseAfter = after.String(); after == 0 {
+		add("tasks.no_response", stInfo, "no_response_after is 0: a task a peer never answers — one that refused it without "+
+			"telling, past its refusal-notice limit — stays submitted for ever", "")
+	} else {
+		add("tasks.no_response", stOK, fmt.Sprintf("a task this node sends that hears nothing from its peer for %s after delivery "+
+			"fails (anet.reason=no_response, effect UNVERIFIED); a later answer is still recorded (no_response_after)", after), "")
 	}
 
 	// Auto-reply and the sandbox (§6).

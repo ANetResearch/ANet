@@ -276,6 +276,7 @@ func New(layout Layout) (*Daemon, error) {
 	d.recoverInterrupted()
 	d.startPayments(ctx)
 	d.goBackground(func() { d.outboxLoop(ctx) })
+	d.goBackground(func() { d.noResponseLoop(ctx) }) // no_response.go
 	if cfg.HubURL != "" {
 		d.startRelayLoop(cfg.HubURL)
 		d.refreshRegistration()

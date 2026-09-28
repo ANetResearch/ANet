@@ -177,3 +177,10 @@ const ReasonUnavailable = "unavailable"
 // whose delegation, or the input it then waited on, could not be delivered
 // to the provider before it expired or was refused for good (0017 Q5).
 const ReasonUndeliverable = "undeliverable"
+
+// ReasonNoResponse is the anet.reason of a task this node asked for that
+// its peer never answered at all — no status, no message, no result —
+// within no_response_after of its delivery (A2A-DESIGN §4.2). Its effect is
+// UNVERIFIED: the peer may have refused it without telling, or be running
+// it.
+const ReasonNoResponse = "no_response"

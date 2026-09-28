@@ -403,6 +403,10 @@ func (s *Store) migrate() error {
 		// idx_ix_list, that listing and its count walked the index entries
 		// of every task with every peer to find the few with this one.
 		`CREATE INDEX IF NOT EXISTS idx_ix_peer_list ON interaction(peer_aid, state_at, seq, role, state, is_capability, trust, context_id)`,
+		// The tasks that have sat in one state since before a cutoff
+		// (Waiting): the requester's minute sweep for tasks no answer came
+		// to (A2A-DESIGN §4.2) reads this index, not the rows.
+		`CREATE INDEX IF NOT EXISTS idx_ix_waiting ON interaction(role, state, state_at, id)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			return fmt.Errorf("interactions: migrate index: %w", err)

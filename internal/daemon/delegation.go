@@ -1376,9 +1376,24 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 		defer finish()
 		defer func() { <-d.longCalls }()
 		defer cancel()
+		d.announceLongCall(interactionID)
 		d.tryCapabilityPaid(cctx, interactionID, capID, args, payment)
 	}()
 	return true
+}
+
+// announceLongCall tells the requester of a long call that it has started:
+// status working, through the retry queue, before the call runs, so the
+// result is queued after it. Without it the requester sees submitted until
+// the result — hours, for some — and takes the silence for no answer
+// (no_response.go, A2A-DESIGN §4.2). A failure is logged: the call runs
+// either way.
+func (d *Daemon) announceLongCall(interactionID string) {
+	ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+	defer cancel()
+	if err := d.SendStatus(ctx, interactionID, interactions.StateWorking, "", nil); err != nil && d.ctx.Err() == nil {
+		log.Printf("anet: %s: tell the requester the long call started: %v", interactionID, err)
+	}
 }
 
 // unpaidPriced reports whether a call is priced and not yet paid for, so

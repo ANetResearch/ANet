@@ -241,6 +241,15 @@ func TestAStopLeavesALongCallToStartupRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	<-gate.started
+	// The call told the requester it started (announceLongCall) before it
+	// ran; the requester takes that in now, so what reaches the hub after
+	// the restart is the interrupted result alone.
+	if err := req.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if st := stateOf(t, req, id); st != interactions.StateWorking {
+		t.Fatalf("requester state %s once the long call started, want working", st)
+	}
 	layout := prov.layout
 	if err := prov.Close(); err != nil {
 		t.Fatal(err)
