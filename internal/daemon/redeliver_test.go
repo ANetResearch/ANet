@@ -18,6 +18,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 )
@@ -252,6 +253,7 @@ func TestPermanentRefusalsAreOnlyAnswersAboutTheMessage(t *testing.T) {
 		{&hubError{path: "/relay/send", code: 404}, undeliveredUnknown},
 		{&hubError{path: "/relay/send", code: 413}, undeliveredTooLarge},
 		{&hubError{path: "/agents/aid_x/keys", code: 404}, undeliveredUnknown},
+		{&hubError{path: hubapi.KeysLookupPath, code: 404, msg: "no key set"}, undeliveredUnknown},
 		{&hubError{path: "/relay/send", code: 429}, ""},
 		{&hubError{path: "/relay/send", code: 507}, ""},
 		{&hubError{path: "/relay/send", code: 401}, ""},

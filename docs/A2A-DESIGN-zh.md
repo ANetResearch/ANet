@@ -40,7 +40,7 @@
 
 ### X1 发送方对 hub 是否可见 → 认证发送,hub 不存储
 
-- `/relay/send` 要求发送方以 relayauth v2(§3.7)认证,发送方必须是本 hub 已注册的 AID。hub 用它做按发送方的限流与配额,**不写入** `relay_message`,日志只记收件方与字节数。`/register` 另加按 IP 的限速(AID 可无限生成,否则按发送方限流对轮换 AID 无效)[C15f]。
+- `/relay/send` 要求发送方以 relayauth v2(§3.7)认证,发送方必须是本 hub 已注册的 AID。hub 用它做按发送方的限流与配额,**不写入** `relay_message`,hub 进程也不逐条记录中继。hub 前面的反向代理同样不留下"谁发给谁":随仓库下发的 nginx 配置(ANetHub `deploy/nginx-hub.conf`、`.example`)对 hub 虚拟主机关闭访问日志,错误日志只记 `crit`(`error` 级的行带客户端地址与请求行),由主机 logrotate 至多保留 14 天;daemon 取收件方密钥的请求行不含收件方(§3.5 第 1 步)[redteam:F3]。`/register` 另加按 IP 的限速(AID 可无限生成,否则按发送方限流对轮换 AID 无效)[C15f]。
 - 理由:匿名发送下 hub 只能按 IP 限流;发送方身份在 E2E 之后本就可由 IP 与时间关联推出(R03 §4.5)。删除的是**存储中的社交图**。
 - 代价(§21):hub 在发送时刻知道"谁发给谁"。sealed sender + 投递令牌列为后续(信封外层保留字段 7)。
 
@@ -52,7 +52,7 @@
 
 ### X3 纯请求方节点的加密公钥 → `EncKeySet`,每条消息随信封携带
 
-- 加密公钥是独立签名对象 `EncKeySet`(§3.1),注册到 hub,`GET /agents/{aid}/keys` 取回;hub 对非本地 AID 经联邦 `/fed/v2/keys/{aid}` 按精确 AID 查询(不进目录、不进索引)[C32]。
+- 加密公钥是独立签名对象 `EncKeySet`(§3.1),注册到 hub,`POST /agents/keys:lookup`(AID 在请求体)取回,`GET /agents/{aid}/keys` 为旧 daemon 与读者保留 [redteam:F3];hub 对非本地 AID 经联邦 `/fed/v2/keys/{aid}` 按精确 AID 查询(不进目录、不进索引)[C32]。
 - **每条**内层消息都携带发送方的 `kel` 与 `keys`(几百字节,Padmé 取整后差异不可见)。接收路径因此不做任何网络请求 [C2]。
 - `EncKeySet` 验证必须绑定预期 AID:发送侧预期 = 收件人 `to`,接收侧预期 = `inner.from` [C0]。
 
@@ -195,7 +195,7 @@ ANetCore `delegation` 增量(新字段一律 `omitempty`,另立全字段向量 `
 
 ### 3.5 发送流程
 
-1. **解析收件人公钥**:持久表 `peer_identity`(§3.8)中有有效 keyset 即用;每 10 分钟尽力向 hub 复核,hub 失败或 404 时继续使用已存,直到无有效键 [C2]。无记录时 `GET {hub}/agents/{aid}/keys` → `VerifyEncKeySet(signed, to, kel, now)`,KEL 须与已存延伸(§3.8)→ 写入 `peer_identity`(本节点主动联系对端,属授权上下文)。取不到即以明确错误失败,不降级。
+1. **解析收件人公钥**:持久表 `peer_identity`(§3.8)中有有效 keyset 即用;每 10 分钟尽力向 hub 复核,hub 失败或 404 时继续使用已存,直到无有效键 [C2]。无记录时 `POST {hub}/agents/keys:lookup`(`{aid}` 在请求体,请求行不含收件方;hub 以不带 JSON 错误的 405/404 表示没有该路由时,回退 `GET {hub}/agents/{aid}/keys`)[redteam:F3] → `VerifyEncKeySet(signed, to, kel, now)`,KEL 须与已存延伸(§3.8)→ 写入 `peer_identity`(本节点主动联系对端,属授权上下文)。取不到即以明确错误失败,不降级。
 2. 组装 inner(带本节点 `kel` 与 `keys`),签名,填充,HPKE 加密。`exp = ts + 14 天`(等于 hub 未投递 TTL,各 type 相同)。需要重试的外发复用首次信封字节;`now > exp` 时停止重试并写证据事件。
 3. 交给传输列表(p2p 优先,hub 兜底)。`module.Transport.Send(ctx, toAID string, envelope []byte) error`;`module.Inbound.Receive(ctx, envelope []byte) error`。
 4. 需要重试的外发(结果、状态)持久化信封字节,重试不重新封装。
@@ -250,6 +250,7 @@ PreimageV2(action, aid, hubAID, ts, method, pathAndQuery, body) =
 | `POST /relay/poll` | `{limit}` + 认证头 | `{messages:[{id, envelope}]}` | — |
 | `POST /relay/ack` | `{ids}` + 认证头 | 200 | ack 即删 |
 | `GET /agents/{aid}/keys` | — | `{aid, keyset, kel}`(b64) | 本地注册、联邦卡片,或经 `/fed/v2/keys/{aid}` 查询 |
+| `POST /agents/keys:lookup` | `{aid}`(≤ 4 KiB) | 同上;400 无 `aid`;413 | 与 GET 相同,AID 在请求体而不在请求行:发送方从自己的地址查收件方,代理日志若记请求行就留下"该地址写给该 AID"[redteam:F3] |
 | `POST /agents/{aid}/keys` | `{keyset}` | 200 / 409 | 自证明:hub 以已存 KEL 验证 + 发布方高水位 |
 | `POST /register` | 现有 + `enc_keys` + `a2a_card` | 现有 + 各字段状态 | 删 `guest_messages`;KEL 须为已存延伸 |
 | `GET /agents/{aid}/ledger`、`/balance`、兑付列表 | — | 本人签名 GET 才返回明细;无签名 401 | 同步修改 daemon `Balance`/`Reconcile` 与 prodtest 9f |
@@ -866,7 +867,7 @@ B 与 C 在 A 完成后并行;同一仓库内按文件归属串行推进。
 
 ## 21. 已知局限(写入对外文档)
 
-1. hub 在发送时刻知道"谁发给谁"、何时、多大;来源 IP 可见。
+1. hub 在发送时刻知道"谁发给谁"、何时、多大;来源 IP 可见。hub 主机上的反向代理若保留访问日志,会把来源地址、时间、请求行(多数含 AID)与响应大小写到磁盘,足以在 ack 删行之后重建社交图;随仓库下发的 nginx 配置不保留 hub 的访问日志、错误日志只记 `crit`,由主机 logrotate 至多保留 14 天,运营者换用别的配置则可能保留。daemon 取收件方密钥的请求行不含收件方;p2p 地址查询(anetpeer `GET /agents/{aid}/p2p`)与旧版 daemon 仍在请求行里带对端 AID [redteam:F3]。
 2. 前向保密以加密密钥生命周期为界:一条消息在发出后至多 29 天内,可被取得收件人磁盘的一方解开。
 3. 大附件整体缓冲、单次 AEAD。
 4. 官方公共 agent 是端点,能看到调用内容;其保存策略公开写明。

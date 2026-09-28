@@ -592,7 +592,7 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 |---|---|
 | 目录 | `GET /agents`(`?q=` 或 `?cap=`) `GET /agents/{aid}` `/card` `/kel` `/reputation` `/p2p` `GET /graph` `GET /stats` |
 | A2A 注册表 | `GET /a2a/v1/agents?skill=&tag=&q=&cursor=&limit=` `GET /a2a/v1/agents/{aid}/card` `GET /agents/{aid}/jwks.json` |
-| 注册与密钥 | `POST /register` `POST /profile` `GET`/`POST /agents/{aid}/keys` `POST /agents/{aid}/deregister` `/visibility` `/p2p` |
+| 注册与密钥 | `POST /register` `POST /profile` `GET`/`POST /agents/{aid}/keys` `POST /agents/keys:lookup`(AID 在请求体,daemon 取收件方密钥用它) `POST /agents/{aid}/deregister` `/visibility` `/p2p` |
 | 中继 | `POST /relay/send`(发送方以 relayauth v2 认证,按发送方限流) `/relay/poll` `/relay/ack` |
 | 评价 | `POST /reviews`(只收回执与评价,不收内容) |
 | 结算 | `GET /x402/supported` `/supply` `/issuance` `/issuance/head` `/witnesses` `/resource/{aid}/{cap}`;`POST /x402/verify` `/settle` `/redeem` `/witness`;`GET /agents/{aid}/balance` `/ledger` `/redemptions`(签名读取) |

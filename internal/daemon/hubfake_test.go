@@ -12,7 +12,8 @@ package daemon
 //     parse or whose outer to differs from to_aid, 404 for an unknown recipient, 413 over the envelope
 //     cap, 429 (with Retry-After) over the per-sender budget, 507 over the per-recipient mailbox cap;
 //   - GET/POST /agents/{aid}/keys with the publisher high-water rule (200 / 409), and a federated
-//     lookup through peer fakes for AIDs registered elsewhere;
+//     lookup through peer fakes for AIDs registered elsewhere; POST /agents/keys:lookup, the same
+//     lookup with the AID in the body (a hub that predates it answers 405 from its mux: noKeysLookup);
 //   - GET /hub/identity.
 //
 // Relay messages are OPAQUE: the fake stores the envelope bytes keyed by to_aid and nothing else. It
@@ -131,6 +132,12 @@ type fakeHub struct {
 	// sigSeen is the relayauth replay cache: (aid, signature) pairs seen
 	// inside the skew window.
 	sigSeen map[string]bool
+	// noKeysLookup makes the fake a hub that predates POST
+	// /agents/keys:lookup: its mux answers the route 405 with a plain-text
+	// body, as the real hub's did.
+	noKeysLookup bool
+	// keysLookups and keysGets count the two ways of asking for a key set.
+	keysLookups, keysGets int
 	// keysOverride makes GET /agents/{aid}/keys answer with someone else's
 	// material: a hostile hub substituting keys.
 	keysOverride map[string]hubapi.KeysResponse
@@ -268,6 +275,7 @@ func (h *fakeHub) handler() http.Handler {
 	mux.HandleFunc("POST /relay/poll", h.hRelayPoll)
 	mux.HandleFunc("POST /relay/ack", h.hRelayAck)
 	mux.HandleFunc("GET /agents/{aid}/keys", h.hKeysGet)
+	mux.HandleFunc("POST "+hubapi.KeysLookupPath, h.hKeysLookup)
 	mux.HandleFunc("POST /agents/{aid}/keys", h.hKeysPost)
 	// The facilitator half of the contract. A fake that serves only the
 	// endpoints the happy path happens to touch is how a seam gets shipped
@@ -592,7 +600,39 @@ func (h *fakeHub) hKeysPost(w http.ResponseWriter, r *http.Request) {
 // hKeysGet mirrors GET /agents/{aid}/keys: local agents first, then peer
 // hubs (the federated lookup), else 404.
 func (h *fakeHub) hKeysGet(w http.ResponseWriter, r *http.Request) {
-	aid := r.PathValue("aid")
+	h.mu.Lock()
+	h.keysGets++
+	h.mu.Unlock()
+	h.serveKeys(w, r.PathValue("aid"))
+}
+
+// hKeysLookup mirrors POST /agents/keys:lookup: hKeysGet with the AID in
+// the body. With noKeysLookup it answers as a hub without the route does.
+func (h *fakeHub) hKeysLookup(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	old := h.noKeysLookup
+	if !old {
+		h.keysLookups++
+	}
+	h.mu.Unlock()
+	if old {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, ok := h.readBody(w, r, 4<<10)
+	if !ok {
+		return
+	}
+	var req hubapi.KeysLookupRequest
+	if err := json.Unmarshal(body, &req); err != nil || req.AID == "" {
+		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": `body must be {"aid": "<AID>"}`})
+		return
+	}
+	h.serveKeys(w, req.AID)
+}
+
+func (h *fakeHub) serveKeys(w http.ResponseWriter, aid string) {
 	if out, ok := h.keysFor(aid, true); ok {
 		fakeHubJSON(w, http.StatusOK, out)
 		return
