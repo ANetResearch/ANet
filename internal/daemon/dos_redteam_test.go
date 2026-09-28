@@ -124,53 +124,38 @@ func TestRedteamClosedNodeKELReplayExhaustion(t *testing.T) {
 	}
 }
 
-// TestRedteamUnknownIXRedeliveryRework shows a stronger amplifier on the same
-// root cause: a message (or status/result) for an interaction the node does
-// not hold fails as class T (transient) inside the 10-minute unknown-ix wait
-// window (§3.6 step 9). A class-T envelope is not acknowledged, so it stays
-// in the hub mailbox and is redelivered on every poll; and because it never
-// reaches step 10, the replay table never dedups it. The full decrypt +
-// several-KEL-replay verification therefore runs again from scratch on every
-// redelivery, for up to ten minutes, for a single envelope a stranger sent.
-func TestRedteamUnknownIXRedeliveryRework(t *testing.T) {
+// [redteam:F25] regression (was TestRedteamUnknownIXRedeliveryRework). A
+// message (or status/result) for an interaction the node does not hold used
+// to fail as class T for the 10-minute unknown-ix window whoever sent it: not
+// acknowledged, never reaching step 10's replay table, so every hub
+// redelivery ran the full decrypt and several KEL replays again, for up to
+// ten minutes, for one envelope a stranger sent. A stranger's message is now
+// answered TaskNotFound (rate limited) and acknowledged at once, and the
+// refusal is remembered: a redelivery is dropped before step 6, without any
+// KEL replay.
+func TestRedteamUnknownIXFromAStrangerIsNotReworked(t *testing.T) {
 	_, _, prov := registeredPair(t)
 
 	attacker := growSenderKEL(t, newStranger(t), seal.MaxKELBytes-2000)
 
-	st := time.Now()
-	if _, err := identity.Replay(attacker.kel); err != nil {
-		t.Fatal(err)
-	}
-	oneReplay := time.Since(st)
-
 	// A message for an interaction this node has never seen.
 	env := craft(t, attacker, prov, seal.TypeMessage, "no-such-ix", chatBody(t, "hello", "m1"), nil)
 
+	first := receive(t, prov, env)
+	if first.class != rxDropped || first.reason != dropUnknownIX || !first.ack() {
+		t.Fatalf("first delivery: class=%d reason=%q; want a permanent %q, acknowledged", first.class, first.reason, dropUnknownIX)
+	}
 	const redeliveries = 3
-	before := counter(prov, dropRefusedReplay)
-	var total time.Duration
 	for i := 0; i < redeliveries; i++ {
-		st = time.Now()
-		r := receive(t, prov, env)
-		total += time.Since(st)
-		if r.class != rxTransient || r.reason != transientUnknownIX {
-			t.Fatalf("redelivery %d: expected transient %q (not acked, stays in mailbox), got class=%d reason=%q",
-				i, transientUnknownIX, r.class, r.reason)
-		}
-		if r.ack() {
-			t.Fatalf("redelivery %d: a class-T envelope must not be acked, or the hub would drop it", i)
+		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedReplay {
+			t.Fatalf("redelivery %d: class=%d reason=%q; want %q (no KEL replay, no second answer)",
+				i, r.class, r.reason, dropRefusedReplay)
 		}
 	}
-	// No dedup: the replay table is only consulted in step 10, which a
-	// step-9 transient never reaches, and the in-memory refused set only
-	// holds permanent drops. So every redelivery redoes the full work.
-	if dup := counter(prov, dropRefusedReplay) - before; dup != 0 {
-		t.Fatalf("expected no dedup of the redelivered message; refused-replay fired %d times", dup)
+	if n := counter(prov, transientUnknownIX); n != 0 {
+		t.Fatalf("a stranger's message was held %d times", n)
 	}
-	replaysPerRedelivery := float64(total/redeliveries) / float64(oneReplay)
-	t.Logf("one unknown-ix message, %d redeliveries: %v each, ~%.1f full KEL replays each, never acked, never deduped",
-		redeliveries, total/redeliveries, replaysPerRedelivery)
-	if replaysPerRedelivery < 3 {
-		t.Fatalf("expected >=3 full KEL replays per redelivery; got %.1f", replaysPerRedelivery)
+	if n := counter(prov, noticeTaskNotFound); n > 1 {
+		t.Fatalf("%d TaskNotFound notices for one message", n)
 	}
 }

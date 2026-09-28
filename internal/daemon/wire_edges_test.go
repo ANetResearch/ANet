@@ -331,9 +331,10 @@ func TestARedeliveryReportsALongCallAnEarlierProcessNeverStarted(t *testing.T) {
 }
 
 // X2: under closed, a denied peer writing to a task this node does not hold
-// gets what a stranger gets — held inside the wait window, then
-// TaskNotFound from the same notice limiter — so it cannot tell it is
-// denied. On a task it does hold, its messages are still dropped.
+// gets what a stranger gets — TaskNotFound at once, inside the wait window
+// or past it ([redteam:F25]: a stranger's message is not held), from the
+// same notice limiter — so it cannot tell it is denied. On a task it does
+// hold, its messages are still dropped.
 func TestADeniedPeerWritingToAnUnknownTaskIsAnsweredLikeAStranger(t *testing.T) {
 	srv := newFakeHub(t)
 	prov := registered(t, srv.URL, "prov")
@@ -359,7 +360,7 @@ func TestADeniedPeerWritingToAnUnknownTaskIsAnsweredLikeAStranger(t *testing.T) 
 		return o
 	}
 	s, d := send(stranger), send(denied)
-	if s.early.reason != transientUnknownIX || s.late.reason != dropUnknownIX || s.meta["anet.a2aError"] != "TaskNotFoundError" {
+	if s.early.reason != dropUnknownIX || s.late.reason != dropUnknownIX || s.meta["anet.a2aError"] != "TaskNotFoundError" {
 		t.Fatalf("stranger: early %+v, late %+v, answer %s %v", s.early, s.late, s.state, s.meta)
 	}
 	if d.early != s.early || d.late != s.late || d.state != s.state ||
@@ -367,8 +368,8 @@ func TestADeniedPeerWritingToAnUnknownTaskIsAnsweredLikeAStranger(t *testing.T) 
 		t.Fatalf("denied peer: early %+v, late %+v, answer %s %v; a stranger: %+v, %+v, %s %v",
 			d.early, d.late, d.state, d.meta, s.early, s.late, s.state, s.meta)
 	}
-	if n := counter(prov, noticeTaskNotFound); n != 2 {
-		t.Fatalf("%d TaskNotFound notices, want one each", n)
+	if n := counter(prov, noticeTaskNotFound); n != 4 {
+		t.Fatalf("%d TaskNotFound notices, want two each", n)
 	}
 }
 

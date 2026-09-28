@@ -53,6 +53,7 @@ type Daemon struct {
 	p2pLimit    p2pLimiter
 	notices     noticeLimiter
 	strangers   strangerCache
+	heldEarly   heldUnknown
 	reval       revalidating
 	running     sync.Map // interaction id -> *runningCall
 	logOnceMu   sync.Mutex
