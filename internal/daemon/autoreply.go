@@ -44,6 +44,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -419,8 +420,15 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	if oerr != nil {
 		return d.sendAutoReply(ctx, th.InteractionID, autoReplyFailureReply(cfg, th.InteractionID, fmt.Errorf("outbox: %w", oerr)))
 	}
+	// A provider's reply that completes the task is its final reply (0017
+	// Q30): marked so the requester keeps waiting for the result that
+	// follows instead of stopping at an input-required between the two.
+	var meta map[string]any
+	if done && th.EndReqBy != "me" && th.Role == string(interactions.RoleInbound) {
+		meta = a2ashape.FinalReplyMetadata()
+	}
 	if reply != "" || len(atts) > 0 {
-		if err := d.sendAutoReplyAttachments(ctx, th.InteractionID, reply, atts); err != nil {
+		if err := d.sendAutoReplyAttachments(ctx, th.InteractionID, reply, atts, meta); err != nil {
 			return err
 		}
 		doneNote := ""

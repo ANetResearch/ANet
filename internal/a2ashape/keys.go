@@ -74,6 +74,13 @@ const (
 	KeyA2AError = "anet.a2aError"
 	// KeyState is the task state a provider message or result asks for.
 	KeyState = "anet.state"
+	// KeyFinal marks a provider's last message on a text task it is
+	// completing (0017 Q30): sent with anet.state=working so the requester
+	// does not stop at it (a blocking send would otherwise return at an
+	// input-required the result ends a moment later), the result following
+	// it. Unlike a progress note it is a conversation turn: it is in the
+	// transcript the receipt covers and in the history. Its value is true.
+	KeyFinal = "anet.final"
 	// KeyInbound is the inbound-policy outcome a provider reports, such as
 	// "pending_approval".
 	KeyInbound = "anet.inbound"

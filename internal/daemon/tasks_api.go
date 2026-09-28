@@ -309,8 +309,10 @@ type replyReq struct {
 	// State is what the answer does to the task:
 	//   input-required (default)  a message; the requester is asked to answer
 	//   working                   a progress message; the task stays working
-	//   completed                 the message (if any), then completion: a
-	//                             receipt is signed over the transcript
+	//   completed                 the message (if any, as the final reply:
+	//                             anet.state=working, anet.final, 0017
+	//                             Q30), then completion: a receipt is
+	//                             signed over the transcript
 	//   failed, rejected          a status with the text as the reason
 	//   canceled                  the provider cancels
 	State string `json:"state"`
@@ -391,13 +393,13 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 		}
 	case interactions.StateCompleted:
 		if in != nil {
-			// A conversation turn like any other, so the transcript the
-			// receipt covers ends with it and it becomes the anet.reply
-			// artifact. (A progress note, anet.state=working, is not a turn
-			// and would be left out.) The requester sees input-required
-			// for the moment between this message and the result, as with
-			// an auto-reply that completes.
-			if _, err = d.sendMessage(sctx, ix.ID, text, in.atts, nil); err != nil {
+			// The final reply (0017 Q30): a conversation turn, so the
+			// transcript the receipt covers ends with it and it becomes the
+			// anet.reply artifact, sent with anet.state=working so the
+			// requester stays working until the result arrives rather than
+			// stopping at an input-required between the two (a blocking
+			// SendMessage would return there, without the answer).
+			if _, err = d.sendMessage(sctx, ix.ID, text, in.atts, a2ashape.FinalReplyMetadata()); err != nil {
 				break
 			}
 		}

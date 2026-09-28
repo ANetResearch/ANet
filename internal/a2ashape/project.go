@@ -113,15 +113,29 @@ func StoreState(s TaskState) (interactions.State, bool) {
 
 // ControlMetadata reports whether message metadata makes a text message a
 // control message rather than a conversation turn: any x402.* key, or
-// anet.state (A2A-DESIGN §4.1 [C29]). Such a message is neither in the
+// anet.state (A2A-DESIGN §4.1 [C29]) — except on a final reply
+// (FinalReply), whose anet.state=working only keeps the requester waiting
+// for the result that follows it. Such a message is neither in the
 // transcript a receipt covers nor in the history.
 func ControlMetadata(meta map[string]any) bool {
 	for k := range meta {
-		if strings.HasPrefix(k, "x402.") || k == KeyState {
+		if strings.HasPrefix(k, "x402.") {
 			return true
 		}
 	}
-	return false
+	_, state := meta[KeyState]
+	return state && !FinalReply(meta)
+}
+
+// FinalReply reports a provider's final reply on a text task it completes
+// (KeyFinal, 0017 Q30): anet.state=working and anet.final=true.
+func FinalReply(meta map[string]any) bool {
+	return meta[KeyFinal] == true && meta[KeyState] == string(interactions.StateWorking)
+}
+
+// FinalReplyMetadata is the metadata of a final reply (FinalReply).
+func FinalReplyMetadata() map[string]any {
+	return map[string]any{KeyState: string(interactions.StateWorking), KeyFinal: true}
 }
 
 // AttachmentURI names a stored attachment by the parameters of the control

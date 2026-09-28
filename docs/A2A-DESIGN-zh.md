@@ -192,7 +192,7 @@ ANetCore `delegation` 增量(新字段一律 `omitempty`,另立全字段向量 `
 - `StatusMsg = {1: state, 2: text, 3: metadata(JSON), 4: at}`,state:`submitted` `working` `input-required` `rejected` `canceled` `failed`。
 - `KindCancel`;`KindEndAccept` 删除发送方用法,接收方丢弃。
 - `VerifyDelegateReq(r, kel)`、`VerifyResult(r, kel, …)` 改为接收外部解析好的 KEL;正文内 KEL 字段忽略或须是其前缀 [C4d]。
-- 保留 metadata 键:`a2a.serviceParameters`(`{"A2A-Extensions":[…],"A2A-Version":"1.0"}`,规范 §12.3 的回退方式)、`anet.a2aError`(StatusMsg 中,取 A2A §3.3.2 错误名)、`anet.state`、`anet.reason`、`anet.retry_after_ms`、`anet.inbound` [C19]。
+- 保留 metadata 键:`a2a.serviceParameters`(`{"A2A-Extensions":[…],"A2A-Version":"1.0"}`,规范 §12.3 的回退方式)、`anet.a2aError`(StatusMsg 中,取 A2A §3.3.2 错误名)、`anet.state`、`anet.final`(§4.2 [Q30])、`anet.reason`、`anet.retry_after_ms`、`anet.inbound` [C19]。
 
 ### 3.5 发送流程
 
@@ -298,7 +298,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 | `task_nonce` | TaskDoc 随机数 |
 | `pay_state`、`pay_required`、`pay_auth_ids`、`pay_payload`、`pay_receipts`、`quote_expires_at` | x402(§8)。`pay_state` 取值:空(无报价)、`required`(已报价/已收到报价)、`submitted`(provider:payload 已持久化待结算;requester:已发出 payment-submitted)、`completed`(结算成功)、`failed`(确定失败)、`rejected`(requester 拒付)。provider 侧 `pay_auth_ids` 至多一项,即 §8.4 所称已持久化的 `auth_id` |
 | `peer_kel`、`peer_keys` | `trust=public`/`public_cap` 交互的对端 KEL 与 SignedEncKeySet,供回复加密,终态后删除(§3.8) |
-| `message.msg_id`、`message.metadata`、`message.kind` | 发送方也存 msg_id;kind 增加 `status`、`payment`;对话轮次只取 kind=text 且无控制元数据 [C29] |
+| `message.msg_id`、`message.metadata`、`message.kind` | 发送方也存 msg_id;kind 增加 `status`、`payment`;对话轮次只取 kind=text 且无控制元数据 [C29](`anet.final=true` 的最后回复例外,见 §4.2 [Q30]) |
 
 状态由事件显式写入 [C35]:
 
@@ -310,6 +310,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 | requester 在 `pay_state=submitted` 后发 cancel | 不变(§4.2) |
 | provider 发消息,未标 `anet.state=working` | input-required |
 | provider 发消息标 `anet.state=working`,或 `StatusMsg` | 其携带的状态 |
+| provider 以 completed 结束文本任务时的最后一条回复(`anet.state=working` + `anet.final=true`)[Q30] | working(随后结果置 completed) |
 | 结果到达 | 按 §4.3 映射:completed / failed / rejected |
 
 - `IsTerminal()` 判定 `state ∈ {completed, failed, canceled, rejected}`,替换全部现有终态判断(`autoreply.go:294`、`delegation.go:141/223/243/268/380` 等)。
@@ -319,7 +320,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 ### 4.2 完成与取消
 
 文本任务:
-- provider 完成:`reply_task(state=completed)`、`anet end`(provider 侧)或自动回复判定完成 → 签回执(对话记录 v2)→ `anet.result/1`。
+- provider 完成:`reply_task(state=completed)`、`anet end`(provider 侧)或自动回复判定完成 → 签回执(对话记录 v2)→ `anet.result/1`。带回复的完成(`reply_task`/`/tasks/reply` 带文本或文件、§11.6 后端的完成答复、自动回复判定完成)先发这条回复,metadata 为 `anet.state=working` 与 `anet.final=true`,再发结果:requester 在两个信封之间保持 working,阻塞等待不会在中间的 `input-required` 返回(0017 Q30,TCK DM-ART-001、Hermes "needs more input")。带 `anet.final=true` 的回复不按控制消息处理:仍是对话轮次,进入回执覆盖的对话记录、history 与 `anet.reply`(§4.1 [C29] 的例外)。`anet end` 不带消息,不涉及此规则 [Q30]。
 - requester 结束请求(`end_request`)→ provider daemon 自动完成(不需要 provider 的 agent)。
 - requester 取消(`cancel`)→ 本地 `canceled`;provider 置 `canceled`、取消长调用、回 `status{canceled}`,不签回执。
 
