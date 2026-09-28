@@ -473,7 +473,7 @@ daemon 在 127.0.0.1 上提供 A2A 协议服务(`module/a2a`,默认启用,不需
 | `POST /a2a/v1/agents/{aid}/jsonrpc` | A2A JSON-RPC 绑定 |
 | `/a2a/v1/agents/{aid}/rest/…` | A2A HTTP+JSON 绑定 |
 
-- **地址**:第一次启动时在 43811 起的回环端口里选一个,写进 `<数据目录>/modules/a2a/a2a_addr.txt`,之后每次重启重绑同一端口。端口被别的进程占着时接口**不启动、也不换端口**(已配置的客户端会把令牌发到那个端口上):`anet up` 与 `anet doctor` 会报告;占用者可能是别的本机用户时令牌同时更换。先释放端口,再 `anet stop && anet up`,然后 `anet agents wire --refresh`。`anet doctor` 打印当前地址。
+- **地址**:第一次启动时在 43811 起的回环端口里选一个,写进 `<数据目录>/modules/a2a/a2a_addr.txt`,之后每次重启重绑同一端口。端口被别的进程占着时接口**不启动、也不换端口**(已配置的客户端会把令牌发到那个端口上):`anet up` 与 `anet doctor` 会报告;占用者可能是别的本机用户时令牌同时更换。先释放端口,再 `anet stop && anet up`,然后 `anet agents wire --refresh`(顺序不能反:端口仍被占着时 `wire` 拒绝写入令牌,否则 Hermes 会把新令牌也交给占用者)。`anet doctor` 打印当前地址。
 - **令牌**:`<数据目录>/modules/a2a/a2a_token.txt`(0600),与控制令牌分离,互不通用。每个请求带 `Authorization: Bearer <令牌>`,取卡片也要带。它授权的范围比控制令牌窄:只作用于"本机作为请求方、且对端等于路径中 AID"的任务,拿不到别人发给你的任务,也拿不到发往其他 AID 的任务(一律 `TaskNotFound`)。
 - **限制**:只接受回环 Host(否则 421);带非空 `Origin` 的请求被拒(浏览器页面不是这个接口的客户端);请求体上限 96 MiB;`A2A-Version` 缺省按 1.0,显式的非 1.x 版本得到 `VersionNotSupportedError`;推送通知与 `GetExtendedAgentCard` 不支持;任何 url 形式的文件 part(`file:`、`http(s):`、`data:`)一律 `InvalidParams`,daemon 不替你抓取、不读本地路径。
 
