@@ -136,3 +136,40 @@ func TestRegistryAndPointerInANonPrivateDirAreIgnored(t *testing.T) {
 		t.Fatalf("a non-private runtime dir was read: registry %v pointer %v", inReg, inPtr)
 	}
 }
+
+// A daemon that stops removes the uid-scoped pointer only while it still names that daemon: the last
+// daemon to start owns the pointer, and one stopping afterwards must not strand it (0034 §G7.3).
+func TestStoppingADaemonLeavesAnotherDaemonsPointer(t *testing.T) {
+	x := t.TempDir()
+	if err := os.Chmod(x, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", x)
+	p := DaemonPointerPath()
+
+	writeDaemonPointer("127.0.0.1:29610", "/var/lib/a/.anet")  // A starts
+	writeDaemonPointer("127.0.0.1:39811", "/root/.anet")       // B starts later and owns the pointer
+	removeDaemonPointer("127.0.0.1:29610", "/var/lib/a/.anet") // A stops
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("A's shutdown removed B's pointer: %v", err)
+	}
+	var dp daemonPointer
+	if json.Unmarshal(b, &dp) != nil || dp.ControlAddr != "127.0.0.1:39811" || dp.DataDir != "/root/.anet" {
+		t.Fatalf("pointer after A stopped = %s, want B's", b)
+	}
+	// The same address with another data dir is another daemon too.
+	removeDaemonPointer("127.0.0.1:39811", "/somewhere/else")
+	if _, err := os.Stat(p); err != nil {
+		t.Fatalf("a daemon with another data dir removed the pointer: %v", err)
+	}
+
+	removeDaemonPointer("127.0.0.1:39811", "/root/.anet") // B stops
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("B's own pointer survived B's shutdown: %v", err)
+	}
+	removeDaemonPointer("127.0.0.1:39811", "/root/.anet") // nothing left: no error, nothing written
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Fatalf("pointer reappeared: %v", err)
+	}
+}

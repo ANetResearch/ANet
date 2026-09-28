@@ -83,6 +83,25 @@ func writeDaemonPointer(controlAddr, dataDir string) {
 	_ = writeFileAtomic(p, b, 0o600)
 }
 
+// removeDaemonPointer removes the uid-scoped pointer when it still names this daemon (controlAddr and
+// dataDir as written by writeDaemonPointer). The pointer is one file per uid and the last daemon to
+// start owns it; a daemon stopping later must leave another daemon's pointer alone. Removing it
+// unconditionally stranded a daemon that was still running: on dmax (docs/notes/0034 §G7.3) stopping
+// one of root's daemons removed the pointer to another, and a CLI in a different environment could no
+// longer find it. Best-effort, like the write: a pointer that cannot be read or parsed is left as is.
+func removeDaemonPointer(controlAddr, dataDir string) {
+	p := DaemonPointerPath()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return
+	}
+	var dp daemonPointer
+	if json.Unmarshal(b, &dp) != nil || dp.ControlAddr != controlAddr || dp.DataDir != dataDir {
+		return
+	}
+	_ = os.Remove(p)
+}
+
 // ResolveControl returns the control base URL + bearer token for the running daemon. It prefers the
 // caller's own data dir (layout); if that has no token (the daemon lives elsewhere — e.g. an agent tool
 // whose HOME differs from the operator's), it falls back to the uid-scoped daemon pointer. This makes
@@ -380,8 +399,9 @@ func (d *Daemon) ServeControl(ctx context.Context) error {
 	}
 	// Publish a uid-scoped pointer so a CLI whose env differs from ours (an agent tool sandbox) can find
 	// this daemon without knowing ANET_DATA_DIR. Best-effort; removed on shutdown. See DaemonPointerPath.
-	writeDaemonPointer(d.config().ControlAddr, d.layout.Root)
-	defer os.Remove(DaemonPointerPath())
+	ptrAddr, ptrDir := d.config().ControlAddr, d.layout.Root
+	writeDaemonPointer(ptrAddr, ptrDir)
+	defer removeDaemonPointer(ptrAddr, ptrDir)
 	// Register this identity in the uid-scoped registry so the console can offer an account-style
 	// identity switcher across all locally-running daemons. Best-effort; removed on shutdown.
 	d.writeRegistry()
