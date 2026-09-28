@@ -400,7 +400,12 @@ satisfiable.
 
 ## A11. HTTP+JSON binding: `TaskNotCancelable` → 400 (spec 409), `UnsupportedContentType` → 400 (spec 415)
 
-**Spec.** A2A §5.4, error code mappings: `TaskNotCancelableError` maps to HTTP `409 Conflict` and
+**Withdrawn — not to be filed.** A2A v1.0.1 (2026-05-26; #1627, 2026-04-14) maps both errors to
+`400 Bad Request` in §5.4 (A2A `docs/specification.md:1183,1186` at `v1.0.1`), so a2a-go v2.6.0 is
+conformant. What follows describes v1.0.0 and is kept as a record. The 409/415 expectations come from
+a2a-tck, pinned to v1.0.0 (a2a-tck #231, #240; `docs/notes/0019` §5).
+
+**Spec (v1.0.0).** A2A §5.4, error code mappings: `TaskNotCancelableError` maps to HTTP `409 Conflict` and
 `ContentTypeNotSupportedError` to HTTP `415 Unsupported Media Type` for the HTTP+JSON binding.
 
 **Code.** `internal/rest/rest.go` `errorMappings` (v2.6.0, line 199 and line 202):
@@ -434,8 +439,10 @@ the `reason` and are not affected.
 google.rpc status) and `ErrUnsupportedContentType` to `415`; keep the table the client uses to turn a
 status back into an error (`rest.FromRESTError`, which goes by `reason`) unchanged.
 
-**How anet copes.** Its own middleware answers a wrong `Content-Type` with `415` before a2a-go runs;
-`CancelTask` on a terminal task still goes through a2a-go and is answered `400`.
+**How anet copes.** Superseded. Its own middleware answered a wrong `Content-Type` with `415` before
+a2a-go ran; since `99bed37` it answers `400`, as v1.0.1 has it, and takes `application/a2a+json` as
+well as `application/json` (A2A-DESIGN §11.4). `CancelTask` on a terminal task goes through a2a-go and
+is answered `400`, which v1.0.1 also has.
 
 ---
 

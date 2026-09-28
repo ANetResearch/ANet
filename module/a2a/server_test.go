@@ -366,8 +366,10 @@ func TestRequestChecks(t *testing.T) {
 		{"loopback name, wrong port", "GET", cardPath, map[string]string{"Authorization": bearer, "Host": "127.0.0.1:1"}, "", 421},
 		{"rebinding name", "GET", cardPath, map[string]string{"Authorization": bearer, "Host": "localtest.me:" + e.port}, "", 421},
 		{"origin", "GET", cardPath, map[string]string{"Authorization": bearer, "Origin": "http://127.0.0.1:" + e.port}, "", 403},
-		{"text/plain rpc", "POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "text/plain"}, rpcGet, 415},
-		{"form rpc", "POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "application/x-www-form-urlencoded"}, rpcGet, 415},
+		{"text/plain rpc", "POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "text/plain"}, rpcGet, 400},
+		{"form rpc", "POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "application/x-www-form-urlencoded"}, rpcGet, 400},
+		{"rpc without a Content-Type", "POST", rpc, map[string]string{"Authorization": bearer}, rpcGet, 400},
+		{"problem+json rpc", "POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "application/problem+json"}, rpcGet, 400},
 		{"bad aid", "GET", agentsPath + "/NOT_AN_AID/.well-known/agent-card.json", map[string]string{"Authorization": bearer}, "", 404},
 		{"this node itself", "GET", agentsPath + "/" + selfAID, map[string]string{"Authorization": bearer}, "", 404},
 		// Every route, the REST binding and the bare card alias included,
@@ -378,10 +380,14 @@ func TestRequestChecks(t *testing.T) {
 		{"control token", "POST", rpc, map[string]string{"Authorization": "Bearer " + strings.Repeat("c", 64), "Content-Type": "application/json"}, rpcGet, 401},
 		{"list, foreign host", "GET", agentsPath, map[string]string{"Authorization": bearer, "Host": "evil.example:" + e.port}, "", 421},
 		{"rest, foreign host", "GET", agentsPath + "/" + agentA + "/rest/tasks/task1", map[string]string{"Authorization": bearer, "Host": "evil.example:" + e.port}, "", 421},
-		{"text/plain rest", "POST", agentsPath + "/" + agentA + "/rest/message:send", map[string]string{"Authorization": bearer, "Content-Type": "text/plain"}, `{"message":{}}`, 415},
+		{"text/plain rest", "POST", agentsPath + "/" + agentA + "/rest/message:send", map[string]string{"Authorization": bearer, "Content-Type": "text/plain"}, `{"message":{}}`, 400},
 		{"card", "GET", cardPath, map[string]string{"Authorization": bearer}, "", 200},
 		{"card at localhost", "GET", cardPath, map[string]string{"Authorization": bearer, "Host": "localhost:" + e.port}, "", 200},
 		{"rpc", "POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "application/json; charset=utf-8"}, rpcGet, 200},
+		// The media type A2A v1.0.1 registers (§14.1.1), which the HTTP+JSON
+		// binding SHOULD use (§11.1), is taken on both bindings.
+		{"a2a+json rpc", "POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "application/a2a+json"}, rpcGet, 200},
+		{"a2a+json rpc, charset", "POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "Application/A2A+JSON; charset=utf-8"}, rpcGet, 200},
 	}
 	for _, c := range cases {
 		resp, body := e.raw(c.method, c.path, c.hdr, c.body)
@@ -395,10 +401,11 @@ func TestRequestChecks(t *testing.T) {
 }
 
 // A body that is not JSON is ContentTypeNotSupportedError in the form of the
-// binding it was sent to (A2A §5.4): a JSON-RPC error object with -32005 on
-// the JSON-RPC route, AIP-193 on the REST one; 415 on both. And the JSON-RPC
-// endpoint answers with a trailing slash as well, without a redirect (a2a-tck
-// posts there; docs/notes/0019 §4).
+// binding it was sent to: a JSON-RPC error object with -32005 on the
+// JSON-RPC route, AIP-193 on the REST one; HTTP 400 on both, the status A2A
+// v1.0.1 §5.4 gives the error (v1.0.0 had 415). And the JSON-RPC endpoint
+// answers with a trailing slash as well, without a redirect (a2a-tck posts
+// there; docs/notes/0019 §4).
 func TestContentTypeAndRPCSlash(t *testing.T) {
 	e := newEnv(t)
 	bearer := "Bearer " + testToken
@@ -419,25 +426,33 @@ func TestContentTypeAndRPCSlash(t *testing.T) {
 	if err := json.Unmarshal(body, &rpcOut); err != nil {
 		t.Fatalf("text/plain rpc: %d %s: %v", resp.StatusCode, body, err)
 	}
-	if resp.StatusCode != 415 || rpcOut.JSONRPC != "2.0" || string(rpcOut.ID) != "null" || rpcOut.Error == nil ||
+	if resp.StatusCode != 400 || rpcOut.JSONRPC != "2.0" || string(rpcOut.ID) != "null" || rpcOut.Error == nil ||
 		rpcOut.Error.Code != -32005 || len(rpcOut.Error.Data) != 1 ||
 		rpcOut.Error.Data[0].Reason != "CONTENT_TYPE_NOT_SUPPORTED" || rpcOut.Error.Data[0].Domain != a2a.ProtocolDomain {
-		t.Errorf("text/plain rpc: %d %s, want 415 and a JSON-RPC error -32005 CONTENT_TYPE_NOT_SUPPORTED", resp.StatusCode, body)
+		t.Errorf("text/plain rpc: %d %s, want 400 and a JSON-RPC error -32005 CONTENT_TYPE_NOT_SUPPORTED", resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/json" {
+		t.Errorf("text/plain rpc: Content-Type %q, want application/json (A2A §9.1)", ct)
 	}
 
 	resp, body = e.raw("POST", agentsPath+"/"+agentA+"/rest/message:send",
 		map[string]string{"Authorization": bearer, "Content-Type": "text/plain"}, `{"message":{}}`)
 	var restOut struct {
 		Error struct {
-			Code    int `json:"code"`
+			Code    int    `json:"code"`
+			Status  string `json:"status"`
 			Details []struct {
+				Type   string `json:"@type"`
 				Reason string `json:"reason"`
+				Domain string `json:"domain"`
 			} `json:"details"`
 		} `json:"error"`
 	}
-	if err := json.Unmarshal(body, &restOut); err != nil || resp.StatusCode != 415 || restOut.Error.Code != 415 ||
-		len(restOut.Error.Details) != 1 || restOut.Error.Details[0].Reason != "CONTENT_TYPE_NOT_SUPPORTED" {
-		t.Errorf("text/plain rest: %d %s, want 415 CONTENT_TYPE_NOT_SUPPORTED", resp.StatusCode, body)
+	if err := json.Unmarshal(body, &restOut); err != nil || resp.StatusCode != 400 || restOut.Error.Code != 400 ||
+		restOut.Error.Status != "INVALID_ARGUMENT" || len(restOut.Error.Details) != 1 ||
+		restOut.Error.Details[0].Type != "type.googleapis.com/google.rpc.ErrorInfo" ||
+		restOut.Error.Details[0].Reason != "CONTENT_TYPE_NOT_SUPPORTED" || restOut.Error.Details[0].Domain != a2a.ProtocolDomain {
+		t.Errorf("text/plain rest: %d %s, want 400 INVALID_ARGUMENT CONTENT_TYPE_NOT_SUPPORTED", resp.StatusCode, body)
 	}
 
 	for _, p := range []string{rpc, rpc + "/"} {
