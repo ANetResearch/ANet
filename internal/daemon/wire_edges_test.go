@@ -566,7 +566,9 @@ func TestAStopBeforeAnUnservedCallIsAnsweredLeavesItUnacknowledged(t *testing.T)
 // so one left submitted runs at start; a quoted call is not reported
 // interrupted however it came to be working (it never ran: priced work
 // runs once paid); unpaid work of a peer denied since is left to the
-// revocation sweep, not run.
+// revocation sweep, not run; and unpaid work accepted because its peer was
+// on the allow list is not run once the peer is off it (§5.1, as for its
+// redelivery) [redteam:F7].
 func TestStartupRecoveryRunsApprovedCallsAndLeavesUnpaidOrDeniedOnes(t *testing.T) {
 	_, req, prov := quietPair(t)
 	ctx := context.Background()
@@ -597,6 +599,7 @@ func TestStartupRecoveryRunsApprovedCallsAndLeavesUnpaidOrDeniedOnes(t *testing.
 	create("ix_quoted_working", req.AID(), interactions.TrustPeer, interactions.StateWorking, interactions.PayRequired)
 	create("ix_failed_pay_working", req.AID(), interactions.TrustPeer, interactions.StateWorking, interactions.PayFailed)
 	create("ix_denied_working", deniedAID, interactions.TrustPeer, interactions.StateWorking, "")
+	create("ix_unallowed_working", "did:anet:allowed-no-more", interactions.TrustPeer, interactions.StateWorking, "")
 	if err := req.ix.Create(interactions.New{ID: "ix_approved_left", Role: interactions.RoleOutbound,
 		PeerAID: prov.AID(), Goal: "invoke capability " + lampCap, IsCapability: true}); err != nil {
 		t.Fatal(err)
@@ -607,7 +610,7 @@ func TestStartupRecoveryRunsApprovedCallsAndLeavesUnpaidOrDeniedOnes(t *testing.
 	waitUntil(t, "the approved call to run", func() bool {
 		return stateOf(t, prov, "ix_approved_left") == interactions.StateCompleted
 	})
-	for _, id := range []string{"ix_quoted_working", "ix_failed_pay_working", "ix_denied_working"} {
+	for _, id := range []string{"ix_quoted_working", "ix_failed_pay_working", "ix_denied_working", "ix_unallowed_working"} {
 		if pix := getIXOf(t, prov, id); pix.State != interactions.StateWorking || len(pix.Receipt) > 0 {
 			t.Errorf("%s: %s with %d receipt bytes; want left working, unanswered", id, pix.State, len(pix.Receipt))
 		}
