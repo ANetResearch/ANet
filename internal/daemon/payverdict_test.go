@@ -276,3 +276,34 @@ func TestAProviderCannotWriteThisNodesVerdict(t *testing.T) {
 		t.Errorf("the view shows a verdict of the provider's writing: %s", all)
 	}
 }
+
+// A free call — nothing quoted, pay_state "" — states no settlement keys
+// at all (§8.2). A provider status row carrying receipts was shown as
+// status.message with x402.payment.receipts=[]: this node's list in place
+// of the provider's, on a task outside the payment flow [redteam:F11].
+func TestAFreeCallStatesNoSettlementKeysFromAProviderRow(t *testing.T) {
+	req, prov, id := pvPair(t)
+	mb, _ := json.Marshal(map[string]any{"x402.payment.receipts": []any{map[string]any{
+		"success": true, "transaction": "tx-on-a-free-call", "network": "hub:x", "amount": "1000"}}})
+	body := mustMarshal(t, &delegation.StatusMsg{State: delegation.StateWorking, Text: "working on it",
+		Metadata: mb, At: uint64(time.Now().UnixMilli())})
+	if r := receive(t, req, sealFrom(t, prov, req, seal.TypeStatus, id, body)); r.class != rxAccepted {
+		t.Fatalf("status not accepted: %+v", r)
+	}
+	pvNothingPaid(t, req, id)
+	v := pvView(t, req, id)
+	for _, where := range [][]string{{"metadata"}, {"status", "message", "metadata"}} {
+		md, _ := pvPath(v, where...).(map[string]any)
+		if rc, ok := md[a2ashape.KeyX402Receipts]; ok {
+			t.Errorf("%v x402.payment.receipts = %v on a call nothing was quoted for", where, rc)
+		}
+	}
+	text, _ := json.Marshal(pvPath(v, "status", "message", "parts"))
+	if !strings.Contains(string(text), "working on it") {
+		t.Errorf("status.message is not the provider's row: %s", text)
+	}
+	un, _ := json.Marshal(pvPath(v, "metadata", a2ashape.KeyUnverifiedReceipts))
+	if !strings.Contains(string(un), "tx-on-a-free-call") {
+		t.Errorf("anet.unverified_receipts = %s, want the provider's claim", un)
+	}
+}
