@@ -277,7 +277,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 - `/fed/v1/forward` 信封删除 `from_aid`、`kind`、`interaction_id`,签名原像同步修改,联邦线协版本递增。
 - 新增 `GET /fed/v2/keys/{aid}`:由发起 hub 签名、只接受对等表中的 hub;返回任一本地注册 AID 的 `{keyset, kel}`,不论可见性;请求方 hub 只为发起查询的 daemon 缓存,不进目录与索引 [C32]。
 - 联邦卡片条目增加 `keys`。
-- 对端 hub 的 KEL 在首次经 `/hub/identity` 取回时解码并回放,推出的 AID 须等于配置的对端 AID 才写入 `fed_peer_kel` 固定(对端自报的 `aid` 字段只是声明);打开库时丢弃不回放到其键 AID 的旧固定,下次使用时重新取回。对端端点仍可配置为 `http://`:首次取回时的中间人能让取回失败,但不能再让本 hub 固定并公开他人的 KEL [redteam:F34]。未固定的对端 KEL 每次使用都会重新取回,而一次使用可以是内核上未鉴权的 `GET /agents/{对端}/kel`:因此同一对端的取回一次一个,失败后 1 分钟内不再取回;取回的 KEL 以 `seal.ParseKEL` 的上限解码,先以 icp 核对 AID(一次验签)再回放其余事件。`identity.Replay` 对长度不是 32 字节的 icp/rot 密钥返回错误而不是在 `ed25519.Verify` 中 panic——修正之前固定下的这种 KEL 曾会让 hub 在打开库时 panic [redteam:F34]。
+- 对端 hub 的 KEL 在首次经 `/hub/identity` 取回时解码并回放,推出的 AID 须等于配置的对端 AID 才写入 `fed_peer_kel` 固定(对端自报的 `aid` 字段只是声明);打开库时丢弃不回放到其键 AID 的旧固定,下次使用时重新取回。对端端点仍可配置为 `http://`:首次取回时的中间人能让取回失败,但不能再让本 hub 固定并公开他人的 KEL [redteam:F34]。未固定的对端 KEL 每次使用都会重新取回,而一次使用可以是内核上未鉴权的 `GET /agents/{对端}/kel`:因此同一对端的取回一次一个,等待中的使用共享那次取回的失败而不各自再取;对端发来不能证明其 AID 的 KEL 之后 1 分钟内不再取回(对端宕机等传输失败不设等待,恢复后的下一次使用即固定);取回的 KEL 以 `seal.ParseKEL` 的上限解码,先以 icp 核对 AID(一次验签)再回放其余事件。`identity.Replay` 对长度不是 32 字节的 icp/rot 密钥返回错误而不是在 `ed25519.Verify` 中 panic——修正之前固定下的这种 KEL 曾会让 hub 在打开库时 panic [redteam:F34]。
 - `FedReview` 删除内容字段;修空串被解码为非 nil 空切片而触发内容绑定的问题(R09 §5 第 9 点)。
 - `/fed/v2/cards`(§10.6)。
 
