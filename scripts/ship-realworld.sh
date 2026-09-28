@@ -53,6 +53,20 @@ export GOCACHE=${GOCACHE:-/root/.cache/go-build}
   bash test/realworld/up.sh 2>&1
   # shellcheck disable=SC1091
   source test/realworld/env
+  # The camera rig binds host ports (RTSP 8554/tcp and 8000/udp, ONVIF 8081,
+  # proxies 8555/8580). On a machine where something else already holds
+  # them — dmax runs another product's mediamtx on 8554 — the rig's RTSP
+  # server exits at once while env still names 127.0.0.1:8554, and the
+  # camera tests then probe that other server: DESCRIBE /cam answers 404
+  # (a failure that is not ANetLink's) and the wrong-path test passes for
+  # the wrong reason. Without the rig there is no camera to test, so the
+  # camera tests are skipped, and the log says why.
+  if [ -n "${ANETLINK_RTSP_URI:-}" ] && \
+     [ "$(docker inspect -f '{{.State.Running}}' anetlink-rtsp 2>/dev/null)" != true ]; then
+    echo "camera rig not running (anetlink-rtsp: $(docker logs anetlink-rtsp 2>&1 | grep -m1 -iE 'error|ERR' || echo 'not started'));"
+    echo "ONVIF/RTSP tests skipped rather than run against whatever holds those ports"
+    unset ANETLINK_RTSP_URI ANETLINK_ONVIF_XADDR
+  fi
   CGO_ENABLED=0 timeout 600 go test -tags realworld -run TestReal -v -timeout 540s \
     ./adapters/... ./internal/... ./matter/... 2>&1
 } > "$LOG" 2>&1
@@ -77,6 +91,11 @@ cat > "$STAGE/down.sh" <<'DOWNEOF'
 # Always, even after a failed run: a Matter device left advertising past
 # its window is a device the next run finds silent and reports as broken.
 cd /opt/anet-realworld/ANetLink 2>/dev/null && bash test/realworld/down.sh >/dev/null 2>&1
+# ANetLink's down.sh leaves out the camera rig that up.sh starts with
+# --network host: left running, it keeps an ONVIF emulator and two TCP
+# proxies (8081, 8555, 8580) open on every address the host has, public
+# ones included, until the next run.
+docker rm -f anetlink-rtsp anetlink-onvif >/dev/null 2>&1
 exit 0
 DOWNEOF
 
