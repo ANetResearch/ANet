@@ -8,6 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -204,20 +208,24 @@ func peerNote(c *client, aid string) string {
 }
 
 // runHubRegister is `anet hub-register <url> [--name N] [--caps a,b]
-// [--token INVITE]`. The wire-1 --accept-delegations flag is still read:
-// true is refused like `accept on`, false asks for what the closed policy
-// does (A2A-DESIGN §5.1).
+// [--token-file F]`, with an invite in ANET_INVITE or the file. The wire-1
+// --accept-delegations flag is still read: true is refused like `accept
+// on`, false asks for what the closed policy does (A2A-DESIGN §5.1).
 func runHubRegister(c *client, rest []string) error {
 	pos, flags := splitFlags(rest)
 	if len(pos) < 1 || pos[0] == "" {
-		return fmt.Errorf("hub-register <url> [--name NAME] [--caps a,b] [--token INVITE]")
+		return fmt.Errorf("hub-register <url> [--name NAME] [--caps a,b] [--token-file FILE]   (invite: ANET_INVITE or --token-file)")
+	}
+	invite, err := inviteFrom(flags)
+	if err != nil {
+		return err
 	}
 	body := map[string]any{"hub": pos[0], "name": flags["name"]}
 	// Only sent when given. A hub that admits openly has no use for it, and
 	// sending an empty string would make the two cases look different on
 	// the wire when they are not.
-	if v := strings.TrimSpace(flags["token"]); v != "" {
-		body["token"] = v
+	if invite != "" {
+		body["token"] = invite
 	}
 	if v := flags["caps"]; v != "" {
 		body["caps"] = strings.Split(v, ",")
@@ -233,6 +241,97 @@ func runHubRegister(c *client, rest []string) error {
 		body["accept_delegations"] = false
 	}
 	return c.do("/hub-register", body)
+}
+
+// inviteEnv is the environment variable a hub invite is passed in.
+const inviteEnv = "ANET_INVITE"
+
+// errInviteOnCommandLine refuses `--token <invite>`.
+var errInviteOnCommandLine = fmt.Errorf("hub-register: the invite is not taken on the command line, where every local user can read it " +
+	"(ps, /proc/<pid>/cmdline) while the command runs; pass it in the " + inviteEnv + " environment variable " +
+	"(" + inviteEnv + "=anetinv_… anet hub-register <url> …) or with --token-file FILE (- reads standard input). " +
+	"An agent's shell tool puts the whole command it runs on a command line, an " + inviteEnv + "=… prefix included: " +
+	"an agent writes the invite into a file with its file-editing tool, in a directory only this user can enter, " +
+	"and passes --token-file FILE")
+
+// inviteFrom returns the hub invite for hub-register: from --token-file (a file, or - for standard
+// input), else from ANET_INVITE, else "" (a hub that admits openly needs none). An invite is a
+// credential — whoever presents it first is admitted, and a single-use one is then spent for its owner
+// — so it is never read from argv [redteam:F41].
+func inviteFrom(flags map[string]string) (string, error) {
+	if _, ok := flags["token"]; ok {
+		return "", errInviteOnCommandLine
+	}
+	if f, ok := flags["token-file"]; ok {
+		var r io.Reader
+		if f == "-" {
+			r = os.Stdin
+		} else {
+			fh, err := os.Open(f)
+			if err != nil {
+				return "", fmt.Errorf("hub-register: --token-file: %w", err)
+			}
+			defer fh.Close()
+			if err := inviteFileExposed(fh, f); err != nil {
+				return "", err
+			}
+			r = fh
+		}
+		b, err := io.ReadAll(io.LimitReader(r, 4096))
+		if err != nil {
+			return "", fmt.Errorf("hub-register: --token-file: %w", err)
+		}
+		v := strings.TrimSpace(string(b))
+		if v == "" {
+			return "", fmt.Errorf("hub-register: --token-file %s holds no invite", f)
+		}
+		return v, nil
+	}
+	return strings.TrimSpace(os.Getenv(inviteEnv)), nil
+}
+
+// inviteFileExposed refuses an invite file that other local users can read: the file is where the invite
+// goes instead of the command line, and one they can read leaks it the same way [redteam:F41].
+// `echo anetinv_… > invite.txt` makes a 0644 file, and home directories are often searchable by everyone.
+// A file readable by group or others is accepted only inside a directory that class cannot enter. Only a
+// regular file is judged; a pipe (--token-file <(…)) or a terminal is not on disk.
+func inviteFileExposed(fh *os.File, path string) error {
+	fi, err := fh.Stat()
+	if err != nil || !fi.Mode().IsRegular() {
+		return err
+	}
+	m := fi.Mode().Perm()
+	if m&0o044 == 0 {
+		return nil
+	}
+	var dm fs.FileMode
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		if di, err := os.Stat(filepath.Dir(real)); err == nil {
+			dm = di.Mode().Perm()
+		} else {
+			dm = 0o011 // cannot tell: assume it can be entered
+		}
+	} else {
+		dm = 0o011
+	}
+	if (m&0o040 != 0 && dm&0o010 != 0) || (m&0o004 != 0 && dm&0o001 != 0) {
+		return fmt.Errorf("hub-register: --token-file %s can be read by other local users (mode %04o in a directory they can enter); "+
+			"chmod 600 %s, or keep it in a directory only you can enter, and run the command again — "+
+			"an invite someone else reads first is theirs", path, m, path)
+	}
+	return nil
+}
+
+// envWithout returns env without the variable named key. The daemon does not need a hub invite, and a
+// long-lived process that holds one passes it on to everything it runs.
+func envWithout(env []string, key string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, key+"=") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // runAccept is the wire-1 `anet accept <on|off>` (A2A-DESIGN §5.1). "on"

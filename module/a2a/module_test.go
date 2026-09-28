@@ -151,31 +151,30 @@ func TestBackendConfig(t *testing.T) {
 func TestAddressIsKeptAcrossRestarts(t *testing.T) {
 	isolateHome(t)
 	dir := t.TempDir()
-	ln, err := listen(dir)
-	if err != nil {
-		t.Fatal(err)
+	ln, fresh, err := listen(dir)
+	if err != nil || !fresh {
+		t.Fatal(fresh, err)
 	}
 	first := ln.Addr().String()
 	ln.Close()
-	ln, err = listen(dir)
+	ln, fresh, err = listen(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ln.Addr().String() != first {
-		t.Fatalf("restart moved %s to %s", first, ln.Addr())
+	if ln.Addr().String() != first || fresh {
+		t.Fatalf("restart moved %s to %s (fresh %v)", first, ln.Addr(), fresh)
 	}
-	// Taken by someone else meanwhile: moved, and the file follows.
+	// Taken by someone else meanwhile: refused, not moved, and the file is
+	// left naming the address the clients were given (F18: portsquat_test.go).
 	taken := ln
-	ln, err = listen(dir)
-	if err != nil {
-		t.Fatal(err)
+	defer taken.Close()
+	if ln, _, err = listen(dir); err == nil {
+		ln.Close()
+		t.Fatal("moved away from the recorded address")
 	}
-	defer ln.Close()
-	taken.Close()
-	moved := ln.Addr().String()
 	b, _ := os.ReadFile(filepath.Join(dir, AddrFile))
-	if moved == first || strings.TrimSpace(string(b)) != moved {
-		t.Fatalf("collision: listening on %s, file says %q (first %s)", moved, b, first)
+	if strings.TrimSpace(string(b)) != first {
+		t.Fatalf("collision rewrote the file to %q (first %s)", b, first)
 	}
 }
 
@@ -188,32 +187,24 @@ func TestAddressRules(t *testing.T) {
 		}
 	}
 	write("0.0.0.0:41999\n")
-	if ln, err := listen(dir); err == nil {
+	if ln, _, err := listen(dir); err == nil {
 		ln.Close()
 		t.Fatal("bound a non-loopback address")
 	}
 	write("192.168.1.10:41999")
-	if ln, err := listen(dir); err == nil {
+	if ln, _, err := listen(dir); err == nil {
 		ln.Close()
 		t.Fatal("bound a LAN address")
 	}
-	// A hand-picked port outside the scan range that is taken is an error,
-	// not a silent move.
-	var hold net.Listener
-	for {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !autoAssigned(l.Addr().String()) {
-			hold = l
-			break
-		}
-		defer l.Close() // inside the scan range: not a hand-picked address
+	// A hand-picked port that is taken is an error, not a silent move —
+	// as is any recorded port now (F18).
+	hold, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
 	}
 	defer hold.Close()
 	write(hold.Addr().String())
-	if ln, err := listen(dir); err == nil {
+	if ln, _, err := listen(dir); err == nil {
 		ln.Close()
 		t.Fatal("moved away from an operator's address")
 	}
@@ -240,7 +231,7 @@ func TestAllocationSkipsOtherIdentities(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(other, AddrFile), []byte("127.0.0.1:"+strconv.Itoa(p)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ln, err := listen(mine)
+	ln, _, err := listen(mine)
 	if err != nil {
 		t.Fatal(err)
 	}

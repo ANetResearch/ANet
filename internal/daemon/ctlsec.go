@@ -134,7 +134,7 @@ func (d *Daemon) secureControlPlane(token string, api *routeMux) *controlPlane {
 
 	top := newRouteMux()
 	top.HandleFunc("GET /console", d.consoleHandler())
-	top.HandleFunc("GET /ping", d.pingHandler())
+	top.HandleFunc("GET /ping", d.pingHandler(token))
 	top.HandleFunc("POST /console/session", d.hConsoleSession(cs))
 	// A browser landing on the bare root (typed URL, bookmark) is sent to the console page, which tells
 	// the operator to run `anet console` when it has no ticket. ({$} matches ONLY "/", so the gate keeps

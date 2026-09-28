@@ -21,7 +21,7 @@
 //	<home>/ids/<name>           every other named identity
 //	<home>/current              the name `anet id use` selected
 //	<data dir>/modules/<module> a module's private state (Host.StateDir)
-//	<data dir>/modules/a2a/a2a_addr.txt, a2a_token.txt
+//	<data dir>/modules/a2a/a2a_addr.txt, a2a_token.txt (a2a_port_conflict.txt)
 //
 // A data directory chosen with ANET_DATA_DIR sits outside this layout on
 // purpose (tests, scripts); it is found by nothing here.
@@ -51,6 +51,12 @@ const (
 	// anet agents wire and other identities' allocators read them.
 	A2AAddrFile  = "a2a_addr.txt"
 	A2ATokenFile = "a2a_token.txt"
+	// A2AConflictFile is present, in A2ADir, while the local A2A interface
+	// is not running because another process held its recorded port at
+	// the last start (A2A-DESIGN §11.1 [redteam:F18]); it says which port,
+	// who held it and whether the token was replaced. module/a2a writes
+	// and removes it; `anet up` and `anet doctor` report it.
+	A2AConflictFile = "a2a_port_conflict.txt"
 )
 
 // Home is the identity container: $ANET_HOME, else ~/.anet, else ./.anet.

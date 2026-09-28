@@ -8,6 +8,16 @@ package a2a
 // restart: the port is written to a2a_addr.txt the first time it is chosen
 // and bound again every time after, and the token is made once
 // (A2A-DESIGN §11.1, X5).
+//
+// Those clients send the token to the recorded port without asking who is
+// listening there; they are not ours to change. So the interface never
+// leaves the recorded port for another one while clients still point at it
+// [redteam:F18]. Moving used to be silent: the clients went on sending
+// Authorization: Bearer <token> to whoever took the old port, and the token
+// kept working on the new one. Now a taken recorded port means the
+// interface does not start (portTaken, in module.go), and whenever the
+// port does change — a2a_addr.txt was removed — the token changes with it,
+// so a token that clients may have sent to the old port is worth nothing.
 
 import (
 	"crypto/rand"
@@ -15,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -24,6 +33,7 @@ import (
 	"syscall"
 
 	"github.com/ANetResearch/ANet/internal/anethome"
+	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/loopguard"
 )
 
@@ -32,8 +42,9 @@ import (
 // address, all through internal/anethome, which names them once for every
 // build (no_a2a included).
 const (
-	AddrFile  = anethome.A2AAddrFile
-	TokenFile = anethome.A2ATokenFile
+	AddrFile     = anethome.A2AAddrFile
+	TokenFile    = anethome.A2ATokenFile
+	ConflictFile = anethome.A2AConflictFile
 )
 
 // Where a first start looks for a free port: 43811-45810 (the range
@@ -47,50 +58,73 @@ const (
 
 // listen binds the interface's address.
 //
-// A recorded address is bound again. If its port has been taken since, and
-// it is one this allocator chose (loopback, inside the scan range), a new
-// one is chosen, recorded and logged — the clients configured with the old
-// one stop working, which `anet doctor` reports; refusing to start would
-// take the whole node down over a port. An address somebody wrote into the
-// file by hand is a decision: a collision there is an error, the rule the
-// control plane follows for its own address. An address that is not
-// loopback is refused either way.
-func listen(dir string) (net.Listener, error) {
+// A recorded address is bound again, or not at all: if another process holds
+// its port, listen returns a *portTakenError and the caller leaves the
+// interface down rather than move it (see the top of this file). Only when
+// no address is recorded is one chosen, recorded, and reported as fresh, so
+// that the caller replaces a token that clients may hold for another port.
+// An address that is not loopback is refused.
+func listen(dir string) (ln net.Listener, fresh bool, err error) {
 	path := filepath.Join(dir, AddrFile)
 	recorded, err := readSmallFile(path)
-	old := ""
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
-		return nil, err
+		return nil, false, err
 	default:
 		addr := strings.TrimSpace(recorded)
 		if err := checkLoopbackAddr(addr); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, false, fmt.Errorf("%s: %w", path, err)
 		}
 		ln, err := net.Listen("tcp", addr)
 		if err == nil {
-			return ln, nil
+			return ln, false, nil
 		}
-		if !errors.Is(err, syscall.EADDRINUSE) || !autoAssigned(addr) {
-			return nil, err
+		if errors.Is(err, syscall.EADDRINUSE) {
+			return nil, false, &portTakenError{addr: addr, err: err}
 		}
-		old = addr
+		return nil, false, err
 	}
 	ln, port, err := allocate(otherIdentityPorts(dir))
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	if err := writePrivateFile(path, []byte(addr+"\n")); err != nil {
 		_ = ln.Close()
-		return nil, err
+		return nil, false, err
 	}
-	if old != "" {
-		log.Printf("anet: a2a: %s was taken; the local A2A interface moved to %s and %s was updated. "+
-			"Clients configured with the old address must be updated (anet agents wire --refresh)", old, addr, path)
+	return ln, true, nil
+}
+
+// portTakenError is listen's report that another process holds the recorded
+// address.
+type portTakenError struct {
+	addr string
+	err  error
+}
+
+func (e *portTakenError) Error() string { return e.addr + " is taken: " + e.err.Error() }
+func (e *portTakenError) Unwrap() error { return e.err }
+
+// portHolder says who holds a taken address, and whether that could be
+// another local user. It could, unless the socket table shows only this
+// uid's listeners on it; where there is no socket table (not Linux) the
+// holder cannot be named, and is treated as another user.
+func portHolder(addr string) (who string, otherUser bool) {
+	uids, err := localpeer.ListenerUIDs(addr)
+	if err != nil {
+		return "a process whose owner this system cannot name", true
 	}
-	return ln, nil
+	for _, u := range uids {
+		if u != os.Getuid() {
+			return fmt.Sprintf("a process of uid %d (another local user)", u), true
+		}
+	}
+	if len(uids) == 0 {
+		return "a process that has let go of it since", true
+	}
+	return "another process of this user", false
 }
 
 // allocate binds the first free loopback port in the scan range that no
@@ -108,16 +142,6 @@ func allocate(used map[int]bool) (net.Listener, int, error) {
 		return ln, p, nil
 	}
 	return nil, 0, fmt.Errorf("no free port for the local A2A interface in %d-%d", portBase, portBase+portSpan-1)
-}
-
-// autoAssigned reports whether an address looks like one allocate chose.
-func autoAssigned(addr string) bool {
-	host, ps, err := net.SplitHostPort(addr)
-	if err != nil || host != "127.0.0.1" {
-		return false
-	}
-	p, err := strconv.Atoi(ps)
-	return err == nil && p >= portBase && p < portBase+portSpan
 }
 
 // checkLoopbackAddr accepts host:port on 127.0.0.1, localhost or [::1]
@@ -184,8 +208,8 @@ const tokenBytes = 32
 // users could read would authorize them to send work and agent-tier
 // payments as this node.
 //
-// Rotation is deleting the file and restarting; clients then need the new
-// token (anet agents wire --refresh).
+// Rotation is deleting the file and restarting, or rotateToken; clients
+// then need the new token (anet agents wire --refresh).
 func loadOrCreateToken(dir string) (string, error) {
 	path := filepath.Join(dir, TokenFile)
 	for attempt := 0; attempt < 2; attempt++ {
@@ -224,6 +248,21 @@ func loadOrCreateToken(dir string) (string, error) {
 		return tok, nil
 	}
 	return "", fmt.Errorf("%s: could not be read or made", path)
+}
+
+// rotateToken replaces the token with a new one. The old one stops working
+// the moment the interface next starts with the file, which is the point:
+// it is called when clients may have handed the old one to somebody else.
+func rotateToken(dir string) (string, error) {
+	raw := make([]byte, tokenBytes)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	tok := hex.EncodeToString(raw)
+	if err := writePrivateFile(filepath.Join(dir, TokenFile), []byte(tok+"\n")); err != nil {
+		return "", err
+	}
+	return tok, nil
 }
 
 // maxStateFile bounds what is read from a state file: an address or a

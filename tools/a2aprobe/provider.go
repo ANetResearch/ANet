@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/localpeer"
 )
 
 // ---------------------------------------------------------------------------
@@ -46,8 +48,10 @@ func cmdResponder(args []string) int {
 		fmt.Fprintf(os.Stderr, "a2aprobe responder: %v\n", err)
 		return 2
 	}
+	// The control token goes only to a listener verified to be this user's daemon, as it does from the
+	// CLI (internal/localpeer, A2A-DESIGN §7 item 10 [redteam:F18]).
 	r := &responder{ctl: *ctl, token: tok, hold: *hold, answered: map[string]string{},
-		hc: &http.Client{Timeout: 60 * time.Second}}
+		hc: localpeer.Client(tok, 60*time.Second)}
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.Printf("responder: answering text tasks at %s", *ctl)
 	var lastErr string

@@ -24,6 +24,7 @@ import (
 	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
+	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 )
@@ -43,6 +44,11 @@ func loadOrGenControlToken(l Layout) (string, error) {
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}
+	return newControlToken(l)
+}
+
+// newControlToken makes a control token and writes it to control_token.txt (0600), replacing any.
+func newControlToken(l Layout) (string, error) {
 	var raw [24]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return "", err
@@ -297,8 +303,42 @@ func (d *Daemon) listenControl() (net.Listener, error) {
 		_ = moved.Close()
 		return nil, fmt.Errorf("anet: %s was taken and the new control address could not be saved: %w", addr, serr)
 	}
-	log.Printf("anet: control port %s was taken by another daemon; moved to %s and updated config.json", addr, next)
+	// The holder may be another identity's daemon, or another local user's process. Either way no
+	// client of ours sent it the control token: they verify the listener first (internal/localpeer,
+	// A2A-DESIGN §7 item 10 [redteam:F18]).
+	log.Printf("anet: control port %s was taken by another process%s; moved to %s and updated config.json",
+		addr, portHolder(addr), next)
 	return moved, nil
+}
+
+// portHeldByThisUser reports whether the process holding addr is provably this user's: the check anet's
+// clients make before they send the token (localpeer.Verify: the socket table's uid on Linux; elsewhere
+// the holder must prove it knows token, which this identity's own daemon started twice does). A holder
+// that has let go, or cannot be told apart from another user, is not.
+func portHeldByThisUser(addr, token string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	defer conn.Close()
+	return localpeer.Verify(ctx, conn, token) == nil
+}
+
+// portHolder describes who holds a taken port, for a log line: " (uid N, another user)" when the socket
+// table names a uid other than this one, "" otherwise.
+func portHolder(addr string) string {
+	uids, err := localpeer.ListenerUIDs(addr)
+	if err != nil {
+		return ""
+	}
+	for _, u := range uids {
+		if u != os.Getuid() {
+			return fmt.Sprintf(" (uid %d, another user)", u)
+		}
+	}
+	return ""
 }
 
 // autoAssignedControlAddr reports whether an address looks like one this daemon allocated for itself
@@ -318,7 +358,26 @@ func (d *Daemon) ServeControl(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Another local user may have held the control port while this daemon was down. anet's own clients
+	// verify the listener and sent it nothing, but not every client of the control plane is anet's (a
+	// script's curl, an older anet), and what they sent there must not open this daemon — on the port
+	// it moves to, or on this one once the holder lets go: the token is replaced, as module/a2a replaces
+	// its own (A2A-DESIGN §7 item 10 [redteam:F18]). Clients read control_token.txt, so they follow. A
+	// holder that is provably this user (another identity's daemon) is not a boundary.
+	from := d.config().ControlAddr
 	ln, err := d.listenControl()
+	taken := errors.Is(err, syscall.EADDRINUSE) || (err == nil && d.config().ControlAddr != from)
+	if taken && !portHeldByThisUser(from, token) {
+		tok, rerr := newControlToken(d.layout)
+		if rerr != nil {
+			if ln != nil {
+				_ = ln.Close()
+			}
+			return errors.Join(err, fmt.Errorf("anet: replace the control token after %s was taken: %w", from, rerr))
+		}
+		token = tok
+		log.Printf("anet: the control token was replaced, because clients may have sent the old one to the process holding %s", from)
+	}
 	if err != nil {
 		return err
 	}

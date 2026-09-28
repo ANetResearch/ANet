@@ -150,10 +150,10 @@ reachable(){
 ctl(){
   local node=$1 path=$2 body=$3
   case $node in
-    ink93) curl -s -m 180 -H "Authorization: Bearer $(cat "$INK_HOME/.anet/control_token.txt")" \
+    ink93) curl -s -m 180 -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$INK_HOME/.anet/control_token.txt")") \
              -H 'Content-Type: application/json' -d "$body" "http://127.0.0.1:$INK_PORT$path" ;;
-    cmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST "curl -s -m 180 -H 'Authorization: Bearer '\$(cat $CMAX_HOME/.anet/control_token.txt) -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$CMAX_PORT$path" ;;
-    dmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $DMAX_HOST "curl -s -m 180 -H 'Authorization: Bearer '\$(cat $DMAX_HOME/.anet/control_token.txt) -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$DMAX_PORT$path" ;;
+    cmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST "printf 'Authorization: Bearer %s\n' \"\$(cat $CMAX_HOME/.anet/control_token.txt)\" | curl -s -m 180 -H @- -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$CMAX_PORT$path" ;;
+    dmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $DMAX_HOST "printf 'Authorization: Bearer %s\n' \"\$(cat $DMAX_HOME/.anet/control_token.txt)\" | curl -s -m 180 -H @- -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$DMAX_PORT$path" ;;
   esac
 }
 # viafmax <path> — reach the fmax hub from a host its firewall admits.
@@ -614,8 +614,10 @@ sig=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout
 if [ -z "$sig" ]; then
   sk "网关付款跳过:节点上没有 x402-authorize(fixture 未部署)"
 else
-  gw=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST \
-        "curl -s -D /tmp/gw.hdr -m 40 -H 'PAYMENT-SIGNATURE: $sig' '$FMAX_HUB$RES'")
+  # The signed payment header goes over ssh's stdin, not into a command line on either host: whoever
+  # reads it first (ps, /proc/<pid>/cmdline) can present it to the gateway before us (L5).
+  gw=$(printf 'PAYMENT-SIGNATURE: %s\n' "$sig" | ssh -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST \
+        "curl -s -D /tmp/gw.hdr -m 40 -H @- '$FMAX_HUB$RES'")
   gwcode=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "head -1 /tmp/gw.hdr | awk '{print \$2}'")
   voucher=$(echo "$gw" | jq_ "print(d.get('voucher',''))")
   [ "$gwcode" = 200 ] && [ -n "$voucher" ] && ok "付款后拿到的是凭证,不是结果 —— hub 见不到内容" \
@@ -1063,7 +1065,7 @@ if ! has ink93 || ! has cmax; then
   sk "要 ink93 与 cmax 两侧"
 else
   att=$(mktemp); head -c $((2*1024*1024)) /dev/urandom > "$att"
-  aix=$(curl -s -m 300 -H "Authorization: Bearer $(cat "$INK_HOME/.anet/control_token.txt")" \
+  aix=$(curl -s -m 300 -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$INK_HOME/.anet/control_token.txt")") \
         -F "provider=$CMAX_AID" -F "goal=prodtest 附件" -F "attachment=@$att" \
         "http://127.0.0.1:$INK_PORT/delegate" | jq_ "print(d.get('interaction_id',''))")
   if [ -z "$aix" ]; then
