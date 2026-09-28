@@ -258,7 +258,7 @@ func skipBasic(l string, i int) int {
 }
 
 // tomlPath splits a dotted TOML key into its parts, unquoting each. A
-// basic-string part means what its escapes say ("anet" is anet), as
+// basic-string part means what its escapes say ("an\u0065t" is anet), as
 // Codex's TOML reader takes it (docs/notes/0033).
 func tomlPath(key string) []string {
 	var parts []string
