@@ -100,6 +100,7 @@ anet delegate <provider-aid> --capability text.digest.paid --args '{"text":"hi"}
 
 - 新节点**什么都不自动花**:自动档与 agent 档都是 0。经 MCP 或本机 A2A 接口提交的付款属于 agent 档,不视为你本人的同意。
 - 收款方名单 `payees.allow`(数据目录下,一行一个 AID):用 `anet payees list|add|remove` 管理(`add` 要在终端上确认,每次变更写 `anet.policy.changed`),也可以直接编辑文件;键非空即启用,文件缺失等于空表;`anet init` 建一个空文件。名单外的收款方一律拒绝(兑付除外,它的收款方是 hub)。名单关闭(`payees_file` 为空)时 `anet payees` 不能编辑。
+- 卡片上的价格:缺省在网络卡片(anet-pricing/v1)与 ADP 卡片上公开每项能力的签名价格,调用方事先可见,hub 网关据此出售。代价是结算金额可指向所买能力(已知局限第 9 条)。在 `config.json` 的 `payments` 块设 `"publish_prices": false` 则不公开,价格只在端到端加密的报价里给出,hub 网关不再能出售你的能力;改后重启 daemon,卡片随下次发布更新。
 - 改上限:`anet payments set auto_max=… agent_max=… agent_daily_max=… explicit_max=… daily_max=…`,要在终端上确认;`anet payments` 显示当前上限与最近 24 小时签过的授权额。日累计按**已签授权额**计,不是已结算额。
 - agent 档超出上限或收款方不在名单上时**不报错**:任务仍停在 `input-required`,`anet.reason=needs_operator_approval`,`status.message` 写明你在终端上要先做的步骤(例如 `anet payees add <AID>`、`anet payments set explicit_max=…`),再 `anet pay <ix>`;`/tasks/pay` 以 200 返回并带 `spend_refusal`。什么都没签、没发。人工、网关与兑付档超限仍直接拒绝(403)。
 - 控制台不能授权付款。终端确认在 CLI 进程里做,挡得住只经 MCP 或 A2A 接口行事的 agent,挡不住能读控制令牌的本机程序([已知局限](KNOWN-LIMITATIONS-zh.md)第 13 条)。

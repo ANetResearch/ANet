@@ -23,7 +23,7 @@
 
 | 编号 | 不变量 | 验收方式 |
 |---|---|---|
-| SI-1 | hub 进程、hub 磁盘(含 WAL、备份、admin 数据目录)、hub 与 hub admin 的任何 HTTP 响应中,不出现任务内容:TaskDoc 正文、聊天正文、交付物、附件字节、能力参数、x402 `resource`。经中继结算路径到达 hub 的付款对象(`/x402/settle` 请求体、结算行、跨 hub 转发体)中 `resource`、`description`、`extra` 为空或固定值(结构化断言)。hub 网关与凭证路径(§2 冻结项)不在本条范围内 | `joint.sh` canary:hub 与 `anet-hub-admin` 同时运行(采集与快照周期调短),流程含一次对官方 agent 测试实例的调用;对 hub 数据目录、admin 数据目录、`/agents/{aid}`、`/fed/v1/reviews`、admin `/api/sessions*` 做字节搜索,命中 0;断言 admin `/api/official/{id}/insights`、`/acl`、`/monitor/*`、`/ops` 返回 404。mutation:关闭加密、恢复任一采集源,均须命中。反向断言:收件方解出 canary |
+| SI-1 | hub 进程、hub 磁盘(含 WAL、备份、admin 数据目录)、hub 与 hub admin 的任何 HTTP 响应中,不出现任务内容:TaskDoc 正文、聊天正文、交付物、附件字节、能力参数、x402 `resource`。经中继结算路径到达 hub 的付款对象(`/x402/settle` 请求体、结算行、跨 hub 转发体)中 `resource`、`description`、`extra` 为空或固定值(结构化断言)。本条是字节与结构断言;收款方与金额加上公开的逐 skill 价格仍可推出所买 skill,见 §21 第 9 条 [redteam:F1]。hub 网关与凭证路径(§2 冻结项)不在本条范围内 | `joint.sh` canary:hub 与 `anet-hub-admin` 同时运行(采集与快照周期调短),流程含一次对官方 agent 测试实例的调用;对 hub 数据目录、admin 数据目录、`/agents/{aid}`、`/fed/v1/reviews`、admin `/api/sessions*` 做字节搜索,命中 0;断言 admin `/api/official/{id}/insights`、`/acl`、`/monitor/*`、`/ops` 返回 404。mutation:关闭加密、恢复任一采集源,均须命中。反向断言:收件方解出 canary |
 | SI-2 | hub 不存储 `from_aid`、`kind`、`interaction_id`;中继行 ack 即删 | hub 单测 + 联调读表 |
 | SI-3 | daemon 只接受封装信封;未封装、签名不符、收件人不符、过期、重放一律拒收,不做明文回退 | 逐字段变异测试(§3.6) |
 | SI-4 | 交互内每一条入站消息的发送方都经签名证明是该交互的对端 | 伪造 `from` 注入测试(真 hub 与 fake hub 都不校验 `from`) |
@@ -517,6 +517,8 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
               "explicit_max": 10, "daily_max": 50, "payees_file": "payees.allow" }
 ```
 
+可选键 `publish_prices`(缺省 `true`):为 `false` 时网络卡片不带 anet-pricing、ADP 卡片不带价格表,价格只在 E2E 报价中给出;取舍见 §21 第 9 条 [redteam:F1]。
+
 - 三档:**auto**(daemon 自动,`auto_max`);**agent**(MCP `submit_payment`、本机 A2A 客户端 `payment-submitted`,`agent_max`/`agent_daily_max`);**人工**(`anet pay <ix>`、`anet redeem`,须 `/dev/tty` 交互确认,`explicit_max`/`daily_max`)。修改支出上限的命令同样要求 TTY。控制台会话不能授权付款。
 - 执行点:`module.PaymentSeam` 增加 `AdmitSpend(payTo string, amount uint64, purpose string) error`,由内核实现;x402 模块 `Authorize` 在 `seam.Sign` 之前调用它(覆盖模块内部的 `Redeem`)。`module.Payer.Authorize` 改为 `Authorize(opt payment.PaymentOption, ix, bind, purpose string) ([]byte, error)`:授权的 `InteractionID` 填 `bind`;`anet.payment.authorized` 事件增加 `interaction_id`(ix)、`pay_bind`、`purpose` 字段。一把互斥锁覆盖"检查—记录";日累计按已签授权额计(不是已结算额),启动时按 purpose 从该事件重建,读取量覆盖 24 小时 [C27]。
 - 档位由控制面路由决定:
@@ -570,7 +572,7 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 - 只有至少一个公开 skill 的节点发布网络卡片。
 - `supportedInterfaces`:中继绑定 `{url: <hub 中继端点>, protocolBinding: "https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1", protocolVersion: "1.0", tenant: <AID>}`;p2p 启用时追加直连条目。127.0.0.1 不进入网络卡片。
 - `securitySchemes` 省略(认证由绑定内的发送方签名承担);不定义新 scheme 类型。
-- `capabilities.extensions`:`…/anet-card/v1`(`params{aid, seq:"<字符串>", issuedAt, notBefore}`)、a2a-x402 v0.2、`…/anet-pricing/v1`(`params{network, prices:[{skillId, amount:"<字符串>"}]}`)、`…/anet-evidence/v1`。
+- `capabilities.extensions`:`…/anet-card/v1`(`params{aid, seq:"<字符串>", issuedAt, notBefore}`)、a2a-x402 v0.2、`…/anet-pricing/v1`(`params{network, prices:[{skillId, amount:"<字符串>"}]}`;`payments.publish_prices=false` 时不发布,只在 E2E 报价中给出价格,见 §21 第 9 条 [redteam:F1])、`…/anet-evidence/v1`。
 - 数值一律字符串;必填切片非 nil;`streaming`、`pushNotifications` 显式输出。
 - 发布形(`a2acard.CheckPublishForm`,`Sign` 只接受发布形,不自动改写):REQUIRED 字段必须出现且非空(REQUIRED 数组至少一项:`supportedInterfaces`、`defaultInputModes`、`defaultOutputModes`、`skills`、每个 skill 的 `tags`;`name`/`description`/`version`、接口的 `url`/`protocolBinding`/`protocolVersion` 非空);`optional` 字段仅在显式设置时出现,且不为空串;其余字段处于默认值(`false`、`""`、`[]`、`{}`、`null`)时一律省略;不出现 schema 以外的成员;扩展 `params` 内部不出现 `null`/`""`/`[]`/`{}`(a2a-python 会在 Struct 内部删除它们,规范不删,两边原像不同);oneof 消息(`SecurityScheme`、`OAuthFlows`)恰好设置一个成员(a2a-python 与 a2a-go 都拒绝解析设置了两个的对象);a2a-go 每次序列化都写出的成员必须出现(`capabilities.streaming`/`pushNotifications`,以及已弃用的 implicit/password OAuth 流的 `authorizationUrl`/`tokenUrl`/`scopes`),否则 a2a-go 解析—再序列化后载荷改变;`extendedAgentCard` 出现时只能为 `true`。扩展声明用 `a2acard.ExtensionDecl` 构造。
 
@@ -878,7 +880,7 @@ B 与 C 在 A 完成后并行;同一仓库内按文件归属串行推进。
 6. 对端 KEL 首次信任:第一次看到某 AID 时接受其自证明 KEL;回退防护只覆盖已有持久记录的对端。hub 可以提供旧卡片与截断 KEL,daemon 只拒绝回退到本机已见状态之前。
 7. `hub:<aid>` 不满足 CAIP-2。
 8. `return_immediately=false` 的 SendMessage 在对端离线时可能等待很久;客户端超时不取消任务,重试会建第二个任务。
-9. hub 能按付款方、收款方与时间把结算与公开评价关联;公开发放链显示每笔跨 hub 付款、清算与兑付的金额、时间与 AID。经 hub 网关购买的凭证与报价含能力 id 与收款方,hub 可见。
+9. hub 能按付款方、收款方与时间把结算与公开评价关联;公开发放链显示每笔跨 hub 付款、清算与兑付的金额、时间与 AID。经 hub 网关购买的凭证与报价含能力 id 与收款方,hub 可见。结算请求不带 `resource`,但带收款方与准确金额;收款方在卡片上公开逐 skill 价格(anet-pricing/v1、ADP 卡片价格表,§10.1)时,由"收款方 + 金额"即可推出所买 skill,也就是报价里的 `resource`:hub 对每笔结算都能做到,跨 hub 付款则任何读公开发放链的人都能做到;价格相同的 skill 之间无法区分,只标价一个 skill 的节点本来就只有这一个可买。取舍:`payments.publish_prices=false` 时卡片不发布逐 skill 价格,价格只在 E2E 报价中给出,结算金额不再经公开价格指向 skill;代价是调用前看不到价格、hub 网关无法出售该节点的能力(网关只按签名卡片上的价格出售),卡片仍声明 a2a-x402(全部 skill 收费时 `required`)。缺省 `true`,因为公开签名价格让 hub 无法以卡片外的价格报价,也让调用方事先知道价格。profile 的自由文本 `pricing` 若写了逐能力价格,同样公开 [redteam:F1]。
 10. 通过 curl|sh 从 agentnetwork.org.cn 或 hub 域名首次安装时,信任提供脚本的主机(当前与官方 hub 同机);按 hub 的 llms.txt 行事的 agent 执行的是该 hub 提供的指令。安装后 `anet update` 只依赖发布密钥。
 11. KEL 轮换没有产品触发路径;轮换宽限默认 1 小时,超过宽限仍在信箱中的旧密钥消息会被拒收。
 12. `A2A-Version` 缺省按 1.0 处理,偏离规范的"缺省按 0.3"。
