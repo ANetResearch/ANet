@@ -221,12 +221,16 @@ func (d *Daemon) Inbound() module.Inbound { return inbound{d} }
 type inbound struct{ d *Daemon }
 
 func (in inbound) Receive(ctx context.Context, envelope []byte) error {
-	if err := in.d.awaitReady(ctx); err != nil {
-		return err
-	}
+	// The rate limit comes before the wait for start-up: a delivery that
+	// waits holds its envelope and a goroutine, and without the limit
+	// first a slow start-up let anyone who reaches the peer process pile
+	// them up ([redteam:F30] bypass).
 	if !in.d.p2pLimit.allow(in.d.nowMS()) {
 		in.d.count(transientP2PRate)
 		return errP2PRateLimited
+	}
+	if err := in.d.awaitReady(ctx); err != nil {
+		return err
 	}
 	// Acknowledged as soon as step 10 has committed, not after what follows
 	// it (0017 Q29, docs/notes/0025 N3). The sender waits on this answer

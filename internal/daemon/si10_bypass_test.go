@@ -265,3 +265,50 @@ func TestADelegationWhoseAttemptWasNeverRecordedIsNotWithdrawn(t *testing.T) {
 		t.Fatalf("the call ran %d times, want once", n)
 	}
 }
+
+// [redteam:F30] bypass: a direct delivery that arrives while the daemon is
+// starting waits for start-up to finish — and it waited before the
+// daemon-wide rate limit of §3.6 step 0 was applied, so during start-up
+// that limit did not hold at all: every delivery the peer process handed
+// over was kept, envelope bytes and goroutine, until start-up finished or
+// its context ended. A start-up held up by a slow module is a window in
+// which anyone who can reach the peer process piles up work and memory.
+// The limit is applied first now: over it, a delivery is refused at once
+// (the sender goes to the hub), starting or not.
+func TestTheDirectRateLimitHoldsDuringStartUp(t *testing.T) {
+	_, req, prov := registeredPair(t)
+	prov.ready = make(chan struct{}) // start-up not finished
+	env := craft(t, senderOf(req), prov, seal.TypeMessage, "ix_during_start", chatBody(t, "x", ""), nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	const over = 5
+	errc := make(chan error, p2pBurst+over)
+	for i := 0; i < p2pBurst+over; i++ {
+		go func() { errc <- prov.Inbound().Receive(ctx, env) }()
+	}
+	limited := 0
+	timeout := time.After(time.Second)
+	for limited < over {
+		select {
+		case err := <-errc:
+			if !errors.Is(err, errP2PRateLimited) {
+				t.Fatalf("a delivery during start-up returned %v before start-up finished", err)
+			}
+			limited++
+		case <-timeout:
+			t.Fatalf("%d deliveries over the rate limit refused at once, want %d: the rest wait for start-up", limited, over)
+		}
+	}
+	// The ones within the limit still wait for start-up, then go through.
+	select {
+	case err := <-errc:
+		t.Fatalf("a delivery within the limit returned before start-up finished: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(prov.ready)
+	for i := 0; i < p2pBurst; i++ {
+		if err := <-errc; errors.Is(err, errNotReady) || errors.Is(err, errP2PRateLimited) {
+			t.Fatalf("a delivery within the limit, after start-up: %v", err)
+		}
+	}
+}
