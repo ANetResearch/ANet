@@ -94,3 +94,61 @@ func TestTheDaemonDoesNotInheritTheInvite(t *testing.T) {
 		t.Fatalf("%v", env)
 	}
 }
+
+// --token-file is where the invite goes instead of the command line, so a file other local users can read
+// is the same leak by another road [F41, second pass]: `echo anetinv_… > ~/invite.txt` makes a 0644 file,
+// and home directories are often searchable by everyone (Debian's default 0755). Such a file is refused
+// before anything is sent; the same bits inside a directory nobody else may enter are not a leak.
+func TestHubRegisterRefusesAnInviteFileOthersCanRead(t *testing.T) {
+	var calls int
+	var mu sync.Mutex
+	ctl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"registered":true}`))
+	}))
+	defer ctl.Close()
+	c := &client{base: ctl.URL, token: "ctl"}
+	t.Setenv(inviteEnv, "")
+
+	write := func(dirMode, fileMode os.FileMode) string {
+		d := filepath.Join(t.TempDir(), "d")
+		if err := os.Mkdir(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		f := filepath.Join(d, "invite.txt")
+		if err := os.WriteFile(f, []byte("anetinv_FILE\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(f, fileMode); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(d, dirMode); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	for _, m := range [][2]os.FileMode{{0o755, 0o644}, {0o711, 0o604}, {0o750, 0o640}} {
+		f := write(m[0], m[1])
+		err := runHubRegister(c, []string{"https://hub.example", "--token-file", f})
+		if err == nil || !strings.Contains(err.Error(), "chmod 600") {
+			t.Fatalf("dir %o, file %o: %v", m[0], m[1], err)
+		}
+	}
+	mu.Lock()
+	n := calls
+	mu.Unlock()
+	if n != 0 {
+		t.Fatalf("the daemon was called %d time(s) with an invite others could read", n)
+	}
+	for _, m := range [][2]os.FileMode{{0o755, 0o600}, {0o700, 0o644}, {0o701, 0o640}} {
+		f := write(m[0], m[1])
+		_ = captureStdout(t, func() {
+			if err := runHubRegister(c, []string{"https://hub.example", "--token-file", f}); err != nil {
+				t.Errorf("dir %o, file %o: %v", m[0], m[1], err)
+			}
+		})
+	}
+}

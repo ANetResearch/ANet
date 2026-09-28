@@ -22,7 +22,7 @@ func TestInstallShKeepsTheInviteOffCommandLines(t *testing.T) {
 	}
 	script := repoFile(t, "deploy/release/install.sh")
 	var funcs []string
-	for _, name := range []string{"say", "warn", "die", "usage", "parse_args", "join_hub"} {
+	for _, name := range []string{"say", "warn", "die", "usage", "invite_file_exposed", "parse_args", "join_hub"} {
 		re := regexp.MustCompile(`(?ms)^` + name + `\(\)\s*\{(?:[^\n]*\}\n|[^\n]*\n.*?^\}\n)`)
 		f := re.FindString(script)
 		if f == "" {
@@ -95,6 +95,47 @@ func TestInstallShKeepsTheInviteOffCommandLines(t *testing.T) {
 			t.Fatalf("%v\n%s", err, out)
 		}
 		check(t, calls)
+	})
+	// A file other local users can read leaks the invite the way argv did [F41, second pass]: refused
+	// before anything runs. The same file bits inside a directory nobody else may enter are fine.
+	t.Run("from a --token-file others can read: refused", func(t *testing.T) {
+		for _, m := range [][2]os.FileMode{{0o755, 0o644}, {0o711, 0o604}, {0o750, 0o640}} {
+			d := filepath.Join(t.TempDir(), "d")
+			if err := os.Mkdir(d, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			f := filepath.Join(d, "invite")
+			if err := os.WriteFile(f, []byte(secret+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_ = os.Chmod(f, m[1])
+			_ = os.Chmod(d, m[0])
+			out, calls, err := run(t, nil, "--hub https://h --name n --token-file '"+f+"'")
+			if err == nil || !strings.Contains(out, "chmod 600") {
+				t.Fatalf("dir %o, file %o: err %v\n%s", m[0], m[1], err, out)
+			}
+			if strings.Contains(calls, "hub-register") {
+				t.Fatalf("dir %o, file %o: registered: %q", m[0], m[1], calls)
+			}
+		}
+		for _, m := range [][2]os.FileMode{{0o700, 0o644}, {0o701, 0o640}} {
+			d := filepath.Join(t.TempDir(), "d")
+			if err := os.Mkdir(d, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			f := filepath.Join(d, "invite")
+			if err := os.WriteFile(f, []byte(secret+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_ = os.Chmod(f, m[1])
+			_ = os.Chmod(d, m[0])
+			out, calls, err := run(t, nil, "--hub https://h --name n --token-file '"+f+"'")
+			_ = os.Chmod(d, 0o700)
+			if err != nil {
+				t.Fatalf("dir %o, file %o: %v\n%s", m[0], m[1], err, out)
+			}
+			check(t, calls)
+		}
 	})
 	t.Run("from --token-file", func(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "invite")

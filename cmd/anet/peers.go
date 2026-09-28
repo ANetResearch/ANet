@@ -9,7 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -247,7 +249,10 @@ const inviteEnv = "ANET_INVITE"
 // errInviteOnCommandLine refuses `--token <invite>`.
 var errInviteOnCommandLine = fmt.Errorf("hub-register: the invite is not taken on the command line, where every local user can read it " +
 	"(ps, /proc/<pid>/cmdline) while the command runs; pass it in the " + inviteEnv + " environment variable " +
-	"(" + inviteEnv + "=anetinv_… anet hub-register <url> …) or with --token-file FILE (- reads standard input)")
+	"(" + inviteEnv + "=anetinv_… anet hub-register <url> …) or with --token-file FILE (- reads standard input). " +
+	"An agent's shell tool puts the whole command it runs on a command line, an " + inviteEnv + "=… prefix included: " +
+	"an agent writes the invite into a file with its file-editing tool, in a directory only this user can enter, " +
+	"and passes --token-file FILE")
 
 // inviteFrom returns the hub invite for hub-register: from --token-file (a file, or - for standard
 // input), else from ANET_INVITE, else "" (a hub that admits openly needs none). An invite is a
@@ -267,6 +272,9 @@ func inviteFrom(flags map[string]string) (string, error) {
 				return "", fmt.Errorf("hub-register: --token-file: %w", err)
 			}
 			defer fh.Close()
+			if err := inviteFileExposed(fh, f); err != nil {
+				return "", err
+			}
 			r = fh
 		}
 		b, err := io.ReadAll(io.LimitReader(r, 4096))
@@ -280,6 +288,38 @@ func inviteFrom(flags map[string]string) (string, error) {
 		return v, nil
 	}
 	return strings.TrimSpace(os.Getenv(inviteEnv)), nil
+}
+
+// inviteFileExposed refuses an invite file that other local users can read: the file is where the invite
+// goes instead of the command line, and one they can read leaks it the same way [redteam:F41].
+// `echo anetinv_… > invite.txt` makes a 0644 file, and home directories are often searchable by everyone.
+// A file readable by group or others is accepted only inside a directory that class cannot enter. Only a
+// regular file is judged; a pipe (--token-file <(…)) or a terminal is not on disk.
+func inviteFileExposed(fh *os.File, path string) error {
+	fi, err := fh.Stat()
+	if err != nil || !fi.Mode().IsRegular() {
+		return err
+	}
+	m := fi.Mode().Perm()
+	if m&0o044 == 0 {
+		return nil
+	}
+	var dm fs.FileMode
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		if di, err := os.Stat(filepath.Dir(real)); err == nil {
+			dm = di.Mode().Perm()
+		} else {
+			dm = 0o011 // cannot tell: assume it can be entered
+		}
+	} else {
+		dm = 0o011
+	}
+	if (m&0o040 != 0 && dm&0o010 != 0) || (m&0o004 != 0 && dm&0o001 != 0) {
+		return fmt.Errorf("hub-register: --token-file %s can be read by other local users (mode %04o in a directory they can enter); "+
+			"chmod 600 %s, or keep it in a directory only you can enter, and run the command again — "+
+			"an invite someone else reads first is theirs", path, m, path)
+	}
+	return nil
 }
 
 // envWithout returns env without the variable named key. The daemon does not need a hub invite, and a
