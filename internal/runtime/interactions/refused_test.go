@@ -43,8 +43,9 @@ func TestARefusedRowSurvivesAReopenAndExpires(t *testing.T) {
 
 // Past the per-sender bound the sender's oldest rows go and its floor
 // rises to cover them; other senders are not affected. Past the total
-// bound the oldest rows of anyone go into the global floor. Floors expire
-// with the rows they stand for.
+// bound the oldest rows of anyone go, each into its own sender's floor:
+// there is no floor shared by all senders [redteam:F5]. Floors expire with
+// the rows they stand for.
 func TestRefusedRowsAreBoundedByFloors(t *testing.T) {
 	s := open(t)
 	s.SetRefusedCaps(interactions.RefusedCaps{PerSender: 3, Total: 5})
@@ -68,19 +69,22 @@ func TestRefusedRowsAreBoundedByFloors(t *testing.T) {
 		t.Fatalf("b has floor %d from a's eviction", floor)
 	}
 	// Total 5: a holds 3; b's third row pushes the total to 6, and the
-	// oldest row overall (a's ts 102) goes into the global floor.
+	// oldest row overall (a's ts 102) goes into a's floor, not into one b
+	// or anybody else is judged by.
 	rec("b", 5)
 	rec("b", 6)
 	rec("b", 7)
 	rows, floors, err := s.RefusedCount()
-	if err != nil || rows != 5 || floors != 2 {
+	if err != nil || rows != 5 || floors != 1 {
 		t.Fatalf("rows %d floors %d err %v", rows, floors, err)
 	}
-	if _, floor, _ := s.Refused("b", []byte("mid-0")); floor != 102 {
-		t.Fatalf("global floor %d, want 102", floor)
-	}
 	if exact, floor, _ := s.Refused("a", []byte("mid-2")); exact || floor != 102 {
-		t.Fatalf("a mid-2: exact %v floor %d", exact, floor)
+		t.Fatalf("a mid-2: exact %v floor %d, want evicted under a's floor 102", exact, floor)
+	}
+	for _, who := range []string{"b", "c"} {
+		if _, floor, _ := s.Refused(who, []byte("mid-0")); floor != 0 {
+			t.Fatalf("%s has floor %d from another sender's eviction", who, floor)
+		}
 	}
 	// Everything expires.
 	if _, err := s.PurgeRefused(20_000); err != nil {
@@ -88,5 +92,31 @@ func TestRefusedRowsAreBoundedByFloors(t *testing.T) {
 	}
 	if rows, floors, _ := s.RefusedCount(); rows != 0 || floors != 0 {
 		t.Fatalf("after expiry: %d rows, %d floors", rows, floors)
+	}
+}
+
+// The floors are bounded as well: past the bound the floors that expire
+// first are forgotten, and the newer ones stay.
+func TestRefusedFloorsAreBounded(t *testing.T) {
+	s := open(t)
+	s.SetRefusedCaps(interactions.RefusedCaps{PerSender: 1, Total: 100, Floors: 2})
+	for i, who := range []string{"a", "b", "c"} {
+		for j := 0; j < 2; j++ {
+			ts := uint64(100 + 10*i + j)
+			if err := s.RecordRefused(who, []byte(fmt.Sprintf("mid-%d", j)), ts, ts+10_000); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if rows, floors, err := s.RefusedCount(); err != nil || rows != 3 || floors != 2 {
+		t.Fatalf("rows %d floors %d err %v", rows, floors, err)
+	}
+	if _, floor, _ := s.Refused("a", []byte("mid-0")); floor != 0 {
+		t.Fatalf("a's floor %d, want forgotten (it expires first)", floor)
+	}
+	for who, want := range map[string]uint64{"b": 110, "c": 120} {
+		if _, floor, _ := s.Refused(who, []byte("mid-0")); floor != want {
+			t.Fatalf("%s's floor %d, want %d", who, floor, want)
+		}
 	}
 }

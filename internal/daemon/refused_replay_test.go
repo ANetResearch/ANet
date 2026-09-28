@@ -10,7 +10,9 @@ package daemon
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/seal"
@@ -185,5 +187,138 @@ func TestAnEvictedRefusalIsCoveredByTheFloor(t *testing.T) {
 	third := "ix_refused_floor_3"
 	if r := receive(t, prov, craft(t, s, prov, seal.TypeDelegate, third, delegateBody(t, s.ctrl, third, "three", ""), nil)); r.class != rxAccepted {
 		t.Fatalf("a new delegation from the now allowed peer: %+v", r)
+	}
+}
+
+// The total bound is no lever on other senders [redteam:F5]. Strangers'
+// refusals, dated as far ahead as the clock skew allows, push the refused
+// table past its total twice over: the oldest refusal (the victim's) goes
+// into the victim's own floor, and its replay is still refused without a
+// reply; then some of the strangers' own go. No floor is raised for anyone
+// but the senders whose rows went, so an allowed peer's fresh delegation —
+// sent before those future-dated refusals' time — is taken, not dropped
+// without a word as older than a floor shared by all.
+func TestOtherSendersRefusalsDoNotDropAPeersDelegation(t *testing.T) {
+	prov := newTestDaemon(t, "", false) // closed
+	prov.ix.SetRefusedCaps(interactions.RefusedCaps{Total: 3})
+	victim, friend := newStranger(t), newStranger(t)
+	allowPeers(t, prov, friend.aid)
+	first := "ix_refused_total_victim"
+	env := craft(t, victim, prov, seal.TypeDelegate, first, delegateBody(t, victim.ctrl, first, "one", ""), func(in *seal.SealedInner) {
+		in.TS -= 1000
+	})
+	if r := receive(t, prov, env); r.reason != dropNotAccepting {
+		t.Fatalf("victim: %+v", r)
+	}
+	for i := 0; i < 5; i++ {
+		s := newStranger(t)
+		ix := "ix_refused_total_junk_" + string(rune('a'+i))
+		junk := craft(t, s, prov, seal.TypeDelegate, ix, delegateBody(t, s.ctrl, ix, "junk", ""), func(in *seal.SealedInner) {
+			in.TS += seal.ClockSkewMS - 60_000
+			in.Exp = in.TS + 3_600_000
+		})
+		if r := receive(t, prov, junk); r.reason != dropNotAccepting {
+			t.Fatalf("junk %d: %+v", i, r)
+		}
+	}
+	if exact, floor, err := prov.ix.Refused(victim.aid, []byte("none")); err != nil || exact || floor == 0 {
+		t.Fatalf("the victim's refusal was not evicted into its floor: floor %d, %v", floor, err)
+	}
+	fresh := "ix_refused_total_friend"
+	if r := receive(t, prov, craft(t, friend, prov, seal.TypeDelegate, fresh,
+		delegateBody(t, friend.ctrl, fresh, "real work", ""), nil)); r.class != rxAccepted {
+		t.Fatalf("an allowed peer's fresh delegation after strangers' refusals: %+v", r)
+	}
+	prov.refused = boundedSet{}
+	allowPeers(t, prov, victim.aid)
+	notices := counter(prov, noticeSent)
+	if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedFloor {
+		t.Fatalf("replay of the victim's evicted refusal: %+v, want %s", r, dropRefusedFloor)
+	}
+	if _, err := prov.ix.Get(first); !errors.Is(err, interactions.ErrNotFound) || counter(prov, noticeSent) != notices {
+		t.Fatalf("the evicted refusal was taken or answered: %v", err)
+	}
+}
+
+// refusedTableFault makes every insert into d's refused table fail until
+// the returned function is called (the store recovered).
+func refusedTableFault(t *testing.T, d *Daemon) func() {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(d.layout.InteractionsDir(), "interactions.db")+"?_pragma=busy_timeout(15000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER refused_fault BEFORE INSERT ON refused
+		BEGIN SELECT RAISE(ABORT, 'injected: refused table unwritable'); END`); err != nil {
+		t.Fatalf("install fault: %v", err)
+	}
+	done := false
+	recovered := func() {
+		if done {
+			return
+		}
+		done = true
+		if _, err := db.Exec(`DROP TRIGGER IF EXISTS refused_fault`); err != nil {
+			t.Fatalf("remove fault: %v", err)
+		}
+		db.Close()
+	}
+	t.Cleanup(recovered)
+	return recovered
+}
+
+// A refusal the requester is told of is on disk first [redteam:F5]. While
+// the refused table takes no rows, a delegation the policy refuses is
+// neither answered nor acknowledged (T): the requester is never told
+// `rejected` about an envelope that a later delivery — after a restart
+// and a policy change — could still accept. Once the table takes rows
+// again the envelope is judged as if for the first time. The same holds for
+// the approval queue's pending_full refusal in step 10.
+func TestARefusalIsStoredBeforeTheRequesterIsTold(t *testing.T) {
+	prov := newTestDaemon(t, "", false) // closed
+	s := newStranger(t)
+	ix := "ix_refused_store_fails"
+	env := craft(t, s, prov, seal.TypeDelegate, ix, delegateBody(t, s.ctrl, ix, "a task", ""), nil)
+	recovered := refusedTableFault(t, prov)
+	notices := counter(prov, noticeSent)
+	if r := receive(t, prov, env); r.class != rxTransient {
+		t.Fatalf("refusal that could not be stored: %+v, want not acknowledged", r)
+	}
+	if n := counter(prov, noticeSent); n != notices {
+		t.Fatalf("the requester was told rejected (%d notices) though the refusal was not stored", n-notices)
+	}
+	recovered()
+	allowPeers(t, prov, s.aid)
+	if r := receive(t, prov, env); r.class != rxAccepted {
+		t.Fatalf("the redelivery once the store recovered: %+v, want judged again and taken", r)
+	}
+
+	// pending_full, refused in step 10.
+	setPolicy(t, prov, PolicyApprove)
+	prov.mu.Lock()
+	prov.cfg.Inbound.Pending.MaxPerPeer = 1
+	prov.mu.Unlock()
+	q := newStranger(t)
+	held := "ix_refused_store_held"
+	if r := receive(t, prov, craft(t, q, prov, seal.TypeDelegate, held, delegateBody(t, q.ctrl, held, "one", ""), nil)); r.class != rxAccepted {
+		t.Fatalf("first held: %+v", r)
+	}
+	over := "ix_refused_store_over"
+	overEnv := craft(t, q, prov, seal.TypeDelegate, over, delegateBody(t, q.ctrl, over, "two", ""), nil)
+	recovered = refusedTableFault(t, prov)
+	notices = counter(prov, noticeSent)
+	if r := receive(t, prov, overEnv); r.class != rxTransient {
+		t.Fatalf("pending_full that could not be stored: %+v, want not acknowledged", r)
+	}
+	if n := counter(prov, noticeSent); n != notices {
+		t.Fatalf("the requester was told pending_full (%d notices) though the refusal was not stored", n-notices)
+	}
+	recovered()
+	if r := receive(t, prov, overEnv); r.class != rxDropped || r.reason != dropRefusedPrefix+reasonPendingFull {
+		t.Fatalf("the redelivery once the store recovered: %+v", r)
+	}
+	prov.refused = boundedSet{}
+	if r := receive(t, prov, overEnv); r.reason != dropRefusedReplay {
+		t.Fatalf("the refusal told this time was not stored: %+v", r)
 	}
 }
