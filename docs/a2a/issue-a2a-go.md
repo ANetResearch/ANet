@@ -73,6 +73,12 @@ an extension, `"examples": []`, …) is signed over a payload that a §8.4.1-con
 compute, and vice versa. The card also stops verifying after a round trip through a2a-go's own
 `a2a.AgentCard` type.
 
+**Cross-SDK check (anet docs/notes/0035, 2026-09-28).** Signed with a2a-go v2.6.0 `a2acrypto`, a card
+whose JSON carries `"capabilities":{"streaming":false,"extensions":[{"uri":"u","required":false}]}` fails
+verification in a2a-python 1.1.5 (`create_signature_verifier` → `InvalidSignaturesError`) and in
+a2a-js 1.2.1 (`verifyAgentCardSignature` → "No valid signatures found"); the same card without the two
+defaults, signed the same way, verifies in both.
+
 **Expected.** Signer and verifier compute the same payload for every JSON rendering of the same
 AgentCard message.
 
@@ -485,6 +491,12 @@ the TCK expect, and a server that does so anyway is misread by a2a-go's own JSON
 2. JSON-RPC client: when the answer to a streaming call is not `text/event-stream`, parse it as a
    JSON-RPC response and return its error (`jsonrpc.FromJSONRPCError`); for a non-200 status, try
    the body the same way before falling back to the status.
+
+**Other SDKs (docs/notes/0035, 2026-09-28; to be re-checked before filing).** a2a-python 1.1.5 reads an
+error object in a `200` `application/json` answer to a streaming call but, for a non-200 answer, raises only
+"HTTP Error 400" (`issue-a2a-python.md` P1); a2a-js 1.2.1 reads the error in both. All three clients read an
+error sent as the stream's one event — the form a2a-tck counts as an opened stream. The spec discussion
+should carry this table (`issue-a2a-python.md` P1).
 
 **How anet copes.** Its local A2A interface checks a streaming call before a2a-go runs (existence,
 scope, state; a streaming send is carried out there and its task handed to the stream) and answers a

@@ -66,6 +66,21 @@ func (s *Store) FindByClientMessage(q ClientMessageQuery) (*Interaction, error) 
 	if q.ClientMsgID == "" || q.Role == "" || (q.ContextID == "" && q.PeerAID == "" && q.TaskID == "") {
 		return nil, ErrNotFound
 	}
+	sql, args := q.findSQL()
+	return scanOne(s.db.QueryRow(sql, args...))
+}
+
+// clientMsgIDExpr is a message's client message id as SQL, the column
+// prefixed with p ("m." or ""): the expression of idx_msg_client, which
+// FindByClientMessage must use unchanged for SQLite to read that index.
+// json_valid guards json_extract, which fails on malformed input: a message
+// without metadata stores the empty string.
+func clientMsgIDExpr(p string) string {
+	return `(CASE WHEN json_valid(` + p + `metadata) THEN json_extract(` + p + `metadata, '$."` + ClientMessageIDKey + `"') END)`
+}
+
+// findSQL is FindByClientMessage's query.
+func (q ClientMessageQuery) findSQL() (string, []any) {
 	inner := `SELECT m.interaction_id FROM interaction i JOIN message m ON m.interaction_id = i.id
 	           WHERE i.role=? AND m.sender_aid <> i.peer_aid`
 	args := []any{string(q.Role)}
@@ -84,13 +99,16 @@ func (s *Store) FindByClientMessage(q ClientMessageQuery) (*Interaction, error) 
 		inner += ` AND i.id=?`
 		args = append(args, q.TaskID)
 	}
-	// json_valid guards json_extract, which fails on malformed input: a
-	// message without metadata stores ''.
-	inner += ` AND (CASE WHEN json_valid(m.metadata) THEN json_extract(m.metadata, '$."` + ClientMessageIDKey + `"') END) = ?
-	           ORDER BY i.seq, m.seq LIMIT 1`
+	inner += ` AND ` + clientMsgIDExpr("m.") + ` = ? ORDER BY i.seq, m.seq LIMIT 1`
 	args = append(args, q.ClientMsgID)
-	return scanOne(s.db.QueryRow(`SELECT `+ixColumns+` FROM interaction WHERE id = (`+inner+`)`, args...))
+	return `SELECT ` + ixColumns + ` FROM interaction WHERE id = (` + inner + `)`, args
 }
+
+// contextPeersSQL reads idx_ix_context: left to itself SQLite took the role
+// index and read the context_id of every task in the role from its row, past
+// the long columns before it (docs/notes/0035: about a second per
+// SendMessage that names a context, after an hour of traffic).
+const contextPeersSQL = `SELECT DISTINCT peer_aid FROM interaction INDEXED BY idx_ix_context WHERE role=? AND context_id=?`
 
 // ContextPeers returns the distinct peers of the interactions with role in
 // contextID. SendMessage uses it to check that a context a client names
@@ -99,8 +117,7 @@ func (s *Store) ContextPeers(role Role, contextID string) ([]string, error) {
 	if contextID == "" {
 		return nil, nil
 	}
-	rows, err := s.db.Query(`SELECT DISTINCT peer_aid FROM interaction WHERE role=? AND context_id=?`,
-		string(role), contextID)
+	rows, err := s.db.Query(contextPeersSQL, string(role), contextID)
 	if err != nil {
 		return nil, err
 	}

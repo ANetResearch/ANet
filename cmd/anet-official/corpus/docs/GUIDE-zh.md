@@ -512,6 +512,7 @@ curl -s -H @<(auth) -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' \
             "configuration":{"returnImmediately":true}}}'
 ```
 
+- 实测过的客户端(`docs/notes/0035`):a2a-go、a2a-python(`a2a-sdk`)、a2a-js(`@a2a-js/sdk`)、Hermes 的 `a2a_call`。用 **@a2a-js/sdk** 时:它的卡片解析按 URL 引用规则拼 well-known 路径,基址要以 `/` 结尾(`…/a2a/v1/agents/<aid>/`),否则取到 404;验卡片签名时把卡片以 JSON 形式交给 `verifyAgentCardSignature`(`AgentCard.toJSON(card)`),SDK 解析后的卡片验不过(SDK 的缺陷,`docs/a2a/issue-a2a-js.md` J1);Node 的默认 `fetch` 在 300 秒内收不到应答头就报错,可能等得更久的任务用流式,或 `returnImmediately` 加 GetTask/SubscribeToTask。
 - 能力调用:消息 `metadata["anet.skill"]`,或一个 DataPart `{"skill": …, "args": {…}}`。
 - 阻塞调用(`returnImmediately` 为 false 或缺省)会等到终态或需要输入才返回,对端离线时可能很久。**客户端超时不会取消任务**,重试会建第二个任务;找回办法是按 `contextId` 调 `ListTasks`(或 MCP `list_tasks` 的 `context_id`)。
 - 付款(a2a-x402):报价以 `input-required` + `x402.payment.required` 出现在同一任务上。本机 daemon 就是签名服务:客户端在同一 taskId 上发 `x402.payment.status: payment-submitted`,**不带** `x402.payment.payload`,需要时以 `anet.payment.accept` 给出从 `accepts` 原样复制的所选项;daemon 按 agent 档上限签授权。客户端自带 payload 会得到 `payment-failed`(`anet.reason=client_payload_unsupported`)。不认识 x402 的客户端(例如 Hermes)也能用:报价在自动付款上限之内由 daemon 自动付,超出时任务停在 `input-required`,`anet.reason` 说明原因,由你用 MCP `submit_payment` 或 `anet pay` 处理。客户端提交的付款超出 agent 档时同样不报错:任务仍 `input-required`、`anet.reason=needs_operator_approval`,`status.message` 写明运营者在终端上要先做的步骤;未激活 a2a-x402 扩展的客户端看到的原因是 `payment_extension_not_activated`。

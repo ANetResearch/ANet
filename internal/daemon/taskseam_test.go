@@ -995,3 +995,49 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 		t.Fatalf("hub requests %v, want the registry asked with skill=plan", asked)
 	}
 }
+
+// /tasks/list max_task_bytes holds each listed task to the bound (MCP
+// list_tasks sets it): a peer's 3 MiB reply is listed as a notice of its
+// size, not carried whole in every page that lists its task (docs/notes/0035:
+// one such reply made every list_tasks page megabytes long). Without the
+// bound the page is as it was.
+func TestTaskListHoldsEachTaskToMaxTaskBytes(t *testing.T) {
+	p := newPlane(t)
+	d := p.d
+	if err := d.ix.Create(interactions.New{ID: "ix_big", Role: interactions.RoleOutbound, PeerAID: "peer", Goal: "g",
+		ContextID: "c-big"}); err != nil {
+		t.Fatal(err)
+	}
+	huge := strings.Repeat("<", 3<<20)
+	if _, err := d.ix.AddMessage("ix_big", "peer", interactions.MsgText, huge); err != nil {
+		t.Fatal(err)
+	}
+	list := func(body string) (int, []byte) {
+		resp, raw := p.req(t, "POST", "/tasks/list", body, p.bearer)
+		return resp.StatusCode, raw
+	}
+	code, raw := list(`{"context_id":"c-big","history_length":1,"max_task_bytes":8192}`)
+	var page struct {
+		Tasks []json.RawMessage `json:"tasks"`
+	}
+	if err := json.Unmarshal(raw, &page); code != http.StatusOK || err != nil || len(page.Tasks) != 1 {
+		t.Fatalf("list: %d %v %.200s", code, err, raw)
+	}
+	if n := len(page.Tasks[0]); n > 8192 {
+		t.Fatalf("the listed task is %d bytes as JSON, over max_task_bytes 8192", n)
+	}
+	var task a2ashape.Task
+	if err := json.Unmarshal(page.Tasks[0], &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.Metadata[a2ashape.KeyTruncated] != true || len(task.History) != 1 ||
+		task.History[0].Metadata[a2ashape.KeyTruncated] != true {
+		t.Fatalf("the cut is not marked: metadata %v history %+v", task.Metadata, task.History)
+	}
+	if code, raw := list(`{"context_id":"c-big","history_length":1}`); code != http.StatusOK || len(raw) < len(huge) {
+		t.Fatalf("without max_task_bytes: %d, %d bytes", code, len(raw))
+	}
+	if code, _ := list(`{"max_task_bytes":-1}`); code != http.StatusBadRequest {
+		t.Fatalf("max_task_bytes -1: %d, want 400", code)
+	}
+}

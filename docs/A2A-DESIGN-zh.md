@@ -344,6 +344,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 - `IsTerminal()` 判定 `state ∈ {completed, failed, canceled, rejected}`,替换全部现有终态判断(`autoreply.go:294`、`delegation.go:141/223/243/268/380` 等)。
 - 状态迁移用 `UPDATE interaction SET state=?, state_at=?, state_seq=state_seq+1 WHERE id=? AND state NOT IN ('completed','failed','canceled','rejected')` 并返回是否更新,防止终态互相覆盖、防止在已取消交互上签回执。
 - 列表按 `state_at` 降序分页(修 R02 D8)。另建 `interaction(role, pay_state)` 索引,供每分钟的报价过期扫描 [impl:wp/x402d fe49f7a]。
+- 列表与计数只读覆盖索引 `idx_ix_list(state_at, seq, role, peer_aid, state, is_capability, trust, context_id)`,指定对端的列表与计数(本机 A2A 接口的每次 ListTasks)读同列、以 `peer_aid` 打头的 `idx_ix_peer_list`,只走该对端的一段:先从索引取一页的 (state_at, seq),再按 seq 取整行;是否有下一页与游标都取自第一步,两步之间任务变了状态或被保存期删除都不移动分页边界;带 context 的列表、计数与 `ContextPeers` 固定读 `idx_ix_context`。客户端重试查找(`a2a.messageId`)走表达式索引 `idx_msg_client`。理由:interaction 行内存 goal、request_doc、result,长消息时各数 MB,SQLite 读排在它们之后的列要走完溢出页;按 role/peer 过滤的列表曾把匹配行整行排序,一小时真实客户端流量之后本机 A2A 接口的每次 ListTasks 要 14–21 s,指名 context 的每次 SendMessage 约 2 s(0035)[impl:wp/interop c50e70b、b3c0024、38d5ecb]。
 - 带付款元数据的状态先存报价、再宣布状态:requester 收到 `payment-required` 时,付款列(`pay_state`、`pay_required`、报价过期)写好之后才发布状态事件,等待者(`/tasks/wait`、本机 A2A 阻塞发送)醒来读到的 `input-required` 必带报价与 `anet.reason` [impl:integ/round4b 3173f69]。
 
 ### 4.2 完成与取消
@@ -840,7 +841,7 @@ MCP 实际注册 14 个工具,取代旧的 9 个,旧名删除不留别名(`task_
 | `get_agent_card` | `/agents/card`;只有 VERIFIED 才返回卡片,UNVERIFIED 只给原因,NONE 表示对端不发布卡片 [Q24] | 新 | readOnly、openWorld |
 | `send_message` | `/tasks/send`(文本、文件以 raw part 发送、`skill`+`args` 能力调用、可带 `message_id` 防重发、`context_id`、`return_immediately`);`skill` 不是 `open` 节点的 `chat`(那是纯文本,发 text)[Q27] | `task_delegate` + `task_message` | 非 destructive、openWorld |
 | `get_task` | `/tasks/get` | `task_results` 单条 | readOnly(本机) |
-| `list_tasks` | `/tasks/list`(含 `context_id`、`role`=requester\|provider 映射为 outbound\|inbound、`state`、`peer`(AID)过滤 [impl:wp/mcp 9309ea7][B6-02 复核]);未给 `history_length` 时缺省 1(每个任务只带最新一条,免得一页任务灌入大量不可信的对端文本),`page_size` 1–100 | `task_results` + `task_inbox` | readOnly(本机) |
+| `list_tasks` | `/tasks/list`(含 `context_id`、`role`=requester\|provider 映射为 outbound\|inbound、`state`、`peer`(AID)过滤 [impl:wp/mcp 9309ea7][B6-02 复核]);未给 `history_length` 时缺省 1(每个任务只带最新一条,免得一页任务灌入大量不可信的对端文本),`page_size` 1–100;每个任务另以控制面 `max_task_bytes=8192` 限在约 8 KiB(`a2ashape.TaskWithin`:按流式事件的顺序取舍,最新一条放不下时换成注明大小的说明、标 `anet.truncated`;一条 3 MiB 的回复曾使每页数 MB,超过 MCP 客户端的工具结果上限,0035)[impl:wp/interop 048997b] | `task_results` + `task_inbox` | readOnly(本机) |
 | `wait_task` | `/tasks/wait`(缺省 30 秒,上限 300 秒) | 新 | readOnly(本机) |
 | `cancel_task` | `/tasks/cancel` | 新 | destructive、idempotent、openWorld(取消不可撤销,按默认安全取保守值;同一任务再取消不改变什么)[Q25][impl:3af0a2c] |
 | `reply_task` | `/tasks/reply` | provider 的 `task_message`/`task_end` | 非 destructive、openWorld;始终注册;不给 `task_id` 时按 submitted/working/input-required 逐一查询可回复的入站文本任务(剔除能力调用),超过一页时说明"还有更多",没有时明确说明并提示待批项见 `inbound_pending` [m][impl:wp/mcp 9d02ee4] |

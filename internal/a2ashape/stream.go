@@ -32,12 +32,39 @@ const MaxStreamEventBytes = 8 << 20
 // fit, in that order, then as much history as fits, newest first; anything
 // else is cut (KeyTruncated). t is not changed.
 func TaskForStream(t Task) Task {
-	t = ByReference(t)
-	budget := MaxStreamEventBytes - 256 - jsonLen(t.ID) - jsonLen(t.ContextID)
+	return fitTask(ByReference(t), MaxStreamEventBytes, streamNotice, false)
+}
+
+// MinTaskBytes is the smallest bound TaskWithin takes: room for a task's
+// ids, a little metadata and the notices of what was cut.
+const MinTaskBytes = 1 << 10
+
+// TaskWithin is t held to about max bytes as JSON, for a listing of many
+// tasks (the control plane's /tasks/list max_task_bytes, which MCP
+// list_tasks sets): metadata, status message and artifacts as
+// TaskForStream keeps them, then the history newest first — the newest
+// message replaced by a notice when it does not fit whole, older ones
+// left out — and what was cut marked KeyTruncated, with KeySize. One large
+// message would otherwise ride along in every page that lists its task,
+// the whole of it each time (docs/notes/0035). File bytes are not looked
+// at: a listing carries none (0017 Q12). max below MinTaskBytes counts as
+// MinTaskBytes. t is not changed.
+func TaskWithin(t Task, max int) Task {
+	if max < MinTaskBytes {
+		max = MinTaskBytes
+	}
+	return fitTask(t, max, listNotice, true)
+}
+
+// fitTask holds t to max bytes as JSON (TaskForStream, TaskWithin);
+// notice stands for what was cut, and keepNewest keeps the newest history
+// message as a notice when it does not fit whole.
+func fitTask(t Task, max int, notice func(int) Part, keepNewest bool) Task {
+	budget := max - 256 - jsonLen(t.ID) - jsonLen(t.ContextID)
 	var cut bool
 	t.Metadata, budget, cut = fitMetadata(t.Metadata, budget)
 	if t.Status.Message != nil {
-		m, size := fitMessage(*t.Status.Message, budget)
+		m, size := fitMessage(*t.Status.Message, budget, notice)
 		t.Status.Message, budget = &m, budget-size
 		cut = cut || m.Metadata[KeyTruncated] == true
 	}
@@ -45,7 +72,7 @@ func TaskForStream(t Task) Task {
 		as := make([]Artifact, len(t.Artifacts))
 		for i, a := range t.Artifacts {
 			var size int
-			as[i], size = fitArtifact(a, budget)
+			as[i], size = fitArtifact(a, budget, notice)
 			budget -= size
 			cut = cut || as[i].Metadata[KeyTruncated] == true
 		}
@@ -61,7 +88,12 @@ func TaskForStream(t Task) Task {
 		keep--
 	}
 	if keep > 0 {
-		t.History = t.History[keep:]
+		if keepNewest && keep == len(t.History) {
+			m, _ := fitMessage(t.History[keep-1], 0, notice)
+			t.History = []Message{m}
+		} else {
+			t.History = t.History[keep:]
+		}
 		cut = true
 	}
 	if cut {
@@ -85,20 +117,20 @@ func EventForStream(e TaskEvent) TaskEvent {
 		t := TaskForStream(*e.Task)
 		e.Task = &t
 	case e.Message != nil:
-		m, _ := fitMessage(*e.Message, budget)
+		m, _ := fitMessage(*e.Message, budget, streamNotice)
 		e.Message = &m
 	case e.StatusUpdate != nil:
 		su := *e.StatusUpdate
 		su.Metadata, budget, _ = fitMetadata(su.Metadata, budget-jsonLen(su.TaskID)-jsonLen(su.ContextID))
 		if su.Status.Message != nil {
-			m, _ := fitMessage(*su.Status.Message, budget)
+			m, _ := fitMessage(*su.Status.Message, budget, streamNotice)
 			su.Status.Message = &m
 		}
 		e.StatusUpdate = &su
 	case e.ArtifactUpdate != nil:
 		au := *e.ArtifactUpdate
 		au.Metadata, budget, _ = fitMetadata(au.Metadata, budget-jsonLen(au.TaskID)-jsonLen(au.ContextID))
-		au.Artifact, _ = fitArtifact(au.Artifact, budget)
+		au.Artifact, _ = fitArtifact(au.Artifact, budget, streamNotice)
 		e.ArtifactUpdate = &au
 	}
 	return e
@@ -119,33 +151,43 @@ func fitMetadata(meta map[string]any, budget int) (map[string]any, int, bool) {
 	return cut, budget - valueLen(cut), true
 }
 
-// fitMessage is m if it fits in budget, else m with its parts replaced by a
+// fitMessage is m if it fits in budget, else m with its parts replaced by
 // notice; with the bytes it takes.
-func fitMessage(m Message, budget int) (Message, int) {
+func fitMessage(m Message, budget int, notice func(int) Part) (Message, int) {
 	size := messageLen(m)
 	if size <= budget {
 		return m, size
 	}
-	m.Parts = []Part{truncationNotice(size)}
+	m.Parts = []Part{notice(size)}
 	m.Metadata = truncatedMetadata(m.Metadata, size)
 	return m, messageLen(m)
 }
 
 // fitArtifact is fitMessage for an artifact.
-func fitArtifact(a Artifact, budget int) (Artifact, int) {
+func fitArtifact(a Artifact, budget int, notice func(int) Part) (Artifact, int) {
 	size := artifactLen(a)
 	if size <= budget {
 		return a, size
 	}
-	a.Parts = []Part{truncationNotice(size)}
+	a.Parts = []Part{notice(size)}
 	a.Metadata = truncatedMetadata(a.Metadata, size)
 	return a, artifactLen(a)
 }
 
-// truncationNotice stands for the parts of a message or artifact of size
-// bytes that a stream event could not carry.
-func truncationNotice(size int) Part {
-	p := TextPart(fmt.Sprintf("(%d bytes, too large for a stream event; read the task with GetTask)", size))
+// streamNotice stands for the parts of a message or artifact of size bytes
+// that a stream event could not carry.
+func streamNotice(size int) Part {
+	return cutNotice(fmt.Sprintf("(%d bytes, too large for a stream event; read the task with GetTask)", size), size)
+}
+
+// listNotice stands for the parts of a message or artifact of size bytes
+// that a listing leaves out (TaskWithin).
+func listNotice(size int) Part {
+	return cutNotice(fmt.Sprintf("(%d bytes, left out of this list; read the task with GetTask, or MCP get_task)", size), size)
+}
+
+func cutNotice(text string, size int) Part {
+	p := TextPart(text)
 	p.Metadata = map[string]any{KeyTruncated: true, KeySize: size}
 	return p
 }

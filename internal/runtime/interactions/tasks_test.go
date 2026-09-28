@@ -2,6 +2,8 @@ package interactions_test
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -131,4 +133,261 @@ func TestContextPeersAndMergeMessageMeta(t *testing.T) {
 	if err := s.MergeMessageMeta("ix_2", seq, map[string]any{"x": 1}); !errors.Is(err, interactions.ErrNotFound) {
 		t.Fatalf("merge into a message of another interaction: %v", err)
 	}
+}
+
+// A listing reads the covering index idx_ix_list — which carries every column a
+// listing filters or orders on — and fetches only the rows of its page. With the
+// filters of the local A2A interface (role and peer), of the control plane and of
+// the inbound feed, SQLite otherwise picked the role or peer index and sorted the
+// full rows: every goal, request_doc and result of every matching interaction read
+// for each call. After an hour of real-client traffic with a few 3 MiB messages
+// that was 13–33 s per ListTasks (docs/notes/0035).
+func TestListingReadsTheCoveringIndex(t *testing.T) {
+	s := open(t)
+	for i, f := range []interactions.ListFilter{
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a"},
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a", States: []interactions.State{interactions.StateCompleted}},
+		{Role: interactions.RoleInbound},
+		{Role: interactions.RoleInbound, Active: true, ExcludeCapability: true, ExcludeTrust: []string{"public_cap"}},
+		{PeerAID: "peer-a", UpdatedAfter: 5, Cursor: "10.3"},
+		{},
+	} {
+		for what, explain := range map[string]func() ([]string, error){
+			"list":  func() ([]string, error) { return s.ExplainList(f, 50) },
+			"count": func() ([]string, error) { return s.ExplainCount(f) },
+		} {
+			plan, err := explain()
+			if err != nil {
+				t.Fatalf("filter %d %s: %v", i, what, err)
+			}
+			p := strings.Join(plan, "; ")
+			if !strings.Contains(p, "COVERING INDEX") || strings.Contains(p, "TEMP B-TREE") {
+				t.Errorf("filter %d %s: plan %q, want a covering index and no sort", i, what, p)
+			}
+		}
+	}
+}
+
+// A listing of one context reads idx_ix_context: a context holds a few tasks.
+// Left to itself SQLite took the peer index for the role and peer that the
+// local A2A interface always adds, and read the context of every task with
+// the peer from its row — past the long columns (docs/notes/0035: 4 s for a
+// ListTasks by contextId after a 30-minute soak).
+func TestContextListingReadsTheContextIndex(t *testing.T) {
+	s := open(t)
+	for i, f := range []interactions.ListFilter{
+		{ContextID: "c"},
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a", ContextID: "c"},
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a", ContextID: "c", States: []interactions.State{interactions.StateCompleted}},
+	} {
+		for what, explain := range map[string]func() ([]string, error){
+			"list":  func() ([]string, error) { return s.ExplainList(f, 50) },
+			"count": func() ([]string, error) { return s.ExplainCount(f) },
+		} {
+			plan, err := explain()
+			if err != nil {
+				t.Fatalf("filter %d %s: %v", i, what, err)
+			}
+			if p := strings.Join(plan, "; "); !strings.Contains(p, "idx_ix_context") {
+				t.Errorf("filter %d %s: plan %q, want idx_ix_context", i, what, p)
+			}
+		}
+	}
+}
+
+// ContextPeers, asked on every SendMessage that names a context, reads the
+// context index, not every row of the role.
+func TestContextPeersReadsTheContextIndex(t *testing.T) {
+	s := open(t)
+	plan, err := s.ExplainContextPeers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := strings.Join(plan, "; "); !strings.Contains(p, "idx_ix_context") {
+		t.Fatalf("plan %q, want idx_ix_context", p)
+	}
+	if err := s.Create(interactions.New{ID: "ix_1", Role: interactions.RoleOutbound, PeerAID: "peer-a", Goal: "g",
+		ContextID: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	if peers, err := s.ContextPeers(interactions.RoleOutbound, "c"); err != nil || len(peers) != 1 || peers[0] != "peer-a" {
+		t.Fatalf("ContextPeers = %v %v", peers, err)
+	}
+}
+
+// The two-step listing (ids from the index, then the rows) keeps ListPage's
+// order, page boundaries and whole rows.
+func TestListPageTwoStepKeepsOrderAndRows(t *testing.T) {
+	s := open(t)
+	big := strings.Repeat("g", 1<<20)
+	for i := 0; i < 7; i++ {
+		goal := "small"
+		if i%3 == 0 {
+			goal = big
+		}
+		peer := "peer-a"
+		if i == 4 {
+			peer = "peer-b"
+		}
+		if err := s.Create(interactions.New{ID: fmt.Sprintf("ix_%d", i), Role: interactions.RoleOutbound, PeerAID: peer,
+			Goal: goal, ContextID: "c"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f := interactions.ListFilter{Role: interactions.RoleOutbound, PeerAID: "peer-a", Limit: 4}
+	var got []string
+	for {
+		p, err := s.ListPage(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ix := range p.Items {
+			got = append(got, ix.ID)
+			if (ix.ID == "ix_0" || ix.ID == "ix_3" || ix.ID == "ix_6") != (ix.Goal == big) {
+				t.Fatalf("%s: goal of %d bytes", ix.ID, len(ix.Goal))
+			}
+		}
+		if p.Next == "" {
+			break
+		}
+		f.Cursor = p.Next
+	}
+	if strings.Join(got, " ") != "ix_6 ix_5 ix_3 ix_2 ix_1 ix_0" {
+		t.Fatalf("pages gave %v", got)
+	}
+	if n, err := s.Count(interactions.ListFilter{Role: interactions.RoleOutbound, PeerAID: "peer-a"}); err != nil || n != 6 {
+		t.Fatalf("count %d %v", n, err)
+	}
+	if p, err := s.ListPage(interactions.ListFilter{ContextID: "c", Limit: 10}); err != nil || len(p.Items) != 7 {
+		t.Fatalf("by context: %d %v", len(p.Items), err)
+	}
+}
+
+// The client-retry lookup (FindByClientMessage) finds the message by an index
+// on its client message id. Without one, a SendMessage that names no context
+// read the metadata of every message of every task with the peer — a column
+// SQLite reaches only through the overflow pages of the body before it, the
+// whole of every long message each time (docs/notes/0035: 0.15–0.3 s per send
+// after an hour, growing with the conversation).
+func TestClientMessageLookupReadsAnIndex(t *testing.T) {
+	s := open(t)
+	for _, q := range []interactions.ClientMessageQuery{
+		{ClientMsgID: "m-1", Role: interactions.RoleOutbound, PeerAID: "peer-a"},
+		{ClientMsgID: "m-1", Role: interactions.RoleOutbound, PeerAID: "peer-a", OpenOnly: true},
+		{ClientMsgID: "m-1", Role: interactions.RoleOutbound, ContextID: "c"},
+	} {
+		plan, err := s.ExplainFindByClientMessage(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p := strings.Join(plan, "; "); !strings.Contains(p, "idx_msg_client") {
+			t.Errorf("%+v: plan %q, want the message lookup through idx_msg_client", q, p)
+		}
+	}
+}
+
+// A listing of one peer — the local A2A interface's every ListTasks and the
+// count that goes with it — reads a range of idx_ix_peer_list: the peer's own
+// tasks, in listing order. Read from idx_ix_list it walked the index entries of
+// every task with every peer to find the peer's few; with 300 000 tasks that was
+// 30–75 ms for a page and 0.2 s for the count of a peer with 150 tasks, on every
+// call, growing with every task the node ever had.
+func TestPeerListingReadsThePeersRange(t *testing.T) {
+	s := open(t)
+	for i, f := range []interactions.ListFilter{
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a"},
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a", States: []interactions.State{interactions.StateCompleted}},
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a", Cursor: "10.3"},
+		{PeerAID: "peer-a", Active: true},
+	} {
+		for what, explain := range map[string]func() ([]string, error){
+			"list":  func() ([]string, error) { return s.ExplainList(f, 50) },
+			"count": func() ([]string, error) { return s.ExplainCount(f) },
+		} {
+			plan, err := explain()
+			if err != nil {
+				t.Fatalf("filter %d %s: %v", i, what, err)
+			}
+			p := strings.Join(plan, "; ")
+			if !strings.Contains(p, "COVERING INDEX idx_ix_peer_list (peer_aid=?") || strings.Contains(p, "TEMP B-TREE") {
+				t.Errorf("filter %d %s: plan %q, want the peer's range of idx_ix_peer_list and no sort", i, what, p)
+			}
+		}
+	}
+}
+
+// ListPage reads the (state_at, seq) of a page from an index, then the rows. The
+// page boundary is the first read's: a task changed or deleted between the two
+// must not move it. Taken from the re-read rows, a last task whose state changed
+// in between put the cursor at the head of the listing, so the next page
+// repeated this one; and a task pruned in between made a full page look like the
+// last, so the rest of the listing was never read — ListAll stopped short, and
+// with it the sweeps that walk it (cancelForPolicy, the inbound feed, recovery).
+func TestListPageBoundaryIsTheIndexRead(t *testing.T) {
+	// Newest first: ix_4 ix_3 ix_2 ix_1 ix_0, of trust "t"; finished, if
+	// named, is finished where it stands.
+	setup := func(t *testing.T, finished string) (*interactions.Store, *int64) {
+		s := open(t)
+		clock := int64(1000)
+		s.SetClock(func() int64 { return clock })
+		for i := 0; i < 5; i++ {
+			clock++
+			id := fmt.Sprintf("ix_%d", i)
+			if err := s.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: "peer-a", Goal: "g",
+				Trust: "t"}); err != nil {
+				t.Fatal(err)
+			}
+			if id == finished {
+				if _, err := s.SetState(id, interactions.StateCompleted); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		return s, &clock
+	}
+	// walk lists every page of two, with between run in the first.
+	walk := func(t *testing.T, s *interactions.Store, between func()) string {
+		t.Helper()
+		f := interactions.ListFilter{Role: interactions.RoleOutbound, PeerAID: "peer-a", Limit: 2}
+		restore := interactions.SetBetweenListSteps(between)
+		var got []string
+		for len(got) <= 10 {
+			p, err := s.ListPage(f)
+			restore()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, ix := range p.Items {
+				got = append(got, ix.ID)
+			}
+			if p.Next == "" {
+				break
+			}
+			f.Cursor = p.Next
+		}
+		return strings.Join(got, " ")
+	}
+	t.Run("the last task of the page changes state", func(t *testing.T) {
+		s, clock := setup(t, "")
+		got := walk(t, s, func() {
+			*clock = 5000
+			if _, err := s.SetState("ix_3", interactions.StateWorking); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if got != "ix_4 ix_3 ix_2 ix_1 ix_0" {
+			t.Fatalf("pages gave %s", got)
+		}
+	})
+	t.Run("a task of the page is pruned", func(t *testing.T) {
+		s, _ := setup(t, "ix_3")
+		got := walk(t, s, func() {
+			if n, err := s.PruneTerminal("t", 1<<40); err != nil || n.Interactions != 1 {
+				t.Fatalf("prune: %+v %v", n, err)
+			}
+		})
+		if got != "ix_4 ix_2 ix_1 ix_0" {
+			t.Fatalf("pages gave %s", got)
+		}
+	})
 }
