@@ -120,3 +120,27 @@ func TestRefusedFloorsAreBounded(t *testing.T) {
 		}
 	}
 }
+
+// One eviction over several senders raises each one's own floor to its
+// own newest evicted row.
+func TestAnEvictionOverSeveralSendersRaisesEachOwnFloor(t *testing.T) {
+	s := open(t)
+	for i, who := range []string{"a", "b", "a", "c", "d"} {
+		ts := uint64(100 + i)
+		if err := s.RecordRefused(who, []byte(fmt.Sprintf("mid-%d", i)), ts, ts+10_000); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.SetRefusedCaps(interactions.RefusedCaps{Total: 2})
+	if err := s.RecordRefused("e", []byte("mid-5"), 105, 10_105); err != nil {
+		t.Fatal(err)
+	}
+	for who, want := range map[string]uint64{"a": 102, "b": 101, "c": 103, "d": 0, "e": 0} {
+		if _, floor, err := s.Refused(who, []byte("x")); err != nil || floor != want {
+			t.Fatalf("%s: floor %d (%v), want %d", who, floor, err, want)
+		}
+	}
+	if rows, floors, err := s.RefusedCount(); err != nil || rows != 2 || floors != 3 {
+		t.Fatalf("rows %d floors %d err %v", rows, floors, err)
+	}
+}
