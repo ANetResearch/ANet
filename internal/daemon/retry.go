@@ -295,7 +295,9 @@ func (d *Daemon) attemptOutbox(ctx context.Context, id int64) error {
 		}
 		return d.rescheduleOutbox(it, err)
 	}
-	return d.ix.DeleteOutbox(it.ID)
+	// A delegation's delivery is when its requester starts waiting for an
+	// answer (no_response.go).
+	return d.ix.DeleteDeliveredOutbox(it.ID, it.IX, it.Type == seal.TypeDelegate)
 }
 
 // abandonOutbox drops a row that will not be delivered, records why, and

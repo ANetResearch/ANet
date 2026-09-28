@@ -237,6 +237,9 @@ func validatePolicy(c Config, untrustedBackend bool) error {
 			return fmt.Errorf("anet: auto_reply.untrusted %q is not one of off, sandbox", ar.Untrusted)
 		}
 	}
+	if _, err := c.noResponseAfter(); err != nil {
+		return err
+	}
 	for _, p := range in.PublicCapabilities {
 		if strings.TrimSpace(p.ID) == "" {
 			return fmt.Errorf("anet: inbound.public_capabilities has an entry without an id")

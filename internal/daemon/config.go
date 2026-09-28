@@ -70,6 +70,15 @@ type Config struct {
 	// and lets a stolen pre-rotation key sign back-dated messages for as
 	// long.
 	RotationGrace string `json:"rotation_grace,omitempty"`
+	// NoResponseAfter is how long a task this node sent may sit submitted
+	// with nothing at all from its peer — no status, no message, no result
+	// — once its delegation has left this node, before it is failed with
+	// anet.reason=no_response and effect UNVERIFIED (A2A-DESIGN §4.2,
+	// no_response.go). A Go duration such as "15m"; empty means 15m, "0"
+	// turns the deadline off. A peer that refuses without telling (a refusal
+	// notice past its rate limit, §2 X2) otherwise leaves the task, and
+	// every client waiting on it, waiting for ever.
+	NoResponseAfter string `json:"no_response_after,omitempty"`
 }
 
 // AutoReplyConfig configures the daemon's built-in auto-reply loop (see autoreply.go). Backend selects
@@ -134,7 +143,7 @@ func (c AutoReplyConfig) UntrustedMode() string {
 func DefaultConfig() Config {
 	in := defaultInbound()
 	pay := defaultPayments()
-	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in, Payments: &pay}
+	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in, Payments: &pay, NoResponseAfter: defaultNoResponseAfterText}
 }
 
 // freshConfig is the config a data dir with no config.json is created with: DefaultConfig, but with a

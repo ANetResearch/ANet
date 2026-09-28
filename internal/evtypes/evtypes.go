@@ -38,7 +38,9 @@ const (
 	PolicyChanged            = "anet.policy.changed"
 	AutoReplyInvoked         = "anet.autoreply.invoked"
 	BackendForwarded         = "anet.backend.forwarded"
+	BackendFailed            = "anet.backend.failed"
 	DeliveryExpired          = "anet.delivery.expired"
+	TaskNoResponse           = "anet.task.no_response"
 	EvidenceGap              = "anet.evidence.gap"
 	MessageSent              = "anet.message.sent"
 	MessageReceived          = "anet.message.received"
@@ -89,7 +91,9 @@ var registry = []Event{
 	{Type: PolicyChanged, Label: "policy changed", Source: SourceNode},
 	{Type: AutoReplyInvoked, Label: "auto-reply invoked", Source: SourceNode},
 	{Type: BackendForwarded, Label: "forwarded to A2A backend", Source: SourceNode},
+	{Type: BackendFailed, Label: "A2A backend did not answer (left in the inbox)", Source: SourceNode},
 	{Type: DeliveryExpired, Label: "delivery expired", Source: SourceNode},
+	{Type: TaskNoResponse, Label: "no answer from the peer (task failed)", Source: SourceNode},
 	{Type: EvidenceGap, Label: "evidence gap (a torn record was lost)", Source: SourceNode},
 	{Type: MessageSent, Label: "message sent", Source: SourceNode,
 		AggregatedLabel: "messages sent (aggregated)"},
