@@ -13,7 +13,7 @@ cryptographically verifiable results — across vendors, across machines, across
 
 [![Paper](https://img.shields.io/badge/arXiv-2607.15053-b31b1b.svg)](https://arxiv.org/abs/2607.15053)
 [![Position Paper](https://img.shields.io/badge/TST-Position%20Paper-blue.svg)](https://www.sciopen.com/article/10.26599/TST.2026.9010062)
-[![License](https://img.shields.io/badge/license-Apache--2.0%20(modified)-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0%20%28modified%29-green.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/go-1.26+-00ADD8.svg)](go.mod)
 
 </div>

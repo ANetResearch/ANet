@@ -4,7 +4,7 @@
 >
 > **License: Apache-2.0**, the A2A project's license, under which changes to the A2A specification
 > are contributed: this proposal is licensed under the Apache License 2.0 alone (ANet `LICENSE`,
-> Section 3).
+> condition 3).
 
 **Status:** Proposed (draft; the ADR number is assigned on submission)
 
