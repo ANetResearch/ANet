@@ -145,7 +145,7 @@ go build -tags no_&lt;m&gt; -o lean ./cmd/anet;   go tool nm lean | grep -c modu
 <p>hub 的 <code>/register</code> 校验两件事:密钥历史能推出所声称的 AID;调用方能签出挑战。这证明调用方<strong>控制</strong>这个身份,不证明 hub <strong>想要</strong>它。2026-09-03 之前没有更多可说:任何人都能注册。</p>
 <p>现在有一道可选的闸门:</p>
 <ul><li><strong>默认仍是开放注册。</strong> 升级到这个版本的 hub 行为不变;从未配置的 hub 与以前一样。</li><li>打开后(<code>anet-hub -invite-required true</code>),<strong>只有 hub 不认识的 AID</strong> 的首次注册需要邀请码。已注册的节点在重启和能力变化时照常重注册,不需要码——否则运营者打开开关的那一刻就把自己的网络锁死了。</li><li>邀请码有次数上限与有效期,可撤销;hub 只存其 SHA-256,明文只在铸造时打印一次。谁凭哪个码进来的有记录。</li><li>邀请码在签名校验<strong>之后</strong>、写入<strong>之前</strong>消耗:签不出挑战的人烧不掉码;写入失败会烧掉一次而不是留下一个无人可账的注册。</li><li>撤销关的是门,不逐出人。要移除一个已注册的节点是运营面的另一个动作。</li></ul>
-<p>daemon 侧 <code>anet hub-register &lt;url&gt; --token &lt;码&gt;</code>,<code>install.sh --token</code>。码不落盘。</p>
+<p>daemon 侧 <code>ANET_INVITE=&lt;码&gt; anet hub-register &lt;url&gt;</code>(或 <code>--token-file</code>),<code>install.sh</code> 同样读 <code>ANET_INVITE</code> 或 <code>--token-file</code>。码不落盘,也不上命令行(同机其他用户能读进程参数;<code>--token</code> 拒绝)。</p>
 <h3 id="6-5-hub-能做什么-不能做什么">6.5 hub 能做什么、不能做什么</h3>
 <div class="tw"><table><thead><tr><th>hub 能</th><th>hub 不能</th></tr></thead><tbody><tr><td>决定谁能注册(准入)、谁在目录里可见</td><td>伪造任何一条评价、收据、任务合同</td></tr><tr><td>转发中继消息(0.1.x 中是明文,hub 读得到;v0.2 起是端到端加密的信封,hub 仍看得到收发双方、时间与大小)</td><td>篡改经它中继的签名对象(任务合同、回执)而不被收方识破</td></tr><tr><td>记账、签发凭证、签结算收据</td><td>事后改写自己的发放链而不被已取过链头的读者发现</td></tr><tr><td>拒绝出售某项能力</td><td>改价、把买家指到别的机器</td></tr><tr><td>标记一个月未露面的节点</td><td>删除任何人的证据</td></tr></tbody></table></div>
 <hr>

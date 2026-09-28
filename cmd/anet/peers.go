@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"time"
 )
@@ -204,20 +206,24 @@ func peerNote(c *client, aid string) string {
 }
 
 // runHubRegister is `anet hub-register <url> [--name N] [--caps a,b]
-// [--token INVITE]`. The wire-1 --accept-delegations flag is still read:
-// true is refused like `accept on`, false asks for what the closed policy
-// does (A2A-DESIGN §5.1).
+// [--token-file F]`, with an invite in ANET_INVITE or the file. The wire-1
+// --accept-delegations flag is still read: true is refused like `accept
+// on`, false asks for what the closed policy does (A2A-DESIGN §5.1).
 func runHubRegister(c *client, rest []string) error {
 	pos, flags := splitFlags(rest)
 	if len(pos) < 1 || pos[0] == "" {
-		return fmt.Errorf("hub-register <url> [--name NAME] [--caps a,b] [--token INVITE]")
+		return fmt.Errorf("hub-register <url> [--name NAME] [--caps a,b] [--token-file FILE]   (invite: ANET_INVITE or --token-file)")
+	}
+	invite, err := inviteFrom(flags)
+	if err != nil {
+		return err
 	}
 	body := map[string]any{"hub": pos[0], "name": flags["name"]}
 	// Only sent when given. A hub that admits openly has no use for it, and
 	// sending an empty string would make the two cases look different on
 	// the wire when they are not.
-	if v := strings.TrimSpace(flags["token"]); v != "" {
-		body["token"] = v
+	if invite != "" {
+		body["token"] = invite
 	}
 	if v := flags["caps"]; v != "" {
 		body["caps"] = strings.Split(v, ",")
@@ -233,6 +239,59 @@ func runHubRegister(c *client, rest []string) error {
 		body["accept_delegations"] = false
 	}
 	return c.do("/hub-register", body)
+}
+
+// inviteEnv is the environment variable a hub invite is passed in.
+const inviteEnv = "ANET_INVITE"
+
+// errInviteOnCommandLine refuses `--token <invite>`.
+var errInviteOnCommandLine = fmt.Errorf("hub-register: the invite is not taken on the command line, where every local user can read it " +
+	"(ps, /proc/<pid>/cmdline) while the command runs; pass it in the " + inviteEnv + " environment variable " +
+	"(" + inviteEnv + "=anetinv_… anet hub-register <url> …) or with --token-file FILE (- reads standard input)")
+
+// inviteFrom returns the hub invite for hub-register: from --token-file (a file, or - for standard
+// input), else from ANET_INVITE, else "" (a hub that admits openly needs none). An invite is a
+// credential — whoever presents it first is admitted, and a single-use one is then spent for its owner
+// — so it is never read from argv [redteam:F41].
+func inviteFrom(flags map[string]string) (string, error) {
+	if _, ok := flags["token"]; ok {
+		return "", errInviteOnCommandLine
+	}
+	if f, ok := flags["token-file"]; ok {
+		var r io.Reader
+		if f == "-" {
+			r = os.Stdin
+		} else {
+			fh, err := os.Open(f)
+			if err != nil {
+				return "", fmt.Errorf("hub-register: --token-file: %w", err)
+			}
+			defer fh.Close()
+			r = fh
+		}
+		b, err := io.ReadAll(io.LimitReader(r, 4096))
+		if err != nil {
+			return "", fmt.Errorf("hub-register: --token-file: %w", err)
+		}
+		v := strings.TrimSpace(string(b))
+		if v == "" {
+			return "", fmt.Errorf("hub-register: --token-file %s holds no invite", f)
+		}
+		return v, nil
+	}
+	return strings.TrimSpace(os.Getenv(inviteEnv)), nil
+}
+
+// envWithout returns env without the variable named key. The daemon does not need a hub invite, and a
+// long-lived process that holds one passes it on to everything it runs.
+func envWithout(env []string, key string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		if !strings.HasPrefix(kv, key+"=") {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 // runAccept is the wire-1 `anet accept <on|off>` (A2A-DESIGN §5.1). "on"

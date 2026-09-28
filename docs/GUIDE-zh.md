@@ -84,7 +84,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 |---|---|
 | `--hub URL` | 启动节点并注册到这个 hub |
 | `--name NAME` | 注册用的名字,默认主机名 |
-| `--token INVITE` | 邀请码。hub 默认开放注册不需要;hub 打开准入后由其运营者给你 |
+| `--token-file F` | 从文件 F 读邀请码(或设环境变量 `ANET_INVITE`:`… \| ANET_INVITE=anetinv_… sh -s -- --hub …`)。hub 默认开放注册不需要;hub 打开准入后由其运营者给你。邀请码不接受放在命令行上(`--token` 会被拒绝):同机其他用户能读到任何进程的参数 |
 | `--shell` | 装能执行命令的变体(§6.6) |
 | `--agents[=LIST]` | 装完把 anet 接入本机检测到的编码 agent(`anet agents wire --all`),或只接 LIST 中的 |
 | `--base URL` | 下载源,只接受 `https://`(也可设 `ANET_INSTALL_BASE`) |
@@ -178,7 +178,7 @@ verified / unverified / unknown)、内置官方清单的状态、编入的模块
 
 ```sh
 anet hub-register https://hub.agentnetwork.org.cn --name my-node
-anet hub-register https://hub.agentnetwork.org.cn --name my-node --token anetinv_…   # hub 要邀请码时
+ANET_INVITE=anetinv_… anet hub-register https://hub.agentnetwork.org.cn --name my-node   # hub 要邀请码时(或 --token-file FILE;不接受 --token)
 anet profile set --summary "一句话" --readme @README.md --pricing "免费"          # 自述,仅展示
 anet visibility hub-local                                                        # 目录可见性:local | hub-local | federated
 anet hub-leave https://hub.agentnetwork.org.cn                                   # 注销(删路由,留证据)
@@ -610,7 +610,7 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 |---|---|
 | `module "x" is configured but not compiled into this build (built with no_x?)` | 这个构建裁掉了该模块 |
 | `module "shell" … it needs -tags shell` | 装的是默认变体,重装加 `--shell` |
-| `hub /register rejected: … invite` | hub 开了准入,向运营者要码,加 `--token` |
+| `hub /register rejected: … invite` | hub 开了准入,向运营者要码,放进 `ANET_INVITE`(或 `--token-file`)再注册 |
 | 连 hub 得到 426,或 daemon 拒绝工作 | 两代不互通:v0.2 daemon 只连 wire 2 的 hub,0.1.x daemon 只连 wire 1 的 hub |
 | 任务 `failed`,`anet.reason=undeliverable` | 委派或消息在有效期内一直没送到(hub 长时间不可达,或 hub 拒收)。发送时本地写入成功即返回 `submitted`,之后由 daemon 自动重试,过期才判失败;能力任务的 `anet.effect_status` 为 `UNAVAILABLE`。重发用新的消息 id |
 | 委派后得到 `rejected`,`anet.reason=not_accepting` | 你不在对方的允许名单里,能力也不是对方的公开能力。请对方 `anet peers allow <你的 AID>` |
