@@ -200,14 +200,22 @@ func (d *Daemon) hTasksList(w http.ResponseWriter, r *http.Request) {
 		HistoryLength        *int   `json:"history_length"`
 		StatusTimestampAfter string `json:"status_timestamp_after"`
 		IncludeArtifacts     bool   `json:"include_artifacts"`
+		// MaxTaskBytes bounds each task of the page as JSON
+		// (a2ashape.TaskWithin); 0, the default, leaves them whole. MCP
+		// list_tasks sets it.
+		MaxTaskBytes int `json:"max_task_bytes"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		badTaskRequest(w, "body: %v", err)
 		return
 	}
+	if req.MaxTaskBytes < 0 {
+		badTaskRequest(w, "max_task_bytes must not be negative")
+		return
+	}
 	lr := taskListReq{TaskFilter: module.TaskFilter{ContextID: req.ContextID, State: req.Status,
 		PageSize: req.PageSize, PageToken: req.PageToken, HistoryLen: req.HistoryLength,
-		IncludeArtifacts: req.IncludeArtifacts}, PeerAID: req.Peer}
+		IncludeArtifacts: req.IncludeArtifacts}, PeerAID: req.Peer, MaxTaskBytes: req.MaxTaskBytes}
 	if lr.State == "" {
 		lr.State = req.State
 	}

@@ -52,6 +52,12 @@ const (
 // none: each task's latest message.
 const listHistoryDefault = 1
 
+// listTaskBytes is how large, as JSON, list_tasks lets one listed task be
+// (the control plane's max_task_bytes, a2ashape.TaskWithin): room for an
+// ordinary task — its metadata, a payment quote, a reply of a few
+// paragraphs — while a longer message is listed as a notice of its size.
+const listTaskBytes = 8 << 10
+
 // waitMS turns a tool's timeout_seconds into the control plane's
 // timeout_ms.
 func waitMS(seconds int) int64 {
@@ -202,8 +208,9 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"tasks this node sent; role=provider lists tasks other agents sent to this node (answer " +
 			"them with reply_task). Filter by context_id (one conversation), state (completed, " +
 			"input-required, ...) or peer (an AID). Each task comes with its latest message only " +
-			"unless you ask for more with history_length; get_task reads one task whole. Page with " +
-			"page_token (nextPageToken). " + honesty,
+			"unless you ask for more with history_length, and is cut to about 8 KB: a longer message " +
+			"or result is listed as a notice of its size (metadata anet.truncated); get_task reads one " +
+			"task whole. Page with page_token (nextPageToken). " + honesty,
 		Annotations: readLocal(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listTasksIn) (*mcp.CallToolResult, any, error) {
 		role, err := controlRole(in.Role)
@@ -230,6 +237,11 @@ func addTaskTools(s *mcp.Server, c Control) {
 		if in.IncludeArtifacts {
 			body["include_artifacts"] = true
 		}
+		// And one long message would still ride along, whole, in every page
+		// that lists its task — a peer's 3 MiB reply made each page
+		// megabytes long (docs/notes/0035), more than an MCP client takes as
+		// a tool result. Each listed task is held to listTaskBytes.
+		body["max_task_bytes"] = listTaskBytes
 		return forward(ctx, c, "/tasks/list", body)
 	})
 

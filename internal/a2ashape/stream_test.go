@@ -68,3 +68,48 @@ func TestTaskForStreamHoldsAnEventToTheLimit(t *testing.T) {
 		t.Fatal("the task given was changed")
 	}
 }
+
+// TaskWithin holds a listed task to its bound: a small one is carried as
+// it is; a big latest message is replaced by a notice that says how large
+// it was, and the task is marked (docs/notes/0035: one 3 MiB reply made
+// every MCP list_tasks page megabytes long).
+func TestTaskWithinHoldsAListedTaskToItsBound(t *testing.T) {
+	small := Task{ID: "t", ContextID: "c", Status: TaskStatus{State: TaskStateCompleted},
+		History:  []Message{{ID: "h", Role: RoleAgent, Parts: []Part{TextPart("echo: hi")}}},
+		Metadata: map[string]any{"anet.peer_aid": "x"}}
+	if got := TaskWithin(small, 8<<10); !reflect.DeepEqual(got, small) {
+		t.Fatalf("a small task was changed: %+v", got)
+	}
+	huge := strings.Repeat("<", 3<<20)
+	big := Task{ID: "t", ContextID: "c", Status: TaskStatus{State: TaskStateCompleted},
+		History: []Message{{ID: "old", Role: RoleUser, Parts: []Part{TextPart("the question")}},
+			{ID: "new", Role: RoleAgent, Parts: []Part{TextPart(huge)}, Metadata: map[string]any{KeyState: "working"}}},
+		Metadata: map[string]any{"anet.peer_aid": "x"}}
+	for _, max := range []int{8 << 10, 1} {
+		got := TaskWithin(big, max)
+		b, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bound := max
+		if bound < MinTaskBytes {
+			bound = MinTaskBytes
+		}
+		if len(b) > bound {
+			t.Fatalf("max %d: the task is %d bytes as JSON", max, len(b))
+		}
+		if len(got.History) != 1 || got.History[0].ID != "new" || got.History[0].Metadata[KeyTruncated] != true ||
+			got.History[0].Metadata[KeyState] != "working" || got.Metadata[KeyTruncated] != true ||
+			got.Metadata["anet.peer_aid"] != "x" {
+			t.Fatalf("max %d: history %+v, metadata %v: want the newest message as a notice, the task marked", max,
+				got.History, got.Metadata)
+		}
+		size, _ := got.History[0].Parts[0].Metadata[KeySize].(int)
+		if size < len(huge) || !strings.Contains(got.History[0].Parts[0].Text, "left out of this list") {
+			t.Fatalf("max %d: notice %+v", max, got.History[0].Parts[0])
+		}
+	}
+	if big.History[1].Parts[0].Text != huge {
+		t.Fatal("the task given was changed")
+	}
+}
