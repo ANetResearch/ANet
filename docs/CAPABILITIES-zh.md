@@ -111,7 +111,7 @@ v0.2 的封装/解封开销没有单独测,阶段 F 补测。
 | 缺口 | 影响 | 状态 |
 |---|---|---|
 | v0.2 全量联调与 a2a-tck | 新增面只有单测 | 阶段 F |
-| daemon 包 `-race` | 测试钩子直接赋值构成数据竞争 | 修复中(计划 0014 B2-01) |
+| daemon 包 `-race` | 原为测试钩子直接赋值构成数据竞争;钩子已改为原子指针,三仓 `-race` 全绿。该包在 `-race` 下单包约 11–12 分钟,全仓 `-race` 须带 `-timeout 45m`(`CONTRIBUTING.md`、CI) | 已修(`wp/hyg`,计划 0014 B2-01) |
 | MCP 与本机 A2A 接口的"结束请求" | 这两个面上只能取消、不能请求完成(CLI 与控制台可以) | 设计已定(0017 Q4),未接入 |
 | 治理纪元 `govepoch` | org 只接受 epoch 0 | 等 ANetCore 的 `ascpevo.GovernanceCert` |
 | `module/anetlink` 无直接测试 | 81 行薄封装,`provider/anetlink` 有 3 个测试 | 仅可用 |
