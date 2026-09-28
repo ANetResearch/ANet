@@ -208,8 +208,16 @@ const maxPullNameAttempts = 1000
 //     work dir, where a written file could replace keys, tokens, configuration or an agent's input.
 //   - Files go into the per-interaction subdirectory, so a peer-chosen name never lands beside the
 //     user's own files (a peer could otherwise create a CLAUDE.md, AGENTS.md or .envrc in a project
-//     directory). The subdirectory is created with Mkdir and checked with Lstat; a symbolic link there
-//     is refused.
+//     directory). The subdirectory is created with Mkdir; one that already exists is used only if it is
+//     a real directory (not a symbolic link), owned by this uid and not writable by group or others —
+//     out_dir may be a shared directory such as /tmp, where another local user can create
+//     anet-<ix> first [redteam:F20].
+//   - The subdirectory is opened once, and every file is created relative to that open directory
+//     (os.Root, openat semantics). Checking a path and then writing by path left a window in which
+//     another local user could swap the subdirectory for a symbolic link between the check and each
+//     write, redirecting peer-named files into any directory the daemon can write [redteam:F20]. The
+//     opened directory is checked to be the one inspected (same file), and to pass the ownership
+//     rule, before anything is written in it.
 //   - Each file is opened with O_CREATE|O_EXCL|O_WRONLY|O_NOFOLLOW, so an existing file is never
 //     overwritten and a symbolic link placed at the destination is never followed. When the name is
 //     taken by a regular file with the same content CID, the attachment counts as already pulled, which
@@ -245,24 +253,67 @@ func pullInto(real, interactionID string, atts []*interactions.Attachment) ([]Pu
 	if err := os.MkdirAll(real, 0o755); err != nil {
 		return nil, err
 	}
-	sub := filepath.Join(real, "anet-"+safeName(prefix(interactionID, 12)))
-	if err := os.Mkdir(sub, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+	parent, err := os.OpenRoot(real)
+	if err != nil {
 		return nil, err
 	}
-	if fi, err := os.Lstat(sub); err != nil {
+	defer parent.Close()
+	name := "anet-" + safeName(prefix(interactionID, 12))
+	sub := filepath.Join(real, name)
+	if err := parent.Mkdir(name, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
 		return nil, err
-	} else if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
-		return nil, fmt.Errorf("pull: %s exists and is not a directory (or is a symbolic link); refusing to write into it", sub)
+	}
+	seen, err := parent.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if why := pullDirTrouble(seen, os.Getuid()); why != "" {
+		return nil, fmt.Errorf("pull: %s %s; refusing to write into it (pull into a directory of your own with --out)", sub, why)
+	}
+	dir, err := parent.OpenRoot(name)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	// What was opened must be what was inspected: between the two, the entry may have been replaced by
+	// a link to somewhere else. From here on nothing is looked up by path.
+	opened, err := dir.Stat(".")
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(seen, opened) {
+		return nil, fmt.Errorf("pull: %s changed while it was being opened; refusing to write into it", sub)
+	}
+	if why := pullDirTrouble(opened, os.Getuid()); why != "" {
+		return nil, fmt.Errorf("pull: %s %s; refusing to write into it (pull into a directory of your own with --out)", sub, why)
 	}
 	used := map[string]bool{}
 	for _, a := range atts {
-		res, err := pullOne(sub, safeName(a.Name), a, used)
+		res, err := pullOne(dir, sub, safeName(a.Name), a, used)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, res)
 	}
 	return out, nil
+}
+
+// pullDirTrouble says what disqualifies fi as the pull subdirectory, or "" when it qualifies: it must be
+// a directory, not a symbolic link, owned by uid, and not writable by group or others. Anything else
+// could be, or be changed by, another local user.
+func pullDirTrouble(fi fs.FileInfo, uid int) string {
+	switch {
+	case fi.Mode()&fs.ModeSymlink != 0:
+		return "is a symbolic link"
+	case !fi.IsDir():
+		return "exists and is not a directory"
+	case fi.Mode().Perm()&0o022 != 0:
+		return fmt.Sprintf("is writable by others (mode %04o)", fi.Mode().Perm())
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != uid {
+		return fmt.Sprintf("belongs to uid %d, not to this user (uid %d)", st.Uid, uid)
+	}
+	return ""
 }
 
 // checkPullOutDir validates the out_dir of a pull and returns it resolved through symbolic links.
@@ -285,15 +336,16 @@ func (d *Daemon) checkPullOutDir(outDir string) (string, error) {
 	return real, nil
 }
 
-// pullOne writes one attachment into dir under name or the first free numbered variant of it.
-func pullOne(dir, name string, a *interactions.Attachment, used map[string]bool) (PullResult, error) {
+// pullOne writes one attachment into the opened directory dir (whose path is subPath, for the result)
+// under name or the first free numbered variant of it.
+func pullOne(dir *os.Root, subPath, name string, a *interactions.Attachment, used map[string]bool) (PullResult, error) {
 	for i := 0; i < maxPullNameAttempts; i++ {
 		cand := numberedName(name, i)
 		if used[cand] {
 			continue
 		}
-		p := filepath.Join(dir, cand)
-		f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
+		p := filepath.Join(subPath, cand)
+		f, err := dir.OpenFile(cand, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
 		if err == nil {
 			_, werr := f.Write(a.Data)
 			cerr := f.Close()
@@ -309,26 +361,29 @@ func pullOne(dir, name string, a *interactions.Attachment, used map[string]bool)
 		if !errors.Is(err, fs.ErrExist) {
 			return PullResult{}, err
 		}
-		if regularFileHasCID(p, a.CID) {
+		if regularFileHasCID(dir, cand, a.CID) {
 			used[cand] = true
 			return PullResult{Name: cand, Path: p, Mime: a.Mime, Size: a.Size, CID: a.CID, AlreadyPresent: true}, nil
 		}
 	}
-	return PullResult{}, fmt.Errorf("pull: no free file name for %q in %s", name, dir)
+	return PullResult{}, fmt.Errorf("pull: no free file name for %q in %s", name, subPath)
 }
 
-// regularFileHasCID reports whether p is a regular file (not a symbolic link) whose content has the
-// given CID.
-func regularFileHasCID(p, cid string) bool {
-	fi, err := os.Lstat(p)
+// regularFileHasCID reports whether name in dir is a regular file (not a symbolic link) whose content
+// has the given CID.
+func regularFileHasCID(dir *os.Root, name, cid string) bool {
+	fi, err := dir.Lstat(name)
 	if err != nil || !fi.Mode().IsRegular() || fi.Size() > maxAttachmentBytes {
 		return false
 	}
-	f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	f, err := dir.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return false
 	}
 	defer f.Close()
+	if st, err := f.Stat(); err != nil || !os.SameFile(fi, st) {
+		return false
+	}
 	data, err := io.ReadAll(io.LimitReader(f, maxAttachmentBytes+1))
 	if err != nil {
 		return false

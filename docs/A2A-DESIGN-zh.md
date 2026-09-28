@@ -427,7 +427,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 4. 身份切换:`POST /console/switch {aid}`,当前 daemon 从 `RunningDaemons()` 找到目标、读取其控制令牌(同 uid)、向目标取票据,返回目标控制台 URL。
 5. `console.html` 改造:注入不含令牌的 `window.__ANET{aid,name,hub,nonce}`;`ctl` 改为 cookie + `X-Anet-CSRF`;删除访客代码、评价的 goal/deliverable 渲染与"附完整交互内容"文案;`tasks_completed` 标签按 §9 改;附件内联判断改用四种图片类型白名单;删除"连接到本 Hub"按钮与 `ctl("/hub-register")`(未注册时只显示 CLI 命令 `anet hub-register`),删除"同意结束"按钮与 `ctl("/end-accept")`,结束 UI 只保留 `/end`。CSP:脚本 nonce,`frame-ancestors 'none'`,`connect-src 'self' <cfg.HubURL 源>`;加载测试断言目录数据仍能显示。
 6. `/attachment` [C11]:按 `http.DetectContentType` 嗅探,只有 png/jpeg/gif/webp 内联,其余 `application/octet-stream` + `Content-Disposition: attachment`;所有响应加 `Content-Security-Policy: default-src 'none'; sandbox` 与 `nosniff`;去掉 `immutable` 一年缓存;收到附件时把 `Mime` 改写为嗅探结果。
-7. `/pull` [C42]:总是写入新子目录 `<out_dir>/anet-<ix前12>/`(Mkdir + Lstat,拒绝符号链接);文件以 `O_CREATE|O_EXCL|O_WRONLY|O_NOFOLLOW` 打开,已存在且内容 CID 相同视为已取回,否则换名;`safeName` 中和前导点、去控制与双向字符、限长;空或相对 `out_dir` 返回 400;`out_dir`、数据目录与 exec 工作目录均先经 `filepath.EvalSymlinks` 解析为真实路径后再比较前缀,拒绝落在后两者之内的 `out_dir`。
+7. `/pull` [C42]:总是写入新子目录 `<out_dir>/anet-<ix前12>/`(Mkdir + Lstat,拒绝符号链接);已存在的子目录须属于本 uid、不是符号链接、group/other 不可写,否则拒绝(`out_dir` 可能是 `/tmp` 这类共享目录,别的本机用户可先建同名目录)[redteam:F20];子目录只打开一次,文件相对该目录 fd 创建(`os.Root`,openat 语义),并核对打开的目录与检查的是同一文件,消除"检查后按路径写"期间被替换成符号链接的窗口 [redteam:F20];文件以 `O_CREATE|O_EXCL|O_WRONLY|O_NOFOLLOW` 打开,已存在且内容 CID 相同视为已取回,否则换名;`safeName` 中和前导点、去控制与双向字符、限长;空或相对 `out_dir` 返回 400;`out_dir`、数据目录与 exec 工作目录均先经 `filepath.EvalSymlinks` 解析为真实路径后再比较前缀,拒绝落在后两者之内的 `out_dir`。
 8. `/ping` 去掉 `Access-Control-Allow-Origin: *`。运行时目录校验非符号链接、属主、0700,优先 `$XDG_RUNTIME_DIR`。`anet mcp` 在显式选定身份时用严格解析。
 9. 策略类写入写 `anet.policy.changed{field, from, to}`。
 
