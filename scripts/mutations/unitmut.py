@@ -4,7 +4,8 @@
 mutate.sh (beside this file) runs a patch through joint.sh; this runs a mutation through the Go tests
 that carry the invariant: apply one small edit to one repository, run the named tests, record whether
 they went red, restore the working tree. The lists are unit/si.py (SI-1..SI-10) and unit/supp.py (the
-§17 supplementary rows); docs/notes/0026 is the run they were written for.
+§17 supplementary rows), written for docs/notes/0026, and unit/fixwave.py (the round-5b red-team fixes
+and 0017 Q28-Q33), written for docs/notes/0029.
 
   unitmut.py unit/si.py                 every mutation of the list not yet recorded in OUT/results.json
   unitmut.py unit/si.py ID…             these, recorded or not
