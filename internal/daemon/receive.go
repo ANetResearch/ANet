@@ -11,9 +11,11 @@ package daemon
 //	step 6   sender KEL: inner vs stored, extension rule, no network     resolveSenderKEL
 //	step 7   signature under the resolved KEL, rotation grace            seal.VerifyInnerSig
 //	step 8   attached key set: advisory, high-water rule                 seal.VerifyInnerKeys
+//	         (from, mid) lock, refused list and replay table: a duplicate
+//	         is not judged again                                         duplicate
 //	step 9   authorization by type (no writes)                           authorize*
-//	step 10  (from, mid) lock, replay table, business write in one
-//	         transaction, then side effects                              ingest* (delegation.go)
+//	step 10  business write and replay row in one transaction, then
+//	         side effects                                                ingest* (delegation.go)
 //
 // Failure classes. Permanent (P): the envelope is acknowledged and dropped,
 // and the reason counted; the same bytes would fail the same way again.
@@ -214,6 +216,26 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
 		}
 	}
 
+	// Steps 9 and 10 for one (from, mid) at a time, and a message handled
+	// or refused before is not judged again [redteam:F26]. Two copies of
+	// one envelope (the hub's and a p2p peer's, or a redelivery racing the
+	// first) meet here: the second waits for the first to be decided and
+	// committed, then finds it in the refused list or the replay table. It
+	// takes no admission slot, sends no refusal and runs nothing the first
+	// did not; a delegation's duplicate goes to the redelivery path.
+	unlock := d.rxLocks.lock(replayKey(m.from, m.mid))
+	defer unlock()
+	if d.refused.has(replayKey(m.from, m.mid)) {
+		return d.drop(dropRefusedReplay, nil)
+	}
+	seen, err := d.ix.ReplaySeen(m.from, m.mid)
+	if err != nil {
+		return d.expireTransient(d.transient(transientReplayCheck, err), m, now)
+	}
+	if seen {
+		return d.expireTransient(d.duplicate(ctx, m), m, d.nowMS())
+	}
+
 	// Step 9.
 	if res := d.authorize(m, now); res != nil {
 		if res.class == rxDropped {
@@ -231,6 +253,39 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
 		m.release = nil
 	}
 	return d.expireTransient(out, m, d.nowMS())
+}
+
+// duplicate handles an envelope whose (from, mid) the replay table holds:
+// it was accepted before, and nothing is decided about it again. A
+// delegation may mean the requester never got the answer: when the
+// interaction it opened is still this sender's and the envelope carries the
+// same request (authorizeRedelivery), redeliveredDelegate re-sends the
+// answer or finishes work a crash interrupted. Anything else is
+// acknowledged and dropped, without a reply.
+func (d *Daemon) duplicate(ctx context.Context, m *rxMsg) rxResult {
+	if m.typ != seal.TypeDelegate {
+		return d.drop(dropDuplicate, nil)
+	}
+	if res := d.parseDelegate(m); res != nil {
+		return *res
+	}
+	ix, res := d.lookupIX(m.ix)
+	if res != nil {
+		return *res
+	}
+	if ix == nil || ix.Role != interactions.RoleInbound || ix.PeerAID != m.from {
+		// Held for approval, refused on approval, or not a delegation
+		// this node took: nothing to re-send and nothing to run.
+		return d.drop(dropDuplicate, nil)
+	}
+	if res := d.authorizeRedelivery(m, ix); res != nil {
+		return *res
+	}
+	// A re-run the daemon's stop cut short is not acknowledged (SI-10).
+	if !d.redeliveredDelegate(ctx, m) {
+		return d.transient(transientStopping, d.ctx.Err())
+	}
+	return d.drop(dropDuplicate, nil)
 }
 
 // reasonOf maps an error from the seal package to its counter name.
@@ -335,23 +390,8 @@ func (d *Daemon) lookupIX(id string) (*interactions.Interaction, *rxResult) {
 // (§5.2) accepts, holds or refuses it. A refusal is answered here, rate
 // limited, and nothing is written.
 func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
-	dr, err := delegation.UnmarshalDelegateReq(m.body)
-	if err != nil {
-		r := d.drop(dropBadBody, err)
-		return &r
-	}
-	if m.ix == "" || dr.InteractionID != m.ix {
-		r := d.drop(dropIXMismatch, fmt.Errorf("body names %q, envelope %q", dr.InteractionID, m.ix))
-		return &r
-	}
-	signer, td, tdBytes, err := delegation.VerifyDelegateReqWithKEL(dr, m.kel, m.ts)
-	if err != nil {
-		r := d.drop(dropBadTaskDoc, err)
-		return &r
-	}
-	if signer != m.from {
-		r := d.drop(dropSignerIsOther, fmt.Errorf("TaskDoc signed by %s, envelope from %s", signer, m.from))
-		return &r
+	if res := d.parseDelegate(m); res != nil {
+		return res
 	}
 	ix, res := d.lookupIX(m.ix)
 	if res != nil {
@@ -364,47 +404,19 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 		r := d.drop(dropIXCollision, fmt.Errorf("%s is %s with %s", m.ix, ix.Role, ix.PeerAID))
 		return &r
 	}
-	requestCID, err := anetcid.Sum(tdBytes)
-	if err != nil {
-		r := d.drop(dropBadTaskDoc, err)
-		return &r
-	}
-	m.dr, m.td, m.tdBytes, m.requestCID, m.existing = dr, td, tdBytes, requestCID, ix
 	if ix != nil {
-		// A redelivery of the delegation this interaction was accepted for,
-		// and of nothing else [redteam:F7]: the policy decided on that
-		// request, so only that request may come this way. Another TaskDoc
-		// under the same ix is a collision, dropped without a reply, however
-		// the sender is related to the interaction.
-		if ix.RequestCID == "" || ix.RequestCID != requestCID {
-			r := d.drop(dropIXCollision, fmt.Errorf("%s was accepted for request %s, this one is %s",
-				m.ix, ix.RequestCID, requestCID))
-			return &r
-		}
-		// Revocation reaches existing interactions (§5.1): the deny list,
-		// and on a trust=peer interaction the allow list, as for a message.
-		ps := d.readPeers()
-		if ps.denied(m.from) {
-			r := d.drop(dropDenied, nil)
-			return &r
-		}
-		if ix.Trust == interactions.TrustPeer && !ps.allowed(m.from) {
-			r := d.drop(dropNotAllowed, nil)
-			return &r
-		}
-		m.trust = ix.Trust
-		return nil
+		return d.authorizeRedelivery(m, ix)
 	}
 	if held, err := d.ix.GetPending(m.ix); err == nil {
 		if held.FromAID != m.from {
 			r := d.drop(dropPendingCollision, nil)
 			return &r
 		}
-		if held.RequestCID != requestCID {
+		if held.RequestCID != m.requestCID {
 			// The held request is what the operator is shown and approves;
 			// another TaskDoc under its id is not added to it.
 			r := d.drop(dropIXCollision, fmt.Errorf("%s is held for request %s, this one is %s",
-				m.ix, held.RequestCID, requestCID))
+				m.ix, held.RequestCID, m.requestCID))
 			return &r
 		}
 		// Already held: the same delegation again. Nothing to decide.
@@ -414,7 +426,7 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 		r := d.transient(transientStore, err)
 		return &r
 	}
-	capID, args, _ := capabilityCall(td)
+	capID, args, _ := capabilityCall(m.td)
 	argsLen := 0
 	if capID != "" {
 		if b, err := json.Marshal(args); err == nil {
@@ -437,6 +449,65 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 	default:
 		m.trust, m.release = dec.trust, dec.release
 	}
+	return nil
+}
+
+// parseDelegate decodes and verifies an anet.delegate/1 body: a DelegateReq
+// for inner.ix whose TaskDoc verifies under the resolved KEL at the message
+// time and is signed by inner.from. It fills m.dr, m.td, m.tdBytes and
+// m.requestCID.
+func (d *Daemon) parseDelegate(m *rxMsg) *rxResult {
+	dr, err := delegation.UnmarshalDelegateReq(m.body)
+	if err != nil {
+		r := d.drop(dropBadBody, err)
+		return &r
+	}
+	if m.ix == "" || dr.InteractionID != m.ix {
+		r := d.drop(dropIXMismatch, fmt.Errorf("body names %q, envelope %q", dr.InteractionID, m.ix))
+		return &r
+	}
+	signer, td, tdBytes, err := delegation.VerifyDelegateReqWithKEL(dr, m.kel, m.ts)
+	if err != nil {
+		r := d.drop(dropBadTaskDoc, err)
+		return &r
+	}
+	if signer != m.from {
+		r := d.drop(dropSignerIsOther, fmt.Errorf("TaskDoc signed by %s, envelope from %s", signer, m.from))
+		return &r
+	}
+	requestCID, err := anetcid.Sum(tdBytes)
+	if err != nil {
+		r := d.drop(dropBadTaskDoc, err)
+		return &r
+	}
+	m.dr, m.td, m.tdBytes, m.requestCID = dr, td, tdBytes, requestCID
+	return nil
+}
+
+// authorizeRedelivery is step 9 for a delegation naming ix, an inbound
+// interaction of the sender's: a redelivery of the delegation ix was
+// accepted for, and of nothing else [redteam:F7]. The policy decided on
+// that request, so only that request may come this way; another TaskDoc
+// under the same ix is a collision, dropped without a reply. Revocation
+// reaches existing interactions (§5.1): the deny list, and on a trust=peer
+// interaction the allow list, as for a message. The interaction's trust is
+// kept.
+func (d *Daemon) authorizeRedelivery(m *rxMsg, ix *interactions.Interaction) *rxResult {
+	if ix.RequestCID == "" || ix.RequestCID != m.requestCID {
+		r := d.drop(dropIXCollision, fmt.Errorf("%s was accepted for request %s, this one is %s",
+			m.ix, ix.RequestCID, m.requestCID))
+		return &r
+	}
+	ps := d.readPeers()
+	if ps.denied(m.from) {
+		r := d.drop(dropDenied, nil)
+		return &r
+	}
+	if ix.Trust == interactions.TrustPeer && !ps.allowed(m.from) {
+		r := d.drop(dropNotAllowed, nil)
+		return &r
+	}
+	m.existing, m.trust = ix, ix.Trust
 	return nil
 }
 
@@ -575,26 +646,14 @@ func (d *Daemon) authorizeReply(m *rxMsg) *rxResult {
 	return nil
 }
 
-// process is step 10: serialize on (from, mid), consult the replay table,
-// and run the type's handler. After an accepted message the sender's KEL
-// and key set are recorded, because every message that reaches this point
-// is from the peer of an interaction this node holds or accepted.
+// process is step 10: run the type's handler, under the (from, mid) lock
+// receiveEnvelope holds, for a message the replay table did not hold when
+// the lock was taken (each handler's transaction claims the replay row, so
+// a copy under another message id is still recorded once). After an
+// accepted message the sender's KEL and key set are recorded, because
+// every message that reaches this point is from the peer of an interaction
+// this node holds or accepted.
 func (d *Daemon) process(ctx context.Context, m *rxMsg) rxResult {
-	unlock := d.rxLocks.lock(replayKey(m.from, m.mid))
-	defer unlock()
-	seen, err := d.ix.ReplaySeen(m.from, m.mid)
-	if err != nil {
-		return d.transient(transientReplayCheck, err)
-	}
-	if seen {
-		// A redelivered delegation may mean the requester never got the
-		// answer: resend it, or finish work a crash interrupted. A re-run
-		// the daemon's stop cut short is not acknowledged (SI-10).
-		if m.typ == seal.TypeDelegate && !d.redeliveredDelegate(ctx, m) {
-			return d.transient(transientStopping, d.ctx.Err())
-		}
-		return d.drop(dropDuplicate, nil)
-	}
 	var res rxResult
 	switch m.typ {
 	case seal.TypeDelegate:
