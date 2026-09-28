@@ -75,12 +75,23 @@ func TestRedteamClosedNodeKELReplayExhaustion(t *testing.T) {
 	kelB, _ := identity.MarshalKEL(attacker.kel)
 	t.Logf("attacker KEL: %d events, %d bytes (cap %d bytes)", len(attacker.kel), len(kelB), seal.MaxKELBytes)
 
-	// Cost baseline: one replay of the attacker KEL.
-	st := time.Now()
+	// Count the replays instead of timing them. A zero-byte
+	// identity.ReplayCache stores nothing, so every identity.Replay in the
+	// process is a miss and its miss count is the number of replays made;
+	// the daemon installs no cache of its own. (This test used to divide
+	// the burst's wall time by one replay's, and failed under CI load at
+	// 2.9 and 1.5 against the floor of 3: 0033 daemon, 0034 §11.)
+	replays := identity.NewReplayCache(0)
+	prevCache := identity.SetReplayCache(replays)
+	t.Cleanup(func() { identity.SetReplayCache(prevCache) })
+	replayed := func() uint64 { _, misses := replays.Stats(); return misses }
+	// The counter sees a replay of the attacker KEL.
 	if _, err := identity.Replay(attacker.kel); err != nil {
 		t.Fatal(err)
 	}
-	oneReplay := time.Since(st)
+	if n := replayed(); n != 1 {
+		t.Fatalf("one identity.Replay counted as %d", n)
+	}
 
 	// A burst of distinct delegations (fresh mid + ix each), exactly what a
 	// stranger sends to a closed node. All are refused; none is cheaply
@@ -93,7 +104,8 @@ func TestRedteamClosedNodeKELReplayExhaustion(t *testing.T) {
 	}
 
 	before := counter(prov, dropNotAccepting)
-	st = time.Now()
+	replaysBefore := replayed()
+	st := time.Now()
 	for _, env := range envs {
 		r := receive(t, prov, env)
 		// Attack succeeded per envelope: a closed node ran full verification
@@ -105,20 +117,18 @@ func TestRedteamClosedNodeKELReplayExhaustion(t *testing.T) {
 	}
 	elapsed := time.Since(st)
 	refused := counter(prov, dropNotAccepting) - before
-
-	perEnvelope := elapsed / burst
-	replaysPerEnvelope := float64(perEnvelope) / float64(oneReplay)
-	t.Logf("closed node processed %d stranger delegations in %v (%v each) => ~%.1f full KEL replays/envelope",
-		refused, elapsed, perEnvelope, replaysPerEnvelope)
+	replaysPerEnvelope := float64(replayed()-replaysBefore) / burst
+	t.Logf("closed node processed %d stranger delegations in %v (%v each), %.1f KEL replays/envelope",
+		refused, elapsed, elapsed/burst, replaysPerEnvelope)
 
 	if refused != burst {
 		t.Fatalf("expected all %d envelopes to reach the not-accepting refusal (no rate-limit gate); got %d", burst, refused)
 	}
 	// Attack succeeded: the implementation does markedly more replay work per
-	// refused envelope than the documented one-replay-per-message model. 3x
-	// is a conservative floor (observed ~6x); combined with the absence of a
-	// daemon-side inbound rate limit, a stranger pins CPU on a node that
-	// accepts nothing.
+	// refused envelope than the documented one-replay-per-message model. 3
+	// is a conservative floor (counted: 6 or 7 per envelope); combined with
+	// the absence of a daemon-side inbound rate limit, a stranger pins CPU on
+	// a node that accepts nothing.
 	if replaysPerEnvelope < 3 {
 		t.Fatalf("expected >=3 full KEL replays per refused envelope (worse than the documented model); got %.1f", replaysPerEnvelope)
 	}
