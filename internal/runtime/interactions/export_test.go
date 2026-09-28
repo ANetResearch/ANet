@@ -53,7 +53,7 @@ func (s *Store) ExplainFindByClientMessage(q ClientMessageQuery) ([]string, erro
 
 // ExplainWaiting is the query plan of Waiting.
 func (s *Store) ExplainWaiting() ([]string, error) {
-	return s.explain(waitingSQL, []any{string(RoleOutbound), string(StateSubmitted), int64(1), 10})
+	return s.explain(waitingSQL, []any{string(RoleOutbound), string(StateSubmitted), int64(1), int64(0), "", 10})
 }
 
 // ExplainContextPeers is the query plan of ContextPeers.

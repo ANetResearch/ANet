@@ -406,7 +406,7 @@ func (s *Store) migrate() error {
 		// The tasks that have sat in one state since before a cutoff
 		// (Waiting): the requester's minute sweep for tasks no answer came
 		// to (A2A-DESIGN §4.2) reads this index, not the rows.
-		`CREATE INDEX IF NOT EXISTS idx_ix_waiting ON interaction(role, state, state_at, id)`,
+		`CREATE INDEX IF NOT EXISTS idx_ix_waiting ON interaction(role, state, state_at, id, peer_aid)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			return fmt.Errorf("interactions: migrate index: %w", err)
