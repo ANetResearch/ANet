@@ -99,11 +99,13 @@ func (p *Provider) Invoke(ctx context.Context, call provider.Call) (effect.Effec
 		return effect.Effect{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// A device command that went out and lost its answer may have acted:
-	// the lamp may be on, the door open. That is an outcome nobody knows
-	// (provider.OutcomeUnknownError), not an error that says it failed —
-	// a requester told it failed could send the command again (redteam
-	// F10, the same rule as the service module).
+	// A device command that may have gone out and lost its answer may have
+	// acted: the lamp may be on, the door open. That is an outcome nobody
+	// knows (provider.OutcomeUnknownError), not an error that says it
+	// failed — a requester told it failed could send the command again
+	// (redteam F10, the same rule as the service module). "May have gone
+	// out" starts when the transport has a connection for it
+	// (provider.TrackSent).
 	req, sent := provider.TrackSent(req)
 	resp, err := p.cli.Do(req)
 	if err != nil {

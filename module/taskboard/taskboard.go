@@ -145,20 +145,45 @@ func (m *Module) post(ctx context.Context, action string, fields map[string]any)
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// A change that may have reached the board and lost its answer may
+	// have been made: the card may be on the board, or claimed. That is an
+	// outcome nobody knows (provider.OutcomeUnknownError), not an error,
+	// which the daemon reports as FAILED — "it did not happen" — and a
+	// caller told that could create the card twice (SI-6; the rule of the
+	// service module, A2A-DESIGN §4.3). "May have reached it" starts when
+	// the transport has a connection for it (provider.TrackSent).
+	req, sent := provider.TrackSent(req)
 	resp, err := m.http.Do(req)
 	if err != nil {
+		if sent() {
+			return nil, fmt.Errorf("taskboard: %s: %w", action, provider.AnswerLost(err))
+		}
 		return nil, err
 	}
 	defer resp.Body.Close()
 	out, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
+	if err != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// The board took the change — it said so with a 2xx — and its
+		// answer broke off. A refusal's status is its answer whatever
+		// its body.
+		return nil, fmt.Errorf("taskboard: %s: HTTP %d, then %w", action, resp.StatusCode, provider.AnswerLost(err))
 	}
 	var reply struct {
 		Card  map[string]any `json:"card"`
 		Error string         `json:"error"`
 	}
-	if json.Unmarshal(out, &reply) != nil {
+	if err != nil || json.Unmarshal(out, &reply) != nil {
+		if resp.StatusCode == http.StatusGatewayTimeout || resp.StatusCode == http.StatusBadGateway {
+			// A proxy in front of the hub answering for it (504: the hub
+			// did not answer in time; 502: its answer broke): the change
+			// reached the hub, which may have made it.
+			reason := provider.ReasonConnectionLost
+			if resp.StatusCode == http.StatusGatewayTimeout {
+				reason = provider.ReasonTimeout
+			}
+			return nil, fmt.Errorf("taskboard: %s: %w", action, &provider.OutcomeUnknownError{Reason: reason,
+				Err: fmt.Errorf("HTTP %d from a gateway", resp.StatusCode)})
+		}
 		return nil, fmt.Errorf("taskboard: %s answered %s", m.base(), resp.Status)
 	}
 	// The hub's own words, not a status code translated into ours.

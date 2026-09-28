@@ -23,6 +23,13 @@ import (
 // holder may be another user, the daemon now replaces the token as it moves; a holder that is provably
 // this user (another identity's daemon) is not a boundary and the token stays.
 
+// fresh sends each request on a connection of its own. The squatter and the daemon of every test here
+// get the same ports (the allocator's scan finds the same free ones), and http.DefaultClient keeps a
+// connection to the previous test's squatter or daemon, closed with that test, in its pool: a POST sent
+// on it before the pool noticed the close failed ("server closed idle connection", not retried for a
+// POST), and the squatter of this test received nothing.
+var fresh = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
 type ctlSquat struct {
 	addr string
 	mu   sync.Mutex
@@ -68,9 +75,11 @@ func servedAfterSquat(t *testing.T, s *ctlSquat) (Layout, string, string) {
 	}
 	req, _ := http.NewRequest(http.MethodPost, "http://"+s.addr+"/status", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer "+tok)
-	if resp, err := http.DefaultClient.Do(req); err == nil {
-		resp.Body.Close()
+	resp, err := fresh.Do(req)
+	if err != nil {
+		t.Fatalf("setup: the client could not send the token to the squatter: %v", err)
 	}
+	resp.Body.Close()
 	s.mu.Lock()
 	captured := append([]string(nil), s.got...)
 	s.mu.Unlock()
@@ -89,7 +98,7 @@ func servedAfterSquat(t *testing.T, s *ctlSquat) (Layout, string, string) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if c, err := LoadConfig(layout); err == nil && c.ControlAddr != s.addr {
-			if resp, err := http.Get("http://" + c.ControlAddr + "/ping"); err == nil {
+			if resp, err := fresh.Get("http://" + c.ControlAddr + "/ping"); err == nil {
 				resp.Body.Close()
 				return layout, tok, c.ControlAddr
 			}
@@ -105,7 +114,7 @@ func statusWith(t *testing.T, addr, tok string) int {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/status", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer "+tok)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := fresh.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +259,7 @@ func listenOutsideAutoRange(t *testing.T) net.Listener {
 func statusWithErr(addr, tok string) int {
 	req, _ := http.NewRequest(http.MethodPost, "http://"+addr+"/status", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer "+tok)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := fresh.Do(req)
 	if err != nil {
 		return 0
 	}
