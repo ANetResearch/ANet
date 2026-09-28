@@ -200,3 +200,33 @@ agentwire 的三个目标需要 python3 带 tomllib 与 PyYAML(没有时解析�
 worker 发 SIGQUIT 看栈,实为它在最小化新输入)而记成"挂起",其保存的输入重跑通过、已删除,该运行不计入 §3。
 另一轮 FuzzX402Quote 记录运行(10:35)没有移开 `testdata/fuzz` 里的回归语料,在未修代码上种子即红,无效;移开后重做,
 即 §3 的 10:41 行。
+
+## 7. 复核(同日)
+
+复核者逐条核对了 §4 的修复提交,方法与结论如下。
+
+- **去掉修复是否变红。** 用文件备份做替换,跑对应回归与 fuzz 种子,跑完用 `cmp` 核对已还原;没有用 git stash。
+  - D1、D2、D3:分别把 `quoteOf`、`newProjector`、`decodeLoose` 里的 `ReadsAlike` 短路掉。三者各自的单测和
+    `FuzzX402Quote`、`FuzzProject`、`FuzzJSONConfig` 的种子都变红。
+  - D4、D5:yamlblock.go 整文件换回,`TestHermesKeyIsNotAppendedWhereYAMLCannotTakeIt` 的 12 个子测试和
+    `FuzzHermesConfig` 的语料都变红。
+  - D6:codex.go 整文件换回,`TestCodexConflictBehindStringsAndEscapes` 的 6 个子测试和 `FuzzCodexConfig` 的语料都变红。
+- **D1–D3 的共同修复有一处漏洞,已补。** `ReadsAlike` 只比较 Go 重新编码出来的成员。encoding/json 会把同一字段的
+  每个大小写拼写都读一遍,以最后一个为准;而 omitempty 字段读成零值后不会被编码,于是没有东西去比它。例:
+  `{"type":"sse", …, "TYPE":""}`,Go 读成 stdio 条目,Claude Code 读成 SSE,wire 却当它是已是最新的 anet 条目,只补写了
+  技能文件。报价里的 `maxTimeoutSeconds`、`extra` 同理,但这两个字段不涉及付多少、付给谁。修复(ANet `0a7c08f`):
+  - 比完 want 的成员之后再检查 got。如果有两个以上成员的名字按 encoding/json 的规则折叠后相同(ASCII 转大写,其余
+    码点取折叠环里最小的,所以 KELVIN SIGN 与 k 同组),其中没有一个出现在 want 里,且至少一个值非零,就判为读法不一致。
+  - 只有一个这样的成员时,说明 Go 根本不读它,照旧放过。
+  - 两个拼写都是 Go 不认识的名字时也会被拒:只看字节分不出它们是不是被藏起来的字段,取保守一侧。
+  - 回归:`TestReadsAlike` 增加 7 例;新增 `TestAnOmitemptyMemberSpelledTwiceIsNotAnets`,断言 Claude 条目报冲突、
+    文件不动。用文件备份把新检查短路,两者都变红。修复后 `FuzzX402Quote`、`FuzzJSONConfig`、`FuzzProject` 各跑
+    30 秒,无发现。
+- **普通 go test 下的 fuzz 函数。** 17 个目标只跑种子和 testdata 语料,连跑两次都通过。
+  - 最慢的是 `FuzzControlRoutes`,约 1.6 s,来自阻塞类路由的 1 s 上下文截止;其次 `FuzzReceiveInner` 约 1.3 s。
+    daemon 包合计约 3.8 s。
+  - agentwire 的三个目标依赖 python3 以及 tomllib、PyYAML;没有这些时,解析判据会跳过。D4–D6 的普通单测不依赖
+    python,所以在没有 python 的 CI 上这三处修复仍有覆盖。
+- **复核后的全量。** ANet `./internal/... ./module/... ./cmd/...` 全部通过;`go vet` 无问题。
+
+复核新增提交(未推送):ANet `0a7c08f`(fix(jsonread):omitempty 字段被后一个大小写变体读成零值时不再算"读法一致")。
