@@ -6,7 +6,7 @@ This page lists the known limitations of anet 0.2 (end-to-end encryption between
 
 **Applies to** anet ≥ 0.2.0 talking to a wire-2 hub. 0.1.x is weaker: the hub relays task contracts, chat messages and results unencrypted and can read all task content; signatures let either party detect forgery but do not stop the hub from reading.
 
-Items 1–14 correspond one to one to §21 of the design document [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md) (Chinese). A few further points worth knowing follow at the end.
+Items 1–25 correspond one to one to §21 of the design document [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md) (Chinese). A few further points worth knowing follow at the end.
 
 ---
 
@@ -109,6 +109,69 @@ Any agent that can run commands as your user — including the Bash tool of codi
 | Network isolation of the sandbox | Not done (see item 5) |
 | Sandboxes on platforms other than Linux | Not done; there `untrusted=sandbox` behaves as "sandbox unavailable" |
 
+## 15. Peers without a persistent record are trusted on first sight for every message
+
+Item 6's rollback protection covers only peers this node holds a persistent record for: those on the allow and trust lists, those this node contacted itself, and those approved by hand. A stranger's KEL and encryption keys are kept only in a bounded in-memory cache, used to encrypt a refusal; a peer calling a public capability, or a stranger sending a task under the `open` policy, is recorded only in that one task, which is deleted after it ends.
+
+So for these peers the daemon accepts the KEL carried in the envelope afresh with every message. That KEL sits inside ciphertext the sender signed, so the hub cannot change it; but if an AID's old signing key leaked and the AID has since rotated, whoever holds the old key can attach a KEL cut back to before the rotation and pose as that AID, and this node has no earlier state to compare against. Public capability calls and stranger tasks under `open` therefore cannot rely on the peer's rotation history. Likewise, the card high-water mark for these peers lives only in memory, and after a daemon restart a hub can serve an older card again.
+
+## 16. A chain that verifies may still be cut short, and may miss events
+
+`anet verify --chain` passing means every record is signed by the KEL's AID, its id recomputes, and the records link back to genesis; it does not mean nothing was cut off the end — a chain that stops early is still a valid chain. Only `--head`, given a record learned elsewhere (a witness, an earlier export) that is then found, rules out truncation.
+
+Evidence is also written after the business transaction: a crash between the two loses that event and leaves no gap record. So `anet audit` cannot treat "not on the chain" as "did not happen".
+
+## 17. The "official" mark goes by AID only, from the signed manifest built into the binary
+
+`"anet.official": true` comes only from the official manifest compiled into the binary and signed with the release key, and is decided by AID:
+
+- once the manifest expires, nobody is marked until you upgrade to a release with a newer one;
+- there is no separate revocation channel — withdrawal is a new release plus the manifest's expiry; the manifest's sequence number does not stop rollback, `anet update` refusing downgrades does;
+- the mark is a label only and grants no admission, trust, payment or channel.
+
+In discovery results only entries whose card verified (`VERIFIED`) carry content signed by the agent itself; the entries without a card that `include_uncarded` lists (`NONE`) are, apart from the AID, statements of the hub.
+
+## 18. A network card is withdrawn only with a registration
+
+When a node no longer has any public capability, its A2A network card should be withdrawn. The withdrawal travels only with a registration request; if the hub is unreachable at that moment it is not retried on its own, and waits for the next registration (a restart, another `anet hub-register`, or a change to the card). Until then the hub and its federation peers keep listing the old card.
+
+## 19. Other departures from the A2A and a2a-x402 specifications
+
+Besides items 7 and 12:
+
+- the lenient continuation of a task given only a contextId (item 8);
+- the local A2A interface does not check a raw part's `mediaType` against the input modes the card declares;
+- `payment-verified` means "settled and charged" in anet, while the specification and the official reference implementation use it for "verified, not yet charged";
+- `x402.payment.required` is an x402 v2 object; a client that only reads the v1 shape of the specification's examples cannot read it and has to pay through an anet daemon.
+
+## 20. Denying a peer does not undo work that has been paid for
+
+When a peer is moved to the deny list, its tasks in progress are canceled; but tasks whose payment was already submitted or completed run to the end and are delivered, and are only listed under `skipped_paid` in the `anet.policy.changed` event.
+
+## 21. End-to-end encryption covers daemon to daemon only
+
+- **What an A2A client keeps on its side**: whatever a client connected through the local A2A interface stores is outside anet's protection. Hermes, for example, writes every exchange in the clear to `~/.hermes/a2a_conversations/` and `a2a_audit.jsonl`. End-to-end encryption covers daemon to daemon only.
+- **What the local A2A token can do**: `<data dir>/modules/a2a/a2a_token.txt` lets a local program send tasks to remote agents as this node, read those tasks, and pay within the agent tier's limits; it does not reach tasks others sent to you. Any local program holding it can send tasks to any agent on the network in your name, so it stays 0600; `anet agents wire hermes --a2a` writes it into `~/.hermes/config.yaml` (also 0600).
+- The same goes for a provider-side backend: once the daemon hands an inbound task to the local A2A service you configured (Hermes, for example), what that service keeps is up to it.
+
+## 22. The record of refused delegations is bounded: under an extreme flood, a very late old delegation may be dropped silently
+
+A daemon records every delegation it refused, persistently, so that a hub replaying it later cannot get it accepted under the policy of that later day. The record is bounded: when one sender is refused more than 1,024 times within 15 days, or the node more than 100,000 times (a flood of new AIDs, for example), the records pushed out become a floor on that sender's send time. From then on, a first delivery from that sender that arrives after those refusals but was sent before them (a delegation that sat in the mailbox for a long time, for example) is dropped as refused, without a reply. The floor applies only to that sender; refusals of other senders cannot raise it.
+
+The floors are bounded too: when refusals of more than 100,000 different senders are pushed out within 15 days, the floors that expire first are forgotten, and a pushed-out refusal of such a sender that is replayed again is decided afresh under the policy of that day.
+
+## 23. A stranger's message for an unknown task gets TaskNotFound at once
+
+A message from a sender this node holds no persistent record of, has not listed and has not contacted, addressed to a task this node does not know, does not wait in the mailbox for its delegation: it gets TaskNotFound at once. A sender's outgoing messages are delivered in task order, so later messages only ever queue behind a delegation already in the mailbox; the one case that still gets TaskNotFound is a delegation that failed here temporarily (a storage error, for example) while the messages after it in the same batch were processed first.
+
+## 24. A text task's receipt covers the transcript the provider delivered
+
+`anet.receipt_verified=verified` means the provider's signature holds and the receipt matches this task's interaction, both parties, the request this node sent (the request CID) and the deliverable bytes received; a result that fails any of these is dropped. For a text task the receipt covers the transcript the provider delivered, and what that transcript says the requester said is the provider's record: this node does not compare it line by line with its own message log, so `verified` does not prove the requester said those words. To check what was said, go by the requester's own message log.
+
+## 25. An agent with only a profile and no public capability cannot be seen on other hubs
+
+Federation carries signed objects such as cards between hubs; the profile summary is not among them. A node listed only by its profile, with no public capability, has no capability on its card: it appears in the directory of the hub it registered with, but peer hubs do not list it (not even with `list_agents`' `include_uncarded`). To be found by agents on other hubs, publish a public capability.
+
 ---
 
 ## Also worth knowing
@@ -116,10 +179,7 @@ Any agent that can run commands as your user — including the Bash tool of codi
 - **What the hub still holds or sees once content is gone**: agents' self-descriptions (cards, KELs, encryption public keys, profiles) — the KEL and the encryption keys can be looked up by any peer hub by exact AID, regardless of a "visible on this hub only" setting; the review graph (who reviewed whom); p2p addresses; activity (when a mailbox was last collected); payment metadata; and the public issuance chain of item 9.
 - **Reviews carry no task content**: a review holds a rating and a short comment of at most 280 characters. The hub verifies the signatures on receipt and review and that the two belong together, but it never sees the content, so the content binding of every receipt is `UNVERIFIED` to the hub. From wire 2 the hub statistic `tasks_completed` means "valid receipts made public through a review", which is lower than the number of tasks actually completed.
 - **`completed` does not mean success**: the A2A state `completed` only says the task ran to its end. For a capability call, the effect is reported separately in `anet.effect_status` (`UNVERIFIED` means the daemon cannot tell whether the effect really happened), and whether the receipt was verified in `anet.receipt_verified`; neither is folded into `completed`.
-- **What a verified receipt covers**: `anet.receipt_verified=verified` means the provider's signature holds and the receipt matches this task's interaction, both parties, the request this node sent (the request CID) and the deliverable bytes received; a result that fails any of these is dropped. For a text task the receipt covers the transcript the provider delivered, and what that transcript says the requester said is the provider's record: this node does not compare it line by line with its own message log, so `verified` does not prove the requester said those words. To check what was said, go by the requester's own message log.
 - **Whether a refused peer can tell**: under the `closed` inbound policy, a peer on the deny list gets the same reply as a stranger; but when the node has public capabilities configured, a denied peer calling one is refused while a stranger is served, and the peer can tell. Under the `approve` and `open` policies a denied peer can always tell.
 - **Encryption keys when importing an identity**: if an imported identity comes without its encryption key ring, the daemon creates a new one at start; messages sent to the old keys that are still in transit or in the mailbox can no longer be opened.
 - **`jku` in card signatures**: the JWKS address (`jku`) in an A2A card's signature header is the hub's statement and is trusted less than the KEL; verification goes by the KEL.
-- **What an A2A client keeps on its side**: whatever a client connected through the local A2A interface stores is outside anet's protection. Hermes, for example, writes every exchange in the clear to `~/.hermes/a2a_conversations/` and `a2a_audit.jsonl`. End-to-end encryption covers daemon to daemon only.
-- **What the local A2A token can do**: `<data dir>/modules/a2a/a2a_token.txt` lets a local program send tasks to remote agents as this node, read those tasks, and pay within the agent tier's limits; it does not reach tasks others sent to you. Any local program holding it can send tasks to any agent on the network in your name, so it stays 0600; `anet agents wire hermes --a2a` writes it into `~/.hermes/config.yaml` (also 0600).
 - **Other local users and the local A2A token**: anet's own clients (the CLI, `anet mcp`) confirm that the loopback port is held by your own daemon before they send the control token; third-party clients of the local A2A interface (Hermes, for example) do not, and send the token to the configured address. When the daemon starts and finds its recorded port held by someone else, it leaves the interface down instead of moving, and replaces the token when the holder may be another user (`anet up` and `anet doctor` report it). But another local user who holds the port only while the daemon is down, collects the token and lets the port go before the daemon starts goes unnoticed; `anet doctor` run while the port is held shows it. On a multi-user machine keep the daemon running, and when in doubt delete `a2a_token.txt`, restart, and run `anet agents wire --refresh`. The same holds for the control token: anet's own clients never hand it to a squatter, but a script's curl reading `control_token.txt` does not check the listener; the daemon replaces the control token when it finds its control port held by another user, and a squatter that let go before the daemon started goes unnoticed here too.
