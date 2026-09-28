@@ -184,10 +184,25 @@ type KeysResponse struct {
 // internal/aghub/keys.go, pinned on both sides.
 const KeysLookupPath = "/agents/keys:lookup"
 
-// KeysLookupRequest is the body of POST /agents/keys:lookup.
+// KeysLookupRequest is the body of POST /agents/keys:lookup, and of
+// KELLookupPath and CardLookupPath.
 type KeysLookupRequest struct {
 	AID string `json:"aid"`
 }
+
+// KELLookupPath and CardLookupPath are GET /agents/{aid}/kel and
+// GET RegistryAgentsPath/{aid}/card with the AID in the body
+// (KeysLookupRequest), answering what the GETs answer. Before it writes to
+// a peer a daemon reads the peer's card (the proxy card an A2A client asks
+// for first, MCP get_agent_card) and the peer's KEL to verify it, from its
+// own address; with the AID in the path, those request lines gave a
+// logging proxy the edge sender-address -> peer that the key lookup did
+// [redteam:F3]. The fallback to the GET is KeysLookupPath's. Mirrors
+// ANetHub internal/aghub/keys.go, pinned on both sides.
+const (
+	KELLookupPath  = "/agents/kel:lookup"
+	CardLookupPath = RegistryAgentsPath + "/card:lookup"
+)
 
 // KeysPublishRequest is the body of POST /agents/{aid}/keys, signed with
 // relayauth action "keys" by the AID itself. The hub accepts a strictly

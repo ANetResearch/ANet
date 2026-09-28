@@ -71,6 +71,10 @@ type registryHub struct {
 	dir      []hubDirEntry              // GET /agents (filtered by cap here)
 	kels     map[string]string          // GET /agents/{aid}/kel
 	kelErr   string                     // answered, as a 502, for a KEL not in kels
+	// noLookup makes the hub one that predates the card and KEL lookups by
+	// POST (hubapi.CardLookupPath, KELLookupPath): its mux answers them
+	// 405 in plain text.
+	noLookup bool
 
 	mu    sync.Mutex
 	asked []*url.URL
@@ -115,14 +119,23 @@ func (h *registryHub) serve(w http.ResponseWriter, r *http.Request) {
 			out.Agents = append(out.Agents, e)
 		}
 		_ = json.NewEncoder(w).Encode(out)
-	case strings.HasPrefix(p, hubapi.RegistryAgentsPath+"/") && strings.HasSuffix(p, "/card"):
-		aid := strings.TrimSuffix(strings.TrimPrefix(p, hubapi.RegistryAgentsPath+"/"), "/card")
-		c, ok := h.cards[aid]
-		if h.noReg || !ok {
-			http.Error(w, `{"error":"no card"}`, http.StatusNotFound)
+	case r.Method == http.MethodPost && (p == hubapi.CardLookupPath || p == hubapi.KELLookupPath):
+		if h.noLookup {
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		_, _ = w.Write(c)
+		var req hubapi.KeysLookupRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AID == "" {
+			http.Error(w, `{"error":"body must be {\"aid\": \"<AID>\"}"}`, http.StatusBadRequest)
+			return
+		}
+		if p == hubapi.CardLookupPath {
+			h.serveCard(w, req.AID)
+		} else {
+			h.serveKEL(w, req.AID)
+		}
+	case strings.HasPrefix(p, hubapi.RegistryAgentsPath+"/") && strings.HasSuffix(p, "/card"):
+		h.serveCard(w, strings.TrimSuffix(strings.TrimPrefix(p, hubapi.RegistryAgentsPath+"/"), "/card"))
 	case p == "/agents":
 		out := []hubDirEntry{}
 		for _, a := range h.dir {
@@ -133,16 +146,30 @@ func (h *registryHub) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"agents": out})
 	case strings.HasPrefix(p, "/agents/") && strings.HasSuffix(p, "/kel"):
-		aid := strings.TrimSuffix(strings.TrimPrefix(p, "/agents/"), "/kel")
-		k, ok := h.kels[aid]
-		if !ok {
-			http.Error(w, `{"error":"`+h.kelErr+`"}`, http.StatusBadGateway)
-			return
-		}
-		_ = json.NewEncoder(w).Encode(map[string]string{"aid": aid, "kel": k})
+		h.serveKEL(w, strings.TrimSuffix(strings.TrimPrefix(p, "/agents/"), "/kel"))
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// serveCard answers GET RegistryAgentsPath/{aid}/card and its POST lookup.
+func (h *registryHub) serveCard(w http.ResponseWriter, aid string) {
+	c, ok := h.cards[aid]
+	if h.noReg || !ok {
+		http.Error(w, `{"error":"no card"}`, http.StatusNotFound)
+		return
+	}
+	_, _ = w.Write(c)
+}
+
+// serveKEL answers GET /agents/{aid}/kel and its POST lookup.
+func (h *registryHub) serveKEL(w http.ResponseWriter, aid string) {
+	k, ok := h.kels[aid]
+	if !ok {
+		http.Error(w, `{"error":"`+h.kelErr+`"}`, http.StatusBadGateway)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]string{"aid": aid, "kel": k})
 }
 
 func (h *registryHub) list(a cardAgent, extra func(*hubapi.A2AAgentEntry)) {

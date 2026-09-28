@@ -220,6 +220,9 @@ func TestTheWireVersionAndAuthHeadersArePinned(t *testing.T) {
 		"X-ANet-Sig":  hubapi.HeaderSig,
 		// The recipient key lookup (ANetHub pins the same path).
 		"/agents/keys:lookup": hubapi.KeysLookupPath,
+		// The card and KEL lookups, likewise [redteam:F3].
+		"/agents/kel:lookup":         hubapi.KELLookupPath,
+		"/a2a/v1/agents/card:lookup": hubapi.CardLookupPath,
 	} {
 		if got != want {
 			t.Errorf("header = %q, want %q", got, want)

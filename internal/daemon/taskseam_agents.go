@@ -298,7 +298,10 @@ func (d *Daemon) agentCard(ctx context.Context, aid string) (module.RemoteAgent,
 	hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
 	defer cancel()
 	var card json.RawMessage
-	err := d.hubGet(hctx, hub, hubapi.RegistryAgentsPath+"/"+url.PathEscape(aid)+"/card", nil, &card)
+	// With aid in the body: reading a peer's card is what an A2A client
+	// does before it writes to the peer (hubLookup) [redteam:F3].
+	err := d.hubLookup(hctx, hub, hubapi.CardLookupPath,
+		hubapi.RegistryAgentsPath+"/"+url.PathEscape(aid)+"/card", aid, &card)
 	switch {
 	case hubStatus(err) == http.StatusNotFound:
 		return module.RemoteAgent{AID: aid, Verification: cardNone, Official: d.IsOfficial(aid),
@@ -431,7 +434,7 @@ func (d *Daemon) cardKELResolver(ctx context.Context) a2acard.Resolver {
 		var resp struct {
 			KEL string `json:"kel"`
 		}
-		if err := d.hubGet(ctx, hub, "/agents/"+url.PathEscape(aid)+"/kel", nil, &resp); err != nil {
+		if err := d.hubLookup(ctx, hub, hubapi.KELLookupPath, "/agents/"+url.PathEscape(aid)+"/kel", aid, &resp); err != nil {
 			return nil, err
 		}
 		raw, err := base64.StdEncoding.DecodeString(resp.KEL)

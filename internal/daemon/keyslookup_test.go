@@ -136,3 +136,38 @@ func TestTheLookupRoutesOwn404IsAnUnknownRecipient(t *testing.T) {
 		t.Fatalf("a JSON 404 from the lookup route was retried with %d GETs", gets)
 	}
 }
+
+// Before an A2A client writes to a peer through its daemon it reads the
+// peer's proxy card, and the daemon reads the peer's network card and,
+// to verify it, the peer's KEL (MCP get_agent_card does the same). Those
+// two lookups still named the peer in their request lines after the key
+// lookup was moved to the body, so the A2A path left sender-address -> peer
+// in a logging proxy's lines [redteam:F3]. They take the AID in the body
+// now, and fall back to the GETs on a hub without the routes.
+func TestReadingAPeersCardDoesNotNameItInARequestLine(t *testing.T) {
+	for _, old := range []bool{false, true} {
+		h := newRegistryHub(t)
+		h.noLookup = old
+		peer := newCardAgent(t, "Peer", "does things", "text.stats")
+		h.list(peer, nil)
+		d := newTestDaemon(t, h.srv.URL, false)
+
+		ra, err := (&DaemonTaskSeam{d: d}).Card(context.Background(), peer.aid)
+		if err != nil || ra.Verification != cardVerified || string(ra.Card) != string(peer.card) {
+			t.Fatalf("hub without the lookups %v: the peer's card: %v %+v", old, err, ra)
+		}
+		named := 0
+		for _, u := range h.requests() {
+			if strings.Contains(u, peer.aid) {
+				named++
+			}
+		}
+		switch {
+		case !old && named != 0:
+			t.Errorf("reading a peer's card named it in %d request lines: %v", named, h.requests())
+		case old && named != 2:
+			t.Errorf("a hub without the lookups was asked by GET %d times, want the card and the KEL: %v",
+				named, h.requests())
+		}
+	}
+}
