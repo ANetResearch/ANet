@@ -10,20 +10,17 @@
 # last three were found only by making something actually travel.
 #
 #   emax.chatchat.space   hub  https://hub.agentnetwork.org.cn   (nginx/TLS)
-#   fmax 39.107.76.243     hub  http://39.107.76.243:4001         (direct, by IP)
+#   fmax 39.107.76.243     hub  https://hub2.agentnetwork.org.cn  (nginx/TLS)
 #
-# By IP, not by name. Plain HTTP to a domain resolving to an Aliyun
-# address is intercepted by their ICP-filing check, which replaces the
-# response with a compliance page and a 403. Measured on the live
-# topology: about 8 requests in 10 to fmax.chatchat.space:4001 were
-# intercepted, while the same requests to 39.107.76.243:4001 all
-# succeeded. The interception is keyed on the Host header, so an IP
-# avoids it.
-#
-# It being intermittent is what makes it worth writing down: it does not
-# fail cleanly, it produces flaky behaviour that reads as a defect
-# somewhere else. The real fix is TLS, which the interceptor cannot
-# rewrite; until then these endpoints are addressed by IP.
+# Both hubs by a name under the ICP-filed agentnetwork.org.cn, over TLS.
+# A domain that is not ICP-filed and resolves to an Aliyun address is
+# intercepted by their filing check: plain HTTP gets a compliance page and
+# a 403 (keyed on the Host header, intermittently — about 8 requests in 10
+# to fmax.chatchat.space:4001 were intercepted, which reads as a flaky
+# defect somewhere else), and TLS for that name is reset (keyed on SNI).
+# fmax was therefore addressed as http://39.107.76.243:4001; since
+# 2026-09-28 it is hub2.agentnetwork.org.cn behind nginx with a Let's
+# Encrypt certificate, and :4001 is closed (ANet docs/notes/0031).
 #
 #   cmax   daemon → emax hub   sells text.digest / text.digest.paid
 #   ink93  daemon → emax hub   an ordinary user: registers, buys, rates
@@ -35,11 +32,11 @@
 # is where discovery federation, cross-hub settlement and reputation
 # federation are either real or only compiled.
 #
-# Reachability is asymmetric and that is a fact about the network, not a
-# bug: fmax's cloud firewall admits 4001/4002 from the other cloud hosts
-# and not from a home line, so checks against fmax are made from emax by
-# ssh. A test that pretended otherwise would fail on the operator's laptop
-# and pass nowhere.
+# Reachability was asymmetric: fmax's cloud firewall admitted 4001/4002
+# from the other cloud hosts and not from a home line, so checks against
+# fmax are made from emax by ssh. The fmax hub is now served on 443
+# (hub2.agentnetwork.org.cn) and reachable from anywhere; making those
+# checks from emax still works and is kept.
 #
 #   bash scripts/prodtest.sh              run everything
 #   bash scripts/prodtest.sh --no-write   read-only checks (no delegations,
@@ -98,7 +95,7 @@ WRITE=1
 [ "${1:-}" = "--no-write" ] && WRITE=0
 
 EMAX_HUB=${EMAX_HUB:-https://hub.agentnetwork.org.cn}
-FMAX_HUB=${FMAX_HUB:-http://39.107.76.243:4001}
+FMAX_HUB=${FMAX_HUB:-https://hub2.agentnetwork.org.cn}
 DMAX_VOUCHER=${DMAX_VOUCHER:-http://210.45.70.176:4002/x402/redeem}
 
 # node → ssh host : HOME : control port. ink93 is local.

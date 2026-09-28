@@ -76,7 +76,7 @@ func toolsEntry(aid string) string {
 func TestASignedManifestListsItsAgents(t *testing.T) {
 	k := newTestKey(t)
 	raw := manifestJSON(k.fp(), toolsEntry(officialAID),
-		`{"id": "anet-echo-f", "name": "anet echo (fmax)", "aid": "bechof", "hub": "http://39.107.76.243:4001", "caps": ["net.echo"]}`)
+		`{"id": "anet-echo-f", "name": "anet echo (fmax)", "aid": "bechof", "hub": "https://hub2.agentnetwork.org.cn", "caps": ["net.echo"]}`)
 	m, err := Verify(raw, k.sign(raw), k.trust())
 	if err != nil {
 		t.Fatal(err)

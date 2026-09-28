@@ -20,7 +20,7 @@
 # (deploy/official/README.md §3), so an agent is added here after it exists:
 #
 #   anet-echo-e     <aid>  https://hub.agentnetwork.org.cn  net.echo  anet-echo-e
-#   anet-echo-f     <aid>  http://39.107.76.243:4001        net.echo  anet-echo-f
+#   anet-echo-f     <aid>  https://hub2.agentnetwork.org.cn net.echo  anet-echo-f
 #   anet-tools      <aid>  https://hub.agentnetwork.org.cn  text.stats,text.digest,text.diff,json.validate,a2a.card.validate,a2a.x402.check  anet-tools
 #   anet-docs       <aid>  https://hub.agentnetwork.org.cn  docs.search,docs.get  anet-docs
 #   anet-paid-demo  <aid>  https://hub.agentnetwork.org.cn  demo.digest.paid  anet-paid-demo

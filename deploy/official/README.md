@@ -11,7 +11,7 @@
 | 代号 | 身份 | 归属 hub | 后端组 | 能力 | 控制口 | 构建档 |
 |---|---|---|---|---|---|---|
 | A1 | `anet-echo-e` | emax `https://hub.agentnetwork.org.cn` | `echo` | `net.echo` | 39821 | `anet-standard` |
-| A2 | `anet-echo-f` | fmax `http://39.107.76.243:4001` | `echo` | `net.echo` | 39822 | `anet-standard` |
+| A2 | `anet-echo-f` | fmax `https://hub2.agentnetwork.org.cn` | `echo` | `net.echo` | 39822 | `anet-standard` |
 | B | `anet-tools` | emax | `tools` | `text.stats` `text.digest` `text.diff` `json.validate` `a2a.card.validate` `a2a.x402.check` | 39823 | `anet-standard` |
 | C | `anet-docs` | emax | `docs` | `docs.search` `docs.get` | 39824 | `anet-standard` |
 | E | `anet-paid-demo` | emax | `paid` | `demo.digest.paid`(标价 2 credit) | 39825 | `anet-paid` |
