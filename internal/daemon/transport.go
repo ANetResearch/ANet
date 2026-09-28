@@ -256,11 +256,29 @@ func (in inbound) Receive(ctx context.Context, envelope []byte) error {
 	case <-committed:
 		return nil
 	case res := <-done:
-		if !res.ack() {
-			return fmt.Errorf("anet: envelope not accepted yet (%s); not acknowledging", res.reason)
-		}
-		return nil
+		return directAnswer(committed, res)
 	}
+}
+
+// directAnswer is what a direct delivery answers once its pipeline returned
+// res. An envelope whose step 10 committed is acknowledged whatever the
+// pipeline returned after that — a stop cutting the call or the re-sent
+// answer short returns a temporary result — and the pipeline can finish
+// before Receive has seen the commit, both then ready at once. A refusal
+// there would reach the sender as "reached no daemon" (a nack,
+// module.ErrNotDelivered), and a delegation this node holds would then be
+// one the sender may withdraw on a cancel or report as never run
+// ([redteam:F12][redteam:F23]; Q29 bypass).
+func directAnswer(committed <-chan struct{}, res rxResult) error {
+	select {
+	case <-committed:
+		return nil
+	default:
+	}
+	if !res.ack() {
+		return fmt.Errorf("anet: envelope not accepted yet (%s); not acknowledging", res.reason)
+	}
+	return nil
 }
 
 // errNotReady refuses a delivery that arrived while the daemon was starting
