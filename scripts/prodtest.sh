@@ -24,8 +24,18 @@
 #
 #   cmax   daemon → emax hub   sells text.digest / text.digest.paid
 #   ink93  daemon → emax hub   an ordinary user: registers, buys, rates
-#   dmax   daemon → fmax hub   sells text.stats / text.stats.paid,
-#                              plus a public voucher door on :4002
+#   dmax   daemon → fmax hub   sells text.stats / text.stats.paid
+#
+# Since 0.2.0 (ANet docs/notes/0034 §G7.3) cmax and dmax run as their own
+# non-root accounts, anet-cmax and anet-dmax, with state in
+# /var/lib/anet-{cmax,dmax}/.anet and the binary in /opt/anet/bin
+# (deploy/ops). The CLI talks only to a daemon of its own uid, so commands
+# on those nodes go through the wrappers /opt/anet/bin/anet-{cmax,dmax};
+# the control API calls below carry the token themselves and need no
+# wrapper. dmax's public voucher door (:4002) is off: 0.2.0 advertises one
+# only over https, and there is no TLS terminator in front of it yet. Set
+# DMAX_VOUCHER to its https address when there is; section 7 is skipped
+# until then.
 #
 # The split is the point: ink93 and cmax bank at one hub, dmax at the
 # other, so anything ink93 and dmax do together crosses a boundary — which
@@ -96,11 +106,11 @@ WRITE=1
 
 EMAX_HUB=${EMAX_HUB:-https://hub.agentnetwork.org.cn}
 FMAX_HUB=${FMAX_HUB:-https://hub2.agentnetwork.org.cn}
-DMAX_VOUCHER=${DMAX_VOUCHER:-http://210.45.70.176:4002/x402/redeem}
+DMAX_VOUCHER=${DMAX_VOUCHER:-}
 
 # node → ssh host : HOME : control port. ink93 is local.
-CMAX_HOST=root@cmax.chatchat.space; CMAX_HOME=/root/anet4;            CMAX_PORT=29610; CMAX_BIN=/usr/local/bin/anet4
-DMAX_HOST=root@dmax.chatchat.space; DMAX_HOME=/data/anet-node/home;   DMAX_PORT=29610
+CMAX_HOST=root@cmax.chatchat.space; CMAX_HOME=/var/lib/anet-cmax;     CMAX_PORT=29610; CMAX_BIN=/opt/anet/bin/anet-cmax
+DMAX_HOST=root@dmax.chatchat.space; DMAX_HOME=/var/lib/anet-dmax;     DMAX_PORT=29610; DMAX_BIN=/opt/anet/bin/anet-dmax
 EMAX_HOST=root@emax.chatchat.space
 INK_HOME=${INK_HOME:-/tmp/anet-prod/ink93};                           INK_PORT=29615
 INK_BIN=${INK_BIN:-/tmp/deploy/anet}
@@ -473,8 +483,9 @@ e=d.get('evidence') or {}
 o=e.get('observed_state') or ''
 print(j.loads(o).get('digest','') if o.startswith('{') else '')")
   [ "$st" = OK ] && ok "调用成功(经 emax 中继,跨两台机器)" || no "状态 $st: $r"
-  # sha256("anet")
-  [ "$dg" = "8f202bdbf250aa9bb932743a005ed2714febdd7b4a99a75dd4b1e0e2e2d0e9c5" ] \
+  # sha256("anet") — `printf anet | sha256sum`. The constant here was wrong
+  # until 0.2.0 and the check fell through to "skipped" on every run.
+  [ "$dg" = "8f202bdbf250aa9bb932743a005ed2714febdd7b4a9900e904f018302ca58867" ] \
     && ok "摘要内容正确,而不只是状态正确" || info "摘要 ${dg:0:16}…(内容校验跳过)"
 else
   no "委派没排上队"
@@ -580,71 +591,82 @@ fi
 # ── 7. the gateway: pay at the hub, collect at the daemon ───────
 hd "7  x402 网关:在 fmax 付钱,到 dmax 取货"
 RES="/x402/resource/$DMAX_AID/text.stats.paid"
-hdrs=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -D - -o /dev/null -m 30 '$FMAX_HUB$RES'")
-echo "$hdrs" | head -1 | grep -q ' 402 ' && ok "未付款时回 402" || no "回的是 $(echo "$hdrs"|head -1)"
-echo "$hdrs" | grep -qi '^PAYMENT-REQUIRED:' && ok "402 带 PAYMENT-REQUIRED 头" || no "没带 PAYMENT-REQUIRED 头"
-body=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 '$FMAX_HUB$RES'")
-redeem=$(echo "$body" | jq_ "print(d.get('redeem_at',''))")
-[ "$redeem" = "$DMAX_VOUCHER" ] && ok "报价写明取货地址($redeem)—— hub 不代理内容" \
-  || no "取货地址是 '$redeem',期望 $DMAX_VOUCHER"
-price=$(echo "$body" | jq_ "print(((d.get('accepts') or [{}])[0]).get('amount',''))")
-[ "$price" = 30 ] && ok "价钱来自 dmax 自己签的卡片,hub 只能拒卖不能改价" || no "网关报价 $price"
-
-# Now actually buy it. Checking that a 402 comes back proves the quote;
-# only a voucher that is paid for, carried, and spent proves the design —
-# and until this ran, dmax's public redemption door had never been used
-# over the real network even once. Everything that had exercised it was
-# loopback in a single process tree, which is the arrangement that has hidden
-# every defect this project shipped.
-#
-# The buyer here is dmax's own key, signing through anetfixture. That is
-# not a shortcut: the gateway resolves the payer's key history from the
-# hub exactly as it would a stranger's, so a signature it cannot check
-# fails for the right reason.
-DMAX_BAL_BEFORE=$(ctl dmax /balance '{}' | jq_ "print(d.get('balance',''))")
-# The binding (--interaction) is unique per run: a hub settles one payment
-# per (payer, binding) (A2A-DESIGN §8.5), so a fixed one is refused with
-# duplicate_binding from the second run on.
-sig=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $DMAX_HOST "/usr/local/bin/anet x402-authorize \
-        --home /data/anet-node/home/.anet --pay-to '$DMAX_AID' --amount 30 \
-        --network 'hub:$F_AID' --interaction 'prodtest-gw-$(date +%s)-$$' 2>/dev/null" 2>/dev/null)
-if [ -z "$sig" ]; then
-  sk "网关付款跳过:节点上没有 x402-authorize(fixture 未部署)"
+if [ -z "$DMAX_VOUCHER" ]; then
+  # No voucher door on dmax's card (0.2.0 advertises one only over https).
+  # The hub must then refuse to sell a voucher nobody could spend — 409 and
+  # a pointer to the relay — rather than take the money; that refusal is
+  # the whole of this section until the door is back.
+  code=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -o /dev/null -w '%{http_code}' -m 30 '$FMAX_HUB$RES'")
+  [ "$code" = 409 ] && ok "dmax 没有公开兑付口,hub 拒卖凭证(409),不收取不到货的钱" \
+    || no "dmax 没有公开兑付口,hub 却答 $code(应为 409)"
+  sk "dmax 未设 https 兑付口(DMAX_VOUCHER 为空),跳过网关付款与凭证兑付"
 else
-  # The signed payment header goes over ssh's stdin, not into a command line on either host: whoever
-  # reads it first (ps, /proc/<pid>/cmdline) can present it to the gateway before us (L5).
-  gw=$(printf 'PAYMENT-SIGNATURE: %s\n' "$sig" | ssh -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST \
-        "curl -s -D /tmp/gw.hdr -m 40 -H @- '$FMAX_HUB$RES'")
-  gwcode=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "head -1 /tmp/gw.hdr | awk '{print \$2}'")
-  voucher=$(echo "$gw" | jq_ "print(d.get('voucher',''))")
-  [ "$gwcode" = 200 ] && [ -n "$voucher" ] && ok "付款后拿到的是凭证,不是结果 —— hub 见不到内容" \
-    || no "网关付款失败($gwcode): ${gw:0:180}"
-  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "grep -qi '^PAYMENT-RESPONSE:' /tmp/gw.hdr" \
-    && ok "结算响应带 PAYMENT-RESPONSE 头" || no "没带 PAYMENT-RESPONSE 头"
+  hdrs=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -D - -o /dev/null -m 30 '$FMAX_HUB$RES'")
+  echo "$hdrs" | head -1 | grep -q ' 402 ' && ok "未付款时回 402" || no "回的是 $(echo "$hdrs"|head -1)"
+  echo "$hdrs" | grep -qi '^PAYMENT-REQUIRED:' && ok "402 带 PAYMENT-REQUIRED 头" || no "没带 PAYMENT-REQUIRED 头"
+  body=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 30 '$FMAX_HUB$RES'")
+  redeem=$(echo "$body" | jq_ "print(d.get('redeem_at',''))")
+  [ "$redeem" = "$DMAX_VOUCHER" ] && ok "报价写明取货地址($redeem)—— hub 不代理内容" \
+    || no "取货地址是 '$redeem',期望 $DMAX_VOUCHER"
+  price=$(echo "$body" | jq_ "print(((d.get('accepts') or [{}])[0]).get('amount',''))")
+  [ "$price" = 30 ] && ok "价钱来自 dmax 自己签的卡片,hub 只能拒卖不能改价" || no "网关报价 $price"
 
-  if [ -n "$voucher" ]; then
-    # Straight to the agent, over the public internet, not through the
-    # hub. This is the leg the whole design exists for.
-    out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 90 -H 'Content-Type: application/json' \
-          -d '{\"voucher\":\"$voucher\",\"capability\":\"text.stats.paid\",\"args\":{\"text\":\"via voucher\"}}' \
-          '$DMAX_VOUCHER'")
-    vs=$(echo "$out" | jq_ "print(d.get('status',''))")
-    [ "$vs" = "OK" ] && ok "凭证在 dmax 上兑成了真活(hub 全程没碰请求和结果)" \
-      || no "兑付失败:${out:0:200}"
-    again=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 60 -H 'Content-Type: application/json' \
+  # Now actually buy it. Checking that a 402 comes back proves the quote;
+  # only a voucher that is paid for, carried, and spent proves the design —
+  # and until this ran, dmax's public redemption door had never been used
+  # over the real network even once. Everything that had exercised it was
+  # loopback in a single process tree, which is the arrangement that has hidden
+  # every defect this project shipped.
+  #
+  # The buyer here is dmax's own key, signing through anetfixture. That is
+  # not a shortcut: the gateway resolves the payer's key history from the
+  # hub exactly as it would a stranger's, so a signature it cannot check
+  # fails for the right reason.
+  DMAX_BAL_BEFORE=$(ctl dmax /balance '{}' | jq_ "print(d.get('balance',''))")
+  # The binding (--interaction) is unique per run: a hub settles one payment
+  # per (payer, binding) (A2A-DESIGN §8.5), so a fixed one is refused with
+  # duplicate_binding from the second run on.
+  sig=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $DMAX_HOST "$DMAX_BIN x402-authorize \
+          --pay-to '$DMAX_AID' --amount 30 \
+          --network 'hub:$F_AID' --interaction 'prodtest-gw-$(date +%s)-$$' 2>/dev/null" 2>/dev/null)
+  if [ -z "$sig" ]; then
+    sk "网关付款跳过:节点上没有 x402-authorize(fixture 未部署)"
+  else
+    # The signed payment header goes over ssh's stdin, not into a command line on either host: whoever
+    # reads it first (ps, /proc/<pid>/cmdline) can present it to the gateway before us (L5).
+    gw=$(printf 'PAYMENT-SIGNATURE: %s\n' "$sig" | ssh -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST \
+          "curl -s -D /tmp/gw.hdr -m 40 -H @- '$FMAX_HUB$RES'")
+    gwcode=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "head -1 /tmp/gw.hdr | awk '{print \$2}'")
+    voucher=$(echo "$gw" | jq_ "print(d.get('voucher',''))")
+    [ "$gwcode" = 200 ] && [ -n "$voucher" ] && ok "付款后拿到的是凭证,不是结果 —— hub 见不到内容" \
+      || no "网关付款失败($gwcode): ${gw:0:180}"
+    ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "grep -qi '^PAYMENT-RESPONSE:' /tmp/gw.hdr" \
+      && ok "结算响应带 PAYMENT-RESPONSE 头" || no "没带 PAYMENT-RESPONSE 头"
+
+    if [ -n "$voucher" ]; then
+      # Straight to the agent, over the public internet, not through the
+      # hub. This is the leg the whole design exists for.
+      out=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 90 -H 'Content-Type: application/json' \
             -d '{\"voucher\":\"$voucher\",\"capability\":\"text.stats.paid\",\"args\":{\"text\":\"via voucher\"}}' \
             '$DMAX_VOUCHER'")
-    ae=$(echo "$again" | jq_ "print(d.get('error',''))")
-    case "$ae" in
-      *already*) ok "同一张凭证第二次被拒(一次性由 daemon 把关,hub 无从知道)";;
-      *) no "凭证被重复兑付:${again:0:160}";;
-    esac
-    # The effect is on dmax's own chain, tagged with how it was paid for.
-    # A second door to the same work must not be a door around the
-    # evidence.
-    viac=$(ctl dmax /evidence '{"event_type":"anet.voucher.redeemed","limit":20}' \
-           | jq_ "print(len(d.get('records') or []))")
-    [ "${viac:-0}" -ge 1 ] && ok "兑付记在了 dmax 自己的链上" || no "兑付没上链"
+      vs=$(echo "$out" | jq_ "print(d.get('status',''))")
+      [ "$vs" = "OK" ] && ok "凭证在 dmax 上兑成了真活(hub 全程没碰请求和结果)" \
+        || no "兑付失败:${out:0:200}"
+      again=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "curl -s -m 60 -H 'Content-Type: application/json' \
+              -d '{\"voucher\":\"$voucher\",\"capability\":\"text.stats.paid\",\"args\":{\"text\":\"via voucher\"}}' \
+              '$DMAX_VOUCHER'")
+      ae=$(echo "$again" | jq_ "print(d.get('error',''))")
+      case "$ae" in
+        *already*) ok "同一张凭证第二次被拒(一次性由 daemon 把关,hub 无从知道)";;
+        *) no "凭证被重复兑付:${again:0:160}";;
+      esac
+      # The effect is on dmax's own chain, tagged with how it was paid for.
+      # A second door to the same work must not be a door around the
+      # evidence.
+      viac=$(ctl dmax /evidence '{"event_type":"anet.voucher.redeemed","limit":20}' \
+             | jq_ "print(len(d.get('records') or []))")
+      [ "${viac:-0}" -ge 1 ] && ok "兑付记在了 dmax 自己的链上" || no "兑付没上链"
+    fi
   fi
 fi
 

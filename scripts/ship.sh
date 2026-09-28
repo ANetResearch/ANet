@@ -128,21 +128,24 @@ ssh root@fmax.chatchat.space '
   install -o root -g root -m755 /root/ship/anet-hub /data/projs/anet-hub/bin/anet-hub
   systemctl start anet-hub' >/dev/null 2>&1 && echo "fmax ok" || echo "fmax FAILED"
 
-# cmax runs the daemon and a peer process.
-install -m755 anet /usr/local/bin/anet4
+# cmax runs the daemon, anet4.service, from /opt/anet/bin/anet since 0.2.0
+# (deploy/ops; ANet docs/notes/0034 §G7.3). A build installed here replaces
+# the signed release that install.sh put there, and `anet doctor` reports
+# it unverified until the next `anet update`.
+install -m755 anet /opt/anet/bin/anet
 install -m755 anetpeer /usr/local/bin/anetpeer
-systemctl restart anet4 anet4-svc >/dev/null 2>&1 && echo "cmax ok" || echo "cmax FAILED"
+systemctl restart anet4-svc anet4 >/dev/null 2>&1 && echo "cmax ok" || echo "cmax FAILED"
 
 # dmax runs the daemon, the device runtime, the out-of-tree adapter and
 # the testbed.
 for f in anet anetpeer anetlinkd adapdemo anetmock; do send "$f" dmax.chatchat.space; done
 ssh root@dmax.chatchat.space '
-  install -m755 /root/ship/anet       /usr/local/bin/anet
+  install -m755 /root/ship/anet       /opt/anet/bin/anet
   install -m755 /root/ship/anetpeer   /usr/local/bin/anetpeer
   install -m755 /root/ship/anetlinkd  /usr/local/bin/anetlinkd
   install -m755 /root/ship/adapdemo   /usr/local/bin/adapdemo
   install -m755 /root/ship/anetmock   /usr/local/bin/anetmock
-  systemctl restart anet-dmax' >/dev/null 2>&1 && echo "dmax ok" || echo "dmax FAILED"
+  systemctl restart anet-dmax-svc anet-dmax' >/dev/null 2>&1 && echo "dmax ok" || echo "dmax FAILED"
 RIEOF
 rsync -z "$STAGE/remote-install.sh" "$RELAY:/root/ship/" >/dev/null 2>&1
 out=$(ssh "$RELAY" 'bash /root/ship/remote-install.sh' 2>&1)
