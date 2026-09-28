@@ -68,8 +68,7 @@ func reasonText(st interactions.State, reason string) string {
 // nor a file: what its metadata records. A payment row says what happened
 // to the payment; any other row names the state it asks for (or the
 // task's) and the reason or inbound outcome it carries.
-func (p *projector) placeholder(i int) string {
-	meta := p.metas[i]
+func (p *projector) placeholder(meta map[string]any) string {
 	if s, _ := meta[KeyX402Status].(string); s != "" {
 		if note := p.paymentNote(meta); note != "" {
 			return paymentStatusText(s) + " " + note

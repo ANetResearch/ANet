@@ -247,16 +247,15 @@ func Project(src Source, opt Options) Task {
 
 // capResult is the part of a capability deliverable the projection reads
 // (the daemon's capabilityResult).
+//
+// Its "paid" is not read. It is the provider's statement that it was
+// paid, written into the deliverable it signs; it stays in the artifact as
+// part of what the provider delivered, and whether this node paid is its
+// pay_state's to say [redteam:F11].
 type capResult struct {
 	Status  string          `json:"status"`
 	Message string          `json:"message"`
 	Payment json.RawMessage `json:"payment_required"`
-	Paid    *struct {
-		Transaction string `json:"transaction"`
-		Amount      string `json:"amount"`
-		Network     string `json:"network"`
-		Receipt     string `json:"receipt"`
-	} `json:"paid"`
 }
 
 type projector struct {
@@ -398,7 +397,11 @@ func (p *projector) synthesized(text string, meta map[string]any, more ...string
 // that asks for payment gets the quote and how to pay it as a further text
 // part; a row with neither body nor file gets a sentence saying what its
 // metadata records (readable.go), never an empty text part.
-func (p *projector) fromRow(i int) *Message {
+func (p *projector) fromRow(i int) *Message { return p.fromRowWith(i, p.metas[i]) }
+
+// fromRowWith is fromRow with the row's metadata as given: the stored
+// row's own, or statusRow's.
+func (p *projector) fromRowWith(i int, meta map[string]any) *Message {
 	m := p.msgs[i]
 	var parts []Part
 	if m.Body != "" {
@@ -409,11 +412,53 @@ func (p *projector) fromRow(i int) *Message {
 	}
 	if len(parts) == 0 {
 		// A status carrying only metadata. A message needs a part.
-		parts = []Part{TextPart(p.placeholder(i))}
-	} else if note := p.paymentNote(p.metas[i]); note != "" {
+		parts = []Part{TextPart(p.placeholder(meta))}
+	} else if note := p.paymentNote(meta); note != "" {
 		parts = append(parts, TextPart(note))
 	}
-	return p.message(p.msgID(i), p.role(m.SenderAID), parts, p.metas[i])
+	return p.message(p.msgID(i), p.role(m.SenderAID), parts, meta)
+}
+
+// statusRow is stored message i as the task's status.message.
+//
+// On a task this node started, the row is the provider's, and what it says
+// about settlement is the provider's word: x402.payment.receipts and a
+// payment-completed status are this node's to state, from its own check of
+// the hub receipts (§8.3; SI-6). A provider row that carries receipts gets
+// this node's list in their place, and one that says payment-completed
+// when this node has not verified a settlement says this node's status
+// instead. What the provider says of its own part — a quote, a
+// payment-verified, a failure — stays as it wrote it [redteam:F11].
+func (p *projector) statusRow(i int) *Message {
+	meta := p.metas[i]
+	if !p.outbound || meta == nil {
+		return p.fromRow(i)
+	}
+	_, hasRc := meta[KeyX402Receipts]
+	claimsPaid := meta[KeyX402Status] == PaymentCompleted
+	own := p.nodeX402Status()
+	if !hasRc && (!claimsPaid || own == PaymentCompleted) {
+		return p.fromRow(i)
+	}
+	cp := make(map[string]any, len(meta))
+	for k, v := range meta {
+		cp[k] = v
+	}
+	if hasRc {
+		rc := p.nodeReceipts()
+		if rc == nil {
+			rc = []any{}
+		}
+		cp[KeyX402Receipts] = rc
+	}
+	if claimsPaid && own != PaymentCompleted {
+		if own != "" {
+			cp[KeyX402Status] = own
+		} else {
+			delete(cp, KeyX402Status)
+		}
+	}
+	return p.fromRowWith(i, cp)
 }
 
 // filePart is an attachment as a file part: inline bytes or a reference,
@@ -525,33 +570,36 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 	case interactions.StateSubmitted:
 		// An approval queue's notice (anet.inbound=pending_approval).
 		if fresh && provStatus {
-			return p.fromRow(prov), p.metas[prov]
+			return p.statusRow(prov), p.metas[prov]
 		}
 	case interactions.StateWorking:
 		if fresh && (provStatus || p.metas[prov][KeyState] == string(interactions.StateWorking)) {
-			return p.fromRow(prov), p.metas[prov]
+			return p.statusRow(prov), p.metas[prov]
 		}
 	case interactions.StateInputRequired:
 		if p.paymentRequired() {
 			if fresh && p.metas[prov][KeyX402Status] != nil {
-				return p.fromRow(prov), p.metas[prov]
+				return p.statusRow(prov), p.metas[prov]
 			}
 			return p.paymentRequiredMessage(), nil
 		}
 		if fresh {
-			return p.fromRow(prov), p.metas[prov]
+			return p.statusRow(prov), p.metas[prov]
 		}
 	case interactions.StateCompleted:
-		if rc := p.x402Receipts(); rc != nil {
-			return p.synthesized("Payment completed.", map[string]any{
-				KeyX402Status: PaymentCompleted, KeyX402Receipts: rc}), nil
-		}
 		if ix.PayState != interactions.PayNone {
-			// Quoted, and completed with no settlement on record: the
-			// final message still carries the (empty) receipts (a2a-x402
-			// §7, 0017 Q18), and no payment status for a quote that
-			// simply ended unpaid.
-			meta := map[string]any{KeyX402Receipts: []any{}}
+			// A task in the payment flow ends with the receipts this node
+			// states — possibly none (a2a-x402 §7, 0017 Q18) — and
+			// "Payment completed." only when its own payment state says
+			// so: on a task it started, that is its own check of the hub
+			// receipt, never the provider's list or the deliverable's
+			// "paid" [redteam:F11]. A quote that simply ended unpaid gets
+			// no payment status.
+			rc := p.nodeReceipts()
+			if rc == nil {
+				rc = []any{}
+			}
+			meta := map[string]any{KeyX402Receipts: rc}
 			text := "The task completed; no payment settled."
 			if st := p.finalX402Status(); st != "" {
 				meta[KeyX402Status] = st
@@ -566,7 +614,7 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 		case p.cap != nil && !p.quoted() && p.cap.Message != "":
 			msg = p.synthesized(p.cap.Message, nil)
 		case fresh && provStatus:
-			msg, why = p.fromRow(prov), p.metas[prov]
+			msg, why = p.statusRow(prov), p.metas[prov]
 		case ix.State == interactions.StateFailed && !ix.IsCapability && len(ix.Receipt) == 0 &&
 			len(ix.Result) > 0 && utf8.Valid(ix.Result):
 			// A failure without a receipt stores the provider's detail
@@ -585,7 +633,7 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 		// payment flow carries the receipts — the whole history, possibly
 		// empty: a declined quote, a lapsed one, a cancel before paying
 		// (§8.2, 0017 Q18).
-		rc := p.x402Receipts()
+		rc := p.nodeReceipts()
 		if rc == nil && ix.PayState != interactions.PayNone {
 			rc = []any{}
 		}
@@ -698,15 +746,37 @@ func (p *projector) x402Status() string {
 	case interactions.PayRejected:
 		return PaymentRejected
 	}
-	if p.cap != nil {
-		if p.cap.Paid != nil {
-			return PaymentCompleted
-		}
-		if p.cap.Status == string(effect.PaymentRequired) {
-			return PaymentRequired
-		}
+	// A PAYMENT_REQUIRED answer asks to be paid; that is the provider's
+	// to say. The deliverable's "paid" is not read: it is the provider's
+	// statement that it was paid, and on a task this node started a
+	// settlement is this node's to state once it has checked the hub
+	// receipt (pay_state completed), never the provider's [redteam:F11].
+	if p.cap != nil && p.cap.Status == string(effect.PaymentRequired) {
+		return PaymentRequired
 	}
 	return ""
+}
+
+// nodeX402Status is x402.payment.status as this node states it: the
+// kernel's reading when it gave one, else the stored pay_state's.
+func (p *projector) nodeX402Status() string {
+	if p.kernelPayment() {
+		st, _ := p.payment[KeyX402Status].(string)
+		return st
+	}
+	return p.x402Status()
+}
+
+// nodeReceipts is x402.payment.receipts as this node states it: the
+// kernel's reading when it gave one, else the stored list (x402Receipts).
+func (p *projector) nodeReceipts() []any {
+	if p.kernelPayment() {
+		if rc, ok := p.payment[KeyX402Receipts].([]any); ok {
+			return rc
+		}
+		return nil
+	}
+	return p.x402Receipts()
 }
 
 // finalX402Status is x402.payment.status on a terminal task's final
@@ -733,28 +803,44 @@ func anySettled(rc []any) bool {
 	return false
 }
 
-// x402Receipts is x402.payment.receipts: the stored settlement responses,
-// or the one settlement a paid capability answer names, as an x402
-// SettlementResponse with the hub's receipt in its extensions.
+// x402Receipts is x402.payment.receipts read from the store: the stored
+// settlement responses this node stands behind (SplitReceipts), nil when
+// there are none. A task outside the payment flow (pay_state "") has none,
+// whatever its deliverable or the provider's list says [redteam:F11].
 func (p *projector) x402Receipts() []any {
-	if len(p.ix.PayReceipts) > 0 {
-		if v, err := decodeJSON(p.ix.PayReceipts); err == nil {
-			if arr, ok := v.([]any); ok && len(arr) > 0 {
-				return arr
+	own, _ := p.storedReceipts()
+	return own
+}
+
+// unverifiedReceipts is anet.unverified_receipts read from the store.
+func (p *projector) unverifiedReceipts() []any {
+	_, un := p.storedReceipts()
+	return un
+}
+
+// storedReceipts splits pay_receipts (SplitReceipts), decoded.
+func (p *projector) storedReceipts() (own, unverified []any) {
+	if len(p.ix.PayReceipts) == 0 {
+		return nil, nil
+	}
+	var list []json.RawMessage
+	if json.Unmarshal(p.ix.PayReceipts, &list) != nil {
+		return nil, nil
+	}
+	o, u := SplitReceipts(list, p.outbound, p.ix.PayState)
+	decode := func(raw []json.RawMessage) []any {
+		var out []any
+		for _, r := range raw {
+			if v, err := decodeJSON(r); err == nil && v != nil {
+				out = append(out, v)
 			}
 		}
+		return out
 	}
-	if p.cap != nil && p.cap.Paid != nil {
-		r := map[string]any{"success": true, "transaction": p.cap.Paid.Transaction, "network": p.cap.Paid.Network}
-		if p.cap.Paid.Amount != "" {
-			r["amount"] = p.cap.Paid.Amount
-		}
-		if p.cap.Paid.Receipt != "" {
-			r["extensions"] = map[string]any{KeySettlementReceipt: p.cap.Paid.Receipt}
-		}
-		return []any{r}
+	if p.ix.PayState != interactions.PayNone {
+		own = decode(o)
 	}
-	return nil
+	return own, decode(u)
 }
 
 // metadata assembles the task's metadata. why is the stored status row
@@ -825,6 +911,17 @@ func (p *projector) metadata(why map[string]any) map[string]any {
 		}
 		if rc := p.x402Receipts(); rc != nil {
 			m[KeyX402Receipts] = rc
+		}
+	}
+	// What the provider claimed was settled and this node could not
+	// verify: shown, and apart from what this node states [redteam:F11].
+	if p.outbound {
+		if v, ok := p.payment[KeyUnverifiedReceipts]; ok {
+			m[KeyUnverifiedReceipts] = v
+		} else if p.payment == nil {
+			if un := p.unverifiedReceipts(); len(un) > 0 {
+				m[KeyUnverifiedReceipts] = un
+			}
 		}
 	}
 	// Why a task waits on a payment (needs_operator_approval) is the

