@@ -1,0 +1,68 @@
+{
+  "control_addr": "127.0.0.1:29610",
+  "name": "dmax-services",
+  "summary": "text statistics and PNG metadata on dmax (operations node, hub2)",
+  "inbound": {
+    "policy": "closed",
+    "allow_file": "peers.allow",
+    "deny_file": "peers.deny",
+    "trust_file": "peers.trust",
+    "public_capabilities": [
+      {
+        "id": "text.stats"
+      },
+      {
+        "id": "text.stats.paid"
+      }
+    ],
+    "reject_notice": {
+      "per_peer_per_hour": 6,
+      "global_per_min": 60
+    },
+    "pending": {
+      "max_total": 200,
+      "max_per_peer": 3,
+      "ttl_hours": 72
+    }
+  },
+  "payments": {
+    "auto_max": 0,
+    "agent_max": 0,
+    "agent_daily_max": 0,
+    "explicit_max": 10,
+    "daily_max": 50,
+    "payees_file": "payees.allow"
+  },
+  "modules": {
+    "service": {
+      "capabilities": [
+        {
+          "id": "image.inspect",
+          "url": "unix:///run/anet-dmax-svc/backend.sock:/image/inspect",
+          "description": "inspect a PNG: dimensions, byte length, crc32"
+        },
+        {
+          "id": "text.stats",
+          "url": "unix:///run/anet-dmax-svc/backend.sock:/text/stats",
+          "description": "character, word and line counts for a piece of text"
+        },
+        {
+          "id": "text.stats.paid",
+          "url": "unix:///run/anet-dmax-svc/backend.sock:/text/stats",
+          "price": 30,
+          "description": "text stats, 30 credits"
+        }
+      ]
+    },
+    "x402": {},
+    "blackboard": {
+      "enabled": true
+    },
+    "cas": {
+      "dir": "/var/lib/anet-dmax/cas"
+    },
+    "org": {
+      "genesis": "ogGBeDtiYWZ5cmVpZWJ6bHNqb25qdnVibWZlZWZqcXVsZ2Z1enJ2Zmc0bGZjZG5uM2JkcDdla3V2dzJycmN1eQIB"
+    }
+  }
+}

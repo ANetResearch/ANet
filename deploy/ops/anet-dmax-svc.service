@@ -1,0 +1,59 @@
+# anet-dmax-svc.service — the backend of dmax-services (image.inspect,
+# text.stats), on the Unix socket /run/anet-dmax-svc/backend.sock.
+#
+# Runs as the node's own account, anet-dmax: the socket's directory is this
+# unit's RuntimeDirectory (0700, owned by anet-dmax), UMask=0077 makes the
+# socket 0600, so the daemon — the same account — is the only one that can
+# connect, and it checks that the listener is the socket's owner before it
+# sends anything (internal/backendconn). No network at all; nothing writable
+# but the runtime directory. Pattern: deploy/official/anet-official-backend@.service.
+[Unit]
+Description=dmax-services backend (image.inspect, text.stats) on a Unix socket
+Documentation=https://github.com/ANetResearch/ANet/tree/main/deploy/ops
+After=network.target
+
+[Service]
+Type=simple
+User=anet-dmax
+Group=anet-dmax
+RuntimeDirectory=anet-dmax-svc
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/python3 -I /opt/anet/ops/dmax-svc.py /run/anet-dmax-svc/backend.sock
+Restart=on-failure
+RestartSec=2s
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+UMask=0077
+MemoryMax=256M
+CPUQuota=100%
+TasksMax=64
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target

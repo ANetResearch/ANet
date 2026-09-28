@@ -1,0 +1,69 @@
+# anet4.service — the cmax-anet4 node on cmax, homed at
+# https://hub.agentnetwork.org.cn. prodtest's provider on the first hub:
+# text.digest / text.digest.paid are its public capabilities, and it answers
+# conversations with its auto-reply (openai backend). See deploy/ops/README.md.
+#
+# Hardened as deploy/official/anet-official-daemon@.service: a dedicated
+# non-root account (anet-cmax), state under /var/lib/anet-cmax (0700), its
+# own runtime directory (XDG_RUNTIME_DIR=/run/anet-cmax, so nothing is written
+# to the shared /tmp/anet-0 of root's other daemons), read-only everything
+# else. The backend is anet4-svc.service on a Unix socket in a directory
+# only this account can write.
+#
+# The CLI refuses a daemon that runs as another uid (internal/localpeer), so
+# commands for this node run as its account: /opt/anet/bin/anet-cmax (a
+# wrapper around runuser) — e.g. `anet-cmax status`.
+[Unit]
+Description=anet daemon cmax-anet4 (hub.agentnetwork.org.cn)
+Documentation=https://github.com/ANetResearch/ANet/tree/main/deploy/ops
+Wants=network-online.target anet4-svc.service
+After=network-online.target anet4-svc.service
+
+[Service]
+Type=simple
+User=anet-cmax
+Group=anet-cmax
+StateDirectory=anet-cmax
+StateDirectoryMode=0700
+RuntimeDirectory=anet-cmax
+RuntimeDirectoryMode=0700
+Environment=HOME=/var/lib/anet-cmax
+Environment=ANET_DATA_DIR=/var/lib/anet-cmax/.anet
+Environment=XDG_RUNTIME_DIR=/run/anet-cmax
+Environment=NO_PROXY=127.0.0.1,localhost
+ExecStart=/opt/anet/bin/anet daemon
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/anet-cmax
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+UMask=0077
+MemoryMax=1G
+CPUQuota=200%
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,63 @@
+{
+  "control_addr": "127.0.0.1:29610",
+  "name": "cmax-anet4",
+  "summary": "sha256 digest service (operations node, hub)",
+  "inbound": {
+    "policy": "closed",
+    "allow_file": "peers.allow",
+    "deny_file": "peers.deny",
+    "trust_file": "peers.trust",
+    "public_capabilities": [
+      {
+        "id": "text.digest"
+      },
+      {
+        "id": "text.digest.paid"
+      }
+    ],
+    "reject_notice": {
+      "per_peer_per_hour": 6,
+      "global_per_min": 60
+    },
+    "pending": {
+      "max_total": 200,
+      "max_per_peer": 3,
+      "ttl_hours": 72
+    }
+  },
+  "payments": {
+    "auto_max": 0,
+    "agent_max": 0,
+    "agent_daily_max": 0,
+    "explicit_max": 30,
+    "daily_max": 300,
+    "payees_file": "payees.allow"
+  },
+  "modules": {
+    "service": {
+      "capabilities": [
+        {
+          "id": "text.digest",
+          "url": "unix:///run/anet4-svc/backend.sock",
+          "description": "sha256 of the text you send"
+        },
+        {
+          "id": "text.digest.paid",
+          "url": "unix:///run/anet4-svc/backend.sock",
+          "price": 25,
+          "description": "sha256, 25 credits"
+        }
+      ]
+    },
+    "x402": {},
+    "blackboard": {
+      "enabled": true
+    },
+    "cas": {
+      "dir": "/var/lib/anet-cmax/cas"
+    },
+    "org": {
+      "genesis": "ogGBeDtiYWZ5cmVpZWJ6bHNqb25qdnVibWZlZWZqcXVsZ2Z1enJ2Zmc0bGZjZG5uM2JkcDdla3V2dzJycmN1eQIB"
+    }
+  }
+}

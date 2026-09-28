@@ -1,0 +1,11 @@
+#!/bin/sh
+# anet-cmax — the anet CLI for cmax-anet4 (anet4.service), run as anet-cmax, the
+# account its daemon runs as. The CLI sends the control token only to a daemon
+# of its own uid (internal/localpeer), and root is not that uid, so root's
+# plain `anet` cannot drive this node. Installed as /opt/anet/bin/anet-cmax:
+#   anet-cmax status | doctor | peers list | payments | hub-register URL --name N | …
+set -eu
+exec runuser -u anet-cmax -- env -C / \
+  HOME=/var/lib/anet-cmax ANET_DATA_DIR=/var/lib/anet-cmax/.anet XDG_RUNTIME_DIR=/run/anet-cmax \
+  NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+  /opt/anet/bin/anet "$@"
