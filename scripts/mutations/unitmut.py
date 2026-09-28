@@ -4,7 +4,8 @@
 mutate.sh (beside this file) runs a patch through joint.sh; this runs a mutation through the Go tests
 that carry the invariant: apply one small edit to one repository, run the named tests, record whether
 they went red, restore the working tree. The lists are unit/si.py (SI-1..SI-10) and unit/supp.py (the
-§17 supplementary rows); docs/notes/0026 is the run they were written for.
+§17 supplementary rows), written for docs/notes/0026, and unit/fixwave.py (the round-5b red-team fixes
+and 0017 Q28-Q33), written for docs/notes/0029.
 
   unitmut.py unit/si.py                 every mutation of the list not yet recorded in OUT/results.json
   unitmut.py unit/si.py ID…             these, recorded or not
@@ -16,9 +17,12 @@ survives that too is a gap (or an equivalent mutation: say which in the note). V
 SURVIVED (full: SURVIVED-full or KILLED-by-other), BUILD-ERR and APPLY-ERR (the list needs fixing).
 
 It edits the checkouts it runs in, one mutation at a time: every repository must be clean (git status)
-before each mutation, and it is restored with `git stash push -u -m unitmut-<id>` followed by dropping
-exactly that stash entry, so an untracked file of yours would be swept up — commit first. Never run two
-at once in one work tree.
+before each mutation. Before applying it copies every file the mutation writes (its edits' paths and the
+files its patch touches); afterwards it writes those copies back, deletes the files the mutation created
+and any untracked file the tests left behind, and checks the repository is clean again. It does not use
+`git stash`: refs/stash is shared by every work tree of a repository, so a stash entry pushed here can be
+popped or dropped by a run in another work tree (0029). Commit first; never run two at once in one work
+tree (UNITMUT_ROOT can point at a separate clone to run beside other work).
 
 Environment:
   UNITMUT_ROOT  the directory holding ANetCore, ANet and ANetHub (default: the one above this ANet
@@ -56,24 +60,75 @@ def porcelain(repo):
     return sh(["git", "status", "--porcelain"], os.path.join(ROOT, repo))[1].strip()
 
 
-def restore(repo, mid):
-    """Put repo back as it was: stash the mutation, then drop that stash entry (and only it)."""
+def touched(m):
+    """The files (relative to the repository) the mutation writes: its edits' paths and its patch's files."""
+    paths = []
+    if m.get("patch"):
+        rc, out = sh(["git", "apply", "--numstat", "-z", m["patch"]], os.path.join(ROOT, m["repo"]))
+        if rc != 0:
+            raise ValueError("git apply --numstat: " + out)
+        f = out.split("\0")
+        i = 0
+        while i < len(f):
+            if not f[i]:
+                i += 1
+                continue
+            cols = f[i].split("\t")
+            if len(cols) == 3 and cols[2]:
+                paths.append(cols[2])
+                i += 1
+            else:  # a rename: "added\tdeleted\t" then the old and the new path
+                paths += [f[i + 1], f[i + 2]]
+                i += 3
+    paths += [e[0] for e in m.get("edits", [])]
+    return list(dict.fromkeys(paths))
+
+
+def backup(m):
+    """Copy (content, mode) of every file the mutation will write; None for one that does not exist yet."""
+    saved = {}
+    for path in touched(m):
+        fp = os.path.join(ROOT, m["repo"], path)
+        if os.path.exists(fp):
+            with open(fp, "rb") as f:
+                saved[path] = (f.read(), os.stat(fp).st_mode & 0o7777)
+        else:
+            saved[path] = None
+    return saved
+
+
+def restore(repo, mid, saved):
+    """Put repo back as it was before the mutation, from the copies backup() took (no git stash)."""
     cwd = os.path.join(ROOT, repo)
+    for path, v in (saved or {}).items():
+        fp = os.path.join(cwd, path)
+        if v is None:
+            if os.path.lexists(fp):
+                os.remove(fp)
+            continue
+        with open(fp, "wb") as f:
+            f.write(v[0])
+        os.chmod(fp, v[1])
     if not porcelain(repo):
-        return "clean"
-    msg = "unitmut-" + mid
-    rc, out = sh(["git", "stash", "push", "-u", "-m", msg], cwd)
-    if rc != 0:
-        raise SystemExit("git stash push failed in %s: %s" % (repo, out))
+        return "restored" if saved else "clean"
+    # Whatever is left was made by the tests: the repository was clean before the mutation, so an
+    # untracked file is theirs and a modified tracked file goes back to HEAD.
+    how = "restored"
+    rc, out = sh(["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd)
+    extra = [p for p in out.split("\0") if p]
+    for p in extra:
+        os.remove(os.path.join(cwd, p))
+    rc, out = sh(["git", "diff", "--name-only", "-z", "HEAD"], cwd)
+    mod = [p for p in out.split("\0") if p]
+    if mod:
+        rc, out2 = sh(["git", "checkout", "HEAD", "--"] + mod, cwd)
+        if rc != 0:
+            raise SystemExit("git checkout failed in %s: %s" % (repo, out2))
+    if extra or mod:
+        how += " (+%d left by the tests: %s)" % (len(extra) + len(mod), ", ".join((extra + mod)[:5]))
     if porcelain(repo):
         raise SystemExit("%s is not clean after restoring %s:\n%s" % (repo, mid, porcelain(repo)))
-    rc, out = sh(["git", "stash", "list", "--format=%gd%x00%gs"], cwd)
-    for line in out.splitlines():
-        ref, _, subj = line.partition("\x00")
-        if subj.endswith(": " + msg):
-            sh(["git", "stash", "drop", ref], cwd)
-            return "restored"
-    return "restored (stash entry %s left)" % msg
+    return how
 
 
 def apply(m):
@@ -153,17 +208,19 @@ def main(argv):
                 sys.exit("%s is not clean before %s:\n%s" % (r, m["id"], porcelain(r)))
         t0 = time.time()
         rec = {"id": m["id"], "group": m["group"], "repo": m["repo"], "desc": m["desc"]}
+        saved = None
         try:
+            saved = backup(m)
             apply(m)
         except ValueError as e:
-            restore(m["repo"], m["id"])
+            restore(m["repo"], m["id"], saved)
             rec.update(verdict="APPLY-ERR", detail=str(e))
             print("%-12s APPLY-ERR %s" % (m["id"], e), flush=True)
             if not check:
                 res[m["id"]] = rec
             continue
         if check:
-            restore(m["repo"], m["id"])
+            restore(m["repo"], m["id"], saved)
             print("%-12s applies" % m["id"], flush=True)
             continue
         try:
@@ -176,7 +233,7 @@ def main(argv):
                 full = "KILLED-by-other" if ff else "SURVIVED-full"
                 fails = ff or fails
         finally:
-            how = restore(m["repo"], m["id"])
+            how = restore(m["repo"], m["id"], saved)
         rec.update(verdict=verdict, full=full, failing=fails, secs=round(time.time() - t0, 1), restore=how)
         with open(os.path.join(OUT, "logs", m["id"] + ".log"), "w") as f:
             f.write("\n\n".join(logs))

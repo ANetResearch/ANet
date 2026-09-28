@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
@@ -50,7 +51,10 @@ func TestAStreamStaysReadableWhateverAPeerSends(t *testing.T) {
 		for _, binding := range bindings {
 			t.Run(c.name+"/"+string(binding), func(t *testing.T) {
 				e := newEnv(t)
-				cl, ctx := e.client(agentA, binding)
+				// Each first event is megabytes of JSON to build, encode
+				// and decode: under -race on a busy machine that alone
+				// passed the ten seconds of e.client (docs/notes/0029).
+				cl, ctx := e.clientWithin(agentA, binding, 2*time.Minute)
 				e.seam.quote = map[string]any{"accepts": []any{}} // leaves the task waiting
 				res, err := cl.SendMessage(ctx, &a2a.SendMessageRequest{Message: textMessage("q")})
 				if err != nil {

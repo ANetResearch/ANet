@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/anetcid"
+	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -191,6 +193,89 @@ func TestACollidingDelegationIsRefusedBeforeAnyWrite(t *testing.T) {
 	if ix.Role != interactions.RoleOutbound || ix.PeerAID != peer.aid || ix.State != interactions.StateSubmitted ||
 		len(ix.Result) != 0 || len(ix.Receipt) != 0 {
 		t.Fatalf("the outbound interaction changed: %+v", ix)
+	}
+}
+
+// §3.6 step 9 [m], since redteam F7: a delegation naming an interaction
+// that is not the sender's inbound one is refused as ix-collision even when
+// it carries the very request that interaction was opened for. The request
+// CID is the CID of the TaskDoc bytes, not of their signature, so anyone
+// holding those bytes can sign them as their own: the provider of a task
+// this node started holds its request, and so could a third party the
+// requester of an inbound one gave it to. For such a copy the request
+// binding (authorizeRedelivery) is no obstacle — the CIDs are equal — and
+// the role and peer check is the whole defence. The collision test above
+// stores no request CID, so the binding refused its copies first, and
+// mutations m-ix-2 and m-ix-3 (the step-9 check removed; it and step 10's
+// removed) left it green (docs/notes/0029).
+func TestAReflectedRequestIsAnIXCollisionNotARedelivery(t *testing.T) {
+	_, _, prov := registeredPair(t)
+	ctx := context.Background()
+	lamp := &lampProvider{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	peer, third := newStranger(t), newStranger(t)
+	requestOf := func(body []byte) (string, []byte) {
+		t.Helper()
+		dr, err := delegation.UnmarshalDelegateReq(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cid, err := anetcid.Sum(dr.TaskDoc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cid, dr.TaskDoc
+	}
+	const ixo, ixi = "ix_ours_reflected", "ix_theirs_copied"
+	// A task this node started, whose request its provider (peer) holds and sends back signed as its own.
+	reflected := delegateBody(t, peer.ctrl, ixo, "", lampCap)
+	cid, doc := requestOf(reflected)
+	if err := prov.ix.Put(ixo, interactions.RoleOutbound, peer.aid, "ours", cid, doc); err != nil {
+		t.Fatal(err)
+	}
+	// A task peer asked this node for, whose request a third party sends signed as its own.
+	copied := delegateBody(t, third.ctrl, ixi, "", lampCap)
+	if c, _ := requestOf(copied); c != cid {
+		t.Fatalf("the same TaskDoc signed by another AID has request CID %s, not %s: the premise is gone", c, cid)
+	}
+	if err := prov.ix.Put(ixi, interactions.RoleInbound, peer.aid, "theirs", cid, doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name string
+		from sender
+		ix   string
+		body []byte
+	}{
+		{"our request, reflected by our provider", peer, ixo, reflected},
+		{"a peer's request, sent by a third party", third, ixi, copied},
+	} {
+		env := craft(t, c.from, prov, seal.TypeDelegate, c.ix, c.body, nil)
+		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropIXCollision {
+			t.Fatalf("%s: %+v, want dropped %s", c.name, r, dropIXCollision)
+		}
+		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedReplay {
+			t.Fatalf("%s: the same envelope again = %+v, want %s (refused at step 9, before any write)",
+				c.name, r, dropRefusedReplay)
+		}
+	}
+	if len(lamp.invoked) != 0 {
+		t.Fatalf("a copied request ran: %+v", lamp.invoked)
+	}
+	for id, role := range map[string]interactions.Role{ixo: interactions.RoleOutbound, ixi: interactions.RoleInbound} {
+		ix, err := prov.ix.Get(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ix.Role != role || ix.PeerAID != peer.aid || ix.State != interactions.StateSubmitted ||
+			len(ix.Result) != 0 || len(ix.Receipt) != 0 {
+			t.Fatalf("%s changed: %+v", id, ix)
+		}
+		if msgs, err := prov.ix.Messages(id); err != nil || len(msgs) != 0 {
+			t.Fatalf("%s: messages %+v (%v), want none recorded", id, msgs, err)
+		}
 	}
 }
 

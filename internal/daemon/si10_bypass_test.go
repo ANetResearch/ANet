@@ -157,8 +157,13 @@ func TestHeldPagesDoNotStarveNewMail(t *testing.T) {
 		t.Fatalf("the new delegation was not read in %d rounds behind %d held envelopes (%v)", rounds, held, prov.ReceiveStats())
 	}
 	// The held envelopes are still gone back to, page by page: each is
-	// read again within two rounds per page.
+	// read again within two rounds per page. Each one, not reads adding up
+	// to their number: rounds that go back only ever as far as the head
+	// page read its one envelope again and again, as many times, and left
+	// the rest where they were (mutation fx24-2, docs/notes/0029).
+	heldIDs := mailboxIDsFor(srv.URL, prov.AID())
 	before := counter(prov, transientUnknownIX)
+	servedBefore := len(relayServedFor(srv.URL, prov.AID()))
 	for i := 0; i < 2*held+2; i++ {
 		if err := prov.pollOnce(ctx); err != nil {
 			t.Fatal(err)
@@ -166,6 +171,15 @@ func TestHeldPagesDoNotStarveNewMail(t *testing.T) {
 	}
 	if n := counter(prov, transientUnknownIX) - before; n < held {
 		t.Fatalf("%d held envelopes read %d times in %d rounds; not every one was gone back to", held, n, 2*held+2)
+	}
+	readAgain := map[int64]bool{}
+	for _, id := range relayServedFor(srv.URL, prov.AID())[servedBefore:] {
+		readAgain[id] = true
+	}
+	for _, id := range heldIDs {
+		if !readAgain[id] {
+			t.Fatalf("held envelope %d was not read again in %d rounds (%d of %d were)", id, 2*held+2, len(readAgain), len(heldIDs))
+		}
 	}
 	if n := len(queuedFor(t, srv, prov.AID())); n != held {
 		t.Fatalf("%d envelopes queued, want the %d held", n, held)
