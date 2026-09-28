@@ -154,3 +154,72 @@ func TestPayableFirstReordersAndChangesNothingElse(t *testing.T) {
 		}
 	}
 }
+
+// The review of Q28: the check was skipped while this node could not
+// learn which ledger its credit is on ("the hub decides"), so a quote
+// offering only another hub's ledger — or several, with the provider's
+// first — was signed as chosen, with the automatic tier choosing the
+// provider's first option. Unknown is not payable: refused before
+// anything is signed, saying why, on both paths that pick a rail
+// [redteam:Q28].
+func TestNothingIsSignedWhileThisNodesLedgerIsUnknown(t *testing.T) {
+	work := &meteredWork{price: 5}
+	hub, req, prov := paidPair(t, work)
+	ctx := context.Background()
+	id, err := req.DelegateCapability(ctx, prov.AID(), "work.do", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poll(t, prov, req)
+	pr := storedQuote(getIX(t, req, id))
+	if pr == nil || len(pr.Accepts) != 1 {
+		t.Fatalf("stored quote %s", getIX(t, req, id).PayRequired)
+	}
+	foreign := pr.Accepts[0]
+	foreign.Network = payment.CreditNetwork("did:anet:other-hub")
+	quote, _ := json.Marshal(map[string]any{"x402Version": payment.Version, "resource": pr.Resource,
+		"accepts": []payment.PaymentOption{foreign}})
+	if _, err := req.ix.SetPayment(id, interactions.PayUpdate{Required: quote}); err != nil {
+		t.Fatal(err)
+	}
+	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10}, prov.AID())
+	// Its hub unreachable, and not known under this address.
+	req.mu.Lock()
+	req.cfg.HubURL = "http://127.0.0.1:1"
+	req.mu.Unlock()
+	if p := req.payer(); p == nil || p.HomeNetwork() != "" {
+		t.Fatal("precondition: this node's ledger must be unknown")
+	}
+
+	_, err = req.PayTask(ctx, PayRequest{TaskID: id, Decision: PayDecisionSubmit, Purpose: module.PurposeTaskAgent})
+	var refusal *PayRefusal
+	if !errors.As(err, &refusal) || refusal.Outcome.Reason != x402a2a.ReasonRailNotPayable {
+		t.Fatalf("paying with this node's ledger unknown: %v", err)
+	}
+	if msg := refusal.Outcome.Message; !strings.Contains(msg, "could not learn") {
+		t.Errorf("the refusal does not say why: %q", msg)
+	}
+	own := pr.Accepts[0]
+	if _, err := req.PayAndRetry(ctx, prov.AID(), "work.do", nil,
+		&payment.PaymentRequired{Accepts: []payment.PaymentOption{foreign, own}}); err == nil ||
+		!strings.Contains(err.Error(), x402a2a.ReasonRailNotPayable) {
+		t.Errorf("PayAndRetry with this node's ledger unknown: %v", err)
+	}
+	if n := chainEvents(t, req, EvPaymentAuthorized); n != 0 {
+		t.Fatalf("%d authorizations signed while this node's ledger was unknown", n)
+	}
+
+	// Known again, PayAndRetry does not fall back to an option on another
+	// ledger either.
+	req.mu.Lock()
+	req.cfg.HubURL = hub
+	req.mu.Unlock()
+	if _, err := req.PayAndRetry(ctx, prov.AID(), "work.do", nil,
+		&payment.PaymentRequired{Accepts: []payment.PaymentOption{foreign}}); err == nil ||
+		!strings.Contains(err.Error(), x402a2a.ReasonRailNotPayable) {
+		t.Errorf("PayAndRetry with only another ledger's option: %v", err)
+	}
+	if n := chainEvents(t, req, EvPaymentAuthorized); n != 0 {
+		t.Fatalf("%d authorizations signed for an option on another ledger", n)
+	}
+}
