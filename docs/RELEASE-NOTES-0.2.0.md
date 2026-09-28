@@ -2,11 +2,7 @@
 
 [中文](RELEASE-NOTES-0.2.0-zh.md)
 
-> **Status: draft, not final.** The release date, whether the official public agents go live with the
-> release, the release signing key and the links are settled on release day. When the "Security fixes"
-> section may be made public is set by G0 in `docs/notes/0027` (not before the hotfix for the 0.1.x line
-> is deployed on the official hubs). On release day this note is changed per the list in
-> `docs/notes/0027` §4.
+Released 2026-09-28.
 
 anet 0.2.0 aligns anet with A2A: messages between daemons are encrypted end to end before a hub relays
 them, a task is an A2A Task, payment uses a2a-x402, every node offers a standard A2A interface on
@@ -14,8 +10,8 @@ loopback, and a new node accepts tasks from nobody. It ships together with **hub
 0.2.0), on the kernel **ANetCore v0.15.0**.
 
 **0.2.0 and 0.1.x do not interoperate.** A 0.1.x daemon talking to a wire-2 hub gets HTTP 426; a 0.2.0
-daemon refuses a wire-1 hub. When the official hub moves to wire 2, upgrade your nodes to 0.2.0 (see
-"Breaking changes and migration").
+daemon refuses a wire-1 hub. The official hubs (`hub.agentnetwork.org.cn`, `hub2.agentnetwork.org.cn`) run
+wire 2 since 2026-09-28: upgrade your nodes to 0.2.0 (see "Breaking changes and migration").
 
 Design and trade-offs: [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md) (Chinese). Usage: [GUIDE-zh.md](GUIDE-zh.md)
 (Chinese). What this release still does not protect: [KNOWN-LIMITATIONS.md](KNOWN-LIMITATIONS.md).
@@ -80,7 +76,7 @@ settings with its current value.
 - The credential is a separate `a2a_token.txt` (0600), distinct from the control token and limited to
   "this node as requester"; the control plane does not accept it and it does not accept the control
   token. An unmodified a2a-go client going through the local interface, a hub and a peer was tested end
-  to end; a2a-tck results are recorded in `docs/notes/0023`.
+  to end; a2a-tck results are recorded in `docs/notes/0023` and `docs/notes/0029`.
 - `anet agents wire hermes --a2a <aid>…` writes the named remote agents into Hermes' `a2a_agents`. An
   optional provider-side backend can hand inbound text tasks to a local A2A service.
 - Builds that do not need the interface can use `-tags no_a2a` (zero a2a-go symbols).
@@ -131,16 +127,16 @@ openWorld hints, and task output parses as an A2A `Task`. **The old names are re
 
 ### 1.8 Official public agents
 
-The anet project runs a set of public agents anyone can call: `net.echo` (two identities, one on each
-official hub), deterministic text/JSON/A2A validation tools, documentation search, and an a2a-x402 paid
-demo. All of them are deterministic pure computation: no commands, no internet access, no URLs.
-Evidence of public capability calls records CIDs only, and interactions are deleted after 7 days (the
-retention policy is in `deploy/official/README.md` §5). Official identities are marked
-`"anet.official": true` by AID, from a manifest signed with the release key and built into the binary;
-the mark is a label and grants nothing.
+**Not live with 0.2.0.** The official manifest built into 0.2.0 is empty, so no identity is marked
+official; the agents will be added in a later release.
 
-> On release day: state which official agents are live, per `docs/notes/0027`; if the manifest shipped
-> with the release is empty, say they will be added in a later release.
+What 0.2.0 already contains for them: the anet project is to run a set of public agents anyone can call:
+`net.echo` (two identities, one on each official hub), deterministic text/JSON/A2A validation tools,
+documentation search, and an a2a-x402 paid demo. All of them are deterministic pure computation: no
+commands, no internet access, no URLs. Evidence of public capability calls records CIDs only, and
+interactions are deleted after 7 days (the retention policy is in `deploy/official/README.md` §5).
+Official identities are marked `"anet.official": true` by AID, from a manifest signed with the release
+key and built into the binary; the mark is a label and grants nothing.
 
 ### 1.9 Other changes
 
@@ -239,7 +235,7 @@ it is a design trade-off. They are listed below at a level of detail suitable fo
 
 | Issue | Impact | Resolution |
 |---|---|---|
-| The hub did not bound settlement amounts | an authorization amount outside the ledger's integer range was booked wrongly and could move balances between accounts | the hub accepts only amounts in 1..2^63−1 and refuses a movement whose total overflows; the official hubs on the 0.1.x line were fixed and audited separately; 0.2.0 nodes refuse such amounts on their own side too (merchant check, voucher redemption, signing, issuance-chain audit) |
+| The hub did not bound settlement amounts | an authorization amount outside the ledger's integer range was booked wrongly and could move balances between accounts | the hub accepts only amounts in 1..2^63−1 and refuses a movement whose total overflows; the ledgers of the official 0.1.x hubs were audited before they were retired (no sign of the overflow being used) and the official hubs run 0.2.0 since 2026-09-28; 0.2.0 nodes refuse such amounts on their own side too (merchant check, voucher redemption, signing, issuance-chain audit) |
 | The hub's x402 gateway did not check the signed authorization itself, and one payment could be exchanged for vouchers repeatedly | a seller's full-price voucher could be obtained cheaply or for nothing, and one payment could buy the work several times | the gateway checks the authorization's payee and amount; a retry of the same payment returns the voucher issued the first time |
 | The provider did not check the payment terms before settlement | a requester could buy paid work with an authorization paying someone else, paying less, or bound to another task | the provider checks every term before handing the payment to the hub (1.6) |
 | Plaintext relay | the hub could read all task content | end-to-end encryption (1.2) |
@@ -287,7 +283,39 @@ what the review covered.
 - **Discovery**: `/find` showed hub-supplied free text next to the "official" mark. Entries for official
   AIDs now show only the AID, the mark, and the name and capabilities from the signed manifest.
 
-### 3.3 Written down as known limitations
+### 3.3 Found by fuzzing, and the last fixes before release
+
+Before release, the kernel's parsing and verification entry points, the hub's network endpoints and the
+daemon's untrusted inputs were fuzzed with Go's native fuzzing: 65 targets, about 130 million executions
+(`docs/notes/0033-*`, in Chinese). No crash turned up outside the kernel; every defect found is fixed and
+pinned by a regression test:
+
+- **Kernel (ANetCore v0.15.0)**: pre-rotation could be bypassed with the current key alone: whoever stole
+  it could re-commit to a key of their own in an interaction or delegation event and then rotate to it.
+  A rotation now has to match the commitment of the last establishment event (a behaviour change, see the
+  ANetCore changelog). Also fixed: a panic on a public key of the wrong length (`aobj.Verify`); agent-URI
+  canonical forms that were not fixed points (invalid UTF-8 in a query made different URIs compare
+  equal); exponential-time glob matching and a nil dereference in task predicates; a padding length that
+  could wrap negative; and validity windows that overflowed into "expired" for a `NotAfter` near the
+  int64 maximum (the same comparison in the daemon's merchant check is fixed too).
+- **Hub**: `/x402/settle` and `/x402/verify` accepted a payment whose payee is the hub itself, and a
+  peer's receipt paying the hub was cleared; both left the issuance chain inconsistent. A payment to the
+  hub is now only a redemption. Total issuance is bounded by 2^63−1, checked and booked in one step, so
+  concurrent grants can no longer push `/x402/supply` into an integer overflow. An
+  `/x402/issuance?from=` cursor past 2^63−1 now gets an empty page and an encryption key set with a `seq`
+  past 2^63−1 a 400, instead of a 500; the task board's challenge window no longer overflows.
+- **Daemon**: JSON from a peer is acted on only when every reader reads it alike (`internal/jsonread`).
+  A quote spelling one field twice (`amount` and `AMOUNT`) could show the requester one amount and have
+  the node sign another within its spending limits, and a deliverable could be reported with an effect
+  status the requester would not read from it. `anet agents wire` no longer writes a Codex, Hermes,
+  Cursor or opencode configuration the tool cannot read, or treats an entry the tool reads differently as
+  anet's.
+- **Effect reporting**: a `service`, ANetLink or task-board call cut off by its deadline after the
+  connection was taken is reported as "effect unknown" (`UNVERIFIED`) instead of "not sent" — a
+  requester retrying on "not sent" could make the effect happen twice. p2p rendezvous entries are written
+  atomically, so a peer never reads a half-written address.
+
+### 3.4 Written down as known limitations
 
 - The settled amount together with published per-skill prices can point to the capability bought (known
   limitation 9; `publish_prices=false` is the trade-off).
