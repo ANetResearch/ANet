@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
@@ -900,4 +903,59 @@ func countMessages(t *testing.T, d *Daemon, ixID string) int {
 		t.Fatal(err)
 	}
 	return len(msgs)
+}
+
+// The line the startup refresh logs names what the hub was sent, not what
+// the node serves: a capability served to allowed peers only is not
+// published (0017 Q14), and a log saying "refreshed capabilities at <hub>:
+// [<private ids>]" told the operator the opposite (docs/notes/0025).
+func TestTheRefreshLogNamesOnlyWhatWasPublished(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	d := newTestDaemon(t, srv.URL, true)
+	if err := d.Providers().Register(ctx, &lampProvider{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	w := &syncBuffer{}
+	prev := log.Writer()
+	log.SetOutput(w)
+	t.Cleanup(func() { log.SetOutput(prev) })
+
+	d.refreshRegistration()
+	var line string
+	for i := 0; i < 100 && line == ""; i++ {
+		for _, l := range strings.Split(w.String(), "\n") {
+			if strings.Contains(l, "refreshed capabilities") {
+				line = l
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if line == "" {
+		t.Fatal("the refresh logged nothing, though the served list differs from the configured one")
+	}
+	if strings.Contains(line, "light.onoff@sim/lamp-1") {
+		t.Errorf("the log names a capability that is not public, as if it had been published: %s", line)
+	}
+}
+
+// syncBuffer is a log sink the daemon's goroutines may write concurrently.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
