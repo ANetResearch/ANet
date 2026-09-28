@@ -232,7 +232,10 @@ rt_daemon(){
     rt_start "$name-peer" "$d"
     for i in 1 2 3 4 5 6 7 8 9 10; do [ -S "$d/peer.sock" ] && break; sleep 1; done
     [ -S "$d/peer.sock" ] || rt_fail_log "$name-peer" "$d" "anetpeer for $name did not open its socket"
-    modules=$(printf ',\n "modules": {"p2p": {"socket": "%s"}}' "$d/peer.sock")
+    # advertise puts the direct interface into the node's signed A2A card (module/p2p card.go,
+    # A2A-DESIGN §10.1); without it the card lists only the relay, although rt_register publishes
+    # the same address at the hub.
+    modules=$(printf ',\n "modules": {"p2p": {"socket": "%s", "advertise": "%s:%s"}}' "$d/peer.sock" "$pdial" "$pport")
   fi
   cfg="$d/home/.anet/config.json"
   if [ ! -f "$cfg" ] || [ "$rewrite" = 1 ]; then
