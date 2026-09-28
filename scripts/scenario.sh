@@ -278,7 +278,9 @@ p, svc, door = sys.argv[1], sys.argv[2], sys.argv[3]
 c = json.load(open(p))
 c["name"] = "NodeA"
 c["caps"] = ["digest"]
-c["modules"] = {"service": {"capabilities": [
+# The test services are Python HTTP servers on loopback TCP: allow_tcp (docs/notes/0030 N1; the daemon
+# checks that each listener is this user's before it sends).
+c["modules"] = {"service": {"allow_tcp": True, "capabilities": [
     {"id": "text.digest", "url": svc,
      "description": "sha256 of the text you send"},
     # The same work, priced. Two capabilities behind one service so the
@@ -804,7 +806,7 @@ mkdir -p "$ROOT/D/.anet"
 pin_a2a "$ROOT/D/.anet" $((PORT_BASE + 63))
 cat > "$ROOT/D/.anet/config.json" <<CFG
 {"control_addr":"127.0.0.1:$((PORT_BASE+13))","hub_url":"$HUB2","name":"NodeD","caps":["remote.digest"],
- "modules":{"service":{"capabilities":[
+ "modules":{"service":{"allow_tcp":true,"capabilities":[
    {"id":"remote.digest","url":"http://127.0.0.1:$SVC_PORT","description":"sha256, on the other hub"}]}},
  "inbound":{"policy":"closed","public_capabilities":[{"id":"remote.digest"}]}}
 CFG
@@ -1356,7 +1358,7 @@ SNIP
   pcfg=$(cat <<CFG
 {"control_addr":"127.0.0.1:$((XB2+1))","hub_url":"$HUB2X","name":"NodeP",
  "caps":["xhub.digest.paid","xhub.slow.paid"],
- "modules":{"service":{"capabilities":[
+ "modules":{"service":{"allow_tcp":true,"capabilities":[
    {"id":"xhub.digest.paid","url":"http://127.0.0.1:$((XB2+3))","price":$PRICE,"description":"sha256 of args.text, on the other hub"},
    {"id":"xhub.slow.paid","url":"http://127.0.0.1:$((XB2+3))","price":$PRICE,"description":"the same, after args.sleep seconds"}]}},
  "inbound":{"policy":"closed"}}

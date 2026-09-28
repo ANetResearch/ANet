@@ -96,19 +96,26 @@ func TestDeploySamplesMatchTheTable(t *testing.T) {
 	identities := map[string]string{ // identity -> group
 		"anet-echo-e": "echo", "anet-echo-f": "echo", "anet-tools": "tools", "anet-docs": "docs", "anet-paid-demo": "paid",
 	}
-	ports := map[string]string{}
+	sockets := map[string]string{}
 	for id, group := range identities {
 		env := readEnv(t, filepath.Join(root, id, "backend.env"))
 		if env["CAP_GROUPS"] != group {
 			t.Errorf("%s: CAP_GROUPS=%s, want %s", id, env["CAP_GROUPS"], group)
 		}
-		if _, err := loopbackListenAddr(env["LISTEN"]); err != nil {
+		// The backend's Unix socket, in the unit's RuntimeDirectory
+		// (anet-official/%i): a loopback port could be taken by another
+		// local user while the backend is down (docs/notes/0030 N1).
+		if want := "unix:/run/anet-official/" + id + "/backend.sock"; env["LISTEN"] != want {
+			t.Errorf("%s: LISTEN=%s, want %s", id, env["LISTEN"], want)
+		}
+		base, err := daemonURL(env["LISTEN"])
+		if err != nil {
 			t.Errorf("%s: %v", id, err)
 		}
-		if other, dup := ports[env["LISTEN"]]; dup {
+		if other, dup := sockets[env["LISTEN"]]; dup {
 			t.Errorf("%s and %s share %s", id, other, env["LISTEN"])
 		}
-		ports[env["LISTEN"]] = id
+		sockets[env["LISTEN"]] = id
 
 		raw, err := os.ReadFile(filepath.Join(root, id, "config.json"))
 		if err != nil {
@@ -132,7 +139,7 @@ func TestDeploySamplesMatchTheTable(t *testing.T) {
 			t.Errorf("%s: name %q policy %q auto_reply %v accept_delegations %v", id, cfg.Name, cfg.Inbound.Policy, cfg.AutoReply, cfg.AcceptDelegations)
 		}
 		caps, _ := selectGroups(group)
-		want := buildServiceConfig(caps, "http://"+env["LISTEN"], "${CREDENTIALS_DIRECTORY}/token", 0)
+		want := buildServiceConfig(caps, base, "${CREDENTIALS_DIRECTORY}/token", 0)
 		if !reflect.DeepEqual(cfg.Inbound.PublicCapabilities, want.Inbound.PublicCapabilities) {
 			t.Errorf("%s: public_capabilities differ from `anet-official service-config -groups %s`", id, group)
 		}
@@ -148,7 +155,7 @@ func TestDeploySamplesMatchTheTable(t *testing.T) {
 			t.Fatalf("%s: modules.service: %v", id, err)
 		}
 		if !reflect.DeepEqual(svc, want.Modules.Service) {
-			t.Errorf("%s: modules.service differs from `anet-official service-config -groups %s -url http://%s`", id, group, env["LISTEN"])
+			t.Errorf("%s: modules.service differs from `anet-official service-config -groups %s -url %s`", id, group, base)
 		}
 		_, hasX402 := cfg.Modules["x402"]
 		if hasX402 != (group == "paid") {
@@ -169,6 +176,22 @@ func TestDeploySamplesMatchTheTable(t *testing.T) {
 		}
 		if unit == "anet-official-backend@.service" && !strings.Contains(s, "IPAddressDeny=any") {
 			t.Errorf("%s: the backend must reach nothing but loopback", unit)
+		}
+		// The socket's directory is the backend's own under root's
+		// /run/anet-official, and both units share the socket's group.
+		if unit == "anet-official-backend@.service" {
+			for _, want := range []string{"RuntimeDirectory=anet-official/%i\n", "SupplementaryGroups=anet-official-ipc\n",
+				"-socket-group anet-official-ipc", "RestrictAddressFamilies=AF_UNIX\n", "PrivateNetwork=yes\n"} {
+				if !strings.Contains(s, want) {
+					t.Errorf("%s: missing %q", unit, strings.TrimSpace(want))
+				}
+			}
+			if strings.Contains(s, "\nPrivateUsers=yes") || strings.Contains(s, "AF_INET") {
+				t.Errorf("%s: PrivateUsers= maps the socket's group to nobody; the backend needs no AF_INET", unit)
+			}
+		}
+		if unit == "anet-official-daemon@.service" && !strings.Contains(s, "SupplementaryGroups=anet-official-ipc\n") {
+			t.Errorf("%s: the daemon must be in the socket's group", unit)
 		}
 	}
 }

@@ -526,6 +526,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		add("auto_reply", stOK, fmt.Sprintf("backend %s; untrusted peers: %s", rep.AutoReply.Backend, rep.AutoReply.Untrusted), "")
 	}
 	a2aBackendChecks(add, st.Inbound.Policy, cfg, len(st.Trust)) // doctor_backends.go
+	backendTransportChecks(add, cfg)                             // doctor_backends.go
 
 	// SI-5.
 	if len(rep.SI5Changed) == 0 {

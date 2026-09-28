@@ -260,7 +260,7 @@ caps = [
      "name": "Digest, dearer", "description": "SHA-256 of the text you send, %s credits" % ppricey, "tags": ["joint", "digest"]},
 ]
 json.dump({"control_addr": addr,
-           "modules": {"service": {"capabilities": caps, "token_file": token}},
+           "modules": {"service": {"capabilities": caps, "token_file": token, "allow_tcp": True}},
            "inbound": {"policy": "closed", "public_capabilities": [{"id": paid}, {"id": pricey}]}},
           open(path, "w"), indent=1)
 PY

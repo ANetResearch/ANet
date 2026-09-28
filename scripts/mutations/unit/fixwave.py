@@ -1,4 +1,5 @@
-# fixwave.py: mutations of the round-5b red-team fix wave (redteam F1..F41, si9) and the 0017 Q28-Q33 changes,
+# fixwave.py: mutations of the round-5b red-team fix wave (redteam F1..F41, si9), the 0017 Q28-Q33 changes and
+# the 0030 N1 fix (service and A2A backends on Unix sockets, internal/backendconn),
 # for scripts/mutations/unitmut.py (see its header for the format). Written for docs/notes/0029: each fix's
 # guard is taken out (or put back the way it was before the fix) and its regression test must go red.
 # A mutation that no longer applies reports APPLY-ERR: fix its edit to the moved code rather than dropping it.
@@ -773,5 +774,86 @@ MUTS = [
   ],
   tests=[('ANetHub:./internal/taskboard', 'TestAMutationIsAuthenticatedBeforeItsContentIsDecoded', 'taskboard')],
   full=[],
+ ),
+ dict(
+  id='n1-1', group='N1', repo='ANet',
+  desc='外部可写(o+w)的 socket 目录被接受',
+  edits=[
+   ('internal/backendconn/backendconn.go', '\t\t\tif perm&0o002 != 0 && (!sticky || i == final) {', '\t\t\tif false && perm&0o002 != 0 && (!sticky || i == final) {'),
+  ],
+  tests=[('ANet:./internal/backendconn', 'TestAWritableDirectoryIsRefused|TestJudge')],
+  full=['ANet:./internal/backendconn', 'ANet:./module/service'],
+ ),
+ dict(
+  id='n1-2', group='N1', repo='ANet',
+  desc='SO_PEERCRED 与期望 uid/socket 属主不符仍连接',
+  edits=[
+   ('internal/backendconn/backendconn.go', '\tif uid != want {', '\tif false && uid != want {'),
+  ],
+  tests=[('ANet:./internal/backendconn', 'TestAListenerThatIsNotTheExpectedUserIsRefused'), ('ANet:./module/service', 'TestASocketListenerThatIsNotTheExpectedUserIsNotCalled'), ('ANet:./module/a2a', 'TestASocketBackendOfTheWrongUserGetsNothing')],
+  full=['ANet:./internal/backendconn'],
+ ),
+ dict(
+  id='n1-3', group='N1', repo='ANet',
+  desc='allow_tcp 下回环监听者属他人 uid 仍发送',
+  edits=[
+   ('internal/backendconn/backendconn.go', '\tcase uid != r.self:', '\tcase false && uid != r.self:'),
+  ],
+  tests=[('ANet:./internal/backendconn', 'TestATCPListenerOfAnotherUserIsRefused'), ('ANet:./module/service', 'TestATCPListenerOfAnotherUserIsNotCalled'), ('ANet:./module/a2a', 'TestATCPBackendHeldByAnotherUserGetsNothing')],
+  full=['ANet:./internal/backendconn'],
+ ),
+ dict(
+  id='n1-4', group='N1', repo='ANet',
+  desc='未设 allow_tcp 的 TCP 后端被接受',
+  edits=[
+   ('internal/backendconn/backendconn.go', '\tif !t.Unix() && !r.allowTCP {', '\tif false && !t.Unix() && !r.allowTCP {'),
+  ],
+  tests=[('ANet:./internal/backendconn', 'TestTCPIsRefusedByDefault'), ('ANet:./module/service', 'TestTCPServicesNeedAllowTCP'), ('ANet:./module/a2a', 'TestATCPBackendNeedsAllowTCP'), ('ANet:./cmd/anet', 'TestDoctorBackendTransport')],
+  full=['ANet:./internal/backendconn'],
+ ),
+ dict(
+  id='n1-5', group='N1', repo='ANet',
+  desc='socket 属主在他人可写目录下建的目录也被信任(/tmp 抢建)',
+  edits=[
+   ('internal/backendconn/backendconn.go', '\t\tif e.m.uid == owner && e.parent >= 0 && strict(entries[e.parent].m) {', '\t\tif e.m.uid == owner && e.parent >= 0 && (true || strict(entries[e.parent].m)) {'),
+  ],
+  tests=[('ANet:./internal/backendconn', 'TestJudge')],
+  full=['ANet:./internal/backendconn'],
+ ),
+ dict(
+  id='n1-6', group='N1', repo='ANet',
+  desc='组可写目录不要求 socket_group',
+  edits=[
+   ('internal/backendconn/backendconn.go', '\t\t\tif perm&0o020 != 0 && !groupOK(e.m) && (!sticky || i == final) {', '\t\t\tif false && perm&0o020 != 0 && !groupOK(e.m) && (!sticky || i == final) {'),
+  ],
+  tests=[('ANet:./internal/backendconn', 'TestAWritableDirectoryIsRefused|TestJudge')],
+  full=['ANet:./internal/backendconn'],
+ ),
+ dict(
+  id='n1-7', group='N1', repo='ANet',
+  desc='可信目录里他人留下的 socket 被接受',
+  edits=[
+   ('internal/backendconn/backendconn.go', '\tif fd := entries[final].m; !trusted(owner) && fd.uid != owner', '\tif fd := entries[final].m; false && !trusted(owner) && fd.uid != owner'),
+  ],
+  tests=[('ANet:./internal/backendconn', 'TestJudge')],
+  full=['ANet:./internal/backendconn'],
+ ),
+ dict(
+  id='n1-8', group='N1', repo='ANet',
+  desc='socket 后端的卡片可指向另一个 socket',
+  edits=[
+   ('module/a2a/backend.go', '\t\t\tif it.Socket == t.Socket {', '\t\t\tif true {'),
+  ],
+  tests=[('ANet:./module/a2a', 'TestASocketBackendsCardCannotPointElsewhere')],
+  full=['ANet:./module/a2a'],
+ ),
+ dict(
+  id='n1-9', group='N1', repo='ANet',
+  desc='anet-official 的 socket 不设 0660',
+  edits=[
+   ('cmd/anet-official/main.go', '\tif err := os.Chmod(path, 0o660); err != nil {', '\tif err := os.Chmod(path, 0o600); false && err != nil {'),
+  ],
+  tests=[('ANet:./cmd/anet-official', 'TestListenUnix')],
+  full=['ANet:./cmd/anet-official'],
  ),
 ]

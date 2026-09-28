@@ -68,7 +68,7 @@ tn_ports_of(){
   case "$(tn_node_role "$n")" in
     hub)      echo "$p"; echo $((p + 50)) ;;
     daemon)   echo "$p"; echo $((p + 50)); [ "$pp" = - ] || echo "$pp" ;;
-    official) echo "$p"; echo $((p + 1)); echo $((p + 50)); [ "$pp" = - ] || echo "$pp" ;;
+    official) echo "$p"; echo $((p + 50)); [ "$pp" = - ] || echo "$pp" ;;   # the backend is on a Unix socket
   esac
 }
 

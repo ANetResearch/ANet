@@ -9,11 +9,16 @@
 //     None executes a command, opens a network connection, reads a file at
 //     run time or takes a URL. The documents docs.search and docs.get serve
 //     are compiled into the binary.
-//   - It listens on a loopback address only, answers only a loopback Host,
-//     and only a caller presenting the bearer token its daemon holds
-//     (module/service token_file). The daemon is the only door: admission,
-//     the deny list, quotas and payment happen there, in the kernel
-//     (A2A-DESIGN §5.4), before a call reaches this process.
+//   - It listens on a Unix domain socket (or, for tests and old setups, a
+//     loopback address), answers only a loopback Host, and only a caller
+//     presenting the bearer token its daemon holds (module/service
+//     token_file). The daemon is the only door: admission, the deny list,
+//     quotas and payment happen there, in the kernel (A2A-DESIGN §5.4),
+//     before a call reaches this process. On a socket the file system says
+//     who may connect (mode 0660, -socket-group), and the daemon checks the
+//     socket's path and, on Linux, this process's uid before it sends
+//     anything (docs/notes/0030 N1); a loopback port could be taken by
+//     another local user while this process is down.
 //   - It keeps nothing. It logs who called what, how it ended and how many
 //     bytes moved; never the arguments or the result.
 //
@@ -23,8 +28,8 @@
 //
 // Usage:
 //
-//	anet-official serve -listen 127.0.0.1:8611 -token-file /run/credentials/…/token -groups echo
-//	anet-official service-config -groups tools -url http://127.0.0.1:8612 -token-file '${CREDENTIALS_DIRECTORY}/token'
+//	anet-official serve -listen unix:/run/anet-official/anet-echo-e/backend.sock -socket-group anet-official-ipc -token-file /run/credentials/…/token -groups echo
+//	anet-official service-config -groups tools -url unix:///run/anet-official/anet-tools/backend.sock -token-file '${CREDENTIALS_DIRECTORY}/token'
 //	anet-official capabilities
 //	anet-official version
 package main
@@ -36,12 +41,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -85,14 +93,16 @@ func main() {
 }
 
 const usage = `usage:
-  anet-official serve -listen 127.0.0.1:PORT -token-file PATH -groups echo,tools,docs,paid
-  anet-official service-config -groups GROUPS -url http://127.0.0.1:PORT [-token-file PATH] [-price N]
+  anet-official serve -listen unix:/PATH/backend.sock [-socket-group GROUP] -token-file PATH -groups echo,tools,docs,paid
+  anet-official serve -listen 127.0.0.1:PORT -token-file PATH -groups …     (TCP: the daemon needs allow_tcp)
+  anet-official service-config -groups GROUPS -url unix:///PATH/backend.sock [-token-file PATH] [-price N]
   anet-official capabilities
   anet-official version`
 
 func runServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	listen := fs.String("listen", "127.0.0.1:8610", "loopback address to listen on")
+	listen := fs.String("listen", "", "unix:/path/to/socket (recommended), or a loopback host:port (required)")
+	socketGroup := fs.String("socket-group", "", "group (name or number) given the socket, which is made 0660: the daemon's user must be in it")
 	tokenFile := fs.String("token-file", "", "file holding the bearer token the daemon presents (required)")
 	groups := fs.String("groups", "", "comma-separated capability groups to serve: "+strings.Join(groupNames(), ","))
 	if err := fs.Parse(args); err != nil {
@@ -115,9 +125,12 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	addr, err := loopbackListenAddr(*listen)
+	spec, err := parseListen(*listen)
 	if err != nil {
 		return err
+	}
+	if *socketGroup != "" && spec.network != "unix" {
+		return errors.New("-socket-group applies to a unix: -listen only")
 	}
 	c, err := loadCorpus()
 	if err != nil {
@@ -134,7 +147,12 @@ func runServe(args []string) error {
 		MaxHeaderBytes:    16 << 10,
 		ErrorLog:          logger,
 	}
-	ln, err := net.Listen("tcp", addr)
+	var ln net.Listener
+	if spec.network == "unix" {
+		ln, err = listenUnix(spec.addr, *socketGroup)
+	} else {
+		ln, err = net.Listen("tcp", spec.addr)
+	}
 	if err != nil {
 		return err
 	}
@@ -157,6 +175,118 @@ func runServe(args []string) error {
 	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(sctx)
+}
+
+// listenSpec is where serve listens: a Unix socket, or a loopback address.
+type listenSpec struct{ network, addr string }
+
+// parseListen reads -listen: unix:/path or unix:///path (a socket), or a
+// loopback host:port.
+func parseListen(listen string) (listenSpec, error) {
+	if listen == "" {
+		return listenSpec{}, errors.New("-listen is required: unix:/path/to/backend.sock (recommended), or a loopback host:port")
+	}
+	if rest, ok := strings.CutPrefix(listen, "unix:"); ok {
+		p := rest
+		if strings.HasPrefix(rest, "///") {
+			p = rest[2:]
+		}
+		if err := checkSocketPath(p); err != nil {
+			return listenSpec{}, fmt.Errorf("-listen %q: %v", listen, err)
+		}
+		return listenSpec{"unix", p}, nil
+	}
+	addr, err := loopbackListenAddr(listen)
+	if err != nil {
+		return listenSpec{}, err
+	}
+	return listenSpec{"tcp", addr}, nil
+}
+
+// checkSocketPath holds a socket path to what the daemon's unix:// URL can
+// name (internal/backendconn): absolute, clean, no colon (the colon starts
+// the request path), no spaces or URL characters, and short enough for a
+// socket address.
+func checkSocketPath(p string) error {
+	max := 103
+	if runtime.GOOS == "linux" {
+		max = 107
+	}
+	switch {
+	case !filepath.IsAbs(p) || filepath.Clean(p) != p || p == "/":
+		return errors.New("the socket path must be absolute and clean")
+	case strings.ContainsAny(p, ":?#%\\") || strings.IndexFunc(p, func(r rune) bool { return r <= ' ' || r == 0x7f }) >= 0:
+		return errors.New("the socket path must not contain spaces, control characters or :?#%\\")
+	case len(p) > max:
+		return fmt.Errorf("the socket path is %d bytes, more than the %d a socket address holds", len(p), max)
+	}
+	return nil
+}
+
+// listenUnix listens on a socket at path, made 0660 and given group when one
+// is named: only this user and the group's members (the daemon) can connect.
+//
+// A socket left at path by a process that died is removed first. Anything
+// else there — a live socket, a file that is not a socket — is left alone
+// and is an error: this process does not take a path over from another.
+func listenUnix(path, group string) (net.Listener, error) {
+	gid := -1
+	if group != "" {
+		id, err := strconv.Atoi(group)
+		if err != nil {
+			g, lerr := user.LookupGroup(group)
+			if lerr != nil {
+				return nil, fmt.Errorf("-socket-group %q: %v", group, lerr)
+			}
+			if id, err = strconv.Atoi(g.Gid); err != nil {
+				return nil, fmt.Errorf("-socket-group %q: gid %q is not a number", group, g.Gid)
+			}
+		}
+		gid = id
+	}
+	if err := removeStaleSocket(path); err != nil {
+		return nil, err
+	}
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, err
+	}
+	// The group first, then the mode: until both are set the socket has the
+	// umask's mode, which only narrows who can connect.
+	if gid >= 0 {
+		if err := os.Chown(path, -1, gid); err != nil {
+			ln.Close()
+			return nil, fmt.Errorf("-socket-group: %v (is this process a member of the group?)", err)
+		}
+	}
+	if err := os.Chmod(path, 0o660); err != nil {
+		ln.Close()
+		return nil, err
+	}
+	return ln, nil
+}
+
+// removeStaleSocket removes a socket nobody listens on.
+func removeStaleSocket(path string) error {
+	fi, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&fs.ModeSocket == 0 {
+		return fmt.Errorf("%s exists and is not a socket; not removing it", path)
+	}
+	c, err := net.DialTimeout("unix", path, time.Second)
+	if err == nil {
+		c.Close()
+		return fmt.Errorf("%s is in use: another process listens on it", path)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		return fmt.Errorf("%s: %v; not removing it", path, err)
+	}
+	return os.Remove(path)
 }
 
 // loopbackListenAddr accepts only an address on a loopback interface. The
@@ -357,13 +487,20 @@ type svcCapability struct {
 }
 
 // buildServiceConfig renders the daemon configuration for the given
-// groups, served at baseURL. price, when non-zero, replaces the suggested
-// price of every priced capability.
+// groups, served at baseURL (unix:///path/to/socket, or http://host:port).
+// price, when non-zero, replaces the suggested price of every priced
+// capability.
 func buildServiceConfig(caps []*capability, baseURL, tokenFile string, price uint64) serviceConfig {
 	var sc serviceConfig
 	sc.Inbound.Policy = "closed"
 	sc.Modules.Service.TokenFile = tokenFile
-	baseURL = strings.TrimRight(baseURL, "/")
+	sep := ""
+	if strings.HasPrefix(baseURL, "unix://") {
+		// The request path follows the socket's after a colon.
+		sep = ":"
+	} else {
+		baseURL = strings.TrimRight(baseURL, "/")
+	}
 	for _, c := range caps {
 		sc.Inbound.PublicCapabilities = append(sc.Inbound.PublicCapabilities, publicCapConfig{
 			ID: c.ID, PerCallerPerMin: c.Quota.PerCallerPerMin, PerCallerPerDay: c.Quota.PerCallerPerDay,
@@ -375,7 +512,7 @@ func buildServiceConfig(caps []*capability, baseURL, tokenFile string, price uin
 			p = price
 		}
 		sc.Modules.Service.Capabilities = append(sc.Modules.Service.Capabilities, svcCapability{
-			ID: c.ID, URL: baseURL + routeOf(c), Price: p, Name: c.Name, Description: c.Description,
+			ID: c.ID, URL: baseURL + sep + routeOf(c), Price: p, Name: c.Name, Description: c.Description,
 			Tags: c.Tags, Examples: c.Examples,
 			InputModes: []string{"application/json"}, OutputModes: []string{"application/json"},
 			TimeoutMS: c.Timeout.Milliseconds(),
@@ -387,7 +524,7 @@ func buildServiceConfig(caps []*capability, baseURL, tokenFile string, price uin
 func runServiceConfig(w *os.File, args []string) error {
 	fs := flag.NewFlagSet("service-config", flag.ContinueOnError)
 	groups := fs.String("groups", "", "capability groups this identity serves")
-	base := fs.String("url", "", "base URL of the backend instance, e.g. http://127.0.0.1:8612")
+	base := fs.String("url", "", "where the backend instance listens: unix:///path/to/backend.sock (recommended) or http://127.0.0.1:PORT")
 	tokenFile := fs.String("token-file", "${CREDENTIALS_DIRECTORY}/token", "token_file for the service module")
 	price := fs.Uint64("price", 0, "price in credit for priced capabilities (0 keeps the suggested price)")
 	if err := fs.Parse(args); err != nil {
@@ -400,13 +537,29 @@ func runServiceConfig(w *os.File, args []string) error {
 	if *base == "" {
 		return errors.New("-url is required")
 	}
-	if !isLoopbackURL(*base) {
-		return fmt.Errorf("-url %q: the backend listens on loopback only", *base)
+	if u, ok := strings.CutPrefix(*base, "unix://"); ok {
+		if err := checkSocketPath(u); err != nil {
+			return fmt.Errorf("-url %q: %v (write unix:///absolute/path)", *base, err)
+		}
+	} else if !isLoopbackURL(*base) {
+		return fmt.Errorf("-url %q: the backend listens on a Unix socket (unix:///path) or on loopback only", *base)
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(buildServiceConfig(caps, *base, *tokenFile, *price))
+}
+
+// daemonURL is the base URL a daemon reaches a -listen value at.
+func daemonURL(listen string) (string, error) {
+	spec, err := parseListen(listen)
+	if err != nil {
+		return "", err
+	}
+	if spec.network == "unix" {
+		return "unix://" + spec.addr, nil
+	}
+	return "http://" + spec.addr, nil
 }
 
 func isLoopbackURL(raw string) bool {

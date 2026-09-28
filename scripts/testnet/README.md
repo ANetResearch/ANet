@@ -191,7 +191,8 @@ cmax 与 dmax 上跑着生产与准生产服务(见下节)。脚本的保证,以
    (或控制 API `/status`);`scenario.sh:520` `x402-authorize --home "$(home_of C)/.anet"` 需要 C 的私钥,必须在 C 所在主机上
    经 ssh 执行(测试网已把 `anetfixture` 装到每台主机的 `<run>/bin/`)。`joint.sh:82,88,127,187,209,214` 的
    `aid`/`org-genesis`/`cogunit`/`org-credential` 同理。
-6. **能力后端要跑在 provider 那台机器上。** scenario 的 `scenario-svc.py`(`:110-135`)与 x402 兑付口按 `127.0.0.1` 配给 provider;
+6. **能力后端要跑在 provider 那台机器上。** scenario 的 `scenario-svc.py`(`:110-135`)与 x402 兑付口按 `127.0.0.1` 配给 provider
+   (service 模块配置带 `allow_tcp`,daemon 只把调用发给与自己同一用户的回环监听者);
    在测试网上需在 provider 所在主机起(经 ssh,放进 `<run>/nodes/<名>/` 下,用 47x6x–47x9x 段的空闲端口)。
    daemon 规定非 loopback 的 `voucher_url` 只接受 https(A2A-DESIGN §18),跨主机兑付需要 TLS 终端;先把兑付测在
    provider 本机 loopback 上。
@@ -226,10 +227,12 @@ JOINT_BIN=<dir>/linux-amd64 JOINT_PORT_BASE=47170 J=/tmp/joint-a2a-tn bash scrip
 
 ## 已知限制
 
-- `official` 角色:后端是 `anet-official serve`(`-listen 127.0.0.1:<控制口+1> -token-file <节点>/backend/token
-  -groups <TESTNET_OFFICIAL_GROUPS>`,默认 `echo,tools,paid`);令牌首次部署时在远端生成(0600,不出主机),
-  daemon 的 `config.json` 在远端由 `anet-official service-config` 生成(inbound closed + public_capabilities +
-  modules.service,含 paid 组时加 x402 模块),与 `deploy/official` 同源。测试网只有一个 official 身份,所以免费组
+- `official` 角色:后端是 `anet-official serve`(`-listen unix:<节点>/backend/backend.sock -token-file
+  <节点>/backend/token -groups <TESTNET_OFFICIAL_GROUPS>`,默认 `echo,tools,paid`),监听节点目录里的 Unix socket
+  (目录 0700;daemon 的 service 模块连接前核对 socket 路径与监听者,docs/notes/0030 N1),不占 TCP 端口;令牌首次
+  部署时在远端生成(0600,不出主机),daemon 的 `config.json` 在远端由 `anet-official service-config -url
+  unix://<节点>/backend/backend.sock` 生成(inbound closed + public_capabilities + modules.service,含 paid 组时加
+  x402 模块),与 `deploy/official` 同源。测试网只有一个 official 身份,所以免费组
   与付费演示在一起;生产按 `deploy/official` 一组一个身份。已有 `config.json` 时保留(`REWRITE_CONFIG=1` 重写)。
 - 瞬态单元与 setsid 进程都不跨重启;主机重启后重跑 deploy(身份与数据保留在目录里)。
 - 用户模式没有自动重启;进程崩溃看 `deploy.sh status` 与节点目录里的日志。

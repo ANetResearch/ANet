@@ -70,8 +70,9 @@ func (e *NotOursError) Error() string {
 
 func (e *NotOursError) Unwrap() error { return ErrNotOurs }
 
-// errNoSocketTable means the socket table could not be read on this system; the challenge is used.
-var errNoSocketTable = errors.New("localpeer: no socket table")
+// ErrNoSocketTable means the socket table could not be read on this system (only Linux has one). Verify
+// then uses the challenge; OwnerUID returns it, and its caller cannot tell who holds the listener.
+var ErrNoSocketTable = errors.New("localpeer: no socket table")
 
 // ProofParam is the query parameter of GET /ping carrying the client's challenge, in hex.
 const ProofParam = "proof"
@@ -142,11 +143,25 @@ func Verify(ctx context.Context, conn net.Conn, token string) error {
 		return nil
 	case err == nil:
 		return &NotOursError{Addr: far.String(), UID: uid}
-	case errors.Is(err, errNoSocketTable):
+	case errors.Is(err, ErrNoSocketTable):
 		return challenge(ctx, conn, token, far)
 	default:
 		return err
 	}
+}
+
+// OwnerUID returns the uid that owns the server end of conn, a TCP connection to a listener on this
+// host, from the kernel's socket table — the check Verify makes first, without the challenge, for a
+// listener that is not an anet daemon and so cannot answer one (a service module backend, an A2A
+// backend: docs/notes/0030 N1). The error wraps ErrNoSocketTable when the table cannot be read on this
+// system; then nothing is known about the listener.
+func OwnerUID(conn net.Conn) (int, error) {
+	local, lok := addrPort(conn.LocalAddr())
+	far, rok := addrPort(conn.RemoteAddr())
+	if !lok || !rok {
+		return 0, fmt.Errorf("localpeer: %v is not a TCP connection", conn.RemoteAddr())
+	}
+	return serverUID(local, far)
 }
 
 // challenge sends a nonce on conn and checks the proof that comes back (see Answer). The exchange is an

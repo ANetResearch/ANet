@@ -431,21 +431,22 @@ canary_flow(){
     no "the tap did not come up: $(tail -2 "$CAN/tap.log" 2>/dev/null)"; return 1
   fi
 
-  # Two anet-official backends, one per identity, each with its own token (deploy/official).
+  # Two anet-official backends, one per identity, each with its own token and on its own Unix socket in
+  # this run's private directory (deploy/official; docs/notes/0030 N1).
   for b in off cp; do
     ( umask 077; python3 -c 'import secrets;print(secrets.token_urlsafe(32))' > "$CAN/$b.token" )
   done
-  ( cd "$RUN" && exec setsid "$BIN/anet-official" serve -listen "$OFF_BACK" -token-file "$CAN/off.token" \
+  ( cd "$RUN" && exec setsid "$BIN/anet-official" serve -listen "unix:$OFF_BACK" -token-file "$CAN/off.token" \
       -groups echo ) >"$CAN/off-backend.log" 2>&1 </dev/null 9>&- &
-  ( cd "$RUN" && exec setsid "$BIN/anet-official" serve -listen "$CP_BACK" -token-file "$CAN/cp.token" \
+  ( cd "$RUN" && exec setsid "$BIN/anet-official" serve -listen "unix:$CP_BACK" -token-file "$CAN/cp.token" \
       -groups echo ) >"$CAN/cp-backend.log" 2>&1 </dev/null 9>&- &
   code=
   for b in "$OFF_BACK" "$CP_BACK"; do
     for ((i = 0; i < 40; i++)); do
-      [ "$(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://$b/")" = 401 ] && break
+      [ "$(curl -s -m 2 -o /dev/null -w '%{http_code}' --unix-socket "$b" http://localhost/)" = 401 ] && break
       sleep 0.25
     done
-    code="$code $(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://$b/")"
+    code="$code $(curl -s -m 2 -o /dev/null -w '%{http_code}' --unix-socket "$b" http://localhost/)"
   done
   [ "$code" = " 401 401" ] && ok "two anet-official backends, each refusing a caller without its token (401)" \
     || { no "the anet-official backends answer${code}: $(tail -2 "$CAN/off-backend.log")"; return 1; }
@@ -455,11 +456,11 @@ canary_flow(){
   # serves anet-official's echo twice, free and for 3 credits. The official agent is configured with
   # what `anet-official service-config` generates, as deploy/official ships it: closed, net.echo public.
   mkdir -p "$CR/.anet" "$CP/.anet" "$OFF/.anet"
-  "$BIN/anet-official" service-config -groups echo -url "http://$OFF_BACK" -token-file "$CAN/off.token" \
+  "$BIN/anet-official" service-config -groups echo -url "unix://$OFF_BACK" -token-file "$CAN/off.token" \
     > "$CAN/off-service.json" 2>"$CAN/off-service.err" \
     || { no "anet-official service-config failed: $(head -c 200 "$CAN/off-service.err")"; return 1; }
   python3 - "$CR/.anet/config.json" "$CP/.anet/config.json" "$OFF/.anet/config.json" "$CAN/off-service.json" \
-            "$CRC" "$CPC" "$OFC" "$TAP_URL" "http://$CP_BACK/v1/echo/net.echo" "$CAN/cp.token" <<'PY'
+            "$CRC" "$CPC" "$OFC" "$TAP_URL" "unix://$CP_BACK:/v1/echo/net.echo" "$CAN/cp.token" <<'PY'
 import json, sys
 crp, cpp, offp, offsvc, crc, cpc, ofc, tap, cpurl, cptok = sys.argv[1:11]
 def write(p, c):
@@ -845,9 +846,11 @@ REQ=$RUN/req; PROV=$RUN/prov; STR=$RUN/stranger
 # Section C (the SI-1 canary).
 TAP_ADDR=127.0.0.1:$((PORT_BASE + 5)); TAP_URL=http://$TAP_ADDR
 CRC=127.0.0.1:$((PORT_BASE + 6)); CPC=127.0.0.1:$((PORT_BASE + 7)); OFC=127.0.0.1:$((PORT_BASE + 8))
-OFF_BACK=127.0.0.1:$((PORT_BASE + 9)); CP_BACK=127.0.0.1:$((PORT_BASE + 10))
 HUB2_ADDR=127.0.0.1:$((PORT_BASE + 11)); DEAD_ADDR=127.0.0.1:$((PORT_BASE + 12))
 CR=$RUN/cr; CP=$RUN/cp; OFF=$RUN/off; CAN=$RUN/canary; CANARIES=$CAN/canaries.tsv
+# The canary backends' Unix sockets, in $CAN (0700; PORT_BASE+9 and +10, their loopback ports before,
+# stay unused).
+OFF_BACK=$CAN/off.sock; CP_BACK=$CAN/cp.sock
 CANARY_TMP=$RUN/tmp; mkdir -p "$CANARY_TMP"   # canary.py's database copies; nothing searches it
 CANARY=${JOINT_CANARY:-1}
 echo "  ports:    $PORT_BASE-$((PORT_BASE + 21))   work dir: $J"

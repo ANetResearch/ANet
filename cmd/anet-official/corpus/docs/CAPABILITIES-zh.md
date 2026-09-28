@@ -62,7 +62,7 @@ CI 用 `go tool nm` 双向计数,不是"配置关掉"。
 | `mcp`(`internal/mcpserv`) | 14 个按 A2A 概念命名的工具;真客户端探针在联调脚本里 | 单测覆盖 |
 | `agentwire` | `anet agents wire` / `unwire`:Claude Code、Codex、Cursor、opencode、Hermes | 单测覆盖(假 HOME 往返) |
 | `x402` | 标价、报价、结算、兑付、对账、见证 | 联调验证(0.1.x);同任务流单测覆盖 |
-| `service` | 本机 HTTP 服务挂成能力;每后端令牌;`X-ANet-Caller` | 单测覆盖 |
+| `service` | 本机 HTTP 服务挂成能力;后端推荐 Unix socket(核对路径与监听者),TCP 须 `allow_tcp`;每后端令牌;`X-ANet-Caller` | 单测覆盖 |
 | `anetlink` | 由 ANetLink 提供(`ptz.absolute@onvif/camera-006` 等) | 联调验证(0.1.x) |
 | `cas` | `cas.put` `cas.get` `cas.has` `cas.stat` | 联调验证(0.1.x) |
 | `blackboard` | `blackboard.add` `blackboard.snapshot` `blackboard.conclude` | 联调验证(0.1.x) |

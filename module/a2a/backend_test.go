@@ -189,7 +189,7 @@ func tokenFile(t *testing.T) string {
 func TestBackendForwardsTrustedTextTasks(t *testing.T) {
 	b := newTestBackend(t)
 	h := newInboundHost(t)
-	startBackendModule(t, h, `{"backends":[{"match":"*","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
+	startBackendModule(t, h, `{"backends":[{"allow_tcp":true,"match":"*","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
 
 	// A trusted peer's task: forwarded, with who sent it, and answered.
 	h.tasks <- inboundTask("ix1", "bafypeer", true, "hello")
@@ -246,7 +246,7 @@ func TestBackendForwardsTrustedTextTasks(t *testing.T) {
 func TestBackendAcceptUntrusted(t *testing.T) {
 	b := newTestBackend(t)
 	h := newInboundHost(t)
-	startBackendModule(t, h, `{"backends":[{"match":"*","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`","accept_untrusted":true,"toolless":true}]}`)
+	startBackendModule(t, h, `{"backends":[{"allow_tcp":true,"match":"*","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`","accept_untrusted":true,"toolless":true}]}`)
 	if !h.untrusted {
 		t.Fatal("not declared to the kernel")
 	}
@@ -269,7 +269,7 @@ func TestBackendFailureLeavesTheTask(t *testing.T) {
 	if err := os.WriteFile(p, []byte("wrong"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	startBackendModule(t, h, `{"backends":[{"match":"*","url":"`+b.srv.URL+`","token_file":"`+p+`"}]}`)
+	startBackendModule(t, h, `{"backends":[{"allow_tcp":true,"match":"*","url":"`+b.srv.URL+`","token_file":"`+p+`"}]}`)
 	h.tasks <- inboundTask("ix1", "bafypeer", true, "hi")
 	time.Sleep(300 * time.Millisecond)
 	h.mu.Lock()
@@ -281,7 +281,7 @@ func TestBackendFailureLeavesTheTask(t *testing.T) {
 
 func TestBackendTokenFileMustBeReadable(t *testing.T) {
 	isolateHome(t)
-	m, err := New([]byte(`{"backends":[{"match":"*","url":"http://127.0.0.1:9","token_file":"/nonexistent/tok"}]}`))
+	m, err := New([]byte(`{"backends":[{"allow_tcp":true,"match":"*","url":"http://127.0.0.1:9","token_file":"/nonexistent/tok"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,7 +297,7 @@ func TestBackendTokenFileMustBeReadable(t *testing.T) {
 func TestBackendCardInterfacesFollowTheURLRule(t *testing.T) {
 	b := newTestBackendAt(t, func(base string) string { return strings.Replace(base, "127.0.0.1", "0.0.0.0", 1) })
 	h := newInboundHost(t)
-	startBackendModule(t, h, `{"backends":[{"match":" * ","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
+	startBackendModule(t, h, `{"backends":[{"allow_tcp":true,"match":" * ","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
 	h.tasks <- inboundTask("ix1", "bafypeer", true, "hello")
 	time.Sleep(300 * time.Millisecond)
 	h.mu.Lock()
@@ -311,7 +311,7 @@ func TestBackendCardInterfacesFollowTheURLRule(t *testing.T) {
 func TestBackendMatchIsTrimmed(t *testing.T) {
 	b := newTestBackend(t)
 	h := newInboundHost(t)
-	startBackendModule(t, h, `{"backends":[{"match":" * ","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
+	startBackendModule(t, h, `{"backends":[{"allow_tcp":true,"match":" * ","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
 	h.tasks <- inboundTask("ix1", "bafypeer", true, "hi")
 	if r := h.wait(t); r.msg.Parts[0].Text != "backend: hi" {
 		t.Fatalf("reply %+v", r)
@@ -336,7 +336,7 @@ func (h *subscribeCounter) InboundTasks(ctx context.Context) (<-chan module.Task
 func TestBackendWithoutCatchAllDoesNotSubscribe(t *testing.T) {
 	isolateHome(t)
 	h := &subscribeCounter{inboundHost: newInboundHost(t)}
-	m, err := New([]byte(`{"backends":[{"match":"text.summarize","url":"http://127.0.0.1:9","token_file":"` + tokenFile(t) + `"}]}`))
+	m, err := New([]byte(`{"backends":[{"allow_tcp":true,"match":"text.summarize","url":"http://127.0.0.1:9","token_file":"` + tokenFile(t) + `"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
