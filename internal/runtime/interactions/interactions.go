@@ -230,6 +230,11 @@ type Store struct {
 	mu sync.Mutex // serializes writes (single writer); reads run lock-free under WAL
 	// peerCap bounds the unpinned peer_identity rows (see peers.go).
 	peerCap int
+	// refusedCaps bounds the refused table; refusedRows counts its rows
+	// once refusedCounted (see refused.go). Both under mu.
+	refusedCaps    RefusedCaps
+	refusedRows    int
+	refusedCounted bool
 	// now is the clock for state_at; tests replace it.
 	now func() int64
 }
@@ -388,6 +393,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migratePending(); err != nil {
+		return err
+	}
+	if err := s.migrateRefused(); err != nil {
 		return err
 	}
 	return s.migrateOutbox()

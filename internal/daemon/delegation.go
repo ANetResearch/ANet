@@ -903,10 +903,7 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 			release()
 		}
 	}()
-	requestCID, err := anetcid.Sum(m.tdBytes)
-	if err != nil {
-		return d.drop(dropBadTaskDoc, err)
-	}
+	requestCID := m.requestCID
 	capID, args, isCap := capabilityCall(m.td)
 	goal := delegation.TaskGoal(m.td)
 	publicCap := m.trust == interactions.TrustPublicCap
@@ -936,7 +933,13 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 				return rxPermanent(dropIXCollision,
 					fmt.Errorf("%s is %s with %s", m.ix, prior.Role, prior.PeerAID))
 			}
-			// The same interaction under a new message id: record the
+			if prior.RequestCID != requestCID {
+				// Created meanwhile by a copy asking for something else
+				// [redteam:F7]: not a redelivery of it.
+				return rxPermanent(dropIXCollision,
+					fmt.Errorf("%s was accepted for request %s, this one is %s", m.ix, prior.RequestCID, requestCID))
+			}
+			// The same delegation under a new message id: record the
 			// message and treat it as a redelivery of the interaction.
 			redelivery = true
 			return nil
@@ -1001,7 +1004,9 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 //
 //   - Answered already (a receipt exists): send the answer again. The
 //     redelivery means the first may never have reached the requester, and
-//     the receipt is signed over content that has not changed.
+//     the receipt is signed over content that has not changed. Re-sends of
+//     one answer are rate limited (resendLimiter): past the limit the
+//     redelivery is only acknowledged.
 //   - Being executed by this process: nothing to do.
 //   - Terminal without a receipt (canceled, or refused): nothing to do.
 //   - A short capability call with no answer: the daemon stopped between
@@ -1013,6 +1018,11 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 //     startup recovery could not classify (its provider was not
 //     registered yet), is reported here.
 //
+// What is re-run is the call the interaction was accepted for, read back
+// from its stored request (recordedCall), never the TaskDoc of the
+// redelivered envelope [redteam:F7]: step 9 admits a redelivery only when
+// the two are the same request, and this does not rely on it.
+//
 // It returns false when the daemon stopping cut a re-run short: nothing
 // was answered, and the envelope is not to be acknowledged (SI-10).
 func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
@@ -1021,6 +1031,11 @@ func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 		return true
 	}
 	if len(prior.Receipt) > 0 {
+		if !d.resends.allow(prior.PeerAID, prior.ID, d.nowMS()) {
+			// Answered, and re-sent lately [redteam:F29].
+			d.count(resendSuppressed)
+			return true
+		}
 		log.Printf("anet: %s redelivered; re-sending the answer we already signed", m.ix)
 		d.resendResult(m, prior)
 		return true
@@ -1031,7 +1046,7 @@ func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 	if _, running := d.running.Load(m.ix); running {
 		return true
 	}
-	capID, args, ok := capabilityCall(m.td)
+	capID, args, ok := recordedCall(prior)
 	if !ok {
 		return true
 	}
@@ -1044,6 +1059,21 @@ func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 		return true
 	}
 	return d.runCapabilityCall(m.ix, capID, args, m.dr.Payment, nil)
+}
+
+// recordedCall is the capability call an interaction was accepted for, read
+// back from its stored request. ok is false for an interaction that was not
+// recorded as a capability call, or whose request no longer reads as one:
+// nothing is run for it.
+func recordedCall(ix *interactions.Interaction) (capID string, args map[string]any, ok bool) {
+	if !ix.IsCapability {
+		return "", nil, false
+	}
+	td, err := decodeTaskDoc(ix.RequestDoc)
+	if err != nil {
+		return "", nil, false
+	}
+	return capabilityCall(td)
 }
 
 // longCall reports whether a capability runs off the receive path (see

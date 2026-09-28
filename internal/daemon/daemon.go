@@ -45,13 +45,16 @@ type Daemon struct {
 
 	// Receive pipeline state (receive.go): the per-message lock, the
 	// refused-envelope list, outcome counters, the transport rate limit,
-	// the refusal-notice limit, the sender keys a refusal is encrypted to,
+	// the refusal-notice limit, the limit on answers re-sent for
+	// redeliveries, the sender keys a refusal is encrypted to,
 	// and the capability calls this process is executing.
 	rxLocks     keyedLocks
+	rxIXLocks   keyedLocks // (from, ix) of a delegation, taken after rxLocks
 	refused     boundedSet
 	rxStats     rxCounters
 	p2pLimit    p2pLimiter
 	notices     noticeLimiter
+	resends     resendLimiter
 	strangers   strangerCache
 	reval       revalidating
 	running     sync.Map // interaction id -> *runningCall
