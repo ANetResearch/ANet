@@ -200,7 +200,7 @@ func TestRedteamSI6_PeerStatusMetadataContradictsTaskMetadata(t *testing.T) {
 // message log — so the task shows anet.receipt_verified=verified, and this
 // node then signs a review anchored to that receipt. Decided as documented
 // scope, not changed: what a transcript receipt covers is written in
-// A2A-DESIGN §2 X4 and §21 item 15, and KNOWN-LIMITATIONS (F15).
+// A2A-DESIGN §2 X4 and §21 item 24, and KNOWN-LIMITATIONS item 24 (F15).
 func TestRedteamSI6_TranscriptMisquotingRequesterIsVerified(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
