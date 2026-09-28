@@ -55,3 +55,10 @@ func (s *Store) ExplainFindByClientMessage(q ClientMessageQuery) ([]string, erro
 func (s *Store) ExplainContextPeers() ([]string, error) {
 	return s.explain(contextPeersSQL, []any{string(RoleOutbound), "c"})
 }
+
+// SetBetweenListSteps runs fn between the two reads of ListPage.
+func SetBetweenListSteps(fn func()) (restore func()) {
+	old := betweenListSteps
+	betweenListSteps = fn
+	return func() { betweenListSteps = old }
+}

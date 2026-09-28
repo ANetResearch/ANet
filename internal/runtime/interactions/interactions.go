@@ -398,6 +398,11 @@ func (s *Store) migrate() error {
 		// it; a listing that sorted or filtered rows read all of that for
 		// every match (docs/notes/0035: 13–33 s per ListTasks).
 		`CREATE INDEX IF NOT EXISTS idx_ix_list ON interaction(state_at, seq, role, peer_aid, state, is_capability, trust, context_id)`,
+		// The same columns led by the peer, for a listing of one peer (the
+		// local A2A interface's every ListTasks and its count): read from
+		// idx_ix_list, that listing and its count walked the index entries
+		// of every task with every peer to find the few with this one.
+		`CREATE INDEX IF NOT EXISTS idx_ix_peer_list ON interaction(peer_aid, state_at, seq, role, state, is_capability, trust, context_id)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			return fmt.Errorf("interactions: migrate index: %w", err)
@@ -1044,7 +1049,7 @@ func (f ListFilter) where() (string, []any, error) {
 			return "", nil, err
 		}
 		// A row value, not "state_at < ? OR (state_at = ? AND seq < ?)":
-		// SQLite reads it as one range of idx_ix_list, in order.
+		// SQLite reads it as one range of the listing index, in order.
 		conds = append(conds, `(state_at, seq) < (?, ?)`)
 		args = append(args, at, seq)
 	}
@@ -1058,6 +1063,14 @@ func (f ListFilter) where() (string, []any, error) {
 // (A2A ListTasks order), one page at a time. The cursor is the (state_at,
 // seq) of the last item, so a page boundary is stable while rows are added
 // at the head.
+//
+// A page is read in two steps: the (state_at, seq) of its rows from an index
+// (pageSQL), then those rows whole (rowsBySeq). The page boundary — whether
+// there is a next page, and the cursor — is the first step's. Taken from the
+// rows re-read in the second, a task that changed state in between moved
+// the cursor to the head of the listing (the next page repeated this one),
+// and a task deleted in between (PruneTerminal) left a full page looking like
+// the last one, so the rest of the listing was never read.
 func (s *Store) ListPage(f ListFilter) (Page, error) {
 	limit := f.Limit
 	if limit <= 0 {
@@ -1070,27 +1083,37 @@ func (s *Store) ListPage(f ListFilter) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	items, err := s.pageRows(q, args)
+	keys, err := s.pageKeys(q, args)
 	if err != nil {
 		return Page{}, err
 	}
-	p := Page{Items: items}
-	if len(items) > limit {
-		p.Items = items[:limit]
-		last := p.Items[limit-1]
-		p.Next = strconv.FormatInt(last.StateAt, 10) + "." + strconv.FormatInt(last.Seq, 10)
+	var p Page
+	if len(keys) > limit {
+		keys = keys[:limit]
+		last := keys[limit-1]
+		p.Next = strconv.FormatInt(last.at, 10) + "." + strconv.FormatInt(last.seq, 10)
+	}
+	if betweenListSteps != nil {
+		betweenListSteps()
+	}
+	if p.Items, err = s.rowsBySeq(keys); err != nil {
+		return Page{}, err
 	}
 	return p, nil
 }
 
-// pageSQL is the first step of ListPage: the seqs of up to limit rows
-// matching f, in listing order, read from the index (listIndex).
+// betweenListSteps, when set, runs between the two reads of ListPage. Tests
+// only.
+var betweenListSteps func()
+
+// pageSQL is the first step of ListPage: the (state_at, seq) of up to limit
+// rows matching f, in listing order, read from an index (listIndex).
 func (f ListFilter) pageSQL(limit int) (string, []any, error) {
 	where, args, err := f.where()
 	if err != nil {
 		return "", nil, err
 	}
-	return `SELECT seq FROM interaction` + f.listIndex() + where + ` ORDER BY state_at DESC, seq DESC LIMIT ?`,
+	return `SELECT state_at, seq FROM interaction` + f.listIndex() + where + ` ORDER BY state_at DESC, seq DESC LIMIT ?`,
 		append(args, limit), nil
 }
 
@@ -1108,30 +1131,37 @@ func (f ListFilter) countSQL() (string, []any, error) {
 // takes the role or peer index for the equality and then reads each
 // matching row — past its long columns — to filter and sort it. A context
 // filter reads idx_ix_context: a context holds a handful of tasks, and the
-// covering index would be read whole to find them. Any other listing reads
-// idx_ix_list, which covers everything a filter tests but receipt and
-// holds the listing order.
+// covering index would be read whole to find them. A listing of one peer
+// reads idx_ix_peer_list, and any other idx_ix_list: both cover everything
+// a filter tests but receipt and hold the listing order, the first within
+// the peer's own tasks.
 func (f ListFilter) listIndex() string {
-	if f.ContextID != "" {
+	switch {
+	case f.ContextID != "":
 		return ` INDEXED BY idx_ix_context`
+	case f.PeerAID != "":
+		return ` INDEXED BY idx_ix_peer_list`
 	}
 	return ` INDEXED BY idx_ix_list`
 }
 
-// pageRows runs pageSQL's query and reads the rows it names, in its order.
-func (s *Store) pageRows(q string, args []any) ([]*Interaction, error) {
+// pageKey is a row of a page as the first step of ListPage reads it.
+type pageKey struct{ at, seq int64 }
+
+// pageKeys runs pageSQL's query.
+func (s *Store) pageKeys(q string, args []any) ([]pageKey, error) {
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
-	var seqs []int64
+	var keys []pageKey
 	for rows.Next() {
-		var seq int64
-		if err := rows.Scan(&seq); err != nil {
+		var k pageKey
+		if err := rows.Scan(&k.at, &k.seq); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		seqs = append(seqs, seq)
+		keys = append(keys, k)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -1139,13 +1169,18 @@ func (s *Store) pageRows(q string, args []any) ([]*Interaction, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(seqs) == 0 {
+	return keys, nil
+}
+
+// rowsBySeq reads the rows keys name, in their order.
+func (s *Store) rowsBySeq(keys []pageKey) ([]*Interaction, error) {
+	if len(keys) == 0 {
 		return nil, nil
 	}
-	ph := make([]string, len(seqs))
-	in := make([]any, len(seqs))
-	for i, seq := range seqs {
-		ph[i], in[i] = "?", seq
+	ph := make([]string, len(keys))
+	in := make([]any, len(keys))
+	for i, k := range keys {
+		ph[i], in[i] = "?", k.seq
 	}
 	items, err := s.query(`SELECT `+ixColumns+` FROM interaction WHERE seq IN (`+strings.Join(ph, ",")+`)`, in...)
 	if err != nil {
@@ -1155,9 +1190,9 @@ func (s *Store) pageRows(q string, args []any) ([]*Interaction, error) {
 	for _, ix := range items {
 		bySeq[ix.Seq] = ix
 	}
-	out := make([]*Interaction, 0, len(seqs))
-	for _, seq := range seqs {
-		if ix := bySeq[seq]; ix != nil { // gone between the two reads: left out
+	out := make([]*Interaction, 0, len(keys))
+	for _, k := range keys {
+		if ix := bySeq[k.seq]; ix != nil { // gone between the two reads: left out
 			out = append(out, ix)
 		}
 	}
