@@ -134,7 +134,7 @@ sleep 4
 
 tok(){ cat "$1/.anet/control_token.txt"; }
 api(){ # api <home> <port> <path> <json>
-  curl -s -m 60 -H "Authorization: Bearer $(tok "$1")" -H 'Content-Type: application/json' \
+  curl -s -m 60 -H @<(printf 'Authorization: Bearer %s\n' "$(tok "$1")") -H 'Content-Type: application/json' \
        -d "$4" "http://127.0.0.1:$2$3"
 }
 up=0
