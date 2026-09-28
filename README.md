@@ -341,7 +341,7 @@ read from the binary itself. Release builds (four platforms, both variants, sign
 
 ## Status
 
-- **0.2.1** — a patch of 0.2.0 on the same wire (0.2.0 and 0.2.1 nodes and hubs interoperate): fixes from
+- **0.2.1** (released 2026-09-28) — a patch of 0.2.0 on the same wire (0.2.0 and 0.2.1 nodes and hubs interoperate): fixes from
   testing with real A2A clients and a test-network soak, a deadline for tasks a peer never answers
   (`no_response_after`), retries for A2A backends, MCP task results held to about 24 KB, and sockets in a
   user-private group's directory. See [docs/RELEASE-NOTES-0.2.1.md](docs/RELEASE-NOTES-0.2.1.md).

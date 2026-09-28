@@ -2,7 +2,7 @@
 
 [中文](RELEASE-NOTES-0.2.1-zh.md)
 
-Prepared 2026-09-28; the release date is the day the tags are pushed.
+Released 2026-09-28.
 
 anet 0.2.1 is a patch release of 0.2.0. It fixes what testing with real clients (the official A2A
 Python and JS SDKs, Hermes, Claude Code over MCP) and a 4.25-hour mixed-load run on the lab test network
