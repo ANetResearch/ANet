@@ -427,16 +427,20 @@ func (p *projector) fromRowWith(i int, meta map[string]any) *Message {
 // the hub receipts (§8.3; SI-6). A provider row that carries receipts gets
 // this node's list in their place, and one that says payment-completed
 // when this node has not verified a settlement says this node's status
-// instead. What the provider says of its own part — a quote, a
-// payment-verified, a failure — stays as it wrote it [redteam:F11].
+// instead. What the provider says of its own part — a quote, a failure,
+// a payment-verified of a payment this node submitted — stays as it wrote
+// it [redteam:F11]. A payment-verified while this node has no payment
+// out (a free call, a quote still unpaid) is a claim about a payment it
+// never made, and gets its status too.
 func (p *projector) statusRow(i int) *Message {
 	meta := p.metas[i]
 	if !p.outbound || meta == nil {
 		return p.fromRow(i)
 	}
 	_, hasRc := meta[KeyX402Receipts]
-	claimsPaid := meta[KeyX402Status] == PaymentCompleted
 	own := p.nodeX402Status()
+	claimsPaid := meta[KeyX402Status] == PaymentCompleted ||
+		(meta[KeyX402Status] == PaymentVerified && own != PaymentSubmitted)
 	// The quote as this node hands it on: the same options, the ones it
 	// can pay first (0017 Q28).
 	_, hasReq := meta[KeyX402Required]

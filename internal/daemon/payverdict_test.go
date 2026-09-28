@@ -224,3 +224,55 @@ func TestAProviderStatusDoesNotStateThisNodesPayment(t *testing.T) {
 		t.Errorf("status.message is not the provider's row: %s", text)
 	}
 }
+
+// A provider that says it verified a payment on a call this node never
+// paid: status.message carried x402.payment.status=payment-verified, the
+// merchant's word that this node's payment checked out. With no payment
+// of this node's out, the status is this node's (none) [redteam:F11].
+func TestAProviderCannotSayItVerifiedAPaymentThisNodeNeverMade(t *testing.T) {
+	req, prov, id := pvPair(t)
+	mb, _ := json.Marshal(map[string]any{"x402.payment.status": "payment-verified"})
+	body := mustMarshal(t, &delegation.StatusMsg{State: delegation.StateWorking, Text: "your payment checked out",
+		Metadata: mb, At: uint64(time.Now().UnixMilli())})
+	if r := receive(t, req, sealFrom(t, prov, req, seal.TypeStatus, id, body)); r.class != rxAccepted {
+		t.Fatalf("status not accepted: %+v", r)
+	}
+	pvNothingPaid(t, req, id)
+	v := pvView(t, req, id)
+	for _, where := range [][]string{{"metadata"}, {"status", "message", "metadata"}} {
+		md, _ := pvPath(v, where...).(map[string]any)
+		if st, ok := md[a2ashape.KeyX402Status]; ok {
+			t.Errorf("%v x402.payment.status = %v on a call this node never paid", where, st)
+		}
+	}
+	text, _ := json.Marshal(pvPath(v, "status", "message", "parts"))
+	if !strings.Contains(string(text), "your payment checked out") {
+		t.Errorf("status.message is not the provider's row: %s", text)
+	}
+}
+
+// anet.settlement_verified is this node's key. A provider that writes
+// "verified" into it on a failure, or on an entry whose success is the
+// string "true", does not have it stored or shown [redteam:F11].
+func TestAProviderCannotWriteThisNodesVerdict(t *testing.T) {
+	req, prov, id := pvPair(t)
+	mb, _ := json.Marshal(map[string]any{"x402.payment.receipts": []any{
+		map[string]any{"success": false, "errorReason": "insufficient_funds",
+			"extensions": map[string]any{"anet.settlement_verified": "verified"}},
+		map[string]any{"success": "true", "transaction": "tx-string-success",
+			"extensions": map[string]any{"anet.settlement_verified": "verified"}},
+	}})
+	body := mustMarshal(t, &delegation.StatusMsg{State: delegation.StateWorking, Metadata: mb,
+		At: uint64(time.Now().UnixMilli())})
+	if r := receive(t, req, sealFrom(t, prov, req, seal.TypeStatus, id, body)); r.class != rxAccepted {
+		t.Fatalf("status not accepted: %+v", r)
+	}
+	ix, _ := req.ix.Get(id)
+	if strings.Contains(string(ix.PayReceipts), `"verified"`) {
+		t.Errorf("a verdict of the provider's writing is stored: %s", ix.PayReceipts)
+	}
+	all, _ := json.Marshal(pvView(t, req, id))
+	if strings.Contains(string(all), `"anet.settlement_verified":"verified"`) {
+		t.Errorf("the view shows a verdict of the provider's writing: %s", all)
+	}
+}

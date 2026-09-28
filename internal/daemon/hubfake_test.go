@@ -1302,7 +1302,9 @@ func (h *fakeHub) hSettle(w http.ResponseWriter, r *http.Request) {
 	}
 	h.balance[auth.Payer] -= auth.Amount
 	h.balance[auth.PayTo] += auth.Amount
-	tx := "tx-" + authID
+	// The anet-credit scheme's transaction is the authorization id, as the
+	// real hub answers; a requester holds a settlement to it (F11).
+	tx := authID
 	h.settled[authID] = tx
 	if auth.InteractionID != "" {
 		h.bindings[bindKey] = authID

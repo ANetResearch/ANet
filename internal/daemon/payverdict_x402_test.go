@@ -5,6 +5,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -102,5 +103,173 @@ func TestAVerifiedSettlementStaysAndAForgedOneIsNotStated(t *testing.T) {
 			t.Errorf("the verified settlement states amount %s payer %s, want the receipt's 30 and this node",
 				r.Amount, r.Payer)
 		}
+	}
+}
+
+// pvPaid is a capability call this node paid for and saw completed, and
+// the one settlement it verified, as stored.
+func pvPaid(t *testing.T) (req, prov *Daemon, id string, real payment.SettlementResponse) {
+	t.Helper()
+	work := &meteredWork{price: 30}
+	_, req, prov = paidPair(t, work)
+	payPolicy(t, req, PaymentsConfig{AutoMax: 100, AgentDailyMax: 100, DailyMax: u64(100)}, prov.AID())
+	id, err := req.DelegateCapability(context.Background(), prov.AID(), "work.do", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poll(t, prov, req, prov, req, req)
+	rix := getIX(t, req, id)
+	var stored []payment.SettlementResponse
+	if rix.PayState != interactions.PayCompleted || json.Unmarshal(rix.PayReceipts, &stored) != nil ||
+		len(stored) != 1 || !stored[0].Success {
+		t.Fatalf("precondition: a paid task, got %q %s", rix.PayState, rix.PayReceipts)
+	}
+	return req, prov, id, stored[0]
+}
+
+// pvSendReceipts has the provider send a working status carrying list as
+// x402.payment.receipts.
+func pvSendReceipts(t *testing.T, req, prov *Daemon, id string, list []any) {
+	t.Helper()
+	mb, _ := json.Marshal(map[string]any{x402a2a.KeyReceipts: list})
+	body := mustMarshal(t, &delegation.StatusMsg{State: delegation.StateWorking, Metadata: mb,
+		At: uint64(time.Now().UnixMilli())})
+	if r := receive(t, req, sealFrom(t, prov, req, seal.TypeStatus, id, body)); r.class != rxAccepted {
+		t.Fatalf("status not accepted: %+v", r)
+	}
+}
+
+// pvSettledEvidence is this node's anet.payment.settled records for id.
+func pvSettledEvidence(req *Daemon, id string) []map[string]any {
+	var out []map[string]any
+	req.ledger.scan(EvPaymentSettled, 0, func(_ int64, p map[string]any) {
+		if p["interaction_id"] == id {
+			out = append(out, p)
+		}
+	})
+	return out
+}
+
+// The review of the F11 fix: the hub's genuine receipt for this task,
+// restated by the provider under a transaction id of its own. It was
+// verified a second time — the node's evidence recorded a second
+// settlement (second_receipt) for a task it paid once, the task stated
+// two verified settlements, and reconcile then reported the invented
+// transaction as missing from the hub "though this node holds the hub's
+// signed receipt for it". And the real transaction re-sent with another
+// network and other receipt bytes was stored as verified in the form the
+// provider rewrote. A settlement this node states is the hub's receipt:
+// its transaction is the receipt's authorization id (anet-credit:
+// transaction = auth_id), and every field is restated from what this node
+// recorded when it verified it [redteam:F11].
+func TestAHubReceiptRestatedByTheProviderIsNotASecondSettlement(t *testing.T) {
+	req, prov, id, real := pvPaid(t)
+	enc, _ := real.Extensions[payment.ExtReceipt].(string)
+	alias := real
+	alias.Transaction = "tx-alias-of-the-same-settlement"
+	alias.Extensions = map[string]any{payment.ExtReceipt: enc}
+	relabeled := real
+	relabeled.Network = "hub:elsewhere"
+	relabeled.Extensions = map[string]any{payment.ExtReceipt: "bm90IHRoZSBodWIncyByZWNlaXB0",
+		"anet.replayed": true}
+	pvSendReceipts(t, req, prov, id, []any{relabeled, alias})
+
+	verified := 0
+	for _, ev := range pvSettledEvidence(req, id) {
+		if ev["verified"] == true {
+			verified++
+			if ev["second_receipt"] == true || ev["transaction"] != real.Transaction {
+				t.Errorf("a second verified settlement was recorded: %v", ev)
+			}
+		}
+		if ev["transaction"] == alias.Transaction {
+			if r, _ := ev["refused"].(string); ev["verified"] != false || !strings.Contains(r, "transaction") {
+				t.Errorf("the alias's evidence: %v", ev)
+			}
+		}
+	}
+	if verified != 1 {
+		t.Errorf("%d verified settlements recorded for a task paid once", verified)
+	}
+
+	v := pvView(t, req, id)
+	for _, where := range [][]string{{"metadata"}, {"status", "message", "metadata"}} {
+		md, _ := pvPath(v, where...).(map[string]any)
+		rc, _ := md[a2ashape.KeyX402Receipts].([]any)
+		if len(rc) != 1 {
+			t.Errorf("%v states %d settlements, want the one: %v", where, len(rc), rc)
+			continue
+		}
+		got, _ := rc[0].(map[string]any)
+		ext, _ := got["extensions"].(map[string]any)
+		if got["transaction"] != real.Transaction || got["network"] != real.Network ||
+			ext[payment.ExtReceipt] != enc || ext["anet.replayed"] != nil {
+			t.Errorf("%v states %v, want the hub's receipt as verified", where, got)
+		}
+	}
+	un, _ := json.Marshal(pvPath(v, "metadata", a2ashape.KeyUnverifiedReceipts))
+	if !strings.Contains(string(un), alias.Transaction) {
+		t.Errorf("anet.unverified_receipts = %s, want the alias in it", un)
+	}
+}
+
+// The stored list is bounded, and the verified settlement is in it
+// whatever the provider sends. A list shorter than the stored one only
+// adds, and it used to add without limit: a provider could grow the row
+// by a few made-up transactions per status [redteam:F11].
+func TestTheStoredReceiptsStayBoundedAndKeepTheVerifiedSettlement(t *testing.T) {
+	req, prov, id, real := pvPaid(t)
+	made := func(prefix string, n int) []any {
+		out := make([]any, n)
+		for i := range out {
+			out[i] = map[string]any{"success": true, "transaction": fmt.Sprintf("%s-%d", prefix, i),
+				"network": "hub:x", "amount": "30"}
+		}
+		return out
+	}
+	pvSendReceipts(t, req, prov, id, made("tx-long", maxPeerReceipts+10))
+	for round := 0; round < 8; round++ {
+		pvSendReceipts(t, req, prov, id, made(fmt.Sprintf("tx-short%d", round), 5))
+	}
+	var stored []json.RawMessage
+	if err := json.Unmarshal(getIX(t, req, id).PayReceipts, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) > maxPeerReceipts {
+		t.Errorf("%d receipts stored, want at most %d", len(stored), maxPeerReceipts)
+	}
+	found := false
+	for _, r := range stored {
+		found = found || verifiedTx(r) == real.Transaction
+	}
+	if !found {
+		t.Errorf("the verified settlement %s is no longer stored", real.Transaction)
+	}
+	rc, _ := json.Marshal(pvPath(pvView(t, req, id), "metadata", a2ashape.KeyX402Receipts))
+	if !strings.Contains(string(rc), real.Transaction) {
+		t.Errorf("x402.payment.receipts = %s, want the verified settlement", rc)
+	}
+}
+
+// notePaymentReceipts reads the ledger before it checks a list, and a
+// delivery of the same task arriving at the same time (p2p and hub) may
+// verify and store a settlement after that read. The stored list's own
+// verified mark keeps it: storing a longer list against the older
+// snapshot used to drop it [redteam:F11].
+func TestAVerifiedSettlementSurvivesAStaleSnapshot(t *testing.T) {
+	req, _, id, real := pvPaid(t)
+	longer := []any{
+		map[string]any{"success": true, "transaction": "tx-racing-1", "network": "hub:x", "amount": "30"},
+		map[string]any{"success": true, "transaction": "tx-racing-2", "network": "hub:x", "amount": "30"},
+	}
+	req.storePeerReceipts(id, longer, map[string]settledFacts{})
+	var stored []json.RawMessage
+	_ = json.Unmarshal(getIX(t, req, id).PayReceipts, &stored)
+	found := false
+	for _, r := range stored {
+		found = found || verifiedTx(r) == real.Transaction
+	}
+	if !found {
+		t.Errorf("the verified settlement was dropped: %s", getIX(t, req, id).PayReceipts)
 	}
 }
