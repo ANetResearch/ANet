@@ -3,7 +3,7 @@
 > **DRAFT — not submitted; requires product owner approval before any external submission.**
 >
 > **License: Apache-2.0**: this proposal is licensed under the Apache License 2.0 alone (ANet
-> `LICENSE`, Section 3). Registry code contributed upstream from ANetHub is contributed under
+> `LICENSE`, condition 3). Registry code contributed upstream from ANetHub is contributed under
 > Apache-2.0.
 
 | | |

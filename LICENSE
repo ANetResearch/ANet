@@ -67,7 +67,8 @@ Derivative Works of them; "the producer" means Agent Network Research.
       operations.
    c. Your contributions may be submitted by the producer to an A2A
       upstream project under the Apache License 2.0 alone, as described in
-      Section 3, and you have the right to grant them on those terms.
+      condition 3 below, and you have the right to grant them on those
+      terms.
 
 3. Exception for contributions to the A2A protocol. ANet implements the A2A
    protocol and contributes its protocol work back to it. The following
@@ -96,16 +97,26 @@ Derivative Works of them; "the producer" means Agent Network Research.
    Nothing in this License restricts anyone from implementing the A2A
    protocol, or the specifications in `docs/a2a/`, in software that is not
    derived from ANet source code, or from using the identifiers (URIs)
-   those specifications define.
+   those specifications define. Condition 1 does not apply to software to
+   the extent that it is built from materials received under the Apache
+   License 2.0 through this condition 3 (for example, a relay built from a
+   reference implementation in the form submitted to an A2A upstream
+   project); it continues to apply to the rest of ANet.
 
 Apart from the specific conditions mentioned above, all other rights and
 restrictions follow the Apache License 2.0. The licenses granted in
 Sections 2 and 3 of the Apache License 2.0 are subject to the additional
 conditions above, and when you redistribute ANet or a Derivative Work, the
 copy of "this License" that you give recipients under its Section 4(a) is
-this entire document, additional conditions included. The full text of the
-Apache License 2.0 follows; it is also available at
-http://www.apache.org/licenses/LICENSE-2.0.
+this entire document, additional conditions included. Additional or
+different license terms that you provide under the last paragraph of
+Section 4 of the Apache License 2.0, for your modifications or for a
+Derivative Work as a whole, do not remove or relax these additional
+conditions for the parts of ANet that the Derivative Work contains. In this
+document, "condition 1" to "condition 3" refer to the numbered additional
+conditions above, and "Section" refers to a section of the Apache License
+2.0. The full text of the Apache License 2.0 follows; it is also available
+at http://www.apache.org/licenses/LICENSE-2.0.
 
 For a commercial license, or any question about this License:
 hi@anet0.com.

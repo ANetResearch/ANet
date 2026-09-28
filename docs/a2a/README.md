@@ -7,9 +7,9 @@
 > 必须先得到产品负责人同意(设计 §2 "对外提交与发布"、§20 阶段 G)。
 > **许可证:Apache-2.0。** 本目录全部文件(规范文本、绑定草案、提案、scheme 文档、issue 草稿及其中的
 > 测试向量与代码片段)只按 Apache License 2.0 授权,不带 ANet 开源许可证的附加条件(ANet `LICENSE`
-> 第 3 节;本目录另放 Apache-2.0 原文 `LICENSE`)。参考实现(ANetCore、ANetHub、ANet 中实现这些草稿的代码)
+> 附加条件第 3 条;本目录另放 Apache-2.0 原文 `LICENSE`)。参考实现(ANetCore、ANetHub、ANet 中实现这些草稿的代码)
 > 在各仓仍按 ANet 开源许可证授权;由 Agent Network Research(或经其书面许可)提交给 A2A 上游(`a2aproject/*`、
-> `google-agentic-commerce/a2a-x402`)的部分,以提交时的形态按 Apache-2.0 授权(`LICENSE` 第 3 节 b),
+> `google-agentic-commerce/a2a-x402`)的部分,以提交时的形态按 Apache-2.0 授权(`LICENSE` 附加条件 3b),
 > 满足 A2A *官方* 扩展与绑定强制 Apache-2.0 的要求(A2A `docs/topics/extension-and-binding-governance.md`)。
 
 ## 索引与状态

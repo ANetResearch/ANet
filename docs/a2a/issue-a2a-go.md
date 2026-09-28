@@ -4,7 +4,7 @@
 >
 > **License: Apache-2.0**, a2a-go's own license: the text and the code in these drafts
 > (reproductions and suggested fixes) are licensed under the Apache License 2.0 alone (ANet
-> `LICENSE`, Section 3). Check a2a-go's contribution requirements before opening a pull request.
+> `LICENSE`, condition 3). Check a2a-go's contribution requirements before opening a pull request.
 
 Target: `github.com/a2aproject/a2a-go`, version **v2.6.0** (commit `ebf17c5`, "chore(main): release
 2.6.0"). Every "Observed" result below was reproduced on 2026-09-27 with the snippets shown, built

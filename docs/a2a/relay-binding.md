@@ -4,9 +4,9 @@
 >
 > **License: Apache-2.0**, as an *official* A2A binding must be (A2A
 > `docs/topics/extension-and-binding-governance.md`, "Licensing"): this text is licensed under the
-> Apache License 2.0 alone (ANet `LICENSE`, Section 3a). The reference implementation listed below
+> Apache License 2.0 alone (ANet `LICENSE`, condition 3a). The reference implementation listed below
 > stays under the ANet Open Source License in the anet repositories; each portion submitted to an
-> A2A repository is contributed, as submitted, under Apache-2.0 (Section 3b).
+> A2A repository is contributed, as submitted, under Apache-2.0 (condition 3b).
 
 | | |
 |---|---|
