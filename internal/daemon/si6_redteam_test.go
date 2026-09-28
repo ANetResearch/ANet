@@ -322,7 +322,7 @@ func (p *ackLostP2P) Send(ctx context.Context, _ string, env []byte) error {
 // carry) and fails the task with effect UNAVAILABLE — "never delivered, did
 // not run" (undelivered.go) — although the attempt that just failed on the
 // p2p path had delivered it and the provider ran the capability.
-func TestRedteamSI6_AbandonedButDeliveredDelegationIsUnavailable(t *testing.T) {
+func TestRedteamSI6_AbandonedButDeliveredDelegationIsNotUnavailable(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
@@ -352,9 +352,11 @@ func TestRedteamSI6_AbandonedButDeliveredDelegationIsUnavailable(t *testing.T) {
 	}
 	v := rtView(t, req, id)
 	state, es := rtPath(v, "status", "state"), rtPath(v, "metadata", a2ashape.KeyEffectStatus)
-	if state != string(a2ashape.TaskStateFailed) || es != "UNAVAILABLE" {
-		t.Fatalf("defect not reproduced: state=%v effect_status=%v (delegate err %v)", state, es, derr)
+	// Fixed by wp/fx-b [redteam:F12]: the p2p attempt may have delivered it,
+	// so abandoning the row does not say "never delivered": the effect is
+	// unknown (UNVERIFIED), not UNAVAILABLE.
+	if state != string(a2ashape.TaskStateFailed) || es != "UNVERIFIED" {
+		t.Fatalf("abandoned after a p2p attempt that may have delivered it: state=%v effect_status=%v, want failed/UNVERIFIED (delegate err %v)",
+			state, es, derr)
 	}
-	t.Logf("ATTACK OK: lamp switched %d time(s); requester says state=%v effect_status=%v reason=%v (DelegateCapability: %v)",
-		len(lamp.invoked), state, es, rtPath(v, "metadata", a2ashape.KeyReason), derr)
 }

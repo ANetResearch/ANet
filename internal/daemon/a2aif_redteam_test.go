@@ -139,9 +139,10 @@ func TestRedteamA2AIF_ProviderAttachmentsInlinedWithoutQ12Cap(t *testing.T) {
 // failed/rejected/canceled branch). The provider's metadata is stored
 // verbatim (ingestStatus), so a provider that was paid can end the task
 // failed with x402.payment.receipts: [] and x402.payment.status:
-// payment-failed, and the local client is told nothing was charged while
-// this node holds the settled receipt.
-func TestRedteamA2AIF_ProviderStatusOverridesVerifiedReceipts(t *testing.T) {
+// payment-failed, and the local client was told nothing was charged while
+// this node held the settled receipt. Now the receipts shown are this
+// node's (below).
+func TestRedteamA2AIF_ProviderStatusDoesNotOverrideVerifiedReceipts(t *testing.T) {
 	_, req, prov := registeredPair(t)
 	ctx := context.Background()
 	seam := req.TaskSeam()
@@ -182,13 +183,17 @@ func TestRedteamA2AIF_ProviderStatusOverridesVerifiedReceipts(t *testing.T) {
 	if got.Status.Message == nil {
 		t.Fatal("no status message")
 	}
+	// Since wp/fx-c [redteam:F11] the receipts in status.message are this
+	// node's record, not the provider's list: the verified settlement is
+	// still there. (The red team rejected this finding as F14; the check
+	// stays as a regression of the F11 projection.)
 	sm := got.Status.Message.Metadata
 	rc, _ := sm["x402.payment.receipts"].([]any)
-	if len(rc) != 0 || sm["x402.payment.status"] != "payment-failed" {
-		t.Fatalf("status message carries this node's record (%v, %v): defect absent", sm["x402.payment.receipts"], sm["x402.payment.status"])
+	if len(rc) != 1 {
+		t.Fatalf("status message receipts = %v, want this node's verified settlement", sm["x402.payment.receipts"])
 	}
-	if sm["anet.official"] != true || sm["anet.receipt_verified"] != "verified" {
-		t.Fatalf("reserved anet.* keys were filtered: %v", sm)
+	if r, _ := rc[0].(map[string]any); r["transaction"] != "tx-real-1" {
+		t.Fatalf("status message receipt = %v, want tx-real-1", rc[0])
 	}
 	t.Logf("task.metadata: status=%v receipts=%v", got.Metadata["x402.payment.status"], got.Metadata["x402.payment.receipts"])
 	t.Logf("status.message.metadata (what an a2a-x402 client reads): status=%v receipts=%v error=%v",
