@@ -13,6 +13,8 @@ package jsonread
 import (
 	"bytes"
 	"encoding/json"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ReadsAlike reports whether raw, which json.Unmarshal decoded into v, says
@@ -36,6 +38,82 @@ func ReadsAlike(raw []byte, v any) bool {
 	want, ok1 := read(enc)
 	got, ok2 := read(raw)
 	return ok1 && ok2 && sameAsRead(want, got)
+}
+
+// hiddenByOmitempty reports a member of got whose value Go's decoder may
+// have replaced with a zero that want, the re-encoding, then left out.
+//
+// encoding/json fills a struct field from every member whose name matches
+// the field's ignoring case, the last one winning, and an omitempty field
+// that ends at its zero value is not encoded. In {"type":"sse","TYPE":""}
+// Go holds the "" of the second, want has no "type" at all, and the member
+// by member comparison has nothing to compare, while everyone else reads
+// "sse" (the review of docs/notes/0033). The sign is two or more members
+// of got whose names fold alike, as encoding/json folds them, none of them
+// matching a member of want, and one of them not zero. A single such
+// member is one Go does not read at all; members matching one of want are
+// compared already. Two members that differ only in case and that Go
+// does not read either are refused as well: from the bytes alone they
+// cannot be told apart from a field that was hidden.
+func hiddenByOmitempty(want, got map[string]any) bool {
+	inWant := make(map[string]bool, len(want))
+	for k := range want {
+		inWant[foldName(k)] = true
+	}
+	type group struct {
+		n       int
+		nonZero bool
+	}
+	groups := map[string]*group{}
+	for k, v := range got {
+		f := foldName(k)
+		if inWant[f] {
+			continue
+		}
+		g := groups[f]
+		if g == nil {
+			g = &group{}
+			groups[f] = g
+		}
+		g.n++
+		g.nonZero = g.nonZero || !isZeroJSON(v)
+	}
+	for _, g := range groups {
+		if g.n > 1 && g.nonZero {
+			return true
+		}
+	}
+	return false
+}
+
+// foldName folds a member name as encoding/json does when it matches one
+// to a struct field (encoding/json/fold.go): ASCII letters to upper case,
+// any other rune to the smallest rune of its case-folding orbit, so that
+// "kind" and "\u212aind" (KELVIN SIGN) fold alike, as Go matches them.
+func foldName(s string) string {
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); {
+		if c := s[i]; c < utf8.RuneSelf {
+			if 'a' <= c && c <= 'z' {
+				c -= 'a' - 'A'
+			}
+			out = append(out, c)
+			i++
+			continue
+		}
+		r, n := utf8.DecodeRuneInString(s[i:])
+		for {
+			r2 := unicode.SimpleFold(r)
+			if r2 <= r {
+				r = r2
+				break
+			}
+			r = r2
+		}
+		out = utf8.AppendRune(out, r)
+		i += n
+	}
+	return string(out)
 }
 
 // isZeroJSON reports a JSON zero value: null, false, 0, "", [] or {}.
@@ -77,7 +155,7 @@ func sameAsRead(want, got any) bool {
 				return false
 			}
 		}
-		return true
+		return !hiddenByOmitempty(w, g)
 	case []any:
 		g, ok := got.([]any)
 		if !ok || len(g) != len(w) {
