@@ -116,6 +116,39 @@ func TestClientReachesAListenerOfThisUser(t *testing.T) {
 	}
 }
 
+// A connection the server has not accepted yet belongs to no process, and kernels before 6.10 print uid
+// 0 for it; it is judged by its listener. (Found by a red run of an unrelated test: a daemon slow to
+// accept looked like root's.)
+func TestVerifyBeforeTheServerAccepts(t *testing.T) {
+	haveSocketTable(t)
+	ln, err := net.Listen("tcp", "127.0.0.1:0") // never accepts
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	for i := 0; i < 5; i++ {
+		c, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = Verify(context.Background(), c, "t")
+		c.Close()
+		if err != nil {
+			t.Fatalf("a queued connection to this user's listener: %v", err)
+		}
+	}
+	// And another user's listener is still refused while the connection waits in its queue.
+	defer TreatAsForeignForTest(ln.Addr().String())()
+	c, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := Verify(context.Background(), c, "t"); !errors.Is(err, ErrNotOurs) {
+		t.Fatalf("queued connection to another user's listener: %v", err)
+	}
+}
+
 // F18: a listener another local user holds is refused before the request is written — the token never
 // leaves this process.
 func TestClientDoesNotSendTheTokenToAnotherUsersListener(t *testing.T) {
