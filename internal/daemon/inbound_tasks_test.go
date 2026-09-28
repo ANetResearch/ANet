@@ -512,3 +512,57 @@ func init() {
 		return declaringModule{}, nil
 	})
 }
+
+// InboundTask, which a module asks before each retry of a failed forward
+// (A2A-DESIGN §11.6), decides as the feed does and with the lists as they
+// are now: a trusted peer's task waiting on the provider comes back as the
+// feed delivers it (the backend's context, anet.peer_aid, anet.trusted);
+// once the task is answered, or its peer is denied, or for an id that is no
+// such task, it does not.
+func TestInboundTaskIsDecidedAfresh(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	prov := registered(t, srv.URL, "prov")
+	peer := registered(t, srv.URL, "peer")
+	allowed := registered(t, srv.URL, "allowed")
+	trustPeers(t, prov, peer.AID())
+	allowPeers(t, prov, allowed.AID())
+	host := moduleHost{prov}
+	answered, err := peer.DelegateIn(ctx, prov.AID(), "answer me", nil, "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting, err := peer.DelegateIn(ctx, prov.AID(), "still waiting", nil, "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notTrusted, err := allowed.DelegateIn(ctx, prov.AID(), "from an allowed peer", nil, "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, ok, err := host.InboundTask(ctx, waiting)
+	if err != nil || !ok {
+		t.Fatalf("a trusted peer's waiting task: ok %v, %v", ok, err)
+	}
+	if task.ID != waiting || task.Metadata[a2ashape.KeyPeerAID] != peer.AID() || task.Metadata[a2ashape.KeyTrusted] != true ||
+		task.ContextID != backendContextID(peer.AID(), "c1") || len(task.History) == 0 ||
+		task.History[len(task.History)-1].Parts[0].Text != "still waiting" {
+		t.Fatalf("task %+v", task)
+	}
+	answer := a2ashape.Message{Role: a2ashape.RoleAgent, Parts: []a2ashape.Part{a2ashape.TextPart("which one?")}}
+	if _, err := host.ReplyTask(ctx, answered, answer, a2ashape.TaskStateInputRequired); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{answered, notTrusted, "ix_nope"} {
+		if _, ok, err := host.InboundTask(ctx, id); ok || err != nil {
+			t.Fatalf("%s: ok %v, %v; want no", id, ok, err)
+		}
+	}
+	denyPeers(t, prov, peer.AID())
+	if _, ok, _ := host.InboundTask(ctx, waiting); ok {
+		t.Fatal("a denied peer's task is still to be forwarded")
+	}
+}

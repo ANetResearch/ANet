@@ -56,7 +56,7 @@ func noReply(t *testing.T, h *inboundHost) {
 	time.Sleep(300 * time.Millisecond)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.replies) != 0 || len(h.evidence) != 0 {
+	if !h.refusedOnce() {
 		t.Fatalf("forwarded: replies %+v evidence %+v", h.replies, h.evidence)
 	}
 }
