@@ -1648,6 +1648,13 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 		// signature check and an evidence record here.
 		list = list[len(list)-maxPeerReceipts:]
 	}
+	// One list at a time per task. Read the ledger, check, record and
+	// store is not atomic, and two messages of the provider's carrying
+	// the same receipt, delivered at once (p2p and hub, §3.6), each found
+	// it unrecorded and recorded it verified: two settlements for one
+	// payment, which audit reports as a task paid twice [redteam:F11].
+	unlock := d.outboxLocks.lock("receipts:" + ixID)
+	defer unlock()
 	ix, err := d.ix.Get(ixID)
 	if err != nil || ix.Role != interactions.RoleOutbound {
 		return
