@@ -65,6 +65,9 @@ func (p *startupProbe) Start(ctx context.Context, h module.Host) error {
 			return err
 		}
 	}
+	if p.env == nil {
+		return nil // only a provider to register
+	}
 	th, ok := h.(module.TransportHost)
 	if !ok {
 		return errors.New("host does not accept transports")

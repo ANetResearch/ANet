@@ -949,6 +949,16 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 			PeerKEL: peerKEL, PeerKeys: peerKeys}); err != nil {
 			return err
 		}
+		if isCap && m.ackNow != nil && !d.longCall(capID) {
+			// A direct delivery is acknowledged at this commit, before the
+			// call runs (Q29), so no redelivery will come to run it again
+			// if the process stops first. Recorded working, startup
+			// recovery runs it again instead (leftoverAction: a short call
+			// left working, at-least-once).
+			if _, err := tx.SetState(m.ix, interactions.StateWorking); err != nil {
+				return err
+			}
+		}
 		if publicCap {
 			return nil
 		}
