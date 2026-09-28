@@ -69,11 +69,12 @@ To find an earlier task: ListTasks by contextId, or the MCP tool `list_tasks` fi
 
 One leniency toward such clients, which departs from the A2A specification: a message that carries a contextId and no taskId continues a task instead of starting one when, in that context, exactly one task this node sent to that agent (the one the endpoint is for) is `input-required` (a capability call is always a new task, and a waiting capability call is continued only by a payment message). With no such task, or with several, the message starts a new task, as the specification says. The control API and MCP are not lenient: name the task.
 
-## 9. Payments and reviews can be linked; the public issuance chain shows amounts and AIDs
+## 9. Payments and reviews can be linked; the public issuance chain shows amounts and AIDs; a settled amount can name what was bought
 
 - The hub can link settlement records to public reviews by payer, payee and time. The interaction binding inside a settlement is a one-way hash, and the hub neither stores the interaction id nor can derive it from the binding — but that does not prevent linking by time and by the two parties' identities.
 - The public issuance chain shows the amount, time and AIDs of every cross-hub payment, clearing and redemption, readable by anyone.
 - Vouchers bought through the hub gateway, and their quotes, carry the capability id and the payee, visible to the hub.
+- A settlement request does not say what was bought, but it names the payee and the exact amount. When the payee publishes a price per capability on its card (the default), the payee and the amount are enough to tell which capability was bought: the hub can do this for every settlement, and for a cross-hub payment anyone reading the public issuance chain can. Capabilities with the same price cannot be told apart. To avoid it, set `"publish_prices": false` in the `payments` block of `config.json`: the card no longer lists a price per capability, and the price is given only in the end-to-end encrypted quote. The cost is that callers cannot see the price beforehand and the hub gateway cannot sell your capabilities. A `pricing` text you write in your profile is public too, prices included.
 
 ## 10. A first install trusts the host that serves the script
 

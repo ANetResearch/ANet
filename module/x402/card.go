@@ -19,6 +19,14 @@ import (
 // The price list sits inside the card signature so a hub cannot quote a
 // price the provider never agreed to. Amounts are decimal strings of the
 // hub's credit unit; network names the ledger they settle on.
+//
+// It is also what lets the hub name the skill a settlement paid for: the
+// settle body carries the payee and the exact amount (and no resource),
+// and where the payee's published prices differ per skill, the amount
+// picks the skill. With c.WithholdPrices (payments.publish_prices=false)
+// the list is left out and only a2a-x402 is declared; the price reaches
+// the payer in the quote, end to end encrypted (A2A-DESIGN §21)
+// [redteam:F1].
 func (m *Module) CardExtensions(c module.CardContext) []map[string]any {
 	network := m.HomeNetwork()
 	if network == "" {
@@ -40,6 +48,9 @@ func (m *Module) CardExtensions(c module.CardContext) []map[string]any {
 	}
 	if len(prices) == len(c.Skills) {
 		x402["required"] = true
+	}
+	if c.WithholdPrices {
+		return []map[string]any{x402}
 	}
 	pricing := map[string]any{
 		"uri":         module.ExtPricingURI,

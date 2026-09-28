@@ -270,7 +270,8 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 	for _, s := range in.Skills {
 		skills = append(skills, s.ID)
 	}
-	cc := module.CardContext{AID: d.AID(), HubURL: hubURL, Skills: append([]string(nil), skills...)}
+	cc := module.CardContext{AID: d.AID(), HubURL: hubURL, Skills: append([]string(nil), skills...),
+		WithholdPrices: !cfg.Payments.publishesPrices()}
 	for _, m := range d.cardContributors() {
 		for _, e := range m.CardExtensions(cc) {
 			ext, err := netcard.Extension(e)

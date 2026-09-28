@@ -81,8 +81,12 @@ func (d *Daemon) publicRedeemURL() string {
 // Only what this node actually serves and actually charges for. A price
 // for a capability the node does not offer would be an invitation to buy
 // something that cannot be delivered.
+//
+// None when the operator chose not to publish prices
+// (payments.publish_prices=false): the gateway then cannot sell this
+// node's skills, and a settlement's amount does not name one [redteam:F1].
 func (d *Daemon) priceList(caps []string) map[string]uint64 {
-	if d.providers == nil {
+	if d.providers == nil || !d.config().Payments.publishesPrices() {
 		return nil
 	}
 	out := map[string]uint64{}

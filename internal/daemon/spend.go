@@ -53,6 +53,21 @@ type PaymentsConfig struct {
 	// data directory. Absent means payees.allow; an empty string turns the
 	// list off. A missing file is an empty list.
 	PayeesFile *string `json:"payees_file,omitempty"`
+	// PublishPrices says whether this node's cards carry a price per
+	// skill: the A2A card's anet-pricing/v1 and the ADP card's price list,
+	// which the hub gateway sells from. Absent means true. With false the
+	// price is given only in the quote, inside the end-to-end encrypted
+	// task: a settlement's payee and amount (which the hub sees, and the
+	// public issuance chain shows for a cross-hub payment) no longer name
+	// the skill through the published list, and the hub gateway cannot
+	// sell this node's skills (A2A-DESIGN §21) [redteam:F1].
+	PublishPrices *bool `json:"publish_prices,omitempty"`
+}
+
+// publishesPrices is payments.publish_prices with its default (true); a nil
+// block publishes.
+func (p *PaymentsConfig) publishesPrices() bool {
+	return p == nil || p.PublishPrices == nil || *p.PublishPrices
 }
 
 // Defaults of the payments block (A2A-DESIGN §8.6).

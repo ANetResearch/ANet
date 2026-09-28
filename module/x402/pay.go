@@ -237,7 +237,12 @@ func (m *Module) Authorize(opt payment.PaymentOption, ix, bind, purpose string) 
 // The body is x402 v2's {x402Version, paymentPayload, paymentRequirements}.
 // Neither object carries a description, an extra or a resource: the hub
 // learns who pays whom how much on which ledger for which binding, and
-// nothing about the work (SI-1).
+// not what the work was (SI-1). It can still name the skill: the payee
+// and the exact amount are in the body, and where the payee publishes a
+// different price per skill (anet-pricing/v1 on its card, the ADP card's
+// price list) the amount picks one. That is stated in A2A-DESIGN §21;
+// payments.publish_prices=false keeps the prices off the cards
+// [redteam:F1].
 func (m *Module) settle(ctx context.Context, raw []byte, req payment.PaymentRequirements) (*payment.SettlementResponse, error) {
 	hub := m.hubURL()
 	if hub == "" {
