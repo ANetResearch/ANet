@@ -105,10 +105,12 @@ const (
 	noticeSent         = "notice-sent"           // a refusal or pending notice sent
 	noticeSuppressed   = "notice-rate-limited"   // a notice not sent: rate limit or no keys
 
-	transientStore       = "t-store"          // interactions store error
-	transientP2PRate     = "t-p2p-rate-limit" // step 0
-	transientUnknownIX   = "t-unknown-ix"     // message before its delegation, inside the wait window
-	transientReplayCheck = "t-replay-read"    // replay table read failed
+	transientStore       = "t-store"             // interactions store error
+	transientP2PRate     = "t-p2p-rate-limit"    // step 0
+	transientUnknownIX   = "t-unknown-ix"        // message before its delegation, inside the wait window
+	unknownIXNotHeld     = "unknown-ix-not-held" // inside the window, but the sender does not get the wait (F25)
+	unknownIXOverCap     = "unknown-ix-over-cap" // a sender that gets the wait has unknownIXHeldPerSender waiting
+	transientReplayCheck = "t-replay-read"       // replay table read failed
 	// transientDirectUnopened: an envelope a transport module delivered
 	// that this node cannot open (steps 1-4); the sender is sent to the hub.
 	transientDirectUnopened = "t-direct-unopened"
@@ -121,7 +123,19 @@ const (
 // know is treated as early rather than wrong (§3.6 step 9). The delegation
 // and a follow-up can take different paths (p2p and hub) and arrive out of
 // order; within the window the message stays in the mailbox.
+//
+// Only a sender this node has something to do with waits (mayWaitForTask),
+// and only unknownIXHeldPerSender of its messages at a time
+// ([redteam:F25]): what waits stays in this node's own hub mailbox, and a
+// stranger's wait was a way for anyone registered to keep an online node's
+// mailbox full (507 for everyone else) while sending below its own rate
+// limit.
 const unknownIXWait = 10 * time.Minute
+
+// unknownIXHeldPerSender bounds the messages for unknown interactions one
+// sender can have waiting at once; past it they are answered TaskNotFound
+// at once. A requester's follow-ups racing its own delegation are a few.
+const unknownIXHeldPerSender = 32
 
 // rxMsg is an envelope that passed steps 1 to 8.
 type rxMsg struct {
@@ -136,6 +150,9 @@ type rxMsg struct {
 	// kelUpdate is the KEL to store after acceptance: the inner KEL when
 	// it extends the stored one or nothing is stored, else nil.
 	kelUpdate []identity.SignedEvent
+	// known: the sender has a persistent peer_identity row (§3.8: written
+	// only for peers this node dealt with in an authorized context).
+	known bool
 	// keysUpdate is the attached key set when it passed step 8 and is newer
 	// than the stored one; noticeKeys is any verified set usable to reply.
 	keysUpdate, noticeKeys *peerKeySet
@@ -238,7 +255,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	}
 
 	m := &rxMsg{from: in.From, typ: in.Type, ix: in.IX, mid: in.MID, ts: in.TS, exp: in.Exp,
-		ksn: in.KeyStateSeq, body: in.Body, kel: use, kelUpdate: update, ackNow: path.ack}
+		ksn: in.KeyStateSeq, body: in.Body, kel: use, kelUpdate: update, ackNow: path.ack, known: row != nil}
 
 	// Step 8: advisory. A key set that fails here does not affect the
 	// message; the authenticity of the message was decided in step 7.
@@ -264,11 +281,15 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	}
 
 	// Step 9.
-	if res := d.authorize(m, now); res != nil {
-		if res.class == rxDropped {
+	ares := d.authorize(m, now)
+	if m.typ == seal.TypeMessage && (ares == nil || ares.reason != transientUnknownIX) {
+		d.heldEarly.forget(m.from, m.mid) // no longer waiting, if it was
+	}
+	if ares != nil {
+		if ares.class == rxDropped {
 			d.refused.add(replayKey(m.from, m.mid))
 		}
-		return d.expireTransient(*res, m, now)
+		return d.expireTransient(*ares, m, now)
 	}
 
 	// Step 10.
@@ -506,8 +527,15 @@ func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 			return &r
 		}
 		if int64(now)-int64(m.ts) <= unknownIXWait.Milliseconds() {
-			r := d.transient(transientUnknownIX, nil)
-			return &r
+			wait, res := d.mayWaitForTask(m, ps, now)
+			if res != nil {
+				return res
+			}
+			if wait {
+				r := d.transient(transientUnknownIX, nil)
+				return &r
+			}
+			d.count(unknownIXNotHeld)
 		}
 		d.replyTaskNotFound(m)
 		r := d.drop(dropUnknownIX, nil)
@@ -536,6 +564,99 @@ func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 	}
 	m.cm, m.existing = cm, ix
 	return nil
+}
+
+// mayWaitForTask decides whether a message for an interaction this node
+// does not hold, inside the wait window, waits in the mailbox for its
+// delegation (class T) or is answered TaskNotFound now ([redteam:F25]).
+//
+// It waits only when the sender is someone this node deals with: it has a
+// persistent peer_identity row, is on the allow or trust list, or this node
+// has asked it for something (an outbound interaction). A message that
+// waits is not acknowledged, so it occupies this node's own hub mailbox for
+// the window; granted to anyone, one registered AID could keep an online
+// node's mailbox at its quota. A sender this node deals with gets the
+// window for unknownIXHeldPerSender messages at a time.
+//
+// A denied peer is answered as a stranger is (X2): no wait, the same
+// TaskNotFound through the same limiter. The price of the rule: a
+// stranger's follow-up that overtakes its own delegation (the delegation
+// through the hub, the follow-up direct) is answered TaskNotFound; its
+// outbox sends a task's messages in order, so it takes two paths racing.
+func (d *Daemon) mayWaitForTask(m *rxMsg, ps peerSets, now uint64) (bool, *rxResult) {
+	if ps.denied(m.from) {
+		return false, nil
+	}
+	related := m.known || ps.allowed(m.from) || ps.trusted(m.from)
+	if !related {
+		has, err := d.ix.HasOutboundWith(m.from)
+		if err != nil {
+			r := d.transient(transientStore, err)
+			return false, &r
+		}
+		related = has
+	}
+	if !related {
+		return false, nil
+	}
+	if !d.heldEarly.admit(m.from, m.mid, m.ts+uint64(unknownIXWait.Milliseconds()), now) {
+		d.count(unknownIXOverCap)
+		return false, nil
+	}
+	return true, nil
+}
+
+// heldUnknown tracks, per sender, the messages for unknown interactions
+// this node is leaving in its mailbox (class T, mayWaitForTask), each until
+// its window ends. In memory: after a restart the count starts again, as
+// the window does for every message read again.
+type heldUnknown struct {
+	mu sync.Mutex
+	by map[string]map[string]uint64 // sender -> message id -> end of its window (unix ms)
+}
+
+// heldUnknownSenders bounds the senders tracked; past it the table starts
+// over.
+const heldUnknownSenders = 4096
+
+// admit reports whether one more message from sender may wait: it already
+// is waiting, or the sender has fewer than unknownIXHeldPerSender waiting.
+func (h *heldUnknown) admit(from string, mid []byte, until, now uint64) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.by == nil || len(h.by) > heldUnknownSenders {
+		h.by = map[string]map[string]uint64{}
+	}
+	set := h.by[from]
+	if set == nil {
+		set = map[string]uint64{}
+		h.by[from] = set
+	}
+	for k, end := range set {
+		if end < now {
+			delete(set, k)
+		}
+	}
+	if _, ok := set[string(mid)]; ok {
+		return true
+	}
+	if len(set) >= unknownIXHeldPerSender {
+		return false
+	}
+	set[string(mid)] = until
+	return true
+}
+
+// forget drops a message that is no longer waiting.
+func (h *heldUnknown) forget(from string, mid []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if set := h.by[from]; set != nil {
+		delete(set, string(mid))
+		if len(set) == 0 {
+			delete(h.by, from)
+		}
+	}
 }
 
 // publicCapPayment reports whether a message on a public_cap interaction is

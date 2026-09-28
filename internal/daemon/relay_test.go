@@ -490,12 +490,15 @@ func TestRelayAttachmentRoundTrip(t *testing.T) {
 }
 
 // Envelopes held back in the mailbox do not stand in front of newer mail
-// (A2A-DESIGN §3.6 step 9, §3.7; decision Q1). A stranger fills the
-// provider's mailbox with more than a page of signed messages for
+// (A2A-DESIGN §3.6 step 9, §3.7; decision Q1). Peers the provider deals
+// with fill its mailbox with more than a page of signed messages for
 // interactions it does not hold — each one class T for the unknown-ix
 // window, so none is acknowledged — and a real delegation queued behind
 // them is taken on the next round. Without the relay cursor every poll is
 // handed the same first page and the delegation waits out the window.
+// (A stranger's messages for unknown tasks do not wait at all, and one
+// peer has at most unknownIXHeldPerSender waiting, [redteam:F25]: the flood
+// comes from several allowed peers.)
 func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	// The test drives the rounds: no background poll may move the cursor.
@@ -509,9 +512,14 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 	prov.setClock(clock.Load)
 
 	const flood = relayPollLimit + 50
-	stranger := newStranger(t)
+	var peers []sender
 	for i := 0; i < flood; i++ {
-		injectEnvelope(t, srv, prov.AID(), craft(t, stranger, prov, seal.TypeMessage,
+		if i%30 == 0 {
+			p := newStranger(t)
+			allowPeers(t, prov, p.aid)
+			peers = append(peers, p)
+		}
+		injectEnvelope(t, srv, prov.AID(), craft(t, peers[len(peers)-1], prov, seal.TypeMessage,
 			fmt.Sprintf("ix_not_held_%03d", i), chatBody(t, "noise", ""), nil))
 	}
 	id, err := req.Delegate(ctx, prov.AID(), "queued behind the flood", nil)
@@ -581,7 +589,9 @@ func TestAHeldEnvelopeIsRetriedAtOnePollPerRound(t *testing.T) {
 	clock.Store(uint64(time.Now().UnixMilli()))
 	prov.setClock(clock.Load)
 
-	injectEnvelope(t, srv, prov.AID(), craft(t, newStranger(t), prov, seal.TypeMessage,
+	peer := newStranger(t)
+	allowPeers(t, prov, peer.aid) // a stranger's message would not be held ([redteam:F25])
+	injectEnvelope(t, srv, prov.AID(), craft(t, peer, prov, seal.TypeMessage,
 		"ix_not_held_tail", chatBody(t, "noise", ""), nil))
 	polls0 := relayPollsFor(srv.URL, prov.AID())
 	tries0 := counter(prov, transientUnknownIX)
