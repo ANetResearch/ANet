@@ -228,6 +228,13 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
 	key := replayKey(m.from, m.mid)
 	unlock := d.rxLocks.lock(key)
 	defer unlock()
+	if m.typ == seal.TypeDelegate && m.ix != "" {
+		// The same delegation sealed twice (two message ids) is one
+		// decision too: the second copy finds the interaction the first
+		// created, and is a redelivery of it.
+		unlockIX := d.rxIXLocks.lock(m.from + "\x00" + m.ix)
+		defer unlockIX()
+	}
 	if d.refused.has(key) {
 		return d.drop(dropRefusedReplay, nil)
 	}
