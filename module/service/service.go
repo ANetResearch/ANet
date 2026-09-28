@@ -45,16 +45,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
@@ -421,16 +424,44 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 	}
 	req.Header.Set(HeaderCapability, target.ID)
 
+	// Whether the request went out decides what a transport error means.
+	// The trace marks it sent once its header block is written: before
+	// that the service cannot have begun the call. Each attempt starts
+	// unsent, because the transport tries again on a new connection only
+	// when nothing of the request reached the wire (a POST is not
+	// replayed otherwise).
+	var sent atomic.Bool
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		GetConn:      func(string) { sent.Store(false) },
+		WroteHeaders: func() { sent.Store(true) },
+	}))
+
 	started := time.Now()
 	resp, err := p.m.cli.Do(req)
 	if err != nil {
-		// The service is unreachable. UNAVAILABLE, not FAILED: nothing was
-		// attempted at the far end, and a requester deciding whether to
-		// retry elsewhere needs that distinction.
+		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability,
+			LatencyMS: time.Since(started).Milliseconds()}
+		if sent.Load() {
+			// The call went out and its answer did not come back: the
+			// deadline passed while the service worked, or the connection
+			// dropped before the reply. The effect may have happened, so
+			// neither "nothing was attempted" nor "it failed" is true, and
+			// a requester told either could run it twice (A2A-DESIGN §4.3).
+			reason := provider.ReasonConnectionLost
+			if errors.Is(err, context.DeadlineExceeded) {
+				reason = provider.ReasonTimeout
+			}
+			return effect.Effect{Status: effect.Unverified, Evidence: ev},
+				fmt.Errorf("service %s: %w", call.Capability, &provider.OutcomeUnknownError{Reason: reason, Err: err})
+		}
+		// The service could not be reached: no connection, or it broke
+		// before the request was written. UNAVAILABLE, not FAILED: nothing
+		// was attempted at the far end, and a requester deciding whether
+		// to retry elsewhere needs that distinction.
 		return effect.Effect{
 			Status:   effect.Unavailable,
 			Message:  fmt.Sprintf("service %s: %v", call.Capability, err),
-			Evidence: &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability},
+			Evidence: ev,
 		}, nil
 	}
 	defer resp.Body.Close()

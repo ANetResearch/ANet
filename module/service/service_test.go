@@ -5,6 +5,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -324,12 +325,16 @@ func TestTimeoutIsPerCapability(t *testing.T) {
 		{"id":"long.x","url":"`+slow.URL+`"}]}`)
 
 	began := time.Now()
-	eff := invoke(t, reg, "fast.x", nil)
+	fast, _ := reg.Resolve("fast.x")
+	_, err := fast.Invoke(context.Background(), provider.Call{Capability: "fast.x"})
 	if time.Since(began) > time.Second {
 		t.Errorf("fast.x ran %v; its own 50 ms bound did not apply", time.Since(began))
 	}
-	if eff.Status != effect.Unavailable {
-		t.Errorf("a call cut off by its bound: status %s", eff.Status)
+	// Cut off by its bound after the call went out: the effect may have
+	// happened, so it is not UNAVAILABLE (outcome_test.go).
+	var unknown *provider.OutcomeUnknownError
+	if !errors.As(err, &unknown) || unknown.Reason != provider.ReasonTimeout {
+		t.Errorf("a call cut off by its bound: %v", err)
 	}
 
 	p, _ := reg.Resolve("long.x")

@@ -428,16 +428,27 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 		log.Printf("anet: %s: %s was cut off by the daemon stopping; no result recorded", interactionID, capID)
 		return false
 	}
-	if err != nil {
+	var opts resultOpts
+	var unknown *provider.OutcomeUnknownError
+	switch {
+	case errors.As(err, &unknown):
+		// Sent, and the answer lost: whether the effect happened is not
+		// known. failed + UNVERIFIED, as for a call a restart interrupted
+		// (§4.3) — not UNAVAILABLE, which would tell the requester that
+		// nothing was attempted and that trying again is safe.
+		res.Status, res.Message = string(effect.Unverified), err.Error()
+		res.Evidence = provenanceOf(eff.Evidence)
+		opts = resultOpts{state: interactions.StateFailed, reason: unknown.Reason}
+	case err != nil:
 		res.Status, res.Message = "FAILED", err.Error()
-	} else {
+	default:
 		res.Status, res.Verifiable, res.Message = string(eff.Status), eff.Verifiable(), eff.Message
 		res.Evidence = provenanceOf(eff.Evidence)
 		if eff.Record != nil {
 			res.Metrics = eff.Record.Metrics
 		}
 	}
-	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, eff.Evidence, resultOpts{})
+	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, eff.Evidence, opts)
 }
 
 // refuseUnboundPriced answers a priced call whose TaskDoc carries no task
