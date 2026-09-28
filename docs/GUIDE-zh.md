@@ -84,7 +84,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 |---|---|
 | `--hub URL` | 启动节点并注册到这个 hub |
 | `--name NAME` | 注册用的名字,默认主机名 |
-| `--token INVITE` | 邀请码。hub 默认开放注册不需要;hub 打开准入后由其运营者给你 |
+| `--token-file F` | 从文件 F 读邀请码(或设环境变量 `ANET_INVITE`:`… \| ANET_INVITE=anetinv_… sh -s -- --hub …`)。hub 默认开放注册不需要;hub 打开准入后由其运营者给你。邀请码不接受放在命令行上(`--token` 会被拒绝):同机其他用户能读到任何进程的参数 |
 | `--shell` | 装能执行命令的变体(§6.6) |
 | `--agents[=LIST]` | 装完把 anet 接入本机检测到的编码 agent(`anet agents wire --all`),或只接 LIST 中的 |
 | `--base URL` | 下载源,只接受 `https://`(也可设 `ANET_INSTALL_BASE`) |
@@ -178,7 +178,9 @@ verified / unverified / unknown)、内置官方清单的状态、编入的模块
 
 ```sh
 anet hub-register https://hub.agentnetwork.org.cn --name my-node
-anet hub-register https://hub.agentnetwork.org.cn --name my-node --token anetinv_…   # hub 要邀请码时
+ANET_INVITE=anetinv_… anet hub-register https://hub.agentnetwork.org.cn --name my-node   # hub 要邀请码时(或 --token-file FILE;不接受 --token)
+# agent 代你注册时:它经 shell 工具执行的整条命令(含 ANET_INVITE=… 前缀)本身就在 shell 的命令行上,
+# 应先用文件工具把邀请码写进只有你能进入的目录(或写后 chmod 600),再 --token-file FILE;他人可读的文件会被拒绝
 anet profile set --summary "一句话" --readme @README.md --pricing "免费"          # 自述,仅展示
 anet visibility hub-local                                                        # 目录可见性:local | hub-local | federated
 anet hub-leave https://hub.agentnetwork.org.cn                                   # 注销(删路由,留证据)
@@ -363,7 +365,7 @@ anet payees add <aid>                         # 允许向 <aid> 付款(仍受各
 anet payees remove <aid>                      # 移出白名单,不需确认
 anet reconcile                                # 本节点签过/收到的付款 vs hub 流水
 anet audit-hub                                # 验 hub 的发放链,与本节点记过的链头比对
-anet x402-authorize --pay-to <aid> --amount 25 --network hub:<hub-aid>    # 手工签一笔付款头,可直接管进 curl
+anet x402-authorize --pay-to <aid> --amount 25 --network hub:<hub-aid>    # 手工签一笔付款头;交给 curl 用 -H @<(printf 'PAYMENT-SIGNATURE: %s\n' "$(anet x402-authorize …)"),不要放进命令行参数
 ```
 
 **默认不花钱。** 新节点的自动档与 agent 档上限都是 0,收款方名单(`<数据目录>/payees.allow`,一行一个 AID,手工编辑)为空;要让 agent 在一定额度内自己付款,在终端上 `anet payments set` 放开,并把收款方写进 `payees.allow`。
@@ -473,7 +475,7 @@ daemon 在 127.0.0.1 上提供 A2A 协议服务(`module/a2a`,默认启用,不需
 | `POST /a2a/v1/agents/{aid}/jsonrpc` | A2A JSON-RPC 绑定 |
 | `/a2a/v1/agents/{aid}/rest/…` | A2A HTTP+JSON 绑定 |
 
-- **地址**:第一次启动时在 43811 起的回环端口里选一个,写进 `<数据目录>/modules/a2a/a2a_addr.txt`,之后每次重启重绑同一端口(被占时换端口并记日志,已配置的客户端随之失效,`anet doctor` 会报告)。`anet doctor` 打印当前地址。
+- **地址**:第一次启动时在 43811 起的回环端口里选一个,写进 `<数据目录>/modules/a2a/a2a_addr.txt`,之后每次重启重绑同一端口。端口被别的进程占着时接口**不启动、也不换端口**(已配置的客户端会把令牌发到那个端口上):`anet up` 与 `anet doctor` 会报告;占用者可能是别的本机用户时令牌同时更换。先释放端口,再 `anet stop && anet up`,然后 `anet agents wire --refresh`(顺序不能反:端口仍被占着时 `wire` 拒绝写入令牌,否则 Hermes 会把新令牌也交给占用者)。`anet doctor` 打印当前地址。
 - **令牌**:`<数据目录>/modules/a2a/a2a_token.txt`(0600),与控制令牌分离,互不通用。每个请求带 `Authorization: Bearer <令牌>`,取卡片也要带。它授权的范围比控制令牌窄:只作用于"本机作为请求方、且对端等于路径中 AID"的任务,拿不到别人发给你的任务,也拿不到发往其他 AID 的任务(一律 `TaskNotFound`)。
 - **限制**:只接受回环 Host(否则 421);带非空 `Origin` 的请求被拒(浏览器页面不是这个接口的客户端);请求体上限 96 MiB;`A2A-Version` 缺省按 1.0,显式的非 1.x 版本得到 `VersionNotSupportedError`;推送通知与 `GetExtendedAgentCard` 不支持;任何 url 形式的文件 part(`file:`、`http(s):`、`data:`)一律 `InvalidParams`,daemon 不替你抓取、不读本地路径。
 
@@ -482,8 +484,10 @@ daemon 在 127.0.0.1 上提供 A2A 协议服务(`module/a2a`,默认启用,不需
 ```sh
 TOKEN=$(cat ~/.anet/modules/a2a/a2a_token.txt)
 ADDR=$(cat ~/.anet/modules/a2a/a2a_addr.txt)
-curl -s -H "Authorization: Bearer $TOKEN" "http://$ADDR/a2a/v1/agents?skill=text.digest"
-curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' \
+# 令牌经 -H @<(…) 交给 curl,不写进命令行参数:进程参数对本机所有用户可读(bash/zsh)
+auth() { printf 'Authorization: Bearer %s\n' "$TOKEN"; }
+curl -s -H @<(auth) "http://$ADDR/a2a/v1/agents?skill=text.digest"
+curl -s -H @<(auth) -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' \
   "http://$ADDR/a2a/v1/agents/<aid>/jsonrpc" -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage",
   "params":{"message":{"role":"ROLE_USER","messageId":"m-1","parts":[{"text":"hello"}]},
             "configuration":{"returnImmediately":true}}}'
@@ -610,7 +614,7 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 |---|---|
 | `module "x" is configured but not compiled into this build (built with no_x?)` | 这个构建裁掉了该模块 |
 | `module "shell" … it needs -tags shell` | 装的是默认变体,重装加 `--shell` |
-| `hub /register rejected: … invite` | hub 开了准入,向运营者要码,加 `--token` |
+| `hub /register rejected: … invite` | hub 开了准入,向运营者要码,放进 `ANET_INVITE`(或 `--token-file`)再注册 |
 | 连 hub 得到 426,或 daemon 拒绝工作 | 两代不互通:v0.2 daemon 只连 wire 2 的 hub,0.1.x daemon 只连 wire 1 的 hub |
 | 任务 `failed`,`anet.reason=undeliverable` | 委派或消息在有效期内一直没送到(hub 长时间不可达,或 hub 拒收)。发送时本地写入成功即返回 `submitted`,之后由 daemon 自动重试,过期才判失败;能力任务的 `anet.effect_status` 为 `UNAVAILABLE`。重发用新的消息 id |
 | 委派后得到 `rejected`,`anet.reason=not_accepting` | 你不在对方的允许名单里,能力也不是对方的公开能力。请对方 `anet peers allow <你的 AID>` |
@@ -633,8 +637,9 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 
 - **新节点什么都不开**:入站 `closed`、名单全空、没有公开能力、不为不信任的对端运行本机 agent、自动付款与 agent 付款上限为 0。`anet doctor` 列出与这些默认值不同的每一项。
 - 默认构建**不监听任何公开端口**,只有回环控制面(bearer + 回环 Host)与回环 A2A 接口(独立令牌)。会开公开口的只有两处:`x402` 的 `voucher_addr`(配了才开)与 `p2p`(入站直连)。
-- 控制面只接受回环 Host;没有"允许远程控制"的开关。控制台用 `anet console` 取的 60 秒单次票据登录,页面里不含令牌。
+- 控制面只接受回环 Host;没有"允许远程控制"的开关。控制台用 `anet console` 取的 60 秒单次票据登录,页面里不含令牌;票据经私有目录里的一次性启动页交给浏览器,不出现在任何进程的命令行上。
 - 终端确认(`anet peers allow|trust`、`anet inbound approve`、`anet pay`、改支出上限)挡的是只能经 MCP 或 A2A 接口行事的 agent;能以你的用户身份执行命令的程序可以绕过它。给编码 agent 开 Bash 权限时按这个前提决定。
+- CLI 与 `anet mcp` 只在确认回环端口上是**你自己的** daemon 之后才发送控制令牌(Linux 查内核套接字表的属主,其他系统用挑战-应答);daemon 没起来时别的本机用户占住控制口,拿不到令牌。
 - 邀请码、付款授权都**不落盘**,用完即弃。
 - 节点为谁做什么由节点决定,不由 hub 决定;hub 不是可信方,它签的东西你都能验。hub 与他人仍能看到的元数据见[已知局限](KNOWN-LIMITATIONS-zh.md)。
 - `shell` 变体不提权。daemon 以 root 跑,名单里的每个 AID 就能以 root 跑你列出的命令——名单按这个前提写。

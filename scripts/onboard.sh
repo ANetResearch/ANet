@@ -85,7 +85,7 @@ PY
   return 1
 }
 ctl(){ # ctl <profile> <port> <path> <json>
-  curl -s -m 120 -H "Authorization: Bearer $(cat "$ROOT/$1/.anet/control_token.txt")" \
+  curl -s -m 120 -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$ROOT/$1/.anet/control_token.txt")") \
     -H 'Content-Type: application/json' -d "$4" "http://127.0.0.1:$2$3"
 }
 jq_(){ python3 -c "import sys,json

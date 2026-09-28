@@ -7,6 +7,14 @@ package daemon
 //     single-use ticket valid for 60 seconds and the URL http://127.0.0.1:<port>/console#t=<ticket>.
 //     The ticket travels in the URL fragment, which the browser never sends in a request line, a
 //     Referer header or a server log.
+//
+//     It does not travel on a command line either [redteam:F19]. Handing the URL to xdg-open/open put
+//     the ticket in the argv of the opener and of the browser, which every local user can read from
+//     /proc/<pid>/cmdline and redeem first. So `anet console` asks for a launcher: the daemon writes a
+//     one-page HTML redirect to the ticket URL into its private runtime directory (0700, file 0600,
+//     writeLauncher), the CLI opens that file's path — the only argument — and the daemon deletes the
+//     file when the ticket is redeemed or expires. `anet console --url` still prints the URL, on
+//     standard output, for an operator to open by hand.
 //  2. The page removes the fragment from its URL and posts the ticket to POST /console/session. The
 //     daemon consumes the ticket, sets the session cookie anet_s_<port> (HttpOnly; SameSite=Strict;
 //     Path=/) and returns a CSRF value once, in the response body. The page keeps the CSRF value in
@@ -25,16 +33,21 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/loopguard"
 )
 
@@ -54,7 +67,11 @@ type consoleSessions struct {
 	mu       sync.Mutex
 	tickets  map[string]time.Time // digest(ticket) -> expiry
 	sessions map[string]*consoleSession
-	now      func() time.Time
+	// launchers are the launcher files written for outstanding tickets, digest(ticket) -> path; each is
+	// removed with its ticket (redeemed, expired or evicted).
+	launchers map[string]string
+	now       func() time.Time
+	ttl       time.Duration // ticket lifetime: consoleTicketTTL (tests shorten it)
 }
 
 type consoleSession struct {
@@ -64,9 +81,11 @@ type consoleSession struct {
 
 func newConsoleSessions() *consoleSessions {
 	return &consoleSessions{
-		tickets:  map[string]time.Time{},
-		sessions: map[string]*consoleSession{},
-		now:      time.Now,
+		tickets:   map[string]time.Time{},
+		sessions:  map[string]*consoleSession{},
+		launchers: map[string]string{},
+		now:       time.Now,
+		ttl:       consoleTicketTTL,
 	}
 }
 
@@ -88,6 +107,7 @@ func (c *consoleSessions) purgeLocked(now time.Time) {
 	for k, exp := range c.tickets {
 		if !now.Before(exp) {
 			delete(c.tickets, k)
+			c.dropLauncherLocked(k)
 		}
 	}
 	for k, s := range c.sessions {
@@ -117,10 +137,102 @@ func (c *consoleSessions) issueTicket() (string, time.Time, error) {
 			}
 		}
 		delete(c.tickets, oldest)
+		c.dropLauncherLocked(oldest)
 	}
-	exp := now.Add(consoleTicketTTL)
+	exp := now.Add(c.ttl)
 	c.tickets[digest(t)] = exp
 	return t, exp, nil
+}
+
+// lifetime is the ticket lifetime.
+func (c *consoleSessions) lifetime() time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ttl
+}
+
+// dropLauncherLocked removes the launcher file of the ticket with digest k, if it has one.
+func (c *consoleSessions) dropLauncherLocked(k string) {
+	if p, ok := c.launchers[k]; ok {
+		_ = os.Remove(p)
+		delete(c.launchers, k)
+	}
+}
+
+// launcherPrefix and launcherSuffix name the launcher files in the runtime directory.
+const (
+	launcherPrefix = "console-"
+	launcherSuffix = ".html"
+)
+
+// writeLauncher writes the launcher page for ticket t — an HTML redirect to consoleURL, which carries
+// the ticket — into the private runtime directory, and returns its path. The page is 0600 in a 0700
+// directory of this uid (ensurePrivateDir), created with O_EXCL|O_NOFOLLOW under a random name, so no
+// other local user can read it or plant it. It is removed when the ticket is redeemed, when it expires
+// (a timer, so no later request is needed), or when it is evicted; a daemon that stopped before then
+// leaves a page whose ticket died with it, which the next launcher write sweeps away.
+func (c *consoleSessions) writeLauncher(t, consoleURL string) (string, error) {
+	dir := RuntimeDir()
+	if err := ensurePrivateDir(dir); err != nil {
+		return "", err
+	}
+	sweepLaunchers(dir, c.lifetime())
+	name, err := randomToken(12)
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(dir, launcherPrefix+name+launcherSuffix)
+	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return "", err
+	}
+	u := html.EscapeString(consoleURL)
+	_, werr := fmt.Fprintf(f, `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer">
+<meta http-equiv="refresh" content="0;url=%s">
+<title>anet console</title></head>
+<body><p>Opening the anet console&hellip; <a href="%s">continue</a></p></body></html>
+`, u, u)
+	cerr := f.Close()
+	if werr != nil || cerr != nil {
+		_ = os.Remove(p)
+		return "", errors.Join(werr, cerr)
+	}
+	k := digest(t)
+	c.mu.Lock()
+	exp, live := c.tickets[k]
+	if live {
+		c.launchers[k] = p
+	}
+	c.mu.Unlock()
+	if !live { // redeemed or evicted while the file was being written
+		_ = os.Remove(p)
+		return "", errors.New("the console ticket is no longer valid")
+	}
+	time.AfterFunc(time.Until(exp)+10*time.Millisecond, func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.purgeLocked(c.now())
+	})
+	return p, nil
+}
+
+// sweepLaunchers removes launcher files older than ttl from dir: leftovers of a daemon that stopped
+// before its tickets expired.
+func sweepLaunchers(dir string, ttl time.Duration) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		n := e.Name()
+		if !e.Type().IsRegular() || !strings.HasPrefix(n, launcherPrefix) || !strings.HasSuffix(n, launcherSuffix) {
+			continue
+		}
+		if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) > ttl {
+			_ = os.Remove(filepath.Join(dir, n))
+		}
+	}
 }
 
 // redeemTicket consumes a ticket. It reports false for an unknown, already used or expired ticket.
@@ -133,6 +245,7 @@ func (c *consoleSessions) redeemTicket(t string) bool {
 	k := digest(t)
 	exp, ok := c.tickets[k]
 	delete(c.tickets, k)
+	c.dropLauncherLocked(k)
 	return ok && c.now().Before(exp)
 }
 
@@ -202,19 +315,34 @@ func consoleHost(controlAddr string) string {
 }
 
 // hConsoleTicket issues a console ticket (bearer only: it is not on the session allowlist, so a session
-// cannot extend itself). The answer carries the URL `anet console` opens.
+// cannot extend itself). The answer carries the ticket URL; with {"launcher": true} it also carries the
+// path of a launcher page for that URL (writeLauncher), which is what `anet console` opens, so the
+// ticket never appears on a command line [redteam:F19].
 func (d *Daemon) hConsoleTicket(cs *consoleSessions) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Launcher bool `json:"launcher"`
+		}
+		_ = readJSON(r, &req) // an empty body asks for no launcher
 		t, exp, err := cs.issueTicket()
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "ticket: " + err.Error()})
 			return
 		}
 		u := "http://" + consoleHost(d.config().ControlAddr) + ":" + requestPort(r) + "/console#t=" + t
+		out := map[string]any{
+			"ticket": t, "url": u, "expires_in": int(cs.lifetime() / time.Second), "expires_at": exp.UnixMilli(),
+		}
+		if req.Launcher {
+			p, err := cs.writeLauncher(t, u)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "console launcher: " + err.Error()})
+				return
+			}
+			out["launcher"] = p
+		}
 		w.Header().Set("Cache-Control", "no-store")
-		writeJSON(w, http.StatusOK, map[string]any{
-			"ticket": t, "url": u, "expires_in": int(consoleTicketTTL / time.Second), "expires_at": exp.UnixMilli(),
-		})
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
@@ -272,7 +400,10 @@ const switchTimeout = 5 * time.Second
 //
 // The token is sent only to a loopback control address, and only after checking that the data dir the
 // registry names holds the requested AID, so a stale or edited registry entry cannot direct the token
-// of one identity to a daemon of another.
+// of one identity to a daemon of another. The registry's liveness probe (/ping, unauthenticated) says
+// only that something answers on the recorded port: after a crash another local user may hold it, so
+// the ticket request goes out on a connection verified to be this user's daemon (internal/localpeer,
+// A2A-DESIGN §7.4 [redteam:F18]).
 func (d *Daemon) hConsoleSwitch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AID string `json:"aid"`
@@ -321,7 +452,7 @@ func requestTicket(ctx context.Context, controlAddr, token string) (string, erro
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := localpeer.Client(token, 0).Do(req) // the context bounds it
 	if err != nil {
 		return "", fmt.Errorf("ticket from %s: %w", controlAddr, err)
 	}

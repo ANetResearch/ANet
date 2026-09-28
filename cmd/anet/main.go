@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -24,7 +25,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/loopguard"
 	"github.com/ANetResearch/ANet/module"
 )
@@ -169,7 +172,7 @@ func extractGlobalID(args []string) (id string, rest []string) {
 type cmdDoc struct{ use, desc string }
 
 var grpNetwork = []cmdDoc{
-	{"hub-register <url> [--name N] [--caps a,b] [--token INVITE]", "在 Hub 上注册你的 agent(提交 AID 与加密公钥; 有公开能力时附 A2A 卡片)"},
+	{"hub-register <url> [--name N] [--caps a,b] [--token-file F]", "在 Hub 上注册你的 agent(提交 AID 与加密公钥; 有公开能力时附 A2A 卡片;邀请码经 ANET_INVITE 或 --token-file,不上命令行)"},
 	{"doctor", "这个节点被设成了什么样、哪些门开着(读数据目录, 不需要 daemon)"},
 	{"agents wire <claude|codex|cursor|opencode|hermes>", "把 anet 的 MCP 工具与用法说明写进你的编码 agent(--all 接入全部检测到的)"},
 	{"peers list|allow|trust|deny|remove [<aid>]", "入站名单: allow 可委派, trust 另可驱动本机 exec 自动回复; allow/trust 需在终端确认"},
@@ -340,7 +343,7 @@ func usageAllText() string {
   anet agents unwire [--all|<tool>…] [--a2a <aid>…]   remove what wire added, Hermes a2a_agents tokens included
   anet agents                 show which coding agents are wired, and whether Hermes' a2a_agents still match this node
   anet install --agent <tool>   older name for 'anet agents wire <tool>'
-  anet hub-register <url> [--name N] [--caps a,b] [--token INVITE]   register on a Hub (--token only if it admits by invite)
+  anet hub-register <url> [--name N] [--caps a,b] [--token-file F]   register on a Hub (invite-only hub: invite in ANET_INVITE or --token-file, never on the command line)
   anet peers list             show the inbound policy and the allow, trust and deny lists
   anet peers allow|trust <aid>   let a peer delegate to you (trust: also drive your exec auto-reply); asks for confirmation on the terminal
   anet peers deny|remove <aid>   refuse a peer (cancels its open tasks) / take it off every list
@@ -466,15 +469,26 @@ func hasFlag(args []string, names ...string) bool {
 // running daemon and wrongly conclude it's already up (never starting the new identity). A missing token
 // file means "not started here"; readiness is confirmed once our daemon writes its token and serves.
 func localDaemonUp(layout daemon.Layout) bool {
+	up, _ := probeLocalDaemon(layout)
+	return up
+}
+
+// probeLocalDaemon is localDaemonUp with the reason it is not up, when there is one worth telling.
+//
+// It runs as the first step of `anet up`, which is exactly when the daemon is not holding its port and
+// another local user may be: the probe goes through client.http, which verifies the listener before the
+// token is written (A2A-DESIGN §7 item 10 [redteam:F18]). A listener that is not this user's daemon is
+// reported with localpeer.ErrNotOurs in the chain.
+func probeLocalDaemon(layout daemon.Layout) (bool, error) {
 	tb, err := os.ReadFile(layout.ControlTokenPath())
 	if err != nil {
-		return false
+		return false, nil
 	}
 	// The token is sent only to a loopback address (A2A-DESIGN §7.1); a daemon cannot be serving on any
 	// other, since it refuses to start there.
 	addr := daemon.LocalControlAddr(layout)
 	if loopguard.CheckLoopbackAddr(addr) != nil {
-		return false
+		return false, nil
 	}
 	c := &client{
 		base:    "http://" + addr,
@@ -482,7 +496,7 @@ func localDaemonUp(layout daemon.Layout) bool {
 		timeout: 1500 * time.Millisecond,
 	}
 	_, code, e := c.fetch("/status", nil)
-	return e == nil && code == 200
+	return e == nil && code == 200, e
 }
 
 // runDaemonDetached starts the daemon as a fully detached background process (its own session, output to
@@ -490,9 +504,16 @@ func localDaemonUp(layout daemon.Layout) bool {
 // up` leaves a resident daemon even after the launching shell exits — unlike `anet daemon &`, which dies
 // with an agent's short-lived tool-call shell. Idempotent: if a daemon is already up it just prints status.
 func runDaemonDetached(layout daemon.Layout) error {
-	if localDaemonUp(layout) {
+	up, perr := probeLocalDaemon(layout)
+	if up {
 		fmt.Printf("anet daemon already running (data dir %s)\n", layout.Root)
 		return runClient(layout, "status", nil, true)
+	}
+	if errors.Is(perr, localpeer.ErrNotOurs) {
+		// Somebody else holds this identity's control port while its daemon is down. The token was not
+		// sent; the daemon moves to a free port and records it in config.json, which every later
+		// command reads.
+		fmt.Fprintf(os.Stderr, "note: %v\n      starting the daemon on another port\n", perr)
 	}
 	// Initialize the identity (auto-allocate a free control port for a fresh dir) BEFORE spawning, so the
 	// child daemon binds a non-colliding port and the readiness poll targets the right address.
@@ -514,7 +535,7 @@ func runDaemonDetached(layout daemon.Layout) error {
 	c := exec.Command(exe, "daemon")
 	// Pin the child to THIS data dir explicitly, regardless of how the parent resolved it, so a detached
 	// daemon started from the default dir and one started with ANET_DATA_DIR both land where expected.
-	c.Env = append(os.Environ(), "ANET_DATA_DIR="+layout.Root)
+	c.Env = append(envWithout(os.Environ(), inviteEnv), "ANET_DATA_DIR="+layout.Root)
 	c.Stdin = nil
 	c.Stdout = logf
 	c.Stderr = logf
@@ -552,6 +573,7 @@ func runDaemonDetached(layout daemon.Layout) error {
 			}
 			fmt.Printf("anet daemon started%s (pid %d, data dir %s) — stop it anytime with `anet stop%s`\n\n",
 				label, pid, layout.Root, stopHint(name))
+			reportA2APortConflict(layout)
 			return runClient(layout, "status", nil, true)
 		}
 		select {
@@ -563,6 +585,18 @@ func runDaemonDetached(layout daemon.Layout) error {
 		}
 	}
 	return fmt.Errorf("daemon did not become ready within 8s — check the log: anet logs")
+}
+
+// reportA2APortConflict says, on the terminal that started the node, that the local A2A interface did
+// not start because another process held its port (module/a2a leaves a2a_port_conflict.txt). The node
+// runs without it; the log line alone is too easy to miss for something that may mean another local
+// user is collecting the A2A token from configured clients (A2A-DESIGN §11.1 [redteam:F18]).
+func reportA2APortConflict(layout daemon.Layout) {
+	b, err := os.ReadFile(filepath.Join(anethome.A2ADir(layout.Root), anethome.A2AConflictFile))
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "WARNING: the local A2A interface did not start.\n  %s\n\n", strings.TrimSpace(string(b)))
 }
 
 // daemonStartFailed reports why a detached daemon exited, quoting the log.
@@ -927,8 +961,10 @@ func maybeFile(v string) (string, error) {
 	return v, nil
 }
 
-// openBrowser best-effort opens url in the operator's default browser (used by `anet console`).
-func openBrowser(url string) error {
+// openBrowser best-effort opens a local page in the operator's default browser (used by `anet console`).
+// It is given a file path, never a URL with a credential in it: its argument is on the opener's and the
+// browser's command line, which other local users can read [redteam:F19].
+func openBrowser(path string) error {
 	var name string
 	var args []string
 	switch runtime.GOOS {
@@ -939,7 +975,7 @@ func openBrowser(url string) error {
 	default:
 		name = "xdg-open"
 	}
-	return exec.Command(name, append(args, url)...).Start()
+	return exec.Command(name, append(args, path)...).Start()
 }
 
 // splitFlags separates positional args from "--key value" (and bare "--bool") flags in a verb's args.
@@ -1112,7 +1148,7 @@ var knownFlags = map[string][]string{
 
 	// through the control plane
 	"status":        {},
-	"hub-register":  {"name", "caps", "token", "accept-delegations"},
+	"hub-register":  {"name", "caps", "token", "token-file", "accept-delegations"}, // "token": inviteFrom refuses it, saying where the invite goes
 	"hub-leave":     {},
 	"p2p-advertise": {},
 	"accept":        {},
@@ -1317,13 +1353,20 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// http://127.0.0.1:<port>/console#t=<ticket>. The page trades the ticket for a browser session;
 		// reloading the page needs a new ticket, i.e. running this command again. --id NAME picks the
 		// identity, like every other command.
-		b, code, err := c.fetch("/console/ticket", map[string]any{})
+		//
+		// The ticket is never put on a command line: every local user can read a process's arguments
+		// in /proc/<pid>/cmdline and redeem the ticket before the browser does [redteam:F19]. The
+		// daemon writes a launcher page (0600, in its private runtime directory) that redirects to the
+		// ticket URL and deletes it on redemption or after 60 seconds; the browser is given its path.
+		urlOnly := hasFlag(rest, "--url", "--print")
+		b, code, err := c.fetch("/console/ticket", map[string]any{"launcher": !urlOnly})
 		if err != nil {
 			return err
 		}
 		var tk struct {
-			URL   string `json:"url"`
-			Error string `json:"error"`
+			URL      string `json:"url"`
+			Launcher string `json:"launcher"`
+			Error    string `json:"error"`
 		}
 		if json.Unmarshal(b, &tk) != nil || code != 200 || tk.URL == "" {
 			if tk.Error == "" {
@@ -1333,12 +1376,18 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		}
 		// `--url` (alias `--print`): just print the URL — this is what an onboarding agent hands back to
 		// its operator to open. It is single-use and expires after 60 seconds.
-		if hasFlag(rest, "--url", "--print") {
+		if urlOnly {
 			fmt.Println(tk.URL)
 			return nil
 		}
+		if tk.Launcher == "" || !filepath.IsAbs(tk.Launcher) {
+			// A daemon from before launcher pages. Handing the URL to the browser's command line is
+			// what this avoids, so it is not the fallback.
+			return fmt.Errorf("this daemon cannot hand out a console launcher (it is older than this anet: " +
+				"restart it with `anet stop && anet up`); or run `anet console --url` and open the printed link within 60 seconds")
+		}
 		fmt.Println("opening the console (single-use link, valid 60 s)")
-		if err := openBrowser(tk.URL); err != nil {
+		if err := openBrowser(tk.Launcher); err != nil {
 			fmt.Fprintln(os.Stderr, "(could not auto-open a browser; run `anet console --url` and open the printed URL within 60 seconds)")
 		}
 		return nil
@@ -1551,6 +1600,19 @@ type client struct {
 	dataDir     string // used to build a helpful error when the daemon is unreachable (see do)
 }
 
+// http is the HTTP client every control call goes through. The control token is the node's full
+// credential, and a loopback port can be held by another local user whenever the daemon is not holding
+// it (before `anet up`, after a crash or a reboot), so each connection is verified to be this user's
+// daemon before the request carrying the token is written on it (internal/localpeer, A2A-DESIGN §7
+// item 10 [redteam:F18]).
+func (c *client) http() *http.Client {
+	to := c.timeout
+	if to == 0 {
+		to = 30 * time.Second
+	}
+	return localpeer.Client(c.token, to)
+}
+
 func (c *client) fetch(path string, body any) ([]byte, int, error) {
 	var buf bytes.Buffer
 	if body != nil {
@@ -1563,11 +1625,7 @@ func (c *client) fetch(path string, body any) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	to := c.timeout
-	if to == 0 {
-		to = 30 * time.Second
-	}
-	resp, err := (&http.Client{Timeout: to}).Do(req)
+	resp, err := c.http().Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1588,11 +1646,7 @@ func (c *client) do(path string, body any) error {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	to := c.timeout
-	if to == 0 {
-		to = 30 * time.Second
-	}
-	resp, err := (&http.Client{Timeout: to}).Do(req)
+	resp, err := c.http().Do(req)
 	if err != nil {
 		return diagnoseNoDaemon(c.base, c.dataDir, err)
 	}

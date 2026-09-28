@@ -41,6 +41,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -123,14 +125,33 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	if dir == "" {
 		return errors.New("a2a: no private state directory for the local A2A interface (see the log line above)")
 	}
+	_, statErr := os.Lstat(filepath.Join(dir, TokenFile))
+	hadToken := statErr == nil
 	token, err := loadOrCreateToken(dir)
 	if err != nil {
 		return fmt.Errorf("a2a: %w", err)
 	}
-	ln, err := listen(dir)
+	ln, fresh, err := listen(dir)
+	var taken *portTakenError
+	if errors.As(err, &taken) {
+		portTaken(dir, taken)
+		return nil // the rest of the node runs; see portTaken
+	}
 	if err != nil {
 		return fmt.Errorf("a2a: %w", err)
 	}
+	if fresh && hadToken {
+		// A new port while clients hold the token for another one: they go
+		// on sending it to the old port, where anybody may be listening by
+		// now. Replace it, so what they send is worth nothing [redteam:F18].
+		if token, err = rotateToken(dir); err != nil {
+			_ = ln.Close()
+			return fmt.Errorf("a2a: replace the token for the new address: %w", err)
+		}
+		log.Printf("anet: a2a: %s was missing, so the local A2A interface chose its address afresh (%s) "+
+			"and has a new token; update its clients: anet agents wire --refresh", AddrFile, ln.Addr())
+	}
+	_ = os.Remove(filepath.Join(dir, ConflictFile))
 	host, port, _ := net.SplitHostPort(ln.Addr().String())
 	signer, _ := h.(module.ProxyCardSigner)
 	s := newServer(seam, serverConfig{token: token, host: host, port: port, self: h.AID(), signer: signer})
@@ -160,6 +181,45 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	}()
 	log.Printf("anet: a2a: local A2A interface on http://%s/a2a/v1/agents", ln.Addr())
 	return nil
+}
+
+// portTaken handles a recorded port that another process holds: the
+// interface does not start, loudly, and the token is replaced when that
+// process may belong to another local user (A2A-DESIGN §11.1 [redteam:F18]).
+//
+// Moving to another port, which this used to do, left every configured
+// client — Hermes' a2a_agents entries among them — sending the token to the
+// old port, to whoever held it, while the token went on working on the new
+// one. Staying down is the choice that leaks nothing more, and it costs the
+// node only this interface: everything else keeps running, which is also
+// why this is not an error returned to the daemon (a port another user can
+// take must not be a way to stop the node). The token is replaced because
+// the clients may already have sent it to the holder; it takes effect
+// whenever the interface next starts. A holder that is provably this same
+// user is not a boundary (A2A-DESIGN §21 item 13) and keeps the token.
+//
+// What happened is written to a2a_port_conflict.txt, which `anet up` and
+// `anet doctor` report, and logged.
+func portTaken(dir string, te *portTakenError) {
+	who, otherUser := portHolder(te.addr)
+	rotated := ""
+	if otherUser {
+		if _, err := rotateToken(dir); err != nil {
+			rotated = " The local A2A token could NOT be replaced (" + err.Error() + "); delete " +
+				filepath.Join(dir, TokenFile) + " before the interface starts again."
+		} else {
+			rotated = " The local A2A token was replaced, because its clients may have sent the old one to that process."
+		}
+	}
+	msg := fmt.Sprintf("%s %s is held by %s, so the local A2A interface did not start "+
+		"(it does not move while its clients point at this port).%s "+
+		"Free the port (stop the process holding it), restart the node (anet stop && anet up), "+
+		"then run: anet agents wire --refresh",
+		time.Now().UTC().Format(time.RFC3339), te.addr, who, rotated)
+	if err := writePrivateFile(filepath.Join(dir, ConflictFile), []byte(msg+"\n")); err != nil {
+		log.Printf("anet: a2a: record the port conflict: %v", err)
+	}
+	log.Printf("anet: a2a: ERROR: %s", msg)
 }
 
 // Stop shuts the server down. The daemon's own shutdown goes through the
