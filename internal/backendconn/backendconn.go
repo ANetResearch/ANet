@@ -19,7 +19,10 @@
 // user, the account named by expected_uid/expected_user, and the socket's own owner where that owner's
 // directory sits in one nobody else can write. A directory writable by every user is allowed above the
 // socket only when it is sticky (/tmp), and never as the socket's own directory; a group-writable one
-// only when socket_group names its group. After connecting, on Linux, SO_PEERCRED gives the uid of the
+// only when socket_group names its group, or when the group is the user-private group of the socket's
+// owner or of this daemon's user — named as the user, the user's primary group, no other member — which
+// can write nothing its user cannot (Ubuntu's umask 002 makes every directory 0775 with such a group;
+// usergroups.go). After connecting, on Linux, SO_PEERCRED gives the uid of the
 // process that listens on the socket, which must be expected_uid when it is set and the socket file's
 // owner otherwise. A failed check sends nothing.
 //
@@ -81,6 +84,15 @@ type Rules struct {
 	expected int // -1: none
 	group    int // -1: none
 	self     int
+	// users says which groups are user-private (usergroups.go); nil reads the system's files.
+	users userDB
+}
+
+func (r Rules) userDB() userDB {
+	if r.users != nil {
+		return r.users
+	}
+	return systemUsers
 }
 
 // Resolve looks up the names in p. A user or group that does not exist is an error: the operator named
@@ -482,11 +494,27 @@ func (r Rules) judge(sock string, entries []entry) error {
 	final := entries[last].parent // the socket's directory
 	trusted := func(uid int) bool { return uid == 0 || uid == r.self || (r.expected >= 0 && uid == r.expected) }
 	groupOK := func(m meta) bool { return r.group >= 0 && m.gid == r.group }
+	// The user-private groups of the socket's owner and of this daemon's user, read when a
+	// group-writable directory is first met: such a group can write nothing its user cannot, so a
+	// directory writable by it is as private as one that is not group-writable (docs/notes/0035 §5.1).
+	var private map[int]bool
+	privateGroup := func(gid int) bool {
+		if private == nil {
+			private = map[int]bool{}
+			for _, uid := range []int{owner, r.self} {
+				if g, ok := r.userDB().privateGroup(uid); ok {
+					private[g] = true
+				}
+			}
+		}
+		return private[gid]
+	}
+	groupWritableOK := func(m meta) bool { return groupOK(m) || privateGroup(m.gid) }
 	// strict: only the directory's owner (and root) can add, rename or remove entries in it, or also
-	// the configured group's members.
+	// the configured group's members, or its user through a user-private group.
 	strict := func(m meta) bool {
 		perm := m.mode.Perm()
-		return perm&0o002 == 0 && (perm&0o020 == 0 || groupOK(m))
+		return perm&0o002 == 0 && (perm&0o020 == 0 || groupWritableOK(m))
 	}
 	if r.expected >= 0 && !trusted(owner) {
 		return refuse(sock, "the socket is owned by uid %d, not by the expected uid %d, this daemon's or root", owner, r.expected)
@@ -508,8 +536,9 @@ func (r Rules) judge(sock string, entries []entry) error {
 			if perm&0o002 != 0 && (!sticky || i == final) {
 				return refuse(sock, "%s is writable by every user (mode %04o)", e.path, perm|stickyBits(e.m.mode))
 			}
-			if perm&0o020 != 0 && !groupOK(e.m) && (!sticky || i == final) {
-				return refuse(sock, "%s is writable by group %d (mode %04o); set socket_group if that group's members are trusted with the backend", e.path, e.m.gid, perm|stickyBits(e.m.mode))
+			if perm&0o020 != 0 && !groupWritableOK(e.m) && (!sticky || i == final) {
+				return refuse(sock, "%s is writable by group %d (mode %04o), which is not a user-private group of the socket's owner or of "+
+					"this daemon's user; set socket_group if that group's members are trusted with the backend", e.path, e.m.gid, perm|stickyBits(e.m.mode))
 			}
 		}
 		if trusted(e.m.uid) {

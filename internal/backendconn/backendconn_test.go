@@ -182,6 +182,9 @@ func TestAWritableDirectoryIsRefused(t *testing.T) {
 	d := privateDir(t)
 	s := serveUnix(t, filepath.Join(d, "b.sock"))
 	r, _ := Policy{}.Resolve()
+	// The directory's group is this user's primary group, a user-private one on Debian and Ubuntu
+	// (accepted: TestAUserPrivateGroupIsPrivate); judged here as a group others are in.
+	r.users = privateGroups{}
 	// Writable by others only (0703), by the group only (0730), by both, sticky or not.
 	for _, mode := range []fs.FileMode{0o703, fs.ModeSticky | 0o703, 0o777, fs.ModeSticky | 0o777, 0o770, 0o730} {
 		if err := os.Chmod(d, mode); err != nil {
@@ -205,6 +208,7 @@ func TestAWritableDirectoryIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rg.users = privateGroups{}
 	if _, err := get(t, rg, "unix://"+s.path); err != nil {
 		t.Fatalf("group-writable with socket_group %d: %v", gid, err)
 	}
@@ -267,6 +271,14 @@ func TestAMissingSocketIsDownNotRefused(t *testing.T) {
 	}
 }
 
+// privateGroups is a userDB: uid → its user-private group; an account not in it has none.
+type privateGroups map[int]int
+
+func (p privateGroups) privateGroup(uid int) (int, bool) {
+	g, ok := p[uid]
+	return g, ok
+}
+
 // fakeFS is a file system for judging paths with owners a test cannot create.
 type fakeFS map[string]fakeEntry
 
@@ -312,7 +324,9 @@ func TestJudge(t *testing.T) {
 			"/home": dir(0, 0o755),
 		}
 	}
-	rules := Rules{expected: -1, group: -1, self: self}
+	rules := Rules{expected: -1, group: -1, self: self, users: privateGroups{}}
+	// Debian and Ubuntu: every user has a group of its own (here gid = uid), and umask 002.
+	upg := Rules{expected: -1, group: -1, self: self, users: privateGroups{self: self, dyn: dyn, stranger: stranger}}
 	cases := []struct {
 		name  string
 		add   fakeFS
@@ -359,6 +373,24 @@ func TestJudge(t *testing.T) {
 		{"a group-writable directory of another group than socket_group",
 			fakeFS{"/run/g": {uid: 0, gid: ipc + 1, mode: fs.ModeDir | 0o770}, "/run/g/b.sock": sock(dyn, ipc)},
 			Rules{expected: -1, group: ipc, self: self}, "/run/g/b.sock", false},
+		{"docs/notes/0035 §5.1: this user's 0775 directory, writable by this user's private group",
+			fakeFS{"/home/me": dir(self, 0o750), "/home/me/u": dir(self, 0o775), "/home/me/u/b.sock": sock(self, self)},
+			upg, "/home/me/u/b.sock", true},
+		{"the same directory where the group has other members",
+			fakeFS{"/home/me": dir(self, 0o750), "/home/me/u": dir(self, 0o775), "/home/me/u/b.sock": sock(self, self)},
+			rules, "/home/me/u/b.sock", false},
+		{"a directory above the socket, writable by this user's private group",
+			fakeFS{"/home/me": {uid: self, gid: self, mode: fs.ModeDir | 0o775}, "/home/me/u": dir(self, 0o700), "/home/me/u/b.sock": sock(self, self)},
+			upg, "/home/me/u/b.sock", true},
+		{"a backend user's 0775 directory, writable by the backend's (the socket owner's) private group",
+			fakeFS{"/run/svc": dir(dyn, 0o775), "/run/svc/b.sock": sock(dyn, dyn)},
+			upg, "/run/svc/b.sock", true},
+		{"this user's directory writable by a stranger's private group",
+			fakeFS{"/home/me": {uid: self, gid: stranger, mode: fs.ModeDir | 0o775}, "/home/me/b.sock": sock(self, self)},
+			upg, "/home/me/b.sock", false},
+		{"a private group does not make a world-writable directory private",
+			fakeFS{"/home/me": dir(self, 0o777), "/home/me/b.sock": sock(self, self)},
+			upg, "/home/me/b.sock", false},
 		{"socket activation: root's socket in root's directory",
 			fakeFS{"/run/s": dir(0, 0o755), "/run/s/b.sock": sock(0, ipc)},
 			rules, "/run/s/b.sock", true},
