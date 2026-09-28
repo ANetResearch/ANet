@@ -51,6 +51,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/jsonread"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
@@ -892,18 +893,11 @@ func (d *Daemon) planProviderPayment(ixID string, meta []byte) *providerPayment 
 	pp := &providerPayment{meta: m}
 	pp.status, _ = m[x402a2a.KeyStatus].(string)
 	// The quote, whenever a status carries one: a payment-required, or a
-	// payment-failed that leaves the quote standing. Kept as the provider
-	// wrote it: a local client copies an option out of it and the choice
-	// is compared with what was stored (§8.7).
-	var fields map[string]json.RawMessage
-	_ = json.Unmarshal(meta, &fields)
-	if raw := []byte(fields[x402a2a.KeyRequired]); len(raw) > 0 {
-		var pr payment.PaymentRequired
-		if json.Unmarshal(raw, &pr) == nil && len(pr.Accepts) > 0 {
-			pp.quote = raw
-		} else {
-			log.Printf("anet: %s: the provider asked to be paid and named no way to pay", ixID)
-		}
+	// payment-failed that leaves the quote standing.
+	if raw, ok := quoteOf(meta); ok {
+		pp.quote = raw
+	} else if raw != nil {
+		log.Printf("anet: %s: the provider asked to be paid and named no way to pay (none, or one that reads two ways)", ixID)
 	}
 	pp.expires = time.Now().Add(quoteLifetime).UnixMilli()
 	if v, ok := m[x402a2a.KeyQuoteExpiresAt].(float64); ok && int64(v) > time.Now().UnixMilli() && int64(v) < pp.expires {
@@ -913,6 +907,28 @@ func (d *Daemon) planProviderPayment(ixID string, meta []byte) *providerPayment 
 	}
 	pp.receipts = d.planReceipts(ixID, m, false)
 	return pp
+}
+
+// quoteOf is the quote a provider's status metadata carries: the
+// x402.payment.required value, kept as the provider wrote it, since a local
+// client copies an option out of it and the choice is compared with what
+// was stored (§8.7). ok is false when there is none, when it names no way
+// to pay, and when it does not read alike (jsonread.ReadsAlike): an option
+// that spells a field in two cases would be shown to the client with one
+// amount, payee or network and signed by this node with another
+// (docs/notes/0033). raw is then what was there, if anything.
+func quoteOf(meta []byte) (raw []byte, ok bool) {
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(meta, &fields)
+	raw = fields[x402a2a.KeyRequired]
+	if len(raw) == 0 {
+		return nil, false
+	}
+	var pr payment.PaymentRequired
+	if json.Unmarshal(raw, &pr) != nil || len(pr.Accepts) == 0 || !jsonread.ReadsAlike(raw, &pr) {
+		return raw, false
+	}
+	return raw, true
 }
 
 // release lets go of the receipts lock the plan holds (receiptPlan.release)
