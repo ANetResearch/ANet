@@ -277,16 +277,18 @@ func (d *Daemon) attemptOutbox(ctx context.Context, id int64) error {
 		}
 		it.Envelope, it.Exp = env, deadline
 	}
+	// Recorded before anything is sent: an attempt whose outcome is never
+	// recorded (the process stops while a p2p send waits for its answer, the
+	// write fails) leaves the row "may have been delivered", not "no attempt
+	// reached anybody".
+	if err := d.ix.BeginOutboxAttempt(it.ID); err != nil {
+		return err
+	}
 	if maybe, err := d.deliverEnvelopeTracked(ctx, it.ToAID, it.Envelope); err != nil {
-		if maybe && !it.MaybeDelivered {
-			// Kept on the row: the attempt that fails for good later (the
-			// hub refusing what only a direct path could carry) is not
-			// the whole story ([redteam:F12]).
-			if merr := d.ix.MarkOutboxMaybeDelivered(it.ID); merr != nil {
-				log.Printf("anet: %s: %v", it.IX, merr)
-			}
-			it.MaybeDelivered = true
-		}
+		// Kept on the row: the attempt that fails for good later (the hub
+		// refusing what only a direct path could carry) is not the whole
+		// story ([redteam:F12]).
+		it.MaybeDelivered = it.MaybeDelivered || maybe
 		if reason, ok := permanentRefusal(err); ok {
 			return d.abandonOutbox(it, reason, err)
 		}
@@ -359,7 +361,7 @@ func (d *Daemon) rescheduleOutbox(it *interactions.OutboxItem, cause error) erro
 		// not up to a backoff later.
 		next = dl + 1
 	}
-	if err := d.ix.RescheduleOutbox(it.ID, n, next, cause.Error()); err != nil {
+	if err := d.ix.EndOutboxAttempt(it.ID, n, next, cause.Error(), it.MaybeDelivered); err != nil {
 		return err
 	}
 	if n == 1 || n%10 == 0 {

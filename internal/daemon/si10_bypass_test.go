@@ -6,7 +6,9 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -167,5 +169,99 @@ func TestHeldPagesDoNotStarveNewMail(t *testing.T) {
 	}
 	if n := len(queuedFor(t, srv, prov.AID())); n != held {
 		t.Fatalf("%d envelopes queued, want the %d held", n, held)
+	}
+}
+
+// deliverThenDie is a direct transport whose send delivers the envelope and
+// then, before the sender hears the answer, the sending process dies: the
+// attempt's outcome is never recorded. It stands the death in with a store
+// that refuses every write to the retry queue from that moment (die), the
+// state a process that stopped there leaves behind.
+type deliverThenDie struct {
+	to  *Daemon
+	on  atomic.Bool
+	die func()
+}
+
+func (p *deliverThenDie) Name() string { return "p2p-sender-dies" }
+func (p *deliverThenDie) Reachable(context.Context, string) bool {
+	return p.on.Load()
+}
+func (p *deliverThenDie) Send(ctx context.Context, _ string, env []byte) error {
+	_ = p.to.receiveEnvelope(ctx, env)
+	p.die()
+	return errors.New("p2p: no answer within the send timeout")
+}
+
+// [redteam:F23][redteam:F12] bypass: a delegation row is marked "may have
+// been delivered" only after the attempt that may have delivered it
+// returns. A process that stops during that attempt — a p2p send may wait
+// 20 s for its answer — or a store error on that write leaves the row
+// unmarked, as if no attempt had reached anybody. After the restart, while
+// the hub is still unreachable, the requester cancels: the delegation is
+// "withdrawn" (nothing sent, anet.delivery.expired reason=withdrawn), yet
+// the provider has it and runs it, and no cancel ever reaches it; were the
+// hub to refuse the row for good it would be abandoned as UNAVAILABLE ("not
+// delivered, did not run"). Now an attempt is recorded as under way before
+// it is made, so a row whose attempt's outcome was never recorded counts
+// as possibly delivered.
+func TestADelegationWhoseAttemptWasNeverRecordedIsNotWithdrawn(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	lamp := &lampProvider{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
+	var recovered func()
+	direct := &deliverThenDie{to: prov}
+	direct.die = func() {
+		recovered = storeFault(t, req, "rt_outbox_dead",
+			`CREATE TRIGGER rt_outbox_dead BEFORE UPDATE ON outbox BEGIN SELECT RAISE(ABORT, 'process gone (injected)'); END`)
+	}
+	direct.on.Store(true)
+	req.RegisterTransport(direct)
+
+	id, err := req.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true})
+	if err != nil {
+		t.Fatalf("delegate: %v", err)
+	}
+	if n := len(lamp.invoked); n != 1 {
+		t.Fatalf("setup: the provider ran the call %d times, want once", n)
+	}
+	// The process comes back; the direct path is gone, the hub still down.
+	recovered()
+	direct.on.Store(false)
+	rows, err := req.ix.Outbox(id)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("setup: outbox %+v (%v), want the delegation", rows, err)
+	}
+	if !rows[0].MaybeDelivered {
+		t.Fatalf("a delegation whose attempt's outcome was never recorded counts as never delivered")
+	}
+
+	if _, err := req.CancelTask(ctx, id); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	rows, _ = req.ix.Outbox(id)
+	if len(rows) != 2 {
+		t.Fatalf("outbox after the cancel: %d rows, want the delegation and the cancel behind it (withdrawn?)", len(rows))
+	}
+	// The hub is back: the cancel reaches the provider, after the
+	// delegation it already has.
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
+	req.flushOutboxAt(ctx, math.MaxInt64)
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := prov.ix.Messages(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := msgs[len(msgs)-1]; last.Kind != interactions.MsgCancel {
+		t.Fatalf("the provider's last message is %s; the cancel never reached it", last.Kind)
+	}
+	if n := len(lamp.invoked); n != 1 {
+		t.Fatalf("the call ran %d times, want once", n)
 	}
 }

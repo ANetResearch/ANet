@@ -215,3 +215,62 @@ func TestOutboxDeliversATasksMessagesInOrder(t *testing.T) {
 		t.Fatal("another task's row went with it")
 	}
 }
+
+// [redteam:F12][redteam:F23] An attempt is recorded as under way before it
+// sends anything: until its outcome is recorded the row counts as possibly
+// delivered, and an attempt whose outcome was never recorded (the process
+// stopped during it) stays so once the next attempt begins, whatever that
+// one's outcome. A recorded outcome that reached nobody leaves the row as it
+// was.
+func TestAnUnrecordedAttemptCountsAsPossiblyDelivered(t *testing.T) {
+	s := open(t)
+	id, _ := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_1", ToAID: "peer", Type: "anet.delegate/1", Body: []byte("d")})
+	maybe := func() bool {
+		t.Helper()
+		it, err := s.GetOutbox(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return it.MaybeDelivered
+	}
+	if maybe() {
+		t.Fatal("a row never attempted counts as possibly delivered")
+	}
+	// An attempt that reached nobody, recorded.
+	if err := s.BeginOutboxAttempt(id); err != nil {
+		t.Fatal(err)
+	}
+	if !maybe() {
+		t.Fatal("a row under an attempt does not count as possibly delivered")
+	}
+	if err := s.EndOutboxAttempt(id, 1, 100, "no route", false); err != nil {
+		t.Fatal(err)
+	}
+	if maybe() {
+		t.Fatal("an attempt recorded as reaching nobody left the row possibly delivered")
+	}
+	// An attempt whose outcome is never recorded, then one that reaches
+	// nobody: the first may still have delivered it.
+	if err := s.BeginOutboxAttempt(id); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BeginOutboxAttempt(id); err != nil {
+		t.Fatal(err)
+	}
+	it, _ := s.GetOutbox(id)
+	if err := s.EndOutboxAttempt(id, 2, 200, "no route", it.MaybeDelivered); err != nil {
+		t.Fatal(err)
+	}
+	if !maybe() {
+		t.Fatal("an attempt whose outcome was never recorded was forgotten")
+	}
+	if err := s.Update(func(tx *interactions.Tx) error {
+		queued, m, err := tx.OutboxQueued(id)
+		if err == nil && (!queued || !m) {
+			t.Errorf("in a transaction: queued=%v maybe=%v, want both", queued, m)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
