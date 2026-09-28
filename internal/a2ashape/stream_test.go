@@ -113,3 +113,48 @@ func TestTaskWithinHoldsAListedTaskToItsBound(t *testing.T) {
 		t.Fatal("the task given was changed")
 	}
 }
+
+// TaskReadWithin holds one task read to its bound the way TaskWithin holds
+// a listed one, and its notice says where the whole task is read — `anet
+// task get <id> --full` — naming the id only when it is plainly an id: a
+// task sent to this node has the id its requester chose, and a model may run
+// what the notice says (docs/notes/0035 §7.4: a 3 MiB reply returned whole
+// by MCP get_task was a tool result Claude Code refused).
+func TestTaskReadWithinSaysHowToReadTheWholeTask(t *testing.T) {
+	huge := strings.Repeat("字", 1<<20)
+	mk := func(id string) Task {
+		return Task{ID: id, ContextID: "c", Status: TaskStatus{State: TaskStateCompleted},
+			History: []Message{{ID: "q", Role: RoleUser, Parts: []Part{TextPart("the question")}},
+				{ID: "a", Role: RoleAgent, Parts: []Part{TextPart(huge)}}},
+			Artifacts: []Artifact{{ID: ArtifactReply, Parts: []Part{TextPart(huge)}}},
+			Metadata:  map[string]any{"anet.role": "requester"}}
+	}
+	small := Task{ID: "ix_1", Status: TaskStatus{State: TaskStateWorking}, Metadata: map[string]any{"k": "v"}}
+	if got := TaskReadWithin(small, 24<<10); !reflect.DeepEqual(got, small) {
+		t.Fatalf("a small task was changed: %+v", got)
+	}
+	for _, tc := range []struct{ id, named string }{
+		{"ix_0123abcd", "anet task get ix_0123abcd --full"},
+		{"x; rm -rf ~ #", "anet task get <task id> --full"},
+		{"--help", "anet task get <task id> --full"},
+	} {
+		got := TaskReadWithin(mk(tc.id), 24<<10)
+		b, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(b) > 24<<10 {
+			t.Fatalf("%q: %d bytes as JSON, over 24 KiB", tc.id, len(b))
+		}
+		if got.Metadata[KeyTruncated] != true || got.Metadata["anet.role"] != "requester" {
+			t.Fatalf("%q: metadata %v", tc.id, got.Metadata)
+		}
+		if len(got.Artifacts) != 1 || got.Artifacts[0].Metadata[KeyTruncated] != true {
+			t.Fatalf("%q: artifacts %+v", tc.id, got.Artifacts)
+		}
+		notice := got.Artifacts[0].Parts[0]
+		if size, _ := notice.Metadata[KeySize].(int); size < len(huge) || !strings.Contains(notice.Text, tc.named) {
+			t.Fatalf("%q: notice %q (size %v), want it to name %q", tc.id, notice.Text, notice.Metadata[KeySize], tc.named)
+		}
+	}
+}

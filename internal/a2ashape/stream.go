@@ -56,6 +56,24 @@ func TaskWithin(t Task, max int) Task {
 	return fitTask(t, max, listNotice, true)
 }
 
+// TaskReadWithin is TaskWithin for one task read by a client that takes an
+// answer of bounded size — MCP get_task, wait_task, send_message,
+// cancel_task and reply_task, whose client (Claude Code: 25 000 tokens by
+// default) refuses a larger tool result outright, so that the model does
+// not even learn the task's id (docs/notes/0035 §7.4). The same order of
+// what is kept; what is cut is a notice of its size that says where the
+// whole task is read: `anet task get <id> --full` in a terminal (the
+// control plane's /tasks/get without max_task_bytes), its files with
+// `anet pull <id>`. max below MinTaskBytes counts as MinTaskBytes. t is not
+// changed.
+func TaskReadWithin(t Task, max int) Task {
+	if max < MinTaskBytes {
+		max = MinTaskBytes
+	}
+	id := t.ID
+	return fitTask(t, max, func(size int) Part { return readNotice(id, size) }, true)
+}
+
 // fitTask holds t to max bytes as JSON (TaskForStream, TaskWithin);
 // notice stands for what was cut, and keepNewest keeps the newest history
 // message as a notice when it does not fit whole.
@@ -184,6 +202,34 @@ func streamNotice(size int) Part {
 // that a listing leaves out (TaskWithin).
 func listNotice(size int) Part {
 	return cutNotice(fmt.Sprintf("(%d bytes, left out of this list; read the task with GetTask, or MCP get_task)", size), size)
+}
+
+// readNotice stands for the parts of a message or artifact of size bytes
+// that a bounded read of task id leaves out (TaskReadWithin).
+// The id is named in the commands only when it is plainly an id: a task
+// sent to this node has the id its requester chose, and the notice is read
+// by a model that may run what it says.
+func readNotice(id string, size int) Part {
+	if !plainID(id) {
+		id = "<task id>"
+	}
+	return cutNotice(fmt.Sprintf("(%d bytes, left out of this answer to keep it small; the whole task: `anet task get %s --full` "+
+		"in a terminal, its files: `anet pull %s`)", size, id, id), size)
+}
+
+// plainID reports an id of letters, digits and _ . : - only, beginning
+// with a letter or a digit (never read as a flag), at most 128 bytes.
+func plainID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for i, r := range id {
+		alnum := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9'
+		if !alnum && (i == 0 || r != '_' && r != '.' && r != ':' && r != '-') {
+			return false
+		}
+	}
+	return true
 }
 
 func cutNotice(text string, size int) Part {

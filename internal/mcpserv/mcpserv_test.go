@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // fakeControl records what the tools ask the daemon for, and answers.
@@ -283,15 +285,16 @@ var requestShapes = []struct {
 	{"get_agent_card", map[string]any{"aid": "aid-1"},
 		"/agents/card", map[string]any{"aid": "aid-1"}},
 	{"send_message", map[string]any{"to": "aid-1", "text": "translate this"},
-		"/tasks/send", map[string]any{"to": "aid-1", "text": "translate this", "timeout_ms": 30000.0}},
+		"/tasks/send", map[string]any{"to": "aid-1", "text": "translate this", "timeout_ms": 30000.0, "max_task_bytes": 24576.0}},
 	{"send_message", map[string]any{"to": "aid-1", "skill": "text.digest", "args": map[string]any{"text": "x"},
 		"message_id": "m-1", "context_id": "ctx-1", "return_immediately": true},
 		"/tasks/send", map[string]any{"to": "aid-1", "skill": "text.digest", "args": map[string]any{"text": "x"},
-			"message_id": "m-1", "context_id": "ctx-1", "return_immediately": true}},
+			"message_id": "m-1", "context_id": "ctx-1", "return_immediately": true, "max_task_bytes": 24576.0}},
 	{"send_message", map[string]any{"task_id": "ix-1", "text": "yes", "timeout_seconds": 1000, "history_length": 2},
-		"/tasks/send", map[string]any{"task_id": "ix-1", "text": "yes", "timeout_ms": 300000.0, "history_length": 2.0}},
+		"/tasks/send", map[string]any{"task_id": "ix-1", "text": "yes", "timeout_ms": 300000.0, "history_length": 2.0,
+			"max_task_bytes": 24576.0}},
 	{"get_task", map[string]any{"task_id": "ix-1", "history_length": 0},
-		"/tasks/get", map[string]any{"task_id": "ix-1", "history_length": 0.0}},
+		"/tasks/get", map[string]any{"task_id": "ix-1", "history_length": 0.0, "max_task_bytes": 24576.0}},
 	{"list_tasks", map[string]any{"role": "provider", "state": "input-required", "context_id": "ctx-1",
 		"peer": "aid-2", "page_size": 10, "page_token": "p2", "include_artifacts": true},
 		"/tasks/list", map[string]any{"role": "inbound", "state": "input-required", "context_id": "ctx-1",
@@ -304,13 +307,13 @@ var requestShapes = []struct {
 	{"list_tasks", map[string]any{"context_id": "ctx-1", "history_length": 40},
 		"/tasks/list", map[string]any{"context_id": "ctx-1", "history_length": 40.0, "max_task_bytes": 8192.0}},
 	{"wait_task", map[string]any{"task_id": "ix-1"},
-		"/tasks/wait", map[string]any{"task_id": "ix-1", "timeout_ms": 30000.0}},
+		"/tasks/wait", map[string]any{"task_id": "ix-1", "timeout_ms": 30000.0, "max_task_bytes": 24576.0}},
 	{"wait_task", map[string]any{"task_id": "ix-1", "after_seq": 7, "timeout_seconds": 120},
-		"/tasks/wait", map[string]any{"task_id": "ix-1", "after_seq": 7.0, "timeout_ms": 120000.0}},
+		"/tasks/wait", map[string]any{"task_id": "ix-1", "after_seq": 7.0, "timeout_ms": 120000.0, "max_task_bytes": 24576.0}},
 	{"cancel_task", map[string]any{"task_id": "ix-1"},
-		"/tasks/cancel", map[string]any{"task_id": "ix-1"}},
+		"/tasks/cancel", map[string]any{"task_id": "ix-1", "max_task_bytes": 24576.0}},
 	{"reply_task", map[string]any{"task_id": "ix-2", "text": "done", "state": "completed"},
-		"/tasks/reply", map[string]any{"task_id": "ix-2", "text": "done", "state": "completed"}},
+		"/tasks/reply", map[string]any{"task_id": "ix-2", "text": "done", "state": "completed", "max_task_bytes": 24576.0}},
 	{"submit_payment", map[string]any{"task_id": "ix-1"},
 		"/tasks/pay", map[string]any{"task_id": "ix-1", "decision": "submit"}},
 	{"submit_payment", map[string]any{"task_id": "ix-1", "accept": map[string]any{"scheme": "credit", "amount": "5"}},
@@ -625,5 +628,64 @@ func TestDaemonErrorsReachTheCaller(t *testing.T) {
 	msg, isErr := resultText(t, res, err)
 	if !isErr || !strings.Contains(msg, "over the agent limit") || !strings.Contains(msg, "reason: agent_max") {
 		t.Errorf("the daemon's explanation must survive to the model, got %q", msg)
+	}
+}
+
+// Every tool that returns one task keeps its result under what Claude Code
+// takes from an MCP tool (MAX_MCP_OUTPUT_TOKENS, 25 000 by default): the
+// daemon holds the task to max_task_bytes (a2ashape.TaskReadWithin, which
+// the fake below applies as the daemon does), and the result, which carries
+// it twice — as text and as structured content — stays under 50 000 bytes,
+// 25 000 tokens even at two bytes a token (docs/notes/0035 §7.4: a peer's
+// 3 MiB reply made get_task, wait_task and send_message unusable). A reply
+// just under the bound is carried whole; a larger one is a notice that
+// names the task and how to read it whole.
+func TestASingleTaskToolResultStaysUnderTheClientLimit(t *testing.T) {
+	mk := func(reply string) a2ashape.Task {
+		return a2ashape.Task{ID: "ix-1", ContextID: "c", Status: a2ashape.TaskStatus{State: a2ashape.TaskStateCompleted},
+			History:   []a2ashape.Message{{ID: "a", Role: a2ashape.RoleAgent, Parts: []a2ashape.Part{a2ashape.TextPart(reply)}}},
+			Artifacts: []a2ashape.Artifact{{ID: a2ashape.ArtifactReply, Parts: []a2ashape.Part{a2ashape.TextPart(reply)}}},
+			Metadata:  map[string]any{"anet.role": "requester"}}
+	}
+	for _, reply := range []string{strings.Repeat("字", 1<<20), strings.Repeat("字", 7800), strings.Repeat("0", 22<<10)} {
+		task := mk(reply)
+		f := &fakeControl{answer: func(path string, body map[string]any) (string, bool) {
+			out := task
+			if n, ok := body["max_task_bytes"].(float64); ok && n > 0 {
+				out = a2ashape.TaskReadWithin(task, int(n))
+			}
+			b, _ := json.Marshal(out)
+			return string(b), true
+		}}
+		sess := connect(t, f)
+		for _, tc := range []struct {
+			tool string
+			args map[string]any
+		}{
+			{"get_task", map[string]any{"task_id": "ix-1"}},
+			{"wait_task", map[string]any{"task_id": "ix-1"}},
+			{"send_message", map[string]any{"task_id": "ix-1", "text": "more"}},
+			{"cancel_task", map[string]any{"task_id": "ix-1"}},
+			{"reply_task", map[string]any{"task_id": "ix-1", "text": "ok"}},
+		} {
+			res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: tc.tool, Arguments: tc.args})
+			text, isErr := resultText(t, res, err)
+			if isErr {
+				t.Fatalf("%s: %s", tc.tool, text)
+			}
+			structured, err := json.Marshal(res.StructuredContent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if n := len(text) + len(structured); n > 50_000 {
+				t.Errorf("%s, a %d-byte reply: the model is handed %d bytes", tc.tool, len(reply), n)
+			}
+			if !strings.Contains(text, `"ix-1"`) {
+				t.Errorf("%s: the result does not carry the task id: %.300s", tc.tool, text)
+			}
+			if len(reply) > 1<<20 && !strings.Contains(text, "anet task get ix-1 --full") {
+				t.Errorf("%s: the cut result does not say how to read the task whole: %.300s", tc.tool, text)
+			}
+		}
 	}
 }

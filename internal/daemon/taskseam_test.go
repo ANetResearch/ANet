@@ -1041,3 +1041,56 @@ func TestTaskListHoldsEachTaskToMaxTaskBytes(t *testing.T) {
 		t.Fatalf("max_task_bytes -1: %d, want 400", code)
 	}
 }
+
+// The single-task routes take max_task_bytes too, and MCP sets it on every
+// tool that returns a task (docs/notes/0035 §7.4: a peer's 3 MiB reply
+// returned whole by get_task or wait_task was a tool result Claude Code
+// refused, so the model never even learned the task's id). The task comes
+// back held to the bound, what was cut marked and replaced by a notice
+// that says how to read it whole; without the bound it is whole as before;
+// a negative bound is refused.
+func TestSingleTaskRoutesHoldTheTaskToMaxTaskBytes(t *testing.T) {
+	p := newPlane(t)
+	d := p.d
+	if err := d.ix.Create(interactions.New{ID: "ix_big", Role: interactions.RoleOutbound, PeerAID: "peer", Goal: "g",
+		ContextID: "c-big"}); err != nil {
+		t.Fatal(err)
+	}
+	huge := strings.Repeat("<", 3<<20)
+	if _, err := d.ix.AddMessage("ix_big", "peer", interactions.MsgText, huge); err != nil {
+		t.Fatal(err)
+	}
+	const max = 24 << 10
+	check := func(route, body string) {
+		t.Helper()
+		resp, raw := p.req(t, "POST", route, body, p.bearer)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: %d %.300s", route, resp.StatusCode, raw)
+		}
+		if len(raw) > max+64 { // the task, and a newline
+			t.Fatalf("%s: %d bytes, over max_task_bytes %d", route, len(raw), max)
+		}
+		var task a2ashape.Task
+		if err := json.Unmarshal(raw, &task); err != nil {
+			t.Fatal(err)
+		}
+		if task.ID != "ix_big" || task.Metadata[a2ashape.KeyTruncated] != true || len(task.History) == 0 {
+			t.Fatalf("%s: %+v", route, task)
+		}
+		last := task.History[len(task.History)-1]
+		if last.Metadata[a2ashape.KeyTruncated] != true || !strings.Contains(last.Parts[0].Text, "anet task get ix_big --full") {
+			t.Fatalf("%s: the newest message is %+v, want a notice naming `anet task get ix_big --full`", route, last)
+		}
+	}
+	check("/tasks/get", `{"task_id":"ix_big","max_task_bytes":24576}`)
+	check("/tasks/wait", `{"task_id":"ix_big","timeout_ms":1,"max_task_bytes":24576}`)
+	if resp, raw := p.req(t, "POST", "/tasks/get", `{"task_id":"ix_big"}`, p.bearer); resp.StatusCode != http.StatusOK || len(raw) < len(huge) {
+		t.Fatalf("without max_task_bytes: %d, %d bytes", resp.StatusCode, len(raw))
+	}
+	for _, route := range []string{"/tasks/get", "/tasks/wait", "/tasks/cancel", "/tasks/send", "/tasks/reply"} {
+		if resp, _ := p.req(t, "POST", route, `{"task_id":"ix_big","text":"x","max_task_bytes":-1}`, p.bearer); resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s max_task_bytes -1: %d, want 400", route, resp.StatusCode)
+		}
+	}
+	check("/tasks/cancel", `{"task_id":"ix_big","max_task_bytes":24576}`)
+}

@@ -121,6 +121,29 @@ type tasksSendReq struct {
 	} `json:"configuration"`
 	HistoryLength *int  `json:"history_length"`
 	TimeoutMS     int64 `json:"timeout_ms"`
+	// MaxTaskBytes bounds the task returned (maxTaskBytes).
+	MaxTaskBytes int `json:"max_task_bytes"`
+}
+
+// maxTaskBytes is the optional max_task_bytes of a route that returns one
+// task: above 0 the task is held to about that many bytes as JSON, what is
+// cut replaced by a notice of its size that says how to read it whole
+// (a2ashape.TaskReadWithin); 0, the default, returns it whole. MCP sets it
+// on every tool that returns a task, so that a peer's multi-megabyte reply
+// is not a tool result its client refuses (docs/notes/0035 §7.4).
+func maxTaskBytes(n int) error {
+	if n < 0 {
+		return a2ashape.Errorf(a2ashape.ErrInvalidParams, "max_task_bytes must not be negative")
+	}
+	return nil
+}
+
+// boundTask is t held to max bytes (maxTaskBytes); t itself when max is 0.
+func boundTask(t a2ashape.Task, max int) a2ashape.Task {
+	if max <= 0 {
+		return t
+	}
+	return a2ashape.TaskReadWithin(t, max)
 }
 
 func (r *tasksSendReq) message() a2ashape.Message {
@@ -150,6 +173,9 @@ func (d *Daemon) hTasksSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wait, err := waitBound(req.TimeoutMS)
+	if err == nil {
+		err = maxTaskBytes(req.MaxTaskBytes)
+	}
 	if err != nil {
 		writeTaskError(w, err)
 		return
@@ -166,16 +192,21 @@ func (d *Daemon) hTasksSend(w http.ResponseWriter, r *http.Request) {
 		writeTaskError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, boundTask(t, req.MaxTaskBytes))
 }
 
 func (d *Daemon) hTasksGet(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TaskID        string `json:"task_id"`
 		HistoryLength *int   `json:"history_length"`
+		MaxTaskBytes  int    `json:"max_task_bytes"` // maxTaskBytes
 	}
 	if err := readJSON(r, &req); err != nil {
 		badTaskRequest(w, "body: %v", err)
+		return
+	}
+	if err := maxTaskBytes(req.MaxTaskBytes); err != nil {
+		writeTaskError(w, err)
 		return
 	}
 	d.pollFresh(r.Context())
@@ -184,7 +215,7 @@ func (d *Daemon) hTasksGet(w http.ResponseWriter, r *http.Request) {
 		writeTaskError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, boundTask(t, req.MaxTaskBytes))
 }
 
 func (d *Daemon) hTasksList(w http.ResponseWriter, r *http.Request) {
@@ -245,10 +276,15 @@ func (d *Daemon) hTasksList(w http.ResponseWriter, r *http.Request) {
 
 func (d *Daemon) hTasksCancel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TaskID string `json:"task_id"`
+		TaskID       string `json:"task_id"`
+		MaxTaskBytes int    `json:"max_task_bytes"` // maxTaskBytes
 	}
 	if err := readJSON(r, &req); err != nil {
 		badTaskRequest(w, "body: %v", err)
+		return
+	}
+	if err := maxTaskBytes(req.MaxTaskBytes); err != nil {
+		writeTaskError(w, err)
 		return
 	}
 	t, err := d.cancelTask(r.Context(), controlScope, req.TaskID)
@@ -256,7 +292,7 @@ func (d *Daemon) hTasksCancel(w http.ResponseWriter, r *http.Request) {
 		writeTaskError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, boundTask(t, req.MaxTaskBytes))
 }
 
 // hTasksWait blocks until the task is terminal, or waits for this node at
@@ -272,12 +308,16 @@ func (d *Daemon) hTasksWait(w http.ResponseWriter, r *http.Request) {
 		AfterSeq      int64  `json:"after_seq"`
 		TimeoutMS     int64  `json:"timeout_ms"`
 		HistoryLength *int   `json:"history_length"`
+		MaxTaskBytes  int    `json:"max_task_bytes"` // maxTaskBytes
 	}
 	if err := readJSON(r, &req); err != nil {
 		badTaskRequest(w, "body: %v", err)
 		return
 	}
 	wait, err := waitBound(req.TimeoutMS)
+	if err == nil {
+		err = maxTaskBytes(req.MaxTaskBytes)
+	}
 	if err != nil {
 		writeTaskError(w, err)
 		return
@@ -301,6 +341,7 @@ func (d *Daemon) hTasksWait(w http.ResponseWriter, r *http.Request) {
 		writeTaskError(w, err)
 		return
 	}
+	t = boundTask(t, req.MaxTaskBytes)
 	if timedOut {
 		t.Metadata[keyWait] = "timed_out"
 	}
@@ -324,6 +365,8 @@ type replyReq struct {
 	//   failed, rejected          a status with the text as the reason
 	//   canceled                  the provider cancels
 	State string `json:"state"`
+	// MaxTaskBytes bounds the task returned (maxTaskBytes).
+	MaxTaskBytes int `json:"max_task_bytes"`
 }
 
 func (d *Daemon) hTasksReply(w http.ResponseWriter, r *http.Request) {
@@ -333,12 +376,16 @@ func (d *Daemon) hTasksReply(w http.ResponseWriter, r *http.Request) {
 		badTaskRequest(w, "body: %v", err)
 		return
 	}
+	if err := maxTaskBytes(req.MaxTaskBytes); err != nil {
+		writeTaskError(w, err)
+		return
+	}
 	t, err := d.replyTask(r.Context(), req)
 	if err != nil {
 		writeTaskError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, t)
+	writeJSON(w, http.StatusOK, boundTask(t, req.MaxTaskBytes))
 }
 
 // replyTask carries out a provider's answer (see replyReq).

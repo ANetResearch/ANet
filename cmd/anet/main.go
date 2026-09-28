@@ -368,6 +368,7 @@ func usageAllText() string {
   anet delegate <provider-aid> <goal>   queue a task on a provider via the Hub relay (returns interaction_id; refused unless the provider accepts you)
   anet inbox [--pending]      list tasks other agents delegated to you
   anet thread <interaction_id>   read one interaction's full conversation (all messages, attachments and task state)
+  anet task get <task_id> [--full] [--history N]   one task as the A2A projection; cut to about 24 KB like MCP get_task unless --full
   anet message <interaction_id> <text...>|--file PATH   send a message in an interaction (multi-turn chat; either side; anet only relays)
   anet end <interaction_id>   end a task: the provider completes it and signs the receipt; the requester asks the provider to complete
   anet accept-end <interaction_id>   removed: the provider completes a task itself (use 'anet end')
@@ -1177,6 +1178,7 @@ var knownFlags = map[string][]string{
 	"delegate":       {"cap", "capability", "args", "pay", "attach"},
 	"inbox":          {"pending"},
 	"thread":         {},
+	"task":           {"full", "history"},
 	"message":        {"file", "attach"},
 	"msg":            {"file", "attach"},
 	"pull":           {"out"},
@@ -1447,6 +1449,8 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 			}
 		}
 		return c.do("/inbox", map[string]any{"pending": pending})
+	case "task":
+		return taskCommand(c, rest)
 	case "thread":
 		if arg(0) == "" {
 			return fmt.Errorf("thread <interaction_id>")
@@ -1730,4 +1734,50 @@ func capFlag(flags map[string]string) string {
 		return v
 	}
 	return strings.TrimSpace(flags["cap"])
+}
+
+// cliTaskBytes is how large `anet task get` lets a task be without --full:
+// the bound MCP get_task has (internal/mcpserv taskReadBytes), so the
+// terminal shows what the model was shown, and --full shows the rest — the
+// command the notice in a cut task names.
+const cliTaskBytes = 24 << 10
+
+// taskCommand is `anet task get <task_id> [--full] [--history N]`: the task
+// as the control plane's /tasks/get projects it.
+func taskCommand(c *client, rest []string) error {
+	const usage = "task get <task_id> [--full] [--history N]"
+	pos, flags := splitFlags(rest)
+	if len(pos) == 0 || pos[0] != "get" {
+		return fmt.Errorf("%s", usage)
+	}
+	id := ""
+	if len(pos) > 1 {
+		id = pos[1]
+	}
+	full := false
+	switch v := flags["full"]; {
+	case v == "":
+	case v == "true":
+		full = true
+	case id == "":
+		// `--full <task_id>`: the flag took the id as its value.
+		full, id = true, v
+	default:
+		return fmt.Errorf("--full takes no value; %s", usage)
+	}
+	if id == "" || len(pos) > 2 {
+		return fmt.Errorf("%s", usage)
+	}
+	body := map[string]any{"task_id": id}
+	if !full {
+		body["max_task_bytes"] = cliTaskBytes
+	}
+	if h, ok := flags["history"]; ok {
+		n, err := strconv.Atoi(h)
+		if err != nil || n < 0 {
+			return fmt.Errorf("--history takes a number of messages (0 or more)")
+		}
+		body["history_length"] = n
+	}
+	return c.do("/tasks/get", body)
 }

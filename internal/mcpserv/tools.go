@@ -58,6 +58,24 @@ const listHistoryDefault = 1
 // paragraphs — while a longer message is listed as a notice of its size.
 const listTaskBytes = 8 << 10
 
+// taskReadBytes is how large, as JSON, a tool that returns one task lets it
+// be (send_message, get_task, wait_task, cancel_task, reply_task: the
+// control plane's max_task_bytes, a2ashape.TaskReadWithin). A peer's
+// 3 MiB reply returned whole is a tool result Claude Code refuses (its
+// default MAX_MCP_OUTPUT_TOKENS is 25 000), and the model then does not
+// even learn the task's id (docs/notes/0035 §7.4). The result carries the
+// task twice — as text and as structured content — and dense text (CJK,
+// digits, base64) runs near two bytes a token, so each copy is held to
+// 24 KiB: under 25 000 tokens together. What is cut is a notice of its
+// size that names `anet task get <id> --full`.
+const taskReadBytes = 24 << 10
+
+// readBound is the sentence every tool that returns a task carries about
+// taskReadBytes.
+const readBound = "The task comes back cut to about 24 KB: a longer message, reply or result is replaced by " +
+	"a notice of its size (metadata anet.truncated) that says how to read it whole (`anet task get <id> --full` " +
+	"in a terminal). "
+
 // waitMS turns a tool's timeout_seconds into the control plane's
 // timeout_ms.
 func waitMS(seconds int) int64 {
@@ -144,7 +162,7 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"your own to make a retry safe: the same message_id returns the task it already made. " +
 			"input-required with metadata x402.payment.required is a price quote: see " +
 			"submit_payment. (A quote within the operator's automatic limit, payments.auto_max, 0 on " +
-			"a new node, is paid by the node itself and the task simply goes on.) " + honesty,
+			"a new node, is paid by the node itself and the task simply goes on.) " + readBound + honesty,
 		Annotations: sendsToPeer(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, any, error) {
 		if in.To == "" && in.TaskID == "" {
@@ -183,19 +201,20 @@ func addTaskTools(s *mcp.Server, c Control) {
 		if in.HistoryLength != nil {
 			body["history_length"] = *in.HistoryLength
 		}
+		body["max_task_bytes"] = taskReadBytes
 		return forward(ctx, c, "/tasks/send", body)
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "get_task",
 		Description: "One task, as it is now, by its id — a task this node sent or one sent to it " +
-			"(metadata anet.role says which). history_length bounds the messages returned. " + honesty,
+			"(metadata anet.role says which). history_length bounds the messages returned. " + readBound + honesty,
 		Annotations: readLocal(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getTaskIn) (*mcp.CallToolResult, any, error) {
 		if in.TaskID == "" {
 			return nil, nil, fmt.Errorf("task_id is required — list_tasks shows them")
 		}
-		body := map[string]any{"task_id": in.TaskID}
+		body := map[string]any{"task_id": in.TaskID, "max_task_bytes": taskReadBytes}
 		if in.HistoryLength != nil {
 			body["history_length"] = *in.HistoryLength
 		}
@@ -252,13 +271,13 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"input-required. For a task that is already waiting, pass its metadata anet.state_seq " +
 			"as after_seq to wait for the next change instead of returning at once. When the time " +
 			"runs out the task comes back as it is with metadata anet.wait=timed_out: that is not a " +
-			"failure, call wait_task again. " + honesty,
+			"failure, call wait_task again. " + readBound + honesty,
 		Annotations: readLocal(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in waitIn) (*mcp.CallToolResult, any, error) {
 		if in.TaskID == "" {
 			return nil, nil, fmt.Errorf("task_id is required")
 		}
-		body := map[string]any{"task_id": in.TaskID, "timeout_ms": waitMS(in.TimeoutSeconds)}
+		body := map[string]any{"task_id": in.TaskID, "timeout_ms": waitMS(in.TimeoutSeconds), "max_task_bytes": taskReadBytes}
 		if in.AfterSeq > 0 {
 			body["after_seq"] = in.AfterSeq
 		}
@@ -278,7 +297,7 @@ func addTaskTools(s *mcp.Server, c Control) {
 		if in.TaskID == "" {
 			return nil, nil, fmt.Errorf("task_id is required")
 		}
-		return forward(ctx, c, "/tasks/cancel", map[string]any{"task_id": in.TaskID})
+		return forward(ctx, c, "/tasks/cancel", map[string]any{"task_id": in.TaskID, "max_task_bytes": taskReadBytes})
 	})
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -294,7 +313,7 @@ func addTaskTools(s *mcp.Server, c Control) {
 		if in.TaskID == "" {
 			return nil, nil, noTaskToReply(ctx, c)
 		}
-		body := map[string]any{"task_id": in.TaskID}
+		body := map[string]any{"task_id": in.TaskID, "max_task_bytes": taskReadBytes}
 		setIf(body, "state", in.State)
 		if len(in.Files) == 0 {
 			setIf(body, "text", in.Text)
