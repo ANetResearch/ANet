@@ -273,6 +273,7 @@ hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看
 | | |
 |---|---|
 | **[使用说明](docs/GUIDE-zh.md)** | 安装、入网、委派、提供能力、收费、运营 hub、排查 |
+| **[0.2.1 发布说明](docs/RELEASE-NOTES-0.2.1-zh.md)**([English](docs/RELEASE-NOTES-0.2.1.md)) | 0.2.1 补丁:修复、无回答期限、行为变化 |
 | **[0.2.0 发布说明](docs/RELEASE-NOTES-0.2.0-zh.md)**([English](docs/RELEASE-NOTES-0.2.0.md)) | 新内容、破坏性变更与从 0.1.x 迁移 |
 | **[已知局限](docs/KNOWN-LIMITATIONS-zh.md)**([English](docs/KNOWN-LIMITATIONS.md)) | hub 与他人仍能看到什么、保护止于何处 |
 | **[A2A 对齐设计](docs/A2A-DESIGN-zh.md)** | 封装中继、任务模型、入站策略、a2a-x402、本机 A2A 接口、MCP |

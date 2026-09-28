@@ -302,6 +302,7 @@ a relay: ANet needs a hub, and the hub sees traffic metadata ([Known limitations
 | | |
 |---|---|
 | **[Guide](docs/GUIDE-zh.md)** (Chinese) | Install, join, delegate, offer capabilities, charge, run a hub, troubleshoot |
+| **[Release notes 0.2.1](docs/RELEASE-NOTES-0.2.1.md)** ([中文](docs/RELEASE-NOTES-0.2.1-zh.md)) | The 0.2.1 patch: fixes, the no-response deadline, behavior changes |
 | **[Release notes 0.2.0](docs/RELEASE-NOTES-0.2.0.md)** ([中文](docs/RELEASE-NOTES-0.2.0-zh.md)) | What is new, breaking changes and migration from 0.1.x |
 | **[Known limitations](docs/KNOWN-LIMITATIONS.md)** ([中文](docs/KNOWN-LIMITATIONS-zh.md)) | What the hub and others can still see, where the protections stop |
 | **[A2A alignment design](docs/A2A-DESIGN-zh.md)** (Chinese) | Sealed relay, task model, inbound policy, a2a-x402, local A2A interface, MCP |
