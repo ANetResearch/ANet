@@ -339,3 +339,67 @@ func getIXRT(t *testing.T, d *Daemon, id string) *interactions.Interaction {
 	}
 	return ix
 }
+
+// The legitimate side of the binding: a call the operator approved and this
+// node answered is, when its delegation comes again — the same envelope, or
+// the same request sealed under a new message id — answered again and not
+// run again. Neither copy is taken for a collision, and neither is judged
+// by the policy a second time (the requester is not on the allow list).
+func TestAnApprovedCallRedeliveredIsAnsweredAgainNotRun(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	prov := registered(t, srv.URL, "prov")
+	req := registered(t, srv.URL, "req")
+	lamp := &lampProvider{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	setPolicy(t, prov, PolicyApprove)
+	id, err := req.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := onlyQueuedEnvelope(t, srv, prov.AID())
+	clearMailbox(t, srv, prov.AID())
+	if r := receive(t, prov, env); r.class != rxAccepted {
+		t.Fatalf("held: %+v", r)
+	}
+	if _, err := prov.ApprovePending(id); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "the approved call answered", func() bool {
+		ix, err := prov.ix.Get(id)
+		return err == nil && len(ix.Receipt) > 0
+	})
+	clearMailbox(t, srv, req.AID()) // the held notice and the answer are lost
+
+	if r := receive(t, prov, env); !r.ack() || r.reason != dropDuplicate {
+		t.Fatalf("the same envelope again: %+v", r)
+	}
+	if n := len(queuedFor(t, srv, req.AID())); n != 1 {
+		t.Fatalf("%d answers re-sent for the redelivered envelope, want 1", n)
+	}
+	op, err := seal.Open(env, prov.AID(), prov.enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resealed := craft(t, senderOf(req), prov, seal.TypeDelegate, id, op.Inner.Body, nil)
+	if r := receive(t, prov, resealed); r.class != rxAccepted {
+		t.Fatalf("the same request under a new message id: %+v", r)
+	}
+	if n := len(queuedFor(t, srv, req.AID())); n != 2 {
+		t.Fatalf("%d answers queued after the re-sealed copy, want 2", n)
+	}
+	if n := len(lamp.invoked); n != 1 {
+		t.Fatalf("the approved call ran %d times", n)
+	}
+	if n := counter(prov, dropIXCollision); n != 0 {
+		t.Fatalf("a redelivery of the approved request was taken for a collision %d times", n)
+	}
+	if err := req.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if st := stateOf(t, req, id); st != interactions.StateCompleted {
+		t.Fatalf("requester: %s, want completed", st)
+	}
+}

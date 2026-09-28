@@ -20,9 +20,13 @@ package daemon
 //     daemon mints it. (contextId, client messageId) is the dedupe key: a
 //     retry returns the task the first attempt created (without a
 //     contextId, (agent, messageId): the retry cannot name the context the
-//     daemon minted). The delegation goes through the retry queue (0017
-//     Q5): once the task is recorded the call answers submitted, and an
-//     unreachable provider or hub only delays it. A delegation the queue
+//     daemon minted). Only a task still open counts (0017 Q32): a
+//     messageId seen on a finished task starts a new one. Only this
+//     node's own messages carry the key for it: a2a.messageId in a peer's
+//     message metadata is not the client's [redteam:F33]. The delegation
+//     goes through the retry queue (0017 Q5): once the task is recorded
+//     the call answers submitted, and an unreachable provider or hub only
+//     delays it. A delegation the queue
 //     gives up on (expired, or refused for good by the hub) fails the task
 //     with anet.reason=undeliverable, and such a task does not count for
 //     the dedupe: a retry of its message is a new attempt. The client's

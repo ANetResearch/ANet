@@ -361,6 +361,14 @@ Delivery is at least once. The hub deletes an envelope only when acknowledged (ย
 undelivered TTL expires (ยง8.4); a node acknowledges only after step 10 committed or after a permanent failure. The same envelope arriving
 over two transports is processed once.
 
+The lookup of step 10 MAY run before step 9, and SHOULD where copies can arrive concurrently: a
+copy of an envelope already accepted or refused is then not judged again, so it takes no
+admission slot and draws no second, contradicting refusal. A step-9 refusal of an
+`anet.delegate/1` is final for that envelope. A receiver SHOULD remember the `(from, mid)` of
+refused delegations until `exp`, durably and before telling the requester, so that a replay after
+a restart or a policy change is dropped without a reply instead of being judged again and run
+after the requester was told `rejected`.
+
 ## 8. Hub transport (HTTP)
 
 ### 8.1 Versioning
@@ -590,8 +598,12 @@ the request CID. A generic profile that carries A2A ProtoJSON directly is an **o
   (reference format `ix_` followed by 32 hex digits) and sent in the first message. To the local A2A
   caller this is still server-generated: the requester's node is the A2A server it talks to.
   A provider MUST NOT accept an `anet.delegate/1` whose `ix` it already holds with a different
-  peer or role (dropped silently as a collision); a repeat from the same peer is the idempotent
-  redelivery path.
+  peer or role, or whose TaskDoc is not the request the task was accepted for (its CID differs
+  from the stored request CID); both are dropped silently as collisions. A repeat of the same
+  request from the same peer is the idempotent redelivery path: it is checked against revocation
+  (the deny list, and the allow list for a task accepted because the peer was on it) but not
+  judged by the inbound policy again, and it never runs anything but the request the task was
+  accepted for, read back from what the provider stored.
 - **Context id.** `DelegateReq.context_id` carries the client's `contextId` unchanged; if the
   client gave none, the requester node mints one (`ctx_` + 32 hex digits).
 - **Message id.** `ChatMsg.msg_id` is minted by the sending node and is the `messageId` under which
