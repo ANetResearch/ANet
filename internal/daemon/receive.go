@@ -160,6 +160,9 @@ type rxMsg struct {
 	// pendingRoute marks a message for a delegation held in the approval
 	// queue.
 	pendingRoute bool
+	// refusalStored marks a delegation whose refusal is in the refused
+	// table already (recordRefusal).
+	refusalStored bool
 }
 
 // receiveEnvelope runs steps 1 to 10 on one envelope.
@@ -262,8 +265,8 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
 		return d.expireTransient(d.duplicate(ctx, m), m, d.nowMS())
 	}
 	if m.ts <= floor {
-		// Older than refusals the table let go of (refused.go): it may be
-		// one of them.
+		// Older than refusals of this sender's that the table let go of
+		// (refused.go): it may be one of them.
 		return d.drop(dropRefusedFloor, nil)
 	}
 
@@ -289,16 +292,33 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
 // noteRefusedEnvelope remembers an envelope step 9 refused for good: in the
 // in-memory list, which a replay meets before any decryption work is
 // repeated, and for a delegation also in the refused table, which outlives
-// a restart and the list's eviction [redteam:F5]. A table write that fails
-// is logged; the list still covers this process.
+// a restart and the list's eviction [redteam:F5]. A refusal the requester
+// is told of was written before it was told (recordRefusal); for one that
+// is not answered a table write that fails is logged, and the list still
+// covers this process.
 func (d *Daemon) noteRefusedEnvelope(m *rxMsg) {
 	d.refused.add(replayKey(m.from, m.mid))
-	if m.typ != seal.TypeDelegate {
+	if m.typ != seal.TypeDelegate || m.refusalStored {
 		return
 	}
 	if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp); err != nil {
 		log.Printf("anet: record the refused delegation %s from %s: %v", m.ix, m.from, err)
 	}
+}
+
+// recordRefusal writes a delegation's refusal to the refused table before
+// the requester is told `rejected` [redteam:F5]: a refusal the requester
+// was told of must outlive a restart and the in-memory list, or the same
+// envelope could be judged again later and run. One that cannot be written
+// is not told either: the envelope is not acknowledged (T) and is judged
+// again when it comes back, as if this delivery had not happened.
+func (d *Daemon) recordRefusal(m *rxMsg) *rxResult {
+	if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp); err != nil {
+		r := d.transient(transientStore, fmt.Errorf("record the refusal of %s: %w", m.ix, err))
+		return &r
+	}
+	m.refusalStored = true
+	return nil
 }
 
 // duplicate handles an envelope whose (from, mid) the replay table holds:
@@ -482,6 +502,9 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 	dec := d.decideDelegate(m.from, capID, argsLen)
 	switch dec.action {
 	case actRefuse:
+		if res := d.recordRefusal(m); res != nil {
+			return res
+		}
 		d.noteRefused(m.from, m.ix, m.typ, dec.reason, capID)
 		d.replyRejected(m, dec.reason, dec.retryAfterMS)
 		reason := dropRefusedPrefix + dec.reason
