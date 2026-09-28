@@ -201,10 +201,11 @@ func sentFrom(ctx context.Context) (*sentStream, bool) {
 }
 
 // errorTable is a2a-go's mapping of each A2A error to its JSON-RPC code and
-// its HTTP+JSON status (a2a-go keeps both tables internal; A2A §5.4). The
-// HTTP statuses are a2a-go's, including the two that differ from the
-// specification (docs/a2a/issue-a2a-go.md A11), so that an error written
-// here reads the same as one the binding writes.
+// its HTTP+JSON status (a2a-go keeps both tables internal), so that an error
+// written here reads the same as one the binding writes. The A2A errors'
+// rows are those of A2A v1.0.1 §5.4, which moved TaskNotCancelable and
+// ContentTypeNotSupported to 400 (v1.0.0 had 409 and 415;
+// docs/a2a/issue-a2a-go.md A11, withdrawn).
 var errorTable = []struct {
 	err    error
 	code   int

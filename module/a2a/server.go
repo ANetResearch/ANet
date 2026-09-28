@@ -189,6 +189,13 @@ func (s *server) agentAID(w http.ResponseWriter, r *http.Request) (string, bool)
 // checks, and the service parameters (A2A-Version, A2A-Extensions).
 func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !jsonrpc {
+			// Every JSON answer on this route, errors included, in the
+			// media type the client prefers (restMediaType).
+			if mt := restMediaType(r); mt != mediaJSON {
+				w = &typedWriter{ResponseWriter: w, mediaType: mt}
+			}
+		}
 		aid, ok := s.agentAID(w, r)
 		if !ok {
 			return
@@ -196,19 +203,28 @@ func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 		// JSON-RPC takes JSON and nothing else, so a form post or a
 		// text/plain body — the requests a page can send without a
 		// preflight — never reaches a handler. A REST request with a body
-		// is held to the same rule.
-		// Refused as ContentTypeNotSupportedError (A2A §5.4: HTTP 415,
-		// JSON-RPC -32005), in the error form of the binding the client
-		// speaks: a JSON-RPC client reads the error object, not a
-		// google.rpc.Status.
+		// is held to the same rule. JSON is either of the media types of
+		// the bindings, application/json and application/a2a+json, on
+		// both: A2A v1.0.1 names the first for JSON-RPC (§9.1) and says
+		// the HTTP+JSON binding SHOULD use the second (§11.1), and a
+		// client that sends one where the other is named is not refused.
+		// Anything else is refused as ContentTypeNotSupportedError, with
+		// the status the HTTP+JSON binding gives it (A2A v1.0.1 §5.4: 400;
+		// v1.0.0 had 415), in the error form of the binding the client
+		// speaks: a JSON-RPC client reads the error object (-32005), not a
+		// google.rpc.Status. (The specification defines that error for
+		// the media types of message parts and names no error for a body
+		// of the wrong type; §3.3.2 counts an unsupported content type
+		// among the validation errors, HTTP 400, and a2a-tck expects this
+		// error for it.)
 		if jsonrpc || (r.Method == http.MethodPost && r.ContentLength != 0) {
-			mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-			if err != nil || mt != "application/json" {
-				const msg = "the request body must be application/json"
+			if _, ok := bodyMediaType(r); !ok {
+				const msg = "the request body must be application/json or application/a2a+json"
+				kind := a2a.ErrUnsupportedContentType
 				if jsonrpc {
-					writeRPCError(w, http.StatusUnsupportedMediaType, a2a.ErrUnsupportedContentType, msg)
+					writeRPCError(w, restStatus(kind), kind, msg)
 				} else {
-					writeError(w, http.StatusUnsupportedMediaType, a2a.ErrUnsupportedContentType, msg)
+					writeError(w, restStatus(kind), kind, msg)
 				}
 				return
 			}
@@ -240,6 +256,133 @@ func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// The media types of the bindings' JSON bodies: application/json, which
+// the JSON-RPC binding uses for requests and answers (A2A §9.1), and
+// application/a2a+json, which A2A v1.0.1 registers (§14.1.1) and says the
+// HTTP+JSON binding SHOULD use for both (§11.1).
+const (
+	mediaJSON    = "application/json"
+	mediaA2AJSON = "application/a2a+json"
+)
+
+// bodyMediaType is the media type of the request's body, lower case and
+// without parameters, and whether it is one of the two this interface
+// reads. Parameters such as charset are allowed and not otherwise looked
+// at: either type is UTF-8 JSON (RFC 8259 §8.1; A2A §14.1.1).
+func bodyMediaType(r *http.Request) (string, bool) {
+	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return mt, err == nil && (mt == mediaJSON || mt == mediaA2AJSON)
+}
+
+// restMediaType is the media type of the REST binding's JSON answers to r,
+// errors included. The binding SHOULD answer application/a2a+json (A2A
+// v1.0.1 §11.1), but a2a-go's REST client asks for application/json and
+// reads an error only from a body of that type (a2a-go v2.6.0
+// internal/rest FromRESTError; others are its bare ErrServerError), and
+// a2a-tck, pinned to v1.0.0, checks for it. So the client's Accept
+// decides (RFC 9110 §12.5.1): application/a2a+json when it rates that
+// type higher than application/json, or as high and names it; otherwise
+// application/json when it rates that one higher. When Accept tells the
+// two apart in neither way — absent, "*/*", or neither acceptable — the
+// answer is of the type the request's body was, and application/json for
+// a request without one.
+func restMediaType(r *http.Request) string {
+	accept := r.Header.Values("Accept")
+	qA2A, namedA2A := acceptQuality(accept, mediaA2AJSON)
+	qJSON, _ := acceptQuality(accept, mediaJSON)
+	switch {
+	case qA2A > qJSON, qA2A == qJSON && qA2A > 0 && namedA2A:
+		return mediaA2AJSON
+	case qJSON > qA2A:
+		return mediaJSON
+	}
+	if mt, ok := bodyMediaType(r); ok && r.ContentLength != 0 {
+		return mt
+	}
+	return mediaJSON
+}
+
+// acceptQuality is the quality the Accept header values give the media
+// type mt (lower case, "type/subtype"): that of the most specific range
+// matching it, "type/subtype" over "type/*" over "*/*", or 0 if none
+// does. named reports whether a range names mt itself. A range whose
+// q does not parse counts as q=0.
+func acceptQuality(accept []string, mt string) (q float64, named bool) {
+	typ, _, _ := strings.Cut(mt, "/")
+	best := -1 // specificity of the range q came from
+	for _, v := range accept {
+		for _, rng := range strings.Split(v, ",") {
+			rmt, params, err := mime.ParseMediaType(strings.TrimSpace(rng))
+			if err != nil {
+				continue
+			}
+			spec := -1
+			switch rmt {
+			case mt:
+				spec = 2
+			case typ + "/*":
+				spec = 1
+			case "*/*":
+				spec = 0
+			}
+			if spec <= best {
+				continue
+			}
+			rq := 1.0
+			if s, ok := params["q"]; ok {
+				if rq, err = strconv.ParseFloat(s, 64); err != nil || rq < 0 || rq > 1 {
+					rq = 0
+				}
+			}
+			best, q, named = spec, rq, spec == 2
+		}
+	}
+	return q, named
+}
+
+// typedWriter answers in mediaType where the handler writes
+// application/json: a2a-go's REST binding and this package's writers set
+// that type, and the header is rewritten as it goes out. Any other type —
+// an SSE stream's text/event-stream — is left alone.
+type typedWriter struct {
+	http.ResponseWriter
+	mediaType string
+	done      bool
+}
+
+func (w *typedWriter) retype() {
+	if w.done {
+		return
+	}
+	w.done = true
+	h := w.ResponseWriter.Header()
+	if mt, params, err := mime.ParseMediaType(h.Get("Content-Type")); err == nil && mt == mediaJSON {
+		h.Set("Content-Type", mime.FormatMediaType(w.mediaType, params))
+	}
+}
+
+func (w *typedWriter) WriteHeader(code int) {
+	w.retype()
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *typedWriter) Write(b []byte) (int, error) {
+	w.retype()
+	return w.ResponseWriter.Write(b)
+}
+
+// Flush is forwarded: the bindings' streams refuse a writer that cannot
+// flush.
+func (w *typedWriter) Flush() {
+	w.retype()
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap lets http.ResponseController reach the connection's own writer.
+func (w *typedWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // mergeExtensions reads the extensions a client activates, from both
 // A2A-Extensions and the older X-A2A-Extensions, each possibly repeated and
@@ -491,7 +634,7 @@ func (w *responseWriter) Flush() {
 func (w *responseWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", mediaJSON)
 	w.WriteHeader(code)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		log.Printf("anet: a2a: write response: %v", err)
