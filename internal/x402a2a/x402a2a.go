@@ -90,6 +90,24 @@ const (
 	// facilitator put in its transaction field; the receipt's transaction
 	// is "" as a2a-x402 §9.2 shows it.
 	ExtAuthID = "anet.auth_id"
+	// ExtSettlementVerified is the requester's own verdict on a successful
+	// settlement response its provider sent, written into the response's
+	// extensions when the requester stores it (§8.3): VerdictVerified when
+	// the hub receipt checked out against this node's authorizations for
+	// the task, VerdictUnverified otherwise. Only a verified one is stated
+	// in x402.payment.receipts; the others are listed under
+	// KeyUnverifiedReceipts [redteam:F11].
+	ExtSettlementVerified = "anet.settlement_verified"
+	// KeyUnverifiedReceipts lists, on a task this node started, the
+	// successful settlements its provider claimed and this node could not
+	// verify: the provider's word, kept apart from what this node states.
+	KeyUnverifiedReceipts = "anet.unverified_receipts"
+)
+
+// Values of ExtSettlementVerified.
+const (
+	VerdictVerified   = "verified"
+	VerdictUnverified = "unverified"
 )
 
 // Reasons of anet's own, carried as anet.reason. Each maps to
@@ -101,6 +119,7 @@ const (
 	ReasonPayerMismatch            = "payer_mismatch"             // signed by someone other than the requester
 	ReasonClientPayloadUnsupported = "client_payload_unsupported" // a local client sent its own payload (§8.7)
 	ReasonOptionNotOffered         = "option_not_offered"         // the chosen option is not a quoted one (§8.7)
+	ReasonRailNotPayable           = "rail_not_payable"           // the chosen option settles where this node holds no credit (§8.7, 0017 Q28)
 	ReasonProviderBusy             = "provider_busy"              // no long-call slot; nothing was settled
 	ReasonNeedsOperatorApproval    = "needs_operator_approval"    // the quote is above the automatic tier
 	// ReasonExtensionNotActivated: a local client that did not activate

@@ -1655,6 +1655,7 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	// columns written with the result ([redteam:F28]); the evidence is
 	// recorded once that commits.
 	rp := d.planReceipts(m.ix, decodeMeta(rr.Metadata), false)
+	defer rp.release() // recordReceipts releases it once the evidence is in
 	// The receipt check above read the interaction outside this
 	// transaction. A second copy of the result under another message id can
 	// have committed since, so it is read again under the write lock.
@@ -1728,6 +1729,7 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 			// with the replay row ([redteam:F28]).
 			rp = d.planReceipts(m.ix, decodeMeta(sm.Metadata), true)
 		}
+		defer rp.release()
 		res := d.commitRx(m, func(tx *interactions.Tx) error { return rp.applyTx(tx, m.ix) })
 		if res.class == rxAccepted {
 			d.recordReceipts(rp)
@@ -1749,6 +1751,7 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 	if carriesPayment(meta) {
 		pp = d.planProviderPayment(m.ix, meta)
 	}
+	defer pp.release()
 	var seq int64
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
 		var err error

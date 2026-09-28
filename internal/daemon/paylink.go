@@ -169,6 +169,13 @@ func (d *Daemon) PayAndRetry(ctx context.Context, providerAID, capID string,
 		return "", fmt.Errorf("anet: this node can pay %q and the provider accepts none of it",
 			payment.SchemeCredit)
 	}
+	// pickRail falls back to the first credit option when none is on this
+	// node's ledger, or when that ledger is not known; PayTask refuses both
+	// before signing (0017 Q28), and so does this [redteam:Q28].
+	if home := p.HomeNetwork(); home == "" || opt.Network != home {
+		return "", fmt.Errorf("anet: %s: %s", x402a2a.ReasonRailNotPayable,
+			railNotPayableText(opt.Network, home, quoted.Accepts))
+	}
 	if opt.PayTo != providerAID {
 		return "", ErrPayeeNotPeer
 	}

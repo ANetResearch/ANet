@@ -104,11 +104,18 @@ func storedReceipts(ix *interactions.Interaction) []json.RawMessage {
 }
 
 // receiptList is pay_receipts plus extra, as metadata carries it: never
-// null, and every failure with transaction "" (x402receipts.go).
+// null, and every failure with transaction "" (x402receipts.go). On a task
+// this node started, only the settlements it verified are in it
+// (a2ashape.SplitReceipts); the rest are PaymentStatusMeta's
+// anet.unverified_receipts [redteam:F11].
 func receiptList(ix *interactions.Interaction, extra ...json.RawMessage) []json.RawMessage {
 	out := storedReceipts(ix)
 	out = append(out, extra...)
-	return normalizeReceipts(out)
+	own, _ := a2ashape.SplitReceipts(normalizeReceipts(out), ix.Role == interactions.RoleOutbound, ix.PayState)
+	if own == nil {
+		own = []json.RawMessage{}
+	}
+	return own
 }
 
 // payloadAuth reads the anet-credit authorization inside a PaymentPayload.
@@ -908,6 +915,14 @@ func (d *Daemon) planProviderPayment(ixID string, meta []byte) *providerPayment 
 	return pp
 }
 
+// release lets go of the receipts lock the plan holds (receiptPlan.release)
+// when afterProviderPayment did not: a status that did not commit.
+func (pp *providerPayment) release() {
+	if pp != nil {
+		pp.receipts.release()
+	}
+}
+
 // applyTx writes the pay columns the status sets, inside its transaction.
 func (pp *providerPayment) applyTx(tx *interactions.Tx, ixID string) error {
 	prior, err := tx.Get(ixID)
@@ -978,6 +993,7 @@ func (d *Daemon) afterProviderPayment(ctx context.Context, ixID string, pp *prov
 // the three steps of providerPayment in a row.
 func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte) {
 	pp := d.planProviderPayment(ixID, meta)
+	defer pp.release()
 	if err := d.ix.Update(func(tx *interactions.Tx) error { return pp.applyTx(tx, ixID) }); err != nil {
 		log.Printf("anet: %s: store the payment status: %v", ixID, err)
 		return
@@ -1030,6 +1046,14 @@ func PaymentReason(ix *interactions.Interaction) string {
 // task nothing was quoted for.
 func (d *Daemon) PaymentStatusMeta(ix *interactions.Interaction) map[string]any {
 	out := map[string]any{}
+	if ix.Role == interactions.RoleOutbound {
+		// The provider's claims of settlement this node could not verify,
+		// kept apart from what it states (a2ashape.SplitReceipts), also on
+		// a task this node never paid for [redteam:F11].
+		if _, un := a2ashape.SplitReceipts(storedReceipts(ix), true, ix.PayState); len(un) > 0 {
+			out[x402a2a.KeyUnverifiedReceipts] = un
+		}
+	}
 	status := ""
 	switch ix.PayState {
 	case interactions.PayNone:
@@ -1055,7 +1079,13 @@ func (d *Daemon) PaymentStatusMeta(ix *interactions.Interaction) map[string]any 
 	out[x402a2a.KeyReceipts] = receiptList(ix)
 	if (ix.PayState == interactions.PayRequired || ix.PayState == interactions.PayFailed) && !ix.IsTerminal() &&
 		len(ix.PayRequired) > 0 {
-		out[x402a2a.KeyRequired] = json.RawMessage(ix.PayRequired)
+		required := json.RawMessage(ix.PayRequired)
+		if ix.Role == interactions.RoleOutbound {
+			// This node is the local client's signing service: the options
+			// it can pay come first (0017 Q28).
+			required = payableFirst(ix.PayRequired, d.knownHomeNetwork())
+		}
+		out[x402a2a.KeyRequired] = required
 		out[x402a2a.KeyQuoteExpiresAt] = ix.QuoteExpiresAt
 	}
 	if ix.PayState == interactions.PayFailed {
@@ -1230,9 +1260,9 @@ func (d *Daemon) manualTierSteps(opt payment.PaymentOption) []string {
 	if amount > lim.ExplicitMax {
 		steps = append(steps, fmt.Sprintf("`anet payments set explicit_max=%d`", amount))
 	}
-	if spent := d.SpendStatus().Spent24h; spent+amount > lim.DailyMax {
+	if total := spendSum(d.SpendStatus().Spent24h, amount); total > lim.DailyMax {
 		steps = append(steps, fmt.Sprintf("`anet payments set daily_max=%d` (or wait until less was paid in the "+
-			"last 24 hours)", spent+amount))
+			"last 24 hours)", total))
 	}
 	return steps
 }
@@ -1331,6 +1361,22 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 	}
 	if opt == nil || opt.Scheme != payment.SchemeCredit {
 		return refuse(x402a2a.ReasonOptionNotOffered)
+	}
+	// 0017 Q28: an option on a ledger this node holds no credit on is not
+	// one it can pay. Signed anyway, the authorization could only be
+	// refused by that ledger's hub (unknown_payer, insufficient funds) —
+	// or sit there as a signature over money this node does not have.
+	// Refused before anything is signed, saying which options it can pay.
+	//
+	// So is any option while this node cannot learn which ledger its
+	// credit is on (its hub has not answered since it started): it cannot
+	// tell a payable option from another, and a receipt could not be
+	// checked either. This used to sign whatever was chosen — the
+	// provider's first option, when the client named none — and leave it
+	// to that ledger's hub [redteam:Q28].
+	if home := p.HomeNetwork(); home == "" || opt.Network != home {
+		out.Message = railNotPayableText(opt.Network, home, pr.Accepts)
+		return refuse(x402a2a.ReasonRailNotPayable)
 	}
 	if opt.PayTo != ix.PeerAID {
 		// A receipt is checked against the peer as payee; a payment to
@@ -1477,6 +1523,97 @@ func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.I
 	return nil
 }
 
+// railNotPayableText says why an option on network chosen cannot be paid
+// here and which of the quoted options can: those on home, the ledger this
+// node's credit is on. The options are the provider's, so they are made
+// plain before they become text a model reads.
+func railNotPayableText(chosen, home string, accepts []payment.PaymentOption) string {
+	if home == "" {
+		return fmt.Sprintf("this node could not learn from its hub which ledger its credit is on, so it cannot "+
+			"tell whether it can pay on %s. Nothing was signed or sent; pay again once its hub answers.",
+			plainText(chosen, 256))
+	}
+	var can []string
+	for _, o := range accepts {
+		if o.Scheme == payment.SchemeCredit && o.Network == home {
+			can = append(can, fmt.Sprintf("%s %s to %s on %s", plainText(o.Amount, 40), plainText(o.Asset, 40),
+				plainText(o.PayTo, 256), plainText(o.Network, 256)))
+		}
+	}
+	s := fmt.Sprintf("the chosen option settles on %s, where this node holds no credit; it pays on %s",
+		plainText(chosen, 256), plainText(home, 256))
+	if len(can) == 0 {
+		return s + ", and none of the quoted options is on it, so this node cannot pay this quote. Nothing was signed or sent."
+	}
+	return s + ". Options it can pay (first in x402.payment.required.accepts): " + strings.Join(can, "; ") +
+		". Nothing was signed or sent."
+}
+
+// payableFirst is a stored PaymentRequired with its accepts in the order
+// this node can pay them (0017 Q28): the options on home, the ledger its
+// credit is on, first, the rest after, each in its quoted order. Every
+// option is as the provider quoted it — a local client copies one out and
+// PayTask compares it with the stored quote field for field — and nothing
+// else changes. Unchanged when home is unknown or the quote unreadable.
+func payableFirst(required []byte, home string) json.RawMessage {
+	if home == "" {
+		return required
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(required, &top) != nil {
+		return required
+	}
+	var accepts []json.RawMessage
+	if json.Unmarshal(top["accepts"], &accepts) != nil || len(accepts) < 2 {
+		return required
+	}
+	var pay, rest []json.RawMessage
+	for _, a := range accepts {
+		var o struct {
+			Scheme  string `json:"scheme"`
+			Network string `json:"network"`
+		}
+		if json.Unmarshal(a, &o) == nil && o.Scheme == payment.SchemeCredit && o.Network == home {
+			pay = append(pay, a)
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	if len(pay) == 0 || len(rest) == 0 {
+		return required
+	}
+	b, err := json.Marshal(append(pay, rest...))
+	if err != nil {
+		return required
+	}
+	top["accepts"] = b
+	out, err := json.Marshal(top)
+	if err != nil {
+		return required
+	}
+	return out
+}
+
+// knownHomeNetwork is the ledger this node's credit is on when its hub's
+// identity is already known here, "" otherwise. It never asks the hub: a
+// task view must not wait on the network.
+func (d *Daemon) knownHomeNetwork() string {
+	if d.payer() == nil {
+		return ""
+	}
+	key := strings.TrimRight(strings.TrimSpace(d.config().HubURL), "/")
+	if key == "" {
+		return ""
+	}
+	d.hubIDMu.Lock()
+	h, ok := d.hubIDs[key]
+	d.hubIDMu.Unlock()
+	if !ok || h.aid == "" {
+		return ""
+	}
+	return payment.CreditNetwork(h.aid)
+}
+
 // reusablePayment returns the authorization this node last sent for the
 // task when the provider quotes the same terms again and it has not
 // expired (§8.3: the hub settles an authorization at most once, so sending
@@ -1547,23 +1684,35 @@ const maxPeerReceipts = 128
 // notePaymentReceipts verifies and records the receipts a provider sent
 // on a status or a result (§8.3; §4.2: also when the task has ended here).
 //
-// The list is the provider's whole history for the task (§8.2), failures
-// included, and is stored as pay_receipts for whoever renders the task.
 // Each successful receipt is checked: signed by this node's hub for a
 // payment by this node, for one of the authorizations this node signed for
 // the task, paying the task's provider, for that authorization's amount.
 // It is recorded once (by transaction) as anet.payment.settled, verified or
 // not; a second verified settlement for one task is recorded and marked.
+// Only a verified one moves pay_state to completed. One that cannot be
+// checked yet, because this node cannot learn its hub's identity right
+// now, is not recorded, so that its next delivery is checked.
+//
+// The list is the provider's whole history for the task (§8.2), failures
+// included, and is stored as pay_receipts after the check, each success
+// with this node's verdict in its extensions (x402a2a.ExtSettlementVerified)
+// so whoever renders the task states only what this node verified
+// (a2ashape.SplitReceipts). It was stored before any check and rendered as
+// the task's settlement: a provider's made-up receipts on a free call read
+// "Payment completed." [redteam:F11].
 //
 // The receive path plans the receipts before its step-10 transaction,
 // writes the pay columns inside it and records the evidence after it
 // commits (planReceipts, receiptPlan.applyTx, recordReceipts;
 // [redteam:F28]); this is the three in a row, for a caller outside one.
+// The plan holds the task's receipts lock (planReceipts) until the
+// evidence is recorded or the plan is let go (release).
 func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTerminal bool) {
 	rp := d.planReceipts(ixID, m, afterTerminal)
 	if rp == nil {
 		return
 	}
+	defer rp.release()
 	if err := d.ix.Update(func(tx *interactions.Tx) error { return rp.applyTx(tx, ixID) }); err != nil {
 		log.Printf("anet: %s: store the receipts: %v", ixID, err)
 		return
@@ -1571,17 +1720,35 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 	d.recordReceipts(rp)
 }
 
-// receiptPlan is what a provider's receipts change: the pay_receipts list
-// to store, whether a verified settlement completes the payment, and the
-// evidence entries to record once that is stored.
+// receiptPlan is what a provider's receipts change: the list to store as
+// pay_receipts with this node's verdicts, whether a verified settlement
+// completes the payment, and the evidence entries to record once that is
+// stored. It holds the task's receipts lock from planReceipts until
+// recordReceipts or release.
 type receiptPlan struct {
-	all       []byte
+	self      string                  // this node's AID, the payer a verified receipt states
+	list      []any                   // the provider's list, bounded to maxPeerReceipts
+	verified  map[string]settledFacts // settlements this node verified, by transaction
 	completed bool
 	entries   []map[string]any
+	unlock    func()
+}
+
+// release lets go of the task's receipts lock. It is safe on a nil plan
+// and more than once, so a caller defers it whatever becomes of its
+// transaction (a duplicate or a store error records nothing).
+func (rp *receiptPlan) release() {
+	if rp == nil || rp.unlock == nil {
+		return
+	}
+	rp.unlock()
+	rp.unlock = nil
 }
 
 // planReceipts checks the receipts in a provider's metadata and returns
-// what they change, or nil when they change nothing. It writes nothing.
+// what they change, or nil when there are none to look at. It writes
+// nothing. A non-nil plan holds the task's receipts lock: the caller
+// releases it, or recordReceipts does.
 func (d *Daemon) planReceipts(ixID string, m map[string]any, afterTerminal bool) *receiptPlan {
 	list, ok := m[x402a2a.KeyReceipts].([]any)
 	if !ok || len(list) == 0 {
@@ -1593,38 +1760,54 @@ func (d *Daemon) planReceipts(ixID string, m map[string]any, afterTerminal bool)
 		// signature check and an evidence record here.
 		list = list[len(list)-maxPeerReceipts:]
 	}
+	// One list at a time per task. Read the ledger, check, record and
+	// store is not atomic, and two messages of the provider's carrying
+	// the same receipt, delivered at once (p2p and hub, §3.6), each found
+	// it unrecorded and recorded it verified: two settlements for one
+	// payment, which audit reports as a task paid twice [redteam:F11].
+	unlock := d.outboxLocks.lock("receipts:" + ixID)
+	// Held past this function, through the store and the evidence record
+	// (receiptPlan.release): the receive path stores inside its step-10
+	// transaction and records after it commits [redteam:F28].
+	rp := &receiptPlan{self: d.AID(), list: list, unlock: unlock}
 	ix, err := d.ix.Get(ixID)
 	if err != nil || ix.Role != interactions.RoleOutbound {
+		rp.release()
 		return nil
 	}
-	rp := &receiptPlan{}
-	if len(list) >= len(storedReceipts(ix)) {
-		// Stored as a local client will be shown it: failures with
-		// transaction "" (Q18), whatever form the provider sent.
-		items := make([]json.RawMessage, 0, len(list))
-		for _, item := range list {
-			if b, err := json.Marshal(item); err == nil {
-				items = append(items, b)
-			}
-		}
-		if all, err := json.Marshal(normalizeReceipts(items)); err == nil {
-			rp.all = all
-		}
-	}
-	// What this node already recorded for the task.
-	recorded, verifiedBefore := map[string]bool{}, 0
+	// What this node already recorded for the task, and which of those
+	// settlements it verified, with what its hub's receipt states.
+	recorded, verifiedTx, verifiedBefore := map[string]bool{}, map[string]settledFacts{}, 0
 	d.ledger.scan(EvPaymentSettled, 0, func(_ int64, p map[string]any) {
 		if p["interaction_id"] != ixID {
 			return
 		}
-		if tx, _ := p["transaction"].(string); tx != "" {
+		tx, _ := p["transaction"].(string)
+		if tx != "" {
 			recorded[tx] = true
 		}
 		if p["verified"] == true {
 			verifiedBefore++
+			if tx != "" {
+				f := settledFacts{}
+				f.amount, _ = p["amount"].(string)
+				f.network, _ = p["network"].(string)
+				f.receipt, _ = p["receipt"].(string)
+				verifiedTx[tx] = f
+			}
 		}
 	})
+	rp.verified = verifiedTx
 	p := d.payer()
+	// A hub receipt is checked against this node's hub's key history.
+	// While that cannot be had — restarted, its hub not answering, the
+	// provider's message come over p2p (§3.6) — a settlement cannot be
+	// checked, which is not the same as not checking out: it is left
+	// unrecorded, stored unverified (storePeerReceiptsTx), and checked when
+	// it comes again. Recorded as refused, every later delivery of it was
+	// skipped as already recorded, and a task paid and settled stayed
+	// payment-submitted for good [redteam:F11].
+	uncheckable := p != nil && p.HomeNetwork() == ""
 	for _, item := range list {
 		rb, err := json.Marshal(item)
 		if err != nil {
@@ -1634,6 +1817,12 @@ func (d *Daemon) planReceipts(ixID string, m map[string]any, afterTerminal bool)
 		if json.Unmarshal(rb, &sr) != nil || !sr.Success || sr.Transaction == "" || recorded[sr.Transaction] {
 			continue
 		}
+		enc, _ := sr.Extensions[payment.ExtReceipt].(string)
+		if uncheckable && enc != "" {
+			log.Printf("anet: %s: settlement %q not checked yet: this node cannot learn its hub's identity now; "+
+				"it is checked when the provider sends it again", ixID, plainText(sr.Transaction, 128))
+			continue
+		}
 		recorded[sr.Transaction] = true
 		entry := map[string]any{"interaction_id": ixID, "transaction": sr.Transaction,
 			"amount": sr.Amount, "network": sr.Network}
@@ -1641,7 +1830,6 @@ func (d *Daemon) planReceipts(ixID string, m map[string]any, afterTerminal bool)
 			entry["after_terminal"] = true
 		}
 		verified := false
-		enc, _ := sr.Extensions[payment.ExtReceipt].(string)
 		switch {
 		case p == nil:
 			entry["refused"] = "this build has no payment module to check the receipt with"
@@ -1664,6 +1852,15 @@ func (d *Daemon) planReceipts(ixID string, m map[string]any, afterTerminal bool)
 				entry["refused"] = "receipt pays someone other than the task's provider"
 			case !known || amount != facts.Amount:
 				entry["refused"] = "receipt amount differs from the authorization"
+			case sr.Transaction != facts.AuthID || sr.Network != facts.Network:
+				// The anet-credit scheme: transaction = auth_id. The hub's
+				// receipt restated under another transaction (or network)
+				// is not a second settlement: it was recorded as one, a
+				// "second_receipt" for a task paid once, stated as two
+				// settlements, and reported by reconcile as missing from
+				// the hub under a transaction the hub never issued
+				// [redteam:F11].
+				entry["refused"] = "the settlement names a transaction or network other than the hub receipt's"
 			default:
 				verified = true
 				entry["amount"] = payment.Amount(facts.Amount)
@@ -1671,6 +1868,10 @@ func (d *Daemon) planReceipts(ixID string, m map[string]any, afterTerminal bool)
 		}
 		entry["verified"] = verified
 		if verified {
+			// entry holds the hub receipt's amount; the network is the
+			// receipt's too, checked equal above.
+			verifiedTx[sr.Transaction] = settledFacts{amount: entry["amount"].(string),
+				network: sr.Network, receipt: enc}
 			if verifiedBefore > 0 {
 				// §8.3 [m]: a second settlement for one task. Recorded, and
 				// marked for audit to show.
@@ -1681,22 +1882,19 @@ func (d *Daemon) planReceipts(ixID string, m map[string]any, afterTerminal bool)
 		}
 		rp.entries = append(rp.entries, entry)
 	}
-	if rp.all == nil && !rp.completed && len(rp.entries) == 0 {
-		return nil
-	}
 	return rp
 }
 
 // applyTx writes the pay columns the receipts change, inside the
-// transaction of the message that carried them.
+// transaction of the message that carried them: the list with this node's
+// verdicts (storePeerReceiptsTx) and, after a verified settlement,
+// pay_state completed.
 func (rp *receiptPlan) applyTx(tx *interactions.Tx, ixID string) error {
 	if rp == nil {
 		return nil
 	}
-	if rp.all != nil {
-		if _, err := tx.SetPayment(ixID, interactions.PayUpdate{Receipts: rp.all}); err != nil {
-			return err
-		}
+	if err := storePeerReceiptsTx(tx, ixID, rp.list, rp.verified, rp.self); err != nil {
+		return err
 	}
 	if rp.completed {
 		if _, err := tx.SetPayment(ixID, interactions.PayUpdate{
@@ -1708,12 +1906,13 @@ func (rp *receiptPlan) applyTx(tx *interactions.Tx, ixID string) error {
 }
 
 // recordReceipts records the settlement evidence once the pay columns are
-// stored. The evidence ledger is a store of its own and cannot join the
-// transaction.
+// stored, and lets go of the plan's receipts lock. The evidence ledger is
+// a store of its own and cannot join the transaction.
 func (d *Daemon) recordReceipts(rp *receiptPlan) {
 	if rp == nil {
 		return
 	}
+	defer rp.release()
 	for _, entry := range rp.entries {
 		if entry["verified"] != true {
 			log.Printf("anet: %s: settlement receipt did not check out: %v", entry["interaction_id"], entry["refused"])
@@ -1722,6 +1921,234 @@ func (d *Daemon) recordReceipts(rp *receiptPlan) {
 			log.Printf("anet: settlement evidence: %v", lerr)
 		}
 	}
+}
+
+// storePeerReceipts is storePeerReceiptsTx in a transaction of its own.
+func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]settledFacts) {
+	if err := d.ix.Update(func(tx *interactions.Tx) error {
+		return storePeerReceiptsTx(tx, ixID, list, verified, d.AID())
+	}); err != nil {
+		log.Printf("anet: %s: store the receipts: %v", ixID, err)
+	}
+}
+
+// storePeerReceiptsTx stores a provider's receipt list as pay_receipts
+// once planReceipts has checked it, inside tx: normalized (failures with
+// transaction "", Q18), and each success carrying this node's verdict,
+// VerdictVerified for a transaction in verified and VerdictUnverified for
+// any other, whatever the provider wrote there. A verified one states the
+// amount the hub's receipt states (verified maps a transaction to it) and
+// this node (self) as payer, not the figures the provider wrote beside it.
+//
+// The provider's list replaces the stored one when it is at least as
+// long (it is the whole history, §8.2), except that a settlement this node
+// verified stays even when the new list leaves it out or restates it
+// unverified: the provider cannot take back what this node checked. A
+// shorter list only adds the settlements the stored one does not have.
+//
+// Verified here is what the stored list carries this node's verified
+// mark on, as well as what verified names. verified is the ledger as
+// planReceipts read it before checking, and a concurrent delivery
+// (p2p and hub, §3.6) may have verified and stored a settlement since:
+// read only from the snapshot, that settlement was dropped from the list
+// by the next longer one [redteam:F11].
+//
+// At most maxPeerReceipts are kept, every verified settlement among them.
+// The shorter-list path appended without limit, so a provider could grow
+// the row by a few made-up transactions per status [redteam:F11].
+func storePeerReceiptsTx(tx *interactions.Tx, ixID string, list []any, verified map[string]settledFacts, self string) error {
+	items := make([]json.RawMessage, 0, len(list))
+	for _, item := range list {
+		if b, err := json.Marshal(item); err == nil {
+			items = append(items, withVerdict(normalizeReceipt(b), verified, self))
+		}
+	}
+	cur, err := tx.Get(ixID)
+	if err != nil {
+		return err
+	}
+	old := storedReceipts(cur)
+	var merged []json.RawMessage
+	if len(items) >= len(old) {
+		restated := map[string]bool{}
+		for _, n := range items {
+			if tx := verifiedTx(n); tx != "" {
+				restated[tx] = true
+			}
+		}
+		kept := map[string]bool{}
+		for _, o := range old {
+			tx := successTx(o)
+			if _, ok := verified[tx]; tx != "" && (ok || verifiedTx(o) != "") && !restated[tx] && !kept[tx] {
+				kept[tx] = true
+				merged = append(merged, o)
+			}
+		}
+		for _, n := range items {
+			if tx := successTx(n); tx != "" && kept[tx] {
+				continue // an unverified restatement of a verified one
+			}
+			merged = append(merged, n)
+		}
+	} else {
+		merged = old
+		have := successTxs(old)
+		added := false
+		for _, n := range items {
+			if tx := successTx(n); tx != "" && !have[tx] {
+				merged, added = append(merged, n), true
+			}
+		}
+		if !added {
+			return nil
+		}
+	}
+	all, err := json.Marshal(boundReceipts(merged, maxPeerReceipts))
+	if err != nil {
+		return err
+	}
+	_, err = tx.SetPayment(ixID, interactions.PayUpdate{Receipts: all})
+	return err
+}
+
+// boundReceipts is list cut to max entries: every settlement this node
+// verified, wherever it stands, and the newest of the rest.
+func boundReceipts(list []json.RawMessage, max int) []json.RawMessage {
+	if len(list) <= max {
+		return list
+	}
+	nVerified := 0
+	for _, r := range list {
+		if verifiedTx(r) != "" {
+			nVerified++
+		}
+	}
+	drop := len(list) - max
+	if others := len(list) - nVerified; drop > others {
+		drop = others
+	}
+	out := make([]json.RawMessage, 0, len(list)-drop)
+	for _, r := range list {
+		if drop > 0 && verifiedTx(r) == "" {
+			drop--
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// verifiedTx is the transaction of a stored settlement response this node
+// marked verified (withVerdict), "" for anything else.
+func verifiedTx(raw json.RawMessage) string {
+	var r struct {
+		Success     bool           `json:"success"`
+		Transaction string         `json:"transaction"`
+		Extensions  map[string]any `json:"extensions"`
+	}
+	if json.Unmarshal(raw, &r) != nil || !r.Success || r.Extensions[x402a2a.ExtSettlementVerified] != x402a2a.VerdictVerified {
+		return ""
+	}
+	return r.Transaction
+}
+
+// settledFacts is what this node recorded of a settlement it verified
+// (anet.payment.settled): the amount and network of the hub's receipt, and
+// the receipt itself.
+type settledFacts struct{ amount, network, receipt string }
+
+// withVerdict is a settlement response with this node's verdict in its
+// extensions when it claims success. A verified one is restated whole from
+// what this node recorded of the hub's receipt — transaction, network,
+// amount, this node (payer) as payer, the receipt — and keeps nothing the
+// provider wrote beside it: re-sent with another network or other receipt
+// bytes, it was stored verified as the provider rewrote it. Anything else
+// keeps no verdict of the provider's writing: a failure's is removed, and
+// an entry whose success is not a boolean is marked unverified; the
+// verdict key is this node's [redteam:F11].
+func withVerdict(raw json.RawMessage, verified map[string]settledFacts, payer string) json.RawMessage {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var m map[string]any
+	if dec.Decode(&m) != nil || m == nil {
+		return raw
+	}
+	ext, _ := m["extensions"].(map[string]any)
+	switch m["success"] {
+	case true:
+	case false:
+		if _, set := ext[x402a2a.ExtSettlementVerified]; !set {
+			return raw
+		}
+		delete(ext, x402a2a.ExtSettlementVerified)
+		return remarshal(m, raw)
+	default:
+		if ext == nil {
+			ext = map[string]any{}
+		}
+		ext[x402a2a.ExtSettlementVerified] = x402a2a.VerdictUnverified
+		m["extensions"] = ext
+		return remarshal(m, raw)
+	}
+	tx, _ := m["transaction"].(string)
+	if f, ok := verified[tx]; ok && tx != "" {
+		out := map[string]any{"success": true, "transaction": tx, "payer": payer}
+		for k, v := range map[string]string{"amount": f.amount, "network": f.network} {
+			if v == "" {
+				v, _ = m[k].(string) // recorded before this node kept it
+			}
+			if v != "" {
+				out[k] = v
+			}
+		}
+		oext := map[string]any{x402a2a.ExtSettlementVerified: x402a2a.VerdictVerified}
+		if rc := f.receipt; rc != "" {
+			oext[payment.ExtReceipt] = rc
+		} else if rc, _ := ext[payment.ExtReceipt].(string); rc != "" {
+			oext[payment.ExtReceipt] = rc
+		}
+		out["extensions"] = oext
+		return remarshal(out, raw)
+	}
+	if ext == nil {
+		ext = map[string]any{}
+	}
+	ext[x402a2a.ExtSettlementVerified] = x402a2a.VerdictUnverified
+	m["extensions"] = ext
+	return remarshal(m, raw)
+}
+
+// remarshal is m encoded, or fallback when it cannot be.
+func remarshal(m map[string]any, fallback json.RawMessage) json.RawMessage {
+	b, err := json.Marshal(m)
+	if err != nil {
+		return fallback
+	}
+	return b
+}
+
+// successTx is the transaction of a settlement response that claims
+// success, "" for anything else.
+func successTx(raw json.RawMessage) string {
+	var r struct {
+		Success     bool   `json:"success"`
+		Transaction string `json:"transaction"`
+	}
+	if json.Unmarshal(raw, &r) != nil || !r.Success {
+		return ""
+	}
+	return r.Transaction
+}
+
+// successTxs is the set of successTx over a list.
+func successTxs(list []json.RawMessage) map[string]bool {
+	out := map[string]bool{}
+	for _, r := range list {
+		if tx := successTx(r); tx != "" {
+			out[tx] = true
+		}
+	}
+	return out
 }
 
 // authorizedAmount is the amount of an authorization this node signed for

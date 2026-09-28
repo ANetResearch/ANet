@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -163,6 +164,14 @@ func (m *Module) Authorize(opt payment.PaymentOption, ix, bind, purpose string) 
 	if err != nil {
 		return nil, err
 	}
+	// Not a payment on any credit ledger: hubs book amounts as int64, and
+	// one without the range check booked such an amount backwards (red
+	// team si9). A quote for it is the provider's to have got wrong;
+	// nothing is signed, and the spending policy is not asked.
+	if amount > math.MaxInt64 {
+		return nil, fmt.Errorf("x402: %s: %d is more than a credit ledger can hold; nothing was signed",
+			payment.ReasonInvalidAmount, amount)
+	}
 	if err := m.seam.AdmitSpend(opt.PayTo, amount, purpose); err != nil {
 		return nil, fmt.Errorf("x402: not authorized by this node's spending policy: %w", err)
 	}
@@ -228,7 +237,12 @@ func (m *Module) Authorize(opt payment.PaymentOption, ix, bind, purpose string) 
 // The body is x402 v2's {x402Version, paymentPayload, paymentRequirements}.
 // Neither object carries a description, an extra or a resource: the hub
 // learns who pays whom how much on which ledger for which binding, and
-// nothing about the work (SI-1).
+// not what the work was (SI-1). It can still name the skill: the payee
+// and the exact amount are in the body, and where the payee publishes a
+// different price per skill (anet-pricing/v1 on its card, the ADP card's
+// price list) the amount picks one. That is stated in A2A-DESIGN §21;
+// payments.publish_prices=false keeps the prices off the cards
+// [redteam:F1].
 func (m *Module) settle(ctx context.Context, raw []byte, req payment.PaymentRequirements) (*payment.SettlementResponse, error) {
 	hub := m.hubURL()
 	if hub == "" {
@@ -290,7 +304,7 @@ func (m *Module) VerifyReceipt(receiptB64, expectPayer string) (module.ReceiptFa
 	if err != nil {
 		return facts, false
 	}
-	facts.Payee, facts.AuthID, facts.Amount = rec.PayTo, rec.AuthID, rec.Amount
+	facts.Payee, facts.AuthID, facts.Amount, facts.Network = rec.PayTo, rec.AuthID, rec.Amount, rec.Network
 	hubAID := m.hubAID()
 	if hubAID == "" {
 		return facts, false

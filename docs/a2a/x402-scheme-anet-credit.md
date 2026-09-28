@@ -410,9 +410,13 @@ authorization for a task whose first has no final outcome.
 
 ## Privacy
 
-- The facilitator learns payer, payee, amount, time, the authorization id and the binding hash. It
-  does not learn the task, the skill or the task id: the requirements it receives carry no resource,
-  description or `extra` **(designed; the reference merchant does not yet send requirements)**.
+- The facilitator learns payer, payee, amount, time, the authorization id and the binding hash. It is
+  not sent the task, the skill or the task id: the requirements it receives carry no resource,
+  description or `extra`. It can still infer the skill when the payee publishes a distinct price per
+  skill (the anet-pricing/v1 card extension): payee and amount then name it, and for a cross-hub
+  payment so do the public issuance chain's entries. A payee that does not want this publishes no
+  per-skill prices and gives the price only in the end-to-end encrypted quote (the reference daemon's
+  `payments.publish_prices=false`).
 - The hub can correlate settlements with public reviews by payer, payee and time. Cross-hub payments,
   clearing and redemptions appear with amounts, times and AIDs in the public issuance chain.
 

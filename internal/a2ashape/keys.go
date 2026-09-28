@@ -102,6 +102,12 @@ const (
 	// KeySettlementReceipt is where a settlement response carries the
 	// hub's signed receipt, in its extensions (ANetCore payment.ExtReceipt).
 	KeySettlementReceipt = payment.ExtReceipt
+	// KeySettlementVerified is the requester's verdict on a provider's
+	// settlement response, in its extensions (x402a2a).
+	KeySettlementVerified = x402a2a.ExtSettlementVerified
+	// KeyUnverifiedReceipts lists the settlements a provider claimed and
+	// this node could not verify (x402a2a).
+	KeyUnverifiedReceipts = x402a2a.KeyUnverifiedReceipts
 )
 
 // x402.payment.status values.

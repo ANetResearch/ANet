@@ -24,7 +24,7 @@
 
 | 编号 | 不变量 | 验收方式 |
 |---|---|---|
-| SI-1 | hub 进程、hub 磁盘(含 WAL、备份、admin 数据目录)、hub 与 hub admin 的任何 HTTP 响应中,不出现任务内容:TaskDoc 正文、聊天正文、交付物、附件字节、能力参数、x402 `resource`。经中继结算路径到达 hub 的付款对象(`/x402/settle` 请求体、结算行、跨 hub 转发体)中 `resource`、`description`、`extra` 为空或固定值(结构化断言)。hub 网关与凭证路径(§2 冻结项)不在本条范围内 | `joint.sh` canary:hub 与 `anet-hub-admin` 同时运行(采集与快照周期调短),流程含一次对官方 agent 测试实例的调用;对 hub 数据目录、admin 数据目录、`/agents/{aid}`、`/fed/v1/reviews`、admin `/api/sessions*` 做字节搜索,命中 0;断言 admin `/api/official/{id}/insights`、`/acl`、`/monitor/*`、`/ops` 返回 404。mutation:关闭加密、恢复任一采集源,均须命中。反向断言:收件方解出 canary |
+| SI-1 | hub 进程、hub 磁盘(含 WAL、备份、admin 数据目录)、hub 与 hub admin 的任何 HTTP 响应中,不出现任务内容:TaskDoc 正文、聊天正文、交付物、附件字节、能力参数、x402 `resource`。经中继结算路径到达 hub 的付款对象(`/x402/settle` 请求体、结算行、跨 hub 转发体)中 `resource`、`description`、`extra` 为空或固定值(结构化断言)。本条是字节与结构断言;收款方与金额加上公开的逐 skill 价格仍可推出所买 skill,见 §21 第 9 条 [redteam:F1]。hub 网关与凭证路径(§2 冻结项)不在本条范围内 | `joint.sh` canary:hub 与 `anet-hub-admin` 同时运行(采集与快照周期调短),流程含一次对官方 agent 测试实例的调用;对 hub 数据目录、admin 数据目录、`/agents/{aid}`、`/fed/v1/reviews`、admin `/api/sessions*` 做字节搜索,命中 0;断言 admin `/api/official/{id}/insights`、`/acl`、`/monitor/*`、`/ops` 返回 404。mutation:关闭加密、恢复任一采集源,均须命中。反向断言:收件方解出 canary |
 | SI-2 | hub 不存储 `from_aid`、`kind`、`interaction_id`;中继行 ack 即删 | hub 单测 + 联调读表 |
 | SI-3 | daemon 只接受封装信封;未封装、签名不符、收件人不符、过期、重放一律拒收,不做明文回退 | 逐字段变异测试(§3.6) |
 | SI-4 | 交互内每一条入站消息的发送方都经签名证明是该交互的对端 | 伪造 `from` 注入测试(真 hub 与 fake hub 都不校验 `from`) |
@@ -504,6 +504,8 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 
 provider 在结算成功后先发 `payment-verified` 状态再执行能力 [m]。与规范的语义差异:a2a-x402 规范与官方参考实现里 `payment-verified` 表示"验过、尚未扣款"(参考实现的顺序是 verify → 执行 → settle),anet 的 `payment-verified` 表示"已结算、已扣款",商户核对失败时直接从 submitted 到 `payment-failed`,不经 verified(§8.3 的时序是结算成功之后才执行)。对外文档与 §19 草稿写明这一差异 [impl:简报 04 §2][impl:wp/docs 1f59722]。
 
+requester 对本机客户端陈述的是本节点的核验结论,不是 provider 的说法 [redteam:F11]:provider 发来的收据列表在逐项核验(§8.3)之后才存为 `pay_receipts`,每个成功项的 `extensions["anet.settlement_verified"]` 写本节点结论(`verified`/`unverified`,覆盖对端自填的值);投影与状态消息中的 `x402.payment.receipts` 只含失败项(`success` 恰为 `false`)与本节点核验通过的成功项,核验未通过或 `success` 不是布尔值的项列在任务 metadata 的 `anet.unverified_receipts`;`payment-completed` 与 "Payment completed." 只由本节点 `pay_state=completed` 决定,不读交付物的 `paid`,provider 状态消息里的 receipts 与 `payment-completed` 在作为 status.message 呈现时换成本节点的值;对端更长的列表不能挤掉本节点已核验的结算;`pay_state` 为空的任务不输出结算键(provider 状态行作为 status.message 呈现时同样去掉其 `x402.payment.receipts`,不换成空列表);付过款、任务完成而本节点没有核验通过的结算(`pay_state` 仍为 submitted)时,最终消息写"本节点未核验到所付款项的结算",不写"没有结算"[redteam:F11]。复核补充 [redteam:F11]:核验通过要求结算响应的 `transaction` 就是 hub 收据的 AuthID(anet-credit:transaction = auth_id)、`network` 就是收据的 network——同一张真实收据换个交易号重发不再被记成第二笔已核验结算(之前证据链记 `second_receipt`、视图陈述两笔、reconcile 把编造的交易号报成"hub 漏记");已核验项整条由本节点记录的 hub 收据重述(transaction、network、amount、payer、收据字节),不保留 provider 写在旁边的字段;已存列表中带本节点 `verified` 标记的项同样保留(不只依赖核验前读到的证据快照,p2p 与 hub 并发投递时不会被挤掉);同一任务的收据核验逐个进行(读证据、核验、记证据、存列表作为一步),同一结算经两条消息同时送达只记一次;存储的列表最多 128 项,已核验项总在其中;`anet.settlement_verified` 只由本节点写,provider 写在失败项上的会被去掉,`success` 非布尔的项标为 `unverified`;provider 在本节点没有待结算付款(`pay_state` 不是 submitted/completed)时说 `payment-verified`,作为 status.message 呈现时同样换成本节点的状态;`anet reconcile` 不把本节点未核验的对端收据当作 hub 应记的付款。
+
 ### 8.3 时序(daemon 之间全部在 E2E 信封内)
 
 ```
@@ -522,7 +524,9 @@ B: 收到 payment-submitted:分派给能力执行器(不进自动回复,复用 r
       成功 → status{working, payment-verified} → 执行 → result + {payment-completed, receipts}
       确定失败 → status{input-required 或 failed, {payment-failed, error, receipts}}
       未知(传输错误、超时、`settlement_pending`)→ 不回 input-required,用同一 payload 重试直到确定;重启恢复 submitted 行
-A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与授权一致 → 证据;同一 ix 第二张成功收据写证据并在 audit 标出 [m]
+A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与授权一致,结算响应的 transaction == 收据 AuthID 且 network == 收据 network → 证据;同一 ix 第二张成功收据(另一个 AuthID)写证据并在 audit 标出 [m]
+   核验之后才存列表,每项带本节点结论;只有核验通过才置 pay_state=completed(§8.2 末段)[redteam:F11]
+   本节点此刻取不到自己 hub 的身份(重启后 hub 未应答、消息经 p2p 到达)时收据无法核验:不记证据、不算"核验未通过",存为 unverified,下次送达时再核验;之前记成未通过,之后同一交易号的送达都按"已记录"跳过,已结算的任务永远停在 submitted [redteam:F11]
 ```
 
 - 报价 24 小时过期:provider 置 `failed` + `payment-failed`/`EXPIRED_PAYMENT`;未付报价计入按调用方配额;requester 不对过期报价签授权 [m]。
@@ -536,13 +540,14 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 
 ### 8.4 商户核对(provider,结算前)
 
-`auth.PayTo == 本节点`;`auth.Amount ≥ 报价`;`auth.InteractionID == pay_bind(ix, task_nonce)`;scheme/network ∈ 已报价选项;授权未过期;报价未过期。不符 → `payment-failed` + 错误码(§8.5 映射表;收款方不符、绑定不符、无待付报价均为 `SETTLEMENT_FAILED` + `anet.reason`,金额不足 `INVALID_AMOUNT`,scheme/network 不在已报价选项 `NETWORK_MISMATCH`,授权或报价过期 `EXPIRED_PAYMENT`),不结算、不执行。`anet.replayed=true` 仅当收据 `AuthID` == 本 ix 已持久化的 `auth_id` 时接受。
+`auth.PayTo == 本节点`;`报价 ≤ auth.Amount ≤ 2^63-1`(账本以 int64 记账,超出的金额在未修复的 hub 上反向记账;凭证兑付同样拒绝超出的金额)[redteam:si9];`auth.InteractionID == pay_bind(ix, task_nonce)`;scheme/network ∈ 已报价选项;授权未过期;报价未过期。不符 → `payment-failed` + 错误码(§8.5 映射表;收款方不符、绑定不符、无待付报价均为 `SETTLEMENT_FAILED` + `anet.reason`,金额不足 `INVALID_AMOUNT`,scheme/network 不在已报价选项 `NETWORK_MISMATCH`,授权或报价过期 `EXPIRED_PAYMENT`),不结算、不执行。`anet.replayed=true` 仅当收据 `AuthID` == 本 ix 已持久化的 `auth_id` 时接受。
 
 实现的核对顺序与补充项(`module/x402` `CheckPayment`)[impl:wp/x402d 2cc279b][impl:简报 04 §5]:scheme 不是 `anet-credit` → `network_mismatch`;载荷解不开 → `malformed_payment`;无待付报价 → `no_pending_quote`;报价已过期 → `quote_expired`;收款方(授权与 `accepted` 两处)不是本节点 → `payee_mismatch`;**授权的付款方不是该任务的请求方 → `payer_mismatch`**(设计原文未列,实现增加:付款须由请求方本人签);绑定不符 → `binding_mismatch`;网络不在已报价选项 → `network_mismatch`;`accepted.amount` 与授权金额不一致或低于报价 → `invalid_amount`;授权不在有效窗口 → `expired_payment`。结算用的 `paymentRequirements` 就是命中的已报价选项,只保留 hub 比较的条款(scheme、network、amount、asset、payTo、maxTimeoutSeconds),不带描述工作的字段(SI-1)。
 
 ### 8.5 hub facilitator [C26][C13][C25]
 
 - `CheckRequirements(auth, req)`:比较 `payTo`、`amount ≥ req.amount`、`network`、`scheme`,只解码授权,不需要 KEL。
+- 金额范围 [redteam:si9]:线上金额(授权、收据、requirements、discharge)是 uint64,账本是 int64。所有入口只接受 1..2^63-1:`parseAuth`(verify、settle 本地与转发、redeem、网关共用;转发前即拒)、`CheckRequirements`(required amount 超范围为 `invalid_payment_requirements`)、对端收据(`ClearPeerSettlement`、`ClearFromPeer`)、对端 discharge(`SettleOwed`)、`IssueOwedSettlement`、`DischargeDue`、`anet-hub -clear`、网关价格;拒绝为 `invalid_amount`。每处换算经同一个函数(`internal/aghub/amount.go`),不写裸 `int64(…)`;反向换算(已结算重放、兑付回显)遇到库中 ≤ 0 的旧行不重签收据、不回显溢出值。单笔在范围内的金额加上已有值也不得超出 int64:余额、`hub_due`、`hub_owed` 的加减在同一语句里检查结果范围(SQLite 整数溢出不报错而是存成 REAL,账户随后读不出),超出时 `invalid_amount`、整笔回滚;运营者发放同样先检查;入口 hub 对转发结算的对端收据要求金额等于转发出去的授权金额(账本 hub 只按付款方签的金额结算),不按对端写的更大金额记账 [redteam:si9]。部署附只读核查脚本 `deploy/audit-amount-overflow.sql`。节点侧:商户核对、凭证兑付、签名(`Authorize`)同样拒绝 > 2^63-1,支出策略的日累计按饱和加法比较,发放链审计把不是正 int64 的金额列为问题而不计入合计。
 - `SettlePayment` 拆成内部 `settleAuth`(无 requirements,供已自行核对的调用方)与公开 `SettleWithRequirements`(`hX402Settle` 用)。
 - 入口 hub(network ≠ 本 hub):先 `CheckRequirements`,再把 `{x402Version, paymentPayload, paymentRequirements}` 转发给账本 hub;回执 `PayTo/Amount` 与 requirements 一致才 `ClearFromPeer`。账本 hub:`decodeAuth` 后再 `CheckRequirements`,`paymentRequirements` 必填。
 - `Redeem` 保留 `payTo == hubAID` 检查并调用 `settleAuth`;网关以 `{payTo: aid, amount: price}` 构造 requirements,凭证金额取结算额。
@@ -560,7 +565,7 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 | `duplicate_nonce`、`duplicate_binding` | `DUPLICATE_NONCE` |
 | `network_mismatch` | `NETWORK_MISMATCH` |
 | `invalid_amount` | `INVALID_AMOUNT` |
-| hub:`payee_mismatch`、`unsupported_scheme`、`unknown_payer`、`settlement_failed`、`malformed_payment`、`invalid_payment_requirements`;provider:`binding_mismatch`、`no_pending_quote`、`payer_mismatch`、`provider_busy`;本机客户端(§8.7):`client_payload_unsupported`、`option_not_offered` | `SETTLEMENT_FAILED`,原始原因放入 `anet.reason` |
+| hub:`payee_mismatch`、`unsupported_scheme`、`unknown_payer`、`settlement_failed`、`malformed_payment`、`invalid_payment_requirements`;provider:`binding_mismatch`、`no_pending_quote`、`payer_mismatch`、`provider_busy`;本机客户端(§8.7):`client_payload_unsupported`、`option_not_offered`、`rail_not_payable`(Q28)| `SETTLEMENT_FAILED`,原始原因放入 `anet.reason` |
 | `settlement_pending` | 不映射(非终结,不发 payment-failed) |
 
 结算应答非 2xx 且不带 `errorReason` 时按"结果未知"处理,用同一 payload 重试;首次结算成功而本地记账失败时同样进入重试循环 [impl:wp/x402d fe49f7a]。
@@ -573,6 +578,8 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 "payments": { "auto_max": 0, "agent_max": 0, "agent_daily_max": 0,
               "explicit_max": 10, "daily_max": 50, "payees_file": "payees.allow" }
 ```
+
+可选键 `publish_prices`(缺省 `true`):为 `false` 时网络卡片不带 anet-pricing、ADP 卡片不带价格表,价格只在 E2E 报价中给出;取舍见 §21 第 9 条 [redteam:F1]。
 
 - 三档:**auto**(daemon 自动,`auto_max`);**agent**(MCP `submit_payment`、本机 A2A 客户端 `payment-submitted`,`agent_max`/`agent_daily_max`);**人工**(`anet pay <ix>`、`anet redeem`,须 `/dev/tty` 交互确认,`explicit_max`/`daily_max`)。修改支出上限的命令同样要求 TTY。控制台会话不能授权付款。
 - 执行点:`module.PaymentSeam` 增加 `AdmitSpend(payTo string, amount uint64, purpose string) error`,由内核实现;x402 模块 `Authorize` 在 `seam.Sign` 之前调用它(覆盖模块内部的 `Redeem`)。`module.Payer.Authorize` 改为 `Authorize(opt payment.PaymentOption, ix, bind, purpose string) ([]byte, error)`:授权的 `InteractionID` 填 `bind`;`anet.payment.authorized` 事件增加 `interaction_id`(ix)、`pay_bind`、`purpose` 字段。一把互斥锁覆盖"检查—记录";日累计按已签授权额计(不是已结算额),启动时按 purpose 从该事件重建,读取量覆盖 24 小时 [C27]。
@@ -599,6 +606,7 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 - 本机 daemon 是 a2a-x402 §5.1 所说的签名服务。本机客户端在同一 taskId 上发 `x402.payment.status: payment-submitted`,**不带** `x402.payment.payload`;以 `anet.payment.accept` 给出从 `x402.payment.required.accepts` 原样复制的所选项(只有一项时可省略)。
 - daemon 核对所选项与本 ix 存储的某个 `accepts` 项相同,按 agent 档上限签授权,在 E2E 信封内转发标准 x402 v2 `PaymentPayload`。"相同"的实现口径:两边都经规范化 JSON(对象键排序、数字按原文保留、不做任何增删)后逐字节相等,即逐字段相同且不多出成员;只有一项时可省略所选项,多项且省略时由节点按可用通道选择 [impl:wp/x402d 2cc279b(`offeredOption`)]。
 - 客户端自带 `x402.payment.payload` → `x402.payment.status: payment-failed`、`x402.payment.error: SETTLEMENT_FAILED`、`anet.reason=client_payload_unsupported`(其付款方不是本节点,转发也无法结算);所选项不在 accepts → 同上,`anet.reason=option_not_offered`。这两种拒绝返回任务本身(带上述 `payment-failed` 状态消息),不是协议错误;什么都不签、不发、不存,报价仍在 [impl:65cbcdb]。无报价、已有未决付款、报价已过期、任务已终止、未编入付款模块 → `UnsupportedOperation`。
+- 付款选项顺序与不可付选项(0017 Q28):daemon 转交本机客户端(A2A/MCP、控制面任务视图)的 `x402.payment.required.accepts` 按本节点可付排序——本节点账本所在网络(hub 身份已知时)的选项在前,其余按原顺序在后;每个选项的内容不改,存储的报价仍是 provider 的原样与原序。客户端选了本节点不能付的选项(不在本节点账本上的网络)时,在签名前拒绝:`payment-failed`、`SETTLEMENT_FAILED`、`anet.reason=rail_not_payable`,`status.message` 写明本节点账本与可付的选项(没有则写明无法支付此报价);未签名、未发送,报价仍可再付。自动档与未指定选项时同样只选本节点账本上的选项。本节点此刻取不到自己的账本(自启动以来 hub 未应答)时,任何选项都按不可付处理:同样 `rail_not_payable`,`status.message` 说明原因,不签名,hub 应答后可再付;之前这种情况下照客户端所选(未指定时是 provider 排在第一的选项)签名,交给那个账本的 hub 决定。预付路径(`PayAndRetry`)同样检查 [redteam:Q28]。
 - 付款消息只走内核一条路:module/a2a 不截获 x402 消息,SendMessage/SendStreamingMessage 一律交给 `TaskSeam.Send`,内核识别付款消息后调用与 `/tasks/pay` 同一实现(purpose `task-agent`)。因此客户端的 `(contextId, messageId)` 去重对付款消息同样生效:同一 messageId 的付款消息重发只签一次授权(客户端 messageId 记在本地付款消息的元数据,不随信封外发)。流式发送遇到拒绝或被搁置(§8.3 agent 档超限)时发出该任务后即结束流 [impl:65cbcdb][impl:wp/cli2 bb43e37]。付款消息的阻塞等待以决定前的 `state_seq` 为界(提交后转 working 不算中断态)[impl:dc3eefa]。
 - 代理卡片的 x402 声明不设为必需:省略 `required` 字段,不写 `"required": false`(proto3 普通 bool 的默认值,A2A §8.4.1 要求省略;写出会使按 proto 语义重建载荷的验证方得到另一份签名原像,见 note 0012),params `{signer:"anet-daemon", clientPayload:false}`;不论客户端是否激活扩展,代理任务上都出现 x402 状态键。客户端未激活时:auto 档内照常自动付款,超出时 `input-required` + `anet.reason=payment_extension_not_activated`(内核给的是 `needs_operator_approval`,本机 A2A 接口对未激活的请求改说成前者;对付款消息本身的应答除外)[impl:wp/cli2 bb43e37]。激活识别见 §8.1(同时认 v0.1 URI)[Q18]。
 
@@ -633,7 +641,7 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 - 注册的 `caps` 与 ADP 卡(及价目)同样只含 `public_capabilities` 中的能力,不暴露私有能力清单;配置里运营者声明的 caps 原样保留 [Q14][impl:wp/proj 78b4963]。
 - `supportedInterfaces`:中继绑定 `{url: <hub 公网基址>/relay, protocolBinding: "https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1", protocolVersion: "1.0", tenant: <AID>}`;p2p 启用且运营者配置了 `advertise` 地址时追加直连条目 `{url: "tcp://<host>:<port>"(由 `advertise` 规范化;本地 socket 与缺 host/port 的值启动即拒绝)[impl:wp/cardgen d1cf8f8][B6-02 复核], protocolBinding: "https://agentnetwork.org.cn/a2a/bindings/anet-p2p/v1", protocolVersion: "1.0", tenant: <AID>}`(与中继同样按 tenant 路由、承载同样的封装信封)[Q8][impl:wp/cardgen d1cf8f8]。"127.0.0.1 不进入网络卡片"只约束 p2p 直连地址,不约束 hub URL(本机联调的 hub 可以是回环)[Q8]。内核丢弃回环、他人 tenant 或畸形的模块贡献,拒绝第二个中继接口;p2p `advertise` 的端口须为数字且在范围内 [impl:wp/cardgen 0fb65f3]。
 - `securitySchemes` 省略(认证由绑定内的发送方签名承担);不定义新 scheme 类型。
-- `capabilities.extensions`:`…/anet-card/v1`(`params{aid, seq:"<字符串>", issuedAt, notBefore}`)、a2a-x402 v0.2、`…/anet-pricing/v1`(`params{network, prices:[{skillId, amount:"<字符串>"}]}`)、`…/anet-evidence/v1`。anet-card 与 anet-evidence 由内核写入,模块贡献中出现这两个 URI 或中继绑定一律丢弃 [impl:wp/cardgen d1cf8f8]。
+- `capabilities.extensions`:`…/anet-card/v1`(`params{aid, seq:"<字符串>", issuedAt, notBefore}`)、a2a-x402 v0.2、`…/anet-pricing/v1`(`params{network, prices:[{skillId, amount:"<字符串>"}]}`;`payments.publish_prices=false` 时不发布,只在 E2E 报价中给出价格,见 §21 第 9 条 [redteam:F1])、`…/anet-evidence/v1`。anet-card 与 anet-evidence 由内核写入,模块贡献中出现这两个 URI 或中继绑定一律丢弃 [impl:wp/cardgen d1cf8f8]。
 - 数值一律字符串;必填切片非 nil;`streaming`、`pushNotifications` 显式输出(网络卡片写 `false`)[impl:wp/cardgen d1cf8f8]。
 - 卡片 `name` 取本次注册所用的名字(显式 `hub-register` 的名字在 hub 接受后才写入配置,卡与同一次注册的 ADP 卡必须一致);首次 `hub-register` 在配置记下 hub 之后再发布一次,使付款模块能按 hub 找到账本、把 a2a-x402 与价目写进卡 [impl:wp/cardgen 0fb65f3]。
 - 发布形(`a2acard.CheckPublishForm`,`Sign` 只接受发布形,不自动改写):REQUIRED 字段必须出现且非空(REQUIRED 数组至少一项:`supportedInterfaces`、`defaultInputModes`、`defaultOutputModes`、`skills`、每个 skill 的 `tags`;`name`/`description`/`version`、接口的 `url`/`protocolBinding`/`protocolVersion` 非空);`optional` 字段仅在显式设置时出现,且不为空串;其余字段处于默认值(`false`、`""`、`[]`、`{}`、`null`)时一律省略;不出现 schema 以外的成员;扩展 `params` 内部不出现 `null`/`""`/`[]`/`{}`(a2a-python 会在 Struct 内部删除它们,规范不删,两边原像不同);oneof 消息(`SecurityScheme`、`OAuthFlows`)恰好设置一个成员(a2a-python 与 a2a-go 都拒绝解析设置了两个的对象);a2a-go 每次序列化都写出的成员必须出现(`capabilities.streaming`/`pushNotifications`,以及已弃用的 implicit/password OAuth 流的 `authorizationUrl`/`tokenUrl`/`scopes`),否则 a2a-go 解析—再序列化后载荷改变;`extendedAgentCard` 出现时只能为 `true`。扩展声明用 `a2acard.ExtensionDecl` 构造。
@@ -1007,7 +1015,7 @@ r4 时点的进度(剩余阶段按 `docs/notes/0014` 的批次推进,已定决�
 6. 对端 KEL 首次信任:第一次看到某 AID 时接受其自证明 KEL;回退防护只覆盖已有持久记录的对端。hub 可以提供旧卡片与截断 KEL,daemon 只拒绝回退到本机已见状态之前。
 7. `hub:<aid>` 不满足 CAIP-2。
 8. `return_immediately=false` 的 SendMessage 在对端离线时可能等待很久;客户端超时不取消任务,重试会建第二个任务。按 `(contextId, messageId)` 的去重对每次调用生成新 messageId 的客户端(如 Hermes)无效;只带 contextId 的续写有一处偏离规范的宽松处理(§11.5)[Q22]。
-9. hub 能按付款方、收款方与时间把结算与公开评价关联;公开发放链显示每笔跨 hub 付款、清算与兑付的金额、时间与 AID。经 hub 网关购买的凭证与报价含能力 id 与收款方,hub 可见。
+9. hub 能按付款方、收款方与时间把结算与公开评价关联;公开发放链显示每笔跨 hub 付款、清算与兑付的金额、时间与 AID。经 hub 网关购买的凭证与报价含能力 id 与收款方,hub 可见。结算请求不带 `resource`,但带收款方与准确金额;收款方在卡片上公开逐 skill 价格(anet-pricing/v1、ADP 卡片价格表,§10.1)时,由"收款方 + 金额"即可推出所买 skill,也就是报价里的 `resource`:hub 对每笔结算都能做到,跨 hub 付款则任何读公开发放链的人都能做到;价格相同的 skill 之间无法区分,只标价一个 skill 的节点本来就只有这一个可买。取舍:`payments.publish_prices=false` 时卡片不发布逐 skill 价格,价格只在 E2E 报价中给出,结算金额不再经公开价格指向 skill;代价是调用前看不到价格、hub 网关无法出售该节点的能力(网关只按签名卡片上的价格出售),卡片仍声明 a2a-x402(全部 skill 收费时 `required`)。缺省 `true`,因为公开签名价格让 hub 无法以卡片外的价格报价,也让调用方事先知道价格。profile 的自由文本 `pricing` 若写了逐能力价格,同样公开 [redteam:F1]。
 10. 通过 curl|sh 从 agentnetwork.org.cn 或 hub 域名首次安装时,信任提供脚本的主机(当前与官方 hub 同机);按 hub 的 llms.txt 行事的 agent 执行的是该 hub 提供的指令。安装后 `anet update` 只依赖发布密钥。
 11. KEL 轮换没有产品触发路径;轮换宽限默认 1 小时,超过宽限仍在信箱中的旧密钥消息会被拒收。
 12. `A2A-Version` 缺省按 1.0 处理,偏离规范的"缺省按 0.3"。

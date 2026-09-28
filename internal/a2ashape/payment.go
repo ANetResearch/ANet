@@ -5,8 +5,9 @@ import "github.com/ANetResearch/ANet/internal/x402a2a"
 // A local client's payment message that this node refuses before anything
 // is signed or sent (A2A-DESIGN §8.7): a PaymentPayload of the client's
 // own (this node is the signing service; a payload whose payer is not this
-// node could not settle even if forwarded), or a chosen option that is not
-// one of the quoted accepts. The answer is the task as it stands — the
+// node could not settle even if forwarded), a chosen option that is not
+// one of the quoted accepts, or one on a ledger this node holds no credit
+// on (0017 Q28; the message names the options it can pay). The answer is the task as it stands — the
 // quote still waits and may be paid properly — with an agent message that
 // says payment-failed, the a2a-x402 code and anet.reason.
 //
@@ -45,7 +46,7 @@ func IsPaymentRefusal(t Task) bool {
 		return false
 	}
 	switch m.Metadata[KeyReason] {
-	case x402a2a.ReasonClientPayloadUnsupported, x402a2a.ReasonOptionNotOffered:
+	case x402a2a.ReasonClientPayloadUnsupported, x402a2a.ReasonOptionNotOffered, x402a2a.ReasonRailNotPayable:
 		return true
 	}
 	return false
@@ -58,6 +59,9 @@ func PaymentRefusalDetail(reason string) string {
 		return "this node signs payments itself; a payload made by the client is not forwarded"
 	case x402a2a.ReasonOptionNotOffered:
 		return "the chosen option is not one of those in x402.payment.required.accepts"
+	case x402a2a.ReasonRailNotPayable:
+		return "the chosen option settles on a ledger this node holds no credit on; " +
+			"x402.payment.required.accepts lists the options it can pay first"
 	}
 	return reason
 }

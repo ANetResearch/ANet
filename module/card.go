@@ -51,6 +51,15 @@ type CardContext struct {
 	// policy is open, ChatSkillID (natural-language tasks, never priced).
 	// Never empty: a node with no skill publishes no card.
 	Skills []string
+	// WithholdPrices is set when the operator chose not to publish a
+	// price per skill (payments.publish_prices=false). A contributor may
+	// still say that this node takes payment; what each skill costs is
+	// then given only in the quote, inside the end-to-end encrypted task.
+	// Published prices let anyone who sees a settlement's payee and
+	// amount — the hub, and readers of the public issuance chain for a
+	// cross-hub payment — name the skill it paid for (A2A-DESIGN §21)
+	// [redteam:F1].
+	WithholdPrices bool
 }
 
 // CardContributor is implemented by a module that adds to this node's A2A
