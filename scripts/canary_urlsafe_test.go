@@ -16,7 +16,9 @@ import (
 // and '~' makes the two alphabets differ: a copy held only in URL-safe form
 // must still be found, at each of the three alignments. Mutation si1-6
 // (canary.py's base64url needles removed) left every canary test green.
-func TestTheCanarySearchSeesURLSafeBase64(t *testing.T) {
+// (canary_test.go's TestTheCanarySearchSeesURLSafeBase64 checks the same
+// with lib.sh's own canary alphabet, which since wp/fx-e has '?' and '~'.)
+func TestTheCanarySearchSeesURLSafeBase64OfAnyCanary(t *testing.T) {
 	needPython(t)
 	const c = "anet-canary-url-???~~~>>>0123456789abcdef"
 	if base64.URLEncoding.EncodeToString([]byte(c)) == base64.StdEncoding.EncodeToString([]byte(c)) {
