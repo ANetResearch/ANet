@@ -63,9 +63,10 @@ const defaultNoResponseAfterText = "15m"
 // at most this much after its deadline.
 const noResponseSweepEvery = time.Minute
 
-// noResponseBatch bounds the tasks one sweep fails; the next sweep takes
-// the rest.
-const noResponseBatch = 256
+// noResponseBatch is how many candidates one read of the index returns; a
+// sweep reads page after page until it has seen them all. A variable so
+// tests can shorten it.
+var noResponseBatch = 256
 
 // EvNoResponse records a task failed because its peer never answered.
 const EvNoResponse = "anet.task.no_response"
@@ -117,15 +118,38 @@ func (d *Daemon) failUnanswered(now int64) []string {
 		return nil
 	}
 	cutoff := now - after.Milliseconds()
-	ids, err := d.ix.Waiting(interactions.RoleOutbound, interactions.StateSubmitted, cutoff, noResponseBatch)
-	if err != nil {
-		if d.ctx.Err() == nil {
-			log.Printf("anet: tasks without an answer: %v", err)
+	// Every candidate is looked at, a page at a time: the ones that do not
+	// qualify (a peer that said pending_approval, a delegation still queued)
+	// stay submitted and old, and a sweep that read only the first page
+	// would never get past them to a newer task nobody answered.
+	var candidates []interactions.WaitingTask
+	for cursor := interactions.WaitingFirst; ; {
+		page, err := d.ix.Waiting(interactions.RoleOutbound, interactions.StateSubmitted, cutoff, cursor, noResponseBatch)
+		if err != nil {
+			if d.ctx.Err() == nil {
+				log.Printf("anet: tasks without an answer: %v", err)
+			}
+			return nil
 		}
-		return nil
+		for _, w := range page {
+			// The cheap reads first, outside the write lock; the write
+			// checks everything again.
+			if heard, err := d.ix.HeardFrom(w.ID, w.PeerAID); err != nil || heard {
+				continue
+			}
+			if queued, err := d.ix.OutboxPending(w.ID); err != nil || queued {
+				continue
+			}
+			candidates = append(candidates, w)
+		}
+		if len(page) < noResponseBatch || d.ctx.Err() != nil {
+			break
+		}
+		cursor = page[len(page)-1]
 	}
 	var failed []string
-	for _, id := range ids {
+	for _, w := range candidates {
+		id := w.ID
 		ok, peer, err := d.failNoResponse(id, cutoff, after)
 		if err != nil {
 			log.Printf("anet: %s: fail for no response: %v", id, err)

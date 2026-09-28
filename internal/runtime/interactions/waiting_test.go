@@ -46,15 +46,30 @@ func TestWaitingListsWhatWaitedSinceBeforeTheCutoff(t *testing.T) {
 	if _, err := s.SetState("working", interactions.StateWorking); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.Waiting(interactions.RoleOutbound, interactions.StateSubmitted, 2000, 10)
+	ids := func(ws []interactions.WaitingTask) string {
+		var out []string
+		for _, w := range ws {
+			out = append(out, w.ID)
+		}
+		return strings.Join(out, ",")
+	}
+	got, err := s.Waiting(interactions.RoleOutbound, interactions.StateSubmitted, 2000, interactions.WaitingFirst, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(got, ",") != "older,old" {
-		t.Fatalf("Waiting = %v, want [older old]", got)
+	if ids(got) != "older,old" || got[0].PeerAID != "peer-a" || got[0].StateAt != 500 {
+		t.Fatalf("Waiting = %+v, want older, old", got)
 	}
-	if got, _ := s.Waiting(interactions.RoleOutbound, interactions.StateSubmitted, 2000, 1); len(got) != 1 || got[0] != "older" {
-		t.Fatalf("Waiting limit 1 = %v", got)
+	// Paged: the next page starts after the last task of this one.
+	first, _ := s.Waiting(interactions.RoleOutbound, interactions.StateSubmitted, 2000, interactions.WaitingFirst, 1)
+	if ids(first) != "older" {
+		t.Fatalf("Waiting limit 1 = %+v", first)
+	}
+	if next, _ := s.Waiting(interactions.RoleOutbound, interactions.StateSubmitted, 2000, first[0], 1); ids(next) != "old" {
+		t.Fatalf("second page = %+v", next)
+	}
+	if last, _ := s.Waiting(interactions.RoleOutbound, interactions.StateSubmitted, 2000, got[1], 1); len(last) != 0 {
+		t.Fatalf("after the last = %+v", last)
 	}
 }
 

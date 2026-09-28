@@ -243,3 +243,32 @@ func TestNoResponseAfterConfig(t *testing.T) {
 		t.Fatalf("a fresh config writes no_response_after %q", DefaultConfig().NoResponseAfter)
 	}
 }
+
+// Tasks that wait on an answer without qualifying — here old ones whose
+// peer said pending_approval — do not keep a newer unanswered task from
+// being failed, however many of them there are: the sweep pages past them.
+func TestTasksThatDoNotQualifyDoNotHideOnesThatDo(t *testing.T) {
+	_, req, prov := registeredPair(t)
+	ctx := context.Background()
+	old := noResponseBatch
+	noResponseBatch = 2
+	t.Cleanup(func() { noResponseBatch = old })
+	for i := 0; i < 5; i++ {
+		id, err := req.Delegate(ctx, prov.AID(), "held", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := req.ix.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: prov.AID(),
+			Kind: interactions.MsgStatus, Metadata: []byte(`{"anet.inbound":"pending_approval"}`)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	time.Sleep(5 * time.Millisecond)
+	silent, err := req.Delegate(ctx, prov.AID(), "never answered", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := failedAt(req, time.Now().Add(2*DefaultNoResponseAfter).UnixMilli()); len(got) != 1 || got[0] != silent {
+		t.Fatalf("failed %v, want [%s]", got, silent)
+	}
+}
