@@ -29,7 +29,7 @@
 
 ```sh
 anet version
-# anet 0.2.0 (commit …, built …)
+# anet 0.2.1 (commit …, built …)
 # modules: a2a,anetlink,blackboard,cas,mcp,org,p2p,service,x402         ← 默认版
 # modules: a2a,anetlink,blackboard,cas,mcp,org,p2p,service,shell,x402   ← shell 版
 ```

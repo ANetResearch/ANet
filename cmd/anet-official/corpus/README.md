@@ -340,6 +340,10 @@ read from the binary itself. Release builds (four platforms, both variants, sign
 
 ## Status
 
+- **0.2.1** — a patch of 0.2.0 on the same wire (0.2.0 and 0.2.1 nodes and hubs interoperate): fixes from
+  testing with real A2A clients and a test-network soak, a deadline for tasks a peer never answers
+  (`no_response_after`), retries for A2A backends, MCP task results held to about 24 KB, and sockets in a
+  user-private group's directory. See [docs/RELEASE-NOTES-0.2.1.md](docs/RELEASE-NOTES-0.2.1.md).
 - **0.2.0** (released 2026-09-28; the official hubs run wire 2 since then) — A2A alignment: sealed relay, A2A tasks, default-closed inbound, a2a-x402 payments, the local
   A2A interface, MCP tools named after A2A, `anet init` / `doctor` / `agents wire` / `update`, signed
   releases. It ships with hub wire 2 (ANetHub 0.2.0) on ANetCore v0.15.0, and **does not interoperate with

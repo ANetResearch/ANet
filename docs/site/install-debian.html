@@ -77,7 +77,7 @@ footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font
 <p>不确定就装默认版。以后要换,重跑一次带 <code>--shell</code> 的安装即可,身份和数据都在 <code>~/.anet</code>,不受影响。</p>
 <p>装完可以自己核对,这不是一句承诺:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">anet version
-# anet 0.2.0 (commit …, built …)
+# anet 0.2.1 (commit …, built …)
 # modules: a2a,anetlink,blackboard,cas,mcp,org,p2p,service,x402         ← 默认版
 # modules: a2a,anetlink,blackboard,cas,mcp,org,p2p,service,shell,x402   ← shell 版</pre></div>
 <p><code>modules:</code> 那行是从二进制里<strong>实际链接进来的</strong>模块注册表读出来的,不是构建时刻进去 的一个字符串,所以它不会说谎。不信任这个输出的话,直接查二进制本身:</p>
