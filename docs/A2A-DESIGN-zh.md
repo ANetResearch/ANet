@@ -61,6 +61,7 @@
 - **结算**:授权的 `InteractionID` 字段填 `pay_bind = hex(SHA-256("anet/x402-bind/v1" 0x00 ‖ ix ‖ 0x00 ‖ task_nonce))`。发给 hub 的 `paymentRequirements` 中 `description`、`extra`、`resource` 一律为空或固定值,不带能力 id [m]。
 - **回执**:格式不变;request CID 与 result CID 的原像各含 16 字节随机数:TaskDoc 的 `Tasks[0].Contexts` 加 `{Key:"anet.nonce", Visibility:"private"}`(`Contexts` 在 TaskDoc 规范原像内);交付物 JSON 加 `nonce`。对话记录交付物改为 v2 对象 `{"v":2,"nonce":"…","messages":[…]}`,所有读取方同时接受 v1 数组与 v2 对象,v2 有金标向量 [m]。
 - 如实陈述(§21):hub 不存 ix、不能从 `pay_bind` 反推 ix;但能按付款方、收款方与时间把结算与公开评价关联。
+- **回执核验的范围** [redteam:F15]:requester 收到结果时核对回执的签名者、provider、requester、交互 id、request CID(须等于本地存的、自己发出的 TaskDoc 的 CID;ANetCore `delegation.VerifyResultForRequest`)与 result CID(须等于收到的交付物字节的 CID);任一不符即丢弃结果(`result-refused`),不存、不能评价。`anet.receipt_verified=verified` 只表示这些绑定成立。对话记录回执覆盖的是 provider 签名交付的那份对话记录字节:其中 `from=requester` 的条目是 provider 的记录,requester 不拿自己的消息日志逐条比对,也不核对记录里的 `nonce`;`verified` 不表示"requester 说过这些话"。据此,评价锚定的是"收到了这份由 provider 签名的记录",第三方要核对请求方原话,应以请求方自己的消息日志为准。
 
 ### X5 本机 A2A 令牌 → 与控制令牌分离,只作用于"本机作为请求方、且对端等于路径 AID"的任务
 
@@ -883,3 +884,4 @@ B 与 C 在 A 完成后并行;同一仓库内按文件归属串行推进。
 12. `A2A-Version` 缺省按 1.0 处理,偏离规范的"缺省按 0.3"。
 13. TTY 门槛(`anet pay`、`anet peers allow`、`anet inbound approve`、修改支出上限)在 CLI 进程内检查,对应的控制面路由凭控制令牌即可调用。它只约束只能经 MCP 工具或本机 A2A 接口行事的 agent。任何能以本用户身份执行命令的 agent(包括 Claude Code 等工具的 Bash,不论有无 TTY),都可以读取控制令牌直接调用这些路由,或直接改 `peers.*`、`config.json` 并重启 daemon。同 uid 下不存在更强的边界,文档如实写明。
 14. 本期不处理(归属与理由):ANetLink `c1.sock` 权限与 `SO_PEERCRED`、按 `caller_aid` 授权(跨仓,ANetLink 单独立项);联邦按卡片 home hub 定向转发(当前按对等表顺序尝试,功能正确);交互级临时密钥;大附件分块;sealed sender;发放链隐私格式;沙箱网络隔离;非 Linux 沙箱。
+15. 文本任务的回执(对话记录 v2)由 provider 签名,覆盖 provider 交付的那份记录;记录中"请求方说的话"是 provider 的记录,requester 不逐条比对自己的消息日志,`receipt_verified=verified` 不证明请求方说过这些话(§2 X4)[redteam:F15]。
