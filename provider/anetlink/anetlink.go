@@ -99,14 +99,28 @@ func (p *Provider) Invoke(ctx context.Context, call provider.Call) (effect.Effec
 		return effect.Effect{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// A device command that went out and lost its answer may have acted:
+	// the lamp may be on, the door open. That is an outcome nobody knows
+	// (provider.OutcomeUnknownError), not an error that says it failed —
+	// a requester told it failed could send the command again (redteam
+	// F10, the same rule as the service module).
+	req, sent := provider.TrackSent(req)
 	resp, err := p.cli.Do(req)
 	if err != nil {
+		if sent() {
+			return effect.Effect{}, fmt.Errorf("anetlink: invoke %s: %w", call.Capability, provider.AnswerLost(err))
+		}
 		return effect.Effect{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return effect.Effect{}, fmt.Errorf("anetlink: invoke %d: %s", resp.StatusCode, bytes.TrimSpace(msg))
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxInvokeReply))
+	if err != nil {
+		// Accepted (200) and the answer broke off: as above.
+		return effect.Effect{}, fmt.Errorf("anetlink: invoke %s: %w", call.Capability, provider.AnswerLost(err))
 	}
 	var out struct {
 		Status  string             `json:"status"`
@@ -134,7 +148,7 @@ func (p *Provider) Invoke(ctx context.Context, call provider.Call) (effect.Effec
 			Quirk         string `json:"quirk"`
 		} `json:"evidence"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.Unmarshal(raw, &out); err != nil {
 		return effect.Effect{}, err
 	}
 	e := effect.Effect{Status: effect.Status(out.Status), Message: out.Message}
@@ -150,6 +164,10 @@ func (p *Provider) Invoke(ctx context.Context, call provider.Call) (effect.Effec
 	}
 	return e, nil
 }
+
+// maxInvokeReply bounds an invoke answer: status, metrics, a message and
+// the provenance block.
+const maxInvokeReply = 1 << 20
 
 func (p *Provider) get(ctx context.Context, path string, v any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://anetlink"+path, nil)

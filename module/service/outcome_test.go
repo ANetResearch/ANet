@@ -114,3 +114,71 @@ func TestUnreachableServiceIsStillUnavailable(t *testing.T) {
 		t.Fatalf("a refused connection: status %s (%s), want UNAVAILABLE", eff.Status, eff.Message)
 	}
 }
+
+// The service takes the call — 200 and the start of its reply — and the
+// answer breaks off: the deadline passes while the body is still coming,
+// or the connection drops mid-reply. Its effect has happened as surely as
+// one whose reply never started, so it is the same unknown outcome; it was
+// FAILED ("reply is not a JSON object"), which says the effect did not
+// happen (a bypass of F10 found on review).
+func TestAnAnswerThatBreaksOffAfterItsHeadersIsNotFailed(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		cut    func(w http.ResponseWriter, r *http.Request)
+		reason string
+	}{
+		{"deadline", func(_ http.ResponseWriter, r *http.Request) {
+			select {
+			case <-time.After(2 * time.Second):
+			case <-r.Context().Done():
+			}
+		}, provider.ReasonTimeout},
+		{"connection", func(w http.ResponseWriter, _ *http.Request) {
+			if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				_ = conn.Close()
+			}
+		}, provider.ReasonConnectionLost},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var effects atomic.Int32
+			svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				effects.Add(1) // the effect happens
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Content-Length", "64") // more than will come
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"sen`))
+				w.(http.Flusher).Flush()
+				c.cut(w, r)
+			}))
+			defer svc.Close()
+
+			_, unknown := invokeUnknown(t, "mail.send",
+				`{"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":300}]}`)
+			if effects.Load() != 1 {
+				t.Fatalf("the service ran %d times, want 1", effects.Load())
+			}
+			if unknown.Reason != c.reason {
+				t.Fatalf("reason %q (%v), want %s", unknown.Reason, unknown.Err, c.reason)
+			}
+		})
+	}
+}
+
+// A refusal is its status whatever happens to its body: a 503 whose body
+// breaks off is still UNAVAILABLE (the service said "not now").
+func TestARefusalWhoseBodyBreaksOffIsItsStatus(t *testing.T) {
+	svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "64")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("busy"))
+		w.(http.Flusher).Flush()
+		if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+			_ = conn.Close()
+		}
+	}))
+	defer svc.Close()
+	reg := start(t, `{"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":2000}]}`)
+	if eff := invoke(t, reg, "mail.send", nil); eff.Status != effect.Unavailable {
+		t.Fatalf("status %s (%s), want UNAVAILABLE", eff.Status, eff.Message)
+	}
+}
