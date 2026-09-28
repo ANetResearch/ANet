@@ -123,7 +123,11 @@ func TestTheLookupRoutesOwn404IsAnUnknownRecipient(t *testing.T) {
 	if err := req.RegisterWithHub(ctx, hub, "Alice", nil, ""); err != nil {
 		t.Fatal(err)
 	}
-	stranger := newTestDaemon(t, hub, true) // never registered: no key set anywhere
+	// Never registered: no key set anywhere. It is given no hub_url, because a
+	// daemon started with one re-registers in the background at start
+	// (refreshRegistration) and publishes its keys; whether that landed
+	// before the lookup was a race this test lost under CI load.
+	stranger := newTestDaemon(t, "", true)
 	var out hubapi.KeysResponse
 	err := req.lookupKeys(ctx, hub, stranger.AID(), &out)
 	if got, ok := permanentRefusal(err); !ok || got != undeliveredUnknown {
