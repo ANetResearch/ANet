@@ -135,7 +135,7 @@ setsid python3 "$ROOT/svc/svc.py" >"$ROOT/svc.log" 2>&1 </dev/null &
 sleep 1
 # standard serves both capabilities to anyone: they are public capabilities (A2A-DESIGN §5.2 row 2),
 # while its inbound policy stays the default closed.
-SVC='{"modules":{"service":{"capabilities":[{"id":"text.digest","url":"http://127.0.0.1:29720","description":"sha256"},{"id":"text.digest.paid","url":"http://127.0.0.1:29720","price":25,"description":"sha256, 25 credits"}]}},"inbound":{"policy":"closed","public_capabilities":[{"id":"text.digest"},{"id":"text.digest.paid"}]}}'
+SVC='{"modules":{"service":{"allow_tcp":true,"capabilities":[{"id":"text.digest","url":"http://127.0.0.1:29720","description":"sha256"},{"id":"text.digest.paid","url":"http://127.0.0.1:29720","price":25,"description":"sha256, 25 credits"}]}},"inbound":{"policy":"closed","public_capabilities":[{"id":"text.digest"},{"id":"text.digest.paid"}]}}'
 if start standard 29711 "$SVC"; then
   ok "standard 启动成功"
   r=$(ctl standard 29711 /hub-register "{\"hub\":\"$HUB\",\"name\":\"onboard-standard\",\"caps\":[\"text.digest\",\"text.digest.paid\"]}")

@@ -12,7 +12,7 @@ import (
 // be served by an IPv6 socket (a dual-stack listener), so both are read.
 var socketTables = []string{"/proc/net/tcp", "/proc/net/tcp6"}
 
-// readTables returns the rows of both tables that match keep, or errNoSocketTable when neither can be
+// readTables returns the rows of both tables that match keep, or ErrNoSocketTable when neither can be
 // opened (a /proc without the files, as some sandboxes have).
 func readTables(keep func(sockEntry) bool) ([]sockEntry, error) {
 	var out []sockEntry
@@ -34,7 +34,7 @@ func readTables(keep func(sockEntry) bool) ([]sockEntry, error) {
 		out = append(out, ents...)
 	}
 	if opened == 0 {
-		return nil, errNoSocketTable
+		return nil, ErrNoSocketTable
 	}
 	return out, nil
 }

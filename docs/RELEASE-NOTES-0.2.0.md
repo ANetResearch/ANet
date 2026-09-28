@@ -177,6 +177,7 @@ the mark is a label and grants nothing.
 | `modules.taskboard` | the default binary **refuses to start** | remove the block, or build with `-tags taskboard` |
 | `control_allow_remote`, a non-loopback `control_addr` | removed; a non-loopback address refuses to start | reach the control plane over an SSH port forward |
 | `modules.x402.voucher_url` as non-loopback http | the daemon refuses to start | put a TLS terminator in front and use https, or remove the key |
+| an `http(s)://` `url` of a `modules.service` capability or of `modules.a2a.backends[]` | the daemon refuses to start (TCP backends are not accepted by default) | preferably have the service listen on a Unix socket and write `unix:///path[:/request/path]` (the daemon checks the socket's directories and listener before it connects); to stay on TCP add `"allow_tcp": true`, and a service on loopback must then run as the daemon's user, on Linux only (GUIDE §6.2, known limitation 26) |
 
 ### 2.3 Control API (programs that call the daemon directly)
 
@@ -238,6 +239,7 @@ it is a design trade-off. They are listed below at a level of detail suitable fo
 | Plaintext relay | the hub could read all task content | end-to-end encryption (1.2) |
 | Access logs on the hub's reverse proxy | the log records who looked up whom, when and how much was fetched, enough to rebuild who talks to whom | the nginx configuration in the repository keeps no access log; daemons put the peer in the request body when they look up its keys, card and KEL |
 | The control token was sent to whoever listened on the loopback port | another local user holding the daemon's port could collect the control token | anet's own clients first confirm that the listener is this user's daemon (Linux); when the local A2A port is taken, the interface does not move and the token is replaced |
+| The `service` module sent calls to whoever listened on the loopback port | while a service was down, another local user holding its port received the call's arguments (from 0.2 also the daemon's token, and for A2A backends the task's text) and could answer in the service's place | backends move to Unix sockets (recommended and the default); before connecting the daemon checks the socket's directories, owner and listening process (Linux `SO_PEERCRED`); TCP needs an explicit `allow_tcp`, and a loopback listener must be this user's (Linux) |
 | Invite codes on the process command line | another local user could read one and use it first | read only from `ANET_INVITE` or a `--token-file` with tight permissions |
 | The console page embedded the control token | whoever could read the page held a full credential | a one-time ticket is exchanged for a session, and the ticket does not travel on a browser's command line either |
 | Task board writes decoded an unbounded request body before authentication | anyone could make the hub buffer an arbitrarily large request | the signature is checked before decoding; the task board is not built by default |

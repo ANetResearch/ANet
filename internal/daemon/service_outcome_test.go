@@ -39,8 +39,8 @@ func TestServiceTimeoutReachesRequesterAsFailedUnverified(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemonCfg(t, srv.URL, map[string]any{
-		"service": map[string]any{"capabilities": []any{
-			map[string]any{"id": "mail.send", "url": backend.URL, "timeout_ms": 150},
+		"service": map[string]any{"allow_tcp": true, "capabilities": []any{
+			map[string]any{"id": "mail.send", "url": backend.URL, "timeout_ms": 600},
 		}},
 	})
 	allowPeers(t, prov, req.AID())

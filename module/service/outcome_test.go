@@ -59,7 +59,7 @@ func TestTimeoutAfterTheCallWentOutIsNotUnavailable(t *testing.T) {
 	}))
 	defer svc.Close()
 
-	_, unknown := invokeUnknown(t, "mail.send", `{"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":100}]}`)
+	_, unknown := invokeUnknown(t, "mail.send", `{"allow_tcp":true,"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":500}]}`)
 	if effects.Load() != 1 {
 		t.Fatalf("the service ran %d times, want 1", effects.Load())
 	}
@@ -88,7 +88,7 @@ func TestConnectionLostAfterTheCallWentOutIsNotUnavailable(t *testing.T) {
 	}))
 	defer svc.Close()
 
-	_, unknown := invokeUnknown(t, "mail.send", `{"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":2000}]}`)
+	_, unknown := invokeUnknown(t, "mail.send", `{"allow_tcp":true,"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":2000}]}`)
 	if effects.Load() != 1 {
 		t.Fatalf("the service ran %d times, want 1", effects.Load())
 	}
@@ -108,7 +108,7 @@ func TestUnreachableServiceIsStillUnavailable(t *testing.T) {
 	addr := ln.Addr().String()
 	_ = ln.Close() // nothing listens there now: the dial is refused
 
-	reg := start(t, `{"capabilities":[{"id":"mail.send","url":"http://`+addr+`/send","timeout_ms":2000}]}`)
+	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"mail.send","url":"http://`+addr+`/send","timeout_ms":2000}]}`)
 	eff := invoke(t, reg, "mail.send", nil)
 	if eff.Status != effect.Unavailable {
 		t.Fatalf("a refused connection: status %s (%s), want UNAVAILABLE", eff.Status, eff.Message)
@@ -153,7 +153,7 @@ func TestAnAnswerThatBreaksOffAfterItsHeadersIsNotFailed(t *testing.T) {
 			defer svc.Close()
 
 			_, unknown := invokeUnknown(t, "mail.send",
-				`{"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":300}]}`)
+				`{"allow_tcp":true,"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":600}]}`)
 			if effects.Load() != 1 {
 				t.Fatalf("the service ran %d times, want 1", effects.Load())
 			}
@@ -177,7 +177,7 @@ func TestARefusalWhoseBodyBreaksOffIsItsStatus(t *testing.T) {
 		}
 	}))
 	defer svc.Close()
-	reg := start(t, `{"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":2000}]}`)
+	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"mail.send","url":"`+svc.URL+`","timeout_ms":2000}]}`)
 	if eff := invoke(t, reg, "mail.send", nil); eff.Status != effect.Unavailable {
 		t.Fatalf("status %s (%s), want UNAVAILABLE", eff.Status, eff.Message)
 	}
@@ -197,7 +197,7 @@ func TestAGatewayAnsweringForTheServiceIsAnUnknownOutcome(t *testing.T) {
 			effects.Add(1) // the service behind the gateway acted
 			http.Error(w, "upstream timed out", c.status)
 		}))
-		_, unknown := invokeUnknown(t, "mail.send", `{"capabilities":[{"id":"mail.send","url":"`+svc.URL+`"}]}`)
+		_, unknown := invokeUnknown(t, "mail.send", `{"allow_tcp":true,"capabilities":[{"id":"mail.send","url":"`+svc.URL+`"}]}`)
 		svc.Close()
 		if unknown.Reason != c.reason || effects.Load() != 1 {
 			t.Fatalf("HTTP %d: reason %q (effects %d), want %s", c.status, unknown.Reason, effects.Load(), c.reason)

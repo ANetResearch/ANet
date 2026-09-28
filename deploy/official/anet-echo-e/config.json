@@ -26,7 +26,7 @@
       "capabilities": [
         {
           "id": "net.echo",
-          "url": "http://127.0.0.1:8611/v1/echo/net.echo",
+          "url": "unix:///run/anet-official/anet-echo-e/backend.sock:/v1/echo/net.echo",
           "name": "Echo",
           "description": "Returns the JSON arguments unchanged under \"echo\", with the time this backend received the call and its version. Use it to check that a delegation reaches an anet agent and that its signed result comes back; compare the echo with what you sent. Arguments: any JSON object up to 4 KiB.",
           "tags": [

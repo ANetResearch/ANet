@@ -32,7 +32,7 @@ func TestRedteamSI6_BareHTTP200IsReportedVerifiableOK(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`)) // "accepted" — nothing read back, no metric
 	}))
 	defer svc.Close()
-	reg := start(t, `{"capabilities":[{"id":"door.unlock","url":"`+svc.URL+`"}]}`)
+	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"door.unlock","url":"`+svc.URL+`"}]}`)
 	eff := invoke(t, reg, "door.unlock", nil)
 	if eff.Status != effect.OK || !eff.Verifiable() || eff.Evidence.VerifyTrust != 1 || len(eff.Record.Metrics) != 0 {
 		t.Fatalf("defect not reproduced: status=%s verifiable=%v trust=%d metrics=%v",
