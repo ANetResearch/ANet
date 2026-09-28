@@ -196,12 +196,21 @@ func TestOperationsThroughBothBindings(t *testing.T) {
 				t.Fatalf("ListTasks by context with artifacts: %+v %v", list, err)
 			}
 
-			// SubscribeToTask on a finished task is UnsupportedOperation.
+			// SubscribeToTask on a finished task is UnsupportedOperation,
+			// answered as an ordinary error and not as a stream (0017 Q31;
+			// q31_test.go). a2a-go's JSON-RPC client reports such an answer
+			// by its HTTP status only; its REST client reads the error.
+			gotErr := false
 			for _, err := range cl.SubscribeToTask(ctx, &a2a.SubscribeToTaskRequest{ID: task.ID}) {
-				if !errors.Is(err, a2a.ErrUnsupportedOperation) {
+				gotErr = err != nil
+				if binding == a2a.TransportProtocolHTTPJSON && !errors.Is(err, a2a.ErrUnsupportedOperation) ||
+					binding == a2a.TransportProtocolJSONRPC && (err == nil || !strings.Contains(err.Error(), "400")) {
 					t.Fatalf("subscribe to a completed task: %v", err)
 				}
 				break
+			}
+			if !gotErr {
+				t.Fatal("subscribe to a completed task: no error")
 			}
 
 			// CancelTask: a task waiting for the client can be canceled,

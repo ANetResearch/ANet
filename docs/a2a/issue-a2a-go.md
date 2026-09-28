@@ -25,6 +25,8 @@ to be reported through GitHub Security Advisories, not public issues; they are m
 | A8 | JSON-RPC and REST handlers do not echo activated extensions | `a2asrv` | public issue |
 | A9 | Card resolver with a `Verifier` accepts unsigned cards | `a2aclient/agentcard` | **security advisory** |
 | A10 | An unknown `SecurityScheme` variant makes the whole Agent Card unparseable | `a2a` | public issue |
+| A11 | HTTP+JSON binding: `TaskNotCancelable` and `UnsupportedContentType` answered 400 (spec: 409, 415) | `a2asrv`, `internal/rest` | public issue |
+| A12 | Streaming calls: an error before the first event is sent inside an already-opened SSE stream; the JSON-RPC client cannot read an error that is not | `a2asrv`, `a2aclient` | public issue |
 
 ---
 
@@ -385,6 +387,94 @@ blocks protocol evolution in exactly the place §5.7 is meant to protect.
 json.RawMessage}`) that round-trips unchanged; treat a security requirement that names only unknown
 schemes as unsatisfiable by this client, and let the client pick another requirement if one is
 satisfiable.
+
+---
+
+## A11. HTTP+JSON binding: `TaskNotCancelable` → 400 (spec 409), `UnsupportedContentType` → 400 (spec 415)
+
+**Spec.** A2A §5.4, error code mappings: `TaskNotCancelableError` maps to HTTP `409 Conflict` and
+`ContentTypeNotSupportedError` to HTTP `415 Unsupported Media Type` for the HTTP+JSON binding.
+
+**Code.** `internal/rest/rest.go` `errorMappings` (v2.6.0, line 199 and line 202):
+
+```go
+{a2a.ErrTaskNotCancelable, http.StatusBadRequest, "FAILED_PRECONDITION"},
+{a2a.ErrUnsupportedContentType, http.StatusBadRequest, "INVALID_ARGUMENT"},
+```
+
+`a2asrv/rest.go` `writeRESTError` writes that status (`errResp.HTTPStatus()`).
+
+**Reproduction.**
+
+```go
+srv := httptest.NewServer(a2asrv.NewRESTHandler(handlerThatCompletesTasks))
+// 1. create a task and let it complete, then:
+// POST /tasks/<id>:cancel
+```
+
+**Observed** (a2a-tck and curl against a server on a2a-go v2.6.0, 2026-09-27). `400 Bad Request` with
+`{"error":{"code":400,"status":"FAILED_PRECONDITION",…,"reason":"TASK_NOT_CANCELABLE"}}`.
+a2a-tck CORE-CANCEL-002 (HTTP+JSON) fails on the status. A handler returning
+`a2a.ErrUnsupportedContentType` is answered `400` likewise. The JSON-RPC binding's codes (`-32002`,
+`-32005`) are right.
+
+**Impact.** Clients and proxies that act on the HTTP status (retry policies, HTTP-level metrics, the
+TCK) see a generic bad request where the spec gives a distinct status. Clients built on a2a-go read
+the `reason` and are not affected.
+
+**Suggested fix.** Map `ErrTaskNotCancelable` to `409` (`FAILED_PRECONDITION` can stay as the
+google.rpc status) and `ErrUnsupportedContentType` to `415`; keep the table the client uses to turn a
+status back into an error (`rest.FromRESTError`, which goes by `reason`) unchanged.
+
+**How anet copes.** Its own middleware answers a wrong `Content-Type` with `415` before a2a-go runs;
+`CancelTask` on a terminal task still goes through a2a-go and is answered `400`.
+
+---
+
+## A12. Streaming calls: errors before the first event arrive inside an SSE stream
+
+**Code.** `a2asrv/jsonrpc.go` `handleStreamingRequest` (v2.6.0, line 150) and `a2asrv/rest.go`
+`handleStreamingRequest` (line 277) call `sseWriter.WriteHeaders()` — HTTP 200,
+`Content-Type: text/event-stream` — and only then ask the handler's iterator for its first event. An
+error the handler returns before any event (`SubscribeToTask` on a task that does not exist or has
+ended, `SendStreamingMessage` with a `taskId` that does not exist, invalid params) is therefore sent as
+the stream's one event.
+
+**Reproduction.**
+
+```go
+// A handler whose SubscribeToTask yields a2a.ErrTaskNotFound at once.
+// POST /  {"jsonrpc":"2.0","id":1,"method":"SubscribeToTask","params":{"id":"nope"}}
+```
+
+**Observed** (a2a-tck and curl against a server on a2a-go v2.6.0, 2026-09-27). `200 OK`,
+`text/event-stream`, one event `data: {"jsonrpc":"2.0","id":1,"error":{"code":-32001,…}}`.
+a2a-tck STREAM-SUB-003 (terminal task) and STREAM-SUB-004 (unknown task) report the call as a
+success: the response is a stream.
+
+**Client side.** `a2aclient/jsonrpc.go` `sendStreamingRequest` treats any `200` answer as SSE and
+`parseSSEStream` skips every line that is not `data:`. A server that answers a streaming call it
+cannot start with an ordinary JSON-RPC error (`200`, `application/json`) is read by a2a-go as an
+empty stream with no error (checked on 2026-09-28: `SubscribeToTask` yields no event and no error);
+with a non-200 status the client reports only `unexpected HTTP status: 400 Bad Request`, not the A2A
+error in the body. The REST client does read the error (`rest.FromRESTError`).
+
+**Impact.** Servers cannot report "this stream cannot start" in the form the spec's error handling and
+the TCK expect, and a server that does so anyway is misread by a2a-go's own JSON-RPC client.
+
+**Suggested fix.**
+1. Server: pull the first item from the iterator before writing the stream headers; if it is an
+   error, answer with the binding's ordinary error response (JSON-RPC error object; HTTP+JSON
+   `google.rpc.Status` with the mapped status) and do not open the stream. Keep-alives start after
+   the first item, so a handler that blocks before its first event still gets its stream.
+2. JSON-RPC client: when the answer to a streaming call is not `text/event-stream`, parse it as a
+   JSON-RPC response and return its error (`jsonrpc.FromJSONRPCError`); for a non-200 status, try
+   the body the same way before falling back to the status.
+
+**How anet copes.** Its local A2A interface checks a streaming call before a2a-go runs (existence,
+scope, state; a streaming send is carried out there and its task handed to the stream) and answers a
+call that cannot start with the binding's ordinary error and the HTTP+JSON binding's status for it
+(non-200, so that a2a-go's JSON-RPC client reports an error at all).
 
 ---
 
