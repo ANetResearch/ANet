@@ -297,6 +297,52 @@ func (d *Daemon) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier
 	}
 }
 
+// slowTurnAfter is how long the backend may have the first turn of a task
+// sent to this node before its requester is told the task is being worked
+// on (announceSlowTurn). A variable so tests can shorten it.
+var slowTurnAfter = time.Minute
+
+// announceSlowTurn tells the requester of th, a task sent to this node that
+// nobody has answered yet (submitted), that it is being worked on — status
+// working — once the backend has had the turn for slowTurnAfter without
+// answering. Until then the requester has heard nothing, and a requester
+// that hears nothing for its no_response_after (15m by default) fails the
+// task as no_response (A2A-DESIGN §4.2): an exec agent's long turn is work,
+// not silence, and its answer would come to a task already failed there,
+// where a text message is not kept. A turn answered within slowTurnAfter
+// costs no extra message. The returned function ends the wait and returns
+// once an announcement under way is done, so that it never follows the
+// reply.
+func (d *Daemon) announceSlowTurn(th Thread) func() {
+	if th.Role != string(interactions.RoleInbound) || th.State != string(interactions.StateSubmitted) ||
+		th.IsCapability || slowTurnAfter <= 0 {
+		return func() {}
+	}
+	stop, finished := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(finished)
+		tm := time.NewTimer(slowTurnAfter)
+		defer tm.Stop()
+		select {
+		case <-tm.C:
+		case <-stop:
+			return
+		case <-d.ctx.Done():
+			return
+		}
+		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+		defer cancel()
+		if err := d.SendStatus(ctx, th.InteractionID, interactions.StateWorking, "", nil); err != nil && d.ctx.Err() == nil {
+			log.Printf("anet: auto-reply %s: tell the requester the backend is working on it: %v", th.InteractionID, err)
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() { close(stop) })
+		<-finished
+	}
+}
+
 // autoReplyThread services ONE conversation (inbound or outbound): produce the reply we owe (usage
 // hint / backend answer / error report), or end the task at the runaway cap or when the backend says
 // it is done. No-op when nothing is owed. A requester's end request needs no reply: the provider
@@ -396,8 +442,10 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 
 	rctx, cancel := context.WithTimeout(ctx, timeout)
 	rc := replyContext{Role: th.Role, Goal: th.Goal, InteractionID: th.InteractionID, Outbox: outbox}
+	announced := d.announceSlowTurn(th)
 	reply, err := d.invokeReplier(rctx, cfg, replier, gate, th, rc, turns)
 	cancel()
+	announced()
 	if d.readPeers().denied(th.Peer) {
 		// Denied while the backend worked: nothing more goes to the peer.
 		return nil

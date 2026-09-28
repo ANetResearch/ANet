@@ -566,3 +566,53 @@ func TestInboundTaskIsDecidedAfresh(t *testing.T) {
 		t.Fatal("a denied peer's task is still to be forwarded")
 	}
 }
+
+// A module whose backend is slow to answer a first turn says so with
+// ReplyTask(working, no message) (module/a2a announceWhenSlow): the
+// requester is sent status working and its task leaves submitted, so its
+// no-response deadline (§4.2) does not fail a turn that is only long; the
+// task stays the backend's (the requester's message is still the latest),
+// and the answer that follows completes it.
+func TestAModuleTellsTheRequesterItsBackendIsWorking(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	prov := registered(t, srv.URL, "prov")
+	peer := registered(t, srv.URL, "peer")
+	trustPeers(t, prov, peer.AID())
+	host := moduleHost{prov}
+	id, err := peer.DelegateIn(ctx, prov.AID(), "a long one", nil, "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := host.ReplyTask(ctx, id, a2ashape.Message{}, a2ashape.TaskStateWorking); err != nil {
+		t.Fatalf("ReplyTask working: %v", err)
+	}
+	if st := stateOf(t, prov, id); st != interactions.StateWorking {
+		t.Fatalf("provider state %s, want working", st)
+	}
+	if _, ok, err := host.InboundTask(ctx, id); !ok || err != nil {
+		t.Fatalf("after working the task is no longer the backend's: ok %v, %v", ok, err)
+	}
+	if err := peer.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if st := stateOf(t, peer, id); st != interactions.StateWorking {
+		t.Fatalf("requester state %s, want working", st)
+	}
+	if got := peer.failUnanswered(time.Now().Add(2 * DefaultNoResponseAfter).UnixMilli()); len(got) != 0 {
+		t.Fatalf("the requester failed %v as no_response", got)
+	}
+	answer := a2ashape.Message{Role: a2ashape.RoleAgent, Parts: []a2ashape.Part{a2ashape.TextPart("done")}}
+	if _, err := host.ReplyTask(ctx, id, answer, a2ashape.TaskStateCompleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if st := stateOf(t, peer, id); st != interactions.StateCompleted {
+		t.Fatalf("requester state %s after the answer, want completed", st)
+	}
+}

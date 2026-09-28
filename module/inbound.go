@@ -45,7 +45,11 @@ type InboundTaskHost interface {
 
 	// ReplyTask answers an inbound task as this node: msg is the answer,
 	// and state what it leaves the task in — input-required (the agent
-	// asks back), completed, failed or rejected.
+	// asks back), completed, failed or rejected. State working with no msg
+	// is not an answer: it tells the requester the task is being worked on
+	// (a status), which a module sends when its agent takes long, so that
+	// the requester does not fail the task as no_response (A2A-DESIGN
+	// §4.2, §11.6).
 	ReplyTask(ctx context.Context, taskID string, msg a2ashape.Message, state a2ashape.TaskState) (Task, error)
 
 	// InboundTask is task taskID as InboundTasks would deliver it now,

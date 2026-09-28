@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
@@ -532,5 +533,71 @@ func TestSandboxUnavailableFailsClosed(t *testing.T) {
 	}
 	if n := chainEvents(t, f.prov, EvAutoReplyInvoked); n != 2 {
 		t.Fatalf("%d invocation events, want 2 (one per refused turn, not per scan)", n)
+	}
+}
+
+// sleepyReplier answers after a while, as an exec agent doing real work
+// does.
+type sleepyReplier struct{ after time.Duration }
+
+func (r sleepyReplier) Reply(ctx context.Context, _ replyContext, _ []chatTurn) (string, error) {
+	select {
+	case <-time.After(r.after):
+		return "done, after a while", nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+// A first turn the auto-reply backend is slow to answer is announced to the
+// requester as working before the reply (announceSlowTurn), so that a turn
+// longer than the requester's no_response_after is not failed there as no
+// answer — its reply, a text message, would not be kept on a failed task.
+// A quick turn costs no extra message.
+func TestASlowAutoReplyTurnIsAnnouncedAsWorking(t *testing.T) {
+	old := slowTurnAfter
+	slowTurnAfter = 50 * time.Millisecond
+	t.Cleanup(func() { slowTurnAfter = old })
+	fromProvider := func(d *Daemon, id, prov string) []string {
+		t.Helper()
+		msgs, err := d.ix.Messages(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var kinds []string
+		for _, m := range msgs {
+			if m.SenderAID == prov {
+				kinds = append(kinds, m.Kind)
+			}
+		}
+		return kinds
+	}
+
+	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, &fakeOpenAI{reply: "quick"})
+	f.replier = sleepyReplier{after: 400 * time.Millisecond}
+	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "a long piece of work", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	if got := f.lastPeerMsg(t, id); got.Body != "done, after a while" {
+		t.Fatalf("reply %q", got.Body)
+	}
+	if kinds := fromProvider(f.req, id, f.prov.AID()); len(kinds) != 2 || kinds[0] != interactions.MsgStatus || kinds[1] != interactions.MsgText {
+		t.Fatalf("the requester got %v from the provider, want a status, then the reply", kinds)
+	}
+
+	quick := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, &fakeOpenAI{reply: "quick"})
+	id2, err := quick.req.Delegate(quick.ctx, quick.prov.AID(), "a small question", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quick.tick(t)
+	time.Sleep(150 * time.Millisecond)
+	if got := quick.lastPeerMsg(t, id2); got.Body != "quick" {
+		t.Fatalf("reply %q", got.Body)
+	}
+	if kinds := fromProvider(quick.req, id2, quick.prov.AID()); len(kinds) != 1 || kinds[0] != interactions.MsgText {
+		t.Fatalf("a quick turn: the requester got %v from the provider, want the reply alone", kinds)
 	}
 }

@@ -438,9 +438,13 @@ func (d *Daemon) replyInbound(ctx context.Context, taskID string, msg a2ashape.M
 	st, _ := a2ashape.StoreState(state)
 	switch st {
 	case interactions.StateInputRequired, interactions.StateCompleted, interactions.StateFailed, interactions.StateRejected:
+	case interactions.StateWorking:
+		// Not an answer: the module's agent has the task and is on it. The
+		// requester is told (status working), so that it does not take a
+		// long turn for no answer at all (A2A-DESIGN §4.2 no_response).
 	default:
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams,
-			"an answer leaves the task input-required, completed, failed or rejected, not %q", state)
+			"an answer leaves the task working, input-required, completed, failed or rejected, not %q", state)
 	}
 	req := replyReq{TaskID: ix.ID, State: string(st)}
 	if len(msg.Parts) > 0 {
