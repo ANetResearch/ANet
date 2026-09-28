@@ -157,6 +157,10 @@ func (d *Daemon) PendingList() ([]PendingView, error) {
 // trust=approved, after verifying it again (see the file comment). The
 // requester's KEL and key set are recorded in peer_identity: approval is an
 // authorized context (A2A-DESIGN §3.8).
+//
+// What runs is the request the operator was shown (PendingView's request
+// CID and capability), and a requester on the deny list is not approved:
+// deny comes first (§5.1) [redteam:F7].
 func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) {
 	item, err := d.ix.GetPending(ixID)
 	if errors.Is(err, interactions.ErrNotFound) {
@@ -165,6 +169,9 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 	if err != nil {
 		return nil, err
 	}
+	if d.readPeers().denied(item.FromAID) {
+		return nil, fmt.Errorf("anet: %s is from %s, which is on the deny list; not approved", ixID, item.FromAID)
+	}
 	dr, td, tdBytes, kel, keys, err := d.reverifyPending(item)
 	if err != nil {
 		return nil, fmt.Errorf("anet: %s no longer verifies, not approved: %w", ixID, err)
@@ -172,6 +179,10 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 	requestCID, err := anetcid.Sum(tdBytes)
 	if err != nil {
 		return nil, err
+	}
+	if requestCID != item.RequestCID {
+		return nil, fmt.Errorf("anet: %s holds request %s, not the %s it was listed with; not approved",
+			ixID, requestCID, item.RequestCID)
 	}
 	capID, _, isCap := capabilityCall(td)
 	goal := delegation.TaskGoal(td)

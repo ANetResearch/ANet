@@ -36,6 +36,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -139,9 +140,12 @@ type rxMsg struct {
 	dr       *delegation.DelegateReq
 	td       *tsir.TaskDoc
 	tdBytes  []byte
-	cm       *delegation.ChatMsg
-	rr       *delegation.ResultResp
-	sm       *delegation.StatusMsg
+	// requestCID is the CID of tdBytes: what a delegation asks for. A
+	// delegation for an interaction this node holds must carry the same.
+	requestCID string
+	cm         *delegation.ChatMsg
+	rr         *delegation.ResultResp
+	sm         *delegation.StatusMsg
 
 	// The inbound policy decision for a delegation (§5.2): the trust it is
 	// accepted under, or hold for the approval queue. release frees the
@@ -360,13 +364,32 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 		r := d.drop(dropIXCollision, fmt.Errorf("%s is %s with %s", m.ix, ix.Role, ix.PeerAID))
 		return &r
 	}
-	m.dr, m.td, m.tdBytes, m.existing = dr, td, tdBytes, ix
+	requestCID, err := anetcid.Sum(tdBytes)
+	if err != nil {
+		r := d.drop(dropBadTaskDoc, err)
+		return &r
+	}
+	m.dr, m.td, m.tdBytes, m.requestCID, m.existing = dr, td, tdBytes, requestCID, ix
 	if ix != nil {
-		// A redelivery of a delegation already accepted. The deny list
-		// still applies (§5.1: revocation reaches existing interactions);
-		// the rest of the policy decided when it was accepted.
-		if d.readPeers().denied(m.from) {
+		// A redelivery of the delegation this interaction was accepted for,
+		// and of nothing else [redteam:F7]: the policy decided on that
+		// request, so only that request may come this way. Another TaskDoc
+		// under the same ix is a collision, dropped without a reply, however
+		// the sender is related to the interaction.
+		if ix.RequestCID == "" || ix.RequestCID != requestCID {
+			r := d.drop(dropIXCollision, fmt.Errorf("%s was accepted for request %s, this one is %s",
+				m.ix, ix.RequestCID, requestCID))
+			return &r
+		}
+		// Revocation reaches existing interactions (§5.1): the deny list,
+		// and on a trust=peer interaction the allow list, as for a message.
+		ps := d.readPeers()
+		if ps.denied(m.from) {
 			r := d.drop(dropDenied, nil)
+			return &r
+		}
+		if ix.Trust == interactions.TrustPeer && !ps.allowed(m.from) {
+			r := d.drop(dropNotAllowed, nil)
 			return &r
 		}
 		m.trust = ix.Trust
@@ -375,6 +398,13 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 	if held, err := d.ix.GetPending(m.ix); err == nil {
 		if held.FromAID != m.from {
 			r := d.drop(dropPendingCollision, nil)
+			return &r
+		}
+		if held.RequestCID != requestCID {
+			// The held request is what the operator is shown and approves;
+			// another TaskDoc under its id is not added to it.
+			r := d.drop(dropIXCollision, fmt.Errorf("%s is held for request %s, this one is %s",
+				m.ix, held.RequestCID, requestCID))
 			return &r
 		}
 		// Already held: the same delegation again. Nothing to decide.

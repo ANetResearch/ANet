@@ -215,8 +215,8 @@ ANetCore `delegation` 增量(新字段一律 `omitempty`,另立全字段向量 `
 | 6 | 解析 KEL(不做网络请求):`inner.kel` 回放成功且推出 `from`;与 `peer_identity` 已存 KEL 比较:内层延伸已存 → 候选更新;已存延伸内层 → 用已存;分叉 → 拒收;无记录 → 用内层(首次信任,§21) | P;读取 `peer_identity` 出错为 T |
 | 7 | 签名:顶端活跃密钥态直接接受;非顶端态仅当 `ts < SupersededAt` 且 `now − SupersededAt ≤ rotation_grace`(默认 1 小时)时接受 [C4c] | P |
 | 8 | `keys` 附件是建议性的:`VerifyEncKeySet(keys, from, kel, now)` + 三分支高水位;失败不影响本消息 | — |
-| 9 | 授权(只做判定;拒绝类回复经限速发出,不写库):按 type 判定(§5 入站策略;message/status/result 须交互存在或在待批表中、`PeerAID == from`、角色正确)。`anet.delegate/1` 的 `ix` 已存在时,仅当该交互 `role=inbound` 且 `PeerAID == from` 才进入第 10 步(重投/幂等路径),否则 P,计数 `ix-collision`,不回复 [m]。已认证发送方指向未知 ix 的 message/cancel:`now − inner.ts ≤ 10 分钟` 时按 T 处理(等待 delegate 先到),超过后回 `status{failed, anet.a2aError: TaskNotFound}`,与拒绝通知共用限速 [C19] | P;未知 ix 窗口内与读库出错为 T |
-| 10 | 去重与处理:进程内按 `(from, mid)` 加锁;持久重放表已有该行 → delegate 走"已答复 → 重发结果"分支,其余 ack 不处理 [C33]。否则执行业务写入,**在同一 SQLite 事务内**插入重放行 `(from, mid, exp)`;不能纳入事务的副作用(能力执行、发结果)沿用现有业务幂等检查。重放行已存在、交互非终态且无结果、本进程内也无该 ix 的执行记录时,视为崩溃遗留:短能力调用重新执行(至少一次,沿用现有"无回执即重跑"),长能力调用不重跑(至多一次)。成功后:把候选 KEL/keys 写入 `peer_identity`(仅 §3.8 所列授权上下文)、`noteLivePeer(from)` [m]。§5.2 的写入(交互、待批项)与第 4 行的 `submitted` 回复都在本步与重放行同一事务提交之后进行 | T(存储) |
+| 9 | 授权(只做判定;拒绝类回复经限速发出,不写库):按 type 判定(§5 入站策略;message/status/result 须交互存在或在待批表中、`PeerAID == from`、角色正确)。`anet.delegate/1` 的 `ix` 已存在时,仅当该交互 `role=inbound`、`PeerAID == from` 且新 TaskDoc 的 CID 等于该交互存储的 `request_cid`(同一请求的重投)才进入第 10 步(重投/幂等路径),否则 P,计数 `ix-collision`,不回复 [m];进入重投路径前同样先查 deny,`trust=peer` 的交互再查 allow(§5.1),不满足为 P。待批表中的 ix 同理:TaskDoc 与待批项的 request CID 不同为 `ix-collision` [redteam:F6][redteam:F7]。已认证发送方指向未知 ix 的 message/cancel:`now − inner.ts ≤ 10 分钟` 时按 T 处理(等待 delegate 先到),超过后回 `status{failed, anet.a2aError: TaskNotFound}`,与拒绝通知共用限速 [C19] | P;未知 ix 窗口内与读库出错为 T |
+| 10 | 去重与处理:进程内按 `(from, mid)` 加锁;持久重放表已有该行 → delegate 走"已答复 → 重发结果"分支,其余 ack 不处理 [C33]。否则执行业务写入,**在同一 SQLite 事务内**插入重放行 `(from, mid, exp)`;不能纳入事务的副作用(能力执行、发结果)沿用现有业务幂等检查。重放行已存在、交互非终态且无结果、本进程内也无该 ix 的执行记录时,视为崩溃遗留:短能力调用重新执行(至少一次,沿用现有"无回执即重跑"),长能力调用不重跑(至多一次)。重投路径执行的只是该交互受理时记录的能力调用(`is_capability` 且从存储的 `request_doc` 读回),从不取重投信封里的 TaskDoc;文本任务的重投不执行任何能力 [redteam:F7]。成功后:把候选 KEL/keys 写入 `peer_identity`(仅 §3.8 所列授权上下文)、`noteLivePeer(from)` [m]。§5.2 的写入(交互、待批项)与第 4 行的 `submitted` 回复都在本步与重放行同一事务提交之后进行 | T(存储) |
 
 - 第 9 步拒绝的信封只进内存有界 LRU,不写持久重放表 [C15c]。
 - 重放表、`pending`、`peer_identity` 与交互表同在 `interactions.db`,使第 10 步的同事务写入成立。
@@ -370,7 +370,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 - `allow_file`(可委派)、`trust_file`(可驱动本机 exec 与 A2A 后端,§6、§11.6)、`deny_file`:每行一个 AID,每次判定重读,文件不存在等于空,deny 优先。`trust_file` 从 `auto_reply` 移到 `inbound`,exec 与后端共用同一判定 [C9]。
 - 配置校验集中在一个函数,由加载、`POST /autoreply`、入站策略写入共同调用:`open` 与"对非信任对端启用 exec"或"接受非信任对端的后端"不能同时成立,违反者 409,无论先写哪一个 [C8]。后端部分经 `module.Host` 新增的 `DeclareUntrustedBackend()` 完成(理由写在接口注释):`module/a2a` 构建时若存在 `accept_untrusted: true` 的后端即调用它;内核校验函数只读取这一声明,不解析 `modules.*` 配置。后端只经配置文件设置;与 `open` 冲突时加载即拒绝启动,运行时改为 `open` 的写入按同一声明返回 409。
 - 迁移:旧 `accept_delegations` 缺省或 `true` → `closed`,日志提示一次;`false` → `closed`。`anet accept on` 报错并说明三种策略与 `anet peers allow`,非零退出;`accept off` 映射为 `closed`;`hub-register --accept-delegations` 与 `POST /accept` 同样处理 [C8]。
-- 撤销对已有交互生效 [m]:第 9 步对所有入站信封先查 deny;`trust=peer` 的入站交互再查 allow;自动回复每次调用重读 trust 与 deny;对端进入 deny 时,其活动交互置 `canceled` 并写 `anet.policy.changed`。
+- 撤销对已有交互生效 [m]:第 9 步对所有入站信封先查 deny;`trust=peer` 的入站交互再查 allow(message 与同一请求的 delegate 重投都查)[redteam:F7];自动回复每次调用重读 trust 与 deny;对端进入 deny 时,其活动交互置 `canceled` 并写 `anet.policy.changed`。
 
 ### 5.2 判定顺序(`anet.delegate/1`)
 
@@ -391,7 +391,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 
 - 独立表 `pending`:签名 TaskDoc、请求方 AID、KEL 与 SignedEncKeySet、到达时间、附件元数据(不存字节)、后续消息(每条目最多 5 条;第 9 步把指向待批 ix 的消息与取消判定为待批路由,第 10 步在同一事务内追加到待批项并写重放行)[m][C2]。
 - 上限超出直接 `rejected`;TTL 到期回 `rejected`。
-- 批准只经人工通道:`anet inbound approve <ix>`、`anet peers allow <aid>` 要求从 `/dev/tty` 读取确认,非 TTY 调用拒绝;控制台会话不能批准 [C24][m]。批准时按 §3.6 第 7 步的规则对当前 KEL 重验。TTY 检查在 CLI 进程内完成,daemon 无法区分调用来源,边界见 §21 第 13 条。
+- 批准只经人工通道:`anet inbound approve <ix>`、`anet peers allow <aid>` 要求从 `/dev/tty` 读取确认,非 TTY 调用拒绝;控制台会话不能批准 [C24][m]。批准时按 §3.6 第 7 步的规则对当前 KEL 重验;执行的是待批项列出的那份请求(request CID 须与列出时相同),请求方已在 deny 名单中则不批准 [redteam:F7]。TTY 检查在 CLI 进程内完成,daemon 无法区分调用来源,边界见 §21 第 13 条。
 - MCP `inbound_pending` 只返回元数据(AID、到达时间、字节数、request CID、能力 id),不返回目标与正文 [m]。文档写明 anet CLI 对 agent 可达这一前提。
 
 ### 5.4 内核准入接缝
