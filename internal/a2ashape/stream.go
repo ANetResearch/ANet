@@ -19,6 +19,8 @@ package a2ashape
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -66,12 +68,36 @@ func TaskWithin(t Task, max int) Task {
 // control plane's /tasks/get without max_task_bytes), its files with
 // `anet pull <id>`. max below MinTaskBytes counts as MinTaskBytes. t is not
 // changed.
+//
+// The bound holds: fitTask gives the task's metadata the budget first and
+// then adds a notice for each part it cuts, carrying up to maxKeptMetadata
+// of the cut message's own metadata, so a peer that fills both (a long
+// anet.reason, 4 KB of metadata on its status message and on its message)
+// could take a first fit past max. The task is then fitted again with that
+// much less room, which cuts the metadata to what this node says about the
+// task (fitMetadata) and leaves the notices their room.
 func TaskReadWithin(t Task, max int) Task {
 	if max < MinTaskBytes {
 		max = MinTaskBytes
 	}
 	id := t.ID
-	return fitTask(t, max, func(size int) Part { return readNotice(id, size) }, true)
+	notice := func(size int) Part { return readNotice(id, size) }
+	room := max
+	for {
+		out := fitTask(t, room, notice, true)
+		b, err := json.Marshal(out)
+		if err != nil || len(b) <= max || room <= MinTaskBytes {
+			return out
+		}
+		room = maxInt(MinTaskBytes, room-(len(b)-max))
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // fitTask holds t to max bytes as JSON (TaskForStream, TaskWithin);
@@ -158,15 +184,66 @@ func EventForStream(e TaskEvent) TaskEvent {
 // small metadata (anet.state and the like) stays with the notice.
 const maxKeptMetadata = 4 << 10
 
-// fitMetadata is meta if it fits in budget, else only the truncation mark;
-// with the budget left, and whether it was cut.
+// maxKeptMetaValue is the largest value metadata keeps when it is cut
+// (fitMetadata). What this node states about a task — its role and peer,
+// its effect status, why it ended, whether the receipt verified — is a few
+// bytes a key; a value past this is a peer's text (a long anet.reason, a
+// list of claimed receipts) and is what made the metadata too large.
+const maxKeptMetaValue = 512
+
+// keptFirst are the keys a cut keeps before any other (fitMetadata): the
+// effect status and why the task is in its state (SI-6), then who and what
+// it is. A reader of a cut task still learns whether its effect happened.
+var keptFirst = []string{KeyEffectStatus, KeyReason, KeyRole, KeyReceiptVerified, KeyPeerAID, KeyTrust,
+	KeyStateSeq, KeySkill, KeyState, KeyRetryAfterMS, KeyCancelRequested, KeyX402Status, KeyInbound}
+
+// fitMetadata is meta if it fits in budget; otherwise the truncation mark
+// with the keys whose values are small (maxKeptMetaValue), as many as fit —
+// keptFirst first, then this node's other anet.* keys, then the rest, each
+// in name order — so that a peer's large value cannot take this node's
+// statements about the task (SI-6: the effect status, the reason) out of
+// it. It returns the budget left, and whether anything was cut.
 func fitMetadata(meta map[string]any, budget int) (map[string]any, int, bool) {
 	size := valueLen(meta)
 	if meta == nil || size <= budget {
 		return meta, budget - size, false
 	}
 	cut := map[string]any{KeyTruncated: true}
-	return cut, budget - valueLen(cut), true
+	left := budget - valueLen(cut)
+	keep := func(k string) {
+		v, ok := meta[k]
+		if !ok {
+			return
+		}
+		if _, done := cut[k]; done {
+			return
+		}
+		vs := valueLen(v)
+		n := jsonLen(k) + 1 + vs + 1
+		if vs > maxKeptMetaValue || n > left {
+			return
+		}
+		cut[k] = v
+		left -= n
+	}
+	for _, k := range keptFirst {
+		keep(k)
+	}
+	rest := make([]string, 0, len(meta))
+	for k := range meta {
+		rest = append(rest, k)
+	}
+	sort.Slice(rest, func(i, j int) bool {
+		ai, aj := strings.HasPrefix(rest[i], "anet."), strings.HasPrefix(rest[j], "anet.")
+		if ai != aj {
+			return ai
+		}
+		return rest[i] < rest[j]
+	})
+	for _, k := range rest {
+		keep(k)
+	}
+	return cut, left, true
 }
 
 // fitMessage is m if it fits in budget, else m with its parts replaced by
