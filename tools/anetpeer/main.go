@@ -40,6 +40,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -78,6 +79,23 @@ type frame struct {
 	Reachable bool   `json:"reachable,omitempty"`
 	Error     string `json:"error,omitempty"`
 	Self      string `json:"self,omitempty"`
+	// NotDelivered, with Error, says the envelope reached no daemon: no
+	// address, a failed dial, a refusal before or at the hand-off. Without
+	// it a failed delivery may have happened (an answer that timed out),
+	// and the sending daemon must not report the message as never
+	// delivered ([redteam:F12]).
+	NotDelivered bool `json:"not_delivered,omitempty"`
+}
+
+// notDelivered is a delivery failure known to have reached no daemon.
+type notDelivered struct{ error }
+
+func (e notDelivered) Unwrap() error { return e.error }
+
+// isNotDelivered reports whether err is known to have reached no daemon.
+func isNotDelivered(err error) bool {
+	var nd notDelivered
+	return errors.As(err, &nd)
 }
 
 // wireVersion is the frame version this process speaks.
@@ -345,7 +363,8 @@ func (p *peer) serveDaemon(c net.Conn) {
 			go func(f frame) {
 				if err := p.deliver(f); err != nil {
 					log.Printf("anetpeer: send to %s: %v", f.To, err)
-					p.reply(c, frame{Op: "send", V: wireVersion, ID: f.ID, Error: err.Error()})
+					p.reply(c, frame{Op: "send", V: wireVersion, ID: f.ID, Error: err.Error(),
+						NotDelivered: isNotDelivered(err)})
 					return
 				}
 				log.Printf("anetpeer: delivered %d envelope bytes → %s", base64.StdEncoding.DecodedLen(len(f.Envelope)), f.To)
@@ -361,7 +380,8 @@ func (p *peer) serveDaemon(c net.Conn) {
 			// back to the hub now.
 			var answer error
 			if f.Op == "nack" {
-				answer = fmt.Errorf("receiving daemon refused the delivery for now: %s", f.Error)
+				// A temporary refusal: the daemon processed nothing.
+				answer = notDelivered{fmt.Errorf("receiving daemon refused the delivery for now: %s", f.Error)}
 			}
 			p.mu.Lock()
 			if ch, ok := p.acks[f.ID]; ok {
@@ -423,10 +443,10 @@ func (p *peer) receive(source string, f frame) frame {
 		// the daemon would refuse anyway; answering with an error rather
 		// than handing it over means the sender does not record it as
 		// delivered and falls back to its hub.
-		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: errOldPeer}
+		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: errOldPeer, NotDelivered: true}
 	}
 	if !p.limits.allow(source, time.Now()) {
-		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "rate limited; deliver through the hub"}
+		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "rate limited; deliver through the hub", NotDelivered: true}
 	}
 	p.mu.Lock()
 	self := p.self
@@ -437,11 +457,12 @@ func (p *peer) receive(source string, f frame) frame {
 		// rendezvous entry, a reused port. Handing it over would get it
 		// acknowledged by the wrong daemon; refusing it sends the sender to
 		// the hub, where the recipient's mailbox is ([redteam:F22]).
-		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "this peer does not carry " + f.To + "; deliver through the hub"}
+		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "this peer does not carry " + f.To + "; deliver through the hub",
+			NotDelivered: true}
 	}
 	out := frame{Op: "send", V: wireVersion, ID: f.ID}
 	if err := p.handOff(f); err != nil {
-		out.Error = err.Error()
+		out.Error, out.NotDelivered = err.Error(), isNotDelivered(err)
 	}
 	return out
 }
@@ -454,7 +475,7 @@ func (p *peer) handOff(f frame) error {
 	enc := p.enc
 	if enc == nil {
 		p.mu.Unlock()
-		return fmt.Errorf("no daemon attached")
+		return notDelivered{fmt.Errorf("no daemon attached")}
 	}
 	p.nextID++
 	id := fmt.Sprintf("d%d", p.nextID)
@@ -565,7 +586,7 @@ func (l *sourceLimits) allow(src string, now time.Time) bool {
 func (p *peer) deliver(f frame) error {
 	sock, ok := p.lookup(f.To)
 	if !ok {
-		return fmt.Errorf("no peer for %s", f.To)
+		return notDelivered{fmt.Errorf("no peer for %s", f.To)}
 	}
 	dnet, daddr := addrKind(sock)
 	c, err := net.DialTimeout(dnet, daddr, dialTimeout)
@@ -576,7 +597,7 @@ func (p *peer) deliver(f frame) error {
 			log.Printf("anetpeer: %s at %s cannot be dialled (%v); reported unreachable for %s, the hub carries its traffic",
 				f.To, sock, err, w)
 		}
-		return err
+		return notDelivered{err}
 	}
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(handOffTimeout + replyMargin))
@@ -588,6 +609,9 @@ func (p *peer) deliver(f frame) error {
 		return err
 	}
 	if reply.Error != "" {
+		if reply.NotDelivered {
+			return notDelivered{fmt.Errorf("%s", reply.Error)}
+		}
 		return fmt.Errorf("%s", reply.Error)
 	}
 	p.clearDown(f.To)

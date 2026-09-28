@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -71,9 +72,18 @@ type mailbox struct {
 	replyTo string
 	replied chan error
 	refuse  map[string]bool
+	// hold, when set, keeps Receive from answering until it is closed: a
+	// daemon still at work when the hand-off times out.
+	hold chan struct{}
 }
 
 func (m *mailbox) Receive(ctx context.Context, env []byte) error {
+	m.mu.Lock()
+	hold := m.hold
+	m.mu.Unlock()
+	if hold != nil {
+		<-hold
+	}
 	m.mu.Lock()
 	if m.refuse[string(env)] {
 		m.mu.Unlock()
@@ -324,6 +334,49 @@ func TestOneDeliveryEndsInsideTheDaemonsSendTimeout(t *testing.T) {
 	}
 	if dialTimeout > 5*time.Second {
 		t.Fatalf("dial timeout %s: an address that cannot be dialled costs that much before the hub is tried", dialTimeout)
+	}
+}
+
+// A failed send says whether it is known to have reached no daemon
+// (module.ErrNotDelivered): no address, a dial that failed, a refusal at
+// the hand-off. A hand-off that timed out while the receiving daemon was
+// still at work is not known either way, and is not marked: the sending
+// daemon must not report such a message as one that never arrived
+// ([redteam:F12]).
+func TestAFailedSendSaysWhetherItReachedADaemon(t *testing.T) {
+	old := handOffTimeout
+	handOffTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { handOffTimeout = old })
+	dir := t.TempDir()
+	rv := filepath.Join(dir, "rv")
+	alice := newNode(t, dir, rv, "alice", &mailbox{})
+	hold := make(chan struct{})
+	bobBox := &mailbox{refuse: map[string]bool{"not now": true}}
+	bob := newNode(t, dir, rv, "bob", bobBox)
+	at := alice.host.transport(t)
+	waitFor(t, "the peers to find each other", func() bool {
+		return at.Reachable(context.Background(), bob.aid)
+	})
+
+	// A dial that fails.
+	if err := os.WriteFile(filepath.Join(rv, "aid-far"), []byte("tcp://"+closedTCP(t)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := at.Send(context.Background(), "aid-far", []byte("x")); !errors.Is(err, module.ErrNotDelivered) {
+		t.Errorf("failed dial: %v, want it marked not delivered", err)
+	}
+	// A refusal at the hand-off (nack).
+	if err := at.Send(context.Background(), bob.aid, []byte("not now")); !errors.Is(err, module.ErrNotDelivered) {
+		t.Errorf("refused hand-off: %v, want it marked not delivered", err)
+	}
+	// A hand-off that timed out: the daemon may yet have taken it.
+	bobBox.mu.Lock()
+	bobBox.hold = hold
+	bobBox.mu.Unlock()
+	err := at.Send(context.Background(), bob.aid, []byte("slow"))
+	close(hold)
+	if err == nil || errors.Is(err, module.ErrNotDelivered) {
+		t.Errorf("timed-out hand-off: %v, want a failure not marked as reaching nobody", err)
 	}
 }
 

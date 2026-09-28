@@ -58,6 +58,11 @@ type frame struct {
 	Reachable bool   `json:"reachable,omitempty"`
 	Error     string `json:"error,omitempty"`
 	Self      string `json:"self,omitempty"`
+	// NotDelivered, on a send reply with an Error, says the peer process
+	// knows the envelope reached no daemon: no address, a dial that failed,
+	// a refusal before or at the hand-off. Without it a failed send may
+	// have delivered (a reply that timed out), and is reported so.
+	NotDelivered bool `json:"not_delivered,omitempty"`
 }
 
 // WireVersion is the frame version this module speaks (A2A-DESIGN §3.10).
@@ -270,6 +275,9 @@ func (t *Transport) Send(ctx context.Context, toAID string, envelope []byte) err
 		return err
 	}
 	if reply.Error != "" {
+		if reply.NotDelivered {
+			return fmt.Errorf("p2p: %s: %w", reply.Error, module.ErrNotDelivered)
+		}
 		return fmt.Errorf("p2p: %s", reply.Error)
 	}
 	return nil
@@ -282,7 +290,7 @@ func (t *Transport) roundTrip(ctx context.Context, f frame) (frame, error) {
 	conn := t.conn
 	if conn == nil || t.pending == nil {
 		t.mu.Unlock()
-		return frame{}, errors.New("p2p: peer process not connected")
+		return frame{}, fmt.Errorf("p2p: peer process not connected: %w", module.ErrNotDelivered)
 	}
 	t.nextID++
 	f.ID = strconv.FormatUint(t.nextID, 10)
