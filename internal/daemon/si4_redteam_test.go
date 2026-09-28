@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -19,128 +18,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
-	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
-
-// SI4-RT-1a. Policy open admits a stranger's natural-language task
-// (trust=public) and refuses its capability calls (§5.2 row 5). A second
-// anet.delegate/1 on the SAME ix, carrying a different TaskDoc that names a
-// capability, passes step 9 as a "redelivery" (authorizeDelegate returns
-// early for an existing inbound ix of the same peer, without re-running the
-// inbound policy) and redeliveredDelegate executes the capability named by
-// the NEW TaskDoc (capabilityCall(m.td)), not the one that was admitted.
-func TestRedteamSI4_OpenPolicyRedeliveredDelegateRunsNonPublicCapability(t *testing.T) {
-	srv := newFakeHub(t)
-	ctx := context.Background()
-	prov := registered(t, srv.URL, "prov")
-	stranger := registered(t, srv.URL, "stranger")
-	lamp := &lampProvider{}
-	if err := prov.Providers().Register(ctx, lamp); err != nil {
-		t.Fatal(err)
-	}
-	setPolicy(t, prov, PolicyOpen)
-
-	// Control: the direct capability call is refused under open.
-	gid, err := stranger.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := prov.ix.Get(gid); !errors.Is(err, interactions.ErrNotFound) || len(lamp.invoked) != 0 {
-		t.Fatalf("control: a non-public capability call under open was accepted")
-	}
-
-	// Step 1: a natural-language task, admitted as trust=public.
-	id, err := stranger.Delegate(ctx, prov.AID(), "please say hello", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	pix, err := prov.ix.Get(id)
-	if err != nil || pix.Trust != interactions.TrustPublic || pix.IsCapability {
-		t.Fatalf("setup: %+v %v", pix, err)
-	}
-
-	// Step 2: the same ix, a new TaskDoc naming the non-public capability.
-	env := sealFrom(t, stranger, prov, seal.TypeDelegate, id, delegateBody(t, stranger.self, id, "x", lampCap))
-	r := receive(t, prov, env)
-	if len(lamp.invoked) != 1 {
-		t.Fatalf("attack failed: rx=%+v invoked=%d", r, len(lamp.invoked))
-	}
-	if lamp.invoked[0].CallerAID != stranger.AID() {
-		t.Fatalf("invoked for %s", lamp.invoked[0].CallerAID)
-	}
-	t.Logf("DEFECT: stranger executed non-public %s on a trust=public ix under policy open (rx=%+v)", lampCap, r)
-}
-
-// SI4-RT-1b. The operator approves a held natural-language task (approve
-// policy). The requester then swaps in a capability call on the approved ix;
-// it runs although the operator approved only the text task.
-func TestRedteamSI4_ApprovedTextTaskSwappedForCapability(t *testing.T) {
-	srv := newFakeHub(t)
-	ctx := context.Background()
-	prov := registered(t, srv.URL, "prov")
-	stranger := registered(t, srv.URL, "stranger")
-	lamp := &lampProvider{}
-	if err := prov.Providers().Register(ctx, lamp); err != nil {
-		t.Fatal(err)
-	}
-	setPolicy(t, prov, PolicyApprove)
-
-	id, err := stranger.Delegate(ctx, prov.AID(), "summarise this paragraph", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := prov.ApprovePending(id); err != nil {
-		t.Fatal(err)
-	}
-	env := sealFrom(t, stranger, prov, seal.TypeDelegate, id, delegateBody(t, stranger.self, id, "x", lampCap))
-	r := receive(t, prov, env)
-	if len(lamp.invoked) != 1 {
-		t.Fatalf("attack failed: rx=%+v invoked=%d", r, len(lamp.invoked))
-	}
-	t.Logf("DEFECT: approved text task %s executed capability %s without approval (rx=%+v)", id, lampCap, r)
-}
-
-// SI4-RT-1c. A peer removed from peers.allow can no longer send messages
-// on its trust=peer interaction (dropNotAllowed, §5.1 "trust=peer 的入站交互
-// 再查 allow"), but a delegate on the same ix skips that check and its new
-// TaskDoc's capability is executed.
-func TestRedteamSI4_RemovedPeerStillRunsCapabilityViaRedelivery(t *testing.T) {
-	_, req, prov := registeredPair(t)
-	ctx := context.Background()
-	lamp := &lampProvider{}
-	if err := prov.Providers().Register(ctx, lamp); err != nil {
-		t.Fatal(err)
-	}
-	id, err := req.Delegate(ctx, prov.AID(), "work", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := prov.RemovePeer(req.AID()); err != nil {
-		t.Fatal(err)
-	}
-	// Control: an ordinary message is refused now.
-	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeMessage, id, chatBody(t, "more", "msg_more"))); r.reason != dropNotAllowed {
-		t.Fatalf("control: %+v", r)
-	}
-	env := sealFrom(t, req, prov, seal.TypeDelegate, id, delegateBody(t, req.self, id, "x", lampCap))
-	r := receive(t, prov, env)
-	if len(lamp.invoked) != 1 {
-		t.Fatalf("attack failed: rx=%+v invoked=%d", r, len(lamp.invoked))
-	}
-	t.Logf("DEFECT: peer no longer on the allow list executed %s via a delegate on its old ix (rx=%+v)", lampCap, r)
-}
 
 // SI4-RT-2. A delegation refused in step 9 is remembered only in the
 // in-memory refused LRU (4096 entries, lost on restart), never in the
