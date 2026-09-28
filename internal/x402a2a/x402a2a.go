@@ -90,6 +90,24 @@ const (
 	// facilitator put in its transaction field; the receipt's transaction
 	// is "" as a2a-x402 §9.2 shows it.
 	ExtAuthID = "anet.auth_id"
+	// ExtSettlementVerified is the requester's own verdict on a successful
+	// settlement response its provider sent, written into the response's
+	// extensions when the requester stores it (§8.3): VerdictVerified when
+	// the hub receipt checked out against this node's authorizations for
+	// the task, VerdictUnverified otherwise. Only a verified one is stated
+	// in x402.payment.receipts; the others are listed under
+	// KeyUnverifiedReceipts [redteam:F11].
+	ExtSettlementVerified = "anet.settlement_verified"
+	// KeyUnverifiedReceipts lists, on a task this node started, the
+	// successful settlements its provider claimed and this node could not
+	// verify: the provider's word, kept apart from what this node states.
+	KeyUnverifiedReceipts = "anet.unverified_receipts"
+)
+
+// Values of ExtSettlementVerified.
+const (
+	VerdictVerified   = "verified"
+	VerdictUnverified = "unverified"
 )
 
 // Reasons of anet's own, carried as anet.reason. Each maps to

@@ -452,6 +452,8 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 
 provider 在结算成功后先发 `payment-verified` 状态再执行能力 [m]。
 
+requester 对本机客户端陈述的是本节点的核验结论,不是 provider 的说法 [redteam:F11]:provider 发来的收据列表在逐项核验(§8.3)之后才存为 `pay_receipts`,每个成功项的 `extensions["anet.settlement_verified"]` 写本节点结论(`verified`/`unverified`,覆盖对端自填的值);投影与状态消息中的 `x402.payment.receipts` 只含失败项(`success` 恰为 `false`)与本节点核验通过的成功项,核验未通过或 `success` 不是布尔值的项列在任务 metadata 的 `anet.unverified_receipts`;`payment-completed` 与 "Payment completed." 只由本节点 `pay_state=completed` 决定,不读交付物的 `paid`,provider 状态消息里的 receipts 与 `payment-completed` 在作为 status.message 呈现时换成本节点的值;对端更长的列表不能挤掉本节点已核验的结算;`pay_state` 为空的任务不输出结算键。
+
 ### 8.3 时序(daemon 之间全部在 E2E 信封内)
 
 ```
@@ -471,6 +473,7 @@ B: 收到 payment-submitted:分派给能力执行器(不进自动回复,复用 r
       确定失败 → status{input-required 或 failed, {payment-failed, error, receipts}}
       未知(传输错误、超时、`settlement_pending`)→ 不回 input-required,用同一 payload 重试直到确定;重启恢复 submitted 行
 A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与授权一致 → 证据;同一 ix 第二张成功收据写证据并在 audit 标出 [m]
+   核验之后才存列表,每项带本节点结论;只有核验通过才置 pay_state=completed(§8.2 末段)[redteam:F11]
 ```
 
 - 报价 24 小时过期:provider 置 `failed` + `payment-failed`/`EXPIRED_PAYMENT`;未付报价计入按调用方配额;requester 不对过期报价签授权 [m]。

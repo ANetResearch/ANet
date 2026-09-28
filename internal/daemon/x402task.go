@@ -104,11 +104,18 @@ func storedReceipts(ix *interactions.Interaction) []json.RawMessage {
 }
 
 // receiptList is pay_receipts plus extra, as metadata carries it: never
-// null, and every failure with transaction "" (x402receipts.go).
+// null, and every failure with transaction "" (x402receipts.go). On a task
+// this node started, only the settlements it verified are in it
+// (a2ashape.SplitReceipts); the rest are PaymentStatusMeta's
+// anet.unverified_receipts [redteam:F11].
 func receiptList(ix *interactions.Interaction, extra ...json.RawMessage) []json.RawMessage {
 	out := storedReceipts(ix)
 	out = append(out, extra...)
-	return normalizeReceipts(out)
+	own, _ := a2ashape.SplitReceipts(normalizeReceipts(out), ix.Role == interactions.RoleOutbound, ix.PayState)
+	if own == nil {
+		own = []json.RawMessage{}
+	}
+	return own
 }
 
 // payloadAuth reads the anet-credit authorization inside a PaymentPayload.
@@ -978,6 +985,14 @@ func PaymentReason(ix *interactions.Interaction) string {
 // task nothing was quoted for.
 func (d *Daemon) PaymentStatusMeta(ix *interactions.Interaction) map[string]any {
 	out := map[string]any{}
+	if ix.Role == interactions.RoleOutbound {
+		// The provider's claims of settlement this node could not verify,
+		// kept apart from what it states (a2ashape.SplitReceipts), also on
+		// a task this node never paid for [redteam:F11].
+		if _, un := a2ashape.SplitReceipts(storedReceipts(ix), true, ix.PayState); len(un) > 0 {
+			out[x402a2a.KeyUnverifiedReceipts] = un
+		}
+	}
 	status := ""
 	switch ix.PayState {
 	case interactions.PayNone:
@@ -1495,13 +1510,20 @@ const maxPeerReceipts = 128
 // notePaymentReceipts verifies and records the receipts a provider sent
 // on a status or a result (§8.3; §4.2: also when the task has ended here).
 //
-// The list is the provider's whole history for the task (§8.2), failures
-// included, and is stored as pay_receipts for whoever renders the task.
 // Each successful receipt is checked: signed by this node's hub for a
 // payment by this node, for one of the authorizations this node signed for
 // the task, paying the task's provider, for that authorization's amount.
 // It is recorded once (by transaction) as anet.payment.settled, verified or
 // not; a second verified settlement for one task is recorded and marked.
+// Only a verified one moves pay_state to completed.
+//
+// The list is the provider's whole history for the task (§8.2), failures
+// included, and is stored as pay_receipts after the check, each success
+// with this node's verdict in its extensions (x402a2a.ExtSettlementVerified)
+// so whoever renders the task states only what this node verified
+// (a2ashape.SplitReceipts). It was stored before any check and rendered as
+// the task's settlement: a provider's made-up receipts on a free call read
+// "Payment completed." [redteam:F11].
 func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTerminal bool) {
 	list, ok := m[x402a2a.KeyReceipts].([]any)
 	if !ok || len(list) == 0 {
@@ -1517,34 +1539,25 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 	if err != nil || ix.Role != interactions.RoleOutbound {
 		return
 	}
-	if len(list) >= len(storedReceipts(ix)) {
-		// Stored as a local client will be shown it: failures with
-		// transaction "" (Q18), whatever form the provider sent.
-		items := make([]json.RawMessage, 0, len(list))
-		for _, item := range list {
-			if b, err := json.Marshal(item); err == nil {
-				items = append(items, b)
-			}
-		}
-		if all, err := json.Marshal(normalizeReceipts(items)); err == nil {
-			if _, err := d.ix.SetPayment(ixID, interactions.PayUpdate{Receipts: all}); err != nil {
-				log.Printf("anet: %s: store the receipts: %v", ixID, err)
-			}
-		}
-	}
-	// What this node already recorded for the task.
-	recorded, verifiedBefore := map[string]bool{}, 0
+	// What this node already recorded for the task, and which of those
+	// settlements it verified.
+	recorded, verifiedTx, verifiedBefore := map[string]bool{}, map[string]bool{}, 0
 	d.ledger.scan(EvPaymentSettled, 0, func(_ int64, p map[string]any) {
 		if p["interaction_id"] != ixID {
 			return
 		}
-		if tx, _ := p["transaction"].(string); tx != "" {
+		tx, _ := p["transaction"].(string)
+		if tx != "" {
 			recorded[tx] = true
 		}
 		if p["verified"] == true {
 			verifiedBefore++
+			if tx != "" {
+				verifiedTx[tx] = true
+			}
 		}
 	})
+	defer d.storePeerReceipts(ixID, list, verifiedTx)
 	p := d.payer()
 	for _, item := range list {
 		rb, err := json.Marshal(item)
@@ -1592,6 +1605,7 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 		}
 		entry["verified"] = verified
 		if verified {
+			verifiedTx[sr.Transaction] = true
 			if verifiedBefore > 0 {
 				// §8.3 [m]: a second settlement for one task. Recorded, and
 				// marked for audit to show.
@@ -1609,6 +1623,114 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 			log.Printf("anet: settlement evidence: %v", lerr)
 		}
 	}
+}
+
+// storePeerReceipts stores a provider's receipt list as pay_receipts once
+// notePaymentReceipts has checked it: normalized (failures with
+// transaction "", Q18), and each success carrying this node's verdict,
+// VerdictVerified for a transaction in verified and VerdictUnverified for
+// any other, whatever the provider wrote there.
+//
+// The provider's list replaces the stored one when it is at least as
+// long (it is the whole history, §8.2), except that a settlement this node
+// verified stays even when the new list leaves it out: the provider cannot
+// take back what this node checked. A shorter list only adds the
+// settlements the stored one does not have.
+func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]bool) {
+	items := make([]json.RawMessage, 0, len(list))
+	for _, item := range list {
+		if b, err := json.Marshal(item); err == nil {
+			items = append(items, withVerdict(normalizeReceipt(b), verified))
+		}
+	}
+	err := d.ix.Update(func(tx *interactions.Tx) error {
+		cur, err := tx.Get(ixID)
+		if err != nil {
+			return err
+		}
+		old := storedReceipts(cur)
+		var merged []json.RawMessage
+		if len(items) >= len(old) {
+			have := successTxs(items)
+			for _, o := range old {
+				if tx := successTx(o); tx != "" && !have[tx] && verified[tx] {
+					merged = append(merged, o)
+				}
+			}
+			merged = append(merged, items...)
+		} else {
+			merged = old
+			have := successTxs(old)
+			added := false
+			for _, n := range items {
+				if tx := successTx(n); tx != "" && !have[tx] {
+					merged, added = append(merged, n), true
+				}
+			}
+			if !added {
+				return nil
+			}
+		}
+		all, err := json.Marshal(merged)
+		if err != nil {
+			return err
+		}
+		_, err = tx.SetPayment(ixID, interactions.PayUpdate{Receipts: all})
+		return err
+	})
+	if err != nil {
+		log.Printf("anet: %s: store the receipts: %v", ixID, err)
+	}
+}
+
+// withVerdict is a settlement response with this node's verdict in its
+// extensions when it claims success; anything else comes back unchanged.
+func withVerdict(raw json.RawMessage, verified map[string]bool) json.RawMessage {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var m map[string]any
+	if dec.Decode(&m) != nil || m == nil || m["success"] != true {
+		return raw
+	}
+	ext, _ := m["extensions"].(map[string]any)
+	if ext == nil {
+		ext = map[string]any{}
+	}
+	verdict := x402a2a.VerdictUnverified
+	if tx, _ := m["transaction"].(string); tx != "" && verified[tx] {
+		verdict = x402a2a.VerdictVerified
+	}
+	ext[x402a2a.ExtSettlementVerified] = verdict
+	m["extensions"] = ext
+	b, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return b
+}
+
+// successTx is the transaction of a settlement response that claims
+// success, "" for anything else.
+func successTx(raw json.RawMessage) string {
+	var r struct {
+		Success     bool   `json:"success"`
+		Transaction string `json:"transaction"`
+	}
+	if json.Unmarshal(raw, &r) != nil || !r.Success {
+		return ""
+	}
+	return r.Transaction
+}
+
+// successTxs is the set of successTx over a list.
+func successTxs(list []json.RawMessage) map[string]bool {
+	out := map[string]bool{}
+	for _, r := range list {
+		if tx := successTx(r); tx != "" {
+			out[tx] = true
+		}
+	}
+	return out
 }
 
 // authorizedAmount is the amount of an authorization this node signed for
