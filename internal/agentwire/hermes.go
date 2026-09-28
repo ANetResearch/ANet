@@ -120,31 +120,36 @@ func readA2A(o *Options) (a2aEndpoint, error) {
 // interface found its port taken, module/a2a left it down, replaced the token (so what clients had
 // already sent there is worthless) and wrote a2a_port_conflict.txt; writing the replacement beside the
 // same address, which is what --refresh does, would hand it to the holder, and the interface would come
-// up with exactly that token once the holder let go. So: no wiring while the conflict is recorded (it is
-// cleared when the interface next starts on its port), nor while the socket table shows a listener of
-// another user there (the daemon may not have started since). A port that nobody holds (the node is
-// stopped) or that this user holds is wired as before.
+// up with exactly that token once the holder let go. So: no wiring while the socket table shows a
+// listener of another user there (the daemon may not have started since the port was taken), and none
+// while the conflict is recorded unless the table shows this user holding the port now (the interface
+// running again, or a second start of the same node that left the record behind). A port that nobody
+// holds and no record names (the node is stopped) is wired as before.
 func checkA2APortHolder(o *Options, addr string) error {
-	conflict := a2aStatePath(o.DataDir, A2AConflictFile)
-	if b, err := os.ReadFile(conflict); err == nil {
-		return fmt.Errorf("本机 A2A 接口没有启动,它记录的端口 %s 被别的进程占着(%s:%s)。现在写入令牌,"+
-			"Hermes 的下一次调用就会把它交给占用者。先让占用者释放端口,再 `anet stop && anet up`,"+
-			"接口在原端口起来后再运行本命令", addr, conflict, strings.TrimSpace(string(b)))
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	uids, err := localpeer.ListenerUIDs(addr)
-	if err != nil {
-		return nil // no socket table on this system; the conflict record is what there is
-	}
-	for _, u := range uids {
-		if u != os.Getuid() {
-			return fmt.Errorf("本机 A2A 接口的端口 %s 正被 uid %d(另一个本机用户)的进程占着。现在写入令牌,"+
-				"Hermes 的下一次调用就会把它交给那个进程。先让它释放端口,再 `anet stop && anet up`,"+
-				"之后再运行本命令", addr, u)
+	uids, terr := localpeer.ListenerUIDs(addr)
+	if terr == nil {
+		for _, u := range uids {
+			if u != os.Getuid() {
+				return fmt.Errorf("本机 A2A 接口的端口 %s 正被 uid %d(另一个本机用户)的进程占着。现在写入令牌,"+
+					"Hermes 的下一次调用就会把它交给那个进程。先让它释放端口,再 `anet stop && anet up`,"+
+					"之后再运行本命令", addr, u)
+			}
+		}
+		if len(uids) > 0 {
+			return nil // this user holds it
 		}
 	}
-	return nil
+	conflict := a2aStatePath(o.DataDir, A2AConflictFile)
+	b, err := os.ReadFile(conflict)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return fmt.Errorf("本机 A2A 接口没有启动,它记录的端口 %s 被别的进程占着(%s:%s)。现在写入令牌,"+
+		"Hermes 的下一次调用就会把它交给占用者。先让占用者释放端口,再 `anet stop && anet up`,"+
+		"接口在原端口起来后再运行本命令", addr, conflict, strings.TrimSpace(string(b)))
 }
 
 // parseA2AAddr accepts host:port (or an http:// URL of one) and requires a

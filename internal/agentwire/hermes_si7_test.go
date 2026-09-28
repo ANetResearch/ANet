@@ -150,3 +150,30 @@ func TestWireProceedsWhenThePortIsThisUsersOrFree(t *testing.T) {
 	h2.setA2A(free, "tok-free")
 	one(t, h2.wireWith(h2.hermesOpts(false, aidA), ToolHermes), Written)
 }
+
+// The conflict record alone refuses while nobody holds the port (the holder let go, the node not yet
+// restarted); a record left behind while this user holds the port again — the interface is back, or a
+// second start of the same node wrote it — does not get in the way.
+func TestWireReadsTheConflictRecordAgainstWhoHoldsThePortNow(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	h := newHost(t)
+	h.setA2A(addr, "tok-after-conflict")
+	if err := os.WriteFile(a2aStatePath(h.data, A2AConflictFile), []byte(addr+" is held by another process\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	one(t, h.wireWith(h.hermesOpts(false, aidA), ToolHermes), Written) // this user's listener holds it
+	ln.Close()
+	h2 := newHost(t)
+	h2.setA2A(addr, "tok-after-conflict")
+	if err := os.WriteFile(a2aStatePath(h2.data, A2AConflictFile), []byte(addr+" is held by another process\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := one(t, h2.wireWith(h2.hermesOpts(false, aidA), ToolHermes), Failed)
+	if !strings.Contains(r.Err.Error(), "anet up") {
+		t.Fatalf("unclear refusal: %v", r.Err)
+	}
+}
