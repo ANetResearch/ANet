@@ -344,7 +344,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 - `IsTerminal()` 判定 `state ∈ {completed, failed, canceled, rejected}`,替换全部现有终态判断(`autoreply.go:294`、`delegation.go:141/223/243/268/380` 等)。
 - 状态迁移用 `UPDATE interaction SET state=?, state_at=?, state_seq=state_seq+1 WHERE id=? AND state NOT IN ('completed','failed','canceled','rejected')` 并返回是否更新,防止终态互相覆盖、防止在已取消交互上签回执。
 - 列表按 `state_at` 降序分页(修 R02 D8)。另建 `interaction(role, pay_state)` 索引,供每分钟的报价过期扫描 [impl:wp/x402d fe49f7a]。
-- 列表与计数只读覆盖索引 `idx_ix_list(state_at, seq, role, peer_aid, state, is_capability, trust, context_id)`:先取一页的 seq,再按 seq 取整行;带 context 的列表、计数与 `ContextPeers` 固定读 `idx_ix_context`。客户端重试查找(`a2a.messageId`)走表达式索引 `idx_msg_client`。理由:interaction 行内存 goal、request_doc、result,长消息时各数 MB,SQLite 读排在它们之后的列要走完溢出页;按 role/peer 过滤的列表曾把匹配行整行排序,一小时真实客户端流量之后本机 A2A 接口的每次 ListTasks 要 14–21 s,指名 context 的每次 SendMessage 约 2 s(0035)[impl:wp/interop c50e70b、b3c0024]。
+- 列表与计数只读覆盖索引 `idx_ix_list(state_at, seq, role, peer_aid, state, is_capability, trust, context_id)`,指定对端的列表与计数(本机 A2A 接口的每次 ListTasks)读同列、以 `peer_aid` 打头的 `idx_ix_peer_list`,只走该对端的一段:先从索引取一页的 (state_at, seq),再按 seq 取整行;是否有下一页与游标都取自第一步,两步之间任务变了状态或被保存期删除都不移动分页边界;带 context 的列表、计数与 `ContextPeers` 固定读 `idx_ix_context`。客户端重试查找(`a2a.messageId`)走表达式索引 `idx_msg_client`。理由:interaction 行内存 goal、request_doc、result,长消息时各数 MB,SQLite 读排在它们之后的列要走完溢出页;按 role/peer 过滤的列表曾把匹配行整行排序,一小时真实客户端流量之后本机 A2A 接口的每次 ListTasks 要 14–21 s,指名 context 的每次 SendMessage 约 2 s(0035)[impl:wp/interop c50e70b、b3c0024、38d5ecb]。
 - 带付款元数据的状态先存报价、再宣布状态:requester 收到 `payment-required` 时,付款列(`pay_state`、`pay_required`、报价过期)写好之后才发布状态事件,等待者(`/tasks/wait`、本机 A2A 阻塞发送)醒来读到的 `input-required` 必带报价与 `anet.reason` [impl:integ/round4b 3173f69]。
 
 ### 4.2 完成与取消
