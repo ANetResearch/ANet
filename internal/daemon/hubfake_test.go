@@ -131,6 +131,10 @@ type fakeHub struct {
 	// relayDown makes /relay/send answer 503: the hub is up but not
 	// carrying mail, the temporary failure a sender retries.
 	relayDown bool
+	// identityDown makes GET /hub/identity answer 503: the hub is up and
+	// carrying mail, and a node that has not learned its identity yet
+	// cannot learn it now.
+	identityDown bool
 	// retryAfter is the Retry-After the 429 answer carries ("" is "1").
 	retryAfter string
 	sendsBy    map[string]int
@@ -1122,6 +1126,13 @@ func clearMailbox(t *testing.T, srv *httptest.Server, toAID string) {
 // The AID goes into every authorization's network field, so a payment
 // signed for one hub cannot be replayed at another.
 func (h *fakeHub) hIdentity(w http.ResponseWriter, _ *http.Request) {
+	h.mu.Lock()
+	down := h.identityDown
+	h.mu.Unlock()
+	if down {
+		fakeHubJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "identity unavailable"})
+		return
+	}
 	kel, err := identity.MarshalKEL(h.self.KEL())
 	if err != nil {
 		fakeHubJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -1322,7 +1333,9 @@ func (h *fakeHub) hSettle(w http.ResponseWriter, r *http.Request) {
 	}
 	h.balance[auth.Payer] -= auth.Amount
 	h.balance[auth.PayTo] += auth.Amount
-	tx := "tx-" + authID
+	// The anet-credit scheme's transaction is the authorization id, as the
+	// real hub answers; a requester holds a settlement to it (F11).
+	tx := authID
 	h.settled[authID] = tx
 	if auth.InteractionID != "" {
 		h.bindings[bindKey] = authID

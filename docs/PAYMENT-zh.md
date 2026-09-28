@@ -72,7 +72,7 @@ anet delegate <provider-aid> --capability text.digest.paid --args '{"text":"hi"}
 3. 授权把这一次工作钉住:授权里的交互绑定值是 `pay_bind = hex(SHA-256("anet/x402-bind/v1" 0x00 ‖ ix ‖ 0x00 ‖ task_nonce))`,只对这个任务有效,hub 也无法由它反推交互 id。
 4. 提供方**结算前先核对**:收款方是自己、金额不低于报价、绑定值对得上、付款方式在报价选项内、授权与报价都未过期。不符就回 `payment-failed`,不结算、不执行。
 5. 核对通过,提供方拿授权去 hub 结算,**先结算后干活**。顺序是有意的:后结算意味着干完才发现收不到钱;先结算意味着活失败了钱已经付了。选第二个,因为第二种情况证据模型说得清楚 —— 效果和付款都在两条链上,退款是一场有记录的商量。结算成功后提供方先发 `payment-verified`,再执行。
-6. 结果回来时带 `payment-completed` 与 `x402.payment.receipts`(hub 签的结算收据在收据的 `extensions["anet.settlement.receipt"]`)。你的节点核对收据的授权 id 属于本任务、收款方是对端、金额与授权一致,才记 `anet.payment.settled{verified:true}`。
+6. 结果回来时带 `payment-completed` 与 `x402.payment.receipts`(hub 签的结算收据在收据的 `extensions["anet.settlement.receipt"]`)。你的节点核对收据的授权 id 属于本任务、收款方是对端、金额与授权一致,才记 `anet.payment.settled{verified:true}`,任务才显示 `payment-completed`。你(或你的 agent、本机 A2A 客户端)看到的 `x402.payment.receipts` 只含你的节点核验通过的结算(每项带 `extensions["anet.settlement_verified"]`,金额取自 hub 收据)与失败项;对方声称已结算、你的节点核验不了的,单独列在任务的 `anet.unverified_receipts`,不算付过款。
 
 **`payment-verified` 的含义与规范不同。** a2a-x402 规范与参考实现里,`payment-verified` 表示"付款已验过、尚未扣款"(先验、执行、再结算);anet 里它表示**已经扣款**(先结算、再执行)。原因同第 5 步。只按规范理解这个状态的客户端会低估已发生的事:看到 `payment-verified` 时钱已经动了。
 
@@ -100,6 +100,7 @@ anet delegate <provider-aid> --capability text.digest.paid --args '{"text":"hi"}
 
 - 新节点**什么都不自动花**:自动档与 agent 档都是 0。经 MCP 或本机 A2A 接口提交的付款属于 agent 档,不视为你本人的同意。
 - 收款方名单 `payees.allow`(数据目录下,一行一个 AID):用 `anet payees list|add|remove` 管理(`add` 要在终端上确认,每次变更写 `anet.policy.changed`),也可以直接编辑文件;键非空即启用,文件缺失等于空表;`anet init` 建一个空文件。名单外的收款方一律拒绝(兑付除外,它的收款方是 hub)。名单关闭(`payees_file` 为空)时 `anet payees` 不能编辑。
+- 卡片上的价格:缺省在网络卡片(anet-pricing/v1)与 ADP 卡片上公开每项能力的签名价格,调用方事先可见,hub 网关据此出售。代价是结算金额可指向所买能力(已知局限第 9 条)。在 `config.json` 的 `payments` 块设 `"publish_prices": false` 则不公开,价格只在端到端加密的报价里给出,hub 网关不再能出售你的能力;改后重启 daemon,卡片随下次发布更新。
 - 改上限:`anet payments set auto_max=… agent_max=… agent_daily_max=… explicit_max=… daily_max=…`,要在终端上确认;`anet payments` 显示当前上限与最近 24 小时签过的授权额。日累计按**已签授权额**计,不是已结算额。
 - agent 档超出上限或收款方不在名单上时**不报错**:任务仍停在 `input-required`,`anet.reason=needs_operator_approval`,`status.message` 写明你在终端上要先做的步骤(例如 `anet payees add <AID>`、`anet payments set explicit_max=…`),再 `anet pay <ix>`;`/tasks/pay` 以 200 返回并带 `spend_refusal`。什么都没签、没发。人工、网关与兑付档超限仍直接拒绝(403)。
 - 控制台不能授权付款。终端确认在 CLI 进程里做,挡得住只经 MCP 或 A2A 接口行事的 agent,挡不住能读控制令牌的本机程序([已知局限](KNOWN-LIMITATIONS-zh.md)第 13 条)。

@@ -62,8 +62,11 @@ func (a *payAnswer) apply(t a2ashape.Task) a2ashape.Task {
 		return a2ashape.PaymentHold(t, id, a.hold.Outcome.Reason, a.hold.Outcome.Message)
 	}
 	pr := a.refusal
-	return a2ashape.PaymentRefusal(t, id, pr.Outcome.Error, pr.Outcome.Reason,
-		a2ashape.PaymentRefusalDetail(pr.Outcome.Reason))
+	detail := pr.Outcome.Message
+	if detail == "" {
+		detail = a2ashape.PaymentRefusalDetail(pr.Outcome.Reason)
+	}
+	return a2ashape.PaymentRefusal(t, id, pr.Outcome.Error, pr.Outcome.Reason, detail)
 }
 
 // taskPaymentMessage handles a client message that carries x402.* metadata

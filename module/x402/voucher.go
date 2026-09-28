@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"strings"
@@ -257,6 +258,16 @@ func (m *Module) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 		return refuse(http.StatusPaymentRequired,
 			fmt.Sprintf("this voucher is for %d credits and %s costs %d",
 				v.Amount, req.Capability, want),
+			map[string]any{"payer": v.Payer, "paid": v.Amount, "price": want})
+	}
+	// And no more than a credit ledger can hold. The hub books amounts as
+	// int64; one without the range check booked an amount above
+	// math.MaxInt64 as a negative one, so a voucher naming such an amount
+	// certifies a movement that ran backwards — this node would do the
+	// work and be the one charged for it (red team si9).
+	if v.Amount > math.MaxInt64 {
+		return refuse(http.StatusPaymentRequired,
+			fmt.Sprintf("this voucher is for %d credits, more than a credit ledger can hold", v.Amount),
 			map[string]any{"payer": v.Payer, "paid": v.Amount, "price": want})
 	}
 

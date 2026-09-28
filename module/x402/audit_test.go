@@ -130,7 +130,11 @@ func (f *fakeIssuer) serve(t *testing.T) *httptest.Server {
 		}
 		var sum uint64
 		for _, x := range f.redemptions {
-			sum += uint64(asInt64(x["amount"]))
+			n, err := asInt64(x["amount"])
+			if err != nil || n < 0 {
+				t.Errorf("fake redemption amount %v: %v", x["amount"], err)
+			}
+			sum += uint64(n)
 		}
 		page := f.redemptions
 		if page == nil {
@@ -156,7 +160,11 @@ func (f *fakeIssuer) serve(t *testing.T) *httptest.Server {
 		}
 		var sum int64
 		for _, e := range f.entries {
-			sum += asInt64(e["delta"])
+			n, err := asInt64(e["delta"])
+			if err != nil {
+				t.Errorf("fake ledger entry delta: %v", err)
+			}
+			sum += n
 		}
 		out := map[string]any{
 			"entries": page, "total": len(f.entries), "sum": sum,
@@ -361,6 +369,40 @@ func TestReconcileFindsASettlementTheHubDoesNotAccountFor(t *testing.T) {
 	}
 	if rep.Agrees {
 		t.Error("a missing settlement was reported as agreement")
+	}
+}
+
+// A provider's settlement this node could not verify (the payer's record
+// with verified:false) is the provider's claim, not a payment of this
+// node's: its absence from the hub's entries is not reported against the
+// hub. Reported as missing, a made-up receipt on a free call read as the
+// hub dropping a payment. A verified settlement recorded under its hub
+// authorization id is matched on it [redteam:F11].
+func TestReconcileDoesNotHoldTheHubToAProvidersUnverifiedClaim(t *testing.T) {
+	hub, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeIssuer{ctrl: hub, balance: 75}
+	f.entries = []map[string]any{
+		{"delta": 100, "reason": "registration grant"},
+		{"delta": -25, "reason": "bafy-auth-1"},
+	}
+	m, h := hubbedModule(t, f)
+	_ = h.RecordEvidence(EvPaymentSettled, map[string]any{
+		"transaction": "tx-made-up-by-the-provider", "verified": false,
+		"refused": "the settlement carries no hub receipt"})
+	_ = h.RecordEvidence(EvPaymentSettled, map[string]any{
+		"transaction": "tx-as-the-provider-named-it", "auth_id": "bafy-auth-1", "verified": true})
+	rep, err := m.reconcile(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Missing) != 0 || !rep.Agrees {
+		t.Errorf("missing = %v, agrees = %v; want nothing missing", rep.Missing, rep.Agrees)
+	}
+	if rep.Matched != 1 {
+		t.Errorf("matched = %d, want 1", rep.Matched)
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"sync"
 	"time"
 
@@ -52,6 +53,21 @@ type PaymentsConfig struct {
 	// data directory. Absent means payees.allow; an empty string turns the
 	// list off. A missing file is an empty list.
 	PayeesFile *string `json:"payees_file,omitempty"`
+	// PublishPrices says whether this node's cards carry a price per
+	// skill: the A2A card's anet-pricing/v1 and the ADP card's price list,
+	// which the hub gateway sells from. Absent means true. With false the
+	// price is given only in the quote, inside the end-to-end encrypted
+	// task: a settlement's payee and amount (which the hub sees, and the
+	// public issuance chain shows for a cross-hub payment) no longer name
+	// the skill through the published list, and the hub gateway cannot
+	// sell this node's skills (A2A-DESIGN §21) [redteam:F1].
+	PublishPrices *bool `json:"publish_prices,omitempty"`
+}
+
+// publishesPrices is payments.publish_prices with its default (true); a nil
+// block publishes.
+func (p *PaymentsConfig) publishesPrices() bool {
+	return p == nil || p.PublishPrices == nil || *p.PublishPrices
 }
 
 // Defaults of the payments block (A2A-DESIGN §8.6).
@@ -165,6 +181,20 @@ type spendBook struct {
 	records []spendRecord
 }
 
+// spendSum is a+b, or math.MaxUint64 when that does not fit.
+//
+// The daily totals are compared as "spent + this payment > limit". Added
+// plainly, a payment close to 2^64 wrapped the sum round to a small number
+// and passed any daily limit, on a node whose per-payment limit was set
+// that high ("no limit"); a provider chooses the quoted amount. A sum that
+// saturates is above every limit below the top of the range.
+func spendSum(a, b uint64) uint64 {
+	if a > math.MaxUint64-b {
+		return math.MaxUint64
+	}
+	return a + b
+}
+
 // agentTier reports whether a purpose counts against agent_daily_max.
 func agentTier(purpose string) bool {
 	return purpose == module.PurposeTaskAuto || purpose == module.PurposeTaskAgent
@@ -216,19 +246,19 @@ func (d *Daemon) AdmitSpend(payTo string, amount uint64, purpose string) error {
 			continue
 		}
 		kept = append(kept, r)
-		all += r.amount
+		all = spendSum(all, r.amount)
 		if agentTier(r.purpose) {
-			agent += r.amount
+			agent = spendSum(agent, r.amount)
 		}
 	}
 	b.records = kept
-	if agentTier(purpose) && agent+amount > lim.AgentDailyMax {
+	if agentTier(purpose) && spendSum(agent, amount) > lim.AgentDailyMax {
 		return refuse(SpendOverAgentDaily, "%d more would bring agent payments in 24h to %d, above %d",
-			amount, agent+amount, lim.AgentDailyMax)
+			amount, spendSum(agent, amount), lim.AgentDailyMax)
 	}
-	if all+amount > lim.DailyMax {
+	if spendSum(all, amount) > lim.DailyMax {
 		return refuse(SpendOverDaily, "%d more would bring payments in 24h to %d, above %d",
-			amount, all+amount, lim.DailyMax)
+			amount, spendSum(all, amount), lim.DailyMax)
 	}
 	b.records = append(b.records, spendRecord{at: now, amount: amount, purpose: purpose})
 	return nil
@@ -326,9 +356,9 @@ func (d *Daemon) SpendStatus() SpendStatus {
 		if r.at <= cut {
 			continue
 		}
-		out.Spent24h += r.amount
+		out.Spent24h = spendSum(out.Spent24h, r.amount)
 		if agentTier(r.purpose) {
-			out.AgentSpent24h += r.amount
+			out.AgentSpent24h = spendSum(out.AgentSpent24h, r.amount)
 		}
 	}
 	return out

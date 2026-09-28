@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/ANetResearch/ANetCore/payment"
 
@@ -34,6 +35,7 @@ const (
 	ReasonPayerMismatch            = x402a2a.ReasonPayerMismatch
 	ReasonClientPayloadUnsupported = x402a2a.ReasonClientPayloadUnsupported
 	ReasonOptionNotOffered         = x402a2a.ReasonOptionNotOffered
+	ReasonRailNotPayable           = x402a2a.ReasonRailNotPayable
 )
 
 // errorCodes is the table of §8.5. Keys are exact strings: the hub sets
@@ -64,6 +66,7 @@ var errorCodes = map[string]string{
 	ReasonNoPendingQuote:              x402a2a.CodeSettlementFailed,
 	ReasonClientPayloadUnsupported:    x402a2a.CodeSettlementFailed,
 	ReasonOptionNotOffered:            x402a2a.CodeSettlementFailed,
+	ReasonRailNotPayable:              x402a2a.CodeSettlementFailed,
 	ReasonPayerMismatch:               x402a2a.CodeSettlementFailed,
 	x402a2a.ReasonProviderBusy:        x402a2a.CodeSettlementFailed,
 }
@@ -151,6 +154,16 @@ func (m *Module) CheckPayment(raw []byte, t module.PaymentTerms) module.PaymentC
 	want, err := payment.ParseAmount(opt.Amount)
 	if err != nil {
 		return fail(payment.ReasonSettlementFailed, "the stored quote is unreadable: %v", err)
+	}
+	// "At least the quote" has an upper end: what a credit ledger can
+	// hold. The hub books amounts as int64, and one without the range
+	// check booked an amount above math.MaxInt64 as a negative one — the
+	// payer credited, this node debited — and answered success, so this
+	// node would have run the paid call having been charged for it (red
+	// team si9). An authorization for such an amount is not presented.
+	if auth.Amount > math.MaxInt64 {
+		return fail(payment.ReasonInvalidAmount,
+			"the payment is for %d, more than a credit ledger can hold (%d)", auth.Amount, int64(math.MaxInt64))
 	}
 	accepted, err := payment.ParseAmount(pp.Accepted.Amount)
 	if err != nil || accepted != auth.Amount || auth.Amount < want {

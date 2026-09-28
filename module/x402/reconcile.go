@@ -142,11 +142,20 @@ func (m *Module) reconcile(ctx context.Context) (ReconcileReport, error) {
 	}
 	for _, ev := range settled {
 		tx, _ := ev["transaction"].(string)
-		verified, _ := ev["verified"].(bool)
+		verified, checked := ev["verified"].(bool)
 		if tx == "" {
 			continue
 		}
-		if hubTx[tx] {
+		if checked && !verified {
+			// The payer's record of a provider's claim this node could not
+			// verify: no payment of this node's stands behind it, so its
+			// absence from the hub's entries says nothing about the hub.
+			// Reported as missing, a provider's made-up receipt read as
+			// the hub dropping a payment [redteam:F11].
+			continue
+		}
+		authID, _ := ev["auth_id"].(string)
+		if hubTx[tx] || (authID != "" && hubTx[authID]) {
 			rep.Matched++
 			continue
 		}

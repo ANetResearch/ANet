@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sort"
 	"time"
@@ -163,12 +164,25 @@ func (m *Module) auditIssuance(ctx context.Context) (AuditReport, error) {
 		// rendered by the hub and are not what it signed; a hub whose
 		// summary disagrees with its records is precisely what an audit
 		// should surface rather than adopt.
-		amount, _ := payloadAmount(rec.Payload)
+		//
+		// An amount that is not a positive int64 is reported and not
+		// counted. It is what a hub with the int64 overflow bug wrote — a
+		// negative retirement for a redemption of 2^64-1000 — and summing
+		// it in silently lowered the totals while the report said
+		// verified.
 		switch rec.EventType {
-		case evCreditIssued:
-			rep.Issued += amount
-		case evCreditRetired:
-			rep.Retired += amount
+		case evCreditIssued, evCreditRetired:
+			amount, problem := payloadAmount(rec.Payload)
+			if problem != "" {
+				rep.Problems = append(rep.Problems, fmt.Sprintf("seq %d (%s): %s",
+					rec.Seq, rec.EventType, problem))
+				continue
+			}
+			if rec.EventType == evCreditIssued {
+				rep.Issued += amount
+			} else {
+				rep.Retired += amount
+			}
 		}
 	}
 
@@ -302,10 +316,14 @@ func (m *Module) priorHeads() []priorHead {
 		if id == "" {
 			continue
 		}
-		out = append(out, priorHead{
-			Seq: uint64(asInt64(p["seq"])), HeadID: id,
-			ObservedAt: asInt64(p["observed_at"]),
-		})
+		// A head whose seq cannot be read is skipped rather than compared
+		// as seq 0, which would report a rewrite of the genesis record.
+		seq, err := asInt64(p["seq"])
+		if err != nil || seq < 0 {
+			continue
+		}
+		at, _ := asInt64(p["observed_at"])
+		out = append(out, priorHead{Seq: uint64(seq), HeadID: id, ObservedAt: at})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
 	return out
@@ -406,7 +424,8 @@ const (
 	evCreditRetired = "anet.credit.retired"
 )
 
-// payloadAmount reads the amount out of a chain record's payload.
+// payloadAmount reads the amount out of a chain record's payload, and
+// says what is wrong with it when it is not a positive number of credits.
 //
 // The payload is `any` and its concrete shape depends on how it was
 // decoded: CBOR yields map[any]any, JSON yields map[string]any, and the
@@ -414,36 +433,64 @@ const (
 // silently produced zero for every entry, which made an audit report a
 // supply of nothing and call it verified.
 func payloadAmount(p any) (int64, string) {
+	var v any
 	switch m := p.(type) {
 	case map[string]any:
-		return asInt64(m["amount"]), ""
+		v = m["amount"]
 	case map[any]any:
-		return asInt64(m["amount"]), ""
+		v = m["amount"]
+	default:
+		return 0, fmt.Sprintf("payload is a %T, not a record with an amount", p)
 	}
-	return 0, ""
+	n, err := asInt64(v)
+	if err != nil {
+		return 0, "amount " + err.Error()
+	}
+	if n <= 0 {
+		return 0, fmt.Sprintf("amount %d is not a positive number of credits", n)
+	}
+	return n, ""
 }
 
-// asInt64 coerces whatever numeric type a decoder produced.
+// asInt64 coerces whatever numeric type a decoder produced, and refuses
+// what an int64 cannot hold exactly.
 //
 // Needed in more than one place for the same reason: values that pass
 // through CBOR or JSON come back as int64, uint64 or float64 depending on
 // the encoder, the width, and the sign. A single type assertion fails
 // silently and yields zero, which reads as a real value.
-func asInt64(v any) int64 {
+//
+// It used to convert as well as it could and never say so: a uint64 above
+// math.MaxInt64 became a negative number, a float was truncated, and
+// anything else became 0. Each of those is a real-looking value that is
+// not the one on the record, so each is now an error.
+func asInt64(v any) (int64, error) {
 	switch n := v.(type) {
 	case int64:
-		return n
+		return n, nil
 	case uint64:
-		return int64(n)
+		if n > math.MaxInt64 {
+			return 0, fmt.Errorf("%d is above %d", n, int64(math.MaxInt64))
+		}
+		return int64(n), nil
 	case int:
-		return int64(n)
+		return int64(n), nil
 	case float64:
-		return int64(n)
+		// -2^63 is exact as a float64 and fits; 2^63 is exact and does not.
+		if n != math.Trunc(n) || n < math.MinInt64 || n >= math.MaxInt64 {
+			return 0, fmt.Errorf("%v is not a whole number an int64 can hold", n)
+		}
+		return int64(n), nil
 	case json.Number:
-		i, _ := n.Int64()
-		return i
+		i, err := n.Int64()
+		if err != nil {
+			return 0, fmt.Errorf("%s is not an int64: %w", n, err)
+		}
+		return i, nil
+	case nil:
+		return 0, fmt.Errorf("is missing")
 	}
-	return 0
+	return 0, fmt.Errorf("is a %T, not a number", v)
 }
 
 func short(id string) string {
