@@ -344,12 +344,13 @@ func (p *projector) role(sender string) Role {
 	return RoleUser
 }
 
-// msgID is a message's A2A id: the local client's own id when it gave one,
-// otherwise the id both sides recorded it under (the envelope's message id
-// in hex, 0017 Q9), otherwise (a row from before messages kept one) one
-// derived from the row, stable across reads.
+// msgID is a message's A2A id: the local client's own id when it gave one
+// (on a message this node wrote: a peer's a2a.messageId is not taken
+// [redteam:F33]), otherwise the id both sides recorded it under (the
+// envelope's message id in hex, 0017 Q9), otherwise (a row from before
+// messages kept one) one derived from the row, stable across reads.
 func (p *projector) msgID(i int) string {
-	if id, ok := p.metas[i][KeyMessageID].(string); ok && id != "" {
+	if id, ok := p.metas[i][KeyMessageID].(string); ok && id != "" && p.msgs[i].SenderAID != p.ix.PeerAID {
 		return id
 	}
 	if p.msgs[i].MsgID != "" {

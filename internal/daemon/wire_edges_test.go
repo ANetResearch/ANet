@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/anetcid"
+	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
@@ -95,6 +97,14 @@ func storeAfterStop(t *testing.T, l Layout) *interactions.Store {
 // capabilityDoc is a signed TaskDoc calling capID, as a requester sends it.
 func capabilityDoc(t *testing.T, c *identity.Controller, capID string) []byte {
 	t.Helper()
+	doc, _ := capabilityDocSigned(t, c, capID)
+	return doc
+}
+
+// capabilityDocSigned is capabilityDoc with the detached signature
+// envelope, which a DelegateReq carries beside the TaskDoc.
+func capabilityDocSigned(t *testing.T, c *identity.Controller, capID string) ([]byte, *aobj.Envelope) {
+	t.Helper()
 	goal := "invoke capability " + capID
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{{
 		Intent:   tsir.Intent{Summary: goal, Body: goal},
@@ -108,17 +118,23 @@ func capabilityDoc(t *testing.T, c *identity.Controller, capID string) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return doc
+	return doc, td.Envelope
 }
 
 // leftOpen records an inbound capability call from req on prov, and the
 // requester's side of it, as a process that stopped right after
-// committing the delegation leaves them: submitted, nothing run.
-func leftOpen(t *testing.T, req, prov *Daemon, id, capID string) {
+// committing the delegation leaves them: submitted, nothing run. It
+// returns the delegation's body, for a test that redelivers it.
+func leftOpen(t *testing.T, req, prov *Daemon, id, capID string) []byte {
 	t.Helper()
 	goal := "invoke capability " + capID
+	doc, env := capabilityDocSigned(t, req.self, capID)
+	requestCID, err := anetcid.Sum(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := prov.ix.Create(interactions.New{ID: id, Role: interactions.RoleInbound, PeerAID: req.AID(),
-		Goal: goal, RequestDoc: capabilityDoc(t, req.self, capID), IsCapability: true,
+		Goal: goal, RequestCID: requestCID, RequestDoc: doc, IsCapability: true,
 		Trust: interactions.TrustPeer, TaskNonce: "bm9uY2U"}); err != nil {
 		t.Fatal(err)
 	}
@@ -126,6 +142,11 @@ func leftOpen(t *testing.T, req, prov *Daemon, id, capID string) {
 		Goal: goal, IsCapability: true}); err != nil {
 		t.Fatal(err)
 	}
+	body, err := (&delegation.DelegateReq{TaskDoc: doc, Envelope: env, InteractionID: id}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
 }
 
 // wasInterrupted fails the test unless ix ended failed, effect UNVERIFIED,
@@ -309,7 +330,7 @@ func TestALongCallRecordedButNeverStartedIsReportedAtStart(t *testing.T) {
 func TestARedeliveryReportsALongCallAnEarlierProcessNeverStarted(t *testing.T) {
 	_, req, prov := quietPair(t)
 	const id = "ix_never_started"
-	leftOpen(t, req, prov, id, gateCap)
+	body := leftOpen(t, req, prov, id, gateCap)
 	prov2 := restartDaemon(t, prov)
 	if st := stateOf(t, prov2, id); st != interactions.StateSubmitted {
 		t.Fatalf("with no provider registered, startup recovery decided %s", st)
@@ -318,7 +339,7 @@ func TestARedeliveryReportsALongCallAnEarlierProcessNeverStarted(t *testing.T) {
 	if err := prov2.Providers().Register(context.Background(), gate); err != nil {
 		t.Fatal(err)
 	}
-	env := sealFrom(t, req, prov2, seal.TypeDelegate, id, delegateBody(t, req.self, id, "", gateCap))
+	env := sealFrom(t, req, prov2, seal.TypeDelegate, id, body)
 	if r := receive(t, prov2, env); r.class != rxAccepted {
 		t.Fatalf("redelivery: %+v", r)
 	}
@@ -545,7 +566,9 @@ func TestAStopBeforeAnUnservedCallIsAnsweredLeavesItUnacknowledged(t *testing.T)
 // so one left submitted runs at start; a quoted call is not reported
 // interrupted however it came to be working (it never ran: priced work
 // runs once paid); unpaid work of a peer denied since is left to the
-// revocation sweep, not run.
+// revocation sweep, not run; and unpaid work accepted because its peer was
+// on the allow list is not run once the peer is off it (§5.1, as for its
+// redelivery) [redteam:F7].
 func TestStartupRecoveryRunsApprovedCallsAndLeavesUnpaidOrDeniedOnes(t *testing.T) {
 	_, req, prov := quietPair(t)
 	ctx := context.Background()
@@ -576,6 +599,7 @@ func TestStartupRecoveryRunsApprovedCallsAndLeavesUnpaidOrDeniedOnes(t *testing.
 	create("ix_quoted_working", req.AID(), interactions.TrustPeer, interactions.StateWorking, interactions.PayRequired)
 	create("ix_failed_pay_working", req.AID(), interactions.TrustPeer, interactions.StateWorking, interactions.PayFailed)
 	create("ix_denied_working", deniedAID, interactions.TrustPeer, interactions.StateWorking, "")
+	create("ix_unallowed_working", "did:anet:allowed-no-more", interactions.TrustPeer, interactions.StateWorking, "")
 	if err := req.ix.Create(interactions.New{ID: "ix_approved_left", Role: interactions.RoleOutbound,
 		PeerAID: prov.AID(), Goal: "invoke capability " + lampCap, IsCapability: true}); err != nil {
 		t.Fatal(err)
@@ -586,7 +610,7 @@ func TestStartupRecoveryRunsApprovedCallsAndLeavesUnpaidOrDeniedOnes(t *testing.
 	waitUntil(t, "the approved call to run", func() bool {
 		return stateOf(t, prov, "ix_approved_left") == interactions.StateCompleted
 	})
-	for _, id := range []string{"ix_quoted_working", "ix_failed_pay_working", "ix_denied_working"} {
+	for _, id := range []string{"ix_quoted_working", "ix_failed_pay_working", "ix_denied_working", "ix_unallowed_working"} {
 		if pix := getIXOf(t, prov, id); pix.State != interactions.StateWorking || len(pix.Receipt) > 0 {
 			t.Errorf("%s: %s with %d receipt bytes; want left working, unanswered", id, pix.State, len(pix.Receipt))
 		}

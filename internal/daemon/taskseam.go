@@ -20,9 +20,13 @@ package daemon
 //     daemon mints it. (contextId, client messageId) is the dedupe key: a
 //     retry returns the task the first attempt created (without a
 //     contextId, (agent, messageId): the retry cannot name the context the
-//     daemon minted). The delegation goes through the retry queue (0017
-//     Q5): once the task is recorded the call answers submitted, and an
-//     unreachable provider or hub only delays it. A delegation the queue
+//     daemon minted). Only a task still open counts (0017 Q32): a
+//     messageId seen on a finished task starts a new one. Only this
+//     node's own messages carry the key for it: a2a.messageId in a peer's
+//     message metadata is not the client's [redteam:F33]. The delegation
+//     goes through the retry queue (0017 Q5): once the task is recorded
+//     the call answers submitted, and an unreachable provider or hub only
+//     delays it. A delegation the queue
 //     gives up on (expired, or refused for good by the hub) fails the task
 //     with anet.reason=undeliverable, and such a task does not count for
 //     the dedupe: a retry of its message is a new attempt. The client's
@@ -296,8 +300,11 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 		// contexts.
 		release = lockSend(d.AID()+"\x00"+peer, contextID, msg.ID)
 		defer release()
+		// Only a task still open is a retry's (0017 Q32): a message id
+		// seen on a finished task starts a new one, so a client that
+		// reuses ids is not answered with an old result.
 		prior, err := d.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
-			ContextID: contextID, PeerAID: peer, ClientMsgID: msg.ID})
+			ContextID: contextID, PeerAID: peer, ClientMsgID: msg.ID, OpenOnly: true})
 		switch {
 		case err == nil:
 			// A retry of a message that already made a task.

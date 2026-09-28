@@ -47,6 +47,9 @@ type ClientMessageQuery struct {
 	TaskID string
 	// ClientMsgID is the client's message id (required).
 	ClientMsgID string
+	// OpenOnly limits the search to interactions not in a terminal state:
+	// a message id seen on a finished task makes a new one (0017 Q32).
+	OpenOnly bool
 }
 
 // FindByClientMessage returns the interaction holding a message whose
@@ -54,13 +57,21 @@ type ClientMessageQuery struct {
 // q.PeerAID and q.TaskID as far as they are set (at least one must be), or
 // ErrNotFound. It is how SendMessage recognises a client retry and returns
 // the task it already created instead of creating a second one.
+//
+// Only messages this node wrote count — those whose sender is not the
+// interaction's peer. The key is the local client's; a peer's message
+// carrying it (a provider planting the ids it expects the client to use
+// next) is not a message this client sent [redteam:F33].
 func (s *Store) FindByClientMessage(q ClientMessageQuery) (*Interaction, error) {
 	if q.ClientMsgID == "" || q.Role == "" || (q.ContextID == "" && q.PeerAID == "" && q.TaskID == "") {
 		return nil, ErrNotFound
 	}
 	inner := `SELECT m.interaction_id FROM interaction i JOIN message m ON m.interaction_id = i.id
-	           WHERE i.role=?`
+	           WHERE i.role=? AND m.sender_aid <> i.peer_aid`
 	args := []any{string(q.Role)}
+	if q.OpenOnly {
+		inner += ` AND i.state NOT IN ` + terminalSQL
+	}
 	if q.ContextID != "" {
 		inner += ` AND i.context_id=?`
 		args = append(args, q.ContextID)
