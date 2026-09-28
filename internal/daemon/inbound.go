@@ -807,8 +807,8 @@ func (d *Daemon) InboundStatus() InboundState {
 // take, while config.json and doctor say closed), nor have the next config
 // write of any kind carry it to disk.
 func (d *Daemon) SetInboundPolicy(policy string) error {
-	d.policyWrite.Lock()
-	defer d.policyWrite.Unlock()
+	d.cfgWrite.Lock()
+	defer d.cfgWrite.Unlock()
 	next := d.config()
 	in := next.inbound()
 	from := in.Policy
@@ -836,8 +836,8 @@ func (d *Daemon) SetInboundPolicy(policy string) error {
 // SetPublicCapabilities replaces inbound.public_capabilities. Saved first
 // and in force after, as SetInboundPolicy.
 func (d *Daemon) SetPublicCapabilities(caps []PublicCapability) error {
-	d.policyWrite.Lock()
-	defer d.policyWrite.Unlock()
+	d.cfgWrite.Lock()
+	defer d.cfgWrite.Unlock()
 	next := d.config()
 	in := next.inbound()
 	from := in.PublicCapabilities

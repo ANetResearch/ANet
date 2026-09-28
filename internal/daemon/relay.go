@@ -59,23 +59,32 @@ func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []st
 	if err := d.RegisterWithHub(ctx, hubURL, name, caps, invite); err != nil {
 		return err
 	}
-	d.mu.Lock()
-	prevHub := d.cfg.HubURL
-	d.cfg.HubURL = hubURL
-	d.cfg.Name = name
-	if caps != nil {
-		d.cfg.Caps = caps
-	}
-	// Don't clobber an auto_reply block that was hand-added to config.json after this daemon started
-	// (its in-memory cfg wouldn't know about it): adopt the on-disk value before writing back.
-	if d.cfg.AutoReply == nil {
-		if prev, err := LoadConfig(d.layout); err == nil && prev.AutoReply != nil {
-			d.cfg.AutoReply = prev.AutoReply
+	var prevHub string
+	set := func(c *Config) {
+		c.HubURL, c.Name = hubURL, name
+		if caps != nil {
+			c.Caps = caps
 		}
 	}
-	cfg := d.cfg
-	d.mu.Unlock()
-	if err := SaveConfig(d.layout, cfg); err != nil {
+	var adopted *AutoReplyConfig
+	cfg, err := d.updateConfig(func(c *Config) error {
+		prevHub = c.HubURL
+		set(c)
+		// Don't clobber an auto_reply block that was hand-added to config.json after this daemon started
+		// (its in-memory cfg wouldn't know about it): adopt the on-disk value before writing back.
+		if c.AutoReply == nil {
+			if prev, err := LoadConfig(d.layout); err == nil && prev.AutoReply != nil {
+				c.AutoReply, adopted = prev.AutoReply, prev.AutoReply
+			}
+		}
+		return nil
+	}, func(live *Config) {
+		set(live)
+		if adopted != nil && live.AutoReply == nil {
+			live.AutoReply = adopted
+		}
+	})
+	if err != nil {
 		return err
 	}
 	if prevHub != hubURL && d.CardPublicationStatus().Sent {

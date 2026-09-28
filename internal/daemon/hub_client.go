@@ -496,6 +496,12 @@ func (d *Daemon) LeaveHub(ctx context.Context, hubURL string) (map[string]any, e
 // Found by the release matrix, on min and paid, on Ubuntu and Debian.
 func (d *Daemon) forgetHubIfCurrent(left string) {
 	left = strings.TrimRight(strings.TrimSpace(left), "/")
+	// Under the config write lock (cfgWrite), so a concurrent write can
+	// neither save a copy that still names the hub nor be lost. In force
+	// even if the save fails: the node has left that hub, whatever the
+	// file says.
+	d.cfgWrite.Lock()
+	defer d.cfgWrite.Unlock()
 	d.mu.Lock()
 	current := strings.TrimRight(strings.TrimSpace(d.cfg.HubURL), "/")
 	if current == "" || current != left {
