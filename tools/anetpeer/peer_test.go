@@ -9,6 +9,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -22,7 +23,7 @@ import (
 
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/moduletest"
-	_ "github.com/ANetResearch/ANet/module/p2p"
+	"github.com/ANetResearch/ANet/module/p2p"
 	"github.com/ANetResearch/ANet/provider"
 )
 
@@ -71,9 +72,18 @@ type mailbox struct {
 	replyTo string
 	replied chan error
 	refuse  map[string]bool
+	// hold, when set, keeps Receive from answering until it is closed: a
+	// daemon still at work when the hand-off times out.
+	hold chan struct{}
 }
 
 func (m *mailbox) Receive(ctx context.Context, env []byte) error {
+	m.mu.Lock()
+	hold := m.hold
+	m.mu.Unlock()
+	if hold != nil {
+		<-hold
+	}
 	m.mu.Lock()
 	if m.refuse[string(env)] {
 		m.mu.Unlock()
@@ -246,6 +256,130 @@ func TestConcurrentDeliveriesGetTheirOwnOutcome(t *testing.T) {
 	}
 }
 
+// A rendezvous entry that leads to another node's peer process (the
+// recipient moved and its address was reused, or two identities share a
+// host) is refused there: the frame is for an AID that process does not
+// carry. The sender's Send fails, so its daemon falls through to the hub,
+// and the other daemon never sees the envelope ([redteam:F22]).
+func TestADeliveryForAnAIDThisPeerDoesNotCarryIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	rv := filepath.Join(dir, "rv")
+	alice := newNode(t, dir, rv, "alice", &mailbox{})
+	bobBox := &mailbox{}
+	bob := newNode(t, dir, rv, "bob", bobBox)
+	at := alice.host.transport(t)
+	waitFor(t, "the peers to announce themselves", func() bool {
+		return at.Reachable(context.Background(), bob.aid)
+	})
+	// A stale entry: the victim's address is now bob's wire.
+	if err := os.WriteFile(filepath.Join(rv, "aid-victim"), []byte(filepath.Join(dir, "bob.wire")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !at.Reachable(context.Background(), "aid-victim") {
+		t.Fatal("setup: the stale entry is not reachable")
+	}
+	err := at.Send(context.Background(), "aid-victim", []byte("delegate:for the victim"))
+	if err == nil {
+		t.Fatal("a delivery to the wrong peer process was reported delivered; the sender would not use the hub")
+	}
+	if !strings.Contains(err.Error(), "does not carry") {
+		t.Fatalf("error = %v, want the peer to say it does not carry the AID", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := bobBox.count(); n != 0 {
+		t.Fatalf("bob's daemon received %d envelopes meant for another AID", n)
+	}
+	// Bob's own traffic is unaffected.
+	if err := at.Send(context.Background(), bob.aid, []byte("for bob")); err != nil {
+		t.Fatalf("delivery to bob: %v", err)
+	}
+}
+
+// A receiving daemon that refuses a delivery for now says so (nack), and
+// the sender hears it at once with the daemon's reason instead of after
+// the whole hand-off timeout: its daemon falls back to the hub now
+// (0017 Q29).
+func TestARefusalReachesTheSenderAtOnce(t *testing.T) {
+	dir := t.TempDir()
+	rv := filepath.Join(dir, "rv")
+	alice := newNode(t, dir, rv, "alice", &mailbox{})
+	bobBox := &mailbox{refuse: map[string]bool{"not now": true}}
+	bob := newNode(t, dir, rv, "bob", bobBox)
+	at := alice.host.transport(t)
+	waitFor(t, "the peers to find each other", func() bool {
+		return at.Reachable(context.Background(), bob.aid)
+	})
+	start := time.Now()
+	err := at.Send(context.Background(), bob.aid, []byte("not now"))
+	if err == nil {
+		t.Fatal("a refused delivery was reported delivered")
+	}
+	if took := time.Since(start); took > handOffTimeout/2 {
+		t.Fatalf("the refusal took %s to reach the sender; the hand-off timeout is %s", took, handOffTimeout)
+	}
+	if !strings.Contains(err.Error(), "temporarily refused") {
+		t.Fatalf("error %v does not carry the receiving daemon's reason", err)
+	}
+}
+
+// One delivery, however it goes, ends inside the time the sending daemon
+// waits for it (module/p2p's default send timeout). A daemon that gave up
+// first would send the envelope through the hub while this process could
+// still get it through, and the recipient would have it twice
+// (docs/notes/0025 N3, 0017 Q29).
+func TestOneDeliveryEndsInsideTheDaemonsSendTimeout(t *testing.T) {
+	bound := dialTimeout + handOffTimeout + replyMargin
+	if bound >= p2p.DefaultSendTimeout {
+		t.Fatalf("a delivery may take %s here, the daemon waits %s", bound, p2p.DefaultSendTimeout)
+	}
+	if dialTimeout > 5*time.Second {
+		t.Fatalf("dial timeout %s: an address that cannot be dialled costs that much before the hub is tried", dialTimeout)
+	}
+}
+
+// A failed send says whether it is known to have reached no daemon
+// (module.ErrNotDelivered): no address, a dial that failed, a refusal at
+// the hand-off. A hand-off that timed out while the receiving daemon was
+// still at work is not known either way, and is not marked: the sending
+// daemon must not report such a message as one that never arrived
+// ([redteam:F12]).
+func TestAFailedSendSaysWhetherItReachedADaemon(t *testing.T) {
+	old := handOffTimeout
+	handOffTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { handOffTimeout = old })
+	dir := t.TempDir()
+	rv := filepath.Join(dir, "rv")
+	alice := newNode(t, dir, rv, "alice", &mailbox{})
+	hold := make(chan struct{})
+	bobBox := &mailbox{refuse: map[string]bool{"not now": true}}
+	bob := newNode(t, dir, rv, "bob", bobBox)
+	at := alice.host.transport(t)
+	waitFor(t, "the peers to find each other", func() bool {
+		return at.Reachable(context.Background(), bob.aid)
+	})
+
+	// A dial that fails.
+	if err := os.WriteFile(filepath.Join(rv, "aid-far"), []byte("tcp://"+closedTCP(t)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := at.Send(context.Background(), "aid-far", []byte("x")); !errors.Is(err, module.ErrNotDelivered) {
+		t.Errorf("failed dial: %v, want it marked not delivered", err)
+	}
+	// A refusal at the hand-off (nack).
+	if err := at.Send(context.Background(), bob.aid, []byte("not now")); !errors.Is(err, module.ErrNotDelivered) {
+		t.Errorf("refused hand-off: %v, want it marked not delivered", err)
+	}
+	// A hand-off that timed out: the daemon may yet have taken it.
+	bobBox.mu.Lock()
+	bobBox.hold = hold
+	bobBox.mu.Unlock()
+	err := at.Send(context.Background(), bob.aid, []byte("slow"))
+	close(hold)
+	if err == nil || errors.Is(err, module.ErrNotDelivered) {
+		t.Errorf("timed-out hand-off: %v, want a failure not marked as reaching nobody", err)
+	}
+}
+
 // A delivery frame without the wire version comes from a peer that
 // predates sealed envelopes. It gets an error naming the release it needs,
 // and the daemon never sees it (A2A-DESIGN §3.10).
@@ -301,7 +435,7 @@ func TestASourceOverItsRateIsRefused(t *testing.T) {
 // before the delivery is handed to the daemon: past its burst a source gets
 // an error and its sender falls back to the hub (A2A-DESIGN §3.6 step 0).
 func TestDeliveriesFromOneSourceAreLimited(t *testing.T) {
-	p := &peer{acks: map[string]chan struct{}{}, limits: newSourceLimits()}
+	p := &peer{acks: map[string]chan error{}, limits: newSourceLimits()}
 	f := frame{Op: "send", V: wireVersion, ID: "x", To: "aid-self", Envelope: "ZW52"}
 	for i := 0; i < sourceBurst; i++ {
 		if out := p.receive("10.0.0.9", f); strings.Contains(out.Error, "rate limited") {

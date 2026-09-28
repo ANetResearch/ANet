@@ -57,9 +57,18 @@ func init() {
 type Config struct {
 	// Socket is where the peer process listens.
 	Socket string `json:"socket"`
-	// DialTimeoutMS bounds one delivery attempt. Kept short: this transport
-	// is the optimisation, and the hub is waiting behind it. A slow peer
-	// must not make every delegation slow.
+	// DialTimeoutMS bounds one delivery attempt: how long a send waits for
+	// the peer process's answer, delivered or not (default
+	// DefaultSendTimeout). It is longer than the peer process's own bound
+	// for a delivery (dial, hand-off to the receiving daemon, reply), so the
+	// daemon hears that answer instead of giving up while the peer process
+	// is still at work: a send given up on goes through the hub, and a peer
+	// process that then gets it through has delivered it twice (0017 Q29,
+	// docs/notes/0025 N3). What keeps a peer that cannot be reached from
+	// making every delegation slow is the peer process, which dials with a
+	// short timeout and then reports an address it could not dial
+	// unreachable for a while. A value below the peer process's bound
+	// brings the double delivery back.
 	DialTimeoutMS int `json:"dial_timeout_ms"`
 	// ReachTimeoutMS bounds the reachability question, which is asked
 	// before every send and must therefore be cheap.
@@ -72,6 +81,12 @@ type Config struct {
 	// remote reader could dial.
 	Advertise string `json:"advertise,omitempty"`
 }
+
+// DefaultSendTimeout is how long a send waits for the peer process's
+// answer when dial_timeout_ms is not set. tools/anetpeer bounds one
+// delivery at 18 s (a 3 s dial, 10 s for the receiving daemon's ack or
+// nack, 5 s for the reply to travel); this is past that.
+const DefaultSendTimeout = 20 * time.Second
 
 // Module registers the peer transport.
 type Module struct {
@@ -98,9 +113,9 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	if !ok {
 		return fmt.Errorf("host does not accept transports")
 	}
-	dial := time.Duration(m.cfg.DialTimeoutMS) * time.Millisecond
-	if dial == 0 {
-		dial = 3 * time.Second
+	send := time.Duration(m.cfg.DialTimeoutMS) * time.Millisecond
+	if send == 0 {
+		send = DefaultSendTimeout
 	}
 	reach := time.Duration(m.cfg.ReachTimeoutMS) * time.Millisecond
 	if reach == 0 {
@@ -110,7 +125,7 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	m.tr = &Transport{
 		socket:       m.cfg.Socket,
 		selfAID:      th.AID(),
-		dialTimeout:  dial,
+		sendTimeout:  send,
 		reachTimeout: reach,
 		inbound:      th.Inbound(),
 	}

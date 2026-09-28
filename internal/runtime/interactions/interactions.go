@@ -380,6 +380,8 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_ix_context ON interaction(context_id)`,
 		// The payment sweeps (ListPayState) read the few quoted rows only.
 		`CREATE INDEX IF NOT EXISTS idx_ix_pay ON interaction(role, pay_state)`,
+		// HasOutboundWith, asked for a message whose task is not held.
+		`CREATE INDEX IF NOT EXISTS idx_ix_peer ON interaction(peer_aid, role)`,
 	} {
 		if _, err := s.db.Exec(q); err != nil {
 			return fmt.Errorf("interactions: migrate index: %w", err)
@@ -853,8 +855,22 @@ func (s *Store) AddAttachment(interactionID string, msgSeq int64, a Attachment) 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return addAttachment(s.db, interactionID, msgSeq, a)
+}
+
+// AddAttachment is Store.AddAttachment inside the transaction: a received
+// message's files commit with the message and its replay row, or not at
+// all (A2A-DESIGN §3.6 step 10).
+func (t *Tx) AddAttachment(interactionID string, msgSeq int64, a Attachment) error {
+	if interactionID == "" || a.CID == "" {
+		return fmt.Errorf("%w: interaction_id and attachment cid required", ErrBadInput)
+	}
+	return addAttachment(t.tx, interactionID, msgSeq, a)
+}
+
+func addAttachment(e execer, interactionID string, msgSeq int64, a Attachment) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err := s.db.Exec(
+	_, err := e.Exec(
 		`INSERT INTO attachment(interaction_id,msg_seq,name,mime,size,cid,data,created_at) VALUES(?,?,?,?,?,?,?,?)`,
 		interactionID, msgSeq, a.Name, a.Mime, a.Size, a.CID, a.Data, now)
 	return err
@@ -1066,6 +1082,17 @@ func (s *Store) ListAll(f ListFilter) ([]*Interaction, error) {
 		}
 		f.Cursor = p.Next
 	}
+}
+
+// HasOutboundWith reports whether this node has ever asked peer for
+// anything: an interaction with it in the outbound role, in any state.
+func (s *Store) HasOutboundWith(peer string) (bool, error) {
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM interaction WHERE peer_aid=? AND role=? LIMIT 1`, peer, string(RoleOutbound)).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
 // Count returns how many interactions match f (Cursor and Limit ignored).

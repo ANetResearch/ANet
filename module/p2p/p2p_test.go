@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -38,7 +39,8 @@ type fakePeer struct {
 	self      string
 	conns     []net.Conn
 	nextID    int
-	acks      map[string]int // delivery ID → acks received for it
+	acks      map[string]int    // delivery ID → acks received for it
+	nacks     map[string]string // delivery ID → the reason of its nack
 }
 
 func newFakePeer(t *testing.T) *fakePeer {
@@ -48,7 +50,7 @@ func newFakePeer(t *testing.T) *fakePeer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := &fakePeer{t: t, ln: ln, reachable: map[string]bool{}, acks: map[string]int{}}
+	p := &fakePeer{t: t, ln: ln, reachable: map[string]bool{}, acks: map[string]int{}, nacks: map[string]string{}}
 	t.Cleanup(func() { ln.Close() })
 	go p.accept()
 	return p
@@ -90,6 +92,10 @@ func (p *fakePeer) serve(c net.Conn) {
 		case opAck:
 			p.mu.Lock()
 			p.acks[f.ID]++
+			p.mu.Unlock()
+		case opNack:
+			p.mu.Lock()
+			p.nacks[f.ID] = f.Error
 			p.mu.Unlock()
 		case opSend:
 			p.mu.Lock()
@@ -221,7 +227,7 @@ func dialTransport(t *testing.T, peer *fakePeer, rec module.Inbound) *Transport 
 	t.Helper()
 	tr := &Transport{
 		socket: peer.socket(), selfAID: "aid-self",
-		dialTimeout: 2 * time.Second, reachTimeout: time.Second,
+		sendTimeout: 2 * time.Second, reachTimeout: time.Second,
 		inbound: rec,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -323,7 +329,20 @@ func TestATemporaryRefusalIsNotAcked(t *testing.T) {
 	dialTransport(t, peer, rec)
 
 	id := peer.push([]byte("envelope"))
-	time.Sleep(100 * time.Millisecond)
+	// Said at once, with the reason, rather than left for the peer process
+	// to time out on (0017 Q29): the sender falls back to the hub now.
+	waitFor(t, func() bool {
+		peer.mu.Lock()
+		defer peer.mu.Unlock()
+		_, ok := peer.nacks[id]
+		return ok
+	}, "the nack for "+id)
+	peer.mu.Lock()
+	reason := peer.nacks[id]
+	peer.mu.Unlock()
+	if !strings.Contains(reason, "store busy") {
+		t.Fatalf("nack reason %q does not carry the daemon's", reason)
+	}
 	if n := peer.acksFor(id); n != 0 {
 		t.Fatalf("a refused delivery was acked %d times", n)
 	}

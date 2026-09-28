@@ -636,7 +636,9 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 //     either way. Long calls are not run twice (at-most-once).
 //   - A short call that was working is run again (at-least-once, §3.6
 //     step 10). One whose payment was taken has no redelivery to bring it
-//     back: its delegation and its payment were acknowledged.
+//     back: its delegation and its payment were acknowledged. Nor has one
+//     that arrived over a direct transport: it was acknowledged at its
+//     step-10 commit and recorded working then (0017 Q29).
 //   - A short call only recorded is left for the redelivery of its
 //     delegation, which was not acknowledged and runs it again; an
 //     approved one, whose delegation was acknowledged when it was held,
@@ -664,6 +666,13 @@ func (d *Daemon) recoverInterrupted() {
 	ps := d.readPeers()
 	for _, ix := range list {
 		if !ix.IsCapability || len(ix.Receipt) > 0 {
+			continue
+		}
+		if _, running := d.running.Load(ix.ID); running {
+			// Running in this process, so not a leftover. Nothing is
+			// delivered before recovery (awaitReady), but a call already
+			// running is never the previous process's to report
+			// ([redteam:F30]).
 			continue
 		}
 		capID, args := storedCall(ix)

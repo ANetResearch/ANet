@@ -3,8 +3,10 @@ package daemon
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 
@@ -101,6 +103,16 @@ func (d *Daemon) RegisterTransport(t module.Transport) {
 // the last failure rather than a summary — an operator debugging delivery
 // wants to know what the hub said, not that "all transports failed".
 func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []byte) error {
+	_, err := d.deliverEnvelopeTracked(ctx, toAID, envelope)
+	return err
+}
+
+// deliverEnvelopeTracked is deliverEnvelope that also says, when every
+// path failed, whether one of the failures may have delivered the envelope
+// anyway (mayHaveDelivered). The retry queue keeps that on the row: a
+// message that may have arrived is not reported as one that never did
+// ([redteam:F12]).
+func (d *Daemon) deliverEnvelopeTracked(ctx context.Context, toAID string, envelope []byte) (maybe bool, err error) {
 	var lastErr error
 	for _, t := range d.transports() {
 		if !t.Reachable(ctx, toAID) {
@@ -109,8 +121,9 @@ func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []b
 		err := t.Send(ctx, toAID, envelope)
 		if err == nil {
 			d.noteTransport(t.Name(), nil)
-			return nil
+			return false, nil
 		}
+		maybe = maybe || mayHaveDelivered(t, err)
 		lastErr = err
 		// Logged on the transition, not on every message.
 		//
@@ -124,9 +137,34 @@ func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []b
 		d.noteTransport(t.Name(), err)
 	}
 	if lastErr == nil {
-		return fmt.Errorf("anet: no transport can reach %s", toAID)
+		return false, fmt.Errorf("anet: no transport can reach %s", toAID)
 	}
-	return lastErr
+	return maybe, lastErr
+}
+
+// mayHaveDelivered reports whether a failed Send may still have delivered
+// the envelope. module.Transport has a Send that partially succeeded report
+// failure — a p2p round trip that timed out while the far side was at work
+// — so a failure counts as "may have" unless it is known to have reached
+// nobody: one the transport marks module.ErrNotDelivered, an answer from
+// the hub itself (it stored nothing; a gateway's 502 or 504 speaks for a
+// hub that may have), or a hub that could not be dialled.
+func mayHaveDelivered(t module.Transport, err error) bool {
+	if errors.Is(err, module.ErrNotDelivered) {
+		return false
+	}
+	if _, hub := t.(hubTransport); !hub {
+		return true
+	}
+	var he *hubError
+	if errors.As(err, &he) {
+		return he.code == http.StatusBadGateway || he.code == http.StatusGatewayTimeout
+	}
+	var op *net.OpError
+	if errors.As(err, &op) && op.Op == "dial" {
+		return false
+	}
+	return true
 }
 
 // noteTransport reports a transport's health only when it changes.
@@ -171,24 +209,108 @@ func (d *Daemon) Inbound() module.Inbound { return inbound{d} }
 // an envelope that fails to open or verify, not one that is believed
 // because of how it arrived.
 //
-// The one difference from the hub path is step 0 of §3.6: an envelope that
+// Two things differ from the hub path. Step 0 of §3.6: an envelope that
 // arrives directly has not passed the hub's per-sender rate limit, so a
 // daemon-wide limit applies before any decryption work is spent on it. An
 // envelope over the limit is refused with an error, which tells the
 // transport not to acknowledge it; the sender then falls back to the hub,
-// where its own sender budget applies.
+// where its own sender budget applies. And steps 1-4: an envelope this node
+// cannot open may have been meant for another node the sender's address led
+// astray, so it is refused the same way rather than acknowledged and lost
+// (receiveEnvelopeVia, [redteam:F22]).
 type inbound struct{ d *Daemon }
 
 func (in inbound) Receive(ctx context.Context, envelope []byte) error {
+	// The rate limit comes before the wait for start-up: a delivery that
+	// waits holds its envelope and a goroutine, and without the limit
+	// first a slow start-up let anyone who reaches the peer process pile
+	// them up ([redteam:F30] bypass).
 	if !in.d.p2pLimit.allow(in.d.nowMS()) {
 		in.d.count(transientP2PRate)
 		return errP2PRateLimited
 	}
-	res := in.d.receiveEnvelope(ctx, envelope)
+	if err := in.d.awaitReady(ctx); err != nil {
+		return err
+	}
+	// Acknowledged as soon as step 10 has committed, not after what follows
+	// it (0017 Q29, docs/notes/0025 N3). The sender waits on this answer
+	// with a timeout; a capability call run, or an answer sent over a path
+	// that has to time out before it falls back to the hub, used to hold
+	// the ack past it, and the sender sent the same envelope again through
+	// the hub. The pipeline keeps running on its own goroutine after the
+	// ack, and the answer goes out through the retry queue as before. What
+	// the commit leaves undone if the process dies then is startup
+	// recovery's: a short capability call accepted this way is recorded
+	// working (ingestDelegate), so it is run again at the next start.
+	committed := make(chan struct{})
+	var once sync.Once
+	ack := func() { once.Do(func() { close(committed) }) }
+	done := make(chan rxResult, 1)
+	if !in.d.goBackground(func() {
+		done <- in.d.receiveEnvelopeVia(ctx, envelope, rxPath{direct: true, ack: ack})
+	}) {
+		in.d.count(transientNotReady)
+		return errNotReady
+	}
+	select {
+	case <-committed:
+		return nil
+	case res := <-done:
+		return directAnswer(committed, res)
+	}
+}
+
+// directAnswer is what a direct delivery answers once its pipeline returned
+// res. An envelope whose step 10 committed is acknowledged whatever the
+// pipeline returned after that — a stop cutting the call or the re-sent
+// answer short returns a temporary result — and the pipeline can finish
+// before Receive has seen the commit, both then ready at once. A refusal
+// there would reach the sender as "reached no daemon" (a nack,
+// module.ErrNotDelivered), and a delegation this node holds would then be
+// one the sender may withdraw on a cancel or report as never run
+// ([redteam:F12][redteam:F23]; Q29 bypass).
+func directAnswer(committed <-chan struct{}, res rxResult) error {
+	select {
+	case <-committed:
+		return nil
+	default:
+	}
 	if !res.ack() {
 		return fmt.Errorf("anet: envelope not accepted yet (%s); not acknowledging", res.reason)
 	}
 	return nil
+}
+
+// errNotReady refuses a delivery that arrived while the daemon was starting
+// and could not wait for it: the delivery's own context ended, or the daemon
+// stopped before start-up finished.
+var errNotReady = errors.New("anet: this node is starting or stopping; not acknowledging")
+
+// awaitReady holds a delivery from a transport module until New has finished
+// ([redteam:F30]). A transport module starts delivering as soon as its Start
+// runs, which is before the modules after it have started and before
+// startup recovery (recoverInterrupted) has told the previous process's
+// leftovers from new work; the hub relay loop starts after both, and a
+// direct delivery now waits for the same point. A daemon that never gets
+// there (a failed start, a stop) refuses it temporarily, so the sender
+// falls back to the hub.
+func (d *Daemon) awaitReady(ctx context.Context) error {
+	if d.ready == nil {
+		return nil // not built by New (unit tests of other parts)
+	}
+	select {
+	case <-d.ready:
+		return nil
+	default:
+	}
+	select {
+	case <-d.ready:
+		return nil
+	case <-ctx.Done():
+	case <-d.ctx.Done():
+	}
+	d.count(transientNotReady)
+	return errNotReady
 }
 
 var _ module.TransportHost = moduleHost{}

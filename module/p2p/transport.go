@@ -58,6 +58,11 @@ type frame struct {
 	Reachable bool   `json:"reachable,omitempty"`
 	Error     string `json:"error,omitempty"`
 	Self      string `json:"self,omitempty"`
+	// NotDelivered, on a send reply with an Error, says the peer process
+	// knows the envelope reached no daemon: no address, a dial that failed,
+	// a refusal before or at the hand-off. Without it a failed send may
+	// have delivered (a reply that timed out), and is reported so.
+	NotDelivered bool `json:"not_delivered,omitempty"`
 }
 
 // WireVersion is the frame version this module speaks (A2A-DESIGN §3.10).
@@ -69,6 +74,7 @@ const (
 	opSend  = "send"
 	opRecv  = "recv"
 	opAck   = "ack"
+	opNack  = "nack"
 	opError = "error"
 )
 
@@ -76,7 +82,7 @@ const (
 type Transport struct {
 	socket       string
 	selfAID      string
-	dialTimeout  time.Duration
+	sendTimeout  time.Duration
 	reachTimeout time.Duration
 	inbound      module.Inbound
 
@@ -197,9 +203,12 @@ func (t *Transport) session(ctx context.Context) error {
 
 // deliverInbound hands a received envelope to the daemon and acks it with
 // the delivery's own ID once the daemon has decided it should be acked:
-// accepted, or refused for a reason that will not change on retry. A
-// temporary refusal gets no ack, so the peer process reports the delivery
-// as failed and the sender falls back to the hub (A2A-DESIGN §3.6, §3.10).
+// accepted (the daemon answers as soon as its step 10 has committed, not
+// after the work that follows), or refused for a reason that will not
+// change on retry. A temporary refusal is answered with a nack carrying the
+// reason, so the peer process reports the delivery as failed at once and
+// the sender falls back to the hub instead of waiting out the peer
+// process's hand-off timeout (A2A-DESIGN §3.6, §3.10; 0017 Q29).
 func (t *Transport) deliverInbound(ctx context.Context, c net.Conn, f frame) {
 	if f.V < WireVersion {
 		log.Printf("anet: p2p: ignoring a delivery frame of version %d from the peer process (want %d)", f.V, WireVersion)
@@ -220,6 +229,7 @@ func (t *Transport) deliverInbound(ctx context.Context, c net.Conn, f frame) {
 	// that gets trusted because it arrived over a direct connection.
 	if err := t.inbound.Receive(ctx, env); err != nil {
 		log.Printf("anet: p2p: inbound delivery %s not acknowledged: %v", f.ID, err)
+		_ = t.write(c, frame{Op: opNack, V: WireVersion, ID: f.ID, Error: err.Error()})
 		return
 	}
 	_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: f.ID})
@@ -255,7 +265,7 @@ func (t *Transport) Reachable(ctx context.Context, toAID string) bool {
 
 // Send delivers one envelope to a peer.
 func (t *Transport) Send(ctx context.Context, toAID string, envelope []byte) error {
-	sctx, cancel := context.WithTimeout(ctx, t.dialTimeout)
+	sctx, cancel := context.WithTimeout(ctx, t.sendTimeout)
 	defer cancel()
 	reply, err := t.roundTrip(sctx, frame{
 		Op: opSend, V: WireVersion, To: toAID,
@@ -265,6 +275,9 @@ func (t *Transport) Send(ctx context.Context, toAID string, envelope []byte) err
 		return err
 	}
 	if reply.Error != "" {
+		if reply.NotDelivered {
+			return fmt.Errorf("p2p: %s: %w", reply.Error, module.ErrNotDelivered)
+		}
 		return fmt.Errorf("p2p: %s", reply.Error)
 	}
 	return nil
@@ -277,7 +290,7 @@ func (t *Transport) roundTrip(ctx context.Context, f frame) (frame, error) {
 	conn := t.conn
 	if conn == nil || t.pending == nil {
 		t.mu.Unlock()
-		return frame{}, errors.New("p2p: peer process not connected")
+		return frame{}, fmt.Errorf("p2p: peer process not connected: %w", module.ErrNotDelivered)
 	}
 	t.nextID++
 	f.ID = strconv.FormatUint(t.nextID, 10)
