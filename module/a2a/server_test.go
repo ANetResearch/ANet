@@ -376,6 +376,64 @@ func TestRequestChecks(t *testing.T) {
 	}
 }
 
+// A body that is not JSON is ContentTypeNotSupportedError in the form of the
+// binding it was sent to (A2A §5.4): a JSON-RPC error object with -32005 on
+// the JSON-RPC route, AIP-193 on the REST one; 415 on both. And the JSON-RPC
+// endpoint answers with a trailing slash as well, without a redirect (a2a-tck
+// posts there; docs/notes/0019 §4).
+func TestContentTypeAndRPCSlash(t *testing.T) {
+	e := newEnv(t)
+	bearer := "Bearer " + testToken
+	rpc := agentsPath + "/" + agentA + "/jsonrpc"
+
+	resp, body := e.raw("POST", rpc, map[string]string{"Authorization": bearer, "Content-Type": "text/plain"}, rpcGet)
+	var rpcOut struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Error   *struct {
+			Code int `json:"code"`
+			Data []struct {
+				Reason string `json:"reason"`
+				Domain string `json:"domain"`
+			} `json:"data"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &rpcOut); err != nil {
+		t.Fatalf("text/plain rpc: %d %s: %v", resp.StatusCode, body, err)
+	}
+	if resp.StatusCode != 415 || rpcOut.JSONRPC != "2.0" || string(rpcOut.ID) != "null" || rpcOut.Error == nil ||
+		rpcOut.Error.Code != -32005 || len(rpcOut.Error.Data) != 1 ||
+		rpcOut.Error.Data[0].Reason != "CONTENT_TYPE_NOT_SUPPORTED" || rpcOut.Error.Data[0].Domain != a2a.ProtocolDomain {
+		t.Errorf("text/plain rpc: %d %s, want 415 and a JSON-RPC error -32005 CONTENT_TYPE_NOT_SUPPORTED", resp.StatusCode, body)
+	}
+
+	resp, body = e.raw("POST", agentsPath+"/"+agentA+"/rest/message:send",
+		map[string]string{"Authorization": bearer, "Content-Type": "text/plain"}, `{"message":{}}`)
+	var restOut struct {
+		Error struct {
+			Code    int `json:"code"`
+			Details []struct {
+				Reason string `json:"reason"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &restOut); err != nil || resp.StatusCode != 415 || restOut.Error.Code != 415 ||
+		len(restOut.Error.Details) != 1 || restOut.Error.Details[0].Reason != "CONTENT_TYPE_NOT_SUPPORTED" {
+		t.Errorf("text/plain rest: %d %s, want 415 CONTENT_TYPE_NOT_SUPPORTED", resp.StatusCode, body)
+	}
+
+	for _, p := range []string{rpc, rpc + "/"} {
+		resp, body = e.raw("POST", p, map[string]string{"Authorization": bearer, "Content-Type": "application/json"}, rpcGet)
+		if resp.StatusCode != 200 || !strings.Contains(string(body), `"jsonrpc":"2.0"`) {
+			t.Errorf("%s: %d %s, want a JSON-RPC answer", p, resp.StatusCode, body)
+		}
+	}
+	resp, _ = e.raw("POST", rpc+"/x", map[string]string{"Authorization": bearer, "Content-Type": "application/json"}, rpcGet)
+	if resp.StatusCode != 404 && resp.StatusCode != 405 {
+		t.Errorf("%s/x: %d, want no route", rpc, resp.StatusCode)
+	}
+}
+
 // A client that has the token but does not attach it (no session for the
 // AuthInterceptor) is refused, and a card without securityRequirements
 // would leave every client in that position — so the card must carry

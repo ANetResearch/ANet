@@ -218,11 +218,16 @@ PROBE=$BIN/a2aprobe
 PORT_BASE=$(python3 - "${JOINT_PORT_BASE:-}" 10 <<'PY'
 import random, socket, sys
 want, n = sys.argv[1], int(sys.argv[2])
+# Free for a Go listener, which binds with SO_REUSEADDR: a port whose earlier listener closed a moment
+# ago (connections still in TIME_WAIT) is free for the hub and the daemons, and a bare bind() would
+# refuse a second run on the same base right after the first (0021 F1, as joint.sh has it).
 def free(b):
     for p in range(b, b + n):
         s = socket.socket()
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("127.0.0.1", p))
+            s.listen(1)
         except OSError:
             return False
         finally:

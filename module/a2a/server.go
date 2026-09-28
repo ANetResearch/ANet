@@ -9,6 +9,7 @@ package a2a
 //	GET  /a2a/v1/agents/{aid}/.well-known/agent-card.json the proxy card (§11.3)
 //	GET  /a2a/v1/agents/{aid}                             the same card
 //	POST /a2a/v1/agents/{aid}/jsonrpc                     A2A JSON-RPC binding
+//	POST /a2a/v1/agents/{aid}/jsonrpc/                    the same
 //	     /a2a/v1/agents/{aid}/rest/...                    A2A HTTP+JSON binding
 //
 // The bare /a2a/v1/agents/{aid} serves the card too because that is the URL
@@ -100,6 +101,11 @@ func newServer(seam module.TaskSeam, cfg serverConfig) *server {
 	mux.HandleFunc("GET "+agentsPath+"/{aid}", s.serveCard)
 	mux.HandleFunc("GET "+agentsPath+"/{aid}/.well-known/agent-card.json", s.serveCard)
 	mux.Handle("POST "+agentsPath+"/{aid}/jsonrpc", s.binding(rpc, true))
+	// The same endpoint with a trailing slash, served as it is: a client
+	// that takes the interface URL as a base and posts to "/" (a2a-tck's
+	// JSON-RPC client) sends it there. Not a redirect: a client that
+	// follows a 301/302 turns the POST into a GET.
+	mux.Handle("POST "+agentsPath+"/{aid}/jsonrpc/{$}", s.binding(rpc, true))
 	mux.Handle(agentsPath+"/{aid}/rest/", s.binding(rest, false))
 	s.mux = mux
 	return s
@@ -185,10 +191,19 @@ func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 		// text/plain body — the requests a page can send without a
 		// preflight — never reaches a handler. A REST request with a body
 		// is held to the same rule.
+		// Refused as ContentTypeNotSupportedError (A2A §5.4: HTTP 415,
+		// JSON-RPC -32005), in the error form of the binding the client
+		// speaks: a JSON-RPC client reads the error object, not a
+		// google.rpc.Status.
 		if jsonrpc || (r.Method == http.MethodPost && r.ContentLength != 0) {
 			mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 			if err != nil || mt != "application/json" {
-				writeError(w, http.StatusUnsupportedMediaType, a2a.ErrInvalidRequest, "the request body must be application/json")
+				const msg = "the request body must be application/json"
+				if jsonrpc {
+					writeRPCError(w, http.StatusUnsupportedMediaType, a2a.ErrUnsupportedContentType, msg)
+				} else {
+					writeError(w, http.StatusUnsupportedMediaType, a2a.ErrUnsupportedContentType, msg)
+				}
 				return
 			}
 		}
@@ -450,6 +465,41 @@ func writeError(w http.ResponseWriter, code int, kind error, msg string) {
 		Code: code, Status: grpcStatus(code), Message: msg,
 		Details: []errorInfo{{Type: "type.googleapis.com/google.rpc.ErrorInfo", Reason: a2a.ErrorReason(kind), Domain: a2a.ProtocolDomain}},
 	}})
+}
+
+// rpcErrorCodes are the JSON-RPC codes of the A2A errors writeRPCError is
+// used with (A2A §5.4; a2a-go keeps its table internal).
+var rpcErrorCodes = map[error]int{
+	a2a.ErrUnsupportedContentType: -32005,
+}
+
+// writeRPCError answers a JSON-RPC request refused before it reached the
+// binding, in the binding's own error form: a JSON-RPC response whose error
+// carries the A2A code and, in data, the google.rpc.ErrorInfo a2a-go puts
+// there. The id is null: the body was not read, so the request's id is not
+// known. The HTTP status still says what happened, for a client that
+// looks no further.
+func writeRPCError(w http.ResponseWriter, code int, kind error, msg string) {
+	type errorInfo struct {
+		Type   string `json:"@type"`
+		Reason string `json:"reason"`
+		Domain string `json:"domain"`
+	}
+	type rpcError struct {
+		Code    int         `json:"code"`
+		Message string      `json:"message"`
+		Data    []errorInfo `json:"data"`
+	}
+	rc, ok := rpcErrorCodes[kind]
+	if !ok {
+		rc = -32603
+	}
+	writeJSON(w, code, struct {
+		JSONRPC string   `json:"jsonrpc"`
+		ID      any      `json:"id"`
+		Error   rpcError `json:"error"`
+	}{"2.0", nil, rpcError{Code: rc, Message: msg,
+		Data: []errorInfo{{Type: "type.googleapis.com/google.rpc.ErrorInfo", Reason: a2a.ErrorReason(kind), Domain: a2a.ProtocolDomain}}}})
 }
 
 func grpcStatus(code int) string {
