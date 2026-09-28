@@ -87,14 +87,17 @@ ssh -o ConnectTimeout=20 "$RELAY" "rsync -z /root/ship/realworld-ship.tgz $HOST:
 
 ssh -o ConnectTimeout=20 "$RELAY" "ssh -o ConnectTimeout=20 $HOST '
   set -e
-  mkdir -p $DEST && cd $DEST
-  tar xzf /root/ship/realworld-ship.tgz
+  install -d -o root -g root -m 0755 $DEST && cd $DEST
+  tar --no-same-owner --no-same-permissions -xzf /root/ship/realworld-ship.tgz
   rm -rf ANetLink ANetCore
-  tar xzf link.tgz && tar xzf core.tgz
+  tar --no-same-owner --no-same-permissions -xzf link.tgz && tar --no-same-owner --no-same-permissions -xzf core.tgz
   cd ANetLink
   grep -q \"replace github.com/ANetResearch/ANetCore\" go.mod || \
     printf \"replace github.com/ANetResearch/ANetCore => ../ANetCore\n\" >> go.mod
   cd $DEST
+  # root:root and not writable by anyone else: realworld.service runs run.sh
+  # as root, and tar as root would keep the uid of whoever packed it (ship-prodtest.sh).
+  chown -R root:root $DEST && chmod -R go-w $DEST
   chmod +x run.sh down.sh
   install -m644 realworld.service realworld.timer /etc/systemd/system/
   systemctl daemon-reload
