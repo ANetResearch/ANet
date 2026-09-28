@@ -3,7 +3,8 @@
 #
 # The hub's own tests call its store and its handler; the daemon's tests
 # call a fake hub. Neither can show that the token an operator mints with
-# `anet-hub -invite-new` is the token `anet hub-register --token` sends,
+# `anet-hub -invite-new` is the token `anet hub-register` sends (read from
+# ANET_INVITE: never from the command line, F41),
 # under the field name the hub reads. That is three processes and two
 # repositories, and it is where a rename passes both suites and fails in
 # production.
@@ -84,9 +85,10 @@ hubop(){ "$J/anet-hub" --data "$J/run/hub" "$@"; }
 hubop -invite-list | grep -q 'admission: OFF' && ok "a fresh hub admits openly" \
   || no "a fresh hub should admit openly"
 
-# node <n> <name> [token...] — a separate identity per node
+# node <n> <name> [invite] — a separate identity per node. The invite goes in
+# hub-register's environment, as install.sh passes it: never on a command line.
 node(){
-  local n=$1 name=$2; shift 2
+  local n=$1 name=$2 invite=${3:-}
   local home=$J/run/$n
   mkdir -p "$home"
   # With JOINT_PORT_BASE the control port is pinned inside the block too (otherwise the daemon picks
@@ -100,7 +102,7 @@ node(){
   fi
   ANET_DATA_DIR=$home "$J/anet" up >/dev/null 2>&1
   for _ in $(seq 1 15); do ANET_DATA_DIR=$home "$J/anet" status >/dev/null 2>&1 && break; sleep 1; done
-  ANET_DATA_DIR=$home "$J/anet" hub-register "http://$HUB" --name "$name" "$@" 2>&1
+  ANET_INVITE=$invite ANET_DATA_DIR=$home "$J/anet" hub-register "http://$HUB" --name "$name" 2>&1
 }
 stopnode(){ ANET_DATA_DIR=$J/run/$1 "$J/anet" stop >/dev/null 2>&1; }
 aidof(){ ANET_DATA_DIR=$J/run/$1 "$J/anet" status 2>/dev/null | grep -o 'bafyrei[a-z0-9]*' | head -1; }
@@ -131,11 +133,11 @@ TOKEN=$(echo "$MINT" | grep -o 'anetinv_[a-z0-9]*' | head -1)
 echo "$MINT" | grep -q 'only time the token is shown' && ok "the mint output says the token is shown once" \
   || no "the mint output does not warn that the token is unrecoverable"
 
-OUT=$(node invited Invited --token "$TOKEN")
+OUT=$(node invited Invited "$TOKEN")
 echo "$OUT" | grep -q '"status": *"registered"' && ok "the invited node joined" || no "a valid token was refused: $OUT"
 INVITED_AID=$(aidof invited)
 
-OUT=$(node second Second --token "$TOKEN")
+OUT=$(node second Second "$TOKEN")
 echo "$OUT" | grep -q '"status": *"registered"' && no "a second node reused a single-use token" \
   || ok "the token is used up and the second node is refused"
 stopnode second
@@ -147,10 +149,10 @@ hd "6/6  revoking closes the gate without evicting"
 MINT2=$(hubop -invite-new -label "leaked" -invite-uses 0)
 TOKEN2=$(echo "$MINT2" | grep -o 'anetinv_[a-z0-9]*' | head -1)
 ID2=$(echo "$MINT2" | head -1 | awk '{print $2}')
-OUT=$(node before Before --token "$TOKEN2")
+OUT=$(node before Before "$TOKEN2")
 echo "$OUT" | grep -q '"status": *"registered"' && ok "joined on the standing invite" || no "unlimited invite refused: $OUT"
 hubop -invite-revoke "$ID2" >/dev/null
-OUT=$(node after After --token "$TOKEN2")
+OUT=$(node after After "$TOKEN2")
 echo "$OUT" | grep -q '"status": *"registered"' && no "a revoked token still admitted" || ok "the revoked token admits nobody new"
 stopnode after
 # GET /agents/{aid}, not the browsable listing: /agents lists only agents

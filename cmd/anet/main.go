@@ -169,7 +169,7 @@ func extractGlobalID(args []string) (id string, rest []string) {
 type cmdDoc struct{ use, desc string }
 
 var grpNetwork = []cmdDoc{
-	{"hub-register <url> [--name N] [--caps a,b] [--token INVITE]", "在 Hub 上注册你的 agent(提交 AID 与加密公钥; 有公开能力时附 A2A 卡片)"},
+	{"hub-register <url> [--name N] [--caps a,b] [--token-file F]", "在 Hub 上注册你的 agent(提交 AID 与加密公钥; 有公开能力时附 A2A 卡片;邀请码经 ANET_INVITE 或 --token-file,不上命令行)"},
 	{"doctor", "这个节点被设成了什么样、哪些门开着(读数据目录, 不需要 daemon)"},
 	{"agents wire <claude|codex|cursor|opencode|hermes>", "把 anet 的 MCP 工具与用法说明写进你的编码 agent(--all 接入全部检测到的)"},
 	{"peers list|allow|trust|deny|remove [<aid>]", "入站名单: allow 可委派, trust 另可驱动本机 exec 自动回复; allow/trust 需在终端确认"},
@@ -340,7 +340,7 @@ func usageAllText() string {
   anet agents unwire [--all|<tool>…] [--a2a <aid>…]   remove what wire added, Hermes a2a_agents tokens included
   anet agents                 show which coding agents are wired, and whether Hermes' a2a_agents still match this node
   anet install --agent <tool>   older name for 'anet agents wire <tool>'
-  anet hub-register <url> [--name N] [--caps a,b] [--token INVITE]   register on a Hub (--token only if it admits by invite)
+  anet hub-register <url> [--name N] [--caps a,b] [--token-file F]   register on a Hub (invite-only hub: invite in ANET_INVITE or --token-file, never on the command line)
   anet peers list             show the inbound policy and the allow, trust and deny lists
   anet peers allow|trust <aid>   let a peer delegate to you (trust: also drive your exec auto-reply); asks for confirmation on the terminal
   anet peers deny|remove <aid>   refuse a peer (cancels its open tasks) / take it off every list
@@ -514,7 +514,7 @@ func runDaemonDetached(layout daemon.Layout) error {
 	c := exec.Command(exe, "daemon")
 	// Pin the child to THIS data dir explicitly, regardless of how the parent resolved it, so a detached
 	// daemon started from the default dir and one started with ANET_DATA_DIR both land where expected.
-	c.Env = append(os.Environ(), "ANET_DATA_DIR="+layout.Root)
+	c.Env = append(envWithout(os.Environ(), inviteEnv), "ANET_DATA_DIR="+layout.Root)
 	c.Stdin = nil
 	c.Stdout = logf
 	c.Stderr = logf
@@ -1112,7 +1112,9 @@ var knownFlags = map[string][]string{
 
 	// through the control plane
 	"status":        {},
-	"hub-register":  {"name", "caps", "token", "accept-delegations"},
+	// "token" stays known so that `--token <invite>` gets hub-register's own refusal, which says where
+	// the invite goes instead (inviteFrom), rather than "unknown flag".
+	"hub-register":  {"name", "caps", "token", "token-file", "accept-delegations"},
 	"hub-leave":     {},
 	"p2p-advertise": {},
 	"accept":        {},

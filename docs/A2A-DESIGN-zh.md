@@ -736,6 +736,7 @@ mcpserv 原样转发控制面的投影 JSON;描述写明"completed 且 effect_st
 - `release.json`:版本、提交、发布时间、失效时间、各资产 `.gz` 与原始 sha256、各变体模块集合、`next_key_fingerprint`。以 `ssh-keygen -Y sign -n anet-release@agentnetwork.org.cn` 签名;`install.sh` 本身也签名(`install.sh.sig`)。
 - 公钥与指纹发布在 GitHub(`SECURITY.md`、README)、官网文档与 install.sh 内;emax `/dl` 是镜像。
 - 手动核验路径写入文档:下载 `install.sh` 与 `.sig` → `ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh` → 执行。
+- 邀请码不上命令行 [redteam:F41](进程参数对所有本机用户可读,先出示邀请码者被接纳,单次码随即作废):`anet hub-register` 的邀请码经环境变量 `ANET_INVITE` 或 `--token-file FILE`(`-` 为标准输入)传入,命令行上的 `--token` 拒绝;`anet up` 启动 daemon 时从其环境中去掉 `ANET_INVITE`。install.sh 同样读 `ANET_INVITE`(`… | ANET_INVITE=anetinv_… sh -s -- --hub …`)或 `--token-file`,`--token` 在解析参数时即退出;读取后 `unset ANET_INVITE`,只以环境变量交给 `anet hub-register` 这一条命令,不进其他子进程与任何命令行。hub 铸码时打印的命令与拒绝注册时的提示同样用 `ANET_INVITE`。
 - install.sh:逻辑在 `main()`;只用 https;验签失败、过期、降级、sha256 不符、模块集合不符任一即退出且不触碰已装版本;安装后 `anet init`;`--agents` 时 `anet agents wire`;打印 doctor 状态块与一个免费官方 agent 示例。
 - hub `llms.txt` Step 0:已安装时执行 `anet update`;新机器才用 curl|sh 并给出手动核验路径(`ANetHub/internal/aghub/web/llms.txt` 列入改动)。
 - `build-release.sh`:生成并签名清单;`.gz` 哈希;`BuiltAt` 取提交时间;严格脏树检查;全平台符号自检。`anet update`:`crypto/ed25519` 验清单后原子替换。
