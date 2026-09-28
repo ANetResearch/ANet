@@ -2,7 +2,8 @@
 
 > **DRAFT — not submitted; requires product owner approval before any external submission.**
 >
-> **License: to be decided** by the product owner for any text contributed (a2a-x402 is Apache-2.0).
+> **License: Apache-2.0**, the license of a2a-x402: these drafts are licensed under the Apache
+> License 2.0 alone (ANet `LICENSE`, condition 3).
 
 Target: `github.com/google-agentic-commerce/a2a-x402`, specification **v0.2**
 (`spec/v0.2/spec.md`). Section numbers below refer to that file. None of these drafts is a security

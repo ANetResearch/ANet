@@ -2,8 +2,9 @@
 
 > **DRAFT — not submitted; requires product owner approval before any external submission.**
 >
-> **License: to be decided** by the product owner. (Changes to the A2A specification are
-> contributed under the A2A project's license, Apache-2.0.)
+> **License: Apache-2.0**, the A2A project's license, under which changes to the A2A specification
+> are contributed: this proposal is licensed under the Apache License 2.0 alone (ANet `LICENSE`,
+> condition 3).
 
 **Status:** Proposed (draft; the ADR number is assigned on submission)
 

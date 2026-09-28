@@ -989,9 +989,9 @@ mcpserv 原样转发控制面的投影 JSON(不经 map 重编码,大整数与键
 3. `anet-credit` x402 scheme 文档(托管性质、payload、签名、nonce 与窗口、`hub:<aid>` 与 CAIP-2 的偏离;本地签名服务接受未签名的所选项这一偏离;另须写明 x402 v2 对象层与 `payment-verified` 表示已扣款两处与规范/参考实现的差异,§8.2)[impl:简报 04 §9]。
 4. a2a-go issue 草稿;5. a2a-x402 issue 草稿;6. `SecurityScheme` 新变体提议。
 
-现状:六份英文草稿与中文索引已在 `docs/a2a/`,每份标注"DRAFT — not submitted; requires product owner approval before any external submission"与"license: to be decided";草稿写成时未实现的规则标为 **(designed)**。其中本机 A2A 面、`anet.cancel_requested`、同任务付款流、商户核对与映射表等此后已落地,草稿需按 r4 逐处复核并去掉或保留 (designed) 标记,这是对外提交前的一步(`docs/a2a/README.md` 第 2 条)[impl:wp/a2adocs 2ef4bfb、15cbff3]。注册表草案已加 `withdrawn` 行 [impl:wp/proj 78b4963]。
+现状:六份英文草稿与中文索引已在 `docs/a2a/`,每份标注"DRAFT — not submitted; requires product owner approval before any external submission"与许可证说明(Apache-2.0,见下);草稿写成时未实现的规则标为 **(designed)**。其中本机 A2A 面、`anet.cancel_requested`、同任务付款流、商户核对与映射表等此后已落地,草稿需按 r4 逐处复核并去掉或保留 (designed) 标记,这是对外提交前的一步(`docs/a2a/README.md` 第 2 条)[impl:wp/a2adocs 2ef4bfb、15cbff3]。注册表草案已加 `withdrawn` 行 [impl:wp/proj 78b4963]。
 
-前置条件:贡献部分(规范文本与参考实现)的许可证**留待产品负责人决定**(草稿标注"许可证待定");对外提交前征求同意 [Q20]。
+许可证(Q20,2026-09-28 产品负责人决定):三仓改用 ANet 开源许可证(改版 Apache-2.0,结构参照 Dify),其附加条件第 3 条把 `docs/a2a/` 全部文件定为只按 Apache-2.0 授权,参考实现提交给 A2A 上游的部分按提交形态以 Apache-2.0 贡献,满足 A2A 官方扩展/绑定强制 Apache-2.0 的要求(`docs/notes/0027` G1.2)。前置条件:每一份对外提交前征求产品负责人同意 [Q20]。
 
 ---
 
