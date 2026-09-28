@@ -371,6 +371,12 @@ func TestAnApprovedCallRedeliveredIsAnsweredAgainNotRun(t *testing.T) {
 		ix, err := prov.ix.Get(id)
 		return err == nil && len(ix.Receipt) > 0
 	})
+	// Everything the approval sent has left the outbox (the answer queues
+	// behind the status rows of its task, F23) before it is lost.
+	waitUntil(t, "the approved call's answers sent", func() bool {
+		rows, err := prov.ix.Outbox(id)
+		return err == nil && len(rows) == 0
+	})
 	clearMailbox(t, srv, req.AID()) // the held notice and the answer are lost
 
 	if r := receive(t, prov, env); !r.ack() || r.reason != dropDuplicate {
