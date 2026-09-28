@@ -22,7 +22,7 @@
 #                      They are copied into $J/bin. Unset: built here with go from this checkout and
 #                      HUB_SRC.
 #   HUB_SRC            ANetHub checkout to build from (default: ../ANetHub beside this repository)
-#   JOINT_PORT_BASE    first of 16 consecutive loopback ports; unset = a random free block in
+#   JOINT_PORT_BASE    first of 22 consecutive loopback ports; unset = a random free block in
 #                      20000-32000. A port already in use aborts the run; nothing is killed to free it.
 #   JOINT_HUB_ADMIN    0 = do not start anet-hub-admin (started by default when the binary is there;
 #                      section C counts its absence as a failure: its data and API are part of SI-1)
