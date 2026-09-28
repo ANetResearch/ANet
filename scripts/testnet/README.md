@@ -12,6 +12,7 @@
 | `teardown.sh` | `teardown.sh <host>` 停掉 `anet-testnet-*` 单元与测试网进程,删除测试网目录(只删它) |
 | `bridge.sh` | 编排机(ink88)上的本地 ssh 转发:远端控制口原号映射到本机、跨岛联邦转发、把节点配置与令牌镜像到本机 |
 | `common.sh` / `remote.sh` | 本机侧公共函数 / 经 ssh stdin 送到远端执行的函数库(远端不落这个文件) |
+| `soak.sh`、`soak/` | 长稳测试(lab 岛,拓扑 `soak/topology.env`,运行标识 `soak`):部署与配置、常驻混合负载、每 5 分钟资源采样、按时刻表重启、SIGQUIT goroutine 转储、终检(成功率、卡住的任务、资源曲线、付款账目、canary)。结果见 [`docs/notes/0036`](../../docs/notes/0036-验证-测试网长稳.md) |
 
 ## 拓扑
 
