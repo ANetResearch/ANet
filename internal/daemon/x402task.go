@@ -961,21 +961,41 @@ func (pp *providerPayment) applyTx(tx *interactions.Tx, ixID string) error {
 	return pp.receipts.applyTx(tx, ixID)
 }
 
+// triesAutoPay reports whether afterProviderPayment will try to pay pp's
+// quote by itself: paid automatically once per quote, on the first one, or
+// again with the same authorization after a re-quote. After a definite
+// failure a person or an agent decides, so a provider cannot drain the
+// automatic tier by quoting again and again. Read after the status's
+// commit (applyTx sets prior and quoted).
+func (d *Daemon) triesAutoPay(pp *providerPayment) bool {
+	return pp != nil && pp.status == x402a2a.StatusRequired && pp.quoted &&
+		(pp.prior == interactions.PayNone || pp.prior == interactions.PaySubmitted) && d.payer() != nil
+}
+
 // afterProviderPayment does what follows the commit of a status carrying
 // a payment part.
+//
+// A quote this node tries to pay by itself is not announced before the
+// attempt (docs/notes/0036 F1): the task is stored input-required with the
+// quote, and a waiter woken there — a blocking send, /tasks/wait, MCP
+// wait_task, an A2A stream — answered its client input-required,
+// needs_operator_approval, "pay it", for a payment already being made (§8.3,
+// §8.7: within the auto tier the node pays and the client is not asked).
+// autoPay announces the working state its payment message sets; when it does
+// not pay (above the tier, a payee off the list), the caller announces the
+// input-required afterwards (ingestStatus).
 func (d *Daemon) afterProviderPayment(ctx context.Context, ixID string, pp *providerPayment) {
 	switch {
 	case pp.status == x402a2a.StatusRequired && pp.quoted:
-		d.publishState(ixID)
+		auto := d.triesAutoPay(pp)
+		if !auto {
+			d.publishState(ixID)
+		}
 		d.recordReceipts(pp.receipts)
 		if pp.prior == interactions.PaySubmitted && d.carryOutRequestedCancel(ctx, ixID) {
 			return
 		}
-		// Paid automatically once per quote: on the first one, or again
-		// with the same authorization after a re-quote. After a definite
-		// failure a person or an agent decides, so a provider cannot
-		// drain the automatic tier by quoting again and again.
-		if pp.prior == interactions.PayNone || pp.prior == interactions.PaySubmitted {
+		if auto {
 			d.autoPay(ctx, ixID, pp.prior == interactions.PaySubmitted)
 		}
 		return
