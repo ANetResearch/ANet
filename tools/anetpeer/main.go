@@ -686,7 +686,35 @@ func (p *peer) announce(aid string) {
 			reach, aid)
 		return
 	}
-	_ = os.WriteFile(filepath.Join(p.rendezvous, aid), []byte(reach), 0o644)
+	if err := writeEntry(p.rendezvous, aid, reach); err != nil {
+		log.Printf("anetpeer: cannot publish %s in the rendezvous: %v", aid, err)
+	}
+}
+
+// writeEntry replaces the rendezvous entry for aid with reach in one step:
+// written to a temporary file in the same directory and renamed over it.
+// Peers read the entry while this process writes it; written in place, a
+// peer could read it created or truncated and not yet written — an empty
+// address, which it dialled ("dial unix: missing address") and marked down.
+func writeEntry(dir, aid, reach string) error {
+	tmp, err := os.CreateTemp(dir, ".entry-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // after the rename there is nothing by that name
+	if _, err := tmp.WriteString(reach); err != nil {
+		tmp.Close()
+		return err
+	}
+	// Peers of other accounts on this host read the directory too.
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), filepath.Join(dir, aid))
 }
 
 func (p *peer) forget() {
@@ -714,7 +742,10 @@ func (p *peer) lookup(aid string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	return string(b), true
+	// An empty entry names nowhere to dial: not listed, not an address
+	// ("" would be dialled as a Unix socket and marked down).
+	addr := strings.TrimSpace(string(b))
+	return addr, addr != ""
 }
 
 // hubLookupTimeout bounds one rendezvous query.
