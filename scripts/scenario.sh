@@ -729,7 +729,7 @@ print(((json.load(sys.stdin).get("accepts") or [{}])[0]).get("amount",""))')
 sig=$("$BIN/anetfixture" x402-authorize --home "$(home_of C)/.anet" \
         --pay-to "$A" --amount 25 --network "hub:$HUBAID" --interaction "gw-1" 2>/dev/null)
 if [ -n "$sig" ]; then
-  vres=$(curl -s -m 20 -H "PAYMENT-SIGNATURE: $sig" -D "$ROOT/gw.hdr" "$RES_URL")
+  vres=$(curl -s -m 20 -H @<(printf 'PAYMENT-SIGNATURE: %s\n' "$sig") -D "$ROOT/gw.hdr" "$RES_URL")
   vcode=$(head -1 "$ROOT/gw.hdr" | awk '{print $2}')
   voucher=$(echo "$vres" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("voucher",""))' 2>/dev/null)
   [ "$vcode" = "200" ] && [ -n "$voucher" ] && ok "付款后拿到的是凭证,不是结果 —— hub 见不到内容" \

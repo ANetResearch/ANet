@@ -363,7 +363,7 @@ anet payees add <aid>                         # 允许向 <aid> 付款(仍受各
 anet payees remove <aid>                      # 移出白名单,不需确认
 anet reconcile                                # 本节点签过/收到的付款 vs hub 流水
 anet audit-hub                                # 验 hub 的发放链,与本节点记过的链头比对
-anet x402-authorize --pay-to <aid> --amount 25 --network hub:<hub-aid>    # 手工签一笔付款头,可直接管进 curl
+anet x402-authorize --pay-to <aid> --amount 25 --network hub:<hub-aid>    # 手工签一笔付款头;交给 curl 用 -H @<(printf 'PAYMENT-SIGNATURE: %s\n' "$(anet x402-authorize …)"),不要放进命令行参数
 ```
 
 **默认不花钱。** 新节点的自动档与 agent 档上限都是 0,收款方名单(`<数据目录>/payees.allow`,一行一个 AID,手工编辑)为空;要让 agent 在一定额度内自己付款,在终端上 `anet payments set` 放开,并把收款方写进 `payees.allow`。
@@ -482,8 +482,10 @@ daemon 在 127.0.0.1 上提供 A2A 协议服务(`module/a2a`,默认启用,不需
 ```sh
 TOKEN=$(cat ~/.anet/modules/a2a/a2a_token.txt)
 ADDR=$(cat ~/.anet/modules/a2a/a2a_addr.txt)
-curl -s -H "Authorization: Bearer $TOKEN" "http://$ADDR/a2a/v1/agents?skill=text.digest"
-curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' \
+# 令牌经 -H @<(…) 交给 curl,不写进命令行参数:进程参数对本机所有用户可读(bash/zsh)
+auth() { printf 'Authorization: Bearer %s\n' "$TOKEN"; }
+curl -s -H @<(auth) "http://$ADDR/a2a/v1/agents?skill=text.digest"
+curl -s -H @<(auth) -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' \
   "http://$ADDR/a2a/v1/agents/<aid>/jsonrpc" -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage",
   "params":{"message":{"role":"ROLE_USER","messageId":"m-1","parts":[{"text":"hello"}]},
             "configuration":{"returnImmediately":true}}}'
