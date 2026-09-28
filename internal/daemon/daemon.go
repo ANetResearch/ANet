@@ -157,6 +157,11 @@ type Daemon struct {
 	// mu guards cfg and the relay-loop lifecycle (cfg + hub target can change via hub-register).
 	mu            sync.Mutex
 	cfg           Config
+	// policyWrite serializes the policy writes (inbound policy, public
+	// capabilities, auto-reply): each reads the config, saves the changed
+	// copy, and only then puts it in force, so a write that failed to save
+	// is not in force and a later save does not carry it to disk (F9).
+	policyWrite sync.Mutex
 	relayStop     context.CancelFunc // cancels the currently-running relay poll loop, if any
 	autoReplyStop context.CancelFunc // cancels the currently-running auto-reply loop, if any
 

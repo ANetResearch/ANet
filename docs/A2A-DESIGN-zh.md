@@ -433,7 +433,7 @@ UNAVAILABLE 只给"确定没发出"的调用(连接建立失败、拨号被拒�
 6. `/attachment` [C11]:按 `http.DetectContentType` 嗅探,只有 png/jpeg/gif/webp 内联,其余 `application/octet-stream` + `Content-Disposition: attachment`;所有响应加 `Content-Security-Policy: default-src 'none'; sandbox` 与 `nosniff`;去掉 `immutable` 一年缓存;收到附件时把 `Mime` 改写为嗅探结果。
 7. `/pull` [C42]:总是写入新子目录 `<out_dir>/anet-<ix前12>/`(Mkdir + Lstat,拒绝符号链接);文件以 `O_CREATE|O_EXCL|O_WRONLY|O_NOFOLLOW` 打开,已存在且内容 CID 相同视为已取回,否则换名;`safeName` 中和前导点、去控制与双向字符、限长;空或相对 `out_dir` 返回 400;`out_dir`、数据目录与 exec 工作目录均先经 `filepath.EvalSymlinks` 解析为真实路径后再比较前缀,拒绝落在后两者之内的 `out_dir`。
 8. `/ping` 去掉 `Access-Control-Allow-Origin: *`。运行时目录校验非符号链接、属主、0700,优先 `$XDG_RUNTIME_DIR`。`anet mcp` 在显式选定身份时用严格解析。
-9. 策略类写入写 `anet.policy.changed{field, from, to}`。
+9. 策略类写入写 `anet.policy.changed{field, from, to}`。策略类写入(入站策略、公开能力、自动回复,以及支出上限)先保存 `config.json`、成功后才生效:保存失败时运行中的 daemon 保持原状,与 `config.json`、`anet doctor` 一致,之后任何一次成功的配置写入也不会把失败的改动带进磁盘 [redteam:F9]。
 
 ---
 
