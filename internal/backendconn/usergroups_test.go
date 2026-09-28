@@ -63,15 +63,29 @@ func TestPrivateGroupFromFiles(t *testing.T) {
 	}
 	passwd := write("passwd", "# accounts\nroot:x:0:0:root:/root:/bin/bash\nink:x:1001:1001:Ink,,,:/home/ink:/bin/bash\n\n")
 	group := write("group", "root:x:0:\nadm:x:4:syslog,ink\nink:x:1001:\n")
-	if gid, ok := (etcFiles{passwd, group}).privateGroup(1001); !ok || gid != 1001 {
-		t.Fatalf("private group %d %v", gid, ok)
+	ubuntu := write("nsswitch-ubuntu", "# /etc/nsswitch.conf\npasswd:         files systemd\ngroup:          files [SUCCESS=merge] systemd\n"+
+		"shadow: files\nhosts: files mdns4_minimal [NOTFOUND=return] dns\nnetgroup: nis\n")
+	for name, db := range map[string]etcFiles{
+		"no NSS configuration": {passwd: passwd, group: group},
+		"Ubuntu's":             {passwd: passwd, group: group, nsswitch: ubuntu},
+		"no nsswitch.conf":     {passwd: passwd, group: group, nsswitch: filepath.Join(dir, "none")},
+	} {
+		if gid, ok := db.privateGroup(1001); !ok || gid != 1001 {
+			t.Fatalf("%s: private group %d %v", name, gid, ok)
+		}
 	}
 	for name, db := range map[string]etcFiles{
-		"no passwd":       {filepath.Join(dir, "none"), group},
-		"no group":        {passwd, filepath.Join(dir, "none")},
-		"NIS compat":      {write("passwd-nis", "ink:x:1001:1001::/home/ink:/bin/sh\n+::::::\n"), group},
-		"a malformed gid": {passwd, write("group-bad", "ink:x:ten:\n")},
-		"a member":        {passwd, write("group-member", "ink:x:1001:bob\n")},
+		"no passwd":       {passwd: filepath.Join(dir, "none"), group: group},
+		"no group":        {passwd: passwd, group: filepath.Join(dir, "none")},
+		"NIS compat":      {passwd: write("passwd-nis", "ink:x:1001:1001::/home/ink:/bin/sh\n+::::::\n"), group: group},
+		"a malformed gid": {passwd: passwd, group: write("group-bad", "ink:x:ten:\n")},
+		"a member":        {passwd: passwd, group: write("group-member", "ink:x:1001:bob\n")},
+		// Groups also from a directory service: a group of gid 1001 there may have members.
+		"groups from sss": {passwd: passwd, group: group, nsswitch: write("nsswitch-sss", "passwd: files systemd\ngroup: files systemd sss\n")},
+		"accounts from ldap": {passwd: passwd, group: group,
+			nsswitch: write("nsswitch-ldap", "passwd: files ldap\ngroup: files\n")},
+		"initgroups from winbind": {passwd: passwd, group: group,
+			nsswitch: write("nsswitch-winbind", "passwd: files\ngroup: files\ninitgroups: files winbind\n")},
 	} {
 		if _, ok := db.privateGroup(1001); ok {
 			t.Errorf("%s: taken as private", name)
