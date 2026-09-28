@@ -171,3 +171,47 @@ func TestOutboxIDsAndTransactionalDelete(t *testing.T) {
 		t.Fatalf("message after the merge = %+v (%v)", m, err)
 	}
 }
+
+// [redteam:F23] The rows of one task to one peer go out in the order they
+// were queued: a row is due only at the head of its (ix, to_aid) queue,
+// whatever its own next_at, and another task's rows are not held up.
+func TestOutboxDeliversATasksMessagesInOrder(t *testing.T) {
+	s := open(t)
+	del, _ := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_1", ToAID: "peer", Type: "anet.delegate/1", Body: []byte("d"), NextAt: 50})
+	cancel, _ := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_1", ToAID: "peer", Type: "anet.message/1", Body: []byte("c")})
+	other, _ := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_2", ToAID: "peer", Type: "anet.message/1", Body: []byte("o")})
+	if ids, err := s.DueOutboxIDs(10, 10); err != nil || len(ids) != 1 || ids[0] != other {
+		t.Fatalf("due = %v (%v), want only [%d]: the cancel waits for the delegation", ids, err, other)
+	}
+	if ahead, ok, err := s.OutboxAhead(cancel); err != nil || !ok || ahead != del {
+		t.Fatalf("ahead of the cancel = %d %v (%v), want %d", ahead, ok, err, del)
+	}
+	if _, ok, _ := s.OutboxAhead(del); ok {
+		t.Fatal("the delegation has something ahead of it")
+	}
+	if ids, _ := s.DueOutboxIDs(60, 10); len(ids) != 2 || ids[0] != other || ids[1] != del {
+		t.Fatalf("due at 60 = %v, want [%d %d]", ids, other, del)
+	}
+	if err := s.DeleteOutbox(del); err != nil {
+		t.Fatal(err)
+	}
+	if ids, _ := s.DueOutboxIDs(10, 10); len(ids) != 2 || ids[0] != cancel || ids[1] != other {
+		t.Fatalf("due after the delegation went = %v, want [%d %d]", ids, cancel, other)
+	}
+	// A queue is dropped whole in a transaction.
+	if err := s.Update(func(tx *interactions.Tx) error {
+		n, err := tx.DeleteOutboxQueue("ix_1", "peer")
+		if err == nil && n != 1 {
+			t.Errorf("dropped %d rows, want 1", n)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := s.OutboxHas(cancel); ok {
+		t.Fatal("the dropped queue's row is still there")
+	}
+	if ok, _ := s.OutboxHas(other); !ok {
+		t.Fatal("another task's row went with it")
+	}
+}

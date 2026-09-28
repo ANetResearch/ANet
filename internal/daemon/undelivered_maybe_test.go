@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -144,4 +145,48 @@ func (deliveredThenFailedNot) Name() string                           { return "
 func (deliveredThenFailedNot) Reachable(context.Context, string) bool { return true }
 func (deliveredThenFailedNot) Send(context.Context, string, []byte) error {
 	return errors.Join(errors.New("p2p: dial failed"), module.ErrNotDelivered)
+}
+
+// [redteam:F23] What was queued behind a delegation that is abandoned
+// without having reached the provider goes with it: a follow-up for a task
+// the provider never saw has nothing to reach, and sent after the
+// abandonment it would only be answered TaskNotFound.
+func TestAnAbandonedDelegationTakesItsQueueWithIt(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	clk := &sharedClock{now: uint64(time.Now().UnixMilli())}
+	req.setClock(clk.fn())
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
+	id, err := req.Delegate(ctx, prov.AID(), "a task", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := req.SendMessage(ctx, id, "and a follow-up", nil); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := req.ix.Outbox(id); len(rows) != 2 {
+		t.Fatalf("setup: %d rows queued, want the delegation and the follow-up", len(rows))
+	}
+	// The hub comes back refusing the delegation for good.
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown, h.maxEnvelope = false, 1 })
+	clk.now += uint64(time.Hour.Milliseconds())
+	req.flushOutbox(ctx)
+	if rows, _ := req.ix.Outbox(id); len(rows) != 0 {
+		t.Fatalf("%d rows left queued for a task whose delegation was abandoned", len(rows))
+	}
+	n := 0
+	req.ledger.scan(EvDeliveryExpired, 0, func(_ int64, p map[string]any) {
+		if p["interaction_id"] == id {
+			n++
+		}
+	})
+	if n != 1 {
+		t.Fatalf("%d abandonments recorded, want the delegation's alone", n)
+	}
+	if cur, _ := req.ix.Get(id); cur.State != interactions.StateFailed {
+		t.Fatalf("requester: %s, want failed (undeliverable)", cur.State)
+	}
+	if q := queuedFor(t, srv, prov.AID()); len(q) != 0 {
+		t.Fatalf("hub holds %d envelopes for the provider", len(q))
+	}
 }

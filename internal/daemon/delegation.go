@@ -681,6 +681,21 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 		// the receipt; it is not canceled once the money moved (§4.2).
 		return ix, ErrNotCancelable
 	}
+	if ix.Role == interactions.RoleOutbound {
+		withdrawn, seq, err := d.withdrawDelegation(ix, msgID)
+		if errors.Is(err, ErrNotCancelable) {
+			cur, _ := d.ix.Get(interactionID)
+			return cur, ErrNotCancelable
+		}
+		if err != nil {
+			return nil, err
+		}
+		if withdrawn {
+			d.publishMessage(ix.ID, seq, interactions.MsgCancel)
+			d.publishState(ix.ID)
+			return d.ix.Get(interactionID)
+		}
+	}
 	var typ string
 	var payload []byte
 	if ix.Role == interactions.RoleOutbound {
@@ -743,6 +758,87 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 		log.Printf("anet: %s: canceled; the notice to %s is queued for delivery (%v)", ix.ID, ix.PeerAID, err)
 	}
 	return d.ix.Get(interactionID)
+}
+
+// withdrawDelegation cancels a task this node asked for whose delegation
+// has not left this node: its row is still queued and no attempt may have
+// delivered it (OutboxItem.MaybeDelivered). The provider never saw the task,
+// so nothing is sent to it; the queued rows go, the cancel is recorded and
+// the task is canceled, in one transaction ([redteam:F23]). A cancel sent
+// instead would reach a provider that does not know the task and be
+// answered TaskNotFound, while the delegation — still queued — would go out
+// after it and run.
+//
+// A delegation that may have been delivered, or that an attempt is sending
+// right now, is not withdrawn: the cancel is queued behind it (the outbox
+// delivers a task's messages in order) and reaches the provider after it.
+func (d *Daemon) withdrawDelegation(ix *interactions.Interaction, msgID string) (bool, int64, error) {
+	rows, err := d.ix.Outbox(ix.ID)
+	if err != nil {
+		return false, 0, err
+	}
+	var row *interactions.OutboxItem
+	for i := range rows {
+		if rows[i].Type == seal.TypeDelegate && rows[i].ToAID == ix.PeerAID {
+			row = &rows[i]
+			break
+		}
+	}
+	if row == nil || row.MaybeDelivered {
+		return false, 0, nil
+	}
+	unlock, ok := d.outboxLocks.tryLock(fmt.Sprint(row.ID))
+	if !ok {
+		return false, 0, nil // an attempt is under way
+	}
+	defer unlock()
+	var seq int64
+	withdrawn := false
+	err = d.ix.Update(func(tx *interactions.Tx) error {
+		queued, maybe, err := tx.OutboxQueued(row.ID)
+		if err != nil || !queued || maybe {
+			return err
+		}
+		cur, err := tx.Get(ix.ID)
+		if err != nil {
+			return err
+		}
+		if cur.IsTerminal() {
+			return ErrNotCancelable
+		}
+		if cur.PayState != interactions.PayNone {
+			return nil // quoted: it was delivered after all
+		}
+		if _, err := tx.DeleteOutboxQueue(ix.ID, ix.PeerAID); err != nil {
+			return err
+		}
+		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ix.ID,
+			SenderAID: d.AID(), Kind: interactions.MsgCancel, MsgID: msgID}); err != nil {
+			return err
+		}
+		changed, err := tx.SetState(ix.ID, interactions.StateCanceled)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return ErrNotCancelable
+		}
+		withdrawn = true
+		return nil
+	})
+	if err != nil || !withdrawn {
+		return false, 0, err
+	}
+	if d.ledger != nil {
+		if _, lerr := d.ledger.Append(EvDeliveryExpired, map[string]any{
+			"interaction_id": ix.ID, "type": row.Type, "to_aid": row.ToAID,
+			"attempts": row.Attempts, "last_error": row.LastError, "reason": undeliveredWithdrawn,
+		}); lerr != nil {
+			log.Printf("anet: delivery withdrawal evidence: %v", lerr)
+		}
+	}
+	log.Printf("anet: %s: canceled before its delegation reached %s; the delegation is withdrawn", ix.ID, ix.PeerAID)
+	return true, seq, nil
 }
 
 // SendStatus sends a provider status update (anet.status/1) for an inbound task and moves the task

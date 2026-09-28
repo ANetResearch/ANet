@@ -875,6 +875,30 @@ type keyedLock struct {
 	n  int
 }
 
+// tryLock takes key's lock only when nobody holds it.
+func (k *keyedLocks) tryLock(key string) (func(), bool) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.m == nil {
+		k.m = map[string]*keyedLock{}
+	}
+	if l := k.m[key]; l != nil {
+		return nil, false
+	}
+	l := &keyedLock{n: 1}
+	l.mu.Lock()
+	k.m[key] = l
+	return func() {
+		l.mu.Unlock()
+		k.mu.Lock()
+		l.n--
+		if l.n == 0 {
+			delete(k.m, key)
+		}
+		k.mu.Unlock()
+	}, true
+}
+
 func (k *keyedLocks) lock(key string) func() {
 	k.mu.Lock()
 	if k.m == nil {
