@@ -1642,8 +1642,8 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 		return
 	}
 	// What this node already recorded for the task, and which of those
-	// settlements it verified.
-	recorded, verifiedTx, verifiedBefore := map[string]bool{}, map[string]bool{}, 0
+	// settlements it verified, with the amount its hub's receipt states.
+	recorded, verifiedTx, verifiedBefore := map[string]bool{}, map[string]string{}, 0
 	d.ledger.scan(EvPaymentSettled, 0, func(_ int64, p map[string]any) {
 		if p["interaction_id"] != ixID {
 			return
@@ -1655,7 +1655,7 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 		if p["verified"] == true {
 			verifiedBefore++
 			if tx != "" {
-				verifiedTx[tx] = true
+				verifiedTx[tx], _ = p["amount"].(string)
 			}
 		}
 	})
@@ -1707,7 +1707,7 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 		}
 		entry["verified"] = verified
 		if verified {
-			verifiedTx[sr.Transaction] = true
+			verifiedTx[sr.Transaction] = entry["amount"].(string)
 			if verifiedBefore > 0 {
 				// §8.3 [m]: a second settlement for one task. Recorded, and
 				// marked for audit to show.
@@ -1731,18 +1731,20 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 // notePaymentReceipts has checked it: normalized (failures with
 // transaction "", Q18), and each success carrying this node's verdict,
 // VerdictVerified for a transaction in verified and VerdictUnverified for
-// any other, whatever the provider wrote there.
+// any other, whatever the provider wrote there. A verified one states the
+// amount the hub's receipt states (verified maps a transaction to it) and
+// this node as payer, not the figures the provider wrote beside it.
 //
 // The provider's list replaces the stored one when it is at least as
 // long (it is the whole history, §8.2), except that a settlement this node
 // verified stays even when the new list leaves it out: the provider cannot
 // take back what this node checked. A shorter list only adds the
 // settlements the stored one does not have.
-func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]bool) {
+func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]string) {
 	items := make([]json.RawMessage, 0, len(list))
 	for _, item := range list {
 		if b, err := json.Marshal(item); err == nil {
-			items = append(items, withVerdict(normalizeReceipt(b), verified))
+			items = append(items, withVerdict(normalizeReceipt(b), verified, d.AID()))
 		}
 	}
 	err := d.ix.Update(func(tx *interactions.Tx) error {
@@ -1755,7 +1757,8 @@ func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]
 		if len(items) >= len(old) {
 			have := successTxs(items)
 			for _, o := range old {
-				if tx := successTx(o); tx != "" && !have[tx] && verified[tx] {
+				tx := successTx(o)
+				if _, ok := verified[tx]; ok && !have[tx] {
 					merged = append(merged, o)
 				}
 			}
@@ -1786,8 +1789,10 @@ func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]
 }
 
 // withVerdict is a settlement response with this node's verdict in its
-// extensions when it claims success; anything else comes back unchanged.
-func withVerdict(raw json.RawMessage, verified map[string]bool) json.RawMessage {
+// extensions when it claims success, and on a verified one the verified
+// amount and this node (payer) as payer; anything else comes back
+// unchanged.
+func withVerdict(raw json.RawMessage, verified map[string]string, payer string) json.RawMessage {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var m map[string]any
@@ -1799,8 +1804,13 @@ func withVerdict(raw json.RawMessage, verified map[string]bool) json.RawMessage 
 		ext = map[string]any{}
 	}
 	verdict := x402a2a.VerdictUnverified
-	if tx, _ := m["transaction"].(string); tx != "" && verified[tx] {
+	tx, _ := m["transaction"].(string)
+	if amount, ok := verified[tx]; ok && tx != "" {
 		verdict = x402a2a.VerdictVerified
+		m["payer"] = payer
+		if amount != "" {
+			m["amount"] = amount
+		}
 	}
 	ext[x402a2a.ExtSettlementVerified] = verdict
 	m["extensions"] = ext

@@ -83,4 +83,24 @@ func TestAVerifiedSettlementStaysAndAForgedOneIsNotStated(t *testing.T) {
 	if strings.Contains(string(un), real) {
 		t.Errorf("the verified settlement is listed as unverified: %s", un)
 	}
+
+	// The real settlement again, with figures of the provider's own beside
+	// the hub's receipt: what is stated is what the receipt says.
+	again := stored[0]
+	again.Amount, again.Payer = "999999", "did:anet:someone"
+	again.Extensions = map[string]any{payment.ExtReceipt: stored[0].Extensions[payment.ExtReceipt]}
+	mb, _ = json.Marshal(map[string]any{x402a2a.KeyReceipts: append([]any{again}, forged...)})
+	body = mustMarshal(t, &delegation.StatusMsg{State: delegation.StateWorking, Metadata: mb,
+		At: uint64(time.Now().UnixMilli())})
+	if r := receive(t, req, sealFrom(t, prov, req, seal.TypeStatus, id, body)); r.class != rxAccepted {
+		t.Fatalf("status not accepted: %+v", r)
+	}
+	var now []payment.SettlementResponse
+	_ = json.Unmarshal(getIX(t, req, id).PayReceipts, &now)
+	for _, r := range now {
+		if r.Transaction == real && (r.Amount != "30" || r.Payer != req.AID()) {
+			t.Errorf("the verified settlement states amount %s payer %s, want the receipt's 30 and this node",
+				r.Amount, r.Payer)
+		}
+	}
 }
