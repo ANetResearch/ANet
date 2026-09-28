@@ -1004,7 +1004,9 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 //
 //   - Answered already (a receipt exists): send the answer again. The
 //     redelivery means the first may never have reached the requester, and
-//     the receipt is signed over content that has not changed.
+//     the receipt is signed over content that has not changed. Re-sends of
+//     one answer are rate limited (resendLimiter): past the limit the
+//     redelivery is only acknowledged.
 //   - Being executed by this process: nothing to do.
 //   - Terminal without a receipt (canceled, or refused): nothing to do.
 //   - A short capability call with no answer: the daemon stopped between
@@ -1029,6 +1031,11 @@ func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 		return true
 	}
 	if len(prior.Receipt) > 0 {
+		if !d.resends.allow(prior.PeerAID, prior.ID, d.nowMS()) {
+			// Answered, and re-sent lately [redteam:F29].
+			d.count(resendSuppressed)
+			return true
+		}
 		log.Printf("anet: %s redelivered; re-sending the answer we already signed", m.ix)
 		d.resendResult(m, prior)
 		return true
