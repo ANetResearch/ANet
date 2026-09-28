@@ -236,7 +236,7 @@ anet payees add &lt;aid&gt;                         # 允许向 &lt;aid&gt; 付�
 anet payees remove &lt;aid&gt;                      # 移出白名单,不需确认
 anet reconcile                                # 本节点签过/收到的付款 vs hub 流水
 anet audit-hub                                # 验 hub 的发放链,与本节点记过的链头比对
-anet x402-authorize --pay-to &lt;aid&gt; --amount 25 --network hub:&lt;hub-aid&gt;    # 手工签一笔付款头,可直接管进 curl</pre></div>
+anet x402-authorize --pay-to &lt;aid&gt; --amount 25 --network hub:&lt;hub-aid&gt;    # 手工签一笔付款头;交给 curl 用 -H @&lt;(printf &#x27;PAYMENT-SIGNATURE: %s\n&#x27; &quot;$(anet x402-authorize …)&quot;),不要放进命令行参数</pre></div>
 <p><strong>默认不花钱。</strong> 新节点的自动档与 agent 档上限都是 0,收款方名单(<code>&lt;数据目录&gt;/payees.allow</code>,一行一个 AID,手工编辑)为空;要让 agent 在一定额度内自己付款,在终端上 <code>anet payments set</code> 放开,并把收款方写进 <code>payees.allow</code>。</p>
 <p>可选的凭证兑付口:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-json">{&quot;modules&quot;: {&quot;x402&quot;: {&quot;voucher_addr&quot;: &quot;0.0.0.0:4002&quot;, &quot;voucher_url&quot;: &quot;https://node.example.org/x402/redeem&quot;, &quot;witness_hub&quot;: true}}}</pre></div>
@@ -279,8 +279,10 @@ anet agents unwire claude       # 撤掉 wire 写进去的一切</pre></div>
 <p><strong>任意 A2A 客户端</strong>(a2a-go、a2a-python 等):把 <code>http://127.0.0.1:&lt;端口&gt;/a2a/v1/agents/&lt;aid&gt;</code> 当作 agent 的基址,配置 Bearer 令牌(卡片请求也要带)。示例:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">TOKEN=$(cat ~/.anet/modules/a2a/a2a_token.txt)
 ADDR=$(cat ~/.anet/modules/a2a/a2a_addr.txt)
-curl -s -H &quot;Authorization: Bearer $TOKEN&quot; &quot;http://$ADDR/a2a/v1/agents?skill=text.digest&quot;
-curl -s -H &quot;Authorization: Bearer $TOKEN&quot; -H &#x27;Content-Type: application/json&#x27; -H &#x27;A2A-Version: 1.0&#x27; \
+# 令牌经 -H @&lt;(…) 交给 curl,不写进命令行参数:进程参数对本机所有用户可读(bash/zsh)
+auth() { printf &#x27;Authorization: Bearer %s\n&#x27; &quot;$TOKEN&quot;; }
+curl -s -H @&lt;(auth) &quot;http://$ADDR/a2a/v1/agents?skill=text.digest&quot;
+curl -s -H @&lt;(auth) -H &#x27;Content-Type: application/json&#x27; -H &#x27;A2A-Version: 1.0&#x27; \
   &quot;http://$ADDR/a2a/v1/agents/&lt;aid&gt;/jsonrpc&quot; -d &#x27;{&quot;jsonrpc&quot;:&quot;2.0&quot;,&quot;id&quot;:1,&quot;method&quot;:&quot;SendMessage&quot;,
   &quot;params&quot;:{&quot;message&quot;:{&quot;role&quot;:&quot;ROLE_USER&quot;,&quot;messageId&quot;:&quot;m-1&quot;,&quot;parts&quot;:[{&quot;text&quot;:&quot;hello&quot;}]},
             &quot;configuration&quot;:{&quot;returnImmediately&quot;:true}}}&#x27;</pre></div>

@@ -614,8 +614,10 @@ sig=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout
 if [ -z "$sig" ]; then
   sk "网关付款跳过:节点上没有 x402-authorize(fixture 未部署)"
 else
-  gw=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST \
-        "curl -s -D /tmp/gw.hdr -m 40 -H 'PAYMENT-SIGNATURE: $sig' '$FMAX_HUB$RES'")
+  # The signed payment header goes over ssh's stdin, not into a command line on either host: whoever
+  # reads it first (ps, /proc/<pid>/cmdline) can present it to the gateway before us (L5).
+  gw=$(printf 'PAYMENT-SIGNATURE: %s\n' "$sig" | ssh -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST \
+        "curl -s -D /tmp/gw.hdr -m 40 -H @- '$FMAX_HUB$RES'")
   gwcode=$(ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $EMAX_HOST "head -1 /tmp/gw.hdr | awk '{print \$2}'")
   voucher=$(echo "$gw" | jq_ "print(d.get('voucher',''))")
   [ "$gwcode" = 200 ] && [ -n "$voucher" ] && ok "付款后拿到的是凭证,不是结果 —— hub 见不到内容" \

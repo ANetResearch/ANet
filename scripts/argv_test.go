@@ -12,9 +12,11 @@ import (
 // which puts the node's full control credential in curl's argv for every call — readable by every local
 // user of the test and production hosts in /proc/<pid>/cmdline (docs/notes/0015: they are multi-user
 // machines). A header carrying a credential goes to curl on a file descriptor instead:
-// `-H @<(printf 'Authorization: Bearer %s\n' "$tok")` locally, `printf … | curl -H @-` through ssh.
+// `-H @<(printf 'Authorization: Bearer %s\n' "$tok")` locally, `printf … | curl -H @-` through ssh. The same
+// holds for a signed x402 payment header (PAYMENT-SIGNATURE): whoever presents it first to the gateway
+// gets what it pays for.
 func TestScriptsKeepBearerTokensOffCommandLines(t *testing.T) {
-	onArgv := regexp.MustCompile(`(-H|--header)[= ]*["']?Authorization:\s*Bearer`)
+	onArgv := regexp.MustCompile(`(-H|--header)[= ]*["']?(Authorization:\s*Bearer|PAYMENT-SIGNATURE:)`)
 	var files []string
 	for _, g := range []string{"*.sh", "testnet/*.sh", "mutations/*.sh"} {
 		m, err := filepath.Glob(g)
@@ -26,6 +28,13 @@ func TestScriptsKeepBearerTokensOffCommandLines(t *testing.T) {
 	if len(files) < 10 {
 		t.Fatalf("only %d scripts found", len(files))
 	}
+	// And what the documentation tells people to type [L5, second pass]: GUIDE §6.8 showed the local A2A
+	// token on curl's command line, the pattern the scripts were fixed for.
+	docs, err := filepath.Glob("../docs/*.md")
+	if err != nil || len(docs) < 5 {
+		t.Fatalf("docs: %d found, %v", len(docs), err)
+	}
+	files = append(files, docs...)
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
