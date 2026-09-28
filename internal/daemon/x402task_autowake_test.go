@@ -1,3 +1,5 @@
+//go:build !no_x402
+
 package daemon
 
 import (
