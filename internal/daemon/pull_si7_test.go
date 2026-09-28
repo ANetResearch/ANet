@@ -130,3 +130,61 @@ func TestPullWritesAreNotRedirectedBySwappingTheSubdir(t *testing.T) {
 	<-done
 	t.Logf("%d pulls under a swap race, %d files written, none redirected", pulls, wrote)
 }
+
+// The same race one level up [redteam:F20, second pass]. out_dir itself lies in a directory another user
+// can write (a group project directory, say): Pull resolves and checks it — not the data dir, not the
+// exec work dir — and then opened it by path, so an entry swapped for a symbolic link after the check
+// was followed, and the anet-<ix> subdirectory and the peer's files were created wherever it pointed,
+// the data dir included. The out_dir is now opened one component at a time, none followed as a link.
+func TestPullOutDirIsNotRedirectedBySwappingAComponent(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("renameat2 syscall number is amd64's")
+	}
+	shared := t.TempDir()
+	_ = os.Chmod(shared, 0o777) // writable by the other user
+	proj := filepath.Join(shared, "proj")
+	if err := os.Mkdir(proj, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	forbidden := filepath.Join(t.TempDir(), "data") // the data dir, which /pull never writes into
+	if err := os.Mkdir(forbidden, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	alt := filepath.Join(shared, "alt")
+	if err := os.Symlink(forbidden, alt); err != nil {
+		t.Fatal(err)
+	}
+	if err := renameExchange(proj, alt); err != nil {
+		t.Skipf("renameat2(RENAME_EXCHANGE): %v", err)
+	}
+	_ = renameExchange(proj, alt)
+	var stop atomic.Bool
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for !stop.Load() {
+			_ = renameExchange(proj, alt)
+		}
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	pulls, wrote := 0, 0
+	for time.Now().Before(deadline) {
+		pulls++
+		ix := fmt.Sprintf("ix_%04d_race", pulls)
+		// proj is what checkPullOutDir resolved and checked; the swap happens after.
+		if res, err := pullInto(proj, ix, []*interactions.Attachment{pullAtt("config.json", []byte(fmt.Sprintf("peer %d", pulls)))}); err == nil {
+			wrote += len(res)
+		}
+		if ents, _ := os.ReadDir(forbidden); len(ents) > 0 {
+			stop.Store(true)
+			<-done
+			t.Fatalf("after %d pulls, %s was created inside the directory the out_dir check excluded", pulls, ents[0].Name())
+		}
+	}
+	stop.Store(true)
+	<-done
+	if wrote == 0 {
+		t.Fatalf("no pull succeeded in %d tries: the defence must not refuse an out_dir nobody touched", pulls)
+	}
+	t.Logf("%d pulls under a swap race, %d files written, none redirected", pulls, wrote)
+}

@@ -206,6 +206,10 @@ const maxPullNameAttempts = 1000
 //     does not fall back to its own working directory, which the caller cannot see.
 //   - outDir is resolved through symbolic links and refused when it lies inside the data dir or the exec
 //     work dir, where a written file could replace keys, tokens, configuration or an agent's input.
+//     The resolved directory is then opened one component at a time, none followed as a symbolic link
+//     (openOutDir): outDir may lie in a directory another local user can write, who could otherwise
+//     swap a component for a link after the check and have the pull land where the check never looked,
+//     the data dir included [redteam:F20].
 //   - Files go into the per-interaction subdirectory, so a peer-chosen name never lands beside the
 //     user's own files (a peer could otherwise create a CLAUDE.md, AGENTS.md or .envrc in a project
 //     directory). The subdirectory is created with Mkdir; one that already exists is used only if it is
@@ -250,40 +254,18 @@ func (d *Daemon) Pull(interactionID, outDir string) ([]PullResult, error) {
 // pullInto writes atts into the per-interaction subdirectory of the resolved directory real.
 func pullInto(real, interactionID string, atts []*interactions.Attachment) ([]PullResult, error) {
 	out := make([]PullResult, 0, len(atts))
-	if err := os.MkdirAll(real, 0o755); err != nil {
-		return nil, err
-	}
-	parent, err := os.OpenRoot(real)
+	parent, err := openOutDir(real)
 	if err != nil {
 		return nil, err
 	}
 	defer parent.Close()
 	name := "anet-" + safeName(prefix(interactionID, 12))
 	sub := filepath.Join(real, name)
-	if err := parent.Mkdir(name, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
-		return nil, err
-	}
-	seen, err := parent.Lstat(name)
+	dir, opened, err := openDirIn(parent, name, 0o700)
 	if err != nil {
-		return nil, err
-	}
-	if why := pullDirTrouble(seen, os.Getuid()); why != "" {
-		return nil, fmt.Errorf("pull: %s %s; refusing to write into it (pull into a directory of your own with --out)", sub, why)
-	}
-	dir, err := parent.OpenRoot(name)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("pull: %s: %w; refusing to write into it", sub, err)
 	}
 	defer dir.Close()
-	// What was opened must be what was inspected: between the two, the entry may have been replaced by
-	// a link to somewhere else. From here on nothing is looked up by path.
-	opened, err := dir.Stat(".")
-	if err != nil {
-		return nil, err
-	}
-	if !os.SameFile(seen, opened) {
-		return nil, fmt.Errorf("pull: %s changed while it was being opened; refusing to write into it", sub)
-	}
 	if why := pullDirTrouble(opened, os.Getuid()); why != "" {
 		return nil, fmt.Errorf("pull: %s %s; refusing to write into it (pull into a directory of your own with --out)", sub, why)
 	}
@@ -296,6 +278,69 @@ func pullInto(real, interactionID string, atts []*interactions.Attachment) ([]Pu
 		out = append(out, res)
 	}
 	return out, nil
+}
+
+// openOutDir opens the out_dir real — absolute, and resolved through symbolic links when it was checked
+// (checkPullOutDir) — one component at a time from the root, creating the components that do not exist,
+// and following none as a symbolic link (openDirIn). Opening real by path, os.OpenRoot included, would
+// follow a component another local user swapped for a link since the check: out_dir may lie in a
+// directory they can write, and the link can point anywhere the check excluded, the data dir included
+// [redteam:F20]. A component that is a link now was not one when real was resolved, so it is refused.
+func openOutDir(real string) (*os.Root, error) {
+	if !filepath.IsAbs(real) {
+		return nil, fmt.Errorf("%w %q is not an absolute path", errPullOutDir, real)
+	}
+	cur, err := os.OpenRoot(string(filepath.Separator))
+	if err != nil {
+		return nil, err
+	}
+	walked := string(filepath.Separator)
+	for _, c := range strings.Split(filepath.Clean(real), string(filepath.Separator)) {
+		if c == "" {
+			continue
+		}
+		walked = filepath.Join(walked, c)
+		next, _, err := openDirIn(cur, c, 0o755)
+		cur.Close()
+		if err != nil {
+			return nil, fmt.Errorf("pull: out_dir %s: %s: %w; refusing to write into it", real, walked, err)
+		}
+		cur = next
+	}
+	return cur, nil
+}
+
+// openDirIn opens the directory name in parent, creating it with mode when it does not exist, and returns
+// it with what it is. It refuses a symbolic link, and an entry replaced between being inspected and being
+// opened: the opened directory must be the file inspected, so nothing is followed.
+func openDirIn(parent *os.Root, name string, mode fs.FileMode) (*os.Root, fs.FileInfo, error) {
+	if err := parent.Mkdir(name, mode); err != nil && !errors.Is(err, fs.ErrExist) {
+		return nil, nil, err
+	}
+	seen, err := parent.Lstat(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	if seen.Mode()&fs.ModeSymlink != 0 {
+		return nil, nil, errors.New("is a symbolic link")
+	}
+	if !seen.IsDir() {
+		return nil, nil, errors.New("exists and is not a directory")
+	}
+	dir, err := parent.OpenRoot(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	opened, err := dir.Stat(".")
+	if err != nil {
+		dir.Close()
+		return nil, nil, err
+	}
+	if !os.SameFile(seen, opened) {
+		dir.Close()
+		return nil, nil, errors.New("changed while it was being opened")
+	}
+	return dir, opened, nil
 }
 
 // pullDirTrouble says what disqualifies fi as the pull subdirectory, or "" when it qualifies: it must be
