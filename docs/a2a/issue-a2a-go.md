@@ -15,7 +15,7 @@ to be reported through GitHub Security Advisories, not public issues; they are m
 
 | # | Title | Area | Filing |
 |---|---|---|---|
-| A1 | Card signing/verification skips the §8.4.1 default-value removal | `a2acrypto` | public issue |
+| A1 | Card signing/verification skips the §8.4.1 default-value removal | `a2acrypto` | **already reported** (a2a-go #445; spec: A2A #2122): comment, not a new issue |
 | A2 | `a2a.AgentCard` JSON: `null` for required lists, inconsistent presence of optional booleans | `a2a` | public issue |
 | A3 | Card verifier accepts duplicate member names and invalid UTF-8 | `a2acrypto` | **security advisory** |
 | A4 | Card verifier accepts base64url with line breaks | `a2acrypto` | public issue (hardening) |
@@ -25,9 +25,16 @@ to be reported through GitHub Security Advisories, not public issues; they are m
 | A8 | JSON-RPC and REST handlers do not echo activated extensions | `a2asrv` | public issue |
 | A9 | Card resolver with a `Verifier` accepts unsigned cards | `a2aclient/agentcard` | **security advisory** |
 | A10 | An unknown `SecurityScheme` variant makes the whole Agent Card unparseable | `a2a` | public issue |
-| A11 | HTTP+JSON binding: `TaskNotCancelable` and `UnsupportedContentType` answered 400 (spec: 409, 415) | `a2asrv`, `internal/rest` | public issue |
-| A12 | Streaming calls: an error before the first event is sent inside an already-opened SSE stream; the JSON-RPC client cannot read an error that is not | `a2asrv`, `a2aclient` | public issue |
-| A13 | JSON-RPC params: proto field names (`history_length`, `context_id`) are silently ignored | `a2asrv`, `a2a` | public issue (confirm the spec reading first) |
+| A11 | HTTP+JSON binding: `TaskNotCancelable` and `UnsupportedContentType` answered 400 (spec: 409, 415) | `a2asrv`, `internal/rest` | **withdrawn**: A2A v1.0.1 (#1627) maps both to 400; a2a-go is right |
+| A12 | Streaming calls: an error before the first event is sent inside an already-opened SSE stream; the JSON-RPC client cannot read an error that is not | `a2asrv`, `a2aclient` | public issue, **on hold**: the spec does not say how a stream that cannot start is refused |
+| A13 | JSON-RPC params: proto field names (`history_length`, `context_id`) are silently ignored | `a2asrv`, `a2a` | **not filed**: spec §5.5 requires camelCase, so the TCK is at fault (a2a-tck #242, #243) |
+
+**Upstream check, 2026-09-28** (docs/notes/0032 §1.2, §3). Upstream `main` is still `ebf17c5`.
+A2A v1.0.1 changed the §5.4 HTTP statuses of `TaskNotCancelableError` and
+`ContentTypeNotSupportedError` to `400` (A2A `docs/specification.md:1183,1186`), so A11 describes
+conformant behaviour and is withdrawn; the section is kept below as a record. A13's "spec reading" is
+settled the other way by §5.5 (`docs/specification.md:1204`). A1 overlaps a2a-go #445. The texts to
+submit are in `submissions/01-a2a-go.md`.
 
 ---
 
