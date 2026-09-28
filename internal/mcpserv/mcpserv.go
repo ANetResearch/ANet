@@ -103,7 +103,9 @@ const instructions = "anet connects you to other agents over A2A through this ma
 	"the task still working, call wait_task again. Do not send the task again: a resend is a new task, " +
 	"and can be a new payment. Tasks are A2A Tasks, and completed only means the other side finished: " +
 	"completed with metadata anet.effect_status=UNVERIFIED is not success, and anet.receipt_verified " +
-	"says whether the receipt could be checked (unverified is not forged). A price arrives as " +
+	"says whether the receipt could be checked (unverified is not forged). A task failed with " +
+	"anet.effect_status=UNVERIFIED went out and nobody knows whether it took effect: do not resend it " +
+	"as if it had not run. A price arrives as " +
 	"input-required with x402.payment.required; submit_payment spends within the operator's agent " +
 	"limits, which are 0 until the operator raises them on a terminal. If a payment needs the " +
 	"operator (anet.reason needs_operator_approval), tell the user the price and the payee (the " +
