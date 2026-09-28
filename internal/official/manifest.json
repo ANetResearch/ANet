@@ -1,8 +1,8 @@
 {
   "schema": "anet-official/1",
-  "seq": 1,
-  "issued_at": "2026-09-27T19:10:25Z",
-  "expires_at": "2027-09-27T19:10:25Z",
-  "key_fingerprint": "SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA",
+  "seq": 2,
+  "issued_at": "2026-09-28T08:14:20Z",
+  "expires_at": "2027-09-28T08:14:20Z",
+  "key_fingerprint": "SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4",
   "agents": []
 }
