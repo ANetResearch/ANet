@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 
@@ -102,6 +103,16 @@ func (d *Daemon) RegisterTransport(t module.Transport) {
 // the last failure rather than a summary — an operator debugging delivery
 // wants to know what the hub said, not that "all transports failed".
 func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []byte) error {
+	_, err := d.deliverEnvelopeTracked(ctx, toAID, envelope)
+	return err
+}
+
+// deliverEnvelopeTracked is deliverEnvelope that also says, when every
+// path failed, whether one of the failures may have delivered the envelope
+// anyway (mayHaveDelivered). The retry queue keeps that on the row: a
+// message that may have arrived is not reported as one that never did
+// ([redteam:F12]).
+func (d *Daemon) deliverEnvelopeTracked(ctx context.Context, toAID string, envelope []byte) (maybe bool, err error) {
 	var lastErr error
 	for _, t := range d.transports() {
 		if !t.Reachable(ctx, toAID) {
@@ -110,8 +121,9 @@ func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []b
 		err := t.Send(ctx, toAID, envelope)
 		if err == nil {
 			d.noteTransport(t.Name(), nil)
-			return nil
+			return false, nil
 		}
+		maybe = maybe || mayHaveDelivered(t, err)
 		lastErr = err
 		// Logged on the transition, not on every message.
 		//
@@ -125,9 +137,34 @@ func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []b
 		d.noteTransport(t.Name(), err)
 	}
 	if lastErr == nil {
-		return fmt.Errorf("anet: no transport can reach %s", toAID)
+		return false, fmt.Errorf("anet: no transport can reach %s", toAID)
 	}
-	return lastErr
+	return maybe, lastErr
+}
+
+// mayHaveDelivered reports whether a failed Send may still have delivered
+// the envelope. module.Transport has a Send that partially succeeded report
+// failure — a p2p round trip that timed out while the far side was at work
+// — so a failure counts as "may have" unless it is known to have reached
+// nobody: one the transport marks module.ErrNotDelivered, an answer from
+// the hub itself (it stored nothing; a gateway's 502 or 504 speaks for a
+// hub that may have), or a hub that could not be dialled.
+func mayHaveDelivered(t module.Transport, err error) bool {
+	if errors.Is(err, module.ErrNotDelivered) {
+		return false
+	}
+	if _, hub := t.(hubTransport); !hub {
+		return true
+	}
+	var he *hubError
+	if errors.As(err, &he) {
+		return he.code == http.StatusBadGateway || he.code == http.StatusGatewayTimeout
+	}
+	var op *net.OpError
+	if errors.As(err, &op) && op.Op == "dial" {
+		return false
+	}
+	return true
 }
 
 // noteTransport reports a transport's health only when it changes.

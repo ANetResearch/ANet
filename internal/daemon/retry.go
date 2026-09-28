@@ -75,16 +75,24 @@ const (
 var errUndeliverable = errors.New("not deliverable")
 
 // undeliverableError is errUndeliverable with the reason and the cause.
+// maybe is set when an earlier attempt may have delivered the message
+// all the same (OutboxItem.MaybeDelivered): nothing more will be sent, but
+// "not delivered" would be more than is known ([redteam:F12]).
 type undeliverableError struct {
 	reason string
 	cause  error
+	maybe  bool
 }
 
 func (e *undeliverableError) Error() string {
-	if e.cause == nil {
-		return "anet: not delivered (" + e.reason + ")"
+	head := "anet: not delivered (" + e.reason + ")"
+	if e.maybe {
+		head = "anet: delivery not confirmed (" + e.reason + "; an earlier attempt may have reached the recipient)"
 	}
-	return "anet: not delivered (" + e.reason + "): " + e.cause.Error()
+	if e.cause == nil {
+		return head
+	}
+	return head + ": " + e.cause.Error()
 }
 
 func (e *undeliverableError) Is(target error) bool { return target == errUndeliverable }
@@ -206,7 +214,16 @@ func (d *Daemon) deliverQueued(ctx context.Context, id int64) error {
 		}
 		it.Envelope, it.Exp = env, deadline
 	}
-	if err := d.deliverEnvelope(ctx, it.ToAID, it.Envelope); err != nil {
+	if maybe, err := d.deliverEnvelopeTracked(ctx, it.ToAID, it.Envelope); err != nil {
+		if maybe && !it.MaybeDelivered {
+			// Kept on the row: the attempt that fails for good later (the
+			// hub refusing what only a direct path could carry) is not
+			// the whole story ([redteam:F12]).
+			if merr := d.ix.MarkOutboxMaybeDelivered(it.ID); merr != nil {
+				log.Printf("anet: %s: %v", it.IX, merr)
+			}
+			it.MaybeDelivered = true
+		}
 		if reason, ok := permanentRefusal(err); ok {
 			return d.abandonOutbox(it, reason, err)
 		}
@@ -248,7 +265,7 @@ func (d *Daemon) abandonOutbox(it *interactions.OutboxItem, reason string, cause
 	if failed {
 		d.publishResult(it.IX)
 	}
-	return &undeliverableError{reason: reason, cause: cause}
+	return &undeliverableError{reason: reason, cause: cause, maybe: it.MaybeDelivered}
 }
 
 // rescheduleOutbox records a failed attempt with the next backoff, or with

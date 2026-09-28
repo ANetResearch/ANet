@@ -1,6 +1,17 @@
 package module
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrNotDelivered marks a Send failure the transport knows reached nobody:
+// the envelope never left this node, or the far side refused it before any
+// daemon processed it. A failure that does not wrap it may have delivered
+// the envelope all the same (see Send), and the daemon treats the message
+// as possibly delivered: it does not report a call that was sent this way
+// as one that never ran ([redteam:F12]).
+var ErrNotDelivered = errors.New("envelope not delivered")
 
 // Transport is how a message reaches another node.
 //
@@ -36,6 +47,8 @@ type Transport interface {
 	// partially succeeded must report failure. A duplicate delivery is
 	// harmless — the receiver drops a second copy of the same envelope by
 	// its (sender, message id) replay record — whereas a lost one is not.
+	// A failure the transport knows delivered nothing wraps ErrNotDelivered;
+	// any other failure is taken to mean "may have been delivered".
 	Send(ctx context.Context, toAID string, envelope []byte) error
 }
 

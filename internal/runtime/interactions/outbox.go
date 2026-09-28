@@ -47,6 +47,11 @@ type OutboxItem struct {
 	NextAt    int64 // unix ms
 	LastError string
 	CreatedAt int64 // unix ms
+	// MaybeDelivered records that an attempt failed in a way that may still
+	// have delivered the envelope (a direct transport that timed out
+	// waiting for the far side, a hub request cut off mid-way). Abandoning
+	// such a row does not say the message never arrived ([redteam:F12]).
+	MaybeDelivered bool
 }
 
 func (s *Store) migrateOutbox() error {
@@ -74,6 +79,7 @@ func (s *Store) migrateOutbox() error {
 	for _, col := range []struct{ name, decl string }{
 		{"mid", "BLOB"},
 		{"digest", "BLOB"},
+		{"maybe_delivered", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumn(s.db, "outbox", col.name, col.decl); err != nil {
 			return err
@@ -85,7 +91,7 @@ func (s *Store) migrateOutbox() error {
 	return nil
 }
 
-const outboxColumns = `id,ix,to_aid,typ,body,envelope,exp,attempts,next_at,last_error,created_at,mid,digest`
+const outboxColumns = `id,ix,to_aid,typ,body,envelope,exp,attempts,next_at,last_error,created_at,mid,digest,maybe_delivered`
 
 // OutboxLifetimeMS is how long a row is kept when it carries no deadline of
 // its own (a row queued unsealed before deadlines were recorded): 14 days
@@ -228,6 +234,15 @@ func (s *Store) RescheduleOutbox(id int64, attempts int, nextAt int64, lastErr s
 	return err
 }
 
+// MarkOutboxMaybeDelivered records that an attempt at a row may have
+// delivered it although it failed (OutboxItem.MaybeDelivered).
+func (s *Store) MarkOutboxMaybeDelivered(id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`UPDATE outbox SET maybe_delivered=1 WHERE id=?`, id)
+	return err
+}
+
 // DeleteOutbox removes a delivered or abandoned row.
 func (s *Store) DeleteOutbox(id int64) error {
 	s.mu.Lock()
@@ -252,12 +267,12 @@ func (s *Store) queryOutbox(q string, args ...any) ([]OutboxItem, error) {
 	var out []OutboxItem
 	for rows.Next() {
 		var it OutboxItem
-		var exp int64
+		var exp, maybe int64
 		if err := rows.Scan(&it.ID, &it.IX, &it.ToAID, &it.Type, &it.Body, &it.Envelope, &exp,
-			&it.Attempts, &it.NextAt, &it.LastError, &it.CreatedAt, &it.MID, &it.Digest); err != nil {
+			&it.Attempts, &it.NextAt, &it.LastError, &it.CreatedAt, &it.MID, &it.Digest, &maybe); err != nil {
 			return nil, err
 		}
-		it.Exp = uint64(exp)
+		it.Exp, it.MaybeDelivered = uint64(exp), maybe != 0
 		out = append(out, it)
 	}
 	return out, rows.Err()
