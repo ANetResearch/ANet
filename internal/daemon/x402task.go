@@ -1306,8 +1306,14 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 	// refused by that ledger's hub (unknown_payer, insufficient funds) —
 	// or sit there as a signature over money this node does not have.
 	// Refused before anything is signed, saying which options it can pay.
-	// When the home ledger cannot be learned now, the hub decides.
-	if home := p.HomeNetwork(); home != "" && opt.Network != home {
+	//
+	// So is any option while this node cannot learn which ledger its
+	// credit is on (its hub has not answered since it started): it cannot
+	// tell a payable option from another, and a receipt could not be
+	// checked either. This used to sign whatever was chosen — the
+	// provider's first option, when the client named none — and leave it
+	// to that ledger's hub [redteam:Q28].
+	if home := p.HomeNetwork(); home == "" || opt.Network != home {
 		out.Message = railNotPayableText(opt.Network, home, pr.Accepts)
 		return refuse(x402a2a.ReasonRailNotPayable)
 	}
@@ -1461,6 +1467,11 @@ func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.I
 // node's credit is on. The options are the provider's, so they are made
 // plain before they become text a model reads.
 func railNotPayableText(chosen, home string, accepts []payment.PaymentOption) string {
+	if home == "" {
+		return fmt.Sprintf("this node could not learn from its hub which ledger its credit is on, so it cannot "+
+			"tell whether it can pay on %s. Nothing was signed or sent; pay again once its hub answers.",
+			plainText(chosen, 256))
+	}
 	var can []string
 	for _, o := range accepts {
 		if o.Scheme == payment.SchemeCredit && o.Network == home {
