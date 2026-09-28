@@ -304,7 +304,7 @@ func (m *Module) VerifyReceipt(receiptB64, expectPayer string) (module.ReceiptFa
 	if err != nil {
 		return facts, false
 	}
-	facts.Payee, facts.AuthID, facts.Amount = rec.PayTo, rec.AuthID, rec.Amount
+	facts.Payee, facts.AuthID, facts.Amount, facts.Network = rec.PayTo, rec.AuthID, rec.Amount, rec.Network
 	hubAID := m.hubAID()
 	if hubAID == "" {
 		return facts, false

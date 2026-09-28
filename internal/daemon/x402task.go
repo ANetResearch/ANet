@@ -1642,8 +1642,8 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 		return
 	}
 	// What this node already recorded for the task, and which of those
-	// settlements it verified, with the amount its hub's receipt states.
-	recorded, verifiedTx, verifiedBefore := map[string]bool{}, map[string]string{}, 0
+	// settlements it verified, with what its hub's receipt states.
+	recorded, verifiedTx, verifiedBefore := map[string]bool{}, map[string]settledFacts{}, 0
 	d.ledger.scan(EvPaymentSettled, 0, func(_ int64, p map[string]any) {
 		if p["interaction_id"] != ixID {
 			return
@@ -1655,7 +1655,11 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 		if p["verified"] == true {
 			verifiedBefore++
 			if tx != "" {
-				verifiedTx[tx], _ = p["amount"].(string)
+				f := settledFacts{}
+				f.amount, _ = p["amount"].(string)
+				f.network, _ = p["network"].(string)
+				f.receipt, _ = p["receipt"].(string)
+				verifiedTx[tx] = f
 			}
 		}
 	})
@@ -1700,6 +1704,15 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 				entry["refused"] = "receipt pays someone other than the task's provider"
 			case !known || amount != facts.Amount:
 				entry["refused"] = "receipt amount differs from the authorization"
+			case sr.Transaction != facts.AuthID || sr.Network != facts.Network:
+				// The anet-credit scheme: transaction = auth_id. The hub's
+				// receipt restated under another transaction (or network)
+				// is not a second settlement: it was recorded as one, a
+				// "second_receipt" for a task paid once, stated as two
+				// settlements, and reported by reconcile as missing from
+				// the hub under a transaction the hub never issued
+				// [redteam:F11].
+				entry["refused"] = "the settlement names a transaction or network other than the hub receipt's"
 			default:
 				verified = true
 				entry["amount"] = payment.Amount(facts.Amount)
@@ -1707,7 +1720,10 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 		}
 		entry["verified"] = verified
 		if verified {
-			verifiedTx[sr.Transaction] = entry["amount"].(string)
+			// entry holds the hub receipt's amount; the network is the
+			// receipt's too, checked equal above.
+			verifiedTx[sr.Transaction] = settledFacts{amount: entry["amount"].(string),
+				network: sr.Network, receipt: enc}
 			if verifiedBefore > 0 {
 				// §8.3 [m]: a second settlement for one task. Recorded, and
 				// marked for audit to show.
@@ -1737,10 +1753,21 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 //
 // The provider's list replaces the stored one when it is at least as
 // long (it is the whole history, §8.2), except that a settlement this node
-// verified stays even when the new list leaves it out: the provider cannot
-// take back what this node checked. A shorter list only adds the
-// settlements the stored one does not have.
-func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]string) {
+// verified stays even when the new list leaves it out or restates it
+// unverified: the provider cannot take back what this node checked. A
+// shorter list only adds the settlements the stored one does not have.
+//
+// Verified here is what the stored list carries this node's verified
+// mark on, as well as what verified names. verified is the ledger as
+// notePaymentReceipts read it before checking, and a concurrent delivery
+// (p2p and hub, §3.6) may have verified and stored a settlement since:
+// read only from the snapshot, that settlement was dropped from the list
+// by the next longer one [redteam:F11].
+//
+// At most maxPeerReceipts are kept, every verified settlement among them.
+// The shorter-list path appended without limit, so a provider could grow
+// the row by a few made-up transactions per status [redteam:F11].
+func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]settledFacts) {
 	items := make([]json.RawMessage, 0, len(list))
 	for _, item := range list {
 		if b, err := json.Marshal(item); err == nil {
@@ -1755,14 +1782,26 @@ func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]
 		old := storedReceipts(cur)
 		var merged []json.RawMessage
 		if len(items) >= len(old) {
-			have := successTxs(items)
+			restated := map[string]bool{}
+			for _, n := range items {
+				if tx := verifiedTx(n); tx != "" {
+					restated[tx] = true
+				}
+			}
+			kept := map[string]bool{}
 			for _, o := range old {
 				tx := successTx(o)
-				if _, ok := verified[tx]; ok && !have[tx] {
+				if _, ok := verified[tx]; tx != "" && (ok || verifiedTx(o) != "") && !restated[tx] && !kept[tx] {
+					kept[tx] = true
 					merged = append(merged, o)
 				}
 			}
-			merged = append(merged, items...)
+			for _, n := range items {
+				if tx := successTx(n); tx != "" && kept[tx] {
+					continue // an unverified restatement of a verified one
+				}
+				merged = append(merged, n)
+			}
 		} else {
 			merged = old
 			have := successTxs(old)
@@ -1776,7 +1815,7 @@ func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]
 				return nil
 			}
 		}
-		all, err := json.Marshal(merged)
+		all, err := json.Marshal(boundReceipts(merged, maxPeerReceipts))
 		if err != nil {
 			return err
 		}
@@ -1788,35 +1827,118 @@ func (d *Daemon) storePeerReceipts(ixID string, list []any, verified map[string]
 	}
 }
 
+// boundReceipts is list cut to max entries: every settlement this node
+// verified, wherever it stands, and the newest of the rest.
+func boundReceipts(list []json.RawMessage, max int) []json.RawMessage {
+	if len(list) <= max {
+		return list
+	}
+	nVerified := 0
+	for _, r := range list {
+		if verifiedTx(r) != "" {
+			nVerified++
+		}
+	}
+	drop := len(list) - max
+	if others := len(list) - nVerified; drop > others {
+		drop = others
+	}
+	out := make([]json.RawMessage, 0, len(list)-drop)
+	for _, r := range list {
+		if drop > 0 && verifiedTx(r) == "" {
+			drop--
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// verifiedTx is the transaction of a stored settlement response this node
+// marked verified (withVerdict), "" for anything else.
+func verifiedTx(raw json.RawMessage) string {
+	var r struct {
+		Success     bool           `json:"success"`
+		Transaction string         `json:"transaction"`
+		Extensions  map[string]any `json:"extensions"`
+	}
+	if json.Unmarshal(raw, &r) != nil || !r.Success || r.Extensions[x402a2a.ExtSettlementVerified] != x402a2a.VerdictVerified {
+		return ""
+	}
+	return r.Transaction
+}
+
+// settledFacts is what this node recorded of a settlement it verified
+// (anet.payment.settled): the amount and network of the hub's receipt, and
+// the receipt itself.
+type settledFacts struct{ amount, network, receipt string }
+
 // withVerdict is a settlement response with this node's verdict in its
-// extensions when it claims success, and on a verified one the verified
-// amount and this node (payer) as payer; anything else comes back
-// unchanged.
-func withVerdict(raw json.RawMessage, verified map[string]string, payer string) json.RawMessage {
+// extensions when it claims success. A verified one is restated whole from
+// what this node recorded of the hub's receipt — transaction, network,
+// amount, this node (payer) as payer, the receipt — and keeps nothing the
+// provider wrote beside it: re-sent with another network or other receipt
+// bytes, it was stored verified as the provider rewrote it. Anything else
+// keeps no verdict of the provider's writing: a failure's is removed, and
+// an entry whose success is not a boolean is marked unverified; the
+// verdict key is this node's [redteam:F11].
+func withVerdict(raw json.RawMessage, verified map[string]settledFacts, payer string) json.RawMessage {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var m map[string]any
-	if dec.Decode(&m) != nil || m == nil || m["success"] != true {
+	if dec.Decode(&m) != nil || m == nil {
 		return raw
 	}
 	ext, _ := m["extensions"].(map[string]any)
+	switch m["success"] {
+	case true:
+	case false:
+		if _, set := ext[x402a2a.ExtSettlementVerified]; !set {
+			return raw
+		}
+		delete(ext, x402a2a.ExtSettlementVerified)
+		return remarshal(m, raw)
+	default:
+		if ext == nil {
+			ext = map[string]any{}
+		}
+		ext[x402a2a.ExtSettlementVerified] = x402a2a.VerdictUnverified
+		m["extensions"] = ext
+		return remarshal(m, raw)
+	}
+	tx, _ := m["transaction"].(string)
+	if f, ok := verified[tx]; ok && tx != "" {
+		out := map[string]any{"success": true, "transaction": tx, "payer": payer}
+		for k, v := range map[string]string{"amount": f.amount, "network": f.network} {
+			if v == "" {
+				v, _ = m[k].(string) // recorded before this node kept it
+			}
+			if v != "" {
+				out[k] = v
+			}
+		}
+		oext := map[string]any{x402a2a.ExtSettlementVerified: x402a2a.VerdictVerified}
+		if rc := f.receipt; rc != "" {
+			oext[payment.ExtReceipt] = rc
+		} else if rc, _ := ext[payment.ExtReceipt].(string); rc != "" {
+			oext[payment.ExtReceipt] = rc
+		}
+		out["extensions"] = oext
+		return remarshal(out, raw)
+	}
 	if ext == nil {
 		ext = map[string]any{}
 	}
-	verdict := x402a2a.VerdictUnverified
-	tx, _ := m["transaction"].(string)
-	if amount, ok := verified[tx]; ok && tx != "" {
-		verdict = x402a2a.VerdictVerified
-		m["payer"] = payer
-		if amount != "" {
-			m["amount"] = amount
-		}
-	}
-	ext[x402a2a.ExtSettlementVerified] = verdict
+	ext[x402a2a.ExtSettlementVerified] = x402a2a.VerdictUnverified
 	m["extensions"] = ext
+	return remarshal(m, raw)
+}
+
+// remarshal is m encoded, or fallback when it cannot be.
+func remarshal(m map[string]any, fallback json.RawMessage) json.RawMessage {
 	b, err := json.Marshal(m)
 	if err != nil {
-		return raw
+		return fallback
 	}
 	return b
 }

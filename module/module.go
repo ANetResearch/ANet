@@ -576,10 +576,16 @@ type Payer interface {
 }
 
 // ReceiptFacts is what a settlement receipt says, once checked.
+//
+// AuthID is also the settlement's transaction (the anet-credit scheme:
+// transaction = auth_id), and Network the ledger it settled on: a
+// settlement response a provider passes on is the hub's own only when
+// its transaction and network are these [redteam:F11].
 type ReceiptFacts struct {
-	Payee  string
-	AuthID string
-	Amount uint64
+	Payee   string
+	AuthID  string
+	Amount  uint64
+	Network string
 }
 
 // Settlement is a completed payment as the kernel needs to see it.
