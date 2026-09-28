@@ -241,16 +241,19 @@ func TestRedteamSI10_ACancelWaitsBehindADelegationThatMayHaveArrived(t *testing.
 	}
 }
 
-// Decision Q1 / SI-10: the relay cursor returns to the head of the mailbox
-// only on a round whose page after the cursor is empty. A stranger that
-// sends one message per poll round for an interaction the node does not
-// hold (class T: held for the unknown-ix window) keeps every page non-empty
-// and "held", so the cursor never returns. A legitimate envelope held back
-// once (here a single store error) is never tried again for as long as the
-// stranger keeps going, and the stranger's own held envelopes are never
-// re-read, never turn permanent (TaskNotFound) and pile up in the mailbox
-// toward its 5000-message quota.
-func TestRedteamSI10_StrangerPinsTheRelayCursorAndStarvesHeldMail(t *testing.T) {
+// [redteam:F24] regression (was TestRedteamSI10_StrangerPinsTheRelayCursorAndStarvesHeldMail).
+// Decision Q1 / SI-10: a peer that sends one message per poll round for an
+// interaction the node does not hold (class T: held for the unknown-ix
+// window) keeps every page after the cursor non-empty and "held". The
+// cursor used to go back to the head only after an empty page, so a
+// legitimate envelope held back once (here a single store error) was never
+// tried again while the stream went on, and the held messages were never
+// read again to turn permanent. Now a round reads from the head at least
+// every relayHeadEvery rounds: the follow-up is taken within that, and the
+// stream's own messages turn into TaskNotFound once their window ends.
+// (The sender is one this node allows: a stranger's messages for unknown
+// tasks are not held at all, [redteam:F25].)
+func TestRedteamSI10_ASteadyStreamDoesNotPinTheRelayCursor(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	id, err := req.Delegate(ctx, prov.AID(), "text task", nil)
@@ -285,12 +288,14 @@ func TestRedteamSI10_StrangerPinsTheRelayCursorAndStarvesHeldMail(t *testing.T) 
 		t.Fatal("setup: the follow-up was not held back")
 	}
 
-	// A registered stranger sends one message per round (1/s is 5% of the
-	// hub's per-sender budget) for interactions this node does not hold.
+	// A peer sends one message per round, a minute of wire time apart, for
+	// interactions this node does not hold.
 	mallory := newStranger(t)
-	const rounds = 40 // 40 rounds, 30 s of wire time each: 20 minutes
+	allowPeers(t, prov, mallory.aid)
+	const rounds = 2 * (relayHeadEvery + 1)
+	processedAt := -1
 	for i := 0; i < rounds; i++ {
-		clk.now += 30_000
+		clk.now += 60_000
 		now := clk.now
 		ix := "ix_mallory_" + time.Duration(i).String()
 		injectEnvelope(t, srv, prov.AID(), craft(t, mallory, prov, seal.TypeMessage, ix,
@@ -298,30 +303,20 @@ func TestRedteamSI10_StrangerPinsTheRelayCursorAndStarvesHeldMail(t *testing.T) 
 		if err := prov.pollOnce(ctx); err != nil {
 			t.Fatal(err)
 		}
-	}
-	// Twenty minutes on: the legitimate follow-up (which would succeed
-	// now) was never tried again.
-	if got := countMsgs(t, prov, id); got != before {
-		t.Fatalf("the held follow-up was processed during the flood (%d → %d); attack failed", before, got)
-	}
-	// Every stranger message is still queued: none was re-read after its
-	// window, so none turned into TaskNotFound and none was acknowledged.
-	if n := len(queuedFor(t, srv, prov.AID())); n != rounds+1 {
-		t.Fatalf("%d envelopes queued, want %d (held follow-up + every stranger message)", n, rounds+1)
-	}
-	if counter(prov, dropUnknownIX) != 0 {
-		t.Fatalf("stranger messages turned permanent: %v", prov.ReceiveStats())
-	}
-
-	// Control: the moment the stranger stops, the head is read again and
-	// the follow-up is processed.
-	for i := 0; i < 2; i++ {
-		if err := prov.pollOnce(ctx); err != nil {
-			t.Fatal(err)
+		if processedAt < 0 && countMsgs(t, prov, id) == before+1 {
+			processedAt = i
 		}
 	}
-	if got := countMsgs(t, prov, id); got != before+1 {
-		t.Fatalf("control: follow-up still not processed (%d → %d)", before, got)
+	if processedAt < 0 || processedAt > relayHeadEvery {
+		t.Fatalf("the held follow-up was taken at round %d of the stream, want within %d rounds", processedAt, relayHeadEvery)
+	}
+	// The stream's messages were read again once their window ended, and
+	// answered TaskNotFound and acknowledged.
+	if counter(prov, dropUnknownIX) == 0 {
+		t.Fatalf("no held message turned permanent during a %d-minute stream: %v", rounds, prov.ReceiveStats())
+	}
+	if n := len(queuedFor(t, srv, prov.AID())); n >= rounds {
+		t.Fatalf("%d envelopes still queued after %d rounds; the expired ones were not acknowledged", n, rounds)
 	}
 }
 
