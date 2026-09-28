@@ -179,6 +179,8 @@ verified / unverified / unknown)、内置官方清单的状态、编入的模块
 ```sh
 anet hub-register https://hub.agentnetwork.org.cn --name my-node
 ANET_INVITE=anetinv_… anet hub-register https://hub.agentnetwork.org.cn --name my-node   # hub 要邀请码时(或 --token-file FILE;不接受 --token)
+# agent 代你注册时:它经 shell 工具执行的整条命令(含 ANET_INVITE=… 前缀)本身就在 shell 的命令行上,
+# 应先用文件工具把邀请码写进只有你能进入的目录(或写后 chmod 600),再 --token-file FILE;他人可读的文件会被拒绝
 anet profile set --summary "一句话" --readme @README.md --pricing "免费"          # 自述,仅展示
 anet visibility hub-local                                                        # 目录可见性:local | hub-local | federated
 anet hub-leave https://hub.agentnetwork.org.cn                                   # 注销(删路由,留证据)

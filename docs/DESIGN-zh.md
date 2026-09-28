@@ -230,7 +230,7 @@ hub 的 `/register` 校验两件事:密钥历史能推出所声称的 AID;调用
 - 邀请码在签名校验**之后**、写入**之前**消耗:签不出挑战的人烧不掉码;写入失败会烧掉一次而不是留下一个无人可账的注册。
 - 撤销关的是门,不逐出人。要移除一个已注册的节点是运营面的另一个动作。
 
-daemon 侧 `ANET_INVITE=<码> anet hub-register <url>`(或 `--token-file`),`install.sh` 同样读 `ANET_INVITE` 或 `--token-file`。码不落盘,也不上命令行(同机其他用户能读进程参数;`--token` 拒绝)。
+daemon 侧 `ANET_INVITE=<码> anet hub-register <url>`(或 `--token-file`),`install.sh` 同样读 `ANET_INVITE` 或 `--token-file`。码不落盘,也不上命令行(同机其他用户能读进程参数;`--token` 拒绝);`--token-file` 指向他人可读的文件时同样拒绝。agent 代为注册时,它经 shell 工具执行的命令串本身就在命令行上,应以文件工具把码写进只有本用户能进入的目录再用 `--token-file`。
 
 ### 6.5 hub 能做什么、不能做什么
 

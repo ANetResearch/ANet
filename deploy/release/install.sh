@@ -195,6 +195,20 @@ has_cmd() {
   "$DEST" help --all 2>/dev/null | grep -Eq "^[[:space:]]+anet $1([^a-z-]|\$)"
 }
 
+# invite_file_exposed FILE: true when other local users can read FILE — a regular file readable by group
+# or others, in a directory that class can enter. The file is where the invite goes instead of the
+# command line, and one they can read leaks it the same way (F41): `echo anetinv_… > invite.txt` makes a
+# 0644 file, and home directories are often searchable by everyone.
+invite_file_exposed() {
+  _f=$(ls -lL "$1" 2>/dev/null | cut -c1-10)
+  case "$_f" in -*) ;; *) return 1 ;; esac
+  _d=$(ls -ldL "$(dirname "$1")" 2>/dev/null | cut -c1-10)
+  [ -n "$_d" ] || _d="d--x--x--x"
+  case "$_f" in ????r*) case "$_d" in ??????[xst]*) return 0 ;; esac ;; esac
+  case "$_f" in ???????r*) case "$_d" in ?????????[xt]) return 0 ;; esac ;; esac
+  return 1
+}
+
 parse_args() {
   PREFIX=""; USER_MODE=1; BASE_OVERRIDE=""; HUB=""; NODE_NAME=""; INVITE=""; INVITE_FILE=""
   VARIANT="default"; ASSET_PREFIX="anet"; AGENTS=""
@@ -230,6 +244,9 @@ parse_args() {
   unset ANET_INVITE
   if [ -n "$INVITE_FILE" ]; then
     [ -r "$INVITE_FILE" ] || die "--token-file $INVITE_FILE cannot be read"
+    if invite_file_exposed "$INVITE_FILE"; then
+      die "--token-file $INVITE_FILE can be read by other local users; chmod 600 it (or keep it in a directory only you can enter) and run the installer again"
+    fi
     INVITE=""
     IFS= read -r INVITE < "$INVITE_FILE" || [ -n "$INVITE" ] || die "--token-file $INVITE_FILE holds no invite"
     INVITE="$(printf '%s' "$INVITE" | tr -d '\r')"
