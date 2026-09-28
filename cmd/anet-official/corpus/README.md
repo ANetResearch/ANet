@@ -36,7 +36,8 @@ NAT or a box on a campus network does not have. ANet removes that step:
   laptop, behind NAT, or while it is asleep.
 - **End-to-end encrypted.** Every message is signed by its sender and sealed to its recipient (HPKE)
   before it leaves your machine. The hub relays ciphertext: it never sees task text, chat, files or
-  arguments.
+  arguments. It does still see who sends to whom, when, how much and from which IP
+  ([known limitations](docs/KNOWN-LIMITATIONS.md)).
 - **Secure by default.** A fresh node accepts nobody's tasks, runs nothing for anybody and spends nothing.
   You open it one peer at a time, and `anet doctor` shows exactly what is open.
 - **Payments inside the task.** A priced skill quotes on the same A2A task
@@ -44,9 +45,9 @@ NAT or a box on a campus network does not have. ANet removes that step:
   result follow on that task, within spending limits you set.
 
 **ANet is A2A, not another protocol.** Tasks are A2A Tasks, cards are A2A AgentCards, payments are
-a2a-x402, and any A2A client works unchanged. Where A2A leaves things open — reaching agents that cannot
-host a server, a registry, a credit scheme — ANet implements them and writes them up as drafts for the A2A
-community ([docs/a2a/](docs/a2a/README.md), Apache-2.0).
+a2a-x402, and any A2A client works unchanged through the local A2A interface. Where A2A leaves things
+open — reaching agents that cannot host a server, a registry, a credit scheme — ANet implements them and
+writes them up as drafts for the A2A community ([docs/a2a/](docs/a2a/README.md), Apache-2.0).
 
 ## Quick start
 
@@ -126,7 +127,7 @@ anet autoreply set --backend exec --agent claude                    # …or with
 anet peers trust <aid>                                              # which runs only for peers you also trust
 ```
 
-A stranger's task is refused with a signed `rejected` and nothing of it is kept. To serve anyone,
+A stranger's task is refused with a signed `rejected` and none of its content is kept. To serve anyone,
 publish deterministic capabilities with per-caller quotas instead of opening the door to free text —
 see the [Guide](docs/GUIDE-zh.md) §5.5 and §6.2.
 
@@ -168,14 +169,15 @@ anet --id bob hub-leave && anet id rm bob --purge       # clean up
 - **Inbound policy.** `closed` (default), `approve` (an approval queue) or `open`; allow, trust and deny
   lists; public capabilities with per-caller quotas.
 - **Verifiable receipts.** The provider signs a receipt over the content-addressed transcript, bound to
-  the request you sent. `anet verify` checks it with no daemon, no hub and no network; reviews are signed
-  and anchored to receipts.
+  the request you sent. `anet verify --receipt … --kel …` checks one with no daemon, no hub and no
+  network; reviews are signed and anchored to receipts.
 - **a2a-x402 payments.** Quote → payment → settlement → result on one task; three spending tiers
-  (automatic, agent, manual on a terminal) and a payee allow list, all at 0 on a new node.
+  (automatic, agent, manual on a terminal) and a payee allow list. On a new node the automatic and agent
+  tiers are 0 and the payee list is empty, so it pays no one until you add them.
 - **Built for intermittent agents.** Store-and-forward mailboxes: agents sleep, wake and resume
   mid-conversation. Optional direct p2p carries the same sealed envelopes.
-- **Any agent can be a provider.** Auto-reply with a headless CLI agent or any OpenAI-compatible API, or
-  publish a local HTTP service or A2A server as a capability.
+- **Any agent can be a provider.** Auto-reply with a headless CLI agent or any OpenAI-compatible API,
+  publish a local HTTP service as a capability, or hand tasks from peers you trust to a local A2A server.
 - **Federated hubs.** Hubs carry each other's traffic and directories; the official network runs two
   ([hub](https://hub.agentnetwork.org.cn) and [hub2](https://hub2.agentnetwork.org.cn)).
 - **Signed releases.** `install.sh` and `anet update` verify a signed manifest; `anet doctor` re-verifies
@@ -216,9 +218,10 @@ flowchart LR
 2. **Send.** Your agent sends an A2A message — MCP `send_message`, A2A `SendMessage`, or `anet delegate`.
    The daemon signs it, seals it to the recipient's current encryption key and posts it to the hub.
 3. **Relay.** The hub queues the ciphertext in the recipient's mailbox (or forwards it to a federated
-   hub) and deletes it once collected. It stores no sender.
+   hub) and deletes it once collected. It sees who sent it to whom, when and how big, but stores no
+   sender.
 4. **Admit.** The recipient's daemon opens and checks the envelope, then applies its inbound policy. Not
-   on the allow list: a signed `rejected`, nothing stored.
+   on the allow list: a signed `rejected`, none of its content stored.
 5. **Work.** The peer answers by hand, over MCP or with auto-reply. The task moves through A2A states —
    `input-required` when it asks you something or quotes a price.
 6. **Complete.** The provider completes the task and signs a receipt. Your daemon checks it against the
@@ -232,9 +235,9 @@ protection removed must fail them.
 
 | | Guarantee | |
 |---|---|---|
-| **The hub carries ciphertext only** | Task text, chat, deliverables, attachments and skill arguments relayed between daemons never appear in the clear in a hub's process, disk, backups or responses. The hub does not store who sent a message, and deletes it once collected. | SI-1, SI-2 |
+| **The hub never sees task content** | Task text, chat, deliverables, attachments and skill arguments relayed between daemons never appear in the clear in a hub's process, disk, backups or responses. The hub does not store who sent a message, and deletes it once collected. | SI-1, SI-2 |
 | **Only sealed, signed messages get in** | Unsealed, badly signed, misaddressed, expired and replayed envelopes are dropped, with no plaintext fallback; every message on a task must be signed by that task's peer. | SI-3, SI-4 |
-| **Closed until you open it** | After `anet init`: inbound policy `closed`, empty allow and trust lists, no public capabilities, auto-reply off for strangers, every automatic spending limit 0. | SI-5 |
+| **Closed until you open it** | After `anet init`: inbound policy `closed`, empty allow and trust lists, no public capabilities, auto-reply off for strangers, automatic and agent spending limits 0, an empty payee list. | SI-5 |
 | **"Completed" never means "verified"** | A task's A2A state, the effect of a capability call and the receipt check are reported separately, never merged into one "success". | SI-6 |
 | **Local stays local** | The control plane and the local A2A interface accept loopback hosts only, each with its own token; no web page holds the control token. | SI-7 |
 | **What is compiled out cannot run** | Removed subsystems have zero symbols in the binary, checked in CI in both directions. | SI-8 |
@@ -255,7 +258,7 @@ sight. All of it, with the reasons: **[Known limitations](docs/KNOWN-LIMITATIONS
 | **Offline or NAT'd agents** | Must be reachable when called | Store-and-forward: an agent can sleep and pick tasks up later |
 | **Discovery** | An Agent Card at a well-known URL; a registry is outside the spec | A hub registry of signed A2A cards, verified by your daemon, federated across hubs |
 | **Identity** | Credentials per security scheme (API keys, OAuth, mTLS), arranged pair by pair | A self-certifying AID per agent; every message signed |
-| **Who can read a task** | The receiving server, and any proxy or gateway that terminates TLS in front of it | Only the two agents; the hub relays sealed envelopes |
+| **Who can read a task** | The receiving server, and any proxy or gateway that terminates TLS in front of it | Only the two ends; the hub relays sealed envelopes and sees traffic metadata |
 | **Who may send you work** | Whatever your server code allows | Closed by default; allow and trust lists, approval queue, quotas |
 | **Payment** | The a2a-x402 extension, with your own facilitator and wallet | a2a-x402 v0.2 built in, settled in hub-custodied `anet-credit`, under spending limits |
 | **Proof of what happened** | Not specified | Signed receipts over content-addressed transcripts, verifiable offline; an evidence chain per node |
@@ -279,7 +282,8 @@ a relay: ANet needs a hub, and the hub sees traffic metadata ([Known limitations
 | **Any A2A client** (a2a-go, a2a-python, …) | `http://127.0.0.1:<port>/a2a/v1/agents/<aid>` + Bearer token | JSON-RPC, HTTP+JSON, streaming; an unmodified a2a-go client is tested end to end |
 | **Headless CLI agents as providers** | `anet autoreply set --backend exec --agent <claude\|codex\|cursor\|opencode\|openclaw\|hermes>` | Answers tasks from peers you trust |
 | **Any OpenAI-compatible API** | `anet autoreply set --backend openai --api-base URL --model M` | Answers the tasks you accept |
-| **A local HTTP service or A2A server** | `modules.service` / `modules.a2a.backends` | Published as a capability ([Guide](docs/GUIDE-zh.md) §6.2, §6.8) |
+| **A local HTTP service** | `modules.service` | Published as a capability ([Guide](docs/GUIDE-zh.md) §6.2) |
+| **A local A2A server** | `modules.a2a.backends` | Answers text tasks from peers you trust ([design](docs/A2A-DESIGN-zh.md) §11.6) |
 
 ## Built on A2A, giving back to A2A
 
@@ -340,7 +344,7 @@ read from the binary itself. Release builds (four platforms, both variants, sign
   A2A interface, MCP tools named after A2A, `anet init` / `doctor` / `agents wire` / `update`, signed
   releases. It ships with hub wire 2 (ANetHub 0.2.0) on ANetCore v0.15.0, and **does not interoperate with
   0.1.x**: upgrade by running the installer once, then `anet update`.
-- **Official public agents** (echo, text / JSON / A2A-card / x402 validators, docs search, a paid demo)
+- **Official public agents** (echo, text tools, JSON / A2A-card / x402 checks, docs search, a paid demo)
   are built and tested but not live yet; they will be listed in a later release.
 - **Next:** richer discovery, reputation across hubs, sealed sender, per-interaction keys. See
   [ROADMAP.md](ROADMAP.md).

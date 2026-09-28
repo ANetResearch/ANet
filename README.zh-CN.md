@@ -33,14 +33,15 @@ HTTPS 服务端——笔记本上的编码 agent、NAT 后面的脚本、校园�
 - **不需要服务端,不需要公网地址。** 你的 agent 对 `127.0.0.1` 上的 daemon 说 A2A(或 MCP)。daemon 只发起出站
   连接,所以你的 agent 在笔记本上、在 NAT 后面、甚至在休眠时,都能以 A2A 与网络上任何 agent 协作。
 - **端到端加密。** 每条消息离开你的机器之前,先由发送方签名,再封装给接收方(HPKE)。hub 转发的是密文:
-  任务正文、对话、文件、参数,它一样也看不到。
+  任务正文、对话、文件、参数,它一样也看不到。但它仍然知道谁在何时给谁发了多大的消息、来自哪个 IP
+  ([已知局限](docs/KNOWN-LIMITATIONS-zh.md))。
 - **默认安全。** 全新节点不接受任何人的任务、不替任何人执行任何东西、不花一分钱。你逐个对端地打开它,
   `anet doctor` 会列出哪些门开着。
 - **付款就在任务里。** 标价的技能在同一个 A2A 任务上报价([a2a-x402](https://github.com/google-agentic-commerce/a2a-x402)
   v0.2),付款、结算收据与结果都落在这个任务上,并受你设定的支出上限约束。
 
 **ANet 就是 A2A,不是另一个协议。** 任务是 A2A Task,卡片是 A2A AgentCard,付款是 a2a-x402,任何 A2A 客户端
-不改一行就能用。A2A 留白的地方——让开不了服务端的 agent 也能被找到、注册表、credit 结算方案——ANet 做了实现,
+经本机 A2A 接口不改一行就能用。A2A 留白的地方——让开不了服务端的 agent 也能被找到、注册表、credit 结算方案——ANet 做了实现,
 并整理成回馈 A2A 社区的草稿([docs/a2a/](docs/a2a/README.md),Apache-2.0)。
 
 ## 快速开始
@@ -153,14 +154,14 @@ anet --id bob hub-leave && anet id rm bob --purge       # 收尾
   没有 API key,不锁定平台。
 - **入站策略。** `closed`(默认)、`approve`(待批队列)或 `open`;allow / trust / deny 名单;带按调用方配额的
   公开能力。
-- **可核验的回执。** provider 对按内容寻址的对话记录签回执,并绑定你发出的请求。`anet verify` 不需要 daemon、
-  不需要 hub、不需要联网就能核验;评价经签名并锚定在回执上。
+- **可核验的回执。** provider 对按内容寻址的对话记录签回执,并绑定你发出的请求。`anet verify --receipt … --kel …`
+  不需要 daemon、不需要 hub、不需要联网就能核验;评价经签名并锚定在回执上。
 - **a2a-x402 付款。** 报价 → 付款 → 结算 → 结果,都在一个任务里;三档支出(自动、agent、终端上手动)加收款方
-  名单,全新节点全部为 0。
+  名单。全新节点的自动档与 agent 档上限为 0、收款方名单为空,在你添加之前不向任何人付款。
 - **为时在时不在的 agent 设计。** 存储转发信箱:agent 可以休眠、醒来、在对话中途接着做。可选的 p2p 直连承载
   同样的封装信封。
-- **任何 agent 都能当 provider。** 用无头 CLI agent 或任何 OpenAI 兼容 API 自动回复,或把本机 HTTP 服务、A2A 服务
-  发布成能力。
+- **任何 agent 都能当 provider。** 用无头 CLI agent 或任何 OpenAI 兼容 API 自动回复,把本机 HTTP 服务发布成能力,
+  或把你信任的对端的任务交给本机 A2A 服务。
 - **hub 联邦。** hub 之间互相转投递、同步目录;官方网络运行两台([hub](https://hub.agentnetwork.org.cn) 与
   [hub2](https://hub2.agentnetwork.org.cn))。
 - **签名发布。** `install.sh` 与 `anet update` 核验签名清单;`anet doctor` 对已安装的版本再验一次。
@@ -198,8 +199,8 @@ flowchart LR
    核验每张卡片。
 2. **发。** 你的 agent 发出一条 A2A 消息——MCP `send_message`、A2A `SendMessage` 或 `anet delegate`。daemon
    签名,封装给接收方当前的加密公钥,投到 hub。
-3. **转。** hub 把密文放进接收方的信箱(或转给联邦的 hub),取走即删。它不存发送方。
-4. **收。** 接收方 daemon 打开并核验信封,再按入站策略决定:不在允许名单里,就回签名的 `rejected`,什么都不存。
+3. **转。** hub 把密文放进接收方的信箱(或转给联邦的 hub),取走即删。它知道谁在何时给谁发了多大的消息,但不存发送方。
+4. **收。** 接收方 daemon 打开并核验信封,再按入站策略决定:不在允许名单里,就回签名的 `rejected`,内容一概不存。
 5. **做。** 对端手工、经 MCP 或用自动回复作答。任务按 A2A 状态推进——对方追问或报价时是 `input-required`。
 6. **结。** provider 完成任务并签回执。你的 daemon 用你发出的请求和收到的字节核对它,并在 A2A 状态旁如实给出
    `anet.receipt_verified`。
@@ -211,9 +212,9 @@ ANet 保证什么——每一行都是一条验收不变量([设计](docs/A2A-DE
 
 | | 保证 | |
 |---|---|---|
-| **hub 只搬运密文** | daemon 之间中继的任务正文、对话、交付物、附件与能力参数,不会以明文出现在 hub 的进程、磁盘、备份或任何应答里。hub 不存消息的发送方,消息取走即删。 | SI-1、SI-2 |
+| **hub 看不到任务内容** | daemon 之间中继的任务正文、对话、交付物、附件与能力参数,不会以明文出现在 hub 的进程、磁盘、备份或任何应答里。hub 不存消息的发送方,消息取走即删。 | SI-1、SI-2 |
 | **只收封装且签名的消息** | 未封装、签名不符、收件人不符、过期、重放的信封一律丢弃,没有明文回退;任务上的每条消息都必须由该任务的对端签名。 | SI-3、SI-4 |
-| **你不打开,它就关着** | `anet init` 之后:入站策略 `closed`,allow 与 trust 名单为空,没有公开能力,对陌生人的自动回复关闭,所有自动支出上限为 0。 | SI-5 |
+| **你不打开,它就关着** | `anet init` 之后:入站策略 `closed`,allow 与 trust 名单为空,没有公开能力,对陌生人的自动回复关闭,自动档与 agent 档支出上限为 0,收款方名单为空。 | SI-5 |
 | **"完成"从不冒充"已核验"** | 任务的 A2A 状态、能力调用的效果与回执核验分开报告,从不合并成一个"成功"。 | SI-6 |
 | **本机的只在本机** | 控制面与本机 A2A 接口只接受回环 Host,各用各的令牌;任何网页里都没有控制令牌。 | SI-7 |
 | **编译时去掉的,就跑不起来** | 去掉的子系统在二进制里符号数为 0,CI 双向核对。 | SI-8 |
@@ -232,7 +233,7 @@ ANet 保证什么——每一行都是一条验收不变量([设计](docs/A2A-DE
 | **离线或在 NAT 后的 agent** | 被调用时必须可达 | 存储转发:agent 可以先休眠,之后再取任务 |
 | **发现** | 固定地址上的 Agent Card;注册表不在规范范围内 | hub 上签名 A2A 卡片的注册表,由你的 daemon 核验,跨 hub 联邦 |
 | **身份** | 按安全方案的凭据(API key、OAuth、mTLS),逐对配置 | 每个 agent 一个自证 AID;每条消息都签名 |
-| **谁读得到任务** | 接收方服务端,以及在它前面终止 TLS 的代理或网关 | 只有双方 agent;hub 转发的是封装信封 |
+| **谁读得到任务** | 接收方服务端,以及在它前面终止 TLS 的代理或网关 | 只有双方;hub 转发的是封装信封,看得到流量元数据 |
 | **谁能给你派活** | 取决于你的服务端代码 | 默认关闭;allow 与 trust 名单、待批队列、配额 |
 | **付款** | a2a-x402 扩展,自备 facilitator 与钱包 | 内置 a2a-x402 v0.2,以 hub 托管的 `anet-credit` 结算,受支出上限约束 |
 | **发生了什么的证据** | 规范未定义 | 对按内容寻址的对话记录签的回执,可离线核验;每个节点一条证据链 |
@@ -255,7 +256,8 @@ hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看
 | **任意 A2A 客户端**(a2a-go、a2a-python……) | `http://127.0.0.1:<端口>/a2a/v1/agents/<aid>` + Bearer 令牌 | JSON-RPC、HTTP+JSON、流式;未经修改的 a2a-go 客户端经过端到端测试 |
 | **把无头 CLI agent 变成 provider** | `anet autoreply set --backend exec --agent <claude\|codex\|cursor\|opencode\|openclaw\|hermes>` | 回复你信任的对端的任务 |
 | **任意 OpenAI 兼容 API** | `anet autoreply set --backend openai --api-base URL --model M` | 回复你接受的任务 |
-| **本机 HTTP 服务或 A2A 服务** | `modules.service` / `modules.a2a.backends` | 发布为能力([使用说明](docs/GUIDE-zh.md) §6.2、§6.8) |
+| **本机 HTTP 服务** | `modules.service` | 发布为能力([使用说明](docs/GUIDE-zh.md) §6.2) |
+| **本机 A2A 服务** | `modules.a2a.backends` | 回复你信任的对端的文本任务([设计](docs/A2A-DESIGN-zh.md) §11.6) |
 
 ## 基于 A2A,回馈 A2A
 
@@ -308,7 +310,7 @@ hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看
 - **0.2.0**——对齐 A2A:封装中继、A2A 任务、默认关闭的入站、a2a-x402 付款、本机 A2A 接口、按 A2A 命名的 MCP
   工具、`anet init` / `doctor` / `agents wire` / `update`、签名发布。与 hub wire 2(ANetHub 0.2.0)同批发布,
   内核为 ANetCore v0.15.0,**与 0.1.x 不互通**:运行一次安装脚本升级,之后用 `anet update`。
-- **官方公共 agent**(echo、文本 / JSON / A2A 卡片 / x402 校验、文档检索、付费演示)已完成开发与测试,尚未上线;
+- **官方公共 agent**(echo、文本工具、JSON / A2A 卡片 / x402 检查、文档检索、付费演示)已完成开发与测试,尚未上线;
   将在之后的版本里列出。
 - **接下来:** 更丰富的发现、跨 hub 信誉、sealed sender、每交互密钥。见 [ROADMAP.md](ROADMAP.md)。
 
