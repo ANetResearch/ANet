@@ -72,7 +72,7 @@ anet delegate <provider-aid> --capability text.digest.paid --args '{"text":"hi"}
 3. 授权把这一次工作钉住:授权里的交互绑定值是 `pay_bind = hex(SHA-256("anet/x402-bind/v1" 0x00 ‖ ix ‖ 0x00 ‖ task_nonce))`,只对这个任务有效,hub 也无法由它反推交互 id。
 4. 提供方**结算前先核对**:收款方是自己、金额不低于报价、绑定值对得上、付款方式在报价选项内、授权与报价都未过期。不符就回 `payment-failed`,不结算、不执行。
 5. 核对通过,提供方拿授权去 hub 结算,**先结算后干活**。顺序是有意的:后结算意味着干完才发现收不到钱;先结算意味着活失败了钱已经付了。选第二个,因为第二种情况证据模型说得清楚 —— 效果和付款都在两条链上,退款是一场有记录的商量。结算成功后提供方先发 `payment-verified`,再执行。
-6. 结果回来时带 `payment-completed` 与 `x402.payment.receipts`(hub 签的结算收据在收据的 `extensions["anet.settlement.receipt"]`)。你的节点核对收据的授权 id 属于本任务、收款方是对端、金额与授权一致,才记 `anet.payment.settled{verified:true}`。
+6. 结果回来时带 `payment-completed` 与 `x402.payment.receipts`(hub 签的结算收据在收据的 `extensions["anet.settlement.receipt"]`)。你的节点核对收据的授权 id 属于本任务、收款方是对端、金额与授权一致,才记 `anet.payment.settled{verified:true}`,任务才显示 `payment-completed`。你(或你的 agent、本机 A2A 客户端)看到的 `x402.payment.receipts` 只含你的节点核验通过的结算(每项带 `extensions["anet.settlement_verified"]`,金额取自 hub 收据)与失败项;对方声称已结算、你的节点核验不了的,单独列在任务的 `anet.unverified_receipts`,不算付过款。
 
 **`payment-verified` 的含义与规范不同。** a2a-x402 规范与参考实现里,`payment-verified` 表示"付款已验过、尚未扣款"(先验、执行、再结算);anet 里它表示**已经扣款**(先结算、再执行)。原因同第 5 步。只按规范理解这个状态的客户端会低估已发生的事:看到 `payment-verified` 时钱已经动了。
 
