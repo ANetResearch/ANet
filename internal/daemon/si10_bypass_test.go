@@ -312,3 +312,26 @@ func TestTheDirectRateLimitHoldsDuringStartUp(t *testing.T) {
 		}
 	}
 }
+
+// [0017 Q29] bypass: a direct delivery is acknowledged at its step-10
+// commit, but its pipeline goes on and may end in a temporary result (the
+// daemon stopping while the call runs). When the pipeline returned before
+// Receive saw the commit, Receive chose between the two at random and could
+// answer the committed envelope with a nack — "reached no daemon" to the
+// sender, which may then withdraw on a cancel, or report as never run, a
+// delegation this node holds and runs at its next start. Once committed,
+// the answer is an ack whatever came after.
+func TestACommittedDirectDeliveryIsNeverRefused(t *testing.T) {
+	committed := make(chan struct{})
+	stopping := rxResult{class: rxTransient, reason: transientStopping}
+	if err := directAnswer(committed, stopping); err == nil {
+		t.Fatal("an uncommitted envelope refused for now was acknowledged")
+	}
+	close(committed)
+	if err := directAnswer(committed, stopping); err != nil {
+		t.Fatalf("a committed envelope was refused: %v", err)
+	}
+	if err := directAnswer(committed, rxResult{class: rxDropped, reason: dropDuplicate}); err != nil {
+		t.Fatalf("a committed duplicate was refused: %v", err)
+	}
+}
