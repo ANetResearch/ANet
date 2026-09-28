@@ -108,3 +108,63 @@ func TestAReceiptForAnotherRequestIsRefused(t *testing.T) {
 			rc["request_cid"], task.Metadata[a2ashape.KeyRequestCID])
 	}
 }
+
+// The review is the one thing this node signs about a receipt, so it holds
+// the receipt to the task too, whatever stored it: a row from before the
+// request binding, with a provider's receipt for a request never made and
+// marked verified then, is not reviewed (red-team F15, on review: the
+// check at ingest does not reach rows already stored).
+func TestAReviewIsNotAnchoredToAReceiptForAnotherRequest(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newTestDaemon(t, srv.URL, false)
+	prov := newTestDaemon(t, srv.URL, true)
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	deliverable := []byte(`{"capability":"text.free","status":"OK","verifiable":false}`)
+	resultCID, err := anetcid.Sum(deliverable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// store writes a result on a fresh task as a node before the fix would
+	// have: under a receipt naming requestCID, marked verified.
+	store := func(requestCID func(sent string) string) string {
+		id, err := req.DelegateCapability(ctx, prov.AID(), "text.free", map[string]any{"q": 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rc := &evidence.Receipt{InteractionID: id, RequesterAID: req.AID(), ProviderAID: prov.AID(),
+			RequestCID: requestCID(mustIX(t, req, id).RequestCID), ResultCID: resultCID, CompletedAt: uint64(nowMillis())}
+		if err := rc.Sign(prov.self); err != nil {
+			t.Fatal(err)
+		}
+		receipt, err := rc.Marshal()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := req.ix.Finish(id, interactions.Finish{State: interactions.StateCompleted, Result: deliverable,
+			ResultCID: resultCID, Receipt: receipt, Verified: interactions.VerificationVerified}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	madeUp, err := anetcid.Sum([]byte("a request this node never made"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := store(func(string) string { return madeUp })
+	if _, err := req.SubmitReview(forged, 5, "great"); err == nil {
+		t.Fatal("a review was signed and anchored to a receipt for a request this node never made")
+	}
+	if ix := mustIX(t, req, forged); len(ix.Review) > 0 {
+		t.Fatal("the review was stored")
+	}
+	genuine := store(func(sent string) string { return sent })
+	if _, err := req.SubmitReview(genuine, 5, "great"); err != nil {
+		t.Fatalf("the genuine receipt: %v", err)
+	}
+}

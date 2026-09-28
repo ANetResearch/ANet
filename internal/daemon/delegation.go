@@ -826,6 +826,9 @@ func (d *Daemon) SubmitReview(interactionID string, rating int, comment string) 
 	if err != nil {
 		return zero, fmt.Errorf("anet: receipt corrupt: %w", err)
 	}
+	if err := receiptBindsTask(rc, ix, d.AID()); err != nil {
+		return zero, err
+	}
 	receiptCID, err := rc.CID()
 	if err != nil {
 		return zero, err
@@ -853,6 +856,36 @@ func (d *Daemon) SubmitReview(interactionID string, rating int, comment string) 
 		return zero, err
 	}
 	return ReviewResult{InteractionID: interactionID, Subject: ix.PeerAID, Rating: rating}, nil
+}
+
+// receiptBindsTask checks, before this node signs a review anchored to it,
+// that a stored receipt is about the task it is stored on: this
+// interaction, this node as requester, the provider it delegated to, the
+// request it sent and the result it holds. ingestResult checked the same
+// when the result arrived; a row stored before it bound the request (or by
+// any path that did not check) is checked here too, because the review is
+// what vouches for the receipt to a third party (evidence.VerifyInterlock)
+// — a review of a receipt for a request never made would vouch for that
+// request (redteam F15). An empty stored request CID (a row from before
+// request CIDs were kept) skips that one binding, as ingestResult does.
+func receiptBindsTask(rc *evidence.Receipt, ix *interactions.Interaction, self string) error {
+	switch {
+	case rc.InteractionID != ix.ID:
+		return fmt.Errorf("anet: the receipt stored on %s is for interaction %s; not reviewing it", ix.ID, rc.InteractionID)
+	case rc.RequesterAID != self:
+		return fmt.Errorf("anet: the receipt stored on %s names requester %s, not this node; not reviewing it",
+			ix.ID, rc.RequesterAID)
+	case rc.ProviderAID != ix.PeerAID:
+		return fmt.Errorf("anet: the receipt stored on %s is signed for provider %s, not %s; not reviewing it",
+			ix.ID, rc.ProviderAID, ix.PeerAID)
+	case ix.RequestCID != "" && rc.RequestCID != ix.RequestCID:
+		return fmt.Errorf("anet: the receipt stored on %s is for request %s, not the request this node sent (%s); "+
+			"not reviewing it", ix.ID, rc.RequestCID, ix.RequestCID)
+	case ix.ResultCID != "" && rc.ResultCID != ix.ResultCID:
+		return fmt.Errorf("anet: the receipt stored on %s covers result %s, not the result held (%s); not reviewing it",
+			ix.ID, rc.ResultCID, ix.ResultCID)
+	}
+	return nil
 }
 
 // recordReceived writes anet.delegation.received for a delegation from a

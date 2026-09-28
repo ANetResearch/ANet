@@ -241,6 +241,8 @@ anet review <ix> 5 "准确、快"   # 基于回执签评价,上传 hub
 
 ```sh
 anet verify --receipt "$(cat receipt.b64)" --kel "$(cat provider.kel)" --result answer.md   # 无 daemon、无 hub、无网络
+anet verify --receipt X --kel Y --result answer.md --request request.bin                    # 同时核对回执答的是这份请求(请求字节)
+anet verify <交互 id>          # 本节点存的结果:签名、结果字节与本节点发出的请求一并核对
 anet verify --receipt X --hub https://hub.agentnetwork.org.cn                                # 让它自己去取密钥历史
 anet audit                    # 本节点证据链,从磁盘读并验证(无需 daemon);--since 24h --peer AID --interaction ID --json
 anet audit --export DIR       # 导出整条链、密钥历史与清单
