@@ -705,3 +705,72 @@ func TestAPeerOnAnotherHubIsFoundViaTheReferral(t *testing.T) {
 		t.Errorf("the home hub was asked again for an unreferred AID")
 	}
 }
+
+// A peer reads another's rendezvous entry while that one writes it. The
+// entry was written in place, so a reader could find it created or
+// truncated and not yet written, and dialled the empty address it read
+// ("dial unix: missing address"), marking the peer down. An entry is now
+// replaced in one step, and a reader sees the old address or the new one.
+func TestARendezvousEntryIsNeverReadHalfWritten(t *testing.T) {
+	rv := t.TempDir()
+	writer := &peer{rendezvous: rv, peerSocket: "tcp://127.0.0.1:1111"}
+	reader := &peer{rendezvous: rv}
+	writer.announce("aid-bob")
+
+	stop := make(chan struct{})
+	bad := make(chan string, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			addr, ok := reader.lookup("aid-bob")
+			if !ok || (addr != "tcp://127.0.0.1:1111" && addr != "tcp://127.0.0.1:2222") {
+				select {
+				case bad <- fmt.Sprintf("%q %v", addr, ok):
+				default:
+				}
+				return
+			}
+		}
+	}()
+	for i := 0; i < 2000; i++ {
+		writer.advertise = []string{"tcp://127.0.0.1:1111", "tcp://127.0.0.1:2222"}[i%2]
+		writer.announce("aid-bob")
+	}
+	close(stop)
+	wg.Wait()
+	select {
+	case got := <-bad:
+		t.Fatalf("a peer read the entry as %s while it was being written", got)
+	default:
+	}
+	ents, err := os.ReadDir(rv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ents) != 1 || ents[0].Name() != "aid-bob" {
+		t.Fatalf("the rendezvous holds %v, want only the entry", ents)
+	}
+}
+
+// An empty entry names nowhere to dial: the peer is not listed, rather
+// than listed at "" (which was dialled as a Unix socket and marked down).
+func TestAnEmptyRendezvousEntryIsNotAnAddress(t *testing.T) {
+	rv := t.TempDir()
+	if err := os.WriteFile(filepath.Join(rv, "aid-bob"), []byte("\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := &peer{rendezvous: rv}
+	if addr, ok := p.lookup("aid-bob"); ok {
+		t.Fatalf("an empty entry reads as the address %q", addr)
+	}
+	if p.reachable("aid-bob") {
+		t.Fatal("a peer whose entry is empty is reported reachable")
+	}
+}
