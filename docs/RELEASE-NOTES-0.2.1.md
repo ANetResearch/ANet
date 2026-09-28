@@ -139,6 +139,17 @@ source does not qualify, and on a host whose `/etc/nsswitch.conf` looks accounts
 but the files and systemd no group does). Any other group-writable directory is still refused unless
 `socket_group` names its group. Known limitation 26 says what this trusts.
 
+### 3.5 Also in 0.2.1
+
+- **Stopping a daemon no longer removes another daemon's pointer.** A user's daemons share one pointer
+  file (`daemon.json` in the per-user runtime directory), written by the one started last, and a CLI run in
+  another environment (an agent tool's sandbox, say) finds its daemon through it. Stopping a daemon deleted
+  it unconditionally, so stopping an older daemon cut such a CLI off from one still running. It is now
+  removed only while it still points at the daemon that stops.
+- The installer's closing hint (`install.sh`, after `anet doctor`) no longer suggests trying an official
+  agent, which is not online yet; it suggests wiring anet into a coding agent, and `anet find`. The 0.2.0
+  downloads have carried this corrected, re-signed installer since 2026-09-28.
+
 ## 4. Behavior changes to know about
 
 | Where | 0.2.0 | 0.2.1 |
