@@ -449,16 +449,15 @@ func (p *slowLamp) Invoke(ctx context.Context, _ provider.Call) (effect.Effect, 
 	return effect.Effect{Status: effect.OK, Record: &tsir.EffectRecord{Metrics: map[string]float64{"flashed": 1}}}, nil
 }
 
-// C1 / SI-10 / SI-6: New starts the modules — the p2p transport among them,
-// which begins handing envelopes to the receive pipeline at once — BEFORE
-// recoverInterrupted, whose contract is "dealt with before any mail is
-// read". recoverInterrupted does not check d.running or the creation time,
-// so a long call delivered over p2p in that window and already running is
-// reported failed / effect UNVERIFIED / interrupted to the requester, and
-// when it finishes its real result and receipt are discarded ("ended
-// before its result"). The test runs recoverInterrupted exactly as New
-// would after such a delivery.
-func TestRedteamSI10_StartupRecoveryReportsAP2PCallRunningNowAsInterrupted(t *testing.T) {
+// [redteam:F30] regression (was
+// TestRedteamSI10_StartupRecoveryReportsAP2PCallRunningNowAsInterrupted).
+// C1 / SI-10 / SI-6: startup recovery classifies what an EARLIER process
+// left. A long call this process is running is not a leftover: run over
+// recoverInterrupted (as New would have, had the delivery come before it —
+// awaitReady now holds such a delivery, TestADeliveryDuringStartupWaitsForRecovery),
+// it is left alone, and its real result and receipt are what the requester
+// gets.
+func TestRedteamSI10_StartupRecoveryLeavesACallRunningNowAlone(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	slow := &slowLamp{gate: make(chan struct{}), started: make(chan struct{})}
@@ -471,33 +470,33 @@ func TestRedteamSI10_StartupRecoveryReportsAP2PCallRunningNowAsInterrupted(t *te
 	}
 	env := onlyQueuedEnvelope(t, srv, prov.AID())
 	clearMailbox(t, srv, prov.AID())
-	// Delivered over p2p during start-up: accepted, marked working, running.
+	// Delivered over p2p: accepted, marked working, running.
 	if err := prov.Inbound().Receive(ctx, env); err != nil {
 		t.Fatal(err)
 	}
 	<-slow.started
-	// New reaches recoverInterrupted.
 	prov.recoverInterrupted()
 	pix, err := prov.ix.Get(id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pix.State != interactions.StateFailed || !strings.Contains(pix.ResultMeta, "interrupted") {
-		t.Fatalf("provider: %s %s; attack failed", pix.State, pix.ResultMeta)
+	if pix.State != interactions.StateWorking {
+		t.Fatalf("provider: %s %s; the running call was taken for a leftover", pix.State, pix.ResultMeta)
 	}
-	// The firmware flash completes; its result is thrown away.
+	// The firmware flash completes; its result is what is kept and sent.
 	close(slow.gate)
 	waitUntil(t, "the call to end", func() bool { _, running := prov.running.Load(id); return !running })
 	pix, _ = prov.ix.Get(id)
 	var res capabilityResult
 	_ = json.Unmarshal(pix.Result, &res)
-	if res.Status != string(effect.Unverified) {
-		t.Fatalf("stored result %+v; the real result was kept", res)
+	if pix.State != interactions.StateCompleted || res.Status != string(effect.OK) || len(pix.Receipt) == 0 {
+		t.Fatalf("provider: %s, stored result %+v, receipt %d bytes; want the real result", pix.State, res, len(pix.Receipt))
 	}
+	waitUntil(t, "the result at the hub", func() bool { return len(queuedFor(t, srv, req.AID())) > 0 })
 	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if cur, _ := req.ix.Get(id); cur.State != interactions.StateFailed {
+	if cur, _ := req.ix.Get(id); cur.State != interactions.StateCompleted {
 		t.Fatalf("requester: %s", cur.State)
 	}
 	if n := slow.runs.Load(); n != 1 {

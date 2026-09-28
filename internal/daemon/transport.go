@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -183,6 +184,9 @@ func (d *Daemon) Inbound() module.Inbound { return inbound{d} }
 type inbound struct{ d *Daemon }
 
 func (in inbound) Receive(ctx context.Context, envelope []byte) error {
+	if err := in.d.awaitReady(ctx); err != nil {
+		return err
+	}
 	if !in.d.p2pLimit.allow(in.d.nowMS()) {
 		in.d.count(transientP2PRate)
 		return errP2PRateLimited
@@ -192,6 +196,38 @@ func (in inbound) Receive(ctx context.Context, envelope []byte) error {
 		return fmt.Errorf("anet: envelope not accepted yet (%s); not acknowledging", res.reason)
 	}
 	return nil
+}
+
+// errNotReady refuses a delivery that arrived while the daemon was starting
+// and could not wait for it: the delivery's own context ended, or the daemon
+// stopped before start-up finished.
+var errNotReady = errors.New("anet: this node is starting or stopping; not acknowledging")
+
+// awaitReady holds a delivery from a transport module until New has finished
+// ([redteam:F30]). A transport module starts delivering as soon as its Start
+// runs, which is before the modules after it have started and before
+// startup recovery (recoverInterrupted) has told the previous process's
+// leftovers from new work; the hub relay loop starts after both, and a
+// direct delivery now waits for the same point. A daemon that never gets
+// there (a failed start, a stop) refuses it temporarily, so the sender
+// falls back to the hub.
+func (d *Daemon) awaitReady(ctx context.Context) error {
+	if d.ready == nil {
+		return nil // not built by New (unit tests of other parts)
+	}
+	select {
+	case <-d.ready:
+		return nil
+	default:
+	}
+	select {
+	case <-d.ready:
+		return nil
+	case <-ctx.Done():
+	case <-d.ctx.Done():
+	}
+	d.count(transientNotReady)
+	return errNotReady
 }
 
 var _ module.TransportHost = moduleHost{}
