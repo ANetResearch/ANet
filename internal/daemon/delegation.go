@@ -1471,15 +1471,19 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 
 	// Verify the receipt before accepting the work it certifies.
 	//
-	// VerifyResultWithKEL binds the receipt to this interaction, to us as
-	// the requester, to the provider we actually delegated to, and to the
-	// hash of the bytes in front of us. The provider KEL is the one resolved
-	// from the envelope (§3.6 step 6), and the revocation gate is evaluated
-	// at the message time (C4b, C4d).
+	// VerifyResultForRequest binds the receipt to this interaction, to us
+	// as the requester, to the provider we actually delegated to, to the
+	// request we sent (its CID, as we stored it when we sent it) and to the
+	// hash of the bytes in front of us. The provider KEL is the one
+	// resolved from the envelope (§3.6 step 6), and the revocation gate is
+	// evaluated at the message time (C4b, C4d). Without the request binding
+	// a provider could sign a receipt for a request never made, and a
+	// review this node anchors to it would vouch for that request to anyone
+	// who checks the interlock (redteam F15).
 	//
 	// A failed check drops the result rather than storing it.
 	verified := false
-	switch _, verr := delegation.VerifyResultWithKEL(rr, m.kel, m.ix, d.AID(), ix.PeerAID, m.ts); {
+	switch _, verr := delegation.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts); {
 	case verr == nil:
 		verified = true
 	case errors.Is(verr, delegation.ErrUnverifiable):
