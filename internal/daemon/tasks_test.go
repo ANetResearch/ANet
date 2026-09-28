@@ -434,6 +434,15 @@ func TestALongCapabilityCallUnderEndRequestAndCancel(t *testing.T) {
 	if st := stateOf(t, prov, id); st != interactions.StateWorking {
 		t.Fatalf("a running long call is %s, want working", st)
 	}
+	// The provider said working when the call started (announceLongCall);
+	// the requester takes that in now, so what its mailbox holds later is
+	// the result.
+	if err := req.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if st := stateOf(t, req, id); st != interactions.StateWorking {
+		t.Fatalf("the requester sees %s once the long call started, want working", st)
+	}
 	if err := req.RequestEnd(ctx, id); err != nil {
 		t.Fatal(err)
 	}
