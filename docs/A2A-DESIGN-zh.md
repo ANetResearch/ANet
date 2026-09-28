@@ -219,7 +219,7 @@ ANetCore `delegation` 增量(新字段一律 `omitempty`,另立全字段向量 `
 | 9 | 授权(只做判定;拒绝类回复经限速发出,不写库):按 type 判定(§5 入站策略;message/status/result 须交互存在或在待批表中、`PeerAID == from`、角色正确)。`anet.delegate/1` 的 `ix` 已存在时,仅当该交互 `role=inbound`、`PeerAID == from` 且新 TaskDoc 的 CID 等于该交互存储的 `request_cid`(同一请求的重投)才进入第 10 步(重投/幂等路径),否则 P,计数 `ix-collision`,不回复 [m];进入重投路径前同样先查 deny,`trust=peer` 的交互再查 allow(§5.1),不满足为 P。待批表中的 ix 同理:TaskDoc 与待批项的 request CID 不同为 `ix-collision` [redteam:F6][redteam:F7]。已认证发送方指向未知 ix 的 message/cancel:`now − inner.ts ≤ 10 分钟` 时按 T 处理(等待 delegate 先到),超过后回 `status{failed, anet.a2aError: TaskNotFound}`,与拒绝通知共用限速 [C19] | P;未知 ix 窗口内与读库出错为 T |
 | 10 | 处理(`(from, mid)` 锁与重放表查询已在第 8½ 步完成;持久重放表已有该行的 delegate 走"已答复 → 重发结果"分支,其余 ack 不处理 [C33])。执行业务写入,**在同一 SQLite 事务内**插入重放行 `(from, mid, exp)`;不能纳入事务的副作用(能力执行、发结果)沿用现有业务幂等检查。重放行已存在、交互非终态且无结果、本进程内也无该 ix 的执行记录时,视为崩溃遗留:短能力调用重新执行(至少一次,沿用现有"无回执即重跑"),长能力调用不重跑(至多一次)。重投路径执行的只是该交互受理时记录的能力调用(`is_capability` 且从存储的 `request_doc` 读回),从不取重投信封里的 TaskDoc;文本任务的重投不执行任何能力 [redteam:F7]。成功后:把候选 KEL/keys 写入 `peer_identity`(仅 §3.8 所列授权上下文)、`noteLivePeer(from)` [m]。§5.2 的写入(交互、待批项)与第 4 行的 `submitted` 回复都在本步与重放行同一事务提交之后进行 | T(存储) |
 
-- 第 9 步拒绝的信封只进内存有界 LRU,不写持久重放表 [C15c]。
+- 第 9 步拒绝的信封进内存有界 LRU(第 5 步后即查,省去重放的验签);被拒的 `anet.delegate/1` 另写入持久拒收表 `refused(from, mid, ts, exp)`(与重放表同在 `interactions.db`,按 exp 清理,不回复)[C15c][redteam:F5]:拒绝是终局,重启、LRU 被挤出或策略/配额此后改变,同一信封再到都按拒收处理,不再判定、不再回复。拒收表有界:每发送方 1024 行、总计 10 万行,超出时最旧的行(按 `inner.ts`)删除并把该发送方(总量超出时为全局)的下限抬到被删行的最大 `ts`;重放表未收录且 `inner.ts ≤` 下限的 delegate 按拒收处理(P,`refused-floor`,不回复)。message/status/result 的拒收仍只进 LRU(其第 9 步不写库,至多一条限速的 TaskNotFound)。
 - 重放表、`pending`、`peer_identity` 与交互表同在 `interactions.db`,使第 10 步的同事务写入成立。
 - 启动恢复:非终态且无结果的长能力调用交互置 `failed`,`anet.reason=interrupted`、`anet.effect_status=UNVERIFIED`(效果是否发生未知),经结果重试队列通知请求方 [C1]。
 - 嵌套对象(TaskDoc、回执)在第 7 步通过后以 `msgTime = inner.ts` 验证,使用第 6 步解析的 KEL [C4b][C4d]。
@@ -881,3 +881,4 @@ B 与 C 在 A 完成后并行;同一仓库内按文件归属串行推进。
 12. `A2A-Version` 缺省按 1.0 处理,偏离规范的"缺省按 0.3"。
 13. TTY 门槛(`anet pay`、`anet peers allow`、`anet inbound approve`、修改支出上限)在 CLI 进程内检查,对应的控制面路由凭控制令牌即可调用。它只约束只能经 MCP 工具或本机 A2A 接口行事的 agent。任何能以本用户身份执行命令的 agent(包括 Claude Code 等工具的 Bash,不论有无 TTY),都可以读取控制令牌直接调用这些路由,或直接改 `peers.*`、`config.json` 并重启 daemon。同 uid 下不存在更强的边界,文档如实写明。
 14. 本期不处理(归属与理由):ANetLink `c1.sock` 权限与 `SO_PEERCRED`、按 `caller_aid` 授权(跨仓,ANetLink 单独立项);联邦按卡片 home hub 定向转发(当前按对等表顺序尝试,功能正确);交互级临时密钥;大附件分块;sealed sender;发放链隐私格式;沙箱网络隔离;非 Linux 沙箱。
+15. 被拒 delegate 的持久拒收表有界(§3.6):某发送方 15 天内被拒超过 1024 次,或全节点被拒超过 10 万次(如 sybil 洪泛)时,被挤出的拒收转为按发送时间的下限;此后晚于这些拒收才到达、发送时间却更早的首次投递(例如在信箱里压了很久的 delegate)按拒收丢弃且不回复 [redteam:F5]。

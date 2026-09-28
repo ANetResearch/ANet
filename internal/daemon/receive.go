@@ -86,7 +86,8 @@ const (
 	dropBadStatus     = "bad-status-state"       // StatusMsg with a state outside the six defined
 	dropResultRefused = "result-refused"         // ResultResp whose receipt does not verify
 	dropDuplicate     = "duplicate"              // (from, mid) already handled
-	dropRefusedReplay = "refused-replay"         // (from, mid) refused before, still in the in-memory list
+	dropRefusedReplay = "refused-replay"         // (from, mid) refused before: the in-memory list or the refused table
+	dropRefusedFloor  = "refused-floor"          // delegation at or below a refused-table floor, not in the replay table
 	dropExpiredWait   = "expired-while-waiting"  // a temporary failure outlived the message's exp
 	dropEmptyIX       = "empty-ix"               // a message type that needs an interaction id carries none
 
@@ -223,10 +224,27 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
 	// committed, then finds it in the refused list or the replay table. It
 	// takes no admission slot, sends no refusal and runs nothing the first
 	// did not; a delegation's duplicate goes to the redelivery path.
-	unlock := d.rxLocks.lock(replayKey(m.from, m.mid))
+	key := replayKey(m.from, m.mid)
+	unlock := d.rxLocks.lock(key)
 	defer unlock()
-	if d.refused.has(replayKey(m.from, m.mid)) {
+	if d.refused.has(key) {
 		return d.drop(dropRefusedReplay, nil)
+	}
+	// A delegation refused before is refused again, without a reply,
+	// after a restart or after the in-memory list forgot it: the policy
+	// may have changed since, and the requester was told `rejected`
+	// [redteam:F5].
+	var floor uint64
+	if m.typ == seal.TypeDelegate {
+		exact, f, err := d.ix.Refused(m.from, m.mid)
+		if err != nil {
+			return d.expireTransient(d.transient(transientReplayCheck, err), m, now)
+		}
+		if exact {
+			d.refused.add(key)
+			return d.drop(dropRefusedReplay, nil)
+		}
+		floor = f
 	}
 	seen, err := d.ix.ReplaySeen(m.from, m.mid)
 	if err != nil {
@@ -235,11 +253,16 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
 	if seen {
 		return d.expireTransient(d.duplicate(ctx, m), m, d.nowMS())
 	}
+	if m.ts <= floor {
+		// Older than refusals the table let go of (refused.go): it may be
+		// one of them.
+		return d.drop(dropRefusedFloor, nil)
+	}
 
 	// Step 9.
 	if res := d.authorize(m, now); res != nil {
 		if res.class == rxDropped {
-			d.refused.add(replayKey(m.from, m.mid))
+			d.noteRefusedEnvelope(m)
 		}
 		return d.expireTransient(*res, m, now)
 	}
@@ -253,6 +276,21 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
 		m.release = nil
 	}
 	return d.expireTransient(out, m, d.nowMS())
+}
+
+// noteRefusedEnvelope remembers an envelope step 9 refused for good: in the
+// in-memory list, which a replay meets before any decryption work is
+// repeated, and for a delegation also in the refused table, which outlives
+// a restart and the list's eviction [redteam:F5]. A table write that fails
+// is logged; the list still covers this process.
+func (d *Daemon) noteRefusedEnvelope(m *rxMsg) {
+	d.refused.add(replayKey(m.from, m.mid))
+	if m.typ != seal.TypeDelegate {
+		return
+	}
+	if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp); err != nil {
+		log.Printf("anet: record the refused delegation %s from %s: %v", m.ix, m.from, err)
+	}
 }
 
 // duplicate handles an envelope whose (from, mid) the replay table holds:
@@ -924,10 +962,12 @@ func (k *keyedLocks) lock(key string) func() {
 }
 
 // boundedSet remembers up to limit keys, forgetting the oldest first. The
-// refused-envelope list (§3.6 "refused envelopes only in a bounded
-// in-memory LRU") is one: a replay of a refused envelope is dropped without
-// repeating step 9 or its reply, and a replay that outlived its entry
-// reaches only side effects that are themselves rate limited.
+// refused-envelope list is one: a replay of a refused envelope is dropped
+// at step 5, before its KEL and signature are checked again. It is a cache.
+// For a delegation the refused table (interactions/refused.go) is what
+// keeps a replay that outlived its entry refused [redteam:F5]; for other
+// types a replay that outlived it is judged again, and a message's step 9
+// writes nothing and sends at most a rate-limited TaskNotFound.
 type boundedSet struct {
 	mu    sync.Mutex
 	limit int
@@ -1083,8 +1123,8 @@ func (l *noticeLimiter) allow(peer string, now uint64) bool {
 	return l.global.allow(now)
 }
 
-// purgeReplay deletes replay rows of messages that have expired, with the
-// clock skew tolerance as margin.
+// purgeReplay deletes replay rows and refused rows of messages that have
+// expired, with the clock skew tolerance as margin.
 func (d *Daemon) purgeReplay() {
 	cutoff := d.nowMS()
 	if cutoff > seal.ClockSkewMS {
@@ -1092,6 +1132,9 @@ func (d *Daemon) purgeReplay() {
 	}
 	if _, err := d.ix.PurgeReplay(cutoff); err != nil {
 		log.Printf("anet: purge replay rows: %v", err)
+	}
+	if _, err := d.ix.PurgeRefused(cutoff); err != nil {
+		log.Printf("anet: purge refused rows: %v", err)
 	}
 }
 

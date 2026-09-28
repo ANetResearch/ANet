@@ -20,69 +20,6 @@ import (
 	"github.com/ANetResearch/ANet/internal/hubapi"
 )
 
-// SI4-RT-2. A delegation refused in step 9 is remembered only in the
-// in-memory refused LRU (4096 entries, lost on restart), never in the
-// replay table. A hub keeps a copy of the acknowledged envelope and hands
-// it in again (up to exp = 14 days later) after the operator changed the
-// policy and the daemon restarted: the same signed envelope, which the
-// requester was told was rejected, is now accepted and executed.
-func TestRedteamSI4_RefusedDelegationReplayedByHubAfterRestartExecutes(t *testing.T) {
-	srv := newFakeHub(t)
-	ctx := context.Background()
-	prov := registered(t, srv.URL, "prov")
-	stranger := registered(t, srv.URL, "stranger")
-	lamp := &lampProvider{}
-	if err := prov.Providers().Register(ctx, lamp); err != nil {
-		t.Fatal(err)
-	}
-	ix := "ix_redteam_replay_0001"
-	env := sealFrom(t, stranger, prov, seal.TypeDelegate, ix, delegateBody(t, stranger.self, ix, "lamp on", lampCap))
-	// Delivered once: refused (closed, not allowed) and acknowledged.
-	if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropNotAccepting {
-		t.Fatalf("first delivery: %+v", r)
-	}
-	// Replayed immediately: the LRU catches it.
-	if r := receive(t, prov, env); r.reason != dropRefusedReplay {
-		t.Fatalf("immediate replay: %+v", r)
-	}
-	// Later the operator allows this peer for some other purpose, and the
-	// daemon restarts (update, reboot).
-	allowPeers(t, prov, stranger.AID())
-	prov = rtReopen(t, prov)
-	lamp2 := &lampProvider{}
-	if err := prov.Providers().Register(ctx, lamp2); err != nil {
-		t.Fatal(err)
-	}
-	// The hub replays the old envelope bytes.
-	r := receive(t, prov, env)
-	if len(lamp2.invoked) != 1 {
-		t.Fatalf("attack failed: %+v invoked %d", r, len(lamp2.invoked))
-	}
-	t.Logf("DEFECT: a refused, acknowledged delegation replayed by the hub was executed (rx=%+v)", r)
-}
-
-// rtReopen closes d and starts a daemon on the same data directory (a copy
-// of reopen, which lives in a !no_x402 file).
-func rtReopen(t *testing.T, d *Daemon) *Daemon {
-	t.Helper()
-	layout := d.layout
-	if err := d.Close(); err != nil {
-		t.Fatal(err)
-	}
-	n, err := New(layout)
-	if err != nil {
-		t.Fatal(err)
-	}
-	n.mu.Lock()
-	if n.relayStop != nil {
-		n.relayStop()
-		n.relayStop = nil
-	}
-	n.mu.Unlock()
-	t.Cleanup(func() { n.Close() })
-	return n
-}
-
 // SI4-RT-3. seal/limits.go sizes MaxKELEvents/MaxKELBytes on the premise
 // that "a KEL is replayed on every receive, one Ed25519 verification per
 // event, before the sender is known". The receive path actually replays
