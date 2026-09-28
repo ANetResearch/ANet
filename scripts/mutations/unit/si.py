@@ -183,7 +183,7 @@ MUTS = [
   id='si3-7', group='SI-3', repo='ANet',
   desc='daemon process: 跳过持久重放表查询(seen 恒 false)',
   edits=[
-   ('internal/daemon/receive.go', '\tif seen {\n\t\t// A redelivered delegation', '\tif false && seen {\n\t\t// A redelivered delegation'),
+   ('internal/daemon/receive.go', '\tif seen {\n\t\treturn d.expireTransient(d.duplicate(ctx, m)', '\tif false && seen {\n\t\treturn d.expireTransient(d.duplicate(ctx, m)'),
   ],
   tests=[('ANet:./internal/daemon', 'TestEachReceiveStepRefusesWithItsClass|TestARedeliveredDelegateResendsTheAnswer|TestARedeliveredChatMessageIsStoredOnce|TestARedeliveredResultIsRecordedOnce|TestAnAnsweredCapabilityCallIsNotRunAgain')],
   full=['ANet:./internal/daemon'],
@@ -644,7 +644,7 @@ MUTS = [
   id='si10-2', group='SI-10', repo='ANet',
   desc='p2p deliverInbound: Receive 失败仍回 ack',
   edits=[
-   ('module/p2p/transport.go', '\t\tlog.Printf("anet: p2p: inbound delivery %s not acknowledged: %v", f.ID, err)\n\t\treturn\n', '\t\tlog.Printf("anet: p2p: inbound delivery %s not acknowledged: %v", f.ID, err)\n'),
+   ('module/p2p/transport.go', '\t\t_ = t.write(c, frame{Op: opNack, V: WireVersion, ID: f.ID, Error: err.Error()})\n\t\treturn\n', ''),
   ],
   tests=[('ANet:./module/p2p', 'TestATemporaryRefusalIsNotAcked')],
   full=['ANet:./module/p2p'],
@@ -662,7 +662,7 @@ MUTS = [
   id='si10-4', group='SI-10', repo='ANet',
   desc='process: 去掉 (from, mid) 进程内锁',
   edits=[
-   ('internal/daemon/receive.go', '\tunlock := d.rxLocks.lock(replayKey(m.from, m.mid))\n', '\tunlock := func() {}\n'),
+   ('internal/daemon/receive.go', '\tunlock := d.rxLocks.lock(key)\n', '\tunlock := func() {}\n'),
   ],
   tests=[('ANet:./internal/daemon', 'TestTheSameEnvelopeOverP2PAndHubIsProcessedOnce|TestADelegationSealedTwiceArrivingTogetherIsRecordedOnce|TestAResultSealedTwiceArrivingTogetherIsRecordedOnce|TestASecondCopyWaitsForTheFirstUnderTheMessageLock')],
   full=['ANet:./internal/daemon'],
@@ -698,7 +698,7 @@ MUTS = [
   id='si10-8', group='SI-10', repo='ANet',
   desc='anetpeer: 收到任一 ack 释放全部等待中的投递',
   edits=[
-   ('tools/anetpeer/main.go', '\t\t\tif ch, ok := p.acks[f.ID]; ok {\n\t\t\t\tclose(ch)\n\t\t\t\tdelete(p.acks, f.ID)\n\t\t\t}', '\t\t\tfor id, ch := range p.acks {\n\t\t\t\tclose(ch)\n\t\t\t\tdelete(p.acks, id)\n\t\t\t}'),
+   ('tools/anetpeer/main.go', '\t\t\tif ch, ok := p.acks[f.ID]; ok {\n\t\t\t\tch <- answer\n\t\t\t\tdelete(p.acks, f.ID)\n\t\t\t}', '\t\t\tfor id, ch := range p.acks {\n\t\t\t\tch <- answer\n\t\t\t\tdelete(p.acks, id)\n\t\t\t}'),
   ],
   tests=[('ANet:./tools/anetpeer', 'TestConcurrentDeliveriesGetTheirOwnOutcome')],
   full=['ANet:./tools/anetpeer'],
