@@ -856,81 +856,133 @@ func carriesPayment(meta []byte) bool {
 	return status || receipts
 }
 
-// onProviderPayment handles the x402 part of a status from the provider of
-// an outbound task, after it was stored.
-func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte) {
+// providerPayment is the x402 part of a status from the provider of an
+// outbound task (§8.3), in three steps ([redteam:F28]): planProviderPayment
+// reads it, applyTx writes the pay columns inside the status's step-10
+// transaction (with the status row, its state and its replay row), and
+// afterProviderPayment does what follows the commit — announcing the
+// state, recording settlement evidence, a pending cancel, the automatic
+// payment. Written after the commit, a storage error on the quote was only
+// logged: the status was acknowledged, its redelivery a duplicate, and the
+// task sat in input-required with no quote to pay.
+type providerPayment struct {
+	status   string
+	meta     map[string]any
+	quote    []byte
+	expires  int64
+	receipts *receiptPlan
+
+	// Filled by applyTx.
+	prior    string // pay_state before the status
+	quoted   bool   // the quote was stored
+	failWrit bool   // the failed payment was recorded
+}
+
+// planProviderPayment reads the x402 part of a provider's status metadata.
+// It writes nothing.
+func (d *Daemon) planProviderPayment(ixID string, meta []byte) *providerPayment {
 	m := decodeMeta(meta)
-	status, _ := m[x402a2a.KeyStatus].(string)
+	pp := &providerPayment{meta: m}
+	pp.status, _ = m[x402a2a.KeyStatus].(string)
 	// The quote, whenever a status carries one: a payment-required, or a
 	// payment-failed that leaves the quote standing. Kept as the provider
 	// wrote it: a local client copies an option out of it and the choice
 	// is compared with what was stored (§8.7).
 	var fields map[string]json.RawMessage
 	_ = json.Unmarshal(meta, &fields)
-	var quote []byte
 	if raw := []byte(fields[x402a2a.KeyRequired]); len(raw) > 0 {
 		var pr payment.PaymentRequired
 		if json.Unmarshal(raw, &pr) == nil && len(pr.Accepts) > 0 {
-			quote = raw
+			pp.quote = raw
 		} else {
 			log.Printf("anet: %s: the provider asked to be paid and named no way to pay", ixID)
 		}
 	}
-	expires := time.Now().Add(quoteLifetime).UnixMilli()
-	if v, ok := m[x402a2a.KeyQuoteExpiresAt].(float64); ok && int64(v) > time.Now().UnixMilli() && int64(v) < expires {
+	pp.expires = time.Now().Add(quoteLifetime).UnixMilli()
+	if v, ok := m[x402a2a.KeyQuoteExpiresAt].(float64); ok && int64(v) > time.Now().UnixMilli() && int64(v) < pp.expires {
 		// The provider's own expiry, when it states one, and never later
 		// than 24 hours from now.
-		expires = int64(v)
+		pp.expires = int64(v)
 	}
-	switch status {
+	pp.receipts = d.planReceipts(ixID, m, false)
+	return pp
+}
+
+// applyTx writes the pay columns the status sets, inside its transaction.
+func (pp *providerPayment) applyTx(tx *interactions.Tx, ixID string) error {
+	prior, err := tx.Get(ixID)
+	if err != nil {
+		return err
+	}
+	pp.prior = prior.PayState
+	switch pp.status {
 	case x402a2a.StatusRequired:
-		if quote == nil {
-			break
-		}
-		prior, err := d.ix.Get(ixID)
-		if err != nil {
+		if pp.quote == nil {
 			break
 		}
 		// A quote again after a payment was submitted means the provider
 		// did not take it; the same authorization may be sent again (§8.3).
-		if _, err := d.ix.SetPayment(ixID, interactions.PayUpdate{
+		expires := pp.expires
+		if pp.quoted, err = tx.SetPayment(ixID, interactions.PayUpdate{
 			From: []string{interactions.PayNone, interactions.PayRequired, interactions.PayFailed,
 				interactions.PaySubmitted},
-			State: interactions.PayState(interactions.PayRequired), Required: quote, QuoteExpiresAt: &expires}); err != nil {
-			log.Printf("anet: %s: store the quote: %v", ixID, err)
-			break
+			State: interactions.PayState(interactions.PayRequired), Required: pp.quote, QuoteExpiresAt: &expires}); err != nil {
+			return err
 		}
-		d.publishState(ixID)
-		d.notePaymentReceipts(ixID, m, false)
-		if prior.PayState == interactions.PaySubmitted && d.carryOutRequestedCancel(ctx, ixID) {
-			return
-		}
-		// Paid automatically once per quote: on the first one, or again
-		// with the same authorization after a re-quote. After a definite
-		// failure a person or an agent decides, so a provider cannot
-		// drain the automatic tier by quoting again and again.
-		if prior.PayState == interactions.PayNone || prior.PayState == interactions.PaySubmitted {
-			d.autoPay(ctx, ixID, prior.PayState == interactions.PaySubmitted)
-		}
-		return
 	case x402a2a.StatusFailed:
 		// The payment sent has a definite outcome, and it is not sent
 		// again: pay_payload is cleared, so a quote repeated after this is
 		// paid, if at all, with a new authorization and a decision (Q11).
 		upd := interactions.PayUpdate{From: []string{interactions.PaySubmitted, interactions.PayRequired, interactions.PayFailed},
 			State: interactions.PayState(interactions.PayFailed), Payload: []byte{}}
-		if quote != nil {
-			upd.Required, upd.QuoteExpiresAt = quote, &expires
+		if pp.quote != nil {
+			expires := pp.expires
+			upd.Required, upd.QuoteExpiresAt = pp.quote, &expires
 		}
-		if _, err := d.ix.SetPayment(ixID, upd); err != nil {
-			log.Printf("anet: %s: record the failed payment: %v", ixID, err)
+		if pp.failWrit, err = tx.SetPayment(ixID, upd); err != nil {
+			return err
 		}
+	}
+	return pp.receipts.applyTx(tx, ixID)
+}
+
+// afterProviderPayment does what follows the commit of a status carrying
+// a payment part.
+func (d *Daemon) afterProviderPayment(ctx context.Context, ixID string, pp *providerPayment) {
+	switch {
+	case pp.status == x402a2a.StatusRequired && pp.quoted:
+		d.publishState(ixID)
+		d.recordReceipts(pp.receipts)
+		if pp.prior == interactions.PaySubmitted && d.carryOutRequestedCancel(ctx, ixID) {
+			return
+		}
+		// Paid automatically once per quote: on the first one, or again
+		// with the same authorization after a re-quote. After a definite
+		// failure a person or an agent decides, so a provider cannot
+		// drain the automatic tier by quoting again and again.
+		if pp.prior == interactions.PayNone || pp.prior == interactions.PaySubmitted {
+			d.autoPay(ctx, ixID, pp.prior == interactions.PaySubmitted)
+		}
+		return
+	case pp.status == x402a2a.StatusFailed:
 		d.publishState(ixID)
 	}
-	d.notePaymentReceipts(ixID, m, false)
-	if status == x402a2a.StatusFailed {
+	d.recordReceipts(pp.receipts)
+	if pp.status == x402a2a.StatusFailed {
 		d.carryOutRequestedCancel(ctx, ixID)
 	}
+}
+
+// onProviderPayment handles the x402 part of a status from the provider of
+// an outbound task that is already stored, outside a step-10 transaction:
+// the three steps of providerPayment in a row.
+func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte) {
+	pp := d.planProviderPayment(ixID, meta)
+	if err := d.ix.Update(func(tx *interactions.Tx) error { return pp.applyTx(tx, ixID) }); err != nil {
+		log.Printf("anet: %s: store the payment status: %v", ixID, err)
+		return
+	}
+	d.afterProviderPayment(ctx, ixID, pp)
 }
 
 // autoPay pays a stored quote within the auto tier, or leaves the task for
@@ -1502,10 +1554,38 @@ const maxPeerReceipts = 128
 // the task, paying the task's provider, for that authorization's amount.
 // It is recorded once (by transaction) as anet.payment.settled, verified or
 // not; a second verified settlement for one task is recorded and marked.
+//
+// The receive path plans the receipts before its step-10 transaction,
+// writes the pay columns inside it and records the evidence after it
+// commits (planReceipts, receiptPlan.applyTx, recordReceipts;
+// [redteam:F28]); this is the three in a row, for a caller outside one.
 func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTerminal bool) {
+	rp := d.planReceipts(ixID, m, afterTerminal)
+	if rp == nil {
+		return
+	}
+	if err := d.ix.Update(func(tx *interactions.Tx) error { return rp.applyTx(tx, ixID) }); err != nil {
+		log.Printf("anet: %s: store the receipts: %v", ixID, err)
+		return
+	}
+	d.recordReceipts(rp)
+}
+
+// receiptPlan is what a provider's receipts change: the pay_receipts list
+// to store, whether a verified settlement completes the payment, and the
+// evidence entries to record once that is stored.
+type receiptPlan struct {
+	all       []byte
+	completed bool
+	entries   []map[string]any
+}
+
+// planReceipts checks the receipts in a provider's metadata and returns
+// what they change, or nil when they change nothing. It writes nothing.
+func (d *Daemon) planReceipts(ixID string, m map[string]any, afterTerminal bool) *receiptPlan {
 	list, ok := m[x402a2a.KeyReceipts].([]any)
 	if !ok || len(list) == 0 {
-		return
+		return nil
 	}
 	if len(list) > maxPeerReceipts {
 		// The newest: a provider keeps 64 (interactions.maxPayReceipts), so
@@ -1515,8 +1595,9 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 	}
 	ix, err := d.ix.Get(ixID)
 	if err != nil || ix.Role != interactions.RoleOutbound {
-		return
+		return nil
 	}
+	rp := &receiptPlan{}
 	if len(list) >= len(storedReceipts(ix)) {
 		// Stored as a local client will be shown it: failures with
 		// transaction "" (Q18), whatever form the provider sent.
@@ -1527,9 +1608,7 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 			}
 		}
 		if all, err := json.Marshal(normalizeReceipts(items)); err == nil {
-			if _, err := d.ix.SetPayment(ixID, interactions.PayUpdate{Receipts: all}); err != nil {
-				log.Printf("anet: %s: store the receipts: %v", ixID, err)
-			}
+			rp.all = all
 		}
 	}
 	// What this node already recorded for the task.
@@ -1598,12 +1677,46 @@ func (d *Daemon) notePaymentReceipts(ixID string, m map[string]any, afterTermina
 				entry["second_receipt"] = true
 			}
 			verifiedBefore++
-			if _, err := d.ix.SetPayment(ixID, interactions.PayUpdate{
-				State: interactions.PayState(interactions.PayCompleted)}); err != nil {
-				log.Printf("anet: %s: record the settlement: %v", ixID, err)
-			}
-		} else {
-			log.Printf("anet: %s: settlement receipt did not check out: %v", ixID, entry["refused"])
+			rp.completed = true
+		}
+		rp.entries = append(rp.entries, entry)
+	}
+	if rp.all == nil && !rp.completed && len(rp.entries) == 0 {
+		return nil
+	}
+	return rp
+}
+
+// applyTx writes the pay columns the receipts change, inside the
+// transaction of the message that carried them.
+func (rp *receiptPlan) applyTx(tx *interactions.Tx, ixID string) error {
+	if rp == nil {
+		return nil
+	}
+	if rp.all != nil {
+		if _, err := tx.SetPayment(ixID, interactions.PayUpdate{Receipts: rp.all}); err != nil {
+			return err
+		}
+	}
+	if rp.completed {
+		if _, err := tx.SetPayment(ixID, interactions.PayUpdate{
+			State: interactions.PayState(interactions.PayCompleted)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recordReceipts records the settlement evidence once the pay columns are
+// stored. The evidence ledger is a store of its own and cannot join the
+// transaction.
+func (d *Daemon) recordReceipts(rp *receiptPlan) {
+	if rp == nil {
+		return
+	}
+	for _, entry := range rp.entries {
+		if entry["verified"] != true {
+			log.Printf("anet: %s: settlement receipt did not check out: %v", entry["interaction_id"], entry["refused"])
 		}
 		if _, lerr := d.ledger.Append(EvPaymentSettled, entry); lerr != nil {
 			log.Printf("anet: settlement evidence: %v", lerr)
