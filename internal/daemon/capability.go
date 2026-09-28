@@ -644,7 +644,11 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 //   - A call waiting on a payment (quoted, submitted, or received and not
 //     taken) is the payment flow's (startPayments, §8.3).
 //   - Unpaid work for a peer now on the deny list is not run again: the
-//     revocation sweep cancels it (§5.1). Paid work is (0017 Q10).
+//     revocation sweep cancels it (§5.1). Paid work is (0017 Q10). Nor is
+//     unpaid work accepted because its peer was on the allow list
+//     (trust=peer) once the peer is off it: revocation reaches existing
+//     interactions, as it does a redelivery of the same call (§5.1,
+//     authorizeRedelivery) [redteam:F7].
 //
 // Short or long is the provider's answer, so it is read from the registry,
 // which the modules have filled by now. A recorded call whose provider is
@@ -665,9 +669,15 @@ func (d *Daemon) recoverInterrupted() {
 		capID, args := storedCall(ix)
 		switch d.leftoverAction(ix, capID) {
 		case leftoverRerun:
-			if ps.denied(ix.PeerAID) && ix.PayState != interactions.PayCompleted {
-				log.Printf("anet: %s: %s was cut off by a restart; its peer is denied, so it is not run again", ix.ID, capID)
-				continue
+			if ix.PayState != interactions.PayCompleted {
+				if ps.denied(ix.PeerAID) {
+					log.Printf("anet: %s: %s was cut off by a restart; its peer is denied, so it is not run again", ix.ID, capID)
+					continue
+				}
+				if ix.Trust == interactions.TrustPeer && !ps.allowed(ix.PeerAID) {
+					log.Printf("anet: %s: %s was cut off by a restart; its peer is no longer allowed, so it is not run again", ix.ID, capID)
+					continue
+				}
 			}
 			ix, capID, args := ix, capID, args
 			log.Printf("anet: %s: %s was cut off by a restart; running it again", ix.ID, capID)
