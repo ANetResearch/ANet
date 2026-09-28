@@ -477,7 +477,7 @@ func localDaemonUp(layout daemon.Layout) bool {
 //
 // It runs as the first step of `anet up`, which is exactly when the daemon is not holding its port and
 // another local user may be: the probe goes through client.http, which verifies the listener before the
-// token is written (A2A-DESIGN §7.1 [redteam:F18]). A listener that is not this user's daemon is
+// token is written (A2A-DESIGN §7 item 10 [redteam:F18]). A listener that is not this user's daemon is
 // reported with localpeer.ErrNotOurs in the chain.
 func probeLocalDaemon(layout daemon.Layout) (bool, error) {
 	tb, err := os.ReadFile(layout.ControlTokenPath())
@@ -1148,9 +1148,7 @@ var knownFlags = map[string][]string{
 
 	// through the control plane
 	"status":        {},
-	// "token" stays known so that `--token <invite>` gets hub-register's own refusal, which says where
-	// the invite goes instead (inviteFrom), rather than "unknown flag".
-	"hub-register":  {"name", "caps", "token", "token-file", "accept-delegations"},
+	"hub-register":  {"name", "caps", "token", "token-file", "accept-delegations"}, // "token": inviteFrom refuses it, saying where the invite goes
 	"hub-leave":     {},
 	"p2p-advertise": {},
 	"accept":        {},
@@ -1605,8 +1603,8 @@ type client struct {
 // http is the HTTP client every control call goes through. The control token is the node's full
 // credential, and a loopback port can be held by another local user whenever the daemon is not holding
 // it (before `anet up`, after a crash or a reboot), so each connection is verified to be this user's
-// daemon before the request carrying the token is written on it (internal/localpeer, A2A-DESIGN §7.1
-// [redteam:F18]).
+// daemon before the request carrying the token is written on it (internal/localpeer, A2A-DESIGN §7
+// item 10 [redteam:F18]).
 func (c *client) http() *http.Client {
 	to := c.timeout
 	if to == 0 {

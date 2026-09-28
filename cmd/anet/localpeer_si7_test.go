@@ -6,7 +6,7 @@ package main
 // process of another local user that took the port collected a token the real daemon accepted
 // (skeptic PoC TestSkepticSI7_UpLeaksControlTokenToSquatterAndItStaysValid). Every client of the
 // control plane now verifies the listener before the token is written (internal/localpeer,
-// A2A-DESIGN §7.1 [redteam:F18]).
+// A2A-DESIGN §7 item 10 [redteam:F18]).
 
 import (
 	"context"

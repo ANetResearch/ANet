@@ -1,5 +1,5 @@
 // Package localpeer confirms that a loopback listener is this user's own anet daemon before a credential
-// is sent to it (A2A-DESIGN §7.1, SI-7 [redteam:F18]).
+// is sent to it (A2A-DESIGN §7 item 10, SI-7 [redteam:F18]).
 //
 // The local surfaces of a node listen on loopback TCP ports, and a loopback port is not private: any
 // local account can bind one that is free. The daemon does not always hold its port — after a reboot or
