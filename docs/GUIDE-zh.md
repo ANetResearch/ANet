@@ -473,7 +473,7 @@ daemon 在 127.0.0.1 上提供 A2A 协议服务(`module/a2a`,默认启用,不需
 | `POST /a2a/v1/agents/{aid}/jsonrpc` | A2A JSON-RPC 绑定 |
 | `/a2a/v1/agents/{aid}/rest/…` | A2A HTTP+JSON 绑定 |
 
-- **地址**:第一次启动时在 43811 起的回环端口里选一个,写进 `<数据目录>/modules/a2a/a2a_addr.txt`,之后每次重启重绑同一端口(被占时换端口并记日志,已配置的客户端随之失效,`anet doctor` 会报告)。`anet doctor` 打印当前地址。
+- **地址**:第一次启动时在 43811 起的回环端口里选一个,写进 `<数据目录>/modules/a2a/a2a_addr.txt`,之后每次重启重绑同一端口。端口被别的进程占着时接口**不启动、也不换端口**(已配置的客户端会把令牌发到那个端口上):`anet up` 与 `anet doctor` 会报告;占用者可能是别的本机用户时令牌同时更换。先释放端口,再 `anet stop && anet up`,然后 `anet agents wire --refresh`。`anet doctor` 打印当前地址。
 - **令牌**:`<数据目录>/modules/a2a/a2a_token.txt`(0600),与控制令牌分离,互不通用。每个请求带 `Authorization: Bearer <令牌>`,取卡片也要带。它授权的范围比控制令牌窄:只作用于"本机作为请求方、且对端等于路径中 AID"的任务,拿不到别人发给你的任务,也拿不到发往其他 AID 的任务(一律 `TaskNotFound`)。
 - **限制**:只接受回环 Host(否则 421);带非空 `Origin` 的请求被拒(浏览器页面不是这个接口的客户端);请求体上限 96 MiB;`A2A-Version` 缺省按 1.0,显式的非 1.x 版本得到 `VersionNotSupportedError`;推送通知与 `GetExtendedAgentCard` 不支持;任何 url 形式的文件 part(`file:`、`http(s):`、`data:`)一律 `InvalidParams`,daemon 不替你抓取、不读本地路径。
 
@@ -635,6 +635,7 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 - 默认构建**不监听任何公开端口**,只有回环控制面(bearer + 回环 Host)与回环 A2A 接口(独立令牌)。会开公开口的只有两处:`x402` 的 `voucher_addr`(配了才开)与 `p2p`(入站直连)。
 - 控制面只接受回环 Host;没有"允许远程控制"的开关。控制台用 `anet console` 取的 60 秒单次票据登录,页面里不含令牌;票据经私有目录里的一次性启动页交给浏览器,不出现在任何进程的命令行上。
 - 终端确认(`anet peers allow|trust`、`anet inbound approve`、`anet pay`、改支出上限)挡的是只能经 MCP 或 A2A 接口行事的 agent;能以你的用户身份执行命令的程序可以绕过它。给编码 agent 开 Bash 权限时按这个前提决定。
+- CLI 与 `anet mcp` 只在确认回环端口上是**你自己的** daemon 之后才发送控制令牌(Linux 查内核套接字表的属主,其他系统用挑战-应答);daemon 没起来时别的本机用户占住控制口,拿不到令牌。
 - 邀请码、付款授权都**不落盘**,用完即弃。
 - 节点为谁做什么由节点决定,不由 hub 决定;hub 不是可信方,它签的东西你都能验。hub 与他人仍能看到的元数据见[已知局限](KNOWN-LIMITATIONS-zh.md)。
 - `shell` 变体不提权。daemon 以 root 跑,名单里的每个 AID 就能以 root 跑你列出的命令——名单按这个前提写。

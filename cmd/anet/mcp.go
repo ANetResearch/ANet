@@ -114,7 +114,7 @@ func (cc *controlClient) fetch(ctx context.Context, path string, body any) ([]by
 		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+cc.c.token)
-	resp, err := (&http.Client{Timeout: cc.c.timeout}).Do(req)
+	resp, err := cc.c.http().Do(req) // verified to be this user's daemon first (client.http)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -24,7 +25,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/loopguard"
 	"github.com/ANetResearch/ANet/module"
 )
@@ -466,15 +469,26 @@ func hasFlag(args []string, names ...string) bool {
 // running daemon and wrongly conclude it's already up (never starting the new identity). A missing token
 // file means "not started here"; readiness is confirmed once our daemon writes its token and serves.
 func localDaemonUp(layout daemon.Layout) bool {
+	up, _ := probeLocalDaemon(layout)
+	return up
+}
+
+// probeLocalDaemon is localDaemonUp with the reason it is not up, when there is one worth telling.
+//
+// It runs as the first step of `anet up`, which is exactly when the daemon is not holding its port and
+// another local user may be: the probe goes through client.http, which verifies the listener before the
+// token is written (A2A-DESIGN §7.1 [redteam:F18]). A listener that is not this user's daemon is
+// reported with localpeer.ErrNotOurs in the chain.
+func probeLocalDaemon(layout daemon.Layout) (bool, error) {
 	tb, err := os.ReadFile(layout.ControlTokenPath())
 	if err != nil {
-		return false
+		return false, nil
 	}
 	// The token is sent only to a loopback address (A2A-DESIGN §7.1); a daemon cannot be serving on any
 	// other, since it refuses to start there.
 	addr := daemon.LocalControlAddr(layout)
 	if loopguard.CheckLoopbackAddr(addr) != nil {
-		return false
+		return false, nil
 	}
 	c := &client{
 		base:    "http://" + addr,
@@ -482,7 +496,7 @@ func localDaemonUp(layout daemon.Layout) bool {
 		timeout: 1500 * time.Millisecond,
 	}
 	_, code, e := c.fetch("/status", nil)
-	return e == nil && code == 200
+	return e == nil && code == 200, e
 }
 
 // runDaemonDetached starts the daemon as a fully detached background process (its own session, output to
@@ -490,9 +504,16 @@ func localDaemonUp(layout daemon.Layout) bool {
 // up` leaves a resident daemon even after the launching shell exits — unlike `anet daemon &`, which dies
 // with an agent's short-lived tool-call shell. Idempotent: if a daemon is already up it just prints status.
 func runDaemonDetached(layout daemon.Layout) error {
-	if localDaemonUp(layout) {
+	up, perr := probeLocalDaemon(layout)
+	if up {
 		fmt.Printf("anet daemon already running (data dir %s)\n", layout.Root)
 		return runClient(layout, "status", nil, true)
+	}
+	if errors.Is(perr, localpeer.ErrNotOurs) {
+		// Somebody else holds this identity's control port while its daemon is down. The token was not
+		// sent; the daemon moves to a free port and records it in config.json, which every later
+		// command reads.
+		fmt.Fprintf(os.Stderr, "note: %v\n      starting the daemon on another port\n", perr)
 	}
 	// Initialize the identity (auto-allocate a free control port for a fresh dir) BEFORE spawning, so the
 	// child daemon binds a non-colliding port and the readiness poll targets the right address.
@@ -552,6 +573,7 @@ func runDaemonDetached(layout daemon.Layout) error {
 			}
 			fmt.Printf("anet daemon started%s (pid %d, data dir %s) — stop it anytime with `anet stop%s`\n\n",
 				label, pid, layout.Root, stopHint(name))
+			reportA2APortConflict(layout)
 			return runClient(layout, "status", nil, true)
 		}
 		select {
@@ -563,6 +585,18 @@ func runDaemonDetached(layout daemon.Layout) error {
 		}
 	}
 	return fmt.Errorf("daemon did not become ready within 8s — check the log: anet logs")
+}
+
+// reportA2APortConflict says, on the terminal that started the node, that the local A2A interface did
+// not start because another process held its port (module/a2a leaves a2a_port_conflict.txt). The node
+// runs without it; the log line alone is too easy to miss for something that may mean another local
+// user is collecting the A2A token from configured clients (A2A-DESIGN §11.1 [redteam:F18]).
+func reportA2APortConflict(layout daemon.Layout) {
+	b, err := os.ReadFile(filepath.Join(anethome.A2ADir(layout.Root), anethome.A2AConflictFile))
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "WARNING: the local A2A interface did not start.\n  %s\n\n", strings.TrimSpace(string(b)))
 }
 
 // daemonStartFailed reports why a detached daemon exited, quoting the log.
@@ -1568,6 +1602,19 @@ type client struct {
 	dataDir     string // used to build a helpful error when the daemon is unreachable (see do)
 }
 
+// http is the HTTP client every control call goes through. The control token is the node's full
+// credential, and a loopback port can be held by another local user whenever the daemon is not holding
+// it (before `anet up`, after a crash or a reboot), so each connection is verified to be this user's
+// daemon before the request carrying the token is written on it (internal/localpeer, A2A-DESIGN §7.1
+// [redteam:F18]).
+func (c *client) http() *http.Client {
+	to := c.timeout
+	if to == 0 {
+		to = 30 * time.Second
+	}
+	return localpeer.Client(c.token, to)
+}
+
 func (c *client) fetch(path string, body any) ([]byte, int, error) {
 	var buf bytes.Buffer
 	if body != nil {
@@ -1580,11 +1627,7 @@ func (c *client) fetch(path string, body any) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	to := c.timeout
-	if to == 0 {
-		to = 30 * time.Second
-	}
-	resp, err := (&http.Client{Timeout: to}).Do(req)
+	resp, err := c.http().Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1605,11 +1648,7 @@ func (c *client) do(path string, body any) error {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
-	to := c.timeout
-	if to == 0 {
-		to = 30 * time.Second
-	}
-	resp, err := (&http.Client{Timeout: to}).Do(req)
+	resp, err := c.http().Do(req)
 	if err != nil {
 		return diagnoseNoDaemon(c.base, c.dataDir, err)
 	}

@@ -47,6 +47,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/loopguard"
 )
 
@@ -399,7 +400,10 @@ const switchTimeout = 5 * time.Second
 //
 // The token is sent only to a loopback control address, and only after checking that the data dir the
 // registry names holds the requested AID, so a stale or edited registry entry cannot direct the token
-// of one identity to a daemon of another.
+// of one identity to a daemon of another. The registry's liveness probe (/ping, unauthenticated) says
+// only that something answers on the recorded port: after a crash another local user may hold it, so
+// the ticket request goes out on a connection verified to be this user's daemon (internal/localpeer,
+// A2A-DESIGN §7.4 [redteam:F18]).
 func (d *Daemon) hConsoleSwitch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AID string `json:"aid"`
@@ -448,7 +452,7 @@ func requestTicket(ctx context.Context, controlAddr, token string) (string, erro
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := localpeer.Client(token, 0).Do(req) // the context bounds it
 	if err != nil {
 		return "", fmt.Errorf("ticket from %s: %w", controlAddr, err)
 	}

@@ -20,6 +20,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/ANetResearch/ANet/internal/localpeer"
 )
 
 // hubOriginRe bounds what may appear as a hub origin inside the CSP header: scheme, host name or IP
@@ -96,16 +98,26 @@ func (d *Daemon) consoleHandler() http.HandlerFunc {
 // sends no Access-Control-Allow-Origin header: its consumers are curl in scripts and RunningDaemons,
 // none of which needs CORS, and without the header a page on another site cannot read which identity
 // and build answer on a local port.
-func (d *Daemon) pingHandler() http.HandlerFunc {
+//
+// With ?proof=<nonce> it also proves that it holds this node's control token, for a client that cannot
+// read the kernel's socket table and must not send the token to a listener it has not verified
+// (internal/localpeer, A2A-DESIGN §7.1 [redteam:F18]). The proof is bound to the listener address the
+// request arrived on, so a squatter relaying the challenge here gets an answer for the wrong address.
+func (d *Daemon) pingHandler(token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// The build is reported here as well as the identity. A check
 		// asking "is the daemon I deployed the one answering" needs an
 		// unauthenticated endpoint to ask, and this is the one everything
 		// already uses to find out whether a node is up.
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		out := map[string]any{
 			"anet": true, "aid": d.AID(), "name": d.config().Name,
 			"version": Version, "commit": BuildCommit, "built_at": BuildAt, "tags": BuildTags,
-		})
+		}
+		if p, ok := localpeer.Answer(r, token); ok {
+			out["proof"] = p
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		_ = json.NewEncoder(w).Encode(out)
 	}
 }
