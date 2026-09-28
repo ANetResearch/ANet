@@ -99,7 +99,7 @@ MUTS = [
   edits=[
    ('internal/daemon/receive.go', '\tif ix != nil && (ix.Role != interactions.RoleInbound || ix.PeerAID != m.from) {', '\tif ix != nil && ix.PeerAID != m.from {'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestEachReceiveStepRefusesWithItsClass|TestACollidingDelegationIsRefusedBeforeAnyWrite')],
+  tests=[('ANet:./internal/daemon', 'TestEachReceiveStepRefusesWithItsClass|TestACollidingDelegationIsRefusedBeforeAnyWrite|TestAReflectedRequestIsAnIXCollisionNotARedelivery')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
@@ -108,7 +108,7 @@ MUTS = [
   edits=[
    ('internal/daemon/receive.go', '\tif ix != nil && (ix.Role != interactions.RoleInbound || ix.PeerAID != m.from) {', '\tif false && ix != nil {'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestEachReceiveStepRefusesWithItsClass|TestACollidingDelegationIsRefusedBeforeAnyWrite')],
+  tests=[('ANet:./internal/daemon', 'TestEachReceiveStepRefusesWithItsClass|TestACollidingDelegationIsRefusedBeforeAnyWrite|TestAReflectedRequestIsAnIXCollisionNotARedelivery')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
@@ -118,7 +118,7 @@ MUTS = [
    ('internal/daemon/receive.go', '\tif ix != nil && (ix.Role != interactions.RoleInbound || ix.PeerAID != m.from) {', '\tif false && ix != nil {'),
    ('internal/daemon/delegation.go', '\t\t\tif prior.Role != interactions.RoleInbound || prior.PeerAID != m.from {', '\t\t\tif false && (prior.Role != interactions.RoleInbound || prior.PeerAID != m.from) {'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestEachReceiveStepRefusesWithItsClass')],
+  tests=[('ANet:./internal/daemon', 'TestEachReceiveStepRefusesWithItsClass|TestAReflectedRequestIsAnIXCollisionNotARedelivery')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
