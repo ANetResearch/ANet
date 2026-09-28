@@ -160,7 +160,10 @@ NOTES: dict[str, str] = {
     "DM-PART-001": "同 DM-ART-001",
     "STREAM-SUB-003": "对终态任务 SubscribeToTask 应返回 UnsupportedOperationError,而不是发快照后关闭",
     "CORE-SEND-002": "对终态任务 SendMessage 应返回 UnsupportedOperationError(C35)",
-    "CORE-CANCEL-002": "对终态任务 CancelTask 应返回 TaskNotCancelableError",
+    "CORE-CANCEL-002": "对终态任务 CancelTask 应返回 TaskNotCancelableError;http_json 得 400 是 A2A v1.0.1 §5.4 的状态,"
+    "TCK 钉在 v1.0.0、期望 409,此项在 http_json 上预期失败(0019 §5)",
+    "HTTP_JSON-STATUS-001": "错误 Content-Type 回 400 是 A2A v1.0.1 §5.4 的状态,TCK 钉在 v1.0.0、期望 415,"
+    "test_content_type_not_supported_returns_415 预期失败(0019 §5)",
 }
 
 _REQ_RE = re.compile(r"\b([A-Z][A-Z0-9_]+-[A-Z]+-\d+[a-z]?)\b")
