@@ -23,12 +23,21 @@ a fix before public disclosure.
 
 ## Release signing key
 
-> **DEV KEY — 正式发布前由产品负责人替换.** The key below is a development
-> key generated for the v0.2.0 release work. It will be replaced before the
-> first public release that carries signatures; when it is, this section,
-> the README, `docs/GUIDE-zh.md`, `deploy/release/install.sh` and
-> `internal/release/` change in the same commit, and a test fails if any of
-> them disagrees.
+This is the project's key, not yours. Your node's identity key is created on
+your machine the first time the node starts (`anet up`, in `~/.anet`) and
+never leaves it; nobody else holds it, and you keep it the way you keep any
+private key. The release key below is held
+by the anet maintainers and does one job: it proves that a binary, the
+installer and the official-agent list came from the project, so that a
+compromised download host (today the same machine as the official hub)
+cannot hand you a binary of its own. Its private half is in no repository
+and not on the download host or any public hub.
+
+If the key ever changes, this section, the README, `docs/GUIDE-zh.md`,
+`deploy/release/install.sh` and `internal/release/` change in the same
+commit, and a test fails if any of them disagrees. A planned rotation goes
+to the pre-committed next key named below: binaries already installed accept
+a release signed by it, so `anet update` keeps working across the change.
 
 Every release is described by `release.json` — version, full commit, commit
 time, signing time, expiry, the sha256 of each `.gz` and of the binary inside
@@ -42,14 +51,14 @@ ssh-keygen -Y sign -n anet-release@agentnetwork.org.cn
 The key, as an `allowed_signers` line:
 
 ```
-anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3
+anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL
 ```
 
 | | |
 |---|---|
-| Public key | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3` |
-| Fingerprint | `SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA` |
-| Next key (pre-committed) | `SHA256:Vqbc5UDOJ7cR1ik5Vmn8NecV66MjpP9OteJ6JFkkhpU` |
+| Public key | `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL` |
+| Fingerprint | `SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4` |
+| Next key (pre-committed) | `SHA256:XfLuodIAOmCPVDu9U5ui4VHCTkTD6q95M1ozxjI+wLA` |
 | Namespace / identity | `anet-release@agentnetwork.org.cn` |
 | Second namespace | `anet-official@agentnetwork.org.cn` — the official-agent manifest (below) |
 
@@ -85,12 +94,12 @@ script) and verify:
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
-echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3' > allowed_signers
+echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL' > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
   -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 ```
 
-`Good "anet-release@agentnetwork.org.cn" signature … SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA`
+`Good "anet-release@agentnetwork.org.cn" signature … SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4`
 is the expected output. Needs OpenSSH 8.1 or later.
 
 The same check works on any release file, e.g. the manifest:

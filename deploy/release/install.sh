@@ -43,7 +43,7 @@
 #
 #   curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
 #   curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
-#   echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3' > allowed_signers
+#   echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL' > allowed_signers
 #   ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
 #     -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 #
@@ -81,15 +81,16 @@
 # Everything below is a function and the last line calls main: a download
 # cut short defines half a function and runs nothing.
 
-# The release key. DEV KEY — 正式发布前由产品负责人替换.
+# The anet release key, held by the project's maintainers (not a user key:
+# it only vouches that a release came from the project).
 # Same line as internal/release/allowed_signers, SECURITY.md and README.md;
 # a test in internal/release keeps them equal.
 release_allowed_signers() {
-  echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3'
+  echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL'
 }
 # Printed in messages only; ssh-keygen checks the key itself.
 release_key_fingerprint() {
-  echo 'SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA'
+  echo 'SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4'
 }
 
 usage() {

@@ -89,10 +89,10 @@ footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font
 <p><strong>先验脚本再执行。</strong> <code>curl … | sh</code> 信任提供脚本的主机(当前与官方 hub 同机)及其 TLS 证书。不想信任主机,就从 GitHub 上的 <code>SECURITY.md</code> 或 README 取发布公钥(不要从提供脚本的同一主机取),先验签再执行:</p>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">curl --proto &#x27;=https&#x27; --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
 curl --proto &#x27;=https&#x27; --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
-echo &#x27;anet-release@agentnetwork.org.cn namespaces=&quot;anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn&quot; ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3&#x27; &gt; allowed_signers
+echo &#x27;anet-release@agentnetwork.org.cn namespaces=&quot;anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn&quot; ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL&#x27; &gt; allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
   -n anet-release@agentnetwork.org.cn -s install.sh.sig &lt; install.sh &amp;&amp; sh install.sh</pre></div>
-<p>公钥指纹 <code>SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA</code>(<strong>DEV KEY — 正式发布前由产品负责人替换</strong>)。</p>
+<p>公钥指纹 <code>SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4</code>,预承诺的下一把钥 <code>SHA256:XfLuodIAOmCPVDu9U5ui4VHCTkTD6q95M1ozxjI+wLA</code>。这是 anet 项目的发布签名钥,由维护者持有,只用来证明二进制、安装脚本与官方 agent 清单出自项目;它不是你的钥——你节点的身份私钥在节点首次启动(<code>anet up</code>)时于你自己的机器上生成(<code>~/.anet</code>,§3),只存在那里,由你自己保管。</p>
 <h3 id="2-2-装完即入网">2.2 装完即入网</h3>
 <div class="code"><button class="copy" type="button">复制</button><pre class="lang-sh">curl --proto &#x27;=https&#x27; --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | sh -s -- \
   --hub https://hub.agentnetwork.org.cn --name $(hostname) --agents</pre></div>
