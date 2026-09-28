@@ -1,6 +1,17 @@
 package module
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrNotDelivered marks a Send failure the transport knows reached nobody:
+// the envelope never left this node, or the far side refused it before any
+// daemon processed it. A failure that does not wrap it may have delivered
+// the envelope all the same (see Send), and the daemon treats the message
+// as possibly delivered: it does not report a call that was sent this way
+// as one that never ran ([redteam:F12]).
+var ErrNotDelivered = errors.New("envelope not delivered")
 
 // Transport is how a message reaches another node.
 //
@@ -36,6 +47,8 @@ type Transport interface {
 	// partially succeeded must report failure. A duplicate delivery is
 	// harmless — the receiver drops a second copy of the same envelope by
 	// its (sender, message id) replay record — whereas a lost one is not.
+	// A failure the transport knows delivered nothing wraps ErrNotDelivered;
+	// any other failure is taken to mean "may have been delivered".
 	Send(ctx context.Context, toAID string, envelope []byte) error
 }
 
@@ -51,11 +64,12 @@ type Inbound interface {
 	// Receive processes one envelope. nil means the transport should
 	// acknowledge the delivery to its sender: the envelope was accepted, or
 	// it was refused for a reason that will not change on retry (a bad
-	// signature, a wrong recipient, an expired message). A non-nil error is
-	// a temporary refusal (a storage error, a rate limit, a message that
-	// arrived before the task it belongs to): the transport must not
+	// signature, an expired message). A non-nil error is a temporary
+	// refusal (a storage error, a rate limit, a message that arrived before
+	// the task it belongs to, or an envelope this node cannot open, which
+	// over a direct path may be another node's): the transport must not
 	// acknowledge, so the sender retries or falls back to the hub
-	// (A2A-DESIGN §3.6 failure classes).
+	// (A2A-DESIGN §3.6 failure classes, §3.10).
 	Receive(ctx context.Context, envelope []byte) error
 }
 

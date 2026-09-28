@@ -368,28 +368,101 @@ func (d *Daemon) relayPoll(ctx context.Context, after int64) ([]hubapi.RelayMess
 // liveness write there) for as long as anything is held, and a stranger can
 // keep something held with one message every ten minutes.
 //
+// A mailbox that always has something new after the cursor would never
+// send it back to the head: anyone registered can keep that so with one
+// message per round, and what was held back — a message that came before
+// its delegation, one a store error turned away — would wait as long as
+// they keep going, and their own held messages would never be read again
+// to turn permanent. So at least every relayHeadEvery rounds a round goes
+// back over the held envelopes whatever lies after the cursor
+// ([redteam:F24]; decision Q1: held rows are gone back to once their window
+// ends).
+//
+// Going back has a place of its own (back), and the forward cursor (after)
+// never goes back. With one cursor, a round sent to the head started the
+// forward read over from there: a mailbox holding more than relayHeadEvery
+// pages of held envelopes — a few dozen, when the hub's poll byte budget
+// cuts pages of large envelopes down to one — was never read past them, and
+// every new message waited until they turned permanent ([redteam:F24]
+// bypass). Now the rounds between two that go back read on from after, so
+// new mail is read within a round or two however much is held, and the
+// rounds that go back walk the held envelopes page by page from the head,
+// so each is read again, however steady the stream of new mail.
+//
 // In memory only: after a restart the first poll reads from the head,
 // which is what every poll did before the cursor existed. The ids are the
 // hub's, so the cursor is kept per hub URL.
 type relayCursor struct {
-	mu    sync.Mutex
-	hub   string
+	mu  sync.Mutex
+	hub string
+	// after: every envelope up to it has been read at least once; a round
+	// that reads on starts after it. It only moves forward.
 	after int64
+	// back: where the next round that goes back over held envelopes starts
+	// (0: the head).
+	back int64
+	// sinceBack counts the rounds since one last went back.
+	sinceBack int
+	// caughtUp: the last round that read on found nothing new, so the next
+	// one goes back.
+	caughtUp bool
 }
 
-func (c *relayCursor) get(hub string) int64 {
+// relayHeadEvery is the most rounds that pass without one going back over
+// the held envelopes: about ten seconds at the poll interval.
+const relayHeadEvery = 10
+
+// next returns where this round reads from, and whether it goes back over
+// held envelopes rather than reading on: when the last round found nothing
+// new (so while the mailbox has nothing newer, every other round), or when
+// relayHeadEvery rounds have passed without one.
+func (c *relayCursor) next(hub string) (from int64, back bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.hub != hub {
-		return 0
+		c.hub, c.after, c.back, c.sinceBack, c.caughtUp = hub, 0, 0, 0, false
 	}
-	return c.after
+	if c.caughtUp || c.sinceBack >= relayHeadEvery {
+		return c.back, true
+	}
+	return c.after, false
 }
 
-func (c *relayCursor) set(hub string, after int64) {
+// done records what a round read: the highest id on its page (0 for an
+// empty page), whether it held anything back, and whether the page was
+// full (more may follow it).
+func (c *relayCursor) done(hub string, back bool, last int64, held, full bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.hub, c.after = hub, after
+	if c.hub != hub {
+		return // the hub changed while the round ran
+	}
+	reached := last >= c.after
+	if last > c.after {
+		c.after = last
+	}
+	if !back {
+		c.sinceBack++
+		c.caughtUp = last == 0
+		return
+	}
+	c.sinceBack, c.caughtUp = 0, false
+	switch {
+	case last == 0, reached:
+		// The end of the mailbox, or as far as the forward cursor has
+		// read (past it is its part): the next round that goes back
+		// starts at the head.
+		c.back = 0
+	case held || full:
+		// Read on past a page that held something back, and past a full
+		// one, which may have more behind it.
+		c.back = last
+	default:
+		// A short page with nothing held back: the end of what was held.
+		// (A page the hub cut at its byte budget is short too, but all of
+		// it was acknowledged, so starting over skips nothing.)
+		c.back = 0
+	}
 }
 
 // relayAck tells the hub these envelopes are handled; the hub deletes them.
@@ -483,19 +556,14 @@ func (d *Daemon) pollFresh(ctx context.Context) {
 //
 // A poll starts at the relay cursor (relayCursor), so envelopes held back
 // in an earlier round do not stand in front of newer ones; when nothing is
-// queued after the cursor, the next round reads from the head again.
+// queued after the cursor, and in any case every relayHeadEvery rounds, a
+// round goes back over the held envelopes instead.
 func (d *Daemon) pollOnce(ctx context.Context) error {
 	hub := d.config().HubURL
-	after := d.relayCur.get(hub)
-	msgs, err := d.relayPoll(ctx, after)
+	from, back := d.relayCur.next(hub)
+	msgs, err := d.relayPoll(ctx, from)
 	if err != nil {
 		return err
-	}
-	if len(msgs) == 0 && after > 0 {
-		// Nothing newer: the next round goes back to the head for what
-		// was held back. Not this one: one request per round.
-		d.relayCur.set(hub, 0)
-		return nil
 	}
 	var acked []int64
 	var last int64
@@ -514,16 +582,7 @@ func (d *Daemon) pollOnce(ctx context.Context) error {
 			held = true
 		}
 	}
-	// Read on past a page that held something back, and past a full page,
-	// which may have more behind it. A short page with nothing held back
-	// is taken as the end of the mailbox and the next round starts at the
-	// head. (A page the hub cut at its byte budget is short too, but all of
-	// it was acknowledged, so starting over skips nothing.)
-	next := int64(0)
-	if held || len(msgs) >= relayPollLimit {
-		next = last
-	}
-	d.relayCur.set(hub, next)
+	d.relayCur.done(hub, back, last, held, len(msgs) >= relayPollLimit)
 	return d.relayAck(ctx, acked)
 }
 

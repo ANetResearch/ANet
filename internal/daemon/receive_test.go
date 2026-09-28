@@ -632,8 +632,15 @@ func TestAPlaintextPayloadIsRefused(t *testing.T) {
 	if counter(prov, seal.ReasonBadOuter) != 1 {
 		t.Fatalf("counters: %v", prov.ReceiveStats())
 	}
-	if r := prov.Inbound().Receive(ctx, plain); r != nil {
-		t.Fatalf("a permanent refusal over p2p must be acknowledged, got %v", r)
+	// Over p2p an envelope this node cannot open is not acknowledged: it
+	// may be another node's, and the sender is sent to the hub, which
+	// refuses a plaintext payload itself ([redteam:F22]). Nothing is stored
+	// either way.
+	if r := prov.Inbound().Receive(ctx, plain); r == nil {
+		t.Fatal("an unopenable envelope over p2p was acknowledged; its sender would not try the hub")
+	}
+	if _, err := prov.ix.Get("ix_plain"); err == nil {
+		t.Fatal("a plaintext delegation was stored")
 	}
 }
 

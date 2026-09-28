@@ -19,7 +19,12 @@ package daemon
 //     was sent, or it waits on a paid provider that decides (§4.2).
 //
 // A capability call that was never delivered did not run, so its effect
-// status is UNAVAILABLE rather than UNVERIFIED.
+// status is UNAVAILABLE rather than UNVERIFIED — but only when no attempt
+// may have delivered it. An attempt over a direct transport can reach the
+// provider and still fail (its answer timed out; module.Transport has such
+// a Send report failure), and the provider may have run the call: such a
+// row (OutboxItem.MaybeDelivered) fails the task with effect UNVERIFIED
+// ([redteam:F12]).
 //
 // A row from before rows kept their message id cannot be matched to its
 // message and fails nothing but a delegation.
@@ -93,12 +98,21 @@ func (d *Daemon) undeliveredTask(it *interactions.OutboxItem) (*undelivered, boo
 // that ended meanwhile (its answer came first) is left as it is.
 func failUndeliveredTx(tx *interactions.Tx, u *undelivered, it *interactions.OutboxItem, reason string) (bool, error) {
 	m := map[string]any{a2ashape.KeyState: string(interactions.StateFailed), a2ashape.KeyReason: a2ashape.ReasonUndeliverable}
+	result := "not delivered to " + it.ToAID + " (" + reason + ")"
+	if it.MaybeDelivered {
+		result = "delivery to " + it.ToAID + " not confirmed (" + reason +
+			"); an earlier attempt may have reached it, so whether it ran is not known"
+	}
 	if u.ix.IsCapability {
-		m[a2ashape.KeyEffectStatus] = string(effect.Unavailable)
+		if it.MaybeDelivered {
+			m[a2ashape.KeyEffectStatus] = string(effect.Unverified)
+		} else {
+			m[a2ashape.KeyEffectStatus] = string(effect.Unavailable)
+		}
 	}
 	meta, _ := json.Marshal(m)
 	err := tx.Finish(u.ix.ID, interactions.Finish{State: interactions.StateFailed,
-		Result: []byte("not delivered to " + it.ToAID + " (" + reason + ")"), Verified: interactions.VerificationUnknown, Meta: meta})
+		Result: []byte(result), Verified: interactions.VerificationUnknown, Meta: meta})
 	if errors.Is(err, interactions.ErrTerminal) {
 		return false, nil
 	}

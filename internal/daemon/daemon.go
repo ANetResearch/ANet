@@ -56,6 +56,7 @@ type Daemon struct {
 	notices     noticeLimiter
 	resends     resendLimiter
 	strangers   strangerCache
+	heldEarly   heldUnknown
 	reval       revalidating
 	running     sync.Map // interaction id -> *runningCall
 	logOnceMu   sync.Mutex
@@ -185,6 +186,12 @@ type Daemon struct {
 	// started is when this process opened the store; an interaction
 	// created before it was left by an earlier process (wire_edges.go).
 	started time.Time
+
+	// ready is closed when New has finished: every module started, startup
+	// recovery (recoverInterrupted, startPayments) done. A transport module
+	// delivers from the moment its Start runs, so its deliveries wait for
+	// this (awaitReady, [redteam:F30]).
+	ready chan struct{}
 }
 
 // New builds the daemon: load config + identity, open the interactions store, and (if a Hub is
@@ -208,7 +215,7 @@ func New(layout Layout) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(),
 		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
-		longCalls: make(chan struct{}, maxConcurrentLongCalls)}
+		longCalls: make(chan struct{}, maxConcurrentLongCalls), ready: make(chan struct{})}
 	d.loadOfficials()
 	if cfg.migratedInbound {
 		// Logged once: the migrated config is saved below without the old
@@ -268,6 +275,12 @@ func New(layout Layout) (*Daemon, error) {
 		d.startAutoReply(*cfg.AutoReply)
 	}
 	d.inFeed.open() // modules' A2A backends get tasks from here on (inbound_tasks.go)
+	// Deliveries a transport module received during start-up are processed
+	// from here on, after recovery has classified what the previous process
+	// left: processed earlier, a call accepted in that window could be
+	// taken for a leftover, and a capability or payment module not started
+	// yet answered for as missing ([redteam:F30]).
+	close(d.ready)
 	return d, nil
 }
 
