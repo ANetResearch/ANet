@@ -927,8 +927,10 @@ func maybeFile(v string) (string, error) {
 	return v, nil
 }
 
-// openBrowser best-effort opens url in the operator's default browser (used by `anet console`).
-func openBrowser(url string) error {
+// openBrowser best-effort opens a local page in the operator's default browser (used by `anet console`).
+// It is given a file path, never a URL with a credential in it: its argument is on the opener's and the
+// browser's command line, which other local users can read [redteam:F19].
+func openBrowser(path string) error {
 	var name string
 	var args []string
 	switch runtime.GOOS {
@@ -939,7 +941,7 @@ func openBrowser(url string) error {
 	default:
 		name = "xdg-open"
 	}
-	return exec.Command(name, append(args, url)...).Start()
+	return exec.Command(name, append(args, path)...).Start()
 }
 
 // splitFlags separates positional args from "--key value" (and bare "--bool") flags in a verb's args.
@@ -1319,13 +1321,20 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// http://127.0.0.1:<port>/console#t=<ticket>. The page trades the ticket for a browser session;
 		// reloading the page needs a new ticket, i.e. running this command again. --id NAME picks the
 		// identity, like every other command.
-		b, code, err := c.fetch("/console/ticket", map[string]any{})
+		//
+		// The ticket is never put on a command line: every local user can read a process's arguments
+		// in /proc/<pid>/cmdline and redeem the ticket before the browser does [redteam:F19]. The
+		// daemon writes a launcher page (0600, in its private runtime directory) that redirects to the
+		// ticket URL and deletes it on redemption or after 60 seconds; the browser is given its path.
+		urlOnly := hasFlag(rest, "--url", "--print")
+		b, code, err := c.fetch("/console/ticket", map[string]any{"launcher": !urlOnly})
 		if err != nil {
 			return err
 		}
 		var tk struct {
-			URL   string `json:"url"`
-			Error string `json:"error"`
+			URL      string `json:"url"`
+			Launcher string `json:"launcher"`
+			Error    string `json:"error"`
 		}
 		if json.Unmarshal(b, &tk) != nil || code != 200 || tk.URL == "" {
 			if tk.Error == "" {
@@ -1335,12 +1344,18 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		}
 		// `--url` (alias `--print`): just print the URL — this is what an onboarding agent hands back to
 		// its operator to open. It is single-use and expires after 60 seconds.
-		if hasFlag(rest, "--url", "--print") {
+		if urlOnly {
 			fmt.Println(tk.URL)
 			return nil
 		}
+		if tk.Launcher == "" || !filepath.IsAbs(tk.Launcher) {
+			// A daemon from before launcher pages. Handing the URL to the browser's command line is
+			// what this avoids, so it is not the fallback.
+			return fmt.Errorf("this daemon cannot hand out a console launcher (it is older than this anet: " +
+				"restart it with `anet stop && anet up`); or run `anet console --url` and open the printed link within 60 seconds")
+		}
 		fmt.Println("opening the console (single-use link, valid 60 s)")
-		if err := openBrowser(tk.URL); err != nil {
+		if err := openBrowser(tk.Launcher); err != nil {
 			fmt.Fprintln(os.Stderr, "(could not auto-open a browser; run `anet console --url` and open the printed URL within 60 seconds)")
 		}
 		return nil
