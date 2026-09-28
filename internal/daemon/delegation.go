@@ -1022,6 +1022,11 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 			peerKeys = m.noticeKeys.signed
 		}
 	}
+	var attRows []interactions.Attachment
+	var attErr error
+	if !publicCap {
+		attRows, attErr = receivedAttachments(m.dr.Attachments)
+	}
 	var seq int64
 	redelivery := false
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
@@ -1065,7 +1070,10 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 		s, _, err := tx.AddMessageRecord(interactions.MessageRecord{InteractionID: m.ix, SenderAID: m.from,
 			Kind: interactions.MsgText, Body: goal, MsgID: wireMsgID("", m.mid), Metadata: peerMessageMeta(m.dr.Metadata)})
 		seq = s
-		return err
+		if err != nil {
+			return err
+		}
+		return addAttachmentsTx(tx, m.ix, s, attRows)
 	})
 	if res.class != rxAccepted {
 		return res
@@ -1077,8 +1085,8 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 		return res
 	}
 	if !publicCap {
-		if err := d.storeMsgAttachments(m.ix, seq, m.dr.Attachments); err != nil {
-			log.Printf("anet: store inbound attachments: %v", err)
+		if attErr != nil {
+			log.Printf("anet: %s: inbound attachment left out: %v", m.ix, attErr)
 		}
 		d.publishMessage(m.ix, seq, interactions.MsgText)
 	}
@@ -1374,24 +1382,32 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 			}
 		}
 		next := stateOnMessage(fromRequester, kind, cm.Metadata, ix.PayState)
+		attRows, attErr := receivedAttachments(atts)
 		var seq int64
 		var stored bool
 		// The sender's id is what tells a redelivery from a repetition.
 		// The replay table covers a redelivery of the same envelope; the
-		// message id covers the same message sealed again.
+		// message id covers the same message sealed again. The files go in
+		// the same transaction as the message ([redteam:F27]).
 		res := d.commitRx(m, func(tx *interactions.Tx) error {
 			var err error
 			seq, stored, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: m.ix,
 				SenderAID: m.from, Kind: kind, Body: body, MsgID: wireMsgID(cm.MsgID, m.mid), Metadata: cm.Metadata})
-			if err != nil || !stored || next == "" {
+			if err != nil || !stored {
 				return err
+			}
+			if err := addAttachmentsTx(tx, m.ix, seq, attRows); err != nil {
+				return err
+			}
+			if next == "" {
+				return nil
 			}
 			_, err = tx.SetState(m.ix, next)
 			return err
 		})
 		if res.class == rxAccepted && stored {
-			if err := d.storeMsgAttachments(m.ix, seq, atts); err != nil {
-				log.Printf("anet: store chat attachments: %v", err) // metadata stored; bytes rejected/failed
+			if attErr != nil {
+				log.Printf("anet: %s: chat attachment left out: %v", m.ix, attErr) // the message and the good files are stored
 			}
 			// The CID of the payload as it arrived is the sender's CID.
 			d.recordMessageReceived(ix, cm.MsgID, kind, m.body, len(cm.Attachments))

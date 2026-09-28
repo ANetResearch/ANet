@@ -180,6 +180,37 @@ func (d *Daemon) storeMsgAttachments(interactionID string, msgSeq int64, atts []
 	return nil
 }
 
+// receivedAttachments verifies the attachments of a received message and
+// returns the rows to store, in order, up to the first that does not
+// verify, and that one's error: bad attachments are left out (logged by the
+// caller), not the message. It writes nothing: the rows are stored with
+// the message, in its step-10 transaction (addAttachmentsTx).
+func receivedAttachments(atts []delegation.Attachment) ([]interactions.Attachment, error) {
+	rows := make([]interactions.Attachment, 0, len(atts))
+	for _, a := range atts {
+		if err := verifyAttachment(a); err != nil {
+			return rows, err
+		}
+		rows = append(rows, interactions.Attachment{Name: a.Name, Mime: sniffMime(a.Data), Size: a.Size, CID: a.CID, Data: a.Data})
+	}
+	return rows, nil
+}
+
+// addAttachmentsTx stores a received message's attachment rows inside its
+// step-10 transaction ([redteam:F27]). A storage error there rolls back the
+// message and its replay row with them, so the envelope is not acknowledged
+// and its redelivery stores all of it; written after the commit, the error
+// was only logged, the envelope acknowledged, every redelivery a duplicate,
+// and the files lost for good.
+func addAttachmentsTx(tx *interactions.Tx, interactionID string, msgSeq int64, rows []interactions.Attachment) error {
+	for _, r := range rows {
+		if err := tx.AddAttachment(interactionID, msgSeq, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // PullResult is one saved attachment file (returned by Pull).
 type PullResult struct {
 	Name string `json:"name"`
