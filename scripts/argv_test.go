@@ -18,7 +18,7 @@ import (
 func TestScriptsKeepBearerTokensOffCommandLines(t *testing.T) {
 	onArgv := regexp.MustCompile(`(-H|--header)[= ]*["']?(Authorization:\s*Bearer|PAYMENT-SIGNATURE:)`)
 	var files []string
-	for _, g := range []string{"*.sh", "testnet/*.sh", "mutations/*.sh"} {
+	for _, g := range []string{"*.sh", "testnet/*.sh", "mutations/*.sh", "interop/*.sh"} {
 		m, err := filepath.Glob(g)
 		if err != nil {
 			t.Fatal(err)
