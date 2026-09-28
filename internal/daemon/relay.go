@@ -134,7 +134,9 @@ func (d *Daemon) Find(ctx context.Context, query string) ([]hubapi.AgentView, er
 	if err := d.hubGet(ctx, hub, "/agents", nil, &resp); err != nil {
 		return nil, err
 	}
-	return matchAgents(resp.Agents, query), nil
+	// Matched against what /find shows (markFound), not against what the
+	// hub wrote for an entry it does not show (redteam F39).
+	return matchAgents(d.shownAgents(resp.Agents), query), nil
 }
 
 // Delegate builds a signed TaskDoc for goal, stores the outbound interaction, and sends the delegation
