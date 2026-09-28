@@ -204,7 +204,7 @@ func fakeHubRoundDuration(d time.Duration) string {
 }
 
 // newFakeHub starts an httptest server backed by a fresh fake Hub and cleans it up with the test.
-func newFakeHub(t *testing.T) *httptest.Server {
+func newFakeHub(t testing.TB) *httptest.Server {
 	t.Helper()
 	self, err := identity.Incept()
 	if err != nil {
@@ -240,7 +240,7 @@ func newFakeHub(t *testing.T) *httptest.Server {
 }
 
 // fakeHubAt returns the fake behind a server URL.
-func fakeHubAt(t *testing.T, url string) *fakeHub {
+func fakeHubAt(t testing.TB, url string) *fakeHub {
 	t.Helper()
 	v, ok := hubsByURL.Load(url)
 	if !ok {
@@ -1151,7 +1151,7 @@ func (h *fakeHub) hRelayAck(w http.ResponseWriter, r *http.Request) {
 }
 
 // queuedFor returns the envelopes the hub holds for toAID, oldest first.
-func queuedFor(t *testing.T, srv *httptest.Server, toAID string) [][]byte {
+func queuedFor(t testing.TB, srv *httptest.Server, toAID string) [][]byte {
 	t.Helper()
 	h := fakeHubAt(t, srv.URL)
 	h.mu.Lock()
@@ -1189,7 +1189,7 @@ func injectEnvelope(t *testing.T, srv *httptest.Server, toAID string, env []byte
 }
 
 // clearMailbox drops everything queued for toAID.
-func clearMailbox(t *testing.T, srv *httptest.Server, toAID string) {
+func clearMailbox(t testing.TB, srv *httptest.Server, toAID string) {
 	t.Helper()
 	h := fakeHubAt(t, srv.URL)
 	h.mu.Lock()

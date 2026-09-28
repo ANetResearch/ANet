@@ -1,0 +1,4 @@
+go test fuzz v1
+[]byte("{\"mcpServers\":{\"anet\":{\"CommAnd\":\"/opt/anet/bin/anet\",\"Args\":[\"mcp\"],\"env\":{\"ANET_DATA_DIR\":\"/home/fuzz/.anet\"}}}}")
+bool(false)
+uint16(29)

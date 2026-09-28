@@ -1,0 +1,2 @@
+go test fuzz v1
+string("[mcp_servers.\"an\\u0065t\"]\ncommand = \"x\"\n")
