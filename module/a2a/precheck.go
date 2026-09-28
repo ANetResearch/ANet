@@ -68,29 +68,32 @@ func readStreamCall(r *http.Request, aid string, jsonrpc bool) *streamCall {
 		if err != nil {
 			return nil
 		}
+		// The envelope first, without the params: a SendMessage can carry
+		// files, and only a streaming call's params are wanted here.
 		var env struct {
-			JSONRPC string          `json:"jsonrpc"`
-			ID      any             `json:"id"`
-			Method  string          `json:"method"`
-			Params  json.RawMessage `json:"params"`
+			JSONRPC string `json:"jsonrpc"`
+			ID      any    `json:"id"`
+			Method  string `json:"method"`
 		}
-		if json.Unmarshal(body, &env) != nil || env.JSONRPC != "2.0" || !validRPCID(env.ID) {
+		if json.Unmarshal(body, &env) != nil || env.JSONRPC != "2.0" || !validRPCID(env.ID) ||
+			(env.Method != methodSendStreaming && env.Method != methodSubscribe) {
 			return nil
 		}
+		var params struct {
+			Params json.RawMessage `json:"params"`
+		}
+		_ = json.Unmarshal(body, &params)
 		c := &streamCall{id: env.ID}
-		switch env.Method {
-		case methodSendStreaming:
+		if env.Method == methodSendStreaming {
 			c.send = &a2a.SendMessageRequest{}
-			if c.err = json.Unmarshal(env.Params, c.send); c.err != nil {
+			if c.err = json.Unmarshal(params.Params, c.send); c.err != nil {
 				c.send = nil
 			}
-		case methodSubscribe:
+		} else {
 			c.sub = &a2a.SubscribeToTaskRequest{}
-			if c.err = json.Unmarshal(env.Params, c.sub); c.err != nil {
+			if c.err = json.Unmarshal(params.Params, c.sub); c.err != nil {
 				c.sub = nil
 			}
-		default:
-			return nil
 		}
 		if c.err != nil {
 			c.err = a2a.NewError(a2a.ErrInvalidParams, "params: "+c.err.Error())
