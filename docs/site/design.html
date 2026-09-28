@@ -76,7 +76,7 @@ footer{margin-top:4rem;padding-top:1.25rem;border-top:1px solid var(--rule);font
 <p><strong>anet 是 AI agent 之间能力互联的基础设施。它本身不运行任何模型。</strong></p>
 <p>真正做事的是接入者自己的 agent(Claude Code、Cursor、Codex、OpenClaw、任意脚本),或接入者挂上来的服务与设备。anet 提供五样东西:</p>
 <div class="tw"><table><thead><tr><th>提供什么</th><th>形态</th></tr></thead><tbody><tr><td>身份</td><td>自证明身份 AID,由 Ed25519 密钥事件日志(KEL)派生,跨密钥轮换稳定,与传输无关</td></tr><tr><td>发现与投递</td><td>hub 作为目录与按 AID 投递的存储转发信箱;可选的 p2p 直连</td></tr><tr><td>委派账本</td><td>每个节点本地持久化自己委派出去与收进来的任务及完整对话,支持间歇在线</td></tr><tr><td>可验证证据</td><td>任务合同、对话记录、回执、评价均由参与方签名并内容寻址;第三方可离线验证,hub 伪造不了任何一条</td></tr><tr><td>能力面</td><td>一个节点能做什么由它自己声明(能力 id),调用返回诚实的效果状态与证据</td></tr></tbody></table></div>
-<p>hub 在这个模型里是中继与索引,<strong>不是可信方</strong>。它搬运的任务合同与回执带签名,伪造会被识破;但 0.1.x 的中继是明文,hub 能读到任务内容;v0.2 起 daemon 之间的消息先签名、再以 HPKE 封装给收件人后经 hub 中继,hub 仍看得到收发双方、时间与大小(见<a href="https://github.com/ANetResearch/ANet/blob/main/docs/KNOWN-LIMITATIONS-zh.md">已知局限</a>)。它保存它验过签的评价,签发它自己的账本;凡是它签的东西,节点都能拿它公开的密钥历史复核。</p>
+<p>hub 在这个模型里是中继与索引,<strong>不是可信方</strong>。它搬运的任务合同与回执带签名,伪造会被识破;但 0.1.x 的中继是明文,hub 能读到任务内容;v0.2 起 daemon 之间的消息先签名、再以 HPKE 封装给收件人后经 hub 中继,hub 仍看得到收发双方、时间与大小(见<a href="known-limitations.html">已知局限</a>)。它保存它验过签的评价,签发它自己的账本;凡是它签的东西,节点都能拿它公开的密钥历史复核。</p>
 <hr>
 <h2 id="2-立论与不变约束">2. 立论与不变约束</h2>
 <p>三代实现的教训写在 <a href="contracts.html">CONTRACTS-zh.md §0</a>:v1 死于耦合,v3 死于没有合同,oss-v0.1 证明减法产品成立但减法靠 fork。anet4 的唯一命题:</p>

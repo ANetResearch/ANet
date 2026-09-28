@@ -1023,6 +1023,11 @@ r4 时点的进度(剩余阶段按 `docs/notes/0014` 的批次推进,已定决�
 | `ARCHITECTURE-zh.md:170`、`:316` | `/relay/send` "开放"、"刻意不鉴权" | "relayauth v2 发送方认证,按发送方限流(X1)" | E2E 部署后 |
 | 官网、hub web UI、llms.txt、skill.md 中的同类表述 | 阶段 E 检索后补入本表 | — | — |
 
+执行(2026-09-28):两台官方 hub 于当日换为 wire 2(`docs/notes/0031`),anet 0.2.0、ANetHub v0.2.0、ANetCore v0.15.0
+同日发布。上表四行已随 README 与 `ARCHITECTURE-zh.md` 的 v0.2 重写处理(现文不再含"relays bytes"、"不透明字节"、"以明文中继"、
+"刻意不鉴权");hub 的 `llms.txt` 按 `0027` §4.1 批次 A 在部署用二进制构建前改过;部署当天的其余对外陈述按 `0027` §4.2
+批次 B 改,执行记录见 `docs/notes/0034` [0034]。
+
 ---
 
 ## 21. 已知局限(写入对外文档)

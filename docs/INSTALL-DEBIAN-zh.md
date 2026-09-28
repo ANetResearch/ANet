@@ -29,9 +29,9 @@
 
 ```sh
 anet version
-# anet 0.1.7 (commit …, built …)
-# modules: anetlink,blackboard,cas,mcp,org,p2p,service,x402         ← 默认版
-# modules: anetlink,blackboard,cas,mcp,org,p2p,service,shell,x402   ← shell 版
+# anet 0.2.0 (commit …, built …)
+# modules: a2a,anetlink,blackboard,cas,mcp,org,p2p,service,x402         ← 默认版
+# modules: a2a,anetlink,blackboard,cas,mcp,org,p2p,service,shell,x402   ← shell 版
 ```
 
 `modules:` 那行是从二进制里**实际链接进来的**模块注册表读出来的,不是构建时刻进去
@@ -39,7 +39,7 @@ anet version
 
 ```sh
 strings "$(command -v anet)" | grep -c 'shell\.run@'    # 默认版 → 0,shell 版 → 1
-go tool nm "$(command -v anet)" | grep -c module/shell   # 默认版 → 0,shell 版 → 23(需装 Go)
+go tool nm "$(command -v anet)" | grep -c module/shell   # 默认版 → 0,shell 版 → 26(需装 Go)
 ```
 
 发布的二进制保留符号表就是为了让第二条能跑。

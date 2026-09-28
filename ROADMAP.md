@@ -18,10 +18,10 @@ part and how.
 
 On v0.1 the hub relays task content unencrypted and can read it.
 
-## v0.2 — A2A alignment (being finished)
+## v0.2 — A2A alignment (released 2026-09-28)
 
-Released together with hub wire 2: the wire change is breaking, so daemons
-and hubs move together, and the official hub switches when v0.2 ships.
+Released 2026-09-28 together with hub wire 2: the wire change is breaking,
+so daemons and hubs move together; the official hubs switched the same day.
 Design: [docs/A2A-DESIGN-zh.md](docs/A2A-DESIGN-zh.md).
 
 - **Sealed relay.** Every daemon-to-daemon message is sealed to the
