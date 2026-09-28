@@ -105,14 +105,13 @@ func driveOutage(t *testing.T, ctx context.Context, d *Daemon, clk *sharedClock,
 	}
 }
 
-// SI-10 / §3.6 step 9 / §4.2: the retry queue delivers rows in next_at
-// order, not per-task FIFO. After a hub outage the delegation sits in a
-// long backoff while a cancel queued later goes out at once. The provider
-// holds the cancel for the 10-minute unknown-ix window, then answers
-// TaskNotFound and acknowledges it; the delegation arrives afterwards and
-// the capability EXECUTES although the requester canceled it (its local
-// state says canceled).
-func TestRedteamSI10_OutboxReorderLosesCancelAndCanceledCallExecutes(t *testing.T) {
+// [redteam:F23] regression (was TestRedteamSI10_OutboxReorderLosesCancelAndCanceledCallExecutes).
+// SI-10 / §3.6 step 9 / §4.2: after a hub outage the delegation sits in a
+// long backoff, never delivered. A cancel then withdraws it: nothing is
+// sent (a cancel sent ahead of it used to be answered TaskNotFound by a
+// provider that did not know the task, and the delegation came after and
+// ran), the delegation never leaves, and the capability never runs.
+func TestRedteamSI10_ACancelBeforeDeliveryWithdrawsTheDelegation(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	lamp := &lampProvider{}
@@ -137,66 +136,108 @@ func TestRedteamSI10_OutboxReorderLosesCancelAndCanceledCallExecutes(t *testing.
 	dRow := rows[0].ID
 	// A 25-minute outage, the retry loop backing off as it does.
 	d := driveOutage(t, ctx, req, clk, dRow, start+uint64((25*time.Minute).Milliseconds()))
-	t.Logf("after the outage the delegation is next tried %s after the start (%d attempts)",
-		time.Duration(uint64(d.NextAt)-start)*time.Millisecond, d.Attempts)
 
 	// The hub is back. The requester cancels the call it no longer wants.
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
 	clk.now = start + uint64((25*time.Minute + 30*time.Second).Milliseconds())
-	if uint64(d.NextAt) <= clk.now+uint64((11*time.Minute).Milliseconds()) {
-		t.Fatalf("setup: the delegation is due too soon (%d)", d.NextAt)
-	}
 	if _, err := req.CancelTask(ctx, id); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
 	if cur, _ := req.ix.Get(id); cur.State != interactions.StateCanceled {
 		t.Fatalf("requester state = %s, want canceled", cur.State)
 	}
-	// The cancel went out at once; the delegation is still backing off.
-	if q := queuedFor(t, srv, prov.AID()); len(q) != 1 {
-		t.Fatalf("hub holds %d envelopes for the provider, want only the cancel", len(q))
+	// Nothing went out, and nothing is left to go.
+	if q := queuedFor(t, srv, prov.AID()); len(q) != 0 {
+		t.Fatalf("hub holds %d envelopes for the provider; the canceled delegation (or a cancel for it) was sent", len(q))
 	}
-	if _, err := req.ix.GetOutbox(dRow); err != nil {
-		t.Fatalf("the delegation row is gone: %v", err)
-	}
-
-	// The provider sees a cancel for a task it does not know: held.
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if counter(prov, transientUnknownIX) == 0 {
-		t.Fatalf("cancel not held: %v", prov.ReceiveStats())
-	}
-	// Eleven minutes later the delegation still has not come; the cancel is
-	// answered TaskNotFound and acknowledged.
-	clk.now += uint64((11 * time.Minute).Milliseconds())
-	for i := 0; i < 3; i++ {
-		if err := prov.pollOnce(ctx); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if counter(prov, dropUnknownIX) != 1 {
-		t.Fatalf("cancel not dropped as unknown-ix: %v", prov.ReceiveStats())
-	}
-	if n := len(queuedFor(t, srv, prov.AID())); n != 0 {
-		t.Fatalf("%d envelopes still in the provider's mailbox", n)
+	if rows, _ := req.ix.Outbox(id); len(rows) != 0 {
+		t.Fatalf("outbox still holds %d rows for the canceled task", len(rows))
 	}
 
-	// The delegation's backoff ends; it is delivered and executed.
-	clk.now = uint64(d.NextAt)
+	// Long after the delegation's backoff would have ended: still nothing.
+	clk.now = uint64(d.NextAt) + uint64(time.Hour.Milliseconds())
 	req.flushOutbox(ctx)
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(lamp.invoked); n != 1 {
-		t.Fatalf("capability ran %d times after the cancel; attack failed", n)
+	if n := len(lamp.invoked); n != 0 {
+		t.Fatalf("capability ran %d times after the cancel", n)
 	}
-	pix, err := prov.ix.Get(id)
-	if err != nil || len(pix.Receipt) == 0 {
-		t.Fatalf("provider did not complete the canceled call: %+v (%v)", pix, err)
+	if _, err := prov.ix.Get(id); !errors.Is(err, interactions.ErrNotFound) {
+		t.Fatalf("the provider has the canceled task (%v)", err)
 	}
 	if cur, _ := req.ix.Get(id); cur.State != interactions.StateCanceled {
 		t.Fatalf("requester state = %s", cur.State)
+	}
+}
+
+// ambiguousP2P is a direct transport that fails in a way that may have
+// delivered (no ErrNotDelivered), while on; it delivers nothing.
+type ambiguousP2P struct{ on atomic.Bool }
+
+func (p *ambiguousP2P) Name() string { return "p2p-ambiguous" }
+func (p *ambiguousP2P) Reachable(context.Context, string) bool {
+	return p.on.Load()
+}
+func (p *ambiguousP2P) Send(context.Context, string, []byte) error {
+	return errors.New("p2p: no answer within the send timeout")
+}
+
+// [redteam:F23] SI-10 / §4.2: a delegation that may have reached the
+// provider cannot be withdrawn, so the cancel goes to the provider — after
+// the delegation, never before it: a task's messages leave the outbox in
+// the order they were queued. The provider sees the delegation, then the
+// cancel; it never holds the cancel as early or answers it TaskNotFound.
+func TestRedteamSI10_ACancelWaitsBehindADelegationThatMayHaveArrived(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	lamp := &lampProvider{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	clk := &sharedClock{now: uint64(time.Now().UnixMilli())}
+	req.setClock(clk.fn())
+	prov.setClock(clk.fn())
+	p2p := &ambiguousP2P{}
+	p2p.on.Store(true)
+	req.RegisterTransport(p2p)
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
+	id, err := req.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true})
+	if err != nil {
+		t.Fatalf("delegate: %v", err)
+	}
+	rows, _ := req.ix.Outbox(id)
+	if len(rows) != 1 || !rows[0].MaybeDelivered {
+		t.Fatalf("setup: delegation row %+v, want one that may have been delivered", rows)
+	}
+	d := driveOutage(t, ctx, req, clk, rows[0].ID, clk.now+uint64((20*time.Minute).Milliseconds()))
+
+	// The hub is back; the direct path is gone. The cancel is queued behind
+	// the delegation and, since a new message is a reason to try, takes it
+	// along: first the delegation, then the cancel.
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
+	p2p.on.Store(false)
+	if uint64(d.NextAt) <= clk.now {
+		t.Fatalf("setup: the delegation is due already")
+	}
+	if _, err := req.CancelTask(ctx, id); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if q := queuedFor(t, srv, prov.AID()); len(q) != 2 {
+		t.Fatalf("hub holds %d envelopes for the provider, want the delegation and then the cancel", len(q))
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := counter(prov, transientUnknownIX) + counter(prov, dropUnknownIX); n != 0 {
+		t.Fatalf("the cancel reached the provider before its delegation: %v", prov.ReceiveStats())
+	}
+	msgs, err := prov.ix.Messages(id)
+	if err != nil {
+		t.Fatalf("provider: %v", err)
+	}
+	if last := msgs[len(msgs)-1]; last.Kind != interactions.MsgCancel {
+		t.Fatalf("provider's last message is %s, want the cancel after the delegation", last.Kind)
 	}
 }
 

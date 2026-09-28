@@ -15,6 +15,14 @@ package interactions
 //
 // A row carries a digest of its body: the same body queued again for the
 // same interaction and type is the row already there, not a second one.
+//
+// Rows for one interaction and one peer are delivered in the order they
+// were queued ([redteam:F23]): a row is due only when no earlier row for
+// the same (ix, to_aid) is still queued. Each row backs off on its own, so
+// without the order a cancel or a follow-up queued after a delegation that
+// is backing off went out first, reached a provider that did not know the
+// task, and was answered TaskNotFound; the delegation came after it and
+// ran.
 
 import (
 	"crypto/sha256"
@@ -85,11 +93,20 @@ func (s *Store) migrateOutbox() error {
 			return err
 		}
 	}
-	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_outbox_ix ON outbox(ix, typ)`); err != nil {
-		return fmt.Errorf("interactions: migrate outbox: %w", err)
+	for _, q := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_outbox_ix ON outbox(ix, typ)`,
+		`CREATE INDEX IF NOT EXISTS idx_outbox_chain ON outbox(ix, to_aid, id)`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			return fmt.Errorf("interactions: migrate outbox: %w", err)
+		}
 	}
 	return nil
 }
+
+// outboxHead is the condition that row o has no earlier row queued for the
+// same interaction and peer: it is at the head of its queue.
+const outboxHead = `NOT EXISTS (SELECT 1 FROM outbox p WHERE p.ix = o.ix AND p.to_aid = o.to_aid AND p.id < o.id)`
 
 const outboxColumns = `id,ix,to_aid,typ,body,envelope,exp,attempts,next_at,last_error,created_at,mid,digest,maybe_delivered`
 
@@ -158,12 +175,14 @@ func enqueueOutbox(e execer, it OutboxItem) (int64, error) {
 	return res.LastInsertId()
 }
 
-// DueOutbox returns up to limit rows whose next attempt is at or before now (unix ms), oldest first.
+// DueOutbox returns up to limit rows whose next attempt is at or before now
+// (unix ms), oldest first: each at the head of its (ix, to_aid) queue.
 func (s *Store) DueOutbox(now int64, limit int) ([]OutboxItem, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	return s.queryOutbox(`SELECT `+outboxColumns+` FROM outbox WHERE next_at <= ? ORDER BY next_at, id LIMIT ?`, now, limit)
+	return s.queryOutbox(`SELECT `+outboxColumns+` FROM outbox o WHERE next_at <= ? AND `+outboxHead+
+		` ORDER BY next_at, id LIMIT ?`, now, limit)
 }
 
 // DueOutboxIDs is DueOutbox without the rows: only their ids. The retry
@@ -174,7 +193,8 @@ func (s *Store) DueOutboxIDs(now int64, limit int) ([]int64, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := s.db.Query(`SELECT id FROM outbox WHERE next_at <= ? ORDER BY next_at, id LIMIT ?`, now, limit)
+	rows, err := s.db.Query(`SELECT id FROM outbox o WHERE next_at <= ? AND `+outboxHead+
+		` ORDER BY next_at, id LIMIT ?`, now, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -188,6 +208,58 @@ func (s *Store) DueOutboxIDs(now int64, limit int) ([]int64, error) {
 		out = append(out, id)
 	}
 	return out, rows.Err()
+}
+
+// OutboxAhead returns the id of the earliest row queued before row id for
+// the same interaction and peer, if there is one: the row that has to be
+// delivered (or abandoned) before id goes out.
+func (s *Store) OutboxAhead(id int64) (int64, bool, error) {
+	var ahead int64
+	err := s.db.QueryRow(`SELECT p.id FROM outbox o JOIN outbox p ON p.ix = o.ix AND p.to_aid = o.to_aid AND p.id < o.id
+	   WHERE o.id = ? ORDER BY p.id LIMIT 1`, id).Scan(&ahead)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return ahead, true, nil
+}
+
+// OutboxHas reports whether row id is still queued (without reading its
+// envelope).
+func (s *Store) OutboxHas(id int64) (bool, error) {
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM outbox WHERE id=?`, id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// OutboxQueued reports whether row id is still queued and, if so, whether
+// an attempt may have delivered it (OutboxItem.MaybeDelivered), read inside
+// the transaction.
+func (t *Tx) OutboxQueued(id int64) (queued, maybeDelivered bool, err error) {
+	var maybe int64
+	err = t.tx.QueryRow(`SELECT maybe_delivered FROM outbox WHERE id=?`, id).Scan(&maybe)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	return true, maybe != 0, nil
+}
+
+// DeleteOutboxQueue removes every row queued for one interaction and peer,
+// inside the transaction, and returns how many there were.
+func (t *Tx) DeleteOutboxQueue(ix, toAID string) (int64, error) {
+	res, err := t.tx.Exec(`DELETE FROM outbox WHERE ix=? AND to_aid=?`, ix, toAID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // Outbox returns the rows queued for an interaction, oldest first.

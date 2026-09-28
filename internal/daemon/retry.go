@@ -6,7 +6,10 @@ package daemon
 // a result, a cancel (0017 Q5).
 //
 // A row is written in the same transaction as the state change that
-// produced it, then attempted at once. A failed attempt is retried with
+// produced it, then attempted at once. The rows of one task to one peer go
+// out in the order they were queued: a row waits while an earlier one is
+// queued, and attempting it attempts that one first ([redteam:F23]). A
+// failed attempt is retried with
 // exponential backoff from retryBaseDelay up to retryMaxDelay (24 hours),
 // or after the hub's Retry-After when it gave one. The loop reads the
 // table, so a restart resumes where the previous process stopped. Every
@@ -59,15 +62,17 @@ const (
 )
 
 // EvDeliveryExpired records a queued message that was abandoned: its
-// deadline passed, or the hub refused it for good. reason says which.
+// deadline passed, the hub refused it for good, or (a delegation) its task
+// was canceled before it left this node. reason says which.
 const EvDeliveryExpired = "anet.delivery.expired"
 
 // Why a queued message was abandoned (EvDeliveryExpired's reason).
 const (
-	undeliveredExpired  = "expired"           // the deadline passed
-	undeliveredBad      = "refused"           // 400: the hub does not accept the envelope
-	undeliveredUnknown  = "recipient_unknown" // 404: no such recipient, or no keys for it
-	undeliveredTooLarge = "too_large"         // 413: over the hub's envelope cap
+	undeliveredExpired   = "expired"           // the deadline passed
+	undeliveredBad       = "refused"           // 400: the hub does not accept the envelope
+	undeliveredUnknown   = "recipient_unknown" // 404: no such recipient, or no keys for it
+	undeliveredTooLarge  = "too_large"         // 413: over the hub's envelope cap
+	undeliveredWithdrawn = "withdrawn"         // canceled before it left this node (CancelTask)
 )
 
 // errUndeliverable is what an attempt at an abandoned row returns: the
@@ -186,11 +191,69 @@ func (d *Daemon) queueSendAs(ctx context.Context, s wireSend, write func(tx *int
 	return id, nil
 }
 
-// deliverQueued makes one attempt at an outbox row now. It is called right
-// after queueSend by the path that queued the row, so a message is sent
-// without waiting for the loop, and by the loop for rows that are due. It
-// returns an error wrapping errUndeliverable when the row was abandoned.
+// outboxWaitingError is an attempt at a row that was not made because an
+// earlier row for the same task and peer is still queued: rows go out in
+// the order they were queued ([redteam:F23]).
+type outboxWaitingError struct {
+	ahead int64
+	cause error
+}
+
+func (e *outboxWaitingError) Error() string {
+	return fmt.Sprintf("anet: waiting for an earlier message on this task to be delivered (%v)", e.cause)
+}
+
+func (e *outboxWaitingError) Unwrap() error { return e.cause }
+
+// deliverQueued delivers an outbox row now, after the rows queued before
+// it for the same task and peer: each of those is attempted first, whatever
+// its backoff — a new message is a reason to try — and while one of them is
+// still queued this row waits, untouched, and the error says so. It is
+// called right after queueSend by the path that queued the row, so a
+// message is sent without waiting for the loop, and by the loop for rows
+// that are due. It returns an error wrapping errUndeliverable when the row
+// was abandoned.
 func (d *Daemon) deliverQueued(ctx context.Context, id int64) error {
+	var abandoned error
+	for {
+		ahead, ok, err := d.ix.OutboxAhead(id)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			break
+		}
+		aerr := d.attemptOutbox(ctx, ahead)
+		queued, err := d.ix.OutboxHas(ahead)
+		if err != nil {
+			return err
+		}
+		if queued {
+			if aerr == nil {
+				aerr = errors.New("still queued")
+			}
+			return &outboxWaitingError{ahead: ahead, cause: aerr}
+		}
+		if errors.Is(aerr, errUndeliverable) {
+			abandoned = aerr
+		}
+		// Delivered or abandoned: the next one ahead, or this row.
+	}
+	queued, err := d.ix.OutboxHas(id)
+	if err != nil {
+		return err
+	}
+	if !queued {
+		// Delivered by another attempt, or gone with the queue of a
+		// delegation that was abandoned (abandonOutbox): then the caller
+		// hears why.
+		return abandoned
+	}
+	return d.attemptOutbox(ctx, id)
+}
+
+// attemptOutbox makes one attempt at an outbox row now.
+func (d *Daemon) attemptOutbox(ctx context.Context, id int64) error {
 	unlock := d.outboxLocks.lock(fmt.Sprint(id))
 	defer unlock()
 	it, err := d.ix.GetOutbox(id)
@@ -238,6 +301,7 @@ func (d *Daemon) deliverQueued(ctx context.Context, id int64) error {
 func (d *Daemon) abandonOutbox(it *interactions.OutboxItem, reason string, cause error) error {
 	u, fails := d.undeliveredTask(it)
 	failed := false
+	var dropped int64
 	if err := d.ix.Update(func(tx *interactions.Tx) error {
 		if fails {
 			var err error
@@ -245,9 +309,21 @@ func (d *Daemon) abandonOutbox(it *interactions.OutboxItem, reason string, cause
 				return err
 			}
 		}
+		if it.Type == seal.TypeDelegate && !it.MaybeDelivered {
+			// The provider never saw the task, so what was queued after
+			// the delegation for it (a follow-up, a cancel) has nothing
+			// to reach: it goes with the delegation rather than out after
+			// it, to be answered TaskNotFound ([redteam:F23]).
+			n, err := tx.DeleteOutboxQueue(it.IX, it.ToAID)
+			dropped = n - 1
+			return err
+		}
 		return tx.DeleteOutbox(it.ID)
 	}); err != nil {
 		return err
+	}
+	if dropped > 0 {
+		log.Printf("anet: %s: %d message(s) queued after the undelivered delegation dropped with it", it.IX, dropped)
 	}
 	lastErr := it.LastError
 	if cause != nil {
@@ -384,21 +460,38 @@ func (d *Daemon) outboxLoop(ctx context.Context) {
 // flushOutbox attempts every due row once.
 func (d *Daemon) flushOutbox(ctx context.Context) { d.flushOutboxAt(ctx, int64(d.nowMS())) }
 
-// flushOutboxAt attempts once every row due at or before at (unix ms).
+// outboxFlushRounds bounds how many times one flush reads the due rows
+// again after delivering some: a row that goes out frees the next one in
+// its task's queue ([redteam:F23]), which is due at once. More than that
+// is left to an immediate next flush (kickOutbox).
+const outboxFlushRounds = 8
+
+// flushOutboxAt attempts every row due at or before at (unix ms), and the
+// rows each delivery frees behind it.
 func (d *Daemon) flushOutboxAt(ctx context.Context, at int64) {
-	due, err := d.ix.DueOutboxIDs(at, 100)
-	if err != nil {
-		if ctx.Err() == nil {
-			log.Printf("anet: read outbox: %v", err)
-		}
-		return
-	}
-	for _, id := range due {
-		if ctx.Err() != nil {
+	for round := 0; round < outboxFlushRounds; round++ {
+		due, err := d.ix.DueOutboxIDs(at, 100)
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Printf("anet: read outbox: %v", err)
+			}
 			return
 		}
-		cctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
-		_ = d.deliverQueued(cctx, id)
-		cancel()
+		progress := false
+		for _, id := range due {
+			if ctx.Err() != nil {
+				return
+			}
+			cctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
+			_ = d.deliverQueued(cctx, id)
+			cancel()
+			if queued, err := d.ix.OutboxHas(id); err == nil && !queued {
+				progress = true // gone: whatever queued behind it is free
+			}
+		}
+		if !progress {
+			return
+		}
 	}
+	d.kickOutbox()
 }
