@@ -37,15 +37,22 @@ const Identity = "anet-release@agentnetwork.org.cn"
 // docs/GUIDE-zh.md; keys_test.go fails when any of them drifts from this
 // file.
 //
-// DEV KEY — 正式发布前由产品负责人替换. The private half lives outside
-// every repository (ink93:/data/projs/anet-dev/.release-dev-key). Replacing
-// it means replacing this file, NextKeyFingerprint, the line in
+// This is the project's release key, the one v0.2.0 is signed with. Its
+// private half is held by the maintainers and lives outside every
+// repository (where, and how it is backed up and rotated: ANet
+// docs/notes/0027 G1.1). It is not a user's key: every anet user's own
+// identity key is made and kept on that user's machine; this one only
+// vouches that a binary, the installer and the official-agent manifest
+// came from the project.
+//
+// Replacing it means replacing this file, NextKeyFingerprint, the line in
 // install.sh, SECURITY.md, README.md and docs/GUIDE-zh.md, in one commit —
 // and re-signing the official manifest with the new key
-// (build-release.sh --official): the one committed now is signed by this
-// key, and a binary whose manifest its own key does not verify marks no
-// agent official (internal/official TestTheEmbeddedManifestVerifies and the
-// release build both refuse it).
+// (build-release.sh --official): the one committed is signed by this key,
+// and a binary whose manifest its own key does not verify marks no agent
+// official (internal/official TestTheEmbeddedManifestVerifies and the
+// release build both refuse it). A planned rotation goes to the key
+// NextKeyFingerprint names, so binaries already installed follow it.
 //
 //go:embed allowed_signers
 var allowedSigners string
@@ -61,9 +68,9 @@ var allowedSigners string
 // manifest repeats the value as next_key_fingerprint so the commitment is
 // public before it is used. Empty means no rotation is committed.
 //
-// DEV KEY — 正式发布前由产品负责人替换
-// (ink93:/data/projs/anet-dev/.release-dev-key-next).
-const NextKeyFingerprint = "SHA256:Vqbc5UDOJ7cR1ik5Vmn8NecV66MjpP9OteJ6JFkkhpU"
+// Its private half is held by the maintainers beside the release key and,
+// like it, never in a repository (docs/notes/0027 G1.1).
+const NextKeyFingerprint = "SHA256:XfLuodIAOmCPVDu9U5ui4VHCTkTD6q95M1ozxjI+wLA"
 
 // Trust is the set of keys a release signature may come from.
 type Trust struct {

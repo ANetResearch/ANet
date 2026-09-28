@@ -6,11 +6,11 @@ import (
 	"testing"
 )
 
-// The release key as this commit ships it. DEV KEY — 正式发布前由产品负责人替换;
-// replacing the key means changing this constant together with
-// allowed_signers, NextKeyFingerprint, install.sh, SECURITY.md, README.md
-// and docs/GUIDE-zh.md.
-const shippedKeyFP = "SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA"
+// The release key as this commit ships it. Replacing the key means changing
+// this constant together with allowed_signers, NextKeyFingerprint,
+// install.sh, SECURITY.md, README.md and docs/GUIDE-zh.md, and re-signing
+// the official manifest (build-release.sh --official).
+const shippedKeyFP = "SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4"
 
 func TestEmbeddedTrust(t *testing.T) {
 	tr := DefaultTrust()

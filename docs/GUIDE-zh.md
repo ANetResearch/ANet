@@ -64,12 +64,12 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
-echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3' > allowed_signers
+echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL' > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
   -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 ```
 
-公钥指纹 `SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA`(**DEV KEY — 正式发布前由产品负责人替换**)。
+公钥指纹 `SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4`,预承诺的下一把钥 `SHA256:XfLuodIAOmCPVDu9U5ui4VHCTkTD6q95M1ozxjI+wLA`。这是 anet 项目的发布签名钥,由维护者持有,只用来证明二进制、安装脚本与官方 agent 清单出自项目;它不是你的钥——你节点的身份私钥在节点首次启动(`anet up`)时于你自己的机器上生成(`~/.anet`,§3),只存在那里,由你自己保管。
 
 ### 2.2 装完即入网
 

@@ -131,22 +131,23 @@ tasks.
 
 ### Release signing key
 
-> **DEV KEY — 正式发布前由产品负责人替换.** A development key, to be replaced
-> before the first signed public release; [SECURITY.md](SECURITY.md) has the
-> details.
+Held by the anet maintainers; it proves a binary came from the project, not
+from whoever serves the download. It is not your key — your node's identity
+key is made on your machine when the node first starts, and stays there.
+[SECURITY.md](SECURITY.md) has the details.
 
 ```
-anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3
+anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL
 ```
 
-Fingerprint `SHA256:jU+lPusEKAueZbobKBk1MIN+ruBrmyPei8XKAqVfkzA`; next key
-(pre-committed) `SHA256:Vqbc5UDOJ7cR1ik5Vmn8NecV66MjpP9OteJ6JFkkhpU`. Verify
+Fingerprint `SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4`; next key
+(pre-committed) `SHA256:XfLuodIAOmCPVDu9U5ui4VHCTkTD6q95M1ozxjI+wLA`. Verify
 the installer, then run it:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh
 curl --proto '=https' --tlsv1.2 -fsSLO https://agentnetwork.org.cn/install.sh.sig
-echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1PbNot6BeA6oxH7zpMtXpZk6opSAFkGvT2dhrZody3' > allowed_signers
+echo 'anet-release@agentnetwork.org.cn namespaces="anet-release@agentnetwork.org.cn,anet-official@agentnetwork.org.cn" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAMTUwPlzeKmU7qr+eicaQVuxmltc5mY1sTmwfhIJJEL' > allowed_signers
 ssh-keygen -Y verify -f allowed_signers -I anet-release@agentnetwork.org.cn \
   -n anet-release@agentnetwork.org.cn -s install.sh.sig < install.sh && sh install.sh
 ```
