@@ -233,7 +233,7 @@ anet results                  # 我委派出去、已结束的,含对方签的�
 anet review <ix> 5 "准确、快"   # 基于回执签评价,上传 hub
 ```
 
-**结束是提供方单方完成的**(v0.2 起)。提供方 `anet end`(或 MCP `reply_task` 带 `state=completed`、或自动回复判定完成)即完成任务、对整段对话签回执;委派方 `anet end` 是"请求完成",提供方的 daemon 收到后自动完成并签回执,不需要提供方的 agent 在场。0.1.x 的"双方各 end 一次"与 `anet accept-end` 已删除。取消另是一件事:委派方经 MCP `cancel_task` 或 A2A `CancelTask` 取消,提供方停止并置 `canceled`,不签回执。
+**结束是提供方单方完成的**(v0.2 起)。提供方 `anet end`(或 MCP `reply_task` 带 `state=completed`、或自动回复判定完成)即完成任务、对整段对话签回执;委派方 `anet end` 是"请求完成",提供方的 daemon 收到后自动完成并签回执,不需要提供方的 agent 在场。0.1.x 的"双方各 end 一次"与 `anet accept-end` 已删除。带回复完成时(`reply_task` 带文本并 `state=completed`,或自动回复判定完成),这条回复带 `anet.state=working`、`anet.final=true` 发出,结果随后到达:委派方在两者之间看到的是 `working` 而不是 `input-required`,阻塞调用直接拿到带 `anet.reply` 与回执的完成结果。取消另是一件事:委派方经 MCP `cancel_task` 或 A2A `CancelTask` 取消,提供方停止并置 `canceled`,不签回执。
 
 任务状态与 A2A 一致:`submitted`、`working`、`input-required`(对方在等你,包括报价)、`completed`、`failed`、`canceled`、`rejected`。**`completed` 只说明对方做完了**:能力调用的效果另看 `anet.effect_status`,回执是否核验另看 `anet.receipt_verified`,两者都不会被并进 `completed`。
 
