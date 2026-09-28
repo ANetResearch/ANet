@@ -10,7 +10,7 @@ package version
 // That is fine for "which release is this" and useless for "is the thing
 // I just deployed the thing that is running", which is the question that
 // actually comes up.
-const V = "0.2.0"
+const V = "0.2.1"
 
 // Commit and BuiltAt are stamped at build time:
 //

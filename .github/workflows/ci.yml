@@ -10,11 +10,12 @@ on:
 # workspace bridge used while v0.15.0 was untagged (.github/actions/anetcore,
 # A2A-DESIGN §18) was removed when go.mod moved to the tag.
 #
-# Jobs that build the hub check ANetHub out at a pinned ref [C37]: v0.2.0,
-# the wire-2 hub released with anet 0.2.0. A wire-2 daemon refuses a wire-1
-# hub and a wire-2 hub answers 426 to a wire-1 daemon, so the pin moves only
-# together with a change of wire (A2A-DESIGN §16, §18). The hub checkout
-# builds against its own go.mod.
+# Jobs that build the hub check ANetHub out at a pinned ref [C37]: v0.2.1,
+# the wire-2 hub released with anet 0.2.1 (a patch of v0.2.0, the same wire).
+# A wire-2 daemon refuses a wire-1 hub and a wire-2 hub answers 426 to a
+# wire-1 daemon, so the pin moves with a change of wire (A2A-DESIGN §16,
+# §18), and with a hub patch release the suite ships together. The hub
+# checkout builds against its own go.mod.
 
 jobs:
   test:
@@ -240,7 +241,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: v0.2.0   # pinned; see the note at the top
+          ref: v0.2.1   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:
@@ -273,7 +274,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: v0.2.0   # pinned; see the note at the top
+          ref: v0.2.1   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:
@@ -304,7 +305,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: v0.2.0   # pinned; see the note at the top
+          ref: v0.2.1   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:
@@ -338,7 +339,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ANetResearch/ANetHub
-          ref: v0.2.0   # pinned; see the note at the top
+          ref: v0.2.1   # pinned; see the note at the top
           path: .hub
       - uses: actions/setup-go@v5
         with:

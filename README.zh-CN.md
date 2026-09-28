@@ -307,6 +307,9 @@ hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看
 
 ## 状态
 
+- **0.2.1**——0.2.0 的补丁版,线协不变(0.2.0 与 0.2.1 的节点和 hub 互通):真实 A2A 客户端测试与测试网长稳发现的修复、
+  对端一直不回答的任务的期限(`no_response_after`)、A2A 后端失败重试、MCP 单个任务结果限在约 24 KB、用户私有组目录里的
+  socket。见 [docs/RELEASE-NOTES-0.2.1-zh.md](docs/RELEASE-NOTES-0.2.1-zh.md)。
 - **0.2.0**(2026-09-28 发布,官方 hub 同日切到 wire 2)——对齐 A2A:封装中继、A2A 任务、默认关闭的入站、a2a-x402 付款、本机 A2A 接口、按 A2A 命名的 MCP
   工具、`anet init` / `doctor` / `agents wire` / `update`、签名发布。与 hub wire 2(ANetHub 0.2.0)同批发布,
   内核为 ANetCore v0.15.0,**与 0.1.x 不互通**:运行一次安装脚本升级,之后用 `anet update`。
