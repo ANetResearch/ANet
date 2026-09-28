@@ -216,7 +216,7 @@ ANetCore `delegation` 增量(新字段一律 `omitempty`,另立全字段向量 `
 | 7 | 签名:顶端活跃密钥态直接接受;非顶端态仅当 `ts < SupersededAt` 且 `now − SupersededAt ≤ rotation_grace`(默认 1 小时)时接受 [C4c] | P |
 | 8 | `keys` 附件是建议性的:`VerifyEncKeySet(keys, from, kel, now)` + 三分支高水位;失败不影响本消息 | — |
 | 8½ | 判重(在第 9 步之前)[redteam:F26]:进程内按 `(from, mid)` 加锁(delegate 另按 `(from, ix)` 加锁,使同一委派以两个 mid 封装的副本也只判定一次:后到的一份见到交互已存在,按重投处理),锁持有到第 10 步结束;先查拒收表,命中 → P(`refused-replay`),不回复;再查持久重放表,命中 → 不再判定:delegate 按第 9 步的重投条件(同一交互、同一 request CID、deny/allow)核对后进入第 10 步的"已答复 → 重发结果"分支,其余 ack 不处理。同一信封经 hub 与 p2p 并发到达时,后到的一份等前一份判定并提交后按重复处理,不占准入、不发矛盾的 `rejected` | 读库出错为 T |
-| 9 | 授权(只做判定;拒绝类回复经限速发出,不写库):按 type 判定(§5 入站策略;message/status/result 须交互存在或在待批表中、`PeerAID == from`、角色正确)。`anet.delegate/1` 的 `ix` 已存在时,仅当该交互 `role=inbound`、`PeerAID == from` 且新 TaskDoc 的 CID 等于该交互存储的 `request_cid`(同一请求的重投)才进入第 10 步(重投/幂等路径),否则 P,计数 `ix-collision`,不回复 [m];进入重投路径前同样先查 deny,`trust=peer` 的交互再查 allow(§5.1),不满足为 P。待批表中的 ix 同理:TaskDoc 与待批项的 request CID 不同为 `ix-collision` [redteam:F6][redteam:F7]。已认证发送方指向未知 ix 的 message/cancel:`now − inner.ts ≤ 10 分钟` 时按 T 处理(等待 delegate 先到),超过后回 `status{failed, anet.a2aError: TaskNotFound}`,与拒绝通知共用限速 [C19] | P;未知 ix 窗口内与读库出错为 T |
+| 9 | 授权(只做判定;拒绝类回复经限速发出;不写业务表,被拒的 `anet.delegate/1` 只在回复前写入拒收表,见表下 [redteam:F5]):按 type 判定(§5 入站策略;message/status/result 须交互存在或在待批表中、`PeerAID == from`、角色正确)。`anet.delegate/1` 的 `ix` 已存在时,仅当该交互 `role=inbound`、`PeerAID == from` 且新 TaskDoc 的 CID 等于该交互存储的 `request_cid`(同一请求的重投)才进入第 10 步(重投/幂等路径),否则 P,计数 `ix-collision`,不回复 [m];进入重投路径前同样先查 deny,`trust=peer` 的交互再查 allow(§5.1),不满足为 P。待批表中的 ix 同理:TaskDoc 与待批项的 request CID 不同为 `ix-collision` [redteam:F6][redteam:F7]。已认证发送方指向未知 ix 的 message/cancel:`now − inner.ts ≤ 10 分钟` 时按 T 处理(等待 delegate 先到),超过后回 `status{failed, anet.a2aError: TaskNotFound}`,与拒绝通知共用限速 [C19] | P;未知 ix 窗口内与读库出错为 T |
 | 10 | 处理(`(from, mid)` 锁与重放表查询已在第 8½ 步完成;持久重放表已有该行的 delegate 走"已答复 → 重发结果"分支,其余 ack 不处理 [C33];结果重发按(对端, ix)限速——每份答复突发 2 次、此后每 5 分钟 1 次,全节点每分钟 60 次,超出只 ack 不重发,重投不能消耗本节点的 hub 发送预算 [redteam:F29])。执行业务写入,**在同一 SQLite 事务内**插入重放行 `(from, mid, exp)`;不能纳入事务的副作用(能力执行、发结果)沿用现有业务幂等检查。重放行已存在、交互非终态且无结果、本进程内也无该 ix 的执行记录时,视为崩溃遗留:短能力调用重新执行(至少一次,沿用现有"无回执即重跑"),长能力调用不重跑(至多一次)。重投路径执行的只是该交互受理时记录的能力调用(`is_capability` 且从存储的 `request_doc` 读回),从不取重投信封里的 TaskDoc;文本任务的重投不执行任何能力 [redteam:F7]。成功后:把候选 KEL/keys 写入 `peer_identity`(仅 §3.8 所列授权上下文)、`noteLivePeer(from)` [m]。§5.2 的写入(交互、待批项)与第 4 行的 `submitted` 回复都在本步与重放行同一事务提交之后进行 | T(存储) |
 
 - 第 9 步拒绝的信封进内存有界 LRU(第 5 步后即查,省去重放的验签);被拒的 `anet.delegate/1` 另写入持久拒收表 `refused(from, mid, ts, exp)`(与重放表同在 `interactions.db`,按 exp 清理,不回复)[C15c][redteam:F5]:拒绝是终局,重启、LRU 被挤出或策略/配额此后改变,同一信封再到都按拒收处理,不再判定、不再回复。拒收先落盘再回 `rejected`:写不进拒收表时不回复、不 ack(T),下次投递重新判定,请求方不会收到一份重启后可能被推翻的 `rejected` [redteam:F5]。拒收表有界:每发送方 1024 行、总计 10 万行,超出时最旧的行(按 `inner.ts`)删除,并把**被删行各自发送方**的下限抬到其被删行的最大 `ts`;重放表未收录且 `inner.ts ≤` 本发送方下限的 delegate 按拒收处理(P,`refused-floor`,不回复)。不设全局下限:`inner.ts` 由发送方决定(可比现在超前一个时钟偏差),全局下限会让一批一次性身份的拒收把它抬过所有其他发送方下一条 delegate 的发送时间,把它们全部无回复地丢掉 [redteam:F5]。下限表也有界(10 万个发送方),超出时先忘掉最早到期的下限。message/status/result 的拒收仍只进 LRU(其第 9 步不写库,至多一条限速的 TaskNotFound)。
@@ -375,7 +375,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 
 ### 5.2 判定顺序(`anet.delegate/1`)
 
-第 9 步只做判定,并发出"回给请求方"列中的拒绝类回复(`rejected`、`TaskNotFound`,经限速,不写库);"动作"列中的写入(交互、待批项)以及第 4 行的 `status{submitted, …}` 回复,都在第 10 步与重放行同一事务提交之后进行。
+第 9 步只做判定,并发出"回给请求方"列中的拒绝类回复(`rejected`、`TaskNotFound`,经限速;不写业务表,被拒的 delegate 先写入拒收表再回复,§3.6 [redteam:F5]);"动作"列中的写入(交互、待批项)以及第 4 行的 `status{submitted, …}` 回复,都在第 10 步与重放行同一事务提交之后进行。
 
 | 序 | 条件 | 动作 | 回给请求方 |
 |---|---|---|---|
