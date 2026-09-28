@@ -774,6 +774,11 @@ type taskListReq struct {
 	module.TaskFilter
 	Role    interactions.Role
 	PeerAID string
+	// MaxTaskBytes, when above 0, holds each task of the page to about
+	// that many bytes as JSON (a2ashape.TaskWithin): the control plane's
+	// max_task_bytes, which MCP list_tasks sets so that one large message
+	// does not ride along in every page that lists its task.
+	MaxTaskBytes int
 }
 
 func (d *Daemon) listTasks(sc taskScope, r taskListReq) (a2ashape.TaskPage, error) {
@@ -843,6 +848,9 @@ func (d *Daemon) listTasks(sc taskScope, r taskListReq) (a2ashape.TaskPage, erro
 		t, err := d.taskView(ix, viewOpts{historyLen: f.HistoryLen, artifacts: f.IncludeArtifacts})
 		if err != nil {
 			return a2ashape.TaskPage{}, err
+		}
+		if r.MaxTaskBytes > 0 {
+			t = a2ashape.TaskWithin(t, r.MaxTaskBytes)
 		}
 		out.Tasks = append(out.Tasks, t)
 	}
