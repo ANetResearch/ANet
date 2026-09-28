@@ -395,7 +395,9 @@ func TestContributionsEnterTheCardInPublishForm(t *testing.T) {
 	if !reflect.DeepEqual(ifaces[1], want) {
 		t.Fatalf("direct interface %v, want %v", ifaces[1], want)
 	}
-	if bytes.Contains(raw, []byte("127.0.0.1:4001")) || bytes.Contains(raw, []byte("evil.example")) {
+	// The whole URL, quoted: the fake hub's own address is on loopback too,
+	// and a port such as 40017 has "127.0.0.1:4001" as a prefix.
+	if bytes.Contains(raw, []byte(`"tcp://127.0.0.1:4001"`)) || bytes.Contains(raw, []byte("evil.example")) {
 		t.Fatalf("a loopback or foreign relay interface entered the card:\n%s", raw)
 	}
 
