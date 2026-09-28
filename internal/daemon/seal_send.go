@@ -235,17 +235,25 @@ func (d *Daemon) recipientKeys(ctx context.Context, toAID, pin string) (*peerKey
 // every ten minutes of a conversation; a reverse proxy in front of the hub
 // that logs request lines would otherwise keep "this address wrote to aid"
 // on the hub host long after the message was deleted [redteam:F3].
+func (d *Daemon) lookupKeys(ctx context.Context, hub, aid string, out *hubapi.KeysResponse) error {
+	return d.hubLookup(ctx, hub, hubapi.KeysLookupPath, "/agents/"+url.PathEscape(aid)+"/keys", aid, out)
+}
+
+// hubLookup asks the hub what GET getPath answers about aid, with aid in
+// the body of POST postPath (hubapi.KeysLookupRequest) rather than in a
+// request line: the key set, the card and the KEL of a peer this node is
+// about to write to, each read from this node's address [redteam:F3].
 //
 // A hub that predates the route answers from its mux, a 405 (or a 404 from
-// a proxy) without the hub's JSON error; only then is the old
-// GET /agents/{aid}/keys asked. The route's own 404 ("no key set for aid")
-// carries a JSON error and is returned as it is.
-func (d *Daemon) lookupKeys(ctx context.Context, hub, aid string, out *hubapi.KeysResponse) error {
-	err := d.hubPost(ctx, hub, hubapi.KeysLookupPath, hubapi.KeysLookupRequest{AID: aid}, out)
+// a proxy) without the hub's JSON error; only then is getPath asked. The
+// route's own 404 ("no key set for aid", "no card") carries a JSON error
+// and is returned as it is.
+func (d *Daemon) hubLookup(ctx context.Context, hub, postPath, getPath, aid string, out any) error {
+	err := d.hubPost(ctx, hub, postPath, hubapi.KeysLookupRequest{AID: aid}, out)
 	var he *hubError
 	if errors.As(err, &he) && he.msg == "" &&
 		(he.code == http.StatusMethodNotAllowed || he.code == http.StatusNotFound) {
-		return d.hubGet(ctx, hub, "/agents/"+url.PathEscape(aid)+"/keys", nil, out)
+		return d.hubGet(ctx, hub, getPath, nil, out)
 	}
 	return err
 }
