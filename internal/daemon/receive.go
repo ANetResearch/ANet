@@ -108,6 +108,7 @@ const (
 	noticeTaskNotFound = "notice-task-not-found" // TaskNotFound status sent
 	noticeSent         = "notice-sent"           // a refusal or pending notice sent
 	noticeSuppressed   = "notice-rate-limited"   // a notice not sent: rate limit or no keys
+	resendSuppressed   = "resend-rate-limited"   // a redelivered delegation's answer not re-sent: rate limit
 
 	transientStore       = "t-store"          // interactions store error
 	transientP2PRate     = "t-p2p-rate-limit" // step 0
@@ -1114,6 +1115,53 @@ func (l *noticeLimiter) allow(peer string, now uint64) bool {
 		l.order = append(l.order, peer)
 		if len(l.order) > noticePeerLimit {
 			delete(l.peers, l.order[0])
+			l.order = l.order[1:]
+		}
+	}
+	if !b.allow(now) {
+		return false
+	}
+	return l.global.allow(now)
+}
+
+// resendLimiter bounds the answers re-sent for redelivered delegations
+// (§3.6 step 10, C33) [redteam:F29], the way noticeLimiter bounds refusal
+// notices: per (peer, interaction) and daemon-wide. A redelivery means the
+// requester may not have the answer, and one re-send is what that needs;
+// every further redelivery of the same answered delegation — a hub or a
+// requester replaying it to spend this node's hub send budget — is
+// acknowledged and not answered again until the bucket refills. The keys
+// are bounded; the oldest is forgotten first.
+type resendLimiter struct {
+	mu     sync.Mutex
+	global tokenBucket
+	keys   map[string]*tokenBucket
+	order  []string
+}
+
+const (
+	resendBurst        = 2       // re-sends of one answer at once
+	resendEveryMS      = 300_000 // then one per five minutes
+	resendGlobalPerMin = 60      // daemon-wide, as the notice default
+	resendKeyLimit     = 4096
+)
+
+func (l *resendLimiter) allow(peer, ix string, now uint64) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.keys == nil {
+		l.keys = map[string]*tokenBucket{}
+		l.global = newBucket(resendGlobalPerMin/60.0, resendGlobalPerMin)
+	}
+	k := peer + "\x00" + ix
+	b := l.keys[k]
+	if b == nil {
+		nb := newBucket(1000.0/resendEveryMS, resendBurst)
+		b = &nb
+		l.keys[k] = b
+		l.order = append(l.order, k)
+		if len(l.order) > resendKeyLimit {
+			delete(l.keys, l.order[0])
 			l.order = l.order[1:]
 		}
 	}

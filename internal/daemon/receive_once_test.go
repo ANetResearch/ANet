@@ -132,3 +132,69 @@ func mustMID(t *testing.T, d *Daemon, env []byte) []byte {
 	}
 	return op.Inner.MID
 }
+
+// From TestRedteamSI10_ReplayedDelegationMakesTheProviderResendWithoutLimit
+// [redteam:F29]: a caller replays its answered delegation forty times. Each
+// replay is acknowledged as a duplicate, the call ran once, and the answer
+// is re-sent at most resendBurst times, not once per replay: the replays
+// do not spend the provider's hub send budget.
+func TestReplaysOfAnAnsweredDelegationAreNotEachAnswered(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	lamp := &lampProvider{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	setPublic(prov, lampCap)
+	if _, err := req.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true}); err != nil {
+		t.Fatal(err)
+	}
+	env := onlyQueuedEnvelope(t, srv, prov.AID())
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	clearMailbox(t, srv, req.AID())
+	sendsBefore := relayCountFor(srv.URL)
+	const replays = 40
+	for i := 0; i < replays; i++ {
+		if r := receive(t, prov, env); r.reason != dropDuplicate {
+			t.Fatalf("replay %d: %+v", i, r)
+		}
+	}
+	if n := len(lamp.invoked); n != 1 {
+		t.Fatalf("ran %d times", n)
+	}
+	if got := relayCountFor(srv.URL) - sendsBefore; got != resendBurst {
+		t.Fatalf("provider sent %d answers for %d replays, want %d", got, replays, resendBurst)
+	}
+	if n := len(queuedFor(t, srv, req.AID())); n != resendBurst {
+		t.Fatalf("%d answers queued for the caller, want %d", n, resendBurst)
+	}
+	if n := counter(prov, resendSuppressed); n != replays-resendBurst {
+		t.Fatalf("%d re-sends suppressed, want %d", n, replays-resendBurst)
+	}
+}
+
+// The re-send limit is per (peer, interaction) and refills: another
+// interaction, or the same one after the refill period, is answered again.
+func TestTheResendLimitIsPerInteractionAndRefills(t *testing.T) {
+	var l resendLimiter
+	const t0 = 1_000_000
+	for i := 0; i < resendBurst; i++ {
+		if !l.allow("peer", "ix_a", t0) {
+			t.Fatalf("re-send %d refused within the burst", i)
+		}
+	}
+	if l.allow("peer", "ix_a", t0) {
+		t.Fatal("a re-send past the burst was allowed")
+	}
+	if !l.allow("peer", "ix_b", t0) || !l.allow("other", "ix_a", t0) {
+		t.Fatal("another interaction's re-send was refused")
+	}
+	if l.allow("peer", "ix_a", t0+resendEveryMS/2) {
+		t.Fatal("refilled too early")
+	}
+	if !l.allow("peer", "ix_a", t0+resendEveryMS) {
+		t.Fatal("not refilled after the period")
+	}
+}
