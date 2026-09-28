@@ -1008,19 +1008,6 @@ func (d *Daemon) afterProviderPayment(ctx context.Context, ixID string, pp *prov
 	}
 }
 
-// onProviderPayment handles the x402 part of a status from the provider of
-// an outbound task that is already stored, outside a step-10 transaction:
-// the three steps of providerPayment in a row.
-func (d *Daemon) onProviderPayment(ctx context.Context, ixID string, meta []byte) {
-	pp := d.planProviderPayment(ixID, meta)
-	defer pp.release()
-	if err := d.ix.Update(func(tx *interactions.Tx) error { return pp.applyTx(tx, ixID) }); err != nil {
-		log.Printf("anet: %s: store the payment status: %v", ixID, err)
-		return
-	}
-	d.afterProviderPayment(ctx, ixID, pp)
-}
-
 // autoPay pays a stored quote within the auto tier, or leaves the task for
 // an operator. With resend set (a quote again after a payment was
 // submitted) it only sends the same authorization again: the one already
