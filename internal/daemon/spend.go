@@ -337,9 +337,14 @@ func (d *Daemon) SpendStatus() SpendStatus {
 // SetSpendLimits replaces keys of the payments block. The CLI asks for a
 // terminal confirmation before it calls this (§8.6: changing a limit is a
 // TTY command); the change is recorded as anet.policy.changed.
+//
+// Saved first and in force after, like the other policy writes
+// (SetInboundPolicy): a caller told the change failed must not find it in
+// force, not even while the save is being tried.
 func (d *Daemon) SetSpendLimits(set map[string]uint64, payeesFile *string) error {
-	d.mu.Lock()
-	next := d.cfg
+	d.policyWrite.Lock()
+	defer d.policyWrite.Unlock()
+	next := d.config()
 	var cur PaymentsConfig
 	if next.Payments != nil {
 		cur = *next.Payments
@@ -359,7 +364,6 @@ func (d *Daemon) SetSpendLimits(set map[string]uint64, payeesFile *string) error
 		case "daily_max":
 			cur.DailyMax = &v
 		default:
-			d.mu.Unlock()
 			return fmt.Errorf("anet: %q is not a payments limit (auto_max, agent_max, agent_daily_max, explicit_max, daily_max)", k)
 		}
 	}
@@ -367,20 +371,13 @@ func (d *Daemon) SetSpendLimits(set map[string]uint64, payeesFile *string) error
 		pf := *payeesFile
 		cur.PayeesFile = &pf
 	}
-	prev := d.cfg.Payments
 	next.Payments = &cur
-	d.cfg = next
-	d.mu.Unlock()
 	if err := SaveConfig(d.layout, next); err != nil {
-		// A caller told the change failed must not find it in force: put
-		// the limits back, unless another write has replaced them since.
-		d.mu.Lock()
-		if d.cfg.Payments == next.Payments {
-			d.cfg.Payments = prev
-		}
-		d.mu.Unlock()
 		return err
 	}
+	d.mu.Lock()
+	d.cfg.Payments = next.Payments
+	d.mu.Unlock()
 	after := cur.limits()
 	for _, c := range []struct {
 		key      string

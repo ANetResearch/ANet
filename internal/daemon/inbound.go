@@ -801,22 +801,28 @@ func (d *Daemon) InboundStatus() InboundState {
 
 // SetInboundPolicy changes inbound.policy. A change that conflicts with the
 // auto-reply or backend configuration is refused with ErrPolicyConflict.
+//
+// The change is saved first and in force after: a caller told it failed
+// must not find it in force (an open policy the operator was told did not
+// take, while config.json and doctor say closed), nor have the next config
+// write of any kind carry it to disk.
 func (d *Daemon) SetInboundPolicy(policy string) error {
-	d.mu.Lock()
-	next := d.cfg
+	d.policyWrite.Lock()
+	defer d.policyWrite.Unlock()
+	next := d.config()
 	in := next.inbound()
 	from := in.Policy
 	in.Policy = policy
 	next.Inbound = &in
 	if err := validatePolicy(next, d.untrustedBackend.Load()); err != nil {
-		d.mu.Unlock()
 		return err
 	}
-	d.cfg = next
-	d.mu.Unlock()
 	if err := SaveConfig(d.layout, next); err != nil {
 		return err
 	}
+	d.mu.Lock()
+	d.cfg.Inbound = next.Inbound
+	d.mu.Unlock()
 	d.recordPolicyChange("inbound.policy", from, policy, nil)
 	if (from == PolicyOpen) != (policy == PolicyOpen) {
 		// An open node lists the chat skill on its network card (0017
@@ -827,23 +833,25 @@ func (d *Daemon) SetInboundPolicy(policy string) error {
 	return nil
 }
 
-// SetPublicCapabilities replaces inbound.public_capabilities.
+// SetPublicCapabilities replaces inbound.public_capabilities. Saved first
+// and in force after, as SetInboundPolicy.
 func (d *Daemon) SetPublicCapabilities(caps []PublicCapability) error {
-	d.mu.Lock()
-	next := d.cfg
+	d.policyWrite.Lock()
+	defer d.policyWrite.Unlock()
+	next := d.config()
 	in := next.inbound()
 	from := in.PublicCapabilities
 	in.PublicCapabilities = caps
 	next.Inbound = &in
 	if err := validatePolicy(next, d.untrustedBackend.Load()); err != nil {
-		d.mu.Unlock()
 		return err
 	}
-	d.cfg = next
-	d.mu.Unlock()
 	if err := SaveConfig(d.layout, next); err != nil {
 		return err
 	}
+	d.mu.Lock()
+	d.cfg.Inbound = next.Inbound
+	d.mu.Unlock()
 	d.recordPolicyChange("inbound.public_capabilities", from, caps, nil)
 	// The network card lists the public capabilities (A2A-DESIGN §10.2).
 	d.cardInputsChanged()

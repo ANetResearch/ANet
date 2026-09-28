@@ -179,27 +179,29 @@ func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
 			return err // fail loudly on a bad config instead of silently persisting a loop that never runs
 		}
 	}
-	d.mu.Lock()
-	next := d.cfg
+	// Saved first and in force after (SetInboundPolicy): a write that
+	// failed to save leaves the running loop and the config as they were.
+	d.policyWrite.Lock()
+	defer d.policyWrite.Unlock()
+	next := d.config()
 	next.AutoReply = cfg
 	// The same check as at start and on inbound policy writes (A2A-DESIGN
 	// §5.1): policy open together with exec for untrusted peers is refused
 	// whichever of the two is written last.
 	if err := validatePolicy(next, d.untrustedBackend.Load()); err != nil {
-		d.mu.Unlock()
 		return err
 	}
+	if err := SaveConfig(d.layout, next); err != nil {
+		return err
+	}
+	d.mu.Lock()
 	from := d.cfg.AutoReply
 	if d.autoReplyStop != nil {
 		d.autoReplyStop()
 		d.autoReplyStop = nil
 	}
-	d.cfg = next
-	saved := d.cfg
+	d.cfg.AutoReply = cfg
 	d.mu.Unlock()
-	if err := SaveConfig(d.layout, saved); err != nil {
-		return err
-	}
 	d.recordPolicyChange("auto_reply", autoReplySummary(from), autoReplySummary(cfg), nil)
 	if cfg != nil {
 		d.startAutoReply(*cfg)
