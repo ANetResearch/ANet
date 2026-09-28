@@ -415,8 +415,7 @@ ANet is released under the **ANet Open Source License**, a modified Apache Licen
 - **The A2A work is plain Apache-2.0.** Everything in [`docs/a2a/`](docs/a2a/) and the code we contribute
   to the A2A project.
 
-See [LICENSE](LICENSE) for the full terms. Commercial licensing and questions: hi@anet0.com. Releases
-before 0.2.0 were published under the ANet Community License 1.0 and stay under it.
+See [LICENSE](LICENSE) for the full terms. Commercial licensing and questions: hi@anet0.com.
 
 ---
 

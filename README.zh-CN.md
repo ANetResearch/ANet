@@ -370,8 +370,7 @@ ANet 以 **ANet 开源许可证** 发布,它是改版的 Apache License 2.0:
   网络联邦的非商业 hub 豁免);hub 网页、各控制台与 CLI 中的 ANet 标志和版权信息须保留。
 - **A2A 相关工作是纯 Apache-2.0。** [`docs/a2a/`](docs/a2a/) 的全部内容,以及我们贡献给 A2A 项目的代码。
 
-完整条款见 [LICENSE](LICENSE)。商业授权与问题:hi@anet0.com。0.2.0 之前的版本以 ANet Community License 1.0
-发布,仍适用该许可证。
+完整条款见 [LICENSE](LICENSE)。商业授权与问题:hi@anet0.com。
 
 ---
 

@@ -114,10 +114,9 @@ hub)、确定性的文本/JSON/A2A 校验工具、文档检索,以及一个 a2a-
 - 控制台改用 60 秒一次性票据换会话,页面里不再有控制令牌;控制面只接受回环 Host。
 - p2p 帧带版本号;直连投递在接收方提交后才确认,不确定的失败按"可能已送达"处理。
 - 公共能力的证据缺省只记结果 CID(`"evidence": "cid"`),可逐项改为 `full`。
-- 许可证:anet、ANetCore 与 hub 由 ANet Community License 1.0 改为 ANet 开源许可证(改版 Apache-2.0,`LICENSE`)。
+- 许可证:anet、ANetCore 与 hub 以 ANet 开源许可证发布(改版 Apache-2.0,`LICENSE`)。
   商业使用不再有节点上限;以服务形式向第三方提供多租户托管 hub 须书面授权(与 anet 网络联邦的非商业 hub 豁免);
   hub web UI、控制台与 CLI 中的 ANet LOGO 与版权信息不得移除或修改。`docs/a2a/` 的 A2A 草稿为 Apache-2.0。
-  0.1.x 的副本仍按其原许可证。
 
 ---
 
