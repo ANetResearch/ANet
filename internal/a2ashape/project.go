@@ -65,6 +65,7 @@ import (
 	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/jsonread"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/transcript"
 )
@@ -333,8 +334,13 @@ func newProjector(src Source, opt Options) *projector {
 		p.bySeq[a.MsgSeq] = append(p.bySeq[a.MsgSeq], a)
 	}
 	if ix.IsCapability && len(ix.Result) > 0 {
+		// Taken only as it reads to everyone else: Go's decoder would read
+		// {"status":"FAILED","Status":"OK"} as OK, where the client, a2a-go
+		// and anyone checking the receipt over these bytes read FAILED
+		// (docs/notes/0033). A deliverable that reads two ways states no
+		// effect of its own; the task says what is known without it.
 		var r capResult
-		if json.Unmarshal(ix.Result, &r) == nil && r.Status != "" {
+		if json.Unmarshal(ix.Result, &r) == nil && r.Status != "" && jsonread.ReadsAlike(ix.Result, &r) {
 			p.cap = &r
 		}
 	}

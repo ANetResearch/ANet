@@ -261,7 +261,7 @@ func TestAFailedLedgerOpenClosesTheStore(t *testing.T) {
 	}
 }
 
-func writeTestConfig(t *testing.T, root string, cfg map[string]any) {
+func writeTestConfig(t testing.TB, root string, cfg map[string]any) {
 	t.Helper()
 	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {

@@ -16,7 +16,7 @@ import (
 
 // keySetOf is the encryption key set another node would learn for d: the
 // set d publishes, decoded. Tests that seal without a hub use it.
-func keySetOf(t *testing.T, d *Daemon) *seal.EncKeySet {
+func keySetOf(t testing.TB, d *Daemon) *seal.EncKeySet {
 	t.Helper()
 	signed, err := seal.UnmarshalSignedEncKeySet(d.enc.SignedSet())
 	if err != nil {
@@ -33,7 +33,7 @@ func keySetOf(t *testing.T, d *Daemon) *seal.EncKeySet {
 // daemon from to daemon to — exactly what from's send path produces, minus
 // the delivery. A test hands the bytes to to.receiveEnvelope, which is the
 // only door into the interaction store.
-func sealFrom(t *testing.T, from, to *Daemon, typ, ix string, body []byte) []byte {
+func sealFrom(t testing.TB, from, to *Daemon, typ, ix string, body []byte) []byte {
 	t.Helper()
 	env, err := from.sealWith(to.AID(), typ, ix, body, keySetOf(t, to))
 	if err != nil {
@@ -71,7 +71,7 @@ func senderOf(d *Daemon) sender {
 
 // newStranger is a fresh identity with a signed encryption key set: what a
 // node looks like to a daemon that has never heard of it.
-func newStranger(t *testing.T) sender {
+func newStranger(t testing.TB) sender {
 	t.Helper()
 	c, err := identity.Incept()
 	if err != nil {
@@ -81,7 +81,7 @@ func newStranger(t *testing.T) sender {
 }
 
 // signedKeysFor makes a one-key SignedEncKeySet for c at seq (0 = now).
-func signedKeysFor(t *testing.T, c *identity.Controller, seq uint64) []byte {
+func signedKeysFor(t testing.TB, c *identity.Controller, seq uint64) []byte {
 	t.Helper()
 	now := uint64(time.Now().UnixMilli())
 	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.KeyLifetimeMS)
@@ -114,7 +114,7 @@ func retiredSigner(c *identity.Controller) seal.SignFunc {
 // craft seals a message from s to d with every field set the way the send
 // path sets it, then lets edit change any of them before signing. It is how
 // a test builds what a faulty or hostile sender would send.
-func craft(t *testing.T, s sender, to *Daemon, typ, ix string, body []byte, edit func(*seal.SealedInner)) []byte {
+func craft(t testing.TB, s sender, to *Daemon, typ, ix string, body []byte, edit func(*seal.SealedInner)) []byte {
 	t.Helper()
 	now := uint64(time.Now().UnixMilli())
 	kel, err := identity.MarshalKEL(s.kel)
@@ -139,7 +139,7 @@ func craft(t *testing.T, s sender, to *Daemon, typ, ix string, body []byte, edit
 
 // delegateBody is a DelegateReq for ix with a TaskDoc signed by c. A
 // non-empty capID makes it a capability call.
-func delegateBody(t *testing.T, c *identity.Controller, ix, goal, capID string) []byte {
+func delegateBody(t testing.TB, c *identity.Controller, ix, goal, capID string) []byte {
 	t.Helper()
 	task := tsir.Task{Intent: tsir.Intent{Summary: goal, Body: goal}}
 	if capID != "" {
@@ -162,7 +162,7 @@ func delegateBody(t *testing.T, c *identity.Controller, ix, goal, capID string) 
 }
 
 // chatBody is a text ChatMsg; msgID may be empty (an older sender).
-func chatBody(t *testing.T, text, msgID string) []byte {
+func chatBody(t testing.TB, text, msgID string) []byte {
 	t.Helper()
 	b, err := (&delegation.ChatMsg{Kind: delegation.ChatText, Body: text, MsgID: msgID}).Marshal()
 	if err != nil {
@@ -173,7 +173,7 @@ func chatBody(t *testing.T, text, msgID string) []byte {
 
 // registeredPair is a requester and a provider, both registered with one
 // fake hub. The provider accepts delegations.
-func registeredPair(t *testing.T) (*httptest.Server, *Daemon, *Daemon) {
+func registeredPair(t testing.TB) (*httptest.Server, *Daemon, *Daemon) {
 	t.Helper()
 	srv := newFakeHub(t)
 	ctx := context.Background()
