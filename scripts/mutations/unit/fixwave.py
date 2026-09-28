@@ -848,6 +848,24 @@ MUTS = [
   full=['ANet:./module/a2a'],
  ),
  dict(
+  id='n1-10', group='N1', repo='ANet',
+  desc='allow_tcp 的监听者核实只看回环,本机网卡地址上的监听者放行',
+  edits=[
+   ('internal/backendconn/backendconn.go', '\tif !onThisHost(ta, c.LocalAddr()) {', '\tif !ta.IP.IsLoopback() {'),
+  ],
+  tests=[('ANet:./internal/backendconn', 'TestATCPListenerOnAnAddressOfThisHostIsChecked')],
+  full=['ANet:./internal/backendconn'],
+ ),
+ dict(
+  id='n1-11', group='N1', repo='ANet',
+  desc='socket 后端不可达时把本机 socket 路径回传给请求方',
+  edits=[
+   ('module/service/service.go', '\t\tcase be.unix:', '\t\tcase false && be.unix:'),
+  ],
+  tests=[('ANet:./module/service', 'TestAMissingSocketIsUnavailable')],
+  full=['ANet:./module/service'],
+ ),
+ dict(
   id='n1-9', group='N1', repo='ANet',
   desc='anet-official 的 socket 不设 0660',
   edits=[

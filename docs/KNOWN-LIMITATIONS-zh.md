@@ -176,7 +176,7 @@ A2A 规范要求请求没带 `A2A-Version` 时按 0.3 处理;anet 的本机 A2A 
 
 `service` 模块与 A2A 后端把令牌、调用参数或任务正文交给本机后端之前,先核实对端是运营者指定的那个进程。推荐的 Unix socket 后端(`unix:///路径`)按 socket 所在路径的属主与权限、socket 的属主核对,在 Linux 上还用 `SO_PEERCRED` 核对监听进程的用户;其他平台读不到这一项,只做路径与属主检查。
 
-TCP 后端须在配置里显式写 `allow_tcp: true`;连接落在本机回环上时,只有在 Linux 上、且监听者与 daemon 是同一个用户时才会发送,其他平台一律拒绝。所以只能监听 TCP 的第三方后端(例如 Hermes 默认的 `127.0.0.1:9900`)只能在 Linux 上、以 daemon 的用户运行。连到另一台主机的后端靠 TLS 认证。
+TCP 后端须在配置里显式写 `allow_tcp: true`;连接落在本机上时(回环地址,或本机自己的网卡地址),只有在 Linux 上、且监听者与 daemon 是同一个用户时才会发送,其他平台一律拒绝。所以只能监听 TCP 的第三方后端(例如 Hermes 默认的 `127.0.0.1:9900`)只能在 Linux 上、以 daemon 的用户运行。连到另一台主机的后端靠 TLS 认证。
 
 没有配置 `expected_uid`/`expected_user` 时,daemon 信任的是 socket 所在的目录链:root、daemon 自己的用户、socket 的属主,以及配置的 `socket_group` 的成员,都能换上自己的后端。与 daemon 同一用户的进程本来就能读取令牌与配置(第 13 条)。
 

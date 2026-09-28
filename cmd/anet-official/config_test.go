@@ -189,9 +189,59 @@ func TestDeploySamplesMatchTheTable(t *testing.T) {
 			if strings.Contains(s, "\nPrivateUsers=yes") || strings.Contains(s, "AF_INET") {
 				t.Errorf("%s: PrivateUsers= maps the socket's group to nobody; the backend needs no AF_INET", unit)
 			}
+			// -socket-group is a chown(2), and systemd's @privileged set
+			// includes @chown: a unit that denies @privileged and does not
+			// allow @chown back starts a backend that exits at once with
+			// "operation not permitted". The SystemCallFilter= lines are
+			// merged in order, a later allow-list line adding back.
+			if !chownAllowed(s) {
+				t.Errorf("%s: its SystemCallFilter= denies chown(2), which -socket-group needs; add SystemCallFilter=@chown after ~@privileged", unit)
+			}
 		}
 		if unit == "anet-official-daemon@.service" && !strings.Contains(s, "SupplementaryGroups=anet-official-ipc\n") {
 			t.Errorf("%s: the daemon must be in the socket's group", unit)
 		}
 	}
+}
+
+// chownAllowed replays a unit's SystemCallFilter= lines in order, as
+// systemd merges them, and reports whether chown(2) ends up allowed. The
+// first line decides the kind of list; an allow-list line naming @chown,
+// @privileged or @system-service (both include @chown) allows it, a
+// "~" line naming @chown or @privileged denies it; an empty assignment
+// resets.
+func chownAllowed(unit string) bool {
+	allowed, seen := true, false
+	for _, line := range strings.Split(unit, "\n") {
+		v, ok := strings.CutPrefix(strings.TrimSpace(line), "SystemCallFilter=")
+		if !ok {
+			continue
+		}
+		if v == "" {
+			allowed, seen = true, false
+			continue
+		}
+		deny := strings.HasPrefix(v, "~")
+		names := strings.Fields(strings.TrimPrefix(v, "~"))
+		has := func(set ...string) bool {
+			for _, n := range names {
+				for _, s := range set {
+					if n == s {
+						return true
+					}
+				}
+			}
+			return false
+		}
+		switch {
+		case deny && has("@chown", "@privileged"):
+			allowed = false
+		case !deny && has("@chown", "@privileged", "@system-service"):
+			allowed = true
+		case !deny && !seen:
+			allowed = false // an allow list that does not name it
+		}
+		seen = true
+	}
+	return allowed
 }

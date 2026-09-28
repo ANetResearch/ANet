@@ -274,8 +274,9 @@ type Module struct {
 
 // backend is where one capability's calls go.
 type backend struct {
-	url string // the request URL: the configured one, or http://localhost/<path> for a socket
-	cli *http.Client
+	url  string // the request URL: the configured one, or http://localhost/<path> for a socket
+	cli  *http.Client
+	unix bool // a unix:// capability: why it cannot be reached names this host's paths
 }
 
 func (m *Module) Name() string { return name }
@@ -304,7 +305,7 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 			cli = m.rules.Client(t, 0)
 			clients[key] = cli
 		}
-		m.backends[c.ID] = backend{url: t.URL.String(), cli: cli}
+		m.backends[c.ID] = backend{url: t.URL.String(), cli: cli, unix: t.Unix()}
 		if !t.Unix() {
 			log.Printf("service: %s is reached over TCP (%s, allow_tcp); a Unix socket (unix:///path) is the recommended form", c.ID, c.URL)
 		}
@@ -519,12 +520,19 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 		// FAILED: nothing was attempted at the far end, and a requester
 		// deciding whether to retry elsewhere needs that distinction.
 		msg := fmt.Sprintf("service %s: %v", call.Capability, err)
-		if errors.Is(err, backendconn.ErrRefused) {
+		switch {
+		case errors.Is(err, backendconn.ErrRefused):
 			// Why it was refused names this host's paths and accounts; the
 			// operator reads it here, the caller learns only that nothing
 			// was sent.
 			log.Printf("service: %s: %v", call.Capability, err)
 			msg = fmt.Sprintf("service %s: the backend did not pass this node's checks; nothing was sent to it", call.Capability)
+		case be.unix:
+			// A socket that is missing or not listened on: the error names
+			// its path (a directory, often an account's), which is the
+			// operator's to read, not the caller's.
+			log.Printf("service: %s: %v", call.Capability, err)
+			msg = fmt.Sprintf("service %s: the backend cannot be reached (is the backend running?); nothing was sent to it", call.Capability)
 		}
 		return effect.Effect{
 			Status:   effect.Unavailable,

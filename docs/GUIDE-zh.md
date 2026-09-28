@@ -338,8 +338,8 @@ anet autoreply show                                                # 看当前�
 - 可选:`expected_uid` 或 `expected_user`(监听进程必须是这个用户,socket 也须属于它、你或 root);
   `socket_group`(允许组可写的 socket 目录,须是这个组;组里的成员与服务同等信任)。三项都是模块级。
 - **仍用 TCP**:写 `http://127.0.0.1:端口/…` 并在模块里加 `"allow_tcp": true`,否则 daemon 拒绝启动。
-  连到回环地址时,daemon 只在 Linux 上、且监听者与 daemon 是同一个用户时才发送(按内核套接字表核对),其他
-  平台一律拒绝;这项核对每条新连接要读一遍内核套接字表(繁忙的主机上可达几十毫秒,连接会复用)。连到别的
+  连到本机(回环地址,或本机自己的网卡地址)时,daemon 只在 Linux 上、且监听者与 daemon 是同一个用户时才发送
+  (按内核套接字表核对),其他平台一律拒绝;这项核对每条新连接要读一遍内核套接字表(繁忙的主机上可达几十毫秒,连接会复用)。连到别的
   主机请用 https。`anet doctor` 对 TCP 后端给出警告(`backend.transport`)。
 - `name`、`description`、`tags`、`examples`、`input_modes`、`output_modes` 是这个能力的
   A2A skill 描述,进入本节点的卡片;不写时卡片只能按 id 派生。写了不等于公开:

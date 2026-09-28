@@ -431,6 +431,71 @@ func TestATCPListenerOfAnotherUserIsRefused(t *testing.T) {
 	}
 }
 
+// A URL naming one of this host's own addresses (its LAN address, not 127.0.0.1) still reaches a local
+// listener whose port any local user can take: it is checked as loopback is, not waved through as
+// another host.
+func TestATCPListenerOnAnAddressOfThisHostIsChecked(t *testing.T) {
+	if _, err := localpeer.ListenerUIDs("127.0.0.1:1"); err != nil {
+		t.Skipf("no socket table here: %v", err)
+	}
+	var ip net.IP
+	addrs, _ := net.InterfaceAddrs()
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && !n.IP.IsLoopback() && !n.IP.IsLinkLocalUnicast() {
+			ip = n.IP
+			break
+		}
+	}
+	if ip == nil {
+		t.Skip("this host has no non-loopback IPv4 address")
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(ip.String(), "0"))
+	if err != nil {
+		t.Skipf("cannot listen on %s: %v", ip, err)
+	}
+	var hits atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		io.WriteString(w, "ok")
+	}))
+	srv.Listener = ln
+	srv.Start()
+	defer srv.Close()
+	r, _ := Policy{AllowTCP: true}.Resolve()
+	if body, err := get(t, r, srv.URL); err != nil || body != "ok" {
+		t.Fatalf("this user's listener on %s: %q %v", ln.Addr(), body, err)
+	}
+	srv.CloseClientConnections()
+	defer localpeer.TreatAsForeignForTest(ln.Addr().String())()
+	before := hits.Load()
+	_, err = get(t, r, srv.URL)
+	var re *RefusedError
+	if !errors.As(err, &re) || !strings.Contains(re.Reason, "held by uid") {
+		t.Fatalf("another user's listener on this host's address %s: %v", ln.Addr(), err)
+	}
+	if hits.Load() != before {
+		t.Fatal("the listener was sent the request")
+	}
+	// Which connections count as this host's.
+	for _, c := range []struct {
+		far, local string
+		want       bool
+	}{
+		{"127.0.0.1:80", "127.0.0.1:5000", true},
+		{"[::1]:80", "[::1]:5000", true},
+		{"0.0.0.0:80", "127.0.0.1:5000", true},
+		{"192.0.2.7:80", "192.0.2.7:5000", true},
+		{"[::ffff:192.0.2.7]:80", "192.0.2.7:5000", true},
+		{"192.0.2.7:443", "198.51.100.3:5000", false},
+	} {
+		far, _ := net.ResolveTCPAddr("tcp", c.far)
+		local, _ := net.ResolveTCPAddr("tcp", c.local)
+		if got := onThisHost(far, local); got != c.want {
+			t.Errorf("onThisHost(%s, %s) = %v", c.far, c.local, got)
+		}
+	}
+}
+
 // DialUnix is what module code outside HTTP would use; it shares the checks.
 func TestDialUnixSharesTheChecks(t *testing.T) {
 	needUnix(t)
