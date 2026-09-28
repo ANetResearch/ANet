@@ -191,11 +191,35 @@ func (in inbound) Receive(ctx context.Context, envelope []byte) error {
 		in.d.count(transientP2PRate)
 		return errP2PRateLimited
 	}
-	res := in.d.receiveEnvelopeVia(ctx, envelope, rxPath{direct: true})
-	if !res.ack() {
-		return fmt.Errorf("anet: envelope not accepted yet (%s); not acknowledging", res.reason)
+	// Acknowledged as soon as step 10 has committed, not after what follows
+	// it (0017 Q29, docs/notes/0025 N3). The sender waits on this answer
+	// with a timeout; a capability call run, or an answer sent over a path
+	// that has to time out before it falls back to the hub, used to hold
+	// the ack past it, and the sender sent the same envelope again through
+	// the hub. The pipeline keeps running on its own goroutine after the
+	// ack, and the answer goes out through the retry queue as before. What
+	// the commit leaves undone if the process dies then is startup
+	// recovery's: a short capability call accepted this way is recorded
+	// working (ingestDelegate), so it is run again at the next start.
+	committed := make(chan struct{})
+	var once sync.Once
+	ack := func() { once.Do(func() { close(committed) }) }
+	done := make(chan rxResult, 1)
+	if !in.d.goBackground(func() {
+		done <- in.d.receiveEnvelopeVia(ctx, envelope, rxPath{direct: true, ack: ack})
+	}) {
+		in.d.count(transientNotReady)
+		return errNotReady
 	}
-	return nil
+	select {
+	case <-committed:
+		return nil
+	case res := <-done:
+		if !res.ack() {
+			return fmt.Errorf("anet: envelope not accepted yet (%s); not acknowledging", res.reason)
+		}
+		return nil
+	}
 }
 
 // errNotReady refuses a delivery that arrived while the daemon was starting

@@ -144,7 +144,7 @@ func startWith(sock, peerSock, rendezvous, advertise, teeDir string) (*peer, err
 		}
 	}
 	p := &peer{peerSocket: peerSock, rendezvous: rendezvous, advertise: advertise, teeDir: teeDir,
-		acks: map[string]chan struct{}{}, limits: newSourceLimits()}
+		acks: map[string]chan error{}, limits: newSourceLimits()}
 
 	// The peer-facing listener takes either a socket path or a TCP
 	// address, because peers on two machines cannot share a Unix socket.
@@ -209,9 +209,10 @@ type peer struct {
 	teeDir string
 	teeN   uint64
 
-	// acks correlates a delivery with the receiving daemon's acceptance,
-	// keyed by the ID this process minted for the delivery.
-	acks   map[string]chan struct{}
+	// acks correlates a delivery with the receiving daemon's answer, keyed
+	// by the ID this process minted for the delivery: nil for an ack, the
+	// daemon's reason for a nack.
+	acks   map[string]chan error
 	nextID uint64
 	// limits is the per-source half of the inbound rate limit (A2A-DESIGN
 	// §3.6 step 0); the daemon applies the daemon-wide half.
@@ -351,14 +352,20 @@ func (p *peer) serveDaemon(c net.Conn) {
 				p.tee(f)
 				p.reply(c, frame{Op: "send", V: wireVersion, ID: f.ID})
 			}(f)
-		case "ack":
-			// Our daemon accepted something we handed it; release the peer
-			// that is waiting to hear so. The ID is the one this process
-			// minted for that delivery, so an ack can only release the
-			// delivery it answers.
+		case "ack", "nack":
+			// Our daemon accepted something we handed it, or refused it for
+			// now; tell the peer that is waiting. The ID is the one this
+			// process minted for that delivery, so an answer can only
+			// release the delivery it answers. A nack is passed on at once
+			// rather than left to run out handOffTimeout: the sender falls
+			// back to the hub now.
+			var answer error
+			if f.Op == "nack" {
+				answer = fmt.Errorf("receiving daemon refused the delivery for now: %s", f.Error)
+			}
 			p.mu.Lock()
 			if ch, ok := p.acks[f.ID]; ok {
-				close(ch)
+				ch <- answer
 				delete(p.acks, f.ID)
 			}
 			p.mu.Unlock()
@@ -451,7 +458,7 @@ func (p *peer) handOff(f frame) error {
 	}
 	p.nextID++
 	id := fmt.Sprintf("d%d", p.nextID)
-	ch := make(chan struct{}, 1)
+	ch := make(chan error, 1)
 	p.acks[id] = ch
 	err := enc.Encode(frame{Op: "recv", V: wireVersion, ID: id, To: f.To, Envelope: f.Envelope})
 	p.mu.Unlock()
@@ -462,8 +469,8 @@ func (p *peer) handOff(f frame) error {
 		return err
 	}
 	select {
-	case <-ch:
-		return nil
+	case err := <-ch:
+		return err
 	case <-time.After(handOffTimeout):
 		p.mu.Lock()
 		delete(p.acks, id)
@@ -476,8 +483,24 @@ func (p *peer) handOff(f frame) error {
 	}
 }
 
-// handOffTimeout bounds how long a delivery waits for the daemon's ack.
-var handOffTimeout = 10 * time.Second
+// The bounds of one delivery, and how they fit together (0017 Q29,
+// docs/notes/0025 N3). The sending daemon waits for this process's answer
+// to a send (module/p2p, 20 s by default) and has to hear it: a daemon that
+// gives up while this process is still dialling or waiting counts the
+// envelope undelivered and sends it through the hub, and if this process
+// then gets it through, the recipient has it twice. So every wait here
+// ends well inside that: dialTimeout to connect, handOffTimeout for the
+// receiving daemon's ack or nack (it acks as soon as its step 10 has
+// committed), replyMargin for the reply to travel back — 18 s in all.
+//
+// The dial is short on purpose: an address that cannot be dialled is then
+// reported unreachable for a while (markDown), and the next messages go
+// straight to the hub.
+var (
+	dialTimeout    = 3 * time.Second
+	handOffTimeout = 10 * time.Second
+	replyMargin    = 5 * time.Second
+)
 
 // sourceOf names where a peer connection came from, for the per-source
 // rate limit: the remote host for TCP; for a Unix socket every peer shares
@@ -545,7 +568,7 @@ func (p *peer) deliver(f frame) error {
 		return fmt.Errorf("no peer for %s", f.To)
 	}
 	dnet, daddr := addrKind(sock)
-	c, err := net.DialTimeout(dnet, daddr, 8*time.Second)
+	c, err := net.DialTimeout(dnet, daddr, dialTimeout)
 	if err != nil {
 		// Only a failed dial marks the address: an error after the
 		// connection is up (a refusal, a slow ack) is the peer answering.
@@ -556,7 +579,7 @@ func (p *peer) deliver(f frame) error {
 		return err
 	}
 	defer c.Close()
-	_ = c.SetDeadline(time.Now().Add(15 * time.Second))
+	_ = c.SetDeadline(time.Now().Add(handOffTimeout + replyMargin))
 	if err := json.NewEncoder(c).Encode(frame{Op: "send", V: wireVersion, ID: f.ID, To: f.To, Envelope: f.Envelope}); err != nil {
 		return err
 	}

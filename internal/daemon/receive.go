@@ -158,6 +158,22 @@ type rxMsg struct {
 	// pendingRoute marks a message for a delegation held in the approval
 	// queue.
 	pendingRoute bool
+
+	// ackNow is rxPath.ack: set on a direct delivery, called once by
+	// committed.
+	ackNow func()
+}
+
+// committed reports that step 10 has committed this message: a direct
+// delivery is acknowledged now, not after the side effects that follow
+// (0017 Q29). Until this point every failure is still one the sender must
+// hear about; after it, redelivering the envelope could only be a
+// duplicate.
+func (m *rxMsg) committed() {
+	if m.ackNow != nil {
+		m.ackNow()
+		m.ackNow = nil
+	}
 }
 
 // rxPath is how an envelope reached this node.
@@ -165,6 +181,11 @@ type rxPath struct {
 	// direct: a transport module handed it over (module.Inbound, p2p), not
 	// the hub mailbox.
 	direct bool
+	// ack, when set, is called once step 10 has committed the envelope's
+	// business writes and replay row, before the side effects that follow
+	// the commit (running a capability, sending an answer). A direct
+	// delivery is acknowledged there (0017 Q29, inbound.Receive).
+	ack func()
 }
 
 // receiveEnvelope runs steps 1 to 10 on one envelope from the hub mailbox.
@@ -217,7 +238,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	}
 
 	m := &rxMsg{from: in.From, typ: in.Type, ix: in.IX, mid: in.MID, ts: in.TS, exp: in.Exp,
-		ksn: in.KeyStateSeq, body: in.Body, kel: use, kelUpdate: update}
+		ksn: in.KeyStateSeq, body: in.Body, kel: use, kelUpdate: update, ackNow: path.ack}
 
 	// Step 8: advisory. A key set that fails here does not affect the
 	// message; the authenticity of the message was decided in step 7.
@@ -591,9 +612,20 @@ func (d *Daemon) process(ctx context.Context, m *rxMsg) rxResult {
 	if seen {
 		// A redelivered delegation may mean the requester never got the
 		// answer: resend it, or finish work a crash interrupted. A re-run
-		// the daemon's stop cut short is not acknowledged (SI-10).
-		if m.typ == seal.TypeDelegate && !d.redeliveredDelegate(ctx, m) {
-			return d.transient(transientStopping, d.ctx.Err())
+		// the daemon's stop cut short is not acknowledged (SI-10). Over a
+		// direct transport the duplicate is acknowledged first and the
+		// answer re-sent after (Q29): a crash in between leaves the call
+		// to startup recovery, as for a first delivery.
+		if m.typ == seal.TypeDelegate {
+			if m.ackNow != nil {
+				dup := d.drop(dropDuplicate, nil)
+				m.committed()
+				d.redeliveredDelegate(ctx, m)
+				return dup
+			}
+			if !d.redeliveredDelegate(ctx, m) {
+				return d.transient(transientStopping, d.ctx.Err())
+			}
 		}
 		return d.drop(dropDuplicate, nil)
 	}
@@ -720,6 +752,7 @@ func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
 	var perm *rxPermanentErr
 	switch {
 	case err == nil:
+		m.committed()
 		return accepted()
 	case errors.Is(err, errReplayDuplicate):
 		return d.drop(dropDuplicate, nil)

@@ -404,6 +404,9 @@ func TestRedteamSI10_ConcurrentCopiesOfAPublicCallGetBothExecutedAndRejected(t *
 		t.Fatalf("p2p copy: %v", err)
 	}
 	prov.setRxFault(nil)
+	// Receive acknowledges a direct delivery at its step-10 commit and runs
+	// the call after (0017 Q29): wait for its answer.
+	waitUntil(t, "the p2p copy's answer", func() bool { return len(queuedFor(t, srv, req.AID())) == 2 })
 	if n := len(lamp.invoked); n != 1 {
 		t.Fatalf("capability ran %d times", n)
 	}
