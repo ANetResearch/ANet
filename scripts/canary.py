@@ -8,13 +8,19 @@ goal, chat turns, attachment bytes, capability arguments, a paid call, a call to
 then searches every byte the hub side has for them. This file is that search, plus the tap that records
 what the hub was sent and what it answered, plus the structured check of the settlement bodies.
 
+  canary.py mint   --canaries FILE LABEL
   canary.py scan   --canaries FILE [--out REPORT] [--label NAME] [--expect BASENAME]… [--want LABEL]… PATH…
   canary.py tap    --listen HOST:PORT --upstream URL --dir DIR
   canary.py settle --dir TAPDIR [--hub-db PATH] [--out REPORT]
 
+mint: a new canary for one piece of content, appended to FILE as label<TAB>value and printed. It is
+"anet-canary-<label>-" and 96 random bits in hex, with URLSAFE_RUN in the middle of them: every base64 form of
+the canary then differs between the standard and the URL-safe alphabet, so the URL-safe search below is one
+the canary depends on rather than a copy of the standard one (lib.sh canary_new calls this).
+
 scan: every regular file under each PATH (symlinks are not followed), searched for each canary as raw
-bytes, as lower- and upper-case hex, as standard and URL-safe base64 at each of the three alignments, and
-as base64 of those base64 forms. A gzip file is searched decompressed as well; an SQLite database is
+bytes, percent-encoded (as a URL query or path would carry it), as lower- and upper-case hex, as standard
+and URL-safe base64 at each of the three alignments, and as base64 of those base64 forms. A gzip file is searched decompressed as well; an SQLite database is
 also read table by table (a value that spills onto overflow pages is not contiguous in the file), from a
 private copy that includes its -wal. Exit 0 when nothing was found, 1 when a canary was found, 2 when
 nothing could be scanned, an --expect file was not among the scanned, or a file was not searched in
@@ -48,11 +54,14 @@ import binascii
 import gzip
 import json
 import os
+import re
+import secrets
 import shutil
 import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 
 MAX_FILE = 512 << 20  # larger files are reported, not read
 
@@ -60,6 +69,40 @@ try:  # absent from some minimal Python builds; the raw byte search does not nee
     import sqlite3
 except ImportError:  # pragma: no cover
     sqlite3 = None
+
+
+# ── minting ──────────────────────────────────────────────────────
+
+# URLSAFE_RUN is in every minted canary (docs/notes/0026 §6 item 4). The URL-safe base64 alphabet differs
+# from the standard one only in '-' and '_' for '+' and '/', the sextets 62 and 63. A canary made of letters,
+# digits and '-' produces neither in any base64 form, so its URL-safe needles were its standard needles,
+# removed as duplicates: the URL-safe search was never exercised by a joint run, and a search that lost it
+# passed every run. '~' (0x7E) and '?' (0x3F) end in the bits 111110 and 111111, so as the third byte of a
+# 3-byte group each becomes '+' or '/'. Three in a row put one of them in that place at every alignment, so
+# every base64 form of the canary differs between the two alphabets. Both characters pass unchanged through
+# JSON (Go escapes only <, > and &), a double-quoted shell word and grep -F; '?' is percent-encoded in a
+# URL, which scan searches as well.
+URLSAFE_RUN = "~?~"
+
+LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def mint(label):
+    """A new canary for label: random (96 bits), and URLSAFE_RUN between its two random halves."""
+    return "anet-canary-%s-%s%s%s" % (label, secrets.token_hex(6), URLSAFE_RUN, secrets.token_hex(6))
+
+
+def cmd_mint(a):
+    if not LABEL_RE.match(a.label):
+        _fatal("label %r: letters, digits, '.', '_' and '-' only" % a.label)
+    value = mint(a.label)
+    try:
+        with open(a.canaries, "a", encoding="utf-8") as f:
+            f.write("%s\t%s\n" % (a.label, value))
+    except OSError as e:
+        _fatal("canaries: %s" % e)
+    sys.stdout.write(value)
+    return 0
 
 
 # ── needles ──────────────────────────────────────────────────────
@@ -117,6 +160,10 @@ def needles_for(canaries):
     for label, value in canaries:
         raw = value.encode("utf-8")
         add(label, "raw", raw)
+        # As a URL query or path carries it: '?' (and, from some encoders, '~') percent-encoded.
+        url = urllib.parse.quote(value, safe="")
+        add(label, "url", url.encode())
+        add(label, "url/%7E", url.replace("~", "%7E").encode())
         add(label, "hex", binascii.hexlify(raw))
         add(label, "HEX", binascii.hexlify(raw).upper())
         std = _b64_aligned(raw, base64.b64encode)
@@ -566,6 +613,9 @@ def main(argv):
         return cmd_sqlite3(argv[1:])
     p = argparse.ArgumentParser(prog="canary.py", description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd")
+    m = sub.add_parser("mint")
+    m.add_argument("--canaries", required=True)
+    m.add_argument("label")
     s = sub.add_parser("scan")
     s.add_argument("--canaries", required=True)
     s.add_argument("--out")
@@ -583,6 +633,8 @@ def main(argv):
     st.add_argument("--hub-db")
     st.add_argument("--out")
     a = p.parse_args(argv)
+    if a.cmd == "mint":
+        return cmd_mint(a)
     if a.cmd == "scan":
         return cmd_scan(a)
     if a.cmd == "tap":

@@ -277,11 +277,11 @@ CANARY_PY=${CANARY_PY:-$_LIB_ROOT/scripts/canary.py}
 
 # canary_new FILE LABEL: mint the canary for one piece of content, record it in FILE (label<TAB>value) and
 # print it. Random, so it can turn up only where that content went. Never a capability id, a profile or
-# anything else that is public by design: those are found in the hub legitimately.
-canary_new(){
-  local v; v="anet-canary-$2-$(python3 -c 'import secrets;print(secrets.token_hex(12))')" || return 1
-  printf '%s\t%s\n' "$2" "$v" >> "$1" && printf '%s' "$v"
-}
+# anything else that is public by design: those are found in the hub legitimately. canary.py mint makes
+# it: 96 random bits with "~?~" in the middle, characters that make every base64 form of the canary differ
+# between the standard and the URL-safe alphabet, so the URL-safe search is one each run depends on (with
+# letters and digits only, the two forms are the same bytes and that search was never exercised).
+canary_new(){ python3 "$CANARY_PY" mint --canaries "$1" "$2"; }
 
 # canary_scan FILE REPORT LABEL [--expect BASENAME]… [--want LABEL]… PATH…: search every byte under
 # the paths for the canaries in FILE, in every encoding canary.py knows; the JSON report goes to REPORT
