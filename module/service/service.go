@@ -45,19 +45,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
-	"net/http/httptrace"
 	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
@@ -424,35 +421,24 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 	}
 	req.Header.Set(HeaderCapability, target.ID)
 
-	// Whether the request went out decides what a transport error means.
-	// The trace marks it sent once its header block is written: before
-	// that the service cannot have begun the call. Each attempt starts
-	// unsent, because the transport tries again on a new connection only
-	// when nothing of the request reached the wire (a POST is not
-	// replayed otherwise).
-	var sent atomic.Bool
-	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
-		GetConn:      func(string) { sent.Store(false) },
-		WroteHeaders: func() { sent.Store(true) },
-	}))
+	// Whether the request went out decides what a transport error means:
+	// before its header block is written the service cannot have begun the
+	// call (provider.TrackSent).
+	req, sent := provider.TrackSent(req)
 
 	started := time.Now()
 	resp, err := p.m.cli.Do(req)
 	if err != nil {
 		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability,
 			LatencyMS: time.Since(started).Milliseconds()}
-		if sent.Load() {
+		if sent() {
 			// The call went out and its answer did not come back: the
 			// deadline passed while the service worked, or the connection
 			// dropped before the reply. The effect may have happened, so
 			// neither "nothing was attempted" nor "it failed" is true, and
 			// a requester told either could run it twice (A2A-DESIGN §4.3).
-			reason := provider.ReasonConnectionLost
-			if errors.Is(err, context.DeadlineExceeded) {
-				reason = provider.ReasonTimeout
-			}
 			return effect.Effect{Status: effect.Unverified, Evidence: ev},
-				fmt.Errorf("service %s: %w", call.Capability, &provider.OutcomeUnknownError{Reason: reason, Err: err})
+				fmt.Errorf("service %s: %w", call.Capability, provider.AnswerLost(err))
 		}
 		// The service could not be reached: no connection, or it broke
 		// before the request was written. UNAVAILABLE, not FAILED: nothing
@@ -465,8 +451,19 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 		}, nil
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxReplyBytes))
+	raw, rerr := io.ReadAll(io.LimitReader(resp.Body, maxReplyBytes))
 	latency := time.Since(started).Milliseconds()
+	if rerr != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// The service took the call — it said so with a 2xx — and its
+		// answer broke off: the deadline passed while the body was still
+		// coming, or the connection dropped mid-reply. The same unknown
+		// outcome as an answer that never started, not FAILED, which says
+		// the effect did not happen (redteam F10, a reply lost after its
+		// headers). A refusal's status is its answer whatever its body.
+		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency}
+		return effect.Effect{Status: effect.Unverified, Evidence: ev},
+			fmt.Errorf("service %s: HTTP %d, then %w", call.Capability, resp.StatusCode, provider.AnswerLost(rerr))
+	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// 503 and 429 are the service saying "not now": busy, or out of

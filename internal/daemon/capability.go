@@ -429,14 +429,15 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 		return false
 	}
 	var opts resultOpts
-	var unknown *provider.OutcomeUnknownError
-	switch {
-	case errors.As(err, &unknown):
-		// Sent, and the answer lost: whether the effect happened is not
+	switch unknown, isUnknown := provider.OutcomeOf(err); {
+	case isUnknown:
+		// Sent, and the answer lost — or the call's deadline passed while
+		// it ran, whatever the provider: whether the effect happened is not
 		// known. failed + UNVERIFIED, as for a call a restart interrupted
 		// (§4.3) — not UNAVAILABLE, which would tell the requester that
-		// nothing was attempted and that trying again is safe.
-		res.Status, res.Message = string(effect.Unverified), err.Error()
+		// nothing was attempted and that trying again is safe, nor FAILED,
+		// which says the effect did not happen.
+		res.Status, res.Message = string(effect.Unverified), provider.OutcomeMessage(err, unknown)
 		res.Evidence = provenanceOf(eff.Evidence)
 		opts = resultOpts{state: interactions.StateFailed, reason: unknown.Reason}
 	case err != nil:

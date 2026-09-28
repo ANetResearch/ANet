@@ -317,12 +317,11 @@ func (m *Module) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 	eff, err := p.Invoke(ctx, provider.Call{
 		Capability: req.Capability, Args: req.Args, CallID: id, CallerAID: v.Payer, Via: provider.ViaVoucher})
 	out := map[string]any{"capability": req.Capability, "voucher_id": id, "payer": v.Payer}
-	var unknown *provider.OutcomeUnknownError
-	if errors.As(err, &unknown) {
-		// Sent, and the answer lost: the effect may have happened
-		// (provider.OutcomeUnknownError). Not FAILED, which would say it
-		// did not.
-		out["status"], out["message"], out["reason"] = string(effect.Unverified), err.Error(), unknown.Reason
+	if unknown, ok := provider.OutcomeOf(err); ok {
+		// Sent, and the answer lost, or the deadline passed while the call
+		// ran: the effect may have happened (provider.OutcomeOf). Not
+		// FAILED, which would say it did not.
+		out["status"], out["message"], out["reason"] = string(effect.Unverified), provider.OutcomeMessage(err, unknown), unknown.Reason
 		out["evidence"] = provider.Provenance(eff.Evidence)
 	} else if err != nil {
 		out["status"], out["message"] = string(effect.Failed), err.Error()
