@@ -667,7 +667,7 @@ type TaskSeam interface {
 
 Host 白名单;Bearer(`a2a_token.txt`,常数时间比较);拒绝带非空 `Origin` 的请求;JSON-RPC 只接受 `application/json`;请求体上限 96 MiB;`A2A-Extensions` 与 `X-A2A-Extensions` 按逗号拆分合并后改写请求头;`A2A-Version` 缺省按 1.0,显式非 1.x 返回 `VersionNotSupportedError`(也读查询参数);响应回显"请求的 ∩ 该 agent 支持的"扩展;包装的 `ResponseWriter` 实现 `Flusher`。
 
-流式调用的预检(0017 Q31)[Q31]:a2a-go 在调用 handler 之前就写出 SSE 头(`a2asrv/jsonrpc.go:150`、`a2asrv/rest.go:277`),handler 先返回的错误只能装在流里。因此 `module/a2a` 在进入 a2a-go 之前,对 SubscribeToTask 做请求、存在性、作用域(属于本端点)与状态(非终态)检查,对 SendStreamingMessage 直接完成这次发送(内核 `Send`,立即返回),把得到的任务交给随后的流,不再发第二次;不满足时以绑定自身形式的普通错误应答、不开流:JSON-RPC 为带请求 id 的 error 对象,REST 为 google.rpc.Status,HTTP 状态取 a2a-go HTTP+JSON 绑定对同一错误的状态(如 TaskNotFound 404、UnsupportedOperation 400)。不用 200 的原因:a2a-go 的 JSON-RPC 客户端把流式调用的 200 应答体按 SSE 解析,普通 JSON 错误会被读成"空流、无错误";非 200 时它至少报出 HTTP 状态(`docs/a2a/issue-a2a-go.md` A12)。
+流式调用的预检(0017 Q31)[Q31]:a2a-go 在调用 handler 之前就写出 SSE 头(`a2asrv/jsonrpc.go:150`、`a2asrv/rest.go:277`),handler 先返回的错误只能装在流里。因此 `module/a2a` 在进入 a2a-go 之前,对 SubscribeToTask 做请求、存在性、作用域(属于本端点)与状态(非终态)检查,对 SendStreamingMessage 直接完成这次发送(内核 `Send`,立即返回),把得到的任务交给随后的流,不再发第二次;不满足时以绑定自身形式的普通错误应答、不开流:JSON-RPC 为带请求 id 的 error 对象,REST 为 google.rpc.Status,HTTP 状态取 a2a-go HTTP+JSON 绑定对同一错误的状态(如 TaskNotFound 404、UnsupportedOperation 400)。不用 200 的原因:a2a-go 的 JSON-RPC 客户端把流式调用的 200 应答体按 SSE 解析,普通 JSON 错误会被读成"空流、无错误";非 200 时它至少报出 HTTP 状态(`docs/a2a/issue-a2a-go.md` A12)。预检与绑定以同样方式读请求体(`json.Decoder` 只取第一个 JSON 值,忽略其后的字节),否则带尾随字节的请求会越过预检、错误又回到流里 [Q31 复核]。
 
 卡片缓存(0017 Q33)[Q33]:代理卡片(两个路径)与 `GET /a2a/v1/agents` 列表响应 `Cache-Control: private, max-age=300` 与按字节计算的 `ETag`,`If-None-Match` 命中回 304;其余 JSON-RPC/REST 响应与错误保持 `no-store`。
 

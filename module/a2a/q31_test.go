@@ -58,6 +58,13 @@ func TestAStreamThatCannotStartIsAnOrdinaryError(t *testing.T) {
 		{"stream a message with a url part (rpc)", "POST", rpc,
 			`{"jsonrpc":"2.0","id":"r5","method":"SendStreamingMessage","params":{"message":{"messageId":"m5","role":"ROLE_USER",` +
 				`"parts":[{"url":"file:///etc/passwd"}]}}}`, -32602, 400, "INVALID_PARAMS"},
+		// Bytes after the request, which the bindings leave unread (a
+		// json.Decoder): the check reads the request the same way.
+		{"subscribe, no such task, trailing bytes (rpc)", "POST", rpc,
+			`{"jsonrpc":"2.0","id":"r6","method":"SubscribeToTask","params":{"id":"nope"}} trailing`, -32001, 404, "TASK_NOT_FOUND"},
+		{"stream a message to an ended task, trailing bytes (rest)", "POST", rest + "/message:stream",
+			`{"message":{"messageId":"m9","role":"ROLE_USER","taskId":"` + done + `","parts":[{"text":"x"}]}}{}`, 0, 400,
+			"UNSUPPORTED_OPERATION"},
 		{"subscribe, no such task (rest)", "GET", rest + "/tasks/nope:subscribe", "", 0, 404, "TASK_NOT_FOUND"},
 		{"subscribe, ended (rest, POST)", "POST", rest + "/tasks/" + done + ":subscribe", "", 0, 400, "UNSUPPORTED_OPERATION"},
 		{"stream a message to an ended task (rest)", "POST", rest + "/message:stream",
@@ -87,7 +94,7 @@ func TestAStreamThatCannotStartIsAnOrdinaryError(t *testing.T) {
 			var req struct {
 				ID any `json:"id"`
 			}
-			_ = json.Unmarshal([]byte(c.body), &req)
+			_ = json.NewDecoder(strings.NewReader(c.body)).Decode(&req) // the first value, as the binding reads it
 			if json.Unmarshal(body, &r) != nil || r.JSONRPC != "2.0" || r.ID != req.ID || r.Error.Code != c.code ||
 				len(r.Error.Data) != 1 || r.Error.Data[0].Reason != c.reason {
 				t.Errorf("%s: %s", c.name, body)

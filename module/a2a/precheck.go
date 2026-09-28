@@ -75,14 +75,14 @@ func readStreamCall(r *http.Request, aid string, jsonrpc bool) *streamCall {
 			ID      any    `json:"id"`
 			Method  string `json:"method"`
 		}
-		if json.Unmarshal(body, &env) != nil || env.JSONRPC != "2.0" || !validRPCID(env.ID) ||
+		if decodeFirst(body, &env) != nil || env.JSONRPC != "2.0" || !validRPCID(env.ID) ||
 			(env.Method != methodSendStreaming && env.Method != methodSubscribe) {
 			return nil
 		}
 		var params struct {
 			Params json.RawMessage `json:"params"`
 		}
-		_ = json.Unmarshal(body, &params)
+		_ = decodeFirst(body, &params)
 		c := &streamCall{id: env.ID}
 		if env.Method == methodSendStreaming {
 			c.send = &a2a.SendMessageRequest{}
@@ -109,7 +109,7 @@ func readStreamCall(r *http.Request, aid string, jsonrpc bool) *streamCall {
 			return nil
 		}
 		c := &streamCall{send: &a2a.SendMessageRequest{}}
-		if json.Unmarshal(body, c.send) != nil {
+		if decodeFirst(body, c.send) != nil {
 			return nil // the binding answers a body that does not decode, before any stream
 		}
 		c.send.Tenant = aid
@@ -123,6 +123,15 @@ func readStreamCall(r *http.Request, aid string, jsonrpc bool) *streamCall {
 		return &streamCall{sub: &a2a.SubscribeToTaskRequest{ID: a2a.TaskID(id), Tenant: aid}}
 	}
 	return nil
+}
+
+// decodeFirst decodes the first JSON value of body into v, as the bindings
+// read a request (a json.Decoder, which leaves what follows the value
+// unread). json.Unmarshal refuses what follows, so a body with trailing
+// bytes was a request the binding served and the check passed over, and
+// its refusal went back inside a stream again (0017 Q31).
+func decodeFirst(body []byte, v any) error {
+	return json.NewDecoder(bytes.NewReader(body)).Decode(v)
 }
 
 // errReader returns err once the body before it is read (nil: EOF), so a
