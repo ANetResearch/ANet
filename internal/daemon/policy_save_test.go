@@ -56,7 +56,7 @@ func TestAPolicyWriteThatFailedToSaveIsNotInForce(t *testing.T) {
 	if derr != nil {
 		t.Fatal(derr)
 	}
-	poll(t, prov)
+	pollEach(t, prov)
 	if ix, gerr := prov.ix.Get(id); gerr == nil {
 		t.Fatalf("a stranger's task was accepted (trust %s) after the open write failed", ix.Trust)
 	}
@@ -77,7 +77,7 @@ func TestAPolicyWriteThatFailedToSaveIsNotInForce(t *testing.T) {
 	if derr != nil {
 		t.Fatal(derr)
 	}
-	poll(t, prov)
+	pollEach(t, prov)
 	if ix, gerr := prov.ix.Get(id); gerr != nil || ix.Trust != interactions.TrustPublic {
 		t.Fatalf("after a saved open write: %+v %v", ix, gerr)
 	}

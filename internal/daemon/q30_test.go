@@ -21,6 +21,17 @@ import (
 	"github.com/ANetResearch/ANet/module"
 )
 
+// pollEach collects each daemon's mailbox once (poll, which is in a file
+// -tags no_x402 leaves out).
+func pollEach(t *testing.T, ds ...*Daemon) {
+	t.Helper()
+	for _, d := range ds {
+		if err := d.pollOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // replyArtifact is the text of a task's anet.reply artifact.
 func replyArtifact(t a2ashape.Task) string {
 	for _, a := range t.Artifacts {
@@ -62,13 +73,13 @@ func TestAFinalReplyKeepsTheRequesterWorkingUntilTheResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	poll(t, prov)
+	pollEach(t, prov)
 
 	const answer = "waves fold, salt remembers"
 	if _, err := prov.sendMessage(ctx, id, answer, nil, a2ashape.FinalReplyMetadata()); err != nil {
 		t.Fatal(err)
 	}
-	poll(t, req)
+	pollEach(t, req)
 	ix := mustIX(t, req, id)
 	if ix.State != interactions.StateWorking {
 		t.Fatalf("at the final reply the requester's task is %s, want working (the result follows)", ix.State)
@@ -87,7 +98,7 @@ func TestAFinalReplyKeepsTheRequesterWorkingUntilTheResult(t *testing.T) {
 	if err := prov.CompleteTask(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	poll(t, req)
+	pollEach(t, req)
 	ix = mustIX(t, req, id)
 	task, err = req.taskView(ix, viewOpts{artifacts: true})
 	if err != nil {
