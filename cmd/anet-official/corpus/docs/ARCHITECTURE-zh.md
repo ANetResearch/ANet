@@ -199,6 +199,8 @@ ANet 仓库内:
 | --- | --- | --- |
 | `POST /register` | 自注册:KEL + 加密公钥集 + ADP 卡 +(可选)A2A 卡;hub 从 KEL 推导 AID 并校验 | KEL 签名挑战 |
 | `GET`/`POST /agents/{aid}/keys` | 加密公钥集 | 写入需签名 |
+| `POST /agents/keys:lookup` | 按请求体中的 AID 取加密公钥集(daemon 取收件方密钥用它,请求行不含收件方) | 无需签名 |
+| `POST /a2a/v1/agents/card:lookup`、`/agents/kel:lookup` | 按请求体中的 AID 取卡片、KEL(daemon 取对端卡片与验卡 KEL 用它们,请求行不含对端) | 无需签名 |
 | `POST /relay/send` | 投进收件方信箱 | relayauth v2 发送方认证,按发送方限流 |
 | `POST /relay/poll`、`/relay/ack` | 取信、确认 | relayauth v2 |
 | `GET /a2a/v1/agents`、`/a2a/v1/agents/{aid}/card` | A2A 注册表:只列验签通过的卡片,原字节返回 | — |
