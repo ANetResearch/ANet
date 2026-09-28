@@ -46,8 +46,9 @@ func (l *logSink) take() string {
 }
 
 // FuzzServer: any request reaches an answer without a panic (recovered or
-// not); a POST whose body is not application/json is never served; a
-// JSON-RPC answer, and any answer that says it is JSON, is JSON; and a
+// not); a POST whose body is not application/json or application/a2a+json
+// (A2A v1.0.1, bodyMediaType) is never served; a JSON-RPC answer, and any
+// answer that says it is JSON of either type, is JSON; and a
 // request without the bearer is refused before anything reads its body.
 func FuzzServer(f *testing.F) {
 	const rpc = agentA + "/jsonrpc"
@@ -136,7 +137,7 @@ func FuzzServer(f *testing.F) {
 		}
 		mt, _, perr := mime.ParseMediaType(ct)
 		isRPC := strings.Contains(req.URL.Path, "/jsonrpc")
-		if m == http.MethodPost && (isRPC || len(body) > 0) && (perr != nil || mt != "application/json") &&
+		if m == http.MethodPost && (isRPC || len(body) > 0) && (perr != nil || (mt != mediaJSON && mt != mediaA2AJSON)) &&
 			resp.StatusCode < 300 {
 			t.Fatalf("a %q body was served: %d %s", ct, resp.StatusCode, out)
 		}
@@ -144,7 +145,7 @@ func FuzzServer(f *testing.F) {
 			t.Fatalf("%s %s: %d %s", m, target, resp.StatusCode, out)
 		}
 		rct := resp.Header.Get("Content-Type")
-		if strings.HasPrefix(rct, "application/json") && len(out) > 0 && !json.Valid(out) {
+		if (strings.HasPrefix(rct, mediaJSON) || strings.HasPrefix(rct, mediaA2AJSON)) && len(out) > 0 && !json.Valid(out) {
 			t.Fatalf("an answer labelled JSON is not: %s", out)
 		}
 		if strings.HasPrefix(rct, "text/event-stream") {
