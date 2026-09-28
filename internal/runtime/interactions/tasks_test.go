@@ -285,3 +285,109 @@ func TestClientMessageLookupReadsAnIndex(t *testing.T) {
 		}
 	}
 }
+
+// A listing of one peer — the local A2A interface's every ListTasks and the
+// count that goes with it — reads a range of idx_ix_peer_list: the peer's own
+// tasks, in listing order. Read from idx_ix_list it walked the index entries of
+// every task with every peer to find the peer's few; with 300 000 tasks that was
+// 30–75 ms for a page and 0.2 s for the count of a peer with 150 tasks, on every
+// call, growing with every task the node ever had.
+func TestPeerListingReadsThePeersRange(t *testing.T) {
+	s := open(t)
+	for i, f := range []interactions.ListFilter{
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a"},
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a", States: []interactions.State{interactions.StateCompleted}},
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a", Cursor: "10.3"},
+		{PeerAID: "peer-a", Active: true},
+	} {
+		for what, explain := range map[string]func() ([]string, error){
+			"list":  func() ([]string, error) { return s.ExplainList(f, 50) },
+			"count": func() ([]string, error) { return s.ExplainCount(f) },
+		} {
+			plan, err := explain()
+			if err != nil {
+				t.Fatalf("filter %d %s: %v", i, what, err)
+			}
+			p := strings.Join(plan, "; ")
+			if !strings.Contains(p, "COVERING INDEX idx_ix_peer_list (peer_aid=?") || strings.Contains(p, "TEMP B-TREE") {
+				t.Errorf("filter %d %s: plan %q, want the peer's range of idx_ix_peer_list and no sort", i, what, p)
+			}
+		}
+	}
+}
+
+// ListPage reads the (state_at, seq) of a page from an index, then the rows. The
+// page boundary is the first read's: a task changed or deleted between the two
+// must not move it. Taken from the re-read rows, a last task whose state changed
+// in between put the cursor at the head of the listing, so the next page
+// repeated this one; and a task pruned in between made a full page look like the
+// last, so the rest of the listing was never read — ListAll stopped short, and
+// with it the sweeps that walk it (cancelForPolicy, the inbound feed, recovery).
+func TestListPageBoundaryIsTheIndexRead(t *testing.T) {
+	// Newest first: ix_4 ix_3 ix_2 ix_1 ix_0, of trust "t"; finished, if
+	// named, is finished where it stands.
+	setup := func(t *testing.T, finished string) (*interactions.Store, *int64) {
+		s := open(t)
+		clock := int64(1000)
+		s.SetClock(func() int64 { return clock })
+		for i := 0; i < 5; i++ {
+			clock++
+			id := fmt.Sprintf("ix_%d", i)
+			if err := s.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: "peer-a", Goal: "g",
+				Trust: "t"}); err != nil {
+				t.Fatal(err)
+			}
+			if id == finished {
+				if _, err := s.SetState(id, interactions.StateCompleted); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		return s, &clock
+	}
+	// walk lists every page of two, with between run in the first.
+	walk := func(t *testing.T, s *interactions.Store, between func()) string {
+		t.Helper()
+		f := interactions.ListFilter{Role: interactions.RoleOutbound, PeerAID: "peer-a", Limit: 2}
+		restore := interactions.SetBetweenListSteps(between)
+		var got []string
+		for len(got) <= 10 {
+			p, err := s.ListPage(f)
+			restore()
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, ix := range p.Items {
+				got = append(got, ix.ID)
+			}
+			if p.Next == "" {
+				break
+			}
+			f.Cursor = p.Next
+		}
+		return strings.Join(got, " ")
+	}
+	t.Run("the last task of the page changes state", func(t *testing.T) {
+		s, clock := setup(t, "")
+		got := walk(t, s, func() {
+			*clock = 5000
+			if _, err := s.SetState("ix_3", interactions.StateWorking); err != nil {
+				t.Fatal(err)
+			}
+		})
+		if got != "ix_4 ix_3 ix_2 ix_1 ix_0" {
+			t.Fatalf("pages gave %s", got)
+		}
+	})
+	t.Run("a task of the page is pruned", func(t *testing.T) {
+		s, _ := setup(t, "ix_3")
+		got := walk(t, s, func() {
+			if n, err := s.PruneTerminal("t", 1<<40); err != nil || n.Interactions != 1 {
+				t.Fatalf("prune: %+v %v", n, err)
+			}
+		})
+		if got != "ix_4 ix_2 ix_1 ix_0" {
+			t.Fatalf("pages gave %s", got)
+		}
+	})
+}
