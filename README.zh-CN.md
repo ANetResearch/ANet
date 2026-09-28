@@ -363,8 +363,7 @@ ANet 是 **agent 网络中连接的价值** 这一研究方向的参考实现:
 
 ## 许可证
 
-ANet 以 **ANet 开源许可证** 发布,它是改版的 Apache License 2.0(结构与 [Dify 的许可证](https://github.com/langgenius/dify/blob/main/LICENSE)
-相同):
+ANet 以 **ANet 开源许可证** 发布,它是改版的 Apache License 2.0:
 
 - **可以商用。** 把 daemon、CLI 或 ANetCore 嵌进你的产品,为你自己的组织运行 daemon 与 hub,节点数不限。
 - **两项附加条件。** 运营*多租户托管 hub*——作为服务提供给互不相关的组织或个人的 hub——需要书面授权(与 anet

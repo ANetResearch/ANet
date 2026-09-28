@@ -404,8 +404,7 @@ changes bytes on the wire starts as an issue. Security reports go to hi@anet0.co
 
 ## License
 
-ANet is released under the **ANet Open Source License**, a modified Apache License 2.0 (the same structure
-as [Dify's](https://github.com/langgenius/dify/blob/main/LICENSE)):
+ANet is released under the **ANet Open Source License**, a modified Apache License 2.0:
 
 - **Use it commercially.** Embed the daemon, the CLI or ANetCore in your product, and run daemons and hubs
   for your own organization, with no node limit.
