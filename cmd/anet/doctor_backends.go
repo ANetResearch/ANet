@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/backendconn"
 	"github.com/ANetResearch/ANet/internal/daemon"
@@ -62,6 +63,8 @@ func a2aBackendChecks(add func(id, status, detail, hint string), policy string, 
 	if !star {
 		add("a2a.backends", stInfo, "no A2A backend has match \"*\": text tasks name no skill, so none is forwarded "+
 			"and they are answered as without backends", "set match \"*\" on the backend that should answer text tasks")
+	} else {
+		a2aRetryCheck(add, cfg)
 	}
 	for _, b := range bs {
 		switch {
@@ -195,4 +198,48 @@ func backendTransportChecks(add func(id, status, detail, hint string), cfg daemo
 			add(id, stOK, fmt.Sprintf("%s: socket %s (owner uid %d) passes the path checks; the listener is checked on each connection", who, real, owner), "")
 		}
 	}
+}
+
+// a2aRetryCheck reports modules.a2a.retry (A2A-DESIGN §11.6): how long a
+// forward that failed for a reason a retry may fix is tried again. Read
+// here rather than through module/a2a, which a no_a2a build does not have;
+// the defaults are the module's.
+func a2aRetryCheck(add func(id, status, detail, hint string), cfg daemon.Config) {
+	var m struct {
+		Retry struct {
+			MaxInterval string `json:"max_interval"`
+			GiveUpAfter string `json:"give_up_after"`
+		} `json:"retry"`
+	}
+	_ = json.Unmarshal(cfg.Modules["a2a"], &m)
+	read := func(key, v string, def time.Duration) (time.Duration, bool) {
+		if strings.TrimSpace(v) == "" {
+			return def, true
+		}
+		d, err := time.ParseDuration(strings.TrimSpace(v))
+		if err != nil || d < 0 {
+			add("a2a.backends.retry", stFail, fmt.Sprintf("modules.a2a.retry.%s %q is not a duration; the daemon refuses to start", key, v),
+				`write a Go duration such as "2m"`)
+			return 0, false
+		}
+		return d, true
+	}
+	maxInterval, ok1 := read("max_interval", m.Retry.MaxInterval, 2*time.Minute)
+	giveUp, ok2 := read("give_up_after", m.Retry.GiveUpAfter, 10*time.Minute)
+	if !ok1 || !ok2 {
+		return
+	}
+	if giveUp == 0 {
+		add("a2a.backends.retry", stInfo, "a forward the backend could not take is not tried again (retry.give_up_after 0): "+
+			"the task stays in the inbox until the daemon restarts or the requester writes again", "")
+		return
+	}
+	detail := fmt.Sprintf("a forward that fails because the backend is not reachable or answers 5xx is tried again for up to %s, "+
+		"waiting at most %s between attempts (modules.a2a.retry)", giveUp, max(maxInterval, 5*time.Second))
+	if giveUp >= 15*time.Minute {
+		add("a2a.backends.retry", stInfo, detail+"; requesters fail a task they hear nothing about for 15m by default "+
+			"(no_response_after), so later attempts may answer tasks they have given up on", "")
+		return
+	}
+	add("a2a.backends.retry", stOK, detail, "")
 }

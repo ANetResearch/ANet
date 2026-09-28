@@ -39,7 +39,23 @@ package a2a
 //     what reaches it is work from other nodes, and it would land in the
 //     operator's own conversation (0017 Q23).
 //   - Each forwarded task is recorded: anet.backend.forwarded{backend,
-//     interaction_id, peer_aid, trusted}.
+//     interaction_id, peer_aid, trusted}, once, when the backend took the
+//     message; a forward that ends without an answer is recorded once as
+//     anet.backend.failed{…, attempts, error}.
+//   - A forward that failed for a reason a later attempt may fix — the
+//     backend not reachable (not listening yet, restarting, a timeout) or
+//     answering 5xx — is tried again with exponential backoff from 5 s, up
+//     to retry.max_interval (2m) between attempts, until retry.give_up_after
+//     (10m) has passed since the first; the task stays as it is meanwhile.
+//     Before each attempt the kernel decides again whether the task may
+//     still go to a backend (InboundTask): a peer taken off the trust list,
+//     a task answered in the meantime or a newer message from the requester
+//     ends the retries. Every attempt carries the same message id, so a
+//     backend that saw an earlier one can tell. A refusal by the path and
+//     listener checks, an error the backend answered with (4xx, an A2A
+//     error), or an answer without content is not retried: the task stays
+//     in the inbox for the operator (docs/notes/0035 §5.1: a backend that
+//     was down once kept its tasks unanswered until the daemon restarted).
 //
 // The tasks come from the kernel through module.InboundTaskHost, which a
 // daemon offers or does not; without it a configured backend is validated,
@@ -57,6 +73,8 @@ package a2a
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -66,6 +84,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -106,7 +125,66 @@ type Backend struct {
 	backendconn.Policy
 }
 
+// BackendRetry is how a forward that failed for a reason a later attempt
+// may fix is tried again: the backend not reached (not listening, being
+// restarted, a timeout) or answering 5xx. The wait between attempts starts
+// at retryBase and doubles.
+type BackendRetry struct {
+	// MaxInterval caps the wait between two attempts: a Go duration,
+	// default 2m.
+	MaxInterval string `json:"max_interval,omitempty"`
+	// GiveUpAfter is how long after the first attempt a task is still
+	// tried: a Go duration, default 10m; "0" tries once. Keep it under the
+	// requesters' no_response_after (15m unless they changed it): a task
+	// they have heard nothing about by then they fail as no_response.
+	GiveUpAfter string `json:"give_up_after,omitempty"`
+}
+
+// Retry defaults.
+const (
+	defaultRetryMax     = 2 * time.Minute
+	defaultRetryGiveUp  = 10 * time.Minute
+	retryConfigExamples = "a Go duration such as \"2m\""
+)
+
+// retryBase is the first wait between two attempts. A variable so tests can
+// shorten it.
+var retryBase = 5 * time.Second
+
+// retryPolicy is a BackendRetry read.
+type retryPolicy struct {
+	base, max, giveUp time.Duration
+}
+
+func (r BackendRetry) resolve() (retryPolicy, error) {
+	p := retryPolicy{base: retryBase, max: defaultRetryMax, giveUp: defaultRetryGiveUp}
+	read := func(key, v string, into *time.Duration) error {
+		if v = strings.TrimSpace(v); v == "" {
+			return nil
+		}
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 0 {
+			return fmt.Errorf("a2a: retry.%s %q is not %s of zero or more", key, v, retryConfigExamples)
+		}
+		*into = d
+		return nil
+	}
+	if err := read("max_interval", r.MaxInterval, &p.max); err != nil {
+		return p, err
+	}
+	if err := read("give_up_after", r.GiveUpAfter, &p.giveUp); err != nil {
+		return p, err
+	}
+	if p.max < p.base {
+		p.max = p.base
+	}
+	return p, nil
+}
+
 func (c Config) validate() error {
+	if _, err := c.Retry.resolve(); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	for i, b := range c.Backends {
 		where := fmt.Sprintf("a2a: backends[%d]", i)
@@ -215,14 +293,20 @@ func (m *Module) startBackends(ctx context.Context, h module.Host) error {
 		}
 		return nil
 	}
+	retry, err := m.cfg.Retry.resolve()
+	if err != nil { // checked by New; kept for a Module made otherwise
+		return err
+	}
 	f := &forwarder{host: h, in: in, remote: map[string]string{}, busy: map[string]bool{}, pending: map[string]module.Task{},
-		timeout: backendTimeout, sem: make(chan struct{}, maxForwards)}
+		timeout: backendTimeout, sem: make(chan struct{}, maxForwards), retry: retry}
 	for _, b := range m.cfg.Backends {
 		t, rules, err := b.target()
 		if err != nil { // checked by New; kept for a Module made otherwise
 			return fmt.Errorf("a2a: backend %s: %w", b.URL, err)
 		}
-		bc := &backendClient{cfg: b, target: t, http: rules.Client(t, 0)}
+		hc := rules.Client(t, 0)
+		hc.Transport = noting{next: hc.Transport}
+		bc := &backendClient{cfg: b, target: t, http: hc}
 		if !t.Unix() {
 			log.Printf("anet: a2a: backend %s is reached over TCP (allow_tcp); a Unix socket (unix:///path) is the recommended form", b.URL)
 		}
@@ -266,6 +350,7 @@ type forwarder struct {
 	backends []*backendClient
 	timeout  time.Duration
 	sem      chan struct{}
+	retry    retryPolicy
 
 	mu sync.Mutex
 	// remote maps a network task to its task on the backend.
@@ -307,7 +392,7 @@ func (f *forwarder) run(ctx context.Context, tasks <-chan module.Task) {
 				defer wg.Done()
 				defer func() { <-f.sem }()
 				for {
-					f.forward(ctx, t)
+					f.deliver(ctx, t)
 					f.mu.Lock()
 					next, more := f.pending[t.ID]
 					delete(f.pending, t.ID)
@@ -347,21 +432,128 @@ func (f *forwarder) pick(t module.Task, trusted bool) *backendClient {
 	return star
 }
 
+// deliver forwards t, and forwards it again after a failure a later attempt
+// may fix (retryable), waiting retry.base, then twice that each time up to
+// retry.max, until retry.giveUp has passed since the first attempt. Before
+// each retry the kernel is asked for the task as it is now (InboundTask):
+// the retries end when it may no longer go to a backend, when the
+// requester's latest message is no longer the one being forwarded, and when
+// a newer delivery of the task is waiting (the run loop forwards that one).
+// A forward that ends without an answer is recorded once
+// (anet.backend.failed).
+func (f *forwarder) deliver(ctx context.Context, t module.Task) {
+	first := time.Now()
+	wait := f.retry.base
+	for attempt := 1; ; attempt++ {
+		b, retry, err := f.forward(ctx, t)
+		if err == nil {
+			return
+		}
+		if ctx.Err() != nil {
+			// Stopping: the task stays as it is, and the next process
+			// delivers it again.
+			return
+		}
+		if !retry {
+			f.failed(b, t, attempt, err, false)
+			return
+		}
+		if time.Since(first)+wait > f.retry.giveUp {
+			log.Printf("anet: a2a: backend %s: task %s: %v; gave up after %d attempt(s) in %s (left in the inbox)",
+				b.cfg.URL, t.ID, err, attempt, time.Since(first).Round(time.Second))
+			f.failed(b, t, attempt, err, true)
+			return
+		}
+		if attempt == 1 {
+			log.Printf("anet: a2a: backend %s: task %s: %v; trying again in %s, for up to %s",
+				b.cfg.URL, t.ID, err, wait, f.retry.giveUp)
+		}
+		if !f.pause(ctx, wait) {
+			return
+		}
+		wait = min(wait*2, f.retry.max)
+		f.mu.Lock()
+		_, newer := f.pending[t.ID]
+		f.mu.Unlock()
+		if newer {
+			return
+		}
+		now, ok, err := f.in.InboundTask(ctx, t.ID)
+		if err != nil || !ok || !sameLatest(now, t) {
+			if err != nil {
+				log.Printf("anet: a2a: task %s: not tried again: %v", t.ID, err)
+			}
+			return
+		}
+		t = now
+	}
+}
+
+// pause waits d, or until ctx ends (false).
+func (f *forwarder) pause(ctx context.Context, d time.Duration) bool {
+	tm := time.NewTimer(d)
+	defer tm.Stop()
+	select {
+	case <-tm.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// sameLatest reports whether a and b end with the same requester message.
+func sameLatest(a, b module.Task) bool {
+	la, lb := lastRequesterMessage(a), lastRequesterMessage(b)
+	return la != nil && lb != nil && la.ID == lb.ID && len(a.History) == len(b.History)
+}
+
+// failed records a forward that ended without an answer: once, with the
+// attempts made and the last error. retried says it was given up after
+// retries rather than failing for good.
+func (f *forwarder) failed(b *backendClient, t module.Task, attempts int, err error, retried bool) {
+	if b == nil {
+		return
+	}
+	if !retried {
+		log.Printf("anet: a2a: backend %s: task %s: %v (left in the inbox)", b.cfg.URL, t.ID, err)
+	}
+	trusted, _ := t.Metadata[a2ashape.KeyTrusted].(bool)
+	peer, _ := t.Metadata[a2ashape.KeyPeerAID].(string)
+	msg := err.Error()
+	if len(msg) > 512 {
+		msg = msg[:512]
+	}
+	if rerr := f.host.RecordEvidence("anet.backend.failed", map[string]any{
+		"backend": b.cfg.URL, "interaction_id": t.ID, "peer_aid": peer, "trusted": trusted,
+		"attempts": attempts, "error": msg, "gave_up": retried,
+	}); rerr != nil {
+		log.Printf("anet: a2a: evidence for task %s: %v", t.ID, rerr)
+	}
+}
+
+// errNoContent is a backend answer with nothing to send back.
+var errNoContent = errors.New("the answer has no content")
+
 // forward sends one task's latest message to its backend and answers the
-// task with what comes back. A failure leaves the task in the inbox.
-func (f *forwarder) forward(ctx context.Context, t module.Task) {
+// task with what comes back. It returns the backend, and on failure the
+// error and whether a later attempt may get through (retryable); the task
+// is left as it is. A task no backend takes, or with no message of the
+// requester's, is done.
+func (f *forwarder) forward(ctx context.Context, t module.Task) (*backendClient, bool, error) {
 	trusted, _ := t.Metadata[a2ashape.KeyTrusted].(bool)
 	peer, _ := t.Metadata[a2ashape.KeyPeerAID].(string)
 	b := f.pick(t, trusted)
 	if b == nil {
-		return
+		return nil, false, nil
 	}
 	last := lastRequesterMessage(t)
 	if last == nil {
-		return
+		return b, false, nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, f.timeout)
 	defer cancel()
+	note := &httpNote{}
+	ctx = context.WithValue(ctx, noteKey{}, note)
 
 	msg, params := backendMessage(t, *last, peer, trusted)
 	f.mu.Lock()
@@ -375,19 +567,19 @@ func (f *forwarder) forward(ctx context.Context, t module.Task) {
 		res, err = b.send(ctx, msg, params)
 	}
 	if err != nil {
-		log.Printf("anet: a2a: backend %s: task %s: %v (left in the inbox)", b.cfg.URL, t.ID, err)
-		return
+		return b, retryable(err, note), err
 	}
 	if err := f.host.RecordEvidence("anet.backend.forwarded", map[string]any{
 		"backend": b.cfg.URL, "interaction_id": t.ID, "peer_aid": peer, "trusted": trusted,
 	}); err != nil {
 		log.Printf("anet: a2a: evidence for task %s: %v", t.ID, err)
 	}
+	// From here on the backend has the message: what fails is not sent
+	// again (a second message would be a second turn of its conversation).
 	if bt, ok := res.(*a2a.Task); ok {
 		bt, err = b.settle(ctx, bt)
 		if err != nil {
-			log.Printf("anet: a2a: backend %s: task %s: %v (left in the inbox)", b.cfg.URL, t.ID, err)
-			return
+			return b, false, err
 		}
 		f.mu.Lock()
 		if bt.Status.State.Terminal() {
@@ -400,13 +592,54 @@ func (f *forwarder) forward(ctx context.Context, t module.Task) {
 	}
 	reply, state, ok := replyFrom(res)
 	if !ok {
-		log.Printf("anet: a2a: backend %s: task %s: the answer has no content (left in the inbox)", b.cfg.URL, t.ID)
-		return
+		return b, false, errNoContent
 	}
 	reply.TaskID, reply.ContextID = t.ID, t.ContextID
 	if _, err := f.in.ReplyTask(ctx, t.ID, reply, state); err != nil {
 		log.Printf("anet: a2a: task %s: reply from backend %s: %v", t.ID, b.cfg.URL, err)
 	}
+	return b, false, nil
+}
+
+// retryable reports a failed forward a later attempt may get through: the
+// backend was not reached, or answered 5xx (the last HTTP exchange, note).
+// Not: a refusal by the path and listener checks (nothing was sent, and
+// waiting changes nothing), and any other answer — a 4xx, or an A2A error
+// in a 200.
+func retryable(err error, note *httpNote) bool {
+	if err == nil || errors.Is(err, backendconn.ErrRefused) {
+		return false
+	}
+	if code := note.code.Load(); code != 0 {
+		return code >= 500
+	}
+	return note.failed.Load()
+}
+
+// noteKey carries an attempt's httpNote in its context.
+type noteKey struct{}
+
+// httpNote is what the last HTTP exchange of a forward attempt came to:
+// the status of its response, or that none came.
+type httpNote struct {
+	code   atomic.Int32
+	failed atomic.Bool
+}
+
+// noting records each exchange in the httpNote of the request's context.
+type noting struct{ next http.RoundTripper }
+
+func (n noting) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := n.next.RoundTrip(r)
+	if note, ok := r.Context().Value(noteKey{}).(*httpNote); ok {
+		if err != nil {
+			note.code.Store(0)
+			note.failed.Store(true)
+		} else {
+			note.code.Store(int32(resp.StatusCode))
+		}
+	}
+	return resp, err
 }
 
 // lastRequesterMessage is the requester's latest message, which the kernel
@@ -440,7 +673,7 @@ func backendMessage(t module.Task, m a2ashape.Message, peer string, trusted bool
 			parts = append(parts, p)
 		}
 	}
-	shaped := a2ashape.Message{ID: a2a.NewMessageID(), ContextID: t.ContextID, Role: a2ashape.RoleUser,
+	shaped := a2ashape.Message{ID: forwardMessageID(t.ID, m.ID), ContextID: t.ContextID, Role: a2ashape.RoleUser,
 		Parts: parts, Metadata: meta, Extensions: m.Extensions}
 	out, err := convert[a2a.Message](shaped)
 	if err != nil {
@@ -461,6 +694,15 @@ func backendMessage(t module.Task, m a2ashape.Message, peer string, trusted bool
 		}
 	}
 	return &out, params
+}
+
+// forwardMessageID is the id of the message a backend is sent for the
+// requester's message msgID on task taskID: the same for every attempt at
+// it, so a backend that saw an earlier attempt can tell a retry; different
+// for each message and task; and not the requester's own id.
+func forwardMessageID(taskID, msgID string) string {
+	h := sha256.Sum256([]byte("anet/backend-message/1\x00" + taskID + "\x00" + msgID))
+	return "anet-msg-" + hex.EncodeToString(h[:16])
 }
 
 func stringList(v any) []string {

@@ -86,6 +86,9 @@ func New(raw []byte) (module.Module, error) {
 type Config struct {
 	// Backends forward accepted text tasks to local A2A servers (§11.6).
 	Backends []Backend `json:"backends,omitempty"`
+	// Retry is how a forward to a backend that failed for a reason a later
+	// attempt may fix is tried again (backend.go).
+	Retry BackendRetry `json:"retry,omitempty"`
 }
 
 // Module is the local A2A interface.

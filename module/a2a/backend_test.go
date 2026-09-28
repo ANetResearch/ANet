@@ -33,6 +33,8 @@ type inboundHost struct {
 	replies  []sentReply
 	evidence []map[string]any
 	replied  chan sentReply
+	// now is the kernel's answer to InboundTask (nil: never).
+	now func(id string) (module.Task, bool)
 }
 
 type sentReply struct {
@@ -46,6 +48,19 @@ func newInboundHost(t *testing.T) *inboundHost {
 }
 
 func (h *inboundHost) InboundTasks(context.Context) (<-chan module.Task, error) { return h.tasks, nil }
+
+// InboundTask answers with now, when set; otherwise the task is not to be
+// forwarded any more.
+func (h *inboundHost) InboundTask(_ context.Context, id string) (module.Task, bool, error) {
+	h.mu.Lock()
+	now := h.now
+	h.mu.Unlock()
+	if now == nil {
+		return module.Task{}, false, nil
+	}
+	t, ok := now(id)
+	return t, ok, nil
+}
 
 func (h *inboundHost) ReplyTask(_ context.Context, id string, msg a2ashape.Message, st a2ashape.TaskState) (module.Task, error) {
 	r := sentReply{id, msg, st}
@@ -63,6 +78,23 @@ func (h *inboundHost) RecordEvidence(kind string, payload any) error {
 	p["kind"] = kind
 	h.evidence = append(h.evidence, p)
 	return nil
+}
+
+// kinds counts the evidence recorded, by kind. Call it holding h.mu.
+func (h *inboundHost) kinds() map[string]int {
+	n := map[string]int{}
+	for _, e := range h.evidence {
+		k, _ := e["kind"].(string)
+		n[k]++
+	}
+	return n
+}
+
+// refusedOnce reports a forward that reached nothing: nothing answered, no
+// forwarded record, and the failure recorded once. Call it holding h.mu.
+func (h *inboundHost) refusedOnce() bool {
+	k := h.kinds()
+	return len(h.replies) == 0 && k["anet.backend.forwarded"] == 0 && k["anet.backend.failed"] == 1 && len(h.evidence) == 1
 }
 
 func (h *inboundHost) wait(t *testing.T) sentReply {
@@ -264,7 +296,8 @@ func TestBackendAcceptUntrusted(t *testing.T) {
 func TestBackendFailureLeavesTheTask(t *testing.T) {
 	b := newTestBackend(t)
 	h := newInboundHost(t)
-	// Wrong token: the backend refuses, nothing is answered or recorded.
+	// Wrong token: the backend refuses (401, not retried); nothing is
+	// answered, and only the failure is recorded.
 	p := filepath.Join(t.TempDir(), "tok")
 	if err := os.WriteFile(p, []byte("wrong"), 0o600); err != nil {
 		t.Fatal(err)
@@ -274,7 +307,7 @@ func TestBackendFailureLeavesTheTask(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if len(h.replies) != 0 || len(h.evidence) != 0 || b.n() != 0 {
+	if !h.refusedOnce() || b.n() != 0 {
 		t.Fatalf("a refused forward was answered: %+v %+v", h.replies, h.evidence)
 	}
 }
@@ -302,8 +335,8 @@ func TestBackendCardInterfacesFollowTheURLRule(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if b.n() != 0 || len(h.replies) != 0 || len(h.evidence) != 0 {
-		t.Fatalf("forwarded through a card interface in the clear: calls %d, replies %+v", b.n(), h.replies)
+	if b.n() != 0 || !h.refusedOnce() {
+		t.Fatalf("forwarded through a card interface in the clear: calls %d, replies %+v, evidence %+v", b.n(), h.replies, h.evidence)
 	}
 }
 

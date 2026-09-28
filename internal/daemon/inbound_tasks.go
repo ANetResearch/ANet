@@ -192,7 +192,41 @@ func (h moduleHost) ReplyTask(ctx context.Context, taskID string, msg a2ashape.M
 	return h.d.replyInbound(ctx, taskID, msg, state)
 }
 
+// InboundTask implements module.InboundTaskHost.
+func (h moduleHost) InboundTask(_ context.Context, taskID string) (module.Task, bool, error) {
+	return h.d.inboundTaskNow(taskID)
+}
+
 var _ module.InboundTaskHost = moduleHost{}
+
+// inboundTaskNow is task id as a feed would deliver it now (InboundTask):
+// the same decision (backendTakes, with the lists as they are now), the
+// same view, and only while the requester's message is the latest.
+func (d *Daemon) inboundTaskNow(id string) (a2ashape.Task, bool, error) {
+	ix, err := d.ix.Get(id)
+	if errors.Is(err, interactions.ErrNotFound) {
+		return a2ashape.Task{}, false, nil
+	}
+	if err != nil {
+		return a2ashape.Task{}, false, err
+	}
+	if ix.Role != interactions.RoleInbound || ix.IsTerminal() {
+		return a2ashape.Task{}, false, nil
+	}
+	trusted, ok := backendTakes(ix.PeerAID, ix.Trust, ix.IsCapability, d.readPeers(), d.untrustedBackend.Load())
+	if !ok {
+		return a2ashape.Task{}, false, nil
+	}
+	view, err := d.taskView(ix, viewOpts{})
+	if err != nil {
+		return a2ashape.Task{}, false, err
+	}
+	if _, owed := deliveryKey(view); !owed {
+		return a2ashape.Task{}, false, nil
+	}
+	d.inlineLatest(ix.ID, &view)
+	return inboundView(ix, view, trusted), true, nil
+}
 
 // inboundTasks subscribes to inbound tasks until ctx or the daemon ends.
 func (d *Daemon) inboundTasks(ctx context.Context) (<-chan module.Task, error) {

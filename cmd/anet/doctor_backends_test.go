@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ANetResearch/ANet/internal/daemon"
 )
 
 // doctor reads modules.a2a.backends (A2A-DESIGN §11.6): a backend that
@@ -148,5 +150,85 @@ func TestDoctorBackendTransport(t *testing.T) {
 				t.Fatalf("backend.transport checks %q, want one %s", got, c.status)
 			}
 		})
+	}
+}
+
+// setConfigKeys rewrites layout's config.json with each key set to its
+// value (nil removes it).
+func setConfigKeys(t *testing.T, layout daemon.Layout, kv map[string]any) {
+	t.Helper()
+	b, err := os.ReadFile(layout.ConfigPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range kv {
+		if v == nil {
+			delete(m, k)
+		} else {
+			m[k] = v
+		}
+	}
+	b, _ = json.Marshal(m)
+	if err := os.WriteFile(layout.ConfigPath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// checkStatus is the status of doctor's check id in out ("" when absent).
+func checkStatus(out map[string]any, id string) string {
+	checks, _ := out["checks"].([]any)
+	for _, c := range checks {
+		m, _ := c.(map[string]any)
+		if m["id"] == id {
+			s, _ := m["status"].(string)
+			return s
+		}
+	}
+	return ""
+}
+
+// doctor says what no_response_after does (A2A-DESIGN §4.2): a fresh init
+// writes it as 15m; 0 is reported as off; a value the daemon refuses to
+// start with fails the report. The A2A backends' retry settings
+// (modules.a2a.retry, §11.6) are reported beside the backends, and a value
+// the module refuses fails it too.
+func TestDoctorReportsTheNoResponseDeadlineAndBackendRetries(t *testing.T) {
+	layout := freshInit(t)
+	out, err := doctorJSON(t, layout, testDoctorEnv(t))
+	tasks, _ := out["tasks"].(map[string]any)
+	if err != nil || tasks["no_response_after"] != "15m0s" || tasks["configured"] != true || checkStatus(out, "tasks.no_response") != stOK {
+		t.Fatalf("fresh init: %v, tasks %v, check %q", err, tasks, checkStatus(out, "tasks.no_response"))
+	}
+	for v, want := range map[string]string{"0": stInfo, "later": stFail, "2h": stOK} {
+		setConfigKeys(t, layout, map[string]any{"no_response_after": v})
+		out, _ := doctorJSON(t, layout, testDoctorEnv(t))
+		if got := checkStatus(out, "tasks.no_response"); got != want || (want == stFail) == (out["ok"] == true) {
+			t.Errorf("no_response_after %q: check %q, ok %v; want %q", v, got, out["ok"], want)
+		}
+	}
+	setConfigKeys(t, layout, map[string]any{"no_response_after": nil})
+	out, _ = doctorJSON(t, layout, testDoctorEnv(t))
+	if tasks, _ := out["tasks"].(map[string]any); tasks["no_response_after"] != "15m0s" || tasks["configured"] != false {
+		t.Fatalf("left out: %v", tasks)
+	}
+
+	backend := []any{map[string]any{"match": "*", "url": "http://127.0.0.1:9900", "allow_tcp": true}}
+	for retry, want := range map[string]string{"": stOK, `{"give_up_after":"20m"}`: stInfo, `{"give_up_after":"0"}`: stInfo,
+		`{"max_interval":"soon"}`: stFail} {
+		a2a := map[string]any{"backends": backend}
+		if retry != "" {
+			var r any
+			_ = json.Unmarshal([]byte(retry), &r)
+			a2a["retry"] = r
+		}
+		setConfigKeys(t, layout, map[string]any{"modules": map[string]any{"a2a": a2a}})
+		out, _ := doctorJSON(t, layout, testDoctorEnv(t))
+		if got := checkStatus(out, "a2a.backends.retry"); got != want {
+			t.Errorf("retry %s: check %q, want %q", retry, got, want)
+		}
 	}
 }

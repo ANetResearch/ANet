@@ -47,4 +47,14 @@ type InboundTaskHost interface {
 	// and state what it leaves the task in — input-required (the agent
 	// asks back), completed, failed or rejected.
 	ReplyTask(ctx context.Context, taskID string, msg a2ashape.Message, state a2ashape.TaskState) (Task, error)
+
+	// InboundTask is task taskID as InboundTasks would deliver it now,
+	// decided afresh: the trust and deny lists read now, the task as it is
+	// now. ok is false when a module may not have it any more — its peer
+	// left the trust list, the task ended or was answered, its latest
+	// message is not the requester's — and for an id that is not such a
+	// task. A module that tries a failed forward again asks this before each
+	// attempt rather than reuse what it was given, so a retry never forwards
+	// on the strength of an old reading (A2A-DESIGN §11.6).
+	InboundTask(ctx context.Context, taskID string) (task Task, ok bool, err error)
 }
