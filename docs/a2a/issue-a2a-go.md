@@ -27,6 +27,7 @@ to be reported through GitHub Security Advisories, not public issues; they are m
 | A10 | An unknown `SecurityScheme` variant makes the whole Agent Card unparseable | `a2a` | public issue |
 | A11 | HTTP+JSON binding: `TaskNotCancelable` and `UnsupportedContentType` answered 400 (spec: 409, 415) | `a2asrv`, `internal/rest` | public issue |
 | A12 | Streaming calls: an error before the first event is sent inside an already-opened SSE stream; the JSON-RPC client cannot read an error that is not | `a2asrv`, `a2aclient` | public issue |
+| A13 | JSON-RPC params: proto field names (`history_length`, `context_id`) are silently ignored | `a2asrv`, `a2a` | public issue (confirm the spec reading first) |
 
 ---
 
@@ -475,6 +476,44 @@ the TCK expect, and a server that does so anyway is misread by a2a-go's own JSON
 scope, state; a streaming send is carried out there and its task handed to the stream) and answers a
 call that cannot start with the binding's ordinary error and the HTTP+JSON binding's status for it
 (non-200, so that a2a-go's JSON-RPC client reports an error at all).
+
+---
+
+## A13. JSON-RPC params: proto field names are silently ignored
+
+**Code.** `a2asrv/jsonrpc.go` decodes `params` with `encoding/json` into the `a2a` request types,
+whose tags are the lowerCamelCase JSON names only — e.g. `a2a/core.go` line 830,
+``HistoryLength *int `json:"historyLength,omitempty"` ``. `encoding/json` matches keys
+case-insensitively but not across the underscore, so `history_length` never reaches the field, and an
+unknown key is not an error.
+
+**Spec reading (to confirm before filing).** The canonical proto3 JSON mapping, which the spec's JSON
+forms follow, says parsers accept both the lowerCamelCase name and the original proto field name.
+a2a-tck's JSON-RPC client relies on that: it sends `{"id": …, "history_length": 1}` for GetTask and
+`context_id` for ListTasks.
+
+**Reproduction.**
+
+```sh
+# GetTask of a task with four history messages, through a server on a2a-go v2.6.0
+{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"<task>","history_length":1}}  # 4 messages
+{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"<task>","historyLength":1}}   # 1 message
+```
+
+**Observed** (anet's local A2A interface on a2a-go v2.6.0, 2026-09-28, docs/notes/0029 §4.3): the
+snake_case parameter is dropped without an error; a2a-tck CORE-HIST-001 (`historyLength=0` omits the
+history) and CORE-HIST-002 (history not longer than `historyLength`) fail on JSON-RPC and pass on
+HTTP+JSON, whose query parameters a2a-go reads by their camelCase names.
+
+**Impact.** A client written against the proto field names gets full histories with no sign that its
+parameter was ignored. By the same decoding (read from the code, not reproduced) ListTasks's
+`context_id` is dropped and the list comes back unfiltered.
+
+**Suggested fix.** Decode `params` with protojson semantics (accept both names), or at least refuse
+unknown keys with `InvalidParams` so the mismatch is visible.
+
+**How anet copes.** It does not, yet: module/a2a hands `params` to a2a-go unchanged. Normalizing the
+keys in its pre-check is an open decision (docs/notes/0029 §9).
 
 ---
 
