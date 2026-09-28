@@ -12,7 +12,10 @@ package backendconn
 // It is read from /etc/passwd and /etc/group. An account or a group those files do not hold (one an NSS
 // service such as LDAP provides), a file that cannot be read, or a file with NIS compat entries ("+"/"-",
 // which pull in members this reading cannot see) all mean "not a private group": the directory is then
-// judged as before, and refused unless socket_group names the group.
+// judged as before, and refused unless socket_group names the group. So does a host whose
+// /etc/nsswitch.conf looks accounts or groups up anywhere but those files and systemd's own database
+// (sss, ldap, nis, winbind, extrausers, …): a group of the same gid there can give its members the
+// group's rights while /etc/group lists nobody.
 
 import (
 	"bufio"
@@ -27,10 +30,10 @@ type userDB interface {
 	privateGroup(uid int) (gid int, ok bool)
 }
 
-// etcFiles reads /etc/passwd and /etc/group.
-type etcFiles struct{ passwd, group string }
+// etcFiles reads /etc/passwd and /etc/group, once nsswitch (when set) names no other source for them.
+type etcFiles struct{ passwd, group, nsswitch string }
 
-var systemUsers userDB = etcFiles{passwd: "/etc/passwd", group: "/etc/group"}
+var systemUsers userDB = etcFiles{passwd: "/etc/passwd", group: "/etc/group", nsswitch: "/etc/nsswitch.conf"}
 
 type passwdEntry struct {
 	name     string
@@ -44,6 +47,9 @@ type groupEntry struct {
 }
 
 func (e etcFiles) privateGroup(uid int) (int, bool) {
+	if e.nsswitch != "" && !filesOnly(e.nsswitch) {
+		return 0, false
+	}
 	users, ok := readPasswd(e.passwd)
 	if !ok {
 		return 0, false
@@ -159,4 +165,44 @@ func eachLine(path string, fn func(fields []string) bool) bool {
 		}
 	}
 	return sc.Err() == nil
+}
+
+// filesOnly reports whether the NSS configuration at path looks accounts and groups up (its passwd,
+// group and initgroups entries) only in files, compat (files with the NIS entries readPasswd and
+// readGroup refuse) and systemd (dynamic service users, and what root puts in its user database). A
+// missing file is glibc's and musl's default, files; one that cannot be read otherwise, or any other
+// source, is not files only.
+func filesOnly(path string) bool {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return true
+	}
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		db, sources, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		switch strings.TrimSpace(db) {
+		case "passwd", "group", "initgroups":
+		default:
+			continue
+		}
+		for _, src := range strings.Fields(sources) {
+			if strings.HasPrefix(src, "[") || strings.HasSuffix(src, "]") || strings.Contains(src, "=") {
+				continue // an action, [NOTFOUND=return]
+			}
+			switch src {
+			case "files", "compat", "systemd":
+			default:
+				return false
+			}
+		}
+	}
+	return true
 }
