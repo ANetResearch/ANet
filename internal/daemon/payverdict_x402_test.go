@@ -317,3 +317,73 @@ func TestOneSettlementDeliveredTwiceAtOnceIsRecordedOnce(t *testing.T) {
 		}
 	}
 }
+
+// A settlement that arrives while this node cannot learn its hub's
+// identity — restarted, its hub not answering, the provider's message
+// come over p2p (§3.6) — cannot be checked, and is not thereby refused. It
+// was recorded once, by transaction, as not checking out, and every later
+// delivery of the same settlement was skipped as already recorded: a task
+// paid and settled stayed payment-submitted for good, its hub receipt
+// listed as the provider's unverified claim [redteam:F11].
+func TestASettlementThatCouldNotBeCheckedYetIsCheckedWhenItComesAgain(t *testing.T) {
+	work := &meteredWork{price: 30}
+	hub, req, prov := paidPair(t, work)
+	payPolicy(t, req, PaymentsConfig{AutoMax: 100, AgentDailyMax: 100, DailyMax: u64(100)}, prov.AID())
+	id, err := req.DelegateCapability(context.Background(), prov.AID(), "work.do", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	poll(t, prov, req, prov) // quoted, paid, settled; the answer not yet collected
+	if rix := getIX(t, req, id); rix.PayState != interactions.PaySubmitted {
+		t.Fatalf("precondition: the payment is out, got %q", rix.PayState)
+	}
+	var list []any
+	if pix := getIX(t, prov, id); json.Unmarshal(pix.PayReceipts, &list) != nil || len(list) == 0 {
+		t.Fatalf("the provider's receipts: %s", pix.PayReceipts)
+	}
+	fh := fakeHubAt(t, hub)
+	fh.mu.Lock()
+	fh.identityDown = true
+	fh.mu.Unlock()
+	req = reopen(t, req)
+	if p := req.payer(); p == nil || p.HomeNetwork() != "" {
+		t.Fatal("precondition: this node cannot learn its hub's identity")
+	}
+	pvSendReceipts(t, req, prov, id, list)
+	if rix := getIX(t, req, id); rix.PayState != interactions.PaySubmitted {
+		t.Fatalf("an unchecked receipt moved pay_state to %q", rix.PayState)
+	}
+	if md, _ := pvPath(pvView(t, req, id), "metadata").(map[string]any); md[a2ashape.KeyX402Status] == a2ashape.PaymentCompleted {
+		t.Fatal("an unchecked receipt is stated as payment-completed")
+	}
+
+	fh.mu.Lock()
+	fh.identityDown = false
+	fh.mu.Unlock()
+	pvSendReceipts(t, req, prov, id, list)
+	if rix := getIX(t, req, id); rix.PayState != interactions.PayCompleted {
+		t.Fatalf("pay_state = %q once the hub's receipt could be checked", rix.PayState)
+	}
+	verified := 0
+	for _, ev := range pvSettledEvidence(req, id) {
+		if ev["verified"] == true {
+			verified++
+		}
+		if ev["second_receipt"] == true {
+			t.Errorf("recorded as a second settlement: %v", ev)
+		}
+	}
+	if verified != 1 {
+		t.Errorf("%d verified settlements recorded, want 1", verified)
+	}
+	v := pvView(t, req, id)
+	if md, _ := pvPath(v, "metadata").(map[string]any); md[a2ashape.KeyX402Status] != a2ashape.PaymentCompleted {
+		t.Errorf("x402.payment.status = %v", md[a2ashape.KeyX402Status])
+	}
+	for _, where := range [][]string{{"metadata"}, {"status", "message", "metadata"}} {
+		md, _ := pvPath(v, where...).(map[string]any)
+		if rc, _ := json.Marshal(md[a2ashape.KeyX402Receipts]); !strings.Contains(string(rc), `"verified"`) {
+			t.Errorf("%v x402.payment.receipts = %s, want the verified settlement", where, rc)
+		}
+	}
+}
