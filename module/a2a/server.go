@@ -283,18 +283,19 @@ func bodyMediaType(r *http.Request) (string, bool) {
 // a2a-tck, pinned to v1.0.0, checks for it. So the client's Accept
 // decides (RFC 9110 §12.5.1): application/a2a+json when it rates that
 // type higher than application/json, or as high and names it; otherwise
-// application/json when it rates that one higher. When Accept tells the
-// two apart in neither way — absent, "*/*", or neither acceptable — the
-// answer is of the type the request's body was, and application/json for
-// a request without one.
+// application/json when it rates that one higher, or as high and names
+// it (and not the other: "application/json, */*" is application/json).
+// When Accept tells the two apart in neither way — absent, "*/*",
+// "application/*", or neither acceptable — the answer is of the type the
+// request's body was, and application/json for a request without one.
 func restMediaType(r *http.Request) string {
 	accept := r.Header.Values("Accept")
 	qA2A, namedA2A := acceptQuality(accept, mediaA2AJSON)
-	qJSON, _ := acceptQuality(accept, mediaJSON)
+	qJSON, namedJSON := acceptQuality(accept, mediaJSON)
 	switch {
 	case qA2A > qJSON, qA2A == qJSON && qA2A > 0 && namedA2A:
 		return mediaA2AJSON
-	case qJSON > qA2A:
+	case qJSON > qA2A, qJSON == qA2A && qJSON > 0 && namedJSON:
 		return mediaJSON
 	}
 	if mt, ok := bodyMediaType(r); ok && r.ContentLength != 0 {

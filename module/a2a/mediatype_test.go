@@ -60,6 +60,31 @@ func TestRESTAcceptsA2AJSON(t *testing.T) {
 			t.Errorf("%s: answered as %q, want %q", c.contentType, got, c.want)
 		}
 	}
+
+	// A body of either type, with an Accept that rates both JSON types the
+	// same: the one Accept names decides, application/a2a+json if it names
+	// both, and the body's type only if it names neither.
+	for i, c := range []struct{ contentType, accept, want string }{
+		{"application/a2a+json", "*/*", "application/a2a+json"},
+		{"application/a2a+json", "application/*", "application/a2a+json"},
+		{"application/a2a+json", "application/json, */*", "application/json"},
+		{"application/a2a+json", "application/json, text/plain, */*", "application/json"},
+		{"application/a2a+json", "application/json, application/*", "application/json"},
+		{"application/a2a+json", "application/json;q=0.5, application/*;q=0.5", "application/json"},
+		{"application/json", "application/a2a+json, */*", "application/a2a+json"},
+		{"application/json", "application/a2a+json, application/json, */*", "application/a2a+json"},
+		{"application/json", "*/*", "application/json"},
+	} {
+		body := strings.Replace(restSend, "m-media", "m-media-tie-"+string(rune('a'+i)), 1)
+		resp, out := e.raw("POST", send, map[string]string{"Authorization": bearer, "Content-Type": c.contentType, "Accept": c.accept}, body)
+		if resp.StatusCode != 200 || !strings.Contains(string(out), `"TASK_STATE_COMPLETED"`) {
+			t.Errorf("%s, Accept %q: %d %s", c.contentType, c.accept, resp.StatusCode, out)
+			continue
+		}
+		if got := resp.Header.Get("Content-Type"); got != c.want {
+			t.Errorf("%s, Accept %q: answered as %q, want %q", c.contentType, c.accept, got, c.want)
+		}
+	}
 }
 
 func TestRESTAnswerMediaType(t *testing.T) {
