@@ -6,7 +6,7 @@
 
 **适用范围**:anet ≥ 0.2.0,连接 wire 2 的 hub。0.1.x 的情况更弱:hub 以明文中继任务合同、聊天消息与结果,能读到全部任务内容;签名只能让双方识破伪造,挡不住 hub 读。
 
-第 1–25 条与设计文档 [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md) §21 一一对应,文末另列几条同样需要知道的事项。
+第 1–26 条与设计文档 [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md) §21 一一对应,文末另列几条同样需要知道的事项。
 
 ---
 
@@ -171,6 +171,14 @@ A2A 规范要求请求没带 `A2A-Version` 时按 0.3 处理;anet 的本机 A2A 
 ## 25. 只有自述(profile)、没有公开能力的 agent,在别的 hub 上看不到
 
 联邦在 hub 之间搬运的是签名卡片等签名对象,profile 摘要不在其中。只靠 profile 上架、没有公开能力的节点,卡片里没有能力,会出现在它所注册的 hub 的目录里,但对端 hub 据此不列出它(`list_agents` 的 `include_uncarded` 跨 hub 也看不到它)。希望被别的 hub 上的 agent 发现,请发布公开能力。
+
+## 26. 本机后端的核实:Linux 之外只核对 socket 路径,TCP 后端须与 daemon 同一用户
+
+`service` 模块与 A2A 后端把令牌、调用参数或任务正文交给本机后端之前,先核实对端是运营者指定的那个进程。推荐的 Unix socket 后端(`unix:///路径`)按 socket 所在路径的属主与权限、socket 的属主核对,在 Linux 上还用 `SO_PEERCRED` 核对监听进程的用户;其他平台读不到这一项,只做路径与属主检查。
+
+TCP 后端须在配置里显式写 `allow_tcp: true`;连接落在本机上时(回环地址,或本机自己的网卡地址),只有在 Linux 上、且监听者与 daemon 是同一个用户时才会发送,其他平台一律拒绝。所以只能监听 TCP 的第三方后端(例如 Hermes 默认的 `127.0.0.1:9900`)只能在 Linux 上、以 daemon 的用户运行。连到另一台主机的后端靠 TLS 认证。
+
+没有配置 `expected_uid`/`expected_user` 时,daemon 信任的是 socket 所在的目录链:root、daemon 自己的用户、socket 的属主,以及配置的 `socket_group` 的成员,都能换上自己的后端。与 daemon 同一用户的进程本来就能读取令牌与配置(第 13 条)。
 
 ---
 

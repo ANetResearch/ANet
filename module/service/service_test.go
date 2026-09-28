@@ -78,7 +78,7 @@ func TestAnOrdinaryServiceBecomesACapability(t *testing.T) {
 	}))
 	defer svc.Close()
 
-	reg := start(t, `{"capabilities":[{"id":"image.caption","url":"`+svc.URL+`"}]}`)
+	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"image.caption","url":"`+svc.URL+`"}]}`)
 	eff := invoke(t, reg, "image.caption", map[string]any{"image_b64": "aGk="})
 
 	if eff.Status != effect.OK {
@@ -108,7 +108,7 @@ func TestTrustIsNotTheOperatorsToDeclare(t *testing.T) {
 	}))
 	defer svc.Close()
 
-	reg := start(t, `{"capabilities":[{"id":"x.do","url":"`+svc.URL+`"}]}`)
+	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"x.do","url":"`+svc.URL+`"}]}`)
 	eff := invoke(t, reg, "x.do", nil)
 
 	if eff.Evidence.VerifyTrust != 1 {
@@ -127,7 +127,7 @@ func TestTrustIsNotTheOperatorsToDeclare(t *testing.T) {
 // Unreachable and refused are different answers, and a requester deciding
 // whether to try someone else needs them kept apart.
 func TestUnreachableIsNotFailed(t *testing.T) {
-	reg := start(t, `{"capabilities":[{"id":"x.do","url":"http://127.0.0.1:1/nope"}],"timeout_ms":2000}`)
+	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"x.do","url":"http://127.0.0.1:1/nope"}],"timeout_ms":2000}`)
 	eff := invoke(t, reg, "x.do", nil)
 	if eff.Status != effect.Unavailable {
 		t.Errorf("a service that cannot be reached is UNAVAILABLE, got %s", eff.Status)
@@ -137,7 +137,7 @@ func TestUnreachableIsNotFailed(t *testing.T) {
 		http.Error(w, "the image is too large", http.StatusBadRequest)
 	}))
 	defer bad.Close()
-	reg2 := start(t, `{"capabilities":[{"id":"y.do","url":"`+bad.URL+`"}]}`)
+	reg2 := start(t, `{"allow_tcp":true,"capabilities":[{"id":"y.do","url":"`+bad.URL+`"}]}`)
 	eff2 := invoke(t, reg2, "y.do", nil)
 	if eff2.Status != effect.Failed {
 		t.Errorf("a service that refused is FAILED, got %s", eff2.Status)
@@ -149,10 +149,10 @@ func TestUnreachableIsNotFailed(t *testing.T) {
 
 func TestMalformedConfigIsRefusedAtStartup(t *testing.T) {
 	for _, cfg := range []string{
-		`{"capabilities":[]}`,
-		`{"capabilities":[{"id":"x"}]}`,
-		`{"capabilities":[{"url":"http://x"}]}`,
-		`{"capabilities":[{"id":"x","url":"http://a"},{"id":"x","url":"http://b"}]}`,
+		`{"allow_tcp":true,"capabilities":[]}`,
+		`{"allow_tcp":true,"capabilities":[{"id":"x"}]}`,
+		`{"allow_tcp":true,"capabilities":[{"url":"http://x"}]}`,
+		`{"allow_tcp":true,"capabilities":[{"id":"x","url":"http://a"},{"id":"x","url":"http://b"}]}`,
 	} {
 		if _, err := module.Build(map[string][]byte{"service": []byte(cfg)}); err == nil {
 			t.Errorf("config %s must be refused before the node advertises it", cfg)
@@ -199,7 +199,7 @@ func TestTheServiceIsToldTheVerifiedCallerOnly(t *testing.T) {
 	}))
 	defer svc.Close()
 	tf := writeToken(t, tok, 0o600)
-	reg := start(t, `{"token_file":"`+tf+`","capabilities":[{"id":"x.do","url":"`+svc.URL+`","price":3}]}`)
+	reg := start(t, `{"allow_tcp":true,"token_file":"`+tf+`","capabilities":[{"id":"x.do","url":"`+svc.URL+`","price":3}]}`)
 
 	cases := []struct {
 		via        string
@@ -245,7 +245,7 @@ func TestTokenIsPerBackend(t *testing.T) {
 	modTok := writeToken(t, "module-token-0123456789", 0o600)
 	capTok := writeToken(t, "capability-token-0123456789", 0o640)
 	t.Setenv("ANET_TEST_TOKDIR", filepath.Dir(capTok))
-	reg := start(t, `{"token_file":"`+modTok+`","capabilities":[
+	reg := start(t, `{"allow_tcp":true,"token_file":"`+modTok+`","capabilities":[
 		{"id":"a.x","url":"`+svc.URL+`"},
 		{"id":"b.x","url":"`+svc.URL+`","token_file":"${ANET_TEST_TOKDIR}/token"}]}`)
 	invoke(t, reg, "a.x", nil)
@@ -256,7 +256,7 @@ func TestTokenIsPerBackend(t *testing.T) {
 	}
 
 	auth = nil
-	reg2 := start(t, `{"capabilities":[{"id":"c.x","url":"`+svc.URL+`"}]}`)
+	reg2 := start(t, `{"allow_tcp":true,"capabilities":[{"id":"c.x","url":"`+svc.URL+`"}]}`)
 	invoke(t, reg2, "c.x", nil)
 	if len(auth) != 1 || auth[0] != "" {
 		t.Errorf("no token configured, yet Authorization = %q", auth)
@@ -281,16 +281,16 @@ func TestBadTokensAreRefused(t *testing.T) {
 		return nil
 	}
 	cases := map[string]string{
-		"world readable": `{"token_file":"` + writeToken(t, "0123456789abcdef0123", 0o644) + `","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
-		"too short":      `{"token_file":"` + writeToken(t, "short", 0o600) + `","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
-		"relative":       `{"token_file":"token","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
-		"unset variable": `{"token_file":"${ANET_TEST_UNSET_VARIABLE}","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"world readable": `{"allow_tcp":true,"token_file":"` + writeToken(t, "0123456789abcdef0123", 0o644) + `","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"too short":      `{"allow_tcp":true,"token_file":"` + writeToken(t, "short", 0o600) + `","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"relative":       `{"allow_tcp":true,"token_file":"token","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"unset variable": `{"allow_tcp":true,"token_file":"${ANET_TEST_UNSET_VARIABLE}","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
 		// Unset, "${CREDENTIALS_DIRECTORY}/token" would name /token.
-		"unset in path": `{"token_file":"${ANET_TEST_UNSET_VARIABLE}/token","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
-		"directory":     `{"token_file":"` + filepath.Dir(good) + `","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
-		"missing file":  `{"token_file":"/nonexistent/anet/token","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
-		"cleartext":     `{"token_file":"` + good + `","capabilities":[{"id":"x","url":"http://example.com/x"}]}`,
-		"cap cleartext": `{"capabilities":[{"id":"x","url":"http://10.0.0.1/x","token_file":"` + good + `"}]}`,
+		"unset in path": `{"allow_tcp":true,"token_file":"${ANET_TEST_UNSET_VARIABLE}/token","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"directory":     `{"allow_tcp":true,"token_file":"` + filepath.Dir(good) + `","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"missing file":  `{"allow_tcp":true,"token_file":"/nonexistent/anet/token","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"cleartext":     `{"allow_tcp":true,"token_file":"` + good + `","capabilities":[{"id":"x","url":"http://example.com/x"}]}`,
+		"cap cleartext": `{"allow_tcp":true,"capabilities":[{"id":"x","url":"http://10.0.0.1/x","token_file":"` + good + `"}]}`,
 	}
 	for name, cfg := range cases {
 		if err := start(cfg); err == nil {
@@ -298,9 +298,9 @@ func TestBadTokensAreRefused(t *testing.T) {
 		}
 	}
 	for name, cfg := range map[string]string{
-		"loopback": `{"token_file":"` + good + `","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
-		"https":    `{"token_file":"` + good + `","capabilities":[{"id":"x","url":"https://example.com/x"}]}`,
-		"no token": `{"capabilities":[{"id":"x","url":"http://example.com/x"}]}`,
+		"loopback": `{"allow_tcp":true,"token_file":"` + good + `","capabilities":[{"id":"x","url":"http://127.0.0.1:1/"}]}`,
+		"https":    `{"allow_tcp":true,"token_file":"` + good + `","capabilities":[{"id":"x","url":"https://example.com/x"}]}`,
+		"no token": `{"allow_tcp":true,"capabilities":[{"id":"x","url":"http://example.com/x"}]}`,
 	} {
 		if err := start(cfg); err != nil {
 			t.Errorf("%s: %v", name, err)
@@ -320,15 +320,15 @@ func TestTimeoutIsPerCapability(t *testing.T) {
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer slow.Close()
-	reg := start(t, `{"timeout_ms":180000,"capabilities":[
-		{"id":"fast.x","url":"`+slow.URL+`","timeout_ms":50},
+	reg := start(t, `{"allow_tcp":true,"timeout_ms":180000,"capabilities":[
+		{"id":"fast.x","url":"`+slow.URL+`","timeout_ms":500},
 		{"id":"long.x","url":"`+slow.URL+`"}]}`)
 
 	began := time.Now()
 	fast, _ := reg.Resolve("fast.x")
 	_, err := fast.Invoke(context.Background(), provider.Call{Capability: "fast.x"})
 	if time.Since(began) > time.Second {
-		t.Errorf("fast.x ran %v; its own 50 ms bound did not apply", time.Since(began))
+		t.Errorf("fast.x ran %v; its own 500 ms bound did not apply", time.Since(began))
 	}
 	// Cut off by its bound after the call went out: the effect may have
 	// happened, so it is not UNAVAILABLE (outcome_test.go).
@@ -345,11 +345,11 @@ func TestTimeoutIsPerCapability(t *testing.T) {
 	if d, set := lr.InvokeTimeout("long.x"); !set || d != 3*time.Minute {
 		t.Errorf("long.x bound = %v %v, want the module's 3m", d, set)
 	}
-	if d, set := lr.InvokeTimeout("fast.x"); !set || d != 50*time.Millisecond {
-		t.Errorf("fast.x bound = %v %v, want its own 50ms", d, set)
+	if d, set := lr.InvokeTimeout("fast.x"); !set || d != 500*time.Millisecond {
+		t.Errorf("fast.x bound = %v %v, want its own 500ms", d, set)
 	}
 
-	reg2 := start(t, `{"capabilities":[{"id":"plain.x","url":"`+slow.URL+`"}]}`)
+	reg2 := start(t, `{"allow_tcp":true,"capabilities":[{"id":"plain.x","url":"`+slow.URL+`"}]}`)
 	p2, _ := reg2.Resolve("plain.x")
 	if _, set := p2.(provider.LongRunning).InvokeTimeout("plain.x"); set {
 		t.Error("with no timeout configured the daemon's own bound must apply")
@@ -369,7 +369,7 @@ func TestRedirectsAreNotFollowed(t *testing.T) {
 		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
 	}))
 	defer redir.Close()
-	reg := start(t, `{"capabilities":[{"id":"x.do","url":"`+redir.URL+`"}]}`)
+	reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"x.do","url":"`+redir.URL+`"}]}`)
 	eff := invoke(t, reg, "x.do", nil)
 	if hits != 0 {
 		t.Error("the redirect was followed")
@@ -381,7 +381,7 @@ func TestRedirectsAreNotFollowed(t *testing.T) {
 
 // The configuration describes each capability as an A2A skill.
 func TestCapabilitiesAreDescribedAsSkills(t *testing.T) {
-	reg := start(t, `{"capabilities":[
+	reg := start(t, `{"allow_tcp":true,"capabilities":[
 		{"id":"text.digest","url":"http://127.0.0.1:1/","name":"Text digest","description":"SHA-256 of text",
 		 "tags":["hash","text"],"examples":["{\"text\":\"hi\"}"],"output_modes":["application/json"]},
 		{"id":"bare.x","url":"http://127.0.0.1:1/"}]}`)
@@ -411,12 +411,12 @@ func TestSkillLimitsAreCheckedAtStartup(t *testing.T) {
 	long := strings.Repeat("n", provider.MaxSkillNameBytes+1)
 	tags := `"a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q"`
 	for _, cfg := range []string{
-		`{"capabilities":[{"id":"x","url":"http://127.0.0.1:1/","name":"` + long + `"}]}`,
-		`{"capabilities":[{"id":"x","url":"http://127.0.0.1:1/","tags":[` + tags + `]}]}`,
-		`{"capabilities":[{"id":"x","url":"http://127.0.0.1:1/","tags":["ok",""]}]}`,
-		`{"capabilities":[{"id":"x","url":"http://127.0.0.1:1/","timeout_ms":-1}]}`,
-		`{"capabilities":[{"id":"x","url":"ftp://127.0.0.1/"}]}`,
-		`{"capabilities":[{"id":"x","url":"127.0.0.1:8080"}]}`,
+		`{"allow_tcp":true,"capabilities":[{"id":"x","url":"http://127.0.0.1:1/","name":"` + long + `"}]}`,
+		`{"allow_tcp":true,"capabilities":[{"id":"x","url":"http://127.0.0.1:1/","tags":[` + tags + `]}]}`,
+		`{"allow_tcp":true,"capabilities":[{"id":"x","url":"http://127.0.0.1:1/","tags":["ok",""]}]}`,
+		`{"allow_tcp":true,"capabilities":[{"id":"x","url":"http://127.0.0.1:1/","timeout_ms":-1}]}`,
+		`{"allow_tcp":true,"capabilities":[{"id":"x","url":"ftp://127.0.0.1/"}]}`,
+		`{"allow_tcp":true,"capabilities":[{"id":"x","url":"127.0.0.1:8080"}]}`,
 	} {
 		if _, err := module.Build(map[string][]byte{"service": []byte(cfg)}); err == nil {
 			t.Errorf("config %.120s must be refused", cfg)
@@ -437,7 +437,7 @@ func TestBusyIsUnavailable(t *testing.T) {
 		svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "no", code)
 		}))
-		reg := start(t, `{"capabilities":[{"id":"x.do","url":"`+svc.URL+`"}]}`)
+		reg := start(t, `{"allow_tcp":true,"capabilities":[{"id":"x.do","url":"`+svc.URL+`"}]}`)
 		if eff := invoke(t, reg, "x.do", nil); eff.Status != want {
 			t.Errorf("HTTP %d: %s, want %s", code, eff.Status, want)
 		}

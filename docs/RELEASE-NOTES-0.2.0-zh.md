@@ -138,6 +138,7 @@ A2A 校验工具、文档检索,以及一个 a2a-x402 付费演示。全部是�
 | `modules.taskboard` | 默认二进制**拒绝启动** | 删掉该块,或改用 `-tags taskboard` 构建 |
 | `control_allow_remote`、非回环 `control_addr` | 删除;非回环拒绝启动 | 远程访问用 SSH 端口转发 |
 | `modules.x402.voucher_url` 为非回环 http | daemon 拒绝启动 | 前置 TLS 终端改为 https,或删除该键 |
+| `modules.service` 能力的 `url`、`modules.a2a.backends[].url` 为 `http(s)://` | daemon 拒绝启动(TCP 后端缺省不接受) | 推荐让服务监听 Unix socket,写 `unix:///路径[:/请求路径]`(daemon 连接前核对 socket 的目录与监听者);仍用 TCP 时加 `"allow_tcp": true`,回环上的服务须与 daemon 同一用户运行、仅 Linux(GUIDE §6.2,已知局限第 26 条) |
 
 ### 2.3 控制面 API(直接调用 daemon 的程序)
 
@@ -187,6 +188,7 @@ A2A 校验工具、文档检索,以及一个 a2a-x402 付费演示。全部是�
 | 中继明文 | hub 能读到全部任务内容 | 端到端加密(1.2) |
 | hub 前置代理的访问日志 | 访问日志记下"谁在何时查谁、取了多大",足以重建通信关系 | 随仓库的 nginx 配置不留访问日志;daemon 查对端密钥、卡片与 KEL 时把对端放在请求体里 |
 | 控制令牌发往回环端口上的任意监听者 | 同机其他用户占住 daemon 的端口即可收走控制令牌 | anet 自己的客户端先核实监听者是本用户的 daemon(Linux),本机 A2A 接口端口被占时不换端口并轮换令牌 |
+| `service` 模块把调用发往回环端口上的任意监听者 | 服务停机期间同机其他用户占住它的端口,即可收到调用参数(0.2 起还有 daemon 的令牌、A2A 后端的任务正文)并代替服务作答 | 后端改在 Unix socket 上(推荐与缺省),daemon 连接前核对 socket 的目录链、属主与监听进程(Linux `SO_PEERCRED`);TCP 须显式 `allow_tcp`,回环监听者须属本用户(Linux) |
 | 邀请码出现在进程命令行上 | 同机其他用户可读到并抢先使用 | 只经 `ANET_INVITE` 或权限收紧的 `--token-file` 传入 |
 | 控制台页面嵌入控制令牌 | 能读到页面的一方即拿到全权凭据 | 一次性票据换会话,票据也不经浏览器命令行传递 |
 | 任务板写入在鉴权前解码不限大小的请求体 | 未鉴权即可让 hub 缓冲任意大的请求 | 先核签名再解码;任务板默认不编入 |

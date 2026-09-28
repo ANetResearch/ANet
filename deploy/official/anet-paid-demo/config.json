@@ -24,7 +24,7 @@
       "capabilities": [
         {
           "id": "demo.digest.paid",
-          "url": "http://127.0.0.1:8615/v1/paid/demo.digest.paid",
+          "url": "unix:///run/anet-official/anet-paid-demo/backend.sock:/v1/paid/demo.digest.paid",
           "price": 2,
           "name": "Paid digest (payment demo)",
           "description": "The same computation as text.digest, for a price, to try an a2a-x402 payment end to end: payment-required, payment-submitted, payment-completed, with the hub's signed receipt. The result is byte-for-byte the result text.digest gives for the same arguments, so what was paid for can be checked. Arguments as text.digest, up to 4 KiB.",

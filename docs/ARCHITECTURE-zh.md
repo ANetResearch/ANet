@@ -57,7 +57,7 @@ ANet 仓库内:
 | 路径 | 内容 |
 | --- | --- |
 | `cmd/anet/` | `anet`:daemon + CLI(全部子命令,见 §九) |
-| `cmd/anet-official/` | 官方公共 agent 的后端(独立二进制,只监听回环,由 daemon 的 `service` 模块挂载) |
+| `cmd/anet-official/` | 官方公共 agent 的后端(独立二进制,监听 Unix socket,由 daemon 的 `service` 模块挂载) |
 | `internal/daemon/` | daemon 应用层(§五) |
 | `internal/runtime/interactions/` | 任务账本(SQLite):交互、消息、待批、outbox、对端身份 |
 | `internal/a2ashape/` | A2A JSON 投影:Task、Message、Part、Artifact、流式事件、ListTasks 页。纯 Go 类型,**不导入 A2A SDK**;控制面与 MCP 直接输出它 |
@@ -172,7 +172,7 @@ ANet 仓库内:
 | --- | --- | --- |
 | `a2a` | `no_a2a` | 本机 A2A 接口:`/a2a/v1/agents/{aid}/…` 下的代理卡片、JSON-RPC 与 HTTP+JSON 绑定;独立令牌 `modules/a2a/a2a_token.txt`,只作用于"本机作为请求方、对端等于路径 AID"的任务;经 `TaskSeam` 调内核。可选的提供侧后端(`backends`)只转发信任对端的文本任务 |
 | `x402` | `no_x402` | 标价、报价、结算、兑付、对账;卡片贡献 a2a-x402 与 `anet-pricing` 扩展;可选的凭证兑付口(公开监听,https) |
-| `service` | `no_service` | 把本机 HTTP 服务挂成能力;每后端令牌认证 daemon;向后端传已验证的调用方 |
+| `service` | `no_service` | 把本机 HTTP 服务挂成能力;后端推荐 Unix socket,连接前核对路径与监听者(`internal/backendconn`),TCP 须 `allow_tcp`;每后端令牌认证 daemon;向后端传已验证的调用方 |
 | `p2p` | `no_p2p` | 直连投递;帧版本化,无版本旧帧回错误 |
 | `cas`、`blackboard`、`org` | `no_cas` 等 | 内容寻址存储、签名黑板、组织凭证验证 |
 | `anetlink` | `no_anetlink` | 经 C1 socket 接入设备运行时 |
