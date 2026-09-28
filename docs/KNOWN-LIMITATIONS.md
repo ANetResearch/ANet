@@ -6,7 +6,7 @@ This page lists the known limitations of anet 0.2 (end-to-end encryption between
 
 **Applies to** anet ≥ 0.2.0 talking to a wire-2 hub. 0.1.x is weaker: the hub relays task contracts, chat messages and results unencrypted and can read all task content; signatures let either party detect forgery but do not stop the hub from reading.
 
-Items 1–26 correspond one to one to §21 of the design document [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md) (Chinese). A few further points worth knowing follow at the end.
+Items 1–27 correspond one to one to §21 of the design document [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md) (Chinese). A few further points worth knowing follow at the end.
 
 ---
 
@@ -178,7 +178,11 @@ Before the `service` module or an A2A backend hands a local backend the token, a
 
 A TCP backend needs an explicit `allow_tcp: true` in the configuration; a connection that lands on this machine (its loopback, or one of its own addresses) is used only on Linux and only when the listener runs as the daemon's user, and is refused on every other platform. A third-party backend that can only listen on TCP (Hermes' default `127.0.0.1:9900`, for example) must therefore run on Linux as the daemon's user. A backend on another host is authenticated by TLS.
 
-Without `expected_uid`/`expected_user`, what the daemon trusts is the socket's chain of directories: root, the daemon's own user, the socket's owner and the members of a configured `socket_group` can each put a backend of their own there. A process running as the daemon's user can read the token and the configuration anyway (item 13).
+Without `expected_uid`/`expected_user`, what the daemon trusts is the socket's chain of directories: root, the daemon's own user, the socket's owner and the members of a configured `socket_group` can each put a backend of their own there. A process running as the daemon's user can read the token and the configuration anyway (item 13). Since 0.2.1 a directory writable by the user-private group of the socket's owner or of the daemon's user (named as the user, the user's primary group, no other member, as `/etc/passwd` and `/etc/group` say) — Debian and Ubuntu's default 0775 — counts as that user's alone; once someone adds another account to that group the daemon refuses the directory, but until then that account can change it as the user can.
+
+## 27. A task that hears nothing for 15 minutes fails, even when the other side is only slow
+
+When a task you sent hears nothing at all from the other agent — no status, no message, no result — within 15 minutes of its delivery (`no_response_after` in `config.json`), the daemon fails it with `anet.reason=no_response` and reports its effect as not known (`anet.effect_status=UNVERIFIED`). Without this such a task stayed `submitted` for ever: an agent's refusal notices are rate limited, and the ones past the limit are dropped without a word. The cost is that the daemon cannot tell "refused without saying so" from "slow": a text task a person has not answered yet, a long call still running on a 0.2.0 agent (from 0.2.1 an agent says `working` when it starts one), an agent offline for longer than the deadline all end this way. A result that arrives later is still verified and recorded on the task, but a question or an intermediate reply that arrives after the task ended is not kept. Where waiting long is expected, raise `no_response_after` (say `"24h"`), or set it to `"0"` to turn it off.
 
 ---
 

@@ -96,7 +96,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 
 ```sh
 anet version
-# anet 0.2.0 (commit …, built …)
+# anet 0.2.1 (commit …, built …)
 # modules: a2a,anetlink,blackboard,cas,mcp,org,p2p,service,x402
 ```
 
@@ -335,6 +335,10 @@ anet autoreply show                                                # 看当前�
   设成 0660、属于 daemon 用户也在的组;daemon 认 socket 的属主,并要求它就是所在目录的属主。
   不符就一个字节也不发,这次调用按 UNAVAILABLE 报告。原因是:回环端口谁都能占,服务停机(重启、升级)的间隙,
   同机的其他用户占住端口就能收到调用参数与令牌,并替你的服务作答。
+- 组可写的目录:Debian/Ubuntu 缺省 umask 002 下,你新建的目录是 0775、组是你的私有组(组名与用户名相同、是你的主组、
+  组里没有别人)。这样的组能写的你本来就能写,daemon 把它当作只有你能写的目录接受(服务用户的私有组同样);
+  组里还有别人时仍拒绝,除非用下面的 `socket_group` 声明信任这个组。判定读 `/etc/passwd` 与 `/etc/group`,
+  由 LDAP 等提供的账户不算私有组,这时把目录改成 0700/0750 即可。
 - 可选:`expected_uid` 或 `expected_user`(监听进程必须是这个用户,socket 也须属于它、你或 root);
   `socket_group`(允许组可写的 socket 目录,须是这个组;组里的成员与服务同等信任)。三项都是模块级。
 - **仍用 TCP**:写 `http://127.0.0.1:端口/…` 并在模块里加 `"allow_tcp": true`,否则 daemon 拒绝启动。
@@ -425,7 +429,7 @@ MCP 工具按 A2A 概念组织(设计 §12),任务以 A2A Task 的 JSON 原样�
 | `list_agents` | 按 skill / tag 找 agent,带对端签名卡片与本机验证结论 | 只读;自由文本只在本机匹配 |
 | `get_agent_card` | 一个 agent 的签名卡片与验证结论 | 只读 |
 | `send_message` | `to` 新建任务,`task_id` 续写;文本、文件,或 `skill` + `args` 能力调用 | 等最多 `timeout_seconds`(默认 30)后返回任务现状 |
-| `get_task` | 读一个任务 | 只读 |
+| `get_task` | 读一个任务 | 只读;与返回任务的其他工具一样,结果限在约 24 KB(见表下) |
 | `list_tasks` | 按 `role`、`context_id`、`state`、`peer` 列任务 | 只读;默认每个任务只带最新一条消息 |
 | `wait_task` | 等任务结束或需要你(最多 300 秒) | 只读;超时返回 `anet.wait=timed_out`,不是失败 |
 | `cancel_task` | 取消本节点发出的任务 | 付款已提交后不能撤回,返回 `anet.cancel_requested=true` |
@@ -438,6 +442,7 @@ MCP 工具按 A2A 概念组织(设计 §12),任务以 A2A Task 的 JSON 原样�
 
 - `completed` 且 `anet.effect_status=UNVERIFIED` 不等于成功;`anet.receipt_verified` 为 `unverified` 表示回执没能核验,不等于伪造。
 - 长任务的写法:`send_message` 之后反复 `wait_task`;**不要重发**——重发是第二个任务,可能是第二笔付款。给自己的 `message_id` 可让重试安全。
+- 返回单个任务的工具(`send_message`、`get_task`、`wait_task`、`cancel_task`、`reply_task`)把任务限在约 24 KB,`list_tasks` 每个任务约 8 KB:更长的消息、回复或结果换成注明字节数的说明(`anet.truncated`),免得对方的一条长回复让工具结果超过客户端上限(Claude Code 缺省 25 000 token)。读全文用终端的 `anet task get <task_id> --full`,文件用 `anet pull <task_id>`。
 - MCP 不调用人工付款、网关与兑付路由。
 - 旧名 `agents_find` `task_delegate` `task_results` `task_inbox` `task_message` `task_end` `evidence_read` `credit_balance` 已删除,不保留别名;按旧名写的客户端权限规则需要改。
 
@@ -637,6 +642,7 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 | `module "shell" … it needs -tags shell` | 装的是默认变体,重装加 `--shell` |
 | `hub /register rejected: … invite` | hub 开了准入,向运营者要码,放进 `ANET_INVITE`(或 `--token-file`)再注册 |
 | 连 hub 得到 426,或 daemon 拒绝工作 | 两代不互通:v0.2 daemon 只连 wire 2 的 hub,0.1.x daemon 只连 wire 1 的 hub |
+| 任务 `failed`,`anet.reason=no_response` | 委派送出后 15 分钟内对方什么都没回(没有状态、消息或结果):对方可能拒绝了而没有通知你(拒绝通知按对端限速,超出的静默丢弃)、还没收取、或正在执行。效果按"不知道"报(`anet.effect_status=UNVERIFIED`),不要当作没执行而原样重发;对方之后送来的结果仍会记录在这个任务上。期限由 `config.json` 的 `no_response_after` 设定(Go 时长,缺省 `15m`,`"0"` 关闭),`anet doctor` 的 `tasks.no_response` 显示当前值 |
 | 任务 `failed`,`anet.reason=undeliverable` | 委派或消息在有效期内一直没送到(hub 长时间不可达,或 hub 拒收)。发送时本地写入成功即返回 `submitted`,之后由 daemon 自动重试,过期才判失败;能力任务的 `anet.effect_status` 为 `UNAVAILABLE`。重发用新的消息 id |
 | 委派后得到 `rejected`,`anet.reason=not_accepting` | 你不在对方的允许名单里,能力也不是对方的公开能力。请对方 `anet peers allow <你的 AID>` |
 | 别人说委派给了你,你的收件箱里没有 | 你是 `closed`(默认):名单外的委派直接拒绝、不存。`anet peers allow <对方 AID>`,或 `anet inbound policy approve` 让它进待批队列 |
