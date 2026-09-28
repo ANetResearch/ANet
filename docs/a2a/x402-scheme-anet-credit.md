@@ -2,8 +2,8 @@
 
 > **DRAFT — not submitted; requires product owner approval before any external submission.**
 >
-> **License: to be decided** by the product owner. (The target directory, `a2a-x402/schemes/`, is
-> Apache-2.0.)
+> **License: Apache-2.0**, like the target directory `a2a-x402/schemes/`: this document is licensed
+> under the Apache License 2.0 alone (ANet `LICENSE`, condition 3).
 
 This document specifies the `anet-credit` scheme for x402 v2 as used by the A2A x402 extension
 v0.2. It follows the layout of the experimental schemes in `a2a-x402/schemes/`. Rules marked
