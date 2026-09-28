@@ -50,3 +50,8 @@ func (s *Store) ExplainFindByClientMessage(q ClientMessageQuery) ([]string, erro
 	sql, args := q.findSQL()
 	return s.explain(sql, args)
 }
+
+// ExplainContextPeers is the query plan of ContextPeers.
+func (s *Store) ExplainContextPeers() ([]string, error) {
+	return s.explain(contextPeersSQL, []any{string(RoleOutbound), "c"})
+}

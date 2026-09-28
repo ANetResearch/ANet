@@ -168,6 +168,53 @@ func TestListingReadsTheCoveringIndex(t *testing.T) {
 	}
 }
 
+// A listing of one context reads idx_ix_context: a context holds a few tasks.
+// Left to itself SQLite took the peer index for the role and peer that the
+// local A2A interface always adds, and read the context of every task with
+// the peer from its row — past the long columns (docs/notes/0035: 4 s for a
+// ListTasks by contextId after a 30-minute soak).
+func TestContextListingReadsTheContextIndex(t *testing.T) {
+	s := open(t)
+	for i, f := range []interactions.ListFilter{
+		{ContextID: "c"},
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a", ContextID: "c"},
+		{Role: interactions.RoleOutbound, PeerAID: "peer-a", ContextID: "c", States: []interactions.State{interactions.StateCompleted}},
+	} {
+		for what, explain := range map[string]func() ([]string, error){
+			"list":  func() ([]string, error) { return s.ExplainList(f, 50) },
+			"count": func() ([]string, error) { return s.ExplainCount(f) },
+		} {
+			plan, err := explain()
+			if err != nil {
+				t.Fatalf("filter %d %s: %v", i, what, err)
+			}
+			if p := strings.Join(plan, "; "); !strings.Contains(p, "idx_ix_context") {
+				t.Errorf("filter %d %s: plan %q, want idx_ix_context", i, what, p)
+			}
+		}
+	}
+}
+
+// ContextPeers, asked on every SendMessage that names a context, reads the
+// context index, not every row of the role.
+func TestContextPeersReadsTheContextIndex(t *testing.T) {
+	s := open(t)
+	plan, err := s.ExplainContextPeers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := strings.Join(plan, "; "); !strings.Contains(p, "idx_ix_context") {
+		t.Fatalf("plan %q, want idx_ix_context", p)
+	}
+	if err := s.Create(interactions.New{ID: "ix_1", Role: interactions.RoleOutbound, PeerAID: "peer-a", Goal: "g",
+		ContextID: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	if peers, err := s.ContextPeers(interactions.RoleOutbound, "c"); err != nil || len(peers) != 1 || peers[0] != "peer-a" {
+		t.Fatalf("ContextPeers = %v %v", peers, err)
+	}
+}
+
 // The two-step listing (ids from the index, then the rows) keeps ListPage's
 // order, page boundaries and whole rows.
 func TestListPageTwoStepKeepsOrderAndRows(t *testing.T) {

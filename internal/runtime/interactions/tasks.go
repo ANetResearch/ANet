@@ -104,6 +104,12 @@ func (q ClientMessageQuery) findSQL() (string, []any) {
 	return `SELECT ` + ixColumns + ` FROM interaction WHERE id = (` + inner + `)`, args
 }
 
+// contextPeersSQL reads idx_ix_context: left to itself SQLite took the role
+// index and read the context_id of every task in the role from its row, past
+// the long columns before it (docs/notes/0035: about a second per
+// SendMessage that names a context, after an hour of traffic).
+const contextPeersSQL = `SELECT DISTINCT peer_aid FROM interaction INDEXED BY idx_ix_context WHERE role=? AND context_id=?`
+
 // ContextPeers returns the distinct peers of the interactions with role in
 // contextID. SendMessage uses it to check that a context a client names
 // belongs to the endpoint it is talking to (A2A-DESIGN §11.1).
@@ -111,8 +117,7 @@ func (s *Store) ContextPeers(role Role, contextID string) ([]string, error) {
 	if contextID == "" {
 		return nil, nil
 	}
-	rows, err := s.db.Query(`SELECT DISTINCT peer_aid FROM interaction WHERE role=? AND context_id=?`,
-		string(role), contextID)
+	rows, err := s.db.Query(contextPeersSQL, string(role), contextID)
 	if err != nil {
 		return nil, err
 	}

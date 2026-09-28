@@ -391,8 +391,8 @@ func (s *Store) migrate() error {
 		// HasOutboundWith, asked for a message whose task is not held.
 		`CREATE INDEX IF NOT EXISTS idx_ix_peer ON interaction(peer_aid, role)`,
 		// Listing (ListPage, Count) reads this index alone: it carries the
-		// order and every column a ListFilter tests but receipt and
-		// context_id (see listIndex). A row holds goal, request_doc and
+		// order and every column a ListFilter tests but receipt (see
+		// listIndex; a context listing reads idx_ix_context). A row holds goal, request_doc and
 		// result, megabytes each for a long message, and SQLite reaches a
 		// later column only through the overflow pages of the ones before
 		// it; a listing that sorted or filtered rows read all of that for
@@ -1104,15 +1104,16 @@ func (f ListFilter) countSQL() (string, []any, error) {
 	return `SELECT COUNT(*) FROM interaction` + f.listIndex() + where, args, nil
 }
 
-// listIndex pins a listing to idx_ix_list, which covers everything a filter
-// tests but receipt and holds the listing order: left to itself SQLite
+// listIndex pins a listing to an index, because left to itself SQLite
 // takes the role or peer index for the equality and then reads each
-// matching row to sort it. A context filter keeps idx_ix_context — a
-// context holds a handful of tasks, and the covering index would be read
-// whole to find them.
+// matching row — past its long columns — to filter and sort it. A context
+// filter reads idx_ix_context: a context holds a handful of tasks, and the
+// covering index would be read whole to find them. Any other listing reads
+// idx_ix_list, which covers everything a filter tests but receipt and
+// holds the listing order.
 func (f ListFilter) listIndex() string {
 	if f.ContextID != "" {
-		return ""
+		return ` INDEXED BY idx_ix_context`
 	}
 	return ` INDEXED BY idx_ix_list`
 }
