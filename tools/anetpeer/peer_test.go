@@ -246,6 +246,45 @@ func TestConcurrentDeliveriesGetTheirOwnOutcome(t *testing.T) {
 	}
 }
 
+// A rendezvous entry that leads to another node's peer process (the
+// recipient moved and its address was reused, or two identities share a
+// host) is refused there: the frame is for an AID that process does not
+// carry. The sender's Send fails, so its daemon falls through to the hub,
+// and the other daemon never sees the envelope ([redteam:F22]).
+func TestADeliveryForAnAIDThisPeerDoesNotCarryIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	rv := filepath.Join(dir, "rv")
+	alice := newNode(t, dir, rv, "alice", &mailbox{})
+	bobBox := &mailbox{}
+	bob := newNode(t, dir, rv, "bob", bobBox)
+	at := alice.host.transport(t)
+	waitFor(t, "the peers to announce themselves", func() bool {
+		return at.Reachable(context.Background(), bob.aid)
+	})
+	// A stale entry: the victim's address is now bob's wire.
+	if err := os.WriteFile(filepath.Join(rv, "aid-victim"), []byte(filepath.Join(dir, "bob.wire")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !at.Reachable(context.Background(), "aid-victim") {
+		t.Fatal("setup: the stale entry is not reachable")
+	}
+	err := at.Send(context.Background(), "aid-victim", []byte("delegate:for the victim"))
+	if err == nil {
+		t.Fatal("a delivery to the wrong peer process was reported delivered; the sender would not use the hub")
+	}
+	if !strings.Contains(err.Error(), "does not carry") {
+		t.Fatalf("error = %v, want the peer to say it does not carry the AID", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if n := bobBox.count(); n != 0 {
+		t.Fatalf("bob's daemon received %d envelopes meant for another AID", n)
+	}
+	// Bob's own traffic is unaffected.
+	if err := at.Send(context.Background(), bob.aid, []byte("for bob")); err != nil {
+		t.Fatalf("delivery to bob: %v", err)
+	}
+}
+
 // A delivery frame without the wire version comes from a peer that
 // predates sealed envelopes. It gets an error naming the release it needs,
 // and the daemon never sees it (A2A-DESIGN §3.10).

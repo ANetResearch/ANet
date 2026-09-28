@@ -421,6 +421,17 @@ func (p *peer) receive(source string, f frame) frame {
 	if !p.limits.allow(source, time.Now()) {
 		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "rate limited; deliver through the hub"}
 	}
+	p.mu.Lock()
+	self := p.self
+	p.mu.Unlock()
+	if f.To == "" || f.To != self {
+		// Not the AID this process carries: the sender dialled an address
+		// that no longer (or never) belonged to its recipient — a stale
+		// rendezvous entry, a reused port. Handing it over would get it
+		// acknowledged by the wrong daemon; refusing it sends the sender to
+		// the hub, where the recipient's mailbox is ([redteam:F22]).
+		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "this peer does not carry " + f.To + "; deliver through the hub"}
+	}
 	out := frame{Op: "send", V: wireVersion, ID: f.ID}
 	if err := p.handOff(f); err != nil {
 		out.Error = err.Error()

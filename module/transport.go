@@ -51,11 +51,12 @@ type Inbound interface {
 	// Receive processes one envelope. nil means the transport should
 	// acknowledge the delivery to its sender: the envelope was accepted, or
 	// it was refused for a reason that will not change on retry (a bad
-	// signature, a wrong recipient, an expired message). A non-nil error is
-	// a temporary refusal (a storage error, a rate limit, a message that
-	// arrived before the task it belongs to): the transport must not
+	// signature, an expired message). A non-nil error is a temporary
+	// refusal (a storage error, a rate limit, a message that arrived before
+	// the task it belongs to, or an envelope this node cannot open, which
+	// over a direct path may be another node's): the transport must not
 	// acknowledge, so the sender retries or falls back to the hub
-	// (A2A-DESIGN §3.6 failure classes).
+	// (A2A-DESIGN §3.6 failure classes, §3.10).
 	Receive(ctx context.Context, envelope []byte) error
 }
 
