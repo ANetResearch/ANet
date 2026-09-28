@@ -662,6 +662,13 @@ func (d *Daemon) recoverInterrupted() {
 		if !ix.IsCapability || len(ix.Receipt) > 0 {
 			continue
 		}
+		if _, running := d.running.Load(ix.ID); running {
+			// Running in this process, so not a leftover. Nothing is
+			// delivered before recovery (awaitReady), but a call already
+			// running is never the previous process's to report
+			// ([redteam:F30]).
+			continue
+		}
 		capID, args := storedCall(ix)
 		switch d.leftoverAction(ix, capID) {
 		case leftoverRerun:

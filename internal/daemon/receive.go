@@ -112,6 +112,9 @@ const (
 	// transientDirectUnopened: an envelope a transport module delivered
 	// that this node cannot open (steps 1-4); the sender is sent to the hub.
 	transientDirectUnopened = "t-direct-unopened"
+	// transientNotReady: a direct delivery that arrived during start-up and
+	// could not wait for it to finish (awaitReady).
+	transientNotReady = "t-not-ready"
 )
 
 // unknownIXWait is how long a message for an interaction this node does not
