@@ -59,6 +59,10 @@ const (
 const (
 	A2AAddrFile  = anethome.A2AAddrFile
 	A2ATokenFile = anethome.A2ATokenFile
+	// A2AConflictFile is there while the interface is down because another
+	// process held its recorded port (module/a2a); readA2A refuses to wire
+	// until it is gone.
+	A2AConflictFile = anethome.A2AConflictFile
 )
 
 // a2aStatePath is where module/a2a keeps file for the data dir dataDir.
