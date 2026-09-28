@@ -127,6 +127,85 @@ _peer_add(){
 # written here is bound as it stands, and a port taken by someone else fails the start rather than moving.
 pin_a2a(){ ( umask 077; mkdir -p "$1/modules/a2a" && printf '127.0.0.1:%s\n' "$2" > "$1/modules/a2a/a2a_addr.txt" ); }
 
+# ── choosing a block of loopback ports ───────────────────────────
+# port_block BASE N — print the first of N consecutive loopback ports a run can listen on: BASE when it is
+# given (the run's JOINT_PORT_BASE), else a random free block in 20000-32000. "Can listen" is tested the
+# way the hub and the daemons listen: Go sets SO_REUSEADDR, so a port whose earlier listener's accepted
+# connections sit in TIME_WAIT is free (joint.sh 0021 F1, joint-official/joint-a2a 0024 V2).
+#
+# A port can also be held by a closed connection that was a *client*: the test hosts' ephemeral range
+# (32768-60999) covers 47100-47499, so a run's own daemons, dialling its hub, take source ports inside the
+# block, and when they close first those sockets stay in TIME_WAIT for 60 s without SO_REUSEADDR. That
+# refuses a listener there, from Go as much as from this check, and the next run on the same block right
+# after failed with "a port … is in use" (docs/notes/0028 V1). So with BASE given, a block whose only
+# obstacles are connections in their closing states (/proc/net/tcp: FIN_WAIT1/2, TIME_WAIT, CLOSE,
+# LAST_ACK, CLOSING) is waited for, up to PORT_BLOCK_WAIT seconds (default 75); a listener or a live
+# connection on a port of the block is refused at once.
+port_block(){ python3 - "$@" <<'PY'
+import os, random, socket, sys, time
+want, n = sys.argv[1], int(sys.argv[2])
+CLOSING = {"04", "05", "06", "07", "09", "0B"}   # /proc/net/tcp st: FIN_WAIT1 FIN_WAIT2 TIME_WAIT CLOSE LAST_ACK CLOSING
+def states(port):
+    out = []
+    for f in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(f) as fh:
+                next(fh, None)
+                for line in fh:
+                    col = line.split()
+                    if len(col) > 3 and int(col[1].rsplit(":", 1)[1], 16) == port:
+                        out.append(col[3].upper())
+        except (OSError, ValueError):
+            pass
+    return out
+def busy(b):
+    """[(port, why)] for each port of b..b+n-1 a listener cannot be opened on; why is "closing" when
+    every socket on it is a closed connection that will go away by itself, else "in use"."""
+    out = []
+    for p in range(b, b + n):
+        s = socket.socket()
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", p))
+            s.listen(1)
+        except OSError:
+            st = states(p)
+            out.append((p, "closing" if st and all(x in CLOSING for x in st) else "in use"))
+        finally:
+            s.close()
+    return out
+if want:
+    try:
+        b = int(want)
+    except ValueError:
+        sys.exit("JOINT_PORT_BASE=%s is not a number" % want)
+    if not 1024 <= b <= 65535 - n:
+        sys.exit("JOINT_PORT_BASE=%s is out of range" % want)
+    deadline, told = time.time() + float(os.environ.get("PORT_BLOCK_WAIT", "75")), False
+    while True:
+        bz = busy(b)
+        if not bz:
+            print(b); sys.exit()
+        hard = [p for p, why in bz if why != "closing"]
+        if hard:
+            sys.exit("a port in %d-%d is in use (%s); pick another JOINT_PORT_BASE"
+                     % (b, b + n - 1, " ".join(map(str, hard))))
+        if time.time() >= deadline:
+            sys.exit("ports %s of %d-%d are still held by closed connections (TIME_WAIT); pick another JOINT_PORT_BASE"
+                     % (" ".join(str(p) for p, _ in bz), b, b + n - 1))
+        if not told:
+            sys.stderr.write("  ports %s: only closed connections of an earlier run (TIME_WAIT) hold them; waiting\n"
+                             % " ".join(str(p) for p, _ in bz))
+            told = True
+        time.sleep(2)
+for _ in range(200):
+    b = random.randrange(20000, 32000, n)
+    if not busy(b):
+        print(b); sys.exit()
+sys.exit("no free block of %d ports in 20000-32000" % n)
+PY
+}
+
 # ── stopping processes by path ───────────────────────────────────
 # The joint scripts share machines with other checkouts and, on the test hosts, with production daemons
 # (docs/notes/0015 §4: cmax and dmax run production anet daemons and hubs as root, some inside containers

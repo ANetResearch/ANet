@@ -405,50 +405,23 @@ fi
 # "backend" (reserved and never bound: nothing answers there), +13 the observer (8/8), +14..+15 spare,
 # +16..+23 the local A2A interfaces of the eight daemons (module/a2a is on by default; unpinned, each
 # takes a port from 43811 up, outside this block: 0021 F3, lib.sh pin_a2a).
-PORT_BASE=$(python3 - "${JOINT_PORT_BASE:-}" 24 <<'PY'
-import random, socket, sys
-want, n = sys.argv[1], int(sys.argv[2])
-# "Free" means what the hub and the daemons need: a listener can be opened there. They are Go, and Go
-# listens with SO_REUSEADDR, so a port whose earlier listener closed a moment ago (its accepted
-# connections still in TIME_WAIT) is free for them. A bare bind() says "in use" for that port, and a
-# second run on the same JOINT_PORT_BASE right after the first refused to start (joint.sh had the same,
-# docs/notes/0021 F1; here docs/notes/0024).
-def free(b):
-    for p in range(b, b + n):
-        s = socket.socket()
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind(("127.0.0.1", p))
-            s.listen(1)
-        except OSError:
-            return False
-        finally:
-            s.close()
-    return True
-if want:
-    try:
-        b = int(want)
-    except ValueError:
-        sys.exit("JOINT_PORT_BASE=%s is not a number" % want)
-    if not 1024 <= b <= 65535 - n:
-        sys.exit("JOINT_PORT_BASE=%s is out of range" % want)
-    # The test network's range (scripts/testnet/topology.env): in each hundred, 00-59 are its nodes'
-    # ports. One that is free now may be a node stopped for a test, which must find it free again.
-    taken = [p for p in range(b, b + n) if 47100 <= p <= 47499 and p % 100 < 60]
-    if taken:
-        sys.exit("JOINT_PORT_BASE=%d: %d-%d lie in 47x00-47x59, the test network's node ports "
-                 "(scripts/testnet/topology.env); use a base in 47x60-47x76, e.g. %d"
-                 % (b, taken[0], taken[-1], taken[0] // 100 * 100 + 60))
-    if not free(b):
-        sys.exit("a port in %d-%d is in use; pick another JOINT_PORT_BASE" % (b, b + n - 1))
-    print(b); sys.exit()
-for _ in range(200):
-    b = random.randrange(20000, 32000, n)
-    if free(b):
-        print(b); sys.exit()
-sys.exit("no free block of %d ports in 20000-32000" % n)
+# The test network's range (scripts/testnet/topology.env): in each hundred, 00-59 are its nodes' ports. One
+# that is free now may be a node stopped for a test, which must find it free again.
+if [ -n "${JOINT_PORT_BASE:-}" ]; then
+  python3 - "$JOINT_PORT_BASE" 24 <<'PY' || die "no ports"
+import sys
+try:
+    b, n = int(sys.argv[1]), int(sys.argv[2])
+except ValueError:
+    sys.exit(0)   # port_block says what is wrong with it
+taken = [p for p in range(b, b + n) if 47100 <= p <= 47499 and p % 100 < 60]
+if taken:
+    sys.exit("JOINT_PORT_BASE=%d: %d-%d lie in 47x00-47x59, the test network's node ports "
+             "(scripts/testnet/topology.env); use a base in 47x60-47x76, e.g. %d"
+             % (b, taken[0], taken[-1], taken[0] // 100 * 100 + 60))
 PY
-) || die "no ports"
+fi
+PORT_BASE=$(port_block "${JOINT_PORT_BASE:-}" 24) || die "no ports"   # lib.sh
 HUB_ADDR=127.0.0.1:$PORT_BASE; HUB_URL=http://$HUB_ADDR
 ADMIN_ADDR=127.0.0.1:$((PORT_BASE + 1))
 declare -A BACKEND_PORT=([echo]=$((PORT_BASE + 2)) [tools]=$((PORT_BASE + 3)) [paid]=$((PORT_BASE + 4)))

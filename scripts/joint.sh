@@ -837,39 +837,7 @@ cp "$SCRIPTS/canary.py" "$BIN/canary.py" || die "cannot copy canary.py into $BIN
 # service, so that it reaches nothing on a shared host); +13..+15 the local A2A interfaces of the
 # requester, provider and stranger and +16..+18 those of the three canary nodes (module/a2a; lib.sh
 # pin_a2a: unpinned they would take ports outside this block); +19..+21 spare.
-PORT_BASE=$(python3 - "${JOINT_PORT_BASE:-}" 22 <<'PY'
-import random, socket, sys
-want, n = sys.argv[1], int(sys.argv[2])
-# "Free" means what the hub and the daemons need: a listener can be opened there. They are Go, and Go
-# listens with SO_REUSEADDR, so a port whose earlier listener closed a minute ago (its accepted
-# connections still in TIME_WAIT) is free for them. A bare bind() says "in use" for that port, and the
-# second run on the same JOINT_PORT_BASE right after the first then refused to start.
-def free(b):
-    for p in range(b, b + n):
-        s = socket.socket()
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind(("127.0.0.1", p))
-            s.listen(1)
-        except OSError:
-            return False
-        finally:
-            s.close()
-    return True
-if want:
-    b = int(want)
-    if not 1024 <= b <= 65535 - n:
-        sys.exit("JOINT_PORT_BASE=%s is out of range" % want)
-    if not free(b):
-        sys.exit("a port in %d-%d is in use; pick another JOINT_PORT_BASE" % (b, b + n - 1))
-    print(b); sys.exit()
-for _ in range(200):
-    b = random.randrange(20000, 32000, n)
-    if free(b):
-        print(b); sys.exit()
-sys.exit("no free block of %d ports in 20000-32000" % n)
-PY
-) || die "no ports"
+PORT_BASE=$(port_block "${JOINT_PORT_BASE:-}" 22) || die "no ports"   # lib.sh
 HUB_ADDR=127.0.0.1:$PORT_BASE; HUB_URL=http://$HUB_ADDR
 ADMIN_ADDR=127.0.0.1:$((PORT_BASE + 1))
 RC=127.0.0.1:$((PORT_BASE + 2)); PC=127.0.0.1:$((PORT_BASE + 3)); SC=127.0.0.1:$((PORT_BASE + 4))
