@@ -68,7 +68,7 @@ func BenchmarkTransportDispatchHubOnly(b *testing.B) {
 
 var benchPayload = make([]byte, 4096)
 
-func quietLog(b *testing.B) {
+func quietLog(b testing.TB) {
 	b.Helper()
 	prev := log.Writer()
 	log.SetOutput(io.Discard)
