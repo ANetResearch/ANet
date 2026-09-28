@@ -110,11 +110,11 @@ func TestModuleNeedsAPrivateStateDir(t *testing.T) {
 
 func TestBackendConfig(t *testing.T) {
 	bad := []string{
-		`{"backends":[{"match":"*","url":"http://127.0.0.1:9900","accept_untrusted":true}]}`,
-		`{"backends":[{"match":"*","url":"http://example.com:9900"}]}`,
-		`{"backends":[{"match":"","url":"http://127.0.0.1:9900"}]}`,
-		`{"backends":[{"match":"*","url":"ftp://127.0.0.1"}]}`,
-		`{"backends":[{"match":"*","url":"http://127.0.0.1:1"},{"match":"*","url":"http://127.0.0.1:2"}]}`,
+		`{"backends":[{"allow_tcp":true,"match":"*","url":"http://127.0.0.1:9900","accept_untrusted":true}]}`,
+		`{"backends":[{"allow_tcp":true,"match":"*","url":"http://example.com:9900"}]}`,
+		`{"backends":[{"allow_tcp":true,"match":"","url":"http://127.0.0.1:9900"}]}`,
+		`{"backends":[{"allow_tcp":true,"match":"*","url":"ftp://127.0.0.1"}]}`,
+		`{"backends":[{"allow_tcp":true,"match":"*","url":"http://127.0.0.1:1"},{"allow_tcp":true,"match":"*","url":"http://127.0.0.1:2"}]}`,
 		`{"backend":[]}`,
 	}
 	for _, raw := range bad {
@@ -122,14 +122,14 @@ func TestBackendConfig(t *testing.T) {
 			t.Errorf("accepted %s", raw)
 		}
 	}
-	for _, raw := range []string{"", "null", "{}", `{"backends":[{"match":"*","url":"https://agent.example/a2a"}]}`} {
+	for _, raw := range []string{"", "null", "{}", `{"backends":[{"allow_tcp":true,"match":"*","url":"https://agent.example/a2a"}]}`} {
 		if _, err := New([]byte(raw)); err != nil {
 			t.Errorf("refused %q: %v", raw, err)
 		}
 	}
 
 	isolateHome(t)
-	m, err := New([]byte(`{"backends":[{"match":"*","url":"http://localhost:9900","accept_untrusted":true,"toolless":true}]}`))
+	m, err := New([]byte(`{"backends":[{"allow_tcp":true,"match":"*","url":"http://localhost:9900","accept_untrusted":true,"toolless":true}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestBackendConfig(t *testing.T) {
 	if !h.untrusted {
 		t.Fatal("an accept_untrusted backend was not declared to the kernel")
 	}
-	m2, _ := New([]byte(`{"backends":[{"match":"*","url":"http://127.0.0.1:9900"}]}`))
+	m2, _ := New([]byte(`{"backends":[{"allow_tcp":true,"match":"*","url":"http://127.0.0.1:9900"}]}`))
 	h2 := &testHost{dir: t.TempDir()}
 	_ = m2.Start(context.Background(), h2)
 	if h2.untrusted {

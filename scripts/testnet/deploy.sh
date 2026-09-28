@@ -142,11 +142,11 @@ deploy_node(){
     daemon|official)
       hub=$(tn_node_hub "$n"); hub_url=$(tn_hub_url "$hub" "$host"); pport=$(tn_node_peer "$n")
       if [ "$role" = official ]; then
-        tn_info "── $host: official $n (backend 127.0.0.1:$((port + 1)), groups $TESTNET_OFFICIAL_GROUPS)"
+        tn_info "── $host: official $n (backend on a Unix socket in the node directory, groups $TESTNET_OFFICIAL_GROUPS)"
         [[ "$TESTNET_OFFICIAL_GROUPS" =~ ^[a-z]+(,[a-z]+)*$ ]] || tn_die "TESTNET_OFFICIAL_GROUPS must be a comma list of group names"
         local args=() i
         read -r -a args <<< "$TESTNET_OFFICIAL_ARGS"
-        # {PORT} and {GROUPS} here; {TOKEN_FILE} on the far side, where the node directory is.
+        # {PORT} and {GROUPS} here; {TOKEN_FILE} and {SOCKET} on the far side, where the node directory is.
         for i in "${!args[@]}"; do
           args[i]=${args[i]//\{PORT\}/$((port + 1))}
           args[i]=${args[i]//\{GROUPS\}/$TESTNET_OFFICIAL_GROUPS}
@@ -171,8 +171,8 @@ deploy_node(){
 }
 
 # official_config NAME PORT HUB_URL: the template from TESTNET_OFFICIAL_CONFIG with placeholders
-# filled ({TOKEN_FILE} is left for rt_daemon, on the far side), base64 on one line; empty when there is
-# no template (rt_official_config then generates the configuration on the host).
+# filled ({TOKEN_FILE} and the backend's socket are left for rt_daemon, on the far side), base64 on one
+# line; empty when there is no template (rt_official_config then generates the configuration on the host).
 official_config(){
   local n=$1 port=$2 hub=$3 t
   [ -n "$TESTNET_OFFICIAL_CONFIG" ] || return 0
@@ -180,7 +180,7 @@ official_config(){
   t=$(cat "$TESTNET_OFFICIAL_CONFIG")
   t=${t//\{CONTROL_ADDR\}/127.0.0.1:$port}
   t=${t//\{HUB_URL\}/$hub}
-  t=${t//\{BACKEND_URL\}/http://127.0.0.1:$((port + 1))}
+  t=${t//\{BACKEND_URL\}/unix://\{BACKEND_SOCKET\}}
   t=${t//\{NAME\}/tn-$n}
   printf '%s\n' "$t" | base64 -w0
 }

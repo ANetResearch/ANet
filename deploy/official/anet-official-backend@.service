@@ -2,12 +2,24 @@
 #
 # Install: /etc/anet-official/%i/backend.env (LISTEN, CAP_GROUPS) and
 # /etc/anet-official/%i/token (root:root 0600; the daemon of the same
-# identity presents it). See deploy/official/README.md.
+# identity presents it), and the group anet-official-ipc (groupadd --system
+# anet-official-ipc). See deploy/official/README.md.
 #
-# The backend keeps no state and needs nothing but a loopback socket, so it
-# runs as a transient user with no writable path and no network beyond
-# localhost. The token reaches it through systemd credentials, readable by
-# this unit only.
+# The backend keeps no state and needs nothing but its Unix socket, so it
+# runs as a transient user with no writable path but its RuntimeDirectory
+# and no network at all. The token reaches it through systemd credentials,
+# readable by this unit only.
+#
+# The socket (docs/notes/0030 N1): /run/anet-official/%i/backend.sock, in a
+# RuntimeDirectory this unit's user owns under root's /run/anet-official, so
+# no other account can put a socket there while the backend is down; mode
+# 0660 with group anet-official-ipc, which the backend and daemon units of
+# every official identity join through SupplementaryGroups= (one group for
+# all of them: a member that opens another identity's socket still lacks
+# that identity's token). Before sending
+# anything the daemon checks the path and that the process listening is the
+# socket's owner (SO_PEERCRED). A loopback TCP port offered neither: any
+# local user could take it while this unit restarted.
 [Unit]
 Description=anet official agent backend (%i)
 Documentation=https://github.com/ANetResearch/ANet/tree/main/deploy/official
@@ -16,9 +28,14 @@ After=network.target
 [Service]
 Type=simple
 DynamicUser=yes
+SupplementaryGroups=anet-official-ipc
+RuntimeDirectory=anet-official/%i
+# 0755: the daemon must reach the socket; who may connect is the socket's
+# own mode (0660, group anet-official-ipc).
+RuntimeDirectoryMode=0755
 EnvironmentFile=/etc/anet-official/%i/backend.env
 LoadCredential=token:/etc/anet-official/%i/token
-ExecStart=/usr/local/bin/anet-official serve -listen ${LISTEN} -groups ${CAP_GROUPS} -token-file %d/token
+ExecStart=/usr/local/bin/anet-official serve -listen ${LISTEN} -socket-group anet-official-ipc -groups ${CAP_GROUPS} -token-file %d/token
 Restart=on-failure
 RestartSec=2s
 
@@ -29,7 +46,11 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-PrivateUsers=yes
+# No PrivateUsers=: in a user namespace the supplementary group would map to
+# nobody, and the socket could not be given to anet-official-ipc.
+# PrivateNetwork=: a network namespace with nothing but its own loopback; a
+# Unix socket on the file system is reached across network namespaces.
+PrivateNetwork=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -38,9 +59,8 @@ ProtectClock=yes
 ProtectHostname=yes
 ProtectProc=invisible
 ProcSubset=pid
-RestrictAddressFamilies=AF_INET AF_INET6
+RestrictAddressFamilies=AF_UNIX
 IPAddressDeny=any
-IPAddressAllow=localhost
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
@@ -49,6 +69,11 @@ MemoryDenyWriteExecute=yes
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged
+# @privileged includes @chown, and serve -socket-group gives the socket to
+# anet-official-ipc with chown(2): allowed back after the line above, or the
+# backend exits with "chown ...: operation not permitted". A process can only
+# chown a file it owns to a group it is in; no capability is granted here.
+SystemCallFilter=@chown
 SystemCallErrorNumber=EPERM
 UMask=0077
 MemoryMax=256M

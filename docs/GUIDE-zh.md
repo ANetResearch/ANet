@@ -314,16 +314,33 @@ anet autoreply show                                                # 看当前�
 {"modules": {"service": {
   "token_file": "/home/me/.anet/service.token",
   "capabilities": [
-    {"id": "text.digest", "url": "http://127.0.0.1:8080/digest",
+    {"id": "text.digest", "url": "unix:///run/user/1000/my-svc/svc.sock:/digest",
      "name": "Text digest", "description": "SHA-256 of a text. Args: {\"text\": string}",
      "tags": ["hash", "text"], "examples": ["{\"text\":\"hello\"}"], "timeout_ms": 2000},
-    {"id": "image.inspect", "url": "http://127.0.0.1:8080/inspect", "price": 25, "protocol": "json"}
+    {"id": "image.inspect", "url": "unix:///run/user/1000/my-svc/svc.sock:/inspect", "price": 25, "protocol": "json"}
   ],
   "timeout_ms": 30000
 }}}
 ```
 
 - daemon 把调用参数(JSON 对象)POST 到 `url`,读回一个 JSON 对象。
+- **服务放在 Unix socket 上**(推荐,也是缺省唯一接受的形式):`unix:///socket 的绝对路径`,后面可以跟
+  `:/请求路径`(不写即 `/`),请求带 `Host: localhost`。常见框架都能直接监听 socket,例如
+  `uvicorn app:app --uds /run/user/1000/my-svc/svc.sock`、`gunicorn --bind unix:/run/user/1000/my-svc/svc.sock app:app`、
+  Node 的 `server.listen("/run/user/1000/my-svc/svc.sock")`;手工试调用用 `curl --unix-socket <路径> http://localhost/digest`。
+  每建一条连接,daemon 先核对这个路径:从 `/` 起每一级目录只能由 root、你(daemon 的用户)或服务的用户改动
+  (放在一个只有它们能写的目录里,例如 `$XDG_RUNTIME_DIR` 下的子目录,或 systemd 的 `RuntimeDirectory=`;
+  `/tmp` 这类人人可写的目录可以在上层,不能直接放 socket);在 Linux 上还核对监听 socket 的进程就是 socket 文件的
+  属主。服务以另一个用户运行时,把 socket 放在该用户自己的、别人不可写的目录里(如它的 `RuntimeDirectory=`),
+  设成 0660、属于 daemon 用户也在的组;daemon 认 socket 的属主,并要求它就是所在目录的属主。
+  不符就一个字节也不发,这次调用按 UNAVAILABLE 报告。原因是:回环端口谁都能占,服务停机(重启、升级)的间隙,
+  同机的其他用户占住端口就能收到调用参数与令牌,并替你的服务作答。
+- 可选:`expected_uid` 或 `expected_user`(监听进程必须是这个用户,socket 也须属于它、你或 root);
+  `socket_group`(允许组可写的 socket 目录,须是这个组;组里的成员与服务同等信任)。三项都是模块级。
+- **仍用 TCP**:写 `http://127.0.0.1:端口/…` 并在模块里加 `"allow_tcp": true`,否则 daemon 拒绝启动。
+  连到本机(回环地址,或本机自己的网卡地址)时,daemon 只在 Linux 上、且监听者与 daemon 是同一个用户时才发送
+  (按内核套接字表核对),其他平台一律拒绝;这项核对每条新连接要读一遍内核套接字表(繁忙的主机上可达几十毫秒,连接会复用)。连到别的
+  主机请用 https。`anet doctor` 对 TCP 后端给出警告(`backend.transport`)。
 - `name`、`description`、`tags`、`examples`、`input_modes`、`output_modes` 是这个能力的
   A2A skill 描述,进入本节点的卡片;不写时卡片只能按 id 派生。写了不等于公开:
   只有 `inbound.public_capabilities` 里的能力对陌生人开放,也只有它们进 A2A 网络卡片。
@@ -332,10 +349,10 @@ anet autoreply show                                                # 看当前�
   这类调用在交互库里保存到结束后 7 天,之后按天删除,删除计数记上证据链。
 - `timeout_ms` 可按能力覆盖模块级的值。
 - `token_file`(模块级,或按能力覆盖):文件第一行是令牌,daemon 以
-  `Authorization: Bearer <令牌>` 发给服务。回环端口本机任何进程都能连,服务靠它认出
+  `Authorization: Bearer <令牌>` 发给服务。能打开 socket(或回环端口)的进程不止 daemon,服务靠它认出
   daemon。要求绝对路径(可写 `${CREDENTIALS_DIRECTORY}/token` 这类环境变量,变量未设置时
-  拒绝启动)、普通文件、其他用户不可读、至少 16 字节;令牌只发往回环地址或 https 地址,
-  请求不跟随重定向。
+  拒绝启动)、普通文件、其他用户不可读、至少 16 字节;令牌只发往 Unix socket、回环地址或 https 地址,
+  请求不跟随重定向、不经 HTTP 代理。
 - 服务还会收到 `X-ANet-Caller`(已验证的调用方 AID,只有经中继、签名已验证的调用才有;
   凭证兑付口不带)、`X-ANet-Call`(交互 id)、`X-ANet-Via`(`relay`/`voucher`)、
   `X-ANet-Capability`。

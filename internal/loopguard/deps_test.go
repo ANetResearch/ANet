@@ -26,13 +26,15 @@ func goListDeps(t *testing.T, pkg string) []string {
 	return strings.Fields(string(out))
 }
 
-// The shared guard packages are imported by both the daemon and module/a2a,
+// The shared guard packages are imported by both the daemon and module/a2a
+// (backendconn: by module/service, module/a2a and cmd/anet's doctor),
 // so they may import neither: not the daemon (module/a2a would pull the
 // kernel in, and the two would be one package again) and not the A2A SDK
 // (the daemon would carry it, SI-8). The daemon, which now imports both,
 // and the MCP server stay free of the SDK too (A2A-DESIGN SI-8 names both).
 func TestSharedPackagesStayFreeOfTheDaemonAndTheSDK(t *testing.T) {
-	for _, pkg := range []string{modPath + "/internal/loopguard", modPath + "/internal/anethome", modPath + "/internal/localpeer"} {
+	for _, pkg := range []string{modPath + "/internal/loopguard", modPath + "/internal/anethome", modPath + "/internal/localpeer",
+		modPath + "/internal/backendconn"} {
 		for _, d := range goListDeps(t, pkg) {
 			if d == modPath+"/internal/daemon" || strings.HasPrefix(d, sdkPath) || strings.HasPrefix(d, modPath+"/module") {
 				t.Errorf("%s depends on %s", pkg, d)

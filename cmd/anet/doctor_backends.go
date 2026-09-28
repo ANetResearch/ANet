@@ -8,9 +8,12 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/ANetResearch/ANet/internal/backendconn"
 	"github.com/ANetResearch/ANet/internal/daemon"
 )
 
@@ -88,4 +91,108 @@ func a2aBackendChecks(add func(id, status, detail, hint string), policy string, 
 	}
 	add("a2a.backends", stOK, fmt.Sprintf("A2A backend %s answers text tasks from the %d peer(s) on the trust list; "+
 		"the auto-reply agent does not see those tasks", list, trusted), "")
+}
+
+// backendTransportChecks adds how the daemon reaches the services behind
+// modules.service and the A2A backends (docs/notes/0030 N1,
+// internal/backendconn): a URL the daemon refuses to start with is a fail;
+// a TCP backend (allow_tcp) a warning, since a Unix socket is the form whose
+// far side can be checked; a socket whose path the daemon would refuse to
+// connect through a fail, and one that is not there (the backend is down) a
+// warning. The path is judged as this process's user sees it, which is the
+// daemon's when doctor runs as the node's user.
+func backendTransportChecks(add func(id, status, detail, hint string), cfg daemon.Config) {
+	type group struct {
+		pol  backendconn.Policy
+		raw  string // one URL of the group
+		what []string
+	}
+	var order []string
+	groups := map[string]*group{}
+	put := func(key string, pol backendconn.Policy, raw, what string) {
+		g, ok := groups[key]
+		if !ok {
+			g = &group{pol: pol, raw: raw}
+			groups[key] = g
+			order = append(order, key)
+		}
+		g.what = append(g.what, what)
+	}
+	keyOf := func(raw string) string {
+		t, err := backendconn.Parse(raw)
+		switch {
+		case err != nil:
+			return "bad:" + raw
+		case t.Unix():
+			return "unix:" + t.Socket
+		default:
+			return "tcp:" + t.URL.Scheme + "://" + t.URL.Host
+		}
+	}
+	if raw, ok := cfg.Modules["service"]; ok {
+		var m struct {
+			backendconn.Policy
+			Capabilities []struct {
+				ID  string `json:"id"`
+				URL string `json:"url"`
+			} `json:"capabilities"`
+		}
+		if json.Unmarshal(raw, &m) == nil {
+			for _, c := range m.Capabilities {
+				put("service "+keyOf(c.URL), m.Policy, c.URL, "service capability "+c.ID)
+			}
+		}
+	}
+	if raw, ok := cfg.Modules["a2a"]; ok {
+		var m struct {
+			Backends []struct {
+				backendconn.Policy
+				Match string `json:"match"`
+				URL   string `json:"url"`
+			} `json:"backends"`
+		}
+		if json.Unmarshal(raw, &m) == nil {
+			for i, b := range m.Backends {
+				put(fmt.Sprintf("a2a %d", i), b.Policy, b.URL, fmt.Sprintf("A2A backend (match %q)", strings.TrimSpace(b.Match)))
+			}
+		}
+	}
+	const id = "backend.transport"
+	for _, k := range order {
+		g := groups[k]
+		sort.Strings(g.what)
+		who := strings.Join(g.what, ", ")
+		rules, err := g.pol.Resolve()
+		if err != nil {
+			add(id, stFail, who+": "+err.Error()+"; the daemon refuses to start", "")
+			continue
+		}
+		t, err := backendconn.Parse(g.raw)
+		if err != nil {
+			add(id, stFail, who+": "+err.Error()+"; the daemon refuses to start", "write unix:///path/to/socket[:/request/path]")
+			continue
+		}
+		if err := rules.Admit(t); err != nil {
+			add(id, stFail, who+": "+err.Error()+"; the daemon refuses to start",
+				"serve it on a Unix socket (unix:///path/to/socket), or set allow_tcp: true")
+			continue
+		}
+		if !t.Unix() {
+			add(id, stWarn, who+": reached over TCP at "+t.URL.Host+" (allow_tcp). The daemon sends nothing to a loopback "+
+				"listener another user holds, which on a system without a socket table (all but Linux) is every loopback listener; "+
+				"while the backend is down another local user can take its port",
+				"serve it on a Unix socket in a directory only its user can write: unix:///path/to/socket")
+			continue
+		}
+		real, owner, err := rules.CheckPath(t.Socket)
+		switch {
+		case errors.Is(err, backendconn.ErrRefused):
+			add(id, stFail, who+": "+err.Error()+"; every call is refused",
+				"the socket's directory, and those above it, must be writable only by root, this user or the backend's user (or socket_group)")
+		case err != nil:
+			add(id, stWarn, who+": "+err.Error(), "start the backend")
+		default:
+			add(id, stOK, fmt.Sprintf("%s: socket %s (owner uid %d) passes the path checks; the listener is checked on each connection", who, real, owner), "")
+		}
+	}
 }

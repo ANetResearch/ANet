@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -39,7 +41,7 @@ func TestDoctorA2ABackends(t *testing.T) {
 			if err := json.Unmarshal(b, &m); err != nil {
 				t.Fatal(err)
 			}
-			be := map[string]any{"match": "*", "url": "http://127.0.0.1:9900"}
+			be := map[string]any{"match": "*", "url": "http://127.0.0.1:9900", "allow_tcp": true}
 			for k, v := range c.backend {
 				be[k] = v
 			}
@@ -67,6 +69,83 @@ func TestDoctorA2ABackends(t *testing.T) {
 			}
 			if wantOK := c.status != stFail; out["ok"] != wantOK {
 				t.Fatalf("ok = %v, want %v", out["ok"], wantOK)
+			}
+		})
+	}
+}
+
+// doctor reads how the daemon reaches each backend (docs/notes/0030 N1): a
+// TCP URL without allow_tcp is a fail (the daemon refuses to start), with it
+// a warning; a socket whose directory others can write is a fail, a socket
+// in a private directory ok, one that is not there a warning.
+func TestDoctorBackendTransport(t *testing.T) {
+	private := t.TempDir()
+	if err := os.Chmod(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(private, "b.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	open := t.TempDir()
+	if err := os.Chmod(open, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	openSock := filepath.Join(open, "b.sock")
+	ln2, err := net.Listen("unix", openSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln2.Close()
+	cases := []struct {
+		name    string
+		modules map[string]any
+		status  string
+	}{
+		{"service over TCP without allow_tcp", map[string]any{"service": map[string]any{"capabilities": []any{
+			map[string]any{"id": "x", "url": "http://127.0.0.1:8080/x"}}}}, stFail},
+		{"service over TCP with allow_tcp", map[string]any{"service": map[string]any{"allow_tcp": true, "capabilities": []any{
+			map[string]any{"id": "x", "url": "http://127.0.0.1:8080/x"}, map[string]any{"id": "y", "url": "http://127.0.0.1:8080/y"}}}}, stWarn},
+		{"service on a private socket", map[string]any{"service": map[string]any{"capabilities": []any{
+			map[string]any{"id": "x", "url": "unix://" + sock + ":/x"}, map[string]any{"id": "y", "url": "unix://" + sock + ":/y"}}}}, stOK},
+		{"service on a socket in a world-writable directory", map[string]any{"service": map[string]any{"capabilities": []any{
+			map[string]any{"id": "x", "url": "unix://" + openSock}}}}, stFail},
+		{"service on a socket that is not there", map[string]any{"service": map[string]any{"capabilities": []any{
+			map[string]any{"id": "x", "url": "unix://" + filepath.Join(private, "gone.sock")}}}}, stWarn},
+		{"A2A backend over TCP without allow_tcp", map[string]any{"a2a": map[string]any{"backends": []any{
+			map[string]any{"match": "*", "url": "http://127.0.0.1:9900"}}}}, stFail},
+		{"A2A backend on a private socket", map[string]any{"a2a": map[string]any{"backends": []any{
+			map[string]any{"match": "*", "url": "unix://" + sock}}}}, stOK},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			layout := freshInit(t)
+			b, err := os.ReadFile(layout.ConfigPath())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var m map[string]any
+			if err := json.Unmarshal(b, &m); err != nil {
+				t.Fatal(err)
+			}
+			m["modules"] = c.modules
+			b, _ = json.Marshal(m)
+			if err := os.WriteFile(layout.ConfigPath(), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			out, _ := doctorJSON(t, layout, testDoctorEnv(t))
+			var got []string
+			for _, raw := range out["checks"].([]any) {
+				ch := raw.(map[string]any)
+				if ch["id"] == "backend.transport" {
+					got = append(got, ch["status"].(string)+": "+ch["detail"].(string))
+				}
+			}
+			// One line per socket or TCP host, however many capabilities share it.
+			if len(got) != 1 || !strings.HasPrefix(got[0], c.status+": ") {
+				t.Fatalf("backend.transport checks %q, want one %s", got, c.status)
 			}
 		})
 	}

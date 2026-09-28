@@ -35,7 +35,7 @@
       "capabilities": [
         {
           "id": "docs.search",
-          "url": "http://127.0.0.1:8614/v1/docs/docs.search",
+          "url": "unix:///run/anet-official/anet-docs/backend.sock:/v1/docs/docs.search",
           "name": "Search the anet documentation",
           "description": "Keyword search over anet's public documentation as compiled into this agent (guide, architecture, A2A design, contracts, payments, install). Returns up to k (default 5, at most 10) passages with source path, line range, heading and a snippet, plus the corpus CID: the same corpus and query always give the same hits. Arguments: {\"query\": string, \"k\": int, \"source\": string (optional filter)}.",
           "tags": [
@@ -59,7 +59,7 @@
         },
         {
           "id": "docs.get",
-          "url": "http://127.0.0.1:8614/v1/docs/docs.get",
+          "url": "unix:///run/anet-official/anet-docs/backend.sock:/v1/docs/docs.get",
           "name": "Read an anet document",
           "description": "Returns lines of one document in the compiled corpus, with the document's CID and the corpus CID, up to 16 KiB per call (\"next_from\" continues). Arguments: {\"source\": path, \"from\": line, \"to\": line}, lines 1-based and inclusive. Without \"source\" it lists the documents.",
           "tags": [

@@ -8,13 +8,15 @@
 
 ## 1. 五个身份
 
-| 代号 | 身份 | 归属 hub | 后端组 | 能力 | 后端端口 | 控制口 | 构建档 |
-|---|---|---|---|---|---|---|---|
-| A1 | `anet-echo-e` | emax `https://hub.agentnetwork.org.cn` | `echo` | `net.echo` | 8611 | 39821 | `anet-standard` |
-| A2 | `anet-echo-f` | fmax `http://39.107.76.243:4001` | `echo` | `net.echo` | 8612 | 39822 | `anet-standard` |
-| B | `anet-tools` | emax | `tools` | `text.stats` `text.digest` `text.diff` `json.validate` `a2a.card.validate` `a2a.x402.check` | 8613 | 39823 | `anet-standard` |
-| C | `anet-docs` | emax | `docs` | `docs.search` `docs.get` | 8614 | 39824 | `anet-standard` |
-| E | `anet-paid-demo` | emax | `paid` | `demo.digest.paid`(标价 2 credit) | 8615 | 39825 | `anet-paid` |
+| 代号 | 身份 | 归属 hub | 后端组 | 能力 | 控制口 | 构建档 |
+|---|---|---|---|---|---|---|
+| A1 | `anet-echo-e` | emax `https://hub.agentnetwork.org.cn` | `echo` | `net.echo` | 39821 | `anet-standard` |
+| A2 | `anet-echo-f` | fmax `http://39.107.76.243:4001` | `echo` | `net.echo` | 39822 | `anet-standard` |
+| B | `anet-tools` | emax | `tools` | `text.stats` `text.digest` `text.diff` `json.validate` `a2a.card.validate` `a2a.x402.check` | 39823 | `anet-standard` |
+| C | `anet-docs` | emax | `docs` | `docs.search` `docs.get` | 39824 | `anet-standard` |
+| E | `anet-paid-demo` | emax | `paid` | `demo.digest.paid`(标价 2 credit) | 39825 | `anet-paid` |
+
+每个身份的后端监听 Unix socket `/run/anet-official/<身份>/backend.sock`,不占 TCP 端口(§4)。
 
 每个身份独立:独立 AID、独立数据目录、独立卡片与证据链、独立限流预算、独立后端实例
 与令牌。付费演示单独一个身份,是因为 a2a-x402 建议付费 agent 在卡片里把扩展声明为
@@ -25,13 +27,17 @@
 - `config.json`:daemon 配置(放到 `/var/lib/anet-official/<身份>/config.json`)。
   `inbound.policy=closed`,只有 `public_capabilities` 里的能力对陌生人开放;
   `modules.service` 把这些能力挂到本机后端。
-- `backend.env`:后端实例参数 `LISTEN`、`CAP_GROUPS`(放到 `/etc/anet-official/<身份>/backend.env`)。
+- `backend.env`:后端实例参数 `LISTEN`(`unix:/run/anet-official/<身份>/backend.sock`)、`CAP_GROUPS`
+  (放到 `/etc/anet-official/<身份>/backend.env`)。
 
 `public_capabilities` 与 `modules.service` 两段由程序生成,不要手改:
 
 ```sh
-anet-official service-config -groups tools -url http://127.0.0.1:8613
+anet-official service-config -groups tools -url unix:///run/anet-official/anet-tools/backend.sock
 ```
+
+能力 URL 形如 `unix:///run/anet-official/anet-tools/backend.sock:/v1/tools/text.digest`:冒号前是 socket,
+冒号后是请求路径。
 
 能力表(名称、描述、标签、示例、参数上限、超时、建议配额、建议价格)只在
 `cmd/anet-official/caps.go` 一处定义;`cmd/anet-official` 的测试逐项比对本目录的样例与
@@ -39,7 +45,7 @@ anet-official service-config -groups tools -url http://127.0.0.1:8613
 
 ## 2. 谁能看到什么
 
-内容只出现在请求方 daemon、官方 agent 的 daemon、以及它 127.0.0.1 上的后端之间。
+内容只出现在请求方 daemon、官方 agent 的 daemon、以及它经本机 Unix socket 连接的后端之间。
 
 | 层 | 看得到 | 看不到 |
 |---|---|---|
@@ -54,7 +60,7 @@ anet-official service-config -groups tools -url http://127.0.0.1:8613
    并发、参数字节数。配额为 0 或缺省时取内核默认值(每调用方 60/分、2000/天,
    全局 1200/分,并发 16,参数 4096 字节);付费能力只写了全局与并发,按调用方的
    两项因此取默认值。超限回 `rejected` 并带 `anet.retry_after_ms`。
-3. **后端自身**:只监听回环地址、只应答回环 Host、只认本身份 daemon 的令牌;
+3. **后端自身**:只监听 Unix socket(0660,组 `anet-official-ipc`,§4)、只应答回环 Host、只认本身份 daemon 的令牌;
    每个能力有参数上限(与 `max_args_bytes` 相同)与超时;进程级并发上限 64;
    只做确定性纯计算,不执行命令、不访问网络、不读文件、不接受 URL。Go 无法中途终止一个
    计算,所以超时靠计算自己的预算兑现:模式匹配、枚举比较、大数运算、签名验证都按工作量
@@ -71,8 +77,10 @@ anet-official service-config -groups tools -url http://127.0.0.1:8613
 # 1) 二进制
 install -m 0755 anet-standard anet-paid anet-official /usr/local/bin/
 
-# 2) 专用账户(daemon 用;后端用 systemd 的 DynamicUser,不需要账户)
+# 2) 专用账户(daemon 用;后端用 systemd 的 DynamicUser,不需要账户),与后端 socket 的组
+#    (两个单元都以 SupplementaryGroups= 加入,不必把谁写进 /etc/group 的成员列表)
 useradd --system --home-dir /var/lib/anet-official --shell /usr/sbin/nologin anet-official
+groupadd --system anet-official-ipc
 
 # 3) 每个身份:令牌、后端参数、daemon 配置
 for id in anet-echo-e anet-echo-f anet-tools anet-docs anet-paid-demo; do
@@ -101,11 +109,29 @@ sudo -u anet-official env ANET_DATA_DIR=/var/lib/anet-official/anet-tools \
 `config.json` 里的 `hub_url` 与第 5 步的 hub 要一致。能力清单在 `hub-register` 那一刻
 折进注册(GUIDE §6.2),改了能力表要重新注册。
 
-## 4. 令牌
+## 4. 后端 socket 与令牌
 
-后端以每后端令牌认证 daemon(A2A-DESIGN §6、§15)。本机回环端口对本机所有进程可达,
-包括自动回复沙箱里的本地 agent;没有令牌,后端分不清 daemon 与其他进程,
-`X-ANet-Caller` 头也就谁都能写。
+**socket**(docs/notes/0030 N1)。后端不监听 TCP:回环端口谁都能占,后端重启或升级的间隙,
+同机其他用户占住它的端口,就能收到 daemon 的令牌与调用参数,并代替后端作答、让 daemon 为这份答复签回执。
+所以后端监听 `/run/anet-official/<id>/backend.sock`:
+
+- 目录是后端单元的 `RuntimeDirectory=anet-official/%i`,属于该单元的动态用户、模式 0755,位于 root 所有的
+  `/run/anet-official` 之下;后端停止时 systemd 删除它,别的账户无法在这个路径上放自己的 socket。
+- socket 由 `anet-official serve -listen unix:… -socket-group anet-official-ipc` 创建:先清理无人监听的陈旧 socket,
+  设组 `anet-official-ipc`、模式 0660。五个身份的后端与 daemon 都以 `SupplementaryGroups=anet-official-ipc` 入组
+  (共用一个组),只有它们(与 root)能连接;连上别的身份的 socket 也没有那个身份的令牌(下文)。后端单元因此不用
+  `PrivateUsers=`(用户命名空间里该组会映射为 nobody),另有 `PrivateNetwork=yes`、`RestrictAddressFamilies=AF_UNIX`,
+  完全不碰网络。设组是一次 `chown(2)`,而 systemd 的 `@privileged` 系统调用集含 `@chown`:单元在
+  `SystemCallFilter=~@privileged` 之后以 `SystemCallFilter=@chown` 放回它(没有这一行,后端启动即以
+  `chown …: operation not permitted` 退出;`cmd/anet-official` 的测试钉住)。
+- daemon 的 service 模块每建一条连接先核对:从 `/` 到 socket 的每一级只有 root、daemon 用户或 socket 的属主
+  能改动,socket 的属主就是其目录的属主;连接后用 `SO_PEERCRED` 核对监听进程的 uid 等于 socket 的属主。
+  任何一项不符都不发送,调用按 UNAVAILABLE 报告。动态用户的 uid 每次启动可能不同,所以配置里不写
+  `expected_user`。`anet doctor`(以 anet-official 运行)的 `backend.transport` 一项显示核对结果。
+- 手工探活:`curl --unix-socket /run/anet-official/<id>/backend.sock http://localhost/healthz`(root 或该组成员)。
+
+**令牌**。后端以每后端令牌认证 daemon(A2A-DESIGN §6、§15)。能打开 socket 的不只 daemon(root、同组的
+进程);没有令牌,后端分不清 daemon 与其他进程,`X-ANet-Caller` 头也就谁都能写。
 
 - 令牌文件 `/etc/anet-official/<id>/token`,root 所有、0600。两个单元都用
   `LoadCredential=token:…` 取得它:systemd 把它复制到只有该单元可读的凭据目录。
@@ -113,7 +139,7 @@ sudo -u anet-official env ANET_DATA_DIR=/var/lib/anet-official/anet-tools \
   环境变量);后端命令行写 `-token-file %d/token`。
 - 两端都要求:路径中的环境变量已设置、绝对路径、普通文件、不可被其他用户读取、
   至少 16 字节、不含空白。
-- service 模块只把令牌发往回环地址或 https 地址;请求不跟随重定向。
+- service 模块只把令牌发往 Unix socket、回环地址或 https 地址;请求不跟随重定向。
 - 后端对令牌做常数时间比较(两侧先取 SHA-256 再比),错误回 401,不说明原因;
   令牌检查在路由之前,没有令牌的请求无论路径一律 401,探不出本实例开了哪些能力。
 - 轮换:写新令牌,依次重启该身份的后端与 daemon。

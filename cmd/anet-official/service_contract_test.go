@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -60,13 +59,19 @@ func (s *syncBuffer) Reset() {
 // real anet-official server through the real service module, which sends
 // the token and the caller headers this server checks; the capabilities
 // come out described as A2A skills; and a call's answer is the backend's.
+// Over a Unix socket made the way serve makes it, as deploy/official runs
+// it: the daemon checks the socket's path and listener before it sends.
 func TestTheServiceModuleMountsThisBackend(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	tokenFile := filepath.Join(dir, "token")
 	if err := os.WriteFile(tokenFile, []byte(testToken+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	sock := filepath.Join(dir, "backend.sock")
+	ln, err := listenUnix(sock, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +81,10 @@ func TestTheServiceModuleMountsThisBackend(t *testing.T) {
 	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 
-	sc := buildServiceConfig(caps, "http://"+ln.Addr().String(), tokenFile, 0)
+	sc := buildServiceConfig(caps, "unix://"+sock, tokenFile, 0)
+	if u := sc.Modules.Service.Capabilities[0].URL; u != "unix://"+sock+":/v1/tools/text.stats" {
+		t.Fatalf("generated url %s", u)
+	}
 	raw, _ := json.Marshal(sc.Modules.Service)
 	mods, err := module.Build(map[string][]byte{"service": raw})
 	if err != nil {
@@ -131,7 +139,7 @@ func TestTheServiceModuleMountsThisBackend(t *testing.T) {
 	// A daemon holding another token gets nowhere.
 	other := filepath.Join(dir, "other")
 	_ = os.WriteFile(other, []byte("another-token-0123456789\n"), 0o600)
-	sc2 := buildServiceConfig(caps, "http://"+ln.Addr().String(), other, 0)
+	sc2 := buildServiceConfig(caps, "unix://"+sock, other, 0)
 	raw2, _ := json.Marshal(sc2.Modules.Service)
 	mods2, _ := module.Build(map[string][]byte{"service": raw2})
 	reg2 := provider.NewRegistry()

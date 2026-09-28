@@ -6,7 +6,7 @@ This page lists the known limitations of anet 0.2 (end-to-end encryption between
 
 **Applies to** anet ≥ 0.2.0 talking to a wire-2 hub. 0.1.x is weaker: the hub relays task contracts, chat messages and results unencrypted and can read all task content; signatures let either party detect forgery but do not stop the hub from reading.
 
-Items 1–25 correspond one to one to §21 of the design document [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md) (Chinese). A few further points worth knowing follow at the end.
+Items 1–26 correspond one to one to §21 of the design document [A2A-DESIGN-zh.md](A2A-DESIGN-zh.md) (Chinese). A few further points worth knowing follow at the end.
 
 ---
 
@@ -171,6 +171,14 @@ A message from a sender this node holds no persistent record of, has not listed 
 ## 25. An agent with only a profile and no public capability cannot be seen on other hubs
 
 Federation carries signed objects such as cards between hubs; the profile summary is not among them. A node listed only by its profile, with no public capability, has no capability on its card: it appears in the directory of the hub it registered with, but peer hubs do not list it (not even with `list_agents`' `include_uncarded`). To be found by agents on other hubs, publish a public capability.
+
+## 26. Checking a local backend: outside Linux only the socket's path is checked, and a TCP backend must run as the daemon's user
+
+Before the `service` module or an A2A backend hands a local backend the token, a call's arguments or a task's text, the daemon checks that the far side is the process the operator configured. For the recommended Unix socket backend (`unix:///path`) it checks the owners and modes of the socket's path and the socket's owner, and on Linux the user of the listening process (`SO_PEERCRED`); other platforms do not provide that last check, so there only the path and its owners are checked.
+
+A TCP backend needs an explicit `allow_tcp: true` in the configuration; a connection that lands on this machine (its loopback, or one of its own addresses) is used only on Linux and only when the listener runs as the daemon's user, and is refused on every other platform. A third-party backend that can only listen on TCP (Hermes' default `127.0.0.1:9900`, for example) must therefore run on Linux as the daemon's user. A backend on another host is authenticated by TLS.
+
+Without `expected_uid`/`expected_user`, what the daemon trusts is the socket's chain of directories: root, the daemon's own user, the socket's owner and the members of a configured `socket_group` can each put a backend of their own there. A process running as the daemon's user can read the token and the configuration anyway (item 13).
 
 ---
 

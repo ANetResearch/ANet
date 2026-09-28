@@ -11,9 +11,11 @@
 #   2  kernel       Admit (§5.4): max_args_bytes, per_caller_per_min, global_per_min — refused with
 #                   anet.retry_after_ms (the relay's 429), one caller's quota does not touch another's,
 #                   the global one binds everybody, and a refused call leaves no record
-#   3  backend      anet-official answers only the daemon's bearer token and checks it before it
-#                   routes (401 for every path without it); it is told the verified caller
-#                   (X-ANet-Caller = the requester's AID) and logs who, never what
+#   3  backend      anet-official listens on a Unix socket (0660, in a directory only this user can
+#                   write; the daemon checks both, and the listener, before it sends: docs/notes/0030
+#                   N1), answers only the daemon's bearer token and checks it before it routes (401
+#                   for every path without it); it is told the verified caller (X-ANet-Caller = the
+#                   requester's AID) and logs who, never what
 #   4  compute      a small input built to explode (json.validate) comes back as "budget exhausted"
 #                   within the capability's deadline, and the backend keeps serving
 #   5  evidence     the official node's chain keeps the result CID and metrics, not the result
@@ -26,9 +28,9 @@
 # settlement at the hub, result, one debit.
 #
 # Self-contained, like joint.sh: on a clean Linux host with bash, curl and python3 it gets its own
-# binaries, starts a hub (and hub admin), three anet-official backends with a daemon each, two
-# requesters, a stranger and an impostor on a loopback port block of its own, and at the end stops
-# exactly what it started — by path, never by process name.
+# binaries, starts a hub (and hub admin), three anet-official backends on Unix sockets with a daemon
+# each, two requesters, a stranger and an impostor on a loopback port block of its own, and at the end
+# stops exactly what it started — by path, never by process name.
 #
 #   J=/tmp/jo bash scripts/joint-official.sh                  build from this checkout (needs go)
 #   JOINT_BIN=DIR J=/tmp/jo bash scripts/joint-official.sh    prebuilt binaries, no go on the host
@@ -424,12 +426,19 @@ fi
 PORT_BASE=$(port_block "${JOINT_PORT_BASE:-}" 24) || die "no ports"   # lib.sh
 HUB_ADDR=127.0.0.1:$PORT_BASE; HUB_URL=http://$HUB_ADDR
 ADMIN_ADDR=127.0.0.1:$((PORT_BASE + 1))
-declare -A BACKEND_PORT=([echo]=$((PORT_BASE + 2)) [tools]=$((PORT_BASE + 3)) [paid]=$((PORT_BASE + 4)))
+# The backends listen on Unix sockets in $RUN/official (0700, this user's): the form deploy/official
+# uses and the daemon's service module checks (docs/notes/0030 N1). PORT_BASE+2..+4, their loopback
+# ports before, stay unused.
+declare -A BACKEND_SOCK=([echo]=$RUN/official/echo.sock [tools]=$RUN/official/tools.sock [paid]=$RUN/official/paid.sock)
+for g in echo tools paid; do
+  [ ${#BACKEND_SOCK[$g]} -lt 100 ] || die "J=$J is too long for a Unix socket path (${BACKEND_SOCK[$g]}); use a shorter J"
+done
 i=5
 for n in "${NODES[@]}"; do
   ADDR_OF[$n]=127.0.0.1:$((PORT_BASE + i)); HOME_OF[$n]=$RUN/$n; i=$((i + 1))
 done
-DEAD_PORT=$((PORT_BASE + 12))
+# The impostor's backend: a socket nobody listens on (PORT_BASE+12, its loopback port before, stays unused).
+DEAD_SOCK=$RUN/official/dead.sock
 ADDR_OF[o]=127.0.0.1:$((PORT_BASE + 13)); HOME_OF[o]=$RUN/o
 declare -A A2A_PORT_OF=()
 i=16
@@ -470,13 +479,13 @@ adm(){
 "$BIN/anet-official" capabilities > "$RUN/official/capabilities.json" || die "anet-official capabilities failed"
 for g in "${OFFICIAL[@]}"; do
   python3 -c 'import secrets;print(secrets.token_hex(32))' > "$RUN/official/$g.token"
-  ( cd "$RUN" && exec setsid "$BIN/anet-official" serve -listen "127.0.0.1:${BACKEND_PORT[$g]}" \
+  ( cd "$RUN" && exec setsid "$BIN/anet-official" serve -listen "unix:${BACKEND_SOCK[$g]}" \
       -token-file "$RUN/official/$g.token" -groups "$g" ) >"$RUN/backend-$g.log" 2>&1 </dev/null 9>&- &
 done
 for g in "${OFFICIAL[@]}"; do
-  for _ in $(seq 1 40); do curl -sf -m 2 "http://127.0.0.1:${BACKEND_PORT[$g]}/healthz" >/dev/null 2>&1 && break; sleep 0.25; done
-  curl -sf -m 5 "http://127.0.0.1:${BACKEND_PORT[$g]}/healthz" >/dev/null \
-    && ok "anet-official backend '$g' up on 127.0.0.1:${BACKEND_PORT[$g]}" \
+  for _ in $(seq 1 40); do curl -sf -m 2 --unix-socket "${BACKEND_SOCK[$g]}" http://localhost/healthz >/dev/null 2>&1 && break; sleep 0.25; done
+  curl -sf -m 5 --unix-socket "${BACKEND_SOCK[$g]}" http://localhost/healthz >/dev/null \
+    && ok "anet-official backend '$g' up on ${BACKEND_SOCK[$g]} (mode $(stat -c %a "${BACKEND_SOCK[$g]}" 2>/dev/null))" \
     || { no "backend '$g' down: $(tail -2 "$RUN/backend-$g.log")"; exit 1; }
 done
 # timeout_of <capability> — its timeout_ms in the backend's own capability table, the single source
@@ -496,7 +505,7 @@ official_config(){
   local n=$1
   mkdir -p "${HOME_OF[$n]}/.anet"
   pin_a2a "${HOME_OF[$n]}/.anet" "${A2A_PORT_OF[$n]}" || die "cannot pin the $n node's local A2A interface"
-  "$BIN/anet-official" service-config -groups "$n" -url "http://127.0.0.1:${BACKEND_PORT[$n]}" \
+  "$BIN/anet-official" service-config -groups "$n" -url "unix://${BACKEND_SOCK[$n]}" \
       -token-file "$RUN/official/$n.token" > "$RUN/official/$n.service.json" \
     || die "anet-official service-config -groups $n failed"
   python3 - "${HOME_OF[$n]}/.anet/config.json" "${ADDR_OF[$n]}" "${NAME_OF[$n]}" \
@@ -538,13 +547,13 @@ fresh_config(){
 for n in a b s imp; do fresh_config "$n"; done
 # The impostor offers text.digest under the tools agent's name, from a backend that does not exist:
 # all it wants is to be listed as anet-tools.
-python3 - "${HOME_OF[imp]}/.anet/config.json" "$DEAD_PORT" <<'PY'
+python3 - "${HOME_OF[imp]}/.anet/config.json" "$DEAD_SOCK" <<'PY'
 import json, sys
-path, port = sys.argv[1], sys.argv[2]
+path, sock = sys.argv[1], sys.argv[2]
 c = json.load(open(path))
 c.setdefault("inbound", {})["public_capabilities"] = [{"id": "text.digest"}]
 c["modules"] = {"service": {"capabilities": [{
-    "id": "text.digest", "url": "http://127.0.0.1:%s/v1/tools/text.digest" % port,
+    "id": "text.digest", "url": "unix://%s:/v1/tools/text.digest" % sock,
     "name": "Text digest", "description": "Hashes text. The official anet tools agent."}]}}
 json.dump(c, open(path, "w"), indent=1)
 PY
@@ -769,11 +778,16 @@ r = json.load(sys.stdin).get("receive") or {}
 print(", ".join("%s=%s" % (k, v) for k, v in sorted(r.items()) if k.startswith("refused-")))')"
 
 hd "3/8  the backend — its daemon's token, checked before anything is routed"
-# The backend listens on loopback, where every process on the host can reach it (§6: the auto-reply
-# sandbox included). Without the token it must answer every path alike, so its routes cannot be probed,
-# and it must not be told who the caller is by anything but the daemon.
-EB=http://127.0.0.1:${BACKEND_PORT[echo]}
-code(){ curl -s -o /dev/null -w '%{http_code}' -m 10 "$@"; }
+# The backend listens on a Unix socket that only this user (and, in deploy/official, the socket's
+# group) can open; the daemon checked the socket's directory and the listener before 1/8 sent it
+# anything. Whatever can open it — another process of the same user, the auto-reply agent (§6) — must
+# still present the token: without it every path answers alike, so its routes cannot be probed, and it
+# must not be told who the caller is by anything but the daemon.
+S=$(stat -c %a "${BACKEND_SOCK[echo]}" 2>/dev/null); D=$(stat -c %a "$RUN/official" 2>/dev/null)
+[ "$S" = 660 ] && [ "$D" = 700 ] && ok "the echo backend's socket is 0660, in a directory only this user can write (0700)" \
+  || no "the echo backend's socket is ${S:-?}, its directory ${D:-?} (expected 660 and 700)"
+EB=http://localhost
+code(){ curl -s -o /dev/null -w '%{http_code}' -m 10 --unix-socket "${BACKEND_SOCK[echo]}" "$@"; }
 C1=$(code -X POST -H 'Content-Type: application/json' -H "X-ANet-Caller: ${AID_OF[a]}" -d '{"x":1}' "$EB/v1/echo/net.echo")
 [ "$C1" = 401 ] && ok "no token, with a caller header written by hand: 401" || no "no token: $C1, expected 401"
 printf 'Authorization: Bearer %s\n' "$(rand)$(rand)" > "$RUN/wrong.hdr"

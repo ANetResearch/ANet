@@ -7,11 +7,20 @@ package a2a
 // A2A answering work that arrives over the network.
 //
 //	"modules": {"a2a": {"backends": [{
-//	    "match": "*", "url": "http://127.0.0.1:9900",
+//	    "match": "*", "url": "unix:///run/my-agent/a2a.sock",
 //	    "token_file": "/path/to/token", "accept_untrusted": false, "toolless": false}]}}
 //
 // The rules, all of them about who may reach a local agent:
 //
+//   - The backend is checked before a task's text or the token is written
+//     to it (docs/notes/0030 N1, internal/backendconn). A unix:// URL — the
+//     recommended form — is a socket whose path only trusted accounts can
+//     change and, on Linux, whose listener is the socket's owner or the
+//     account expected_uid/expected_user names. An http(s) URL needs
+//     allow_tcp: true, for a backend that can only listen on TCP (Hermes'
+//     default 127.0.0.1:9900), and a listener on loopback must then run as
+//     this daemon's user: one another local user took while the backend
+//     was down gets nothing.
 //   - Only text tasks the kernel has accepted, and only from peers on the
 //     trust list, are forwarded; everything else stays in the inbox for
 //     the operator (MCP reply_task, the CLI).
@@ -64,6 +73,7 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/backendconn"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -76,7 +86,9 @@ type Backend struct {
 	Match string `json:"match"`
 	// URL is where the backend's agent card is: a URL with no path (the
 	// card is then read from /.well-known/agent-card.json) or the card's own
-	// URL. http only on loopback; https anywhere. The interfaces the card
+	// URL. unix:///path/to/socket[:/card/path] (recommended; every call goes
+	// to that socket, whatever host the card's interfaces name), or, with
+	// allow_tcp, http on loopback or https anywhere. The interfaces the card
 	// names are held to the same rule.
 	URL string `json:"url"`
 	// TokenFile holds the bearer token the daemon presents to the backend,
@@ -89,6 +101,9 @@ type Backend struct {
 	// it cannot run commands, read files or reach the network on a task's
 	// behalf.
 	Toolless bool `json:"toolless,omitempty"`
+	// Policy: allow_tcp, expected_uid/expected_user, socket_group — who
+	// may be on the far side of URL (internal/backendconn).
+	backendconn.Policy
 }
 
 func (c Config) validate() error {
@@ -103,7 +118,7 @@ func (c Config) validate() error {
 			return fmt.Errorf("%s: a second backend for match %q", where, m)
 		}
 		seen[m] = true
-		if err := checkBackendURL(b.URL); err != nil {
+		if _, _, err := b.target(); err != nil {
 			return fmt.Errorf("%s: %w", where, err)
 		}
 		if b.AcceptUntrusted && !b.Toolless {
@@ -132,6 +147,28 @@ func (c Config) forwardsText() bool {
 		}
 	}
 	return false
+}
+
+// target parses the backend's URL and policy: a socket, or with allow_tcp
+// an http(s) URL that passes checkBackendURL.
+func (b Backend) target() (backendconn.Target, backendconn.Rules, error) {
+	rules, err := b.Policy.Resolve()
+	if err != nil {
+		return backendconn.Target{}, rules, err
+	}
+	t, err := backendconn.Parse(b.URL)
+	if err != nil {
+		return t, rules, err
+	}
+	if err := rules.Admit(t); err != nil {
+		return t, rules, err
+	}
+	if !t.Unix() {
+		if err := checkBackendURL(b.URL); err != nil {
+			return t, rules, err
+		}
+	}
+	return t, rules, nil
 }
 
 // checkBackendURL accepts http on a loopback host, or https: a task's text
@@ -181,7 +218,14 @@ func (m *Module) startBackends(ctx context.Context, h module.Host) error {
 	f := &forwarder{host: h, in: in, remote: map[string]string{}, busy: map[string]bool{}, pending: map[string]module.Task{},
 		timeout: backendTimeout, sem: make(chan struct{}, maxForwards)}
 	for _, b := range m.cfg.Backends {
-		bc := &backendClient{cfg: b}
+		t, rules, err := b.target()
+		if err != nil { // checked by New; kept for a Module made otherwise
+			return fmt.Errorf("a2a: backend %s: %w", b.URL, err)
+		}
+		bc := &backendClient{cfg: b, target: t, http: rules.Client(t, 0)}
+		if !t.Unix() {
+			log.Printf("anet: a2a: backend %s is reached over TCP (allow_tcp); a Unix socket (unix:///path) is the recommended form", b.URL)
+		}
 		if b.TokenFile != "" {
 			tok, err := os.ReadFile(b.TokenFile)
 			if err != nil {
@@ -489,20 +533,19 @@ func replyFrom(res a2a.SendMessageResult) (a2ashape.Message, a2ashape.TaskState,
 // backendClient is one backend and its A2A client, made from the
 // backend's card on first use and again after a failure.
 type backendClient struct {
-	cfg   Backend
+	cfg    Backend
+	target backendconn.Target
+	// http checks the far side of every connection before it is used
+	// (backendconn.Rules.Client). It has no overall timeout: a forward's
+	// context bounds each call. It follows no redirect: every request
+	// carries the backend's token and a task's text, and a redirect would
+	// take both somewhere the url rule (checkBackendURL) never looked at —
+	// https to plain http on the same host keeps the Authorization header.
+	http  *http.Client
 	token string
 
 	mu     sync.Mutex
 	client *a2aclient.Client
-}
-
-// backendHTTP has no overall timeout: a forward's context bounds each call.
-// It follows no redirect: every request carries the backend's token and a
-// task's text, and a redirect would take both somewhere the url rule
-// (checkBackendURL) never looked at — https to plain http on the same host
-// keeps the Authorization header.
-var backendHTTP = &http.Client{
-	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 }
 
 func (b *backendClient) get(ctx context.Context) (*a2aclient.Client, error) {
@@ -515,15 +558,17 @@ func (b *backendClient) get(ctx context.Context) (*a2aclient.Client, error) {
 	if b.token != "" {
 		opts = append(opts, agentcard.WithRequestHeader("Authorization", "Bearer "+b.token))
 	}
-	card, err := (&agentcard.Resolver{Client: backendHTTP}).Resolve(ctx, b.cfg.URL, opts...)
+	// For a socket the card is read at http://localhost/<path>; the client
+	// dials the socket whatever the host.
+	card, err := (&agentcard.Resolver{Client: b.http}).Resolve(ctx, b.target.URL.String(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("card: %w", err)
 	}
-	if err := restrictInterfaces(card); err != nil {
+	if err := restrictInterfaces(card, b.target); err != nil {
 		return nil, err
 	}
 	cl, err := a2aclient.NewFromCard(ctx, card,
-		a2aclient.WithJSONRPCTransport(backendHTTP), a2aclient.WithRESTTransport(backendHTTP),
+		a2aclient.WithJSONRPCTransport(b.http), a2aclient.WithRESTTransport(b.http),
 		a2aclient.WithCallInterceptors(bearer{token: b.token}))
 	if err != nil {
 		return nil, err
@@ -537,14 +582,39 @@ func (b *backendClient) get(ctx context.Context) (*a2aclient.Client, error) {
 // that rule, but the calls go to the URLs the card names, and the card is
 // the backend's own word — an interface in the clear off this machine would
 // receive the task's text and the token, so it is dropped, not used.
-func restrictInterfaces(card *a2a.AgentCard) error {
+//
+// For a socket backend every connection goes to the configured socket, so
+// an http interface is kept whatever host it names (that host is only a
+// label), a unix:// interface on the same socket is rewritten to the path
+// it names, and everything else is dropped.
+func restrictInterfaces(card *a2a.AgentCard, t backendconn.Target) error {
 	var keep []*a2a.AgentInterface
 	for _, i := range card.SupportedInterfaces {
-		if i != nil && checkBackendURL(i.URL) == nil {
+		if i == nil {
+			continue
+		}
+		if !t.Unix() {
+			if !strings.HasPrefix(i.URL, backendconn.SchemeUnix+":") && checkBackendURL(i.URL) == nil {
+				keep = append(keep, i)
+			}
+			continue
+		}
+		if it, err := backendconn.Parse(i.URL); err == nil && it.Unix() {
+			if it.Socket == t.Socket {
+				c := *i
+				c.URL = it.URL.String()
+				keep = append(keep, &c)
+			}
+			continue
+		}
+		if u, err := url.Parse(i.URL); err == nil && u.Scheme == "http" && u.Host != "" && u.User == nil {
 			keep = append(keep, i)
 		}
 	}
 	if len(keep) == 0 {
+		if t.Unix() {
+			return errors.New("card: no interface this node sends tasks to (a socket backend's card names http:// or its own unix:// socket)")
+		}
 		return errors.New("card: no interface this node sends tasks to (plain http only on a loopback host; https)")
 	}
 	card.SupportedInterfaces = keep

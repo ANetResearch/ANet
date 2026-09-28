@@ -39,12 +39,28 @@
 // (A2A-DESIGN §6). Without it the service cannot tell the daemon from
 // anything else that can open a loopback socket, and X-ANet-Caller would be
 // a header anyone could write.
+//
+// The token proves the daemon to the service; nothing on a loopback port
+// proves the service to the daemon. While a service is down, another local
+// user can take its port and receive the next call — the token, the
+// caller's arguments — and answer in its place (docs/notes/0030 N1). So a
+// service lives on a Unix domain socket, the recommended and default form:
+//
+//	"url": "unix:///run/my-svc/backend.sock:/digest"
+//
+// and every connection is checked before anything is written to it: the
+// socket's path must be one only trusted accounts can change, and on Linux
+// the process listening on it must be the socket's owner, or the account
+// expected_uid/expected_user names (internal/backendconn). An http(s) URL
+// needs allow_tcp: true, and a listener on loopback must then run as this
+// daemon's user.
 package service
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -60,6 +76,7 @@ import (
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/backendconn"
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -78,17 +95,26 @@ func init() {
 		if len(cfg.Capabilities) == 0 {
 			return nil, fmt.Errorf("service: no capabilities declared")
 		}
-		if err := cfg.check(); err != nil {
+		rules, err := cfg.check()
+		if err != nil {
 			return nil, err
 		}
-		return &Module{cfg: cfg}, nil
+		return &Module{cfg: cfg, rules: rules}, nil
 	})
 }
 
 // check refuses a configuration before the node advertises anything from
 // it. Every limit here is one the card or the transport would otherwise
 // enforce later, where the failure is harder to trace back to this file.
-func (cfg *Config) check() error {
+func (cfg *Config) check() (backendconn.Rules, error) {
+	rules, err := cfg.Policy.Resolve()
+	if err != nil {
+		return rules, fmt.Errorf("service: %w", err)
+	}
+	return rules, cfg.checkCaps(rules)
+}
+
+func (cfg *Config) checkCaps(rules backendconn.Rules) error {
 	if cfg.TimeoutMS < 0 {
 		return fmt.Errorf("service: timeout_ms must not be negative")
 	}
@@ -106,10 +132,14 @@ func (cfg *Config) check() error {
 			return fmt.Errorf("service: capability %q declared twice", c.ID)
 		}
 		seen[c.ID] = true
-		u, err := url.Parse(c.URL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return fmt.Errorf("service: capability %q: url %q is not an http(s) URL", c.ID, c.URL)
+		target, err := backendconn.Parse(c.URL)
+		if err != nil {
+			return fmt.Errorf("service: capability %q: %w", c.ID, err)
 		}
+		if err := rules.Admit(target); err != nil {
+			return fmt.Errorf("service: capability %q: %w", c.ID, err)
+		}
+		u := target.URL
 		if c.TimeoutMS < 0 {
 			return fmt.Errorf("service: capability %q: timeout_ms must not be negative", c.ID)
 		}
@@ -119,9 +149,9 @@ func (cfg *Config) check() error {
 			}
 		}
 		// A bearer token sent in cleartext to another host is a token given
-		// to every hop on the way. Loopback never leaves the machine; any
-		// other host is reached over https or not with a token.
-		if cfg.tokenFileFor(&cfg.Capabilities[i]) != "" && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
+		// to every hop on the way. A socket and loopback never leave the
+		// machine; any other host is reached over https or not with a token.
+		if cfg.tokenFileFor(&cfg.Capabilities[i]) != "" && !target.Unix() && u.Scheme == "http" && !isLoopbackHost(u.Hostname()) {
 			return fmt.Errorf("service: capability %q: a token is only sent over https or to a loopback address, not to %s", c.ID, u.Host)
 		}
 		if len(c.Name) > provider.MaxSkillNameBytes {
@@ -147,6 +177,13 @@ func (cfg *Config) check() error {
 // Config lists what this node offers and where each one lives.
 type Config struct {
 	Capabilities []Capability `json:"capabilities"`
+	// Policy says who may be on the far side of the capabilities' URLs:
+	// allow_tcp (http(s) URLs are refused without it), expected_uid or
+	// expected_user (the account the services run as; by default the
+	// owner of the socket file), socket_group (a group trusted to write
+	// the sockets' directory). It applies to every capability of the
+	// module (internal/backendconn).
+	backendconn.Policy
 	// TimeoutMS bounds one call. A capability that hangs holds a
 	// delegation open, and the requester is waiting on the other side of a
 	// hub. A capability's own timeout_ms overrides it.
@@ -162,7 +199,9 @@ type Config struct {
 	TokenFile string `json:"token_file,omitempty"`
 }
 
-// Capability is one offering: an id the network calls, and a URL behind it.
+// Capability is one offering: an id the network calls, and a URL behind it:
+// unix:///path/to/socket[:/request/path] (recommended), or http(s)://… with
+// the module's allow_tcp.
 type Capability struct {
 	ID  string `json:"id"`
 	URL string `json:"url"`
@@ -223,24 +262,53 @@ func (cfg *Config) timeoutFor(c *Capability) (time.Duration, bool) {
 
 // Module registers the declared capabilities.
 type Module struct {
-	cfg Config
-	cli *http.Client
+	cfg   Config
+	rules backendconn.Rules
+	// backends maps a capability id to where its calls go and the client
+	// that checks the far side before sending them.
+	backends map[string]backend
 	// tokens maps a capability id to the bearer token sent with its calls;
 	// a capability without a token_file is absent.
 	tokens map[string]string
 }
 
+// backend is where one capability's calls go.
+type backend struct {
+	url  string // the request URL: the configured one, or http://localhost/<path> for a socket
+	cli  *http.Client
+	unix bool // a unix:// capability: why it cannot be reached names this host's paths
+}
+
 func (m *Module) Name() string { return name }
 
 func (m *Module) Start(ctx context.Context, h module.Host) error {
-	// Each call carries its own deadline (timeoutFor), so the client has
+	// Each call carries its own deadline (timeoutFor), so the clients have
 	// none: one client-wide bound would be the shortest or the longest
-	// capability's, and wrong for the others.
-	m.cli = &http.Client{
-		// A redirect would resend the call, headers and all, to a URL the
-		// operator did not configure. The service answers where it was
-		// told to live, or the call fails and says so.
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	// capability's, and wrong for the others. The clients follow no
+	// redirect: a redirect would resend the call, headers and all, to a URL
+	// the operator did not configure. One client per socket (and one for
+	// TCP) keeps connections pooled.
+	m.backends = map[string]backend{}
+	clients := map[string]*http.Client{}
+	for i := range m.cfg.Capabilities {
+		c := &m.cfg.Capabilities[i]
+		t, err := backendconn.Parse(c.URL)
+		if err != nil { // checked at build; kept for a Module made otherwise
+			return fmt.Errorf("service: capability %q: %w", c.ID, err)
+		}
+		key := "tcp"
+		if t.Unix() {
+			key = "unix:" + t.Socket
+		}
+		cli, ok := clients[key]
+		if !ok {
+			cli = m.rules.Client(t, 0)
+			clients[key] = cli
+		}
+		m.backends[c.ID] = backend{url: t.URL.String(), cli: cli, unix: t.Unix()}
+		if !t.Unix() {
+			log.Printf("service: %s is reached over TCP (%s, allow_tcp); a Unix socket (unix:///path) is the recommended form", c.ID, c.URL)
+		}
 	}
 	m.tokens = map[string]string{}
 	read := map[string]string{}
@@ -248,7 +316,9 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 		c := &m.cfg.Capabilities[i]
 		f := m.cfg.tokenFileFor(c)
 		if f == "" {
-			if isLoopbackURL(c.URL) {
+			if strings.HasPrefix(c.URL, backendconn.SchemeUnix+"://") {
+				log.Printf("service: %s has no token_file; any process that can open the socket of %s can call it directly", c.ID, c.URL)
+			} else if isLoopbackURL(c.URL) {
 				log.Printf("service: %s has no token_file; any process on this host can call %s directly", c.ID, c.URL)
 			}
 			continue
@@ -398,7 +468,11 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 	to, _ := p.m.cfg.timeoutFor(target)
 	ctx, cancel := context.WithTimeout(ctx, to)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target.URL, bytes.NewReader(body))
+	be, ok := p.m.backends[target.ID]
+	if !ok {
+		return effect.Effect{}, fmt.Errorf("service: capability %q was not started", target.ID)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, be.url, bytes.NewReader(body))
 	if err != nil {
 		return effect.Effect{}, err
 	}
@@ -427,7 +501,7 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 	req, sent := provider.TrackSent(req)
 
 	started := time.Now()
-	resp, err := p.m.cli.Do(req)
+	resp, err := be.cli.Do(req)
 	if err != nil {
 		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability,
 			LatencyMS: time.Since(started).Milliseconds()}
@@ -440,13 +514,29 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 			return effect.Effect{Status: effect.Unverified, Evidence: ev},
 				fmt.Errorf("service %s: %w", call.Capability, provider.AnswerLost(err))
 		}
-		// The service could not be reached: no connection, or it broke
-		// before the request was written. UNAVAILABLE, not FAILED: nothing
-		// was attempted at the far end, and a requester deciding whether
-		// to retry elsewhere needs that distinction.
+		// The service could not be reached: no connection, a far side that
+		// failed the checks (backendconn.ErrRefused: nothing was written to
+		// it), or it broke before the request was written. UNAVAILABLE, not
+		// FAILED: nothing was attempted at the far end, and a requester
+		// deciding whether to retry elsewhere needs that distinction.
+		msg := fmt.Sprintf("service %s: %v", call.Capability, err)
+		switch {
+		case errors.Is(err, backendconn.ErrRefused):
+			// Why it was refused names this host's paths and accounts; the
+			// operator reads it here, the caller learns only that nothing
+			// was sent.
+			log.Printf("service: %s: %v", call.Capability, err)
+			msg = fmt.Sprintf("service %s: the backend did not pass this node's checks; nothing was sent to it", call.Capability)
+		case be.unix:
+			// A socket that is missing or not listened on: the error names
+			// its path (a directory, often an account's), which is the
+			// operator's to read, not the caller's.
+			log.Printf("service: %s: %v", call.Capability, err)
+			msg = fmt.Sprintf("service %s: the backend cannot be reached (is the backend running?); nothing was sent to it", call.Capability)
+		}
 		return effect.Effect{
 			Status:   effect.Unavailable,
-			Message:  fmt.Sprintf("service %s: %v", call.Capability, err),
+			Message:  msg,
 			Evidence: ev,
 		}, nil
 	}

@@ -7,6 +7,12 @@
 # deploy/official/%i/config.json; its token_file names the systemd
 # credential below. See deploy/official/README.md.
 #
+# The service module reaches the backend on its Unix socket,
+# /run/anet-official/%i/backend.sock (mode 0660, group anet-official-ipc):
+# SupplementaryGroups= below puts this unit in that group, as the backend
+# units are (docs/notes/0030 N1); the group is shared by every official
+# identity, and each backend still answers only its own daemon's token.
+#
 # The binary is the anet-standard build (docs/DISTRIBUTIONS-zh.md: service,
 # no x402, no MCP, no public listener). anet-paid-demo needs anet-paid (x402
 # compiled in, voucher_addr left unset so no public port opens): add a
@@ -24,6 +30,7 @@ After=network-online.target anet-official-backend@%i.service
 Type=simple
 User=anet-official
 Group=anet-official
+SupplementaryGroups=anet-official-ipc
 StateDirectory=anet-official/%i
 StateDirectoryMode=0700
 Environment=ANET_DATA_DIR=/var/lib/anet-official/%i
