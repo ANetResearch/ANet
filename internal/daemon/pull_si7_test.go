@@ -188,3 +188,54 @@ func TestPullOutDirIsNotRedirectedBySwappingAComponent(t *testing.T) {
 	}
 	t.Logf("%d pulls under a swap race, %d files written, none redirected", pulls, wrote)
 }
+
+// Opening out_dir without following links must not cost the pulls that worked before: a directory on the
+// way that this user may search but not list (0711 homes that let others reach one shared folder, say)
+// is passed through, as a path lookup passes through it.
+func TestPullOutDirBeneathASearchOnlyDirectory(t *testing.T) {
+	top := t.TempDir()
+	gate := filepath.Join(top, "gate")
+	out := filepath.Join(gate, "shared", "out")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(gate, 0o311); err != nil { // search (and write) without read, for this user too
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(gate, 0o755) })
+	if _, err := os.ReadDir(gate); err == nil {
+		t.Skip("running with privileges that ignore directory read permission")
+	}
+	for _, dir := range []string{out, filepath.Join(out, "not", "yet")} {
+		res, err := pullInto(dir, "ix_gate_0001", []*interactions.Attachment{pullAtt("a.txt", []byte("peer"))})
+		if err != nil {
+			t.Fatalf("pull into %s: %v", dir, err)
+		}
+		if b, err := os.ReadFile(res[0].Path); err != nil || string(b) != "peer" {
+			t.Fatalf("%s: %q %v", res[0].Path, b, err)
+		}
+	}
+}
+
+// walkDir — the open used where the kernel cannot name an open directory — follows no link on the way.
+func TestWalkDirFollowsNoLink(t *testing.T) {
+	top := t.TempDir()
+	real := filepath.Join(top, "a", "b")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := walkDir(real)
+	if err != nil {
+		t.Fatalf("a plain path: %v", err)
+	}
+	r.Close()
+	if err := os.Symlink(filepath.Join(top, "a"), filepath.Join(top, "l")); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := walkDir(filepath.Join(top, "l", "b")); err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		if r != nil {
+			r.Close()
+		}
+		t.Fatalf("through a link: %v", err)
+	}
+}

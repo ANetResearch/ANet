@@ -281,24 +281,40 @@ func pullInto(real, interactionID string, atts []*interactions.Attachment) ([]Pu
 }
 
 // openOutDir opens the out_dir real — absolute, and resolved through symbolic links when it was checked
-// (checkPullOutDir) — one component at a time from the root, creating the components that do not exist,
-// and following none as a symbolic link (openDirIn). Opening real by path, os.OpenRoot included, would
-// follow a component another local user swapped for a link since the check: out_dir may lie in a
-// directory they can write, and the link can point anywhere the check excluded, the data dir included
-// [redteam:F20]. A component that is a link now was not one when real was resolved, so it is refused.
+// (checkPullOutDir) — so that what is opened is what was checked, and creates what of it does not exist
+// yet relative to what does. Opening real by path, os.OpenRoot included, would follow a component another
+// local user swapped for a link since the check: out_dir may lie in a directory they can write, and the
+// link can point anywhere the check excluded, the data dir included [redteam:F20].
+//
+// The deepest existing directory is opened by openExistingDir, which makes sure it is the directory real
+// names (on Linux from the kernel's own name for the open directory, which needs no read permission on
+// the directories above it; elsewhere by walking it one component at a time, following none as a link).
+// Each missing component is then made and opened relative to its parent, refusing a link there too.
 func openOutDir(real string) (*os.Root, error) {
 	if !filepath.IsAbs(real) {
 		return nil, fmt.Errorf("%w %q is not an absolute path", errPullOutDir, real)
 	}
-	cur, err := os.OpenRoot(string(filepath.Separator))
-	if err != nil {
-		return nil, err
-	}
-	walked := string(filepath.Separator)
-	for _, c := range strings.Split(filepath.Clean(real), string(filepath.Separator)) {
-		if c == "" {
-			continue
+	real = filepath.Clean(real)
+	existing, missing := real, []string(nil)
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
 		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			break
+		}
+		missing = append([]string{filepath.Base(existing)}, missing...)
+		existing = parent
+	}
+	cur, err := openExistingDir(existing)
+	if err != nil {
+		return nil, fmt.Errorf("pull: out_dir %s: %w; refusing to write into it", real, err)
+	}
+	walked := existing
+	for _, c := range missing {
 		walked = filepath.Join(walked, c)
 		next, _, err := openDirIn(cur, c, 0o755)
 		cur.Close()
@@ -310,12 +326,38 @@ func openOutDir(real string) (*os.Root, error) {
 	return cur, nil
 }
 
-// openDirIn opens the directory name in parent, creating it with mode when it does not exist, and returns
+// walkDir opens the existing directory p — absolute, clean and free of symbolic links when it was
+// resolved — one component at a time from the root, following none as a link (openDirIn). It needs read
+// permission on every directory on the way.
+func walkDir(p string) (*os.Root, error) {
+	cur, err := os.OpenRoot(string(filepath.Separator))
+	if err != nil {
+		return nil, err
+	}
+	walked := string(filepath.Separator)
+	for _, c := range strings.Split(p, string(filepath.Separator)) {
+		if c == "" {
+			continue
+		}
+		walked = filepath.Join(walked, c)
+		next, _, err := openDirIn(cur, c, 0)
+		cur.Close()
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", walked, err)
+		}
+		cur = next
+	}
+	return cur, nil
+}
+
+// openDirIn opens the directory name in parent, creating it with mode (unless 0) when it does not exist, and returns
 // it with what it is. It refuses a symbolic link, and an entry replaced between being inspected and being
 // opened: the opened directory must be the file inspected, so nothing is followed.
 func openDirIn(parent *os.Root, name string, mode fs.FileMode) (*os.Root, fs.FileInfo, error) {
-	if err := parent.Mkdir(name, mode); err != nil && !errors.Is(err, fs.ErrExist) {
-		return nil, nil, err
+	if mode != 0 {
+		if err := parent.Mkdir(name, mode); err != nil && !errors.Is(err, fs.ErrExist) {
+			return nil, nil, err
+		}
 	}
 	seen, err := parent.Lstat(name)
 	if err != nil {
