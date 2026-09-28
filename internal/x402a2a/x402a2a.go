@@ -119,6 +119,7 @@ const (
 	ReasonPayerMismatch            = "payer_mismatch"             // signed by someone other than the requester
 	ReasonClientPayloadUnsupported = "client_payload_unsupported" // a local client sent its own payload (§8.7)
 	ReasonOptionNotOffered         = "option_not_offered"         // the chosen option is not a quoted one (§8.7)
+	ReasonRailNotPayable           = "rail_not_payable"           // the chosen option settles where this node holds no credit (§8.7, 0017 Q28)
 	ReasonProviderBusy             = "provider_busy"              // no long-call slot; nothing was settled
 	ReasonNeedsOperatorApproval    = "needs_operator_approval"    // the quote is above the automatic tier
 	// ReasonExtensionNotActivated: a local client that did not activate

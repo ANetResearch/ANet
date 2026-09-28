@@ -1018,7 +1018,13 @@ func (d *Daemon) PaymentStatusMeta(ix *interactions.Interaction) map[string]any 
 	out[x402a2a.KeyReceipts] = receiptList(ix)
 	if (ix.PayState == interactions.PayRequired || ix.PayState == interactions.PayFailed) && !ix.IsTerminal() &&
 		len(ix.PayRequired) > 0 {
-		out[x402a2a.KeyRequired] = json.RawMessage(ix.PayRequired)
+		required := json.RawMessage(ix.PayRequired)
+		if ix.Role == interactions.RoleOutbound {
+			// This node is the local client's signing service: the options
+			// it can pay come first (0017 Q28).
+			required = payableFirst(ix.PayRequired, d.knownHomeNetwork())
+		}
+		out[x402a2a.KeyRequired] = required
 		out[x402a2a.KeyQuoteExpiresAt] = ix.QuoteExpiresAt
 	}
 	if ix.PayState == interactions.PayFailed {
@@ -1295,6 +1301,16 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 	if opt == nil || opt.Scheme != payment.SchemeCredit {
 		return refuse(x402a2a.ReasonOptionNotOffered)
 	}
+	// 0017 Q28: an option on a ledger this node holds no credit on is not
+	// one it can pay. Signed anyway, the authorization could only be
+	// refused by that ledger's hub (unknown_payer, insufficient funds) —
+	// or sit there as a signature over money this node does not have.
+	// Refused before anything is signed, saying which options it can pay.
+	// When the home ledger cannot be learned now, the hub decides.
+	if home := p.HomeNetwork(); home != "" && opt.Network != home {
+		out.Message = railNotPayableText(opt.Network, home, pr.Accepts)
+		return refuse(x402a2a.ReasonRailNotPayable)
+	}
 	if opt.PayTo != ix.PeerAID {
 		// A receipt is checked against the peer as payee; a payment to
 		// anyone else could never be shown to have paid for this task.
@@ -1438,6 +1454,92 @@ func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.I
 		log.Printf("anet: %s: payment message queued for delivery (%v)", ix.ID, err)
 	}
 	return nil
+}
+
+// railNotPayableText says why an option on network chosen cannot be paid
+// here and which of the quoted options can: those on home, the ledger this
+// node's credit is on. The options are the provider's, so they are made
+// plain before they become text a model reads.
+func railNotPayableText(chosen, home string, accepts []payment.PaymentOption) string {
+	var can []string
+	for _, o := range accepts {
+		if o.Scheme == payment.SchemeCredit && o.Network == home {
+			can = append(can, fmt.Sprintf("%s %s to %s on %s", plainText(o.Amount, 40), plainText(o.Asset, 40),
+				plainText(o.PayTo, 256), plainText(o.Network, 256)))
+		}
+	}
+	s := fmt.Sprintf("the chosen option settles on %s, where this node holds no credit; it pays on %s",
+		plainText(chosen, 256), plainText(home, 256))
+	if len(can) == 0 {
+		return s + ", and none of the quoted options is on it, so this node cannot pay this quote. Nothing was signed or sent."
+	}
+	return s + ". Options it can pay (first in x402.payment.required.accepts): " + strings.Join(can, "; ") +
+		". Nothing was signed or sent."
+}
+
+// payableFirst is a stored PaymentRequired with its accepts in the order
+// this node can pay them (0017 Q28): the options on home, the ledger its
+// credit is on, first, the rest after, each in its quoted order. Every
+// option is as the provider quoted it — a local client copies one out and
+// PayTask compares it with the stored quote field for field — and nothing
+// else changes. Unchanged when home is unknown or the quote unreadable.
+func payableFirst(required []byte, home string) json.RawMessage {
+	if home == "" {
+		return required
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(required, &top) != nil {
+		return required
+	}
+	var accepts []json.RawMessage
+	if json.Unmarshal(top["accepts"], &accepts) != nil || len(accepts) < 2 {
+		return required
+	}
+	var pay, rest []json.RawMessage
+	for _, a := range accepts {
+		var o struct {
+			Scheme  string `json:"scheme"`
+			Network string `json:"network"`
+		}
+		if json.Unmarshal(a, &o) == nil && o.Scheme == payment.SchemeCredit && o.Network == home {
+			pay = append(pay, a)
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	if len(pay) == 0 || len(rest) == 0 {
+		return required
+	}
+	b, err := json.Marshal(append(pay, rest...))
+	if err != nil {
+		return required
+	}
+	top["accepts"] = b
+	out, err := json.Marshal(top)
+	if err != nil {
+		return required
+	}
+	return out
+}
+
+// knownHomeNetwork is the ledger this node's credit is on when its hub's
+// identity is already known here, "" otherwise. It never asks the hub: a
+// task view must not wait on the network.
+func (d *Daemon) knownHomeNetwork() string {
+	if d.payer() == nil {
+		return ""
+	}
+	key := strings.TrimRight(strings.TrimSpace(d.config().HubURL), "/")
+	if key == "" {
+		return ""
+	}
+	d.hubIDMu.Lock()
+	h, ok := d.hubIDs[key]
+	d.hubIDMu.Unlock()
+	if !ok || h.aid == "" {
+		return ""
+	}
+	return payment.CreditNetwork(h.aid)
 }
 
 // reusablePayment returns the authorization this node last sent for the

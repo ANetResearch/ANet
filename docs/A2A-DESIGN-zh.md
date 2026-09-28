@@ -505,7 +505,7 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 | `duplicate_nonce`、`duplicate_binding` | `DUPLICATE_NONCE` |
 | `network_mismatch` | `NETWORK_MISMATCH` |
 | `invalid_amount` | `INVALID_AMOUNT` |
-| `payee_mismatch`、`unsupported_scheme`、`unknown_payer`、`settlement_failed`、绑定不符、无待付报价、客户端自带 payload | `SETTLEMENT_FAILED`,原始原因放入 `anet.reason` |
+| `payee_mismatch`、`unsupported_scheme`、`unknown_payer`、`settlement_failed`、绑定不符、无待付报价、客户端自带 payload、所选项不可付(`rail_not_payable`,Q28) | `SETTLEMENT_FAILED`,原始原因放入 `anet.reason` |
 | `settlement_pending` | 不映射(非终结,不发 payment-failed) |
 
 - `/supported` 增加 `extensions`、`signers`。
@@ -541,6 +541,7 @@ A: 收据核验:AuthID ∈ 本 ix 已签授权集合,PayTo == PeerAID,金额与�
 - 本机 daemon 是 a2a-x402 §5.1 所说的签名服务。本机客户端在同一 taskId 上发 `x402.payment.status: payment-submitted`,**不带** `x402.payment.payload`;以 `anet.payment.accept` 给出从 `x402.payment.required.accepts` 原样复制的所选项(只有一项时可省略)。
 - daemon 核对所选项与本 ix 存储的 requirements 逐字节相同,按 agent 档上限签授权,在 E2E 信封内转发标准 x402 v2 `PaymentPayload`。
 - 客户端自带 `x402.payment.payload` → `x402.payment.status: payment-failed`、`x402.payment.error: SETTLEMENT_FAILED`、`anet.reason=client_payload_unsupported`(其付款方不是本节点,转发也无法结算);所选项不在 accepts → 同上,`anet.reason=option_not_offered`。
+- 付款选项顺序与不可付选项(0017 Q28):daemon 转交本机客户端(A2A/MCP、控制面任务视图)的 `x402.payment.required.accepts` 按本节点可付排序——本节点账本所在网络(hub 身份已知时)的选项在前,其余按原顺序在后;每个选项的内容不改,存储的报价仍是 provider 的原样与原序。客户端选了本节点不能付的选项(不在本节点账本上的网络)时,在签名前拒绝:`payment-failed`、`SETTLEMENT_FAILED`、`anet.reason=rail_not_payable`,`status.message` 写明本节点账本与可付的选项(没有则写明无法支付此报价);未签名、未发送,报价仍可再付。自动档与未指定选项时同样只选本节点账本上的选项。
 - 代理卡片的 x402 声明不设为必需:省略 `required` 字段,不写 `"required": false`(proto3 普通 bool 的默认值,A2A §8.4.1 要求省略;写出会使按 proto 语义重建载荷的验证方得到另一份签名原像,见 note 0012),params `{signer:"anet-daemon", clientPayload:false}`;不论客户端是否激活扩展,代理任务上都出现 x402 状态键。客户端未激活时:auto 档内照常自动付款,超出时 `input-required` + `anet.reason=payment_extension_not_activated`。
 
 ---

@@ -437,7 +437,12 @@ func (p *projector) statusRow(i int) *Message {
 	_, hasRc := meta[KeyX402Receipts]
 	claimsPaid := meta[KeyX402Status] == PaymentCompleted
 	own := p.nodeX402Status()
-	if !hasRc && (!claimsPaid || own == PaymentCompleted) {
+	// The quote as this node hands it on: the same options, the ones it
+	// can pay first (0017 Q28).
+	_, hasReq := meta[KeyX402Required]
+	ordered, haveOrdered := p.payment[KeyX402Required]
+	swapReq := hasReq && haveOrdered
+	if !hasRc && (!claimsPaid || own == PaymentCompleted) && !swapReq {
 		return p.fromRow(i)
 	}
 	cp := make(map[string]any, len(meta))
@@ -457,6 +462,9 @@ func (p *projector) statusRow(i int) *Message {
 		} else {
 			delete(cp, KeyX402Status)
 		}
+	}
+	if swapReq {
+		cp[KeyX402Required] = ordered
 	}
 	return p.fromRowWith(i, cp)
 }

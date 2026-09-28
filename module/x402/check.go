@@ -35,6 +35,7 @@ const (
 	ReasonPayerMismatch            = x402a2a.ReasonPayerMismatch
 	ReasonClientPayloadUnsupported = x402a2a.ReasonClientPayloadUnsupported
 	ReasonOptionNotOffered         = x402a2a.ReasonOptionNotOffered
+	ReasonRailNotPayable           = x402a2a.ReasonRailNotPayable
 )
 
 // errorCodes is the table of §8.5. Keys are exact strings: the hub sets
@@ -65,6 +66,7 @@ var errorCodes = map[string]string{
 	ReasonNoPendingQuote:              x402a2a.CodeSettlementFailed,
 	ReasonClientPayloadUnsupported:    x402a2a.CodeSettlementFailed,
 	ReasonOptionNotOffered:            x402a2a.CodeSettlementFailed,
+	ReasonRailNotPayable:              x402a2a.CodeSettlementFailed,
 	ReasonPayerMismatch:               x402a2a.CodeSettlementFailed,
 	x402a2a.ReasonProviderBusy:        x402a2a.CodeSettlementFailed,
 }
