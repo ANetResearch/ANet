@@ -169,8 +169,13 @@ func (m *Module) CheckPayment(raw []byte, t module.PaymentTerms) module.PaymentC
 	if err != nil || accepted != auth.Amount || auth.Amount < want {
 		return fail(payment.ReasonInvalidAmount, "the payment is for %d; the quote is %d", auth.Amount, want)
 	}
-	if auth.NotAfter <= auth.IssuedAt || t.Now > auth.NotAfter+payment.ClockSkew ||
-		auth.IssuedAt > t.Now+payment.ClockSkew {
+	// The skew is not added to NotAfter, the payer's value: NotAfter +
+	// ClockSkew wrapped negative for a NotAfter near math.MaxInt64, and an
+	// authorization the hub accepts (payment.Authorization.Verify, fixed the
+	// same way in docs/notes/0033 F9) was refused here as expired at every
+	// moment. t.Now is this node's clock, so t.Now + ClockSkew does not wrap.
+	pastNotAfter := t.Now > auth.NotAfter && uint64(t.Now)-uint64(auth.NotAfter) > payment.ClockSkew
+	if auth.NotAfter <= auth.IssuedAt || pastNotAfter || auth.IssuedAt > t.Now+payment.ClockSkew {
 		return fail(payment.ReasonExpiredPayment, "the authorization is outside its validity window")
 	}
 	return out
