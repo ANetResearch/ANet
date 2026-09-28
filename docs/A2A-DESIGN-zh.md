@@ -667,7 +667,7 @@ Host 白名单;Bearer(`a2a_token.txt`,常数时间比较);拒绝带非空 `Origi
 
 | A2A 操作 | 实现 |
 |---|---|
-| SendMessage | 无 taskId → 新建(拒绝客户端指定新任务 id;按 `(contextId, 客户端 messageId)` 去重,重复返回已有任务;客户端 messageId 存入 `message.metadata["a2a.messageId"]`,不作为信封 mid;Hermes 每次调用生成新 messageId,此去重对其超时重试无效);有 taskId → 追加消息。`metadata["anet.skill"]` 或 DataPart `{skill, args}` 表示能力调用。`return_immediately=false` 时等待到终态或中断态,不提前返回 [C22] |
+| SendMessage | 无 taskId → 新建(拒绝客户端指定新任务 id;按 `(contextId, 客户端 messageId)` 去重——无 contextId 时按 `(对端, 客户端 messageId)`——重复返回已有任务;去重只针对非终态任务,命中终态任务时按新任务处理(0017 Q32);客户端 messageId 存入 `message.metadata["a2a.messageId"]`,不作为信封 mid;去重与投影的消息 id 只认本机写入的消息(发送方不是对端)上的该键,对端消息里的 `a2a.messageId` 不参与去重、不作为投影的消息 id [redteam:F33];Hermes 每次调用生成新 messageId,此去重对其超时重试无效);有 taskId → 追加消息。`metadata["anet.skill"]` 或 DataPart `{skill, args}` 表示能力调用。`return_immediately=false` 时等待到终态或中断态,不提前返回 [C22] |
 | SendStreamingMessage / SubscribeToTask | `Watch` → SSE;终态前先发 `anet.reply` 的 artifact 更新事件 |
 | GetTask / ListTasks | interactions;ListTasks 按 `state_at` 降序,支持 `contextId`、`status`、`pageSize`、`pageToken`、`historyLength`、`statusTimestampAfter`、`includeArtifacts`;`includeArtifacts` 为 false 或缺省时省略 artifacts |
 | CancelTask | §4.2 |

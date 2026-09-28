@@ -296,8 +296,11 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 		// contexts.
 		release = lockSend(d.AID()+"\x00"+peer, contextID, msg.ID)
 		defer release()
+		// Only a task still open is a retry's (0017 Q32): a message id
+		// seen on a finished task starts a new one, so a client that
+		// reuses ids is not answered with an old result.
 		prior, err := d.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
-			ContextID: contextID, PeerAID: peer, ClientMsgID: msg.ID})
+			ContextID: contextID, PeerAID: peer, ClientMsgID: msg.ID, OpenOnly: true})
 		switch {
 		case err == nil:
 			// A retry of a message that already made a task.
