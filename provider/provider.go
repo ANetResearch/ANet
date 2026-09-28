@@ -78,12 +78,54 @@ type CapabilityProvider interface {
 	Describe(ctx context.Context) (string, error)
 	// Invoke executes one capability call and reports its effect. Transport
 	// or execution errors are returned as error; a reachable target whose
-	// effect cannot be verified is NOT an error (effect.Unverified).
+	// effect cannot be verified is NOT an error (effect.Unverified). An
+	// error after which the effect may or may not have happened is an
+	// *OutcomeUnknownError.
 	Invoke(ctx context.Context, call Call) (effect.Effect, error)
 	// Health reports provider liveness; a non-nil error marks every
 	// capability of this provider temporarily unavailable.
 	Health(ctx context.Context) error
 }
+
+// OutcomeUnknownError is an Invoke error after which nobody can say
+// whether the effect happened: the call reached the far end, or may have,
+// and its answer did not come back — the call's deadline passed while the
+// target worked, or the connection was lost after the request went out.
+//
+// Neither of the other answers is honest about it. UNAVAILABLE says
+// nothing was attempted at the far end, and invites a retry that can run
+// the effect a second time; FAILED says it was attempted and did not
+// happen. The daemon reports such a call as a failed task whose effect is
+// UNVERIFIED, with Reason as anet.reason, as it does a call interrupted by
+// a restart (A2A-DESIGN §4.3). A provider returns it only when the call
+// may have reached the target; an error that certainly came first (no
+// connection, a refused dial) is still UNAVAILABLE.
+type OutcomeUnknownError struct {
+	// Reason is the anet.reason the task carries: "timeout" when the
+	// call's deadline passed, "connection_lost" otherwise.
+	Reason string
+	// Err is what went wrong, for the message.
+	Err error
+}
+
+// Reasons an outcome is unknown (OutcomeUnknownError.Reason).
+const (
+	ReasonTimeout        = "timeout"
+	ReasonConnectionLost = "connection_lost"
+)
+
+func (e *OutcomeUnknownError) Error() string {
+	msg := "the call was sent and its answer was lost"
+	if e.Reason == ReasonTimeout {
+		msg = "the call was sent and no answer came back in time"
+	}
+	if e.Err != nil {
+		msg += " (" + e.Err.Error() + ")"
+	}
+	return msg + "; whether its effect happened is not known"
+}
+
+func (e *OutcomeUnknownError) Unwrap() error { return e.Err }
 
 // Priced is implemented by a provider whose capabilities cost something.
 //

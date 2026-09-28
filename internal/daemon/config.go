@@ -45,8 +45,8 @@ type Config struct {
 	// false → closed) and is never written back.
 	LegacyAcceptDelegations *bool `json:"accept_delegations,omitempty"`
 	// migratedInbound is set by LoadConfig when it created the inbound
-	// block from a wire-1 config that accepted delegations; New logs it
-	// once. rewriteConfig is set when the file on disk lacks the inbound or
+	// block from a wire-1 config that said accept_delegations=true; New
+	// logs it once. rewriteConfig is set when the file on disk lacks the inbound or
 	// payments block or still carries accept_delegations; New saves the
 	// migrated config.
 	migratedInbound bool
@@ -212,9 +212,11 @@ func migrateInbound(c *Config) {
 	if c.Inbound == nil {
 		in := defaultInbound()
 		c.Inbound = &in
-		// A config that said accept_delegations=false asked for what closed
-		// does, so there is nothing to tell the operator.
-		c.migratedInbound = c.LegacyAcceptDelegations == nil || *c.LegacyAcceptDelegations
+		// Told only to an operator whose config carried the old key set to
+		// accept: accept_delegations=false asked for what closed does, and
+		// a config without the key (a minimal one, or one `anet init`
+		// wrote) replaced nothing, so the notice would only mislead.
+		c.migratedInbound = c.LegacyAcceptDelegations != nil && *c.LegacyAcceptDelegations
 	}
 	c.LegacyAcceptDelegations = nil
 	c.Inbound.normalize()
@@ -248,4 +250,26 @@ type ProvidersConfig struct {
 // ANetLinkProviderConfig points at a running anetlinkd C1 socket.
 type ANetLinkProviderConfig struct {
 	Socket string `json:"socket"`
+}
+
+// updateConfig is one write of config.json from the running daemon: under
+// cfgWrite, change edits a copy of the config (an error refuses the write),
+// the copy is saved, and only once it is saved does apply put the change in
+// force on the live config (redteam F9). apply sets the fields change set,
+// and no others: another field of the live config is not this write's to
+// touch. It returns the config as saved.
+func (d *Daemon) updateConfig(change func(*Config) error, apply func(*Config)) (Config, error) {
+	d.cfgWrite.Lock()
+	defer d.cfgWrite.Unlock()
+	next := d.config()
+	if err := change(&next); err != nil {
+		return Config{}, err
+	}
+	if err := SaveConfig(d.layout, next); err != nil {
+		return Config{}, err
+	}
+	d.mu.Lock()
+	apply(&d.cfg)
+	d.mu.Unlock()
+	return next, nil
 }

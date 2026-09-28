@@ -421,22 +421,66 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 	}
 	req.Header.Set(HeaderCapability, target.ID)
 
+	// Whether the request went out decides what a transport error means:
+	// before its header block is written the service cannot have begun the
+	// call (provider.TrackSent).
+	req, sent := provider.TrackSent(req)
+
 	started := time.Now()
 	resp, err := p.m.cli.Do(req)
 	if err != nil {
-		// The service is unreachable. UNAVAILABLE, not FAILED: nothing was
-		// attempted at the far end, and a requester deciding whether to
-		// retry elsewhere needs that distinction.
+		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability,
+			LatencyMS: time.Since(started).Milliseconds()}
+		if sent() {
+			// The call went out and its answer did not come back: the
+			// deadline passed while the service worked, or the connection
+			// dropped before the reply. The effect may have happened, so
+			// neither "nothing was attempted" nor "it failed" is true, and
+			// a requester told either could run it twice (A2A-DESIGN §4.3).
+			return effect.Effect{Status: effect.Unverified, Evidence: ev},
+				fmt.Errorf("service %s: %w", call.Capability, provider.AnswerLost(err))
+		}
+		// The service could not be reached: no connection, or it broke
+		// before the request was written. UNAVAILABLE, not FAILED: nothing
+		// was attempted at the far end, and a requester deciding whether
+		// to retry elsewhere needs that distinction.
 		return effect.Effect{
 			Status:   effect.Unavailable,
 			Message:  fmt.Sprintf("service %s: %v", call.Capability, err),
-			Evidence: &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability},
+			Evidence: ev,
 		}, nil
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxReplyBytes))
+	raw, rerr := io.ReadAll(io.LimitReader(resp.Body, maxReplyBytes))
 	latency := time.Since(started).Milliseconds()
+	if rerr != nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		// The service took the call — it said so with a 2xx — and its
+		// answer broke off: the deadline passed while the body was still
+		// coming, or the connection dropped mid-reply. The same unknown
+		// outcome as an answer that never started, not FAILED, which says
+		// the effect did not happen (redteam F10, a reply lost after its
+		// headers). A refusal's status is its answer whatever its body.
+		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency}
+		return effect.Effect{Status: effect.Unverified, Evidence: ev},
+			fmt.Errorf("service %s: HTTP %d, then %w", call.Capability, resp.StatusCode, provider.AnswerLost(rerr))
+	}
 
+	if resp.StatusCode == http.StatusGatewayTimeout || resp.StatusCode == http.StatusBadGateway {
+		// A gateway in front of the service (a reverse proxy) answering for
+		// it: 504, the service did not answer the proxy in time; 502, its
+		// answer broke. Either way the call reached the service, which may
+		// have acted — the same unknown outcome as an answer lost on this
+		// side, not FAILED (redteam F10: a proxy_read_timeout shorter than
+		// the service's work turns every slow call into "did not happen").
+		reason := provider.ReasonConnectionLost
+		if resp.StatusCode == http.StatusGatewayTimeout {
+			reason = provider.ReasonTimeout
+		}
+		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency}
+		return effect.Effect{Status: effect.Unverified, Evidence: ev},
+			fmt.Errorf("service %s: %w", call.Capability, &provider.OutcomeUnknownError{Reason: reason,
+				Err: fmt.Errorf("HTTP %d from a gateway: %s", resp.StatusCode, snippet(raw))})
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// 503 and 429 are the service saying "not now": busy, or out of
 		// time under load. UNAVAILABLE, like an unreachable service, so the

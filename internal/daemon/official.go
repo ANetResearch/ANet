@@ -54,19 +54,67 @@ func (d *Daemon) now() time.Time { return time.UnixMilli(int64(d.nowMS())) }
 // markOfficial sets ra.Official from ra.AID.
 func (d *Daemon) markOfficial(ra *module.RemoteAgent) { ra.Official = d.IsOfficial(ra.AID) }
 
-// foundAgent is one /find answer: the hub directory's entry as it came, and
-// this node's mark beside it. hubapi.AgentView is the hub's wire type and
-// stays as the hub sends it; the mark is this node's statement, not the
-// hub's.
+// foundAgent is one /find answer: the hub directory's entry, and this
+// node's mark beside it. hubapi.AgentView is the hub's wire type; the mark
+// is this node's statement, not the hub's.
 type foundAgent struct {
 	hubapi.AgentView
 	Official bool `json:"anet.official,omitempty"`
+	// Note says, for an official agent, where the description shown comes
+	// from.
+	Note string `json:"anet.note,omitempty"`
 }
 
+// officialFoundNote is what an official /find entry says of itself.
+const officialFoundNote = "an official anet agent: the name and capabilities shown are the signed official manifest's; " +
+	"what the hub directory says of it is not shown"
+
+// markFound is what /find shows of the hub directory's entries (0017 Q24,
+// with its /find supplement; redteam F39). An entry whose aid is not an
+// agent id is dropped: a hub can put text in that field too. An agent the
+// official manifest lists is shown by its AID, the mark, and the name and
+// capabilities the signed manifest gives it — nothing the hub wrote. The
+// directory carries no card, so nothing a hub says of an agent is ever
+// verified here, and a hub's words beside the official mark (a "payments
+// desk" summary, a readme asking for credit) would borrow the mark's
+// authority for them. Any other entry is the hub's statement, as it came.
 func (d *Daemon) markFound(agents []hubapi.AgentView) []foundAgent {
 	out := make([]foundAgent, 0, len(agents))
 	for _, a := range agents {
-		out = append(out, foundAgent{AgentView: a, Official: d.IsOfficial(a.AID)})
+		if f, ok := d.foundView(a); ok {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// foundView is one /find entry as shown (markFound), and whether it is
+// shown at all.
+func (d *Daemon) foundView(a hubapi.AgentView) (foundAgent, bool) {
+	if !validAgentID(a.AID) {
+		return foundAgent{}, false
+	}
+	e, official := d.officials.Load().Lookup(a.AID, d.now())
+	if !official {
+		return foundAgent{AgentView: a}, true
+	}
+	return foundAgent{
+		AgentView: hubapi.AgentView{AID: a.AID, Name: e.Name, Caps: e.Caps, Listed: a.Listed},
+		Official:  true,
+		Note:      officialFoundNote,
+	}, true
+}
+
+// shownAgents is the directory as /find shows it, as the hub's type:
+// entries markFound drops are gone, and an official agent's entry carries
+// only what markFound shows. /find matches its query against this, so a
+// hub's words are not what makes an official agent turn up for a search.
+func (d *Daemon) shownAgents(agents []hubapi.AgentView) []hubapi.AgentView {
+	out := make([]hubapi.AgentView, 0, len(agents))
+	for _, a := range agents {
+		if f, ok := d.foundView(a); ok {
+			out = append(out, f.AgentView)
+		}
 	}
 	return out
 }

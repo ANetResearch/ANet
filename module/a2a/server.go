@@ -26,7 +26,9 @@ package a2a
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -80,12 +82,16 @@ type server struct {
 	seam  module.TaskSeam
 	cards *cardCache
 	mux   *http.ServeMux
+	// h is the handler behind both bindings, which precheckStream asks
+	// before a stream opens.
+	h *handler
 }
 
 func newServer(seam module.TaskSeam, cfg serverConfig) *server {
 	s := &server{cfg: cfg, seam: seam}
 	s.cards = newCardCache(seam, cardBuilder{host: cfg.host, port: cfg.port}, cfg.signer)
 	h := &handler{seam: seam}
+	s.h = h
 	opts := []a2asrv.TransportOption{
 		a2asrv.WithTransportKeepAlive(15 * time.Second),
 		a2asrv.WithTransportPanicHandler(func(r any) error {
@@ -224,7 +230,14 @@ func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 				w.Header().Set(a2a.SvcParamExtensions, strings.Join(info.active, ", "))
 			}
 		}
-		next.ServeHTTP(w, r.WithContext(withInfo(r.Context(), info)))
+		r = r.WithContext(withInfo(r.Context(), info))
+		// A streaming call that cannot start is answered with an ordinary
+		// error, not a stream holding one (precheck.go, 0017 Q31).
+		r, answered := s.precheckStream(w, r, aid, jsonrpc)
+		if answered {
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -360,7 +373,12 @@ func (s *server) listAgents(w http.ResponseWriter, r *http.Request) {
 		}
 		out.Agents = append(out.Agents, e)
 	}
-	writeJSON(w, http.StatusOK, out)
+	body, err := json.Marshal(out)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, a2a.ErrInternalError, "the agent list could not be encoded")
+		return
+	}
+	writeCacheable(w, r, append(body, '\n'))
 }
 
 type agentList struct {
@@ -404,8 +422,43 @@ func (s *server) serveCard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, a2a.ErrInternalError, "the proxy card could not be made")
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
+	writeCacheable(w, r, body)
+}
+
+// cardMaxAge is how long a client may keep a proxy card or the agent list
+// without asking again (0017 Q33).
+const cardMaxAge = 300
+
+// writeCacheable writes body, a proxy card's bytes or the agent list, as a
+// response a client may keep: Cache-Control private (the route needs the
+// bearer, so no shared cache may keep it) with a max-age, and an ETag of
+// the bytes, against which If-None-Match is answered 304 (0017 Q33;
+// a2a-tck CARD-CACHE-001/002). Every other response of this interface is
+// no-store (ServeHTTP).
+func writeCacheable(w http.ResponseWriter, r *http.Request, body []byte) {
+	sum := sha256.Sum256(body)
+	etag := `"` + base64.RawURLEncoding.EncodeToString(sum[:18]) + `"`
+	h := w.Header()
+	h.Set("Cache-Control", "private, max-age="+strconv.Itoa(cardMaxAge))
+	h.Set("ETag", etag)
+	if etagMatch(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	h.Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
+}
+
+// etagMatch reports whether an If-None-Match value names etag: "*", or the
+// tag in its comma-separated list, compared weakly (RFC 9110 §13.1.2).
+func etagMatch(ifNoneMatch, etag string) bool {
+	for _, t := range strings.Split(ifNoneMatch, ",") {
+		t = strings.TrimPrefix(strings.TrimSpace(t), "W/")
+		if t == "*" || t == etag {
+			return true
+		}
+	}
+	return false
 }
 
 // responseWriter is the ResponseWriter the handlers see. It records
@@ -461,16 +514,15 @@ func writeError(w http.ResponseWriter, code int, kind error, msg string) {
 		Message string      `json:"message"`
 		Details []errorInfo `json:"details"`
 	}
+	st := grpcStatus(code)
+	if _, same, g := errorEntry(kind); same == code {
+		// The binding's own status name for this error (a2a-go's table).
+		st = g
+	}
 	writeJSON(w, code, map[string]status{"error": {
-		Code: code, Status: grpcStatus(code), Message: msg,
+		Code: code, Status: st, Message: msg,
 		Details: []errorInfo{{Type: "type.googleapis.com/google.rpc.ErrorInfo", Reason: a2a.ErrorReason(kind), Domain: a2a.ProtocolDomain}},
 	}})
-}
-
-// rpcErrorCodes are the JSON-RPC codes of the A2A errors writeRPCError is
-// used with (A2A §5.4; a2a-go keeps its table internal).
-var rpcErrorCodes = map[error]int{
-	a2a.ErrUnsupportedContentType: -32005,
 }
 
 // writeRPCError answers a JSON-RPC request refused before it reached the
@@ -480,6 +532,13 @@ var rpcErrorCodes = map[error]int{
 // known. The HTTP status still says what happened, for a client that
 // looks no further.
 func writeRPCError(w http.ResponseWriter, code int, kind error, msg string) {
+	rc, _, _ := errorEntry(kind)
+	writeRPCResponse(w, code, nil, rc, msg, a2a.ErrorReason(kind))
+}
+
+// writeRPCResponse writes a JSON-RPC error response: the A2A code, the
+// message and, in data, the google.rpc.ErrorInfo a2a-go puts there.
+func writeRPCResponse(w http.ResponseWriter, status int, id any, code int, msg, reason string) {
 	type errorInfo struct {
 		Type   string `json:"@type"`
 		Reason string `json:"reason"`
@@ -490,16 +549,12 @@ func writeRPCError(w http.ResponseWriter, code int, kind error, msg string) {
 		Message string      `json:"message"`
 		Data    []errorInfo `json:"data"`
 	}
-	rc, ok := rpcErrorCodes[kind]
-	if !ok {
-		rc = -32603
-	}
-	writeJSON(w, code, struct {
+	writeJSON(w, status, struct {
 		JSONRPC string   `json:"jsonrpc"`
 		ID      any      `json:"id"`
 		Error   rpcError `json:"error"`
-	}{"2.0", nil, rpcError{Code: rc, Message: msg,
-		Data: []errorInfo{{Type: "type.googleapis.com/google.rpc.ErrorInfo", Reason: a2a.ErrorReason(kind), Domain: a2a.ProtocolDomain}}}})
+	}{"2.0", id, rpcError{Code: code, Message: msg,
+		Data: []errorInfo{{Type: "type.googleapis.com/google.rpc.ErrorInfo", Reason: reason, Domain: a2a.ProtocolDomain}}}})
 }
 
 func grpcStatus(code int) string {

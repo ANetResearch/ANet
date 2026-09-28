@@ -69,7 +69,10 @@ const honesty = "A task is an A2A Task: status.state, history, artifacts, and me
 	"TASK_STATE_COMPLETED only means the other side finished — completed with " +
 	"metadata anet.effect_status=UNVERIFIED is not success (the skill ran but its effect " +
 	"cannot be proven), and anet.receipt_verified is verified, unverified (the receipt could " +
-	"not be checked, which is not the same as forged) or unknown. Report both as they are."
+	"not be checked, which is not the same as forged) or unknown. Report both as they are. " +
+	"TASK_STATE_FAILED with anet.effect_status=UNVERIFIED (anet.reason timeout, connection_lost " +
+	"or interrupted) means the call went out and whether it took effect is not known: do not " +
+	"resend it as if it had not run."
 
 func addTaskTools(s *mcp.Server, c Control) {
 	mcp.AddTool(s, &mcp.Tool{

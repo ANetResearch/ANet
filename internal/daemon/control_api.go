@@ -295,11 +295,8 @@ func (d *Daemon) listenControl() (net.Listener, error) {
 		return nil, err // report the original bind failure, not the scan's
 	}
 	next := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	d.mu.Lock()
-	d.cfg.ControlAddr = next
-	cfg := d.cfg
-	d.mu.Unlock()
-	if serr := SaveConfig(d.layout, cfg); serr != nil {
+	set := func(c *Config) { c.ControlAddr = next }
+	if _, serr := d.updateConfig(func(c *Config) error { set(c); return nil }, set); serr != nil {
 		_ = moved.Close()
 		return nil, fmt.Errorf("anet: %s was taken and the new control address could not be saved: %w", addr, serr)
 	}

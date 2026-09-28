@@ -44,6 +44,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -179,27 +180,29 @@ func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
 			return err // fail loudly on a bad config instead of silently persisting a loop that never runs
 		}
 	}
-	d.mu.Lock()
-	next := d.cfg
+	// Saved first and in force after (SetInboundPolicy): a write that
+	// failed to save leaves the running loop and the config as they were.
+	d.cfgWrite.Lock()
+	defer d.cfgWrite.Unlock()
+	next := d.config()
 	next.AutoReply = cfg
 	// The same check as at start and on inbound policy writes (A2A-DESIGN
 	// §5.1): policy open together with exec for untrusted peers is refused
 	// whichever of the two is written last.
 	if err := validatePolicy(next, d.untrustedBackend.Load()); err != nil {
-		d.mu.Unlock()
 		return err
 	}
+	if err := SaveConfig(d.layout, next); err != nil {
+		return err
+	}
+	d.mu.Lock()
 	from := d.cfg.AutoReply
 	if d.autoReplyStop != nil {
 		d.autoReplyStop()
 		d.autoReplyStop = nil
 	}
-	d.cfg = next
-	saved := d.cfg
+	d.cfg.AutoReply = cfg
 	d.mu.Unlock()
-	if err := SaveConfig(d.layout, saved); err != nil {
-		return err
-	}
 	d.recordPolicyChange("auto_reply", autoReplySummary(from), autoReplySummary(cfg), nil)
 	if cfg != nil {
 		d.startAutoReply(*cfg)
@@ -417,8 +420,15 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	if oerr != nil {
 		return d.sendAutoReply(ctx, th.InteractionID, autoReplyFailureReply(cfg, th.InteractionID, fmt.Errorf("outbox: %w", oerr)))
 	}
+	// A provider's reply that completes the task is its final reply (0017
+	// Q30): marked so the requester keeps waiting for the result that
+	// follows instead of stopping at an input-required between the two.
+	var meta map[string]any
+	if done && th.EndReqBy != "me" && th.Role == string(interactions.RoleInbound) {
+		meta = a2ashape.FinalReplyMetadata()
+	}
 	if reply != "" || len(atts) > 0 {
-		if err := d.sendAutoReplyAttachments(ctx, th.InteractionID, reply, atts); err != nil {
+		if err := d.sendAutoReplyAttachments(ctx, th.InteractionID, reply, atts, meta); err != nil {
 			return err
 		}
 		doneNote := ""

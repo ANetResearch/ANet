@@ -450,11 +450,13 @@ func (p *probe) blockingSend(ctx context.Context, cl *a2aclient.Client, id, text
 
 // judgeAnswer checks that a blocking send came back with the answer. A
 // completed task has it as anet.reply. The provider completes a text task
-// with a message and then its result (reply_task(state=completed)), and the
-// wait ends at the first state that is terminal or asks the client, so the
-// call may come back at input-required with the answer as the status
-// message: the client has the answer either way, and the NOTE records that
-// a client reading only the state (Hermes) is told more input is needed.
+// with a message and then its result (reply_task(state=completed)); since
+// 0017 Q30 that message carries anet.state=working, so the wait runs on to
+// the result. A provider daemon from before sends it plainly, and the wait
+// ends at the input-required between the two, with the answer as the
+// status message: the client has the answer either way, and the NOTE
+// records that a client reading only the state (Hermes) is told more input
+// is needed.
 func (p *probe) judgeAnswer(id string, t *a2a.Task, want string, took time.Duration) {
 	switch t.Status.State {
 	case a2a.TaskStateCompleted:
@@ -464,7 +466,8 @@ func (p *probe) judgeAnswer(id string, t *a2a.Task, want string, took time.Durat
 		got := statusText(t)
 		if p.rep.check(got == want, id, "after %s at input-required with the answer %q as the status message", took, got) {
 			p.rep.note(id+"-state", "the blocking call ended at the provider's final message, before its result: "+
-				"a client that reads the state (Hermes) shows input-required and 'needs more input' for a finished answer")
+				"a client that reads the state (Hermes) shows input-required and 'needs more input' for a finished answer "+
+				"(a provider daemon without 0017 Q30, which sends that message with anet.state=working)")
 		}
 	default:
 		p.rep.fail(id, "after %s at %s: %q", took, t.Status.State, statusText(t))
@@ -578,7 +581,8 @@ func (p *probe) streamSend(ctx context.Context, cl *a2aclient.Client, tag string
 			cancel()
 		}
 		if p.rep.check(endMsg == want, id, "events %v: ended at input-required with the answer %q", kinds, endMsg) {
-			p.rep.note(id+"-state", "the stream ended at the provider's final message, before its result")
+			p.rep.note(id+"-state", "the stream ended at the provider's final message, before its result "+
+				"(a provider daemon without 0017 Q30)")
 		}
 		if done := p.waitTerminal(ctx, cl, taskID, id+"-done"); done != nil {
 			p.checkDoneText(id+"-done", done, want)

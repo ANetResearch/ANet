@@ -61,19 +61,19 @@ func TestOfflineVerification(t *testing.T) {
 	}
 	rc := receiptFor(t, provider, body)
 
-	if err := verifyOffline(b64(t, rc), kelOf(t, provider), result); err != nil {
+	if err := verifyOffline(b64(t, rc), kelOf(t, provider), result, ""); err != nil {
 		t.Fatalf("a genuine receipt must verify offline: %v", err)
 	}
-	if err := verifyOffline(b64(t, rc), kelOf(t, provider), other); err == nil {
+	if err := verifyOffline(b64(t, rc), kelOf(t, provider), other, ""); err == nil {
 		t.Error("a receipt that does not cover the bytes must not pass")
 	}
-	if err := verifyOffline(b64(t, rc), kelOf(t, stranger), result); err == nil {
+	if err := verifyOffline(b64(t, rc), kelOf(t, stranger), result, ""); err == nil {
 		t.Error("a receipt checked against the wrong key must not pass")
 	}
 	// Without the bytes, the signature still checks and the content does
 	// not. That is a real answer; the note the command prints is the
 	// honest part of it.
-	if err := verifyOffline(b64(t, rc), kelOf(t, provider), ""); err != nil {
+	if err := verifyOffline(b64(t, rc), kelOf(t, provider), "", ""); err != nil {
 		t.Errorf("a signature-only check is a real answer: %v", err)
 	}
 }
@@ -232,4 +232,48 @@ func captureStdout(t *testing.T, fn func()) string {
 	_ = w.Close()
 	os.Stdout = old
 	return <-done
+}
+
+// A receipt names the request it answers, and a provider can sign one that
+// names any request (redteam F15). Given the request's bytes, the check
+// binds the receipt to them: a receipt for another request does not pass,
+// and the stored form (`anet verify <ix>`) binds the request this node
+// sent the same way.
+func TestOfflineVerificationBindsTheRequest(t *testing.T) {
+	provider, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	body := []byte(`{"answer":42}`)
+	result := filepath.Join(dir, "result.bin")
+	if err := os.WriteFile(result, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	asked, never := []byte("the request that was sent"), []byte("a request never made")
+	sent := filepath.Join(dir, "request.bin")
+	if err := os.WriteFile(sent, asked, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	other := filepath.Join(dir, "other-request.bin")
+	if err := os.WriteFile(other, never, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rc := receiptFor(t, provider, body)
+	if rc.RequestCID, err = anetcidSum(asked); err != nil {
+		t.Fatal(err)
+	}
+	if err := rc.Sign(provider); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyOffline(b64(t, rc), kelOf(t, provider), result, sent); err != nil {
+		t.Fatalf("a receipt for the request checked: %v", err)
+	}
+	if err := verifyOffline(b64(t, rc), kelOf(t, provider), result, other); err == nil {
+		t.Error("a receipt for another request passed the request check")
+	}
+	stored, _ := anetcidSum(never)
+	if err := report(b64(t, rc), kelOf(t, provider), "", "", stored, ""); err == nil {
+		t.Error("the stored check passed a receipt for a request this node did not send")
+	}
 }

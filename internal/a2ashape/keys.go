@@ -74,6 +74,13 @@ const (
 	KeyA2AError = "anet.a2aError"
 	// KeyState is the task state a provider message or result asks for.
 	KeyState = "anet.state"
+	// KeyFinal marks a provider's last message on a text task it is
+	// completing (0017 Q30): sent with anet.state=working so the requester
+	// does not stop at it (a blocking send would otherwise return at an
+	// input-required the result ends a moment later), the result following
+	// it. Unlike a progress note it is a conversation turn: it is in the
+	// transcript the receipt covers and in the history. Its value is true.
+	KeyFinal = "anet.final"
 	// KeyInbound is the inbound-policy outcome a provider reports, such as
 	// "pending_approval".
 	KeyInbound = "anet.inbound"
@@ -139,6 +146,18 @@ const (
 const (
 	KeyCID  = "anet.cid"
 	KeySize = "anet.size"
+	// KeyAttachmentCID marks a file part that carries the file's metadata
+	// and not its bytes (0017 Q12): in the history and in stream events
+	// always, and past the inline limit of a task read. Its value is the
+	// content id the bytes are fetched by (GET /attachment on the control
+	// plane, or `anet pull`); the part's url names the same attachment.
+	KeyAttachmentCID = "anet.attachment_cid"
+	// KeyTruncated marks, in a stream event, what was cut to keep the
+	// event within MaxStreamEventBytes (stream.go): a message or artifact
+	// whose parts were replaced by a notice (with anet.size, the bytes it
+	// had as JSON), the metadata of one, or a task whose older history was
+	// left out. Its value is true. GetTask gives the whole of it.
+	KeyTruncated = "anet.truncated"
 )
 
 // Artifact ids: the deliverable, and nothing else. anet.reply is a text

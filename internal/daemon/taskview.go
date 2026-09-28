@@ -22,10 +22,14 @@ type viewOpts struct {
 	// artifacts includes the artifacts (ListTasks leaves them out unless
 	// asked, A2A-DESIGN §11.5).
 	artifacts bool
-	// inline carries attachment bytes in raw parts. The A2A interface does:
-	// its client has no other way to fetch them. The control plane gives a
-	// reference (anet:attachment?…) that GET /attachment and `anet pull`
-	// resolve, which keeps a task small enough to hand to a model.
+	// inline carries attachment bytes in raw parts, in the artifacts and
+	// status.message, up to a2ashape.MaxInlineBytes for the task; the
+	// history and everything past the limit are placeholders
+	// (anet.attachment_cid, 0017 Q12). The A2A interface's single-task
+	// reads do: its client has no other way to fetch the bytes. The
+	// control plane, lists and streams give the placeholder, which GET
+	// /attachment and `anet pull` resolve, and which keeps a task small
+	// enough to hand to a model.
 	inline bool
 }
 

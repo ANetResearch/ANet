@@ -160,7 +160,7 @@ anet init            # 幂等;--json 输出机器可读的报告
 
 已有配置只补缺的键,**从不改已有的值**;与全新安装不同的设置(例如你先前设了 `inbound.policy=open`)会列在报告里,留给你决定。连跑两次,第二次报告为空。`anet init` 不写 `modules.a2a` 块:本机 A2A 接口不需要配置块就启用,写了反而会让 `-tags no_a2a` 的构建加载配置失败。
 
-从 0.1.x 升上来的节点:配置里旧的 `accept_delegations`(缺省或 `true`)在第一次启动时迁移为 `inbound.policy=closed`,日志提示一次,之后该键从文件中删除。原来"默认谁都能委派"的行为**不会**被带过来;要接谁的活,按 §5.5 写允许名单。
+从 0.1.x 升上来的节点:配置里旧的 `accept_delegations`(缺省或 `true`)在第一次启动时迁移为 `inbound.policy=closed`,配置里写着 `true` 时日志提示一次,之后该键从文件中删除。原来"默认谁都能委派"的行为**不会**被带过来;要接谁的活,按 §5.5 写允许名单。
 
 ### 3.2 `anet doctor`:这个节点现在是什么样
 
@@ -235,7 +235,7 @@ anet results                  # 我委派出去、已结束的,含对方签的�
 anet review <ix> 5 "准确、快"   # 基于回执签评价,上传 hub
 ```
 
-**结束是提供方单方完成的**(v0.2 起)。提供方 `anet end`(或 MCP `reply_task` 带 `state=completed`、或自动回复判定完成)即完成任务、对整段对话签回执;委派方 `anet end` 是"请求完成",提供方的 daemon 收到后自动完成并签回执,不需要提供方的 agent 在场。0.1.x 的"双方各 end 一次"与 `anet accept-end` 已删除。取消另是一件事:委派方经 MCP `cancel_task` 或 A2A `CancelTask` 取消,提供方停止并置 `canceled`,不签回执。
+**结束是提供方单方完成的**(v0.2 起)。提供方 `anet end`(或 MCP `reply_task` 带 `state=completed`、或自动回复判定完成)即完成任务、对整段对话签回执;委派方 `anet end` 是"请求完成",提供方的 daemon 收到后自动完成并签回执,不需要提供方的 agent 在场。0.1.x 的"双方各 end 一次"与 `anet accept-end` 已删除。带回复完成时(`reply_task` 带文本并 `state=completed`,或自动回复判定完成),这条回复带 `anet.state=working`、`anet.final=true` 发出,结果随后到达:委派方在两者之间看到的是 `working` 而不是 `input-required`,阻塞调用直接拿到带 `anet.reply` 与回执的完成结果。取消另是一件事:委派方经 MCP `cancel_task` 或 A2A `CancelTask` 取消,提供方停止并置 `canceled`,不签回执。
 
 任务状态与 A2A 一致:`submitted`、`working`、`input-required`(对方在等你,包括报价)、`completed`、`failed`、`canceled`、`rejected`。**`completed` 只说明对方做完了**:能力调用的效果另看 `anet.effect_status`,回执是否核验另看 `anet.receipt_verified`,两者都不会被并进 `completed`。
 
@@ -243,6 +243,8 @@ anet review <ix> 5 "准确、快"   # 基于回执签评价,上传 hub
 
 ```sh
 anet verify --receipt "$(cat receipt.b64)" --kel "$(cat provider.kel)" --result answer.md   # 无 daemon、无 hub、无网络
+anet verify --receipt X --kel Y --result answer.md --request request.bin                    # 同时核对回执答的是这份请求(请求字节)
+anet verify <交互 id>          # 本节点存的结果:签名、结果字节与本节点发出的请求一并核对
 anet verify --receipt X --hub https://hub.agentnetwork.org.cn                                # 让它自己去取密钥历史
 anet audit                    # 本节点证据链,从磁盘读并验证(无需 daemon);--since 24h --peer AID --interaction ID --json
 anet audit --export DIR       # 导出整条链、密钥历史与清单
@@ -250,7 +252,7 @@ anet verify --chain DIR       # 第三方核验导出的链
 anet audit hub                # 验 hub 的发放链(同 anet audit-hub)
 ```
 
-效果状态五种:`OK` 做了且读回一致;`UNVERIFIED` 做了但没法读回;`FAILED` 做了没成;`UNAVAILABLE` 没做,原因在 message;`PAYMENT_REQUIRED` 要先付款,报价在应答里。`audit` 显示时 `UNVERIFIED` 不计入成功,`receipt_verified=false` 显示为"未能核验",每段标明来源。
+效果状态五种:`OK` 做了且读回一致;`UNVERIFIED` 做了但没法读回;`FAILED` 做了没成;`UNAVAILABLE` 没做,原因在 message;`PAYMENT_REQUIRED` 要先付款,报价在应答里。任务 `failed` 而效果状态为 `UNVERIFIED` 表示"不知道做没做":调用已发出、应答丢失(`anet.reason=timeout` / `connection_lost`),或执行中 provider 重启(`interrupted`);效果可能已发生,重试前先向对方核实。`audit` 显示时 `UNVERIFIED` 不计入成功,`receipt_verified=false` 显示为"未能核验",每段标明来源。
 
 ### 5.5 谁能把任务交给你:入站策略与名单
 
@@ -498,6 +500,7 @@ curl -s -H @<(auth) -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' \
 - 付款(a2a-x402):报价以 `input-required` + `x402.payment.required` 出现在同一任务上。本机 daemon 就是签名服务:客户端在同一 taskId 上发 `x402.payment.status: payment-submitted`,**不带** `x402.payment.payload`,需要时以 `anet.payment.accept` 给出从 `accepts` 原样复制的所选项;daemon 按 agent 档上限签授权。客户端自带 payload 会得到 `payment-failed`(`anet.reason=client_payload_unsupported`)。不认识 x402 的客户端(例如 Hermes)也能用:报价在自动付款上限之内由 daemon 自动付,超出时任务停在 `input-required`,`anet.reason` 说明原因,由你用 MCP `submit_payment` 或 `anet pay` 处理。客户端提交的付款超出 agent 档时同样不报错:任务仍 `input-required`、`anet.reason=needs_operator_approval`,`status.message` 写明运营者在终端上要先做的步骤;未激活 a2a-x402 扩展的客户端看到的原因是 `payment_extension_not_activated`。
 - 任务里的 anet 专有信息在 metadata:`anet.effect_status`、`anet.receipt_verified`、`anet.receipt`(provider 签的回执,不是 artifact)、`anet.reason`、`anet.peer_aid`,以及 x402 各键。只读文本的客户端看不到它们;付款相关的 `status.message` 带文字(金额、资产、收款方、网络与付款方式),无消息但有原因的终态合成一句 "<state>: <reason>"。
 - artifacts 只放产出:文本任务是 `anet.reply`(provider 的最后一条回复,正文与文件在同一个 artifact 里),能力任务是交付物。
+- 文件:`GetTask` 与 `SendMessage` 的应答把 artifacts 与 `status.message` 里的文件字节内联,一个任务合计至多 8 MiB;`history`、流式事件、`ListTasks` 与超出 8 MiB 的文件只给元数据(文件名、类型、`anet.size`、`anet.attachment_cid`,url 为 `anet:attachment?…`),字节用 `anet pull <task_id>` 取。流式事件整体另有上限(`a2ashape.MaxStreamEventBytes`,8 MiB,按 JSON 计):对端的长文本、大元数据、成千上万的附件或很长的 history 放不下时,放不下的消息/产物换成一条说明并标 `anet.truncated=true`(`anet.size` 为原大小),较旧的 history 省略,任务 metadata 同样标 `anet.truncated`;完整内容用 `GetTask` 读。
 
 **Hermes**:`anet agents wire hermes --a2a <aid>[,<aid>…]` 在 `~/.hermes/config.yaml` 的 `a2a_agents` 下为每个指定的远端 agent 写一条(键是 AID,`url` 为本机代理基址,`auth: {type: bearer, token}`,`timeout: 3600`,不写 `capabilities` 与 `tenant`),文件保持 0600;写了 `a2a_agents`,Hermes 的 `a2a_call` 等工具才会出现。端口或令牌变化后 `anet agents wire hermes --refresh`;`anet agents unwire hermes` 删掉带令牌的条目。与 Hermes 配合时要知道:
 

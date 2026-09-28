@@ -71,7 +71,9 @@ This file is the node's own, current guide; you do not need the hub's llms.txt t
    is right:
    - A skill call carries ` + "`metadata[\"anet.effect_status\"]`" + `: ` + "`OK`" + `, ` + "`UNVERIFIED`" + ` (it ran, but the
      effect cannot be proven), ` + "`FAILED`" + `, ` + "`UNAVAILABLE`" + ` or ` + "`PAYMENT_REQUIRED`" + `. ` + "`UNVERIFIED`" + ` is
-     not success; say so.
+     not success; say so. A ` + "`failed`" + ` task whose effect status is ` + "`UNVERIFIED`" + ` (` + "`anet.reason`" + `
+     ` + "`timeout`" + `, ` + "`connection_lost`" + ` or ` + "`interrupted`" + `) means the call went out and nobody
+     knows whether it took effect: do not send it again as if it had not run; tell the user.
    - ` + "`metadata[\"anet.receipt_verified\"]`" + ` is ` + "`verified`" + `, ` + "`unverified`" + ` or ` + "`unknown`" + `.
      ` + "`unverified`" + ` means the receipt could not be checked, not that it is forged.
 
@@ -131,7 +133,8 @@ This machine runs an anet node. Use the ` + "`anet`" + ` MCP tools to hand work 
   ` + "`wait_task`" + ` to wait for it (call it again rather than polling or resending), ` + "`get_task`" + `,
   ` + "`list_tasks`" + `, ` + "`cancel_task`" + `.
 - ` + "`completed`" + ` is not proof of success: report ` + "`anet.effect_status`" + ` (UNVERIFIED is not OK) and
-  ` + "`anet.receipt_verified`" + ` as they are.
+  ` + "`anet.receipt_verified`" + ` as they are. ` + "`failed`" + ` with ` + "`UNVERIFIED`" + ` means nobody knows whether
+  the call took effect: do not send it again as if it had not run.
 - ` + "`submit_payment`" + ` is capped by the operator's agent limits, 0 by default. If it is refused, tell
   the user the price and payee; the operator can pay by hand with ` + "`anet pay <task_id>`" + `. Never try
   to raise a limit.

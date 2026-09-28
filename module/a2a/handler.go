@@ -120,30 +120,31 @@ func (h *handler) SendMessage(ctx context.Context, r *a2a.SendMessageRequest) (a
 
 // SendStreamingMessage sends like SendMessage and then streams the task:
 // the Task first, then its status and artifact updates, until it is
-// terminal or waits for the client again.
+// terminal or waits for the client again. Over HTTP the send was carried
+// out before the stream opened (precheck.go), so that a refusal is an
+// ordinary error; the task it answered is streamed here.
 func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRequest) iter.Seq2[a2a.Event, error] {
 	return func(yield func(a2a.Event, error) bool) {
-		info, err := h.begin(ctx, r.Tenant)
-		if err != nil {
-			yield(nil, err)
-			return
-		}
-		req, err := h.taskSend(info, r)
-		if err != nil {
-			yield(nil, err)
-			return
-		}
-		req.ReturnImmediately = true
-		t, err := h.seam.Send(ctx, info.aid, req)
-		if err != nil {
-			yield(nil, toSDKError(err))
-			return
+		info := infoFrom(ctx)
+		var req module.TaskSend
+		var t module.Task
+		if sent, ok := sentFrom(ctx); ok && info != nil {
+			req, t = sent.req, sent.task
+		} else {
+			s, err := h.sendForStream(ctx, r)
+			if err != nil {
+				yield(nil, toSDKError(err))
+				return
+			}
+			info, req, t = infoFrom(ctx), s.req, s.task
 		}
 		if isPaymentMessage(req.Message) && (a2ashape.IsPaymentRefusal(t) || a2ashape.IsPaymentHold(t)) {
 			// The kernel refused the payment before signing (§8.7), or
 			// held it for the operator above the agent tier (§8.3):
 			// nothing was sent, and nothing follows until someone acts.
-			if ev, err := sdkTask(t); err != nil {
+			// A stream event: files as metadata (0017 Q12), and no larger
+			// than a client reads (a2ashape.TaskForStream).
+			if ev, err := sdkTask(a2ashape.TaskForStream(t)); err != nil {
 				yield(nil, err)
 			} else {
 				yield(ev, nil)
@@ -162,6 +163,49 @@ func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRe
 		h.stream(ctx, info, t.ID, after, false, yield)
 	}
 }
+
+// sendForStream is the send of a streaming call: the checks SendMessage
+// makes, then the kernel's Send, answering at once.
+func (h *handler) sendForStream(ctx context.Context, r *a2a.SendMessageRequest) (*sentStream, error) {
+	info, err := h.begin(ctx, r.Tenant)
+	if err != nil {
+		return nil, err
+	}
+	req, err := h.taskSend(info, r)
+	if err != nil {
+		return nil, err
+	}
+	req.ReturnImmediately = true
+	t, err := h.seam.Send(ctx, info.aid, req)
+	if err != nil {
+		return nil, err
+	}
+	return &sentStream{req: req, task: t}, nil
+}
+
+// checkSubscribe is what SubscribeToTask checks before it streams: the
+// request, and a task of this agent's that has not ended.
+func (h *handler) checkSubscribe(ctx context.Context, r *a2a.SubscribeToTaskRequest) error {
+	info, err := h.begin(ctx, r.Tenant)
+	if err != nil {
+		return err
+	}
+	if r.ID == "" {
+		return a2a.NewError(a2a.ErrInvalidParams, "task id is required")
+	}
+	zero := 0
+	t, err := h.seam.Get(ctx, info.aid, string(r.ID), &zero)
+	if err != nil {
+		return err
+	}
+	if t.Status.State.Terminal() {
+		return errEnded
+	}
+	return nil
+}
+
+// errEnded answers a subscription to a task that has ended.
+var errEnded = a2a.NewError(a2a.ErrUnsupportedOperation, "the task has ended; read it with GetTask")
 
 // SubscribeToTask streams a task that has not ended. A terminal task is
 // UnsupportedOperation (A2A §3.1.6).
@@ -288,6 +332,13 @@ func (h *handler) GetExtendedAgentCard(context.Context, *a2a.GetExtendedAgentCar
 // A send's stream ends at a terminal state or at an interrupted one newer
 // than its own write (after, a state_seq); a subscription ends at a
 // terminal state or at an interrupted state newer than the one it found.
+//
+// No event carries a file's bytes, only its metadata (0017 Q12): the
+// kernel's stream views carry none, and every event is passed through
+// a2ashape.EventForStream on its way out as well, which also holds it to
+// a2ashape.MaxStreamEventBytes, so that an event is never one SSE line
+// longer than a client can read (a2a-go's reader stops at 10 MB) whatever
+// a peer sent — a file, a long text, large metadata, many attachments.
 func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after int64, subscribe bool, yield func(a2a.Event, error) bool) {
 	peer := info.aid
 	snap, events, err := h.seam.Watch(ctx, peer, id)
@@ -297,7 +348,8 @@ func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after in
 	}
 	if subscribe {
 		if snap.Status.State.Terminal() {
-			yield(nil, a2a.NewError(a2a.ErrUnsupportedOperation, "the task has ended; read it with GetTask"))
+			// Ended since precheckStream looked.
+			yield(nil, errEnded)
 			return
 		}
 		after = stateSeq(snap.Metadata)
@@ -306,7 +358,7 @@ func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after in
 	for _, a := range snap.Artifacts {
 		seen[a.ID] = true
 	}
-	first, err := sdkTask(forClient(info, snap))
+	first, err := sdkTask(a2ashape.TaskForStream(forClient(info, snap)))
 	if err != nil {
 		yield(nil, err)
 		return
@@ -344,7 +396,7 @@ func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after in
 		if isStatus && state.Terminal() && !h.flushArtifacts(ctx, peer, id, seen, yield) {
 			return
 		}
-		out, err := sdkEvent(eventForClient(info, ev))
+		out, err := sdkEvent(a2ashape.EventForStream(eventForClient(info, ev)))
 		if err != nil {
 			yield(nil, err)
 			return
@@ -373,7 +425,7 @@ func (h *handler) flushArtifacts(ctx context.Context, peer, id string, seen map[
 			continue
 		}
 		seen[au.Artifact.ID] = true
-		out, err := sdkEvent(module.TaskEvent{ArtifactUpdate: &au})
+		out, err := sdkEvent(a2ashape.EventForStream(module.TaskEvent{ArtifactUpdate: &au}))
 		if err != nil {
 			yield(nil, err)
 			return false

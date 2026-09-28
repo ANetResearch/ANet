@@ -59,6 +59,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/evidence"
@@ -112,15 +113,29 @@ func StoreState(s TaskState) (interactions.State, bool) {
 
 // ControlMetadata reports whether message metadata makes a text message a
 // control message rather than a conversation turn: any x402.* key, or
-// anet.state (A2A-DESIGN §4.1 [C29]). Such a message is neither in the
+// anet.state (A2A-DESIGN §4.1 [C29]) — except on a final reply
+// (FinalReply), whose anet.state=working only keeps the requester waiting
+// for the result that follows it. Such a message is neither in the
 // transcript a receipt covers nor in the history.
 func ControlMetadata(meta map[string]any) bool {
 	for k := range meta {
-		if strings.HasPrefix(k, "x402.") || k == KeyState {
+		if strings.HasPrefix(k, "x402.") {
 			return true
 		}
 	}
-	return false
+	_, state := meta[KeyState]
+	return state && !FinalReply(meta)
+}
+
+// FinalReply reports a provider's final reply on a text task it completes
+// (KeyFinal, 0017 Q30): anet.state=working and anet.final=true.
+func FinalReply(meta map[string]any) bool {
+	return meta[KeyFinal] == true && meta[KeyState] == string(interactions.StateWorking)
+}
+
+// FinalReplyMetadata is the metadata of a final reply (FinalReply).
+func FinalReplyMetadata() map[string]any {
+	return map[string]any{KeyState: string(interactions.StateWorking), KeyFinal: true}
 }
 
 // AttachmentURI names a stored attachment by the parameters of the control
@@ -165,11 +180,20 @@ type Options struct {
 	// of receipts and key histories.
 	Artifacts bool
 	// InlineFiles carries attachment bytes in raw parts, read through
-	// LoadFile. Otherwise a file part is a url part naming the attachment
-	// (AttachmentURI), which keeps a task with large files small enough to
-	// hand to a model. An attachment whose bytes cannot be read is given by
-	// reference either way.
+	// LoadFile, in the artifacts and then in status.message, up to
+	// InlineLimit bytes in all for the task (0017 Q12). The history never
+	// carries bytes: its files are metadata. Otherwise, and for every file
+	// past the limit, a file part is a placeholder: a url part naming the
+	// attachment (AttachmentURI) with its content id in
+	// metadata["anet.attachment_cid"] (KeyAttachmentCID), its name, type
+	// and size — which keeps a task with large files small enough to hand
+	// to a model, and one peer's files from costing this node more than
+	// the limit to read. An attachment whose bytes cannot be read is given
+	// by reference either way.
 	InlineFiles bool
+	// InlineLimit bounds the bytes InlineFiles carries in one task; 0 is
+	// MaxInlineBytes.
+	InlineLimit int64
 	LoadFile    func(cid string) ([]byte, error)
 	// SafeName makes an attachment's name safe to save to disk (the
 	// daemon's safeName). The peer chose the name; with no SafeName a file
@@ -228,6 +252,13 @@ func Project(src Source, opt Options) Task {
 		return Task{}
 	}
 	p := newProjector(src, opt)
+	// The artifacts are projected first: they are the task's output, and
+	// what is left of the inline limit goes to them before status.message
+	// (0017 Q12). The history carries no bytes at all.
+	var artifacts []Artifact
+	if opt.Artifacts {
+		artifacts = p.artifacts()
+	}
 	msg, why := p.statusMessage()
 	t := Task{
 		ID:        ix.ID,
@@ -237,13 +268,17 @@ func Project(src Source, opt Options) Task {
 	}
 	t.History = p.history()
 	if opt.Artifacts {
-		t.Artifacts = p.artifacts()
+		t.Artifacts = artifacts
 		if p.hasOutputReceipt() {
 			t.Metadata[KeyReceipt] = p.receiptData()
 		}
 	}
 	return t
 }
+
+// MaxInlineBytes is how many attachment bytes one projected task carries
+// inline at most (Options.InlineLimit; 0017 Q12).
+const MaxInlineBytes = 8 << 20
 
 // capResult is the part of a capability deliverable the projection reads
 // (the daemon's capabilityResult).
@@ -273,12 +308,18 @@ type projector struct {
 	resultMeta map[string]any
 	// payment is Source.Payment.
 	payment map[string]any
+	// inlineLeft is what is left of the inline limit (Options.InlineLimit).
+	inlineLeft int64
 }
 
 func newProjector(src Source, opt Options) *projector {
 	ix := src.Interaction
 	p := &projector{ix: ix, msgs: src.Messages, opt: opt, contextID: ix.ContextID,
-		outbound: ix.Role == interactions.RoleOutbound, bySeq: map[int64][]interactions.Attachment{}}
+		outbound: ix.Role == interactions.RoleOutbound, bySeq: map[int64][]interactions.Attachment{},
+		inlineLeft: opt.InlineLimit}
+	if p.inlineLeft <= 0 {
+		p.inlineLeft = MaxInlineBytes
+	}
 	if p.contextID == "" {
 		// A row written before context ids were kept. A2A requires one;
 		// the task is its own context.
@@ -394,22 +435,25 @@ func (p *projector) synthesized(text string, meta map[string]any, more ...string
 	return p.message(id, RoleAgent, parts, meta)
 }
 
-// fromRow renders stored message i with its attachments. A payment row
+// fromRow renders stored message i with its attachments, their bytes
+// inline when inline is set and the limit allows (filePart). A payment row
 // that asks for payment gets the quote and how to pay it as a further text
 // part; a row with neither body nor file gets a sentence saying what its
 // metadata records (readable.go), never an empty text part.
-func (p *projector) fromRow(i int) *Message { return p.fromRowWith(i, p.metas[i]) }
+func (p *projector) fromRow(i int, inline bool) *Message {
+	return p.fromRowWith(i, p.metas[i], inline)
+}
 
 // fromRowWith is fromRow with the row's metadata as given: the stored
 // row's own, or statusRow's.
-func (p *projector) fromRowWith(i int, meta map[string]any) *Message {
+func (p *projector) fromRowWith(i int, meta map[string]any, inline bool) *Message {
 	m := p.msgs[i]
 	var parts []Part
 	if m.Body != "" {
 		parts = append(parts, TextPart(m.Body))
 	}
 	for _, a := range p.bySeq[m.Seq] {
-		parts = append(parts, p.filePart(a))
+		parts = append(parts, p.filePart(a, inline))
 	}
 	if len(parts) == 0 {
 		// A status carrying only metadata. A message needs a part.
@@ -433,10 +477,13 @@ func (p *projector) fromRowWith(i int, meta map[string]any) *Message {
 // it [redteam:F11]. A payment-verified while this node has no payment
 // out (a free call, a quote still unpaid) is a claim about a payment it
 // never made, and gets its status too.
+//
+// Its files are inline, as status.message's are (fromRow's inline, 0017
+// Q12).
 func (p *projector) statusRow(i int) *Message {
 	meta := p.metas[i]
 	if !p.outbound || meta == nil {
-		return p.fromRow(i)
+		return p.fromRow(i, true)
 	}
 	_, hasRc := meta[KeyX402Receipts]
 	own := p.nodeX402Status()
@@ -448,7 +495,7 @@ func (p *projector) statusRow(i int) *Message {
 	ordered, haveOrdered := p.payment[KeyX402Required]
 	swapReq := hasReq && haveOrdered
 	if !hasRc && (!claimsPaid || own == PaymentCompleted) && !swapReq {
-		return p.fromRow(i)
+		return p.fromRow(i, true)
 	}
 	cp := make(map[string]any, len(meta))
 	for k, v := range meta {
@@ -479,23 +526,46 @@ func (p *projector) statusRow(i int) *Message {
 	if swapReq {
 		cp[KeyX402Required] = ordered
 	}
-	return p.fromRowWith(i, cp)
+	return p.fromRowWith(i, cp, true)
 }
 
-// filePart is an attachment as a file part: inline bytes or a reference,
+// filePart is an attachment as a file part: inline bytes or a placeholder,
 // the name made safe, the content id and size in the part's metadata.
-func (p *projector) filePart(a interactions.Attachment) Part {
+// Bytes are inline only where inline is set (the artifacts and
+// status.message, never the history), with InlineFiles, and while the
+// task's inline limit has room for them; the size is checked before the
+// bytes are read, so a file past the limit costs nothing to project. A
+// placeholder is a url part naming the attachment, with KeyAttachmentCID
+// (0017 Q12): the metadata of the file, and where to fetch it.
+func (p *projector) filePart(a interactions.Attachment, inline bool) Part {
 	part := Part{MediaType: a.Mime, Metadata: map[string]any{KeyCID: a.CID, KeySize: a.Size}}
 	if p.opt.SafeName != nil {
 		part.Filename = p.opt.SafeName(a.Name)
 	}
-	if p.opt.InlineFiles && p.opt.LoadFile != nil {
-		if b, err := p.opt.LoadFile(a.CID); err == nil {
+	if inline && p.opt.InlineFiles && p.opt.LoadFile != nil && a.Size >= 0 && a.Size <= p.inlineLeft {
+		if b, err := p.opt.LoadFile(a.CID); err == nil && int64(len(b)) <= p.inlineLeft {
+			p.inlineLeft -= int64(len(b))
 			part.Kind, part.Raw = PartRaw, b
 			return part
 		}
 	}
-	part.Kind, part.URL = PartURL, AttachmentURI(p.ix.ID, a.CID)
+	return Placeholder(part, p.ix.ID, a.CID)
+}
+
+// Placeholder turns part into the metadata form of a file (0017 Q12): a
+// url part naming the stored attachment, with its content id under
+// KeyAttachmentCID. Its name, type and other metadata stay.
+func Placeholder(part Part, interactionID, cid string) Part {
+	meta := make(map[string]any, len(part.Metadata)+2)
+	for k, v := range part.Metadata {
+		meta[k] = v
+	}
+	if _, ok := meta[KeyCID]; !ok {
+		meta[KeyCID] = cid
+	}
+	meta[KeyAttachmentCID] = cid
+	part.Metadata = meta
+	part.Kind, part.Raw, part.URL = PartURL, nil, AttachmentURI(interactionID, cid)
 	return part
 }
 
@@ -1016,7 +1086,7 @@ func (p *projector) history() []Message {
 	} else {
 		for i := range p.msgs {
 			if p.conversational(i) {
-				out = append(out, *p.fromRow(i))
+				out = append(out, *p.fromRow(i, false))
 			}
 		}
 	}
@@ -1036,7 +1106,7 @@ func (p *projector) capabilityHistory() []Message {
 		var out []Message
 		for i, m := range p.msgs {
 			if !p.fromProvider(m.SenderAID) && p.conversational(i) {
-				out = append(out, *p.fromRow(i))
+				out = append(out, *p.fromRow(i, false))
 			}
 		}
 		return out
@@ -1137,7 +1207,7 @@ func (p *projector) artifacts() []Artifact {
 				parts = append(parts, TextPart(m.Body))
 			}
 			for _, a := range m.Attachments {
-				parts = append(parts, p.filePart(interactions.Attachment{Name: a.Name, Mime: a.Mime, Size: a.Size, CID: a.CID}))
+				parts = append(parts, p.filePart(interactions.Attachment{Name: a.Name, Mime: a.Mime, Size: a.Size, CID: a.CID}, true))
 			}
 			if len(parts) > 0 {
 				out = append(out, Artifact{ID: ArtifactReply, Name: ArtifactReply, Parts: parts})
@@ -1187,4 +1257,92 @@ func (k PartKind) String() string {
 		return "data"
 	}
 	return fmt.Sprintf("PartKind(%d)", uint8(k))
+}
+
+// ByReference is t with every file it carries inline replaced by its
+// placeholder (Placeholder): the form a task takes in a stream event, which
+// carries a file's metadata and never its bytes (0017 Q12). A raw part
+// without a content id is named by the CID of its bytes. t is not changed.
+func ByReference(t Task) Task {
+	if t.Status.Message != nil {
+		m := messageByReference(*t.Status.Message, t.ID)
+		t.Status.Message = &m
+	}
+	if t.History != nil {
+		h := make([]Message, len(t.History))
+		for i, m := range t.History {
+			h[i] = messageByReference(m, t.ID)
+		}
+		t.History = h
+	}
+	if t.Artifacts != nil {
+		as := make([]Artifact, len(t.Artifacts))
+		for i, a := range t.Artifacts {
+			a.Parts = partsByReference(a.Parts, t.ID)
+			as[i] = a
+		}
+		t.Artifacts = as
+	}
+	return t
+}
+
+// EventByReference is ByReference for one stream event.
+func EventByReference(e TaskEvent) TaskEvent {
+	switch {
+	case e.Task != nil:
+		t := ByReference(*e.Task)
+		e.Task = &t
+	case e.Message != nil:
+		m := messageByReference(*e.Message, e.Message.TaskID)
+		e.Message = &m
+	case e.StatusUpdate != nil && e.StatusUpdate.Status.Message != nil:
+		su := *e.StatusUpdate
+		m := messageByReference(*su.Status.Message, su.TaskID)
+		su.Status.Message = &m
+		e.StatusUpdate = &su
+	case e.ArtifactUpdate != nil:
+		au := *e.ArtifactUpdate
+		au.Artifact.Parts = partsByReference(au.Artifact.Parts, au.TaskID)
+		e.ArtifactUpdate = &au
+	}
+	return e
+}
+
+func messageByReference(m Message, taskID string) Message {
+	if m.TaskID != "" {
+		taskID = m.TaskID
+	}
+	m.Parts = partsByReference(m.Parts, taskID)
+	return m
+}
+
+func partsByReference(parts []Part, taskID string) []Part {
+	var out []Part
+	for i, p := range parts {
+		if p.Kind != PartRaw {
+			continue
+		}
+		if out == nil {
+			out = append([]Part(nil), parts...)
+		}
+		cid, _ := p.Metadata[KeyCID].(string)
+		if cid == "" {
+			cid, _ = anetcid.Sum(p.Raw)
+		}
+		if p.Metadata == nil {
+			p.Metadata = map[string]any{KeySize: len(p.Raw)}
+		} else if _, ok := p.Metadata[KeySize]; !ok {
+			meta := make(map[string]any, len(p.Metadata)+1)
+			for k, v := range p.Metadata {
+				meta[k] = v
+			}
+			meta[KeySize] = len(p.Raw)
+			p.Metadata = meta
+		}
+		out[i] = Placeholder(p, taskID, cid)
+	}
+	if out == nil {
+		return parts
+	}
+	return out
 }
