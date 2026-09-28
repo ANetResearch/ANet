@@ -13,7 +13,13 @@ Thanks for your interest! ANet is early (v0.1) and moving fast.
 ```sh
 ./build.sh          # build the anet binary (Go 1.26+, pure Go, CGO off)
 ./build.sh --check  # gofmt + go vet + go test, and the build-tag checks
+CGO_ENABLED=1 go test -race -timeout 45m ./...   # the race detector
 ```
+
+- The race run needs `-timeout`: `internal/daemon` alone takes about 11–12
+  minutes under `-race`, past `go test`'s default limit of 10 minutes per
+  test binary (the run then fails as "test timed out" with no failing test).
+  CI's race job passes the same flag; `build.sh --check` does not run `-race`.
 
 - Keep changes `gofmt`-clean; match the existing comment style.
 - Build tags come in two directions. **Subtractive** — in by default,

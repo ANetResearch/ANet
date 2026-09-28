@@ -6,6 +6,15 @@
 #                         (full pre-commit check)
 #   ./build.sh -c         same as --check
 #
+# Neither runs the race detector, which needs cgo. The whole-repo race run is
+#
+#   CGO_ENABLED=1 go test -race -timeout 45m ./...
+#
+# and needs the -timeout: internal/daemon alone takes about 660-714 s under
+# -race, past go test's default limit of 10 minutes per test binary, and the
+# run then fails as "test timed out" with no failing test. CI's race job
+# passes the same flag.
+#
 # Pure Go: CGO is off and there is no build tag. It used to force CGO_ENABLED=1
 # and a `sqlite_fts5` tag, for a C SQLite driver the tree no longer uses —
 # modernc.org/sqlite is pure Go, and `sqlite_fts5` appears in no source file.

@@ -52,8 +52,11 @@ jobs:
       - name: tests under the race detector
         env:
           CGO_ENABLED: "1"   # -race needs cgo; runners ship gcc
+        # -timeout: internal/daemon alone takes about 660-714 s under -race
+        # on a developer machine, past go test's default 10-minute limit per
+        # test binary (CONTRIBUTING.md, build.sh).
         run: |
-          go test -race ./...
+          go test -race -timeout 45m ./...
           go test -race -tags shell,taskboard ./module/shell/... ./module/taskboard/... ./cmd/anet/...
 
   # The opt-in tags, which are checked the other way round.
