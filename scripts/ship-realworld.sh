@@ -76,11 +76,16 @@ ln -sfn "$LOG" "$LOGDIR/latest.log"
 p=$(grep -cE '^--- PASS' "$LOG")
 s=$(grep -cE '^--- SKIP' "$LOG")
 f=$(grep -cE '^--- FAIL' "$LOG")
-echo "realworld: PASS $p SKIP $s FAIL $f  ($LOG)"
+# Failed packages, counted apart from failed tests: a test that hangs until
+# -timeout panics the whole package and prints "FAIL <package>" with no
+# "--- FAIL" line at all. Counting only the latter reported a package that
+# spun for nine minutes as "FAIL 0" and the unit as successful.
+fp=$(grep -cE '^FAIL[[:space:]]+[[:alnum:]]' "$LOG")
+echo "realworld: PASS $p SKIP $s FAIL $f, packages failed $fp  ($LOG)"
 # A run where nothing passed proved nothing, however green: the services
 # not coming up looks identical to every test skipping.
-if [ "$f" -gt 0 ] || [ "$p" -lt 3 ]; then
-  grep -E '^--- FAIL' "$LOG" | head -8
+if [ "$f" -gt 0 ] || [ "$fp" -gt 0 ] || [ "$p" -lt 3 ]; then
+  grep -E '^--- FAIL|^FAIL[[:space:]]+[[:alnum:]]|^panic: ' "$LOG" | head -8
   exit 1
 fi
 exit 0
