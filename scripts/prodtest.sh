@@ -150,10 +150,10 @@ reachable(){
 ctl(){
   local node=$1 path=$2 body=$3
   case $node in
-    ink93) curl -s -m 180 -H "Authorization: Bearer $(cat "$INK_HOME/.anet/control_token.txt")" \
+    ink93) curl -s -m 180 -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$INK_HOME/.anet/control_token.txt")") \
              -H 'Content-Type: application/json' -d "$body" "http://127.0.0.1:$INK_PORT$path" ;;
-    cmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST "curl -s -m 180 -H 'Authorization: Bearer '\$(cat $CMAX_HOME/.anet/control_token.txt) -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$CMAX_PORT$path" ;;
-    dmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $DMAX_HOST "curl -s -m 180 -H 'Authorization: Bearer '\$(cat $DMAX_HOME/.anet/control_token.txt) -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$DMAX_PORT$path" ;;
+    cmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $CMAX_HOST "printf 'Authorization: Bearer %s\n' \"\$(cat $CMAX_HOME/.anet/control_token.txt)\" | curl -s -m 180 -H @- -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$CMAX_PORT$path" ;;
+    dmax)  ssh -n -o ServerAliveInterval=5 -o ServerAliveCountMax=3 -o ConnectTimeout=20 $DMAX_HOST "printf 'Authorization: Bearer %s\n' \"\$(cat $DMAX_HOME/.anet/control_token.txt)\" | curl -s -m 180 -H @- -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$DMAX_PORT$path" ;;
   esac
 }
 # viafmax <path> — reach the fmax hub from a host its firewall admits.
@@ -1063,7 +1063,7 @@ if ! has ink93 || ! has cmax; then
   sk "要 ink93 与 cmax 两侧"
 else
   att=$(mktemp); head -c $((2*1024*1024)) /dev/urandom > "$att"
-  aix=$(curl -s -m 300 -H "Authorization: Bearer $(cat "$INK_HOME/.anet/control_token.txt")" \
+  aix=$(curl -s -m 300 -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$INK_HOME/.anet/control_token.txt")") \
         -F "provider=$CMAX_AID" -F "goal=prodtest 附件" -F "attachment=@$att" \
         "http://127.0.0.1:$INK_PORT/delegate" | jq_ "print(d.get('interaction_id',''))")
   if [ -z "$aix" ]; then

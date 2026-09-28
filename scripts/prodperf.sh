@@ -70,10 +70,10 @@ timeit(){
 ctl(){
   local node=$1 path=$2 body=$3
   case $node in
-    ink93) curl -s -m 300 -H "Authorization: Bearer $(cat "$INK_HOME/.anet/control_token.txt")" \
+    ink93) curl -s -m 300 -H @<(printf 'Authorization: Bearer %s\n' "$(cat "$INK_HOME/.anet/control_token.txt")") \
              -H 'Content-Type: application/json' -d "$body" "http://127.0.0.1:$INK_PORT$path" ;;
-    cmax)  ssh -o ConnectTimeout=20 $CMAX_HOST "curl -s -m 300 -H 'Authorization: Bearer '\$(cat $CMAX_HOME/.anet/control_token.txt) -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$CMAX_PORT$path" ;;
-    dmax)  ssh -o ConnectTimeout=20 $DMAX_HOST "curl -s -m 300 -H 'Authorization: Bearer '\$(cat $DMAX_HOME/.anet/control_token.txt) -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$DMAX_PORT$path" ;;
+    cmax)  ssh -o ConnectTimeout=20 $CMAX_HOST "printf 'Authorization: Bearer %s\n' \"\$(cat $CMAX_HOME/.anet/control_token.txt)\" | curl -s -m 300 -H @- -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$CMAX_PORT$path" ;;
+    dmax)  ssh -o ConnectTimeout=20 $DMAX_HOST "printf 'Authorization: Bearer %s\n' \"\$(cat $DMAX_HOME/.anet/control_token.txt)\" | curl -s -m 300 -H @- -H 'Content-Type: application/json' -d '$body' http://127.0.0.1:$DMAX_PORT$path" ;;
   esac
 }
 jq_(){ python3 -c "import sys,json
