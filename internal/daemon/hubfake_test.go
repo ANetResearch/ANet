@@ -113,6 +113,10 @@ type fakeHub struct {
 	// relayPolls counts the /relay/poll requests each AID made, so a test
 	// can tell how many requests a poll round costs the hub.
 	relayPolls map[string]int
+	// relayServed is, per AID, the ids of the envelopes each poll handed
+	// out, in order: which envelopes a node read, not only how often it
+	// asked.
+	relayServed map[string][]int64
 	// lastSeen is when each agent last collected its mail — the real hub's
 	// agent.last_seen_at, updated by register and by every poll. It is what
 	// /relay/send answers recipient_quiet from, so a fake without it makes
@@ -258,6 +262,37 @@ func relayCountFor(url string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.relaySends
+}
+
+// relayServedFor reports the ids of the envelopes this hub's polls handed
+// to aid, in the order it handed them out.
+func relayServedFor(url, aid string) []int64 {
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		return nil
+	}
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]int64(nil), h.relayServed[aid]...)
+}
+
+// mailboxIDsFor reports the ids of the envelopes this hub holds for aid.
+func mailboxIDsFor(url, aid string) []int64 {
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		return nil
+	}
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []int64
+	for _, m := range h.mailbox {
+		if m.toAID == aid {
+			out = append(out, m.id)
+		}
+	}
+	return out
 }
 
 // relayPollsFor reports how many mailbox polls this hub answered for aid.
@@ -1069,6 +1104,10 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		out = append(out, hubapi.RelayMessage{ID: m.id, Envelope: base64.StdEncoding.EncodeToString(m.payload)})
+		if h.relayServed == nil {
+			h.relayServed = map[string][]int64{}
+		}
+		h.relayServed[aid] = append(h.relayServed[aid], m.id)
 		if len(out) >= limit {
 			break
 		}

@@ -4,11 +4,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -275,5 +277,65 @@ func TestOfflineVerificationBindsTheRequest(t *testing.T) {
 	stored, _ := anetcidSum(never)
 	if err := report(b64(t, rc), kelOf(t, provider), "", "", stored, ""); err == nil {
 		t.Error("the stored check passed a receipt for a request this node did not send")
+	}
+}
+
+// The stored form, `anet verify <ix>`, binds the receipt to the request this
+// node sent for the interaction (redteam F15): the daemon's /results carries
+// both, and a receipt naming another request does not pass. The test above
+// checks report with the stored CID; this one goes through verifyStored, so
+// that the request CID it hands on is the one the daemon stored (mutation
+// fx15-4, docs/notes/0029, dropped it and stayed green).
+func TestStoredVerificationBindsTheRequestThisNodeSent(t *testing.T) {
+	provider, err := identity.Incept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := []byte(`{"answer":42}`)
+	rc := receiptFor(t, provider, body)
+	if rc.RequestCID, err = anetcidSum([]byte("a request never made")); err != nil {
+		t.Fatal(err)
+	}
+	if err := rc.Sign(provider); err != nil {
+		t.Fatal(err)
+	}
+	sent, _ := anetcidSum([]byte("the request that was sent"))
+	var storedRequest atomic.Value // the request CID the fake daemon stored
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer verify-test-token" || r.URL.Path != "/results" {
+			http.Error(w, "no", http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{map[string]any{
+			"interaction_id": rc.InteractionID, "provider": provider.AID(),
+			"request_cid": storedRequest.Load(), "result_cid": rc.ResultCID,
+			"receipt": b64(t, rc), "provider_kel": kelOf(t, provider),
+		}}})
+	}), ReadHeaderTimeout: 5 * time.Second}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	root := t.TempDir()
+	cfg, _ := json.Marshal(map[string]any{"control_addr": ln.Addr().String()})
+	if err := os.WriteFile(filepath.Join(root, "config.json"), cfg, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	layout := daemon.NewLayout(root)
+	if err := os.WriteFile(layout.ControlTokenPath(), []byte("verify-test-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	storedRequest.Store(rc.RequestCID)
+	captureStdout(t, func() { err = verifyStored(layout, rc.InteractionID) })
+	if err != nil {
+		t.Fatalf("a receipt for the request this node stored did not check: %v", err)
+	}
+	storedRequest.Store(sent)
+	captureStdout(t, func() { err = verifyStored(layout, rc.InteractionID) })
+	if err == nil {
+		t.Fatal("`anet verify <ix>` passed a receipt for a request this node did not send")
 	}
 }

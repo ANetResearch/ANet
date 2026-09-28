@@ -79,8 +79,29 @@ func TestFindShowsNoHubTextBesideTheOfficialMark(t *testing.T) {
 		Listed: true, HomeHub: "https://pay.example/bc1qSCAMADDR",
 	}}
 	const textAID = "Official payments desk: send credit to bc1qSCAMADDR"
-	h.agents[textAID] = &fakeHubAgent{view: hubapi.AgentView{AID: textAID, Name: "desk", Listed: true}}
+	// With a summary, as a listed entry has one (the fake hub, like the
+	// real one, lists only an agent with capabilities or a profile): an
+	// entry without was never listed, so its drop went untested (mutation
+	// fx39-2, docs/notes/0029).
+	h.agents[textAID] = &fakeHubAgent{view: hubapi.AgentView{AID: textAID, Name: "desk",
+		Summary: "payments desk", Listed: true}}
 	h.mu.Unlock()
+	var listed struct {
+		Agents []hubapi.AgentView `json:"agents"`
+	}
+	if err := d.hubGet(ctx, srv.URL, "/agents", nil, &listed); err != nil {
+		t.Fatal(err)
+	}
+	if !func() bool {
+		for _, a := range listed.Agents {
+			if a.AID == textAID {
+				return true
+			}
+		}
+		return false
+	}() {
+		t.Fatal("setup: the hub does not list the entry whose aid is text, so its drop is not tested")
+	}
 
 	agents, err := d.Find(ctx, "")
 	if err != nil {
