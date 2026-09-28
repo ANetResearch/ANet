@@ -495,9 +495,10 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 	}
 	req.Header.Set(HeaderCapability, target.ID)
 
-	// Whether the request went out decides what a transport error means:
-	// before its header block is written the service cannot have begun the
-	// call (provider.TrackSent).
+	// Whether the request may have gone out decides what a transport error
+	// means: before the transport had a connection for it the service
+	// cannot have begun the call; from then on it may have
+	// (provider.TrackSent).
 	req, sent := provider.TrackSent(req)
 
 	started := time.Now()
@@ -506,19 +507,21 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability,
 			LatencyMS: time.Since(started).Milliseconds()}
 		if sent() {
-			// The call went out and its answer did not come back: the
-			// deadline passed while the service worked, or the connection
-			// dropped before the reply. The effect may have happened, so
-			// neither "nothing was attempted" nor "it failed" is true, and
-			// a requester told either could run it twice (A2A-DESIGN §4.3).
+			// The call may have gone out and no answer came back: the
+			// deadline passed while the request was being written or while
+			// the service worked, or the connection dropped before the
+			// reply. The effect may have happened, so neither "nothing was
+			// attempted" nor "it failed" is true, and a requester told
+			// either could run it twice (A2A-DESIGN §4.3).
 			return effect.Effect{Status: effect.Unverified, Evidence: ev},
 				fmt.Errorf("service %s: %w", call.Capability, provider.AnswerLost(err))
 		}
 		// The service could not be reached: no connection, a far side that
 		// failed the checks (backendconn.ErrRefused: nothing was written to
-		// it), or it broke before the request was written. UNAVAILABLE, not
-		// FAILED: nothing was attempted at the far end, and a requester
-		// deciding whether to retry elsewhere needs that distinction.
+		// it), or the deadline passed before a connection was had. Nothing
+		// of the request was written. UNAVAILABLE, not FAILED: nothing was
+		// attempted at the far end, and a requester deciding whether to
+		// retry elsewhere needs that distinction.
 		msg := fmt.Sprintf("service %s: %v", call.Capability, err)
 		switch {
 		case errors.Is(err, backendconn.ErrRefused):

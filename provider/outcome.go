@@ -9,22 +9,64 @@ import (
 	"sync/atomic"
 )
 
-// TrackSent returns req traced so that sent reports whether its header
-// block was written, the point after which the target may have begun the
-// call (OutcomeUnknownError). Each attempt starts unsent: the transport
-// tries again on a new connection only when nothing of the request reached
-// the wire (a POST is not replayed otherwise).
+// TrackSent returns req traced so that sent reports whether the request may
+// have reached its target, the point after which the target may have begun
+// the call (OutcomeUnknownError). An error met while sent is false is one
+// of reaching the target: a dial refused, a far side that failed
+// internal/backendconn's checks, a deadline that passed before a
+// connection was had. Nothing of the request was written anywhere.
+//
+// It turns true when the transport hands the request a connection
+// (httptrace GotConn), before a byte of it is written, and not later.
+// net/http calls GotConn on the goroutine that called Do, before the
+// request is written; it writes the request on another goroutine and
+// returns as soon as the context ends. A mark set by a write callback
+// (WroteHeaders) could come after Do had returned, and over HTTP/2 it
+// always comes after the header block was flushed, which is when the
+// server starts the handler: a call cut off by its deadline in that window
+// reached the target and was reported as never sent (SI-6: "not known"
+// must never be reported as "did not happen"). Marking at the connection
+// can also report as unknown a call that failed before its first byte went
+// out — on a pooled connection the far side had closed, for one — which
+// errs the side that is only less precise.
+//
+// When the transport tries again on another connection (GetConn once more),
+// sent turns false again only for a request that is not idempotent, as
+// net/http defines it (a POST): net/http sends one of those again only when
+// nothing of it was written. An idempotent request it may send again after
+// it went out, so for one of those sent stays true once set.
 //
 // A provider that calls its target over HTTP uses it to tell "could not
 // reach it" (UNAVAILABLE) from "sent, and the answer was lost" (an
 // OutcomeUnknownError, AnswerLost).
 func TrackSent(req *http.Request) (traced *http.Request, sent func() bool) {
 	var s atomic.Bool
+	retriedOnlyUnwritten := !idempotent(req)
 	traced = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
-		GetConn:      func(string) { s.Store(false) },
+		GetConn: func(string) {
+			if retriedOnlyUnwritten {
+				s.Store(false)
+			}
+		},
+		GotConn: func(httptrace.GotConnInfo) { s.Store(true) },
+		// Never first (GotConn comes before any write), and never harmful:
+		// it can only say "may have been sent" where that is true.
 		WroteHeaders: func() { s.Store(true) },
 	}))
 	return traced, s.Load
+}
+
+// idempotent is net/http's rule for a request it may retry after it was
+// written (http.Transport): GET, HEAD, OPTIONS or TRACE, or one that
+// carries an Idempotency-Key or X-Idempotency-Key header.
+func idempotent(req *http.Request) bool {
+	switch req.Method {
+	case "", http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return true
+	}
+	_, k := req.Header["Idempotency-Key"]
+	_, x := req.Header["X-Idempotency-Key"]
+	return k || x
 }
 
 // AnswerLost is the OutcomeUnknownError for err, an error met after the
