@@ -780,3 +780,42 @@ func TestKernelPaymentMeta(t *testing.T) {
 		t.Fatalf("cancel_requested after a payment: %v", sdk.Metadata)
 	}
 }
+
+// A task this node paid for that completed without a settlement it could
+// verify (the provider's receipt did not check out; pay_state stays
+// submitted) says so. It said "no payment settled", a fact this node does
+// not know on exactly the tasks where money may have moved; nor is it
+// "Payment completed." [redteam:F11].
+func TestCompletedWithAnUnverifiedPaymentDoesNotSayNoneSettled(t *testing.T) {
+	st := openStore(t)
+	capTask(t, st, "ix_u", interactions.StateCompleted, `{"capability":"cas.put","status":"OK"}`,
+		`{"anet.effect_status":"OK"}`)
+	src, err := a2ashape.Load(st, "ix_u")
+	must(t, err)
+	src.Interaction.PayState = interactions.PaySubmitted
+	src.Interaction.PayReceipts = []byte(`[{"success":true,"transaction":"tx9","network":"n",` +
+		`"extensions":{"anet.settlement_verified":"unverified"}}]`)
+	sdk := contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	m := sdk.Status.Message
+	if m == nil || m.Metadata[a2ashape.KeyX402Status] != "payment-submitted" {
+		t.Fatalf("status %+v", sdk.Status)
+	}
+	if text := m.Parts[0].Text(); strings.Contains(text, "no payment settled") ||
+		strings.Contains(text, "Payment completed") || !strings.Contains(text, "not verified") {
+		t.Errorf("status.message says %q", text)
+	}
+	if rcs, _ := m.Metadata[a2ashape.KeyX402Receipts].([]any); len(rcs) != 0 {
+		t.Errorf("an unverified settlement is stated: %v", rcs)
+	}
+	if un, _ := sdk.Metadata[a2ashape.KeyUnverifiedReceipts].([]any); len(un) != 1 {
+		t.Errorf("anet.unverified_receipts = %v", sdk.Metadata[a2ashape.KeyUnverifiedReceipts])
+	}
+
+	// Quoted and never paid: nothing was submitted, so none settled.
+	src.Interaction.PayState = interactions.PayRejected
+	src.Interaction.PayReceipts = nil
+	sdk = contract(t, a2ashape.Project(src, a2ashape.Options{}))
+	if text := sdk.Status.Message.Parts[0].Text(); text != "The task completed; no payment settled." {
+		t.Errorf("rejected quote: %q", text)
+	}
+}

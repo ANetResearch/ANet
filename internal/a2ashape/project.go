@@ -454,11 +454,19 @@ func (p *projector) statusRow(i int) *Message {
 		cp[k] = v
 	}
 	if hasRc {
-		rc := p.nodeReceipts()
-		if rc == nil {
-			rc = []any{}
+		if p.ix.PayState == interactions.PayNone {
+			// Outside the payment flow this node states no settlement at
+			// all, not an empty list: a free call's provider row that
+			// carried receipts read x402.payment.receipts=[] (§8.2)
+			// [redteam:F11].
+			delete(cp, KeyX402Receipts)
+		} else {
+			rc := p.nodeReceipts()
+			if rc == nil {
+				rc = []any{}
+			}
+			cp[KeyX402Receipts] = rc
 		}
-		cp[KeyX402Receipts] = rc
 	}
 	if claimsPaid && own != PaymentCompleted {
 		if own != "" {
@@ -615,8 +623,16 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 			text := "The task completed; no payment settled."
 			if st := p.finalX402Status(); st != "" {
 				meta[KeyX402Status] = st
-				if st == PaymentCompleted {
+				switch {
+				case st == PaymentCompleted:
 					text = "Payment completed."
+				case st == PaymentSubmitted && p.outbound:
+					// Paid and not verified: the provider may say it was
+					// settled (anet.unverified_receipts), and this node has
+					// no hub receipt that shows it. "No payment settled"
+					// stated as fact what this node does not know, on the
+					// very tasks where money may have moved [redteam:F11].
+					text = "The task completed; this node has not verified a settlement of the payment it submitted."
 				}
 			}
 			return p.synthesized(text, meta), nil
