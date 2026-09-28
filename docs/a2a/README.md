@@ -1,6 +1,6 @@
 # A2A 社区贡献草稿(`docs/a2a/`)
 
-对应设计文档 `docs/A2A-DESIGN-zh.md`(r3)§19。本目录是 anet 回馈 A2A 生态的六份草稿,面向上游社区,
+对应设计文档 `docs/A2A-DESIGN-zh.md`(r3)§19。本目录是 anet 回馈 A2A 生态的八份草稿,面向上游社区,
 正文一律英文;本文件是中文索引。
 
 > **全部是草稿,均未提交。** 任何一份对外提交(开 issue、发 PR、发安全通告、在社区讨论区贴出)之前,
@@ -20,6 +20,8 @@
 | `registry-api.md` | 注册表 API 草案:`GET /a2a/v1/agents`(查询参数、条目形状、包装层是 hub 陈述)、卡片原字节与 ETag、JWKS、`/fed/v2/cards`、卡片准入规则与高水位 | `a2aproject/A2A` 讨论 issue(规范目前明言不规定注册表 API) | 完整初稿,字段拼写待与实现对齐 | 卡片验证、JWKS、高水位已实现(ANetCore `a2acard`);**列表、卡片与 JWKS 端点在 ANetHub 中尚未实现**(目前只把 `a2a_card` 原样存下并回报 `unverified`) |
 | `x402-scheme-anet-credit.md` | `anet-credit` x402 scheme 文档(按 `a2a-x402/schemes/` 格式):托管性质、PaymentRequirements/PaymentPayload、授权对象 CDDL、签名、nonce 与窗口、绑定值、facilitator 职责、收据、跨 hub、`errorReason` 常量与 a2a-x402 错误码映射、两处偏离(`hub:<aid>` 与 CAIP-2;本地签名服务接受未签名的所选项) | `google-agentic-commerce/a2a-x402` 的 `schemes/`(实验性 scheme;该目录现有文件名形如 `scheme_exact_lightning.md`,提交时改名,例如 `scheme_anet_credit.md`) | 完整初稿 | facilitator、授权/收据对象已实现并核对;`pay_bind`、商户核对、映射表、§8.7 本地签名流程标为 **(designed)**(C3 未实现) |
 | `issue-a2a-go.md` | a2a-go v2.6.0 的 13 条 issue 草稿(A1–A13),每条附复现代码、观察结果、影响、修复建议;2026-09-28 上游复核后 A1 改为在已有的 a2a-go #445 下评论、A11 按 A2A v1.0.1 撤回、A12 暂缓、A13 不提交(归 TCK),见 `docs/notes/0032` | `a2aproject/a2a-go`;**A3、A9 走 GitHub Security Advisories 私下报告,不开公开 issue** | 完整;全部在 2026-09-27 用 a2a-go `ebf17c5` 实际复现 | — |
+| `issue-a2a-python.md` | a2a-sdk(Python)1.1.5 的 2 条 issue 草稿(P1 JSON-RPC 流式调用的非 200 错误读不出 A2A 错误名,附三个 SDK 的对照表;P2 `TaskUpdater.submit()` 作首个事件使任务失败),来自 `docs/notes/0035` 的真实客户端互通 | `a2aproject/a2a-python` | **待更多测试后再提交**;2026-09-28 实际复现 | — |
+| `issue-a2a-js.md` | @a2a-js/sdk 1.2.1 的 3 条 issue 草稿(J1 卡片规范化丢掉已解析卡片的 oneof 成员、签名不覆盖 `securitySchemes`;J2 卡片解析器按 URL 引用拼接 well-known 路径;J3 Node 默认 fetch 300 s 使长阻塞调用失败),来自 `docs/notes/0035` | `a2aproject/a2a-js`;**J1 走 Security Advisories 私下报告** | **待更多测试后再提交**;2026-09-28 实际复现 | — |
 | `issue-a2a-x402.md` | a2a-x402 v0.2 规范的 12 条 issue 草稿(X1–X12):激活头、x402 版本、A2A 1.0 示例、状态机缺口、一个任务付两次、签名服务委托、错误码、收据出现时机、传输安全措辞、对 facilitator 的数据最小化、`required: true`、非链网络标识 | `google-agentic-commerce/a2a-x402` | 完整初稿 | — |
 | `submissions/` | 按 `docs/notes/0032` 前三步整理的待提交文本(a2a-go、a2a-x402、A2A 网站 partners),同样未提交 | `a2aproject/a2a-go`、`google-agentic-commerce/a2a-x402`、A2A 网站 | 待提交文本;每一份需 PO 同意 | — |
 | `proposal-securityscheme.md` | `SecurityScheme` 新变体提议 `SenderSignatureSecurityScheme`(按 A2A ADR 模板):为何现有五种 scheme 都不适用、候选方案比较、proto 改动、规范文字、profile 要求、兼容性 | `a2aproject/A2A` 规范变更提案 | 完整初稿 | anet 当前网络卡片不声明 `securitySchemes`(设计 §10.1);本提议是上游补齐的路径 |
@@ -38,8 +40,9 @@ a2a-go 的 A1–A10 复现是在 scratchpad 里用独立 Go module(`replace` 指
    `/fed/v2/cards` 在 ANetHub 中实现后,按实现回填字段拼写、分页形状、ETag 格式,再去掉文首的"未实现"说明。
 4. **补齐测试向量**:`relay-binding.md` §14 列出的缺口 —— `DelegateReq`/`ChatMsg`/`StatusMsg`/`ResultResp`
    全字段向量、固定密钥下的端到端交换记录(delegate → status → result)。
-5. **跨 SDK 验证**:A1(默认值剥离)需要用 a2a-python 实际验证一次行为后再提交,草稿中已避免对
-   a2a-python 行为下未经验证的断言。
+5. **跨 SDK 验证**:A1(默认值剥离)需要用 a2a-python 实际验证一次行为后再提交。2026-09-28 已验证
+   (`docs/notes/0035`):a2a-go 在带默认值的 JSON 上签出的卡片,a2a-python 1.1.5 与 a2a-js 1.2.1 都验不过,
+   去掉默认值后两者都验得过;结果已写入 A1。
 6. **按各仓库流程提交**:a2a-go 的 PR 按其 `CONTRIBUTING.md`(先开 issue 讨论方案;本地检出里没有
    写明 CLA 要求,提交前到 GitHub 上再确认一次);A2A 主仓库要求 Conventional Commits 与 markdownlint,
    官方扩展/绑定仓库另有 governance 文档里的贡献许可声明;安全类(A3、A9)只走 Security Advisories。
