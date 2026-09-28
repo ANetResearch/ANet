@@ -122,6 +122,10 @@ type fakeHub struct {
 	maxEnvelope int // 413 above this many envelope bytes
 	senderLimit int // 429 once a sender has sent this many envelopes
 	mailboxCap  int // 507 once a recipient holds this many undelivered envelopes
+	// pollPage answers at most this many envelopes per poll (0: the
+	// caller's limit): the real hub's byte budget (PollBudget) cuts a page
+	// of large envelopes short, down to one.
+	pollPage int
 	// relayDown makes /relay/send answer 503: the hub is up but not
 	// carrying mail, the temporary failure a sender retries.
 	relayDown bool
@@ -1001,6 +1005,9 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.pollPage > 0 && h.pollPage < limit {
+		limit = h.pollPage
+	}
 	// Collecting mail IS the liveness signal the real hub records (SeenPolling).
 	h.lastSeen[aid] = time.Now()
 	if h.relayPolls == nil {
