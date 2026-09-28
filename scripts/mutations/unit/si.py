@@ -517,6 +517,7 @@ MUTS = [
    ('module/a2a/convert.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/handler.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/module.go', '//go:build !no_a2a\n', ''),
+   ('module/a2a/precheck.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/server.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/kelresolver/kelresolver.go', '//go:build !no_a2a\n', ''),
   ],
