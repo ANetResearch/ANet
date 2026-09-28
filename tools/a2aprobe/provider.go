@@ -66,6 +66,10 @@ func cmdResponder(args []string) int {
 	}
 }
 
+// openStates are the states of a task that may wait for the responder: the
+// control plane's /tasks/list state filter takes one at a time.
+var openStates = []string{"TASK_STATE_SUBMITTED", "TASK_STATE_WORKING", "TASK_STATE_INPUT_REQUIRED"}
+
 // responder answers each text task delegated to the provider once per
 // requester message: "echo: " and the message's text, completing the task.
 type responder struct {
@@ -125,14 +129,25 @@ func (r *responder) answer(t ctlTask) (reply, msgID string, hold, ok bool) {
 }
 
 // once reads the inbound tasks and answers what waits.
+//
+// It reads only the tasks that can still wait for an answer, and only their
+// latest message (all answer looks at). A page of every inbound task with
+// its history outgrows what call reads once a few big tasks are done — a
+// 3 MiB echo was enough (docs/notes/0035) — and then every poll failed on a
+// truncated page and nothing more was answered.
 func (r *responder) once(ctx context.Context) error {
-	var page struct {
-		Tasks []ctlTask `json:"tasks"`
+	var tasks []ctlTask
+	for _, st := range openStates {
+		var page struct {
+			Tasks []ctlTask `json:"tasks"`
+		}
+		if _, err := r.call(ctx, "/tasks/list", map[string]any{"role": "inbound", "state": st, "page_size": 100,
+			"history_length": 1}, &page); err != nil {
+			return err
+		}
+		tasks = append(tasks, page.Tasks...)
 	}
-	if _, err := r.call(ctx, "/tasks/list", map[string]any{"role": "inbound", "page_size": 100, "history_length": 20}, &page); err != nil {
-		return err
-	}
-	for _, t := range page.Tasks {
+	for _, t := range tasks {
 		reply, msgID, hold, ok := r.answer(t)
 		if !ok {
 			continue

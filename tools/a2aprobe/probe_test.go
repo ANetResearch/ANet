@@ -614,6 +614,53 @@ func TestResponderAnswersOncePerMessage(t *testing.T) {
 	}
 }
 
+// TestResponderIsNotStoppedByLargeFinishedTasks: the responder reads only
+// the tasks that can still wait for an answer, and only their latest
+// message. Listing every inbound task with its history made one page larger
+// than the responder reads (16 MiB) as soon as a few big tasks had been
+// answered — a 3 MiB echo did it (docs/notes/0035) — and from then on every
+// poll failed on a truncated page and nothing more was answered.
+func TestResponderIsNotStoppedByLargeFinishedTasks(t *testing.T) {
+	big := strings.Repeat("x", 17<<20)
+	open := `{"id":"open","status":{"state":"TASK_STATE_SUBMITTED"},"history":[{"messageId":"m1","role":"ROLE_USER","parts":[{"text":"hello"}]}]}`
+	done := `{"id":"done","status":{"state":"TASK_STATE_COMPLETED"},"history":[{"messageId":"m0","role":"ROLE_USER","parts":[{"text":"` + big + `"}]}]}`
+	var mu sync.Mutex
+	var replies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		switch r.URL.Path {
+		case "/tasks/list":
+			// The control plane's filters: state, and history_length
+			// (the big task has only one message, so it is as big either way).
+			switch st, _ := body["state"].(string); st {
+			case "":
+				io.WriteString(w, `{"tasks":[`+done+`,`+open+`]}`)
+			case "TASK_STATE_SUBMITTED":
+				io.WriteString(w, `{"tasks":[`+open+`]}`)
+			case "TASK_STATE_COMPLETED":
+				io.WriteString(w, `{"tasks":[`+done+`]}`)
+			default:
+				io.WriteString(w, `{"tasks":[]}`)
+			}
+		case "/tasks/reply":
+			mu.Lock()
+			replies = append(replies, body["task_id"].(string))
+			mu.Unlock()
+			io.WriteString(w, "{}")
+		}
+	}))
+	defer srv.Close()
+	r := &responder{ctl: strings.TrimPrefix(srv.URL, "http://"), token: "tok", hold: holdMark,
+		answered: map[string]string{}, hc: srv.Client()}
+	if err := r.once(context.Background()); err != nil {
+		t.Fatalf("a poll failed: %v", err)
+	}
+	if len(replies) != 1 || replies[0] != "open" {
+		t.Fatalf("replies %v, want the open task answered", replies)
+	}
+}
+
 func TestBackendDigestsAndCounts(t *testing.T) {
 	b := &backend{token: "svc", calls: map[string]int{}}
 	srv := httptest.NewServer(b)
