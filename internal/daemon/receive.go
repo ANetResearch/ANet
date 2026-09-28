@@ -109,6 +109,9 @@ const (
 	transientP2PRate     = "t-p2p-rate-limit" // step 0
 	transientUnknownIX   = "t-unknown-ix"     // message before its delegation, inside the wait window
 	transientReplayCheck = "t-replay-read"    // replay table read failed
+	// transientDirectUnopened: an envelope a transport module delivered
+	// that this node cannot open (steps 1-4); the sender is sent to the hub.
+	transientDirectUnopened = "t-direct-unopened"
 )
 
 // unknownIXWait is how long a message for an interaction this node does not
@@ -154,13 +157,39 @@ type rxMsg struct {
 	pendingRoute bool
 }
 
-// receiveEnvelope runs steps 1 to 10 on one envelope.
+// rxPath is how an envelope reached this node.
+type rxPath struct {
+	// direct: a transport module handed it over (module.Inbound, p2p), not
+	// the hub mailbox.
+	direct bool
+}
+
+// receiveEnvelope runs steps 1 to 10 on one envelope from the hub mailbox.
 func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
+	return d.receiveEnvelopeVia(ctx, env, rxPath{})
+}
+
+// receiveEnvelopeVia runs steps 1 to 10 on one envelope that arrived by
+// path.
+func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath) rxResult {
 	now := d.nowMS()
 
 	// Steps 1-4.
 	op, err := seal.Open(env, d.AID(), d.enc)
 	if err != nil {
+		if path.direct {
+			// [redteam:F22] From the hub mailbox an envelope this node
+			// cannot open is wrong for good: the mailbox is this node's,
+			// and the hub checked the outer to. Over a direct transport it
+			// may only be someone else's: the address the sender dialled
+			// can lead to another node (a stale or reused rendezvous entry,
+			// another identity behind the same host and port). Acked here,
+			// the sender would count it delivered and never try the hub,
+			// where the real recipient's mailbox is, and the message would
+			// be lost. Not acked, it goes through the hub, which refuses it
+			// there if it is malformed after all (§3.6 steps 1-4, §3.10).
+			return d.transient(transientDirectUnopened, fmt.Errorf("%s: %w", reasonOf(err), err))
+		}
 		return d.drop(reasonOf(err), err)
 	}
 	in := &op.Inner

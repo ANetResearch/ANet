@@ -171,12 +171,15 @@ func (d *Daemon) Inbound() module.Inbound { return inbound{d} }
 // an envelope that fails to open or verify, not one that is believed
 // because of how it arrived.
 //
-// The one difference from the hub path is step 0 of §3.6: an envelope that
+// Two things differ from the hub path. Step 0 of §3.6: an envelope that
 // arrives directly has not passed the hub's per-sender rate limit, so a
 // daemon-wide limit applies before any decryption work is spent on it. An
 // envelope over the limit is refused with an error, which tells the
 // transport not to acknowledge it; the sender then falls back to the hub,
-// where its own sender budget applies.
+// where its own sender budget applies. And steps 1-4: an envelope this node
+// cannot open may have been meant for another node the sender's address led
+// astray, so it is refused the same way rather than acknowledged and lost
+// (receiveEnvelopeVia, [redteam:F22]).
 type inbound struct{ d *Daemon }
 
 func (in inbound) Receive(ctx context.Context, envelope []byte) error {
@@ -184,7 +187,7 @@ func (in inbound) Receive(ctx context.Context, envelope []byte) error {
 		in.d.count(transientP2PRate)
 		return errP2PRateLimited
 	}
-	res := in.d.receiveEnvelope(ctx, envelope)
+	res := in.d.receiveEnvelopeVia(ctx, envelope, rxPath{direct: true})
 	if !res.ack() {
 		return fmt.Errorf("anet: envelope not accepted yet (%s); not acknowledging", res.reason)
 	}

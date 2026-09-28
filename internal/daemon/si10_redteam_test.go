@@ -34,12 +34,13 @@ func (m misrouteTransport) Send(ctx context.Context, _ string, env []byte) error
 	return m.wrong.Inbound().Receive(ctx, env)
 }
 
-// SI-10 / §3.10: an envelope that reaches the wrong node over p2p is
-// refused at step 1 (outer to != self) as PERMANENT, so the wrong node's
-// Receive returns nil and its peer process acks it. The sender takes the
-// ack as delivery, deletes the outbox row and never falls back to the hub:
-// the real recipient never gets the message.
-func TestRedteamSI10_P2PMisrouteIsAckedAndTheMessageIsLost(t *testing.T) {
+// [redteam:F22] regression (was TestRedteamSI10_P2PMisrouteIsAckedAndTheMessageIsLost).
+// SI-10 / §3.10: an envelope that reaches the wrong node over p2p (a stale
+// rendezvous entry, a reused host:port) cannot be opened there. Over a
+// direct transport that is a temporary refusal: the wrong node does not
+// acknowledge it, the sender falls through to the hub, and the real
+// recipient gets the message from its mailbox.
+func TestRedteamSI10_P2PMisrouteFallsBackToTheHub(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	wrong := newTestDaemon(t, srv.URL, false) // an honest, unrelated node
@@ -49,29 +50,33 @@ func TestRedteamSI10_P2PMisrouteIsAckedAndTheMessageIsLost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
-	// The wrong node refused it as not addressed to it, and acked.
-	if n := counter(wrong, seal.ReasonWrongRecipient); n != 1 {
-		t.Fatalf("wrong node wrong-recipient count = %d, want 1 (%v)", n, wrong.ReceiveStats())
+	// The wrong node refused it as one it cannot open, temporarily.
+	if n := counter(wrong, seal.ReasonWrongRecipient); n != 0 {
+		t.Fatalf("wrong node counted a permanent wrong-recipient (%v)", wrong.ReceiveStats())
 	}
-	// The sender considers it delivered: nothing is left to retry.
+	if n := counter(wrong, transientDirectUnopened); n != 1 {
+		t.Fatalf("wrong node t-direct-unopened = %d, want 1 (%v)", n, wrong.ReceiveStats())
+	}
+	// The sender fell through to the hub: the provider's mailbox holds it
+	// and nothing is left to retry.
+	if n := len(queuedFor(t, srv, prov.AID())); n != 1 {
+		t.Fatalf("hub holds %d envelopes for the provider, want the delegation", n)
+	}
 	if rows, err := req.ix.Outbox(id); err != nil || len(rows) != 0 {
-		t.Fatalf("requester outbox = %d rows (%v); the misroute was not taken as delivered", len(rows), err)
+		t.Fatalf("requester outbox = %d rows (%v)", len(rows), err)
 	}
-	// Nothing went to the hub either.
-	if n := len(queuedFor(t, srv, prov.AID())); n != 0 {
-		t.Fatalf("hub holds %d envelopes for the provider; the sender fell back", n)
-	}
-	// The intended provider never learns of the task.
+	// The intended provider gets the task.
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prov.ix.Get(id); !errors.Is(err, interactions.ErrNotFound) {
-		t.Fatalf("provider has the task (%v); the message was not lost", err)
+	if _, err := prov.ix.Get(id); err != nil {
+		t.Fatalf("provider does not have the task: %v", err)
 	}
-	// And the requester's task waits forever in submitted.
-	cur, err := req.ix.Get(id)
-	if err != nil || cur.IsTerminal() {
-		t.Fatalf("requester task = %+v (%v)", cur, err)
+	// From the hub mailbox the same refusal stays permanent: that mailbox
+	// is the node's own.
+	env := craft(t, senderOf(req), prov, seal.TypeMessage, id, chatBody(t, "for prov", ""), nil)
+	if r := receive(t, wrong, env); r.class != rxDropped || r.reason != seal.ReasonWrongRecipient {
+		t.Fatalf("hub path: %+v, want a permanent %s", r, seal.ReasonWrongRecipient)
 	}
 }
 
