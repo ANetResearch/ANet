@@ -158,3 +158,74 @@ func TestTaskReadWithinSaysHowToReadTheWholeTask(t *testing.T) {
 		}
 	}
 }
+
+// A peer's large value in a task's metadata — here a 40 KB anet.reason
+// and a long list of claimed receipts — does not take this node's
+// statements about the task out of a bounded read or a listing: the effect
+// status, the role, the peer, the state sequence and the receipt check stay
+// (SI-6); only the values too large to keep are dropped, and the task is
+// marked anet.truncated. Before, a cut kept nothing but the mark.
+func TestACutKeepsWhatThisNodeSaysAboutTheTask(t *testing.T) {
+	var claimed []any
+	for i := 0; i < 400; i++ {
+		claimed = append(claimed, map[string]any{"network": "base", "transaction": strings.Repeat("ab", 32)})
+	}
+	task := Task{ID: "ix_1", ContextID: "c", Status: TaskStatus{State: TaskStateFailed},
+		Metadata: map[string]any{
+			KeyEffectStatus: "UNVERIFIED", KeyRole: "requester", KeyPeerAID: "bafypeer", KeyStateSeq: 7,
+			KeyReceiptVerified: "unverified", KeyTrust: "trusted", KeySkill: "lamp",
+			KeyReason:             strings.Repeat("r", 40<<10),
+			KeyUnverifiedReceipts: claimed,
+			"x.small":             "kept",
+		}}
+	for name, got := range map[string]Task{"read": TaskReadWithin(task, 24<<10), "list": TaskWithin(task, 8<<10),
+		"smallest": TaskWithin(task, 0)} {
+		b, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bound := map[string]int{"read": 24 << 10, "list": 8 << 10, "smallest": MinTaskBytes}[name]
+		if len(b) > bound {
+			t.Fatalf("%s: %d bytes as JSON, over %d", name, len(b), bound)
+		}
+		m := got.Metadata
+		if m[KeyTruncated] != true || m[KeyEffectStatus] != "UNVERIFIED" || m[KeyRole] != "requester" ||
+			m[KeyPeerAID] != "bafypeer" || m[KeyStateSeq] != 7 || m[KeyReceiptVerified] != "unverified" {
+			t.Fatalf("%s: metadata %v", name, m)
+		}
+		if _, ok := m[KeyReason]; ok {
+			t.Fatalf("%s: the 40 KB reason was kept", name)
+		}
+		if _, ok := m[KeyUnverifiedReceipts]; ok {
+			t.Fatalf("%s: the claimed receipts were kept", name)
+		}
+	}
+	if m := TaskReadWithin(task, 24<<10).Metadata; m["x.small"] != "kept" || m[KeySkill] != "lamp" || m[KeyTrust] != "trusted" {
+		t.Fatalf("read: the small keys were not all kept: %v", m)
+	}
+}
+
+// A bounded read stays within its bound when a peer fills everything a cut
+// keeps: a long anet.reason in the task's metadata, and 4 KB of metadata on
+// both its status message and its message, each with a huge text. A first
+// fit came to 31 KB for a 24 KiB bound; the task is fitted again with less
+// room, and the effect status is still there.
+func TestABoundedReadHoldsWhenEveryCutCarriesMetadata(t *testing.T) {
+	meta4k := map[string]any{"x.pad": strings.Repeat("m", 3900)}
+	huge := strings.Repeat("字", 1<<18)
+	task := Task{ID: "ix_1", ContextID: "c", Status: TaskStatus{State: TaskStateInputRequired,
+		Message: &Message{ID: "s", Role: RoleAgent, Parts: []Part{TextPart(huge)}, Metadata: meta4k}},
+		Metadata: map[string]any{KeyEffectStatus: "UNVERIFIED", KeyRole: "requester", KeyReason: strings.Repeat("r", 22<<10)},
+		History:  []Message{{ID: "q", Role: RoleUser, Parts: []Part{TextPart(huge)}, Metadata: meta4k}}}
+	got := TaskReadWithin(task, 24<<10)
+	b, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) > 24<<10 {
+		t.Fatalf("%d bytes as JSON, over 24 KiB", len(b))
+	}
+	if got.Metadata[KeyEffectStatus] != "UNVERIFIED" || got.Metadata[KeyTruncated] != true {
+		t.Fatalf("metadata %v", got.Metadata)
+	}
+}
