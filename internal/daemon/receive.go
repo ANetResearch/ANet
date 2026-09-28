@@ -117,6 +117,10 @@ const (
 	// transientNotReady: a direct delivery that arrived during start-up and
 	// could not wait for it to finish (awaitReady).
 	transientNotReady = "t-not-ready"
+	// transientDirectUnknownIX: a message for a task this node does not
+	// hold, delivered directly; the sender is sent to the hub, where its
+	// delegation may be waiting ahead of it (authorizeMessage).
+	transientDirectUnknownIX = "t-direct-unknown-ix"
 )
 
 // unknownIXWait is how long a message for an interaction this node does not
@@ -153,6 +157,9 @@ type rxMsg struct {
 	// known: the sender has a persistent peer_identity row (§3.8: written
 	// only for peers this node dealt with in an authorized context).
 	known bool
+	// direct: it arrived over a transport module, not from the hub mailbox
+	// (rxPath.direct).
+	direct bool
 	// keysUpdate is the attached key set when it passed step 8 and is newer
 	// than the stored one; noticeKeys is any verified set usable to reply.
 	keysUpdate, noticeKeys *peerKeySet
@@ -255,7 +262,8 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	}
 
 	m := &rxMsg{from: in.From, typ: in.Type, ix: in.IX, mid: in.MID, ts: in.TS, exp: in.Exp,
-		ksn: in.KeyStateSeq, body: in.Body, kel: use, kelUpdate: update, ackNow: path.ack, known: row != nil}
+		ksn: in.KeyStateSeq, body: in.Body, kel: use, kelUpdate: update, ackNow: path.ack, known: row != nil,
+		direct: path.direct}
 
 	// Step 8: advisory. A key set that fails here does not affect the
 	// message; the authenticity of the message was decided in step 7.
@@ -282,7 +290,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 
 	// Step 9.
 	ares := d.authorize(m, now)
-	if m.typ == seal.TypeMessage && (ares == nil || ares.reason != transientUnknownIX) {
+	if m.typ == seal.TypeMessage && (ares == nil || (ares.reason != transientUnknownIX && ares.reason != transientDirectUnknownIX)) {
 		d.heldEarly.forget(m.from, m.mid) // no longer waiting, if it was
 	}
 	if ares != nil {
@@ -497,6 +505,19 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 // writing to an interaction this node does not hold is treated exactly as
 // a stranger is — the same wait, the same TaskNotFound, the same notice
 // limiter — so under closed it cannot tell it is denied (X2).
+//
+// Over a direct transport a message for an interaction this node does not
+// hold is refused for now, whoever sent it and however old it is: it is not
+// acknowledged, so the sender delivers it through the hub. The sender's
+// outbox sends a task's messages in order, but only in order of sending:
+// a delegation the direct path turned away (the peer process over its
+// limit, this node starting) went into the hub mailbox, and the follow-up
+// sent after it can take the direct path and arrive first. Answered
+// TaskNotFound here — as a stranger's message is, from the mailbox — it was
+// lost while its delegation behind it was taken; through the hub it lands
+// after that delegation. A refusal on the direct path holds nothing in the
+// mailbox, so it needs neither the wait window nor the per-sender cap
+// ([redteam:F25] bypass).
 func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 	cm, err := delegation.UnmarshalChatMsg(m.body)
 	if err != nil {
@@ -524,6 +545,10 @@ func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 			return nil
 		case err != nil && !errors.Is(err, interactions.ErrNotFound):
 			r := d.transient(transientStore, err)
+			return &r
+		}
+		if m.direct {
+			r := d.transient(transientDirectUnknownIX, nil)
 			return &r
 		}
 		if int64(now)-int64(m.ts) <= unknownIXWait.Milliseconds() {
@@ -579,10 +604,11 @@ func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 // window for unknownIXHeldPerSender messages at a time.
 //
 // A denied peer is answered as a stranger is (X2): no wait, the same
-// TaskNotFound through the same limiter. The price of the rule: a
-// stranger's follow-up that overtakes its own delegation (the delegation
-// through the hub, the follow-up direct) is answered TaskNotFound; its
-// outbox sends a task's messages in order, so it takes two paths racing.
+// TaskNotFound through the same limiter. It decides only for the mailbox: a
+// follow-up that overtook its delegation by the direct path is sent to the
+// hub before it gets here (authorizeMessage), and the sender's outbox sends
+// a task's messages in order, so in the mailbox it comes after its
+// delegation.
 func (d *Daemon) mayWaitForTask(m *rxMsg, ps peerSets, now uint64) (bool, *rxResult) {
 	if ps.denied(m.from) {
 		return false, nil
