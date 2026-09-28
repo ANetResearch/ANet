@@ -373,7 +373,7 @@ UNAVAILABLE 只给"确定没发出"的调用(连接建立失败、拨号被拒�
 - `policy`:`closed`(默认)、`approve`、`open`。
 - `allow_file`(可委派)、`trust_file`(可驱动本机 exec 与 A2A 后端,§6、§11.6)、`deny_file`:每行一个 AID,每次判定重读,文件不存在等于空,deny 优先。`trust_file` 从 `auto_reply` 移到 `inbound`,exec 与后端共用同一判定 [C9]。
 - 配置校验集中在一个函数,由加载、`POST /autoreply`、入站策略写入共同调用:`open` 与"对非信任对端启用 exec"或"接受非信任对端的后端"不能同时成立,违反者 409,无论先写哪一个 [C8]。后端部分经 `module.Host` 新增的 `DeclareUntrustedBackend()` 完成(理由写在接口注释):`module/a2a` 构建时若存在 `accept_untrusted: true` 的后端即调用它;内核校验函数只读取这一声明,不解析 `modules.*` 配置。后端只经配置文件设置;与 `open` 冲突时加载即拒绝启动,运行时改为 `open` 的写入按同一声明返回 409。
-- 迁移:旧 `accept_delegations` 缺省或 `true` → `closed`,日志提示一次;`false` → `closed`。`anet accept on` 报错并说明三种策略与 `anet peers allow`,非零退出;`accept off` 映射为 `closed`;`hub-register --accept-delegations` 与 `POST /accept` 同样处理 [C8]。
+- 迁移:旧 `accept_delegations` 缺省或 `true` → `closed`;配置里确有 `accept_delegations: true` 时日志提示一次(缺省——含最小配置——不提示,以免误导)[0024 L4];`false` → `closed`。`anet accept on` 报错并说明三种策略与 `anet peers allow`,非零退出;`accept off` 映射为 `closed`;`hub-register --accept-delegations` 与 `POST /accept` 同样处理 [C8]。
 - 撤销对已有交互生效 [m]:第 9 步对所有入站信封先查 deny;`trust=peer` 的入站交互再查 allow;自动回复每次调用重读 trust 与 deny;对端进入 deny 时,其活动交互置 `canceled` 并写 `anet.policy.changed`。
 
 ### 5.2 判定顺序(`anet.delegate/1`)
