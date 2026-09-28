@@ -182,8 +182,8 @@ func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
 	}
 	// Saved first and in force after (SetInboundPolicy): a write that
 	// failed to save leaves the running loop and the config as they were.
-	d.policyWrite.Lock()
-	defer d.policyWrite.Unlock()
+	d.cfgWrite.Lock()
+	defer d.cfgWrite.Unlock()
 	next := d.config()
 	next.AutoReply = cfg
 	// The same check as at start and on inbound policy writes (A2A-DESIGN

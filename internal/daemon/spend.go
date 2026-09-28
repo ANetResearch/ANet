@@ -342,8 +342,8 @@ func (d *Daemon) SpendStatus() SpendStatus {
 // (SetInboundPolicy): a caller told the change failed must not find it in
 // force, not even while the save is being tried.
 func (d *Daemon) SetSpendLimits(set map[string]uint64, payeesFile *string) error {
-	d.policyWrite.Lock()
-	defer d.policyWrite.Unlock()
+	d.cfgWrite.Lock()
+	defer d.cfgWrite.Unlock()
 	next := d.config()
 	var cur PaymentsConfig
 	if next.Payments != nil {

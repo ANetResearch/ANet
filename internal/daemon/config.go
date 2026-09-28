@@ -251,3 +251,25 @@ type ProvidersConfig struct {
 type ANetLinkProviderConfig struct {
 	Socket string `json:"socket"`
 }
+
+// updateConfig is one write of config.json from the running daemon: under
+// cfgWrite, change edits a copy of the config (an error refuses the write),
+// the copy is saved, and only once it is saved does apply put the change in
+// force on the live config (redteam F9). apply sets the fields change set,
+// and no others: another field of the live config is not this write's to
+// touch. It returns the config as saved.
+func (d *Daemon) updateConfig(change func(*Config) error, apply func(*Config)) (Config, error) {
+	d.cfgWrite.Lock()
+	defer d.cfgWrite.Unlock()
+	next := d.config()
+	if err := change(&next); err != nil {
+		return Config{}, err
+	}
+	if err := SaveConfig(d.layout, next); err != nil {
+		return Config{}, err
+	}
+	d.mu.Lock()
+	apply(&d.cfg)
+	d.mu.Unlock()
+	return next, nil
+}
