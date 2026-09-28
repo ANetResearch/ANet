@@ -198,16 +198,16 @@ ANetCore `delegation` 增量(新字段一律 `omitempty`,另立全字段向量 `
 1. **解析收件人公钥**:持久表 `peer_identity`(§3.8)中有有效 keyset 即用;每 10 分钟尽力向 hub 复核,hub 失败或 404 时继续使用已存,直到无有效键 [C2]。无记录时 `GET {hub}/agents/{aid}/keys` → `VerifyEncKeySet(signed, to, kel, now)`,KEL 须与已存延伸(§3.8)→ 写入 `peer_identity`(本节点主动联系对端,属授权上下文)。取不到即以明确错误失败,不降级。
 2. 组装 inner(带本节点 `kel` 与 `keys`),签名,填充,HPKE 加密。`exp = ts + 14 天`(等于 hub 未投递 TTL,各 type 相同)。需要重试的外发复用首次信封字节;`now > exp` 时停止重试并写证据事件。
 3. 交给传输列表(p2p 优先,hub 兜底)。`module.Transport.Send(ctx, toAID string, envelope []byte) error`;`module.Inbound.Receive(ctx, envelope []byte) error`。
-4. 需要重试的外发(结果、状态)持久化信封字节,重试不重新封装。
+4. 需要重试的外发(结果、状态)持久化信封字节,重试不重新封装。同一交互发往同一对端的外发按入队顺序投递:前一行仍在队列时后一行等待,投递后一行时先尝试前一行(不论其退避),前一行送出或被放弃后后一行才发 [redteam:F23]。一次失败的尝试若可能已经送达(直连传输的失败未标明"未送达任何 daemon",或 hub 请求中途断开、网关 502/504),该行记为"可能已送达";放弃这样的行时不判"未送达"(§4.3)[redteam:F12]。
 
 ### 3.6 接收流程
 
-失败分两类 [C1][C33]:**永久**(P):ack 并丢弃,计数原因;p2p 上 `Receive` 返回 nil。**暂时**(T):任一步的存储读写错误、context 取消、第 0 步限速、第 9 步未知 ix 窗口;不 ack,p2p 上返回错误让发送方转走 hub;`now > exp` 后暂时性失败转为永久。
+失败分两类 [C1][C33]:**永久**(P):ack 并丢弃,计数原因;p2p 上 `Receive` 返回 nil。**暂时**(T):任一步的存储读写错误、context 取消、第 0 步限速、第 9 步未知 ix 窗口、直连路径上第 1–4 步的失败 [redteam:F22];不 ack,p2p 上返回错误(daemon 回 nack)让发送方转走 hub;`now > exp` 后暂时性失败转为永久。
 
 | 步 | 内容 | 失败 |
 |---|---|---|
 | 0 | (仅 p2p)按连接与全局限速,在解密之前 [C15e] | T(不 ack,`Receive` 返回错误,发送方转走 hub,由 hub 按发送方限流) |
-| 1 | 外层解码;`v == 1`;`to == 本节点`;`suite` 已知 | P |
+| 1 | 外层解码;`v == 1`;`to == 本节点`;`suite` 已知 | P;直连(p2p)路径上第 1–4 步的失败为 T:经直连到达、本节点打不开的信封可能是发给别人的(过期或被复用的 rendezvous 地址),ack 会让发送方视为已投递、不再走 hub [redteam:F22] |
 | 2 | 按 `kid` 查私钥(有效 + 保留期内) | P(`sealed-to-unknown-key`) |
 | 3 | HPKE Open | P |
 | 4 | 内层解码为通用映射;0–63 未知键拒收;`inner.to == outer.to` | P |
@@ -215,12 +215,14 @@ ANetCore `delegation` 增量(新字段一律 `omitempty`,另立全字段向量 `
 | 6 | 解析 KEL(不做网络请求):`inner.kel` 回放成功且推出 `from`;与 `peer_identity` 已存 KEL 比较:内层延伸已存 → 候选更新;已存延伸内层 → 用已存;分叉 → 拒收;无记录 → 用内层(首次信任,§21) | P;读取 `peer_identity` 出错为 T |
 | 7 | 签名:顶端活跃密钥态直接接受;非顶端态仅当 `ts < SupersededAt` 且 `now − SupersededAt ≤ rotation_grace`(默认 1 小时)时接受 [C4c] | P |
 | 8 | `keys` 附件是建议性的:`VerifyEncKeySet(keys, from, kel, now)` + 三分支高水位;失败不影响本消息 | — |
-| 9 | 授权(只做判定;拒绝类回复经限速发出,不写库):按 type 判定(§5 入站策略;message/status/result 须交互存在或在待批表中、`PeerAID == from`、角色正确)。`anet.delegate/1` 的 `ix` 已存在时,仅当该交互 `role=inbound` 且 `PeerAID == from` 才进入第 10 步(重投/幂等路径),否则 P,计数 `ix-collision`,不回复 [m]。已认证发送方指向未知 ix 的 message/cancel:`now − inner.ts ≤ 10 分钟` 时按 T 处理(等待 delegate 先到),超过后回 `status{failed, anet.a2aError: TaskNotFound}`,与拒绝通知共用限速 [C19] | P;未知 ix 窗口内与读库出错为 T |
-| 10 | 去重与处理:进程内按 `(from, mid)` 加锁;持久重放表已有该行 → delegate 走"已答复 → 重发结果"分支,其余 ack 不处理 [C33]。否则执行业务写入,**在同一 SQLite 事务内**插入重放行 `(from, mid, exp)`;不能纳入事务的副作用(能力执行、发结果)沿用现有业务幂等检查。重放行已存在、交互非终态且无结果、本进程内也无该 ix 的执行记录时,视为崩溃遗留:短能力调用重新执行(至少一次,沿用现有"无回执即重跑"),长能力调用不重跑(至多一次)。成功后:把候选 KEL/keys 写入 `peer_identity`(仅 §3.8 所列授权上下文)、`noteLivePeer(from)` [m]。§5.2 的写入(交互、待批项)与第 4 行的 `submitted` 回复都在本步与重放行同一事务提交之后进行 | T(存储) |
+| 9 | 授权(只做判定;拒绝类回复经限速发出,不写库):按 type 判定(§5 入站策略;message/status/result 须交互存在或在待批表中、`PeerAID == from`、角色正确)。`anet.delegate/1` 的 `ix` 已存在时,仅当该交互 `role=inbound` 且 `PeerAID == from` 才进入第 10 步(重投/幂等路径),否则 P,计数 `ix-collision`,不回复 [m]。已认证发送方指向未知 ix 的 message/cancel:发送方与本节点有关系(有持久 `peer_identity` 行、在 allow/trust 名单、或本节点对其有出站交互)且其正在等待的此类消息少于 32 条时,`now − inner.ts ≤ 10 分钟` 按 T 处理(等待 delegate 先到);陌生人、deny 中的对端(与陌生人不可区分,X2)与超出上限者,以及超过窗口的,回 `status{failed, anet.a2aError: TaskNotFound}` 并 ack,与拒绝通知共用限速 [C19][redteam:F25] | P;有关系的发送方在未知 ix 窗口内、读库出错为 T |
+| 10 | 去重与处理:进程内按 `(from, mid)` 加锁;持久重放表已有该行 → delegate 走"已答复 → 重发结果"分支,其余 ack 不处理 [C33]。否则执行业务写入,**在同一 SQLite 事务内**插入重放行 `(from, mid, exp)`;不能纳入事务的副作用(能力执行、发结果)沿用现有业务幂等检查。重放行已存在、交互非终态且无结果、本进程内也无该 ix 的执行记录时,视为崩溃遗留:短能力调用重新执行(至少一次,沿用现有"无回执即重跑"),长能力调用不重跑(至多一次)。成功后:把候选 KEL/keys 写入 `peer_identity`(仅 §3.8 所列授权上下文)、`noteLivePeer(from)` [m]。§5.2 的写入(交互、待批项)与第 4 行的 `submitted` 回复都在本步与重放行同一事务提交之后进行。入站附件行 [redteam:F27]、requester 收到的报价/付款失败/收据写入的 pay 列(`pay_state`、`pay_required`、`quote_expires_at`、`pay_payload`、`pay_receipts`)[redteam:F28] 都是业务写入,在同一事务内;付款证据账本是独立存储,在提交后写 | T(存储) |
 
 - 第 9 步拒绝的信封只进内存有界 LRU,不写持久重放表 [C15c]。
+- 直连路径的 ack 在第 10 步事务提交时给出,不等其后的副作用(能力执行、答复发送);答复照常经重试队列发出。临时拒绝回 nack(带原因),发送方立即转 hub。经直连接受的短能力调用在该事务内记为 `working`,进程在执行前停止时由启动恢复重跑(至少一次),因为不会再有重投 [0017 Q29]。
+- 信箱轮询从游标之后读(0017 Q1);游标之后总有新信时也至少每 10 轮从队头读一次,被暂扣的消息得以重试、窗口到期的得以转 P [redteam:F24]。
 - 重放表、`pending`、`peer_identity` 与交互表同在 `interactions.db`,使第 10 步的同事务写入成立。
-- 启动恢复:非终态且无结果的长能力调用交互置 `failed`,`anet.reason=interrupted`、`anet.effect_status=UNVERIFIED`(效果是否发生未知),经结果重试队列通知请求方 [C1]。
+- 启动恢复:非终态且无结果的长能力调用交互置 `failed`,`anet.reason=interrupted`、`anet.effect_status=UNVERIFIED`(效果是否发生未知),经结果重试队列通知请求方 [C1]。本进程正在执行的调用不属遗留;传输模块交来的入站在 `New` 全部完成(所有模块启动、启动恢复与付款恢复)之后才处理,此前到达的等待,等不到(其 context 结束、daemon 停止)则判 T [redteam:F30]。
 - 嵌套对象(TaskDoc、回执)在第 7 步通过后以 `msgTime = inner.ts` 验证,使用第 6 步解析的 KEL [C4b][C4d]。
 - ANetCore `identity.Replay` 修正:每个被后续 rot/dip 取代的密钥态,即使中间隔着 ixn/drt,也得到该 rot/dip 的 `SupersededAt` 并置为非活跃;金标测试覆盖 Incept→drt→rot 与 Incept→drt→dip [C4a]。
 - ANet 当前没有触发 KEL 轮换的产品路径,第 7 步的宽限规则本期只由测试覆盖;轮换投入使用时再补"轮换后重签未完成外发"。
@@ -279,7 +281,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 
 ### 3.10 p2p
 
-帧只携带 `To`、信封字节与 `ID`。anetpeer 为每个 recv 帧铸造唯一 `ID`,按 `ID` 关联 ack;daemon 在 `Receive` 得出"应 ack"结论后回 `{Op: ack, ID}`,暂时性失败不回 ack [C5]。重写 `module/p2p` 的 fake peer 按 ID 关联;并发两条相同 `To` 的投递各自得到自己的 ack(mutation:ack 键改常量)。帧增加 `V`(=2);anetpeer 对缺 `V` 或 `V < 2` 的入站投递帧不交给 daemon,回 `{Op: error, ID, Error: "peer requires anet >= 0.2.0"}`,旧发送方因此不会记为已投递;测试:无 `V` 的帧得到 error 且 daemon `Receive` 未被调用 [m]。
+帧只携带 `To`、信封字节与 `ID`。anetpeer 为每个 recv 帧铸造唯一 `ID`,按 `ID` 关联 ack;daemon 在 `Receive` 得出"应 ack"结论后回 `{Op: ack, ID}`(第 10 步提交即给出,§3.6),暂时性失败回 `{Op: nack, ID, Error}`,anetpeer 立即以该原因结束交接 [C5][0017 Q29]。anetpeer 对 `To` 不是本进程承载的 AID 的投递直接回 error,不交给 daemon [redteam:F22]。失败的 send 回帧带 `not_delivered` 表示确知未送到任何 daemon(无地址、拨号失败、对端在交接前或交接时拒收);交接超时等不确定的失败不带,daemon 按"可能已送达"处理 [redteam:F12]。超时以 anetpeer 为准对齐:拨号 3 s、交接 10 s、回帧余量 5 s(一次投递至多 18 s),daemon 的 p2p 发送默认等 20 s,总能等到 anetpeer 明确的 ack/nack,不会在 anetpeer 仍可能送达时转 hub 造成重复投递(docs/notes/0025 N3)[0017 Q29]。重写 `module/p2p` 的 fake peer 按 ID 关联;并发两条相同 `To` 的投递各自得到自己的 ack(mutation:ack 键改常量)。帧增加 `V`(=2);anetpeer 对缺 `V` 或 `V < 2` 的入站投递帧不交给 daemon,回 `{Op: error, ID, Error: "peer requires anet >= 0.2.0"}`,旧发送方因此不会记为已投递;测试:无 `V` 的帧得到 error 且 daemon `Receive` 未被调用 [m]。
 
 ---
 
@@ -321,6 +323,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 - provider 完成:`reply_task(state=completed)`、`anet end`(provider 侧)或自动回复判定完成 → 签回执(对话记录 v2)→ `anet.result/1`。
 - requester 结束请求(`end_request`)→ provider daemon 自动完成(不需要 provider 的 agent)。
 - requester 取消(`cancel`)→ 本地 `canceled`;provider 置 `canceled`、取消长调用、回 `status{canceled}`,不签回执。
+- requester 取消时 delegate 仍在本节点重试队列中、且没有任何尝试可能已送达(§3.5 第 4 步)、也没有投递尝试正在进行:同一事务删除该任务的整条外发队列、记录取消、置 `canceled`,不向 provider 发送任何东西(记 `anet.delivery.expired`,reason=`withdrawn`);否则 cancel 排在 delegate 之后发出。未送达即被放弃的 delegate 连同其后排队的外发一起删除 [redteam:F23]。
 
 能力调用 [C6][C29][C34]:
 - 未提交付款(`pay_state` 为空或 `required`)且未开始执行时,收到 `end_request` 或 `cancel` → `canceled`,不签回执。
@@ -342,6 +345,8 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 | UNAVAILABLE(其他) | rejected | `anet.reason` |
 | PAYMENT_REQUIRED | input-required | §8 |
 | 中断(崩溃后效果未知) | failed | `anet.effect_status=UNVERIFIED`、`anet.reason=interrupted` |
+| 委派被放弃(过期或 hub 永久拒绝)且无尝试可能已送达 | failed | `anet.effect_status=UNAVAILABLE`、`anet.reason=undeliverable` |
+| 委派被放弃,但曾有尝试可能已送达(如 p2p 送到后应答超时,hub 又 413/404) | failed | `anet.effect_status=UNVERIFIED`、`anet.reason=undeliverable`(效果未知)[redteam:F12] |
 
 已结算(`pay_state=completed`)的交互不使用 rejected:UNAVAILABLE 映射为 failed,并带 `x402.payment.receipts`(§4.2、§8.2)。
 
@@ -797,7 +802,8 @@ mcpserv 原样转发控制面的投影 JSON;描述写明"completed 且 effect_st
 | C1 | 在第 9 步与第 10 步提交之间杀掉 daemon 后重启:短能力调用恰好处理一次;长能力调用置 failed/interrupted 并送达请求方 |
 | C12 | 600 个新 AID 委派、以及 600 个新 AID 调用公开能力之后,允许名单对端的截断 KEL 均被拒 |
 | m | ix 碰撞:B 以 A 的出站 ix 发 delegate(能力与文本各一例),A 不执行、不改变该交互的 role/state/result |
-| C19 | 未知 ix 的 message/cancel 在 10 分钟窗口内不 ack,delegate 随后到达时正常处理;超窗回 TaskNotFound |
+| C19 | 未知 ix 的 message/cancel 在 10 分钟窗口内不 ack,delegate 随后到达时正常处理;超窗回 TaskNotFound;陌生人立即回 TaskNotFound,有关系的发送方至多 32 条在等待 [redteam:F25] |
+| redteam | 直连误投回落 hub(F22);取消撤回未送出的委派、cancel 不先于 delegate(F23);持续暂扣流不钉住信箱游标(F24);附件/报价/收据写入失败后不 ack、重投写全(F27、F28);启动中的直连投递等恢复完成(F30);可能已送达的放弃判 UNVERIFIED(F12);直连在提交时 ack、超时对齐(Q29) |
 | C6/C29 | 长能力调用中收到 `end_request`:不签对话记录回执,结果送达;`public_cap` 交互上带 text part 的 `payment-submitted` 被接受并结算,正文不存;双方开启 exec 自动回复走完报价→付款→完成,后端调用 0 次;报价后 end_request → canceled 且无回执 |
 | C8/C9 | `open` 与"对非信任对端启用 exec/后端"按两种顺序在运行时写入均得 409;allow 但不在 trust 中的对端、`open` 下的陌生人都不到达 fake 后端 |
 | C22 | 客户端给出的 contextId 原样保存并可由 ListTasks 找回 |
@@ -880,3 +886,4 @@ B 与 C 在 A 完成后并行;同一仓库内按文件归属串行推进。
 12. `A2A-Version` 缺省按 1.0 处理,偏离规范的"缺省按 0.3"。
 13. TTY 门槛(`anet pay`、`anet peers allow`、`anet inbound approve`、修改支出上限)在 CLI 进程内检查,对应的控制面路由凭控制令牌即可调用。它只约束只能经 MCP 工具或本机 A2A 接口行事的 agent。任何能以本用户身份执行命令的 agent(包括 Claude Code 等工具的 Bash,不论有无 TTY),都可以读取控制令牌直接调用这些路由,或直接改 `peers.*`、`config.json` 并重启 daemon。同 uid 下不存在更强的边界,文档如实写明。
 14. 本期不处理(归属与理由):ANetLink `c1.sock` 权限与 `SO_PEERCRED`、按 `caller_aid` 授权(跨仓,ANetLink 单独立项);联邦按卡片 home hub 定向转发(当前按对等表顺序尝试,功能正确);交互级临时密钥;大附件分块;sealed sender;发放链隐私格式;沙箱网络隔离;非 Linux 沙箱。
+15. 陌生人(与本节点没有持久记录、名单或出站往来)发往未知任务的消息不等待其委派:它的后续消息若经另一条路径抢先到达(委派经 hub、后续经 p2p),会得到 TaskNotFound。本节点自己的外发按任务顺序投递,这只在两条路径赛跑时出现 [redteam:F25]。
