@@ -149,15 +149,9 @@ func TestTheControlTokenIsReplacedWhenAChosenPortIsTaken(t *testing.T) {
 	rt := t.TempDir()
 	_ = os.Chmod(rt, 0o700)
 	t.Setenv("XDG_RUNTIME_DIR", rt)
-	ln, err := net.Listen("tcp", "127.0.0.1:0") // outside the allocator's range: a deliberate address
-	if err != nil {
-		t.Fatal(err)
-	}
+	ln := listenOutsideAutoRange(t) // outside the allocator's range: a deliberate address
 	defer ln.Close()
 	addr := ln.Addr().String()
-	if autoAssignedControlAddr(addr) {
-		t.Skipf("%s falls in the auto-assigned range", addr)
-	}
 	t.Cleanup(localpeer.TreatAsForeignForTest(addr))
 	root := t.TempDir()
 	cfg, _ := json.Marshal(map[string]any{"control_addr": addr})
@@ -191,24 +185,9 @@ func TestASecondStartDoesNotReplaceTheRunningDaemonsToken(t *testing.T) {
 	rt := t.TempDir()
 	_ = os.Chmod(rt, 0o700)
 	t.Setenv("XDG_RUNTIME_DIR", rt)
-	// A chosen port, outside the auto-assigned range (39811-41810), which
-	// lies inside Linux's ephemeral range: one probe in fourteen lands in
-	// it, and the test used to skip then (docs/notes/0029).
-	var addr string
-	for i := 0; ; i++ {
-		probe, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		addr = probe.Addr().String()
-		probe.Close()
-		if !autoAssignedControlAddr(addr) {
-			break
-		}
-		if i == 50 {
-			t.Skipf("every port the kernel offered fell in the auto-assigned range (last %s)", addr)
-		}
-	}
+	probe := listenOutsideAutoRange(t)
+	addr := probe.Addr().String()
+	probe.Close()
 	root := t.TempDir()
 	cfg, _ := json.Marshal(map[string]any{"control_addr": addr})
 	if err := os.WriteFile(filepath.Join(root, "config.json"), cfg, 0o600); err != nil {
@@ -246,6 +225,26 @@ func TestASecondStartDoesNotReplaceTheRunningDaemonsToken(t *testing.T) {
 	if strings.TrimSpace(string(b)) != tok || statusWithErr(addr, tok) != http.StatusOK {
 		t.Fatal("the second start replaced the running daemon's token")
 	}
+}
+
+// listenOutsideAutoRange listens on a loopback port outside the auto-assigned control range
+// (39811-41810), as a port an operator chose. The range lies inside Linux's ephemeral range, so about
+// one port in fourteen the kernel offers falls in it; the tests using a chosen port used to skip then,
+// and in 3 and 2 of the 24 tag-matrix rows of docs/notes/0029 they did.
+func listenOutsideAutoRange(t *testing.T) net.Listener {
+	t.Helper()
+	for i := 0; i < 50; i++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !autoAssignedControlAddr(ln.Addr().String()) {
+			return ln
+		}
+		ln.Close()
+	}
+	t.Skip("every port the kernel offered fell in the auto-assigned range")
+	return nil
 }
 
 func statusWithErr(addr, tok string) int {
