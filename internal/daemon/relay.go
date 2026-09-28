@@ -368,6 +368,15 @@ func (d *Daemon) relayPoll(ctx context.Context, after int64) ([]hubapi.RelayMess
 // liveness write there) for as long as anything is held, and a stranger can
 // keep something held with one message every ten minutes.
 //
+// A mailbox that always has something new after the cursor would never
+// send it back to the head: anyone registered can keep that so with one
+// message per round, and what was held back — a message that came before
+// its delegation, one a store error turned away — would wait as long as
+// they keep going, and their own held messages would never be read again
+// to turn permanent. So at least every relayHeadEvery rounds a round reads
+// from the head whatever lies after the cursor ([redteam:F24]; decision
+// Q1: held rows are gone back to once their window ends).
+//
 // In memory only: after a restart the first poll reads from the head,
 // which is what every poll did before the cursor existed. The ids are the
 // hub's, so the cursor is kept per hub URL.
@@ -375,21 +384,37 @@ type relayCursor struct {
 	mu    sync.Mutex
 	hub   string
 	after int64
+	// sinceHead counts the rounds since one last read from the head.
+	sinceHead int
 }
 
+// relayHeadEvery is the most rounds that pass without one reading from the
+// head of the mailbox: about ten seconds at the poll interval.
+const relayHeadEvery = 10
+
+// get returns where this round starts reading: after the cursor, or at the
+// head when the cursor is unset or the head was last read relayHeadEvery
+// rounds ago.
 func (c *relayCursor) get(hub string) int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.hub != hub {
+	if c.hub != hub || c.sinceHead >= relayHeadEvery {
 		return 0
 	}
 	return c.after
 }
 
-func (c *relayCursor) set(hub string, after int64) {
+// set records where the next round starts, and whether this round read
+// from the head (from 0).
+func (c *relayCursor) set(hub string, after int64, fromHead bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.hub, c.after = hub, after
+	if fromHead {
+		c.sinceHead = 0
+	} else {
+		c.sinceHead++
+	}
 }
 
 // relayAck tells the hub these envelopes are handled; the hub deletes them.
@@ -483,7 +508,8 @@ func (d *Daemon) pollFresh(ctx context.Context) {
 //
 // A poll starts at the relay cursor (relayCursor), so envelopes held back
 // in an earlier round do not stand in front of newer ones; when nothing is
-// queued after the cursor, the next round reads from the head again.
+// queued after the cursor, and in any case every relayHeadEvery rounds, the
+// next round reads from the head again.
 func (d *Daemon) pollOnce(ctx context.Context) error {
 	hub := d.config().HubURL
 	after := d.relayCur.get(hub)
@@ -494,7 +520,7 @@ func (d *Daemon) pollOnce(ctx context.Context) error {
 	if len(msgs) == 0 && after > 0 {
 		// Nothing newer: the next round goes back to the head for what
 		// was held back. Not this one: one request per round.
-		d.relayCur.set(hub, 0)
+		d.relayCur.set(hub, 0, false)
 		return nil
 	}
 	var acked []int64
@@ -523,7 +549,7 @@ func (d *Daemon) pollOnce(ctx context.Context) error {
 	if held || len(msgs) >= relayPollLimit {
 		next = last
 	}
-	d.relayCur.set(hub, next)
+	d.relayCur.set(hub, next, after == 0)
 	return d.relayAck(ctx, acked)
 }
 
