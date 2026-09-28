@@ -4,9 +4,10 @@ package daemon
 // built (A2A-DESIGN §3.5):
 //
 //  1. resolve the recipient's encryption key set: the stored one while it
-//     verifies and holds a usable key, else GET {hub}/agents/{aid}/keys,
-//     verified with expectAID = the recipient (C0) and against any stored
-//     KEL for it (§3.8);
+//     verifies and holds a usable key, else POST {hub}/agents/keys:lookup
+//     with the AID in the body (GET {hub}/agents/{aid}/keys from a hub
+//     without that route), verified with expectAID = the recipient (C0)
+//     and against any stored KEL for it (§3.8);
 //  2. build the inner message with this node's full KEL and current signed
 //     key set, a 16-byte message id and exp = ts + 14 days, sign it and
 //     seal it (seal.Seal). A message this node records is sealed under the
@@ -25,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"sync"
 	"time"
@@ -227,6 +229,35 @@ func (d *Daemon) recipientKeys(ctx context.Context, toAID, pin string) (*peerKey
 	return d.fetchRecipientKeys(cctx, hub, toAID, pin)
 }
 
+// lookupKeys asks the hub for aid's key set with aid in the request body
+// (POST /agents/keys:lookup), not in the path. The lookup is made from this
+// node's address, unauthenticated, before the first message to a peer and
+// every ten minutes of a conversation; a reverse proxy in front of the hub
+// that logs request lines would otherwise keep "this address wrote to aid"
+// on the hub host long after the message was deleted [redteam:F3].
+func (d *Daemon) lookupKeys(ctx context.Context, hub, aid string, out *hubapi.KeysResponse) error {
+	return d.hubLookup(ctx, hub, hubapi.KeysLookupPath, "/agents/"+url.PathEscape(aid)+"/keys", aid, out)
+}
+
+// hubLookup asks the hub what GET getPath answers about aid, with aid in
+// the body of POST postPath (hubapi.KeysLookupRequest) rather than in a
+// request line: the key set, the card and the KEL of a peer this node is
+// about to write to, each read from this node's address [redteam:F3].
+//
+// A hub that predates the route answers from its mux, a 405 (or a 404 from
+// a proxy) without the hub's JSON error; only then is getPath asked. The
+// route's own 404 ("no key set for aid", "no card") carries a JSON error
+// and is returned as it is.
+func (d *Daemon) hubLookup(ctx context.Context, hub, postPath, getPath, aid string, out any) error {
+	err := d.hubPost(ctx, hub, postPath, hubapi.KeysLookupRequest{AID: aid}, out)
+	var he *hubError
+	if errors.As(err, &he) && he.msg == "" &&
+		(he.code == http.StatusMethodNotAllowed || he.code == http.StatusNotFound) {
+		return d.hubGet(ctx, hub, getPath, nil, out)
+	}
+	return err
+}
+
 // fetchRecipientKeys asks the hub for aid's key set and KEL and verifies
 // them itself. The hub is not trusted with either: the KEL must replay to
 // aid and extend any KEL stored for aid, and the key set must be signed by
@@ -235,7 +266,7 @@ func (d *Daemon) recipientKeys(ctx context.Context, toAID, pin string) (*peerKey
 // of the recipient's is refused here.
 func (d *Daemon) fetchRecipientKeys(ctx context.Context, hub, aid, pin string) (*peerKeySet, error) {
 	var out hubapi.KeysResponse
-	if err := d.hubGet(ctx, hub, "/agents/"+url.PathEscape(aid)+"/keys", nil, &out); err != nil {
+	if err := d.lookupKeys(ctx, hub, aid, &out); err != nil {
 		return nil, fmt.Errorf("anet: fetch %s's encryption keys: %w", aid, err)
 	}
 	rawSet, err1 := base64.StdEncoding.DecodeString(out.KeySet)

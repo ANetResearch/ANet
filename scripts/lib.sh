@@ -277,11 +277,11 @@ CANARY_PY=${CANARY_PY:-$_LIB_ROOT/scripts/canary.py}
 
 # canary_new FILE LABEL: mint the canary for one piece of content, record it in FILE (label<TAB>value) and
 # print it. Random, so it can turn up only where that content went. Never a capability id, a profile or
-# anything else that is public by design: those are found in the hub legitimately.
-canary_new(){
-  local v; v="anet-canary-$2-$(python3 -c 'import secrets;print(secrets.token_hex(12))')" || return 1
-  printf '%s\t%s\n' "$2" "$v" >> "$1" && printf '%s' "$v"
-}
+# anything else that is public by design: those are found in the hub legitimately. canary.py mint makes
+# it: 96 random bits with "~?~" in the middle, characters that make every base64 form of the canary differ
+# between the standard and the URL-safe alphabet, so the URL-safe search is one each run depends on (with
+# letters and digits only, the two forms are the same bytes and that search was never exercised).
+canary_new(){ python3 "$CANARY_PY" mint --canaries "$1" "$2"; }
 
 # canary_scan FILE REPORT LABEL [--expect BASENAME]… [--want LABEL]… PATH…: search every byte under
 # the paths for the canaries in FILE, in every encoding canary.py knows; the JSON report goes to REPORT
@@ -329,8 +329,8 @@ PY
 # canary_hits NEEDLE PATH…: where NEEDLE is, in the files at PATH (a directory is walked). A byte search
 # for the plain text alone misses most of the places a leak would sit: the hub keeps and serves envelopes,
 # receipts, KELs and authorizations as base64 in JSON; a daemon's evidence chain is base64 CoreDet-CBOR
-# per line; anything may log bytes as hex. So each file is searched for NEEDLE as it is, in hex, and in
-# base64 and base64url at each of the three byte alignments (for alignment i, the encoding of NEEDLE's
+# per line; anything may log bytes as hex. So each file is searched for NEEDLE as it is, percent-encoded
+# (as a URL carries it), in hex, and in base64 and base64url at each of the three byte alignments (for alignment i, the encoding of NEEDLE's
 # bytes from i on, cut to whole 3-byte groups: it occurs inside the base64 of any data holding NEEDLE at
 # an offset ≡ -i mod 3, whatever surrounds it). One line per hit: "PATH (encoding)". A file that cannot
 # be read, or a PATH that is missing, is a line too — a search that could not look is not a clean one.
@@ -338,9 +338,13 @@ PY
 # "nothing searched". NEEDLE should be 12 bytes or more.
 canary_hits(){
   python3 - "$@" <<'PY'
-import base64, binascii, os, sys
+import base64, binascii, os, sys, urllib.parse
 needle, paths = sys.argv[1].encode(), sys.argv[2:]
 forms = [("plain", needle), ("hex", binascii.hexlify(needle)), ("HEX", binascii.hexlify(needle).upper())]
+# As a URL carries it: a canary_new canary has "~?~" in it, and '?' (and, from some encoders, '~') is
+# percent-encoded there, as canary.py scan also searches.
+url = urllib.parse.quote(sys.argv[1], safe="")
+forms += [("url", url.encode()), ("url/%7E", url.replace("~", "%7E").encode())]
 for i in range(3):
     s = needle[i:]
     s = s[:len(s) // 3 * 3]

@@ -53,6 +53,9 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		{"RelayMessage", hubapi.RelayMessage{}, []string{"envelope", "id"}},
 		{"RelayAckRequest", hubapi.RelayAckRequest{}, []string{"ids"}},
 		{"KeysResponse", hubapi.KeysResponse{}, []string{"aid", "kel", "keyset"}},
+		// POST /agents/keys:lookup [redteam:F3]. Mirrors ANetHub
+		// internal/aghub/wirecontract_test.go.
+		{"KeysLookupRequest", hubapi.KeysLookupRequest{}, []string{"aid"}},
 		{"KeysPublishRequest", hubapi.KeysPublishRequest{}, []string{"keyset"}},
 		{"KeysPublishResponse", hubapi.KeysPublishResponse{}, []string{"aid", "keys_status"}},
 		{"RegisterRequest", hubapi.RegisterRequest{}, []string{
@@ -215,6 +218,11 @@ func TestTheWireVersionAndAuthHeadersArePinned(t *testing.T) {
 		"X-ANet-TS":   hubapi.HeaderTS,
 		"X-ANet-Seq":  hubapi.HeaderSeq,
 		"X-ANet-Sig":  hubapi.HeaderSig,
+		// The recipient key lookup (ANetHub pins the same path).
+		"/agents/keys:lookup": hubapi.KeysLookupPath,
+		// The card and KEL lookups, likewise [redteam:F3].
+		"/agents/kel:lookup":         hubapi.KELLookupPath,
+		"/a2a/v1/agents/card:lookup": hubapi.CardLookupPath,
 	} {
 		if got != want {
 			t.Errorf("header = %q, want %q", got, want)
