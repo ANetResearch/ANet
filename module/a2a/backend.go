@@ -63,6 +63,13 @@ package a2a
 //     answer without content is not retried either: the task stays in the
 //     inbox for the operator (docs/notes/0035 §5.1: a backend that was down
 //     once kept its tasks unanswered until the daemon restarted).
+//   - A first turn the backend has had for announceAfter (a minute) without
+//     answering is announced to the requester as working (ReplyTask with
+//     state working, no message): until then the requester has heard
+//     nothing, and it fails a task it hears nothing about for its
+//     no_response_after (15m by default) as no_response (A2A-DESIGN §4.2) —
+//     an agent turn longer than that is work, not silence. A backend that
+//     answers within the minute costs no extra message.
 //
 // The tasks come from the kernel through module.InboundTaskHost, which a
 // daemon offers or does not; without it a configured backend is validated,
@@ -598,6 +605,11 @@ func (f *forwarder) forward(ctx context.Context, t module.Task) (*backendClient,
 	defer cancel()
 	note := newHTTPNote()
 	ctx = context.WithValue(ctx, noteKey{}, note)
+	// Announced (working) when the backend has had a first turn for
+	// announceAfter; ended, and any announcement waited for, before the
+	// answer is sent, so that it never follows the answer.
+	announced := f.announceWhenSlow(ctx, t, note)
+	defer announced()
 
 	msg, params := backendMessage(t, *last, peer, trusted)
 	f.mu.Lock()
@@ -639,6 +651,7 @@ func (f *forwarder) forward(ctx context.Context, t module.Task) (*backendClient,
 		return b, false, errNoContent
 	}
 	reply.TaskID, reply.ContextID = t.ID, t.ContextID
+	announced()
 	if _, err := f.in.ReplyTask(ctx, t.ID, reply, state); err != nil {
 		log.Printf("anet: a2a: task %s: reply from backend %s: %v", t.ID, b.cfg.URL, err)
 	}
@@ -671,6 +684,52 @@ func retryable(err error, note *httpNote) bool {
 		return code >= 500
 	}
 	return note.failed.Load()
+}
+
+// announceAfter is how long a backend may have a task's first turn before
+// the requester is told it is being worked on (announceWhenSlow). A
+// variable so tests can shorten it.
+var announceAfter = time.Minute
+
+// announceWhenSlow tells t's requester, through the kernel, that the task
+// is being worked on (working) once the backend has had its first turn —
+// the request carrying the message written — for announceAfter without
+// answering. The requester has heard nothing until then, and a requester
+// that hears nothing for its no_response_after (15m by default) fails the
+// task as no_response (A2A-DESIGN §4.2): a long agent turn is work, not
+// silence. Only a submitted task, one nobody has answered yet, is
+// announced; a later turn is already working on both sides. The returned
+// function ends the wait and returns once an announcement under way is
+// done, so that it cannot follow the answer; it may be called more than
+// once.
+func (f *forwarder) announceWhenSlow(ctx context.Context, t module.Task, note *httpNote) func() {
+	if t.Status.State != a2ashape.TaskStateSubmitted || announceAfter <= 0 {
+		return func() {}
+	}
+	stop, finished := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(finished)
+		select {
+		case <-note.sentCh:
+		case <-stop:
+			return
+		}
+		tm := time.NewTimer(announceAfter)
+		defer tm.Stop()
+		select {
+		case <-tm.C:
+		case <-stop:
+			return
+		}
+		if _, err := f.in.ReplyTask(ctx, t.ID, a2ashape.Message{}, a2ashape.TaskStateWorking); err != nil && ctx.Err() == nil {
+			log.Printf("anet: a2a: task %s: tell the requester the backend is working on it: %v", t.ID, err)
+		}
+	}()
+	var once sync.Once
+	return func() {
+		once.Do(func() { close(stop) })
+		<-finished
+	}
 }
 
 // noteKey carries an attempt's httpNote in its context.

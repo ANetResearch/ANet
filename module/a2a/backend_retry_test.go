@@ -379,6 +379,58 @@ func TestRetryableOnlyWhenTheBackendCannotHaveTheMessage(t *testing.T) {
 	}
 }
 
+// A first turn the backend is slow to answer is announced to the requester
+// as working (a ReplyTask with state working and no message) before the
+// answer, so that the requester does not fail it as no_response (A2A-DESIGN
+// §4.2); a quick answer, and a later turn (the task already working), are
+// not announced.
+func TestASlowFirstTurnIsAnnouncedAsWorking(t *testing.T) {
+	old := announceAfter
+	announceAfter = 50 * time.Millisecond
+	t.Cleanup(func() { announceAfter = old })
+	slow := func(b *testBackend) {
+		next := b.srv.Config.Handler
+		b.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/rpc" {
+				time.Sleep(400 * time.Millisecond)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+	b := newTestBackend(t)
+	slow(b)
+	h := newInboundHost(t)
+	startBackendModule(t, h, `{"backends":[{"allow_tcp":true,"match":"*","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
+	h.tasks <- inboundTask("ix1", "bafypeer", true, "hello")
+	if r := h.wait(t); r.taskID != "ix1" || r.state != a2ashape.TaskStateWorking || len(r.msg.Parts) != 0 {
+		t.Fatalf("first reply %+v, want working with no message", r)
+	}
+	if r := h.wait(t); r.state != a2ashape.TaskStateCompleted || r.msg.Parts[0].Text != "backend: hello" {
+		t.Fatalf("second reply %+v", r)
+	}
+
+	later := inboundTask("ix2", "bafypeer", true, "hello", "which one?", "this one")
+	later.Status.State = a2ashape.TaskStateWorking
+	h.tasks <- later
+	if r := h.wait(t); r.taskID != "ix2" || r.state != a2ashape.TaskStateCompleted {
+		t.Fatalf("a later turn: first reply %+v, want the answer", r)
+	}
+
+	quick := newTestBackend(t)
+	h2 := newInboundHost(t)
+	startBackendModule(t, h2, `{"backends":[{"allow_tcp":true,"match":"*","url":"`+quick.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
+	h2.tasks <- inboundTask("ix3", "bafypeer", true, "hello")
+	if r := h2.wait(t); r.state != a2ashape.TaskStateCompleted {
+		t.Fatalf("a quick answer: first reply %+v", r)
+	}
+	time.Sleep(200 * time.Millisecond)
+	h2.mu.Lock()
+	defer h2.mu.Unlock()
+	if len(h2.replies) != 1 {
+		t.Fatalf("a quick answer: replies %+v", h2.replies)
+	}
+}
+
 // A task waiting to be tried again gives up its place among the forwards
 // running at once: with maxForwards tasks for a backend that is down, a
 // task for one that is up is still forwarded at once, not after they give
