@@ -169,8 +169,10 @@ env HOME=$REQ  "$J/anet" daemon >"$J/run/req.log"  2>&1 </dev/null & KIDS+=($!)
 sleep 3
 rtok(){ cat "$REQ/.anet/control_token.txt"; }
 ptok(){ cat "$PROV/.anet/control_token.txt"; }
-rc(){ curl -s -m 30 -H "Authorization: Bearer $(rtok)" -H 'Content-Type: application/json' -d "$2" "http://$RC$1"; }
-pc(){ curl -s -m 30 -H "Authorization: Bearer $(ptok)" -H 'Content-Type: application/json' -d "$2" "http://$PC$1"; }
+# The control tokens go to curl through a file descriptor, never on its command line: the test hosts
+# have other users, and a process's arguments are theirs to read (docs/notes/0015 §4).
+rc(){ curl -s -m 30 -H @<(printf 'Authorization: Bearer %s\n' "$(rtok)") -H 'Content-Type: application/json' -d "$2" "http://$RC$1"; }
+pc(){ curl -s -m 30 -H @<(printf 'Authorization: Bearer %s\n' "$(ptok)") -H 'Content-Type: application/json' -d "$2" "http://$PC$1"; }
 curl -sf -m 5 "http://$RC/ping" >/dev/null && ok "requester up" || { no "requester down: $(tail -2 "$J/run/req.log")"; exit 1; }
 curl -sf -m 5 "http://$PC/ping" >/dev/null && ok "provider up"  || { no "provider down: $(tail -2 "$J/run/prov.log")"; exit 1; }
 # The module list goes to the daemon's own log file, not to stdout.
@@ -261,11 +263,18 @@ printf '%s\n' "$REQ_AID" > "$ALLOW"
   || no "the caller could not be re-admitted without a restart"
 
 hd "7/8  what was never enabled cannot be called"
-# The node advertises the capability ids it will actually answer, so the
-# hub directory is the first place a refusal has to be visible.
+# A registration publishes public capabilities only (0017 Q14, A2A-DESIGN §10.2): these commands are
+# served to the callers on the module's allow list, so /register names none of them and the hub
+# directory has nothing to list for this node. (Before Q14 this step expected shell.run@whoami in the
+# directory; docs/notes/0024.)
 CARD=$(rc /find "{\"query\":\"$PROV_AID\"}")
-echo "$CARD" | grep -q 'shell.run@whoami' && ok "the directory lists the commands this node serves" \
-  || no "the served commands are not in the directory: $CARD"
+if ! printf '%s' "$CARD" | python3 -c 'import sys,json;assert isinstance(json.load(sys.stdin).get("agents"),list)' 2>/dev/null; then
+  no "the directory did not answer: $CARD"
+elif printf '%s' "$CARD" | grep -q 'shell\.run@'; then
+  no "a command served to the allow list only is in the public directory: $CARD"
+else
+  ok "the commands, served to the allow list only, are not in the public directory (0017 Q14)"
+fi
 echo "$CARD" | grep -q 'shell.exec' && no "shell.exec is advertised without the switch" \
   || ok "shell.exec is not advertised (allow_arbitrary is off)"
 # Asked for by name anyway. Nothing may execute, and the requester is told so rather than left to
@@ -283,7 +292,7 @@ XST=$(rc /thread "{\"interaction_id\":\"$XIX\"}" | python3 -c 'import sys,json;p
   || no "the unserved call ended '${XST:-unknown}', expected rejected"
 # The reason code travels in the result's metadata, which the control plane shows through the task
 # view (/tasks/get, the A2A projection). A build without that route has no surface for it.
-XCODE=$(curl -s -m 30 -o "$J/xget.json" -w '%{http_code}' -H "Authorization: Bearer $(rtok)" \
+XCODE=$(curl -s -m 30 -o "$J/xget.json" -w '%{http_code}' -H @<(printf 'Authorization: Bearer %s\n' "$(rtok)") \
           -H 'Content-Type: application/json' -d "{\"task_id\":\"$XIX\"}" "http://$RC/tasks/get")
 if [ "$XCODE" = 404 ] && ! python3 -c 'import sys,json;json.load(open(sys.argv[1]))' "$J/xget.json" 2>/dev/null; then
   printf '\033[1;33m  ! 此构建的控制面没有 /tasks/get,anet.reason 无处可查(B1-07 合入后本条为硬断言)\033[0m\n'

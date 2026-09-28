@@ -134,7 +134,8 @@ sleep 4
 
 tok(){ cat "$1/.anet/control_token.txt"; }
 api(){ # api <home> <port> <path> <json>
-  curl -s -m 60 -H "Authorization: Bearer $(tok "$1")" -H 'Content-Type: application/json' \
+  # 令牌经文件描述符交给 curl,不上命令行(测试主机有别的用户,docs/notes/0015 §4)。
+  curl -s -m 60 -H @<(printf 'Authorization: Bearer %s\n' "$(tok "$1")") -H 'Content-Type: application/json' \
        -d "$4" "http://127.0.0.1:$2$3"
 }
 up=0
