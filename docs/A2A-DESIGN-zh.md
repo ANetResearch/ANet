@@ -342,8 +342,11 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 | UNAVAILABLE(其他) | rejected | `anet.reason` |
 | PAYMENT_REQUIRED | input-required | §8 |
 | 中断(崩溃后效果未知) | failed | `anet.effect_status=UNVERIFIED`、`anet.reason=interrupted` |
+| 效果未知(调用已发出、应答丢失:超时或连接中断)[redteam:F10] | failed | `anet.effect_status=UNVERIFIED`、`anet.reason=timeout` / `connection_lost` |
 
 已结算(`pay_state=completed`)的交互不使用 rejected:UNAVAILABLE 映射为 failed,并带 `x402.payment.receipts`(§4.2、§8.2)。
+
+UNAVAILABLE 只给"确定没发出"的调用(连接建立失败、拨号被拒、写出请求头之前出错);请求一旦写出,之后的超时、断连一律按"效果未知"报告。provider 以 `provider.OutcomeUnknownError` 向内核表达这一情形(service 模块按请求头是否写出区分)[redteam:F10]。
 
 ---
 

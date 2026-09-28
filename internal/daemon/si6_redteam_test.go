@@ -10,8 +10,8 @@ package daemon
 // provider, so steps 1-9 of the receive pipeline accept it. What is tested is
 // whether what the peer controls can stand in for what this node knows, in
 // the A2A projection that the control plane, MCP and module/a2a all return.
-// (F1, which runs the real service module on the provider, is in
-// si6_service_redteam_test.go behind !no_service.)
+// (F1, which runs the real service module on the provider, is fixed; its
+// regression test is service_outcome_test.go, behind !no_service.)
 
 import (
 	"context"

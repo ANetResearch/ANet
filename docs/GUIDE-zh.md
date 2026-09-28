@@ -248,7 +248,7 @@ anet verify --chain DIR       # 第三方核验导出的链
 anet audit hub                # 验 hub 的发放链(同 anet audit-hub)
 ```
 
-效果状态五种:`OK` 做了且读回一致;`UNVERIFIED` 做了但没法读回;`FAILED` 做了没成;`UNAVAILABLE` 没做,原因在 message;`PAYMENT_REQUIRED` 要先付款,报价在应答里。`audit` 显示时 `UNVERIFIED` 不计入成功,`receipt_verified=false` 显示为"未能核验",每段标明来源。
+效果状态五种:`OK` 做了且读回一致;`UNVERIFIED` 做了但没法读回;`FAILED` 做了没成;`UNAVAILABLE` 没做,原因在 message;`PAYMENT_REQUIRED` 要先付款,报价在应答里。任务 `failed` 而效果状态为 `UNVERIFIED` 表示"不知道做没做":调用已发出、应答丢失(`anet.reason=timeout` / `connection_lost`),或执行中 provider 重启(`interrupted`);效果可能已发生,重试前先向对方核实。`audit` 显示时 `UNVERIFIED` 不计入成功,`receipt_verified=false` 显示为"未能核验",每段标明来源。
 
 ### 5.5 谁能把任务交给你:入站策略与名单
 
