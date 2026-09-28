@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -271,5 +272,48 @@ func TestAVerifiedSettlementSurvivesAStaleSnapshot(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("the verified settlement was dropped: %s", getIX(t, req, id).PayReceipts)
+	}
+}
+
+// The provider's status and its result both carry the settlement, and
+// arrive at once, one by p2p and one through the hub (§3.6). Each found
+// the receipt unrecorded and recorded it verified: two settlements of one
+// payment on this node's evidence, a task audit reports as paid twice.
+// The check is one at a time per task [redteam:F11].
+func TestOneSettlementDeliveredTwiceAtOnceIsRecordedOnce(t *testing.T) {
+	for round := 0; round < 5; round++ {
+		work := &meteredWork{price: 30}
+		_, req, prov := paidPair(t, work)
+		payPolicy(t, req, PaymentsConfig{AutoMax: 100, AgentDailyMax: 100, DailyMax: u64(100)}, prov.AID())
+		id, err := req.DelegateCapability(context.Background(), prov.AID(), "work.do", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		poll(t, prov, req, prov) // settled at the provider; its answer not yet read here
+		var list []any
+		if err := json.Unmarshal(getIX(t, prov, id).PayReceipts, &list); err != nil || len(list) != 1 {
+			t.Fatalf("provider receipts %s", getIX(t, prov, id).PayReceipts)
+		}
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				req.notePaymentReceipts(id, map[string]any{x402a2a.KeyReceipts: list}, false)
+			}()
+		}
+		close(start)
+		wg.Wait()
+		n := 0
+		for _, ev := range pvSettledEvidence(req, id) {
+			if ev["verified"] == true {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Fatalf("round %d: %d verified settlement records for one payment", round, n)
+		}
 	}
 }
