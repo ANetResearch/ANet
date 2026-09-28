@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -126,7 +127,7 @@ func (codexTool) planUnwire(o *Options) ([]change, []string, error) {
 
 var (
 	tomlHeader = regexp.MustCompile(`^\s*\[\[?\s*([^\[\]]+?)\s*\]\]?\s*(#.*)?$`)
-	tomlKey    = regexp.MustCompile(`^\s*((?:[A-Za-z0-9_-]+|"[^"]*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"[^"]*"|'[^']*'))*)\s*=(.*)$`)
+	tomlKey    = regexp.MustCompile(`^\s*((?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*')(?:\s*\.\s*(?:[A-Za-z0-9_-]+|"(?:[^"\\]|\\.)*"|'[^']*'))*)\s*=(.*)$`)
 	tomlAnetIn = regexp.MustCompile(`(^|[{,\s])("anet"|'anet'|anet)\s*[=.]`)
 )
 
@@ -148,9 +149,7 @@ func codexConflict(lines []string, b, e int) (line int, what string, named bool)
 			continue
 		}
 		if inMulti != "" {
-			if strings.Count(l, inMulti)%2 == 1 {
-				inMulti = ""
-			}
+			inMulti = tomlScan(l, inMulti)
 			continue
 		}
 		t := strings.TrimSpace(l)
@@ -180,27 +179,134 @@ func codexConflict(lines []string, b, e int) (line int, what string, named bool)
 					"请把它改成 [mcp_servers.<名字>] 表的写法", false
 			}
 		}
-		for _, q := range []string{`"""`, `'''`} {
-			if strings.Count(l, q)%2 == 1 {
-				inMulti = q
-				break
-			}
-		}
+		inMulti = tomlScan(l, "")
 	}
 	return 0, "", false
 }
 
-// tomlPath splits a dotted TOML key into its parts, unquoting each.
+// tomlScan follows one line through TOML's strings and comments. in is the
+// delimiter of the multi-line string the line starts inside (three double
+// or three single quotes, or "" outside one); it returns the one the line
+// ends inside. Three quotes inside a one-line string or a comment open
+// nothing, and an escaped quote neither ends a basic string nor closes a
+// multi-line one. Counting delimiters per line took the first for an
+// opening, and every line after it — a real [mcp_servers.anet] among them
+// — for string content (docs/notes/0033).
+func tomlScan(l, in string) string {
+	for i := 0; i < len(l); {
+		if in != "" {
+			n := closeMulti(l[i:], in)
+			if n < 0 {
+				return in
+			}
+			i, in = i+n, ""
+			continue
+		}
+		switch {
+		case l[i] == '#':
+			return ""
+		case strings.HasPrefix(l[i:], `"""`), strings.HasPrefix(l[i:], `'''`):
+			in, i = l[i:i+3], i+3
+		case l[i] == '"':
+			i = skipBasic(l, i+1)
+		case l[i] == '\'':
+			j := strings.IndexByte(l[i+1:], '\'')
+			if j < 0 {
+				return ""
+			}
+			i += j + 2
+		default:
+			i++
+		}
+	}
+	return in
+}
+
+// closeMulti is the length of s up to and including the delimiter that
+// closes a multi-line string of delim, or -1. A basic one skips escaped
+// characters; up to two quotes before the closing three belong to the
+// string (`""""` ends a string with a quote in it).
+func closeMulti(s, delim string) int {
+	for i := 0; i < len(s); i++ {
+		if delim == `"""` && s[i] == '\\' {
+			i++
+			continue
+		}
+		if strings.HasPrefix(s[i:], delim) {
+			n := 3
+			for n < 5 && i+n < len(s) && s[i+n] == delim[0] {
+				n++
+			}
+			return i + n
+		}
+	}
+	return -1
+}
+
+// skipBasic is the index after the quote that ends the basic string whose
+// content starts at i, or len(l).
+func skipBasic(l string, i int) int {
+	for ; i < len(l); i++ {
+		switch l[i] {
+		case '\\':
+			i++
+		case '"':
+			return i + 1
+		}
+	}
+	return len(l)
+}
+
+// tomlPath splits a dotted TOML key into its parts, unquoting each. A
+// basic-string part means what its escapes say ("anet" is anet), as
+// Codex's TOML reader takes it (docs/notes/0033).
 func tomlPath(key string) []string {
 	var parts []string
 	for _, p := range splitDotted(key) {
 		p = strings.TrimSpace(p)
-		if len(p) >= 2 && (p[0] == '"' && p[len(p)-1] == '"' || p[0] == '\'' && p[len(p)-1] == '\'') {
+		switch {
+		case len(p) >= 2 && p[0] == '"' && p[len(p)-1] == '"':
+			p = tomlUnescape(p[1 : len(p)-1])
+		case len(p) >= 2 && p[0] == '\'' && p[len(p)-1] == '\'':
 			p = p[1 : len(p)-1]
 		}
 		parts = append(parts, p)
 	}
 	return parts
+}
+
+// tomlEscapes are TOML's one-character escapes (\e is TOML 1.1's).
+var tomlEscapes = map[byte]byte{'b': '\b', 't': '\t', 'n': '\n', 'f': '\f', 'r': '\r', 'e': 0x1b, '"': '"', '\\': '\\'}
+
+// tomlUnescape reads the escapes of a TOML basic string; one it does not
+// know is kept as written.
+func tomlUnescape(s string) string {
+	if !strings.Contains(s, `\`) {
+		return s
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 == len(s) {
+			b.WriteByte(s[i])
+			continue
+		}
+		c := s[i+1]
+		if r, ok := tomlEscapes[c]; ok {
+			b.WriteByte(r)
+			i++
+			continue
+		}
+		n := map[byte]int{'u': 4, 'U': 8}[c]
+		if n > 0 && i+2+n <= len(s) {
+			if r, err := strconv.ParseUint(s[i+2:i+2+n], 16, 32); err == nil {
+				b.WriteRune(rune(r))
+				i += 1 + n
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
 }
 
 // splitDotted splits on dots outside quotes.
@@ -211,6 +317,8 @@ func splitDotted(s string) []string {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch {
+		case quote == '"' && c == '\\':
+			i++ // an escaped character, a quote among them
 		case quote != 0:
 			if c == quote {
 				quote = 0

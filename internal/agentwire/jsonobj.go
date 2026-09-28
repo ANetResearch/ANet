@@ -9,6 +9,8 @@ import (
 	"io"
 	"reflect"
 	"strings"
+
+	"github.com/ANetResearch/ANet/internal/jsonread"
 )
 
 // jsonObject is a JSON object that keeps its members in file order.
@@ -177,9 +179,14 @@ func marshalNoEscape(v any) ([]byte, error) {
 }
 
 // decodeLoose decodes raw into v, reporting only whether it worked; an
-// entry that does not decode is simply not anet's.
+// entry that does not decode is simply not anet's. Nor is one that the
+// tool, which reads member names as written (JSON.parse), would read
+// differently from Go's decoder, which ignores their case: an entry with
+// "Command" in place of "command" was reported as wired, and the tool
+// found no command in it; one with both was overwritten as anet's while
+// the tool ran the other (docs/notes/0033, FuzzJSONConfig).
 func decodeLoose(raw json.RawMessage, v any) bool {
-	return json.Unmarshal(raw, v) == nil
+	return json.Unmarshal(raw, v) == nil && jsonread.ReadsAlike(raw, v)
 }
 
 // sameStrings compares two string slices.

@@ -116,6 +116,63 @@ func hasChildKey(lines []string, k, end, indent, b, e int, name string) int {
 	return 0
 }
 
+// appendYAMLBlock is appendBlock for a YAML document: a document that ends
+// with an end marker (`...`, then only comments and blank lines) gets the
+// block before the marker, since a key after it starts a second document
+// and PyYAML's safe_load refuses a file of two (docs/notes/0033). It goes
+// in without a blank separator, so drop's removeBlock gives the original
+// back.
+func appendYAMLBlock(lines []string, block []string) []string {
+	for j := len(lines) - 1; j >= 0; j-- {
+		t := strings.TrimSpace(lines[j])
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		if !isDocEnd(lines[j]) {
+			break
+		}
+		out := append([]string{}, lines[:j]...)
+		out = append(out, block...)
+		return append(out, lines[j:]...)
+	}
+	return appendBlock(lines, block)
+}
+
+// topMapping reports whether the document is a block mapping anet can
+// add a top-level key to: its first line of content — after blank lines,
+// comments, directives and a bare "---" — is a key at column 0 followed by
+// a colon. A document that is a scalar ("0", "~"), a sequence or a flow
+// collection is not: a key appended after it makes the file unreadable
+// (docs/notes/0033, FuzzHermesConfig). A document of nothing but comments
+// is an empty one, and takes the key. line is the 1-based line that decided.
+func topMapping(lines []string) (line int, ok bool) {
+	for i, l := range lines {
+		l = strings.TrimRight(l, "\r")
+		t := strings.TrimSpace(l)
+		switch {
+		case t == "", strings.HasPrefix(t, "#"), strings.HasPrefix(l, "%"):
+			continue
+		case l == "---" || strings.HasPrefix(l, "--- #") || strings.HasPrefix(l, "---\t#"):
+			continue
+		}
+		return i + 1, yamlKeyLine.MatchString(l)
+	}
+	return 0, true
+}
+
+// yamlKeyLine is a mapping key at column 0: plain, or quoted, then a colon
+// that ends the line or is followed by white space. A plain key does not
+// start with an indicator character (YAML 1.2 §5.3: - ? : , [ ] { } # & *
+// ! | > ' " % @ `), except "-", "?" and ":" followed by a non-space.
+var yamlKeyLine = regexp.MustCompile(`^(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|(?:[^-?:,\[\]{}#&*!|>'"%@` + "`" + `\s]|[-?:][^\s])[^#]*?)[ \t]*:(?:[ \t]|$)`)
+
+// isDocEnd reports a YAML document end marker: "..." at column 0, alone or
+// followed by white space (and a comment).
+func isDocEnd(l string) bool {
+	l = strings.TrimRight(l, "\r")
+	return l == "..." || strings.HasPrefix(l, "... ") || strings.HasPrefix(l, "...\t")
+}
+
 // indentLines prefixes each non-empty line with n spaces.
 func indentLines(block []string, n int) []string {
 	pad := strings.Repeat(" ", n)
@@ -153,9 +210,13 @@ func (m yamlMap) set(src, path string, body []string, children []string) (string
 		return joinLines(replaceBlock(lines, b, e, block)), nil
 	}
 	if k < 0 {
+		if line, ok := topMapping(lines); !ok {
+			return "", &ConflictError{Path: path, Line: line, What: fmt.Sprintf(
+				"文件的顶层不是映射(第 %d 行不是 `键: 值`),anet 无法在其后加入 %s;请先改成映射写法", line, m.key)}
+		}
 		block := append([]string{m.key + ":  " + yamlTag + " added"},
 			indentLines(append(append([]string{m.begin}, body...), m.markers.end), 2)...)
-		return joinLines(appendBlock(lines, block)), nil
+		return joinLines(appendYAMLBlock(lines, block)), nil
 	}
 	end := regionEnd(lines, k)
 	ind := childIndent(lines, k, end)
@@ -171,6 +232,13 @@ func (m yamlMap) set(src, path string, body []string, children []string) (string
 			// A sequence: an `anet:` key among its items would make the
 			// whole file unreadable to Hermes.
 			return "", &ConflictError{Path: path, Line: j + 1, What: m.key + " 是列表,不是映射;anet 无法在其中加入条目"}
+		}
+		if !yamlKeyLine.MatchString(strings.TrimSpace(lines[j])) {
+			// A scalar or a flow collection on the lines below the key
+			// ("mcp_servers:\n  0", "mcp_servers:\n  {fs: …}"): a key
+			// among it makes the file unreadable (docs/notes/0033,
+			// FuzzHermesConfig).
+			return "", &ConflictError{Path: path, Line: j + 1, What: m.key + " 的值不是映射(这一行不是 `键: 值`);anet 无法在其中加入条目"}
 		}
 	}
 	for _, c := range children {
