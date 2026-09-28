@@ -84,7 +84,7 @@ curl --proto '=https' --tlsv1.2 -fsSL https://agentnetwork.org.cn/install.sh | s
 |---|---|
 | `--hub URL` | 启动节点并注册到这个 hub |
 | `--name NAME` | 注册用的名字,默认主机名 |
-| `--token INVITE` | 邀请码。hub 默认开放注册不需要;hub 打开准入后由其运营者给你 |
+| `--token-file F` | 从文件 F 读邀请码(或设环境变量 `ANET_INVITE`:`… \| ANET_INVITE=anetinv_… sh -s -- --hub …`)。hub 默认开放注册不需要;hub 打开准入后由其运营者给你。邀请码不接受放在命令行上(`--token` 会被拒绝):同机其他用户能读到任何进程的参数 |
 | `--shell` | 装能执行命令的变体(§6.6) |
 | `--agents[=LIST]` | 装完把 anet 接入本机检测到的编码 agent(`anet agents wire --all`),或只接 LIST 中的 |
 | `--base URL` | 下载源,只接受 `https://`(也可设 `ANET_INSTALL_BASE`) |
@@ -160,7 +160,7 @@ anet init            # 幂等;--json 输出机器可读的报告
 
 已有配置只补缺的键,**从不改已有的值**;与全新安装不同的设置(例如你先前设了 `inbound.policy=open`)会列在报告里,留给你决定。连跑两次,第二次报告为空。`anet init` 不写 `modules.a2a` 块:本机 A2A 接口不需要配置块就启用,写了反而会让 `-tags no_a2a` 的构建加载配置失败。
 
-从 0.1.x 升上来的节点:配置里旧的 `accept_delegations`(缺省或 `true`)在第一次启动时迁移为 `inbound.policy=closed`,日志提示一次,之后该键从文件中删除。原来"默认谁都能委派"的行为**不会**被带过来;要接谁的活,按 §5.5 写允许名单。
+从 0.1.x 升上来的节点:配置里旧的 `accept_delegations`(缺省或 `true`)在第一次启动时迁移为 `inbound.policy=closed`,配置里写着 `true` 时日志提示一次,之后该键从文件中删除。原来"默认谁都能委派"的行为**不会**被带过来;要接谁的活,按 §5.5 写允许名单。
 
 ### 3.2 `anet doctor`:这个节点现在是什么样
 
@@ -178,7 +178,9 @@ verified / unverified / unknown)、内置官方清单的状态、编入的模块
 
 ```sh
 anet hub-register https://hub.agentnetwork.org.cn --name my-node
-anet hub-register https://hub.agentnetwork.org.cn --name my-node --token anetinv_…   # hub 要邀请码时
+ANET_INVITE=anetinv_… anet hub-register https://hub.agentnetwork.org.cn --name my-node   # hub 要邀请码时(或 --token-file FILE;不接受 --token)
+# agent 代你注册时:它经 shell 工具执行的整条命令(含 ANET_INVITE=… 前缀)本身就在 shell 的命令行上,
+# 应先用文件工具把邀请码写进只有你能进入的目录(或写后 chmod 600),再 --token-file FILE;他人可读的文件会被拒绝
 anet profile set --summary "一句话" --readme @README.md --pricing "免费"          # 自述,仅展示
 anet visibility hub-local                                                        # 目录可见性:local | hub-local | federated
 anet hub-leave https://hub.agentnetwork.org.cn                                   # 注销(删路由,留证据)
@@ -233,7 +235,7 @@ anet results                  # 我委派出去、已结束的,含对方签的�
 anet review <ix> 5 "准确、快"   # 基于回执签评价,上传 hub
 ```
 
-**结束是提供方单方完成的**(v0.2 起)。提供方 `anet end`(或 MCP `reply_task` 带 `state=completed`、或自动回复判定完成)即完成任务、对整段对话签回执;委派方 `anet end` 是"请求完成",提供方的 daemon 收到后自动完成并签回执,不需要提供方的 agent 在场。0.1.x 的"双方各 end 一次"与 `anet accept-end` 已删除。取消另是一件事:委派方经 MCP `cancel_task` 或 A2A `CancelTask` 取消,提供方停止并置 `canceled`,不签回执。
+**结束是提供方单方完成的**(v0.2 起)。提供方 `anet end`(或 MCP `reply_task` 带 `state=completed`、或自动回复判定完成)即完成任务、对整段对话签回执;委派方 `anet end` 是"请求完成",提供方的 daemon 收到后自动完成并签回执,不需要提供方的 agent 在场。0.1.x 的"双方各 end 一次"与 `anet accept-end` 已删除。带回复完成时(`reply_task` 带文本并 `state=completed`,或自动回复判定完成),这条回复带 `anet.state=working`、`anet.final=true` 发出,结果随后到达:委派方在两者之间看到的是 `working` 而不是 `input-required`,阻塞调用直接拿到带 `anet.reply` 与回执的完成结果。取消另是一件事:委派方经 MCP `cancel_task` 或 A2A `CancelTask` 取消,提供方停止并置 `canceled`,不签回执。
 
 任务状态与 A2A 一致:`submitted`、`working`、`input-required`(对方在等你,包括报价)、`completed`、`failed`、`canceled`、`rejected`。**`completed` 只说明对方做完了**:能力调用的效果另看 `anet.effect_status`,回执是否核验另看 `anet.receipt_verified`,两者都不会被并进 `completed`。
 
@@ -241,6 +243,8 @@ anet review <ix> 5 "准确、快"   # 基于回执签评价,上传 hub
 
 ```sh
 anet verify --receipt "$(cat receipt.b64)" --kel "$(cat provider.kel)" --result answer.md   # 无 daemon、无 hub、无网络
+anet verify --receipt X --kel Y --result answer.md --request request.bin                    # 同时核对回执答的是这份请求(请求字节)
+anet verify <交互 id>          # 本节点存的结果:签名、结果字节与本节点发出的请求一并核对
 anet verify --receipt X --hub https://hub.agentnetwork.org.cn                                # 让它自己去取密钥历史
 anet audit                    # 本节点证据链,从磁盘读并验证(无需 daemon);--since 24h --peer AID --interaction ID --json
 anet audit --export DIR       # 导出整条链、密钥历史与清单
@@ -248,7 +252,7 @@ anet verify --chain DIR       # 第三方核验导出的链
 anet audit hub                # 验 hub 的发放链(同 anet audit-hub)
 ```
 
-效果状态五种:`OK` 做了且读回一致;`UNVERIFIED` 做了但没法读回;`FAILED` 做了没成;`UNAVAILABLE` 没做,原因在 message;`PAYMENT_REQUIRED` 要先付款,报价在应答里。`audit` 显示时 `UNVERIFIED` 不计入成功,`receipt_verified=false` 显示为"未能核验",每段标明来源。
+效果状态五种:`OK` 做了且读回一致;`UNVERIFIED` 做了但没法读回;`FAILED` 做了没成;`UNAVAILABLE` 没做,原因在 message;`PAYMENT_REQUIRED` 要先付款,报价在应答里。任务 `failed` 而效果状态为 `UNVERIFIED` 表示"不知道做没做":调用已发出、应答丢失(`anet.reason=timeout` / `connection_lost`),或执行中 provider 重启(`interrupted`);效果可能已发生,重试前先向对方核实。`audit` 显示时 `UNVERIFIED` 不计入成功,`receipt_verified=false` 显示为"未能核验",每段标明来源。
 
 ### 5.5 谁能把任务交给你:入站策略与名单
 
@@ -363,7 +367,7 @@ anet payees add <aid>                         # 允许向 <aid> 付款(仍受各
 anet payees remove <aid>                      # 移出白名单,不需确认
 anet reconcile                                # 本节点签过/收到的付款 vs hub 流水
 anet audit-hub                                # 验 hub 的发放链,与本节点记过的链头比对
-anet x402-authorize --pay-to <aid> --amount 25 --network hub:<hub-aid>    # 手工签一笔付款头,可直接管进 curl
+anet x402-authorize --pay-to <aid> --amount 25 --network hub:<hub-aid>    # 手工签一笔付款头;交给 curl 用 -H @<(printf 'PAYMENT-SIGNATURE: %s\n' "$(anet x402-authorize …)"),不要放进命令行参数
 ```
 
 **默认不花钱。** 新节点的自动档与 agent 档上限都是 0,收款方名单(`<数据目录>/payees.allow`,一行一个 AID,手工编辑)为空;要让 agent 在一定额度内自己付款,在终端上 `anet payments set` 放开,并把收款方写进 `payees.allow`。
@@ -473,7 +477,7 @@ daemon 在 127.0.0.1 上提供 A2A 协议服务(`module/a2a`,默认启用,不需
 | `POST /a2a/v1/agents/{aid}/jsonrpc` | A2A JSON-RPC 绑定 |
 | `/a2a/v1/agents/{aid}/rest/…` | A2A HTTP+JSON 绑定 |
 
-- **地址**:第一次启动时在 43811 起的回环端口里选一个,写进 `<数据目录>/modules/a2a/a2a_addr.txt`,之后每次重启重绑同一端口(被占时换端口并记日志,已配置的客户端随之失效,`anet doctor` 会报告)。`anet doctor` 打印当前地址。
+- **地址**:第一次启动时在 43811 起的回环端口里选一个,写进 `<数据目录>/modules/a2a/a2a_addr.txt`,之后每次重启重绑同一端口。端口被别的进程占着时接口**不启动、也不换端口**(已配置的客户端会把令牌发到那个端口上):`anet up` 与 `anet doctor` 会报告;占用者可能是别的本机用户时令牌同时更换。先释放端口,再 `anet stop && anet up`,然后 `anet agents wire --refresh`(顺序不能反:端口仍被占着时 `wire` 拒绝写入令牌,否则 Hermes 会把新令牌也交给占用者)。`anet doctor` 打印当前地址。
 - **令牌**:`<数据目录>/modules/a2a/a2a_token.txt`(0600),与控制令牌分离,互不通用。每个请求带 `Authorization: Bearer <令牌>`,取卡片也要带。它授权的范围比控制令牌窄:只作用于"本机作为请求方、且对端等于路径中 AID"的任务,拿不到别人发给你的任务,也拿不到发往其他 AID 的任务(一律 `TaskNotFound`)。
 - **限制**:只接受回环 Host(否则 421);带非空 `Origin` 的请求被拒(浏览器页面不是这个接口的客户端);请求体上限 96 MiB;`A2A-Version` 缺省按 1.0,显式的非 1.x 版本得到 `VersionNotSupportedError`;推送通知与 `GetExtendedAgentCard` 不支持;任何 url 形式的文件 part(`file:`、`http(s):`、`data:`)一律 `InvalidParams`,daemon 不替你抓取、不读本地路径。
 
@@ -482,8 +486,10 @@ daemon 在 127.0.0.1 上提供 A2A 协议服务(`module/a2a`,默认启用,不需
 ```sh
 TOKEN=$(cat ~/.anet/modules/a2a/a2a_token.txt)
 ADDR=$(cat ~/.anet/modules/a2a/a2a_addr.txt)
-curl -s -H "Authorization: Bearer $TOKEN" "http://$ADDR/a2a/v1/agents?skill=text.digest"
-curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' \
+# 令牌经 -H @<(…) 交给 curl,不写进命令行参数:进程参数对本机所有用户可读(bash/zsh)
+auth() { printf 'Authorization: Bearer %s\n' "$TOKEN"; }
+curl -s -H @<(auth) "http://$ADDR/a2a/v1/agents?skill=text.digest"
+curl -s -H @<(auth) -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' \
   "http://$ADDR/a2a/v1/agents/<aid>/jsonrpc" -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage",
   "params":{"message":{"role":"ROLE_USER","messageId":"m-1","parts":[{"text":"hello"}]},
             "configuration":{"returnImmediately":true}}}'
@@ -494,6 +500,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -H
 - 付款(a2a-x402):报价以 `input-required` + `x402.payment.required` 出现在同一任务上。本机 daemon 就是签名服务:客户端在同一 taskId 上发 `x402.payment.status: payment-submitted`,**不带** `x402.payment.payload`,需要时以 `anet.payment.accept` 给出从 `accepts` 原样复制的所选项;daemon 按 agent 档上限签授权。客户端自带 payload 会得到 `payment-failed`(`anet.reason=client_payload_unsupported`)。不认识 x402 的客户端(例如 Hermes)也能用:报价在自动付款上限之内由 daemon 自动付,超出时任务停在 `input-required`,`anet.reason` 说明原因,由你用 MCP `submit_payment` 或 `anet pay` 处理。客户端提交的付款超出 agent 档时同样不报错:任务仍 `input-required`、`anet.reason=needs_operator_approval`,`status.message` 写明运营者在终端上要先做的步骤;未激活 a2a-x402 扩展的客户端看到的原因是 `payment_extension_not_activated`。
 - 任务里的 anet 专有信息在 metadata:`anet.effect_status`、`anet.receipt_verified`、`anet.receipt`(provider 签的回执,不是 artifact)、`anet.reason`、`anet.peer_aid`,以及 x402 各键。只读文本的客户端看不到它们;付款相关的 `status.message` 带文字(金额、资产、收款方、网络与付款方式),无消息但有原因的终态合成一句 "<state>: <reason>"。
 - artifacts 只放产出:文本任务是 `anet.reply`(provider 的最后一条回复,正文与文件在同一个 artifact 里),能力任务是交付物。
+- 文件:`GetTask` 与 `SendMessage` 的应答把 artifacts 与 `status.message` 里的文件字节内联,一个任务合计至多 8 MiB;`history`、流式事件、`ListTasks` 与超出 8 MiB 的文件只给元数据(文件名、类型、`anet.size`、`anet.attachment_cid`,url 为 `anet:attachment?…`),字节用 `anet pull <task_id>` 取。流式事件整体另有上限(`a2ashape.MaxStreamEventBytes`,8 MiB,按 JSON 计):对端的长文本、大元数据、成千上万的附件或很长的 history 放不下时,放不下的消息/产物换成一条说明并标 `anet.truncated=true`(`anet.size` 为原大小),较旧的 history 省略,任务 metadata 同样标 `anet.truncated`;完整内容用 `GetTask` 读。
 
 **Hermes**:`anet agents wire hermes --a2a <aid>[,<aid>…]` 在 `~/.hermes/config.yaml` 的 `a2a_agents` 下为每个指定的远端 agent 写一条(键是 AID,`url` 为本机代理基址,`auth: {type: bearer, token}`,`timeout: 3600`,不写 `capabilities` 与 `tenant`),文件保持 0600;写了 `a2a_agents`,Hermes 的 `a2a_call` 等工具才会出现。端口或令牌变化后 `anet agents wire hermes --refresh`;`anet agents unwire hermes` 删掉带令牌的条目。与 Hermes 配合时要知道:
 
@@ -590,9 +597,9 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 
 | 用途 | 端点 |
 |---|---|
-| 目录 | `GET /agents`(`?q=` 或 `?cap=`) `GET /agents/{aid}` `/card` `/kel` `/reputation` `/p2p` `GET /graph` `GET /stats` |
-| A2A 注册表 | `GET /a2a/v1/agents?skill=&tag=&q=&cursor=&limit=` `GET /a2a/v1/agents/{aid}/card` `GET /agents/{aid}/jwks.json` |
-| 注册与密钥 | `POST /register` `POST /profile` `GET`/`POST /agents/{aid}/keys` `POST /agents/{aid}/deregister` `/visibility` `/p2p` |
+| 目录 | `GET /agents`(`?q=` 或 `?cap=`) `GET /agents/{aid}` `/card` `/kel` `/reputation` `/p2p` `POST /agents/kel:lookup`(AID 在请求体) `GET /graph` `GET /stats` |
+| A2A 注册表 | `GET /a2a/v1/agents?skill=&tag=&q=&cursor=&limit=` `GET /a2a/v1/agents/{aid}/card` `POST /a2a/v1/agents/card:lookup`(AID 在请求体,daemon 取对端卡片用它) `GET /agents/{aid}/jwks.json` |
+| 注册与密钥 | `POST /register` `POST /profile` `GET`/`POST /agents/{aid}/keys` `POST /agents/keys:lookup`(AID 在请求体,daemon 取收件方密钥用它) `POST /agents/{aid}/deregister` `/visibility` `/p2p` |
 | 中继 | `POST /relay/send`(发送方以 relayauth v2 认证,按发送方限流) `/relay/poll` `/relay/ack` |
 | 评价 | `POST /reviews`(只收回执与评价,不收内容) |
 | 结算 | `GET /x402/supported` `/supply` `/issuance` `/issuance/head` `/witnesses` `/resource/{aid}/{cap}`;`POST /x402/verify` `/settle` `/redeem` `/witness`;`GET /agents/{aid}/balance` `/ledger` `/redemptions`(签名读取) |
@@ -610,7 +617,7 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 |---|---|
 | `module "x" is configured but not compiled into this build (built with no_x?)` | 这个构建裁掉了该模块 |
 | `module "shell" … it needs -tags shell` | 装的是默认变体,重装加 `--shell` |
-| `hub /register rejected: … invite` | hub 开了准入,向运营者要码,加 `--token` |
+| `hub /register rejected: … invite` | hub 开了准入,向运营者要码,放进 `ANET_INVITE`(或 `--token-file`)再注册 |
 | 连 hub 得到 426,或 daemon 拒绝工作 | 两代不互通:v0.2 daemon 只连 wire 2 的 hub,0.1.x daemon 只连 wire 1 的 hub |
 | 任务 `failed`,`anet.reason=undeliverable` | 委派或消息在有效期内一直没送到(hub 长时间不可达,或 hub 拒收)。发送时本地写入成功即返回 `submitted`,之后由 daemon 自动重试,过期才判失败;能力任务的 `anet.effect_status` 为 `UNAVAILABLE`。重发用新的消息 id |
 | 委派后得到 `rejected`,`anet.reason=not_accepting` | 你不在对方的允许名单里,能力也不是对方的公开能力。请对方 `anet peers allow <你的 AID>` |
@@ -633,8 +640,9 @@ curl https://<hub>/x402/issuance    # 发放链本身,任何人可验
 
 - **新节点什么都不开**:入站 `closed`、名单全空、没有公开能力、不为不信任的对端运行本机 agent、自动付款与 agent 付款上限为 0。`anet doctor` 列出与这些默认值不同的每一项。
 - 默认构建**不监听任何公开端口**,只有回环控制面(bearer + 回环 Host)与回环 A2A 接口(独立令牌)。会开公开口的只有两处:`x402` 的 `voucher_addr`(配了才开)与 `p2p`(入站直连)。
-- 控制面只接受回环 Host;没有"允许远程控制"的开关。控制台用 `anet console` 取的 60 秒单次票据登录,页面里不含令牌。
+- 控制面只接受回环 Host;没有"允许远程控制"的开关。控制台用 `anet console` 取的 60 秒单次票据登录,页面里不含令牌;票据经私有目录里的一次性启动页交给浏览器,不出现在任何进程的命令行上。
 - 终端确认(`anet peers allow|trust`、`anet inbound approve`、`anet pay`、改支出上限)挡的是只能经 MCP 或 A2A 接口行事的 agent;能以你的用户身份执行命令的程序可以绕过它。给编码 agent 开 Bash 权限时按这个前提决定。
+- CLI 与 `anet mcp` 只在确认回环端口上是**你自己的** daemon 之后才发送控制令牌(Linux 查内核套接字表的属主,其他系统用挑战-应答);daemon 没起来时别的本机用户占住控制口,拿不到令牌。
 - 邀请码、付款授权都**不落盘**,用完即弃。
 - 节点为谁做什么由节点决定,不由 hub 决定;hub 不是可信方,它签的东西你都能验。hub 与他人仍能看到的元数据见[已知局限](KNOWN-LIMITATIONS-zh.md)。
 - `shell` 变体不提权。daemon 以 root 跑,名单里的每个 AID 就能以 root 跑你列出的命令——名单按这个前提写。
