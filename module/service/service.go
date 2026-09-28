@@ -465,6 +465,22 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 			fmt.Errorf("service %s: HTTP %d, then %w", call.Capability, resp.StatusCode, provider.AnswerLost(rerr))
 	}
 
+	if resp.StatusCode == http.StatusGatewayTimeout || resp.StatusCode == http.StatusBadGateway {
+		// A gateway in front of the service (a reverse proxy) answering for
+		// it: 504, the service did not answer the proxy in time; 502, its
+		// answer broke. Either way the call reached the service, which may
+		// have acted — the same unknown outcome as an answer lost on this
+		// side, not FAILED (redteam F10: a proxy_read_timeout shorter than
+		// the service's work turns every slow call into "did not happen").
+		reason := provider.ReasonConnectionLost
+		if resp.StatusCode == http.StatusGatewayTimeout {
+			reason = provider.ReasonTimeout
+		}
+		ev := &effect.Evidence{Protocol: protoOf(target), Requested: call.Capability, LatencyMS: latency}
+		return effect.Effect{Status: effect.Unverified, Evidence: ev},
+			fmt.Errorf("service %s: %w", call.Capability, &provider.OutcomeUnknownError{Reason: reason,
+				Err: fmt.Errorf("HTTP %d from a gateway: %s", resp.StatusCode, snippet(raw))})
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		// 503 and 429 are the service saying "not now": busy, or out of
 		// time under load. UNAVAILABLE, like an unreachable service, so the

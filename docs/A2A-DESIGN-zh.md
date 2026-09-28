@@ -348,7 +348,7 @@ hub 限额(应用层,均为 flag):单条信封 96 MiB;每发送方令牌桶 20/s
 
 已结算(`pay_state=completed`)的交互不使用 rejected:UNAVAILABLE 映射为 failed,并带 `x402.payment.receipts`(§4.2、§8.2)。
 
-UNAVAILABLE 只给"确定没发出"的调用(连接建立失败、拨号被拒、写出请求头之前出错);请求一旦写出,之后的超时、断连一律按"效果未知"报告。provider 以 `provider.OutcomeUnknownError` 向内核表达这一情形(service 模块按请求头是否写出区分)[redteam:F10]。2xx 应答头之后应答体中断(读体时超时或断连)同样是"效果未知",不是 FAILED;ANetLink shim 与 service 模块同样按请求头是否写出区分;任何 provider 的调用在截止时间内未返回(错误含 `context.DeadlineExceeded`)时,内核与凭证入口一律按"效果未知"(`anet.reason=timeout`)报告,不依赖 provider 自己表达(`provider.OutcomeOf`)[redteam:F10 复核]。
+UNAVAILABLE 只给"确定没发出"的调用(连接建立失败、拨号被拒、写出请求头之前出错);请求一旦写出,之后的超时、断连一律按"效果未知"报告。provider 以 `provider.OutcomeUnknownError` 向内核表达这一情形(service 模块按请求头是否写出区分)[redteam:F10]。2xx 应答头之后应答体中断(读体时超时或断连)同样是"效果未知",不是 FAILED;ANetLink shim 与 service 模块同样按请求头是否写出区分;任何 provider 的调用在截止时间内未返回(错误含 `context.DeadlineExceeded`)时,内核与凭证入口一律按"效果未知"(`anet.reason=timeout`)报告,不依赖 provider 自己表达(`provider.OutcomeOf`)[redteam:F10 复核]。service 模块收到网关代答的 504(上游未及时应答)或 502(上游应答中断)同样按"效果未知"(`timeout` / `connection_lost`)报告:请求已到达后端;503/429 仍为 UNAVAILABLE [redteam:F10 复核]。
 
 ---
 

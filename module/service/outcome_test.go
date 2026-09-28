@@ -182,3 +182,25 @@ func TestARefusalWhoseBodyBreaksOffIsItsStatus(t *testing.T) {
 		t.Fatalf("status %s (%s), want UNAVAILABLE", eff.Status, eff.Message)
 	}
 }
+
+// A reverse proxy in front of the service answers for it when the service
+// is slow (504) or its answer breaks (502): the call reached the service,
+// which may have acted. Not FAILED — a proxy_read_timeout shorter than the
+// work would make every slow call "did not happen" (F10, on review).
+func TestAGatewayAnsweringForTheServiceIsAnUnknownOutcome(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		reason string
+	}{{http.StatusGatewayTimeout, provider.ReasonTimeout}, {http.StatusBadGateway, provider.ReasonConnectionLost}} {
+		var effects atomic.Int32
+		svc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			effects.Add(1) // the service behind the gateway acted
+			http.Error(w, "upstream timed out", c.status)
+		}))
+		_, unknown := invokeUnknown(t, "mail.send", `{"capabilities":[{"id":"mail.send","url":"`+svc.URL+`"}]}`)
+		svc.Close()
+		if unknown.Reason != c.reason || effects.Load() != 1 {
+			t.Fatalf("HTTP %d: reason %q (effects %d), want %s", c.status, unknown.Reason, effects.Load(), c.reason)
+		}
+	}
+}
