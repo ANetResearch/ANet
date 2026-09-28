@@ -9,17 +9,22 @@ package a2a
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/backendconn"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -163,7 +168,7 @@ func TestAForwardWaitsForABackendThatIsNotListeningYet(t *testing.T) {
 // is recorded for a forward that was withdrawn rather than given up.
 func TestRetriesEndWhenTheKernelSaysNo(t *testing.T) {
 	quickRetries(t)
-	f := &flaky{fail: 1, status: http.StatusBadGateway}
+	f := &flaky{fail: 1, status: http.StatusServiceUnavailable}
 	b := flakyBackend(t, f)
 	h := newInboundHost(t)
 	task := inboundTask("ix1", "bafypeer", true, "hello")
@@ -249,5 +254,171 @@ func TestRetryConfig(t *testing.T) {
 		if err != nil || p.max != want[0] || p.giveUp != want[1] || p.base != retryBase {
 			t.Errorf("%s: %+v %v", cfg, p, err)
 		}
+	}
+}
+
+// takenThen is a backend whose task calls (not its card) are read whole and
+// then, for the first fail of them, answered by fail — a connection closed
+// with no answer, or a status — as when the backend took the message and
+// went down, or failed, while it worked.
+type takenThen struct {
+	mu    sync.Mutex
+	left  int
+	fail  func(w http.ResponseWriter)
+	calls int
+}
+
+func (f *takenThen) wrap(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/rpc" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		f.mu.Lock()
+		f.calls++
+		failing := f.left > 0
+		if failing {
+			f.left--
+		}
+		f.mu.Unlock()
+		if failing {
+			f.fail(w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (f *takenThen) n() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+// Once the request carrying the message was written to the backend, the
+// backend may be doing the work: a connection lost then, or a 500, is not
+// followed by the same message again — that would run the requester's task
+// twice, and a backend need not recognise the repeated id. The failure is
+// recorded once, not given up after retries; the task stays in the inbox.
+func TestAMessageTheBackendMayHaveTakenIsNotSentAgain(t *testing.T) {
+	quickRetries(t)
+	for name, fail := range map[string]func(http.ResponseWriter){
+		"connection lost": func(w http.ResponseWriter) {
+			if c, _, err := w.(http.Hijacker).Hijack(); err == nil {
+				c.Close()
+			}
+		},
+		"500": func(w http.ResponseWriter) { http.Error(w, "boom", http.StatusInternalServerError) },
+		"502": func(w http.ResponseWriter) { http.Error(w, "bad gateway", http.StatusBadGateway) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := &takenThen{left: 1 << 20, fail: fail}
+			b := newTestBackend(t)
+			b.srv.Config.Handler = f.wrap(b.srv.Config.Handler)
+			h := newInboundHost(t)
+			task := inboundTask("ix1", "bafypeer", true, "hello")
+			kernelSays(h, task, true)
+			startBackendModule(t, h, `{"backends":[{"allow_tcp":true,"match":"*","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
+			h.tasks <- task
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				h.mu.Lock()
+				done := len(h.evidence) > 0
+				h.mu.Unlock()
+				if done || time.Now().After(deadline) {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			time.Sleep(300 * time.Millisecond) // retries, were there any, would be under way
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			if n := f.n(); n != 1 || !h.refusedOnce() || h.evidence[0]["attempts"] != 1 || h.evidence[0]["gave_up"] != false {
+				t.Fatalf("the backend got the message %d times; evidence %v, replies %v", n, h.evidence, h.replies)
+			}
+		})
+	}
+}
+
+// retryable, rule by rule: before the message was written whole, a failure
+// to reach the backend or a 5xx (its card) is retried and a 4xx is not;
+// after, only a 503.
+func TestRetryableOnlyWhenTheBackendCannotHaveTheMessage(t *testing.T) {
+	boom := errors.New("boom")
+	note := func(sent, failed bool, code int32) *httpNote {
+		n := newHTTPNote()
+		if sent {
+			n.markSent()
+		}
+		n.failed.Store(failed)
+		n.code.Store(code)
+		return n
+	}
+	for _, tc := range []struct {
+		name string
+		n    *httpNote
+		err  error
+		want bool
+	}{
+		{"not reached", note(false, true, 0), boom, true},
+		{"card 503", note(false, false, 503), boom, true},
+		{"card 404", note(false, false, 404), boom, false},
+		{"card unusable", note(false, false, 200), boom, false},
+		{"path refused", note(false, true, 0), fmt.Errorf("dial: %w", backendconn.ErrRefused), false},
+		{"written, connection lost", note(true, true, 0), boom, false},
+		{"written, 500", note(true, false, 500), boom, false},
+		{"written, 504", note(true, false, 504), boom, false},
+		{"written, 503", note(true, false, 503), boom, true},
+		{"written, 400", note(true, false, 400), boom, false},
+	} {
+		if got := retryable(tc.err, tc.n); got != tc.want {
+			t.Errorf("%s: retryable %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// A task waiting to be tried again gives up its place among the forwards
+// running at once: with maxForwards tasks for a backend that is down, a
+// task for one that is up is still forwarded at once, not after they give
+// up.
+func TestTasksWaitingToBeTriedAgainDoNotHoldEveryPlace(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no Unix sockets with owners here")
+	}
+	old := retryBase
+	retryBase = 300 * time.Millisecond
+	t.Cleanup(func() { retryBase = old })
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	up := newTestBackend(t)
+	h := newInboundHost(t)
+	h.tasks = make(chan module.Task, maxForwards+1)
+	down := func(id string) module.Task {
+		d := inboundTask(id, "bafypeer", true, "down")
+		d.Metadata[a2ashape.KeySkill] = "down"
+		return d
+	}
+	h.mu.Lock()
+	h.now = func(id string) (module.Task, bool) { return down(id), strings.HasPrefix(id, "down") }
+	h.mu.Unlock()
+	startBackendModule(t, h, `{"retry":{"max_interval":"300ms","give_up_after":"5s"},"backends":[`+
+		`{"match":"down","url":"unix://`+filepath.Join(dir, "gone.sock")+`","token_file":"`+tokenFile(t)+`"},`+
+		`{"allow_tcp":true,"match":"*","url":"`+up.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
+	for i := 0; i < maxForwards; i++ {
+		h.tasks <- down("down" + strconv.Itoa(i))
+	}
+	time.Sleep(100 * time.Millisecond) // every place taken by a task for the backend that is down
+	start := time.Now()
+	h.tasks <- inboundTask("ix-up", "bafypeer", true, "hello")
+	r := h.wait(t)
+	if r.taskID != "ix-up" || r.state != a2ashape.TaskStateCompleted {
+		t.Fatalf("reply %+v", r)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("the task for the backend that is up waited %s", took)
 	}
 }
