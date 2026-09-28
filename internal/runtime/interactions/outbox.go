@@ -55,12 +55,27 @@ type OutboxItem struct {
 	NextAt    int64 // unix ms
 	LastError string
 	CreatedAt int64 // unix ms
-	// MaybeDelivered records that an attempt failed in a way that may still
-	// have delivered the envelope (a direct transport that timed out
-	// waiting for the far side, a hub request cut off mid-way). Abandoning
-	// such a row does not say the message never arrived ([redteam:F12]).
+	// MaybeDelivered records that an attempt may have delivered the
+	// envelope although it did not succeed: it failed in a way that may
+	// still have delivered it (a direct transport that timed out waiting for
+	// the far side, a hub request cut off mid-way), or it was begun and its
+	// outcome never recorded (the process stopped during it, the write
+	// failed). Abandoning such a row does not say the message never arrived
+	// ([redteam:F12]), and a delegation in that state is not withdrawn
+	// ([redteam:F23]).
 	MaybeDelivered bool
 }
+
+// Bits of the maybe_delivered column.
+const (
+	// outboxMaybe: a finished attempt may have delivered the row.
+	outboxMaybe = 1
+	// outboxAttempting: an attempt was begun (BeginOutboxAttempt) and its
+	// outcome not yet recorded (EndOutboxAttempt, or the row's deletion).
+	// Found set when an attempt begins, it is a previous attempt whose
+	// outcome was never recorded, and counts as outboxMaybe.
+	outboxAttempting = 2
+)
 
 func (s *Store) migrateOutbox() error {
 	for _, q := range []string{
@@ -306,12 +321,37 @@ func (s *Store) RescheduleOutbox(id int64, attempts int, nextAt int64, lastErr s
 	return err
 }
 
-// MarkOutboxMaybeDelivered records that an attempt at a row may have
-// delivered it although it failed (OutboxItem.MaybeDelivered).
-func (s *Store) MarkOutboxMaybeDelivered(id int64) error {
+// BeginOutboxAttempt records that an attempt at a row is about to send it,
+// before anything is sent: until EndOutboxAttempt (or the row's deletion)
+// records the outcome, the row counts as possibly delivered
+// (OutboxItem.MaybeDelivered). A process that stops during the attempt, or
+// a write of its outcome that fails, then leaves a row that says so rather
+// than one that says no attempt reached anybody ([redteam:F12],
+// [redteam:F23]). The caller holds the row's attempt lock, so a mark found
+// already set is such an unrecorded attempt, and is kept as "may have
+// delivered".
+func (s *Store) BeginOutboxAttempt(id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec(`UPDATE outbox SET maybe_delivered=1 WHERE id=?`, id)
+	_, err := s.db.Exec(`UPDATE outbox SET maybe_delivered = maybe_delivered | ? | ((maybe_delivered & ?) >> 1) WHERE id=?`,
+		outboxAttempting, outboxAttempting, id)
+	return err
+}
+
+// EndOutboxAttempt records a failed attempt, when to try again, and
+// whether any attempt so far may have delivered the row.
+func (s *Store) EndOutboxAttempt(id int64, attempts int, nextAt int64, lastErr string, maybeDelivered bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(lastErr) > 512 {
+		lastErr = lastErr[:512]
+	}
+	maybe := 0
+	if maybeDelivered {
+		maybe = outboxMaybe
+	}
+	_, err := s.db.Exec(`UPDATE outbox SET attempts=?, next_at=?, last_error=?, maybe_delivered=? WHERE id=?`,
+		attempts, nextAt, lastErr, maybe, id)
 	return err
 }
 
