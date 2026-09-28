@@ -300,7 +300,7 @@ func (d *Daemon) listenControl() (net.Listener, error) {
 	}
 	// The holder may be another identity's daemon, or another local user's process. Either way no
 	// client of ours sent it the control token: they verify the listener first (internal/localpeer,
-	// A2A-DESIGN §7.1 [redteam:F18]).
+	// A2A-DESIGN §7 item 10 [redteam:F18]).
 	log.Printf("anet: control port %s was taken by another process%s; moved to %s and updated config.json",
 		addr, portHolder(addr), next)
 	return moved, nil

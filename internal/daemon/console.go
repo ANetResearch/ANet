@@ -101,7 +101,7 @@ func (d *Daemon) consoleHandler() http.HandlerFunc {
 //
 // With ?proof=<nonce> it also proves that it holds this node's control token, for a client that cannot
 // read the kernel's socket table and must not send the token to a listener it has not verified
-// (internal/localpeer, A2A-DESIGN §7.1 [redteam:F18]). The proof is bound to the listener address the
+// (internal/localpeer, A2A-DESIGN §7 item 10 [redteam:F18]). The proof is bound to the listener address the
 // request arrived on, so a squatter relaying the challenge here gets an answer for the wrong address.
 func (d *Daemon) pingHandler(token string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

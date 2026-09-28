@@ -49,7 +49,7 @@ func cmdResponder(args []string) int {
 		return 2
 	}
 	// The control token goes only to a listener verified to be this user's daemon, as it does from the
-	// CLI (internal/localpeer, A2A-DESIGN §7.1 [redteam:F18]).
+	// CLI (internal/localpeer, A2A-DESIGN §7 item 10 [redteam:F18]).
 	r := &responder{ctl: *ctl, token: tok, hold: *hold, answered: map[string]string{},
 		hc: localpeer.Client(tok, 60*time.Second)}
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
