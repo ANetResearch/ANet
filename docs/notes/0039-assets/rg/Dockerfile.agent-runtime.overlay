@@ -1,0 +1,8 @@
+# Production image for this upgrade: the running agent-runtime image with only
+# the anet binary and app.py replaced, so the Python environment stays exactly
+# as deployed (requirements.txt is unpinned). ANet docs/notes/0039.
+FROM research-galaxy-agent-runtime:pre-anet-0.2.1
+COPY anet /usr/local/bin/anet
+RUN echo "3d52e333d4620daa03360d6aaffbc01d4c3cbe78582c86d8ac50c3e6dc5a1508  /usr/local/bin/anet" | sha256sum -c - \
+    && chmod 0755 /usr/local/bin/anet && rm -rf /app/__pycache__
+COPY app.py /app/app.py
