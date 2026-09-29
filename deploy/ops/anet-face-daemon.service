@@ -1,0 +1,69 @@
+# anet-face-daemon.service — CMax Face on cmax, homed at
+# https://hub.agentnetwork.org.cn. A public demo service: anyone may send it a
+# conversation with one or two images, and its auto-reply (openai backend)
+# answers from anet-face-api (YuNet + SFace, OpenAI-compatible, 127.0.0.1:8093).
+# The auto-reply only calls that HTTP API; it runs nothing on this machine.
+# See deploy/ops/README.md.
+#
+# Until 2026-09-29 this unit ran /root/.local/bin/anet 0.1.0 as root with
+# ANET_DATA_DIR=/root/.anet/ids/face. Now as deploy/ops/anet4.service: a
+# dedicated non-root account (anet-face), state under /var/lib/anet-face
+# (0700), its own runtime directory, read-only everything else. The unit name
+# is kept, so the operators' habits and anet-face-api's ordering still hold.
+#
+# The CLI refuses a daemon that runs as another uid (internal/localpeer):
+# commands for this node go through /opt/anet/bin/anet-face.
+[Unit]
+Description=anet daemon CMax Face (hub.agentnetwork.org.cn, auto-reply)
+Documentation=https://github.com/ANetResearch/ANet/tree/main/deploy/ops
+Wants=network-online.target
+After=network-online.target anet-face-api.service
+
+[Service]
+Type=simple
+User=anet-face
+Group=anet-face
+StateDirectory=anet-face
+StateDirectoryMode=0700
+RuntimeDirectory=anet-face
+RuntimeDirectoryMode=0700
+Environment=HOME=/var/lib/anet-face
+Environment=ANET_DATA_DIR=/var/lib/anet-face/.anet
+Environment=XDG_RUNTIME_DIR=/run/anet-face
+Environment=NO_PROXY=127.0.0.1,localhost
+ExecStart=/opt/anet/bin/anet daemon
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/anet-face
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+UMask=0077
+MemoryMax=1G
+CPUQuota=200%
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+#!/bin/sh
+# anet-vision — the anet CLI for CMax Vision (anet-vision-daemon.service), run as anet-vision, the account its
+# daemon runs as. The CLI sends the control token only to a daemon of its own
+# uid (internal/localpeer), and root is not that uid, so root's plain `anet`
+# cannot drive this node. Installed as /opt/anet/bin/anet-vision:
+#   anet-vision status | doctor | peers list | inbound policy | hub-register URL --name N | …
+set -eu
+exec runuser -u anet-vision -- env -C / \
+  HOME=/var/lib/anet-vision ANET_DATA_DIR=/var/lib/anet-vision/.anet XDG_RUNTIME_DIR=/run/anet-vision \
+  NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+  /opt/anet/bin/anet "$@"

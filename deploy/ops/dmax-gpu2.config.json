@@ -1,0 +1,29 @@
+{
+  "control_addr": "127.0.0.1:39811",
+  "name": "gpu2",
+  "inbound": {
+    "policy": "closed",
+    "allow_file": "peers.allow",
+    "deny_file": "peers.deny",
+    "trust_file": "peers.trust",
+    "public_capabilities": [],
+    "reject_notice": {
+      "per_peer_per_hour": 6,
+      "global_per_min": 60
+    },
+    "pending": {
+      "max_total": 200,
+      "max_per_peer": 3,
+      "ttl_hours": 72
+    }
+  },
+  "payments": {
+    "auto_max": 0,
+    "agent_max": 0,
+    "agent_daily_max": 0,
+    "explicit_max": 10,
+    "daily_max": 50,
+    "payees_file": "payees.allow"
+  },
+  "no_response_after": "15m"
+}

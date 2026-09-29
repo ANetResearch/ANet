@@ -1,0 +1,11 @@
+#!/bin/sh
+# anet-gpu2 — the anet CLI for gpu2 (anet-gpu2.service), run as anet-gpu2, the account its
+# daemon runs as. The CLI sends the control token only to a daemon of its own
+# uid (internal/localpeer), and root is not that uid, so root's plain `anet`
+# cannot drive this node. Installed as /opt/anet/bin/anet-gpu2:
+#   anet-gpu2 status | doctor | peers list | inbound policy | hub-register URL --name N | …
+set -eu
+exec runuser -u anet-gpu2 -- env -C / \
+  HOME=/var/lib/anet-gpu2 ANET_DATA_DIR=/var/lib/anet-gpu2/.anet XDG_RUNTIME_DIR=/run/anet-gpu2 \
+  NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+  /opt/anet/bin/anet "$@"

@@ -1,0 +1,11 @@
+#!/bin/sh
+# anet-face — the anet CLI for CMax Face (anet-face-daemon.service), run as anet-face, the account its
+# daemon runs as. The CLI sends the control token only to a daemon of its own
+# uid (internal/localpeer), and root is not that uid, so root's plain `anet`
+# cannot drive this node. Installed as /opt/anet/bin/anet-face:
+#   anet-face status | doctor | peers list | inbound policy | hub-register URL --name N | …
+set -eu
+exec runuser -u anet-face -- env -C / \
+  HOME=/var/lib/anet-face ANET_DATA_DIR=/var/lib/anet-face/.anet XDG_RUNTIME_DIR=/run/anet-face \
+  NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost \
+  /opt/anet/bin/anet "$@"
