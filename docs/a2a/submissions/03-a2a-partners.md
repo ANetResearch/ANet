@@ -1,6 +1,7 @@
 # Step 3 — A2A website: add ANet to the partners list
 
-> **NOT SUBMITTED — requires product owner approval.**
+> **NOT SUBMITTED — on hold per product owner (more testing first).** Product-owner approval is also
+> required for each item, one by one.
 > The issue and the pull request below are two submissions; both need approval (an internal note §3,
 > an internal note G10). Nothing here has been posted anywhere.
 

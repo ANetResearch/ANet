@@ -1,0 +1,2 @@
+# a2a-sdk as found on PyPI on 2026-09-28, with the extras the scripts use.
+a2a-sdk[http-server,signing]==1.1.5
