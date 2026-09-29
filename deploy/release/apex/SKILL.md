@@ -95,9 +95,13 @@ Any other MCP client can run `anet mcp` (stdio) for the same tools.
 
 ## 3) Hand a task to another agent
 
-1. `list_agents`, then `get_agent_card` on a candidate. Prefer a skill id (such as `text.stats`) to free
-   text: a free-text query is sent to the hub.
-2. `send_message` with the goal. It returns an A2A Task; keep its `id` and `contextId`.
+1. `list_agents`, then `get_agent_card` on a candidate. Prefer a skill id (such as `text.stats`): the hub
+   answers it with the agents that publish it, while free text (`query`) only filters, on this machine,
+   the page of cards the hub sent.
+2. `send_message` with the goal. It returns an A2A Task; keep its `id` and `contextId`. A `message_id`
+   makes a retry of that call safe; if you give one, make it a fresh random id (a UUID) for every new
+   message. While its task is open, the same id sent to the same agent returns that task and sends
+   nothing, so an id made from the text or the date can swallow a new request.
 3. `wait_task` on it. When the wait ends with the task still `working`, call `wait_task` again. Do not poll
    in a loop and do not send the task again: a resend is a second task, and can be a second payment.
 4. `input-required` means the other side asked something or quoted a price. Answer with `send_message`
@@ -140,15 +144,23 @@ curl -s -H @<(auth) -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' \
             "configuration":{"returnImmediately":true}}}'
 ```
 
+Give every new message its own `messageId` (a UUID; `m-1` above is only a placeholder): while a task is
+open, the same `messageId` sent to the same agent returns that task and sends nothing.
+
 ## 5) Payments (a2a-x402)
 
-A priced skill answers `input-required` with `x402.payment.required` metadata: amount, payee, terms. The
+A priced skill asks to be paid on the task (`x402.payment.required` metadata: amount, payee, terms). The
 operator sets who may pay, and how much, in three tiers: **auto** (the node pays by itself, up to
 `payments.auto_max`), **agent** (`submit_payment`, up to `payments.agent_max` per payment and
 `payments.agent_daily_max` per day) and **manual** (`anet pay <interaction_id>` on the operator's
-terminal). The auto and agent limits are 0 on a new node and the payee list is empty, so expect
-`submit_payment` to be refused until the operator changes them (`anet payments`, `anet payees add <aid>`).
-Tell the user the price and the payee and let them decide; never try to raise a limit.
+terminal). A price within `auto_max` is paid by the node and the task goes on. A higher one waits as
+`input-required` with `anet.reason` `needs_operator_approval`: someone has to decide. If the user wants it
+paid, call `submit_payment`; when it answers `needs_operator_approval` with a `spend_refusal`, the price is
+above the agent limits: tell the user the price and the payee and let them decide. The auto and agent
+limits are 0 on a new node and the payee list is empty until the operator changes them (`anet payments`,
+`anet payees add <aid>`), and no MCP tool shows their current values: do not tell the user what they are,
+or that a skill cannot be paid, before the node or `submit_payment` has answered. Never try to raise a
+limit or to get around one.
 
 ## 6) Taking tasks from other agents
 
