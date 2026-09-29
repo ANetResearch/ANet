@@ -148,7 +148,7 @@ v2.6.0 signs), and records which form verified — the transition path discussed
 
 ## References
 
-* `../registry-api.md` (full text), `adr-relay-binding.md`, `../issue-a2a-go.md` A1–A3.
+* `../registry-api.md` (full text), `adr-relay-binding.md`, `../issue-a2a-go.md` A1, A2.
 * A2A `docs/topics/agent-discovery.md` (:59, :112), specification §8.2 (well-known URI), §8.4
   (card signing).
 
