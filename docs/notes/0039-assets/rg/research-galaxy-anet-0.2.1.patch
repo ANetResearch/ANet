@@ -1,0 +1,347 @@
+diff -ruN a/platform/agent-runtime/Dockerfile b/platform/agent-runtime/Dockerfile
+--- a/platform/agent-runtime/Dockerfile	2026-09-29 00:29:18.687827758 +0000
++++ b/platform/agent-runtime/Dockerfile	2026-09-29 00:29:18.692827704 +0000
+@@ -1,15 +1,14 @@
+ # agent-runtime: hosts anet requester + researcher daemons.
+-# Build context MUST be the ANetResearch root (to compile ANetHub's `anet`).
+-# syntax=docker/dockerfile:1
+-FROM golang:1.26 AS anetbuild
+-ENV GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+-WORKDIR /src
+-COPY ANetHub/go.mod ANetHub/go.sum ./ANetHub/
+-WORKDIR /src/ANetHub
+-RUN go mod download
+-COPY ANetHub/ /src/ANetHub/
+-# anet stores identities/threads in sqlite -> cgo required.
+-RUN CGO_ENABLED=1 go build -o /out/anet ./cmd/anet
++# Build context MUST be the ANetResearch root (for Research-Galaxy/platform/agent-runtime/).
++# anet 0.2.1 (default variant), the release binary: the .gz sha256 below is the
++# one in that release's release.json, signed by the anet release key
++# SHA256:/4FMm/jgZcBII3z3O3r81Y8SxFfugdLRu3zj2gnclD4 (ANet docs/notes/0039).
++FROM debian:bookworm-slim AS anetbin
++ADD https://github.com/ANetResearch/ANet/releases/download/v0.2.1/anet-linux-amd64.gz /tmp/anet.gz
++RUN echo "7c3aa30c10231fcce78961a2567a4876ee7fa76ac940ba6d599fbe499b3d6068  /tmp/anet.gz" | sha256sum -c - \
++    && gunzip /tmp/anet.gz \
++    && echo "3d52e333d4620daa03360d6aaffbc01d4c3cbe78582c86d8ac50c3e6dc5a1508  /tmp/anet" | sha256sum -c - \
++    && chmod 0755 /tmp/anet
+ 
+ FROM python:3.12-slim
+ ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+@@ -18,7 +17,7 @@
+ WORKDIR /app
+ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libsqlite3-0 \
+     && rm -rf /var/lib/apt/lists/*
+-COPY --from=anetbuild /out/anet /usr/local/bin/anet
++COPY --from=anetbin /tmp/anet /usr/local/bin/anet
+ COPY Research-Galaxy/platform/agent-runtime/requirements.txt .
+ RUN pip install --no-cache-dir -r requirements.txt
+ COPY Research-Galaxy/platform/agent-runtime/ .
+diff -ruN a/platform/agent-runtime/app.py b/platform/agent-runtime/app.py
+--- a/platform/agent-runtime/app.py	2026-09-29 00:29:18.675827888 +0000
++++ b/platform/agent-runtime/app.py	2026-09-29 00:29:18.680827834 +0000
+@@ -41,6 +41,13 @@
+ # already given up. Keep it at or above REVIEW_WAIT_TIMEOUT_SEC.
+ _AGENT_API_TIMEOUT_SEC = int(os.environ.get("ANET_AGENT_API_TIMEOUT_SEC", "900"))
+ REQUESTERS_KEY = "gx:anet:requesters"
++# anet 0.2 (hub wire 2) closes inbound by default: a researcher accepts a
++# delegation only from an AID on its peers.allow, which the daemon re-reads on
++# every decision. The platform keeps its requester pool on that list; pausing
++# a researcher takes the pool off it (the marker file records the pause).
++ALLOW_FILE = "peers.allow"
++PAUSED_MARK = ".galaxy-paused"
++_TERMINAL_STATES = ("completed", "failed", "canceled", "rejected")
+ 
+ os.makedirs(os.path.join(ANET_HOME, "ids"), exist_ok=True)
+ _index_path = os.path.join(ANET_HOME, "aid_index.json")
+@@ -94,6 +101,7 @@
+ 
+ def _ensure_identity(ident: str) -> tuple[str, str, str]:
+     base = os.path.join(ANET_HOME, "ids", ident)
++    _migrate_pause_flag(ident)
+     if os.path.exists(os.path.join(base, "identity.kel")):
+         _sh([ANET_BIN, "up", ident], check=False)
+     else:
+@@ -110,6 +118,58 @@
+     raise RuntimeError(f"identity {ident} did not become reachable")
+ 
+ 
++def _is_paused(ident: str) -> bool:
++    return os.path.exists(os.path.join(ANET_HOME, "ids", ident, PAUSED_MARK))
++
++
++def _migrate_pause_flag(ident: str) -> None:
++    """Carry a wire-1 pause over before an anet 0.2 daemon first starts.
++
++    anet 0.2 deletes accept_delegations from config.json on its first start, so
++    a researcher paused under 0.1 (accept_delegations=false) is recorded here,
++    while the key is still there. Requesters were never accepting; not a pause.
++    """
++    if ident.startswith("requester-"):
++        return
++    try:
++        cfg = json.load(open(os.path.join(ANET_HOME, "ids", ident, "config.json")))
++    except Exception:
++        return
++    if cfg.get("accept_delegations") is False and not _is_paused(ident):
++        open(os.path.join(ANET_HOME, "ids", ident, PAUSED_MARK), "w").close()
++
++
++def _requester_aids() -> list[str]:
++    try:
++        eps = json.loads(_r.get(REQUESTERS_KEY) or "[]")
++    except Exception:
++        eps = []
++    if not eps:
++        eps = _provision_requesters()
++    return [ep["aid"] for ep in eps if ep.get("aid")]
++
++
++def _sync_allow(ident: str) -> None:
++    """Keep the requester pool on this researcher's peers.allow (off it while paused)."""
++    path = os.path.join(ANET_HOME, "ids", ident, ALLOW_FILE)
++    try:
++        lines = [ln for ln in open(path).read().splitlines() if ln.strip()]
++    except FileNotFoundError:
++        lines = []
++    listed ={ln.split("#", 1)[0].strip() for ln in lines}
++    pool = set(_requester_aids())
++    if _is_paused(ident):
++        new = [ln for ln in lines if ln.split("#", 1)[0].strip() not in pool]
++    else:
++        new = lines + [a for a in sorted(pool) if a not in listed]
++    if new != lines:
++        tmp = path + ".tmp"
++        with open(tmp, "w") as f:
++            f.write("".join(ln + "\n" for ln in new))
++        os.chmod(tmp, 0o600)
++        os.replace(tmp, path)
++
++
+ def _load_index() -> dict[str, str]:
+     try:
+         return json.load(open(_index_path))
+@@ -236,12 +296,14 @@
+                     "--api-timeout", str(_AGENT_API_TIMEOUT_SEC), "--poll-interval", "2"]
+         _anet_id(ident, args, check=False)
+ 
+-        reg = ["hub-register", HUB_URL, "--name", body.name,
+-               "--accept-delegations", "true", "--guest-messages", "0"]
++        # anet 0.2: --accept-delegations true is refused and --guest-messages
++        # is gone; who may delegate is the peers.allow list (_sync_allow).
++        reg = ["hub-register", HUB_URL, "--name", body.name]
+         caps = body.caps or (RESEARCH_CAP if body.public else "")
+         if caps:
+             reg += ["--caps", caps]
+         _anet_id(ident, reg, check=False)
++        _sync_allow(ident)
+ 
+         idx = _load_index()
+         idx[aid] = ident
+@@ -298,12 +360,9 @@
+         raise HTTPException(404, "unknown aid")
+     addr, token, aid2 = _ensure_identity(ident)
+     _ensure_openai_timeout(ident)
+-    cfg_path = os.path.join(ANET_HOME, "ids", ident, "config.json")
+-    try:
+-        accepting = json.load(open(cfg_path)).get("accept_delegations", True)
+-    except Exception:
+-        accepting = True
+-    return {"aid": aid2 or aid, "control_addr": addr, "status": "online" if accepting else "paused"}
++    # anet 0.2 removed accept_delegations from config.json; the pause is ours.
++    _sync_allow(ident)
++    return {"aid": aid2 or aid, "control_addr": addr, "status": "paused" if _is_paused(ident) else "online"}
+ 
+ 
+ @app.put("/agents/{aid}/lens")
+@@ -316,18 +375,56 @@
+             raise HTTPException(404, "unknown aid")
+         try:
+             addr, token, aid2 = _ensure_identity(ident)
+-            _daemon_post(
+-                addr,
+-                token,
+-                "/autoreply-prompt",
+-                {"system_prompt": body.lens},
+-                timeout=30,
+-            )
++            # anet 0.2 has no /autoreply-prompt. POST /autoreply replaces the
++            # whole block and restarts the reply loop, which cancels a model
++            # call in flight (the requester would get the error reply), so
++            # the swap waits for a moment when no reply is owed.
++            if not _wait_reply_idle(addr, token):
++                raise HTTPException(409, "researcher is replying; lens not changed, retry later")
++            cfg = json.load(open(os.path.join(ANET_HOME, "ids", ident, "config.json"))).get("auto_reply") or {}
++            if not cfg:
++                raise HTTPException(409, "auto-reply is not configured for this researcher")
++            cfg["system_prompt"] = body.lens
++            _daemon_post(addr, token, "/autoreply", cfg, timeout=30)
++        except HTTPException:
++            raise
+         except Exception as e:  # noqa: BLE001
+             raise HTTPException(502, f"lens update failed: {e}")
+         return {"aid": aid2 or aid, "status": "updated"}
+ 
+ 
++def _owes_reply(addr: str, token: str) -> bool:
++    """True while a delegation to this researcher waits for its model's reply."""
++    now = time.time()
++    threads = _daemon_post(addr, token, "/threads", {}, timeout=30).get("threads") or []
++    for th in threads:
++        if th.get("role") != "inbound" or th.get("state") in _TERMINAL_STATES:
++            continue
++        texts = [m for m in th.get("messages") or [] if m.get("kind") == "text"]
++        if not texts or texts[-1].get("from") != "them":
++            continue
++        # A turn cannot run longer than the model deadline; older ones are
++        # abandoned conversations, not a reply in flight.
++        try:
++            from datetime import datetime
++
++            at = datetime.fromisoformat(str(th.get("updated_at", "")).replace("Z", "+00:00")).timestamp()
++        except ValueError:
++            at = now
++        if now - at <= _AGENT_API_TIMEOUT_SEC + 60:
++            return True
++    return False
++
++
++def _wait_reply_idle(addr: str, token: str, wait_sec: int = 30) -> bool:
++    deadline = time.monotonic() + wait_sec
++    while _owes_reply(addr, token):
++        if time.monotonic() >= deadline:
++            return False
++        time.sleep(3)
++    return True
++
++
+ @app.put("/agents/{aid}/metadata")
+ def update_metadata(aid: str, body: MetadataUpdateIn):
+     """Update Hub-facing researcher metadata without replacing its identity."""
+@@ -340,13 +437,9 @@
+             _ensure_identity(ident)
+             cfg_path = os.path.join(ANET_HOME, "ids", ident, "config.json")
+             cfg = json.load(open(cfg_path))
+-            accepting = bool(cfg.get("accept_delegations", True))
+-            reg = [
+-                "hub-register", HUB_URL,
+-                "--name", body.name.strip(),
+-                "--accept-delegations", "true" if accepting else "false",
+-                "--guest-messages", "0",
+-            ]
++            # anet 0.2: no --accept-delegations true / --guest-messages; the
++            # pause lives in peers.allow and is not touched by registering.
++            reg = ["hub-register", HUB_URL, "--name", body.name.strip()]
+             caps = cfg.get("caps") or []
+             if caps:
+                 reg += ["--caps", ",".join(str(x) for x in caps)]
+@@ -364,7 +457,15 @@
+             raise HTTPException(404, "unknown aid")
+         try:
+             addr, token, aid2 = _ensure_identity(ident)
+-            _daemon_post(addr, token, "/accept", {"enabled": enabled}, timeout=30)
++            # anet 0.2 refuses /accept {"enabled": true}; the daemon stays
++            # closed and the pause takes the requester pool off peers.allow.
++            mark = os.path.join(ANET_HOME, "ids", ident, PAUSED_MARK)
++            if enabled:
++                if os.path.exists(mark):
++                    os.remove(mark)
++            else:
++                open(mark, "w").close()
++            _sync_allow(ident)
+         except Exception as e:  # noqa: BLE001
+             raise HTTPException(502, f"agent state update failed: {e}")
+         return {"aid": aid2 or aid, "status": "online" if enabled else "paused"}
+@@ -537,10 +638,14 @@
+     inner = th.get("thread", th) if isinstance(th, dict) else {}
+     out = []
+     for m in inner.get("messages", []) or []:
++        # anet 0.2 threads also carry status (working, rejected, ...), payment
++        # and end_request entries; a provider "message" here means its text.
++        if (m.get("kind") or "text") != "text":
++            continue
+         frm = m.get("from")
+         role = "provider" if frm == "them" else ("requester" if frm == "me" else (m.get("role") or "system"))
+         out.append({"role": role, "body": m.get("body", "") or "", "kind": m.get("kind") or "text"})
+-    return {"messages": out, "status": inner.get("status", "")}
++    return {"messages": out, "status": inner.get("status", ""), "state": inner.get("state", "")}
+ 
+ 
+ class DelegateIn(BaseModel):
+@@ -755,7 +860,10 @@
+                             pending_preview.pop(channel, None)
+                             last_preview_emit[channel] = time.monotonic()
+             except urllib.error.HTTPError as exc:
+-                if exc.code in (404, 405) and not direct_provider:
++                # anet 0.2 has no /stream route at all ("404 page not found"):
++                # previews are unavailable, the thread fallback below delivers.
++                route_missing = exc.code == 404 and b"page not found" in (exc.read() or b"")
++                if exc.code in (404, 405) and (route_missing or not direct_provider):
+                     overlay_supported = False
+                 else:
+                     time.sleep(min(poll, 1.0))
+@@ -797,6 +905,10 @@
+                     ) + "\n"
+                 if found_provider:
+                     return
++            # Ended without a reply (e.g. rejected: the researcher's
++            # peers.allow lacks this requester) — nothing more will come.
++            if th.get("state") in _TERMINAL_STATES:
++                return
+         except Exception:  # transient daemon restart; keep polling until timeout
+             pass
+         if not overlay_supported:
+diff -ruN a/platform/docker-compose.yml b/platform/docker-compose.yml
+--- a/platform/docker-compose.yml	2026-09-29 00:29:18.710827510 +0000
++++ b/platform/docker-compose.yml	2026-09-29 00:29:18.715827456 +0000
+@@ -117,6 +117,13 @@
+     build:
+       context: ../..
+       dockerfile: Research-Galaxy/platform/infra/anet/Dockerfile.hub
++    # ANetHub 0.2.1 limits /register per client IP (default 10/min, burst 20).
++    # Every node here registers from the one agent-runtime container, and each
++    # daemon refreshes its registration (and publishes its encryption keys) when
++    # it starts; a node whose keys are not on the hub cannot be delegated to.
++    # This hub is reachable only inside the compose network. ANet docs/notes/0039.
++    command: ["--addr", "0.0.0.0:8899", "--data", "/data/.anet-hub",
++              "--register-rate", "600", "--register-burst", "200"]
+     volumes:
+       - anethubdata:/data/.anet-hub
+     healthcheck:
+diff -ruN a/platform/infra/anet/Dockerfile.hub b/platform/infra/anet/Dockerfile.hub
+--- a/platform/infra/anet/Dockerfile.hub	2026-09-29 00:29:18.697827650 +0000
++++ b/platform/infra/anet/Dockerfile.hub	2026-09-29 00:29:18.703827586 +0000
+@@ -1,22 +1,22 @@
+ # anet Hub service (registry + relay). Context = ANetResearch root.
+-# syntax=docker/dockerfile:1
+-FROM golang:1.26 AS build
+-ENV GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+-WORKDIR /src
+-COPY ANetHub/go.mod ANetHub/go.sum ./ANetHub/
+-WORKDIR /src/ANetHub
+-RUN go mod download
+-COPY ANetHub/ /src/ANetHub/
+-# go-sqlite3 (the Hub's store) requires cgo.
+-RUN CGO_ENABLED=1 go build -o /out/anet-hub ./cmd/anet-hub
++# ANetHub v0.2.1 (hub wire 2: every node must run anet >= 0.2.0): the GitHub
++# release binary, pinned to the sha256 in that release's SHA256SUMS. It used
++# to be compiled from the sibling ANetHub checkout, which no longer builds the
++# version this stack runs (ANet docs/notes/0039).
++FROM debian:bookworm-slim AS hubbin
++ADD https://github.com/ANetResearch/ANetHub/releases/download/v0.2.1/anet-hub-0.2.1-linux-amd64.gz /tmp/anet-hub.gz
++RUN echo "96a89821bdffcf19c3eebf026d65342082a970b82bc293cd1ca155dd47cf9ce6  /tmp/anet-hub.gz" | sha256sum -c - \
++    && gunzip /tmp/anet-hub.gz \
++    && echo "d81e1bc0c68ad0c865dbbd8b3ac1dbd1b1b620b70de2f9eaf8095b3e23445837  /tmp/anet-hub" | sha256sum -c - \
++    && chmod 0755 /tmp/anet-hub
+ 
+ FROM debian:bookworm-slim
+ RUN sed -i "s|deb.debian.org|mirrors.aliyun.com|g" /etc/apt/sources.list.d/debian.sources
+ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+     && rm -rf /var/lib/apt/lists/*
+-COPY --from=build /out/anet-hub /usr/local/bin/anet-hub
++COPY --from=hubbin /tmp/anet-hub /usr/local/bin/anet-hub
+ EXPOSE 8899
+ VOLUME ["/data/.anet-hub"]
+-# Flags per cmd/anet-hub/main.go: --addr (listen) and --data (SQLite store dir).
++# Flags per ANetHub cmd/anet-hub/main.go: --addr (listen) and --data (SQLite store dir).
+ ENTRYPOINT ["/usr/local/bin/anet-hub"]
+ CMD ["--addr", "0.0.0.0:8899", "--data", "/data/.anet-hub"]

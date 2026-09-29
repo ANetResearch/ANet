@@ -1,0 +1,7 @@
+# Production image for this upgrade: the running anet-hub image with only the
+# hub binary replaced (ANetHub v0.2.1 release asset, sha256 per its
+# SHA256SUMS). ANet docs/notes/0039.
+FROM research-galaxy-anet-hub:pre-anet-0.2.1
+COPY anet-hub /usr/local/bin/anet-hub
+RUN echo "d81e1bc0c68ad0c865dbbd8b3ac1dbd1b1b620b70de2f9eaf8095b3e23445837  /usr/local/bin/anet-hub" | sha256sum -c - \
+    && chmod 0755 /usr/local/bin/anet-hub
