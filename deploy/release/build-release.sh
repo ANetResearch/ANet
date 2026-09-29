@@ -64,7 +64,10 @@
 #   VERSION                          the release version, likewise
 #
 # Publishing: install.sh and install.sh.sig at the root of the download
-# host, everything else under /dl/.
+# host, everything else under /dl/. On agentnetwork.org.cn that root is
+# /var/www/anet-release, never the website's public/ (a website deploy
+# replaced install.sh there once): deploy/release/apex/publish.sh --dist dist/
+# (docs/notes/0038).
 #
 # Usage:
 #   ANET_RELEASE_KEY=~/.ssh/anet-release ./deploy/release/build-release.sh
@@ -543,3 +546,4 @@ echo "  variants    default, shell"
 echo "  manifest    $MF (valid until $EXPIRES)"
 echo "  key         $KEY_FP   next: ${NEXT_FP:-none}"
 echo "  publish     install.sh + install.sh.sig at the host root; everything else under /dl/"
+echo "              (agentnetwork.org.cn: deploy/release/apex/publish.sh --dist $DIST)"
