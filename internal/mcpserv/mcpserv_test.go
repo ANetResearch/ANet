@@ -166,6 +166,24 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	if !strings.Contains(desc("send_message"), "a resend is a second task") {
 		t.Error("send_message must warn that sending again makes a second task")
 	}
+	// docs/notes/0041: Claude Code made message ids from the request and the
+	// date ("book-meeting-room-20260929-1"); the same id in a second session,
+	// while the first session's task was still open, returned that old task
+	// and the new request was never sent.
+	for _, want := range []string{"a fresh random one (a UUID) for every new message",
+		"never one made from the text or the date", "returns that task and sends nothing"} {
+		if !strings.Contains(desc("send_message"), want) {
+			t.Errorf("send_message must say %q about message_id", want)
+		}
+	}
+	// docs/notes/0041: told "the limits are 0 until the operator raises
+	// them", the model told the user a priced skill needed `anet pay` on a
+	// node whose limits covered it. No tool shows the limits.
+	for _, n := range []string{"send_message", "submit_payment"} {
+		if !strings.Contains(desc(n), "no tool shows") {
+			t.Errorf("%s must say that no tool shows the spending limits", n)
+		}
+	}
 	if !strings.Contains(desc("list_agents"), "never sent to the hub") {
 		t.Error("list_agents must say free text stays on this machine")
 	}
@@ -207,10 +225,14 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	// The short rules go to every client on connect.
 	ins := sess.InitializeResult().Instructions
 	for _, want := range []string{"anet.effect_status=UNVERIFIED is not success", "wait_task", "submit_payment", "untrusted",
-		"do not resend it as if it had not run"} {
+		"do not resend it as if it had not run", "no tool shows them", "do not tell the user what they are"} {
 		if !strings.Contains(ins, want) {
 			t.Errorf("server instructions must mention %q; got %q", want, ins)
 		}
+	}
+	// The limits' default is not this node's value (docs/notes/0041).
+	if strings.Contains(ins, "which are 0 until the operator raises them") {
+		t.Error("server instructions state the spending limits as 0 again")
 	}
 }
 
