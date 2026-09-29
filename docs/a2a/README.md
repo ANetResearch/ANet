@@ -7,9 +7,8 @@
 > 任何一份对外提交(开 issue、发 PR、发安全通告、在社区讨论区贴出)之前,都要先得到产品负责人逐项同意
 > (设计 §2 "对外提交与发布"、§20 阶段 G)。每份草稿文首标 "NOT SUBMITTED — on hold per product owner
 > (more testing first)"。
-> 复现程序在 `submissions/repro/`(每个是独立小程序,用上游 SDK 本身复现,不依赖 anet);两条安全问题的
-> advisory 草稿是 `submissions/advisory-a2a-go-A3.md`、`advisory-a2a-go-A9.md`、`advisory-a2a-js-J1.md`;
-> 三份规范提案另有 ADR 格式草稿 `submissions/adr-relay-binding.md`、`adr-registry-api.md`,
+> 复现程序在 `submissions/repro/`(每个是独立小程序,用上游 SDK 本身复现,不依赖 anet);安全类问题按协调
+> 披露处理,细节不在本仓库公开;三份规范提案另有 ADR 格式草稿 `submissions/adr-relay-binding.md`、`adr-registry-api.md`,
 > SecurityScheme 提案 `proposal-securityscheme.md` 本身即 ADR 格式。
 > **许可证:Apache-2.0。** 本目录全部文件(规范文本、绑定草案、提案、scheme 文档、issue 草稿及其中的
 > 测试向量与代码片段)只按 Apache License 2.0 授权,不带 ANet 开源许可证的附加条件(ANet `LICENSE`
@@ -25,11 +24,11 @@
 | `relay-binding.md`(ADR 草稿 `submissions/adr-relay-binding.md`) | 中继协议绑定规范草案(`https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1`):tenant=AID 路由、`SealedEnvelope`/`SealedInner` 的 CDDL、签名原像、Padmé、HPKE 参数、relayauth v2、hub 端点与错误码、操作映射(经中继 / 本地回答 / 不支持)、服务参数、错误映射、store-and-forward 下的流式语义、安全考虑与已知局限 | `a2aproject/A2A` 提案 issue → 有 maintainer 赞助后建 `experimental-cpb-anet-relay` 仓库 | **暂缓**;已按 v0.2.1 实现复核 | 信封、密钥集、relayauth v2、hub 中继端点、任务镜像与事件总线、本机 A2A 面、`a2a.serviceParameters`、卡片 `url`=hub 基址+`/relay`、`anet.cancel_requested`、同任务付款流均已实现;仅 provider 侧 `ExtensionSupportRequired`/`VersionNotSupported` 两条回复仍 **(designed)** |
 | `registry-api.md`(ADR 草稿 `submissions/adr-registry-api.md`) | 注册表 API 草案:`GET /a2a/v1/agents`(查询参数、条目形状、包装层是 hub 陈述)、卡片原字节与 ETag、JWKS、`/fed/v2/cards`、卡片准入规则与高水位 | `a2aproject/A2A` 讨论 issue(规范目前明言不规定注册表 API) | **暂缓**;字段拼写/ETag/`card_status` 已按 v0.2.1 对齐 | 列表、卡片(含 `card:lookup`)、JWKS、`/fed/v2/cards`、`card_status`(`ok`/`unchanged`/`conflict`/`invalid`/`absent`/`withdrawn`)、准入与高水位均已在 ANetHub 实现并在生产两 hub 运行 |
 | `x402-scheme-anet-credit.md` | `anet-credit` x402 scheme 文档(按 `a2a-x402/schemes/` 格式):托管性质、PaymentRequirements/PaymentPayload、授权对象 CDDL、签名、nonce 与窗口、绑定值、facilitator 职责、收据、跨 hub、`errorReason` 常量与 a2a-x402 错误码映射、两处偏离(`hub:<aid>` 与 CAIP-2;本地签名服务接受未签名的所选项) | `google-agentic-commerce/a2a-x402` 的 `schemes/`(实验性 scheme;提交时改名 `scheme_anet_credit.md`) | **暂缓**;已按 v0.2.1 实现复核 | facilitator、授权/收据、`pay_bind`、商户核对、`errorReason`→错误码映射、§8.7 本地签名流程均已实现(soak 中 676 笔付费任务各结算一次) |
-| `issue-a2a-go.md` | a2a-go v2.6.0 的 13 条 issue 草稿(A1–A13),每条附复现代码、观察结果、影响、修复建议;2026-09-29 上游复核后 A1 改为在已有的 a2a-go #445 下评论、A11 按 A2A v1.0.1 撤回、A12 暂缓、A13 不提交(归 TCK),见 `docs/notes/0032` | `a2aproject/a2a-go`;**A3、A9 走 GitHub Security Advisories(`submissions/advisory-a2a-go-A3.md`、`-A9.md`)** | **暂缓**;A1–A10、A12 各有独立复现 `submissions/repro/a2a-go/`,2026-09-29 用 `ebf17c5` 复跑 | — |
+| `issue-a2a-go.md` | a2a-go v2.6.0 的 13 条 issue 草稿(A1–A13),每条附复现代码、观察结果、影响、修复建议;2026-09-29 上游复核后 A1 改为在已有的 a2a-go #445 下评论、A11 按 A2A v1.0.1 撤回、A12 暂缓、A13 不提交(归 TCK),见 `docs/notes/0032` | `a2aproject/a2a-go`;**A3、A9 为安全问题,按协调披露处理,细节不在本仓库公开** | **暂缓**;A1、A2、A4–A8、A10、A12 各有独立复现 `submissions/repro/a2a-go/`,2026-09-29 用 `ebf17c5` 复跑 | — |
 | `issue-a2a-python.md` | a2a-sdk(Python)1.1.5 的 2 条 issue 草稿(P1 JSON-RPC 流式调用的非 200 错误读不出 A2A 错误名,附三个 SDK 的对照表;P2 `TaskUpdater.submit()` 作首个事件使任务失败),来自 `docs/notes/0035` 的真实客户端互通 | `a2aproject/a2a-python` | **暂缓**;复现 `submissions/repro/a2a-python/`,2026-09-29 复跑 | — |
-| `issue-a2a-js.md` | @a2a-js/sdk 1.2.1 的 3 条 issue 草稿(J1 卡片规范化丢掉已解析卡片的 oneof 成员、签名不覆盖 `securitySchemes`;J2 卡片解析器按 URL 引用拼接 well-known 路径;J3 Node 默认 fetch 300 s 使长阻塞调用失败),来自 `docs/notes/0035` | `a2aproject/a2a-js`;**J1 走 Security Advisories(`submissions/advisory-a2a-js-J1.md`);上游同缺陷已公开 #663、修复 PR #664 未合** | **暂缓**;复现 `submissions/repro/a2a-js/`,2026-09-29 复跑 | — |
+| `issue-a2a-js.md` | @a2a-js/sdk 1.2.1 的 3 条 issue 草稿(J1 即上游已公开的 a2a-js #663,本仓库不另附材料;J2 卡片解析器按 URL 引用拼接 well-known 路径;J3 Node 默认 fetch 300 s 使长阻塞调用失败),来自 `docs/notes/0035` | `a2aproject/a2a-js`;J1 由上游 #663 跟踪(修复 PR #664 未合) | **暂缓**;J2、J3 复现 `submissions/repro/a2a-js/`,2026-09-29 复跑 | — |
 | `issue-a2a-x402.md` | a2a-x402 v0.2 规范的 13 条 issue 草稿(X1–X12 加 X13:x402 对象应为 I-JSON):激活头、x402 版本、A2A 1.0 示例、状态机缺口、一个任务付两次、签名服务委托、错误码、收据出现时机、传输安全措辞、对 facilitator 的数据最小化、`required: true`、非链网络标识、大小写异名跨语言读法不一 | `google-agentic-commerce/a2a-x402` | **暂缓**;X1、X13 有独立复现 `submissions/repro/a2a-{go,x402}/` | — |
-| `submissions/` | 待提交文本(`01-a2a-go.md`、`02-a2a-x402.md`、`03-a2a-partners.md`)、三份 advisory 草稿、两份 ADR 草稿、复现程序 `repro/` | 各上游 | **暂缓**;每一份需 PO 逐项同意 | — |
+| `submissions/` | 待提交文本(`01-a2a-go.md`、`02-a2a-x402.md`、`03-a2a-partners.md`)、两份 ADR 草稿、复现程序 `repro/` | 各上游 | **暂缓**;每一份需 PO 逐项同意 | — |
 | `proposal-securityscheme.md`(ADR 格式,即三份规范提案之一) | `SecurityScheme` 新变体提议 `SenderSignatureSecurityScheme`(按 A2A ADR 模板):为何现有五种 scheme 都不适用、候选方案比较、proto 改动、规范文字、profile 要求、兼容性、与 #1829 等开放提案的关系 | `a2aproject/A2A` 规范变更提案(先在 #1829 评论) | 完整初稿 | anet 当前网络卡片不声明 `securitySchemes`(设计 §10.1);本提议是上游补齐的路径 |
 
 a2a-go 的 A1–A10 复现是在 scratchpad 里用独立 Go module(`replace` 指向本地 a2a-go 检出)完成的,
@@ -102,6 +101,6 @@ a2a-go 的 A1–A10 复现是在 scratchpad 里用独立 Go module(`replace` 指
   草稿未把它写成规则,只在 §10.4 描述现状。
 - **流式能力声明**:设计未规定网络卡片 `streaming` 的值;草稿建议 `true` 并列为开放问题。
 - **a2a-go issue 增加 A9、A10**:任务单点名的三项(canonicalizeJSON、A2A-Version、X-A2A-Extensions)之外,
-  复核源码时又发现并复现了 A2(null 必填列表 / optional 存在性)、A3(重复成员名)、A4(base64 换行)、
-  A6(逗号分隔不拆分)、A8(不回显激活扩展)、A9(配置了 Verifier 仍接受无签名卡片)、
-  A10(未知 SecurityScheme 使整张卡片解析失败);A10 同时是 `proposal-securityscheme.md` 的兼容性前提。
+  复核源码时又发现并复现了 A2(null 必填列表 / optional 存在性)、A4(base64 换行)、
+  A6(逗号分隔不拆分)、A8(不回显激活扩展)、A10(未知 SecurityScheme 使整张卡片解析失败),
+  以及 A3、A9 两条安全问题(按协调披露处理,细节不在本仓库公开);A10 同时是 `proposal-securityscheme.md` 的兼容性前提。

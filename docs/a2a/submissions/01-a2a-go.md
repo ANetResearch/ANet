@@ -1,4 +1,4 @@
-# Step 1 — a2a-go: security advisories, issues, small pull requests
+# Step 1 — a2a-go: issues, small pull requests
 
 > **NOT SUBMITTED — on hold per product owner (more testing first).** Product-owner approval is also
 > required for each item, one by one.
@@ -19,8 +19,8 @@ item: `docs/a2a/issue-a2a-go.md` (A1–A13).
 - PR titles must follow Conventional Commits (`.github/workflows/validate-pr-title.yaml`). CI runs
   `lint`, `test`, `ITK` and `ACTS Conformance`. No CLA or DCO check was seen on recent external PRs
   (#442); confirm again at submission time.
-- Security issues go through GitHub Security Advisories only (`SECURITY.md`): A9 and A3 below are
-  **never** filed as public issues, and neither is mentioned publicly until the maintainers publish.
+- Security issues go through GitHub Security Advisories only (`SECURITY.md`). S1 and S2 are withheld
+  from this document; nothing about them is filed or mentioned publicly until the maintainers publish.
 - Pace: at most two or three public submissions per week to this repository. Wave 1 = S1–S6,
   wave 2 = S7–S9.
 - The optional context line at the end of some issues mentions anet. Keep or delete it as the
@@ -40,116 +40,15 @@ Not submitted, on purpose:
 
 ---
 
-## S1 — Security advisory (private): card resolver with a `Verifier` accepts unsigned cards (A9)
+## S1
 
-Where: <https://github.com/a2aproject/a2a-go/security/advisories/new>
-
-**Title**
-
-```
-agentcard.Resolver with a Verifier accepts Agent Cards that carry no signature
-```
-
-**Affected**: Go module `github.com/a2aproject/a2a-go/v2`, package `a2aclient/agentcard`.
-Checked: v2.6.0 (the first release containing Agent Card JWS verification, #368). Patched: none.
-
-**Suggested severity**: Moderate (maintainers to assess). **Suggested CWE**: CWE-347 (Improper
-Verification of Cryptographic Signature).
-
-**Description**
-
-````markdown
-### Summary
-
-When `agentcard.Resolver.Verifier` is set, a card with no `signatures` member is returned as valid.
-Only a card that carries signatures, none of which verifies, is rejected. Removing the `signatures`
-array therefore turns any modified card into an accepted one.
-
-### Details
-
-`a2aclient/agentcard/resolver.go:210` (v2.6.0):
-
-```go
-if r.Verifier != nil && len(card.Signatures) > 0 {
-    // verify, fail if none verifies
-}
-return card, nil
-```
-
-### PoC
-
-1. Serve a signed card; configure a `Resolver` with a `Verifier` that resolves the signing key.
-   Resolution succeeds, as expected.
-2. Serve the same card with `"name"` (or `supportedInterfaces[0].url`) changed and the `signatures`
-   member removed. Resolution succeeds; the modified card is returned without an error.
-
-### Impact
-
-Anyone who can alter the card in transit or at rest (a registry, a cache, a compromised host, a TLS
-terminating proxy) strips the signatures and edits the card at will. A client that configured a
-`Verifier` believes it is protected and accepts the card. Signature stripping is the standard
-downgrade against optional signatures.
-
-### Suggested fix
-
-When a `Verifier` is set, require at least one verifying signature. If "verify only when present"
-must stay available, make it an explicit opt-in (for example `AllowUnsigned bool`) with a doc comment
-that describes the downgrade.
-````
+Withheld: security issue under coordinated disclosure with the maintainers; details are not published here.
 
 ---
 
-## S2 — Security advisory (private): verifier accepts duplicate member names and invalid UTF-8 (A3)
+## S2
 
-Where: <https://github.com/a2aproject/a2a-go/security/advisories/new>
-
-**Title**
-
-```
-a2acrypto: Agent Card signatures verify over JSON with duplicate member names or invalid UTF-8
-```
-
-**Affected**: Go module `github.com/a2aproject/a2a-go/v2`, package `a2acrypto`. Checked: v2.6.0.
-
-**Suggested severity**: Moderate (maintainers to assess). **Suggested CWE**: CWE-347; CWE-436
-(Interpretation Conflict).
-
-**Description**
-
-````markdown
-### Summary
-
-`canonicalizeJSON` (`a2acrypto/canonical.go:31`) decodes the card with `encoding/json` into
-`map[string]any`. For a duplicated member name the last value wins, and invalid UTF-8 or lone
-surrogates are replaced with U+FFFD. RFC 8785 (required by A2A §8.4.1) is defined over I-JSON
-(RFC 7493), which forbids both. A party without the signing key can therefore add members to a
-signed card and the signature still verifies.
-
-### PoC
-
-```go
-orig := []byte(`{"name":"A","description":"d"}`)
-sig, _ := signer.Sign(ctx, orig)
-tampered := []byte(`{"name":"EVIL","name":"A","description":"d"}`)
-err := verifier.Verify(ctx, tampered, sig) // nil: accepted
-```
-
-### Impact
-
-JSON parsers disagree on duplicates (first wins, last wins, or reject). A consumer that verifies with
-a2a-go and then reads the card with a first-wins parser, or passes the bytes on to one, acts on
-content the agent never signed: another name, interface URL or security scheme. The U+FFFD
-replacement lets two different byte strings verify under one signature.
-
-### Suggested fix
-
-Reject, for both signing and verification: duplicate member names at any depth, invalid UTF-8, lone
-surrogate escapes, and numbers outside IEEE 754 binary64. A token-level pass (`json.Decoder.Token`
-with a key set per object) finds duplicates; UTF-8 has to be checked on the raw bytes. Consider also
-rejecting member names that differ only by case: `encoding/json` matches struct fields
-case-insensitively, so a card with both `protocolBinding` and `PROTOCOLBINDING` is read one way by
-the map-based canonicalizer and another way by `a2a.AgentCard`.
-````
+Withheld: security issue under coordinated disclosure with the maintainers; details are not published here.
 
 ---
 

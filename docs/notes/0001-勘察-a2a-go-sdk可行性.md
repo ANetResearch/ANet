@@ -249,7 +249,7 @@ S1–S5 在 anet 侧的规避方式(均为一层 `http.Handler` 中间件,位于
 
 | # | 位置 | 行为 | 影响 | 发现方式 |
 |---|---|---|---|---|
-| C1 | a2aclient/agentcard/resolver.go:210 | 只有在 `len(card.Signatures) > 0` 时才验签;配置了 `Verifier` 但卡片不带签名时直接返回卡片 | 中间人删掉 `signatures` 字段即可绕过校验。anet 必须自行要求"签名存在且验证通过" | 代码阅读 |
+| C1 | — | 已撤下:安全问题,按协调披露处理,细节不在此公开。 | — | — |
 | C2 | a2acrypto/verify.go:99-104,107-145 | `alg` 只用来选哈希,实际验签按公钥类型分派;头部 `alg` 与公钥类型不做一致性检查(RFC 8725 §3.1 建议检查)| 公钥来自验签方可信根,无法据此伪造签名 **[推断]**;属于实现规范性问题 | 代码阅读 |
 | C3 | a2acrypto 全包无 `crit` 处理 | 未拒绝包含未知 `crit` 头的签名(RFC 7515 §4.1.11 为 MUST)| 规范性问题 | 代码阅读(grep 无结果)|
 | C4 | a2acrypto/keyresolver.go:120;a2aclient/agentcard/resolver.go:173 | JWKS 与卡片响应用 `io.ReadAll` 读取,无大小上限 | 恶意端点可返回超大响应 | 代码阅读 |
@@ -297,7 +297,7 @@ type TransportFactory interface {
 - **自定义绑定**:`WithTransport(protocol, factory)` / `WithCompatTransport(version, protocol, factory)` 注册任意协议名(factory.go:250-260);`TransportProtocol` 明确是开放字符串,"MUST NOT be treated as an enum"(a2a/agent.go:185-187)。因此 anet 可以在卡片中声明一个自定义绑定,并为它注册工厂。
 - **拦截器**:`a2aclient.CallInterceptor{Before, After}`(middleware.go:100-109),请求结构带 `Card`、`ServiceParams`、`Payload`(middleware.go:63-76);`AuthInterceptor` + `CredentialsService` 按卡片安全方案注入凭据(auth.go:56-150)。
 - **HTTP 客户端**:`WithJSONRPCTransport(httpClient)` / `WithRESTTransport(httpClient)`(jsonrpc.go:40-47;rest.go:57-68)。传 nil 时使用 `http.Client{Timeout: 3 * time.Minute}`(transport.go:26;jsonrpc.go:63-64;rest.go:50-52)。`http.Client.Timeout` 覆盖读取响应体的时间,因此默认客户端会在 3 分钟时中断 SSE 流 **[推断,依据 net/http 文档语义]**;长时流应传入无 `Timeout` 的客户端,用 context 控制期限。SSE 单行上限 10 MiB(internal/sse/sse.go:37-39)。
-- **卡片信任**:`CreateFromCard` 假定卡片可信,验签是解析器的职责(factory.go:85-87);结合 4.3 C1,anet 需要自己实施"必须签名"。
+- **卡片信任**:`CreateFromCard` 假定卡片可信(factory.go:85-87);anet 的卡片验证由自己的验证器负责,要求签名存在且验证通过。
 - **经 anet E2E 通道复用 JSON-RPC 客户端 [推断]**:`jsonrpcTransport` 只调用 `httpClient.Do`(jsonrpc.go:114,148)。给它一个自定义 `http.RoundTripper`,把 `*http.Request` 封装进 E2E 加密信封、把远端响应以流式 `Body` 返回,即可让标准 JSON-RPC 客户端(包括 SSE 流)经 hub 中转而 hub 看不到内容,无需重新实现 11 个方法。
 
 ---
@@ -368,7 +368,7 @@ type TransportFactory interface {
 2. JSON-RPC/REST 响应回显已激活扩展(S2),与 gRPC 行为对齐。
 3. 服务端校验 `A2A-Version` 并返回 `VersionNotSupportedError`(S3)。
 4. `TransportOption` 增加请求体上限(S4);JSON-RPC 要求 `Content-Type: application/json`(S5)。
-5. `agentcard.Resolver` 增加"必须有有效签名"选项(C1);验签检查 `alg` 与密钥类型一致并处理 `crit`(C2、C3);JWKS/卡片读取加上限(C4)。
+5. 验签检查 `alg` 与密钥类型一致并处理 `crit`(C2、C3);JWKS/卡片读取加上限(C4)。
 6. 签名生产者在规范化前按规范 8.4.1 处理 nil 必需切片(C5),或在文档中说明必须初始化。
 7. `a2asrv/doc.go` 示例中的 API 名称修正(3.1)。
 8. 为 TCK SUT 补上 REST 端点(S7)。

@@ -293,8 +293,7 @@ front ends.
 
 A card that is valid under one JSON parser and different under another is a way to show a verifier
 one thing and a consumer another. The verification rules of §5.1 (strict I-JSON, no case-variant
-member names, strict base64url) close the differentials known to us. See `issue-a2a-go.md` A3 for a
-verifier that accepts duplicate member names.
+member names, strict base64url) close the differentials known to us.
 
 ### 7.4 Metadata
 

@@ -32,7 +32,7 @@ Toolchains used for the recorded runs: Go 1.26.1, Python 3.12.3, Node.js 24.21.0
 
 ```sh
 # a2a-go: a module of its own; GOWORK=off keeps a surrounding go.work out of it.
-cd a2a-go && GOWORK=off go run ./a9-unsigned-card      # one program
+cd a2a-go && GOWORK=off go run ./a6-extensions-comma   # one program
 cd a2a-go && bash run-all.sh                            # all of them, one summary line each
 
 # a2a-python (where python3-venv has no ensurepip: python3 -m venv --without-pip .venv
@@ -41,7 +41,7 @@ python3 -m venv .venv && .venv/bin/pip install -r a2a-python/requirements.txt
 .venv/bin/python a2a-python/p1_stream_error_status.py
 
 # a2a-js
-cd a2a-js && npm ci && node j1-signature-skips-security-schemes.mjs
+cd a2a-js && npm ci && node j2-resolver-base-path.mjs
 
 # Cross-SDK vectors for A1: sign with a2a-go, verify with the other two SDKs.
 (cd a2a-go && GOWORK=off go run ./a1x-cross-sdk-vectors /tmp/a1x)
@@ -64,16 +64,13 @@ below gave the recorded result.
 | `a2a-go/a1-default-values` | A1 | a2a-go | comment on a2a-go #445 | as-given bytes verify; the same card without `"required":false`, and the card after an `a2a.AgentCard` round trip, do not |
 | `a2a-go/a1x-cross-sdk-vectors` + `a2a-python/a1x_verify.py` + `a2a-js/a1x-verify.mjs` | A1, A2 | a2a-go (#445), A2A #2122, a2a-tck #245 | comment | ten signed files, table under A1 in `../../issue-a2a-go.md`: a2a-go verifies every file except the re-served one; a2a-python and a2a-js agree with §8.4.1 rule 1 on eight and both drop two things rule 1 keeps (a REQUIRED `description: ""`, an empty string inside extension `params`). Informational scripts: exit 0 after printing |
 | `a2a-go/a2-json-presence` | A2 | a2a-go | public issue (after #445 settles) | `null` for REQUIRED lists; unset `streaming`/`pushNotifications` written as `false`; explicit `extendedAgentCard:false` dropped |
-| `a2a-go/a3-duplicate-members` | A3 | a2a-go | **security advisory** (`../advisory-a2a-go-A3.md`) | `Resolver` with `Verifier` accepts a card with a second `name`/`url` inserted before the signed one; invalid UTF-8 and lone surrogates swapped under one signature |
 | `a2a-go/a4-base64-linebreaks` | A4 | a2a-go | public issue (hardening) | CR LF inside `signature` accepted |
 | `a2a-go/a5-version-header` | A5 | a2a-go | public issue | `A2A-Version: 9.9`, `0.3`, absent, and `?A2A-Version=9.9` all answered with v1.0 semantics (`-32001`) |
 | `a2a-go/a6-extensions-comma` | A6 | a2a-go | public issue + PR | `A2A-Extensions: a,b` in one field → `-32008 extension support required`; two fields → ok |
 | `a2a-go/a7-legacy-extensions-header` | A7 (and a2a-x402 X1) | a2a-go | public issue | `X-A2A-Extensions: <a2a-x402 v0.2 URI>` → `-32008` from a server that requires the extension |
 | `a2a-go/a8-extensions-response-header` | A8 | a2a-go | public issue + PR | activated in 4 of 4 calls, `A2A-Extensions` response header absent in all 4 (JSON-RPC and HTTP+JSON, unary and streaming) |
-| `a2a-go/a9-unsigned-card` | A9 | a2a-go | **security advisory** (`../advisory-a2a-go-A9.md`) | modified card with `signatures` removed is accepted by `Resolver` with a `Verifier` |
 | `a2a-go/a10-unknown-securityscheme` | A10 | a2a-go | public issue | whole card and `DefaultResolver.Resolve` fail on one unknown scheme |
 | `a2a-go/a12-stream-errors` | A12 (with P1) | a2a-go, spec | on hold (spec discussion first) | server opens a 200 SSE stream to carry `TaskNotFound`; client reads a 200 JSON error as an empty stream and a 400 as "unexpected HTTP status" |
-| `a2a-js/j1-signature-skips-security-schemes.mjs` | J1 | a2a-js (#663, fix PR #664) | **security advisory** (`../advisory-a2a-js-J1.md`) | typed form canonicalizes without `securitySchemes`; a card signed over the full payload fails `resolve()`+verify; a card signed from the typed form verifies after its OAuth `tokenUrl` was replaced |
 | `a2a-js/j2-resolver-base-path.mjs` | J2 | a2a-js | public issue (or spec discussion) | `resolve(".../agents/alice")` fetches `/agents/.well-known/agent-card.json` (404) |
 | `a2a-js/j3-blocking-call-300s.mjs` | J3 | a2a-js | documentation issue | server answers at 320 s; `sendMessage` fails at 301 s, `fetch failed (cause UND_ERR_HEADERS_TIMEOUT)` (run takes about 5 minutes) |
 | `a2a-python/p1_stream_error_status.py` | P1 | a2a-python | public issue (with A12) | JSON-RPC 400 answer → `A2AClientError: HTTP Error 400`; the other three forms → `UnsupportedOperationError` |

@@ -22,7 +22,7 @@ running demonstration in `submissions/repro/a2a-go/a7-legacy-extensions-header` 
 extension URI with `required: true`, as §3.1 recommends, and an a2a-go v2 server refuses the
 `X-A2A-Extensions` client). X13, a JSON reader-differential on `PaymentRequirements`, has a
 standalone reproduction in `submissions/repro/a2a-x402/x13-case-variant-members.sh` (python3, node,
-go read the same object two ways); see also a2a-go A3.
+go read the same object two ways).
 
 | # | Title | Kind |
 |---|---|---|
@@ -290,6 +290,6 @@ python3 and Node read `amount 1000` to `0x1111…`; a Go struct reads `900000000
 
 **Suggested text.** "x402 objects carried in A2A metadata MUST be I-JSON (RFC 7493): no duplicate
 member names. Implementations SHOULD additionally reject member names that differ only under Unicode
-case folding, because some JSON-to-struct decoders match field names case-insensitively." (Same class
-as a2a-go A3 for card signatures; anet's `internal/jsonread` requires two independent readers to agree
-before it acts on a quote — anet `docs/notes/0033` daemon D1.)
+case folding, because some JSON-to-struct decoders match field names case-insensitively." (anet's
+`internal/jsonread` requires two independent readers to agree before it acts on a quote — anet
+`docs/notes/0033` daemon D1.)

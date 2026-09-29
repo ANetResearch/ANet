@@ -3,8 +3,8 @@
 //
 // Usage: node a1x-verify.mjs <dir written by the Go program>
 //
-// The cards are passed to the verifier in their JSON form, as served; see J1
-// for what happens with the SDK's parsed form. Informational: prints the rows
+// The cards are passed to the verifier in their JSON form, as served; see
+// a2a-js #663 for the SDK's parsed form. Informational: prints the rows
 // where the SDK differs from A2A §8.4.1 rule 1, exit 0 (2 on a setup error).
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

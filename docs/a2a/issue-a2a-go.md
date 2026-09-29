@@ -1,35 +1,34 @@
 # Issue drafts for a2a-go
 
 > **NOT SUBMITTED — on hold per product owner (more testing first).** Each item is a separate
-> submission and needs the product owner's approval; A3 and A9 are private security advisories, not
-> public issues.
+> submission and needs the product owner's approval. A3 and A9 are withheld from this document.
 >
 > **License: Apache-2.0**, a2a-go's own license: the text and the code in these drafts
 > (reproductions and suggested fixes) are licensed under the Apache License 2.0 alone (ANet
 > `LICENSE`, condition 3). Check a2a-go's contribution requirements before opening a pull request.
 >
-> Standalone reproductions, one per item, are in `submissions/repro/a2a-go/` (they use a2a-go from
-> proxy.golang.org and nothing from anet); the advisory drafts for A3 and A9 are being written under
-> `submissions/`. Every reproduction was re-run on 2026-09-29 against a2a-go v2.6.0.
+> Standalone reproductions for the published items are in `submissions/repro/a2a-go/` (they use
+> a2a-go from proxy.golang.org and nothing from anet). Every reproduction was re-run on 2026-09-29
+> against a2a-go v2.6.0.
 
 Target: `github.com/a2aproject/a2a-go`, version **v2.6.0** (commit `ebf17c5`, "chore(main): release
 2.6.0"). Every "Observed" result below was reproduced on 2026-09-27 with the snippets shown, built
 against that commit with `replace github.com/a2aproject/a2a-go/v2 => <checkout>`.
 
-Two drafts (A3, A9) describe verification bypasses. a2a-go's `SECURITY.md` asks for security issues
-to be reported through GitHub Security Advisories, not public issues; they are marked accordingly.
+A3 and A9 are withheld: security issues follow a2a-go's `SECURITY.md` (private reporting) and are not
+described in this repository.
 
 | # | Title | Area | Filing |
 |---|---|---|---|
 | A1 | Card signing/verification skips the §8.4.1 default-value removal | `a2acrypto` | **already reported** (a2a-go #445; spec: A2A #2122): comment, not a new issue |
 | A2 | `a2a.AgentCard` JSON: `null` for required lists, inconsistent presence of optional booleans | `a2a` | public issue |
-| A3 | Card verifier accepts duplicate member names and invalid UTF-8 | `a2acrypto` | **security advisory** |
+| A3 | Withheld (coordinated disclosure) | — | withheld |
 | A4 | Card verifier accepts base64url with line breaks | `a2acrypto` | public issue (hardening) |
 | A5 | Servers ignore `A2A-Version` | `a2asrv` | public issue |
 | A6 | Comma-separated `A2A-Extensions` is not split | `a2asrv`, `a2aclient` | public issue |
 | A7 | v1 handlers ignore `X-A2A-Extensions` | `a2asrv` | public issue |
 | A8 | JSON-RPC and REST handlers do not echo activated extensions | `a2asrv` | public issue |
-| A9 | Card resolver with a `Verifier` accepts unsigned cards | `a2aclient/agentcard` | **security advisory** |
+| A9 | Withheld (coordinated disclosure) | — | withheld |
 | A10 | An unknown `SecurityScheme` variant makes the whole Agent Card unparseable | `a2a` | public issue |
 | A11 | HTTP+JSON binding: `TaskNotCancelable` and `UnsupportedContentType` answered 400 (spec: 409, 415) | `a2asrv`, `internal/rest` | **withdrawn**: A2A v1.0.1 (#1627) maps both to 400; a2a-go is right |
 | A12 | Streaming calls: an error before the first event is sent inside an already-opened SSE stream; the JSON-RPC client cannot read an error that is not | `a2asrv`, `a2aclient` | public issue, **on hold**: the spec does not say how a stream that cannot start is refused |
@@ -56,9 +55,9 @@ submit are in `submissions/01-a2a-go.md`.
 omitted unless the field is marked as REQUIRED or has the `optional` keyword"; verifiers "remove
 properties with default values from the received Agent Card".
 
-**Code.** `a2acrypto/canonical.go` `canonicalizeJSON` decodes the raw bytes into `map[string]any`,
-drops only the top-level `signatures` member and applies JCS. `Signer.Sign` and `Verifier.Verify`
-both call it on the bytes as given (their doc comments say so).
+**Code.** `a2acrypto/canonical.go` `canonicalizeJSON` works on the card as given: it drops only the
+top-level `signatures` member and applies JCS. `Signer.Sign` and `Verifier.Verify` both call it on
+the bytes as given (their doc comments say so).
 
 **Reproduction.**
 
@@ -188,48 +187,9 @@ valid card at all but is signed and served without complaint.
 
 ---
 
-## A3. `a2acrypto`: verifier accepts duplicate member names and invalid UTF-8 in the signed card — *report via Security Advisory*
+## A3
 
-**Spec.** RFC 8785 §3.1 requires the input to be I-JSON (RFC 7493), which forbids duplicate member
-names (§2.3) and requires valid UTF-8 without lone surrogates (§2.1). A2A §8.4.1 requires RFC 8785.
-
-**Code.** `canonicalizeJSON` decodes with `encoding/json` into `map[string]any`. For duplicate names
-the last value wins; invalid UTF-8 and lone surrogates are silently replaced by U+FFFD (documented
-`encoding/json` behaviour).
-
-**Reproduction.**
-
-```go
-orig := []byte(`{"name":"A","description":"d"}`)
-sig, _ := signer.Sign(ctx, orig)
-tampered := []byte(`{"name":"EVIL","name":"A","description":"d"}`)
-verifier.Verify(ctx, tampered, sig) // nil: accepted
-```
-
-**Observed.** A party without the signing key (a registry, cache or proxy) can insert members before
-the signed ones, and the signature still verifies.
-
-**Impact.** Parsers disagree on duplicates: some keep the first value, some the last, some reject.
-A consumer that verified with a2a-go and then reads the card with a first-wins parser, or passes the
-bytes on to one, acts on content the agent never signed (a different name, URL, interface list or
-security scheme). The U+FFFD replacement lets two different byte strings verify under one signature,
-so an intermediary can alter string content that a consumer decodes differently.
-
-**Suggested fix.** Reject, in `canonicalizeJSON` (for both signing and verification): duplicate member
-names at any depth, invalid UTF-8, lone surrogates in `\u` escapes, and numbers outside binary64.
-This needs a token-level decoder (`json.Decoder.Token` with a per-object key set is enough for
-duplicates; UTF-8 must be checked on the raw bytes). Optionally also reject member names that differ
-only by case, since `encoding/json` matches struct fields case-insensitively: a card can carry
-`protocolBinding` and `PROTOCOLBINDING`, the map-based check sees one and `a2a.AgentCard` decoding
-the other.
-
-**How anet copes.** ANetCore `a2acard` parses with its own strict I-JSON parser and rejects all of
-the above, including case-variant member names.
-
-**Reproduction.** `submissions/repro/a2a-go/a3-duplicate-members` (2026-09-29): a `name`/`url`
-inserted before the signed one is accepted end to end through `agentcard.Resolver` with a `Verifier`,
-and a signed string's invalid UTF-8 or lone-surrogate escape can be swapped for another under one
-signature. Advisory draft: `submissions/advisory-a2a-go-A3.md` (being written).
+Withheld: security issue under coordinated disclosure with the maintainers; details are not published here.
 
 ---
 
@@ -375,34 +335,9 @@ document that for streaming responses the header reflects activation at stream s
 
 ---
 
-## A9. `a2aclient/agentcard`: a configured `Verifier` does not require a signature — *report via Security Advisory*
+## A9
 
-**Code.** `Resolver.parseCard`:
-
-```go
-if r.Verifier != nil && len(card.Signatures) > 0 {
-    // verify, fail if none verifies
-}
-return card, nil
-```
-
-**Observed.** With a `Verifier` configured, a card with **no** `signatures` member is returned as
-valid. Only a card that carries signatures, none of which verifies, is rejected.
-
-**Impact.** Anyone who can modify the card in transit or at rest (a registry, a cache, a compromised
-host) removes the `signatures` array and edits the card at will; a client that configured
-verification believes it is protected and accepts it. Signature stripping is the standard downgrade
-against optional signatures.
-
-**Suggested fix.** When a `Verifier` is set, require at least one verifying signature (or add an
-explicit `RequireSignature` field and make the "verify if present" behaviour opt-in, with a doc
-comment explaining the downgrade risk).
-
-**How anet copes.** Its verifier rejects a card with no signatures (`UNSIGNED`).
-
-**Reproduction.** `submissions/repro/a2a-go/a9-unsigned-card` (2026-09-29): a card with `signatures`
-removed and an interface URL changed is accepted by `agentcard.Resolver` with a `Verifier`. Advisory
-draft: `submissions/advisory-a2a-go-A9.md`. First affected release: v2.6.0 (v2.5.0 has no `Verifier`).
+Withheld: security issue under coordinated disclosure with the maintainers; details are not published here.
 
 ---
 
