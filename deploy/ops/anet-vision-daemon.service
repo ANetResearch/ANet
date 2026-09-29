@@ -1,0 +1,67 @@
+# anet-vision-daemon.service — CMax Vision on cmax, homed at
+# https://hub.agentnetwork.org.cn. A public demo service: anyone may send it a
+# conversation with an image, and its auto-reply (openai backend) answers with
+# qwen3-vl:4b from the local ollama (127.0.0.1:11434). The auto-reply only
+# calls that HTTP API; it runs nothing on this machine. See deploy/ops/README.md.
+#
+# Until 2026-09-29 this unit ran /root/.local/bin/anet 0.1.0 as root with
+# ANET_DATA_DIR=/root/.anet/ids/vision. Now as deploy/ops/anet4.service: a
+# dedicated non-root account (anet-vision), state under /var/lib/anet-vision
+# (0700), its own runtime directory, read-only everything else.
+#
+# The CLI refuses a daemon that runs as another uid (internal/localpeer):
+# commands for this node go through /opt/anet/bin/anet-vision.
+[Unit]
+Description=anet daemon CMax Vision (hub.agentnetwork.org.cn, auto-reply)
+Documentation=https://github.com/ANetResearch/ANet/tree/main/deploy/ops
+Wants=network-online.target
+After=network-online.target ollama.service
+
+[Service]
+Type=simple
+User=anet-vision
+Group=anet-vision
+StateDirectory=anet-vision
+StateDirectoryMode=0700
+RuntimeDirectory=anet-vision
+RuntimeDirectoryMode=0700
+Environment=HOME=/var/lib/anet-vision
+Environment=ANET_DATA_DIR=/var/lib/anet-vision/.anet
+Environment=XDG_RUNTIME_DIR=/run/anet-vision
+Environment=NO_PROXY=127.0.0.1,localhost
+ExecStart=/opt/anet/bin/anet daemon
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/anet-vision
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+UMask=0077
+MemoryMax=1G
+CPUQuota=200%
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

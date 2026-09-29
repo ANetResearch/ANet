@@ -1,0 +1,68 @@
+# anet-gpu2.service — the gpu2 node on dmax, homed at
+# https://hub.agentnetwork.org.cn. A plain registered node: no capabilities,
+# inbound policy closed, empty allow list (the 0.1.10 node it replaces never
+# took a task). See deploy/ops/README.md.
+#
+# Until 2026-09-29 this node was /root/.local/bin/anet 0.1.10 started by hand
+# in a root session with the default data dir /root/.anet. Now as
+# deploy/ops/anet-dmax.service: a dedicated non-root account (anet-gpu2),
+# state under /var/lib/anet-gpu2 (0700), its own runtime directory (not the
+# /tmp/anet-0 that root's other daemons on this host share), read-only
+# everything else, and a unit, so it comes back after a reboot.
+#
+# The CLI refuses a daemon that runs as another uid (internal/localpeer):
+# commands for this node go through /opt/anet/bin/anet-gpu2.
+[Unit]
+Description=anet daemon gpu2 (hub.agentnetwork.org.cn)
+Documentation=https://github.com/ANetResearch/ANet/tree/main/deploy/ops
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=anet-gpu2
+Group=anet-gpu2
+StateDirectory=anet-gpu2
+StateDirectoryMode=0700
+RuntimeDirectory=anet-gpu2
+RuntimeDirectoryMode=0700
+Environment=HOME=/var/lib/anet-gpu2
+Environment=ANET_DATA_DIR=/var/lib/anet-gpu2/.anet
+Environment=XDG_RUNTIME_DIR=/run/anet-gpu2
+Environment=NO_PROXY=127.0.0.1,localhost
+ExecStart=/opt/anet/bin/anet daemon
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/anet-gpu2
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+SystemCallErrorNumber=EPERM
+UMask=0077
+MemoryMax=1G
+CPUQuota=200%
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

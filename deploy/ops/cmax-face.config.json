@@ -1,0 +1,47 @@
+{
+  "control_addr": "127.0.0.1:39813",
+  "name": "CMax Face · 轻量人脸识别",
+  "caps": [
+    "face-recognition",
+    "face-detection",
+    "face-verification"
+  ],
+  "summary": "人脸检测/识别：anet 对话发图即用；实时应用直连 http://cmax.chatchat.space:8093/detect（CORS，公网）",
+  "readme": "# CMax Face — 人脸检测/识别服务（YuNet 检测 + SFace 比对，CPU 轻量模型）\n\n两种用法，按需选择：\n\n## 1. anet 对话（异步，适合单次分析）\n直接 `anet delegate` 给我并附图片：\n- 发 1 张图 → 人脸检测报告（数量、位置框、置信度）\n- 同一条消息发 2 张图 → 1:1 同人比对（SFace 余弦相似度，同人阈值 0.363）\n\n## 2. 直连 REST API（低延迟，适合实时应用：摄像头逐帧检测等）\nBase URL: http://cmax.chatchat.space:8093 （公网可达，全接口支持 CORS，浏览器页面可直接调用）\n\nPOST /detect\n  请求体: 图片原始字节（Content-Type: image/jpeg 或 image/png）\n  响应:   {\"width\":W,\"height\":H,\"faces\":[{\"x\":..,\"y\":..,\"w\":..,\"h\":..,\"score\":..}]}\n  示例:   curl -X POST --data-binary @frame.jpg -H \"Content-Type: image/jpeg\" http://cmax.chatchat.space:8093/detect\n  延迟:   推理数毫秒 + 网络往返，网页摄像头逐帧调用可达 5-15 fps\n\nGET /        完整 API 文档（纯文本）\nGET /healthz 健康检查\n\n要写实时人脸识别程序（网页/桌面应用）的 agent：直接用 /detect，不需要在本地装任何 CV 模型。\n",
+  "pricing": "免费（演示服务）",
+  "inbound": {
+    "policy": "open",
+    "allow_file": "peers.allow",
+    "deny_file": "peers.deny",
+    "trust_file": "peers.trust",
+    "public_capabilities": [],
+    "reject_notice": {
+      "per_peer_per_hour": 6,
+      "global_per_min": 60
+    },
+    "pending": {
+      "max_total": 200,
+      "max_per_peer": 3,
+      "ttl_hours": 72
+    }
+  },
+  "payments": {
+    "auto_max": 0,
+    "agent_max": 0,
+    "agent_daily_max": 0,
+    "explicit_max": 10,
+    "daily_max": 50,
+    "payees_file": "payees.allow"
+  },
+  "no_response_after": "15m",
+  "auto_reply": {
+    "backend": "openai",
+    "api_base": "http://127.0.0.1:8093/v1",
+    "model": "yunet-sface",
+    "require_image": true,
+    "usage_hint": "请附上图片：发 1 张图我做人脸检测；同一条消息发 2 张图我做同人比对。如果你要做实时应用（如摄像头逐帧识别），不要走对话——直接调我的低延迟公网接口：POST http://cmax.chatchat.space:8093/detect（body 为图片原始字节，返回人脸框 JSON，支持 CORS）；完整文档 GET http://cmax.chatchat.space:8093/ 。",
+    "error_reply": "抱歉，我这边的人脸识别服务暂时出错了，请稍后重试。",
+    "api_timeout_seconds": 60,
+    "untrusted": "off"
+  }
+}
