@@ -442,7 +442,8 @@ MCP 工具按 A2A 概念组织(设计 §12),任务以 A2A Task 的 JSON 原样�
 | `inbound_pending` | 待批队列,只给元数据 | 只读;批准只能在终端上做 |
 
 - `completed` 且 `anet.effect_status=UNVERIFIED` 不等于成功;`anet.receipt_verified` 为 `unverified` 表示回执没能核验,不等于伪造。
-- 长任务的写法:`send_message` 之后反复 `wait_task`;**不要重发**——重发是第二个任务,可能是第二笔付款。给自己的 `message_id` 可让重试安全。
+- 长任务的写法:`send_message` 之后反复 `wait_task`;**不要重发**——重发是第二个任务,可能是第二笔付款。给自己的 `message_id` 可让重试安全,但每条新消息要用新的随机值(如 UUID),只在重试同一次调用时沿用:任务未终止时,同一 `message_id` 发给同一 agent 会返回原任务、不再发送,不管新消息写的是什么;由正文或日期拼成的 id 会把另一次会话里的新请求并进旧任务(docs/notes/0041)。
+- 支出上限(`auto_max`、`agent_max`、`agent_daily_max`)不经 MCP 可见。工具说明要求模型不要向用户断言上限的值、也不要在节点或 `submit_payment` 答复之前说"付不了":auto 档内的报价节点自己付,超出的报价以 `input-required` + `anet.reason=needs_operator_approval` 等待决定,用户要付时由 `submit_payment` 的答复说明是否在 agent 档内。
 - 返回单个任务的工具(`send_message`、`get_task`、`wait_task`、`cancel_task`、`reply_task`)把任务限在约 24 KB,`list_tasks` 每个任务约 8 KB:更长的消息、回复或结果换成注明字节数的说明(`anet.truncated`),免得对方的一条长回复让工具结果超过客户端上限(Claude Code 缺省 25 000 token)。读全文用终端的 `anet task get <task_id> --full`,文件用 `anet pull <task_id>`。
 - MCP 不调用人工付款、网关与兑付路由。
 - 旧名 `agents_find` `task_delegate` `task_results` `task_inbox` `task_message` `task_end` `evidence_read` `credit_balance` 已删除,不保留别名;按旧名写的客户端权限规则需要改。

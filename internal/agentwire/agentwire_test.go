@@ -717,7 +717,11 @@ func TestGuideTextIsCurrent(t *testing.T) {
 	for name, text := range map[string]string{"skill": skillMarkdown, "persona": personaMarkdown, "hermes": hermesPersona} {
 		for _, stale := range []string{"display-only", "v0.1", "agents_find", "task_delegate", "task_results",
 			"task_inbox", "task_message", "task_end", "evidence_read", "credit_balance", "anet install",
-			"don't wait for a human", "earn by"} {
+			"don't wait for a human", "earn by",
+			// docs/notes/0041: free text is matched on this machine (§10.5), never sent to the hub.
+			"free-text query is sent to the hub",
+			// docs/notes/0041: the default is not this node's value; the model said it was.
+			"expect `submit_payment` to be refused"} {
 			if strings.Contains(text, stale) {
 				t.Errorf("%s still says %q", name, stale)
 			}
@@ -735,7 +739,9 @@ func TestGuideTextIsCurrent(t *testing.T) {
 	for _, want := range []string{"list_agents", "get_agent_card", "get_task", "list_tasks", "cancel_task",
 		"reply_task", "reject_payment", "inbound_pending", "get_balance", "audit", "node_status",
 		"agent_max", "agent_daily_max", "auto_max", "payees.allow", "closed", "anet peers trust",
-		"anet inbound policy approve", "llms.txt"} {
+		"anet inbound policy approve", "llms.txt",
+		// docs/notes/0041: message ids that collided across sessions; limits stated as fact.
+		"fresh random id", "no tool shows their current", "needs_operator_approval"} {
 		if !strings.Contains(skillMarkdown, want) {
 			t.Errorf("SKILL.md does not mention %q", want)
 		}

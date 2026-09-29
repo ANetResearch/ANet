@@ -158,11 +158,15 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"request is attributable to you and cannot be repudiated, and it is end-to-end encrypted " +
 			"to the agent. The call waits up to timeout_seconds (default 30) for the task to finish " +
 			"or to need you, then returns the Task as it is; a task still working is normal — call " +
-			"wait_task, and do not send it again: a resend is a second task. Give a `message_id` of " +
-			"your own to make a retry safe: the same message_id returns the task it already made. " +
+			"wait_task, and do not send it again: a resend is a second task. To make a retry of this " +
+			"call safe, give a `message_id`: a fresh random one (a UUID) for every new message — never " +
+			"one made from the text or the date — and the same one only when you repeat this very call. " +
+			"While the task a message_id made is open, that message_id sent to the same agent again " +
+			"returns that task and sends nothing, whatever the new text says. " +
 			"input-required with metadata x402.payment.required is a price quote: see " +
-			"submit_payment. (A quote within the operator's automatic limit, payments.auto_max, 0 on " +
-			"a new node, is paid by the node itself and the task simply goes on.) " + readBound + honesty,
+			"submit_payment. (A quote within the operator's automatic limit, payments.auto_max, is paid " +
+			"by the node itself and the task simply goes on. The limit is 0 on a new node and no tool " +
+			"shows it: send the task rather than telling the user a price cannot be paid.) " + readBound + honesty,
 		Annotations: sendsToPeer(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, any, error) {
 		if in.To == "" && in.TaskID == "" {
@@ -337,10 +341,13 @@ func addTaskTools(s *mcp.Server, c Control) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "submit_payment",
 		Description: "Pay the price another agent quoted on a task (input-required with metadata " +
-			"x402.payment.required), so that it does the work. This spends this node's credit, and " +
+			"x402.payment.required), so that it does the work. A quote above the automatic limit waits " +
+			"with anet.reason needs_operator_approval before anyone has decided; this is how the " +
+			"decision is made when the user wants the price paid. This spends this node's credit, and " +
 			"cannot be undone once the provider settles. It is the agent spending tier: each payment " +
 			"is capped by the operator's payments.agent_max and each day by payments.agent_daily_max " +
-			"(both 0 on a new node), and the payee must be in the operator's payees.allow. Above " +
+			"(both 0 on a new node; no tool shows them, so this call's answer is how you learn whether a " +
+			"price is within them), and the payee must be in the operator's payees.allow. Above " +
 			"those, nothing is signed: the answer says anet.reason needs_operator_approval (with the " +
 			"limit in spend_refusal and a message) and the task keeps waiting. Then tell the user the " +
 			"price and the payee and let them decide — the operator can pay by hand with " +
@@ -601,7 +608,7 @@ type sendIn struct {
 	To                string         `json:"to,omitempty" jsonschema:"the agent's AID, to start a new task"`
 	TaskID            string         `json:"task_id,omitempty" jsonschema:"a task this node sent, to continue it"`
 	ContextID         string         `json:"context_id,omitempty" jsonschema:"the conversation (contextId) a new task belongs to; omit to start a new one"`
-	MessageID         string         `json:"message_id,omitempty" jsonschema:"your own id for this message; sending the same id again returns the task it made instead of a second task"`
+	MessageID         string         `json:"message_id,omitempty" jsonschema:"a fresh random id (a UUID) for this message, never one made from its text or the date; send it again only to retry this same call: while its task is open, the same id to the same agent returns that task and sends nothing"`
 	Text              string         `json:"text,omitempty" jsonschema:"what you want, in prose"`
 	Skill             string         `json:"skill,omitempty" jsonschema:"a capability id from the agent's card, for a deterministic call; not the chat skill of an open node, which is plain text: send text instead"`
 	Args              map[string]any `json:"args,omitempty" jsonschema:"the skill call's arguments"`
