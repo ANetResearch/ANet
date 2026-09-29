@@ -1,15 +1,22 @@
 # `anet-credit` Payment Scheme (custodial ledger)
 
-> **DRAFT — not submitted; requires product owner approval before any external submission.**
+> **NOT SUBMITTED — on hold per product owner (more testing first).** Every external submission also
+> needs the product owner's approval, one by one (and, for this document, the Google CLA and the
+> product owner's wording of the custodial model: `docs/notes/0032` D3, D8).
 >
 > **License: Apache-2.0**, like the target directory `a2a-x402/schemes/`: this document is licensed
 > under the Apache License 2.0 alone (ANet `LICENSE`, condition 3).
 
 This document specifies the `anet-credit` scheme for x402 v2 as used by the A2A x402 extension
-v0.2. It follows the layout of the experimental schemes in `a2a-x402/schemes/`. Rules marked
-**(designed)** are specified in the anet design (A2A-DESIGN r3 §8, X4) and not yet implemented in
-the reference client; everything else was checked against the reference code (ANetCore `payment`,
-ANetHub `internal/aghub/facilitator.go`, ANet `module/x402`).
+v0.2. It follows the layout of the experimental schemes in `a2a-x402/schemes/`. Every rule was
+checked against the reference code as released in anet v0.2.0/v0.2.1 (ANetCore `payment`, ANetHub
+`internal/aghub/facilitator.go`, ANet `module/x402`, `internal/x402a2a`, `internal/daemon/x402task.go`)
+on 2026-09-29; the rules marked **(designed)** in earlier versions of this draft are all implemented.
+
+Evidence from testing (anet `docs/notes`): the official a2a-python client paid on the quoted task
+with the extension activated through `A2A-Extensions` (0035 §3.3); in a 4.25-hour two-hub soak, 676
+paid tasks each settled exactly once on the payer's hub (by binding), none unpaid settled, 534
+cross-hub settlements each cleared once at the payee's hub, and both ledgers balanced (0036 §1).
 
 ## Scheme Name
 
@@ -107,7 +114,8 @@ The `PaymentRequired` object itself (not sent to the facilitator) has `x402Versi
 `resource` naming the skill; it travels only inside the end-to-end encrypted task messages.
 
 A quote is valid for 24 hours; the merchant refuses payment for an expired quote with
-`EXPIRED_PAYMENT` **(designed)**.
+`EXPIRED_PAYMENT` (`anet.reason: quote_expired`), and a quote that lapses unpaid ends the task
+`failed` with `payment-failed`, `EXPIRED_PAYMENT`.
 
 ## `PaymentPayload` Structure
 
@@ -185,15 +193,15 @@ authorization cannot pay from someone else's balance.
 The optional `interaction_id` binds the payment to the task it pays for. Without it an authorization
 is a bearer instrument for any work owed by that payee.
 
-**(designed, A2A-DESIGN X4)** The value is not the task id but a hash that the facilitator cannot
-invert:
+The value is not the task id but a hash that the facilitator cannot invert:
 
 ```
 interaction_id = hex( SHA-256( "anet/x402-bind/v1" || 0x00 || taskId || 0x00 || task_nonce ) )
 ```
 
-where `task_nonce` is a 16-byte random value inside the requester's signed task document. The
-reference client currently puts the task id itself in this field.
+where `task_nonce` is a 16-byte random value inside the requester's signed task document (ANet
+`internal/x402a2a` `PayBind`). A priced call whose task document carries no nonce is rejected
+(`anet.reason: task_nonce_required`): its payment could not be bound to it.
 
 ## Facilitator Responsibilities
 
@@ -295,8 +303,8 @@ is not final: the merchant retries with the same payload (idempotent on the auth
 
 x402 leaves `errorReason` open. An anet facilitator sends exactly one of the values below. The merchant
 agent maps them to the a2a-x402 `x402.payment.error` codes (a2a-x402 v0.2 §9.1) and puts the original
-reason in `anet.reason` where the mapping loses information. The mapping table is **(designed,
-A2A-DESIGN §8.5)** and will be pinned by tests on both sides.
+reason in `anet.reason` where the mapping loses information. The table is implemented in ANet
+`module/x402` (`ErrorCode`) and pinned by its tests.
 
 | `errorReason` / merchant-side check | Meaning | `x402.payment.error` |
 |---|---|---|
@@ -318,12 +326,19 @@ A2A-DESIGN §8.5)** and will be pinned by tests on both sides.
 | merchant: payee, binding, or no open quote | — | `SETTLEMENT_FAILED`, `anet.reason` |
 | `settlement_pending` | outcome not known yet | *not mapped*: not final, no `payment-failed` is sent; the merchant retries |
 
+Reasons of the anet nodes themselves (not facilitator reasons), all `SETTLEMENT_FAILED` with the
+reason in `anet.reason` except `quote_expired`: `binding_mismatch`, `no_pending_quote`,
+`quote_expired` (`EXPIRED_PAYMENT`), `payer_mismatch`, `client_payload_unsupported`,
+`option_not_offered`, `rail_not_payable`, `provider_busy` (nothing was settled),
+`task_nonce_required`; and, without a code because nothing failed, `needs_operator_approval` and
+`payment_extension_not_activated` (the task stays `input-required`).
+
 The deprecated value `expired` was never sent by a hub and is not used.
 
 ## A2A usage notes
 
-The merchant-side and payer-side task rules in this section are **(designed, A2A-DESIGN §8.2–§8.4)**;
-the reference daemon's same-task payment flow is being implemented.
+The merchant-side and payer-side task rules in this section are implemented in the reference daemon
+(`internal/daemon/x402task.go`): price, payment, settlement and result travel on the same task.
 
 - Metadata keys are those of a2a-x402 v0.2: `x402.payment.status`, `x402.payment.required`,
   `x402.payment.payload`, `x402.payment.receipts`, `x402.payment.error`. The objects are x402 **v2**
@@ -337,7 +352,7 @@ the reference daemon's same-task payment flow is being implemented.
 - A merchant that has persisted a payment as submitted refuses a second payment on the same task until
   the first has a final outcome; a payer does not sign a new authorization for a task while an earlier
   one has no final outcome. Together with the binding rule this prevents paying twice for one task
-  when a response is lost **(designed)**.
+  when a response is lost.
 - After a successful settlement a cancel request no longer cancels the task: the merchant finishes
   the work, or fails with the receipts attached.
 
@@ -358,7 +373,8 @@ a2a-x402 maintainers.
 a2a-x402 §5.1 separates the client agent from the "signing service or wallet" but defines no message
 by which a client asks a signing service it reaches over A2A to sign. In anet the client agent's own
 node is that signing service and is itself reached over A2A (its 127.0.0.1 interface). The node
-therefore accepts, on a task it proxies **(designed, A2A-DESIGN §8.7)**:
+therefore accepts, on a task it proxies (implemented; exercised with the official a2a-python client,
+anet `docs/notes/0035` §3.3):
 
 - `x402.payment.status: payment-submitted` **without** `x402.payment.payload`, and
 - `anet.payment.accept`: the selected option, copied verbatim from `x402.payment.required.accepts`
@@ -401,7 +417,7 @@ third parties can witness.
 **Merchant.**
 - MUST check, before calling the facilitator: `payTo` is itself, amount at least the quote, binding
   equal to its own computation for the task, scheme and network among the quoted options, quote and
-  authorization not expired **(designed)**.
+  authorization not expired.
 - MUST treat `settlement_pending`, timeouts and transport errors as "unknown", not as failure, and
   retry with the same payload until the outcome is final.
 

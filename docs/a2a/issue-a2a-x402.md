@@ -1,17 +1,28 @@
 # Issue drafts for a2a-x402
 
-> **DRAFT — not submitted; requires product owner approval before any external submission.**
+> **NOT SUBMITTED — on hold per product owner (more testing first).** Each item needs the product
+> owner's approval; the `anet-credit` scheme also needs the Google CLA and the product owner's
+> wording of the custodial model (`docs/notes/0032` D3, D8).
 >
 > **License: Apache-2.0**, the license of a2a-x402: these drafts are licensed under the Apache
 > License 2.0 alone (ANet `LICENSE`, condition 3).
 
-Target: `github.com/google-agentic-commerce/a2a-x402`, specification **v0.2**
-(`spec/v0.2/spec.md`). Section numbers below refer to that file. None of these drafts is a security
-vulnerability report; X5 and X10 are design-level safety and privacy points suitable for public
-discussion.
+Target: `github.com/google-agentic-commerce/a2a-x402`, specification **v0.2** (`spec/v0.2/spec.md`;
+upstream `main` still `125db55` on 2026-09-29). Section numbers below refer to that file. None of
+these drafts is a security vulnerability report; X5 and X10 are design-level safety and privacy points
+suitable for public discussion.
 
 These come from implementing the extension in anet (an A2A 1.0 implementation with an end-to-end
 encrypted relay binding and a custodial credit scheme, `x402-scheme-anet-credit.md`).
+
+**Upstream check, 2026-09-29.** X2 overlaps a2a-x402 #150 ("Update x402 examples to v2", open since
+2026-07-11), which X3/T4 build on. The scheme PRs #137, #172 and #185 are still open without review;
+since 2026-05 only dependency and build changes have merged. X1's activation-header problem has a
+running demonstration in `submissions/repro/a2a-go/a7-legacy-extensions-header` (it uses the v0.2
+extension URI with `required: true`, as §3.1 recommends, and an a2a-go v2 server refuses the
+`X-A2A-Extensions` client). X13, a JSON reader-differential on `PaymentRequirements`, has a
+standalone reproduction in `submissions/repro/a2a-x402/x13-case-variant-members.sh` (python3, node,
+go read the same object two ways); see also a2a-go A3.
 
 | # | Title | Kind |
 |---|---|---|
@@ -27,6 +38,7 @@ encrypted relay binding and a custodial credit scheme, `x402-scheme-anet-credit.
 | X10 | Guidance on task data sent to facilitators | spec addition |
 | X11 | `required: true` for agents with free and paid skills | spec guidance |
 | X12 | Network identifiers for non-chain rails | clarification |
+| X13 | `PaymentRequirements` should be I-JSON: case-variant member names read differently across languages | spec hardening |
 
 ---
 
@@ -257,3 +269,27 @@ network names the key that signs receipts.
 **Question.** Should a2a-x402 (or x402) allow scheme-defined network identifiers for non-chain
 schemes, provided the scheme document specifies them, or should such rails register a CAIP namespace
 and hash the identifier to 32 characters?
+
+---
+
+## X13. `PaymentRequirements` should be required to be I-JSON
+
+**Problem.** The spec does not say that x402 objects must be I-JSON (RFC 7493). A `PaymentRequirements`
+whose members differ only by case is read differently by common JSON readers: Go's `encoding/json`
+matches struct field names case-insensitively and keeps the last, while Python's `json` and
+JavaScript's `JSON.parse` keep the first. A client or signing service written in one language shows
+one amount and payee; a merchant or facilitator in another settles another.
+
+```json
+{"scheme":"exact","network":"eip155:8453","amount":"1000",
+ "payTo":"0x1111…","AMOUNT":"900000000","PayTo":"0x2222…"}
+```
+
+python3 and Node read `amount 1000` to `0x1111…`; a Go struct reads `900000000` to `0x2222…`
+(`submissions/repro/a2a-x402/x13-case-variant-members.sh`).
+
+**Suggested text.** "x402 objects carried in A2A metadata MUST be I-JSON (RFC 7493): no duplicate
+member names. Implementations SHOULD additionally reject member names that differ only under Unicode
+case folding, because some JSON-to-struct decoders match field names case-insensitively." (Same class
+as a2a-go A3 for card signatures; anet's `internal/jsonread` requires two independent readers to agree
+before it acts on a quote — anet `docs/notes/0033` daemon D1.)

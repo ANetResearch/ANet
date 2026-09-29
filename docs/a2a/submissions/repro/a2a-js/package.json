@@ -1,0 +1,13 @@
+{
+  "name": "a2a-js-repro",
+  "private": true,
+  "description": "Minimal reproductions for @a2a-js/sdk issue drafts J1-J3 and the cross-SDK part of a2a-go A1",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@a2a-js/sdk": "1.2.1"
+  }
+}

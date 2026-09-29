@@ -1,6 +1,8 @@
 # A2A Custom Protocol Binding: anet relay, version 1
 
-> **DRAFT — not submitted; requires product owner approval before any external submission.**
+> **NOT SUBMITTED — on hold per product owner (more testing first).** Every external submission also
+> needs the product owner's approval, one by one. ADR-format summary for the proposal issue:
+> `submissions/adr-relay-binding.md`.
 >
 > **License: Apache-2.0**, as an *official* A2A binding must be (A2A
 > `docs/topics/extension-and-binding-governance.md`, "Licensing"): this text is licensed under the
@@ -12,16 +14,16 @@
 |---|---|
 | Binding URI (`protocolBinding`) | `https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1` |
 | A2A protocol version | `1.0` (the only version this binding defines) |
-| Status | Draft, reference implementation in progress |
-| Reference implementation | ANetCore `seal`, `relayauth`, `identity`, `delegation`; ANetHub `internal/aghub` (`relay.go`, `auth2.go`, `keys.go`, `limits.go`); ANet `internal/daemon` (`seal_send.go`, `receive.go`) |
+| Status | Draft. Reference implementation released in anet v0.2.0 and v0.2.1 (2026-09-28); two federated public hubs run it |
+| Reference implementation | ANetCore `seal`, `relayauth`, `identity`, `delegation`, `a2acard`; ANetHub `internal/aghub` (`relay.go`, `auth2.go`, `keys.go`, `limits.go`), `internal/federation`; ANet `internal/daemon` (`seal_send.go`, `receive.go`, `taskseam*.go`, `x402task.go`), `internal/netcard`, `module/a2a` (the local A2A interface) |
 | Intended venue | Proposal issue in `a2aproject/A2A`, then (with a maintainer sponsor) an `experimental-cpb-anet-relay` repository |
 
 Keywords MUST, SHOULD, MAY etc. are to be read as in RFC 2119 / RFC 8174.
 
 Every rule below that a reader could implement against was checked against the reference
-implementation at the time of writing. Rules marked **(designed)** are specified in the anet
-design (A2A-DESIGN r3) but not yet implemented; they are listed so that reviewers see the whole
-binding, and they are candidates for change.
+implementation (last on 2026-09-29, against v0.2.1). Rules still marked **(designed)** — two provider
+replies in §11 — are specified in the anet design (A2A-DESIGN) but not implemented; they are listed
+so that reviewers see the whole binding, and they are candidates for change.
 
 ---
 
@@ -97,17 +99,18 @@ An agent reachable through this binding lists one `AgentInterface` per hub mailb
 
 ```json
 {
-  "url": "https://hub.example.org",
+  "url": "https://hub.example.org/relay",
   "protocolBinding": "https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1",
   "protocolVersion": "1.0",
   "tenant": "bafyreicg3paeuo2nt4n575adgnovtr2y7aizti7643fxhk6zbmiaaa7q7y"
 }
 ```
 
-- `url` is the hub's base URL: an `https` origin, optionally followed by a path prefix, with no
-  trailing slash. The endpoints in §8 are resolved relative to it (`{url}/relay/send`,
-  `{url}/agents/{aid}/keys`, `{url}/hub/identity`, ...). **(designed; the reference card generator is not
-  yet implemented.)**
+- `url` is the hub's base URL followed by `/relay`: an `https` origin, optionally a path prefix,
+  then `/relay`, with no trailing slash (for example `https://hub.example.org/relay`). The hub's base
+  URL is `url` without its final `/relay`, and the endpoints in §8 are resolved relative to that base
+  (`{base}/relay/send`, `{base}/agents/{aid}/keys`, `{base}/hub/identity`, ...). (Reference: ANet
+  `internal/netcard` `RelayURL`; ANetHub reads a card's home hub the same way.)
 - `tenant` MUST be the agent's AID. It is the routing key: the client addresses the envelope to
   this AID and the hub delivers it to this AID's mailbox. It is also a binding: a verifier MUST
   reject a card in which an interface with this `protocolBinding` names a `tenant` other than the
@@ -403,7 +406,7 @@ preimage = "anet-relay/v2/" action "/" aid "/" hubAID "/" decimal(ts) "/"
 
 - `action` is one of `send`, `poll`, `ack`, `register`, `keys`, `profile`, `visibility`,
   `deregister`, `p2p`, `balance`, `ledger`, `redemptions`.
-- `hubAID` is the AID of the hub addressed, obtained from `GET {url}/hub/identity`; a signature is
+- `hubAID` is the AID of the hub addressed, obtained from `GET {base}/hub/identity` (§4); a signature is
   valid at one hub only.
 - `method` is the HTTP method as sent; `pathAndQuery` is the origin-form request target exactly as
   sent (escaped path, `?`, raw query); `body` is the raw request body (empty if none). The hub reads
@@ -523,10 +526,11 @@ provider's.
 Local answers are scoped (A2A §13.1): the node answers only for tasks it started, with the AID of
 the selected interface's `tenant`; any other id is `TaskNotFoundError`, checked before existence.
 
-In the reference node the task mirror (the requester's interaction store) and the per-task event
-bus that these local answers read are implemented; the local A2A interface that exposes them to
-A2A clients, and therefore the exact local error codes of this section, are **(designed,
-A2A-DESIGN §11)**.
+In the reference node the task mirror (the requester's interaction store), the per-task event bus
+and the local A2A interface that exposes them (JSON-RPC and HTTP+JSON on 127.0.0.1, ANet
+`module/a2a`) are implemented. The interface has been driven by a2a-tck and by the official
+a2a-python and @a2a-js/sdk clients with every task relayed through a hub (anet `docs/notes/0029`,
+`0035`).
 
 ### 10.2 Inner message types and bodies
 
@@ -650,9 +654,11 @@ metadata key `a2a.serviceParameters`:
   of `0.3` for an empty value cannot apply to it. A provider that receives a version other than 1.x
   answers `VersionNotSupported` (§11).
 
-**(designed)** The key and format come from A2A-DESIGN §3.4; the reference node does not yet write
-or read `a2a.serviceParameters` (it will when its local A2A interface lands). The A2A
-custom-binding guide suggests `a2a-service-parameters` as an example name; see §17 Q2.
+The requester's node writes `{"A2A-Extensions": [...], "A2A-Version": "1.0"}` from the local
+client's request; a provider node that hands tasks to an A2A server of its own restores them as
+request headers. The provider-side checks of §11 (`ExtensionSupportRequired`, `VersionNotSupported`)
+are not implemented yet. The A2A custom-binding guide suggests `a2a-service-parameters` as an example
+name; see §17 Q2.
 
 ### 10.5 Task lifecycle on the wire
 
@@ -679,10 +685,9 @@ custom-binding guide suggests `a2a-service-parameters` as an example name; see �
 - `end_request` asks the provider to finish a conversational task; the provider node completes it
   on its own and returns `anet.result/1`. It has no A2A counterpart and is not needed by A2A clients.
 - A result is normally final. The exception is a priced structured skill call answered with a
-  quote (`anet.effect_status: PAYMENT_REQUIRED`, `anet.state: input-required`). The reference node
-  currently pays by sending the same work again as a new, prepaid task (`DelegateReq.payment`) and
-  leaves the quoted task in `input-required`. The a2a-x402 same-task flow, in which the payment and
-  the final result arrive on the quoted task itself, is **(designed, `x402-scheme-anet-credit.md`)**.
+  quote (`anet.effect_status: PAYMENT_REQUIRED`, `anet.state: input-required`). The payment, its
+  settlement and the final result then travel on the quoted task itself, as a2a-x402 v0.2 metadata
+  (`x402-scheme-anet-credit.md`); a requester may instead pay up front in `DelegateReq.payment`.
 
 ### 10.6 Cancel Task
 
@@ -693,13 +698,13 @@ The requester node sends `cancel` and returns the task from its mirror:
 - A payment was already submitted (a2a-x402 `payment-submitted`): the local state does not change
   (normally `working`); the cancel is recorded in the task's message log, and the outcome is
   whatever the provider reports next. A provider that has received or settled a payment does not
-  cancel. **(designed, A2A-DESIGN §11.5)** The local interface marks such a task with metadata
-  `anet.cancel_requested: true`.
+  cancel. The local interface marks such a task with metadata `anet.cancel_requested: true`.
 - The task is already terminal: `TaskNotCancelableError`.
 
 ### 10.7 Message parts
 
-Mapping from A2A `Part` to the wire in the reference node **(designed, A2A-DESIGN §11.5)**:
+Mapping from A2A `Part` to the wire in the reference node (checked with the official SDK clients,
+anet `docs/notes/0035` §3.2):
 
 - text parts are concatenated into the request goal (`anet.delegate/1`) or the `ChatMsg.body`;
 - a file part with inline bytes becomes an `Attachment` (reference cap 64 MiB each; `cid` is the
@@ -756,8 +761,10 @@ choice; the reference node keeps its local record of the task in `submitted` and
   and returns the local stream; `SubscribeToTask` returns the current Task snapshot first and then
   the stream, both obtained atomically (A2A §3.1.6). Each received status, provider message or
   result updates the mirror and emits a `TaskStatusUpdateEvent` or `TaskArtifactUpdateEvent`.
-  (Reference node: the mirror and the event bus, with atomic snapshot-and-subscribe, are
-  implemented; the A2A streaming responses built on them are **(designed)**, see §10.1.)
+  (Reference node: implemented; the local interface sends an SSE keep-alive every 15 s, so a stream
+  stays open while a provider is offline. Streams were held open 7 minutes with both official SDK
+  clients, and 760 streaming calls ran through a 4.25-hour two-hub soak without one being cut:
+  anet `docs/notes/0035` §8.1, `0036`.)
 - **Previews.** `stream_preview` messages are ephemeral, replace-in-place snapshots of a reply
   being written. A node MAY surface them as artifact updates; they are never stored in history and
   clients MUST NOT rely on them.
@@ -780,8 +787,9 @@ choice; the reference node keeps its local record of the task in `submitted` and
   feedback" is met locally (the stream starts with the submitted Task) but not end to end.
 
 Whether an agent card with only relay interfaces should declare `capabilities.streaming: true` is
-§17 Q4; the recommendation of this draft is `true`, since streaming is always available through the
-local mirror.
+§17 Q4. The reference implementation declares `false` on network cards (no stream crosses the relay,
+and a card that says `true` would invite clients without a node to open one) and `true` on the card of
+the node's local interface, where the stream actually is.
 
 ## 13. Data type mappings (A2A §12.2)
 
@@ -876,7 +884,9 @@ These are stated so that nobody reads more into "end-to-end encrypted" than it g
 | §8.3 endpoints | ANetHub `internal/aghub/server.go` (`hRelaySend`, `hRelayPoll`, `hRelayAck`), `keys.go`, `relay.go`, `limits.go`; `internal/hubid` (`/hub/identity`) |
 | §8.5 federation | ANetHub `internal/federation/federation.go`, `keys.go` |
 | §10 bodies | ANetCore `delegation/delegation.go`, `delegation/status.go` |
-| §7.6–7.7, §10.5, §11 node behaviour | ANet `internal/daemon/seal_send.go`, `receive.go`, `inbound.go` |
+| §4 network card | ANet `internal/netcard`, `internal/daemon/a2a_card.go`; verification ANetCore `a2acard` |
+| §7.6–7.7, §10.5, §11 node behaviour | ANet `internal/daemon/seal_send.go`, `receive.go`, `inbound.go`, `x402task.go` |
+| §10.1, §10.4, §10.6–§10.7, §12 local A2A interface | ANet `module/a2a`, `internal/a2ashape`, `internal/daemon/taskseam*.go` |
 
 ## 17. Open questions for the community
 
@@ -888,7 +898,8 @@ These are stated so that nobody reads more into "end-to-end encrypted" than it g
   one standard key for all header-less bindings?
 - **Q3 Data parts.** Which A2A data parts should a relay binding carry verbatim?
 - **Q4 `capabilities.streaming`** for agents reachable only through a store-and-forward binding:
-  `true` (streaming is available from the local mirror) or `false` (no end-to-end stream)?
+  `true` (streaming is available from the local mirror) or `false` (no end-to-end stream)? The
+  reference implementation chose `false` on network cards (§12).
 - **Q5 In-task authorization** (`TASK_STATE_AUTH_REQUIRED`) over a relay: should credentials be
   sealed to the agent in-band, as A2A §7.6.3 recommends for in-band exchange?
 - **Q6 Security scheme.** See `proposal-securityscheme.md`.

@@ -1,6 +1,8 @@
 # ADR-XXX: A `SecurityScheme` variant for sender-signature authentication
 
-> **DRAFT — not submitted; requires product owner approval before any external submission.**
+> **NOT SUBMITTED — on hold per product owner (more testing first).** Every external submission also
+> needs the product owner's approval, one by one. Route (`docs/notes/0032` step 6): a comment on
+> A2A #1829 first; a `[Feat]:` issue with this text only after a2a-go A10 is fixed or accepted.
 >
 > **License: Apache-2.0**, the A2A project's license, under which changes to the A2A specification
 > are contributed: this proposal is licensed under the Apache License 2.0 alone (ANet `LICENSE`,
@@ -13,8 +15,8 @@
 **Decision Makers:** A2A Technical Steering Committee
 
 **Technical Story:** sender-authenticated custom bindings, first the anet relay binding
-(`relay-binding.md` §9); affects `specification/a2a.proto` (`SecurityScheme`) and spec §4.5, §5.7, §7.
-Related: `issue-a2a-go.md` A10.
+(`relay-binding.md` §9, `submissions/adr-relay-binding.md`); affects `specification/a2a.proto`
+(`SecurityScheme`) and spec §4.5, §5.7, §7. Related: A2A #1829; `issue-a2a-go.md` A10.
 
 This document follows the A2A ADR template (`adrs/adr-template.md`).
 
@@ -109,9 +111,13 @@ binding: the variant says "the sender signs each message", and a profile URI say
 
 #### Negative
 
-- A new `oneof` member: SDKs must add a type, and SDKs that reject unknown variants (A10) break on
-  cards that use it until they are fixed; agents should keep offering an alternative requirement where
-  they can during the transition.
+- A new `oneof` member: SDKs must add a type, and SDKs that reject unknown variants break on cards
+  that use it until they are fixed; agents should keep offering an alternative requirement where
+  they can during the transition. Checked on 2026-09-29 with a card that carries a Bearer scheme and
+  an unknown variant: a2a-go v2.6.0 fails to parse the whole card, and its card resolver fails
+  (`issue-a2a-go.md` A10, `submissions/repro/a2a-go/a10-unknown-securityscheme`); a2a-python 1.1.5
+  (`parse_agent_card`) and @a2a-js/sdk 1.2.1 (`AgentCard.fromJSON`) parse the card and keep the
+  unknown entry as an empty `SecurityScheme`, so the Bearer requirement stays usable.
 - The meaning is delegated to profile documents; validation of a card cannot check more than the
   profile URI syntax.
 
@@ -209,6 +215,14 @@ reported.
 - A profile for RFC 9421 HTTP Message Signatures with `did:web`/`did:key` resolution would make the
   scheme usable with the standard HTTP bindings. It is out of scope for this draft; we would welcome
   co-authors.
+
+## Relation to open proposals (checked 2026-09-29)
+
+| Proposal | Relation |
+|---|---|
+| **A2A #1829** minimal Ed25519 + RFC 9421 signing extension for A2A messages (open since 2026-05-09; 143 comments; no Maintainer or TSC position seen) | Complementary layers. #1829 defines a wire format: a per-request RFC 9421 signature on the standard HTTP bindings, with `keyid` resolved as `{inline, cache, resolver}` (did:key inline, did:web or an HTTPS URL by one screened fetch). This ADR defines how an Agent Card *declares* that the sender signs each message, with a `profile` URI naming the wire format. #1829's extension would be one profile (the "RFC 9421" profile this draft leaves out of scope), anet's relay envelope another. The comment on #1829 should say exactly that, and ask whether the thread's authors would co-author the RFC 9421 profile. The key-source model discussed there maps onto `identifier_methods`; the single-hop resolution rule argued there belongs in each profile's key-resolution section (profile requirement 3). |
+| A2A #1575 (running implementation of agent identity, delegation and enforcement; addresses #1497, #1472, #1501), #1672, #1497 | Identity and delegation proposals that would also need the card to state "authenticate by a sender-held key"; none defines a `SecurityScheme` variant. |
+| A2A #1964, #2191, #2185 (custom bindings) | Bindings where there is no HTTP request from client to agent to carry today's schemes; each would need a message-level scheme, as the relay binding does. |
 
 ## Related Decisions
 
