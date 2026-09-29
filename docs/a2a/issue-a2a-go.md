@@ -1,10 +1,16 @@
 # Issue drafts for a2a-go
 
-> **DRAFT — not submitted; requires product owner approval before any external submission.**
+> **NOT SUBMITTED — on hold per product owner (more testing first).** Each item is a separate
+> submission and needs the product owner's approval; A3 and A9 are private security advisories, not
+> public issues.
 >
 > **License: Apache-2.0**, a2a-go's own license: the text and the code in these drafts
 > (reproductions and suggested fixes) are licensed under the Apache License 2.0 alone (ANet
 > `LICENSE`, condition 3). Check a2a-go's contribution requirements before opening a pull request.
+>
+> Standalone reproductions, one per item, are in `submissions/repro/a2a-go/` (they use a2a-go from
+> proxy.golang.org and nothing from anet); the advisory drafts for A3 and A9 are being written under
+> `submissions/`. Every reproduction was re-run on 2026-09-29 against a2a-go v2.6.0.
 
 Target: `github.com/a2aproject/a2a-go`, version **v2.6.0** (commit `ebf17c5`, "chore(main): release
 2.6.0"). Every "Observed" result below was reproduced on 2026-09-27 with the snippets shown, built
@@ -29,11 +35,17 @@ to be reported through GitHub Security Advisories, not public issues; they are m
 | A12 | Streaming calls: an error before the first event is sent inside an already-opened SSE stream; the JSON-RPC client cannot read an error that is not | `a2asrv`, `a2aclient` | public issue, **on hold**: the spec does not say how a stream that cannot start is refused |
 | A13 | JSON-RPC params: proto field names (`history_length`, `context_id`) are silently ignored | `a2asrv`, `a2a` | **not filed**: spec §5.5 requires camelCase, so the TCK is at fault (a2a-tck #242, #243) |
 
-**Upstream check, 2026-09-28** (docs/notes/0032 §1.2, §3). Upstream `main` is still `ebf17c5`.
-A2A v1.0.1 changed the §5.4 HTTP statuses of `TaskNotCancelableError` and
-`ContentTypeNotSupportedError` to `400` (A2A `docs/specification.md:1183,1186`), so A11 describes
-conformant behaviour and is withdrawn; the section is kept below as a record. A13's "spec reading" is
-settled the other way by §5.5 (`docs/specification.md:1204`). A1 overlaps a2a-go #445. The texts to
+**Upstream check, 2026-09-29** (docs/notes/0032 §1.2, §3, §4; re-checked from 2026-09-28). Upstream
+`main` and the latest release are still `ebf17c5` (v2.6.0). A2A v1.0.1 changed the §5.4 HTTP statuses
+of `TaskNotCancelableError` and `ContentTypeNotSupportedError` to `400`
+(A2A `docs/specification.md:1183,1186`), so A11 describes conformant behaviour and is withdrawn; the
+section is kept below as a record. A13's "spec reading" is settled the other way by §5.5
+(`docs/specification.md:1204`). A1 overlaps a2a-go #445, where two independent reporters have since
+(2026-09-28) reproduced the default-value canonicalization gap on a live card and agreed the fix
+needs both the proto projection and rule-1 empty-value removal; the maintainers have not taken a
+position, and the thread explicitly holds off on a PR. a2a-tck #245 (2026-09-28) adds rule-1
+field-presence conformance vectors, one expectation per candidate reading, while A2A #2122 (the
+under-determined-rule-1 issue) is still open. A5–A10 and A12 are unchanged upstream. The texts to
 submit are in `submissions/01-a2a-go.md`.
 
 ---
@@ -73,11 +85,29 @@ an extension, `"examples": []`, …) is signed over a payload that a §8.4.1-con
 compute, and vice versa. The card also stops verifying after a round trip through a2a-go's own
 `a2a.AgentCard` type.
 
-**Cross-SDK check (anet docs/notes/0035, 2026-09-28).** Signed with a2a-go v2.6.0 `a2acrypto`, a card
-whose JSON carries `"capabilities":{"streaming":false,"extensions":[{"uri":"u","required":false}]}` fails
-verification in a2a-python 1.1.5 (`create_signature_verifier` → `InvalidSignaturesError`) and in
-a2a-js 1.2.1 (`verifyAgentCardSignature` → "No valid signatures found"); the same card without the two
-defaults, signed the same way, verifies in both.
+**Cross-SDK check (anet docs/notes/0035; reproduced standalone 2026-09-29,
+`submissions/repro/a2a-go/a1x-cross-sdk-vectors` signs, `../a2a-python/a1x_verify.py` and
+`../a2a-js/a1x-verify.mjs` verify).** a2a-go v2.6.0 `a2acrypto` signs ten cards over the bytes as
+given; a2a-python 1.1.5 (`create_signature_verifier`) and @a2a-js/sdk 1.2.1
+(`verifyAgentCardSignature`) verify them under §8.4.1 rule 1:
+
+| Signed card (differs from `base` by one thing) | a2a-go verifies | a2a-python / a2a-js verify |
+|---|---|---|
+| `base` (no default values) | yes | yes |
+| extension `"required": false` | yes | no (rule 1 drops the default) |
+| extension `"description": ""` | yes | no |
+| skill `"examples": []` | yes | no |
+| `capabilities.streaming: false` (`optional bool`) | yes | yes (presence kept) |
+| `capabilities.pushNotifications: false` | yes | yes |
+| `streaming:false` and `required:false` (the case first seen) | yes | no |
+| `base` re-served through `a2a.AgentCard` (A2) | no | no |
+| card `"description": ""` (REQUIRED) | yes | no — both SDKs drop it, but rule 1 keeps a REQUIRED default |
+| `""` inside extension `params` (a `Struct`) | yes | no — both SDKs drop it, but rule 1 does not touch a `Struct` |
+
+The last two rows are a second finding: a2a-python's `_clean_empty` and a2a-js's `cleanEmpty` remove
+every empty string, array and object, including REQUIRED fields and the inside of a
+`google.protobuf.Struct`, which §8.4.1 rule 1 keeps. The middle rows are the A1 gap: a2a-go keeps
+default values that rule 1 removes.
 
 **Expected.** Signer and verifier compute the same payload for every JSON rendering of the same
 AgentCard message.
@@ -195,6 +225,11 @@ the other.
 
 **How anet copes.** ANetCore `a2acard` parses with its own strict I-JSON parser and rejects all of
 the above, including case-variant member names.
+
+**Reproduction.** `submissions/repro/a2a-go/a3-duplicate-members` (2026-09-29): a `name`/`url`
+inserted before the signed one is accepted end to end through `agentcard.Resolver` with a `Verifier`,
+and a signed string's invalid UTF-8 or lone-surrogate escape can be swapped for another under one
+signature. Advisory draft: `submissions/advisory-a2a-go-A3.md` (being written).
 
 ---
 
@@ -364,6 +399,10 @@ explicit `RequireSignature` field and make the "verify if present" behaviour opt
 comment explaining the downgrade risk).
 
 **How anet copes.** Its verifier rejects a card with no signatures (`UNSIGNED`).
+
+**Reproduction.** `submissions/repro/a2a-go/a9-unsigned-card` (2026-09-29): a card with `signatures`
+removed and an interface URL changed is accepted by `agentcard.Resolver` with a `Verifier`. Advisory
+draft: `submissions/advisory-a2a-go-A9.md`. First affected release: v2.6.0 (v2.5.0 has no `Verifier`).
 
 ---
 

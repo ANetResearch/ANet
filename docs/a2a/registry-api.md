@@ -1,6 +1,8 @@
 # A2A Agent Registry API (proposal)
 
-> **DRAFT — not submitted; requires product owner approval before any external submission.**
+> **NOT SUBMITTED — on hold per product owner (more testing first).** Every external submission also
+> needs the product owner's approval, one by one. ADR-format summary for the proposal:
+> `submissions/adr-registry-api.md`.
 >
 > **License: Apache-2.0**: this proposal is licensed under the Apache License 2.0 alone (ANet
 > `LICENSE`, condition 3). Registry code contributed upstream from ANetHub is contributed under
@@ -8,7 +10,7 @@
 
 | | |
 |---|---|
-| Status | Draft. Card verification, JWKS derivation and the card high-water rule are implemented (ANetCore `a2acard`); the listing, card and JWKS HTTP endpoints are specified in the anet design (A2A-DESIGN r3 §10.5–§10.6) and **not yet implemented** in ANetHub (the JWKS body is produced by `a2acard.JWKS`; the route is not wired). Field spellings in §3 must be re-checked against that implementation before submission. |
+| Status | Draft. Everything in §3 and §5 is implemented in ANetHub and ANetCore `a2acard` as released with anet v0.2.0 and v0.2.1 (2026-09-28) and answers on two federated public hubs; field spellings, limits, `ETag` format and `card_status` values below were aligned with that code on 2026-09-29 (they had been proposals). Remaining open points are in §8. |
 | Intended venue | Discussion issue in `a2aproject/A2A` (the discovery guide states that "the current A2A specification does not prescribe a standard API for curated registries"). |
 
 Keywords MUST, SHOULD, MAY are to be read as in RFC 2119 / RFC 8174.
@@ -57,7 +59,7 @@ Query parameters (all optional):
 | `tag` | exact match on one of the skill tags |
 | `q` | free-text substring match over name, description and skill names. Intended for web UIs; see §7.2 |
 | `cursor` | opaque pagination cursor from a previous response |
-| `limit` | page size; proposed default 50, maximum 100 |
+| `limit` | page size; default 50, maximum 200 (a larger value is clamped; 0, negative or non-numeric is 400) |
 
 Response:
 
@@ -67,7 +69,7 @@ Response:
     {
       "aid": "bafyrei…",
       "card": { "name": "…", "supportedInterfaces": [ … ], "signatures": [ … ] },
-      "cardVerification": "VERIFIED",
+      "cardVerification": "ok",
       "verifiedAt": "2026-09-27T08:00:00.000Z",
       "homeHub": "https://hub.example.org",
       "lastSeen": "2026-09-27T09:12:00.000Z",
@@ -76,7 +78,7 @@ Response:
       "avgRating": 4.5
     }
   ],
-  "nextCursor": ""
+  "nextCursor": "YmFmeXJlaS4uLg"
 }
 ```
 
@@ -87,7 +89,7 @@ Response:
 | `cardVerification` | registry | result of the registry's own verification at `verifiedAt` |
 | `verifiedAt` | registry | when the registry last verified the card against the KEL it held |
 | `homeHub` | registry | base URL of the registry that holds the agent's registration (this registry's own URL for local entries); the same value as `home` in §3.5 |
-| `lastSeen` | registry | when the agent last collected its mailbox (liveness) |
+| `lastSeen` | registry | when the agent last collected its mailbox (liveness); absent if never |
 | `quiet` | registry | `true` if the agent has not been seen for a long time |
 | `reviewCount`, `avgRating` | registry | aggregates of signed reviews the registry holds; the signed reviews themselves are available separately |
 
@@ -98,18 +100,23 @@ Rules:
 - `card` is written into the response verbatim (the exact bytes the agent submitted). Signature
   verification is over the RFC 8785 canonical form, so a client may parse the response with any
   conforming JSON parser; but the parser MUST reject duplicate member names (§7.3).
-- `nextCursor` is always present; the empty string means no further pages (as in A2A ListTasks).
-- **(open)** The exact set of `cardVerification` values. This draft proposes `VERIFIED` only (since
-  only verified cards are listed) and reserves `STALE` for a card whose signing key the registry has
-  since seen rotated. Cards that fail are simply absent.
+- `nextCursor` is present only when more entries follow; pass it back as `cursor`. (A2A ListTasks
+  instead always returns `nextPageToken`, empty on the last page; aligning the two is §8 Q4.)
+- `skill` or `tag` given but empty is 400 (omit the parameter to list everything); `q` is limited to
+  256 bytes.
+- `cardVerification` is `"ok"` for every entry, since only verified cards are listed. **(open, §8
+  Q4)** Whether to standardize an enumeration instead (the first version of this draft proposed
+  `VERIFIED`, and `STALE` for a card whose signing key the registry has since seen rotated).
 
 ### 3.2 Card by AID: `GET /a2a/v1/agents/{aid}/card`
 
 - 200: the card bytes exactly as submitted, `Content-Type: application/json`.
-- `ETag`: a strong validator derived from the stored bytes (proposal: `"sha256-<base64url of
-  SHA-256(bytes)>"`). `If-None-Match` with a matching value → 304.
+- `ETag`: a strong validator, the lowercase hex SHA-256 of the stored bytes in quotes.
+  `If-None-Match` with a matching value (weak comparison, `*` matches) → 304.
 - `Cache-Control: max-age=300`.
 - 404: no verified card for this AID.
+- `POST /a2a/v1/agents/card:lookup` with `{"aid": "…"}` answers the same, for clients that do not want
+  the AID in the request line (and so in access logs of any proxy on the way).
 
 This is the endpoint to use when the exact bytes matter (caching, archival, forwarding).
 
@@ -142,9 +149,10 @@ reports a per-field status that does not fail the registration:
 | `card_status` | Meaning |
 |---|---|
 | `absent` | no card in the request |
-| `unverified` | stored as received, not yet admitted (current reference behaviour) |
-| `invalid` | not a JSON object, or too large; not stored |
-| `ok`, `unchanged`, `conflict` | **(designed)** admitted as new; identical to the stored card; refused by the high-water rule (§5.2) |
+| `invalid` | did not verify (§5.1; `card_error` names the verifier's code); not stored |
+| `ok` | verified and stored: the first card, or a higher `seq` |
+| `unchanged` | same `seq` and same canonical payload as the stored card |
+| `conflict` | lower `seq`, or the stored `seq` with another payload (§5.2); not stored |
 | `withdrawn` | the request carried `"a2a_card": null`: the registry deleted the agent's card and its index entries (a peer registry learns it as a withdrawal, §3.5). An absent member changes nothing |
 
 ### 3.5 Federation between registries: `GET /fed/v2/cards`
@@ -162,7 +170,10 @@ Registries that federate pull each other's card streams:
 ```
 
 - `format` names the card format, so that a registry can carry more than one (`a2a-card/1` is an A2A
-  Agent Card as in this document).
+  Agent Card as in this document). `withdrawal/1` tells a peer that the home registry stopped
+  publishing the agent's card (the agent left, narrowed its visibility, or its card stopped
+  verifying); its `card` is `{"action":"withdraw","agent_id":…,"reason":…,"at":…}` and it carries no
+  `kel` or `keys`.
 - `kel` and `keys` travel with the card so that the pulling registry can verify it without a second
   request; the pulling registry applies the same admission (§5), including the rule that a stored
   KEL is only ever replaced by an extension of itself.
@@ -170,8 +181,8 @@ Registries that federate pull each other's card streams:
   interface, the card (signed by the agent) wins and the disagreement is logged.
 - The stream is ordered by `fed_seq`; `cursor` resumes it.
 
-The shape is that of the existing `GET /fed/v1/cards` (implemented) plus `format`; v2 is
-**(designed)**. Page size in the reference implementation is 200.
+The shape is that of `GET /fed/v1/cards` (which carries anet's older card format) plus `format`. A
+page holds at most 100 entries and 4 MiB (a card and a KEL may each be 64 KiB).
 
 ## 4. What a registry does not do
 
@@ -218,11 +229,14 @@ Base64url in `protected` and `signature` is decoded strictly: only the 64 alphab
 padding, no line breaks, zero trailing bits. One signature therefore has exactly one accepted
 spelling, and a relaying party cannot store and serve a second byte form of a signed card.
 
-Canonicalization follows a2a-go: the card is canonicalized as given, without the protobuf
-default-value removal of A2A §8.4.1. Card producers therefore MUST emit cards in which no
-non-required field carries its default value (for example, omit `"required": false` on an
-extension). This interoperability gap is tracked in `issue-a2a-go.md` A1; the registry will accept
-both forms once it is resolved upstream.
+Two payload forms are accepted, in this order: the §8.4.1 form (the card minus `signatures` and
+minus every member that proto3 field presence treats as unset, from a field table transcribed from
+`a2a.proto`; REQUIRED members and `optional` members that are set stay; the inside of a
+`google.protobuf.Struct` is not touched), then the card as given (what a2a-go v2.6.0 signs; see
+`issue-a2a-go.md` A1). The verifier records which form verified. Card producers SHOULD emit
+*publish form*: REQUIRED members present and non-empty, no member at its default value, so that both
+forms are the same bytes and every SDK computes the same payload. The reference signer refuses other
+cards rather than rewriting them.
 
 ### 5.2 Freshness
 
@@ -239,7 +253,7 @@ highest admitted `seq` and the SHA-256 of that card's canonical payload:
 Accepting the "same" case matters: a restarted agent that re-registers, or a consumer that re-fetches
 after its cache expires, must not be told its unchanged card is a conflict.
 
-### 5.3 Indexes **(designed)**
+### 5.3 Indexes
 
 `skill` and `tag` indexes are rebuilt only after a card is admitted, from the admitted card. The
 registry's older, non-A2A listing (`GET /agents`) keeps its shape; for agents with an admitted card,
@@ -271,9 +285,9 @@ its name and capability list are derived from the card.
 
 ### 7.2 Query privacy
 
-A free-text query reveals what the client is looking for. The anet client is designed never to send
-`q` **(designed)**: it fetches verified cards by `skill` or `tag` and matches free text locally. `q`
-is provided for web front ends.
+A free-text query reveals what the client is looking for. The anet client never sends `q`: it
+fetches verified cards by `skill` or `tag` and matches free text locally. `q` is provided for web
+front ends.
 
 ### 7.3 Parser differentials
 
@@ -296,5 +310,7 @@ peers that already know it.
   extension URIs (e.g. "agents that accept a2a-x402").
 - **Q3 Signed wrapper.** Should registry assertions be signed by the registry, so that a client can
   hold a registry to what it said?
-- **Q4 `cardVerification` values** (§3.1).
+- **Q4 `cardVerification` values and cursor presence** (§3.1): keep `"ok"` and an absent `nextCursor`
+  (the reference implementation), or follow A2A ListTasks (always-present token, empty on the last
+  page) and an enumeration?
 - **Q5 Default-value handling** in stored cards (depends on the outcome of `issue-a2a-go.md` A1).

@@ -1,14 +1,24 @@
 # Issue drafts for a2a-js (`@a2a-js/sdk`)
 
-> **DRAFT — not submitted; to be filed only after more testing (待更多测试后再提交), and only with the
-> product owner's approval.**
+> **NOT SUBMITTED — on hold per product owner (more testing first).** Each item needs the product
+> owner's approval; J1 is a private security advisory, not a public issue.
 >
 > **License: Apache-2.0**, a2a-js's own license: the text and the code in these drafts are licensed under
 > the Apache License 2.0 alone (ANet `LICENSE`, condition 3).
 
-Target: `@a2a-js/sdk` **1.2.1** (npm, 2026-09-28), Node.js v24.21.0. Found while driving anet's local A2A
-interface with the SDK's own client (`docs/notes/0035` item 2; test: `scripts/interop/js_client.mjs`,
-`js_long_hold.mjs`). Every "Observed" below was reproduced on 2026-09-28.
+Target: `@a2a-js/sdk` **1.2.1** (npm; still latest on 2026-09-29), Node.js v24.21.0. Found while
+driving anet's local A2A interface with the SDK's own client (`docs/notes/0035` item 2). Standalone
+reproductions, using @a2a-js/sdk from registry.npmjs.org and nothing from anet, are in
+`submissions/repro/a2a-js/` (`j1-signature-skips-security-schemes.mjs`, `j2-resolver-base-path.mjs`,
+`j3-blocking-call-300s.mjs`); every "Observed" below was re-run there on 2026-09-29.
+
+**Upstream check, 2026-09-29.** J1 is the same defect as a2a-js #663 (2026-08-20, "canonicalizeAgentCard
+is input-form dependent — AgentCard instance input silently drops securitySchemes"), which has an
+open fix PR #664 (last touched 2026-09-09, not merged); #663's own repro is the sign/verify form
+mismatch, and the reproduction here adds the resolve-then-verify client path and the tampered-OAuth
+case. `canonicalizeAgentCard`'s `AgentCard.toJSON(AgentCard.fromJSON(card))` is unchanged from v1.0.1
+through v1.2.1 (v1.0.0 did not have it). J2 and J3 have no matching issue found. Re-check #663/#664
+right before filing J1; if #664 ships, re-run the repro and drop J1 if it no longer reproduces.
 
 | # | Title | Area | Filing |
 |---|---|---|---|

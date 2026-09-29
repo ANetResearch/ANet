@@ -1,6 +1,7 @@
 # Step 1 — a2a-go: security advisories, issues, small pull requests
 
-> **NOT SUBMITTED — requires product owner approval.**
+> **NOT SUBMITTED — on hold per product owner (more testing first).** Product-owner approval is also
+> required for each item, one by one.
 > Every block below is a separate submission and needs its own approval (docs/notes/0032 §3,
 > docs/notes/0027 G10). Nothing here has been posted anywhere.
 

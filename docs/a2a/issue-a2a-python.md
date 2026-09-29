@@ -1,17 +1,22 @@
 # Issue drafts for a2a-python (`a2a-sdk`)
 
-> **DRAFT — not submitted; to be filed only after more testing (待更多测试后再提交), and only with the
-> product owner's approval.**
+> **NOT SUBMITTED — on hold per product owner (more testing first).** Each item needs the product
+> owner's approval.
 >
 > **License: Apache-2.0**, a2a-python's own license: the text and the code in these drafts are licensed
 > under the Apache License 2.0 alone (ANet `LICENSE`, condition 3).
 
-Target: `a2a-sdk` **1.1.5** (PyPI, 2026-09-28), with httpx 0.28.1 and protobuf 7.36.2. Found while
-driving anet's local A2A interface with the SDK's client and serving anet from an SDK-built server
-(`docs/notes/0035` items 1 and 3; tests: `scripts/interop/py_client.py`, `py_backend.py`). Reproduced on
-2026-09-28. Everything else the client was asked to do — cards and their signatures, both bindings,
-blocking and non-blocking sends, streams held open seven minutes, ListTasks filters and paging, the
-a2a-x402 same-task flow — worked as the spec says.
+Target: `a2a-sdk` **1.1.5** (PyPI; still latest on 2026-09-29), with httpx 0.28.1 and protobuf 7.36.2.
+Found while driving anet's local A2A interface with the SDK's client and serving anet from an
+SDK-built server (`docs/notes/0035` items 1 and 3). Standalone reproductions, using a2a-sdk from PyPI
+and nothing from anet, are in `submissions/repro/a2a-python/` (`p1_stream_error_status.py`,
+`p2_taskupdater_submit.py`); both re-run on 2026-09-29. Everything else the client was asked to do —
+cards and their signatures, both bindings, blocking and non-blocking sends, streams held open seven
+minutes, ListTasks filters and paging, the a2a-x402 same-task flow — worked as the spec says.
+
+**Upstream check, 2026-09-29.** No open issue found for P1 or P2 (searches over a2a-python for
+stream/status/error and TaskUpdater/submit). Related, already fixed: a2a-python #409 (2025,
+`start_work` publishing a status update before the Task). Re-check before filing.
 
 | # | Title | Area | Filing |
 |---|---|---|---|
