@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -396,21 +397,37 @@ func FindRemovedSettings(raw []byte) ([]RemovedSetting, error) {
 }
 
 // findKey is where the dotted key segs sits under v: one path per match,
-// with the index of each array element it passes through.
+// with the index of each array element it passes through, spelled as the
+// file spells it. A key matches whatever its case: encoding/json reads
+// "Rotation_Grace" into the field of "rotation_grace" (it folds case like
+// strings.EqualFold), so a removed key in another case would otherwise still
+// take effect, or be ignored without a word (UX-D3).
 func findKey(v any, segs []string, at string) []string {
 	obj, ok := v.(map[string]any)
 	if !ok || len(segs) == 0 {
 		return nil
 	}
 	name, each := strings.CutSuffix(segs[0], "[]")
-	child, ok := obj[name]
-	if !ok {
-		return nil
+	var names []string
+	for k := range obj {
+		if strings.EqualFold(k, name) {
+			names = append(names, k)
+		}
 	}
-	path := name
-	if at != "" {
-		path = at + "." + name
+	slices.Sort(names)
+	var out []string
+	for _, k := range names {
+		path := k
+		if at != "" {
+			path = at + "." + k
+		}
+		out = append(out, findUnder(obj[k], segs, each, path)...)
 	}
+	return out
+}
+
+// findUnder continues findKey below the value of the key segs[0] matched.
+func findUnder(child any, segs []string, each bool, path string) []string {
 	if !each {
 		if len(segs) == 1 {
 			return []string{path}

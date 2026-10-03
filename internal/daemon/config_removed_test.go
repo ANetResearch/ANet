@@ -126,6 +126,12 @@ func TestFindRemovedSettings(t *testing.T) {
 		`{"modules": {"x402": {"voucher_url": "u", "voucher_addr": "a"}}, "accept_delegations": false, "rotation_grace": "1h"}`: {
 			"modules.x402.voucher_addr", "modules.x402.voucher_url", "accept_delegations", "rotation_grace"},
 		`{"inbound": {"public_capabilities": "not a list"}}`: nil,
+		// encoding/json reads a key in any case into its field, so a removed
+		// key is found in any case too, spelled as the file spells it.
+		`{"Rotation_Grace": "720h", "PRICING": "x"}`: {"PRICING", "Rotation_Grace"},
+		`{"Modules": {"X402": {"Voucher_Addr": ":8402"}}, "payments": {"Publish_Prices": true}}`: {
+			"payments.Publish_Prices", "Modules.X402.Voucher_Addr"},
+		`{"rotation_grace": "1h", "Rotation_grace": "2h"}`: {"Rotation_grace", "rotation_grace"},
 	} {
 		got, err := FindRemovedSettings([]byte(raw))
 		if err != nil {
@@ -216,6 +222,35 @@ func TestRemovedSettingsStopTheDaemon(t *testing.T) {
 	}
 }
 
+// The keys left to the work items that still write them (removedStillWritten)
+// may only go away. Every other test skips an exempted key, so a key added to
+// the list would start the daemon again with no test failing; this list is
+// the most it may hold. A work item that deletes its code deletes its lines
+// here and there.
+func TestRemovedStillWrittenOnlyShrinks(t *testing.T) {
+	most := map[string]string{
+		"inbound.allow_file":                  "v030-todo(UX-4)",
+		"inbound.deny_file":                   "v030-todo(UX-4)",
+		"inbound.trust_file":                  "v030-todo(UX-4)",
+		"inbound.reject_notice":               "v030-todo(UX-4)",
+		"inbound.pending":                     "v030-todo(UX-4)",
+		"payments.payees_file":                "v030-todo(PAY-12)",
+		"auto_reply.require_image":            "v030-todo(UX-9)",
+		"auto_reply.usage_hint":               "v030-todo(UX-9)",
+		"auto_reply.error_reply":              "v030-todo(UX-9)",
+		"auto_reply.poll_interval_seconds":    "v030-todo(UX-9)",
+		"auto_reply.max_auto_replies":         "v030-todo(UX-9)",
+		"modules.service.expected_uid":        "v030-todo(EXE-10)",
+		"modules.a2a.backends[].expected_uid": "v030-todo(EXE-10)",
+		"modules.anetlink.expected_uid":       "v030-todo(EXE-10)",
+	}
+	for k, p := range removedStillWritten {
+		if most[k] != p {
+			t.Errorf("%s (%s) is exempted from refusal; only the keys a work item still writes are (ux UX-D3)", k, p)
+		}
+	}
+}
+
 // Several removed keys are refused at once, so that one edit fixes them all;
 // a key still written by this binary is not among them.
 func TestRemovedSettingsAllAtOnce(t *testing.T) {
@@ -291,7 +326,7 @@ func FuzzFindRemovedSettings(f *testing.F) {
 					found = true
 				}
 			}
-			if !found || arrayIndex.ReplaceAllString(g.Path, "[]") != g.Key {
+			if !found || !strings.EqualFold(arrayIndex.ReplaceAllString(g.Path, "[]"), g.Key) {
 				t.Fatalf("path %s for key %s", g.Path, g.Key)
 			}
 		}

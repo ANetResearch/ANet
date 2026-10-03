@@ -134,6 +134,18 @@ func TestDoctorOutputForm(t *testing.T) {
 	}
 }
 
+// The ids doctor may still print outside the register (ux §5.3, each until
+// its work item replaces it) may only go away: an id added there would pass
+// UX-T9a unregistered.
+func TestDoctorIDsPendingOnlyShrinks(t *testing.T) {
+	most := map[string]string{"auto_reply.sandbox": "v030-todo(EXE-7)"}
+	for id, p := range doctorIDsPending {
+		if most[id] != p {
+			t.Errorf("%s (%s) is let through unregistered; register it in doctor_ids.go (ux §5.2)", id, p)
+		}
+	}
+}
+
 // A finding told by the reason table: its reason is the key, its detail the
 // sentence, its hint the command or "-" (UX-K4, K5, K7).
 func TestSayCheck(t *testing.T) {

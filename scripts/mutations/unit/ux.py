@@ -1,6 +1,7 @@
 # ux.py: the reason table and the user-visible surfaces (v0.3.0 ux §6.2) — mutation list for
 # scripts/mutations/unitmut.py (see its header for the format). UX-5 adds ux mutations 2, 3, 4, 9, 12, 14
-# and 17, and the removed-item half of 6 and 7 (a removed key or command that stops being refused), plus the
+# and 17, and the removed-item half of 6 and 7 (a removed key or command that stops being refused; a removed
+# key in another case; a new exemption from refusal), plus the
 # CORE-S3 check of the reason table against the wire registry. UX-19 registers the rest of ux §6.2.
 
 A2A = 'ANet:./internal/a2ashape'
@@ -65,6 +66,21 @@ MUTS = [
   edits=[('internal/daemon/config.go', '\t{"rotation_grace", "rotation_grace"},\n', '')],
   tests=[(CLI, 'TestRemovedKeysStopAnetDaemon')],
   full=[CLI, 'ANet:./internal/daemon'],
+ ),
+ dict(
+  id='ux-6c', group='UX-T6', repo='ANet',
+  desc='删除项只按原样大小写查找(encoding/json 不分大小写,Rotation_Grace 照样生效)',
+  edits=[('internal/daemon/config.go', '\t\tif strings.EqualFold(k, name) {\n', '\t\tif k == name {\n')],
+  tests=[('ANet:./internal/daemon', 'TestFindRemovedSettings')],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='ux-6x', group='UX-T6', repo='ANet',
+  desc='删除项 modules.x402.voucher_addr 加进过渡名单(不再拒绝启动,其他测试都会跳过它)',
+  edits=[('internal/daemon/config.go', '\t"inbound.allow_file":    "v030-todo(UX-4)",\n',
+          '\t"inbound.allow_file":    "v030-todo(UX-4)",\n\t"modules.x402.voucher_addr": "v030-todo(PAY-9)",\n')],
+  tests=[('ANet:./internal/daemon', 'TestRemovedStillWrittenOnlyShrinks')],
+  full=['ANet:./internal/daemon', CLI],
  ),
  dict(
   id='ux-7r', group='UX-T7', repo='ANet',
