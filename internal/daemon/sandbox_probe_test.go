@@ -24,6 +24,8 @@ type sandboxProbeRequest struct {
 	Socket       string `json:"socket"`
 	DBus         string `json:"dbus"`
 	DataDir      string `json:"data_dir"`
+	// HostTmpMarker is a file in the host's temp dir, which the sandbox's /tmp must not show.
+	HostTmpMarker string `json:"host_tmp_marker"`
 }
 
 // sandboxProbeResult is what the probe could do. Every field except WorkDirWritable must come back
@@ -34,6 +36,7 @@ type sandboxProbeResult struct {
 	SocketConnected  bool   `json:"socket_connected"`
 	DBusConnected    bool   `json:"dbus_connected"`
 	DataDirVisible   bool   `json:"data_dir_visible"`
+	HostTmpVisible   bool   `json:"host_tmp_visible"`
 	HomeEntries      int    `json:"home_entries"`
 	WorkDirWritable  bool   `json:"workdir_writable"`
 	Cwd              string `json:"cwd"`
@@ -70,6 +73,11 @@ func runSandboxProbe(arg string) int {
 		}
 		if _, err := os.Stat(req.DataDir); err == nil {
 			res.DataDirVisible = true
+		}
+		if req.HostTmpMarker != "" {
+			if _, err := os.Stat(req.HostTmpMarker); err == nil {
+				res.HostTmpVisible = true
+			}
 		}
 		if home, err := os.UserHomeDir(); err == nil {
 			if ents, err := os.ReadDir(home); err == nil {

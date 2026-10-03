@@ -148,17 +148,24 @@ func lookPathFirst(names ...string) (string, error) {
 // sandboxed agent runs under bwrap --die-with-parent in its own PID namespace, so killing bwrap ends
 // every process inside.
 func runCmd(ctx context.Context, o execInvokeOpts, bin string, args ...string) (stdout, stderr []byte, err error) {
+	// Always set, even when empty: a nil Env would make the child inherit the daemon's whole
+	// environment.
+	env := append([]string{}, o.Env...)
+	var extra []*os.File
 	if o.Sandbox != nil {
-		bin, args, err = o.Sandbox.wrap(o.WorkDir, bin, args)
+		// The sandbox runs bwrap around anet's own init; the agent's command and environment travel in
+		// the spec on fd 3, not on bwrap's command line (sandbox_linux.go).
+		l, err := o.Sandbox.command(o.WorkDir, append([]string{bin}, args...), o.Env)
 		if err != nil {
 			return nil, nil, err
 		}
+		defer l.Close()
+		bin, args, env, extra = l.Path, l.Args, l.Env, l.Files
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = o.WorkDir
-	// Always set, even when empty: a nil Env would make the child inherit the daemon's whole
-	// environment.
-	cmd.Env = append([]string{}, o.Env...)
+	cmd.Env = env
+	cmd.ExtraFiles = extra
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
