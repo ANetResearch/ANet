@@ -3,10 +3,12 @@
 # they edit. Later PAY work items append their rows here.
 #
 # M-PAY-1 and M-PAY-2 are the ANetCore liability tree (package liabtree). Their key tests are the
-# two LIAB-1 refusals the golden vector carries for them: a path whose sums were moved between two
-# levels (the root sum unchanged) and a tree whose sums wrap around 2^64.
+# LIAB-1 refusals the golden vector carries for them: a path whose sums were moved between two
+# levels (the root sum unchanged), two sibling accounts shown different splits of one parent sum
+# (which also catches a node hash over the parent's total alone), and a tree whose sums wrap
+# around 2^64.
 
-LIAB_MOVED = [('ANetCore:./liabtree', '^TestLIAB1$/^refuse_moved_sum$')]
+LIAB_MOVED = [('ANetCore:./liabtree', '^TestLIAB1$/^refuse_moved_(sum|split)$')]
 LIAB_WRAP = [('ANetCore:./liabtree', '^TestLIAB1$/^refuse_sum_wraps$')]
 
 MUTS = [
