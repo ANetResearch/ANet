@@ -8,12 +8,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/identity"
-	"github.com/ANetResearch/ANetCore/relayauth"
 
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/moduletest"
@@ -103,7 +103,7 @@ func TestEveryMutationIsSignedForItsOwnAction(t *testing.T) {
 		// The hub's own check, performed here: the signature must verify
 		// over THIS action's preimage under the caller's key history.
 		if err := identity.VerifyObject(ctrl.KEL(), body.AID, body.Seq, body.TS,
-			relayauth.Preimage(action, body.AID, body.TS), sig); err != nil {
+			[]byte("anet-relay/"+action+"/"+body.AID+"/"+strconv.FormatUint(body.TS, 10)), sig); err != nil {
 			t.Errorf("%s: the hub would reject this signature: %v", action, err)
 		}
 		seen = append(seen, action)

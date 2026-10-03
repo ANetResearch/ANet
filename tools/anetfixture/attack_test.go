@@ -65,7 +65,7 @@ func newFakeHub(t *testing.T) *fakeHub {
 	})
 	mux.HandleFunc("POST /relay/send", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		if err := h.verify(r, relayauth.ActionSend, body); err != "" {
+		if err := h.verify(r, actionSendRetired, body); err != "" {
 			h.mu.Lock()
 			h.errs = append(h.errs, err)
 			h.mu.Unlock()
@@ -292,7 +292,7 @@ func TestRelaySignOutputIsAcceptedByAWire2Hub(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := capture(t, func() error {
-		return cmdRelaySign([]string{"--home", dir, "--hub", hub.URL, "--action", relayauth.ActionSend,
+		return cmdRelaySign([]string{"--home", dir, "--hub", hub.URL, "--action", actionSendRetired,
 			"--method", "POST", "--path", "/relay/send", "--body-file", bodyFile})
 	})
 	req, err := http.NewRequest(http.MethodPost, hub.URL+"/relay/send", strings.NewReader(body))

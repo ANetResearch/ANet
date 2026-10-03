@@ -348,6 +348,10 @@ type p2pOutcome struct {
 	Error string `json:"error,omitempty"`
 }
 
+// actionSendRetired is the relay v2 send action, which relayauth no longer defines; the fixture
+// attacks the v0.2 send route with it until it sends the relay v3 way.
+const actionSendRetired = "send" // v030-todo(SS-9): send with a session MAC or a capability
+
 // postRelay sends one signed POST /relay/send.
 func postRelay(c *identity.Controller, hub, hubAID, to string, env []byte) *hubOutcome {
 	body, err := json.Marshal(hubapi.RelaySendRequest{ToAID: to, Envelope: base64.StdEncoding.EncodeToString(env)})
@@ -359,7 +363,7 @@ func postRelay(c *identity.Controller, hub, hubAID, to string, env []byte) *hubO
 		return &hubOutcome{Error: err.Error()}
 	}
 	req.Header.Set("Content-Type", "application/json")
-	for _, h := range v2Headers(c, hubAID, relayauth.ActionSend, req.Method, req.URL.RequestURI(), body) {
+	for _, h := range v2Headers(c, hubAID, actionSendRetired, req.Method, req.URL.RequestURI(), body) {
 		req.Header.Set(h[0], h[1])
 	}
 	resp, err := httpc.Do(req)

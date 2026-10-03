@@ -33,11 +33,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/module"
@@ -122,11 +122,18 @@ func (m *Module) base() string {
 // signature made for one purpose cannot be replayed against another.
 func (m *Module) sign(action string) map[string]any {
 	ts := uint64(time.Now().UnixMilli())
-	sig, seq := m.seam.Sign(relayauth.Preimage(action, m.aid, ts))
+	sig, seq := m.seam.Sign(challenge(action, m.aid, ts))
 	return map[string]any{
 		"aid": m.aid, "ts": ts, "key_state_seq": seq,
 		"sig": base64.StdEncoding.EncodeToString(sig),
 	}
+}
+
+// challenge is the bytes the hub's board verifies: the wire-1 form that relayauth no longer
+// provides, "anet-relay/" + action + "/" + aid + "/" + decimal(ts). The board is its last user.
+// v030-todo(SS-9): the board gets a registered authentication form and this goes.
+func challenge(action, aid string, ts uint64) []byte {
+	return []byte("anet-relay/" + action + "/" + aid + "/" + strconv.FormatUint(ts, 10))
 }
 
 // post sends one signed mutation and returns the card the hub reports.
