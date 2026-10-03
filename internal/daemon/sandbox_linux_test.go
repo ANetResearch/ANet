@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -378,6 +379,52 @@ func TestSandboxPlanNeverBindListIsComplete(t *testing.T) {
 	}
 }
 
+// The direct-run work root is on the never-bind list, so a sandboxed turn works, and keeps its outbox,
+// under <cache>/anet/work-sandbox; a direct turn stays under <cache>/anet/work; pruning empties both.
+func TestSandboxedTurnsWorkUnderTheSandboxRoot(t *testing.T) {
+	d := newBareDaemon(t)
+	const aid = "EaidSandboxRoot00001"
+	for _, tc := range []struct {
+		sandbox *sandboxPlan
+		root    string
+	}{{&sandboxPlan{Bwrap: "/usr/bin/bwrap"}, execSandboxWorkRoot()}, {nil, execWorkRoot()}} {
+		r := &execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", WorkDir: "/configured/for/direct"},
+			dataDir: d.layout.Root, layout: d.layout, sandbox: tc.sandbox, aid: aid}
+		if tc.sandbox == nil {
+			r.cfg.WorkDir = ""
+		}
+		o, err := r.baseOpts(replyContext{InteractionID: "ix-root"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := filepath.Join(tc.root, aidShort(aid), "ix-root"); o.WorkDir != want {
+			t.Errorf("sandboxed %v: work dir %s, want %s", tc.sandbox != nil, o.WorkDir, want)
+		}
+		ob, cleanup, err := d.newExecOutbox("ix-root", tc.sandbox != nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !pathWithin(ob, filepath.Join(tc.root, aidShort(d.AID()))) {
+			t.Errorf("sandboxed %v: outbox %s is not under %s", tc.sandbox != nil, ob, tc.root)
+		}
+		cleanup()
+	}
+	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
+		if err := os.MkdirAll(filepath.Join(root, aidShort(aid), "ix-old"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pruneExecWorkDirs(aid, map[string]bool{"ix-root": true})
+	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
+		if _, err := os.Stat(filepath.Join(root, aidShort(aid), "ix-old")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("an inactive interaction's work dir under %s survived pruning: %v", root, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, aidShort(aid), "ix-root")); err != nil {
+			t.Errorf("an active interaction's work dir under %s was pruned: %v", root, err)
+		}
+	}
+}
+
 // Without bubblewrap the runner fails closed: errSandboxUnavailable, and the agent never runs.
 func TestSandboxFailsClosedWithoutBwrap(t *testing.T) {
 	d := newBareDaemon(t)
@@ -464,6 +511,10 @@ func TestSandboxProbeFailureCodes(t *testing.T) {
 	all := sandboxCheckReport{LoUp: true, HostTCPRefused: true, AbstractRefused: true, KeyctlEPERM: true, UsernsRefused: true}
 	noLo, noKeyctl, noUserns := all, all, all
 	noLo.LoUp, noKeyctl.KeyctlEPERM, noUserns.UsernsRefused = false, false, false
+	// A probe that reaches the host's loopback port but reports all five items: the daemon counts the
+	// connection on its own side and does not take the report's word for it.
+	reachHost := `addr=$(sed -n 's/.*"tcp":"\([^"]*\)".*/\1/p' "$(dirname "$0")/spec"); "` + selfExe(t) + `" ` +
+		sandboxTestAgentArg + ` bridge "$addr" >/dev/null; ` + reportJSON(all)
 	restricted := filepath.Join(t.TempDir(), "restrict")
 	defer func(p string) { apparmorRestrictUsernsPath = p }(apparmorRestrictUsernsPath)
 	for _, tc := range []struct {
@@ -479,6 +530,7 @@ func TestSandboxProbeFailureCodes(t *testing.T) {
 		{"lo-down", "0", reportJSON(noLo), sandboxCodeNetnsFailed},
 		{"keyctl", "0", reportJSON(noKeyctl), sandboxCodeSeccompFailed},
 		{"userns", "0", reportJSON(noUserns), sandboxCodeSeccompFailed},
+		{"host-reached", "0", reachHost, sandboxCodeNetnsFailed},
 		{"ok", "1", reportJSON(all), ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -522,6 +574,36 @@ func TestSandboxProbeFailureCodes(t *testing.T) {
 				t.Errorf("probe spec %s: %v", specRaw, err)
 			}
 		})
+	}
+}
+
+// Item 5 passes only when a plain child starts and both ways of making a user namespace fail: a probe
+// that cannot start any child has not shown that user namespaces are refused.
+func TestSandboxProbeUsernsCheckNeedsAChildThatStarts(t *testing.T) {
+	refusedErr := errors.New("fork/exec /run/anet/init: operation not permitted")
+	for _, tc := range []struct {
+		name                  string
+		plain, unshare, clone error
+		want                  bool
+		detail                string
+	}{
+		{"refused", nil, refusedErr, refusedErr, true, "operation not permitted"},
+		{"no child starts", refusedErr, refusedErr, refusedErr, false, "plain child"},
+		{"unshare works", nil, nil, refusedErr, false, "unshare succeeded"},
+		{"clone works", nil, refusedErr, nil, false, "clone succeeded"},
+	} {
+		got, detail := checkSandboxUserns(func(attr *syscall.SysProcAttr) error {
+			switch {
+			case attr.Unshareflags&syscall.CLONE_NEWUSER != 0:
+				return tc.unshare
+			case attr.Cloneflags&syscall.CLONE_NEWUSER != 0:
+				return tc.clone
+			}
+			return tc.plain
+		})
+		if got != tc.want || !strings.Contains(detail, tc.detail) {
+			t.Errorf("%s: refused %v (%q), want %v (%q)", tc.name, got, detail, tc.want, tc.detail)
+		}
 	}
 }
 

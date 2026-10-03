@@ -366,21 +366,31 @@ func runSandboxChecks(spec sandboxCheckSpec) sandboxCheckReport {
 		r.Detail["keyctl"] = e.Error()
 	}
 	// 5. A new user namespace, by unshare(2) in a single-threaded child and by clone(2).
-	unshareErr := trySandboxUserns(&syscall.SysProcAttr{Unshareflags: syscall.CLONE_NEWUSER})
-	cloneErr := trySandboxUserns(&syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWUSER})
-	r.UsernsRefused = unshareErr != nil && cloneErr != nil
-	if unshareErr == nil {
-		r.Detail["userns"] = "unshare succeeded"
-	} else if cloneErr == nil {
-		r.Detail["userns"] = "clone succeeded"
-	} else {
-		r.Detail["userns"] = unshareErr.Error()
-	}
+	r.UsernsRefused, r.Detail["userns"] = checkSandboxUserns(trySandboxUserns)
 	return r
 }
 
+// checkSandboxUserns is item 5 of the probe: start reports whether a child started with attr ran. A plain
+// child must run first: when no child can start at all, the two refusals below say nothing about user
+// namespaces, and the item fails instead of passing on them.
+func checkSandboxUserns(start func(attr *syscall.SysProcAttr) error) (refused bool, detail string) {
+	if err := start(&syscall.SysProcAttr{}); err != nil {
+		return false, "a plain child did not start: " + err.Error()
+	}
+	unshareErr := start(&syscall.SysProcAttr{Unshareflags: syscall.CLONE_NEWUSER})
+	cloneErr := start(&syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWUSER})
+	switch {
+	case unshareErr == nil:
+		return false, "unshare succeeded"
+	case cloneErr == nil:
+		return false, "clone succeeded"
+	}
+	return true, unshareErr.Error()
+}
+
 // trySandboxUserns starts this binary as `__sandbox-probe --userns-child` (which exits 0 at once) with the
-// namespace flags in attr. nil means the child ran, so the user namespace was created.
+// namespace flags in attr. nil means the child ran, so the user namespace (if attr asks for one) was
+// created.
 func trySandboxUserns(attr *syscall.SysProcAttr) error {
 	self, err := os.Executable()
 	if err != nil {

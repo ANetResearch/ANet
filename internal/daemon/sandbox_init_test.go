@@ -341,13 +341,15 @@ func TestSandboxInitPassesTheAgentsExitStatus(t *testing.T) {
 
 // SB-5: SIGTERM and SIGINT sent to init reach the agent's whole process group: a shell and the sleep it
 // started both end on SIGTERM, and init reports the shell's death as 143. (A shell without job control
-// starts background commands with SIGINT ignored, so SIGINT is shown on a foreground sleep: 130.)
+// starts background commands with SIGINT ignored, so SIGINT is shown on a foreground sleep: 130.) The
+// background sleep does not hold init's stdout or stderr: if it did, reading them would wait for it to end
+// by itself, and a signal sent to the shell alone would pass.
 func TestSandboxInitForwardsSignalsToTheAgentsGroup(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("reads /proc")
 	}
 	for sig, script := range map[syscall.Signal]string{
-		syscall.SIGTERM: "sleep 60 & echo $!; wait",
+		syscall.SIGTERM: "sleep 60 >/dev/null 2>&1 & echo $!; wait",
 		syscall.SIGINT:  "echo $$; exec sleep 60",
 	} {
 		spec := initSpecFor(t, "/bin/sh", "-c", script)
