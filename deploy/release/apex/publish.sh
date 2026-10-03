@@ -4,7 +4,9 @@
 #
 #   publish.sh --dist DIR [--root R] [--allowed-signers F]
 #       a build-release.sh dist/: install.sh and install.sh.sig at R,
-#       release.json(.sig), VERSION, checksums.txt and *.gz under R/dl/
+#       release.json(.sig), VERSION, checksums.txt and *.gz under R/dl/.
+#       A root that already serves site.json takes it only with --web in
+#       the same run, which brings site.json's "version" along.
 #   publish.sh --web DIR [--root R]
 #       SKILL.md, llms.txt and site.json from DIR (this directory of the
 #       repository). The served site.json gets "version" here: the release
@@ -59,6 +61,11 @@ put() {
 # --- checks: nothing served changes before all of them pass ----------------
 
 if [ -n "$DIST" ]; then
+  # A new dl/ alone would leave site.json naming a release dl/ no longer
+  # serves (the old one is deleted when the new one goes in).
+  if [ -z "$WEB" ] && [ -e "$ROOT/site.json" ]; then
+    die "$ROOT/site.json names the release dl/ serves now: publish the text in the same run (add --web deploy/release/apex) so it names this one"
+  fi
   for f in release.json release.json.sig VERSION checksums.txt install.sh install.sh.sig; do
     [ -f "$DIST/$f" ] || die "$DIST/$f is missing"
   done

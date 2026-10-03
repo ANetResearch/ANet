@@ -633,6 +633,45 @@ func TestPublishWritesSiteJSON(t *testing.T) {
 		}
 		apexSameSnapshot(t, "a refused --dist --web", before, apexSnapshot(t, root))
 	})
+
+	// The old dl/ is deleted when a new one goes in, so a dist alone would
+	// leave site.json naming a release nobody can download any more. A root
+	// with no site.json (the hub site's) still takes a dist alone.
+	t.Run("a dist alone over a published site.json is refused", func(t *testing.T) {
+		root := t.TempDir()
+		apexWriteFile(t, filepath.Join(root, "dl", "VERSION"), "1.0.0\n")
+		if out, err := apexRunPublish(t, "--web", apexDir, "--root", root); err != nil {
+			t.Fatalf("publish.sh --web: %v\n%s", err, out)
+		}
+		dist := apexFakeDist(t, "9.9.9")
+		before := apexSnapshot(t, root)
+		out, err := apexRunPublish(t, "--dist", dist, "--root", root)
+		if err == nil {
+			t.Fatalf("publish.sh --dist replaced dl/ under a site.json that names 1.0.0:\n%s", out)
+		}
+		if !strings.Contains(out, "--web") {
+			t.Errorf("the refusal does not say what to do (--web): %s", out)
+		}
+		apexSameSnapshot(t, "a refused --dist", before, apexSnapshot(t, root))
+		// What the refusal says to do works.
+		if out, err := apexRunPublish(t, "--dist", dist, "--web", apexDir, "--root", root); err != nil {
+			t.Fatalf("publish.sh --dist --web over a published site.json: %v\n%s", err, out)
+		}
+		if got, want := apexSnapshot(t, root)["site.json"], apexServedSite(t, "9.9.9"); got != want {
+			t.Errorf("served site.json after --dist --web:\n%s\nwant:\n%s", got, want)
+		}
+
+		hub := t.TempDir()
+		if out, err := apexRunPublish(t, "--dist", dist, "--root", hub); err != nil {
+			t.Fatalf("publish.sh --dist into a root without site.json: %v\n%s", err, out)
+		}
+		if got := apexSnapshot(t, hub)["dl/VERSION"]; got != "9.9.9\n" {
+			t.Errorf("dl/VERSION = %q after --dist, want 9.9.9", got)
+		}
+		if _, ok := apexSnapshot(t, hub)["site.json"]; ok {
+			t.Error("publish.sh --dist wrote a site.json")
+		}
+	})
 }
 
 // --- nginx ----------------------------------------------------------------------

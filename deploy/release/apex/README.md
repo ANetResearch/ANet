@@ -33,7 +33,8 @@ agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网�
 
 - **来源。** 本目录的 `site.json` 就是上面的文件去掉 `version`;第一行必须恰为 `{"v": 1,`。`publish.sh --web`
   把 `"version"` 插在这一行之后,值取发布根 `dl/VERSION`(同一次运行带 `--dist` 时取该 dist 的 `VERSION`)。
-  所以官网写出的版本永远是 `/dl/` 正在提供、能下载到的版本,发版时不需要手改。
+  所以官网写出的版本永远是 `/dl/` 正在提供、能下载到的版本,发版时不需要手改。已有 `site.json` 的发布根上,
+  `--dist` 必须与 `--web` 同一次运行(单独 `--dist` 会被拒绝),否则 `site.json` 会留在已被删除的旧版本上。
 - **一致性由测试保证**(`cmd/anet/apexdocs_test.go`):
   - `TestSiteJSONInstallMatchesSkill`:`install` 与 `SKILL.md` 里的安装命令代码块逐字相同,且是固定 https 与 TLS 1.2 的签名安装器;
   - `TestSiteJSONAgentHintMatchesSkill`:`agent_hint` 是原因表的 `agent_hint.join`(英文),并且 `SKILL.md` 里有同一句;
@@ -42,12 +43,15 @@ agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网�
 - **改文案。** 改 `SKILL.md` 的安装命令或那句提示时,同一提交里改 `site.json`(测试会指出不一致)。
   不要在服务器上直接编辑发布根里的文件:下一次发布会覆盖它,而且它没有经过上面的测试。
 - **官网怎么用。** 官网在运行时取 `/site.json`;取不到或解析失败时只显示指向 `skill_url` 的链接,不回退到内置文案。
-  各字段只能作为文本显示(不得当作 HTML 插入页面)。`/site.json` 与官网同源,不需要 CORS 头。
+  各字段只能作为文本显示(不得当作 HTML 插入页面);`skill_url` 只在以 `https://agentnetwork.org.cn/` 开头时
+  用作链接地址。`/site.json` 与官网同源,不需要 CORS 头。
 
 ## 3. 发布
 
 前提:发布根已存在(`install -d -m 0755 /var/www/anet-release`);`nginx-locations.conf` 的 location 已放进
 官网站点的 443 server 块,`nginx -t` 通过后 reload。用通过了 `go test ./cmd/anet` 的提交发布。
+发布根及其中的文件只能由运行 `publish.sh` 的账户写入,官网的部署账户与 nginx 的工作进程都不能写:
+"官网部署不会覆盖安装器与这些文本"靠的是这条权限,而不是约定。
 
 ```sh
 # 发版:下载文件、安装器与文本一起
@@ -63,7 +67,8 @@ deploy/release/apex/publish.sh --dist dist/ --allowed-signers internal/release/a
 
 全部检查(文件齐全、签名、`site.json` 能加版本、`.gz` 与 `checksums.txt` 相符)在改动任何已提供的文件之前完成;
 任一项不过,脚本用一句话说明原因与下一步并退出,发布根不变。每个文件各自以一次改名替换,`dl/` 整个目录一次改名换入。
-发布根里还没有任何发布时,`--web` 拒绝并提示先带上 `--dist`。
+发布根里还没有任何发布时,`--web` 拒绝并提示先带上 `--dist`;发布根里已有 `site.json` 时,单独的 `--dist`
+拒绝并提示同时带上 `--web`(hub 站点的公开目录没有 `site.json`,不受影响)。
 
 ## 4. 发布后核对
 
@@ -98,6 +103,7 @@ curl -sS  https://agentnetwork.org.cn/SKILL.md | cmp - deploy/release/apex/SKILL
 ## 6. 回滚
 
 - 文本与 `site.json`:从上一个发布用的提交再运行一次 `publish.sh --web`。
-- 下载文件与安装器:用上一个版本的 `dist/` 再运行一次 `publish.sh --dist`。
+- 下载文件与安装器:在上一个发布用的提交里,用该版本的 `dist/` 运行一次 `publish.sh --dist <该 dist> --web deploy/release/apex`
+  (`site.json` 随之回到该版本);hub 站点的公开目录只需 `--dist`。
 - nginx:用修改前备份的站点配置覆盖回去,`nginx -t` 通过后 reload。`/site.json` 不可用时官网只显示 `SKILL.md` 链接,
   不影响安装器与下载。
