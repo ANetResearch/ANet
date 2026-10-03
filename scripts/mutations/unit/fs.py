@@ -1,8 +1,9 @@
 # fs.py: forward secrecy and local retention (v0.3.0 FS §7.3) — mutation list for scripts/mutations/unitmut.py
 # (see its header for the format). The numbered ids are the rows of FS §7.3; the FS packages append theirs.
-# FS-1 adds 22 and fs1-a to fs1-g, which hold the ANetCore key set v2 tests to the rules they check: each
+# FS-1 adds 22 and fs1-a to fs1-h, which hold the ANetCore key set v2 tests to the rules they check: each
 # undoes one rule of the key set (the type, the number of keys, the validity bound, the mailbox key, the
-# strict decoding, the time rule at signing) and must turn the rule's tests red.
+# strict decoding, the type read before the other keys, the time rule at signing) and must turn the rule's
+# tests red.
 
 SEAL = 'ANetCore:./seal'
 IDENTITY = 'ANetCore:./identity'
@@ -73,6 +74,14 @@ MUTS = [
   desc='钥集用宽松解码(嵌套对象的未登记键被丢弃而不是拒收)',
   edits=[('seal/enckeys.go', '\tif err := coredet.UnmarshalStrict(b, &s); err != nil {\n\t\treturn nil, failWrap(ReasonBadKeySet, err, "decode")\n',
           '\tif err := coredet.Unmarshal(b, &s); err != nil {\n\t\treturn nil, failWrap(ReasonBadKeySet, err, "decode")\n')],
+  tests=[(SEAL, KEYSET_TESTS)],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs1-h', group='FS-C4', repo='ANetCore',
+  desc='解码时不先看类型(v0.2 钥集报"缺 mbox"而不是"类型不符")',
+  edits=[('seal/enckeys.go', '\t\tif err := coredet.Unmarshal(t, &typ); err != nil || typ != EncKeySetType {\n',
+          '\t\tif err := coredet.Unmarshal(t, &typ); err != nil && false {\n')],
   tests=[(SEAL, KEYSET_TESTS)],
   full=[SEAL],
  ),
