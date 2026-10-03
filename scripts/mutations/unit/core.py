@@ -3,6 +3,8 @@
 # made once in each of the three repositories: change a key number in a keyasint struct, add an
 # unregistered key, change a label by one character, reuse a retired key, add an unregistered
 # relayauth action, and sign with an identity key outside the registered signers (CORE-L9).
+# ANetCore and ANet also hand the signing method on as a method value from an unlisted function
+# (the daemon passes d.self.Sign to seal.Seal and the key ring this way): that is signing too.
 #
 # ANetHub has no keyasint struct of its own, so its first two mutations add one bound to a
 # registered object with a key the object does not assign.
@@ -31,6 +33,19 @@ func zzMutSign(c *identity.Controller) []byte {
 	sig, _ := c.Sign([]byte("unregistered"))
 	return sig
 }
+'''
+
+SIGNER_VALUE = '''package %s
+
+import "github.com/ANetResearch/ANetCore/identity"
+
+func zzMutApply(sign func([]byte) ([]byte, uint64)) []byte {
+	sig, _ := sign([]byte("unregistered"))
+	return sig
+}
+
+// zzMutSignValue hands the identity signing method on from a function the registry does not list.
+func zzMutSignValue(c *identity.Controller) []byte { return zzMutApply(c.Sign) }
 '''
 
 BOUND = '''package aghub
@@ -65,6 +80,9 @@ MUTS = [
  dict(id='core-s8-6', group='CORE-S8', repo='ANetCore', desc='signers 段之外新增身份钥签名调用点',
   edits=[('payment/zz_mut_signer.go', None, SIGNER % 'payment')],
   tests=CORE_T, full=['ANetCore:./wire']),
+ dict(id='core-s8-7', group='CORE-S8', repo='ANetCore', desc='signers 段之外把签名方法作为方法值交出',
+  edits=[('payment/zz_mut_signer_value.go', None, SIGNER_VALUE % 'payment')],
+  tests=CORE_T, full=['ANetCore:./wire']),
  # ---- ANet
  dict(id='anet-s8-1', group='CORE-S8', repo='ANet', desc='encKeyFile 的 signed 改用键 6',
   edits=[('internal/daemon/enckeys.go', '\tSigned []byte `cbor:"5,keyasint,omitempty"`', '\tSigned []byte `cbor:"6,keyasint,omitempty"`')],
@@ -83,6 +101,9 @@ MUTS = [
   tests=ANET_T, full=['ANet:./internal/daemon']),
  dict(id='anet-s8-6', group='CORE-S8', repo='ANet', desc='signers 段之外新增身份钥签名调用点',
   edits=[('module/org/zz_mut_signer.go', None, SIGNER % 'org')],
+  tests=ANET_T, full=['ANet:./internal/daemon']),
+ dict(id='anet-s8-7', group='CORE-S8', repo='ANet', desc='signers 段之外把签名方法作为方法值交出',
+  edits=[('module/org/zz_mut_signer_value.go', None, SIGNER_VALUE % 'org')],
   tests=ANET_T, full=['ANet:./internal/daemon']),
  # ---- ANetHub
  dict(id='hub-s8-1', group='CORE-S8', repo='ANetHub', desc='绑定 Attachment 的结构体把 cid 放到键 5(data 的键)',
