@@ -57,8 +57,16 @@ type doctorCheck struct {
 // is the key's sentence, the reason its code and the hint its next step
 // (UX-K4, K7), in the language of this process (core G13).
 func sayCheck(id, status, key string, args a2ashape.Args, lang a2ashape.Language) doctorCheck {
-	return doctorCheck{ID: id, Status: status} // v030-todo(UX-5)
+	c := doctorCheck{ID: id, Status: status, Reason: key, Detail: a2ashape.Sentence(key, lang, args),
+		Hint: a2ashape.Next(key, lang, args)}
+	if c.Hint == "" && status != stOK {
+		c.Hint = noHint
+	}
+	return c
 }
+
+// noHint is the hint of a finding whose sentence has no command (UX-K4).
+const noHint = "-"
 
 type fileState struct {
 	Path    string `json:"path"`
@@ -227,6 +235,9 @@ type doctorEnv struct {
 	// listenerUIDs returns the uids listening on an address, from the
 	// socket table (nil: not checked; see internal/localpeer).
 	listenerUIDs func(addr string) ([]int, error)
+	// status reads GET /status from the running daemon (UX-K2; nil: not
+	// read).
+	status func(addr, tokenPath string) (map[string]any, error)
 }
 
 func defaultDoctorEnv() doctorEnv {
@@ -235,7 +246,8 @@ func defaultDoctorEnv() doctorEnv {
 	if hh == "" && home != "" {
 		hh = filepath.Join(home, ".hermes")
 	}
-	return doctorEnv{home: home, hermesHome: hh, running: daemonAnswersAt, listenerUIDs: localpeer.ListenerUIDs}
+	return doctorEnv{home: home, hermesHome: hh, running: daemonAnswersAt, listenerUIDs: localpeer.ListenerUIDs,
+		status: daemonStatusAt}
 }
 
 // env reads an environment variable; HERMES_HOME is the one doctor
@@ -281,6 +293,31 @@ func daemonAnswersAt(addr, tokenPath string) bool {
 	c := &client{base: "http://" + addr, token: strings.TrimSpace(string(tb)), timeout: 1500 * time.Millisecond}
 	_, code, e := c.fetch("/status", nil)
 	return e == nil && code == 200
+}
+
+// daemonStatusAt is GET /status at the address doctor read, with the token
+// of tokenPath (daemonAnswersAt's rules).
+func daemonStatusAt(addr, tokenPath string) (map[string]any, error) {
+	if err := loopguard.CheckLoopbackAddr(addr); err != nil {
+		return nil, err
+	}
+	tb, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return nil, err
+	}
+	c := &client{base: "http://" + addr, token: strings.TrimSpace(string(tb)), timeout: 1500 * time.Millisecond}
+	body, code, err := c.fetch("/status", nil)
+	if err != nil {
+		return nil, err
+	}
+	if code != 200 {
+		return nil, fmt.Errorf("GET /status: %d", code)
+	}
+	var st map[string]any
+	if err := json.Unmarshal(body, &st); err != nil {
+		return nil, err
+	}
+	return st, nil
 }
 
 // officialCheck reports the official-agent manifest this binary carries:
@@ -361,6 +398,12 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	add := func(id, status, detail, hint string) {
 		rep.Checks = append(rep.Checks, doctorCheck{ID: id, Status: status, Detail: detail, Hint: hint})
 	}
+	// Findings told by a sentence of the reason table (UX-K5, K7), in the
+	// language of this process (core G13; doctor runs without the daemon).
+	lang := a2ashape.LangFrom(env.env)
+	say := func(id, status, key string, args a2ashape.Args) {
+		rep.Checks = append(rep.Checks, sayCheck(id, status, key, args, lang))
+	}
 
 	rep.Version.Version, rep.Version.Commit, rep.Version.Built = daemon.Version, daemon.BuildCommit, daemon.BuildAt
 	rc := releaseCheck(env)
@@ -403,6 +446,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	default:
 		add("config", stOK, st.ConfigPath, "")
 	}
+	removedConfigCheck(say, st.ConfigPath, env)
 
 	// Identity.
 	rep.Identity.AID = daemon.ReadIdentityAID(layout)
@@ -647,12 +691,50 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	}
 
 	rep.OK = true
-	for _, c := range rep.Checks {
+	for i, c := range rep.Checks {
 		if c.Status == stFail {
 			rep.OK = false
 		}
+		// UX-K4: every finding that is not ok says what to do, "-" when
+		// there is nothing to run.
+		if c.Status != stOK && c.Hint == "" {
+			rep.Checks[i].Hint = noHint
+		}
 	}
 	return rep, nil
+}
+
+// removedConfigCheck is config.removed (ux §5.2, §2.3): each removed key in
+// config.json fails, as it stops the daemon, and ANET_INVITE in the
+// environment warns (it is ignored). Shown only when there is one. The keys
+// a work item still writes itself are left to it (daemon.RemovedSetting).
+func removedConfigCheck(say func(id, status, key string, args a2ashape.Args), path string, env doctorEnv) {
+	if raw, err := os.ReadFile(path); err == nil {
+		found, _ := daemon.FindRemovedSettings(raw) // a file that does not parse fails the config check
+		for _, f := range found {
+			if f.Pending == "" {
+				r := daemon.RemovedSettingRefusal(f)
+				say("config.removed", stFail, r.Key, r.Args)
+			}
+		}
+	}
+	if env.env(daemon.InviteEnv) != "" {
+		say("config.removed", stWarn, "config_key_removed", a2ashape.Args{"key": daemon.InviteEnv, "instead": "invite_env"})
+	}
+}
+
+// runtimeStatus is GET /status of the running daemon, for a check that
+// needs what only the daemon knows (UX-K2). When the daemon does not answer,
+// the check is unknown with doctor.daemon_down, and ok is false.
+func runtimeStatus(env doctorEnv, rep *doctorReport, say func(id, status, key string, args a2ashape.Args),
+	id string, layout daemon.Layout) (status map[string]any, ok bool) {
+	if rep.Control.Running && env.status != nil {
+		if st, err := env.status(rep.Control.Addr, layout.ControlTokenPath()); err == nil {
+			return st, true
+		}
+	}
+	say(id, stUnknown, doctorDaemonDown, nil)
+	return nil, false
 }
 
 func tokenCheck(add func(id, status, detail, hint string), id string, fs fileState) {
@@ -708,12 +790,12 @@ func urlPort(raw string) string {
 
 // renderDoctor prints the report for a person.
 func renderDoctor(w io.Writer, rep *doctorReport) {
-	mark := map[string]string{stOK: "✓", stInfo: "·", stWarn: "!", stFail: "✗", stUnknown: "?"}
 	fmt.Fprintf(w, "anet doctor — %s\n\n", rep.DataDir)
 	for _, c := range rep.Checks {
-		fmt.Fprintf(w, "  %s %-20s %s\n", mark[c.Status], c.ID, c.Detail)
-		if c.Hint != "" && c.Status != stOK {
-			fmt.Fprintf(w, "    %-20s → %s\n", "", c.Hint)
+		// UX-K5: "[warn] identity.witness  <sentence>", then "  → <hint>".
+		fmt.Fprintf(w, "[%s] %s  %s\n", c.Status, c.ID, c.Detail)
+		if c.Hint != "" && c.Hint != noHint && c.Status != stOK {
+			fmt.Fprintf(w, "  → %s\n", c.Hint)
 		}
 	}
 	fmt.Fprintln(w, "\nSI-5 (the safety defaults of a fresh install):")
@@ -725,6 +807,6 @@ func renderDoctor(w io.Writer, rep *doctorReport) {
 		fmt.Fprintf(w, "  %s %-28s %s\n", m, k, compactJSON(rep.SI5[k]))
 	}
 	if !rep.OK {
-		fmt.Fprintln(w, "\nA check failed (✗); see above.")
+		fmt.Fprintln(w, "\nA check failed ([fail]); see above.")
 	}
 }
