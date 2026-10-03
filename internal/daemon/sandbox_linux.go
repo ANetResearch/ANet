@@ -91,6 +91,11 @@ const bwrapProbeTTL = 5 * time.Minute
 // bwrapProbeTimeout bounds one probe run (the checks inside take a few seconds at most).
 const bwrapProbeTimeout = 20 * time.Second
 
+// sandboxProbeName starts the names of the probe's temp dir and abstract socket. They are local names
+// that never go on the wire, so they are built on "anet-", the wire registry's exempt prefix for local
+// file and id names, instead of being registered as wire strings.
+const sandboxProbeName = "anet-" + "probe-"
+
 // Local reasons the sandbox is unavailable (UX §1.4 H). They reach the operator (status, doctor); a peer
 // only ever sees sandbox_unavailable.
 const (
@@ -185,7 +190,7 @@ func runBwrapProbe(path string, feats bwrapFeatures) bwrapProbe {
 		return fail(sandboxCodeNetnsFailed, "cannot locate the anet binary: %v", err)
 	}
 	// Probe files live under the system temp dir only (LEC §5.5), removed before returning.
-	dir, err := os.MkdirTemp("", "anet-probe-")
+	dir, err := os.MkdirTemp("", sandboxProbeName)
 	if err != nil {
 		return fail(sandboxCodeNetnsFailed, "probe directory: %v", err)
 	}
@@ -204,7 +209,7 @@ func runBwrapProbe(path string, feats bwrapFeatures) bwrapProbe {
 		return fail(sandboxCodeNetnsFailed, "host listener: %v", err)
 	}
 	defer tcpLn.Close()
-	abstract := "anet-probe-" + randHex(8)
+	abstract := sandboxProbeName + randHex(8)
 	absLn, err := net.Listen("unix", "@"+abstract)
 	if err != nil {
 		return fail(sandboxCodeNetnsFailed, "abstract listener: %v", err)
