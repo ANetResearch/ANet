@@ -354,16 +354,16 @@ MUTS = [
   id='fx15-1', group='F15', repo='ANetCore',
   desc='VerifyResultForRequest 不比回执的 RequestCID',
   edits=[
-   ('delegation/delegation.go', '\tif requestCID != "" && rc.RequestCID != requestCID {', '\tif false && requestCID != "" && rc.RequestCID != requestCID {'),
+   ('delegation/delegation.go', '\tif rc.RequestCID != requestCID {', '\tif false && rc.RequestCID != requestCID {'),
   ],
-  tests=[('ANetCore:./delegation', 'TestVerifyResultForRequestBindsTheRequest'), ('ANetCore:./golden', 'TestVEC_RESULT_2_RequestBinding')],
+  tests=[('ANetCore:./delegation', 'TestAResultMustBeTheAnswerToTheRequestItClaims'), ('ANetCore:./golden', 'TestVEC_RESULT_2_RequestBinding')],
   full=['ANetCore:./delegation', 'ANetCore:./golden'],
  ),
  dict(
   id='fx15-2', group='F15', repo='ANet',
   desc='requester 收结果时不传 request CID',
   edits=[
-   ('internal/daemon/delegation.go', 'delegation.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts)', 'delegation.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, "", m.ts)'),
+   ('internal/daemon/delegation.go', 'evidence.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts)', 'evidence.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, "", m.ts)'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAReceiptForAnotherRequestIsRefused')],
   full=['ANet:./internal/daemon'],

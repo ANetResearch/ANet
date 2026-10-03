@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/ANetResearch/ANet/internal/voucherv1" // v030-todo(PAY-9): the voucher goes with the redemption gate
 	"log"
 	"math"
 	"net"
@@ -202,7 +203,7 @@ func (m *Module) RedeemVoucher(ctx context.Context, req redeemRequest) (map[stri
 	if err != nil || len(raw) == 0 {
 		return refuse(http.StatusPaymentRequired, "voucher missing or not base64", nil)
 	}
-	v, err := payment.UnmarshalVoucher(raw)
+	v, err := voucherv1.UnmarshalVoucher(raw)
 	if err != nil {
 		return refuse(http.StatusPaymentRequired, "voucher malformed: "+err.Error(), nil)
 	}

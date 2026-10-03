@@ -585,6 +585,7 @@ func TestEverySigningSurfaceIsHeldToTheSpendingPolicy(t *testing.T) {
 // task_nonce_required like any other priced call — not quoted, and its
 // payment not settled.
 func TestAPrepaidCallWithoutANonceIsRejectedWhenBusy(t *testing.T) {
+	t.Skip("v030-todo(PAY-9)") // prepayment (DelegateReq key 6) is retired with the gateway
 	work := &meteredWork{price: 10, gate: make(chan struct{}), started: make(chan struct{})}
 	defer close(work.gate)
 	hub, req, prov := paidPair(t, work)
@@ -600,7 +601,7 @@ func TestAPrepaidCallWithoutANonceIsRejectedWhenBusy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dr.Payment = raw
+	_ = raw // v030-todo(PAY-9): nothing carries a prepayment any more
 	body, err := dr.Marshal()
 	if err != nil {
 		t.Fatal(err)

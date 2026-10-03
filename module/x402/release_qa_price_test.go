@@ -5,6 +5,7 @@ package x402
 import (
 	"context"
 	"encoding/base64"
+	"github.com/ANetResearch/ANet/internal/voucherv1" // v030-todo(PAY-9): the voucher goes with the redemption gate
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ import (
 func mintVoucherAmount(t *testing.T, signer *identity.Controller,
 	payTo, capID, payer, nonce, network string, amount uint64) string {
 	t.Helper()
-	v := &payment.Voucher{
+	v := &voucherv1.Voucher{
 		AuthID: "auth-" + nonce, Payer: payer, PayTo: payTo, Capability: capID,
 		Amount: amount, Network: network,
 		NotAfter: time.Now().Add(time.Minute).UnixMilli(), Nonce: nonce,

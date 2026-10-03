@@ -18,10 +18,10 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
@@ -320,7 +320,7 @@ func FuzzReceiveInner(f *testing.F) {
 			}
 			sealType = seal.TypeDelegate
 			body, err = (&delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, InteractionID: id,
-				Attachments: atts, Payment: deliverable, ContextID: msgID}).Marshal()
+				Attachments: atts, ContextID: msgID}).Marshal()
 		}
 		if err != nil {
 			return // a body the sender could not have encoded either
