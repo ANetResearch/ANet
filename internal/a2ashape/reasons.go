@@ -301,17 +301,24 @@ func ReasonCode(key string) string {
 // refused (refused). A placeholder with no value never shows as a
 // placeholder or as empty brackets (UX-G8, UX-T4).
 func Sentence(key string, lang Language, args Args) string {
-	r, ok := Lookup(key)
-	if !ok {
-		code, _, _ := strings.Cut(key, ".")
-		if !codeRe.MatchString(code) {
-			r, _ = Lookup("refused")
-			return render(r, "refused", lang, nil)
-		}
-		r, _ = Lookup("unknown_code")
-		key, args = "unknown_code", Args{"code": code}
+	shown, args := shownKey(key, args)
+	r, _ := Lookup(shown)
+	return render(r, shown, lang, args)
+}
+
+// shownKey is the key whose sentence Sentence shows for key, with the
+// arguments it shows it with: key itself when the table has it; for a code
+// the table lacks, unknown_code with that code (UX-G9); for anything else,
+// refused, with nothing of key in it.
+func shownKey(key string, args Args) (string, Args) {
+	if _, ok := Lookup(key); ok {
+		return key, args
 	}
-	return render(r, key, lang, args)
+	code, _, _ := strings.Cut(key, ".")
+	if !codeRe.MatchString(code) {
+		return "refused", nil
+	}
+	return "unknown_code", Args{"code": code}
 }
 
 // Next is a key's next step in a language with its placeholders filled: the
@@ -520,8 +527,13 @@ func value(code, variant, name string, lang Language, args Args, now time.Time) 
 		s = clean(s, maxShortRunes)
 		return s, s != ""
 	case "code":
-		s = clean(s, maxShortRunes)
-		return s, s != ""
+		// A code is shown only in a code's form (CORE-K19): a hub's or a
+		// peer's "code" that is really a phrase never becomes part of a
+		// sentence (UX-G2: no text the other side wrote).
+		if !codeRe.MatchString(s) {
+			return "", false
+		}
+		return s, true
 	}
 	s = clean(s, maxValueRunes)
 	return s, s != ""
@@ -576,7 +588,12 @@ func humanDuration(d time.Duration, lang Language) string {
 	if d < 0 {
 		d = 0
 	}
-	s := int64((d + time.Second - 1) / time.Second)
+	// Rounded up without adding to d: a wait near the largest Duration (a
+	// peer's retry_after_ms, say) must not wrap around to a negative one.
+	s := int64(d / time.Second)
+	if d%time.Second != 0 {
+		s++
+	}
 	zh := lang == Chinese
 	unit := func(n int64, zhw, one, many string) string {
 		if zh {
@@ -2103,48 +2120,49 @@ var reasonTable = []Row{
 		Zh: "今天已为未信任对端运行 {n}/{daily} 次（每个对端至多 {per_peer} 次）。",
 		En: "{n}/{daily} runs for untrusted peers today (at most {per_peer} per peer)."},
 
-	// ux §1.4 I: egress refusals the agent in the sandbox reads (prefixed anet:, never shown to the user).
+	// ux §1.4 I: egress refusals the agent in the sandbox reads, never shown to the user. Both languages
+	// begin with the literal prefix "anet: " (LEC §2.6.4: the message begins "anet: "), half-width.
 	{Code: "egress_host_not_allowed", Class: ClassModel,
-		Zh: "anet： 本节点没有为这类任务放行 {host}；需要联网才能完成时，请在回复里说明做不到。",
+		Zh: "anet: 本节点没有为这类任务放行 {host}；需要联网才能完成时，请在回复里说明做不到。",
 		En: "anet: this node has not allowed {host} for this kind of task; if the task needs it, say in your reply that you cannot do it."},
 	{Code: "egress_port", Class: ClassModel,
-		Zh: "anet： 只允许连接 443 端口。",
+		Zh: "anet: 只允许连接 443 端口。",
 		En: "anet: only port 443 is allowed."},
 	{Code: "egress_private_address", Class: ClassModel,
-		Zh: "anet： {host} 解析到内网或保留地址，已拒绝。",
+		Zh: "anet: {host} 解析到内网或保留地址，已拒绝。",
 		En: "anet: {host} resolves to a private or reserved address, so it was refused."},
 	{Code: "egress_plain_http", Class: ClassModel,
-		Zh: "anet： 只能经 CONNECT 访问放行的 https 主机，或调用本节点的模型路由。",
+		Zh: "anet: 只能经 CONNECT 访问放行的 https 主机，或调用本节点的模型路由。",
 		En: "anet: only CONNECT to an allowed https host, or this node's model route, is available."},
 	{Code: "egress_unauthorized", Class: ClassModel,
-		Zh: "anet： 缺少本次运行的凭据。",
+		Zh: "anet: 缺少本次运行的凭据。",
 		En: "anet: this run's credential is missing."},
 	{Code: "egress_tunnels", Class: ClassModel,
-		Zh: "anet： 同时打开的连接太多；请关掉一些后重试。",
+		Zh: "anet: 同时打开的连接太多；请关掉一些后重试。",
 		En: "anet: too many connections are open at once; close some and try again."},
 	{Code: "egress_too_large", Class: ClassModel,
-		Zh: "anet： 超过本次运行的大小上限（{n} MiB）。",
+		Zh: "anet: 超过本次运行的大小上限（{n} MiB）。",
 		En: "anet: this is over the run's size limit ({n} MiB)."},
 	{Code: "policy_server_tool", Class: ClassModel,
-		Zh: "anet： 沙箱里不允许模型服务端工具 {type}（它会绕过本节点的网络限制）；请改用本机工具。",
+		Zh: "anet: 沙箱里不允许模型服务端工具 {type}（它会绕过本节点的网络限制）；请改用本机工具。",
 		En: "anet: the server-side model tool {type} is not allowed in the sandbox (it would bypass this node's network limits); use a local tool instead."},
 	{Code: "policy_mcp_servers", Class: ClassModel,
-		Zh: "anet： 沙箱里不允许 MCP 连接器（mcp_servers）。",
+		Zh: "anet: 沙箱里不允许 MCP 连接器（mcp_servers）。",
 		En: "anet: MCP connectors (mcp_servers) are not allowed in the sandbox."},
 	{Code: "policy_field", Class: ClassModel,
-		Zh: "anet： 沙箱里不允许请求字段 {field}。",
+		Zh: "anet: 沙箱里不允许请求字段 {field}。",
 		En: "anet: the request field {field} is not allowed in the sandbox."},
 	{Code: "policy_path", Class: ClassModel,
-		Zh: "anet： 沙箱里只允许调用 {paths}。",
+		Zh: "anet: 沙箱里只允许调用 {paths}。",
 		En: "anet: only {paths} can be called from the sandbox."},
 	{Code: "policy_encoding", Class: ClassModel,
-		Zh: "anet： 请求体必须是未压缩的 JSON 对象。",
+		Zh: "anet: 请求体必须是未压缩的 JSON 对象。",
 		En: "anet: the request body must be an uncompressed JSON object."},
 	{Code: "run_budget_requests", Class: ClassModel,
-		Zh: "anet： 本次运行的模型请求已达上限 {n} 次；请根据已有结果作答。",
+		Zh: "anet: 本次运行的模型请求已达上限 {n} 次；请根据已有结果作答。",
 		En: "anet: this run has used its {n} model requests; answer with what you have."},
 	{Code: "run_budget_upload", Class: ClassModel,
-		Zh: "anet： 本次运行向外发送的数据已达上限 {n} MiB；请根据已有结果作答。",
+		Zh: "anet: 本次运行向外发送的数据已达上限 {n} MiB；请根据已有结果作答。",
 		En: "anet: this run has sent its {n} MiB of outgoing data; answer with what you have."},
 	{Code: "egress_sni_mismatch", Class: ClassModel,
 		NoSentence: true},

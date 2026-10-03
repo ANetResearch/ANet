@@ -135,8 +135,14 @@ func Refuse(key string, args Args) *Refusal { return &Refusal{Key: key, Args: ar
 // Error is the English sentence, for logs.
 func (r *Refusal) Error() string { return Sentence(r.Key, English, r.Args) }
 
-// Code is the reason code (the key without its variant).
-func (r *Refusal) Code() string { return ReasonCode(r.Key) }
+// Code is the reason code (the key without its variant). A key the table
+// does not have is shown as unknown_code or refused (Sentence), and that is
+// its code: a control-plane body never carries a reason outside the table
+// (UX-R9), and the code always goes with the sentence shown (UX-G3).
+func (r *Refusal) Code() string {
+	shown, _ := shownKey(r.Key, nil)
+	return ReasonCode(shown)
+}
 
 // Body is the control plane's error body in a language: the sentence, the
 // code and the command (UX-R2, R9).
@@ -152,12 +158,19 @@ func (r *Refusal) Body(lang Language) ErrorBody {
 // not say when (seconds): the shorter of the two waits HPP §4.7 gives.
 const defaultRetryAfter = 15
 
+// maxRetryAfter bounds the Retry-After of a passing state (seconds): a day.
+// The longest automatic wait anet has, the hub join backoff, is 10 minutes
+// (ux §2.6); a longer value is a mistake, not a reason to make a client
+// wait for years.
+const maxRetryAfter = 24 * 60 * 60
+
 // A2A is the local A2A error in a language (UX-R10, core G1): the error the
 // code's row names, the sentence as its message, and two ErrorInfo — the A2A
 // error's reason in the A2A domain, then the code in anet's, with the code,
 // the command and the variant in its metadata.
 func (r *Refusal) A2A(lang Language) A2AError {
-	row, _ := Lookup(r.Key)
+	shown, _ := shownKey(r.Key, nil)
+	row, _ := Lookup(shown)
 	e := a2aErrorOf(row.A2A.Err)
 	e.Message = Sentence(r.Key, lang, r.Args)
 	code := r.Code()
@@ -165,7 +178,7 @@ func (r *Refusal) A2A(lang Language) A2AError {
 	if n := Next(r.Key, lang, r.Args); n != "" {
 		md["next"] = n
 	}
-	if _, v, ok := strings.Cut(r.Key, "."); ok && code != "" {
+	if _, v, ok := strings.Cut(shown, "."); ok && code != "" {
 		md["variant"] = v
 	}
 	e.Details = []ErrorInfo{
@@ -173,10 +186,19 @@ func (r *Refusal) A2A(lang Language) A2AError {
 		{Type: ErrorInfoType, Reason: strings.ToUpper(code), Domain: DomainANet, Metadata: md},
 	}
 	if row.A2A.Err == A2ATransient {
-		e.RetryAfter = int((r.RetryAfter + time.Second - 1) / time.Second)
-		if e.RetryAfter < 1 {
-			e.RetryAfter = defaultRetryAfter
+		// Whole seconds, rounded up, without adding to the duration (no
+		// wrap-around near its largest value).
+		secs := r.RetryAfter / time.Second
+		if r.RetryAfter%time.Second > 0 {
+			secs++
 		}
+		switch {
+		case secs < 1:
+			secs = defaultRetryAfter
+		case secs > maxRetryAfter:
+			secs = maxRetryAfter
+		}
+		e.RetryAfter = int(secs)
 	}
 	return e.A2AError
 }

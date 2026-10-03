@@ -11,6 +11,7 @@ package a2ashape
 // config_key_removed; the areas: their rows).
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,10 @@ func TestRefusalA2AErrors(t *testing.T) {
 	if got := r.A2A(English).RetryAfter; got != 2 {
 		t.Errorf("Retry-After rounds up to a whole second: %d", got)
 	}
+	r.RetryAfter = time.Duration(math.MaxInt64)
+	if got := r.A2A(English).RetryAfter; got != maxRetryAfter {
+		t.Errorf("the largest wait does not wrap around: Retry-After %d", got)
+	}
 }
 
 // The body carries hub_code on hub_refused only, and never a variant as its
@@ -166,6 +171,20 @@ func TestRefusalBody(t *testing.T) {
 	}
 	if got := Refuse("no_hub_yet", nil).Error(); got != Sentence("no_hub_yet", English, nil) {
 		t.Errorf("Error is the English sentence: %q", got)
+	}
+	// UX-R9: a key the table lacks never puts a reason outside the table in
+	// a body; the code is the one of the sentence shown (UX-G3, UX-G9).
+	for key, want := range map[string]string{"brand_new_code": "unknown_code", "brand_new_code.v": "unknown_code",
+		"{0}": "refused", "Not A Code": "refused"} {
+		r := Refuse(key, Args{"task": "t_1"})
+		b := r.Body(English)
+		if b.Reason != want || r.Code() != want || b.Error != Sentence(key, English, nil) {
+			t.Errorf("%q: body %+v, code %q; want reason %s with its sentence", key, b, r.Code(), want)
+		}
+		md := r.A2A(English).Details[1].Metadata
+		if md["reason"] != want || md["variant"] != "" {
+			t.Errorf("%q: anet ErrorInfo metadata %v; want reason %s and no variant", key, md, want)
+		}
 	}
 }
 
