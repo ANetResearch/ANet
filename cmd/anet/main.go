@@ -25,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/localpeer"
@@ -40,6 +41,14 @@ func main() {
 	// --id <name> is a GLOBAL selector (may appear anywhere) picking which named identity to act on; it is
 	// pulled out before verb dispatch. See internal/daemon identities.go for the full selection precedence.
 	idFlag, args := extractGlobalID(os.Args[1:])
+	// A command or flag 0.3.0 removed is refused before anything is read or
+	// sent (ux §4.3, cli_removed, exit 2).
+	if len(args) > 0 {
+		if s, ok := refuseRemoved(args[0], args[1:], a2ashape.Lang()); ok {
+			fmt.Fprintln(os.Stderr, s)
+			os.Exit(2)
+		}
+	}
 	layout := daemon.ResolveLayout(idFlag)
 	explicit := daemon.SelectionIsExplicit(idFlag)
 	if len(args) == 0 {
@@ -403,6 +412,11 @@ func usageAllText() string {
 }
 
 func runDaemon(layout daemon.Layout) {
+	// A config.json with a removed or invalid key does not start (ux UX-D3): every refusal, one sentence
+	// a line, before anything is written.
+	if err := refuseConfig(layout); err != nil {
+		os.Exit(1)
+	}
 	// Ensure this identity has a config with a non-colliding control port before New (which would otherwise
 	// default a fresh dir to the shared 39811 and clash with another identity).
 	if _, _, err := daemon.EnsureLayoutInit(layout); err != nil {
@@ -437,6 +451,25 @@ func runDaemon(layout daemon.Layout) {
 		fmt.Fprintln(os.Stderr, "daemon: control:", err)
 		os.Exit(1)
 	}
+}
+
+// refuseConfig prints why the daemon will not start with this data directory's config.json (ux UX-D3:
+// a removed key, an invalid value; one sentence a line, from the reason table) and returns errQuiet; nil
+// when it starts. An unreadable or unparsable file is reported as it was before.
+func refuseConfig(layout daemon.Layout) error {
+	err := daemon.CheckConfigForStart(layout)
+	var cr *daemon.ConfigRefusal
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &cr):
+		for _, s := range cr.Sentences(a2ashape.Lang()) {
+			fmt.Fprintln(os.Stderr, s)
+		}
+	default:
+		fmt.Fprintln(os.Stderr, "daemon: start:", err)
+	}
+	return errQuiet
 }
 
 // fileExists reports whether path exists (best-effort; used only for a guide hint).
@@ -519,6 +552,10 @@ func runDaemonDetached(layout daemon.Layout) error {
 		// sent; the daemon moves to a free port and records it in config.json, which every later
 		// command reads.
 		fmt.Fprintf(os.Stderr, "note: %v\n      starting the daemon on another port\n", perr)
+	}
+	// The child would refuse the same config.json; say why here, not after the readiness poll.
+	if err := refuseConfig(layout); err != nil {
+		return err
 	}
 	// Initialize the identity (auto-allocate a free control port for a fresh dir) BEFORE spawning, so the
 	// child daemon binds a non-colliding port and the readiness poll targets the right address.
