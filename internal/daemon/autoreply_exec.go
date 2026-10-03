@@ -239,7 +239,11 @@ func (r *execReplier) baseOpts(rc replyContext) (execInvokeOpts, error) {
 		}
 		workDir = abs
 	} else {
-		d, err := execInteractionDir(r.dataDir, r.identityAID(), rc.InteractionID)
+		dirFor := execInteractionDir
+		if r.sandbox != nil {
+			dirFor = execSandboxInteractionDir
+		}
+		d, err := dirFor(r.dataDir, r.identityAID(), rc.InteractionID)
 		if err != nil {
 			return execInvokeOpts{}, err
 		}
@@ -317,11 +321,29 @@ func execWorkRoot() string {
 	return filepath.Join(c, "anet", "work")
 }
 
+// execSandboxWorkRoot is <user cache dir>/anet/work-sandbox, the root of sandboxed runs' work dirs. It
+// never overlaps execWorkRoot, which is on the sandbox's never-bind list (LEC SB-3), so a direct run
+// never starts in a directory a sandboxed run wrote.
+func execSandboxWorkRoot() string {
+	if root := execWorkRoot(); root != "" {
+		return root + "-sandbox"
+	}
+	return ""
+}
+
 // execInteractionDir returns (creating it, mode 0700) the work dir of one interaction:
 // <execWorkRoot>/<aidShort>/<interaction id>. An empty interaction id (the `anet autoreply test`
 // self-check) uses "selftest". The directory must lie outside the data dir.
 func execInteractionDir(dataDir, aid, ix string) (string, error) {
-	root := execWorkRoot()
+	return interactionDirUnder(execWorkRoot(), dataDir, aid, ix)
+}
+
+// execSandboxInteractionDir is execInteractionDir under execSandboxWorkRoot, for sandboxed runs.
+func execSandboxInteractionDir(dataDir, aid, ix string) (string, error) {
+	return interactionDirUnder(execSandboxWorkRoot(), dataDir, aid, ix)
+}
+
+func interactionDirUnder(root, dataDir, aid, ix string) (string, error) {
 	if root == "" {
 		return "", errors.New("exec work dir: the user cache directory is unknown (set XDG_CACHE_HOME or HOME)")
 	}
@@ -377,10 +399,14 @@ func checkOutsideDataDir(p, dataDir string) error {
 	return nil
 }
 
-// newExecOutbox creates the outbox for one auto-reply turn inside the interaction's work dir (so a
-// sandboxed agent can write to it) and returns it with its cleanup.
-func (d *Daemon) newExecOutbox(interactionID string) (string, func(), error) {
-	dir, err := execInteractionDir(d.layout.Root, d.AID(), interactionID)
+// newExecOutbox creates the outbox for one auto-reply turn inside the interaction's work dir (the
+// sandbox work dir for a sandboxed turn, so the agent can write to it) and returns it with its cleanup.
+func (d *Daemon) newExecOutbox(interactionID string, sandboxed bool) (string, func(), error) {
+	dirFor := execInteractionDir
+	if sandboxed {
+		dirFor = execSandboxInteractionDir
+	}
+	dir, err := dirFor(d.layout.Root, d.AID(), interactionID)
 	if err != nil {
 		return "", func() {}, err
 	}
@@ -394,24 +420,28 @@ func (d *Daemon) newExecOutbox(interactionID string) (string, func(), error) {
 // pruneExecWorkDirs removes the work dirs of interactions that are no longer active. Interaction ids
 // are never reused, so a removed dir is never needed again.
 func pruneExecWorkDirs(aid string, active map[string]bool) {
-	root := execWorkRoot()
-	if root == "" || aid == "" {
-		return
-	}
-	base := filepath.Join(root, aidShort(aid))
-	ents, err := os.ReadDir(base)
-	if err != nil {
+	if aid == "" {
 		return
 	}
 	keep := map[string]bool{}
 	for ix := range active {
 		keep[safeName(ix)] = true
 	}
-	for _, e := range ents {
-		if !e.IsDir() || keep[e.Name()] || e.Name() == "selftest" {
+	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
+		if root == "" {
 			continue
 		}
-		_ = os.RemoveAll(filepath.Join(base, e.Name()))
+		base := filepath.Join(root, aidShort(aid))
+		ents, err := os.ReadDir(base)
+		if err != nil {
+			continue
+		}
+		for _, e := range ents {
+			if !e.IsDir() || keep[e.Name()] || e.Name() == "selftest" {
+				continue
+			}
+			_ = os.RemoveAll(filepath.Join(base, e.Name()))
+		}
 	}
 }
 
@@ -649,12 +679,34 @@ type sandboxResult struct {
 type sandboxPlan struct {
 	// Bwrap is the absolute path of the bubblewrap binary.
 	Bwrap string
-	// Home is the home directory path, replaced by an empty tmpfs inside the sandbox.
+	// Features are the optional bwrap flags the probe found.
+	Features bwrapFeatures
+	// AID names this identity's run directories (<cache>/anet/run/<aid8>-<rand>).
+	AID string
+	// Home is $HOME inside the sandbox, bound to the run directory's empty home/.
 	Home string
 	// NeverBind lists paths that no bind may equal, contain, or lie inside.
 	NeverBind []string
 	// ExtraRO are additional read-only binds (tests).
 	ExtraRO []string
+}
+
+// bwrapFeatures are the optional bwrap flags the sandbox uses where this bwrap has them (LEC SB-1).
+type bwrapFeatures struct {
+	DisableUserns bool // --disable-userns
+	Size          bool // --size before --tmpfs
+}
+
+// sandboxLaunch is one agent process prepared for the sandbox (sandboxPlan.command): the program and
+// arguments to run, their environment, and the descriptors bwrap and init read (ExtraFiles: fd 3 the
+// spec, fd 4 the conversation, fd 5 the seccomp filter). Close releases them and removes the run
+// directory once the process has ended.
+type sandboxLaunch struct {
+	Path  string
+	Args  []string
+	Env   []string
+	Files []*os.File
+	Close func()
 }
 
 // runSandboxed runs one exec auto-reply turn inside the bubblewrap sandbox (A2A-DESIGN §6). It is the
@@ -699,19 +751,23 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 // checks that bubblewrap is present and usable.
 func (d *Daemon) newSandboxPlan() (*sandboxPlan, error) {
 	home, _ := os.UserHomeDir()
-	plan := &sandboxPlan{Home: home, NeverBind: d.sandboxNeverBind()}
+	plan := &sandboxPlan{Home: home, AID: d.AID(), NeverBind: d.sandboxNeverBind()}
 	if err := plan.prepare(); err != nil {
 		return nil, err
 	}
 	return plan, nil
 }
 
-// sandboxNeverBind is the never-bind list of newSandboxPlan, each entry in absolute and resolved form.
+// sandboxNeverBind is the never-bind list of newSandboxPlan, each entry in absolute and resolved form
+// (LEC SB-3): the data dir, the identities container, the runtime dirs, the direct-run work root (a
+// trusted peer's agent works there as the operator's user), the configured and the default ANetLink
+// sockets, and the agent CLIs' own configuration and credential directories.
 func (d *Daemon) sandboxNeverBind() []string {
 	home, _ := os.UserHomeDir()
-	never := []string{d.layout.Root, AnetHome(), legacyRuntimeDir(), filepath.Join("/run/user", fmt.Sprint(os.Getuid()))}
+	never := []string{d.layout.Root, AnetHome(), legacyRuntimeDir(), filepath.Join("/run/user", fmt.Sprint(os.Getuid())),
+		execWorkRoot()}
 	if x := os.Getenv("XDG_RUNTIME_DIR"); x != "" {
-		never = append(never, x)
+		never = append(never, x, filepath.Join(x, "anetlink", "c1.sock"))
 	}
 	never = append(never, anetlinkSockets(d.config())...)
 	if home != "" {

@@ -432,7 +432,7 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	// reply text + these files as ONE message and owns end negotiation. It lives in the interaction's
 	// exec work dir, outside the data dir (autoreply_exec.go). Creation failure is non-fatal — we just
 	// fall back to text-only replies.
-	outbox, cleanupOutbox, obErr := d.newExecOutbox(th.InteractionID)
+	outbox, cleanupOutbox, obErr := d.newExecOutbox(th.InteractionID, gate.exec && !gate.trusted)
 	if obErr != nil {
 		log.Printf("anet: auto-reply %s: no outbox: %v", th.InteractionID, obErr)
 		outbox = ""

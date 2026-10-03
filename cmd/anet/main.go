@@ -33,6 +33,10 @@ import (
 )
 
 func main() {
+	// Internal commands a sandbox starts this binary as; nothing else may run first.
+	if code, ok := sandboxSubcommand(os.Args[1:]); ok {
+		os.Exit(code)
+	}
 	// --id <name> is a GLOBAL selector (may appear anywhere) picking which named identity to act on; it is
 	// pulled out before verb dispatch. See internal/daemon identities.go for the full selection precedence.
 	idFlag, args := extractGlobalID(os.Args[1:])
