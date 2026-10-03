@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // apexDir holds what agentnetwork.org.cn serves from its release root:
@@ -266,12 +268,9 @@ func apexSiteSource(t *testing.T) siteJSON {
 const apexSkillURL = "https://agentnetwork.org.cn/SKILL.md"
 
 // agentHintJoin is ux §3.4 (g) agent_hint.join in English: SKILL.md is
-// English, and site.json carries the same sentence as SKILL.md.
-//
-// v030-todo(UX-5): compare with a2ashape.Sentence("agent_hint.join", English,
-// nil) once reasons.go has the row, and delete this copy (ux: the sentence
-// lives only in reasons.go and the three published files).
-const agentHintJoin = "Join with anet hub-register even without a terminal; relay each line it prints to the user as is (passphrase reminder, admit line); do not register again. Only the user, not you, sets the passphrase, via anet identity protect in a terminal."
+// English, and site.json carries the same sentence as SKILL.md. The
+// sentence lives in the reason table and the three published files only.
+var agentHintJoin = a2ashape.Sentence("agent_hint.join", a2ashape.English, nil)
 
 // The source is what publish.sh can extend: exactly the served keys but
 // "version", and a first line publish.sh puts "version" after.
