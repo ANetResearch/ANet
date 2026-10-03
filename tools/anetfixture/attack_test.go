@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -109,17 +110,28 @@ func (h *fakeHub) verify(r *http.Request, action string, body []byte) string {
 	return ""
 }
 
+// mboxPub is a fresh Ed25519 public key for a test key set's mailbox
+// signing key.
+func mboxPub(t *testing.T) []byte {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pub
+}
+
 // register publishes c's KEL and a fresh key set, and returns the key pair
 // so the test can open what is sealed to c.
 func (h *fakeHub) register(t *testing.T, c *identity.Controller) *seal.KeyPair {
 	t.Helper()
 	now := uint64(time.Now().UnixMilli())
-	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now-1000, now+seal.KeyLifetimeMS)
+	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now-1000, now-1000+seal.MaxKeyValidityMS)
 	if err != nil {
 		t.Fatal(err)
 	}
 	signed, err := seal.SignEncKeySet(&seal.EncKeySet{Type: seal.EncKeySetType, AID: c.AID(), Seq: now,
-		Keys: []seal.EncKey{kp.Public}, IssuedAt: now}, c.Sign)
+		Keys: []seal.EncKey{kp.Public}, IssuedAt: now, Mbox: seal.Mbox{Epoch: 1, Pub: mboxPub(t)}}, c.Sign)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -174,7 +174,7 @@ func TestEachReceiveStepRefusesWithItsClass(t *testing.T) {
 	}
 	forked := sender{aid: forkB.AID(), kel: forkB.KEL(), keys: signedKeysFor(t, forkB, 0), ksn: forkB.CurrentSeq(), sign: forkB.Sign}
 
-	unknownKey, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.KeyLifetimeMS)
+	unknownKey, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.MaxKeyValidityMS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -868,12 +868,12 @@ func TestARedeliveredDelegateResendsTheAnswer(t *testing.T) {
 func signedKeysWith(t *testing.T, aid string, sign seal.SignFunc, seq uint64) []byte {
 	t.Helper()
 	now := uint64(time.Now().UnixMilli())
-	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.KeyLifetimeMS)
+	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.MaxKeyValidityMS)
 	if err != nil {
 		t.Fatal(err)
 	}
 	signed, err := seal.SignEncKeySet(&seal.EncKeySet{Type: seal.EncKeySetType, AID: aid, Seq: seq,
-		Keys: []seal.EncKey{kp.Public}, IssuedAt: now}, sign)
+		Keys: []seal.EncKey{kp.Public}, IssuedAt: now, Mbox: testMbox(t)}, sign)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1144,7 +1144,7 @@ func TestAStoredKeySetIsRecheckedAfterTenMinutes(t *testing.T) {
 	seq0 := row.KeySetSeq
 	// The provider rotates its encryption key and publishes the new set.
 	start := uint64(time.Now().UnixMilli())
-	prov.setClock(func() uint64 { return start + 7*dayMS + 1 })
+	prov.setClock(func() uint64 { return start + encKeyRotateEvery + 1 })
 	prov.maintainKeyRing()
 	newSeq := prov.enc.Seq()
 	if newSeq <= seq0 {

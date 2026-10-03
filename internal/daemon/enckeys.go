@@ -4,13 +4,14 @@ package daemon
 // X25519 key pairs other nodes seal envelopes to, the signed key set that
 // publishes their public halves, and the policy that rotates them.
 //
-// Policy (seal.KeyRotationIntervalMS, KeyLifetimeMS, KeyRetentionMS):
-//   - a new key pair every 7 days, each valid for 14 days;
-//   - a private key is kept until 15 days after its not_after, so an
-//     envelope that waited in a hub mailbox for up to the hub's 14-day TTL
-//     can still be opened, then deleted;
-//   - the published EncKeySet lists the keys that are valid now or later,
-//     and its seq is max(now_ms, last_seq + 1), persisted with the ring.
+// Policy (interim, inside the limits of key set v2; see encKeyRotateEvery):
+//   - a new key pair every day, each valid for two days;
+//   - a private key is kept until seal.MaxMessageLifetimeMS (15 days) after
+//     its not_after, so an envelope that waited in a hub mailbox for up to
+//     the hub's 14-day TTL can still be opened, then deleted;
+//   - the published EncKeySet lists the keys that are valid now or later and
+//     the node's mailbox signing key, and its seq is max(now_ms, last_seq +
+//     1), persisted with the ring.
 //
 // The ring is written to <data>/enc_keys.cbor (0600) and fsynced before any
 // key it contains is used: before the signed set is attached to an outgoing
@@ -24,9 +25,12 @@ package daemon
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -41,6 +45,39 @@ func (l Layout) EncKeysPath() string { return filepath.Join(l.Root, "enc_keys.cb
 
 // encKeyFileVersion is the version of the key ring file format.
 const encKeyFileVersion = 1
+
+// v030-todo(FS-4): the epoch key ring replaces this interim policy (one key
+// per UTC epoch, published seal.PublishAheadMS ahead, deleted by the drain
+// and clock rules). Until then the v0.2 rotation is kept, shortened to fit
+// key set v2: a new key every seal.EpochMS, each valid for
+// seal.MaxKeyValidityMS, its private half kept seal.MaxMessageLifetimeMS
+// past not_after (the hard deletion bound).
+const (
+	encKeyRotateEvery = seal.EpochMS
+	encKeyValidFor    = seal.MaxKeyValidityMS
+	encKeyKeptAfter   = seal.MaxMessageLifetimeMS
+)
+
+// keptAt reports whether the ring still holds k's private half at now.
+func keptAt(k *seal.EncKey, now uint64) bool {
+	if k.NotAfter > math.MaxUint64-encKeyKeptAfter {
+		return true
+	}
+	return now < k.NotAfter+encKeyKeptAfter
+}
+
+// standInMbox is the mailbox signing key the ring publishes until the node
+// has one: its private half is discarded at once, so no capability can be
+// signed under it and none verifies.
+//
+// v030-todo(FS-4): the key comes from mbox.key through mbox.Current().
+func standInMbox() (seal.Mbox, error) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return seal.Mbox{}, err
+	}
+	return seal.Mbox{Epoch: 1, Pub: pub}, nil
+}
 
 // encKeyFile is the persisted form of the ring. It holds private keys.
 type encKeyFile struct {
@@ -70,6 +107,7 @@ type encKeyRing struct {
 	lastSeq uint64
 	pairs   []*seal.KeyPair // ascending by NotBefore
 	signed  []byte          // current SignedEncKeySet encoding
+	mbox    seal.Mbox       // the mailbox signing key the set publishes; zero until known
 	now     func() uint64
 }
 
@@ -99,6 +137,13 @@ func openKeyRing(path, aid string, now func() uint64) (*encKeyRing, error) {
 	}
 	r.lastSeq = f.LastSeq
 	r.signed = f.Signed
+	// The mailbox key stays what the last signed set published.
+	if s, err := seal.UnmarshalSignedEncKeySet(f.Signed); err == nil {
+		var set seal.EncKeySet
+		if err := coredet.Unmarshal(s.Set, &set); err == nil {
+			r.mbox = set.Mbox
+		}
+	}
 	for i := range f.Pairs {
 		kp := f.Pairs[i]
 		r.pairs = append(r.pairs, &kp)
@@ -111,14 +156,14 @@ func sortPairs(ps []*seal.KeyPair) {
 	sort.SliceStable(ps, func(i, j int) bool { return ps[i].Public.NotBefore < ps[j].Public.NotBefore })
 }
 
-// Key implements seal.KeyRing: the pair with this kid, while its private
-// half is inside the retention period.
+// Key implements seal.KeyRing: the pair with this kid, while the ring keeps
+// its private half (keptAt).
 func (r *encKeyRing) Key(kid []byte) (*seal.KeyPair, bool) {
 	now := r.now()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for _, kp := range r.pairs {
-		if bytes.Equal(kp.Public.KID, kid) && kp.Public.Retained(now) {
+		if bytes.Equal(kp.Public.KID, kid) && keptAt(&kp.Public, now) {
 			return kp, true
 		}
 	}
@@ -159,14 +204,20 @@ func (r *encKeyRing) maintain(sign seal.SignFunc, ksn uint64) (bool, error) {
 	now := r.now()
 	r.mu.RLock()
 	current := append([]*seal.KeyPair(nil), r.pairs...)
-	lastSeq, signedNow := r.lastSeq, r.signed
+	lastSeq, signedNow, mbox := r.lastSeq, r.signed, r.mbox
 	r.mu.RUnlock()
 	changed := false
+	if mbox.Epoch == 0 {
+		var err error
+		if mbox, err = standInMbox(); err != nil {
+			return false, fmt.Errorf("anet: mailbox signing key: %w", err)
+		}
+	}
 
 	// Drop private keys past retention.
 	var pairs []*seal.KeyPair
 	for _, kp := range current {
-		if kp.Public.Retained(now) {
+		if keptAt(&kp.Public, now) {
 			pairs = append(pairs, kp)
 		} else {
 			changed = true
@@ -185,8 +236,8 @@ func (r *encKeyRing) maintain(sign seal.SignFunc, ksn uint64) (bool, error) {
 			newest = kp
 		}
 	}
-	if !valid || newest == nil || now >= newest.Public.NotBefore+seal.KeyRotationIntervalMS {
-		kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.KeyLifetimeMS)
+	if !valid || newest == nil || now >= newest.Public.NotBefore+encKeyRotateEvery {
+		kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+encKeyValidFor)
 		if err != nil {
 			return false, fmt.Errorf("anet: generate encryption key: %w", err)
 		}
@@ -195,7 +246,8 @@ func (r *encKeyRing) maintain(sign seal.SignFunc, ksn uint64) (bool, error) {
 		changed = true
 	}
 
-	// The published set: keys not yet expired, newest last, at most four.
+	// The published set: keys not yet expired, newest last, at most
+	// seal.MaxKeysPerSet.
 	var pub []seal.EncKey
 	for _, kp := range pairs {
 		if kp.Public.NotAfter > now {
@@ -206,10 +258,10 @@ func (r *encKeyRing) maintain(sign seal.SignFunc, ksn uint64) (bool, error) {
 		pub = pub[len(pub)-seal.MaxKeysPerSet:]
 	}
 
-	if !changed && signedMatches(signedNow, r.aid, pub, ksn) {
+	if !changed && signedMatches(signedNow, r.aid, pub, mbox, ksn) {
 		return false, nil
 	}
-	set := &seal.EncKeySet{Type: seal.EncKeySetType, AID: r.aid, Seq: seal.NextSeq(now, lastSeq), Keys: pub, IssuedAt: now}
+	set := &seal.EncKeySet{Type: seal.EncKeySetType, AID: r.aid, Seq: seal.NextSeq(now, lastSeq), Keys: pub, IssuedAt: now, Mbox: mbox}
 	signed, err := seal.SignEncKeySet(set, sign)
 	if err != nil {
 		return false, fmt.Errorf("anet: sign encryption key set: %w", err)
@@ -225,14 +277,14 @@ func (r *encKeyRing) maintain(sign seal.SignFunc, ksn uint64) (bool, error) {
 		return false, fmt.Errorf("anet: save key ring: %w", err)
 	}
 	r.mu.Lock()
-	r.pairs, r.lastSeq, r.signed = pairs, set.Seq, b
+	r.pairs, r.lastSeq, r.signed, r.mbox = pairs, set.Seq, b, mbox
 	r.mu.Unlock()
 	return true, nil
 }
 
 // signedMatches reports whether signed (a SignedEncKeySet encoding) lists
-// exactly pub for aid and was signed under key state ksn.
-func signedMatches(signed []byte, aid string, pub []seal.EncKey, ksn uint64) bool {
+// exactly pub and mbox for aid and was signed under key state ksn.
+func signedMatches(signed []byte, aid string, pub []seal.EncKey, mbox seal.Mbox, ksn uint64) bool {
 	if len(signed) == 0 {
 		return false
 	}
@@ -241,7 +293,8 @@ func signedMatches(signed []byte, aid string, pub []seal.EncKey, ksn uint64) boo
 		return false
 	}
 	var set seal.EncKeySet
-	if err := coredet.Unmarshal(s.Set, &set); err != nil || set.AID != aid || len(set.Keys) != len(pub) {
+	if err := coredet.Unmarshal(s.Set, &set); err != nil || set.AID != aid || len(set.Keys) != len(pub) ||
+		set.Mbox.Epoch != mbox.Epoch || !bytes.Equal(set.Mbox.Pub, mbox.Pub) {
 		return false
 	}
 	for i := range pub {

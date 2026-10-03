@@ -692,12 +692,12 @@ func TestSpotASenderKELRotatingToAShortKeyIsDroppedNotAPanic(t *testing.T) {
 		Keys: [][]byte{short}, NextDigest: next, Threshold: 1, Timestamp: 2, Toad: identity.ToadField(identity.ToadHub)}, k0)
 	sign := func(p []byte) ([]byte, uint64) { return ed25519.Sign(k0, p), 0 }
 	now := uint64(time.Now().UnixMilli())
-	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.KeyLifetimeMS)
+	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.MaxKeyValidityMS)
 	if err != nil {
 		t.Fatal(err)
 	}
 	signedSet, err := seal.SignEncKeySet(&seal.EncKeySet{Type: seal.EncKeySetType, AID: aid, Seq: now,
-		Keys: []seal.EncKey{kp.Public}, IssuedAt: now}, sign)
+		Keys: []seal.EncKey{kp.Public}, IssuedAt: now, Mbox: testMbox(t)}, sign)
 	if err != nil {
 		t.Fatal(err)
 	}
