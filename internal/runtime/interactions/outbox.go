@@ -168,6 +168,22 @@ func enqueueOutbox(e execer, it OutboxItem) (int64, error) {
 	if len(it.Digest) == 0 && len(it.Body) > 0 {
 		it.Digest = OutboxDigest(it.Body)
 	}
+	now := time.Now().UnixMilli()
+	// The body is the task's content: stored under its data key (FS-L2,
+	// engine ENG-S2), which a task keeps while it has outbox rows (ENG-S7).
+	// A row queued for a task with no stored row of its own (a notice about
+	// a delegation no longer held) gets a key here; the path that deletes the
+	// last outbox row of such a task releases it (ReleaseDEK).
+	var body any
+	if len(it.Body) > 0 {
+		b, err := ensureDEK(e, it.IX, now)
+		if err != nil {
+			return 0, err
+		}
+		if body, err = b.put(ColOutboxBody, it.Body); err != nil {
+			return 0, err
+		}
+	}
 	if len(it.Digest) > 0 {
 		var prior int64
 		err := e.QueryRow(`SELECT id FROM outbox WHERE ix=? AND typ=? AND digest=? ORDER BY id LIMIT 1`,
@@ -179,10 +195,9 @@ func enqueueOutbox(e execer, it OutboxItem) (int64, error) {
 			return 0, err
 		}
 	}
-	now := time.Now().UnixMilli()
 	res, err := e.Exec(`INSERT INTO outbox(ix,to_aid,typ,body,envelope,exp,attempts,next_at,last_error,created_at,mid,digest)
 	   VALUES(?,?,?,?,?,?,0,?,'',?,?,?)`,
-		it.IX, it.ToAID, it.Type, nilIfEmpty(it.Body), nilIfEmpty(it.Envelope), int64(it.Exp), it.NextAt, now,
+		it.IX, it.ToAID, it.Type, body, nilIfEmpty(it.Envelope), int64(it.Exp), it.NextAt, now,
 		nilIfEmpty(it.MID), nilIfEmpty(it.Digest))
 	if err != nil {
 		return 0, err
@@ -370,24 +385,42 @@ func (t *Tx) DeleteOutbox(id int64) error {
 	return err
 }
 
+// queryOutbox reads the rows q selects, each body opened under its task's
+// data key.
 func (s *Store) queryOutbox(q string, args ...any) ([]OutboxItem, error) {
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []OutboxItem
 	for rows.Next() {
 		var it OutboxItem
 		var exp, maybe int64
 		if err := rows.Scan(&it.ID, &it.IX, &it.ToAID, &it.Type, &it.Body, &it.Envelope, &exp,
 			&it.Attempts, &it.NextAt, &it.LastError, &it.CreatedAt, &it.MID, &it.Digest, &maybe); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		it.Exp, it.MaybeDelivered = uint64(exp), maybe != 0
 		out = append(out, it)
 	}
-	return out, rows.Err()
+	if err := closeRows(rows); err != nil {
+		return nil, err
+	}
+	boxes := newBoxCache(s.db)
+	for i := range out {
+		if len(out[i].Body) == 0 {
+			continue
+		}
+		b, err := boxes.of(out[i].IX)
+		if err != nil {
+			return nil, fmt.Errorf("outbox row %d: %w", out[i].ID, err)
+		}
+		if out[i].Body, err = b.get(ColOutboxBody, out[i].Body); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // MessageByMsgID returns the message of an interaction stored under msgID,
@@ -405,6 +438,13 @@ func (s *Store) MessageByMsgID(interactionID, msgID string) (*Message, error) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
+		return nil, err
+	}
+	b, err := boxOf(s.db, interactionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := openMessage(b, &m); err != nil {
 		return nil, err
 	}
 	return &m, nil

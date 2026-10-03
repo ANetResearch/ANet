@@ -247,7 +247,11 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("interactions: mkdir: %w", err)
 	}
-	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db")+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(15000)")
+	// secure_delete: a deleted row's bytes are overwritten, not left in a
+	// free page — an interaction key deleted when its task ends must not
+	// stay readable in the file (FS-X8, FS-L8).
+	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db")+
+		"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(15000)&_pragma=secure_delete(ON)")
 	if err != nil {
 		return nil, fmt.Errorf("interactions: open db: %w", err)
 	}
@@ -298,17 +302,21 @@ var interactionAdded = []struct{ name, decl string }{
 	{"quote_expires_at", "INTEGER NOT NULL DEFAULT 0"},
 	{"peer_kel", "BLOB"},
 	{"peer_keys", "BLOB"},
-	{"result_meta", "TEXT NOT NULL DEFAULT ''"},
+	{"result_meta", "BLOB NOT NULL DEFAULT X''"}, // data-key ciphertext (FS-L2)
 }
 
 func (s *Store) migrate() error {
+	// The content columns — interaction goal, request_doc, result,
+	// result_meta and review; message body and metadata; attachment name,
+	// mime and data — hold data-key ciphertext (dek.go, FS-L2), so they are
+	// BLOBs, and no index or predicate below names them (FS-L3).
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS interaction (
 		   seq INTEGER PRIMARY KEY AUTOINCREMENT,
 		   id TEXT NOT NULL UNIQUE,
 		   role TEXT NOT NULL,
 		   peer_aid TEXT NOT NULL,
-		   goal TEXT NOT NULL,
+		   goal BLOB NOT NULL,
 		   request_cid TEXT NOT NULL DEFAULT '',
 		   request_doc BLOB,
 		   result_cid TEXT NOT NULL DEFAULT '',
@@ -324,7 +332,7 @@ func (s *Store) migrate() error {
 		   interaction_id TEXT NOT NULL,
 		   sender_aid TEXT NOT NULL,
 		   kind TEXT NOT NULL,
-		   body TEXT NOT NULL DEFAULT '',
+		   body BLOB NOT NULL DEFAULT X'',
 		   created_at TEXT NOT NULL,
 		   -- Sender-minted, so a redelivery can be told from a repetition.
 		   -- The unique index over it is partial (see migrate): an older
@@ -339,8 +347,8 @@ func (s *Store) migrate() error {
 		   seq INTEGER PRIMARY KEY AUTOINCREMENT,
 		   interaction_id TEXT NOT NULL,
 		   msg_seq INTEGER NOT NULL DEFAULT 0,
-		   name TEXT NOT NULL DEFAULT '',
-		   mime TEXT NOT NULL DEFAULT '',
+		   name BLOB NOT NULL DEFAULT X'',
+		   mime BLOB NOT NULL DEFAULT X'',
 		   size INTEGER NOT NULL DEFAULT 0,
 		   cid TEXT NOT NULL DEFAULT '',
 		   data BLOB,
@@ -355,7 +363,7 @@ func (s *Store) migrate() error {
 	}
 	for _, col := range []struct{ name, decl string }{
 		{"msg_id", "TEXT NOT NULL DEFAULT ''"},
-		{"metadata", "TEXT NOT NULL DEFAULT ''"},
+		{"metadata", "BLOB NOT NULL DEFAULT X''"},
 	} {
 		if err := addColumn(s.db, "message", col.name, col.decl); err != nil {
 			return err
@@ -364,14 +372,6 @@ func (s *Store) migrate() error {
 	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_dedupe
 		 ON message(interaction_id, msg_id) WHERE msg_id != ''`); err != nil {
 		return fmt.Errorf("interactions: migrate msg dedupe index: %w", err)
-	}
-	// FindByClientMessage looks a message up by its client message id through
-	// this index: the expression is the one its query tests, character for
-	// character. metadata comes after body in the row, so without the index
-	// every lookup read every message body of the peer's tasks
-	// (an internal note).
-	if _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_msg_client ON message(` + clientMsgIDExpr("") + `)`); err != nil {
-		return fmt.Errorf("interactions: migrate client message index: %w", err)
 	}
 	for _, col := range interactionAdded {
 		if err := addColumn(s.db, "interaction", col.name, col.decl); err != nil {
@@ -417,6 +417,9 @@ func (s *Store) migrate() error {
 	// one transaction (A2A-DESIGN §3.6 step 10). See peers.go. The pending
 	// queue and the outbound retry queue live here for the same reason.
 	if err := s.migrateWire2(); err != nil {
+		return err
+	}
+	if err := s.migrateDEK(); err != nil {
 		return err
 	}
 	if err := s.migratePending(); err != nil {
@@ -570,26 +573,37 @@ func (s *Store) Put(id string, role Role, peerAID, goal, requestCID string, requ
 // Create records a new interaction in state submitted, with every
 // creation-time field. Like Put it ignores a repeated id.
 func (s *Store) Create(n New) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return create(s.db, n, s.nowMS())
+	return s.Update(func(t *Tx) error { return create(t.tx, n, t.now) })
 }
 
-// create is Create against either the database handle or an open transaction.
+// create is Create inside an open transaction: the task's data key (FS-L1)
+// commits with its row.
 func create(e execer, n New, nowMS int64) error {
 	if n.ID == "" || n.Role == "" || n.PeerAID == "" {
 		return fmt.Errorf("%w: id, role and peer required", ErrBadInput)
+	}
+	b, err := ensureDEK(e, n.ID, nowMS)
+	if err != nil {
+		return err
+	}
+	goal, err := b.putText(ColGoal, n.Goal)
+	if err != nil {
+		return err
+	}
+	doc, err := b.put(ColRequestDoc, n.RequestDoc)
+	if err != nil {
+		return err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	capFlag := 0
 	if n.IsCapability {
 		capFlag = 1
 	}
-	_, err := e.Exec(
+	_, err = e.Exec(
 		`INSERT OR IGNORE INTO interaction(id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,
 		   context_id,trust,is_capability,task_nonce,peer_kel,peer_keys,created_at,updated_at)
 		 VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)`,
-		n.ID, string(n.Role), n.PeerAID, n.Goal, string(StateSubmitted), nowMS, n.RequestCID, n.RequestDoc,
+		n.ID, string(n.Role), n.PeerAID, goal, string(StateSubmitted), nowMS, n.RequestCID, doc,
 		n.ContextID, n.Trust, capFlag, n.TaskNonce, n.PeerKEL, n.PeerKeys, now, now)
 	return err
 }
@@ -674,6 +688,10 @@ func finish(e execer, id string, f Finish, nowMS int64) error {
 	if id == "" || !f.State.Valid() {
 		return fmt.Errorf("%w: id and a valid state required", ErrBadInput)
 	}
+	result, meta, err := sealResult(e, id, f.Result, f.Meta)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	q := `UPDATE interaction SET state=?, state_at=?, state_seq=state_seq+1, result=?, result_cid=?, receipt=?,
 	        receipt_verified=?, result_meta=?, updated_at=?`
@@ -681,7 +699,7 @@ func finish(e execer, id string, f Finish, nowMS int64) error {
 		q += `, peer_kel=NULL, peer_keys=NULL`
 	}
 	q += ` WHERE id=? AND state NOT IN ` + terminalSQL
-	res, err := e.Exec(q, string(f.State), nowMS, f.Result, f.ResultCID, f.Receipt, string(f.Verified), string(f.Meta), now, id)
+	res, err := e.Exec(q, string(f.State), nowMS, result, f.ResultCID, f.Receipt, string(f.Verified), meta, now, id)
 	if err != nil {
 		return err
 	}
@@ -692,6 +710,25 @@ func finish(e execer, id string, f Finish, nowMS int64) error {
 		return err
 	}
 	return ErrTerminal
+}
+
+// sealResult returns what the result and result_meta columns of
+// interaction id store for a result write: ErrNotFound without the
+// interaction, ErrContentGone without its data key.
+func sealResult(e execer, id string, result, meta []byte) (any, any, error) {
+	b, err := rowBox(e, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	r, err := b.put(ColResult, result)
+	if err != nil {
+		return nil, nil, err
+	}
+	m, err := b.putText(ColResultMeta, string(meta))
+	if err != nil {
+		return nil, nil, err
+	}
+	return r, m, nil
 }
 
 // SetLateResult stores a result that arrived for an interaction already in a
@@ -707,10 +744,17 @@ func (s *Store) SetLateResult(id string, result []byte, resultCID string, receip
 // setLateResult is Store.SetLateResult against either the database handle
 // or an open transaction.
 func setLateResult(e execer, id string, result []byte, resultCID string, receipt []byte, verified Verification) (bool, error) {
+	stored, _, err := sealResult(e, id, result, nil)
+	if errors.Is(err, ErrNotFound) && !errors.Is(err, ErrContentGone) {
+		return false, nil // no such interaction: nothing to write
+	}
+	if err != nil {
+		return false, err
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	res, err := e.Exec(`UPDATE interaction SET result=?, result_cid=?, receipt=?, receipt_verified=?, updated_at=?
 	   WHERE id=? AND state IN `+terminalSQL+` AND (receipt IS NULL OR length(receipt)=0)`,
-		result, resultCID, receipt, string(verified), now, id)
+		stored, resultCID, receipt, string(verified), now, id)
 	if err != nil {
 		return false, err
 	}
@@ -746,8 +790,16 @@ func (s *Store) SetReview(id string, review []byte) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	b, err := rowBox(s.db, id)
+	if err != nil {
+		return err
+	}
+	stored, err := b.put(ColReview, review)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	res, err := s.db.Exec(`UPDATE interaction SET review=?, updated_at=? WHERE id=?`, review, now, id)
+	res, err := s.db.Exec(`UPDATE interaction SET review=?, updated_at=? WHERE id=?`, stored, now, id)
 	if err != nil {
 		return err
 	}
@@ -768,7 +820,14 @@ func (s *Store) Get(id string) (*Interaction, error) {
 }
 
 func getIX(e execer, id string) (*Interaction, error) {
-	return scanOne(e.QueryRow(`SELECT `+ixColumns+` FROM interaction WHERE id=?`, id))
+	ix, err := scanOne(e.QueryRow(`SELECT `+ixColumns+` FROM interaction WHERE id=?`, id))
+	if err != nil {
+		return nil, err
+	}
+	if err := openIX(e, ix); err != nil {
+		return nil, err
+	}
+	return ix, nil
 }
 
 // MessageRecord is a message to store.
@@ -811,8 +870,19 @@ func addMessage(e execer, m MessageRecord) (seq int64, stored bool, err error) {
 	if m.InteractionID == "" || m.SenderAID == "" || m.Kind == "" {
 		return 0, false, fmt.Errorf("%w: interaction_id, sender and kind required", ErrBadInput)
 	}
+	b, err := rowBox(e, m.InteractionID)
+	if err != nil {
+		return 0, false, err
+	}
+	body, err := b.putText(ColMessageBody, m.Body)
+	if err != nil {
+		return 0, false, err
+	}
+	meta, err := b.putText(ColMessageMetadata, string(m.Metadata))
+	if err != nil {
+		return 0, false, err
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	meta := string(m.Metadata)
 	if m.MsgID != "" {
 		// The partial unique index makes this the whole of the dedupe: a
 		// second delivery of the same id inserts nothing and affects no
@@ -820,7 +890,7 @@ func addMessage(e execer, m MessageRecord) (seq int64, stored bool, err error) {
 		res, err := e.Exec(
 			`INSERT OR IGNORE INTO message(interaction_id,sender_aid,kind,body,created_at,msg_id,metadata)
 			 VALUES(?,?,?,?,?,?,?)`,
-			m.InteractionID, m.SenderAID, m.Kind, m.Body, now, m.MsgID, meta)
+			m.InteractionID, m.SenderAID, m.Kind, body, now, m.MsgID, meta)
 		if err != nil {
 			return 0, false, err
 		}
@@ -843,7 +913,7 @@ func addMessage(e execer, m MessageRecord) (seq int64, stored bool, err error) {
 	}
 	res, err := e.Exec(
 		`INSERT INTO message(interaction_id,sender_aid,kind,body,created_at,metadata) VALUES(?,?,?,?,?,?)`,
-		m.InteractionID, m.SenderAID, m.Kind, m.Body, now, meta)
+		m.InteractionID, m.SenderAID, m.Kind, body, now, meta)
 	if err != nil {
 		return 0, false, err
 	}
@@ -861,16 +931,51 @@ func (s *Store) Messages(interactionID string) ([]Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []Message
 	for rows.Next() {
 		var m Message
 		if err := rows.Scan(&m.Seq, &m.InteractionID, &m.SenderAID, &m.Kind, &m.Body, &m.MsgID, &m.Metadata, &m.CreatedAt); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, m)
 	}
-	return out, rows.Err()
+	if err := closeRows(rows); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	b, err := boxOf(s.db, interactionID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if err := openMessage(b, &out[i]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// openMessage replaces the stored body and metadata of m with their
+// plaintext.
+func openMessage(b *fieldBox, m *Message) error {
+	var err error
+	if m.Body, err = b.getText(ColMessageBody, m.Body); err != nil {
+		return err
+	}
+	m.Metadata, err = b.getText(ColMessageMetadata, m.Metadata)
+	return err
+}
+
+// closeRows closes rows read to the end and returns the error of the read.
+func closeRows(rows *sql.Rows) error {
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	return rows.Close()
 }
 
 // AddAttachment stores one binary attachment (with its bytes) against a message of an interaction.
@@ -894,10 +999,26 @@ func (t *Tx) AddAttachment(interactionID string, msgSeq int64, a Attachment) err
 }
 
 func addAttachment(e execer, interactionID string, msgSeq int64, a Attachment) error {
+	b, err := rowBox(e, interactionID)
+	if err != nil {
+		return err
+	}
+	name, err := b.putText(ColAttachmentName, a.Name)
+	if err != nil {
+		return err
+	}
+	mime, err := b.putText(ColAttachmentMime, a.Mime)
+	if err != nil {
+		return err
+	}
+	data, err := b.put(ColAttachmentData, a.Data)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	_, err := e.Exec(
+	_, err = e.Exec(
 		`INSERT INTO attachment(interaction_id,msg_seq,name,mime,size,cid,data,created_at) VALUES(?,?,?,?,?,?,?,?)`,
-		interactionID, msgSeq, a.Name, a.Mime, a.Size, a.CID, a.Data, now)
+		interactionID, msgSeq, name, mime, a.Size, a.CID, data, now)
 	return err
 }
 
@@ -909,16 +1030,45 @@ func (s *Store) Attachments(interactionID string) ([]Attachment, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []Attachment
 	for rows.Next() {
 		var a Attachment
 		if err := rows.Scan(&a.Seq, &a.InteractionID, &a.MsgSeq, &a.Name, &a.Mime, &a.Size, &a.CID, &a.CreatedAt); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		out = append(out, a)
 	}
-	return out, rows.Err()
+	if err := closeRows(rows); err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	b, err := boxOf(s.db, interactionID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if err := openAttachment(b, &out[i]); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// openAttachment replaces the stored name, mime and data of a with their
+// plaintext.
+func openAttachment(b *fieldBox, a *Attachment) error {
+	var err error
+	if a.Name, err = b.getText(ColAttachmentName, a.Name); err != nil {
+		return err
+	}
+	if a.Mime, err = b.getText(ColAttachmentMime, a.Mime); err != nil {
+		return err
+	}
+	a.Data, err = b.get(ColAttachmentData, a.Data)
+	return err
 }
 
 // AttachmentData returns one attachment WITH its bytes, by interaction + content CID.
@@ -932,6 +1082,13 @@ func (s *Store) AttachmentData(interactionID, cid string) (*Attachment, error) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
+		return nil, err
+	}
+	b, err := boxOf(s.db, interactionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := openAttachment(b, &a); err != nil {
 		return nil, err
 	}
 	return &a, nil
@@ -1260,21 +1417,36 @@ func parseCursor(c string) (at, seq int64, err error) {
 	return at, seq, nil
 }
 
+// query reads the interactions q selects. One whose data key is gone — its
+// content deleted since the query ran — is left out, as one deleted whole.
 func (s *Store) query(q string, args ...any) ([]*Interaction, error) {
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []*Interaction
+	var items []*Interaction
 	for rows.Next() {
 		ix, err := scanRows(rows)
 		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		items = append(items, ix)
+	}
+	if err := closeRows(rows); err != nil {
+		return nil, err
+	}
+	out := items[:0]
+	for _, ix := range items {
+		switch err := openIX(s.db, ix); {
+		case errors.Is(err, ErrContentGone):
+			continue
+		case err != nil:
 			return nil, err
 		}
 		out = append(out, ix)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 type scanner interface{ Scan(dest ...any) error }

@@ -28,8 +28,15 @@ func (s *Store) GetFor(id string, role Role, peerAID string) (*Interaction, erro
 	if id == "" || role == "" || peerAID == "" {
 		return nil, ErrNotFound
 	}
-	return scanOne(s.db.QueryRow(`SELECT `+ixColumns+` FROM interaction WHERE id=? AND role=? AND peer_aid=?`,
+	ix, err := scanOne(s.db.QueryRow(`SELECT `+ixColumns+` FROM interaction WHERE id=? AND role=? AND peer_aid=?`,
 		id, string(role), peerAID))
+	if err != nil {
+		return nil, err
+	}
+	if err := openIX(s.db, ix); err != nil {
+		return nil, err
+	}
+	return ix, nil
 }
 
 // ClientMessageQuery selects the interaction that already holds a message
@@ -62,26 +69,76 @@ type ClientMessageQuery struct {
 // interaction's peer. The key is the local client's; a peer's message
 // carrying it (a provider planting the ids it expects the client to use
 // next) is not a message this client sent [redteam:F33].
+//
+// The metadata is data-key ciphertext (FS-L2) that no SQL may look into
+// (FS-L3), so the candidates in scope are read in order and their metadata
+// opened here; the first match wins. v030-todo(UX-1): FindByClientKey
+// replaces this with a lookup of the plain client_key column (core L37,
+// CUX-D2) through its index.
 func (s *Store) FindByClientMessage(q ClientMessageQuery) (*Interaction, error) {
 	if q.ClientMsgID == "" || q.Role == "" || (q.ContextID == "" && q.PeerAID == "" && q.TaskID == "") {
 		return nil, ErrNotFound
 	}
 	sql, args := q.findSQL()
-	return scanOne(s.db.QueryRow(sql, args...))
+	rows, err := s.db.Query(sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	type cand struct{ ix, meta string }
+	var cands []cand
+	for rows.Next() {
+		var c cand
+		if err := rows.Scan(&c.ix, &c.meta); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		cands = append(cands, c)
+	}
+	if err := closeRows(rows); err != nil {
+		return nil, err
+	}
+	boxes := newBoxCache(s.db)
+	for _, c := range cands {
+		if c.meta == "" {
+			continue
+		}
+		b, err := boxes.of(c.ix)
+		if errors.Is(err, ErrContentGone) {
+			continue // deleted meanwhile: not a task to answer with
+		}
+		if err != nil {
+			return nil, err
+		}
+		meta, err := b.getText(ColMessageMetadata, c.meta)
+		if err != nil {
+			return nil, err
+		}
+		if clientMsgID(meta) == q.ClientMsgID {
+			return getIX(s.db, c.ix)
+		}
+	}
+	return nil, ErrNotFound
 }
 
-// clientMsgIDExpr is a message's client message id as SQL, the column
-// prefixed with p ("m." or ""): the expression of idx_msg_client, which
-// FindByClientMessage must use unchanged for SQLite to read that index.
-// json_valid guards json_extract, which fails on malformed input: a message
-// without metadata stores the empty string.
-func clientMsgIDExpr(p string) string {
-	return `(CASE WHEN json_valid(` + p + `metadata) THEN json_extract(` + p + `metadata, '$."` + ClientMessageIDKey + `"') END)`
+// clientMsgID is the client message id a message's metadata carries, or ""
+// (no metadata, metadata that is not a JSON object, an id that is not a
+// string).
+func clientMsgID(meta string) string {
+	var m map[string]json.RawMessage
+	if json.Unmarshal([]byte(meta), &m) != nil {
+		return ""
+	}
+	var id string
+	if json.Unmarshal(m[ClientMessageIDKey], &id) != nil {
+		return ""
+	}
+	return id
 }
 
-// findSQL is FindByClientMessage's query.
+// findSQL is FindByClientMessage's query: the candidate messages, oldest
+// task first, with their stored metadata.
 func (q ClientMessageQuery) findSQL() (string, []any) {
-	inner := `SELECT m.interaction_id FROM interaction i JOIN message m ON m.interaction_id = i.id
+	inner := `SELECT m.interaction_id, m.metadata FROM interaction i JOIN message m ON m.interaction_id = i.id
 	           WHERE i.role=? AND m.sender_aid <> i.peer_aid`
 	args := []any{string(q.Role)}
 	if q.OpenOnly {
@@ -99,9 +156,8 @@ func (q ClientMessageQuery) findSQL() (string, []any) {
 		inner += ` AND i.id=?`
 		args = append(args, q.TaskID)
 	}
-	inner += ` AND ` + clientMsgIDExpr("m.") + ` = ? ORDER BY i.seq, m.seq LIMIT 1`
-	args = append(args, q.ClientMsgID)
-	return `SELECT ` + ixColumns + ` FROM interaction WHERE id = (` + inner + `)`, args
+	inner += ` ORDER BY i.seq, m.seq`
+	return inner, args
 }
 
 // contextPeersSQL reads idx_ix_context: left to itself SQLite took the role
@@ -154,11 +210,19 @@ func (t *Tx) MergeMessageMeta(interactionID string, msgSeq int64, add map[string
 }
 
 func mergeMessageMeta(e execer, interactionID string, msgSeq int64, add map[string]any) error {
-	var cur string
-	err := e.QueryRow(`SELECT metadata FROM message WHERE seq=? AND interaction_id=?`, msgSeq, interactionID).Scan(&cur)
+	var stored string
+	err := e.QueryRow(`SELECT metadata FROM message WHERE seq=? AND interaction_id=?`, msgSeq, interactionID).Scan(&stored)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
+	if err != nil {
+		return err
+	}
+	b, err := boxOf(e, interactionID)
+	if err != nil {
+		return err
+	}
+	cur, err := b.getText(ColMessageMetadata, stored)
 	if err != nil {
 		return err
 	}
@@ -183,11 +247,15 @@ func mergeMessageMeta(e execer, interactionID string, msgSeq int64, add map[stri
 	if !changed {
 		return nil
 	}
-	b, err := json.Marshal(m)
+	plain, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
-	_, err = e.Exec(`UPDATE message SET metadata=? WHERE seq=? AND interaction_id=?`, string(b), msgSeq, interactionID)
+	sealed, err := b.putText(ColMessageMetadata, string(plain))
+	if err != nil {
+		return err
+	}
+	_, err = e.Exec(`UPDATE message SET metadata=? WHERE seq=? AND interaction_id=?`, sealed, msgSeq, interactionID)
 	return err
 }
 

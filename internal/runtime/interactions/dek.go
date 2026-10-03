@@ -31,6 +31,7 @@ import (
 	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"errors"
 	"fmt"
 	"unicode/utf8"
@@ -264,31 +265,190 @@ func (b *fieldBox) openField(col Column, stored []byte) ([]byte, error) {
 	return pt, nil
 }
 
-// errDEKNotYet is what the storage methods below answer until FS-8 wires the
-// data key into the store. v030-todo(FS-8)
-var errDEKNotYet = errors.New("interactions: data keys are not stored yet")
+// migrateDEK creates the data-key table (FS §2.11). A key row is only ever
+// inserted (with the row it belongs to) and deleted; the database is opened
+// with secure_delete, so a deleted key's bytes are overwritten in the file.
+func (s *Store) migrateDEK() error {
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS ix_dek (
+	   ix TEXT PRIMARY KEY,
+	   key BLOB NOT NULL,
+	   created_at INTEGER NOT NULL
+	 )`); err != nil {
+		return fmt.Errorf("interactions: migrate ix_dek: %w", err)
+	}
+	return nil
+}
+
+// loadDEK reads task ix's data key, or ErrContentGone when it has none.
+func loadDEK(e execer, ix string) (*DEK, error) {
+	var b []byte
+	err := e.QueryRow(`SELECT key FROM ix_dek WHERE ix=?`, ix).Scan(&b)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrContentGone
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer clear(b)
+	return dekFrom(b)
+}
+
+// boxOf returns task ix's field cipher, or ErrContentGone when it has no
+// data key.
+func boxOf(e execer, ix string) (*fieldBox, error) {
+	k, err := loadDEK(e, ix)
+	if err != nil {
+		return nil, err
+	}
+	defer k.Wipe()
+	return k.box(ix)
+}
+
+// rowBox is boxOf for a write to interaction id: ErrNotFound when there is
+// no such interaction (and no key), ErrContentGone when the row is there and
+// its key is not.
+func rowBox(e execer, id string) (*fieldBox, error) {
+	b, err := boxOf(e, id)
+	if !errors.Is(err, ErrContentGone) {
+		return b, err
+	}
+	var one int
+	switch qerr := e.QueryRow(`SELECT 1 FROM interaction WHERE id=?`, id).Scan(&one); {
+	case errors.Is(qerr, sql.ErrNoRows):
+		return nil, ErrNotFound
+	case qerr != nil:
+		return nil, qerr
+	}
+	return nil, ErrContentGone
+}
+
+// ensureDEK gives task ix a fresh data key unless it has one (FS-L1: the
+// key is created in the transaction that creates the row) and returns its
+// field cipher. A key already there is kept: a repeated creation of the
+// same task, or an approved delegation whose interaction takes over the key
+// of the held item (TakePending).
+func ensureDEK(e execer, ix string, nowMS int64) (*fieldBox, error) {
+	k, err := NewDEK()
+	if err != nil {
+		return nil, err
+	}
+	_, err = e.Exec(`INSERT OR IGNORE INTO ix_dek(ix,key,created_at) VALUES(?,?,?)`, ix, k.k[:], nowMS)
+	k.Wipe()
+	if err != nil {
+		return nil, err
+	}
+	return boxOf(e, ix)
+}
+
+// put returns what column col stores for plaintext pt: NULL for nil, an
+// empty value for an empty one — there is nothing to hide but that it is
+// empty, which the length of a ciphertext would tell as well — and the
+// ciphertext otherwise.
+func (b *fieldBox) put(col Column, pt []byte) (any, error) {
+	switch {
+	case pt == nil:
+		return nil, nil
+	case len(pt) == 0:
+		return []byte{}, nil
+	}
+	return b.sealField(col, pt)
+}
+
+// putText is put for a column that holds text and is never NULL.
+func (b *fieldBox) putText(col Column, s string) (any, error) {
+	if s == "" {
+		return []byte{}, nil
+	}
+	return b.sealField(col, []byte(s))
+}
+
+// get returns the plaintext of what column col stores as v: nil for NULL,
+// empty for an empty value.
+func (b *fieldBox) get(col Column, v []byte) ([]byte, error) {
+	switch {
+	case v == nil:
+		return nil, nil
+	case len(v) == 0:
+		return []byte{}, nil
+	}
+	return b.openField(col, v)
+}
+
+// getText is get for a text column.
+func (b *fieldBox) getText(col Column, v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	pt, err := b.openField(col, []byte(v))
+	return string(pt), err
+}
+
+// openIX replaces the stored content columns of a row scanRows read with
+// their plaintext.
+func openIX(e execer, ix *Interaction) error {
+	b, err := boxOf(e, ix.ID)
+	if err != nil {
+		return err
+	}
+	if ix.Goal, err = b.getText(ColGoal, ix.Goal); err != nil {
+		return err
+	}
+	if ix.RequestDoc, err = b.get(ColRequestDoc, ix.RequestDoc); err != nil {
+		return err
+	}
+	if ix.Result, err = b.get(ColResult, ix.Result); err != nil {
+		return err
+	}
+	if ix.ResultMeta, err = b.getText(ColResultMeta, ix.ResultMeta); err != nil {
+		return err
+	}
+	ix.Review, err = b.get(ColReview, ix.Review)
+	return err
+}
+
+// boxCache holds the field ciphers of the tasks one read decrypts.
+type boxCache struct {
+	e     execer
+	boxes map[string]*fieldBox
+}
+
+func newBoxCache(e execer) *boxCache { return &boxCache{e: e, boxes: map[string]*fieldBox{}} }
+
+// of returns task ix's field cipher, or ErrContentGone.
+func (c *boxCache) of(ix string) (*fieldBox, error) {
+	if b := c.boxes[ix]; b != nil {
+		return b, nil
+	}
+	b, err := boxOf(c.e, ix)
+	if err != nil {
+		return nil, err
+	}
+	c.boxes[ix] = b
+	return b, nil
+}
 
 // DEK returns task ix's data key (an interaction's or a held delegation's),
 // or ErrContentGone when it has none. The caller wipes it.
-func (s *Store) DEK(ix string) (*DEK, error) {
-	return nil, errDEKNotYet // v030-todo(FS-8)
-}
+func (s *Store) DEK(ix string) (*DEK, error) { return loadDEK(s.db, ix) }
 
 // DEK is Store.DEK inside the transaction.
-func (t *Tx) DEK(ix string) (*DEK, error) {
-	return nil, errDEKNotYet // v030-todo(FS-8)
-}
+func (t *Tx) DEK(ix string) (*DEK, error) { return loadDEK(t.tx, ix) }
 
 // MACKey returns task ix's client-digest key (DEK.MACKey), or ErrContentGone
 // when its data key is gone: a candidate task whose content has expired is
 // then no match (CUX-D1).
-func (s *Store) MACKey(ix string) ([]byte, error) {
-	return nil, errDEKNotYet // v030-todo(FS-8)
-}
+func (s *Store) MACKey(ix string) ([]byte, error) { return macKey(s.db, ix) }
 
 // MACKey is Store.MACKey inside the transaction.
-func (t *Tx) MACKey(ix string) ([]byte, error) {
-	return nil, errDEKNotYet // v030-todo(FS-8)
+func (t *Tx) MACKey(ix string) ([]byte, error) { return macKey(t.tx, ix) }
+
+func macKey(e execer, ix string) ([]byte, error) {
+	k, err := loadDEK(e, ix)
+	if err != nil {
+		return nil, err
+	}
+	defer k.Wipe()
+	return k.MACKey(), nil
 }
 
 // DeleteDEK deletes task ix's data key in the transaction and reports
@@ -296,15 +456,30 @@ func (t *Tx) MACKey(ix string) ([]byte, error) {
 // unreadable; a row of ix still left reads as ErrContentGone. The
 // retention sweep calls it with the rows it deletes (FS-L8).
 func (t *Tx) DeleteDEK(ix string) (bool, error) {
-	return false, errDEKNotYet // v030-todo(FS-8)
+	res, err := t.tx.Exec(`DELETE FROM ix_dek WHERE ix=?`, ix)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // ReleaseDEK deletes task ix's data key when nothing stored still needs it:
 // no interaction, held delegation or outbox row of ix (FS-L1, engine
 // ENG-S7). A path that deletes the last of those calls it in the same
 // transaction. It reports whether the key was deleted.
-func (t *Tx) ReleaseDEK(ix string) (bool, error) {
-	return false, errDEKNotYet // v030-todo(FS-8)
+func (t *Tx) ReleaseDEK(ix string) (bool, error) { return releaseDEK(t.tx, ix) }
+
+func releaseDEK(e execer, ix string) (bool, error) {
+	res, err := e.Exec(`DELETE FROM ix_dek WHERE ix=?
+	   AND NOT EXISTS (SELECT 1 FROM interaction WHERE id=?)
+	   AND NOT EXISTS (SELECT 1 FROM pending WHERE ix=?)
+	   AND NOT EXISTS (SELECT 1 FROM outbox WHERE ix=?)`, ix, ix, ix, ix)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // TakePending removes held delegation ix for its approval and keeps its data
@@ -313,5 +488,10 @@ func (t *Tx) ReleaseDEK(ix string) (bool, error) {
 // rejected, expired or canceled goes with DeletePending, which deletes the
 // key with it (FS-L9).
 func (t *Tx) TakePending(ix string) (bool, error) {
-	return false, errDEKNotYet // v030-todo(FS-8)
+	res, err := t.tx.Exec(`DELETE FROM pending WHERE ix=?`, ix)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
