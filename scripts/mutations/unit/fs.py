@@ -30,7 +30,7 @@ func soloSettle(id string, cause Cause) error {
 MUTS = [
  dict(
   id='fs-13', group='FS-X7', repo='ANet',
-  desc='closeIXKey 移到提交之前的独立事务(结果入库事务回滚后钥已删)',
+  desc='closeIXKey 移到提交之前的独立事务(终态写入、迟到结果、CloseIXKey 的事务回滚后钥已删)',
   edits=[
    ('internal/runtime/interactions/zz_mut13.go', None, MUT13_SOLO),
    ('internal/runtime/interactions/interactions.go', '\ts := &Store{db: db}\n', '\ts := &Store{db: db}\n\tsoloDB = db\n'),
@@ -40,6 +40,12 @@ MUTS = [
    ('internal/runtime/interactions/peers.go',
     '\treturn setLateResult(t.tx, id, result, resultCID, receipt, verified, cause, t.now)',
     '\tif err := soloSettle(id, cause); err != nil {\n\t\treturn false, err\n\t}\n\treturn setLateResult(t.tx, id, result, resultCID, receipt, verified, cause, t.now)'),
+   ('internal/runtime/interactions/peers.go',
+    '\treturn setState(t.tx, id, st, cause, t.now)\n',
+    '\tif err := soloSettle(id, cause); err != nil {\n\t\treturn false, err\n\t}\n\treturn setState(t.tx, id, st, cause, t.now)\n'),
+   ('internal/runtime/interactions/ixkey.go',
+    '\treturn closeIXKey(t.tx, ix, cause, t.now)\n}',
+    '\treturn soloSettle(ix, cause)\n}'),
   ],
   tests=[(IX, 'TestIXKeyDeletedOnlyWithCommit')],
   full=[IX],

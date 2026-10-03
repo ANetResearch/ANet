@@ -102,7 +102,11 @@ func (t *Tx) SetFailed(id string, detail []byte, cause Cause) error {
 	return finish(t.tx, id, Finish{State: StateFailed, Result: detail, Verified: VerificationUnknown}, cause, t.now)
 }
 
-// Finish is Store.Finish inside the transaction.
+// Finish is Store.Finish inside the transaction. With a terminal f.State on
+// a task that is already terminal it settles the key in the transaction and
+// answers ErrTerminal: rolling back undoes both; committing keeps the
+// settlement, which is right only when the transaction stored the peer's
+// terminal message some other way.
 func (t *Tx) Finish(id string, f Finish, cause Cause) error { return finish(t.tx, id, f, cause, t.now) }
 
 // SetState is Store.SetState inside the transaction.

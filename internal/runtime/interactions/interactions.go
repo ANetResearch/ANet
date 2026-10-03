@@ -679,22 +679,16 @@ type Finish struct {
 // capability call waiting for input).
 //
 // cause is as for SetState: with a terminal f.State, this node's
-// interaction key is settled in the same transaction, also when the answer
-// is ErrTerminal (the task is terminal either way).
+// interaction key is settled in the transaction that stores the result.
+// ErrTerminal stores nothing, so nothing commits, the key's settlement
+// included: a key may not go before the write that ends the task for it
+// commits (FS-X7), and here that write did not happen. A result that comes
+// after the task ended here is stored with SetLateResult, which settles the
+// key with it. Inside a transaction, Tx.Finish settles the key before it
+// answers ErrTerminal, and a caller that commits anyway (it stored the
+// peer's terminal message in some other row) commits the settlement too.
 func (s *Store) Finish(id string, f Finish, cause Cause) error {
-	ended := false
-	err := s.Update(func(t *Tx) error {
-		err := t.Finish(id, f, cause)
-		if errors.Is(err, ErrTerminal) {
-			ended = true // nothing written but the key's settlement, which commits
-			return nil
-		}
-		return err
-	})
-	if err == nil && ended {
-		return ErrTerminal
-	}
-	return err
+	return s.Update(func(t *Tx) error { return t.Finish(id, f, cause) })
 }
 
 // SetResult stores the deliverable, result CID and receipt and marks the interaction completed.

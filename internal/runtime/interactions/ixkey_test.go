@@ -69,64 +69,79 @@ var errRollback = errors.New("the rest of the transaction failed")
 
 // FS-X7, mutation 13: the key goes with the commit of the write that ends the task, not before. A
 // transaction that ends the task and then fails leaves the key in place, so the redelivered message
-// that the failure left unacknowledged can still be opened; the one that commits deletes it.
+// that the failure left unacknowledged can still be opened; the one that commits deletes it. Each way
+// a key is settled is tried: Finish, SetState, SetLateResult and CloseIXKey.
 func TestIXKeyDeletedOnlyWithCommit(t *testing.T) {
 	s := open(t)
-
-	// The provider stores its result; the rest of the result's transaction (the outbox row, the
-	// replay row) fails.
-	prov := keyedTask(t, s, "ix_prov", interactions.RoleInbound)
-	err := s.Update(func(tx *interactions.Tx) error {
-		if err := tx.Finish("ix_prov", interactions.Finish{State: interactions.StateCompleted, Result: []byte("r"),
-			Verified: interactions.VerificationVerified}, interactions.CauseProviderEnd); err != nil {
-			return err
+	canceledHere := func(id string) interactions.IXKey {
+		t.Helper()
+		k := keyedTask(t, s, id, interactions.RoleOutbound)
+		if _, err := s.SetState(id, interactions.StateCanceled, interactions.CauseLocalEnded); err != nil {
+			t.Fatal(err)
 		}
-		return errRollback
-	})
-	if !errors.Is(err, errRollback) {
-		t.Fatalf("Update = %v", err)
+		return k
 	}
-	if got := stored(t, s, prov); got == nil || !bytes.Equal(got.Priv, prov.Priv) {
-		t.Fatal("a result transaction that rolled back took the provider's key with it")
+	done := interactions.Finish{State: interactions.StateCompleted, Result: []byte("r"), Verified: interactions.VerificationVerified}
+	cases := []struct {
+		name string
+		k    interactions.IXKey
+		end  func(tx *interactions.Tx, id string) error
+	}{
+		// The provider stores its result; the rest of the result's transaction (the outbox row, the
+		// replay row) fails.
+		{"provider result", keyedTask(t, s, "ix_prov", interactions.RoleInbound),
+			func(tx *interactions.Tx, id string) error { return tx.Finish(id, done, interactions.CauseProviderEnd) }},
+		// The provider sends a terminal status (SendStatus); its outbox row fails.
+		{"provider status", keyedTask(t, s, "ix_prov_status", interactions.RoleInbound),
+			func(tx *interactions.Tx, id string) error {
+				_, err := tx.SetState(id, interactions.StateFailed, interactions.CauseProviderEnd)
+				return err
+			}},
+		// The requester canceled; the provider's late result lands in a transaction that fails.
+		{"late result", canceledHere("ix_req"),
+			func(tx *interactions.Tx, id string) error {
+				_, err := tx.SetLateResult(id, []byte("r"), "cid", []byte("rc"), interactions.VerificationVerified,
+					interactions.CausePeerEnded)
+				return err
+			}},
+		// The requester canceled; the provider's terminal status lands in a transaction that fails.
+		{"terminal status after a cancel", canceledHere("ix_req_status"),
+			func(tx *interactions.Tx, id string) error {
+				_, err := tx.SetState(id, interactions.StateFailed, interactions.CausePeerEnded)
+				return err
+			}},
+		// The requester canceled; a terminal message with no state write settles the key (CloseIXKey).
+		{"CloseIXKey after a cancel", canceledHere("ix_req_close"),
+			func(tx *interactions.Tx, id string) error { return tx.CloseIXKey(id, interactions.CausePeerEnded) }},
 	}
-	if st, _ := state(t, s, "ix_prov"); st != interactions.StateSubmitted {
-		t.Fatalf("state after the rollback = %s", st)
-	}
-
-	// The requester canceled; the provider's late result lands in a transaction that fails.
-	req := keyedTask(t, s, "ix_req", interactions.RoleOutbound)
-	if _, err := s.SetState("ix_req", interactions.StateCanceled, interactions.CauseLocalEnded); err != nil {
-		t.Fatal(err)
-	}
-	err = s.Update(func(tx *interactions.Tx) error {
-		if _, err := tx.SetLateResult("ix_req", []byte("r"), "cid", []byte("rc"), interactions.VerificationVerified,
-			interactions.CausePeerEnded); err != nil {
-			return err
+	for _, c := range cases {
+		before, _ := state(t, s, c.k.IX)
+		err := s.Update(func(tx *interactions.Tx) error {
+			if err := c.end(tx, c.k.IX); err != nil {
+				return err
+			}
+			return errRollback
+		})
+		if !errors.Is(err, errRollback) {
+			t.Fatalf("%s: Update = %v", c.name, err)
 		}
-		return errRollback
-	})
-	if !errors.Is(err, errRollback) {
-		t.Fatalf("Update = %v", err)
+		if got := stored(t, s, c.k); got == nil || !bytes.Equal(got.Priv, c.k.Priv) {
+			t.Fatalf("%s: a transaction that rolled back took the key with it", c.name)
+		}
+		if st, _ := state(t, s, c.k.IX); st != before {
+			t.Fatalf("%s: state after the rollback = %s, was %s", c.name, st, before)
+		}
 	}
-	if stored(t, s, req) == nil {
-		t.Fatal("a late result that rolled back took the requester's key with it")
-	}
-
 	// Committed, the same writes delete the keys.
-	if err := s.Finish("ix_prov", interactions.Finish{State: interactions.StateCompleted, Result: []byte("r"),
-		Verified: interactions.VerificationVerified}, interactions.CauseProviderEnd); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.SetLateResult("ix_req", []byte("r"), "cid", []byte("rc"), interactions.VerificationVerified,
-		interactions.CausePeerEnded); err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range []interactions.IXKey{prov, req} {
-		if got := stored(t, s, k); got != nil {
-			t.Errorf("%s: key still there after the committed end", k.IX)
+	for _, c := range cases {
+		if err := s.Update(func(tx *interactions.Tx) error { return c.end(tx, c.k.IX) }); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
 		}
-		if rk, err := s.OwnRK(k.IX); err != nil || rk != nil {
-			t.Errorf("%s: OwnRK = %v, %v after the key went", k.IX, rk, err)
+		if got := stored(t, s, c.k); got != nil {
+			t.Errorf("%s: key still there after the committed end", c.name)
+		}
+		if rk, err := s.OwnRK(c.k.IX); err != nil || rk != nil {
+			t.Errorf("%s: OwnRK = %v, %v after the key went", c.name, rk, err)
 		}
 	}
 }
@@ -180,8 +195,9 @@ func TestIXKeyFollowsEachTerminalWrite(t *testing.T) {
 		{"cancel then terminal status", interactions.RoleOutbound, []step{
 			set(interactions.StateCanceled, interactions.CauseLocalEnded),
 			set(interactions.StateFailed, interactions.CausePeerEnded)}, false, 0},
-		// A result on a task that ended here is ErrTerminal, and is still the provider's answer.
-		{"cancel then result", interactions.RoleOutbound, []step{
+		// A result on a task that ended here is ErrTerminal from Store.Finish, which stores nothing and
+		// so settles nothing: the key a local end kept waits for SetLateResult (or close_after).
+		{"cancel then result refused", interactions.RoleOutbound, []step{
 			set(interactions.StateCanceled, interactions.CauseLocalEnded),
 			func(s *interactions.Store, id string) error {
 				err := finish(interactions.StateCompleted, interactions.CausePeerEnded)(s, id)
@@ -189,6 +205,19 @@ func TestIXKeyFollowsEachTerminalWrite(t *testing.T) {
 					return nil
 				}
 				return errors.New("a result on a canceled task was not ErrTerminal")
+			}}, true, now + lifetimeL},
+		// Inside the transaction that stores the provider's terminal message (a failed result with no
+		// receipt), Tx.Finish's ErrTerminal still settles the key, and the commit keeps that.
+		{"cancel then result in the receive transaction", interactions.RoleOutbound, []step{
+			set(interactions.StateCanceled, interactions.CauseLocalEnded),
+			func(s *interactions.Store, id string) error {
+				return s.Update(func(tx *interactions.Tx) error {
+					err := tx.SetFailed(id, []byte("d"), interactions.CausePeerEnded)
+					if errors.Is(err, interactions.ErrTerminal) {
+						return nil
+					}
+					return errors.New("a failed result on a canceled task was not ErrTerminal")
+				})
 			}}, false, 0},
 		// A second local end does not lengthen the first.
 		{"two local ends", interactions.RoleOutbound, []step{
