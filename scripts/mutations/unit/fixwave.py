@@ -731,9 +731,9 @@ MUTS = [
  ),
  dict(
   id='fx34-1', group='F34', repo='ANetCore',
-  desc='Replay 不拒绝长度不是 32 字节的 icp 密钥',
+  desc='Replay 不拒绝长度不是 32 字节的密钥(checkShape,icp 与 rot)',
   edits=[
-   ('identity/identity.go', '\t\t\tif len(e.Keys) != 1 || len(e.Keys[0]) != ed25519.PublicKeySize {\n\t\t\t\t// Checked before ed25519.Verify', '\t\t\tif len(e.Keys) != 1 {\n\t\t\t\t// Checked before ed25519.Verify'),
+   ('identity/identity.go', '\tif len(e.Keys) != 1 || len(e.Keys[0]) != ed25519.PublicKeySize {\n\t\treturn fmt.Errorf("identity: %s needs exactly one 32-byte Ed25519 key"', '\tif len(e.Keys) != 1 {\n\t\treturn fmt.Errorf("identity: %s needs exactly one 32-byte Ed25519 key"'),
   ],
   tests=[('ANetCore:./identity', 'TestAKeyOfTheWrongLengthIsRefusedNotAPanic')],
   full=['ANetCore:./identity'],
