@@ -30,7 +30,6 @@ package daemon
 // replays per envelope with no rate limit gating a burst.
 
 import (
-	"crypto/ed25519"
 	"testing"
 	"time"
 
@@ -38,14 +37,13 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 )
 
-// growSenderKEL grows base's KEL with self-signed drt events (which do not
-// change the signing key) until its encoding nears the message-path byte
-// cap, so the sealed envelope still passes seal.ParseKEL and reaches the
-// authorization step. An attacker builds this offline.
+// growSenderKEL grows base's KEL with rotations of its own keys until its
+// encoding nears the message-path byte cap, so the sealed envelope still
+// passes seal.ParseKEL and reaches the authorization step. An attacker
+// builds this offline: it holds every key of its own identity.
 func growSenderKEL(t *testing.T, base sender, targetBytes int) sender {
 	t.Helper()
-	pub, _, _ := ed25519.GenerateKey(nil)
-	for {
+	for ts := uint64(2); ; ts++ {
 		b, err := identity.MarshalKEL(base.ctrl.KEL())
 		if err != nil {
 			t.Fatal(err)
@@ -53,7 +51,7 @@ func growSenderKEL(t *testing.T, base sender, targetBytes int) sender {
 		if len(b) >= targetBytes {
 			break
 		}
-		if err := base.ctrl.Delegate(pub, 1); err != nil {
+		if err := base.ctrl.Rotate(ts); err != nil {
 			t.Fatal(err)
 		}
 	}

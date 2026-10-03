@@ -6,7 +6,6 @@ package daemon
 
 import (
 	"context"
-	"crypto/ed25519"
 	"encoding/base64"
 	"fmt"
 	"net/http"
@@ -26,7 +25,7 @@ import (
 // the carried KEL several times per envelope (resolveSenderKEL,
 // VerifyInnerSig + identity.VerifyObject, VerifyInnerKeys ->
 // VerifyEncKeySet, and again for nested objects), so a free stranger AID
-// that pads its own KEL with self-signed drt events to just under 64 KiB
+// that pads its own KEL with rotations of its own keys to just under 64 KiB
 // makes each envelope cost tens of times more than a normal one. The hub
 // lets one sender post 20/s and the poll loop handles envelopes one at a
 // time under pollMu, so one AID can occupy the victim's receive loop.
@@ -38,8 +37,7 @@ func TestRedteamSI4_PaddedKELMakesEachEnvelopeExpensive(t *testing.T) {
 			t.Fatal(err)
 		}
 		for i := 0; i < extra; i++ {
-			pub, _, _ := ed25519.GenerateKey(nil)
-			if err := c.Delegate(pub, uint64(time.Now().UnixMilli())); err != nil {
+			if err := c.Rotate(uint64(i + 2)); err != nil {
 				t.Fatal(err)
 			}
 		}
