@@ -1,11 +1,14 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
@@ -294,13 +297,141 @@ type RemovedSetting struct {
 	// Path names the key as the user finds it in the file, with the index of
 	// an array element: "inbound.allow_file",
 	// "inbound.public_capabilities[2].evidence".
-	Path    string
+	Path string
+	// Key is the entry of ux §2.3 it matched, "[]" standing for any element:
+	// "inbound.public_capabilities[].evidence".
+	Key     string
 	Instead string
+	// Pending is the work item that still writes this key itself
+	// ("v030-todo(<item>)"); until it deletes its code, the key does not stop
+	// the daemon. Empty: the key is refused.
+	Pending string
+}
+
+// removedSettings is ux §2.3: each removed key, where it sits in config.json
+// ("name[]" is every element of that array) and its {instead} phrase.
+var removedSettings = []struct{ key, instead string }{
+	{"pricing", "pricing"},
+	{"payments.publish_prices", "publish_prices"},
+	{"modules.x402.voucher_addr", "voucher"},
+	{"modules.x402.voucher_url", "voucher"},
+	{"modules.x402.witness_hub", "witness_hub"},
+	{"modules.x402.witness_every_seconds", "witness_hub"},
+	{"providers", "providers"},
+	{"accept_delegations", "accept_delegations"},
+	{"rotation_grace", "rotation_grace"},
+	{"inbound.allow_file", "list_files"},
+	{"inbound.deny_file", "list_files"},
+	{"inbound.trust_file", "list_files"},
+	{"inbound.reject_notice", "reject_notice"},
+	{"inbound.pending", "pending"},
+	{"inbound.public_capabilities[].evidence", "evidence"},
+	{"auto_reply.require_image", "require_image"},
+	{"auto_reply.usage_hint", "require_image"},
+	{"auto_reply.error_reply", "error_reply"},
+	{"auto_reply.poll_interval_seconds", "fixed_auto_reply"},
+	{"auto_reply.max_auto_replies", "fixed_auto_reply"},
+	{"payments.payees_file", "payees_file"},
+	{"modules.anetlink.timeout_s", "anetlink_timeout"},
+	{"modules.service.expected_uid", "expected_uid"},
+	{"modules.a2a.backends[].expected_uid", "expected_uid"},
+	{"modules.anetlink.expected_uid", "expected_uid"},
+	{"modules.p2p.dial_timeout_ms", "p2p_timeouts"},
+	{"modules.p2p.reach_timeout_ms", "p2p_timeouts"},
+}
+
+// InviteEnv is the one removed item that is not a key: the environment
+// variable that carried an invite. It does not stop the daemon (it is
+// ignored); doctor's config.removed warns about it (ux §2.3).
+const InviteEnv = "ANET_INVITE"
+
+// removedStillWritten are the removed keys this binary still writes itself
+// (the defaults of a fresh config.json, or a command that is still there), or
+// whose replacement does not work yet. A daemon refusing them would refuse
+// its own files, so each waits for the work item that deletes its code,
+// which also deletes its line here (R-5).
+var removedStillWritten = map[string]string{
+	// The defaults write the list files and the queue and notice limits.
+	"inbound.allow_file":    "v030-todo(UX-4)",
+	"inbound.deny_file":     "v030-todo(UX-4)",
+	"inbound.trust_file":    "v030-todo(UX-4)",
+	"inbound.reject_notice": "v030-todo(UX-4)",
+	"inbound.pending":       "v030-todo(UX-4)",
+	// The defaults write the payee list's file.
+	"payments.payees_file": "v030-todo(PAY-12)",
+	// `anet autoreply set --require-image|--usage-hint|--error-reply|
+	// --poll-interval|--max-auto-replies` still write these.
+	"auto_reply.require_image":         "v030-todo(UX-9)",
+	"auto_reply.usage_hint":            "v030-todo(UX-9)",
+	"auto_reply.error_reply":           "v030-todo(UX-9)",
+	"auto_reply.poll_interval_seconds": "v030-todo(UX-9)",
+	"auto_reply.max_auto_replies":      "v030-todo(UX-9)",
+	// expected_user does not take a numeric uid yet, so the advice to use it
+	// instead would not work.
+	"modules.service.expected_uid":        "v030-todo(EXE-10)",
+	"modules.a2a.backends[].expected_uid": "v030-todo(EXE-10)",
+	"modules.anetlink.expected_uid":       "v030-todo(EXE-10)",
 }
 
 // FindRemovedSettings lists the removed keys a config.json holds, in the
-// order of ux §2.3. A file that is not a JSON object is an error.
-func FindRemovedSettings(raw []byte) ([]RemovedSetting, error) { return nil, nil } // v030-todo(UX-5)
+// order of ux §2.3; a key that is there with any value counts, null too. A
+// file that is not a JSON object is an error.
+func FindRemovedSettings(raw []byte) ([]RemovedSetting, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var top any
+	if err := dec.Decode(&top); err != nil {
+		return nil, err
+	}
+	if _, ok := top.(map[string]any); !ok {
+		return nil, errors.New("config.json is not a JSON object")
+	}
+	var out []RemovedSetting
+	for _, rs := range removedSettings {
+		for _, path := range findKey(top, strings.Split(rs.key, "."), "") {
+			out = append(out, RemovedSetting{Path: path, Key: rs.key, Instead: rs.instead, Pending: removedStillWritten[rs.key]})
+		}
+	}
+	return out, nil
+}
+
+// findKey is where the dotted key segs sits under v: one path per match,
+// with the index of each array element it passes through.
+func findKey(v any, segs []string, at string) []string {
+	obj, ok := v.(map[string]any)
+	if !ok || len(segs) == 0 {
+		return nil
+	}
+	name, each := strings.CutSuffix(segs[0], "[]")
+	child, ok := obj[name]
+	if !ok {
+		return nil
+	}
+	path := name
+	if at != "" {
+		path = at + "." + name
+	}
+	if !each {
+		if len(segs) == 1 {
+			return []string{path}
+		}
+		return findKey(child, segs[1:], path)
+	}
+	arr, ok := child.([]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for i, el := range arr {
+		p := path + "[" + strconv.Itoa(i) + "]"
+		if len(segs) == 1 {
+			out = append(out, p)
+			continue
+		}
+		out = append(out, findKey(el, segs[1:], p)...)
+	}
+	return out
+}
 
 // ConfigCheck is one validation of config.json that refuses to start: it
 // returns config_invalid (or nil) for a value the daemon cannot run with.
@@ -318,11 +449,64 @@ type ConfigRefusal struct {
 	Refusals []*a2ashape.Refusal
 }
 
+// Sentences are the refusals' sentences in a language, one each.
+func (e *ConfigRefusal) Sentences(lang a2ashape.Language) []string {
+	out := make([]string, len(e.Refusals))
+	for i, r := range e.Refusals {
+		out[i] = a2ashape.Sentence(r.Key, lang, r.Args)
+	}
+	return out
+}
+
 // Error is the refusals' sentences in this process's language, one a line.
-func (e *ConfigRefusal) Error() string { return "" } // v030-todo(UX-5)
+func (e *ConfigRefusal) Error() string {
+	return strings.Join(e.Sentences(a2ashape.Lang()), "\n")
+}
 
 // CheckConfigForStart is the check the daemon makes before it starts: no
 // removed key (config_key_removed) and every ConfigCheck. A missing
 // config.json passes (the daemon writes the defaults). The error is a
 // *ConfigRefusal, or the error reading or parsing the file.
-func CheckConfigForStart(l Layout) error { return nil } // v030-todo(UX-5)
+func CheckConfigForStart(l Layout) error {
+	raw, err := os.ReadFile(l.ConfigPath())
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("anet: read config: %w", err)
+	}
+	found, err := FindRemovedSettings(raw)
+	if err != nil {
+		return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
+	}
+	var refusals []*a2ashape.Refusal
+	for _, f := range found {
+		if f.Pending == "" {
+			refusals = append(refusals, RemovedSettingRefusal(f))
+		}
+	}
+	if len(configChecks) > 0 {
+		var c Config
+		var m map[string]any
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
+		}
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
+		}
+		for _, check := range configChecks {
+			if r := check(c, m); r != nil {
+				refusals = append(refusals, r)
+			}
+		}
+	}
+	if len(refusals) > 0 {
+		return &ConfigRefusal{Refusals: refusals}
+	}
+	return nil
+}
+
+// RemovedSettingRefusal is config_key_removed for a key found in a file.
+func RemovedSettingRefusal(f RemovedSetting) *a2ashape.Refusal {
+	return a2ashape.Refuse("config_key_removed", a2ashape.Args{"key": f.Path, "instead": f.Instead})
+}

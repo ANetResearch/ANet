@@ -9,6 +9,8 @@ import (
 
 	"github.com/ANetResearch/ANetCore/wire"
 	"github.com/ANetResearch/ANetCore/wire/scan"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // ANet's half of the wire registry checks (ANetCore wire/registry.json).
@@ -60,7 +62,7 @@ func TestControlWireFields(t *testing.T) {
 		resp  reflect.Type
 		todo  string // "v030-todo(<work item>)" until the Go type has the registered shape
 	}{
-		{route: "error body", todo: "v030-todo(UX-5)"},
+		{route: "error body", resp: reflect.TypeFor[a2ashape.ErrorBody]()},
 		{route: "/status", todo: "v030-todo(UX-15)"},
 		{route: "/tasks/events delivery", todo: "v030-todo(RC-5)"},
 		{route: "/identity/status", todo: "v030-todo(KEL-8)"},
