@@ -29,8 +29,11 @@ func TestAFreshNodeHasAKeyRing(t *testing.T) {
 		t.Fatalf("fresh set has %d keys, want 1", len(set.Keys))
 	}
 	k := set.Keys[0]
-	if k.NotAfter-k.NotBefore != seal.KeyLifetimeMS {
-		t.Fatalf("key lifetime %d ms, want %d", k.NotAfter-k.NotBefore, seal.KeyLifetimeMS)
+	if k.NotAfter-k.NotBefore != encKeyValidFor {
+		t.Fatalf("key lifetime %d ms, want %d", k.NotAfter-k.NotBefore, encKeyValidFor)
+	}
+	if set.Mbox.Epoch != 1 || len(set.Mbox.Pub) != 32 {
+		t.Fatalf("the set publishes no mailbox signing key: %+v", set.Mbox)
 	}
 	if _, ok := d.enc.Key(k.KID); !ok {
 		t.Fatal("the ring does not hold the private half of the key it publishes")
@@ -56,31 +59,35 @@ func TestARestartKeepsTheSameKeySet(t *testing.T) {
 	}
 }
 
-// The rotation policy: a new key after seven days with a strictly higher
-// seq, the old key still openable; private keys deleted fifteen days after
-// they expire.
+// The rotation policy (interim until the epoch key ring): a new key after
+// encKeyRotateEvery with a strictly higher seq, the old key still openable;
+// private keys deleted encKeyKeptAfter after they expire.
 func TestTheKeyRingRotatesAndRetires(t *testing.T) {
 	d := newTestDaemon(t, "", true)
-	start := d.nowMS()
 	first := keySetOf(t, d)
 	firstKID := first.Keys[0].KID
+	// The rotation interval counts from the newest key's not_before.
+	start := first.Keys[0].NotBefore
 	// Atomic: the daemon's own loops read the clock while the test moves it.
 	var clock atomic.Uint64
 	clock.Store(start)
 	d.setClock(clock.Load)
 
-	clock.Store(start + 6*dayMS)
+	clock.Store(start + encKeyRotateEvery - 1)
 	if changed, err := d.enc.maintain(d.self.Sign, d.self.CurrentSeq()); err != nil || changed {
-		t.Fatalf("day 6: changed=%v err=%v, want no rotation yet", changed, err)
+		t.Fatalf("before the rotation interval: changed=%v err=%v, want no rotation yet", changed, err)
 	}
-	clock.Store(start + 7*dayMS + 1)
+	clock.Store(start + encKeyRotateEvery + 1)
 	changed, err := d.enc.maintain(d.self.Sign, d.self.CurrentSeq())
 	if err != nil || !changed {
-		t.Fatalf("day 7: changed=%v err=%v, want a rotation", changed, err)
+		t.Fatalf("after the rotation interval: changed=%v err=%v, want a rotation", changed, err)
 	}
 	second := keySetOf(t, d)
 	if second.Seq <= first.Seq || len(second.Keys) != 2 {
 		t.Fatalf("after rotation: seq %d (was %d), %d keys", second.Seq, first.Seq, len(second.Keys))
+	}
+	if second.Mbox.Epoch != first.Mbox.Epoch || !bytes.Equal(second.Mbox.Pub, first.Mbox.Pub) {
+		t.Fatal("a key rotation changed the mailbox signing key")
 	}
 	if second.Keys[1].NotBefore <= second.Keys[0].NotBefore {
 		t.Fatal("keys are not in ascending not_before order")
@@ -91,7 +98,7 @@ func TestTheKeyRingRotatesAndRetires(t *testing.T) {
 	}
 
 	// Past the first key's expiry plus retention: its private half is gone.
-	clock.Store(start + seal.KeyLifetimeMS + seal.KeyRetentionMS + 1)
+	clock.Store(start + encKeyValidFor + encKeyKeptAfter + 1)
 	if _, err := d.enc.maintain(d.self.Sign, d.self.CurrentSeq()); err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +122,7 @@ func TestTheKeyRingRotatesAndRetires(t *testing.T) {
 	d2 := newTestDaemon(t, "", true)
 	s2 := keySetOf(t, d2)
 	c2 := d2.nowMS()
-	d2.setClock(func() uint64 { return c2 + seal.KeyLifetimeMS + seal.KeyRetentionMS - 3600*1000 })
+	d2.setClock(func() uint64 { return c2 + encKeyValidFor + encKeyKeptAfter - 3600*1000 })
 	if _, ok := d2.enc.Key(s2.Keys[0].KID); !ok {
 		t.Fatal("a private key was dropped inside its retention")
 	}
@@ -184,7 +191,7 @@ func TestARotationIsPublished(t *testing.T) {
 	srv, _, prov := registeredPair(t)
 	fake := fakeHubAt(t, srv.URL)
 	start := prov.nowMS()
-	prov.setClock(func() uint64 { return start + 7*dayMS + 1 })
+	prov.setClock(func() uint64 { return start + encKeyRotateEvery + 1 })
 	prov.maintainKeyRing()
 	fake.mu.Lock()
 	stored := append([]byte(nil), fake.agents[prov.AID()].keyset...)
@@ -226,7 +233,7 @@ func TestAKeyRingThatCannotBeSavedIsNotUsed(t *testing.T) {
 	path := prov.enc.path
 	prov.enc.path = filepath.Join(blocker, "enc_keys.cbor")
 	start := prov.nowMS()
-	prov.setClock(func() uint64 { return start + 7*dayMS + 1 })
+	prov.setClock(func() uint64 { return start + encKeyRotateEvery + 1 })
 	prov.maintainKeyRing()
 	if !bytes.Equal(prov.enc.SignedSet(), before) || prov.enc.Seq() != seq0 {
 		t.Fatal("a key set that could not be saved is attached to outgoing messages")

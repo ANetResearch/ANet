@@ -84,7 +84,7 @@ func newStranger(t testing.TB) sender {
 func signedKeysFor(t testing.TB, c *identity.Controller, seq uint64) []byte {
 	t.Helper()
 	now := uint64(time.Now().UnixMilli())
-	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.KeyLifetimeMS)
+	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.MaxKeyValidityMS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func signedKeysFor(t testing.TB, c *identity.Controller, seq uint64) []byte {
 		seq = now
 	}
 	signed, err := seal.SignEncKeySet(&seal.EncKeySet{Type: seal.EncKeySetType, AID: c.AID(), Seq: seq,
-		Keys: []seal.EncKey{kp.Public}, IssuedAt: now}, c.Sign)
+		Keys: []seal.EncKey{kp.Public}, IssuedAt: now, Mbox: testMbox(t)}, c.Sign)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,6 +101,17 @@ func signedKeysFor(t testing.TB, c *identity.Controller, seq uint64) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// testMbox is a mailbox signing key for a test key set: epoch 1 and a fresh
+// Ed25519 public key.
+func testMbox(t testing.TB) seal.Mbox {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return seal.Mbox{Epoch: 1, Pub: pub}
 }
 
 // retiredSigner signs with a key that is about to be rotated away: capture
