@@ -10,10 +10,15 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/ANetResearch/ANetCore/relayauth"
-
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/module"
+)
+
+// Retired relayauth actions: relayauth no longer defines them (wire 3 removes the signed send and
+// the hub rendezvous). The v0.2 hub client below still uses them until its replacements land.
+const (
+	actionSendRetired = "send" // v030-todo(SS-9): relay v3 sends with a session MAC or a capability
+	actionP2PRetired  = "p2p"  // v030-todo(SS-11): the hub rendezvous route is removed
 )
 
 // hubTransport is the always-available delivery path.
@@ -40,7 +45,7 @@ func (h hubTransport) Send(ctx context.Context, toAID string, envelope []byte) e
 		return fmt.Errorf("anet: no hub configured")
 	}
 	var out hubapi.RelaySendResponse
-	if err := h.d.hubSigned(ctx, hub, http.MethodPost, "/relay/send", relayauth.ActionSend, hubapi.RelaySendRequest{
+	if err := h.d.hubSigned(ctx, hub, http.MethodPost, "/relay/send", actionSendRetired, hubapi.RelaySendRequest{
 		ToAID:    toAID,
 		Envelope: base64.StdEncoding.EncodeToString(envelope),
 	}, &out); err != nil {

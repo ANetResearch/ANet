@@ -34,13 +34,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
-	"github.com/ANetResearch/ANetCore/relayauth"
 
 	"github.com/ANetResearch/ANet/module/blackboard"
 	"github.com/ANetResearch/ANet/module/org"
@@ -321,6 +321,13 @@ func cmdX402Authorize(args []string) error {
 // A fixture rather than an `anet` subcommand because that is what this
 // is for: a check that needs a signature, not a product surface nobody
 // asked for.
+// wire1Challenge is the hub taskboard's signed challenge, the wire-1 form that relayauth no longer
+// provides: "anet-relay/" + action + "/" + aid + "/" + decimal(ts). The board is the last user.
+// v030-todo(SS-9): the board gets a registered authentication form and this goes.
+func wire1Challenge(action, aid string, ts uint64) []byte {
+	return []byte("anet-relay/" + action + "/" + aid + "/" + strconv.FormatUint(ts, 10))
+}
+
 func cmdRelaySign(args []string) error {
 	fs := flag.NewFlagSet("relay-sign", flag.ExitOnError)
 	home := fs.String("home", "", "daemon data dir")
@@ -344,7 +351,7 @@ func cmdRelaySign(args []string) error {
 	}
 	if *v1 {
 		ts := uint64(time.Now().UnixMilli())
-		sig, seq := c.Sign(relayauth.Preimage(*action, c.AID(), ts))
+		sig, seq := c.Sign(wire1Challenge(*action, c.AID(), ts))
 		out, err := json.Marshal(map[string]any{
 			"aid": c.AID(), "ts": ts, "key_state_seq": seq,
 			"sig": base64.StdEncoding.EncodeToString(sig),

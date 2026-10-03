@@ -117,7 +117,7 @@ func TestTheRelayRefusalPathsAreSurfaced(t *testing.T) {
 	fake := fakeHubAt(t, srv.URL)
 	env := sealFrom(t, req, prov, seal.TypeMessage, "ix", chatBody(t, "x", ""))
 	send := func(to string, envelope []byte) error {
-		return req.hubSigned(ctx, srv.URL, http.MethodPost, "/relay/send", relayauth.ActionSend,
+		return req.hubSigned(ctx, srv.URL, http.MethodPost, "/relay/send", actionSendRetired,
 			hubapi.RelaySendRequest{ToAID: to, Envelope: base64.StdEncoding.EncodeToString(envelope)}, nil)
 	}
 	set := func(f func()) {

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
-	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -115,7 +114,7 @@ func TestRedteamSI4_UnknownIXWaitPinsTheMailboxFull(t *testing.T) {
 	fake.mu.Unlock()
 	// A legitimate, allowed peer now cannot reach the victim through the hub.
 	env := sealFrom(t, req, prov, seal.TypeMessage, "ix_whatever", chatBody(t, "hello", ""))
-	err := req.hubSigned(ctx, srv.URL, http.MethodPost, "/relay/send", relayauth.ActionSend,
+	err := req.hubSigned(ctx, srv.URL, http.MethodPost, "/relay/send", actionSendRetired,
 		hubapi.RelaySendRequest{ToAID: prov.AID(), Envelope: base64.StdEncoding.EncodeToString(env)}, nil)
 	if held != quota || hubStatus(err) != http.StatusInsufficientStorage {
 		t.Fatalf("attack failed: held %d, legit send %v", held, err)

@@ -813,7 +813,7 @@ func (h *fakeHub) hP2P(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if who := h.verifyAuth(w, r, body, relayauth.ActionP2P, nil); who != r.PathValue("aid") {
+	if who := h.verifyAuth(w, r, body, actionP2PRetired, nil); who != r.PathValue("aid") {
 		if who != "" {
 			fakeHubJSON(w, http.StatusUnauthorized, map[string]string{"error": "signer is not the path AID"})
 		}
@@ -970,7 +970,7 @@ func (h *fakeHub) hRelaySend(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sender := h.verifyAuth(w, r, body, relayauth.ActionSend, nil)
+	sender := h.verifyAuth(w, r, body, actionSendRetired, nil)
 	if sender == "" {
 		return
 	}

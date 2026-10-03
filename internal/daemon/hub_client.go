@@ -548,7 +548,7 @@ func (d *Daemon) AdvertisePeerAddress(ctx context.Context, addr string) (map[str
 	body := map[string]any{"addr": strings.TrimSpace(addr)}
 	var out map[string]any
 	if err := d.hubSigned(ctx, hubURL, http.MethodPost, "/agents/"+url.PathEscape(d.AID())+"/p2p",
-		relayauth.ActionP2P, body, &out); err != nil {
+		actionP2PRetired, body, &out); err != nil {
 		return out, err
 	}
 	return out, nil
