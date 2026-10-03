@@ -632,8 +632,7 @@ func setState(e execer, id string, st State, cause Cause, nowMS int64) (bool, er
 	if id == "" || !st.Valid() {
 		return false, fmt.Errorf("%w: id and a valid state required", ErrBadInput)
 	}
-	fate, err := checkCause(e, id, st.IsTerminal(), cause)
-	if err != nil {
+	if err := checkCause(e, id, st.IsTerminal(), cause); err != nil {
 		return false, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -651,7 +650,7 @@ func setState(e execer, id string, st State, cause Cause, nowMS int64) (bool, er
 	n, _ := res.RowsAffected()
 	if st.IsTerminal() {
 		// Terminal now: this write moved it there, or it already was.
-		if err := settleIXKey(e, id, fate, nowMS); err != nil {
+		if err := closeIXKey(e, id, cause, nowMS); err != nil {
 			return false, err
 		}
 	}
@@ -713,8 +712,7 @@ func finish(e execer, id string, f Finish, cause Cause, nowMS int64) error {
 	if id == "" || !f.State.Valid() {
 		return fmt.Errorf("%w: id and a valid state required", ErrBadInput)
 	}
-	fate, err := checkCause(e, id, f.State.IsTerminal(), cause)
-	if err != nil {
+	if err := checkCause(e, id, f.State.IsTerminal(), cause); err != nil {
 		return err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -731,7 +729,7 @@ func finish(e execer, id string, f Finish, cause Cause, nowMS int64) error {
 	n, _ := res.RowsAffected()
 	if f.State.IsTerminal() {
 		// Terminal now: this write moved it there, or it already was.
-		if err := settleIXKey(e, id, fate, nowMS); err != nil {
+		if err := closeIXKey(e, id, cause, nowMS); err != nil {
 			return err
 		}
 	}
@@ -764,8 +762,7 @@ func setLateResult(e execer, id string, result []byte, resultCID string, receipt
 	if id == "" {
 		return false, fmt.Errorf("%w: id required", ErrBadInput)
 	}
-	fate, err := checkCause(e, id, true, cause)
-	if err != nil {
+	if err := checkCause(e, id, true, cause); err != nil {
 		return false, err
 	}
 	var state string
@@ -782,7 +779,7 @@ func setLateResult(e execer, id string, result []byte, resultCID string, receipt
 	if err != nil {
 		return false, err
 	}
-	if err := settleIXKey(e, id, fate, nowMS); err != nil {
+	if err := closeIXKey(e, id, cause, nowMS); err != nil {
 		return false, err
 	}
 	n, _ := res.RowsAffected()

@@ -20,11 +20,7 @@ func soloSettle(id string, cause Cause) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	fate, err := checkCause(tx, id, cause != CauseNotTerminal, cause)
-	if err != nil {
-		return err
-	}
-	if err := settleIXKey(tx, id, fate, 0); err != nil {
+	if err := closeIXKey(tx, id, cause, 0); err != nil {
 		return err
 	}
 	return tx.Commit()

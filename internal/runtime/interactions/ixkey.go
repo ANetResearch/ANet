@@ -6,8 +6,8 @@ package interactions
 // the transaction of the write that ends the task — never before it commits, never in a step of its own:
 //
 //   - every state write (SetState, Finish, SetLateResult and the wrappers over them) names a Cause; a
-//     write whose target is terminal settles this node's key for the task, as ixKeyFate says, in its own
-//     transaction;
+//     write whose target is terminal settles this node's key for the task in its own transaction, through
+//     closeIXKey, as ixKeyFate says;
 //   - CloseIXKey does the same where the end of the task for the key comes without a state write (the
 //     provider's terminal message on a task already canceled here);
 //   - DeleteAllIXKeys removes every key (emergency rotation, local state rollback, deactivation, stopped);
@@ -178,24 +178,47 @@ func RKConflict(recorded, carried []byte) bool {
 
 // checkCause checks a state write's cause before anything is written: it must be a state write's cause
 // (not CauseRetention), say CauseNotTerminal exactly when the target is not terminal, and belong to this
-// node's role in the task. It returns the fate the write gives the key when the task is terminal after it.
-// An absent task is ErrNotFound.
-func checkCause(e execer, id string, terminal bool, cause Cause) (ixFate, error) {
+// node's role in the task. An absent task is ErrNotFound.
+func checkCause(e execer, id string, terminal bool, cause Cause) error {
 	if !cause.Valid() || cause == CauseRetention {
-		return 0, fmt.Errorf("%w: a state write needs a Cause (got %q)", ErrBadInput, cause)
+		return fmt.Errorf("%w: a state write needs a Cause (got %q)", ErrBadInput, cause)
 	}
 	if terminal != (cause != CauseNotTerminal) {
 		if terminal {
-			return 0, fmt.Errorf("%w: a write to a terminal state needs a terminal Cause, not %s", ErrBadInput, cause)
+			return fmt.Errorf("%w: a write to a terminal state needs a terminal Cause, not %s", ErrBadInput, cause)
 		}
-		return 0, fmt.Errorf("%w: cause %s on a write to a state that is not terminal", ErrBadInput, cause)
+		return fmt.Errorf("%w: cause %s on a write to a state that is not terminal", ErrBadInput, cause)
 	}
 	var role string
-	err := e.QueryRow(`SELECT role FROM interaction WHERE id=?`, id).Scan(&role)
-	if err != nil {
-		return 0, notFound(err)
+	if err := e.QueryRow(`SELECT role FROM interaction WHERE id=?`, id).Scan(&role); err != nil {
+		return notFound(err)
 	}
-	return ixKeyFate(Role(role), cause)
+	_, err := ixKeyFate(Role(role), cause)
+	return err
+}
+
+// closeIXKey is the one place a single task's key is settled (FS §4.5.4, engine §5.3): in transaction e,
+// it gives this node's key for task ix the fate ixKeyFate gives cause for this node's role in the task.
+// The state writes call it in their own transaction once the task is terminal, and CloseIXKey where no
+// state write does; it never runs in a transaction of its own. A task already deleted (retention,
+// closing) takes its key with it; for any other cause it is ErrNotFound.
+func closeIXKey(e execer, ix string, cause Cause, nowMS int64) error {
+	if cause == CauseNotTerminal {
+		return nil
+	}
+	var role string
+	err := e.QueryRow(`SELECT role FROM interaction WHERE id=?`, ix).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) && (cause == CauseRetention || cause == CauseClosed) {
+		return applyIXKeyFate(e, ix, fateDelete, nowMS)
+	}
+	if err != nil {
+		return notFound(err)
+	}
+	fate, err := ixKeyFate(Role(role), cause)
+	if err != nil {
+		return err
+	}
+	return applyIXKeyFate(e, ix, fate, nowMS)
 }
 
 // notFound turns "no row" into ErrNotFound.
@@ -326,23 +349,16 @@ func (t *Tx) CloseIXKey(ix string, cause Cause) error {
 	if !cause.Valid() || cause == CauseNotTerminal {
 		return fmt.Errorf("%w: CloseIXKey needs a terminal Cause (got %q)", ErrBadInput, cause)
 	}
-	var role, state string
-	err := t.tx.QueryRow(`SELECT role, state FROM interaction WHERE id=?`, ix).Scan(&role, &state)
-	if errors.Is(err, sql.ErrNoRows) && (cause == CauseRetention || cause == CauseClosed) {
-		// The task is gone; a key left on it goes with it.
-		return settleIXKey(t.tx, ix, fateDelete, t.now)
-	}
-	if err != nil {
-		return notFound(err)
-	}
-	fate, err := ixKeyFate(Role(role), cause)
-	if err != nil {
+	var state string
+	switch err := t.tx.QueryRow(`SELECT state FROM interaction WHERE id=?`, ix).Scan(&state); {
+	case errors.Is(err, sql.ErrNoRows):
+		// Gone: closeIXKey deletes a key left on it for retention or closing, and says ErrNotFound else.
+	case err != nil:
 		return err
-	}
-	if !State(state).IsTerminal() {
+	case !State(state).IsTerminal():
 		return fmt.Errorf("%w: task %s is %s, not ended: its key stays", ErrBadInput, ix, state)
 	}
-	return settleIXKey(t.tx, ix, fate, t.now)
+	return closeIXKey(t.tx, ix, cause, t.now)
 }
 
 // DeleteAllIXKeys deletes every interaction key this node holds, those waiting on close_after included, in
@@ -384,10 +400,9 @@ func deleteIXKeysOf(e execer, in string, ids []any) (int64, error) {
 	return res.RowsAffected()
 }
 
-// settleIXKey gives this node's key for task ix the fate a write that left the task terminal decided:
-// delete it, or keep it until now + L (an earlier close_after stays: a second local end does not
-// lengthen the first).
-func settleIXKey(e execer, ix string, fate ixFate, nowMS int64) error {
+// applyIXKeyFate does what fate says to this node's key for task ix: delete it, or keep it until now + L
+// (an earlier close_after stays: a second local end does not lengthen the first).
+func applyIXKeyFate(e execer, ix string, fate ixFate, nowMS int64) error {
 	switch fate {
 	case fateDelete:
 		_, err := e.Exec(`DELETE FROM ix_key WHERE ix=?`, ix)
