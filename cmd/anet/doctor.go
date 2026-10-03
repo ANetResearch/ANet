@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/localpeer"
@@ -40,11 +41,23 @@ const (
 	stUnknown = "unknown"
 )
 
+// doctorCheck is one finding (UX-K5): its id, status, the reason-table key
+// its sentence comes from, the sentence, and the command that fixes it ("-"
+// when the sentence has none; every finding that is not ok has a hint,
+// UX-K4).
 type doctorCheck struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
 	Detail string `json:"detail"`
 	Hint   string `json:"hint,omitempty"`
+}
+
+// sayCheck is a finding told by a sentence of the reason table: the detail
+// is the key's sentence, the reason its code and the hint its next step
+// (UX-K4, K7), in the language of this process (core G13).
+func sayCheck(id, status, key string, args a2ashape.Args, lang a2ashape.Language) doctorCheck {
+	return doctorCheck{ID: id, Status: status} // v030-todo(UX-5)
 }
 
 type fileState struct {
