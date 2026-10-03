@@ -192,4 +192,10 @@ MUTS = [
  dict(id='core2-21', group='CORE-2', repo='ANetCore', desc='SetAccess 不复核结果能否通过 ParseOuter',
   edits=[('seal/envelope.go', '\tif _, err := ParseOuter(out); err != nil {\n\t\treturn nil, err', '\tif _, err := ParseOuter(out); false && err != nil {\n\t\treturn nil, err')],
   tests=[('ANetCore:./seal', '^TestSetAccess$')], full=['ANetCore:./seal']),
+ dict(id='core2-22', group='CORE-2', repo='ANetCore', desc='Open 不把键 11 放进 Opened.Notices(CORE-A2)',
+  edits=[('seal/envelope.go', 'Access: outer.Access, RK: inner.RK, Notices: inner.Notices, Grant: inner.Grant,', 'Access: outer.Access, RK: inner.RK, Grant: inner.Grant,')],
+  tests=[('ANetCore:./seal', '^(TestSealOpenRoundTrip|TestSEALED_2A)$')], full=['ANetCore:./seal']),
+ dict(id='core2-23', group='CORE-2', repo='ANetCore', desc='Seal 出错时仍返回已导出的 ack_key',
+  edits=[('seal/envelope.go', 'return nil, ack, fail(ReasonInvalidInput, "signer used key_state_seq', 'return nil, key, fail(ReasonInvalidInput, "signer used key_state_seq')],
+  tests=[('ANetCore:./seal', '^TestSealInputChecks$')], full=['ANetCore:./seal']),
 ]
