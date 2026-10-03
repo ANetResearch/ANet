@@ -356,6 +356,9 @@ func TestUnknownCodesAndVariants(t *testing.T) {
 	if got := Sentence("brand_new_code", Chinese, nil); got != "对方拒收了（原因码 brand_new_code）；请联系对方了解原因。" {
 		t.Errorf("unknown code: %q", got)
 	}
+	if got := Sentence("{0}", Chinese, nil); got != Sentence("refused", Chinese, nil) {
+		t.Errorf("a key not of a code's form is not shown (fuzz): %q", got)
+	}
 	if got := ReasonCode("brand_new_code"); got != "brand_new_code" {
 		t.Errorf("ReasonCode of an unknown code: %q", got)
 	}

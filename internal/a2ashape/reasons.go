@@ -296,15 +296,17 @@ func ReasonCode(key string) string {
 }
 
 // Sentence renders a key in a language. A code the table does not have is
-// shown with the fallback unknown_code and the code itself (UX-G9). A
-// placeholder with no value never shows as a placeholder or as empty brackets
-// (UX-G8, UX-T4).
+// shown with the fallback unknown_code and the code itself (UX-G9); a key
+// that is not even of a code's form is not shown at all, only that it was
+// refused (refused). A placeholder with no value never shows as a
+// placeholder or as empty brackets (UX-G8, UX-T4).
 func Sentence(key string, lang Language, args Args) string {
 	r, ok := Lookup(key)
 	if !ok {
 		code, _, _ := strings.Cut(key, ".")
 		if !codeRe.MatchString(code) {
-			code = clean(code, 30)
+			r, _ = Lookup("refused")
+			return render(r, "refused", lang, nil)
 		}
 		r, _ = Lookup("unknown_code")
 		key, args = "unknown_code", Args{"code": code}
