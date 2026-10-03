@@ -7,7 +7,7 @@ MUTS = [
   id='si1-1', group='SI-1', repo='ANetCore',
   desc='关闭加密: 密文即明文(scripts/mutations/si1-plaintext-envelope.patch)',
   patch=MUTATIONS + '/si1-plaintext-envelope.patch',
-  tests=[('ANetCore:./seal', 'TestOpenRecipientAndKey|TestVEC_SEALED_1|TestRFC9180'), ('ANet:./internal/daemon', 'TestTheHubHoldsOnlyCiphertext')],
+  tests=[('ANetCore:./seal', 'TestOpenRecipientAndKey|TestSEALED_2A|TestRFC9180'), ('ANet:./internal/daemon', 'TestTheHubHoldsOnlyCiphertext')],
   full=['ANetCore:./seal', 'ANet:./internal/daemon'],
  ),
  dict(
