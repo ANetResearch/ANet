@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="-6 -6 36 36" fill="none">
+  <rect x="-5.5" y="-5.5" width="35" height="35" rx="8" fill="#1A1C1F" stroke="#3D4146" stroke-width="1"/>
+  <g stroke="#F9FAFB" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <!-- anet icon "sandbox" — Lucide v1.51.0 "box" (ISC); notices in docs/media/icons/LICENSES/ -->
+    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+    <path d="m3.3 7 8.7 5 8.7-5" stroke="#E93024"/>
+    <path d="M12 22V12" stroke="#E93024"/>
+  </g>
+</svg>

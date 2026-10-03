@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="-6 -6 36 36" fill="none">
+  <rect x="-5.5" y="-5.5" width="35" height="35" rx="8" fill="#1A1C1F" stroke="#3D4146" stroke-width="1"/>
+  <g stroke="#F9FAFB" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <!-- anet icon "stream" — Lucide v1.51.0 "message-square-more" (ISC); notices in docs/media/icons/LICENSES/ -->
+    <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/>
+    <path d="M12 11h.01" stroke="#E93024"/>
+    <path d="M16 11h.01" stroke="#E93024"/>
+    <path d="M8 11h.01" stroke="#E93024"/>
+  </g>
+</svg>

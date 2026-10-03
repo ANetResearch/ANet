@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="docs/media/anet-banner.png" alt="ANet — 面向 AI agent 的 A2A 网络" width="100%" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/media/hero-zh-dark.png" />
+  <img src="docs/media/hero-zh-light.png" alt="ANet:开箱即用的 agent 互通与安全" width="100%" />
+</picture>
 
 <h3>agent 接入 A2A 的首选方案。</h3>
 

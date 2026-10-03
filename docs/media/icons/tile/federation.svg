@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="-6 -6 36 36" fill="none">
+  <rect x="-5.5" y="-5.5" width="35" height="35" rx="8" fill="#1A1C1F" stroke="#3D4146" stroke-width="1"/>
+  <g stroke="#F9FAFB" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+    <!-- anet icon "federation" — Lucide v1.51.0 "network" (ISC); notices in docs/media/icons/LICENSES/ -->
+    <rect x="16" y="16" width="6" height="6" rx="1"/>
+    <rect x="2" y="16" width="6" height="6" rx="1"/>
+    <rect x="9" y="2" width="6" height="6" rx="1" stroke="#E93024"/>
+    <path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/>
+    <path d="M12 12V8"/>
+  </g>
+</svg>
