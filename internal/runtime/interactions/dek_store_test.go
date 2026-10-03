@@ -754,3 +754,121 @@ func TestFieldsBoundToTheirRow(t *testing.T) {
 		t.Errorf("an untouched task: %+v %v", msgs, err)
 	}
 }
+
+// ReleaseDEK, and DeletePending through it, keep a data key that something stored still needs: a
+// held item's key while an outbox row of the same task holds a body under it, and while the held item
+// itself is there. Once nothing of the task is left, the key goes.
+func TestReleaseDEKKeepsAKeyStillNeeded(t *testing.T) {
+	s := open(t)
+	hold := func(ix string) {
+		t.Helper()
+		if err := s.Update(func(tx *interactions.Tx) error {
+			return tx.PutPending(interactions.PendingItem{IX: ix, FromAID: "peer", ArrivedAt: 1, Delegate: []byte("D " + ix)}, 0, 0)
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hasKey := func(ix string) bool {
+		t.Helper()
+		k, err := s.DEK(ix)
+		if errors.Is(err, interactions.ErrContentGone) {
+			return false
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		k.Wipe()
+		return true
+	}
+
+	// A held item is there: ReleaseDEK keeps its key.
+	hold("ix_r")
+	if err := s.Update(func(tx *interactions.Tx) error {
+		ok, err := tx.ReleaseDEK("ix_r")
+		if err == nil && ok {
+			err = errors.New("released the key of a held item")
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !hasKey("ix_r") {
+		t.Fatal("ReleaseDEK deleted the key of a held item")
+	}
+
+	// An outbox row of the task holds a body under the key: deleting the held item keeps it.
+	hold("ix_q")
+	oid, err := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_q", ToAID: "peer", Type: "anet.status/1", Body: []byte("notice")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.DeletePending("ix_q"); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	if !hasKey("ix_q") {
+		t.Fatal("deleting the held item deleted the key its outbox row still needs")
+	}
+	if it, err := s.GetOutbox(oid); err != nil || string(it.Body) != "notice" {
+		t.Fatalf("outbox row after the held item went: %+v %v", it, err)
+	}
+	// The last row goes: so does the key.
+	if err := s.Update(func(tx *interactions.Tx) error {
+		if err := tx.DeleteOutbox(oid); err != nil {
+			return err
+		}
+		ok, err := tx.ReleaseDEK("ix_q")
+		if err == nil && !ok {
+			err = errors.New("the key of a task with nothing left was kept")
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if hasKey("ix_q") {
+		t.Fatal("ReleaseDEK left the key of a task with nothing stored")
+	}
+}
+
+// List reads its rows and their data keys from one snapshot: a key deleted by a transaction that
+// commits after the rows were read (a retention sweep running beside the listing) does not drop a
+// row from the page, so a page holds every row its query selected — Results stops at a short page.
+// A listing that starts after the deletion leaves the row out (FS-L4).
+func TestListReadsRowsAndKeysFromOneSnapshot(t *testing.T) {
+	s := open(t)
+	for _, id := range []string{"ix_a", "ix_b", "ix_c"} {
+		if err := s.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: "peer", Goal: "goal of " + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ran := false
+	restore := interactions.SetBetweenQuerySteps(func() {
+		if ran {
+			return
+		}
+		ran = true
+		if err := s.Update(func(tx *interactions.Tx) error {
+			ok, err := tx.DeleteDEK("ix_b")
+			if err == nil && !ok {
+				err = errors.New("no key")
+			}
+			return err
+		}); err != nil {
+			t.Error(err)
+		}
+	})
+	defer restore()
+	list, err := s.List(interactions.RoleOutbound, "", 0, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ran {
+		t.Fatal("the deletion did not run between the two steps")
+	}
+	if len(list) != 3 || list[1].ID != "ix_b" || list[1].Goal != "goal of ix_b" {
+		t.Fatalf("List while the key was deleted = %d rows %v; want all three, ix_b with its goal", len(list), list)
+	}
+	list, err = s.List(interactions.RoleOutbound, "", 0, 3)
+	if err != nil || len(list) != 2 || list[0].ID != "ix_a" || list[1].ID != "ix_c" {
+		t.Fatalf("List after the deletion = %v, %v; want ix_a and ix_c", list, err)
+	}
+}

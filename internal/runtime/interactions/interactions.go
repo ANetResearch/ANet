@@ -1417,10 +1417,19 @@ func parseCursor(c string) (at, seq int64, err error) {
 	return at, seq, nil
 }
 
-// query reads the interactions q selects. One whose data key is gone — its
-// content deleted since the query ran — is left out, as one deleted whole.
+// query reads the interactions q selects. The rows and the data keys they
+// are opened with are read in one read transaction, so from one snapshot:
+// a retention sweep that commits in between does not make a row the query
+// selected read as gone, and a page holds every row its query selected — a
+// caller of List that stops at a short page misses none. A row with no data
+// key (its content deleted, FS-L4) is left out, as one deleted whole.
 func (s *Store) query(q string, args ...any) ([]*Interaction, error) {
-	rows, err := s.db.Query(q, args...)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1436,9 +1445,12 @@ func (s *Store) query(q string, args ...any) ([]*Interaction, error) {
 	if err := closeRows(rows); err != nil {
 		return nil, err
 	}
+	if betweenQuerySteps != nil {
+		betweenQuerySteps()
+	}
 	out := items[:0]
 	for _, ix := range items {
-		switch err := openIX(s.db, ix); {
+		switch err := openIX(tx, ix); {
 		case errors.Is(err, ErrContentGone):
 			continue
 		case err != nil:
@@ -1448,6 +1460,10 @@ func (s *Store) query(q string, args ...any) ([]*Interaction, error) {
 	}
 	return out, nil
 }
+
+// betweenQuerySteps, when set, runs in query between reading the rows and
+// opening them. Tests set it to commit a write at that point.
+var betweenQuerySteps func()
 
 type scanner interface{ Scan(dest ...any) error }
 

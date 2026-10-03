@@ -2,8 +2,8 @@
 # mutation list for scripts/mutations/unitmut.py (see its header for the format).
 #
 # The numbered ids are rows of FS §7.3: 31, and the data-key half of 16 (FS-6 holds the
-# interaction-key half in fs.py). fs8-a to fs8-i hold FS-8's acceptance tests to the rules they check
-# (FS-L1 to FS-L4, core L35 and L36). The list sits beside fs.py, which FS-6 creates on its own
+# interaction-key half in fs.py). fs8-a to fs8-l hold FS-8's acceptance tests to the rules they check
+# (FS-L1 to FS-L4, FS-L9, core L35 and L36). The list sits beside fs.py, which FS-6 creates on its own
 # branch, so the two merge without touching each other; it can be folded into fs.py once both are in.
 
 IX = 'ANet:./internal/runtime/interactions'
@@ -132,6 +132,34 @@ MUTS = [
    (DEK, '\tif _, err := rand.Read(nonce[:]); err != nil {\n\t\treturn nil, fmt.Errorf("interactions: field nonce: %w", err)\n\t}\n', ''),
   ],
   tests=[(IX, '^TestFieldCodec$')],
+  full=[IX],
+ ),
+ dict(
+  id='fs8-j', group='FS-L9', repo='ANet',
+  desc='ReleaseDEK 不看出站行(待批项删除时删掉其出站行仍要用的数据钥)',
+  edits=[
+   (DEK, '\t   AND NOT EXISTS (SELECT 1 FROM outbox WHERE ix=?)`, ix, ix, ix, ix)',
+    '\t   AND NOT EXISTS (SELECT 1 FROM outbox WHERE ix=? AND 0)`, ix, ix, ix, ix)'),
+  ],
+  tests=[(IX, '^TestReleaseDEKKeepsAKeyStillNeeded$')],
+  full=[IX],
+ ),
+ dict(
+  id='fs8-k', group='FS-L1', repo='ANet',
+  desc='批准待批项时用 DeletePending(删掉待批项的数据钥,交互另建新钥)',
+  edits=[
+   ('internal/daemon/pending.go', '\t\tok, err := tx.TakePending(ixID)\n', '\t\tok, err := tx.DeletePending(ixID)\n'),
+  ],
+  tests=[(DAEMON, '^TestHeldDelegationDataKeyFollowsTheApprovalQueue$')],
+  full=[],
+ ),
+ dict(
+  id='fs8-l', group='FS-L4', repo='ANet',
+  desc='列表在读行的快照之外取数据钥(并发清理使已选中的行从本页消失)',
+  edits=[
+   ('internal/runtime/interactions/interactions.go', '\t\tswitch err := openIX(tx, ix); {\n', '\t\tswitch err := openIX(s.db, ix); {\n'),
+  ],
+  tests=[(IX, '^TestListReadsRowsAndKeysFromOneSnapshot$')],
   full=[IX],
  ),
 ]
