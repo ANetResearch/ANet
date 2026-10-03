@@ -68,7 +68,7 @@ type PendingItem struct {
 	// PeerRK is the rk the delegation carried (coredet(RK)), or nil. An
 	// approval records it on the task in the same transaction (New.PeerRK,
 	// FS-R4).
-	PeerRK []byte // v030-todo(FS-6): stored once the column exists
+	PeerRK []byte
 }
 
 func (s *Store) migratePending() error {
@@ -96,17 +96,20 @@ func (s *Store) migratePending() error {
 			return fmt.Errorf("interactions: migrate pending: %w", err)
 		}
 	}
-	return addColumn(s.db, "pending", "msg_id", "TEXT NOT NULL DEFAULT ''")
+	if err := addColumn(s.db, "pending", "msg_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	return addColumn(s.db, "pending", "peer_rk", "BLOB")
 }
 
-const pendingColumns = `ix,from_aid,arrived_at,msg_ts,key_state,capability,request_cid,bytes,delegate,kel,keys,context_id,attachments,followups,msg_id`
+const pendingColumns = `ix,from_aid,arrived_at,msg_ts,key_state,capability,request_cid,bytes,delegate,kel,keys,context_id,attachments,followups,msg_id,peer_rk`
 
 func scanPending(sc scanner) (*PendingItem, error) {
 	var p PendingItem
 	var ts, ks int64
 	var atts, fus string
 	if err := sc.Scan(&p.IX, &p.FromAID, &p.ArrivedAt, &ts, &ks, &p.Capability, &p.RequestCID, &p.Bytes,
-		&p.Delegate, &p.KEL, &p.Keys, &p.ContextID, &atts, &fus, &p.MsgID); err != nil {
+		&p.Delegate, &p.KEL, &p.Keys, &p.ContextID, &atts, &fus, &p.MsgID, &p.PeerRK); err != nil {
 		return nil, err
 	}
 	p.MsgTS, p.KeyState = uint64(ts), uint64(ks)
@@ -149,9 +152,9 @@ func (t *Tx) PutPending(p PendingItem, maxTotal, maxPerPeer int) error {
 	if err != nil {
 		return err
 	}
-	_, err = t.tx.Exec(`INSERT INTO pending(`+pendingColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err = t.tx.Exec(`INSERT INTO pending(`+pendingColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.IX, p.FromAID, p.ArrivedAt, int64(p.MsgTS), int64(p.KeyState), p.Capability, p.RequestCID, p.Bytes,
-		p.Delegate, p.KEL, p.Keys, p.ContextID, string(atts), "", p.MsgID)
+		p.Delegate, p.KEL, p.Keys, p.ContextID, string(atts), "", p.MsgID, nilIfEmpty(p.PeerRK))
 	return err
 }
 

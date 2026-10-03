@@ -250,7 +250,11 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("interactions: mkdir: %w", err)
 	}
-	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db")+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(15000)")
+	// secure_delete: a deleted row's bytes are overwritten, not left in a
+	// free page — an interaction key deleted when its task ends must not
+	// stay readable in the file (FS-X8, FS-L8).
+	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db")+
+		"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(15000)&_pragma=secure_delete(ON)")
 	if err != nil {
 		return nil, fmt.Errorf("interactions: open db: %w", err)
 	}
@@ -302,6 +306,7 @@ var interactionAdded = []struct{ name, decl string }{
 	{"peer_kel", "BLOB"},
 	{"peer_keys", "BLOB"},
 	{"result_meta", "TEXT NOT NULL DEFAULT ''"},
+	{"peer_rk", "BLOB"},
 }
 
 func (s *Store) migrate() error {
@@ -426,6 +431,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateRefused(); err != nil {
+		return err
+	}
+	if err := s.migrateIXKey(); err != nil {
 		return err
 	}
 	return s.migrateOutbox()
@@ -563,7 +571,7 @@ type New struct {
 	PeerKeys     []byte // public / public_cap only
 	// PeerRK is the rk the delegation carried (coredet(RK)), or nil: the provider records it with the task,
 	// and an approved held delegation brings it from pending.peer_rk (FS-R4).
-	PeerRK []byte // v030-todo(FS-6): stored once the column exists
+	PeerRK []byte
 }
 
 // Put records a new interaction in state submitted (idempotent on id: a repeat id is ignored, so a
@@ -593,10 +601,10 @@ func create(e execer, n New, nowMS int64) error {
 	}
 	_, err := e.Exec(
 		`INSERT OR IGNORE INTO interaction(id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,
-		   context_id,trust,is_capability,task_nonce,peer_kel,peer_keys,created_at,updated_at)
-		 VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)`,
+		   context_id,trust,is_capability,task_nonce,peer_kel,peer_keys,peer_rk,created_at,updated_at)
+		 VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?)`,
 		n.ID, string(n.Role), n.PeerAID, n.Goal, string(StateSubmitted), nowMS, n.RequestCID, n.RequestDoc,
-		n.ContextID, n.Trust, capFlag, n.TaskNonce, n.PeerKEL, n.PeerKeys, now, now)
+		n.ContextID, n.Trust, capFlag, n.TaskNonce, n.PeerKEL, n.PeerKeys, nilIfEmpty(n.PeerRK), now, now)
 	return err
 }
 
@@ -624,8 +632,7 @@ func setState(e execer, id string, st State, cause Cause, nowMS int64) (bool, er
 	if id == "" || !st.Valid() {
 		return false, fmt.Errorf("%w: id and a valid state required", ErrBadInput)
 	}
-	fate, err := checkCause(e, id, st.IsTerminal(), cause)
-	if err != nil {
+	if err := checkCause(e, id, st.IsTerminal(), cause); err != nil {
 		return false, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -643,7 +650,7 @@ func setState(e execer, id string, st State, cause Cause, nowMS int64) (bool, er
 	n, _ := res.RowsAffected()
 	if st.IsTerminal() {
 		// Terminal now: this write moved it there, or it already was.
-		if err := settleIXKey(e, id, fate, nowMS); err != nil {
+		if err := closeIXKey(e, id, cause, nowMS); err != nil {
 			return false, err
 		}
 	}
@@ -672,8 +679,14 @@ type Finish struct {
 // capability call waiting for input).
 //
 // cause is as for SetState: with a terminal f.State, this node's
-// interaction key is settled in the same transaction, also when the answer
-// is ErrTerminal (the task is terminal either way).
+// interaction key is settled in the transaction that stores the result.
+// ErrTerminal stores nothing, so nothing commits, the key's settlement
+// included: a key may not go before the write that ends the task for it
+// commits (FS-X7), and here that write did not happen. A result that comes
+// after the task ended here is stored with SetLateResult, which settles the
+// key with it. Inside a transaction, Tx.Finish settles the key before it
+// answers ErrTerminal, and a caller that commits anyway (it stored the
+// peer's terminal message in some other row) commits the settlement too.
 func (s *Store) Finish(id string, f Finish, cause Cause) error {
 	return s.Update(func(t *Tx) error { return t.Finish(id, f, cause) })
 }
@@ -693,8 +706,7 @@ func finish(e execer, id string, f Finish, cause Cause, nowMS int64) error {
 	if id == "" || !f.State.Valid() {
 		return fmt.Errorf("%w: id and a valid state required", ErrBadInput)
 	}
-	fate, err := checkCause(e, id, f.State.IsTerminal(), cause)
-	if err != nil {
+	if err := checkCause(e, id, f.State.IsTerminal(), cause); err != nil {
 		return err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -711,7 +723,7 @@ func finish(e execer, id string, f Finish, cause Cause, nowMS int64) error {
 	n, _ := res.RowsAffected()
 	if f.State.IsTerminal() {
 		// Terminal now: this write moved it there, or it already was.
-		if err := settleIXKey(e, id, fate, nowMS); err != nil {
+		if err := closeIXKey(e, id, cause, nowMS); err != nil {
 			return err
 		}
 	}
@@ -744,8 +756,7 @@ func setLateResult(e execer, id string, result []byte, resultCID string, receipt
 	if id == "" {
 		return false, fmt.Errorf("%w: id required", ErrBadInput)
 	}
-	fate, err := checkCause(e, id, true, cause)
-	if err != nil {
+	if err := checkCause(e, id, true, cause); err != nil {
 		return false, err
 	}
 	var state string
@@ -762,7 +773,7 @@ func setLateResult(e execer, id string, result []byte, resultCID string, receipt
 	if err != nil {
 		return false, err
 	}
-	if err := settleIXKey(e, id, fate, nowMS); err != nil {
+	if err := closeIXKey(e, id, cause, nowMS); err != nil {
 		return false, err
 	}
 	n, _ := res.RowsAffected()
@@ -811,7 +822,7 @@ func (s *Store) SetReview(id string, review []byte) error {
 // ixColumns is the shared SELECT column list for scanning an Interaction (keep in sync with scanRows).
 const ixColumns = `seq,id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,result_cid,result,receipt,review,
 receipt_verified,end_req_by,end_acc_by,context_id,trust,is_capability,task_nonce,pay_state,pay_required,pay_auth_ids,
-pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,created_at,updated_at`
+pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,peer_rk,created_at,updated_at`
 
 // Get returns one interaction by id.
 func (s *Store) Get(id string) (*Interaction, error) {
@@ -1346,7 +1357,7 @@ func scanRows(sc scanner) (*Interaction, error) {
 		&ix.RequestCID, &ix.RequestDoc, &ix.ResultCID, &ix.Result, &ix.Receipt, &ix.Review,
 		&verified, &ix.EndReqBy, &ix.EndAccBy, &ix.ContextID, &ix.Trust, &capFlag, &ix.TaskNonce,
 		&ix.PayState, &ix.PayRequired, &authIDs, &ix.PayPayload, &ix.PayReceipts, &ix.QuoteExpiresAt,
-		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
+		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.PeerRK, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
 		return nil, err
 	}
 	ix.Role = Role(role)
