@@ -52,6 +52,10 @@ MUTS = [
  dict(id='pay2-interlock-day', group='PAY-2', repo='ANetCore', desc='CheckV2 不按回执自身的日期验签(SI-36)',
   edits=[('evidence/interlock.go', '\tif _, err := receipt.Verify(providerKEL, at); err != nil {', '\tif _, err := receipt.Verify(providerKEL, at-at+1); err != nil {')],
   tests=[('ANetCore:./evidence', '^TestCheckV2JudgesTheReceiptAtItsOwnDay$')], full=['ANetCore:./evidence']),
+ dict(id='pay2-subject-nul', group='PAY-2', repo='ANetCore',
+  desc='评价 subject 含 U+0000 时按格式错误(receipt_not_reviewable)而非 ErrNUL(bad_request,CORE-E9)',
+  edits=[('evidence/evidence.go', '\tif strings.IndexByte(b.Subject, 0) >= 0 {\n\t\treturn fmt.Errorf("%w: review subject", ErrNUL)\n\t}\n', '')],
+  tests=[('ANetCore:./evidence', '^TestREVIEW_2$')], full=['ANetCore:./evidence']),
  # ---- PAY-2: the requester's check, the task binding, the card answer
  dict(id='pay2-result-ix', group='PAY-2', repo='ANetCore', desc='VerifyResultForRequest 不核对 ix_commit',
   edits=[('delegation/delegation.go', '\tcase !equal32(rc.IXCommit, ixc):', '\tcase false && !equal32(rc.IXCommit, ixc):')],
