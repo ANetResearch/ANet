@@ -84,7 +84,7 @@ func TestRefusals(t *testing.T) {
 		t.Fatal("verified with another AID's key history")
 	}
 	// A rotated key is not current.
-	if err := c.Rotate(1); err != nil {
+	if err := c.Rotate(2); err != nil {
 		t.Fatal(err)
 	}
 	v = a2acrypto.NewVerifier(a2acrypto.VerifierConfig{KeyResolver: kels(map[string][]identity.SignedEvent{c.AID(): c.KEL()})})
