@@ -43,7 +43,7 @@ func TestWaitingListsWhatWaitedSinceBeforeTheCutoff(t *testing.T) {
 	mk("inbound", interactions.RoleInbound, 100)
 	mk("working", interactions.RoleOutbound, 200)
 	clock = 300
-	if _, err := s.SetState("working", interactions.StateWorking); err != nil {
+	if _, err := s.SetState("working", interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	ids := func(ws []interactions.WaitingTask) string {
@@ -107,7 +107,7 @@ func TestADeliveredDelegationMarksWhenItLeft(t *testing.T) {
 	if n, _ := s.OutboxLen(); n != 0 {
 		t.Fatalf("%d rows left", n)
 	}
-	if err := s.SetFailed("ix", nil); err != nil {
+	if err := s.SetFailed("ix", nil, interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 	ended, _ := s.Get("ix")

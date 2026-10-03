@@ -373,7 +373,7 @@ func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, at
 			return err
 		}
 		if next != "" {
-			if _, err = tx.SetState(interactionID, next); err != nil {
+			if _, err = tx.SetState(interactionID, next, interactions.CauseNotTerminal); err != nil {
 				return err
 			}
 		}
@@ -635,7 +635,8 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 	id, err := d.queueSend(ctx, ix.PeerAID, seal.TypeResult, ix.ID, payload, func(tx *interactions.Tx) error {
 		// Our own signature over our own transcript.
 		return tx.Finish(ix.ID, interactions.Finish{State: interactions.StateCompleted, Result: tr,
-			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified, Meta: meta})
+			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified, Meta: meta},
+			interactions.CauseProviderEnd) // v030-todo(FS-7): confirm the Cause
 	})
 	if errors.Is(err, interactions.ErrTerminal) {
 		return fmt.Errorf("%w (%s ended before it could be completed)", ErrTaskTerminal, interactionID)
@@ -734,7 +735,13 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 			return err
 		}
 		if cancelState {
-			changed, err := tx.SetState(ix.ID, interactions.StateCanceled)
+			// The requester's cancel may still be answered; the provider's
+			// ends the task on its side.
+			cause := interactions.CauseLocalEnded // v030-todo(FS-7): confirm the Cause
+			if cur.Role == interactions.RoleInbound {
+				cause = interactions.CauseProviderEnd
+			}
+			changed, err := tx.SetState(ix.ID, interactions.StateCanceled, cause)
 			if err != nil {
 				return err
 			}
@@ -816,7 +823,7 @@ func (d *Daemon) withdrawDelegation(ix *interactions.Interaction, msgID string) 
 			SenderAID: d.AID(), Kind: interactions.MsgCancel, MsgID: msgID}); err != nil {
 			return err
 		}
-		changed, err := tx.SetState(ix.ID, interactions.StateCanceled)
+		changed, err := tx.SetState(ix.ID, interactions.StateCanceled, interactions.CauseNeverSent) // v030-todo(FS-7): confirm the Cause
 		if err != nil {
 			return err
 		}
@@ -878,7 +885,7 @@ func (d *Daemon) SendStatus(ctx context.Context, interactionID string, state int
 			SenderAID: d.AID(), Kind: interactions.MsgStatus, Body: text, MsgID: msgID, Metadata: mb}); err != nil {
 			return err
 		}
-		changed, err := tx.SetState(ix.ID, state)
+		changed, err := tx.SetState(ix.ID, state, interactions.CauseProviderEnd.When(state)) // v030-todo(FS-7): confirm the Cause
 		if err != nil {
 			return err
 		}
@@ -1092,7 +1099,7 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 			// if the process stops first. Recorded working, startup
 			// recovery runs it again instead (leftoverAction: a short call
 			// left working, at-least-once).
-			if _, err := tx.SetState(m.ix, interactions.StateWorking); err != nil {
+			if _, err := tx.SetState(m.ix, interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 				return err
 			}
 		}
@@ -1364,7 +1371,7 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 		return true
 	}
 	log.Printf("anet: %s: %s may take up to %s — running it off the poll loop", interactionID, capID, bound)
-	if _, err := d.ix.SetState(interactionID, interactions.StateWorking); err != nil {
+	if _, err := d.ix.SetState(interactionID, interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		log.Printf("anet: %s: mark working: %v", interactionID, err)
 	}
 	d.publishState(interactionID)
@@ -1480,7 +1487,7 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 			if next == "" {
 				return nil
 			}
-			_, err = tx.SetState(m.ix, next)
+			_, err = tx.SetState(m.ix, next, interactions.CauseNotTerminal)
 			return err
 		})
 		if res.class == rxAccepted && stored {
@@ -1643,7 +1650,7 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 			return d.commitRx(m, nil)
 		}
 		res := d.commitRx(m, func(tx *interactions.Tx) error {
-			err := tx.SetFailed(m.ix, rr.Deliverable)
+			err := tx.SetFailed(m.ix, rr.Deliverable, interactions.CausePeerEnded) // v030-todo(FS-7): confirm the Cause
 			if errors.Is(err, interactions.ErrTerminal) {
 				return nil
 			}
@@ -1726,13 +1733,14 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 			// failure leaves neither, so the redelivered result is
 			// recorded then (§3.6 step 10).
 			late = true
-			if _, err := tx.SetLateResult(m.ix, rr.Deliverable, resultCID, rr.Receipt, seen); err != nil {
+			if _, err := tx.SetLateResult(m.ix, rr.Deliverable, resultCID, rr.Receipt, seen,
+				interactions.CausePeerEnded); err != nil { // v030-todo(FS-7): confirm the Cause
 				return err
 			}
 			return rp.applyTx(tx, m.ix)
 		}
 		if err := tx.Finish(m.ix, interactions.Finish{State: state, Result: rr.Deliverable, ResultCID: resultCID,
-			Receipt: rr.Receipt, Verified: seen, Meta: resultMeta}); err != nil {
+			Receipt: rr.Receipt, Verified: seen, Meta: resultMeta}, interactions.CausePeerEnded.When(state)); err != nil { // v030-todo(FS-7): confirm the Cause
 			return err
 		}
 		return rp.applyTx(tx, m.ix)
@@ -1811,7 +1819,8 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 			Kind: interactions.MsgStatus, Body: sm.Text, MsgID: wireMsgID("", m.mid), Metadata: meta}); err != nil {
 			return err
 		}
-		if _, err = tx.SetState(m.ix, interactions.State(sm.State)); err != nil {
+		st := interactions.State(sm.State)
+		if _, err = tx.SetState(m.ix, st, interactions.CausePeerEnded.When(st)); err != nil { // v030-todo(FS-7): confirm the Cause
 			return err
 		}
 		if pp != nil {

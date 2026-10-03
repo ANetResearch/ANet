@@ -240,7 +240,7 @@ func TestRetentionSweepPrunesOldPublicCapCalls(t *testing.T) {
 		Goal: "c", Trust: interactions.TrustPublicCap, IsCapability: true}); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.ix.SetResult("ix_pc", []byte("r"), "cid", nil, interactions.VerificationVerified); err != nil {
+	if err := d.ix.SetResult("ix_pc", []byte("r"), "cid", nil, interactions.VerificationVerified, interactions.CauseProviderEnd); err != nil {
 		t.Fatal(err)
 	}
 	d.ix.SetClock(nil)

@@ -65,6 +65,10 @@ type PendingItem struct {
 	// delegation's envelope message id in hex, the id the requester
 	// recorded it under (an internal note item). Empty on items held before it was kept.
 	MsgID string
+	// PeerRK is the rk the delegation carried (coredet(RK)), or nil. An
+	// approval records it on the task in the same transaction (New.PeerRK,
+	// FS-R4).
+	PeerRK []byte // v030-todo(FS-6): stored once the column exists
 }
 
 func (s *Store) migratePending() error {

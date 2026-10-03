@@ -216,7 +216,7 @@ func TestAPaymentNotTakenBeforeAStopIsTakenAtStart(t *testing.T) {
 			Kind: interactions.MsgPayment, MsgID: "msg_untaken", Metadata: meta}); err != nil {
 			return err
 		}
-		_, err := tx.SetState(id, interactions.StateWorking)
+		_, err := tx.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal)
 		return err
 	}); err != nil {
 		t.Fatal(err)

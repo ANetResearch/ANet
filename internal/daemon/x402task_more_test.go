@@ -504,7 +504,7 @@ func TestReceiptsOnAStatusAfterTheEndAreRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	poll(t, prov, req, prov) // the provider settles and answers
-	if _, err := req.ix.SetState(id, interactions.StateCanceled); err != nil {
+	if _, err := req.ix.SetState(id, interactions.StateCanceled, interactions.CauseLocalEnded); err != nil {
 		t.Fatal(err)
 	}
 	pix := getIX(t, prov, id)

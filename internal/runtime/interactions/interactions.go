@@ -196,8 +196,11 @@ type Interaction struct {
 	// a public or public_cap interaction, whose peer is not recorded in
 	// peer_identity (A2A-DESIGN §3.8). They are deleted when the
 	// interaction reaches a terminal state.
-	PeerKEL   []byte
-	PeerKeys  []byte
+	PeerKEL  []byte
+	PeerKeys []byte
+	// PeerRK is the peer's rk for the task — coredet(RK), as its first message that carried one had it —
+	// or nil until one arrives (FS-R4). A message is sealed to it as a second layer (FS-X5).
+	PeerRK    []byte
 	CreatedAt string // RFC3339Nano
 	UpdatedAt string // RFC3339Nano
 
@@ -558,6 +561,9 @@ type New struct {
 	TaskNonce    string
 	PeerKEL      []byte // public / public_cap only
 	PeerKeys     []byte // public / public_cap only
+	// PeerRK is the rk the delegation carried (coredet(RK)), or nil: the provider records it with the task,
+	// and an approved held delegation brings it from pending.peer_rk (FS-R4).
+	PeerRK []byte // v030-todo(FS-6): stored once the column exists
 }
 
 // Put records a new interaction in state submitted (idempotent on id: a repeat id is ignored, so a
@@ -601,15 +607,26 @@ func create(e execer, n New, nowMS int64) error {
 // A write to the same state is not a change: a status message that repeats
 // the current state does not advance state_seq, so a waiter comparing
 // sequence numbers does not wake for it.
-func (s *Store) SetState(id string, st State) (changed bool, err error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return setState(s.db, id, st, s.nowMS())
+//
+// cause says why (ixkey.go): CauseNotTerminal for a state that is not
+// terminal, otherwise the cause that settles this node's interaction key,
+// which the same transaction does whenever the task is terminal after the
+// write — moved there by it, or already there.
+func (s *Store) SetState(id string, st State, cause Cause) (changed bool, err error) {
+	err = s.Update(func(t *Tx) error {
+		changed, err = t.SetState(id, st, cause)
+		return err
+	})
+	return changed, err
 }
 
-func setState(e execer, id string, st State, nowMS int64) (bool, error) {
+func setState(e execer, id string, st State, cause Cause, nowMS int64) (bool, error) {
 	if id == "" || !st.Valid() {
 		return false, fmt.Errorf("%w: id and a valid state required", ErrBadInput)
+	}
+	fate, err := checkCause(e, id, st.IsTerminal(), cause)
+	if err != nil {
+		return false, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	q := `UPDATE interaction SET state=?, state_at=?, state_seq=state_seq+1, updated_at=?`
@@ -624,13 +641,13 @@ func setState(e execer, id string, st State, nowMS int64) (bool, error) {
 		return false, err
 	}
 	n, _ := res.RowsAffected()
-	if n > 0 {
-		return true, nil
+	if st.IsTerminal() {
+		// Terminal now: this write moved it there, or it already was.
+		if err := settleIXKey(e, id, fate, nowMS); err != nil {
+			return false, err
+		}
 	}
-	if _, err := getIX(e, id); err != nil {
-		return false, err
-	}
-	return false, nil
+	return n > 0, nil
 }
 
 // Finish describes a result write: the state it moves to and the result
@@ -653,26 +670,32 @@ type Finish struct {
 // is already terminal; this is what keeps a receipt from being stored on a
 // canceled interaction. f.State may be non-terminal (a quote leaves a
 // capability call waiting for input).
-func (s *Store) Finish(id string, f Finish) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return finish(s.db, id, f, s.nowMS())
+//
+// cause is as for SetState: with a terminal f.State, this node's
+// interaction key is settled in the same transaction, also when the answer
+// is ErrTerminal (the task is terminal either way).
+func (s *Store) Finish(id string, f Finish, cause Cause) error {
+	return s.Update(func(t *Tx) error { return t.Finish(id, f, cause) })
 }
 
 // SetResult stores the deliverable, result CID and receipt and marks the interaction completed.
-func (s *Store) SetResult(id string, result []byte, resultCID string, receipt []byte, verified Verification) error {
-	return s.Finish(id, Finish{State: StateCompleted, Result: result, ResultCID: resultCID, Receipt: receipt, Verified: verified})
+func (s *Store) SetResult(id string, result []byte, resultCID string, receipt []byte, verified Verification, cause Cause) error {
+	return s.Finish(id, Finish{State: StateCompleted, Result: result, ResultCID: resultCID, Receipt: receipt, Verified: verified}, cause)
 }
 
 // SetFailed marks an interaction failed, keeping any diagnostic bytes.
-func (s *Store) SetFailed(id string, detail []byte) error {
-	return s.Finish(id, Finish{State: StateFailed, Result: detail, Verified: VerificationUnknown})
+func (s *Store) SetFailed(id string, detail []byte, cause Cause) error {
+	return s.Finish(id, Finish{State: StateFailed, Result: detail, Verified: VerificationUnknown}, cause)
 }
 
 // finish is Store.Finish against either the database handle or an open transaction.
-func finish(e execer, id string, f Finish, nowMS int64) error {
+func finish(e execer, id string, f Finish, cause Cause, nowMS int64) error {
 	if id == "" || !f.State.Valid() {
 		return fmt.Errorf("%w: id and a valid state required", ErrBadInput)
+	}
+	fate, err := checkCause(e, id, f.State.IsTerminal(), cause)
+	if err != nil {
+		return err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	q := `UPDATE interaction SET state=?, state_at=?, state_seq=state_seq+1, result=?, result_cid=?, receipt=?,
@@ -685,11 +708,15 @@ func finish(e execer, id string, f Finish, nowMS int64) error {
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n > 0 {
-		return nil
+	n, _ := res.RowsAffected()
+	if f.State.IsTerminal() {
+		// Terminal now: this write moved it there, or it already was.
+		if err := settleIXKey(e, id, fate, nowMS); err != nil {
+			return err
+		}
 	}
-	if _, err := getIX(e, id); err != nil {
-		return err
+	if n > 0 {
+		return nil
 	}
 	return ErrTerminal
 }
@@ -698,20 +725,44 @@ func finish(e execer, id string, f Finish, nowMS int64) error {
 // terminal state (A2A-DESIGN §4.2: a result after a local cancel). The state
 // is not changed, and nothing is written when a receipt is already stored.
 // It reports whether it wrote.
-func (s *Store) SetLateResult(id string, result []byte, resultCID string, receipt []byte, verified Verification) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return setLateResult(s.db, id, result, resultCID, receipt, verified)
+//
+// cause is the requester's CausePeerEnded: the provider has answered, so the
+// key a local end kept for this answer goes in the same transaction, whether
+// or not this copy of the result is the one stored. An interaction that is
+// not terminal is left alone, key and all.
+func (s *Store) SetLateResult(id string, result []byte, resultCID string, receipt []byte, verified Verification, cause Cause) (wrote bool, err error) {
+	err = s.Update(func(t *Tx) error {
+		wrote, err = t.SetLateResult(id, result, resultCID, receipt, verified, cause)
+		return err
+	})
+	return wrote, err
 }
 
 // setLateResult is Store.SetLateResult against either the database handle
 // or an open transaction.
-func setLateResult(e execer, id string, result []byte, resultCID string, receipt []byte, verified Verification) (bool, error) {
+func setLateResult(e execer, id string, result []byte, resultCID string, receipt []byte, verified Verification, cause Cause, nowMS int64) (bool, error) {
+	if id == "" {
+		return false, fmt.Errorf("%w: id required", ErrBadInput)
+	}
+	fate, err := checkCause(e, id, true, cause)
+	if err != nil {
+		return false, err
+	}
+	var state string
+	if err := e.QueryRow(`SELECT state FROM interaction WHERE id=?`, id).Scan(&state); err != nil {
+		return false, notFound(err)
+	}
+	if !State(state).IsTerminal() {
+		return false, nil
+	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	res, err := e.Exec(`UPDATE interaction SET result=?, result_cid=?, receipt=?, receipt_verified=?, updated_at=?
 	   WHERE id=? AND state IN `+terminalSQL+` AND (receipt IS NULL OR length(receipt)=0)`,
 		result, resultCID, receipt, string(verified), now, id)
 	if err != nil {
+		return false, err
+	}
+	if err := settleIXKey(e, id, fate, nowMS); err != nil {
 		return false, err
 	}
 	n, _ := res.RowsAffected()

@@ -286,7 +286,7 @@ func TestTheReviewUploadCarriesNoContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	rcb, _ := rc.Marshal()
-	if err := d.ix.SetResult(id, []byte("SECRET-DELIVERABLE"), "res", rcb, interactions.VerificationVerified); err != nil {
+	if err := d.ix.SetResult(id, []byte("SECRET-DELIVERABLE"), "res", rcb, interactions.VerificationVerified, interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.SubmitReview(id, 4, "ok"); err != nil {
@@ -335,7 +335,7 @@ func TestResultsPaginatesBeyondStoreDefaultLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := req.ix.SetResult(id, []byte("result"), resultCID, receiptBytes, interactions.VerificationVerified); err != nil {
+		if err := req.ix.SetResult(id, []byte("result"), resultCID, receiptBytes, interactions.VerificationVerified, interactions.CausePeerEnded); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -278,7 +278,7 @@ func TestSendingToAFailedTaskIsUnsupported(t *testing.T) {
 		Goal: "g", ContextID: "c"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.ix.SetFailed("ix_failed", []byte("broken")); err != nil {
+	if err := req.ix.SetFailed("ix_failed", []byte("broken"), interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 	_, err := req.TaskSeam().Send(ctx, prov.AID(), module.TaskSend{Message: followUp("ix_failed", "try again", "m-1"), ReturnImmediately: true})
@@ -406,7 +406,7 @@ func TestListTasksPages(t *testing.T) {
 		t.Fatalf("forged token: %v", err)
 	}
 	clock += 1000
-	if _, err := d.ix.SetState(ids[0], interactions.StateWorking); err != nil {
+	if _, err := d.ix.SetState(ids[0], interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	page, err := seam.List(ctx, "peer-a", module.TaskFilter{State: string(a2ashape.TaskStateWorking)})
@@ -558,7 +558,7 @@ func TestAWaitThatTimesOutAnswersTheTask(t *testing.T) {
 		t.Fatalf("wait = %+v %v %v", ix, timedOut, err)
 	}
 	// Already waiting for input, and nothing newer asked for: at once.
-	if _, err := d.ix.SetState("ix_w", interactions.StateInputRequired); err != nil {
+	if _, err := d.ix.SetState("ix_w", interactions.StateInputRequired, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	ix, timedOut, err = d.waitTask(context.Background(), "ix_w", 0, time.Minute)

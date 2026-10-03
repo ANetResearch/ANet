@@ -61,7 +61,7 @@ func TestAContextOnlyMessageContinuesTheTaskWaitingForIt(t *testing.T) {
 			Goal: "g", ContextID: "ctx-two"}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := req.ix.SetState(id, interactions.StateInputRequired); err != nil {
+		if _, err := req.ix.SetState(id, interactions.StateInputRequired, interactions.CauseNotTerminal); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -72,7 +72,7 @@ func TestAContextOnlyMessageContinuesTheTaskWaitingForIt(t *testing.T) {
 	}
 
 	// The control plane names tasks: a contextId-only send is a new task.
-	if _, err := req.ix.SetState("ix_wait_b", interactions.StateCanceled); err != nil {
+	if _, err := req.ix.SetState("ix_wait_b", interactions.StateCanceled, interactions.CauseLocalEnded); err != nil {
 		t.Fatal(err)
 	}
 	before = outboundCount(t, req)

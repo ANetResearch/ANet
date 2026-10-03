@@ -300,7 +300,7 @@ func TestALongCallRecordedButNeverStartedIsReportedAtStart(t *testing.T) {
 	}
 	// A short call that was working: at-least-once, it runs again.
 	leftOpen(t, req, prov, "ix_short_working", lampCap)
-	if _, err := prov.ix.SetState("ix_short_working", interactions.StateWorking); err != nil {
+	if _, err := prov.ix.SetState("ix_short_working", interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	// What New does once the modules have registered their providers.
@@ -594,7 +594,7 @@ func TestStartupRecoveryRunsApprovedCallsAndLeavesUnpaidOrDeniedOnes(t *testing.
 			t.Fatal(err)
 		}
 		if st != interactions.StateSubmitted {
-			if _, err := prov.ix.SetState(id, st); err != nil {
+			if _, err := prov.ix.SetState(id, st, interactions.CauseProviderEnd.When(st)); err != nil {
 				t.Fatal(err)
 			}
 		}

@@ -31,7 +31,7 @@ func TestInlineFilesStopAtTheLimit(t *testing.T) {
 		{From: "provider", Body: "here", Attachments: trAtts}})
 	must(t, err)
 	must(t, st.Finish(ix, interactions.Finish{State: interactions.StateCompleted, Result: tr, ResultCID: "bafyr",
-		Receipt: receipt(t, ix, self, peer, "bafyr"), Verified: interactions.VerificationVerified}))
+		Receipt: receipt(t, ix, self, peer, "bafyr"), Verified: interactions.VerificationVerified}, interactions.CausePeerEnded))
 
 	loaded := map[string]int{}
 	opt := a2ashape.Options{Artifacts: true, InlineFiles: true, InlineLimit: 4, SafeName: safe,

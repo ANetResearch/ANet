@@ -31,7 +31,7 @@ func TestPruneTerminalDeletesOnlyOldFinishedCallsOfTheClass(t *testing.T) {
 			t.Fatal(err)
 		}
 		if finish {
-			if err := s.SetResult(id, []byte("the result"), "cid", []byte("r"), interactions.VerificationVerified); err != nil {
+			if err := s.SetResult(id, []byte("the result"), "cid", []byte("r"), interactions.VerificationVerified, interactions.CauseProviderEnd); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -99,7 +99,7 @@ func TestPruneTerminalDeletesInBatches(t *testing.T) {
 		if _, err := s.AddMessage(id, "did:anet:caller", interactions.MsgText, "args"); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SetResult(id, []byte("r"), "cid", nil, interactions.VerificationVerified); err != nil {
+		if err := s.SetResult(id, []byte("r"), "cid", nil, interactions.VerificationVerified, interactions.CauseProviderEnd); err != nil {
 			t.Fatal(err)
 		}
 	}

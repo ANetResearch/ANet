@@ -56,7 +56,7 @@ func completedText(t *testing.T, st *interactions.Store, ix string, last *transc
 	tr, err := transcript.EncodeV2("n", turns)
 	must(t, err)
 	must(t, st.Finish(ix, interactions.Finish{State: interactions.StateCompleted, Result: tr, ResultCID: "bafyr",
-		Receipt: receipt(t, ix, self, peer, "bafyr"), Verified: interactions.VerificationVerified}))
+		Receipt: receipt(t, ix, self, peer, "bafyr"), Verified: interactions.VerificationVerified}, interactions.CausePeerEnded))
 }
 
 // P1: a reply that is only a file is the anet.reply artifact with that file
@@ -200,7 +200,7 @@ func TestReasonsBecomeText(t *testing.T) {
 	must(t, st.Create(interactions.New{ID: ix, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: "c"}))
 	msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
 	must(t, st.Finish(ix, interactions.Finish{State: interactions.StateFailed, Verified: interactions.VerificationUnknown,
-		Meta: []byte(`{"anet.reason":"undeliverable"}`)}))
+		Meta: []byte(`{"anet.reason":"undeliverable"}`)}, interactions.CausePeerEnded))
 	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{Artifacts: true})
 	must(t, err)
 	sdk := contract(t, task)
