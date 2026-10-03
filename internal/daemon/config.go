@@ -6,6 +6,8 @@ import (
 	"net"
 	"os"
 	"strconv"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // Config is the daemon's persisted configuration (config.json). v0.1 is centralized: the daemon is a
@@ -282,3 +284,45 @@ func (d *Daemon) updateConfig(change func(*Config) error, apply func(*Config)) (
 	d.mu.Unlock()
 	return next, nil
 }
+
+// --- What the daemon refuses to start with (ux UX-D3, §2.3) ---
+
+// RemovedSetting is a config.json key that 0.3.0 removed (ux §2.3), as found
+// in a file: where it is, and the id of the {instead} phrase that says what
+// to do instead (a2ashape, config_key_removed).
+type RemovedSetting struct {
+	// Path names the key as the user finds it in the file, with the index of
+	// an array element: "inbound.allow_file",
+	// "inbound.public_capabilities[2].evidence".
+	Path    string
+	Instead string
+}
+
+// FindRemovedSettings lists the removed keys a config.json holds, in the
+// order of ux §2.3. A file that is not a JSON object is an error.
+func FindRemovedSettings(raw []byte) ([]RemovedSetting, error) { return nil, nil } // v030-todo(UX-5)
+
+// ConfigCheck is one validation of config.json that refuses to start: it
+// returns config_invalid (or nil) for a value the daemon cannot run with.
+// The area that owns a setting appends its check to configChecks; the
+// daemon, doctor and the deployment-template test all run them through
+// CheckConfigForStart (CUX-V10).
+type ConfigCheck func(c Config, raw map[string]any) *a2ashape.Refusal
+
+// configChecks are the validations of config.json.
+var configChecks []ConfigCheck
+
+// ConfigRefusal is why the daemon will not start with a config.json: one
+// refusal per problem, so that every key can be fixed at once.
+type ConfigRefusal struct {
+	Refusals []*a2ashape.Refusal
+}
+
+// Error is the refusals' sentences in this process's language, one a line.
+func (e *ConfigRefusal) Error() string { return "" } // v030-todo(UX-5)
+
+// CheckConfigForStart is the check the daemon makes before it starts: no
+// removed key (config_key_removed) and every ConfigCheck. A missing
+// config.json passes (the daemon writes the defaults). The error is a
+// *ConfigRefusal, or the error reading or parsing the file.
+func CheckConfigForStart(l Layout) error { return nil } // v030-todo(UX-5)
