@@ -1,5 +1,7 @@
 package interactions
 
+import "errors"
+
 // SetPruneBatch sets the batch size of PruneTerminal for a test and returns
 // the function that restores it.
 func SetPruneBatch(n int) (restore func()) {
@@ -66,4 +68,17 @@ func SetBetweenListSteps(fn func()) (restore func()) {
 	old := betweenListSteps
 	betweenListSteps = fn
 	return func() { betweenListSteps = old }
+}
+
+// CheckpointTruncate runs PRAGMA wal_checkpoint(TRUNCATE), as the daemon does
+// after it deletes a key (FS-L8), so a test can read what the files hold.
+func (s *Store) CheckpointTruncate() error {
+	var busy, frames, done int
+	if err := s.db.QueryRow(`PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &frames, &done); err != nil {
+		return err
+	}
+	if busy != 0 {
+		return errors.New("wal checkpoint: busy")
+	}
+	return nil
 }

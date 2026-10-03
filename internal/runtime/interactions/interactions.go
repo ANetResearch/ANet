@@ -250,7 +250,11 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("interactions: mkdir: %w", err)
 	}
-	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db")+"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(15000)")
+	// secure_delete: a deleted row's bytes are overwritten, not left in a
+	// free page — an interaction key deleted when its task ends must not
+	// stay readable in the file (FS-X8, FS-L8).
+	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db")+
+		"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(15000)&_pragma=secure_delete(ON)")
 	if err != nil {
 		return nil, fmt.Errorf("interactions: open db: %w", err)
 	}
@@ -302,6 +306,7 @@ var interactionAdded = []struct{ name, decl string }{
 	{"peer_kel", "BLOB"},
 	{"peer_keys", "BLOB"},
 	{"result_meta", "TEXT NOT NULL DEFAULT ''"},
+	{"peer_rk", "BLOB"},
 }
 
 func (s *Store) migrate() error {
@@ -426,6 +431,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.migrateRefused(); err != nil {
+		return err
+	}
+	if err := s.migrateIXKey(); err != nil {
 		return err
 	}
 	return s.migrateOutbox()
@@ -563,7 +571,7 @@ type New struct {
 	PeerKeys     []byte // public / public_cap only
 	// PeerRK is the rk the delegation carried (coredet(RK)), or nil: the provider records it with the task,
 	// and an approved held delegation brings it from pending.peer_rk (FS-R4).
-	PeerRK []byte // v030-todo(FS-6): stored once the column exists
+	PeerRK []byte
 }
 
 // Put records a new interaction in state submitted (idempotent on id: a repeat id is ignored, so a
@@ -593,10 +601,10 @@ func create(e execer, n New, nowMS int64) error {
 	}
 	_, err := e.Exec(
 		`INSERT OR IGNORE INTO interaction(id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,
-		   context_id,trust,is_capability,task_nonce,peer_kel,peer_keys,created_at,updated_at)
-		 VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?)`,
+		   context_id,trust,is_capability,task_nonce,peer_kel,peer_keys,peer_rk,created_at,updated_at)
+		 VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?)`,
 		n.ID, string(n.Role), n.PeerAID, n.Goal, string(StateSubmitted), nowMS, n.RequestCID, n.RequestDoc,
-		n.ContextID, n.Trust, capFlag, n.TaskNonce, n.PeerKEL, n.PeerKeys, now, now)
+		n.ContextID, n.Trust, capFlag, n.TaskNonce, n.PeerKEL, n.PeerKeys, nilIfEmpty(n.PeerRK), now, now)
 	return err
 }
 
@@ -675,7 +683,19 @@ type Finish struct {
 // interaction key is settled in the same transaction, also when the answer
 // is ErrTerminal (the task is terminal either way).
 func (s *Store) Finish(id string, f Finish, cause Cause) error {
-	return s.Update(func(t *Tx) error { return t.Finish(id, f, cause) })
+	ended := false
+	err := s.Update(func(t *Tx) error {
+		err := t.Finish(id, f, cause)
+		if errors.Is(err, ErrTerminal) {
+			ended = true // nothing written but the key's settlement, which commits
+			return nil
+		}
+		return err
+	})
+	if err == nil && ended {
+		return ErrTerminal
+	}
+	return err
 }
 
 // SetResult stores the deliverable, result CID and receipt and marks the interaction completed.
@@ -811,7 +831,7 @@ func (s *Store) SetReview(id string, review []byte) error {
 // ixColumns is the shared SELECT column list for scanning an Interaction (keep in sync with scanRows).
 const ixColumns = `seq,id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,result_cid,result,receipt,review,
 receipt_verified,end_req_by,end_acc_by,context_id,trust,is_capability,task_nonce,pay_state,pay_required,pay_auth_ids,
-pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,created_at,updated_at`
+pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,peer_rk,created_at,updated_at`
 
 // Get returns one interaction by id.
 func (s *Store) Get(id string) (*Interaction, error) {
@@ -1346,7 +1366,7 @@ func scanRows(sc scanner) (*Interaction, error) {
 		&ix.RequestCID, &ix.RequestDoc, &ix.ResultCID, &ix.Result, &ix.Receipt, &ix.Review,
 		&verified, &ix.EndReqBy, &ix.EndAccBy, &ix.ContextID, &ix.Trust, &capFlag, &ix.TaskNonce,
 		&ix.PayState, &ix.PayRequired, &authIDs, &ix.PayPayload, &ix.PayReceipts, &ix.QuoteExpiresAt,
-		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
+		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.PeerRK, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
 		return nil, err
 	}
 	ix.Role = Role(role)

@@ -37,7 +37,8 @@ var pruneBatch = 500
 //
 // The replay rows are not touched: they are keyed by message and expire on
 // their own (PurgeReplay), and they are what refuses a replayed envelope
-// after the interaction is gone.
+// after the interaction is gone. An interaction key still kept for a task
+// (a local end waiting on close_after) goes with it (CauseRetention).
 //
 // The deletion runs in transactions of pruneBatch interactions each; an
 // interaction goes with all its messages and attachments in one of them.
@@ -91,6 +92,9 @@ func (s *Store) pruneBatch(trust string, cutoff int64, limit int) (n Pruned, don
 			return nil
 		}
 		in := "(" + strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",") + ")"
+		if _, err := deleteIXKeysOf(t.tx, in, ids); err != nil {
+			return err
+		}
 		for _, d := range []struct {
 			q   string
 			out *int64
