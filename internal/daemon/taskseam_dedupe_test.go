@@ -113,7 +113,7 @@ func TestAMessageIDSeenOnAFinishedTaskStartsANewOne(t *testing.T) {
 		t.Fatalf("retry while open = %s (%v), %d tasks; want %s", retry.ID, err, outboundCount(t, req), first.ID)
 	}
 	if err := req.ix.Finish(first.ID, interactions.Finish{State: interactions.StateCompleted, Result: []byte("done"),
-		Verified: interactions.VerificationUnknown}); err != nil {
+		Verified: interactions.VerificationUnknown}, interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 	again, err := seam.Send(ctx, prov.AID(), send)
@@ -137,7 +137,7 @@ func TestAMessageIDSeenOnAFinishedTaskStartsANewOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := req.ix.Finish(c1.ID, interactions.Finish{State: interactions.StateFailed, Result: []byte("x"),
-		Verified: interactions.VerificationUnknown}); err != nil {
+		Verified: interactions.VerificationUnknown}, interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 	if c2, err := seam.Send(ctx, prov.AID(), withCtx); err != nil || c2.ID == c1.ID {

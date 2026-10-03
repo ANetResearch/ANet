@@ -338,7 +338,7 @@ func TestListPageBoundaryIsTheIndexRead(t *testing.T) {
 				t.Fatal(err)
 			}
 			if id == finished {
-				if _, err := s.SetState(id, interactions.StateCompleted); err != nil {
+				if _, err := s.SetState(id, interactions.StateCompleted, interactions.CausePeerEnded); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -371,7 +371,7 @@ func TestListPageBoundaryIsTheIndexRead(t *testing.T) {
 		s, clock := setup(t, "")
 		got := walk(t, s, func() {
 			*clock = 5000
-			if _, err := s.SetState("ix_3", interactions.StateWorking); err != nil {
+			if _, err := s.SetState("ix_3", interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 				t.Fatal(err)
 			}
 		})

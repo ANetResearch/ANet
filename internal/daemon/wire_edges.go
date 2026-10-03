@@ -257,7 +257,7 @@ func addHeldFollowup(tx *interactions.Tx, ixID, from string, isCap bool, f inter
 		return heldMessage{}, err
 	}
 	if next := stateOnMessage(true, rec.Kind, f.Metadata, ""); next != "" {
-		if _, err := tx.SetState(ixID, next); err != nil {
+		if _, err := tx.SetState(ixID, next, interactions.CauseNotTerminal); err != nil {
 			return heldMessage{}, err
 		}
 	}

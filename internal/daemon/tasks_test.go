@@ -300,7 +300,7 @@ func TestWatchDeliversEachStateChangeOnce(t *testing.T) {
 	if err := d.ix.Put("ix_w", interactions.RoleOutbound, "did:anet:p", "g", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ix.SetState("ix_w", interactions.StateWorking); err != nil {
+	if _, err := d.ix.SetState("ix_w", interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	snap, ch, cancel, err := d.Watch("ix_w")
@@ -308,7 +308,7 @@ func TestWatchDeliversEachStateChangeOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.publishState("ix_w") // the event of the write already in the snapshot
-	if _, err := d.ix.SetState("ix_w", interactions.StateInputRequired); err != nil {
+	if _, err := d.ix.SetState("ix_w", interactions.StateInputRequired, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	d.publishState("ix_w")
@@ -583,7 +583,7 @@ func TestAnInterruptedLongCallIsReportedAtStart(t *testing.T) {
 		TaskNonce: "bm9uY2U"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prov.ix.SetState(id, interactions.StateWorking); err != nil {
+	if _, err := prov.ix.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	if err := req.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: prov.AID(),

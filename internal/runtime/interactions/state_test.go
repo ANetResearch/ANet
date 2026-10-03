@@ -33,12 +33,12 @@ func TestTerminalStates(t *testing.T) {
 			t.Fatal(err)
 		}
 		if st != interactions.StateSubmitted {
-			if _, err := s.SetState(id, st); err != nil {
+			if _, err := s.SetState(id, st, interactions.CauseLocalEnded.When(st)); err != nil {
 				t.Fatal(err)
 			}
 		}
 		// The SQL guard must agree: a write after a terminal state is refused.
-		changed, err := s.SetState(id, interactions.StateWorking)
+		changed, err := s.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -64,25 +64,25 @@ func TestStateWritesAreGuarded(t *testing.T) {
 	if ix0.State != interactions.StateSubmitted || ix0.StateSeq != 1 || ix0.StateAt == 0 {
 		t.Fatalf("new interaction: state %s seq %d at %d", ix0.State, ix0.StateSeq, ix0.StateAt)
 	}
-	if ch, err := s.SetState(id, interactions.StateWorking); err != nil || !ch {
+	if ch, err := s.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal); err != nil || !ch {
 		t.Fatalf("submitted→working: changed=%v err=%v", ch, err)
 	}
-	if ch, err := s.SetState(id, interactions.StateWorking); err != nil || ch {
+	if ch, err := s.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal); err != nil || ch {
 		t.Fatalf("working→working must not count as a change: changed=%v err=%v", ch, err)
 	}
 	ix1, _ := s.Get(id)
 	if ix1.StateSeq != 2 {
 		t.Fatalf("state_seq = %d after one change, want 2", ix1.StateSeq)
 	}
-	if ch, err := s.SetState(id, interactions.StateCanceled); err != nil || !ch {
+	if ch, err := s.SetState(id, interactions.StateCanceled, interactions.CauseProviderEnd); err != nil || !ch {
 		t.Fatalf("working→canceled: changed=%v err=%v", ch, err)
 	}
 	// SetResult after cancel leaves the interaction canceled with no receipt.
-	err := s.SetResult(id, []byte("late"), "cid", []byte("RECEIPT"), interactions.VerificationVerified)
+	err := s.SetResult(id, []byte("late"), "cid", []byte("RECEIPT"), interactions.VerificationVerified, interactions.CauseProviderEnd)
 	if !errors.Is(err, interactions.ErrTerminal) {
 		t.Fatalf("SetResult on canceled: err = %v, want ErrTerminal", err)
 	}
-	if ch, err := s.SetState(id, interactions.StateCompleted); err != nil || ch {
+	if ch, err := s.SetState(id, interactions.StateCompleted, interactions.CauseProviderEnd); err != nil || ch {
 		t.Fatalf("canceled→completed: changed=%v err=%v", ch, err)
 	}
 	ix2, _ := s.Get(id)
@@ -90,10 +90,10 @@ func TestStateWritesAreGuarded(t *testing.T) {
 		t.Fatalf("after refused writes: state %s receipt %q seq %d", ix2.State, ix2.Receipt, ix2.StateSeq)
 	}
 	// An absent row is ErrNotFound, not a silent no-op.
-	if _, err := s.SetState("ix_absent", interactions.StateWorking); !errors.Is(err, interactions.ErrNotFound) {
+	if _, err := s.SetState("ix_absent", interactions.StateWorking, interactions.CauseNotTerminal); !errors.Is(err, interactions.ErrNotFound) {
 		t.Fatalf("SetState on absent row: %v", err)
 	}
-	if err := s.SetFailed("ix_absent", nil); !errors.Is(err, interactions.ErrNotFound) {
+	if err := s.SetFailed("ix_absent", nil, interactions.CauseProviderEnd); !errors.Is(err, interactions.ErrNotFound) {
 		t.Fatalf("SetFailed on absent row: %v", err)
 	}
 }
@@ -111,7 +111,7 @@ func TestPeerKeysAreDeletedAtTerminal(t *testing.T) {
 	if string(ix.PeerKEL) != "KEL" || string(ix.PeerKeys) != "KEYS" || ix.Trust != interactions.TrustPublicCap || !ix.IsCapability {
 		t.Fatalf("created row: %+v", ix)
 	}
-	if err := s.SetResult("ix_p", []byte("{}"), "cid", []byte("R"), interactions.VerificationVerified); err != nil {
+	if err := s.SetResult("ix_p", []byte("{}"), "cid", []byte("R"), interactions.VerificationVerified, interactions.CauseProviderEnd); err != nil {
 		t.Fatal(err)
 	}
 	ix, _ = s.Get("ix_p")
@@ -135,7 +135,7 @@ func TestListPageIsNewestFirstWithCursor(t *testing.T) {
 	}
 	// Touch the oldest row: it must move to the head.
 	clock++
-	if _, err := s.SetState("ix_aa", interactions.StateWorking); err != nil {
+	if _, err := s.SetState("ix_aa", interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	var seen []string

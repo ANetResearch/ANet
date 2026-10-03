@@ -45,7 +45,7 @@ func storeQuote(t *testing.T, d *Daemon, id string, seen interactions.Verificati
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := d.ix.SetResult(id, body, "res_cid", rcBytes, seen); err != nil {
+	if err := d.ix.SetResult(id, body, "res_cid", rcBytes, seen, interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 }

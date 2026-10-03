@@ -111,8 +111,14 @@ func failUndeliveredTx(tx *interactions.Tx, u *undelivered, it *interactions.Out
 		}
 	}
 	meta, _ := json.Marshal(m)
+	// A delegation that never left this node can bring no answer; anything
+	// else may still be answered.
+	cause := interactions.CauseLocalEnded // v030-todo(FS-7): confirm the Cause
+	if it.Type == seal.TypeDelegate && !it.MaybeDelivered {
+		cause = interactions.CauseNeverSent
+	}
 	err := tx.Finish(u.ix.ID, interactions.Finish{State: interactions.StateFailed,
-		Result: []byte(result), Verified: interactions.VerificationUnknown, Meta: meta})
+		Result: []byte(result), Verified: interactions.VerificationUnknown, Meta: meta}, cause)
 	if errors.Is(err, interactions.ErrTerminal) {
 		return false, nil
 	}

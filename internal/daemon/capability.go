@@ -597,7 +597,7 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 		// nothing to take on trust.
 		if err := tx.Finish(interactionID, interactions.Finish{State: state, Result: deliverable,
 			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified,
-			Meta: metaBytes}); err != nil {
+			Meta: metaBytes}, interactions.CauseProviderEnd.When(state)); err != nil { // v030-todo(FS-7): confirm the Cause
 			return err
 		}
 		var err error

@@ -94,12 +94,12 @@ func TestALateResultRollsBackWithItsTransaction(t *testing.T) {
 	if err := s.Put("ix_1", interactions.RoleOutbound, "peer", "goal", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SetState("ix_1", interactions.StateCanceled); err != nil {
+	if _, err := s.SetState("ix_1", interactions.StateCanceled, interactions.CauseLocalEnded); err != nil {
 		t.Fatal(err)
 	}
 	boom := errors.New("boom")
 	err := s.Update(func(tx *interactions.Tx) error {
-		wrote, err := tx.SetLateResult("ix_1", []byte("R"), "cid", []byte("RC"), interactions.VerificationVerified)
+		wrote, err := tx.SetLateResult("ix_1", []byte("R"), "cid", []byte("RC"), interactions.VerificationVerified, interactions.CausePeerEnded)
 		if err != nil || !wrote {
 			t.Fatalf("late result in tx: %v %v", wrote, err)
 		}
@@ -112,7 +112,7 @@ func TestALateResultRollsBackWithItsTransaction(t *testing.T) {
 		t.Fatal("a rolled-back late result was stored")
 	}
 	if err := s.Update(func(tx *interactions.Tx) error {
-		_, err := tx.SetLateResult("ix_1", []byte("R"), "cid", []byte("RC"), interactions.VerificationVerified)
+		_, err := tx.SetLateResult("ix_1", []byte("R"), "cid", []byte("RC"), interactions.VerificationVerified, interactions.CausePeerEnded)
 		return err
 	}); err != nil {
 		t.Fatal(err)

@@ -133,7 +133,7 @@ func TestALongCallLeftWorkingIsNotRunAgainWhenItsProviderIsBack(t *testing.T) {
 	}
 	const id = "ix_long_working"
 	leftOpen(t, req, prov, id, gateCap)
-	if _, err := prov.ix.SetState(id, interactions.StateWorking); err != nil {
+	if _, err := prov.ix.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	// What New does once the modules have registered their providers.

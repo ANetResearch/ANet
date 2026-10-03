@@ -147,7 +147,7 @@ func TestAReviewIsNotAnchoredToAReceiptForAnotherRequest(t *testing.T) {
 			t.Fatal(err)
 		}
 		if err := req.ix.Finish(id, interactions.Finish{State: interactions.StateCompleted, Result: deliverable,
-			ResultCID: resultCID, Receipt: receipt, Verified: interactions.VerificationVerified}); err != nil {
+			ResultCID: resultCID, Receipt: receipt, Verified: interactions.VerificationVerified}, interactions.CausePeerEnded); err != nil {
 			t.Fatal(err)
 		}
 		return id

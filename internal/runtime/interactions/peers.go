@@ -93,26 +93,28 @@ func (t *Tx) AddMessageID(interactionID, senderAID, kind, body, msgID string) (i
 func (t *Tx) AddMessageRecord(m MessageRecord) (int64, bool, error) { return addMessage(t.tx, m) }
 
 // SetResult is Store.SetResult inside the transaction.
-func (t *Tx) SetResult(id string, result []byte, resultCID string, receipt []byte, verified Verification) error {
-	return finish(t.tx, id, Finish{State: StateCompleted, Result: result, ResultCID: resultCID, Receipt: receipt, Verified: verified}, t.now)
+func (t *Tx) SetResult(id string, result []byte, resultCID string, receipt []byte, verified Verification, cause Cause) error {
+	return finish(t.tx, id, Finish{State: StateCompleted, Result: result, ResultCID: resultCID, Receipt: receipt, Verified: verified}, cause, t.now)
 }
 
 // SetFailed is Store.SetFailed inside the transaction.
-func (t *Tx) SetFailed(id string, detail []byte) error {
-	return finish(t.tx, id, Finish{State: StateFailed, Result: detail, Verified: VerificationUnknown}, t.now)
+func (t *Tx) SetFailed(id string, detail []byte, cause Cause) error {
+	return finish(t.tx, id, Finish{State: StateFailed, Result: detail, Verified: VerificationUnknown}, cause, t.now)
 }
 
 // Finish is Store.Finish inside the transaction.
-func (t *Tx) Finish(id string, f Finish) error { return finish(t.tx, id, f, t.now) }
+func (t *Tx) Finish(id string, f Finish, cause Cause) error { return finish(t.tx, id, f, cause, t.now) }
 
 // SetState is Store.SetState inside the transaction.
-func (t *Tx) SetState(id string, st State) (bool, error) { return setState(t.tx, id, st, t.now) }
+func (t *Tx) SetState(id string, st State, cause Cause) (bool, error) {
+	return setState(t.tx, id, st, cause, t.now)
+}
 
 // SetLateResult is Store.SetLateResult inside the transaction, so a result
 // that arrives after the task ended commits with its replay row
 // (A2A-DESIGN §3.6 step 10, §4.2).
-func (t *Tx) SetLateResult(id string, result []byte, resultCID string, receipt []byte, verified Verification) (bool, error) {
-	return setLateResult(t.tx, id, result, resultCID, receipt, verified)
+func (t *Tx) SetLateResult(id string, result []byte, resultCID string, receipt []byte, verified Verification, cause Cause) (bool, error) {
+	return setLateResult(t.tx, id, result, resultCID, receipt, verified, cause, t.now)
 }
 
 // SetPeerKeys is Store.SetPeerKeys inside the transaction.

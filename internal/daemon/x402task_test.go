@@ -757,7 +757,7 @@ func TestCancelAndPaymentRaces(t *testing.T) {
 		id, _ := req.DelegateCapability(ctx, prov.AID(), "work.do", nil)
 		poll(t, prov, req)
 		// The task ended here while its payment was on its way.
-		if _, err := req.ix.SetState(id, interactions.StateCanceled); err != nil {
+		if _, err := req.ix.SetState(id, interactions.StateCanceled, interactions.CauseLocalEnded); err != nil {
 			t.Fatal(err)
 		}
 		poll(t, prov, req, req)

@@ -211,7 +211,7 @@ func (d *Daemon) failNoResponse(id string, cutoff int64, after time.Duration) (o
 			"(refusal notices are rate limited), not have read it, or be running it — whether it took effect is not known; "+
 			"a result that comes later is still recorded", cur.PeerAID, after)
 		err = tx.Finish(id, interactions.Finish{State: interactions.StateFailed, Result: []byte(result),
-			Verified: interactions.VerificationUnknown, Meta: meta})
+			Verified: interactions.VerificationUnknown, Meta: meta}, interactions.CauseLocalEnded) // v030-todo(FS-7): confirm the Cause
 		if errors.Is(err, interactions.ErrTerminal) {
 			return nil
 		}
