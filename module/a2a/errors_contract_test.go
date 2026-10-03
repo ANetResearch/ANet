@@ -65,7 +65,7 @@ func newRefusalServer(t *testing.T) *refusalServer {
 	return s
 }
 
-func TestRefusalErrorsReadByA2AGo(t *testing.T) {
+func TestA2AERR_1(t *testing.T) {
 	s := newRefusalServer(t)
 	u, _ := url.Parse(s.URL)
 	transports := map[string]a2aclient.Transport{
