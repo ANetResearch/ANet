@@ -1201,7 +1201,7 @@ const (
 )
 
 // Identity states that StatusSummary reads (/identity/status.state, KEL
-// §4.3.1) and the recovery state that adds the recovery line.
+// §4.3.1) and the recovery state that adds the recovery line (ux §4.7, line 1a).
 const (
 	identityNoHub       = "no_hub"
 	identityStopped     = "stopped"
@@ -1213,7 +1213,7 @@ const (
 // something to say, in the order of the table there. The identity line is
 // left out while there is no hub (UX-C9: the hub line says it); the
 // recovery line shows whenever the identity has no recovery passphrase yet,
-// no hub included, until it is stopped or deactivated.
+// no hub included, until it is stopped or deactivated (ux §4.7).
 func StatusSummary(in StatusInput, lang Language) []SummaryLine {
 	var out []SummaryLine
 	add := func(topic string, s *Said, then *Said) {
