@@ -193,13 +193,13 @@ func TestEachReceiveStepRefusesWithItsClass(t *testing.T) {
 		}, rxDropped, seal.ReasonWrongRecipient},
 		{"sealed to a key this node never held", func() []byte {
 			kel, _ := identity.MarshalKEL(req.self.KEL())
-			env, err := seal.Seal(&seal.SealedInner{From: req.AID(), KeyStateSeq: req.self.CurrentSeq(), To: prov.AID(),
+			env, _, err := seal.Seal(&seal.SealedInner{From: req.AID(), KeyStateSeq: req.self.CurrentSeq(), To: prov.AID(),
 				Type: seal.TypeMessage, IX: id, MID: seal.NewMID(), TS: now, Exp: now + messageLifetimeMS,
-				Body: msg("x"), KEL: kel, Keys: req.enc.SignedSet()}, &unknownKey.Public, req.self.Sign)
+				Body: msg("x"), KEL: kel, Notices: [][]byte{{}}, Keys: req.enc.SignedSet()}, &unknownKey.Public, req.self.Sign, seal.SealOpts{})
 			if err != nil {
 				t.Fatal(err)
 			}
-			return env
+			return withSessionAccess(t, env)
 		}, rxDropped, seal.ReasonUnknownKey},
 		{"ciphertext altered", func() []byte {
 			env := craft(t, senderOf(req), prov, seal.TypeMessage, id, msg("x"), nil)
@@ -1029,7 +1029,7 @@ func TestADelegationSealedTwiceArrivingTogetherIsRecordedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := onlyQueuedEnvelope(t, srv, prov.AID())
-	op, err := seal.Open(first, prov.AID(), prov.enc)
+	op, err := seal.Open(first, prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1096,7 +1096,7 @@ func TestAResultSealedTwiceArrivingTogetherIsRecordedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := onlyQueuedEnvelope(t, srv, req.AID())
-	op, err := seal.Open(first, req.AID(), req.enc)
+	op, err := seal.Open(first, req.AID(), req.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

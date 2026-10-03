@@ -169,10 +169,19 @@ func (d *Daemon) sealWithOpts(toAID, typ, interactionID string, body []byte, set
 		Exp:         exp,
 		Body:        body,
 		KEL:         kel,
-		Keys:        own,
+		// v030-todo(KEL-8): the witness notice for this KEL; seal v2 carries
+		// one exactly when it carries the KEL (C-52). The receiver checks it
+		// from ENG-1c on.
+		Notices: [][]byte{{}},
+		Keys:    own,
 	}
-	env, err := seal.Seal(inner, key, d.self.Sign)
+	env, _, err := seal.Seal(inner, key, d.self.Sign, seal.SealOpts{})
 	if err != nil {
+		return nil, fmt.Errorf("anet: seal %s to %s: %w", typ, toAID, err)
+	}
+	// v030-todo(ENG-1a): the credential is set per attempt from accessFor
+	// (ENG-I2); until then every envelope travels as a first contact.
+	if env, err = seal.SetAccess(env, &seal.Access{Kind: seal.AccessKindSession}); err != nil {
 		return nil, fmt.Errorf("anet: seal %s to %s: %w", typ, toAID, err)
 	}
 	return env, nil

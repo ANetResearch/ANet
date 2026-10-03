@@ -120,7 +120,7 @@ func TestADelegationSealedTwiceAtTheQuotaEdgeIsJudgedOnce(t *testing.T) {
 	}
 	first := onlyQueuedEnvelope(t, srv, prov.AID())
 	clearMailbox(t, srv, prov.AID())
-	op, err := seal.Open(first, prov.AID(), prov.enc)
+	op, err := seal.Open(first, prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestConcurrentCopiesOfARefusedDelegationAreAnsweredOnce(t *testing.T) {
 // mustMID is the inner message id of env, sealed to d.
 func mustMID(t *testing.T, d *Daemon, env []byte) []byte {
 	t.Helper()
-	op, err := seal.Open(env, d.AID(), d.enc)
+	op, err := seal.Open(env, d.AID(), d.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

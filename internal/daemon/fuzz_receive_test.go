@@ -384,7 +384,8 @@ func craftE(t *testing.T, s sender, to *Daemon, typ, ix string, body []byte, edi
 		t.Fatal(err)
 	}
 	in := &seal.SealedInner{From: s.aid, KeyStateSeq: s.ksn, To: to.AID(), Type: typ, IX: ix,
-		MID: seal.NewMID(), TS: now, Exp: now + messageLifetimeMS, Body: body, KEL: kel, Keys: s.keys}
+		MID: seal.NewMID(), TS: now, Exp: now + messageLifetimeMS, Body: body, KEL: kel, Keys: s.keys,
+		Notices: [][]byte{{}}} // v030-todo(KEL-8): the witness notice for the KEL
 	if edit != nil {
 		edit(in)
 	}
@@ -392,7 +393,11 @@ func craftE(t *testing.T, s sender, to *Daemon, typ, ix string, body []byte, edi
 	if err != nil {
 		t.Fatal(err)
 	}
-	return seal.Seal(in, key, s.sign)
+	env, _, err := seal.Seal(in, key, s.sign, seal.SealOpts{})
+	if err != nil {
+		return nil, err
+	}
+	return seal.SetAccess(env, &seal.Access{Kind: seal.AccessKindSession})
 }
 
 // FuzzReceiveEnvelope: bytes where an envelope should be, from the hub
@@ -422,7 +427,7 @@ func FuzzReceiveEnvelope(f *testing.F) {
 			if r.class < rxAccepted || r.class > rxTransient {
 				t.Fatalf("receive answered class %d (%s)", r.class, r.reason)
 			}
-			if _, oerr := seal.Open(env, to.AID(), to.enc); oerr != nil {
+			if _, oerr := seal.Open(env, to.AID(), to.enc, nil); oerr != nil {
 				want := rxDropped
 				if direct {
 					want = rxTransient
