@@ -298,6 +298,13 @@ func cmdX402Authorize(args []string) error {
 	return nil
 }
 
+// wire1Challenge is the hub taskboard's signed challenge, the wire-1 form that relayauth no longer
+// provides: "anet-relay/" + action + "/" + aid + "/" + decimal(ts). The board is the last user.
+// v030-todo(SS-9): the board gets a registered authentication form and this goes.
+func wire1Challenge(action, aid string, ts uint64) []byte {
+	return []byte("anet-relay/" + action + "/" + aid + "/" + strconv.FormatUint(ts, 10))
+}
+
 // cmdRelaySign signs one hub request as this daemon, with relayauth v2
 // (A2A-DESIGN §3.7) unless --v1 is given.
 //
@@ -321,13 +328,6 @@ func cmdX402Authorize(args []string) error {
 // A fixture rather than an `anet` subcommand because that is what this
 // is for: a check that needs a signature, not a product surface nobody
 // asked for.
-// wire1Challenge is the hub taskboard's signed challenge, the wire-1 form that relayauth no longer
-// provides: "anet-relay/" + action + "/" + aid + "/" + decimal(ts). The board is the last user.
-// v030-todo(SS-9): the board gets a registered authentication form and this goes.
-func wire1Challenge(action, aid string, ts uint64) []byte {
-	return []byte("anet-relay/" + action + "/" + aid + "/" + strconv.FormatUint(ts, 10))
-}
-
 func cmdRelaySign(args []string) error {
 	fs := flag.NewFlagSet("relay-sign", flag.ExitOnError)
 	home := fs.String("home", "", "daemon data dir")
