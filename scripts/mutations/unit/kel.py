@@ -45,6 +45,6 @@ MUTS = [
          (REPLAY, '\t\tif e.KELType != KELType {\n\t\t\treturn nil, ErrKELv1\n\t\t}\n', '')],
   tests=KEL2N + [('ANetCore:./identity', '^TestKELv1IsNotAccepted$')], full=ID_FULL),
  dict(id='kel-m30', group='KEL-1', repo='ANetCore', desc='去掉事件的重编码检查',
-  edits=[(REPLAY, '\tif err != nil || !bytes.Equal(back, b) {\n', '\tif err != nil {\n')],
+  edits=[(REPLAY, '\tif err != nil || !bytes.Equal(back, b) {\n', '\tif err != nil || back == nil {\n')],
   tests=KEL2N + [('ANetCore:./identity', '^TestKeyEventDecodingIsStrictEverywhere$')], full=ID_FULL),
 ]
