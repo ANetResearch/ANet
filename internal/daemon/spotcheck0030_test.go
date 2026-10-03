@@ -676,7 +676,7 @@ func TestSpotAProviderChatMessageDoesNotStateAPayment(t *testing.T) {
 // ---- fx-e: KEL with a key of the wrong length ----
 
 // A sender whose KEL is a well-formed icp that pre-commits to a 31-byte next
-// key and the rot that reveals it (signed by the icp key, as a rot must be).
+// key and the rot that reveals it (signed by the icp key: nothing else can sign).
 // Before the fx-e fix, replaying it panicked in ed25519.Verify, on the
 // receive path's goroutine. It is dropped as a bad KEL.
 func TestSpotASenderKELRotatingToAShortKeyIsDroppedNotAPanic(t *testing.T) {
@@ -685,11 +685,11 @@ func TestSpotASenderKELRotatingToAShortKeyIsDroppedNotAPanic(t *testing.T) {
 	short := make([]byte, ed25519.PublicKeySize-1)
 	h := sha256.Sum256(short) // the pre-rotation digest (identity.nextDigest)
 	next := h[:]
-	icp := spotSignedEvent(t, identity.KeyEvent{Type: identity.Inception, Keys: [][]byte{pub}, NextDigest: next, Threshold: 1}, k0)
+	icp := spotSignedEvent(t, identity.KeyEvent{KELType: identity.KELType, Type: identity.Inception, Keys: [][]byte{pub},
+		NextDigest: next, Threshold: 1, Timestamp: 1, Toad: identity.ToadField(identity.ToadHub)}, k0)
 	aid := icp.EventID
-	icp.Event.AID = ""
-	rot := spotSignedEvent(t, identity.KeyEvent{AID: aid, Seq: 1, Prev: aid, Type: identity.Rotation,
-		Keys: [][]byte{short}, NextDigest: next, Threshold: 1, Timestamp: 1}, k0)
+	rot := spotSignedEvent(t, identity.KeyEvent{KELType: identity.KELType, AID: aid, Seq: 1, Prev: aid, Type: identity.Rotation,
+		Keys: [][]byte{short}, NextDigest: next, Threshold: 1, Timestamp: 2, Toad: identity.ToadField(identity.ToadHub)}, k0)
 	sign := func(p []byte) ([]byte, uint64) { return ed25519.Sign(k0, p), 0 }
 	now := uint64(time.Now().UnixMilli())
 	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.KeyLifetimeMS)
