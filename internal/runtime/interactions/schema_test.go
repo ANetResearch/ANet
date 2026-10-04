@@ -220,3 +220,89 @@ func TestCheckStoreReportsAFileThatIsNotADatabase(t *testing.T) {
 		t.Fatalf("CheckStore: %v, want an error that is not ErrOldStore", err)
 	}
 }
+
+// writeOldStoreInTheLog writes, at dir/interactions.db, the store of an
+// earlier anet that stopped without closing it (killed, or the machine went
+// down) before SQLite moved anything from its write-ahead log into the
+// file: the schema and the row are in interactions.db-wal alone, and the
+// file holds no schema yet.
+func writeOldStoreInTheLog(t *testing.T, dir string) {
+	t.Helper()
+	src := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(src, "interactions.db")+"?_pragma=journal_mode(WAL)&_pragma=wal_autocheckpoint(0)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	for _, q := range []string{
+		`CREATE TABLE interaction (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, role TEXT NOT NULL,
+		  peer_aid TEXT NOT NULL, goal TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`INSERT INTO interaction(id, role, peer_aid, goal, status, created_at, updated_at)
+		  VALUES('ix_old', 'inbound', 'did:anet:peer', 'an old task', 'queued', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Copied while the store is still open, as a crash leaves it.
+	for _, name := range []string{"interactions.db", "interactions.db-wal"} {
+		b, err := os.ReadFile(filepath.Join(src, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// An earlier anet's store whose schema is still only in its write-ahead
+// log looks new to CheckStore, which reads the file alone. Open reads
+// through the log, refuses the store all the same and converts nothing:
+// the earlier table and its row are as they were, no table of this version
+// is added and user_version stays 0. (Closing the refused store moves its
+// log into the file; what the store holds does not change.)
+func TestOpenRefusesAnEarlierStoreFoundOnlyInTheLog(t *testing.T) {
+	dir := t.TempDir()
+	writeOldStoreInTheLog(t, dir)
+	var inFile int
+	if err := readOnly(t, dir).QueryRow(`SELECT count(*) FROM sqlite_master`).Scan(&inFile); err != nil || inFile != 0 {
+		t.Fatalf("setup: the file itself holds %d schema objects (%v); the schema is meant to be in the log alone", inFile, err)
+	}
+	s, err := interactions.Open(dir)
+	if !errors.Is(err, interactions.ErrOldStore) {
+		if s != nil {
+			s.Close()
+		}
+		t.Fatalf("Open: %v, want ErrOldStore", err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version, rows int
+	var tables []string
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 0 {
+		t.Errorf("user_version %d (%v), want 0", version, err)
+	}
+	r, err := db.Query(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for r.Next() {
+		var n string
+		if err := r.Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, n)
+	}
+	r.Close()
+	if !reflect.DeepEqual(tables, []string{"interaction"}) {
+		t.Errorf("tables %v, want the earlier store's [interaction] alone", tables)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM interaction WHERE id = 'ix_old' AND status = 'queued'`).Scan(&rows); err != nil || rows != 1 {
+		t.Errorf("the earlier row: %d (%v), want 1 as it was written", rows, err)
+	}
+}

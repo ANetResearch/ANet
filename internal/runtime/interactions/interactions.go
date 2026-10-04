@@ -246,7 +246,8 @@ type Store struct {
 
 // Open opens the interactions store at dir (SQLite at dir/interactions.db), creating it when there
 // is none. A store an earlier anet wrote is refused, not converted: Open returns an error wrapping
-// ErrOldStore and has not written to the file (CheckStore).
+// ErrOldStore, and has not written to the file (CheckStore) unless the store's schema was still
+// only in its write-ahead log (createSchema).
 func Open(dir string) (*Store, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("interactions: dir required")
@@ -389,7 +390,10 @@ func (s *Store) createSchema() error {
 		return nil
 	}
 	// CheckStore read the file without its write-ahead log; read through
-	// it, the store can still turn out to be an earlier anet's.
+	// it, the store can still turn out to be an earlier anet's (one that
+	// stopped before SQLite moved its log into the file). It is refused all
+	// the same and nothing in it is converted, though closing it here moves
+	// the log into the file.
 	if err := judgeSchema(version, objects); err != nil {
 		return err
 	}

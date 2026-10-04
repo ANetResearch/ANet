@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/seal"
+
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // The in-memory refused list keeps each envelope's reason (DLV-ST-9): the
@@ -72,5 +74,52 @@ func TestARefusalIsRecordedWithItsReason(t *testing.T) {
 	}
 	if got, ok := prov.refused.get(replayKey(s.aid, mid)); !ok || got != seal.NoteNotAccepting {
 		t.Fatalf("in-memory list after the table answered: %q %v", got, ok)
+	}
+
+	// The approval queue's refusal in step 10 keeps its reason the same way.
+	setPolicy(t, prov, PolicyApprove)
+	prov.mu.Lock()
+	prov.cfg.Inbound.Pending.MaxPerPeer = 1
+	prov.mu.Unlock()
+	q := newStranger(t)
+	held := "ix_reason_held"
+	if r := receive(t, prov, craft(t, q, prov, seal.TypeDelegate, held, delegateBody(t, q.ctrl, held, "one", ""), nil)); r.class != rxAccepted {
+		t.Fatalf("first held: %+v", r)
+	}
+	over := "ix_reason_over"
+	overEnv := craft(t, q, prov, seal.TypeDelegate, over, delegateBody(t, q.ctrl, over, "two", ""), nil)
+	if r := receive(t, prov, overEnv); r.class != rxDropped || r.reason != dropRefusedPrefix+reasonPendingFull {
+		t.Fatalf("over the queue: %+v", r)
+	}
+	overMID := mustMID(t, prov, overEnv)
+	if exact, reason, _, err := prov.ix.Refused(q.aid, overMID); err != nil || !exact || reason != seal.NotePendingFull {
+		t.Fatalf("refused table, pending_full: exact %v reason %q (%v), want %q", exact, reason, err, seal.NotePendingFull)
+	}
+	if got, ok := prov.refused.get(replayKey(q.aid, overMID)); !ok || got != seal.NotePendingFull {
+		t.Fatalf("in-memory list, pending_full: %q %v", got, ok)
+	}
+}
+
+// The receive path's periodic sweep deletes the cancel tombstones that
+// have ended, with the refused rows (DLV-ST-7), and keeps the ones still
+// in force.
+func TestTheSweepPurgesEndedCancelTombs(t *testing.T) {
+	prov := newTestDaemon(t, "", false)
+	now := prov.nowMS()
+	if err := prov.ix.Update(func(tx *interactions.Tx) error {
+		if _, err := tx.PutCancelTomb("did:anet:a", "ix-ended", now-interactions.CancelTombMarginMS-1); err != nil {
+			return err
+		}
+		_, err := tx.PutCancelTomb("did:anet:a", "ix-in-force", now+60_000)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prov.purgeReplay()
+	for ix, want := range map[string]bool{"ix-ended": false, "ix-in-force": true} {
+		// At time 0 a row counts whatever its exp: this asks whether it is still stored.
+		if got, err := prov.ix.HasCancelTomb("did:anet:a", ix, 0); err != nil || got != want {
+			t.Errorf("%s after the sweep: stored %v (%v), want %v", ix, got, err, want)
+		}
 	}
 }

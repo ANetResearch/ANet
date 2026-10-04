@@ -158,3 +158,53 @@ func dataDirState(t *testing.T, root string) map[string]string {
 	}
 	return out
 }
+
+// An earlier anet's store whose schema is still only in its write-ahead
+// log (that anet stopped without closing it) passes the check before the
+// start, which reads the file alone. New finds it when it opens the store
+// and refuses it the same way, with identity_v02, and converts nothing.
+func TestRefuseV02DataDirFoundOnlyInTheLog(t *testing.T) {
+	layout := v02DataDir(t, true, func(l Layout) {
+		if err := os.MkdirAll(l.InteractionsDir(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		src := t.TempDir()
+		db, err := sql.Open("sqlite", filepath.Join(src, "interactions.db")+"?_pragma=journal_mode(WAL)&_pragma=wal_autocheckpoint(0)")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		db.SetMaxOpenConns(1)
+		if _, err := db.Exec(`CREATE TABLE refused (from_aid TEXT NOT NULL, mid BLOB NOT NULL, ts INTEGER NOT NULL,
+		  exp INTEGER NOT NULL, PRIMARY KEY (from_aid, mid))`); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"interactions.db", "interactions.db-wal"} { // as a crash leaves them
+			b, err := os.ReadFile(filepath.Join(src, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(l.InteractionsDir(), name), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	d, err := New(layout)
+	if d != nil {
+		d.Close()
+	}
+	assertV02Refusal(t, "New", err)
+	db, err := sql.Open("sqlite", filepath.Join(layout.InteractionsDir(), "interactions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version, objects, reason int
+	if err := db.QueryRow(`SELECT (SELECT user_version FROM pragma_user_version), (SELECT count(*) FROM sqlite_master),
+	  (SELECT count(*) FROM pragma_table_info('refused') WHERE name = 'reason')`).Scan(&version, &objects, &reason); err != nil {
+		t.Fatal(err)
+	}
+	if version != 0 || objects != 2 || reason != 0 { // the table and its primary key index, as written
+		t.Fatalf("the refused store was converted: user_version %d, %d schema objects, reason column %d", version, objects, reason)
+	}
+}
