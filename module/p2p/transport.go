@@ -210,7 +210,7 @@ func (t *Transport) session(ctx context.Context) error {
 			// reads the same way.
 			if f.V != WireVersion {
 				_ = t.write(c, frame{Op: opError, V: WireVersion, Error: versionRefused(f.V)})
-				return fmt.Errorf("the peer process speaks frame version %d, this node %d", f.V, WireVersion)
+				return fmt.Errorf("the peer process speaks frame version %d and this node %d: run a peer process of anet 0.3.0", f.V, WireVersion)
 			}
 		case opRecv:
 			// Off the loop, and this is the whole of the bug it fixes.
