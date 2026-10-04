@@ -163,7 +163,7 @@ type rxMsg struct {
 	from, typ, ix string
 	mid           []byte
 	ts, exp       uint64
-	ksn           uint64 // the sender's key state seq in the inner message
+	keySeq        uint64 // the sender's key state seq in the inner message
 	body          []byte
 	// kel is the sender KEL resolved in step 6; the signature and every
 	// nested signed object are checked against it.
@@ -292,7 +292,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	}
 
 	m := &rxMsg{from: in.From, typ: in.Type, ix: in.IX, mid: in.MID, ts: in.TS, exp: in.Exp,
-		ksn: in.KeyStateSeq, body: in.Body, kel: use, kelUpdate: update, ackNow: path.ack, known: row != nil,
+		keySeq: in.KeyStateSeq, body: in.Body, kel: use, kelUpdate: update, ackNow: path.ack, known: row != nil,
 		direct: path.direct}
 
 	// Step 8: advisory. A key set that fails here does not affect the
@@ -1111,18 +1111,6 @@ func (d *Daemon) replyTaskNotFound(m *rxMsg) {
 		map[string]any{"anet.a2aError": "TaskNotFoundError"}) {
 		d.count(noticeTaskNotFound)
 	}
-}
-
-// rotationGrace is the §3.6 step 7 grace for signatures by a key state a
-// rotation retired, from config (rotation_grace, a Go duration), default
-// identity.RotationGrace (one hour).
-func (d *Daemon) rotationGrace() time.Duration {
-	if s := d.config().RotationGrace; s != "" {
-		if g, err := time.ParseDuration(s); err == nil && g >= 0 {
-			return g
-		}
-	}
-	return time.Duration(identity.RotationGrace) * time.Millisecond
 }
 
 // --- counters, locks and small bounded structures ---

@@ -204,6 +204,9 @@ type Options struct {
 	// against, base64, carried in anet.receipt so a holder can check it
 	// again rather than take this node's word for it.
 	ProviderKEL string
+	// IdentityNote, when set, is anet.identity_note (KeyIdentityNote): the
+	// node's reminder that its identity has no recovery passphrase yet.
+	IdentityNote string
 }
 
 // Load reads what Project needs for one interaction.
@@ -268,6 +271,9 @@ func Project(src Source, opt Options) Task {
 		Metadata:  p.metadata(why),
 	}
 	t.History = p.history()
+	if opt.IdentityNote != "" {
+		t.Metadata[KeyIdentityNote] = opt.IdentityNote
+	}
 	if opt.Artifacts {
 		t.Artifacts = artifacts
 		if p.hasOutputReceipt() {

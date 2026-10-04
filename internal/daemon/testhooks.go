@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// Test hooks: the wire clock, the receive-transaction fault and the
-// outbound gate.
+// Test hooks: the wire clock, the receive-transaction fault, the outbound
+// gate and the join loop's wait.
 //
 // All are fields a test sets on a daemon that is already running. New
 // starts the outbox loop and the receive maintenance before it returns,
@@ -47,6 +47,26 @@ func (d *Daemon) setIdentityGate(f func() GateState) {
 		return
 	}
 	d.idGate.gateHook.Store(&f)
+}
+
+// setJoinWait makes the join loop call f each time it starts to wait, with
+// the time (unix ms) of the attempt its timer is set for (0: none); nil
+// removes it. A test learns from it that the loop took every wake-up it
+// was given and armed its timer, before it changes the record under it.
+func (d *Daemon) setJoinWait(f func(nextAttemptAt int64)) {
+	if f == nil {
+		d.join.waitHook.Store(nil)
+		return
+	}
+	d.join.waitHook.Store(&f)
+}
+
+// testJoinWait is the join loop's wait hook a test set, or nil.
+func (d *Daemon) testJoinWait() func(int64) {
+	if p := d.join.waitHook.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // testClock is the clock a test set, or nil.

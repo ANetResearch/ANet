@@ -65,7 +65,7 @@ func TestControlWireFields(t *testing.T) {
 		{route: "error body", resp: reflect.TypeFor[a2ashape.ErrorBody]()},
 		{route: "/status", todo: "v030-todo(UX-15)"},
 		{route: "/tasks/events delivery", todo: "v030-todo(RC-5)"},
-		{route: "/identity/status", todo: "v030-todo(KEL-8)"},
+		{route: "/identity/status", req: reflect.TypeFor[struct{}](), resp: reflect.TypeFor[IdentityStatus]()},
 		{route: "/hub-register", alt: "joined", req: reflect.TypeFor[hubRegisterReq](), resp: reflect.TypeFor[hubRegisterResp]()},
 		{route: "/payments/status", resp: reflect.TypeFor[SpendStatus](), todo: "v030-todo(PAY-12)"},
 		{route: "/agents/card", todo: "v030-todo(PAY-11)"},

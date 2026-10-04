@@ -63,11 +63,29 @@ type sender struct {
 	ksn  uint64
 	sign seal.SignFunc
 	ctrl *identity.Controller
+	// notice is the witness notice the sender holds for kel (KEL D-50), as
+	// a daemon carries it in inner key 11; nil when none confirms its tip.
+	notice []byte
 }
 
 func senderOf(d *Daemon) sender {
-	return sender{aid: d.AID(), kel: d.self.KEL(), keys: d.enc.SignedSet(),
+	s := sender{aid: d.AID(), kel: d.self.KEL(), keys: d.enc.SignedSet(),
 		ksn: d.self.CurrentSeq(), sign: d.self.Sign, ctrl: d.self}
+	if n := d.tipNotice(d.self.Snapshot()); n != nil {
+		s.notice = n.Wire
+	}
+	return s
+}
+
+// notices is inner key 11 of what s seals: its notice.
+// v030-todo(ENG-1c): a sender no witness confirmed (every test identity
+// that has not designated one) carries an empty notice, which the receiver
+// accepts until it checks step 6½.
+func (s sender) notices() [][]byte {
+	if s.notice != nil {
+		return [][]byte{s.notice}
+	}
+	return [][]byte{{}}
 }
 
 // newStranger is a fresh identity with a signed encryption key set: what a
@@ -134,7 +152,7 @@ func craft(t testing.TB, s sender, to *Daemon, typ, ix string, body []byte, edit
 	}
 	in := &seal.SealedInner{From: s.aid, KeyStateSeq: s.ksn, To: to.AID(), Type: typ, IX: ix,
 		MID: seal.NewMID(), TS: now, Exp: now + messageLifetimeMS, Body: body, KEL: kel, Keys: s.keys,
-		Notices: [][]byte{{}}} // v030-todo(KEL-8): the witness notice for the KEL
+		Notices: s.notices()}
 	if edit != nil {
 		edit(in)
 	}

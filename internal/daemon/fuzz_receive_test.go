@@ -384,7 +384,7 @@ func craftE(t *testing.T, s sender, to *Daemon, typ, ix string, body []byte, edi
 	}
 	in := &seal.SealedInner{From: s.aid, KeyStateSeq: s.ksn, To: to.AID(), Type: typ, IX: ix,
 		MID: seal.NewMID(), TS: now, Exp: now + messageLifetimeMS, Body: body, KEL: kel, Keys: s.keys,
-		Notices: [][]byte{{}}} // v030-todo(KEL-8): the witness notice for the KEL
+		Notices: s.notices()}
 	if edit != nil {
 		edit(in)
 	}

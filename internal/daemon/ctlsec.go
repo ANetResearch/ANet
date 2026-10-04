@@ -81,6 +81,9 @@ var sessionRoutes = map[string]sessionRule{
 	"POST /end":            {jsonFields: []string{"interaction_id"}},
 	"POST /review":         {jsonFields: []string{"interaction_id", "rating", "comment"}},
 	"POST /console/switch": {jsonFields: []string{"aid"}},
+	// Read only (KEL P-4). /identity/rotate and /identity/deactivate are
+	// bearer-only, like /hub-register (KEL P-3).
+	"POST /identity/status": {},
 }
 
 // publicRoutes are the only top-level routes reachable without the bearer token or a session. /console

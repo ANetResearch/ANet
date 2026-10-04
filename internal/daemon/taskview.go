@@ -3,8 +3,9 @@ package daemon
 // taskview.go reads an interaction into its A2A projection. The mapping
 // itself is a2ashape.Project (A2A-DESIGN §11.5, SI-6); this file supplies
 // what only the daemon has: attachment bytes, safe file names and the key
-// history a receipt was checked against, and the payment flow's reading of
-// the task's payment columns (PaymentStatusMeta). The projection carries the state
+// history a receipt was checked against, the payment flow's reading of
+// the task's payment columns (PaymentStatusMeta), and the reminder that the
+// identity has no recovery passphrase yet (anet.identity_note, KEL D-15). The projection carries the state
 // sequence number (a2ashape.KeyStateSeq), which a caller passes back to
 // /tasks/wait as after_seq to wait for a state newer than the one it has
 // seen (C35).
@@ -43,7 +44,8 @@ func (d *Daemon) taskView(ix *interactions.Interaction, o viewOpts) (a2ashape.Ta
 	if err != nil {
 		return a2ashape.Task{}, err
 	}
-	opt := a2ashape.Options{HistoryLength: o.historyLen, Artifacts: o.artifacts, InlineFiles: o.inline, SafeName: safeName}
+	opt := a2ashape.Options{HistoryLength: o.historyLen, Artifacts: o.artifacts, InlineFiles: o.inline, SafeName: safeName,
+		IdentityNote: d.identityNote(a2ashape.Lang())}
 	if o.inline {
 		opt.LoadFile = func(cid string) ([]byte, error) {
 			a, err := d.ix.AttachmentData(ix.ID, cid)

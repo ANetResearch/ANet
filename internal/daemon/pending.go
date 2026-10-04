@@ -30,7 +30,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
@@ -86,7 +85,7 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 	}
 	capID, _, _ := capabilityCall(m.td)
 	item := interactions.PendingItem{
-		IX: m.ix, FromAID: m.from, ArrivedAt: int64(d.nowMS()), MsgTS: m.ts, KeyState: m.ksn,
+		IX: m.ix, FromAID: m.from, ArrivedAt: int64(d.nowMS()), MsgTS: m.ts, KeyState: m.keySeq,
 		Capability: capID, RequestCID: requestCID, Bytes: int64(len(m.body)),
 		Delegate: delegateBytes, KEL: kelBytes, Keys: keys, ContextID: m.dr.ContextID, Attachments: atts,
 		MsgID: wireMsgID("", m.mid),
@@ -319,21 +318,23 @@ func (d *Daemon) reverifyPending(item *interactions.PendingItem) (*delegation.De
 // keyStateUsable applies the key-state rule of §3.6 step 7 at the current
 // time: a signature by the active key state is usable; one by a retired key
 // state only within the rotation grace after its retirement.
-func (d *Daemon) keyStateUsable(kel []identity.SignedEvent, ksn uint64) error {
+func (d *Daemon) keyStateUsable(kel []identity.SignedEvent, seq uint64) error {
 	states, err := identity.Replay(kel)
 	if err != nil {
 		return err
 	}
-	if ksn >= uint64(len(states)) {
-		return fmt.Errorf("key state %d beyond the KEL", ksn)
+	if seq >= uint64(len(states)) {
+		return fmt.Errorf("key state %d beyond the KEL", seq)
 	}
-	ks := states[ksn]
+	ks := states[seq]
 	if ks.Status == identity.StatusActive {
 		return nil
 	}
-	grace := uint64(d.rotationGrace() / time.Millisecond)
+	// The grace is a constant (KEL §2.12): config.json's rotation_grace is
+	// refused at start (config_key_removed).
+	grace := identity.RotationGrace
 	if now := d.nowMS(); ks.SupersededAt == 0 || (now > ks.SupersededAt && now-ks.SupersededAt > grace) {
-		return fmt.Errorf("signed by key state %d, retired at %d, beyond the rotation grace", ksn, ks.SupersededAt)
+		return fmt.Errorf("signed by key state %d, retired at %d, beyond the rotation grace", seq, ks.SupersededAt)
 	}
 	return nil
 }

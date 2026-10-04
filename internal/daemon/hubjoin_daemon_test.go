@@ -591,6 +591,12 @@ func TestStatusCarriesTheHub(t *testing.T) {
 
 // AD-3: the loop makes the attempt hub-register scheduled, without being
 // asked: a node admitted after its first attempt finishes on its own.
+//
+// The loop is first seen waiting on the attempt hub-register scheduled 15 s
+// on, with no wake-up left for it to take (the join wait hook). Only then
+// is the schedule brought forward: the loop learns of it from the record's
+// wake-up alone, and without one (exec.py exe13-wake) it sleeps through
+// the whole wait below, every time.
 func TestTheLoopRetriesWhenDue(t *testing.T) {
 	srv := newFakeHub(t)
 	fh := fakeHubAt(t, srv.URL)
@@ -598,16 +604,52 @@ func TestTheLoopRetriesWhenDue(t *testing.T) {
 	fh.admission = fakeAdmitClosed
 	fh.mu.Unlock()
 	d, _ := joinDaemon(t)
+	waits := make(chan int64, 256)
+	d.setJoinWait(func(next int64) {
+		select {
+		case waits <- next:
+		default:
+		}
+	})
 	controlCall(t, d.hHubRegister, "/hub-register", hubRegisterBody(srv.URL, `,"next_digest":"`+testDigest+`"`))
 	r := waitJoinState(t, d, JoinPendingAdmission)
+	if r.NextAttemptAt <= time.Now().UnixMilli() {
+		t.Fatalf("hub-register scheduled no later attempt: %+v", r)
+	}
+	armed := time.After(10 * time.Second)
+	for settled := false; !settled; {
+		select {
+		case next := <-waits:
+			// Waiting for the scheduled attempt, with no wake-up queued:
+			// nothing will make it look at the record again but a new
+			// wake-up, or that attempt's time.
+			settled = next == r.NextAttemptAt && len(d.join.wake) == 0 && len(d.join.kick) == 0
+		case <-armed:
+			t.Fatal("the join loop never waited for the attempt hub-register scheduled")
+		}
+	}
 	fh.mu.Lock()
 	fh.admitted[d.AID()] = true
 	fh.mu.Unlock()
-	// The schedule's first wait is 15 s; bring the attempt it scheduled
-	// forward, as the record would hold it 15 s later.
+	// Bring the attempt forward, as the record would hold it 15 s later.
+	// The wait below ends well before the 15 s timer the loop sleeps on
+	// would.
+	deadline := time.UnixMilli(r.NextAttemptAt).Add(-2 * time.Second)
+	if time.Until(deadline) < 3*time.Second {
+		t.Fatalf("the loop took until %v to wait; too late to tell its wake-up from its timer",
+			time.Until(time.UnixMilli(r.NextAttemptAt)))
+	}
 	r.NextAttemptAt = time.Now().Add(200 * time.Millisecond).UnixMilli()
 	d.keepJoinRecord(srv.URL, r)
-	waitJoinState(t, d, JoinRegistered)
+	for {
+		if cur := d.joinSnapshot(); cur != nil && cur.State == JoinRegistered {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the loop did not make the attempt brought forward: %+v", d.joinSnapshot())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // AD-6 on the send routes TestSendingWaitsForTheHub does not take: a

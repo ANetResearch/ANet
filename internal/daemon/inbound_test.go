@@ -606,28 +606,27 @@ func TestApprovalVerifiesTheDelegationAgain(t *testing.T) {
 }
 
 // The key-state rule applied at approval time: a retired key state is
-// usable only within the rotation grace after its retirement.
+// usable only within the rotation grace after its retirement, the constant
+// identity.RotationGrace (one hour; KEL §2.12, nothing configures it).
 func TestApprovalAppliesTheRotationGraceNow(t *testing.T) {
 	d := newTestDaemon(t, "", false)
-	c, err := identitytest.Hub()
-	if err != nil {
-		t.Fatal(err)
-	}
-	retiredAt := uint64(time.Now().Add(-2 * time.Hour).UnixMilli())
-	if err := identitytest.Rotate(c, retiredAt); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.keyStateUsable(c.KEL(), c.CurrentSeq()); err != nil {
-		t.Fatalf("the current key state was refused: %v", err)
-	}
-	if err := d.keyStateUsable(c.KEL(), 0); err == nil {
-		t.Fatal("a key state retired two hours ago was accepted with the default one-hour grace")
-	}
-	d.mu.Lock()
-	d.cfg.RotationGrace = "3h"
-	d.mu.Unlock()
-	if err := d.keyStateUsable(c.KEL(), 0); err != nil {
-		t.Fatalf("within a three-hour grace: %v", err)
+	for _, c := range []struct {
+		ago    time.Duration
+		usable bool
+	}{{2 * time.Hour, false}, {30 * time.Minute, true}} {
+		h, err := identitytest.Hub()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := identitytest.Rotate(h, uint64(time.Now().Add(-c.ago).UnixMilli())); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.keyStateUsable(h.KEL(), h.CurrentSeq()); err != nil {
+			t.Fatalf("the current key state was refused: %v", err)
+		}
+		if err := d.keyStateUsable(h.KEL(), 0); (err == nil) != c.usable {
+			t.Fatalf("a key state retired %v ago: %v, want usable %v under the one-hour grace", c.ago, err, c.usable)
+		}
 	}
 }
 

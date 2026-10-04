@@ -16,6 +16,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ANetResearch/ANetCore/coredet"
+
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/daemon"
 )
@@ -68,6 +70,23 @@ func doctorStates(t *testing.T) map[string]func(*testing.T) (daemon.Layout, doct
 			if err := os.WriteFile(l.ConfigPath(), []byte("{"), 0o600); err != nil {
 				t.Fatal(err)
 			}
+			return l, testDoctorEnv(t)
+		},
+		"an identity of anet 0.2": func(t *testing.T) (daemon.Layout, doctorEnv) {
+			l := freshInit(t)
+			old, err := coredet.Marshal(map[uint64]any{1: bytes.Repeat([]byte{1}, 32), 2: bytes.Repeat([]byte{2}, 32), 3: []any{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(l.IdentityPath(), old, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return l, testDoctorEnv(t)
+		},
+		"an identity without a recovery passphrase, unconfirmed": func(t *testing.T) (daemon.Layout, doctorEnv) {
+			l := freshInit(t)
+			c, _ := unprotectedIdentity(t)
+			writeIdentity(t, l, c)
 			return l, testDoctorEnv(t)
 		},
 		"readable config and token": func(t *testing.T) (daemon.Layout, doctorEnv) {

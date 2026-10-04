@@ -139,7 +139,7 @@ func TestGJoin(t *testing.T) {
 		if g.name == "retrying_quota" || g.name == "registered_probation" {
 			continue
 		}
-		ans := d.registerAnswerAt(&r, false, lang, now)
+		ans := d.registerAnswerAt(&r, RecoveryState{State: RecoveryProtected}, lang, now)
 		checkGolden(t, "register."+g.name+".json", goldenText(t, ans, d.AID(), times...))
 	}
 	// none: no hub.
@@ -148,11 +148,11 @@ func TestGJoin(t *testing.T) {
 	// and sentence, and the recovery reminder.
 	recs := goldenJoinRecords(now)
 	pending := recs[0].rec
-	ans := d.registerAnswerAt(&pending, true, lang, now)
+	ans := d.registerAnswerAt(&pending, RecoveryState{State: RecoveryUnprotected}, lang, now)
 	if ans.Recovery == nil || ans.State != JoinPendingAdmission {
 		t.Fatalf("unprotected: %+v", ans)
 	}
-	plain := d.registerAnswerAt(&pending, false, lang, now)
+	plain := d.registerAnswerAt(&pending, RecoveryState{State: RecoveryProtected}, lang, now)
 	if ans.State != plain.State || ans.Reason != plain.Reason || ans.Message != plain.Message || ans.Next != plain.Next {
 		t.Fatal("unprotected changed the join state's answer")
 	}

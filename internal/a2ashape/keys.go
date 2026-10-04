@@ -62,6 +62,13 @@ const (
 	// KeyCancelRequested marks a requester's task whose cancel was sent
 	// after its payment was submitted (§4.2, an internal note item).
 	KeyCancelRequested = x402a2a.KeyCancelRequested
+	// KeyIdentityNote is the one sentence this node adds to every task it
+	// projects while its identity has no recovery passphrase
+	// (identity.unprotected or its .resume variant; KEL D-15, core §2.13).
+	// It is the node's note to its own clients: the local A2A interface,
+	// the control plane's /tasks/* and MCP; it never travels to a peer
+	// (CORE-K17) and does not change the task.
+	KeyIdentityNote = "anet.identity_note"
 )
 
 // Keys reserved on the daemon-to-daemon wire (A2A-DESIGN §3.4) and on

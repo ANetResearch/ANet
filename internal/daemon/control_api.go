@@ -166,6 +166,7 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api := newRouteMux()
 	api.HandleFunc("GET /status", d.hStatus)
 	api.HandleFunc("POST /status", d.hStatus)
+	api.HandleFunc("POST /identity/status", d.hIdentityStatus)
 	api.HandleFunc("POST /hub-register", d.hHubRegister)
 	api.HandleFunc("POST /hub-leave", d.hHubLeave)
 	api.HandleFunc("POST /p2p-advertise", d.hP2PAdvertise)
@@ -503,6 +504,9 @@ func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
 	// The hub join state (LEC §2.3.3): what the node is waiting for, and
 	// the one command, if any, that moves it on.
 	out["hub"] = d.HubView()
+	// The identity, as /identity/status says it (KEL M-2): MCP node_status
+	// passes it on, the recovery reminder included (KEL D-15).
+	out["identity"] = d.IdentityStatus()
 	// Receive outcomes by reason since start (receive.go): every envelope
 	// dropped or held back, and why.
 	out["receive"] = d.ReceiveStats()

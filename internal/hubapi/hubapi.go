@@ -157,6 +157,12 @@ type RelayPollRequest struct {
 // RelayPollResponse is the answer to POST /relay/poll.
 type RelayPollResponse struct {
 	Messages []RelayMessage `json:"messages"`
+	// KeyStateNotice is the witness notice the hub signed for the caller's
+	// KEL tip (base64url of the NoticeWire bytes), or KeyStateNoticeError
+	// why it gave none: quarantine, not_admitted or not_witness (KEL §2.7,
+	// H-13).
+	KeyStateNotice      string `json:"key_state_notice,omitempty"`
+	KeyStateNoticeError string `json:"key_state_notice_error,omitempty"`
 }
 
 // RelayMessage is one undelivered envelope. The hub stores nothing else

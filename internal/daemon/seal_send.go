@@ -150,7 +150,15 @@ func (d *Daemon) sealWithOpts(toAID, typ, interactionID string, body []byte, set
 	if err != nil {
 		return nil, fmt.Errorf("anet: %s: %w: %v", toAID, errNoRecipientKeys, err)
 	}
-	kel, err := identity.MarshalKEL(d.self.KEL())
+	// One key state signs, is the KEL carried and is what the notice
+	// confirms: a rotation built meanwhile does not split them (KEL-8a,
+	// engine ENG-K17).
+	s := d.self.Snapshot()
+	seq, err := identity.SeqOf(s)
+	if err != nil {
+		return nil, err
+	}
+	kel, err := identity.MarshalKEL(s.KEL())
 	if err != nil {
 		return nil, err
 	}
@@ -158,9 +166,19 @@ func (d *Daemon) sealWithOpts(toAID, typ, interactionID string, body []byte, set
 	if len(own) == 0 {
 		return nil, fmt.Errorf("anet: this node has no encryption key set to attach")
 	}
+	// The witness notice for this KEL; seal v2 carries one exactly when it
+	// carries the KEL (C-52).
+	notice := []byte{}
+	if n := d.tipNotice(s); n != nil {
+		notice = n.Wire
+	}
+	// v030-todo(ENG-1b): with no notice confirming the tip the gate is
+	// closed and nothing is sealed (ENG-K13); until the engine reads the
+	// gate an envelope goes with an empty notice, which receivers accept
+	// until they check step 6½ (ENG-1c).
 	inner := &seal.SealedInner{
 		From:        d.AID(),
-		KeyStateSeq: d.self.CurrentSeq(),
+		KeyStateSeq: seq,
 		To:          toAID,
 		Type:        typ,
 		IX:          interactionID,
@@ -169,13 +187,10 @@ func (d *Daemon) sealWithOpts(toAID, typ, interactionID string, body []byte, set
 		Exp:         exp,
 		Body:        body,
 		KEL:         kel,
-		// v030-todo(KEL-8): the witness notice for this KEL; seal v2 carries
-		// one exactly when it carries the KEL (C-52). The receiver checks it
-		// from ENG-1c on.
-		Notices: [][]byte{{}},
-		Keys:    own,
+		Notices:     [][]byte{notice},
+		Keys:        own,
 	}
-	env, _, err := seal.Seal(inner, key, d.self.Sign, seal.SealOpts{})
+	env, _, err := seal.Seal(inner, key, s.Sign, seal.SealOpts{})
 	if err != nil {
 		return nil, fmt.Errorf("anet: seal %s to %s: %w", typ, toAID, err)
 	}

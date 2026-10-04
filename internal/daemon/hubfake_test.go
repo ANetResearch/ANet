@@ -232,6 +232,57 @@ type fakeHub struct {
 	revokeBatches []int
 	revokeFail    int
 	revokeFull    bool
+
+	// notices makes the hub sign witness notices (KEL H-10, D-50): the
+	// /register and /relay/poll answers of an agent whose KEL tip names this
+	// hub as its witness carry the notice for that tip, observed at
+	// noticeAt() (the hub's clock when nil); any other agent's carry
+	// key_state_notice_error not_witness. noticeErr, when set, is answered
+	// instead of every notice (quarantine, not_admitted).
+	notices   bool
+	noticeAt  func() uint64
+	noticeErr string
+}
+
+// noticeForLocked is what the hub answers about aid's key state: its
+// notice (base64url) or why there is none. Nothing when notices is off.
+// The caller holds h.mu.
+func (h *fakeHub) noticeForLocked(aid string) (notice, noticeErr string) {
+	if !h.notices {
+		return "", ""
+	}
+	if h.noticeErr != "" {
+		return "", h.noticeErr
+	}
+	a, ok := h.agents[aid]
+	if !ok {
+		return "", "not_admitted"
+	}
+	kel, err := identity.UnmarshalKEL(a.kel)
+	if err != nil {
+		return "", ""
+	}
+	states, err := identity.Replay(kel)
+	if err != nil || states[len(states)-1].Witness != h.self.AID() {
+		return "", "not_witness"
+	}
+	at := uint64(time.Now().UnixMilli())
+	if h.noticeAt != nil {
+		at = h.noticeAt()
+	}
+	tip := kel[len(kel)-1]
+	b, err := identity.SignNotice(h.self, identity.NoticeBody{AID: aid, Seq: tip.Event.Seq, Head: tip.EventID, ObservedAt: at})
+	if err != nil {
+		return "", ""
+	}
+	return base64.RawURLEncoding.EncodeToString(b), ""
+}
+
+// fakeRegisterResponse is the /register answer with the notice fields.
+type fakeRegisterResponse struct {
+	hubapi.RegisterResponse
+	KeyStateNotice      string `json:"key_state_notice,omitempty"`
+	KeyStateNoticeError string `json:"key_state_notice_error,omitempty"`
 }
 
 // fakeHubDefaultMaxEnvelope is the real hub's per-envelope cap (96 MiB).
@@ -755,7 +806,9 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 		out.CardStatus, out.CardError = h.admitA2ACardLocked(req.AID, req.A2ACard, kelEvents)
 	}
 	h.registerCards[req.AID] = out.CardStatus
-	fakeHubJSON(w, http.StatusOK, out)
+	ans := fakeRegisterResponse{RegisterResponse: out}
+	ans.KeyStateNotice, ans.KeyStateNoticeError = h.noticeForLocked(req.AID)
+	fakeHubJSON(w, http.StatusOK, ans)
 }
 
 // powSeedNow is the fake's seed of this hour (regpow.Seed under its key).
@@ -1360,7 +1413,9 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	fakeHubJSON(w, http.StatusOK, hubapi.RelayPollResponse{Messages: out})
+	resp := hubapi.RelayPollResponse{Messages: out}
+	resp.KeyStateNotice, resp.KeyStateNoticeError = h.noticeForLocked(aid)
+	fakeHubJSON(w, http.StatusOK, resp)
 }
 
 // hRelayAck mirrors POST /relay/ack (DLV §2.4.2) — delete the acked rows,

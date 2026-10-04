@@ -14,11 +14,14 @@ import (
 )
 
 // CheckDataDirForStart is the check the daemon makes of its data directory
-// before it starts, and before it writes anything there: an interactions
-// store an earlier anet wrote (user_version not 3) is refused with
-// identity_v02. It reads without writing (interactions.CheckStore). The
+// before it starts, and before it writes anything there: an identity file
+// or an interactions store an earlier anet wrote (no type tag; user_version
+// not 3) is refused with identity_v02. It reads without writing (interactions.CheckStore). The
 // error is a *ConfigRefusal, or the error reading the store.
 func CheckDataDirForStart(l Layout) error {
+	if err := checkIdentityFileForStart(l); err != nil {
+		return err
+	}
 	switch err := interactions.CheckStore(l.InteractionsDir()); {
 	case errors.Is(err, interactions.ErrOldStore):
 		return oldDataDirRefusal()
