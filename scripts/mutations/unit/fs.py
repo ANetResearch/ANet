@@ -7,6 +7,11 @@
 # undoes one rule of the key set (the type, the number of keys, the validity bound, the mailbox key, the
 # strict decoding, the type read before the other keys, the time rule at signing) and must turn the rule's
 # tests red.
+# FS-2 adds 10, 12 and 38 (the second layer in the preimage, the interaction key's (ix, peer), the zero
+# pad; 38 is the edit of core2-5, judged here by SEALED-2C alone) and fs2-a to fs2-h, which hold the second
+# layer's tests to the rules they check (L2 and its info, the layer-1 ack_key, the ack_key on a refusal
+# after layer 1, the key a lookup answers, Opened.Layers, the signature over the second layer) and keep
+# bad-pad retired in the registry.
 
 IX = 'ANet:./internal/runtime/interactions'
 
@@ -209,5 +214,92 @@ MUTS = [
   edits=[('seal/enckeys.go', '\tif err := set.checkValidAt(set.IssuedAt); err != nil {\n\t\treturn nil, err\n\t}\n', '')],
   tests=[(SEAL, KEYSET_TESTS)],
   full=[SEAL],
+ ),
+ dict(
+  id='fs-10', group='FS-C12', repo='ANetCore',
+  desc='签名原像去掉键 33、34(单层与双层同一原像:剥掉第二层、换 enc2、单层改双层都能验签)',
+  edits=[('seal/fields.go',
+          '\tm[preKeyIKID], m[preKeyEnc2] = cborNull, cborNull\n\tif ikid != nil {\n\t\tif m[preKeyIKID], err = encodeField(ikid); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tif m[preKeyEnc2], err = encodeField(enc2); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t}\n',
+          '')],
+  tests=[(SEAL, '^TestSEALED_2C$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs-12', group='FS-C13', repo='ANetCore',
+  desc='不查交互钥的 (ix, peer)(别的交互或别的发送方封给这把钥的信也被收下)',
+  edits=[('seal/envelope.go', '\tif key != nil && (inner.IX != key.IX || inner.From != key.PeerAID) {',
+          '\tif false && key != nil && (inner.IX != key.IX || inner.From != key.PeerAID) {')],
+  tests=[(SEAL, '^TestIKeyMismatchAcrossInteractions$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs-38', group='FS-C8', repo='ANetCore',
+  desc='Wrap 的 pad 含非零字节仍接受(与 core2-5 同一改动,只看 SEALED-2C)',
+  edits=[('seal/envelope.go', '\t\tif b != 0 {\n\t\t\treturn nil, fail(ReasonBadWrap, "pad has a non-zero byte")',
+          '\t\tif false && b != 0 {\n\t\t\treturn nil, fail(ReasonBadWrap, "pad has a non-zero byte")')],
+  tests=[(SEAL, '^TestSEALED_2C$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs2-a', group='FS-C10', repo='ANetCore',
+  desc='第二层 HPKE info 用第一层的标签 anet-seal/v2(L2 不起作用)',
+  edits=[('seal/ixkey.go', 'return coredet.Marshal(hpkeInfo{IXLabel, to, suite, ikid})', 'return coredet.Marshal(hpkeInfo{HPKELabel, to, suite, ikid})')],
+  tests=[(SEAL, '^(TestSEALED_2B|TestSecondLayerRoundTrip)$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs2-b', group='FS-C10', repo='ANetCore',
+  desc='第二层 HPKE info 不绑定收件方 AID',
+  edits=[('seal/ixkey.go', 'return coredet.Marshal(hpkeInfo{IXLabel, to, suite, ikid})', 'return coredet.Marshal(hpkeInfo{IXLabel, "", suite, ikid})')],
+  tests=[(SEAL, '^(TestSEALED_2B|TestSecondLayerRoundTrip)$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs2-c', group='FS-C14', repo='ANetCore',
+  desc='双层时 Seal 的 ack_key 取自第二层上下文',
+  edits=[('seal/envelope.go',
+          '\t\tif two, err = newLayer2Sender(inner.To, o.PeerRK); err != nil {\n\t\t\treturn nil, ack, err\n\t\t}\n',
+          '\t\tif two, err = newLayer2Sender(inner.To, o.PeerRK); err != nil {\n\t\t\treturn nil, ack, err\n\t\t}\n\t\tif e2, err := two.sender.Export(DAckExporterContext, AckKeyLen); err == nil {\n\t\t\tcopy(key[:], e2)\n\t\t}\n')],
+  tests=[(SEAL, '^TestSecondLayerRoundTrip$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs2-d', group='FS-C13', repo='ANetCore',
+  desc='第二层解不开时不带 ack_key(发件方得不到令牌)',
+  edits=[('seal/envelope.go', '\t\tif innerPT, err = openLayer2(outer.To, key, w); err != nil {\n\t\t\treturn nil, withAck(ack, err)',
+          '\t\tif innerPT, err = openLayer2(outer.To, key, w); err != nil {\n\t\t\treturn nil, err')],
+  tests=[(SEAL, '^(TestOpenOrder|TestSEALED_2C)$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs2-e', group='FS-C13', repo='ANetCore',
+  desc='查询返回的交互钥不核对 ikid(另一把钥被当作这把钥使用)',
+  edits=[('seal/envelope.go', '\t\tif err := key.answers(w.ikid); err != nil {', '\t\tif err := key.answers(w.ikid); false && err != nil {')],
+  tests=[(SEAL, '^TestOpenOrder$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs2-f', group='FS-C13', repo='ANetCore',
+  desc='双层信的 Opened.Layers 仍报 1',
+  edits=[('seal/envelope.go', '\t\tlayers = 2\n', '\t\tlayers = 1\n')],
+  tests=[(SEAL, '^(TestSecondLayerRoundTrip|TestSEALED_2B)$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs2-g', group='FS-C17', repo='ANetCore',
+  desc='双层时 Seal 按单层原像签名(收件方按 ikid、enc2 验签失败)',
+  edits=[('seal/envelope.go', 'pre, err := sigPreimage(fields, enc, recipient.KID, recipient.Suite, ikid, enc2)',
+          'pre, err := sigPreimage(fields, enc, recipient.KID, recipient.Suite, nil, nil)')],
+  tests=[(SEAL, '^(TestSecondLayerRoundTrip|TestIKeyMismatchAcrossInteractions)$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs2-h', group='CORE-F3', repo='ANetCore',
+  desc='bad-pad 从退役表拿回 reasons.seal(退役的码被重新启用)',
+  edits=[('wire/registry.json', '      {"code": "to-mismatch"},\n      {"code": "kel-too-large"},',
+          '      {"code": "to-mismatch"},\n      {"code": "bad-pad"},\n      {"code": "kel-too-large"},'),
+         ('wire/registry.json', ',\n      {"code": "bad-pad", "note": "seal: the pad check of envelope v1 (inner key 21, retired); the pad is in the Wrap now, where a non-zero byte is bad-wrap"}\n', '\n')],
+  tests=[('ANetCore:./wire', '^TestRegistryRetiredItemsArePinned$')],
+  full=['ANetCore:./wire'],
  ),
 ]

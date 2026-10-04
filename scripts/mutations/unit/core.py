@@ -315,7 +315,7 @@ MUTS = [
   edits=[('seal/envelope.go', '\tif o.Exp != 0 {\n\t\tif outer[outerKeyExp]', '\tif false && o.Exp != 0 {\n\t\tif outer[outerKeyExp]')],
   tests=[('ANetCore:./seal', '^TestOuterExp$')], full=['ANetCore:./seal']),
  dict(id='core2-19', group='CORE-2', repo='ANetCore', desc='rk 不查套件(FS-C11)',
-  edits=[('seal/envelope.go', '\tif r.Suite != SuiteX25519 {\n\t\treturn fmt.Errorf("rk suite', '\tif false && r.Suite != SuiteX25519 {\n\t\treturn fmt.Errorf("rk suite')],
+  edits=[('seal/ixkey.go', '\tif r.Suite != SuiteX25519 {\n\t\treturn fmt.Errorf("rk suite', '\tif false && r.Suite != SuiteX25519 {\n\t\treturn fmt.Errorf("rk suite')],
   tests=[('ANetCore:./seal', '^(TestInnerStructure|TestSealInputChecks)$')], full=['ANetCore:./seal']),
  dict(id='core2-20', group='CORE-2', repo='ANetCore', desc='交互钥查询出错当作交互已关闭(ENG-V8)',
   edits=[('seal/envelope.go', '\t\t\tif key, err = ix.IXKey(w.ikid); err != nil {', '\t\t\tif key, err = ix.IXKey(w.ikid); false && err != nil {')],
