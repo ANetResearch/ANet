@@ -24,9 +24,12 @@ import (
 )
 
 // hubRegisterTimeout bounds `anet hub-register`'s wait for the daemon: the
-// first join attempt takes up to 60 seconds, proof of work included (LEC
-// AD-1), after the hub's identity is fetched.
-const hubRegisterTimeout = 2 * time.Minute
+// hub's identity (up to 30 seconds), an attempt of the background loop the
+// daemon may have to wait for (60 seconds), this join attempt (up to 60
+// seconds, proof of work included, LEC AD-1) and the profile published
+// after it (30 seconds). Running out says the daemon cannot be reached,
+// which would be wrong while it is still working.
+const hubRegisterTimeout = 4 * time.Minute
 
 // errExit1 ends a command with exit status 1 after it printed what to say.
 var errExit1 = errors.New("")

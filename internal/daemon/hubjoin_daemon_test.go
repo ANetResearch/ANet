@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -235,6 +237,10 @@ func TestDryRunActions(t *testing.T) {
 	}
 	if out := dry(); out["action"] != "join" || out["recovery_needed"] != true || out["hub_aid"] != hubAID {
 		t.Fatalf("fresh: %v", out)
+	}
+	// dry_run writes nothing (§2.3.2): not even the hub's KEL is pinned.
+	if _, err := d.ix.PeerIdentity(hubAID); !errors.Is(err, interactions.ErrNotFound) {
+		t.Fatalf("dry_run pinned the hub's KEL: %v", err)
 	}
 	if code, out := controlCall(t, d.hHubRegister, "/hub-register", hubRegisterBody(srv.URL, `,"next_digest":"`+testDigest+`"`)); code != 200 || out["state"] != JoinRegistered {
 		t.Fatalf("join: %d %v", code, out)
@@ -552,7 +558,7 @@ func TestTheRelayLoopWaitsForRegistration(t *testing.T) {
 		t.Fatal("hub-register did not start the relay loop")
 	}
 	time.Sleep(2500 * time.Millisecond)
-	if n := relayPollsFor(srv.URL, d.AID()); n != 0 {
+	if n := relayPollTriesFor(srv.URL, d.AID()); n != 0 {
 		t.Fatalf("%d polls while waiting for admission", n)
 	}
 	fh.mu.Lock()
@@ -602,4 +608,57 @@ func TestTheLoopRetriesWhenDue(t *testing.T) {
 	r.NextAttemptAt = time.Now().Add(200 * time.Millisecond).UnixMilli()
 	d.keepJoinRecord(srv.URL, r)
 	waitJoinState(t, d, JoinRegistered)
+}
+
+// AD-6 on the send routes TestSendingWaitsForTheHub does not take: a
+// message on an existing task (/tasks/send with task_id), and the console's
+// multipart /delegate and /message. A node with no hub answers each at once
+// with no_hub_yet and writes nothing.
+func TestTheOtherSendRoutesWaitForTheHub(t *testing.T) {
+	d, _ := joinDaemon(t)
+	form := func(fields map[string]string) (string, []byte) {
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		for k, v := range fields {
+			if err := mw.WriteField(k, v); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := mw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return mw.FormDataContentType(), b.Bytes()
+	}
+	peer := newTestDaemon(t, "", true).AID()
+	delegateType, delegateBody := form(map[string]string{"provider": peer, "goal": "hi"})
+	messageType, messageBody := form(map[string]string{"interaction_id": "ix_1", "body": "hi"})
+	for _, c := range []struct {
+		name  string
+		h     http.HandlerFunc
+		path  string
+		ctype string
+		body  []byte
+	}{
+		{"a message on a task", d.hTasksSend, "/tasks/send", "application/json",
+			[]byte(`{"task_id":"task-1","text":"more","return_immediately":true}`)},
+		{"multipart delegate", d.hDelegate, "/delegate", delegateType, delegateBody},
+		{"multipart message", d.hMessage, "/message", messageType, messageBody},
+	} {
+		req := httptest.NewRequest(http.MethodPost, c.path, bytes.NewReader(c.body))
+		req.Header.Set("Content-Type", c.ctype)
+		rec := httptest.NewRecorder()
+		c.h(rec, req)
+		var body a2ashape.ErrorBody
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		if rec.Code != http.StatusConflict || body.Reason != "no_hub_yet" ||
+			body.Error != a2ashape.Sentence("no_hub_yet", a2ashape.Lang(), nil) {
+			t.Errorf("%s: %d %s", c.name, rec.Code, rec.Body)
+		}
+	}
+	if n, err := d.ix.Count(interactions.ListFilter{}); err != nil || n != 0 {
+		t.Fatalf("a refused send wrote %d tasks (%v)", n, err)
+	}
+	if n, _ := d.ix.OutboxLen(); n != 0 {
+		t.Fatalf("a refused send queued %d rows", n)
+	}
 }

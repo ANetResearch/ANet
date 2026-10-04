@@ -157,4 +157,52 @@ MUTS += [
   tests=[('ANet:./cmd/anet', 'TestNginxServesSiteJSONNoCache')],
   full=['ANet:./cmd/anet'],
  ),
+
+ # The review of EXE-13: checks whose removal no test saw before.
+ dict(
+  id='exe13-skew', group='AD-4', repo='ANet',
+  desc='hub 拒绝 rot 的时间(kel_ts_out_of_window)后仍复用旧 KEL,不再请身份区重签(KEL D-36)',
+  edits=[('internal/daemon/hubjoin.go', '\t\t// area signs it again on the next Prepare (KEL D-36).\n\t\te.prepared.drop(key)\n',
+          '\t\t// area signs it again on the next Prepare (KEL D-36).\n')],
+  tests=[(DAEMON, 'TestARefusedRotTimeIsPreparedAgain')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe13-adopt', group='AD-4', repo='ANet',
+  desc='Adopt 失败被当作成功(丢掉已准备的 rot,不排下一次尝试)',
+  edits=[('internal/daemon/hubjoin.go', '\t\tif err := e.hooks.Adopt(ctx, res); err != nil {',
+          '\t\tif err := e.hooks.Adopt(ctx, res); false && err != nil {')],
+  tests=[(DAEMON, 'TestAFailedAdoptIsRetriedWithTheSameRot')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe13-gate-followup', group='AD-6', repo='ANet',
+  desc='未注册时已有任务上的后续消息照常发送',
+  edits=[('internal/daemon/taskseam.go', '\tif msg.TaskID != "" {\n\t\tif ref := d.sendGate(); ref != nil {',
+          '\tif msg.TaskID != "" {\n\t\tif ref := d.sendGate(); false && ref != nil {')],
+  tests=[(DAEMON, 'TestTheOtherSendRoutesWaitForTheHub')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe13-gate-console', group='AD-6', repo='ANet',
+  desc='控制台的 multipart /delegate 不过发送闸门',
+  edits=[('internal/daemon/control_api.go', '\t\tif !d.passSendGate(w) {\n\t\t\treturn\n\t\t}\n\t\tctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)\n\t\tdefer cancel()\n\t\tid, err := d.DelegateAtts(ctx, provider, goal, atts)',
+          '\t\tctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)\n\t\tdefer cancel()\n\t\tid, err := d.DelegateAtts(ctx, provider, goal, atts)')],
+  tests=[(DAEMON, 'TestTheOtherSendRoutesWaitForTheHub')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe13-relay', group='AD-2', repo='ANet',
+  desc='待准入时中继循环照常轮询(hub 上没有信箱,每秒被拒)',
+  edits=[('internal/daemon/relay.go', '\t\t\tif !d.joinRegistered() {\n\t\t\t\t// Until', '\t\t\tif false && !d.joinRegistered() {\n\t\t\t\t// Until')],
+  tests=[(DAEMON, 'TestTheRelayLoopWaitsForRegistration')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe13-dryrun-pin', group='§2.3.2', repo='ANet',
+  desc='dry_run 把 hub 的 KEL 写进 peer_identity(dry_run 不得写任何东西)',
+  edits=[('internal/daemon/hubjoin_daemon.go', '\tc, jerr := d.contactHub(ctx, hubURL, false)', '\tc, jerr := d.contactHub(ctx, hubURL, true)')],
+  tests=[(DAEMON, 'TestDryRunActions')],
+  full=[DAEMON],
+ ),
 ]

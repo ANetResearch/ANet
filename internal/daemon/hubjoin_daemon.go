@@ -21,6 +21,7 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/regpow"
 	"github.com/ANetResearch/ANetCore/relayauth"
+	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/evtypes"
@@ -598,8 +599,10 @@ type hubContact struct {
 // contactHub asks hubURL for its identity, afresh: an address that gives no
 // HTTP answer, or no hub identity, is hub_unreachable (UX-O1; nothing is
 // written); a hub that states another wire is wire_too_old or
-// wire_too_new (CORE-V1).
-func (d *Daemon) contactHub(ctx context.Context, hubURL string) (hubContact, *joinError) {
+// wire_too_new (CORE-V1). With pin the hub's KEL is pinned as every signed
+// call pins it (hubIdentity); without it (dry_run, which writes nothing,
+// LEC §2.3.2) it is only checked to replay to the hub's AID.
+func (d *Daemon) contactHub(ctx context.Context, hubURL string, pin bool) (hubContact, *joinError) {
 	unreachable := &joinError{http.StatusBadGateway, a2ashape.Refuse(reasonHubUnreachable, a2ashape.Args{"hub": hubURL})}
 	ctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
 	defer cancel()
@@ -632,12 +635,33 @@ func (d *Daemon) contactHub(ctx context.Context, hubURL string) (hubContact, *jo
 	case wire < hubapi.WireVersion:
 		return hubContact{}, &joinError{http.StatusConflict, a2ashape.Refuse(reasonWireTooNew, a2ashape.Args{"hub": hubURL})}
 	}
+	if !pin {
+		if !hubKELReplays(out.HubIdentity) {
+			return hubContact{}, unreachable
+		}
+		return hubContact{hubAID: out.AID}, nil
+	}
 	// Pinned as every signed call pins it (hubIdentity), from this answer.
 	aid, _, err := d.pinHubIdentity(hubURL, out.HubIdentity)
 	if err != nil {
 		return hubContact{}, unreachable
 	}
 	return hubContact{hubAID: aid}, nil
+}
+
+// hubKELReplays reports whether a /hub/identity answer's KEL reads and
+// replays to its AID: what pinHubIdentity checks before it writes anything.
+func hubKELReplays(h hubapi.HubIdentity) bool {
+	raw, err := base64.StdEncoding.DecodeString(h.KEL)
+	if err != nil || h.AID == "" {
+		return false
+	}
+	kel, err := seal.ParseKEL(raw)
+	if err != nil {
+		return false
+	}
+	got, err := replayedAID(kel)
+	return err == nil && got == h.AID
 }
 
 // joinAction is what hub-register at a hub of AID hubAID does (§2.3.2).
@@ -661,7 +685,7 @@ func (d *Daemon) hasWitnessRot(hubURL string) bool {
 // dryRunJoin is /hub-register with dry_run: GET /hub/identity and nothing
 // else; no file written, no signed request.
 func (d *Daemon) dryRunJoin(ctx context.Context, hubURL string) (hubDryRunResp, *joinError) {
-	c, jerr := d.contactHub(ctx, hubURL)
+	c, jerr := d.contactHub(ctx, hubURL, false)
 	if jerr != nil {
 		return hubDryRunResp{}, jerr
 	}
@@ -675,7 +699,7 @@ func (d *Daemon) dryRunJoin(ctx context.Context, hubURL string) (hubDryRunResp, 
 // the loop goes on in the background. It answers with the state the
 // attempt left.
 func (d *Daemon) joinHub(ctx context.Context, req joinRequest) (hubRegisterResp, *joinError) {
-	c, jerr := d.contactHub(ctx, req.Hub)
+	c, jerr := d.contactHub(ctx, req.Hub, true)
 	if jerr != nil {
 		return hubRegisterResp{}, jerr
 	}

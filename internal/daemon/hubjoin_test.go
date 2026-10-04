@@ -158,6 +158,21 @@ func TestHubAnswersMapAsUXR6(t *testing.T) {
 	if a := classifyHubReply(phaseRegister, hubReply{Status: 400, Body: refusalBody("bad_request", nil)}); a.hubError != "" {
 		t.Errorf("a known code kept the hub's sentence: %q", a.hubError)
 	}
+	// 426 names the release the hub needs ({version}), and is wire_too_old
+	// even without a body.
+	if r, _ := joinStep(*freshJoinRecord("https://hub.example", now), classifyHubReply(phaseRegister, hubReply{Status: 426,
+		Body: refusalBody("wire_too_old", map[string]any{"required_wire": 4, "required_anet": "0.4.0"})}), now); r.Version != "0.4.0" {
+		t.Errorf("426: version %q", r.Version)
+	}
+	if r, _ := joinStep(*freshJoinRecord("https://hub.example", now), classifyHubReply(phaseCheck, hubReply{Status: 426}), now); r.State != JoinRefused || r.Reason != reasonWireTooOld {
+		t.Errorf("426 without a body: %s/%s", r.State, r.Reason)
+	}
+	// A probation end a time cannot hold is no probation (it would wrap to
+	// before 1970 in the sentence).
+	if r, _ := joinStep(*freshJoinRecord("https://hub.example", now), classifyHubReply(phaseRegister, hubReply{Status: 200,
+		Body: []byte(`{"aid":"a","status":"registered","probation_until":18446744073709551615}`)}), now); r.Reason != reasonRegistered || r.ProbationUntil != 0 || r.check() != nil {
+		t.Errorf("probation_until beyond int64: %+v", r)
+	}
 	// The quota's Retry-After decides the next attempt (AD-3).
 	r, _ := joinStep(*freshJoinRecord("https://hub.example", now), classifyHubReply(phaseRegisterPow,
 		hubReply{Status: 429, RetryAfter: "7200", Body: refusalBody("registration_quota", nil)}), now)
@@ -569,5 +584,127 @@ func TestTheChallengeIsSolvedAndSentBack(t *testing.T) {
 	p := wirePow(&powProof{Seed: ch.Seed, Nonce: nonce})
 	if n, err := base64.RawURLEncoding.Strict().DecodeString(p.Nonce); err != nil || binary.BigEndian.Uint64(n) != binary.BigEndian.Uint64(nonce) {
 		t.Fatalf("pow on the wire %+v", p)
+	}
+}
+
+// listHub answers each check_only and each registration with the next of
+// its lists (the last one again once a list runs out).
+type listHub struct {
+	checks, registers []hubReply
+	nc, nr            int
+	kels              [][]byte
+}
+
+func (h *listHub) checkOnly(context.Context, *powProof) hubReply {
+	r := h.checks[min(h.nc, len(h.checks)-1)]
+	h.nc++
+	return r
+}
+
+func (h *listHub) register(_ context.Context, kel []byte, _ *powProof) hubReply {
+	h.kels = append(h.kels, kel)
+	r := h.registers[min(h.nr, len(h.registers)-1)]
+	h.nr++
+	return r
+}
+
+// KEL D-36 through AD-4: when the hub refuses the time of the registered
+// rot (kel_ts_out_of_window), the next attempt asks Prepare again, so the
+// identity area can sign the rot anew; after any other failure the next
+// attempt registers what Prepare gave, and Prepare is not asked again
+// (P-JOIN (b)).
+func TestARefusedRotTimeIsPreparedAgain(t *testing.T) {
+	const hubAID = "bafyreihubhubhubhubhubhubhubhubhubhubhubhubhubhubhubhubhubhub"
+	now := time.UnixMilli(1_800_000_000_000)
+	admitted := hubReply{Status: 200, Body: []byte(`{"status":"admitted"}`)}
+	accepted := hubReply{Status: 200, Body: []byte(`{"aid":"a","status":"registered","keys_status":"absent","card_status":"absent"}`)}
+	for _, c := range []struct {
+		name     string
+		first    hubReply
+		prepares int
+	}{
+		{"kel_ts_out_of_window", hubReply{Status: 400, Body: refusalBody("kel_ts_out_of_window", nil)}, 2},
+		{"503", hubReply{Status: 503}, 1},
+		{"no answer", hubReply{Err: errors.New("reset")}, 1},
+		{"rate_limited", hubReply{Status: 429, Body: refusalBody("rate_limited", nil)}, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			hooks := newFakeJoinHooks([]byte("kel"))
+			hub := &listHub{checks: []hubReply{admitted}, registers: []hubReply{c.first, accepted}}
+			env := joinEnv{hub: hub, hooks: hooks, hubURL: "https://hub.example", hubAID: hubAID, aid: "a",
+				ownKEL: []byte("own"), tip: hooks.tip, prepared: &preparedKELs{},
+				now: func() time.Time { return now }}
+			out := runJoinAttempt(context.Background(), *freshJoinRecord("https://hub.example", now), env)
+			if out.reg != nil || out.rec.State != JoinRetrying {
+				t.Fatalf("first attempt: %+v", out.rec)
+			}
+			out = runJoinAttempt(context.Background(), out.rec, env)
+			if out.reg == nil || out.rec.State != JoinRegistered {
+				t.Fatalf("second attempt: %+v", out.rec)
+			}
+			if calls, adopted, _ := hooks.stats(); calls != c.prepares || adopted != 1 {
+				t.Fatalf("Prepare asked %d times (want %d), %d adopted", calls, c.prepares, adopted)
+			}
+			if len(hub.kels) != 2 {
+				t.Fatalf("%d registrations", len(hub.kels))
+			}
+		})
+	}
+}
+
+// A hub's sentence beside hub_refused is cut to a bounded line in time
+// linear in its length: a hub that answers with megabytes of text does not
+// hold the join (and the registration lock) for good.
+func TestAHugeHubSentenceIsCutQuickly(t *testing.T) {
+	long := strings.Repeat("é", 4<<20) + "\n" + strings.Repeat("x", 1<<20)
+	start := time.Now()
+	s := cleanHubSentence(long)
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("cleanHubSentence took %v", d)
+	}
+	if len(s) > maxHubErrorBytes || len(s) < maxHubErrorBytes-utf8.UTFMax || !utf8.ValidString(s) {
+		t.Fatalf("cut to %d bytes (valid %v)", len(s), utf8.ValidString(s))
+	}
+	if got := cleanHubSentence("a\tb\x00c\n d"); got != "a bc d" {
+		t.Fatalf("short sentence: %q", got)
+	}
+	body, _ := json.Marshal(map[string]any{"reason": "new_code", "error": long})
+	start = time.Now()
+	a := classifyHubReply(phaseRegister, hubReply{Status: 400, Body: body})
+	if d := time.Since(start); d > 5*time.Second || len(a.hubError) > maxHubErrorBytes {
+		t.Fatalf("classify took %v, sentence of %d bytes", d, len(a.hubError))
+	}
+}
+
+// AD-4: when Adopt fails after the hub accepted the registration, the node
+// counts as registered (the hub holds the registration) and the loop tries
+// again soon; that attempt registers the same rot again and adopts it,
+// without asking Prepare for another (P-JOIN (b)).
+func TestAFailedAdoptIsRetriedWithTheSameRot(t *testing.T) {
+	const hubAID = "bafyreihubhubhubhubhubhubhubhubhubhubhubhubhubhubhubhubhubhub"
+	now := time.UnixMilli(1_800_000_000_000)
+	hooks := newFakeJoinHooks([]byte("kel"))
+	hooks.adoptErr = errors.New("the identity file could not be written")
+	hub := &listHub{checks: []hubReply{{Status: 200, Body: []byte(`{"status":"admitted"}`)}},
+		registers: []hubReply{{Status: 200, Body: []byte(`{"aid":"a","status":"registered","keys_status":"absent","card_status":"absent"}`)}}}
+	env := joinEnv{hub: hub, hooks: hooks, hubURL: "https://hub.example", hubAID: hubAID, aid: "a",
+		ownKEL: []byte("own"), tip: hooks.tip, prepared: &preparedKELs{},
+		now: func() time.Time { return now }}
+	out := runJoinAttempt(context.Background(), *freshJoinRecord("https://hub.example", now), env)
+	if out.reg == nil || out.rec.State != JoinRegistered || out.rec.NextAttemptAt <= now.UnixMilli() {
+		t.Fatalf("after a failed Adopt: %+v", out.rec)
+	}
+	hooks.mu.Lock()
+	hooks.adoptErr = nil
+	hooks.mu.Unlock()
+	out = runJoinAttempt(context.Background(), out.rec, env)
+	if out.reg == nil || out.rec.State != JoinRegistered {
+		t.Fatalf("the retry: %+v", out.rec)
+	}
+	if calls, adopted, built := hooks.stats(); calls != 1 || adopted != 1 || built != 1 {
+		t.Fatalf("%d Prepare, %d Adopt, %d rots built", calls, adopted, built)
+	}
+	if len(hub.kels) != 2 || string(hub.kels[0]) != string(hub.kels[1]) {
+		t.Fatalf("registrations %q", hub.kels)
 	}
 }

@@ -114,6 +114,10 @@ type fakeHub struct {
 	// relayPolls counts the /relay/poll requests each AID made, so a test
 	// can tell how many requests a poll round costs the hub.
 	relayPolls map[string]int
+	// relayPollTries counts every /relay/poll request by the AID it is
+	// signed as, before the signature is checked: a poll of an AID the hub
+	// does not know is refused and never reaches relayPolls.
+	relayPollTries map[string]int
 	// relayServed is, per AID, the ids of the envelopes each poll handed
 	// out, in order: which envelopes a node read, not only how often it
 	// asked.
@@ -325,6 +329,19 @@ func relayPollsFor(url, aid string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.relayPolls[aid]
+}
+
+// relayPollTriesFor reports how many /relay/poll requests signed as aid
+// this hub got, answered or refused.
+func relayPollTriesFor(url, aid string) int {
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		return 0
+	}
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.relayPollTries[aid]
 }
 
 func (h *fakeHub) handler() http.Handler {
@@ -1247,6 +1264,12 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	h.mu.Lock()
+	if h.relayPollTries == nil {
+		h.relayPollTries = map[string]int{}
+	}
+	h.relayPollTries[r.Header.Get(hubapi.HeaderAID)]++
+	h.mu.Unlock()
 	aid := h.verifyAuth(w, r, body, relayauth.ActionPoll, nil)
 	if aid == "" {
 		return

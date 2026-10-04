@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -27,6 +28,7 @@ import (
 	"sync"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/ANetResearch/ANetCore/regpow"
 
@@ -216,7 +218,7 @@ func (r *joinRecord) check() error {
 		return bad("version")
 	case len(r.HubError) > maxHubErrorBytes:
 		return bad("hub_error")
-	case r.Since < 0 || r.Attempts < 0 || r.NextAttemptAt < 0 || r.RegisteredAt < 0:
+	case r.Since < 0 || r.Attempts < 0 || r.NextAttemptAt < 0 || r.RegisteredAt < 0 || r.ProbationUntil > math.MaxInt64:
 		return bad("time")
 	}
 	if w := r.WitnessRot; w != nil && (len(w.NextDigest) != nextDigestLen || !validAgentID(w.HubAID)) {
@@ -643,8 +645,14 @@ func parseRetryAfter(v string) time.Duration {
 }
 
 // cleanHubSentence is the hub's English sentence as it may be shown: one
-// line of printable text, bounded.
+// line of printable text, bounded. The work is bounded too: a hub may
+// answer with megabytes of text (its body is read up to maxHubResponse),
+// and only a prefix a few times the bound is looked at, so what a hub
+// sends cannot keep the join, and the registration lock it holds, busy.
 func cleanHubSentence(s string) string {
+	if len(s) > 4*maxHubErrorBytes {
+		s = s[:4*maxHubErrorBytes] // a rune cut in two becomes U+FFFD below
+	}
 	s = strings.Map(func(r rune) rune {
 		switch {
 		case r == '\n' || r == '\r' || r == '\t':
@@ -655,9 +663,16 @@ func cleanHubSentence(s string) string {
 		return r
 	}, s)
 	s = strings.Join(strings.Fields(s), " ")
-	for len(s) > maxHubErrorBytes {
-		r := []rune(s)
-		s = string(r[:len(r)-1])
+	if len(s) > maxHubErrorBytes {
+		end := 0
+		for i, r := range s {
+			n := utf8.RuneLen(r)
+			if i+n > maxHubErrorBytes {
+				break
+			}
+			end = i + n
+		}
+		s = s[:end]
 	}
 	return s
 }
@@ -703,7 +718,7 @@ func joinStep(r joinRecord, a joinAnswer, now time.Time) (joinRecord, joinAct) {
 		if !a.phase.check() {
 			reason := reasonRegistered
 			r.ProbationUntil = 0
-			if p := a.probationUntil; p != nil && *p > uint64(now.UnixMilli()) {
+			if p := a.probationUntil; p != nil && *p > uint64(now.UnixMilli()) && *p <= math.MaxInt64 {
 				reason, r.ProbationUntil = reasonProbation, *p
 			}
 			r.set(JoinRegistered, reason, now)
