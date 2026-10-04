@@ -256,7 +256,7 @@ type egressEndpoint struct {
 func newEgressEndpoint(up *egressUpstream) *egressEndpoint {
 	ctx, cancel := context.WithCancel(context.Background())
 	e := &egressEndpoint{up: up, lang: a2ashape.Lang(), transport: newEgressTransport(up), ctx: ctx, cancel: cancel,
-		bodySlot: make(chan struct{}, 1), net: defaultEgressConnectNet()}
+		bodySlot: make(chan struct{}, 1), net: newEgressConnectNet()}
 	e.srv = &http.Server{
 		Handler:           e,
 		ReadHeaderTimeout: 30 * time.Second,

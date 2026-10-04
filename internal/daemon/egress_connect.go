@@ -58,6 +58,10 @@ type egressConnectNet struct {
 	local  func() []netip.Addr
 }
 
+// newEgressConnectNet is the network of a new endpoint's CONNECTs; a test of a whole sandboxed run
+// replaces it with a fake one.
+var newEgressConnectNet = defaultEgressConnectNet
+
 func defaultEgressConnectNet() egressConnectNet {
 	return egressConnectNet{lookup: egressLookup, dial: egressDialChecked, local: egressLocalAddrs}
 }

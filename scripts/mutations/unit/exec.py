@@ -383,7 +383,8 @@ MUTS += [
  dict(
   id='m-cn-1b', group='CN-4', repo='ANet',
   desc='不检查本机自己的地址(放行解析到本机公网地址的主机,等于连宿主)',
-  edits=[('internal/daemon/egress_connect.go', 'if egressAddrRefused(ip) || slices.Contains(local, a) {', 'if egressAddrRefused(ip) {')],
+  edits=[('internal/daemon/egress_connect.go', 'if egressAddrRefused(ip) || slices.Contains(local, a) {',
+          'if egressAddrRefused(ip) || false && slices.Contains(local, a) {')],
   tests=[(DAEMON, 'TestEgressConnectRefusesSpecialAddresses')],
   full=[DAEMON],
  ),
@@ -470,7 +471,8 @@ MUTS += [
  dict(
   id='m-cn-8b', group='CN-1', repo='ANet',
   desc='运行时的放行表不再剔除模型上游主机',
-  edits=[('internal/daemon/hostname.go', 'why == "" && !model[h] && len(set) < egressAllowMax {', 'why == "" && len(set) < egressAllowMax {')],
+  edits=[('internal/daemon/hostname.go', 'why == "" && !model[h] && len(set) < egressAllowMax {',
+          'why == "" && (true || !model[h]) && len(set) < egressAllowMax {')],
   tests=[(DAEMON, 'TestEgressAllowSet')],
   full=[DAEMON],
  ),
