@@ -126,15 +126,18 @@ type controlPlane struct {
 
 // secureControlPlane wraps the authenticated route table api with the console routes, the
 // authentication gate and the Host/Origin guard.
-func (d *Daemon) secureControlPlane(token string, api *routeMux) *controlPlane {
+func (d *Daemon) secureControlPlane(auth *ctlAuth, api *routeMux) *controlPlane {
 	cs := newConsoleSessions()
+	auth.mu.Lock()
+	auth.sessions = cs
+	auth.mu.Unlock()
 	api.HandleFunc("GET /attachment", d.attachmentHandler())
 	api.HandleFunc("POST /console/ticket", d.hConsoleTicket(cs))
 	api.HandleFunc("POST /console/switch", d.hConsoleSwitch)
 
 	top := newRouteMux()
 	top.HandleFunc("GET /console", d.consoleHandler())
-	top.HandleFunc("GET /ping", d.pingHandler(token))
+	top.HandleFunc("GET /ping", d.pingHandler(auth))
 	top.HandleFunc("POST /console/session", d.hConsoleSession(cs))
 	// A browser landing on the bare root (typed URL, bookmark) is sent to the console page, which tells
 	// the operator to run `anet console` when it has no ticket. ({$} matches ONLY "/", so the gate keeps
@@ -142,7 +145,7 @@ func (d *Daemon) secureControlPlane(token string, api *routeMux) *controlPlane {
 	top.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/console", http.StatusFound)
 	})
-	top.Handle("/", d.authGate(token, cs, api))
+	top.Handle("/", d.authGate(auth, cs, api))
 	return &controlPlane{Handler: d.hostGuard(top), top: top, api: api, sessions: cs}
 }
 
@@ -201,12 +204,13 @@ func sessionRefusal(w http.ResponseWriter, why string) {
 }
 
 // authGate authenticates a request by bearer token or console session and applies the session route
-// allowlist.
-func (d *Daemon) authGate(token string, cs *consoleSessions, api *routeMux) http.Handler {
-	want := []byte("Bearer " + token)
+// allowlist. The token is the one in force for this request (auth): one that rotateLocalTokens replaced
+// is refused from then on (LEC AV-10).
+func (d *Daemon) authGate(auth *ctlAuth, cs *consoleSessions, api *routeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if auth := r.Header.Get("Authorization"); auth != "" {
-			if subtle.ConstantTimeCompare([]byte(auth), want) != 1 {
+		if bearer := r.Header.Get("Authorization"); bearer != "" {
+			want := []byte("Bearer " + auth.bearer())
+			if subtle.ConstantTimeCompare([]byte(bearer), want) != 1 {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}

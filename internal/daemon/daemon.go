@@ -130,6 +130,9 @@ type Daemon struct {
 	transportState
 	// modules are the optional subsystems this build carries.
 	modules []module.Module
+	// ctlAuth is the control plane's credential in force (control_api.go); rotateLocalTokens replaces
+	// it.
+	ctlAuth atomic.Pointer[ctlAuth]
 	// wireWarnOnce keeps the C2 version-mismatch notice to one line.
 	wireWarnOnce sync.Once
 	// lastCardSeq is the highest sequence this process has minted for its
