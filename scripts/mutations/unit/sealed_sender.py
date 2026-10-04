@@ -134,4 +134,11 @@ MUTS += [
  dict(id='ss1-grant-pay', group='SS-1', repo='ANetCore', desc='一次性 grant 可以带 pay',
   edits=[('seal/grant.go', '\tif g.Pay != nil && g.IX != nil {', '\tif false && g.Pay != nil && g.IX != nil {')],
   tests=GRANT_T, full=['ANetCore:./seal']),
+ dict(id='ss1-grant-null-pay', group='SS-1', repo='ANetCore', desc='Grant 的 pay 为 CBOR null 时当作 false',
+  edits=[('seal/grant.go', '\tcase len(raw) == 1 && raw[0] == 0xf4:', '\tcase len(raw) == 1 && (raw[0] == 0xf4 || raw[0] == 0xf6):')],
+  tests=[('ANetCore:./seal', '^TestGrantNullIsNotAbsent$')], full=['ANetCore:./seal']),
+ dict(id='ss1-grant-null-opt', group='SS-1', repo='ANetCore', desc='Grant 的 ix、p2p 为 CBOR null 时当作缺键(一次性 grant 变成对端 grant)',
+  edits=[('seal/grant.go', '\t\tif _, ok := m[k]; !ok {\n\t\t\treturn nil, nil\n',
+          '\t\tif raw, ok := m[k]; !ok || len(raw) == 1 && raw[0] == 0xf6 {\n\t\t\treturn nil, nil\n')],
+  tests=[('ANetCore:./seal', '^TestGrantNullIsNotAbsent$')], full=['ANetCore:./seal']),
 ]
