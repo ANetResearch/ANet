@@ -52,9 +52,16 @@ func errNoPayments() error {
 
 // paymentSeam is the narrow grant module/x402 receives: sign as this
 // node, know which hub we settle on, and read our own chain back.
-type paymentSeam struct{ d *Daemon }
-
-func (s paymentSeam) Sign(preimage []byte) ([]byte, uint64) { return s.d.self.Sign(preimage) }
+//
+// Sign is the node's identity.Signer itself, embedded rather than wrapped:
+// the module's calls of it are the signing call sites the wire registry
+// lists, each with the object it signs (core CORE-L9), and the embedded
+// interface hands on Sign, AID and KEL and nothing that changes the
+// identity (KEL O-4).
+type paymentSeam struct {
+	identity.Signer
+	d *Daemon
+}
 
 func (s paymentSeam) HubURL() string { return s.d.config().HubURL }
 
@@ -116,7 +123,7 @@ func (h moduleHost) PaymentSeam() (module.PaymentSeam, bool) {
 	if h.d == nil {
 		return nil, false
 	}
-	return paymentSeam{d: h.d}, true
+	return paymentSeam{Signer: h.d.self, d: h.d}, true
 }
 
 // HubSeam is the narrow grant: sign as this node, and where its hub is.
@@ -132,13 +139,15 @@ func (h moduleHost) HubSeam() (module.HubSeam, bool) {
 	if h.d == nil {
 		return nil, false
 	}
-	return hubSeam{d: h.d}, true
+	return hubSeam{Signer: h.d.self, d: h.d}, true
 }
 
-// hubSeam implements module.HubSeam over the daemon.
-type hubSeam struct{ d *Daemon }
-
-func (s hubSeam) Sign(preimage []byte) ([]byte, uint64) { return s.d.self.Sign(preimage) }
+// hubSeam implements module.HubSeam over the daemon. Sign is the node's
+// identity.Signer, embedded as in paymentSeam.
+type hubSeam struct {
+	identity.Signer
+	d *Daemon
+}
 
 func (s hubSeam) HubURL() string { return s.d.config().HubURL }
 

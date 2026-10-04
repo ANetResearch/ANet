@@ -16,6 +16,7 @@ import (
 	"github.com/ANetResearch/ANetCore/ael"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/relayauth"
 )
 
@@ -195,7 +196,7 @@ func hubbedModule(t *testing.T, f *fakeIssuer) (*Module, *testHost) {
 
 // A node can verify the hub's supply chain from the signatures alone.
 func TestANodeVerifiesTheHubsIssuanceChain(t *testing.T) {
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,11 +224,11 @@ func TestANodeVerifiesTheHubsIssuanceChain(t *testing.T) {
 
 // A chain whose records do not verify against the hub's key is refused.
 func TestAChainSignedBySomebodyElseIsRefused(t *testing.T) {
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
-	impostor, err := identity.Incept()
+	impostor, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ func TestAChainSignedBySomebodyElseIsRefused(t *testing.T) {
 // The payoff: a hub that rewrites its supply history contradicts a record
 // the node already holds, and the node can say exactly where.
 func TestAuditDetectsAHubThatRewroteItsSupplyHistory(t *testing.T) {
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +334,7 @@ func TestWitnessingIsOptional(t *testing.T) {
 // never compared: this node's signed history of what it authorized and
 // was paid, and the hub's published entries for the same account.
 func TestReconcileFindsASettlementTheHubDoesNotAccountFor(t *testing.T) {
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +380,7 @@ func TestReconcileFindsASettlementTheHubDoesNotAccountFor(t *testing.T) {
 // hub dropping a payment. A verified settlement recorded under its hub
 // authorization id is matched on it [redteam:F11].
 func TestReconcileDoesNotHoldTheHubToAProvidersUnverifiedClaim(t *testing.T) {
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +410,7 @@ func TestReconcileDoesNotHoldTheHubToAProvidersUnverifiedClaim(t *testing.T) {
 // A hub whose own two statements disagree is a finding, even though both
 // come from the hub.
 func TestReconcileCatchesAHubContradictingItself(t *testing.T) {
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,7 +436,7 @@ func TestReconcileCatchesAHubContradictingItself(t *testing.T) {
 
 // A clean account reconciles, and a grant is not reported as suspicious.
 func TestACleanAccountReconciles(t *testing.T) {
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +472,7 @@ func TestACleanAccountReconciles(t *testing.T) {
 // the authorization id, so every redemption on an honest hub was reported
 // missing. All three account reads are signed; the fake refuses others.
 func TestReconcileFindsRedemptionsInTheHubsList(t *testing.T) {
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +532,7 @@ func TestReconcileFindsRedemptionsInTheHubsList(t *testing.T) {
 // meant to detect a hub contradicting itself was reporting a difference
 // it had manufactured.
 func TestReconcileUsesTheAccountTotalNotThePage(t *testing.T) {
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,7 +608,7 @@ func (f *fakeIssuer) issueWithPrev(t *testing.T, prev string, amount int64) {
 
 func issuerWithChain(t *testing.T, n int) *fakeIssuer {
 	t.Helper()
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}

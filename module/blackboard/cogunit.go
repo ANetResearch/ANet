@@ -87,15 +87,16 @@ func (u *CogUnit) ID() (string, error) {
 	return anetcid.Sum(pre)
 }
 
-// Sign attaches the author's detached signature (the signer MUST be the unit's Author).
-func (u *CogUnit) Sign(ctrl *identity.Controller) error {
-	u.Author = ctrl.AID()
+// Sign attaches the author's detached signature (the signer MUST be the unit's Author). signer
+// signs and does nothing else: a module never holds an identity's controller or its key (KEL O-1).
+func (u *CogUnit) Sign(signer identity.Signer) error {
+	u.Author = signer.AID()
 	pre, err := u.CanonicalPreimage()
 	if err != nil {
 		return err
 	}
-	sig, seq := ctrl.Sign(pre)
-	u.Envelope = &aobj.Envelope{SignerAID: ctrl.AID(), KeyStateSeq: seq, Alg: aobj.AlgEdDSA, Sig: sig}
+	sig, seq := signer.Sign(pre)
+	u.Envelope = &aobj.Envelope{SignerAID: signer.AID(), KeyStateSeq: seq, Alg: aobj.AlgEdDSA, Sig: sig}
 	return nil
 }
 

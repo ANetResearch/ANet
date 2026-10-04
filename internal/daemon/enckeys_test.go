@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 )
 
@@ -267,7 +268,7 @@ func TestAKeyRingThatCannotBeSavedIsNotUsed(t *testing.T) {
 func TestTheKeySetIsResignedAfterAKELRotation(t *testing.T) {
 	d := newTestDaemon(t, "", true)
 	seq0 := d.enc.Seq()
-	if err := d.self.Rotate(d.nowMS()); err != nil {
+	if err := identitytest.Rotate(d.self, d.nowMS()); err != nil {
 		t.Fatal(err)
 	}
 	changed, err := d.enc.maintain(d.self.Sign, d.self.CurrentSeq())

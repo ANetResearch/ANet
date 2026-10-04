@@ -42,6 +42,7 @@ import (
 	"github.com/ANetResearch/ANetCore/adp"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -206,7 +207,7 @@ func fakeHubRoundDuration(d time.Duration) string {
 // newFakeHub starts an httptest server backed by a fresh fake Hub and cleans it up with the test.
 func newFakeHub(t testing.TB) *httptest.Server {
 	t.Helper()
-	self, err := identity.Incept()
+	self, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}

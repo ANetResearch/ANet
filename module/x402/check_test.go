@@ -18,6 +18,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/relayauth"
 
@@ -129,7 +130,7 @@ func signAuth(t *testing.T, payer *identity.Controller, a payment.Authorization,
 func TestTheMerchantCheckRefusesEachWrongTerm(t *testing.T) {
 	h := newHost(t)
 	m := newModule(t, h)
-	payer, err := identity.Incept()
+	payer, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}

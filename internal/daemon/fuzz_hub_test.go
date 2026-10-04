@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/module"
@@ -74,7 +75,7 @@ func FuzzHubAnswers(f *testing.F) {
 	srv := httptest.NewServer(hub)
 	f.Cleanup(srv.Close)
 	d := buildTestDaemon(f, srv.URL, nil)
-	peer, err := identity.Incept()
+	peer, err := identitytest.Hub()
 	if err != nil {
 		f.Fatal(err)
 	}

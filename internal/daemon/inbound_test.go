@@ -16,6 +16,7 @@ import (
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
@@ -572,11 +573,11 @@ func TestTheApprovalQueue(t *testing.T) {
 // held.
 func TestApprovalVerifiesTheDelegationAgain(t *testing.T) {
 	d := newTestDaemon(t, "", false)
-	claimed, err := identity.Incept()
+	claimed, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := identity.Incept()
+	signer, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -608,12 +609,12 @@ func TestApprovalVerifiesTheDelegationAgain(t *testing.T) {
 // usable only within the rotation grace after its retirement.
 func TestApprovalAppliesTheRotationGraceNow(t *testing.T) {
 	d := newTestDaemon(t, "", false)
-	c, err := identity.Incept()
+	c, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
 	retiredAt := uint64(time.Now().Add(-2 * time.Hour).UnixMilli())
-	if err := c.Rotate(retiredAt); err != nil {
+	if err := identitytest.Rotate(c, retiredAt); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.keyStateUsable(c.KEL(), c.CurrentSeq()); err != nil {

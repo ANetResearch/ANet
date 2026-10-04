@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 )
 
 // Membership is checked on every org-scoped action, so verification cost is
@@ -16,11 +17,11 @@ import (
 
 func benchVerifier(b *testing.B) (*Verifier, *Credential, *Credential) {
 	b.Helper()
-	founder, err := identity.Incept()
+	founder, err := identitytest.Hub()
 	if err != nil {
 		b.Fatal(err)
 	}
-	admin, err := identity.Incept()
+	admin, err := identitytest.Hub()
 	if err != nil {
 		b.Fatal(err)
 	}

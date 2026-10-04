@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
 )
 
@@ -166,8 +166,8 @@ func TestX402Objects(t *testing.T) {
 // decodes it and compares it with the accepted option. So does a
 // settlement receipt the hub signed.
 func TestX402AnetCredit(t *testing.T) {
-	payer, _ := identity.Incept()
-	payee, _ := identity.Incept()
+	payer, _ := identitytest.Hub()
+	payee, _ := identitytest.Hub()
 	network := payment.CreditNetwork("bafyhub")
 	auth := &payment.Authorization{Payer: payer.AID(), PayTo: payee.AID(), Amount: 2, Network: network,
 		Nonce: "n1", IssuedAt: 1000, NotAfter: 301000, InteractionID: "bind"}
