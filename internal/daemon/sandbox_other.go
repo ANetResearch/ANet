@@ -9,6 +9,6 @@ func (p *sandboxPlan) prepare() error {
 	return sandboxUnavailable("the sandbox is implemented only on Linux (bubblewrap)")
 }
 
-func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunch, error) {
+func (p *sandboxPlan) command(workDir string, argv, env []string, stdin []byte) (*sandboxLaunch, error) {
 	return nil, sandboxUnavailable("the sandbox is implemented only on Linux (bubblewrap)")
 }

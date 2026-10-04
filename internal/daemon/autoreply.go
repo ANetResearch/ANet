@@ -560,6 +560,7 @@ type openAIReplier struct {
 }
 
 func (r *openAIReplier) Reply(ctx context.Context, _ replyContext, turns []chatTurn) (string, error) {
+	_, turns = boundConversation("", turns) // LEC AV-9, as for the exec backend
 	system := r.cfg.SystemPrompt
 	if system == "" {
 		system = autoReplyDefaultSystemPrompt
@@ -726,8 +727,9 @@ func (d *Daemon) sandboxRefusedBefore(th Thread) bool {
 }
 
 // autoReplySummary is the part of an auto-reply configuration a policy
-// change event records: the backend, the agent and the untrusted mode. Keys,
-// prompts and paths are left out.
+// change event records: the backend, the agent, the untrusted mode and
+// whether an API key is set (LEC §2.5: never the key). Prompts and paths
+// are left out.
 func autoReplySummary(c *AutoReplyConfig) map[string]any {
 	if c == nil {
 		return nil
@@ -736,5 +738,5 @@ func autoReplySummary(c *AutoReplyConfig) map[string]any {
 	if backend == "" {
 		backend = "openai"
 	}
-	return map[string]any{"backend": backend, "agent": c.Agent, "untrusted": c.UntrustedMode()}
+	return map[string]any{"backend": backend, "agent": c.Agent, "untrusted": c.UntrustedMode(), "api_key_set": c.APIKey != ""}
 }

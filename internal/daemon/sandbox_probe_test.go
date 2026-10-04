@@ -51,6 +51,12 @@ type sandboxProbeResult struct {
 	Cwd              string `json:"cwd"`
 	Error            string `json:"error,omitempty"`
 
+	// What the agent was started with (LEC SI-56, AV-1): its environment, its command line as the
+	// kernel shows it, and how many bytes it read on stdin (fd 4).
+	Environ    []string `json:"environ,omitempty"`
+	Cmdline    string   `json:"cmdline,omitempty"`
+	StdinBytes int      `json:"stdin_bytes,omitempty"`
+
 	KeyIsPlaceholder  bool   `json:"key_is_placeholder,omitempty"`
 	EnvHasOperatorKey bool   `json:"env_has_operator_key,omitempty"`
 	RouteStatus       int    `json:"route_status,omitempty"`
@@ -142,7 +148,15 @@ func runSandboxProbe(arg string) int {
 			res.WorkDirWritable = true
 		}
 	}
+	res.Environ = os.Environ()
+	if b, err := os.ReadFile("/proc/self/cmdline"); err == nil {
+		res.Cmdline = strings.ReplaceAll(string(b), "\x00", " ")
+	}
+	res.StdinBytes = probeStdinBytes
 	b, _ := json.Marshal(res)
 	fmt.Println(string(b))
 	return 0
 }
+
+// probeStdinBytes is how much the probe read on stdin (TestMain sets it).
+var probeStdinBytes int
