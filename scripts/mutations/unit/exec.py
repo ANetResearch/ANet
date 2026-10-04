@@ -82,8 +82,8 @@ MUTS += [
  dict(
   id='m-ad-5', group='AD-1', repo='ANet',
   desc='首次连接失败仍写 config.json 与 hub_join.json',
-  edits=[('internal/daemon/hubjoin_daemon.go', '\tc, jerr := d.contactHub(ctx, req.Hub)\n\tif jerr != nil {\n\t\treturn hubRegisterResp{}, jerr\n\t}',
-          '\tc, jerr := d.contactHub(ctx, req.Hub)\n\tif jerr != nil {\n\t\t_, _ = d.adoptJoinTarget(req, "", nil)\n\t\treturn hubRegisterResp{}, jerr\n\t}')],
+  edits=[('internal/daemon/hubjoin_daemon.go', '\tc, jerr := d.contactHub(ctx, req.Hub, true)\n\tif jerr != nil {\n\t\treturn hubRegisterResp{}, jerr\n\t}',
+          '\tc, jerr := d.contactHub(ctx, req.Hub, true)\n\tif jerr != nil {\n\t\t_, _ = d.adoptJoinTarget(req, "", nil)\n\t\treturn hubRegisterResp{}, jerr\n\t}')],
   tests=[(DAEMON, 'TestJoinAnUnreachableHubWritesNothing')],
   full=[DAEMON],
  ),
