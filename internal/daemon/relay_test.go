@@ -163,10 +163,10 @@ func TestRelayDelegationRoundTrip(t *testing.T) {
 	prov := newTestDaemon(t, srv.URL, true)
 
 	// Both must be registered so the relay knows their mailboxes + KELs (for poll auth + review verify).
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatalf("register requester: %v", err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Bakery Bot", []string{"haiku"}, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Bakery Bot", []string{"haiku"}); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}
 
@@ -368,10 +368,10 @@ func TestRelayDelegationRefusedWhenNotAccepting(t *testing.T) {
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, false) // NOT accepting
 
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Closed Bot", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Closed Bot", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.Delegate(ctx, prov.AID(), "do something", nil); err != nil {
@@ -410,10 +410,10 @@ func TestRelayAttachmentRoundTrip(t *testing.T) {
 
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatalf("register requester: %v", err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Coder", []string{"coding"}, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Coder", []string{"coding"}); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}
 

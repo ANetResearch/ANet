@@ -11,14 +11,14 @@ agentnetwork.org.cn 上有几条路径的内容来自本仓库,而不是官网�
 
 | 公网路径 | 发布根中的文件 | 来源 | 缓存 |
 |---|---|---|---|
-| `/install.sh`、`/install.sh.sig` | `install.sh`、`install.sh.sig` | `build-release.sh` 的 `dist/`(`--dist`) | `no-cache, must-revalidate` / 缺省 |
+| `/install.sh`、`/install.sh.sig` | `install.sh`、`install.sh.sig` | `build-release.sh` 的 `dist/`(`--dist`) | `no-cache`(`expires epoch`) / 缺省 |
 | `/dl/` | `dl/`(`release.json(.sig)`、`VERSION`、`checksums.txt`、`*.gz`) | 同上,整个目录一次改名换入 | 缺省 |
-| `/SKILL.md`、`/llms-full.txt` | `SKILL.md` | 本目录(`--web`) | `no-cache, must-revalidate` / 缺省 |
+| `/SKILL.md`、`/llms-full.txt` | `SKILL.md` | 本目录(`--web`) | `no-cache`(`expires epoch`) / 缺省 |
 | `/llms.txt` | `llms.txt` | 本目录(`--web`) | 缺省 |
 | `/site.json` | `site.json` | 本目录的 `site.json`,`publish.sh` 加上 `version`(`--web`) | `no-cache`(`expires epoch`) |
 
-带 `add_header` 的 location 不再继承 server 块的安全头;`/site.json` 用 `expires epoch` 得到
-`Cache-Control: no-cache`,不用 `add_header`,因此保留 server 块的安全头。
+带 `add_header` 的 location 不再继承 server 块的安全头,所以这里的 location 都不用它:`/install.sh`、
+`/SKILL.md` 与 `/site.json` 用 `expires epoch` 得到 `Cache-Control: no-cache`,全部保留 server 块的安全头。
 
 ## 2. `site.json`
 
@@ -74,12 +74,13 @@ deploy/release/apex/publish.sh --dist dist/ --allowed-signers internal/release/a
 
 ```sh
 curl -sSI https://agentnetwork.org.cn/site.json   # 200;Content-Type: application/json;恰有一行 Cache-Control: no-cache;站点的安全头仍在
+curl -sSI https://agentnetwork.org.cn/install.sh  # 同上(text/x-shellscript);/SKILL.md 同上(text/markdown)
 curl -sS  https://agentnetwork.org.cn/site.json   # version 与下一行相同
 curl -sS  https://agentnetwork.org.cn/dl/VERSION
 curl -sS  https://agentnetwork.org.cn/SKILL.md | cmp - deploy/release/apex/SKILL.md
 ```
 
-若 `/site.json` 出现两行 `Cache-Control`,是 server 块自己也设了缓存头:改 server 块,不要在这个 location 里加
+若这三个路径出现两行 `Cache-Control`,是 server 块自己也设了缓存头:改 server 块,不要在这些 location 里加
 `add_header`(那会丢掉安全头)。
 
 ## 5. 热修官网页面:带内容哈希的文件

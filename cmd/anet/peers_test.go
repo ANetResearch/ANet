@@ -135,11 +135,12 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 	}
 }
 
-// `anet accept on` and `hub-register --accept-delegations true` are refused
-// with the three policies and the allow-list command, and nothing reaches
-// the daemon; `accept off` asks the daemon for closed.
+// `anet accept on` is refused with the three policies and the allow-list
+// command, and nothing reaches the daemon; `accept off` asks the daemon for
+// closed. (`hub-register --accept-delegations` is cli_removed before any
+// command runs, removed_test.go.)
 func TestAcceptOnIsRefusedByTheCLI(t *testing.T) {
-	for _, args := range [][]string{{"accept", "on"}, {"accept"}, {"hub-register", "http://hub", "--accept-delegations", "true"}} {
+	for _, args := range [][]string{{"accept", "on"}, {"accept"}} {
 		c, sent := recordingDaemon(t)
 		err := runClientArgs(c, args)
 		if err == nil || !strings.Contains(err.Error(), "anet peers allow") || !strings.Contains(err.Error(), "approve") {

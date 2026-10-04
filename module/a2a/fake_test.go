@@ -38,6 +38,8 @@ type fakeSeam struct {
 	// hold answers payment-submitted as the kernel does above the agent
 	// tier: the task, still waiting, told the operator decides (§8.3).
 	hold bool
+	// gate is what SendGate answers (and Send with it): nil sends.
+	gate error
 }
 
 type fakeTask struct {
@@ -129,7 +131,17 @@ func (f *fakeSeam) answer(id, text string) {
 	f.status(ft)
 }
 
+// SendGate answers f.gate, as the kernel answers its join state (LEC AD-6).
+func (f *fakeSeam) SendGate(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gate
+}
+
 func (f *fakeSeam) Send(ctx context.Context, peer string, req module.TaskSend) (module.Task, error) {
+	if err := f.SendGate(ctx); err != nil {
+		return module.Task{}, err
+	}
 	f.mu.Lock()
 	f.sends = append(f.sends, req)
 	msg := req.Message
