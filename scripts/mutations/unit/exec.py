@@ -188,6 +188,15 @@ MUTS = [
   full=['ANet:./internal/daemon'],
  ),
  dict(
+  id='m-eg-6', group='EG', repo='ANet',
+  desc='Close 不等处理函数返回(运行的计数在读取后才落定)',
+  edits=[
+   ('internal/daemon/egress.go', '\t\te.handlers.Wait()\n', ''),
+  ],
+  tests=[('ANet:./internal/daemon', 'TestEgressCloseWaitsForItsHandlers')],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
   id='m-up-1', group='UP', repo='ANet',
   desc='api_base 主机名末尾的点不归一(openrouter.ai. 绕过 plugins 与 models 的拒绝)',
   edits=[

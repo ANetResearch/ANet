@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -468,6 +469,61 @@ func TestEgressCloseEndsTheRun(t *testing.T) {
 		conn.Close()
 		t.Error("the endpoint still accepts connections")
 	}
+}
+
+// egressFuncTransport is a model service side given as a function.
+type egressFuncTransport func(*http.Request) (*http.Response, error)
+
+func (f egressFuncTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// EG-1, EG-7: Close returns only once every handler has, so the run's counts read right after it (the
+// plan's egress summary) are complete and nothing of the run is still working.
+func TestEgressCloseWaitsForItsHandlers(t *testing.T) {
+	up := testUpstreamAt(t, egressUpstreamAnthropic, "https://model.invalid")
+	inFlight := make(chan struct{})
+	var finished atomic.Bool
+	ep := newEgressEndpoint(up)
+	ep.transport = egressFuncTransport(func(r *http.Request) (*http.Response, error) {
+		close(inFlight)
+		<-r.Context().Done()
+		time.Sleep(200 * time.Millisecond) // a handler still unwinding when the run ends
+		finished.Store(true)
+		return nil, r.Context().Err()
+	})
+	sock := filepath.Join(t.TempDir(), "e.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep.Serve(ln)
+	t.Cleanup(ep.Close)
+	go func() {
+		_ = rawRequestQuiet(sock, "POST /anet-upstream/anthropic/v1/messages HTTP/1.1\r\nHost: x\r\nContent-Length: 15\r\n\r\n{\"messages\":[]}")
+	}()
+	select {
+	case <-inFlight:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the request was not forwarded")
+	}
+	ep.Close()
+	if !finished.Load() {
+		t.Fatal("Close returned while a handler was still running")
+	}
+}
+
+// rawRequestQuiet writes raw to a new connection to sock and reads until it closes, reporting nothing.
+func rawRequestQuiet(sock, raw string) error {
+	c, err := net.Dial("unix", sock)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+	if _, err := io.WriteString(c, raw); err != nil {
+		return err
+	}
+	_, err = io.Copy(io.Discard, c)
+	return err
 }
 
 // The forwarded request carries the operator's key, so a redirect from the model service is passed to
