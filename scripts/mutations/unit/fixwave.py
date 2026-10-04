@@ -531,15 +531,10 @@ MUTS = [
   tests=[('ANet:./cmd/anet', 'TestHubRegisterRefusesAnInviteFileOthersCanRead')],
   full=['ANet:./cmd/anet'],
  ),
- dict(
-  id='fx41-3', group='F41', repo='ANetHub',
-  desc='铸码输出教 agent 把邀请码放在命令行上',
-  edits=[
-   ('cmd/anet-hub/invite_ops.go', '--name <name> --token-file FILE")', '--name <name> --token <invite>")'),
-  ],
-  tests=[('ANetHub:./cmd/anet-hub', 'TestMintedInviteIsNotTaughtOnACommandLine')],
-  full=['ANetHub:./cmd/anet-hub'],
- ),
+ # fx41-3 (the hub's invite printout taught the token on a command line) is retired with invitations
+ # themselves: since PAY-5 a hub admits by AID, anet-hub mints no invite and cmd/anet-hub/invite_ops.go
+ # and its test are gone. The removed -invite-* flags are covered by TestARemovedFlagNamesItsSubcommand;
+ # the F41 rerun checks that no invitation path is left (PAY-15, EXE-14).
  dict(
   id='fx1-1', group='F1', repo='ANet',
   desc='publish_prices=false 时卡片仍带逐 skill 价格',
