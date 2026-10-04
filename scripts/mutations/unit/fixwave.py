@@ -670,22 +670,26 @@ MUTS = [
   tests=[('ANetHub:./internal/aghub', 'TestAPeerReceiptForMoreThanTheForwardedAuthorizationIsNotCleared')],
   full=['ANetHub:./internal/aghub'],
  ),
+ # fx4-1 moved with the code: since PAY-7 the replay protection is RC1 (internal/aghub/auth2.go), whose
+ # state is per signer, without a cache or a share of one. Its F4 guard is that state being the signer's
+ # own: the mutation makes every signer share one state.
  dict(
   id='fx4-1', group='F4', repo='ANetHub',
-  desc='relayauth 重放缓存不设每签名方份额',
+  desc='RC1 状态不按签名方分开(所有签名方共用一份)',
   edits=[
-   ('internal/aghub/auth2.go', '\tif held >= c.perSigner {', '\tif false && held >= c.perSigner {'),
+   ('internal/aghub/auth2.go', '\treturn &r.shards[maphash.String(r.seed, aid)%uint64(len(r.shards))]', '\treturn &r.shards[0]'),
+   ('internal/aghub/auth2.go', '\ts := sh.signers[aid]\n\tif s == nil {\n\t\tif ts <= sh.gone {', '\taid = ""\n\ts := sh.signers[aid]\n\tif s == nil {\n\t\tif ts <= sh.gone {'),
   ],
-  tests=[('ANetHub:./internal/aghub', 'TestOneSignerFillsOnlyItsOwnShareOfTheReplayCache|TestOneRegisteredAgentFillingTheReplayCacheStopsOnlyItself|TestThePerSignerBoundCoversTheSendBucket')],
+  tests=[('ANetHub:./internal/aghub', 'TestRC1OneSignerFillingItsStateStopsNobody|TestRC1PropASignerIsJudgedOnItsOwnTimesOnly')],
   full=['ANetHub:./internal/aghub'],
  ),
  dict(
   id='fx4-2', group='F4', repo='ANetHub',
-  desc='准入闸不在验签之前拦下陌生人(陌生人占重放缓存)',
+  desc='准入闸不在验签之前拦下陌生人(陌生人占重放状态)',
   edits=[
    ('internal/aghub/server.go', '\tif !s.store.KnowsAgent(req.AID) {\n\t\tg := s.store.gate()', '\tif false && !s.store.KnowsAgent(req.AID) {\n\t\tg := s.store.gate()'),
   ],
-  tests=[('ANetHub:./internal/aghub', 'TestAStrangerAtAClosedHubLeavesNothingInTheReplayCache')],
+  tests=[('ANetHub:./internal/aghub', 'TestRC1AStrangerAtAClosedHubLeavesNoState')],
   full=['ANetHub:./internal/aghub'],
  ),
  dict(

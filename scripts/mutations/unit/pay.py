@@ -142,7 +142,7 @@ MUTS += [
   tests=GATE, full=[HUB]),
  dict(id='M-PAY-34', group='PAY', repo='ANetHub', desc='invite 成员按一般未知成员处理(回 bad_request)',
   edits=[('internal/aghub/server.go', '\t\tif carriesInvite(body) {\n', '\t\tif false {\n')],
-  tests=[(HUB, '^TestWire3Fixtures$/^register\\.json$')], full=[HUB]),
+  tests=[(HUB, '^TestWire3Fixtures$')], full=[HUB]),
  dict(id='M-PAY-44', group='PAY', repo='ANetHub', desc='墓碑写入不检查延伸(缩短或分叉的 KEL 可覆盖墓碑)',
   edits=[('internal/aghub/deregister.go', '\t\tif xerr := identity.ExtendsKEL(old, next); xerr != nil {\n',
           '\t\tif xerr := identity.ExtendsKEL(old, next); false && xerr != nil {\n')],
@@ -180,4 +180,77 @@ MUTS += [
   edits=[('internal/aghub/server.go', '\tif err := wire3.DecodeStrict(a.Body, &req); err != nil {\n\t\twire3.RefuseDecode(w, err)\n',
           '\tif err := json.Unmarshal(a.Body, &req); err != nil {\n\t\twire3.RefuseDecode(w, err)\n')],
   tests=[(HUB, '^TestNoPriceInTheRegistryOrTheDatabase$')], full=[HUB]),
+]
+
+# M-PAY-27, M-PAY-28 and M-PAY-36 are RC1, the hub's replay protection (PAY-7, repo ANetHub,
+# internal/aghub/auth2.go). P-PAY-4 is internal/aghub/rc1_prop_test.go: a time is accepted at most once
+# per signer and never at or below its floor, sweeps and hub clock steps notwithstanding; a signer's
+# verdicts are the same alone and among any number of others; a MonoClock client is never stuck.
+# J-PAY-11's hub part is TestRC1TenThousandSignersPastTheValveRefuseNobody. TestWire3Fixtures runs
+# whole: a run filtered to one fixture file fails the error-body coverage check on any code (so M-PAY-34
+# above, which named register.json alone, was red without its mutation). The pay7-* rows are the rest
+# of RC1 (the class K, the floor left by a sweep and by a restart, the valve, the ts_stale header) and
+# the federation client's signer (PAY-R9: MonoClock per peer, one signing again after ts_stale, a floor
+# from the future not adopted).
+
+RC1_PROP = [(HUB, '^TestRC1Prop')]
+FED = 'ANetHub:./internal/federation'
+
+MUTS += [
+ dict(id='M-PAY-27', group='PAY', repo='ANetHub', desc='RC1 恢复均分池(每段的 K 按签名方个数均分)',
+  edits=[('internal/aghub/auth2.go', '\tfor len(s.recent) > max(k, 1) {\n', '\tfor len(s.recent) > max(k*4/len(sh.signers), 1) {\n')],
+  tests=[(HUB, '^TestRC1PropASignerIsJudgedOnItsOwnTimesOnly$')], full=[HUB]),
+ dict(id='M-PAY-28', group='PAY', repo='ANetHub', desc='RC1(floor)在验签之前判定',
+  edits=[('internal/aghub/auth2.go',
+          '\tif f := signatureFailure(action, a, pre, kel); f != nil {\n\t\treturn f\n\t}\n\treturn s.rc1Check(a, action, now)\n',
+          '\tif f := s.rc1Check(a, action, now); f != nil {\n\t\treturn f\n\t}\n\treturn signatureFailure(action, a, pre, kel)\n')],
+  tests=[(HUB, '^(TestRC1RefusalsAndTheFloorComeOnlyAfterTheSignature|TestWire3Fixtures)$')], full=[HUB]),
+ dict(id='M-PAY-36', group='PAY', repo='ANetHub', desc='RC1 按最近活跃时刻回收签名方状态',
+  edits=[('internal/aghub/auth2.go', '\t// recent holds the accepted times above floor, ascending.\n\trecent []uint64\n',
+          '\t// recent holds the accepted times above floor, ascending.\n\trecent []uint64\n\tlastActive uint64\n'),
+         ('internal/aghub/auth2.go', '\ts.maxSeen = max(s.maxSeen, ts)\n', '\ts.maxSeen = max(s.maxSeen, ts)\n\ts.lastActive = uint64(now)\n'),
+         ('internal/aghub/auth2.go', '\t\tif top := max(s.floor, s.maxSeen); top < uint64(limit) {',
+          '\t\tif top := max(s.floor, s.lastActive); top < uint64(limit) {')],
+  tests=[(HUB, '^(TestRC1PropAtMostOnceAndNeverAtOrBelowTheFloor|TestRC1DropsASignerOnlyWhenTheWindowCoversItsLargestTime)$')],
+  full=[HUB]),
+ dict(id='pay7-k-probation', group='PAY-7', repo='ANetHub', desc='RC1 的 K 不看见习期(见习账户也是 64)',
+  edits=[('internal/aghub/auth2.go', '\tif _, on := s.store.ProbationUntil(aid); on {\n\t\treturn rc1KNew\n\t}\n', '')],
+  tests=[(HUB, '^TestRC1KFollowsTheSignersClass$')], full=[HUB]),
+ dict(id='pay7-k-newcomer', group='PAY-7', repo='ANetHub', desc='RC1 的 K 把未注册的注册者当 agent(64)',
+  edits=[('internal/aghub/auth2.go', '\tif action == relayauth.ActionRegister && !s.store.KnowsAgent(aid) {',
+          '\tif false && action == relayauth.ActionRegister && !s.store.KnowsAgent(aid) {')],
+  tests=[(HUB, '^TestRC1KFollowsTheSignersClass$')], full=[HUB]),
+ dict(id='pay7-gone', group='PAY-7', repo='ANetHub', desc='回收签名方不留下 floor(hub 时钟回拨后旧时间重新可用)',
+  edits=[('internal/aghub/auth2.go', '\t\t\tsh.gone = max(sh.gone, top)\n', '')],
+  tests=[(HUB, '^(TestRC1DroppedTimesStayRefusedWhenTheClockStepsBack|TestRC1PropAtMostOnceAndNeverAtOrBelowTheFloor)$')],
+  full=[HUB]),
+ dict(id='pay7-start', group='PAY-7', repo='ANetHub', desc='RC1 状态从 0 起(重启后重新打开窗口)',
+  edits=[('internal/aghub/auth2.go', '\t\tr.shards[i].gone = uint64(max(now-1, 0))\n', '\t\tr.shards[i].gone = 0\n')],
+  tests=[(HUB, '^(TestRC1ARestartRefusesTimesSignedBeforeIt|TestWire3Fixtures)$')], full=[HUB]),
+ dict(id='pay7-valve-floor', group='PAY-7', repo='ANetHub', desc='内存阀清空 recent 而不把 floor 抬到 maxSeen(被清空的时间可再次接受)',
+  edits=[('internal/aghub/auth2.go', '\t\t\ts.floor = max(s.floor, s.maxSeen)\n\t\t\ts.recent = nil\n', '\t\t\ts.recent = nil\n')],
+  tests=[(HUB, '^TestRC1PropAtMostOnceAndNeverAtOrBelowTheFloor$')], full=[HUB]),
+ dict(id='pay7-valve', group='PAY-7', repo='ANetHub', desc='内存阀不运行',
+  edits=[('internal/aghub/auth2.go', '\tr.sweepNext(now)\n\tr.relieve(now)\n', '\tr.sweepNext(now)\n')],
+  tests=[(HUB, '^(TestRC1TheValveMakesTheOldestSignersMonotonic|TestRC1TenThousandSignersPastTheValveRefuseNobody)$')],
+  full=[HUB]),
+ dict(id='pay7-floor-header', group='PAY-7', repo='ANetHub', desc='ts_stale 不带 X-ANet-TS-Floor',
+  edits=[('internal/aghub/auth2.go', '\t\t\tw.Header().Set(headerTSFloor, strconv.FormatUint(f.floor, 10))\n', '')],
+  tests=[(HUB, '^(TestRC1RefusalsAndTheFloorComeOnlyAfterTheSignature|TestWire3Fixtures)$')], full=[HUB]),
+ dict(id='pay7-fed-clock', group='PAY-7', repo='ANetHub', desc='联邦客户端的签名时间取当前时刻,不用 MonoClock',
+  edits=[('internal/federation/signer.go', '\tts := uint64(s.clock.Next(peerAID, s.now().UnixMilli()))\n',
+          '\tts := uint64(s.now().UnixMilli())\n')],
+  tests=[(FED, '^TestTheSignerHandsEachPeerIncreasingTimes$')], full=[FED]),
+ dict(id='pay7-fed-raise', group='PAY-7', repo='ANetHub', desc='联邦客户端收到 ts_stale 不抬高重签',
+  edits=[('internal/federation/signer.go', '\tfloor, stale := staleFloor(resp)\n\tif !stale {\n',
+          '\tfloor, stale := staleFloor(resp)\n\tif _ = floor; true || !stale {\n')],
+  tests=[(FED, '^TestTheSignerSignsAgainAboveAStaleFloorOnce$')], full=[FED]),
+ dict(id='pay7-fed-clamp', group='PAY-7', repo='ANetHub', desc='联邦客户端不理会 Raise 的拒绝(采纳来自未来的 floor 并重发)',
+  edits=[('internal/federation/signer.go', '\tif !s.clock.Raise(peerAID, floor, s.now().UnixMilli()) {\n',
+          '\tif s.clock.Raise(peerAID, floor, s.now().UnixMilli()); false {\n')],
+  tests=[(FED, '^TestTheSignerRefusesAFloorFromTheFutureAndKeepsPeersApart$')], full=[FED]),
+ dict(id='pay7-fed-once', group='PAY-7', repo='ANetHub', desc='联邦客户端对一次请求反复抬高重签(不止一次)',
+  edits=[('internal/federation/signer.go', '\treturn s.send(ctx, peerAID, action, r)\n}\n\n// send',
+          '\treturn s.Do(ctx, peerAID, action, r)\n}\n\n// send')],
+  tests=[(FED, '^TestTheSignerSignsAgainAboveAStaleFloorOnce$')], full=[FED]),
 ]
