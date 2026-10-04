@@ -781,6 +781,9 @@ var phraseSets = map[string]map[string]phrasePair{
 		"port":      {"带端口", "has a port"},
 		"local":     {"是本地域名", "is a local name"},
 		"non_ascii": {"含非 ASCII 字符，请写成 xn-- 形式", "has non-ASCII characters, write it in xn-- form"},
+		// LEC EXE-3: any other shape (a URL, one label, a character a host
+		// name cannot have); ux §1.4 G names no phrase for it.
+		"not_host": {"不是完整的主机名", "is not a whole host name"},
 	},
 	// ux §1.4 D1: the payment tier, and its form in .off.
 	"tier": {
@@ -2148,6 +2151,9 @@ var reasonTable = []Row{
 	{Code: "egress_too_large", Class: ClassModel,
 		Zh: "anet: 超过本次运行的大小上限（{n} MiB）。",
 		En: "anet: this is over the run's size limit ({n} MiB)."},
+	{Code: "egress_upstream_unreachable", Class: ClassModel,
+		Zh: "anet: 本节点暂时连不上模型服务；请稍后再试，或根据已有结果作答。",
+		En: "anet: this node cannot reach the model service right now; try again later, or answer with what you have."},
 	{Code: "policy_server_tool", Class: ClassModel,
 		Zh: "anet: 沙箱里不允许模型服务端工具 {type}（它会绕过本节点的网络限制）；请改用本机工具。",
 		En: "anet: the server-side model tool {type} is not allowed in the sandbox (it would bypass this node's network limits); use a local tool instead."},

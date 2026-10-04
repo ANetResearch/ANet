@@ -492,6 +492,12 @@ func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
 			entry["model"] = ar.Model
 			entry["api_base"] = ar.APIBase
 		}
+		// LEC §2.3.3: the CONNECT allowlist, [] when there is none.
+		allow := []string{}
+		if ar.Sandbox != nil {
+			allow = append(allow, ar.Sandbox.EgressAllow...)
+		}
+		entry["sandbox"] = map[string]any{"egress_allow": allow}
 		out["auto_reply"] = entry
 	}
 	// The hub join state (LEC §2.3.3): what the node is waiting for, and
@@ -590,14 +596,21 @@ func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
 		Off bool `json:"off"`
 		AutoReplyConfig
 	}
-	if err := readJSON(r, &req); err != nil {
+	var members map[string]json.RawMessage
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil || json.Unmarshal(raw, &req) != nil || json.Unmarshal(raw, &members) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
 	var cfg *AutoReplyConfig
 	if !req.Off {
-		c := req.AutoReplyConfig
-		cfg = &c
+		// auto_reply.sandbox merges, and its allowlist is checked (LEC §2.3.4, CN-1).
+		c, ref := withSandboxRequest(d.config().AutoReply, req.AutoReplyConfig, members)
+		if ref != nil {
+			writeRefusal(w, http.StatusBadRequest, ref)
+			return
+		}
+		cfg = c
 	}
 	if err := d.SetAutoReply(cfg); err != nil {
 		code := http.StatusBadRequest

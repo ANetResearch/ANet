@@ -11,8 +11,9 @@ package daemon
 //
 //   - the injection route, /anet-upstream/<name>/<path> (LEC §2.6.2): a call to the run's model service,
 //     which the endpoint forwards after the request policy (egress_policy.go) with the operator's key;
-//   - CONNECT (LEC §2.6.3) to a host the operator allowed. With no host allowed, the default, every
-//     CONNECT is refused with egress_host_not_allowed.
+//   - CONNECT (LEC §2.6.3) to a host the operator allowed, on port 443, over TLS that names it
+//     (egress_connect.go). With no host allowed, the default, every CONNECT is refused with
+//     egress_host_not_allowed.
 //
 // Every refusal is a sentence of ux §1.4 I in the model service's own error format (LEC §2.6.4), read by
 // the agent's model, so that the agent can say in its reply what it could not do. The run's limits
@@ -66,6 +67,8 @@ type egressStats struct {
 	connRefused   map[string]int
 	connUp        int64
 	connDown      int64
+	// upSpent, downSpent: the run's tunnels reached their allowance of bytes sent or received (EG-4).
+	upSpent, downSpent bool
 }
 
 // egressSummary is the egress member of anet.autoreply.invoked (LEC §2.5). It names hosts and codes and
@@ -133,6 +136,49 @@ func (s *egressStats) connectRefused(code string) {
 	s.mu.Unlock()
 }
 
+func (s *egressStats) connectAllowed(host string) {
+	s.mu.Lock()
+	if s.connAllowed == nil {
+		s.connAllowed = map[string]int{}
+	}
+	s.connAllowed[host]++
+	s.mu.Unlock()
+}
+
+// tunnelBytes counts n bytes a tunnel carries, sent (up) or received, and reports whether they are within
+// the run's allowance (EG-4). Bytes over it are not counted, and from then on the direction is spent.
+func (s *egressStats) tunnelBytes(up bool, n int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if up {
+		if s.upSpent || s.connUp+int64(n) > egressMaxTunnelUpload {
+			s.upSpent = true
+			return false
+		}
+		s.connUp += int64(n)
+		return true
+	}
+	if s.downSpent || s.connDown+int64(n) > egressMaxTunnelDownload {
+		s.downSpent = true
+		return false
+	}
+	s.connDown += int64(n)
+	return true
+}
+
+// tunnelSpent names the direction whose allowance the run's tunnels used up: "up", "down" or "".
+func (s *egressStats) tunnelSpent() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	switch {
+	case s.upSpent:
+		return "up"
+	case s.downSpent:
+		return "down"
+	}
+	return ""
+}
+
 // summary is a copy of the counts.
 func (s *egressStats) summary() egressSummary {
 	s.mu.Lock()
@@ -190,6 +236,9 @@ type egressEndpoint struct {
 	// daemon's own uid, read with SO_PEERCRED).
 	peerCheck func(net.Conn) error
 	conns     atomic.Int32
+	// net is how CONNECT resolves and dials (egress_connect.go); tunnels are the run's CONNECT tunnels.
+	net     egressConnectNet
+	tunnels egressTunnels
 	// bodySlot lets one request body at a time be read and rewritten. Decoding a JSON body takes many
 	// times its size in memory (an 8 MiB body of empty arrays is several hundred MiB), and the run's
 	// egressMaxConns connections must not multiply that in the daemon.
@@ -207,7 +256,7 @@ type egressEndpoint struct {
 func newEgressEndpoint(up *egressUpstream) *egressEndpoint {
 	ctx, cancel := context.WithCancel(context.Background())
 	e := &egressEndpoint{up: up, lang: a2ashape.Lang(), transport: newEgressTransport(up), ctx: ctx, cancel: cancel,
-		bodySlot: make(chan struct{}, 1)}
+		bodySlot: make(chan struct{}, 1), net: defaultEgressConnectNet()}
 	e.srv = &http.Server{
 		Handler:           e,
 		ReadHeaderTimeout: 30 * time.Second,
@@ -254,14 +303,16 @@ func (e *egressEndpoint) Serve(ln net.Listener) {
 	go func() { _ = e.srv.Serve(&egressListener{Listener: ln, e: e}) }()
 }
 
-// Close ends the run's egress (EG-1): the listener and every connection are closed, every forwarded
-// request is cancelled, and Close returns once the handlers have.
+// Close ends the run's egress (EG-1): the listener and every connection are closed, CONNECT tunnels
+// among them, every forwarded request is cancelled, and Close returns once the handlers have.
 func (e *egressEndpoint) Close() {
 	e.closeOnce.Do(func() {
 		e.gate.Lock()
 		e.closed = true
 		e.gate.Unlock()
 		e.cancel()
+		// A tunnel's connection was hijacked from the server, which no longer tracks it.
+		e.tunnels.closeAll(true)
 		_ = e.srv.Close()
 		e.handlers.Wait()
 		if t, ok := e.transport.(*http.Transport); ok {
@@ -306,7 +357,7 @@ func (l *egressListener) Accept() (net.Conn, error) {
 // refuseConn answers a connection over the limit without reading its request, and closes it.
 func (e *egressEndpoint) refuseConn(c net.Conn) {
 	defer c.Close()
-	body := e.refusalBody("egress_tunnels", nil)
+	body := e.refusalBody(http.StatusTooManyRequests, "egress_tunnels", nil)
 	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	_, _ = fmt.Fprintf(c, "HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", len(body))
 	_, _ = c.Write(body)
@@ -473,28 +524,10 @@ func (e *egressEndpoint) readInjectBody(r *http.Request, kind egressRouteKind) (
 	return rewriteInjectBody(e.up, kind, raw)
 }
 
-// connect answers a CONNECT. No host is allowed yet, which is also the default of the allowlist: every
-// tunnel is refused with egress_host_not_allowed (CN-2).
-func (e *egressEndpoint) connect(w http.ResponseWriter, r *http.Request) {
-	// v030-todo(EXE-3): the CONNECT allowlist (CN-1 to CN-8): exact host names on port 443, checked SNI,
-	// no upstream proxy, special addresses refused, tunnels metered against egressMaxTunnels*.
-	host := r.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	code := "egress_host_not_allowed"
-	e.stats.connectRefused(code)
-	msg := egressSentence(e.lang, code, a2ashape.Args{"host": egressArg(host)})
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Connection", "close")
-	w.WriteHeader(http.StatusForbidden)
-	_, _ = io.WriteString(w, msg+"\n")
-}
-
 // refuse answers a request with a refusal and counts it (BP-7, EG-4).
 func (e *egressEndpoint) refuse(w http.ResponseWriter, ref *egressRefusal) {
 	e.stats.refused(ref.Code)
-	body := e.refusalBody(ref.Code, ref.Args)
+	body := e.refusalBody(ref.Status, ref.Code, ref.Args)
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("Content-Length", strconv.Itoa(len(body)))
@@ -502,24 +535,20 @@ func (e *egressEndpoint) refuse(w http.ResponseWriter, ref *egressRefusal) {
 	_, _ = w.Write(body)
 }
 
-func (e *egressEndpoint) refusalBody(code string, args a2ashape.Args) []byte {
-	return egressRefusalBody(e.up, code, egressSentence(e.lang, code, args))
+func (e *egressEndpoint) refusalBody(status int, code string, args a2ashape.Args) []byte {
+	return egressRefusalBody(e.up, status, code, egressSentence(e.lang, code, args))
 }
 
 // badGateway answers a request the model service could not be asked: it was not reachable, or the run
-// ended. The detail stays in the local log; the agent gets the bare status.
+// ended. The agent reads egress_upstream_unreachable's sentence in the service's error format; the
+// detail stays in the local log.
 func (e *egressEndpoint) badGateway(w http.ResponseWriter, err error) {
 	if !errors.Is(err, context.Canceled) {
 		log.Printf("anet: sandbox egress: %s: %v", e.up.Name, err)
 	}
-	msg := http.StatusText(http.StatusBadGateway)
-	var body []byte
-	if e.up.Name == egressUpstreamAnthropic {
-		body = []byte(`{"type":"error","error":{"type":"api_error","message":"` + msg + `"}}`)
-	} else {
-		body = []byte(`{"error":{"message":"` + msg + `","type":"server_error"}}`)
-	}
+	body := e.refusalBody(http.StatusBadGateway, "egress_upstream_unreachable", nil)
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusBadGateway)
 	_, _ = w.Write(body)
 }

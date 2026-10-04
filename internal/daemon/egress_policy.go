@@ -486,13 +486,24 @@ func chatClientTool(m map[string]any) (string, bool) {
 // --- refusal bodies (LEC §2.6.4) ---
 
 // egressRefusalBody is a refusal in the dialect of the run's upstream, so that the agent's client reads
-// it as the model service's own error: the message is the sentence, which begins "anet: ".
-func egressRefusalBody(up *egressUpstream, code, msg string) []byte {
+// it as the model service's own error: the message is the sentence, which begins "anet: ". The error
+// type is the dialect's for a request it refuses (permission_error, invalid_request_error), or, for a
+// status of 500 and over (the model service could not be reached), its type for a failure on the
+// service's side (api_error, server_error), which a client retries.
+func egressRefusalBody(up *egressUpstream, status int, code, msg string) []byte {
 	var v any
 	if up != nil && up.Name == egressUpstreamAnthropic {
-		v = map[string]any{"type": "error", "error": map[string]any{"type": "permission_error", "message": msg}}
+		typ := "permission_error"
+		if status >= 500 {
+			typ = "api_error"
+		}
+		v = map[string]any{"type": "error", "error": map[string]any{"type": typ, "message": msg}}
 	} else {
-		v = map[string]any{"error": map[string]any{"message": msg, "type": "invalid_request_error", "code": code}}
+		typ := "invalid_request_error"
+		if status >= 500 {
+			typ = "server_error"
+		}
+		v = map[string]any{"error": map[string]any{"message": msg, "type": typ, "code": code}}
 	}
 	b, err := json.Marshal(v)
 	if err != nil {

@@ -204,6 +204,7 @@ func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
 	d.cfg.AutoReply = cfg
 	d.mu.Unlock()
 	d.recordPolicyChange("auto_reply", autoReplySummary(from), autoReplySummary(cfg), nil)
+	recordEgressAllowChange(d, from, cfg)
 	if cfg != nil {
 		d.startAutoReply(*cfg)
 	} else {

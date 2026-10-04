@@ -575,19 +575,34 @@ func TestEgressRefusalsSpeakTheUpstreamDialect(t *testing.T) {
 	}
 }
 
-// A model service that cannot be reached is a bare 502 to the agent; the detail stays in the log.
+// A model service that cannot be reached is 502 egress_upstream_unreachable to the agent, in the
+// service's own format with the error type of a failure on its side (which a client retries); the
+// detail stays in the log.
 func TestEgressUnreachableServiceIs502(t *testing.T) {
 	f := newFakeModelService(t)
-	up := testUpstream(t, egressUpstreamAnthropic, f)
-	f.srv.Close()
 	quietLog(t)
-	ep, c, _ := startTestEgress(t, up)
-	st, body := doJSON(t, c, "POST", routeURL("anthropic", "/v1/messages"), nil, `{"messages":[]}`)
-	if st != 502 || bytes.Contains(body, []byte("anet:")) || bytes.Contains(body, []byte("127.0.0.1")) {
-		t.Errorf("%d %s", st, body)
-	}
-	if s := ep.Summary(); s.ModelRequests != 1 {
-		t.Errorf("summary %+v", s)
+	for _, name := range []string{egressUpstreamAnthropic, egressUpstreamOpenAI, egressUpstreamCustom} {
+		up := testUpstream(t, name, f)
+		up.Base.Host = "127.0.0.1:1" // nothing listens there
+		ep, c, _ := startTestEgress(t, up)
+		p := map[string]string{egressUpstreamAnthropic: "/v1/messages", egressUpstreamOpenAI: "/v1/responses", egressUpstreamCustom: "/chat/completions"}[name]
+		st, body := doJSON(t, c, "POST", routeURL(name, p), nil, `{"messages":[]}`)
+		msg, code, ok := refusalMessage(body)
+		if st != 502 || !ok || msg != a2ashape.Sentence("egress_upstream_unreachable", a2ashape.Lang(), nil) ||
+			bytes.Contains(body, []byte("127.0.0.1")) {
+			t.Errorf("%s: %d %s", name, st, body)
+		}
+		var e struct {
+			Error struct{ Type string } `json:"error"`
+		}
+		_ = json.Unmarshal(body, &e)
+		if want := map[bool]string{true: "api_error", false: "server_error"}[name == egressUpstreamAnthropic]; e.Error.Type != want ||
+			(name != egressUpstreamAnthropic && code != "egress_upstream_unreachable") {
+			t.Errorf("%s: type %q code %q", name, e.Error.Type, code)
+		}
+		if s := ep.Summary(); s.ModelRequests != 1 {
+			t.Errorf("%s: summary %+v", name, s)
+		}
 	}
 }
 

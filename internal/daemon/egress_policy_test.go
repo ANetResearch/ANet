@@ -393,8 +393,8 @@ func TestInjectPolicyGolden(t *testing.T) {
 	all := map[string]pair{}
 	for _, r := range egressRefusalSamples(ant) {
 		all[r.Code] = pair{Status: r.Status,
-			Anthropic: egressRefusalBody(ant, r.Code, a2ashape.Sentence(r.Code, a2ashape.English, r.Args)),
-			OpenAI:    egressRefusalBody(oai, r.Code, a2ashape.Sentence(r.Code, a2ashape.English, r.Args))}
+			Anthropic: egressRefusalBody(ant, r.Status, r.Code, a2ashape.Sentence(r.Code, a2ashape.English, r.Args)),
+			OpenAI:    egressRefusalBody(oai, r.Status, r.Code, a2ashape.Sentence(r.Code, a2ashape.English, r.Args))}
 	}
 	compareGolden(t, filepath.Join("testdata", "inject", "refusals.json"), all)
 	for _, row := range a2ashape.Rows() {
@@ -446,6 +446,7 @@ func egressRefusalSamples(up *egressUpstream) []egressRefusal {
 		{407, "egress_unauthorized", nil},
 		{429, "egress_tunnels", nil},
 		{413, "egress_too_large", a2ashape.Args{"n": egressMaxBody >> 20}},
+		{502, "egress_upstream_unreachable", nil},
 		{403, "policy_server_tool", a2ashape.Args{"type": "web_search_20260209"}},
 		{403, "policy_mcp_servers", nil},
 		{403, "policy_field", a2ashape.Args{"field": "previous_response_id"}},

@@ -1068,6 +1068,7 @@ func runAutoReply(c *client, rest []string) error {
 		"  set --backend exec  --agent <" + agentChoices() + "> [--model M] [--work-dir DIR] [--system-prompt S]\n" +
 		"  set --backend openai --api-base URL --model M [--api-key K] [--system-prompt S] [--require-image] [--usage-hint H]\n" +
 		"  common: [--poll-interval SEC] [--max-history N] [--api-timeout SEC] [--max-auto-replies N]\n" +
+		"  set --egress-allow host[,host…]   # hosts the sandbox may reach on 443 (\"\" clears; adding asks on the terminal)\n" +
 		"  test [\"自定义问题\"]    # 本地跑一次配置好的后端验证（不经过 Hub、不建任何身份）\n" +
 		"  off"
 	sub := ""
@@ -1103,6 +1104,17 @@ func runAutoReply(c *client, rest []string) error {
 		return c.do("/autoreply-test", map[string]any{"prompt": prompt})
 	case "set":
 		_, flags := splitFlags(rest[1:])
+		var sandbox map[string]any
+		if v, ok := flags["egress-allow"]; ok {
+			var err error
+			if sandbox, err = egressAllowRequest(c, v, flags["api-base"]); err != nil {
+				return err
+			}
+			if len(flags) == 1 {
+				// Only the allowlist: the daemon changes that and keeps the rest (LEC §2.3.4).
+				return c.do("/autoreply", map[string]any{"sandbox": sandbox})
+			}
+		}
 		backend := flags["backend"]
 		if backend == "" {
 			switch {
@@ -1146,6 +1158,9 @@ func runAutoReply(c *client, rest []string) error {
 		}
 		if backend == "openai" && body["api_base"] == nil {
 			return fmt.Errorf("autoreply set --backend openai: --api-base is required\n%s", usage)
+		}
+		if sandbox != nil {
+			body["sandbox"] = sandbox
 		}
 		return c.do("/autoreply", body)
 	default:
@@ -1214,12 +1229,12 @@ var knownFlags = map[string][]string{
 	"autoreply": {
 		"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir",
 		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
-		"poll-interval", "max-history", "api-timeout", "max-auto-replies",
+		"poll-interval", "max-history", "api-timeout", "max-auto-replies", "egress-allow",
 	},
 	"auto-reply": {
 		"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir",
 		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
-		"poll-interval", "max-history", "api-timeout", "max-auto-replies",
+		"poll-interval", "max-history", "api-timeout", "max-auto-replies", "egress-allow",
 	},
 	"profile": {"summary", "readme", "pricing"},
 	"console": {"url", "print"},
