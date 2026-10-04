@@ -17,6 +17,7 @@ package interactions
 // to commit together with the interaction and message rows.
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -299,6 +300,13 @@ func (s *Store) UpdatePeerIdentity(aid string, fn func(cur *PeerIdentity) (*Peer
 	}
 	if cur == nil && next.PinnedReason == "" {
 		if err := evictPeers(tx, s.cap()); err != nil {
+			return err
+		}
+	}
+	// A new key set with a higher mailbox epoch voids the capabilities the
+	// peer signed under the older one, in this transaction (SSR-D19).
+	if len(next.KeySet) > 0 && (cur == nil || !bytes.Equal(next.KeySet, cur.KeySet)) {
+		if _, err := invalidateOlderEpoch(tx, aid, epochOfKeySet(next.KeySet), uint64(s.nowMS())); err != nil {
 			return err
 		}
 	}

@@ -64,10 +64,11 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 	// it, or a registration after a restart, carries the current one. The
 	// hub answers an identical set at the same seq as unchanged.
 	keysSeq := uint64(0)
+	var keySet []byte
 	if d.enc != nil {
 		if ks := d.enc.SignedSet(); len(ks) > 0 {
 			body.EncKeys = base64.StdEncoding.EncodeToString(ks)
-			keysSeq = d.enc.Seq()
+			keysSeq, keySet = d.enc.Seq(), ks
 		}
 	}
 	// The card carries the same claims, signed by the node making them.
@@ -97,16 +98,20 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 	// A refused key set does not fail the registration (the hub reports it
 	// per field). The registration still stands, so it is logged and the
 	// set is published again through POST /agents/{aid}/keys, whose
-	// answer is unambiguous.
-	if keysSeq != 0 {
-		if keysAccepted(out.KeysStatus) {
-			d.publishedKeySeq.Store(keysSeq)
-		} else {
-			log.Printf("anet: %s did not take this node's encryption keys at registration (keys_status %q: %s); publishing them separately",
-				hubURL, out.KeysStatus, out.KeysError)
-			if err := d.publishKeys(ctx, hubURL); err != nil {
-				log.Printf("anet: publish encryption keys to %s: %v", hubURL, err)
-			}
+	// answer is unambiguous. Either answer is checked for the mailbox
+	// signing key (SSR-D4, noteKeysAtHub).
+	switch {
+	case keysSeq == 0:
+		// No key set yet (the mailbox key waits for the hub, mbox.go).
+		d.noteKeysAtHub(nil, false)
+	case keysAccepted(out.KeysStatus):
+		d.publishedKeySeq.Store(keysSeq)
+		d.noteKeysAtHub(keySet, true)
+	default:
+		log.Printf("anet: %s did not take this node's encryption keys at registration (keys_status %q: %s); publishing them separately",
+			hubURL, out.KeysStatus, out.KeysError)
+		if err := d.publishKeys(ctx, hubURL); err != nil {
+			log.Printf("anet: publish encryption keys to %s: %v", hubURL, err)
 		}
 	}
 	return reply
@@ -119,23 +124,33 @@ func keysAccepted(status string) bool {
 }
 
 // publishKeys sends the current signed key set to the hub (POST
-// /agents/{aid}/keys). 200 means the hub holds this set; 409 means it holds
-// a set this one does not supersede, which after a lost key ring file is
-// expected until the clock passes the old seq (seal.NextSeq).
+// /agents/{aid}/keys). 200 with keys_status ok or unchanged means the hub
+// holds this set; 409 means it holds a set this one does not supersede,
+// which after a lost key ring file is expected until the clock passes the
+// old seq (seal.NextSeq). Every answer is checked for the mailbox signing
+// key (SSR-D4, noteKeysAtHub).
 func (d *Daemon) publishKeys(ctx context.Context, hubURL string) error {
 	if d.enc == nil {
 		return fmt.Errorf("anet: no key ring")
 	}
 	ks, seq := d.enc.SignedSet(), d.enc.Seq()
 	if len(ks) == 0 {
+		d.noteKeysAtHub(nil, false)
 		return fmt.Errorf("anet: key ring has no signed set")
 	}
 	body := hubapi.KeysPublishRequest{KeySet: base64.StdEncoding.EncodeToString(ks)}
+	var out hubapi.KeysPublishResponse
 	if err := d.hubSigned(ctx, hubURL, http.MethodPost, "/agents/"+url.PathEscape(d.AID())+"/keys",
-		relayauth.ActionKeys, body, nil); err != nil {
+		relayauth.ActionKeys, body, &out); err != nil {
+		d.noteKeysAtHub(ks, false)
 		return err
 	}
+	if !keysAccepted(out.KeysStatus) {
+		d.noteKeysAtHub(ks, false)
+		return fmt.Errorf("anet: %s answered keys_status %q to this node's key set", hubURL, out.KeysStatus)
+	}
 	d.publishedKeySeq.Store(seq)
+	d.noteKeysAtHub(ks, true)
 	return nil
 }
 

@@ -2,7 +2,8 @@ package daemon
 
 // enckeys.go is this node's encryption key ring (A2A-DESIGN §3.1): the
 // X25519 key pairs other nodes seal envelopes to, the signed key set that
-// publishes their public halves, and the policy that rotates them.
+// publishes their public halves with the node's mailbox signing key
+// (mbox.go), and the policy that rotates them.
 //
 // Policy (interim, inside the limits of key set v2; see encKeyRotateEvery):
 //   - a new key pair every day, each valid for two days;
@@ -25,8 +26,6 @@ package daemon
 
 import (
 	"bytes"
-	"crypto/ed25519"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"log"
@@ -66,19 +65,6 @@ func keptAt(k *seal.EncKey, now uint64) bool {
 	return now < k.NotAfter+encKeyKeptAfter
 }
 
-// standInMbox is the mailbox signing key the ring publishes until the node
-// has one: its private half is discarded at once, so no capability can be
-// signed under it and none verifies.
-//
-// v030-todo(FS-4): the key comes from mbox.key through mbox.Current().
-func standInMbox() (seal.Mbox, error) {
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return seal.Mbox{}, err
-	}
-	return seal.Mbox{Epoch: 1, Pub: pub}, nil
-}
-
 // encKeyFile is the persisted form of the ring. It holds private keys.
 type encKeyFile struct {
 	V       uint64         `cbor:"1,keyasint"`
@@ -107,8 +93,14 @@ type encKeyRing struct {
 	lastSeq uint64
 	pairs   []*seal.KeyPair // ascending by NotBefore
 	signed  []byte          // current SignedEncKeySet encoding
-	mbox    seal.Mbox       // the mailbox signing key the set publishes; zero until known
+	mbox    seal.Mbox       // the mailbox signing key the signed set publishes; zero until known
 	now     func() uint64
+	// mboxOf is mboxSource: the node's current mailbox signing key
+	// (mbox.Current(), mbox.go), which every set the ring signs publishes
+	// (SSR-D3). false while the node has none yet; the ring then keeps
+	// publishing the key of its last set, or signs nothing when it never
+	// signed one.
+	mboxOf func() (seal.Mbox, bool)
 }
 
 // openKeyRing loads the ring at path for aid, or starts an empty one when
@@ -207,11 +199,13 @@ func (r *encKeyRing) maintain(sign seal.SignFunc, ksn uint64) (bool, error) {
 	lastSeq, signedNow, mbox := r.lastSeq, r.signed, r.mbox
 	r.mu.RUnlock()
 	changed := false
-	if mbox.Epoch == 0 {
-		var err error
-		if mbox, err = standInMbox(); err != nil {
-			return false, fmt.Errorf("anet: mailbox signing key: %w", err)
+	if r.mboxOf != nil {
+		if m, ok := r.mboxOf(); ok {
+			mbox = m
 		}
+	}
+	if mbox.Epoch == 0 {
+		return false, errMboxPending
 	}
 
 	// Drop private keys past retention.
@@ -367,14 +361,21 @@ func writeFileSync(path string, data []byte, perm os.FileMode) error {
 	return d.Sync()
 }
 
-// setupKeyRing loads the ring, applies the rotation policy and persists a
-// changed ring. Called once from New, before anything can publish.
+// setupKeyRing loads the ring and the mailbox signing key the ring
+// publishes (setupMbox), applies the rotation policy and persists a changed
+// ring. Called once from New, before anything can publish. A node whose
+// mailbox key waits for its hub (mbox.go) starts without a new set; the
+// mailbox loop signs and publishes one once the key exists.
 func (d *Daemon) setupKeyRing() error {
 	r, err := openKeyRing(d.layout.EncKeysPath(), d.AID(), d.nowMS)
 	if err != nil {
 		return err
 	}
-	if _, err := r.maintain(d.self.Sign, d.self.CurrentSeq()); err != nil {
+	if err := d.setupMbox(r.mbox.Epoch); err != nil {
+		return err
+	}
+	r.mboxOf = d.mbox.Current
+	if _, err := r.maintain(d.self.Sign, d.self.CurrentSeq()); err != nil && !errors.Is(err, errMboxPending) {
 		return err
 	}
 	d.enc = r

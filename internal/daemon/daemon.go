@@ -30,6 +30,10 @@ type Daemon struct {
 	// is the seq of the key set the hub last confirmed holding.
 	enc             *encKeyRing
 	publishedKeySeq atomic.Uint64
+	// mbox is this node's mailbox signing key and mboxSt what the daemon
+	// knows about getting it to the hub (mbox.go).
+	mbox   *mboxKey
+	mboxSt mboxState
 	// clock, when set, replaces the wall clock (unix ms) for the sealed
 	// wire. Tests only, through setClock (testhooks.go): the background
 	// loops read it while a test sets it, so it is atomic.
@@ -261,6 +265,7 @@ func New(layout Layout) (*Daemon, error) {
 	d.ledger = led
 	d.purgeReplay()
 	d.goBackground(func() { d.receiveMaintenance(ctx) })
+	d.goBackground(func() { d.mboxLoop(ctx) }) // mbox.go
 	d.loadCardSeq()
 	d.providers = provider.NewRegistry()
 	if err := d.startModules(ctx, cfg); err != nil {
