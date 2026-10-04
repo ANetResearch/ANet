@@ -1,6 +1,7 @@
 # exec.py: local execution and credentials (v0.3.0 LEC §7.3) — mutation list for scripts/mutations/unitmut.py (see its
 # header for the format). EXE-1 adds M-SB-1 to M-SB-3 (the Linux sandbox kernel); EXE-2 adds M-BP-1 to M-BP-7 (the
-# injection route's request policy) and four egress endpoint mutations (m-eg-*); the other EXE packages append theirs.
+# injection route's request policy, with m-bp-3b, m-bp-4b and m-bp-5b) and the egress endpoint's own mutations (m-eg-*,
+# m-up-1); the other EXE packages append theirs.
 #
 # The probe tests (TestSandboxProbe*, TestSandboxIntegrationConfinesTheAgent) need a bubblewrap that can create user
 # namespaces: on a host without one they skip, and the bwrap-free tests listed with them (G-BWRAP, G-SECCOMP, the
@@ -68,7 +69,7 @@ MUTS = [
   id='m-bp-3', group='BP', repo='ANet',
   desc='不钳制 max_tokens 等输出上限',
   edits=[
-   ('internal/daemon/egress_policy.go', 'if n, ok := jsonInteger(obj[k]); ok && n <= egressMaxOutputTokens {',
+   ('internal/daemon/egress_policy.go', 'if n, ok := jsonInteger(obj[k]); ok && n >= 1 && n <= egressMaxOutputTokens {',
     'if n, ok := jsonInteger(obj[k]); ok || n <= egressMaxOutputTokens {'),
   ],
   tests=[('ANet:./internal/daemon', INJECT)],
@@ -155,6 +156,44 @@ MUTS = [
    ('internal/daemon/egress_upstreams.go', '\t\tif !drop[k] {', '\t\tif !drop[k] || true {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestSandboxEgressEnv|TestSandboxCommandKeepsTheAgentOffTheCommandLine|TestSandboxCommandOpensTheEgressEndpoint|' + PROBE)],
+  full=['ANet:./internal/daemon'],
+ ), dict(
+  id='m-bp-3b', group='BP', repo='ANet',
+  desc='零或负的输出上限原样转发(本机 Ollama、llama.cpp 视之为不设上限)',
+  edits=[
+   ('internal/daemon/egress_policy.go', 'ok && n >= 1 && n <= egressMaxOutputTokens', 'ok && n <= egressMaxOutputTokens'),
+   ('internal/daemon/egress_policy.go', '\ts := string(n)\n\tif s == "" || len(s) > 9', '\ts := strings.TrimPrefix(string(n), "-")\n\tif s == "" || len(s) > 9'),
+   ('internal/daemon/egress_policy.go', 'i, err := strconv.ParseInt(s, 10, 64)', 'i, err := strconv.ParseInt(string(n), 10, 64)'),
+  ],
+  tests=[('ANet:./internal/daemon', INJECT)],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-bp-4b', group='BP', repo='ANet',
+  desc='chat 的 tool_choice allowed_tools.tools 不检查工具类型',
+  edits=[
+   ('internal/daemon/egress_policy.go', 'm["allowed_tools"].(map[string]any); isObj {', 'm["allowed_tools"].(map[string]any); isObj && false {'),
+  ],
+  tests=[('ANet:./internal/daemon', INJECT)],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-eg-5', group='EG', repo='ANet',
+  desc='请求体不再逐个读取与改写(32 个连接同时解码 8 MiB 请求体)',
+  edits=[
+   ('internal/daemon/egress.go', '\t\tcase e.bodySlot <- struct{}{}:\n', '\t\tdefault:\n'),
+   ('internal/daemon/egress.go', '\t\t<-e.bodySlot\n', ''),
+  ],
+  tests=[('ANet:./internal/daemon', 'TestEgressReadsOneBodyAtATime')],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-up-1', group='UP', repo='ANet',
+  desc='api_base 主机名末尾的点不归一(openrouter.ai. 绕过 plugins 与 models 的拒绝)',
+  edits=[
+   ('internal/daemon/egress_upstreams.go', 'host := strings.TrimSuffix(strings.ToLower(base.Hostname()), ".")', 'host := strings.ToLower(base.Hostname())'),
+  ],
+  tests=[('ANet:./internal/daemon', 'TestEgressUpstreamSelection')],
   full=['ANet:./internal/daemon'],
  ),
 ]
