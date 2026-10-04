@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 )
 
 // A chain must be readable by the daemon that wrote it.
@@ -25,7 +25,7 @@ import (
 // builds a fresh chain, and a chain is only read back on a restart with
 // history in it.
 func TestChainWithBinaryPayloadReloads(t *testing.T) {
-	self, err := identity.Incept()
+	self, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestChainWithBinaryPayloadReloads(t *testing.T) {
 // re-derive. Refusing to start on an upgrade would be a worse failure than
 // the one this fixes.
 func TestLegacyJSONChainStillLoads(t *testing.T) {
-	self, err := identity.Incept()
+	self, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func trimNewline(s string) string {
 // The operator accumulating the evidence was the one person who could not
 // look at it.
 func TestTheChainCanBeRead(t *testing.T) {
-	self, err := identity.Incept()
+	self, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestTheChainCanBeRead(t *testing.T) {
 // An empty chain is not a broken one, and a node with no ledger at all
 // must answer rather than crash.
 func TestReadingAnEmptyChain(t *testing.T) {
-	self, err := identity.Incept()
+	self, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestReadingAnEmptyChain(t *testing.T) {
 // systemd 下每 5 秒崩溃重启一次, 节点从网络上消失, 只能手工编辑账本才能恢复;
 // 发现方式 RK3588 板子上转换大模型时 OOM killer 落在 append 中途, 实网复现。
 func TestATornTrailingRecordDoesNotKeepTheNodeDown(t *testing.T) {
-	self, err := identity.Incept()
+	self, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +301,7 @@ func TestATornTrailingRecordDoesNotKeepTheNodeDown(t *testing.T) {
 // 中间一行坏掉不可能由崩溃造成 —— 文件是追加式的, 崩溃只能伤到正在写的那条。
 // 所以这种形态仍然拒绝启动, 宽容到这里就是纵容篡改。
 func TestCorruptionInTheMiddleStillRefusesToLoad(t *testing.T) {
-	self, err := identity.Incept()
+	self, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}

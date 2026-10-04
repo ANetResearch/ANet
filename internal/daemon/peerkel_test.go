@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -60,11 +61,11 @@ func TestAcceptedPeerKELIsRecorded(t *testing.T) {
 // one's.
 func TestPinPeerKELChecksTheDerivedAID(t *testing.T) {
 	d := newTestDaemon(t, "", true)
-	other, err := identity.Incept()
+	other, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
-	third, err := identity.Incept()
+	third, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestPinPeerKELChecksTheDerivedAID(t *testing.T) {
 // different history is refused.
 func TestPeerKELIsExtendedNeverRolledBack(t *testing.T) {
 	d := newTestDaemon(t, "", true)
-	peer, err := identity.Incept()
+	peer, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +93,7 @@ func TestPeerKELIsExtendedNeverRolledBack(t *testing.T) {
 	if _, err := d.pinPeerKEL(peer.AID(), short, interactions.PinOutbound); err != nil {
 		t.Fatal(err)
 	}
-	if err := peer.Rotate(uint64(d.nowMS())); err != nil {
+	if err := identitytest.Rotate(peer, uint64(d.nowMS())); err != nil {
 		t.Fatal(err)
 	}
 	long := peer.KEL()
@@ -117,7 +118,7 @@ func TestPeerKELIsExtendedNeverRolledBack(t *testing.T) {
 // does the key set that goes with it.
 func TestAKeySetUnderAForkedKELIsNotRecorded(t *testing.T) {
 	d := newTestDaemon(t, "", true)
-	peer, err := identity.Incept()
+	peer, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,10 +131,10 @@ func TestAKeySetUnderAForkedKELIsNotRecorded(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := d.nowMS()
-	if err := peer.Rotate(now - 1000); err != nil {
+	if err := identitytest.Rotate(peer, now-1000); err != nil {
 		t.Fatal(err)
 	}
-	if err := fork.Rotate(now - 2000); err != nil {
+	if err := identitytest.Rotate(fork, now-2000); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.pinPeerKEL(peer.AID(), peer.KEL(), ""); err != nil {

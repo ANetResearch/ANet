@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/module/org"
 )
@@ -71,10 +72,10 @@ func TestGenesisValidate(t *testing.T) {
 
 // Founder→admin→member is the happy chain; each tier verifies.
 func TestChainHappyPath(t *testing.T) {
-	f1, _ := identity.Incept()
-	f2, _ := identity.Incept()
-	admin, _ := identity.Incept()
-	member, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	f2, _ := identitytest.Hub()
+	admin, _ := identitytest.Hub()
+	member, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID(), f2.AID()}, M: 2, Nonce: "org"}
 	orgID, _ := g.OrgID()
 	res := resolver(f1, f2, admin, member)
@@ -104,9 +105,9 @@ func TestChainHappyPath(t *testing.T) {
 
 // A non-founder cannot mint an admin credential.
 func TestNonFounderAdminRejected(t *testing.T) {
-	f1, _ := identity.Incept()
-	notFounder, _ := identity.Incept()
-	target, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	notFounder, _ := identitytest.Hub()
+	target, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 	orgID, _ := g.OrgID()
 	bad := mkCred(t, notFounder, orgID, target.AID(), org.RoleAdmin)
@@ -118,9 +119,9 @@ func TestNonFounderAdminRejected(t *testing.T) {
 
 // A member credential issued by a stranger (neither founder nor admin) is rejected.
 func TestStrangerMemberRejected(t *testing.T) {
-	f1, _ := identity.Incept()
-	stranger, _ := identity.Incept()
-	member, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	stranger, _ := identitytest.Hub()
+	member, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 	orgID, _ := g.OrgID()
 	cred := mkCred(t, stranger, orgID, member.AID(), org.RoleMember)
@@ -134,9 +135,9 @@ func TestStrangerMemberRejected(t *testing.T) {
 // A member whose issuing "admin" was never actually granted admin (forged lookup) is rejected
 // because the admin credential itself fails verification (not founder-issued).
 func TestForgedAdminChainRejected(t *testing.T) {
-	f1, _ := identity.Incept()
-	fakeAdmin, _ := identity.Incept()
-	member, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	fakeAdmin, _ := identitytest.Hub()
+	member, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 	orgID, _ := g.OrgID()
 	// fakeAdmin self-issues its own "admin" credential (not founder-issued).
@@ -155,8 +156,8 @@ func TestForgedAdminChainRejected(t *testing.T) {
 }
 
 func TestWrongOrg(t *testing.T) {
-	f1, _ := identity.Incept()
-	m, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	m, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 	cred := mkCred(t, f1, "bafy-some-other-org", m.AID(), org.RoleMember)
 	if err := org.VerifyMembership(cred, g, tNow, resolver(f1, m), nil, nil); !errors.Is(err, org.ErrWrongOrg) {
@@ -165,8 +166,8 @@ func TestWrongOrg(t *testing.T) {
 }
 
 func TestExpiredAndRevoked(t *testing.T) {
-	f1, _ := identity.Incept()
-	m, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	m, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 	orgID, _ := g.OrgID()
 	cred := mkCred(t, f1, orgID, m.AID(), org.RoleMember)
@@ -188,9 +189,9 @@ func TestExpiredAndRevoked(t *testing.T) {
 // Mutating ANY signed field after signing must cause verify to reject (proves the signature
 // covers the whole preimage, not just Role).
 func TestTamperRejectsEverySignedField(t *testing.T) {
-	f1, _ := identity.Incept()
-	m, _ := identity.Incept()
-	other, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	m, _ := identitytest.Hub()
+	other, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 	orgID, _ := g.OrgID()
 	res := resolver(f1, m, other)
@@ -218,9 +219,9 @@ func TestTamperRejectsEverySignedField(t *testing.T) {
 
 // An admin cannot mint another admin (single-CA model: admins are founder-issued only).
 func TestAdminIssuesAdminRejected(t *testing.T) {
-	f1, _ := identity.Incept()
-	admin, _ := identity.Incept()
-	target, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	admin, _ := identitytest.Hub()
+	target, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 	orgID, _ := g.OrgID()
 	// admin tries to issue an admin credential.
@@ -234,9 +235,9 @@ func TestAdminIssuesAdminRejected(t *testing.T) {
 // authority tracks the CURRENT governance root: SetCurrentRoot revokes a removed founder's authority and
 // grants an added founder's — the governance-turnover semantic the epoch chain drives.
 func TestEpochInformationalAndDynamicRoot(t *testing.T) {
-	f1, _ := identity.Incept()
-	fx, _ := identity.Incept() // a founder ADDED by a later epoch
-	m, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	fx, _ := identitytest.Hub() // a founder ADDED by a later epoch
+	m, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 	orgID, _ := g.OrgID()
 	res := resolver(f1, fx, m)
@@ -269,8 +270,8 @@ func TestEpochInformationalAndDynamicRoot(t *testing.T) {
 
 // Unbounded / inverted validity windows are rejected (mandatory bounded expiry).
 func TestBadWindowRejected(t *testing.T) {
-	f1, _ := identity.Incept()
-	m, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	m, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 	orgID, _ := g.OrgID()
 	res := resolver(f1, m)
@@ -290,8 +291,8 @@ func TestBadWindowRejected(t *testing.T) {
 
 // The Issue helper mints valid credentials and rejects bad inputs.
 func TestIssueHelper(t *testing.T) {
-	f1, _ := identity.Incept()
-	m, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	m, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 
 	cred, err := g.Issue(f1, m.AID(), org.RoleMember, t0, tEnd)
@@ -312,9 +313,9 @@ func TestIssueHelper(t *testing.T) {
 // A Verifier constructed once validates the genesis and verifies many creds; an invalid genesis
 // is refused at construction.
 func TestVerifierReuseAndGenesisGate(t *testing.T) {
-	f1, _ := identity.Incept()
-	a, _ := identity.Incept()
-	b, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	a, _ := identitytest.Hub()
+	b, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID()}, M: 1, Nonce: "org"}
 	v, err := org.NewVerifier(g, resolver(f1, a, b), nil, nil)
 	if err != nil {
@@ -339,10 +340,10 @@ func TestVerifierReuseAndGenesisGate(t *testing.T) {
 // issue an admin credential. The M-of-N threshold governs the separate epoch'd governance chain
 // (GovernanceCert, see govepoch_test.go), not routine credential issuance.
 func TestAdminIssuanceSingleSigUnderHighM(t *testing.T) {
-	f1, _ := identity.Incept()
-	f2, _ := identity.Incept()
-	f3, _ := identity.Incept()
-	admin, _ := identity.Incept()
+	f1, _ := identitytest.Hub()
+	f2, _ := identitytest.Hub()
+	f3, _ := identitytest.Hub()
+	admin, _ := identitytest.Hub()
 	g := &org.Genesis{GovernanceRoot: []string{f1.AID(), f2.AID(), f3.AID()}, M: 2, Nonce: "gov"}
 	orgID, _ := g.OrgID()
 	res := resolver(f1, f2, f3, admin)
@@ -353,7 +354,7 @@ func TestAdminIssuanceSingleSigUnderHighM(t *testing.T) {
 		t.Fatalf("single founder must be able to issue an admin cred under M=2: %v", err)
 	}
 	// a NON-founder still cannot mint an admin credential (the founder check is unchanged).
-	notFounder, _ := identity.Incept()
+	notFounder, _ := identitytest.Hub()
 	res2 := resolver(f1, f2, f3, admin, notFounder)
 	bad := mkCred(t, notFounder, orgID, admin.AID(), org.RoleAdmin)
 	if err := org.VerifyMembership(bad, g, tNow, res2, nil, nil); err == nil {

@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/a2acard"
-	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 )
 
 func proxyCardJSON(ifaceURL, binding string, exts ...string) []byte {
@@ -29,7 +29,7 @@ func proxyCardJSON(ifaceURL, binding string, exts ...string) []byte {
 // node's current key without a jku, and nothing a hub would take for this
 // node's network card (A2A-DESIGN §11.3).
 func TestSignProxyCard(t *testing.T) {
-	c, err := identity.Incept()
+	c, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestSignProxyCard(t *testing.T) {
 	if err := json.Unmarshal(signed, &out); err != nil || len(out.Signatures) != 1 {
 		t.Fatalf("signed card: %s %v", signed, err)
 	}
-	pub := c.CurrentPrivateKey().Public().(ed25519.PublicKey)
+	pub := ed25519.PublicKey(c.KEL()[len(c.KEL())-1].Event.Keys[0])
 	hdr, err := a2acard.VerifySignature(signed, out.Signatures[0], pub)
 	if err != nil || hdr.Kid != a2acard.KID(c.AID(), c.CurrentSeq()) || hdr.Jku != "" {
 		t.Fatalf("header %+v %v", hdr, err)

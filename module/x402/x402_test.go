@@ -27,6 +27,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/tsir"
 
@@ -76,11 +77,11 @@ type hostEvent struct {
 
 func newHost(t *testing.T) *testHost {
 	t.Helper()
-	self, err := identity.Incept()
+	self, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
-	hub, err := identity.Incept()
+	hub, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +378,7 @@ func signVoucher(t *testing.T, h *testHost, payTo, capID, payer, nonce string) s
 // forgeVoucher mints a perfectly valid voucher signed by a stranger.
 func forgeVoucher(t *testing.T, payTo, capID, payer, nonce string) string {
 	t.Helper()
-	impostor, err := identity.Incept()
+	impostor, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}

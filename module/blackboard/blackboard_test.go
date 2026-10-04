@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/module/blackboard"
 )
@@ -38,7 +39,7 @@ func hlc(w int64, l uint16, n string) blackboard.HLC {
 // rejected), transitions are ordered (Active→Concluded→Archived), no-TaskID units are always addable,
 // and UnitsForTask scopes to a task.
 func TestPhaseMachine(t *testing.T) {
-	a, _ := identity.Incept()
+	a, _ := identitytest.Hub()
 	res := kelOf(a)
 	bb := blackboard.New("node-a")
 
@@ -84,7 +85,7 @@ func TestPhaseMachine(t *testing.T) {
 
 // Units are returned in causal (HLC) order regardless of add order.
 func TestAddSnapshotOrdered(t *testing.T) {
-	a, _ := identity.Incept()
+	a, _ := identitytest.Hub()
 	res := kelOf(a)
 	bb := blackboard.New("node-a")
 	u1 := mkUnit(t, a, "claim", hlc(1000, 0, "a"), []byte("first"))
@@ -103,8 +104,8 @@ func TestAddSnapshotOrdered(t *testing.T) {
 
 // Two blackboards that merge the SAME units in DIFFERENT orders converge to the same view.
 func TestConvergence(t *testing.T) {
-	a, _ := identity.Incept()
-	b, _ := identity.Incept()
+	a, _ := identitytest.Hub()
+	b, _ := identitytest.Hub()
 	res := kelOf(a, b)
 	u1 := mkUnit(t, a, "claim", hlc(1000, 0, "a"), []byte("a1"))
 	u2 := mkUnit(t, b, "evidence", hlc(1000, 1, "b"), []byte("b1"))
@@ -135,7 +136,7 @@ func TestConvergence(t *testing.T) {
 // Two DISTINCT units with the SAME full HLC stamp sort deterministically (CID tie-break) on
 // replicas that ingested them in different orders.
 func TestEqualStampDeterministic(t *testing.T) {
-	a, _ := identity.Incept()
+	a, _ := identitytest.Hub()
 	res := kelOf(a)
 	st := hlc(1000, 0, "a")
 	u1 := mkUnit(t, a, "claim", st, []byte("alpha"))
@@ -160,7 +161,7 @@ func TestEqualStampDeterministic(t *testing.T) {
 
 // A pulled snapshot unit re-verifies on the other side (the envelope survives Marshal/Unmarshal).
 func TestSnapshotMarshalRoundTrip(t *testing.T) {
-	a, _ := identity.Incept()
+	a, _ := identitytest.Hub()
 	res := kelOf(a)
 	bb := blackboard.New("n")
 	u := mkUnit(t, a, "claim", hlc(1000, 0, "a"), []byte("payload"))
@@ -188,8 +189,8 @@ func TestSnapshotMarshalRoundTrip(t *testing.T) {
 }
 
 func TestVerifyRejects(t *testing.T) {
-	a, _ := identity.Incept()
-	other, _ := identity.Incept()
+	a, _ := identitytest.Hub()
+	other, _ := identitytest.Hub()
 	bb := blackboard.New("n")
 	res := kelOf(a, other)
 
@@ -212,7 +213,7 @@ func TestVerifyRejects(t *testing.T) {
 		t.Fatalf("unsigned: want ErrUnitUnsigned, got %v", err)
 	}
 	// unknown author (resolver doesn't know it).
-	stranger, _ := identity.Incept()
+	stranger, _ := identitytest.Hub()
 	us := mkUnit(t, stranger, "claim", hlc(1, 0, "s"), []byte("y"))
 	if _, err := bb.Add(us, res, msgTime); !errors.Is(err, blackboard.ErrUnitUnknownAuthor) {
 		t.Fatalf("unknown author: want ErrUnitUnknownAuthor, got %v", err)
@@ -236,7 +237,7 @@ func TestVerifyRejects(t *testing.T) {
 }
 
 func TestIdempotentReAdd(t *testing.T) {
-	a, _ := identity.Incept()
+	a, _ := identitytest.Hub()
 	res := kelOf(a)
 	bb := blackboard.New("n")
 	u := mkUnit(t, a, "claim", hlc(1000, 0, "a"), []byte("x"))
@@ -257,7 +258,7 @@ func TestIdempotentReAdd(t *testing.T) {
 
 // Concurrent adds of distinct units: correct count + Len, race-free.
 func TestConcurrentAdd(t *testing.T) {
-	a, _ := identity.Incept()
+	a, _ := identitytest.Hub()
 	res := kelOf(a)
 	bb := blackboard.New("n")
 	const n = 30
@@ -288,7 +289,7 @@ func TestConcurrentAdd(t *testing.T) {
 
 // B5: BodyCID is in the signed preimage, so two units differing only in BodyCID have different IDs.
 func TestBodyCIDSigned(t *testing.T) {
-	a, _ := identity.Incept()
+	a, _ := identitytest.Hub()
 	res := kelOf(a)
 	u1 := &blackboard.CogUnit{Type: "claim", Stamp: hlc(1000, 0, "a"), BodyCID: "bafyAAA"}
 	u2 := &blackboard.CogUnit{Type: "claim", Stamp: hlc(1000, 0, "a"), BodyCID: "bafyBBB"}

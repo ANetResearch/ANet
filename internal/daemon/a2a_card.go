@@ -178,7 +178,13 @@ func (d *Daemon) networkCardLocked(hubURL, name string, fresh bool) (json.RawMes
 	if err != nil {
 		return nil, 0, err
 	}
-	kid := a2acard.KID(d.AID(), d.self.CurrentSeq())
+	// One key state for the whole card: the kid that names it and the key that signs (KEL C-23).
+	signer := d.self.Snapshot()
+	seq, err := identity.SeqOf(signer)
+	if err != nil {
+		return nil, 0, err
+	}
+	kid := a2acard.KID(signer.AID(), seq)
 	jku := netcard.JKU(hubURL, d.AID())
 
 	template, err := netcard.Build(in) // seq and times zero
@@ -215,7 +221,7 @@ func (d *Daemon) networkCardLocked(hubURL, name string, fresh bool) (json.RawMes
 	if err != nil {
 		return nil, 0, err
 	}
-	signed, err := a2acard.SignWithController(unsigned, d.self, jku)
+	signed, err := a2acard.SignWithSnapshot(unsigned, signer, jku)
 	if err != nil {
 		return nil, 0, fmt.Errorf("anet: sign network card: %w", err)
 	}

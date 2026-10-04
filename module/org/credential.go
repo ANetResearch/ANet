@@ -76,14 +76,15 @@ func (c *Credential) CID() (string, error) {
 	return anetcid.Sum(pre)
 }
 
-// Sign attaches the issuer's detached signature (sign-binds-CID). The issuer is ctrl.
-func (c *Credential) Sign(ctrl *identity.Controller) error {
+// Sign attaches the issuer's detached signature (sign-binds-CID). The issuer is signer, which
+// signs and does nothing else: a module never holds an identity's controller or its key (KEL O-1).
+func (c *Credential) Sign(signer identity.Signer) error {
 	pre, err := c.CanonicalPreimage()
 	if err != nil {
 		return err
 	}
-	sig, seq := ctrl.Sign(pre)
-	c.Envelope = &aobj.Envelope{SignerAID: ctrl.AID(), KeyStateSeq: seq, Alg: aobj.AlgEdDSA, Sig: sig}
+	sig, seq := signer.Sign(pre)
+	c.Envelope = &aobj.Envelope{SignerAID: signer.AID(), KeyStateSeq: seq, Alg: aobj.AlgEdDSA, Sig: sig}
 	return nil
 }
 
@@ -263,7 +264,7 @@ func VerifyMembership(cred *Credential, g *Genesis, now int64, resolve KELResolv
 // Issue mints and signs a credential granting subject the given role in g, valid [issuedAt,
 // notAfter]. It validates role + bounded window + non-empty subject and fills org_id from g,
 // so callers cannot mis-set it. issuer is the founder (for admin) or founder/admin (for member).
-func (g *Genesis) Issue(issuer *identity.Controller, subject, role string, issuedAt, notAfter int64) (*Credential, error) {
+func (g *Genesis) Issue(issuer identity.Signer, subject, role string, issuedAt, notAfter int64) (*Credential, error) {
 	if !validRole(role) {
 		return nil, ErrBadRole
 	}

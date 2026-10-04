@@ -10,6 +10,7 @@ import (
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 )
@@ -73,7 +74,7 @@ func senderOf(d *Daemon) sender {
 // node looks like to a daemon that has never heard of it.
 func newStranger(t testing.TB) sender {
 	t.Helper()
-	c, err := identity.Incept()
+	c, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,11 +116,10 @@ func testMbox(t testing.TB) seal.Mbox {
 }
 
 // retiredSigner signs with a key that is about to be rotated away: capture
-// it before Rotate, and it keeps signing under key state seq.
+// it before Rotate, and it keeps signing under its key state seq. It is a
+// snapshot of the controller, which a rotation does not change.
 func retiredSigner(c *identity.Controller) seal.SignFunc {
-	priv := append(ed25519.PrivateKey(nil), c.CurrentPrivateKey()...)
-	seq := c.CurrentSeq()
-	return func(p []byte) ([]byte, uint64) { return ed25519.Sign(priv, p), seq }
+	return c.Snapshot().Sign
 }
 
 // craft seals a message from s to d with every field set the way the send
