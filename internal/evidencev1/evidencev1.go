@@ -247,9 +247,6 @@ func VerifyResultForRequest(r *delegation.ResultResp, kel []identity.SignedEvent
 	if err != nil {
 		return nil, fmt.Errorf("delegation: undecodable receipt: %w", err)
 	}
-	if err := checkBodyKEL(r.KEL, kel); err != nil {
-		return nil, err
-	}
 	return bindReceipt(rc, r.Deliverable, kel, interactionID, requesterAID, providerAID, requestCID, msgTime)
 }
 
@@ -286,20 +283,4 @@ func bindReceipt(rc *Receipt, deliverable []byte, kel []identity.SignedEvent, in
 			rc.ResultCID, cid)
 	}
 	return rc, nil
-}
-
-// checkBodyKEL: a KEL carried in the completion body is accepted only when absent, equal to the
-// resolved KEL or a prefix of it (the rule of ANetCore delegation).
-func checkBodyKEL(body []byte, resolved []identity.SignedEvent) error {
-	if len(body) == 0 {
-		return nil
-	}
-	bodyKEL, err := identity.UnmarshalKEL(body)
-	if err != nil {
-		return fmt.Errorf("delegation: bad body KEL: %w", err)
-	}
-	if err := identity.ExtendsKEL(bodyKEL, resolved); err != nil {
-		return fmt.Errorf("%w: %w", delegation.ErrBodyKELMismatch, err)
-	}
-	return nil
 }

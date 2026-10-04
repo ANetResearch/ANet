@@ -622,13 +622,9 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 	if err != nil {
 		return err
 	}
-	selfKEL, err := identity.MarshalKEL(d.self.KEL())
-	if err != nil {
-		return fmt.Errorf("anet: marshal KEL: %w", err)
-	}
 	meta, _ := json.Marshal(map[string]any{"anet.state": string(interactions.StateCompleted)})
 	payload, err := (&delegation.ResultResp{Status: delegation.StatusDone, Deliverable: tr,
-		Receipt: receiptBytes, KEL: selfKEL, Metadata: meta}).Marshal()
+		Receipt: receiptBytes, Metadata: meta}).Marshal()
 	if err != nil {
 		return err
 	}
@@ -1562,11 +1558,6 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 			d.providerCancel(fctx, m.ix)
 		}
 		return res
-	case delegation.ChatEndAccept:
-		// Wire 1's second step of the end negotiation. The provider now
-		// completes on its own; the message is dropped (A2A-DESIGN §3.4).
-		d.count(dropEndAccept)
-		return d.commitRx(m, nil)
 	default:
 		// stream_preview is ephemeral and not stored.
 		d.count("message-kind-ignored")
@@ -1894,10 +1885,6 @@ func (d *Daemon) resendResult(m *rxMsg, ix *interactions.Interaction) {
 			return
 		}
 	}
-	selfKEL, err := identity.MarshalKEL(d.self.KEL())
-	if err != nil {
-		return
-	}
 	// The metadata the answer first went out with: anet.reason and
 	// anet.retry_after_ms are in no other place. A row from before it was
 	// kept has only the state and, for a capability, the effect status to
@@ -1922,7 +1909,7 @@ func (d *Daemon) resendResult(m *rxMsg, ix *interactions.Interaction) {
 	}
 	payload, err := (&delegation.ResultResp{
 		Status: status, Deliverable: ix.Result,
-		Receipt: ix.Receipt, KEL: selfKEL, Metadata: mb,
+		Receipt: ix.Receipt, Metadata: mb,
 	}).Marshal()
 	if err != nil {
 		return

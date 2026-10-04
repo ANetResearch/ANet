@@ -16,7 +16,6 @@ import (
 	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
@@ -581,13 +580,9 @@ func TestAResultForDifferentContentIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kel, err := identity.MarshalKEL(prov.self.KEL())
-	if err != nil {
-		t.Fatal(err)
-	}
 	payload, err := (&delegation.ResultResp{
 		Status: delegation.StatusDone, Deliverable: []byte(`{"status":"OK"}`),
-		Receipt: receipt, KEL: kel,
+		Receipt: receipt,
 	}).Marshal()
 	if err != nil {
 		t.Fatal(err)
