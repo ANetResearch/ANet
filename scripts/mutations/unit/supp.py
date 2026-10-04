@@ -439,20 +439,14 @@ MUTS = [
   tests=[('ANet:./internal/daemon', 'TestTheApprovalQueue|TestApprovalVerifiesTheDelegationAgain|TestApprovalAppliesTheRotationGraceNow|TestAnApprovedTaskIsAnsweredWithTheKeysItWasHeldWith')],
   full=['ANet:./internal/daemon'],
  ),
- dict(
-  id='c32-1', group='C32', repo='ANetHub',
-  desc='hKeysGet: 不做 /fed/v2/keys 联邦查询',
-  edits=[
-   ('internal/aghub/keys.go', '\tif s.fedKeys != nil {\n\t\t// The federated lookup', '\tif false && s.fedKeys != nil {\n\t\t// The federated lookup'),
-  ],
-  tests=[('ANetHub:./internal/aghub', 'TestAHubLocalAgentOnAPeerCanBeReachedEncrypted|TestKeysLookupSources')],
-  full=['ANetHub:./internal/aghub'],
- ),
+ # c32-1 (hKeysGet stopped asking the peers over /fed/v2/keys) is retired with that lookup: sealed-sender
+ # §2.7 removed it (SS-5), and GET /agents/{aid}/keys now answers for this hub's own agents only
+ # (TestAHubServesKeysOnlyForItsOwnAgents, TestAHubLocalAgentOnAPeerCanBeReachedEncrypted). A sender reads
+ # a peer's agent from a directory bucket (mutations ss-m20-hub-*, ss-m31, ss5-* in sealed_sender.py).
  # c32-2 (the -test-no-fed-key-lookup switch stopped working) is retired with the switch: sealed-sender
  # SSR-H20 removed it, and anet-hub now refuses it with hub_flag_removed.fixed (TestRemovedRelayFlagsRefuse,
- # mutation ss3-flag-fixed in sealed_sender.py). That the hub still wires the federated key lookup is
- # TestTheHubWiresTheFederatedKeyLookup (mutation ss3-fed-lookup-wired); scenario.sh's C32 is rewritten
- # for directory buckets (SS-14).
+ # mutation ss3-flag-fixed in sealed_sender.py). The federated key lookup itself is gone since (c32-1
+ # above); scenario.sh's C32 is rewritten for directory buckets (SS-14).
  dict(
   id='m-p2p-1', group='m(p2p 旧帧)', repo='ANet',
   desc='anetpeer: 无 V 的旧帧也交给 daemon',
