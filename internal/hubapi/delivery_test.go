@@ -65,6 +65,29 @@ func TestTheDeliveryTokenBodiesAreTheRegistrys(t *testing.T) {
 	}
 }
 
+// The revocation bodies have exactly the members the registry gives POST
+// /mailbox/revoke, and the batch bound is the hub's (sealed-sender §2.12,
+// ANetHub MaxRevokeBatch).
+func TestTheRevocationBodiesAreTheRegistrys(t *testing.T) {
+	r, err := wire.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ep := r.Endpoint("POST", hubapi.MailboxRevokePath)
+	if ep == nil {
+		t.Fatalf("POST %s is not a registered endpoint", hubapi.MailboxRevokePath)
+	}
+	for _, d := range scan.JSONFields(reflect.TypeFor[hubapi.MailboxRevokeRequest](), ep.Request) {
+		t.Errorf("request: %s", d)
+	}
+	for _, d := range scan.JSONFields(reflect.TypeFor[hubapi.MailboxRevokeResponse](), ep.Response) {
+		t.Errorf("response: %s", d)
+	}
+	if hubapi.MailboxRevokeMaxIDs != 1000 {
+		t.Errorf("batch bound %d, want 1000", hubapi.MailboxRevokeMaxIDs)
+	}
+}
+
 // deliverySample is one body of testdata/delivery.json.
 type deliverySample struct {
 	Name string          `json:"name"`
