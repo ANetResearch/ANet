@@ -603,7 +603,7 @@ MUTS += [
   tests=K8(['TestTheNoticeHeldOnlyMovesForward']), full=K8_FULL),
  dict(id='kel8-d50d', group='KEL-8', repo='ANet', desc='D-50:载入 key_state_notice.cbor 不核对规范编码',
   edits=[(IDNOTICE, '\tif re, err := coredet.Marshal(f); err != nil || !bytes.Equal(re, b) {\n',
-          '\tif re, err := coredet.Marshal(f); err != nil || re == nil {\n')],
+          '\tif re, err := coredet.Marshal(f); err != nil || false && !bytes.Equal(re, b) {\n')],
   tests=K8(['TestKeyStateNoticeFileIsReadStrictly', 'FuzzKeyStateNoticeFile']), full=K8_FULL),
  dict(id='kel8-d50e', group='KEL-8', repo='ANet', desc='D-50:更新的通告不落盘',
   edits=[(IDNOTICE, '\tif d.idGate.noteNotice(n, "") {\n\t\t\td.saveKeyStateNotice()\n\t\t}\n', '\t\td.idGate.noteNotice(n, "")\n')],
