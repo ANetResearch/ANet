@@ -120,8 +120,11 @@ MUTS = [
  dict(id='hub-s8-2', group='CORE-S8', repo='ANetHub', desc='绑定 Attachment 的结构体使用未登记的键 7',
   edits=[('internal/aghub/zz_mut_bound.go', None, BOUND % (7, 7))],
   tests=HUB_T, full=['ANetHub:./internal/aghub']),
- dict(id='hub-s8-3', group='CORE-S8', repo='ANetHub', desc='发放事件类型改一个字符',
-  edits=[('internal/aghub/issuance.go', '\tEvCreditOpening = "anet.credit.opening"', '\tEvCreditOpening = "anet.credit.openinh"')],
+ # hub-s8-3: the hub's per-event issuance types went with the issuance chain (PAY-3); the hub now names
+ # no label of its own, so the mutant writes one, the supply epoch's event type one character off.
+ dict(id='hub-s8-3', group='CORE-S8', repo='ANetHub', desc='供应纪元事件类型改一个字符',
+  edits=[('internal/aghub/zz_mut_label.go', None,
+          'package aghub\n\n// zzMutLabel is the supply epoch event type with one character changed.\nconst zzMutLabel = "anet.supply.epocj"\n')],
   tests=HUB_T, full=['ANetHub:./internal/aghub']),
  dict(id='hub-s8-4', group='CORE-S8', repo='ANetHub', desc='新结构体复用 ResultResp 的退役键 4',
   edits=[('internal/aghub/zz_mut_retired.go', None, RETIRED % 'aghub')],

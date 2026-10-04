@@ -662,8 +662,11 @@ MUTS += [
  dict(id='ss4-stranger-rows', group='SS-4', repo='ANetHub', desc='单张 stranger 能力可有 201 行未投递',
   edits=[('internal/aghub/relay.go', '\t\t\tif n+1 > MaxStrangerCapRows {', '\t\t\tif n > MaxStrangerCapRows {')],
   tests=SEND_T('10'), full=[AGHUB]),
- dict(id='ss4-old-table', group='SS-4', repo='ANetHub', desc='旧版 relay 表不按 ErrOldRelayTable 拒绝',
-  edits=[('internal/aghub/relay.go', '\tif len(cols) > 0 && !cols["rid"] {', '\tif false && len(cols) > 0 && !cols["rid"] {')],
+ # ss4-old-table: the relay table's own check went with every migration (PAY-3); hub.db's version is
+ # what refuses an earlier release's database now, so the mutant takes tables without a version as new.
+ dict(id='ss4-old-table', group='SS-4', repo='ANetHub', desc='旧版 relay 表(无 user_version)不被拒绝',
+  edits=[('internal/aghub/aghub.go', '\tcase version == SchemaVersion, version == 0 && objects == 0:\n',
+          '\tcase version == SchemaVersion, version == 0:\n')],
   tests=[(AGHUB, '^TestAnEarlierRelayTableIsRefused$')], full=[AGHUB]),
  dict(id='ss4-b64-kel', group='SS-4', repo='ANetHub', desc='/register 的 kel 不经 wire3 的 base64url 助手解码',
   edits=[('internal/aghub/server.go', '\tkelBytes, err := wire3.DecodeB64URL("kel", req.KEL)\n',
