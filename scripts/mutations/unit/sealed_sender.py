@@ -414,4 +414,13 @@ MUTS += [
  dict(id='ss4-exp-unstorable', group='SS-4', repo='ANetHub', desc='存不下的外层 exp 答 500 internal 而不是 400 bad_envelope',
   edits=[('internal/aghub/server.go', '\tcase errors.Is(err, ErrBadEnvelope):\n', '\tcase false && errors.Is(err, ErrBadEnvelope):\n')],
   tests=PROP_T('TestAnOuterExpiryBeyondTheTableIsRefused'), full=[AGHUB]),
+ dict(id='ss4-mailbox-bytes', group='SS-4', repo='ANetHub', desc='信箱总量只按条数限,不按字节',
+  edits=[('internal/aghub/relay.go', 'if n+1 > s.quota.messages || total+size > s.quota.bytes {', 'if n+1 > s.quota.messages {')],
+  tests=SEND_T('10'), full=[AGHUB]),
+ dict(id='ss4-share-bytes', group='SS-4', repo='ANetHub', desc='非联系人部分只按条数限,不按字节',
+  edits=[('internal/aghub/relay.go', 'if int64(n)+1 > q.NonContactMsgs || total+size > q.NonContactBytes {', 'if int64(n)+1 > q.NonContactMsgs {')],
+  tests=SEND_T('10'), full=[AGHUB]),
+ dict(id='ss4-redelivery-purge', group='SS-4', repo='ANetHub', desc='清扫不删窗口已过的 relay_redelivery 行',
+  edits=[('internal/aghub/relay.go', 'DELETE FROM relay_redelivery WHERE window_start <= ?', 'DELETE FROM relay_redelivery WHERE window_start <= ? AND 0')],
+  tests=PROP_T('TestTheJanitorForgetsClosedRedeliveryWindows'), full=[AGHUB]),
 ]
