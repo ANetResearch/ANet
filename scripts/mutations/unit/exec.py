@@ -509,6 +509,13 @@ MUTS += [
   full=[DAEMON],
  ),
  dict(
+  id='m-av-8c', group='§2.3.4', repo='ANet',
+  desc='/autoreply 接受大小写不同的成员名(JSON 解码不分大小写)',
+  edits=[('internal/daemon/control_api.go', '\t\tif k != "off" && !autoReplyMembers[k] {', '\t\tif k != "off" && !autoReplyMembers[strings.ToLower(k)] {')],
+  tests=[(DAEMON, 'TestAutoReplyRefusesWhatCannotRun')],
+  full=[DAEMON],
+ ),
+ dict(
   id='m-av-9', group='AV-9', repo='ANet',
   desc='对话不设字节上限(exec 后端)',
   edits=[('internal/daemon/autoreply_exec.go', '\trc.Goal, turns = boundConversation(rc.Goal, turns) // AV-9\n', '')],

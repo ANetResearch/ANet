@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -769,6 +771,18 @@ func autoReplyView(ar *AutoReplyConfig) map[string]any {
 // member, any other value replacing it — then checked (checkAutoReply). A member that is not an
 // auto-reply setting, or has the wrong type, is config_invalid.
 func mergeAutoReply(cur *AutoReplyConfig, members map[string]json.RawMessage) (*AutoReplyConfig, *a2ashape.Refusal) {
+	// A member is named exactly: JSON decoding would match "Model" to model, and a merge with both
+	// would keep whichever came last.
+	names := make([]string, 0, len(members))
+	for k := range members {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		if k != "off" && !autoReplyMembers[k] {
+			return nil, configInvalid("auto_reply."+k, ruleText("不是自动回复的配置项", "it is not an auto-reply setting"))
+		}
+	}
 	if raw, ok := members["api_key"]; ok && string(raw) != "null" {
 		var key string
 		if json.Unmarshal(raw, &key) != nil {
@@ -805,6 +819,18 @@ func mergeAutoReply(cur *AutoReplyConfig, members map[string]json.RawMessage) (*
 	}
 	return &next, nil
 }
+
+// autoReplyMembers are the JSON names of AutoReplyConfig's members.
+var autoReplyMembers = func() map[string]bool {
+	m := map[string]bool{}
+	t := reflect.TypeFor[AutoReplyConfig]()
+	for i := 0; i < t.NumField(); i++ {
+		if name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ","); name != "" && name != "-" {
+			m[name] = true
+		}
+	}
+	return m
+}()
 
 // mergeJSONMember is the value a member takes: v merged into cur when both are objects, nil (removed)
 // for null, else v.

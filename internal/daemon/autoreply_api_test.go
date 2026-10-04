@@ -158,6 +158,7 @@ func TestAutoReplyRefusesWhatCannotRun(t *testing.T) {
 		{`{"backend":"openai","api_base":"https://models.example/v1"}`, "config_invalid", "auto_reply.model"},
 		{`{"max_history":"twenty"}`, "config_invalid", "auto_reply.max_history"},
 		{`{"api_kee":"sk-typo"}`, "config_invalid", "auto_reply.api_kee"},
+		{`{"Agent":"codex"}`, "config_invalid", "auto_reply.Agent"},
 		{`{"api_key":7}`, "config_invalid", "api_key"},
 		{`{"api_base":"http://192.0.2.7:8000/v1"}`, "api_base_insecure", ""},
 		{`{"api_base":"https://u:p@models.example/v1"}`, "api_base_insecure", ""},
