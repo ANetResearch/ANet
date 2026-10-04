@@ -219,9 +219,15 @@ func TestOnlyAVerifiedNoticeReachesTheGate(t *testing.T) {
 	d.noteHubNotice(base64.RawURLEncoding.EncodeToString([]byte("not a notice")), "")
 	d.noteHubNotice(base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, seal.MaxNoticeBytes+1)), "")
 	stale("bytes that are not a notice")
-	// An error this node does not know changes nothing either.
+	// An error this node does not know changes nothing either: not the
+	// state, and not the reason a known error gave it.
 	d.noteHubNotice("", "bogus")
 	stale("an unknown key_state_notice_error")
+	d.noteHubNotice("", noticeErrQuarantine)
+	d.noteHubNotice("", "bogus")
+	if s := d.identityState(); s.State != IdentityNoticeStale || s.Reason != reasonQuarantine {
+		t.Fatalf("an unknown key_state_notice_error after quarantine: %+v, want identity.quarantine", s)
+	}
 	// The witness's own notice opens the gate and is kept.
 	d.noteHubNotice(hubNotice(t, fh.self, d.self, now), "")
 	if s := d.identityState(); s.State != IdentityOK {
@@ -349,7 +355,55 @@ func TestTheNoticeIsReadBackAtStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	restart("a notice the witness did not sign", forgedFile, IdentityNoticeStale)
+	// A notice the witness signed, observed after now: within the clock
+	// skew that is the hub's clock, and it is used; beyond it, the notice
+	// would pass for fresh longer than it is, and it is not.
+	ahead := func(by uint64) []byte {
+		t.Helper()
+		at := uint64(time.Now().UnixMilli()) + by
+		wire, err := base64.RawURLEncoding.DecodeString(hubNotice(t, fh.self, d.self, at))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := encodeKeyStateNoticeFile(wire, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	restart("a notice observed ten minutes from now", ahead(10*minuteMS), IdentityNoticeStale)
+	restart("a notice observed two minutes from now", ahead(2*minuteMS), IdentityOK)
 	restart("the file as written, again", good, IdentityOK)
+}
+
+// StoredNotice (anetfixture seal --kel self) gives the file's notice only
+// for the KEL whose tip it states: not after a rotation, not for another
+// identity, not for no KEL.
+func TestStoredNoticeIsTheTipsOnly(t *testing.T) {
+	d, _, _ := witnessedNode(t, true)
+	held, _, _ := d.idGate.read()
+	if held == nil {
+		t.Fatal("no notice held")
+	}
+	if got := StoredNotice(d.layout, d.self.KEL()); !bytes.Equal(got, held.Wire) {
+		t.Fatalf("the tip's notice: %x, want %x", got, held.Wire)
+	}
+	other, err := identitytest.Agent()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := StoredNotice(d.layout, other.KEL()); got != nil {
+		t.Fatalf("another identity's KEL: %x", got)
+	}
+	if got := StoredNotice(d.layout, nil); got != nil {
+		t.Fatalf("no KEL: %x", got)
+	}
+	if err := identitytest.Rotate(d.self, d.nowMS()+1); err != nil {
+		t.Fatal(err)
+	}
+	if got := StoredNotice(d.layout, d.self.KEL()); got != nil {
+		t.Fatalf("after a rotation, the notice of the tip before: %x", got)
+	}
 }
 
 // The file's decoder (core CORE-E3): exactly keys 1 and 2, a notice in

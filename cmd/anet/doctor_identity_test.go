@@ -179,6 +179,23 @@ func TestDoctorIdentityChecks(t *testing.T) {
 	}
 	f = identityFindings(t, live, lenv)
 	checkFinding(t, "live", f, "identity.witness", stWarn, "identity.quarantine", nil)
+
+	// The grade of each state the running daemon reports (ux §5.2): the
+	// key confirmed is ok; confirmed three hours ago or more, a warning
+	// (ux §3.4 (b)); past the stop line, a failure.
+	for _, c := range []struct{ state, reason, status string }{
+		{"ok", "identity.ok", stOK},
+		{"ok", "identity.confirm_aging", stWarn},
+		{"notice_stale", "notice_stale", stFail},
+	} {
+		args := a2ashape.Args{"dur": "3h"}
+		lenv.status = func(string, string) (map[string]any, error) {
+			return map[string]any{"identity": map[string]any{"state": c.state, "reason": c.reason,
+				"message": a2ashape.Sentence(c.reason, a2ashape.English, args), "recovery": map[string]any{"state": "protected"}}}, nil
+		}
+		f = identityFindings(t, live, lenv)
+		checkFinding(t, "live "+c.reason, f, "identity.witness", c.status, c.reason, args)
+	}
 }
 
 // identity.recovery for a protected identity: the recovery file at its

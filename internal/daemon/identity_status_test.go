@@ -406,6 +406,26 @@ func TestLocalCommitAndTheCommitmentThatReplacesIt(t *testing.T) {
 	if e.self.LocalCommit() != nil || e.recoveryState().State != RecoveryProtected {
 		t.Fatalf("a join with a terminal: local_commit %x, %+v", e.self.LocalCommit(), e.recoveryState())
 	}
+	// Once the witness designation is built its commitment is fixed (KEL
+	// D-14): a later request without a terminal leaves local_commit as the
+	// designation's, in memory and on disk.
+	built, _ := joinDaemon(t)
+	controlCall(t, built.hHubRegister, "/hub-register", hubRegisterBody(srv.URL, `,"next_digest":"`+b64(local)+`","unprotected":true`))
+	if _, err := built.self.BuildWitnessDesignation(fh.self.AID(), local, built.nowMS()); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveIdentity(built.layout, built.self); err != nil {
+		t.Fatal(err)
+	}
+	controlCall(t, built.hHubRegister, "/hub-register", hubRegisterBody(srv.URL, `,"next_digest":"`+b64(other)+`","unprotected":true`))
+	disk, err := os.ReadFile(built.layout.IdentityPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := identity.ParseIdentityFile(disk)
+	if err != nil || !bytes.Equal(built.self.LocalCommit(), local) || !bytes.Equal(f.LocalCommit, local) {
+		t.Fatalf("the designation built: local_commit %x (on disk %x, %v), want %x", built.self.LocalCommit(), f.LocalCommit, err, local)
+	}
 }
 
 // sendRoutes are the send surfaces of the control plane (MCP send_message
@@ -669,6 +689,13 @@ func TestIdentityV02RefusesToStart(t *testing.T) {
 	refuseV02(t, layout)
 	if _, err := ReadIdentityStatus(layout, a2ashape.Lang()); err == nil {
 		t.Fatal("ReadIdentityStatus read a 0.2 identity")
+	}
+	// The identity loader itself, which EnsureLayoutInit uses without the
+	// check before the start, refuses it too and incepts nothing over it.
+	_, err = LoadOrGenerateIdentity(layout)
+	assertV02Refusal(t, "LoadOrGenerateIdentity", err)
+	if b, err := os.ReadFile(layout.IdentityPath()); err != nil || !bytes.Equal(b, old) {
+		t.Fatalf("the 0.2 identity file changed (%v)", err)
 	}
 	for name, b := range map[string][]byte{"garbage": []byte("not an identity"), "truncated": old[:len(old)/2]} {
 		damaged := v02DataDir(t, false, func(l Layout) {

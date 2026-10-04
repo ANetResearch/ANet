@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/coredet"
@@ -72,8 +73,16 @@ func checkIdentityFileForStart(l Layout) error {
 	return nil
 }
 
+// identityWriteMu serializes the writes of identity.kel. Each write exports the controller and
+// renames the result into place while holding it, so when two writes overlap the file ends with the
+// later state: a write that exported first can no longer be renamed last and take back what the
+// other just made durable, such as a pending key event (KEL D-13 step 2, S-6).
+var identityWriteMu sync.Mutex
+
 // saveIdentity persists a Controller (private-key seeds + KEL) to identity.kel, 0600.
 func saveIdentity(l Layout, c *identity.Controller) error {
+	identityWriteMu.Lock()
+	defer identityWriteMu.Unlock()
 	if err := l.EnsureRoot(); err != nil {
 		return err
 	}

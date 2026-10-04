@@ -723,7 +723,8 @@ func (d *Daemon) joinHub(ctx context.Context, req joinRequest) (hubRegisterResp,
 	if jerr != nil {
 		return hubRegisterResp{}, jerr
 	}
-	switch d.joinAction(c.hubAID) {
+	action := d.joinAction(c.hubAID)
+	switch action {
 	case joinActionSwitch:
 		// Switching hubs is a key rotation (KEL L-4, /identity/rotate).
 		return hubRegisterResp{}, &joinError{http.StatusConflict,
@@ -734,15 +735,21 @@ func (d *Daemon) joinHub(ctx context.Context, req joinRequest) (hubRegisterResp,
 				a2ashape.Args{"key": "next_digest", "rule": ruleText("首次接入 hub 时必须带上(anet hub-register 会自动带上)",
 					"a first join must carry it (anet hub-register adds it)")})}
 		}
+	}
+	caps := withServedCapabilities(req.Caps, d.providers)
+
+	d.regMu.Lock()
+	// local_commit goes first (KEL D-11), under regMu like the join
+	// attempts: the witness designation is built in one, so whether it has
+	// been built cannot change between keepLocalCommit's look and its write.
+	if action == joinActionJoin {
 		if err := d.keepLocalCommit(req); err != nil {
+			d.regMu.Unlock()
 			log.Printf("anet: save local_commit: %v", err)
 			return hubRegisterResp{}, &joinError{http.StatusInternalServerError, a2ashape.Refuse(reasonConfigInvalid,
 				a2ashape.Args{"key": "next_digest", "rule": ruleText("无法写入身份文件 identity.kel", "identity.kel could not be written")})}
 		}
 	}
-	caps := withServedCapabilities(req.Caps, d.providers)
-
-	d.regMu.Lock()
 	prevHub, err := d.adoptJoinTarget(req, c.hubAID, caps)
 	if err != nil {
 		d.regMu.Unlock()
@@ -783,7 +790,8 @@ func (d *Daemon) joinHub(ctx context.Context, req joinRequest) (hubRegisterResp,
 // join whose next_digest comes from the recovery file without a passphrase
 // (KEL D-11): before witness_rot, so the identity reads as unprotected from
 // the moment the commitment can be used. Once the witness designation is
-// built its commitment is fixed (KEL D-14), and nothing is written.
+// built its commitment is fixed (KEL D-14), and nothing is written. The
+// caller holds d.regMu.
 func (d *Daemon) keepLocalCommit(req joinRequest) error {
 	if !req.Unprotected || req.NextDigest == nil {
 		return nil

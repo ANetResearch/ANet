@@ -15,6 +15,7 @@ package daemon
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -171,6 +172,11 @@ var knownNoticeErrors = map[string]bool{noticeErrQuarantine: true, noticeErrNotA
 func (d *Daemon) noteHubNotice(notice, noticeErr string) {
 	switch {
 	case notice != "":
+		if len(notice) > base64.RawURLEncoding.EncodedLen(seal.MaxNoticeBytes) {
+			// Longer than any notice can be: not decoded at all.
+			d.logOnce("own-notice-form", "anet: the hub sent a witness notice of %d characters, longer than any notice", len(notice))
+			return
+		}
 		wire, err := hubapi.DecodeB64(notice, -1)
 		if err != nil {
 			d.logOnce("own-notice-form", "anet: the hub sent a witness notice that is not base64url: %v", err)
