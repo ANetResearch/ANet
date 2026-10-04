@@ -44,7 +44,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net"
 	"os"
 	"os/exec"
@@ -84,6 +83,90 @@ const (
 
 // systemd-run wrapper (LEC SB-7): memory and task limits through a user scope.
 var sandboxSystemdRunArgs = []string{"--user", "--scope", "--quiet", "-p", "MemoryMax=2G", "-p", "TasksMax=256", "--"}
+
+// sandboxKind is the sandbox a run on this platform is in: the sandbox member of
+// anet.autoreply.invoked (LEC §2.5).
+const sandboxKind = "bwrap"
+
+// systemdLookPath locates systemctl and systemd-run, and userSystemdState asks the user's systemd how it
+// is (`systemctl --user is-system-running`). Tests replace them.
+var (
+	systemdLookPath  = exec.LookPath
+	userSystemdState = func(systemctl string) string {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, systemctl, "--user", "is-system-running")
+		cmd.Env = systemdEnv()
+		out, _ := cmd.Output() // a manager that is not running exits non-zero and says why on stdout
+		line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+		return strings.TrimSpace(line)
+	}
+)
+
+var userSystemdCache struct {
+	sync.Mutex
+	at  time.Time
+	run string
+}
+
+// sandboxSystemdRun is the systemd-run that starts each sandboxed run in a user scope with a memory
+// and a task limit, or "" when this user's systemd is not running (LEC SB-7): the run then goes on
+// without those two limits, with a warning on status and doctor (no_cgroup_limits; core N4). The
+// answer is kept for as long as a probe result.
+func sandboxSystemdRun() string {
+	userSystemdCache.Lock()
+	defer userSystemdCache.Unlock()
+	if !userSystemdCache.at.IsZero() && time.Since(userSystemdCache.at) < bwrapProbeTTL {
+		return userSystemdCache.run
+	}
+	userSystemdCache.at, userSystemdCache.run = time.Now(), ""
+	systemctl, err := systemdLookPath("systemctl")
+	if err != nil {
+		return ""
+	}
+	run, err := systemdLookPath("systemd-run")
+	if err != nil {
+		return ""
+	}
+	switch userSystemdState(systemctl) {
+	case "running", "degraded":
+		userSystemdCache.run = run
+	}
+	return userSystemdCache.run
+}
+
+// sandboxLimits is /status.auto_reply.sandbox.limits (LEC §2.3.3): "full" with the user scope's memory
+// and task limits, "no_cgroup" without.
+func sandboxLimits() string {
+	if sandboxSystemdRun() != "" {
+		return "full"
+	}
+	return "no_cgroup"
+}
+
+// systemdEnv is the environment systemctl and systemd-run need to reach the user's manager, and no
+// more: its runtime directory, and the session bus when one is named.
+func systemdEnv() []string {
+	env := []string{}
+	xdg := os.Getenv("XDG_RUNTIME_DIR")
+	if xdg == "" {
+		if dir := filepath.Join("/run/user", strconv.Itoa(os.Getuid())); dirExists(dir) {
+			xdg = dir
+		}
+	}
+	if xdg != "" {
+		env = append(env, "XDG_RUNTIME_DIR="+xdg)
+	}
+	if bus := os.Getenv("DBUS_SESSION_BUS_ADDRESS"); bus != "" {
+		env = append(env, "DBUS_SESSION_BUS_ADDRESS="+bus)
+	}
+	return env
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}
 
 // bwrapProbeTTL is how long a probe result is reused.
 const bwrapProbeTTL = 5 * time.Minute
@@ -135,6 +218,7 @@ func (p *sandboxPlan) prepare() error {
 		return pr.Err
 	}
 	p.Bwrap, p.Features = path, pr.Features
+	p.SystemdRun = sandboxSystemdRun()
 	return nil
 }
 
@@ -588,9 +672,11 @@ func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunc
 	if err != nil {
 		return nil, sandboxUnavailable("run directory: %v", err)
 	}
+	p.addRunDir(runDir)
 	ok := false
 	defer func() {
 		if !ok {
+			p.dropRunDir(runDir)
 			removeSandboxTree(runDir)
 		}
 	}()
@@ -625,8 +711,13 @@ func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunc
 	if err != nil {
 		return nil, sandboxUnavailable("%v", err)
 	}
-	// v030-todo(EXE-4): wrap in systemd-run (SB-7) when the user's systemd is running.
-	path, full := sandboxCommandLine(p.Bwrap, "", args)
+	// SB-7: in a user scope with the memory and task limits when the user's systemd runs. systemd-run
+	// needs to find the manager; bwrap and init need nothing.
+	path, full := sandboxCommandLine(p.Bwrap, p.SystemdRun, args)
+	launchEnv := []string{}
+	if p.SystemdRun != "" {
+		launchEnv = systemdEnv()
+	}
 	// The agent holds no key and no proxy setting of the daemon's: its model service is the injection
 	// route, with a placeholder key (UP-4).
 	env = sandboxEnvOverlay(env, sandboxEgressEnv(p.Egress))
@@ -644,7 +735,7 @@ func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunc
 	ok = true
 	return &sandboxLaunch{
 		Path: path, Args: full,
-		Env:   []string{}, // bwrap and init need nothing; the agent's environment is in the spec
+		Env:   launchEnv, // the agent's environment is in the spec
 		Files: files,
 		Close: func() {
 			if egress != nil {
@@ -653,6 +744,7 @@ func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunc
 			}
 			closeFiles()
 			removeSandboxTree(runDir)
+			p.dropRunDir(runDir)
 		},
 	}, nil
 }
@@ -676,7 +768,9 @@ type sandboxEgress struct {
 func startSandboxEgress(runDir string, up *egressUpstream) (*sandboxEgress, error) {
 	se := &sandboxEgress{sock: filepath.Join(runDir, "egress.sock")}
 	if len(se.sock) > sandboxSockMax {
-		dir, err := os.MkdirTemp("", "anet-"+"sock-")
+		// Named after the run directory's identity prefix, so that the start-up sweep finds it (SB-9).
+		prefix, _, _ := strings.Cut(filepath.Base(runDir), "-")
+		dir, err := os.MkdirTemp("", sandboxSockDirPrefix+prefix+"-")
 		if err != nil {
 			return nil, err
 		}
@@ -829,6 +923,22 @@ func sandboxRunRoot() string {
 	return filepath.Join(c, "anet", "run")
 }
 
+// sandboxSockDirPrefix starts the name of a run's socket directory under the temp dir, when the run
+// directory's path is too long for the socket (a local name, built on the registry's exempt "anet-").
+const sandboxSockDirPrefix = "anet-" + "sock-"
+
+// runDirPrefix names this identity's run directories: <aid8> of <cache>/anet/run/<aid8>-<rand>/.
+func runDirPrefix(aid string) string {
+	short := aidShort(aid)
+	if short == "" {
+		short = "unknown"
+	}
+	if len(short) > 8 {
+		short = short[len(short)-8:]
+	}
+	return short
+}
+
 // newSandboxRunDir creates <cache>/anet/run/<aid8>-<rand>/ with home/, tmp/ and vartmp/ (all 0700).
 func newSandboxRunDir(aid string) (string, error) {
 	root := sandboxRunRoot()
@@ -838,14 +948,7 @@ func newSandboxRunDir(aid string) (string, error) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return "", err
 	}
-	short := aidShort(aid)
-	if short == "" {
-		short = "unknown"
-	}
-	if len(short) > 8 {
-		short = short[len(short)-8:]
-	}
-	dir, err := os.MkdirTemp(root, short+"-")
+	dir, err := os.MkdirTemp(root, runDirPrefix(aid)+"-")
 	if err != nil {
 		return "", err
 	}
@@ -862,17 +965,29 @@ func newSandboxRunDir(aid string) (string, error) {
 // write permission (a Go module cache, for one), which os.RemoveAll alone cannot empty, so directories
 // are made writable first. Symbolic links are removed, never followed: WalkDir does not descend into
 // them and they are not chmod'ed.
-func removeSandboxTree(dir string) {
-	if dir == "" {
-		return
-	}
-	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() {
-			_ = os.Chmod(p, 0o700)
+func removeSandboxTree(dir string) { removeWorkTree(dir) }
+
+// removeSandboxLeftovers removes the run directories, and the socket directories under the temp dir, of
+// this identity's runs: what a run the daemon was killed in the middle of left (LEC SB-9). It runs
+// before this process's first sandboxed run, when no run of this identity is under way.
+func removeSandboxLeftovers(aid string) {
+	prefix := runDirPrefix(aid) + "-"
+	sweep := func(dir, namePrefix string) {
+		if dir == "" {
+			return
 		}
-		return nil
-	})
-	_ = os.RemoveAll(dir)
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			return
+		}
+		for _, e := range ents {
+			if e.IsDir() && strings.HasPrefix(e.Name(), namePrefix) {
+				removeSandboxTree(filepath.Join(dir, e.Name()))
+			}
+		}
+	}
+	sweep(sandboxRunRoot(), prefix)
+	sweep(os.TempDir(), sandboxSockDirPrefix+prefix)
 }
 
 func randHex(n int) string {

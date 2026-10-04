@@ -128,3 +128,68 @@ func Registered(t string) bool {
 	_, ok := byType[t]
 	return ok
 }
+
+// Payload is the shape of an event whose payload is fixed (LEC §2.5): the
+// members every record of the type has, the members a record has only when
+// they apply, and for a member that is an object, its own shape. A record
+// has no other member: the tests read the records the daemon writes against
+// it, so a payload that grew a path, a request body, a prompt or a key would
+// not pass.
+type Payload struct {
+	Required []string
+	Optional []string
+	Nested   map[string]Payload
+}
+
+// payloads are the fixed payloads, by event type.
+var payloads = map[string]Payload{
+	AutoReplyInvoked: {
+		Required: []string{"agent", "interaction_id", "peer_aid", "trusted", "sandboxed", "duration_ms",
+			"mode", "sandbox", "exit"},
+		Optional: []string{"unavailable", "egress"},
+		Nested: map[string]Payload{"egress": {
+			Required: []string{"model_requests", "bytes_up", "bytes_down", "policy_refused", "connect"},
+			Nested: map[string]Payload{"connect": {
+				Required: []string{"allowed", "refused", "bytes_up", "bytes_down"},
+			}},
+		}},
+	},
+	HubAdmission: {Required: []string{"hub", "state"}, Optional: []string{"reason"}},
+}
+
+// PayloadOf returns the fixed payload of event type t, if it has one.
+func PayloadOf(t string) (Payload, bool) {
+	p, ok := payloads[t]
+	return p, ok
+}
+
+// Check reports the first way the members of a record's payload differ
+// from the shape: a member it lacks, or one the shape does not have. Nested
+// members are checked when they are objects; their values are not.
+func (p Payload) Check(m map[string]any) string {
+	allowed := map[string]bool{}
+	for _, k := range p.Required {
+		allowed[k] = true
+		if _, ok := m[k]; !ok {
+			return "lacks " + k
+		}
+	}
+	for _, k := range p.Optional {
+		allowed[k] = true
+	}
+	for k, v := range m {
+		if !allowed[k] {
+			return "has " + k + ", which the payload does not"
+		}
+		if sub, ok := p.Nested[k]; ok {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return k + " is not an object"
+			}
+			if why := sub.Check(obj); why != "" {
+				return k + ": " + why
+			}
+		}
+	}
+	return ""
+}

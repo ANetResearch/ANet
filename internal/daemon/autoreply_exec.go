@@ -28,15 +28,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 )
@@ -237,6 +240,10 @@ func (r *execReplier) baseOpts(rc replyContext) (execInvokeOpts, error) {
 		if err := checkOutsideDataDir(abs, r.dataDir); err != nil {
 			return execInvokeOpts{}, fmt.Errorf("auto_reply.work_dir: %w", err)
 		}
+		// A direct run never works in what a sandboxed run wrote (LEC SB-8).
+		if err := checkOutsideSandboxRoot(abs); err != nil {
+			return execInvokeOpts{}, fmt.Errorf("auto_reply.work_dir: %w", err)
+		}
 		workDir = abs
 	} else {
 		dirFor := execInteractionDir
@@ -310,6 +317,14 @@ func (r *execReplier) buildPrompt(dir string, turns []chatTurn) (prompt string, 
 }
 
 // --- work directories ---
+//
+// Direct and sandboxed runs work under two roots that never overlap (LEC SB-8, SI-59):
+// <cache>/anet/work/<aid16>/<ix>/ for a direct run (or the operator's auto_reply.work_dir) and
+// <cache>/anet/work-sandbox/<aid16>/<ix>/ for a sandboxed one. When a peer's trust changes in the
+// middle of an interaction, its next turn runs in the other root, so nothing an untrusted peer's run
+// left — an opencode.json, an AGENTS.md, a .envrc, a git hook — is in the directory where an
+// unconfined agent starts. The sandbox never binds the direct root or the configured work_dir, and the
+// configured work_dir may neither lie in the sandbox root nor contain it.
 
 // execWorkRoot is <user cache dir>/anet/work ($XDG_CACHE_HOME/anet/work on Linux), or "" when the
 // cache dir is unknown.
@@ -399,6 +414,46 @@ func checkOutsideDataDir(p, dataDir string) error {
 	return nil
 }
 
+// checkOutsideSandboxRoot refuses p when, after resolving symbolic links, it equals or lies inside the
+// sandbox work root, or contains it (LEC SB-8).
+func checkOutsideSandboxRoot(p string) error {
+	root := execSandboxWorkRoot()
+	if root == "" {
+		return nil
+	}
+	rp, err := resolveThroughExisting(filepath.Clean(p))
+	if err != nil {
+		return err
+	}
+	rr, err := resolveThroughExisting(root)
+	if err != nil {
+		return err
+	}
+	if pathWithin(rp, rr) || pathWithin(rr, rp) {
+		return fmt.Errorf("%s overlaps the sandbox work root %s", p, root)
+	}
+	return nil
+}
+
+// checkWorkDir is work_dir_invalid for an auto_reply.work_dir in, or around, the data dir or the
+// sandbox work root (LEC §3.2, SB-8). dataDir empty skips the data dir.
+func checkWorkDir(c *AutoReplyConfig, dataDir string) *a2ashape.Refusal {
+	if c == nil || c.WorkDir == "" {
+		return nil
+	}
+	abs, err := filepath.Abs(c.WorkDir)
+	if err == nil {
+		err = checkOutsideSandboxRoot(abs)
+	}
+	if err == nil {
+		err = checkOutsideDataDir(abs, dataDir)
+	}
+	if err != nil {
+		return a2ashape.Refuse("work_dir_invalid", nil)
+	}
+	return nil
+}
+
 // newExecOutbox creates the outbox for one auto-reply turn inside the interaction's work dir (the
 // sandbox work dir for a sandboxed turn, so the agent can write to it) and returns it with its cleanup.
 func (d *Daemon) newExecOutbox(interactionID string, sandboxed bool) (string, func(), error) {
@@ -415,6 +470,36 @@ func (d *Daemon) newExecOutbox(interactionID string, sandboxed bool) (string, fu
 		return "", func() {}, err
 	}
 	return ob, func() { _ = os.RemoveAll(ob) }, nil
+}
+
+// deleteExecWorkDir removes the work dirs of one interaction under both roots (LEC SB-8): the content
+// retention deletes them within five minutes of the interaction's end (FS-L11). An agent may have left
+// directories without write permission; they are removed all the same.
+func deleteExecWorkDir(aid, ix string) {
+	if aid == "" || ix == "" {
+		return
+	}
+	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
+		if root != "" {
+			removeWorkTree(filepath.Join(root, aidShort(aid), safeName(ix)))
+		}
+	}
+}
+
+// removeWorkTree removes a directory an agent wrote into: directories are made writable first (an
+// agent can leave read-only ones, which os.RemoveAll alone cannot empty); symbolic links are removed,
+// never followed.
+func removeWorkTree(dir string) {
+	if dir == "" {
+		return
+	}
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(p, 0o700)
+		}
+		return nil
+	})
+	_ = os.RemoveAll(dir)
 }
 
 // pruneExecWorkDirs removes the work dirs of interactions that are no longer active. Interaction ids
@@ -440,7 +525,7 @@ func pruneExecWorkDirs(aid string, active map[string]bool) {
 			if !e.IsDir() || keep[e.Name()] || e.Name() == "selftest" {
 				continue
 			}
-			_ = os.RemoveAll(filepath.Join(base, e.Name()))
+			removeWorkTree(filepath.Join(base, e.Name()))
 		}
 	}
 }
@@ -650,16 +735,115 @@ func autoReplyFailureReply(cfg AutoReplyConfig, interactionID string, err error)
 // errSandboxUnavailable is returned (wrapped) by runSandboxed when a turn cannot run inside the sandbox:
 // not Linux, no usable bubblewrap, an agent that cannot use the egress endpoint, no auto_reply.api_key
 // (or api_base, or model) for its model service, or a required path that would expose a protected
-// location. The agent was not started. The caller fails closed by direction (A2A-DESIGN §6,
-// autoreply.go sandboxRefusedTurn): inbound, answer status{rejected, anet.reason=sandbox_unavailable};
-// outbound (this node is the requester), send nothing, leave the task in the inbox, and record
-// anet.autoreply.invoked{sandboxed:false, exit:"sandbox_unavailable"}.
+// location. The agent was not started. The caller fails closed by direction (LEC GT-2, autoreply.go
+// refuseTurn): inbound, answer status{rejected, anet.reason=sandbox_unavailable} with no text; outbound
+// (this node is the requester), send nothing and leave the task in the inbox; either way record
+// anet.autoreply.invoked{sandboxed:false, exit:"sandbox_unavailable"} once per interaction. The turn
+// does not count against the run budget.
 var errSandboxUnavailable = errors.New("sandbox_unavailable")
 
 // sandboxUnavailable wraps a reason as errSandboxUnavailable.
 func sandboxUnavailable(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", errSandboxUnavailable, fmt.Sprintf(format, args...))
 }
+
+// errSandboxResource is returned by runSandboxed when the run was killed because its work dir and run
+// directories grew past sandboxDiskMax (LEC BU-8). It is an errSandboxUnavailable too: an inbound task
+// is refused with anet.reason=sandbox_unavailable, while the record says exit=resource and the run
+// counts, since it ran.
+var errSandboxResource = fmt.Errorf("%w: resource", errSandboxUnavailable)
+
+// The disk watch of a sandboxed run (LEC BU-8): every sandboxDiskEvery the sizes under the run's work
+// dir and run directories are added up, and a run over sandboxDiskMax is killed. Variables so tests can
+// use small ones.
+var (
+	sandboxDiskEvery       = 5 * time.Second
+	sandboxDiskMax   int64 = 2 << 30
+)
+
+// diskWatch kills a run whose directories grow past the limit.
+type diskWatch struct {
+	over atomic.Bool
+	stop chan struct{}
+	done chan struct{}
+}
+
+// watchDisk starts watching the directories dirs returns, calling kill once they hold more than limit
+// bytes; stop ends the watch and waits for it.
+func watchDisk(dirs func() []string, limit int64, every time.Duration, kill func()) *diskWatch {
+	w := &diskWatch{stop: make(chan struct{}), done: make(chan struct{})}
+	go func() {
+		defer close(w.done)
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-w.stop:
+				return
+			case <-t.C:
+			}
+			if dirsSize(dirs(), limit) > limit {
+				w.over.Store(true)
+				kill()
+				return
+			}
+		}
+	}()
+	return w
+}
+
+func (w *diskWatch) end() {
+	close(w.stop)
+	<-w.done
+}
+
+// dirsSize adds up what the trees under dirs take: for each entry the larger of its size and the space
+// allocated to it, so that neither a sparse file nor a mass of small files slips under the limit. It
+// stops counting once the total is past limit.
+func dirsSize(dirs []string, limit int64) int64 {
+	var total int64
+	for _, dir := range dirs {
+		_ = filepath.WalkDir(dir, func(_ string, de fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			fi, ierr := de.Info()
+			if ierr != nil {
+				return nil
+			}
+			total += max(fi.Size(), allocatedBytes(fi))
+			if total > limit {
+				return filepath.SkipAll
+			}
+			return nil
+		})
+		if total > limit {
+			break
+		}
+	}
+	return total
+}
+
+// sweepSandboxLeftovers removes, once per daemon and before its first sandboxed run, what the runs of
+// an earlier process of this identity left behind: run directories and socket directories (LEC SB-9).
+func (d *Daemon) sweepSandboxLeftovers() {
+	d.sandboxSwept.Do(func() { removeSandboxLeftovers(d.AID()) })
+}
+
+// allocatedBytes is the space the file system gave fi.
+func allocatedBytes(fi fs.FileInfo) int64 {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return int64(st.Blocks) * 512
+	}
+	return 0
+}
+
+// sandboxRunnerForTest, when set, replaces the start of the agent inside bubblewrap in runSandboxed
+// (everything around it — the upstream, the work dir, the disk watch and the result — is the real
+// path). It runs the turn in workDir and returns its reply and what it did through its egress
+// endpoint. Only tests set it, to drive the budget, the records and the work-dir rules where the host
+// has no usable bubblewrap.
+var sandboxRunnerForTest func(ctx context.Context, req sandboxRequest, workDir string) (string, *egressSummary, error)
 
 // sandboxRequest is one auto-reply turn for an untrusted peer under auto_reply.untrusted=sandbox.
 type sandboxRequest struct {
@@ -685,6 +869,9 @@ type sandboxPlan struct {
 	Bwrap string
 	// Features are the optional bwrap flags the probe found.
 	Features bwrapFeatures
+	// SystemdRun, when set, is the systemd-run that puts each run in a user scope with the memory and
+	// task limits (LEC SB-7).
+	SystemdRun string
 	// AID names this identity's run directories (<cache>/anet/run/<aid8>-<rand>).
 	AID string
 	// Home is $HOME inside the sandbox, bound to the run directory's empty home/.
@@ -700,6 +887,41 @@ type sandboxPlan struct {
 
 	egressMu    sync.Mutex
 	egressTotal *egressSummary
+
+	// runDirs are the run directories of the plan's processes that are running (sandbox_linux.go
+	// command adds one, its Close removes it), for the disk watch (BU-8).
+	runMu   sync.Mutex
+	runDirs map[string]bool
+}
+
+// addRunDir and dropRunDir keep runDirs.
+func (p *sandboxPlan) addRunDir(dir string) {
+	p.runMu.Lock()
+	defer p.runMu.Unlock()
+	if p.runDirs == nil {
+		p.runDirs = map[string]bool{}
+	}
+	p.runDirs[dir] = true
+}
+
+func (p *sandboxPlan) dropRunDir(dir string) {
+	p.runMu.Lock()
+	defer p.runMu.Unlock()
+	delete(p.runDirs, dir)
+}
+
+// liveRunDirs are the run directories of the plan's processes that are running.
+func (p *sandboxPlan) liveRunDirs() []string {
+	if p == nil {
+		return nil
+	}
+	p.runMu.Lock()
+	defer p.runMu.Unlock()
+	out := make([]string, 0, len(p.runDirs))
+	for d := range p.runDirs {
+		out = append(out, d)
+	}
+	return out
 }
 
 // addEgress adds a finished run's egress counts to the plan's.
@@ -758,6 +980,8 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 	if _, err := lookupAgent(cfg.Agent); err != nil {
 		return sandboxResult{}, err
 	}
+	// What a run killed in the middle left behind is removed before this daemon's first run (SB-9).
+	d.sweepSandboxLeftovers()
 	// The agent reaches its model only through the run's egress endpoint, which adds the operator's key
 	// (LEC UP-1 to UP-4): the sandbox hides the agent's own login state, and binding it in would expose
 	// session history and other projects' credentials. Without a key (or, for a custom service, an
@@ -766,18 +990,47 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 	if err != nil {
 		return sandboxResult{}, err
 	}
-	plan, err := d.newSandboxPlan()
-	if err != nil {
-		return sandboxResult{}, err
+	var plan *sandboxPlan
+	if sandboxRunnerForTest == nil {
+		if plan, err = d.newSandboxPlan(); err != nil {
+			return sandboxResult{}, err
+		}
+		plan.Egress = up
 	}
-	plan.Egress = up
+	workDir, err := execSandboxInteractionDir(d.layout.Root, d.AID(), req.RC.InteractionID)
+	if err != nil {
+		return sandboxResult{}, sandboxUnavailable("work dir: %v", err)
+	}
 	cfg.Model = up.Model // UP-3: the agent is started with the model every request is pinned to
-	r := &execReplier{cfg: cfg, dataDir: d.layout.Root, layout: d.layout, sandbox: plan, aid: d.AID()}
-	reply, err := r.Reply(ctx, req.RC, req.Turns)
-	if err != nil {
-		return sandboxResult{Sandboxed: true, Egress: plan.egressSummary()}, err
+
+	// BU-8: the work dir and the run directories together stay under sandboxDiskMax, or the run is
+	// killed, both are deleted and the turn ends as resource.
+	ctx, kill := context.WithCancel(ctx)
+	defer kill()
+	watch := watchDisk(func() []string { return append(plan.liveRunDirs(), workDir) },
+		sandboxDiskMax, sandboxDiskEvery, kill)
+	var reply string
+	res := sandboxResult{Sandboxed: true}
+	if sandboxRunnerForTest != nil {
+		reply, res.Egress, err = sandboxRunnerForTest(ctx, sandboxRequest{Cfg: cfg, RC: req.RC, Turns: req.Turns}, workDir)
+	} else {
+		r := &execReplier{cfg: cfg, dataDir: d.layout.Root, layout: d.layout, sandbox: plan, aid: d.AID()}
+		reply, err = r.Reply(ctx, req.RC, req.Turns)
+		res.Egress = plan.egressSummary()
 	}
-	return sandboxResult{Reply: reply, Sandboxed: true, Egress: plan.egressSummary()}, nil
+	watch.end()
+	if watch.over.Load() {
+		removeWorkTree(workDir)
+		return res, errSandboxResource
+	}
+	if errors.Is(err, errSandboxUnavailable) {
+		return sandboxResult{}, err // refused before anything ran in the sandbox
+	}
+	if err != nil {
+		return res, err
+	}
+	res.Reply = reply
+	return res, nil
 }
 
 // newSandboxPlan collects the never-bind list for this daemon (A2A-DESIGN §6): the resolved data dir,
@@ -794,9 +1047,9 @@ func (d *Daemon) newSandboxPlan() (*sandboxPlan, error) {
 }
 
 // sandboxNeverBind is the never-bind list of newSandboxPlan, each entry in absolute and resolved form
-// (LEC SB-3): the data dir, the identities container, the runtime dirs, the direct-run work root (a
-// trusted peer's agent works there as the operator's user), the configured and the default ANetLink
-// sockets, and the agent CLIs' own configuration and credential directories.
+// (LEC SB-3): the data dir, the identities container, the runtime dirs, the direct-run work root and the
+// configured work_dir (a trusted peer's agent works there as the operator's user), the configured and
+// the default ANetLink sockets, and the agent CLIs' own configuration and credential directories.
 func (d *Daemon) sandboxNeverBind() []string {
 	home, _ := os.UserHomeDir()
 	never := []string{d.layout.Root, AnetHome(), legacyRuntimeDir(), filepath.Join("/run/user", fmt.Sprint(os.Getuid())),
@@ -805,6 +1058,11 @@ func (d *Daemon) sandboxNeverBind() []string {
 		never = append(never, x, filepath.Join(x, "anetlink", "c1.sock"))
 	}
 	never = append(never, anetlinkSockets(d.config())...)
+	// The operator's work_dir is where a trusted peer's agent works unconfined (LEC SB-8): no sandboxed
+	// run sees it.
+	if ar := d.config().AutoReply; ar != nil && ar.WorkDir != "" {
+		never = append(never, ar.WorkDir)
+	}
 	if home != "" {
 		for _, rel := range []string{".anet", ".claude", ".claude.json", ".codex", ".cursor", ".config/opencode",
 			".local/share/opencode", ".openclaw", ".hermes", ".ssh", ".gnupg", ".aws", ".config/gcloud",

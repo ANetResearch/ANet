@@ -1,0 +1,29 @@
+{
+  "agent": "claude",
+  "duration_ms": 63800,
+  "egress": {
+    "bytes_down": 52100,
+    "bytes_up": 18432,
+    "connect": {
+      "allowed": {
+        "pypi.org": 2
+      },
+      "bytes_down": 1048576,
+      "bytes_up": 2048,
+      "refused": {
+        "egress_host_not_allowed": 1
+      }
+    },
+    "model_requests": 3,
+    "policy_refused": {
+      "policy_server_tool": 1
+    }
+  },
+  "exit": "ok",
+  "interaction_id": "ix_0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "mode": "sandbox",
+  "peer_aid": "bafyreiexamplepeeraid7hq2abcd",
+  "sandbox": "bwrap",
+  "sandboxed": true,
+  "trusted": false
+}

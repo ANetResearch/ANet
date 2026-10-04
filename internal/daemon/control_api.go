@@ -600,6 +600,9 @@ func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
 		cfg = &c
 	}
 	if err := d.SetAutoReply(cfg); err != nil {
+		if writeConfigRefusal(w, err) {
+			return
+		}
 		code := http.StatusBadRequest
 		if errors.Is(err, ErrPolicyConflict) {
 			code = http.StatusConflict
