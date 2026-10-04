@@ -161,15 +161,17 @@ func (d *Daemon) firstContactSession(ctx context.Context, hubURL string) (*first
 
 	t.mu.Lock()
 	delete(t.opening, key)
-	if op.err == nil && t.gen != gen {
-		// This node rotated in an emergency while the session opened.
+	if stale := op.err == nil && t.gen != gen; stale {
+		// This node rotated in an emergency while the session opened. The
+		// hub opened it, so session_ok keeps what it said.
 		op.s.zero()
 		op.s, op.err = nil, &sessionUnavailableError{errSessionGone}
+	} else {
+		if t.ok == nil {
+			t.ok = map[string]bool{}
+		}
+		t.ok[key] = op.err == nil
 	}
-	if t.ok == nil {
-		t.ok = map[string]bool{}
-	}
-	t.ok[key] = op.err == nil
 	if op.err == nil {
 		if t.byHub == nil {
 			t.byHub = map[string]*firstContactSession{}

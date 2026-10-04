@@ -1001,6 +1001,9 @@ func TestAnOpeningRacingAnEmergencyIsNotKept(t *testing.T) {
 	if kept != 0 {
 		t.Fatal("the session opened under the retired key was kept")
 	}
+	if !req.sessionOK(srv.URL) {
+		t.Fatal("session_ok went false: the hub opened the session, this node's rotation dropped it")
+	}
 	s, err := req.firstContactSession(ctx, srv.URL)
 	if err != nil || len(s.key) != relayauth.SessionKeyLen {
 		t.Fatalf("the next opening: %v", err)
