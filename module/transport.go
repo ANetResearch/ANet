@@ -77,9 +77,9 @@ type Inbound interface {
 	//
 	// err == nil means the transport acknowledges the delivery to its
 	// sender and carries dack back with it unchanged: the confirmation
-	// this node made for the envelope, or nil when it makes none (an
-	// envelope it could not open). A transport neither reads, changes,
-	// checks nor keeps it.
+	// this node made for the envelope, or nil when it makes none (a
+	// one-shot envelope, such as a preview frame). A transport neither
+	// reads, changes, checks nor keeps it.
 	//
 	// A non-nil error is a temporary refusal (a storage error, a rate
 	// limit, an envelope this node cannot open, which over a direct path
