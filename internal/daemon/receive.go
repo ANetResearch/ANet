@@ -98,7 +98,6 @@ const (
 	dropAfterTerminal      = "input-after-terminal" // new input for an interaction in a terminal state
 	dropEndRequestIgnored  = "end-request-ignored"  // end_request from the provider, or after a terminal state
 	dropCancelFromProvider = "cancel-from-provider" // cancel sent by the provider; the provider sends status canceled
-	dropEndAccept          = "end-accept-dropped"   // wire-1 end_accept; the provider completes on its own
 	dropPendingCollision   = "pending-collision"    // delegation for an ix held in the approval queue for another peer
 
 	keysInvalid  = "keys-invalid"  // attached key set did not verify (advisory; message still processed)
