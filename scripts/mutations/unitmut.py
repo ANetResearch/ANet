@@ -12,6 +12,12 @@ and an internal note item-Q33), written for an internal note
   unitmut.py --check unit/si.py …       apply and restore each edit without running tests (does the list
                                         still match the code?)
 
+Several lists may be given (an argument ending in .py is a list, any other is an ID): each is run or
+checked in turn under a "== <list>" heading, and --check ends each with "<list>: N applies, M APPLY-ERR".
+--check exits 1 when any entry is an APPLY-ERR; an ID that is in none of the lists exits 2. An entry
+whose edit names a file that does not exist, or whose key or full test package is not a directory, is an
+APPLY-ERR and the list goes on.
+
 A mutation that survives its key tests is run against the whole of each package in "full"; one that
 survives that too is a gap (or an equivalent mutation: say which in the note). Verdicts: KILLED,
 SURVIVED (full: SURVIVED-full or KILLED-by-other), BUILD-ERR and APPLY-ERR (the list needs fixing).
@@ -146,6 +152,10 @@ def apply(m):
             with open(fp, "w") as f:
                 f.write(new)
             continue
+        if not os.path.isfile(fp):
+            # Deleted or moved by a later change: the entry is to be pointed at the code's new place,
+            # or retired, and the rest of the list still has to be checked.
+            raise ValueError("%s: no such file in %s" % (path, m["repo"]))
         with open(fp) as f:
             s = f.read()
         if s.count(old) != n:
@@ -188,19 +198,60 @@ def load(spec):
     return g["MUTS"]
 
 
+def missing_packages(m):
+    """The key and full test packages of m that are not directories ("Repo:./path" or relative to its repo).
+
+    go test on a directory that is gone fails without a "--- FAIL" or a build marker, which would read as
+    KILLED; a package deleted by a later change is drift in the list, like a file that is gone."""
+    out = []
+    for pkg in [t[0] for t in m["tests"]] + list(m.get("full", [])):
+        repo, p = m["repo"], pkg
+        if ":" in p:
+            repo, p = p.split(":", 1)
+        if p.startswith("sh "):
+            continue
+        d = p[:-4] if p.endswith("/...") else p
+        if not os.path.isdir(os.path.join(ROOT, repo, d)):
+            out.append(repo + ":" + p)
+    return out
+
+
 def main(argv):
     check = argv[:1] == ["--check"]
     if check:
         argv = argv[1:]
-    if not argv:
+    specs = [a for a in argv if a.endswith(".py")]
+    ids = [a for a in argv if not a.endswith(".py")]
+    if not specs:
         sys.exit(__doc__)
-    spec, ids = argv[0], argv[1:]
+    for spec in specs:
+        if not os.path.isfile(spec):
+            sys.exit("unitmut: no mutation list %s" % spec)
+    lists = [(spec, load(spec)) for spec in specs]
+    unknown = [i for i in ids if not any(m["id"] == i for _, muts in lists for m in muts)]
     os.makedirs(os.path.join(OUT, "logs"), exist_ok=True)
     res = {}
     if os.path.exists(RES):
         with open(RES) as f:
             res = json.load(f)
-    for m in load(spec):
+    apply_errs = 0
+    for spec, muts in lists:
+        print("== %s" % spec, flush=True)
+        n_ok, n_err = run_list(muts, ids, check, res)
+        apply_errs += n_err
+        if check:
+            print("%s: %d applies, %d APPLY-ERR" % (spec, n_ok, n_err), flush=True)
+    if unknown:
+        print("unitmut: no mutation named %s in %s" % (", ".join(unknown), ", ".join(specs)), file=sys.stderr)
+        sys.exit(2)
+    if check and apply_errs:
+        sys.exit(1)
+
+
+def run_list(muts, ids, check, res):
+    """Check or run the mutations of one list; returns (applied, APPLY-ERR) counts."""
+    n_ok = n_err = 0
+    for m in muts:
         if (ids and m["id"] not in ids) or (not ids and not check and m["id"] in res):
             continue
         for r in REPOS:
@@ -210,15 +261,22 @@ def main(argv):
         rec = {"id": m["id"], "group": m["group"], "repo": m["repo"], "desc": m["desc"]}
         saved = None
         try:
+            gone = missing_packages(m)
+            if gone:
+                raise ValueError("test package %s does not exist" % ", ".join(gone))
             saved = backup(m)
             apply(m)
         except ValueError as e:
             restore(m["repo"], m["id"], saved)
             rec.update(verdict="APPLY-ERR", detail=str(e))
             print("%-12s APPLY-ERR %s" % (m["id"], e), flush=True)
+            n_err += 1
             if not check:
                 res[m["id"]] = rec
+                with open(RES, "w") as f:
+                    json.dump(res, f, indent=1, ensure_ascii=False)
             continue
+        n_ok += 1
         if check:
             restore(m["repo"], m["id"], saved)
             print("%-12s applies" % m["id"], flush=True)
@@ -242,6 +300,7 @@ def main(argv):
             json.dump(res, f, indent=1, ensure_ascii=False)
         short = "; ".join("%s:%s" % (p.split("/")[-1], ",".join(n[:3])) for p, n in fails)
         print("%-12s %-9s %s %s (%ss)" % (m["id"], verdict, full or "", short[:240], rec["secs"]), flush=True)
+    return n_ok, n_err
 
 
 if __name__ == "__main__":
