@@ -73,7 +73,7 @@ func migratedV01Node(t *testing.T, srvURL string, stranger *Daemon) (*Daemon, st
 	}
 	t.Cleanup(func() { prov.Close() })
 	prov.stopRelayLoop()
-	if err := prov.RegisterWithHub(ctx, srvURL, "prov", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srvURL, "prov", nil); err != nil {
 		t.Fatal(err)
 	}
 	lamp := &lampProvider{}

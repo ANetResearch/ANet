@@ -119,7 +119,7 @@ func (d *Daemon) priceList(caps []string) map[string]uint64 {
 // so does a node that registers and immediately re-registers after its
 // capability list changes. The second call failed for a reason that had
 // nothing to do with what it was doing. Found by the admission joint test
-// (scripts/joint-invite.sh), whose "an existing node re-registers without
+// (scripts/joint-invite.sh, now joint-admission.sh), whose "an existing node re-registers without
 // an invite" step failed against a hub that had nothing to do with it.
 //
 // The fix belongs here rather than in the hub: the high-water rule is

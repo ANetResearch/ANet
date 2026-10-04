@@ -21,10 +21,10 @@ func TestAcceptedPeerKELIsRecorded(t *testing.T) {
 
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil); err != nil {
 		t.Fatal(err)
 	}
 

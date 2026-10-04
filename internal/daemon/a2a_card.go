@@ -445,9 +445,8 @@ func (d *Daemon) afterCardAnswer(ctx context.Context, hubURL string, body hubapi
 		return
 	}
 	body.A2ACard = card
-	// The first attempt registered this AID, so an admission token has
-	// been spent and is not sent again (RegisterWithHub).
-	body.Invite = ""
+	// The first attempt registered this AID: no proof of work again.
+	body.PoW = nil
 	// The ADP card of the first attempt was admitted at its seq, so the
 	// second attempt carries a newly minted one (card.go).
 	if body.Card != nil {

@@ -430,7 +430,7 @@ func TestATruncatedKELIsRefusedAfterTableChurnAndRestart(t *testing.T) {
 	// The hub authenticates the requester against its registered KEL, so
 	// the rotation is registered before the requester signs with the new
 	// key.
-	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}
 	// The provider learns the rotation from an ordinary message.
@@ -1196,7 +1196,7 @@ func TestAStoredKeySetThatNoLongerVerifiesIsReplaced(t *testing.T) {
 	if _, err := prov.enc.maintain(prov.self.Sign, prov.self.CurrentSeq()); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
 		t.Fatal(err)
 	}
 	// The requester follows the rotation (an accepted message from the

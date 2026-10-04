@@ -163,7 +163,7 @@ func FuzzHubAnswers(f *testing.F) {
 				checkAgents(t, []module.RemoteAgent{ra})
 			}
 		case hubOpRegister:
-			_ = d.RegisterWithHub(ctx, srv.URL, "fuzz", []string{"text.echo"}, "")
+			_ = d.RegisterWithHub(ctx, srv.URL, "fuzz", []string{"text.echo"})
 		}
 	})
 }

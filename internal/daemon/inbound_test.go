@@ -28,7 +28,7 @@ const lampCap = "light.onoff@sim/lamp-1"
 func registered(t *testing.T, srvURL, name string) *Daemon {
 	t.Helper()
 	d := newTestDaemon(t, srvURL, false)
-	if err := d.RegisterWithHub(context.Background(), srvURL, name, nil, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), srvURL, name, nil); err != nil {
 		t.Fatal(err)
 	}
 	d.stopRelayLoop()
@@ -757,8 +757,9 @@ func TestAcceptDelegationsMigratesToClosed(t *testing.T) {
 }
 
 // `accept on` has no safe equivalent and is refused with the three policies
-// and the allow-list command; `accept off` sets closed; hub-register with
-// accept_delegations=true is refused the same way (A2A-DESIGN §5.1 [C8]).
+// and the allow-list command; `accept off` sets closed (A2A-DESIGN §5.1
+// [C8]). hub-register no longer reads accept_delegations: the CLI refuses
+// the flag before it reaches the daemon (cli_removed, ux §4.3).
 func TestAcceptOnIsRefused(t *testing.T) {
 	d := newTestDaemon(t, "", false)
 	setPolicy(t, d, PolicyApprove)
@@ -779,12 +780,6 @@ func TestAcceptOnIsRefused(t *testing.T) {
 	d.hAccept(rec, httptest.NewRequest(http.MethodPost, "/accept", strings.NewReader(`{"enabled":false}`)))
 	if rec.Code != http.StatusOK || d.config().inbound().Policy != PolicyClosed {
 		t.Fatalf("accept off: %d, policy %s", rec.Code, d.config().inbound().Policy)
-	}
-	rec = httptest.NewRecorder()
-	d.hHubRegister(rec, httptest.NewRequest(http.MethodPost, "/hub-register",
-		strings.NewReader(`{"hub":"http://hub.invalid","accept_delegations":true}`)))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "anet peers allow") {
-		t.Fatalf("hub-register --accept-delegations true: %d %s", rec.Code, rec.Body)
 	}
 }
 

@@ -203,10 +203,10 @@ func registeredPair(t testing.TB) (*httptest.Server, *Daemon, *Daemon) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
 		t.Fatal(err)
 	}
 	return srv, req, prov

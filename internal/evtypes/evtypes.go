@@ -44,6 +44,8 @@ const (
 	EvidenceGap              = "anet.evidence.gap"
 	MessageSent              = "anet.message.sent"
 	MessageReceived          = "anet.message.received"
+	// HubAdmission is a change of the hub join state (LEC §2.5, AD-7).
+	HubAdmission = "anet.hub.admission"
 )
 
 // Source says where the fact an event records came from.
@@ -99,6 +101,7 @@ var registry = []Event{
 		AggregatedLabel: "messages sent (aggregated)"},
 	{Type: MessageReceived, Label: "message received", Source: SourcePeer,
 		AggregatedLabel: "messages received (aggregated)"},
+	{Type: HubAdmission, Label: "hub join state changed", Source: SourceHub},
 }
 
 var byType = func() map[string]Event {

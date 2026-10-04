@@ -61,6 +61,8 @@ type Daemon struct {
 	running     sync.Map // interaction id -> *runningCall
 	logOnceMu   sync.Mutex
 	logOnceSeen map[string]bool
+	// join is the hub join loop's state (hubjoin_daemon.go).
+	join hubJoin
 	// rxFault, when set, is called inside the receive transaction after the
 	// business writes; an error rolls the transaction back. Tests only,
 	// through setRxFault (testhooks.go), atomic for the same reason as
@@ -277,10 +279,14 @@ func New(layout Layout) (*Daemon, error) {
 	d.startPayments(ctx)
 	d.goBackground(func() { d.outboxLoop(ctx) })
 	d.goBackground(func() { d.noResponseLoop(ctx) }) // no_response.go
+	// The join loop registers again at every start (hubjoin_daemon.go,
+	// LEC AD-5); the relay loop polls once the hub has registered this
+	// node.
+	d.initJoin(cfg)
 	if cfg.HubURL != "" {
 		d.startRelayLoop(cfg.HubURL)
-		d.refreshRegistration()
 	}
+	d.startJoinLoop()
 	if cfg.AutoReply != nil {
 		d.startAutoReply(*cfg.AutoReply)
 	}
@@ -294,73 +300,39 @@ func New(layout Layout) (*Daemon, error) {
 	return d, nil
 }
 
-// refreshRegistration re-publishes what this node serves, in the background.
+// refreshRegistration re-publishes what this node serves, in the
+// background: the join loop registers again now (LEC AD-5).
 //
-// The capability list a hub advertises is folded in at hub-register time
-// and never afterwards. Modules are wired at start, so their capabilities
-// change whenever the build or the config changes — and a restart, which
-// is exactly how an operator applies such a change, did not tell the hub.
-// The heartbeat kept refreshing last_seen, so the node looked healthy
-// while its advertised capabilities were whatever they had been at the
-// last explicit registration.
+// The capability list a hub advertises is folded in at registration time.
+// Modules are wired at start, so their capabilities change whenever the
+// build or the config changes — and a restart, which is exactly how an
+// operator applies such a change, has to tell the hub, or the hub goes on
+// advertising a capability the node has dropped and a delegation sent on
+// the strength of that lands where nobody serves it. The start-up attempt of
+// the join loop is that refresh; this one is for a change while running
+// (cardInputsChanged).
 //
-// The removal direction is the worse one. A hub goes on advertising a
-// capability the node has dropped; `anet find --cap` returns it as a live
-// answer; a delegation sent on the strength of that lands in the path
-// nobody serves, where the requester gets no error, the provider logs
-// nothing and neither chain records anything.
-//
-// Background and non-fatal on purpose: a daemon must come up when its hub
-// is unreachable, and this is a refresh of something the hub already has,
-// not a precondition for running. Found by the release matrix.
-// The config is read inside the goroutine, not captured at start: an
-// explicit `hub-register` can land first, and a refresh carrying the
-// snapshot from before it would overwrite what the operator just set.
+// Only a registered node re-registers here: a node waiting for admission or
+// for its hub carries the change in its next scheduled attempt, and a
+// refused one waits for `anet hub-register` (AD-3).
 func (d *Daemon) refreshRegistration() {
-	d.goBackground(func() {
-		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
-		defer cancel()
-		// Read and register under one lock, so an explicit hub-register
-		// racing this cannot be overwritten by a stale snapshot.
-		d.regMu.Lock()
-		defer d.regMu.Unlock()
-		cfg := d.config()
-		if cfg.HubURL == "" {
-			return // left the hub between start and now
-		}
-		caps := withServedCapabilities(cfg.Caps, d.providers)
-		if err := d.registerWithHubLocked(ctx, cfg.HubURL, cfg.Name, caps, ""); err != nil {
-			// Not an error the operator must act on: the node runs either
-			// way, and the next explicit hub-register will carry it.
-			log.Printf("anet: could not refresh this node's registration with %s: %v", cfg.HubURL, err)
-			return
-		}
-		if !sameStrings(cfg.Caps, caps) {
-			// What the hub was sent, which is only the public ones
-			// (registerWithHubLocked, an internal note item). The served list printed
-			// here read as if the private ones had been published
-			// (an internal note).
-			log.Printf("anet: refreshed capabilities at %s: %v", cfg.HubURL, d.publicOnly(caps))
-		}
-	})
-}
-
-// sameStrings reports whether two capability lists have the same members.
-func sameStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+	hub := d.config().HubURL
+	if hub == "" {
+		return
 	}
-	seen := make(map[string]int, len(a))
-	for _, x := range a {
-		seen[x]++
+	d.join.mu.Lock()
+	r := d.join.rec
+	if r == nil || !sameHub(r.Hub, hub) {
+		// A hub the loop has no record of (config.json changed under the
+		// running daemon): its first attempt is this one.
+		d.join.rec = freshJoinRecord(hub, time.Now())
+		r = d.join.rec
 	}
-	for _, x := range b {
-		seen[x]--
-		if seen[x] < 0 {
-			return false
-		}
+	registered, fresh := r.State == JoinRegistered, r.RegisteredAt == 0 && r.Attempts == 0
+	d.join.mu.Unlock()
+	if registered || fresh {
+		d.kickJoin()
 	}
-	return true
 }
 
 // goBackground runs f on its own goroutine and makes Close wait for it.
