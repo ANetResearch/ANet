@@ -1,0 +1,19 @@
+{
+  "upstream": "anthropic",
+  "model": "claude-haiku-4-5",
+  "request": {
+    "method": "POST",
+    "target": "/v1/messages",
+    "body": "{\"max_tokens\":1024,\"messages\":[],\"mcp_servers\":[{\"type\":\"url\",\"url\":\"https://mcp.example\",\"name\":\"m\"}]}"
+  },
+  "refused": {
+    "status": 403,
+    "body": {
+      "error": {
+        "message": "anet: MCP connectors (mcp_servers) are not allowed in the sandbox.",
+        "type": "permission_error"
+      },
+      "type": "error"
+    }
+  }
+}
