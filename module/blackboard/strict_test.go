@@ -93,6 +93,7 @@ func TestCogUnitDecodeIsStrict(t *testing.T) {
 	for name, wire := range map[string][]byte{
 		"envelope first":      rawMap(t, 2, rawCBOR(env), 1, good),
 		"no envelope":         rawMap(t, 1, good),
+		"envelope null":       rawMap(t, 1, good, 2, nil),
 		"no body":             rawMap(t, 2, rawCBOR(env)),
 		"an unregistered key": rawMap(t, 1, good, 2, rawCBOR(env), 3, 0),
 		"body inline":         rawMap(t, 1, rawCBOR(good), 2, rawCBOR(env)),

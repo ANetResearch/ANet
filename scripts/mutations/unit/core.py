@@ -440,4 +440,13 @@ MUTS = [
  dict(id='core5-34', group='CORE-5', repo='ANetCore', desc='待办标记的拼法错一个字符(框架找不到源码里的标记)',
   edits=[('wire/transition.go', 'const TodoWord = "v030" + "-todo"', 'const TodoWord = "v030" + "_todo"')],
   tests=[('ANetCore:./wire', '^(TestTodoMarker|TestTransitionEntries)$')], full=['ANetCore:./wire']),
+ dict(id='core5-35', group='CORE-5', repo='ANet', desc='CogUnitWire 的 env 为 null 时仍解码出单元',
+  edits=[('module/blackboard/cogunit.go', '\tif w.Envelope == nil {\n\t\treturn nil, fmt.Errorf("%w: no envelope", ErrUnitMalformed)', '\tif false && w.Envelope == nil {\n\t\treturn nil, fmt.Errorf("%w: no envelope", ErrUnitMalformed)')],
+  tests=[('ANet:./module/blackboard', '^TestCogUnitDecodeIsStrict$')], full=['ANet:./module/blackboard']),
+ dict(id='core5-36', group='CORE-5', repo='ANetCore', desc='CheckGrant 的 sig 步接受小阶 mbox',
+  edits=[('seal/grant.go', 'if len(keys.Mbox.Pub) != ed25519.PublicKeySize || smallOrder(keys.Mbox.Pub) || ', 'if len(keys.Mbox.Pub) != ed25519.PublicKeySize || ')],
+  tests=[('ANetCore:./seal', '^TestSmallOrderKeysRefused$')], full=['ANetCore:./seal']),
+ dict(id='core5-37', group='CORE-5', repo='ANet', desc='advertise 的 tcp:// 前缀不去掉(grant 里丢掉直连地址)',
+  edits=[('internal/daemon/caps.go', '\ta = strings.TrimPrefix(strings.TrimSpace(a), "tcp://")', '\ta = strings.TrimSpace(a)')],
+  tests=[('ANet:./internal/daemon', '^TestGrantP2PAddrIsTheGrantsForm$')], full=['ANet:./internal/daemon']),
 ]
