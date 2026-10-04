@@ -11,7 +11,8 @@
 # pad; 38 is the edit of core2-5, judged here by SEALED-2C alone) and fs2-a to fs2-h, which hold the second
 # layer's tests to the rules they check (L2 and its info, the layer-1 ack_key, the ack_key on a refusal
 # after layer 1, the key a lookup answers, Opened.Layers, the signature over the second layer) and keep
-# bad-pad retired in the registry.
+# bad-pad retired in the registry; fs2-i and fs2-j hold an rk suite above 255 refused rather than
+# truncated, and an interaction key printed without its private half.
 
 IX = 'ANet:./internal/runtime/interactions'
 
@@ -301,5 +302,20 @@ MUTS = [
          ('wire/registry.json', ',\n      {"code": "bad-pad", "note": "seal: the pad check of envelope v1 (inner key 21, retired); the pad is in the Wrap now, where a non-zero byte is bad-wrap"}\n', '\n')],
   tests=[('ANetCore:./wire', '^TestRegistryRetiredItemsArePinned$')],
   full=['ANetCore:./wire'],
+ ),
+ dict(
+  id='fs2-i', group='FS-C11', repo='ANetCore',
+  desc='rk 的套件号不查是否超过 255(257 截断成 uint8 的 1,被当作套件 1 收下)',
+  edits=[('seal/ixkey.go', '\tif suite > 0xff {\n\t\treturn nil, fmt.Errorf("rk suite %d", suite)\n\t}\n', '')],
+  tests=[(SEAL, '^(TestOpenOrder|FuzzRKDecode)$')],
+  full=[SEAL],
+ ),
+ dict(
+  id='fs2-j', group='SI-34', repo='ANetCore',
+  desc='IXKey 按字段打印(私钥随日志或错误信息泄露)',
+  edits=[('seal/ixkey.go', 'func (k IXKey) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, k.String()) }',
+          'func (k IXKey) Format(f fmt.State, verb rune) {\n\ttype plain IXKey\n\t_, _ = fmt.Fprintf(f, fmt.FormatString(f, verb), plain(k))\n\t_ = io.EOF\n}')],
+  tests=[(SEAL, '^TestGenerateIXKey$')],
+  full=[SEAL],
  ),
 ]
