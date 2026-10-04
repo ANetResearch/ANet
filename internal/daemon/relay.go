@@ -292,6 +292,9 @@ func (d *Daemon) relayPoll(ctx context.Context, after int64) ([]hubapi.RelayMess
 		hubapi.RelayPollRequest{Limit: relayPollLimit, AfterID: after}, &resp); err != nil {
 		return nil, err
 	}
+	// Every poll answer says how the hub confirms this node's key (KEL
+	// D-50): the notice is checked before the gate sees it.
+	d.noteHubNotice(resp.KeyStateNotice, resp.KeyStateNoticeError)
 	return resp.Messages, nil
 }
 

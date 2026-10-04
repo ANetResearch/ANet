@@ -49,7 +49,7 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		{"RelaySendRequest", hubapi.RelaySendRequest{}, []string{"envelope", "to_aid"}},
 		{"RelaySendResponse", hubapi.RelaySendResponse{}, []string{"id", "recipient_quiet", "rid", "status", "via_hub", "warning"}},
 		{"RelayPollRequest", hubapi.RelayPollRequest{}, []string{"after_id", "limit"}},
-		{"RelayPollResponse", hubapi.RelayPollResponse{}, []string{"messages"}},
+		{"RelayPollResponse", hubapi.RelayPollResponse{}, []string{"key_state_notice", "key_state_notice_error", "messages"}},
 		{"RelayMessage", hubapi.RelayMessage{}, []string{"envelope", "id"}},
 		// Delivery tokens (DLV §2.4, core §2.12.2). Mirrors ANetHub
 		// internal/aghub: the same names on both sides, and the registry's

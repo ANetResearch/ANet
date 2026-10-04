@@ -48,6 +48,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/daemon"
 	"github.com/ANetResearch/ANet/internal/hubapi"
 )
 
@@ -263,9 +264,21 @@ func cmdSeal(args []string) error {
 		sig, _ := c.Sign(pre)
 		return sig, seq
 	}
+	// The witness notice the node holds for its own KEL (KEL D-50), as its
+	// daemon would carry it. A claimed KEL has none here: the receiver
+	// refuses such an envelope at step 6½ or 7, which is the point.
+	notice := []byte{}
+	if *kelOf == "self" {
+		if n := daemon.StoredNotice(daemon.NewLayout(*home), c.KEL()); n != nil {
+			notice = n
+		}
+	}
+	// v030-todo(ENG-1c): a node its witness has not confirmed has no notice,
+	// and its envelope goes with an empty one, which receivers accept until
+	// they check step 6½.
 	inner := &seal.SealedInner{From: from, KeyStateSeq: seq, To: *to, Type: innerType, IX: *ix,
 		MID: seal.NewMID(), TS: now, Exp: now + fixtureLifetimeMS, Body: body, KEL: kel, Keys: sender.keysRaw,
-		Notices: [][]byte{{}}} // v030-todo(KEL-8): the witness notice for the KEL
+		Notices: [][]byte{notice}}
 	env, _, err := seal.Seal(inner, key, sign, seal.SealOpts{})
 	if err != nil {
 		return err

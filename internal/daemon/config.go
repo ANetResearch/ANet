@@ -69,13 +69,6 @@ type Config struct {
 	// the block is given defaultPayments at load and rewritten, so the file
 	// states the limits explicitly (SI-5).
 	Payments *PaymentsConfig `json:"payments,omitempty"`
-	// RotationGrace is how long after a peer's key rotation a message
-	// signed by its previous key, and time-stamped before the rotation, is
-	// still accepted (A2A-DESIGN §3.6 step 7). A Go duration such as "1h";
-	// empty means 1h. A longer grace lets older mailbox messages through
-	// and lets a stolen pre-rotation key sign back-dated messages for as
-	// long.
-	RotationGrace string `json:"rotation_grace,omitempty"`
 	// NoResponseAfter is how long a task this node sent may sit submitted
 	// with nothing at all from its peer — no status, no message, no result
 	// — once its delegation has left this node, before it is failed with

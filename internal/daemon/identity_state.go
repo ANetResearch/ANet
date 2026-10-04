@@ -102,7 +102,10 @@ const (
 const (
 	noticeErrQuarantine  = "quarantine"
 	noticeErrNotAdmitted = "not_admitted"
-	hubKELTSOutOfWindow  = "kel_ts_out_of_window"
+	// noticeErrNotWitness is what a hub that is not the witness answers
+	// (an old hub after a switch): expected, and not shown (KEL §2.11).
+	noticeErrNotWitness = "not_witness"
+	hubKELTSOutOfWindow = "kel_ts_out_of_window"
 )
 
 // IdentityState is a row of the state table (KEL §4.3.1): the state and the
@@ -139,6 +142,8 @@ type identityFacts struct {
 	AID    string
 	TipSeq uint64
 	TipID  string
+	// TipTS is the tip's ts: when the key state it begins began.
+	TipTS uint64
 	// Witness is the witness hub the accepted KEL names (key 9 of its last
 	// rot); "" while the witness is pending (KEL R-4).
 	Witness string
@@ -166,7 +171,7 @@ func identityFactsOf(c *identity.Controller) identityFacts {
 func kelFacts(aid string, kel []identity.SignedEvent) identityFacts {
 	f := identityFacts{AID: aid}
 	if n := len(kel); n > 0 {
-		f.TipSeq, f.TipID = kel[n-1].Event.Seq, kel[n-1].EventID
+		f.TipSeq, f.TipID, f.TipTS = kel[n-1].Event.Seq, kel[n-1].EventID, kel[n-1].Event.Timestamp
 	}
 	for i := len(kel) - 1; i >= 0; i-- {
 		if e := kel[i].Event; e.Type == identity.Inception || e.Type == identity.Rotation {
@@ -185,6 +190,14 @@ func kelFacts(aid string, kel []identity.SignedEvent) identityFacts {
 type keyStateNotice struct {
 	Wire []byte
 	Body identity.NoticeBody
+}
+
+// sameTip reports whether n and o state the same tip: the same AID, seq,
+// head and witness. Two notices about one tip differ only in when the hub
+// observed it.
+func (n *keyStateNotice) sameTip(o *keyStateNotice) bool {
+	return n != nil && o != nil && n.Body.AID == o.Body.AID && n.Body.Seq == o.Body.Seq &&
+		n.Body.Head == o.Body.Head && n.Body.Witness == o.Body.Witness
 }
 
 // confirms reports whether n is a notice about the tip f names: the same AID,
@@ -275,6 +288,26 @@ func noticeAge(n *keyStateNotice, now uint64) uint64 {
 	return now - n.Body.ObservedAt
 }
 
+// gateDeliveryWait is anet.delivery_wait of an outbound row the gate holds
+// back (KEL D-4, ux appendix B-1): rotation_pending while a key event is
+// being published, notice_stale while no fresh notice confirms the tip, ""
+// otherwise. The engine reads it from identityGate() when it projects the
+// row, never from the row's last_error: the gate may have opened since.
+// The other closed states do not wait: a send is refused at once in them
+// (stopped, deactivated: KEL D-3; no hub: the join's, LEC AD-6).
+func gateDeliveryWait(g GateState) string {
+	if g.Open {
+		return ""
+	}
+	switch g.State {
+	case IdentityPublishing:
+		return reasonRotationPending
+	case IdentityNoticeStale:
+		return reasonNoticeStale
+	}
+	return ""
+}
+
 // KELSealed is what an outbox version records about the key state it was
 // sealed under (engine ENG-S3): the outbox columns sealed_kss and
 // sealed_notice_at. The engine's row view embeds it and hands it to
@@ -336,14 +369,16 @@ func hubArrival(acceptedAt, innerTS, now uint64) uint64 {
 // the join record: this node's latest notice, the latest key_state_notice_error,
 // and the hub's latest refusal of the pending event.
 //
-// v030-todo(KEL-8): key_state_notice.cbor is loaded at start and the notice
-// or its error is recorded from every register and poll answer (KEL D-50);
+// The notice comes from key_state_notice.cbor at start and from every
+// /register and /relay/poll answer after (identity_notice.go, KEL D-50).
 // v030-todo(KEL-9): the publication sequence records its refusals here.
 type identityGateInputs struct {
 	mu         sync.Mutex
 	notice     *keyStateNotice
 	noticeErr  string
 	publishErr string
+	// saveMu serializes the writes of key_state_notice.cbor.
+	saveMu sync.Mutex
 	// gateHook, when set, replaces the gate. Tests only, through
 	// setIdentityGate (testhooks.go).
 	gateHook atomic.Pointer[func() GateState]
@@ -352,19 +387,31 @@ type identityGateInputs struct {
 // noteNotice records what the latest hub answer said of this node's key
 // state: a notice (n, err "") or why it carried none (n nil, err its
 // key_state_notice_error). An answer without a notice keeps the one held.
+// It reports whether n replaced the notice held.
+//
+// A notice replaces the one held when it states another tip — whatever its
+// time: after a hub switch the new hub's clock may run behind the old one's
+// — or the same tip observed later (KEL D-50). An older notice about the
+// same tip changes nothing, so the notice held never goes back in time.
 //
 // The gate checks only that n is about this node's tip and witness, not its
 // signature or its time: the caller records a notice that
 // identity.VerifyNotice accepted for this node's KEL at arrival now, which
-// also keeps out one observed more than the clock skew after now.
-func (g *identityGateInputs) noteNotice(n *keyStateNotice, noticeErr string) {
+// also keeps out one observed more than the clock skew after now
+// (noteHubNotice).
+func (g *identityGateInputs) noteNotice(n *keyStateNotice, noticeErr string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if n != nil {
+		if n.sameTip(g.notice) && n.Body.ObservedAt <= g.notice.Body.ObservedAt {
+			g.noticeErr = ""
+			return false
+		}
 		g.notice, g.noticeErr = n, ""
-		return
+		return true
 	}
 	g.noticeErr = noticeErr
+	return false
 }
 
 // notePublishError records the hub's reason for refusing the pending event;

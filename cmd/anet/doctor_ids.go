@@ -29,9 +29,13 @@ var doctorIDs = []doctorID{
 	{id: "control.token"},
 	{id: "identity"},
 	{id: "identity.format", keys: []string{"identity_v02"}},
-	{id: "identity.witness", keys: []string{"identity.ok", "no_hub_yet", "old_hub_unacked", "identity.confirm_aging",
-		"identity.quarantine", "identity.hub_record_invalid", "identity.hub_kel_fork", "identity.hub_unauthorized",
-		"notice_stale", "identity_stopped", "identity_deactivated"}},
+	// identity.witness says /identity/status's sentence: in no_hub the hub
+	// row's (ux UX-C9), and while a key event is published rotation_pending
+	// or clock_skew.
+	{id: "identity.witness", keys: []string{"identity.ok", "no_hub_yet", "hub_pending_admission", "hub_retrying",
+		"hub_refused", "old_hub_unacked", "identity.confirm_aging", "identity.quarantine", "identity.hub_record_invalid",
+		"identity.hub_kel_fork", "identity.hub_unauthorized", "rotation_pending", "clock_skew", "notice_stale",
+		"identity_stopped", "identity_deactivated"}},
 	{id: "identity.recovery", keys: []string{"identity.status.recovery", "identity.recovery_note", "identity.unprotected",
 		"identity.unprotected.resume", "identity.recovery_perm", "identity.recovery_leftover"}},
 	{id: "identity.rotation", keys: []string{"rotation_pending"}},

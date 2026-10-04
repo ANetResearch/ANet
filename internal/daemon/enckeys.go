@@ -180,7 +180,7 @@ func (r *encKeyRing) Seq() uint64 {
 // maintain applies the rotation policy at the ring's clock, re-signs the
 // published set when its content or the signing key state changed, and
 // writes the result to the key ring file before the ring uses it. It
-// reports whether anything changed. sign and ksn are the node's current
+// reports whether anything changed. sign and keySeq are the node's current
 // identity signer and key_state_seq.
 //
 // The new state is written and fsynced first and only then becomes the
@@ -190,7 +190,7 @@ func (r *encKeyRing) Seq() uint64 {
 // memory would, after a crash, leave that peer sealing to a key nobody
 // holds. When the write fails the ring keeps its previous state, nothing
 // new is attached or published, and the next run tries again.
-func (r *encKeyRing) maintain(sign seal.SignFunc, ksn uint64) (bool, error) {
+func (r *encKeyRing) maintain(sign seal.SignFunc, keySeq uint64) (bool, error) {
 	r.maintMu.Lock()
 	defer r.maintMu.Unlock()
 	now := r.now()
@@ -252,7 +252,7 @@ func (r *encKeyRing) maintain(sign seal.SignFunc, ksn uint64) (bool, error) {
 		pub = pub[len(pub)-seal.MaxKeysPerSet:]
 	}
 
-	if !changed && signedMatches(signedNow, r.aid, pub, mbox, ksn) {
+	if !changed && signedMatches(signedNow, r.aid, pub, mbox, keySeq) {
 		return false, nil
 	}
 	set := &seal.EncKeySet{Type: seal.EncKeySetType, AID: r.aid, Seq: seal.NextSeq(now, lastSeq), Keys: pub, IssuedAt: now, Mbox: mbox}
@@ -260,8 +260,8 @@ func (r *encKeyRing) maintain(sign seal.SignFunc, ksn uint64) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("anet: sign encryption key set: %w", err)
 	}
-	if signed.KeyStateSeq != ksn {
-		return false, fmt.Errorf("anet: key set signed under key state %d, identity is at %d", signed.KeyStateSeq, ksn)
+	if signed.KeyStateSeq != keySeq {
+		return false, fmt.Errorf("anet: key set signed under key state %d, identity is at %d", signed.KeyStateSeq, keySeq)
 	}
 	b, err := signed.Marshal()
 	if err != nil {
@@ -277,13 +277,13 @@ func (r *encKeyRing) maintain(sign seal.SignFunc, ksn uint64) (bool, error) {
 }
 
 // signedMatches reports whether signed (a SignedEncKeySet encoding) lists
-// exactly pub and mbox for aid and was signed under key state ksn.
-func signedMatches(signed []byte, aid string, pub []seal.EncKey, mbox seal.Mbox, ksn uint64) bool {
+// exactly pub and mbox for aid and was signed under key state keySeq.
+func signedMatches(signed []byte, aid string, pub []seal.EncKey, mbox seal.Mbox, keySeq uint64) bool {
 	if len(signed) == 0 {
 		return false
 	}
 	s, err := seal.UnmarshalSignedEncKeySet(signed)
-	if err != nil || s.KeyStateSeq != ksn {
+	if err != nil || s.KeyStateSeq != keySeq {
 		return false
 	}
 	var set seal.EncKeySet

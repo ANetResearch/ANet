@@ -472,6 +472,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		add("control", stInfo, "daemon not running (control plane "+rep.Control.Addr+")", "anet up")
 	}
 	tokenCheck(add, "control.token", rep.Control.Token)
+	identityChecks(add, say, rep, env, layout, lang)
 
 	// Local A2A interface (module a2a, §11).
 	rep.A2A.Compiled = slices.Contains(rep.Modules, "a2a")

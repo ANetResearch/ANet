@@ -51,6 +51,9 @@ type hubJoin struct {
 	// the last attempt whose registration was accepted began (unix ns): a
 	// kick older than that attempt has been answered by it.
 	kickAt, okAt atomic.Int64
+	// waitHook, when set, is told each time the loop starts to wait. Tests
+	// only, through setJoinWait (testhooks.go).
+	waitHook atomic.Pointer[func(nextAttemptAt int64)]
 }
 
 // initJoin loads the join record of the configured hub (New). A record of
@@ -142,9 +145,14 @@ func (d *Daemon) joinLoop(ctx context.Context) {
 	for {
 		var due <-chan time.Time
 		var timer *time.Timer
+		var next int64
 		if r := d.joinSnapshot(); r != nil && r.NextAttemptAt > 0 {
-			timer = time.NewTimer(time.Until(time.UnixMilli(r.NextAttemptAt)))
+			next = r.NextAttemptAt
+			timer = time.NewTimer(time.Until(time.UnixMilli(next)))
 			due = timer.C
+		}
+		if f := d.testJoinWait(); f != nil {
+			f(next) // tests: the loop waits now, for the attempt due at next
 		}
 		attempt, kicked := false, false
 		select {
@@ -276,6 +284,9 @@ func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []
 	out := runJoinAttempt(ctx, r, env)
 	if out.reg != nil {
 		d.join.okAt.Store(start)
+		// What the hub said of the key state, after Adopt made the rot the
+		// tip a notice about it confirms (KEL D-13 step 4, D-50).
+		d.noteHubNotice(out.reg.KeyStateNotice, out.reg.KeyStateNoticeError)
 	}
 	d.keepJoinRecord(hubURL, out.rec)
 	return out.rec
@@ -480,7 +491,16 @@ func (v hubView) refusal() *a2ashape.Refusal {
 // every send surface gives (LEC AD-6, ux UX-R7): until the hub registered
 // this node, a send fails at once with the join state's sentence and
 // nothing is queued. Messages already queued are the outbound gate's.
+//
+// An identity that is stopped or deactivated is refused first, with its own
+// code (KEL D-3): it says the more fundamental thing, which no hub can
+// change, so it wins when both gates are closed (ux UX-R7). A key event
+// being published or a stale notice is not a reason to refuse: the send is
+// queued and waits for the outbound gate (KEL D-4).
 func (d *Daemon) sendGate() *a2ashape.Refusal {
+	if ref := d.identitySendRefusal(); ref != nil {
+		return ref
+	}
 	v := d.viewOfJoin(d.joinSnapshot(), time.Now(), a2ashape.Lang())
 	if v.State == JoinRegistered {
 		return nil
@@ -714,6 +734,11 @@ func (d *Daemon) joinHub(ctx context.Context, req joinRequest) (hubRegisterResp,
 				a2ashape.Args{"key": "next_digest", "rule": ruleText("首次接入 hub 时必须带上(anet hub-register 会自动带上)",
 					"a first join must carry it (anet hub-register adds it)")})}
 		}
+		if err := d.keepLocalCommit(req); err != nil {
+			log.Printf("anet: save local_commit: %v", err)
+			return hubRegisterResp{}, &joinError{http.StatusInternalServerError, a2ashape.Refuse(reasonConfigInvalid,
+				a2ashape.Args{"key": "next_digest", "rule": ruleText("无法写入身份文件 identity.kel", "identity.kel could not be written")})}
+		}
 	}
 	caps := withServedCapabilities(req.Caps, d.providers)
 
@@ -751,7 +776,22 @@ func (d *Daemon) joinHub(ctx context.Context, req joinRequest) (hubRegisterResp,
 		}
 	}
 	d.writeRegistry() // the identity entry shows the (possibly new) name
-	return d.registerAnswer(&rec, req.Unprotected, a2ashape.Lang()), nil
+	return d.registerAnswer(&rec, a2ashape.Lang()), nil
+}
+
+// keepLocalCommit writes local_commit, identity file key 7, for a first
+// join whose next_digest comes from the recovery file without a passphrase
+// (KEL D-11): before witness_rot, so the identity reads as unprotected from
+// the moment the commitment can be used. Once the witness designation is
+// built its commitment is fixed (KEL D-14), and nothing is written.
+func (d *Daemon) keepLocalCommit(req joinRequest) error {
+	if !req.Unprotected || req.NextDigest == nil {
+		return nil
+	}
+	if _, building := d.self.Pending(); building {
+		return nil
+	}
+	return d.saveLocalCommit(req.NextDigest)
 }
 
 // adoptJoinTarget writes config.json's hub_url, name and caps and the hub's
@@ -804,9 +844,9 @@ func (d *Daemon) adoptJoinTarget(req joinRequest, hubAID string, caps []string) 
 	r.HubAID = hubAID
 	if req.NextDigest != nil {
 		// Before the rot is built a new commitment replaces the old one
-		// (KEL D-14). v030-todo(KEL-9): with unprotected, local_commit
-		// (identity file key 7) is written first (KEL D-11), and a
-		// commitment arriving after the rot was built is rotation_pending.
+		// (KEL D-14); with unprotected, joinHub wrote local_commit first
+		// (KEL D-11). v030-todo(KEL-9): a commitment arriving after the rot
+		// was built is rotation_pending.
 		r.WitnessRot = &WitnessRot{NextDigest: append([]byte(nil), req.NextDigest...), HubAID: hubAID}
 	}
 	d.join.rec = r
@@ -822,30 +862,28 @@ func (d *Daemon) adoptJoinTarget(req joinRequest, hubAID string, caps []string) 
 // registerAnswer is the /hub-register answer for the state r is in: the
 // state's sentence and, while the identity has no recovery passphrase,
 // the reminder (the CLI prints it first).
-func (d *Daemon) registerAnswer(r *joinRecord, unprotected bool, lang a2ashape.Language) hubRegisterResp {
-	return d.registerAnswerAt(r, unprotected, lang, time.Now())
+func (d *Daemon) registerAnswer(r *joinRecord, lang a2ashape.Language) hubRegisterResp {
+	return d.registerAnswerAt(r, d.recoveryState(), lang, time.Now())
 }
 
-// registerAnswerAt is registerAnswer at now.
-func (d *Daemon) registerAnswerAt(r *joinRecord, unprotected bool, lang a2ashape.Language, now time.Time) hubRegisterResp {
+// registerAnswerAt is registerAnswer at now, for the recovery attribute rec.
+func (d *Daemon) registerAnswerAt(r *joinRecord, rec RecoveryState, lang a2ashape.Language, now time.Time) hubRegisterResp {
 	v := d.viewOfJoin(r, now, lang)
 	return hubRegisterResp{Hub: v.URL, AID: d.AID(), State: v.State, Reason: v.Reason, Message: v.Message,
-		Next: v.Next, NextAttemptAt: v.NextAttemptAt, Recovery: recoveryForJoin(unprotected, lang),
+		Next: v.Next, NextAttemptAt: v.NextAttemptAt, Recovery: recoveryForJoin(rec, d.identityState().State, lang),
 		HubCode: v.HubCode, HubError: v.HubError}
 }
 
-// recoveryForJoin is the recovery object of the /hub-register answer: set
-// while the identity has no recovery passphrase (KEL D-15).
-// v030-todo(KEL-8): recoveryStateOf (identity_recovery.go) decides from
-// the identity file's local_commit and the KEL; until then the request's
-// unprotected says it.
-func recoveryForJoin(unprotected bool, lang a2ashape.Language) *recoveryView {
-	if !unprotected {
+// recoveryForJoin is the recovery object of the /hub-register answer (KEL
+// D-15): there while the identity has no recovery passphrase, decided by
+// recoveryStateOf from local_commit and the KEL, whatever the request said.
+// An update of a registration made without a terminal carries it too.
+func recoveryForJoin(rec RecoveryState, identityState string, lang a2ashape.Language) *recoveryView {
+	if rec.reminderKey(identityState) == "" {
 		return nil
 	}
-	const key = "identity.unprotected"
-	return &recoveryView{State: "unprotected", Message: a2ashape.Sentence(key, lang, nil),
-		Next: a2ashape.Next(key, lang, nil)}
+	v := rec.view(identityState, lang)
+	return &v
 }
 
 // ruleText is config_invalid's {rule} in this process's language.

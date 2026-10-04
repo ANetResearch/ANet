@@ -249,6 +249,9 @@ func New(layout Layout) (*Daemon, error) {
 		longCalls: make(chan struct{}, maxConcurrentLongCalls), ready: make(chan struct{})}
 	d.caps.push.kick = make(chan struct{}, 1)
 	d.loadOfficials()
+	// This node's latest witness notice, checked again, so the outbound gate
+	// does not wait for the first hub answer after a restart (KEL D-50).
+	d.loadKeyStateNotice()
 	if cfg.migratedInbound {
 		// Logged once: the migrated config is saved below without the old
 		// key, so the next start reads an explicit inbound block.

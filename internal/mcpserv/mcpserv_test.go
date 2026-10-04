@@ -748,3 +748,27 @@ func TestNodeStatusSaysWhatToDoWhileWaitingForAdmission(t *testing.T) {
 		t.Error("send_message does not say what a refusal while joining means")
 	}
 }
+
+// KEL M-5: node_status tells the model to relay the recovery reminder
+// as it is, and that the passphrase is the user's alone to set, in a
+// terminal.
+func TestNodeStatusSaysToRelayTheRecoveryReminder(t *testing.T) {
+	sess := connect(t, &fakeControl{})
+	tools, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range tools.Tools {
+		if tl.Name != "node_status" {
+			continue
+		}
+		for _, want := range []string{"identity.recovery.state is unprotected", "relay identity.recovery.message to the user as it is",
+			"only the user can set the recovery passphrase", "anet identity protect in a terminal", "do not enter one"} {
+			if !strings.Contains(tl.Description, want) {
+				t.Errorf("node_status does not say %q", want)
+			}
+		}
+		return
+	}
+	t.Fatal("no node_status tool")
+}

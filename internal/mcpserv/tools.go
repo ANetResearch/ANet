@@ -427,7 +427,10 @@ func addNodeTools(s *mcp.Server, c Control) {
 			"nobody's tasks), how automatic replies are configured, and counts of the messages it " +
 			"received or refused since it started, by reason. `hub` is the hub join state: when " +
 			"hub.state is pending_admission, relay hub.message to the user as it is (it holds the " +
-			"admit line to send to the hub's operator), and do not register again.",
+			"admit line to send to the hub's operator), and do not register again. `identity` is this " +
+			"node's identity: when identity.recovery.state is unprotected, relay identity.recovery.message " +
+			"to the user as it is; only the user can set the recovery passphrase, by running anet " +
+			"identity protect in a terminal, so do not enter one for them.",
 		Annotations: readLocal(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		return forward(ctx, c, "/status", map[string]any{})
