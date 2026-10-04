@@ -270,7 +270,10 @@ func cmdSeal(args []string) error {
 	if err != nil {
 		return err
 	}
-	// v030-todo(SS-8): a first-contact envelope also needs its hub session.
+	// A fixture holds no delivery credential, so what it seals is a first
+	// contact (outer key 7, kind 0). The session a hub wants for one is not
+	// in the envelope but on the request that carries it, opened by whoever
+	// posts these bytes (see postRelay).
 	if env, err = seal.SetAccess(env, &seal.Access{Kind: seal.AccessKindSession}); err != nil {
 		return err
 	}
