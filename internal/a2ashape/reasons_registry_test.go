@@ -66,7 +66,7 @@ func TestReasonTableHasExactlyTheUXKeys(t *testing.T) {
 		}
 	}
 	if len(got) == len(want) && !slices.Equal(got, want) {
-		t.Errorf("the rows are not in ux's order (other packages append in that order, the release plan)")
+		t.Errorf("the rows are not in ux's order (a work item that adds rows appends them in that order)")
 	}
 }
 

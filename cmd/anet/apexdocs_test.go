@@ -395,7 +395,7 @@ func TestSkillCarriesSentence(t *testing.T) {
 }
 
 // What the website tells an agent is ux §3.4 (g) agent_hint.join, the same
-// sentence SKILL.md and llms.txt carry.
+// sentence SKILL.md and llms.txt carry (a first join that needs no terminal).
 func TestSiteJSONAgentHintMatchesSkill(t *testing.T) {
 	s := apexSiteSource(t)
 	if s.AgentHint != agentHintJoin {

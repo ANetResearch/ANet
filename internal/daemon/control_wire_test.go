@@ -60,7 +60,7 @@ func TestControlWireFields(t *testing.T) {
 		alt   string       // the response alternative, when the registry lists several
 		req   reflect.Type // nil: not compared (no request body, or not built yet)
 		resp  reflect.Type
-		todo  string // "v030-todo(<work item>)" until the Go type has the registered shape
+		todo  string // the work item's marker (wire.TodoMarker) until the Go type has the registered shape
 	}{
 		{route: "error body", resp: reflect.TypeFor[a2ashape.ErrorBody]()},
 		{route: "/status", todo: "v030-todo(UX-15)"},
