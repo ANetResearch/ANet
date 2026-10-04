@@ -22,12 +22,12 @@ diff --git a/internal/daemon/receive.go b/internal/daemon/receive.go
 index dec8c69..dcecb13 100644
 --- a/internal/daemon/receive.go
 +++ b/internal/daemon/receive.go
-@@ -179,7 +179,7 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
+@@ -268,7 +268,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath) rxResult {
  	}
  
- 	// Step 7.
--	if err := seal.VerifyInnerSig(in, op.Preimage, use, now, d.rotationGrace()); err != nil {
-+	if err := seal.VerifyInnerSig(in, op.Preimage, use, now, d.rotationGrace()); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {
+ 	// Step 7. v030-todo(ENG-1c): the arrival is KEL D-20's, from the hub's accepted_at, not now.
+-	if err := seal.VerifyInnerSig(in, op.Preimage, use, now); err != nil {
++	if err := seal.VerifyInnerSig(in, op.Preimage, use, now); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {
  		return d.drop(reasonOf(err), err)
  	}
  
