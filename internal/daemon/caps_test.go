@@ -277,6 +277,16 @@ func TestAccessForCoversTheTable(t *testing.T) {
 							if got.Send && kind == 0 && got.Cap != nil {
 								t.Fatalf("%s: a first contact names a capability", name)
 							}
+							// SSR-D13: a first contact's home hint, after R's
+							// witness, is the home of a valid capability R gave.
+							if wantHint := ""; got.Send && kind == 0 {
+								if one != nil || peer != nil {
+									wantHint = "hub-aid-0003"
+								}
+								if got.HintHome != wantHint {
+									t.Fatalf("%s: home hint %q, want %q", name, got.HintHome, wantHint)
+								}
+							}
 							// The invariants.
 							if del && mode == accessOrdinary && got.Kind == 1 && got.Cap.Scope == "peer" && got.Cap.Pay {
 								t.Fatalf("%s: a delegation under the peer capability of a provider that prices (M17)", name)

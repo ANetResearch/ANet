@@ -933,4 +933,7 @@ MUTS += [
  dict(id='ss8-pending-other-peer', group='SS-8', repo='ANet', desc='别的对端的待批交互也算作本对端尚未受理',
   edits=[('internal/daemon/caps.go', 'perr == nil && p.FromAID == to {', 'perr == nil && p != nil {')],
   tests=[('ANet:./internal/daemon', '^TestGrantRelFacts$')], full=S8_FULL),
+ dict(id='ss8-hint-home', group='SS-8', repo='ANet', desc='首次联系不带持有能力的 home 提示(SSR-D13 第二来源)',
+  edits=[('internal/daemon/caps.go', '\t\tcase peer != nil:\n\t\t\tc.HintHome = peer.Home', '\t\tcase peer != nil:\n\t\t\tc.HintHome = ""')],
+  tests=S8_POLICY_T, full=S8_FULL),
 ]
