@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 )
 
@@ -51,7 +52,7 @@ func growSenderKEL(t *testing.T, base sender, targetBytes int) sender {
 		if len(b) >= targetBytes {
 			break
 		}
-		if err := base.ctrl.Rotate(ts); err != nil {
+		if err := identitytest.Rotate(base.ctrl, ts); err != nil {
 			t.Fatal(err)
 		}
 	}

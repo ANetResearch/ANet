@@ -12,6 +12,7 @@ import (
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/moduletest"
@@ -36,7 +37,7 @@ var _ module.Host = (*orgHost)(nil)
 // founded builds an org with one founder and starts the module for it.
 func founded(t *testing.T) (*Module, *orgHost, *identity.Controller) {
 	t.Helper()
-	founder, err := identity.Incept()
+	founder, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +110,7 @@ func TestOrgIDComesFromTheFoundingSet(t *testing.T) {
 // same rule as the blackboard, for the same reason.
 func TestCredentialFromUnknownIssuerIsRefused(t *testing.T) {
 	m, h, _ := founded(t)
-	stranger, err := identity.Incept()
+	stranger, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}

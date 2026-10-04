@@ -16,6 +16,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -38,7 +39,7 @@ func newCardAgent(t *testing.T, name, description, skill string) cardAgent {
 // newCardAgentWith is newCardAgent with the one skill given whole.
 func newCardAgentWith(t *testing.T, name, description string, skill netcard.Skill) cardAgent {
 	t.Helper()
-	ctl, err := identity.Incept()
+	ctl, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +49,7 @@ func newCardAgentWith(t *testing.T, name, description string, skill netcard.Skil
 	if err != nil {
 		t.Fatal(err)
 	}
-	card, err := a2acard.SignWithController(unsigned, ctl, netcard.JKU("https://hub.example", ctl.AID()))
+	card, err := a2acard.SignWithSnapshot(unsigned, ctl, netcard.JKU("https://hub.example", ctl.AID()))
 	if err != nil {
 		t.Fatal(err)
 	}

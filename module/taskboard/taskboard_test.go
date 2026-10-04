@@ -14,6 +14,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/moduletest"
@@ -69,7 +70,7 @@ func start(t *testing.T, boardURL string, ctrl *identity.Controller) provider.Ca
 
 func ctrlFor(t *testing.T) *identity.Controller {
 	t.Helper()
-	c, err := identity.Incept()
+	c, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}

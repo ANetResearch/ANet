@@ -13,6 +13,7 @@ import (
 	"github.com/ANetResearch/ANetCore/ael"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
 )
@@ -27,7 +28,7 @@ type testEvent struct {
 func writeChain(t *testing.T, events []testEvent) daemon.Layout {
 	t.Helper()
 	layout := daemon.NewLayout(t.TempDir())
-	c, err := identity.Incept()
+	c, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +172,7 @@ func TestAuditExportVerifiesWithVerifyChain(t *testing.T) {
 		}
 	}
 	// A different key history: the chain is not that AID's.
-	other, _ := identity.Incept()
+	other, _ := identitytest.Hub()
 	kb, _ := identity.MarshalKEL(other.KEL())
 	if err := verifyChain(export(), base64.StdEncoding.EncodeToString(kb), "", ""); !errors.Is(err, errQuiet) {
 		t.Errorf("under another AID's key history: %v", err)

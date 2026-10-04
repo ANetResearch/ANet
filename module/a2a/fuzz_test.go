@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 )
 
 var fuzzMethods = []string{http.MethodPost, http.MethodGet, http.MethodDelete, http.MethodPut, http.MethodPatch}
@@ -86,7 +86,7 @@ func FuzzServer(f *testing.F) {
 	for _, s := range seeds {
 		f.Add(s.method, s.path, s.ct, s.version, s.ext, []byte(s.body), s.auth)
 	}
-	ctl, err := identity.Incept()
+	ctl, err := identitytest.Hub()
 	if err != nil {
 		f.Fatal(err)
 	}

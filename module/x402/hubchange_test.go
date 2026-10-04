@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/module"
 )
@@ -30,7 +31,7 @@ func (h *hubSwitchingHost) HubIdentity() (string, []identity.SignedEvent, bool) 
 }
 
 func (h *hubSwitchingHost) moveTo(url string) *identity.Controller {
-	next, err := identity.Incept()
+	next, err := identitytest.Hub()
 	if err != nil {
 		panic(err)
 	}

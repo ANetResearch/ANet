@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/ael"
-	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/module"
@@ -29,7 +29,7 @@ import (
 func TestRedteamSI9MerchantCheckRefusesAnOverflowingAmount(t *testing.T) {
 	h := newHost(t)
 	m := newModule(t, h)
-	payer, err := identity.Incept()
+	payer, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestAuditReportsAnAmountNoLedgerShouldHold(t *testing.T) {
 		{"missing", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			hub, err := identity.Incept()
+			hub, err := identitytest.Hub()
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -17,6 +17,7 @@ import (
 	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/ael"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
 )
@@ -43,11 +44,11 @@ func TestVerifyRequiresBothHalves(t *testing.T) {
 // The offline path is the claim itself: a stranger with the files and no
 // network reaches a verdict.
 func TestOfflineVerification(t *testing.T) {
-	provider, err := identity.Incept()
+	provider, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
-	stranger, err := identity.Incept()
+	stranger, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,7 @@ func kelOf(t *testing.T, c *identity.Controller) string {
 // it — and witnessing is the entire basis for believing a hub has not
 // rewritten its own issuance chain.
 func TestVerifyingAWitnessAttestation(t *testing.T) {
-	witness, err := identity.Incept()
+	witness, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +155,7 @@ func TestVerifyingAWitnessAttestation(t *testing.T) {
 	// The signature is what is checked, so another party's key must not
 	// pass. Accepting any key would make the command say "verified" about
 	// arithmetic it never did.
-	other, err := identity.Incept()
+	other, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +184,7 @@ func TestVerifyingAWitnessAttestation(t *testing.T) {
 // test; splitting the fetch out for the attestation path dropped it, and
 // the whole suite stayed green. Production caught it.
 func TestVerifySaysWhereTheKeyCameFrom(t *testing.T) {
-	c, err := identity.Incept()
+	c, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +243,7 @@ func captureStdout(t *testing.T, fn func()) string {
 // and the stored form (`anet verify <ix>`) binds the request this node
 // sent the same way.
 func TestOfflineVerificationBindsTheRequest(t *testing.T) {
-	provider, err := identity.Incept()
+	provider, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +288,7 @@ func TestOfflineVerificationBindsTheRequest(t *testing.T) {
 // that the request CID it hands on is the one the daemon stored (mutation
 // fx15-4, an internal note, dropped it and stayed green).
 func TestStoredVerificationBindsTheRequestThisNodeSent(t *testing.T) {
-	provider, err := identity.Incept()
+	provider, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 )
 
 // The board's cost is paid on every contribution from every member, and it
@@ -26,7 +27,7 @@ func benchUnit(b *testing.B, ctrl *identity.Controller, i int) *CogUnit {
 }
 
 func BenchmarkAddVerified(b *testing.B) {
-	ctrl, err := identity.Incept()
+	ctrl, err := identitytest.Hub()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -50,7 +51,7 @@ func BenchmarkAddVerified(b *testing.B) {
 // Re-adding is the common case when members sync: the CRDT is add-wins and
 // idempotent, so a peer replaying its contributions must be cheap.
 func BenchmarkAddIdempotent(b *testing.B) {
-	ctrl, err := identity.Incept()
+	ctrl, err := identitytest.Hub()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -75,7 +76,7 @@ func BenchmarkAddIdempotent(b *testing.B) {
 func BenchmarkSnapshot(b *testing.B) {
 	for _, n := range []int{16, 256, 4096} {
 		b.Run(fmt.Sprintf("%dunits", n), func(b *testing.B) {
-			ctrl, err := identity.Incept()
+			ctrl, err := identitytest.Hub()
 			if err != nil {
 				b.Fatal(err)
 			}
