@@ -180,4 +180,7 @@ MUTS += [
  dict(id='ux2-21', group='UX-2', repo='ANetCore', desc='结果的 status 不检查(queued 与任意值被接受)',
   edits=[(DLG, '\tdefault:\n\t\treturn nil, bodyErr("result status %q is neither %q nor %q", r.Status, StatusDone, StatusFailed)\n', '\tdefault:\n')],
   tests=REPLY_T, full=DLG_FULL),
+ dict(id='ux2-22', group='UX-2', repo='ANetCore', desc='ValidatePreview 不检查 kind(其他 kind 的消息带齐预览键即被当作预览帧)',
+  edits=[(DLG, '\tcase m.Kind != ChatStreamPreview:\n\t\treturn bodyErr("a %s message is not a preview frame", m.Kind)\n', '')],
+  tests=[(DLG_PKG, '^TestValidatePreview$')], full=DLG_FULL),
 ]
