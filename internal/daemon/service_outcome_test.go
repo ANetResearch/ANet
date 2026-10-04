@@ -44,10 +44,10 @@ func TestServiceTimeoutReachesRequesterAsFailedUnverified(t *testing.T) {
 		}},
 	})
 	allowPeers(t, prov, req.AID())
-	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.DelegateCapability(ctx, prov.AID(), "mail.send", map[string]any{"to": "x@example.org"})

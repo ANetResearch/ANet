@@ -142,3 +142,98 @@ MUTS += [
           '\t\tif raw, ok := m[k]; !ok || len(raw) == 1 && raw[0] == 0xf6 {\n\t\t\treturn nil, nil\n')],
   tests=[('ANetCore:./seal', '^TestGrantNullIsNotAbsent$')], full=['ANetCore:./seal']),
 ]
+
+# ---- the hub's mailbox key rule, revocations and quotas (SS-3; repo ANetHub, kept in this list so
+# that a round's --check finds it): M25 and the area's own. The weekly backup's exclusions
+# (deploy/hub-db-roll.sh) need the sqlite3 CLI and are checked by
+# TestTheWeeklyBackupKeepsRevocationsAndQuotas under ANET_HUB_SCRIPT_TESTS=require, not here.
+MBOX_T = [('ANetHub:./internal/aghub', '^TestPublishKeysMboxEpochMustRise$')]
+REVOKE_T = [('ANetHub:./internal/aghub', '^(TestMailboxRevoke|TestRevocationListFull|TestRevocationJanitor31Days|TestCapRevokedFollowsRevocationsAndDeregistration)$')]
+QUOTA_T = [('ANetHub:./internal/aghub', '^TestQuotaOnlyRises$'), ('ANetHub:./cmd/anet-hub', '^TestQuotaCommand$')]
+B64_T = [('ANetHub:./internal/wire3', '^(TestDecodeB64URLStrict|TestDecodeB64URLSize)$')]
+
+MUTS += [
+ # ---- M25: the hub must refuse a new mailbox key under the same epoch
+ dict(id='ss-m25-pub', group='SS-M25', repo='ANetHub', desc='hub 接受 mbox.pub 改变而纪元不增',
+  edits=[('internal/aghub/keys.go', '\tcase !samePub && next.Epoch == prev.Epoch:', '\tcase false && !samePub && next.Epoch == prev.Epoch:')],
+  tests=MBOX_T, full=['ANetHub:./internal/aghub']),
+ # ---- the area's own: the rest of SSR-W9
+ dict(id='ss3-epoch-down', group='SS-3', repo='ANetHub', desc='hub 接受纪元下降(换回旧钥)',
+  edits=[('internal/aghub/keys.go', '\tcase next.Epoch < prev.Epoch:', '\tcase false && next.Epoch < prev.Epoch:')],
+  tests=MBOX_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-epoch-same-pub', group='SS-3', repo='ANetHub', desc='hub 接受公钥不变而纪元改变',
+  edits=[('internal/aghub/keys.go', '\tcase samePub && next.Epoch != prev.Epoch:', '\tcase false && samePub && next.Epoch != prev.Epoch:')],
+  tests=MBOX_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-epoch-bound', group='SS-3', repo='ANetHub', desc='hub 接受纪元 = 2^53',
+  edits=[('internal/aghub/keys.go', '\tif next.Epoch >= MaxMboxEpoch {', '\tif next.Epoch > MaxMboxEpoch {')],
+  tests=MBOX_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-epoch-bound-value', group='SS-3', repo='ANetHub', desc='hub 的纪元上界常量偏离 2^53(测试若引用该常量就测不出)',
+  edits=[('internal/aghub/keys.go', 'const MaxMboxEpoch = 1 << 53', 'const MaxMboxEpoch = 1 << 54')],
+  tests=MBOX_T, full=['ANetHub:./internal/aghub']),
+ # ---- revocations (SSR-H10, SSR-H11, SSR-D21)
+ dict(id='ss3-revoke-dup', group='SS-3', repo='ANetHub', desc='同一请求里重复的 cap_id 计两次',
+  edits=[('internal/aghub/revoke.go', '\t\tif seen[string(id)] {\n\t\t\tcontinue\n\t\t}\n', '')],
+  tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-revoke-again', group='SS-3', repo='ANetHub', desc='已吊销未过期的 cap_id 再次计为新增并重置 31 天',
+  edits=[('internal/aghub/revoke.go', '\t\tif live == 0 {\n\t\t\tfresh = append(fresh, id)', '\t\tif true {\n\t\t\tfresh = append(fresh, id)')],
+  tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-list-full', group='SS-3', repo='ANetHub', desc='吊销表满了仍写入(不回 revocation_list_full)',
+  edits=[('internal/aghub/revoke.go', '\tif total+len(fresh) > MaxRevocationsPerOwner {', '\tif false && total+len(fresh) > MaxRevocationsPerOwner {')],
+  tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-revoke-batch', group='SS-3', repo='ANetHub', desc='/mailbox/revoke 接受 1001 个 cap_id',
+  edits=[('internal/aghub/revoke.go', '\tif len(req.CapIDs) == 0 || len(req.CapIDs) > MaxRevokeBatch {', '\tif len(req.CapIDs) == 0 || len(req.CapIDs) > MaxRevokeBatch+1 {')],
+  tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-revoke-size', group='SS-3', repo='ANetHub', desc='/mailbox/revoke 不核对 cap_id 为 16 字节',
+  edits=[('internal/aghub/revoke.go', '\t\tid, err := wire3.DecodeB64URLSize("cap_ids["+strconv.Itoa(i)+"]", c, seal.CapIDLen)',
+          '\t\tid, err := wire3.DecodeB64URL("cap_ids["+strconv.Itoa(i)+"]", c)')],
+  tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-revoke-action', group='SS-3', repo='ANetHub', desc='/mailbox/revoke 收 relayauth poll 的签名',
+  edits=[('internal/aghub/revoke.go', '\ta, ok := s.authRegistered(w, r, relayauth.ActionRevoke, revokeBodyLimit)', '\ta, ok := s.authRegistered(w, r, relayauth.ActionPoll, revokeBodyLimit)')],
+  tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-keep-31d', group='SS-3', repo='ANetHub', desc='吊销保留少 1 毫秒(满 31 天前失效)',
+  edits=[('internal/aghub/revoke.go', 'func revocationCutoff(now time.Time) int64 { return now.Add(-RevocationKeep).UnixMilli() }',
+          'func revocationCutoff(now time.Time) int64 { return now.Add(-RevocationKeep + time.Millisecond).UnixMilli() }')],
+  tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-keep-value', group='SS-3', repo='ANetHub', desc='吊销保留常量改为 30 天(测试若引用该常量就测不出)',
+  edits=[('internal/aghub/revoke.go', '\tRevocationKeep = 31 * 24 * time.Hour', '\tRevocationKeep = 30 * 24 * time.Hour')],
+  tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-cache-race', group='SS-3', repo='ANetHub', desc='吊销缓存收下与吊销竞争的旧读数(CapRevoked 一直答未吊销)',
+  edits=[('internal/aghub/revoke.go', '\tif gen != c.gen {\n\t\treturn\n\t}\n', '')],
+  tests=[('ANetHub:./internal/aghub', '^TestRevokedCacheDropsARacedRead$')], full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-cache-dereg', group='SS-3', repo='ANetHub', desc='注销后吊销缓存不清空',
+  edits=[('internal/aghub/aghub.go', '\t\ts.revoked.forget()\n', '')],
+  tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-dereg-revocations', group='SS-3', repo='ANetHub', desc='注销不删该 AID 的 cap_revocation(CORE-K27)',
+  edits=[('internal/aghub/deregister.go', '\t{"revoked delivery credentials", execAID(`DELETE FROM cap_revocation WHERE owner = ?`)},\n', '')],
+  tests=[('ANetHub:./internal/aghub', '^TestDeregRemovesEveryAIDKeyedRow$')], full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-register-revocations', group='SS-3', repo='ANetHub', desc='/register 不报 revocations(SSR-D21 无从补推)',
+  edits=[('internal/aghub/server.go', '\t\tout.Revocations = uint64(n)\n', '\t\t_ = n\n')],
+  tests=REVOKE_T, full=['ANetHub:./internal/aghub']),
+ # ---- quotas (SSR-H5, SSR-H22)
+ dict(id='ss3-quota-below', group='SS-3', repo='ANetHub', desc='quota 接受低于缺省值',
+  edits=[('internal/aghub/quota.go', '\t\tcase *c.v < c.least:', '\t\tcase false && *c.v < c.least:')],
+  tests=QUOTA_T, full=['ANetHub:./internal/aghub', 'ANetHub:./cmd/anet-hub']),
+ dict(id='ss3-quota-refresh', group='SS-3', repo='ANetHub', desc='hub 进程读过一次 quota_override 后不再重读(改动永不生效)',
+  edits=[('internal/aghub/quota.go', '\tif !c.valid || now.Sub(c.readAt) >= quotaRefresh || now.Before(c.readAt) {', '\tif !c.valid {')],
+  tests=QUOTA_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-quota-clamp', group='SS-3', repo='ANetHub', desc='手写的低于缺省值的 quota_override 行压低配额',
+  edits=[('internal/aghub/quota.go', '\t\tq.NonContactMsgs = max(q.NonContactMsgs, def.NonContactMsgs)\n', '')],
+  tests=QUOTA_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss3-quota-dereg', group='SS-3', repo='ANetHub', desc='运营者撤销准入后保留其调高的配额',
+  edits=[('internal/aghub/deregister.go', '\t\tif _, err := tx.Exec(`DELETE FROM quota_override WHERE aid=?`, aid); err != nil {\n\t\t\treturn DeregResult{}, err\n\t\t}\n', '')],
+  tests=[('ANetHub:./internal/aghub', '^TestDeregRemovesEveryAIDKeyedRow$')], full=['ANetHub:./internal/aghub']),
+ # ---- the removed flags (SSR-H20)
+ dict(id='ss3-flag-fixed', group='SS-3', repo='ANetHub', desc='删除的 relay flag 不按 hub_flag_removed.fixed 拒绝',
+  edits=[('cmd/anet-hub/main.go', '\t\tif r[0].fixed {', '\t\tif false && r[0].fixed {')],
+  tests=[('ANetHub:./cmd/anet-hub', '^TestRemovedRelayFlagsRefuse$')], full=['ANetHub:./cmd/anet-hub']),
+ dict(id='ss3-fed-lookup-wired', group='SS-3', repo='ANetHub', desc='anet-hub 不再接上联邦钥查询(取代退役的 c32-2)',
+  edits=[('cmd/anet-hub/wire_federation.go', '\t\t\td.srv0.SetFederatedKeyLookup(fed.LookupKeys)\n', '')],
+  tests=[('ANetHub:./cmd/anet-hub', '^TestTheHubWiresTheFederatedKeyLookup$')], full=['ANetHub:./cmd/anet-hub']),
+ # ---- the one base64url decoder (CORE-E5)
+ dict(id='ss3-b64-alphabet', group='SS-3', repo='ANetHub', desc='base64url 助手不先查字母表(标准解码器跳过的 \\r \\n 被接受)',
+  edits=[('internal/wire3/b64url.go', '\t\tif !b64urlChar(s[i]) {', '\t\tif false && !b64urlChar(s[i]) {')],
+  tests=B64_T, full=['ANetHub:./internal/wire3']),
+ dict(id='ss3-b64-trailing', group='SS-3', repo='ANetHub', desc='base64url 助手接受非零的末尾位(一个值两种拼写)',
+  edits=[('internal/wire3/b64url.go', 'var b64url = base64.RawURLEncoding.Strict()', 'var b64url = base64.RawURLEncoding')],
+  tests=B64_T, full=['ANetHub:./internal/wire3']),
+]

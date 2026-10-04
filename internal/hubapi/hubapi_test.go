@@ -67,12 +67,17 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		{"KeysLookupRequest", hubapi.KeysLookupRequest{}, []string{"aid"}},
 		{"KeysPublishRequest", hubapi.KeysPublishRequest{}, []string{"keyset"}},
 		{"KeysPublishResponse", hubapi.KeysPublishResponse{}, []string{"aid", "keys_status"}},
+		// core §2.12.2. No invite: a hub admits by AID (LEC HN-5).
+		// Mirrors ANetHub internal/aghub/server.go RegisterRequest and the
+		// WIRE3 fixtures register*.json.
 		{"RegisterRequest", hubapi.RegisterRequest{}, []string{
-			"a2a_card", "aid", "caps", "card", "enc_keys", "invite", "kel", "name",
+			"a2a_card", "aid", "caps", "card", "check_only", "enc_keys", "kel", "name", "pow",
 		}},
+		{"RegisterPoW", hubapi.RegisterPoW{}, []string{"nonce", "seed"}},
 		{"RegisterResponse", hubapi.RegisterResponse{}, []string{
-			"aid", "card_error", "card_status", "keys_error", "keys_status", "status",
+			"aid", "card_error", "card_status", "keys_error", "keys_status", "probation_until", "status", "trial",
 		}},
+		{"CheckOnlyResponse", hubapi.CheckOnlyResponse{}, []string{"status"}},
 		{"HubIdentity", hubapi.HubIdentity{}, []string{"aid", "kel"}},
 		// The facilitator contract as the daemon speaks it (module/x402
 		// settle, A2A-DESIGN §8.5): paymentRequirements is required by the
@@ -162,6 +167,13 @@ func fillStrings(v reflect.Value) reflect.Value {
 				continue
 			}
 			f.Set(reflect.MakeSlice(f.Type(), 1, 1))
+		case reflect.Pointer:
+			// An optional member (probation_until, pow): present when set.
+			p := reflect.New(f.Type().Elem())
+			if p.Elem().Kind() == reflect.Struct {
+				fillStrings(p.Elem())
+			}
+			f.Set(p)
 		}
 	}
 	return v

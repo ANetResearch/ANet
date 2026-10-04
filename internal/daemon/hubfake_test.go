@@ -44,6 +44,7 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
+	"github.com/ANetResearch/ANetCore/regpow"
 	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
 
@@ -114,6 +115,10 @@ type fakeHub struct {
 	// relayPolls counts the /relay/poll requests each AID made, so a test
 	// can tell how many requests a poll round costs the hub.
 	relayPolls map[string]int
+	// relayPollTries counts every /relay/poll request by the AID it is
+	// signed as, before the signature is checked: a poll of an AID the hub
+	// does not know is refused and never reaches relayPolls.
+	relayPollTries map[string]int
 	// relayServed is, per AID, the ids of the envelopes each poll handed
 	// out, in order: which envelopes a node read, not only how often it
 	// asked.
@@ -193,6 +198,24 @@ type fakeHub struct {
 	// agentsQueries records the query string of every GET /agents, so a
 	// test can tell what a search sent to the hub.
 	agentsQueries []string
+
+	// Admission (hRegister): the mode, the AIDs the operator admitted, the
+	// bits of open registration's proof of work and its key, and whether
+	// today's places of the caller's network are spent.
+	admission  string
+	admitted   map[string]bool
+	powBits    int
+	powKey     [32]byte
+	quotaSpent bool
+	// probation is each open-registration account's end of probation.
+	probation map[string]uint64
+	// registerScript are answers /register gives, in order, instead of its
+	// rules; registerCalls and checkOnlyCalls count the requests, and
+	// registerKELs keeps the KEL of every registration (not check_only).
+	registerScript []fakeRegisterAnswer
+	registerCalls  int
+	checkOnlyCalls int
+	registerKELs   [][]byte
 }
 
 // fakeHubDefaultMaxEnvelope is the real hub's per-envelope cap (96 MiB).
@@ -236,6 +259,7 @@ func newFakeHub(t testing.TB) *httptest.Server {
 		registerKeys: map[string]string{},
 		a2aCards:     map[string][]byte{}, a2aMarks: map[string]a2acard.Mark{},
 		registerCards: map[string]string{}, adpCaps: map[string][]string{},
+		admitted: map[string]bool{}, powBits: 4, probation: map[string]uint64{},
 	}
 	// The hub is an agent on its own registry, so its settlement
 	// signatures can be checked the same way everyone else's are.
@@ -317,6 +341,19 @@ func relayPollsFor(url, aid string) int {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.relayPolls[aid]
+}
+
+// relayPollTriesFor reports how many /relay/poll requests signed as aid
+// this hub got, answered or refused.
+func relayPollTriesFor(url, aid string) int {
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		return 0
+	}
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.relayPollTries[aid]
 }
 
 func (h *fakeHub) handler() http.Handler {
@@ -437,50 +474,196 @@ func fakeHubJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// hRegister mirrors the Hub's POST /register at wire 2: relayauth v2 against
-// the KEL in the body, which must replay to the registrant's AID and extend
-// any KEL already held (409 otherwise); the card gate; and enc_keys,
-// reported per field rather than failing the registration.
+// fakeRegisterReq is the hub's POST /register body (core §2.12.2), decoded
+// strictly as the real hub decodes it (CORE-E7): a member it does not list
+// is 400 bad_request, except "invite", which is 400 invite_removed.
+type fakeRegisterReq struct {
+	AID     string          `json:"aid"`
+	Name    string          `json:"name"`
+	Caps    []string        `json:"caps"`
+	Summary string          `json:"summary"`
+	Readme  string          `json:"readme"`
+	Pricing string          `json:"pricing"`
+	KEL     string          `json:"kel"`
+	Card    json.RawMessage `json:"card"`
+	EncKeys string          `json:"enc_keys,omitempty"`
+	PrevSeq *uint64         `json:"prev_seq,omitempty"`
+	A2ACard json.RawMessage `json:"a2a_card,omitempty"`
+	PoW     *struct {
+		Seed  string `json:"seed"`
+		Nonce string `json:"nonce"`
+	} `json:"pow,omitempty"`
+	CheckOnly bool `json:"check_only,omitempty"`
+}
+
+// The fake's admission modes (hub-payment-privacy PAY-A1 step 4). The
+// default admits every AID, as a hub whose operator admitted everyone the
+// tests register; closed admits only h.admitted; open asks a newcomer for a
+// proof of work of h.powBits bits (few, so a test solves it at once).
+const (
+	fakeAdmitAll    = ""
+	fakeAdmitClosed = "closed"
+	fakeAdmitOpen   = "open"
+)
+
+// fakeRegisterAnswer is a scripted /register answer: the status, the
+// Retry-After and the body the next request gets instead of the rules.
+type fakeRegisterAnswer struct {
+	status     int
+	retryAfter string
+	body       map[string]any
+	// drop closes the connection without an answer.
+	drop bool
+}
+
+// fakeHubRefuse writes a wire-3 refusal: {reason, error, …}.
+func fakeHubRefuse(w http.ResponseWriter, status int, reason string, extra map[string]any) {
+	body := map[string]any{"reason": reason, "error": "fake hub: " + reason}
+	for k, v := range extra {
+		body[k] = v
+	}
+	fakeHubJSON(w, status, body)
+}
+
+// hRegister mirrors the Hub's POST /register at wire 3 (core §2.12.2,
+// hub-payment-privacy PAY-A1 and the WIRE3 fixtures register*.json): a
+// strict body; the KEL in base64url; relayauth v2 against that KEL, which
+// must replay to the registrant's AID and extend any KEL already held; the
+// admission gate for an AID not registered here, with check_only answered
+// before anything is written; the card gate; enc_keys reported per field.
 func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 	body, ok := h.readBody(w, r, 1<<20)
 	if !ok {
 		return
 	}
-	var req hubapi.RegisterRequest
-	if err := json.Unmarshal(body, &req); err != nil || req.AID == "" || req.KEL == "" {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "aid + kel required"})
+	h.mu.Lock()
+	h.registerCalls++
+	var scripted *fakeRegisterAnswer
+	if len(h.registerScript) > 0 {
+		scripted = &h.registerScript[0]
+		h.registerScript = h.registerScript[1:]
+	}
+	h.mu.Unlock()
+	if scripted != nil {
+		if scripted.drop {
+			if hj, ok := w.(http.Hijacker); ok {
+				if c, _, err := hj.Hijack(); err == nil {
+					c.Close()
+					return
+				}
+			}
+		}
+		if scripted.retryAfter != "" {
+			w.Header().Set("Retry-After", scripted.retryAfter)
+		}
+		fakeHubJSON(w, scripted.status, scripted.body)
 		return
 	}
-	kelBytes, err := base64.StdEncoding.DecodeString(req.KEL)
+	var req fakeRegisterReq
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		var probe map[string]json.RawMessage
+		if json.Unmarshal(body, &probe) == nil {
+			if _, inv := probe["invite"]; inv {
+				fakeHubRefuse(w, http.StatusBadRequest, "invite_removed", nil)
+				return
+			}
+		}
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	if req.AID == "" || req.KEL == "" {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	var powSeed, powNonce []byte
+	if req.PoW != nil {
+		var e1, e2 error
+		powSeed, e1 = base64.RawURLEncoding.Strict().DecodeString(req.PoW.Seed)
+		powNonce, e2 = base64.RawURLEncoding.Strict().DecodeString(req.PoW.Nonce)
+		if e1 != nil || e2 != nil || len(powSeed) != 32 || len(powNonce) < 1 || len(powNonce) > regpow.MaxNonce {
+			fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+			return
+		}
+	}
+	kelBytes, err := base64.RawURLEncoding.Strict().DecodeString(req.KEL)
 	if err != nil {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "kel not base64"})
+		fakeHubRefuse(w, http.StatusBadRequest, "kel_invalid", nil)
 		return
 	}
 	kelEvents, err := identity.UnmarshalKEL(kelBytes)
 	if err != nil {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "kel undecodable"})
+		fakeHubRefuse(w, http.StatusBadRequest, "kel_invalid", nil)
 		return
 	}
 	if got, err := replayedAID(kelEvents); err != nil || got != req.AID {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "kel does not replay to aid"})
+		fakeHubRefuse(w, http.StatusBadRequest, "kel_invalid", nil)
 		return
 	}
 	if aid := h.verifyAuth(w, r, body, relayauth.ActionRegister, kelBytes); aid != req.AID {
 		if aid != "" {
-			fakeHubJSON(w, http.StatusUnauthorized, map[string]string{"error": "signer is not the registrant"})
+			fakeHubRefuse(w, http.StatusUnauthorized, "unauthorized", nil)
 		}
 		return
+	}
+	// The admission gate, for an AID not registered here (PAY-A1 step 4).
+	h.mu.Lock()
+	_, known := h.agents[req.AID]
+	mode, bits := h.admission, h.powBits
+	listed := h.admitted[req.AID]
+	if req.CheckOnly {
+		h.checkOnlyCalls++
+	} else {
+		h.registerKELs = append(h.registerKELs, append([]byte(nil), kelBytes...))
+	}
+	h.mu.Unlock()
+	checkStatus := "admitted"
+	newcomer := false
+	if !known && !listed {
+		switch mode {
+		case fakeAdmitClosed:
+			fakeHubRefuse(w, http.StatusForbidden, "admission_required", map[string]any{"aid": req.AID})
+			return
+		case fakeAdmitOpen:
+			checkStatus, newcomer = "open", true
+			if !req.CheckOnly {
+				seed := h.powSeedNow()
+				var nonce []byte
+				if powSeed != nil && bytes.Equal(powSeed, seed[:]) {
+					nonce = powNonce
+				}
+				if nonce == nil || !regpow.Check(h.self.AID(), req.AID, seed, nonce, bits) {
+					fakeHubRefuse(w, http.StatusForbidden, "pow_required", map[string]any{"challenge": map[string]any{
+						"seed": base64.RawURLEncoding.EncodeToString(seed[:]), "bits": bits,
+						"not_after": regpow.NotAfter(regpow.Hour(uint64(time.Now().UnixMilli())))}})
+					return
+				}
+				h.mu.Lock()
+				quota := h.quotaSpent
+				h.mu.Unlock()
+				if quota {
+					w.Header().Set("Retry-After", "3600")
+					fakeHubRefuse(w, http.StatusTooManyRequests, "registration_quota", nil)
+					return
+				}
+			}
+		}
 	}
 	h.mu.Lock()
 	if prior, ok := h.agents[req.AID]; ok {
 		old, _ := identity.UnmarshalKEL(prior.kel)
 		if err := identity.ExtendsKEL(old, kelEvents); err != nil {
 			h.mu.Unlock()
-			fakeHubJSON(w, http.StatusConflict, map[string]string{"error": "kel does not extend the registered one: " + err.Error()})
+			fakeHubRefuse(w, http.StatusConflict, "kel_fork", nil)
 			return
 		}
 	}
 	h.mu.Unlock()
+	if req.CheckOnly {
+		fakeHubJSON(w, http.StatusOK, map[string]string{"status": checkStatus})
+		return
+	}
 	// The card gate, with the same rule the real hub applies.
 	//
 	// This fake used not to read the card field at all. That made every
@@ -492,18 +675,18 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 	if len(req.Card) > 0 {
 		var card adp.AgentCard
 		if err := json.Unmarshal(req.Card, &card); err != nil {
-			fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "card malformed"})
+			fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
 			return
 		}
 		if card.SubjectDID != req.AID {
-			fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "card subject is not the registrant"})
+			fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
 			return
 		}
 		h.mu.Lock()
 		high := h.cardHighWater[req.AID]
 		h.mu.Unlock()
 		if _, err := adp.AdmitCard(&card, time.Now(), high, kelEvents, map[uint16]bool{1: true}, nil); err != nil {
-			fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "card refused: " + err.Error()})
+			fakeHubRefuse(w, http.StatusBadRequest, "bad_request", map[string]any{"error": "card refused: " + err.Error()})
 			return
 		}
 		h.mu.Lock()
@@ -521,6 +704,10 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 			RegisteredAt: time.Now().UTC().Format(time.RFC3339),
 		}}
 		h.agents[req.AID] = a
+		if newcomer {
+			until := uint64(time.Now().Add(72 * time.Hour).UnixMilli())
+			h.probation[req.AID] = until
+		}
 	}
 	a.view.Name = req.Name
 	a.view.Caps = req.Caps
@@ -529,6 +716,9 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 	// register too, so a node that just joined is never reported quiet.
 	h.lastSeen[req.AID] = time.Now()
 	out := hubapi.RegisterResponse{AID: req.AID, Status: "registered", KeysStatus: hubapi.KeysStatusAbsent, CardStatus: "absent"}
+	if until, ok := h.probation[req.AID]; ok {
+		out.ProbationUntil, out.Trial = &until, "pending"
+	}
 	if req.EncKeys != "" {
 		out.KeysStatus, out.KeysError = h.admitKeysLocked(a, req.EncKeys, kelEvents)
 	}
@@ -547,6 +737,11 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	h.registerCards[req.AID] = out.CardStatus
 	fakeHubJSON(w, http.StatusOK, out)
+}
+
+// powSeedNow is the fake's seed of this hour (regpow.Seed under its key).
+func (h *fakeHub) powSeedNow() [32]byte {
+	return regpow.Seed(h.powKey[:], regpow.Hour(uint64(time.Now().UnixMilli())))
 }
 
 // admitA2ACardLocked admits an A2A network card for a registering agent
@@ -1081,6 +1276,12 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	h.mu.Lock()
+	if h.relayPollTries == nil {
+		h.relayPollTries = map[string]int{}
+	}
+	h.relayPollTries[r.Header.Get(hubapi.HeaderAID)]++
+	h.mu.Unlock()
 	aid := h.verifyAuth(w, r, body, relayauth.ActionPoll, nil)
 	if aid == "" {
 		return
@@ -1657,6 +1858,12 @@ func (h *fakeHub) hRedeem(w http.ResponseWriter, r *http.Request) {
 	}
 	h.mu.Lock()
 	payer := h.agents[auth.Payer]
+	// Copied under the lock: a registration of the payer rewrites its
+	// kel meanwhile (hRegister), and an unlocked read raced with it.
+	var payerKEL []byte
+	if payer != nil {
+		payerKEL = payer.kel
+	}
 	for _, prior := range h.redemptions[auth.Payer] {
 		if prior["auth_id"] == authID {
 			h.mu.Unlock()
@@ -1673,7 +1880,7 @@ func (h *fakeHub) hRedeem(w http.ResponseWriter, r *http.Request) {
 		refuse(payment.ReasonPayeeMismatch)
 		return
 	}
-	kel, err := identity.UnmarshalKEL(payer.kel)
+	kel, err := identity.UnmarshalKEL(payerKEL)
 	if err != nil || auth.Verify(kel, time.Now().UnixMilli()) != nil {
 		refuse(payment.ReasonInvalidSignature)
 		return

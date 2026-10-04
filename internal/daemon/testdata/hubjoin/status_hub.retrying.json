@@ -1,0 +1,8 @@
+{
+  "url": "https://hub.example",
+  "state": "retrying",
+  "reason": "hub_retrying",
+  "message": "Could not finish joining https://hub.example yet (the hub cannot be reached); anet tries again at <TIME>, nothing to do.",
+  "since": "2026-09-21T14:25:40Z",
+  "next_attempt_at": "2026-09-21T14:26:55Z"
+}

@@ -60,6 +60,12 @@ func main() {
 		if err == nil {
 			return
 		}
+		var ue usageError
+		if errors.As(err, &ue) {
+			// A command used wrongly (ux UX-C4): its usage line, exit 2.
+			fmt.Fprintln(os.Stderr, ue.Error())
+			os.Exit(2)
+		}
 		// A verdict already printed to stdout exits non-zero without a
 		// second, emptier line: "this receipt does not verify" is an
 		// answer, not a malfunction of the tool.
@@ -185,7 +191,7 @@ func extractGlobalID(args []string) (id string, rest []string) {
 type cmdDoc struct{ use, desc string }
 
 var grpNetwork = []cmdDoc{
-	{"hub-register <url> [--name N] [--caps a,b] [--token-file F]", "在 Hub 上注册你的 agent(提交 AID 与加密公钥; 有公开能力时附 A2A 卡片;邀请码经 ANET_INVITE 或 --token-file,不上命令行)"},
+	{"hub-register <url> [--name N] [--caps a,b] [--recovery-file F] [--new-recovery]", "接入 hub(准入制 hub 会打印一行 anet-hub admit,发给运营者即可,批准后自动完成;没有终端也能完成,恢复口令之后用 anet identity protect 补设)"},
 	{"doctor", "这个节点被设成了什么样、哪些门开着(读数据目录, 不需要 daemon)"},
 	{"agents wire <claude|codex|cursor|opencode|hermes>", "把 anet 的 MCP 工具与用法说明写进你的编码 agent(--all 接入全部检测到的)"},
 	{"peers list|allow|trust|deny|remove [<aid>]", "入站名单: allow 可委派, trust 另可驱动本机 exec 自动回复; allow/trust 需在终端确认"},
@@ -356,7 +362,7 @@ func usageAllText() string {
   anet agents unwire [--all|<tool>…] [--a2a <aid>…]   remove what wire added, Hermes a2a_agents tokens included
   anet agents                 show which coding agents are wired, and whether Hermes' a2a_agents still match this node
   anet install --agent <tool>   older name for 'anet agents wire <tool>'
-  anet hub-register <url> [--name N] [--caps a,b] [--token-file F]   register on a Hub (invite-only hub: invite in ANET_INVITE or --token-file, never on the command line)
+  anet hub-register <url> [--name N] [--caps a,b] [--recovery-file F] [--new-recovery]   join a hub (a hub that admits by AID prints the anet-hub admit line to send its operator; joining then finishes on its own)
   anet peers list             show the inbound policy and the allow, trust and deny lists
   anet peers allow|trust <aid>   let a peer delegate to you (trust: also drive your exec auto-reply); asks for confirmation on the terminal
   anet peers deny|remove <aid>   refuse a peer (cancels its open tasks) / take it off every list
@@ -581,7 +587,7 @@ func runDaemonDetached(layout daemon.Layout) error {
 	c := exec.Command(exe, "daemon")
 	// Pin the child to THIS data dir explicitly, regardless of how the parent resolved it, so a detached
 	// daemon started from the default dir and one started with ANET_DATA_DIR both land where expected.
-	c.Env = append(envWithout(os.Environ(), inviteEnv), "ANET_DATA_DIR="+layout.Root)
+	c.Env = append(os.Environ(), "ANET_DATA_DIR="+layout.Root)
 	c.Stdin = nil
 	c.Stdout = logf
 	c.Stderr = logf
@@ -712,6 +718,8 @@ func stopHint(name string) string {
 // runUp starts a node detached: `anet up [name] [--all]`. With --all it brings up every known identity;
 // with a positional name it targets that identity; otherwise it uses the resolved selection.
 func runUp(idFlag string, rest []string) error {
+	// ANET_INVITE is ignored, said once (LEC AV-5).
+	defaultHubCLI().warnInviteEnv()
 	pos, flags := splitFlags(rest)
 	if flags["all"] == "true" {
 		ids, _ := daemon.ListIdentities()
@@ -1194,7 +1202,7 @@ var knownFlags = map[string][]string{
 
 	// through the control plane
 	"status":        {},
-	"hub-register":  {"name", "caps", "token", "token-file", "accept-delegations"}, // "token": inviteFrom refuses it, saying where the invite goes
+	"hub-register":  {"name", "caps", "recovery-file", "new-recovery"}, // --token, --token-file, --accept-delegations: cli_removed (removed.go)
 	"hub-leave":     {},
 	"p2p-advertise": {},
 	"accept":        {},
@@ -1343,15 +1351,10 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		}
 		return c.do("/p2p-advertise", map[string]any{"addr": addr})
 	case "hub-leave":
-		// Stop being deliverable at a hub you have moved away from.
-		// Without this a node that changed hubs stayed listed at the old
-		// one, which went on queueing work into a mailbox nobody polls.
-		pos, _ := splitFlags(rest)
-		hub := ""
-		if len(pos) > 0 {
-			hub = strings.TrimSpace(pos[0])
-		}
-		return c.do("/hub-leave", map[string]any{"hub": hub})
+		// Stop being deliverable at a hub you have moved away from, or stop
+		// joining one that has not admitted this node (LEC AD-8). Leaving
+		// the witness hub is refused: switching hubs is a key rotation.
+		return runHubLeave(c, rest)
 	case "accept":
 		return runAccept(c, rest)
 	case "peers":
