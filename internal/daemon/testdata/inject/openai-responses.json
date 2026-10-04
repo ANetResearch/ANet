@@ -1,0 +1,75 @@
+{
+  "upstream": "openai",
+  "model": "gpt-5-nano",
+  "request": {
+    "method": "POST",
+    "target": "/v1/responses",
+    "header": {
+      "Authorization": "Bearer anet-sandbox",
+      "OpenAI-Beta": "responses=experimental",
+      "originator": "codex_cli_rs"
+    },
+    "body": "{\"model\":\"gpt-5-codex\",\"instructions\":\"You are Codex.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"shell\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"local_shell\"},{\"type\":\"custom\",\"name\":\"apply_patch\"}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":false,\"store\":true,\"stream\":true,\"service_tier\":\"priority\",\"include\":[\"reasoning.encrypted_content\"]}"
+  },
+  "forwarded": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/responses",
+    "header": {
+      "Accept-Encoding": [
+        "identity"
+      ],
+      "Authorization": [
+        "Bearer operator-key-golden"
+      ],
+      "Content-Type": [
+        "application/json"
+      ],
+      "Openai-Beta": [
+        "responses=experimental"
+      ],
+      "Originator": [
+        "codex_cli_rs"
+      ]
+    },
+    "body": {
+      "include": [
+        "reasoning.encrypted_content"
+      ],
+      "input": [
+        {
+          "content": [
+            {
+              "text": "hi",
+              "type": "input_text"
+            }
+          ],
+          "role": "user",
+          "type": "message"
+        }
+      ],
+      "instructions": "You are Codex.",
+      "max_output_tokens": 8192,
+      "model": "gpt-5-nano",
+      "parallel_tool_calls": false,
+      "store": false,
+      "stream": true,
+      "tool_choice": "auto",
+      "tools": [
+        {
+          "name": "shell",
+          "parameters": {
+            "type": "object"
+          },
+          "type": "function"
+        },
+        {
+          "type": "local_shell"
+        },
+        {
+          "name": "apply_patch",
+          "type": "custom"
+        }
+      ]
+    }
+  }
+}
