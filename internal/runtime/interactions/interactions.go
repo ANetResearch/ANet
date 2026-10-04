@@ -625,6 +625,10 @@ func setState(e execer, id string, st State, cause Cause, nowMS int64) (bool, er
 		if err := closeIXKey(e, id, cause, nowMS); err != nil {
 			return false, err
 		}
+		// A paid task that ends here changes the peer capabilities (SS §4.3.8 item 3).
+		if err := endedSettled(e, id, n > 0, nowMS); err != nil {
+			return false, err
+		}
 	}
 	return n > 0, nil
 }
@@ -700,6 +704,10 @@ func finish(e execer, id string, f Finish, cause Cause, nowMS int64) error {
 	if f.State.IsTerminal() {
 		// Terminal now: this write moved it there, or it already was.
 		if err := closeIXKey(e, id, cause, nowMS); err != nil {
+			return err
+		}
+		// A paid task that ends here changes the peer capabilities (SS §4.3.8 item 3).
+		if err := endedSettled(e, id, n > 0, nowMS); err != nil {
 			return err
 		}
 	}

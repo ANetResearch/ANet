@@ -146,6 +146,14 @@ func (t *Tx) SetPayment(id string, u PayUpdate) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	// A payment recorded completed on a task that has ended changes the
+	// peer capabilities (SS §4.3.8 item 3); a task that ends after its
+	// payment completed is caught by the state write (endedSettled).
+	if state == PayCompleted && cur.PayState != PayCompleted && cur.IsTerminal() {
+		if err := settledPeerCaps(t.tx, cur.PeerAID, t.now); err != nil {
+			return false, err
+		}
+	}
 	return true, nil
 }
 
