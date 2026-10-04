@@ -24,6 +24,12 @@ import (
 // returns the node, the legacy interaction id and a registered lamp.
 func migratedV01Node(t *testing.T, srvURL string, stranger *Daemon) (*Daemon, string, *lampProvider) {
 	t.Helper()
+	// v0.3.0 reads no store of an earlier version (core CORE-V4): a row
+	// written before data keys has none and reads as deleted (FS-L4), so a
+	// migrated v0.1 task cannot exist. The tests built on one go with the
+	// store's v0.2 migrations, when a store without user_version 3 is
+	// refused.
+	t.Skip("v030-todo(RC-4)")
 	ctx := context.Background()
 	root := t.TempDir()
 	writeTestConfig(t, root, map[string]any{"control_addr": "127.0.0.1:0", "hub_url": srvURL,

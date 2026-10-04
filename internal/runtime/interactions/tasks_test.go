@@ -270,6 +270,11 @@ func TestListPageTwoStepKeepsOrderAndRows(t *testing.T) {
 // whole of every long message each time (an internal note: 0.15–0.3 s per send
 // after an hour, growing with the conversation).
 func TestClientMessageLookupReadsAnIndex(t *testing.T) {
+	// The message metadata is data-key ciphertext (FS-L2) and no index may
+	// cover it (FS-L3): idx_msg_client is gone, and FindByClientMessage
+	// opens the candidates' metadata until UX-1's FindByClientKey reads the
+	// plain client_key column through idx_msg_client_key (CUX-D2).
+	t.Skip("v030-todo(UX-1)")
 	s := open(t)
 	for _, q := range []interactions.ClientMessageQuery{
 		{ClientMsgID: "m-1", Role: interactions.RoleOutbound, PeerAID: "peer-a"},

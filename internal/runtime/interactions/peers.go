@@ -66,9 +66,7 @@ func (s *Store) Update(fn func(*Tx) error) error {
 }
 
 // Get reads one interaction inside the transaction.
-func (t *Tx) Get(id string) (*Interaction, error) {
-	return scanOne(t.tx.QueryRow(`SELECT `+ixColumns+` FROM interaction WHERE id=?`, id))
-}
+func (t *Tx) Get(id string) (*Interaction, error) { return getIX(t.tx, id) }
 
 // Put is Store.Put inside the transaction.
 func (t *Tx) Put(id string, role Role, peerAID, goal, requestCID string, requestDoc []byte) error {

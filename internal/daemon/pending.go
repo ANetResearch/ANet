@@ -193,7 +193,8 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 	var held []heldMessage
 	err = d.ix.Update(func(tx *interactions.Tx) error {
 		held = held[:0]
-		ok, err := tx.DeletePending(ixID)
+		// The held item's data key becomes the interaction's (FS-L1).
+		ok, err := tx.TakePending(ixID)
 		if err != nil {
 			return err
 		}

@@ -132,11 +132,15 @@ func TestHubOriginForCSP(t *testing.T) {
 	}
 }
 
-// storeAttachment stores one attachment for interaction ix through the normal store path.
+// storeAttachment stores one attachment for interaction ix through the normal store path. A file
+// belongs to a task, and is stored under its data key (FS-L2): the task is created first.
 func storeAttachment(t *testing.T, d *Daemon, ix, name, declared string, data []byte) string {
 	t.Helper()
 	cid, err := anetcid.SumRaw(data)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ix.Create(interactions.New{ID: ix, Role: interactions.RoleInbound, PeerAID: "did:anet:peer", Goal: "g"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.storeMsgAttachments(ix, 1, []delegation.Attachment{

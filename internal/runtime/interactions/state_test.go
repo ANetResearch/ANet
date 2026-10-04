@@ -177,6 +177,11 @@ func TestListPageIsNewestFirstWithCursor(t *testing.T) {
 // A store written with the wire-1 status column is migrated to state by the
 // rule of A2A-DESIGN §4.1, and the status column is gone afterwards.
 func TestStatusColumnMigratesToState(t *testing.T) {
+	// v0.3.0 reads no store of an earlier version (core CORE-V4): a row
+	// written before data keys has none and reads as deleted (FS-L4). The
+	// store's v0.2 migrations go when a store without user_version 3 is
+	// refused, and this test with them.
+	t.Skip("v030-todo(RC-4)")
 	dir := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db"))
 	if err != nil {
