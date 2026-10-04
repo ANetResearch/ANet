@@ -1045,6 +1045,12 @@ MUTS += [
  dict(id='ss6-bucket-cache', group='SS-6', repo='ANetHub', desc='对等 hub 的桶答复不缓存 10 分钟',
   edits=[('internal/aghub/fed_home.go', '\t\ts.fedState.putBucket(got)\n', '')],
   tests=HUB6_T(['TestFedBucketMergeAndPartial']), full=FED6_FULL),
+ dict(id='ss6-pages', group='SS-6', repo='ANetHub', desc='对等 hub 的桶答复页数不设上限',
+  edits=[('internal/aghub/fed_home.go', '\t\tif pages == PeerBucketMaxPages {', '\t\tif false && pages == PeerBucketMaxPages {')],
+  tests=HUB6_T(['TestAPeersEndlessBucketIsNoAnswer']), full=FED6_FULL),
+ dict(id='ss6-not-moving', group='SS-6', repo='ANetHub', desc='对等 hub 的下一页没有前进也照问',
+  edits=[('internal/aghub/fed_home.go', '\t\tif after != nil && bytes.Compare(page.next, after) <= 0 {', '\t\tif false && after != nil && bytes.Compare(page.next, after) <= 0 {')],
+  tests=HUB6_T(['TestAPeersEndlessBucketIsNoAnswer']), full=FED6_FULL),
  # ---- the area's own: the federation client
  dict(id='ss6-wire-check', group='SS-6', repo='ANetHub', desc='联邦客户端不核对对端响应的 X-ANet-Wire',
   edits=[('internal/federation/peerwire.go', '\tcase len(vs) == 1 && vs[0] == strconv.Itoa(wire3.Version):', '\tcase true:')],
