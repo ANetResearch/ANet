@@ -16,8 +16,7 @@
 //	anetfixture org-genesis   --home DIR [--nonce N]
 //	anetfixture org-credential --home DIR --genesis B64 --subject AID [--role member]
 //	anetfixture x402-authorize --home DIR --pay-to AID --amount N --network hub:AID [--interaction ID]
-//	anetfixture relay-sign    --home DIR --hub URL --action send --method POST --path /relay/send --body-file F
-//	anetfixture relay-sign    --home DIR --v1 --action task.create
+//	anetfixture relay-sign    --home DIR --hub URL --action poll --method POST --path /relay/poll --body-file F
 //	anetfixture seal          --home DIR --hub URL --to AID [--as AID --kel self|claimed] …   (attack.go)
 //	anetfixture relay-send    --to AID --envelope B64|@FILE [--home DIR --hub URL] [--p2p ADDR] (attack.go)
 //
@@ -34,7 +33,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -298,15 +296,8 @@ func cmdX402Authorize(args []string) error {
 	return nil
 }
 
-// wire1Challenge is the hub taskboard's signed challenge, the wire-1 form that relayauth no longer
-// provides: "anet-relay/" + action + "/" + aid + "/" + decimal(ts). The board is the last user.
-// v030-todo(SS-9): the board gets a registered authentication form and this goes.
-func wire1Challenge(action, aid string, ts uint64) []byte {
-	return []byte("anet-relay/" + action + "/" + aid + "/" + strconv.FormatUint(ts, 10))
-}
-
 // cmdRelaySign signs one hub request as this daemon, with relayauth v2
-// (A2A-DESIGN §3.7) unless --v1 is given.
+// (A2A-DESIGN §3.7).
 //
 // The hub gates every mutating action behind a signature, and several of
 // those actions have no client in this suite. v2 binds the signature to one
@@ -316,14 +307,11 @@ func wire1Challenge(action, aid string, ts uint64) []byte {
 // the signature, one "Name: value" line each, ready for `curl -H @FILE`
 // with the body sent as `--data-binary @FILE` of the same file:
 //
-//	anetfixture relay-sign --home H --hub URL --action send \
-//	    --method POST --path /relay/send --body-file req.json > hdr
-//	curl -H @hdr -H 'Content-Type: application/json' --data-binary @req.json URL/relay/send
+//	anetfixture relay-sign --home H --hub URL --action poll \
+//	    --method POST --path /relay/poll --body-file req.json > hdr
+//	curl -H @hdr -H 'Content-Type: application/json' --data-binary @req.json URL/relay/poll
 //
-// --v1 prints the wire-1 challenge (aid, ts, key_state_seq, sig) as JSON to
-// merge into a request body. The hub's taskboard, an additive build tag,
-// still authenticates that way; nothing on the hub's own wire-2 endpoints
-// accepts it.
+// A send is not signed at wire 3 (relay-send opens a session for it).
 //
 // A fixture rather than an `anet` subcommand because that is what this
 // is for: a check that needs a signature, not a product surface nobody
@@ -331,14 +319,13 @@ func wire1Challenge(action, aid string, ts uint64) []byte {
 func cmdRelaySign(args []string) error {
 	fs := flag.NewFlagSet("relay-sign", flag.ExitOnError)
 	home := fs.String("home", "", "daemon data dir")
-	action := fs.String("action", "", "action name: send, poll, ack, keys, … (v1: e.g. task.create)")
+	action := fs.String("action", "", "action name: poll, ack, keys, session, revoke, …")
 	hub := fs.String("hub", "", "hub URL; its AID is part of what v2 signs")
 	hubAID := fs.String("hub-aid", "", "the hub's AID, instead of asking --hub for it")
 	method := fs.String("method", http.MethodPost, "HTTP method as sent")
 	path := fs.String("path", "", "request target as sent, path and query (e.g. /relay/send)")
 	body := fs.String("body", "", "request body, exactly as sent")
 	bodyFile := fs.String("body-file", "", "read the request body from this file (the bytes curl will send)")
-	v1 := fs.Bool("v1", false, "wire-1 challenge JSON for the hub taskboard (additive tag)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -349,21 +336,8 @@ func cmdRelaySign(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *v1 {
-		ts := uint64(time.Now().UnixMilli())
-		sig, seq := c.Sign(wire1Challenge(*action, c.AID(), ts))
-		out, err := json.Marshal(map[string]any{
-			"aid": c.AID(), "ts": ts, "key_state_seq": seq,
-			"sig": base64.StdEncoding.EncodeToString(sig),
-		})
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(out))
-		return nil
-	}
 	if *path == "" || !strings.HasPrefix(*path, "/") {
-		return fmt.Errorf("--path is required and starts with /: v2 signs the request target (the wire-1 form is --v1)")
+		return fmt.Errorf("--path is required and starts with /: v2 signs the request target")
 	}
 	if *body != "" && *bodyFile != "" {
 		return fmt.Errorf("--body or --body-file, not both")

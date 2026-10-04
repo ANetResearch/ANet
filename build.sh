@@ -30,10 +30,9 @@ export CGO_ENABLED=0
 # The opt-in tags. `go test ./...` cannot see code behind an additive tag, so
 # a check that does not name them is a check that never compiles, vets or
 # tests those modules — for `shell`, the one module that executes commands on
-# the host, that is the last place to have no coverage. taskboard joined it
-# when the hub stopped building its board by default (A2A-DESIGN §16).
-# scripts/tagcheck.sh holds the full lists, both directions.
-OPTIN="shell,taskboard"
+# the host, that is the last place to have no coverage. scripts/tagcheck.sh
+# holds the full lists, both directions.
+OPTIN="shell"
 
 CHECK=0
 case "${1:-}" in

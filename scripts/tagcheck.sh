@@ -33,9 +33,9 @@ export CGO_ENABLED=0
 # In by default, removed with -tags no_<m>.
 SUBTRACTIVE="anetlink p2p blackboard org cas service mcp x402 a2a"
 # Absent by default, added with -tags <m>. shell executes commands on the
-# host; taskboard keeps caller text on a board anyone can read (A2A-DESIGN
-# §16). For both, the build nobody asked about is the one that must lack it.
-ADDITIVE="shell taskboard"
+# host (A2A-DESIGN §16): the build nobody asked about is the one that must
+# lack it.
+ADDITIVE="shell"
 
 # pattern <m> — what the module's code is called in `go tool nm` output.
 #

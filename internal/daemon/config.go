@@ -339,6 +339,7 @@ var removedSettings = []struct{ key, instead string }{
 	{"modules.anetlink.expected_uid", "expected_uid"},
 	{"modules.p2p.dial_timeout_ms", "p2p_timeouts"},
 	{"modules.p2p.reach_timeout_ms", "p2p_timeouts"},
+	{"modules.taskboard", "taskboard"},
 }
 
 // InviteEnv is the one removed item that is not a key: the environment

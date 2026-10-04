@@ -60,18 +60,16 @@ jobs:
         # test binary (CONTRIBUTING.md, build.sh).
         run: |
           go test -race -timeout 45m ./...
-          go test -race -tags shell,taskboard ./module/shell/... ./module/taskboard/... ./cmd/anet/...
+          go test -race -tags shell ./module/shell/... ./cmd/anet/...
 
   # The opt-in tags, which are checked the other way round.
   #
   # Every module in the matrix below is in by default and subtracted with
-  # `no_<name>`. `shell` and `taskboard` are the exceptions. shell executes
-  # commands on the machine hosting the daemon; taskboard is the client for
-  # a board that keeps callers' titles and notes in the clear and shows
-  # them to anyone, which the default hub no longer builds (A2A-DESIGN §9,
-  # §16). For both, the default build must not contain them and a build
-  # must ask. That inverts the assertion — the DEFAULT binary is the one
-  # whose symbol count has to be zero — and inverts what a mistake costs. A
+  # `no_<name>`. `shell` is the exception: it executes commands on the
+  # machine hosting the daemon (A2A-DESIGN §16), so the default build must
+  # not contain it and a build must ask. That inverts the assertion — the
+  # DEFAULT binary is the one whose symbol count has to be zero — and
+  # inverts what a mistake costs. A
   # broken subtractive tag ships a module somebody wanted removed; a broken
   # opt-in tag ships the module to everybody who never asked for it, which
   # is why it is a separate job rather than another row in the matrix.
@@ -82,7 +80,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tag: ["shell", "taskboard"]
+        tag: ["shell"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
