@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -273,8 +274,8 @@ func TestSandboxCommandKeepsTheAgentOffTheCommandLine(t *testing.T) {
 		t.Errorf("limits: %+v", *spec.Rlimits)
 	}
 	env := strings.Join(spec.Env, "\n")
-	if !strings.Contains(env, "ANTHROPIC_API_KEY="+key) || !strings.Contains(env, "HOME="+home) || strings.Contains(env, "HOME=/elsewhere") {
-		t.Errorf("spec env: %v", spec.Env)
+	if strings.Contains(env, key) || !strings.Contains(env, "PATH=/usr/bin") || !strings.Contains(env, "HOME="+home) || strings.Contains(env, "HOME=/elsewhere") {
+		t.Errorf("spec env (the key stays with the egress endpoint, UP-4): %v", spec.Env)
 	}
 	prog, _ := io.ReadAll(l.Files[2])
 	if want, _ := seccompProgramForHost(); !bytes.Equal(prog, want) {
@@ -456,11 +457,154 @@ func TestSandboxRequiresAnAPIKey(t *testing.T) {
 		RC:    replyContext{Role: "inbound", Goal: "g", InteractionID: "ix-nokey"},
 		Turns: []chatTurn{{Role: "user", Text: "hi"}},
 	})
-	if !errors.Is(err, errSandboxUnavailable) || !strings.Contains(err.Error(), "api_key") {
-		t.Fatalf("want errSandboxUnavailable naming api_key, got %v", err)
+	var pe *sandboxProbeError
+	if !errors.Is(err, errSandboxUnavailable) || !errors.As(err, &pe) || pe.Code != "no_api_key" || !strings.Contains(err.Error(), "api_key") {
+		t.Fatalf("want errSandboxUnavailable no_api_key naming api_key, got %v", err)
 	}
 	if _, serr := os.Stat(marker); serr == nil {
 		t.Fatal("the agent ran without an API key")
+	}
+}
+
+// --- the egress endpoint (LEC §2.6.1, EG-1) ---
+
+// A plan with an upstream opens the run's egress endpoint before the agent starts: its socket is in the
+// run directory (0600) and bound at /run/anet/egress.sock, the spec asks init to bridge it to
+// 127.0.0.1:3128, and the agent's environment names the injection route with the placeholder key and no
+// key or proxy of the daemon's. The socket forwards to the model service with the operator's key. Close
+// ends it: the socket is gone, and the plan has the run's counts.
+func TestSandboxCommandOpensTheEgressEndpoint(t *testing.T) {
+	f := newFakeModelService(t)
+	up := testUpstream(t, egressUpstreamAnthropic, f)
+	agent := writeStub(t, "#!/bin/sh\necho hi\n")
+	plan := &sandboxPlan{Bwrap: "/usr/bin/bwrap", AID: "EaidEgressCommand001", Home: filepath.Join(t.TempDir(), "home"), Egress: up}
+	l, err := plan.command(t.TempDir(), []string{agent}, []string{"PATH=/usr/bin", "ANTHROPIC_API_KEY=" + testOperatorKey,
+		"HTTPS_PROXY=http://u:pw@proxy.example:8080"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			l.Close()
+		}
+	}()
+	at := seqIndex(l.Args, "--bind")
+	sock := ""
+	for i := at; i >= 0 && i+2 < len(l.Args); i++ {
+		if l.Args[i] == "--bind" && l.Args[i+2] == sandboxEgressPath {
+			sock = l.Args[i+1]
+		}
+	}
+	if sock == "" || filepath.Base(sock) != "egress.sock" || filepath.Dir(filepath.Dir(sock)) != sandboxRunRoot() {
+		t.Fatalf("no egress bind from the run directory: %v", l.Args)
+	}
+	fi, err := os.Stat(sock)
+	if err != nil || fi.Mode()&os.ModeSocket == 0 || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("egress socket %s: %v %v", sock, fi, err)
+	}
+	raw, _ := io.ReadAll(l.Files[0])
+	var spec sandboxInitSpec
+	if err := decodeSandboxSpec(raw, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if spec.Bridge == nil || *spec.Bridge != (sandboxBridge{Listen: "127.0.0.1:3128", UDS: "/run/anet/egress.sock"}) {
+		t.Errorf("bridge %+v", spec.Bridge)
+	}
+	env := "\n" + strings.Join(spec.Env, "\n") + "\n"
+	for _, w := range []string{"ANTHROPIC_BASE_URL=http://127.0.0.1:3128/anet-upstream/anthropic", "ANTHROPIC_API_KEY=anet-sandbox",
+		"HTTPS_PROXY=http://127.0.0.1:3128", "NO_PROXY=127.0.0.1,localhost"} {
+		if !strings.Contains(env, "\n"+w+"\n") {
+			t.Errorf("spec env lacks %s: %v", w, spec.Env)
+		}
+	}
+	if strings.Contains(env, testOperatorKey) || strings.Contains(env, "pw@") {
+		t.Errorf("spec env carries the daemon's key or proxy: %v", spec.Env)
+	}
+	c := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+	}}}
+	resp, err := c.Post(routeURL("anthropic", "/v1/messages"), "application/json", strings.NewReader(`{"messages":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
+	c.CloseIdleConnections()
+	got := f.requests()
+	if resp.StatusCode != 200 || len(got) != 1 || si57Check(up, got[0]) != nil {
+		t.Fatalf("through the socket: %d, %d received", resp.StatusCode, len(got))
+	}
+	l.Close()
+	closed = true
+	if _, err := os.Stat(sock); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the socket survived the run: %v", err)
+	}
+	if s := plan.egressSummary(); s == nil || s.ModelRequests != 1 || s.BytesDown == 0 {
+		t.Errorf("plan summary %+v", s)
+	}
+}
+
+// LEC §2.6.1: the endpoint admits only connections from the daemon's own uid (SO_PEERCRED); any other is
+// closed unanswered.
+func TestSandboxEgressPeerMustBeTheDaemonUser(t *testing.T) {
+	quietLog(t)
+	f := newFakeModelService(t)
+	up := testUpstream(t, egressUpstreamAnthropic, f)
+	start := func(uid func() int) *sandboxEgress {
+		egressPeerUID = uid
+		defer func() { egressPeerUID = os.Getuid }()
+		se, err := startSandboxEgress(t.TempDir(), up)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(se.close)
+		return se
+	}
+	other := start(func() int { return os.Getuid() + 1 }) // expects another uid than the one connecting
+	own := start(os.Getuid)
+	ask := func(se *sandboxEgress) string {
+		c, err := net.Dial("unix", se.sock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		_ = c.SetDeadline(time.Now().Add(5 * time.Second))
+		_, _ = io.WriteString(c, "GET /anet-upstream/anthropic/v1/models HTTP/1.1\r\nHost: x\r\n\r\n")
+		b, _ := io.ReadAll(io.LimitReader(c, 12))
+		return string(b)
+	}
+	if got := ask(other); got != "" {
+		t.Errorf("a connection from another uid was answered %q", got)
+	}
+	if got := ask(own); got != "HTTP/1.1 200" {
+		t.Errorf("the daemon's own uid was answered %q", got)
+	}
+	if n := len(f.requests()); n != 1 {
+		t.Errorf("the service received %d requests", n)
+	}
+}
+
+// A run directory whose socket path would not fit sockaddr_un gets the socket in a private directory
+// under the temp dir, removed with the endpoint.
+func TestSandboxEgressSocketOutsideALongRunDir(t *testing.T) {
+	long := filepath.Join(t.TempDir(), strings.Repeat("d", 60), strings.Repeat("e", 60))
+	if err := os.MkdirAll(long, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	se, err := startSandboxEgress(long, &egressUpstream{Name: egressUpstreamAnthropic, Routes: egressAnthropicRoutes})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(se.sock) > sandboxSockMax || !strings.HasPrefix(filepath.Base(se.sockDir), "anet-sock-") || filepath.Dir(se.sock) != se.sockDir {
+		t.Errorf("socket %s in %s", se.sock, se.sockDir)
+	}
+	if fi, err := os.Stat(se.sockDir); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("socket dir: %v %v", fi, err)
+	}
+	se.close()
+	if _, err := os.Stat(se.sockDir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the socket dir survived: %v", err)
 	}
 }
 
@@ -798,6 +942,75 @@ func TestSandboxIntegrationConfinesTheAgent(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(wantWork, "probe-wrote-this")); err != nil {
 		t.Errorf("the write inside the sandbox did not reach the host work dir: %v", err)
+	}
+	ents, _ := os.ReadDir(sandboxRunRoot())
+	if len(ents) != 0 {
+		t.Errorf("run directories left behind: %d", len(ents))
+	}
+}
+
+// Integration (SI-55, SI-57, EG-1): with a working bubblewrap, the sandboxed agent (the test binary acting
+// as the probe) reaches its model only through the node: a call on the injection route from inside the
+// sandbox arrives at the model service with the operator's key, the pinned model and the bounded output,
+// while the agent's environment holds only the placeholder; the model service's own address is out of
+// reach; CONNECT is refused; the run's counts come back and nothing of the endpoint is left. Skipped
+// where bwrap is missing or cannot create namespaces.
+func TestSandboxIntegrationReachesTheModelOnlyThroughTheNode(t *testing.T) {
+	pr := realBwrapProbe(t, func(f bwrapFeatures) bwrapFeatures { return f })
+	if pr.Err != nil {
+		t.Fatalf("the sandbox failed its self-check: %v", pr.Err)
+	}
+	f := newFakeModelService(t)
+	up := testUpstream(t, egressUpstreamAnthropic, f)
+	d := newBareDaemon(t)
+	req, _ := json.Marshal(sandboxProbeRequest{Egress: true, HostURL: f.srv.URL + "/v1/models", OperatorKey: testOperatorKey})
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	res, err := d.runSandboxed(ctx, sandboxRequest{
+		Cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", Command: self, APIKey: testOperatorKey, APITimeoutSeconds: 50},
+		RC: replyContext{Role: "inbound", InteractionID: "ix-egress",
+			Goal: sandboxProbeMarker + string(req) + sandboxProbeEnd},
+		Turns: []chatTurn{{Role: "user", Text: "probe"}},
+	})
+	if err != nil {
+		t.Fatalf("sandboxed probe: %v", err)
+	}
+	var got sandboxProbeResult
+	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Reply)), &got); err != nil {
+		t.Fatalf("probe reply %q: %v", res.Reply, err)
+	}
+	t.Logf("probe result inside the sandbox: %+v", got)
+	if got.Error != "" {
+		t.Fatalf("probe: %s", got.Error)
+	}
+	if !got.KeyIsPlaceholder || got.EnvHasOperatorKey {
+		t.Errorf("the agent's key: placeholder %v, operator's key in its environment %v", got.KeyIsPlaceholder, got.EnvHasOperatorKey)
+	}
+	if got.RouteStatus != 200 {
+		t.Errorf("the injection route answered %d: %s", got.RouteStatus, got.RouteBody)
+	}
+	if got.HostReached {
+		t.Error("the model service's own address was reachable from the sandbox")
+	}
+	if got.ConnectStatus != 403 {
+		t.Errorf("CONNECT answered %d", got.ConnectStatus)
+	}
+	reqs := f.requests()
+	if len(reqs) != 1 {
+		t.Fatalf("the model service received %d requests", len(reqs))
+	}
+	if err := si57Check(up, reqs[0]); err != nil {
+		t.Errorf("SI-57: %v", err)
+	}
+	if !strings.Contains(string(reqs[0].Body), `"max_tokens":8192`) || !strings.Contains(string(reqs[0].Body), `"model":"claude-haiku-4-5"`) {
+		t.Errorf("forwarded body %s", reqs[0].Body)
+	}
+	if res.Egress == nil || res.Egress.ModelRequests != 1 || res.Egress.Connect.Refused["egress_host_not_allowed"] != 1 {
+		t.Errorf("the run's egress counts: %+v", res.Egress)
 	}
 	ents, _ := os.ReadDir(sandboxRunRoot())
 	if len(ents) != 0 {

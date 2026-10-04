@@ -448,15 +448,11 @@ MUTS = [
   tests=[('ANetHub:./internal/aghub', 'TestAHubLocalAgentOnAPeerCanBeReachedEncrypted|TestKeysLookupSources')],
   full=['ANetHub:./internal/aghub'],
  ),
- dict(
-  id='c32-2', group='C32', repo='ANetHub',
-  desc='-test-no-fed-key-lookup 开关失效(scenario.sh 8.6 的 mutation 不再生效)',
-  edits=[
-   ('cmd/anet-hub/wire_federation.go', '\t\t\tif !d.noFedKeyLookup {', '\t\t\tif true {'),
-  ],
-  tests=[('ANetHub:./cmd/anet-hub', 'TestTheTestSwitchTurnsOffOnlyTheFederatedKeyLookup')],
-  full=['ANetHub:./cmd/anet-hub'],
- ),
+ # c32-2 (the -test-no-fed-key-lookup switch stopped working) is retired with the switch: sealed-sender
+ # SSR-H20 removed it, and anet-hub now refuses it with hub_flag_removed.fixed (TestRemovedRelayFlagsRefuse,
+ # mutation ss3-flag-fixed in sealed_sender.py). That the hub still wires the federated key lookup is
+ # TestTheHubWiresTheFederatedKeyLookup (mutation ss3-fed-lookup-wired); scenario.sh's C32 is rewritten
+ # for directory buckets (SS-14).
  dict(
   id='m-p2p-1', group='m(p2p 旧帧)', repo='ANet',
   desc='anetpeer: 无 V 的旧帧也交给 daemon',

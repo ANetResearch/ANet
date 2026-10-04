@@ -1,0 +1,19 @@
+{
+  "upstream": "openrouter",
+  "model": "anthropic/claude-haiku-4.5",
+  "request": {
+    "method": "POST",
+    "target": "/chat/completions",
+    "body": "{\"messages\":[],\"plugins\":[{\"id\":\"web\"}]}"
+  },
+  "refused": {
+    "status": 403,
+    "body": {
+      "error": {
+        "code": "policy_field",
+        "message": "anet: the request field plugins is not allowed in the sandbox.",
+        "type": "invalid_request_error"
+      }
+    }
+  }
+}
