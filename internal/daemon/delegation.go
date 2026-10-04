@@ -30,10 +30,10 @@ import (
 	"log"
 	"strings"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
@@ -1139,7 +1139,9 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 	// natural-language task waits for the operator's agent or auto-reply.
 	if isCap {
 		released = true
-		if !d.runCapabilityCall(m.ix, capID, args, m.dr.Payment, release) {
+		// v030-todo(PAY-9): no prepayment (DelegateReq key 6 is retired); the runner's payment
+		// argument goes with the prepaid path.
+		if !d.runCapabilityCall(m.ix, capID, args, nil, release) {
 			// Cut off by the daemon stopping (SI-10): nothing was
 			// answered, and the delegation is not acknowledged, so its
 			// redelivery finds the replay row and runs it again.
@@ -1212,7 +1214,7 @@ func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 		log.Printf("anet: %s: long call %s was interrupted before it answered; not running it again", m.ix, capID)
 		return true
 	}
-	return d.runCapabilityCall(m.ix, capID, args, m.dr.Payment, nil)
+	return d.runCapabilityCall(m.ix, capID, args, nil, nil) // v030-todo(PAY-9): no prepayment (key 6 retired)
 }
 
 // recordedCall is the capability call an interaction was accepted for, read
@@ -1690,10 +1692,11 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	//
 	// A failed check drops the result rather than storing it.
 	verified := false
-	switch _, verr := delegation.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts); {
+	// v030-todo(PAY-14): the 0.2 receipt check; evidence v2 is delegation.VerifyResultForRequest.
+	switch _, verr := evidence.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts); {
 	case verr == nil:
 		verified = true
-	case errors.Is(verr, delegation.ErrUnverifiable):
+	case errors.Is(verr, evidence.ErrUnverifiable):
 		log.Printf("anet: %s: result accepted UNVERIFIED (no provider KEL)", m.ix)
 	default:
 		log.Printf("anet: %s: REFUSING result: %v", m.ix, verr)

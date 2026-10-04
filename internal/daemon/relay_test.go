@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/evidence"
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"

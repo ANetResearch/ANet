@@ -20,11 +20,11 @@ import (
 	"log"
 	"time"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -156,6 +156,12 @@ func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, 
 // because its payment is bound to it (pay_bind).
 func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerAID, capID string,
 	args map[string]any, paymentJSON []byte, contextID string) (string, error) {
+	if len(paymentJSON) > 0 {
+		// v030-todo(PAY-9): the prepaid call goes with /delegate's pay and DelegateAndPay.
+		// DelegateReq key 6 (the prepayment) is retired in ANetCore 0.16, so there is nothing
+		// to carry it in.
+		return "", fmt.Errorf("anet: paying in the same message as the call is no longer supported; call the capability and pay the quote it answers with")
+	}
 	hub := d.config().HubURL
 	if hub == "" {
 		return "", fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
@@ -206,9 +212,6 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 		return "", err
 	}
 	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, KEL: kelB, InteractionID: id, ContextID: contextID}
-	if len(paymentJSON) > 0 {
-		dr.Payment = paymentJSON
-	}
 	payload, err := dr.Marshal()
 	if err != nil {
 		return "", err
