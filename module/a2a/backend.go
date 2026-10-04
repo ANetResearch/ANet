@@ -168,6 +168,35 @@ const (
 // shorten it.
 var retryBase = 5 * time.Second
 
+// retryClock is what the retries of a forward are timed on: how long since
+// the first attempt, and the wait before the next. A forwarder takes one
+// from newRetryClock when the module starts; a test gives it one of its
+// own, on which a wait takes no time and the attempts made before giving up
+// do not depend on how busy the machine is.
+type retryClock interface {
+	now() time.Time
+	// sleep waits d, or until ctx ends (false).
+	sleep(ctx context.Context, d time.Duration) bool
+}
+
+var newRetryClock = func() retryClock { return wallClock{} }
+
+// wallClock is the time of day.
+type wallClock struct{}
+
+func (wallClock) now() time.Time { return time.Now() }
+
+func (wallClock) sleep(ctx context.Context, d time.Duration) bool {
+	tm := time.NewTimer(d)
+	defer tm.Stop()
+	select {
+	case <-tm.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // retryPolicy is a BackendRetry read.
 type retryPolicy struct {
 	base, max, giveUp time.Duration
@@ -315,7 +344,7 @@ func (m *Module) startBackends(ctx context.Context, h module.Host) error {
 		return err
 	}
 	f := &forwarder{host: h, in: in, remote: map[string]string{}, busy: map[string]bool{}, pending: map[string]module.Task{},
-		timeout: backendTimeout, sem: make(chan struct{}, maxForwards), retry: retry}
+		timeout: backendTimeout, sem: make(chan struct{}, maxForwards), retry: retry, clock: newRetryClock()}
 	for _, b := range m.cfg.Backends {
 		t, rules, err := b.target()
 		if err != nil { // checked by New; kept for a Module made otherwise
@@ -368,6 +397,7 @@ type forwarder struct {
 	timeout  time.Duration
 	sem      chan struct{}
 	retry    retryPolicy
+	clock    retryClock
 
 	mu sync.Mutex
 	// remote maps a network task to its task on the backend.
@@ -494,7 +524,7 @@ func (f *forwarder) pick(t module.Task, trusted bool) *backendClient {
 // (anet.backend.failed). s is the task's place among the forwards running at
 // once: given up while it waits, taken again before the next attempt.
 func (f *forwarder) deliver(ctx context.Context, t module.Task, s *slot) {
-	first := time.Now()
+	first := f.clock.now()
 	wait := f.retry.base
 	for attempt := 1; ; attempt++ {
 		b, retry, err := f.forward(ctx, t)
@@ -510,9 +540,9 @@ func (f *forwarder) deliver(ctx context.Context, t module.Task, s *slot) {
 			f.failed(b, t, attempt, err, false)
 			return
 		}
-		if time.Since(first)+wait > f.retry.giveUp {
+		if since := f.clock.now().Sub(first); since+wait > f.retry.giveUp {
 			log.Printf("anet: a2a: backend %s: task %s: %v; gave up after %d attempt(s) in %s (left in the inbox)",
-				b.cfg.URL, t.ID, err, attempt, time.Since(first).Round(time.Second))
+				b.cfg.URL, t.ID, err, attempt, since.Round(time.Second))
 			f.failed(b, t, attempt, err, true)
 			return
 		}
@@ -521,7 +551,7 @@ func (f *forwarder) deliver(ctx context.Context, t module.Task, s *slot) {
 				b.cfg.URL, t.ID, err, wait, f.retry.giveUp)
 		}
 		s.release()
-		if !f.pause(ctx, wait) || !s.take(ctx) {
+		if !f.clock.sleep(ctx, wait) || !s.take(ctx) {
 			return
 		}
 		wait = min(wait*2, f.retry.max)
@@ -539,18 +569,6 @@ func (f *forwarder) deliver(ctx context.Context, t module.Task, s *slot) {
 			return
 		}
 		t = now
-	}
-}
-
-// pause waits d, or until ctx ends (false).
-func (f *forwarder) pause(ctx context.Context, d time.Duration) bool {
-	tm := time.NewTimer(d)
-	defer tm.Stop()
-	select {
-	case <-tm.C:
-		return true
-	case <-ctx.Done():
-		return false
 	}
 }
 
