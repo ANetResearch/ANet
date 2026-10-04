@@ -271,8 +271,8 @@ MUTS += [
   tests=PROP_T('TestKind1RefusalsAreIdentical'), full=[AGHUB]),
  # ---- M8: deduplication is by the mail still waiting, not by what was ever seen
  dict(id='ss-m8-ever', group='SS-M8', repo='ANetHub', desc='去重改为曾经见过即重复(重投计数里有就答 duplicate)',
-  edits=[('internal/aghub/relay.go', '\t// v030-todo(FS-3): the kid of the envelope',
-          '\tif count > 0 {\n\t\treturn Queued{RID: rid, Duplicate: true}, nil\n\t}\n\t// v030-todo(FS-3): the kid of the envelope')],
+  edits=[('internal/aghub/relay.go', '\tsize := int64(len(it.Envelope))\n',
+          '\tif count > 0 {\n\t\treturn Queued{RID: rid, Duplicate: true}, nil\n\t}\n\tsize := int64(len(it.Envelope))\n')],
   tests=PROP_T('TestSessionReplayOnlyDedupes') + PROP_T('TestPropertyNoMailIsSwallowed'), full=[AGHUB]),
  dict(id='ss4-refund', group='SS-4', repo='ANetHub', desc='第 9、10 步拒绝后不退还第 8 步扣的令牌',
   edits=[('internal/aghub/server.go', '\tif err != nil || queued.Duplicate {\n\t\trefundAll(takes)\n\t}\n', '')],
