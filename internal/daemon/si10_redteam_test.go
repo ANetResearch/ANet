@@ -80,9 +80,27 @@ func TestRedteamSI10_P2PMisrouteFallsBackToTheHub(t *testing.T) {
 }
 
 // sharedClock is one wire clock for several daemons, advanced by the test.
-type sharedClock struct{ now uint64 }
+// The daemons' background loops (the outbox retry ticker) read it while the
+// test advances it, so it is atomic: a plain field was a data race under
+// -race whenever a test outlived one retry scan.
+type sharedClock struct{ ms atomic.Uint64 }
 
-func (c *sharedClock) fn() func() uint64 { return func() uint64 { return c.now } }
+func newSharedClock(ms uint64) *sharedClock {
+	c := &sharedClock{}
+	c.ms.Store(ms)
+	return c
+}
+
+func (c *sharedClock) fn() func() uint64 { return c.ms.Load }
+
+// now is the clock's time in unix ms.
+func (c *sharedClock) now() uint64 { return c.ms.Load() }
+
+// set moves the clock to ms.
+func (c *sharedClock) set(ms uint64) { c.ms.Store(ms) }
+
+// add advances the clock by ms.
+func (c *sharedClock) add(ms uint64) { c.ms.Add(ms) }
 
 // driveOutage keeps the hub's relay refusing sends (503) while the
 // requester's retry loop runs on its own backoff, until the clock passes
@@ -97,8 +115,8 @@ func driveOutage(t *testing.T, ctx context.Context, d *Daemon, clk *sharedClock,
 		if uint64(it.NextAt) > until {
 			return it
 		}
-		if uint64(it.NextAt) > clk.now {
-			clk.now = uint64(it.NextAt)
+		if uint64(it.NextAt) > clk.now() {
+			clk.set(uint64(it.NextAt))
 		}
 		d.flushOutbox(ctx)
 	}
@@ -117,10 +135,10 @@ func TestRedteamSI10_ACancelBeforeDeliveryWithdrawsTheDelegation(t *testing.T) {
 	if err := prov.Providers().Register(ctx, lamp); err != nil {
 		t.Fatal(err)
 	}
-	clk := &sharedClock{now: uint64(time.Now().UnixMilli())}
+	clk := newSharedClock(uint64(time.Now().UnixMilli()))
 	req.setClock(clk.fn())
 	prov.setClock(clk.fn())
-	start := clk.now
+	start := clk.now()
 
 	// The hub's relay is down (503): the delegation is recorded and queued.
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
@@ -138,7 +156,7 @@ func TestRedteamSI10_ACancelBeforeDeliveryWithdrawsTheDelegation(t *testing.T) {
 
 	// The hub is back. The requester cancels the call it no longer wants.
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
-	clk.now = start + uint64((25*time.Minute + 30*time.Second).Milliseconds())
+	clk.set(start + uint64((25*time.Minute + 30*time.Second).Milliseconds()))
 	if _, err := req.CancelTask(ctx, id); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
@@ -154,7 +172,7 @@ func TestRedteamSI10_ACancelBeforeDeliveryWithdrawsTheDelegation(t *testing.T) {
 	}
 
 	// Long after the delegation's backoff would have ended: still nothing.
-	clk.now = uint64(d.NextAt) + uint64(time.Hour.Milliseconds())
+	clk.set(uint64(d.NextAt) + uint64(time.Hour.Milliseconds()))
 	req.flushOutbox(ctx)
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
@@ -194,7 +212,7 @@ func TestRedteamSI10_ACancelWaitsBehindADelegationThatMayHaveArrived(t *testing.
 	if err := prov.Providers().Register(ctx, lamp); err != nil {
 		t.Fatal(err)
 	}
-	clk := &sharedClock{now: uint64(time.Now().UnixMilli())}
+	clk := newSharedClock(uint64(time.Now().UnixMilli()))
 	req.setClock(clk.fn())
 	prov.setClock(clk.fn())
 	p2p := &ambiguousP2P{}
@@ -209,14 +227,14 @@ func TestRedteamSI10_ACancelWaitsBehindADelegationThatMayHaveArrived(t *testing.
 	if len(rows) != 1 || !rows[0].MaybeDelivered {
 		t.Fatalf("setup: delegation row %+v, want one that may have been delivered", rows)
 	}
-	d := driveOutage(t, ctx, req, clk, rows[0].ID, clk.now+uint64((20*time.Minute).Milliseconds()))
+	d := driveOutage(t, ctx, req, clk, rows[0].ID, clk.now()+uint64((20*time.Minute).Milliseconds()))
 
 	// The hub is back; the direct path is gone. The cancel is queued behind
 	// the delegation and, since a new message is a reason to try, takes it
 	// along: first the delegation, then the cancel.
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
 	p2p.on.Store(false)
-	if uint64(d.NextAt) <= clk.now {
+	if uint64(d.NextAt) <= clk.now() {
 		t.Fatalf("setup: the delegation is due already")
 	}
 	if _, err := req.CancelTask(ctx, id); err != nil {
@@ -262,7 +280,7 @@ func TestRedteamSI10_ASteadyStreamDoesNotPinTheRelayCursor(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	clk := &sharedClock{now: uint64(time.Now().UnixMilli())}
+	clk := newSharedClock(uint64(time.Now().UnixMilli()))
 	prov.setClock(clk.fn())
 
 	// A legitimate follow-up hits one store error: held (not acked), as
@@ -294,8 +312,8 @@ func TestRedteamSI10_ASteadyStreamDoesNotPinTheRelayCursor(t *testing.T) {
 	const rounds = 2 * (relayHeadEvery + 1)
 	processedAt := -1
 	for i := 0; i < rounds; i++ {
-		clk.now += 60_000
-		now := clk.now
+		clk.add(60_000)
+		now := clk.now()
 		ix := "ix_mallory_" + time.Duration(i).String()
 		injectEnvelope(t, srv, prov.AID(), craft(t, mallory, prov, seal.TypeMessage, ix,
 			chatBody(t, "x", ""), func(in *seal.SealedInner) { in.TS, in.Exp = now, now+messageLifetimeMS }))
@@ -535,7 +553,7 @@ func TestRedteamSI10_FromFutureIsAckedAlthoughItIsTemporary(t *testing.T) {
 		t.Fatalf("stats %v", prov.ReceiveStats())
 	}
 	// Two minutes later the same bytes are fine — but they are gone.
-	clk := &sharedClock{now: uint64(time.Now().Add(2 * time.Minute).UnixMilli())}
+	clk := newSharedClock(uint64(time.Now().Add(2 * time.Minute).UnixMilli()))
 	prov.setClock(clk.fn())
 	if r := receive(t, prov, env); r.class != rxAccepted {
 		t.Fatalf("same bytes later: %+v", r)

@@ -154,7 +154,7 @@ func (deliveredThenFailedNot) Send(context.Context, string, []byte) error {
 func TestAnAbandonedDelegationTakesItsQueueWithIt(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
-	clk := &sharedClock{now: uint64(time.Now().UnixMilli())}
+	clk := newSharedClock(uint64(time.Now().UnixMilli()))
 	req.setClock(clk.fn())
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
 	id, err := req.Delegate(ctx, prov.AID(), "a task", nil)
@@ -169,7 +169,7 @@ func TestAnAbandonedDelegationTakesItsQueueWithIt(t *testing.T) {
 	}
 	// The hub comes back refusing the delegation for good.
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown, h.maxEnvelope = false, 1 })
-	clk.now += uint64(time.Hour.Milliseconds())
+	clk.add(uint64(time.Hour.Milliseconds()))
 	req.flushOutbox(ctx)
 	if rows, _ := req.ix.Outbox(id); len(rows) != 0 {
 		t.Fatalf("%d rows left queued for a task whose delegation was abandoned", len(rows))
