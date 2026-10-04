@@ -3,7 +3,7 @@ module github.com/ANetResearch/ANet
 go 1.26.6
 
 require (
-	github.com/ANetResearch/ANetCore v0.15.0
+	github.com/ANetResearch/ANetCore v0.16.0-rc.1
 	github.com/a2aproject/a2a-go/v2 v2.6.0
 	github.com/ipfs/go-cid v0.6.2
 	github.com/modelcontextprotocol/go-sdk v1.7.0
@@ -12,7 +12,6 @@ require (
 )
 
 require (
-	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -40,6 +39,7 @@ require (
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
 	modernc.org/libc v1.74.4 // indirect

@@ -6,9 +6,13 @@ on:
   # The joint job below runs only when asked; see there.
   workflow_dispatch:
 
-# The Go jobs build exactly what go.mod names (ANetCore v0.15.0). The
-# workspace bridge used while v0.15.0 was untagged (.github/actions/anetcore,
-# A2A-DESIGN §18) was removed when go.mod moved to the tag.
+# The Go jobs build exactly what go.mod names. Until the release, go.mod
+# names an ANetCore release candidate (v0.16.0-rc.N) that is not on the
+# module proxy: the same steps run locally in a Go workspace with ANetCore
+# checked out beside this repository, and here once go.mod names the
+# published v0.16.0. The workspace bridge used while v0.15.0 was untagged
+# (.github/actions/anetcore, A2A-DESIGN §18) was removed when go.mod moved
+# to that tag.
 #
 # Jobs that build the hub check ANetHub out at a pinned ref [C37]: v0.2.1,
 # the wire-2 hub released with anet 0.2.1 (a patch of v0.2.0, the same wire).
