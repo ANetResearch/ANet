@@ -198,6 +198,11 @@ func TestInjectBodyPolicy(t *testing.T) {
 			`{"max_tokens":8192,"model":"claude-haiku-4-5","thinking":{"budget_tokens":4096,"type":"enabled"}}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":1500,"thinking":{"type":"enabled","budget_tokens":1500}}`,
 			`{"max_tokens":1500,"model":"claude-haiku-4-5","thinking":{"budget_tokens":1024,"type":"enabled"}}`},
+		// max_tokens of 1024 or less leaves no valid budget: the formula's 1024 goes up, for the service to refuse
+		{ant, routeAnthropicMessages, `{"max_tokens":1,"thinking":{"type":"enabled","budget_tokens":""}}`,
+			`{"max_tokens":1,"model":"claude-haiku-4-5","thinking":{"budget_tokens":1024,"type":"enabled"}}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":1000,"thinking":{"type":"enabled","budget_tokens":500}}`,
+			`{"max_tokens":1000,"model":"claude-haiku-4-5","thinking":{"budget_tokens":500,"type":"enabled"}}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":8000,"thinking":{"type":"enabled","budget_tokens":2000}}`,
 			`{"max_tokens":8000,"model":"claude-haiku-4-5","thinking":{"budget_tokens":2000,"type":"enabled"}}`},
 		{ant, routeAnthropicMessages, `{"thinking":{"type":"adaptive"},"output_config":{"effort":"low"}}`,

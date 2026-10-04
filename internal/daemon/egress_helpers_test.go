@@ -341,10 +341,15 @@ func si57Body(up *egressUpstream, rel string, body []byte) error {
 		if err := absent("mcp_servers", "container"); err != nil {
 			return err
 		}
+		// The thinking budget is an integer below max_tokens whenever one can be: the service's smallest
+		// budget is 1024, so with max_tokens of 1024 or less no budget is valid, and BP-3's
+		// max(1024, max_tokens/2) leaves that request (already invalid as the agent sent it) to the
+		// service to refuse. The output stays bounded by max_tokens either way.
 		if th, ok := obj["thinking"].(map[string]any); ok && mt > 0 {
 			if b, has := th["budget_tokens"]; has {
 				n, _ := b.(json.Number)
-				if i, err := strconv.ParseInt(string(n), 10, 64); err != nil || i >= mt {
+				i, err := strconv.ParseInt(string(n), 10, 64)
+				if err != nil || (i >= mt && !(mt <= 1024 && i == 1024)) {
 					return fmt.Errorf("thinking budget %v not below max_tokens %d", b, mt)
 				}
 			}
