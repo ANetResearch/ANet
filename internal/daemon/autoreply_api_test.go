@@ -12,7 +12,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -84,6 +86,64 @@ func sameAutoReply(a, b AutoReplyConfig) bool {
 	ja, _ := json.Marshal(a)
 	jb, _ := json.Marshal(b)
 	return bytes.Equal(ja, jb)
+}
+
+// §2.3.4: settings sent at once all land. Each request merges into what the request before it saved,
+// not into a copy of the configuration read before that save, which would put back what the other
+// request changed.
+func TestAutoReplySettingsSentAtOnceAllLand(t *testing.T) {
+	d := newBareDaemon(t)
+	if code, _, raw := postAutoReply(t, d, `{"backend":"exec","agent":"claude"}`); code != http.StatusOK {
+		t.Fatalf("%d %s", code, raw)
+	}
+	bodies := []string{`{"model":"m1"}`, `{"system_prompt":"s"}`, `{"usage_hint":"u"}`, `{"error_reply":"e"}`,
+		`{"max_history":5}`, `{"poll_interval_seconds":7}`, `{"api_timeout_seconds":9}`, `{"max_auto_replies":11}`,
+		`{"api_key":"sk-at-once"}`, `{"untrusted":"sandbox"}`, `{"openclaw_agent":"o"}`, `{"require_image":true}`}
+	var wg sync.WaitGroup
+	for _, b := range bodies {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if code, _, raw := postAutoReply(t, d, b); code != http.StatusOK {
+				t.Errorf("%s: %d %s", b, code, raw)
+			}
+		}()
+	}
+	wg.Wait()
+	want := AutoReplyConfig{Backend: "exec", Agent: "claude", Model: "m1", SystemPrompt: "s", UsageHint: "u",
+		ErrorReply: "e", MaxHistory: 5, PollIntervalSeconds: 7, APITimeoutSeconds: 9, MaxAutoReplies: 11,
+		APIKey: "sk-at-once", Untrusted: "sandbox", OpenClawAgent: "o", RequireImage: true}
+	if got := d.config().AutoReply; got == nil || !sameAutoReply(*got, want) {
+		t.Fatalf("after %d settings at once: %+v, want %+v", len(bodies), got, want)
+	}
+	if saved, err := LoadConfig(d.layout); err != nil || saved.AutoReply == nil || !sameAutoReply(*saved.AutoReply, want) {
+		t.Fatalf("config.json holds %+v (%v)", saved.AutoReply, err)
+	}
+}
+
+// "off" is a boolean. Another value is refused (config_invalid naming it) and nothing changes: taken as
+// false it would leave auto-reply running for a caller who believes it stopped. null is its default.
+func TestAutoReplyOffIsABoolean(t *testing.T) {
+	d := newBareDaemon(t)
+	if code, _, raw := postAutoReply(t, d, `{"backend":"exec","agent":"claude"}`); code != http.StatusOK {
+		t.Fatalf("%d %s", code, raw)
+	}
+	before := *d.config().AutoReply
+	for _, body := range []string{`{"off":"true"}`, `{"off":1}`, `{"off":"yes","model":"m"}`, `{"off":{}}`} {
+		code, out, raw := postAutoReply(t, d, body)
+		if code != http.StatusBadRequest || out["reason"] != "config_invalid" || !strings.Contains(raw, "off") {
+			t.Errorf("%s: %d %s", body, code, raw)
+		}
+		if ar := d.config().AutoReply; ar == nil || !sameAutoReply(*ar, before) {
+			t.Errorf("%s changed the configuration: %+v", body, ar)
+		}
+	}
+	if code, _, raw := postAutoReply(t, d, `{"off":null,"model":"m"}`); code != http.StatusOK || d.config().AutoReply.Model != "m" {
+		t.Fatalf(`{"off":null,"model":"m"}: %d %s`, code, raw)
+	}
+	if code, _, raw := postAutoReply(t, d, `{"off":true}`); code != http.StatusOK || d.config().AutoReply != nil {
+		t.Fatalf(`{"off":true}: %d %s`, code, raw)
+	}
 }
 
 // AV-8, M-AV-1: neither /autoreply's answer nor /status shows the key, only api_key_set; the key is kept
@@ -283,4 +343,33 @@ func readTokenFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// The exact-name rule holds inside a block of settings too (an object member whose field is a struct,
+// merged member by member): "Hosts" sent next to a stored hosts would be overridden by it in silence.
+func TestAutoReplyMemberNamesAreExactAtEveryDepth(t *testing.T) {
+	type block struct {
+		Hosts []string `json:"hosts,omitempty"`
+		Limit int      `json:"limit,omitempty"`
+	}
+	type conf struct {
+		Name  string `json:"name,omitempty"`
+		Block *block `json:"block,omitempty"`
+	}
+	for _, c := range []struct{ body, want string }{
+		{`{"name":"x","block":{"hosts":["a"],"limit":1}}`, ""},
+		{`{"block":null}`, ""},
+		{`{"block":{"Hosts":["a"]}}`, "block.Hosts"},
+		{`{"block":{"hosts":["a"],"other":1}}`, "block.other"},
+		{`{"Name":"x","block":{"hosts":[]}}`, "Name"},
+		{`{"name":{"Hosts":1}}`, ""}, // not a block: its type is checked when the merge is decoded
+	} {
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(c.body), &m); err != nil {
+			t.Fatal(err)
+		}
+		if got := inexactMember(reflect.TypeFor[conf](), m); got != c.want {
+			t.Errorf("%s: %q, want %q", c.body, got, c.want)
+		}
+	}
 }

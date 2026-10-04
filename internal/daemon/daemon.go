@@ -133,6 +133,9 @@ type Daemon struct {
 	// ctlAuth is the control plane's credential in force (control_api.go); rotateLocalTokens replaces
 	// it.
 	ctlAuth atomic.Pointer[ctlAuth]
+	// autoReplyWrite makes POST /autoreply's read of the configuration, its merge and its save one step,
+	// so that two settings sent at once both land (control_api.go hAutoReply).
+	autoReplyWrite sync.Mutex
 	// wireWarnOnce keeps the C2 version-mismatch notice to one line.
 	wireWarnOnce sync.Once
 	// lastCardSeq is the highest sequence this process has minted for its

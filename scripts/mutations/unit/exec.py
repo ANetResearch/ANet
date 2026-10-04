@@ -511,7 +511,7 @@ MUTS += [
  dict(
   id='m-av-8c', group='§2.3.4', repo='ANet',
   desc='/autoreply 接受大小写不同的成员名(JSON 解码不分大小写)',
-  edits=[('internal/daemon/control_api.go', '\t\tif k != "off" && !autoReplyMembers[k] {', '\t\tif k != "off" && !autoReplyMembers[strings.ToLower(k)] {')],
+  edits=[('internal/daemon/control_api.go', '\t\tft, ok := fields[k]\n', '\t\tft, ok := fields[strings.ToLower(k)]\n')],
   tests=[(DAEMON, 'TestAutoReplyRefusesWhatCannotRun')],
   full=[DAEMON],
  ),
@@ -534,6 +534,28 @@ MUTS += [
   desc='超长单条消息不截断',
   edits=[('internal/daemon/autoreply_exec.go', '\tif len(s) <= conversationMaxMessage {\n\t\treturn s\n\t}', '\tif true {\n\t\treturn s\n\t}')],
   tests=[(DAEMON, 'TestBoundConversation')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-8d', group='§2.3.4', repo='ANet',
+  desc='/autoreply 的读取、合并与保存不串行(同时发出的两项设置互相覆盖)',
+  edits=[('internal/daemon/control_api.go', '\td.autoReplyWrite.Lock()\n\tdefer d.autoReplyWrite.Unlock()\n', '')],
+  tests=[(DAEMON, 'TestAutoReplySettingsSentAtOnceAllLand')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-8e', group='§2.3.4', repo='ANet',
+  desc='/autoreply 的 off 不是布尔值时当作 false(自动回复仍在运行)',
+  edits=[('internal/daemon/control_api.go', 'if raw, ok := members["off"]; ok && string(raw) != "null" && json.Unmarshal(raw, &off) != nil {',
+          'if raw, ok := members["off"]; ok && false && json.Unmarshal(raw, &off) != nil {')],
+  tests=[(DAEMON, 'TestAutoReplyOffIsABoolean')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-8f', group='§2.3.4', repo='ANet',
+  desc='/autoreply 只在顶层核对成员名(设置块里大小写不同的成员被已存的值静默覆盖)',
+  edits=[('internal/daemon/control_api.go', '\t\t\tif bad := inexactMember(ft, sub); bad != "" {', '\t\t\tif bad := inexactMember(ft, sub); false && bad != "" {')],
+  tests=[(DAEMON, 'TestAutoReplyMemberNamesAreExactAtEveryDepth')],
   full=[DAEMON],
  ),
 ]

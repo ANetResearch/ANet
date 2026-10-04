@@ -703,15 +703,25 @@ func (d *Daemon) hAccept(w http.ResponseWriter, r *http.Request) {
 // configuration: the members it names change, the others stay, so settings made one at a time do not
 // undo each other; a member set to null goes back to its default. api_key is write-only: absent keeps
 // it, a value replaces it, "" is refused (api_key_empty). The answer never holds the key, only
-// api_key_set.
+// api_key_set. "off" is a boolean: any other value would leave auto-reply running while the caller
+// believes it stopped, so it is refused.
 func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
 	members, err := readJSONMembers(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
+	off := false
+	if raw, ok := members["off"]; ok && string(raw) != "null" && json.Unmarshal(raw, &off) != nil {
+		writeRefusal(w, http.StatusBadRequest, configInvalid("off", ruleText("只能是 true 或 false", "it must be true or false")))
+		return
+	}
+	// The configuration read here is the one the merge result replaces: a second request waits, so
+	// two settings sent at once do not undo each other.
+	d.autoReplyWrite.Lock()
+	defer d.autoReplyWrite.Unlock()
 	var cfg *AutoReplyConfig
-	if off := members["off"]; string(off) != "true" {
+	if !off {
 		var ref *a2ashape.Refusal
 		if cfg, ref = mergeAutoReply(d.config().AutoReply, members); ref != nil {
 			writeRefusal(w, http.StatusBadRequest, ref)
@@ -771,17 +781,16 @@ func autoReplyView(ar *AutoReplyConfig) map[string]any {
 // member, any other value replacing it — then checked (checkAutoReply). A member that is not an
 // auto-reply setting, or has the wrong type, is config_invalid.
 func mergeAutoReply(cur *AutoReplyConfig, members map[string]json.RawMessage) (*AutoReplyConfig, *a2ashape.Refusal) {
-	// A member is named exactly: JSON decoding would match "Model" to model, and a merge with both
-	// would keep whichever came last.
-	names := make([]string, 0, len(members))
-	for k := range members {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	for _, k := range names {
-		if k != "off" && !autoReplyMembers[k] {
-			return nil, configInvalid("auto_reply."+k, ruleText("不是自动回复的配置项", "it is not an auto-reply setting"))
+	// A member is named exactly, at every depth: JSON decoding would match "Model" to model, and a merge
+	// with both would keep whichever came last.
+	settings := make(map[string]json.RawMessage, len(members))
+	for k, v := range members {
+		if k != "off" {
+			settings[k] = v
 		}
+	}
+	if bad := inexactMember(reflect.TypeFor[AutoReplyConfig](), settings); bad != "" {
+		return nil, configInvalid("auto_reply."+bad, ruleText("不是自动回复的配置项", "it is not an auto-reply setting"))
 	}
 	if raw, ok := members["api_key"]; ok && string(raw) != "null" {
 		var key string
@@ -820,17 +829,38 @@ func mergeAutoReply(cur *AutoReplyConfig, members map[string]json.RawMessage) (*
 	return &next, nil
 }
 
-// autoReplyMembers are the JSON names of AutoReplyConfig's members.
-var autoReplyMembers = func() map[string]bool {
-	m := map[string]bool{}
-	t := reflect.TypeFor[AutoReplyConfig]()
+// inexactMember is the path of the first member of members (in name order) that is not exactly the JSON
+// name of a field of the struct t, looking into a member that is an object where its field is a struct
+// (a block of settings, merged member by member); "" when every name is exact.
+func inexactMember(t reflect.Type, members map[string]json.RawMessage) string {
+	fields := map[string]reflect.Type{}
 	for i := 0; i < t.NumField(); i++ {
 		if name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ","); name != "" && name != "-" {
-			m[name] = true
+			fields[name] = t.Field(i).Type
 		}
 	}
-	return m
-}()
+	names := make([]string, 0, len(members))
+	for k := range members {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		ft, ok := fields[k]
+		if !ok {
+			return k
+		}
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		var sub map[string]json.RawMessage
+		if ft.Kind() == reflect.Struct && json.Unmarshal(members[k], &sub) == nil && sub != nil {
+			if bad := inexactMember(ft, sub); bad != "" {
+				return k + "." + bad
+			}
+		}
+	}
+	return ""
+}
 
 // mergeJSONMember is the value a member takes: v merged into cur when both are objects, nil (removed)
 // for null, else v.
