@@ -157,6 +157,12 @@ type fakeHub struct {
 	// keysOverride makes GET /agents/{aid}/keys answer with someone else's
 	// material: a hostile hub substituting keys.
 	keysOverride map[string]hubapi.KeysResponse
+	// refuseKeySets makes the hub refuse every key set it is sent
+	// (keys_status invalid at /register, 400 at POST /agents/{aid}/keys):
+	// a hub that does not hold this node's mailbox signing key.
+	refuseKeySets bool
+	// keyPosts counts POST /agents/{aid}/keys requests.
+	keyPosts int
 	// peers are other fake hubs asked for keys of AIDs not registered
 	// here, standing in for /fed/v2/keys/{aid}.
 	peers []*fakeHub
@@ -587,12 +593,24 @@ func (h *fakeHub) admitKeysLocked(a *fakeHubAgent, b64 string, kel []identity.Si
 	if err != nil {
 		return hubapi.KeysStatusInvalid, err.Error()
 	}
+	if h.refuseKeySets {
+		return hubapi.KeysStatusInvalid, "this hub refuses key sets (test)"
+	}
+	// SSR-W9, as the real hub applies it: the mailbox epoch is below 2^53,
+	// never falls, and rises whenever the mailbox key changes.
+	if set.Mbox.Epoch >= 1<<53 {
+		return hubapi.KeysStatusInvalid, "mbox epoch past 2^53"
+	}
 	var seen *seal.Seen
 	if len(a.keyset) > 0 {
 		if prev, err := seal.UnmarshalSignedEncKeySet(a.keyset); err == nil {
 			var ps seal.EncKeySet
 			if coredet.Unmarshal(prev.Set, &ps) == nil {
 				seen = &seal.Seen{Seq: ps.Seq, Set: prev.Set}
+				if set.Mbox.Epoch < ps.Mbox.Epoch ||
+					!bytes.Equal(set.Mbox.Pub, ps.Mbox.Pub) && set.Mbox.Epoch == ps.Mbox.Epoch {
+					return hubapi.KeysStatusInvalid, "mbox epoch must rise when the mailbox key changes"
+				}
 			}
 		}
 	}
@@ -629,6 +647,7 @@ func (h *fakeHub) hKeysPost(w http.ResponseWriter, r *http.Request) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.keyPosts++
 	a := h.agents[aid]
 	kel, err := identity.UnmarshalKEL(a.kel)
 	if err != nil {
