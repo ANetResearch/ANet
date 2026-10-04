@@ -227,7 +227,7 @@ func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 	auth := lastLedgerPayload(t, req, x402.EvPaymentAuthorized)
 	pix, _ := req.ix.Get(paidID)
 	if auth["interaction_id"] != paidID || auth["purpose"] != module.PurposeGateway ||
-		auth["pay_bind"] != x402a2a.PayBind(paidID, pix.TaskNonce) {
+		auth["pay_bind"] != mustPayBind(t, paidID, pix.TaskNonce) {
 		t.Errorf("step 6: payer's authorization is not on its chain as signed: %v", auth)
 	}
 	payerSettled := lastLedgerPayload(t, req, EvPaymentSettled)

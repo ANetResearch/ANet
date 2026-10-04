@@ -293,7 +293,7 @@ func TestASecondSettlementForOneTaskIsMarked(t *testing.T) {
 	// hub's one-settlement-per-binding rule does not stop it: what a hub
 	// that lost that rule would let through.
 	opt := storedQuote(rix).Accepts[0]
-	raw, err := req.payer().Authorize(opt, id, x402a2a.PayBind(id, "another nonce"), module.PurposeTaskManual)
+	raw, err := req.payer().Authorize(opt, id, mustPayBind(t, id, "another nonce"), module.PurposeTaskManual)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestAPaymentFromAPeerDeniedAfterTheQuoteIsNotSettled(t *testing.T) {
 	}
 	poll(t, prov, stranger)
 	six := getIX(t, stranger, id)
-	raw, err := stranger.payer().Authorize(storedQuote(six).Accepts[0], id, x402a2a.PayBind(id, six.TaskNonce),
+	raw, err := stranger.payer().Authorize(storedQuote(six).Accepts[0], id, mustPayBind(t, id, six.TaskNonce),
 		module.PurposeTaskManual)
 	if err != nil {
 		t.Fatal(err)
@@ -593,7 +593,7 @@ func TestAPrepaidCallWithoutANonceIsRejectedWhenBusy(t *testing.T) {
 	const id = "ix_nononce_busy"
 	raw, err := req.payer().Authorize(payment.PaymentOption{Scheme: payment.SchemeCredit,
 		Network: payment.CreditNetwork(hubAIDOf(hub)), Amount: payment.Amount(10), Asset: payment.AssetCredit,
-		PayTo: prov.AID()}, id, x402a2a.PayBind(id, ""), module.PurposeGateway)
+		PayTo: prov.AID()}, id, mustPayBind(t, id, ""), module.PurposeGateway)
 	if err != nil {
 		t.Fatal(err)
 	}

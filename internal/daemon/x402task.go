@@ -272,9 +272,13 @@ func (d *Daemon) quoteCapability(ctx context.Context, ix *interactions.Interacti
 	return true
 }
 
-// paymentTerms is what a payment for ix is checked against.
+// paymentTerms is what a payment for ix is checked against. A task whose id
+// or nonce holds U+0000 has no binding (core CORE-E9; the decoders refuse
+// such fields first): Bind stays empty and CheckPayment refuses every
+// payment for it as binding_mismatch.
 func (d *Daemon) paymentTerms(ix *interactions.Interaction) module.PaymentTerms {
-	return module.PaymentTerms{Quoted: storedQuote(ix), Bind: x402a2a.PayBind(ix.ID, ix.TaskNonce), Payer: ix.PeerAID,
+	bind, _ := x402a2a.PayBind(ix.ID, ix.TaskNonce)
+	return module.PaymentTerms{Quoted: storedQuote(ix), Bind: bind, Payer: ix.PeerAID,
 		QuoteExpiresAt: ix.QuoteExpiresAt, Now: time.Now().UnixMilli()}
 }
 
@@ -1420,7 +1424,11 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 		return out, errAutoPaidOnce
 	}
 	if raw == nil {
-		signed, err := p.Authorize(*opt, ix.ID, x402a2a.PayBind(ix.ID, ix.TaskNonce), req.Purpose)
+		bind, err := x402a2a.PayBind(ix.ID, ix.TaskNonce)
+		if err != nil {
+			return out, err
+		}
+		signed, err := p.Authorize(*opt, ix.ID, bind, req.Purpose)
 		if err != nil {
 			if r, ok := isSpendRefusal(err); ok {
 				logSpendRefusal(ix.ID, r)
@@ -1655,7 +1663,7 @@ func (d *Daemon) reusablePayment(ix *interactions.Interaction, opt payment.Payme
 	got.Extra = nil
 	a, _ := json.Marshal(want)
 	b, _ := json.Marshal(got)
-	if !bytes.Equal(a, b) || auth.InteractionID != x402a2a.PayBind(ix.ID, ix.TaskNonce) {
+	if bind, err := x402a2a.PayBind(ix.ID, ix.TaskNonce); err != nil || !bytes.Equal(a, b) || auth.InteractionID != bind {
 		return nil, "", false
 	}
 	// Enough of the window left for the provider to present it.
