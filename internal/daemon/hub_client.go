@@ -95,6 +95,9 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 		return reply // the join loop reads it as the hub misbehaving
 	}
 	d.afterCardAnswer(ctx, hubURL, body, a2aSeq, out)
+	// The hub's count of this node's withdrawn credentials: fewer than were
+	// pushed means it lost some (SSR-D21).
+	d.noteRegisterRevocations(out.Revocations)
 	// A refused key set does not fail the registration (the hub reports it
 	// per field). The registration still stands, so it is logged and the
 	// set is published again through POST /agents/{aid}/keys, whose

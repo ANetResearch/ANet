@@ -180,6 +180,11 @@ type rxMsg struct {
 	// keysUpdate is the attached key set when it passed step 8 and is newer
 	// than the stored one; noticeKeys is any verified set usable to reply.
 	keysUpdate, noticeKeys *peerKeySet
+	// grant is the capability the message gives this node (inner key 14),
+	// checked at step 8 against the attached key set and kept by the
+	// step-10 transaction that commits the message, and by no other
+	// (SSR-W8, grantToKeep); nil for none.
+	grant *interactions.HeldCap
 
 	// Filled by step 9.
 	existing *interactions.Interaction
@@ -292,9 +297,11 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 
 	// Step 8: advisory. A key set that fails here does not affect the
 	// message; the authenticity of the message was decided in step 7.
+	var verifiedKeys *seal.EncKeySet
 	if signed, set, kerr := seal.VerifyInnerKeys(in, use, now); kerr != nil {
 		d.count(keysInvalid)
 	} else {
+		verifiedKeys = set
 		ks := &peerKeySet{signed: in.Keys, set: set}
 		switch seal.DecideHighWater(seenOf(row), set.Seq, signed.Set) {
 		case seal.Replace:
@@ -312,6 +319,8 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 			m.noticeKeys = ks
 		}
 	}
+	// Step 8: the grant, checked against the key set this message carries.
+	m.grant = d.grantToKeep(in, verifiedKeys, op.Outer.Exp != nil, now)
 
 	// Steps 9 and 10 for one (from, mid) at a time, and a message handled
 	// or refused before is not judged again [redteam:F26]. Two copies of
@@ -1062,6 +1071,12 @@ func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
 		}
 		if fn != nil {
 			if err := fn(tx); err != nil {
+				return err
+			}
+		}
+		// The grant goes with the message it came in (ENG §4.7 item 4).
+		if m.grant != nil {
+			if _, err := tx.PutHeldGrant(*m.grant); err != nil {
 				return err
 			}
 		}

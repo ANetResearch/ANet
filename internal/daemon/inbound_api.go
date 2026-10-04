@@ -3,6 +3,12 @@ package daemon
 // inbound_api.go holds the control-plane handlers of the inbound policy and
 // the peer lists (A2A-DESIGN §5). All of them are bearer-only routes.
 //
+// A peer list edit withdraws the delivery credentials it takes away from
+// the peer (sealed-sender §4.3.8 item 1) after the list file is written and
+// before the route answers: the operator who removed or denied a peer is
+// told once the change is in force. A stop between the two is made good at
+// the next start (reconcileCapsWithLists).
+//
 // The routes that grant (peers/allow, peers/trust, inbound/approve) do not
 // themselves require a TTY: the daemon cannot tell how its caller obtained
 // the control token. The CLI commands that call them read a confirmation
@@ -57,6 +63,10 @@ func (d *Daemon) peersGrant(w http.ResponseWriter, r *http.Request, list string)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	if err := d.withdrawAfterListEdit(aid, listEditAllow); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -72,6 +82,10 @@ func (d *Daemon) hPeersDeny(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	if err := d.withdrawAfterListEdit(aid, listEditDeny); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -83,6 +97,10 @@ func (d *Daemon) hPeersRemove(w http.ResponseWriter, r *http.Request) {
 	res, err := d.RemovePeer(aid)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := d.withdrawAfterListEdit(aid, listEditRemove); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, res)

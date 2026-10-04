@@ -35,6 +35,10 @@ type Daemon struct {
 	// knows about getting it to the hub (mbox.go).
 	mbox   *mboxKey
 	mboxSt mboxState
+	// caps is the delivery credential policy's state in memory: recent
+	// downgrades, the direct delivery buckets and the withdrawal push
+	// (caps.go, revoke_push.go).
+	caps capsState
 	// clock, when set, replaces the wall clock (unix ms) for the sealed
 	// wire. Tests only, through setClock (testhooks.go): the background
 	// loops read it while a test sets it, so it is atomic.
@@ -240,6 +244,7 @@ func New(layout Layout) (*Daemon, error) {
 	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(),
 		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
 		longCalls: make(chan struct{}, maxConcurrentLongCalls), ready: make(chan struct{})}
+	d.caps.push.kick = make(chan struct{}, 1)
 	d.loadOfficials()
 	if cfg.migratedInbound {
 		// Logged once: the migrated config is saved below without the old
@@ -275,6 +280,11 @@ func New(layout Layout) (*Daemon, error) {
 	d.purgeReplay()
 	d.goBackground(func() { d.receiveMaintenance(ctx) })
 	d.goBackground(func() { d.mboxLoop(ctx) }) // mbox.go
+	// The peer lists may have changed while the daemon was stopped, or it
+	// stopped between a list write and its withdrawal (SS §4.3.8 item 1).
+	if _, err := d.reconcileCapsWithLists(); err != nil {
+		log.Printf("anet: withdraw delivery credentials by the peer lists: %v", err)
+	}
 	d.loadCardSeq()
 	d.providers = provider.NewRegistry()
 	if err := d.startModules(ctx, cfg); err != nil {
@@ -297,6 +307,8 @@ func New(layout Layout) (*Daemon, error) {
 	// LEC AD-5); the relay loop polls once the hub has registered this
 	// node.
 	d.initJoin(cfg)
+	// The withdrawal push reads the join record, so it starts after it.
+	d.goBackground(func() { d.revokeLoop(ctx) }) // revoke_push.go
 	if cfg.HubURL != "" {
 		d.startRelayLoop(cfg.HubURL)
 	}
