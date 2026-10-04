@@ -166,7 +166,11 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"input-required with metadata x402.payment.required is a price quote: see " +
 			"submit_payment. (A quote within the operator's automatic limit, payments.auto_max, is paid " +
 			"by the node itself and the task simply goes on. The limit is 0 on a new node and no tool " +
-			"shows it: send the task rather than telling the user a price cannot be paid.) " + readBound + honesty,
+			"shows it: send the task rather than telling the user a price cannot be paid.) " +
+			"Until this node is registered at its hub (for example while the hub's operator has not " +
+			"admitted it yet), the call fails at once with one sentence saying why and what to do, " +
+			"and nothing is sent: tell the user that sentence as it is, and do not register again. " +
+			readBound + honesty,
 		Annotations: sendsToPeer(false),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in sendIn) (*mcp.CallToolResult, any, error) {
 		if in.To == "" && in.TaskID == "" {
@@ -421,7 +425,9 @@ func addNodeTools(s *mcp.Server, c Control) {
 		Description: "This node itself: its AID, version, data directory, the hub it is registered " +
 			"with, its name and advertised capabilities, its inbound policy (closed: it accepts " +
 			"nobody's tasks), how automatic replies are configured, and counts of the messages it " +
-			"received or refused since it started, by reason.",
+			"received or refused since it started, by reason. `hub` is the hub join state: when " +
+			"hub.state is pending_admission, relay hub.message to the user as it is (it holds the " +
+			"admit line to send to the hub's operator), and do not register again.",
 		Annotations: readLocal(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
 		return forward(ctx, c, "/status", map[string]any{})

@@ -44,7 +44,7 @@ func newRxFuzz(f *testing.F) *rxFuzz {
 	quietLog(f) // a log line per refused envelope, millions of times, is most of what a worker would do
 	srv, req, prov := registeredPair(f)
 	oth := newTestDaemon(f, srv.URL, false)
-	if err := oth.RegisterWithHub(context.Background(), srv.URL, "Oth", nil, ""); err != nil {
+	if err := oth.RegisterWithHub(context.Background(), srv.URL, "Oth", nil); err != nil {
 		f.Fatal(err)
 	}
 	kel, err := identity.MarshalKEL(req.self.KEL())

@@ -49,62 +49,6 @@ const relayCallTimeout = 15 * time.Minute
 // inbound transfer never blocks the interactive command — big messages are left to the background loop.
 const freshPollTimeout = 12 * time.Second
 
-// HubRegister persists the Hub target + profile to config, registers with the Hub, and (re)starts the
-// relay poll loop so delegations and results start flowing. Whether this node accepts delegations is
-// the inbound policy (A2A-DESIGN §5), not a registration setting.
-// invite carries an admission token to a hub that requires one; empty
-// otherwise, and never written to config — see RegisterWithHub.
-func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []string, invite string) error {
-	caps = withServedCapabilities(caps, d.providers)
-	if err := d.RegisterWithHub(ctx, hubURL, name, caps, invite); err != nil {
-		return err
-	}
-	var prevHub string
-	set := func(c *Config) {
-		c.HubURL, c.Name = hubURL, name
-		if caps != nil {
-			c.Caps = caps
-		}
-	}
-	var adopted *AutoReplyConfig
-	cfg, err := d.updateConfig(func(c *Config) error {
-		prevHub = c.HubURL
-		set(c)
-		// Don't clobber an auto_reply block that was hand-added to config.json after this daemon started
-		// (its in-memory cfg wouldn't know about it): adopt the on-disk value before writing back.
-		if c.AutoReply == nil {
-			if prev, err := LoadConfig(d.layout); err == nil && prev.AutoReply != nil {
-				c.AutoReply, adopted = prev.AutoReply, prev.AutoReply
-			}
-		}
-		return nil
-	}, func(live *Config) {
-		set(live)
-		if adopted != nil && live.AutoReply == nil {
-			live.AutoReply = adopted
-		}
-	})
-	if err != nil {
-		return err
-	}
-	if prevHub != hubURL && d.CardPublicationStatus().Sent {
-		// The payment module learns the hub, and so the ledger its prices
-		// are on, from the config, which is written only now: on a node
-		// that had no hub, the card just sent carries no price list
-		// (a2a_card.go). Publish once more with the config in place; a
-		// card that comes out the same is answered "unchanged".
-		d.cardInputsChanged()
-	}
-	// Re-publish any existing self-description so a fresh registration keeps the agent's profile.
-	if cfg.Summary != "" || cfg.Readme != "" || cfg.Pricing != "" {
-		if err := d.PublishProfile(ctx, hubURL, cfg.Summary, cfg.Readme, cfg.Pricing); err != nil {
-			return err
-		}
-	}
-	d.startRelayLoop(hubURL)
-	return nil
-}
-
 // FindByCapability asks who serves a capability id.
 //
 // A different question from Find, and deliberately not a better-phrased
@@ -525,6 +469,11 @@ func (d *Daemon) relayLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			if !d.joinRegistered() {
+				// Until the hub registered this node it holds no mailbox for
+				// it, and a poll would only be refused (LEC AD-2).
+				continue
+			}
 			// Block-acquire pollMu so the loop always eventually polls (a brief freshness poll may hold
 			// it). Use the generous relayCallTimeout so a large inbound attachment fully transfers rather
 			// than being cut short and redelivered forever.
@@ -546,7 +495,7 @@ func (d *Daemon) relayLoop(ctx context.Context) {
 // whatever is already local — so an in-flight large transfer never blocks the command. Errors are
 // intentionally swallowed (freshness is best-effort; the background loop retries).
 func (d *Daemon) pollFresh(ctx context.Context) {
-	if d.config().HubURL == "" {
+	if d.config().HubURL == "" || !d.joinRegistered() {
 		return
 	}
 	if !d.pollMu.TryLock() {

@@ -711,3 +711,40 @@ func TestASingleTaskToolResultStaysUnderTheClientLimit(t *testing.T) {
 		}
 	}
 }
+
+// LEC MC-2, ux UX-M4: a refusal of the reason table — a send while this
+// node is not registered at its hub — reaches the model as the control
+// plane's sentence and nothing else.
+func TestASendRefusalIsTheSentence(t *testing.T) {
+	sentence := a2ashape.Sentence("hub_pending_admission", a2ashape.Lang(),
+		a2ashape.Args{"hub": "https://hub.example", "aid": "bafyreiujzdegxdncf32epf3dhodzdocis2jhtlgmxgedn73u557hq2abcd"})
+	sess := connect(t, &fakeControl{err: &DaemonError{Status: 409, Message: sentence, Reason: "hub_pending_admission"}})
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "send_message", Arguments: map[string]any{"to": "aid-1", "text": "hi"}})
+	msg, isErr := resultText(t, res, err)
+	if !isErr || msg != sentence {
+		t.Fatalf("tool error %q, want the sentence %q", msg, sentence)
+	}
+}
+
+// LEC MC-1: node_status tells the model what to do with the hub join state,
+// and send_message what a refusal of it means.
+func TestNodeStatusSaysWhatToDoWhileWaitingForAdmission(t *testing.T) {
+	sess := connect(t, &fakeControl{})
+	tools, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc := map[string]string{}
+	for _, tl := range tools.Tools {
+		desc[tl.Name] = tl.Description
+	}
+	for _, want := range []string{"hub.state is pending_admission", "relay hub.message to the user as it is", "do not register again"} {
+		if !strings.Contains(desc["node_status"], want) {
+			t.Errorf("node_status does not say %q", want)
+		}
+	}
+	if !strings.Contains(desc["send_message"], "Until this node is registered at its hub") {
+		t.Error("send_message does not say what a refusal while joining means")
+	}
+}

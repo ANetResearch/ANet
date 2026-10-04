@@ -229,19 +229,19 @@ const (
 	KeysStatusConflict  = "conflict"  // lower seq, or same seq with different bytes; not stored
 )
 
-// RegisterRequest is the body of POST /register. It is signed with
-// relayauth v2 action "register" in the headers; the hub verifies the
-// signature against KEL (the registrant's own KEL, standard base64), which
-// must extend any KEL the hub already holds for the AID (A2A-DESIGN §3.8).
+// RegisterRequest is the body of POST /register (core §2.12.2). It is
+// signed with relayauth v2 action "register" in the headers; the hub
+// verifies the signature against KEL (the registrant's own KEL, base64url
+// without padding, core G2), which must extend any KEL the hub already holds
+// for the AID (A2A-DESIGN §3.8).
 //
-// Wire 2 carries no guest quota: guest mode is removed from the hub
-// (A2A-DESIGN §9).
+// There is no invite member: a hub admits by AID, and answers a request
+// that carries one with 400 invite_removed (LEC HN-5).
 type RegisterRequest struct {
-	AID    string   `json:"aid"`
-	Name   string   `json:"name"`
-	Caps   []string `json:"caps"`
-	KEL    string   `json:"kel"`
-	Invite string   `json:"invite,omitempty"`
+	AID  string   `json:"aid"`
+	Name string   `json:"name,omitempty"`
+	Caps []string `json:"caps,omitempty"`
+	KEL  string   `json:"kel"`
 	// Card is the signed ADP AgentCard (JSON), when the daemon could sign one.
 	Card json.RawMessage `json:"card,omitempty"`
 	// EncKeys is the AID's current seal.SignedEncKeySet encoding, standard
@@ -253,18 +253,42 @@ type RegisterRequest struct {
 	// public skill, which publishes no card; JSON null (WithdrawCard)
 	// asks the hub to withdraw the card it holds (an internal note item).
 	A2ACard json.RawMessage `json:"a2a_card,omitempty"`
+	// PoW answers a pow_required challenge (LEC HN-3).
+	PoW *RegisterPoW `json:"pow,omitempty"`
+	// CheckOnly asks only whether the hub would take the AID: 200
+	// {status: admitted|open} or 403 admission_required; nothing is
+	// written (LEC HN-2).
+	CheckOnly bool `json:"check_only,omitempty"`
+}
+
+// RegisterPoW is a proof of work: the challenge's seed and the nonce found
+// for it, both base64url without padding (hub-payment-privacy §2.2).
+type RegisterPoW struct {
+	Seed  string `json:"seed"`
+	Nonce string `json:"nonce"`
 }
 
 // RegisterResponse is the answer to POST /register. KeysStatus and
 // CardStatus report the enc_keys and a2a_card fields separately: a key set
 // the hub refuses does not fail the registration (A2A-DESIGN §3.1).
+// ProbationUntil (unix ms) and Trial are there only for an account that came
+// in through open registration or a sign-up window.
 type RegisterResponse struct {
-	AID        string `json:"aid"`
-	Status     string `json:"status"`
-	KeysStatus string `json:"keys_status"`
-	KeysError  string `json:"keys_error,omitempty"`
-	CardStatus string `json:"card_status"`
-	CardError  string `json:"card_error,omitempty"`
+	AID            string  `json:"aid"`
+	Status         string  `json:"status"`
+	KeysStatus     string  `json:"keys_status"`
+	KeysError      string  `json:"keys_error,omitempty"`
+	CardStatus     string  `json:"card_status"`
+	CardError      string  `json:"card_error,omitempty"`
+	ProbationUntil *uint64 `json:"probation_until,omitempty"`
+	Trial          string  `json:"trial,omitempty"`
+}
+
+// CheckOnlyResponse is the /register answer to check_only: admitted (the AID
+// is registered or on the admission list) or open (it may register after a
+// proof of work).
+type CheckOnlyResponse struct {
+	Status string `json:"status"`
 }
 
 // Values of card_status in the /register answer: what the hub did with

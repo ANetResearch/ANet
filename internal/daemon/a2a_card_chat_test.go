@@ -142,7 +142,7 @@ func TestThePolicyDecidesWhetherTheCardIsPublished(t *testing.T) {
 	fh := fakeHubAt(t, h.URL)
 	ctx := context.Background()
 	d := newCardDaemon(t, "Talker", "")
-	if err := d.HubRegister(ctx, h.URL, "Talker", nil, ""); err != nil {
+	if err := d.HubRegister(ctx, h.URL, "Talker", nil); err != nil {
 		t.Fatal(err)
 	}
 	held := func() ([]byte, string, int) {

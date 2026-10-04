@@ -78,10 +78,10 @@ func TestAnAbandonedDelegationThatMayHaveArrivedIsNotUnavailable(t *testing.T) {
 	if err := prov.Providers().Register(ctx, lamp); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
 		t.Fatal(err)
 	}
 	setFake(t, srv.URL, func(h *fakeHub) { h.maxEnvelope = 1 }) // the hub refuses the envelope for good (413)
@@ -114,10 +114,10 @@ func TestAnAbandonedDelegationThatReachedNobodyIsUnavailable(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
 		t.Fatal(err)
 	}
 	setFake(t, srv.URL, func(h *fakeHub) { h.maxEnvelope = 1 })

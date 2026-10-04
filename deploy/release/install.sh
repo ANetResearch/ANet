@@ -12,9 +12,7 @@
 #   … | sh -s -- --prefix DIR
 #   … | sh -s -- --agents          also wire anet into the coding agents found here
 #   … | sh -s -- --hub https://hub.agentnetwork.org.cn --name my-box
-#                                  also start the node and register it with a hub
-#   … | ANET_INVITE=anetinv_… sh -s -- --hub URL --name my-box
-#                                  the same, for a hub that admits by invite
+#                                  also start the node and join a hub
 #
 # Already installed? Run `anet update` instead: it checks the same signed
 # manifest with the release key built into the binary, and needs nothing
@@ -57,15 +55,14 @@
 #   --agents        After installing, wire anet into the coding agents found on
 #                   this machine (`anet agents wire --all`). --agents=claude,codex
 #                   wires only those.
-#   --hub URL       Start the node and register it with this hub.
-#   --name NAME     The name to register under (default: this machine's hostname).
-#   --token-file F  Read the admission token (invite) from the file F, for a
-#                   hub that admits by invite only. Or set ANET_INVITE instead.
-#                   Not needed by a hub that admits openly, which is the default;
-#                   its operator tells you if you need one. The invite is never
-#                   taken on the command line: other local users can read every
-#                   process's arguments (ps, /proc/<pid>/cmdline) and would
-#                   register with it first. `--token INVITE` is refused.
+#   --hub URL       Start the node and join this hub (anet hub-register), as the
+#                   last step. Its lines are printed as they are: on a hub that
+#                   admits by AID, the last one is the `anet-hub admit <AID>` line
+#                   to send to the hub's operator, and joining finishes on its own
+#                   once they run it. Without a terminal (an agent running this),
+#                   joining works too; the recovery passphrase is set later with
+#                   `anet identity protect`.
+#   --name NAME     The name to join under (default: this machine's hostname).
 #   --help          Show this help.
 #
 # --shell installs a DIFFERENT BINARY, not a setting.
@@ -106,10 +103,8 @@ anet installer — verifies the signed release manifest, then installs.
   --base URL        download base, https only (or ANET_INSTALL_BASE)
   --shell           the variant that can run operator-approved commands
   --agents[=LIST]   wire anet into coding agents found here (all, or LIST)
-  --hub URL         start the node and register it with this hub
-  --name NAME       name to register under (default: hostname)
-  --token-file F     admission token (invite) for an invite-only hub, read from F;
-                    or set ANET_INVITE (never on the command line)
+  --hub URL         start the node and join this hub
+  --name NAME       name to join under (default: hostname)
 
 Already installed? Use `anet update`.
 Verify this script before running it: see SECURITY.md in
@@ -196,22 +191,22 @@ has_cmd() {
   "$DEST" help --all 2>/dev/null | grep -Eq "^[[:space:]]+anet $1([^a-z-]|\$)"
 }
 
-# invite_file_exposed FILE: true when other local users can read FILE — a regular file readable by group
-# or others, in a directory that class can enter. The file is where the invite goes instead of the
-# command line, and one they can read leaks it the same way (F41): `echo anetinv_… > invite.txt` makes a
-# 0644 file, and home directories are often searchable by everyone.
-invite_file_exposed() {
-  _f=$(ls -lL "$1" 2>/dev/null | cut -c1-10)
-  case "$_f" in -*) ;; *) return 1 ;; esac
-  _d=$(ls -ldL "$(dirname "$1")" 2>/dev/null | cut -c1-10)
-  [ -n "$_d" ] || _d="d--x--x--x"
-  case "$_f" in ????r*) case "$_d" in ??????[xst]*) return 0 ;; esac ;; esac
-  case "$_f" in ???????r*) case "$_d" in ?????????[xt]) return 0 ;; esac ;; esac
-  return 1
+# removed_flag FLAG: the cli_removed sentence of anet's reason table for a
+# flag 0.3.0 removed, in the language anet would choose (LC_ALL, LC_MESSAGES,
+# LANG; Chinese when it begins with zh), on stderr, and exit 2 before
+# anything is installed. The text is a2ashape.Sentence("cli_removed", …)
+# word for word (internal/release tests it).
+removed_flag() {
+  _lang="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
+  case "$_lang" in
+    zh*) printf '%s 已在 0.3.0 删除；hub 已不再使用邀请码；请删掉这个参数，直接运行 anet hub-register <url>，再把它打印的 admit 命令发给运营者。\n' "install.sh $1" >&2 ;;
+    *)   printf '%s was removed in 0.3.0; hubs no longer use invites; remove this flag, run anet hub-register <url> and send the admit command it prints to the operator.\n' "install.sh $1" >&2 ;;
+  esac
+  exit 2
 }
 
 parse_args() {
-  PREFIX=""; USER_MODE=1; BASE_OVERRIDE=""; HUB=""; NODE_NAME=""; INVITE=""; INVITE_FILE=""
+  PREFIX=""; USER_MODE=1; BASE_OVERRIDE=""; HUB=""; NODE_NAME=""
   VARIANT="default"; ASSET_PREFIX="anet"; AGENTS=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -225,10 +220,8 @@ parse_args() {
       --hub=*)      HUB="${1#--hub=}" ;;
       --name)       [ $# -ge 2 ] || die "--name needs a value"; NODE_NAME="$2"; shift ;;
       --name=*)     NODE_NAME="${1#--name=}" ;;
-      --token|--token=*)
-                    die "the invite is not taken on the command line, where other local users can read it; set ANET_INVITE=<invite> for sh (… | ANET_INVITE=anetinv_… sh -s -- …) or use --token-file FILE" ;;
-      --token-file) [ $# -ge 2 ] || die "--token-file needs a file"; INVITE_FILE="$2"; shift ;;
-      --token-file=*) INVITE_FILE="${1#--token-file=}" ;;
+      --token|--token=*) removed_flag --token ;;
+      --token-file|--token-file=*) removed_flag --token-file ;;
       --shell)      VARIANT="shell"; ASSET_PREFIX="anet-shell" ;;
       --agents)     AGENTS="--all" ;;
       --agents=*)   AGENTS="$(printf '%s' "${1#--agents=}" | tr ',' ' ')" ;;
@@ -237,21 +230,6 @@ parse_args() {
     esac
     shift
   done
-
-  # The invite goes to `anet hub-register` alone, in its environment: kept
-  # out of every other process this script starts (curl, ssh-keygen, the
-  # daemon `anet up` leaves running), and never on a command line.
-  INVITE="${ANET_INVITE:-}"
-  unset ANET_INVITE
-  if [ -n "$INVITE_FILE" ]; then
-    [ -r "$INVITE_FILE" ] || die "--token-file $INVITE_FILE cannot be read"
-    if invite_file_exposed "$INVITE_FILE"; then
-      die "--token-file $INVITE_FILE can be read by other local users; chmod 600 it (or keep it in a directory only you can enter) and run the installer again"
-    fi
-    INVITE=""
-    IFS= read -r INVITE < "$INVITE_FILE" || [ -n "$INVITE" ] || die "--token-file $INVITE_FILE holds no invite"
-    INVITE="$(printf '%s' "$INVITE" | tr -d '\r')"
-  fi
 
   BASES="${ANET_INSTALL_BASE:-} https://agentnetwork.org.cn https://hub.agentnetwork.org.cn"
   [ -n "$BASE_OVERRIDE" ] && BASES="$BASE_OVERRIDE"
@@ -502,7 +480,7 @@ join_hub() {
   say "→ Starting the node…"
   if ! "$DEST" up >/dev/null 2>&1; then
     warn "the node did not start. Start it by hand with: anet up"
-    return 0
+    return 1
   fi
   # `up` returns once the control port is listening, but registration
   # needs the daemon to have finished opening its ledger.
@@ -510,24 +488,11 @@ join_hub() {
     "$DEST" status >/dev/null 2>&1 && break
     i=$((i+1)); sleep 1
   done
-  say "→ Registering with ${HUB} as \"${NODE_NAME}\"…"
-  if [ -n "$INVITE" ]; then
-    # In the environment of this one command, not in its arguments.
-    if ANET_INVITE="$INVITE" "$DEST" hub-register "$HUB" --name "$NODE_NAME"; then joined=1; else joined=0; fi
-  else
-    if "$DEST" hub-register "$HUB" --name "$NODE_NAME"; then joined=1; else joined=0; fi
-  fi
-  if [ "$joined" = 1 ]; then
-    say "✓ Joined ${HUB}"
-  else
-    warn "registration did not complete. The node is running; retry with:"
-    if [ -n "$INVITE" ]; then
-      say "    ANET_INVITE=<your invite> anet hub-register $HUB --name $NODE_NAME" >&2
-    else
-      say "    anet hub-register $HUB --name $NODE_NAME" >&2
-      say "  If this hub admits by invite only, ask its operator for an invite and pass it in ANET_INVITE." >&2
-    fi
-  fi
+  say "→ anet hub-register ${HUB} --name ${NODE_NAME}"
+  # Its lines as they are, and nothing after them: they say what happened
+  # and what to do, the admit line last when the hub has to admit this AID
+  # (LEC §4.10). Its exit status is the installer's.
+  "$DEST" hub-register "$HUB" --name "$NODE_NAME"
 }
 
 wire_agents() {
@@ -550,11 +515,17 @@ report() {
   else
     "$DEST" version || true
   fi
-  cat <<'EOF'
+  if [ -z "$HUB" ]; then
+    cat <<'EOF'
 
 Next:
   anet up                      # start your node in the background (survives this shell)
   anet hub-register https://hub.agentnetwork.org.cn --name <you>
+EOF
+  else
+    printf '\nNext:\n'
+  fi
+  cat <<'EOF'
   anet status                  # your identity (AID), data dir, console URL
   anet doctor                  # check again later: signature, hub, what this node lets in
   anet update                  # later: update in place, checked against the release key
@@ -600,9 +571,11 @@ main() {
   # it is) runs on the staged copy before it replaces anything.
   install_binary
   run_init
-  join_hub
   wire_agents
   report
+  # Last, so that what the hub said — the admit line, when there is one —
+  # is the last thing printed.
+  join_hub
 }
 
 main "$@"

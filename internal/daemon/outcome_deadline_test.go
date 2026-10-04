@@ -42,10 +42,10 @@ func TestADeadlineFromAnyProviderIsAnUnknownOutcome(t *testing.T) {
 	if err := prov.Providers().Register(ctx, door); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Door", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Door", nil); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.DelegateCapability(ctx, prov.AID(), "door.open@sim/front", nil)

@@ -61,6 +61,13 @@ func (d *Daemon) registerTaskRoutes(api *routeMux) {
 // writeTaskError answers a task operation's error with a status code and
 // the A2A error name.
 func writeTaskError(w http.ResponseWriter, err error) {
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		// A refusal of the reason table (the send gate, LEC AD-6): its
+		// sentence, code and command (ux UX-R9).
+		writeGateRefusal(w, ref)
+		return
+	}
 	code := http.StatusInternalServerError
 	switch {
 	case errors.Is(err, a2ashape.ErrTaskNotFound):
