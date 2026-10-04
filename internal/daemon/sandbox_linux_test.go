@@ -550,12 +550,20 @@ func TestSandboxCommandOpensTheEgressEndpoint(t *testing.T) {
 func TestSandboxEgressPeerMustBeTheDaemonUser(t *testing.T) {
 	quietLog(t)
 	f := newFakeModelService(t)
-	se, err := startSandboxEgress(t.TempDir(), testUpstream(t, egressUpstreamAnthropic, f))
-	if err != nil {
-		t.Fatal(err)
+	up := testUpstream(t, egressUpstreamAnthropic, f)
+	start := func(uid func() int) *sandboxEgress {
+		egressPeerUID = uid
+		defer func() { egressPeerUID = os.Getuid }()
+		se, err := startSandboxEgress(t.TempDir(), up)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(se.close)
+		return se
 	}
-	defer se.close()
-	ask := func() string {
+	other := start(func() int { return os.Getuid() + 1 }) // expects another uid than the one connecting
+	own := start(os.Getuid)
+	ask := func(se *sandboxEgress) string {
 		c, err := net.Dial("unix", se.sock)
 		if err != nil {
 			t.Fatal(err)
@@ -566,13 +574,10 @@ func TestSandboxEgressPeerMustBeTheDaemonUser(t *testing.T) {
 		b, _ := io.ReadAll(io.LimitReader(c, 12))
 		return string(b)
 	}
-	egressPeerUID = func() int { return os.Getuid() + 1 }
-	got := ask()
-	egressPeerUID = os.Getuid
-	if got != "" {
+	if got := ask(other); got != "" {
 		t.Errorf("a connection from another uid was answered %q", got)
 	}
-	if got := ask(); got != "HTTP/1.1 200" {
+	if got := ask(own); got != "HTTP/1.1 200" {
 		t.Errorf("the daemon's own uid was answered %q", got)
 	}
 	if n := len(f.requests()); n != 1 {

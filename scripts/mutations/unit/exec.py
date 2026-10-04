@@ -143,7 +143,7 @@ MUTS = [
   id='m-eg-3', group='EG', repo='ANet',
   desc='出站端点 accept 时不核对对端 uid',
   edits=[
-   ('internal/daemon/sandbox_linux.go', 'se.ep.peerCheck = egressPeerIsDaemonUser', 'se.ep.peerCheck = nil'),
+   ('internal/daemon/sandbox_linux.go', 'se.ep.peerCheck = egressPeerIsUser(egressPeerUID())', 'se.ep.peerCheck = nil'),
   ],
   tests=[('ANet:./internal/daemon', 'TestSandboxEgressPeerMustBeTheDaemonUser')],
   full=['ANet:./internal/daemon'],

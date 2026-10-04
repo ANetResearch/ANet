@@ -693,7 +693,7 @@ func startSandboxEgress(runDir string, up *egressUpstream) (*sandboxEgress, erro
 		return nil, err
 	}
 	se.ep = newEgressEndpoint(up)
-	se.ep.peerCheck = egressPeerIsDaemonUser
+	se.ep.peerCheck = egressPeerIsUser(egressPeerUID())
 	se.ep.Serve(ln)
 	return se, nil
 }
@@ -719,12 +719,17 @@ func (se *sandboxEgress) removeSock() {
 	}
 }
 
-// egressPeerUID is the uid an egress connection must come from; tests change it.
+// egressPeerUID is the uid an egress connection must come from: this daemon's. Tests change it; it is
+// read once, when an endpoint starts.
 var egressPeerUID = os.Getuid
 
-// egressPeerIsDaemonUser admits a connection whose peer runs as this daemon's user. In the sandbox's
-// user namespace the agent has the daemon's uid, which the kernel reports here as it is outside.
-func egressPeerIsDaemonUser(c net.Conn) error {
+// egressPeerIsUser admits a connection whose peer runs as uid want. In the sandbox's user namespace the
+// agent has the daemon's uid, which the kernel reports here as it is outside.
+func egressPeerIsUser(want int) func(net.Conn) error {
+	return func(c net.Conn) error { return egressPeerCheck(c, want) }
+}
+
+func egressPeerCheck(c net.Conn, want int) error {
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
 		return errors.New("not a Unix socket connection")
@@ -743,7 +748,7 @@ func egressPeerIsDaemonUser(c net.Conn) error {
 	if serr != nil {
 		return fmt.Errorf("cannot read the peer's credentials: %w", serr)
 	}
-	if want := egressPeerUID(); int(cred.Uid) != want {
+	if int(cred.Uid) != want {
 		return fmt.Errorf("the peer runs as uid %d, not %d", cred.Uid, want)
 	}
 	return nil
