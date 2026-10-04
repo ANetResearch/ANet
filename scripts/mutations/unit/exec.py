@@ -558,4 +558,25 @@ MUTS += [
   tests=[(DAEMON, 'TestAutoReplyMemberNamesAreExactAtEveryDepth')],
   full=[DAEMON],
  ),
+ dict(
+  id='m-av-9d', group='AV-9', repo='ANet',
+  desc='删去轮次时插入的那一行不计入上限(合计与单条都多出一行)',
+  edits=[('internal/daemon/autoreply_exec.go', '\tfor drop < len(out)-1 && over(drop) {', '\tfor drop < len(out)-1 && total > conversationMaxBytes {\n\t\t_ = over')],
+  tests=[(DAEMON, 'TestBoundConversation')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-6d', group='AV-2', repo='ANet',
+  desc='沙箱运行的固定指令不说明它在沙箱里、能访问什么',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\tsandboxNotice = execSandboxNotice(r.egressHosts())\n', '')],
+  tests=[(DAEMON, 'TestASandboxedRunIsToldWhatItCanReach|TestSandboxIntegrationHoldsNoSecret')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-4c', group='SB-4', repo='ANet',
+  desc='沙箱启动时不收窄 PATH(daemon 搜索路径里沙箱看不见的目录留在 agent 环境里)',
+  edits=[('internal/daemon/sandbox_linux.go', '\tenv = envWithSandboxPath(env, runtimeDirs)\n', '')],
+  tests=[(DAEMON, 'TestSandboxHoldsNoSecret')],
+  full=[DAEMON],
+ ),
 ]

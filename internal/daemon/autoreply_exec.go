@@ -181,15 +181,7 @@ func (r *execReplier) Reply(ctx context.Context, rc replyContext, turns []chatTu
 	if err != nil {
 		return "", err
 	}
-	system := r.cfg.SystemPrompt
-	if system == "" {
-		system = autoReplyDefaultExecPrompt
-	}
-	sandboxNotice := ""
-	if r.sandbox != nil {
-		sandboxNotice = execSandboxNotice(r.egressHosts())
-	}
-	instructions := execInstructions(system, rc.Role, sandboxNotice)
+	instructions := r.instructions(rc)
 
 	// Cursor uses NATIVE SESSIONS: bind this interaction to its own cursor chat and send only the new
 	// message each turn (the agent keeps the conversation itself). This replaces transcript replay for
@@ -250,6 +242,21 @@ func (r *execReplier) replyCursorSession(ctx context.Context, rc replyContext, t
 	base.InputDir = inputDir
 	reply, err := InvokeAgent(ctx, base)
 	return reply, true, err
+}
+
+// instructions is the fixed part of this replier's prompt for a fresh session (LEC AV-2): the operator's
+// system prompt or the default, the role, the untrusted content notice and, when the run is sandboxed,
+// what the agent can reach.
+func (r *execReplier) instructions(rc replyContext) string {
+	system := r.cfg.SystemPrompt
+	if system == "" {
+		system = autoReplyDefaultExecPrompt
+	}
+	sandboxNotice := ""
+	if r.sandbox != nil {
+		sandboxNotice = execSandboxNotice(r.egressHosts())
+	}
+	return execInstructions(system, rc.Role, sandboxNotice)
 }
 
 // egressHosts is the operator's CONNECT allowlist, which the sandbox notice names (LEC AV-2): none
@@ -362,8 +369,9 @@ const (
 
 // boundConversation keeps what a backend is given within AV-9: a goal or message over 64 KiB is cut
 // (at a character boundary) and marked; while the goal and the turns together are over 256 KiB, the
-// earliest turns are dropped, and the first one kept is opened with a line saying so. The newest turn
-// always stays. Images keep their own limits and are not counted.
+// earliest turns are dropped, and the first one kept is opened with a line saying so. That line counts
+// toward both bounds, so the result is within them, not a line over. The newest turn always stays.
+// Images keep their own limits and are not counted.
 func boundConversation(goal string, turns []chatTurn) (string, []chatTurn) {
 	goal = cutMessage(goal)
 	out := make([]chatTurn, len(turns))
@@ -373,8 +381,14 @@ func boundConversation(goal string, turns []chatTurn) (string, []chatTurn) {
 		out[i] = t
 		total += len(t.Text)
 	}
+	over := func(drop int) bool {
+		if drop == 0 {
+			return total > conversationMaxBytes
+		}
+		return total+len(conversationOmitted)+1 > conversationMaxBytes
+	}
 	drop := 0
-	for total > conversationMaxBytes && drop < len(out)-1 {
+	for drop < len(out)-1 && over(drop) {
 		total -= len(out[drop].Text)
 		drop++
 	}
@@ -382,7 +396,7 @@ func boundConversation(goal string, turns []chatTurn) (string, []chatTurn) {
 		return goal, out
 	}
 	out = out[drop:]
-	out[0].Text = conversationOmitted + "\n" + out[0].Text
+	out[0].Text = cutMessage(conversationOmitted + "\n" + out[0].Text)
 	return goal, out
 }
 

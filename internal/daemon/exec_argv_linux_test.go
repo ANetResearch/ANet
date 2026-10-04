@@ -19,6 +19,9 @@ import (
 func TestSandboxHoldsNoSecret(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", canaryEnvKey)
 	t.Setenv("HTTPS_PROXY", "http://user:"+canaryProxy+"@proxy.example:3128")
+	// A directory of the daemon's search path that the sandbox does not show (an operator's tool dir).
+	hidden := t.TempDir()
+	t.Setenv("PATH", "/usr/bin:"+hidden+":/bin")
 	d := newBareDaemon(t)
 	ctlTok, err := newControlToken(d.layout)
 	if err != nil {
@@ -61,6 +64,13 @@ func TestSandboxHoldsNoSecret(t *testing.T) {
 	for _, c := range []string{canaryKey, canaryEnvKey, canaryProxy, ctlTok, a2aTok} {
 		if strings.Contains(env, c) {
 			t.Errorf("the sandboxed agent's environment holds %q", c)
+		}
+	}
+	// SB-4: the search path names only what the sandbox shows — system directories and the agent's
+	// runtime — not the daemon's other directories.
+	for _, kv := range spec.Env {
+		if p, ok := strings.CutPrefix(kv, "PATH="); ok && (strings.Contains(p, hidden) || !strings.Contains(p, "/usr/bin")) {
+			t.Errorf("the sandboxed agent's PATH is %q", p)
 		}
 	}
 	argv := strings.Join(append(append([]string{}, l.Args...), spec.Argv...), " ")

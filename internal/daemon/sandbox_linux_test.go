@@ -1079,4 +1079,9 @@ func TestSandboxIntegrationHoldsNoSecret(t *testing.T) {
 	if !got.KeyIsPlaceholder {
 		t.Error("the agent's model key is not the placeholder")
 	}
+	// AV-2: its instructions, the fixed text that may be on its command line, tell it it runs in the
+	// sandbox and what it can reach.
+	if !strings.Contains(got.Cmdline, "--append-system-prompt") || !strings.Contains(got.Cmdline, "## Sandbox") {
+		t.Errorf("the sandboxed agent was not told it runs in the sandbox: %s", got.Cmdline)
+	}
 }

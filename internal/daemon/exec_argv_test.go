@@ -170,7 +170,7 @@ func TestBoundConversation(t *testing.T) {
 	for _, tt := range got {
 		total += len(tt.Text)
 	}
-	if total > conversationMaxBytes+len(conversationOmitted)+1 {
+	if total > conversationMaxBytes {
 		t.Fatalf("bounded conversation is %d bytes", total)
 	}
 	if !strings.HasPrefix(got[0].Text, conversationOmitted+"\n") || got[len(got)-1].Text != turns[9].Text || g != goal {
@@ -178,6 +178,25 @@ func TestBoundConversation(t *testing.T) {
 	}
 	if len(turns[0].Text) != 60<<10 || strings.HasPrefix(turns[0].Text, conversationOmitted) {
 		t.Fatal("boundConversation changed the caller's turns")
+	}
+	// The line saying turns were dropped counts toward both bounds: four 64 KiB messages (the 256 KiB
+	// limit exactly, once the earliest is dropped) lose a second one to make room for it, and the first
+	// kept, already at 64 KiB, is cut again rather than grown past it.
+	turns = nil
+	for i := 0; i < 5; i++ {
+		turns = append(turns, chatTurn{Role: "user", Text: strings.Repeat(string(rune('k'+i)), 70<<10)})
+	}
+	_, got = boundConversation("", turns)
+	total = 0
+	for _, tt := range got {
+		total += len(tt.Text)
+		if len(tt.Text) > conversationMaxMessage {
+			t.Fatalf("a kept message is %d bytes", len(tt.Text))
+		}
+	}
+	if total > conversationMaxBytes || !strings.HasPrefix(got[0].Text, conversationOmitted+"\n") ||
+		!strings.HasSuffix(got[0].Text, conversationCut) || got[len(got)-1].Text != cutMessage(turns[4].Text) {
+		t.Fatalf("dropping with the marker counted: %d turns, %d bytes", len(got), total)
 	}
 	// One huge newest message alone is kept, cut.
 	_, got = boundConversation("", []chatTurn{{Role: "user", Text: strings.Repeat("x", 1<<20)}})
@@ -296,5 +315,33 @@ func TestWorkDirNamesCarryNoPeerText(t *testing.T) {
 	}
 	if ixDirName("") != "selftest" {
 		t.Fatalf("the self-test dir is %q", ixDirName(""))
+	}
+}
+
+// AV-2: a sandboxed run's instructions say what the agent can reach — models only through this node,
+// and the hosts of the egress allowlist, "none" when there are none — so that it tells the other party
+// instead of failing in silence; a direct run's say nothing of a sandbox. The instructions are fixed text
+// (they go on argv): the role is the one this node set, and nothing of the goal is in them.
+func TestASandboxedRunIsToldWhatItCanReach(t *testing.T) {
+	rc := replyContext{Role: "inbound", Goal: canaryGoal}
+	sandboxed := (&execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: agentClaude}, sandbox: &sandboxPlan{}}).instructions(rc)
+	direct := (&execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: agentClaude}}).instructions(rc)
+	if !strings.HasSuffix(sandboxed, execSandboxNotice(nil)) || !strings.Contains(sandboxed, "reach on the network are: none.") {
+		t.Fatalf("the sandboxed instructions do not end with the sandbox notice:\n%s", sandboxed)
+	}
+	if strings.Contains(direct, "## Sandbox") || sandboxed != direct+execSandboxNotice(nil) {
+		t.Fatalf("the direct instructions differ from the sandboxed ones by more than the notice:\n%s", direct)
+	}
+	if strings.Contains(sandboxed, canaryGoal) {
+		t.Fatal("the instructions hold the goal")
+	}
+	if n := execSandboxNotice([]string{"pypi.org", "files.example"}); !strings.Contains(n, "are: pypi.org, files.example.") {
+		t.Fatalf("the notice does not name the allowed hosts: %q", n)
+	}
+	// The operator's system prompt replaces the default and is followed by the same fixed sections.
+	own := (&execReplier{cfg: AutoReplyConfig{Backend: "exec", Agent: agentClaude, SystemPrompt: "Be brief."},
+		sandbox: &sandboxPlan{}}).instructions(rc)
+	if !strings.HasPrefix(own, "Be brief.\n\n## Task") || strings.Contains(own, autoReplyDefaultExecPrompt) {
+		t.Fatalf("the operator's system prompt is not the head of the instructions:\n%s", own)
 	}
 }
