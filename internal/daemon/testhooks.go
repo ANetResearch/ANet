@@ -5,9 +5,10 @@ import (
 	"time"
 )
 
-// Test hooks: the wire clock and the receive-transaction fault.
+// Test hooks: the wire clock, the receive-transaction fault and the
+// outbound gate.
 //
-// Both are fields a test sets on a daemon that is already running. New
+// All are fields a test sets on a daemon that is already running. New
 // starts the outbox loop and the receive maintenance before it returns,
 // and those read the clock, so a plain function field written by the
 // test and read by a loop is a data race — `go test -race` said so, in
@@ -36,6 +37,18 @@ func (d *Daemon) setRxFault(f func(typ string) error) {
 	d.rxFault.Store(&f)
 }
 
+// setIdentityGate makes identityGate answer f(); nil restores the gate the
+// identity's state decides. Only tests call it (TestOnlyTestsReplaceTheGate):
+// the engine's tests hold the gate open or closed without building a
+// witnessed identity, a pending event or a notice.
+func (d *Daemon) setIdentityGate(f func() GateState) {
+	if f == nil {
+		d.idGate.gateHook.Store(nil)
+		return
+	}
+	d.idGate.gateHook.Store(&f)
+}
+
 // testClock is the clock a test set, or nil.
 func (d *Daemon) testClock() func() uint64 {
 	if p := d.clock.Load(); p != nil {
@@ -47,6 +60,14 @@ func (d *Daemon) testClock() func() uint64 {
 // testRxFault is the receive fault a test set, or nil.
 func (d *Daemon) testRxFault() func(typ string) error {
 	if p := d.rxFault.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// testIdentityGate is the gate a test set, or nil.
+func (d *Daemon) testIdentityGate() func() GateState {
+	if p := d.idGate.gateHook.Load(); p != nil {
 		return *p
 	}
 	return nil

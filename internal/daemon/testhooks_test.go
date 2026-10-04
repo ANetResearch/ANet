@@ -8,16 +8,16 @@ import (
 	"testing"
 )
 
-// directHookWrite is a test writing the clock or the receive fault
-// without the setters: an assignment, or a Store, Swap or CompareAndSwap
-// on the atomic field.
-var directHookWrite = regexp.MustCompile(`\.(clock|rxFault)\s*(=([^=]|$)|\.(Store|Swap|CompareAndSwap)\()`)
+// directHookWrite is a test writing the clock, the receive fault or the
+// gate without the setters: an assignment, or a Store, Swap or
+// CompareAndSwap on the atomic field.
+var directHookWrite = regexp.MustCompile(`\.(clock|rxFault|gateHook)\s*(=([^=]|$)|\.(Store|Swap|CompareAndSwap)\()`)
 
-// No test sets a hook on a running daemon except through setClock and
-// setRxFault (testhooks.go). The daemon's loops read both while the test
-// runs, so anything else is the data race `go test -race` found in
-// TestTheKeyRingRotatesAndRetires; the compiler refuses a plain
-// assignment to the atomic field, and this catches the other shapes.
+// No test sets a hook on a running daemon except through setClock,
+// setRxFault and setIdentityGate (testhooks.go). The daemon's loops read
+// them while the test runs, so anything else is the data race `go test
+// -race` found in TestTheKeyRingRotatesAndRetires; the compiler refuses a
+// plain assignment to the atomic field, and this catches the other shapes.
 func TestNoTestAssignsAHookDirectly(t *testing.T) {
 	files, err := filepath.Glob("*_test.go")
 	if err != nil {
@@ -33,7 +33,7 @@ func TestNoTestAssignsAHookDirectly(t *testing.T) {
 		}
 		for i, line := range strings.Split(string(b), "\n") {
 			if directHookWrite.MatchString(line) {
-				t.Errorf("%s:%d sets a test hook directly; use setClock/setRxFault: %s",
+				t.Errorf("%s:%d sets a test hook directly; use setClock/setRxFault/setIdentityGate: %s",
 					f, i+1, strings.TrimSpace(line))
 			}
 		}
@@ -62,6 +62,17 @@ func TestTheHookSettersRoundTrip(t *testing.T) {
 	if d.testRxFault() != nil {
 		t.Fatal("setRxFault(nil) left the fault in place")
 	}
+	if d.testIdentityGate() != nil {
+		t.Fatal("a fresh daemon has a gate hook set")
+	}
+	d.setIdentityGate(func() GateState { return GateState{State: IdentityPublishing} })
+	if f := d.testIdentityGate(); f == nil || f().State != IdentityPublishing {
+		t.Fatal("setIdentityGate did not install the gate")
+	}
+	d.setIdentityGate(nil)
+	if d.testIdentityGate() != nil {
+		t.Fatal("setIdentityGate(nil) left the gate in place")
+	}
 }
 
 // The scan's pattern, on the shapes it must catch and the ones it must
@@ -74,6 +85,8 @@ func TestTheHookScanCatchesEveryShape(t *testing.T) {
 		"\td." + "clock =",
 		"\td." + "clock.Store(&f)",
 		"\treq." + "rxFault.Swap(nil)",
+		"\td.idGate." + "gateHook.Store(&f)",
+		"\td.idGate." + "gateHook = x",
 	} {
 		if !directHookWrite.MatchString(line) {
 			t.Errorf("not caught: %q", line)
@@ -85,6 +98,8 @@ func TestTheHookScanCatchesEveryShape(t *testing.T) {
 		"\tclock.Store(start + 6*dayMS)",
 		"\tif d.clock == nil {",
 		"\tif fault := d.testRxFault(); fault != nil {",
+		"\td.setIdentityGate(nil)",
+		"\tif p := d.idGate.gateHook.Load(); p != nil {",
 	} {
 		if directHookWrite.MatchString(line) {
 			t.Errorf("caught by mistake: %q", line)

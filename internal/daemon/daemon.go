@@ -68,6 +68,9 @@ type Daemon struct {
 	logOnceSeen map[string]bool
 	// join is the hub join loop's state (hubjoin_daemon.go).
 	join hubJoin
+	// idGate is what the outbound gate reads besides the identity file and
+	// the join record (identity_state.go).
+	idGate identityGateInputs
 	// rxFault, when set, is called inside the receive transaction after the
 	// business writes; an error rolls the transaction back. Tests only,
 	// through setRxFault (testhooks.go), atomic for the same reason as
