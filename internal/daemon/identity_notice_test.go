@@ -501,3 +501,36 @@ func kelOf(t *testing.T, b []byte) []identity.SignedEvent {
 	}
 	return kel
 }
+
+// An answer that carries a notice also says the hub has no
+// key_state_notice_error any more, whether its notice replaces the one held
+// (newer, or another tip) or not (the same, or older): a hub out of
+// quarantine must not read as one in it once the notice ages.
+func TestANoticeClearsTheHubsError(t *testing.T) {
+	var g identityGateInputs
+	steps := []struct {
+		name     string
+		n        *keyStateNotice
+		replaced bool
+	}{
+		{"the first notice", noticeAt(tsNow), true},
+		{"the same notice again", noticeAt(tsNow), false},
+		{"an older one about the same tip", noticeAt(tsNow - minuteMS), false},
+		{"a newer one", noticeAt(tsNow + minuteMS), true},
+	}
+	for _, s := range steps {
+		g.noteNotice(nil, noticeErrQuarantine)
+		if got := g.noteNotice(s.n, ""); got != s.replaced {
+			t.Fatalf("%s: replaced %v, want %v", s.name, got, s.replaced)
+		}
+		if _, e, _ := g.read(); e != "" {
+			t.Fatalf("%s: the hub's error %q stays", s.name, e)
+		}
+		in := identityInputs{File: witnessedFacts()}
+		in.Notice, in.NoticeErr, in.PublishErr = g.read()
+		in.Now = in.Notice.Body.ObservedAt + NoticeStopLine + 1
+		if st := identityStateOf(in); st.Reason != reasonNoticeStale {
+			t.Fatalf("%s, then past the stop line: %+v, want notice_stale", s.name, st)
+		}
+	}
+}
