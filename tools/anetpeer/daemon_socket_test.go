@@ -37,8 +37,8 @@ func waitSelf(t *testing.T, p *peer, aid string) {
 // not is closed before a byte of it is read, and the daemon that was there
 // keeps its place: it is still the one deliveries are handed to. (The test
 // cannot connect as another account without sudo,
-// TestADaemonSocketConnectionOfAnotherAccountIsClosed does; here
-// daemonCredOf stands in for one.)
+// TestADaemonSocketConnectionOfAnotherAccountIsClosed does; here the peer's
+// credOf stands in for one.)
 func TestAConnectionOfAnotherAccountDoesNotReplaceTheDaemon(t *testing.T) {
 	dir := t.TempDir()
 	p, err := start(filepath.Join(dir, "a.sock"), filepath.Join(dir, "a.wire"), filepath.Join(dir, "rv"), "")
@@ -50,18 +50,23 @@ func TestAConnectionOfAnotherAccountDoesNotReplaceTheDaemon(t *testing.T) {
 	d.send(frame{Op: "hello", V: wireVersion, Self: "aid-daemon"})
 	waitSelf(t, p, "aid-daemon")
 
-	old := daemonCredOf
-	t.Cleanup(func() { daemonCredOf = old })
-	daemonCredOf = func(c net.Conn) (peercred.Cred, error) {
-		cr, err := old(c)
-		cr.UID++
-		return cr, err
+	setCredOf := func(f func(net.Conn) (peercred.Cred, error)) {
+		p.mu.Lock()
+		p.credOf = f
+		p.mu.Unlock()
 	}
 	for _, why := range []string{"another account", "credentials it cannot read"} {
-		if why == "credentials it cannot read" {
-			daemonCredOf = func(net.Conn) (peercred.Cred, error) {
+		switch why {
+		case "another account":
+			setCredOf(func(c net.Conn) (peercred.Cred, error) {
+				cr, err := peercred.Of(c)
+				cr.UID++
+				return cr, err
+			})
+		default:
+			setCredOf(func(net.Conn) (peercred.Cred, error) {
 				return peercred.Cred{UID: -1, GID: -1, PID: -1}, errors.New("no credentials")
-			}
+			})
 		}
 		intruder := dialRawDaemon(t, filepath.Join(dir, "a.sock"))
 		// Written before the refusal can be seen: never read.
@@ -80,7 +85,7 @@ func TestAConnectionOfAnotherAccountDoesNotReplaceTheDaemon(t *testing.T) {
 		}
 	}
 	// The daemon that was there is still the one a delivery is handed to.
-	daemonCredOf = old
+	setCredOf(nil)
 	got := make(chan frame, 1)
 	go func() {
 		f, _, err := d.read()

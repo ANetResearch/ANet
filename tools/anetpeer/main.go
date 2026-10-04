@@ -287,13 +287,9 @@ func clearStaleSocket(path string) error {
 	return os.Remove(path)
 }
 
-// daemonCredOf reads who connected to the daemon socket, and
-// peercredSupported whether it can; tests stand in for another account and
-// for a platform that cannot tell.
-var (
-	daemonCredOf      = peercred.Of
-	peercredSupported = peercred.Supported
-)
+// peercredSupported is whether the daemon socket's peer can be told; a test
+// stands in for a platform that cannot tell.
+var peercredSupported = peercred.Supported
 
 // refusedLogEvery is how often one account's refused connections are
 // logged: once, then not again for this long, so that a process knocking in
@@ -305,7 +301,13 @@ const refusedLogEvery = time.Minute
 // is not let through for being root. A refusal is logged, at most once a
 // minute per account.
 func (p *peer) admitDaemon(c net.Conn) error {
-	cred, err := daemonCredOf(c)
+	p.mu.Lock()
+	credOf := p.credOf
+	p.mu.Unlock()
+	if credOf == nil {
+		credOf = peercred.Of
+	}
+	cred, err := credOf(c)
 	switch {
 	case err != nil:
 		err = fmt.Errorf("cannot tell who connected to the daemon socket (%v); refused", err)
@@ -374,6 +376,9 @@ type peer struct {
 	// refusedLog is when each uid's refused connection to the daemon
 	// socket was last logged (admitDaemon).
 	refusedLog map[int]time.Time
+	// credOf reads who connected to the daemon socket; nil is peercred.Of.
+	// A test stands in for another account.
+	credOf func(net.Conn) (peercred.Cred, error)
 }
 
 // downEntry is a published address a dial to has failed, and until when
