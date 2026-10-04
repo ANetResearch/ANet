@@ -681,9 +681,9 @@ MUTS = [
  ),
  dict(
   id='fx4-2', group='F4', repo='ANetHub',
-  desc='邀请制 hub 在验签之后才核邀请(陌生人占重放缓存)',
+  desc='准入闸不在验签之前拦下陌生人(陌生人占重放缓存)',
   edits=[
-   ('internal/aghub/server.go', '\tif s.store.InviteRequired() && !s.store.KnowsAgent(req.AID) {\n\t\tif err := s.store.CheckInvite(req.Invite, req.AID); err != nil {', '\tif false && s.store.InviteRequired() && !s.store.KnowsAgent(req.AID) {\n\t\tif err := s.store.CheckInvite(req.Invite, req.AID); err != nil {'),
+   ('internal/aghub/server.go', '\tif !s.store.KnowsAgent(req.AID) {\n\t\tg := s.store.gate()', '\tif false && !s.store.KnowsAgent(req.AID) {\n\t\tg := s.store.gate()'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestAStrangerAtAClosedHubLeavesNothingInTheReplayCache')],
   full=['ANetHub:./internal/aghub'],
@@ -692,7 +692,7 @@ MUTS = [
   id='fx36-1', group='F36', repo='ANetHub',
   desc='/register 不施加 seal.MaxKEL* 上限',
   edits=[
-   ('internal/aghub/server.go', '\tkel, err := seal.ParseKEL(kelBytes)\n\tif err != nil {\n\t\tif seal.ReasonOf(err) == seal.ReasonKELTooLarge {', '\tkel, err := identity.UnmarshalKEL(kelBytes)\n\tif err != nil {\n\t\tif seal.ReasonOf(err) == seal.ReasonKELTooLarge {'),
+   ('internal/aghub/server.go', '\tkel, err := seal.ParseKEL(kelBytes)\n\tif err != nil {\n\t\tmsg := ', '\tkel, err := identity.UnmarshalKEL(kelBytes)\n\tif err != nil {\n\t\tmsg := '),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestARegistrationWithAKELPastTheMessagePathCapIsRefused')],
   full=['ANetHub:./internal/aghub'],
