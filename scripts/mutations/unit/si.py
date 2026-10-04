@@ -654,7 +654,7 @@ MUTS = [
   id='si10-3', group='SI-10', repo='ANet',
   desc='p2p ack 键改常量(设计 §3.10 指定的 mutation)',
   edits=[
-   ('module/p2p/transport.go', '_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: f.ID})', '_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: "1"})'),
+   ('module/p2p/transport.go', '_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: f.ID, DAck: dackText(dack)})', '_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: "1", DAck: dackText(dack)})'),
   ],
   tests=[('ANet:./module/p2p', 'TestConcurrentDeliveriesAreAckedByTheirOwnID')],
   full=['ANet:./module/p2p'],

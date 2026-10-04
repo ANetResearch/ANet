@@ -459,20 +459,20 @@ MUTS = [
  ),
  dict(
   id='m-p2p-1', group='m(p2p 旧帧)', repo='ANet',
-  desc='anetpeer: 无 V 的旧帧也交给 daemon',
+  desc='anetpeer: 另一帧版本(含无 V)的投递帧也交给 daemon',
   edits=[
-   ('tools/anetpeer/main.go', '\tif f.V < wireVersion {\n\t\t// A sender from before sealed envelopes.', '\tif false && f.V < wireVersion {\n\t\t// A sender from before sealed envelopes.'),
+   ('tools/anetpeer/main.go', '\tif f.V != wireVersion {\n\t\t// A sender of another frame version', '\tif false && f.V != wireVersion {\n\t\t// A sender of another frame version'),
   ],
   tests=[('ANet:./tools/anetpeer', 'TestAnUnversionedDeliveryIsRefused')],
   full=['ANet:./tools/anetpeer'],
  ),
  dict(
   id='m-p2p-2', group='m(p2p 旧帧)', repo='ANet',
-  desc='module/p2p: 无 V 的投递帧也调用 Receive',
+  desc='module/p2p: 另一帧版本(含无 V)的投递帧也调用 Receive',
   edits=[
-   ('module/p2p/transport.go', '\tif f.V < WireVersion {\n\t\tlog.Printf("anet: p2p: ignoring a delivery frame of version', '\tif false && f.V < WireVersion {\n\t\tlog.Printf("anet: p2p: ignoring a delivery frame of version'),
+   ('module/p2p/transport.go', '\tif f.V != WireVersion {\n\t\treturn nil, versionRefused(f.V)\n\t}', '\tif false && f.V != WireVersion {\n\t\treturn nil, versionRefused(f.V)\n\t}'),
   ],
-  tests=[('ANet:./module/p2p', 'TestAnUnversionedDeliveryIsNotHandedToTheDaemon')],
+  tests=[('ANet:./module/p2p', 'TestADeliveryOfAnotherVersionIsNotHandedToTheDaemon')],
   full=['ANet:./module/p2p'],
  ),
  dict(
