@@ -16,6 +16,7 @@ import (
 	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/hubapi"
 )
 
@@ -29,12 +30,18 @@ func TestAHubBelowWire2IsRefused(t *testing.T) {
 	fake.wire = 1
 	fake.mu.Unlock()
 	d := newTestDaemon(t, srv.URL, true)
-	err := d.RegisterWithHub(context.Background(), srv.URL, "n", nil, "")
-	if !errors.Is(err, errHubWire) {
-		t.Fatalf("registration with a wire-1 hub: %v, want errHubWire", err)
+	// The join ends refused with wire_too_new: the hub is older than this
+	// node, and retrying will not change that (LEC AD-2, ux UX-R6).
+	err := d.RegisterWithHub(context.Background(), srv.URL, "n", nil)
+	var ref *a2ashape.Refusal
+	if !errors.As(err, &ref) || ref.Code() != "wire_too_new" {
+		t.Fatalf("registration with a wire-1 hub: %v, want wire_too_new", err)
 	}
-	if !strings.Contains(err.Error(), "wire 1") {
-		t.Errorf("the error does not say what the hub speaks: %v", err)
+	if r := d.joinSnapshot(); r == nil || r.State != JoinRefused || r.Reason != "wire_too_new" {
+		t.Fatalf("join state after a wire-1 hub: %+v", r)
+	}
+	if fakeHubAt(t, srv.URL).registerCalls != 0 {
+		t.Error("a registration was sent to a wire-1 hub")
 	}
 	if _, err := d.relayPoll(context.Background(), 0); !errors.Is(err, errHubWire) {
 		t.Fatalf("poll against a wire-1 hub: %v", err)
@@ -184,7 +191,7 @@ func TestRegistrationPublishesTheKeySet(t *testing.T) {
 	if got := prov.publishedKeySeq.Load(); got != prov.enc.Seq() {
 		t.Fatalf("published seq = %d, want %d", got, prov.enc.Seq())
 	}
-	if err := prov.RegisterWithHub(context.Background(), srv.URL, "Prov", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(context.Background(), srv.URL, "Prov", nil); err != nil {
 		t.Fatalf("re-registration with the same key set: %v", err)
 	}
 	if err := prov.publishKeys(context.Background(), srv.URL); err != nil {

@@ -88,6 +88,14 @@ func toSDKError(err error) error {
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return err
 	}
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		// A refusal of the reason table that reached the binding (the
+		// gate is asked before it, sendgate.go; this is the race between
+		// the two): the A2A error its row names, its sentence as message.
+		e := ref.A2A(a2ashape.Lang())
+		return a2a.NewError(sdkErrorOf(e.RPCCode, e.HTTPStatus), e.Message)
+	}
 	detail := ""
 	var e *a2ashape.Error
 	if errors.As(err, &e) {
@@ -123,4 +131,24 @@ func orDefault(s, def string) string {
 		return def
 	}
 	return s
+}
+
+// sdkErrorOf is the a2a-go error of a reason row's JSON-RPC code and REST
+// status (a2ashape.A2AError).
+func sdkErrorOf(rpc, status int) error {
+	switch {
+	case rpc == -32001:
+		return a2a.ErrTaskNotFound
+	case rpc == -32004:
+		return a2a.ErrUnsupportedOperation
+	case rpc == -32006:
+		return a2a.ErrInvalidAgentResponse
+	case rpc == -32007:
+		return a2a.ErrExtendedCardNotConfigured
+	case rpc == -32602:
+		return a2a.ErrInvalidParams
+	case status == 503:
+		return a2a.ErrServerError
+	}
+	return a2a.ErrInternalError
 }

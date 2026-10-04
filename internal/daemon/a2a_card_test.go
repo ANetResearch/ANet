@@ -229,7 +229,7 @@ func TestNoPublicSkillMeansNoCardAndARegistrationWithoutOne(t *testing.T) {
 	if _, _, err := d.networkCard(h.URL); err != errNoPublicSkill {
 		t.Fatalf("an unserved public capability built a card: %v", err)
 	}
-	if err := d.RegisterWithHub(context.Background(), h.URL, "Nobody", nil, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), h.URL, "Nobody", nil); err != nil {
 		t.Fatal(err)
 	}
 	fh := fakeHubAt(t, h.URL)
@@ -258,7 +258,7 @@ func TestRegistrationPublishesTheCardAndRepeatsItUnchanged(t *testing.T) {
 		return fh.a2aCards[d.AID()], fh.registerCards[d.AID()], fh.a2aMarks[d.AID()]
 	}
 
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	first, status, mark1 := stored()
@@ -269,7 +269,7 @@ func TestRegistrationPublishesTheCardAndRepeatsItUnchanged(t *testing.T) {
 		t.Fatalf("publication status %+v", pub)
 	}
 
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	second, status, mark2 := stored()
@@ -287,7 +287,7 @@ func TestRegistrationPublishesTheCardAndRepeatsItUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	setPublic(d2, lampCap)
-	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	if third, status, _ := stored(); status != hubapi.CardStatusUnchanged || !bytes.Equal(first, third) {
@@ -297,7 +297,7 @@ func TestRegistrationPublishesTheCardAndRepeatsItUnchanged(t *testing.T) {
 	d2.mu.Lock()
 	d2.cfg.Summary = "Now also dims."
 	d2.mu.Unlock()
-	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, status, mark3 := stored(); status != hubapi.CardStatusOK || mark3.Seq <= mark1.Seq {
@@ -312,7 +312,7 @@ func TestAConflictIsResolvedWithAFreshSeq(t *testing.T) {
 	d := lampNode(t)
 	fh := fakeHubAt(t, h.URL)
 	ctx := context.Background()
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	fh.mu.Lock()
@@ -322,7 +322,7 @@ func TestAConflictIsResolvedWithAFreshSeq(t *testing.T) {
 	fh.a2aMarks[d.AID()] = m
 	fh.mu.Unlock()
 
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	fh.mu.Lock()
@@ -434,7 +434,7 @@ func TestFindMatchesLocallyAndDoesNotSendTheQuery(t *testing.T) {
 		caps []string
 	}{{a, "Translator", []string{"text.translate"}}, {b, "Painter", []string{"image.paint"}}} {
 		setPublic(x.d, x.caps...) // only public capabilities are published (an internal note item)
-		if err := x.d.RegisterWithHub(ctx, h.URL, x.name, x.caps, ""); err != nil {
+		if err := x.d.RegisterWithHub(ctx, h.URL, x.name, x.caps); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -584,7 +584,7 @@ func TestAPricedSkillIsLeftOffWhenThisNodeCannotCharge(t *testing.T) {
 func TestTheCardCarriesTheRegisteredName(t *testing.T) {
 	h := newFakeHub(t)
 	d := lampNode(t) // configured name "Lamp Agent"
-	if err := d.RegisterWithHub(context.Background(), h.URL, "Desk Lamp", nil, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), h.URL, "Desk Lamp", nil); err != nil {
 		t.Fatal(err)
 	}
 	fh := fakeHubAt(t, h.URL)
@@ -614,7 +614,7 @@ func TestAFirstHubRegisterEndsWithThePriceListPublished(t *testing.T) {
 		t.Fatal(err)
 	}
 	setPublic(d, "work.priced")
-	if err := d.HubRegister(context.Background(), h.URL, "Worker", nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), h.URL, "Worker", nil); err != nil {
 		t.Fatal(err)
 	}
 	fh := fakeHubAt(t, h.URL)
@@ -643,7 +643,7 @@ func TestSettingPublicCapabilitiesRepublishesTheCard(t *testing.T) {
 	if err := d.Providers().Register(ctx, &lampProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	d.mu.Lock()

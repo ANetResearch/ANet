@@ -66,7 +66,7 @@ func TestControlWireFields(t *testing.T) {
 		{route: "/status", todo: "v030-todo(UX-15)"},
 		{route: "/tasks/events delivery", todo: "v030-todo(RC-5)"},
 		{route: "/identity/status", todo: "v030-todo(KEL-8)"},
-		{route: "/hub-register", alt: "joined", todo: "v030-todo(EXE-13)"},
+		{route: "/hub-register", alt: "joined", req: reflect.TypeFor[hubRegisterReq](), resp: reflect.TypeFor[hubRegisterResp]()},
 		{route: "/payments/status", resp: reflect.TypeFor[SpendStatus](), todo: "v030-todo(PAY-12)"},
 		{route: "/agents/card", todo: "v030-todo(PAY-11)"},
 		{route: "/agents/list", todo: "v030-todo(PAY-11)"},

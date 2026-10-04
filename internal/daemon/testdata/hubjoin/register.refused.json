@@ -1,0 +1,9 @@
+{
+  "hub": "https://hub.example",
+  "aid": "<AID>",
+  "state": "refused",
+  "reason": "hub_refused",
+  "message": "https://hub.example refused to register this node (kel_unknown), and anet will not retry; contact the hub's operator with this message.",
+  "hub_code": "kel_unknown",
+  "hub_error": "The hub does not know this key history."
+}

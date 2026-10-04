@@ -401,10 +401,11 @@ func TestSiteJSONAgentHintMatchesSkill(t *testing.T) {
 	if s.AgentHint != agentHintJoin {
 		t.Errorf("site.json agent_hint is not agent_hint.join:\n got:  %q\n want: %q", s.AgentHint, agentHintJoin)
 	}
-	if !apexCarries(readApex(t, "SKILL.md"), s.AgentHint) {
-		// v030-todo(EXE-13): EXE-13 puts agent_hint.join into SKILL.md
-		// (LEC §4.10) and deletes this skip.
-		t.Skip("v030-todo(EXE-13): SKILL.md does not carry agent_hint.join yet")
+	// SKILL.md and llms.txt tell an agent the same sentence (LEC §4.10).
+	for _, doc := range []string{"SKILL.md", "llms.txt"} {
+		if !apexCarries(readApex(t, doc), agentHintJoin) {
+			t.Errorf("%s does not carry agent_hint.join word for word: %q", doc, agentHintJoin)
+		}
 	}
 }
 
@@ -727,6 +728,32 @@ func TestNginxServesSiteJSONNoCache(t *testing.T) {
 		if strings.Contains(body, banned) {
 			t.Errorf("location = /site.json must not use %s:\n%s", banned, body)
 		}
+	}
+	// /install.sh and /SKILL.md are revalidated on every use the same way,
+	// and keep the server block's security headers: expires epoch, no
+	// add_header (UX-16 left them with add_header, which dropped them).
+	for _, loc := range []string{"/install.sh", "/SKILL.md"} {
+		body, ok := apexNginxLocation(conf, "=", loc)
+		if !ok {
+			t.Errorf("nginx-locations.conf has no `location = %s`", loc)
+			continue
+		}
+		directives := map[string]bool{}
+		for _, d := range strings.Split(body, ";") {
+			directives[strings.Join(strings.Fields(d), " ")] = true
+		}
+		if !directives["expires epoch"] {
+			t.Errorf("location = %s lacks `expires epoch;`:\n%s", loc, body)
+		}
+		for _, banned := range []string{"add_header", "Cache-Control", "proxy_", "try_files"} {
+			if strings.Contains(body, banned) {
+				t.Errorf("location = %s must not use %s:\n%s", loc, banned, body)
+			}
+		}
+	}
+	// No location in the file drops the server block's headers.
+	if strings.Contains(regexp.MustCompile(`(?m)^\s*#.*$`).ReplaceAllString(conf, ""), "add_header") {
+		t.Error("nginx-locations.conf uses add_header, which drops the server block's security headers")
 	}
 	// The website points agents at SKILL.md through skill_url: it is served.
 	if _, ok := apexNginxLocation(conf, "=", strings.TrimPrefix(apexSkillURL, "https://agentnetwork.org.cn")); !ok {

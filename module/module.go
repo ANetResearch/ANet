@@ -216,6 +216,13 @@ type TaskSeam interface {
 	// delegation or input that expires undelivered, or that the hub
 	// refuses for good, fails the task with anet.reason=undeliverable.
 	Send(ctx context.Context, peerAID string, req TaskSend) (Task, error)
+	// SendGate is nil when this node may send now, and otherwise the
+	// refusal Send would answer with (an *a2ashape.Refusal: the node is not
+	// registered at its hub, LEC AD-6). The local A2A interface asks it
+	// before the binding runs, so the refusal reaches the client in the
+	// two-ErrorInfo form (ux UX-R10) rather than through the binding's own
+	// error encoding.
+	SendGate(ctx context.Context) error
 	// Get is GetTask. historyLen bounds the history (nil: all of it).
 	Get(ctx context.Context, peerAID, taskID string, historyLen *int) (Task, error)
 	// List is ListTasks over this node's tasks with peerAID, most recent

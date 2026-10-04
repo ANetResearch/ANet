@@ -247,6 +247,11 @@ func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 			}
 		}
 		r = r.WithContext(withInfo(r.Context(), info))
+		// A send while this node is not registered at its hub is refused
+		// with the join state's sentence, nothing created (sendgate.go).
+		if s.precheckSendGate(w, r, aid, jsonrpc) {
+			return
+		}
 		// A streaming call that cannot start is answered with an ordinary
 		// error, not a stream holding one (precheck.go, an internal note item).
 		r, answered := s.precheckStream(w, r, aid, jsonrpc)

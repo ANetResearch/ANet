@@ -768,6 +768,11 @@ var phraseSets = map[string]map[string]phrasePair{
 		"unreachable": {"hub 暂时连不上", "the hub cannot be reached"},
 		"internal":    {"hub 内部出错", "the hub had an internal error"},
 		"pow":         {"注册需要的工作量证明没有通过", "the proof of work was not accepted"},
+		// LEC EXE-13: 429 rate_limited and a signature taken for a replay
+		// (the hub is busy), and a failure on this node before anything was
+		// sent; ux §1.4 F names no phrase for them.
+		"busy":  {"hub 暂时繁忙", "the hub is busy"},
+		"local": {"本节点暂时出错", "this node had an error"},
 	},
 	// ux §1.4 G: what is wrong with an egress_allow entry.
 	"egress_why": {

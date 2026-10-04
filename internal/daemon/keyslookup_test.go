@@ -56,10 +56,10 @@ func TestSendingDoesNotNameTheRecipientInARequestLine(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, hub, false)
 	prov := newTestDaemon(t, hub, true)
-	if err := req.RegisterWithHub(ctx, hub, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, hub, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, hub, "Bob", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, hub, "Bob", nil); err != nil {
 		t.Fatal(err)
 	}
 	start := len(lines())
@@ -95,10 +95,10 @@ func TestAHubWithoutTheKeysLookupIsAskedByGET(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, hub, false)
 	prov := newTestDaemon(t, hub, true)
-	if err := req.RegisterWithHub(ctx, hub, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, hub, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, hub, "Bob", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, hub, "Bob", nil); err != nil {
 		t.Fatal(err)
 	}
 	before := relayCountFor(hub)
@@ -120,7 +120,7 @@ func TestTheLookupRoutesOwn404IsAnUnknownRecipient(t *testing.T) {
 	hub, h, _ := recordingHub(t)
 	ctx := context.Background()
 	req := newTestDaemon(t, hub, false)
-	if err := req.RegisterWithHub(ctx, hub, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, hub, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
 	// Never registered: no key set anywhere. It is given no hub_url, because a
