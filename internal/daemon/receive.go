@@ -234,7 +234,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	now := d.nowMS()
 
 	// Steps 1-4.
-	op, err := seal.Open(env, d.AID(), d.enc)
+	op, err := seal.Open(env, d.AID(), d.enc, nil) // v030-todo(FS-7): ixLookup
 	if err != nil {
 		if path.direct {
 			// [redteam:F22] From the hub mailbox an envelope this node

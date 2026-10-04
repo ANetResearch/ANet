@@ -409,7 +409,7 @@ func innerTypes(t *testing.T, srv interface{ Close() }, url string, to *Daemon, 
 	t.Helper()
 	var out []string
 	for _, env := range envs {
-		op, err := seal.Open(env, to.AID(), to.enc)
+		op, err := seal.Open(env, to.AID(), to.enc, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

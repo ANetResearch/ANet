@@ -94,7 +94,7 @@ func TestASecondCopyWaitsForTheFirstUnderTheMessageLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := craft(t, senderOf(req), prov, seal.TypeMessage, id, chatBody(t, "one copy at a time", ""), nil)
-	op, err := seal.Open(env, prov.AID(), prov.enc)
+	op, err := seal.Open(env, prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

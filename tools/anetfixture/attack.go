@@ -264,9 +264,14 @@ func cmdSeal(args []string) error {
 		return sig, seq
 	}
 	inner := &seal.SealedInner{From: from, KeyStateSeq: seq, To: *to, Type: innerType, IX: *ix,
-		MID: seal.NewMID(), TS: now, Exp: now + fixtureLifetimeMS, Body: body, KEL: kel, Keys: sender.keysRaw}
-	env, err := seal.Seal(inner, key, sign)
+		MID: seal.NewMID(), TS: now, Exp: now + fixtureLifetimeMS, Body: body, KEL: kel, Keys: sender.keysRaw,
+		Notices: [][]byte{{}}} // v030-todo(KEL-8): the witness notice for the KEL
+	env, _, err := seal.Seal(inner, key, sign, seal.SealOpts{})
 	if err != nil {
+		return err
+	}
+	// v030-todo(SS-8): a first-contact envelope also needs its hub session.
+	if env, err = seal.SetAccess(env, &seal.Access{Kind: seal.AccessKindSession}); err != nil {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "ix: %s\nmid: %s\n", *ix, hex.EncodeToString(inner.MID))

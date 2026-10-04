@@ -153,7 +153,7 @@ func sealWith(t *testing.T, recipient string, kp *seal.KeyPair, args ...string) 
 	if err != nil {
 		t.Fatalf("seal output is not base64: %v", err)
 	}
-	op, err := seal.Open(env, recipient, seal.StaticKeyRing{kp})
+	op, err := seal.Open(env, recipient, seal.StaticKeyRing{kp}, nil)
 	if err != nil {
 		t.Fatalf("the recipient cannot open what seal made: %v", err)
 	}

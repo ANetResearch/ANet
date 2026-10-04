@@ -206,7 +206,7 @@ func TestARevokedPeerCannotUseItsOldInteraction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	op, err := seal.Open(onlyQueuedEnvelope(t, srv, prov.AID()), prov.AID(), prov.enc)
+	op, err := seal.Open(onlyQueuedEnvelope(t, srv, prov.AID()), prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func TestARedeliveryRunsTheRecordedCallNotTheEnvelopes(t *testing.T) {
 	// whose TaskDoc names the capability.
 	swap := &rxMsg{from: s.aid, typ: seal.TypeDelegate, ix: ix}
 	env := craft(t, s, prov, seal.TypeDelegate, ix, delegateBody(t, s.ctrl, ix, "x", lampCap), nil)
-	op, err := seal.Open(env, prov.AID(), prov.enc)
+	op, err := seal.Open(env, prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestAnApprovedCallRedeliveredIsAnsweredAgainNotRun(t *testing.T) {
 	if n := len(queuedFor(t, srv, req.AID())); n != 1 {
 		t.Fatalf("%d answers re-sent for the redelivered envelope, want 1", n)
 	}
-	op, err := seal.Open(env, prov.AID(), prov.enc)
+	op, err := seal.Open(env, prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
