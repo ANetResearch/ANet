@@ -59,7 +59,7 @@ MUTS += [
   id='m-ad-2', group='AD-4', repo='ANet',
   desc='重试时重复构造 rot(不记住本进程已为 (hub, 顶端 seq) 准备过的 KEL)',
   edits=[('internal/daemon/hubjoin.go', '\t\tif kel, ok = e.prepared.get(key); !ok {',
-          '\t\tif kel, ok = e.prepared.get(key); true {')],
+          '\t\tif kel, ok = e.prepared.get(key); !ok || true {')],
   tests=[(DAEMON, 'TestPJoin$')],
   full=[DAEMON],
  ),
