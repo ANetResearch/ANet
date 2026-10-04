@@ -15,8 +15,17 @@ import (
 // `-H @<(printf 'Authorization: Bearer %s\n' "$tok")` locally, `printf … | curl -H @-` through ssh. The same
 // holds for a signed x402 payment header (PAYMENT-SIGNATURE): whoever presents it first to the gateway
 // gets what it pays for.
+//
+// LEC AV-6 adds what else must not be on a command line here: a token read into a header with
+// `Bearer $(cat …)`, and a model API key given as `--api-key`, which 0.3.0 refuses (api_key_on_argv: the
+// key goes in on stdin, `--api-key-stdin`). What the release ships and the website serves has its own,
+// wider scan (argv_release_test.go), and the code itself is checked by execargs_ast_test.go.
 func TestScriptsKeepBearerTokensOffCommandLines(t *testing.T) {
-	onArgv := regexp.MustCompile(`(-H|--header)[= ]*["']?(Authorization:\s*Bearer|PAYMENT-SIGNATURE:)`)
+	onArgv := []*regexp.Regexp{
+		regexp.MustCompile(`(-H|--header)[= ]*["']?(Authorization:\s*Bearer|PAYMENT-SIGNATURE:)`),
+		regexp.MustCompile(`Bearer \$\(cat`),
+		regexp.MustCompile(`--api-key[ =]`),
+	}
 	var files []string
 	for _, g := range []string{"*.sh", "testnet/*.sh", "mutations/*.sh", "interop/*.sh"} {
 		m, err := filepath.Glob(g)
@@ -41,8 +50,10 @@ func TestScriptsKeepBearerTokensOffCommandLines(t *testing.T) {
 			t.Fatal(err)
 		}
 		for i, line := range strings.Split(string(b), "\n") {
-			if onArgv.MatchString(line) {
-				t.Errorf("%s:%d puts a bearer token on curl's command line: %s", f, i+1, strings.TrimSpace(line))
+			for _, re := range onArgv {
+				if re.MatchString(line) {
+					t.Errorf("%s:%d puts a secret on a command line (%s): %s", f, i+1, re, strings.TrimSpace(line))
+				}
 			}
 		}
 	}
