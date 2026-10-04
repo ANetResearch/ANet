@@ -135,6 +135,17 @@ type fakeHub struct {
 	// caller's limit): the real hub's byte budget (PollBudget) cuts a page
 	// of large envelopes short, down to one.
 	pollPage int
+	// pollAll answers a poll with every envelope after the cursor,
+	// whatever the limit asked: a round larger than one ack request takes.
+	pollAll bool
+	// ackRequests is the items of every /relay/ack request, in order;
+	// ackFail answers the request of that index (from 1) 503 and deletes
+	// nothing.
+	ackRequests [][]hubapi.RelayAckItem
+	ackFail     int
+	// relayDacks is the delivery tokens acks left, by handle (DLV-H-3:
+	// written only for a row the ack deleted).
+	relayDacks map[string]string
 	// relayDown makes /relay/send answer 503: the hub is up but not
 	// carrying mail, the temporary failure a sender retries.
 	relayDown bool
@@ -1092,6 +1103,9 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	if h.pollPage > 0 && h.pollPage < limit {
 		limit = h.pollPage
 	}
+	if h.pollAll {
+		limit = len(h.mailbox) + 1
+	}
 	// Collecting mail IS the liveness signal the real hub records (SeenPolling).
 	h.lastSeen[aid] = time.Now()
 	if h.relayPolls == nil {
@@ -1116,8 +1130,13 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	fakeHubJSON(w, http.StatusOK, hubapi.RelayPollResponse{Messages: out})
 }
 
-// hRelayAck mirrors POST /relay/ack — delete the acked rows, scoped to the
-// caller's own mailbox. At wire 2 an ack deletes; nothing is retained.
+// hRelayAck mirrors POST /relay/ack (DLV §2.4.2) — delete the acked rows,
+// scoped to the caller's own mailbox, and keep the delivery token an item
+// carries only for a row this request deleted (DLV-H-3). A request the real
+// hub refuses whole is refused whole here: an unknown member (400
+// bad_request), no items or more than 1000, an item without an id, a
+// handle without a dack or the other way round, or a value that is not
+// strict base64url of 16 and 80 bytes (400 bad_ack_item, DLV-W-14).
 func (h *fakeHub) hRelayAck(w http.ResponseWriter, r *http.Request) {
 	body, ok := h.readBody(w, r, 1<<20)
 	if !ok {
@@ -1127,28 +1146,75 @@ func (h *fakeHub) hRelayAck(w http.ResponseWriter, r *http.Request) {
 	if aid == "" {
 		return
 	}
-	var req hubapi.RelayAckRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+	var req struct {
+		Items []struct {
+			ID     *int64  `json:"id"`
+			Handle *string `json:"handle"`
+			DAck   *string `json:"dack"`
+		} `json:"items"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"reason": "bad_request", "error": "bad request"})
 		return
+	}
+	badItem := func(i int) {
+		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"reason": "bad_ack_item",
+			"error": fmt.Sprintf("item %d: an id is required, handle (16 bytes) and dack (80 bytes) go together, and at most 1000 items are taken", i)})
+	}
+	if len(req.Items) == 0 || len(req.Items) > hubapi.RelayAckMaxItems {
+		badItem(0)
+		return
+	}
+	items := make([]hubapi.RelayAckItem, len(req.Items))
+	for i, it := range req.Items {
+		if it.ID == nil || (it.Handle == nil) != (it.DAck == nil) {
+			badItem(i)
+			return
+		}
+		items[i].ID = *it.ID
+		if it.Handle != nil {
+			if _, err := hubapi.DecodeB64(*it.Handle, hubapi.HandleLen); err != nil {
+				badItem(i)
+				return
+			}
+			if _, err := hubapi.DecodeB64(*it.DAck, hubapi.DAckLen); err != nil {
+				badItem(i)
+				return
+			}
+			items[i].Handle, items[i].DAck = *it.Handle, *it.DAck
+		}
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	drop := map[int64]bool{}
-	for _, id := range req.IDs {
-		drop[id] = true
+	h.ackRequests = append(h.ackRequests, items)
+	if h.ackFail == len(h.ackRequests) {
+		fakeHubJSON(w, http.StatusServiceUnavailable, map[string]string{"reason": "unavailable", "error": "try again"})
+		return
+	}
+	byID := map[int64]hubapi.RelayAckItem{}
+	for _, it := range items {
+		byID[it.ID] = it
 	}
 	kept := h.mailbox[:0]
-	acked := 0
+	acked, stored := 0, 0
 	for _, m := range h.mailbox {
-		if m.toAID == aid && drop[m.id] {
+		if it, ok := byID[m.id]; ok && m.toAID == aid {
 			acked++
+			if it.Handle != "" {
+				if h.relayDacks == nil {
+					h.relayDacks = map[string]string{}
+				}
+				h.relayDacks[it.Handle] = it.DAck
+				stored++
+			}
 			continue
 		}
 		kept = append(kept, m)
 	}
 	h.mailbox = kept
-	fakeHubJSON(w, http.StatusOK, map[string]any{"acked": acked})
+	fakeHubJSON(w, http.StatusOK, hubapi.RelayAckResponse{Acked: acked, Stored: stored})
 }
 
 // queuedFor returns the envelopes the hub holds for toAID, oldest first.

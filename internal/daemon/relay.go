@@ -476,17 +476,51 @@ func (c *relayCursor) done(hub string, back bool, last int64, held, full bool) {
 	}
 }
 
-// relayAck tells the hub these envelopes are handled; the hub deletes them.
-func (d *Daemon) relayAck(ctx context.Context, ids []int64) error {
-	if len(ids) == 0 {
+// dackNone counts the mailbox rows acknowledged without a delivery token:
+// the receive path decided them for good and made none (DLV-R-6a, §2.8).
+const dackNone = "dack-none"
+
+// ackItem is the /relay/ack item for mailbox row id, which the receive path
+// decided as r (DLV-R-6a): accepted (A) or refused for good (P) gets an
+// item, with its delivery token when the pipeline made one and the id alone
+// otherwise, counted dack-none; a temporary refusal (T) gets none — the row
+// stays in the mailbox and is read again.
+func (d *Daemon) ackItem(id int64, r rxResult) (hubapi.RelayAckItem, bool) {
+	if !r.ack() {
+		return hubapi.RelayAckItem{}, false
+	}
+	if r.dack == nil {
+		d.count(dackNone)
+		return hubapi.RelayAckItem{ID: id}, true
+	}
+	return hubapi.NewRelayAckItem(id, r.dack.handle, r.dack.dack), true
+}
+
+// relayAck tells the hub these mailbox rows are decided, with the delivery
+// tokens some of them carry; the hub deletes the rows and keeps the tokens
+// for their senders (DLV §2.4.2). The items go in their order, at most
+// hubapi.RelayAckMaxItems a request. A request that fails leaves only its
+// own rows in the mailbox, and the others are still sent: the relay
+// cursor's rounds that go back read those rows again, and the receive path
+// answers each copy with the outcome it gave the first (engine ENG-V13).
+func (d *Daemon) relayAck(ctx context.Context, items []hubapi.RelayAckItem) error {
+	if len(items) == 0 {
 		return nil
 	}
 	hub := d.config().HubURL
 	if hub == "" {
 		return fmt.Errorf("anet: no hub configured")
 	}
-	return d.hubSigned(ctx, hub, http.MethodPost, "/relay/ack", relayauth.ActionAck,
-		hubapi.RelayAckRequest{IDs: ids}, nil)
+	var errs []error
+	for len(items) > 0 {
+		batch := items[:min(len(items), hubapi.RelayAckMaxItems)]
+		items = items[len(batch):]
+		if err := d.hubSigned(ctx, hub, http.MethodPost, "/relay/ack", relayauth.ActionAck,
+			hubapi.RelayAckRequest{Items: batch}, nil); err != nil {
+			errs = append(errs, fmt.Errorf("ack mailbox rows %d to %d: %w", batch[0].ID, batch[len(batch)-1].ID, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // --- background poll loop ---
@@ -560,10 +594,11 @@ func (d *Daemon) pollFresh(ctx context.Context) {
 
 // pollOnce pulls the mailbox, runs each envelope through the receive
 // pipeline (receive.go) and acks the ones the pipeline says to ack:
-// accepted, or refused for a reason that will not change on retry. An
-// envelope refused for a temporary reason (a store error, a message that
-// arrived before its task) stays in the mailbox and is delivered again on a
-// later poll.
+// accepted, or refused for a reason that will not change on retry, each
+// with the delivery token the pipeline made for it (ackItem). An envelope
+// refused for a temporary reason (a store error, a message that arrived
+// before its task) stays in the mailbox and is delivered again on a later
+// poll.
 //
 // A poll starts at the relay cursor (relayCursor), so envelopes held back
 // in an earlier round do not stand in front of newer ones; when nothing is
@@ -576,25 +611,25 @@ func (d *Daemon) pollOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var acked []int64
+	var items []hubapi.RelayAckItem
 	var last int64
 	held := false
 	for _, m := range msgs {
 		last = max(last, m.ID)
-		env, derr := base64.StdEncoding.DecodeString(m.Envelope)
-		if derr != nil {
-			d.count(dropBadTransport)
-			acked = append(acked, m.ID) // undecodable — drop
-			continue
+		var r rxResult
+		if env, derr := base64.StdEncoding.DecodeString(m.Envelope); derr != nil {
+			r = d.drop(dropBadTransport, derr) // undecodable — drop
+		} else {
+			r = d.receiveEnvelope(ctx, env)
 		}
-		if d.receiveEnvelope(ctx, env).ack() {
-			acked = append(acked, m.ID)
+		if it, ok := d.ackItem(m.ID, r); ok {
+			items = append(items, it)
 		} else {
 			held = true
 		}
 	}
 	d.relayCur.done(hub, back, last, held, len(msgs) >= relayPollLimit)
-	return d.relayAck(ctx, acked)
+	return d.relayAck(ctx, items)
 }
 
 // kickAutoReply wakes the auto-reply loop immediately (non-blocking; coalesces bursts). No-op when the

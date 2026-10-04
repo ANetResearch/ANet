@@ -7,9 +7,13 @@
 package hubapi
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 
 	"github.com/ANetResearch/ANetCore/relayauth"
+	"github.com/ANetResearch/ANetCore/seal"
 )
 
 // AgentView is an agent's public registry entry plus its aggregate rating. Agents are addressed purely
@@ -121,9 +125,15 @@ type RelaySendRequest struct {
 // mailbox row when the hub queued the envelope itself; a hub that forwarded
 // it to the recipient's home hub answers with Status "forwarded" and ViaHub
 // instead.
+//
+// At wire 3 (core §2.12.2) the answer is {status, rid, via_hub?,
+// recipient_quiet}: RID names the queued envelope for a later /relay/status
+// (DLV-W-12), and ViaHub is the AID of the hub it was queued at when that
+// is not the one asked (DLV-W-12a). RIDBytes decodes RID.
 type RelaySendResponse struct {
 	ID     int64  `json:"id,omitempty"`
 	Status string `json:"status"`
+	RID    string `json:"rid"`
 	ViaHub string `json:"via_hub,omitempty"`
 	// RecipientQuiet and Warning are the hub's statement that the recipient
 	// has not collected its mail for a long time. Optional: a hub that
@@ -156,9 +166,149 @@ type RelayMessage struct {
 	Envelope string `json:"envelope"` // standard base64
 }
 
-// RelayAckRequest is the body of POST /relay/ack. Acked rows are deleted.
+// RelayAckRequest is the body of POST /relay/ack (relayauth action ack;
+// core §2.12.2, DLV §2.4.2): the mailbox rows this daemon has decided for
+// good, at most RelayAckMaxItems. The hub deletes each row that is the
+// caller's, and keeps the delivery token an item carries for the sender to
+// fetch (DLV-H-3).
 type RelayAckRequest struct {
-	IDs []int64 `json:"ids"`
+	Items []RelayAckItem `json:"items"`
+}
+
+// RelayAckItem acknowledges one mailbox row. Handle and DAck go together:
+// the row's delivery token, B64 of HandleLen and DAckLen bytes, when the
+// receive path made one; neither when it made none (DLV-R-6a).
+type RelayAckItem struct {
+	ID     int64  `json:"id"`
+	Handle string `json:"handle,omitempty"`
+	DAck   string `json:"dack,omitempty"`
+}
+
+// RelayAckResponse is the answer to POST /relay/ack: Acked mailbox rows
+// were deleted by this request, and Stored delivery tokens written or
+// overwritten (DLV-W-15).
+type RelayAckResponse struct {
+	Acked  int `json:"acked"`
+	Stored int `json:"stored"`
+}
+
+// RelayAckMaxItems is the most items one /relay/ack request may carry;
+// the hub refuses a request with more, whole (DLV-W-14).
+const RelayAckMaxItems = 1000
+
+// RelayStatusRequest is the body of POST /relay/status, the anonymous
+// question "did my envelope arrive?" (core §2.12.2, DLV §2.4.3): 1 to
+// RelayStatusMaxItems items, all for one hub. It carries no identity
+// header and goes on a connection of its own (DLV-W-17).
+type RelayStatusRequest struct {
+	Items []RelayStatusItem `json:"items"`
+}
+
+// RelayStatusItem asks about one queued envelope: the RID the send was
+// answered with and the handle of its ack_key, both B64. ViaHub is the
+// send answer's via_hub; every item of a request has the same one.
+type RelayStatusItem struct {
+	RID    string `json:"rid"`
+	Handle string `json:"handle"`
+	ViaHub string `json:"via_hub,omitempty"`
+}
+
+// RelayStatusResponse answers a RelayStatusRequest, one result per item, in
+// the request's order.
+type RelayStatusResponse struct {
+	Items []RelayStatusResult `json:"items"`
+}
+
+// RelayStatusResult is the state of one envelope: RelayStatusQueued,
+// RelayStatusDone with the recipient's DAck, or RelayStatusUnknown.
+// DAckBytes decodes DAck.
+type RelayStatusResult struct {
+	State string `json:"state"`
+	DAck  string `json:"dack,omitempty"`
+}
+
+// The states of a RelayStatusResult (DLV §2.4.3).
+const (
+	// RelayStatusQueued: the envelope is still in the recipient's mailbox.
+	RelayStatusQueued = "queued"
+	// RelayStatusDone: the recipient took it and left this delivery token.
+	RelayStatusDone = "done"
+	// RelayStatusUnknown: neither; the hub knows nothing of it.
+	RelayStatusUnknown = "unknown"
+)
+
+// RelayStatusMaxItems is the most items one /relay/status request may
+// carry (DLV-W-16).
+const RelayStatusMaxItems = 64
+
+// Sizes of the binary values of the delivery-token endpoints (core §2.7,
+// §2.16): HandleLen and DAckLen are the seal sizes the hub checks.
+const (
+	RIDLen    = 16
+	HandleLen = seal.HandleLen
+	DAckLen   = seal.DAckLen
+)
+
+// B64 is a binary value as hub wire 3 carries it: base64url without
+// padding (core CORE-E5).
+func B64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
+
+// ErrBadB64 is a binary value that is not strict base64url, or not of the
+// length its member has.
+var ErrBadB64 = errors.New("hubapi: not a strict base64url value of the expected length")
+
+// DecodeB64 decodes a hub wire 3 binary value strictly (core CORE-E5):
+// only the base64url alphabet, no padding, no white space or line breaks
+// (which Go's decoder would skip), no stray bits in the last character —
+// so a value has one spelling — and exactly n bytes; n < 0 takes any
+// length.
+func DecodeB64(s string, n int) ([]byte, error) {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !('A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '_') {
+			return nil, fmt.Errorf("%w: byte %d is %q", ErrBadB64, i, c)
+		}
+	}
+	b, err := base64.RawURLEncoding.Strict().DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrBadB64, err)
+	}
+	if n >= 0 && len(b) != n {
+		return nil, fmt.Errorf("%w: %d bytes, want %d", ErrBadB64, len(b), n)
+	}
+	return b, nil
+}
+
+// RIDBytes decodes the send answer's rid. An answer whose rid is missing,
+// not strict base64url or not RIDLen bytes is an error: the daemon takes
+// the envelope as handed over without a rid (DLV-W-12b).
+func (r RelaySendResponse) RIDBytes() ([RIDLen]byte, error) {
+	var rid [RIDLen]byte
+	b, err := DecodeB64(r.RID, RIDLen)
+	if err != nil {
+		return rid, fmt.Errorf("rid: %w", err)
+	}
+	copy(rid[:], b)
+	return rid, nil
+}
+
+// DAckBytes decodes a done result's delivery token. A dack missing, not
+// strict base64url or not DAckLen bytes is an error, which the daemon
+// takes as a token that does not verify (DLV-W-18a, engine ENG-D4).
+func (r RelayStatusResult) DAckBytes() ([DAckLen]byte, error) {
+	var d [DAckLen]byte
+	b, err := DecodeB64(r.DAck, DAckLen)
+	if err != nil {
+		return d, fmt.Errorf("dack: %w", err)
+	}
+	copy(d[:], b)
+	return d, nil
+}
+
+// NewRelayAckItem is the /relay/ack item for mailbox row id, carrying the
+// delivery token (handle, dack) the receive path made for it.
+func NewRelayAckItem(id int64, handle [HandleLen]byte, dack [DAckLen]byte) RelayAckItem {
+	return RelayAckItem{ID: id, Handle: B64(handle[:]), DAck: B64(dack[:])}
 }
 
 // KeysResponse is the answer to GET /agents/{aid}/keys: the AID's signed

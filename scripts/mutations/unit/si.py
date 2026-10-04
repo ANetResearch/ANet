@@ -681,7 +681,7 @@ MUTS = [
   id='si10-6', group='SI-10', repo='ANet',
   desc='pollOnce: 暂缓的信封也 ack',
   edits=[
-   ('internal/daemon/relay.go', '\t\tif d.receiveEnvelope(ctx, env).ack() {', '\t\tif d.receiveEnvelope(ctx, env).ack() || true {'),
+   ('internal/daemon/relay.go', '\tif !r.ack() {\n\t\treturn hubapi.RelayAckItem{}, false\n\t}', '\tif false && !r.ack() {\n\t\treturn hubapi.RelayAckItem{}, false\n\t}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAStoreFailureThenRedeliveryIsProcessedOnce|TestHeldBackEnvelopesDoNotBlockNewerMail|TestAHeldEnvelopeIsRetriedAtOnePollPerRound|TestAMessageForAnUnknownTaskGetsTaskNotFound')],
   full=['ANet:./internal/daemon'],
