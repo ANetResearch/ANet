@@ -84,7 +84,7 @@ MUTS = [
   id='si2-2', group='SI-2', repo='ANetHub',
   desc='hub 库关闭 secure_delete',
   edits=[
-   ('internal/aghub/aghub.go', '&_pragma=secure_delete(ON)")', '&_pragma=secure_delete(OFF)")'),
+   ('internal/aghub/aghub.go', '&_pragma=secure_delete(ON)"+', '&_pragma=secure_delete(OFF)"+'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestAnAckedEnvelopeLeavesNoBytesOnDisk|TestAnAckDeletesTheRow')],
   full=['ANetHub:./internal/aghub'],
@@ -609,7 +609,7 @@ MUTS = [
   id='si9-10', group='SI-9', repo='ANet',
   desc='商户核对: 不查授权过期',
   edits=[
-   ('module/x402/check.go', '\tif auth.NotAfter <= auth.IssuedAt || t.Now > auth.NotAfter+payment.ClockSkew ||', '\tif auth.NotAfter <= auth.IssuedAt ||'),
+   ('module/x402/check.go', '\tif auth.NotAfter <= auth.IssuedAt || pastNotAfter ||', '\tif auth.NotAfter <= auth.IssuedAt || (pastNotAfter && false) ||'),
   ],
   tests=[('ANet:./module/x402', 'TestTheMerchantCheckRefusesEachWrongTerm'), ('ANet:./internal/daemon', 'TestAWrongPaymentIsRefusedBeforeSettlement')],
   full=['ANet:./module/x402', 'ANet:./internal/daemon'],

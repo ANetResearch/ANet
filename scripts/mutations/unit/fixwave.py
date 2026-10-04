@@ -462,7 +462,7 @@ MUTS = [
   id='fx32-2', group='F32', repo='ANet',
   desc='流式事件不按 8 MiB 截断',
   edits=[
-   ('internal/a2ashape/stream.go', '\tbudget := MaxStreamEventBytes - 256 - jsonLen(t.ID) - jsonLen(t.ContextID)', '\tbudget := 1 << 40'),
+   ('internal/a2ashape/stream.go', '\tbudget := max - 256 - jsonLen(t.ID) - jsonLen(t.ContextID)', '\tbudget := 1 << 40'),
   ],
   tests=[('ANet:./internal/a2ashape', 'TestTaskForStreamHoldsAnEventToTheLimit'), ('ANet:./module/a2a', 'TestAStreamStaysReadableWhateverAPeerSends')],
   full=['ANet:./internal/a2ashape', 'ANet:./module/a2a'],
@@ -819,7 +819,7 @@ MUTS = [
   id='n1-6', group='N1', repo='ANet',
   desc='组可写目录不要求 socket_group',
   edits=[
-   ('internal/backendconn/backendconn.go', '\t\t\tif perm&0o020 != 0 && !groupOK(e.m) && (!sticky || i == final) {', '\t\t\tif false && perm&0o020 != 0 && !groupOK(e.m) && (!sticky || i == final) {'),
+   ('internal/backendconn/backendconn.go', '\t\t\tif perm&0o020 != 0 && !groupWritableOK(e.m) && (!sticky || i == final) {', '\t\t\tif false && perm&0o020 != 0 && !groupWritableOK(e.m) && (!sticky || i == final) {'),
   ],
   tests=[('ANet:./internal/backendconn', 'TestAWritableDirectoryIsRefused|TestJudge')],
   full=['ANet:./internal/backendconn'],
