@@ -30,9 +30,10 @@ MUTS = [
  ),
  dict(
   id='si1-4', group='SI-1', repo='ANetHub',
-  desc='hub CheckEnvelope 恒放行(明文/错投的载荷也入库)',
+  desc='hub /relay/send 第 4 步宽松解码(不是封装信封的 CBOR 载荷也入库;relay v3 后由 hRelaySend 的 ParseOuter 把关)',
   edits=[
-   ('internal/aghub/relay.go', 'func CheckEnvelope(toAID string, envelope []byte) error {\n', 'func CheckEnvelope(toAID string, envelope []byte) error {\n\tif true {\n\t\treturn nil\n\t}\n'),
+   ('internal/aghub/server.go', '\touter, err := seal.ParseOuter(body)\n\tif err != nil {\n\t\twire3.Refuse(w, wire3.ReasonBadEnvelope)\n\t\treturn\n\t}\n',
+    '\touter, err := seal.ParseOuter(body)\n\tif err != nil {\n\t\tvar loose seal.SealedEnvelope\n\t\tif coredet.Unmarshal(body, &loose) != nil {\n\t\t\twire3.Refuse(w, wire3.ReasonBadEnvelope)\n\t\t\treturn\n\t\t}\n\t\touter = &loose\n\t}\n'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestTheRelayRefusesAnythingButASealedEnvelopeForTheRecipient')],
   full=['ANetHub:./internal/aghub'],
@@ -93,16 +94,17 @@ MUTS = [
   id='si2-3', group='SI-2', repo='ANetHub',
   desc='relay_message 表加回 from_aid 列',
   edits=[
-   ('internal/aghub/relay.go', '   to_aid TEXT NOT NULL,\n   size INTEGER NOT NULL,', '   to_aid TEXT NOT NULL,\n   from_aid TEXT,\n   size INTEGER NOT NULL,'),
+   ('internal/aghub/relay.go', '\t   to_aid TEXT NOT NULL,\n\t   env_digest BLOB NOT NULL,', '\t   to_aid TEXT NOT NULL,\n\t   from_aid TEXT,\n\t   env_digest BLOB NOT NULL,'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestTheRelayDoesNotStoreTheSender')],
   full=['ANetHub:./internal/aghub'],
  ),
  dict(
   id='si2-4', group='SI-2', repo='ANetHub',
-  desc='hRelaySend 把每条信封的发送方写进 hub_meta(换个表存 from)',
+  desc='hRelaySend 把首次联系的发送方写进 hub_meta(换个表存 from)',
   edits=[
-   ('internal/aghub/server.go', '\tid, err := s.store.RelayEnqueue(req.ToAID, envelope)\n', '\tid, err := s.store.RelayEnqueue(req.ToAID, envelope)\n\tif err == nil {\n\t\t_, _ = s.store.db.Exec(`INSERT OR REPLACE INTO hub_meta(key, value) VALUES(?, ?)`, fmt.Sprintf("relay_from/%d", id), a.AID)\n\t}\n'),
+   ('internal/aghub/server.go', '\t\tClass: class, CapID: capID, Exp: outer.Exp})\n',
+    '\t\tClass: class, CapID: capID, Exp: outer.Exp})\n\tif err == nil && sess != nil {\n\t\t_, _ = s.store.db.Exec(`INSERT OR REPLACE INTO hub_meta(key, value) VALUES(?, ?)`, fmt.Sprintf("relay_from/%d", queued.ID), sess.aid)\n\t}\n'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestTheRelayDoesNotStoreTheSender|TestASendLeavesTheSenderInNoTable')],
   full=['ANetHub:./internal/aghub'],
@@ -486,17 +488,9 @@ MUTS = [
   tests=[('ANet:./cmd/anet', 'TestTheDefaultBuildHasNoTaskboard'), ('ANet:sh bash scripts/tagcheck.sh check taskboard', '')],
   full=[],
  ),
- dict(
-  id='si8-5', group='SI-8', repo='ANetHub',
-  desc='anet-hub wire_taskboard.go 改回默认编入',
-  edits=[
-   ('cmd/anet-hub/wire_taskboard.go', '//go:build taskboard\n', '//go:build !no_taskboard\n'),
-   ('internal/taskboard/http.go', '//go:build taskboard\n', '//go:build !no_taskboard\n'),
-   ('internal/taskboard/taskboard.go', '//go:build taskboard\n', '//go:build !no_taskboard\n'),
-  ],
-  tests=[('ANetHub:./cmd/anet-hub', 'TestTheDefaultBuildHasNoTaskboard')],
-  full=[],
- ),
+ # si8-5 (the hub's task board compiled into the default build) is retired with the task board, which
+ # the hub no longer has: TestTheTaskBoardIsGone (cmd/anet-hub) keeps /tasks/ unrouted in every build,
+ # and sealed_sender.py ss4-taskboard-back is its mutation.
  dict(
   id='si8-6', group='SI-8', repo='ANet',
   desc='internal/a2ashape 引入 a2a-go(控制面/MCP 经它间接依赖)',
