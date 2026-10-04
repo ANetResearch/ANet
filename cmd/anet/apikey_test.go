@@ -80,6 +80,9 @@ func TestRefuseAPIKeyOnArgvMatching(t *testing.T) {
 		{"autoreply", []string{"set", "--api-key-stdin"}, false},
 		{"autoreply", []string{"set", "--api-key-stdin", "--agent", "claude"}, false},
 		{"autoreply", []string{"set", "--api-key-stdin="}, false},
+		{"autoreply", []string{"set", "--api-key-stdin", "-"}, false},
+		{"autoreply", []string{"set", "--api-key-stdin=-"}, false},
+		{"autoreply", []string{"set", "--api-key-stdin", "-", "--api-key", "k"}, true},
 		{"autoreply", []string{"set", "--agent", "claude", "--", "--api-key", "k"}, false},
 		{"autoreply", []string{"set", "--api-base", "https://x", "--model", "m"}, false},
 		{"delegate", []string{"aid", "--api-key", "k"}, false},
@@ -93,23 +96,26 @@ func TestRefuseAPIKeyOnArgvMatching(t *testing.T) {
 
 // --api-key-stdin: the key read from stdin (surrounding white space dropped) is sent in the body and
 // nowhere else, with only the members set named; nothing prints the key.
+// "-" after the flag, the usual name of standard input, reads it the same way.
 func TestAPIKeyStdinSendsTheKeyInTheBody(t *testing.T) {
-	h := newCLIHome(t, "C")
-	rc := newRecordingControl(t, h)
-	stdout, stderr, code := runCLIStdin(t, h, "  "+cliKeyCanary+"\n\n", []string{"autoreply", "set", "--api-key-stdin"})
-	if code != 0 {
-		t.Fatalf("exit %d: %s %s", code, stdout, stderr)
-	}
-	if strings.Contains(stdout+stderr, cliKeyCanary) {
-		t.Errorf("the output repeats the key: %q %q", stdout, stderr)
-	}
-	bodies := rc.bodies()
-	if len(bodies) != 1 {
-		t.Fatalf("%d requests", len(bodies))
-	}
-	var body map[string]any
-	if err := json.Unmarshal(bodies[0], &body); err != nil || len(body) != 1 || body["api_key"] != cliKeyCanary {
-		t.Fatalf("body %s, want only the trimmed key", bodies[0])
+	for _, flag := range [][]string{{"--api-key-stdin"}, {"--api-key-stdin", "-"}, {"--api-key-stdin=-"}} {
+		h := newCLIHome(t, "C")
+		rc := newRecordingControl(t, h)
+		stdout, stderr, code := runCLIStdin(t, h, "  "+cliKeyCanary+"\n\n", append([]string{"autoreply", "set"}, flag...))
+		if code != 0 {
+			t.Fatalf("%v: exit %d: %s %s", flag, code, stdout, stderr)
+		}
+		if strings.Contains(stdout+stderr, cliKeyCanary) {
+			t.Errorf("%v: the output repeats the key: %q %q", flag, stdout, stderr)
+		}
+		bodies := rc.bodies()
+		if len(bodies) != 1 {
+			t.Fatalf("%v: %d requests", flag, len(bodies))
+		}
+		var body map[string]any
+		if err := json.Unmarshal(bodies[0], &body); err != nil || len(body) != 1 || body["api_key"] != cliKeyCanary {
+			t.Fatalf("%v: body %s, want only the trimmed key", flag, bodies[0])
+		}
 	}
 }
 

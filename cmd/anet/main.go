@@ -1191,9 +1191,10 @@ func refuseAPIKeyOnArgv(cmd string, rest []string, lang a2ashape.Language) (stri
 			continue
 		}
 		name, value, hasValue := strings.Cut(name, "=")
+		// "-", the usual name of standard input, says where the key comes from, not what it is.
 		onArgv := name == apiKeyArgvFlag ||
-			(name == apiKeyStdinFlag && hasValue && value != "") ||
-			(name == apiKeyStdinFlag && !hasValue && i+1 < len(rest) && !strings.HasPrefix(rest[i+1], "--"))
+			(name == apiKeyStdinFlag && hasValue && value != "" && value != "-") ||
+			(name == apiKeyStdinFlag && !hasValue && i+1 < len(rest) && !strings.HasPrefix(rest[i+1], "--") && rest[i+1] != "-")
 		if onArgv {
 			return a2ashape.Sentence("api_key_on_argv", lang, nil), true
 		}
