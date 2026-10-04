@@ -184,6 +184,63 @@ jobs:
   # user namespaces — so everywhere else "fails closed in both directions"
   # has never actually run. Here a skip is a failure.
   #
+  # Who is on the other end of a Unix socket (internal/peercred, LEC PC-1):
+  # the tests that put a second account there — root listening on a socket
+  # file this user owns (J10: refused, then accepted with peer_check
+  # "path-only"), another user connecting to anetpeer's daemon socket — on
+  # Linux (SO_PEERCRED) and macOS (LOCAL_PEERCRED). The hosted runners have
+  # passwordless sudo and python3; ANET_TEST_SUDO=1 makes the tests use
+  # them, and a skip here is a failure.
+  peercred:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    env:
+      CGO_ENABLED: "0"
+      ANET_TEST_SUDO: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: another account on the far end of a socket, none skipped
+        shell: bash
+        run: |
+          go test -count=1 -v -run 'AnotherAccount|ThatIsNotTheExpectedUser|PlatformThatCannotTell|NothingDials|SessionWriteHasADeadline' \
+            ./internal/peercred/ ./internal/backendconn/ ./tools/anetpeer/ ./module/p2p/ | tee /tmp/peercred.out
+          if grep -- '--- SKIP' /tmp/peercred.out; then
+            echo "a peercred test skipped; here that is a failure" >&2
+            exit 1
+          fi
+          for t in TestOfReportsAListenerOfAnotherAccount TestOfReportsAClientOfAnotherAccount \
+                   TestAListenerOfAnotherAccountIsRefusedUnlessPathOnly TestADaemonSocketConnectionOfAnotherAccountIsClosed; do
+            grep -q -- "--- PASS: $t" /tmp/peercred.out || { echo "$t did not run" >&2; exit 1; }
+          done
+
+  # The platforms the release builds for, and one it does not: peercred is
+  # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and
+  # every Unix socket backend fails closed (peer_cred_unsupported).
+  cross:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build and vet for darwin, freebsd and openbsd
+        run: |
+          for os in darwin freebsd openbsd; do
+            echo "== $os"
+            GOOS=$os go build ./...
+            GOOS=$os go vet ./internal/peercred/... ./internal/backendconn/ ./tools/anetpeer/ ./module/p2p/
+            GOOS=$os go test -c -o /dev/null ./internal/peercred
+            GOOS=$os go test -c -o /dev/null ./internal/backendconn
+          done
+
   # continue-on-error until it has run green on the hosted runners once:
   # whether their kernel lets bwrap make namespaces after the sysctl is a
   # property of the runner image, not of this tree.
