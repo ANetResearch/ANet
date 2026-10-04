@@ -945,7 +945,7 @@ S9_SIDES_T = [('ANet:./internal/hubapi', '^TestEveryHubRouteHasOneSide$'),
 S9_CONN_T = [('ANet:./internal/daemon', '^TestHubSidesNeverShareAConnection$')]
 S9_SEND_T = [('ANet:./internal/daemon', '^(TestRelaySendV3Headers|TestHomeHintOrder|TestRelaySendV3ParsesViaHub)$')]
 S9_SESS_T = [('ANet:./internal/daemon', '^(TestSessionClientReuseAndReopen|TestEmergencyDropsLocalSession)$')]
-S9_WIRE_T = [('ANet:./internal/daemon', '^(TestHubRequestsSpeakWire3|TestDryRunWireTooOldNamesTheVersion|TestA426IsRefused|TestAHubBelowWire3IsRefused)$')]
+S9_WIRE_T = [('ANet:./internal/daemon', '^(TestHubRequestsSpeakWire3|TestDryRunWireTooOldNamesTheVersion|TestA426IsRefused|TestANewerHubIsRefused|TestAHubBelowWire3IsRefused)$')]
 S9_FULL = ['ANet:./internal/daemon', 'ANet:./internal/hubapi']
 
 MUTS += [

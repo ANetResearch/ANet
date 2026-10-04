@@ -68,6 +68,27 @@ func TestA426IsRefused(t *testing.T) {
 	}
 }
 
+// A hub that answers but states a newer wire (a read it serves to every
+// version, say) speaks a contract this daemon does not know: the call
+// fails like a 426, naming the wire the hub states (core CORE-V1).
+func TestANewerHubIsRefused(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(hubapi.WireVersionHeader, "4")
+		_, _ = w.Write([]byte(`{"agents":[]}`))
+	}))
+	defer up.Close()
+	d := newTestDaemon(t, "", true)
+	var out struct {
+		Agents []hubapi.AgentView `json:"agents"`
+	}
+	err := d.hubGet(context.Background(), up.URL, "/agents", nil, &out)
+	var we *hubWireError
+	if !errors.Is(err, errHubWire) || !errors.As(err, &we) || we.hubOlder || we.version != "wire 4" {
+		t.Fatalf("a hub of wire 4 answered 200: %v, want errHubWire naming wire 4", err)
+	}
+}
+
 // Every signed call carries relayauth v2 headers that bind the hub, the
 // method, the target and the body; the fake verifies them the way the hub
 // does, and refuses a replay, a tampered body and a signature for another
