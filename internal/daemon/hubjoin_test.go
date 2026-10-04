@@ -655,11 +655,16 @@ func TestARefusedRotTimeIsPreparedAgain(t *testing.T) {
 // A hub's sentence beside hub_refused is cut to a bounded line in time
 // linear in its length: a hub that answers with megabytes of text does not
 // hold the join (and the registration lock) for good.
+//
+// The bound is generous on purpose: under -race on a busy host, decoding the
+// 5 MiB JSON body alone takes several seconds, while a cut quadratic in the
+// length of 5 MiB takes hours, so 30 seconds still tells the two apart.
 func TestAHugeHubSentenceIsCutQuickly(t *testing.T) {
+	const quick = 30 * time.Second
 	long := strings.Repeat("é", 4<<20) + "\n" + strings.Repeat("x", 1<<20)
 	start := time.Now()
 	s := cleanHubSentence(long)
-	if d := time.Since(start); d > 5*time.Second {
+	if d := time.Since(start); d > quick {
 		t.Fatalf("cleanHubSentence took %v", d)
 	}
 	if len(s) > maxHubErrorBytes || len(s) < maxHubErrorBytes-utf8.UTFMax || !utf8.ValidString(s) {
@@ -671,7 +676,7 @@ func TestAHugeHubSentenceIsCutQuickly(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"reason": "new_code", "error": long})
 	start = time.Now()
 	a := classifyHubReply(phaseRegister, hubReply{Status: 400, Body: body})
-	if d := time.Since(start); d > 5*time.Second || len(a.hubError) > maxHubErrorBytes {
+	if d := time.Since(start); d > quick || len(a.hubError) > maxHubErrorBytes {
 		t.Fatalf("classify took %v, sentence of %d bytes", d, len(a.hubError))
 	}
 }
