@@ -30,25 +30,33 @@ import (
 func TestRefuseV02DataDir(t *testing.T) {
 	for _, v := range []int{0, 1, 2} {
 		t.Run(fmt.Sprintf("interactions.db user_version %d", v), func(t *testing.T) {
-			layout := v02DataDir(t, func(l Layout) { writeV02Store(t, l, v) })
+			layout := v02DataDir(t, true, func(l Layout) { writeV02Store(t, l, v) })
 			refuseV02(t, layout)
 		})
 	}
+	// Without an identity file this version reads, the start would make
+	// one: the refusal comes first, and the directory gets no new identity.
+	t.Run("interactions.db user_version 0, no identity file", func(t *testing.T) {
+		layout := v02DataDir(t, false, func(l Layout) { writeV02Store(t, l, 0) })
+		refuseV02(t, layout)
+	})
 }
 
-// v02DataDir is a data directory with a config.json and an identity, and
-// whatever old writes into it.
-func v02DataDir(t *testing.T, old func(Layout)) Layout {
+// v02DataDir is a data directory with a config.json, an identity when
+// withIdentity, and whatever old writes into it.
+func v02DataDir(t *testing.T, withIdentity bool, old func(Layout)) Layout {
 	t.Helper()
 	root := t.TempDir()
 	writeTestConfig(t, root, map[string]any{"control_addr": "127.0.0.1:0"})
-	self, err := identity.InceptAgent(uint64(time.Now().Add(-time.Hour).UnixMilli()))
-	if err != nil {
-		t.Fatal(err)
-	}
 	layout := NewLayout(root)
-	if err := saveIdentity(layout, self); err != nil {
-		t.Fatal(err)
+	if withIdentity {
+		self, err := identity.InceptAgent(uint64(time.Now().Add(-time.Hour).UnixMilli()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := saveIdentity(layout, self); err != nil {
+			t.Fatal(err)
+		}
 	}
 	old(layout)
 	return layout
