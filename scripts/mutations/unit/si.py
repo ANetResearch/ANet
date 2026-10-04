@@ -122,7 +122,7 @@ MUTS = [
   id='si2-6', group='SI-2', repo='ANet',
   desc='requester 授权的 InteractionID 填 ix 而不是 pay_bind(hub 存交互 id)',
   edits=[
-   ('internal/daemon/x402task.go', 'signed, err := p.Authorize(*opt, ix.ID, x402a2a.PayBind(ix.ID, ix.TaskNonce), req.Purpose)', 'signed, err := p.Authorize(*opt, ix.ID, ix.ID, req.Purpose)'),
+   ('internal/daemon/x402task.go', 'signed, err := p.Authorize(*opt, ix.ID, bind, req.Purpose)', 'signed, err := p.Authorize(*opt, ix.ID, ix.ID+bind[:0], req.Purpose)'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAQuotedTaskIsPaidAndCompletedOnTheSameTask|TestThePaidLoopClosesEndToEnd')],
   full=['ANet:./internal/daemon'],

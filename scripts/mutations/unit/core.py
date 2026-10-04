@@ -106,7 +106,7 @@ MUTS = [
   edits=[('internal/daemon/enckeys.go', '\tSigned []byte `cbor:"5,keyasint,omitempty"`', '\tSigned []byte `cbor:"5,keyasint,omitempty"`\n\tExtra  []byte `cbor:"10,keyasint,omitempty"`')],
   tests=ANET_T, full=['ANet:./internal/daemon']),
  dict(id='anet-s8-3', group='CORE-S8', repo='ANet', desc='PayBind 标签改一个字符(anet/x402-bind/v2)',
-  edits=[('internal/x402a2a/x402a2a.go', '\th.Write([]byte("anet/x402-bind/v1"))', '\th.Write([]byte("anet/x402-bind/v2"))')],
+  edits=[('internal/x402a2a/x402a2a.go', 'const payBindLabel = "anet/x402-bind/v1"', 'const payBindLabel = "anet/x402-bind/v2"')],
   tests=ANET_T, full=['ANet:./internal/daemon']),
  dict(id='anet-s8-4', group='CORE-S8', repo='ANet', desc='新结构体复用 ResultResp 的退役键 4',
   edits=[('module/org/zz_mut_retired.go', None, RETIRED % 'org')],
