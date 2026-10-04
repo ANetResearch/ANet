@@ -1053,7 +1053,7 @@ MUTS += [
   tests=HUB6_T(['TestAPeersEndlessBucketIsNoAnswer']), full=FED6_FULL),
  # ---- the area's own: the federation client
  dict(id='ss6-wire-check', group='SS-6', repo='ANetHub', desc='联邦客户端不核对对端响应的 X-ANet-Wire',
-  edits=[('internal/federation/peerwire.go', '\tcase len(vs) == 1 && vs[0] == strconv.Itoa(wire3.Version):', '\tcase true:')],
+  edits=[('internal/federation/peerwire.go', '\tcase len(vs) == 1 && vs[0] == strconv.Itoa(wire3.Version):', '\tcase true || len(vs) == 1 && vs[0] == strconv.Itoa(wire3.Version):')],
   tests=FED6_T(['TestFedPeerWireMismatchStops']) + HUB6_T(['TestForwardAnswerMapping']), full=FED6_FULL),
  dict(id='ss6-wire-stop', group='SS-6', repo='ANetHub', desc='对端线协不符时只计数,不停止往来',
   edits=[('internal/federation/peerwire.go', '\tp.stopped[origin] = p.now().Add(peerWireRetry)\n', '')],
@@ -1068,6 +1068,6 @@ MUTS += [
   edits=[('internal/aghub/fed_a2acard.go', 'fedNoticeToStore(aid, e.Notice), home,', 'nil, home,')],
   tests=HUB6_T(['TestTheCardStreamCarriesTheNotice']), full=FED6_FULL),
  dict(id='ss6-notice-any', group='SS-6', repo='ANetHub', desc='对端卡片条目的见证通告不核对是否关于该 agent',
-  edits=[('internal/aghub/fed_a2acard.go', '\tif err != nil || body.AID != aid {\n\t\treturn nil\n\t}\n\treturn notice', '\tif err != nil {\n\t\treturn nil\n\t}\n\treturn notice')],
+  edits=[('internal/aghub/fed_a2acard.go', '\tif err != nil || body.AID != aid {\n\t\treturn nil\n\t}\n\treturn notice', '\tif err != nil || false && body.AID != aid {\n\t\treturn nil\n\t}\n\treturn notice')],
   tests=HUB6_T(['TestTheCardStreamCarriesTheNotice']), full=FED6_FULL),
 ]
