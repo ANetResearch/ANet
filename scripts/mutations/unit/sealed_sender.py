@@ -146,7 +146,7 @@ MUTS += [
 # ---- the mailbox signing key and the capability tables (ANet internal/daemon/mbox.go,
 # internal/runtime/interactions/caps.go): mbox.key, the epoch of a new key (SSR-W10), the hub's copy
 # of it (SSR-D4), the emergency clear (SSR-D22) and the storage rules of caps_issued and caps_held.
-MBOX_T = [('ANet:./internal/daemon', '^(TestMboxKeyFile|TestMboxEpochRules|TestMboxWaitsForAHubThatCannotBeAsked|TestCapsEmergencyTx|TestMboxRepublishWhenHubLacksIt)$')]
+MBOX_T = [('ANet:./internal/daemon', '^(TestMboxKeyFile|TestMboxEpochRules|TestMboxWaitsForAHubThatCannotBeAsked|TestCapsEmergencyTx|TestMboxRepublishWhenHubLacksIt|TestMboxLoopPrunesCaps)$')]
 CAPS_T = [('ANet:./internal/runtime/interactions', '^(TestCapsSchema|TestHeldFromGrant|TestPutHeldGrantRules|TestInvalidatePeerCapsTx|TestOlderEpochHeldCapsInvalidated|TestIssuedCapLifecycle|TestCapsPruning|TestCapsRoundTrip)$')]
 MBOX_FULL = ['ANet:./internal/daemon']
 CAPS_FULL = ['ANet:./internal/runtime/interactions']
@@ -261,5 +261,27 @@ MUTS += [
   tests=CAPS_T, full=CAPS_FULL),
  dict(id='ss7-no-bound', group='SS-CAPS', repo='ANet', desc='caps_held 没有 10 万行上限',
   edits=[('internal/runtime/interactions/caps.go', '\t\tif rows <= maxHeld {', '\t\tif true || rows <= maxHeld {')],
+  tests=CAPS_T, full=CAPS_FULL),
+]
+
+# SS-7 review: rules no test turned red for before the review's assertions.
+MUTS += [
+ dict(id='ss7-prune-loop', group='SS-MBOX', repo='ANet', desc='daemon 从不清理能力表(SSR-D2 的 5 分钟清扫没有接上)',
+  edits=[('internal/daemon/mbox.go', '\tif d.ix == nil {\n\t\treturn\n\t}\n\tp, err := d.ix.PruneCaps(d.nowMS())', '\tif true || d.ix == nil {\n\t\treturn\n\t}\n\tp, err := d.ix.PruneCaps(d.nowMS())')],
+  tests=MBOX_T, full=MBOX_FULL),
+ dict(id='ss7-rotate-registered', group='SS-MBOX', repo='ANet', desc='更换信箱签名钥后 mailbox_registered 仍报 true',
+  edits=[('internal/daemon/mbox.go', '\td.mboxSt.mu.Lock()\n\td.mboxSt.registered = false\n\td.mboxSt.mu.Unlock()\n\tif _, err := tx.ClearCapsIssued()', '\tif _, err := tx.ClearCapsIssued()')],
+  tests=MBOX_T, full=MBOX_FULL),
+ dict(id='ss7-hub-other-aid', group='SS-MBOX', repo='ANet', desc='hub 答复的是别人的钥集也按它的纪元编号',
+  edits=[('internal/daemon/mbox.go', '\tif set.AID != d.AID() || (out.AID != "" && out.AID != d.AID()) {', '\tif false {')],
+  tests=MBOX_T, full=MBOX_FULL),
+ dict(id='ss7-refused-invalid', group='SS-CAPS', repo='ANet', desc='对已失效的持有能力也计拒绝次数',
+  edits=[('internal/runtime/interactions/caps.go', '\t\tWHERE invalid_at IS NULL AND `+w+` RETURNING', '\t\tWHERE `+w+` RETURNING')],
+  tests=CAPS_T, full=CAPS_FULL),
+ dict(id='ss7-invalid-at-moves', group='SS-CAPS', repo='ANet', desc='再次置失效时推后 invalid_at',
+  edits=[('internal/runtime/interactions/caps.go', 'UPDATE caps_held SET invalid_at = ? WHERE invalid_at IS NULL AND `+w,', 'UPDATE caps_held SET invalid_at = ? WHERE `+w,')],
+  tests=CAPS_T, full=CAPS_FULL),
+ dict(id='ss7-requeue-all', group='SS-CAPS', repo='ANet', desc='SSR-D21 重推不看 since,把更早的吊销也重推',
+  edits=[('internal/runtime/interactions/caps.go', 'WHERE revoked_at IS NOT NULL AND revoked_at >= ? AND revoke_pushed = 1', 'WHERE revoked_at IS NOT NULL AND (revoked_at >= ? OR 1) AND revoke_pushed = 1')],
   tests=CAPS_T, full=CAPS_FULL),
 ]
