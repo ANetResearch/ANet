@@ -23,13 +23,16 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
+	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -180,6 +183,9 @@ func TestHubRequestsSpeakWire3(t *testing.T) {
 	})
 	if prov.joinRegistered() {
 		t.Fatal("still registered at a hub that refuses this node's wire")
+	}
+	if aid := prov.knownHubAID(srv.URL); aid != "" {
+		t.Fatal("the identity of a hub that refuses this node's wire is still pinned for signing")
 	}
 	r := prov.joinSnapshot()
 	if r.Version != "0.4.0" {
@@ -827,11 +833,176 @@ func TestAnUnmappedHubRouteIsNeverSent(t *testing.T) {
 			t.Fatal("the unmapped request reached the hub")
 		}
 	}
-	elsewhere, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:1/x402/supported", nil)
+	// Another host that would answer: the request must not reach it.
+	var reached atomic.Int64
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached.Add(1)
+		w.Header().Set(hubapi.WireVersionHeader, "3")
+		fakeHubJSON(w, http.StatusOK, map[string]any{})
+	}))
+	t.Cleanup(other.Close)
+	elsewhere, err := http.NewRequestWithContext(ctx, http.MethodGet, other.URL+"/x402/supported", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (paymentSeam{d: req}).HubDo(elsewhere); err == nil {
+	if resp, err := (paymentSeam{d: req}).HubDo(elsewhere); err == nil {
+		resp.Body.Close()
 		t.Fatal("a module's request to another host was sent")
+	}
+	if n := reached.Load(); n != 0 {
+		t.Fatalf("a module's request to another host reached it %d times", n)
+	}
+}
+
+// TestHubRedirectsAreNotFollowed (SSR-D13, SSR-D26): a hub's 3xx is its
+// answer. Neither side follows it — not the daemon's own reads, not a
+// signed call, not a module's request — so no request leaves for a route
+// the side table was not asked about, or for a host this node does not
+// talk to.
+func TestHubRedirectsAreNotFollowed(t *testing.T) {
+	ctx := context.Background()
+	var reached atomic.Int64
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reached.Add(1)
+		w.Header().Set(hubapi.WireVersionHeader, "3")
+		fakeHubJSON(w, http.StatusOK, map[string]any{})
+	}))
+	t.Cleanup(other.Close)
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set(hubapi.WireVersionHeader, "3")
+		http.Redirect(w, r, other.URL+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(hub.Close)
+	d := newTestDaemon(t, hub.URL, true)
+	if err := d.hubGet(ctx, hub.URL, "/agents", nil, nil); hubStatus(err) != http.StatusTemporaryRedirect {
+		t.Errorf("a read the hub redirected: %v, want its 307", err)
+	}
+	if err := d.hubPost(ctx, hub.URL, "/directory:bucket", map[string]any{"prefix": "", "bits": 0}, nil); hubStatus(err) != http.StatusTemporaryRedirect {
+		t.Errorf("a post the hub redirected: %v, want its 307", err)
+	}
+	if _, err := d.relayPoll(ctx, 0); err == nil {
+		t.Error("a signed poll went through a redirecting hub")
+	}
+	if code, err := d.hubSeamDo(ctx, hub.URL, "/x402/supported"); err != nil || code != http.StatusTemporaryRedirect {
+		t.Errorf("a module's request the hub redirected: %d %v, want its 307", code, err)
+	}
+	if n := reached.Load(); n != 0 {
+		t.Fatalf("the redirect target was reached %d times", n)
+	}
+}
+
+// TestASessionIsNeverUsedWhileItIsZeroed (SSR-D23, SSR-D27): sends share a
+// session, and another send, a newer session or an emergency rotation may
+// drop it while they make their MACs. A MAC is made under the key the hub
+// sealed or not at all (errSessionGone): never under a key half zeroed.
+func TestASessionIsNeverUsedWhileItIsZeroed(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	s, err := req.firstContactSession(ctx, srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := bytes.Clone(s.key)
+	env := sealFrom(t, req, prov, seal.TypeMessage, "ix", chatBody(t, "m", ""))
+	access, _, err := outerAccess(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const senders = 8
+	var wg sync.WaitGroup
+	var gone atomic.Int64
+	first := make(chan struct{})
+	var once sync.Once
+	for i := 0; i < senders; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 1_000_000; j++ {
+				r, err := newRelaySendRequest(ctx, srv.URL, env, access, "", s, time.Now())
+				if errors.Is(err, errSessionGone) {
+					gone.Add(1)
+					return
+				}
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				mac, err1 := relayauth.DecodeMAC(r.Header.Get(hubapi.HeaderMAC))
+				ts, err2 := strconv.ParseUint(r.Header.Get(hubapi.HeaderTS), 10, 64)
+				if err1 != nil || err2 != nil ||
+					relayauth.VerifySessionMAC(key, s.sid, ts, r.Method, r.URL.RequestURI(), "", env, mac) != nil {
+					t.Error("a MAC not made under the session's key")
+					return
+				}
+				once.Do(func() { close(first) })
+			}
+		}()
+	}
+	<-first
+	req.dropSessions()
+	wg.Wait()
+	if n := gone.Load(); n != senders {
+		t.Fatalf("%d of %d senders saw the session go", n, senders)
+	}
+}
+
+// TestASendWhoseSessionWentTakesTheCurrentOne (SSR-D27): a first contact
+// whose session was zeroed after it was handed out sends nothing under it;
+// it takes the current session (here a new one) and goes through.
+func TestASendWhoseSessionWentTakesTheCurrentOne(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	s, err := req.firstContactSession(ctx, srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.zero() // as another send's session_invalid would, before this send's MAC
+	before := len(relaySends(hubRequests(t, srv.URL)))
+	_, handed, err := req.relaySendV3(ctx, sealFrom(t, req, prov, seal.TypeMessage, "ix", chatBody(t, "m", "")),
+		AccessChoice{Send: true, Kind: seal.AccessKindSession})
+	if err != nil || !handed {
+		t.Fatalf("a send whose session went: handed %v, %v", handed, err)
+	}
+	if n := len(relaySends(hubRequests(t, srv.URL))) - before; n != 1 {
+		t.Fatalf("%d send requests, want the one under the new session", n)
+	}
+	if cur, err := req.firstContactSession(ctx, srv.URL); err != nil || cur == s {
+		t.Fatalf("the zeroed session is still current: %v", err)
+	}
+}
+
+// TestAnOpeningRacingAnEmergencyIsNotKept (SSR-D23): a session whose
+// opening was signed before this node rotated in an emergency, and whose
+// answer arrives after, is zeroed and not kept; the next first contact
+// opens a new one.
+func TestAnOpeningRacingAnEmergencyIsNotKept(t *testing.T) {
+	srv, req, _ := registeredPair(t)
+	ctx := context.Background()
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	setFake(t, srv.URL, func(h *fakeHub) { h.sessionHook = func() { once.Do(func() { close(entered) }); <-release } })
+	errc := make(chan error, 1)
+	go func() {
+		_, err := req.firstContactSession(ctx, srv.URL)
+		errc <- err
+	}()
+	<-entered
+	if err := req.ix.Update(req.capsEmergencyTx); err != nil {
+		t.Fatal(err)
+	}
+	setFake(t, srv.URL, func(h *fakeHub) { h.sessionHook = nil })
+	close(release)
+	if err := <-errc; !errors.Is(err, errSessionUnavailable) {
+		t.Fatalf("an opening across an emergency rotation: %v, want session_unavailable", err)
+	}
+	req.hubc.sessions.mu.Lock()
+	kept := len(req.hubc.sessions.byHub)
+	req.hubc.sessions.mu.Unlock()
+	if kept != 0 {
+		t.Fatal("the session opened under the retired key was kept")
+	}
+	s, err := req.firstContactSession(ctx, srv.URL)
+	if err != nil || len(s.key) != relayauth.SessionKeyLen {
+		t.Fatalf("the next opening: %v", err)
 	}
 }

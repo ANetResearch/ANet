@@ -982,7 +982,7 @@ MUTS += [
   edits=[('internal/daemon/hub_client.go', '\treq.Header.Set("User-Agent", hubUserAgent)\n', '')],
   tests=[('ANet:./internal/daemon', '^TestFixedUserAgentNoCookies$')], full=S9_FULL),
  dict(id='ss9-cookie-jar', group='SS-9', repo='ANet', desc='hub 客户端带 cookie jar(两侧各记 hub 设的 cookie)',
-  edits=[('internal/daemon/hub_client.go', '\treturn &http.Client{Transport: t}\n', '\tjar, _ := cookiejar.New(nil)\n\treturn &http.Client{Transport: t, Jar: jar}\n'),
+  edits=[('internal/daemon/hub_client.go', '\treturn &http.Client{Transport: t, CheckRedirect: noHubRedirect}\n', '\tjar, _ := cookiejar.New(nil)\n\treturn &http.Client{Transport: t, CheckRedirect: noHubRedirect, Jar: jar}\n'),
          ('internal/daemon/hub_client.go', '\t"net/http"\n\t"net/url"\n', '\t"net/http"\n\t"net/http/cookiejar"\n\t"net/url"\n')],
   tests=[('ANet:./internal/daemon', '^TestFixedUserAgentNoCookies$')], full=S9_FULL),
  # ---- CORE-V1: wire 3, and a hub of another wire stops the conversation
@@ -1016,7 +1016,7 @@ MUTS += [
   edits=[('internal/daemon/mbox.go', '\td.dropSessions()\n\tif _, err := d.rotateMboxTx(tx); err != nil {', '\tif _, err := d.rotateMboxTx(tx); err != nil {')],
   tests=S9_SESS_T, full=S9_FULL),
  dict(id='ss9-session-key-kept', group='SS-9', repo='ANet', desc='丢弃会话时不清零 k_sess',
-  edits=[('internal/daemon/session_client.go', '\tfor k, s := range t.byHub {\n\t\tclear(s.key)\n', '\tfor k := range t.byHub {\n')],
+  edits=[('internal/daemon/session_client.go', '\tfor k, s := range t.byHub {\n\t\ts.zero()\n', '\tfor k := range t.byHub {\n')],
   tests=S9_SESS_T, full=S9_FULL),
  # ---- SSR-D13, SSR-D28: the hint and the answer
  dict(id='ss9-home-order', group='SS-9', repo='ANet', desc='home 提示先取能力的 home、后取 KEL 见证',
@@ -1037,4 +1037,27 @@ MUTS += [
  dict(id='ss9-taskboard-key', group='SS-9', repo='ANet', desc='modules.taskboard 不再列为删除键(配置里留着它也照常启动)',
   edits=[('internal/daemon/config.go', '\t{"modules.taskboard", "taskboard"},\n', '')],
   tests=[('ANet:./internal/daemon', '^(TestRemovedSettingsHaveTheirPhrases|TestRemovedSettingsStopTheDaemon)$')], full=S9_FULL),
+]
+
+# ---- SS-9, review: redirects, the session key under concurrent sends, an opening across an emergency
+# rotation, a module's request to another host, a hub of another wire kept pinned.
+MUTS += [
+ dict(id='ss9-redirect-followed', group='SS-9', repo='ANet', desc='hub 客户端跟随 3xx(请求被带到侧表之外的路由或别的主机)',
+  edits=[('internal/daemon/hub_client.go', '\treturn &http.Client{Transport: t, CheckRedirect: noHubRedirect}', '\t_ = noHubRedirect\n\treturn &http.Client{Transport: t}')],
+  tests=[('ANet:./internal/daemon', '^TestHubRedirectsAreNotFollowed$')], full=S9_FULL),
+ dict(id='ss9-session-gone-unchecked', group='SS-9', repo='ANet', desc='已清零的会话钥照样拿来算 MAC',
+  edits=[('internal/daemon/session_client.go', '\tif s.key == nil {\n\t\treturn nil, errSessionGone\n\t}\n\treturn relayauth.SessionMAC', '\treturn relayauth.SessionMAC')],
+  tests=[('ANet:./internal/daemon', '^TestASessionIsNeverUsedWhileItIsZeroed$')], full=S9_FULL),
+ dict(id='ss9-session-gone-no-retry', group='SS-9', repo='ANet', desc='会话在算 MAC 前被丢弃时不改用当前会话',
+  edits=[('internal/daemon/relay_send.go', '\t\t\tif attempt == 0 {\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\treturn res, handed, &sessionUnavailableError{err}', '\t\t\treturn res, handed, &sessionUnavailableError{err}')],
+  tests=[('ANet:./internal/daemon', '^TestASendWhoseSessionWentTakesTheCurrentOne$')], full=S9_FULL),
+ dict(id='ss9-session-opening-kept', group='SS-9', repo='ANet', desc='紧急轮换期间开出的会话(旧钥签名)照样留作当前会话(SSR-D23)',
+  edits=[('internal/daemon/session_client.go', '\tif op.err == nil && t.gen != gen {', '\tif op.err == nil && t.gen != gen && false {')],
+  tests=[('ANet:./internal/daemon', '^TestAnOpeningRacingAnEmergencyIsNotKept$')], full=S9_FULL),
+ dict(id='ss9-module-anyhost', group='SS-9', repo='ANet', desc='模块经 HubDo 的请求可发往配置 hub 以外的主机',
+  edits=[('internal/daemon/hub_client.go', '\tif req.URL.Scheme != base.Scheme || req.URL.Host != base.Host || !strings.HasPrefix(path, prefix+"/") {', '\tif false {')],
+  tests=[('ANet:./internal/daemon', '^TestAnUnmappedHubRouteIsNeverSent$')], full=S9_FULL),
+ dict(id='ss9-wire-keeps-identity', group='SS-9', repo='ANet', desc='线协不符后仍留着 hub 身份(签名调用照签照发)',
+  edits=[('internal/daemon/hub_client.go', '\td.hubIDMu.Lock()\n\tdelete(d.hubIDs, key)\n\td.hubIDMu.Unlock()\n\tif anetVersionRe', '\tif anetVersionRe')],
+  tests=[('ANet:./internal/daemon', '^TestHubRequestsSpeakWire3$')], full=S9_FULL),
 ]

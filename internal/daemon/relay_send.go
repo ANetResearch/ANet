@@ -89,6 +89,17 @@ func (d *Daemon) relaySendV3(ctx context.Context, env []byte, choice AccessChoic
 			}
 		}
 		req, err := newRelaySendRequest(ctx, hub, env, access, home, sess, time.Now())
+		if errors.Is(err, errSessionGone) {
+			// The session was dropped between handing it out and the MAC
+			// (another send's session_invalid, a newer session, an
+			// emergency rotation): nothing was sent; once more under the
+			// current one, which a zeroed session never is.
+			d.dropSession(hub, sess)
+			if attempt == 0 {
+				continue
+			}
+			return res, handed, &sessionUnavailableError{err}
+		}
 		if err != nil {
 			return res, handed, err
 		}
@@ -136,7 +147,7 @@ func newRelaySendRequest(ctx context.Context, hub string, env, access []byte, ho
 	}
 	if sess != nil {
 		ts := uint64(now.UnixMilli())
-		mac, err := relayauth.SessionMAC(sess.key, sess.sid, ts, req.Method, req.URL.RequestURI(), home, env)
+		mac, err := sess.mac(ts, req.Method, req.URL.RequestURI(), home, env)
 		if err != nil {
 			return nil, fmt.Errorf("anet: session MAC: %w", err)
 		}

@@ -61,19 +61,49 @@ func (e *sessionUnavailableError) Error() string {
 func (e *sessionUnavailableError) Is(target error) bool { return target == errSessionUnavailable }
 func (e *sessionUnavailableError) Unwrap() error        { return e.cause }
 
+// errSessionGone is a session dropped after it was handed to a send (the
+// hub said session_invalid to another send, a newer one replaced it, or
+// this node rotated in an emergency): its key is zeroed, so no MAC is
+// made with it, and the send takes the current session instead.
+var errSessionGone = errors.New("the first-contact session was dropped")
+
 // firstContactSession is one open session: the hub it is with, the hub's
 // AID (the session key is bound to it), the id, the key and when it ends
 // (unix ms, the hub's clock).
+//
+// A session is shared by every send to its hub, so its key is read and
+// zeroed under mu: a MAC is never made from a key half zeroed, and a key
+// is never zeroed while a MAC is being made with it.
 type firstContactSession struct {
 	hubAID string
 	sid    []byte
-	key    []byte
 	exp    time.Time
+	mu     sync.RWMutex
+	key    []byte // nil once zeroed
 }
 
 // usable reports whether s may carry a send made at now.
 func (s *firstContactSession) usable(now time.Time) bool {
 	return s != nil && now.Before(s.exp.Add(-sessionRenewBefore))
+}
+
+// mac is the session MAC of one send (core L8), or errSessionGone once s
+// has been zeroed.
+func (s *firstContactSession) mac(ts uint64, method, target, home string, body []byte) ([]byte, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.key == nil {
+		return nil, errSessionGone
+	}
+	return relayauth.SessionMAC(s.key, s.sid, ts, method, target, home, body)
+}
+
+// zero clears the session key; s makes no MAC after it.
+func (s *firstContactSession) zero() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clear(s.key)
+	s.key = nil
 }
 
 // sessionTable holds the current session of each hub (by hub URL), and
@@ -87,6 +117,10 @@ type sessionTable struct {
 	// ok is, per hub, whether the last opening succeeded (/status
 	// sender_privacy.session_ok).
 	ok map[string]bool
+	// gen counts dropSessions: an opening that began before the last one
+	// was signed with a key this node has since retired, and its session
+	// is zeroed instead of kept (SSR-D23).
+	gen uint64
 }
 
 // sessionOpening is one opening in flight; done closes when it ended.
@@ -120,12 +154,18 @@ func (d *Daemon) firstContactSession(ctx context.Context, hubURL string) (*first
 		t.opening = map[string]*sessionOpening{}
 	}
 	t.opening[key] = op
+	gen := t.gen
 	t.mu.Unlock()
 
 	op.s, op.err = d.openSession(ctx, key)
 
 	t.mu.Lock()
 	delete(t.opening, key)
+	if op.err == nil && t.gen != gen {
+		// This node rotated in an emergency while the session opened.
+		op.s.zero()
+		op.s, op.err = nil, &sessionUnavailableError{errSessionGone}
+	}
 	if t.ok == nil {
 		t.ok = map[string]bool{}
 	}
@@ -135,7 +175,7 @@ func (d *Daemon) firstContactSession(ctx context.Context, hubURL string) (*first
 			t.byHub = map[string]*firstContactSession{}
 		}
 		if old := t.byHub[key]; old != nil {
-			clear(old.key)
+			old.zero()
 		}
 		t.byHub[key] = op.s
 	} else {
@@ -206,19 +246,21 @@ func (d *Daemon) dropSession(hubURL string, s *firstContactSession) {
 	defer t.mu.Unlock()
 	if t.byHub[key] == s {
 		delete(t.byHub, key)
-		clear(s.key)
+		s.zero()
 	}
 }
 
 // dropSessions ends every session of this node and zeroes its keys
 // (SSR-D23): part of an emergency rotation's first step, whose hub drops
-// the sessions of the rotated key as well (SSR-H9).
+// the sessions of the rotated key as well (SSR-H9). An opening in flight
+// is signed with the retired key; its session is zeroed when it arrives.
 func (d *Daemon) dropSessions() {
 	t := &d.hubc.sessions
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.gen++
 	for k, s := range t.byHub {
-		clear(s.key)
+		s.zero()
 		delete(t.byHub, k)
 	}
 }

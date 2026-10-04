@@ -418,6 +418,13 @@ func (c *hubClient) client(side hubapi.Side) *http.Client {
 // connection pool), a TLS configuration of its own, no cookie jar. Only the
 // signed side keeps TLS session tickets: a ticket resumed on the anonymous
 // side would tie its connection to the signed one that earned it (SSR-D25).
+//
+// Neither side follows a redirect: the hub's 3xx is the answer, and the
+// call fails on it. A redirect would send the request — its signature or
+// session MAC, its envelope — to a route hubapi.Routes was never asked
+// about, or to another host, which this node never contacts (SSR-D13,
+// SSR-D26). A hub address that only redirects (http to https, say) is
+// fixed by configuring the address it redirects to.
 func newHubHTTPClient(side hubapi.Side, roots *x509.CertPool) *http.Client {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	tc := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
@@ -425,8 +432,11 @@ func newHubHTTPClient(side hubapi.Side, roots *x509.CertPool) *http.Client {
 		tc.ClientSessionCache = tls.NewLRUClientSessionCache(16)
 	}
 	t.TLSClientConfig = tc
-	return &http.Client{Transport: t}
+	return &http.Client{Transport: t, CheckRedirect: noHubRedirect}
 }
+
+// noHubRedirect is the hub clients' CheckRedirect: never follow.
+func noHubRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // hubExchange sends req to the hub at hubURL and returns its answer as it
 // came: status, Retry-After, the hub's X-ANet-Wire and the body (bounded).

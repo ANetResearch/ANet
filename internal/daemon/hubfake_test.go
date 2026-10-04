@@ -274,6 +274,10 @@ type fakeHub struct {
 	sessionLife   time.Duration
 	sessionOpens  int
 	sessionRefuse string
+	// sessionHook, when set, runs after a session is opened and before
+	// its answer is written (outside the lock): a test holds the answer
+	// in flight there.
+	sessionHook func()
 	// requests is every request the fake got, in order; setCookie makes
 	// every answer set a cookie, as a hub that tracked its callers would.
 	requests  []fakeHubRequest
@@ -1340,7 +1344,11 @@ func (h *fakeHub) hRelaySession(w http.ResponseWriter, r *http.Request) {
 	exp := time.Now().Add(life)
 	h.sessions[string(sid)] = &fakeSession{aid: aid, key: key, exp: exp}
 	h.sessionOpens++
+	hook := h.sessionHook
 	h.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	fakeHubJSON(w, http.StatusOK, hubapi.SessionResponse{SID: hubapi.B64(sid), Exp: uint64(exp.UnixMilli()),
 		Enc: hubapi.B64(enc), CT: hubapi.B64(ct)})
 }
