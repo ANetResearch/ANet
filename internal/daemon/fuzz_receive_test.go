@@ -308,7 +308,6 @@ func FuzzReceiveInner(f *testing.F) {
 				rr := &delegation.ResultResp{Status: verb, Deliverable: deliverable, Metadata: meta}
 				if receiptOK {
 					rr.Receipt = signedReceipt(t, x, id, deliverable)
-					rr.KEL, _ = identity.MarshalKEL(provKEL)
 				}
 				body, err = rr.Marshal()
 			}

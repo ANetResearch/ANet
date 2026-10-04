@@ -24,7 +24,6 @@ import (
 	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
 
@@ -221,11 +220,8 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 	if err != nil {
 		return err
 	}
-	kelB, err := identity.MarshalKEL(d.self.KEL())
-	if err != nil {
-		return err
-	}
-	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: env, KEL: kelB, InteractionID: id, Attachments: atts,
+	// The KEL travels in the sealed envelope (inner key 10), not in the body.
+	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: env, InteractionID: id, Attachments: atts,
 		ContextID: contextID, Metadata: meta}
 	payload, err := dr.Marshal()
 	if err != nil {
