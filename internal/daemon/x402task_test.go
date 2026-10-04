@@ -408,7 +408,7 @@ func TestManualPaymentAndRejection(t *testing.T) {
 func TestTheSpendingPolicyTiers(t *testing.T) {
 	srv := newFakeHub(t)
 	d := newTestDaemon(t, srv.URL, false)
-	if err := d.RegisterWithHub(context.Background(), srv.URL, "Spender", nil, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), srv.URL, "Spender", nil); err != nil {
 		t.Fatal(err)
 	}
 	payPolicy(t, d, PaymentsConfig{AutoMax: 10, AgentMax: 20, AgentDailyMax: 25, ExplicitMax: u64(30),
@@ -520,7 +520,7 @@ func reopen(t *testing.T, d *Daemon) *Daemon {
 func TestSpendTotalsAreRebuiltAtStart(t *testing.T) {
 	srv := newFakeHub(t)
 	d := newTestDaemon(t, srv.URL, false)
-	if err := d.RegisterWithHub(context.Background(), srv.URL, "Spender", nil, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), srv.URL, "Spender", nil); err != nil {
 		t.Fatal(err)
 	}
 	pc := PaymentsConfig{AgentMax: 10, AgentDailyMax: 10, ExplicitMax: u64(10), DailyMax: u64(20)}

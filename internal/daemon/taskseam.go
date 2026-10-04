@@ -86,6 +86,16 @@ func (s *DaemonTaskSeam) Send(ctx context.Context, peerAID string, req module.Ta
 	return s.d.sendTask(ctx, sc, peerAID, req, 0)
 }
 
+// SendGate is nil when this node may send now, otherwise the refusal Send
+// would give (*a2ashape.Refusal; LEC AD-6): the local A2A interface answers
+// it before the binding, in the two-ErrorInfo form (ux UX-R10).
+func (s *DaemonTaskSeam) SendGate(context.Context) error {
+	if ref := s.d.sendGate(); ref != nil {
+		return ref
+	}
+	return nil
+}
+
 // Get is A2A GetTask.
 func (s *DaemonTaskSeam) Get(_ context.Context, peerAID, taskID string, historyLen *int) (a2ashape.Task, error) {
 	sc, err := peerScope(peerAID)
@@ -256,6 +266,9 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 	}
 	msg := req.Message
 	if msg.TaskID != "" {
+		if ref := d.sendGate(); ref != nil {
+			return a2ashape.Task{}, ref
+		}
 		return d.appendTask(ctx, sc, req, wait)
 	}
 	peer := to
@@ -276,6 +289,13 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 	in, err := parseTaskInput(msg, a2ashape.RoleUser)
 	if err != nil {
 		return a2ashape.Task{}, err
+	}
+	// Until the hub registered this node a send fails at once with the
+	// join state's sentence, and no outbound row is written (LEC AD-6, ux
+	// UX-R7): the control plane, MCP and the local A2A interface all come
+	// through here. A request malformed in itself is told so first.
+	if ref := d.sendGate(); ref != nil {
+		return a2ashape.Task{}, ref
 	}
 	contextID := msg.ContextID
 	if contextID != "" && !sc.all {

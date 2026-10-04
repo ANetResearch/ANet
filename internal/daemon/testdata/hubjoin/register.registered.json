@@ -1,0 +1,7 @@
+{
+  "hub": "https://hub.example",
+  "aid": "<AID>",
+  "state": "registered",
+  "reason": "registered",
+  "message": "Registered at https://hub.example."
+}

@@ -1,0 +1,14 @@
+{
+  "attempts": 3,
+  "hub": "https://hub.example",
+  "hub_aid": "bafyreihqsa3dn4fbfwbkn2dhwxbz6nmzvqjvhqrfmkmvjdnozqbgpj6vjy",
+  "next_attempt_at": 1790000860000,
+  "reason": "hub_pending_admission",
+  "since": 1790000740000,
+  "state": "pending_admission",
+  "v": 1,
+  "witness_rot": {
+    "hub_aid": "bafyreihqsa3dn4fbfwbkn2dhwxbz6nmzvqjvhqrfmkmvjdnozqbgpj6vjy",
+    "next_digest": "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo="
+  }
+}

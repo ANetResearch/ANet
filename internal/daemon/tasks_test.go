@@ -342,8 +342,8 @@ func TestWatchDeliversEachStateChangeOnce(t *testing.T) {
 }
 
 // After a terminal state only new input is refused (A2A-DESIGN §4.2): a
-// text message for a completed task is acknowledged and not stored, and a
-// wire-1 end_accept is dropped.
+// text message for a completed task is acknowledged and not stored, and an
+// end_accept (a retired kind) is dropped as a malformed body.
 func TestInputAfterTheEndIsRefused(t *testing.T) {
 	_, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -365,9 +365,9 @@ func TestInputAfterTheEndIsRefused(t *testing.T) {
 	if countMsgs(t, prov, id) != before || counter(prov, dropAfterTerminal) != 1 {
 		t.Fatalf("late input was stored (%d → %d) or not counted", before, countMsgs(t, prov, id))
 	}
-	accept, _ := (&delegation.ChatMsg{Kind: delegation.ChatEndAccept, MsgID: "msg_ea"}).Marshal()
-	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeMessage, id, accept)); !r.ack() || counter(prov, dropEndAccept) != 1 {
-		t.Fatalf("end_accept: %+v, counted %d", r, counter(prov, dropEndAccept))
+	accept, _ := (&delegation.ChatMsg{Kind: "end_accept", MsgID: "msg_ea"}).Marshal()
+	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeMessage, id, accept)); !r.ack() || r.reason != dropBadBody {
+		t.Fatalf("end_accept: %+v, want acknowledged as %s", r, dropBadBody)
 	}
 	if st := stateOf(t, prov, id); st != interactions.StateCompleted {
 		t.Fatalf("state changed to %s", st)

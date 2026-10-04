@@ -431,10 +431,10 @@ func innerTypes(t *testing.T, srv interface{ Close() }, url string, to *Daemon, 
 func TestSpotAFollowUpNeverOvertakesItsDelegation(t *testing.T) {
 	srv, req, prov := quietPair(t)
 	ctx := context.Background()
-	clk := &sharedClock{now: uint64(time.Now().UnixMilli())}
+	clk := newSharedClock(uint64(time.Now().UnixMilli()))
 	req.setClock(clk.fn())
 	prov.setClock(clk.fn())
-	start := clk.now
+	start := clk.now()
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
 	id, err := req.Delegate(ctx, prov.AID(), "summarise the attached notes", nil)
 	if err != nil {
@@ -455,8 +455,8 @@ func TestSpotAFollowUpNeverOvertakesItsDelegation(t *testing.T) {
 	// out now.
 	d = &rows[0]
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
-	clk.now = start + uint64((25*time.Minute + 30*time.Second).Milliseconds())
-	if uint64(d.NextAt) <= clk.now {
+	clk.set(start + uint64((25*time.Minute + 30*time.Second).Milliseconds()))
+	if uint64(d.NextAt) <= clk.now() {
 		t.Fatalf("setup: the delegation is due already")
 	}
 	req.flushOutbox(ctx)
@@ -464,7 +464,7 @@ func TestSpotAFollowUpNeverOvertakesItsDelegation(t *testing.T) {
 		t.Fatalf("the hub holds %v before the delegation's backoff ended; the follow-up went first",
 			innerTypes(t, srv, srv.URL, prov, q))
 	}
-	clk.now = uint64(d.NextAt)
+	clk.set(uint64(d.NextAt))
 	req.flushOutbox(ctx)
 	req.flushOutbox(ctx)
 	got := innerTypes(t, srv, srv.URL, prov, queuedFor(t, srv, prov.AID()))

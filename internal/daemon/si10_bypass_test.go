@@ -360,7 +360,7 @@ func TestACommittedDirectDeliveryIsNeverRefused(t *testing.T) {
 func TestARedeliveredDelegationHurriesTheWholeAnswerQueue(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
-	clk := &sharedClock{now: uint64(time.Now().UnixMilli())}
+	clk := newSharedClock(uint64(time.Now().UnixMilli()))
 	prov.setClock(clk.fn())
 	id, err := req.Delegate(ctx, prov.AID(), "a text task", nil)
 	if err != nil {
@@ -383,7 +383,7 @@ func TestARedeliveredDelegationHurriesTheWholeAnswerQueue(t *testing.T) {
 	if len(rows) != 2 || rows[1].Type != seal.TypeResult {
 		t.Fatalf("setup: provider outbox %+v, want a status and then the result", rows)
 	}
-	if uint64(rows[0].NextAt) <= clk.now {
+	if uint64(rows[0].NextAt) <= clk.now() {
 		t.Fatalf("setup: the status is due already")
 	}
 	// The hub is back, and the requester sends its delegation again.
@@ -394,7 +394,7 @@ func TestARedeliveredDelegationHurriesTheWholeAnswerQueue(t *testing.T) {
 	}
 	prov.flushOutbox(ctx)
 	if rows, _ := prov.ix.Outbox(id); len(rows) != 0 {
-		t.Fatalf("after the redelivery %d answers still wait (the first due at +%d ms)", len(rows), rows[0].NextAt-int64(clk.now))
+		t.Fatalf("after the redelivery %d answers still wait (the first due at +%d ms)", len(rows), rows[0].NextAt-int64(clk.now()))
 	}
 	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)

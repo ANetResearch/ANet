@@ -494,6 +494,9 @@ func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
 		}
 		out["auto_reply"] = entry
 	}
+	// The hub join state (LEC §2.3.3): what the node is waiting for, and
+	// the one command, if any, that moves it on.
+	out["hub"] = d.HubView()
 	// Receive outcomes by reason since start (receive.go): every envelope
 	// dropped or held back, and why.
 	out["receive"] = d.ReceiveStats()
@@ -553,50 +556,6 @@ func (d *Daemon) hProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "profile_set", "summary": p.Summary, "readme": p.Readme, "pricing": p.Pricing,
-	})
-}
-
-// hHubRegister registers this agent with the official Hub, persists the Hub target + profile to config,
-// and (re)starts the relay poll loop so delegations/results start flowing.
-func (d *Daemon) hHubRegister(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Hub  string   `json:"hub"`
-		Name string   `json:"name"`
-		Caps []string `json:"caps"`
-		// AcceptDelegations is the wire-1 switch. true is refused with the
-		// same explanation as POST /accept; false asks for what the closed
-		// policy already does (A2A-DESIGN §5.1).
-		AcceptDelegations *bool `json:"accept_delegations"`
-		// Token is an admission token for a hub that requires one. It is
-		// passed through and not stored: it is spent on arrival, and a
-		// spent credential kept on disk is a credential that can leak
-		// long after it bought anything.
-		Token string `json:"token"`
-	}
-	if err := readJSON(r, &req); err != nil || req.Hub == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "hub URL required"})
-		return
-	}
-	if req.AcceptDelegations != nil && *req.AcceptDelegations {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errAcceptOn.Error()})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
-	defer cancel()
-	if err := d.HubRegister(ctx, req.Hub, req.Name, req.Caps, req.Token); err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-		return
-	}
-	if req.AcceptDelegations != nil {
-		if err := d.SetInboundPolicy(PolicyClosed); err != nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
-			return
-		}
-	}
-	d.writeRegistry() // refresh the identity entry so the switcher shows the (possibly new) name
-	writeJSON(w, http.StatusOK, map[string]any{
-		"hub": req.Hub, "aid": d.AID(), "status": "registered",
-		"inbound_policy": d.config().inbound().Policy,
 	})
 }
 
@@ -706,6 +665,9 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider + goal required"})
 			return
 		}
+		if !d.passSendGate(w) {
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)
 		defer cancel()
 		id, err := d.DelegateAtts(ctx, provider, goal, atts)
@@ -737,6 +699,9 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 	// A capability call needs no goal: the capability id IS the request.
 	if req.Capability == "" && req.Goal == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "goal or capability required"})
+		return
+	}
+	if !d.passSendGate(w) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)
@@ -829,6 +794,9 @@ func (d *Daemon) hMessage(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interaction_id required"})
 			return
 		}
+		if !d.passSendGate(w) {
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)
 		defer cancel()
 		if err := d.SendMessageAtts(ctx, ixID, fields["body"], atts); err != nil {
@@ -845,6 +813,9 @@ func (d *Daemon) hMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil || strings.TrimSpace(req.InteractionID) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interaction_id + body required"})
+		return
+	}
+	if !d.passSendGate(w) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)
@@ -1103,28 +1074,6 @@ func (d *Daemon) hEvidence(w http.ResponseWriter, r *http.Request) {
 		recs = []EvidenceRecord{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"head": head, "records": recs})
-}
-
-// hHubLeave stops this node being deliverable at a hub it has left.
-func (d *Daemon) hHubLeave(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Hub string `json:"hub"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if strings.TrimSpace(req.Hub) == "" {
-		req.Hub = d.config().HubURL
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
-	defer cancel()
-	out, err := d.LeaveHub(ctx, req.Hub)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "result": out})
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
 }
 
 // hP2PAdvertise publishes this node's direct address on its hub.

@@ -83,10 +83,10 @@ func TestPricedWorkIsQuotedNotRefused(t *testing.T) {
 	if err := prov.Providers().Register(ctx, work); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,10 +138,10 @@ func TestThePaidLoopClosesEndToEnd(t *testing.T) {
 	if err := prov.Providers().Register(ctx, work); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil); err != nil {
 		t.Fatal(err)
 	}
 	grantOn(srv.URL, req.AID(), 500)
@@ -261,10 +261,10 @@ func TestPayingWithoutCreditIsRefusedAsAPayment(t *testing.T) {
 	if err := prov.Providers().Register(ctx, work); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil); err != nil {
 		t.Fatal(err)
 	}
 	grantOn(srv.URL, req.AID(), 10) // not enough
@@ -335,7 +335,7 @@ func TestANodeCanSignAPaymentForAGateway(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
 	d := newTestDaemon(t, srv.URL, false)
-	if err := d.RegisterWithHub(ctx, srv.URL, "Buyer", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, srv.URL, "Buyer", nil); err != nil {
 		t.Fatal(err)
 	}
 	payPolicy(t, d, PaymentsConfig{ExplicitMax: u64(30)}, "did:anet:seller")

@@ -25,7 +25,6 @@ import (
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
@@ -207,11 +206,8 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 	if err != nil {
 		return "", err
 	}
-	kelB, err := identity.MarshalKEL(d.self.KEL())
-	if err != nil {
-		return "", err
-	}
-	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, KEL: kelB, InteractionID: id, ContextID: contextID}
+	// The KEL travels in the sealed envelope (inner key 10), not in the body.
+	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, InteractionID: id, ContextID: contextID}
 	payload, err := dr.Marshal()
 	if err != nil {
 		return "", err
@@ -577,20 +573,15 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 	if err != nil {
 		return false
 	}
-	// The receipt travels with the key that signed it, so the requester can
-	// check what it accepts.
-	selfKEL, err := identity.MarshalKEL(d.self.KEL())
-	if err != nil {
-		log.Printf("anet: capability %s: marshal KEL: %v", capID, err)
-		return false
-	}
+	// The key that signed the receipt travels in the sealed envelope (inner
+	// key 10), so the requester can check what it accepts.
 	status := delegation.StatusDone
 	if state == interactions.StateFailed || state == interactions.StateRejected {
 		status = delegation.StatusFailed
 	}
 	metaBytes, _ := json.Marshal(meta)
 	payload, err := (&delegation.ResultResp{Status: status, Deliverable: deliverable,
-		Receipt: receiptBytes, KEL: selfKEL, Metadata: metaBytes}).Marshal()
+		Receipt: receiptBytes, Metadata: metaBytes}).Marshal()
 	if err != nil {
 		return false
 	}

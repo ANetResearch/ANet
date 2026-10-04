@@ -356,7 +356,7 @@ MUTS = [
   edits=[
    ('delegation/delegation.go', '\tif rc.RequestCID != requestCID {', '\tif false && rc.RequestCID != requestCID {'),
   ],
-  tests=[('ANetCore:./delegation', 'TestAResultMustBeTheAnswerToTheRequestItClaims'), ('ANetCore:./golden', 'TestVEC_RESULT_2_RequestBinding')],
+  tests=[('ANetCore:./delegation', 'TestAResultMustBeTheAnswerToTheRequestItClaims'), ('ANetCore:./golden', 'TestRESULT_3')],
   full=['ANetCore:./delegation', 'ANetCore:./golden'],
  ),
  dict(
@@ -513,24 +513,13 @@ MUTS = [
   tests=[('ANet:./internal/daemon', 'TestFindShowsNoHubTextBesideTheOfficialMark')],
   full=['ANet:./internal/daemon'],
  ),
- dict(
-  id='fx41-1', group='F41', repo='ANet',
-  desc='hub-register 接受 --token(邀请码在 argv)',
-  edits=[
-   ('cmd/anet/peers.go', '\tif _, ok := flags["token"]; ok {\n\t\treturn "", errInviteOnCommandLine', '\tif _, ok := flags["token"]; false && ok {\n\t\treturn "", errInviteOnCommandLine'),
-  ],
-  tests=[('ANet:./cmd/anet', 'TestHubRegisterTakesTheInviteOffTheCommandLine')],
-  full=['ANet:./cmd/anet'],
- ),
- dict(
-  id='fx41-2', group='F41', repo='ANet',
-  desc='--token-file 接受他人可读的邀请码文件',
-  edits=[
-   ('cmd/anet/peers.go', '\tif m&0o044 == 0 {\n\t\treturn nil\n\t}', '\tif true || m&0o044 == 0 {\n\t\treturn nil\n\t}'),
-  ],
-  tests=[('ANet:./cmd/anet', 'TestHubRegisterRefusesAnInviteFileOthersCanRead')],
-  full=['ANet:./cmd/anet'],
- ),
+ # fx41-1 (hub-register took --token, the invite on argv) and fx41-2 (--token-file accepted a file other
+ # users could read) are retired with the invitation itself (EXE-13): the node joins by AID and the
+ # code they mutated (inviteFrom, inviteFileExposed) is gone. --token, --token-file and
+ # --accept-delegations are cli_removed before the daemon (removed.go; TestRemovedCommandsAreRefused-
+ # BeforeTheDaemon, TestHubRegisterExitStatusOfTheBinary), install.sh refuses them before anything runs
+ # (TestInstallShRefusesTheRemovedInviteFlags), and no release file puts an invite or a token on a
+ # command line (TestReleaseFilesKeepSecretsOffCommandLines).
  # fx41-3 (the hub's invite printout taught the token on a command line) is retired with invitations
  # themselves: since PAY-5 a hub admits by AID, anet-hub mints no invite and cmd/anet-hub/invite_ops.go
  # and its test are gone. The removed -invite-* flags are covered by TestARemovedFlagNamesItsSubcommand;
