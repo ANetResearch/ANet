@@ -344,3 +344,33 @@ MUTS += [
   edits=[('internal/federation/federation.go', '\t\t\tID  string `json:"id"`\n', '\t\t\tID  string `json:"head_id"`\n')],
   tests=[(FED, '^TestAOneRecordChainIsStillWitnessed$')], full=[FED]),
 ]
+
+# PAY-3 review: the epoch schedule (RunSupplyEpochs, the only caller that publishes in a running hub), the
+# proof's rebuild check and the witness endpoint's unsigned attestation.
+SCHEDULE = [(HUB, '^TestTheSchedulePublishesAtStartAfterMidnightAndAfterAFailure$')]
+
+MUTS += [
+ dict(id='pay3-run-start', group='PAY-3', repo='ANetHub', desc='启动时不补查(停机跨零点的 hub 要等到下一个零点)',
+  edits=[('internal/aghub/supply.go', '\tagain := check()\n\tprune()\n', '\tagain := false\n\tprune()\n')],
+  tests=SCHEDULE, full=[HUB]),
+ dict(id='pay3-run-midday', group='PAY-3', repo='ANetHub', desc='每个 tick 都检查(事件使纪元到期后当天就发布)',
+  edits=[('internal/aghub/supply.go', '\t\t\tif d := utcDay(s.now()); d != day || again {\n',
+          '\t\t\tif d := utcDay(s.now()); true || d != day || again {\n')],
+  tests=SCHEDULE, full=[HUB]),
+ dict(id='pay3-run-retry', group='PAY-3', repo='ANetHub', desc='检查失败后不在下一个 tick 重试(纪元晚一天)',
+  edits=[('internal/aghub/supply.go', '\t\t\tif d := utcDay(s.now()); d != day || again {\n',
+          '\t\t\tif d := utcDay(s.now()); d != day || false && again {\n')],
+  tests=SCHEDULE, full=[HUB]),
+ dict(id='pay3-run-prune', group='PAY-3', repo='ANetHub', desc='只在换日的检查时删旧叶(余额快照多留近一天)',
+  edits=[('internal/aghub/supply.go', '\t\t\t\tagain = check()\n\t\t\t}\n\t\t\tprune()\n',
+          '\t\t\t\tagain = check()\n\t\t\t\tprune()\n\t\t\t}\n')],
+  tests=SCHEDULE, full=[HUB]),
+ dict(id='pay3-proof-rebuild', group='PAY-3', repo='ANetHub', desc='负债证明不核对重建的根(改过的叶照样给出证明)',
+  edits=[('internal/aghub/supply.go',
+          '\tif liabtree.Hex(t.Root()) != e.Root || t.Outstanding() != e.Outstanding || t.Depth() != e.depth {\n',
+          '\tif t.Outstanding() != e.Outstanding || t.Depth() != e.depth {\n')],
+  tests=[(HUB, '^TestALeafChangedAfterTheCloseIsNotServed$')], full=[HUB]),
+ dict(id='pay3-witness-unsigned', group='PAY-3', repo='ANetHub', desc='无签名的见证当作存储失败(500 而不是 400)',
+  edits=[('internal/aghub/witness.go', '\tif a.Envelope == nil {\n', '\tif false {\n')],
+  tests=[(HUB, '^TestAHubRefusesAnUnsignedAttestation$')], full=[HUB]),
+]
