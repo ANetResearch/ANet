@@ -356,7 +356,7 @@ MUTS = [
   edits=[
    ('delegation/delegation.go', '\tif rc.RequestCID != requestCID {', '\tif false && rc.RequestCID != requestCID {'),
   ],
-  tests=[('ANetCore:./delegation', 'TestAResultMustBeTheAnswerToTheRequestItClaims'), ('ANetCore:./golden', 'TestVEC_RESULT_2_RequestBinding')],
+  tests=[('ANetCore:./delegation', 'TestAResultMustBeTheAnswerToTheRequestItClaims'), ('ANetCore:./golden', 'TestRESULT_3')],
   full=['ANetCore:./delegation', 'ANetCore:./golden'],
  ),
  dict(
