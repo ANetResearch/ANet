@@ -61,6 +61,19 @@ const (
 type rxResult struct {
 	class  rxClass
 	reason string
+	// dack is the delivery token the envelope is answered with, or nil
+	// for none (DLV-R-6b). Only the engine sets it, once rxTokenFor has
+	// decided the envelope earns one and MakeDAck has made it (engine
+	// ENG-V11, V12). The hub path puts it in the envelope's /relay/ack
+	// item (ackItem, relay.go).
+	dack *rxDAck
+}
+
+// rxDAck is a delivery token as the receive path hands it on: the handle
+// the sender asks its hub about, and the dack itself (DLV §2.2, core §2.7).
+type rxDAck struct {
+	handle [seal.HandleLen]byte
+	dack   [seal.DAckLen]byte
 }
 
 // ack reports whether the transport should acknowledge the delivery.
@@ -191,8 +204,10 @@ type rxMsg struct {
 	// queue.
 	pendingRoute bool
 	// refusalStored marks a delegation whose refusal is in the refused
-	// table already (recordRefusal).
+	// table already (recordRefusal), and refusalReason is the note reason
+	// it was recorded with, which the in-memory list keeps too.
 	refusalStored bool
+	refusalReason string
 
 	// ackNow is rxPath.ack: set on a direct delivery, called once by
 	// committed.
@@ -257,7 +272,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	if err := seal.CheckTime(in, now); err != nil {
 		return d.drop(reasonOf(err), err)
 	}
-	if d.refused.has(replayKey(in.From, in.MID)) {
+	if _, refused := d.refused.get(replayKey(in.From, in.MID)); refused {
 		return d.drop(dropRefusedReplay, nil)
 	}
 
@@ -316,7 +331,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		unlockIX := d.rxIXLocks.lock(m.from + "\x00" + m.ix)
 		defer unlockIX()
 	}
-	if d.refused.has(key) {
+	if _, refused := d.refused.get(key); refused {
 		return d.drop(dropRefusedReplay, nil)
 	}
 	// A delegation refused before is refused again, without a reply,
@@ -325,12 +340,12 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	// [redteam:F5].
 	var floor uint64
 	if m.typ == seal.TypeDelegate {
-		exact, f, err := d.ix.Refused(m.from, m.mid)
+		exact, reason, f, err := d.ix.Refused(m.from, m.mid)
 		if err != nil {
 			return d.expireTransient(d.transient(transientReplayCheck, err), m, now)
 		}
 		if exact {
-			d.refused.add(key)
+			d.refused.add(key, reason)
 			return d.drop(dropRefusedReplay, nil)
 		}
 		floor = f
@@ -379,27 +394,29 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 // is not answered a table write that fails is logged, and the list still
 // covers this process.
 func (d *Daemon) noteRefusedEnvelope(m *rxMsg) {
-	d.refused.add(replayKey(m.from, m.mid))
+	d.refused.add(replayKey(m.from, m.mid), m.refusalReason)
 	if m.typ != seal.TypeDelegate || m.refusalStored {
 		return
 	}
-	if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp); err != nil {
+	if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, m.refusalReason); err != nil {
 		log.Printf("anet: record the refused delegation %s from %s: %v", m.ix, m.from, err)
 	}
 }
 
-// recordRefusal writes a delegation's refusal to the refused table before
-// the requester is told `rejected` [redteam:F5]: a refusal the requester
-// was told of must outlive a restart and the in-memory list, or the same
-// envelope could be judged again later and run. One that cannot be written
-// is not told either: the envelope is not acknowledged (T) and is judged
-// again when it comes back, as if this delivery had not happened.
-func (d *Daemon) recordRefusal(m *rxMsg) *rxResult {
-	if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp); err != nil {
+// recordRefusal writes a delegation's refusal, and the reason it is told
+// with, to the refused table before the requester is told `rejected`
+// [redteam:F5]: a refusal the requester was told of must outlive a restart
+// and the in-memory list, or the same envelope could be judged again later
+// and run — and a replay must be told the same reason (DLV-ST-8). One that
+// cannot be written is not told either: the envelope is not acknowledged
+// (T) and is judged again when it comes back, as if this delivery had not
+// happened.
+func (d *Daemon) recordRefusal(m *rxMsg, reason string) *rxResult {
+	if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, reason); err != nil {
 		r := d.transient(transientStore, fmt.Errorf("record the refusal of %s: %w", m.ix, err))
 		return &r
 	}
-	m.refusalStored = true
+	m.refusalStored, m.refusalReason = true, reason
 	return nil
 }
 
@@ -595,7 +612,7 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 	dec := d.decideDelegate(m.from, capID, argsLen)
 	switch dec.action {
 	case actRefuse:
-		if res := d.recordRefusal(m); res != nil {
+		if res := d.recordRefusal(m, dec.reason); res != nil {
 			return res
 		}
 		d.noteRefused(m.from, m.ix, m.typ, dec.reason, capID)
@@ -1228,48 +1245,6 @@ func (k *keyedLocks) lock(key string) func() {
 	}
 }
 
-// boundedSet remembers up to limit keys, forgetting the oldest first. The
-// refused-envelope list is one: a replay of a refused envelope is dropped
-// at step 5, before its KEL and signature are checked again. It is a cache.
-// For a delegation the refused table (interactions/refused.go) is what
-// keeps a replay that outlived its entry refused [redteam:F5]; for other
-// types a replay that outlived it is judged again, and a message's step 9
-// writes nothing and sends at most a rate-limited TaskNotFound.
-type boundedSet struct {
-	mu    sync.Mutex
-	limit int
-	order []string
-	m     map[string]bool
-}
-
-const refusedLimit = 4096
-
-func (s *boundedSet) add(k string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.m == nil {
-		s.m = map[string]bool{}
-	}
-	if s.limit == 0 {
-		s.limit = refusedLimit
-	}
-	if s.m[k] {
-		return
-	}
-	s.m[k] = true
-	s.order = append(s.order, k)
-	if len(s.order) > s.limit {
-		delete(s.m, s.order[0])
-		s.order = s.order[1:]
-	}
-}
-
-func (s *boundedSet) has(k string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.m[k]
-}
-
 // tokenBucket is a rate limiter over the daemon clock (unix ms).
 type tokenBucket struct {
 	perMS  float64 // tokens added per millisecond
@@ -1438,7 +1413,8 @@ func (l *resendLimiter) allow(peer, ix string, now uint64) bool {
 }
 
 // purgeReplay deletes replay rows and refused rows of messages that have
-// expired, with the clock skew tolerance as margin.
+// expired, with the clock skew tolerance as margin, and the cancel
+// tombstones that have.
 func (d *Daemon) purgeReplay() {
 	cutoff := d.nowMS()
 	if cutoff > seal.ClockSkewMS {
@@ -1449,6 +1425,10 @@ func (d *Daemon) purgeReplay() {
 	}
 	if _, err := d.ix.PurgeRefused(cutoff); err != nil {
 		log.Printf("anet: purge refused rows: %v", err)
+	}
+	// A tombstone's exp already allows for the clock skew (DLV-ST-7).
+	if _, err := d.ix.PurgeCancelTombs(d.nowMS()); err != nil {
+		log.Printf("anet: purge cancel tombstones: %v", err)
 	}
 }
 

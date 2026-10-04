@@ -9,7 +9,7 @@ MUTS = [
   id='fx5-1', group='F5', repo='ANet',
   desc='第 8½ 步不查持久拒收表(exact 恒 false)',
   edits=[
-   ('internal/daemon/receive.go', '\t\tif exact {\n\t\t\td.refused.add(key)', '\t\tif false && exact {\n\t\t\td.refused.add(key)'),
+   ('internal/daemon/receive.go', '\t\tif exact {\n\t\t\td.refused.add(key, reason)', '\t\tif false && exact {\n\t\t\td.refused.add(key, reason)'),
   ],
   tests=[('ANet:./internal/daemon', 'TestARefusedDelegationStaysRefusedAfterAllowAndRestart|TestARefusedDelegationStaysRefusedWhenTheListForgetsIt|TestAHubReplayOfARefusedDelegationDoesNotRun')],
   full=['ANet:./internal/daemon'],
@@ -27,7 +27,7 @@ MUTS = [
   id='fx5-3', group='F5', repo='ANet',
   desc='拒收落盘失败仍回 rejected(recordRefusal 忽略写错误)',
   edits=[
-   ('internal/daemon/receive.go', '\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp); err != nil {\n\t\tr := d.transient(', '\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp); false && err != nil {\n\t\tr := d.transient('),
+   ('internal/daemon/receive.go', '\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, reason); err != nil {\n\t\tr := d.transient(', '\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, reason); false && err != nil {\n\t\tr := d.transient('),
   ],
   tests=[('ANet:./internal/daemon', 'TestARefusalIsStoredBeforeTheRequesterIsTold')],
   full=['ANet:./internal/daemon'],
@@ -38,7 +38,7 @@ MUTS = [
   edits=[
    ('internal/daemon/receive.go', '\tif ix.RequestCID == "" || ix.RequestCID != m.requestCID {', '\tif false && (ix.RequestCID == "" || ix.RequestCID != m.requestCID) {'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestARedeliveryUnderOpenCannotSwapInACapability|TestARegisteredStrangerCannotSwapACapabilityIntoItsOpenTask|TestAnApprovedChatCannotBeSwappedForACapability|TestARedeliveryOnAMigratedRowCannotRunACapability|TestAQuotedPublicCallCannotBeSwappedForAPrivateCapability')],
+  tests=[('ANet:./internal/daemon', 'TestARedeliveryUnderOpenCannotSwapInACapability|TestARegisteredStrangerCannotSwapACapabilityIntoItsOpenTask|TestAnApprovedChatCannotBeSwappedForACapability|TestAQuotedPublicCallCannotBeSwappedForAPrivateCapability')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
@@ -48,7 +48,7 @@ MUTS = [
    ('internal/daemon/receive.go', '\tif ix.RequestCID == "" || ix.RequestCID != m.requestCID {', '\tif false && (ix.RequestCID == "" || ix.RequestCID != m.requestCID) {'),
    ('internal/daemon/delegation.go', '\t\t\tif prior.RequestCID != requestCID {\n\t\t\t\t// Created meanwhile', '\t\t\tif false && prior.RequestCID != requestCID {\n\t\t\t\t// Created meanwhile'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestARedeliveryUnderOpenCannotSwapInACapability|TestARegisteredStrangerCannotSwapACapabilityIntoItsOpenTask|TestAnApprovedChatCannotBeSwappedForACapability|TestARedeliveryOnAMigratedRowCannotRunACapability|TestAQuotedPublicCallCannotBeSwappedForAPrivateCapability')],
+  tests=[('ANet:./internal/daemon', 'TestARedeliveryUnderOpenCannotSwapInACapability|TestARegisteredStrangerCannotSwapACapabilityIntoItsOpenTask|TestAnApprovedChatCannotBeSwappedForACapability|TestAQuotedPublicCallCannotBeSwappedForAPrivateCapability')],
   full=['ANet:./internal/daemon'],
  ),
  dict(

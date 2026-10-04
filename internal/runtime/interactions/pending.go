@@ -75,37 +75,29 @@ type PendingItem struct {
 	sealedAtts, sealedFollowups string
 }
 
-// migratePending creates the approval queue. delegate, attachments and
-// followups hold data-key ciphertext (dek.go, FS-L2).
-func (s *Store) migratePending() error {
-	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS pending (
-		   ix TEXT PRIMARY KEY,
-		   from_aid TEXT NOT NULL,
-		   arrived_at INTEGER NOT NULL,
-		   msg_ts INTEGER NOT NULL DEFAULT 0,
-		   key_state INTEGER NOT NULL DEFAULT 0,
-		   capability TEXT NOT NULL DEFAULT '',
-		   request_cid TEXT NOT NULL DEFAULT '',
-		   bytes INTEGER NOT NULL DEFAULT 0,
-		   delegate BLOB NOT NULL,
-		   kel BLOB,
-		   keys BLOB,
-		   context_id TEXT NOT NULL DEFAULT '',
-		   attachments BLOB NOT NULL DEFAULT X'',
-		   followups BLOB NOT NULL DEFAULT X''
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_pending_from ON pending(from_aid)`,
-		`CREATE INDEX IF NOT EXISTS idx_pending_arrived ON pending(arrived_at)`,
-	} {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate pending: %w", err)
-		}
-	}
-	if err := addColumn(s.db, "pending", "msg_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return err
-	}
-	return addColumn(s.db, "pending", "peer_rk", "BLOB")
+// pendingSchema is the approval queue. delegate, attachments and followups
+// hold data-key ciphertext (dek.go, FS-L2).
+var pendingSchema = []string{
+	`CREATE TABLE pending (
+	   ix TEXT PRIMARY KEY,
+	   from_aid TEXT NOT NULL,
+	   arrived_at INTEGER NOT NULL,
+	   msg_ts INTEGER NOT NULL DEFAULT 0,
+	   key_state INTEGER NOT NULL DEFAULT 0,
+	   capability TEXT NOT NULL DEFAULT '',
+	   request_cid TEXT NOT NULL DEFAULT '',
+	   bytes INTEGER NOT NULL DEFAULT 0,
+	   delegate BLOB NOT NULL,
+	   kel BLOB,
+	   keys BLOB,
+	   context_id TEXT NOT NULL DEFAULT '',
+	   attachments BLOB NOT NULL DEFAULT X'',
+	   followups BLOB NOT NULL DEFAULT X'',
+	   msg_id TEXT NOT NULL DEFAULT '',
+	   peer_rk BLOB
+	 )`,
+	`CREATE INDEX idx_pending_from ON pending(from_aid)`,
+	`CREATE INDEX idx_pending_arrived ON pending(arrived_at)`,
 }
 
 const pendingColumns = `ix,from_aid,arrived_at,msg_ts,key_state,capability,request_cid,bytes,delegate,kel,keys,context_id,attachments,followups,msg_id,peer_rk`

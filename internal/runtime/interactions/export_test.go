@@ -82,3 +82,18 @@ func (s *Store) CheckpointTruncate() error {
 	}
 	return nil
 }
+
+// SetCancelTombCaps lowers the cancel tombstone bounds for a test and
+// returns the function that restores them.
+func SetCancelTombCaps(perSender, total int) (restore func()) {
+	old := cancelTombCaps
+	cancelTombCaps.perSender, cancelTombCaps.total = perSender, total
+	return func() { cancelTombCaps = old }
+}
+
+// CancelTombCount is the number of cancel tombstones stored, expired or not.
+func (s *Store) CancelTombCount() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM cancel_tomb`).Scan(&n)
+	return n, err
+}

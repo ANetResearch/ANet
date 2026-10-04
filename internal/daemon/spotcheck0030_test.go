@@ -226,7 +226,7 @@ func TestSpotAQuotaRefusalStaysRefusedOnceTheQuotaRecovers(t *testing.T) {
 		t.Fatalf("second call inside the minute: %+v, want refused by the quota", r)
 	}
 	offset.Store(int64(2 * time.Minute / time.Millisecond))
-	prov.refused = boundedSet{}
+	prov.refused = refusedLRU{}
 	if r := receive(t, prov, second); r.class != rxDropped || r.reason != dropRefusedReplay {
 		t.Fatalf("the refused call handed in again after the quota recovered: %+v, want %s", r, dropRefusedReplay)
 	}
@@ -328,13 +328,13 @@ func TestSpotCopiesRacingAnAllowAreDecidedOnce(t *testing.T) {
 			return !running
 		})
 		// Handed in again after the list forgot it.
-		prov.refused = boundedSet{}
+		prov.refused = refusedLRU{}
 		prov.receiveEnvelope(ctx, env)
 		waitUntil(t, "no call running", func() bool {
 			_, running := prov.running.Load(ix)
 			return !running
 		})
-		exact, _, err := prov.ix.Refused(s.aid, mid)
+		exact, _, _, err := prov.ix.Refused(s.aid, mid)
 		if err != nil {
 			t.Fatal(err)
 		}

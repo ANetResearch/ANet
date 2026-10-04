@@ -25,6 +25,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -242,10 +244,15 @@ type Store struct {
 	now func() int64
 }
 
-// Open opens (creating if needed) an interactions store at dir (SQLite at dir/interactions.db).
+// Open opens the interactions store at dir (SQLite at dir/interactions.db), creating it when there
+// is none. A store an earlier anet wrote is refused, not converted: Open returns an error wrapping
+// ErrOldStore and has not written to the file (CheckStore).
 func Open(dir string) (*Store, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("interactions: dir required")
+	}
+	if err := CheckStore(dir); err != nil {
+		return nil, err
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("interactions: mkdir: %w", err)
@@ -253,13 +260,13 @@ func Open(dir string) (*Store, error) {
 	// secure_delete: a deleted row's bytes are overwritten, not left in a
 	// free page — an interaction key deleted when its task ends must not
 	// stay readable in the file (FS-X8, FS-L8).
-	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db")+
+	db, err := sql.Open("sqlite", filepath.Join(dir, storeFile)+
 		"?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(15000)&_pragma=secure_delete(ON)")
 	if err != nil {
 		return nil, fmt.Errorf("interactions: open db: %w", err)
 	}
 	s := &Store{db: db}
-	if err := s.migrate(); err != nil {
+	if err := s.createSchema(); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -283,275 +290,225 @@ func (s *Store) nowMS() int64 {
 	return time.Now().UnixMilli()
 }
 
-// interactionColumns are the columns of a fresh interaction table, and the
-// columns an existing table is brought up to. Order matters only for the
-// CREATE statement.
-var interactionAdded = []struct{ name, decl string }{
-	{"receipt_verified", "TEXT NOT NULL DEFAULT ''"},
-	{"end_req_by", "TEXT NOT NULL DEFAULT ''"},
-	{"end_acc_by", "TEXT NOT NULL DEFAULT ''"},
-	{"state", "TEXT NOT NULL DEFAULT 'submitted'"},
-	{"state_at", "INTEGER NOT NULL DEFAULT 0"},
-	{"state_seq", "INTEGER NOT NULL DEFAULT 0"},
-	{"context_id", "TEXT NOT NULL DEFAULT ''"},
-	{"trust", "TEXT NOT NULL DEFAULT ''"},
-	{"is_capability", "INTEGER NOT NULL DEFAULT 0"},
-	{"task_nonce", "TEXT NOT NULL DEFAULT ''"},
-	{"pay_state", "TEXT NOT NULL DEFAULT ''"},
-	{"pay_required", "BLOB"},
-	{"pay_auth_ids", "TEXT NOT NULL DEFAULT ''"},
-	{"pay_payload", "BLOB"},
-	{"pay_receipts", "BLOB"},
-	{"quote_expires_at", "INTEGER NOT NULL DEFAULT 0"},
-	{"peer_kel", "BLOB"},
-	{"peer_keys", "BLOB"},
-	{"result_meta", "BLOB NOT NULL DEFAULT X''"}, // data-key ciphertext (FS-L2)
-	{"peer_rk", "BLOB"},
+// storeFile is the store's file in its directory.
+const storeFile = "interactions.db"
+
+// SchemaVersion is the PRAGMA user_version of a v0.3.0 store (core CORE-V4). A new store gets it
+// together with its whole schema, in one transaction (createSchema); a store with any other value
+// was written by an earlier anet and is refused.
+const SchemaVersion = 3
+
+// ErrOldStore is a store an earlier anet wrote: its user_version is not SchemaVersion. v0.3.0 does
+// not convert one (core CORE-V4); the daemon refuses to start and says identity_v02 (FS-S1).
+var ErrOldStore = errors.New("interactions: the store was written by an earlier anet, and 0.3.0 does not migrate it")
+
+// CheckStore says whether this version can open the store in dir, and writes nothing: nil when
+// there is no store yet, when the file holds no schema (a creation that never committed) and for
+// a v0.3.0 store; an error wrapping ErrOldStore for a store an earlier anet wrote. The daemon asks
+// before it starts (FS-S1), so a data directory it refuses is left exactly as it was: the file is
+// read with SQLite's immutable flag, which takes no lock and makes no -wal or -shm file.
+func CheckStore(dir string) error {
+	path := filepath.Join(dir, storeFile)
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("interactions: %w", err)
+	}
+	db, err := sql.Open("sqlite", readOnlyURI(path))
+	if err != nil {
+		return fmt.Errorf("interactions: open %s: %w", path, err)
+	}
+	defer db.Close()
+	version, objects, err := schemaState(db)
+	if err != nil {
+		return fmt.Errorf("interactions: read %s: %w", path, err)
+	}
+	return judgeSchema(version, objects)
 }
 
-func (s *Store) migrate() error {
-	// The content columns — interaction goal, request_doc, result,
-	// result_meta and review; message body and metadata; attachment name,
-	// mime and data — hold data-key ciphertext (dek.go, FS-L2), so they are
-	// BLOBs, and no index or predicate below names them (FS-L3).
-	stmts := []string{
-		`CREATE TABLE IF NOT EXISTS interaction (
-		   seq INTEGER PRIMARY KEY AUTOINCREMENT,
-		   id TEXT NOT NULL UNIQUE,
-		   role TEXT NOT NULL,
-		   peer_aid TEXT NOT NULL,
-		   goal BLOB NOT NULL,
-		   request_cid TEXT NOT NULL DEFAULT '',
-		   request_doc BLOB,
-		   result_cid TEXT NOT NULL DEFAULT '',
-		   result BLOB,
-		   receipt BLOB,
-		   review BLOB,
-		   created_at TEXT NOT NULL,
-		   updated_at TEXT NOT NULL
-		 )`,
-		// The per-interaction conversation log.
-		`CREATE TABLE IF NOT EXISTS message (
-		   seq INTEGER PRIMARY KEY AUTOINCREMENT,
-		   interaction_id TEXT NOT NULL,
-		   sender_aid TEXT NOT NULL,
-		   kind TEXT NOT NULL,
-		   body BLOB NOT NULL DEFAULT X'',
-		   created_at TEXT NOT NULL,
-		   -- Sender-minted, so a redelivery can be told from a repetition.
-		   -- The unique index over it is partial (see migrate): an older
-		   -- sender mints none, and "unknown" is not an identity.
-		   msg_id TEXT NOT NULL DEFAULT ''
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_msg_ix ON message(interaction_id, seq)`,
-
-		// Binary attachments carried by messages (images / media / archives). Bytes stored inline;
-		// integrity pinned by cid = anetcid.SumRaw(data).
-		`CREATE TABLE IF NOT EXISTS attachment (
-		   seq INTEGER PRIMARY KEY AUTOINCREMENT,
-		   interaction_id TEXT NOT NULL,
-		   msg_seq INTEGER NOT NULL DEFAULT 0,
-		   name BLOB NOT NULL DEFAULT X'',
-		   mime BLOB NOT NULL DEFAULT X'',
-		   size INTEGER NOT NULL DEFAULT 0,
-		   cid TEXT NOT NULL DEFAULT '',
-		   data BLOB,
-		   created_at TEXT NOT NULL
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_att_ix ON attachment(interaction_id, msg_seq, seq)`,
+// readOnlyURI is the SQLite URI that opens the file at path read-only and immutable.
+func readOnlyURI(path string) string {
+	p := filepath.ToSlash(path)
+	if filepath.IsAbs(path) && !strings.HasPrefix(p, "/") {
+		p = "/" + p // a drive letter: file:/C:/…
 	}
-	for _, q := range stmts {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate: %w", err)
-		}
-	}
-	for _, col := range []struct{ name, decl string }{
-		{"msg_id", "TEXT NOT NULL DEFAULT ''"},
-		{"metadata", "BLOB NOT NULL DEFAULT X''"},
-	} {
-		if err := addColumn(s.db, "message", col.name, col.decl); err != nil {
-			return err
-		}
-	}
-	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_dedupe
-		 ON message(interaction_id, msg_id) WHERE msg_id != ''`); err != nil {
-		return fmt.Errorf("interactions: migrate msg dedupe index: %w", err)
-	}
-	for _, col := range interactionAdded {
-		if err := addColumn(s.db, "interaction", col.name, col.decl); err != nil {
-			return err
-		}
-	}
-	if err := s.migrateStatusToState(); err != nil {
-		return err
-	}
-	for _, q := range []string{
-		`CREATE INDEX IF NOT EXISTS idx_ix_role_state ON interaction(role, state, seq)`,
-		// Listing is newest state change first, with (state_at, seq) as the cursor.
-		`CREATE INDEX IF NOT EXISTS idx_ix_state_at ON interaction(state_at, seq)`,
-		`CREATE INDEX IF NOT EXISTS idx_ix_context ON interaction(context_id)`,
-		// The payment sweeps (ListPayState) read the few quoted rows only.
-		`CREATE INDEX IF NOT EXISTS idx_ix_pay ON interaction(role, pay_state)`,
-		// HasOutboundWith, asked for a message whose task is not held.
-		`CREATE INDEX IF NOT EXISTS idx_ix_peer ON interaction(peer_aid, role)`,
-		// Listing (ListPage, Count) reads this index alone: it carries the
-		// order and every column a ListFilter tests but receipt (see
-		// listIndex; a context listing reads idx_ix_context). A row holds goal, request_doc and
-		// result, megabytes each for a long message, and SQLite reaches a
-		// later column only through the overflow pages of the ones before
-		// it; a listing that sorted or filtered rows read all of that for
-		// every match (an internal note: 13–33 s per ListTasks).
-		`CREATE INDEX IF NOT EXISTS idx_ix_list ON interaction(state_at, seq, role, peer_aid, state, is_capability, trust, context_id)`,
-		// The same columns led by the peer, for a listing of one peer (the
-		// local A2A interface's every ListTasks and its count): read from
-		// idx_ix_list, that listing and its count walked the index entries
-		// of every task with every peer to find the few with this one.
-		`CREATE INDEX IF NOT EXISTS idx_ix_peer_list ON interaction(peer_aid, state_at, seq, role, state, is_capability, trust, context_id)`,
-		// The tasks that have sat in one state since before a cutoff
-		// (Waiting): the requester's minute sweep for tasks no answer came
-		// to (A2A-DESIGN §4.2) reads this index, not the rows.
-		`CREATE INDEX IF NOT EXISTS idx_ix_waiting ON interaction(role, state, state_at, id, peer_aid)`,
-	} {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate index: %w", err)
-		}
-	}
-	// The wire-2 receive tables (replay, peer_identity) live in the same
-	// database so that the replay row and the business write can commit in
-	// one transaction (A2A-DESIGN §3.6 step 10). See peers.go. The pending
-	// queue and the outbound retry queue live here for the same reason.
-	if err := s.migrateWire2(); err != nil {
-		return err
-	}
-	if err := s.migrateDEK(); err != nil {
-		return err
-	}
-	if err := s.migratePending(); err != nil {
-		return err
-	}
-	if err := s.migrateRefused(); err != nil {
-		return err
-	}
-	if err := s.migrateIXKey(); err != nil {
-		return err
-	}
-	return s.migrateOutbox()
+	return "file:" + (&url.URL{Path: p}).EscapedPath() + "?mode=ro&immutable=1"
 }
 
-// addColumn adds a column to an existing table; a duplicate-column error
-// means the table is already migrated.
-func addColumn(db *sql.DB, table, name, decl string) error {
-	if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + name + ` ` + decl); err != nil &&
-		!strings.Contains(err.Error(), "duplicate column") {
-		return fmt.Errorf("interactions: migrate add %s.%s: %w", table, name, err)
+// schemaState reads a store's user_version and the number of objects in its schema.
+func schemaState(e execer) (version, objects int, err error) {
+	if err = e.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return 0, 0, err
+	}
+	err = e.QueryRow(`SELECT count(*) FROM sqlite_master`).Scan(&objects)
+	return version, objects, err
+}
+
+// judgeSchema is nil for a v0.3.0 store and for a file with no schema yet, and ErrOldStore for
+// anything else.
+func judgeSchema(version, objects int) error {
+	if version == SchemaVersion || (version == 0 && objects == 0) {
+		return nil
+	}
+	return fmt.Errorf("%w (user_version %d, not %d)", ErrOldStore, version, SchemaVersion)
+}
+
+// schema is the v0.3.0 store, one part per file that owns the tables. createSchema runs every
+// statement in this order. A table or column a later change needs goes into its CREATE statement
+// here; nothing alters an existing store (core CORE-V4).
+//
+// The receive path's tables (replay, peer_identity, peers.go) live in the same database as the
+// interactions so that the replay row and the business write commit in one transaction
+// (A2A-DESIGN §3.6 step 10); the approval queue, the refusals, the cancel tombstones and the
+// outbound queue live here for the same reason.
+var schema = [][]string{
+	interactionSchema,
+	wire2Schema,
+	dekSchema,
+	pendingSchema,
+	refusedSchema,
+	cancelTombSchema,
+	ixKeySchema,
+	outboxSchema,
+}
+
+// createSchema gives a file with no schema the whole of schema and user_version SchemaVersion, in
+// one transaction: a store is complete or empty, so a creation cut short cannot leave a file the
+// next start would take for an earlier anet's store. A v0.3.0 store is left as it is.
+func (s *Store) createSchema() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("interactions: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	version, objects, err := schemaState(tx)
+	if err != nil {
+		return fmt.Errorf("interactions: read the schema: %w", err)
+	}
+	if version == SchemaVersion {
+		return nil
+	}
+	// CheckStore read the file without its write-ahead log; read through
+	// it, the store can still turn out to be an earlier anet's.
+	if err := judgeSchema(version, objects); err != nil {
+		return err
+	}
+	for _, part := range schema {
+		for _, q := range part {
+			if _, err := tx.Exec(q); err != nil {
+				return fmt.Errorf("interactions: create the schema: %w", err)
+			}
+		}
+	}
+	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion)); err != nil {
+		return fmt.Errorf("interactions: create the schema: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("interactions: commit the schema: %w", err)
 	}
 	return nil
 }
 
-// hasColumn reports whether table has a column named name.
-func hasColumn(db *sql.DB, table, name string) (bool, error) {
-	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var n string
-		if err := rows.Scan(&n); err != nil {
-			return false, err
-		}
-		if n == name {
-			return true, nil
-		}
-	}
-	return false, rows.Err()
-}
+// interactionSchema is the interaction table, its conversation log and attachments. The content
+// columns — interaction goal, request_doc, result, result_meta and review; message body and
+// metadata; attachment name, mime and data — hold data-key ciphertext (dek.go, FS-L2), so they are
+// BLOBs, and no index or predicate names them (FS-L3).
+var interactionSchema = []string{
+	`CREATE TABLE interaction (
+	   seq INTEGER PRIMARY KEY AUTOINCREMENT,
+	   id TEXT NOT NULL UNIQUE,
+	   role TEXT NOT NULL,
+	   peer_aid TEXT NOT NULL,
+	   goal BLOB NOT NULL,
+	   request_cid TEXT NOT NULL DEFAULT '',
+	   request_doc BLOB,
+	   result_cid TEXT NOT NULL DEFAULT '',
+	   result BLOB,
+	   receipt BLOB,
+	   review BLOB,
+	   created_at TEXT NOT NULL,
+	   updated_at TEXT NOT NULL,
+	   receipt_verified TEXT NOT NULL DEFAULT '',
+	   end_req_by TEXT NOT NULL DEFAULT '',
+	   end_acc_by TEXT NOT NULL DEFAULT '',
+	   state TEXT NOT NULL DEFAULT 'submitted',
+	   state_at INTEGER NOT NULL DEFAULT 0,
+	   state_seq INTEGER NOT NULL DEFAULT 0,
+	   context_id TEXT NOT NULL DEFAULT '',
+	   trust TEXT NOT NULL DEFAULT '',
+	   is_capability INTEGER NOT NULL DEFAULT 0,
+	   task_nonce TEXT NOT NULL DEFAULT '',
+	   pay_state TEXT NOT NULL DEFAULT '',
+	   pay_required BLOB,
+	   pay_auth_ids TEXT NOT NULL DEFAULT '',
+	   pay_payload BLOB,
+	   pay_receipts BLOB,
+	   quote_expires_at INTEGER NOT NULL DEFAULT 0,
+	   peer_kel BLOB,
+	   peer_keys BLOB,
+	   result_meta BLOB NOT NULL DEFAULT X'',
+	   peer_rk BLOB
+	 )`,
+	// The per-interaction conversation log.
+	`CREATE TABLE message (
+	   seq INTEGER PRIMARY KEY AUTOINCREMENT,
+	   interaction_id TEXT NOT NULL,
+	   sender_aid TEXT NOT NULL,
+	   kind TEXT NOT NULL,
+	   body BLOB NOT NULL DEFAULT X'',
+	   created_at TEXT NOT NULL,
+	   -- Sender-minted, so a redelivery can be told from a repetition.
+	   -- The unique index over it is partial (idx_msg_dedupe): a message
+	   -- this node records without one has none, and "unknown" is not an
+	   -- identity.
+	   msg_id TEXT NOT NULL DEFAULT '',
+	   metadata BLOB NOT NULL DEFAULT X''
+	 )`,
+	`CREATE INDEX idx_msg_ix ON message(interaction_id, seq)`,
+	`CREATE UNIQUE INDEX idx_msg_dedupe ON message(interaction_id, msg_id) WHERE msg_id != ''`,
 
-// migrateStatusToState converts a store written before A2A-DESIGN §4.1: the
-// status column (queued/ending/done/failed) is replaced by state.
-//
-//   - done → completed, failed → failed;
-//   - queued and ending take the state the last text message implies: the
-//     requester spoke last → working, the provider spoke last →
-//     input-required, no message → submitted.
-//
-// state_at is the row's updated_at. The status column and its index are
-// dropped afterwards, so no code can keep reading the old value.
-func (s *Store) migrateStatusToState() error {
-	has, err := hasColumn(s.db, "interaction", "status")
-	if err != nil {
-		return fmt.Errorf("interactions: migrate state: %w", err)
-	}
-	if !has {
-		return nil
-	}
-	type old struct {
-		id, role, peer, status, updated string
-	}
-	rows, err := s.db.Query(`SELECT id, role, peer_aid, status, updated_at FROM interaction`)
-	if err != nil {
-		return fmt.Errorf("interactions: migrate state: %w", err)
-	}
-	var list []old
-	for rows.Next() {
-		var o old
-		if err := rows.Scan(&o.id, &o.role, &o.peer, &o.status, &o.updated); err != nil {
-			rows.Close()
-			return fmt.Errorf("interactions: migrate state: %w", err)
-		}
-		list = append(list, o)
-	}
-	rows.Close()
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	for _, o := range list {
-		st := StateSubmitted
-		switch o.status {
-		case "done":
-			st = StateCompleted
-		case "failed":
-			st = StateFailed
-		default:
-			var sender string
-			err := tx.QueryRow(`SELECT sender_aid FROM message WHERE interaction_id=? AND kind='text'
-			                    ORDER BY seq DESC LIMIT 1`, o.id).Scan(&sender)
-			switch {
-			case errors.Is(err, sql.ErrNoRows):
-				st = StateSubmitted
-			case err != nil:
-				return fmt.Errorf("interactions: migrate state of %s: %w", o.id, err)
-			default:
-				// The requester is the peer of an inbound row and this node on
-				// an outbound one.
-				requesterSpoke := (sender == o.peer) == (Role(o.role) == RoleInbound)
-				if requesterSpoke {
-					st = StateWorking
-				} else {
-					st = StateInputRequired
-				}
-			}
-		}
-		at := int64(0)
-		if t, perr := time.Parse(time.RFC3339Nano, o.updated); perr == nil {
-			at = t.UnixMilli()
-		}
-		if _, err := tx.Exec(`UPDATE interaction SET state=?, state_at=?, state_seq=1 WHERE id=?`,
-			string(st), at, o.id); err != nil {
-			return fmt.Errorf("interactions: migrate state of %s: %w", o.id, err)
-		}
-	}
-	for _, q := range []string{
-		`DROP INDEX IF EXISTS idx_ix_role_status`,
-		`ALTER TABLE interaction DROP COLUMN status`,
-	} {
-		if _, err := tx.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate state: %s: %w", q, err)
-		}
-	}
-	return tx.Commit()
+	// Binary attachments carried by messages (images / media / archives). Bytes stored inline;
+	// integrity pinned by cid = anetcid.SumRaw(data).
+	`CREATE TABLE attachment (
+	   seq INTEGER PRIMARY KEY AUTOINCREMENT,
+	   interaction_id TEXT NOT NULL,
+	   msg_seq INTEGER NOT NULL DEFAULT 0,
+	   name BLOB NOT NULL DEFAULT X'',
+	   mime BLOB NOT NULL DEFAULT X'',
+	   size INTEGER NOT NULL DEFAULT 0,
+	   cid TEXT NOT NULL DEFAULT '',
+	   data BLOB,
+	   created_at TEXT NOT NULL
+	 )`,
+	`CREATE INDEX idx_att_ix ON attachment(interaction_id, msg_seq, seq)`,
+
+	`CREATE INDEX idx_ix_role_state ON interaction(role, state, seq)`,
+	// Listing is newest state change first, with (state_at, seq) as the cursor.
+	`CREATE INDEX idx_ix_state_at ON interaction(state_at, seq)`,
+	`CREATE INDEX idx_ix_context ON interaction(context_id)`,
+	// The payment sweeps (ListPayState) read the few quoted rows only.
+	`CREATE INDEX idx_ix_pay ON interaction(role, pay_state)`,
+	// HasOutboundWith, asked for a message whose task is not held; and the
+	// peer_identity eviction rule (peers.go), which asks per candidate row
+	// whether an active interaction names the peer.
+	`CREATE INDEX idx_ix_peer ON interaction(peer_aid, role)`,
+	// Listing (ListPage, Count) reads this index alone: it carries the
+	// order and every column a ListFilter tests but receipt (see
+	// listIndex; a context listing reads idx_ix_context). A row holds goal, request_doc and
+	// result, megabytes each for a long message, and SQLite reaches a
+	// later column only through the overflow pages of the ones before
+	// it; a listing that sorted or filtered rows read all of that for
+	// every match (an internal note: 13–33 s per ListTasks).
+	`CREATE INDEX idx_ix_list ON interaction(state_at, seq, role, peer_aid, state, is_capability, trust, context_id)`,
+	// The same columns led by the peer, for a listing of one peer (the
+	// local A2A interface's every ListTasks and its count): read from
+	// idx_ix_list, that listing and its count walked the index entries
+	// of every task with every peer to find the few with this one.
+	`CREATE INDEX idx_ix_peer_list ON interaction(peer_aid, state_at, seq, role, state, is_capability, trust, context_id)`,
+	// The tasks that have sat in one state since before a cutoff
+	// (Waiting): the requester's minute sweep for tasks no answer came
+	// to (A2A-DESIGN §4.2) reads this index, not the rows.
+	`CREATE INDEX idx_ix_waiting ON interaction(role, state, state_at, id, peer_aid)`,
 }
 
 // New describes an interaction to record.

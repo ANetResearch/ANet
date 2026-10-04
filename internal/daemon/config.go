@@ -461,7 +461,9 @@ type ConfigCheck func(c Config, raw map[string]any) *a2ashape.Refusal
 var configChecks []ConfigCheck
 
 // ConfigRefusal is why the daemon will not start with a config.json: one
-// refusal per problem, so that every key can be fixed at once.
+// refusal per problem, so that every key can be fixed at once. A data
+// directory an earlier anet wrote is refused the same way, with the one
+// refusal identity_v02 (CheckDataDirForStart).
 type ConfigRefusal struct {
 	Refusals []*a2ashape.Refusal
 }
