@@ -231,10 +231,11 @@ func TestAdminIssuesAdminRejected(t *testing.T) {
 	}
 }
 
-// The cred.Epoch field is informational (a cred at a non-zero epoch still verifies), and issuance
-// authority tracks the CURRENT governance root: SetCurrentRoot revokes a removed founder's authority and
-// grants an added founder's — the governance-turnover semantic the epoch chain drives.
-func TestEpochInformationalAndDynamicRoot(t *testing.T) {
+// A credential that names a governance epoch is refused: 0.3.0 accepts only the default, 0 (core
+// §2.19). Issuance authority tracks the CURRENT governance root: SetCurrentRoot revokes a removed
+// founder's authority and grants an added founder's — the governance-turnover semantic the epoch
+// chain drives.
+func TestEpochZeroOnlyAndDynamicRoot(t *testing.T) {
 	f1, _ := identitytest.Hub()
 	fx, _ := identitytest.Hub() // a founder ADDED by a later epoch
 	m, _ := identitytest.Hub()
@@ -242,24 +243,36 @@ func TestEpochInformationalAndDynamicRoot(t *testing.T) {
 	orgID, _ := g.OrgID()
 	res := resolver(f1, fx, m)
 
-	// a non-zero-epoch cred from the genesis founder verifies (epoch is informational, not fail-closed).
-	c := &org.Credential{OrgID: orgID, Subject: m.AID(), Role: org.RoleMember, Epoch: 2, IssuedAt: t0, NotAfter: tEnd}
-	if err := c.Sign(f1); err != nil {
+	// a non-zero-epoch cred from the genesis founder is refused, signature and all.
+	e2 := &org.Credential{OrgID: orgID, Subject: m.AID(), Role: org.RoleMember, Epoch: 2, IssuedAt: t0, NotAfter: tEnd}
+	if err := e2.Sign(f1); err != nil {
 		t.Fatal(err)
 	}
 	v, err := org.NewVerifier(g, res, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := v.VerifyMembership(e2, tNow); !errors.Is(err, org.ErrEpoch) {
+		t.Fatalf("a cred at epoch 2: want ErrEpoch, got %v", err)
+	}
+	if raw, err := org.MarshalCredential(e2); err != nil {
+		t.Fatal(err)
+	} else if back, err := org.UnmarshalCredential(raw); err != nil || back.Epoch != 2 {
+		t.Fatalf("the epoch travels (and is refused at verification): %+v %v", back, err)
+	}
+	c := &org.Credential{OrgID: orgID, Subject: m.AID(), Role: org.RoleMember, IssuedAt: t0, NotAfter: tEnd}
+	if err := c.Sign(f1); err != nil {
+		t.Fatal(err)
+	}
 	if err := v.VerifyMembership(c, tNow); err != nil {
-		t.Fatalf("a non-zero-epoch cred from a current founder must verify: %v", err)
+		t.Fatalf("a cred from a current founder must verify: %v", err)
 	}
 	// advance the root to {fx} (f1 removed): f1's cred loses authority, fx's gains it.
 	v.SetCurrentRoot([]string{fx.AID()})
 	if err := v.VerifyMembership(c, tNow); err == nil {
 		t.Fatal("a removed founder's cred must lose authority after the root advances")
 	}
-	cx := &org.Credential{OrgID: orgID, Subject: m.AID(), Role: org.RoleMember, Epoch: 2, IssuedAt: t0, NotAfter: tEnd}
+	cx := &org.Credential{OrgID: orgID, Subject: m.AID(), Role: org.RoleMember, IssuedAt: t0, NotAfter: tEnd}
 	if err := cx.Sign(fx); err != nil {
 		t.Fatal(err)
 	}
