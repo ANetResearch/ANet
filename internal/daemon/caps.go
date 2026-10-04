@@ -35,7 +35,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/ANetResearch/ANetCore/coredet"
@@ -982,7 +985,8 @@ func (d *Daemon) pricesSomething() bool {
 }
 
 // p2pAdvertise is modules.p2p.advertise, the address a contact peer
-// capability tells its holder (Grant key 5, SSR-D8); "" when not set.
+// capability tells its holder (Grant key 5, SSR-D8), in the form the grant
+// carries (grantP2PAddr); "" when not set.
 func p2pAdvertise(cfg Config) string {
 	raw, ok := cfg.Modules["p2p"]
 	if !ok {
@@ -994,7 +998,30 @@ func p2pAdvertise(cfg Config) string {
 	if json.Unmarshal(raw, &mc) != nil {
 		return ""
 	}
-	return mc.Advertise
+	return grantP2PAddr(mc.Advertise)
+}
+
+// grantP2PAddr writes an advertise value as Grant key 5 holds it (core
+// §2.3): host:port with a decimal port, without the "tcp://" and the
+// surrounding space the p2p module also accepts. A grant whose p2p is not
+// such an address cannot be written at all (seal.Grant.Marshal), so a value
+// that is not one even then is left out: the peer gets its capability
+// without the direct address and reaches this node through the hub.
+func grantP2PAddr(a string) string {
+	a = strings.TrimPrefix(strings.TrimSpace(a), "tcp://")
+	host, port, err := net.SplitHostPort(a)
+	if err != nil {
+		return ""
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		return ""
+	}
+	a = net.JoinHostPort(host, strconv.Itoa(n))
+	if !seal.ValidP2PAddr(a) {
+		return ""
+	}
+	return a
 }
 
 // grantForMessage is the grant of one message to `to`: grantFor over the
