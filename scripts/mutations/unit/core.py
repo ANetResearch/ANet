@@ -162,7 +162,7 @@ MUTS = [
   tests=[('ANetHub:./cmd/anet-hub', '^TestTheServedHubSpeaksWire3$')],
   full=['ANetHub:./cmd/anet-hub']),
  dict(id='core4-identity', group='CORE-4', repo='ANetHub', desc='§2.12.2:/hub/identity 不带 wire',
-  edits=[('internal/hubid/hubid.go', 'KEL: base64.StdEncoding.EncodeToString(i.KEL), Wire: wire3.Version})', 'KEL: base64.StdEncoding.EncodeToString(i.KEL)})')],
+  edits=[('internal/hubid/hubid.go', 'KEL: base64.StdEncoding.EncodeToString(i.KEL), Wire: wire3.Version}', 'KEL: base64.StdEncoding.EncodeToString(i.KEL)}')],
   tests=[('ANetHub:./internal/aghub', '^TestWire3Fixtures$'), ('ANetHub:./cmd/anet-hub', '^TestTheServedHubSpeaksWire3$')],
   full=['ANetHub:./internal/aghub']),
  dict(id='core4-required', group='CORE-4', repo='ANetHub', desc='CORE-V1:426 不带 required_anet',
