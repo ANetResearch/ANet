@@ -42,7 +42,6 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
-	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/provider"
 )
 
@@ -174,7 +173,7 @@ func TestSpotSwapsRacingTheAcceptedRequestNeverRun(t *testing.T) {
 				defer wg.Done()
 				<-start
 				if i%2 == 1 {
-					_ = prov.Inbound().Receive(ctx, env)
+					_ = recvErr(prov.Inbound(), ctx, env)
 					return
 				}
 				prov.receiveEnvelope(ctx, env)
@@ -306,7 +305,7 @@ func TestSpotCopiesRacingAnAllowAreDecidedOnce(t *testing.T) {
 				defer wg.Done()
 				<-start
 				if i%2 == 1 {
-					_ = prov.Inbound().Receive(ctx, env)
+					_ = recvErr(prov.Inbound(), ctx, env)
 					return
 				}
 				prov.receiveEnvelope(ctx, env)
@@ -529,8 +528,8 @@ func TestSpotACrashMidAttemptLeavesTheCancelBehindTheDelegation(t *testing.T) {
 }
 
 // gateP2P is a direct transport whose sends wait for the test: the first
-// entry is reported on entered; every send returns "reached no daemon" once
-// release is closed, so the hub is tried next.
+// entry is reported on entered; every send fails without having handed
+// anything over once release is closed, so the hub is tried next.
 type gateP2P struct {
 	armed   atomic.Bool
 	once    sync.Once
@@ -540,13 +539,13 @@ type gateP2P struct {
 
 func (g *gateP2P) Name() string                           { return "p2p-gate" }
 func (g *gateP2P) Reachable(context.Context, string) bool { return g.armed.Load() }
-func (g *gateP2P) Send(ctx context.Context, _ string, _ []byte) error {
+func (g *gateP2P) Send(ctx context.Context, _ string, _ []byte) ([]byte, bool, error) {
 	g.once.Do(func() { close(g.entered) })
 	select {
 	case <-g.release:
 	case <-ctx.Done():
 	}
-	return fmt.Errorf("p2p gate: %w", module.ErrNotDelivered)
+	return nil, false, errors.New("p2p gate: nothing sent")
 }
 
 // A cancel while the delegation's first attempt is under way. The cancel

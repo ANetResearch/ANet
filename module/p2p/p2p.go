@@ -66,13 +66,10 @@ type Config struct {
 	// process that then gets it through has delivered it twice (an internal note item,
 	// an internal note N3). What keeps a peer that cannot be reached from
 	// making every delegation slow is the peer process, which dials with a
-	// short timeout and then reports an address it could not dial
-	// unreachable for a while. A value below the peer process's bound
+	// short timeout and then does not dial an address it could not dial
+	// again for a while. A value below the peer process's bound
 	// brings the double delivery back.
 	DialTimeoutMS int `json:"dial_timeout_ms"`
-	// ReachTimeoutMS bounds the reachability question, which is asked
-	// before every send and must therefore be cheap.
-	ReachTimeoutMS int `json:"reach_timeout_ms"`
 	// Advertise is the address other peers dial to reach this node's peer
 	// process directly ("tcp://host:port" or "host:port"), the same value
 	// given to `anet p2p-advertise`. When set, the node's network card
@@ -117,17 +114,13 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	if send == 0 {
 		send = DefaultSendTimeout
 	}
-	reach := time.Duration(m.cfg.ReachTimeoutMS) * time.Millisecond
-	if reach == 0 {
-		reach = 300 * time.Millisecond
-	}
 
 	m.tr = &Transport{
-		socket:       m.cfg.Socket,
-		selfAID:      th.AID(),
-		sendTimeout:  send,
-		reachTimeout: reach,
-		inbound:      th.Inbound(),
+		socket:      m.cfg.Socket,
+		selfAID:     th.AID(),
+		sendTimeout: send,
+		inbound:     th.Inbound(),
+		badDAck:     th.NoteBadDAck,
 	}
 	// Connecting is not required to start. A peer process that is not up
 	// yet, or has crashed, must not stop the daemon from running: the hub

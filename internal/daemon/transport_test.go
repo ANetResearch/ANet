@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/seal"
+
+	"github.com/ANetResearch/ANet/module"
 )
 
 // fakeTransport is a direct path that can be told how to behave.
@@ -26,12 +28,19 @@ func (f *fakeTransport) Name() string { return f.name }
 func (f *fakeTransport) Reachable(context.Context, string) bool {
 	return f.reachable
 }
-func (f *fakeTransport) Send(_ context.Context, toAID string, env []byte) error {
+func (f *fakeTransport) Send(_ context.Context, toAID string, env []byte) ([]byte, bool, error) {
 	f.mu.Lock()
 	f.sent = append(f.sent, toAID)
 	f.envs = append(f.envs, append([]byte(nil), env...))
 	f.mu.Unlock()
-	return f.fail
+	return nil, true, f.fail
+}
+
+// recvErr is a direct delivery's acknowledge-or-refuse answer, without the
+// delivery confirmation it carries.
+func recvErr(in module.Inbound, ctx context.Context, env []byte) error {
+	_, err := in.Receive(ctx, env)
+	return err
 }
 func (f *fakeTransport) count() int {
 	f.mu.Lock()

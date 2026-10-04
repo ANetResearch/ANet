@@ -86,8 +86,8 @@ type benchTransport struct {
 
 func (t *benchTransport) Name() string                           { return t.name }
 func (t *benchTransport) Reachable(context.Context, string) bool { return t.reachable }
-func (t *benchTransport) Send(context.Context, string, []byte) error {
-	return t.fail
+func (t *benchTransport) Send(context.Context, string, []byte) ([]byte, bool, error) {
+	return nil, true, t.fail
 }
 
 // benchDaemon builds a daemon with no hub, so the fake transports carry

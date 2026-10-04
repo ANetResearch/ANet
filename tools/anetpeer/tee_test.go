@@ -35,8 +35,11 @@ func TestTeeKeepsExactlyWhatWasDelivered(t *testing.T) {
 	}
 	t.Cleanup(bob.stop)
 
-	refused := base64.StdEncoding.EncodeToString([]byte("refused"))
-	delivered := base64.StdEncoding.EncodeToString([]byte("delivered"))
+	// The frame carries base64url; the copy holds the standard base64 that
+	// anetfixture --envelope reads. Bytes whose two spellings differ.
+	deliveredBytes := []byte("delivered\xfb\xff\xfe")
+	refused := base64.RawURLEncoding.EncodeToString([]byte("refused"))
+	delivered := base64.RawURLEncoding.EncodeToString(deliveredBytes)
 
 	// Bob's daemon acknowledges everything but the refused envelope.
 	bc := dialUnix(t, filepath.Join(dir, "b.sock"))
@@ -105,8 +108,8 @@ func TestTeeKeepsExactlyWhatWasDelivered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(b) != delivered+"\n" {
-		t.Fatalf("tee kept %q, want the delivered envelope's base64", b)
+	if want := base64.StdEncoding.EncodeToString(deliveredBytes) + "\n"; string(b) != want {
+		t.Fatalf("tee kept %q, want %q, the delivered envelope's standard base64", b, want)
 	}
 }
 

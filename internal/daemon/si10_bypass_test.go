@@ -7,7 +7,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"sync/atomic"
 	"testing"
@@ -16,7 +15,6 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
-	"github.com/ANetResearch/ANet/module"
 )
 
 // directTo is a direct transport to one daemon: Send hands the envelope to
@@ -32,13 +30,14 @@ type directTo struct {
 
 func (p *directTo) Name() string                           { return "p2p-direct" }
 func (p *directTo) Reachable(context.Context, string) bool { return true }
-func (p *directTo) Send(ctx context.Context, _ string, env []byte) error {
+func (p *directTo) Send(ctx context.Context, _ string, env []byte) ([]byte, bool, error) {
 	if p.refuse.Add(-1) >= 0 {
-		return fmt.Errorf("p2p: receiving daemon refused the delivery for now: %w", module.ErrNotDelivered)
+		return nil, false, errors.New("p2p: receiving daemon refused the delivery for now")
 	}
 	p.refuse.Store(0)
 	p.sent.Add(1)
-	return p.to.Inbound().Receive(ctx, env)
+	dack, err := p.to.Inbound().Receive(ctx, env)
+	return dack, true, err
 }
 
 // [redteam:F25][redteam:F23] bypass: a follow-up from a sender the provider
@@ -201,10 +200,10 @@ func (p *deliverThenDie) Name() string { return "p2p-sender-dies" }
 func (p *deliverThenDie) Reachable(context.Context, string) bool {
 	return p.on.Load()
 }
-func (p *deliverThenDie) Send(ctx context.Context, _ string, env []byte) error {
+func (p *deliverThenDie) Send(ctx context.Context, _ string, env []byte) ([]byte, bool, error) {
 	_ = p.to.receiveEnvelope(ctx, env)
 	p.die()
-	return errors.New("p2p: no answer within the send timeout")
+	return nil, true, errors.New("p2p: no answer within the send timeout")
 }
 
 // [redteam:F23][redteam:F12] bypass: a delegation row is marked "may have
@@ -298,7 +297,7 @@ func TestTheDirectRateLimitHoldsDuringStartUp(t *testing.T) {
 	const over = 5
 	errc := make(chan error, p2pBurst+over)
 	for i := 0; i < p2pBurst+over; i++ {
-		go func() { errc <- prov.Inbound().Receive(ctx, env) }()
+		go func() { errc <- recvErr(prov.Inbound(), ctx, env) }()
 	}
 	limited := 0
 	timeout := time.After(time.Second)

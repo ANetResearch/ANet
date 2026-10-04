@@ -80,7 +80,7 @@ func TestADirectDeliveryIsAcknowledgedAtItsCommit(t *testing.T) {
 	clearMailbox(t, srv, prov.AID())
 
 	errc := make(chan error, 1)
-	go func() { errc <- prov.Inbound().Receive(ctx, env) }()
+	go func() { errc <- recvErr(prov.Inbound(), ctx, env) }()
 	select {
 	case err := <-errc:
 		if err != nil {

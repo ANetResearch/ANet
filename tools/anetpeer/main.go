@@ -28,11 +28,13 @@
 //
 //	anetpeer --socket run/a/peer.sock --peer run/a/wire.sock --rendezvous run/rv
 //
-// Delivery is acknowledged end to end: this process does not tell the
-// sender "delivered" until the receiving daemon has accepted the envelope.
-// A transport that acks on its own receipt turns a dropped delegation into
-// a silent one, and the whole point of the transport list is that a failed
-// Send falls through to the hub.
+// Only the recipient says a message arrived. This process passes on what
+// the receiving daemon answered — its ack, with the delivery confirmation
+// (dack) exactly as that daemon wrote it, or its refusal — and says nothing
+// of its own about delivery: it makes no confirmation, reads none, checks
+// none and keeps none (frame v3). A transport that vouched for delivery on
+// its own would turn a dropped delegation into a silent one, and a
+// confirmation it could make up would be worth nothing to the sender.
 package main
 
 import (
@@ -57,53 +59,55 @@ import (
 	"time"
 )
 
-// frame is the module's wire, both sides of it (module/p2p). It carries
-// the recipient AID, the sealed envelope and an ID, and nothing about the
-// sender or the content: those are inside the envelope, which this process
-// cannot open (A2A-DESIGN §3.10).
+// frame is the module's wire, both sides of it (module/p2p, frame v3;
+// module/p2p/testdata/frame-v3.json). It carries the recipient AID, the
+// sealed envelope and an ID, and nothing about the sender or the content:
+// those are inside the envelope, which this process cannot open (A2A-DESIGN
+// §3.10). Nor does any field say whether a message was processed or
+// refused: the only word on delivery is the recipient's dack, which is
+// sealed to its sender.
 type frame struct {
 	Op string `json:"op"`
-	// V is the frame version. A delivery without it, or below
-	// wireVersion, comes from a peer that predates sealed envelopes; it is
-	// refused and not handed to the daemon.
-	V int `json:"v,omitempty"`
+	// V is the frame version, on every frame. A frame of another version
+	// is refused: a hello with an error frame and a closed connection, a
+	// delivery with an error frame, and the daemon never sees it.
+	V int `json:"v"`
 	// ID correlates a request with its reply and must be echoed unchanged.
 	// A peer that answers concurrently — which this one does, because
 	// answering in its read loop deadlocks — would otherwise have its
 	// replies matched to the wrong requests. For a delivery handed to the
 	// daemon (op recv) this process mints a fresh ID and matches the
 	// daemon's ack on it.
-	ID        string `json:"id,omitempty"`
-	To        string `json:"to,omitempty"`
-	Envelope  string `json:"envelope,omitempty"`
-	Reachable bool   `json:"reachable,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Self      string `json:"self,omitempty"`
-	// NotDelivered, with Error, says the envelope reached no daemon: no
-	// address, a failed dial, a refusal before or at the hand-off. Without
-	// it a failed delivery may have happened (an answer that timed out),
-	// and the sending daemon must not report the message as never
-	// delivered ([redteam:F12]).
-	NotDelivered bool `json:"not_delivered,omitempty"`
-}
-
-// notDelivered is a delivery failure known to have reached no daemon.
-type notDelivered struct{ error }
-
-func (e notDelivered) Unwrap() error { return e.error }
-
-// isNotDelivered reports whether err is known to have reached no daemon.
-func isNotDelivered(err error) bool {
-	var nd notDelivered
-	return errors.As(err, &nd)
+	ID       string `json:"id,omitempty"`
+	To       string `json:"to,omitempty"`
+	Envelope string `json:"envelope,omitempty"`
+	// Addr, on a send from the daemon, is where the recipient can be
+	// dialled. It goes no further than this process.
+	Addr string `json:"addr,omitempty"`
+	// DAck is the receiving daemon's delivery confirmation, carried from
+	// its ack to the answer of the send that brought the envelope, as it
+	// came: never decoded, measured, kept or changed here.
+	DAck string `json:"dack,omitempty"`
+	Self string `json:"self,omitempty"`
+	// Error is a sentence for the log. It decides nothing.
+	Error string `json:"error,omitempty"`
 }
 
 // wireVersion is the frame version this process speaks.
-const wireVersion = 2
+const wireVersion = 3
 
-// errOldPeer is the answer to a delivery from a peer that predates wire 2.
-// It names the version the sender needs, so its operator can act on it.
-const errOldPeer = "peer requires anet >= 0.2.0"
+// versionRefused is the answer to a frame of another version. It names the
+// version the other side needs, so its operator can act on it.
+func versionRefused(v int) string {
+	return fmt.Sprintf("frame version %d refused: this peer speaks frame version %d (anet 0.3.0)", v, wireVersion)
+}
+
+// handOffAnswer is what the receiving daemon answered to one delivery: its
+// dack (possibly none), or why it did not take the delivery.
+type handOffAnswer struct {
+	dack string
+	err  error
+}
 
 func main() {
 	sock := flag.String("socket", "", "socket the daemon's p2p module connects to")
@@ -162,7 +166,7 @@ func startWith(sock, peerSock, rendezvous, advertise, teeDir string) (*peer, err
 		}
 	}
 	p := &peer{peerSocket: peerSock, rendezvous: rendezvous, advertise: advertise, teeDir: teeDir,
-		acks: map[string]chan error{}, limits: newSourceLimits()}
+		acks: map[string]chan handOffAnswer{}, limits: newSourceLimits()}
 
 	// The peer-facing listener takes either a socket path or a TCP
 	// address, because peers on two machines cannot share a Unix socket.
@@ -228,9 +232,9 @@ type peer struct {
 	teeN   uint64
 
 	// acks correlates a delivery with the receiving daemon's answer, keyed
-	// by the ID this process minted for the delivery: nil for an ack, the
-	// daemon's reason for a nack.
-	acks   map[string]chan error
+	// by the ID this process minted for the delivery: the dack of an ack,
+	// the daemon's reason for a nack.
+	acks   map[string]chan handOffAnswer
 	nextID uint64
 	// limits is the per-source half of the inbound rate limit (A2A-DESIGN
 	// §3.6 step 0); the daemon applies the daemon-wide half.
@@ -248,15 +252,16 @@ type downEntry struct {
 	backoff time.Duration
 }
 
-// How long an address that could not be dialled is reported unreachable:
+// How long an address that could not be dialled is not dialled again:
 // dialDownMin after the first failure, doubling on every failed retry up to
-// dialDownMax, forgotten on the first delivery that gets through.
+// dialDownMax, forgotten on the first delivery that gets through. A send to
+// it in the meantime fails at once.
 //
 // Without it a published address that cannot be dialled — a peer behind a
 // firewall that drops inbound connections, which is the ordinary case for
 // a node that can only dial out — costs every single message to that peer
-// the transport's whole send timeout before the hub is tried, because the
-// directory keeps answering "here it is" and reach keeps saying yes. On
+// the dial timeout before the hub is tried, because the directory keeps
+// answering "here it is". On
 // the campus test network (an internal note) that was three seconds on
 // every message from host-d to host-c, and since the answer to a delegation is
 // sent before the delegation is acknowledged, it also held the ack past the
@@ -312,20 +317,8 @@ func (p *peer) clearDown(aid string) {
 	delete(p.down, aid)
 }
 
-// reachable answers the module's reach question: a peer is reachable when
-// the rendezvous knows where to dial it and that address has not just
-// refused to be dialled.
-//
-// Only this node's own dial counts. A message that arrived from the peer
-// says the peer can reach us, which is exactly what a peer behind a
-// one-way firewall can do and says nothing about the other direction.
-func (p *peer) reachable(aid string) bool {
-	addr, ok := p.lookup(aid)
-	return ok && !p.isDown(aid, addr)
-}
-
-// serveDaemon handles the module's connection: hello, reach, send, and the
-// acks that come back for what we delivered.
+// serveDaemon handles the module's connection: hello, send, and the acks
+// that come back for what we delivered.
 func (p *peer) serveDaemon(c net.Conn) {
 	defer c.Close()
 	p.mu.Lock()
@@ -343,12 +336,30 @@ func (p *peer) serveDaemon(c net.Conn) {
 			p.mu.Unlock()
 			return
 		}
+		if f.V != wireVersion {
+			// Another frame version. A hello is answered and the connection
+			// closed: a daemon that speaks another version cannot be carried
+			// for. A send is answered and not delivered. Anything else is
+			// dropped: an ack of another version releases nothing.
+			log.Printf("anetpeer: daemon sent a %q frame of version %d; this peer speaks %d", f.Op, f.V, wireVersion)
+			switch f.Op {
+			case "hello":
+				p.reply(c, frame{Op: "error", V: wireVersion, Error: versionRefused(f.V)})
+				p.mu.Lock()
+				if p.conn == c {
+					p.conn, p.enc = nil, nil
+				}
+				p.mu.Unlock()
+				return
+			case "send":
+				p.reply(c, frame{Op: "error", V: wireVersion, ID: f.ID, Error: versionRefused(f.V)})
+			}
+			continue
+		}
 		switch f.Op {
 		case "hello":
 			p.announce(f.Self)
 			log.Printf("anetpeer: carrying %s", f.Self)
-		case "reach":
-			p.reply(c, frame{Op: "reach", ID: f.ID, To: f.To, Reachable: p.reachable(f.To)})
 		case "send":
 			// Off the read loop, and it has to be.
 			//
@@ -361,27 +372,31 @@ func (p *peer) serveDaemon(c net.Conn) {
 			// identical reason; a request/reply loop that does work inline
 			// is the shape to distrust.
 			go func(f frame) {
-				if err := p.deliver(f); err != nil {
+				// The answer carries the receiving daemon's dack as it
+				// came, with an error or without.
+				dack, err := p.deliver(f)
+				if err != nil {
 					log.Printf("anetpeer: send to %s: %v", f.To, err)
-					p.reply(c, frame{Op: "send", V: wireVersion, ID: f.ID, Error: err.Error(),
-						NotDelivered: isNotDelivered(err)})
+					p.reply(c, frame{Op: "send", V: wireVersion, ID: f.ID, DAck: dack, Error: err.Error()})
 					return
 				}
-				log.Printf("anetpeer: delivered %d envelope bytes → %s", base64.StdEncoding.DecodedLen(len(f.Envelope)), f.To)
+				log.Printf("anetpeer: delivered %d envelope bytes → %s", base64.RawURLEncoding.DecodedLen(len(f.Envelope)), f.To)
 				p.tee(f)
-				p.reply(c, frame{Op: "send", V: wireVersion, ID: f.ID})
+				p.reply(c, frame{Op: "send", V: wireVersion, ID: f.ID, DAck: dack})
 			}(f)
-		case "ack", "nack":
-			// Our daemon accepted something we handed it, or refused it for
-			// now; tell the peer that is waiting. The ID is the one this
+		case "ack", "nack", "error":
+			// Our daemon accepted something we handed it (with its dack),
+			// or did not take it: refused it for now, or could not read the
+			// frame. Tell the peer that is waiting. The ID is the one this
 			// process minted for that delivery, so an answer can only
-			// release the delivery it answers. A nack is passed on at once
-			// rather than left to run out handOffTimeout: the sender falls
-			// back to the hub now.
-			var answer error
-			if f.Op == "nack" {
-				// A temporary refusal: the daemon processed nothing.
-				answer = notDelivered{fmt.Errorf("receiving daemon refused the delivery for now: %s", f.Error)}
+			// release the delivery it answers. A refusal is passed on at
+			// once rather than left to run out handOffTimeout: the sender
+			// falls back to the hub now.
+			var answer handOffAnswer
+			if f.Op == "ack" {
+				answer.dack = f.DAck
+			} else {
+				answer.err = fmt.Errorf("receiving daemon did not take the delivery: %s", f.Error)
 			}
 			p.mu.Lock()
 			if ch, ok := p.acks[f.ID]; ok {
@@ -394,8 +409,9 @@ func (p *peer) serveDaemon(c net.Conn) {
 }
 
 // tee keeps a copy of an envelope this process delivered for its daemon,
-// as <n>-<to>.env holding the standard base64 of the bytes, written only
-// once the receiving side accepted it.
+// as <n>-<to>.env holding the standard base64 of the bytes (the frame
+// carries base64url; the copy is in the form anetfixture --envelope reads),
+// written only once the receiving side accepted it.
 //
 // For tests only. The joint run replays these exact bytes through the hub
 // and over the peer wire again (A2A-DESIGN SI-10): a replay test that
@@ -410,9 +426,14 @@ func (p *peer) tee(f frame) {
 	p.teeN++
 	n := p.teeN
 	p.mu.Unlock()
+	env, err := base64.RawURLEncoding.DecodeString(f.Envelope)
+	if err != nil {
+		log.Printf("anetpeer: tee: envelope %d is not base64url: %v", n, err)
+		return
+	}
 	to := strings.NewReplacer("/", "_", string(filepath.Separator), "_").Replace(f.To)
 	name := filepath.Join(p.teeDir, fmt.Sprintf("%06d-%s.env", n, to))
-	if err := os.WriteFile(name, []byte(f.Envelope+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(name, []byte(base64.StdEncoding.EncodeToString(env)+"\n"), 0o600); err != nil {
 		log.Printf("anetpeer: tee: %v", err)
 	}
 }
@@ -438,15 +459,15 @@ func (p *peer) servePeers(l net.Listener) {
 // receive decides what to do with one delivery from another peer and
 // returns the reply for it.
 func (p *peer) receive(source string, f frame) frame {
-	if f.V < wireVersion {
-		// A sender from before sealed envelopes. Its payload is plaintext
-		// the daemon would refuse anyway; answering with an error rather
-		// than handing it over means the sender does not record it as
-		// delivered and falls back to its hub.
-		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: errOldPeer, NotDelivered: true}
+	if f.V != wireVersion {
+		// A sender of another frame version: one from before sealed
+		// envelopes sends plaintext the daemon would refuse anyway, and one
+		// from v2 expects answers this process no longer gives. Answering
+		// with an error rather than handing it over sends it to its hub.
+		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: versionRefused(f.V)}
 	}
 	if !p.limits.allow(source, time.Now()) {
-		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "rate limited; deliver through the hub", NotDelivered: true}
+		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "rate limited; deliver through the hub"}
 	}
 	p.mu.Lock()
 	self := p.self
@@ -457,50 +478,49 @@ func (p *peer) receive(source string, f frame) frame {
 		// rendezvous entry, a reused port. Handing it over would get it
 		// acknowledged by the wrong daemon; refusing it sends the sender to
 		// the hub, where the recipient's mailbox is ([redteam:F22]).
-		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "this peer does not carry " + f.To + "; deliver through the hub",
-			NotDelivered: true}
+		return frame{Op: "error", V: wireVersion, ID: f.ID, Error: "this peer does not carry " + f.To + "; deliver through the hub"}
 	}
-	out := frame{Op: "send", V: wireVersion, ID: f.ID}
-	if err := p.handOff(f); err != nil {
-		out.Error, out.NotDelivered = err.Error(), isNotDelivered(err)
+	dack, err := p.handOff(f)
+	out := frame{Op: "send", V: wireVersion, ID: f.ID, DAck: dack}
+	if err != nil {
+		out.Error = err.Error()
 	}
 	return out
 }
 
 // handOff pushes an inbound envelope to our daemon and waits for it to say
-// it accepted it. Every delivery gets its own ID, and the daemon's ack is
-// matched on that ID alone.
-func (p *peer) handOff(f frame) error {
+// it accepted it, and returns the dack that came with the ack. Every
+// delivery gets its own ID, and the daemon's ack is matched on that ID
+// alone.
+func (p *peer) handOff(f frame) (string, error) {
 	p.mu.Lock()
 	enc := p.enc
 	if enc == nil {
 		p.mu.Unlock()
-		return notDelivered{fmt.Errorf("no daemon attached")}
+		return "", fmt.Errorf("no daemon attached")
 	}
 	p.nextID++
 	id := fmt.Sprintf("d%d", p.nextID)
-	ch := make(chan error, 1)
+	ch := make(chan handOffAnswer, 1)
 	p.acks[id] = ch
-	err := enc.Encode(frame{Op: "recv", V: wireVersion, ID: id, To: f.To, Envelope: f.Envelope})
+	err := enc.Encode(frame{Op: "recv", V: wireVersion, ID: id, Envelope: f.Envelope})
 	p.mu.Unlock()
 	if err != nil {
 		p.mu.Lock()
 		delete(p.acks, id)
 		p.mu.Unlock()
-		return err
+		return "", err
 	}
 	select {
-	case err := <-ch:
-		return err
+	case a := <-ch:
+		return a.dack, a.err
 	case <-time.After(handOffTimeout):
 		p.mu.Lock()
 		delete(p.acks, id)
 		p.mu.Unlock()
-		// Not delivered, and saying so is the point: the sender falls
-		// through to the hub rather than losing the message. The daemon
-		// also withholds its ack on purpose when it refuses a delivery
-		// temporarily, and this is how that refusal reaches the sender.
-		return fmt.Errorf("receiving daemon did not accept delivery %s", id)
+		// No answer, and saying so is the point: the sender falls through
+		// to the hub rather than losing the message.
+		return "", fmt.Errorf("receiving daemon did not accept delivery %s", id)
 	}
 }
 
@@ -582,11 +602,17 @@ func (l *sourceLimits) allow(src string, now time.Time) bool {
 	return true
 }
 
-// deliver carries one envelope to the peer holding the target AID.
-func (p *peer) deliver(f frame) error {
+// deliver carries one envelope to the peer holding the target AID, and
+// returns the receiving daemon's dack as its peer passed it on.
+func (p *peer) deliver(f frame) (string, error) {
+	// v030-todo(SS-11): dial f.Addr, the address from the recipient's
+	// contact grant, through the dial filter, and not the rendezvous.
 	sock, ok := p.lookup(f.To)
 	if !ok {
-		return notDelivered{fmt.Errorf("no peer for %s", f.To)}
+		return "", fmt.Errorf("no peer for %s", f.To)
+	}
+	if p.isDown(f.To, sock) {
+		return "", fmt.Errorf("%s at %s could not be dialled a moment ago; not dialling it again yet", f.To, sock)
 	}
 	dnet, daddr := addrKind(sock)
 	c, err := net.DialTimeout(dnet, daddr, dialTimeout)
@@ -594,28 +620,29 @@ func (p *peer) deliver(f frame) error {
 		// Only a failed dial marks the address: an error after the
 		// connection is up (a refusal, a slow ack) is the peer answering.
 		if w := p.markDown(f.To, sock); w > 0 {
-			log.Printf("anetpeer: %s at %s cannot be dialled (%v); reported unreachable for %s, the hub carries its traffic",
+			log.Printf("anetpeer: %s at %s cannot be dialled (%v); not dialling it for %s, the hub carries its traffic",
 				f.To, sock, err, w)
 		}
-		return notDelivered{err}
+		return "", err
 	}
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(handOffTimeout + replyMargin))
+	// The address stays here: the receiving peer has no use for it.
 	if err := json.NewEncoder(c).Encode(frame{Op: "send", V: wireVersion, ID: f.ID, To: f.To, Envelope: f.Envelope}); err != nil {
-		return err
+		return "", err
 	}
 	var reply frame
 	if err := json.NewDecoder(bufio.NewReader(c)).Decode(&reply); err != nil {
-		return err
+		return "", err
+	}
+	if reply.V != wireVersion {
+		return "", fmt.Errorf("the receiving peer answered in frame version %d", reply.V)
 	}
 	if reply.Error != "" {
-		if reply.NotDelivered {
-			return notDelivered{fmt.Errorf("%s", reply.Error)}
-		}
-		return fmt.Errorf("%s", reply.Error)
+		return reply.DAck, errors.New(reply.Error)
 	}
 	p.clearDown(f.To)
-	return nil
+	return reply.DAck, nil
 }
 
 func (p *peer) reply(c net.Conn, f frame) {

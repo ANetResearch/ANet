@@ -39,17 +39,24 @@ func (h hubTransport) Reachable(context.Context, string) bool {
 	return h.d.config().HubURL != ""
 }
 
-func (h hubTransport) Send(ctx context.Context, toAID string, envelope []byte) error {
+// Send posts the envelope to the hub. The hub's answer carries no delivery
+// confirmation (only the recipient makes one), so dack is always nil; handed
+// is whether the request got a connection (hubapi.TraceHanded).
+func (h hubTransport) Send(ctx context.Context, toAID string, envelope []byte) ([]byte, bool, error) {
 	hub := h.d.config().HubURL
 	if hub == "" {
-		return fmt.Errorf("anet: no hub configured")
+		return nil, false, fmt.Errorf("anet: no hub configured")
 	}
+	// The trace also sees the hub identity lookup hubSigned may make first,
+	// which can only make handed true early: never a sent envelope counted
+	// as unsent.
+	tctx, handed := hubapi.TraceHanded(ctx)
 	var out hubapi.RelaySendResponse
-	if err := h.d.hubSigned(ctx, hub, http.MethodPost, "/relay/send", actionSendRetired, hubapi.RelaySendRequest{
+	if err := h.d.hubSigned(tctx, hub, http.MethodPost, "/relay/send", actionSendRetired, hubapi.RelaySendRequest{
 		ToAID:    toAID,
 		Envelope: base64.StdEncoding.EncodeToString(envelope),
 	}, &out); err != nil {
-		return err
+		return nil, handed(), err
 	}
 	// The hub knows the recipient has not collected its mail in a long
 	// time, and said so. What it said is kept against the recipient's AID
@@ -73,7 +80,7 @@ func (h hubTransport) Send(ctx context.Context, toAID string, envelope []byte) e
 	}
 	// Quiet with no sentence to pass on is left alone: nothing to report
 	// and nothing to retract. The hub sets both fields together.
-	return nil
+	return nil, true, nil
 }
 
 // transports returns the delivery paths in preference order.
@@ -123,12 +130,16 @@ func (d *Daemon) deliverEnvelopeTracked(ctx context.Context, toAID string, envel
 		if !t.Reachable(ctx, toAID) {
 			continue
 		}
-		err := t.Send(ctx, toAID, envelope)
+		// v030-todo(ENG-1a): a delivery confirmation that came back is
+		// checked with seal.VerifyDAck and confirms the row (A10); until the
+		// engine does that, a send that did not fail counts as delivered,
+		// as it did with frame v2.
+		_, handed, err := t.Send(ctx, toAID, envelope)
 		if err == nil {
 			d.noteTransport(t.Name(), nil)
 			return false, nil
 		}
-		maybe = maybe || mayHaveDelivered(t, err)
+		maybe = maybe || mayHaveDelivered(t, handed, err)
 		lastErr = err
 		// Logged on the transition, not on every message.
 		//
@@ -148,14 +159,15 @@ func (d *Daemon) deliverEnvelopeTracked(ctx context.Context, toAID string, envel
 }
 
 // mayHaveDelivered reports whether a failed Send may still have delivered
-// the envelope. module.Transport has a Send that partially succeeded report
-// failure — a p2p round trip that timed out while the far side was at work
-// — so a failure counts as "may have" unless it is known to have reached
-// nobody: one the transport marks module.ErrNotDelivered, an answer from
-// the hub itself (it stored nothing; a gateway's 502 or 504 speaks for a
-// hub that may have), or a hub that could not be dialled.
-func mayHaveDelivered(t module.Transport, err error) bool {
-	if errors.Is(err, module.ErrNotDelivered) {
+// the envelope. A failure counts as "may have" unless it is known to have
+// reached nobody: no byte of it left this process (handed is false), an
+// answer from the hub itself (it stored nothing; a gateway's 502 or 504
+// speaks for a hub that may have), or a hub that could not be dialled.
+//
+// v030-todo(ENG-1a): deleted with deliverEnvelopeTracked; whether a row was
+// handed decides alone (engine ENG-A4, ENG-H1), a hub's 4xx included.
+func mayHaveDelivered(t module.Transport, handed bool, err error) bool {
+	if !handed {
 		return false
 	}
 	if _, hub := t.(hubTransport); !hub {
@@ -225,7 +237,17 @@ func (d *Daemon) Inbound() module.Inbound { return inbound{d} }
 // (receiveEnvelopeVia, [redteam:F22]).
 type inbound struct{ d *Daemon }
 
-func (in inbound) Receive(ctx context.Context, envelope []byte) error {
+// Receive is module.Inbound. It answers no delivery confirmation yet.
+//
+// v030-todo(ENG-1c): the dack of the pipeline's verdict (rxTokenFor), so a
+// direct sender learns from the ack itself that the envelope arrived.
+func (in inbound) Receive(ctx context.Context, envelope []byte) ([]byte, error) {
+	return nil, in.receive(ctx, envelope)
+}
+
+// receive is the pipeline's answer to a direct delivery: nil to acknowledge
+// it, an error to refuse it for now.
+func (in inbound) receive(ctx context.Context, envelope []byte) error {
 	// The rate limit comes before the wait for start-up: a delivery that
 	// waits holds its envelope and a goroutine, and without the limit
 	// first a slow start-up let anyone who reaches the peer process pile
@@ -270,10 +292,9 @@ func (in inbound) Receive(ctx context.Context, envelope []byte) error {
 // pipeline returned after that — a stop cutting the call or the re-sent
 // answer short returns a temporary result — and the pipeline can finish
 // before Receive has seen the commit, both then ready at once. A refusal
-// there would reach the sender as "reached no daemon" (a nack,
-// module.ErrNotDelivered), and a delegation this node holds would then be
-// one the sender may withdraw on a cancel or report as never run
-// ([redteam:F12][redteam:F23]; Q29 bypass).
+// there would reach the sender as a nack, and a delegation this node holds
+// would then be one the sender falls back to the hub for, may withdraw on a
+// cancel, or report as never run ([redteam:F12][redteam:F23]; Q29 bypass).
 func directAnswer(committed <-chan struct{}, res rxResult) error {
 	select {
 	case <-committed:
@@ -326,6 +347,13 @@ func (h moduleHost) Inbound() module.Inbound { return h.d.Inbound() }
 
 // RegisterTransport lets a transport module add its path.
 func (h moduleHost) RegisterTransport(t module.Transport) { h.d.RegisterTransport(t) }
+
+// counterDAckBadFrame counts answers to a direct send whose delivery
+// confirmation was malformed (not base64url, or not 80 bytes).
+const counterDAckBadFrame = "dack-bad-frame"
+
+// NoteBadDAck lets a transport module count a malformed confirmation.
+func (h moduleHost) NoteBadDAck() { h.d.count(counterDAckBadFrame) }
 
 // noteQuietPeer reports a recipient that has stopped collecting its mail.
 //

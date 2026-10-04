@@ -11,7 +11,6 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
-	"github.com/ANetResearch/ANet/module"
 )
 
 // deliveredThenFailed is a direct transport whose round trip delivers the
@@ -28,13 +27,13 @@ type deliveredThenFailed struct {
 
 func (p *deliveredThenFailed) Name() string                           { return "p2p-answer-lost" }
 func (p *deliveredThenFailed) Reachable(context.Context, string) bool { return true }
-func (p *deliveredThenFailed) Send(ctx context.Context, _ string, env []byte) error {
+func (p *deliveredThenFailed) Send(ctx context.Context, _ string, env []byte) ([]byte, bool, error) {
 	p.calls.Add(1)
 	if p.notDelivered {
-		return errors.New("p2p: no route: " + module.ErrNotDelivered.Error())
+		return nil, false, errors.New("p2p: no route")
 	}
 	_ = p.to.receiveEnvelope(ctx, env)
-	return errors.New("p2p: no answer within the send timeout")
+	return nil, true, errors.New("p2p: no answer within the send timeout")
 }
 
 // taskViewMap is the projection every door returns (control plane, MCP,
@@ -138,13 +137,13 @@ func TestAnAbandonedDelegationThatReachedNobodyIsUnavailable(t *testing.T) {
 }
 
 // deliveredThenFailedNot is a direct transport that fails knowing it
-// reached nobody (module.ErrNotDelivered).
+// reached nobody: no byte of the envelope was handed over.
 type deliveredThenFailedNot struct{}
 
 func (deliveredThenFailedNot) Name() string                           { return "p2p-unreachable" }
 func (deliveredThenFailedNot) Reachable(context.Context, string) bool { return true }
-func (deliveredThenFailedNot) Send(context.Context, string, []byte) error {
-	return errors.Join(errors.New("p2p: dial failed"), module.ErrNotDelivered)
+func (deliveredThenFailedNot) Send(context.Context, string, []byte) ([]byte, bool, error) {
+	return nil, false, errors.New("p2p: dial failed")
 }
 
 // [redteam:F23] What was queued behind a delegation that is abandoned

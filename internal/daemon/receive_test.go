@@ -567,7 +567,7 @@ func TestTheSameEnvelopeOverP2PAndHubIsProcessedOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	var p2pErr, pollErr error
 	wg.Add(2)
-	go func() { defer wg.Done(); p2pErr = prov.Inbound().Receive(ctx, env) }()
+	go func() { defer wg.Done(); p2pErr = recvErr(prov.Inbound(), ctx, env) }()
 	go func() { defer wg.Done(); pollErr = prov.pollOnce(ctx) }()
 	wg.Wait()
 	if p2pErr != nil || pollErr != nil {
@@ -637,7 +637,7 @@ func TestAPlaintextPayloadIsRefused(t *testing.T) {
 	// may be another node's, and the sender is sent to the hub, which
 	// refuses a plaintext payload itself ([redteam:F22]). Nothing is stored
 	// either way.
-	if r := prov.Inbound().Receive(ctx, plain); r == nil {
+	if r := recvErr(prov.Inbound(), ctx, plain); r == nil {
 		t.Fatal("an unopenable envelope over p2p was acknowledged; its sender would not try the hub")
 	}
 	if _, err := prov.ix.Get("ix_plain"); err == nil {
@@ -762,10 +762,10 @@ func TestTheP2PRateLimitIsTemporary(t *testing.T) {
 	prov.p2pLimit.b = newBucket(0.001, 1)
 	prov.p2pLimit.mu.Unlock()
 	env := sealFrom(t, req, prov, seal.TypeMessage, "ix_x", chatBody(t, "x", ""))
-	if err := prov.Inbound().Receive(context.Background(), env); err != nil && errors.Is(err, errP2PRateLimited) {
+	if err := recvErr(prov.Inbound(), context.Background(), env); err != nil && errors.Is(err, errP2PRateLimited) {
 		t.Fatal("the first envelope was rate limited")
 	}
-	err := prov.Inbound().Receive(context.Background(), env)
+	err := recvErr(prov.Inbound(), context.Background(), env)
 	if !errors.Is(err, errP2PRateLimited) {
 		t.Fatalf("second envelope: %v, want the rate limit", err)
 	}
@@ -977,7 +977,7 @@ func TestAPeerRecordReadErrorIsTemporary(t *testing.T) {
 	if r.class != rxTransient || r.reason != transientStore {
 		t.Fatalf("outcome with the store unreadable = %+v, want class T %s", r, transientStore)
 	}
-	if err := prov.Inbound().Receive(context.Background(), env); err == nil {
+	if err := recvErr(prov.Inbound(), context.Background(), env); err == nil {
 		t.Fatal("a temporary refusal over p2p was acknowledged")
 	}
 }
