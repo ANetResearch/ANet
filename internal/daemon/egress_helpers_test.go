@@ -510,8 +510,9 @@ func si57AnthropicURLMedia(obj map[string]any) string {
 
 // si57URLMedia looks through v, everywhere, for media the model service would fetch (BP-5), and returns
 // its URL, or "" when there is none. kind names the dialect: "input_image" (Responses: an input_image
-// with an image_url that is not data:, or any file_url of an input_file), "image_url" (chat: an
-// image_url part whose URL is not data:).
+// with an image_url that is not data:, or any file_url of an input_file), "image_url" (chat: any
+// object with an image_url, video_url or audio_url whose URL is not data:, or a file whose file_data is
+// a URL).
 func si57URLMedia(v any, kind string) string {
 	notData := func(u any) bool {
 		s, ok := u.(string)
@@ -534,13 +535,23 @@ func si57URLMedia(v any, kind string) string {
 				return fmt.Sprint(x["file_url"], " ")
 			}
 		case "image_url":
-			if x["type"] == "image_url" && x["image_url"] != nil {
-				u := x["image_url"]
+			// Whatever the part's type: a compatible server may go by the member alone.
+			for _, k := range []string{"image_url", "video_url", "audio_url"} {
+				u := x[k]
+				if u == nil {
+					continue
+				}
 				if m, ok := u.(map[string]any); ok {
 					u = m["url"]
 				}
 				if notData(u) {
 					return fmt.Sprint(u, " ")
+				}
+			}
+			// A file's file_data is base64, which has no colon, or a data: URL.
+			if f, ok := x["file"].(map[string]any); ok {
+				if s, ok := f["file_data"].(string); ok && strings.ContainsRune(s, ':') && notData(s) {
+					return s
 				}
 			}
 		}

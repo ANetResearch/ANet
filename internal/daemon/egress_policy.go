@@ -14,9 +14,9 @@ package daemon
 //   - model is always the pinned model (BP-2); output limits are at most 8192 tokens, and set when
 //     missing (BP-3).
 //   - Only tools the client executes pass (BP-4); the fields that reach out from the model service are
-//     refused (BP-5), and so is media given by URL, which the model service would fetch: an image or a
-//     file goes in the request itself (BP-5); OpenAI requests are not stored and have no service tier and
-//     one choice.
+//     refused (BP-5), and so is media given by URL, which the model service would fetch: an image, a
+//     file, audio or video goes in the request itself (BP-5); OpenAI requests are not stored and have no
+//     service tier and one choice.
 //   - Credentials the agent sends are dropped and the operator's key is added (UP-4); beta headers keep
 //     only listed values (BP-6).
 //
@@ -364,18 +364,33 @@ func responsesMediaByURL(obj map[string]any) *egressRefusal {
 	})
 }
 
-// chatMediaByURL refuses an image_url content part that is not inline data (BP-5), anywhere in messages.
+// chatMediaKeys are the members by which a chat content part gives media: the chat API's image_url, and
+// the audio_url and video_url that OpenAI-compatible servers also take (a local vLLM among them, which
+// fetches them from this host). Such a server may tell the kind of a part from the member alone, so the
+// member is checked whatever the part's type says.
+var chatMediaKeys = []string{"audio_url", "image_url", "video_url"}
+
+// chatMediaByURL refuses media given by URL anywhere in messages (BP-5): an image_url, audio_url or
+// video_url that is not inline data, as the URL itself or as its url member, and a file whose file_data
+// is a URL rather than base64 data (which never holds a colon).
 func chatMediaByURL(obj map[string]any) *egressRefusal {
 	return mediaByURL(obj["messages"], "messages", func(m map[string]any) string {
-		if typ, _ := m["type"].(string); typ != "image_url" || !presentMember(m, "image_url") {
-			return ""
+		for _, k := range chatMediaKeys {
+			if !presentMember(m, k) {
+				continue
+			}
+			u, isStr := m[k].(string) // some compatible services take the URL as a string
+			if o, isObj := m[k].(map[string]any); isObj {
+				u, isStr = o["url"].(string)
+			}
+			if !isStr || !egressInlineData(u) {
+				return k
+			}
 		}
-		u, isStr := m["image_url"].(string) // some compatible services take the URL as a string
-		if iu, isObj := m["image_url"].(map[string]any); isObj {
-			u, isStr = iu["url"].(string)
-		}
-		if !isStr || !egressInlineData(u) {
-			return "image_url"
+		if f, ok := m["file"].(map[string]any); ok {
+			if d, ok := f["file_data"].(string); ok && strings.Contains(d, ":") && !egressInlineData(d) {
+				return "file.file_data"
+			}
 		}
 		return ""
 	})
