@@ -21,8 +21,8 @@ func dialable(p *peer, aid string) bool {
 // A published address that cannot be dialled is not dialled again for a
 // while, so a send to it fails at once and the daemon goes to the hub
 // instead of spending the dial timeout on every message (an internal note:
-// host-d → host-c, whose firewall drops inbound connections, cost three seconds
-// per message). The window grows while the address keeps failing, is
+// a peer whose firewall drops inbound connections cost three seconds per
+// message). The window grows while the address keeps failing, is
 // capped, is forgotten when a delivery gets through, and does not apply to
 // an address the peer moved to.
 func TestAnAddressThatCannotBeDialledIsLeftAloneForAWhile(t *testing.T) {
