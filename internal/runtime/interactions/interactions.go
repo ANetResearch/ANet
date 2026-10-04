@@ -435,6 +435,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateIXKey(); err != nil {
 		return err
 	}
+	if err := s.migrateCaps(); err != nil {
+		return err
+	}
 	return s.migrateOutbox()
 }
 
