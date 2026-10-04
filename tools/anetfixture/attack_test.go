@@ -355,7 +355,7 @@ func TestRelaySignRefusesToGuessTheRequest(t *testing.T) {
 }
 
 // relay-send hands the same bytes to both paths: the hub gets them in a
-// relay-v2-signed /relay/send, the peer wire in a v2 "send" frame.
+// relay-v2-signed /relay/send, the peer wire in a v3 "send" frame.
 func TestRelaySendDeliversTheSameBytesOnBothPaths(t *testing.T) {
 	hub := newFakeHub(t)
 	dir, c := withIdentity(t)
@@ -379,7 +379,7 @@ func TestRelaySendDeliversTheSameBytesOnBothPaths(t *testing.T) {
 			return
 		}
 		got <- f
-		_ = json.NewEncoder(conn).Encode(peerFrame{Op: "send", V: 2, ID: f.ID})
+		_ = json.NewEncoder(conn).Encode(peerFrame{Op: "send", V: 3, ID: f.ID})
 	}()
 
 	env := base64.StdEncoding.EncodeToString([]byte("sealed bytes"))
@@ -398,7 +398,8 @@ func TestRelaySendDeliversTheSameBytesOnBothPaths(t *testing.T) {
 		t.Fatalf("outcomes: %s", out)
 	}
 	f := <-got
-	if f.Op != "send" || f.V != 2 || f.To != "did:anet:prov" || f.Envelope != env || f.ID == "" {
+	if f.Op != "send" || f.V != 3 || f.To != "did:anet:prov" || f.ID == "" ||
+		f.Envelope != base64.RawURLEncoding.EncodeToString([]byte("sealed bytes")) {
 		t.Fatalf("peer frame = %+v", f)
 	}
 	hub.mu.Lock()

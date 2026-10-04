@@ -52,7 +52,7 @@ func TestConcurrentCopiesOfAPublicCallAreJudgedOnce(t *testing.T) {
 		return nil
 	})
 	p2pDone := make(chan error, 1)
-	go func() { p2pDone <- prov.Inbound().Receive(ctx, env) }()
+	go func() { p2pDone <- recvErr(prov.Inbound(), ctx, env) }()
 	<-entered
 	hubDone := make(chan rxResult, 1)
 	go func() { hubDone <- prov.receiveEnvelope(ctx, env) }()

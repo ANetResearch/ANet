@@ -289,10 +289,10 @@ type ackLostP2P struct {
 
 func (p *ackLostP2P) Name() string                           { return "p2p-ack-lost" }
 func (p *ackLostP2P) Reachable(context.Context, string) bool { return true }
-func (p *ackLostP2P) Send(ctx context.Context, _ string, env []byte) error {
+func (p *ackLostP2P) Send(ctx context.Context, _ string, env []byte) ([]byte, bool, error) {
 	p.calls.Add(1)
 	_ = p.to.receiveEnvelope(ctx, env)
-	return errors.New("p2p: no ack within the dial timeout")
+	return nil, true, errors.New("p2p: no ack within the dial timeout")
 }
 
 // F8: the requester's retry queue abandons a delegation on a permanent hub

@@ -7,9 +7,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,11 +42,13 @@ type host struct {
 	mu  sync.Mutex
 	trs []module.Transport
 	in  module.Inbound
+	bad atomic.Int32 // malformed confirmations the transport counted
 }
 
 func (h *host) AID() string                   { return h.aid }
 func (h *host) Providers() *provider.Registry { return provider.NewRegistry() }
 func (h *host) Inbound() module.Inbound       { return h.in }
+func (h *host) NoteBadDAck()                  { h.bad.Add(1) }
 func (h *host) RegisterTransport(t module.Transport) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -64,7 +67,8 @@ func (h *host) transport(t *testing.T) module.Transport {
 // mailbox records what arrived, and can answer over the transport the way
 // a daemon answers a delegation. An envelope starting with "delegate:"
 // is answered with "result:<rest>" to replyTo; one listed in refuse is
-// refused temporarily (Receive returns an error, so no ack).
+// refused temporarily (Receive returns an error, so no ack); one listed in
+// dacks is acked with that delivery confirmation.
 type mailbox struct {
 	mu      sync.Mutex
 	got     []string
@@ -72,32 +76,39 @@ type mailbox struct {
 	replyTo string
 	replied chan error
 	refuse  map[string]bool
+	dacks   map[string][]byte
 	// hold, when set, keeps Receive from answering until it is closed: a
 	// daemon still at work when the hand-off times out.
 	hold chan struct{}
+	// gate, when set, runs first for every envelope; the test steers the
+	// order of concurrent deliveries with it.
+	gate func(env string)
 }
 
-func (m *mailbox) Receive(ctx context.Context, env []byte) error {
+func (m *mailbox) Receive(ctx context.Context, env []byte) ([]byte, error) {
 	m.mu.Lock()
-	hold := m.hold
+	hold, gate := m.hold, m.gate
 	m.mu.Unlock()
+	if gate != nil {
+		gate(string(env))
+	}
 	if hold != nil {
 		<-hold
 	}
 	m.mu.Lock()
 	if m.refuse[string(env)] {
 		m.mu.Unlock()
-		return fmt.Errorf("temporarily refused")
+		return nil, fmt.Errorf("temporarily refused")
 	}
 	m.got = append(m.got, string(env))
-	reply, to := m.replyOn, m.replyTo
+	reply, to, dack := m.replyOn, m.replyTo, m.dacks[string(env)]
 	m.mu.Unlock()
 	if reply != nil && strings.HasPrefix(string(env), "delegate:") {
-		err := reply().Send(ctx, to, []byte("result:"+strings.TrimPrefix(string(env), "delegate:")))
+		_, _, err := reply().Send(ctx, to, []byte("result:"+strings.TrimPrefix(string(env), "delegate:")))
 		m.replied <- err
-		return err
+		return nil, err
 	}
-	return nil
+	return dack, nil
 }
 
 func (m *mailbox) count() int {
@@ -138,7 +149,7 @@ func newNodeAt(t *testing.T, dir, rendezvous, name, peerAddr string, box *mailbo
 
 	h := &host{aid: "aid-" + name, in: box}
 	mods, err := module.Build(map[string][]byte{
-		"p2p": []byte(fmt.Sprintf(`{"socket":%q,"dial_timeout_ms":2000,"reach_timeout_ms":500}`,
+		"p2p": []byte(fmt.Sprintf(`{"socket":%q,"dial_timeout_ms":2000}`,
 			filepath.Join(dir, name+".sock"))),
 	})
 	if err != nil {
@@ -161,6 +172,23 @@ func newNodeAt(t *testing.T, dir, rendezvous, name, peerAddr string, box *mailbo
 		t.Fatal("the p2p module was not built — is this a no_p2p build?")
 	}
 	return &node{aid: h.aid, host: h, box: box}
+}
+
+// waitAnnounced waits until both nodes' transports are up and each one's
+// peer process has announced it in the directory rendezvous.
+func waitAnnounced(t *testing.T, rv string, nodes ...*node) {
+	t.Helper()
+	waitFor(t, "the peers to announce themselves", func() bool {
+		for _, n := range nodes {
+			if _, err := os.Stat(filepath.Join(rv, n.aid)); err != nil {
+				return false
+			}
+			if !n.host.transport(t).Reachable(context.Background(), "") {
+				return false
+			}
+		}
+		return true
+	})
 }
 
 func waitFor(t *testing.T, why string, cond func() bool) {
@@ -190,12 +218,10 @@ func TestTwoNodesDelegateAndAnswerDirectly(t *testing.T) {
 	bobBox.mu.Unlock()
 
 	at := alice.host.transport(t)
-	waitFor(t, "the peers to announce themselves", func() bool {
-		return at.Reachable(context.Background(), bob.aid)
-	})
+	waitAnnounced(t, rv, alice, bob)
 
-	if err := at.Send(context.Background(), bob.aid, []byte("delegate:do the thing")); err != nil {
-		t.Fatalf("delivery failed: %v", err)
+	if _, handed, err := at.Send(context.Background(), bob.aid, []byte("delegate:do the thing")); err != nil || !handed {
+		t.Fatalf("delivery failed: handed=%v err=%v", handed, err)
 	}
 	if got := bobBox.all(); len(got) != 1 || got[0] != "delegate:do the thing" {
 		t.Fatalf("bob received %v", got)
@@ -221,38 +247,78 @@ func TestTwoNodesDelegateAndAnswerDirectly(t *testing.T) {
 // The peer keys the daemon's ack on the ID it minted for each delivery; an
 // ack keyed on anything the two share would tell the refused sender its
 // message was delivered, and it would never fall back to the hub (C5).
+//
+// Deterministic: bob's daemon holds "first" until "second" is in its hands
+// too (so both wait at bob's peer at once), acks "first", and refuses
+// "second" only after alice has heard the answer to "first". An ack that
+// released every waiting delivery would answer "second" as delivered
+// before its refusal exists (si10-8).
 func TestConcurrentDeliveriesGetTheirOwnOutcome(t *testing.T) {
-	old := handOffTimeout
-	handOffTimeout = time.Second
-	t.Cleanup(func() { handOffTimeout = old })
 	dir := t.TempDir()
 	rv := filepath.Join(dir, "rv")
 	alice := newNode(t, dir, rv, "alice", &mailbox{})
-	bobBox := &mailbox{refuse: map[string]bool{"second": true}}
+	secondIn := make(chan struct{})
+	releaseSecond := make(chan struct{})
+	bobBox := &mailbox{refuse: map[string]bool{"second": true}, gate: func(env string) {
+		switch env {
+		case "first":
+			select {
+			case <-secondIn:
+			case <-time.After(5 * time.Second):
+			}
+		case "second":
+			close(secondIn)
+			select {
+			case <-releaseSecond:
+			case <-time.After(5 * time.Second):
+			}
+		}
+	}}
 	bob := newNode(t, dir, rv, "bob", bobBox)
 	at := alice.host.transport(t)
-	waitFor(t, "the peers to find each other", func() bool {
-		return at.Reachable(context.Background(), bob.aid)
-	})
-	var wg sync.WaitGroup
-	errs := map[string]error{}
-	var mu sync.Mutex
-	for _, env := range []string{"first", "second"} {
-		wg.Add(1)
-		go func(env string) {
-			defer wg.Done()
-			err := at.Send(context.Background(), bob.aid, []byte(env))
-			mu.Lock()
-			errs[env] = err
-			mu.Unlock()
-		}(env)
+	waitAnnounced(t, rv, alice, bob)
+
+	type outcome struct {
+		handed bool
+		err    error
 	}
-	wg.Wait()
-	if errs["first"] != nil {
-		t.Errorf("the accepted delivery reported failure: %v", errs["first"])
+	first, second := make(chan outcome, 1), make(chan outcome, 1)
+	go func() {
+		_, h, err := at.Send(context.Background(), bob.aid, []byte("first"))
+		first <- outcome{h, err}
+	}()
+	go func() {
+		_, h, err := at.Send(context.Background(), bob.aid, []byte("second"))
+		second <- outcome{h, err}
+	}()
+
+	var f outcome
+	select {
+	case f = <-first:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the accepted delivery was never answered")
 	}
-	if errs["second"] == nil {
+	if f.err != nil {
+		t.Errorf("the accepted delivery reported failure: %v", f.err)
+	}
+	// "second" is still in bob's daemon: nothing may have answered it yet.
+	select {
+	case s := <-second:
+		t.Fatalf("the delivery bob's daemon still holds was answered (err=%v): the ack of another delivery released it", s.err)
+	default:
+	}
+	close(releaseSecond)
+	var s outcome
+	select {
+	case s = <-second:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the refused delivery was never answered")
+	}
+	if s.err == nil {
 		t.Error("the refused delivery was reported delivered")
+	}
+	if !s.handed || !f.handed {
+		t.Errorf("handed: first %v, second %v; both reached the peer process", f.handed, s.handed)
 	}
 }
 
@@ -268,19 +334,17 @@ func TestADeliveryForAnAIDThisPeerDoesNotCarryIsRefused(t *testing.T) {
 	bobBox := &mailbox{}
 	bob := newNode(t, dir, rv, "bob", bobBox)
 	at := alice.host.transport(t)
-	waitFor(t, "the peers to announce themselves", func() bool {
-		return at.Reachable(context.Background(), bob.aid)
-	})
+	waitAnnounced(t, rv, alice, bob)
 	// A stale entry: the victim's address is now bob's wire.
 	if err := os.WriteFile(filepath.Join(rv, "aid-victim"), []byte(filepath.Join(dir, "bob.wire")), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if !at.Reachable(context.Background(), "aid-victim") {
-		t.Fatal("setup: the stale entry is not reachable")
-	}
-	err := at.Send(context.Background(), "aid-victim", []byte("delegate:for the victim"))
+	dack, _, err := at.Send(context.Background(), "aid-victim", []byte("delegate:for the victim"))
 	if err == nil {
 		t.Fatal("a delivery to the wrong peer process was reported delivered; the sender would not use the hub")
+	}
+	if dack != nil {
+		t.Fatalf("a refused delivery came back with dack %x", dack)
 	}
 	if !strings.Contains(err.Error(), "does not carry") {
 		t.Fatalf("error = %v, want the peer to say it does not carry the AID", err)
@@ -290,7 +354,7 @@ func TestADeliveryForAnAIDThisPeerDoesNotCarryIsRefused(t *testing.T) {
 		t.Fatalf("bob's daemon received %d envelopes meant for another AID", n)
 	}
 	// Bob's own traffic is unaffected.
-	if err := at.Send(context.Background(), bob.aid, []byte("for bob")); err != nil {
+	if _, _, err := at.Send(context.Background(), bob.aid, []byte("for bob")); err != nil {
 		t.Fatalf("delivery to bob: %v", err)
 	}
 }
@@ -306,13 +370,14 @@ func TestARefusalReachesTheSenderAtOnce(t *testing.T) {
 	bobBox := &mailbox{refuse: map[string]bool{"not now": true}}
 	bob := newNode(t, dir, rv, "bob", bobBox)
 	at := alice.host.transport(t)
-	waitFor(t, "the peers to find each other", func() bool {
-		return at.Reachable(context.Background(), bob.aid)
-	})
+	waitAnnounced(t, rv, alice, bob)
 	start := time.Now()
-	err := at.Send(context.Background(), bob.aid, []byte("not now"))
+	dack, _, err := at.Send(context.Background(), bob.aid, []byte("not now"))
 	if err == nil {
 		t.Fatal("a refused delivery was reported delivered")
+	}
+	if dack != nil {
+		t.Fatalf("a refused delivery came back with dack %x", dack)
 	}
 	if took := time.Since(start); took > handOffTimeout/2 {
 		t.Fatalf("the refusal took %s to reach the sender; the hand-off timeout is %s", took, handOffTimeout)
@@ -337,13 +402,14 @@ func TestOneDeliveryEndsInsideTheDaemonsSendTimeout(t *testing.T) {
 	}
 }
 
-// A failed send says whether it is known to have reached no daemon
-// (module.ErrNotDelivered): no address, a dial that failed, a refusal at
-// the hand-off. A hand-off that timed out while the receiving daemon was
-// still at work is not known either way, and is not marked: the sending
-// daemon must not report such a message as one that never arrived
-// ([redteam:F12]).
-func TestAFailedSendSaysWhetherItReachedADaemon(t *testing.T) {
+// T49 through a real peer process: once the send frame is in its peer
+// process's hands, a send has handed the envelope over, however it then
+// fails — no address, a dial that fails, a refusal at the hand-off, a
+// hand-off that timed out while the receiving daemon was still at work.
+// What the peer process answers cannot unsend it, and no answer without the
+// recipient's dack is a confirmation ([redteam:F12]). Only with no peer
+// process to hand it to has nothing left.
+func TestAFailedSendIsHandedOnceThePeerProcessHasIt(t *testing.T) {
 	old := handOffTimeout
 	handOffTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { handOffTimeout = old })
@@ -354,58 +420,89 @@ func TestAFailedSendSaysWhetherItReachedADaemon(t *testing.T) {
 	bobBox := &mailbox{refuse: map[string]bool{"not now": true}}
 	bob := newNode(t, dir, rv, "bob", bobBox)
 	at := alice.host.transport(t)
-	waitFor(t, "the peers to find each other", func() bool {
-		return at.Reachable(context.Background(), bob.aid)
-	})
+	waitAnnounced(t, rv, alice, bob)
 
+	check := func(what string, dack []byte, handed bool, err error) {
+		t.Helper()
+		if err == nil || !handed || dack != nil {
+			t.Errorf("%s: dack=%x handed=%v err=%v; want a failure that was handed over, without a dack", what, dack, handed, err)
+		}
+	}
+	// No address at all.
+	dack, handed, err := at.Send(context.Background(), "aid-nobody", []byte("x"))
+	check("no address", dack, handed, err)
 	// A dial that fails.
 	if err := os.WriteFile(filepath.Join(rv, "aid-far"), []byte("tcp://"+closedTCP(t)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := at.Send(context.Background(), "aid-far", []byte("x")); !errors.Is(err, module.ErrNotDelivered) {
-		t.Errorf("failed dial: %v, want it marked not delivered", err)
-	}
+	dack, handed, err = at.Send(context.Background(), "aid-far", []byte("x"))
+	check("failed dial", dack, handed, err)
 	// A refusal at the hand-off (nack).
-	if err := at.Send(context.Background(), bob.aid, []byte("not now")); !errors.Is(err, module.ErrNotDelivered) {
-		t.Errorf("refused hand-off: %v, want it marked not delivered", err)
-	}
+	dack, handed, err = at.Send(context.Background(), bob.aid, []byte("not now"))
+	check("refused hand-off", dack, handed, err)
 	// A hand-off that timed out: the daemon may yet have taken it.
 	bobBox.mu.Lock()
 	bobBox.hold = hold
 	bobBox.mu.Unlock()
-	err := at.Send(context.Background(), bob.aid, []byte("slow"))
+	dack, handed, err = at.Send(context.Background(), bob.aid, []byte("slow"))
 	close(hold)
-	if err == nil || errors.Is(err, module.ErrNotDelivered) {
-		t.Errorf("timed-out hand-off: %v, want a failure not marked as reaching nobody", err)
+	check("timed-out hand-off", dack, handed, err)
+
+	// No peer process at all: nothing leaves.
+	h := &host{aid: "aid-carol", in: &mailbox{}}
+	mods, err := module.Build(map[string][]byte{
+		"p2p": []byte(fmt.Sprintf(`{"socket":%q}`, filepath.Join(dir, "nobody.sock"))),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	for _, m := range mods {
+		if m.Name() == "p2p" {
+			if err := m.Start(ctx, h); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = m.Stop(context.Background()) })
+		}
+	}
+	if dack, handed, err := h.transport(t).Send(context.Background(), bob.aid, []byte("x")); err == nil || handed || dack != nil {
+		t.Errorf("no peer process: dack=%x handed=%v err=%v; want a failure that handed nothing over", dack, handed, err)
 	}
 }
 
-// A delivery frame without the wire version comes from a peer that
-// predates sealed envelopes. It gets an error naming the release it needs,
-// and the daemon never sees it (A2A-DESIGN §3.10).
+// A delivery frame of another version — none at all from a peer that
+// predates sealed envelopes, 2 from one that still speaks frame v2 — gets an
+// error naming the version this peer speaks, and the daemon never sees it
+// (core CORE-V3; A2A-DESIGN §3.10).
 func TestAnUnversionedDeliveryIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	box := &mailbox{}
 	newNode(t, dir, filepath.Join(dir, "rv"), "bob", box)
-	c, err := net.Dial("unix", filepath.Join(dir, "bob.wire"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	if err := json.NewEncoder(c).Encode(map[string]any{
-		"op": "send", "id": "old-1", "to": "aid-bob", "payload": "cGxhaW50ZXh0"}); err != nil {
-		t.Fatal(err)
-	}
-	var reply frame
-	if err := json.NewDecoder(c).Decode(&reply); err != nil {
-		t.Fatal(err)
-	}
-	if reply.Op != "error" || reply.ID != "old-1" || reply.Error != errOldPeer {
-		t.Fatalf("reply = %+v, want an error naming the required release", reply)
+	for _, f := range []map[string]any{
+		{"op": "send", "id": "old-1", "to": "aid-bob", "payload": "cGxhaW50ZXh0"},
+		{"op": "send", "v": 2, "id": "old-2", "to": "aid-bob", "envelope": "ZW52ZWxvcGU"},
+	} {
+		c, err := net.Dial("unix", filepath.Join(dir, "bob.wire"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.NewEncoder(c).Encode(f); err != nil {
+			t.Fatal(err)
+		}
+		var reply frame
+		if err := json.NewDecoder(c).Decode(&reply); err != nil {
+			t.Fatal(err)
+		}
+		c.Close()
+		v, _ := f["v"].(int)
+		if reply.Op != "error" || reply.V != wireVersion || reply.ID != f["id"] || reply.Error != versionRefused(v) || reply.DAck != "" {
+			t.Fatalf("reply = %+v, want an error naming the frame version", reply)
+		}
 	}
 	time.Sleep(50 * time.Millisecond)
 	if n := box.count(); n != 0 {
-		t.Fatalf("the daemon received %d unversioned deliveries", n)
+		t.Fatalf("the daemon received %d deliveries of another version", n)
 	}
 }
 
@@ -435,7 +532,7 @@ func TestASourceOverItsRateIsRefused(t *testing.T) {
 // before the delivery is handed to the daemon: past its burst a source gets
 // an error and its sender falls back to the hub (A2A-DESIGN §3.6 step 0).
 func TestDeliveriesFromOneSourceAreLimited(t *testing.T) {
-	p := &peer{acks: map[string]chan error{}, limits: newSourceLimits()}
+	p := &peer{acks: map[string]chan handOffAnswer{}, limits: newSourceLimits()}
 	f := frame{Op: "send", V: wireVersion, ID: "x", To: "aid-self", Envelope: "ZW52"}
 	for i := 0; i < sourceBurst; i++ {
 		if out := p.receive("10.0.0.9", f); strings.Contains(out.Error, "rate limited") {
@@ -451,26 +548,27 @@ func TestDeliveriesFromOneSourceAreLimited(t *testing.T) {
 	}
 }
 
-// An AID nobody carries is unreachable, promptly, so the daemon falls
-// through to the hub instead of waiting.
-func TestAnUnknownAIDIsUnreachable(t *testing.T) {
+// A send to an AID nobody carries fails promptly, so the daemon falls
+// through to the hub instead of waiting. So does a send to this node
+// itself: it is not reachable through its own peer.
+func TestAnAIDNobodyCarriesFailsPromptly(t *testing.T) {
 	dir := t.TempDir()
-	alice := newNode(t, dir, filepath.Join(dir, "rv"), "alice", &mailbox{})
+	rv := filepath.Join(dir, "rv")
+	alice := newNode(t, dir, rv, "alice", &mailbox{})
 	at := alice.host.transport(t)
+	waitAnnounced(t, rv, alice)
 
-	start := time.Now()
-	if at.Reachable(context.Background(), "aid-nobody") {
-		t.Error("an AID no peer carries must not be reported reachable")
+	for _, aid := range []string{"aid-nobody", alice.aid} {
+		start := time.Now()
+		if _, _, err := at.Send(context.Background(), aid, []byte("x")); err == nil {
+			t.Errorf("delivering to %s must fail, so the caller retries elsewhere", aid)
+		}
+		if d := time.Since(start); d > 2*time.Second {
+			t.Errorf("failing a send to %s took %s — the hub is waiting behind this", aid, d)
+		}
 	}
-	if d := time.Since(start); d > 2*time.Second {
-		t.Errorf("answering 'unreachable' took %s — the hub is waiting behind this", d)
-	}
-	if err := at.Send(context.Background(), "aid-nobody", []byte("x")); err == nil {
-		t.Error("delivering to nobody must fail, so the caller retries elsewhere")
-	}
-	// And a node must not consider itself reachable through the network.
-	if at.Reachable(context.Background(), alice.aid) {
-		t.Error("a node reported itself reachable through its own peer")
+	if n := alice.box.count(); n != 0 {
+		t.Errorf("a send to itself reached alice's own daemon %d times", n)
 	}
 }
 
@@ -483,10 +581,7 @@ func TestConcurrentTrafficBothWays(t *testing.T) {
 	bob := newNode(t, dir, rv, "bob", &mailbox{})
 
 	at, bt := alice.host.transport(t), bob.host.transport(t)
-	waitFor(t, "the peers to find each other", func() bool {
-		return at.Reachable(context.Background(), bob.aid) &&
-			bt.Reachable(context.Background(), alice.aid)
-	})
+	waitAnnounced(t, rv, alice, bob)
 
 	const n = 12
 	var wg sync.WaitGroup
@@ -495,11 +590,11 @@ func TestConcurrentTrafficBothWays(t *testing.T) {
 		wg.Add(2)
 		go func(i int) {
 			defer wg.Done()
-			errs[i] = at.Send(context.Background(), bob.aid, []byte(fmt.Sprintf("a-%d", i)))
+			_, _, errs[i] = at.Send(context.Background(), bob.aid, []byte(fmt.Sprintf("a-%d", i)))
 		}(i)
 		go func(i int) {
 			defer wg.Done()
-			errs[n+i] = bt.Send(context.Background(), alice.aid, []byte(fmt.Sprintf("b-%d", i)))
+			_, _, errs[n+i] = bt.Send(context.Background(), alice.aid, []byte(fmt.Sprintf("b-%d", i)))
 		}(i)
 	}
 	wg.Wait()
@@ -557,10 +652,8 @@ func TestPeersReachEachOtherOverTCP(t *testing.T) {
 	_ = bob
 
 	at := alice.host.transport(t)
-	waitFor(t, "the peers to announce themselves over TCP", func() bool {
-		return at.Reachable(context.Background(), bob.aid)
-	})
-	if err := at.Send(context.Background(), bob.aid, []byte("over tcp")); err != nil {
+	waitAnnounced(t, rv, alice, bob)
+	if _, _, err := at.Send(context.Background(), bob.aid, []byte("over tcp")); err != nil {
 		t.Fatalf("delivery over TCP failed: %v", err)
 	}
 	if got := bobBox.all(); len(got) != 1 || got[0] != "over tcp" {
@@ -569,7 +662,7 @@ func TestPeersReachEachOtherOverTCP(t *testing.T) {
 	// And back, because a transport that works one way is half a
 	// transport: the answer travels the same wire.
 	bt := bob.host.transport(t)
-	if err := bt.Send(context.Background(), alice.aid, []byte("answer")); err != nil {
+	if _, _, err := bt.Send(context.Background(), alice.aid, []byte("answer")); err != nil {
 		t.Fatalf("the answer did not travel back over TCP: %v", err)
 	}
 	if got := aliceBox.all(); len(got) != 1 || got[0] != "answer" {
@@ -770,7 +863,66 @@ func TestAnEmptyRendezvousEntryIsNotAnAddress(t *testing.T) {
 	if addr, ok := p.lookup("aid-bob"); ok {
 		t.Fatalf("an empty entry reads as the address %q", addr)
 	}
-	if p.reachable("aid-bob") {
-		t.Fatal("a peer whose entry is empty is reported reachable")
+	if _, err := p.deliver(frame{To: "aid-bob", ID: "1", Envelope: "eA"}); err == nil {
+		t.Fatal("a peer whose entry is empty was delivered to")
+	}
+}
+
+// T43: the recipient daemon's delivery confirmation crosses the whole path
+// — bob's daemon, bob's peer, alice's peer, alice's daemon — byte for byte,
+// on the answer to the send that carried the envelope. Nothing on the way
+// makes one: an envelope bob's daemon acks without one comes back without.
+func TestTheRecipientsDAckTravelsBackUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	rv := filepath.Join(dir, "rv")
+	alice := newNode(t, dir, rv, "alice", &mailbox{})
+	dack := make([]byte, module.DAckLen)
+	for i := range dack {
+		dack[i] = byte(0xff - i*7) // both base64 alphabets differ on these
+	}
+	bobBox := &mailbox{dacks: map[string][]byte{"with a dack": dack}}
+	bob := newNode(t, dir, rv, "bob", bobBox)
+	at := alice.host.transport(t)
+	waitAnnounced(t, rv, alice, bob)
+
+	got, handed, err := at.Send(context.Background(), bob.aid, []byte("with a dack"))
+	if err != nil || !handed {
+		t.Fatalf("send: handed=%v err=%v", handed, err)
+	}
+	if !bytes.Equal(got, dack) {
+		t.Fatalf("alice got dack %x, bob's daemon made %x", got, dack)
+	}
+	got, _, err = at.Send(context.Background(), bob.aid, []byte("without"))
+	if err != nil || got != nil {
+		t.Fatalf("an ack without a dack came back as dack=%x err=%v", got, err)
+	}
+	if n := alice.host.bad.Load(); n != 0 {
+		t.Fatalf("%d confirmations counted malformed on the way", n)
+	}
+}
+
+// A confirmation bob's daemon spoils is still carried as it came: alice's
+// transport is the one that finds it malformed, counts it (dack-bad-frame)
+// and treats it as none (DLV-W-11b). The peer processes in between neither
+// noticed nor fixed it.
+func TestASpoiltDAckIsCarriedAndFoundAtTheSender(t *testing.T) {
+	dir := t.TempDir()
+	rv := filepath.Join(dir, "rv")
+	alice := newNode(t, dir, rv, "alice", &mailbox{})
+	bobBox := &mailbox{dacks: map[string][]byte{
+		"short": bytes.Repeat([]byte{1}, module.DAckLen-1),
+		"long":  bytes.Repeat([]byte{1}, module.DAckLen+1),
+	}}
+	bob := newNode(t, dir, rv, "bob", bobBox)
+	at := alice.host.transport(t)
+	waitAnnounced(t, rv, alice, bob)
+	for i, env := range []string{"short", "long"} {
+		got, handed, err := at.Send(context.Background(), bob.aid, []byte(env))
+		if err != nil || !handed || got != nil {
+			t.Fatalf("%s: dack=%x handed=%v err=%v; want the send answered without a dack", env, got, handed, err)
+		}
+		if n := alice.host.bad.Load(); n != int32(i+1) {
+			t.Fatalf("%s: alice counted %d malformed confirmations, want %d", env, n, i+1)
+		}
 	}
 }

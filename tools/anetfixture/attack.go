@@ -391,11 +391,11 @@ func postRelay(c *identity.Controller, hub, hubAID, to string, env []byte) *hubO
 	return out
 }
 
-// peerFrame is the anetpeer peer-wire frame (tools/anetpeer), the fields a
-// delivery uses.
+// peerFrame is the anetpeer peer-wire frame (tools/anetpeer, frame v3), the
+// fields a delivery uses. The envelope is base64url without padding.
 type peerFrame struct {
 	Op       string `json:"op"`
-	V        int    `json:"v,omitempty"`
+	V        int    `json:"v"`
 	ID       string `json:"id,omitempty"`
 	To       string `json:"to,omitempty"`
 	Envelope string `json:"envelope,omitempty"`
@@ -403,7 +403,7 @@ type peerFrame struct {
 }
 
 // peerWireVersion is the frame version anetpeer accepts.
-const peerWireVersion = 2
+const peerWireVersion = 3
 
 // peerAddr splits an anetpeer address the way anetpeer does: tcp://host:port
 // or host:port is TCP, unix://path or anything with a slash a Unix socket.
@@ -435,7 +435,7 @@ func deliverP2P(addr, to string, env []byte) *p2pOutcome {
 	defer c.Close()
 	_ = c.SetDeadline(time.Now().Add(20 * time.Second))
 	f := peerFrame{Op: "send", V: peerWireVersion, ID: randomID("fixture-"), To: to,
-		Envelope: base64.StdEncoding.EncodeToString(env)}
+		Envelope: base64.RawURLEncoding.EncodeToString(env)}
 	if err := json.NewEncoder(c).Encode(f); err != nil {
 		return &p2pOutcome{Error: err.Error()}
 	}
@@ -445,6 +445,9 @@ func deliverP2P(addr, to string, env []byte) *p2pOutcome {
 	}
 	if reply.Error != "" {
 		return &p2pOutcome{Error: reply.Error}
+	}
+	if reply.Op != "send" || reply.V != peerWireVersion {
+		return &p2pOutcome{Error: fmt.Sprintf("the peer answered op %q of frame version %d", reply.Op, reply.V)}
 	}
 	return &p2pOutcome{OK: true}
 }

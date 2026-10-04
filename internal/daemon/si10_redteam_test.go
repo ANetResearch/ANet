@@ -29,8 +29,9 @@ type misrouteTransport struct{ wrong *Daemon }
 
 func (m misrouteTransport) Name() string                           { return "p2p-misroute" }
 func (m misrouteTransport) Reachable(context.Context, string) bool { return true }
-func (m misrouteTransport) Send(ctx context.Context, _ string, env []byte) error {
-	return m.wrong.Inbound().Receive(ctx, env)
+func (m misrouteTransport) Send(ctx context.Context, _ string, env []byte) ([]byte, bool, error) {
+	dack, err := m.wrong.Inbound().Receive(ctx, env)
+	return dack, true, err
 }
 
 // [redteam:F22] regression (was TestRedteamSI10_P2PMisrouteIsAckedAndTheMessageIsLost).
@@ -189,15 +190,15 @@ func TestRedteamSI10_ACancelBeforeDeliveryWithdrawsTheDelegation(t *testing.T) {
 }
 
 // ambiguousP2P is a direct transport that fails in a way that may have
-// delivered (no ErrNotDelivered), while on; it delivers nothing.
+// delivered (the envelope was handed over), while on; it delivers nothing.
 type ambiguousP2P struct{ on atomic.Bool }
 
 func (p *ambiguousP2P) Name() string { return "p2p-ambiguous" }
 func (p *ambiguousP2P) Reachable(context.Context, string) bool {
 	return p.on.Load()
 }
-func (p *ambiguousP2P) Send(context.Context, string, []byte) error {
-	return errors.New("p2p: no answer within the send timeout")
+func (p *ambiguousP2P) Send(context.Context, string, []byte) ([]byte, bool, error) {
+	return nil, true, errors.New("p2p: no answer within the send timeout")
 }
 
 // [redteam:F23] SI-10 / §4.2: a delegation that may have reached the
@@ -386,7 +387,7 @@ func TestRedteamSI10_StartupRecoveryLeavesACallRunningNowAlone(t *testing.T) {
 	env := onlyQueuedEnvelope(t, srv, prov.AID())
 	clearMailbox(t, srv, prov.AID())
 	// Delivered over p2p: accepted, marked working, running.
-	if err := prov.Inbound().Receive(ctx, env); err != nil {
+	if err := recvErr(prov.Inbound(), ctx, env); err != nil {
 		t.Fatal(err)
 	}
 	<-slow.started
