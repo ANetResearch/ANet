@@ -15,8 +15,8 @@ and an internal note item-Q33), written for an internal note
 Several lists may be given (an argument ending in .py is a list, any other is an ID): each is run or
 checked in turn under a "== <list>" heading, and --check ends each with "<list>: N applies, M APPLY-ERR".
 --check exits 1 when any entry is an APPLY-ERR; an ID that is in none of the lists exits 2. An entry
-whose edit names a file that does not exist, or whose key or full test package is not a directory, is an
-APPLY-ERR and the list goes on.
+whose edit names a file that does not exist (or creates one in a directory that does not), or whose key or
+full test package is not a directory, is an APPLY-ERR and the list goes on.
 
 A mutation that survives its key tests is run against the whole of each package in "full"; one that
 survives that too is a gap (or an equivalent mutation: say which in the note). Verdicts: KILLED,
@@ -149,6 +149,9 @@ def apply(m):
         if old is None:
             if os.path.exists(fp):
                 raise ValueError("%s exists" % path)
+            if not os.path.isdir(os.path.dirname(fp)):
+                # The package the new file joins was deleted or moved: drift, as for a missing file.
+                raise ValueError("%s: no directory %s in %s" % (path, os.path.dirname(path) or ".", m["repo"]))
             with open(fp, "w") as f:
                 f.write(new)
             continue
@@ -266,7 +269,9 @@ def run_list(muts, ids, check, res):
                 raise ValueError("test package %s does not exist" % ", ".join(gone))
             saved = backup(m)
             apply(m)
-        except ValueError as e:
+        except (ValueError, OSError) as e:
+            # OSError: whatever else stops an edit from being written (a path that is now a directory,
+            # a file that cannot be read) is drift in the list too, and must not end the run.
             restore(m["repo"], m["id"], saved)
             rec.update(verdict="APPLY-ERR", detail=str(e))
             print("%-12s APPLY-ERR %s" % (m["id"], e), flush=True)

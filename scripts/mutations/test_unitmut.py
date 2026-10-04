@@ -108,6 +108,24 @@ class Check(unittest.TestCase):
         self.assertEqual(rc, 1, "an APPLY-ERR must fail --check")
         self.assertEqual(self.root.clean(), "")
 
+    def test_a_new_file_in_a_missing_directory_is_an_apply_error_and_the_list_goes_on(self):
+        # An entry that adds a file to a package (old None) names the package's directory; once that
+        # package is deleted the entry is drift like any other, not the end of the run.
+        lst = self.root.write_list("one.py", [
+            dict(mut("c-gone", repo="ANetHub"), edits=[("internal/gone/zz_mut.go", None, "package gone\n")]),
+            dict(mut("c-here", repo="ANetHub"), edits=[("pkg/zz_mut.go", None, "package pkg\n")]),
+            mut("c-after", repo="ANet"),
+        ])
+        rc, out, err = self.root.run("--check", lst)
+        v = verdicts(out)
+        self.assertEqual(v.get("c-gone"), "APPLY-ERR", out + err)
+        self.assertIn("internal/gone", out)
+        self.assertEqual(v.get("c-here"), "applies", out + err)
+        self.assertEqual(v.get("c-after"), "applies", "the entries after it were not checked:\n" + out + err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(rc, 1)
+        self.assertEqual(self.root.clean(), "")
+
     def test_several_lists_are_each_checked_and_reported(self):
         a = self.root.write_list("first.py", [mut("a-1"), mut("a-2", repo="ANet")])
         b = self.root.write_list("second.py", [mut("b-1", repo="ANetHub"),
