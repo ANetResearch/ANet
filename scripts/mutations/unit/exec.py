@@ -530,4 +530,45 @@ MUTS += [
   tests=[(DAEMON, INJECT)],
   full=[DAEMON],
  ),
+ # EXE-3 review: the gaps an adversarial reading found (the tests were tightened to catch them)
+ dict(
+  id='m-bp-media-url-c', group='BP-5', repo='ANet',
+  desc='chat 只看 image_url(放行 video_url、audio_url 与 URL 形式的 file_data,兼容服务会代为抓取)',
+  edits=[
+   ('internal/daemon/egress_policy.go', 'var chatMediaKeys = []string{"audio_url", "image_url", "video_url"}', 'var chatMediaKeys = []string{"image_url"}'),
+   ('internal/daemon/egress_policy.go', 'ok && strings.Contains(d, ":") && !egressInlineData(d) {', 'ok && false && strings.Contains(d, ":") && !egressInlineData(d) {'),
+  ],
+  tests=[(DAEMON, INJECT)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bp-media-url-d', group='BP-5', repo='ANet',
+  desc='chat 只在 type 与成员同名的部分里找媒体 URL(兼容服务只凭成员名就认出媒体)',
+  edits=[('internal/daemon/egress_policy.go', '\t\t\tif !presentMember(m, k) {\n', '\t\t\tif typ, _ := m["type"].(string); typ != k || !presentMember(m, k) {\n')],
+  tests=[(DAEMON, INJECT)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg-8b', group='EG-4', repo='ANet',
+  desc='隧道字节先转发后计量(超额的那一块仍被转发)',
+  edits=[('internal/daemon/egress_connect.go',
+          '\t\t\tif !e.carry(up, n) {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tif _, werr := dst.Write(buf[:n]); werr != nil {\n\t\t\t\treturn\n\t\t\t}\n',
+          '\t\t\tif _, werr := dst.Write(buf[:n]); werr != nil {\n\t\t\t\treturn\n\t\t\t}\n\t\t\tif !e.carry(up, n) {\n\t\t\t\treturn\n\t\t\t}\n')],
+  tests=[(DAEMON, 'TestEgressConnectByteLimits')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-cn-1e', group='CN-4', repo='ANet',
+  desc='解析结果不先去掉 IPv4 映射就与本机地址比较(::ffff: 形式的本机地址被放行)',
+  edits=[('internal/daemon/egress_connect.go', '\t\ta := ip.Unmap().WithZone("")\n', '\t\ta := ip\n')],
+  tests=[(DAEMON, 'TestEgressConnectRefusesSpecialAddresses')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-cn-5b', group='CN-5', repo='ANet',
+  desc='ClientHello 读取不限单条记录的长度(可读入远超 16 KiB)',
+  edits=[('internal/daemon/clienthello.go', ' || n > tlsMaxFragment || len(raw)+n > clientHelloMax {', ' {')],
+  tests=[(DAEMON, 'TestClientHelloVerdicts')],
+  full=[DAEMON],
+ ),
 ]

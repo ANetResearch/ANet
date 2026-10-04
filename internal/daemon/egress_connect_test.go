@@ -260,6 +260,7 @@ func TestEgressConnectRefusesSpecialAddresses(t *testing.T) {
 		{netip.MustParseAddr("::1")},
 		{testPublicAddr, netip.MustParseAddr("192.168.0.10")},
 		{self},
+		{netip.AddrFrom16(self.As16())}, // this machine's address, as a resolver may give an IPv4 one
 	} {
 		f := &fakeConnectNet{answers: [][]netip.Addr{answer}, target: "127.0.0.1:9", local: []netip.Addr{self}}
 		ep, sock := connectTestEgress(t, f, "pypi.org")
@@ -492,11 +493,16 @@ func TestEgressConnectByteLimits(t *testing.T) {
 		}
 		ep.stats.mu.Unlock()
 		_, _ = c.Write([]byte(strings.Repeat("x", 64)))
-		// Both tunnels end, the one that went over and the other one, at once.
+		// Both tunnels end, the one that went over and the other one, at once, and the bytes over the
+		// limit are not carried: the echo of the 64 bytes never comes back.
 		for i, conn := range []net.Conn{c, other} {
 			_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-			if _, err := io.ReadAll([]*bufio.Reader{br, otherBr}[i]); err != nil && !isClosed(err) {
+			got, err := io.ReadAll([]*bufio.Reader{br, otherBr}[i])
+			if err != nil && !isClosed(err) {
 				t.Errorf("up=%v: tunnel %d: %v", tc.up, i, err)
+			}
+			if len(got) != 0 {
+				t.Errorf("up=%v: tunnel %d carried %d bytes over the limit", tc.up, i, len(got))
 			}
 		}
 		_, _, st, body := connectRaw(t, sock, "pypi.org:443")

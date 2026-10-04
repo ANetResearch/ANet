@@ -215,8 +215,8 @@ func TestClientHelloVerdicts(t *testing.T) {
 		if code != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, code, tc.want)
 		}
-		if !bytes.HasPrefix(tc.stream, raw) {
-			t.Errorf("%s: read %d bytes that are not the stream's first", tc.name, len(raw))
+		if !bytes.HasPrefix(tc.stream, raw) || len(raw) > clientHelloMax {
+			t.Errorf("%s: read %d bytes that are not the stream's first within 16 KiB", tc.name, len(raw))
 		}
 		if code == "" && !bytes.Equal(raw, good) && tc.name != "upper case" {
 			t.Errorf("%s: read %d bytes, the hello is %d: nothing past it may be taken", tc.name, len(raw), len(good))
