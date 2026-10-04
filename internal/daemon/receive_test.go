@@ -704,9 +704,10 @@ func TestAStaleOrBadKeysAttachmentDoesNotDropTheMessage(t *testing.T) {
 	_ = srv
 }
 
-// §3.6 step 7: after a peer's key rotation, a message signed by its
-// previous key and dated before the rotation is accepted for rotation_grace
-// after the rotation, and refused after it.
+// §3.6 step 7: after a peer's planned key rotation, a message signed by its
+// previous key and dated before the rotation is accepted when it arrives
+// within the rotation grace after the rotation (identity.RotationGrace, one
+// hour, not configurable), and refused after it.
 func TestRotationGrace(t *testing.T) {
 	_, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -734,19 +735,17 @@ func TestRotationGrace(t *testing.T) {
 			})
 	}
 	if r := receive(t, prov, inFlight()); r.class != rxAccepted {
-		t.Fatalf("inside the default one-hour grace: %+v", r)
+		t.Fatalf("inside the one-hour grace: %+v", r)
 	}
-	prov.mu.Lock()
-	prov.cfg.RotationGrace = "10m"
-	prov.mu.Unlock()
+	// The same message arriving one hour and one millisecond after the
+	// rotation is refused.
+	prov.setClock(func() uint64 { return rotatedAt + identity.RotationGrace + 1 })
 	if r := receive(t, prov, inFlight()); r.class != rxDropped || r.reason != seal.ReasonGraceExpired {
-		t.Fatalf("past a ten-minute grace: %+v", r)
+		t.Fatalf("past the one-hour grace: %+v", r)
 	}
+	prov.setClock(nil)
 	// And a message dated after the rotation, signed by the retired key, is
-	// refused whatever the grace.
-	prov.mu.Lock()
-	prov.cfg.RotationGrace = "3h"
-	prov.mu.Unlock()
+	// refused whenever it arrives.
 	late := craft(t, old, prov, seal.TypeMessage, id, chatBody(t, "after", ""), nil)
 	if r := receive(t, prov, late); r.class != rxDropped || r.reason != seal.ReasonRevokedKey {
 		t.Fatalf("retired key after the rotation: %+v", r)
