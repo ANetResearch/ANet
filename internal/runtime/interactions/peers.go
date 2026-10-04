@@ -17,7 +17,6 @@ package interactions
 // to commit together with the interaction and message rows.
 
 import (
-	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -121,7 +120,9 @@ func (t *Tx) SetLateResult(id string, result []byte, resultCID string, receipt [
 }
 
 // SetPeerKeys is Store.SetPeerKeys inside the transaction.
-func (t *Tx) SetPeerKeys(id string, kel, keys []byte) error { return setPeerKeys(t.tx, id, kel, keys) }
+func (t *Tx) SetPeerKeys(id string, kel, keys []byte) error {
+	return setPeerKeys(t.tx, id, kel, keys, t.now)
+}
 
 // SetEndRequested is Store.SetEndRequested inside the transaction.
 func (t *Tx) SetEndRequested(id, by string) error { return setEndRequested(t.tx, id, by) }
@@ -303,12 +304,12 @@ func (s *Store) UpdatePeerIdentity(aid string, fn func(cur *PeerIdentity) (*Peer
 			return err
 		}
 	}
-	// A new key set with a higher mailbox epoch voids the capabilities the
-	// peer signed under the older one, in this transaction (SSR-D19).
-	if len(next.KeySet) > 0 && (cur == nil || !bytes.Equal(next.KeySet, cur.KeySet)) {
-		if _, err := invalidateOlderEpoch(tx, aid, epochOfKeySet(next.KeySet), uint64(s.nowMS())); err != nil {
-			return err
-		}
+	// What the write means for the capabilities the two exchanged, in this
+	// transaction: a key set with a higher mailbox epoch voids the ones the
+	// peer signed under the older one (SSR-D19), an emergency rotation of
+	// the peer voids and revokes all of them (ENG-K4).
+	if err := peerWritten(tx, aid, cur, next, uint64(s.nowMS())); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

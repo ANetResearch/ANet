@@ -28,12 +28,14 @@ package interactions
 // carries ix "" so that UNIQUE(issuer, scope, ix) holds for it too.
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
 	"math"
 
 	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 )
 
@@ -404,6 +406,10 @@ func (f IssuedFilter) where() (string, []any, error) {
 // (SSR-D20). It returns how many it revoked; one already revoked keeps its
 // first revoked_at.
 func (t *Tx) RevokeIssued(f IssuedFilter, now uint64) (int64, error) {
+	return revokeIssued(t.tx, f, now)
+}
+
+func revokeIssued(e execer, f IssuedFilter, now uint64) (int64, error) {
 	w, args, err := f.where()
 	if err != nil {
 		return 0, err
@@ -411,7 +417,7 @@ func (t *Tx) RevokeIssued(f IssuedFilter, now uint64) (int64, error) {
 	if err := checkInts(now); err != nil {
 		return 0, err
 	}
-	res, err := t.tx.Exec(`UPDATE caps_issued SET revoked_at = ?, revoke_pushed = 0 WHERE revoked_at IS NULL AND `+w,
+	res, err := e.Exec(`UPDATE caps_issued SET revoked_at = ?, revoke_pushed = 0 WHERE revoked_at IS NULL AND `+w,
 		append([]any{int64(now)}, args...)...)
 	if err != nil {
 		return 0, err
@@ -760,13 +766,17 @@ func invalidateOlderEpoch(e execer, issuer string, epoch, now uint64) (int64, er
 // this node is forgotten. It runs in the transaction that merges the
 // rotation and returns how many rows it invalidated.
 func (t *Tx) InvalidatePeerCaps(issuer string, now uint64) (int64, error) {
+	return invalidatePeerCaps(t.tx, issuer, now)
+}
+
+func invalidatePeerCaps(e execer, issuer string, now uint64) (int64, error) {
 	if issuer == "" {
 		return 0, fmt.Errorf("%w: an issuer is named", ErrBadInput)
 	}
 	if err := checkInts(now); err != nil {
 		return 0, err
 	}
-	res, err := t.tx.Exec(`UPDATE caps_held SET invalid_at = ? WHERE issuer = ? AND invalid_at IS NULL`, int64(now), issuer)
+	res, err := e.Exec(`UPDATE caps_held SET invalid_at = ? WHERE issuer = ? AND invalid_at IS NULL`, int64(now), issuer)
 	if err != nil {
 		return 0, err
 	}
@@ -774,7 +784,7 @@ func (t *Tx) InvalidatePeerCaps(issuer string, now uint64) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err := t.tx.Exec(`UPDATE caps_held SET p2p = '' WHERE issuer = ? AND p2p != ''`, issuer); err != nil {
+	if _, err := e.Exec(`UPDATE caps_held SET p2p = '' WHERE issuer = ? AND p2p != ''`, issuer); err != nil {
 		return 0, err
 	}
 	return n, nil
@@ -907,4 +917,161 @@ func epochOfKeySet(signed []byte) uint64 {
 		return 0
 	}
 	return set.Mbox.Epoch
+}
+
+// ---- what other writes mean for the capabilities
+
+// IssuedGrantees returns every AID this node gave a capability it has not
+// revoked, in AID order: the peers whose capabilities the peer lists may
+// have to withdraw (SS §4.3.8 item 1, reconcileCapsWithLists).
+func (s *Store) IssuedGrantees() ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT grantee FROM caps_issued WHERE revoked_at IS NULL ORDER BY grantee`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var g string
+		if err := rows.Scan(&g); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// PushedRevocationsSince counts the revocations made at or after since that
+// the hub took (revoke_pushed): what a hub that lost nothing holds of this
+// node's revocations at least, for the comparison of SSR-D21.
+func (s *Store) PushedRevocationsSince(since uint64) (int, error) {
+	if err := checkInts(since); err != nil {
+		return 0, err
+	}
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM caps_issued WHERE revoke_pushed = 1 AND revoked_at IS NOT NULL AND revoked_at >= ?`,
+		int64(since)).Scan(&n)
+	return n, err
+}
+
+// peerWritten applies, in the transaction that writes aid's peer_identity
+// row from cur (nil: there was none) to next, what the write means for the
+// capabilities this node and aid gave each other:
+//
+//   - SSR-D19: a key set with a higher mailbox epoch voids the capabilities
+//     aid signed under an older one (invalidateOlderEpoch);
+//   - ENG-K4, KEL D-44: a KEL that gains an emergency rotation of aid
+//     (key 12) drops every capability aid gave this node, and the direct
+//     address its grants taught (invalidatePeerCapsTx), and revokes every
+//     capability this node gave aid (revokeIssuedToTx): aid's old data
+//     directory, with the holder seeds of those capabilities, may be in
+//     someone else's hands. A planned rotation changes nothing here.
+//
+// UpdatePeerIdentity calls it; any other writer of peer_identity (the
+// engine's step 10, KEL D-26 refreshes) must too.
+func peerWritten(e execer, aid string, cur, next *PeerIdentity, now uint64) error {
+	if len(next.KeySet) > 0 && (cur == nil || !bytes.Equal(next.KeySet, cur.KeySet)) {
+		if _, err := invalidateOlderEpoch(e, aid, epochOfKeySet(next.KeySet), now); err != nil {
+			return err
+		}
+	}
+	if cur == nil || len(cur.KEL) == 0 || bytes.Equal(next.KEL, cur.KEL) {
+		return nil
+	}
+	if !emergencyMerged(cur.KEL, next.KEL) {
+		return nil
+	}
+	return emergencyRotated(e, aid, now)
+}
+
+// emergencyRotated is ENG-K4 for aid, whose emergency rotation this node
+// just merged: what aid gave this node is dropped and what this node gave
+// aid is revoked, in the merge's transaction.
+func emergencyRotated(e execer, aid string, now uint64) error {
+	if _, err := invalidatePeerCaps(e, aid, now); err != nil {
+		return err
+	}
+	_, err := revokeIssued(e, IssuedFilter{Grantee: aid}, now)
+	return err
+}
+
+// requesterKELWritten is peerWritten's ENG-K4 rule for the other place a
+// peer's KEL is kept: the requester of a public or public_cap interaction
+// is not recorded in peer_identity, and its KEL is kept on the open
+// interaction instead (A2A-DESIGN §3.8). A KEL written there that adds an
+// emergency rotation to the one kept is a merge like any other: this node
+// gave that requester a stranger peer capability when it accepted the task
+// (SS §4.3.2 rule 5), whose holder seed is in the requester's old data
+// directory. A first KEL, a planned rotation and an ended interaction
+// change nothing.
+func requesterKELWritten(e execer, id string, kel []byte, now uint64) error {
+	var peer string
+	var cur []byte
+	err := e.QueryRow(`SELECT peer_aid, peer_kel FROM interaction WHERE id=? AND state NOT IN `+terminalSQL, id).Scan(&peer, &cur)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if peer == "" || len(cur) == 0 || bytes.Equal(cur, kel) || !emergencyMerged(cur, kel) {
+		return nil
+	}
+	return emergencyRotated(e, peer, now)
+}
+
+// emergencyMerged reports whether nextKEL, a peer's KEL as this node holds
+// it after a write, adds to oldKEL, the KEL it held before, an emergency
+// rotation: oldKEL is a prefix of nextKEL (identity.ExtendsKEL, checked
+// here because the store does not know how its caller merged) and
+// identity.MergedEmergency finds a rot with key 12 past it (KEL D-44). A
+// KEL that does not decode or extend merged nothing.
+func emergencyMerged(oldKEL, nextKEL []byte) bool {
+	old, err := identity.UnmarshalKEL(oldKEL)
+	if err != nil {
+		return false
+	}
+	next, err := identity.UnmarshalKEL(nextKEL)
+	if err != nil || len(next) <= len(old) {
+		return false
+	}
+	return identity.MergedEmergency(old, next) && identity.ExtendsKEL(old, next) == nil
+}
+
+// settledPeerCaps is SS §4.3.8 item 3: an interaction with peer has ended
+// with its a2a-x402 payment completed. In that transaction this node
+// revokes the peer capabilities it gave peer and stops using the one peer
+// gave it, so the next message either way carries a new one (§4.3.2 rule
+// 5): the settlement, which the hubs see, links the payer to this
+// interaction and not to everything else the two exchange. One-shot
+// capabilities are left to expire (§4.3.8, last paragraph).
+func settledPeerCaps(e execer, peer string, now int64) error {
+	if peer == "" {
+		return nil
+	}
+	if _, err := e.Exec(`UPDATE caps_issued SET revoked_at = ?, revoke_pushed = 0
+		WHERE grantee = ? AND scope = 'peer' AND revoked_at IS NULL`, now, peer); err != nil {
+		return err
+	}
+	_, err := e.Exec(`UPDATE caps_held SET invalid_at = ? WHERE issuer = ? AND scope = 'peer' AND invalid_at IS NULL`, now, peer)
+	return err
+}
+
+// endedSettled runs settledPeerCaps for interaction id when a write just
+// made it terminal (moved) and its payment is recorded completed. The write
+// that records a completed payment on an ended interaction calls
+// settledPeerCaps itself (Tx.SetPayment): together they act once, on the
+// write that makes "ended and paid" true.
+func endedSettled(e execer, id string, moved bool, now int64) error {
+	if !moved {
+		return nil
+	}
+	var peer, pay string
+	if err := e.QueryRow(`SELECT peer_aid, pay_state FROM interaction WHERE id=?`, id).Scan(&peer, &pay); err != nil {
+		return err
+	}
+	if pay != PayCompleted {
+		return nil
+	}
+	return settledPeerCaps(e, peer, now)
 }

@@ -222,6 +222,16 @@ type fakeHub struct {
 	registerCalls  int
 	checkOnlyCalls int
 	registerKELs   [][]byte
+	// revocations are the withdrawn delivery credentials each owner
+	// pushed (POST /mailbox/revoke; cap_id B64 → held), counted in the
+	// /register answer (sealed-sender SSR-D21). revokeBatches is the
+	// number of ids of every accepted request; revokeFail answers that
+	// many requests 503 first; revokeFull answers 429
+	// revocation_list_full (revoke_push_test.go).
+	revocations   map[string]map[string]bool
+	revokeBatches []int
+	revokeFail    int
+	revokeFull    bool
 }
 
 // fakeHubDefaultMaxEnvelope is the real hub's per-envelope cap (96 MiB).
@@ -378,6 +388,7 @@ func (h *fakeHub) handler() http.Handler {
 	mux.HandleFunc("GET /agents/{aid}/keys", h.hKeysGet)
 	mux.HandleFunc("POST "+hubapi.KeysLookupPath, h.hKeysLookup)
 	mux.HandleFunc("POST /agents/{aid}/keys", h.hKeysPost)
+	mux.HandleFunc("POST "+hubapi.MailboxRevokePath, h.hMailboxRevoke)
 	// The facilitator half of the contract. A fake that serves only the
 	// endpoints the happy path happens to touch is how a seam gets shipped
 	// unconnected — the real hub answers these, so this one does too.
@@ -721,7 +732,9 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 	// Registering counts as being seen: the real hub writes last_seen_at on
 	// register too, so a node that just joined is never reported quiet.
 	h.lastSeen[req.AID] = time.Now()
-	out := hubapi.RegisterResponse{AID: req.AID, Status: "registered", KeysStatus: hubapi.KeysStatusAbsent, CardStatus: "absent"}
+	revoked := uint64(len(h.revocations[req.AID]))
+	out := hubapi.RegisterResponse{AID: req.AID, Status: "registered", KeysStatus: hubapi.KeysStatusAbsent, CardStatus: "absent",
+		Revocations: &revoked}
 	if until, ok := h.probation[req.AID]; ok {
 		out.ProbationUntil, out.Trial = &until, "pending"
 	}

@@ -432,6 +432,37 @@ type RegisterResponse struct {
 	CardError      string  `json:"card_error,omitempty"`
 	ProbationUntil *uint64 `json:"probation_until,omitempty"`
 	Trial          string  `json:"trial,omitempty"`
+	// Revocations is how many unexpired revocations of this agent's
+	// delivery credentials the hub holds, the total of POST /mailbox/revoke
+	// (core §2.12.2). A daemon that pushed more than that pushes them again
+	// (sealed-sender SSR-D21): the hub was restored from a backup or lost
+	// them. Nil from a hub that does not say.
+	Revocations *uint64 `json:"revocations,omitempty"`
+}
+
+// MailboxRevokePath is POST /mailbox/revoke (core §2.12.2), signed with
+// relayauth action revoke: the owner withdraws delivery credentials it
+// issued (sealed-sender SSR-D20).
+const MailboxRevokePath = "/mailbox/revoke"
+
+// MailboxRevokeMaxIDs is the most capability ids one POST /mailbox/revoke
+// carries; a daemon with more sends them in batches (SS §2.12).
+const MailboxRevokeMaxIDs = 1000
+
+// MailboxRevokeRequest is the body of POST /mailbox/revoke: 1 to
+// MailboxRevokeMaxIDs capability ids (CapBody key 3), each B64 of 16
+// bytes. An id given again is idempotent.
+type MailboxRevokeRequest struct {
+	CapIDs []string `json:"cap_ids"`
+}
+
+// MailboxRevokeResponse is its answer: Revoked is how many of the ids the
+// hub had not held before, Total how many unexpired revocations of the
+// owner it holds now. A hub that holds as many as it keeps answers 429
+// revocation_list_full instead, and keeps none of the batch.
+type MailboxRevokeResponse struct {
+	Revoked uint64 `json:"revoked"`
+	Total   uint64 `json:"total"`
 }
 
 // CheckOnlyResponse is the /register answer to check_only: admitted (the AID

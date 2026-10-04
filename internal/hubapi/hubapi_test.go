@@ -75,8 +75,13 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		}},
 		{"RegisterPoW", hubapi.RegisterPoW{}, []string{"nonce", "seed"}},
 		{"RegisterResponse", hubapi.RegisterResponse{}, []string{
-			"aid", "card_error", "card_status", "keys_error", "keys_status", "probation_until", "status", "trial",
+			"aid", "card_error", "card_status", "keys_error", "keys_status", "probation_until", "revocations", "status", "trial",
 		}},
+		// POST /mailbox/revoke (sealed-sender SSR-D20). Mirrors ANetHub
+		// internal/aghub/revoke.go; TestTheRevocationBodiesAreTheRegistrys
+		// holds them to the registry.
+		{"MailboxRevokeRequest", hubapi.MailboxRevokeRequest{}, []string{"cap_ids"}},
+		{"MailboxRevokeResponse", hubapi.MailboxRevokeResponse{}, []string{"revoked", "total"}},
 		{"CheckOnlyResponse", hubapi.CheckOnlyResponse{}, []string{"status"}},
 		{"HubIdentity", hubapi.HubIdentity{}, []string{"aid", "kel"}},
 		// The facilitator contract as the daemon speaks it (module/x402
