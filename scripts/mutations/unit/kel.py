@@ -129,3 +129,32 @@ MUTS += [
           'package daemon\n\nimport "github.com/ANetResearch/ANetCore/identity"\n\nvar _ = identity.OpenRecoveryFile\n')],
   tests=[('ANetCore:./identity', '^TestRecoveryAPIScope$')], full=ID_FULL),
 ]
+
+# KEL-3 review: checks of single block keys that the rows above do not reach on their own (kel3-14
+# drops all three argon2id parameters at once and RECOVERY-1 pins only t).
+RECKEYS = RECUNIT(['TestRecoveryBlockKeysAreChecked'])
+MUTS += [
+ dict(id='kel3-22', group='KEL-3', repo='ANetCore', desc='core §2.6:不核对 argon2id 的 m(文件可要求更多内存)',
+  edits=[(REC, 'k.MKiB == argon2MemKiB && ', '')],
+  tests=RECKEYS, full=ID_FULL),
+ dict(id='kel3-23', group='KEL-3', repo='ANetCore', desc='不核对块内 nonce 长度(AEAD 遇错长 nonce 会 panic)',
+  edits=[(REC, '\tcase len(b.Nonce) != recoveryNonce:\n', '\tcase false:\n')],
+  tests=RECKEYS, full=ID_FULL),
+ dict(id='kel3-24', group='KEL-3', repo='ANetCore', desc='CORE-E8:不核对块的类型标签(键 0)',
+  edits=[(REC, '\tcase b.Type != recoveryType:\n', '\tcase false:\n')],
+  tests=RECKEYS, full=ID_FULL),
+ dict(id='kel3-25', group='KEL-3', repo='ANetCore', desc='CORE-E9:块内 AID 不经检查(可含 U+0000 或空白)',
+  edits=[(REC, '\tcase checkHeaderAID(b.AID) != nil:\n', '\tcase false:\n')],
+  tests=RECKEYS, full=ID_FULL),
+ dict(id='kel3-26', group='KEL-3', repo='ANetCore', desc='本机钥块的 kdf 可带 argon2id 参数(kdf 不再恰为两种形状之一)',
+  edits=[(REC, '\t\treturn k.T == 0 && k.MKiB == 0 && k.P == 0 && len(k.Salt) == 0\n', '\t\treturn true\n')],
+  tests=RECKEYS, full=ID_FULL),
+ dict(id='kel3-27', group='KEL-3', repo='ANetCore', desc='Seal 不检查 AID 能否写进文本头',
+  edits=[(REC, '\tif err := checkHeaderAID(aid); err != nil {\n\t\treturn nil, err\n\t}\n\tif err := checkHub(hub)',
+          '\tif err := checkHub(hub)')],
+  tests=RECUNIT(['TestSealRefuses']), full=ID_FULL),
+ dict(id='kel3-28', group='KEL-3', repo='ANetCore', desc='WithRecoveryNote 不回读(读不回的文件照样写出)',
+  edits=[(REC, '\tif _, err := parseRecovery(out); err != nil {\n'
+          '\t\treturn nil, fmt.Errorf("identity: the recovery file with this note would not read back: %v", err)\n\t}\n', '')],
+  tests=RECUNIT(['TestRecoveryText']), full=ID_FULL),
+]
