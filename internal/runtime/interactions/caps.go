@@ -143,57 +143,50 @@ func HeldFromGrant(g *seal.Grant, body *seal.CapBody, receivedAt uint64) (HeldCa
 	return h, h.check()
 }
 
-// migrateCaps creates the two capability tables. v0.3.0 creates them new;
-// nothing older is read (CORE-V4).
-func (s *Store) migrateCaps() error {
-	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS caps_issued (
-		   cap_id BLOB PRIMARY KEY CHECK (length(cap_id) = 16),
-		   grantee TEXT NOT NULL CHECK (grantee != ''),
-		   class INTEGER NOT NULL CHECK (class IN (1, 2)),
-		   scope TEXT NOT NULL CHECK (scope IN ('peer', 'ix')),
-		   ix TEXT NOT NULL DEFAULT '' CHECK ((scope = 'ix') = (ix != '')),
-		   holder_seed BLOB NOT NULL CHECK (length(holder_seed) = 32),
-		   holder_pub BLOB NOT NULL CHECK (length(holder_pub) = 32),
-		   epoch INTEGER NOT NULL CHECK (epoch >= 1),
-		   cap_exp INTEGER NOT NULL,
-		   issued_at INTEGER NOT NULL,
-		   revoked_at INTEGER,
-		   revoke_pushed INTEGER NOT NULL DEFAULT 0
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_caps_issued_grantee ON caps_issued(grantee, scope)`,
-		// The revocations still to push to the hub (SSR-D20).
-		`CREATE INDEX IF NOT EXISTS idx_caps_issued_unpushed ON caps_issued(revoked_at)
-		   WHERE revoked_at IS NOT NULL AND revoke_pushed = 0`,
-		`CREATE TABLE IF NOT EXISTS caps_held (
-		   issuer TEXT NOT NULL CHECK (issuer != ''),
-		   scope TEXT NOT NULL CHECK (scope IN ('peer', 'ix')),
-		   ix TEXT NOT NULL DEFAULT '' CHECK ((scope = 'ix') = (ix != '')),
-		   cap_id BLOB NOT NULL CHECK (length(cap_id) = 16),
-		   cap BLOB NOT NULL CHECK (length(cap) > 0),
-		   holder_seed BLOB NOT NULL CHECK (length(holder_seed) = 32),
-		   class INTEGER NOT NULL CHECK (class IN (1, 2)),
-		   epoch INTEGER NOT NULL CHECK (epoch >= 1),
-		   cap_exp INTEGER NOT NULL,
-		   home TEXT NOT NULL CHECK (home != ''),
-		   p2p TEXT NOT NULL DEFAULT '',
-		   pay INTEGER NOT NULL DEFAULT 0,
-		   invalid_at INTEGER,
-		   refused_n INTEGER NOT NULL DEFAULT 0,
-		   refused_since INTEGER,
-		   received_at INTEGER NOT NULL,
-		   UNIQUE (issuer, scope, ix)
-		 )`,
-		// Pruning by expiry and the eviction past MaxHeldCaps.
-		`CREATE INDEX IF NOT EXISTS idx_caps_held_exp ON caps_held(scope, cap_exp)`,
-		// The one-shot capabilities of an interaction, deleted with it.
-		`CREATE INDEX IF NOT EXISTS idx_caps_held_ix ON caps_held(ix) WHERE ix != ''`,
-	} {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate caps: %w", err)
-		}
-	}
-	return nil
+// capsSchema is the two capability tables (SS §3.2), part of the v0.3.0 schema (interactions.go):
+// v0.3.0 creates them with the store, and nothing older is read (CORE-V4).
+var capsSchema = []string{
+	`CREATE TABLE caps_issued (
+	   cap_id BLOB PRIMARY KEY CHECK (length(cap_id) = 16),
+	   grantee TEXT NOT NULL CHECK (grantee != ''),
+	   class INTEGER NOT NULL CHECK (class IN (1, 2)),
+	   scope TEXT NOT NULL CHECK (scope IN ('peer', 'ix')),
+	   ix TEXT NOT NULL DEFAULT '' CHECK ((scope = 'ix') = (ix != '')),
+	   holder_seed BLOB NOT NULL CHECK (length(holder_seed) = 32),
+	   holder_pub BLOB NOT NULL CHECK (length(holder_pub) = 32),
+	   epoch INTEGER NOT NULL CHECK (epoch >= 1),
+	   cap_exp INTEGER NOT NULL,
+	   issued_at INTEGER NOT NULL,
+	   revoked_at INTEGER,
+	   revoke_pushed INTEGER NOT NULL DEFAULT 0
+	 )`,
+	`CREATE INDEX idx_caps_issued_grantee ON caps_issued(grantee, scope)`,
+	// The revocations still to push to the hub (SSR-D20).
+	`CREATE INDEX idx_caps_issued_unpushed ON caps_issued(revoked_at)
+	   WHERE revoked_at IS NOT NULL AND revoke_pushed = 0`,
+	`CREATE TABLE caps_held (
+	   issuer TEXT NOT NULL CHECK (issuer != ''),
+	   scope TEXT NOT NULL CHECK (scope IN ('peer', 'ix')),
+	   ix TEXT NOT NULL DEFAULT '' CHECK ((scope = 'ix') = (ix != '')),
+	   cap_id BLOB NOT NULL CHECK (length(cap_id) = 16),
+	   cap BLOB NOT NULL CHECK (length(cap) > 0),
+	   holder_seed BLOB NOT NULL CHECK (length(holder_seed) = 32),
+	   class INTEGER NOT NULL CHECK (class IN (1, 2)),
+	   epoch INTEGER NOT NULL CHECK (epoch >= 1),
+	   cap_exp INTEGER NOT NULL,
+	   home TEXT NOT NULL CHECK (home != ''),
+	   p2p TEXT NOT NULL DEFAULT '',
+	   pay INTEGER NOT NULL DEFAULT 0,
+	   invalid_at INTEGER,
+	   refused_n INTEGER NOT NULL DEFAULT 0,
+	   refused_since INTEGER,
+	   received_at INTEGER NOT NULL,
+	   UNIQUE (issuer, scope, ix)
+	 )`,
+	// Pruning by expiry and the eviction past MaxHeldCaps.
+	`CREATE INDEX idx_caps_held_exp ON caps_held(scope, cap_exp)`,
+	// The one-shot capabilities of an interaction, deleted with it.
+	`CREATE INDEX idx_caps_held_ix ON caps_held(ix) WHERE ix != ''`,
 }
 
 // checkScope checks a scope and the ix that goes with it.

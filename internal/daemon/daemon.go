@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -54,7 +55,7 @@ type Daemon struct {
 	// and the capability calls this process is executing.
 	rxLocks     keyedLocks
 	rxIXLocks   keyedLocks // (from, ix) of a delegation, taken after rxLocks
-	refused     boundedSet
+	refused     refusedLRU
 	rxStats     rxCounters
 	p2pLimit    p2pLimiter
 	notices     noticeLimiter
@@ -212,6 +213,11 @@ type Daemon struct {
 // New builds the daemon: load config + identity, open the interactions store, and (if a Hub is
 // configured) start the relay poll loop. It does not block; call Close to stop.
 func New(layout Layout) (*Daemon, error) {
+	// A data directory an earlier anet wrote is refused before anything
+	// is written to it (FS-S1).
+	if err := CheckDataDirForStart(layout); err != nil {
+		return nil, err
+	}
 	if err := layout.EnsureRoot(); err != nil {
 		return nil, err
 	}
@@ -224,6 +230,9 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, err
 	}
 	ix, err := interactions.Open(layout.InteractionsDir())
+	if errors.Is(err, interactions.ErrOldStore) {
+		return nil, oldDataDirRefusal()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("anet: open interactions store: %w", err)
 	}

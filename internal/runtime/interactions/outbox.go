@@ -77,46 +77,28 @@ const (
 	outboxAttempting = 2
 )
 
-func (s *Store) migrateOutbox() error {
-	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS outbox (
-		   id INTEGER PRIMARY KEY AUTOINCREMENT,
-		   ix TEXT NOT NULL,
-		   to_aid TEXT NOT NULL,
-		   typ TEXT NOT NULL,
-		   body BLOB,
-		   envelope BLOB,
-		   exp INTEGER NOT NULL DEFAULT 0,
-		   attempts INTEGER NOT NULL DEFAULT 0,
-		   next_at INTEGER NOT NULL DEFAULT 0,
-		   last_error TEXT NOT NULL DEFAULT '',
-		   created_at INTEGER NOT NULL
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_outbox_next ON outbox(next_at)`,
-		`CREATE INDEX IF NOT EXISTS idx_outbox_to ON outbox(to_aid)`,
-	} {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate outbox: %w", err)
-		}
-	}
-	for _, col := range []struct{ name, decl string }{
-		{"mid", "BLOB"},
-		{"digest", "BLOB"},
-		{"maybe_delivered", "INTEGER NOT NULL DEFAULT 0"},
-	} {
-		if err := addColumn(s.db, "outbox", col.name, col.decl); err != nil {
-			return err
-		}
-	}
-	for _, q := range []string{
-		`CREATE INDEX IF NOT EXISTS idx_outbox_ix ON outbox(ix, typ)`,
-		`CREATE INDEX IF NOT EXISTS idx_outbox_chain ON outbox(ix, to_aid, id)`,
-	} {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate outbox: %w", err)
-		}
-	}
-	return nil
+// outboxSchema is the outbound retry queue.
+var outboxSchema = []string{
+	`CREATE TABLE outbox (
+	   id INTEGER PRIMARY KEY AUTOINCREMENT,
+	   ix TEXT NOT NULL,
+	   to_aid TEXT NOT NULL,
+	   typ TEXT NOT NULL,
+	   body BLOB,
+	   envelope BLOB,
+	   exp INTEGER NOT NULL DEFAULT 0,
+	   attempts INTEGER NOT NULL DEFAULT 0,
+	   next_at INTEGER NOT NULL DEFAULT 0,
+	   last_error TEXT NOT NULL DEFAULT '',
+	   created_at INTEGER NOT NULL,
+	   mid BLOB,
+	   digest BLOB,
+	   maybe_delivered INTEGER NOT NULL DEFAULT 0
+	 )`,
+	`CREATE INDEX idx_outbox_next ON outbox(next_at)`,
+	`CREATE INDEX idx_outbox_to ON outbox(to_aid)`,
+	`CREATE INDEX idx_outbox_ix ON outbox(ix, typ)`,
+	`CREATE INDEX idx_outbox_chain ON outbox(ix, to_aid, id)`,
 }
 
 // outboxHead is the condition that row o has no earlier row queued for the

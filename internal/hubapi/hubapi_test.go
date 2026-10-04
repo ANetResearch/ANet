@@ -47,11 +47,20 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		// appears in any of these: the hub routes by to_aid alone and the
 		// rest is inside the sealed envelope.
 		{"RelaySendRequest", hubapi.RelaySendRequest{}, []string{"envelope", "to_aid"}},
-		{"RelaySendResponse", hubapi.RelaySendResponse{}, []string{"id", "recipient_quiet", "status", "via_hub", "warning"}},
+		{"RelaySendResponse", hubapi.RelaySendResponse{}, []string{"id", "recipient_quiet", "rid", "status", "via_hub", "warning"}},
 		{"RelayPollRequest", hubapi.RelayPollRequest{}, []string{"after_id", "limit"}},
 		{"RelayPollResponse", hubapi.RelayPollResponse{}, []string{"messages"}},
 		{"RelayMessage", hubapi.RelayMessage{}, []string{"envelope", "id"}},
-		{"RelayAckRequest", hubapi.RelayAckRequest{}, []string{"ids"}},
+		// Delivery tokens (DLV §2.4, core §2.12.2). Mirrors ANetHub
+		// internal/aghub: the same names on both sides, and the registry's
+		// (TestTheDeliveryTokenBodiesAreTheRegistrys).
+		{"RelayAckRequest", hubapi.RelayAckRequest{}, []string{"items"}},
+		{"RelayAckItem", hubapi.RelayAckItem{}, []string{"dack", "handle", "id"}},
+		{"RelayAckResponse", hubapi.RelayAckResponse{}, []string{"acked", "stored"}},
+		{"RelayStatusRequest", hubapi.RelayStatusRequest{}, []string{"items"}},
+		{"RelayStatusItem", hubapi.RelayStatusItem{}, []string{"handle", "rid", "via_hub"}},
+		{"RelayStatusResponse", hubapi.RelayStatusResponse{}, []string{"items"}},
+		{"RelayStatusResult", hubapi.RelayStatusResult{}, []string{"dack", "state"}},
 		{"KeysResponse", hubapi.KeysResponse{}, []string{"aid", "kel", "keyset"}},
 		// POST /agents/keys:lookup [redteam:F3]. Mirrors ANetHub
 		// internal/aghub/wirecontract_test.go.

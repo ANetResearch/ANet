@@ -353,36 +353,29 @@ func (s *Store) PeerIdentityCount() (int, error) {
 	return n, err
 }
 
-// migrateWire2 creates the replay and peer_identity tables.
-func (s *Store) migrateWire2() error {
-	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS replay (
-		   from_aid TEXT NOT NULL,
-		   mid BLOB NOT NULL,
-		   exp INTEGER NOT NULL,
-		   PRIMARY KEY (from_aid, mid)
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_replay_exp ON replay(exp)`,
-		`CREATE TABLE IF NOT EXISTS peer_identity (
-		   aid TEXT PRIMARY KEY,
-		   kel BLOB,
-		   kel_len INTEGER NOT NULL DEFAULT 0,
-		   keyset BLOB,
-		   keyset_seq INTEGER NOT NULL DEFAULT 0,
-		   keys_checked_at INTEGER NOT NULL DEFAULT 0,
-		   card_seq INTEGER NOT NULL DEFAULT 0,
-		   pinned_reason TEXT NOT NULL DEFAULT '',
-		   updated_at INTEGER NOT NULL DEFAULT 0
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_peer_lru ON peer_identity(pinned_reason, updated_at)`,
-		// The eviction rule asks, per candidate row, whether an active
-		// interaction names the peer; without this index that is a scan of
-		// the interaction table per row.
-		`CREATE INDEX IF NOT EXISTS idx_ix_peer ON interaction(peer_aid)`,
-	} {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate wire 2: %w", err)
-		}
-	}
-	return s.migratePeerCardHash()
+// wire2Schema is the replay and peer_identity tables. card_hash is the
+// card high-water mark's payload hash (peercard.go). The eviction rule's
+// question per candidate row — does an active interaction name the peer —
+// reads idx_ix_peer (interactionSchema).
+var wire2Schema = []string{
+	`CREATE TABLE replay (
+	   from_aid TEXT NOT NULL,
+	   mid BLOB NOT NULL,
+	   exp INTEGER NOT NULL,
+	   PRIMARY KEY (from_aid, mid)
+	 )`,
+	`CREATE INDEX idx_replay_exp ON replay(exp)`,
+	`CREATE TABLE peer_identity (
+	   aid TEXT PRIMARY KEY,
+	   kel BLOB,
+	   kel_len INTEGER NOT NULL DEFAULT 0,
+	   keyset BLOB,
+	   keyset_seq INTEGER NOT NULL DEFAULT 0,
+	   keys_checked_at INTEGER NOT NULL DEFAULT 0,
+	   card_seq INTEGER NOT NULL DEFAULT 0,
+	   pinned_reason TEXT NOT NULL DEFAULT '',
+	   updated_at INTEGER NOT NULL DEFAULT 0,
+	   card_hash BLOB
+	 )`,
+	`CREATE INDEX idx_peer_lru ON peer_identity(pinned_reason, updated_at)`,
 }

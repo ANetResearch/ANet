@@ -1,11 +1,8 @@
 package interactions_test
 
 import (
-	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
@@ -171,107 +168,6 @@ func TestListPageIsNewestFirstWithCursor(t *testing.T) {
 	}
 	if _, err := s.ListPage(interactions.ListFilter{Cursor: "garbage"}); !errors.Is(err, interactions.ErrBadCursor) {
 		t.Fatalf("bad cursor: %v", err)
-	}
-}
-
-// A store written with the wire-1 status column is migrated to state by the
-// rule of A2A-DESIGN §4.1, and the status column is gone afterwards.
-func TestStatusColumnMigratesToState(t *testing.T) {
-	// v0.3.0 reads no store of an earlier version (core CORE-V4): a row
-	// written before data keys has none and reads as deleted (FS-L4). The
-	// store's v0.2 migrations go when a store without user_version 3 is
-	// refused, and this test with them.
-	t.Skip("v030-todo(RC-4)")
-	dir := t.TempDir()
-	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	for _, q := range []string{
-		`CREATE TABLE interaction (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, role TEXT NOT NULL,
-		  peer_aid TEXT NOT NULL, goal TEXT NOT NULL, status TEXT NOT NULL, request_cid TEXT NOT NULL DEFAULT '',
-		  request_doc BLOB, result_cid TEXT NOT NULL DEFAULT '', result BLOB, receipt BLOB, review BLOB,
-		  end_req_by TEXT NOT NULL DEFAULT '', end_acc_by TEXT NOT NULL DEFAULT '',
-		  created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE INDEX idx_ix_role_status ON interaction(role, status, seq)`,
-		`CREATE TABLE message (seq INTEGER PRIMARY KEY AUTOINCREMENT, interaction_id TEXT NOT NULL,
-		  sender_aid TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatal(err)
-		}
-	}
-	const me, peer = "did:anet:me", "did:anet:peer"
-	rows := []struct{ id, role, status string }{
-		{"done_in", "inbound", "done"},
-		{"failed_out", "outbound", "failed"},
-		{"queued_in_req_last", "inbound", "queued"},  // requester (peer) spoke last → working
-		{"queued_in_prov_last", "inbound", "ending"}, // provider (me) spoke last → input-required
-		{"queued_out_req_last", "outbound", "queued"},
-		{"queued_out_prov_last", "outbound", "queued"},
-		{"queued_empty", "inbound", "queued"},
-	}
-	for _, r := range rows {
-		if _, err := db.Exec(`INSERT INTO interaction(id,role,peer_aid,goal,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`,
-			r.id, r.role, peer, "g", r.status, now, now); err != nil {
-			t.Fatal(err)
-		}
-	}
-	msg := func(ix, sender, kind string) {
-		if _, err := db.Exec(`INSERT INTO message(interaction_id,sender_aid,kind,body,created_at) VALUES(?,?,?,?,?)`,
-			ix, sender, kind, "b", now); err != nil {
-			t.Fatal(err)
-		}
-	}
-	msg("queued_in_req_last", me, "text")
-	msg("queued_in_req_last", peer, "text")
-	msg("queued_in_prov_last", peer, "text")
-	msg("queued_in_prov_last", me, "text")
-	msg("queued_in_prov_last", peer, "end_request") // not a text message: does not count
-	msg("queued_out_req_last", peer, "text")
-	msg("queued_out_req_last", me, "text")
-	msg("queued_out_prov_last", me, "text")
-	msg("queued_out_prov_last", peer, "text")
-	db.Close()
-
-	s, err := interactions.Open(dir)
-	if err != nil {
-		t.Fatalf("open old store: %v", err)
-	}
-	defer s.Close()
-	want := map[string]interactions.State{
-		"done_in":              interactions.StateCompleted,
-		"failed_out":           interactions.StateFailed,
-		"queued_in_req_last":   interactions.StateWorking,
-		"queued_in_prov_last":  interactions.StateInputRequired,
-		"queued_out_req_last":  interactions.StateWorking,
-		"queued_out_prov_last": interactions.StateInputRequired,
-		"queued_empty":         interactions.StateSubmitted,
-	}
-	for id, st := range want {
-		ix, err := s.Get(id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if ix.State != st {
-			t.Errorf("%s: migrated to %s, want %s", id, ix.State, st)
-		}
-		if ix.StateAt == 0 {
-			t.Errorf("%s: state_at not set from updated_at", id)
-		}
-	}
-	db2, _ := sql.Open("sqlite", filepath.Join(dir, "interactions.db"))
-	defer db2.Close()
-	var n int
-	if err := db2.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('interaction') WHERE name='status'`).Scan(&n); err != nil || n != 0 {
-		t.Fatalf("status column still present (%d, %v)", n, err)
-	}
-	if err := db2.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name='idx_ix_role_status'`).Scan(&n); err != nil || n != 0 {
-		t.Fatalf("old index still present (%d, %v)", n, err)
-	}
-	if err := db2.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name='idx_ix_role_state'`).Scan(&n); err != nil || n != 1 {
-		t.Fatalf("state index missing (%d, %v)", n, err)
 	}
 }
 

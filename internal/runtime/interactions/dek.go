@@ -265,18 +265,15 @@ func (b *fieldBox) openField(col Column, stored []byte) ([]byte, error) {
 	return pt, nil
 }
 
-// migrateDEK creates the data-key table (FS §2.11). A key row is only ever
+// dekSchema is the data-key table (FS §2.11). A key row is only ever
 // inserted (with the row it belongs to) and deleted; the database is opened
 // with secure_delete, so a deleted key's bytes are overwritten in the file.
-func (s *Store) migrateDEK() error {
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS ix_dek (
+var dekSchema = []string{
+	`CREATE TABLE ix_dek (
 	   ix TEXT PRIMARY KEY,
 	   key BLOB NOT NULL,
 	   created_at INTEGER NOT NULL
-	 )`); err != nil {
-		return fmt.Errorf("interactions: migrate ix_dek: %w", err)
-	}
-	return nil
+	 )`,
 }
 
 // loadDEK reads task ix's data key, or ErrContentGone when it has none.

@@ -255,16 +255,6 @@ func fillDelegate(t *testing.T, m *rxMsg) {
 	m.dr, m.td, m.tdBytes = dr, td, dr.TaskDoc
 }
 
-// A node upgraded from wire 1 keeps an inbound row accepted under the old
-// accept-anyone default, with no request CID. A delegation on its id is a
-// collision: the stored row names no request it could be a redelivery of.
-func TestARedeliveryOnAMigratedRowCannotRunACapability(t *testing.T) {
-	srv := newFakeHub(t)
-	stranger := registered(t, srv.URL, "stranger")
-	prov, legacyIX, lamp := migratedV01Node(t, srv.URL, stranger)
-	assertSwapRefused(t, prov, swapDelegate(t, stranger, prov, legacyIX, lampCap), lamp, legacyIX)
-}
-
 // redeliveredDelegate, reached without step 9's comparison (the replay
 // table's branch, or a copy that raced the interaction's creation), runs
 // the call the interaction was recorded with: a TaskDoc on the redelivered

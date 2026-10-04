@@ -43,10 +43,9 @@ MUTS = [
   desc='重新给加密列 message.metadata 建索引',
   edits=[
    ('internal/runtime/interactions/interactions.go',
-    "\t\treturn fmt.Errorf(\"interactions: migrate msg dedupe index: %w\", err)\n\t}\n",
-    "\t\treturn fmt.Errorf(\"interactions: migrate msg dedupe index: %w\", err)\n\t}\n"
-    "\tif _, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_msg_meta ON message(interaction_id, metadata)`); err != nil {\n"
-    "\t\treturn err\n\t}\n"),
+    "\t`CREATE UNIQUE INDEX idx_msg_dedupe ON message(interaction_id, msg_id) WHERE msg_id != ''`,\n",
+    "\t`CREATE UNIQUE INDEX idx_msg_dedupe ON message(interaction_id, msg_id) WHERE msg_id != ''`,\n"
+    "\t`CREATE INDEX idx_msg_meta ON message(interaction_id, metadata)`,\n"),
   ],
   tests=[(IX, '^TestEncryptedColumnsNotInSQLPredicates$')],
   full=[IX],

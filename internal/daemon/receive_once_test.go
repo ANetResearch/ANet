@@ -185,7 +185,7 @@ func TestConcurrentCopiesOfARefusedDelegationAreAnsweredOnce(t *testing.T) {
 	second := make(chan rxResult, 1)
 	go func() { second <- prov.receiveEnvelope(context.Background(), env) }()
 	time.Sleep(50 * time.Millisecond)
-	prov.refused.add(replayKey(s.aid, mustMID(t, prov, env))) // what the first copy's refusal records
+	prov.refused.add(replayKey(s.aid, mustMID(t, prov, env)), reasonNotAccepting) // what the first copy's refusal records
 	unlock()
 	if r := <-second; r.reason != dropRefusedReplay {
 		t.Fatalf("second copy: %+v, want %s", r, dropRefusedReplay)

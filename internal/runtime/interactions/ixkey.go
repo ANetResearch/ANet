@@ -415,24 +415,17 @@ func applyIXKeyFate(e execer, ix string, fate ixFate, nowMS int64) error {
 	return nil
 }
 
-// migrateIXKey creates the interaction key table (FS §2.11).
-func (s *Store) migrateIXKey() error {
-	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS ix_key (
-		   ix TEXT PRIMARY KEY,
-		   peer_aid TEXT NOT NULL,
-		   kid BLOB NOT NULL UNIQUE,
-		   suite INTEGER NOT NULL,
-		   pub BLOB NOT NULL,
-		   priv BLOB NOT NULL,
-		   close_after INTEGER NOT NULL DEFAULT 0
-		 )`,
-		// The sweep reads the few keys a local end keeps.
-		`CREATE INDEX IF NOT EXISTS idx_ix_key_close ON ix_key(close_after) WHERE close_after != 0`,
-	} {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate ix_key: %w", err)
-		}
-	}
-	return nil
+// ixKeySchema is the interaction key table (FS §2.11).
+var ixKeySchema = []string{
+	`CREATE TABLE ix_key (
+	   ix TEXT PRIMARY KEY,
+	   peer_aid TEXT NOT NULL,
+	   kid BLOB NOT NULL UNIQUE,
+	   suite INTEGER NOT NULL,
+	   pub BLOB NOT NULL,
+	   priv BLOB NOT NULL,
+	   close_after INTEGER NOT NULL DEFAULT 0
+	 )`,
+	// The sweep reads the few keys a local end keeps.
+	`CREATE INDEX idx_ix_key_close ON ix_key(close_after) WHERE close_after != 0`,
 }

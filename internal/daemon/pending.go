@@ -105,7 +105,7 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 		d.sendNoticeStatus(m, delegation.StateSubmitted, "this node holds the task for its operator's approval",
 			map[string]any{"anet.inbound": "pending_approval"})
 	case res.reason == dropRefusedPrefix+reasonPendingFull:
-		if r := d.recordRefusal(m); r != nil {
+		if r := d.recordRefusal(m, reasonPendingFull); r != nil {
 			return *r
 		}
 		d.noteRefusedEnvelope(m)

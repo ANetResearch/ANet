@@ -418,8 +418,8 @@ func usageAllText() string {
 }
 
 func runDaemon(layout daemon.Layout) {
-	// A config.json with a removed or invalid key does not start (ux UX-D3): every refusal, one sentence
-	// a line, before anything is written.
+	// A data directory an earlier anet wrote (FS-S1), or a config.json with a removed or invalid key
+	// (ux UX-D3), does not start: every refusal, one sentence a line, before anything is written.
 	if err := refuseConfig(layout); err != nil {
 		os.Exit(1)
 	}
@@ -459,11 +459,15 @@ func runDaemon(layout daemon.Layout) {
 	}
 }
 
-// refuseConfig prints why the daemon will not start with this data directory's config.json (ux UX-D3:
-// a removed key, an invalid value; one sentence a line, from the reason table) and returns errQuiet; nil
-// when it starts. An unreadable or unparsable file is reported as it was before.
+// refuseConfig prints why the daemon will not start with this data directory — one an earlier anet wrote
+// (FS-S1: identity_v02 alone, since nothing else in it helps), or its config.json (ux UX-D3: a removed
+// key, an invalid value) — one sentence a line, from the reason table, and returns errQuiet; nil when it
+// starts. An unreadable or unparsable file is reported as it was before.
 func refuseConfig(layout daemon.Layout) error {
-	err := daemon.CheckConfigForStart(layout)
+	err := daemon.CheckDataDirForStart(layout)
+	if err == nil {
+		err = daemon.CheckConfigForStart(layout)
+	}
 	var cr *daemon.ConfigRefusal
 	switch {
 	case err == nil:

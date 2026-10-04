@@ -78,7 +78,7 @@ func TestARefusedDelegationStaysRefusedWhenTheListForgetsIt(t *testing.T) {
 	if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropNotAccepting {
 		t.Fatalf("first delivery: %+v, want refused as not-accepting", r)
 	}
-	prov.refused = boundedSet{}
+	prov.refused = refusedLRU{}
 	allowPeers(t, prov, s.aid)
 	if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedReplay {
 		t.Fatalf("replay: %+v, want %s", r, dropRefusedReplay)
@@ -175,7 +175,7 @@ func TestAnEvictedRefusalIsCoveredByTheFloor(t *testing.T) {
 	if rows, floors, err := prov.ix.RefusedCount(); err != nil || rows != 1 || floors != 1 {
 		t.Fatalf("refused table: %d rows, %d floors, %v", rows, floors, err)
 	}
-	prov.refused = boundedSet{}
+	prov.refused = refusedLRU{}
 	allowPeers(t, prov, s.aid)
 	notices := counter(prov, noticeSent)
 	if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedFloor {
@@ -221,7 +221,7 @@ func TestOtherSendersRefusalsDoNotDropAPeersDelegation(t *testing.T) {
 			t.Fatalf("junk %d: %+v", i, r)
 		}
 	}
-	if exact, floor, err := prov.ix.Refused(victim.aid, []byte("none")); err != nil || exact || floor == 0 {
+	if exact, _, floor, err := prov.ix.Refused(victim.aid, []byte("none")); err != nil || exact || floor == 0 {
 		t.Fatalf("the victim's refusal was not evicted into its floor: floor %d, %v", floor, err)
 	}
 	fresh := "ix_refused_total_friend"
@@ -229,7 +229,7 @@ func TestOtherSendersRefusalsDoNotDropAPeersDelegation(t *testing.T) {
 		delegateBody(t, friend.ctrl, fresh, "real work", ""), nil)); r.class != rxAccepted {
 		t.Fatalf("an allowed peer's fresh delegation after strangers' refusals: %+v", r)
 	}
-	prov.refused = boundedSet{}
+	prov.refused = refusedLRU{}
 	allowPeers(t, prov, victim.aid)
 	notices := counter(prov, noticeSent)
 	if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedFloor {
@@ -317,7 +317,7 @@ func TestARefusalIsStoredBeforeTheRequesterIsTold(t *testing.T) {
 	if r := receive(t, prov, overEnv); r.class != rxDropped || r.reason != dropRefusedPrefix+reasonPendingFull {
 		t.Fatalf("the redelivery once the store recovered: %+v", r)
 	}
-	prov.refused = boundedSet{}
+	prov.refused = refusedLRU{}
 	if r := receive(t, prov, overEnv); r.reason != dropRefusedReplay {
 		t.Fatalf("the refusal told this time was not stored: %+v", r)
 	}
