@@ -648,8 +648,9 @@ func autoReplyFailureReply(cfg AutoReplyConfig, interactionID string, err error)
 // --- sandbox entry point ---
 
 // errSandboxUnavailable is returned (wrapped) by runSandboxed when a turn cannot run inside the sandbox:
-// not Linux, no usable bubblewrap, no auto_reply.api_key, or a required path that would expose a
-// protected location. The agent was not started. The caller fails closed by direction (A2A-DESIGN §6,
+// not Linux, no usable bubblewrap, an agent that cannot use the egress endpoint, no auto_reply.api_key
+// (or api_base, or model) for its model service, or a required path that would expose a protected
+// location. The agent was not started. The caller fails closed by direction (A2A-DESIGN §6,
 // autoreply.go sandboxRefusedTurn): inbound, answer status{rejected, anet.reason=sandbox_unavailable};
 // outbound (this node is the requester), send nothing, leave the task in the inbox, and record
 // anet.autoreply.invoked{sandboxed:false, exit:"sandbox_unavailable"}.
@@ -672,6 +673,9 @@ type sandboxRequest struct {
 type sandboxResult struct {
 	Reply     string
 	Sandboxed bool
+	// Egress is what the turn's runs did through their egress endpoints (LEC §2.5, EG-7); nil when no
+	// agent was started in the sandbox.
+	Egress *egressSummary
 }
 
 // sandboxPlan is the confinement of one agent process: what is bound into the bubblewrap sandbox and
@@ -689,6 +693,34 @@ type sandboxPlan struct {
 	NeverBind []string
 	// ExtraRO are additional read-only binds (tests).
 	ExtraRO []string
+	// Egress is the model service the plan's runs reach through their egress endpoint (egress.go): each
+	// run gets its own endpoint, bound into the sandbox, and the agent's environment names its injection
+	// route. Nil: no endpoint, and the sandbox has no way out at all.
+	Egress *egressUpstream
+
+	egressMu    sync.Mutex
+	egressTotal *egressSummary
+}
+
+// addEgress adds a finished run's egress counts to the plan's.
+func (p *sandboxPlan) addEgress(s egressSummary) {
+	p.egressMu.Lock()
+	defer p.egressMu.Unlock()
+	if p.egressTotal == nil {
+		p.egressTotal = &egressSummary{}
+	}
+	p.egressTotal.add(s)
+}
+
+// egressSummary is what the plan's runs did through their endpoints; nil when none ran.
+func (p *sandboxPlan) egressSummary() *egressSummary {
+	p.egressMu.Lock()
+	defer p.egressMu.Unlock()
+	if p.egressTotal == nil {
+		return nil
+	}
+	cp := *p.egressTotal
+	return &cp
 }
 
 // bwrapFeatures are the optional bwrap flags the sandbox uses where this bwrap has them (LEC SB-1).
@@ -723,26 +755,29 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 		reply, err := r.Reply(ctx, req.RC, req.Turns)
 		return sandboxResult{Reply: reply}, err
 	}
-	if strings.TrimSpace(cfg.APIKey) == "" {
-		// The sandbox hides the home directory, so the agent's own login state is unavailable; without
-		// an API key passed in, the agent cannot authenticate. Running it anyway would fail after the
-		// peer's text had been handed to a process, and binding the login directories would expose
-		// session history and other projects' credentials.
-		return sandboxResult{}, sandboxUnavailable("sandbox mode requires auto_reply.api_key")
-	}
 	if _, err := lookupAgent(cfg.Agent); err != nil {
+		return sandboxResult{}, err
+	}
+	// The agent reaches its model only through the run's egress endpoint, which adds the operator's key
+	// (LEC UP-1 to UP-4): the sandbox hides the agent's own login state, and binding it in would expose
+	// session history and other projects' credentials. Without a key (or, for a custom service, an
+	// address and a model) the turn fails closed here, before the peer's text reaches any process.
+	up, err := resolveEgressUpstream(cfg)
+	if err != nil {
 		return sandboxResult{}, err
 	}
 	plan, err := d.newSandboxPlan()
 	if err != nil {
 		return sandboxResult{}, err
 	}
+	plan.Egress = up
+	cfg.Model = up.Model // UP-3: the agent is started with the model every request is pinned to
 	r := &execReplier{cfg: cfg, dataDir: d.layout.Root, layout: d.layout, sandbox: plan, aid: d.AID()}
 	reply, err := r.Reply(ctx, req.RC, req.Turns)
 	if err != nil {
-		return sandboxResult{Sandboxed: true}, err
+		return sandboxResult{Sandboxed: true, Egress: plan.egressSummary()}, err
 	}
-	return sandboxResult{Reply: reply, Sandboxed: true}, nil
+	return sandboxResult{Reply: reply, Sandboxed: true, Egress: plan.egressSummary()}, nil
 }
 
 // newSandboxPlan collects the never-bind list for this daemon (A2A-DESIGN §6): the resolved data dir,

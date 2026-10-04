@@ -598,9 +598,24 @@ func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunc
 	if home == "" || !filepath.IsAbs(home) || filepath.Clean(home) == "/" {
 		home = sandboxHome(runDir)
 	}
+	// The run's egress endpoint (LEC §2.6.1, EG-1): ready before the agent starts, closed as soon as the
+	// run ends. Its socket is bound at /run/anet/egress.sock and init bridges it to 127.0.0.1:3128.
+	var egress *sandboxEgress
+	bridge := ""
+	if p.Egress != nil {
+		if egress, err = startSandboxEgress(runDir, p.Egress); err != nil {
+			return nil, sandboxUnavailable("egress endpoint: %v", err)
+		}
+		bridge = sandboxEgressPath
+		defer func() {
+			if !ok {
+				egress.close()
+			}
+		}()
+	}
 	args, err := buildBwrapArgs(bwrapSpec{
 		Init:       initExe,
-		EgressSock: "", // v030-todo(EXE-2): bind the run's egress socket and bridge it (spec.bridge)
+		EgressSock: egress.socket(),
 		RunDir:     runDir, Home: home, WorkDir: workDir,
 		RuntimeRO: append(runtimeDirs, p.ExtraRO...),
 		NeverBind: p.NeverBind,
@@ -612,7 +627,10 @@ func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunc
 	}
 	// v030-todo(EXE-4): wrap in systemd-run (SB-7) when the user's systemd is running.
 	path, full := sandboxCommandLine(p.Bwrap, "", args)
-	spec, err := json.Marshal(newSandboxInitSpec(append([]string{exe}, argv[1:]...), envWithHome(env, home), workDir, false, ""))
+	// The agent holds no key and no proxy setting of the daemon's: its model service is the injection
+	// route, with a placeholder key (UP-4).
+	env = sandboxEnvOverlay(env, sandboxEgressEnv(p.Egress))
+	spec, err := json.Marshal(newSandboxInitSpec(append([]string{exe}, argv[1:]...), envWithHome(env, home), workDir, false, bridge))
 	if err != nil {
 		return nil, err
 	}
@@ -629,10 +647,106 @@ func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunc
 		Env:   []string{}, // bwrap and init need nothing; the agent's environment is in the spec
 		Files: files,
 		Close: func() {
+			if egress != nil {
+				egress.close()
+				p.addEgress(egress.ep.Summary())
+			}
 			closeFiles()
 			removeSandboxTree(runDir)
 		},
 	}, nil
+}
+
+// --- the egress endpoint's socket (LEC §2.6.1) ---
+
+// sandboxSockMax is the longest socket path used inside the run directory; a longer one would not fit
+// sockaddr_un with room to spare, and the socket goes into a private directory under the temp dir.
+const sandboxSockMax = 100
+
+// sandboxEgress is a run's egress endpoint listening on its Unix socket.
+type sandboxEgress struct {
+	ep      *egressEndpoint
+	sock    string
+	sockDir string // a directory of its own under the temp dir, when the run directory's path is too long
+}
+
+// startSandboxEgress opens the run's egress endpoint for up on <runDir>/egress.sock (mode 0600). Only a
+// process of this daemon's user can connect: the run directory is 0700, and every connection's peer
+// uid is checked (SO_PEERCRED).
+func startSandboxEgress(runDir string, up *egressUpstream) (*sandboxEgress, error) {
+	se := &sandboxEgress{sock: filepath.Join(runDir, "egress.sock")}
+	if len(se.sock) > sandboxSockMax {
+		dir, err := os.MkdirTemp("", "anet-"+"sock-")
+		if err != nil {
+			return nil, err
+		}
+		se.sockDir, se.sock = dir, filepath.Join(dir, "egress.sock")
+	}
+	ln, err := net.Listen("unix", se.sock)
+	if err != nil {
+		se.removeSock()
+		return nil, err
+	}
+	if err := os.Chmod(se.sock, 0o600); err != nil {
+		_ = ln.Close()
+		se.removeSock()
+		return nil, err
+	}
+	se.ep = newEgressEndpoint(up)
+	se.ep.peerCheck = egressPeerIsDaemonUser
+	se.ep.Serve(ln)
+	return se, nil
+}
+
+// socket is the socket's path, "" for no endpoint.
+func (se *sandboxEgress) socket() string {
+	if se == nil {
+		return ""
+	}
+	return se.sock
+}
+
+// close ends the endpoint and removes its socket (EG-1).
+func (se *sandboxEgress) close() {
+	se.ep.Close()
+	se.removeSock()
+}
+
+func (se *sandboxEgress) removeSock() {
+	_ = os.Remove(se.sock)
+	if se.sockDir != "" {
+		_ = os.RemoveAll(se.sockDir)
+	}
+}
+
+// egressPeerUID is the uid an egress connection must come from; tests change it.
+var egressPeerUID = os.Getuid
+
+// egressPeerIsDaemonUser admits a connection whose peer runs as this daemon's user. In the sandbox's
+// user namespace the agent has the daemon's uid, which the kernel reports here as it is outside.
+func egressPeerIsDaemonUser(c net.Conn) error {
+	uc, ok := c.(*net.UnixConn)
+	if !ok {
+		return errors.New("not a Unix socket connection")
+	}
+	rc, err := uc.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var cred *syscall.Ucred
+	var serr error
+	if err := rc.Control(func(fd uintptr) {
+		cred, serr = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
+	}); err != nil {
+		return err
+	}
+	if serr != nil {
+		return fmt.Errorf("cannot read the peer's credentials: %w", serr)
+	}
+	if want := egressPeerUID(); int(cred.Uid) != want {
+		return fmt.Errorf("the peer runs as uid %d, not %d", cred.Uid, want)
+	}
+	return nil
 }
 
 // sandboxFds returns the descriptors a sandboxed process starts with, as exec.Cmd.ExtraFiles: fd 3 a pipe
