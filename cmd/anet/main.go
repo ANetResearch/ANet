@@ -25,6 +25,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/term"
+
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/daemon"
@@ -45,6 +47,11 @@ func main() {
 	// sent (ux §4.3, cli_removed, exit 2).
 	if len(args) > 0 {
 		if s, ok := refuseRemoved(args[0], args[1:], a2ashape.Lang()); ok {
+			fmt.Fprintln(os.Stderr, s)
+			os.Exit(2)
+		}
+		// An API key on the command line: refused the same way, the key not repeated (LEC AV-8).
+		if s, ok := refuseAPIKeyOnArgv(args[0], args[1:], a2ashape.Lang()); ok {
 			fmt.Fprintln(os.Stderr, s)
 			os.Exit(2)
 		}
@@ -1062,11 +1069,13 @@ func absPath(p string) string {
 }
 
 // runAutoReply drives `anet autoreply show|set|off` — the CLI/agent-facing switch for the daemon's
-// built-in auto-reply loop, so nobody hand-edits config.json. `set` takes effect live (no restart).
+// built-in auto-reply loop, so nobody hand-edits config.json. `set` takes effect live (no restart), and
+// changes only what it names: the daemon merges it into the current configuration (LEC §2.3.4).
 func runAutoReply(c *client, rest []string) error {
 	usage := "autoreply <show|set|test|off>\n" +
 		"  set --backend exec  --agent <" + agentChoices() + "> [--model M] [--work-dir DIR] [--system-prompt S]\n" +
-		"  set --backend openai --api-base URL --model M [--api-key K] [--system-prompt S] [--require-image] [--usage-hint H]\n" +
+		"  set --backend openai --api-base URL --model M [--system-prompt S] [--require-image] [--usage-hint H]\n" +
+		"  set --api-key-stdin < FILE   # the model API key: from a file, or typed on the terminal (never on the command line)\n" +
 		"  common: [--poll-interval SEC] [--max-history N] [--api-timeout SEC] [--max-auto-replies N]\n" +
 		"  test [\"自定义问题\"]    # 本地跑一次配置好的后端验证（不经过 Hub、不建任何身份）\n" +
 		"  off"
@@ -1103,22 +1112,18 @@ func runAutoReply(c *client, rest []string) error {
 		return c.do("/autoreply-test", map[string]any{"prompt": prompt})
 	case "set":
 		_, flags := splitFlags(rest[1:])
-		backend := flags["backend"]
-		if backend == "" {
-			switch {
-			case flags["agent"] != "":
-				backend = "exec"
-			case flags["api-base"] != "":
-				backend = "openai"
-			default:
-				return fmt.Errorf("autoreply set: need --backend (or --agent for exec / --api-base for openai)\n%s", usage)
-			}
+		body := map[string]any{}
+		// The backend is named, or follows from --agent (the exec backend runs an agent). --api-base
+		// says nothing about it: an exec agent in the sandbox can have a model service address too.
+		if v := flags["backend"]; v != "" && v != "true" {
+			body["backend"] = v
+		} else if v := flags["agent"]; v != "" && v != "true" {
+			body["backend"] = "exec"
 		}
-		body := map[string]any{"backend": backend}
 		strFlags := map[string]string{
 			"agent": "agent", "work-dir": "work_dir", "command": "command",
 			"openclaw-agent": "openclaw_agent", "model": "model", "api-base": "api_base",
-			"api-key": "api_key", "system-prompt": "system_prompt",
+			"system-prompt": "system_prompt", "untrusted": "untrusted",
 			"usage-hint": "usage_hint", "error-reply": "error_reply",
 		}
 		for cliKey, jsonKey := range strFlags {
@@ -1141,16 +1146,93 @@ func runAutoReply(c *client, rest []string) error {
 				body[jsonKey] = n
 			}
 		}
-		if backend == "exec" && body["agent"] == nil {
-			return fmt.Errorf("autoreply set --backend exec: --agent is required\n%s", usage)
+		if _, ok := flags[apiKeyStdinFlag]; ok {
+			key, err := readAPIKeyStdin(os.Stdin, os.Stderr)
+			if err != nil {
+				return err
+			}
+			body["api_key"] = key
 		}
-		if backend == "openai" && body["api_base"] == nil {
-			return fmt.Errorf("autoreply set --backend openai: --api-base is required\n%s", usage)
+		if len(body) == 0 {
+			return usageError{usage}
 		}
 		return c.do("/autoreply", body)
 	default:
 		return fmt.Errorf("%s", usage)
 	}
+}
+
+// The API key's flags, without their dashes (knownFlags lists what may be typed).
+const (
+	// apiKeyStdinFlag reads the key from stdin (LEC AV-8).
+	apiKeyStdinFlag = "api-key-stdin"
+	// apiKeyArgvFlag is the flag 0.3.0 removed: the key on the command line.
+	apiKeyArgvFlag = "api-key"
+	// apiKeyMax bounds what --api-key-stdin reads.
+	apiKeyMax = 4096
+)
+
+// refuseAPIKeyOnArgv is api_key_on_argv for an `anet autoreply` command line that carries an API key
+// (LEC AV-8): --api-key in either form, whatever its value, or a value given to --api-key-stdin (as
+// --api-key-stdin=VALUE, or as the word after it, which the flag parser would take as its value). By
+// then the key has been seen — other local users can read a process's arguments, the shell keeps them in
+// its history — so nothing is sent or saved, the sentence says to replace the key, and the key is not
+// repeated. Exit status 2, like the other removed flags (ux UX-C4).
+func refuseAPIKeyOnArgv(cmd string, rest []string, lang a2ashape.Language) (string, bool) {
+	if cmd != "autoreply" && cmd != "auto-reply" {
+		return "", false
+	}
+	for i, a := range rest {
+		if a == "--" {
+			break
+		}
+		name, ok := strings.CutPrefix(a, "--")
+		if !ok {
+			continue
+		}
+		name, value, hasValue := strings.Cut(name, "=")
+		onArgv := name == apiKeyArgvFlag ||
+			(name == apiKeyStdinFlag && hasValue && value != "") ||
+			(name == apiKeyStdinFlag && !hasValue && i+1 < len(rest) && !strings.HasPrefix(rest[i+1], "--"))
+		if onArgv {
+			return a2ashape.Sentence("api_key_on_argv", lang, nil), true
+		}
+	}
+	return "", false
+}
+
+// readAPIKeyStdin reads the key for --api-key-stdin (LEC AV-8): typed on the terminal, without echo,
+// when stdin is one; otherwise read to the end, at most 4096 bytes. Surrounding white space is dropped.
+// An empty key is api_key_empty and a longer one config_invalid, each printed here: exit status 1,
+// nothing sent.
+func readAPIKeyStdin(in *os.File, out io.Writer) (string, error) {
+	lang := a2ashape.Lang()
+	var raw []byte
+	var err error
+	if fd := int(in.Fd()); term.IsTerminal(fd) {
+		fmt.Fprint(out, "API key: ")
+		raw, err = term.ReadPassword(fd)
+		fmt.Fprintln(out)
+	} else {
+		raw, err = io.ReadAll(io.LimitReader(in, apiKeyMax+1))
+	}
+	if err != nil {
+		return "", err
+	}
+	if len(raw) > apiKeyMax {
+		rule := "it is longer than 4096 bytes; check that the file holds only the key"
+		if lang == a2ashape.Chinese {
+			rule = "超过 4096 字节;请确认文件里只有 key"
+		}
+		fmt.Fprintln(out, a2ashape.Sentence("config_invalid", lang, a2ashape.Args{"key": "api_key", "rule": rule}))
+		return "", errExit1
+	}
+	key := strings.TrimSpace(string(raw))
+	if key == "" {
+		fmt.Fprintln(out, a2ashape.Sentence("api_key_empty", lang, nil))
+		return "", errExit1
+	}
+	return key, nil
 }
 
 // splitFlags separates positional arguments from --flags.
@@ -1212,12 +1294,12 @@ var knownFlags = map[string][]string{
 	"payments":      {"payees-file"},
 	"payees":        {},
 	"autoreply": {
-		"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir",
+		"backend", "agent", "api-base", "api-key-stdin", "model", "system-prompt", "work-dir", "untrusted",
 		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
 		"poll-interval", "max-history", "api-timeout", "max-auto-replies",
 	},
 	"auto-reply": {
-		"backend", "agent", "api-base", "api-key", "model", "system-prompt", "work-dir",
+		"backend", "agent", "api-base", "api-key-stdin", "model", "system-prompt", "work-dir", "untrusted",
 		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
 		"poll-interval", "max-history", "api-timeout", "max-auto-replies",
 	},
