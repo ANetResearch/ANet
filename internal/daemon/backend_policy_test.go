@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"encoding/json"
 	"errors"
 	"os/user"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -102,3 +104,30 @@ func TestExpectedUIDStopsTheDaemonInEveryModule(t *testing.T) {
 		}
 	}
 }
+
+// FuzzCheckBackendPolicies: any config.json object either passes the
+// backend policy check or is refused with config_invalid naming one of the
+// three keys of one of the three modules' blocks.
+func FuzzCheckBackendPolicies(f *testing.F) {
+	f.Add([]byte(`{"modules":{"service":{"expected_user":"1001","peer_check":"path-only"}}}`))
+	f.Add([]byte(`{"modules":{"a2a":{"backends":[{"match":"*"},{"expected_user":7},{"peer_check":"x"}]}}}`))
+	f.Add([]byte(`{"modules":{"anetlink":{"socket_group":"no-such-group-anet-test"}}}`))
+	f.Add([]byte(`{"modules":[1,2]}`))
+	f.Fuzz(func(t *testing.T, raw []byte) {
+		var m map[string]any
+		if json.Unmarshal(raw, &m) != nil {
+			return
+		}
+		r := checkBackendPolicies(Config{}, m)
+		if r == nil {
+			return
+		}
+		key, _ := r.Args["key"].(string)
+		if r.Code() != "config_invalid" || !backendPolicyKey.MatchString(key) {
+			t.Fatalf("%s: %s %v", raw, r.Code(), r.Args)
+		}
+	})
+}
+
+// backendPolicyKey is the key a backend policy refusal may name.
+var backendPolicyKey = regexp.MustCompile(`^modules\.(service|anetlink|a2a\.backends\[[0-9]+\])\.(expected_user|socket_group|peer_check)$`)
