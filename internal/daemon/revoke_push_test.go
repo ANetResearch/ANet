@@ -176,11 +176,14 @@ func TestListChangesRevoke(t *testing.T) {
 		n, _ := hubRevocations(t, srv.URL, prov.AID())
 		return n == 4
 	})
-	// Allowing a denied peer gives nothing back and withdraws nothing more.
+	// Allowing a denied peer gives nothing back, and withdraws whatever it
+	// still holds (here written straight into the table): the deny list
+	// still names it.
+	late := issueTo(t, prov, g, "ix", "ix-3", seal.CapClassStranger, 6)
 	if w := listRoute(t, prov.hPeersAllow, g); w.Code != http.StatusOK {
 		t.Fatalf("allow again: %d %s", w.Code, w.Body)
 	}
-	if got := issuedState(t, prov, all...); got != "withdrawn,withdrawn,withdrawn,withdrawn,given" {
+	if got := issuedState(t, prov, append(all, late)...); got != "withdrawn,withdrawn,withdrawn,withdrawn,given,withdrawn" {
 		t.Fatalf("after allowing a denied peer: %s", got)
 	}
 }

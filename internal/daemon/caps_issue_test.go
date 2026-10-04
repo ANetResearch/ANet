@@ -135,6 +135,33 @@ func TestGrantReuseAndRenew(t *testing.T) {
 	if bytes.Equal(r5.CapID, r4.CapID) {
 		t.Fatal("the contact capability was given as the stranger one")
 	}
+	// Withdrawn between the plan and the version's commit (a list edit, a
+	// settlement, a rotation): a reuse or renewal planned before does not
+	// commit, and the version is sealed again.
+	for _, c := range []struct {
+		name string
+		dec  GrantDecision
+		at   uint64
+		op   grantOp
+	}{
+		{"reuse", decStrangerPeer(t16 + 3), t16 + 3, grantReuse},
+		{"renewal", decContactPeer(t16 + 1 + 16*day), t16 + 1 + 16*day, grantRenew},
+	} {
+		p, err := prov.planGrant(req.AID(), c.dec, c.at)
+		if err != nil || p == nil || p.op != c.op {
+			t.Fatalf("%s: plan %+v, %v", c.name, p, err)
+		}
+		if err := prov.ix.Update(func(tx *interactions.Tx) error {
+			_, err := tx.RevokeIssuedCap(p.row.CapID, c.at)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		err = prov.ix.Update(func(tx *interactions.Tx) error { return prov.commitGrantTx(tx, p, c.at) })
+		if !errors.Is(err, errGrantStale) {
+			t.Fatalf("%s of a withdrawn capability committed: %v", c.name, err)
+		}
+	}
 }
 
 // providerIX records an inbound interaction from peer whose payment was
@@ -634,6 +661,54 @@ func TestPeerEmergencyRotRevokesIssuedCaps(t *testing.T) {
 	if got := issuedState(t, recv, wPeer, wOne); got != "withdrawn,withdrawn" || heldState(t, recv, w.AID()) != "peer:given-up,ix:given-up," {
 		t.Fatalf("through the receive path: issued %s, held %s", got, heldState(t, recv, w.AID()))
 	}
+
+	// A public requester: its KEL is kept on its open interaction, not in
+	// peer_identity (A2A-DESIGN §3.8), and the receive path's write of the
+	// KEL a later message carries is the merge.
+	v := agent()
+	const pubIX = "ix-pub-v"
+	vKEL, err := identity.MarshalKEL(v.KEL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ix.Create(interactions.New{ID: pubIX, Role: interactions.RoleInbound, PeerAID: v.AID(), Goal: "x",
+		Trust: interactions.TrustPublic, PeerKEL: vKEL}); err != nil {
+		t.Fatal(err)
+	}
+	vPeer, vOne, _, _ := capsBetween(t, d, v.AID(), 50)
+	noteRequester := func() {
+		t.Helper()
+		d.recordSenderIdentity(&rxMsg{from: v.AID(), ix: pubIX, kelUpdate: v.KEL()})
+	}
+	if err := identitytest.Rotate(v, 2000); err != nil {
+		t.Fatal(err)
+	}
+	noteRequester()
+	if got := issuedState(t, d, vPeer, vOne); got != "given,given" || heldState(t, d, v.AID()) != "peer:valid+p2p,ix:valid," {
+		t.Fatalf("a public requester's planned rotation: issued %s, held %s", got, heldState(t, d, v.AID()))
+	}
+	if err := identitytest.RotateEmergency(v, 3000); err != nil {
+		t.Fatal(err)
+	}
+	noteRequester()
+	if got := issuedState(t, d, vPeer, vOne); got != "withdrawn,withdrawn" || heldState(t, d, v.AID()) != "peer:given-up,ix:given-up," {
+		t.Fatalf("a public requester's emergency rotation: issued %s, held %s", got, heldState(t, d, v.AID()))
+	}
+	if pix, err := d.ix.Get(pubIX); err != nil || !bytes.Equal(pix.PeerKEL, mustMarshalKEL(t, v.KEL())) {
+		t.Fatalf("the interaction does not keep the merged KEL: %v", err)
+	}
+	if _, err := d.ix.PeerIdentity(v.AID()); !errors.Is(err, interactions.ErrNotFound) {
+		t.Fatalf("a public requester was recorded in peer_identity: %v", err)
+	}
+}
+
+func mustMarshalKEL(t *testing.T, kel []identity.SignedEvent) []byte {
+	t.Helper()
+	b, err := identity.MarshalKEL(kel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 // SS §4.3.8 item 3 (M27): a task paid through a2a-x402 that ends — or one
@@ -763,6 +838,9 @@ func TestGrantRelFacts(t *testing.T) {
 	}
 	if r := rel(stranger, "ix-held"); r.Role != capRoleUnaccepted {
 		t.Fatalf("a held task: %+v", r)
+	}
+	if r := rel(req.AID(), "ix-held"); r.Role != capRoleNone {
+		t.Fatalf("another peer's held task: %+v", r)
 	}
 	// This node's own task to the peer.
 	if err := prov.ix.Create(interactions.New{ID: "ix-out", Role: interactions.RoleOutbound, PeerAID: stranger, Goal: "x"}); err != nil {

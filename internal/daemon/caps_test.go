@@ -587,6 +587,33 @@ func TestSameCapIDGrantDoesNotRevive(t *testing.T) {
 	}
 }
 
+// SSR-U2: /status.sender_privacy.refusal_downgrades_24h is the number of
+// downgrades of the last 24 hours, and only of downgrades; the counters
+// tell the three outcomes apart.
+func TestRefusalDowngradesOfTheLastDay(t *testing.T) {
+	d := newTestDaemon(t, "", false)
+	hour := uint64(3600 * 1000)
+	d.noteRefusal(RefusalDecision{Action: refusalWait}, tNow)
+	d.noteRefusal(RefusalDecision{Action: refusalInvalidate}, tNow)
+	d.noteRefusal(RefusalDecision{Action: refusalReselect}, tNow)
+	if n := d.refusalDowngrades24h(tNow); n != 0 {
+		t.Fatalf("%d downgrades without one", n)
+	}
+	d.noteRefusal(RefusalDecision{Action: refusalDowngrade}, tNow)
+	d.noteRefusal(RefusalDecision{Action: refusalDowngrade}, tNow+hour)
+	for _, c := range []struct {
+		at   uint64
+		want int
+	}{{tNow + hour, 2}, {tNow + 24*hour - 1, 2}, {tNow + 24*hour, 1}, {tNow + 25*hour, 0}} {
+		if n := d.refusalDowngrades24h(c.at); n != c.want {
+			t.Fatalf("at +%dms: %d downgrades, want %d", c.at-tNow, n, c.want)
+		}
+	}
+	if u, g, e := counter(d, cntRefusalUnexplained), counter(d, cntRefusalDowngrade), counter(d, cntRefusalExplained); u != 3 || g != 2 || e != 2 {
+		t.Fatalf("counters: unexplained %d, downgrade %d, explained %d", u, g, e)
+	}
+}
+
 // A refusal of a capability the row no longer holds (a grant replaced it
 // while the send was out) counts against nothing.
 func TestRefusalOfAReplacedCapabilityCountsNothing(t *testing.T) {

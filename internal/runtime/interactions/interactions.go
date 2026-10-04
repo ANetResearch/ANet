@@ -789,14 +789,20 @@ func setLateResult(e execer, id string, result []byte, resultCID string, receipt
 }
 
 // SetPeerKeys records the requester's KEL and key set on a public or
-// public_cap interaction that is still open (A2A-DESIGN §3.8).
+// public_cap interaction that is still open (A2A-DESIGN §3.8). A KEL that
+// adds an emergency rotation to the one kept there changes the
+// capabilities in the same transaction, as for peer_identity
+// (requesterKELWritten).
 func (s *Store) SetPeerKeys(id string, kel, keys []byte) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return setPeerKeys(s.db, id, kel, keys)
+	return s.Update(func(t *Tx) error { return t.SetPeerKeys(id, kel, keys) })
 }
 
-func setPeerKeys(e execer, id string, kel, keys []byte) error {
+func setPeerKeys(e execer, id string, kel, keys []byte, nowMS int64) error {
+	if len(kel) > 0 {
+		if err := requesterKELWritten(e, id, kel, uint64(nowMS)); err != nil {
+			return err
+		}
+	}
 	_, err := e.Exec(`UPDATE interaction SET peer_kel=COALESCE(?, peer_kel), peer_keys=COALESCE(?, peer_keys)
 	   WHERE id=? AND state NOT IN `+terminalSQL, nilIfEmpty(kel), nilIfEmpty(keys), id)
 	return err

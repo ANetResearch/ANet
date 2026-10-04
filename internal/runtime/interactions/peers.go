@@ -120,7 +120,9 @@ func (t *Tx) SetLateResult(id string, result []byte, resultCID string, receipt [
 }
 
 // SetPeerKeys is Store.SetPeerKeys inside the transaction.
-func (t *Tx) SetPeerKeys(id string, kel, keys []byte) error { return setPeerKeys(t.tx, id, kel, keys) }
+func (t *Tx) SetPeerKeys(id string, kel, keys []byte) error {
+	return setPeerKeys(t.tx, id, kel, keys, t.now)
+}
 
 // SetEndRequested is Store.SetEndRequested inside the transaction.
 func (t *Tx) SetEndRequested(id, by string) error { return setEndRequested(t.tx, id, by) }

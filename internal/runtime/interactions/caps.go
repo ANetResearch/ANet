@@ -981,11 +981,43 @@ func peerWritten(e execer, aid string, cur, next *PeerIdentity, now uint64) erro
 	if !emergencyMerged(cur.KEL, next.KEL) {
 		return nil
 	}
+	return emergencyRotated(e, aid, now)
+}
+
+// emergencyRotated is ENG-K4 for aid, whose emergency rotation this node
+// just merged: what aid gave this node is dropped and what this node gave
+// aid is revoked, in the merge's transaction.
+func emergencyRotated(e execer, aid string, now uint64) error {
 	if _, err := invalidatePeerCaps(e, aid, now); err != nil {
 		return err
 	}
 	_, err := revokeIssued(e, IssuedFilter{Grantee: aid}, now)
 	return err
+}
+
+// requesterKELWritten is peerWritten's ENG-K4 rule for the other place a
+// peer's KEL is kept: the requester of a public or public_cap interaction
+// is not recorded in peer_identity, and its KEL is kept on the open
+// interaction instead (A2A-DESIGN §3.8). A KEL written there that adds an
+// emergency rotation to the one kept is a merge like any other: this node
+// gave that requester a stranger peer capability when it accepted the task
+// (SS §4.3.2 rule 5), whose holder seed is in the requester's old data
+// directory. A first KEL, a planned rotation and an ended interaction
+// change nothing.
+func requesterKELWritten(e execer, id string, kel []byte, now uint64) error {
+	var peer string
+	var cur []byte
+	err := e.QueryRow(`SELECT peer_aid, peer_kel FROM interaction WHERE id=? AND state NOT IN `+terminalSQL, id).Scan(&peer, &cur)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if peer == "" || len(cur) == 0 || bytes.Equal(cur, kel) || !emergencyMerged(cur, kel) {
+		return nil
+	}
+	return emergencyRotated(e, peer, now)
 }
 
 // emergencyMerged reports whether nextKEL, a peer's KEL as this node holds
