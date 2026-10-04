@@ -1,5 +1,6 @@
 # exec.py: local execution and credentials (v0.3.0 LEC §7.3) — mutation list for scripts/mutations/unitmut.py (see its
-# header for the format). EXE-1 adds M-SB-1 to M-SB-3 (the Linux sandbox kernel); the other EXE packages append theirs.
+# header for the format). EXE-1 adds M-SB-1 to M-SB-3 (the Linux sandbox kernel); EXE-2 adds M-BP-1 to M-BP-7 (the
+# injection route's request policy) and four egress endpoint mutations (m-eg-*); the other EXE packages append theirs.
 #
 # The probe tests (TestSandboxProbe*, TestSandboxIntegrationConfinesTheAgent) need a bubblewrap that can create user
 # namespaces: on a host without one they skip, and the bwrap-free tests listed with them (G-BWRAP, G-SECCOMP, the
@@ -7,6 +8,10 @@
 # Debian 12 host run the probe tests themselves red for each of these mutations.
 
 PROBE = 'TestSandboxProbeFiveItems|TestSandboxProbeSeccompAloneRefusesUserNamespaces|TestSandboxIntegrationConfinesTheAgent'
+
+# The injection route's policy tests (EXE-2): the SI-57 corpus through the endpoint, the rules one by one, G-BP, and the
+# endpoint's credential test.
+INJECT = 'TestInjectPolicyAsserts|TestInjectBodyPolicy|TestInjectPolicyGolden|TestEgressForwardsWithTheOperatorKeyOnly'
 
 MUTS = [
  dict(
@@ -38,6 +43,118 @@ MUTS = [
     'return bwrapFeatures{DisableUserns: false, Size: has("--size")}'),
   ],
   tests=[('ANet:./internal/daemon', PROBE), ('ANet:./internal/daemon', 'TestSeccompGolden|TestSeccompRules|TestSeccompFilterInKernel')],
+  full=['ANet:./internal/daemon'],
+ ),
+ # --- EXE-2: the egress endpoint and the injection route (LEC §4.3.3, §4.3.4; SI-57) ---
+ dict(
+  id='m-bp-1', group='BP', repo='ANet',
+  desc='注入路由不删入站的 Authorization / x-api-key(agent 自带的 key 到达上游)',
+  edits=[
+   ('internal/daemon/egress_policy.go', '\t"Authorization": true, "X-Api-Key": true, "Api-Key": true,\n', '\t"Api-Key": true,\n'),
+  ],
+  tests=[('ANet:./internal/daemon', INJECT)],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-bp-2', group='BP', repo='ANet',
+  desc='不把 model 改写为钉死的模型',
+  edits=[
+   ('internal/daemon/egress_policy.go', '\tobj["model"] = up.Model // BP-2', '\t_ = up.Model // BP-2'),
+  ],
+  tests=[('ANet:./internal/daemon', INJECT)],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-bp-3', group='BP', repo='ANet',
+  desc='不钳制 max_tokens 等输出上限',
+  edits=[
+   ('internal/daemon/egress_policy.go', 'if n, ok := jsonInteger(obj[k]); ok && n <= egressMaxOutputTokens {',
+    'if n, ok := jsonInteger(obj[k]); ok || n <= egressMaxOutputTokens {'),
+  ],
+  tests=[('ANet:./internal/daemon', INJECT)],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-bp-4', group='BP', repo='ANet',
+  desc='放行未知的工具类型(web_fetch、code_execution、托管工具)',
+  edits=[
+   ('internal/daemon/egress_policy.go', '\t\t\treturn typ, true\n\t\t}\n\t}\n\treturn typ, false\n}', '\t\t\treturn typ, true\n\t\t}\n\t}\n\treturn typ, true\n}'),
+   ('internal/daemon/egress_policy.go', 'return typ, egressResponsesClientTools[typ]', 'return typ, true'),
+  ],
+  tests=[('ANet:./internal/daemon', INJECT)],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-bp-5', group='BP', repo='ANet',
+  desc='不拒绝 mcp_servers',
+  edits=[
+   ('internal/daemon/egress_policy.go', '\tif presentMember(obj, "mcp_servers") {', '\tif false && presentMember(obj, "mcp_servers") {'),
+  ],
+  tests=[('ANet:./internal/daemon', INJECT)],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-bp-5b', group='BP', repo='ANet',
+  desc='不拒绝 previous_response_id',
+  edits=[
+   ('internal/daemon/egress_policy.go', 'refuseFields(obj, "conversation", "prompt", "previous_response_id")', 'refuseFields(obj, "conversation", "prompt")'),
+  ],
+  tests=[('ANet:./internal/daemon', INJECT)],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-bp-6', group='BP', repo='ANet',
+  desc='OpenAI 请求不强制 store:false',
+  edits=[
+   ('internal/daemon/egress_policy.go', '\tobj["store"] = false\n', ''),
+  ],
+  tests=[('ANet:./internal/daemon', INJECT)],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-bp-7', group='BP', repo='ANet',
+  desc='anthropic-beta 白名单加入 mcp-client-*',
+  edits=[
+   ('internal/daemon/egress_policy.go', '\t"computer-use-2025-01-24":                true,\n}',
+    '\t"computer-use-2025-01-24":                true,\n\t"mcp-client-2025-11-20": true,\n}'),
+  ],
+  tests=[('ANet:./internal/daemon', 'TestEgressBetaAllowlists|' + INJECT)],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-eg-1', group='EG', repo='ANet',
+  desc='absolute-form 不核对目标是端点自身(任何主机的同名路径都当作注入路由)',
+  edits=[
+   ('internal/daemon/egress.go', '!egressSelf[strings.ToLower(u.Host)]', 'false'),
+  ],
+  tests=[('ANet:./internal/daemon', 'TestEgressRefusesWhatIsNotTheRoute')],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-eg-2', group='EG', repo='ANet',
+  desc='流式响应不逐块 flush(EG-6)',
+  edits=[
+   ('internal/daemon/egress.go', '\t\t\t\tflusher.Flush() // EG-6', '\t\t\t\t_ = flusher // EG-6'),
+  ],
+  tests=[('ANet:./internal/daemon', 'TestEgressStreamsChunkByChunk')],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-eg-3', group='EG', repo='ANet',
+  desc='出站端点 accept 时不核对对端 uid',
+  edits=[
+   ('internal/daemon/sandbox_linux.go', 'se.ep.peerCheck = egressPeerIsDaemonUser', 'se.ep.peerCheck = nil'),
+  ],
+  tests=[('ANet:./internal/daemon', 'TestSandboxEgressPeerMustBeTheDaemonUser')],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='m-eg-4', group='UP', repo='ANet',
+  desc='沙箱环境保留 daemon 的 key 与代理变量(UP-4 占位值失效)',
+  edits=[
+   ('internal/daemon/egress_upstreams.go', '\t\tif !drop[k] {', '\t\tif !drop[k] || true {'),
+  ],
+  tests=[('ANet:./internal/daemon', 'TestSandboxEgressEnv|TestSandboxCommandKeepsTheAgentOffTheCommandLine|TestSandboxCommandOpensTheEgressEndpoint|' + PROBE)],
   full=['ANet:./internal/daemon'],
  ),
 ]
