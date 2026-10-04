@@ -456,16 +456,24 @@ func (p *peer) clearDown(aid string) {
 
 // serveDaemon handles the module's connection: hello, send, and the acks
 // that come back for what we delivered.
+//
+// The connection takes the daemon's place with its first frame (the
+// daemon's hello comes first), not when it is accepted: a connection that
+// says nothing and closes — another peer process started on the same path,
+// asking whether anyone still listens (clearStaleSocket) — must not leave
+// the daemon that is there without its deliveries.
 func (p *peer) serveDaemon(c net.Conn) {
 	defer c.Close()
-	p.mu.Lock()
-	p.conn, p.enc = c, json.NewEncoder(c)
-	p.mu.Unlock()
-
 	dec := json.NewDecoder(bufio.NewReader(c))
-	for {
+	for first := true; ; first = false {
 		var f frame
-		if err := dec.Decode(&f); err != nil {
+		err := dec.Decode(&f)
+		if first && err == nil {
+			p.mu.Lock()
+			p.conn, p.enc = c, json.NewEncoder(c)
+			p.mu.Unlock()
+		}
+		if err != nil {
 			p.mu.Lock()
 			if p.conn == c {
 				p.conn, p.enc = nil, nil

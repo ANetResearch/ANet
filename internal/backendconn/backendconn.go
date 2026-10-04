@@ -48,6 +48,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -136,6 +137,10 @@ func decimalID(s string) (id int, ok bool, err error) {
 	n, perr := strconv.ParseUint(s, 10, 64)
 	if perr != nil || n > maxID {
 		return 0, true, fmt.Errorf("%s is past the largest id, %d", s, uint64(maxID))
+	}
+	if n > math.MaxInt {
+		// A 32-bit build: the id would wrap to a negative int, which the checks read as "none set".
+		return 0, true, fmt.Errorf("%s is past the largest id this build can compare, %d", s, math.MaxInt)
 	}
 	return int(n), true, nil
 }

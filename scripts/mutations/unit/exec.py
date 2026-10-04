@@ -465,6 +465,20 @@ MUTS += [
   full=['ANet:./tools/anetpeer'],
  ),
  dict(
+  id='exe10-peercred-error', group='PC-2', repo='ANet',
+  desc='读监听者账户出错(ErrUnsupported 以外)时放行',
+  edits=[('internal/backendconn/backendconn.go', '\t\treturn refuse(sock, "cannot read who listens on it: %v", err)', '\t\treturn nil')],
+  tests=[(BACKENDCONN, 'TestAListenerWhoseAccountCannotBeReadIsRefused')],
+  full=[BACKENDCONN],
+ ),
+ dict(
+  id='exe10-anetpeer-probe', group='PC-4', repo='ANet',
+  desc='daemon 套接字的连接一被接受就顶替当前 daemon(另一 anetpeer 探测 socket 是否在用后,当前 daemon 收不到投递)',
+  edits=[('tools/anetpeer/main.go', '\t\tif first && err == nil {', '\t\tif first {')],
+  tests=[('ANet:./tools/anetpeer', 'TestTheDaemonSocketIsListenedOnSafely')],
+  full=['ANet:./tools/anetpeer'],
+ ),
+ dict(
   id='exe10-retry-giveup', group='load', repo='ANet',
   desc='重试放弃时刻算错(放宽到两倍 give_up_after)',
   edits=[('module/a2a/backend.go', 'since+wait > f.retry.giveUp {', 'since+wait > 2*f.retry.giveUp {')],

@@ -355,6 +355,26 @@ func TestAPlatformThatCannotTellIsRefusedUnlessPathOnly(t *testing.T) {
 	}
 }
 
+// On a platform that can tell, a connection whose listener's account cannot be read after all (any
+// error but ErrUnsupported) is refused too, and sent nothing: failing to ask is not an answer.
+func TestAListenerWhoseAccountCannotBeReadIsRefused(t *testing.T) {
+	needUnix(t)
+	d := privateDir(t)
+	s := serveUnix(t, filepath.Join(d, "b.sock"))
+	old := peerCredOf
+	peerCredOf = func(net.Conn) (peercred.Cred, error) {
+		return peercred.Cred{UID: -1, GID: -1, PID: -1}, errors.New("getsockopt: bad file descriptor")
+	}
+	t.Cleanup(func() { peerCredOf = old })
+	r, _ := Policy{}.Resolve()
+	if _, err := get(t, r, "unix://"+s.path); !errors.Is(err, ErrRefused) {
+		t.Fatalf("the listener's account could not be read: %v", err)
+	}
+	if n := s.hits.Load(); n != 0 {
+		t.Fatalf("the listener received %d requests", n)
+	}
+}
+
 // A socket that is not there is the backend being down, not an attack: not refused, and says so.
 func TestAMissingSocketIsDownNotRefused(t *testing.T) {
 	needUnix(t)

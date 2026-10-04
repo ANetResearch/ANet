@@ -200,6 +200,10 @@ jobs:
     env:
       CGO_ENABLED: "0"
       ANET_TEST_SUDO: "1"
+      # The tests make their sockets under t.TempDir(). macOS's own TMPDIR
+      # (/var/folders/…/T/) plus a test's name passes the 104 bytes a socket
+      # path may have there, and every bind would fail.
+      TMPDIR: /tmp
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

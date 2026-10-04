@@ -128,14 +128,32 @@ func TestTheDaemonSocketIsListenedOnSafely(t *testing.T) {
 	if err != nil || fi.Mode().Perm() != 0o700 {
 		t.Fatalf("the socket's new directory: %v %v, want 0700", fi.Mode(), err)
 	}
-	// A second peer process on the same path: the socket is in use, and is
-	// left to the first.
-	if _, err := start(sock, filepath.Join(dir, "b.wire"), rv, ""); err == nil || !strings.Contains(err.Error(), "in use") {
-		t.Fatalf("a socket in use: %v", err)
-	}
 	d := dialRawDaemon(t, sock)
 	d.send(frame{Op: "hello", V: wireVersion, Self: "aid-first"})
 	waitSelf(t, p, "aid-first")
+	// A second peer process on the same path: the socket is in use, and is
+	// left to the first. Asking whether anyone listens there costs the
+	// daemon of the first nothing: it is still the one a delivery is handed
+	// to.
+	if _, err := start(sock, filepath.Join(dir, "b.wire"), rv, ""); err == nil || !strings.Contains(err.Error(), "in use") {
+		t.Fatalf("a socket in use: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond) // let the first serve and close the second's question
+	handed := make(chan frame, 1)
+	go func() {
+		if f, _, err := d.read(); err == nil {
+			handed <- f
+		}
+	}()
+	go p.handOff(frame{Op: "send", V: wireVersion, To: "aid-first", Envelope: "ZW52"})
+	select {
+	case f := <-handed:
+		if f.Op != "recv" || f.Envelope != "ZW52" {
+			t.Fatalf("the daemon was handed %+v", f)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("after a second peer process asked whether the socket is in use, the daemon is no longer handed deliveries")
+	}
 	p.stop()
 
 	// A socket nobody listens on (a peer process that died) is replaced.
