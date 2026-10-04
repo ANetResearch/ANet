@@ -296,6 +296,62 @@ func TestEgressConnectionLimit(t *testing.T) {
 	}
 }
 
+// Request bodies are read and rewritten one at a time per run: decoding a JSON body takes many times
+// its size in memory, so 32 connections each sending 8 MiB at once would otherwise cost the daemon
+// gigabytes. A second body waits while the first is still arriving, and goes through once it is done.
+func TestEgressReadsOneBodyAtATime(t *testing.T) {
+	f := newFakeModelService(t)
+	up := testUpstream(t, egressUpstreamAnthropic, f)
+	ep, c, sock := startTestEgress(t, up)
+	slow, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer slow.Close()
+	_ = slow.SetDeadline(time.Now().Add(15 * time.Second))
+	const body = `{"messages":[]}`
+	if _, err := io.WriteString(slow, "POST /anet-upstream/anthropic/v1/messages HTTP/1.1\r\nHost: x\r\nContent-Length: "+
+		fmt.Sprint(len(body))+"\r\n\r\n"+body[:7]); err != nil {
+		t.Fatal(err)
+	}
+	egressWaitFor(t, func() bool { return len(ep.bodySlot) == 1 })
+	second := make(chan int, 1)
+	go func() {
+		resp, err := c.Post(routeURL("anthropic", "/v1/messages"), "application/json", strings.NewReader(body))
+		if err != nil {
+			second <- -1
+			return
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		second <- resp.StatusCode
+	}()
+	select {
+	case st := <-second:
+		t.Fatalf("a second body was taken while the first was still arriving: %d", st)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if _, err := io.WriteString(slow, body[7:]); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(slow), nil)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("the first request: %v %v", resp, err)
+	}
+	resp.Body.Close()
+	select {
+	case st := <-second:
+		if st != 200 {
+			t.Errorf("the second request: %d", st)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the second body was never taken")
+	}
+	if n := len(f.requests()); n != 2 {
+		t.Errorf("the service received %d requests", n)
+	}
+}
+
 // EG-6: a streamed answer reaches the agent event by event (the second event is only sent after the
 // agent has read the first), and the answer's cookies, hop-by-hop headers and the operator's account
 // identifiers are dropped.

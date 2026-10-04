@@ -163,12 +163,15 @@ func resolveEgressUpstream(cfg AutoReplyConfig) (*egressUpstream, error) {
 		if err != nil {
 			return nil, err
 		}
-		if builtin, ok := egressBuiltinHosts[strings.ToLower(base.Hostname())]; ok {
+		// A fully qualified name (trailing dot) is the same host: it must not turn a built-in service
+		// into custom, or let openrouter.ai's plugins and model list through.
+		host := strings.TrimSuffix(strings.ToLower(base.Hostname()), ".")
+		if builtin, ok := egressBuiltinHosts[host]; ok {
 			up.Name = builtin
 		} else {
 			up.Base = base
 			up.Routes = egressCustomRoutes
-			up.OpenRouter = strings.EqualFold(base.Hostname(), "openrouter.ai")
+			up.OpenRouter = host == "openrouter.ai"
 			up.LoopbackOnly = base.Scheme == "http"
 		}
 	}

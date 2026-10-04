@@ -349,10 +349,11 @@ func openAIStorageRules(obj map[string]any) {
 	delete(obj, "service_tier")
 }
 
-// clampOutputLimit bounds output limit k to egressMaxOutputTokens (BP-3): a decimal integer at most the
-// bound stays; anything else present (larger, a fraction, a string a lenient service would read as a
-// number) becomes the bound; absent, it is added when add is set. It returns the value the request now
-// carries, 0 when it carries none.
+// clampOutputLimit bounds output limit k to egressMaxOutputTokens (BP-3): a decimal integer from 1 to the
+// bound stays; anything else present (larger, zero or negative, which a lenient OpenAI-compatible
+// service such as a local Ollama or llama.cpp reads as "no limit", a fraction, a string a lenient
+// service would read as a number) becomes the bound; absent, it is added when add is set. It returns the
+// value the request now carries, 0 when it carries none.
 func clampOutputLimit(obj map[string]any, k string, add bool) int64 {
 	if !presentMember(obj, k) {
 		if !add {
@@ -361,24 +362,24 @@ func clampOutputLimit(obj map[string]any, k string, add bool) int64 {
 		obj[k] = json.Number(strconv.Itoa(egressMaxOutputTokens))
 		return egressMaxOutputTokens
 	}
-	if n, ok := jsonInteger(obj[k]); ok && n <= egressMaxOutputTokens {
+	if n, ok := jsonInteger(obj[k]); ok && n >= 1 && n <= egressMaxOutputTokens {
 		return n
 	}
 	obj[k] = json.Number(strconv.Itoa(egressMaxOutputTokens))
 	return egressMaxOutputTokens
 }
 
-// jsonInteger is a JSON number written as a decimal integer of at most 9 digits.
+// jsonInteger is a JSON number written as an unsigned decimal integer of at most 9 digits.
 func jsonInteger(v any) (int64, bool) {
 	n, ok := v.(json.Number)
 	if !ok {
 		return 0, false
 	}
-	s := strings.TrimPrefix(string(n), "-")
+	s := string(n)
 	if s == "" || len(s) > 9 || strings.Trim(s, "0123456789") != "" {
 		return 0, false
 	}
-	i, err := strconv.ParseInt(string(n), 10, 64)
+	i, err := strconv.ParseInt(s, 10, 64)
 	return i, err == nil
 }
 
@@ -422,7 +423,14 @@ func checkToolChoice(obj map[string]any, ok toolTypeOK) *egressRefusal {
 		return refuseEgress(http.StatusForbidden, "policy_field", a2ashape.Args{"field": "tool_choice"})
 	}
 	if typ, _ := m["type"].(string); typ == "allowed_tools" {
-		return checkTools(m, "tools", ok)
+		// Responses lists them in tools; chat completions in allowed_tools.tools.
+		if r := checkTools(m, "tools", ok); r != nil {
+			return r
+		}
+		if inner, isObj := m["allowed_tools"].(map[string]any); isObj {
+			return checkTools(inner, "tools", ok)
+		}
+		return nil
 	}
 	if typ, allowed := ok(m); !allowed {
 		return refuseEgress(http.StatusForbidden, "policy_server_tool", a2ashape.Args{"type": egressArg(typ)})

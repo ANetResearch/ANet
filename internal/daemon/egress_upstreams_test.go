@@ -29,6 +29,8 @@ func TestEgressUpstreamSelection(t *testing.T) {
 		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:11434/v1"}, "", "", "no_model", false, false},
 		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key}, "", "", "no_api_base", false, false},
 		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://openrouter.ai/api/v1", Model: "x/y"}, "custom", "https://openrouter.ai/api/v1", "", false, true},
+		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://OpenRouter.ai.:443/api/v1", Model: "x/y"}, "custom", "https://OpenRouter.ai.:443/api/v1", "", false, true},
+		{AutoReplyConfig{Agent: agentCodex, APIKey: key, APIBase: "https://api.openai.com./v1"}, "openai", "https://api.openai.com", "", false, false},
 		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://api.anthropic.com"}, "anthropic", "https://api.anthropic.com", "", false, false},
 		{AutoReplyConfig{Agent: agentHermes, APIBase: "https://api.anthropic.com"}, "", "", "no_api_key", false, false},
 		{AutoReplyConfig{Agent: agentHermes, APIBase: "http://198.51.100.5:8000/v1", Model: "m"}, "", "", "api_base_insecure", false, false},

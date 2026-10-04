@@ -190,6 +190,10 @@ type egressEndpoint struct {
 	// daemon's own uid, read with SO_PEERCRED).
 	peerCheck func(net.Conn) error
 	conns     atomic.Int32
+	// bodySlot lets one request body at a time be read and rewritten. Decoding a JSON body takes many
+	// times its size in memory (an 8 MiB body of empty arrays is several hundred MiB), and the run's
+	// egressMaxConns connections must not multiply that in the daemon.
+	bodySlot chan struct{}
 	// gate orders the handlers' start against Close: once closed is set no handler starts, so Close
 	// can wait for the ones that did.
 	gate      sync.RWMutex
@@ -202,7 +206,8 @@ type egressEndpoint struct {
 // Serve.
 func newEgressEndpoint(up *egressUpstream) *egressEndpoint {
 	ctx, cancel := context.WithCancel(context.Background())
-	e := &egressEndpoint{up: up, lang: a2ashape.Lang(), transport: newEgressTransport(up), ctx: ctx, cancel: cancel}
+	e := &egressEndpoint{up: up, lang: a2ashape.Lang(), transport: newEgressTransport(up), ctx: ctx, cancel: cancel,
+		bodySlot: make(chan struct{}, 1)}
 	e.srv = &http.Server{
 		Handler:           e,
 		ReadHeaderTimeout: 30 * time.Second,
@@ -388,18 +393,16 @@ func (e *egressEndpoint) inject(w http.ResponseWriter, r *http.Request, upPath s
 			e.refuse(w, refuseEgress(http.StatusUnsupportedMediaType, "policy_encoding", nil))
 			return
 		}
-		raw, err := io.ReadAll(io.LimitReader(r.Body, egressMaxBody+1))
-		if err != nil {
-			// A body that ended early or was framed wrong; if the agent went away, nobody reads this.
-			e.refuse(w, refuseEgress(http.StatusBadRequest, "policy_encoding", nil))
-			return
-		}
-		if len(raw) > egressMaxBody {
-			e.refuse(w, refuseEgress(http.StatusRequestEntityTooLarge, "egress_too_large", a2ashape.Args{"n": egressMaxBody >> 20}))
+		select {
+		case e.bodySlot <- struct{}{}:
+		case <-r.Context().Done(): // the agent went away, or the run ended
+			e.badGateway(w, r.Context().Err())
 			return
 		}
 		var ref *egressRefusal
-		if body, ref = rewriteInjectBody(e.up, kind, raw); ref != nil {
+		body, ref = e.readInjectBody(r, kind)
+		<-e.bodySlot
+		if ref != nil {
 			e.refuse(w, ref)
 			return
 		}
@@ -454,6 +457,20 @@ func (e *egressEndpoint) inject(w http.ResponseWriter, r *http.Request, upPath s
 			return
 		}
 	}
+}
+
+// readInjectBody reads a POST body of at most egressMaxBody and applies the body policy (BP-1 to BP-5).
+// The caller holds the body slot.
+func (e *egressEndpoint) readInjectBody(r *http.Request, kind egressRouteKind) ([]byte, *egressRefusal) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, egressMaxBody+1))
+	if err != nil {
+		// A body that ended early or was framed wrong; if the agent went away, nobody reads this.
+		return nil, refuseEgress(http.StatusBadRequest, "policy_encoding", nil)
+	}
+	if len(raw) > egressMaxBody {
+		return nil, refuseEgress(http.StatusRequestEntityTooLarge, "egress_too_large", a2ashape.Args{"n": egressMaxBody >> 20})
+	}
+	return rewriteInjectBody(e.up, kind, raw)
 }
 
 // connect answers a CONNECT. No host is allowed yet, which is also the default of the allowlist: every

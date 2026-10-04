@@ -181,7 +181,7 @@ func refusalMessage(body []byte) (msg, code string, ok bool) {
 
 // --- SI-57, read independently of egress_policy.go ---
 
-var si57Integer = regexp.MustCompile(`^-?[0-9]{1,9}$`)
+var si57Integer = regexp.MustCompile(`^[0-9]{1,9}$`)
 
 // si57Paths are the paths each upstream may be called on, relative to its address.
 var si57Paths = map[string][]string{
@@ -192,8 +192,9 @@ var si57Paths = map[string][]string{
 
 // si57Check reads one request as the model service received it against SI-57: the path is allowed;
 // only the operator's key, once, and no other credential, cookie or forwarding header; no beta value
-// that reaches out; the model is P; every output limit at most 8192 and the main one present; no tool
-// the service runs itself, no MCP connector, no hosted state; OpenAI requests not stored.
+// that reaches out; the model is P; every output limit from 1 to 8192 (zero or negative is "no limit"
+// to some OpenAI-compatible services) and the main one present; no tool the service runs itself, no
+// MCP connector, no hosted state; OpenAI requests not stored.
 func si57Check(up *egressUpstream, r receivedRequest) error {
 	rel := strings.TrimPrefix(r.Path, strings.TrimRight(up.Base.Path, "/"))
 	allowed := false
@@ -282,8 +283,8 @@ func si57Body(up *egressUpstream, rel string, body []byte) error {
 			return 0, fmt.Errorf("%s = %v is not an integer", k, v)
 		}
 		i, _ := strconv.ParseInt(string(n), 10, 64)
-		if i > 8192 {
-			return 0, fmt.Errorf("%s = %d over 8192", k, i)
+		if i < 1 || i > 8192 {
+			return 0, fmt.Errorf("%s = %d is not from 1 to 8192", k, i)
 		}
 		return i, nil
 	}
@@ -384,8 +385,18 @@ func si57Body(up *egressUpstream, rel string, body []byte) error {
 			}
 		}
 		if tc, ok := obj["tool_choice"].(map[string]any); ok {
-			if typ, _ := tc["type"].(string); typ != "function" && typ != "custom" && typ != "local_shell" && typ != "allowed_tools" {
+			typ, _ := tc["type"].(string)
+			if typ != "function" && typ != "custom" && typ != "local_shell" && typ != "allowed_tools" {
 				return fmt.Errorf("tool_choice %q reached the service", typ)
+			}
+			inner, err := toolTypes(tc["tools"])
+			if err != nil {
+				return err
+			}
+			for _, it := range inner {
+				if it != "function" && it != "custom" && it != "local_shell" {
+					return fmt.Errorf("allowed tool type %q reached the service", it)
+				}
 			}
 		}
 	default: // chat completions
@@ -426,8 +437,22 @@ func si57Body(up *egressUpstream, rel string, body []byte) error {
 			}
 		}
 		if tc, ok := obj["tool_choice"].(map[string]any); ok {
-			if typ, _ := tc["type"].(string); typ != "function" && typ != "allowed_tools" {
+			typ, _ := tc["type"].(string)
+			if typ != "function" && typ != "allowed_tools" {
 				return fmt.Errorf("tool_choice %q reached the service", typ)
+			}
+			listed := tc["tools"]
+			if at, ok := tc["allowed_tools"].(map[string]any); ok && listed == nil {
+				listed = at["tools"]
+			}
+			inner, err := toolTypes(listed)
+			if err != nil {
+				return err
+			}
+			for _, it := range inner {
+				if it != "function" {
+					return fmt.Errorf("allowed tool type %q reached the service", it)
+				}
 			}
 		}
 	}

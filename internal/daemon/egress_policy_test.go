@@ -38,6 +38,8 @@ var injectCorpus = []injectCase{
 	{"limit-as-float", "anthropic", "POST", "/v1/messages", nil, `{"max_tokens":1e9,"messages":[]}`, ""},
 	{"limit-fraction", "anthropic", "POST", "/v1/messages", nil, `{"max_tokens":8191.5,"messages":[]}`, ""},
 	{"limit-null", "anthropic", "POST", "/v1/messages", nil, `{"max_tokens":null,"messages":[]}`, ""},
+	{"limit-negative", "anthropic", "POST", "/v1/messages", nil, `{"max_tokens":-1,"messages":[]}`, ""},
+	{"limit-zero", "anthropic", "POST", "/v1/messages", nil, `{"max_tokens":0,"messages":[]}`, ""},
 	{"thinking-over-limit", "anthropic", "POST", "/v1/messages", nil, `{"max_tokens":64000,"thinking":{"type":"enabled","budget_tokens":60000},"messages":[]}`, ""},
 	{"thinking-budget-string", "anthropic", "POST", "/v1/messages", nil, `{"max_tokens":4000,"thinking":{"type":"enabled","budget_tokens":"9999"},"messages":[]}`, ""},
 	{"duplicate-model", "anthropic", "POST", "/v1/messages", nil, `{"model":"a","model":"claude-opus-5","messages":[]}`, ""},
@@ -110,6 +112,12 @@ var injectCorpus = []injectCase{
 	{"openrouter-plugins", "openrouter", "POST", "/chat/completions", nil, `{"messages":[],"plugins":[{"id":"web"}]}`, "policy_field"},
 	{"openrouter-models", "openrouter", "POST", "/chat/completions", nil, `{"messages":[],"models":["openai/gpt-5","x"]}`, "policy_field"},
 	{"openrouter-limit", "openrouter", "POST", "/chat/completions", nil, `{"messages":[],"max_tokens":20000}`, ""},
+	// -1 is "generate until the context is full" to a local Ollama or llama.cpp server (BP-3)
+	{"custom-unlimited", "custom", "POST", "/chat/completions", nil, `{"messages":[],"max_tokens":-1}`, ""},
+	{"custom-unlimited-completion", "custom", "POST", "/chat/completions", nil, `{"messages":[],"max_completion_tokens":-2,"max_tokens":100}`, ""},
+	{"responses-zero-limit", "openai", "POST", "/v1/responses", nil, `{"input":"x","max_output_tokens":0}`, ""},
+	{"chat-allowed-tools-choice", "openai", "POST", "/v1/chat/completions", nil, `{"messages":[],"tools":[{"type":"function","function":{"name":"f"}}],"tool_choice":{"type":"allowed_tools","allowed_tools":{"mode":"auto","tools":[{"type":"function","function":{"name":"f"}}]}}}`, ""},
+	{"chat-allowed-tools-custom", "openai", "POST", "/v1/chat/completions", nil, `{"messages":[],"tool_choice":{"type":"allowed_tools","allowed_tools":{"mode":"auto","tools":[{"type":"custom","custom":{"name":"c"}}]}}}`, "policy_server_tool"},
 }
 
 // upstreamForCase is the upstream a case runs against, at base (the custom ones at base/v1, openrouter
@@ -182,6 +190,10 @@ func TestInjectBodyPolicy(t *testing.T) {
 		{ant, routeAnthropicMessages, `{}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":"512"}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":512.0}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":-1}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":0}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":-5,"thinking":{"type":"enabled","budget_tokens":-1}}`,
+			`{"max_tokens":8192,"model":"claude-haiku-4-5","thinking":{"budget_tokens":4096,"type":"enabled"}}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":64000,"thinking":{"type":"enabled","budget_tokens":60000}}`,
 			`{"max_tokens":8192,"model":"claude-haiku-4-5","thinking":{"budget_tokens":4096,"type":"enabled"}}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":1500,"thinking":{"type":"enabled","budget_tokens":1500}}`,
@@ -208,6 +220,9 @@ func TestInjectBodyPolicy(t *testing.T) {
 		{oai, routeChat, `{}`, `{"max_completion_tokens":8192,"model":"gpt-5-nano","store":false}`},
 		{oai, routeChat, `{"max_completion_tokens":10,"max_tokens":20000}`, `{"max_completion_tokens":10,"max_tokens":8192,"model":"gpt-5-nano","store":false}`},
 		{cus, routeChat, `{}`, `{"max_tokens":8192,"model":"local-model","store":false}`},
+		{cus, routeChat, `{"max_tokens":-1}`, `{"max_tokens":8192,"model":"local-model","store":false}`},
+		{cus, routeChat, `{"max_completion_tokens":0}`, `{"max_completion_tokens":8192,"model":"local-model","store":false}`},
+		{oai, routeResponses, `{"max_output_tokens":-1}`, `{"max_output_tokens":8192,"model":"gpt-5-nano","store":false}`},
 		{cus, routeChat, `{"plugins":[1],"models":[2]}`, `{"max_tokens":8192,"model":"local-model","models":[2],"plugins":[1],"store":false}`},
 	} {
 		out, ref := rewriteInjectBody(tc.up, tc.kind, []byte(tc.in))
@@ -348,6 +363,11 @@ func TestInjectPolicyGolden(t *testing.T) {
 			ep.ServeHTTP(rec, req)
 			if len(rt.got) == 1 {
 				r := rt.got[0]
+				// The file records what the endpoint does; what it records is held to the independent
+				// reading of SI-57, so a golden file cannot capture a request against it.
+				if err := si57Check(up, r); err != nil {
+					t.Errorf("the golden request is against SI-57: %v", err)
+				}
 				g.Forward = &goldenInjectFwd{Method: r.Method, URL: r.URL, Header: r.Header, Body: r.Body}
 			} else {
 				g.Refused = &goldenInjectResp{Status: rec.Code, Body: rec.Body.Bytes()}
