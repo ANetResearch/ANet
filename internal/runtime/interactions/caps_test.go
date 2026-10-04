@@ -313,6 +313,25 @@ func TestPutHeldGrantRules(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// An invalid capability takes no refusal count, and marking it again
+	// keeps its first invalid_at.
+	if _, _, ok := note(capID(1), capsT0+210); ok {
+		t.Fatal("a refusal was counted against an invalid capability")
+	}
+	if err := s.Update(func(tx *interactions.Tx) error {
+		if ok, err := tx.MarkHeldInvalid(issuerA, interactions.CapScopePeer, "", capID(1), capsT0+220); ok || err != nil {
+			return fmt.Errorf("marked an invalid capability again: %v %v", ok, err)
+		}
+		if ok, err := tx.MarkHeldInvalid(issuerA, interactions.CapScopePeer, "", nil, capsT0+230); ok || err != nil {
+			return fmt.Errorf("marked an invalid row again: %v %v", ok, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if h := heldRow(t, s, issuerA, interactions.CapScopePeer, ""); h.InvalidAt != capsT0+200 || h.RefusedN != 2 {
+		t.Fatalf("after touching an invalid row: invalid_at=%d refused_n=%d, want %d and 2", h.InvalidAt, h.RefusedN, capsT0+200)
+	}
 	again := renew
 	again.CapExp = capsT0 + 25*capsDay
 	if putHeld(t, s, again) {
@@ -675,16 +694,25 @@ func TestIssuedCapLifecycle(t *testing.T) {
 	if k, err := s.RevocationsSince(capsT0 + 15); err != nil || k != 3 {
 		t.Fatalf("RevocationsSince = %d %v, want 3", k, err)
 	}
-	// The hub lost its table: everything since is pushed again (SSR-D21).
-	if err := s.Update(func(tx *interactions.Tx) error {
-		n, err := tx.RequeueRevocations(capsT0)
-		if err == nil && n != 2 {
-			err = fmt.Errorf("requeued %d, want 2", n)
+	// The hub lost its table: everything since is pushed again (SSR-D21),
+	// and nothing revoked before since.
+	requeue := func(since uint64, want int64) {
+		t.Helper()
+		if err := s.Update(func(tx *interactions.Tx) error {
+			n, err := tx.RequeueRevocations(since)
+			if err == nil && n != want {
+				err = fmt.Errorf("requeued %d since %d, want %d", n, since-capsT0, want)
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
 		}
-		return err
-	}); err != nil {
-		t.Fatal(err)
 	}
+	requeue(capsT0+15, 1) // cap 1 (revoked at +20); cap 2 (at +10) stays pushed
+	if q, _ := s.UnpushedRevocations(10); !reflect.DeepEqual(q, [][]byte{capID(1), capID(3), capID(4)}) {
+		t.Fatalf("queue after a requeue since +15 = %x", q)
+	}
+	requeue(capsT0, 1) // cap 2
 	if q, _ := s.UnpushedRevocations(2); len(q) != 2 || !bytes.Equal(q[0], capID(2)) {
 		t.Fatalf("limited queue after requeue = %x", q)
 	}

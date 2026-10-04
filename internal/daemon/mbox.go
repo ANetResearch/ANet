@@ -84,7 +84,8 @@ const (
 var mboxTickEvery = newKnob(5 * time.Second)
 
 // capsPruneEvery is how often the capability tables are pruned (SSR-D2).
-const capsPruneEvery = 5 * time.Minute
+// A knob so a test can see the loop prune without waiting five minutes.
+var capsPruneEvery = newKnob(5 * time.Minute)
 
 // mboxRetryAfter is the wait before the next retry after failures
 // consecutive failures (failures >= 1).
@@ -607,7 +608,7 @@ func (d *Daemon) mboxTick(ctx context.Context, now time.Time) {
 func (d *Daemon) mboxLoop(ctx context.Context) {
 	tick := time.NewTicker(mboxTickEvery.get())
 	defer tick.Stop()
-	prune := time.NewTicker(capsPruneEvery)
+	prune := time.NewTicker(capsPruneEvery.get())
 	defer prune.Stop()
 	d.pruneCaps()
 	for {

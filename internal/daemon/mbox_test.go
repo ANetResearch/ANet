@@ -384,6 +384,21 @@ func TestMboxEpochRules(t *testing.T) {
 		}
 	}
 
+	// The hub answers with another identity's key set: that says nothing
+	// about this node's epoch, so the key waits rather than take it.
+	{
+		e := startAt(t, joinedRoot(t, ""))
+		other := startAt(t, joinedRoot(t, ""))
+		signed := keySetWithMboxEpoch(t, other, 7)
+		setFake(t, srv.URL, func(h *fakeHub) {
+			h.keysOverride[e.AID()] = hubapi.KeysResponse{AID: e.AID(), KeySet: base64.StdEncoding.EncodeToString(signed)}
+		})
+		f := startAt(t, rootWithIdentityOf(t, e, srv.URL))
+		if m, ok := f.mbox.Current(); ok {
+			t.Fatalf("a key was made from another identity's key set: epoch %d", m.Epoch)
+		}
+	}
+
 	// The node's own epoch at 2^53 − 1: the next key restarts at 1 too.
 	g := newTestDaemon(t, "", true)
 	data, _ := encodeMboxFile(1<<53-1, bytes.Repeat([]byte{5}, 32))
@@ -704,6 +719,9 @@ func TestMboxRepublishWhenHubLacksIt(t *testing.T) {
 	if err := prov.ix.Update(func(tx *interactions.Tx) error { _, err := prov.rotateMboxTx(tx); return err }); err != nil {
 		t.Fatal(err)
 	}
+	if reg, _, _ := state(); reg {
+		t.Fatal("right after the mailbox key was replaced, the hub is reported to hold it")
+	}
 	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -755,6 +773,44 @@ func TestMboxRepublishWhenHubLacksIt(t *testing.T) {
 	reg, fails, at = state()
 	if wait := time.Until(at); reg || fails < 12 || wait > mboxRetryMax || wait < mboxRetryMax-time.Minute {
 		t.Fatalf("after many refusals: registered=%v failures=%d next in %v, want about %v", reg, fails, wait, mboxRetryMax)
+	}
+}
+
+// TestMboxLoopPrunesCaps (SSR-D2): the daemon prunes the capability tables
+// on its own, every five minutes, at the wire clock.
+func TestMboxLoopPrunesCaps(t *testing.T) {
+	old := capsPruneEvery.set(20 * time.Millisecond)
+	t.Cleanup(func() { capsPruneEvery.set(old) })
+	if old != 5*time.Minute {
+		t.Fatalf("the capability tables are pruned every %v, want 5m", old)
+	}
+	d := newTestDaemon(t, "", true)
+	now := d.nowMS()
+	issuedID, heldID := bytes.Repeat([]byte{7}, 16), bytes.Repeat([]byte{9}, 16)
+	if err := d.ix.Update(func(tx *interactions.Tx) error {
+		if err := tx.PutIssuedCap(interactions.IssuedCap{CapID: issuedID, Grantee: "did:anet:g", Class: 1,
+			Scope: interactions.CapScopePeer, HolderSeed: bytes.Repeat([]byte{7}, 32), HolderPub: bytes.Repeat([]byte{8}, 32),
+			Epoch: 1, CapExp: now - 1, IssuedAt: now - 10}); err != nil {
+			return err
+		}
+		_, err := tx.PutHeldGrant(interactions.HeldCap{Issuer: "did:anet:i", Scope: interactions.CapScopePeer,
+			CapID: heldID, Cap: []byte{1}, HolderSeed: bytes.Repeat([]byte{9}, 32), Class: 1,
+			Epoch: 1, CapExp: now - 1, Home: "did:anet:hub", ReceivedAt: now - 10})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, errI := d.ix.IssuedCap(issuedID)
+		_, errH := d.ix.HeldCap("did:anet:i", interactions.CapScopePeer, "")
+		if errors.Is(errI, interactions.ErrNotFound) && errors.Is(errH, interactions.ErrNotFound) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expired capabilities are still stored: issued %v, held %v", errI, errH)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
