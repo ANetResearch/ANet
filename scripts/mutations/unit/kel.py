@@ -49,6 +49,116 @@ MUTS = [
   tests=KEL2N + [('ANetCore:./identity', '^TestKeyEventDecodingIsStrictEverywhere$')], full=ID_FULL),
 ]
 
+# KEL-3 (ANetCore identity: the recovery seed and the recovery file, KEL §2.3, §2.4, C-30–C-37).
+# The KEL §7.3 table has no row of its own for these; each mutation below breaks one rule of L19,
+# L20 or C-33–C-37 and must turn RECOVERY-1 (identity/testdata/vec-recovery-1.json, checked by
+# TestRECOVERY1Vector and TestRECOVERY1Cases) or a unit test of identity/recovery_test.go red.
+
+REC = 'identity/recovery.go'
+RECVEC = [('ANetCore:./identity', '^(TestRECOVERY1Vector|TestRECOVERY1Cases)$')]
+RECUNIT = lambda names: [('ANetCore:./identity', '^(' + '|'.join(names) + ')$')]  # noqa: E731
+
+MUTS += [
+ dict(id='kel3-1', group='KEL-3', repo='ANetCore', desc='L19:info 去掉 aid 之后的 0x00',
+  edits=[(REC, '\tinfo = append(info, 0)\n', '')],
+  tests=RECVEC, full=ID_FULL),
+ dict(id='kel3-2', group='KEL-3', repo='ANetCore', desc='L19:标签从 HKDF salt 挪进 info',
+  edits=[(REC, 'return hkdf.Key(sha256.New, rs[:], []byte(nextKeyLabel), string(info), ed25519.SeedSize)',
+          'return hkdf.Key(sha256.New, rs[:], nil, nextKeyLabel+string(info), ed25519.SeedSize)')],
+  tests=RECVEC, full=ID_FULL),
+ dict(id='kel3-3', group='KEL-3', repo='ANetCore', desc='L19 不拒含 U+0000 的 AID(CORE-E9)',
+  edits=[(REC, '\tcase strings.IndexByte(aid, 0) >= 0:\n\t\treturn nil, fmt.Errorf("%w: the AID holds U+0000", ErrNextKeyInput)\n', '')],
+  tests=[('ANetCore:./wire', '^TestPreimageRejectsNUL$')] + RECUNIT(['TestRecoverySeedDerivation', 'TestRECOVERY1Cases']),
+  full=ID_FULL + ['ANetCore:./wire']),
+ dict(id='kel3-4', group='KEL-3', repo='ANetCore', desc='L20:aad 不含 kdf(两种模式可互相冒充)',
+  edits=[(REC, '\tc.CT = nil\n', '\tc.CT = nil\n\tc.KDF = recoveryKDF{}\n')],
+  tests=RECVEC, full=ID_FULL),
+ dict(id='kel3-5', group='KEL-3', repo='ANetCore', desc='口令不做 NFC',
+  edits=[(REC, 'func nfc(p []byte) []byte { return norm.NFC.Append(nil, p...) }',
+          'func nfc(p []byte) []byte { _ = norm.NFC; return append([]byte(nil), p...) }')],
+  tests=RECUNIT(['TestPassphraseNFC', 'TestPassphraseLengthBoundary']), full=ID_FULL),
+ dict(id='kel3-6', group='KEL-3', repo='ANetCore', desc='口令用 NFKC 而不是 NFC',
+  edits=[(REC, 'return norm.NFC.Append(nil, p...)', 'return norm.NFKC.Append(nil, p...)')],
+  tests=RECUNIT(['TestPassphraseNFC']), full=ID_FULL),
+ dict(id='kel3-7', group='KEL-3', repo='ANetCore', desc='口令最短改为 11 个码点',
+  edits=[(REC, 'const MinPassphraseRunes = 12\n', 'const MinPassphraseRunes = 11\n')],
+  tests=RECUNIT(['TestPassphraseLengthBoundary']), full=ID_FULL),
+ dict(id='kel3-8', group='KEL-3', repo='ANetCore', desc='口令长度按字节而不是码点计',
+  edits=[(REC, 'if c := utf8.RuneCount(n); c < MinPassphraseRunes {', 'if c := len(n); c < MinPassphraseRunes {')],
+  tests=RECUNIT(['TestPassphraseLengthBoundary']), full=ID_FULL),
+ dict(id='kel3-9', group='KEL-3', repo='ANetCore', desc='C-33:不比较文本头与块内的 AID',
+  edits=[(REC, '\tif hAID != blob.AID || hc.Seq != blob.Commits.Seq', '\tif hAID == "\\x00" || hc.Seq != blob.Commits.Seq')],
+  tests=RECVEC + RECUNIT(['TestRecoveryHeaderMustMatchTheBlock']), full=ID_FULL),
+ dict(id='kel3-10', group='KEL-3', repo='ANetCore', desc='C-33:不比较文本头与块内的 commits',
+  edits=[(REC, 'hc.Seq != blob.Commits.Seq || !bytes.Equal(hc.Digest[:], blob.Commits.Digest) ||', 'len(hc.Digest) == 0 ||')],
+  tests=RECVEC + RECUNIT(['TestRecoveryHeaderMustMatchTheBlock']), full=ID_FULL),
+ dict(id='kel3-11', group='KEL-3', repo='ANetCore', desc='不比较文本头与块内的 hub 提示',
+  edits=[(REC, 'seen["hub"] && hHub != blob.Hub {', 'seen["hub"] && hHub == "\\x00" {')],
+  tests=RECVEC + RECUNIT(['TestRecoveryHeaderMustMatchTheBlock']), full=ID_FULL),
+ dict(id='kel3-12', group='KEL-3', repo='ANetCore', desc='C-35:OpenRecoveryFile 不拒本机钥块(应为 ErrRecoveryUnprotected)',
+  edits=[(REC, '\tif f.blob.KDF.Alg != kdfArgon2id {\n\t\treturn rs, "", "", Commit{}, ErrRecoveryUnprotected\n\t}\n', '')],
+  tests=RECVEC + RECUNIT(['TestRecoveryP7']), full=ID_FULL),
+ dict(id='kel3-13', group='KEL-3', repo='ANetCore', desc='C-35:OpenRecoveryFileLocal 接受口令块',
+  edits=[(REC, '\tif f.blob.KDF.Alg != kdfLocal {\n', '\tif false && f.blob.KDF.Alg != kdfLocal {\n')],
+  tests=RECVEC + RECUNIT(['TestRecoveryP7']), full=ID_FULL),
+ dict(id='kel3-14', group='KEL-3', repo='ANetCore', desc='不核对 argon2id 参数(文件可指定 t、m、p)',
+  edits=[(REC, 'return k.T == argon2Time && k.MKiB == argon2MemKiB && k.P == argon2Lanes && len(k.Salt) == recoverySalt',
+          'return len(k.Salt) == recoverySalt')],
+  tests=RECVEC, full=ID_FULL),
+ dict(id='kel3-15', group='KEL-3', repo='ANetCore', desc='块不要求规范编码',
+  edits=[(REC, '\tif err != nil || !bytes.Equal(back, raw) {\n', '\tif err != nil || back == nil {\n')],
+  tests=RECVEC, full=ID_FULL),
+ dict(id='kel3-16', group='KEL-3', repo='ANetCore', desc='打开后不核对种子派生出文件所写的 commits',
+  edits=[(REC, '\tif err != nil || !bytes.Equal(d[:], f.blob.Commits.Digest) {\n', '\tif err != nil || d == [32]byte{} {\n')],
+  tests=RECVEC, full=ID_FULL),
+ dict(id='kel3-17', group='KEL-3', repo='ANetCore', desc='C-35:口令块 AEAD 失败不报 ErrRecoveryPassphrase',
+  edits=[(REC, '\t\tif errors.Is(err, errAEAD) {\n\t\t\terr = ErrRecoveryPassphrase\n\t\t}\n', '')],
+  tests=RECVEC + RECUNIT(['TestRecoveryFileRealKDF']), full=ID_FULL),
+ dict(id='kel3-18', group='KEL-3', repo='ANetCore', desc='C-34:SealRecoveryFile 不检查口令长度',
+  edits=[(REC, '\tif err := CheckPassphrase(passphrase); err != nil {\n\t\treturn nil, err\n\t}\n', '')],
+  tests=RECUNIT(['TestPassphraseLengthBoundary']), full=ID_FULL),
+ dict(id='kel3-19', group='KEL-3', repo='ANetCore', desc='Seal 不核对 commits 由该种子派生',
+  edits=[(REC, '\tif want != commits.Digest {\n', '\tif want == [32]byte{} {\n')],
+  tests=RECUNIT(['TestSealRefuses']), full=ID_FULL),
+ dict(id='kel3-20', group='KEL-3', repo='ANetCore', desc='C-34:每次写文件不换 nonce',
+  edits=[(REC, '\tif _, err := rand.Read(nonce); err != nil {\n\t\treturn nil, err\n\t}\n\treturn sealRecoveryPassphrase(',
+          '\treturn sealRecoveryPassphrase(')],
+  tests=RECUNIT(['TestRecoveryFileRealKDF']), full=ID_FULL),
+ dict(id='kel3-21', group='KEL-3', repo='ANet', desc='SI-38、C-35:daemon 引用 OpenRecoveryFile',
+  edits=[('internal/daemon/kel3_scope_mutation.go', None,
+          'package daemon\n\nimport "github.com/ANetResearch/ANetCore/identity"\n\nvar _ = identity.OpenRecoveryFile\n')],
+  tests=[('ANetCore:./identity', '^TestRecoveryAPIScope$')], full=ID_FULL),
+]
+
+# KEL-3 review: checks of single block keys that the rows above do not reach on their own (kel3-14
+# drops all three argon2id parameters at once and RECOVERY-1 pins only t).
+RECKEYS = RECUNIT(['TestRecoveryBlockKeysAreChecked'])
+MUTS += [
+ dict(id='kel3-22', group='KEL-3', repo='ANetCore', desc='core §2.6:不核对 argon2id 的 m(文件可要求更多内存)',
+  edits=[(REC, 'k.MKiB == argon2MemKiB && ', '')],
+  tests=RECKEYS, full=ID_FULL),
+ dict(id='kel3-23', group='KEL-3', repo='ANetCore', desc='不核对块内 nonce 长度(AEAD 遇错长 nonce 会 panic)',
+  edits=[(REC, '\tcase len(b.Nonce) != recoveryNonce:\n', '\tcase false:\n')],
+  tests=RECKEYS, full=ID_FULL),
+ dict(id='kel3-24', group='KEL-3', repo='ANetCore', desc='CORE-E8:不核对块的类型标签(键 0)',
+  edits=[(REC, '\tcase b.Type != recoveryType:\n', '\tcase false:\n')],
+  tests=RECKEYS, full=ID_FULL),
+ dict(id='kel3-25', group='KEL-3', repo='ANetCore', desc='CORE-E9:块内 AID 不经检查(可含 U+0000 或空白)',
+  edits=[(REC, '\tcase checkHeaderAID(b.AID) != nil:\n', '\tcase false:\n')],
+  tests=RECKEYS, full=ID_FULL),
+ dict(id='kel3-26', group='KEL-3', repo='ANetCore', desc='本机钥块的 kdf 可带 argon2id 参数(kdf 不再恰为两种形状之一)',
+  edits=[(REC, '\t\treturn k.T == 0 && k.MKiB == 0 && k.P == 0 && len(k.Salt) == 0\n', '\t\treturn true\n')],
+  tests=RECKEYS, full=ID_FULL),
+ dict(id='kel3-27', group='KEL-3', repo='ANetCore', desc='Seal 不检查 AID 能否写进文本头',
+  edits=[(REC, '\tif err := checkHeaderAID(aid); err != nil {\n\t\treturn nil, err\n\t}\n\tif err := checkHub(hub)',
+          '\tif err := checkHub(hub)')],
+  tests=RECUNIT(['TestSealRefuses']), full=ID_FULL),
+ dict(id='kel3-28', group='KEL-3', repo='ANetCore', desc='WithRecoveryNote 不回读(读不回的文件照样写出)',
+  edits=[(REC, '\tif _, err := parseRecovery(out); err != nil {\n'
+          '\t\treturn nil, fmt.Errorf("identity: the recovery file with this note would not read back: %v", err)\n\t}\n', '')],
+  tests=RECUNIT(['TestRecoveryText']), full=ID_FULL),
+]
+
 # KEL-2 (ANetCore identity: Controller, Signer, identity file v2; a2acard.SignWithSnapshot; the
 # registry's signers; ANet and ANetHub call sites). Each row undoes one of C-5, C-20–C-25, O-1, O-4,
 # C-58 or the signer scan, and turns the named tests red. The race row needs -race, so it runs its
