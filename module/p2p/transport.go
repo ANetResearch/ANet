@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/backendconn"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -120,9 +122,19 @@ type Transport struct {
 	// dack-bad-frame); nil counts nothing.
 	badDAck func()
 
+	// listenerUID is the account the peer process must run as; nil is this
+	// daemon's own (LEC §4.4). Tests set another to stand for a peer process
+	// of another account.
+	listenerUID *int
+
 	mu     sync.Mutex
 	conn   net.Conn
 	closed bool
+	// wmu serialises the writes to the session connection (write). It is
+	// not mu: a write can wait on a peer process that has stopped reading,
+	// for up to sessionWriteTimeout, and the read loop, Reachable and the
+	// other senders must not wait with it.
+	wmu sync.Mutex
 
 	// pending maps a request id to the caller waiting for its reply.
 	pending map[string]chan frame
@@ -157,9 +169,25 @@ func (t *Transport) run(ctx context.Context) {
 	}
 }
 
+// dial connects to the peer process through backendconn (LEC PC-3): the
+// socket's path must be one only this daemon's user or root can change, and
+// the process listening on it must run as this daemon's user. Anything else
+// listening there — an account that took the path while the peer process was
+// down — is sent nothing, not even the hello naming this node's AID.
+func (t *Transport) dial(ctx context.Context) (net.Conn, error) {
+	uid := os.Getuid()
+	if t.listenerUID != nil {
+		uid = *t.listenerUID
+	}
+	rules, err := backendconn.Policy{ExpectedUser: strconv.Itoa(uid)}.Resolve()
+	if err != nil {
+		return nil, err
+	}
+	return rules.DialUnix(ctx, nil, t.socket)
+}
+
 func (t *Transport) session(ctx context.Context) error {
-	var d net.Dialer
-	c, err := d.DialContext(ctx, "unix", t.socket)
+	c, err := t.dial(ctx)
 	if err != nil {
 		return err
 	}
@@ -319,8 +347,21 @@ func (t *Transport) write(c net.Conn, f frame) error {
 	return err
 }
 
+// sessionWriteTimeout bounds one frame's write to the peer process. A peer
+// process on this machine reads as it goes, and the largest frame it carries
+// is written in milliseconds; one that has stopped reading would otherwise
+// hold the write — and every send queued behind it, and the acks of what it
+// delivered — for as long as it chose. A variable so a test can shorten it.
+var sessionWriteTimeout = 5 * time.Second
+
 // writeN is write that also says how many bytes reached the connection,
 // which for a send is whether the envelope may have left this process.
+//
+// A write that fails, the deadline's included, ends the session: a frame
+// cut short leaves a stream the peer process can no longer read, and one
+// that does not read is carrying nothing. Closing the connection ends the
+// read loop, which tells everyone waiting on the session at once; their
+// sends go through the hub, and run dials the peer process again.
 func (t *Transport) writeN(c net.Conn, f frame) (int, error) {
 	b, err := json.Marshal(f)
 	if err != nil {
@@ -328,11 +369,21 @@ func (t *Transport) writeN(c net.Conn, f frame) (int, error) {
 	}
 	b = append(b, '\n')
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.conn != c {
+	live := t.conn == c
+	t.mu.Unlock()
+	if !live {
 		return 0, errors.New("p2p: session closed")
 	}
-	return c.Write(b)
+	t.wmu.Lock()
+	defer t.wmu.Unlock()
+	_ = c.SetWriteDeadline(time.Now().Add(sessionWriteTimeout))
+	n, err := c.Write(b)
+	if err != nil {
+		_ = c.Close()
+		return n, fmt.Errorf("p2p: writing to the peer process: %w", err)
+	}
+	_ = c.SetWriteDeadline(time.Time{})
+	return n, nil
 }
 
 // Reachable reports whether the peer process is there to hand an envelope

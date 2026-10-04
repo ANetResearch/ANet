@@ -765,6 +765,10 @@ func (c *stubConn) written() int {
 
 func (c *stubConn) Close() error { return nil }
 
+// SetWriteDeadline: every write to the session has one (writeN); a stub's
+// writes return at once.
+func (c *stubConn) SetWriteDeadline(time.Time) error { return nil }
+
 // replier is an Inbound that answers on the same transport, which is what
 // a daemon does with every delegation it accepts.
 type replier struct {

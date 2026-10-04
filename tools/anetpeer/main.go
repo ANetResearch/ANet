@@ -46,6 +46,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -53,10 +54,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/backendconn"
+	"github.com/ANetResearch/ANet/internal/peercred"
 )
 
 // frame is the module's wire, both sides of it (module/p2p, frame v3;
@@ -176,14 +181,15 @@ func startWith(sock, peerSock, rendezvous, advertise, teeDir string) (*peer, err
 	// was the one module no live run could exercise.
 	pnet, paddr := addrKind(peerSock)
 	if pnet == "unix" {
-		_ = os.Remove(peerSock)
+		if err := clearStaleSocket(paddr); err != nil {
+			return nil, fmt.Errorf("peer wire: %w", err)
+		}
 	}
 	pl, err := net.Listen(pnet, paddr)
 	if err != nil {
 		return nil, fmt.Errorf("peer wire: %w", err)
 	}
-	_ = os.Remove(sock)
-	dl, err := net.Listen("unix", sock)
+	dl, err := listenDaemon(sock)
 	if err != nil {
 		pl.Close()
 		return nil, fmt.Errorf("daemon wire: %w", err)
@@ -196,10 +202,133 @@ func startWith(sock, peerSock, rendezvous, advertise, teeDir string) (*peer, err
 			if err != nil {
 				return
 			}
+			// Who connected is checked before this connection may take the
+			// daemon's place, and before a byte of it is read: whatever
+			// connects here is handed every envelope delivered for the
+			// daemon's AID and may answer for it (LEC PC-4).
+			if err := p.admitDaemon(c); err != nil {
+				_ = c.Close()
+				continue
+			}
 			go p.serveDaemon(c)
 		}
 	}()
 	return p, nil
+}
+
+// listenDaemon listens for the daemon on sock (LEC PC-4). A missing
+// directory is made 0700. An existing file at sock is removed only when it
+// is a socket nobody listens on (a peer process that died): a live one, or
+// anything else, is left and refused. The path, once listened on, must be
+// one the daemon will connect through — its directories changeable only by
+// this user or root (backendconn's path checks, which the daemon's p2p
+// module applies before every connection): a path the daemon would refuse
+// is refused here, at start, with the reason, rather than by every connection
+// later. And where the kernel cannot say who connects, nothing is served.
+func listenDaemon(sock string) (net.Listener, error) {
+	if !peercredSupported() {
+		return nil, fmt.Errorf("this platform cannot tell who connects to %s, so anyone on this machine could take the daemon's place; "+
+			"anetpeer runs on Linux, macOS and FreeBSD", sock)
+	}
+	dir := filepath.Dir(sock)
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, err
+		}
+		// MkdirAll's mode passes through the umask; say exactly what is meant.
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	if err := clearStaleSocket(sock); err != nil {
+		return nil, err
+	}
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		return nil, err
+	}
+	rules, err := backendconn.Policy{ExpectedUser: strconv.Itoa(os.Getuid())}.Resolve()
+	if err == nil {
+		_, _, err = rules.CheckPath(sock)
+	}
+	if err != nil {
+		ln.Close()
+		return nil, fmt.Errorf("the daemon would not connect to %s: %w; choose a socket in a directory only you can write "+
+			"(one that does not exist yet is made 0700)", sock, err)
+	}
+	return ln, nil
+}
+
+// clearStaleSocket makes path free for a new socket. Nothing there is fine;
+// a socket nobody listens on is removed. A socket somebody listens on — the
+// daemon's session, or another peer process's — and anything that is not a
+// socket are left in place and refused: removing them would take the path
+// from whoever holds it (cmd/anet-official's removeStaleSocket, the same
+// rule).
+func clearStaleSocket(path string) error {
+	fi, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if fi.Mode()&fs.ModeSocket == 0 {
+		return fmt.Errorf("%s exists and is not a socket; move it away or choose another path", path)
+	}
+	c, err := net.DialTimeout("unix", path, time.Second)
+	if err == nil {
+		c.Close()
+		return fmt.Errorf("%s is in use: another process listens on it; stop it or choose another path", path)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		return fmt.Errorf("%s: %v; not removing it", path, err)
+	}
+	return os.Remove(path)
+}
+
+// daemonCredOf reads who connected to the daemon socket, and
+// peercredSupported whether it can; tests stand in for another account and
+// for a platform that cannot tell.
+var (
+	daemonCredOf      = peercred.Of
+	peercredSupported = peercred.Supported
+)
+
+// refusedLogEvery is how often one account's refused connections are
+// logged: once, then not again for this long, so that a process knocking in
+// a loop cannot fill the log.
+const refusedLogEvery = time.Minute
+
+// admitDaemon lets a connection to the daemon socket through only when the
+// process on the other end runs as this process's user, the daemon's: root
+// is not let through for being root. A refusal is logged, at most once a
+// minute per account.
+func (p *peer) admitDaemon(c net.Conn) error {
+	cred, err := daemonCredOf(c)
+	switch {
+	case err != nil:
+		err = fmt.Errorf("cannot tell who connected to the daemon socket (%v); refused", err)
+	case cred.UID != os.Getuid():
+		err = fmt.Errorf("uid %d (pid %d) connected to the daemon socket, which only this user, uid %d, may use; refused", cred.UID, cred.PID, os.Getuid())
+	default:
+		return nil
+	}
+	p.mu.Lock()
+	if p.refusedLog == nil {
+		p.refusedLog = map[int]time.Time{}
+	}
+	now := timeNow()
+	last, seen := p.refusedLog[cred.UID]
+	quiet := seen && now.Sub(last) < refusedLogEvery
+	if !quiet {
+		p.refusedLog[cred.UID] = now
+	}
+	p.mu.Unlock()
+	if !quiet {
+		log.Printf("anetpeer: %v", err)
+	}
+	return err
 }
 
 // stop closes both listeners and withdraws this AID from the rendezvous.
@@ -242,6 +371,9 @@ type peer struct {
 	// down holds the peers whose published address could not be dialled
 	// just now (see markDown), keyed by AID.
 	down map[string]downEntry
+	// refusedLog is when each uid's refused connection to the daemon
+	// socket was last logged (admitDaemon).
+	refusedLog map[int]time.Time
 }
 
 // downEntry is a published address a dial to has failed, and until when
@@ -262,8 +394,8 @@ type downEntry struct {
 // a node that can only dial out — costs every single message to that peer
 // the dial timeout before the hub is tried, because the directory keeps
 // answering "here it is". On
-// the campus test network (an internal note) that was three seconds on
-// every message from host-d to host-c, and since the answer to a delegation is
+// the test network (an internal note) that was three seconds on every
+// message from one node to the other, and since the answer to a delegation is
 // sent before the delegation is acknowledged, it also held the ack past the
 // sender's own timeout, so the delegation went a second time through the
 // hub. A peer that comes back is found again at the next retry.
