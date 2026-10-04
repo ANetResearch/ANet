@@ -106,8 +106,8 @@ MUTS += [
  dict(
   id='exe13-wake', group='AD-3', repo='ANet',
   desc='hub-register 之后后台循环不知道下一次尝试的时刻(不再按退避重试)',
-  edits=[('internal/daemon/hubjoin_daemon.go', '\td.join.rec = &cp\n\td.join.mu.Unlock()\n\td.wakeJoin()',
-          '\td.join.rec = &cp\n\td.join.mu.Unlock()')],
+  edits=[('internal/daemon/hubjoin_daemon.go', '\t\td.join.rec = &cp\n\t}\n\td.join.mu.Unlock()\n\td.wakeJoin()\n}',
+          '\t\td.join.rec = &cp\n\t}\n\td.join.mu.Unlock()\n}')],
   tests=[(DAEMON, 'TestTheLoopRetriesWhenDue')],
   full=[DAEMON],
  ),

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
@@ -45,6 +46,10 @@ type hubJoin struct {
 	// witness, when set, replaces the lookup of the identity's witness hub
 	// AID (tests).
 	witness func() string
+	// kickAt is when the loop was last asked for an attempt, and okAt when
+	// the last attempt whose registration was accepted began (unix ns): a
+	// kick older than that attempt has been answered by it.
+	kickAt, okAt atomic.Int64
 }
 
 // initJoin loads the join record of the configured hub (New). A record of
@@ -104,6 +109,7 @@ func (d *Daemon) joinRegistered() bool {
 
 // kickJoin asks the loop for an attempt now.
 func (d *Daemon) kickJoin() {
+	d.join.kickAt.Store(time.Now().UnixNano())
 	select {
 	case d.join.kick <- struct{}{}:
 	default:
@@ -176,6 +182,11 @@ func (d *Daemon) joinAttempt(ctx context.Context, dueOnly bool) {
 	if dueOnly && (r.NextAttemptAt == 0 || time.Now().UnixMilli() < r.NextAttemptAt) {
 		return
 	}
+	if !dueOnly && d.join.okAt.Load() > d.join.kickAt.Load() {
+		// A registration was accepted after the kick (an explicit
+		// hub-register, say): what the kick asked for is done.
+		return
+	}
 	cfg := d.config()
 	if !sameHub(cfg.HubURL, r.Hub) {
 		return // the hub changed under this attempt; the new one has its own
@@ -211,6 +222,10 @@ func sameStrings(a, b []string) bool {
 // keeps its result when hubURL is the configured hub. The registration
 // carries name and caps.
 func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []string) joinRecord {
+	// When this attempt began: a registration it gets accepted answers the
+	// kicks made before it, not those made while it ran (their inputs,
+	// a changed card say, may be newer than what it sent).
+	start := time.Now().UnixNano()
 	cur := d.joinSnapshot()
 	var r joinRecord
 	if cur != nil && sameHub(cur.Hub, hubURL) {
@@ -258,6 +273,9 @@ func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []
 		logf: log.Printf,
 	}
 	out := runJoinAttempt(ctx, r, env)
+	if out.reg != nil {
+		d.join.okAt.Store(start)
+	}
 	d.keepJoinRecord(hubURL, out.rec)
 	return out.rec
 }
@@ -271,20 +289,25 @@ func (d *Daemon) keepJoinRecord(hubURL string, r joinRecord) {
 	}
 	d.join.mu.Lock()
 	prev := d.join.rec
+	d.join.mu.Unlock()
 	if prev != nil && !sameHub(prev.Hub, hubURL) {
-		d.join.mu.Unlock()
 		return
 	}
+	// The file and the evidence first, then the state others read: a
+	// reader that sees the new state finds its record on the chain.
 	cp := r
-	d.join.rec = &cp
-	d.join.mu.Unlock()
-	d.wakeJoin()
 	if err := saveJoinRecord(d.layout, &cp); err != nil {
 		log.Printf("anet: save hub_join.json: %v", err)
 	}
 	if prev == nil || prev.State != r.State || prev.Reason != r.Reason {
 		d.recordJoinChange(r)
 	}
+	d.join.mu.Lock()
+	if cur := d.join.rec; cur == nil || sameHub(cur.Hub, hubURL) {
+		d.join.rec = &cp
+	}
+	d.join.mu.Unlock()
+	d.wakeJoin()
 }
 
 // recordJoinChange writes anet.hub.admission (LEC §2.5, AD-7).
