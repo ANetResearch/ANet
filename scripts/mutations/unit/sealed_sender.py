@@ -553,7 +553,7 @@ MUTS += [
  # ---- M7: one answer for every refused credential
  dict(id='ss-m7-unknown', group='SS-M7', repo='ANetHub', desc='kind 1 的未知收件方回 404,与凭据无效区分',
   edits=[('internal/aghub/server.go', '\tif !found || mbox.Epoch == 0 || body.Epoch != mbox.Epoch || len(mbox.Pub) != ed25519.PublicKeySize {',
-          '\tif !found {\n\t\twire3.Refuse(w, wire3.ReasonRecipientUnknown)\n\t\treturn nil, seal.Mbox{}, false\n\t}\n'
+          '\tif !found {\n\t\twire3.Refuse(w, wire3.ReasonRecipientUnknown)\n\t\treturn nil, seal.Mbox{}, "", false\n\t}\n'
           '\tif mbox.Epoch == 0 || body.Epoch != mbox.Epoch || len(mbox.Pub) != ed25519.PublicKeySize {')],
   tests=PROP_T('TestKind1RefusalsAreIdentical'), full=[AGHUB]),
  # ---- M8: deduplication is by the mail still waiting, not by what was ever seen
