@@ -353,3 +353,109 @@ func TestAHelloInThisVersionIsCarriedAfterARefusedOne(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// The receiving daemon's error frame for a delivery (one it could not read)
+// answers that delivery at once, as its nack does: the sending daemon hears
+// of it now, without a dack, and goes to the hub, rather than after the
+// whole hand-off timeout.
+func TestADaemonsErrorFrameAnswersItsDeliveryAtOnce(t *testing.T) {
+	alice, bob, _ := twoPeers(t)
+	go func() {
+		for {
+			f, _, err := bob.read()
+			if err != nil {
+				return
+			}
+			if f.Op == "recv" {
+				bob.send(frame{Op: "error", V: wireVersion, ID: f.ID, Error: "the envelope is not base64url without padding"})
+			}
+		}
+	}()
+	start := time.Now()
+	alice.send(frame{Op: "send", V: wireVersion, ID: "s1", To: "aid-bob", Envelope: "ZW52"})
+	// read gives up after 5 seconds, half the hand-off timeout.
+	reply, _, err := alice.read()
+	if err != nil {
+		t.Fatalf("no answer (the hand-off waits %s): %v", handOffTimeout, err)
+	}
+	if reply.Op != "send" || reply.V != wireVersion || reply.ID != "s1" || reply.Error == "" || reply.DAck != "" {
+		t.Fatalf("answer %+v, want the send answered with an error and no dack", reply)
+	}
+	if d := time.Since(start); d >= handOffTimeout {
+		t.Fatalf("answered after %s: the daemon's error frame did not release the hand-off", d)
+	}
+}
+
+// fixedAnswerPeer is a peer wire that answers every delivery with answer,
+// its id set to the delivery's.
+func fixedAnswerPeer(t *testing.T, answer frame) string {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				var f frame
+				if err := json.NewDecoder(bufio.NewReader(c)).Decode(&f); err != nil {
+					return
+				}
+				a := answer
+				a.ID = f.ID
+				_ = json.NewEncoder(c).Encode(a)
+			}(c)
+		}
+	}()
+	return l.Addr().String()
+}
+
+// What the receiving peer answers reaches the sending daemon as it came when
+// it is an answer of this version: one that reports a failure and still
+// carries a dack (a send answer may carry both) keeps its dack (DLV-W-9).
+// An answer of another version is no answer: the send fails and nothing in
+// it, a dack included, is passed on.
+func TestTheReceivingPeersAnswerIsPassedOnInThisVersionOnly(t *testing.T) {
+	dack := strings.Repeat("Ab-_", 26) + "Abc"
+	for _, tc := range []struct {
+		name     string
+		answer   frame
+		wantDAck string
+	}{
+		{"a failure with a dack", frame{Op: "send", V: wireVersion, DAck: dack, Error: "the answer came late"}, dack},
+		{"an answer of version 2", frame{Op: "send", V: 2, DAck: dack}, ""},
+		{"an answer of version 0", frame{Op: "send", DAck: dack}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			rv := filepath.Join(dir, "rv")
+			p, err := start(filepath.Join(dir, "a.sock"), filepath.Join(dir, "a.wire"), rv, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(p.stop)
+			if err := os.MkdirAll(rv, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(rv, "aid-far"), []byte("tcp://"+fixedAnswerPeer(t, tc.answer)), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			d := dialRawDaemon(t, filepath.Join(dir, "a.sock"))
+			d.send(frame{Op: "hello", V: wireVersion, Self: "aid-alice"})
+			d.send(frame{Op: "send", V: wireVersion, ID: "s1", To: "aid-far", Envelope: "ZW52"})
+			reply, _, err := d.read()
+			if err != nil {
+				t.Fatalf("no answer: %v", err)
+			}
+			if reply.Op != "send" || reply.V != wireVersion || reply.ID != "s1" || reply.Error == "" || reply.DAck != tc.wantDAck {
+				t.Fatalf("answer %+v, want a failed send carrying dack %q", reply, tc.wantDAck)
+			}
+		})
+	}
+}

@@ -47,9 +47,15 @@ func (h hubTransport) Send(ctx context.Context, toAID string, envelope []byte) (
 	if hub == "" {
 		return nil, false, fmt.Errorf("anet: no hub configured")
 	}
-	// The trace also sees the hub identity lookup hubSigned may make first,
-	// which can only make handed true early: never a sent envelope counted
-	// as unsent.
+	// The hub's identity first, outside the trace. Looking it up is a
+	// request of its own that carries no byte of the envelope: a hub that
+	// answers it and then cannot be dialled, or that cannot serve an
+	// identity this node accepts, has been handed nothing. Only the
+	// connection of /relay/send says the envelope may have left; hubSigned
+	// then finds the identity cached.
+	if _, _, err := h.d.hubIdentity(ctx, hub); err != nil {
+		return nil, false, err
+	}
 	tctx, handed := hubapi.TraceHanded(ctx)
 	var out hubapi.RelaySendResponse
 	if err := h.d.hubSigned(tctx, hub, http.MethodPost, "/relay/send", actionSendRetired, hubapi.RelaySendRequest{

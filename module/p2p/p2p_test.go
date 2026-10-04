@@ -598,6 +598,18 @@ func TestSendReturnsTheConfirmationOfTheAnswer(t *testing.T) {
 	if bad.Load() != 0 {
 		t.Fatalf("an answer without a confirmation counted as malformed")
 	}
+	// A send answer may carry both a confirmation and an error (core §2.10):
+	// the confirmation is returned with the error, for the caller to check.
+	// The error does not unsay what the recipient said.
+	peer.mu.Lock()
+	peer.answer = func(f frame) *frame {
+		return &frame{Op: opSend, V: WireVersion, ID: f.ID, DAck: encodeB64(dack), Error: "the answer came late"}
+	}
+	peer.mu.Unlock()
+	got, handed, err = tr.Send(context.Background(), "aid-peer", []byte("x"))
+	if err == nil || !handed || !bytes.Equal(got, dack) {
+		t.Fatalf("an answer with a dack and an error: dack=%x handed=%v err=%v", got, handed, err)
+	}
 }
 
 // DLV-W-11b: a confirmation that is not base64url, or not DAckLen bytes, is

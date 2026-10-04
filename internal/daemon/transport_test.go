@@ -3,9 +3,12 @@ package daemon
 import (
 	"context"
 	"errors"
+	"net"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/seal"
@@ -183,5 +186,103 @@ func TestARecipientWithoutKeysIsSentNothing(t *testing.T) {
 	}
 	if n := relayCountFor(srv.URL); n != 0 {
 		t.Fatalf("the hub carried %d messages for a recipient without keys", n)
+	}
+}
+
+// T49 at the hub path: a failed hub send handed the envelope over only when
+// the /relay/send request got a connection (hubapi.TraceHanded). The hub's
+// identity, looked up first, is a request of its own that carries no byte
+// of the envelope: a hub that answers it and is then gone, or that cannot
+// give an identity this node accepts, was handed nothing. A hub that took
+// the connection was handed the envelope, whatever it answered.
+func TestTheHubPathIsHandedOnceRelaySendConnects(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("the identity is served and then the hub is gone", func(t *testing.T) {
+		fake := newFakeHub(t)
+		var others atomic.Int32
+		var front *httptest.Server
+		front = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/hub/identity" {
+				others.Add(1)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			// Answer the lookup and stop listening, so the request that
+			// follows cannot connect.
+			front.Listener.Close()
+			w.Header().Set("Connection", "close")
+			fake.Config.Handler.ServeHTTP(w, r)
+		}))
+		t.Cleanup(front.Close)
+		d := newTestDaemon(t, front.URL, false)
+		_, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", []byte("x"))
+		if err == nil {
+			t.Fatal("a send to a hub that stopped listening succeeded")
+		}
+		if strings.Contains(err.Error(), "identity") {
+			t.Fatalf("the identity lookup failed (%v); the case needs it to succeed", err)
+		}
+		if handed {
+			t.Fatalf("handed after an identity lookup that connected and a /relay/send that could not (%v)", err)
+		}
+		if n := others.Load(); n != 0 {
+			t.Fatalf("the hub saw %d requests besides the identity lookup", n)
+		}
+	})
+
+	t.Run("the identity is refused", func(t *testing.T) {
+		srv := newFakeHub(t)
+		fh := fakeHubAt(t, srv.URL)
+		fh.mu.Lock()
+		fh.identityDown = true
+		fh.mu.Unlock()
+		d := newTestDaemon(t, srv.URL, false)
+		_, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", []byte("x"))
+		if err == nil || handed {
+			t.Fatalf("handed=%v err=%v; want a failure that handed nothing over", handed, err)
+		}
+	})
+
+	t.Run("nobody listens", func(t *testing.T) {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		addr := l.Addr().String()
+		l.Close()
+		d := newTestDaemon(t, "http://"+addr, false)
+		if _, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", []byte("x")); err == nil || handed {
+			t.Fatalf("handed=%v err=%v; want a failure that handed nothing over", handed, err)
+		}
+	})
+
+	t.Run("the hub answers", func(t *testing.T) {
+		srv := newFakeHub(t)
+		d, peer := twoRegistered(t, srv)
+		// Not a sealed envelope: the hub answers 400, and it had it.
+		if _, handed, err := (hubTransport{d}).Send(ctx, peer, []byte("x")); err == nil || !handed {
+			t.Fatalf("a 4xx: handed=%v err=%v; want a failure that handed the envelope over", handed, err)
+		}
+		fh := fakeHubAt(t, srv.URL)
+		fh.mu.Lock()
+		fh.relayDown = true
+		fh.mu.Unlock()
+		if _, handed, err := (hubTransport{d}).Send(ctx, peer, []byte("x")); err == nil || !handed {
+			t.Fatalf("a 503: handed=%v err=%v; want a failure that handed the envelope over", handed, err)
+		}
+	})
+}
+
+// A transport module's malformed confirmation is the node's dack-bad-frame
+// count (DLV-W-11b, §2.8), where /status.delivery.counters reads it.
+func TestATransportsMalformedConfirmationIsCounted(t *testing.T) {
+	d := newTestDaemon(t, "", false)
+	var th module.TransportHost = moduleHost{d}
+	before := counter(d, "dack-bad-frame")
+	th.NoteBadDAck()
+	th.NoteBadDAck()
+	if n := counter(d, "dack-bad-frame") - before; n != 2 {
+		t.Fatalf("dack-bad-frame went up by %d for two malformed confirmations", n)
 	}
 }
