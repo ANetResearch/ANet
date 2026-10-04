@@ -243,7 +243,9 @@ MUTS += [
 # SSR-W17-W19, SSR-H17, SSR-H18, the bucket route's limit and the removed lookup routes.
 DIR_T = [('ANetHub:./internal/aghub', '^(TestDirMaxBitsProperty|TestDirMaxBitsIsComputedAgainHourly|TestBucketTooNarrow|'
           'TestBucketPrefixFormat|TestBucketPagination8MiB|TestBucketRateLimit|TestDirEntryTooLargeSkipped|'
-          'TestDirBoxRecomputedOnChange|TestDirectoryHidesEveryEntry|TestMaxBitsCountsPeerCardsButBucketsDoNot)$')]
+          'TestDirBoxRecomputedOnChange|TestDirectoryHidesEveryEntry|TestMaxBitsCountsPeerCardsButBucketsDoNot|'
+          'TestDirEntryCarriesTheResignedKeySet|TestDirEntryCarriesACardListedAgain|TestDirEntryTooLargeBoundary|'
+          'TestMaxBitsCountsAnAgentOnce)$')]
 LIST_T = [('ANetHub:./internal/aghub', '^(TestRegistryEntryPrecision|TestDeletedLookupRoutes404)$')]
 DIRGO = 'internal/aghub/directory.go'
 
@@ -355,4 +357,27 @@ MUTS += [
  dict(id='ss5-identity-bits', group='SS-5', repo='ANetHub', desc='/hub/identity 不报 dir_max_bits(anet-hub 未接上)',
   edits=[('cmd/anet-hub/mounts.go', '\tid.DirMaxBits = srv0.DirMaxBits\n', '')],
   tests=[('ANetHub:./cmd/anet-hub', '^TestHubIdentityStatesDirMaxBits$')], full=['ANetHub:./cmd/anet-hub']),
+ # ---- added by the SS-5 review: paths the first group left untested
+ dict(id='ss5-h17-keys-resigned', group='SS-5', repo='ANetHub', desc='同一钥集在轮换后重签(unchanged)时不重算目录条目(条目留着旧签名)',
+  edits=[('internal/aghub/keys.go', '\t\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\t\treturn "", err\n\t\t}\n\t\tif err := tx.Commit(); err != nil {\n\t\t\treturn "", err\n\t\t}\n\t\treturn KeysStatusUnchanged, nil\n',
+          '\t\tif err := tx.Commit(); err != nil {\n\t\t\treturn "", err\n\t\t}\n\t\treturn KeysStatusUnchanged, nil\n')],
+  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss5-h17-card-relisted', group='SS-5', repo='ANetHub', desc='下架的卡片以原字节重新上架时不重算目录条目',
+  edits=[('internal/aghub/a2acard.go', '\t\t\t// A delisted card listed again is back in the directory entry.\n\t\t\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\t\t\treturn CardStatusInvalid, "not stored: " + err.Error()\n\t\t\t}\n', '')],
+  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss5-merged-once', group='SS-5', repo='ANetHub', desc='合并目录把本地注册且也有对端卡片的 agent 算两次(max_bits 偏大)',
+  edits=[(DIRGO, '\t    AND NOT EXISTS (SELECT 1 FROM agent a WHERE a.aid = f.aid)`)', '`)')],
+  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss5-too-large-bound', group='SS-5', repo='ANetHub', desc='恰好 192 KiB 的 box 也被排除(>= 代替 >)',
+  edits=[(DIRGO, 'if n := len(pt) + dirbox.Overhead; n > dirbox.MaxBoxLen {', 'if n := len(pt) + dirbox.Overhead; n >= dirbox.MaxBoxLen {')],
+  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss5-identity-seq-sig', group='SS-5', repo='ANetHub', desc='匿名的 /directory:bucket 只查 X-ANet-AID,接受 X-ANet-Seq、X-ANet-Sig(CORE-K15)',
+  edits=[(DIRGO, 'for _, h := range []string{relayauth.HeaderAID, relayauth.HeaderSeq, relayauth.HeaderSig} {', 'for _, h := range []string{relayauth.HeaderAID} {')],
+  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ dict(id='ss5-h18-fed-agents-keys', group='SS-5', repo='ANetHub', desc='/agents 中从对端学来的条目不带 kel、keys',
+  edits=[('internal/aghub/fed_a2acard.go', '\t\t\tKEL: b64url(kel), Keys: b64url(keys)})', '\t\t\t})\n\t\t_, _ = kel, keys')],
+  tests=[('ANetHub:./internal/aghub', '^TestAnA2ACardFederatesToAPeersRegistry$')], full=['ANetHub:./internal/aghub']),
+ dict(id='ss5-h18-unreadable-lastseen', group='SS-5', repo='ANetHub', desc='读不懂的取信时间原样公布(不截到整点)',
+  edits=[('internal/aghub/liveness.go', '\t\t// Not a time this hub wrote; it states nothing it cannot read.\n\t\treturn Liveness{}\n', '\t\treturn Liveness{LastSeen: lastSeen}\n')],
+  tests=LIST_T, full=['ANetHub:./internal/aghub']),
 ]
