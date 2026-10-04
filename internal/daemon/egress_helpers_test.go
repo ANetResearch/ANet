@@ -194,7 +194,8 @@ var si57Paths = map[string][]string{
 // only the operator's key, once, and no other credential, cookie or forwarding header; no beta value
 // that reaches out; the model is P; every output limit from 1 to 8192 (zero or negative is "no limit"
 // to some OpenAI-compatible services) and the main one present; no tool the service runs itself, no
-// MCP connector, no hosted state; OpenAI requests not stored.
+// MCP connector, no hosted state, no media the service would fetch from a URL; OpenAI requests not
+// stored.
 func si57Check(up *egressUpstream, r receivedRequest) error {
 	rel := strings.TrimPrefix(r.Path, strings.TrimRight(up.Base.Path, "/"))
 	allowed := false
@@ -341,18 +342,22 @@ func si57Body(up *egressUpstream, rel string, body []byte) error {
 		if err := absent("mcp_servers", "container"); err != nil {
 			return err
 		}
-		// The thinking budget is an integer below max_tokens whenever one can be: the service's smallest
-		// budget is 1024, so with max_tokens of 1024 or less no budget is valid, and BP-3's
-		// max(1024, max_tokens/2) leaves that request (already invalid as the agent sent it) to the
-		// service to refuse. The output stays bounded by max_tokens either way.
+		// The thinking budget is an integer below max_tokens. The service's smallest budget is 1024, so
+		// with max_tokens of 1024 or less no budget is valid and the request has no thinking at all.
+		if th, has := obj["thinking"]; has && mt > 0 && mt <= 1024 {
+			return fmt.Errorf("thinking %v with max_tokens %d", th, mt)
+		}
 		if th, ok := obj["thinking"].(map[string]any); ok && mt > 0 {
 			if b, has := th["budget_tokens"]; has {
 				n, _ := b.(json.Number)
 				i, err := strconv.ParseInt(string(n), 10, 64)
-				if err != nil || (i >= mt && !(mt <= 1024 && i == 1024)) {
+				if err != nil || i >= mt {
 					return fmt.Errorf("thinking budget %v not below max_tokens %d", b, mt)
 				}
 			}
+		}
+		if u := si57AnthropicURLMedia(obj); u != "" {
+			return fmt.Errorf("media by URL reached the service: %s", u)
 		}
 		types, err := toolTypes(obj["tools"])
 		if err != nil {
@@ -376,6 +381,9 @@ func si57Body(up *egressUpstream, rel string, body []byte) error {
 		}
 		if err := absent("conversation", "prompt", "previous_response_id"); err != nil {
 			return err
+		}
+		if u := si57URLMedia(obj["input"], "input_image"); u != "" {
+			return fmt.Errorf("media by URL reached the service: %s", u)
 		}
 		if err := openAIRules(); err != nil {
 			return err
@@ -421,6 +429,9 @@ func si57Body(up *egressUpstream, rel string, body []byte) error {
 		if err := absent("web_search_options"); err != nil {
 			return err
 		}
+		if u := si57URLMedia(obj["messages"], "image_url"); u != "" {
+			return fmt.Errorf("media by URL reached the service: %s", u)
+		}
 		if up.OpenRouter {
 			if err := absent("plugins", "models"); err != nil {
 				return err
@@ -462,4 +473,93 @@ func si57Body(up *egressUpstream, rel string, body []byte) error {
 		}
 	}
 	return nil
+}
+
+// si57AnthropicURLMedia finds an Anthropic content block — in system, in a message, in a tool result or
+// a document's content, at any depth — whose source is a URL the service would fetch (BP-5).
+func si57AnthropicURLMedia(obj map[string]any) string {
+	var blocks func(v any) string
+	blocks = func(v any) string {
+		l, _ := v.([]any)
+		for _, b := range l {
+			m, _ := b.(map[string]any)
+			src, _ := m["source"].(map[string]any)
+			if src != nil && src["type"] == "url" {
+				return fmt.Sprint(src["url"], " ")
+			}
+			for _, inner := range []any{m["content"], src["content"]} {
+				if u := blocks(inner); u != "" {
+					return u
+				}
+			}
+		}
+		return ""
+	}
+	if u := blocks(obj["system"]); u != "" {
+		return u
+	}
+	msgs, _ := obj["messages"].([]any)
+	for _, m := range msgs {
+		mm, _ := m.(map[string]any)
+		if u := blocks(mm["content"]); u != "" {
+			return u
+		}
+	}
+	return ""
+}
+
+// si57URLMedia looks through v, everywhere, for media the model service would fetch (BP-5), and returns
+// its URL, or "" when there is none. kind names the dialect: "input_image" (Responses: an input_image
+// with an image_url that is not data:, or any file_url of an input_file), "image_url" (chat: any
+// object with an image_url, video_url or audio_url whose URL is not data:, or a file whose file_data is
+// a URL).
+func si57URLMedia(v any, kind string) string {
+	notData := func(u any) bool {
+		s, ok := u.(string)
+		return !ok || len(s) < 5 || !strings.EqualFold(s[:5], "data:")
+	}
+	switch x := v.(type) {
+	case []any:
+		for _, e := range x {
+			if u := si57URLMedia(e, kind); u != "" {
+				return u
+			}
+		}
+	case map[string]any:
+		switch kind {
+		case "input_image":
+			if x["type"] == "input_image" && x["image_url"] != nil && notData(x["image_url"]) {
+				return fmt.Sprint(x["image_url"], " ")
+			}
+			if x["type"] == "input_file" && x["file_url"] != nil {
+				return fmt.Sprint(x["file_url"], " ")
+			}
+		case "image_url":
+			// Whatever the part's type: a compatible server may go by the member alone.
+			for _, k := range []string{"image_url", "video_url", "audio_url"} {
+				u := x[k]
+				if u == nil {
+					continue
+				}
+				if m, ok := u.(map[string]any); ok {
+					u = m["url"]
+				}
+				if notData(u) {
+					return fmt.Sprint(u, " ")
+				}
+			}
+			// A file's file_data is base64, which has no colon, or a data: URL.
+			if f, ok := x["file"].(map[string]any); ok {
+				if s, ok := f["file_data"].(string); ok && strings.ContainsRune(s, ':') && notData(s) {
+					return s
+				}
+			}
+		}
+		for _, e := range x {
+			if u := si57URLMedia(e, kind); u != "" {
+				return u
+			}
+		}
+	}
+	return ""
 }

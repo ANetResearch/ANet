@@ -215,6 +215,7 @@ egress_plain_http
 egress_unauthorized
 egress_tunnels
 egress_too_large
+egress_upstream_unreachable
 policy_server_tool
 policy_mcp_servers
 policy_field

@@ -120,6 +120,79 @@ type AutoReplyConfig struct {
 	MaxHistory          int `json:"max_history,omitempty"`           // max conversation turns sent to the backend (default 20)
 	APITimeoutSeconds   int `json:"api_timeout_seconds,omitempty"`   // one backend call (default 180)
 	MaxAutoReplies      int `json:"max_auto_replies,omitempty"`      // runaway guard: max messages we auto-send per interaction before proposing end (default 30)
+	// Sandbox configures the sandbox's network (LEC §3.2, ux §2.2); absent, it has none beyond the
+	// model route.
+	Sandbox *AutoReplySandboxConfig `json:"sandbox,omitempty"`
+}
+
+// AutoReplySandboxConfig is auto_reply.sandbox.
+type AutoReplySandboxConfig struct {
+	// EgressAllow is the CONNECT allowlist (LEC CN-1): the hosts, each by its exact name, that a
+	// sandboxed agent may reach on port 443. Empty, the default: none. Each one is a way for the
+	// untrusted peer's task to send data out, so adding one is confirmed on a terminal (UX-C12);
+	// removing one is not.
+	EgressAllow []string `json:"egress_allow,omitempty"`
+}
+
+// empty reports a sandbox block that sets nothing.
+func (s *AutoReplySandboxConfig) empty() bool {
+	return s == nil || len(s.EgressAllow) == 0
+}
+
+// The egress allowlist is checked when the daemon starts (CN-1, LEC §3.2): a config.json edited by hand
+// to hold an address, a wildcard or a model host does not start.
+func init() { configChecks = append(configChecks, checkEgressAllowConfig) }
+
+func checkEgressAllowConfig(c Config, _ map[string]any) *a2ashape.Refusal {
+	if c.AutoReply == nil || c.AutoReply.Sandbox == nil {
+		return nil
+	}
+	_, ref := checkEgressAllow(c.AutoReply.Sandbox.EgressAllow, c.AutoReply.APIBase)
+	return ref
+}
+
+// withSandboxRequest is the configuration a POST /autoreply asks for, as far as auto_reply.sandbox goes
+// (LEC §2.3.4; the rest of the request is SetAutoReply's): a request that names nothing but sandbox
+// changes only that block of the current configuration, and in it only the members it names; another
+// request keeps the current block unless it names one. The allowlist is checked against the result's
+// api_base and kept in its normalized form (CN-1).
+func withSandboxRequest(cur *AutoReplyConfig, req AutoReplyConfig, members map[string]json.RawMessage) (*AutoReplyConfig, *a2ashape.Refusal) {
+	sandbox, named := members["sandbox"]
+	onlySandbox := named
+	for k := range members {
+		if k != "sandbox" && k != "off" {
+			onlySandbox = false
+		}
+	}
+	var next AutoReplyConfig
+	switch {
+	case onlySandbox && cur != nil:
+		next = *cur
+	case !onlySandbox:
+		next = req
+	}
+	var block AutoReplySandboxConfig
+	if cur != nil && cur.Sandbox != nil {
+		block = *cur.Sandbox
+		block.EgressAllow = slices.Clone(block.EgressAllow)
+	}
+	if named {
+		var in map[string]json.RawMessage
+		_ = json.Unmarshal(sandbox, &in)
+		if _, ok := in["egress_allow"]; ok && req.Sandbox != nil {
+			block.EgressAllow = req.Sandbox.EgressAllow
+		}
+	}
+	norm, ref := checkEgressAllow(block.EgressAllow, next.APIBase)
+	if ref != nil {
+		return nil, ref
+	}
+	block.EgressAllow = norm
+	next.Sandbox = nil
+	if !block.empty() {
+		next.Sandbox = &block
+	}
+	return &next, nil
 }
 
 // Values of AutoReplyConfig.Untrusted.

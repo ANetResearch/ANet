@@ -118,6 +118,23 @@
       }
     }
   },
+  "egress_upstream_unreachable": {
+    "status": 502,
+    "anthropic": {
+      "error": {
+        "message": "anet: this node cannot reach the model service right now; try again later, or answer with what you have.",
+        "type": "api_error"
+      },
+      "type": "error"
+    },
+    "openai": {
+      "error": {
+        "code": "egress_upstream_unreachable",
+        "message": "anet: this node cannot reach the model service right now; try again later, or answer with what you have.",
+        "type": "server_error"
+      }
+    }
+  },
   "policy_encoding": {
     "status": 400,
     "anthropic": {

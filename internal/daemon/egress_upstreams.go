@@ -132,6 +132,9 @@ type egressUpstream struct {
 	// LoopbackOnly: the custom service is plain http, allowed only on this host's loopback; the endpoint
 	// dials nothing else for it.
 	LoopbackOnly bool
+	// ConnectAllow are the hosts the run's CONNECTs may reach (auto_reply.sandbox.egress_allow, CN-2):
+	// none by default. The model service is reached by the injection route alone, never by CONNECT.
+	ConnectAllow map[string]bool
 }
 
 // resolveEgressUpstream chooses the upstream, key and pinned model of a sandboxed run from the auto-reply
@@ -200,6 +203,7 @@ func resolveEgressUpstream(cfg AutoReplyConfig) (*egressUpstream, error) {
 		model = egressClaudeAliases[model]
 	}
 	up.Model = model
+	up.ConnectAllow = egressAllowSet(cfg)
 	return up, nil
 }
 

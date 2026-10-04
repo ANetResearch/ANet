@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bufio"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -35,6 +36,9 @@ type sandboxProbeRequest struct {
 	Egress      bool   `json:"egress,omitempty"`
 	HostURL     string `json:"host_url,omitempty"`
 	OperatorKey string `json:"operator_key,omitempty"`
+	// ConnectURL is an https address of an allowed host, fetched through the proxy variables the
+	// sandbox gives, once as it is and once with another TLS name (runTunnelProbe).
+	ConnectURL string `json:"connect_url,omitempty"`
 }
 
 // sandboxProbeResult is what the probe could do. Every field except WorkDirWritable must come back
@@ -57,6 +61,9 @@ type sandboxProbeResult struct {
 	RouteBody         string `json:"route_body,omitempty"`
 	HostReached       bool   `json:"host_reached,omitempty"`
 	ConnectStatus     int    `json:"connect_status,omitempty"`
+	TunnelStatus      int    `json:"tunnel_status,omitempty"`
+	TunnelBody        string `json:"tunnel_body,omitempty"`
+	WrongNameFailed   bool   `json:"wrong_name_failed,omitempty"`
 }
 
 // runEgressProbe is the egress part of the probe, inside the sandbox.
@@ -91,6 +98,30 @@ func runEgressProbe(req sandboxProbeRequest, res *sandboxProbeResult) {
 			res.ConnectStatus = resp.StatusCode
 		}
 		c.Close()
+	}
+	if req.ConnectURL != "" {
+		runTunnelProbe(req.ConnectURL, res)
+	}
+}
+
+// runTunnelProbe fetches url as an HTTPS client in the sandbox does, through the proxy its environment
+// names, and then again with a TLS name other than the URL's host.
+func runTunnelProbe(url string, res *sandboxProbeResult) {
+	client := func(serverName string) *http.Client {
+		return &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment,
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ServerName: serverName}}}
+	}
+	if resp, err := client("").Get(url); err != nil {
+		res.TunnelBody = err.Error()
+	} else {
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		res.TunnelStatus, res.TunnelBody = resp.StatusCode, string(b)
+	}
+	if resp, err := client("other.example").Get(url); err != nil {
+		res.WrongNameFailed = true
+	} else {
+		resp.Body.Close()
 	}
 }
 

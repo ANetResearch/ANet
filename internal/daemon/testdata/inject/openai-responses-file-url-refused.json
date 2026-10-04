@@ -1,0 +1,19 @@
+{
+  "upstream": "openai",
+  "model": "gpt-5-nano",
+  "request": {
+    "method": "POST",
+    "target": "/v1/responses",
+    "body": "{\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_file\",\"file_url\":\"https://collect.example/r.pdf\"}]}]}"
+  },
+  "refused": {
+    "status": 403,
+    "body": {
+      "error": {
+        "code": "policy_field",
+        "message": "anet: the request field input[0].content[0].file_url is not allowed in the sandbox.",
+        "type": "invalid_request_error"
+      }
+    }
+  }
+}
