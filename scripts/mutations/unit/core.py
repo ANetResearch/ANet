@@ -408,7 +408,7 @@ MUTS = [
   edits=[('seal/access.go', 'if len(mbox.Pub) != ed25519.PublicKeySize || smallOrder(mbox.Pub) || ', 'if len(mbox.Pub) != ed25519.PublicKeySize || ')],
   tests=[('ANetCore:./seal', '^TestSmallOrderKeysRefused$')], full=['ANetCore:./seal']),
  dict(id='core5-24', group='CORE-5', repo='ANetCore', desc='Grant 的 home 不查 ValidAID',
-  edits=[('seal/grant.go', '\tif !identity.ValidAID(g.Home) {', '\tif g.Home == "" {')],
+  edits=[('seal/grant.go', '\tif !identity.ValidAID(g.Home) {', '\tif len(g.Home) == 0 && !identity.ValidAID(g.Home) {')],
   tests=[('ANetCore:./seal', '^TestGrantHomeAndP2PBounds$')], full=['ANetCore:./seal']),
  dict(id='core5-25', group='CORE-5', repo='ANetCore', desc='Grant 的 p2p 不查',
   edits=[('seal/grant.go', '\t\tif err := checkP2PAddr(*g.P2P); err != nil {', '\t\tif err := checkP2PAddr(*g.P2P); false && err != nil {')],
