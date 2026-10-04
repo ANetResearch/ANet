@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -86,22 +87,38 @@ func TestAConnectionOfAnotherAccountDoesNotReplaceTheDaemon(t *testing.T) {
 	}
 	// The daemon that was there is still the one a delivery is handed to.
 	setCredOf(nil)
-	got := make(chan frame, 1)
-	go func() {
-		f, _, err := d.read()
-		if err == nil {
-			got <- f
-		}
-	}()
-	go p.handOff(frame{Op: "send", V: wireVersion, To: "aid-daemon", Envelope: "ZW52"})
-	select {
-	case f := <-got:
-		if f.Op != "recv" || f.Envelope != "ZW52" {
-			t.Fatalf("the daemon was handed %+v", f)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("the daemon was not handed the delivery")
+	if err := handOffTo(t, p, d, "aid-daemon"); err != nil {
+		t.Fatalf("the daemon was not handed the delivery: %v", err)
 	}
+}
+
+// handOffTo hands p a delivery for aid and has d, the daemon expected to
+// get it, ack it. It returns once the hand-off has: one left waiting for an
+// ack would outlive the test, and read handOffTimeout while a later test
+// sets it.
+func handOffTo(t *testing.T, p *peer, d *rawDaemon, aid string) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.handOff(frame{Op: "send", V: wireVersion, To: aid, Envelope: "ZW52"})
+		done <- err
+	}()
+	f, _, err := d.read()
+	if err == nil && (f.Op != "recv" || f.Envelope != "ZW52") {
+		err = fmt.Errorf("handed %+v", f)
+	}
+	if err == nil {
+		d.send(frame{Op: "ack", V: wireVersion, ID: f.ID})
+	}
+	select {
+	case herr := <-done:
+		if err == nil {
+			err = herr
+		}
+	case <-time.After(2 * handOffTimeout):
+		t.Fatal("the hand-off did not return")
+	}
+	return err
 }
 
 // isReset reports a connection the far end closed with unread data, which
@@ -139,20 +156,8 @@ func TestTheDaemonSocketIsListenedOnSafely(t *testing.T) {
 		t.Fatalf("a socket in use: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond) // let the first serve and close the second's question
-	handed := make(chan frame, 1)
-	go func() {
-		if f, _, err := d.read(); err == nil {
-			handed <- f
-		}
-	}()
-	go p.handOff(frame{Op: "send", V: wireVersion, To: "aid-first", Envelope: "ZW52"})
-	select {
-	case f := <-handed:
-		if f.Op != "recv" || f.Envelope != "ZW52" {
-			t.Fatalf("the daemon was handed %+v", f)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("after a second peer process asked whether the socket is in use, the daemon is no longer handed deliveries")
+	if err := handOffTo(t, p, d, "aid-first"); err != nil {
+		t.Fatalf("after a second peer process asked whether the socket is in use, the daemon is no longer handed deliveries: %v", err)
 	}
 	p.stop()
 
