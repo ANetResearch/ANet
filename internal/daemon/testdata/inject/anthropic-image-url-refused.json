@@ -1,0 +1,22 @@
+{
+  "upstream": "anthropic",
+  "model": "claude-haiku-4-5",
+  "request": {
+    "method": "POST",
+    "target": "/v1/messages",
+    "header": {
+      "x-api-key": "anet-sandbox"
+    },
+    "body": "{\"max_tokens\":1024,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"url\",\"url\":\"https://collect.example/p.png?d=x\"}},{\"type\":\"text\",\"text\":\"describe\"}]}]}"
+  },
+  "refused": {
+    "status": 403,
+    "body": {
+      "error": {
+        "message": "anet: the request field messages[0].content[0].source is not allowed in the sandbox.",
+        "type": "permission_error"
+      },
+      "type": "error"
+    }
+  }
+}

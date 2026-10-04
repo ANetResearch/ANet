@@ -14,7 +14,9 @@ package daemon
 //   - model is always the pinned model (BP-2); output limits are at most 8192 tokens, and set when
 //     missing (BP-3).
 //   - Only tools the client executes pass (BP-4); the fields that reach out from the model service are
-//     refused (BP-5); OpenAI requests are not stored and have no service tier and one choice.
+//     refused (BP-5), and so is media given by URL, which the model service would fetch: an image or a
+//     file goes in the request itself (BP-5); OpenAI requests are not stored and have no service tier and
+//     one choice.
 //   - Credentials the agent sends are dropped and the operator's key is added (UP-4); beta headers keep
 //     only listed values (BP-6).
 //
@@ -28,6 +30,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -274,13 +277,132 @@ func anthropicBodyPolicy(obj map[string]any, messages bool) *egressRefusal {
 	if r := checkTools(obj, "tools", anthropicClientTool); r != nil {
 		return r
 	}
+	if r := anthropicMediaByURL(obj); r != nil {
+		return r
+	}
 	// count_tokens generates nothing and takes no max_tokens: one that is there is bounded, none added.
 	maxTokens := clampOutputLimit(obj, "max_tokens", messages)
-	if th, ok := obj["thinking"].(map[string]any); ok && maxTokens > 0 {
+	switch th, ok := obj["thinking"].(map[string]any); {
+	case maxTokens > 0 && maxTokens <= egressMinThinkingBudget && presentMember(obj, "thinking"):
+		// No thinking budget is valid below the service's smallest: the request goes without thinking,
+		// still bounded by max_tokens (BP-3).
+		delete(obj, "thinking")
+	case ok && maxTokens > 0:
 		if _, has := th["budget_tokens"]; has {
 			// The thinking budget must stay below max_tokens for the request to be valid.
 			if b, ok := jsonInteger(th["budget_tokens"]); !ok || b >= maxTokens {
-				th["budget_tokens"] = json.Number(strconv.FormatInt(max(1024, maxTokens/2), 10))
+				th["budget_tokens"] = json.Number(strconv.FormatInt(max(egressMinThinkingBudget, maxTokens/2), 10))
+			}
+		}
+	}
+	return nil
+}
+
+// egressMinThinkingBudget is the smallest thinking budget the Anthropic API takes (BP-3).
+const egressMinThinkingBudget = 1024
+
+// anthropicMediaByURL refuses an image or document whose source is a URL (BP-5), wherever a content
+// block can carry one: in a message, the system prompt, or the content of a tool result.
+func anthropicMediaByURL(obj map[string]any) *egressRefusal {
+	var walk func(blocks any, at string) *egressRefusal
+	walk = func(blocks any, at string) *egressRefusal {
+		list, _ := blocks.([]any)
+		for i, b := range list {
+			blk, _ := b.(map[string]any)
+			if blk == nil {
+				continue
+			}
+			p := fmt.Sprintf("%s[%d]", at, i)
+			if src, ok := blk["source"].(map[string]any); ok {
+				if typ, _ := src["type"].(string); typ == "url" {
+					return refuseEgress(http.StatusForbidden, "policy_field", a2ashape.Args{"field": egressArg(p + ".source")})
+				}
+				// A document given as content blocks.
+				if r := walk(src["content"], p+".source.content"); r != nil {
+					return r
+				}
+			}
+			if r := walk(blk["content"], p+".content"); r != nil {
+				return r
+			}
+		}
+		return nil
+	}
+	if r := walk(obj["system"], "system"); r != nil {
+		return r
+	}
+	msgs, _ := obj["messages"].([]any)
+	for i, m := range msgs {
+		if msg, ok := m.(map[string]any); ok {
+			if r := walk(msg["content"], fmt.Sprintf("messages[%d].content", i)); r != nil {
+				return r
+			}
+		}
+	}
+	return nil
+}
+
+// egressInlineData is a URL that carries its data in itself (data:), the one form of media URL the
+// model service does not fetch.
+func egressInlineData(u string) bool {
+	return len(u) >= 5 && strings.EqualFold(u[:5], "data:")
+}
+
+// responsesMediaByURL refuses an input_image whose image_url is not inline data, and an input_file with
+// a file_url (BP-5), anywhere in input: in message content, in tool outputs, or wherever else.
+func responsesMediaByURL(obj map[string]any) *egressRefusal {
+	return mediaByURL(obj["input"], "input", func(m map[string]any) string {
+		switch typ, _ := m["type"].(string); {
+		case typ == "input_image" && presentMember(m, "image_url"):
+			if u, isStr := m["image_url"].(string); !isStr || !egressInlineData(u) {
+				return "image_url"
+			}
+		case typ == "input_file" && presentMember(m, "file_url"):
+			return "file_url"
+		}
+		return ""
+	})
+}
+
+// chatMediaByURL refuses an image_url content part that is not inline data (BP-5), anywhere in messages.
+func chatMediaByURL(obj map[string]any) *egressRefusal {
+	return mediaByURL(obj["messages"], "messages", func(m map[string]any) string {
+		if typ, _ := m["type"].(string); typ != "image_url" || !presentMember(m, "image_url") {
+			return ""
+		}
+		u, isStr := m["image_url"].(string) // some compatible services take the URL as a string
+		if iu, isObj := m["image_url"].(map[string]any); isObj {
+			u, isStr = iu["url"].(string)
+		}
+		if !isStr || !egressInlineData(u) {
+			return "image_url"
+		}
+		return ""
+	})
+}
+
+// mediaByURL walks v, named at, and refuses with policy_field the first object of which bad names a
+// member (the field's path is the refusal's {field}).
+func mediaByURL(v any, at string, bad func(map[string]any) string) *egressRefusal {
+	switch x := v.(type) {
+	case []any:
+		for i, e := range x {
+			if r := mediaByURL(e, fmt.Sprintf("%s[%d]", at, i), bad); r != nil {
+				return r
+			}
+		}
+	case map[string]any:
+		if k := bad(x); k != "" {
+			return refuseEgress(http.StatusForbidden, "policy_field", a2ashape.Args{"field": egressArg(at + "." + k)})
+		}
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys) // the same request is refused for the same field every time
+		for _, k := range keys {
+			if r := mediaByURL(x[k], at+"."+k, bad); r != nil {
+				return r
 			}
 		}
 	}
@@ -304,6 +426,9 @@ func responsesBodyPolicy(obj map[string]any) *egressRefusal {
 	if r := checkToolChoice(obj, responsesClientTool); r != nil {
 		return r
 	}
+	if r := responsesMediaByURL(obj); r != nil {
+		return r
+	}
 	openAIStorageRules(obj)
 	clampOutputLimit(obj, "max_output_tokens", true)
 	return nil
@@ -322,6 +447,9 @@ func chatBodyPolicy(obj map[string]any, up *egressUpstream) *egressRefusal {
 		return r
 	}
 	if r := checkToolChoice(obj, chatClientTool); r != nil {
+		return r
+	}
+	if r := chatMediaByURL(obj); r != nil {
 		return r
 	}
 	openAIStorageRules(obj)

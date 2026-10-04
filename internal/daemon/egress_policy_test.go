@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -118,6 +119,31 @@ var injectCorpus = []injectCase{
 	{"responses-zero-limit", "openai", "POST", "/v1/responses", nil, `{"input":"x","max_output_tokens":0}`, ""},
 	{"chat-allowed-tools-choice", "openai", "POST", "/v1/chat/completions", nil, `{"messages":[],"tools":[{"type":"function","function":{"name":"f"}}],"tool_choice":{"type":"allowed_tools","allowed_tools":{"mode":"auto","tools":[{"type":"function","function":{"name":"f"}}]}}}`, ""},
 	{"chat-allowed-tools-custom", "openai", "POST", "/v1/chat/completions", nil, `{"messages":[],"tool_choice":{"type":"allowed_tools","allowed_tools":{"mode":"auto","tools":[{"type":"custom","custom":{"name":"c"}}]}}}`, "policy_server_tool"},
+	// BP-3: no thinking budget is valid with max_tokens of 1024 or less, so the request goes without thinking
+	{"thinking-small-limit", "anthropic", "POST", "/v1/messages", nil, `{"max_tokens":1000,"thinking":{"type":"enabled","budget_tokens":2000},"messages":[]}`, ""},
+	{"thinking-1024", "anthropic", "POST", "/v1/messages", nil, `{"max_tokens":1024,"thinking":{"type":"enabled","budget_tokens":1024},"messages":[]}`, ""},
+	{"thinking-small-adaptive", "anthropic", "POST", "/v1/messages", nil, `{"max_tokens":200,"thinking":{"type":"adaptive"},"messages":[]}`, ""},
+	{"thinking-small-count", "anthropic", "POST", "/v1/messages/count_tokens", nil, `{"max_tokens":100,"thinking":{"type":"enabled","budget_tokens":1024},"messages":[]}`, ""},
+	// BP-5: media only inline; a URL is fetched by the model service, the way web_fetch would
+	{"image-url", "anthropic", "POST", "/v1/messages", nil, `{"messages":[{"role":"user","content":[{"type":"text","text":"look"},` +
+		`{"type":"image","source":{"type":"url","url":"https://collect.example/x.png?d=secret"}}]}]}`, "policy_field"},
+	{"document-url", "anthropic", "POST", "/v1/messages", nil, `{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"url","url":"https://collect.example/a.pdf"}}]}]}`, "policy_field"},
+	{"tool-result-image-url", "anthropic", "POST", "/v1/messages", nil, `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"t",` +
+		`"content":[{"type":"image","source":{"type":"url","url":"https://collect.example/y.png"}}]}]}]}`, "policy_field"},
+	{"document-content-image-url", "anthropic", "POST", "/v1/messages", nil, `{"messages":[{"role":"user","content":[{"type":"document","source":{"type":"content",` +
+		`"content":[{"type":"image","source":{"type":"url","url":"https://collect.example/z.png"}}]}}]}]}`, "policy_field"},
+	{"system-image-url", "anthropic", "POST", "/v1/messages", nil, `{"system":[{"type":"image","source":{"type":"url","url":"https://collect.example/s.png"}}],"messages":[]}`, "policy_field"},
+	{"count-tokens-image-url", "anthropic", "POST", "/v1/messages/count_tokens", nil, `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://collect.example/c.png"}}]}]}`, "policy_field"},
+	{"image-base64", "anthropic", "POST", "/v1/messages", nil, `{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}]}]}`, ""},
+	{"tool-use-input-source", "anthropic", "POST", "/v1/messages", nil, `{"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"t","name":"get",` +
+		`"input":{"source":{"type":"url","url":"https://example.org"}}}]}]}`, ""},
+	{"responses-image-url", "openai", "POST", "/v1/responses", nil, `{"input":[{"role":"user","content":[{"type":"input_text","text":"x"},{"type":"input_image","image_url":"https://collect.example/i.png"}]}]}`, "policy_field"},
+	{"responses-file-url", "openai", "POST", "/v1/responses", nil, `{"input":[{"role":"user","content":[{"type":"input_file","file_url":"https://collect.example/f.pdf"}]}]}`, "policy_field"},
+	{"responses-tool-output-image-url", "openai", "POST", "/v1/responses", nil, `{"input":[{"type":"function_call_output","call_id":"c","output":[{"type":"input_image","image_url":"http://collect.example/o.png"}]}]}`, "policy_field"},
+	{"responses-image-data", "openai", "POST", "/v1/responses", nil, `{"input":[{"role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,iVBORw0KGgo="}]}]}`, ""},
+	{"chat-image-url", "openai", "POST", "/v1/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://collect.example/c.png"}}]}]}`, "policy_field"},
+	{"chat-image-data", "openai", "POST", "/v1/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"DATA:image/png;base64,iVBORw0KGgo="}}]}]}`, ""},
+	{"custom-image-url-string", "custom", "POST", "/chat/completions", nil, `{"messages":[{"role":"user","content":[{"type":"image_url","image_url":"https://collect.example/s.png"}]}]}`, "policy_field"},
 }
 
 // upstreamForCase is the upstream a case runs against, at base (the custom ones at base/v1, openrouter
@@ -198,11 +224,18 @@ func TestInjectBodyPolicy(t *testing.T) {
 			`{"max_tokens":8192,"model":"claude-haiku-4-5","thinking":{"budget_tokens":4096,"type":"enabled"}}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":1500,"thinking":{"type":"enabled","budget_tokens":1500}}`,
 			`{"max_tokens":1500,"model":"claude-haiku-4-5","thinking":{"budget_tokens":1024,"type":"enabled"}}`},
-		// max_tokens of 1024 or less leaves no valid budget: the formula's 1024 goes up, for the service to refuse
+		// max_tokens of 1024 or less leaves no valid budget (the service's smallest is 1024): no thinking
 		{ant, routeAnthropicMessages, `{"max_tokens":1,"thinking":{"type":"enabled","budget_tokens":""}}`,
-			`{"max_tokens":1,"model":"claude-haiku-4-5","thinking":{"budget_tokens":1024,"type":"enabled"}}`},
+			`{"max_tokens":1,"model":"claude-haiku-4-5"}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":1000,"thinking":{"type":"enabled","budget_tokens":500}}`,
-			`{"max_tokens":1000,"model":"claude-haiku-4-5","thinking":{"budget_tokens":500,"type":"enabled"}}`},
+			`{"max_tokens":1000,"model":"claude-haiku-4-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":1024,"thinking":{"type":"disabled"}}`, `{"max_tokens":1024,"model":"claude-haiku-4-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":1025,"thinking":{"type":"enabled","budget_tokens":1025}}`,
+			`{"max_tokens":1025,"model":"claude-haiku-4-5","thinking":{"budget_tokens":1024,"type":"enabled"}}`},
+		{ant, routeAnthropicCountTokens, `{"max_tokens":10,"thinking":{"type":"enabled","budget_tokens":2048}}`, `{"max_tokens":10,"model":"claude-haiku-4-5"}`},
+		{ant, routeAnthropicCountTokens, `{"thinking":{"type":"enabled","budget_tokens":2048}}`,
+			`{"model":"claude-haiku-4-5","thinking":{"budget_tokens":2048,"type":"enabled"}}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":512,"thinking":null}`, `{"max_tokens":512,"model":"claude-haiku-4-5"}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":8000,"thinking":{"type":"enabled","budget_tokens":2000}}`,
 			`{"max_tokens":8000,"model":"claude-haiku-4-5","thinking":{"budget_tokens":2000,"type":"enabled"}}`},
 		{ant, routeAnthropicMessages, `{"thinking":{"type":"adaptive"},"output_config":{"effort":"low"}}`,
@@ -229,11 +262,30 @@ func TestInjectBodyPolicy(t *testing.T) {
 		{cus, routeChat, `{"max_completion_tokens":0}`, `{"max_completion_tokens":8192,"model":"local-model","store":false}`},
 		{oai, routeResponses, `{"max_output_tokens":-1}`, `{"max_output_tokens":8192,"model":"gpt-5-nano","store":false}`},
 		{cus, routeChat, `{"plugins":[1],"models":[2]}`, `{"max_tokens":8192,"model":"local-model","models":[2],"plugins":[1],"store":false}`},
+		// BP-5: media by URL, refused with the field's path; inline data passes
+		{ant, routeAnthropicMessages, `{"messages":[{"content":"x"},{"content":[{"type":"text"},{"type":"image","source":{"type":"url","url":"u"}}]}]}`,
+			"refused:policy_field:messages[1].content[1].source"},
+		{ant, routeAnthropicMessages, `{"messages":[{"content":[{"type":"tool_result","content":[{"type":"document","source":{"type":"url"}}]}]}]}`,
+			"refused:policy_field:messages[0].content[0].content[0].source"},
+		{ant, routeAnthropicMessages, `{"messages":[{"content":[{"type":"image","source":{"type":"base64","data":"AA=="}}]}]}`,
+			`{"max_tokens":8192,"messages":[{"content":[{"source":{"data":"AA==","type":"base64"},"type":"image"}]}],"model":"claude-haiku-4-5"}`},
+		{oai, routeResponses, `{"input":[{"content":[{"type":"input_image","image_url":"https://u"}]}]}`, "refused:policy_field:input[0].content[0].image_url"},
+		{oai, routeResponses, `{"input":[{"content":[{"type":"input_image","image_url":7}]}]}`, "refused:policy_field:input[0].content[0].image_url"},
+		{oai, routeResponses, `{"input":[{"content":[{"type":"input_file","file_url":"https://u/f.pdf"}]}]}`, "refused:policy_field:input[0].content[0].file_url"},
+		{oai, routeResponses, `{"input":[{"content":[{"type":"input_image","image_url":null,"file_id":"file_1"}]}]}`,
+			`{"input":[{"content":[{"file_id":"file_1","type":"input_image"}]}],"max_output_tokens":8192,"model":"gpt-5-nano","store":false}`},
+		{oai, routeChat, `{"messages":[{"content":[{"type":"image_url","image_url":{"url":"http://u"}}]}]}`, "refused:policy_field:messages[0].content[0].image_url"},
+		{oai, routeChat, `{"messages":[{"content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AA=="}}]}]}`,
+			`{"max_completion_tokens":8192,"messages":[{"content":[{"image_url":{"url":"data:image/png;base64,AA=="},"type":"image_url"}]}],"model":"gpt-5-nano","store":false}`},
+		{cus, routeChat, `{"messages":[{"content":[{"type":"image_url","image_url":"https://u"}]}]}`, "refused:policy_field:messages[0].content[0].image_url"},
 	} {
 		out, ref := rewriteInjectBody(tc.up, tc.kind, []byte(tc.in))
 		got := string(out)
 		if ref != nil {
 			got = "refused:" + ref.Code
+			if strings.Count(tc.want, ":") == 2 {
+				got += ":" + fmt.Sprint(ref.Args["field"])
+			}
 		}
 		if got != tc.want {
 			t.Errorf("%s %s:\n got %s\nwant %s", tc.up.Name, tc.in, got, tc.want)
@@ -344,6 +396,17 @@ var goldenInjectCases = []injectCase{
 		`{"model":"anthropic/claude-opus-5","messages":[{"role":"user","content":"hi"}],"stream":true}`, ""},
 	{"openrouter-plugins-refused", "openrouter", "POST", "/chat/completions", nil,
 		`{"messages":[],"plugins":[{"id":"web"}]}`, "policy_field"},
+	{"anthropic-small-limit-no-thinking", "anthropic", "POST", "/v1/messages",
+		map[string]string{"x-api-key": egressPlaceholderKey, "anthropic-version": "2023-06-01"},
+		`{"model":"haiku","max_tokens":512,"thinking":{"type":"enabled","budget_tokens":1024},"messages":[{"role":"user","content":"title this"}]}`, ""},
+	{"anthropic-image-url-refused", "anthropic", "POST", "/v1/messages",
+		map[string]string{"x-api-key": egressPlaceholderKey},
+		`{"max_tokens":1024,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"url","url":"https://collect.example/p.png?d=x"}},` +
+			`{"type":"text","text":"describe"}]}]}`, "policy_field"},
+	{"openai-chat-image-url-refused", "openai", "POST", "/v1/chat/completions", nil,
+		`{"messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://collect.example/q.png"}}]}]}`, "policy_field"},
+	{"openai-responses-file-url-refused", "openai", "POST", "/v1/responses", nil,
+		`{"input":[{"role":"user","content":[{"type":"input_file","file_url":"https://collect.example/r.pdf"}]}]}`, "policy_field"},
 }
 
 // TestInjectPolicyGolden (G-BP): each request pair of goldenInjectCases, as the endpoint forwards it
