@@ -17,6 +17,7 @@ import (
 	"time"
 
 	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
+	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -62,6 +63,15 @@ func buildTestDaemon(t testing.TB, hubURL string, modules map[string]any) *Daemo
 		cfg["modules"] = modules
 	}
 	writeTestConfig(t, root, cfg)
+	// The node's identity was incepted a day ago, so that a test can date a rotation in the
+	// recent past (a rot's ts must follow its icp's).
+	self, err := identity.InceptAgent(uint64(time.Now().Add(-24 * time.Hour).UnixMilli()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := saveIdentity(NewLayout(root), self); err != nil {
+		t.Fatal(err)
+	}
 	d, err := New(NewLayout(root))
 	if err != nil {
 		t.Fatal(err)

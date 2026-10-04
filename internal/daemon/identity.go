@@ -3,13 +3,15 @@ package daemon
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 )
 
 // LoadOrGenerateIdentity loads the daemon's persisted identity (identity.kel), or, on first run,
-// incepts a fresh one and persists it (0600 — it holds private keys). The returned Controller is the
-// node's single AID/KEL for its lifetime (one runtime = one agent = one AID).
+// incepts a fresh agent identity (toad 1, no witness until it joins a hub) and persists it (0600 —
+// it holds private keys). The returned Controller is the node's single AID/KEL for its lifetime
+// (one runtime = one agent = one AID).
 func LoadOrGenerateIdentity(l Layout) (*identity.Controller, error) {
 	b, err := os.ReadFile(l.IdentityPath())
 	if err == nil {
@@ -22,7 +24,7 @@ func LoadOrGenerateIdentity(l Layout) (*identity.Controller, error) {
 	if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("anet: read identity: %w", err)
 	}
-	c, err := identity.Incept()
+	c, err := identity.InceptAgent(uint64(time.Now().UnixMilli()))
 	if err != nil {
 		return nil, err
 	}

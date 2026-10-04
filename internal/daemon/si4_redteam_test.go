@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -31,12 +32,12 @@ import (
 func TestRedteamSI4_PaddedKELMakesEachEnvelopeExpensive(t *testing.T) {
 	prov := newTestDaemon(t, "", false)
 	measure := func(extra int) (time.Duration, int) {
-		c, err := identity.Incept()
+		c, err := identitytest.Hub()
 		if err != nil {
 			t.Fatal(err)
 		}
 		for i := 0; i < extra; i++ {
-			if err := c.Rotate(uint64(i + 2)); err != nil {
+			if err := identitytest.Rotate(c, uint64(i+2)); err != nil {
 				t.Fatal(err)
 			}
 		}

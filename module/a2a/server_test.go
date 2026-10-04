@@ -32,6 +32,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
@@ -51,7 +52,7 @@ const (
 type testSigner struct{ c *identity.Controller }
 
 func (s testSigner) SignProxyCard(card []byte) ([]byte, error) {
-	return a2acard.SignWithController(card, s.c, "")
+	return a2acard.SignWithSnapshot(card, s.c, "")
 }
 
 type env struct {
@@ -64,7 +65,7 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	ctl, err := identity.Incept()
+	ctl, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -150,7 +151,7 @@ func TestEachReceiveStepRefusesWithItsClass(t *testing.T) {
 	}
 
 	// A peer whose stored KEL forks from the one it later presents.
-	forkA, err := identity.Incept()
+	forkA, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,10 +164,10 @@ func TestEachReceiveStepRefusesWithItsClass(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := uint64(time.Now().UnixMilli())
-	if err := forkA.Rotate(now - 1000); err != nil {
+	if err := identitytest.Rotate(forkA, now-1000); err != nil {
 		t.Fatal(err)
 	}
-	if err := forkB.Rotate(now - 2000); err != nil {
+	if err := identitytest.Rotate(forkB, now-2000); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := prov.pinPeerKEL(forkA.AID(), forkA.KEL(), ""); err != nil {
@@ -424,7 +425,7 @@ func TestATruncatedKELIsRefusedAfterTableChurnAndRestart(t *testing.T) {
 	stale := sender{aid: req.AID(), kel: append([]identity.SignedEvent(nil), req.self.KEL()...),
 		keys: req.enc.SignedSet(), ksn: req.self.CurrentSeq(), sign: retiredSigner(req.self)}
 	rotatedAt := uint64(time.Now().Add(-2 * time.Hour).UnixMilli())
-	if err := req.self.Rotate(rotatedAt); err != nil {
+	if err := identitytest.Rotate(req.self, rotatedAt); err != nil {
 		t.Fatal(err)
 	}
 	// The hub authenticates the requester against its registered KEL, so
@@ -719,7 +720,7 @@ func TestRotationGrace(t *testing.T) {
 	old := sender{aid: req.AID(), kel: append([]identity.SignedEvent(nil), req.self.KEL()...),
 		keys: req.enc.SignedSet(), ksn: req.self.CurrentSeq(), sign: retiredSigner(req.self)}
 	rotatedAt := uint64(time.Now().Add(-30 * time.Minute).UnixMilli())
-	if err := req.self.Rotate(rotatedAt); err != nil {
+	if err := identitytest.Rotate(req.self, rotatedAt); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := prov.pinPeerKEL(req.AID(), req.self.KEL(), ""); err != nil {
@@ -911,10 +912,10 @@ func TestAHubCannotRollBackOrForkAKnownRecipientsKeys(t *testing.T) {
 	truncated := append([]identity.SignedEvent(nil), prov.self.KEL()...)
 	retired := retiredSigner(prov.self)
 	now := uint64(time.Now().UnixMilli())
-	if err := prov.self.Rotate(now - 1000); err != nil {
+	if err := identitytest.Rotate(prov.self, now-1000); err != nil {
 		t.Fatal(err)
 	}
-	if err := fork.Rotate(now - 2000); err != nil {
+	if err := identitytest.Rotate(fork, now-2000); err != nil {
 		t.Fatal(err)
 	}
 	// The requester learns the rotation (an accepted message from the
@@ -1190,7 +1191,7 @@ func TestAStoredKeySetThatNoLongerVerifiesIsReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	seq0 := row.KeySetSeq
-	if err := prov.self.Rotate(uint64(time.Now().UnixMilli())); err != nil {
+	if err := identitytest.Rotate(prov.self, uint64(time.Now().UnixMilli())); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := prov.enc.maintain(prov.self.Sign, prov.self.CurrentSeq()); err != nil {
