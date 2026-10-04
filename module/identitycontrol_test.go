@@ -134,3 +134,21 @@ func TestNoCurrentPrivateKey(t *testing.T) {
 		})
 	}
 }
+
+// KEL C-31, D-2: the daemon holds no next key beyond the icp's hot key. ANetCore's
+// identity/identitytest keeps the next keys of the test identities it rotates in process memory,
+// so no non-test file of this repository imports it.
+func TestIdentitytestOnlyInTests(t *testing.T) {
+	const identitytest = "github.com/ANetResearch/ANetCore/identity/identitytest"
+	fset, files := parseTree(t, repoRoot(t), false)
+	if len(files) < 10 {
+		t.Fatalf("parsed %d files: the check looks at nothing", len(files))
+	}
+	for _, f := range files {
+		for _, imp := range f.Imports {
+			if strings.Trim(imp.Path.Value, "`\"") == identitytest {
+				t.Errorf("%s: imports %s, which is for tests only", fset.Position(imp.Pos()), identitytest)
+			}
+		}
+	}
+}
