@@ -284,7 +284,7 @@ MUTS += [
   tests=SEND_T('1'), full=[AGHUB]),
  # ---- M13: no session in the log or the database
  dict(id='ss-m13-log', group='SS-M13', repo='ANetHub', desc='hub 把 sid → aid 写进日志',
-  edits=[('internal/aghub/session.go', 'import (\n\t"crypto/rand"\n', 'import (\n\t"crypto/rand"\n\t"log"\n'),
+  edits=[('internal/aghub/session.go', '\t"crypto/rand"\n\t"database/sql"\n', '\t"crypto/rand"\n\t"database/sql"\n\t"log"\n'),
          ('internal/aghub/session.go', '\twriteJSON(w, http.StatusOK, SessionResponse{\n',
           '\tlog.Printf("hub: session %x is %s", sid, au.AID)\n\twriteJSON(w, http.StatusOK, SessionResponse{\n')],
   tests=PROP_T('TestSendsLeaveNoSenderBehind'), full=[AGHUB]),
