@@ -745,24 +745,10 @@ MUTS = [
   tests=[('ANetHub:./internal/federation', 'TestAPeerKELThatFailsIsNotFetchedOnEveryUse')],
   full=['ANetHub:./internal/federation'],
  ),
- dict(
-  id='fx38-1', group='F38', repo='ANetHub',
-  desc='taskboard 写入路由不限请求体大小',
-  edits=[
-   ('internal/taskboard/http.go', 'raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxMutationBody))', 'raw, err := io.ReadAll(r.Body)'),
-  ],
-  tests=[('ANetHub:./internal/taskboard', 'TestAnOversizedMutationIsRefusedBeforeAuthentication', 'taskboard')],
-  full=[],
- ),
- dict(
-  id='fx38-2', group='F38', repo='ANetHub',
-  desc='taskboard 先解码内容再核签名',
-  edits=[
-   ('internal/taskboard/http.go', '\t\tif err := s.auth.VerifyAgentChallenge(action, a.AID, a.TS, a.KeyStateSeq, a.Sig); err != nil {\n\t\t\twriteJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})\n\t\t\treturn\n\t\t}\n\t\tvar req mutateReq\n\t\tif err := json.Unmarshal(raw, &req); err != nil {\n\t\t\twriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})\n\t\t\treturn\n\t\t}', '\t\tvar req mutateReq\n\t\tif err := json.Unmarshal(raw, &req); err != nil {\n\t\t\twriteJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})\n\t\t\treturn\n\t\t}\n\t\tif err := s.auth.VerifyAgentChallenge(action, a.AID, a.TS, a.KeyStateSeq, a.Sig); err != nil {\n\t\t\twriteJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})\n\t\t\treturn\n\t\t}'),
-  ],
-  tests=[('ANetHub:./internal/taskboard', 'TestAMutationIsAuthenticatedBeforeItsContentIsDecoded', 'taskboard')],
-  full=[],
- ),
+ # fx38-1 and fx38-2 (the task board's body limit and its signature checked before the content) are
+ # retired with the task board, which the hub no longer has (TestTheTaskBoardIsGone; sealed_sender.py
+ # ss4-taskboard-back). The hub's own signed routes keep both properties: readRawBody under each route's
+ # limit, and the signature checked before the body is decoded (auth2.go, fx-e and PAY-7 entries).
  dict(
   id='n1-1', group='N1', repo='ANet',
   desc='外部可写(o+w)的 socket 目录被接受',
