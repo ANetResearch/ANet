@@ -152,3 +152,32 @@ MUTS += [
           '\tif _, err := tx.Exec(`INSERT INTO dereg_event(aid, at) VALUES(?,?)\n\t    ON CONFLICT(aid) DO UPDATE SET at=excluded.at`, aid, now.UnixMilli()); err != nil {\n\t\treturn DeregResult{}, err\n\t}\n', '')],
   tests=[(HUB, '^TestOutOfProcessDeregDropsSessions$')], full=[HUB]),
 ]
+
+# M-PAY-16 and M-PAY-20 are the hub side of removing the public prices, the gateway and the ADP card
+# (PAY-8, repo ANetHub). A public A2A card carrying anet-pricing/v1 or anet-price/v1 is refused at
+# registration (card_error price_in_public_card) and from a peer (for good); the gateway path is a
+# 410 gateway_removed tombstone that reads nothing of the request; /profile and /register decode
+# strictly, so pricing and card are 400 bad_request.
+
+PRICE_T = [(HUB, '^(TestAPublicCardWithPricesIsRefusedAtRegistration|TestAFederatedPublicCardWithPricesIsRefusedForGood|TestNoPriceInTheRegistryOrTheDatabase)$')]
+TOMB_T = [(HUB, '^(TestTheGatewayIsATombstone|TestWire3Fixtures)$')]
+
+MUTS += [
+ dict(id='M-PAY-16', group='PAY', repo='ANetHub', desc='hub 接受带价格的公开卡(不查 anet-pricing/v1、anet-price/v1)',
+  edits=[('internal/aghub/a2acard.go', '\tif carriesPrices(raw) {\n\t\treturn nil, ErrPriceInPublicCard\n', '\tif false && carriesPrices(raw) {\n\t\treturn nil, ErrPriceInPublicCard\n')],
+  tests=PRICE_T, full=[HUB]),
+ dict(id='pay8-price-uri', group='PAY-8', repo='ANetHub', desc='价格拒收只认 v0.2 的 anet-pricing/v1,漏掉扩展卡的 anet-price/v1',
+  edits=[('internal/aghub/a2acard.go', '\t\tif uri == extPricingV1URI || uri == extPriceV1URI {\n', '\t\tif uri == extPricingV1URI {\n')],
+  tests=PRICE_T, full=[HUB]),
+ dict(id='M-PAY-20', group='PAY', repo='ANetHub', desc='恢复网关路由(旧路径再次通到付款处理)',
+  edits=[('internal/aghub/server.go', '\tmux.HandleFunc("GET "+gatewayPath, hGatewayRemoved)\n',
+          '\tmux.HandleFunc("GET /x402/resource/{aid}/{capability}", s.hX402Settle)\n')],
+  tests=TOMB_T, full=[HUB]),
+ dict(id='pay8-tombstone-gone', group='PAY-8', repo='ANetHub', desc='网关路径不留墓碑(落到 404 not_found,不说网关已删与去处)',
+  edits=[('internal/aghub/server.go', '\tmux.HandleFunc("GET "+gatewayPath, hGatewayRemoved)\n', '')],
+  tests=TOMB_T, full=[HUB]),
+ dict(id='pay8-profile-lenient', group='PAY-8', repo='ANetHub', desc='/profile 恢复宽松解码(pricing 成员被静默接受)',
+  edits=[('internal/aghub/server.go', '\tif err := wire3.DecodeStrict(a.Body, &req); err != nil {\n\t\twire3.RefuseDecode(w, err)\n',
+          '\tif err := json.Unmarshal(a.Body, &req); err != nil {\n\t\twire3.RefuseDecode(w, err)\n')],
+  tests=[(HUB, '^TestNoPriceInTheRegistryOrTheDatabase$')], full=[HUB]),
+]
