@@ -290,9 +290,15 @@ func TestNoticeAgeConstants(t *testing.T) {
 // signs for c's KEL tip, observed at observedAt.
 func signedNotice(t *testing.T, c *identity.Controller, observedAt uint64) *keyStateNotice {
 	t.Helper()
+	return signedNoticeBy(t, identity.SuiteController(), c, observedAt)
+}
+
+// signedNoticeBy is the notice hub signs for c's KEL tip.
+func signedNoticeBy(t *testing.T, hub identity.Signer, c *identity.Controller, observedAt uint64) *keyStateNotice {
+	t.Helper()
 	kel := c.Accepted()
 	tip := kel[len(kel)-1]
-	b, err := identity.SignNotice(identity.SuiteController(), identity.NoticeBody{AID: c.AID(), Seq: tip.Event.Seq,
+	b, err := identity.SignNotice(hub, identity.NoticeBody{AID: c.AID(), Seq: tip.Event.Seq,
 		Head: tip.EventID, ObservedAt: observedAt})
 	if err != nil {
 		t.Fatal(err)
@@ -327,7 +333,14 @@ func TestIdentityGateFromTheDaemon(t *testing.T) {
 	d.join.rec = &joinRecord{State: JoinPendingAdmission, Reason: reasonPending}
 	check("waiting for admission", IdentityNoHub, "hub_pending_admission")
 
-	if err := identitytest.Rotate(c, now-hourMS); err != nil { // the witness designation, accepted
+	// The witness designation: built, so the controller signs under it, but
+	// not accepted yet. The tip the witness holds still names no witness.
+	des, err := c.BuildWitnessDesignation(identitytest.Witness, identitytest.NewNext(), now-hourMS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("the witness designation is being published", IdentityNoHub, "hub_pending_admission")
+	if err := c.Adopt(des); err != nil {
 		t.Fatal(err)
 	}
 	d.join.rec = &joinRecord{State: JoinRegistered, Reason: reasonRegistered}
@@ -341,7 +354,7 @@ func TestIdentityGateFromTheDaemon(t *testing.T) {
 	if cur := d.keyCursor(); cur != (KeyCursor{KeyStateSeq: 1, NoticeObservedAt: n1.Body.ObservedAt, Now: now}) {
 		t.Fatalf("keyCursor = %+v", cur)
 	}
-	if got := d.tipNotice(); got != n1 {
+	if got := d.tipNotice(c.Snapshot()); got != n1 {
 		t.Fatalf("tipNotice = %+v, want the notice held", got)
 	}
 	d.idGate.noteNotice(nil, noticeErrQuarantine)
@@ -361,11 +374,21 @@ func TestIdentityGateFromTheDaemon(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	before := c.Snapshot() // taken when the gate was read, say
 	ev, err := c.BuildRotation(next, identitytest.NewNext(), identitytest.Witness, false, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	check("publishing", IdentityPublishing, "rotation_pending")
+	// The notice goes with the Snapshot that signs: the one taken before the
+	// rotation was built signs under seq 1, which n1 confirms; one taken
+	// after signs under the new key, and n1 must not go with it.
+	if got := d.tipNotice(before); got != n1 {
+		t.Fatalf("tipNotice(a Snapshot under seq 1) = %+v, want the notice about seq 1", got)
+	}
+	if got := d.tipNotice(c.Snapshot()); got != nil {
+		t.Fatalf("tipNotice(a Snapshot under the rotation being published) = %+v: the notice about seq 1 would be refused with it", got)
+	}
 	d.idGate.notePublishError(hubKELTSOutOfWindow)
 	check("the witness refused the event's time", IdentityPublishing, "clock_skew")
 	if cur := d.keyCursor(); cur.KeyStateSeq != 2 {
@@ -380,7 +403,7 @@ func TestIdentityGateFromTheDaemon(t *testing.T) {
 	if cur := d.keyCursor(); cur.KeyStateSeq != 2 || cur.NoticeObservedAt != 0 {
 		t.Fatalf("keyCursor with a notice about the old tip = %+v, want seq 2 and no notice", cur)
 	}
-	if got := d.tipNotice(); got != nil {
+	if got := d.tipNotice(c.Snapshot()); got != nil {
 		t.Fatalf("tipNotice = %+v: a notice about the old tip is not sealed", got)
 	}
 	n2 := signedNotice(t, c, now)
@@ -388,6 +411,29 @@ func TestIdentityGateFromTheDaemon(t *testing.T) {
 	check("seq 2 confirmed", IdentityOK, "identity.ok")
 	if cur := d.keyCursor(); cur.KeyStateSeq != 2 || cur.NoticeObservedAt != now {
 		t.Fatalf("keyCursor = %+v", cur)
+	}
+
+	// A hub switch: the rot names another witness, and only that hub's
+	// notice confirms the tip, even one the old hub signed about it.
+	hub2, err := identitytest.Hub()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now += minuteMS
+	if err := identitytest.SwitchWitness(c, hub2.AID(), now); err != nil {
+		t.Fatal(err)
+	}
+	check("switched hubs, no notice from the new one yet", IdentityNoticeStale, "notice_stale")
+	d.idGate.noteNotice(signedNotice(t, c, now), "")
+	check("the old witness's notice about the new tip", IdentityNoticeStale, "notice_stale")
+	if got := d.tipNotice(c.Snapshot()); got != nil {
+		t.Fatalf("tipNotice = %+v: the old witness's notice is not sealed after a switch", got)
+	}
+	n3 := signedNoticeBy(t, hub2, c, now)
+	d.idGate.noteNotice(n3, "")
+	check("the new witness confirmed", IdentityOK, "identity.ok")
+	if got := d.tipNotice(c.Snapshot()); got != n3 {
+		t.Fatalf("tipNotice = %+v, want the new witness's notice", got)
 	}
 
 	if err := c.SetState(identity.StateStopped); err != nil {

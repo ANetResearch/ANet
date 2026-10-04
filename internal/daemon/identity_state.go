@@ -21,6 +21,10 @@ package daemon
 //     sealed_kss and sealed_notice_at are the two KELSealed columns; the
 //     engine writes them when it seals a version: the key_state_seq the
 //     signature was made under and the observed_at of the notice it carried.
+//   - A version is sealed with one Snapshot s of the controller: s signs,
+//     s.KEL() is the KEL it carries, and tipNotice(s) the notice (inner key
+//     11). When tipNotice(s) is nil the engine does not seal in this attempt
+//     (a rotation was built after the gate was read).
 //   - The sender's key state of a received envelope is judged only through
 //     identity.SenderKeyUsable (KEL C-13), never through RetiredUsableAt or a
 //     grace computed here: receive step 7 calls seal.VerifyInnerSig(inner,
@@ -151,8 +155,16 @@ func identityFactsOf(c *identity.Controller) identityFacts {
 		return identityFacts{}
 	}
 	_, pending := c.Pending()
-	kel := c.Accepted()
-	f := identityFacts{Pending: pending, AID: c.AID()}
+	f := kelFacts(c.AID(), c.Accepted())
+	f.Pending = pending
+	f.State = c.State()
+	return f
+}
+
+// kelFacts is the tip of kel, the KEL of aid, and the witness it names: key
+// 9 of its last establishment event, so a hub switch names the new hub.
+func kelFacts(aid string, kel []identity.SignedEvent) identityFacts {
+	f := identityFacts{AID: aid}
 	if n := len(kel); n > 0 {
 		f.TipSeq, f.TipID = kel[n-1].Event.Seq, kel[n-1].EventID
 	}
@@ -164,7 +176,6 @@ func identityFactsOf(c *identity.Controller) identityFacts {
 			break
 		}
 	}
-	f.State = c.State()
 	return f
 }
 
@@ -341,6 +352,11 @@ type identityGateInputs struct {
 // noteNotice records what the latest hub answer said of this node's key
 // state: a notice (n, err "") or why it carried none (n nil, err its
 // key_state_notice_error). An answer without a notice keeps the one held.
+//
+// The gate checks only that n is about this node's tip and witness, not its
+// signature or its time: the caller records a notice that
+// identity.VerifyNotice accepted for this node's KEL at arrival now, which
+// also keeps out one observed more than the clock skew after now.
 func (g *identityGateInputs) noteNotice(n *keyStateNotice, noticeErr string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -389,31 +405,44 @@ func (d *Daemon) identityGate() GateState {
 	return gateOf(d.identityState())
 }
 
-// tipNotice is the notice a version sealed now carries in inner key 11, its
+// tipNotice is the notice a version signed by s carries in inner key 11, its
 // observed_at the version's sealed_notice_at (KEL D-50, engine ENG-K17):
-// this node's latest notice when it confirms the KEL tip, else nil, and then
-// the gate is closed.
-func (d *Daemon) tipNotice() *keyStateNotice {
-	if n, _, _ := d.idGate.read(); n.confirms(identityFactsOf(d.self)) {
+// this node's latest notice when it confirms the tip of s's KEL, else nil.
+//
+// s is the Snapshot the version is signed with, and its KEL is the one the
+// version carries, so the signature, the KEL and the notice describe one key
+// state. The gate is read before the Snapshot is taken, and a rotation built
+// in between makes the controller sign under the new key at once; the notice
+// held then confirms the old tip, and a recipient would refuse the version
+// for good (witness-mismatch). So nil means: do not seal in this attempt. The
+// gate is closed at its next read.
+func (d *Daemon) tipNotice(s identity.Signer) *keyStateNotice {
+	if s == nil {
+		return nil
+	}
+	if n, _, _ := d.idGate.read(); n.confirms(kelFacts(s.AID(), s.KEL())) {
 		return n
 	}
 	return nil
 }
 
 // keyCursor is the key state a version sealed now would record, for
-// kelResealDue: the key_state_seq the controller signs under and the
-// observed_at of tipNotice.
+// kelResealDue: the key_state_seq a Snapshot of the controller signs under,
+// and the observed_at of tipNotice for that Snapshot (0 when there is none).
 //
-// identityGate, keyCursor and tipNotice are each a reading at one moment. A
-// caller that seals after reading the gate signs with a Snapshot of the
-// controller and records the seq the Snapshot signs under, so that a
-// rotation started in between shows as T3 at the next attempt.
+// identityGate and keyCursor are each a reading at one moment. A caller that
+// seals afterwards takes its own Snapshot s, seals only when tipNotice(s) is
+// not nil, and records identity.SeqOf(s) and that notice's observed_at: a
+// rotation built in between leaves tipNotice(s) nil, and one adopted in
+// between shows as T3 at the next attempt.
 func (d *Daemon) keyCursor() KeyCursor {
 	cur := KeyCursor{Now: d.nowMS()}
-	if d.self != nil {
-		cur.KeyStateSeq = d.self.CurrentSeq()
+	if d.self == nil {
+		return cur
 	}
-	if n := d.tipNotice(); n != nil {
+	s := d.self.Snapshot()
+	cur.KeyStateSeq, _ = identity.SeqOf(s)
+	if n := d.tipNotice(s); n != nil {
 		cur.NoticeObservedAt = n.Body.ObservedAt
 	}
 	return cur
