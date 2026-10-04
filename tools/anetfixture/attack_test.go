@@ -185,7 +185,7 @@ func TestSealMakesTheEnvelopeItClaimsToMake(t *testing.T) {
 		if err := seal.CheckTime(in, now); err != nil {
 			t.Fatalf("time window: %v", err)
 		}
-		if err := seal.VerifyInnerSig(in, op.Preimage, op.KEL, now, time.Hour); err != nil {
+		if err := seal.VerifyInnerSig(in, op.Preimage, op.KEL, now); err != nil {
 			t.Fatalf("a genuine envelope does not verify: %v", err)
 		}
 		cm, err := delegation.UnmarshalChatMsg(in.Body)
@@ -211,7 +211,7 @@ func TestSealMakesTheEnvelopeItClaimsToMake(t *testing.T) {
 		if got := replayAID(t, op.KEL); got != req.AID() {
 			t.Fatalf("inner KEL replays to %s, want the claimed %s", got, req.AID())
 		}
-		err := seal.VerifyInnerSig(&op.Inner, op.Preimage, op.KEL, now, time.Hour)
+		err := seal.VerifyInnerSig(&op.Inner, op.Preimage, op.KEL, now)
 		if seal.ReasonOf(err) != seal.ReasonBadSig {
 			t.Fatalf("forgery under the claimed KEL: %v, want %s", err, seal.ReasonBadSig)
 		}
@@ -254,7 +254,7 @@ func TestSealCarriesAMessagesMetadata(t *testing.T) {
 	op := sealWith(t, prov.AID(), provKP, "--home", reqDir, "--hub", hub.URL, "--to", prov.AID(),
 		"--type", "message", "--ix", "ix_pay", "--metadata", meta)
 	now := uint64(time.Now().UnixMilli())
-	if err := seal.VerifyInnerSig(&op.Inner, op.Preimage, op.KEL, now, time.Hour); err != nil || op.Inner.From != req.AID() {
+	if err := seal.VerifyInnerSig(&op.Inner, op.Preimage, op.KEL, now); err != nil || op.Inner.From != req.AID() {
 		t.Fatalf("not a genuine envelope from the requester: from %s, %v", op.Inner.From, err)
 	}
 	cm, err := delegation.UnmarshalChatMsg(op.Inner.Body)

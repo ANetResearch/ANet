@@ -267,8 +267,8 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		return *res
 	}
 
-	// Step 7.
-	if err := seal.VerifyInnerSig(in, op.Preimage, use, now, d.rotationGrace()); err != nil {
+	// Step 7. v030-todo(ENG-1c): the arrival is KEL D-20's, from the hub's accepted_at, not now.
+	if err := seal.VerifyInnerSig(in, op.Preimage, use, now); err != nil {
 		return d.drop(reasonOf(err), err)
 	}
 
@@ -1084,14 +1084,14 @@ func (d *Daemon) replyTaskNotFound(m *rxMsg) {
 
 // rotationGrace is the §3.6 step 7 grace for signatures by a key state a
 // rotation retired, from config (rotation_grace, a Go duration), default
-// one hour.
+// identity.RotationGrace (one hour).
 func (d *Daemon) rotationGrace() time.Duration {
 	if s := d.config().RotationGrace; s != "" {
 		if g, err := time.ParseDuration(s); err == nil && g >= 0 {
 			return g
 		}
 	}
-	return seal.DefaultRotationGrace
+	return time.Duration(identity.RotationGrace) * time.Millisecond
 }
 
 // --- counters, locks and small bounded structures ---

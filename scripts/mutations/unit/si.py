@@ -201,7 +201,7 @@ MUTS = [
   id='si4-1', group='SI-4', repo='ANet',
   desc='daemon 第 7 步: 签名不符(bad-sig)仍放行(= scripts/mutations/si4-skip-step7.patch)',
   edits=[
-   ('internal/daemon/receive.go', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, now, d.rotationGrace()); err != nil {', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, now, d.rotationGrace()); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {'),
+   ('internal/daemon/receive.go', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, now); err != nil {', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, now); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAForgedSenderInjectedAtTheHubIsDropped|TestEachReceiveStepRefusesWithItsClass')],
   full=['ANet:./internal/daemon'],
