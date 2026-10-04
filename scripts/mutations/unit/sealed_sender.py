@@ -289,7 +289,7 @@ MUTS += [
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
  dict(id='ss5-cursor', group='SS-5', repo='ANetHub', desc='/directory:bucket 接受别的桶的 cursor',
   edits=[(DIRGO, 'if err != nil || len(after) != dirbox.HashLen || bytes.Compare(after, lo) < 0 || bytes.Compare(after, hi) > 0 {',
-          'if err != nil || len(after) != dirbox.HashLen {')],
+          'if err != nil || len(after) != dirbox.HashLen || lo == nil && hi == nil {')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
  dict(id='ss5-page', group='SS-5', repo='ANetHub', desc='单页上限由 8 MiB 改为 16 MiB(测试若引用该常量就测不出)',
   edits=[(DIRGO, '\tDirPageBytes = 8 << 20\n', '\tDirPageBytes = 16 << 20\n')],
