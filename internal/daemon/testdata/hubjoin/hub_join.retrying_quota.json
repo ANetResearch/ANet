@@ -1,0 +1,14 @@
+{
+  "attempts": 1,
+  "hub": "https://hub.example",
+  "hub_aid": "bafyreihqsa3dn4fbfwbkn2dhwxbz6nmzvqjvhqrfmkmvjdnozqbgpj6vjy",
+  "next_attempt_at": 1790004400000,
+  "reason": "hub_retrying.quota",
+  "since": 1790000740000,
+  "state": "retrying",
+  "v": 1,
+  "witness_rot": {
+    "hub_aid": "bafyreihqsa3dn4fbfwbkn2dhwxbz6nmzvqjvhqrfmkmvjdnozqbgpj6vjy",
+    "next_digest": "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo="
+  }
+}

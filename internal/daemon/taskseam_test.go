@@ -52,7 +52,7 @@ func TestTheTaskSeamIsScopedToOneAgent(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	other := newTestDaemon(t, srv.URL, true)
-	if err := other.RegisterWithHub(ctx, srv.URL, "Other", nil, ""); err != nil {
+	if err := other.RegisterWithHub(ctx, srv.URL, "Other", nil); err != nil {
 		t.Fatal(err)
 	}
 	seam := req.TaskSeam()
@@ -662,7 +662,7 @@ func TestARetryAfterAnUndeliveredTaskIsANewAttempt(t *testing.T) {
 	}
 	// The same message id sent to another agent is that agent's own task.
 	other := newTestDaemon(t, srv.URL, true)
-	if err := other.RegisterWithHub(ctx, srv.URL, "Other", nil, ""); err != nil {
+	if err := other.RegisterWithHub(ctx, srv.URL, "Other", nil); err != nil {
 		t.Fatal(err)
 	}
 	elsewhere, err := seam.Send(ctx, other.AID(), noCtx)

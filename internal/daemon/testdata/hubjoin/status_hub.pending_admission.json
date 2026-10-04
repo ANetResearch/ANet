@@ -1,0 +1,9 @@
+{
+  "url": "https://hub.example",
+  "state": "pending_admission",
+  "reason": "hub_pending_admission",
+  "message": "This hub (https://hub.example) needs its operator to admit your AID first; send this line to the operator: anet-hub admit <AID> (once they do, this node finishes joining on its own).",
+  "next": "anet-hub admit <AID>",
+  "since": "2026-09-21T14:25:40Z",
+  "next_attempt_at": "2026-09-21T14:27:40Z"
+}

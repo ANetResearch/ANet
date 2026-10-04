@@ -1,0 +1,12 @@
+{
+  "attempts": 1,
+  "hub": "https://hub.example",
+  "hub_aid": "bafyreihqsa3dn4fbfwbkn2dhwxbz6nmzvqjvhqrfmkmvjdnozqbgpj6vjy",
+  "hub_code": "kel_unknown",
+  "hub_error": "The hub does not know this key history.",
+  "next_attempt_at": 0,
+  "reason": "hub_refused",
+  "since": 1790000740000,
+  "state": "refused",
+  "v": 1
+}
