@@ -8,6 +8,8 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -16,8 +18,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
@@ -57,7 +61,7 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 		AID:  d.AID(),
 		Name: name,
 		Caps: caps,
-		KEL:  base64.RawURLEncoding.EncodeToString(kel),
+		KEL:  hubapi.B64(kel),
 		PoW:  wirePow(pow),
 	}
 	// The key set is restated on every registration, so a hub that lost
@@ -212,7 +216,7 @@ func (d *Daemon) hubPost(ctx context.Context, hubURL, path string, body, out any
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return d.hubDo(req, path, out)
+	return d.hubDo(req, hubURL, path, out)
 }
 
 // hubGet GETs hubURL+path (with optional query) and decodes a 2xx body into out.
@@ -225,7 +229,7 @@ func (d *Daemon) hubGet(ctx context.Context, hubURL, path string, query url.Valu
 	if err != nil {
 		return err
 	}
-	return d.hubDo(req, path, out)
+	return d.hubDo(req, hubURL, path, out)
 }
 
 // hubSigned sends one request authenticated with relayauth v2
@@ -280,10 +284,10 @@ func (d *Daemon) hubSigned(ctx context.Context, hubURL, method, path, action str
 	req.Header.Set(hubapi.HeaderSig, relayauth.EncodeSig(sig))
 	if rep, ok := out.(*hubReply); ok {
 		// The caller reads the hub's answer itself (hubSignedRaw).
-		*rep = d.hubRoundTrip(req)
+		*rep = d.hubExchange(req, hubURL, path, -1)
 		return nil
 	}
-	return d.hubDo(req, path, out)
+	return d.hubDo(req, hubURL, path, out)
 }
 
 // hubSignedRaw is hubSigned answering with the hub's reply as it came, for a
@@ -297,61 +301,228 @@ func (d *Daemon) hubSignedRaw(ctx context.Context, hubURL, method, path, action 
 	return rep
 }
 
-// errHubWire is returned for every call to a hub that speaks a wire
-// contract below 2. Such a hub stores and forwards plaintext, and this
-// daemon only speaks sealed envelopes; there is no fallback.
-var errHubWire = errors.New("hub does not speak wire 2")
+// errHubWire is returned for every call to a hub that does not speak this
+// daemon's wire (core CORE-V1): it answered 426, or it states another
+// version. There is no fallback to another wire.
+var errHubWire = errors.New("hub does not speak wire 3")
 
 // hubWireError is a call refused over the wire contract (errors.Is
 // errHubWire): hubOlder when the hub states a wire below this daemon's
-// (wire_too_new to the user), otherwise the hub refused this daemon's
-// (426, wire_too_old).
+// (wire_too_new to the user), otherwise the hub is newer — it answered 426,
+// or states a higher wire — and version is what it needs (wire_too_old's
+// {version}): the anet release a 426 names, else the wire it states.
 type hubWireError struct {
 	hubOlder bool
+	version  string
 	msg      string
 }
 
 func (e *hubWireError) Error() string        { return e.msg }
 func (e *hubWireError) Is(target error) bool { return target == errHubWire }
 
-// hubRoundTrip sends the request with this daemon's wire version and
-// returns the hub's answer as it came: status, Retry-After, the hub's
-// X-ANet-Wire and the body (bounded). Status 0 is no HTTP answer.
-func (d *Daemon) hubRoundTrip(req *http.Request) hubReply {
-	// Every request states the C2 contract version this daemon speaks.
-	req.Header.Set(hubapi.WireVersionHeader, strconv.Itoa(hubapi.WireVersion))
-	resp, err := http.DefaultClient.Do(req)
+// wireVersionText is {version} for a hub that states only its wire: "wire 4".
+func wireVersionText(n int) string { return "wire " + strconv.Itoa(n) }
+
+// wireVersionTextRe is the form of wireVersionText.
+var wireVersionTextRe = regexp.MustCompile(`^wire [0-9]{1,4}$`)
+
+// validWireTooOldVersion reports whether v is a wire_too_old {version}: the
+// anet release a 426 names (required_anet), or the wire a hub states.
+func validWireTooOldVersion(v string) bool {
+	return anetVersionRe.MatchString(v) || wireVersionTextRe.MatchString(v)
+}
+
+// hubWireCheck is CORE-V1 on one answer: a 426 (the hub refuses this
+// daemon's wire), or an X-ANet-Wire other than this daemon's (the hub
+// speaks another wire), ends the call. An answer without the header is
+// not refused here: a hub of wire 3 stamps it on every response, so its
+// absence is something in front of the hub (a proxy's error page) or not a
+// hub at all, and the request fails on its status or its body.
+func hubWireCheck(host string, rep hubReply) *hubWireError {
+	if rep.Status == http.StatusUpgradeRequired {
+		var b struct {
+			RequiredAnet string `json:"required_anet"`
+			RequiredWire *int   `json:"required_wire"`
+		}
+		_ = json.Unmarshal(rep.Body, &b)
+		v := ""
+		switch {
+		case anetVersionRe.MatchString(b.RequiredAnet):
+			v = b.RequiredAnet
+		case b.RequiredWire != nil && *b.RequiredWire > hubapi.WireVersion && *b.RequiredWire < 10000:
+			v = wireVersionText(*b.RequiredWire)
+		}
+		return &hubWireError{version: v, msg: fmt.Sprintf("anet: hub %s refused this daemon's wire version %d (426): %v",
+			host, hubapi.WireVersion, errHubWire)}
+	}
+	if rep.Wire == "" {
+		return nil
+	}
+	n, err := strconv.Atoi(rep.Wire)
+	switch {
+	case err != nil || n < hubapi.WireVersion:
+		return &hubWireError{hubOlder: true, msg: fmt.Sprintf("anet: hub %s speaks wire %q; this daemon speaks wire %d only: %v",
+			host, rep.Wire, hubapi.WireVersion, errHubWire)}
+	case n > hubapi.WireVersion:
+		v := ""
+		if n < 10000 {
+			v = wireVersionText(n)
+		}
+		return &hubWireError{version: v, msg: fmt.Sprintf("anet: hub %s speaks wire %d; this daemon speaks wire %d only: %v",
+			host, n, hubapi.WireVersion, errHubWire)}
+	}
+	return nil
+}
+
+// hubUserAgent is the User-Agent of every hub request, on both sides: one
+// fixed string, so that nothing in a request but its route tells requests
+// apart (SSR-D25).
+const hubUserAgent = "anet/" + Version
+
+// counterHubRouteUnmapped counts the hub requests refused before they were
+// sent because hubapi.Routes gives their route no side (SSR-D26).
+const counterHubRouteUnmapped = "hub-route-unmapped"
+
+// hubClient is the daemon's HTTP client of its hub (sealed-sender §4.3.11):
+// two transports that never share a connection, a TLS session ticket or a
+// cookie — the signed side for the requests that name this node, the
+// anonymous side for the others (hubapi.Routes) — and the first-contact
+// sessions (session_client.go). Its zero value is ready; the transports are
+// built on first use.
+type hubClient struct {
+	mu    sync.Mutex
+	sides [3]*http.Client // indexed by hubapi.SideSigned, hubapi.SideAnonymous
+	// roots, when a test set it (setHubRoots), replaces the system's
+	// certificate roots on both sides.
+	roots *x509.CertPool
+	// wireNoted holds the hubs a wire refusal was logged for, so a loop
+	// polling every second logs it once; wireNeeds holds, per hub, the
+	// anet release its last 426 named (wire_too_old's {version}).
+	wireNoted sync.Map
+	wireNeeds sync.Map
+	sessions  sessionTable
+}
+
+// client is the HTTP client of one side, built on first use.
+func (c *hubClient) client(side hubapi.Side) *http.Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sides[side] == nil {
+		c.sides[hubapi.SideSigned] = newHubHTTPClient(hubapi.SideSigned, c.roots)
+		c.sides[hubapi.SideAnonymous] = newHubHTTPClient(hubapi.SideAnonymous, c.roots)
+	}
+	return c.sides[side]
+}
+
+// newHubHTTPClient is one side's client: a transport of its own (its own
+// connection pool), a TLS configuration of its own, no cookie jar. Only the
+// signed side keeps TLS session tickets: a ticket resumed on the anonymous
+// side would tie its connection to the signed one that earned it (SSR-D25).
+func newHubHTTPClient(side hubapi.Side, roots *x509.CertPool) *http.Client {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	tc := &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
+	if side == hubapi.SideSigned {
+		tc.ClientSessionCache = tls.NewLRUClientSessionCache(16)
+	}
+	t.TLSClientConfig = tc
+	return &http.Client{Transport: t}
+}
+
+// hubExchange sends req to the hub at hubURL and returns its answer as it
+// came: status, Retry-After, the hub's X-ANet-Wire and the body (bounded).
+// route is the request's path below hubURL; kind is the access kind of a
+// /relay/send (0 or 1) and -1 for every other route. The request goes on
+// the side hubapi.SideOf gives it, with this daemon's wire version and its
+// fixed User-Agent; a route without a side is not sent at all (Status 0,
+// Local).
+func (d *Daemon) hubExchange(req *http.Request, hubURL, route string, kind int) hubReply {
+	resp, err := d.hubTransmit(req, hubURL, route, kind)
 	if err != nil {
-		return hubReply{Err: err}
+		var unmapped *hubRouteError
+		return hubReply{Err: err, Local: errors.As(err, &unmapped)}
 	}
 	defer resp.Body.Close()
 	// Cap the response to bound memory against a hostile/broken Hub. It must comfortably exceed the
-	// largest legitimate body — `find`/`GET /agents/{aid}` can list many agents or reviews carrying full
-	// interaction transcripts — so it is generous; a truncated body would fail to JSON-decode.
+	// largest legitimate body — a relay poll can carry envelopes with inline attachments — so it is
+	// generous; a truncated body would fail to JSON-decode.
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxHubResponse))
-	return hubReply{Status: resp.StatusCode, RetryAfter: resp.Header.Get("Retry-After"),
+	rep := hubReply{Status: resp.StatusCode, RetryAfter: resp.Header.Get("Retry-After"),
 		Wire: resp.Header.Get(hubapi.WireVersionHeader), Body: body}
+	if we := hubWireCheck(req.URL.Host, rep); we != nil {
+		d.noteHubWire(hubURL, we)
+	}
+	return rep
 }
 
-// hubDo sends the request with this daemon's wire version, refuses a hub
-// below wire 2, and decodes a 2xx body into out.
-func (d *Daemon) hubDo(req *http.Request, path string, out any) error {
-	rep := d.hubRoundTrip(req)
-	if rep.Status == 0 {
-		return fmt.Errorf("anet: hub %s: %w", path, rep.Err)
+// hubRouteError is a request refused before it was sent: hubapi.Routes
+// gives its route no side (SSR-D26).
+type hubRouteError struct{ method, route string }
+
+func (e *hubRouteError) Error() string {
+	return fmt.Sprintf("anet: %s %s is no hub route this node sends; nothing was sent", e.method, e.route)
+}
+
+// hubTransmit sends req on the side hubapi.SideOf gives its route, with
+// this daemon's wire version and its fixed User-Agent and without cookies,
+// and returns the response unread. A route without a side is not sent
+// (hubRouteError, counted hub-route-unmapped).
+func (d *Daemon) hubTransmit(req *http.Request, hubURL, route string, kind int) (*http.Response, error) {
+	_, side, ok := hubapi.SideOf(req.Method, route, d.AID(), d.knownHubAID(hubURL), kind)
+	if !ok {
+		err := &hubRouteError{method: req.Method, route: route}
+		d.countErr(counterHubRouteUnmapped, err)
+		return nil, err
 	}
-	if werr := d.checkHubWire(req.URL.Host, rep.Status, rep.Wire, rep.Body); werr != nil {
+	// Every request states the C2 contract version this daemon speaks.
+	req.Header.Set(hubapi.WireVersionHeader, strconv.Itoa(hubapi.WireVersion))
+	req.Header.Set("User-Agent", hubUserAgent)
+	req.Header.Del("Cookie")
+	return d.hubc.client(side).Do(req)
+}
+
+// moduleHubDo is module.PaymentSeam.HubDo and module.HubSeam.HubDo: a
+// module's request to this node's hub goes out the way the daemon's own do
+// (hubTransmit), on the side its route belongs to. It must be addressed to
+// the configured hub. The caller closes the response body.
+func (d *Daemon) moduleHubDo(req *http.Request) (*http.Response, error) {
+	hub := strings.TrimRight(d.config().HubURL, "/")
+	if hub == "" {
+		return nil, errors.New("anet: no hub configured")
+	}
+	base, err := url.Parse(hub)
+	if err != nil {
+		return nil, fmt.Errorf("anet: the configured hub URL: %w", err)
+	}
+	prefix := strings.TrimRight(base.EscapedPath(), "/")
+	path := req.URL.EscapedPath()
+	if req.URL.Scheme != base.Scheme || req.URL.Host != base.Host || !strings.HasPrefix(path, prefix+"/") {
+		return nil, fmt.Errorf("anet: a module's hub request goes to this node's hub %s only", hub)
+	}
+	resp, err := d.hubTransmit(req, hub, strings.TrimPrefix(path, prefix), -1)
+	if err != nil {
+		return nil, err
+	}
+	if we := hubWireCheck(req.URL.Host, hubReply{Status: resp.StatusCode, Wire: resp.Header.Get(hubapi.WireVersionHeader)}); we != nil {
+		d.noteHubWire(hub, we)
+	}
+	return resp, nil
+}
+
+// hubDo sends the request (hubExchange), refuses a hub of another wire, and
+// decodes a 2xx body into out. route is the path below hubURL.
+func (d *Daemon) hubDo(req *http.Request, hubURL, route string, out any) error {
+	rep := d.hubExchange(req, hubURL, route, -1)
+	if rep.Status == 0 {
+		if rep.Local {
+			return rep.Err
+		}
+		return fmt.Errorf("anet: hub %s: %w", route, rep.Err)
+	}
+	if werr := hubWireCheck(req.URL.Host, rep); werr != nil {
 		return werr
 	}
 	if rep.Status < 200 || rep.Status >= 300 {
-		var e struct {
-			Error string `json:"error"`
-		}
-		_ = json.Unmarshal(rep.Body, &e)
-		if e.Error != "" {
-			return &hubError{path: path, code: rep.Status, msg: e.Error, retryAfter: rep.RetryAfter}
-		}
-		return &hubError{path: path, code: rep.Status, retryAfter: rep.RetryAfter}
+		return newHubError(route, rep)
 	}
 	if out != nil {
 		return json.Unmarshal(rep.Body, out)
@@ -359,18 +530,33 @@ func (d *Daemon) hubDo(req *http.Request, path string, out any) error {
 	return nil
 }
 
+// newHubError is a non-2xx answer as an error: its status, its reason code
+// and sentence (core G1), and its Retry-After.
+func newHubError(path string, rep hubReply) *hubError {
+	reason, msg := hubapi.ParseErrorBody(rep.Body)
+	return &hubError{path: path, code: rep.Status, reason: reason, msg: msg, retryAfter: rep.RetryAfter}
+}
+
 // hubError is a non-2xx hub answer. The status code is kept so a caller can
-// tell "recipient unknown" (404) from "try later" (429, 507).
+// tell "recipient unknown" (404) from "try later" (429, 507), and the
+// reason code is what a caller branches on (sealed-sender §2.11): the
+// sentence is the hub's, shown only for a code this node does not know.
 type hubError struct {
 	path       string
 	code       int
+	reason     string
 	msg        string
 	retryAfter string
 }
 
 func (e *hubError) Error() string {
 	s := fmt.Sprintf("anet: hub %s returned %d", e.path, e.code)
-	if e.msg != "" {
+	switch {
+	case e.reason != "" && e.msg != "":
+		s = fmt.Sprintf("anet: hub %s refused (%d %s): %s", e.path, e.code, e.reason, e.msg)
+	case e.reason != "":
+		s = fmt.Sprintf("anet: hub %s refused (%d %s)", e.path, e.code, e.reason)
+	case e.msg != "":
 		s = fmt.Sprintf("anet: hub %s rejected (%d): %s", e.path, e.code, e.msg)
 	}
 	if e.retryAfter != "" {
@@ -388,47 +574,55 @@ func hubStatus(err error) int {
 	return 0
 }
 
-// checkHubWire refuses a hub below wire 2 and reports a newer one once.
-//
-// A 426 is the hub refusing this daemon's version; a stated version below 2
-// is this daemon refusing the hub. Both end the call with errHubWire. A
-// response without the header (a pre-versioning hub, or an endpoint the hub
-// serves outside its relay mux such as /hub/identity) is not refused here:
-// a hub that old rejects the wire-2 request bodies on every relay call, so
-// nothing is delivered through it either way.
-func (d *Daemon) checkHubWire(host string, code int, v string, body []byte) error {
-	if code == http.StatusUpgradeRequired {
-		var e struct {
-			Error string `json:"error"`
-		}
-		_ = json.Unmarshal(body, &e)
-		d.noteWireRefusal(host, fmt.Sprintf("the hub answered 426: %s", strings.TrimSpace(e.Error+" "+string(body))))
-		return &hubWireError{msg: fmt.Sprintf("anet: hub %s refused this daemon's wire version %d (426): %v", host, hubapi.WireVersion, errHubWire)}
+// hubReason returns the reason code of a hub error, or "".
+func hubReason(err error) string {
+	var he *hubError
+	if errors.As(err, &he) {
+		return he.reason
 	}
-	if v == "" {
-		return nil
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 2 {
-		d.noteWireRefusal(host, "the hub states wire "+v)
-		return &hubWireError{hubOlder: true, msg: fmt.Sprintf("anet: hub %s speaks wire %s; this daemon requires wire 2 (sealed envelopes) and does not fall back to plaintext: %v",
-			host, v, errHubWire)}
-	}
-	if n > hubapi.WireVersion {
-		d.wireWarnOnce.Do(func() {
-			log.Printf("anet: hub %s speaks wire %d, this daemon speaks %d — upgrade this daemon", host, n, hubapi.WireVersion)
-		})
-	}
-	return nil
+	return ""
 }
 
-// noteWireRefusal logs a refused hub once per process, so a relay loop
-// polling a wire-1 hub every second does not repeat the line.
-func (d *Daemon) noteWireRefusal(host, why string) {
-	d.wireRefuseOnce.Do(func() {
-		log.Printf("anet: refusing to operate against hub %s: %s; this daemon requires ANetHub wire 2 "+
-			"and will not send or accept plaintext relay messages", host, why)
-	})
+// noteHubWire handles a hub that answered over another wire (CORE-V1): the
+// daemon stops talking to it. The hub's identity is forgotten, so the next
+// call asks GET /hub/identity again and meets the same refusal before it
+// signs anything; a node registered there has its join loop make an
+// attempt now, which records wire_too_old or wire_too_new — `anet status`
+// says so in one sentence, and the relay loop stops polling (it polls only
+// while registered). Logged once per hub per process.
+func (d *Daemon) noteHubWire(hubURL string, we *hubWireError) {
+	key := strings.TrimRight(hubURL, "/")
+	d.hubIDMu.Lock()
+	delete(d.hubIDs, key)
+	d.hubIDMu.Unlock()
+	if anetVersionRe.MatchString(we.version) {
+		d.hubc.wireNeeds.Store(key, we.version)
+	}
+	if _, logged := d.hubc.wireNoted.LoadOrStore(key, true); !logged {
+		log.Printf("anet: stopping all requests to hub %s: %v", key, we)
+	}
+	if d.joinRegistered() && sameHub(d.config().HubURL, key) {
+		d.kickJoin()
+	}
+}
+
+// wireTooOldVersion is wire_too_old's {version} for the hub at hubURL
+// given the refusal we: the release its last 426 named, which says more to
+// the person who has to install it than the wire it states.
+func (d *Daemon) wireTooOldVersion(hubURL string, we *hubWireError) string {
+	if v, ok := d.hubc.wireNeeds.Load(strings.TrimRight(hubURL, "/")); ok {
+		return v.(string)
+	}
+	return we.version
+}
+
+// knownHubAID is the AID of the hub at hubURL when this node has pinned
+// it, without asking; "" otherwise.
+func (d *Daemon) knownHubAID(hubURL string) string {
+	key := strings.TrimRight(hubURL, "/")
+	d.hubIDMu.Lock()
+	defer d.hubIDMu.Unlock()
+	return d.hubIDs[key].aid
 }
 
 // hubIdent is one hub's identity as this node pinned it.
@@ -463,7 +657,7 @@ func (d *Daemon) hubIdentity(ctx context.Context, hubURL string) (string, []iden
 // peer_identity (pinned_reason "hub") and caches it for hubURL.
 func (d *Daemon) pinHubIdentity(hubURL string, out hubapi.HubIdentity) (string, []identity.SignedEvent, error) {
 	key := strings.TrimRight(hubURL, "/")
-	raw, err := base64.StdEncoding.DecodeString(out.KEL)
+	raw, err := hubapi.DecodeB64(out.KEL, -1)
 	if err != nil || out.AID == "" {
 		return "", nil, fmt.Errorf("anet: hub %s served an unreadable identity", key)
 	}

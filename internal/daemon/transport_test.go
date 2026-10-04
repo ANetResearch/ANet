@@ -216,7 +216,16 @@ func TestTheHubPathIsHandedOnceRelaySendConnects(t *testing.T) {
 		}))
 		t.Cleanup(front.Close)
 		d := newTestDaemon(t, front.URL, false)
-		_, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", []byte("x"))
+		// The identity is learned once, by whichever call asks first: the
+		// daemon's own start-up (the mailbox key's publication) may race
+		// the send to it, and only one of them finds the hub listening.
+		waitUntil(t, "the hub's identity is pinned", func() bool {
+			_, _, err := d.hubIdentity(ctx, front.URL)
+			return err == nil
+		})
+		// Under a capability: the send is the first request after the
+		// identity's (a first contact would open a session first).
+		_, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", outerEnvelope(t, "did:anet:someone", seal.AccessKindCap))
 		if err == nil {
 			t.Fatal("a send to a hub that stopped listening succeeded")
 		}
@@ -238,7 +247,7 @@ func TestTheHubPathIsHandedOnceRelaySendConnects(t *testing.T) {
 		fh.identityDown = true
 		fh.mu.Unlock()
 		d := newTestDaemon(t, srv.URL, false)
-		_, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", []byte("x"))
+		_, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", outerEnvelope(t, "did:anet:someone", seal.AccessKindSession))
 		if err == nil || handed {
 			t.Fatalf("handed=%v err=%v; want a failure that handed nothing over", handed, err)
 		}
@@ -252,7 +261,7 @@ func TestTheHubPathIsHandedOnceRelaySendConnects(t *testing.T) {
 		addr := l.Addr().String()
 		l.Close()
 		d := newTestDaemon(t, "http://"+addr, false)
-		if _, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", []byte("x")); err == nil || handed {
+		if _, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", outerEnvelope(t, "did:anet:someone", seal.AccessKindSession)); err == nil || handed {
 			t.Fatalf("handed=%v err=%v; want a failure that handed nothing over", handed, err)
 		}
 	})
@@ -260,18 +269,42 @@ func TestTheHubPathIsHandedOnceRelaySendConnects(t *testing.T) {
 	t.Run("the hub answers", func(t *testing.T) {
 		srv := newFakeHub(t)
 		d, peer := twoRegistered(t, srv)
-		// Not a sealed envelope: the hub answers 400, and it had it.
-		if _, handed, err := (hubTransport{d}).Send(ctx, peer, []byte("x")); err == nil || !handed {
+		// A first contact to nobody registered: the hub answers 404, and
+		// it had it.
+		if _, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", outerEnvelope(t, "did:anet:someone", seal.AccessKindSession)); err == nil || !handed {
 			t.Fatalf("a 4xx: handed=%v err=%v; want a failure that handed the envelope over", handed, err)
 		}
 		fh := fakeHubAt(t, srv.URL)
 		fh.mu.Lock()
 		fh.relayDown = true
 		fh.mu.Unlock()
-		if _, handed, err := (hubTransport{d}).Send(ctx, peer, []byte("x")); err == nil || !handed {
+		if _, handed, err := (hubTransport{d}).Send(ctx, peer, outerEnvelope(t, peer, seal.AccessKindSession)); err == nil || !handed {
 			t.Fatalf("a 503: handed=%v err=%v; want a failure that handed the envelope over", handed, err)
 		}
 	})
+}
+
+// outerEnvelope is an envelope to `to` that passes seal.ParseOuter — what a
+// hub looks at — under an access of kind: a first contact, or a capability
+// of the right shape that verifies under nobody's key. Its ciphertext opens
+// for no one.
+func outerEnvelope(t testing.TB, to string, kind uint64) []byte {
+	t.Helper()
+	a := &seal.Access{Kind: kind}
+	if kind == seal.AccessKindCap {
+		a.Cap = &seal.Cap{Body: []byte{0xa0}, Sig: make([]byte, seal.SigLen)}
+		a.Proof = make([]byte, seal.SigLen)
+	}
+	env := &seal.SealedEnvelope{V: seal.EnvelopeVersion, To: to, Suite: seal.SuiteX25519,
+		KID: make([]byte, seal.KIDLen), Enc: make([]byte, 32), CT: []byte("sealed"), Access: a}
+	b, err := env.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := seal.ParseOuter(b); err != nil {
+		t.Fatal(err)
+	}
+	return b
 }
 
 // A transport module's malformed confirmation is the node's dack-bad-frame

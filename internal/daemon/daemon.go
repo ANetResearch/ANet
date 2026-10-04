@@ -46,8 +46,10 @@ type Daemon struct {
 	// hubIDs caches each hub's pinned identity by URL (hub_client.go).
 	hubIDMu sync.Mutex
 	hubIDs  map[string]hubIdent
-	// wireRefuseOnce keeps the "hub below wire 2" notice to one line.
-	wireRefuseOnce sync.Once
+	// hubc is the daemon's HTTP client of its hub: the signed and the
+	// anonymous transports and the first-contact sessions (hub_client.go,
+	// session_client.go).
+	hubc hubClient
 	// lastSignTS is the time of the last relayauth v2 signature, kept
 	// strictly increasing (hubSigned).
 	lastSignTS atomic.Uint64
@@ -120,18 +122,15 @@ type Daemon struct {
 	// no_x402, and every payment surface says so rather than pretending.
 	pay module.Payer
 
-	// quietPeers maps a peer AID to the hub's most recent "this recipient is
-	// not collecting its mail" sentence about it. Presence is the mark, so
-	// the warning is logged on the transition rather than on every message,
-	// and the text is kept rather than discarded because the caller that
-	// just sent to that peer is who needs to read it (see QuietPeer).
-	quietPeers map[string]string
+	// quietPeers holds the peers the hub last said have stopped collecting
+	// their mail (recipient_quiet). The mark is logged on the transition
+	// rather than on every message, and kept because the caller that just
+	// sent to that peer is who needs to read it (see QuietPeer).
+	quietPeers map[string]bool
 	// transportState carries the optional delivery paths modules add.
 	transportState
 	// modules are the optional subsystems this build carries.
 	modules []module.Module
-	// wireWarnOnce keeps the C2 version-mismatch notice to one line.
-	wireWarnOnce sync.Once
 	// lastCardSeq is the highest sequence this process has minted for its
 	// own AgentCard. See cardSeq — the clock alone cannot keep the number
 	// strictly increasing, and the hub refuses a card that does not.

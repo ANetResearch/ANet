@@ -43,11 +43,12 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 			"result_cid", "reviewer_aid", "subject_aid",
 		}},
 		{"UploadReviewRequest", hubapi.UploadReviewRequest{}, []string{"receipt", "review"}},
-		// Relay v2 (A2A-DESIGN §3.7). No sender, kind or interaction id
-		// appears in any of these: the hub routes by to_aid alone and the
-		// rest is inside the sealed envelope.
-		{"RelaySendRequest", hubapi.RelaySendRequest{}, []string{"envelope", "to_aid"}},
-		{"RelaySendResponse", hubapi.RelaySendResponse{}, []string{"id", "recipient_quiet", "rid", "status", "via_hub", "warning"}},
+		// Relay v3 (core §2.12.2). No sender, kind or interaction id
+		// appears in any of these: a send's body is the envelope itself,
+		// the hub routes by its outer to, and the rest is sealed.
+		{"RelaySendResponse", hubapi.RelaySendResponse{}, []string{"recipient_quiet", "rid", "status", "via_hub"}},
+		{"SessionRequest", hubapi.SessionRequest{}, []string{"epk"}},
+		{"SessionResponse", hubapi.SessionResponse{}, []string{"ct", "enc", "exp", "sid"}},
 		{"RelayPollRequest", hubapi.RelayPollRequest{}, []string{"after_id", "limit"}},
 		{"RelayPollResponse", hubapi.RelayPollResponse{}, []string{"messages"}},
 		{"RelayMessage", hubapi.RelayMessage{}, []string{"envelope", "id"}},
@@ -83,7 +84,7 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		{"MailboxRevokeRequest", hubapi.MailboxRevokeRequest{}, []string{"cap_ids"}},
 		{"MailboxRevokeResponse", hubapi.MailboxRevokeResponse{}, []string{"revoked", "total"}},
 		{"CheckOnlyResponse", hubapi.CheckOnlyResponse{}, []string{"status"}},
-		{"HubIdentity", hubapi.HubIdentity{}, []string{"aid", "kel"}},
+		{"HubIdentity", hubapi.HubIdentity{}, []string{"aid", "dir_max_bits", "kel", "wire"}},
 		// The facilitator contract as the daemon speaks it (module/x402
 		// settle, A2A-DESIGN §8.5): paymentRequirements is required by the
 		// hub. Mirrors ANetHub internal/aghub/wirecontract_test.go
@@ -230,28 +231,37 @@ func TestACardWithdrawalIsSentAsNull(t *testing.T) {
 	}
 }
 
-// The wire version and the relay v2 authentication header names are
-// strings the hub in another repository matches exactly. A daemon that
-// states version 1, or signs under a header the hub does not read, is
-// refused on every signed call.
+// The wire version and the header names are strings the hub in another
+// repository matches exactly. A daemon that states another version, or
+// signs under a header the hub does not read, is refused on every call.
 func TestTheWireVersionAndAuthHeadersArePinned(t *testing.T) {
-	if hubapi.WireVersion != 2 {
-		t.Errorf("WireVersion = %d, want 2 (sealed envelopes, relayauth v2)", hubapi.WireVersion)
+	if hubapi.WireVersion != 3 {
+		t.Errorf("WireVersion = %d, want 3 (core CORE-V1)", hubapi.WireVersion)
 	}
 	for want, got := range map[string]string{
-		"X-ANet-Wire": hubapi.WireVersionHeader,
-		"X-ANet-AID":  hubapi.HeaderAID,
-		"X-ANet-TS":   hubapi.HeaderTS,
-		"X-ANet-Seq":  hubapi.HeaderSeq,
-		"X-ANet-Sig":  hubapi.HeaderSig,
-		// The recipient key lookup (ANetHub pins the same path).
-		"/agents/keys:lookup": hubapi.KeysLookupPath,
-		// The card and KEL lookups, likewise [redteam:F3].
+		"X-ANet-Wire":                        hubapi.WireVersionHeader,
+		"X-ANet-AID":                         hubapi.HeaderAID,
+		"X-ANet-TS":                          hubapi.HeaderTS,
+		"X-ANet-Seq":                         hubapi.HeaderSeq,
+		"X-ANet-Sig":                         hubapi.HeaderSig,
+		"X-ANet-Access":                      hubapi.HeaderAccess,
+		"X-ANet-Session":                     hubapi.HeaderSession,
+		"X-ANet-MAC":                         hubapi.HeaderMAC,
+		"X-ANet-Home":                        hubapi.HeaderHome,
+		"application/vnd.anet.envelope+cbor": hubapi.EnvelopeContentType,
+		"/relay/send":                        hubapi.RelaySendPath,
+		"/relay/session":                     hubapi.RelaySessionPath,
+		// The lookups by AID, kept until the directory's buckets replace
+		// them (ANetHub pins the same paths).
+		"/agents/keys:lookup":        hubapi.KeysLookupPath,
 		"/agents/kel:lookup":         hubapi.KELLookupPath,
 		"/a2a/v1/agents/card:lookup": hubapi.CardLookupPath,
 	} {
 		if got != want {
 			t.Errorf("header = %q, want %q", got, want)
 		}
+	}
+	if hubapi.MaxAccessHeader != 1024 {
+		t.Errorf("MaxAccessHeader = %d, want 1 KiB (core §2.12.1)", hubapi.MaxAccessHeader)
 	}
 }

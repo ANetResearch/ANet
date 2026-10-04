@@ -394,7 +394,7 @@ func (m *Module) submitAttestation(ctx context.Context, raw []byte) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if resp, err := (&http.Client{Timeout: hubCallTimeout}).Do(req); err == nil {
+	if resp, err := m.hubDo(req); err == nil {
 		resp.Body.Close()
 	}
 }
@@ -405,7 +405,7 @@ func (m *Module) getJSON(ctx context.Context, path string, into any) error {
 	if err != nil {
 		return err
 	}
-	resp, err := (&http.Client{Timeout: hubCallTimeout}).Do(req)
+	resp, err := m.hubDo(req)
 	if err != nil {
 		return err
 	}

@@ -40,7 +40,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -445,13 +444,8 @@ func (d *Daemon) hubStoredMboxEpoch(ctx context.Context, hub string) (epoch uint
 }
 
 // decodeHubB64 decodes a binary value of a hub answer: base64url without
-// padding (wire 3, CORE-E5), or the standard alphabet of wire 2.
-func decodeHubB64(s string) ([]byte, error) {
-	if b, err := base64.RawURLEncoding.Strict().DecodeString(s); err == nil {
-		return b, nil
-	}
-	return base64.StdEncoding.Strict().DecodeString(s)
-}
+// padding, in its one spelling (wire 3, CORE-E5).
+func decodeHubB64(s string) ([]byte, error) { return hubapi.DecodeB64(s, -1) }
 
 // noteMboxEpochAnomaly records an epoch with no room below 2^53 (SSR-W10):
 // counter hub-epoch-anomaly and hub_epoch_invalid for the rest of the run.
@@ -496,7 +490,13 @@ func (d *Daemon) rotateMboxTx(tx *interactions.Tx) (seal.Mbox, error) {
 // capability this node issued stops verifying once E2 publishes the new
 // key set, and every capability and direct address its peers granted it is
 // dropped, since its old data directory may be in someone else's hands.
+// The first-contact sessions go too, their keys zeroed (SSR-D23): they were
+// opened under the retired key, and the hub drops them as well when it
+// takes the rotation (SSR-H9). They are only in memory, so this happens
+// whether or not the transaction commits; a session dropped too early only
+// costs one opening.
 func (d *Daemon) capsEmergencyTx(tx *interactions.Tx) error {
+	d.dropSessions()
 	if _, err := d.rotateMboxTx(tx); err != nil {
 		return err
 	}

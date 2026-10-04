@@ -71,7 +71,7 @@ var fuzzHubStatuses = []int{200, 200, 200, 404, 405, 426, 429, 500, 507, 201, 20
 // verify.
 func FuzzHubAnswers(f *testing.F) {
 	quietLog(f)
-	hub := &fuzzHub{status: 200, wire: "2"}
+	hub := &fuzzHub{status: 200, wire: "3"}
 	srv := httptest.NewServer(hub)
 	f.Cleanup(srv.Close)
 	d := buildTestDaemon(f, srv.URL, nil)
@@ -87,7 +87,7 @@ func FuzzHubAnswers(f *testing.F) {
 	}
 	b64 := base64.StdEncoding.EncodeToString
 	keysAnswer, _ := json.Marshal(hubapi.KeysResponse{KeySet: b64(peerKeys), KEL: b64(peerKEL)})
-	idAnswer, _ := json.Marshal(hubapi.HubIdentity{AID: peer.AID(), KEL: b64(peerKEL)})
+	idAnswer, _ := json.Marshal(hubapi.HubIdentity{AID: peer.AID(), KEL: hubapi.B64(peerKEL)})
 	reg, _ := json.Marshal(hubapi.A2AAgentList{Agents: []hubapi.A2AAgentEntry{{AID: d.AID(), Card: card,
 		CardVerification: "ok", HomeHub: "https://h", ReviewCount: 3, AvgRating: 4.5}, {AID: peer.AID(), Card: card}}})
 	seeds := []struct {
@@ -96,17 +96,17 @@ func FuzzHubAnswers(f *testing.F) {
 		wire   string
 		body   string
 	}{
-		{hubOpPoll, 0, "2", `{"messages":[{"id":1,"envelope":"AAEC"},{"id":-1,"envelope":"!!"}]}`},
-		{hubOpPoll, 0, "2", `{"messages":[]}`},
-		{hubOpKeys, 0, "2", string(keysAnswer)},
+		{hubOpPoll, 0, "3", `{"messages":[{"id":1,"envelope":"AAEC"},{"id":-1,"envelope":"!!"}]}`},
+		{hubOpPoll, 0, "3", `{"messages":[]}`},
+		{hubOpKeys, 0, "3", string(keysAnswer)},
 		{hubOpKeys, 3, "", `{"error":"no key set"}`},
 		{hubOpIdentity, 0, "", string(idAnswer)},
-		{hubOpAgents, 0, "2", string(reg)},
-		{hubOpAgentsUncarded, 0, "2", `{"agents":[{"aid":"` + peer.AID() + `","name":"n","caps":["a"],"summary":"s","avg_rating":1e308}]}`},
-		{hubOpFind, 0, "2", `{"agents":[{"aid":"` + peer.AID() + `","name":"x"}]}`},
-		{hubOpBalance, 0, "2", `{"balance":5,"entries":[{"amount":-3}]}`},
-		{hubOpCard, 0, "2", string(card)},
-		{hubOpRegister, 0, "2", `{"aid":"x","status":"registered","card":{"status":"accepted","seq":1}}`},
+		{hubOpAgents, 0, "3", string(reg)},
+		{hubOpAgentsUncarded, 0, "3", `{"agents":[{"aid":"` + peer.AID() + `","name":"n","caps":["a"],"summary":"s","avg_rating":1e308}]}`},
+		{hubOpFind, 0, "3", `{"agents":[{"aid":"` + peer.AID() + `","name":"x"}]}`},
+		{hubOpBalance, 0, "3", `{"balance":5,"entries":[{"amount":-3}]}`},
+		{hubOpCard, 0, "3", string(card)},
+		{hubOpRegister, 0, "3", `{"aid":"x","status":"registered","card":{"status":"accepted","seq":1}}`},
 		{hubOpPoll, 5, "1", `{"error":"upgrade"}`},
 	}
 	for _, s := range seeds {

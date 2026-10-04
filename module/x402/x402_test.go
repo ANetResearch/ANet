@@ -101,6 +101,13 @@ func (h *testHost) PaymentSeam() (module.PaymentSeam, bool) { return h, true }
 
 func (h *testHost) Sign(pre []byte) ([]byte, uint64) { return h.self.Sign(pre) }
 func (h *testHost) HubURL() string                   { return h.url }
+
+// HubDo stands in for the node's hub client: the request as the module
+// built it, with the wire version the node adds.
+func (h *testHost) HubDo(r *http.Request) (*http.Response, error) {
+	r.Header.Set("X-ANet-Wire", "3")
+	return http.DefaultClient.Do(r)
+}
 func (h *testHost) HubIdentity() (string, []identity.SignedEvent, bool) {
 	return h.hub.AID(), h.hub.KEL(), true
 }

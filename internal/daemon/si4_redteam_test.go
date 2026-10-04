@@ -6,7 +6,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"net/http"
 	"testing"
@@ -15,8 +14,6 @@ import (
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
-
-	"github.com/ANetResearch/ANet/internal/hubapi"
 )
 
 // SI4-RT-3. seal/limits.go sizes MaxKELEvents/MaxKELBytes on the premise
@@ -113,8 +110,7 @@ func TestRedteamSI4_UnknownIXWaitPinsTheMailboxFull(t *testing.T) {
 	fake.mu.Unlock()
 	// A legitimate, allowed peer now cannot reach the victim through the hub.
 	env := sealFrom(t, req, prov, seal.TypeMessage, "ix_whatever", chatBody(t, "hello", ""))
-	err := req.hubSigned(ctx, srv.URL, http.MethodPost, "/relay/send", actionSendRetired,
-		hubapi.RelaySendRequest{ToAID: prov.AID(), Envelope: base64.StdEncoding.EncodeToString(env)}, nil)
+	err := req.deliverEnvelope(ctx, prov.AID(), env)
 	if held != quota || hubStatus(err) != http.StatusInsufficientStorage {
 		t.Fatalf("attack failed: held %d, legit send %v", held, err)
 	}

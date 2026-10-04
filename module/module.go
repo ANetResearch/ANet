@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
@@ -392,6 +393,8 @@ type HubSeam interface {
 	Sign(preimage []byte) (sig []byte, keyStateSeq uint64)
 	// HubURL is where this node's hub lives.
 	HubURL() string
+	// HubDo sends one request to this node's hub; see PaymentSeam.HubDo.
+	HubDo(req *http.Request) (*http.Response, error)
 }
 
 // PaymentSeam is exactly what a payment subsystem needs of the node.
@@ -440,6 +443,18 @@ type PaymentSeam interface {
 	// purpose is one of task-auto, task-agent, task-manual, gateway and
 	// redeem; the kernel refuses any other.
 	AdmitSpend(payTo string, amount uint64, purpose string) error
+
+	// HubDo sends one request to this node's hub (HubURL) the way the node
+	// sends its own: with the hub wire version, a fixed User-Agent, no
+	// cookies, and on the connection side its route belongs to — the side
+	// that names this node (a signed request, this node's own records) or
+	// the side that does not (sealed-sender §4.3.11). A module that opened
+	// connections of its own would put a signed request and an anonymous
+	// one on the same connection, and the connection would name the sender
+	// the anonymous one hides. A request to anything but this node's hub,
+	// or to a route the node does not send, is refused before anything is
+	// sent. The caller closes the response body.
+	HubDo(req *http.Request) (*http.Response, error)
 }
 
 // Spending purposes: the tiers of A2A-DESIGN §8.6, named by the surface a

@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -57,7 +56,7 @@ func newCardAgentWith(t *testing.T, name, description string, skill netcard.Skil
 	if err != nil {
 		t.Fatal(err)
 	}
-	return cardAgent{aid: ctl.AID(), kel: base64.StdEncoding.EncodeToString(kel), card: card}
+	return cardAgent{aid: ctl.AID(), kel: hubapi.B64(kel), card: card}
 }
 
 // registryHub is a hub with the A2A registry (entries in AID order, paged

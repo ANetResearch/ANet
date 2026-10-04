@@ -88,15 +88,16 @@ type UploadReviewRequest struct {
 // that never import each other still have to agree, and a header is how
 // they say so.
 //
-// Wire 2 (A2A-DESIGN §3.7) is a clean break: every daemon-to-daemon
-// message is a sealed envelope the hub cannot read, and every signed call
-// carries relayauth v2 headers. The two sides refuse each other across the
-// break rather than degrade: a wire-2 hub answers 426 to a daemon that sends
-// no version or a lower one on /relay/*, and a wire-2 daemon refuses to
-// operate against a hub that states a version below 2 (hub_client.go). There
-// is no plaintext fallback in either direction.
+// Wire 3 (core CORE-V1) is a clean break, like wire 2 before it: a send
+// names no sender (a first contact goes under a session MAC, every later
+// message under a credential its recipient issued), the binary values of
+// the JSON bodies are base64url without padding (CORE-E5), and a refusal
+// is {reason, error} (core G1). Neither side degrades: a wire-3 hub answers
+// 426 wire_too_old to a daemon that states no version or a lower one on any
+// write and on /relay/* and /fed/*, and a wire-3 daemon stops talking to a
+// hub that answers 426 or states another version (hub_client.go).
 const (
-	WireVersion       = 2
+	WireVersion       = 3
 	WireVersionHeader = "X-ANet-Wire"
 )
 
@@ -110,37 +111,26 @@ const (
 	HeaderSig = relayauth.HeaderSig // relayauth.EncodeSig over relayauth.PreimageV2
 )
 
-// RelaySendRequest is the body of POST /relay/send. The sender is the
-// authenticated X-ANet-AID and is not part of the body; the hub uses it for
-// rate limiting and quota and does not store it (A2A-DESIGN §2 X1).
-type RelaySendRequest struct {
-	ToAID string `json:"to_aid"`
-	// Envelope is a seal.SealedEnvelope encoding, standard base64. The hub
-	// checks only the outer structure (seal.ParseOuter) and that its to
-	// equals ToAID.
-	Envelope string `json:"envelope"`
+// RelaySendResponse is the 200 answer to POST /relay/send (core §2.12.2,
+// DLV-W-12): Status is RelayQueued or RelayDuplicate; RID names the queued
+// envelope for a later /relay/status, and RIDBytes decodes it; ViaHub is
+// the AID of the hub it was queued at when that is not the one asked
+// (DLV-W-12a). RecipientQuiet is the hub's statement that the recipient has
+// not collected its mail for a long time; it says nothing more, and the
+// daemon words it itself (engine ENG-H2). The request is the envelope's
+// own bytes (EnvelopeContentType): there is no body of JSON to describe.
+type RelaySendResponse struct {
+	Status         string `json:"status"`
+	RID            string `json:"rid"`
+	ViaHub         string `json:"via_hub,omitempty"`
+	RecipientQuiet bool   `json:"recipient_quiet"`
 }
 
-// RelaySendResponse is the 200 answer to POST /relay/send. ID is the
-// mailbox row when the hub queued the envelope itself; a hub that forwarded
-// it to the recipient's home hub answers with Status "forwarded" and ViaHub
-// instead.
-//
-// At wire 3 (core §2.12.2) the answer is {status, rid, via_hub?,
-// recipient_quiet}: RID names the queued envelope for a later /relay/status
-// (DLV-W-12), and ViaHub is the AID of the hub it was queued at when that
-// is not the one asked (DLV-W-12a). RIDBytes decodes RID.
-type RelaySendResponse struct {
-	ID     int64  `json:"id,omitempty"`
-	Status string `json:"status"`
-	RID    string `json:"rid"`
-	ViaHub string `json:"via_hub,omitempty"`
-	// RecipientQuiet and Warning are the hub's statement that the recipient
-	// has not collected its mail for a long time. Optional: a hub that
-	// does not track it omits both, and the daemon then reports nothing.
-	RecipientQuiet bool   `json:"recipient_quiet,omitempty"`
-	Warning        string `json:"warning,omitempty"`
-}
+// The statuses of a RelaySendResponse (core G4: there is no "forwarded").
+const (
+	RelayQueued    = "queued"
+	RelayDuplicate = "duplicate"
+)
 
 // RelayPollRequest is the body of POST /relay/poll. The mailbox polled is
 // the authenticated X-ANet-AID.
@@ -161,9 +151,10 @@ type RelayPollResponse struct {
 
 // RelayMessage is one undelivered envelope. The hub stores nothing else
 // about it that it returns: no sender, no kind, no interaction id (SI-2).
+// Envelope is base64url without padding (core G2), decoded with DecodeB64.
 type RelayMessage struct {
 	ID       int64  `json:"id"`
-	Envelope string `json:"envelope"` // standard base64
+	Envelope string `json:"envelope"`
 }
 
 // RelayAckRequest is the body of POST /relay/ack (relayauth action ack;
@@ -495,9 +486,14 @@ const (
 const WithdrawCard = "null"
 
 // HubIdentity is the answer to GET /hub/identity: the hub's AID and KEL
-// (standard base64). The daemon needs the AID before its first signed call,
-// because relayauth v2 binds every signature to the hub it is addressed to.
+// (base64url, CORE-E5), the wire it speaks and the widest directory query
+// it answers (core §2.12.2). The daemon needs the AID before its first
+// signed call, because relayauth v2 binds every signature to the hub it is
+// addressed to. Wire is a pointer so that an answer without it (not a
+// wire-3 hub) reads as absent, not as 0.
 type HubIdentity struct {
-	AID string `json:"aid"`
-	KEL string `json:"kel"`
+	AID        string `json:"aid"`
+	KEL        string `json:"kel"`
+	Wire       *int   `json:"wire,omitempty"`
+	DirMaxBits *int   `json:"dir_max_bits,omitempty"`
 }

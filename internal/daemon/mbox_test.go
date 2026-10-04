@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -367,7 +366,7 @@ func TestMboxEpochRules(t *testing.T) {
 		e := startAt(t, joinedRoot(t, ""))
 		signed := keySetWithMboxEpoch(t, e, huge)
 		setFake(t, srv.URL, func(h *fakeHub) {
-			h.keysOverride[e.AID()] = hubapi.KeysResponse{AID: e.AID(), KeySet: base64.StdEncoding.EncodeToString(signed)}
+			h.keysOverride[e.AID()] = hubapi.KeysResponse{AID: e.AID(), KeySet: hubapi.B64(signed)}
 		})
 		f := startAt(t, rootWithIdentityOf(t, e, srv.URL))
 		if got := currentMbox(t, f); got.Epoch != 1 {
@@ -391,7 +390,7 @@ func TestMboxEpochRules(t *testing.T) {
 		other := startAt(t, joinedRoot(t, ""))
 		signed := keySetWithMboxEpoch(t, other, 7)
 		setFake(t, srv.URL, func(h *fakeHub) {
-			h.keysOverride[e.AID()] = hubapi.KeysResponse{AID: e.AID(), KeySet: base64.StdEncoding.EncodeToString(signed)}
+			h.keysOverride[e.AID()] = hubapi.KeysResponse{AID: e.AID(), KeySet: hubapi.B64(signed)}
 		})
 		f := startAt(t, rootWithIdentityOf(t, e, srv.URL))
 		if m, ok := f.mbox.Current(); ok {

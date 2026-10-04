@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"crypto/x509"
+	"net/http"
 	"sync/atomic"
 	"time"
 )
@@ -47,6 +49,16 @@ func (d *Daemon) setIdentityGate(f func() GateState) {
 		return
 	}
 	d.idGate.gateHook.Store(&f)
+}
+
+// setHubRoots makes both hub transports trust pool instead of the system's
+// roots (a test hub's certificate), from the next request on.
+func (d *Daemon) setHubRoots(pool *x509.CertPool) {
+	c := &d.hubc
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.roots = pool
+	c.sides = [3]*http.Client{}
 }
 
 // testClock is the clock a test set, or nil.

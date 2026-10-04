@@ -214,7 +214,7 @@ func (r *joinRecord) check() error {
 		return bad("why")
 	case r.HubCode != "" && !reasonCodeRe.MatchString(r.HubCode):
 		return bad("hub_code")
-	case r.Version != "" && !anetVersionRe.MatchString(r.Version):
+	case r.Version != "" && !validWireTooOldVersion(r.Version):
 		return bad("version")
 	case len(r.HubError) > maxHubErrorBytes:
 		return bad("hub_error")

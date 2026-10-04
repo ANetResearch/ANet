@@ -36,6 +36,11 @@ func TestTheDeliveryTokenBodiesAreTheRegistrys(t *testing.T) {
 		{"/relay/ack", true, reflect.TypeFor[hubapi.RelayAckResponse]()},
 		{"/relay/status", false, reflect.TypeFor[hubapi.RelayStatusRequest]()},
 		{"/relay/status", true, reflect.TypeFor[hubapi.RelayStatusResponse]()},
+		// The send's answer and the first-contact session (core §2.12.2;
+		// the send's request is the envelope, not JSON).
+		{hubapi.RelaySendPath, true, reflect.TypeFor[hubapi.RelaySendResponse]()},
+		{hubapi.RelaySessionPath, false, reflect.TypeFor[hubapi.SessionRequest]()},
+		{hubapi.RelaySessionPath, true, reflect.TypeFor[hubapi.SessionResponse]()},
 	} {
 		ep := r.Endpoint("POST", c.path)
 		if ep == nil {

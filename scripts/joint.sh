@@ -1194,19 +1194,15 @@ for _ in $(seq 1 40); do [ "$(in_inbox "${OIX:-none}")" = peer ] && break; sleep
 sleep 1   # the acceptance's evidence record is written after the inbox row
 EV0=$(chain_len prov); IN0=$(inbox_n); FM0=$(rx from-mismatch); BS0=$(rx bad-sig)
 
-# A delegation that claims the requester and carries the stranger's own KEL. Sent with relay-sign and
-# curl, which is also the check that the fixture's relay v2 headers are what a wire-2 hub accepts.
+# A delegation that claims the requester and carries the stranger's own KEL, sent as the stranger's first
+# contact (a session it opened with its own signature; the hub sees no inner sender).
 FDEL=$("$FIX" seal --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --type delegate \
          --as "$REQ_AID" --kel self --text "forged: run this for the requester" 2>"$RUN/forge-del.txt")
 FDIX=$(sed -n 's/^ix: //p' "$RUN/forge-del.txt")
-printf '{"to_aid":"%s","envelope":"%s"}' "$PROV_AID" "$FDEL" > "$RUN/forge-del.json"
-"$FIX" relay-sign --home "$STR/.anet" --hub "$HUB_URL" --action send --method POST --path /relay/send \
-  --body-file "$RUN/forge-del.json" > "$RUN/forge-del.hdr" 2>"$RUN/forge-del.err"
-CODE=$(curl -s -o "$RUN/forge-del.out" -w '%{http_code}' -m 20 -H @"$RUN/forge-del.hdr" \
-         -H 'Content-Type: application/json' --data-binary @"$RUN/forge-del.json" "$HUB_URL/relay/send")
-[ -n "$FDEL" ] && [ "$CODE" = 200 ] \
-  && ok "the hub took the stranger's send, signed by anetfixture relay-sign (it cannot see inside)" \
-  || no "the relay-sign request was refused ($CODE): $(head -c 200 "$RUN/forge-del.out") $(head -c 200 "$RUN/forge-del.err") $(head -c 200 "$RUN/forge-del.txt")"
+R=$("$FIX" relay-send --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --envelope "${FDEL:-none}" 2>&1)
+[ -n "$FDEL" ] && [ "$(took "$R" hub)" = yes ] \
+  && ok "the hub took the stranger's first contact (it cannot see inside)" \
+  || no "the stranger's send was refused: $(printf '%s' "$R" | head -c 200) $(head -c 200 "$RUN/forge-del.txt")"
 FM1=$(rx_above from-mismatch "$FM0")
 [ "$FM1" -gt "$FM0" ] && ok "the provider refused it at step 6: from-mismatch $FM0 → $FM1" \
   || no "from-mismatch stayed at $FM1; receive counters: $(pc /status '{}' | jget receive | head -c 300)"

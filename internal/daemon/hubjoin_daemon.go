@@ -241,9 +241,10 @@ func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []
 		a := transientAnswer(phaseRegister, whyUnreachable)
 		var we *hubWireError
 		if errors.As(err, &we) {
-			a = joinAnswer{phase: phaseRegister, kind: ansRefused, refusal: reasonWireTooOld, code: "wire_too_old"}
+			a = joinAnswer{phase: phaseRegister, kind: ansRefused, refusal: reasonWireTooOld, code: "wire_too_old",
+				version: d.wireTooOldVersion(hubURL, we)}
 			if we.hubOlder {
-				a.refusal, a.code = reasonWireTooNew, "wire_too_new"
+				a.refusal, a.code, a.version = reasonWireTooNew, "wire_too_new", ""
 			}
 		}
 		r, _ = joinStep(r, a, time.Now())
@@ -610,39 +611,54 @@ func (d *Daemon) contactHub(ctx context.Context, hubURL string, pin bool) (hubCo
 	if err != nil {
 		return hubContact{}, unreachable
 	}
-	rep := d.hubRoundTrip(req)
+	rep := d.hubExchange(req, hubURL, "/hub/identity", -1)
 	if rep.Status == 0 {
 		return hubContact{}, unreachable
 	}
-	var out struct {
-		hubapi.HubIdentity
-		Wire *int `json:"wire"`
+	wireTooOld := func(version string) *joinError {
+		args := a2ashape.Args{"hub": hubURL}
+		if version != "" {
+			args["version"] = version
+		}
+		return &joinError{http.StatusConflict, a2ashape.Refuse(reasonWireTooOld, args)}
 	}
+	if rep.Status == http.StatusUpgradeRequired {
+		// The hub refuses this node's wire even for its identity: the 426
+		// names what it needs (required_anet, else required_wire).
+		return hubContact{}, wireTooOld(hubWireCheck(hubURL, rep).version)
+	}
+	var out hubapi.HubIdentity
 	if rep.Status != http.StatusOK || json.Unmarshal(rep.Body, &out) != nil || out.AID == "" {
 		// An answer that is not a hub's identity: not a hub at this
 		// address, as far as this node can tell.
 		return hubContact{}, unreachable
 	}
+	// The wire the hub states: its X-ANet-Wire, else the identity's wire
+	// member; neither is a hub older than wire 3 (CORE-V1).
 	wire := -1
 	if v, err := strconv.Atoi(rep.Wire); err == nil {
 		wire = v
-	} else if out.Wire != nil {
+	} else if rep.Wire == "" && out.Wire != nil {
 		wire = *out.Wire
 	}
 	switch {
 	case wire > hubapi.WireVersion:
-		return hubContact{}, &joinError{http.StatusConflict, a2ashape.Refuse(reasonWireTooOld, a2ashape.Args{"hub": hubURL})}
+		version := ""
+		if wire < 10000 {
+			version = wireVersionText(wire)
+		}
+		return hubContact{}, wireTooOld(version)
 	case wire < hubapi.WireVersion:
 		return hubContact{}, &joinError{http.StatusConflict, a2ashape.Refuse(reasonWireTooNew, a2ashape.Args{"hub": hubURL})}
 	}
 	if !pin {
-		if !hubKELReplays(out.HubIdentity) {
+		if !hubKELReplays(out) {
 			return hubContact{}, unreachable
 		}
 		return hubContact{hubAID: out.AID}, nil
 	}
 	// Pinned as every signed call pins it (hubIdentity), from this answer.
-	aid, _, err := d.pinHubIdentity(hubURL, out.HubIdentity)
+	aid, _, err := d.pinHubIdentity(hubURL, out)
 	if err != nil {
 		return hubContact{}, unreachable
 	}
@@ -652,7 +668,7 @@ func (d *Daemon) contactHub(ctx context.Context, hubURL string, pin bool) (hubCo
 // hubKELReplays reports whether a /hub/identity answer's KEL reads and
 // replays to its AID: what pinHubIdentity checks before it writes anything.
 func hubKELReplays(h hubapi.HubIdentity) bool {
-	raw, err := base64.StdEncoding.DecodeString(h.KEL)
+	raw, err := hubapi.DecodeB64(h.KEL, -1)
 	if err != nil || h.AID == "" {
 		return false
 	}

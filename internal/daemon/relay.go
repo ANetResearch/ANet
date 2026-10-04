@@ -1,7 +1,7 @@
 package daemon
 
-// relay.go is the daemon's client of the Hub relay, wire 2 (A2A-DESIGN §3.7; wire types in
-// internal/hubapi). A requester SENDS a sealed delegation envelope into the provider's Hub mailbox,
+// relay.go is the daemon's client of the Hub relay, wire 3 (core §2.12; wire types in
+// internal/hubapi; the send itself is relay_send.go). A requester SENDS a sealed delegation envelope into the provider's Hub mailbox,
 // the provider PULLS it (relayauth v2 signed poll), completes it, and SENDS a sealed result back to
 // the requester's mailbox. A single background loop polls this daemon's mailbox and runs each
 // envelope through the receive pipeline (receive.go). Every envelope is encrypted to its recipient and
@@ -274,7 +274,7 @@ func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 	return out, nil
 }
 
-// --- relay HTTP client (wire 2, A2A-DESIGN §3.7) ---
+// --- relay HTTP client (wire 3, core §2.12) ---
 
 // relayPollLimit is how many envelopes one poll asks the hub for.
 const relayPollLimit = 100
@@ -510,7 +510,7 @@ func (d *Daemon) relayLoop(ctx context.Context) {
 			d.pollMu.Lock()
 			pc, cancel := context.WithTimeout(ctx, relayCallTimeout)
 			if err := d.pollOnce(pc); err != nil && ctx.Err() == nil && !errors.Is(err, errHubWire) {
-				// A hub below wire 2 is reported once by checkHubWire;
+				// A hub of another wire is reported once by noteHubWire;
 				// repeating it every second would fill the log.
 				log.Printf("anet: relay poll: %v", err)
 			}
@@ -562,8 +562,8 @@ func (d *Daemon) pollOnce(ctx context.Context) error {
 	for _, m := range msgs {
 		last = max(last, m.ID)
 		var r rxResult
-		if env, derr := base64.StdEncoding.DecodeString(m.Envelope); derr != nil {
-			r = d.drop(dropBadTransport, derr) // undecodable — drop
+		if env, derr := hubapi.DecodeB64(m.Envelope, -1); derr != nil {
+			r = d.drop(dropBadTransport, derr) // not strict base64url (core G2) — drop
 		} else {
 			r = d.receiveEnvelope(ctx, env)
 		}

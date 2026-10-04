@@ -267,7 +267,7 @@ func TestDryRunChecksTheWire(t *testing.T) {
 	srv := newFakeHub(t)
 	fh := fakeHubAt(t, srv.URL)
 	d, _ := joinDaemon(t)
-	for wire, want := range map[int]string{3: "wire_too_old", 1: "wire_too_new"} {
+	for wire, want := range map[int]string{4: "wire_too_old", 2: "wire_too_new"} {
 		fh.mu.Lock()
 		fh.wire = wire
 		fh.mu.Unlock()

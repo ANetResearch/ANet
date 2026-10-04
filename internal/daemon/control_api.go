@@ -747,11 +747,11 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 // writeDelegated answers a successful delegation, carrying through what the hub said about the
 // recipient when it said the recipient has stopped collecting its mail.
 //
-// The hub returns recipient_quiet + warning on /relay/send; the daemon used to consume them for its own
-// log and answer the CLI with the interaction id alone, so the person who typed `anet delegate` was the
-// one party who did not learn that the provider had been silent for days. The task is still queued —
-// quiet is not dead, and one poll by the provider collects everything waiting — so this adds a field,
-// never a refusal.
+// The hub answers recipient_quiet on /relay/send; the daemon used to consume it for its own log and
+// answer the CLI with the interaction id alone, so the person who typed `anet delegate` was the one
+// party who did not learn that the provider had been silent for days. The task is still queued —
+// quiet is not dead, and one poll by the provider collects everything waiting — so this adds a field
+// and the delivery sentence for it, never a refusal.
 func (d *Daemon) writeDelegated(w http.ResponseWriter, providerAID string, out map[string]any) {
 	if warn := d.QuietPeer(providerAID); warn != "" {
 		out["recipient_quiet"] = true

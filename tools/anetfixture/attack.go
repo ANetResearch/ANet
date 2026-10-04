@@ -10,14 +10,16 @@ package main
 // seal builds a sealed envelope exactly as a daemon would (seal.Seal, the
 // recipient's key set from the hub, verified), except that it lets the
 // caller claim someone else's AID as the inner sender. That is the attack
-// the hub cannot see: relay v2 authenticates who POSTed the envelope, not
-// who the sealed inner message says it is from, so only the receiving
+// the hub cannot see: a first contact's session authenticates who POSTed the
+// envelope to its own hub, not who the sealed inner message says it is from,
+// so only the receiving
 // daemon's steps 6 and 7 stand between a registered stranger and a message
 // that claims to come from an allowed peer.
 //
 // relay-send delivers envelope bytes, sealed by anyone, on the paths a
-// daemon uses: POST /relay/send signed with relayauth v2 as --home, and the
-// peer wire of an anetpeer process. Given both it hands the same bytes to
+// daemon uses: POST /relay/send as a first contact of --home (a session it
+// opens with its relayauth v2 signature, the send under the session's MAC),
+// and the peer wire of an anetpeer process. Given both it hands the same bytes to
 // both at the same moment, which is SI-10's "one envelope over p2p and the
 // hub is processed once". An envelope captured earlier (anetpeer --tee-dir)
 // is a replay; the hub has no way to refuse it and is not asked to.
@@ -107,8 +109,8 @@ func fetchPublished(hub, aid string, now uint64) (*published, error) {
 	if err := hubGetJSON(hub, "/agents/"+url.PathEscape(aid)+"/keys", &kr); err != nil {
 		return nil, fmt.Errorf("keys of %s: %w", aid, err)
 	}
-	keysRaw, err1 := base64.StdEncoding.DecodeString(kr.KeySet)
-	kelRaw, err2 := base64.StdEncoding.DecodeString(kr.KEL)
+	keysRaw, err1 := hubapi.DecodeB64(kr.KeySet, -1)
+	kelRaw, err2 := hubapi.DecodeB64(kr.KEL, -1)
 	if err1 != nil || err2 != nil {
 		return nil, fmt.Errorf("hub served unreadable keys for %s", aid)
 	}
@@ -328,7 +330,7 @@ func readEnvelope(v string) ([]byte, error) {
 // §3.7), in a fixed order: the signature covers the action, the signer, the
 // hub's AID, the time, and a hash of the method, the request target as sent
 // and the exact body bytes. The wire version header rides along because a
-// wire-2 hub answers 426 to a /relay/* request without it.
+// hub answers 426 to a write or a /relay/* request without it.
 func v2Headers(c *identity.Controller, hubAID, action, method, requestURI string, body []byte) [][2]string {
 	ts := uint64(time.Now().UnixMilli())
 	sig, seq := c.Sign(relayauth.PreimageV2(action, c.AID(), hubAID, ts, method, requestURI, body))
@@ -341,11 +343,13 @@ func v2Headers(c *identity.Controller, hubAID, action, method, requestURI string
 	}
 }
 
-// hubOutcome is what the hub answered to one /relay/send.
+// hubOutcome is what the hub answered to one /relay/send: the status, and
+// queued or duplicate with the rid, or the refusal's reason and sentence.
 type hubOutcome struct {
 	Code   int    `json:"code"`
 	Status string `json:"status,omitempty"`
-	ID     int64  `json:"id,omitempty"`
+	RID    string `json:"rid,omitempty"`
+	Reason string `json:"reason,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
 
@@ -356,24 +360,90 @@ type p2pOutcome struct {
 	Error string `json:"error,omitempty"`
 }
 
-// actionSendRetired is the relay v2 send action, which relayauth no longer defines; the fixture
-// attacks the v0.2 send route with it until it sends the relay v3 way.
-const actionSendRetired = "send" // v030-todo(SS-9): send with a session MAC or a capability
+// fixtureSession is a first-contact session the fixture opened at a hub.
+type fixtureSession struct {
+	sid, key []byte
+}
 
-// postRelay sends one signed POST /relay/send.
-func postRelay(c *identity.Controller, hub, hubAID, to string, env []byte) *hubOutcome {
-	body, err := json.Marshal(hubapi.RelaySendRequest{ToAID: to, Envelope: base64.StdEncoding.EncodeToString(env)})
+// openSession opens a first-contact session as c (POST /relay/session,
+// relayauth session; core L7): a one-time key, the session key the hub
+// sealed to it.
+func openSession(c *identity.Controller, hub, hubAID string) (*fixtureSession, error) {
+	esk, epk, err := relayauth.NewSessionKey()
 	if err != nil {
-		return &hubOutcome{Error: err.Error()}
+		return nil, err
 	}
-	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(hub, "/")+"/relay/send", bytes.NewReader(body))
+	body, err := json.Marshal(hubapi.SessionRequest{EPK: hubapi.B64(epk)})
 	if err != nil {
-		return &hubOutcome{Error: err.Error()}
+		return nil, err
+	}
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(hub, "/")+hubapi.RelaySessionPath, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	for _, h := range v2Headers(c, hubAID, actionSendRetired, req.Method, req.URL.RequestURI(), body) {
+	for _, h := range v2Headers(c, hubAID, relayauth.ActionSession, req.Method, req.URL.RequestURI(), body) {
 		req.Header.Set(h[0], h[1])
 	}
+	resp, err := httpc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("the hub did not open a session: %d %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var ans hubapi.SessionResponse
+	if err := json.Unmarshal(b, &ans); err != nil {
+		return nil, err
+	}
+	sid, _, enc, ct, err := ans.Decode()
+	if err != nil {
+		return nil, err
+	}
+	k, err := relayauth.OpenSessionKey(esk, hubAID, sid, enc, ct)
+	if err != nil {
+		return nil, err
+	}
+	return &fixtureSession{sid: sid, key: k}, nil
+}
+
+// postRelay sends env in one POST /relay/send as a first contact of c (the
+// envelope's access is kind 0, cmdSeal): a session opened for it, the
+// envelope as the body, its outer key 7 in X-ANet-Access and the session's
+// MAC over the request.
+func postRelay(c *identity.Controller, hub, hubAID, to string, env []byte) *hubOutcome {
+	outer, err := seal.ParseOuter(env)
+	if err != nil {
+		return &hubOutcome{Error: "not an envelope: " + err.Error()}
+	}
+	if outer.To != to {
+		return &hubOutcome{Error: fmt.Sprintf("the envelope is to %s, not --to %s", outer.To, to)}
+	}
+	access, err := coredet.Marshal(outer.Access)
+	if err != nil {
+		return &hubOutcome{Error: err.Error()}
+	}
+	sess, err := openSession(c, hub, hubAID)
+	if err != nil {
+		return &hubOutcome{Error: err.Error()}
+	}
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(hub, "/")+hubapi.RelaySendPath, bytes.NewReader(env))
+	if err != nil {
+		return &hubOutcome{Error: err.Error()}
+	}
+	ts := uint64(time.Now().UnixMilli())
+	mac, err := relayauth.SessionMAC(sess.key, sess.sid, ts, req.Method, req.URL.RequestURI(), "", env)
+	if err != nil {
+		return &hubOutcome{Error: err.Error()}
+	}
+	req.Header.Set("Content-Type", hubapi.EnvelopeContentType)
+	req.Header.Set(hubapi.HeaderAccess, hubapi.B64(access))
+	req.Header.Set(hubapi.HeaderSession, relayauth.EncodeSessionID(sess.sid))
+	req.Header.Set(hubapi.HeaderTS, strconv.FormatUint(ts, 10))
+	req.Header.Set(hubapi.HeaderMAC, relayauth.EncodeMAC(mac))
+	req.Header.Set(hubapi.WireVersionHeader, strconv.Itoa(hubapi.WireVersion))
 	resp, err := httpc.Do(req)
 	if err != nil {
 		return &hubOutcome{Error: err.Error()}
@@ -381,14 +451,13 @@ func postRelay(c *identity.Controller, hub, hubAID, to string, env []byte) *hubO
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	out := &hubOutcome{Code: resp.StatusCode}
-	var ans struct {
-		ID     int64  `json:"id"`
-		Status string `json:"status"`
-		Error  string `json:"error"`
+	if resp.StatusCode == http.StatusOK {
+		var ans hubapi.RelaySendResponse
+		_ = json.Unmarshal(b, &ans)
+		out.Status, out.RID = ans.Status, ans.RID
+		return out
 	}
-	_ = json.Unmarshal(b, &ans)
-	out.ID, out.Status, out.Error = ans.ID, ans.Status, ans.Error
-	if resp.StatusCode != http.StatusOK && out.Error == "" {
+	if out.Reason, out.Error = hubapi.ParseErrorBody(b); out.Error == "" {
 		out.Error = strings.TrimSpace(string(b))
 	}
 	return out
@@ -470,7 +539,7 @@ var errPathFailed = errors.New("a delivery path did not take the envelope (see t
 // deployed binaries agree.
 func cmdRelaySend(args []string) error {
 	fs := flag.NewFlagSet("relay-send", flag.ExitOnError)
-	home := fs.String("home", "", "daemon data dir of the hub sender (relay v2 signer; must be registered at --hub)")
+	home := fs.String("home", "", "daemon data dir of the hub sender (opens the first-contact session; must be registered at --hub)")
 	hub := fs.String("hub", "", "hub URL: POST /relay/send there")
 	p2p := fs.String("p2p", "", "anetpeer peer address (socket path or tcp://host:port): deliver there too")
 	to := fs.String("to", "", "recipient AID")
