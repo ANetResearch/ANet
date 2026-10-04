@@ -49,11 +49,12 @@
 //	"url": "unix:///run/my-svc/backend.sock:/digest"
 //
 // and every connection is checked before anything is written to it: the
-// socket's path must be one only trusted accounts can change, and on Linux
-// the process listening on it must be the socket's owner, or the account
-// expected_uid/expected_user names (internal/backendconn). An http(s) URL
-// needs allow_tcp: true, and a listener on loopback must then run as this
-// daemon's user.
+// socket's path must be one only trusted accounts can change, and the
+// process listening on it must be the socket's owner, or the account
+// expected_user names (a name or a uid; internal/backendconn). Where the
+// platform cannot tell who listens, the socket is refused unless
+// peer_check is "path-only". An http(s) URL needs allow_tcp: true, and a
+// listener on loopback must then run as this daemon's user.
 package service
 
 import (
@@ -178,10 +179,11 @@ func (cfg *Config) checkCaps(rules backendconn.Rules) error {
 type Config struct {
 	Capabilities []Capability `json:"capabilities"`
 	// Policy says who may be on the far side of the capabilities' URLs:
-	// allow_tcp (http(s) URLs are refused without it), expected_uid or
-	// expected_user (the account the services run as; by default the
-	// owner of the socket file), socket_group (a group trusted to write
-	// the sockets' directory). It applies to every capability of the
+	// allow_tcp (http(s) URLs are refused without it), expected_user (the
+	// account the services run as, a name or a uid; by default the owner
+	// of the socket file), socket_group (a group trusted to write the
+	// sockets' directory), peer_check ("path-only" where the platform
+	// cannot tell who listens). It applies to every capability of the
 	// module (internal/backendconn).
 	backendconn.Policy
 	// TimeoutMS bounds one call. A capability that hangs holds a

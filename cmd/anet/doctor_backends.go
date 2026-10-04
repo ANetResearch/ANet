@@ -14,8 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/backendconn"
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/peercred"
 )
 
 // a2aBackend is one entry of modules.a2a.backends as doctor reads it,
@@ -104,7 +106,14 @@ func a2aBackendChecks(add func(id, status, detail, hint string), policy string, 
 // connect through a fail, and one that is not there (the backend is down) a
 // warning. The path is judged as this process's user sees it, which is the
 // daemon's when doctor runs as the node's user.
-func backendTransportChecks(add func(id, status, detail, hint string), cfg daemon.Config) {
+//
+// Each socket also gets backends.peer_check (ux §5.2, LEC §5.5): ok where
+// the account listening on it is checked on every connection; a warning,
+// backends.path_only, where peer_check "path-only" leaves only the path
+// checks; a fail, peer_cred_unsupported, where this platform cannot tell
+// who listens and nothing says path-only — every call to it is refused.
+func backendTransportChecks(add func(id, status, detail, hint string), say func(id, status, key string, args a2ashape.Args),
+	cfg daemon.Config) {
 	type group struct {
 		pol  backendconn.Policy
 		raw  string // one URL of the group
@@ -187,7 +196,12 @@ func backendTransportChecks(add func(id, status, detail, hint string), cfg daemo
 				"serve it on a Unix socket in a directory only its user can write: unix:///path/to/socket")
 			continue
 		}
+		peerCheckFinding(add, say, who, t.Socket, rules)
 		real, owner, err := rules.CheckPath(t.Socket)
+		listener := "the listener is checked on each connection"
+		if rules.PathOnly() {
+			listener = "the listener is not checked (peer_check path-only)"
+		}
 		switch {
 		case errors.Is(err, backendconn.ErrRefused):
 			add(id, stFail, who+": "+err.Error()+"; every call is refused",
@@ -195,8 +209,26 @@ func backendTransportChecks(add func(id, status, detail, hint string), cfg daemo
 		case err != nil:
 			add(id, stWarn, who+": "+err.Error(), "start the backend")
 		default:
-			add(id, stOK, fmt.Sprintf("%s: socket %s (owner uid %d) passes the path checks; the listener is checked on each connection", who, real, owner), "")
+			add(id, stOK, fmt.Sprintf("%s: socket %s (owner uid %d) passes the path checks; %s", who, real, owner, listener), "")
 		}
+	}
+}
+
+// peercredSupported is peercred.Supported; a test stands in for a platform
+// that cannot tell who listens.
+var peercredSupported = peercred.Supported
+
+// peerCheckFinding is backends.peer_check for one socket backend.
+func peerCheckFinding(add func(id, status, detail, hint string), say func(id, status, key string, args a2ashape.Args),
+	who, sock string, rules backendconn.Rules) {
+	const id = "backends.peer_check"
+	switch {
+	case rules.PathOnly():
+		say(id, stWarn, "backends.path_only", a2ashape.Args{"name": "unix://" + sock})
+	case !peercredSupported():
+		say(id, stFail, backendconn.CodePeerCredUnsupported, a2ashape.Args{"path": sock})
+	default:
+		add(id, stOK, who+": the account listening on "+sock+" is checked on every connection", "")
 	}
 }
 

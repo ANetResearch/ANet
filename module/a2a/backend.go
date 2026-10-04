@@ -15,8 +15,10 @@ package a2a
 //   - The backend is checked before a task's text or the token is written
 //     to it (an internal note N1, internal/backendconn). A unix:// URL — the
 //     recommended form — is a socket whose path only trusted accounts can
-//     change and, on Linux, whose listener is the socket's owner or the
-//     account expected_uid/expected_user names. An http(s) URL needs
+//     change and whose listener is the socket's owner or the account
+//     expected_user names (a name or a uid); where the platform cannot tell
+//     who listens, it is refused unless peer_check is "path-only". An
+//     http(s) URL needs
 //     allow_tcp: true, for a backend that can only listen on TCP (Hermes'
 //     default 127.0.0.1:9900), and a listener on loopback must then run as
 //     this daemon's user: one another local user took while the backend
@@ -135,7 +137,7 @@ type Backend struct {
 	// it cannot run commands, read files or reach the network on a task's
 	// behalf.
 	Toolless bool `json:"toolless,omitempty"`
-	// Policy: allow_tcp, expected_uid/expected_user, socket_group — who
+	// Policy: allow_tcp, expected_user, socket_group, peer_check — who
 	// may be on the far side of URL (internal/backendconn).
 	backendconn.Policy
 }
