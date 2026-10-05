@@ -533,15 +533,11 @@ MUTS = [
   tests=[('ANet:./internal/daemon', 'TestWithheldPricesAreOnNeitherCard')],
   full=['ANet:./internal/daemon'],
  ),
- dict(
-  id='fx3-1', group='F3', repo='ANet',
-  desc='收件方密钥/卡片/KEL 查询改回 GET(AID 在请求行)',
-  edits=[
-   ('internal/daemon/seal_send.go', '\terr := d.hubPost(ctx, hub, postPath, hubapi.KeysLookupRequest{AID: aid}, out)', '\terr := d.hubGet(ctx, hub, getPath, nil, out)'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestSendingDoesNotNameTheRecipientInARequestLine|TestReadingAPeersCardDoesNotNameItInARequestLine')],
-  full=['ANet:./internal/daemon'],
- ),
+ # fx3-1 (the key, card and KEL lookups went back to GETs with the AID in the request line) is retired
+ # with the lookups themselves: sealed-sender SSR-D16 removed every lookup by a peer's AID, and a node now
+ # learns a peer's material from a directory bucket (internal/daemon/peer_resolve.go). Nothing a node sends
+ # a hub names another agent, in the request line or anywhere else (TestNoPeerAIDInHubRequests); its
+ # mutations are sealed_sender.py ss10-m11-* (the AID or the full hash in a query) and ss10-route-aid.
  dict(
   id='fx3-2', group='F3', repo='ANetHub',
   desc='随部署的反代恢复访问日志',

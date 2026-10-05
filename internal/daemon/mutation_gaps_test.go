@@ -299,13 +299,13 @@ func TestTheUnknownTaskWindowIsTenMinutes(t *testing.T) {
 	}
 }
 
-// §3.5 step 1 [C2]: a stored key set is re-checked with the hub every ten
-// minutes, and a hub that no longer answers for the recipient (404) does
-// not take the stored set away; it stays in use until it holds no valid
-// key. This is what delivers a reply past the cache time to a requester
-// whose hub cannot be asked (scenario.sh 8.5/8.6). The re-check test's hub
-// always answers, so mutation c2-1 (past the cache time only the hub's
-// answer counts) left it green.
+// §3.5 step 1 [C2]: a stored key set is used while it holds a usable key,
+// and a directory that no longer lists the recipient does not take it away,
+// neither before the daily recheck of an active contact nor at it
+// (sealed-sender SSR-D18). This is what delivers a reply to a requester
+// whose hub cannot be asked (scenario.sh 8.5/8.6). The recheck test's hub
+// always answers, so mutation c2-1 (past the recheck time only the
+// directory's answer counts) left it green.
 func TestAStoredKeySetOutlivesAHubThatNoLongerAnswersForIt(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -326,6 +326,25 @@ func TestAStoredKeySetOutlivesAHubThatNoLongerAnswersForIt(t *testing.T) {
 	if n := len(queuedFor(t, srv, prov.AID())); n != before+1 {
 		t.Fatalf("%d envelopes reached the hub for the provider, want %d: the stored key set was not used",
 			n, before+1)
+	}
+	// Past a day the stored set is rechecked in the directory, which no
+	// longer lists the provider: the send still goes under the stored set,
+	// and the record stays as it was (sealed-sender SSR-D18).
+	row, _ := req.ix.PeerIdentity(prov.AID())
+	h := fakeHubAt(t, srv.URL)
+	q := queryCount(h)
+	req.setClock(func() uint64 { return uint64(row.KeysCheckedAt) + activeRecheckMS + 60*1000 })
+	if err := req.SendMessage(ctx, id, "past the daily recheck", nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(queuedFor(t, srv, prov.AID())); n != before+2 {
+		t.Fatalf("%d envelopes reached the hub for the provider, want %d: the stored key set was dropped",
+			n, before+2)
+	}
+	waitUntil(t, "the recheck to make its query", func() bool { return queryCount(h) > q })
+	time.Sleep(50 * time.Millisecond) // and to finish with it
+	if again, _ := req.ix.PeerIdentity(prov.AID()); !bytes.Equal(again.KeySet, row.KeySet) || again.KeysCheckedAt != row.KeysCheckedAt {
+		t.Fatal("a recheck that found nothing changed the stored record")
 	}
 }
 
