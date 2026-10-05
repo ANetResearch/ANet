@@ -756,9 +756,9 @@ MUTS = [
  ),
  dict(
   id='n1-2', group='N1', repo='ANet',
-  desc='SO_PEERCRED 与期望 uid/socket 属主不符仍连接',
+  desc='监听者账户(peercred)与 expected_user/socket 属主不符仍连接',
   edits=[
-   ('internal/backendconn/backendconn.go', '\tif uid != want {', '\tif false && uid != want {'),
+   ('internal/backendconn/backendconn.go', '\tif cred.UID != want {', '\tif false && cred.UID != want {'),
   ],
   tests=[('ANet:./internal/backendconn', 'TestAListenerThatIsNotTheExpectedUserIsRefused'), ('ANet:./module/service', 'TestASocketListenerThatIsNotTheExpectedUserIsNotCalled'), ('ANet:./module/a2a', 'TestASocketBackendOfTheWrongUserGetsNothing')],
   full=['ANet:./internal/backendconn'],

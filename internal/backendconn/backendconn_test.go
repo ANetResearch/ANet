@@ -9,8 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/user"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -18,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/localpeer"
+	"github.com/ANetResearch/ANet/internal/peercred"
 )
 
 func TestParse(t *testing.T) {
@@ -50,25 +54,68 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// expected_user is a user name, looked up, or a decimal uid, taken as it is: one /etc/passwd does not
+// hold is still a uid (LEC §3.2). peer_check is "" or "path-only". Anything else is a PolicyError naming
+// the key, which the daemon reports as config_invalid.
 func TestResolve(t *testing.T) {
-	uid := 1234
-	if r, err := (Policy{ExpectedUID: &uid, SocketGroup: "0"}).Resolve(); err != nil || r.expected != 1234 || r.group != 0 {
-		t.Fatalf("Resolve: %+v %v", r, err)
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
 	}
-	neg := -1
-	for _, p := range []Policy{
-		{ExpectedUID: &uid, ExpectedUser: "root"},
-		{ExpectedUID: &neg},
-		{ExpectedUser: "no-such-user-anet-test"},
-		{SocketGroup: "no-such-group-anet-test"},
+	for _, c := range []struct {
+		p        Policy
+		expected int
+		group    int
+		pathOnly bool
+	}{
+		{Policy{}, -1, -1, false},
+		{Policy{ExpectedUser: "1234", SocketGroup: "0"}, 1234, 0, false},
+		{Policy{ExpectedUser: "3999999999"}, 3999999999, -1, false}, // no such account here
+		{Policy{ExpectedUser: "0001000"}, 1000, -1, false},
+		{Policy{ExpectedUser: "0"}, 0, -1, false},
+		{Policy{ExpectedUser: me.Username}, os.Getuid(), -1, false},
+		{Policy{ExpectedUser: " " + me.Username + " "}, os.Getuid(), -1, false},
+		{Policy{PeerCheck: "path-only"}, -1, -1, true},
+		{Policy{PeerCheck: ""}, -1, -1, false},
 	} {
-		if _, err := p.Resolve(); err == nil {
-			t.Errorf("Resolve(%+v) accepted", p)
+		r, err := c.p.Resolve()
+		if err != nil || r.expected != c.expected || r.group != c.group || r.pathOnly != c.pathOnly || r.self != os.Getuid() {
+			t.Errorf("Resolve(%+v) = %+v %v", c.p, r, err)
 		}
 	}
-	r, err := Policy{}.Resolve()
-	if err != nil || r.expected != -1 || r.group != -1 || r.self != os.Getuid() || r.allowTCP {
-		t.Fatalf("the empty policy: %+v %v", r, err)
+	for _, c := range []struct {
+		p   Policy
+		key string
+	}{
+		{Policy{ExpectedUser: "no-such-user-anet-test"}, "expected_user"},
+		{Policy{ExpectedUser: "-1"}, "expected_user"},
+		{Policy{ExpectedUser: "4294967295"}, "expected_user"}, // (uid_t)-1
+		{Policy{ExpectedUser: "99999999999999999999999"}, "expected_user"},
+		{Policy{SocketGroup: "no-such-group-anet-test"}, "socket_group"},
+		{Policy{SocketGroup: "4294967296"}, "socket_group"},
+		{Policy{PeerCheck: "strict"}, "peer_check"},
+		{Policy{PeerCheck: "Path-Only"}, "peer_check"},
+		{Policy{PeerCheck: "none"}, "peer_check"},
+	} {
+		_, err := c.p.Resolve()
+		var pe *PolicyError
+		if !errors.As(err, &pe) || pe.Key != c.key {
+			t.Errorf("Resolve(%+v): %v, want a PolicyError for %s", c.p, err, c.key)
+		}
+	}
+}
+
+// The three modules' backend keys are one struct, and it has no expected_uid: expected_user takes a
+// uid as well (LEC §4.4, M-PC-3). A key added here is a key of all three modules.
+func TestPolicyKeysAreTheSameForEveryModule(t *testing.T) {
+	var got []string
+	ty := reflect.TypeOf(Policy{})
+	for i := 0; i < ty.NumField(); i++ {
+		tag, _, _ := strings.Cut(ty.Field(i).Tag.Get("json"), ",")
+		got = append(got, tag)
+	}
+	if want := []string{"allow_tcp", "expected_user", "socket_group", "peer_check"}; !slices.Equal(got, want) {
+		t.Fatalf("Policy's keys %v, want %v", got, want)
 	}
 }
 
@@ -214,30 +261,33 @@ func TestAWritableDirectoryIsRefused(t *testing.T) {
 	}
 }
 
-// SO_PEERCRED: the process listening on the socket must be the expected one. The test cannot listen as
-// a second user, so it expects a uid it is not: the socket is this user's (allowed), the listener is
-// not the expected uid, and nothing is sent.
+// The account listening on the socket must be the expected one (peercred). The test cannot listen as
+// a second user without sudo (TestAListenerOfAnotherAccountIsRefusedUnlessPathOnly does), so it
+// expects a uid it is not: the socket is this user's (allowed), the listener is not the expected uid,
+// and nothing is sent.
 func TestAListenerThatIsNotTheExpectedUserIsRefused(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SO_PEERCRED is read on Linux only")
+	if !peercred.Supported() {
+		t.Skip("the listening account is not readable on " + runtime.GOOS)
 	}
 	d := privateDir(t)
 	s := serveUnix(t, filepath.Join(d, "b.sock"))
-	other := os.Getuid() + 1
-	r, _ := Policy{ExpectedUID: &other}.Resolve()
+	other := strconv.Itoa(os.Getuid() + 1)
+	r, _ := Policy{ExpectedUser: other}.Resolve()
 	_, err := get(t, r, "unix://"+s.path)
 	var re *RefusedError
-	if !errors.As(err, &re) || !strings.Contains(re.Reason, "runs as uid") {
-		t.Fatalf("a listener of uid %d when %d is expected: %v", os.Getuid(), other, err)
+	if !errors.As(err, &re) || re.Code != CodePeerUIDMismatch || re.Args["n"] != strconv.Itoa(os.Getuid()) || re.Args["name"] != other {
+		t.Fatalf("a listener of uid %d when %s is expected: %v", os.Getuid(), other, err)
 	}
 	if n := s.hits.Load(); n != 0 {
 		t.Fatalf("the listener received %d requests", n)
 	}
-	// The same listener, expected as what it is.
-	me := os.Getuid()
-	r, _ = Policy{ExpectedUID: &me}.Resolve()
-	if _, err := get(t, r, "unix://"+s.path); err != nil {
-		t.Fatalf("expected_uid = the listener's uid: %v", err)
+	// The same listener, expected as what it is, by number and by name.
+	me, _ := user.Current()
+	for _, as := range []string{strconv.Itoa(os.Getuid()), me.Username} {
+		r, _ = Policy{ExpectedUser: as}.Resolve()
+		if _, err := get(t, r, "unix://"+s.path); err != nil {
+			t.Fatalf("expected_user %q = the listener's account: %v", as, err)
+		}
 	}
 	// And the default: the listener must be the socket file's owner. A socket this user owns, listened
 	// on (as far as the check can tell) by someone else, is refused: checkPeer given another owner.
@@ -247,11 +297,81 @@ func TestAListenerThatIsNotTheExpectedUserIsRefused(t *testing.T) {
 	}
 	defer c.Close()
 	r0, _ := Policy{}.Resolve()
-	if err := r0.checkPeer(c, s.path, other); !errors.Is(err, ErrRefused) {
+	if err := r0.checkPeer(c, s.path, os.Getuid()+1); !errors.As(err, &re) || re.Code != CodePeerUIDMismatch ||
+		re.Args["name"] != "uid "+strconv.Itoa(os.Getuid()+1) {
 		t.Fatalf("a listener that is not the socket's owner: %v", err)
 	}
 	if err := r0.checkPeer(c, s.path, os.Getuid()); err != nil {
 		t.Fatalf("the socket's owner listening: %v", err)
+	}
+}
+
+// M-PC-1: where the platform cannot say who listens (ErrUnsupported, every platform but Linux, macOS
+// and FreeBSD), a socket is refused with peer_cred_unsupported and sent nothing, however good its path,
+// unless that backend's peer_check is "path-only". path-only does not ask the listener at all: an
+// account that is not the expected one is let through, on the operator's word.
+func TestAPlatformThatCannotTellIsRefusedUnlessPathOnly(t *testing.T) {
+	needUnix(t)
+	d := privateDir(t)
+	s := serveUnix(t, filepath.Join(d, "b.sock"))
+	old := peerCredOf
+	peerCredOf = func(net.Conn) (peercred.Cred, error) {
+		return peercred.Cred{UID: -1, GID: -1, PID: -1}, peercred.ErrUnsupported
+	}
+	t.Cleanup(func() { peerCredOf = old })
+	r, _ := Policy{}.Resolve()
+	_, err := get(t, r, "unix://"+s.path)
+	var re *RefusedError
+	if !errors.As(err, &re) || re.Code != CodePeerCredUnsupported || re.Args["path"] != s.path || !errors.Is(err, ErrRefused) {
+		t.Fatalf("no listener credentials: %v", err)
+	}
+	if _, err := r.DialUnix(context.Background(), nil, s.path); !errors.As(err, &re) || re.Code != CodePeerCredUnsupported {
+		t.Fatalf("DialUnix without listener credentials: %v", err)
+	}
+	if n := s.hits.Load(); n != 0 {
+		t.Fatalf("the listener received %d requests", n)
+	}
+	other := strconv.Itoa(os.Getuid() + 1)
+	for _, p := range []Policy{{PeerCheck: PeerCheckPathOnly}, {PeerCheck: PeerCheckPathOnly, ExpectedUser: strconv.Itoa(os.Getuid())}} {
+		r, _ := p.Resolve()
+		if body, err := get(t, r, "unix://"+s.path); err != nil || !strings.Contains(body, `"path":"/"`) {
+			t.Fatalf("%+v: %q %v", p, body, err)
+		}
+	}
+	peerCredOf = old
+	if !peercred.Supported() {
+		return
+	}
+	r, _ = Policy{PeerCheck: PeerCheckPathOnly, ExpectedUser: other}.Resolve()
+	if _, err := get(t, r, "unix://"+s.path); err != nil {
+		t.Fatalf("path-only with a listener that is not the expected account: %v", err)
+	}
+	// The path checks still stand under path-only.
+	if err := os.Chmod(d, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := get(t, r, "unix://"+s.path); !errors.Is(err, ErrRefused) {
+		t.Fatalf("path-only, a world-writable directory: %v", err)
+	}
+}
+
+// On a platform that can tell, a connection whose listener's account cannot be read after all (any
+// error but ErrUnsupported) is refused too, and sent nothing: failing to ask is not an answer.
+func TestAListenerWhoseAccountCannotBeReadIsRefused(t *testing.T) {
+	needUnix(t)
+	d := privateDir(t)
+	s := serveUnix(t, filepath.Join(d, "b.sock"))
+	old := peerCredOf
+	peerCredOf = func(net.Conn) (peercred.Cred, error) {
+		return peercred.Cred{UID: -1, GID: -1, PID: -1}, errors.New("getsockopt: bad file descriptor")
+	}
+	t.Cleanup(func() { peerCredOf = old })
+	r, _ := Policy{}.Resolve()
+	if _, err := get(t, r, "unix://"+s.path); !errors.Is(err, ErrRefused) {
+		t.Fatalf("the listener's account could not be read: %v", err)
+	}
+	if n := s.hits.Load(); n != 0 {
+		t.Fatalf("the listener received %d requests", n)
 	}
 }
 

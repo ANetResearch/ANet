@@ -21,6 +21,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/localpeer"
+	"github.com/ANetResearch/ANet/internal/peercred"
 )
 
 // socketBackend is a test backend served on a Unix socket in a private directory, its card naming its
@@ -96,17 +97,17 @@ func TestASocketBackendsCardCannotPointElsewhere(t *testing.T) {
 	}
 }
 
-// SO_PEERCRED: a listener that is not the expected account is sent nothing, not even the card
+// peercred: a listener that is not the expected account is sent nothing, not even the card
 // request that carries the token. (The test cannot listen as a second user; it expects a uid it
-// does not run as.)
+// does not run as. internal/backendconn has the case of another account listening, J10.)
 func TestASocketBackendOfTheWrongUserGetsNothing(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SO_PEERCRED is read on Linux only")
+	if !peercred.Supported() {
+		t.Skip("the listening account is not readable on " + runtime.GOOS)
 	}
 	_, sock, hits := socketBackend(t, func(string) string { return "http://localhost" })
 	h := newInboundHost(t)
 	other := strconv.Itoa(os.Getuid() + 1)
-	startBackendModule(t, h, `{"backends":[{"match":"*","url":"unix://`+sock+`","expected_uid":`+other+`,"token_file":"`+tokenFile(t)+`"}]}`)
+	startBackendModule(t, h, `{"backends":[{"match":"*","url":"unix://`+sock+`","expected_user":"`+other+`","token_file":"`+tokenFile(t)+`"}]}`)
 	h.tasks <- inboundTask("ix1", "bafypeer", true, "hello")
 	noReply(t, h)
 	if n := hits.Load(); n != 0 {

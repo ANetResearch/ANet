@@ -254,3 +254,123 @@ MUTS += [
           '\treturn s.Do(ctx, peerAID, action, r)\n}\n\n// send')],
   tests=[(FED, '^TestTheSignerSignsAgainAboveAStaleFloorOnce$')], full=[FED]),
 ]
+
+# ---- PAY-3: supply epochs and balance proofs; hub.db is 0.3.0 data or refused (repo ANetHub)
+#
+# M-PAY-3 restores what the per-event issuance chain did: a public record per supply event carrying its
+# amount. The code that wrote one is gone, so the mutant has supplyEventTx write a row per event into the
+# served epoch chain; the canary TestSI45PublicSurfacesNameNoPayment (cmd/anet-hub, J-PAY-7 in unit form:
+# a cross-hub payment and a redemption of 7919 against a characteristic reference) finds the amount.
+# M-PAY-4 and M-PAY-5 are killed by P-PAY-2 (TestPropEpochsFollowTheRuleAndThePublicSupplyHoldsStill), M-PAY-6
+# by supply_close_test.go. PAY-3's own (pay3-*) cover the supply events, the hub's row, the proofs, the
+# 14 days, hub.db's version, the pool, the operator sentences and the federation witness poll.
+
+CMD = 'ANetHub:./cmd/anet-hub'
+SUPPLY_PROP = [(HUB, '^(TestPropEpochsFollowTheRuleAndThePublicSupplyHoldsStill|TestThePublicSupplyIsTheSameBytesBetweenPublications)$')]
+SUPPLY_EVENTS = [(HUB, '^TestEverySupplyEventCountsAndATransferDoesNot$')]
+PROOFS = [(HUB, '^(TestALiabilityProofReachesTheSignedRoot|TestTheLiabilityProofRefusals|TestWire3Fixtures)$')]
+
+MUTS += [
+ dict(id='M-PAY-3', group='PAY', repo='ANetHub', desc='恢复逐事件写链(每个供应事件写一条带金额的公开链记录)',
+  edits=[('internal/aghub/supply.go',
+          '\t\t\tcol, amt, int64(math.MaxInt64))\n\t}\n\treturn nil\n}\n',
+          '\t\t\tcol, amt, int64(math.MaxInt64))\n\t}\n'
+          '\tif _, err := tx.Exec(`INSERT INTO supply_chain(seq, id, prev_id, from_day, to_day, root, outstanding, depth, record)\n'
+          '\t    SELECT COALESCE(MAX(seq), -1) + 1, hex(randomblob(16)), \'\', 0, -2 - COALESCE(MAX(seq), -1), \'\', ?, 4, x\'00\'\n'
+          '\t    FROM supply_chain`, amt); err != nil {\n\t\treturn err\n\t}\n\treturn nil\n}\n')],
+  tests=[(CMD, '^TestSI45PublicSurfacesNameNoPayment$')], full=[CMD]),
+ dict(id='M-PAY-4', group='PAY', repo='ANetHub', desc='/x402/supply 改回实时计算(outstanding 取当前账面)',
+  edits=[('internal/aghub/supply.go', '\t\tout.Record = e.Record\n\t}\n\twriteJSON(w, http.StatusOK, out)\n',
+          '\t\tout.Record = e.Record\n\t\tif sup, err := s.store.Supply(s.hubAID); err == nil {\n'
+          '\t\t\tout.Epoch.Outstanding = uint64(sup.Outstanding)\n\t\t}\n\t}\n\twriteJSON(w, http.StatusOK, out)\n')],
+  tests=SUPPLY_PROP, full=[HUB]),
+ dict(id='M-PAY-5', group='PAY', repo='ANetHub', desc='去掉纪元发布规则(每个 UTC 日都发布)',
+  edits=[('internal/aghub/supply.go', '\tif events < epochEvents && d-last.Int64 < epochDays {\n\t\treturn nil, nil\n\t}\n', '')],
+  tests=SUPPLY_PROP + [(HUB, '^TestTheEpochRule$')], full=[HUB]),
+ dict(id='M-PAY-6', group='PAY', repo='ANetHub', desc='关账时不校验根的和 == outstanding',
+  edits=[('internal/aghub/supply.go', '\tif outstanding < 0 || tree.Outstanding() != uint64(outstanding) || hubRow != -outstanding {\n',
+          '\tif outstanding < 0 || hubRow != -outstanding {\n')],
+  tests=[(HUB, '^TestTheCloseRefusesALedgerThatDoesNotAddUp$')], full=[HUB]),
+ dict(id='pay3-event-out', group='PAY-3', repo='ANetHub', desc='向对端 agent 的付款不记供应事件(redeemed 不增)',
+  edits=[('internal/aghub/facilitator.go', '\tif auth.PayTo == hubAID || !local {\n', '\tif auth.PayTo == hubAID {\n')],
+  tests=SUPPLY_EVENTS, full=[HUB]),
+ dict(id='pay3-event-redeem', group='PAY-3', repo='ANetHub', desc='兑付不记供应事件',
+  edits=[('internal/aghub/facilitator.go', '\tif auth.PayTo == hubAID || !local {\n', '\tif !local {\n')],
+  tests=SUPPLY_EVENTS, full=[HUB]),
+ dict(id='pay3-event-clear', group='PAY-3', repo='ANetHub', desc='对端结算入账不记供应事件',
+  edits=[('internal/aghub/facilitator.go',
+          '\tif err := s.supplyEventTx(tx, supplyIssued, amt); err != nil {\n\t\treturn err\n\t}\n\treturn tx.Commit()\n',
+          '\treturn tx.Commit()\n')],
+  tests=SUPPLY_EVENTS, full=[HUB]),
+ dict(id='pay3-hubrow', group='PAY-3', repo='ANetHub', desc='发放不动 hub 自己的行(−hub 行 ≠ issued − redeemed)',
+  edits=[('internal/aghub/facilitator.go',
+          '\t\tif err := addToRow(tx, "credit_balance", "aid", "credits", s.hubAID, -amount); err != nil {\n\t\t\treturn err\n\t\t}\n',
+          '')],
+  tests=SUPPLY_EVENTS, full=[HUB]),
+ dict(id='pay3-retention', group='PAY-3', repo='ANetHub', desc='发布满 14 天的纪元仍给出负债证明',
+  edits=[('internal/aghub/supply.go', '\tif now.UnixMilli()-at >= proofKeptFor {\n', '\tif now.UnixMilli()-at >= proofKeptFor && false {\n')],
+  tests=PROOFS, full=[HUB]),
+ dict(id='pay3-prune', group='PAY-3', repo='ANetHub', desc='发布满 14 天的纪元不删叶',
+  edits=[('internal/aghub/supply.go', '\t\tif now-pub >= proofKeptFor {\n', '\t\tif now-pub >= proofKeptFor && false {\n')],
+  tests=PROOFS, full=[HUB]),
+ dict(id='pay3-proof-today', group='PAY-3', repo='ANetHub', desc='负债证明忽略 ?to_day,总给最新纪元',
+  edits=[('internal/aghub/supply.go', '\tp, err := s.store.LiabilityProof(a.AID, toDay)\n', '\t_ = toDay\n\tp, err := s.store.LiabilityProof(a.AID, nil)\n')],
+  tests=PROOFS, full=[HUB]),
+ dict(id='pay3-proof-self', group='PAY-3', repo='ANetHub', desc='负债证明不要求签名方是路径中的 AID(给出签名方自己的)',
+  edits=[('internal/aghub/supply.go', '\ta, ok := s.authSelf(w, r, relayauth.ActionLiabProof, signedBodyLimit)\n',
+          '\ta, ok := s.authRegistered(w, r, relayauth.ActionLiabProof, signedBodyLimit)\n')],
+  tests=PROOFS, full=[HUB]),
+ dict(id='pay3-idle', group='PAY-3', repo='ANetHub', desc='不设 SetMaxIdleConns(缺省 2)',
+  edits=[('internal/aghub/aghub.go', '\tdb.SetMaxIdleConns(dbIdleConns)\n', '')],
+  tests=[(HUB, '^TestThePoolKeepsItsConnections$')], full=[HUB]),
+ dict(id='pay3-v-new', group='PAY-3', repo='ANetHub', desc='较新版本写的 hub.db 当作 0.2 数据(下一步变成移走目录)',
+  edits=[('internal/aghub/aghub.go', '\tcase version > SchemaVersion:\n', '\tcase false:\n')],
+  tests=[(HUB, '^TestHubDataOfAnotherReleaseIsRefusedUntouched$'), (CMD, '^TestHubRefusesNewerDB$')], full=[HUB, CMD]),
+ dict(id='pay3-v-two', group='PAY-3', repo='ANetHub', desc='user_version 低于 3 而没有表的库当作新库',
+  edits=[('internal/aghub/aghub.go', '\tcase version == SchemaVersion, version == 0 && objects == 0:\n',
+          '\tcase version == SchemaVersion, objects == 0 && version < SchemaVersion:\n')],
+  tests=[(HUB, '^TestHubDataOfAnotherReleaseIsRefusedUntouched$')], full=[HUB]),
+ dict(id='pay3-checkdata', group='PAY-3', repo='ANetHub', desc='拒绝之前先以读写方式打开(被拒的目录被改动)',
+  edits=[('internal/aghub/aghub.go', '\tif err := CheckData(dir); err != nil {\n\t\treturn nil, err\n\t}\n', '')],
+  tests=[(HUB, '^TestHubDataOfAnotherReleaseIsRefusedUntouched$'), (CMD, '^(TestHubRefusesOldDB|TestHubRefusesNewerDB)$')],
+  full=[HUB, CMD]),
+ dict(id='pay3-sentence-new', group='PAY-3', repo='ANetHub', desc='较新版本的数据在 anet-hub 报 hub_identity_v02',
+  edits=[('cmd/anet-hub/main.go', '\t\treturn c.say("hub_data_too_new", nil)\n', '\t\treturn c.say("hub_identity_v02", nil)\n')],
+  tests=[(CMD, '^TestHubRefusesNewerDB$')], full=[CMD]),
+ dict(id='pay3-quota-bad', group='PAY-3', repo='ANetHub', desc='quota 值大于 2^31−1 不报 quota_bad_value',
+  edits=[('cmd/anet-hub/quota.go', '\tif err != nil || n > math.MaxInt32 {\n', '\tif err != nil || n > math.MaxInt64 {\n')],
+  tests=[(CMD, '^TestQuotaBadValueSentence$')], full=[CMD]),
+ dict(id='pay3-witness-poll', group='PAY-3', repo='ANetHub', desc='联邦见证轮询仍读旧的 head_id(对端的纪元链头从不被见证)',
+  edits=[('internal/federation/federation.go', '\t\t\tID  string `json:"id"`\n', '\t\t\tID  string `json:"head_id"`\n')],
+  tests=[(FED, '^TestAOneRecordChainIsStillWitnessed$')], full=[FED]),
+]
+
+# PAY-3 review: the epoch schedule (RunSupplyEpochs, the only caller that publishes in a running hub), the
+# proof's rebuild check and the witness endpoint's unsigned attestation.
+SCHEDULE = [(HUB, '^TestTheSchedulePublishesAtStartAfterMidnightAndAfterAFailure$')]
+
+MUTS += [
+ dict(id='pay3-run-start', group='PAY-3', repo='ANetHub', desc='启动时不补查(停机跨零点的 hub 要等到下一个零点)',
+  edits=[('internal/aghub/supply.go', '\tagain := check()\n\tprune()\n', '\tagain := false\n\tprune()\n')],
+  tests=SCHEDULE, full=[HUB]),
+ dict(id='pay3-run-midday', group='PAY-3', repo='ANetHub', desc='每个 tick 都检查(事件使纪元到期后当天就发布)',
+  edits=[('internal/aghub/supply.go', '\t\t\tif d := utcDay(s.now()); d != day || again {\n',
+          '\t\t\tif d := utcDay(s.now()); true || d != day || again {\n')],
+  tests=SCHEDULE, full=[HUB]),
+ dict(id='pay3-run-retry', group='PAY-3', repo='ANetHub', desc='检查失败后不在下一个 tick 重试(纪元晚一天)',
+  edits=[('internal/aghub/supply.go', '\t\t\tif d := utcDay(s.now()); d != day || again {\n',
+          '\t\t\tif d := utcDay(s.now()); d != day || false && again {\n')],
+  tests=SCHEDULE, full=[HUB]),
+ dict(id='pay3-run-prune', group='PAY-3', repo='ANetHub', desc='只在换日的检查时删旧叶(余额快照多留近一天)',
+  edits=[('internal/aghub/supply.go', '\t\t\t\tagain = check()\n\t\t\t}\n\t\t\tprune()\n',
+          '\t\t\t\tagain = check()\n\t\t\t\tprune()\n\t\t\t}\n')],
+  tests=SCHEDULE, full=[HUB]),
+ dict(id='pay3-proof-rebuild', group='PAY-3', repo='ANetHub', desc='负债证明不核对重建的根(改过的叶照样给出证明)',
+  edits=[('internal/aghub/supply.go',
+          '\tif liabtree.Hex(t.Root()) != e.Root || t.Outstanding() != e.Outstanding || t.Depth() != e.depth {\n',
+          '\tif t.Outstanding() != e.Outstanding || t.Depth() != e.depth {\n')],
+  tests=[(HUB, '^TestALeafChangedAfterTheCloseIsNotServed$')], full=[HUB]),
+ dict(id='pay3-witness-unsigned', group='PAY-3', repo='ANetHub', desc='无签名的见证当作存储失败(500 而不是 400)',
+  edits=[('internal/aghub/witness.go', '\tif a.Envelope == nil {\n', '\tif false {\n')],
+  tests=[(HUB, '^TestAHubRefusesAnUnsignedAttestation$')], full=[HUB]),
+]

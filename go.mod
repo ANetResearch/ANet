@@ -8,6 +8,7 @@ require (
 	github.com/ipfs/go-cid v0.6.2
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/multiformats/go-multihash v0.2.3
+	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.56.0
 )
 
@@ -38,7 +39,6 @@ require (
 	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
