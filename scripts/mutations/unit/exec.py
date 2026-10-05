@@ -520,4 +520,48 @@ MUTS += [
   tests=[(DAEMON, 'TestAutoReplyEvidenceGolden|TestAutoReplyRecordHoldsNoContent|TestUntrustedRunsAreBudgeted')],
   full=[DAEMON],
  ),
+ # EXE-4 review: the halves of the disk watch, the budget's trusted exemption on the openai backend, the
+ # start-up sweep's owner and its first run, and the work-tree removal staying inside the tree.
+ dict(
+  id='m-sb-8b', group='BU-8', repo='ANet',
+  desc='磁盘看门狗只统计工作目录,不统计每次运行目录(沙箱内 /tmp、$HOME)',
+  edits=[('internal/daemon/autoreply_exec.go', 'return append(plan.liveRunDirs(), workDir)', 'return []string{workDir}')],
+  tests=[(DAEMON, 'TestSandboxDiskWatchCountsTheRunDirectory')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8c', group='BU-8', repo='ANet',
+  desc='磁盘看门狗只按文件大小计(fallocate --keep-size 占的块不计)',
+  edits=[('internal/daemon/autoreply_exec.go', 'total += max(fi.Size(), allocatedBytes(fi))', 'total += fi.Size()')],
+  tests=[(DAEMON, 'TestDirsSizeCountsAllocatedBlocks')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8d', group='SB-8', repo='ANet',
+  desc='删除工作目录时按路径 chmod(可被仍在运行的 agent 换成指向树外的链接)',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\t\t\t\t_ = r.Chmod(p, 0o700)', '\t\t\t\t\t_ = os.Chmod(filepath.Join(dir, p), 0o700)')],
+  tests=[(DAEMON, 'TestRemoveWorkTreeStaysInTheTree')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-9', group='BU-1', repo='ANet',
+  desc='openai 后端把信任对端的轮次也计入预算',
+  edits=[('internal/daemon/autoreply.go', 'counted: !trusted}', 'counted: true}')],
+  tests=[(DAEMON, 'TestATrustedPeerOnTheOpenAIBackendIsNotBudgeted')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-9b', group='SB-9', repo='ANet',
+  desc='启动清理删掉临时目录里别的用户的同名目录',
+  edits=[('internal/daemon/sandbox_linux.go', 'if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != leftoverOwner() {', 'if st, ok := fi.Sys().(*syscall.Stat_t); !ok || false && int(st.Uid) != leftoverOwner() {')],
+  tests=[(DAEMON, 'TestSandboxLeftoversAreSweptBeforeTheFirstRun')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-9c', group='SB-9', repo='ANet',
+  desc='开启 exec 自动回复时不清理残留(推迟到第一次沙箱运行)',
+  edits=[('internal/daemon/autoreply.go', '\tif cfg.Backend == "exec" {\n\t\td.sweepSandboxLeftovers()\n\t}\n', '')],
+  tests=[(DAEMON, 'TestSandboxLeftoversAreSweptWhenAutoReplyStarts')],
+  full=[DAEMON],
+ ),
 ]

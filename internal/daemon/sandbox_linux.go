@@ -967,9 +967,15 @@ func newSandboxRunDir(aid string) (string, error) {
 // them and they are not chmod'ed.
 func removeSandboxTree(dir string) { removeWorkTree(dir) }
 
+// leftoverOwner is the uid whose directories the start-up sweep removes: this process's. A variable so
+// tests can stand in for another user.
+var leftoverOwner = os.Getuid
+
 // removeSandboxLeftovers removes the run directories, and the socket directories under the temp dir, of
 // this identity's runs: what a run the daemon was killed in the middle of left (LEC SB-9). It runs
-// before this process's first sandboxed run, when no run of this identity is under way.
+// before this process's first sandboxed run, when no run of this identity is under way. The temp dir is
+// shared with the host's other users and the run prefix is public (the AID's tail): a directory there
+// that this user does not own is not a leftover of ours and is left alone.
 func removeSandboxLeftovers(aid string) {
 	prefix := runDirPrefix(aid) + "-"
 	sweep := func(dir, namePrefix string) {
@@ -981,9 +987,18 @@ func removeSandboxLeftovers(aid string) {
 			return
 		}
 		for _, e := range ents {
-			if e.IsDir() && strings.HasPrefix(e.Name(), namePrefix) {
-				removeSandboxTree(filepath.Join(dir, e.Name()))
+			if !e.IsDir() || !strings.HasPrefix(e.Name(), namePrefix) {
+				continue
 			}
+			p := filepath.Join(dir, e.Name())
+			fi, err := os.Lstat(p)
+			if err != nil {
+				continue
+			}
+			if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != leftoverOwner() {
+				continue
+			}
+			removeSandboxTree(p)
 		}
 	}
 	sweep(sandboxRunRoot(), prefix)

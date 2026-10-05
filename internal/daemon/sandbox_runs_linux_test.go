@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -119,6 +120,83 @@ func TestSandboxDiskWatchKillsTheRun(t *testing.T) {
 	}
 }
 
+// BU-8 on the real sandbox, for the run directory: an agent that fills /tmp — the run directory's tmp/,
+// not its work dir — past the limit is killed all the same, and the record says resource.
+func TestSandboxDiskWatchCountsTheRunDirectory(t *testing.T) {
+	stub := writeStub(t, "#!/bin/sh\nhead -c 65536 /dev/zero > /tmp/hog\nexec sleep 60\n")
+	f := realSandboxFixture(t, stub)
+	oldMax, oldEvery := sandboxDiskMax, sandboxDiskEvery
+	sandboxDiskMax, sandboxDiskEvery = 16<<10, 50*time.Millisecond
+	t.Cleanup(func() { sandboxDiskMax, sandboxDiskEvery = oldMax, oldEvery })
+	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "fill /tmp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	f.tick(t)
+	if el := time.Since(start); el > 30*time.Second {
+		t.Fatalf("the run was not killed (the scan took %s)", el)
+	}
+	if meta := awaitState(t, f.req, id, interactions.StateRejected); meta[a2ashape.KeyReason] != reasonSandboxUnavailble {
+		t.Fatalf("the requester was told %v", meta)
+	}
+	if recs := invoked(t, f.prov); len(recs) != 1 || recs[0]["exit"] != exitResource {
+		t.Fatalf("records: %v", recs)
+	}
+}
+
+// BU-8: what the disk watch adds up is the work dir and the run directories of the processes still
+// running: sandboxPlan.command registers its run directory, whose tmp/ is the agent's /tmp, and Close
+// takes it off. Without bubblewrap: nothing is started.
+func TestTheDiskWatchSeesTheRunDirectory(t *testing.T) {
+	plan := &sandboxPlan{Bwrap: "/usr/bin/bwrap", AID: "EaidDiskWatchRunDir01", Home: filepath.Join(t.TempDir(), "home")}
+	agent := writeStub(t, "#!/bin/sh\necho hi\n")
+	l, err := plan.command(t.TempDir(), []string{agent}, []string{"PATH=/usr/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := plan.liveRunDirs()
+	if len(live) != 1 || !strings.HasPrefix(filepath.Base(live[0]), runDirPrefix(plan.AID)+"-") {
+		l.Close()
+		t.Fatalf("the running process's run directories: %v", live)
+	}
+	if err := os.WriteFile(filepath.Join(live[0], "tmp", "hog"), make([]byte, 64<<10), 0o600); err != nil {
+		l.Close()
+		t.Fatal(err)
+	}
+	if n := dirsSize(append(plan.liveRunDirs(), t.TempDir()), 16<<10); n <= 16<<10 {
+		t.Errorf("%d bytes: the watch does not see what the agent wrote to /tmp", n)
+	}
+	l.Close()
+	if live := plan.liveRunDirs(); len(live) != 0 {
+		t.Fatalf("run directories still watched after Close: %v", live)
+	}
+	if _, err := os.Stat(live[0]); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the run directory survived Close: %v", err)
+	}
+}
+
+// BU-8: a file counts by the space it holds, not only by its size: an agent that allocates blocks past
+// the end of a file (fallocate --keep-size) does not slip under the limit with a file of size zero.
+func TestDirsSizeCountsAllocatedBlocks(t *testing.T) {
+	dir := t.TempDir()
+	f, err := os.Create(filepath.Join(dir, "held"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	const held = 4 << 20
+	if err := syscall.Fallocate(int(f.Fd()), 0x01 /* FALLOC_FL_KEEP_SIZE */, 0, held); err != nil {
+		t.Skipf("the file system here cannot allocate past a file's end: %v", err)
+	}
+	if fi, _ := f.Stat(); fi.Size() != 0 {
+		t.Fatalf("size %d after fallocate --keep-size", fi.Size())
+	}
+	if n := dirsSize([]string{dir}, 1<<40); n < held {
+		t.Fatalf("%d bytes for a file holding %d", n, held)
+	}
+}
+
 // SB-9: before a daemon's first sandboxed run, the run directories and socket directories its
 // identity's earlier runs left are removed — read-only leftovers included — and another identity's
 // are not; it happens once.
@@ -146,6 +224,19 @@ func TestSandboxLeftoversAreSweptBeforeTheFirstRun(t *testing.T) {
 	if _, err := os.Stat(other); err != nil {
 		t.Errorf("another identity's run directory went: %v", err)
 	}
+	// The temp dir is shared and the prefix is public: a directory named like ours that this user
+	// does not own is not swept.
+	theirs := filepath.Join(os.TempDir(), sandboxSockDirPrefix+prefix+"-theirs")
+	if err := os.MkdirAll(theirs, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { removeWorkTree(theirs) })
+	leftoverOwner = func() int { return os.Getuid() + 1 }
+	removeSandboxLeftovers(d.AID())
+	leftoverOwner = os.Getuid
+	if _, err := os.Stat(theirs); err != nil {
+		t.Errorf("a directory of another user's went: %v", err)
+	}
 	again := filepath.Join(sandboxRunRoot(), prefix+"-new")
 	if err := os.MkdirAll(again, 0o700); err != nil {
 		t.Fatal(err)
@@ -154,6 +245,23 @@ func TestSandboxLeftoversAreSweptBeforeTheFirstRun(t *testing.T) {
 	d.sweepSandboxLeftovers()
 	if _, err := os.Stat(again); err != nil {
 		t.Errorf("a second sweep removed a run directory made after the first: %v", err)
+	}
+}
+
+// SB-9: turning the exec backend on sweeps what an earlier process's runs left, before any turn.
+func TestSandboxLeftoversAreSweptWhenAutoReplyStarts(t *testing.T) {
+	d := newBareDaemon(t)
+	left := filepath.Join(sandboxRunRoot(), runDirPrefix(d.AID())+"-leftover")
+	if err := os.MkdirAll(filepath.Join(left, "home"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { removeWorkTree(left) })
+	if err := d.SetAutoReply(&AutoReplyConfig{Backend: "exec", Agent: "claude", Untrusted: UntrustedSandbox}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.SetAutoReply(nil) })
+	if _, err := os.Stat(left); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the leftover survived the start of auto-reply: %v", err)
 	}
 }
 

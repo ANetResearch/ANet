@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -414,6 +417,34 @@ func TestTrustedPeersRunAsTrustedSays(t *testing.T) {
 	}
 }
 
+// GT-4, BU-1: on the openai backend a trusted peer's turns do not count either: with no runs a day for
+// untrusted peers, a trusted peer is answered every time and nothing is counted.
+func TestATrustedPeerOnTheOpenAIBackendIsNotBudgeted(t *testing.T) {
+	api := &fakeOpenAI{reply: "an answer"}
+	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "m", Sandbox: &AutoReplySandboxConfig{RunsPerDay: Budget(0)}}, api)
+	trustPeers(t, f.prov, f.req.AID())
+	for i := 0; i < 2; i++ {
+		id, err := f.req.Delegate(f.ctx, f.prov.AID(), "task", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.tick(t)
+		if got := f.lastPeerMsg(t, id); got.Body != "an answer" {
+			t.Fatalf("task %d: reply %q (a budget of 0 does not apply to a trusted peer)", i, got.Body)
+		}
+	}
+	if n := api.calls.Load(); n != 2 {
+		t.Fatalf("%d model calls, want 2", n)
+	}
+	recs := invoked(t, f.prov)
+	if len(recs) != 2 || recs[0]["mode"] != modeOpenAI || recs[0]["trusted"] != true || len(withExit(recs, exitOK)) != 2 {
+		t.Fatalf("records: %v", recs)
+	}
+	if n := f.prov.budget.today(nil); n != 0 {
+		t.Fatalf("a trusted peer's turns counted %d", n)
+	}
+}
+
 // EG-7: a sandboxed run's record carries what it did through its egress endpoint.
 func TestASandboxedRunRecordsItsEgress(t *testing.T) {
 	execStub(t)
@@ -492,6 +523,73 @@ func TestDirsSize(t *testing.T) {
 	}
 	if n := dirsSize([]string{dir, "/nonexistent"}, 100); n <= 100 || n > 2<<30 {
 		t.Fatalf("%d bytes for a limit of 100", n)
+	}
+}
+
+// SB-8: removing a work dir an agent wrote into empties its read-only directories and never follows a
+// link out of it: the mode of what a link points at is untouched (an agent still running can swap a
+// directory for a link while the tree is walked; the changes go through an os.Root).
+func TestRemoveWorkTreeStaysInTheTree(t *testing.T) {
+	base := t.TempDir()
+	outside := filepath.Join(base, "operator")
+	if err := os.Mkdir(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tree := filepath.Join(base, "work")
+	ro := filepath.Join(tree, "cache", "ro")
+	if err := os.MkdirAll(ro, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(ro, "f"), []byte("x"), 0o400)
+	if err := os.Symlink(outside, filepath.Join(tree, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(tree, "cache", "link")); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(ro, 0o500)
+	removeWorkTree(tree)
+	if _, err := os.Lstat(tree); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the tree survived: %v", err)
+	}
+	fi, err := os.Stat(outside)
+	if err != nil || fi.Mode().Perm() != 0o755 {
+		t.Fatalf("what a link pointed at: %v %v", fi, err)
+	}
+	// A link given as the tree itself is removed, and what it points at is left as it is.
+	link := filepath.Join(base, "work-link")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Mkdir(filepath.Join(outside, "ro"), 0o500)
+	removeWorkTree(link)
+	if _, err := os.Lstat(link); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the link survived: %v", err)
+	}
+	if fi, err := os.Stat(filepath.Join(outside, "ro")); err != nil || fi.Mode().Perm() != 0o500 {
+		t.Fatalf("the link's target was changed: %v %v", fi, err)
+	}
+	_ = os.Chmod(filepath.Join(outside, "ro"), 0o700)
+
+	// The swap itself cannot be timed in a test; what makes it harmless is that the walk and the mode
+	// changes go through the os.Root, never through a path the agent can repoint.
+	file, err := parser.ParseFile(token.NewFileSet(), "autoreply_exec.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, decl := range file.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Name.Name != "removeWorkTree" {
+			continue
+		}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if x, ok := sel.X.(*ast.Ident); ok && (x.Name == "os" && sel.Sel.Name == "Chmod" || x.Name == "filepath" && sel.Sel.Name == "WalkDir") {
+					t.Errorf("removeWorkTree calls %s.%s on a path, not through its os.Root", x.Name, sel.Sel.Name)
+				}
+			}
+			return true
+		})
 	}
 }
 

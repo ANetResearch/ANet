@@ -488,17 +488,24 @@ func deleteExecWorkDir(aid, ix string) {
 
 // removeWorkTree removes a directory an agent wrote into: directories are made writable first (an
 // agent can leave read-only ones, which os.RemoveAll alone cannot empty); symbolic links are removed,
-// never followed.
+// never followed. The walk and the mode changes go through an os.Root: an agent that is still running
+// (its task ended under it) can swap a directory for a link between the walk and the change, and a
+// plain chmod would follow that link to a file of the operator's outside the tree.
 func removeWorkTree(dir string) {
 	if dir == "" {
 		return
 	}
-	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() {
-			_ = os.Chmod(p, 0o700)
+	if fi, err := os.Lstat(dir); err == nil && fi.IsDir() {
+		if r, err := os.OpenRoot(dir); err == nil {
+			_ = fs.WalkDir(r.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+				if err == nil && d.IsDir() {
+					_ = r.Chmod(p, 0o700)
+				}
+				return nil
+			})
+			_ = r.Close()
 		}
-		return nil
-	})
+	}
 	_ = os.RemoveAll(dir)
 }
 
