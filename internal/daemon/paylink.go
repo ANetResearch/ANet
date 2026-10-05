@@ -204,7 +204,11 @@ func (d *Daemon) PayAndRetry(ctx context.Context, providerAID, capID string,
 	if err != nil {
 		return "", err
 	}
-	raw, err := p.Authorize(*opt, id, x402a2a.PayBind(id, nonce), module.PurposeGateway)
+	bind, err := x402a2a.PayBind(id, nonce)
+	if err != nil {
+		return "", err
+	}
+	raw, err := p.Authorize(*opt, id, bind, module.PurposeGateway)
 	if err != nil {
 		return "", err
 	}

@@ -369,9 +369,9 @@ type RemovedSetting struct {
 	// "inbound.public_capabilities[].evidence".
 	Key     string
 	Instead string
-	// Pending is the work item that still writes this key itself
-	// ("v030-todo(<item>)"); until it deletes its code, the key does not stop
-	// the daemon. Empty: the key is refused.
+	// Pending is the work item that still writes this key itself, as the
+	// marker of an open work item (wire.TodoMarker); until it deletes its code,
+	// the key does not stop the daemon. Empty: the key is refused.
 	Pending string
 }
 

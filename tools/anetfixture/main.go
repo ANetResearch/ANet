@@ -36,7 +36,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
 
@@ -200,13 +199,9 @@ func cmdOrgCredential(args []string) error {
 	if err != nil {
 		return err
 	}
-	raw, err := base64.StdEncoding.DecodeString(*genesis)
+	g, err := parseGenesisArg(*genesis)
 	if err != nil {
-		return fmt.Errorf("--genesis not base64: %w", err)
-	}
-	var g org.Genesis
-	if err := coredet.Unmarshal(raw, &g); err != nil {
-		return fmt.Errorf("--genesis malformed: %w", err)
+		return err
 	}
 	orgID, err := g.OrgID()
 	if err != nil {
@@ -378,13 +373,9 @@ func cmdOrgID(args []string) error {
 	if *genesis == "" {
 		return fmt.Errorf("--genesis is required")
 	}
-	raw, err := base64.StdEncoding.DecodeString(*genesis)
+	g, err := parseGenesisArg(*genesis)
 	if err != nil {
-		return fmt.Errorf("--genesis not base64: %w", err)
-	}
-	var g org.Genesis
-	if err := coredet.Unmarshal(raw, &g); err != nil {
-		return fmt.Errorf("--genesis malformed: %w", err)
+		return err
 	}
 	id, err := g.OrgID()
 	if err != nil {
@@ -392,4 +383,20 @@ func cmdOrgID(args []string) error {
 	}
 	fmt.Println(id)
 	return nil
+}
+
+// parseGenesisArg decodes a --genesis value: base64 of the encoding org-genesis prints, read
+// with the org module's own strict decoder. Genesis is not a CBOR struct of its own (its
+// encoding carries the type tag in key 0), so decoding it any other way yields an empty genesis
+// and the id of an organization nobody founded.
+func parseGenesisArg(b64 string) (*org.Genesis, error) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, fmt.Errorf("--genesis not base64: %w", err)
+	}
+	g, err := org.ParseGenesis(raw)
+	if err != nil {
+		return nil, fmt.Errorf("--genesis malformed: %w", err)
+	}
+	return g, nil
 }

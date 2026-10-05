@@ -646,8 +646,7 @@ func TestDaemonDecodesHubBinaryAsBase64URL(t *testing.T) {
 		"cmd/anet/verify.go report":                              "a key history the user gives, or the control plane's (the control plane keeps standard base64)",
 		"cmd/anet/verify.go verifyAttestation":                   "an attestation the user gives",
 		"tools/anetfixture/attack.go readEnvelope":               "the fixture's command line",
-		"tools/anetfixture/main.go cmdOrgCredential":             "the fixture's command line",
-		"tools/anetfixture/main.go cmdOrgID":                     "the fixture's command line",
+		"tools/anetfixture/main.go parseGenesisArg":              "the fixture's command line",
 		// Not this package's to change: each goes with its item.
 		"module/x402/audit.go auditIssuance":   "v030-todo(PAY-13): per-event issuance records, replaced by supply epochs",
 		"module/x402/voucher.go RedeemVoucher": "v030-todo(PAY-9): vouchers are removed",

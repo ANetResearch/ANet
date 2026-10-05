@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -1025,7 +1026,8 @@ func FuzzGrantToKeep(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	good, err := (&seal.Grant{Cap: *c, HolderSeed: seed, Home: "hub-aid-0003"}).Marshal()
+	// A grant's home is an AID (core §2.3); this one is the conformance hub identity's.
+	good, err := (&seal.Grant{Cap: *c, HolderSeed: seed, Home: identity.SuiteController().AID()}).Marshal()
 	if err != nil {
 		f.Fatal(err)
 	}
