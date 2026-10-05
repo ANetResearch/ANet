@@ -84,6 +84,11 @@ var sessionRoutes = map[string]sessionRule{
 	// Read only (KEL P-4). /identity/rotate and /identity/deactivate are
 	// bearer-only, like /hub-register (KEL P-3).
 	"POST /identity/status": {},
+	// Read only: the console's agent list and agent detail go through this
+	// node, which names no agent to the hub; the page used to ask the hub
+	// for /agents/<aid> itself (sealed-sender SSR-D17, UX-W2).
+	"POST /agents/list": {jsonFields: []string{"limit", "cursor", "include_uncarded"}},
+	"POST /agents/card": {jsonFields: []string{"aid"}},
 }
 
 // publicRoutes are the only top-level routes reachable without the bearer token or a session. /console

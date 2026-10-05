@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -422,8 +423,8 @@ func TestSafeName(t *testing.T) {
 }
 
 // Optional real-browser check (A2A-DESIGN §7.5): with the CSP in force, the console opened through a
-// ticket starts a session and shows the directory fetched from the hub origin. Runs when a headless
-// Chromium is available (ANET_TEST_CHROME, or the Playwright cache).
+// ticket starts a session and shows the directory the daemon read from its hub (/agents/list, sealed-sender
+// SSR-D17). Runs when a headless Chromium is available (ANET_TEST_CHROME, or the Playwright cache).
 func TestConsoleLoadsTheDirectoryUnderItsCSP(t *testing.T) {
 	chrome := os.Getenv("ANET_TEST_CHROME")
 	if chrome == "" {
@@ -440,8 +441,9 @@ func TestConsoleLoadsTheDirectoryUnderItsCSP(t *testing.T) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/graph":
-			_, _ = w.Write([]byte(`{"nodes":[{"aid":"Eagent-directory-probe","name":"DirectoryProbeAgent","caps":["probe"],"summary":"csp check","avg_rating":0,"review_count":0}],"edges":[]}`))
+		case "/agents":
+			// A hub without the A2A registry: its directory is the list.
+			_, _ = w.Write([]byte(`{"agents":[{"aid":"bagentdirectoryprobe","name":"DirectoryProbeAgent","caps":["probe"],"summary":"csp check"}]}`))
 		case "/stats":
 			_, _ = w.Write([]byte(`{"agents":1,"tasks_completed":0,"reviews":0}`))
 		default:
@@ -474,5 +476,99 @@ func TestConsoleLoadsTheDirectoryUnderItsCSP(t *testing.T) {
 	}
 	if !strings.Contains(dom, "DirectoryProbeAgent") {
 		t.Fatal("the directory from the hub did not render under the CSP")
+	}
+}
+
+// UX-T14 (sealed-sender SSR-D17, UX-W2): the console names no agent to the
+// hub. Its agent list and agent detail come through this node — the session
+// may call /agents/list and /agents/card, with only the members the page
+// sends, and both only read — and the page never asks the hub for
+// /agents/<aid> (nor for /graph, the list it used to read from the browser).
+func TestConsoleNamesNoAgentToTheHub(t *testing.T) {
+	page, err := ConsoleHTML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, gone := range []*regexp.Regexp{
+		regexp.MustCompile(`fetch\(\s*HUB\s*\+\s*["'` + "`" + `]/agents`),
+		regexp.MustCompile(`fetch\(\s*HUB\s*\+\s*["'` + "`" + `]/graph`),
+		regexp.MustCompile(`/agents/"\s*\+\s*encodeURIComponent`),
+	} {
+		if gone.Match(page) {
+			t.Errorf("the console still asks the hub itself: %s", gone.FindString(string(page)))
+		}
+	}
+	for _, want := range []string{`ctl("/agents/list"`, `ctl("/agents/card", { aid })`} {
+		if !bytes.Contains(page, []byte(want)) {
+			t.Errorf("the console does not call %s", want)
+		}
+	}
+	// Every hub request left in the page is a statistic, which names no one.
+	for _, m := range regexp.MustCompile(`fetch\(\s*HUB\s*\+\s*"([^"]*)"`).FindAllSubmatch(page, -1) {
+		if string(m[1]) != "/stats" {
+			t.Errorf("the console fetches %s from the hub", m[1])
+		}
+	}
+
+	for route, fields := range map[string][]string{
+		"POST /agents/list": {"cursor", "include_uncarded", "limit"},
+		"POST /agents/card": {"aid"},
+	} {
+		rule, ok := sessionRoutes[route]
+		if !ok {
+			t.Fatalf("%s is not on the session allowlist", route)
+		}
+		got := append([]string(nil), rule.jsonFields...)
+		slices.Sort(got)
+		if !slices.Equal(got, fields) || rule.multipart || rule.noCSRF {
+			t.Errorf("%s: %+v, want the JSON members %v only", route, rule, fields)
+		}
+	}
+
+	// Through a session: the page's calls reach the handlers and answer;
+	// anything else in the body is refused before them; and they leave
+	// nothing behind.
+	h := newRegistryHub(t)
+	a := newCardAgent(t, "Alpha", "first", "text.stats")
+	h.list(a, nil)
+	d := newTestDaemon(t, h.srv.URL, false)
+	p := newPlaneFor(t, d, "tok")
+	s := p.session(t)
+	before, err := d.ix.Count(interactions.ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ path, body string }{
+		{"/agents/list", `{"limit":100,"include_uncarded":true}`},
+		{"/agents/card", `{"aid":"` + a.aid + `"}`},
+	} {
+		resp, body := p.req(t, "POST", c.path, c.body, s.as(p))
+		if resp.StatusCode != 200 || !strings.Contains(string(body), a.aid) {
+			t.Errorf("%s under a session: %d %s", c.path, resp.StatusCode, body)
+		}
+	}
+	for _, c := range []struct{ path, body string }{
+		{"/agents/list", `{"limit":10,"skill":"text.stats"}`},
+		{"/agents/card", `{"aid":"` + a.aid + `","record":true}`},
+	} {
+		if resp, body := p.req(t, "POST", c.path, c.body, s.as(p)); !refusedForSession(resp, body) {
+			t.Errorf("%s %s under a session: %d %s", c.path, c.body, resp.StatusCode, body)
+		}
+	}
+	if after, err := d.ix.Count(interactions.ListFilter{}); err != nil || after != before {
+		t.Errorf("reading agents started interactions: %d, then %d (%v)", before, after, err)
+	}
+	if _, err := d.ix.PeerIdentity(a.aid); err == nil {
+		t.Error("reading an agent's card recorded the agent")
+	}
+	for _, u := range h.requests() {
+		if strings.Contains(u, a.aid) {
+			t.Errorf("the hub was asked %s", u)
+		}
+	}
+	for _, b := range h.requestBodies() {
+		if strings.Contains(b, a.aid) {
+			t.Errorf("a request to the hub carried the agent's AID: %s", b)
+		}
 	}
 }

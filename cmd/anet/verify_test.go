@@ -16,10 +16,12 @@ import (
 
 	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/ael"
+	"github.com/ANetResearch/ANetCore/dirbox"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
+	"github.com/ANetResearch/ANet/internal/hubapi"
 )
 
 // A receipt and the key that signed it are useless apart. A receipt alone
@@ -183,8 +185,17 @@ func TestVerifyingAWitnessAttestation(t *testing.T) {
 // record the stronger. The line existed on the receipt path and had no
 // test; splitting the fetch out for the attestation path dropped it, and
 // the whole suite stayed green. Production caught it.
+//
+// And the hub is asked without being told whose key it is (sealed-sender
+// SSR-D14, SSR-D16): a directory bucket, a few bits of the signer's
+// directory hash wide, and the entry opened here — the signer's AID is in
+// no request, and a hub's own key history comes from its identity.
 func TestVerifySaysWhereTheKeyCameFrom(t *testing.T) {
 	c, err := identitytest.Hub()
+	if err != nil {
+		t.Fatal(err)
+	}
+	hubID, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,27 +203,63 @@ func TestVerifySaysWhereTheKeyCameFrom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var asked string
+	hubKEL, _ := identity.MarshalKEL(hubID.KEL())
+	h, _ := dirbox.Hash(c.AID())
+	box, err := dirbox.Seal(c.AID(), &dirbox.DirEntry{AID: c.AID(), Home: hubID.AID(), KEL: kelRaw, Keys: []byte{1}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		asked = r.URL.Path
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"kel": base64.StdEncoding.EncodeToString(kelRaw)})
+		body, _ := io.ReadAll(r.Body)
+		asked = append(asked, r.Method+" "+r.URL.String()+" "+string(body))
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/hub/identity":
+			bits := 24 // reported; a query names at most 10 bits whatever it says
+			_ = json.NewEncoder(w).Encode(hubapi.HubIdentity{AID: hubID.AID(), KEL: hubapi.B64(hubKEL), DirMaxBits: &bits})
+		case hubapi.DirectoryBucketPath:
+			var q hubapi.DirBucketRequest
+			if json.Unmarshal(body, &q) != nil || q.Bits != hubapi.DirQueryMaxBits {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(hubapi.DirBucketResponse{MaxBits: 24,
+				Entries: []hubapi.DirBucketEntry{{H: hubapi.B64(h), Box: hubapi.B64(box)}}})
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer hub.Close()
 
+	var got string
 	out := captureStdout(t, func() {
-		if _, err := fetchKELFor(hub.URL, c.AID()); err != nil {
+		if got, err = fetchKELFor(hub.URL, c.AID()); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if !strings.Contains(asked, c.AID()) {
-		t.Errorf("the hub was asked for %q, not the AID", asked)
+	if got != base64.StdEncoding.EncodeToString(kelRaw) {
+		t.Fatal("the key history fetched is not the signer's")
+	}
+	for _, a := range asked {
+		if strings.Contains(a, c.AID()) || strings.Contains(a, hubapi.B64(h)) {
+			t.Errorf("the hub was asked %q, which names the signer", a)
+		}
 	}
 	if !strings.Contains(out, "fetched from") || !strings.Contains(out, hub.URL) {
 		t.Errorf("the fetch was silent, so a reader cannot tell it from an offline check: %q", out)
 	}
 	if !strings.Contains(out, c.AID()) {
 		t.Errorf("the line does not say whose key was fetched: %q", out)
+	}
+	// The hub's own key history, for a witness that is the hub.
+	if got, err := fetchKELFor(hub.URL, hubID.AID()); err != nil || got != base64.StdEncoding.EncodeToString(hubKEL) {
+		t.Fatalf("the hub's own key history: %v", err)
+	}
+	// An agent the directory does not hold is an error that says so.
+	other, _ := identitytest.Hub()
+	if _, err := fetchKELFor(hub.URL, other.AID()); err == nil || !strings.Contains(err.Error(), "no entry") {
+		t.Fatalf("an agent the directory does not hold: %v", err)
 	}
 }
 

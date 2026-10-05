@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/daemon"
 )
 
 // errAcceptOn is the answer to `anet accept on` and to
@@ -162,45 +164,49 @@ func pendingNote(c *client, ix string) (string, error) {
 	return "", fmt.Errorf("no held delegation %s (see `anet inbound list`)", ix)
 }
 
-// peerNote describes a peer for the confirmation prompt from the hub
-// directory, when the hub lists it. The directory entry is the peer's own
-// description, not verified by anyone, and the prompt says so; the AID
-// above it is what is being granted.
+// peerNote describes a peer for the confirmation prompt from its network
+// card, which the daemon takes from the directory without naming the peer
+// to the hub and verifies against the peer's key history (/agents/card,
+// sealed-sender SSR-D16). A card is what the peer says of itself, signed by
+// it; the AID above it is what is being granted.
 func peerNote(c *client, aid string) string {
 	fc := *c
-	fc.timeout = 5 * time.Second
-	b, code, err := fc.fetch("/find", map[string]any{"query": aid})
+	fc.timeout = 10 * time.Second
+	b, code, err := fc.fetch("/agents/card", map[string]any{"aid": aid})
 	if err != nil || code != 200 {
 		return ""
 	}
 	var out struct {
-		Agents []struct {
-			AID     string `json:"aid"`
-			Name    string `json:"name"`
-			Summary string `json:"summary"`
-			HomeHub string `json:"home_hub"`
-		} `json:"agents"`
+		AID               string          `json:"aid"`
+		Card              json.RawMessage `json:"card"`
+		Verification      string          `json:"verification"`
+		VerificationError string          `json:"verificationError"`
 	}
-	if json.Unmarshal(b, &out) != nil {
+	if json.Unmarshal(b, &out) != nil || out.AID != aid {
 		return ""
 	}
-	for _, a := range out.Agents {
-		if a.AID != aid {
-			continue
+	switch out.Verification {
+	case "VERIFIED":
+		var card struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
 		}
-		s := "\n  hub directory entry (self-described, not verified):"
-		if a.Name != "" {
-			s += "\n    name     " + printable(a.Name, 80)
+		_ = json.Unmarshal(out.Card, &card)
+		s := "\n  network card (the agent's own words, signed by it):"
+		if card.Name != "" {
+			s += "\n    name     " + printable(card.Name, 80)
 		}
-		if a.Summary != "" {
-			s += "\n    summary  " + printable(a.Summary, 160)
-		}
-		if a.HomeHub != "" {
-			s += "\n    home hub " + printable(a.HomeHub, 120)
+		if card.Description != "" {
+			s += "\n    about    " + printable(card.Description, 160)
 		}
 		return s
+	case "UNVERIFIED":
+		return "\n  its network card does not verify here (" + printable(out.VerificationError, 80) + "); nothing of it is shown"
 	}
-	return "\n  this AID is not in your hub's directory"
+	if out.VerificationError == daemon.CardUnknownAgent {
+		return "\n  no hub knows this AID"
+	}
+	return "\n  this agent publishes no network card"
 }
 
 // runAccept is the wire-1 `anet accept <on|off>` (A2A-DESIGN §5.1). "on"

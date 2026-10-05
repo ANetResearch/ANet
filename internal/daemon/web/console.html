@@ -611,13 +611,16 @@ anet console                              # 打开这个身份的本地控制台
 const A = window.__ANET || { aid: "", name: "", hub: "" };
 const CONSOLE = true;
 function qparam(k) { return new URLSearchParams(location.search).get(k) || ""; }
-// Public registry data (/graph, /stats, /agents/:aid) is read cross-origin from the hub this daemon is
-// registered with; the page's Content-Security-Policy admits exactly that origin in connect-src.
+// The hub's public statistics (/stats) are read cross-origin from the hub this daemon is registered
+// with; the page's Content-Security-Policy admits exactly that origin in connect-src. The agents
+// themselves — the list and one agent's card — come through this daemon (/agents/list, /agents/card),
+// which never names an agent to the hub: asking the hub for /agents/<aid> from the browser would tell
+// it, with this user's address, whom the user is about to write to (sealed-sender SSR-D17).
 const HUB = A.hub || "";
 let CSRF = ""; // session CSRF value, memory only
 
 // app state: the directory, console threads, current selection.
-const app = { agents: [], edges: [], threads: [], sel: { kind: "", id: "", chat: false }, q: "", gcollapsed: false, right: "home" };
+const app = { agents: [], threads: [], sel: { kind: "", id: "", chat: false }, q: "", gcollapsed: false, right: "home" };
 
 // On phones the sidebar (list) and main pane overlap full-width; setDetail(true) slides the detail/chat
 // pane in (and shows the topbar back button). On desktop the class is inert — both panes are side by side.
@@ -790,44 +793,33 @@ function renderWelcome() {
 async function renderAgentDetail(aid, target) {
   const main = target || document.getElementById("main");
   main.innerHTML = `<div class="detail"><div class="dscroll"><div class="no-rev">加载中…</div></div></div>`;
-  let a, reviews;
+  let ra;
   try {
-    const r = await fetch(HUB + "/agents/" + encodeURIComponent(aid));
-    const j = await r.json(); a = j.agent; reviews = j.reviews || [];
-  } catch (e) { main.innerHTML = `<div class="detail"><div class="dscroll"><div class="no-rev">加载失败</div></div></div>`; return; }
+    ra = await ctl("/agents/card", { aid });
+  } catch (e) { main.innerHTML = `<div class="detail"><div class="dscroll"><div class="no-rev">加载失败：${esc(e.message)}</div></div></div>`; return; }
   if (app.sel.kind !== "agent" || app.sel.id !== aid) return; // selection changed while fetching
+  const a = agentView(ra);
+  const listed = app.agents.find(x => x.aid === aid);
+  if (listed) { a.review_count = listed.review_count; a.avg_rating = listed.avg_rating; }
 
   const chips = (a.caps || []).map(c => `<span class="chip">${esc(c)}</span>`).join("");
+  const check = ra.verification === "VERIFIED" ? "✓ 名片已由对方签名并在本机核验"
+    : ra.verification === "UNVERIFIED" ? "名片未通过本机核验，不显示其内容（" + esc(ra.verificationError || "") + "）"
+    : "对方没有发布名片" + (ra.verificationError ? "（" + esc(ra.verificationError) + "）" : "");
   const profile =
     (a.summary ? `<div class="summary">${esc(a.summary)}</div>` : "") +
-    (a.readme ? `<div class="readme md">${renderMd(a.readme)}</div>` : "") +
-    (a.pricing ? `<div class="pricing"><span class="plabel">收费（仅展示）</span>${esc(a.pricing)}</div>` : "");
+    `<div class="verified">${check}</div>`;
 
   const isSelf = CONSOLE && a.aid === A.aid;
   const actionBtn = isSelf
     ? `<div class="dhself">这是你自己</div>`
     : `<button class="btn" id="startChatBtn">开始对话 →</button>`;
 
-  let rv = "";
-  if (!reviews.length) {
-    rv = `<div class="no-rev">还没有可信评价。评价必须锚定一次双方签名的交互回执，Hub 验签通过后才会显示。</div>`;
-  } else {
-    // Reviews carry the receipt and the rating only; the task content is not uploaded with them, so the
-    // hub cannot and does not check what was asked or delivered (A2A-DESIGN §9).
-    rv = `<h4>Verified reviews</h4>` + reviews.map(r => {
-      const io = (r.request_cid || r.result_cid || r.completed_at) ? `<div class="io">
-          <div class="anchors">
-            ${r.request_cid ? `<div><b>request_cid</b> ${esc(r.request_cid)}</div>` : ""}
-            ${r.result_cid ? `<div><b>result_cid</b> ${esc(r.result_cid)}</div>` : ""}
-            ${r.completed_at ? `<div><b>completed</b> ${esc(fmtTime(r.completed_at))}</div>` : ""}
-          </div></div>` : "";
-      return `<div class="review">
-        <div class="top"><span class="stars">${stars(r.rating)}</span><span class="rv">by ${esc(short(r.reviewer_aid))}</span></div>
-        ${r.comment ? `<div class="cm">“${esc(r.comment)}”</div>` : ""}${io}
-        <div class="verified">✓ 双方签名已验证 · 回执 ${esc(short(r.receipt_cid))}${r.created_at ? ` · ${esc(fmtTime(r.created_at))}` : ""}</div>
-      </div>`;
-    }).join("");
-  }
+  // Reviews are listed by the hub per agent; reading them here would name this agent to the hub, so the
+  // console shows the summary that came with the list and nothing per review.
+  const rv = a.review_count
+    ? `<div class="no-rev">共 ${a.review_count} 条可信评价，平均 ${a.avg_rating.toFixed(1)}。逐条评价请在 hub 网页查看：本机控制台不向 hub 点名查询任何 agent。</div>`
+    : `<div class="no-rev">还没有可信评价。评价必须锚定一次双方签名的交互回执，Hub 验签通过后才会显示。</div>`;
 
   main.innerHTML = `<div class="detail">
     <div class="dh">
@@ -851,6 +843,20 @@ async function renderAgentDetail(aid, target) {
     catch (e) { toast("复制失败：" + e.message, true); }
     setTimeout(() => { cp.textContent = "⧉ 复制 AID"; }, 1600);
   };
+}
+
+// agentView turns an entry of /agents/list or /agents/card (the daemon's RemoteAgent) into what the page
+// draws: the name, skills and description of a card this node verified, or what the hub's directory
+// says of an agent that publishes no card; an unverified card shows its AID only.
+function agentView(ra) {
+  const v = { aid: ra.aid || "", name: ra.name || "", caps: ra.caps || [], summary: ra.summary || "",
+    review_count: ra.reviewCount || 0, avg_rating: Number(ra.avgRating) || 0, listed: true };
+  if (ra.verification === "VERIFIED" && ra.card && typeof ra.card === "object") {
+    v.name = ra.card.name || v.name;
+    v.summary = ra.card.description || v.summary;
+    v.caps = (ra.card.skills || []).map(s => s.id || s.name).filter(Boolean);
+  }
+  return v;
 }
 
 // openChat continues an existing active conversation with this agent, or opens a fresh chat whose first
@@ -1100,14 +1106,15 @@ function renderConversation(id) {
 }
 
 // ===================== data loading =====================
+// loadDirectory reads the agents through this daemon (/agents/list): the daemon reads the hub's
+// registry page by page without any query and verifies every card itself; the search box filters what
+// it returned, here.
 async function loadDirectory() {
   if (!HUB) { app.agents = []; if (app.right === "explore") renderGrid(); return; }
   try {
-    const r = await fetch(HUB + "/graph"); const g = await r.json();
-    app.agents = g.nodes || [];
-    app.edges = g.edges || [];
+    const j = await ctl("/agents/list", { limit: 100, include_uncarded: true });
+    app.agents = (j.agents || []).map(agentView);
     if (app.right === "explore") renderGrid();
-    updateHeroStats();
     renderSessions();
   } catch (e) { /* keep last known list */ }
 }
@@ -1312,7 +1319,7 @@ function initConsole() {
   setRight("explore"); // land on 浏览 Agents (no 首页 in console)
   updateSideBar();
   updateHeroStats(); setInterval(updateHeroStats, 8000);
-  loadDirectory(); setInterval(loadDirectory, 5000);
+  loadDirectory(); setInterval(loadDirectory, 30000);
   loadThreads().then(() => { setInterval(loadThreads, 5000); initConsoleTarget(); });
 }
 
