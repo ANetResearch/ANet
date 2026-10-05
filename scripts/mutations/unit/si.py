@@ -563,9 +563,9 @@ MUTS = [
   id='si9-6', group='SI-9', repo='ANetHub',
   desc='绑定唯一索引改为普通索引(同一绑定可两次扣款)',
   edits=[
-   ('internal/aghub/facilitator.go', 'CREATE UNIQUE INDEX IF NOT EXISTS idx_settled_binding', 'CREATE INDEX IF NOT EXISTS idx_settled_binding'),
+   ('internal/aghub/aghub.go', 'CREATE UNIQUE INDEX IF NOT EXISTS idx_settled_binding', 'CREATE INDEX IF NOT EXISTS idx_settled_binding'),
   ],
-  tests=[('ANetHub:./internal/aghub', 'TestASecondAuthorizationForOneBindingMovesNothing|TestUpgradingAHubWithDuplicateBindingsKeepsTheFirstAsHolder')],
+  tests=[('ANetHub:./internal/aghub', 'TestASecondAuthorizationForOneBindingMovesNothing|TestTheBindingIndexHoldsOneSettlementPerBinding')],
   full=['ANetHub:./internal/aghub'],
  ),
  dict(
