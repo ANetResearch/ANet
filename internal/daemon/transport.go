@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
@@ -10,16 +9,14 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/module"
 )
 
-// Retired relayauth actions: relayauth no longer defines them (wire 3 removes the signed send and
-// the hub rendezvous). The v0.2 hub client below still uses them until its replacements land.
-const (
-	actionSendRetired = "send" // v030-todo(SS-9): relay v3 sends with a session MAC or a capability
-	actionP2PRetired  = "p2p"  // v030-todo(SS-11): the hub rendezvous route is removed
-)
+// actionP2PRetired is the relayauth action of the hub rendezvous, which
+// relayauth no longer defines (wire 3 removes the rendezvous); the p2p
+// address publication below still uses it until its replacement lands.
+const actionP2PRetired = "p2p" // v030-todo(SS-11): the hub rendezvous route is removed
 
 // hubTransport is the always-available delivery path.
 //
@@ -39,53 +36,38 @@ func (h hubTransport) Reachable(context.Context, string) bool {
 	return h.d.config().HubURL != ""
 }
 
-// Send posts the envelope to the hub. The hub's answer carries no delivery
-// confirmation (only the recipient makes one), so dack is always nil; handed
-// is whether the request got a connection (hubapi.TraceHanded).
+// Send posts the envelope to the hub (relaySendV3) under the credential
+// its outer key 7 carries. The hub's answer carries no delivery
+// confirmation (only the recipient makes one), so dack is always nil;
+// handed is whether the send got a connection (hubapi.TraceHanded).
 func (h hubTransport) Send(ctx context.Context, toAID string, envelope []byte) ([]byte, bool, error) {
-	hub := h.d.config().HubURL
-	if hub == "" {
+	if h.d.config().HubURL == "" {
 		return nil, false, fmt.Errorf("anet: no hub configured")
 	}
-	// The hub's identity first, outside the trace. Looking it up is a
-	// request of its own that carries no byte of the envelope: a hub that
-	// answers it and then cannot be dialled, or that cannot serve an
-	// identity this node accepts, has been handed nothing. Only the
-	// connection of /relay/send says the envelope may have left; hubSigned
-	// then finds the identity cached.
-	if _, _, err := h.d.hubIdentity(ctx, hub); err != nil {
+	choice, err := h.d.accessChoiceOfEnvelope(toAID, envelope)
+	if err != nil {
 		return nil, false, err
 	}
-	tctx, handed := hubapi.TraceHanded(ctx)
-	var out hubapi.RelaySendResponse
-	if err := h.d.hubSigned(tctx, hub, http.MethodPost, "/relay/send", actionSendRetired, hubapi.RelaySendRequest{
-		ToAID:    toAID,
-		Envelope: base64.StdEncoding.EncodeToString(envelope),
-	}, &out); err != nil {
-		return nil, handed(), err
+	res, handed, err := h.d.relaySendV3(ctx, envelope, choice)
+	if err != nil {
+		return nil, handed, err
 	}
 	// The hub knows the recipient has not collected its mail in a long
-	// time, and said so. What it said is kept against the recipient's AID
-	// so the caller that just sent can report it (see QuietPeer): the
-	// daemon log is where the operator of THIS node reads, and the person
-	// who needs the fact is whoever typed `anet delegate`.
+	// time, and said so. The mark is kept against the recipient's AID so
+	// the caller that just sent can report it (see QuietPeer): the daemon
+	// log is where the operator of THIS node reads, and the person who
+	// needs the fact is whoever typed `anet delegate`.
 	//
 	// Recorded on every send rather than only logged: an operator watching
 	// a delegation sit unanswered otherwise has no way to learn that the
-	// other end stopped running last Tuesday.
-	switch {
-	case out.RecipientQuiet && out.Warning != "":
-		h.d.noteQuietPeer(toAID, out.Warning)
-	case !out.RecipientQuiet:
-		// The hub answered and did not raise the mark, so a mark left over
-		// from an earlier send is no longer what the hub says. Dropping it
-		// keeps the reported state to what was last actually observed —
-		// otherwise a peer that came back would be reported quiet forever,
-		// since only inbound traffic clears it.
+	// other end stopped running last Tuesday. An answer without the mark
+	// drops one left from an earlier send, so the reported state is what
+	// was last actually observed.
+	if res.Quiet {
+		h.d.noteQuietPeer(toAID)
+	} else {
 		h.d.noteLivePeer(toAID)
 	}
-	// Quiet with no sentence to pass on is left alone: nothing to report
-	// and nothing to retract. The hub sets both fields together.
 	return nil, true, nil
 }
 
@@ -367,22 +349,25 @@ func (h moduleHost) NoteBadDAck() { h.d.count(counterDAckBadFrame) }
 // same reason: a chat with a quiet peer sends a message every few
 // seconds, and a line each would bury the log in exactly the situation
 // where the operator most needs to read it.
-func (d *Daemon) noteQuietPeer(aid, warning string) {
+func (d *Daemon) noteQuietPeer(aid string) {
 	d.mu.Lock()
 	if d.quietPeers == nil {
-		d.quietPeers = map[string]string{}
+		d.quietPeers = map[string]bool{}
 	}
-	_, already := d.quietPeers[aid]
-	d.quietPeers[aid] = warning
+	already := d.quietPeers[aid]
+	d.quietPeers[aid] = true
 	d.mu.Unlock()
 	if !already {
-		log.Printf("anet: %s", warning)
+		log.Printf("anet: the hub says %s has not collected its mail for a long time; it may not be running", aid)
 	}
 }
 
-// QuietPeer returns the hub's most recent statement that aid has stopped
-// collecting its mail, or "" when the hub has made none (or has since
-// answered without it).
+// QuietPeer returns the sentence for a recipient the hub last said has
+// stopped collecting its mail, in this process's language (core G13), or
+// "" when the hub has said no such
+// thing (or has since answered without it). The hub states only the fact
+// (recipient_quiet); the words are this node's (ux §1.4 C3,
+// delivery.queued_at_hub), as for every other delivery state.
 //
 // This is how a control-plane handler reports what the hub said about the
 // recipient of the send it just made. The alternative — returning the flag
@@ -394,8 +379,12 @@ func (d *Daemon) noteQuietPeer(aid, warning string) {
 // only if another send to the same peer interleaves.
 func (d *Daemon) QuietPeer(aid string) string {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.quietPeers[aid]
+	quiet := d.quietPeers[aid]
+	d.mu.Unlock()
+	if !quiet {
+		return ""
+	}
+	return a2ashape.Sentence("delivery.queued_at_hub", a2ashape.Lang(), nil)
 }
 
 // noteLivePeer clears the quiet mark when a peer answers, so a later

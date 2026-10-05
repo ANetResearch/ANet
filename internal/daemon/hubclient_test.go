@@ -3,7 +3,6 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -20,14 +19,14 @@ import (
 	"github.com/ANetResearch/ANet/internal/hubapi"
 )
 
-// A hub that states a wire version below 2 stores and forwards plaintext.
-// The daemon refuses to register with it or to relay through it; there is
-// no fallback (A2A-DESIGN §3.7, §18).
-func TestAHubBelowWire2IsRefused(t *testing.T) {
+// A hub that states a wire version below this daemon's speaks another
+// contract. The daemon refuses to register with it or to relay through it;
+// there is no fallback (core CORE-V1).
+func TestAHubBelowWire3IsRefused(t *testing.T) {
 	srv := newFakeHub(t)
 	fake := fakeHubAt(t, srv.URL)
 	fake.mu.Lock()
-	fake.wire = 1
+	fake.wire = 2
 	fake.mu.Unlock()
 	d := newTestDaemon(t, srv.URL, true)
 	// The join ends refused with wire_too_new: the hub is older than this
@@ -35,34 +34,58 @@ func TestAHubBelowWire2IsRefused(t *testing.T) {
 	err := d.RegisterWithHub(context.Background(), srv.URL, "n", nil)
 	var ref *a2ashape.Refusal
 	if !errors.As(err, &ref) || ref.Code() != "wire_too_new" {
-		t.Fatalf("registration with a wire-1 hub: %v, want wire_too_new", err)
+		t.Fatalf("registration with a wire-2 hub: %v, want wire_too_new", err)
 	}
 	if r := d.joinSnapshot(); r == nil || r.State != JoinRefused || r.Reason != "wire_too_new" {
-		t.Fatalf("join state after a wire-1 hub: %+v", r)
+		t.Fatalf("join state after a wire-2 hub: %+v", r)
 	}
 	if fakeHubAt(t, srv.URL).registerCalls != 0 {
-		t.Error("a registration was sent to a wire-1 hub")
+		t.Error("a registration was sent to a wire-2 hub")
 	}
 	if _, err := d.relayPoll(context.Background(), 0); !errors.Is(err, errHubWire) {
-		t.Fatalf("poll against a wire-1 hub: %v", err)
+		t.Fatalf("poll against a wire-2 hub: %v", err)
 	}
 	if n := relayCountFor(srv.URL); n != 0 {
-		t.Fatalf("%d relay sends reached a wire-1 hub", n)
+		t.Fatalf("%d relay sends reached a wire-2 hub", n)
 	}
 }
 
 // A hub that answers 426 refuses this daemon's version; the call fails with
-// the same error, naming the refusal.
+// the same error, naming the refusal and the release the hub needs.
 func TestA426IsRefused(t *testing.T) {
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(hubapi.WireVersionHeader, "4")
 		w.WriteHeader(http.StatusUpgradeRequired)
-		_, _ = w.Write([]byte(`{"error":"requires anet >= 0.3.0"}`))
+		_, _ = w.Write([]byte(`{"reason":"wire_too_old","error":"requires anet 0.4.0","required_wire":4,"required_anet":"0.4.0"}`))
 	}))
 	defer up.Close()
 	d := newTestDaemon(t, "", true)
-	if err := d.hubGet(context.Background(), up.URL, "/agents", nil, nil); !errors.Is(err, errHubWire) {
-		t.Fatalf("426 answered with %v, want errHubWire", err)
+	err := d.hubGet(context.Background(), up.URL, "/agents", nil, nil)
+	var we *hubWireError
+	if !errors.Is(err, errHubWire) || !errors.As(err, &we) || we.hubOlder || we.version != "0.4.0" {
+		t.Fatalf("426 answered with %v, want errHubWire naming 0.4.0", err)
+	}
+}
+
+// A hub that answers but states a newer wire (a read it serves to every
+// version, say) speaks a contract this daemon does not know: the call
+// fails like a 426, naming the wire the hub states (core CORE-V1).
+func TestANewerHubIsRefused(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(hubapi.WireVersionHeader, "4")
+		_, _ = w.Write([]byte(`{"agents":[]}`))
+	}))
+	defer up.Close()
+	d := newTestDaemon(t, "", true)
+	var out struct {
+		Agents []hubapi.AgentView `json:"agents"`
+	}
+	err := d.hubGet(context.Background(), up.URL, "/agents", nil, &out)
+	var we *hubWireError
+	if !errors.Is(err, errHubWire) || !errors.As(err, &we) || we.hubOlder || we.version != "wire 4" {
+		t.Fatalf("a hub of wire 4 answered 200: %v, want errHubWire naming wire 4", err)
 	}
 }
 
@@ -80,7 +103,7 @@ func TestRelayAuthV2IsCheckedByTheFake(t *testing.T) {
 		ts := uint64(time.Now().UnixMilli())
 		sig, seq := req.self.Sign(relayauth.PreimageV2(relayauth.ActionPoll, req.AID(), aidForHub, ts,
 			http.MethodPost, "/relay/poll", body))
-		r.Header.Set(hubapi.WireVersionHeader, "2")
+		r.Header.Set(hubapi.WireVersionHeader, "3")
 		r.Header.Set(hubapi.HeaderAID, req.AID())
 		r.Header.Set(hubapi.HeaderTS, strconv.FormatUint(ts, 10))
 		r.Header.Set(hubapi.HeaderSeq, strconv.FormatUint(seq, 10))
@@ -116,57 +139,58 @@ func TestRelayAuthV2IsCheckedByTheFake(t *testing.T) {
 	}
 }
 
-// The relay's refusal paths reach the caller as errors with their status,
-// and nothing is queued (fake completeness, A2A-DESIGN §17).
+// The relay's refusal paths reach the caller as errors with their status
+// and reason code, and nothing is queued (fake completeness, A2A-DESIGN
+// §17).
 func TestTheRelayRefusalPathsAreSurfaced(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	fake := fakeHubAt(t, srv.URL)
-	env := sealFrom(t, req, prov, seal.TypeMessage, "ix", chatBody(t, "x", ""))
-	send := func(to string, envelope []byte) error {
-		return req.hubSigned(ctx, srv.URL, http.MethodPost, "/relay/send", actionSendRetired,
-			hubapi.RelaySendRequest{ToAID: to, Envelope: base64.StdEncoding.EncodeToString(envelope)}, nil)
+	kind0 := AccessChoice{Send: true, Kind: seal.AccessKindSession}
+	send := func(env []byte) error {
+		_, _, err := req.relaySendV3(ctx, env, kind0)
+		return err
+	}
+	fresh := func(to *Daemon) []byte {
+		return sealFrom(t, req, to, seal.TypeMessage, "ix", chatBody(t, "x", ""))
 	}
 	set := func(f func()) {
 		fake.mu.Lock()
 		f()
 		fake.mu.Unlock()
 	}
+	refused := func(what string, err error, code int, reason string) {
+		t.Helper()
+		if hubStatus(err) != code || hubReason(err) != reason {
+			t.Errorf("%s: %v, want %d %s", what, err, code, reason)
+		}
+	}
 
-	if err := send(prov.AID(), []byte("not an envelope")); hubStatus(err) != http.StatusBadRequest {
-		t.Errorf("garbage envelope: %v, want 400", err)
+	// Bytes that are not an envelope never leave this node.
+	if err := send([]byte("not an envelope")); err == nil || hubStatus(err) != 0 {
+		t.Errorf("garbage: %v, want a local refusal", err)
 	}
 	other := newTestDaemon(t, "", true)
-	if err := send(prov.AID(), sealFrom(t, req, other, seal.TypeMessage, "ix", chatBody(t, "x", ""))); hubStatus(err) != http.StatusBadRequest {
-		t.Errorf("envelope to another AID than to_aid: %v, want 400", err)
-	}
-	if err := send(other.AID(), sealFrom(t, req, other, seal.TypeMessage, "ix", chatBody(t, "x", ""))); hubStatus(err) != http.StatusNotFound {
-		t.Errorf("unregistered recipient: %v, want 404", err)
-	}
+	refused("unregistered recipient", send(fresh(other)), http.StatusNotFound, "recipient_unknown")
 	set(func() { fake.maxEnvelope = 100 })
-	if err := send(prov.AID(), env); hubStatus(err) != http.StatusRequestEntityTooLarge {
-		t.Errorf("oversized envelope: %v, want 413", err)
-	}
+	refused("oversized envelope", send(fresh(prov)), http.StatusRequestEntityTooLarge, "too_large")
 	set(func() { fake.maxEnvelope = 0; fake.mailboxCap = 1 })
-	if err := send(prov.AID(), env); err != nil {
+	first := fresh(prov)
+	if err := send(first); err != nil {
 		t.Fatalf("first send: %v", err)
 	}
-	if err := send(prov.AID(), env); hubStatus(err) != http.StatusInsufficientStorage {
-		t.Errorf("full mailbox: %v, want 507", err)
+	// The same envelope again is the one already queued, not a second.
+	if res, _, err := req.relaySendV3(ctx, first, kind0); err != nil || res.Status != hubapi.RelayDuplicate {
+		t.Fatalf("the same envelope again: %+v %v, want a duplicate", res, err)
 	}
+	refused("full mailbox", send(fresh(prov)), http.StatusInsufficientStorage, "mailbox_full")
 	set(func() { fake.mailboxCap = 0; fake.senderLimit = fake.sendsBy[req.AID()] })
-	err := send(prov.AID(), env)
-	if hubStatus(err) != http.StatusTooManyRequests || !strings.Contains(err.Error(), "retry after") {
-		t.Errorf("sender over budget: %v, want 429 with Retry-After", err)
+	err := send(fresh(prov))
+	refused("sender over budget", err, http.StatusTooManyRequests, "rate_limited")
+	if err == nil || !strings.Contains(err.Error(), "retry after") {
+		t.Errorf("sender over budget: %v, want Retry-After", err)
 	}
 	set(func() { fake.senderLimit = 0 })
-	// A daemon whose hub identity is wrong signs for another hub: 401.
-	req.hubIDMu.Lock()
-	req.hubIDs[strings.TrimRight(srv.URL, "/")] = hubIdent{aid: prov.AID()}
-	req.hubIDMu.Unlock()
-	if err := send(prov.AID(), env); hubStatus(err) != http.StatusUnauthorized {
-		t.Errorf("signature for another hub: %v, want 401", err)
-	}
 	if n := len(queuedFor(t, srv, prov.AID())); n != 1 {
 		t.Fatalf("%d envelopes queued, want only the one accepted send", n)
 	}

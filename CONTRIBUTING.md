@@ -25,9 +25,9 @@ CGO_ENABLED=1 go test -race -timeout 45m ./...   # the race detector
 - Build tags come in two directions. **Subtractive** — in by default,
   `-tags no_<name>` removes it: `no_anetlink no_p2p no_blackboard no_org
   no_cas no_service no_mcp no_x402 no_a2a`. **Additive** — absent by
-  default, `-tags <name>` adds it: `shell taskboard`. `go test ./...` does
+  default, `-tags <name>` adds it: `shell`. `go test ./...` does
   not see code behind an additive tag, so run `go vet`/`go test` with
-  `-tags shell,taskboard` too. `bash scripts/tagcheck.sh all` checks every
+  `-tags shell` too. `bash scripts/tagcheck.sh all` checks every
   tag by symbol count in its own direction; the lists live in that script,
   and CI and `build.sh --check` both call it. A new optional module gets
   its tag there and a row in `.github/workflows/ci.yml`.

@@ -27,7 +27,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -437,7 +436,7 @@ func (d *Daemon) cardKELResolver(ctx context.Context) a2acard.Resolver {
 		if err := d.hubLookup(ctx, hub, hubapi.KELLookupPath, "/agents/"+url.PathEscape(aid)+"/kel", aid, &resp); err != nil {
 			return nil, err
 		}
-		raw, err := base64.StdEncoding.DecodeString(resp.KEL)
+		raw, err := hubapi.DecodeB64(resp.KEL, -1)
 		if err != nil {
 			return nil, fmt.Errorf("undecodable key history: %w", err)
 		}

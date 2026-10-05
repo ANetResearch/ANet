@@ -478,16 +478,10 @@ MUTS = [
   tests=[('ANet:./internal/mcpserv', 'TestSI8NoA2AGoInTheClosure'), ('ANet:./internal/loopguard', 'TestSharedPackagesStayFreeOfTheDaemonAndTheSDK')],
   full=[],
  ),
- dict(
-  id='si8-4', group='SI-8', repo='ANet',
-  desc='taskboard 改回减法 tag(module_taskboard.go 与 module/taskboard 默认编入)',
-  edits=[
-   ('cmd/anet/module_taskboard.go', '//go:build taskboard\n', '//go:build !no_taskboard\n'),
-   ('module/taskboard/taskboard.go', '//go:build taskboard\n', '//go:build !no_taskboard\n'),
-  ],
-  tests=[('ANet:./cmd/anet', 'TestTheDefaultBuildHasNoTaskboard'), ('ANet:sh bash scripts/tagcheck.sh check taskboard', '')],
-  full=[],
- ),
+ # si8-4 (the daemon's task-board client compiled into the default build) is retired with the client,
+ # which 0.3.0 removes on both sides (SS-9): there is no code left to compile in, and a config.json
+ # that still has a modules.taskboard block stops the daemon with config_key_removed
+ # (TestRemovedSettingsStopTheDaemon); sealed_sender.py ss9-taskboard-key is its mutation.
  # si8-5 (the hub's task board compiled into the default build) is retired with the task board, which
  # the hub no longer has: TestTheTaskBoardIsGone (cmd/anet-hub) keeps /tasks/ unrouted in every build,
  # and sealed_sender.py ss4-taskboard-back is its mutation.

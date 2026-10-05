@@ -172,7 +172,7 @@ func TestRemovedSettingsHaveTheirPhrases(t *testing.T) {
 	// The phrases the table has for config_key_removed are exactly these.
 	for _, id := range []string{"pricing", "publish_prices", "voucher", "witness_hub", "providers", "accept_delegations",
 		"rotation_grace", "list_files", "reject_notice", "pending", "evidence", "require_image", "error_reply",
-		"fixed_auto_reply", "payees_file", "anetlink_timeout", "expected_uid", "p2p_timeouts", "invite_env"} {
+		"fixed_auto_reply", "payees_file", "anetlink_timeout", "expected_uid", "p2p_timeouts", "taskboard", "invite_env"} {
 		if !used[id] {
 			t.Errorf("phrase %s is no removed key's", id)
 		}

@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/aobj"
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/relayauth"
 
@@ -269,7 +268,7 @@ func (m *Module) settle(ctx context.Context, raw []byte, req payment.PaymentRequ
 		return nil, err
 	}
 	hreq.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: hubCallTimeout}).Do(hreq)
+	resp, err := m.hubDo(hreq)
 	if err != nil {
 		return nil, err
 	}
@@ -455,7 +454,7 @@ func (m *Module) Redeem(ctx context.Context, amount uint64, reference, payTo str
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: hubCallTimeout}).Do(req)
+	resp, err := m.hubDo(req)
 	if err != nil {
 		return nil, err
 	}
@@ -487,44 +486,4 @@ func (m *Module) Redeem(ctx context.Context, amount uint64, reference, payTo str
 	}
 	out["verified"] = entry["verified"]
 	return out, nil
-}
-
-// fetchHubKEL pulls the hub's key history and verifies it belongs to the
-// AID claimed.
-//
-// The hub publishes every agent's history at this path including its own,
-// so nothing special is required — the custodian is an agent on its own
-// registry, and being checkable the same way everyone else is, is the
-// point.
-func fetchHubKEL(hubURL, aid string) ([]identity.SignedEvent, error) {
-	resp, err := (&http.Client{Timeout: hubCallTimeout}).Get(hubURL + "/agents/" + aid + "/kel")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("x402: hub answered %s for its own key history", resp.Status)
-	}
-	var out struct {
-		KEL string `json:"kel"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return nil, err
-	}
-	raw, err := base64.StdEncoding.DecodeString(out.KEL)
-	if err != nil {
-		return nil, err
-	}
-	kel, err := identity.UnmarshalKEL(raw)
-	if err != nil {
-		return nil, err
-	}
-	states, err := identity.Replay(kel)
-	if err != nil {
-		return nil, fmt.Errorf("x402: the hub's key history does not replay: %w", err)
-	}
-	if got := states[len(states)-1].AID; got != aid {
-		return nil, fmt.Errorf("x402: the hub published %s's key history, not its own", got)
-	}
-	return kel, nil
 }

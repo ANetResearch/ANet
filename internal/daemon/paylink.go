@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -64,6 +65,10 @@ type paymentSeam struct {
 }
 
 func (s paymentSeam) HubURL() string { return s.d.config().HubURL }
+
+// HubDo sends a module's request to this node's hub on the side its route
+// belongs to (moduleHubDo, sealed-sender §4.3.11).
+func (s paymentSeam) HubDo(req *http.Request) (*http.Response, error) { return s.d.moduleHubDo(req) }
 
 // HubIdentity returns the hub's AID and key history as this node pinned
 // them from GET /hub/identity (hub_client.go): the KEL must replay to the
@@ -150,6 +155,9 @@ type hubSeam struct {
 }
 
 func (s hubSeam) HubURL() string { return s.d.config().HubURL }
+
+// HubDo is paymentSeam.HubDo.
+func (s hubSeam) HubDo(req *http.Request) (*http.Response, error) { return s.d.moduleHubDo(req) }
 
 // PayAndRetry pays a quote up front and delegates the same work again as
 // a new task carrying the payment (DelegateReq.Payment, A2A-DESIGN §8.3:

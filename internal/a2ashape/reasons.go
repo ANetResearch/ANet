@@ -885,6 +885,8 @@ var phraseSets = map[string]map[string]phrasePair{
 		"expected_uid": {"请删掉这一项，改用 expected_user，它也接受数字 uid",
 			"remove it and use expected_user, which also takes a numeric uid"},
 		"p2p_timeouts": {"已改为固定值，请删掉这一项", "now fixed; remove it"},
+		"taskboard": {"hub 共享看板已删除，请删掉 config.json 里的这一块；要把任务交给别人，请改用 anet delegate",
+			"the hub task board was removed; delete this block from config.json, and use anet delegate to hand a task to someone"},
 		"invite_env": {"hub 已不再使用邀请码，已忽略；请删掉这个环境变量，直接运行 anet hub-register",
 			"hubs no longer use invites, so it is ignored; remove it and just run anet hub-register"},
 	},

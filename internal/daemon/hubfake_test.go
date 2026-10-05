@@ -3,14 +3,23 @@ package daemon
 // hubfake_test.go is an in-memory stand-in for the Hub service (a separate repository; only its wire
 // types live in internal/hubapi). The daemon tests run against this fake instead of a real Hub. It
 // implements the endpoints the daemon's HTTP client calls, with wire shapes identical to the real Hub
-// at wire 2 (A2A-DESIGN §3.7), including every refusal path of the relay:
+// at wire 3 (core §2.12, CORE-V1), including every refusal path of the relay:
 //
+//   - X-ANet-Wire: 3 on every answer; 426 wire_too_old (with required_wire and required_anet) to a
+//     write, or any /relay/* request, that states an older wire or none, 400 wire_too_new to one that
+//     states a newer one;
 //   - relayauth v2 on every signed endpoint: the X-ANet-* headers are verified against the caller's
 //     registered KEL (the body KEL for /register), with the hub AID, method, request target and raw
 //     body bound, a ±5 minute window and a replay cache — 401 on any failure;
-//   - /relay/*: 426 to a request without X-ANet-Wire >= 2, 400 for a body or envelope that does not
-//     parse or whose outer to differs from to_aid, 404 for an unknown recipient, 413 over the envelope
-//     cap, 429 (with Retry-After) over the per-sender budget, 507 over the per-recipient mailbox cap;
+//   - POST /relay/session (relayauth session): a session id and a session key sealed to the caller's
+//     one-time key (core L7), 403 admission_required for an AID not registered here;
+//   - POST /relay/send v3: the envelope as the body, X-ANet-Access byte for byte its outer key 7, no
+//     identity header (400 identity_headers_not_allowed); a first contact under a session MAC (401
+//     session_invalid), a send under a capability checked with seal.VerifyAccess against the owner's
+//     mailbox key (403 access_invalid); 400 bad_envelope, 404 recipient_unknown for a first contact to
+//     an AID not registered here, 413 over the envelope cap, 429 rate_limited (with Retry-After) over
+//     the per-sender budget, 507 over the per-recipient mailbox cap; the same envelope still queued is
+//     a 200 duplicate under its first rid;
 //   - GET/POST /agents/{aid}/keys with the publisher high-water rule (200 / 409), and a federated
 //     lookup through peer fakes for AIDs registered elsewhere; POST /agents/keys:lookup, the same
 //     lookup with the AID in the body (a hub that predates it answers 405 from its mux: noKeysLookup),
@@ -23,7 +32,9 @@ package daemon
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,6 +78,27 @@ type fakeHubMsg struct {
 	toAID     string
 	payload   []byte
 	createdAt string
+	// rid and digest are the wire-3 row's: the id the sender was told, and
+	// the env_digest a duplicate is recognised by.
+	rid    []byte
+	digest [32]byte
+}
+
+// fakeSession is one open first-contact session.
+type fakeSession struct {
+	aid string
+	key []byte
+	exp time.Time
+}
+
+// fakeHubRequest is one request the fake got, as a test inspects it: the
+// connection it came on (remote), and whether that connection resumed a
+// TLS session.
+type fakeHubRequest struct {
+	method, path string
+	header       http.Header
+	remote       string
+	resumed      bool
 }
 
 // fakeHub is the in-memory Hub: registry + relay mailboxes + verified-review store
@@ -242,6 +274,30 @@ type fakeHub struct {
 	notices   bool
 	noticeAt  func() uint64
 	noticeErr string
+
+	// sessions are the open first-contact sessions by session id;
+	// sessionLife is the life the next one gets (0: an hour, the real
+	// hub's); sessionOpens counts the sessions opened; sessionRefuse, when
+	// set, is the reason /relay/session refuses with (403
+	// admission_required, 429 rate_limited).
+	sessions      map[string]*fakeSession
+	sessionLife   time.Duration
+	sessionOpens  int
+	sessionRefuse string
+	// sessionHook, when set, runs after a session is opened and before
+	// its answer is written (outside the lock): a test holds the answer
+	// in flight there.
+	sessionHook func()
+	// requests is every request the fake got, in order; setCookie makes
+	// every answer set a cookie, as a hub that tracked its callers would.
+	requests  []fakeHubRequest
+	setCookie bool
+	// sendViaHub, when set, is the via_hub of every send's answer: the
+	// envelope was queued at that hub (DLV-W-12a).
+	sendViaHub string
+	// closeConns ends every connection after its answer, so every request
+	// comes on a new one.
+	closeConns bool
 }
 
 // noticeForLocked is what the hub answers about aid's key state: its
@@ -306,7 +362,11 @@ func fakeHubRoundDuration(d time.Duration) string {
 }
 
 // newFakeHub starts an httptest server backed by a fresh fake Hub and cleans it up with the test.
-func newFakeHub(t testing.TB) *httptest.Server {
+func newFakeHub(t testing.TB) *httptest.Server { return startFakeHub(t, false) }
+
+// startFakeHub is newFakeHub, over TLS when tlsOn (httptest's certificate;
+// a daemon trusts it after setHubRoots).
+func startFakeHub(t testing.TB, tlsOn bool) *httptest.Server {
 	t.Helper()
 	self, err := identitytest.Hub()
 	if err != nil {
@@ -321,7 +381,7 @@ func newFakeHub(t testing.TB) *httptest.Server {
 		settled: map[string]string{}, settledReceipt: map[string]string{}, bindings: map[string]string{},
 		lastSeen: map[string]time.Time{},
 		wire:     hubapi.WireVersion,
-		sendsBy:  map[string]int{}, sigSeen: map[string]bool{},
+		sendsBy:  map[string]int{}, sigSeen: map[string]bool{}, sessions: map[string]*fakeSession{},
 		keysOverride: map[string]hubapi.KeysResponse{},
 		registerKeys: map[string]string{},
 		a2aCards:     map[string][]byte{}, a2aMarks: map[string]a2acard.Mark{},
@@ -336,7 +396,12 @@ func newFakeHub(t testing.TB) *httptest.Server {
 	}
 	h.agents[self.AID()] = &fakeHubAgent{
 		view: hubapi.AgentView{AID: self.AID(), Name: "hub"}, kel: selfKEL}
-	srv := httptest.NewServer(h.handler())
+	var srv *httptest.Server
+	if tlsOn {
+		srv = httptest.NewTLSServer(h.handler())
+	} else {
+		srv = httptest.NewServer(h.handler())
+	}
 	t.Cleanup(srv.Close)
 	hubsByURL.Store(srv.URL, h)
 	return srv
@@ -433,6 +498,7 @@ func (h *fakeHub) handler() http.Handler {
 	mux.HandleFunc("GET /agents", h.hAgents)
 	mux.HandleFunc("GET /agents/{aid}", h.hAgent)
 	mux.HandleFunc("POST /reviews", h.hUploadReview)
+	mux.HandleFunc("POST "+hubapi.RelaySessionPath, h.hRelaySession)
 	mux.HandleFunc("POST /relay/send", h.hRelaySend)
 	mux.HandleFunc("POST /relay/poll", h.hRelayPoll)
 	mux.HandleFunc("POST /relay/ack", h.hRelayAck)
@@ -453,16 +519,34 @@ func (h *fakeHub) handler() http.Handler {
 	mux.HandleFunc("POST /x402/redeem", h.hRedeem)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
-		wire := h.wire
+		wire, cookie := h.wire, h.setCookie
+		h.requests = append(h.requests, fakeHubRequest{method: r.Method, path: r.URL.Path,
+			header: r.Header.Clone(), remote: r.RemoteAddr, resumed: r.TLS != nil && r.TLS.DidResume})
+		if h.closeConns {
+			w.Header().Set("Connection", "close")
+		}
 		h.mu.Unlock()
 		w.Header().Set(hubapi.WireVersionHeader, strconv.Itoa(wire))
-		// The real wire-2 hub refuses /relay/* from a daemon that states no
-		// version or an older one, with a body naming the release needed.
-		if wire >= 2 && strings.HasPrefix(r.URL.Path, "/relay/") {
-			if v, err := strconv.Atoi(r.Header.Get(hubapi.WireVersionHeader)); err != nil || v < 2 {
-				fakeHubJSON(w, http.StatusUpgradeRequired, map[string]string{"error": "this hub requires anet >= 0.2.0 (wire 2)"})
-				return
-			}
+		if cookie {
+			http.SetCookie(w, &http.Cookie{Name: "hubtrack", Value: "caller-" + r.URL.Path, Path: "/"})
+		}
+		relay := strings.HasPrefix(r.URL.Path, "/relay/")
+		declared, err := strconv.Atoi(r.Header.Get(hubapi.WireVersionHeader))
+		switch {
+		case wire >= 3 && err == nil && declared > wire:
+			fakeHubRefuse(w, http.StatusBadRequest, "wire_too_new", nil)
+			return
+		case wire >= 3 && (err != nil || declared < wire) && (relay || r.Method != http.MethodGet && r.Method != http.MethodHead):
+			// The wire-3 contract (CORE-V1): every write and the relay
+			// plane, refused with what to install.
+			fakeHubRefuse(w, http.StatusUpgradeRequired, "wire_too_old",
+				map[string]any{"required_wire": wire, "required_anet": fmt.Sprintf("0.%d.0", wire)})
+			return
+		case wire == 2 && relay && (err != nil || declared < 2):
+			// A wire-2 hub refused /relay/* from a daemon that stated no
+			// version or an older one.
+			fakeHubJSON(w, http.StatusUpgradeRequired, map[string]string{"error": "this hub requires anet >= 0.2.0 (wire 2)"})
+			return
 		}
 		mux.ServeHTTP(w, r)
 	})
@@ -937,12 +1021,19 @@ func (h *fakeHub) hKeysPost(w http.ResponseWriter, r *http.Request) {
 }
 
 // hKeysGet mirrors GET /agents/{aid}/keys: local agents first, then peer
-// hubs (the federated lookup), else 404.
+// hubs (the federated lookup), else 404. Its binary values are base64url
+// (wire 3, CORE-E5), except at a hub that predates the lookup routes
+// (noKeysLookup), which predates base64url too.
 func (h *fakeHub) hKeysGet(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.keysGets++
+	old := h.noKeysLookup
 	h.mu.Unlock()
-	h.serveKeys(w, r.PathValue("aid"))
+	enc := hubapi.B64
+	if old {
+		enc = base64.StdEncoding.EncodeToString
+	}
+	h.serveKeys(w, r.PathValue("aid"), enc)
 }
 
 // hKeysLookup mirrors POST /agents/keys:lookup: hKeysGet with the AID in
@@ -968,19 +1059,22 @@ func (h *fakeHub) hKeysLookup(w http.ResponseWriter, r *http.Request) {
 		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": `body must be {"aid": "<AID>"}`})
 		return
 	}
-	h.serveKeys(w, req.AID)
+	// The lookup by AID is the v0.2 route the daemon keeps until the
+	// directory's buckets replace it, in the v0.2 encoding.
+	h.serveKeys(w, req.AID, base64.StdEncoding.EncodeToString)
 }
 
-func (h *fakeHub) serveKeys(w http.ResponseWriter, aid string) {
-	if out, ok := h.keysFor(aid, true); ok {
+func (h *fakeHub) serveKeys(w http.ResponseWriter, aid string, enc func([]byte) string) {
+	if out, ok := h.keysFor(aid, true, enc); ok {
 		fakeHubJSON(w, http.StatusOK, out)
 		return
 	}
 	fakeHubJSON(w, http.StatusNotFound, map[string]string{"error": "no keys for " + aid})
 }
 
-// keysFor answers a keys lookup for aid; federate asks the peer fakes.
-func (h *fakeHub) keysFor(aid string, federate bool) (hubapi.KeysResponse, bool) {
+// keysFor answers a keys lookup for aid in the encoding enc; federate asks
+// the peer fakes.
+func (h *fakeHub) keysFor(aid string, federate bool, enc func([]byte) string) (hubapi.KeysResponse, bool) {
 	h.mu.Lock()
 	if out, ok := h.keysOverride[aid]; ok {
 		h.mu.Unlock()
@@ -991,15 +1085,14 @@ func (h *fakeHub) keysFor(aid string, federate bool) (hubapi.KeysResponse, bool)
 	var out hubapi.KeysResponse
 	found := a != nil && len(a.keyset) > 0
 	if found {
-		out = hubapi.KeysResponse{AID: aid, KeySet: base64.StdEncoding.EncodeToString(a.keyset),
-			KEL: base64.StdEncoding.EncodeToString(a.kel)}
+		out = hubapi.KeysResponse{AID: aid, KeySet: enc(a.keyset), KEL: enc(a.kel)}
 	}
 	h.mu.Unlock()
 	if found || !federate {
 		return out, found
 	}
 	for _, p := range peers {
-		if out, ok := p.keysFor(aid, false); ok {
+		if out, ok := p.keysFor(aid, false, enc); ok {
 			return out, true
 		}
 	}
@@ -1245,57 +1338,197 @@ func (h *fakeHub) hUploadReview(w http.ResponseWriter, r *http.Request) {
 	fakeHubJSON(w, http.StatusOK, map[string]any{"interaction_id": rv.InteractionID, "status": "accepted"})
 }
 
-// hRelaySend mirrors POST /relay/send at wire 2.
+// hRelaySession mirrors POST /relay/session (sealed-sender §4.2.3, core
+// L7): relayauth session by a registered AID, the body {epk} strictly, a
+// new random session id and key, the key sealed to epk under the hub's AID
+// and the session id. The session lives sessionLife (an hour).
+func (h *fakeHub) hRelaySession(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.readBody(w, r, 4<<10)
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	_, registered := h.agents[r.Header.Get(hubapi.HeaderAID)]
+	refuse := h.sessionRefuse
+	h.mu.Unlock()
+	if !registered {
+		fakeHubRefuse(w, http.StatusForbidden, "admission_required", map[string]any{"aid": r.Header.Get(hubapi.HeaderAID)})
+		return
+	}
+	aid := h.verifyAuth(w, r, body, relayauth.ActionSession, nil)
+	if aid == "" {
+		return
+	}
+	switch refuse {
+	case "":
+	case "rate_limited":
+		w.Header().Set("Retry-After", "60")
+		fakeHubRefuse(w, http.StatusTooManyRequests, refuse, nil)
+		return
+	default:
+		fakeHubRefuse(w, http.StatusForbidden, refuse, nil)
+		return
+	}
+	var req hubapi.SessionRequest
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	epk, err := hubapi.DecodeB64(req.EPK, relayauth.SessionPublicKeyLen)
+	if err != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	sid, key := make([]byte, relayauth.SessionIDLen), make([]byte, relayauth.SessionKeyLen)
+	_, _ = rand.Read(sid)
+	_, _ = rand.Read(key)
+	enc, ct, err := relayauth.SealSessionKey(epk, h.self.AID(), sid, key)
+	if err != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	h.mu.Lock()
+	life := h.sessionLife
+	if life == 0 {
+		life = time.Hour
+	}
+	exp := time.Now().Add(life)
+	h.sessions[string(sid)] = &fakeSession{aid: aid, key: key, exp: exp}
+	h.sessionOpens++
+	hook := h.sessionHook
+	h.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	fakeHubJSON(w, http.StatusOK, hubapi.SessionResponse{SID: hubapi.B64(sid), Exp: uint64(exp.UnixMilli()),
+		Enc: hubapi.B64(enc), CT: hubapi.B64(ct)})
+}
+
+// forgetSessions ends every session, as a hub that restarted.
+func (h *fakeHub) forgetSessions() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.sessions = map[string]*fakeSession{}
+}
+
+// hRelaySend mirrors POST /relay/send at wire 3 (sealed-sender §4.2.1, in
+// its order where it matters to a sender): the headers (Content-Type, no
+// identity header, X-ANet-Access, the session headers of a first contact
+// or none under a capability), the envelope (ParseOuter, and X-ANet-Access
+// byte for byte its outer key 7), the credential (the session's MAC over
+// the request, or seal.VerifyAccess under the owner's mailbox key), the
+// recipient, a duplicate still queued, the sender's budget, the mailbox.
+// Like the real hub it reads nothing past the outer envelope.
 func (h *fakeHub) hRelaySend(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	maxEnv, down := h.maxEnvelope, h.relayDown
 	h.mu.Unlock()
 	if down {
-		fakeHubJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "relay unavailable"})
+		fakeHubRefuse(w, http.StatusServiceUnavailable, "internal", nil)
 		return
 	}
 	if maxEnv == 0 {
 		maxEnv = fakeHubDefaultMaxEnvelope
 	}
-	// base64 plus the JSON around it.
-	body, ok := h.readBody(w, r, maxEnv/3*4+4096)
-	if !ok {
+	if r.Header.Get("Content-Type") != hubapi.EnvelopeContentType {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
 		return
 	}
-	sender := h.verifyAuth(w, r, body, actionSendRetired, nil)
-	if sender == "" {
+	for _, hd := range []string{hubapi.HeaderAID, hubapi.HeaderSeq, hubapi.HeaderSig} {
+		if len(r.Header.Values(hd)) > 0 {
+			fakeHubRefuse(w, http.StatusBadRequest, "identity_headers_not_allowed", nil)
+			return
+		}
+	}
+	accessRaw, err := hubapi.DecodeB64(r.Header.Get(hubapi.HeaderAccess), -1)
+	if err != nil || len(accessRaw) == 0 || len(r.Header.Get(hubapi.HeaderAccess)) > hubapi.MaxAccessHeader {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_envelope", nil)
 		return
 	}
-	var req hubapi.RelaySendRequest
-	if err := json.Unmarshal(body, &req); err != nil || req.ToAID == "" || req.Envelope == "" {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "to_aid + envelope required"})
-		return
-	}
-	env, err := base64.StdEncoding.DecodeString(req.Envelope)
+	hasSession := r.Header.Get(hubapi.HeaderSession) != "" || r.Header.Get(hubapi.HeaderMAC) != ""
+	env, err := io.ReadAll(io.LimitReader(r.Body, int64(maxEnv)+1))
 	if err != nil {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "envelope not base64"})
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
 		return
 	}
 	if len(env) > maxEnv {
-		fakeHubJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "envelope over the cap"})
+		fakeHubRefuse(w, http.StatusRequestEntityTooLarge, "too_large", nil)
 		return
 	}
 	// The structural check the real hub makes, and the only look at the
 	// envelope it takes: the outer header, never the ciphertext.
 	outer, err := seal.ParseOuter(env)
 	if err != nil {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "not a sealed envelope: " + err.Error()})
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_envelope", nil)
 		return
 	}
-	if outer.To != req.ToAID {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "envelope to does not match to_aid"})
+	if want, err := coredet.Marshal(outer.Access); err != nil || !bytes.Equal(want, accessRaw) {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_envelope", nil)
 		return
+	}
+	digest, err := seal.EnvDigest(env)
+	if err != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_envelope", nil)
+		return
+	}
+	var sender string
+	switch outer.Access.Kind {
+	case seal.AccessKindSession:
+		sid, err1 := relayauth.DecodeSessionID(r.Header.Get(hubapi.HeaderSession))
+		mac, err2 := relayauth.DecodeMAC(r.Header.Get(hubapi.HeaderMAC))
+		ts, err3 := strconv.ParseUint(r.Header.Get(hubapi.HeaderTS), 10, 64)
+		h.mu.Lock()
+		sess := h.sessions[string(sid)]
+		h.mu.Unlock()
+		if err1 != nil || err2 != nil || err3 != nil || sess == nil || !time.Now().Before(sess.exp) ||
+			ts+relayauth.MaxSkewMillis < uint64(time.Now().UnixMilli()) ||
+			relayauth.VerifySessionMAC(sess.key, sid, ts, r.Method, r.URL.RequestURI(), r.Header.Get(hubapi.HeaderHome), env, mac) != nil {
+			fakeHubRefuse(w, http.StatusUnauthorized, "session_invalid", nil)
+			return
+		}
+		sender = sess.aid
+	default:
+		if hasSession {
+			fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+			return
+		}
+		h.mu.Lock()
+		owner := h.agents[outer.To]
+		var keyset []byte
+		if owner != nil {
+			keyset = owner.keyset
+		}
+		h.mu.Unlock()
+		mbox, ok := fakeHubMbox(keyset)
+		if !ok || seal.VerifyAccess(outer.Access, digest, mbox, outer.To, uint64(time.Now().UnixMilli())) != nil {
+			fakeHubRefuse(w, http.StatusForbidden, "access_invalid", nil)
+			return
+		}
+		sender = "cap:" + hex.EncodeToString(capIDOf(outer.Access))
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if _, ok := h.agents[req.ToAID]; !ok {
-		fakeHubJSON(w, http.StatusNotFound, map[string]string{"error": "recipient not registered"})
+	if _, ok := h.agents[outer.To]; !ok {
+		fakeHubRefuse(w, http.StatusNotFound, "recipient_unknown", nil)
 		return
+	}
+	answer := func(status string, rid []byte) {
+		out := hubapi.RelaySendResponse{Status: status, RID: hubapi.B64(rid), ViaHub: h.sendViaHub}
+		// Queued either way, and the sender is told when the recipient has
+		// not collected its mail in a long time. A never-seen agent is
+		// unknown, not quiet.
+		if seen, ok := h.lastSeen[outer.To]; ok && time.Since(seen) > fakeHubQuietAfter {
+			out.RecipientQuiet = true
+		}
+		fakeHubJSON(w, http.StatusOK, out)
+	}
+	for _, m := range h.mailbox {
+		if m.toAID == outer.To && m.digest == digest {
+			answer(hubapi.RelayDuplicate, m.rid)
+			return
+		}
 	}
 	if h.senderLimit > 0 && h.sendsBy[sender] >= h.senderLimit {
 		ra := h.retryAfter
@@ -1303,41 +1536,44 @@ func (h *fakeHub) hRelaySend(w http.ResponseWriter, r *http.Request) {
 			ra = "1"
 		}
 		w.Header().Set("Retry-After", ra)
-		fakeHubJSON(w, http.StatusTooManyRequests, map[string]string{"error": "sender over its budget"})
+		fakeHubRefuse(w, http.StatusTooManyRequests, "rate_limited", nil)
 		return
 	}
 	if h.mailboxCap > 0 {
 		held := 0
 		for _, m := range h.mailbox {
-			if m.toAID == req.ToAID {
+			if m.toAID == outer.To {
 				held++
 			}
 		}
 		if held >= h.mailboxCap {
-			fakeHubJSON(w, http.StatusInsufficientStorage, map[string]string{"error": "recipient mailbox full"})
+			fakeHubRefuse(w, http.StatusInsufficientStorage, "mailbox_full", nil)
 			return
 		}
 	}
 	h.sendsBy[sender]++
 	h.relaySends++
 	h.nextID++
+	rid := make([]byte, hubapi.RIDLen)
+	_, _ = rand.Read(rid)
 	h.mailbox = append(h.mailbox, &fakeHubMsg{
-		id: h.nextID, toAID: req.ToAID, payload: env,
+		id: h.nextID, toAID: outer.To, payload: env, rid: rid, digest: digest,
 		createdAt: time.Now().UTC().Format(time.RFC3339Nano),
 	})
-	out := hubapi.RelaySendResponse{ID: h.nextID, Status: "queued"}
-	// Queued either way, and the sender is told when the recipient has not
-	// collected its mail in a long time — word for word what the real hub
-	// puts on this response. A never-seen agent is unknown, not quiet.
-	if seen, ok := h.lastSeen[req.ToAID]; ok {
-		if gap := time.Since(seen); gap > fakeHubQuietAfter {
-			out.RecipientQuiet = true
-			out.Warning = fmt.Sprintf(
-				"queued, but %s has not collected its mail for %s — it may not be running",
-				req.ToAID, fakeHubRoundDuration(gap))
-		}
+	answer(hubapi.RelayQueued, rid)
+}
+
+// fakeHubMbox is the mailbox signing key of a stored key set.
+func fakeHubMbox(keyset []byte) (seal.Mbox, bool) {
+	signed, err := seal.UnmarshalSignedEncKeySet(keyset)
+	if err != nil {
+		return seal.Mbox{}, false
 	}
-	fakeHubJSON(w, http.StatusOK, out)
+	var set seal.EncKeySet
+	if err := coredet.Unmarshal(signed.Set, &set); err != nil || set.Mbox.Epoch == 0 {
+		return seal.Mbox{}, false
+	}
+	return set.Mbox, true
 }
 
 // backdateLastSeen makes an agent look like it stopped collecting its mail
@@ -1404,7 +1640,7 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 		if m.toAID != aid || m.id <= req.AfterID {
 			continue
 		}
-		out = append(out, hubapi.RelayMessage{ID: m.id, Envelope: base64.StdEncoding.EncodeToString(m.payload)})
+		out = append(out, hubapi.RelayMessage{ID: m.id, Envelope: hubapi.B64(m.payload)})
 		if h.relayServed == nil {
 			h.relayServed = map[string][]int64{}
 		}
@@ -1574,7 +1810,10 @@ func (h *fakeHub) hIdentity(w http.ResponseWriter, _ *http.Request) {
 		fakeHubJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	fakeHubJSON(w, http.StatusOK, hubapi.HubIdentity{AID: h.self.AID(), KEL: base64.StdEncoding.EncodeToString(kel)})
+	h.mu.Lock()
+	wire := h.wire
+	h.mu.Unlock()
+	fakeHubJSON(w, http.StatusOK, hubapi.HubIdentity{AID: h.self.AID(), KEL: hubapi.B64(kel), Wire: &wire})
 }
 
 // grant credits an account, standing in for the admin grant and the
@@ -2051,8 +2290,8 @@ func (h *fakeHub) serveAgentKEL(w http.ResponseWriter, aid string) {
 		fakeHubJSON(w, http.StatusNotFound, map[string]string{"error": "unknown agent"})
 		return
 	}
-	fakeHubJSON(w, http.StatusOK, map[string]string{
-		"aid": aid, "kel": base64.StdEncoding.EncodeToString(kel)})
+	fakeHubJSON(w, http.StatusOK, map[string]any{
+		"aid": aid, "kel": hubapi.B64(kel), "registered": true})
 }
 
 // grantOn credits an account on the fake hub behind url.

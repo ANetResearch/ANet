@@ -226,7 +226,7 @@ KEL2_MUTS = [
   edits=[('identity/zz_kel2_ksn.go', None, 'package identity\n\ntype zzNotice struct {\n\tN []byte `json:"ksn"`\n}\n')],
   tests=[('ANetCore:./identity', '^TestNoKSNIdentifiers$')], full=ID_FULL),
  dict(id='kel2-20', group='KEL-2', repo='ANet', desc='O-4:HubSeam 增加 Build* 方法',
-  edits=[('module/module.go', '\t// HubURL is where this node\'s hub lives.\n\tHubURL() string\n}\n', '\t// HubURL is where this node\'s hub lives.\n\tHubURL() string\n\t// BuildRotation would let a module rotate the node.\n\tBuildRotation() error\n}\n')],
+  edits=[('module/module.go', '\tHubDo(req *http.Request) (*http.Response, error)\n}\n\n// PaymentSeam is', '\tHubDo(req *http.Request) (*http.Response, error)\n\t// BuildRotation would let a module rotate the node.\n\tBuildRotation() error\n}\n\n// PaymentSeam is')],
   tests=[('ANet:./module', '^TestModulesGetNoIdentityControl$')], full=['ANet:./module']),
  dict(id='kel2-21', group='KEL-2', repo='ANet', desc='O-1:模块持有 *identity.Controller',
   edits=[('module/org/zz_kel2_hold.go', None, 'package org\n\nimport "github.com/ANetResearch/ANetCore/identity"\n\n// zzHeld keeps the node\'s controller.\nvar zzHeld *identity.Controller\n')],

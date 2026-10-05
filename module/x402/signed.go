@@ -5,6 +5,7 @@ package x402
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -52,7 +53,7 @@ func (m *Module) signedGet(ctx context.Context, path, action string, into any) e
 	req.Header.Set(relayauth.HeaderTS, strconv.FormatUint(ts, 10))
 	req.Header.Set(relayauth.HeaderSeq, strconv.FormatUint(seq, 10))
 	req.Header.Set(relayauth.HeaderSig, relayauth.EncodeSig(sig))
-	resp, err := (&http.Client{Timeout: hubCallTimeout}).Do(req)
+	resp, err := m.hubDo(req)
 	if err != nil {
 		return err
 	}
@@ -61,4 +62,35 @@ func (m *Module) signedGet(ctx context.Context, path, action string, into any) e
 		return fmt.Errorf("x402: hub answered %s for %s", resp.Status, path)
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(into)
+}
+
+// hubDo sends one request to this node's hub through the node
+// (PaymentSeam.HubDo): on the connection side its route belongs to, with
+// the hub wire version, like every request the node makes (sealed-sender
+// §4.3.11). hubCallTimeout bounds it from the moment it is sent until its
+// body is closed.
+func (m *Module) hubDo(req *http.Request) (*http.Response, error) {
+	if m.seam == nil {
+		return nil, errors.New("x402: no node to reach the hub through")
+	}
+	ctx, cancel := context.WithTimeout(req.Context(), hubCallTimeout)
+	resp, err := m.seam.HubDo(req.WithContext(ctx))
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	resp.Body = cancelOnClose{resp.Body, cancel}
+	return resp, nil
+}
+
+// cancelOnClose ends a request's context when its body is closed.
+type cancelOnClose struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (c cancelOnClose) Close() error {
+	err := c.ReadCloser.Close()
+	c.cancel()
+	return err
 }
