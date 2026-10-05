@@ -53,8 +53,8 @@ func (s Side) String() string {
 // and "*" any one segment (the routes of this node's own AID and its hub's
 // come first in the table, so "{aid}" is anyone else); every other segment
 // is literal. Pending
-// names the work item that removes a route kept only until it lands
-// ("v030-todo(<item>)").
+// names the work item that removes a route kept only until it lands, as
+// the marker of an open work item (wire.TodoMarker).
 type Route struct {
 	Method  string
 	Path    string

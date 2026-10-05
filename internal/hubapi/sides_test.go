@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
+	"github.com/ANetResearch/ANetCore/wire"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 )
@@ -140,7 +141,7 @@ func TestEveryHubRouteHasOneSide(t *testing.T) {
 		default:
 			t.Errorf("%s has side %v", key, r.Side)
 		}
-		if r.Pending != "" && (!strings.HasPrefix(r.Pending, "v030-todo(") || r.Side != hubapi.SideAnonymous) {
+		if r.Pending != "" && (!wire.TodoPattern.MatchString(r.Pending) || r.Side != hubapi.SideAnonymous) {
 			t.Errorf("%s: pending %q (side %v)", key, r.Pending, r.Side)
 		}
 	}
