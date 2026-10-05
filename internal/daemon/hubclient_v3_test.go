@@ -643,15 +643,14 @@ func TestDaemonDecodesHubBinaryAsBase64URL(t *testing.T) {
 		"module/org/module.go verify":                            "a capability call's argument",
 		"cmd/anet/audit.go verifyChain":                          "a file or argument the user gives",
 		"cmd/anet/verify.go fetchKEL":                            "a receipt the user gives",
+		"cmd/anet/verify.go report":                              "a key history the user gives, or the control plane's (the control plane keeps standard base64)",
 		"cmd/anet/verify.go verifyAttestation":                   "an attestation the user gives",
 		"tools/anetfixture/attack.go readEnvelope":               "the fixture's command line",
 		"tools/anetfixture/main.go cmdOrgCredential":             "the fixture's command line",
 		"tools/anetfixture/main.go cmdOrgID":                     "the fixture's command line",
 		// Not this package's to change: each goes with its item.
-		"internal/daemon/seal_send.go fetchRecipientKeys": "v030-todo(SS-10): the lookup by AID, deleted with it",
-		"cmd/anet/verify.go report":                       "v030-todo(SS-10): the KEL anet verify fetches by AID, which moves to the control plane",
-		"module/x402/audit.go auditIssuance":              "v030-todo(PAY-13): per-event issuance records, replaced by supply epochs",
-		"module/x402/voucher.go RedeemVoucher":            "v030-todo(PAY-9): vouchers are removed",
+		"module/x402/audit.go auditIssuance":   "v030-todo(PAY-13): per-event issuance records, replaced by supply epochs",
+		"module/x402/voucher.go RedeemVoucher": "v030-todo(PAY-9): vouchers are removed",
 	}
 	found := stdBase64Decoders(t, anetRoot(t))
 	for site := range found {

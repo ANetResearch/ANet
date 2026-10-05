@@ -20,11 +20,13 @@ package daemon
 //     an AID not registered here, 413 over the envelope cap, 429 rate_limited (with Retry-After) over
 //     the per-sender budget, 507 over the per-recipient mailbox cap; the same envelope still queued is
 //     a 200 duplicate under its first rid;
-//   - GET/POST /agents/{aid}/keys with the publisher high-water rule (200 / 409), and a federated
-//     lookup through peer fakes for AIDs registered elsewhere; POST /agents/keys:lookup, the same
-//     lookup with the AID in the body (a hub that predates it answers 405 from its mux: noKeysLookup),
-//     and POST /agents/kel:lookup likewise for GET /agents/{aid}/kel;
-//   - GET /hub/identity.
+//   - GET/POST /agents/{aid}/keys with the publisher high-water rule (200 / 409), for the agents
+//     registered here;
+//   - POST /directory:bucket (sealed-sender §2.9, SSR-W17 to SSR-W21): every agent registered here with a
+//     key set has an entry sealed under its AID (dirbox), filed under its directory hash; a query names a
+//     prefix of at most dir_max_bits bits (400 bucket_too_narrow with max_bits above), and is answered with
+//     the entries of the bucket, this hub's and its peer fakes', paged, partial when a peer is down;
+//   - GET /hub/identity, with dir_max_bits.
 //
 // Relay messages are OPAQUE: the fake stores the envelope bytes keyed by to_aid and nothing else. It
 // applies seal.ParseOuter, the structural check the real hub applies, and never opens a payload — a
@@ -52,6 +54,7 @@ import (
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/adp"
 	"github.com/ANetResearch/ANetCore/coredet"
+	"github.com/ANetResearch/ANetCore/dirbox"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
@@ -99,7 +102,15 @@ type fakeHubRequest struct {
 	header       http.Header
 	remote       string
 	resumed      bool
+	// query is the raw query; body the request body, when it is at most
+	// fakeHubKeepBody bytes (bodyLen is its length either way).
+	query   string
+	body    []byte
+	bodyLen int
 }
+
+// fakeHubKeepBody bounds the request bodies the fake keeps for a test.
+const fakeHubKeepBody = 1 << 20
 
 // fakeHub is the in-memory Hub: registry + relay mailboxes + verified-review store
 // + the credit ledger it is custodian of.
@@ -196,23 +207,45 @@ type fakeHub struct {
 	// sigSeen is the relayauth replay cache: (aid, signature) pairs seen
 	// inside the skew window.
 	sigSeen map[string]bool
-	// noKeysLookup makes the fake a hub that predates POST
-	// /agents/keys:lookup (and /agents/kel:lookup): its mux answers the
-	// routes 405 with a plain-text body, as the real hub's did.
-	noKeysLookup bool
-	// keysLookups and keysGets count the two ways of asking for a key set.
-	keysLookups, keysGets int
+	// keysGets counts GET /agents/{aid}/keys.
+	keysGets int
 	// keysOverride makes GET /agents/{aid}/keys answer with someone else's
 	// material: a hostile hub substituting keys.
 	keysOverride map[string]hubapi.KeysResponse
+	// The directory (bucket.go of the real hub). dirMaxBits is the
+	// dir_max_bits this hub states and enforces (default 0: the whole
+	// directory, as the real hub's below 64 entries); dirAnswerMaxBits, when
+	// set, is what a bucket answer states instead (a hub that says one thing
+	// and does another). dirPage answers at most that many entries a page.
+	// dirDown answers 503; dirPartial marks every answer partial; dirPad adds
+	// that many entries of nobody to every answer. dirOverride replaces an
+	// agent's entry (a hostile hub substituting an entry), dirExtra files
+	// more entries under an agent's hash, dirHide leaves an agent out.
+	// bucketQueries is every query, in order.
+	dirMaxBits       int
+	dirAnswerMaxBits *int
+	dirPage          int
+	dirDown          bool
+	dirPartial       bool
+	dirPad           int
+	dirOverride      map[string]dirbox.DirEntry
+	dirExtra         map[string][]dirbox.DirEntry
+	dirHide          map[string]bool
+	dirRaw           []hubapi.DirBucketEntry
+	bucketQueries    []hubapi.DirBucketRequest
+	// homeMustBe makes a first contact to an AID answer 404
+	// recipient_unknown unless its X-ANet-Home names the hub given: a hub
+	// that finds the recipient only at the home the hint names.
+	homeMustBe map[string]string
 	// refuseKeySets makes the hub refuse every key set it is sent
 	// (keys_status invalid at /register, 400 at POST /agents/{aid}/keys):
 	// a hub that does not hold this node's mailbox signing key.
 	refuseKeySets bool
 	// keyPosts counts POST /agents/{aid}/keys requests.
 	keyPosts int
-	// peers are other fake hubs asked for keys of AIDs not registered
-	// here, standing in for /fed/v2/keys/{aid}.
+	// peers are other fake hubs whose buckets this hub's answers merge,
+	// standing in for /fed/v3/directory:bucket (SSR-W19); a peer whose
+	// dirDown is set makes the answer partial (SSR-W21).
 	peers []*fakeHub
 	// authFailures counts 401 answers, so a test can tell "refused by the
 	// hub" from "never sent".
@@ -503,25 +536,30 @@ func (h *fakeHub) handler() http.Handler {
 	mux.HandleFunc("POST /relay/poll", h.hRelayPoll)
 	mux.HandleFunc("POST /relay/ack", h.hRelayAck)
 	mux.HandleFunc("GET /agents/{aid}/keys", h.hKeysGet)
-	mux.HandleFunc("POST "+hubapi.KeysLookupPath, h.hKeysLookup)
 	mux.HandleFunc("POST /agents/{aid}/keys", h.hKeysPost)
+	mux.HandleFunc("POST "+hubapi.DirectoryBucketPath, h.hDirBucket)
 	mux.HandleFunc("POST "+hubapi.MailboxRevokePath, h.hMailboxRevoke)
 	// The facilitator half of the contract. A fake that serves only the
 	// endpoints the happy path happens to touch is how a seam gets shipped
 	// unconnected — the real hub answers these, so this one does too.
 	mux.HandleFunc("GET /hub/identity", h.hIdentity)
 	mux.HandleFunc("GET /agents/{aid}/kel", h.hAgentKEL)
-	mux.HandleFunc("POST "+hubapi.KELLookupPath, h.hAgentKELLookup)
 	mux.HandleFunc("POST /x402/settle", h.hSettle)
 	mux.HandleFunc("GET /agents/{aid}/balance", h.hBalance)
 	mux.HandleFunc("GET /agents/{aid}/ledger", h.hLedgerRead)
 	mux.HandleFunc("GET /agents/{aid}/redemptions", h.hRedemptions)
 	mux.HandleFunc("POST /x402/redeem", h.hRedeem)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		rec := fakeHubRequest{method: r.Method, path: r.URL.Path, header: r.Header.Clone(), remote: r.RemoteAddr,
+			resumed: r.TLS != nil && r.TLS.DidResume, query: r.URL.RawQuery, bodyLen: len(body)}
+		if len(body) <= fakeHubKeepBody {
+			rec.body = body
+		}
 		h.mu.Lock()
 		wire, cookie := h.wire, h.setCookie
-		h.requests = append(h.requests, fakeHubRequest{method: r.Method, path: r.URL.Path,
-			header: r.Header.Clone(), remote: r.RemoteAddr, resumed: r.TLS != nil && r.TLS.DidResume})
+		h.requests = append(h.requests, rec)
 		if h.closeConns {
 			w.Header().Set("Connection", "close")
 		}
@@ -1020,83 +1058,198 @@ func (h *fakeHub) hKeysPost(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// hKeysGet mirrors GET /agents/{aid}/keys: local agents first, then peer
-// hubs (the federated lookup), else 404. Its binary values are base64url
-// (wire 3, CORE-E5), except at a hub that predates the lookup routes
-// (noKeysLookup), which predates base64url too.
+// hKeysGet mirrors GET /agents/{aid}/keys: the agents registered here,
+// else 404, binary values in base64url (wire 3, CORE-E5). The daemon asks
+// it of its own AID only (SSR-W16).
 func (h *fakeHub) hKeysGet(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	h.keysGets++
-	old := h.noKeysLookup
 	h.mu.Unlock()
-	enc := hubapi.B64
-	if old {
-		enc = base64.StdEncoding.EncodeToString
-	}
-	h.serveKeys(w, r.PathValue("aid"), enc)
-}
-
-// hKeysLookup mirrors POST /agents/keys:lookup: hKeysGet with the AID in
-// the body. With noKeysLookup it answers as a hub without the route does.
-func (h *fakeHub) hKeysLookup(w http.ResponseWriter, r *http.Request) {
-	h.mu.Lock()
-	old := h.noKeysLookup
-	if !old {
-		h.keysLookups++
-	}
-	h.mu.Unlock()
-	if old {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	body, ok := h.readBody(w, r, 4<<10)
-	if !ok {
-		return
-	}
-	var req hubapi.KeysLookupRequest
-	if err := json.Unmarshal(body, &req); err != nil || req.AID == "" {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": `body must be {"aid": "<AID>"}`})
-		return
-	}
-	// The lookup by AID is the v0.2 route the daemon keeps until the
-	// directory's buckets replace it, in the v0.2 encoding.
-	h.serveKeys(w, req.AID, base64.StdEncoding.EncodeToString)
-}
-
-func (h *fakeHub) serveKeys(w http.ResponseWriter, aid string, enc func([]byte) string) {
-	if out, ok := h.keysFor(aid, true, enc); ok {
+	aid := r.PathValue("aid")
+	if out, ok := h.keysFor(aid); ok {
 		fakeHubJSON(w, http.StatusOK, out)
 		return
 	}
 	fakeHubJSON(w, http.StatusNotFound, map[string]string{"error": "no keys for " + aid})
 }
 
-// keysFor answers a keys lookup for aid in the encoding enc; federate asks
-// the peer fakes.
-func (h *fakeHub) keysFor(aid string, federate bool, enc func([]byte) string) (hubapi.KeysResponse, bool) {
+// keysFor answers a keys lookup for aid, registered here.
+func (h *fakeHub) keysFor(aid string) (hubapi.KeysResponse, bool) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	if out, ok := h.keysOverride[aid]; ok {
-		h.mu.Unlock()
 		return out, true
 	}
-	a := h.agents[aid]
-	peers := append([]*fakeHub(nil), h.peers...)
-	var out hubapi.KeysResponse
-	found := a != nil && len(a.keyset) > 0
-	if found {
-		out = hubapi.KeysResponse{AID: aid, KeySet: enc(a.keyset), KEL: enc(a.kel)}
-	}
-	h.mu.Unlock()
-	if found || !federate {
-		return out, found
-	}
-	for _, p := range peers {
-		if out, ok := p.keysFor(aid, false, enc); ok {
-			return out, true
-		}
+	if a := h.agents[aid]; a != nil && len(a.keyset) > 0 {
+		return hubapi.KeysResponse{AID: aid, KeySet: hubapi.B64(a.keyset), KEL: hubapi.B64(a.kel)}, true
 	}
 	return hubapi.KeysResponse{}, false
+}
+
+// hDirBucket mirrors POST /directory:bucket (sealed-sender §2.9; ANetHub
+// internal/aghub/directory.go): no identity header; prefix and bits, the
+// prefix well formed; bits at most dir_max_bits (400 bucket_too_narrow
+// with max_bits); the bucket's entries, this hub's and its peers', in hash
+// order, a page at a time; partial when a peer is down.
+func (h *fakeHub) hDirBucket(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get(hubapi.HeaderAID) != "" || r.Header.Get(hubapi.HeaderSig) != "" || r.Header.Get(hubapi.HeaderSession) != "" {
+		fakeHubRefuse(w, http.StatusBadRequest, "identity_headers_not_allowed", nil)
+		return
+	}
+	body, ok := h.readBody(w, r, 4<<10)
+	if !ok {
+		return
+	}
+	var req hubapi.DirBucketRequest
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	h.mu.Lock()
+	h.bucketQueries = append(h.bucketQueries, req)
+	down, maxBits, page, partial, pad := h.dirDown, h.dirMaxBits, h.dirPage, h.dirPartial, h.dirPad
+	stated := maxBits
+	if h.dirAnswerMaxBits != nil {
+		stated = *h.dirAnswerMaxBits
+	}
+	peers := append([]*fakeHub(nil), h.peers...)
+	h.mu.Unlock()
+	if down {
+		fakeHubRefuse(w, http.StatusServiceUnavailable, "unavailable", nil)
+		return
+	}
+	prefix, err := hubapi.DecodeB64(req.Prefix, -1)
+	if err != nil || req.Bits < 0 || dirbox.CheckPrefix(prefix, req.Bits) != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	if req.Bits > maxBits {
+		fakeHubRefuse(w, http.StatusBadRequest, "bucket_too_narrow", map[string]any{"max_bits": maxBits})
+		return
+	}
+	entries := h.bucketEntries(prefix, req.Bits)
+	for _, p := range peers {
+		p.mu.Lock()
+		pdown := p.dirDown
+		p.mu.Unlock()
+		if pdown {
+			partial = true
+			continue
+		}
+		entries = append(entries, p.bucketEntries(prefix, req.Bits)...)
+	}
+	for range pad {
+		box := make([]byte, 64)
+		_, _ = rand.Read(box)
+		entries = append(entries, hubapi.DirBucketEntry{H: hubapi.B64(randomInBucket(prefix, req.Bits)), Box: hubapi.B64(box)})
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].H < entries[j].H })
+	start := 0
+	if req.Cursor != "" {
+		n, err := strconv.Atoi(req.Cursor)
+		if err != nil || n < 0 || n > len(entries) {
+			fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+			return
+		}
+		start = n
+	}
+	out := hubapi.DirBucketResponse{MaxBits: stated, Partial: partial, Entries: entries[start:]}
+	if page > 0 && len(out.Entries) > page {
+		out.Entries = out.Entries[:page]
+		out.Next = strconv.Itoa(start + page)
+	}
+	if out.Entries == nil {
+		out.Entries = []hubapi.DirBucketEntry{}
+	}
+	fakeHubJSON(w, http.StatusOK, out)
+}
+
+// randomInBucket is a directory hash of nobody in the bucket (prefix, bits).
+func randomInBucket(prefix []byte, bits int) []byte {
+	h := make([]byte, dirbox.HashLen)
+	_, _ = rand.Read(h)
+	n := bits / 8
+	copy(h, prefix[:n])
+	if r := bits % 8; r != 0 {
+		mask := byte(0xff << (8 - r))
+		h[n] = prefix[n]&mask | h[n]&^mask
+	}
+	return h
+}
+
+// bucketEntries are this hub's own entries in the bucket (prefix, bits):
+// one for each agent registered here with a key set, sealed under its AID
+// (dirbox.Seal), home this hub, its card and the notice for its KEL's tip
+// when notices are on; overridden, added to or left out as the knobs say.
+func (h *fakeHub) bucketEntries(prefix []byte, bits int) []hubapi.DirBucketEntry {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []hubapi.DirBucketEntry
+	add := func(aid string, e dirbox.DirEntry) {
+		hh, err := dirbox.Hash(aid)
+		if err != nil || !dirbox.InBucket(hh, prefix, bits) {
+			return
+		}
+		box, err := dirbox.Seal(aid, &e, nil)
+		if err != nil {
+			return
+		}
+		out = append(out, hubapi.DirBucketEntry{H: hubapi.B64(hh), Box: hubapi.B64(box)})
+	}
+	for aid, a := range h.agents {
+		if len(a.keyset) == 0 || h.dirHide[aid] {
+			continue
+		}
+		e := dirbox.DirEntry{AID: aid, Home: h.self.AID(), KEL: a.kel, Keys: a.keyset, Card: h.a2aCards[aid]}
+		if n, _ := h.noticeForLocked(aid); n != "" {
+			e.Notice, _ = base64.RawURLEncoding.DecodeString(n)
+		}
+		if o, ok := h.dirOverride[aid]; ok {
+			e = o
+		}
+		add(aid, e)
+	}
+	for aid, o := range h.dirOverride {
+		if a := h.agents[aid]; a == nil || len(a.keyset) == 0 {
+			add(aid, o)
+		}
+	}
+	for aid, es := range h.dirExtra {
+		for _, e := range es {
+			add(aid, e)
+		}
+	}
+	for _, e := range h.dirRaw {
+		if hh, err := hubapi.DecodeB64(e.H, dirbox.HashLen); err == nil && dirbox.InBucket(hh, prefix, bits) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// setDir changes the fake's directory under its lock.
+func (h *fakeHub) setDir(f func(h *fakeHub)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.dirOverride == nil {
+		h.dirOverride = map[string]dirbox.DirEntry{}
+	}
+	if h.dirExtra == nil {
+		h.dirExtra = map[string][]dirbox.DirEntry{}
+	}
+	if h.dirHide == nil {
+		h.dirHide = map[string]bool{}
+	}
+	f(h)
+}
+
+// queries are the bucket queries this hub got, in order.
+func (h *fakeHub) queries() []hubapi.DirBucketRequest {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]hubapi.DirBucketRequest(nil), h.bucketQueries...)
 }
 
 // hDeregister mirrors POST /agents/{aid}/deregister.
@@ -1514,6 +1667,10 @@ func (h *fakeHub) hRelaySend(w http.ResponseWriter, r *http.Request) {
 		fakeHubRefuse(w, http.StatusNotFound, "recipient_unknown", nil)
 		return
 	}
+	if want, ok := h.homeMustBe[outer.To]; ok && outer.Access.Kind == seal.AccessKindSession && r.Header.Get(hubapi.HeaderHome) != want {
+		fakeHubRefuse(w, http.StatusNotFound, "recipient_unknown", nil)
+		return
+	}
 	answer := func(status string, rid []byte) {
 		out := hubapi.RelaySendResponse{Status: status, RID: hubapi.B64(rid), ViaHub: h.sendViaHub}
 		// Queued either way, and the sender is told when the recipient has
@@ -1812,8 +1969,9 @@ func (h *fakeHub) hIdentity(w http.ResponseWriter, _ *http.Request) {
 	}
 	h.mu.Lock()
 	wire := h.wire
+	maxBits := h.dirMaxBits
 	h.mu.Unlock()
-	fakeHubJSON(w, http.StatusOK, hubapi.HubIdentity{AID: h.self.AID(), KEL: hubapi.B64(kel), Wire: &wire})
+	fakeHubJSON(w, http.StatusOK, hubapi.HubIdentity{AID: h.self.AID(), KEL: hubapi.B64(kel), Wire: &wire, DirMaxBits: &maxBits})
 }
 
 // grant credits an account, standing in for the admin grant and the
@@ -2253,29 +2411,6 @@ func (h *fakeHub) hRedeem(w http.ResponseWriter, r *http.Request) {
 
 func (h *fakeHub) hAgentKEL(w http.ResponseWriter, r *http.Request) {
 	h.serveAgentKEL(w, r.PathValue("aid"))
-}
-
-// hAgentKELLookup mirrors POST /agents/kel:lookup: hAgentKEL with the AID
-// in the body. With noKeysLookup it answers as a hub without the route.
-func (h *fakeHub) hAgentKELLookup(w http.ResponseWriter, r *http.Request) {
-	h.mu.Lock()
-	old := h.noKeysLookup
-	h.mu.Unlock()
-	if old {
-		w.Header().Set("Allow", "GET, HEAD")
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	body, ok := h.readBody(w, r, 4<<10)
-	if !ok {
-		return
-	}
-	var req hubapi.KeysLookupRequest
-	if err := json.Unmarshal(body, &req); err != nil || req.AID == "" {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": `body must be {"aid": "<AID>"}`})
-		return
-	}
-	h.serveAgentKEL(w, req.AID)
 }
 
 func (h *fakeHub) serveAgentKEL(w http.ResponseWriter, aid string) {

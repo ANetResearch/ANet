@@ -2,14 +2,12 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -199,11 +197,7 @@ func TestPinPeerRecordsAndPinsTheNamedPeer(t *testing.T) {
 	victim := newStranger(t)
 	mallory := newStranger(t)
 	kel, _ := identity.MarshalKEL(mallory.kel)
-	fake := fakeHubAt(t, srv.URL)
-	fake.mu.Lock()
-	fake.keysOverride[victim.aid] = hubapi.KeysResponse{AID: victim.aid,
-		KeySet: base64.StdEncoding.EncodeToString(mallory.keys), KEL: base64.StdEncoding.EncodeToString(kel)}
-	fake.mu.Unlock()
+	overrideDirEntry(t, fakeHubAt(t, srv.URL), victim.aid, kel, mallory.keys)
 	if err := req.PinPeer(ctx, victim.aid, interactions.PinAllow); err == nil {
 		t.Fatal("a pin was recorded from another identity's material")
 	}

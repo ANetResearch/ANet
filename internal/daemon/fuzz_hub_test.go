@@ -5,7 +5,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/dirbox"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
@@ -85,8 +85,16 @@ func FuzzHubAnswers(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	b64 := base64.StdEncoding.EncodeToString
-	keysAnswer, _ := json.Marshal(hubapi.KeysResponse{KeySet: b64(peerKeys), KEL: b64(peerKEL)})
+	// A bucket that holds the peer's entry, with its card, and one entry
+	// of nobody.
+	peerHash, _ := dirbox.Hash(peer.AID())
+	peerBox, err := dirbox.Seal(peer.AID(), &dirbox.DirEntry{AID: peer.AID(), Home: peer.AID(), KEL: peerKEL,
+		Keys: peerKeys, Card: card}, nil)
+	if err != nil {
+		f.Fatal(err)
+	}
+	keysAnswer, _ := json.Marshal(hubapi.DirBucketResponse{Entries: []hubapi.DirBucketEntry{
+		{H: hubapi.B64(peerHash), Box: hubapi.B64(peerBox)}, {H: hubapi.B64(make([]byte, 32)), Box: "AAAA"}}})
 	idAnswer, _ := json.Marshal(hubapi.HubIdentity{AID: peer.AID(), KEL: hubapi.B64(peerKEL)})
 	reg, _ := json.Marshal(hubapi.A2AAgentList{Agents: []hubapi.A2AAgentEntry{{AID: d.AID(), Card: card,
 		CardVerification: "ok", HomeHub: "https://h", ReviewCount: 3, AvgRating: 4.5}, {AID: peer.AID(), Card: card}}})
@@ -99,7 +107,9 @@ func FuzzHubAnswers(f *testing.F) {
 		{hubOpPoll, 0, "3", `{"messages":[{"id":1,"envelope":"AAEC"},{"id":-1,"envelope":"!!"}]}`},
 		{hubOpPoll, 0, "3", `{"messages":[]}`},
 		{hubOpKeys, 0, "3", string(keysAnswer)},
-		{hubOpKeys, 3, "", `{"error":"no key set"}`},
+		{hubOpKeys, 0, "3", `{"max_bits":0,"entries":[],"partial":true}`},
+		{hubOpKeys, 3, "", `{"reason":"bucket_too_narrow","max_bits":0}`},
+		{hubOpCard, 0, "3", string(keysAnswer)},
 		{hubOpIdentity, 0, "", string(idAnswer)},
 		{hubOpAgents, 0, "3", string(reg)},
 		{hubOpAgentsUncarded, 0, "3", `{"agents":[{"aid":"` + peer.AID() + `","name":"n","caps":["a"],"summary":"s","avg_rating":1e308}]}`},
@@ -120,7 +130,7 @@ func FuzzHubAnswers(f *testing.F) {
 		case hubOpPoll:
 			_ = d.pollOnce(ctx)
 		case hubOpKeys:
-			ks, err := d.fetchRecipientKeys(ctx, srv.URL, peer.AID(), "")
+			ks, err := bucketKeys(d, peer.AID(), "")
 			if err == nil {
 				if ks == nil || ks.set == nil || ks.set.AID != peer.AID() {
 					t.Fatalf("a key set for another AID was taken: %+v", ks)

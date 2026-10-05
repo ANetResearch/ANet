@@ -282,9 +282,10 @@ func mustSetBytes(signed []byte) []byte {
 
 // PinPeer marks aid as a peer the operator chose (reason "allow" or
 // "trust"), so its record is never evicted. When this node holds no record
-// yet it fetches the peer's KEL and key set from the hub and verifies them
-// with expectAID = aid. When the hub cannot answer, the peer is recorded on
-// its first valid message instead (trust on first use, §3.8).
+// yet it looks the peer up in the directory (resolvePeer, which names it to
+// no hub) and verifies its KEL and key set with expectAID = aid. When the
+// directory cannot answer, the peer is recorded on its first valid message
+// instead (trust on first use, §3.8).
 func (d *Daemon) PinPeer(ctx context.Context, aid, reason string) error {
 	if aid == "" {
 		return fmt.Errorf("anet: name the peer to pin")
@@ -306,12 +307,12 @@ func (d *Daemon) PinPeer(ctx context.Context, aid, reason string) error {
 	} else if !errors.Is(err, interactions.ErrNotFound) {
 		return err
 	}
-	hub := d.config().HubURL
-	if hub == "" {
+	if d.config().HubURL == "" {
 		return fmt.Errorf("anet: no record of %s and no hub to fetch one from; it will be recorded on its first message", aid)
 	}
-	if _, err := d.fetchRecipientKeys(ctx, hub, aid, reason); err != nil {
-		return fmt.Errorf("anet: could not fetch %s's keys (it will be recorded on its first message): %w", aid, err)
+	if m, v := d.resolvePeer(ctx, aid, resolveOpts{need: needKeySet, record: true, pin: reason}); v != verdictFound {
+		return fmt.Errorf("anet: could not fetch %s's keys (it will be recorded on its first message): %w",
+			aid, &peerResolveError{AID: aid, Verdict: v, Cause: m.Err})
 	}
 	return nil
 }

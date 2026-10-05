@@ -3,7 +3,6 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"strings"
 	"sync"
@@ -16,7 +15,6 @@ import (
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -357,16 +355,15 @@ func TestAHubSubstitutingKeysForTheRecipientIsRefused(t *testing.T) {
 	mallory := newStranger(t)
 	kel, _ := identity.MarshalKEL(mallory.kel)
 	fake := fakeHubAt(t, srv.URL)
-	for name, sub := range map[string]hubapi.KeysResponse{
-		"another AID's KEL and keys": {AID: prov.AID(), KeySet: base64.StdEncoding.EncodeToString(mallory.keys),
-			KEL: base64.StdEncoding.EncodeToString(kel)},
-		"the recipient's KEL with another AID's keys": {AID: prov.AID(), KeySet: base64.StdEncoding.EncodeToString(mallory.keys),
-			KEL: base64.StdEncoding.EncodeToString(mustKEL(t, prov))},
+	for name, sub := range map[string]struct {
+		kel, keys []byte
+		reason    string
+	}{
+		"another AID's KEL and keys":                  {kel, mallory.keys, ""},
+		"the recipient's KEL with another AID's keys": {mustKEL(t, prov), mallory.keys, seal.ReasonAIDMismatch},
 	} {
 		t.Run(name, func(t *testing.T) {
-			fake.mu.Lock()
-			fake.keysOverride[prov.AID()] = sub
-			fake.mu.Unlock()
+			overrideDirEntry(t, fake, prov.AID(), sub.kel, sub.keys)
 			if _, err := req.Delegate(context.Background(), prov.AID(), "secret task", nil); err == nil {
 				t.Fatal("the delegation was sealed to keys the hub substituted")
 			}
@@ -376,11 +373,14 @@ func TestAHubSubstitutingKeysForTheRecipientIsRefused(t *testing.T) {
 			if _, err := req.ix.PeerIdentity(prov.AID()); err == nil {
 				t.Fatal("the substituted material was recorded for the recipient")
 			}
-			// Refused by the key set check itself: the set does not name
-			// the AID that was asked for.
-			_, err := req.fetchRecipientKeys(context.Background(), srv.URL, prov.AID(), "")
-			if seal.ReasonOf(err) != seal.ReasonAIDMismatch {
-				t.Fatalf("refusal reason = %q (%v), want %s", seal.ReasonOf(err), err, seal.ReasonAIDMismatch)
+			// Refused by the entry's checks themselves: the KEL does not
+			// replay to the AID asked for, or the set does not name it.
+			_, err := bucketKeys(req, prov.AID(), "")
+			if resolveVerdictOf(err) != verdictUnverifiable {
+				t.Fatalf("verdict %v (%v), want unverifiable", resolveVerdictOf(err), err)
+			}
+			if sub.reason != "" && seal.ReasonOf(err) != sub.reason {
+				t.Fatalf("refusal reason = %q (%v), want %s", seal.ReasonOf(err), err, sub.reason)
 			}
 		})
 	}
@@ -780,7 +780,7 @@ func TestAnUnchangedKeySetIsAcceptedAgain(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	for i := 0; i < 2; i++ {
-		if _, err := req.fetchRecipientKeys(ctx, srv.URL, prov.AID(), ""); err != nil {
+		if _, err := bucketKeys(req, prov.AID(), ""); err != nil {
 			t.Fatalf("fetch %d of an unchanged key set: %v", i+1, err)
 		}
 	}
@@ -803,12 +803,8 @@ func TestAnUnchangedKeySetIsAcceptedAgain(t *testing.T) {
 	fake := fakeHubAt(t, srv.URL)
 	row, _ := req.ix.PeerIdentity(prov.AID())
 	kel := mustKEL(t, prov)
-	fake.mu.Lock()
-	fake.keysOverride[prov.AID()] = hubapi.KeysResponse{AID: prov.AID(),
-		KeySet: base64.StdEncoding.EncodeToString(signedKeysFor(t, prov.self, row.KeySetSeq)),
-		KEL:    base64.StdEncoding.EncodeToString(kel)}
-	fake.mu.Unlock()
-	if _, err := req.fetchRecipientKeys(ctx, srv.URL, prov.AID(), ""); err == nil {
+	overrideDirEntry(t, fake, prov.AID(), kel, signedKeysFor(t, prov.self, row.KeySetSeq))
+	if _, err := bucketKeys(req, prov.AID(), ""); err == nil {
 		t.Fatal("a different key set at the stored seq was accepted")
 	}
 	if counter(req, keysFork) != 1 {
@@ -893,8 +889,7 @@ func signedKeysWith(t *testing.T, aid string, sign seal.SignFunc, seq uint64) []
 // get this node to seal to its key.
 func TestAHubCannotRollBackOrForkAKnownRecipientsKeys(t *testing.T) {
 	srv, req, prov := registeredPair(t)
-	ctx := context.Background()
-	if _, err := req.fetchRecipientKeys(ctx, srv.URL, prov.AID(), interactions.PinOutbound); err != nil {
+	if _, err := bucketKeys(req, prov.AID(), interactions.PinOutbound); err != nil {
 		t.Fatal(err)
 	}
 
@@ -945,11 +940,8 @@ func TestAHubCannotRollBackOrForkAKnownRecipientsKeys(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			fake.mu.Lock()
-			fake.keysOverride[prov.AID()] = hubapi.KeysResponse{AID: prov.AID(),
-				KeySet: base64.StdEncoding.EncodeToString(tc.keys), KEL: base64.StdEncoding.EncodeToString(kel)}
-			fake.mu.Unlock()
-			if _, err := req.fetchRecipientKeys(ctx, srv.URL, prov.AID(), ""); err == nil {
+			overrideDirEntry(t, fake, prov.AID(), kel, tc.keys)
+			if _, err := bucketKeys(req, prov.AID(), ""); err == nil {
 				t.Fatal("a key set the stored KEL does not support was accepted")
 			}
 			row, err := req.ix.PeerIdentity(prov.AID())
@@ -1127,57 +1119,11 @@ func TestAResultSealedTwiceArrivingTogetherIsRecordedOnce(t *testing.T) {
 	}
 }
 
-// §3.5 step 1: a stored recipient key set is used while it verifies, and
-// re-checked against the hub in the background once it is older than ten
-// minutes. A newer set the recipient published in the meantime replaces it.
-func TestAStoredKeySetIsRecheckedAfterTenMinutes(t *testing.T) {
-	srv, req, prov := registeredPair(t)
-	ctx := context.Background()
-	id, err := req.Delegate(ctx, prov.AID(), "task", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	row, err := req.ix.PeerIdentity(prov.AID())
-	if err != nil {
-		t.Fatal(err)
-	}
-	seq0 := row.KeySetSeq
-	// The provider rotates its encryption key and publishes the new set.
-	start := uint64(time.Now().UnixMilli())
-	prov.setClock(func() uint64 { return start + encKeyRotateEvery + 1 })
-	prov.maintainKeyRing()
-	newSeq := prov.enc.Seq()
-	if newSeq <= seq0 {
-		t.Fatal("the provider did not rotate")
-	}
-	_ = srv
-
-	// Five minutes later the stored set is used as it is.
-	req.setClock(func() uint64 { return start + 5*60*1000 })
-	if err := req.SendMessage(ctx, id, "at five minutes", nil); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(100 * time.Millisecond)
-	if row, _ := req.ix.PeerIdentity(prov.AID()); row.KeySetSeq != seq0 {
-		t.Fatalf("the stored set was re-fetched before ten minutes (seq %d)", row.KeySetSeq)
-	}
-	// Eleven minutes later the send still uses it, and the check against
-	// the hub picks up the newer set.
-	req.setClock(func() uint64 { return start + 11*60*1000 })
-	if err := req.SendMessage(ctx, id, "at eleven minutes", nil); err != nil {
-		t.Fatal(err)
-	}
-	waitUntil(t, "the re-check to store the provider's new key set", func() bool {
-		row, err := req.ix.PeerIdentity(prov.AID())
-		return err == nil && row.KeySetSeq == newSeq
-	})
-}
-
 // A stored key set that no longer verifies is not sealed to. After the
 // recipient rotated its identity key, the set signed under the retired key
 // is no longer a current statement (§3.1 rule 2); the sender fetches the
-// set the recipient signed again, without waiting for the ten-minute
-// re-check.
+// set the recipient signed again from the directory, past every cache,
+// without waiting for the daily recheck (sealed-sender SSR-D18).
 func TestAStoredKeySetThatNoLongerVerifiesIsReplaced(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()

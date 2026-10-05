@@ -63,9 +63,11 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		{"RelayStatusResponse", hubapi.RelayStatusResponse{}, []string{"items"}},
 		{"RelayStatusResult", hubapi.RelayStatusResult{}, []string{"dack", "state"}},
 		{"KeysResponse", hubapi.KeysResponse{}, []string{"aid", "kel", "keyset"}},
-		// POST /agents/keys:lookup [redteam:F3]. Mirrors ANetHub
-		// internal/aghub/wirecontract_test.go.
-		{"KeysLookupRequest", hubapi.KeysLookupRequest{}, []string{"aid"}},
+		// POST /directory:bucket (core §2.12.2; TestTheBucketBodiesAreTheRegistrys
+		// holds them to the registry). Mirrors ANetHub internal/aghub/directory.go.
+		{"DirBucketRequest", hubapi.DirBucketRequest{}, []string{"bits", "cursor", "prefix"}},
+		{"DirBucketResponse", hubapi.DirBucketResponse{}, []string{"entries", "max_bits", "next", "partial"}},
+		{"DirBucketEntry", hubapi.DirBucketEntry{}, []string{"box", "h"}},
 		{"KeysPublishRequest", hubapi.KeysPublishRequest{}, []string{"keyset"}},
 		{"KeysPublishResponse", hubapi.KeysPublishResponse{}, []string{"aid", "keys_status"}},
 		// core §2.12.2. No invite: a hub admits by AID (LEC HN-5).
@@ -251,11 +253,9 @@ func TestTheWireVersionAndAuthHeadersArePinned(t *testing.T) {
 		"application/vnd.anet.envelope+cbor": hubapi.EnvelopeContentType,
 		"/relay/send":                        hubapi.RelaySendPath,
 		"/relay/session":                     hubapi.RelaySessionPath,
-		// The lookups by AID, kept until the directory's buckets replace
-		// them (ANetHub pins the same paths).
-		"/agents/keys:lookup":        hubapi.KeysLookupPath,
-		"/agents/kel:lookup":         hubapi.KELLookupPath,
-		"/a2a/v1/agents/card:lookup": hubapi.CardLookupPath,
+		// The directory's buckets, the only way this node learns another
+		// agent's material (sealed-sender SSR-D15).
+		"/directory:bucket": hubapi.DirectoryBucketPath,
 	} {
 		if got != want {
 			t.Errorf("header = %q, want %q", got, want)

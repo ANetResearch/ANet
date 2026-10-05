@@ -18,7 +18,8 @@ func TestTheRegistryFieldNamesArePinned(t *testing.T) {
 		want  []string
 	}{
 		{"A2AAgentEntry", hubapi.A2AAgentEntry{}, []string{
-			"aid", "avgRating", "card", "cardVerification", "homeHub", "lastSeen", "quiet", "reviewCount", "verifiedAt",
+			"aid", "avgRating", "card", "cardVerification", "homeHub", "kel", "key_state_notice", "keys",
+			"lastSeen", "quiet", "reviewCount", "verifiedAt",
 		}},
 		{"A2AAgentList", hubapi.A2AAgentList{}, []string{"agents", "nextCursor"}},
 	} {
