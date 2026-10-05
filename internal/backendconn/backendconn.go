@@ -1,7 +1,7 @@
 // Package backendconn connects the daemon to the local services behind it — the service module's
-// backends and module/a2a's provider-side backends (A2A-DESIGN §11.6, §15) — and makes sure the process
-// on the far side is the one the operator meant before a token, a call's arguments or a task's text is
-// written to it (an internal note N1).
+// backends, module/a2a's provider-side backends (A2A-DESIGN §11.6, §15) and the p2p module's peer
+// process — and makes sure the process on the far side is the one the operator meant before a token, a
+// call's arguments, a task's text or an envelope is written to it (an internal note N1, LEC PC-2, PC-3).
 //
 // A loopback TCP port is not private. While a backend is down — a restart, an upgrade, a crash — any
 // local account can bind its port, and the next call hands that account the daemon's bearer token, the
@@ -16,15 +16,17 @@
 //
 // Before every new connection to a socket the path is walked from the root, following symbolic links,
 // and each entry on it must be one only trusted accounts can replace (checkPath): root, this daemon's
-// user, the account named by expected_uid/expected_user, and the socket's own owner where that owner's
-// directory sits in one nobody else can write. A directory writable by every user is allowed above the
-// socket only when it is sticky (/tmp), and never as the socket's own directory; a group-writable one
-// only when socket_group names its group, or when the group is the user-private group of the socket's
-// owner or of this daemon's user — named as the user, the user's primary group, no other member — which
-// can write nothing its user cannot (Ubuntu's umask 002 makes every directory 0775 with such a group;
-// usergroups.go). After connecting, on Linux, SO_PEERCRED gives the uid of the
-// process that listens on the socket, which must be expected_uid when it is set and the socket file's
-// owner otherwise. A failed check sends nothing.
+// user, the account expected_user names, and the socket's own owner where that owner's directory sits
+// in one nobody else can write. A directory writable by every user is allowed above the socket only when
+// it is sticky (/tmp), and never as the socket's own directory; a group-writable one only when
+// socket_group names its group, or when the group is the user-private group of the socket's owner or of
+// this daemon's user — named as the user, the user's primary group, no other member — which can write
+// nothing its user cannot (Ubuntu's umask 002 makes every directory 0775 with such a group;
+// usergroups.go). After connecting, the kernel says which account listens on the socket
+// (internal/peercred: SO_PEERCRED on Linux, LOCAL_PEERCRED on macOS and FreeBSD), and it must be the
+// account expected_user names, or the socket file's owner when none is named. A platform that cannot
+// say is refused (peer_cred_unsupported), unless that backend's peer_check is "path-only": the operator's
+// word that only the path checks stand there. A failed check sends nothing.
 //
 // TCP (http:// and https://) stays possible, but only with allow_tcp: true. A TCP connection that lands
 // on this machine — a loopback address, or one of the host's own addresses (onThisHost) — is then
@@ -35,9 +37,10 @@
 // over plain http to another host).
 //
 // Connections never go through an HTTP proxy: the checks are about the socket the request travels on.
+// Nothing in ANet dials a Unix socket but through here (TestNothingDialsAUnixSocketAroundBackendconn).
 //
-// Standard library and internal/localpeer only; never internal/daemon, a module or an A2A SDK (the deps
-// test in internal/loopguard).
+// Standard library, golang.org/x/sys, internal/localpeer and internal/peercred only; never
+// internal/daemon, a module or an A2A SDK (the deps test in internal/loopguard).
 package backendconn
 
 import (
@@ -45,6 +48,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -57,33 +61,58 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/localpeer"
+	"github.com/ANetResearch/ANet/internal/peercred"
 )
 
 // Policy is what the operator says about a backend's far side, as it appears in a module's
-// configuration (the service module's block, each module/a2a backend).
+// configuration (the service module's block, each module/a2a backend, the anetlink module): the same
+// keys in all three (LEC §4.4).
 type Policy struct {
 	// AllowTCP accepts an http:// or https:// backend URL. Without it only unix:// URLs are accepted:
 	// a TCP port can be taken by another local user while the backend is down.
 	AllowTCP bool `json:"allow_tcp,omitempty"`
-	// ExpectedUID is the uid the backend runs as. When set, the process listening on the socket must
-	// run as it (SO_PEERCRED, Linux) and the socket must be its, this daemon's or root's. When neither
-	// it nor ExpectedUser is set, the listener must run as the socket file's owner.
-	ExpectedUID *int `json:"expected_uid,omitempty"`
-	// ExpectedUser is ExpectedUID by name, looked up once at start. A systemd DynamicUser has no stable
-	// uid and is not in /etc/passwd: leave both unset for one and rely on the socket's directory.
+	// ExpectedUser is the account the backend runs as: a user name, looked up once at start, or a
+	// decimal uid, taken as it is (an account /etc/passwd does not hold, a container's). When set, the
+	// process listening on the socket must run as it and the socket must be its, this daemon's or
+	// root's. When unset, the listener must run as the socket file's owner. A systemd DynamicUser has no
+	// stable uid and is not in /etc/passwd: leave it unset for one and rely on the socket's directory.
 	ExpectedUser string `json:"expected_user,omitempty"`
 	// SocketGroup is a group (name or number) whose members may write the socket's directory, or a
 	// directory above it: a group-writable directory on the path is refused unless it is this group's.
 	// Members of the group are trusted as much as the backend itself.
 	SocketGroup string `json:"socket_group,omitempty"`
+	// PeerCheck is "" (the default): the account listening on a socket is checked, and a platform that
+	// cannot tell is refused; or "path-only": only the path checks stand, on the operator's word that
+	// nobody else can change that path (LEC PC-2). doctor warns about every path-only backend.
+	PeerCheck string `json:"peer_check,omitempty"`
 }
+
+// PeerCheckPathOnly is the one value of peer_check besides the default.
+const PeerCheckPathOnly = "path-only"
+
+// PolicyError is a Policy value Resolve cannot use: which key, as it is spelled in config.json, and the
+// value. The daemon turns it into config_invalid naming the key (LEC §3.2).
+type PolicyError struct {
+	Key   string // "expected_user", "socket_group" or "peer_check"
+	Value string
+	Err   error
+}
+
+func (e *PolicyError) Error() string {
+	return fmt.Sprintf("%s %q: %v", e.Key, e.Value, e.Err)
+}
+
+func (e *PolicyError) Unwrap() error { return e.Err }
 
 // Rules is a Policy with its names looked up, ready to check connections.
 type Rules struct {
 	allowTCP bool
 	expected int // -1: none
-	group    int // -1: none
-	self     int
+	// expectedName is expected_user as configured, for the refusal that names it.
+	expectedName string
+	group        int // -1: none
+	self         int
+	pathOnly     bool
 	// users says which groups are user-private (usergroups.go); nil reads the system's files.
 	users userDB
 }
@@ -95,48 +124,74 @@ func (r Rules) userDB() userDB {
 	return systemUsers
 }
 
-// Resolve looks up the names in p. A user or group that does not exist is an error: the operator named
-// an account the checks could never match.
+// maxID is the largest uid or gid a decimal expected_user or socket_group may name: (uid_t)-1 is "no
+// one", and nothing is above it.
+const maxID = 1<<32 - 2
+
+// decimalID reads s as a uid or gid when it is all decimal digits: ok is false for anything else (a
+// name), err set for digits that name no id.
+func decimalID(s string) (id int, ok bool, err error) {
+	if s == "" || strings.Trim(s, "0123456789") != "" {
+		return 0, false, nil
+	}
+	n, perr := strconv.ParseUint(s, 10, 64)
+	if perr != nil || n > maxID {
+		return 0, true, fmt.Errorf("%s is past the largest id, %d", s, uint64(maxID))
+	}
+	if n > math.MaxInt {
+		// A 32-bit build: the id would wrap to a negative int, which the checks read as "none set".
+		return 0, true, fmt.Errorf("%s is past the largest id this build can compare, %d", s, math.MaxInt)
+	}
+	return int(n), true, nil
+}
+
+// Resolve looks up the names in p. All decimal digits are an id, taken without asking the user
+// database; a user or group name that does not exist is an error: the operator named an account the
+// checks could never match. Every error is a *PolicyError.
 func (p Policy) Resolve() (Rules, error) {
 	r := Rules{allowTCP: p.AllowTCP, expected: -1, group: -1, self: os.Getuid()}
-	if p.ExpectedUID != nil && p.ExpectedUser != "" {
-		return r, errors.New("expected_uid and expected_user name the same thing; set one")
+	switch pc := strings.TrimSpace(p.PeerCheck); pc {
+	case "":
+	case PeerCheckPathOnly:
+		r.pathOnly = true
+	default:
+		return r, &PolicyError{Key: "peer_check", Value: p.PeerCheck, Err: errors.New(`it is "" (the default: check the listening account) or "path-only"`)}
 	}
-	if p.ExpectedUID != nil {
-		if *p.ExpectedUID < 0 {
-			return r, fmt.Errorf("expected_uid %d is not a uid", *p.ExpectedUID)
+	if name := strings.TrimSpace(p.ExpectedUser); name != "" {
+		id, numeric, err := decimalID(name)
+		if !numeric {
+			var u *user.User
+			if u, err = user.Lookup(name); err == nil {
+				if id, err = strconv.Atoi(u.Uid); err != nil {
+					err = fmt.Errorf("its uid %q is not a number on this system", u.Uid)
+				}
+			}
 		}
-		r.expected = *p.ExpectedUID
-	}
-	if p.ExpectedUser != "" {
-		u, err := user.Lookup(p.ExpectedUser)
 		if err != nil {
-			return r, fmt.Errorf("expected_user %q: %w", p.ExpectedUser, err)
+			return r, &PolicyError{Key: "expected_user", Value: p.ExpectedUser, Err: err}
 		}
-		id, err := strconv.Atoi(u.Uid)
-		if err != nil {
-			return r, fmt.Errorf("expected_user %q: uid %q is not a number on this system", p.ExpectedUser, u.Uid)
-		}
-		r.expected = id
+		r.expected, r.expectedName = id, name
 	}
 	if g := strings.TrimSpace(p.SocketGroup); g != "" {
-		id, err := strconv.Atoi(g)
-		if err != nil {
-			grp, lerr := user.LookupGroup(g)
-			if lerr != nil {
-				return r, fmt.Errorf("socket_group %q: %w", g, lerr)
-			}
-			if id, err = strconv.Atoi(grp.Gid); err != nil {
-				return r, fmt.Errorf("socket_group %q: gid %q is not a number on this system", g, grp.Gid)
+		id, numeric, err := decimalID(g)
+		if !numeric {
+			var grp *user.Group
+			if grp, err = user.LookupGroup(g); err == nil {
+				if id, err = strconv.Atoi(grp.Gid); err != nil {
+					err = fmt.Errorf("its gid %q is not a number on this system", grp.Gid)
+				}
 			}
 		}
-		if id < 0 {
-			return r, fmt.Errorf("socket_group %q is not a group", g)
+		if err != nil {
+			return r, &PolicyError{Key: "socket_group", Value: p.SocketGroup, Err: err}
 		}
 		r.group = id
 	}
 	return r, nil
 }
+
+// PathOnly reports peer_check "path-only".
+func (r Rules) PathOnly() bool { return r.pathOnly }
 
 // Target is a parsed backend URL.
 type Target struct {
@@ -229,6 +284,11 @@ var ErrRefused = errors.New("backend refused before anything was sent")
 type RefusedError struct {
 	Where  string // the socket path or the TCP address
 	Reason string
+	// Code is the reason table's code for a refusal that has one (peer_cred_unsupported,
+	// peer_uid_mismatch), with its placeholders in Args; Reason is then that code's English sentence.
+	// "" for the path and TCP checks, which say what they found in Reason.
+	Code string
+	Args map[string]string
 }
 
 func (e *RefusedError) Error() string {
@@ -239,6 +299,27 @@ func (e *RefusedError) Unwrap() error { return ErrRefused }
 
 func refuse(where, format string, a ...any) error {
 	return &RefusedError{Where: where, Reason: fmt.Sprintf(format, a...)}
+}
+
+// The two refusals of the listener check, by their codes (02-ux §1.4 J). The English sentences are the
+// reason table's (TestPeerRefusalsAreTheReasonTablesSentences); the daemon, doctor and the logs show
+// them in either language from Code and Args.
+const (
+	CodePeerCredUnsupported = "peer_cred_unsupported"
+	CodePeerUIDMismatch     = "peer_uid_mismatch"
+)
+
+func refusePeerCredUnsupported(sock string) error {
+	return &RefusedError{Where: sock, Code: CodePeerCredUnsupported, Args: map[string]string{"path": sock},
+		Reason: "This platform cannot read who is on the other end of " + sock + `, so the connection was refused; ` +
+			`if only you can change that path, set "peer_check": "path-only" for this backend.`}
+}
+
+func refusePeerUIDMismatch(sock string, uid int, want string) error {
+	n := strconv.Itoa(uid)
+	return &RefusedError{Where: sock, Code: CodePeerUIDMismatch, Args: map[string]string{"path": sock, "n": n, "name": want},
+		Reason: "The process listening on " + sock + " runs as uid " + n + ", not the expected " + want +
+			"; check who is listening, or set expected_user."}
 }
 
 // Transport returns an HTTP transport for t whose every new connection is checked before it is used:
@@ -285,7 +366,8 @@ func (r Rules) Client(t Target, timeout time.Duration) *http.Client {
 	}
 }
 
-// DialUnix checks sock's path, connects, and checks the listener (SO_PEERCRED on Linux).
+// DialUnix checks sock's path, connects, and checks the account listening on it (peercred). It is the
+// one way anything in ANet dials a Unix socket that is handed something (LEC PC-3).
 func (r Rules) DialUnix(ctx context.Context, d *net.Dialer, sock string) (net.Conn, error) {
 	real, owner, err := r.CheckPath(sock)
 	if err != nil {
@@ -305,21 +387,29 @@ func (r Rules) DialUnix(ctx context.Context, d *net.Dialer, sock string) (net.Co
 	return c, nil
 }
 
-// checkPeer compares the listener's uid with the expected one, or with the socket file's owner.
+// peerCredOf reads the far end's account; a test stands in for a platform that cannot.
+var peerCredOf = peercred.Of
+
+// checkPeer compares the account listening on c with expected_user, or with the socket file's owner.
+// A platform that cannot tell is refused, unless peer_check is "path-only"; with "path-only" the
+// listener is not asked at all.
 func (r Rules) checkPeer(c net.Conn, sock string, owner int) error {
-	uid, gid, err := peerCred(c)
-	if errors.Is(err, errNoPeerCred) {
-		return nil // not Linux: the path checks stand alone
+	if r.pathOnly {
+		return nil
+	}
+	cred, err := peerCredOf(c)
+	if errors.Is(err, peercred.ErrUnsupported) {
+		return refusePeerCredUnsupported(sock)
 	}
 	if err != nil {
-		return refuse(sock, "cannot read the listener's credentials (SO_PEERCRED): %v", err)
+		return refuse(sock, "cannot read who listens on it: %v", err)
 	}
-	want, what := owner, "the socket file's owner"
+	want, wantName := owner, "uid "+strconv.Itoa(owner)
 	if r.expected >= 0 {
-		want, what = r.expected, "expected_uid/expected_user"
+		want, wantName = r.expected, r.expectedName
 	}
-	if uid != want {
-		return refuse(sock, "the process listening on it runs as uid %d (gid %d), not uid %d (%s)", uid, gid, want, what)
+	if cred.UID != want {
+		return refusePeerUIDMismatch(sock, cred.UID, wantName)
 	}
 	return nil
 }
@@ -525,7 +615,7 @@ func (r Rules) judge(sock string, entries []entry) error {
 	// its owner listening).
 	if fd := entries[final].m; !trusted(owner) && fd.uid != owner && (!groupOK(fd) || fd.mode.Perm()&0o020 == 0) {
 		return refuse(sock, "the socket is owned by uid %d, but its directory %s by uid %d; a backend's socket is its own directory's, "+
-			"or set expected_uid/expected_user or socket_group", owner, entries[final].path, fd.uid)
+			"or set expected_user or socket_group", owner, entries[final].path, fd.uid)
 	}
 	for i, e := range entries {
 		if e.m.mode.IsDir() {
@@ -579,6 +669,3 @@ func (osFS) lstat(p string) (meta, error) {
 }
 
 func (osFS) readlink(p string) (string, error) { return os.Readlink(p) }
-
-// errNoPeerCred means this system gives no listener credentials for a Unix socket connection.
-var errNoPeerCred = errors.New("backendconn: no peer credentials on this system")

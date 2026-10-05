@@ -8,6 +8,7 @@ package a2a
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +35,80 @@ func quickRetries(t *testing.T) {
 	old := retryBase
 	retryBase = 20 * time.Millisecond
 	t.Cleanup(func() { retryBase = old })
+}
+
+// stillClock is a retryClock on which a wait takes no time: now moves by
+// exactly what is waited, so the attempts a forward makes before it gives
+// up are the same however busy the machine is.
+type stillClock struct {
+	mu     sync.Mutex
+	at     time.Time
+	waited time.Duration
+}
+
+func (c *stillClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.at
+}
+
+func (c *stillClock) sleep(ctx context.Context, d time.Duration) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.at = c.at.Add(d)
+	c.waited += d
+	return true
+}
+
+func (c *stillClock) total() time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.waited
+}
+
+// stillRetries gives every module started after it a stillClock of its
+// own, and returns them in the order the modules started.
+func stillRetries(t *testing.T) func() []*stillClock {
+	t.Helper()
+	old := newRetryClock
+	var mu sync.Mutex
+	var clocks []*stillClock
+	newRetryClock = func() retryClock {
+		c := &stillClock{at: time.Unix(1_700_000_000, 0)}
+		mu.Lock()
+		clocks = append(clocks, c)
+		mu.Unlock()
+		return c
+	}
+	t.Cleanup(func() { newRetryClock = old })
+	return func() []*stillClock {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]*stillClock(nil), clocks...)
+	}
+}
+
+// waitEvidence waits until h has recorded n evidence events, and returns
+// them. The deadline is far: it is for a forward that never ends, not for
+// a slow one.
+func waitEvidence(t *testing.T, h *inboundHost, n int) []map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		h.mu.Lock()
+		ev := append([]map[string]any(nil), h.evidence...)
+		h.mu.Unlock()
+		if len(ev) >= n {
+			return ev
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d evidence events after a minute, want %d: %v", len(ev), n, ev)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }
 
 // flaky answers the backend's task calls (not its card) with status for
@@ -187,8 +262,14 @@ func TestRetriesEndWhenTheKernelSaysNo(t *testing.T) {
 // Retries end retry.give_up_after after the first attempt; the failure is
 // recorded once, with the attempts made. An answer that is not "later" —
 // here a 400 — is not tried again at all.
+//
+// The retries run on a stillClock, so the attempts are fixed whatever the
+// load (on the wall clock a busy machine fitted two attempts into the
+// window, not three): at 0, 20, 60, 100, …, 300 ms — the wait doubles from
+// 20 ms to the 40 ms cap — and a tenth would start past 300 ms.
 func TestRetriesGiveUpAndAnswersAreNotRetried(t *testing.T) {
 	quickRetries(t)
+	clocks := stillRetries(t)
 	f := &flaky{fail: 1 << 20, status: http.StatusServiceUnavailable}
 	b := flakyBackend(t, f)
 	h := newInboundHost(t)
@@ -197,25 +278,17 @@ func TestRetriesGiveUpAndAnswersAreNotRetried(t *testing.T) {
 	startBackendModule(t, h, `{"retry":{"max_interval":"40ms","give_up_after":"300ms"},`+
 		`"backends":[{"allow_tcp":true,"match":"*","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
 	h.tasks <- task
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		h.mu.Lock()
-		k := h.kinds()
-		ev := append([]map[string]any(nil), h.evidence...)
-		h.mu.Unlock()
-		if k["anet.backend.failed"] == 1 {
-			if len(ev) != 1 || ev[0]["gave_up"] != true || ev[0]["attempts"].(int) < 3 || ev[0]["attempts"].(int) != len(f.seen()) {
-				t.Fatalf("evidence %v after %d attempts", ev, len(f.seen()))
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("no failure recorded; evidence %v, %d attempts", ev, len(f.seen()))
-		}
-		time.Sleep(20 * time.Millisecond)
+	const attempts = 9
+	ev := waitEvidence(t, h, 1)
+	if len(ev) != 1 || ev[0]["kind"] != "anet.backend.failed" || ev[0]["gave_up"] != true || ev[0]["attempts"] != attempts ||
+		len(f.seen()) != attempts {
+		t.Fatalf("evidence %v after %d attempts, want one failure given up after %d", ev, len(f.seen()), attempts)
 	}
-	time.Sleep(200 * time.Millisecond)
-	if n := len(f.seen()); b.n() != 0 || n > 12 {
+	if w := clocks()[0].total(); w != 300*time.Millisecond {
+		t.Fatalf("waited %s between the attempts, want 20ms then 40ms each time: 300ms", w)
+	}
+	time.Sleep(100 * time.Millisecond) // on this clock a further attempt would take no time to come
+	if n := len(f.seen()); b.n() != 0 || n != attempts {
 		t.Fatalf("backend calls %d, attempts %d after giving up", b.n(), n)
 	}
 
@@ -225,11 +298,15 @@ func TestRetriesGiveUpAndAnswersAreNotRetried(t *testing.T) {
 	kernelSays(h2, task, true)
 	startBackendModule(t, h2, `{"backends":[{"allow_tcp":true,"match":"*","url":"`+b2.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
 	h2.tasks <- task
-	time.Sleep(300 * time.Millisecond)
+	waitEvidence(t, h2, 1)
+	time.Sleep(100 * time.Millisecond)
 	h2.mu.Lock()
 	defer h2.mu.Unlock()
 	if n := len(f2.seen()); n != 1 || !h2.refusedOnce() || h2.evidence[0]["attempts"] != 1 {
 		t.Fatalf("a 400: %d attempts, evidence %v", n, h2.evidence)
+	}
+	if w := clocks()[1].total(); w != 0 {
+		t.Fatalf("a 400 was waited on for a retry: %s", w)
 	}
 }
 

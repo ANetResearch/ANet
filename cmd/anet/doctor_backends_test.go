@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -150,6 +151,98 @@ func TestDoctorBackendTransport(t *testing.T) {
 				t.Fatalf("backend.transport checks %q, want one %s", got, c.status)
 			}
 		})
+	}
+}
+
+// backends.peer_check (ux §5.2): ok for a socket backend whose listener is
+// checked; a warning naming it for one set to peer_check "path-only"
+// (J10's doctor half); a fail, peer_cred_unsupported, where the platform
+// cannot tell who listens and the backend is not path-only.
+func TestDoctorBackendsPeerCheck(t *testing.T) {
+	private := t.TempDir()
+	if err := os.Chmod(private, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(private, "b.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	run := func(t *testing.T, modules map[string]any) (got []map[string]any, ok any) {
+		t.Helper()
+		layout := freshInit(t)
+		b, err := os.ReadFile(layout.ConfigPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		m["modules"] = modules
+		b, _ = json.Marshal(m)
+		if err := os.WriteFile(layout.ConfigPath(), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, _ := doctorJSON(t, layout, testDoctorEnv(t))
+		for _, raw := range out["checks"].([]any) {
+			if ch := raw.(map[string]any); ch["id"] == "backends.peer_check" {
+				got = append(got, ch)
+			}
+		}
+		return got, out["ok"]
+	}
+	service := func(extra map[string]any) map[string]any {
+		svc := map[string]any{"capabilities": []any{map[string]any{"id": "x", "url": "unix://" + sock + ":/x"}}}
+		for k, v := range extra {
+			svc[k] = v
+		}
+		return map[string]any{"service": svc}
+	}
+	a2aPathOnly := map[string]any{"a2a": map[string]any{"backends": []any{
+		map[string]any{"match": "*", "url": "unix://" + sock, "peer_check": "path-only"}}}}
+	for _, unsupported := range []bool{false, true} {
+		old := peercredSupported
+		peercredSupported = func() bool { return !unsupported && old() }
+		for _, c := range []struct {
+			name    string
+			modules map[string]any
+			status  string
+			reason  string
+		}{
+			{"strict", service(nil), map[bool]string{false: stOK, true: stFail}[unsupported], map[bool]string{true: "peer_cred_unsupported"}[unsupported]},
+			{"service path-only", service(map[string]any{"peer_check": "path-only"}), stWarn, "backends.path_only"},
+			{"A2A backend path-only", a2aPathOnly, stWarn, "backends.path_only"},
+			{"TCP only", map[string]any{"service": map[string]any{"allow_tcp": true, "capabilities": []any{
+				map[string]any{"id": "x", "url": "http://127.0.0.1:8080/x"}}}}, "", ""},
+		} {
+			t.Run(fmt.Sprintf("unsupported=%v/%s", unsupported, c.name), func(t *testing.T) {
+				got, ok := run(t, c.modules)
+				if c.status == "" {
+					if len(got) != 0 {
+						t.Fatalf("a TCP backend has backends.peer_check: %v", got)
+					}
+					return
+				}
+				if len(got) != 1 || got[0]["status"] != c.status || (got[0]["reason"] != nil && got[0]["reason"] != c.reason) ||
+					(c.reason != "" && got[0]["reason"] != c.reason) {
+					t.Fatalf("backends.peer_check %v, want one %s %s", got, c.status, c.reason)
+				}
+				detail, _ := got[0]["detail"].(string)
+				switch c.reason {
+				case "backends.path_only":
+					if !strings.Contains(detail, "unix://"+sock) {
+						t.Errorf("the warning does not name the backend: %q", detail)
+					}
+				case "peer_cred_unsupported":
+					if !strings.Contains(detail, sock) || !strings.Contains(detail, "path-only") || ok != false {
+						t.Errorf("the fail: %q (ok %v)", detail, ok)
+					}
+				}
+			})
+		}
+		peercredSupported = old
 	}
 }
 

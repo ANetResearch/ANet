@@ -23,6 +23,7 @@ import (
 	"github.com/ANetResearch/ANetCore/effect"
 
 	"github.com/ANetResearch/ANet/internal/localpeer"
+	"github.com/ANetResearch/ANet/internal/peercred"
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/provider"
 )
@@ -119,24 +120,25 @@ func TestASocketInAWritableDirectoryIsNotCalled(t *testing.T) {
 	}
 }
 
-// SO_PEERCRED: a listener that is not the expected account gets nothing. (The test cannot listen as a
-// second user; it expects a uid it does not run as.)
+// peercred: a listener that is not the expected account gets nothing. (The test cannot listen as a
+// second user; it expects a uid it does not run as. internal/backendconn has the case of another
+// account listening, J10.)
 func TestASocketListenerThatIsNotTheExpectedUserIsNotCalled(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("SO_PEERCRED is read on Linux only")
+	if !peercred.Supported() {
+		t.Skip("the listening account is not readable on " + runtime.GOOS)
 	}
 	var s seen
 	_, sock := unixBackend(t, &s)
 	tok := writeToken(t, "socket-token-0123456789", 0o600)
 	other := strconv.Itoa(os.Getuid() + 1)
-	reg := start(t, `{"token_file":"`+tok+`","expected_uid":`+other+`,"capabilities":[{"id":"x.do","url":"unix://`+sock+`"}]}`)
+	reg := start(t, `{"token_file":"`+tok+`","expected_user":"`+other+`","capabilities":[{"id":"x.do","url":"unix://`+sock+`"}]}`)
 	eff := invokeCall(t, reg, relayCall("x.do"))
 	refusedQuietly(t, eff, sock)
 	if got := s.all(); len(got) != 0 {
 		t.Fatalf("the listener was sent %q", got)
 	}
 	// Expected as what it is, it is called.
-	reg = start(t, `{"token_file":"`+tok+`","expected_uid":`+strconv.Itoa(os.Getuid())+`,"capabilities":[{"id":"x.do","url":"unix://`+sock+`"}]}`)
+	reg = start(t, `{"token_file":"`+tok+`","expected_user":"`+strconv.Itoa(os.Getuid())+`","capabilities":[{"id":"x.do","url":"unix://`+sock+`"}]}`)
 	if eff := invokeCall(t, reg, relayCall("x.do")); eff.Status != effect.OK {
 		t.Fatalf("the expected listener: %s %s", eff.Status, eff.Message)
 	}
@@ -178,7 +180,8 @@ func TestTCPServicesNeedAllowTCP(t *testing.T) {
 		}
 	}
 	for _, cfg := range []string{
-		`{"expected_uid":-1,"capabilities":[{"id":"x","url":"unix:///run/x.sock"}]}`,
+		`{"expected_user":"-1","capabilities":[{"id":"x","url":"unix:///run/x.sock"}]}`,
+		`{"peer_check":"strict","capabilities":[{"id":"x","url":"unix:///run/x.sock"}]}`,
 		`{"expected_user":"no-such-user-anet-test","capabilities":[{"id":"x","url":"unix:///run/x.sock"}]}`,
 		`{"socket_group":"no-such-group-anet-test","capabilities":[{"id":"x","url":"unix:///run/x.sock"}]}`,
 		`{"capabilities":[{"id":"x","url":"unix://run/x.sock"}]}`,

@@ -327,15 +327,21 @@ func TestBackendTokenFileMustBeReadable(t *testing.T) {
 // url rule too: an interface in plain http off this machine receives
 // neither the task nor the token. (0.0.0.0 reaches this machine's listener
 // on Linux, so without the rule the forward would succeed.)
+//
+// The refusal is waited for, not a fixed time (a busy machine had not got
+// as far in 300 ms), and the retries run on a stillClock: had the refusal
+// been retried, the retries would have come at once.
 func TestBackendCardInterfacesFollowTheURLRule(t *testing.T) {
+	clocks := stillRetries(t)
 	b := newTestBackendAt(t, func(base string) string { return strings.Replace(base, "127.0.0.1", "0.0.0.0", 1) })
 	h := newInboundHost(t)
 	startBackendModule(t, h, `{"backends":[{"allow_tcp":true,"match":" * ","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
 	h.tasks <- inboundTask("ix1", "bafypeer", true, "hello")
-	time.Sleep(300 * time.Millisecond)
+	waitEvidence(t, h, 1)
+	time.Sleep(100 * time.Millisecond) // a retry would take no time on this clock
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if b.n() != 0 || !h.refusedOnce() {
+	if b.n() != 0 || !h.refusedOnce() || h.evidence[0]["attempts"] != 1 || clocks()[0].total() != 0 {
 		t.Fatalf("forwarded through a card interface in the clear: calls %d, replies %+v, evidence %+v", b.n(), h.replies, h.evidence)
 	}
 }

@@ -288,28 +288,31 @@ func TestADelegationWhoseAttemptWasNeverRecordedIsNotWithdrawn(t *testing.T) {
 // which anyone who can reach the peer process piles up work and memory.
 // The limit is applied first now: over it, a delivery is refused at once
 // (the sender goes to the hub), starting or not.
+//
+// The limiter runs on the daemon's clock, held still here: the bucket holds
+// p2pBurst tokens and gets none back however long the goroutines take to
+// reach it (on the wall clock a busy machine refilled it between them, and
+// fewer than `over` were refused within the second the test allowed). No
+// deadline decides the outcome: a delivery over the limit that waited for
+// start-up instead returns only when ctx ends, with something other than
+// errP2PRateLimited.
 func TestTheDirectRateLimitHoldsDuringStartUp(t *testing.T) {
 	_, req, prov := registeredPair(t)
 	prov.ready = make(chan struct{}) // start-up not finished
 	env := craft(t, senderOf(req), prov, seal.TypeMessage, "ix_during_start", chatBody(t, "x", ""), nil)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	now := prov.nowMS()
+	prov.setClock(func() uint64 { return now })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	const over = 5
 	errc := make(chan error, p2pBurst+over)
 	for i := 0; i < p2pBurst+over; i++ {
 		go func() { errc <- recvErr(prov.Inbound(), ctx, env) }()
 	}
-	limited := 0
-	timeout := time.After(time.Second)
-	for limited < over {
-		select {
-		case err := <-errc:
-			if !errors.Is(err, errP2PRateLimited) {
-				t.Fatalf("a delivery during start-up returned %v before start-up finished", err)
-			}
-			limited++
-		case <-timeout:
-			t.Fatalf("%d deliveries over the rate limit refused at once, want %d: the rest wait for start-up", limited, over)
+	for limited := 0; limited < over; limited++ {
+		if err := <-errc; !errors.Is(err, errP2PRateLimited) {
+			t.Fatalf("%d deliveries over the rate limit refused at once, then one returned %v before start-up finished; "+
+				"want %d refused at once and the rest waiting for start-up", limited, err, over)
 		}
 	}
 	// The ones within the limit still wait for start-up, then go through.

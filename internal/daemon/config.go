@@ -434,11 +434,6 @@ var removedStillWritten = map[string]string{
 	"auto_reply.error_reply":           "v030-todo(UX-9)",
 	"auto_reply.poll_interval_seconds": "v030-todo(UX-9)",
 	"auto_reply.max_auto_replies":      "v030-todo(UX-9)",
-	// expected_user does not take a numeric uid yet, so the advice to use it
-	// instead would not work.
-	"modules.service.expected_uid":        "v030-todo(EXE-10)",
-	"modules.a2a.backends[].expected_uid": "v030-todo(EXE-10)",
-	"modules.anetlink.expected_uid":       "v030-todo(EXE-10)",
 }
 
 // FindRemovedSettings lists the removed keys a config.json holds, in the

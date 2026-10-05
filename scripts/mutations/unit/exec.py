@@ -572,3 +572,118 @@ MUTS += [
   full=[DAEMON],
  ),
 ]
+
+# EXE-10: who is on the other end of a Unix socket (LEC §4.3.11 PC-1 to PC-4, §7.3 M-PC-1 to M-PC-3, J10), the
+# p2p session's write deadline, and the tests that no longer depend on the machine's load (the retry clock of
+# module/a2a, the still daemon clock of the direct rate limit). The cases with a second account (root listening,
+# another user connecting) run where peercredtest can use sudo: the CI peercred job; elsewhere the tests that stand
+# in for the other account carry the kill.
+BACKENDCONN = 'ANet:./internal/backendconn'
+MUTS += [
+ dict(
+  id='m-pc-1', group='PC-2', repo='ANet',
+  desc='读不到监听者账户(ErrUnsupported)时放行',
+  edits=[('internal/backendconn/backendconn.go', '\t\treturn refusePeerCredUnsupported(sock)', '\t\treturn nil')],
+  tests=[(BACKENDCONN, 'TestAPlatformThatCannotTellIsRefusedUnlessPathOnly')],
+  full=[BACKENDCONN],
+ ),
+ dict(
+  id='m-pc-2', group='PC-3', repo='ANet',
+  desc='module/p2p 直接拨 anetpeer 的 socket,不经 backendconn',
+  edits=[('module/p2p/transport.go', '\treturn rules.DialUnix(ctx, nil, t.socket)', '\t_ = rules\n\treturn (&net.Dialer{}).DialContext(ctx, "unix", t.socket)')],
+  tests=[(BACKENDCONN, 'TestNothingDialsAUnixSocketAroundBackendconn'), ('ANet:./module/p2p', 'TestAPeerProcessOfAnotherAccountIsSentNothing')],
+  full=['ANet:./module/p2p'],
+ ),
+ dict(
+  id='m-pc-3a', group='§4.4', repo='ANet',
+  desc='backendconn.Policy 恢复 expected_uid',
+  edits=[('internal/backendconn/backendconn.go', '\tExpectedUser string `json:"expected_user,omitempty"`',
+          '\tExpectedUser string `json:"expected_user,omitempty"`\n\tExpectedUID  *int   `json:"expected_uid,omitempty"`')],
+  tests=[(BACKENDCONN, 'TestPolicyKeysAreTheSameForEveryModule')],
+  full=[BACKENDCONN],
+ ),
+ dict(
+  id='m-pc-3b', group='§3.1', repo='ANet',
+  desc='只在 modules.anetlink 拒绝 expected_uid(service、a2a 的删除键行去掉)',
+  edits=[('internal/daemon/config.go', '\t{"modules.service.expected_uid", "expected_uid"},\n\t{"modules.a2a.backends[].expected_uid", "expected_uid"},\n', '')],
+  tests=[(DAEMON, 'TestExpectedUIDStopsTheDaemonInEveryModule'), ('ANet:./cmd/anet', 'TestRemovedKeysStopAnetDaemon')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe10-path-only', group='PC-2', repo='ANet',
+  desc='peer_check path-only 不起作用(仍问监听者账户)',
+  edits=[('internal/backendconn/backendconn.go', '\tif r.pathOnly {\n\t\treturn nil\n\t}\n\tcred, err := peerCredOf(c)', '\tcred, err := peerCredOf(c)')],
+  tests=[(BACKENDCONN, 'TestAPlatformThatCannotTellIsRefusedUnlessPathOnly')],
+  full=[BACKENDCONN],
+ ),
+ dict(
+  id='exe10-numeric-uid', group='§3.2', repo='ANet',
+  desc='expected_user 的十进制数字仍按用户名查找(/etc/passwd 里没有的 uid 不合格)',
+  edits=[('internal/backendconn/backendconn.go', '\t\tid, numeric, err := decimalID(name)\n\t\tif !numeric {', '\t\tid, numeric, err := decimalID(name)\n\t\tif true || !numeric {')],
+  tests=[(BACKENDCONN, 'TestResolve'), (DAEMON, 'TestBackendPolicyKeysAreCheckedAtStart')],
+  full=[BACKENDCONN],
+ ),
+ dict(
+  id='exe10-config-check', group='§3.2', repo='ANet',
+  desc='启动时不检查后端的 expected_user/socket_group/peer_check(不报 config_invalid)',
+  edits=[('internal/daemon/backend_policy.go', 'func init() { configChecks = append(configChecks, checkBackendPolicies) }', 'func init() {}')],
+  tests=[(DAEMON, 'TestBackendPolicyKeysAreCheckedAtStart')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe10-doctor-path-only', group='§5.5', repo='ANet',
+  desc='doctor 对 path-only 的后端报 ok(不报 backends.path_only)',
+  edits=[('cmd/anet/doctor_backends.go', '\tcase rules.PathOnly():', '\tcase false && rules.PathOnly():')],
+  tests=[('ANet:./cmd/anet', 'TestDoctorBackendsPeerCheck')],
+  full=['ANet:./cmd/anet'],
+ ),
+ dict(
+  id='exe10-write-deadline', group='PC-3', repo='ANet',
+  desc='p2p 会话写没有期限(anetpeer 停读时 Send 一直卡住)',
+  edits=[('module/p2p/transport.go', '\t_ = c.SetWriteDeadline(time.Now().Add(sessionWriteTimeout))\n', '')],
+  tests=[('ANet:./module/p2p', 'TestSessionWriteHasADeadline')],
+  full=['ANet:./module/p2p'],
+ ),
+ dict(
+  id='exe10-anetpeer-admit', group='PC-4', repo='ANet',
+  desc='anetpeer 的 daemon 套接字不核实连接方账户,任何新连接顶替当前 daemon',
+  edits=[('tools/anetpeer/main.go', '\t\t\tif err := p.admitDaemon(c); err != nil {', '\t\t\tif err := p.admitDaemon(c); false && err != nil {')],
+  tests=[('ANet:./tools/anetpeer', 'TestAConnectionOfAnotherAccountDoesNotReplaceTheDaemon')],
+  full=['ANet:./tools/anetpeer'],
+ ),
+ dict(
+  id='exe10-anetpeer-stale', group='PC-4', repo='ANet',
+  desc='anetpeer 无条件删除 daemon 套接字路径上的文件(抢走有人监听的 socket)',
+  edits=[('tools/anetpeer/main.go', '\tif err := clearStaleSocket(sock); err != nil {\n\t\treturn nil, err\n\t}', '\t_ = os.Remove(sock)')],
+  tests=[('ANet:./tools/anetpeer', 'TestTheDaemonSocketIsListenedOnSafely')],
+  full=['ANet:./tools/anetpeer'],
+ ),
+ dict(
+  id='exe10-anetpeer-path', group='PC-4', repo='ANet',
+  desc='anetpeer 在他人可写的目录里也监听 daemon 套接字',
+  edits=[('tools/anetpeer/main.go', '\t\t_, _, err = rules.CheckPath(sock)', '\t\t_ = rules')],
+  tests=[('ANet:./tools/anetpeer', 'TestTheDaemonSocketIsListenedOnSafely')],
+  full=['ANet:./tools/anetpeer'],
+ ),
+ dict(
+  id='exe10-peercred-error', group='PC-2', repo='ANet',
+  desc='读监听者账户出错(ErrUnsupported 以外)时放行',
+  edits=[('internal/backendconn/backendconn.go', '\t\treturn refuse(sock, "cannot read who listens on it: %v", err)', '\t\treturn nil')],
+  tests=[(BACKENDCONN, 'TestAListenerWhoseAccountCannotBeReadIsRefused')],
+  full=[BACKENDCONN],
+ ),
+ dict(
+  id='exe10-anetpeer-probe', group='PC-4', repo='ANet',
+  desc='daemon 套接字的连接一被接受就顶替当前 daemon(另一 anetpeer 探测 socket 是否在用后,当前 daemon 收不到投递)',
+  edits=[('tools/anetpeer/main.go', '\t\tif first && err == nil {', '\t\tif first {')],
+  tests=[('ANet:./tools/anetpeer', 'TestTheDaemonSocketIsListenedOnSafely')],
+  full=['ANet:./tools/anetpeer'],
+ ),
+ dict(
+  id='exe10-retry-giveup', group='load', repo='ANet',
+  desc='重试放弃时刻算错(放宽到两倍 give_up_after)',
+  edits=[('module/a2a/backend.go', 'since+wait > f.retry.giveUp {', 'since+wait > 2*f.retry.giveUp {')],
+  tests=[('ANet:./module/a2a', 'TestRetriesGiveUpAndAnswersAreNotRetried')],
+  full=['ANet:./module/a2a'],
+ ),
+]
