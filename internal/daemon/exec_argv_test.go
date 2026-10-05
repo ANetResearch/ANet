@@ -198,6 +198,21 @@ func TestBoundConversation(t *testing.T) {
 		!strings.HasSuffix(got[0].Text, conversationCut) || got[len(got)-1].Text != cutMessage(turns[4].Text) {
 		t.Fatalf("dropping with the marker counted: %d turns, %d bytes", len(got), total)
 	}
+	// The same when the first kept message is short: the total after dropping the earliest is 10 bytes
+	// under 256 KiB, which the line would take over, so the next turns go too.
+	turns = []chatTurn{{Role: "user", Text: strings.Repeat("A", 64<<10)}, {Role: "user", Text: "0123456789"}}
+	for i := 0; i < 3; i++ {
+		turns = append(turns, chatTurn{Role: "user", Text: strings.Repeat(string(rune('C'+i)), 64<<10)})
+	}
+	turns = append(turns, chatTurn{Role: "user", Text: strings.Repeat("F", 64<<10-20)})
+	_, got = boundConversation("", turns)
+	total = 0
+	for _, tt := range got {
+		total += len(tt.Text)
+	}
+	if total > conversationMaxBytes || !strings.HasPrefix(got[0].Text, conversationOmitted+"\n") {
+		t.Fatalf("dropping before a short message: %d turns, %d bytes", len(got), total)
+	}
 	// One huge newest message alone is kept, cut.
 	_, got = boundConversation("", []chatTurn{{Role: "user", Text: strings.Repeat("x", 1<<20)}})
 	if len(got) != 1 || len(got[0].Text) > conversationMaxMessage {
