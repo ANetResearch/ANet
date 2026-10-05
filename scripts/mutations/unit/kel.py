@@ -145,7 +145,7 @@ MUTS += [
   tests=RECKEYS, full=ID_FULL),
  dict(id='kel3-25', group='KEL-3', repo='ANetCore', desc='CORE-E9:块内 AID 不经检查(可含 U+0000 或空白)',
   edits=[(REC, '\tcase checkHeaderAID(b.AID) != nil:\n', '\tcase false:\n')],
-  tests=RECKEYS, full=ID_FULL),
+  tests=RECUNIT(['TestRecoveryBlockKeysAreChecked', 'TestRecoveryHeaderAIDMustBeValid']), full=ID_FULL),
  dict(id='kel3-26', group='KEL-3', repo='ANetCore', desc='本机钥块的 kdf 可带 argon2id 参数(kdf 不再恰为两种形状之一)',
   edits=[(REC, '\t\treturn k.T == 0 && k.MKiB == 0 && k.P == 0 && len(k.Salt) == 0\n', '\t\treturn true\n')],
   tests=RECKEYS, full=ID_FULL),

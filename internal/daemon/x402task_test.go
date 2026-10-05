@@ -155,7 +155,7 @@ func TestAQuotedTaskIsPaidAndCompletedOnTheSameTask(t *testing.T) {
 		t.Fatalf("requester after paying: %s / %q / %v", rix.State, rix.PayState, rix.PayAuthIDs)
 	}
 	_, auth, authID, err := payloadAuth(rix.PayPayload)
-	if err != nil || auth.InteractionID != x402a2a.PayBind(id, rix.TaskNonce) || authID != rix.PayAuthIDs[0] {
+	if err != nil || auth.InteractionID != mustPayBind(t, id, rix.TaskNonce) || authID != rix.PayAuthIDs[0] {
 		t.Fatalf("the authorization is not bound to the task: %v %+v", err, auth)
 	}
 	ev := lastLedgerPayload(t, req, EvPaymentAuthorized)
@@ -572,12 +572,12 @@ func TestAWrongPaymentIsRefusedBeforeSettlement(t *testing.T) {
 	poll(t, prov, req)
 	rix := getIX(t, req, id)
 	opt := storedQuote(rix).Accepts[0]
-	bind := x402a2a.PayBind(id, rix.TaskNonce)
+	bind := mustPayBind(t, id, rix.TaskNonce)
 
 	for i, tc := range []struct {
 		name, bind, amount, code, reason string
 	}{
-		{"bound to other work", x402a2a.PayBind("ix_other", rix.TaskNonce), "50", "SETTLEMENT_FAILED", "binding_mismatch"},
+		{"bound to other work", mustPayBind(t, "ix_other", rix.TaskNonce), "50", "SETTLEMENT_FAILED", "binding_mismatch"},
 		{"underpaid", bind, "49", "INVALID_AMOUNT", payment.ReasonInvalidAmount},
 	} {
 		o := opt
@@ -910,7 +910,7 @@ func TestAStrangerPaysForAPublicCapability(t *testing.T) {
 	// The payment, with a note in its text part.
 	six := getIX(t, stranger, id)
 	opt := storedQuote(six).Accepts[0]
-	raw, err := stranger.payer().Authorize(opt, id, x402a2a.PayBind(id, six.TaskNonce), module.PurposeTaskAgent)
+	raw, err := stranger.payer().Authorize(opt, id, mustPayBind(t, id, six.TaskNonce), module.PurposeTaskAgent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -948,4 +948,14 @@ func TestAStrangerPaysForAPublicCapability(t *testing.T) {
 	if q, _ := prov.ix.Outbox(id2); len(q) != 0 {
 		t.Errorf("the canceled notice is stuck in the queue: %+v", q[0])
 	}
+}
+
+// mustPayBind is x402a2a.PayBind for an interaction id and a nonce that hold no U+0000.
+func mustPayBind(tb testing.TB, ix, nonce string) string {
+	tb.Helper()
+	b, err := x402a2a.PayBind(ix, nonce)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return b
 }
