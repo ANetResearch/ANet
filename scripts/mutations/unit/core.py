@@ -161,7 +161,7 @@ MUTS = [
   tests=[('ANetHub:./internal/wire3', '^TestTransport$'), ('ANetHub:./internal/federation', '^TestPeerRequestsStateTheWire$')],
   full=['ANetHub:./internal/wire3']),
  dict(id='core4-fedclient', group='CORE-4', repo='ANetHub', desc='CORE-V1:联邦客户端不用 wire3.Transport',
-  edits=[('internal/federation/federation.go', 'Transport: wire3.Transport(nil)},', 'Transport: func() http.RoundTripper { _ = wire3.Transport; return nil }()},')],
+  edits=[('internal/federation/federation.go', 's.wire = newPeerWire(wire3.Transport(nil), ', 's.wire = newPeerWire(func() http.RoundTripper { _ = wire3.Transport; return http.DefaultTransport }(), ')],
   tests=[('ANetHub:./internal/federation', '^TestPeerRequestsStateTheWire$')],
   full=['ANetHub:./internal/federation']),
  dict(id='core4-root', group='CORE-4', repo='ANetHub', desc='CORE-V1:anet-hub 的根(/hub/identity、/fed/*、模块)不在 Contract 之下',
