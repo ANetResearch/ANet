@@ -692,10 +692,20 @@ func TestActiveContactRevalidatedOncePer24h(t *testing.T) {
 	q = queryCount(h)
 	send(day+2*3600*1000, "two hours later")
 	noNewQuery(t, h, q, "a send two hours after the recheck")
-	// A peer that is no active contact is never rechecked: its stored set
-	// is used until it holds no usable key.
-	if row, _ := req.ix.PeerIdentity(prov.AID()); row.PinnedReason == "" {
-		t.Fatal("set-up: the recipient lost its pin")
+	// A recheck that finds nothing — the directory no longer lists the
+	// peer — keeps the stored set and its time, and is not made again for
+	// a day all the same.
+	setFake(t, srv.URL, func(h *fakeHub) { h.dirHide = map[string]bool{prov.AID(): true} })
+	row, _ = req.ix.PeerIdentity(prov.AID())
+	twoDays := uint64(row.KeysCheckedAt) + activeRecheckMS + 60*1000
+	q = queryCount(h)
+	send(twoDays, "a day after the recheck")
+	waitUntil(t, "the second recheck", func() bool { return queryCount(h) == q+1 })
+	time.Sleep(50 * time.Millisecond)
+	send(twoDays+3600*1000, "an hour after a recheck that found nothing")
+	noNewQuery(t, h, q+1, "a send an hour after a recheck that found nothing")
+	if again, _ := req.ix.PeerIdentity(prov.AID()); again.KeysCheckedAt != row.KeysCheckedAt || again.KeySetSeq != newSeq {
+		t.Fatal("a recheck that found nothing changed the stored record")
 	}
 }
 

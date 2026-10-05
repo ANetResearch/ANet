@@ -1308,7 +1308,7 @@ MUTS += [
   edits=[('internal/daemon/peer_resolve.go', 'resolveOpts{need: needKeySet, bypass: true, record: true}))', 'resolveOpts{need: needKeySet, record: true}))')],
   tests=[('ANet:./internal/daemon', '^TestRefusalTriggersBypassingRefresh$')], full=S10_FULL),
  dict(id='ss10-review-each', group='SS-10', repo='ANet', desc='403 后的复核不限每分钟一次',
-  edits=[('internal/daemon/peer_resolve.go', '\tif !ok || now < m.at || now-m.at >= reviewEveryMS {', '\tif true || now < m.at || now-m.at >= reviewEveryMS {')],
+  edits=[('internal/daemon/peer_resolve.go', '\tif !ok || now < m.at || now-m.at >= reviewEveryMS {', '\tif !ok || true || now < m.at {')],
   tests=[('ANet:./internal/daemon', '^TestRefusalTriggersBypassingRefresh$')], full=S10_FULL),
  dict(id='ss10-kidstale-cached', group='SS-10', repo='ANet', desc='kid_stale 后仍用缓存与本机记录(ENG-M11)',
   edits=[('internal/daemon/peer_resolve.go', '\tm, v := d.resolvePeer(ctx, aid, resolveOpts{need: needKeys, bypass: true, record: true})\n\tif v != verdictFound {\n\t\treturn nil, &peerResolveError',

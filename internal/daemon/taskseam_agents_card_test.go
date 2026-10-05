@@ -336,8 +336,8 @@ func TestAnUnverifiedCardIsNotPassedOn(t *testing.T) {
 // an internal note item: agents registered at the hub without a card are listed only on
 // request. With include_uncarded they follow the agents with cards, NONE,
 // with what the hub says of them; an agent the registry lists is not
-// repeated, on the last page or on one reached by cursor; the tag and the
-// free text are matched here, and the free text never reaches the hub. An
+// repeated, on the last page or on one reached by cursor; the skill, the
+// tag and the free text are matched here, and none of them reaches the hub. An
 // official AID without a card shows none of the hub's words.
 func TestAgentsWithoutACardOnRequest(t *testing.T) {
 	h := newRegistryHub(t)
@@ -428,8 +428,9 @@ func TestAgentsWithoutACardOnRequest(t *testing.T) {
 		if strings.Contains(strings.ToLower(u), "worker-beta") || strings.Contains(u, "q=") {
 			t.Fatalf("the free text reached the hub: %s", u)
 		}
-		if strings.HasPrefix(u, "/agents?") && u != "/agents?cap=code.write" {
-			t.Fatalf("the directory was asked %s", u)
+		if strings.HasPrefix(u, "/agents?") || strings.HasPrefix(u, hubapi.RegistryAgentsPath+"?") &&
+			(strings.Contains(u, "skill=") || strings.Contains(u, "tag=")) {
+			t.Fatalf("the directory was asked %s: what is looked for stays here (SSR-D16)", u)
 		}
 	}
 
