@@ -261,3 +261,121 @@ MUTS = [
   full=[D],
  ),
 ]
+
+# ENG-1a review: rules the integration cases reached only through other guards, each now held by a test of its own.
+MUTS += [
+ dict(
+  id='eng1a-c2-peer', group='ENG-1a', repo='ANet',
+  desc='隐式确认不看发信方是否为该交互的对端(ENG-C2)',
+  edits=[
+   ('internal/daemon/outbox_seams.go', '''	if cur.Role != interactions.RoleOutbound || cur.PeerAID != from {''', '''	if cur.Role != interactions.RoleOutbound {'''),
+   ('internal/daemon/outbox_seams.go', '''		if r.Type != seal.TypeDelegate || r.ToAID != from {''', '''		if r.Type != seal.TypeDelegate {'''),
+  ],
+  tests=[(D, 'TestOnlyThePeerConfirmsADelegationImplicitly')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-a12-freeze', group='ENG-1a', repo='ANet',
+  desc='同一尝试内交出过之后遇到冻结即返回,不做 A12(不记交出、不清 attempting)',
+  edits=[
+   ('internal/daemon/outbox_attempt.go', '''			if !a.marked {
+				return d.withdrawFrozen(row)
+			}
+			break rounds''', '''			return d.withdrawFrozen(row)'''),
+  ],
+  tests=[(D, 'TestAFreezeBetweenTwoSendsOfAnAttemptRecordsWhatLeft')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-join-2xx-wire', group='ENG-1a', repo='ANet',
+  desc='加入流程把"2xx 却带另一线协号"当作成功(CORE-V1)',
+  edits=[
+   ('internal/daemon/hubjoin.go', '''	if we := hubWireCheck("", r); we != nil && r.Status != 426 {''', '''	if we := hubWireCheck("", r); we != nil && r.Status != 426 && (r.Status < 200 || r.Status >= 300) {'''),
+  ],
+  tests=[(D, 'TestHubAnswersMapAsUXR6')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-revoke-2xx-wire', group='ENG-1a', repo='ANet',
+  desc='吊销推送把"2xx 却带另一线协号"当作已推送(CORE-V1)',
+  edits=[
+   ('internal/daemon/revoke_push.go', '''		case rep.Status != 0 && hubWireCheck(hub, rep) != nil:''', '''		case false && rep.Status != 0 && hubWireCheck(hub, rep) != nil:'''),
+  ],
+  tests=[(D, 'TestARevokePushAnsweredOverAnotherWireIsNotPushed')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-status-wire', group='ENG-1a', repo='ANet',
+  desc='状态查询收下另一线协号的 200 答复(CORE-V1)',
+  edits=[
+   ('internal/daemon/dack_status.go', '''	if we := hubWireCheck(hub, rep); we != nil {
+		return failed(nil, 0)
+	}''', '''	_ = hubWireCheck'''),
+  ],
+  tests=[(D, 'TestAStatusAnswerOverAnotherWireIsNoAnswer')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-status-via', group='ENG-1a', repo='ANet',
+  desc='同一行在不同 via_hub 的版本合进一个状态查询(ENG-D3)',
+  edits=[
+   ('internal/daemon/dack_status.go', '''		for j < len(out) && out[j].viaHub != v.ViaHub {''', '''		for j < len(out) && false {'''),
+  ],
+  tests=[(D, 'TestStatusQueriesGoOneViaHubAtATime')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-stale-hub', group='ENG-1a', repo='ANet',
+  desc='版本所记 hub 已不是当前 hub 时不视同 unknown(ENG-D5)',
+  edits=[
+   ('internal/daemon/outbox_attempt.go', '''		if v.RID != nil && (v.Hub != hub || (failing != 0''', '''		if v.RID != nil && ((failing != 0'''),
+  ],
+  tests=[(D, 'TestAVersionAtAnotherHubOrUnansweredForAnHourIsUnknown')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-query-hubok', group='ENG-1a', repo='ANet',
+  desc='hub 不可询问(线协不符、无 hub)时仍决定状态查询(A4)',
+  edits=[
+   ('internal/daemon/outbox_step.go', '''	if row.CheckAt != 0 && row.CheckAt <= in.Now && in.HubOK {''', '''	if row.CheckAt != 0 && row.CheckAt <= in.Now {'''),
+  ],
+  tests=[(D, 'TestOutboxStepOrder')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-close-notice-confirmed', group='ENG-1a', repo='ANet',
+  desc='紧急关闭不通知委派已确认的交互的对端(ENG-K15)',
+  edits=[
+   ('internal/daemon/outbox_seams.go', '''		peerKnows := o.Role == interactions.RoleInbound || !queued || handed''', '''		peerKnows := o.Role == interactions.RoleInbound || handed'''),
+  ],
+  tests=[(D, 'TestAnEmergencyCloseTellsThePeersThatMayKnow')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-close-notice-all', group='ENG-1a', repo='ANet',
+  desc='紧急关闭也为从未交出的委派通知对端(ENG-K15)',
+  edits=[
+   ('internal/daemon/outbox_seams.go', '''		if cause.notifies() && peerKnows {''', '''		if cause.notifies() && (peerKnows || true) {'''),
+  ],
+  tests=[(D, 'TestAnEmergencyCloseTellsThePeersThatMayKnow')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-c6-retry', group='ENG-1a', repo='ANet',
+  desc='带 retry_after 的拒绝,句子不代入等待时间(ENG-C6)',
+  edits=[
+   ('internal/daemon/outbox_attempt.go', '''			args = a2ashape.Args{"retry": time.Duration(n.RetryAfterS) * time.Second}''', '''			args = nil'''),
+  ],
+  tests=[(D, 'TestARefusalWithAWaitSaysWhenToSendAgain')],
+  full=[D],
+ ),
+ dict(
+  id='eng1a-notice-limit', group='ENG-1a', repo='ANet',
+  desc='事后通知不经 noticeLimiter 即入队(ENG-Q7)',
+  edits=[
+   ('internal/daemon/outbox_queue.go', '''	if !d.notices.allow(to, now) {''', '''	if false {'''),
+  ],
+  tests=[(D, 'TestANoticePastTheLimitIsNotQueued')],
+  full=[D],
+ ),
+]
