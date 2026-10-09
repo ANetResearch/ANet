@@ -338,11 +338,11 @@ func TestTheExtendedCardIsSignedAgainAfterARotation(t *testing.T) {
 
 // PAY-C8 rule 2: six requests a minute per sender; the seventh is busy for
 // a priced node, and the window moves on. Other senders are not affected,
-// and the senders remembered stay bounded.
+// and the senders remembered stay bounded. The times are passed in, not
+// read from the daemon's clock, which its background loops also read.
 func TestCardRequestsAreLimitedPerSender(t *testing.T) {
 	d := newCardDaemon(t, "Limit", "")
 	now := uint64(1_800_000_000_000)
-	d.setClock(func() uint64 { return now })
 	for i := 1; i <= 9; i++ {
 		if n := d.noteCardRequest("did:anet:ba", now); n != min(i, cardRequestsPerWindow+1) {
 			t.Fatalf("request %d counted %d", i, n)
