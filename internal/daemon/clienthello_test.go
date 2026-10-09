@@ -222,6 +222,13 @@ func TestClientHelloVerdicts(t *testing.T) {
 			t.Errorf("%s: read %d bytes, the hello is %d: nothing past it may be taken", tc.name, len(raw), len(good))
 		}
 	}
+	// A name that equals the host only under Unicode case folding is another name: the Kelvin sign folds
+	// into k and the long s into s, but a server reads the bytes it is sent.
+	for h, sni := range map[string]string{"kernel.org": "\u212aernel.org", "files.pythonhosted.org": "file\u017f.pythonhosted.org"} {
+		if code, _ := helloVerdict(helloRecord([][2][]byte{sniExt(host(sni))}), h); code != egressSNIMismatch {
+			t.Errorf("%q for %s: %q, want %q", sni, h, code, egressSNIMismatch)
+		}
+	}
 }
 
 // F-CH (CN-5): the reader never panics, reads at most 16 KiB and only bytes it was given, and whatever

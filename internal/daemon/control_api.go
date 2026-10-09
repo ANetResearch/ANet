@@ -624,7 +624,15 @@ func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, code, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"auto_reply": cfg, "status": "updated"})
+	// api_key is written, never read back (LEC §2.3.4): a request that names only sandbox keeps the
+	// stored key, and the answer, which the CLI prints, must not show it.
+	var shown *AutoReplyConfig
+	if cfg != nil {
+		c := *cfg
+		c.APIKey = ""
+		shown = &c
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"auto_reply": shown, "status": "updated"})
 }
 
 // hAutoReplyTest runs the configured backend once on a synthetic prompt (no Hub, no identity) so an

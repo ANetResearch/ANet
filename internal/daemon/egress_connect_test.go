@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -187,7 +188,8 @@ func TestEgressConnectTunnel(t *testing.T) {
 		}
 	}
 	lookups, dialed := f.seen()
-	if len(lookups) != 2 || lookups[0] != "pypi.org" || lookups[1] != "pypi.org" {
+	// The absolute name: no search domain of the resolver is tried.
+	if len(lookups) != 2 || lookups[0] != "pypi.org." || lookups[1] != "pypi.org." {
 		t.Errorf("lookups %v", lookups)
 	}
 	for _, a := range dialed {
@@ -485,6 +487,10 @@ func TestEgressConnectByteLimits(t *testing.T) {
 			t.Fatal(st)
 		}
 		mustEcho(t, c, br, hello)
+		// CN-7: every byte carried is counted, the hello the endpoint read and passed on among them.
+		if s := ep.Summary().Connect; s.BytesUp != int64(2*len(hello)) || s.BytesDown != int64(2*len(hello)) {
+			t.Errorf("up=%v: two hellos echoed, counted %d up and %d down, want %d each", tc.up, s.BytesUp, s.BytesDown, 2*len(hello))
+		}
 		ep.stats.mu.Lock()
 		if tc.up {
 			ep.stats.connUp = egressMaxTunnelUpload - 10
@@ -508,6 +514,11 @@ func TestEgressConnectByteLimits(t *testing.T) {
 		_, _, st, body := connectRaw(t, sock, "pypi.org:443")
 		if st != tc.status || strings.TrimSpace(body) != a2ashape.Sentence(tc.code, a2ashape.Lang(), a2ashape.Args{"n": tc.n}) {
 			t.Errorf("up=%v: after the limit %d %q", tc.up, st, body)
+		}
+		// Spent stays spent: a byte that would fit under the limit is not carried any more either (a
+		// tunnel that opened while the others were being closed carries nothing).
+		if ep.stats.tunnelBytes(tc.up, 1) {
+			t.Errorf("up=%v: a byte was carried after the limit was reached", tc.up)
 		}
 		s := ep.Summary().Connect
 		if s.BytesUp > egressMaxTunnelUpload || s.BytesDown > egressMaxTunnelDownload {
@@ -576,6 +587,114 @@ func TestEgressCloseClosesTunnels(t *testing.T) {
 	egressWaitFor(t, func() bool { return upstreamEnded.Load() == 3 })
 	if _, err := net.Dial("unix", sock); err == nil {
 		t.Error("the endpoint still accepts connections")
+	}
+}
+
+// CN-4, CN-5: a resolver that does not answer within the resolve time is 502, and an agent that sends no
+// hello within the hello time is dropped (egress_not_tls); neither keeps its tunnel's place.
+func TestEgressConnectTimes(t *testing.T) {
+	quietLog(t)
+	wait := egressConnectWait{resolve: 200 * time.Millisecond, hello: 200 * time.Millisecond}
+	allow := func() *egressUpstream {
+		up := testUpstreamAt(t, egressUpstreamAnthropic, "https://model.invalid")
+		up.ConnectAllow = map[string]bool{"pypi.org": true}
+		return up
+	}
+	f := &fakeConnectNet{answers: [][]netip.Addr{{testPublicAddr}}, target: "127.0.0.1:9"}
+	ep, sock := startTestEgressWith(t, allow(), func(e *egressEndpoint) { e.net, e.connectWait = f.connectNet(), wait })
+	c, br, st, _ := connectRaw(t, sock, "pypi.org:443")
+	if st != 200 {
+		t.Fatal(st)
+	}
+	start := time.Now()
+	_ = c.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := br.ReadByte(); err == nil || !isClosed(err) {
+		t.Errorf("a tunnel without a hello after %s: %v", time.Since(start), err)
+	}
+	egressWaitFor(t, func() bool {
+		ep.tunnels.mu.Lock()
+		defer ep.tunnels.mu.Unlock()
+		return ep.tunnels.active == 0 && ep.Summary().Connect.Refused[egressNotTLS] == 1
+	})
+	if _, dialed := f.seen(); len(dialed) != 0 {
+		t.Errorf("dialed %v", dialed)
+	}
+
+	_, sock = startTestEgressWith(t, allow(), func(e *egressEndpoint) {
+		e.net, e.connectWait = f.connectNet(), wait
+		e.net.lookup = func(ctx context.Context, _ string) ([]netip.Addr, error) {
+			<-ctx.Done() // a resolver that never answers
+			return nil, ctx.Err()
+		}
+	})
+	start = time.Now()
+	if _, _, st, _ := connectRaw(t, sock, "pypi.org:443"); st != 502 || time.Since(start) > 4*time.Second {
+		t.Errorf("a resolver that does not answer: %d after %s", st, time.Since(start))
+	}
+}
+
+// When the agent stops sending (a half-close), the upstream is told so and its answer still reaches
+// the agent: a client that sends its whole request and then waits for the reply gets it.
+func TestEgressConnectPassesHalfClose(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				got, _ := io.ReadAll(c) // up to the agent's end of sending
+				_, _ = fmt.Fprintf(c, "read %d", len(got))
+			}()
+		}
+	}()
+	f := &fakeConnectNet{answers: [][]netip.Addr{{testPublicAddr}}, target: ln.Addr().String()}
+	_, sock := connectTestEgress(t, f, "pypi.org")
+	hello := helloRecord([][2][]byte{sniExt(host("pypi.org"))})
+	c, br, st, _ := connectRaw(t, sock, "pypi.org:443")
+	if st != 200 {
+		t.Fatal(st)
+	}
+	if _, err := c.Write(hello); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.(*net.UnixConn).CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := io.ReadAll(br)
+	if want := fmt.Sprintf("read %d", len(hello)); string(got) != want {
+		t.Errorf("the answer after a half-close: %q %v, want %q", got, err, want)
+	}
+}
+
+// CN-4: the daemon's own addresses, which a resolver's answer is compared with: every address of this
+// machine's interfaces, IPv4 ones unmapped and none with a zone, so that a plain comparison finds them.
+func TestEgressLocalAddrs(t *testing.T) {
+	ifs, err := net.InterfaceAddrs()
+	if err != nil || len(ifs) == 0 {
+		t.Skipf("this machine lists no interface address: %v", err)
+	}
+	local := defaultEgressConnectNet().local()
+	for _, a := range ifs {
+		n, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip, _ := netip.AddrFromSlice(n.IP)
+		if want := ip.Unmap().WithZone(""); !slices.Contains(local, want) {
+			t.Errorf("%s is not among this machine's addresses %v", want, local)
+		}
+	}
+	for _, a := range local {
+		if a.Zone() != "" || a.Is4In6() {
+			t.Errorf("%s: not in the form a resolver's answer is compared in", a)
+		}
 	}
 }
 
