@@ -160,6 +160,28 @@ func (p *Provider) Health(ctx context.Context) error {
 	return nil
 }
 
+// SpeaksC1v1 checks that the far side is a C1 v1 anetlinkd and not one of another version: GET
+// /v1/health answers 204, and GET /v0/health, the C1 v0 path, answers 426 c1_version as C1 v1 does
+// for every /v0 path. Anything else is a *C1Error that NotC1v1 reports. doctor's anetlink.socket.
+func (p *Provider) SpeaksC1v1(ctx context.Context) error {
+	if err := p.Health(ctx); err != nil {
+		return err
+	}
+	resp, err := p.do(ctx, http.MethodGet, "/v0/health", nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if ref := refusalOf(resp, "/v0/health"); ref.Reason != "c1_version" {
+		if ref.Reason != "" {
+			// Another C1 v1 refusal where c1_version belongs: not the C1 v1 this client speaks.
+			ref.Reason = ""
+		}
+		return ref
+	}
+	return nil
+}
+
 // Invoke runs one call (CC-2). Only a local surface (Via "") and the relay (Via ViaRelay, with the
 // caller the daemon verified) are dialled; a call through any other door is refused here,
 // backend_failed, and nothing is sent.

@@ -41,6 +41,9 @@ func serveLinkd(t *testing.T, health int) string {
 		}
 		w.WriteHeader(health)
 	})
+	mux.HandleFunc("GET /v0/", func(w http.ResponseWriter, _ *http.Request) {
+		cbor(w, http.StatusUpgradeRequired, map[uint64]any{1: "c1_version"})
+	})
 	mux.HandleFunc("GET /v1/capabilities", func(w http.ResponseWriter, _ *http.Request) {
 		cbor(w, http.StatusOK, map[uint64]any{1: []any{
 			map[uint64]any{1: "light.onoff@sim/lamp-1", 2: uint64(1)},

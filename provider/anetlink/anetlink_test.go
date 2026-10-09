@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/effect"
+	"github.com/ANetResearch/ANetCore/wire"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/backendconn"
@@ -366,6 +367,55 @@ func TestAFarSideOfAnotherC1VersionIsNamed(t *testing.T) {
 	}
 	if NotC1v1(errors.New("dial unix: no such file")) {
 		t.Fatal("a socket nobody listens on is not a version mismatch")
+	}
+}
+
+// SpeaksC1v1 (doctor's anetlink.socket): a C1 v1 anetlinkd answers /v1/health 204 and every /v0
+// path 426 c1_version; one that answers /v0/health any other way is not the C1 v1 this client speaks.
+func TestSpeaksC1v1AsksBothVersions(t *testing.T) {
+	f := startFakeLinkd(t)
+	if err := newClient(t, f.sock).SpeaksC1v1(bg); err == nil || !NotC1v1(err) {
+		t.Fatalf("a server that does not answer /v0/health 426: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	mux.HandleFunc("GET /v0/", func(w http.ResponseWriter, _ *http.Request) { refuse(t, w, http.StatusUpgradeRequired, "c1_version") })
+	sock := filepath.Join(t.TempDir(), "c1.sock")
+	serveOn(t, sock, mux)
+	if err := newClient(t, sock).SpeaksC1v1(bg); err != nil {
+		t.Fatalf("a C1 v1 anetlinkd: %v", err)
+	}
+	both := http.NewServeMux()
+	both.HandleFunc("GET /v1/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	both.HandleFunc("GET /v0/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	sock2 := filepath.Join(t.TempDir(), "c1.sock")
+	serveOn(t, sock2, both)
+	if err := newClient(t, sock2).SpeaksC1v1(bg); err == nil || !NotC1v1(err) {
+		t.Fatalf("a server that still answers C1 v0: %v", err)
+	}
+}
+
+// The reasons this client knows are the registry's C1 namespace (core §2.15.3), with their statuses.
+func TestTheClientKnowsEveryC1Reason(t *testing.T) {
+	reg, err := wire.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := reg.ReasonCodes("c1")
+	if len(codes) != len(c1Status) {
+		t.Fatalf("the registry has C1 reasons %v, this client knows %d", codes, len(c1Status))
+	}
+	for _, c := range codes {
+		if c1Status[c] == 0 {
+			t.Errorf("C1 reason %s is not known to the client", c)
+		}
+	}
+	want := map[string]int{"not_permitted": 403, "bad_request": 400, "too_large": 413, "unsupported_media": 415,
+		"unknown_capability": 404, "c1_version": 426, "not_found": 404, "internal": 500}
+	for c, st := range want {
+		if c1Status[c] != st {
+			t.Errorf("%s: HTTP %d, core §2.15.3 says %d", c, c1Status[c], st)
+		}
 	}
 }
 

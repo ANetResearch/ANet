@@ -63,7 +63,7 @@ func anetlinkChecks(add func(id, status, detail, hint string), say func(id, stat
 	const id = "anetlink.socket"
 	ctx, cancel := context.WithTimeout(context.Background(), anetlinkProbeTimeout)
 	defer cancel()
-	err = p.Health(ctx)
+	err = p.SpeaksC1v1(ctx)
 	var re *backendconn.RefusedError
 	switch {
 	case err == nil:
