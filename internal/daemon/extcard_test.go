@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/delegation"
@@ -336,6 +337,79 @@ func TestTheExtendedCardIsSignedAgainAfterARotation(t *testing.T) {
 	}
 }
 
+// PAY-C4: the public card's seq is part of what an extended card is made
+// from. A public card issued again with the same content under a new seq (a
+// hub's conflict answer: networkCardLocked with fresh) is followed by new
+// extended cards that repeat it. A caller that has seen the new public card
+// refuses an extended card with a smaller seq (PAY-C13), so keeping the one
+// signed before would leave it with no card at all.
+func TestTheExtendedCardFollowsANewPublicSeq(t *testing.T) {
+	d, _ := extNode(t, []string{"face.detect"}, []string{"face.compare"}, nil)
+	if _, err := d.editPeerFile(ListAllow, "did:anet:bfriend", true); err != nil {
+		t.Fatal(err)
+	}
+	before := answerOf(t, d, "did:anet:bfriend").Card
+	if len(before) == 0 {
+		t.Fatal("no list card")
+	}
+	hub := d.config().HubURL
+	_, seq1, err := d.networkCard(hub)
+	if err != nil || verifyOwn(t, d, before).Seq != seq1 {
+		t.Fatalf("the extended card does not repeat the public seq %d (%v)", seq1, err)
+	}
+	d.netCard.mu.Lock()
+	_, seq2, err := d.networkCardLocked(hub, d.config().Name, true)
+	d.netCard.mu.Unlock()
+	if err != nil || seq2 <= seq1 {
+		t.Fatalf("re-issued public card: seq %d after %d (%v)", seq2, seq1, err)
+	}
+	after := answerOf(t, d, "did:anet:bfriend").Card
+	if len(after) == 0 {
+		t.Fatal("no list card after the public card was issued again")
+	}
+	if got := verifyOwn(t, d, after).Seq; got != seq2 {
+		t.Fatalf("extended card seq %d, the public card's is now %d", got, seq2)
+	}
+}
+
+// The extended cards repeat the public card as it was issued, under the name
+// a registration published it with, which can differ from the configured
+// one until the hub has accepted it (cardForRegistration). Asking for an
+// extended card does not issue another public card under the configured name.
+func TestTheExtendedCardRepeatsThePublishedName(t *testing.T) {
+	d, _ := extNode(t, []string{"face.detect"}, []string{"face.compare"}, nil)
+	if _, err := d.editPeerFile(ListAllow, "did:anet:bfriend", true); err != nil {
+		t.Fatal(err)
+	}
+	const published = "Published Name"
+	if d.config().Name == published {
+		t.Fatal("the fixture's configured name is the published one")
+	}
+	card, seq := d.cardForRegistration(d.config().HubURL, published, false)
+	if len(card) == 0 {
+		t.Fatal("no public card issued")
+	}
+	got := answerOf(t, d, "did:anet:bfriend").Card
+	if len(got) == 0 {
+		t.Fatal("no list card")
+	}
+	var c struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(got, &c); err != nil || c.Name != published {
+		t.Fatalf("extended card name %q, the published card's is %q (%v)", c.Name, published, err)
+	}
+	if v := verifyOwn(t, d, got); v.Seq != seq {
+		t.Fatalf("extended card seq %d, the published card's %d", v.Seq, seq)
+	}
+	d.netCard.mu.Lock()
+	issued := d.netCard.issued
+	d.netCard.mu.Unlock()
+	if issued == nil || issued.Seq != seq {
+		t.Fatalf("answering issued another public card: %+v, published seq %d", issued, seq)
+	}
+}
+
 // PAY-C8 rule 2: six requests a minute per sender; the seventh is busy for
 // a priced node, and the window moves on. Other senders are not affected,
 // and the senders remembered stay bounded. The times are passed in, not
@@ -365,6 +439,30 @@ func TestCardRequestsAreLimitedPerSender(t *testing.T) {
 	d.extCard.reqMu.Unlock()
 	if n > cardRequestSenders {
 		t.Fatalf("%d senders remembered, bound %d", n, cardRequestSenders)
+	}
+}
+
+// The window is the minute up to now on the daemon's wall clock. When that
+// clock steps back (a time correction), the requests noted "later" are not
+// in the window, so the sender is not kept busy until the clock catches
+// up; after the step the limit counts from the new time as before.
+func TestCardRequestLimitSurvivesAClockStepBack(t *testing.T) {
+	d := newCardDaemon(t, "Limit", "")
+	now := uint64(1_800_000_000_000)
+	for i := 0; i <= cardRequestsPerWindow; i++ {
+		d.noteCardRequest("did:anet:ba", now+uint64(i))
+	}
+	if n := d.noteCardRequest("did:anet:ba", now+10); n <= cardRequestsPerWindow {
+		t.Fatalf("over the limit, counted %d", n)
+	}
+	back := now - uint64(time.Hour.Milliseconds())
+	if n := d.noteCardRequest("did:anet:ba", back); n != 1 {
+		t.Fatalf("after the clock stepped back an hour the window counts %d", n)
+	}
+	for i := 2; i <= cardRequestsPerWindow+1; i++ {
+		if n := d.noteCardRequest("did:anet:ba", back+uint64(i)); n != i {
+			t.Fatalf("request %d after the step counted %d", i, n)
+		}
 	}
 }
 

@@ -167,12 +167,17 @@ func (d *Daemon) noteCardRequest(sender string, now uint64) int {
 		s.requests = map[string][]uint64{}
 	}
 	since := now - min(now, uint64(cardRequestWindow.Milliseconds()))
+	// The requests in the window: after since and not after now. A time
+	// after now was noted before the wall clock stepped back; counting it
+	// would keep the sender busy until the clock caught up again.
 	keep := func(ts []uint64) []uint64 {
-		i := 0
-		for i < len(ts) && ts[i] <= since {
-			i++
+		var out []uint64
+		for _, t := range ts {
+			if t > since && t <= now {
+				out = append(out, t)
+			}
 		}
-		return ts[i:]
+		return out
 	}
 	ts := keep(s.requests[sender])
 	if len(ts) == 0 && len(s.requests) >= cardRequestSenders {
