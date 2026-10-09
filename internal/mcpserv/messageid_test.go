@@ -48,17 +48,12 @@ func TestNoMessageIDInMCPSchema(t *testing.T) {
 	if !strings.Contains(tool.Description, "a resend is a second task") {
 		t.Error("send_message must say that sending again makes a second task")
 	}
-	// A model that sends one anyway sends nothing: the call is refused by
-	// the schema, or the id goes nowhere.
+	// A model that sends one anyway is told so by the schema, and nothing
+	// reaches the daemon.
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "send_message",
 		Arguments: map[string]any{"to": "aid-1", "text": "hi", "message_id": "m-1"}})
-	if _, isErr := resultText(t, res, err); !isErr {
-		for _, c := range f.calls {
-			b, _ := json.Marshal(c.body)
-			if strings.Contains(string(b), "m-1") || strings.Contains(strings.ToLower(string(b)), "message") {
-				t.Fatalf("a model's message_id reached the daemon: %s %s", c.path, b)
-			}
-		}
+	if msg, isErr := resultText(t, res, err); !isErr || !strings.Contains(msg, "message_id") || len(f.calls) != 0 {
+		t.Fatalf("a call with message_id: %q (error %v), %d calls to the daemon", msg, isErr, len(f.calls))
 	}
 	// Nor does a message with files carry one.
 	if _, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "send_message", Arguments: map[string]any{
