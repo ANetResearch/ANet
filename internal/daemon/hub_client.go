@@ -380,7 +380,8 @@ func hubWireCheck(host string, rep hubReply) *hubWireError {
 const hubUserAgent = "anet/" + Version
 
 // counterHubRouteUnmapped counts the hub requests refused before they were
-// sent because hubapi.Routes gives their route no side (SSR-D26).
+// sent because hubapi.Routes gives their route no side (SSR-D26), or the
+// side it gives cannot carry them (a signature on the anonymous side).
 const counterHubRouteUnmapped = "hub-route-unmapped"
 
 // hubClient is the daemon's HTTP client of its hub (sealed-sender §4.3.11):
@@ -465,23 +466,44 @@ func (d *Daemon) hubExchange(req *http.Request, hubURL, route string, kind int) 
 }
 
 // hubRouteError is a request refused before it was sent: hubapi.Routes
-// gives its route no side (SSR-D26).
-type hubRouteError struct{ method, route string }
+// gives its route no side (SSR-D26), or its route is on the anonymous side
+// and it carries naming, a header that names this node.
+type hubRouteError struct{ method, route, naming string }
 
 func (e *hubRouteError) Error() string {
+	if e.naming != "" {
+		return fmt.Sprintf("anet: %s %s goes on the anonymous side, which carries no %s; nothing was sent", e.method, e.route, e.naming)
+	}
 	return fmt.Sprintf("anet: %s %s is no hub route this node sends; nothing was sent", e.method, e.route)
 }
+
+// namingHeaders are the request headers that name this node: a relayauth
+// signature and a first contact's session (core §2.12.1). None of them
+// rides the anonymous side.
+var namingHeaders = []string{hubapi.HeaderAID, hubapi.HeaderSeq, hubapi.HeaderSig, hubapi.HeaderSession, hubapi.HeaderMAC}
 
 // hubTransmit sends req on the side hubapi.SideOf gives its route, with
 // this daemon's wire version and its fixed User-Agent and without cookies,
 // and returns the response unread. A route without a side is not sent
-// (hubRouteError, counted hub-route-unmapped).
+// (hubRouteError, counted hub-route-unmapped), and neither is a request for
+// the anonymous side that carries a signature or a session: it would tie
+// the anonymous connection to this node (SI-13), so it is refused before
+// anything is sent, however it was built.
 func (d *Daemon) hubTransmit(req *http.Request, hubURL, route string, kind int) (*http.Response, error) {
 	_, side, ok := hubapi.SideOf(req.Method, route, d.AID(), d.knownHubAID(hubURL), kind)
 	if !ok {
 		err := &hubRouteError{method: req.Method, route: route}
 		d.countErr(counterHubRouteUnmapped, err)
 		return nil, err
+	}
+	if side == hubapi.SideAnonymous {
+		for _, h := range namingHeaders {
+			if len(req.Header.Values(h)) > 0 {
+				err := &hubRouteError{method: req.Method, route: route, naming: h}
+				d.countErr(counterHubRouteUnmapped, err)
+				return nil, err
+			}
+		}
 	}
 	// Every request states the C2 contract version this daemon speaks.
 	req.Header.Set(hubapi.WireVersionHeader, strconv.Itoa(hubapi.WireVersion))
@@ -512,8 +534,12 @@ func (d *Daemon) moduleHubDo(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A hub of another wire is refused here as hubDo refuses it (CORE-V1):
+	// the module gets the refusal, never an answer read under another wire.
 	if we := hubWireCheck(req.URL.Host, hubReply{Status: resp.StatusCode, Wire: resp.Header.Get(hubapi.WireVersionHeader)}); we != nil {
+		resp.Body.Close()
 		d.noteHubWire(hub, we)
+		return nil, we
 	}
 	return resp, nil
 }
