@@ -780,3 +780,38 @@ func TestAFreezeBetweenTwoSendsOfAnAttemptRecordsWhatLeft(t *testing.T) {
 		t.Fatalf("versions %+v, want the one the hub was handed, recorded so", vers)
 	}
 }
+
+// ENG-C2 (DLV-S-16): a message committed on a task this node asked for
+// confirms the task's delegation only when it comes from the task's peer;
+// from anyone else it confirms nothing, whatever the receive steps before
+// it let through.
+func TestOnlyThePeerConfirmsADelegationImplicitly(t *testing.T) {
+	_, req, prov := registeredPair(t)
+	ctx := context.Background()
+	id, err := req.Delegate(ctx, prov.AID(), "a task", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := outboxRows(t, req, id)
+	if len(rows) != 1 || rows[0].Type != seal.TypeDelegate || rows[0].HandedAt == 0 {
+		t.Fatalf("setup: outbox %+v, want the delegation handed over", rows)
+	}
+	confirm := func(from string) int {
+		t.Helper()
+		var n int
+		if err := req.ix.Update(func(tx *interactions.Tx) error {
+			var err error
+			n, err = req.confirmImplicitTx(tx, id, from)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := confirm(req.AID()); n != 0 || len(outboxRows(t, req, id)) != 1 {
+		t.Fatalf("a sender that is not the task's peer confirmed %d delegation(s)", n)
+	}
+	if n := confirm(prov.AID()); n != 1 || len(outboxRows(t, req, id)) != 0 {
+		t.Fatalf("the peer's message confirmed %d delegation(s), want 1", n)
+	}
+}
