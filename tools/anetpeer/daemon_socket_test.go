@@ -33,10 +33,10 @@ func waitSelf(t *testing.T, p *peer, aid string) {
 	}
 }
 
-// LEC PC-4: a connection to the daemon socket takes the daemon's
-// place only when the process on the other end is this user's. One that is
-// not is closed before a byte of it is read, and the daemon that was there
-// keeps its place: it is still the one deliveries are handed to. (The test
+// LEC PC-4: a connection to the daemon socket takes the daemon's place only
+// when the process on the other end is this user's, and root's is not. One
+// that is not is closed before a byte of it is read, and the daemon that was
+// there keeps its place: it is still the one deliveries are handed to. (The test
 // cannot connect as another account without sudo,
 // TestADaemonSocketConnectionOfAnotherAccountIsClosed does; here the peer's
 // credOf stands in for one.)
@@ -52,16 +52,27 @@ func TestAConnectionOfAnotherAccountDoesNotReplaceTheDaemon(t *testing.T) {
 	waitSelf(t, p, "aid-daemon")
 
 	setCredOf := func(f func(net.Conn) (peercred.Cred, error)) {
-		p.mu.Lock()
+		p.admitMu.Lock()
 		p.credOf = f
-		p.mu.Unlock()
+		p.admitMu.Unlock()
 	}
-	for _, why := range []string{"another account", "credentials it cannot read"} {
+	whys := []string{"another account", "credentials it cannot read"}
+	if os.Getuid() != 0 {
+		// Root is not let in for being root: it is not the daemon's account.
+		whys = append(whys, "root")
+	}
+	for _, why := range whys {
 		switch why {
 		case "another account":
 			setCredOf(func(c net.Conn) (peercred.Cred, error) {
 				cr, err := peercred.Of(c)
 				cr.UID++
+				return cr, err
+			})
+		case "root":
+			setCredOf(func(c net.Conn) (peercred.Cred, error) {
+				cr, err := peercred.Of(c)
+				cr.UID = 0
 				return cr, err
 			})
 		default:
@@ -218,4 +229,26 @@ func TestAPlatformThatCannotTellIsNotServed(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(dir, "a.wire")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the peer wire was left listening: %v", err)
 	}
+}
+
+// The usage in the package comment names the daemon socket relative to the
+// working directory. It is listened on, and checked, as the absolute path
+// it names there: that is the path the daemon's modules.p2p.socket has to
+// name, and the path checks, which the daemon applies to what it dials,
+// take absolute paths only.
+func TestARelativeDaemonSocketIsTheAbsolutePathItNames(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	p, err := start(filepath.Join("run", "a", "d.sock"), filepath.Join(dir, "a.wire"), filepath.Join(dir, "rv"), "")
+	if err != nil {
+		t.Fatalf("a relative daemon socket: %v", err)
+	}
+	t.Cleanup(p.stop)
+	abs := filepath.Join(dir, "run", "a", "d.sock")
+	if got := p.daemonLn.Addr().String(); got != abs {
+		t.Fatalf("listening on %q, want %q", got, abs)
+	}
+	d := dialRawDaemon(t, abs)
+	d.send(frame{Op: "hello", V: wireVersion, Self: "aid-daemon"})
+	waitSelf(t, p, "aid-daemon")
 }

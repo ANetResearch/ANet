@@ -301,9 +301,9 @@ func refuse(where, format string, a ...any) error {
 	return &RefusedError{Where: where, Reason: fmt.Sprintf(format, a...)}
 }
 
-// The two refusals of the listener check, by their codes (02-ux §1.4 J). The English sentences are the
-// reason table's (TestPeerRefusalsAreTheReasonTablesSentences); the daemon, doctor and the logs show
-// them in either language from Code and Args.
+// The two refusals of the listener check, by their codes (ux §1.4 J). The English sentences are the
+// reason table's (TestPeerRefusalsAreTheReasonTablesSentences), which is what a log line carries; a caller
+// that shows one to a user renders Code and Args from the reason table, in either language.
 const (
 	CodePeerCredUnsupported = "peer_cred_unsupported"
 	CodePeerUIDMismatch     = "peer_uid_mismatch"

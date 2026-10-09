@@ -8,7 +8,7 @@ import (
 	"github.com/ANetResearch/ANet/internal/backendconn"
 )
 
-// The listener check's refusals say what 02-ux §1.4 J says, word for word: their Reason (what a module
+// The listener check's refusals say what ux §1.4 J says, word for word: their Reason (what a module
 // logs) is the English sentence of their Code with their Args, which the daemon and doctor render in
 // either language. backendconn does not import the reason table (it is shared by modules that must stay
 // small, internal/loopguard), so the two are held together here.
