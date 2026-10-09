@@ -1647,6 +1647,14 @@ MUTS += [
   full=[DAEMON],
  ),
  dict(
+  id='m-bp-4-namespace-member', group='BP-4', repo='ANet',
+  desc='namespace 里不是对象的成员被跳过(裸字符串 "web_search" 未经核对到达服务方)',
+  edits=[('internal/daemon/egress_policy.go', '\t\tinner, ok := t.(map[string]any)\n\t\tif !ok {\n\t\t\treturn typ, false\n\t\t}',
+          '\t\tinner, ok := t.(map[string]any)\n\t\tif !ok {\n\t\t\tcontinue\n\t\t}')],
+  tests=[(DAEMON, INJECT)],
+  full=[DAEMON],
+ ),
+ dict(
   id='m-bp-6-claude-betas', group='BP-6', repo='ANet',
   desc='beta 白名单去掉 claude 每次都发的 effort(真实服务会因 output_config 拒收)',
   edits=[('internal/daemon/egress_policy.go', '\t"effort-2025-11-24":                      true,\n', '')],
