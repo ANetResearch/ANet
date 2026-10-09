@@ -715,8 +715,9 @@ MUTS += [
           'if tip := states[len(states)-1]; false && (a.Seq != tip.KeyStateSeq || tip.Status != identity.StatusActive) {')],
   tests=K5(['TestRetiredKeyRelayauthIs401KeyRetired']) + K5_FIX, full=K5_FULL),
  dict(id='kel-m17', group='KEL-5', repo='ANetHub', desc='M17:kel:push 后旧 hub 仍签通告(推送应答 200 却不改登记的 KEL)',
-  edits=[(KELPUSH, "if _, err := tx.Exec(`UPDATE agent SET kel=? WHERE aid=?`, raw, aid); err != nil {",
-          "if _, err := tx.Exec(`SELECT ?, ?`, raw, aid); err != nil {")],
+  # Re-pointed by KEL-6: the row's stored tip is written with the key history.
+  edits=[(KELPUSH, "if _, err := tx.Exec(`UPDATE agent SET kel=?, tip_seq=?, tip_head=? WHERE aid=?`, raw, tipSeq, tipHead, aid); err != nil {",
+          "if _, err := tx.Exec(`SELECT ?, ?, ?, ?`, raw, tipSeq, tipHead, aid); err != nil {")],
   tests=K5(['TestKELPushToTheOldWitnessStopsItsNotice']), full=K5_FULL),
  dict(id='kel-m42', group='KEL-5', repo='ANetHub', desc='M42:kel:push 限速按完整 IPv6 地址计',
   edits=[(KELPUSH, 'if ok, wait := s.kelPushLimiter.allow(clientIP(r)); !ok {',
@@ -828,8 +829,10 @@ MUTS += [
   edits=[(NOTICE, '\t\t\tfailed++\n\t\t\tcontinue\n', '\t\t\tfailed++\n\t\t\tbreak\n')],
   tests=K5(['TestNoticeRefreshGoesOnPastABadRecord']), full=K5_FULL),
  dict(id='kel5-peer-notice-tip', group='KEL-5', repo='ANetHub', desc='§2.7:对端卡片带来的通告不陈述其 KEL 顶端也照列',
-  edits=[(NOTICE, '\tif seq, head, ok := kelTip(kel); !ok || body.Seq != seq || body.Head != head {\n\t\treturn nil\n\t}\n\treturn notice\n',
-          '\tif seq, head, ok := kelTip(kel); false && (!ok || body.Seq != seq || body.Head != head) {\n\t\treturn nil\n\t}\n\treturn notice\n')],
+  # Re-pointed by KEL-6: a peer's card row keeps a notice only when it states the tip of the KEL it came
+  # with (fedNoticeToStore), and the listings serve the row's notice without decoding the KEL again.
+  edits=[('internal/aghub/fed_a2acard.go', '\tif err != nil || body.AID != tip.AID || body.Seq != tip.KeyStateSeq || body.Head != tip.LastEventID {\n',
+          '\tif err != nil || body.AID != tip.AID {\n')],
   tests=K5(['TestPeerNoticeListedOnlyForTheKELTip']), full=K5_FULL),
 ]
 
@@ -983,4 +986,106 @@ MUTS += [
  dict(id='kel7-h34-notice', group='KEL-7', repo='ANetHub', desc='H-34:对端目录条目里新钥签的见证通告不按需再取对端 KEL',
   edits=[('internal/aghub/fed_home.go', '\t\t\tk, err := s.store.peerKELFor(s.peerKEL, hubAID, env.KeyStateSeq)', '\t\t\t_ = env\n\t\t\tk, err := s.peerKEL(hubAID)')],
   tests=K7(K7_HUB, ['TestAPeerNoticeUnderANewKeyFetchesTheKeyHistoryAgain']), full=[K7_HUB]),
+]
+
+# KEL-6 (ANetHub: a hub restored from a backup, and the first verification of a payment; KEL §4.2
+# H-20 to H-23, H-40 to H-42; repo ANetHub, kept in this list like KEL-5): M15 and M20 of KEL §7.3, and the
+# package's own, which hold the hub's tests to the quarantine (who is held, what releases each AID, when the
+# wait starts, what a restore leaves out), kel_hwm (H-21), the first verification (its record, its use, its
+# window, its deletion) and the listings reading the stored tip instead of decoding key histories.
+
+K6 = K5
+K6_CMD = lambda names: [('ANetHub:./cmd/anet-hub', '^(' + '|'.join(names) + ')$')]  # noqa: E731
+K6_FULL = [K5_PKG, 'ANetHub:./cmd/anet-hub']
+RESTORE = 'internal/aghub/restore.go'
+FACIL = 'internal/aghub/facilitator.go'
+AGHUB = 'internal/aghub/aghub.go'
+
+MUTS += [
+ dict(id='kel-m15', group='KEL-6', repo='ANetHub', desc='M15:hub 从备份恢复后不隔离(judgeNotice 不看隔离)',
+  edits=[(NOTICE, '\tif quarantined {\n', '\tif false && quarantined {\n')],
+  tests=K6(['TestRestoreQuarantinesPerAID', 'TestKELHighWaterDetectsRollbackAtStart']), full=K6_FULL),
+ dict(id='kel6-m15-restore', group='KEL-6', repo='ANetHub', desc='M15:anet-hub restore 不开始隔离',
+  edits=[(RESTORE, '\tif err := startQuarantineTx(tx, quarantineRestore, now); err != nil {\n', '\tif err := error(nil); err != nil {\n')],
+  tests=K6(['TestRestoreQuarantinesPerAID']) + K6_CMD(['TestRestoreTheSubcommand']), full=K6_FULL),
+ dict(id='kel6-hwm-detect', group='KEL-6', repo='ANetHub', desc='H-21:启动时不比较库内计数与 kel_hwm(手工放回的旧库不隔离)',
+  edits=[(RESTORE, '\tif n < file || unreadable {\n', '\tif unreadable {\n')],
+  tests=K6(['TestKELHighWaterDetectsRollbackAtStart']), full=K6_FULL),
+ dict(id='kel6-hwm-count', group='KEL-6', repo='ANetHub', desc='H-21:KEL 变更不计数',
+  edits=[(RESTORE, "\t_, err := tx.Exec(`INSERT INTO kel_hwm(id, n) VALUES(1, 1) ON CONFLICT(id) DO UPDATE SET n = n + 1`)\n",
+          "\tvar err error\n\t_ = tx\n")],
+  tests=K6(['TestKELChangesAreCounted', 'TestKELHighWaterDetectsRollbackAtStart']), full=K6_FULL),
+ dict(id='kel6-hwm-dereg', group='KEL-6', repo='ANetHub', desc='H-21:注销(写墓碑)不计数',
+  edits=[('internal/aghub/deregister.go', '\treturn countKELChangeTx(tx)\n}', '\treturn nil\n}')],
+  tests=K6(['TestKELChangesAreCounted']), full=K6_FULL),
+ dict(id='kel6-release-longer', group='KEL-6', repo='ANetHub', desc='H-20 a:kel:push 更长的 KEL 不解除该 AID 的隔离',
+  edits=[(KELPUSH, '\t\t\tif err := releaseTx(tx, aid, releasedLongerKEL, now); err != nil {\n', '\t\t\tif err := error(nil); err != nil {\n')],
+  tests=K6(['TestRestoreQuarantinesPerAID']), full=K6_FULL),
+ dict(id='kel6-release-wait', group='KEL-6', repo='ANetHub', desc='H-20 b:以当前钥签名的请求不等 30 分钟就解除',
+  edits=[(RESTORE, ' && now.UnixMilli()-q.servingSince >= RestoreQuarantine.Milliseconds()\n', ' && now.UnixMilli()-q.servingSince >= 0\n')],
+  tests=K6(['TestRestoreQuarantinesPerAID', 'TestRestoreQuarantineCountsFromServing']), full=K6_FULL),
+ dict(id='kel6-release-any-registration', group='KEL-6', repo='ANetHub', desc='H-20 a:首次注册(此前不持有 KEL)也算"更长的 KEL"而解除',
+  # Re-pointed by the KEL-6 review: only a longer history releases (other bytes of the held one do not).
+  edits=[(AGHUB, '\tif longer {\n\t\tif err := releaseTx', '\tif longer || extend != nil {\n\t\tif err := releaseTx')],
+  tests=K6(['TestRestoreQuarantinesPerAID']), full=K6_FULL),
+ dict(id='kel6-release-other-bytes', group='KEL-6', repo='ANetHub',
+  desc='H-20 a:持有所存顶端钥者把同一条 KEL 换种 CBOR 编码重新注册即解除隔离(KEL-6 评审)',
+  edits=[(AGHUB, '\tif longer {\n\t\tif err := releaseTx', '\tif longer || changed {\n\t\tif err := releaseTx'),
+         ('internal/aghub/server.go', '\tkelBytes, err = identity.MarshalKEL(kel)\n', '\t_, err = identity.MarshalKEL(kel)\n')],
+  tests=K6(['TestRestoreReleaseNeedsMoreEventsNotOtherBytes']), full=K6_FULL),
+ dict(id='kel6-register-canonical', group='KEL-6', repo='ANetHub',
+  desc='/register 按收到的字节存 KEL,不改存 CoreDet 编码(同一条 KEL 可有多种字节;KEL-6 评审)',
+  edits=[('internal/aghub/server.go', '\tkelBytes, err = identity.MarshalKEL(kel)\n', '\t_, err = identity.MarshalKEL(kel)\n')],
+  tests=K6(['TestRestoreReleaseNeedsMoreEventsNotOtherBytes']), full=K6_FULL),
+ dict(id='kel6-close-held', group='KEL-6', repo='ANetHub', desc='H-20:还有 agent 在隔离中就关闭隔离记录(等于整体解除)',
+  edits=[(RESTORE, '\tif held > 0 {\n\t\treturn nil\n\t}\n\tfor _, q := range', '\tif held < 0 {\n\t\treturn nil\n\t}\n\tfor _, q := range')],
+  tests=K6(['TestRestoreQuarantinesPerAID']), full=K6_FULL),
+ dict(id='kel6-dir-kept', group='KEL-6', repo='ANetHub', desc='隔离开始时不撤下目录条目(备份里条目所带的旧通告继续发出)',
+  edits=[(RESTORE, "\t\t`UPDATE agent SET dir_hash = NULL, dir_box = NULL WHERE dir_hash IS NOT NULL OR dir_box IS NOT NULL`,\n", '')],
+  tests=K6(['TestRestoreQuarantinesPerAID']), full=K6_FULL),
+ dict(id='kel6-serving-start', group='KEL-6', repo='ANetHub',
+  desc='H-20 b:hub 进程不开始服务恢复的库(30 分钟不起算,目录条目不重建;KEL-6 评审)',
+  edits=[(NOTICE, '\t\tif !serving {\n\t\t\tif err := s.BeginServing(); err != nil {', '\t\tif false && !serving {\n\t\t\tif err := s.BeginServing(); err != nil {')],
+  tests=K6(['TestTheRefresherStartsServingARestoredHub']), full=K6_FULL),
+ dict(id='kel6-serving-clock', group='KEL-6', repo='ANetHub', desc='H-20:30 分钟从恢复时起算,而不是从 hub 恢复服务时',
+  edits=[(RESTORE, '\ts.quarantine.set(true, now.UnixMilli())\n\twhat := ', '\ts.quarantine.set(true, began)\n\twhat := ')],
+  tests=K6(['TestRestoreQuarantineCountsFromServing']), full=K6_FULL),
+ dict(id='kel6-restore-clears', group='KEL-6', repo='ANetHub', desc='H-23:恢复不清空备份不含的表(原样拷贝里的信封与通告恢复回来)',
+  edits=[(RESTORE, '\tfor _, table := range restoreCleared {\n', '\tfor _, table := range restoreCleared[:0] {\n')],
+  tests=K6(['TestRestoreClearsWhatNoBackupHolds']), full=K6_FULL),
+ dict(id='kel6-restore-lock', group='KEL-6', repo='ANetHub', desc='H-23:hub 运行中也执行恢复(不取数据目录锁)',
+  edits=[(RESTORE, '\tlock, err := hubid.Lock(dir)\n', '\tlock, err := &hubid.DirLock{}, error(nil)\n')],
+  tests=K6(['TestRestoreRefusesWhileTheHubRuns']) + K6_CMD(['TestRestoreRefusesWhileTheHubRuns']), full=K6_FULL),
+ dict(id='kel6-restore-version', group='KEL-6', repo='ANetHub', desc='H-23:恢复接受 0.2 或更新版本写的库',
+  edits=[(RESTORE, '\tif err := judgeSchema(version, objects); err != nil {\n\t\tif errors.Is(err, ErrHubDataTooNew) {',
+          '\tif err := judgeSchema(version, objects); false && err != nil {\n\t\tif errors.Is(err, ErrHubDataTooNew) {')],
+  tests=K6(['TestRestoreRefusesWhatIsNotABackup']), full=K6_FULL),
+ dict(id='kel6-restore-identity', group='KEL-6', repo='ANetHub', desc='H-23:数据目录里没有 hub 身份也恢复(之后以新身份启动)',
+  edits=[('cmd/anet-hub/restore.go', '\tif !hubid.Exists(dir) {\n', '\tif false && !hubid.Exists(dir) {\n')],
+  tests=K6_CMD(['TestRestoreRefusals']), full=K6_FULL),
+ dict(id='kel-m20', group='KEL-6', repo='ANetHub', desc='M20:facilitator 不查首次验证记录',
+  edits=[(FACIL, '\tif tip {\n\t\treturn nil\n\t}\n\treturn currentAuth(auth, kel, now)\n', '\tif false && tip {\n\t\treturn nil\n\t}\n\treturn currentAuth(auth, kel, now)\n')],
+  tests=K6(['TestFirstVerifyAtTipSurvivesRotation', 'TestAFailedSettlementKeepsItsFirstVerification',
+            'TestTheOtherDoorsJudgeTheKeyAtTheFirstVerification']), full=K6_FULL),
+ dict(id='kel6-fv-tip', group='KEL-6', repo='ANetHub', desc='H-40:首次验证不论签名钥是否为顶端都记作顶端(退役钥补签的授权被接受)',
+  edits=[(FACIL, '\ttip := last.KeyStateSeq == seq && last.Status == identity.StatusActive\n', '\ttip := last.Status == identity.StatusActive\n')],
+  tests=K6(['TestRetiredKeyAuthWithoutFirstVerifyRefused', 'TestFirstVerifyAtTipSurvivesRotation']), full=K6_FULL),
+ dict(id='kel6-fv-reuse', group='KEL-6', repo='ANetHub', desc='H-41:已有的首次验证记录不论内容一律放行',
+  edits=[(FACIL, '\treturn rowTip && rowPayer == payer && rowSeq >= 0 && uint64(rowSeq) == seq, true, nil\n', '\treturn true, true, nil\n')],
+  tests=K6(['TestRetiredKeyAuthWithoutFirstVerifyRefused']), full=K6_FULL),
+ dict(id='kel6-fv-window', group='KEL-6', repo='ANetHub', desc='H-41:有首次验证记录的授权不再查有效期',
+  edits=[(FACIL, '\tif err := auth.Verify(kel[:seq+1], now); err != nil {\n', '\tif err := auth.Verify(kel[:seq+1], auth.IssuedAt); err != nil {\n')],
+  tests=K6(['TestAFirstVerificationDoesNotExtendTheWindow']), full=K6_FULL),
+ dict(id='kel6-fv-janitor', group='KEL-6', repo='ANetHub', desc='H-40:janitor 不删 x402_first_verify',
+  edits=[('internal/aghub/janitor.go', "\t{\"x402_first_verify\", `DELETE FROM x402_first_verify WHERE delete_after <= ?`,\n", "\t{\"x402_first_verify\", `DELETE FROM x402_first_verify WHERE delete_after <= ? AND 0`,\n")],
+  tests=K6(['TestFirstVerifyRowDeletedAfterNotAfterPlus7d']), full=K6_FULL),
+ dict(id='kel6-fv-keep', group='KEL-6', repo='ANetHub', desc='H-40:首次验证记录在 NotAfter 即删(不留 7 天)',
+  edits=[(FACIL, '\treturn notAfter + keep\n}', '\treturn notAfter + keep*0\n}')],
+  tests=K6(['TestFirstVerifyRowDeletedAfterNotAfterPlus7d', 'TestFirstVerifyDeleteAfterSaturates']), full=K6_FULL),
+ dict(id='kel6-list-tip', group='KEL-6', repo='ANetHub', desc='匿名列表不核对缓存的通告是否陈述存下的顶端',
+  edits=[(AGHUB, '\t   WHERE n.aid = a.aid AND n.seq = a.tip_seq AND n.head = a.tip_head)`', '\t   WHERE n.aid = a.aid)`')],
+  tests=K6(['TestListingsReadTheStoredTip']), full=K6_FULL),
+ dict(id='kel6-list-tip-write', group='KEL-6', repo='ANetHub', desc='重新注册更长的 KEL 时不更新存下的顶端',
+  edits=[(AGHUB, '\t\t   tip_seq=excluded.tip_seq, tip_head=excluded.tip_head`,\n', '\t\t   tip_seq=agent.tip_seq, tip_head=agent.tip_head`,\n')],
+  tests=K6(['TestListingsReadTheStoredTip']), full=K6_FULL),
 ]

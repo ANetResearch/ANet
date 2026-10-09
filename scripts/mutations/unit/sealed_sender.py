@@ -488,10 +488,10 @@ MUTS += [
   edits=[('internal/aghub/registry.go', '\t\te.VerifiedAt = toTheHour(e.VerifiedAt)\n', '')],
   tests=LIST_T, full=['ANetHub:./internal/aghub']),
  dict(id='ss5-h18-agents-keys', group='SS-5', repo='ANetHub', desc='/agents 条目不带 kel、keys',
-  edits=[('internal/aghub/aghub.go', '\tav.KEL, av.Keys, av.KeyStateNotice = b64url(kel), b64url(keys), b64url(noticeOfTip(kel, notice))', '\tav.KeyStateNotice = b64url(noticeOfTip(kel, notice))\n\t_ = keys')],
+  edits=[('internal/aghub/aghub.go', '\tav.KEL, av.Keys, av.KeyStateNotice = b64url(kel), b64url(keys), b64url(notice)', '\tav.KeyStateNotice = b64url(notice)\n\t_ = keys')],
   tests=LIST_T, full=['ANetHub:./internal/aghub']),
  dict(id='ss5-h18-registry-keys', group='SS-5', repo='ANetHub', desc='/a2a/v1/agents 条目不带 kel、keys',
-  edits=[('internal/aghub/registry.go', '\t\te.KEL, e.Keys, e.KeyStateNotice = b64url(kel), b64url(keys), b64url(noticeOfTip(kel, notice))\n', '\t\te.KeyStateNotice = b64url(noticeOfTip(kel, notice))\n\t\t_ = keys\n')],
+  edits=[('internal/aghub/registry.go', '\t\te.KEL, e.Keys, e.KeyStateNotice = b64url(kel), b64url(keys), b64url(notice)\n', '\t\te.KeyStateNotice = b64url(notice)\n\t\t_ = keys\n')],
   tests=LIST_T, full=['ANetHub:./internal/aghub']),
  # ---- the removed lookups (sealed-sender §2.7) and dir_max_bits in /hub/identity
  dict(id='ss5-lookup-back', group='SS-5', repo='ANetHub', desc='恢复按 AID 的钥集查询路由 POST /agents/keys:lookup',
@@ -502,10 +502,10 @@ MUTS += [
   edits=[('cmd/anet-hub/mounts.go', '\tid.DirMaxBits = srv0.DirMaxBits\n', '')],
   tests=[('ANetHub:./cmd/anet-hub', '^TestHubIdentityStatesDirMaxBits$')], full=['ANetHub:./cmd/anet-hub']),
  # ---- added by the SS-5 review: paths the first group left untested
- dict(id='ss5-h17-keys-resigned', group='SS-5', repo='ANetHub', desc='同一钥集在轮换后重签(unchanged)时不重算目录条目(条目留着旧签名)',
-  edits=[('internal/aghub/keys.go', '\t\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\t\treturn "", err\n\t\t}\n\t\tif err := tx.Commit(); err != nil {\n\t\t\treturn "", err\n\t\t}\n\t\treturn KeysStatusUnchanged, nil\n',
-          '\t\tif err := tx.Commit(); err != nil {\n\t\t\treturn "", err\n\t\t}\n\t\treturn KeysStatusUnchanged, nil\n')],
-  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ # ss5-h17-keys-resigned (the "same set, re-signed" branch of PublishKeys no longer refreshed the
+ # directory entry) is retired with the branch (KEL-6): since KEL H-2 a rotation deletes the stored set,
+ # so the branch was reached only by a signer whose Ed25519 signatures are not deterministic, and no test
+ # could reach it. Such a set now takes the path of a new one, whose refresh ss5-h17-keys holds.
  dict(id='ss5-h17-card-relisted', group='SS-5', repo='ANetHub', desc='下架的卡片以原字节重新上架时不重算目录条目',
   edits=[('internal/aghub/a2acard.go', '\t\t\t// A delisted card listed again is back in the directory entry.\n\t\t\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\t\t\treturn CardStatusInvalid, "not stored: " + err.Error()\n\t\t\t}\n', '')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
@@ -519,7 +519,7 @@ MUTS += [
   edits=[(DIRGO, 'for _, h := range []string{relayauth.HeaderAID, relayauth.HeaderSeq, relayauth.HeaderSig} {', 'for _, h := range []string{relayauth.HeaderAID} {')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
  dict(id='ss5-h18-fed-agents-keys', group='SS-5', repo='ANetHub', desc='/agents 中从对端学来的条目不带 kel、keys',
-  edits=[('internal/aghub/fed_a2acard.go', '\t\t\tKEL: b64url(kel), Keys: b64url(keys), KeyStateNotice: b64url(noticeOfTip(kel, notice))})', '\t\t\tKeyStateNotice: b64url(noticeOfTip(kel, notice))})\n\t\t_ = keys')],
+  edits=[('internal/aghub/fed_a2acard.go', '\t\t\tKEL: b64url(kel), Keys: b64url(keys), KeyStateNotice: b64url(notice)})', '\t\t\tKeyStateNotice: b64url(notice)})\n\t\t_ = keys')],
   tests=[('ANetHub:./internal/aghub', '^TestAnA2ACardFederatesToAPeersRegistry$')], full=['ANetHub:./internal/aghub']),
  dict(id='ss5-h18-unreadable-lastseen', group='SS-5', repo='ANetHub', desc='读不懂的取信时间原样公布(不截到整点)',
   edits=[('internal/aghub/liveness.go', '\t\t// Not a time this hub wrote; it states nothing it cannot read.\n\t\treturn Liveness{}\n', '\t\treturn Liveness{LastSeen: lastSeen}\n')],
@@ -1196,10 +1196,13 @@ MUTS += [
   edits=[('internal/federation/a2acards.go', '\t\t\t\tkel, kerr := wire3.DecodeB64URL("kel", e.KEL)', '\t\t\t\tkel, kerr := []byte(e.KEL), error(nil)')],
   tests=FED6_T(['TestFedCardsV3', 'TestFedCardsV3ReadsOnlyBase64URL']), full=FED6_FULL),
  dict(id='ss6-notice-kept', group='SS-6', repo='ANetHub', desc='对端卡片条目的见证通告不保存',
-  edits=[('internal/aghub/fed_a2acard.go', 'fedNoticeToStore(aid, e.Notice), home,', 'nil, home,')],
+  edits=[('internal/aghub/fed_a2acard.go', 'fedNoticeToStore(states[len(states)-1], e.Notice), home,', 'nil, home,')],
   tests=HUB6_T(['TestTheCardStreamCarriesTheNotice']), full=FED6_FULL),
  dict(id='ss6-notice-any', group='SS-6', repo='ANetHub', desc='对端卡片条目的见证通告不核对是否关于该 agent',
-  edits=[('internal/aghub/fed_a2acard.go', '\tif err != nil || body.AID != aid {\n\t\treturn nil\n\t}\n\treturn notice', '\tif err != nil || false && body.AID != aid {\n\t\treturn nil\n\t}\n\treturn notice')],
+  # Re-pointed by KEL-6: the row keeps a notice only about the tip of the KEL it came with, which names
+  # the agent too; dropping that check keeps another agent's notice.
+  edits=[('internal/aghub/fed_a2acard.go', '\tif err != nil || body.AID != tip.AID || body.Seq != tip.KeyStateSeq || body.Head != tip.LastEventID {\n',
+          '\tif err != nil || false && (body.AID != tip.AID || body.Seq != tip.KeyStateSeq || body.Head != tip.LastEventID) {\n')],
   tests=HUB6_T(['TestTheCardStreamCarriesTheNotice']), full=FED6_FULL),
 ]
 
