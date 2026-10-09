@@ -913,7 +913,9 @@ func TestMboxEpochHealsAfterSSRW9Refusal(t *testing.T) {
 	t.Run("both lost, never at a hub", func(t *testing.T) {
 		srv, _, prov := registeredPair(t)
 		if beenAtAHub(prov.self) {
-			t.Skip("the test identity designated a witness; SSR-W10 asks the hub for it instead")
+			// SSR-W10 would ask the hub, and there would be no refusal to
+			// heal: this case needs an identity that never named a witness.
+			t.Fatal("the test identity designated a witness; build this case from one that did not")
 		}
 		layout := prov.layout
 		if err := prov.Close(); err != nil {
