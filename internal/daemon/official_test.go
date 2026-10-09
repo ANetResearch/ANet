@@ -31,6 +31,13 @@ import (
 // expired, from two days ago to one day ago.
 func testOfficials(t *testing.T, expired bool, aids ...string) *official.Manifest {
 	t.Helper()
+	return testOfficialsWith(t, expired, "text.stats", aids...)
+}
+
+// testOfficialsWith is testOfficials with the capability the manifest lists
+// for each agent.
+func testOfficialsWith(t *testing.T, expired bool, capID string, aids ...string) *official.Manifest {
+	t.Helper()
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +50,7 @@ func testOfficials(t *testing.T, expired bool, aids ...string) *official.Manifes
 	entries := []string{}
 	for i, aid := range aids {
 		entries = append(entries, fmt.Sprintf(`{"id": "anet-tools-%d", "name": "anet-tools", "aid": %q, `+
-			`"hub": "https://hub.agentnetwork.org.cn", "caps": ["text.stats"]}`, i, aid))
+			`"hub": "https://hub.agentnetwork.org.cn", "caps": [%q]}`, i, aid, capID))
 	}
 	raw := []byte(fmt.Sprintf(`{"schema": "anet-official/1", "seq": 1, "issued_at": %q, "expires_at": %q, `+
 		`"key_fingerprint": %q, "agents": [%s]}`, from.UTC().Format(layout), until.UTC().Format(layout),
@@ -245,9 +252,8 @@ func TestNoOrExpiredManifestMarksNoOne(t *testing.T) {
 		if ra, err := d.agentCard(ctx, offAID); err != nil || ra.AID != offAID || ra.Official {
 			t.Errorf("%s: the card of the listed AID: %v %+v", name, err, ra)
 		}
-		// `anet find` asks /agents/list with the free text, the uncarded
-		// agents included.
-		found, _, err := d.listAgents(ctx, module.AgentQuery{Query: "anet-tools", IncludeUncarded: true})
+		// `anet find` asks /agents/list, the uncarded agents included.
+		found, _, err := d.listAgents(ctx, module.AgentQuery{IncludeUncarded: true})
 		if err != nil || len(found) != 2 {
 			t.Fatalf("%s: find: %v %d", name, err, len(found))
 		}

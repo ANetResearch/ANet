@@ -338,7 +338,9 @@ func TestAnUnverifiedCardIsNotPassedOn(t *testing.T) {
 // with what the hub says of them; an agent the registry lists is not
 // repeated, on the last page or on one reached by cursor; the skill, the
 // tag and the free text are matched here, and none of them reaches the hub. An
-// official AID without a card shows none of the hub's words.
+// official AID without a card shows none of the hub's words, and is matched
+// against what the signed manifest says of it, not against them
+// [redteam:F39].
 func TestAgentsWithoutACardOnRequest(t *testing.T) {
 	h := newRegistryHub(t)
 	a1 := newCardAgent(t, "Coder one", "writes code", "code.write")
@@ -356,7 +358,7 @@ func TestAgentsWithoutACardOnRequest(t *testing.T) {
 		{AID: "bother", Name: "other", Caps: []string{"text.stats"}},
 	}
 	d := newTestDaemon(t, h.srv.URL, false)
-	d.officials.Store(testOfficials(t, false, offAID))
+	d.officials.Store(testOfficialsWith(t, false, "code.write", offAID))
 	ctx := context.Background()
 	aidsOf := func(l []module.RemoteAgent) []string {
 		var out []string
@@ -391,6 +393,10 @@ func TestAgentsWithoutACardOnRequest(t *testing.T) {
 	}
 	if o := got[4]; !o.Official || o.Name != "" || o.Caps != nil || o.Summary != "" || o.HomeHub != "" {
 		t.Errorf("the official AID without a card shows the hub's words: %+v", o)
+	}
+	// The hub's words do not make it turn up for a search either.
+	if found, _, err := d.listAgents(ctx, module.AgentQuery{Query: "pay here", IncludeUncarded: true}); err != nil || len(found) != 0 {
+		t.Errorf("a search for the hub's words about the official agent: %v %v", err, aidsOf(found))
 	}
 
 	// Paged: a page reached by cursor learns the carded agents from the
