@@ -1,141 +1,401 @@
 package anetlink
 
 import (
-	"context"
-	"encoding/json"
-	"net"
+	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
+	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
-	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/backendconn"
 	"github.com/ANetResearch/ANet/provider"
 )
 
-// fakeLinkd serves the documented C1 wire — the shim is tested against the
-// wire contract, never against ANetLink code (apps must not import apps).
-func fakeLinkd(t *testing.T) string {
-	t.Helper()
-	sock := filepath.Join(t.TempDir(), "l.sock")
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v0/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) })
-	mux.HandleFunc("GET /v0/capabilities", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"capabilities": []string{"light.onoff@sim/lamp-1"}})
-	})
-	mux.HandleFunc("GET /v0/describe", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"cid": "bafyexample"})
-	})
-	mux.HandleFunc("POST /v0/invoke", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Capability string         `json:"capability"`
-			Args       map[string]any `json:"args"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		if req.Capability != "light.onoff@sim/lamp-1" {
-			http.Error(w, "unknown capability", http.StatusUnprocessableEntity)
-			return
-		}
-		// The documented C1 response carries provenance. The fake omitted
-		// it, so the shim could drop the whole block and every test still
-		// passed — a fake that serves less than the contract tests less
-		// than the contract.
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"status": "OK", "metrics": map[string]float64{"power_state": 1},
-			"evidence": map[string]any{
-				"requested": "light.onoff=on", "protocol": "zigbee",
-				"native_ack": true, "observed_state": "on", "latency_ms": 12,
-				"verify_trust": 3, "auth_trust": 2, "quirk": "aqara.onoff.invert",
-			},
-		})
-	})
-	ln, err := net.Listen("unix", sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := &http.Server{Handler: mux}
-	go func() { _ = srv.Serve(ln) }()
-	t.Cleanup(func() { _ = srv.Close() })
-	deadline := time.Now().Add(2 * time.Second)
-	p := New("probe", sock)
-	for p.Health(context.Background()) != nil {
-		if time.Now().After(deadline) {
-			t.Fatal("fake linkd did not come up")
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return sock
-}
+// The client speaks C1 v1 end to end: the catalogue, the description, health, and an invoke that
+// carries the effect back with its provenance.
+func TestTheClientSpeaksC1v1(t *testing.T) {
+	f := startFakeLinkd(t)
+	p := newClient(t, f.sock)
 
-func TestShimImplementsC1(t *testing.T) {
-	sock := fakeLinkd(t)
-	p := New("anetlink", sock)
-	ctx := context.Background()
-
-	caps, err := p.Capabilities(ctx)
-	if err != nil || len(caps) != 1 || caps[0] != "light.onoff@sim/lamp-1" {
+	if err := p.Health(bg); err != nil {
+		t.Fatalf("health: %v", err)
+	}
+	caps, err := p.Capabilities(bg)
+	if err != nil || !slices.Equal(caps, []string{lampCap, "sensor.temperature@modbus/plc-1"}) {
 		t.Fatalf("capabilities: %v %v", caps, err)
 	}
-	cid, err := p.Describe(ctx)
+	cid, err := p.Describe(bg)
 	if err != nil || cid != "bafyexample" {
-		t.Fatalf("describe: %v %v", cid, err)
+		t.Fatalf("describe: %q %v", cid, err)
 	}
-	eff, err := p.Invoke(ctx, provider.Call{Capability: caps[0], Args: map[string]any{"on": true}})
+	eff, err := p.Invoke(bg, relayCall(lampCap, "aid-caller"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !eff.Verifiable() || eff.Record.Metrics["power_state"] != 1 {
 		t.Fatalf("effect lost on the wire: %+v", eff)
 	}
+	_, seen := f.seen()
+	if len(seen) != 1 {
+		t.Fatalf("%d invokes reached ANetLink", len(seen))
+	}
+	s := seen[0]
+	if s.contentType != contentCBOR || s.host != "anetlink" {
+		t.Errorf("Content-Type %q, Host %q: C1 v1 is CBOR with Host anetlink", s.contentType, s.host)
+	}
+	if s.capability != lampCap || s.callID != "ix-1" || s.args["on"] != true {
+		t.Errorf("the request carried capability %q, call_id %q, args %v", s.capability, s.callID, s.args)
+	}
+}
 
-	if _, err := p.Invoke(ctx, provider.Call{Capability: "ghost"}); err == nil {
-		t.Fatal("wire error must surface as error")
+// Provenance has to survive C1, or the daemon records and forwards a value with no account of how
+// it was obtained. It once did not: the client read status, metrics and message and ignored the
+// evidence block, and every test passed because the fake sent none either.
+func TestProvenanceSurvivesC1(t *testing.T) {
+	f := startFakeLinkd(t)
+	eff, err := newClient(t, f.sock).Invoke(bg, relayCall(lampCap, "aid-caller"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := effect.Evidence{
+		Requested: "light.onoff=on", Protocol: "zigbee", NativeAck: true,
+		ObservedState: "on", LatencyMS: 12, VerifyTrust: 3, AuthTrust: 2, Quirk: "aqara.onoff.invert",
+	}
+	if eff.Evidence == nil || *eff.Evidence != want {
+		t.Fatalf("provenance mangled crossing C1:\n got %+v\nwant %+v", eff.Evidence, want)
 	}
 }
 
 func TestRegistryIntegration(t *testing.T) {
-	sock := fakeLinkd(t)
+	f := startFakeLinkd(t)
 	r := provider.NewRegistry()
-	if err := r.Register(context.Background(), New("anetlink", sock)); err != nil {
+	if err := r.Register(bg, newClient(t, f.sock)); err != nil {
 		t.Fatal(err)
 	}
-	p, ok := r.Resolve("light.onoff@sim/lamp-1")
+	p, ok := r.Resolve(lampCap)
 	if !ok || p.ID() != "anetlink" {
-		t.Fatal("registry cannot resolve wire capability id")
+		t.Fatal("registry cannot resolve a capability id from the wire")
 	}
-	eff, err := p.Invoke(context.Background(), provider.Call{Capability: "light.onoff@sim/lamp-1", Args: map[string]any{"on": true}})
+	eff, err := p.Invoke(bg, relayCall(lampCap, "aid-caller"))
 	if err != nil || eff.Status != effect.OK {
-		t.Fatalf("end-to-end through registry failed: %+v %v", eff, err)
+		t.Fatalf("end to end through the registry: %+v %v", eff, err)
 	}
 }
 
-// Provenance has to survive C1, or the daemon records and forwards a value
-// with no account of how it was obtained.
-//
-// It did not survive: the shim decoded status, metrics and message and
-// ignored the evidence block entirely. A corrected reading arrived as a
-// bare number with nothing saying it had been corrected, and an effect
-// confirmed by an independent readback (V3) was indistinguishable from one
-// taken on the device's word. Every test passed, because the fake did not
-// send evidence either.
-func TestProvenanceSurvivesTheShim(t *testing.T) {
-	sock := fakeLinkd(t)
-	p := New("anetlink", sock)
-	eff, err := p.Invoke(context.Background(),
-		provider.Call{Capability: "light.onoff@sim/lamp-1", Args: map[string]any{"on": true}})
+// CC-2: who ANetLink is told is asking. A call from the relay carries via 1 and the caller the
+// daemon verified; a local surface carries via 0 and no aid. Nothing carries key 4 (C1 v0's
+// caller_aid) or Caller key 3.
+func TestTheCallerIsTheVerifiedOne(t *testing.T) {
+	f := startFakeLinkd(t)
+	p := newClient(t, f.sock)
+	if _, err := p.Invoke(bg, relayCall(lampCap, "aid-verified")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Invoke(bg, provider.Call{Capability: lampCap, Args: map[string]any{"on": true}}); err != nil {
+		t.Fatal(err)
+	}
+	_, seen := f.seen()
+	if len(seen) != 2 {
+		t.Fatalf("%d invokes", len(seen))
+	}
+	relay, local := seen[0], seen[1]
+	if relay.via != uint64(1) || relay.aid != "aid-verified" {
+		t.Errorf("relay call: via %v aid %v, want 1 and the verified caller", relay.via, relay.aid)
+	}
+	if local.via != uint64(0) || local.aid != nil {
+		t.Errorf("local call: via %v aid %v, want 0 and no aid", local.via, local.aid)
+	}
+	for _, s := range seen {
+		if slices.Contains(s.keys, 4) || slices.Contains(s.callerKeys, 3) {
+			t.Errorf("a request carried a retired or reserved key: %v / caller %v", s.keys, s.callerKeys)
+		}
+		if !slices.Contains(s.keys, 5) {
+			t.Errorf("a request without caller (key 5): %v", s.keys)
+		}
+	}
+	if local.callID != "" {
+		t.Errorf("a call without a call id sent one: %q", local.callID)
+	}
+}
+
+// CC-2, M-CC-3: a call through any other door (the voucher door, or a Via this client does not
+// know) is not dialled at all: the retired via 2, or a via 0 that hides a remote caller, is never
+// sent. Neither is a relay call that came without a verified caller.
+func TestOtherDoorsAreNotDialled(t *testing.T) {
+	f := startFakeLinkd(t)
+	p := newClient(t, f.sock)
+	for _, c := range []provider.Call{
+		{Capability: lampCap, CallerAID: "aid-payer", Via: provider.ViaVoucher},
+		{Capability: lampCap, CallerAID: "aid-x", Via: "mcp"},
+		{Capability: lampCap, Via: provider.ViaRelay},
+	} {
+		_, err := p.Invoke(bg, c)
+		var re *provider.RefusalError
+		if !errors.As(err, &re) || re.Reason != "backend_failed" {
+			t.Errorf("Via %q: %v, want a backend_failed refusal", c.Via, err)
+		}
+	}
+	if conns, seen := f.seen(); conns != 0 || len(seen) != 0 {
+		t.Fatalf("ANetLink was dialled %d times and sent %d invokes for calls that cannot cross C1", conns, len(seen))
+	}
+}
+
+// CC-2, M-CC-1: the client never reads Call.CallerAID; the caller it sends comes from
+// VerifiedCaller, which is empty at every door but the relay. Structural, over the package's
+// non-test files.
+func TestTheClientNeverReadsCallerAID(t *testing.T) {
+	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if eff.Evidence == nil {
-		t.Fatal("the effect arrived with no provenance at all")
+	fset := token.NewFileSet()
+	read := 0
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		read++
+		ast.Inspect(f, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "CallerAID" {
+				t.Errorf("%s reads CallerAID; the caller sent to ANetLink is Call.VerifiedCaller()", fset.Position(sel.Pos()))
+			}
+			return true
+		})
 	}
-	want := effect.Evidence{
-		Requested: "light.onoff=on", Protocol: "zigbee", NativeAck: true,
-		ObservedState: "on", LatencyMS: 12, VerifyTrust: 3, AuthTrust: 2,
-		Quirk: "aqara.onoff.invert",
+	if read == 0 {
+		t.Fatal("no source file read")
 	}
-	if *eff.Evidence != want {
-		t.Errorf("provenance mangled crossing C1:\n got %+v\nwant %+v", *eff.Evidence, want)
+}
+
+// CC-1, M-CC-2: every connection goes through backendconn. A socket whose listener is not the
+// account the rules expect (here: expected_user names another uid, and this process listens) is
+// sent nothing: not an invoke, not a byte, and the call ends unavailable, never sent.
+func TestAnImpostorListenerIsSentNothing(t *testing.T) {
+	f := startFakeLinkd(t)
+	p, err := New("anetlink", f.sock, rulesFor(t, backendconn.Policy{ExpectedUser: otherAccount()}))
+	if err != nil {
+		t.Fatal(err)
 	}
+	_, err = p.Invoke(bg, relayCall(lampCap, "aid-caller"))
+	var re *provider.RefusalError
+	var be *backendconn.RefusedError
+	if !errors.As(err, &re) || re.Reason != "unavailable" || !errors.As(err, &be) || be.Code != backendconn.CodePeerUIDMismatch {
+		t.Fatalf("invoke through an impostor: %v; want unavailable, refused for peer_uid_mismatch", err)
+	}
+	if _, err := p.Capabilities(bg); !errors.As(err, &be) {
+		t.Fatalf("capabilities through an impostor: %v", err)
+	}
+	if _, seen := f.seen(); len(seen) != 0 {
+		t.Fatalf("the impostor was sent %d invokes", len(seen))
+	}
+	// The same socket with the default rules (the listener owns the socket file) is reached.
+	if _, err := newClient(t, f.sock).Invoke(bg, relayCall(lampCap, "aid-caller")); err != nil {
+		t.Fatalf("the rightful listener: %v", err)
+	}
+}
+
+// A socket nobody listens on: nothing was sent, so the far side certainly did not run it, and the
+// requester may send it again later (unavailable, rejected).
+func TestNothingThereIsUnavailable(t *testing.T) {
+	p := newClient(t, filepath.Join(t.TempDir(), "c1.sock"))
+	_, err := p.Invoke(bg, relayCall(lampCap, "aid-caller"))
+	var re *provider.RefusalError
+	if !errors.As(err, &re) || re.Reason != "unavailable" {
+		t.Fatalf("no anetlinkd: %v, want unavailable", err)
+	}
+	if _, isUnknown := provider.OutcomeOf(err); isUnknown && !errors.As(err, &re) {
+		t.Fatal("an invoke never sent must not be an unknown outcome")
+	}
+}
+
+// CC-4 and ux §1.3: each C1 refusal becomes the user's code, and the C1 code itself is not what the
+// daemon carries. An answer that is not a C1 v1 refusal (wrong media type, a reason outside C1 v1,
+// a reason with another status) is backend_failed.
+func TestRefusalsBecomeTheUsersReasons(t *testing.T) {
+	want := map[string]string{
+		"not_permitted": "provider_policy", "unknown_capability": "capability_not_served", "not_found": "capability_not_served",
+		"too_large": "args_too_large", "bad_request": "backend_failed", "unsupported_media": "backend_failed",
+		"internal": "backend_failed", "c1_version": "backend_failed",
+	}
+	if len(want) != len(c1Status) {
+		t.Fatalf("core §2.15.3 has %d C1 reasons, this client knows %d", len(want), len(c1Status))
+	}
+	f := startFakeLinkd(t)
+	p := newClient(t, f.sock)
+	for code, status := range c1Status {
+		if a2ashape.C1Reason(code) != want[code] {
+			t.Errorf("C1 %s maps to %s, ux §1.3 says %s", code, a2ashape.C1Reason(code), want[code])
+		}
+		f.answer(func(w http.ResponseWriter, _ *http.Request) { refuse(t, w, status, code) })
+		_, err := p.Invoke(bg, relayCall(lampCap, "aid-caller"))
+		var re *provider.RefusalError
+		if !errors.As(err, &re) || re.Reason != want[code] {
+			t.Errorf("C1 %s (%d): %v, want the user's %s", code, status, err, want[code])
+			continue
+		}
+		if !strings.Contains(err.Error(), code) {
+			t.Errorf("C1 %s: the log line %q does not name ANetLink's code", code, err)
+		}
+	}
+	for name, h := range map[string]func(w http.ResponseWriter, r *http.Request){
+		"text":           func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "forbidden", http.StatusForbidden) },
+		"unknown reason": func(w http.ResponseWriter, _ *http.Request) { refuse(t, w, http.StatusForbidden, "denied") },
+		"status mismatch": func(w http.ResponseWriter, _ *http.Request) {
+			refuse(t, w, http.StatusInternalServerError, "not_permitted")
+		},
+		"refusal with 200": func(w http.ResponseWriter, _ *http.Request) { refuse(t, w, http.StatusOK, "not_permitted") },
+	} {
+		f.answer(h)
+		_, err := p.Invoke(bg, relayCall(lampCap, "aid-caller"))
+		var re *provider.RefusalError
+		if !errors.As(err, &re) || re.Reason != "backend_failed" {
+			t.Errorf("%s: %v, want backend_failed", name, err)
+		}
+	}
+}
+
+// A 200 answer this client cannot take (not CBOR, an unknown key, no status, a status that is not
+// an effect status, a metric CoreDet cannot carry) is backend_failed: the far side ran the call, so
+// the effect is not known, and nothing of the bad answer reaches the requester.
+func TestAnAnswerThatIsNotC1v1IsBackendFailed(t *testing.T) {
+	f := startFakeLinkd(t)
+	p := newClient(t, f.sock)
+	for name, body := range map[string]func() (string, []byte){
+		"json":        func() (string, []byte) { return "application/json", []byte(`{"status":"OK"}`) },
+		"unknown key": func() (string, []byte) { return contentCBOR, enc(t, map[uint64]any{1: "OK", 5: uint64(1)}) },
+		"no status":   func() (string, []byte) { return contentCBOR, enc(t, map[uint64]any{3: "done"}) },
+		"bad status":  func() (string, []byte) { return contentCBOR, enc(t, map[uint64]any{1: "PAYMENT_REQUIRED"}) },
+		"nan metric": func() (string, []byte) {
+			// CoreDet will not encode NaN; a half-precision NaN by hand: {1: "OK", 2: {"x": NaN}}.
+			return contentCBOR, []byte{0xa2, 0x01, 0x62, 'O', 'K', 0x02, 0xa1, 0x61, 'x', 0xf9, 0x7e, 0x00}
+		},
+	} {
+		ct, b := body()
+		f.answer(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", ct)
+			_, _ = w.Write(b)
+		})
+		_, err := p.Invoke(bg, relayCall(lampCap, "aid-caller"))
+		var re *provider.RefusalError
+		if !errors.As(err, &re) || re.Reason != "backend_failed" {
+			t.Errorf("%s: %v, want backend_failed", name, err)
+		}
+	}
+}
+
+// Arguments over C1's 1 MiB are not sent: ANetLink would answer 413 too_large, which is
+// args_too_large to the requester, and nothing is gained by sending a megabyte to hear it.
+func TestArgumentsOverTheLimitAreNotSent(t *testing.T) {
+	f := startFakeLinkd(t)
+	c := relayCall(lampCap, "aid-caller")
+	c.Args = map[string]any{"blob": strings.Repeat("x", maxBody)}
+	_, err := newClient(t, f.sock).Invoke(bg, c)
+	var re *provider.RefusalError
+	if !errors.As(err, &re) || re.Reason != "args_too_large" {
+		t.Fatalf("oversize arguments: %v", err)
+	}
+	if conns, _ := f.seen(); conns != 0 {
+		t.Fatal("oversize arguments were sent")
+	}
+}
+
+// CC-5: RemoteAllowed is ANetLink's remote flag per capability, 1 and nothing else allowing.
+func TestRemoteAllowedIsTheRemoteFlag(t *testing.T) {
+	f := startFakeLinkd(t)
+	f.mu.Lock()
+	f.caps = append(f.caps, map[uint64]any{1: "door.open@sim/front", 2: uint64(2)})
+	f.mu.Unlock()
+	got, err := newClient(t, f.sock).RemoteAllowed(bg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{lampCap: true, "sensor.temperature@modbus/plc-1": false, "door.open@sim/front": false}
+	if len(got) != len(want) {
+		t.Fatalf("RemoteAllowed = %v", got)
+	}
+	for id, w := range want {
+		if got[id] != w {
+			t.Errorf("%s: remote allowed %v, want %v", id, got[id], w)
+		}
+	}
+	// A catalogue entry without its remote flag is not C1 v1, and allows nothing.
+	f.mu.Lock()
+	f.caps = []map[uint64]any{{1: lampCap}}
+	f.mu.Unlock()
+	if m, err := newClient(t, f.sock).RemoteAllowed(bg); err == nil || m != nil {
+		t.Fatalf("an entry with no remote flag: %v %v", m, err)
+	}
+}
+
+// NotC1v1 is what the daemon's start and doctor's anetlink.socket say c1_version for: ANetLink's own
+// c1_version refusal, or a far side that answers in no C1 v1 form at all (an anetlinkd of C1 v0).
+// A C1 v1 refusal of another kind is not that.
+func TestAFarSideOfAnotherC1VersionIsNamed(t *testing.T) {
+	v0 := http.NewServeMux()
+	v0.HandleFunc("GET /v0/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	sock := filepath.Join(t.TempDir(), "c1.sock")
+	serveOn(t, sock, v0)
+	err := newClient(t, sock).Health(bg)
+	if err == nil || !NotC1v1(err) {
+		t.Fatalf("a C1 v0 anetlinkd: %v, want NotC1v1", err)
+	}
+	if _, err := newClient(t, sock).Capabilities(bg); !NotC1v1(err) {
+		t.Fatalf("capabilities from a C1 v0 anetlinkd: %v", err)
+	}
+
+	f := startFakeLinkd(t)
+	f.answer(func(w http.ResponseWriter, _ *http.Request) { refuse(t, w, http.StatusUpgradeRequired, "c1_version") })
+	if _, err := newClient(t, f.sock).Invoke(bg, relayCall(lampCap, "a")); !NotC1v1(err) {
+		t.Fatalf("426 c1_version: %v", err)
+	}
+	f.answer(func(w http.ResponseWriter, _ *http.Request) { refuse(t, w, http.StatusForbidden, "not_permitted") })
+	if _, err := newClient(t, f.sock).Invoke(bg, relayCall(lampCap, "a")); NotC1v1(err) {
+		t.Fatalf("not_permitted is not a version mismatch: %v", err)
+	}
+	if NotC1v1(errors.New("dial unix: no such file")) {
+		t.Fatal("a socket nobody listens on is not a version mismatch")
+	}
+}
+
+func TestDefaultSocketIsANetLinksDefault(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	if s, err := DefaultSocket(); err != nil || s != "/run/user/1000/anetlink/c1.sock" {
+		t.Fatalf("DefaultSocket = %q, %v", s, err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	if _, err := DefaultSocket(); err == nil || !strings.Contains(err.Error(), "modules.anetlink.socket") {
+		t.Fatalf("no XDG_RUNTIME_DIR: %v; the error must say which key to set", err)
+	}
+}
+
+func TestNewRefusesASocketPathItCannotDial(t *testing.T) {
+	for _, s := range []string{"", "relative/c1.sock", "/run/a:b/c1.sock", "/run/a b/c1.sock", "/run/../c1.sock", "/" + strings.Repeat("x", 200)} {
+		if _, err := New("anetlink", s, rulesFor(t, backendconn.Policy{})); err == nil {
+			t.Errorf("New accepted socket %q", s)
+		}
+	}
+}
+
+// serveOn serves h on a Unix socket at sock.
+func serveOn(t *testing.T, sock string, h http.Handler) {
+	t.Helper()
+	ln, err := listenUnix(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: h}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close(); _ = os.Remove(sock) })
 }
