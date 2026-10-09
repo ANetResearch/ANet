@@ -103,8 +103,8 @@ MUTS = [
   id='si2-4', group='SI-2', repo='ANetHub',
   desc='hRelaySend 把首次联系的发送方写进 hub_meta(换个表存 from)',
   edits=[
-   ('internal/aghub/server.go', '\t\tClass: class, CapID: capID, Exp: outer.Exp})\n',
-    '\t\tClass: class, CapID: capID, Exp: outer.Exp})\n\tif err == nil && sess != nil {\n\t\t_, _ = s.store.db.Exec(`INSERT OR REPLACE INTO hub_meta(key, value) VALUES(?, ?)`, fmt.Sprintf("relay_from/%d", queued.ID), sess.aid)\n\t}\n'),
+   ('internal/aghub/server.go', '\t\tClass: class, CapID: capID, Exp: outer.Exp, KID: outer.KID})\n',
+    '\t\tClass: class, CapID: capID, Exp: outer.Exp, KID: outer.KID})\n\tif err == nil && sess != nil {\n\t\t_, _ = s.store.db.Exec(`INSERT OR REPLACE INTO hub_meta(key, value) VALUES(?, ?)`, fmt.Sprintf("relay_from/%d", queued.ID), sess.aid)\n\t}\n'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestTheRelayDoesNotStoreTheSender|TestASendLeavesTheSenderInNoTable')],
   full=['ANetHub:./internal/aghub'],
