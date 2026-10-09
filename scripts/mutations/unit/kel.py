@@ -754,7 +754,7 @@ MUTS += [
   tests=K5(['TestKELPushDipDeregisters']) + K5_FIX, full=K5_FULL),
  dict(id='kel5-h2-keys', group='KEL-5', repo='ANetHub', desc='H-2:KEL 延伸时不删由非顶端密钥态签名的钥集',
   edits=[('internal/aghub/aghub.go', 'if signed, derr := seal.UnmarshalSignedEncKeySet(raw); derr != nil || signed.KeyStateSeq != tipSeq {',
-          'if signed, derr := seal.UnmarshalSignedEncKeySet(raw); derr != nil && signed == nil {')],
+          'if signed, derr := seal.UnmarshalSignedEncKeySet(raw); derr != nil && signed.KeyStateSeq != tipSeq {')],
   tests=K5(['TestKELPushToTheOldWitnessStopsItsNotice', 'TestDirBoxRecomputedOnChange', 'TestTheSameKeySetMustStillVerify']), full=K5_FULL),
  dict(id='kel5-h2-notice', group='KEL-5', repo='ANetHub', desc='H-2:KEL 延伸时 notice_cache 不失效',
   edits=[('internal/aghub/aghub.go', '\treturn forgetNoticeTx(tx, aid)\n}', '\treturn nil\n}')],
