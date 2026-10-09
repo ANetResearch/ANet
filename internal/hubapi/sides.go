@@ -49,71 +49,59 @@ func (s Side) String() string {
 }
 
 // Route is one hub route a daemon may call. Path is matched segment by
-// segment: "{self}" is this node's AID, "{hub}" the hub's own AID, "{aid}"
-// and "*" any one segment (the routes of this node's own AID and its hub's
-// come first in the table, so "{aid}" is anyone else); every other segment
-// is literal. Pending
-// names the work item that removes a route kept only until it lands, as
-// the marker of an open work item (wire.TodoMarker).
+// segment: "{self}" is this node's AID, "{hub}" the hub's own AID, "*" any
+// one segment; every other segment is literal. No route takes another
+// agent's AID: a node asks about another agent through a directory bucket
+// only (sealed-sender SSR-D14, SSR-D16).
 type Route struct {
-	Method  string
-	Path    string
-	Side    Side
-	Pending string
+	Method string
+	Path   string
+	Side   Side
 }
 
 // Routes is the table, in the order it is matched: a request takes the
-// first route that matches, so the routes of this node's own AID come
-// before the ones that take any AID.
+// first route that matches.
 var Routes = []Route{
 	// The signed side (§4.3.11 item 2; core G22).
-	{"POST", RelaySessionPath, SideSigned, ""},
-	{"POST", "/relay/poll", SideSigned, ""},
-	{"POST", "/relay/ack", SideSigned, ""},
-	{"POST", "/register", SideSigned, ""},
-	{"POST", "/profile", SideSigned, ""},
-	{"POST", MailboxRevokePath, SideSigned, ""},
-	{"POST", "/reviews", SideSigned, ""},
-	{"POST", "/x402/verify", SideSigned, ""},
-	{"POST", "/x402/settle", SideSigned, ""},
+	{"POST", RelaySessionPath, SideSigned},
+	{"POST", "/relay/poll", SideSigned},
+	{"POST", "/relay/ack", SideSigned},
+	{"POST", "/register", SideSigned},
+	{"POST", "/profile", SideSigned},
+	{"POST", MailboxRevokePath, SideSigned},
+	{"POST", "/reviews", SideSigned},
+	{"POST", "/x402/verify", SideSigned},
+	{"POST", "/x402/settle", SideSigned},
 	// A withdrawal pays this node's credit out; a witness attestation is
 	// signed by this node.
-	{"POST", "/x402/redeem", SideSigned, ""},
-	{"POST", "/x402/witness", SideSigned, ""},
-	{"POST", "/agents/kel:push", SideSigned, ""},
+	{"POST", "/x402/redeem", SideSigned},
+	{"POST", "/x402/witness", SideSigned},
+	{"POST", "/agents/kel:push", SideSigned},
 	// This node's own records: keys (SSR-W10, SSR-W16), kel, balance,
 	// ledger, redemptions, liability-proof, visibility, deregister.
-	{"GET", "/agents/{self}/*", SideSigned, ""},
-	{"POST", "/agents/{self}/*", SideSigned, ""},
+	{"GET", "/agents/{self}/*", SideSigned},
+	{"POST", "/agents/{self}/*", SideSigned},
 
 	// Both: a first contact names its sender to its hub, a capability
 	// does not.
-	{"POST", RelaySendPath, SideByAccess, ""},
+	{"POST", RelaySendPath, SideByAccess},
 
 	// The anonymous side (§4.3.11 item 3).
-	{"POST", "/relay/status", SideAnonymous, ""},
-	{"POST", "/directory:bucket", SideAnonymous, ""},
-	{"GET", RegistryAgentsPath, SideAnonymous, ""},
-	{"GET", "/agents", SideAnonymous, ""},
-	{"GET", "/hub/identity", SideAnonymous, ""},
-	{"GET", "/hub/kels", SideAnonymous, ""},
-	{"GET", "/x402/supported", SideAnonymous, ""},
-	{"GET", "/x402/supply", SideAnonymous, ""},
-	{"GET", "/x402/issuance", SideAnonymous, ""},
-	{"GET", "/x402/issuance/head", SideAnonymous, ""},
-	{"GET", "/x402/witnesses", SideAnonymous, ""},
+	{"POST", "/relay/status", SideAnonymous},
+	{"GET", RegistryAgentsPath, SideAnonymous},
+	{"GET", "/agents", SideAnonymous},
+	{"GET", "/hub/identity", SideAnonymous},
+	{"GET", "/hub/kels", SideAnonymous},
+	{"GET", "/x402/supported", SideAnonymous},
+	{"GET", "/x402/supply", SideAnonymous},
+	{"GET", "/x402/issuance", SideAnonymous},
+	{"GET", "/x402/issuance/head", SideAnonymous},
+	{"GET", "/x402/witnesses", SideAnonymous},
 	// The hub's own key history names the hub, not this node (SSR-D14).
-	{"GET", "/agents/{hub}/kel", SideAnonymous, ""},
-
-	// The lookups by a peer's AID, which a hub of wire 3 no longer answers
-	// (sealed-sender §2.7) and SSR-D16 replaces with the directory's
-	// buckets. Anonymous while they last: they carry no identity.
-	{"POST", KeysLookupPath, SideAnonymous, "v030-todo(SS-10)"},
-	{"POST", KELLookupPath, SideAnonymous, "v030-todo(SS-10)"},
-	{"POST", CardLookupPath, SideAnonymous, "v030-todo(SS-10)"},
-	{"GET", "/agents/{aid}/keys", SideAnonymous, "v030-todo(SS-10)"},
-	{"GET", "/agents/{aid}/kel", SideAnonymous, "v030-todo(SS-10)"},
-	{"GET", RegistryAgentsPath + "/{aid}/card", SideAnonymous, "v030-todo(SS-10)"},
+	{"GET", "/agents/{hub}/kel", SideAnonymous},
+	// A directory bucket: how this node learns another agent's KEL, key
+	// set, card and notice without naming it (SSR-D14, SSR-D15).
+	{"POST", DirectoryBucketPath, SideAnonymous},
 }
 
 // SideOf is the side of one hub request: method, and target as the
@@ -181,7 +169,7 @@ func routeMatches(pattern string, segs []string, self, hub string) bool {
 			if hub == "" || s != hub {
 				return false
 			}
-		case "{aid}", "*":
+		case "*":
 		default:
 			if s != p {
 				return false

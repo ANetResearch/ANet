@@ -919,11 +919,13 @@ func TestDiscoveryAppliesTheCardHighWater(t *testing.T) {
 	}
 }
 
-// Discovery asks the hub by skill and tag only; the free text is matched
-// here against the cards that come back and is never sent (A2A-DESIGN
-// §10.5). The hub's word that a card verified is recorded, not taken: an
-// unsigned card is UNVERIFIED, and neither returned nor searched (0017
-// Q24). A verified card is returned as the bytes served.
+// Discovery reads the registry with no query of any kind; skill, tag and
+// free text are matched here against the cards that come back, and never
+// sent (A2A-DESIGN §10.5, sealed-sender SSR-D16). The hub's word that a
+// card verified is recorded, not taken: an unsigned card is UNVERIFIED, and
+// neither returned nor searched (an internal note item). A verified card is returned as
+// the bytes served, and one agent's card comes from what this node already
+// verified, without a request that names the agent.
 func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 	kyoto := newCardAgent(t, "Kyoto guide", "trips", "plan")
 	var mu sync.Mutex
@@ -936,18 +938,13 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 		switch r.URL.Path {
 		case "/a2a/v1/agents":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"agents":[{"aid":%q,"card":%s,"cardVerification":"VERIFIED"},`+
-				`{"aid":"agentb","card":{"name":"Kyoto tax helper","skills":[]},"cardVerification":"VERIFIED"}],"nextCursor":"c2"}`,
-				kyoto.aid, kyoto.card)
-		case "/a2a/v1/agents/" + kyoto.aid + "/card":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(kyoto.card)
-		case "/a2a/v1/agents/agentb/card":
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"name":"Kyoto tax helper","skills":[]}`)
-		case "/agents/" + kyoto.aid + "/kel":
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"aid":%q,"kel":%q}`, kyoto.aid, kyoto.kel)
+			if r.URL.Query().Get("cursor") == "c2" {
+				fmt.Fprint(w, `{"agents":[]}`)
+				return
+			}
+			fmt.Fprintf(w, `{"agents":[{"aid":%q,"card":%s,"cardVerification":"VERIFIED","kel":%q},`+
+				`{"aid":"agentb","card":{"name":"Kyoto tax helper","skills":[{"id":"plan"}]},"cardVerification":"VERIFIED"}],"nextCursor":"c2"}`,
+				kyoto.aid, kyoto.card, kyoto.kel)
 		default:
 			http.NotFound(w, r)
 		}
@@ -959,7 +956,7 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(agents) != 1 || agents[0].AID != kyoto.aid || next != "c2" {
+	if len(agents) != 1 || agents[0].AID != kyoto.aid || next != "" {
 		t.Fatalf("agents %+v next %q, want only the verified Kyoto guide", agents, next)
 	}
 	if a := agents[0]; a.Verification != cardVerified || a.HubVerification != "VERIFIED" {
@@ -970,12 +967,16 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 		all[1].HubVerification != "" || len(all[1].Card) != 0 {
 		t.Fatalf("the unsigned card: %v %+v", err, all)
 	}
+	if none, _, err := d.listAgents(ctx, module.AgentQuery{Skill: "no.such.skill"}); err != nil || len(none) != 0 {
+		t.Fatalf("a skill no card claims: %v %+v", err, none)
+	}
 	card, err := d.agentCard(ctx, kyoto.aid)
 	if err != nil || string(card.Card) != string(kyoto.card) || card.Verification != cardVerified {
 		t.Fatalf("card = %s %q (%v), want the bytes served, verified", card.Card, card.Verification, err)
 	}
-	if card, err := d.agentCard(ctx, "agentb"); err != nil || len(card.Card) != 0 || card.Verification != cardUnverified {
-		t.Fatalf("unsigned card = %s %q (%v), want no bytes, unverified", card.Card, card.Verification, err)
+	if card, err := d.agentCard(ctx, "agentb"); err != nil || len(card.Card) != 0 || card.Verification != cardNone ||
+		card.VerificationError != CardUnknownAgent {
+		t.Fatalf("an id no directory holds = %s %q %q (%v), want no bytes, NONE", card.Card, card.Verification, card.VerificationError, err)
 	}
 	if _, err := d.agentCard(ctx, "../agents"); !errors.Is(err, a2ashape.ErrInvalidParams) {
 		t.Fatalf("a malformed agent id: %v", err)
@@ -983,16 +984,11 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for _, u := range asked {
-		if u.Query().Has("q") || strings.Contains(strings.ToLower(u.String()), "kyoto") {
-			t.Fatalf("the free text reached the hub: %s", u)
+		q := u.Query()
+		if q.Has("q") || q.Has("skill") || q.Has("tag") || strings.Contains(strings.ToLower(u.String()), "kyoto") ||
+			strings.Contains(u.String(), "plan") || strings.Contains(u.Path, kyoto.aid) {
+			t.Fatalf("what was looked for reached the hub: %s", u)
 		}
-	}
-	listed := false
-	for _, u := range asked {
-		listed = listed || (u.Path == "/a2a/v1/agents" && u.Query().Get("skill") == "plan")
-	}
-	if !listed {
-		t.Fatalf("hub requests %v, want the registry asked with skill=plan", asked)
 	}
 }
 

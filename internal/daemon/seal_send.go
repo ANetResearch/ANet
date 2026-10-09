@@ -4,10 +4,10 @@ package daemon
 // built (A2A-DESIGN §3.5):
 //
 //  1. resolve the recipient's encryption key set: the stored one while it
-//     verifies and holds a usable key, else POST {hub}/agents/keys:lookup
-//     with the AID in the body (GET {hub}/agents/{aid}/keys from a hub
-//     without that route), verified with expectAID = the recipient (C0)
-//     and against any stored KEL for it (§3.8);
+//     verifies and holds a usable key, else the one resolvePeer finds in
+//     the directory without naming the recipient to the hub
+//     (peer_resolve.go, sealed-sender SSR-D15), verified with expectAID =
+//     the recipient (C0) and against any stored KEL for it (§3.8);
 //  2. build the inner message with this node's full KEL and current signed
 //     key set, a 16-byte message id and exp = ts + 14 days, sign it and
 //     seal it (seal.Seal). A message this node records is sealed under the
@@ -21,20 +21,14 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
-	"net/http"
-	"net/url"
-	"sync"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -43,11 +37,6 @@ import (
 // cannot reach its recipient within it is not delivered at all, rather than
 // delivered long after the sender stopped waiting.
 const messageLifetimeMS = 14 * 24 * 3600 * 1000
-
-// keysRevalidateMS is how often a stored recipient key set is re-checked
-// against the hub. The stored set stays in use while the hub is
-// unreachable or answers 404, until it holds no usable key (§3.5 step 1).
-const keysRevalidateMS = 10 * 60 * 1000
 
 // errNoRecipientKeys is returned when no encryption key can be resolved for
 // a recipient. Nothing is sent.
@@ -224,7 +213,13 @@ func wireMsgID(bodyID string, mid []byte) string {
 	return hex.EncodeToString(mid)
 }
 
-// recipientKeys is §3.5 step 1.
+// recipientKeys is §3.5 step 1: the stored key set while it verifies and
+// holds a key usable now — fetched again in the background once a day for
+// an active contact (SSR-D18) — else the directory's (resolvePeer, which
+// records it): bypassing every cache when the stored set has no usable key
+// left (SSR-D18). A recipient the directory does not hold, or holds only
+// unverifiably, is a *peerResolveError; so is a directory out of reach,
+// which a send retries (hubUnreachable).
 func (d *Daemon) recipientKeys(ctx context.Context, toAID, pin string) (*peerKeySet, error) {
 	now := d.nowMS()
 	row, err := d.ix.PeerIdentity(toAID)
@@ -233,153 +228,18 @@ func (d *Daemon) recipientKeys(ctx context.Context, toAID, pin string) (*peerKey
 	}
 	if ks, ok := d.storedKeySet(row, now); ok {
 		if _, serr := seal.SelectKey(ks.set, now); serr == nil {
-			if now-uint64(row.KeysCheckedAt) > keysRevalidateMS {
-				d.revalidateKeys(toAID, pin)
-			}
+			d.recheckActiveContact(row, pin, now)
 			if pin != "" && row.PinnedReason == "" {
-				if err := d.notePeer(toAID, nil, nil, pin, false); err != nil {
-					log.Printf("anet: pin %s: %v", toAID, err)
-				}
+				d.pinIfUnpinned(toAID, pin)
 			}
 			return ks, nil
 		}
 	}
-	hub := d.config().HubURL
-	if hub == "" {
-		return nil, fmt.Errorf("anet: %s: %w and no hub to ask", toAID, errNoRecipientKeys)
+	m, v := d.resolvePeer(ctx, toAID, resolveOpts{need: needKeys, bypass: row != nil, record: true, pin: pin})
+	if v != verdictFound {
+		return nil, fmt.Errorf("anet: fetch %s's encryption keys: %w", toAID, &peerResolveError{AID: toAID, Verdict: v, Cause: m.Err})
 	}
-	cctx, cancel := context.WithTimeout(ctx, hubCallTimeoutShort)
-	defer cancel()
-	return d.fetchRecipientKeys(cctx, hub, toAID, pin)
-}
-
-// lookupKeys asks the hub for aid's key set with aid in the request body
-// (POST /agents/keys:lookup), not in the path. The lookup is made from this
-// node's address, unauthenticated, before the first message to a peer and
-// every ten minutes of a conversation; a reverse proxy in front of the hub
-// that logs request lines would otherwise keep "this address wrote to aid"
-// on the hub host long after the message was deleted [redteam:F3].
-func (d *Daemon) lookupKeys(ctx context.Context, hub, aid string, out *hubapi.KeysResponse) error {
-	return d.hubLookup(ctx, hub, hubapi.KeysLookupPath, "/agents/"+url.PathEscape(aid)+"/keys", aid, out)
-}
-
-// hubLookup asks the hub what GET getPath answers about aid, with aid in
-// the body of POST postPath (hubapi.KeysLookupRequest) rather than in a
-// request line: the key set, the card and the KEL of a peer this node is
-// about to write to, each read from this node's address [redteam:F3].
-//
-// A hub that predates the route answers from its mux, a 405 (or a 404 from
-// a proxy) without the hub's JSON error; only then is getPath asked. The
-// route's own 404 ("no key set for aid", "no card") carries a JSON error
-// and is returned as it is.
-func (d *Daemon) hubLookup(ctx context.Context, hub, postPath, getPath, aid string, out any) error {
-	err := d.hubPost(ctx, hub, postPath, hubapi.KeysLookupRequest{AID: aid}, out)
-	var he *hubError
-	if errors.As(err, &he) && he.msg == "" &&
-		(he.code == http.StatusMethodNotAllowed || he.code == http.StatusNotFound) {
-		return d.hubGet(ctx, hub, getPath, nil, out)
-	}
-	return err
-}
-
-// fetchRecipientKeys asks the hub for aid's key set and KEL and verifies
-// them itself. The hub is not trusted with either: the KEL must replay to
-// aid and extend any KEL stored for aid, and the key set must be signed by
-// the current key of that KEL and name aid (seal.VerifyEncKeySet with
-// expectAID = aid). A hub that serves another AID's valid key set in place
-// of the recipient's is refused here.
-func (d *Daemon) fetchRecipientKeys(ctx context.Context, hub, aid, pin string) (*peerKeySet, error) {
-	var out hubapi.KeysResponse
-	if err := d.lookupKeys(ctx, hub, aid, &out); err != nil {
-		return nil, fmt.Errorf("anet: fetch %s's encryption keys: %w", aid, err)
-	}
-	rawSet, err1 := base64.StdEncoding.DecodeString(out.KeySet)
-	rawKEL, err2 := base64.StdEncoding.DecodeString(out.KEL)
-	if err1 != nil || err2 != nil {
-		return nil, fmt.Errorf("anet: hub served unreadable keys for %s", aid)
-	}
-	signed, err := seal.UnmarshalSignedEncKeySet(rawSet)
-	if err != nil {
-		return nil, fmt.Errorf("anet: hub served an undecodable key set for %s: %w", aid, err)
-	}
-	kel, err := seal.ParseKEL(rawKEL)
-	if err != nil {
-		return nil, fmt.Errorf("anet: hub served an undecodable KEL for %s: %w", aid, err)
-	}
-	row, err := d.ix.PeerIdentity(aid)
-	if err != nil && !errors.Is(err, interactions.ErrNotFound) {
-		return nil, err
-	}
-	var stored []identity.SignedEvent
-	if row != nil && len(row.KEL) > 0 {
-		stored, _ = identity.UnmarshalKEL(row.KEL)
-	}
-	use, _, err := mergeKEL(stored, kel)
-	if err != nil {
-		d.count(dropKELFork)
-		return nil, fmt.Errorf("anet: hub served a KEL for %s that forks from the one this node holds: %w", aid, err)
-	}
-	now := d.nowMS()
-	set, err := seal.VerifyEncKeySet(signed, aid, use, now)
-	if err != nil {
-		return nil, fmt.Errorf("anet: hub served keys for %s that do not verify: %w", aid, err)
-	}
-	ks := &peerKeySet{signed: rawSet, set: set}
-	switch seal.DecideHighWater(seenOf(row), set.Seq, signed.Set) {
-	case seal.Ignore:
-		d.count(keysRollback)
-		return nil, fmt.Errorf("anet: hub served key set seq %d for %s, older than the stored one: %w", set.Seq, aid, errNoRecipientKeys)
-	case seal.Fork:
-		d.count(keysFork)
-		return nil, fmt.Errorf("anet: hub served a different key set for %s at the stored seq %d", aid, set.Seq)
-	}
-	if err := d.notePeer(aid, use, ks, pin, true); err != nil {
-		return nil, fmt.Errorf("anet: record %s's keys: %w", aid, err)
-	}
-	return ks, nil
-}
-
-// revalidating guards the background key revalidation per AID.
-type revalidating struct {
-	mu sync.Mutex
-	m  map[string]bool
-}
-
-// revalidateKeys refreshes a stored key set from the hub in the background.
-// Failures are not errors: the stored set stays in use until it holds no
-// usable key.
-func (d *Daemon) revalidateKeys(aid, pin string) {
-	hub := d.config().HubURL
-	if hub == "" {
-		return
-	}
-	d.reval.mu.Lock()
-	if d.reval.m == nil {
-		d.reval.m = map[string]bool{}
-	}
-	if d.reval.m[aid] {
-		d.reval.mu.Unlock()
-		return
-	}
-	d.reval.m[aid] = true
-	d.reval.mu.Unlock()
-	started := d.goBackground(func() {
-		defer func() {
-			d.reval.mu.Lock()
-			delete(d.reval.m, aid)
-			d.reval.mu.Unlock()
-		}()
-		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeoutShort)
-		defer cancel()
-		if _, err := d.fetchRecipientKeys(ctx, hub, aid, pin); err != nil && ctx.Err() == nil {
-			d.logOnce("revalidate:"+aid, "anet: revalidating %s's keys: %v (using the stored set)", aid, err)
-		}
-	})
-	if !started {
-		d.reval.mu.Lock()
-		delete(d.reval.m, aid)
-		d.reval.mu.Unlock()
-	}
+	return m.Keys, nil
 }
 
 // sendNotice seals and delivers a refusal reply (a status message) to a

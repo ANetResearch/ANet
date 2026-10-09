@@ -223,8 +223,7 @@ func (d *Daemon) kindZeroHome(to, capHome string) string {
 			witness = states[len(states)-1].Witness
 		}
 	}
-	// v030-todo(SS-10): the directory entry's home, from resolvePeer.
-	return homeHint(witness, capHome, "")
+	return homeHint(witness, capHome, d.peerDirHome(to))
 }
 
 // accessChoiceOfEnvelope is the AccessChoice of an envelope sealed with its

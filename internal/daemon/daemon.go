@@ -59,16 +59,18 @@ type Daemon struct {
 	// the refusal-notice limit, the limit on answers re-sent for
 	// redeliveries, the sender keys a refusal is encrypted to,
 	// and the capability calls this process is executing.
-	rxLocks     keyedLocks
-	rxIXLocks   keyedLocks // (from, ix) of a delegation, taken after rxLocks
-	refused     refusedLRU
-	rxStats     rxCounters
-	p2pLimit    p2pLimiter
-	notices     noticeLimiter
-	resends     resendLimiter
-	strangers   strangerCache
-	heldEarly   heldUnknown
-	reval       revalidating
+	rxLocks   keyedLocks
+	rxIXLocks keyedLocks // (from, ix) of a delegation, taken after rxLocks
+	refused   refusedLRU
+	rxStats   rxCounters
+	p2pLimit  p2pLimiter
+	notices   noticeLimiter
+	resends   resendLimiter
+	strangers strangerCache
+	heldEarly heldUnknown
+	// peers is the resolver's state: where this node learns another
+	// agent's material without naming it to a hub (peer_resolve.go).
+	peers       peerResolver
 	running     sync.Map // interaction id -> *runningCall
 	logOnceMu   sync.Mutex
 	logOnceSeen map[string]bool
