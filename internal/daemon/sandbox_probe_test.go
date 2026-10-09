@@ -74,7 +74,8 @@ type sandboxProbeResult struct {
 	RouteBody         string `json:"route_body,omitempty"`
 	HostReached       bool   `json:"host_reached,omitempty"`
 	ConnectStatus     int    `json:"connect_status,omitempty"`
-	// ConnectNoKeyStatus is a CONNECT without the proxy variable's credentials: 407 on a keyed endpoint.
+	// ConnectNoKeyStatus is a CONNECT without the proxy variable's credentials, tried only when they hold
+	// a key: 407 on a keyed endpoint.
 	ConnectNoKeyStatus int    `json:"connect_no_key_status,omitempty"`
 	TunnelStatus       int    `json:"tunnel_status,omitempty"`
 	TunnelBody         string `json:"tunnel_body,omitempty"`
@@ -130,7 +131,9 @@ func runEgressProbe(req sandboxProbeRequest, res *sandboxProbeResult) {
 		return 0
 	}
 	res.ConnectStatus = connect(proxyAuth)
-	res.ConnectNoKeyStatus = connect("")
+	if proxyAuth != "" { // a keyed endpoint (macOS): the same CONNECT without the key
+		res.ConnectNoKeyStatus = connect("")
+	}
 	if req.ConnectURL != "" {
 		runTunnelProbe(req.ConnectURL, res)
 	}
