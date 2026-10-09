@@ -419,8 +419,10 @@ MUTS += [
   tests=[(DAEMON, '^TestFindRemovedSettings$'), ('ANet:./cmd/anet', '^TestRemovedKeysStopAnetDaemon$')],
   full=[DAEMON]),
  dict(id='pay9-card-price', group='PAY-9', repo='ANet', desc='公开卡的 x402 贡献带上逐 skill 价格',
-  edits=[('module/x402/card.go', '\tif priced == len(c.Skills) {\n\t\tx402["required"] = true\n\t}\n\treturn []map[string]any{x402}\n',
-          '\tif priced == len(c.Skills) {\n\t\tx402["required"] = true\n\t}\n\tprices := []any{}\n\tfor _, id := range c.Skills {\n\t\tif a, ok := m.Price(id); ok {\n\t\t\tprices = append(prices, map[string]any{"skillId": id, "amount": a})\n\t\t}\n\t}\n\treturn []map[string]any{x402, {"uri": "https://agentnetwork.org.cn/a2a/ext/anet-pricing/v1", "params": map[string]any{"prices": prices}}}\n')],
+  # Re-anchored by PAY-10, which rewrote CardExtensions: the public card's contribution
+  # carrying the price list again, in the 0.2 form.
+  edits=[('module/x402/card.go', '\tout := []map[string]any{x402}\n',
+          '\tout := []map[string]any{x402, {"uri": "https://agentnetwork.org.cn/a2a/ext/anet-pricing/v1", "params": map[string]any{"prices": prices}}}\n')],
   tests=[(X402, '^(TestCardExtensionsCarryNoPrice|TestTheHubCannotNameThePaidSkillFromWhatItIsSent)$')], full=[X402]),
  dict(id='pay9-proxy-price', group='PAY-9', repo='ANet', desc='代理卡照搬远端公开卡的 anet-pricing',
   edits=[('module/a2a/card.go', '\t\tif x402 {\n\t\t\t// This node is the signing service',
