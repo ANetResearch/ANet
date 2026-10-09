@@ -630,42 +630,36 @@ func TestApprovalAppliesTheRotationGraceNow(t *testing.T) {
 	}
 }
 
-// The configuration check of A2A-DESIGN §5.1: policy open together with exec
-// for untrusted peers (or an untrusted backend) is refused whichever is
-// written first, over the control plane with 409, and at start.
-func TestOpenAndExecForUntrustedPeersConflict(t *testing.T) {
+// LEC GT-5: policy open together with the exec backend in the sandbox for
+// untrusted peers is a configuration like any other: it is saved whichever
+// of the two is written first, over the control plane too, and the daemon
+// starts with it — the sandbox has no network beyond the node's model route,
+// holds no key and runs under the daily budget. An A2A backend that takes
+// untrusted peers still conflicts with open (A2A-DESIGN §5.1).
+func TestOpenWithTheSandboxForUntrustedPeers(t *testing.T) {
 	sandboxExec := &AutoReplyConfig{Backend: "exec", Agent: "cursor", Untrusted: UntrustedSandbox}
 
 	a := newTestDaemon(t, "", false)
 	if err := a.SetAutoReply(sandboxExec); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.SetInboundPolicy(PolicyOpen); !errors.Is(err, ErrPolicyConflict) {
+	if err := a.SetInboundPolicy(PolicyOpen); err != nil {
 		t.Fatalf("open after exec-for-untrusted: %v", err)
 	}
-	if a.config().inbound().Policy != PolicyClosed {
-		t.Fatal("the refused policy was applied")
-	}
-	rec := httptest.NewRecorder()
-	a.hInboundPolicy(rec, httptest.NewRequest(http.MethodPost, "/inbound/policy", strings.NewReader(`{"policy":"open"}`)))
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("control plane: %d %s", rec.Code, rec.Body)
+	if a.config().inbound().Policy != PolicyOpen {
+		t.Fatal("the policy was not applied")
 	}
 
 	b := newTestDaemon(t, "", false)
 	setPolicy(t, b, PolicyOpen)
-	if err := b.SetAutoReply(sandboxExec); !errors.Is(err, ErrPolicyConflict) {
-		t.Fatalf("exec-for-untrusted after open: %v", err)
-	}
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	b.hAutoReply(rec, httptest.NewRequest(http.MethodPost, "/autoreply",
 		strings.NewReader(`{"backend":"exec","agent":"cursor","untrusted":"sandbox"}`)))
-	if rec.Code != http.StatusConflict {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("control plane: %d %s", rec.Code, rec.Body)
 	}
-	// Exec for trusted peers only is compatible with open.
-	if err := b.SetAutoReply(&AutoReplyConfig{Backend: "exec", Agent: "cursor"}); err != nil {
-		t.Fatalf("exec for trusted peers under open: %v", err)
+	if ar := b.config().AutoReply; ar == nil || ar.UntrustedMode() != UntrustedSandbox {
+		t.Fatalf("auto_reply after the write: %+v", ar)
 	}
 
 	c := newTestDaemon(t, "", false)
@@ -682,11 +676,16 @@ func TestOpenAndExecForUntrustedPeersConflict(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "config.json"), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if d, err := New(NewLayout(root)); !errors.Is(err, ErrPolicyConflict) {
-		if d != nil {
-			d.Close()
-		}
-		t.Fatalf("start with a conflicting config: %v", err)
+	if err := CheckConfigForStart(NewLayout(root)); err != nil {
+		t.Fatalf("the start check refuses open with the sandbox for untrusted peers: %v", err)
+	}
+	d, err := New(NewLayout(root))
+	if err != nil {
+		t.Fatalf("start with open and the sandbox for untrusted peers: %v", err)
+	}
+	defer d.Close()
+	if d.config().inbound().Policy != PolicyOpen || d.config().AutoReply.UntrustedMode() != UntrustedSandbox {
+		t.Fatalf("started with %+v / %+v", d.config().inbound(), d.config().AutoReply)
 	}
 }
 

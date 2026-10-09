@@ -21,9 +21,9 @@ echo "hello from stub agent"
 	setExecCommand(t, stub)
 
 	reply, err := InvokeAgent(context.Background(), execInvokeOpts{
-		AgentID: "cursor",
-		Prompt:  "test prompt",
-		Timeout: 5 * time.Second,
+		AgentID:      "cursor",
+		Conversation: "test prompt",
+		Timeout:      5 * time.Second,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +42,7 @@ func TestInvokeAgentDefaultsToCheapModel(t *testing.T) {
 	}
 	setExecCommand(t, stub)
 
-	got, err := InvokeAgent(context.Background(), execInvokeOpts{AgentID: "cursor", Prompt: "p", Timeout: 5 * time.Second})
+	got, err := InvokeAgent(context.Background(), execInvokeOpts{AgentID: "cursor", Conversation: "p", Timeout: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestInvokeAgentDefaultsToCheapModel(t *testing.T) {
 		t.Fatalf("expected default --model auto, got %q", got)
 	}
 	// An explicit model overrides the default.
-	got, err = InvokeAgent(context.Background(), execInvokeOpts{AgentID: "cursor", Prompt: "p", Model: "grok-4.5-fast-medium", Timeout: 5 * time.Second})
+	got, err = InvokeAgent(context.Background(), execInvokeOpts{AgentID: "cursor", Conversation: "p", Model: "grok-4.5-fast-medium", Timeout: 5 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

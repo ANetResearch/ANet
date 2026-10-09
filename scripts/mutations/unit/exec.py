@@ -1,7 +1,8 @@
 # exec.py: local execution and credentials (v0.3.0 LEC §7.3) — mutation list for scripts/mutations/unitmut.py (see its
 # header for the format). EXE-1 adds M-SB-1 to M-SB-3 (the Linux sandbox kernel); EXE-2 adds M-BP-1 to M-BP-7 (the
 # injection route's request policy, with m-bp-3b, m-bp-4b and m-bp-5b) and the egress endpoint's own mutations (m-eg-*,
-# m-up-1); the other EXE packages append theirs.
+# m-up-1); EXE-4 adds M-BU-1 to M-BU-5 and M-SB-5 (the run budget, its slots, the work roots) with the
+# rest of its rules (m-bu-*, m-sb-*, m-gt-*, m-eg-7-invoked, m-evid-1, m-ld-1); the other EXE packages append theirs.
 #
 # The probe tests (TestSandboxProbe*, TestSandboxIntegrationConfinesTheAgent) need a bubblewrap that can create user
 # namespaces: on a host without one they skip, and the bwrap-free tests listed with them (G-BWRAP, G-SECCOMP, the
@@ -575,7 +576,7 @@ MUTS += [
  dict(
   id='m-cn-key', group='LEC 2.3.4', repo='ANet',
   desc='/autoreply 的应答带出已存的 api_key(只改 sandbox 的请求合并了当前配置)',
-  edits=[('internal/daemon/control_api.go', '\t\tc := *cfg\n\t\tc.APIKey = ""\n', '\t\tc := *cfg\n')],
+  edits=[('internal/daemon/control_api.go', '\t\tview = autoReplyView(cfg)\n', '\t\tview = cfg\n')],
   tests=[(DAEMON, 'TestAutoReplyAnswerHasNoKey')],
   full=[DAEMON],
  ),
@@ -776,5 +777,486 @@ MUTS += [
   edits=[('tools/anetpeer/main.go', '\tsock = abs\n', '\t_ = abs\n')],
   tests=[('ANet:./tools/anetpeer', 'TestARelativeDaemonSocketIsTheAbsolutePathItNames')],
   full=['ANet:./tools/anetpeer'],
+ ),
+]
+
+# EXE-5: credentials and the conversation stay off every command line (LEC §4.3.7 AV-1 to AV-3, AV-6 to AV-10,
+# SB-4; §7.3 M-SB-4, M-SB-6, M-AV-1 to M-AV-4). The cmdline canary and the 200 KiB conversation run every
+# registered agent through the replier with a stub; TestExecArgumentsCarryNoSecretAndNoConversation is the go/ast
+# structural check (scripts); TestSandboxIntegrationHoldsNoSecret needs a real bubblewrap, as PROBE does.
+ARGV = 'TestCmdlineCanary|TestA200KiBConversationReachesEveryAgent|TestEveryRegisteredAgentGetsTheConversationOffItsArgv'
+MUTS += [
+ dict(
+  id='m-sb-4', group='SB-4', repo='ANet',
+  desc='沙箱环境继承 daemon 的代理变量(含账号密码)',
+  edits=[('internal/daemon/autoreply_exec.go', 'var sandboxEnvKeep = []string{"PATH", "LANG", "TERM", "TZ", "NO_COLOR", "HOME", "USER", "LOGNAME"}',
+          'var sandboxEnvKeep = []string{"PATH", "LANG", "TERM", "TZ", "NO_COLOR", "HOME", "USER", "LOGNAME",\n\t"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"}')],
+  tests=[(DAEMON, 'TestSandboxExecEnvIsBuiltFromNothing|TestExecEnvIsAnAllowlist')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-4b', group='SB-4', repo='ANet',
+  desc='沙箱环境带上运营者的 key(sandboxed 分支改回 agentExecEnv)',
+  edits=[('internal/daemon/autoreply_exec.go', '\tif sandbox != nil {\n\t\treturn sandboxExecEnv(environ, sandbox.Egress, outbox)\n\t}',
+          '\tif sandbox != nil {\n\t\treturn append(sandboxExecEnv(environ, sandbox.Egress, outbox), agentExecEnv(cfg)...)\n\t}')],
+  tests=[(DAEMON, 'TestSandboxExecEnvIsBuiltFromNothing|TestExecEnvIsAnAllowlist')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-6', group='AV-2', repo='ANet',
+  desc='恢复 append(args, prompt):claude 的对话放回命令行',
+  edits=[('internal/daemon/agents.go', '\tstdout, stderr, err := runCmd(ctx, o, []byte(o.Conversation), o.Command, args...)',
+          '\targs = append(args, o.Conversation)\n\tstdout, stderr, err := runCmd(ctx, o, nil, o.Command, args...)')],
+  tests=[(DAEMON, ARGV), ('ANet:./scripts', 'TestExecArgumentsCarryNoSecretAndNoConversation')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-6b', group='AV-2', repo='ANet',
+  desc='读文件的 agent(hermes)把对话本身放进命令行,而不是写进文件',
+  edits=[('internal/daemon/agents.go', '\tmsg := fileInputMessage(o.Instructions, conv)', '\tmsg := o.Instructions + o.Conversation + conv')],
+  tests=[(DAEMON, ARGV), ('ANet:./scripts', 'TestExecArgumentsCarryNoSecretAndNoConversation')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-6c', group='SB-5', repo='ANet',
+  desc='沙箱里 fd 4 不写对话(agent 的 stdin 是空的)',
+  edits=[('internal/daemon/sandbox_linux.go', '\t\tfeed(inW, stdin)', '\t\tfeed(inW, nil)')],
+  tests=[(DAEMON, 'TestSandboxHoldsNoSecret|TestSandboxCommandPassesStdinOnFd4|TestSandboxIntegrationHoldsNoSecret')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-1', group='AV-8', repo='ANet',
+  desc='/autoreply 与 /status 回显 key',
+  edits=[('internal/daemon/control_api.go', '"api_key_set": ar.APIKey != ""}', '"api_key_set": ar.APIKey != "", "api_key": ar.APIKey}')],
+  tests=[(DAEMON, 'TestAutoReplyNeverShowsTheKey')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-1b', group='AV-1', repo='ANet',
+  desc='交互工作目录按交互 id 原文命名(对端写的 id 进 bwrap --bind 与 agent 的 --workspace/-C)',
+  edits=[('internal/daemon/autoreply_exec.go', '\treturn "ix-" + hex.EncodeToString(h[:16])', '\t_ = h\n\treturn safeName(ix)')],
+  tests=[(DAEMON, 'TestWorkDirNamesCarryNoPeerText|TestCmdlineCanary')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-2', group='AV-6', repo='ANet',
+  desc='SKILL.md 加一行 curl -H "Authorization: Bearer $(cat …)"',
+  edits=[('deploy/release/apex/SKILL.md', 'anet peers deny <aid>              # refuse an agent and cancel its open tasks\n',
+          'anet peers deny <aid>              # refuse an agent and cancel its open tasks\ncurl -H "Authorization: Bearer $(cat ~/.anet/control_token.txt)" http://127.0.0.1:39811/status\n')],
+  tests=[('ANet:./scripts', 'TestReleaseFilesKeepSecretsOffCommandLines')],
+  full=['ANet:./scripts'],
+ ),
+ dict(
+  id='m-av-2b', group='AV-6', repo='ANet',
+  desc='SKILL.md 加一行 ANET_INVITE=… anet hub-register',
+  edits=[('deploy/release/apex/SKILL.md', 'anet peers deny <aid>              # refuse an agent and cancel its open tasks\n',
+          'anet peers deny <aid>              # refuse an agent and cancel its open tasks\nANET_INVITE=anetinv_x anet hub-register https://hub.example\n')],
+  tests=[('ANet:./scripts', 'TestReleaseFilesKeepSecretsOffCommandLines')],
+  full=['ANet:./scripts'],
+ ),
+ dict(
+  id='m-av-2c', group='AV-6', repo='ANet',
+  desc='脚本里用 --api-key 把 key 放上命令行',
+  edits=[('scripts/joint-admission.sh', '# one line and --token is refused before anything runs.\n',
+          '# one line and --token is refused before anything runs.\n# anet autoreply set --api-key "$KEY"\n')],
+  tests=[('ANet:./scripts', 'TestScriptsKeepBearerTokensOffCommandLines')],
+  full=['ANet:./scripts'],
+ ),
+ dict(
+  id='m-av-3', group='AV-10', repo='ANet',
+  desc='rotateLocalTokens 只换控制令牌',
+  edits=[('internal/daemon/control_api.go', '\tif dir := anethome.A2ADir(d.layout.Root); dirExists(dir) {',
+          '\tif dir := anethome.A2ADir(d.layout.Root); false && dirExists(dir) {')],
+  tests=[(DAEMON, 'TestRotateLocalTokensRefusesBothOldTokens')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-3b', group='AV-10', repo='ANet',
+  desc='本机 A2A 接口只认启动时的令牌(换掉令牌文件后旧令牌仍然有效)',
+  edits=[('module/a2a/server.go', '\tif s.tokens != nil {\n\t\ttoken = s.tokens.current()\n\t}', '\tif false && s.tokens != nil {\n\t\ttoken = s.tokens.current()\n\t}')],
+  tests=[('ANet:./module/a2a', 'TestTheInterfaceFollowsItsTokenFile')],
+  full=['ANet:./module/a2a'],
+ ),
+ dict(
+  id='m-av-3c', group='AV-10', repo='ANet',
+  desc='控制面只认启动时的令牌(轮换后旧控制令牌仍然有效)',
+  edits=[('internal/daemon/control_api.go', '\ta.mu.Lock()\n\ta.token = tok\n\tcs := a.sessions', '\ta.mu.Lock()\n\t_ = tok\n\tcs := a.sessions')],
+  tests=[(DAEMON, 'TestRotateLocalTokensRefusesBothOldTokens')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4', group='AV-8', repo='ANet',
+  desc='autoreply set --api-key 的退出码改回 1',
+  edits=[('cmd/anet/main.go', '\t\tif s, ok := refuseAPIKeyOnArgv(args[0], args[1:], a2ashape.Lang()); ok {\n\t\t\tfmt.Fprintln(os.Stderr, s)\n\t\t\tos.Exit(2)',
+          '\t\tif s, ok := refuseAPIKeyOnArgv(args[0], args[1:], a2ashape.Lang()); ok {\n\t\t\tfmt.Fprintln(os.Stderr, s)\n\t\t\tos.Exit(1)')],
+  tests=[('ANet:./cmd/anet', 'TestAPIKeyOnTheCommandLineIsRefusedBeforeTheDaemon')],
+  full=['ANet:./cmd/anet'],
+ ),
+ dict(
+  id='m-av-4b', group='AV-8', repo='ANet',
+  desc='拒绝 --api-key 时回显该值',
+  edits=[('cmd/anet/main.go', '\t\tif onArgv {\n\t\t\treturn a2ashape.Sentence("api_key_on_argv", lang, nil), true',
+          '\t\tif onArgv {\n\t\t\treturn a2ashape.Sentence("api_key_on_argv", lang, nil) + " (" + strings.Join(rest, " ") + ")", true')],
+  tests=[('ANet:./cmd/anet', 'TestAPIKeyOnTheCommandLineIsRefusedBeforeTheDaemon')],
+  full=['ANet:./cmd/anet'],
+ ),
+ dict(
+  id='m-av-8', group='AV-8', repo='ANet',
+  desc='/autoreply 接受空 key(清掉已设的 key)',
+  edits=[('internal/daemon/control_api.go', '\t\tif strings.TrimSpace(key) == "" {\n\t\t\treturn nil, a2ashape.Refuse("api_key_empty", nil)\n\t\t}',
+          '\t\tif false && strings.TrimSpace(key) == "" {\n\t\t\treturn nil, a2ashape.Refuse("api_key_empty", nil)\n\t\t}')],
+  tests=[(DAEMON, 'TestAutoReplyRefusesAnEmptyKey')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-8b', group='AV-8', repo='ANet',
+  desc='/autoreply 不合并:请求里没给的成员被清空',
+  edits=[('internal/daemon/control_api.go', '\tbase := map[string]json.RawMessage{}\n\tif cur != nil {',
+          '\tbase := map[string]json.RawMessage{}\n\tif false && cur != nil {')],
+  tests=[(DAEMON, 'TestAutoReplyMergesWhatItNames')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-8c', group='§2.3.4', repo='ANet',
+  desc='/autoreply 接受大小写不同的成员名(JSON 解码不分大小写)',
+  edits=[('internal/daemon/control_api.go', '\t\tft, ok := fields[k]\n', '\t\tft, ok := fields[strings.ToLower(k)]\n')],
+  tests=[(DAEMON, 'TestAutoReplyRefusesWhatCannotRun')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-9', group='AV-9', repo='ANet',
+  desc='对话不设字节上限(exec 后端)',
+  edits=[('internal/daemon/autoreply_exec.go', '\trc.Goal, turns = boundConversation(rc.Goal, turns) // AV-9\n', '')],
+  tests=[(DAEMON, 'TestExecReplierBoundsTheConversation')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-9b', group='AV-9', repo='ANet',
+  desc='对话不设字节上限(openai 后端)',
+  edits=[('internal/daemon/autoreply.go', '\t_, turns = boundConversation("", turns) // LEC AV-9, as for the exec backend\n', '')],
+  tests=[(DAEMON, 'TestOpenAIBackendBoundsTheConversation')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-9c', group='AV-9', repo='ANet',
+  desc='超长单条消息不截断',
+  edits=[('internal/daemon/autoreply_exec.go', '\tif len(s) <= conversationMaxMessage {\n\t\treturn s\n\t}', '\tif true {\n\t\treturn s\n\t}')],
+  tests=[(DAEMON, 'TestBoundConversation')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-8d', group='§2.3.4', repo='ANet',
+  desc='/autoreply 的读取、合并与保存不串行(同时发出的两项设置互相覆盖)',
+  edits=[('internal/daemon/control_api.go', '\td.autoReplyWrite.Lock()\n\tdefer d.autoReplyWrite.Unlock()\n', '')],
+  tests=[(DAEMON, 'TestAutoReplySettingsSentAtOnceAllLand')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-8e', group='§2.3.4', repo='ANet',
+  desc='/autoreply 的 off 不是布尔值时当作 false(自动回复仍在运行)',
+  edits=[('internal/daemon/control_api.go', 'if raw, ok := members["off"]; ok && string(raw) != "null" && json.Unmarshal(raw, &off) != nil {',
+          'if raw, ok := members["off"]; ok && false && json.Unmarshal(raw, &off) != nil {')],
+  tests=[(DAEMON, 'TestAutoReplyOffIsABoolean')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-8f', group='§2.3.4', repo='ANet',
+  desc='/autoreply 只在顶层核对成员名(设置块里大小写不同的成员被已存的值静默覆盖)',
+  edits=[('internal/daemon/control_api.go', '\t\t\tif bad := inexactMember(ft, sub); bad != "" {', '\t\t\tif bad := inexactMember(ft, sub); false && bad != "" {')],
+  tests=[(DAEMON, 'TestAutoReplyMemberNamesAreExactAtEveryDepth')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-9d', group='AV-9', repo='ANet',
+  desc='删去轮次时插入的那一行不计入上限(合计与单条都多出一行)',
+  edits=[('internal/daemon/autoreply_exec.go', '\tfor drop < len(out)-1 && over(drop) {', '\tfor drop < len(out)-1 && total > conversationMaxBytes {\n\t\t_ = over')],
+  tests=[(DAEMON, 'TestBoundConversation')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-6d', group='AV-2', repo='ANet',
+  desc='沙箱运行的固定指令不说明它在沙箱里、能访问什么',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\tsandboxNotice = execSandboxNotice(r.egressHosts())\n', '')],
+  tests=[(DAEMON, 'TestASandboxedRunIsToldWhatItCanReach|TestSandboxIntegrationHoldsNoSecret')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-4c', group='SB-4', repo='ANet',
+  desc='沙箱启动时不收窄 PATH(daemon 搜索路径里沙箱看不见的目录留在 agent 环境里)',
+  edits=[('internal/daemon/sandbox_linux.go', '\tenv = envWithSandboxPath(env, runtimeDirs)\n', '')],
+  tests=[(DAEMON, 'TestSandboxHoldsNoSecret')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-1c', group='AV-8', repo='ANet',
+  desc='anet.policy.changed 的 auto_reply 摘要带上 key(证据链里出现 key)',
+  edits=[('internal/daemon/autoreply.go', '"api_key_set": c.APIKey != ""}', '"api_key_set": c.APIKey != "", "api_key": c.APIKey}')],
+  tests=[(DAEMON, 'TestAutoReplyNeverShowsTheKey')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-3d', group='AV-10', repo='ANet',
+  desc='rotateLocalTokens 换不掉本机 A2A 令牌时仍回 nil(调用方以为两个令牌都已换掉)',
+  edits=[('internal/daemon/control_api.go', '\treturn errors.Join(errs...)\n}\n\n// dirExists', '\t_ = errs\n\treturn nil\n}\n\n// dirExists')],
+  tests=[(DAEMON, 'TestRotateLocalTokensReportsWhatItCouldNotReplace')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-3e', group='AV-10', repo='ANet',
+  desc='本机 A2A 令牌文件不见了时仍认上次读到的令牌',
+  edits=[('module/a2a/server.go', '\tif err != nil || !fi.Mode().IsRegular() {\n\t\treturn ""\n\t}', '\tif err != nil || !fi.Mode().IsRegular() {\n\t\treturn ts.tok\n\t}')],
+  tests=[('ANet:./module/a2a', 'TestTheInterfaceFollowsItsTokenFile')],
+  full=['ANet:./module/a2a'],
+ ),
+ dict(
+  id='m-av-3f', group='AV-10', repo='ANet',
+  desc='轮换后 /ping 仍以启动时的控制令牌作证明(读不到套接字表的系统上 CLI 不再信任 daemon)',
+  edits=[('internal/daemon/ctlsec.go', '\ttop.HandleFunc("GET /ping", d.pingHandler(auth))', '\ttop.HandleFunc("GET /ping", d.pingHandler(&ctlAuth{token: auth.bearer()}))')],
+  tests=[(DAEMON, 'TestRotateLocalTokensRefusesBothOldTokens')],
+  full=[DAEMON],
+ ),
+]
+
+# --- EXE-4: the run budget, its slots, the work roots, the user scope and the records (LEC §4.3.1, SB-7 to
+# SB-9, §4.3.6, EG-7, §2.5; SI-58, SI-59). The daemon tests run a sandboxed turn through fakeSandbox where the
+# host has no usable bubblewrap; TestSandboxTrustChangeUsesFreshWorkDir and TestSandboxDiskWatchKillsTheRun are
+# the real-bwrap forms (Debian 12 container, CI sandbox job). ---
+BU = 'TestRunBudget|TestUntrustedRunsAreBudgeted|TestTheDailyBudgetSpansPeers|TestTheBudgetSurvivesARestart|TestTheBudgetAndTheSpendingLimitsShareTheLocalDay'
+MUTS += [
+ dict(
+  id='m-bu-1', group='BU-2', repo='ANet',
+  desc='预算不计数(放行的运行不计入当日次数)',
+  edits=[('internal/daemon/sandbox_budget.go', '\tday.add(peer, 1)\n\tb.running++', '\tb.running++')],
+  tests=[(DAEMON, BU)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-2', group='BU-2', repo='ANet',
+  desc='重启不回放证据链(当日计数从零开始)',
+  edits=[('internal/daemon/sandbox_budget.go', '\tfor _, r := range runs(start.Add(-48 * time.Hour)) {', '\tfor _, r := range runs(start.Add(-48 * time.Hour))[:0] {')],
+  tests=[(DAEMON, 'TestTheBudgetSurvivesARestart|TestRunBudgetReplaysTheChain|TestRunBudgetProperty')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-3', group='BU-4', repo='ANet',
+  desc='超限仍启动 agent / 调用模型',
+  edits=[('internal/daemon/autoreply.go', '\tcase budgetSpent:\n\t\treturn d.refuseTurn(', '\tcase budgetSpent + 100:\n\t\treturn d.refuseTurn(')],
+  tests=[(DAEMON, 'TestUntrustedRunsAreBudgeted|TestTheDailyBudgetSpansPeers|TestAnOutboundTurnOverTheBudgetStaysInTheInbox')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-4', group='BU-1', repo='ANet',
+  desc='openai 后端不计入预算(core Q-LEC-6)',
+  edits=[('internal/daemon/autoreply.go', 'return execGate{trusted: trusted, mode: modeOpenAI, counted: !trusted}', 'return execGate{trusted: trusted, mode: modeOpenAI, counted: false}')],
+  tests=[(DAEMON, 'TestUntrustedRunsAreBudgeted/openai|TestTheDailyBudgetSpansPeers|TestTheBudgetSurvivesARestart')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-5', group='BU-2', repo='ANet',
+  desc='预算按固定 24 小时窗口(UTC 日)而不是 localDayBounds',
+  edits=[('internal/daemon/sandbox_budget.go', '\tb.loadLocked(now, runs)\n\tstart, end := localDayBounds(now)', '\tb.loadLocked(now, runs)\n\tstart, end := now.Truncate(24*time.Hour), now.Truncate(24*time.Hour).Add(24*time.Hour)')],
+  tests=[(DAEMON, 'TestRunBudgetProperty|TestRunBudgetCountsTheLocalDay|TestTheBudgetAndTheSpendingLimitsShareTheLocalDay')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ld-1', group='BU-2', repo='ANet',
+  desc='localDayBounds 的结束取 time.Date(日+1) 并按 24 小时推开始(夏令时与跨零点的日子算错)',
+  edits=[('internal/daemon/localday.go', '\tend, ok = firstOnOrAfterDate(y, m, d+1, now, now.Add(50*time.Hour))', '\tend, ok = time.Date(y, m, d+1, 0, 0, 0, 0, now.Location()), true\n\tstart = end.Add(-24 * time.Hour)')],
+  tests=[(DAEMON, 'TestLocalDayBounds|TestRunBudgetProperty')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-6', group='BU-5', repo='ANet',
+  desc='没有空位时拒绝(budget)而不是留给下一次扫描',
+  edits=[('internal/daemon/autoreply.go', '\tcase budgetBusy:\n\t\treturn nil', '\tcase budgetBusy:\n\t\treturn d.refuseTurn(ctx, th, autoReplyRun{InteractionID: th.InteractionID, Peer: th.Peer, Mode: gate.mode, Exit: exitBudget}, wait)')],
+  tests=[(DAEMON, 'TestUntrustedRunsTakeTurns')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-7', group='BU-5', repo='ANet',
+  desc='未信任对端的并发放宽到 3',
+  edits=[('internal/daemon/sandbox_budget.go', '\tuntrustedRunsAtOnce        = 2', '\tuntrustedRunsAtOnce        = 3')],
+  tests=[(DAEMON, 'TestRunBudgetSlots|TestUntrustedRunsTakeTurns|TestRunBudgetProperty')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-8', group='BU-2', repo='ANet',
+  desc='沙箱不可用(什么都没启动)的运行也计入预算',
+  edits=[('internal/daemon/autoreply.go', '\t\t// refusal\'s (once per interaction).\n\t\tcounted = false', '\t\t// refusal\'s (once per interaction).\n\t\tcounted = true')],
+  tests=[(DAEMON, 'TestARunTheSandboxRefusedDoesNotCount')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-5', group='SB-8', repo='ANet',
+  desc='沙箱与 direct 共用工作根',
+  edits=[('internal/daemon/autoreply_exec.go', '\tif root := execWorkRoot(); root != "" {\n\t\treturn root + "-sandbox"', '\tif root := execWorkRoot(); root != "" {\n\t\treturn root')],
+  tests=[(DAEMON, 'TestTrustChangeUsesFreshWorkDir|TestSandboxTrustChangeUsesFreshWorkDir')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-5b', group='SB-8', repo='ANet',
+  desc='auto_reply.work_dir 可以落在沙箱工作根之内',
+  edits=[('internal/daemon/autoreply_exec.go', '\tabs, err := filepath.Abs(c.WorkDir)\n\tif err == nil {\n\t\terr = checkOutsideSandboxRoot(abs)\n\t}', '\tabs, err := filepath.Abs(c.WorkDir)'),
+         ('internal/daemon/autoreply_exec.go', '\t\tif err := checkOutsideSandboxRoot(abs); err != nil {\n\t\t\treturn execInvokeOpts{}, fmt.Errorf("auto_reply.work_dir: %w", err)\n\t\t}\n', '')],
+  tests=[(DAEMON, 'TestTheWorkDirStaysOutOfTheSandboxRoot')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-7', group='SB-7', repo='ANet',
+  desc='用户级 systemd 在运行时也不包 systemd-run(没有内存与进程数上限)',
+  edits=[('internal/daemon/sandbox_linux.go', '\tpath, full := sandboxCommandLine(p.Bwrap, p.SystemdRun, args)', '\tpath, full := sandboxCommandLine(p.Bwrap, "", args)')],
+  tests=[(DAEMON, 'TestRunsGetAUserScopeWhenTheUserSystemdRuns')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8', group='BU-8', repo='ANet',
+  desc='磁盘看门狗不杀超限的运行',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\t\tif dirsSize(dirs(), limit) > limit {', '\t\t\tif false && dirsSize(dirs(), limit) > limit {')],
+  tests=[(DAEMON, 'TestADiskHogIsKilled|TestSandboxDiskWatchKillsTheRun')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-9', group='SB-9', repo='ANet',
+  desc='启动后不清理上一个进程留下的运行目录',
+  edits=[('internal/daemon/autoreply_exec.go', '\td.sandboxSwept.Do(func() { removeSandboxLeftovers(d.AID()) })', '\td.sandboxSwept.Do(func() {})')],
+  tests=[(DAEMON, 'TestSandboxLeftoversAreSweptBeforeTheFirstRun')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-gt-2', group='GT-2', repo='ANet',
+  desc='trusted=sandbox 的一轮按 direct 运行(退回 direct)',
+  edits=[('internal/daemon/autoreply.go', '\tcase trusted && cfg.TrustedMode() == TrustedSandbox:\n\t\tg.mode = modeSandbox', '\tcase trusted && cfg.TrustedMode() == TrustedSandbox:\n\t\tg.mode = modeDirect')],
+  tests=[(DAEMON, 'TestTrustedPeersRunAsTrustedSays')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-gt-2b', group='GT-2', repo='ANet',
+  desc='拒绝的状态消息带正文(UX-R1:只带 anet.reason)',
+  edits=[('internal/daemon/autoreply.go', 'interactions.StateRejected, "", meta)', 'interactions.StateRejected, "turned away: "+reason, meta)')],
+  tests=[(DAEMON, 'TestUntrustedRunsAreBudgeted|TestTrustedPeersRunAsTrustedSays')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-gt-2c', group='GT-2', repo='ANet',
+  desc='同一交互同一原因的拒绝每次都记日志与证据',
+  edits=[('internal/daemon/autoreply.go', '\tif d.sbRefused.first(th.InteractionID, run.Exit) {', '\tif d.sbRefused.first(th.InteractionID, run.Exit) || true {')],
+  tests=[(DAEMON, 'TestAnOutboundTurnOverTheBudgetStaysInTheInbox')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-gt-5', group='GT-5', repo='ANet',
+  desc='恢复 policy open 与 exec untrusted=sandbox 的互斥',
+  edits=[('internal/daemon/inbound.go', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif untrustedBackend {', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif ar := c.AutoReply; ar != nil && ar.Backend == "exec" && ar.UntrustedMode() != UntrustedOff {\n\t\treturn ErrPolicyConflict\n\t}\n\tif untrustedBackend {')],
+  tests=[(DAEMON, 'TestOpenWithTheSandboxForUntrustedPeers')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg-7-invoked', group='EG-7', repo='ANet',
+  desc='anet.autoreply.invoked 不带沙箱运行的 egress 汇总',
+  edits=[('internal/daemon/autoreply.go', '\t\treply, run.Sandboxed, run.Egress = res.Reply, res.Sandboxed, res.Egress', '\t\treply, run.Sandboxed = res.Reply, res.Sandboxed')],
+  tests=[(DAEMON, 'TestASandboxedRunRecordsItsEgress|TestSandboxTrustChangeUsesFreshWorkDir')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-evid-1', group='§2.5', repo='ANet',
+  desc='anet.autoreply.invoked 多出一个成员(工作目录路径)',
+  edits=[('internal/daemon/autoreply.go', '\t\t"mode": r.Mode, "sandbox": r.Kind, "exit": r.Exit,\n', '\t\t"mode": r.Mode, "sandbox": r.Kind, "exit": r.Exit, "work_dir": "/work/" + r.InteractionID,\n')],
+  tests=[(DAEMON, 'TestAutoReplyEvidenceGolden|TestAutoReplyRecordHoldsNoContent|TestUntrustedRunsAreBudgeted')],
+  full=[DAEMON],
+ ),
+ # EXE-4 review: the halves of the disk watch, the budget's trusted exemption on the openai backend, the
+ # start-up sweep's owner and its first run, and the work-tree removal staying inside the tree.
+ dict(
+  id='m-sb-8b', group='BU-8', repo='ANet',
+  desc='磁盘看门狗只统计工作目录,不统计每次运行目录(沙箱内 /tmp、$HOME)',
+  edits=[('internal/daemon/autoreply_exec.go', 'return append(plan.liveRunDirs(), workDir)', 'return []string{workDir}')],
+  tests=[(DAEMON, 'TestSandboxDiskWatchCountsTheRunDirectory')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8c', group='BU-8', repo='ANet',
+  desc='磁盘看门狗只按文件大小计(fallocate --keep-size 占的块不计)',
+  edits=[('internal/daemon/autoreply_exec.go', 'total += max(fi.Size(), allocatedBytes(fi), sandboxDiskEntryMin)', 'total += max(fi.Size(), sandboxDiskEntryMin)')],
+  tests=[(DAEMON, 'TestDirsSizeCountsAllocatedBlocks')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8d', group='SB-8', repo='ANet',
+  desc='删除工作目录时按路径 chmod(可被仍在运行的 agent 换成指向树外的链接)',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\t\t\t\t_ = r.Chmod(p, 0o700)', '\t\t\t\t\t_ = os.Chmod(filepath.Join(dir, p), 0o700)')],
+  tests=[(DAEMON, 'TestRemoveWorkTreeStaysInTheTree')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-9', group='BU-1', repo='ANet',
+  desc='openai 后端把信任对端的轮次也计入预算',
+  edits=[('internal/daemon/autoreply.go', 'counted: !trusted}', 'counted: true}')],
+  tests=[(DAEMON, 'TestATrustedPeerOnTheOpenAIBackendIsNotBudgeted')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-9b', group='SB-9', repo='ANet',
+  desc='启动清理删掉临时目录里别的用户的同名目录',
+  edits=[('internal/daemon/sandbox_linux.go', 'if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != leftoverOwner() {', 'if st, ok := fi.Sys().(*syscall.Stat_t); !ok || false && int(st.Uid) != leftoverOwner() {')],
+  tests=[(DAEMON, 'TestSandboxLeftoversAreSweptBeforeTheFirstRun')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-9c', group='SB-9', repo='ANet',
+  desc='开启 exec 自动回复时不清理残留(推迟到第一次沙箱运行)',
+  edits=[('internal/daemon/autoreply.go', '\tif cfg.Backend == "exec" {\n\t\td.sweepSandboxLeftovers()\n\t}\n', '')],
+  tests=[(DAEMON, 'TestSandboxLeftoversAreSweptWhenAutoReplyStarts')],
+  full=[DAEMON],
+ ),
+]
+# EXE-4 second review: the outbox a sandboxed agent can put a link in the place of, and the trees the disk watch
+# and the removal cannot read through.
+MUTS += [
+ dict(
+  id='m-sb-10', group='SB-8', repo='ANet',
+  desc='outbox 换成指向运营者目录的链接时照样读取(把运营者的文件发给对端)',
+  edits=[('internal/daemon/autoreply_exec.go', '\t} else if !fi.IsDir() {\n\t\treturn nil, fmt.Errorf("the outbox is not a directory', '\t} else if false && !fi.IsDir() {\n\t\treturn nil, fmt.Errorf("the outbox is not a directory'),
+         ('internal/daemon/autoreply_exec.go', '\tob, err := parent.OpenRoot(base)', '\tob, err := os.OpenRoot(dir)')],
+  tests=[(DAEMON, 'TestASandboxedAgentCannotLinkTheOutboxOut|TestSandboxOutboxLinkSendsNothing')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8e', group='BU-8', repo='ANet',
+  desc='磁盘看门狗跳过读不了的目录(mode 000、超过最长路径),其中的内容不计',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\t\tcase err != nil:\n\t\t\t\ttotal = limit + 1 // unreadable: fail closed', '\t\t\tcase err != nil:\n\t\t\t\treturn nil')],
+  tests=[(DAEMON, 'TestTheDiskWatchCannotBeHiddenFrom')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8f', group='BU-8', repo='ANet',
+  desc='磁盘看门狗不给每一项计最少一个块(大量空文件不计)',
+  edits=[('internal/daemon/autoreply_exec.go', 'total += max(fi.Size(), allocatedBytes(fi), sandboxDiskEntryMin)', 'total += max(fi.Size(), allocatedBytes(fi))')],
+  tests=[(DAEMON, 'TestTheDiskWatchCannotBeHiddenFrom')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8g', group='SB-8', repo='ANet',
+  desc='删除工作目录时不先恢复顶层目录的权限(agent 把工作目录设为 000 后删不掉)',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\tif fi.Mode().Perm()&0o700 != 0o700 {\n\t\t\tif pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {', '\t\tif false && fi.Mode().Perm()&0o700 != 0o700 {\n\t\t\tif pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {')],
+  tests=[(DAEMON, 'TestRemoveWorkTreeTakesAnUnreadableTop')],
+  full=[DAEMON],
+ ),
+]
+MUTS += [
+ dict(
+  id='m-sb-11', group='SB-8', repo='ANet',
+  desc='codex 的回复文件按路径读取(沙箱内把它换成指向运营者文件的链接,文件内容作为回复发给对端)',
+  edits=[('internal/daemon/agents.go', 'readWorkFile(dir, filepath.Base(outFile), maxAttachmentBytes)', 'os.ReadFile(outFile)')],
+  tests=[(DAEMON, 'TestCodexReplyFileIsNotReadThroughALink')],
+  full=[DAEMON],
+ ),
+]
+MUTS += [
+ dict(
+  id='m-bu-10', group='BU-2', repo='ANet',
+  desc='只保留当天的计数(时钟被调回前一日时,前一日的预算重新可用)',
+  edits=[('internal/daemon/sandbox_budget.go', '\tcut := today.Add(-30 * time.Hour).UnixMilli()', '\tcut := today.UnixMilli()')],
+  tests=[(DAEMON, 'TestRunBudgetCountsTheLocalDay')],
+  full=[DAEMON],
  ),
 ]

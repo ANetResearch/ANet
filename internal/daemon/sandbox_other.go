@@ -9,6 +9,15 @@ func (p *sandboxPlan) prepare() error {
 	return sandboxUnavailable("the sandbox is implemented only on Linux (bubblewrap)")
 }
 
-func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunch, error) {
+func (p *sandboxPlan) command(workDir string, argv, env []string, stdin []byte) (*sandboxLaunch, error) {
 	return nil, sandboxUnavailable("the sandbox is implemented only on Linux (bubblewrap)")
 }
+
+// sandboxKind: no sandbox runs here.
+const sandboxKind = ""
+
+// sandboxLimits: no sandbox, no limits to report.
+func sandboxLimits() string { return "" }
+
+// removeSandboxLeftovers: no sandbox runs here, so none left anything.
+func removeSandboxLeftovers(string) {}

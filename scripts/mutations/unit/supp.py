@@ -176,15 +176,10 @@ MUTS = [
   tests=[('ANet:./internal/daemon', 'TestExecAutoReplyOnBothSidesStaysOutOfAPaidCall|TestAutoReplyCapProposesEnd|TestAPublicCapabilityCallTakesNoText')],
   full=['ANet:./internal/daemon'],
  ),
- dict(
-  id='c8-1', group='C8/C9', repo='ANet',
-  desc='validatePolicy: open 与 exec untrusted=sandbox 不再冲突',
-  edits=[
-   ('internal/daemon/inbound.go', '\tif ar := c.AutoReply; ar != nil && ar.Backend == "exec" && ar.UntrustedMode() != UntrustedOff {', '\tif ar := c.AutoReply; false && ar != nil && ar.Backend == "exec" && ar.UntrustedMode() != UntrustedOff {'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestOpenAndExecForUntrustedPeersConflict')],
-  full=['ANet:./internal/daemon'],
- ),
+ # c8-1 (open together with exec for untrusted peers no longer refused) is retired with that rule: v0.3.0
+ # allows the combination (LEC GT-5; the sandbox has no network, no key and a daily budget).
+ # TestOpenWithTheSandboxForUntrustedPeers holds it saved and started, and exec.py m-gt-5 puts the old
+ # conflict back and is killed by it; the A2A backend half of the rule stays covered by c9-*.
  dict(
   id='c9-1', group='C8/C9', repo='ANet',
   desc='backendTakes: 未声明 untrusted 的后端也接 allow 但不在 trust 的对端',
@@ -198,7 +193,7 @@ MUTS = [
   id='c9-2', group='C8/C9', repo='ANet',
   desc='exec 自动回复: untrusted=off 时仍为非信任对端运行',
   edits=[
-   ('internal/daemon/autoreply.go', '\t\tif !gate.trusted && cfg.UntrustedMode() == UntrustedOff {\n\t\t\treturn nil', '\t\tif false && !gate.trusted && cfg.UntrustedMode() == UntrustedOff {\n\t\t\treturn nil'),
+   ('internal/daemon/autoreply.go', '\tcase trusted:\n\t\tg.mode = modeDirect\n\tcase cfg.UntrustedMode() == UntrustedSandbox:', '\tcase trusted || cfg.UntrustedMode() == UntrustedOff:\n\t\tg.mode = modeDirect\n\tcase cfg.UntrustedMode() == UntrustedSandbox:'),
   ],
   tests=[('ANet:./internal/daemon', 'TestExecRunsOnlyForTrustedPeers|TestInboundTasksReachTheBackendOnlyFromTrustedPeers')],
   full=['ANet:./internal/daemon'],
@@ -398,7 +393,7 @@ MUTS = [
   id='m-deny-3', group='m(deny)', repo='ANet',
   desc='自动回复不再每轮读 deny 名单',
   edits=[
-   ('internal/daemon/autoreply.go', '\tps := d.readPeers()\n\tif ps.denied(th.Peer) {\n\t\treturn nil\n\t}\n\t// The exec backend', '\tps := d.readPeers()\n\t// The exec backend'),
+   ('internal/daemon/autoreply.go', '\tps := d.readPeers()\n\tif ps.denied(th.Peer) {\n\t\treturn nil\n\t}\n\t// How this turn runs', '\tps := d.readPeers()\n\t// How this turn runs'),
   ],
   tests=[('ANet:./internal/daemon', 'TestDenyingAPeerCancelsItsInteractions|TestTheOpenAIBackendReadsTheDenyListEveryTurn|TestAReplyIsNotSentToAPeerDeniedWhileTheBackendWorked')],
   full=['ANet:./internal/daemon'],

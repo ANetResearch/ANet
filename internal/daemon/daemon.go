@@ -110,6 +110,11 @@ type Daemon struct {
 	// sbRefused remembers outbound auto-reply turns that failed closed
 	// because the sandbox was unavailable (autoreply.go).
 	sbRefused sandboxRefused
+	// budget counts the auto-reply runs for untrusted peers per local day
+	// and holds their slots (sandbox_budget.go, LEC BU); sandboxSwept is
+	// the sweep of what an earlier process's sandboxed runs left (SB-9).
+	budget       runBudget
+	sandboxSwept sync.Once
 
 	// spend holds the payments signed in the last 24 hours, for the
 	// spending policy (spend.go); settling tracks the task payments whose
@@ -131,6 +136,12 @@ type Daemon struct {
 	transportState
 	// modules are the optional subsystems this build carries.
 	modules []module.Module
+	// ctlAuth is the control plane's credential in force (control_api.go); rotateLocalTokens replaces
+	// it.
+	ctlAuth atomic.Pointer[ctlAuth]
+	// autoReplyWrite makes POST /autoreply's read of the configuration, its merge and its save one step,
+	// so that two settings sent at once both land (control_api.go hAutoReply).
+	autoReplyWrite sync.Mutex
 	// lastCardSeq is the highest sequence this process has minted for its
 	// own AgentCard. See cardSeq — the clock alone cannot keep the number
 	// strictly increasing, and the hub refuses a card that does not.

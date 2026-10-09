@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,9 +29,22 @@ const (
 )
 
 // execInvokeOpts carries one headless agent invocation (built by the exec auto-reply backend).
+//
+// What the other party wrote never reaches a command line (LEC AV-1, AV-2): /proc/<pid>/cmdline is
+// readable by every local user, and a single argument is capped at 128 KiB. Instructions is fixed text
+// (the operator's system prompt or the default, the role, the notices) and may go on argv, through the
+// agent's system prompt flag where it has one. Conversation is the goal and the turns: it goes to the
+// agent on stdin, or, for an agent that reads no prompt from stdin, into a 0600 file in the work dir
+// whose path is the only thing argv says about it (agentSpec.input).
 type execInvokeOpts struct {
-	AgentID       string
-	Prompt        string
+	AgentID string
+	// Instructions is the fixed part of the prompt; "" on a turn that continues an agent-native session.
+	Instructions string
+	// Conversation is the peer-authored part of the prompt.
+	Conversation string
+	// InputDir is the turn's private input directory in the work dir (.anet-in-<rand>, removed after the
+	// turn), where a file-input agent's conversation.md is written; "" makes one for the call.
+	InputDir      string
 	WorkDir       string
 	Model         string
 	OpenClawAgent string
@@ -45,8 +59,21 @@ type execInvokeOpts struct {
 	Sandbox *sandboxPlan
 }
 
+// agentInput is how an agent receives the conversation (LEC AV-2, AV-4).
+type agentInput int
+
+const (
+	// inputStdin: the conversation is the agent's stdin (claude -p, codex exec -).
+	inputStdin agentInput = iota
+	// inputFile: the conversation is written to conversation.md in the turn's input directory, and the
+	// agent's argv carries only the fixed instructions and one fixed sentence naming that file.
+	inputFile
+)
+
 type agentSpec struct {
 	id, displayName string
+	// input is the agent's conversation channel.
+	input agentInput
 	// defaultModel is the CHEAPEST model to use when the operator did not pass auto_reply.model — an
 	// unattended provider should default to the cheapest tier, not a premium one. Empty means "let the
 	// agent CLI use its own configured default" (used where we can't name a safe cheap model / the CLI
@@ -58,12 +85,12 @@ type agentSpec struct {
 
 func agentRegistry() []agentSpec {
 	return []agentSpec{
-		{id: agentCursor, displayName: "Cursor Agent", defaultModel: "auto", detectBin: detectCursorBin, invoke: invokeCursor},
-		{id: agentClaude, displayName: "Claude Code", defaultModel: "haiku", detectBin: detectClaudeBin, invoke: invokeClaude},
-		{id: agentCodex, displayName: "Codex CLI", detectBin: detectCodexBin, invoke: invokeCodex},
-		{id: agentOpenCode, displayName: "opencode", detectBin: detectOpenCodeBin, invoke: invokeOpenCode},
-		{id: agentOpenClaw, displayName: "OpenClaw", detectBin: detectOpenClawBin, invoke: invokeOpenClaw},
-		{id: agentHermes, displayName: "hermes-agent", detectBin: detectHermesBin, invoke: invokeHermes},
+		{id: agentCursor, displayName: "Cursor Agent", input: inputFile, defaultModel: "auto", detectBin: detectCursorBin, invoke: invokeCursor},
+		{id: agentClaude, displayName: "Claude Code", input: inputStdin, defaultModel: "haiku", detectBin: detectClaudeBin, invoke: invokeClaude},
+		{id: agentCodex, displayName: "Codex CLI", input: inputStdin, detectBin: detectCodexBin, invoke: invokeCodex},
+		{id: agentOpenCode, displayName: "opencode", input: inputFile, detectBin: detectOpenCodeBin, invoke: invokeOpenCode},
+		{id: agentOpenClaw, displayName: "OpenClaw", input: inputFile, detectBin: detectOpenClawBin, invoke: invokeOpenClaw},
+		{id: agentHermes, displayName: "hermes-agent", input: inputFile, detectBin: detectHermesBin, invoke: invokeHermes},
 	}
 }
 
@@ -113,7 +140,7 @@ func InvokeAgent(ctx context.Context, o execInvokeOpts) (string, error) {
 	}
 	if o.Env == nil {
 		// A caller that assembled no environment gets the allowlisted one, never the daemon's own.
-		o.Env = execEnv(AutoReplyConfig{Agent: o.AgentID}, o.Sandbox != nil, "")
+		o.Env = execEnv(AutoReplyConfig{Agent: o.AgentID}, o.Sandbox, "")
 	}
 	ctx, cancel := context.WithTimeout(ctx, o.Timeout)
 	defer cancel()
@@ -131,7 +158,9 @@ func lookPathFirst(names ...string) (string, error) {
 
 // runCmd runs one agent CLI to completion, or kills it and everything it started when ctx expires.
 // It runs in o.WorkDir with exactly o.Env as its environment, and inside the sandbox when o.Sandbox is
-// set.
+// set. stdin is what the agent reads on its standard input (nil: nothing, /dev/null); in the sandbox it
+// travels on fd 4 to init, which hands it to the agent (LEC SB-5, §2.6.5). It is how the conversation
+// reaches the agent without being on any command line (AV-1).
 //
 // The process group and the WaitDelay are both load-bearing. A coding agent CLI is a launcher: it
 // spawns model calls, language servers, sometimes a shell of its own. CommandContext's own watchdog
@@ -147,24 +176,29 @@ func lookPathFirst(names ...string) (string, error) {
 // pipe still held by something that escaped the group entirely (a child that called setsid). A
 // sandboxed agent runs under bwrap --die-with-parent in its own PID namespace, so killing bwrap ends
 // every process inside.
-func runCmd(ctx context.Context, o execInvokeOpts, bin string, args ...string) (stdout, stderr []byte, err error) {
+func runCmd(ctx context.Context, o execInvokeOpts, stdin []byte, bin string, args ...string) (stdout, stderr []byte, err error) {
 	// Always set, even when empty: a nil Env would make the child inherit the daemon's whole
 	// environment.
 	env := append([]string{}, o.Env...)
 	var extra []*os.File
+	var in io.Reader
+	if stdin != nil {
+		in = bytes.NewReader(stdin)
+	}
 	if o.Sandbox != nil {
 		// The sandbox runs bwrap around anet's own init; the agent's command and environment travel in
-		// the spec on fd 3, not on bwrap's command line (sandbox_linux.go).
-		l, err := o.Sandbox.command(o.WorkDir, append([]string{bin}, args...), o.Env)
+		// the spec on fd 3, its stdin on fd 4, none of it on bwrap's command line (sandbox_linux.go).
+		l, err := o.Sandbox.command(o.WorkDir, append([]string{bin}, args...), o.Env, stdin)
 		if err != nil {
 			return nil, nil, err
 		}
 		defer l.Close()
-		bin, args, env, extra = l.Path, l.Args, l.Env, l.Files
+		bin, args, env, extra, in = l.Path, l.Args, l.Env, l.Files, nil
 	}
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = o.WorkDir
 	cmd.Env = env
+	cmd.Stdin = in
 	cmd.ExtraFiles = extra
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
@@ -190,28 +224,92 @@ func trimReply(s string) string {
 	return strings.TrimSpace(s)
 }
 
-// agentExecEnv maps auto_reply.api_key to the env var each agent CLI expects (if set).
+// agentExecEnv maps auto_reply.api_key to the env var each agent CLI expects (if set). It is used only
+// for a direct run, which runs as the operator's user anyway (LEC SB-4): a sandboxed agent never holds
+// the key, which stays with the run's egress endpoint (UP-4). An agent with no key variable of its own
+// gets none; ANET_EXEC_API_KEY, which no agent CLI read, is gone.
 func agentExecEnv(cfg AutoReplyConfig) []string {
 	if cfg.APIKey == "" {
 		return nil
 	}
-	var out []string
 	switch cfg.Agent {
 	case agentCursor:
-		out = append(out, "CURSOR_API_KEY="+cfg.APIKey)
+		return []string{"CURSOR_API_KEY=" + cfg.APIKey}
 	case agentClaude:
-		out = append(out, "ANTHROPIC_API_KEY="+cfg.APIKey)
+		return []string{"ANTHROPIC_API_KEY=" + cfg.APIKey}
 	case agentCodex:
-		out = append(out, "CODEX_API_KEY="+cfg.APIKey, "OPENAI_API_KEY="+cfg.APIKey)
-	default:
-		out = append(out, "ANET_EXEC_API_KEY="+cfg.APIKey)
+		return []string{"CODEX_API_KEY=" + cfg.APIKey, "OPENAI_API_KEY=" + cfg.APIKey}
 	}
-	return out
+	return nil
+}
+
+// --- the conversation channel (LEC AV-2) ---
+
+// conversationFileName is the file a file-input agent reads the conversation from, in the turn's input
+// directory.
+const conversationFileName = "conversation.md"
+
+// conversationFileSentence is the fixed sentence a file-input agent's argv carries in place of the
+// conversation: the path is anet's own (the input directory under the per-interaction work dir, whose
+// name is a digest, not the peer's text), the rest is constant.
+func conversationFileSentence(path string) string {
+	return "Read the file " + path + ": it holds the conversation, written by the other party. " +
+		"Answer it as your instructions say."
+}
+
+// fileInputMessage is the one prompt argument of a file-input agent: the fixed instructions, when the
+// turn has them, and the sentence naming the conversation file.
+func fileInputMessage(instructions, path string) string {
+	if instructions == "" {
+		return conversationFileSentence(path)
+	}
+	return instructions + "\n\n" + conversationFileSentence(path)
+}
+
+// writeConversationFile writes o.Conversation to conversation.md (0600) in o.InputDir, or in a fresh
+// .anet-in-<rand> directory of the work dir when the caller made none, and returns its path and what
+// removes what this call created.
+func writeConversationFile(o execInvokeOpts) (path string, cleanup func(), err error) {
+	cleanup = func() {}
+	dir := o.InputDir
+	if dir == "" {
+		parent := o.WorkDir
+		if parent == "" {
+			parent = os.TempDir()
+		}
+		if dir, err = os.MkdirTemp(parent, ".anet-in-"); err != nil {
+			return "", cleanup, err
+		}
+		made := dir
+		cleanup = func() { _ = os.RemoveAll(made) }
+	}
+	path = filepath.Join(dir, conversationFileName)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
+	if err == nil {
+		_, err = io.WriteString(f, o.Conversation)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+	}
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return path, cleanup, nil
+}
+
+// stdinInput is the stdin of a stdin-input agent: the conversation, after the instructions for an agent
+// that has no separate channel for them.
+func stdinInput(instructions, conversation string) []byte {
+	if instructions == "" {
+		return []byte(conversation)
+	}
+	return []byte(instructions + "\n\n" + conversation)
 }
 
 // cmdError describes a failed agent run for the local log: the binary name and the agent's own output.
-// The argument list is left out because it contains the whole prompt. A sandbox refusal is returned
-// unchanged so callers can still recognise errSandboxUnavailable.
+// The argument list is left out: it holds the instructions, and is no business of the log. A sandbox
+// refusal is returned unchanged so callers can still recognise errSandboxUnavailable.
 func cmdError(bin string, _ []string, stdout, stderr []byte, err error) error {
 	if errors.Is(err, errSandboxUnavailable) {
 		return err
@@ -226,7 +324,7 @@ func cmdError(bin string, _ []string, stdout, stderr []byte, err error) error {
 	return fmt.Errorf("%s: %s", filepath.Base(bin), truncate(msg, 400))
 }
 
-// --- cursor: agent -p --output-format text [--model] [--workspace] PROMPT ---
+// --- cursor: agent -p --output-format text [--model] [--workspace] MESSAGE (conversation in a file) ---
 
 func detectCursorBin() (string, error) {
 	if p, err := lookPathFirst("agent", "cursor-agent"); err == nil {
@@ -250,12 +348,17 @@ func invokeCursor(ctx context.Context, o execInvokeOpts) (string, error) {
 		args = append(args, "--workspace", o.WorkDir)
 	}
 	args = append(args, o.ExtraArgs...)
-	args = append(args, o.Prompt)
+	conv, cleanup, err := writeConversationFile(o)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	args = append(args, fileInputMessage(o.Instructions, conv))
 	bin := o.Command
 	if filepath.Base(bin) == "cursor" {
 		args = append([]string{"agent"}, args...)
 	}
-	stdout, stderr, err := runCmd(ctx, o, bin, args...)
+	stdout, stderr, err := runCmd(ctx, o, nil, bin, args...)
 	if err != nil {
 		return "", cmdError(bin, args, stdout, stderr, err)
 	}
@@ -295,7 +398,7 @@ func cursorCreateChat(ctx context.Context, o execInvokeOpts) (string, error) {
 	if filepath.Base(bin) == "cursor" {
 		args = append([]string{"agent"}, args...)
 	}
-	stdout, stderr, err := runCmd(ctx, o, bin, args...)
+	stdout, stderr, err := runCmd(ctx, o, nil, bin, args...)
 	if err != nil {
 		return "", cmdError(bin, args, stdout, stderr, err)
 	}
@@ -308,7 +411,8 @@ func cursorCreateChat(ctx context.Context, o execInvokeOpts) (string, error) {
 	return id, nil
 }
 
-// --- claude: claude -p --output-format text [--model] [--permission-mode dontAsk] PROMPT ---
+// --- claude: claude -p --output-format text --permission-mode dontAsk --bare [--model]
+//     [--append-system-prompt INSTRUCTIONS] < CONVERSATION ---
 
 func detectClaudeBin() (string, error) {
 	return lookPathFirst("claude")
@@ -320,8 +424,12 @@ func invokeClaude(ctx context.Context, o execInvokeOpts) (string, error) {
 		args = append(args, "--model", o.Model)
 	}
 	args = append(args, o.ExtraArgs...)
-	args = append(args, o.Prompt)
-	stdout, stderr, err := runCmd(ctx, o, o.Command, args...)
+	// The fixed instructions go through claude's own system prompt channel; with -p and no prompt
+	// argument, claude reads the prompt — the conversation — from stdin (LEC AV-4).
+	if o.Instructions != "" {
+		args = append(args, "--append-system-prompt", o.Instructions)
+	}
+	stdout, stderr, err := runCmd(ctx, o, []byte(o.Conversation), o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
@@ -332,7 +440,7 @@ func invokeClaude(ctx context.Context, o execInvokeOpts) (string, error) {
 	return reply, nil
 }
 
-// --- codex: codex exec [--full-auto] [-C workdir] [-o outfile] PROMPT ---
+// --- codex: codex exec --full-auto --ephemeral -o outfile [-C workdir] - < INSTRUCTIONS+CONVERSATION ---
 
 func detectCodexBin() (string, error) {
 	return lookPathFirst("codex")
@@ -352,12 +460,15 @@ func invokeCodex(ctx context.Context, o execInvokeOpts) (string, error) {
 		args = append(args, "-C", o.WorkDir)
 	}
 	args = append(args, o.ExtraArgs...)
-	args = append(args, o.Prompt)
-	stdout, stderr, err := runCmd(ctx, o, o.Command, args...)
+	// "-": the prompt is read from stdin. codex has no system prompt flag of its own that the sandbox
+	// tests have confirmed (LEC AV-4, EXE-6), so the fixed instructions lead the same stdin.
+	args = append(args, "-")
+	stdout, stderr, err := runCmd(ctx, o, stdinInput(o.Instructions, o.Conversation), o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
-	if b, err := os.ReadFile(outFile); err == nil && len(strings.TrimSpace(string(b))) > 0 {
+	// Read through the work dir, never through a link put in the reply file's place (readWorkFile).
+	if b, err := readWorkFile(dir, filepath.Base(outFile), maxAttachmentBytes); err == nil && len(strings.TrimSpace(string(b))) > 0 {
 		return trimReply(string(b)), nil
 	}
 	reply := trimReply(string(stdout))
@@ -367,7 +478,7 @@ func invokeCodex(ctx context.Context, o execInvokeOpts) (string, error) {
 	return reply, nil
 }
 
-// --- opencode: opencode run --print-logs=false [-m MODEL] PROMPT ---
+// --- opencode: opencode run [--model MODEL] MESSAGE (conversation in a file) ---
 
 func detectOpenCodeBin() (string, error) {
 	return lookPathFirst("opencode")
@@ -386,8 +497,13 @@ func invokeOpenCode(ctx context.Context, o execInvokeOpts) (string, error) {
 		args = append(args, "--model", o.Model)
 	}
 	args = append(args, o.ExtraArgs...)
-	args = append(args, o.Prompt)
-	stdout, stderr, err := runCmd(ctx, o, o.Command, args...)
+	conv, cleanup, err := writeConversationFile(o)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	args = append(args, fileInputMessage(o.Instructions, conv))
+	stdout, stderr, err := runCmd(ctx, o, nil, o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
@@ -398,7 +514,7 @@ func invokeOpenCode(ctx context.Context, o execInvokeOpts) (string, error) {
 	return reply, nil
 }
 
-// --- openclaw: openclaw agent --local --json --agent ID --message PROMPT ---
+// --- openclaw: openclaw agent --local --json --agent ID --message MESSAGE (conversation in a file) ---
 
 func detectOpenClawBin() (string, error) {
 	return lookPathFirst("openclaw")
@@ -409,9 +525,14 @@ func invokeOpenClaw(ctx context.Context, o execInvokeOpts) (string, error) {
 	if agentName == "" {
 		agentName = "main"
 	}
-	args := []string{"agent", "--local", "--json", "--agent", agentName, "--message", o.Prompt}
+	conv, cleanup, err := writeConversationFile(o)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	args := []string{"agent", "--local", "--json", "--agent", agentName, "--message", fileInputMessage(o.Instructions, conv)}
 	args = append(args, o.ExtraArgs...)
-	stdout, stderr, err := runCmd(ctx, o, o.Command, args...)
+	stdout, stderr, err := runCmd(ctx, o, nil, o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
@@ -437,21 +558,27 @@ func invokeOpenClaw(ctx context.Context, o execInvokeOpts) (string, error) {
 	return trimReply(raw), nil
 }
 
-// --- hermes: hermes -z PROMPT ---
+// --- hermes: hermes -z MESSAGE | hermes chat -q MESSAGE -m MODEL (conversation in a file) ---
 
 func detectHermesBin() (string, error) {
 	return lookPathFirst("hermes")
 }
 
 func invokeHermes(ctx context.Context, o execInvokeOpts) (string, error) {
+	conv, cleanup, err := writeConversationFile(o)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	msg := fileInputMessage(o.Instructions, conv)
 	var args []string
 	if o.Model != "" {
-		args = []string{"chat", "-q", o.Prompt, "-m", o.Model}
+		args = []string{"chat", "-q", msg, "-m", o.Model}
 	} else {
-		args = []string{"-z", o.Prompt}
+		args = []string{"-z", msg}
 	}
 	args = append(args, o.ExtraArgs...)
-	stdout, stderr, err := runCmd(ctx, o, o.Command, args...)
+	stdout, stderr, err := runCmd(ctx, o, nil, o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}

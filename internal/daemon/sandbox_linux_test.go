@@ -236,7 +236,7 @@ func TestSandboxCommandKeepsTheAgentOffTheCommandLine(t *testing.T) {
 		Features: bwrapFeatures{DisableUserns: true, Size: true}}
 	const prompt = "CANARY-PROMPT-7f3a: the peer's words"
 	const key = "CANARY-KEY-91bd"
-	l, err := plan.command(work, []string{agent, "-p", prompt}, []string{"PATH=/usr/bin", "ANTHROPIC_API_KEY=" + key, "HOME=/elsewhere"})
+	l, err := plan.command(work, []string{agent, "-p", prompt}, []string{"PATH=/usr/bin", "ANTHROPIC_API_KEY=" + key, "HOME=/elsewhere"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestSandboxCommandKeepsTheAgentOffTheCommandLine(t *testing.T) {
 func TestSandboxCommandRefusesAnOversizedSpec(t *testing.T) {
 	agent := writeStub(t, "#!/bin/sh\necho hi\n")
 	plan := &sandboxPlan{Bwrap: "/usr/bin/bwrap", AID: "EaidOversized0000001", Home: t.TempDir()}
-	_, err := plan.command(t.TempDir(), []string{agent, strings.Repeat("x", sandboxSpecMax)}, nil)
+	_, err := plan.command(t.TempDir(), []string{agent, strings.Repeat("x", sandboxSpecMax)}, nil, nil)
 	if err == nil || errors.Is(err, errSandboxUnavailable) {
 		t.Fatalf("an oversized spec: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestSandboxedTurnsWorkUnderTheSandboxRoot(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := filepath.Join(tc.root, aidShort(aid), "ix-root"); o.WorkDir != want {
+		if want := filepath.Join(tc.root, aidShort(aid), ixDirName("ix-root")); o.WorkDir != want {
 			t.Errorf("sandboxed %v: work dir %s, want %s", tc.sandbox != nil, o.WorkDir, want)
 		}
 		ob, cleanup, err := d.newExecOutbox("ix-root", tc.sandbox != nil)
@@ -420,7 +420,7 @@ func TestSandboxedTurnsWorkUnderTheSandboxRoot(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, aidShort(aid), "ix-old")); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("an inactive interaction's work dir under %s survived pruning: %v", root, err)
 		}
-		if _, err := os.Stat(filepath.Join(root, aidShort(aid), "ix-root")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, aidShort(aid), ixDirName("ix-root"))); err != nil {
 			t.Errorf("an active interaction's work dir under %s was pruned: %v", root, err)
 		}
 	}
@@ -479,7 +479,7 @@ func TestSandboxCommandOpensTheEgressEndpoint(t *testing.T) {
 	agent := writeStub(t, "#!/bin/sh\necho hi\n")
 	plan := &sandboxPlan{Bwrap: "/usr/bin/bwrap", AID: "EaidEgressCommand001", Home: filepath.Join(t.TempDir(), "home"), Egress: up}
 	l, err := plan.command(t.TempDir(), []string{agent}, []string{"PATH=/usr/bin", "ANTHROPIC_API_KEY=" + testOperatorKey,
-		"HTTPS_PROXY=http://u:pw@proxy.example:8080"})
+		"HTTPS_PROXY=http://u:pw@proxy.example:8080"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1015,5 +1015,73 @@ func TestSandboxIntegrationReachesTheModelOnlyThroughTheNode(t *testing.T) {
 	ents, _ := os.ReadDir(sandboxRunRoot())
 	if len(ents) != 0 {
 		t.Errorf("run directories left behind: %d", len(ents))
+	}
+}
+
+// Integration (SI-56, AV-1, the real-sandbox half of TestSandboxHoldsNoSecret): with a working
+// bubblewrap, the sandboxed agent (the test binary acting as the probe) reads its conversation — over
+// 200 KiB of it — on stdin, through fd 4; its environment holds no model key (the operator's or the
+// daemon's), no proxy password and neither local token; its command line holds no conversation and no
+// interaction id. Skipped where bwrap is missing or cannot create namespaces.
+func TestSandboxIntegrationHoldsNoSecret(t *testing.T) {
+	pr := realBwrapProbe(t, func(f bwrapFeatures) bwrapFeatures { return f })
+	if pr.Err != nil {
+		t.Fatalf("the sandbox failed its self-check: %v", pr.Err)
+	}
+	t.Setenv("ANTHROPIC_API_KEY", canaryEnvKey)
+	t.Setenv("HTTPS_PROXY", "http://user:"+canaryProxy+"@proxy.example:3128")
+	f := newFakeModelService(t)
+	_ = testUpstream(t, egressUpstreamAnthropic, f) // the built-in service's address is the fake's
+	d := newBareDaemon(t)
+	ctlTok, err := newControlToken(d.layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, _ := json.Marshal(sandboxProbeRequest{Egress: true, HostURL: f.srv.URL + "/v1/models", OperatorKey: canaryKey})
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pad := strings.Repeat("p", 200<<10)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	res, err := d.runSandboxed(ctx, sandboxRequest{
+		Cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", Command: self, APIKey: canaryKey, APITimeoutSeconds: 50},
+		RC: replyContext{Role: "inbound", InteractionID: canaryIX,
+			Goal: sandboxProbeMarker + string(req) + sandboxProbeEnd},
+		Turns: []chatTurn{{Role: "user", Text: canaryTurn + pad[:60<<10]}, {Role: "user", Text: pad[:60<<10]},
+			{Role: "user", Text: pad[:60<<10]}, {Role: "user", Text: pad[:30<<10]}},
+	})
+	if err != nil {
+		t.Fatalf("sandboxed probe: %v", err)
+	}
+	var got sandboxProbeResult
+	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Reply)), &got); err != nil {
+		t.Fatalf("probe reply %q: %v", res.Reply, err)
+	}
+	if got.Error != "" {
+		t.Fatalf("probe: %s", got.Error)
+	}
+	if got.StdinBytes < 200<<10 {
+		t.Errorf("the agent read %d bytes on stdin, want the whole conversation (over 200 KiB)", got.StdinBytes)
+	}
+	env := strings.Join(got.Environ, "\n")
+	for _, c := range []string{canaryKey, canaryEnvKey, canaryProxy, ctlTok} {
+		if strings.Contains(env, c) {
+			t.Errorf("the sandboxed agent's environment holds %q", c)
+		}
+	}
+	for _, c := range []string{canaryTurn, canaryIX, sandboxProbeMarker, canaryKey} {
+		if strings.Contains(got.Cmdline, c) {
+			t.Errorf("the sandboxed agent's command line holds %q: %s", c, got.Cmdline)
+		}
+	}
+	if !got.KeyIsPlaceholder {
+		t.Error("the agent's model key is not the placeholder")
+	}
+	// AV-2: its instructions, the fixed text that may be on its command line, tell it it runs in the
+	// sandbox and what it can reach.
+	if !strings.Contains(got.Cmdline, "--append-system-prompt") || !strings.Contains(got.Cmdline, "## Sandbox") {
+		t.Errorf("the sandboxed agent was not told it runs in the sandbox: %s", got.Cmdline)
 	}
 }
