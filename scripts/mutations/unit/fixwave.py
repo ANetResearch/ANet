@@ -476,20 +476,24 @@ MUTS = [
   tests=[('ANet:./internal/daemon', 'TestTheA2AInterfaceHoldsToTheQ12InlineLimit')],
   full=['ANet:./internal/daemon'],
  ),
+ # fx33-1 and q32-1 follow the dedupe to the client-key lookup and the decision of UX-1 (correctness-ux
+ # CUX-D2, D3; engine §7: fx33-1 kept, q32-1 rewritten as "the same id on an ended task always returns
+ # that task").
  dict(
   id='fx33-1', group='F33', repo='ANet',
   desc='messageId 去重也认对端写入的消息',
   edits=[
-   ('internal/runtime/interactions/tasks.go', 'WHERE i.role=? AND m.sender_aid <> i.peer_aid`', 'WHERE i.role=?`'),
+   ('internal/runtime/interactions/tasks.go', 'WHERE m.client_key = ? AND i.role = ? AND m.sender_aid <> i.peer_aid`', 'WHERE m.client_key = ? AND i.role = ?`'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAProviderCannotPlantTheClientsMessageIDs')],
   full=['ANet:./internal/runtime/interactions', 'ANet:./internal/daemon'],
  ),
  dict(
   id='q32-1', group='Q32', repo='ANet',
-  desc='messageId 去重也命中终态任务',
+  desc='同 id 命中终态任务一律返回原任务',
   edits=[
-   ('internal/runtime/interactions/tasks.go', '\tif q.OpenOnly {\n', '\tif false && q.OpenOnly {\n'),
+   ('internal/daemon/clientdedupe.go', '\tcase same && mayHaveRun(prior.state, prior.reason) && prior.unanswered && now.Sub(prior.stateAt) <= clientRetryWindow:\n',
+    '\tcase same:\n'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAMessageIDSeenOnAFinishedTaskStartsANewOne')],
   full=['ANet:./internal/runtime/interactions', 'ANet:./internal/daemon'],
