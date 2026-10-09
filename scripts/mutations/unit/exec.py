@@ -1478,7 +1478,7 @@ MUTS += [
   id='m-av-4-codex-full-auto', group='AV-4', repo='ANet',
   desc='codex 改回 exec --full-auto(codex 0.162 拒绝该参数,也不带 --skip-git-repo-check)',
   edits=[('internal/daemon/agents.go', 'args := []string{"exec", "--skip-git-repo-check", "--ephemeral", "-s", mode, "-o", outFile}',
-          'args := []string{"exec", "--full-auto", "--ephemeral", "-o", outFile}')],
+          'args := []string{"exec", "--full-auto", "--ephemeral", "-o", outFile}\n\t_ = mode')],
   tests=[(DAEMON, AGENTS)],
   full=[DAEMON],
  ),
@@ -1605,7 +1605,7 @@ MUTS += [
  dict(
   id='m-av-4-python-venv', group='AV-4', repo='ANet',
   desc='Python agent 的虚拟环境与安装前缀不进沙箱(hermes 找不到自己的包)',
-  edits=[('internal/daemon/sandbox_linux.go', '\t\tdirs = append(dirs, pythonRuntime(named, interp)...)\n', '')],
+  edits=[('internal/daemon/sandbox_linux.go', '\t\tdirs = append(dirs, pythonRuntime(named, interp)...)\n', '\t\t_ = named\n')],
   tests=[(DAEMON, AGENTS)],
   full=[DAEMON],
  ),
