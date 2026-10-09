@@ -37,6 +37,20 @@ jobs:
         run: go vet ./...
       - name: tests
         run: go test ./...
+      # SI-38 at run time: TestDaemonNeverOpensRecoveryFile watches every
+      # open of the recovery files with inotify, which only Linux has, and
+      # skips that half elsewhere. This job runs on Linux, so here a skip is
+      # a failure, and the run-time half must have passed.
+      - name: the daemon opens no recovery file, watched at run time
+        shell: bash
+        run: |
+          go test -count=1 -v -run '^TestDaemonNeverOpensRecoveryFile$' ./internal/daemon/ | tee /tmp/recoveryscope.out
+          if grep -- '--- SKIP' /tmp/recoveryscope.out; then
+            echo "a recovery file test skipped; here that is a failure" >&2
+            exit 1
+          fi
+          grep -q -- '--- PASS: TestDaemonNeverOpensRecoveryFile/run_time' /tmp/recoveryscope.out \
+            || { echo "the run-time recovery file check did not run" >&2; exit 1; }
       # SI-8: the kernel and the MCP server never depend on the A2A SDK,
       # whatever module/a2a does with it. On the import graph, not on a
       # binary, and in the no_a2a build too.
