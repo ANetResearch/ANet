@@ -374,3 +374,21 @@ MUTS += [
   edits=[('internal/aghub/witness.go', '\tif a.Envelope == nil {\n', '\tif false {\n')],
   tests=[(HUB, '^TestAHubRefusesAnUnsignedAttestation$')], full=[HUB]),
 ]
+
+# PAY-3, second review: a database another release left only in its write-ahead log (the read-write
+# open is the one that sees it), the ledger's high-water mark once the 14-day window has emptied the
+# ledger, and the bound on the supply totals themselves (the one Credit has, beside issuanceRoom).
+MUTS += [
+ dict(id='pay3-wal-judge', group='PAY-3', repo='ANetHub', desc='读写打开后不再判定版本(只在 WAL 里的 0.2 库被当作新库并写成版本 3)',
+  edits=[('internal/aghub/aghub.go',
+          '\tif err := judgeSchema(version, objects); err != nil {\n\t\treturn err\n\t}\n\tfor _, part := range schema {\n',
+          '\tif err := judgeSchema(version, objects); err != nil && false {\n\t\treturn err\n\t}\n\tfor _, part := range schema {\n')],
+  tests=[(HUB, '^TestADatabaseKnownOnlyThroughItsLogIsRefused$')], full=[HUB]),
+ dict(id='pay3-ledger-hw', group='PAY-3', repo='ANetHub', desc='ledger_hw 取现存账目的 MAX(seq)(窗口删空账目后回到 0)',
+  edits=[('internal/aghub/supply.go', "SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'credit_entry'), 0)",
+          'SELECT COALESCE(MAX(seq), 0) FROM credit_entry')],
+  tests=[(HUB, '^TestTheLedgerHighWaterMarkOutlivesTheEntries$')], full=[HUB]),
+ dict(id='pay3-total-bound', group='PAY-3', repo='ANetHub', desc='供应累计值不设 2^63−1 的界(超界时 SQLite 存成 REAL)',
+  edits=[('internal/aghub/supply.go', '  WHERE id = 1 AND `+col+` <= ?`, amt,', '  WHERE id = 1 AND ? >= 0`, amt,')],
+  tests=[(HUB, '^TestASupplyTotalThatCannotTakeTheEventRefusesIt$')], full=[HUB]),
+]

@@ -617,6 +617,47 @@ func TestAWrongPaymentIsRefusedBeforeSettlement(t *testing.T) {
 	}
 }
 
+// A task whose id or nonce holds U+0000 has no payment binding (core
+// CORE-E9: PayBind refuses such a field), so its terms carry an empty Bind.
+// The merchant check refuses every payment against those terms, an
+// authorization bound to nothing among them: an empty binding matches no
+// payment, it never matches an empty one.
+func TestATaskWithoutABindingTakesNoPayment(t *testing.T) {
+	work := &meteredWork{price: 50}
+	_, req, prov := paidPair(t, work)
+	payPolicy(t, req, PaymentsConfig{ExplicitMax: u64(100), DailyMax: u64(1000)}, prov.AID())
+	id, _ := req.DelegateCapability(context.Background(), prov.AID(), "work.do", nil)
+	poll(t, prov, req)
+	opt := storedQuote(getIX(t, req, id)).Accepts[0]
+	unbound, err := req.payer().Authorize(opt, id, "", module.PurposeGateway)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pix := getIX(t, prov, id)
+	if terms := prov.paymentTerms(pix); terms.Bind == "" {
+		t.Fatal("the task's own terms have no binding")
+	} else if chk := prov.payer().CheckPayment(unbound, terms); chk.Reason != "binding_mismatch" {
+		t.Fatalf("a payment bound to nothing, against the task's terms: %+v", chk)
+	}
+	for name, edit := range map[string]func(ix *interactions.Interaction){
+		"id":    func(ix *interactions.Interaction) { ix.ID += "\x00" },
+		"nonce": func(ix *interactions.Interaction) { ix.TaskNonce = "\x00" + ix.TaskNonce },
+	} {
+		ix := *pix
+		edit(&ix)
+		terms := prov.paymentTerms(&ix)
+		if terms.Bind != "" {
+			t.Fatalf("%s holding U+0000: the terms bind to %q", name, terms.Bind)
+		}
+		if chk := prov.payer().CheckPayment(unbound, terms); chk.Reason != "binding_mismatch" || chk.Code != "SETTLEMENT_FAILED" {
+			t.Errorf("%s holding U+0000: a payment bound to nothing: %+v", name, chk)
+		}
+	}
+	if work.invoked.Load() != 0 {
+		t.Fatal("the work ran")
+	}
+}
+
 // A settlement whose outcome is not known is presented again, with the
 // same payload, until it is: the hub settled while the provider was not
 // listening, and the requester is charged once and the work runs once

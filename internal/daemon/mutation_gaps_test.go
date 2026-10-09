@@ -367,6 +367,10 @@ func TestAnApprovedTaskIsAnsweredWithTheKeysItWasHeldWith(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Holding the task sends the requester a notice in the background; it
+	// is in the hub before the count below starts, or it would be counted
+	// as a second answer.
+	waitUntil(t, "the held task's notice to reach the hub", func() bool { return len(queuedFor(t, srv, s.AID())) == 1 })
 	setFake(t, srv.URL, func(h *fakeHub) { h.agents[s.AID()].keyset = nil })
 	if _, err := prov.ApprovePending(id); err != nil {
 		t.Fatal(err)

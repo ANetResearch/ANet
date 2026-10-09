@@ -75,6 +75,35 @@ func TestIdentityStatusSaysEachState(t *testing.T) {
 		!bytes.Equal(s.Commitment, fresh.self.KEL()[0].Event.NextDigest) {
 		t.Fatalf("no hub: %+v", s)
 	}
+	// Waiting for admission: still no hub, said in the hub row's own words,
+	// its hub and the admit line included (ux UX-C9).
+	asrv := newFakeHub(t)
+	afh := fakeHubAt(t, asrv.URL)
+	afh.mu.Lock()
+	afh.admission = fakeAdmitClosed
+	afh.mu.Unlock()
+	waiting, _ := joinDaemon(t)
+	if code, out := controlCall(t, waiting.hHubRegister, "/hub-register", hubRegisterBody(asrv.URL, `,"next_digest":"`+testDigest+`"`)); code != 200 ||
+		out["state"] != JoinPendingAdmission {
+		t.Fatalf("join a closed hub: %d %v", code, out)
+	}
+	s = identityStatusOf(t, waiting)
+	if hv := waiting.HubView(); s.State != IdentityNoHub || s.Reason != reasonPending || s.Reason != hv.Reason ||
+		s.Message != hv.Message || s.Next != hv.Next || !strings.Contains(s.Message, asrv.URL) {
+		t.Fatalf("waiting for admission: %+v, the hub row says {%s %q %q}", s, hv.Reason, hv.Message, hv.Next)
+	}
+	// Refused: the hub's code is part of the hub row's sentence, and so of
+	// the identity's.
+	waiting.join.mu.Lock()
+	refused := *waiting.join.rec
+	refused.State, refused.Reason, refused.HubCode, refused.NextAttemptAt = JoinRefused, reasonHubRefused, "kel_invalid", 0
+	waiting.join.rec = &refused
+	waiting.join.mu.Unlock()
+	s = identityStatusOf(t, waiting)
+	if hv := waiting.HubView(); s.State != IdentityNoHub || s.Reason != reasonHubRefused || s.Message != hv.Message ||
+		s.Next != hv.Next || !strings.Contains(s.Message, "kel_invalid") {
+		t.Fatalf("refused: %+v, the hub row says {%s %q %q}", s, hv.Reason, hv.Message, hv.Next)
+	}
 
 	d, srv, fh := witnessedNode(t, true)
 	now := uint64(time.Now().UnixMilli())
@@ -120,6 +149,19 @@ func TestIdentityStatusSaysEachState(t *testing.T) {
 	}
 	d.idGate.notePublishError(hubKELTSOutOfWindow)
 	checkSaid(t, "the witness refused its time", identityStatusOf(t, d), IdentityPublishing, reasonClockSkew, nil)
+
+	// Accepted, the rot is the tip, and the notice held states the one
+	// before it: nothing confirms the key signed under now, so there is no
+	// notice to show, and the wait counts from the rot.
+	if err := (witnessJoinHooks{d}).Adopt(context.Background(), RegisterResult{}); err != nil {
+		t.Fatal(err)
+	}
+	d.idGate.notePublishError("")
+	s = identityStatusOf(t, d)
+	checkSaid(t, "accepted, not yet confirmed", s, IdentityNoticeStale, reasonNoticeStale, a2ashape.Args{"dur": time.Duration(0)})
+	if s.Notice != nil || s.KeySeq != 2 || s.Pending != nil || s.LastRotation == nil || s.LastRotation.Mode != rotationScheduled {
+		t.Fatalf("accepted, not yet confirmed: %+v", s)
+	}
 
 	// Stopped and deactivated.
 	if err := d.self.SetState(identity.StateStopped); err != nil {
@@ -426,6 +468,26 @@ func TestLocalCommitAndTheCommitmentThatReplacesIt(t *testing.T) {
 	if err != nil || !bytes.Equal(built.self.LocalCommit(), local) || !bytes.Equal(f.LocalCommit, local) {
 		t.Fatalf("the designation built: local_commit %x (on disk %x, %v), want %x", built.self.LocalCommit(), f.LocalCommit, err, local)
 	}
+	// Once the identity has its witness, hub-register at that hub only
+	// updates the profile and its next_digest is ignored (KEL D-14), with
+	// unprotected or without: local_commit stays the join's, so a caller
+	// of the control plane cannot make an identity without a passphrase
+	// read as protected and silence the reminder.
+	w, _, whub, _, _ := localSeedJoin(t)
+	joined := w.self.LocalCommit()
+	if code, out := controlCall(t, w.hHubRegister, "/hub-register", hubRegisterBody(whub, `,"next_digest":"`+b64(other)+`","unprotected":true`)); code != 200 {
+		t.Fatalf("an update with a next_digest: %d %v", code, out)
+	}
+	disk, err = os.ReadFile(w.layout.IdentityPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err = identity.ParseIdentityFile(disk)
+	if err != nil || !bytes.Equal(w.self.LocalCommit(), joined) || !bytes.Equal(f.LocalCommit, joined) ||
+		w.recoveryState().State != RecoveryUnprotected {
+		t.Fatalf("an update: local_commit %x (on disk %x, %v), %+v; want %x, unprotected", w.self.LocalCommit(), f.LocalCommit, err,
+			w.recoveryState(), joined)
+	}
 }
 
 // sendRoutes are the send surfaces of the control plane (MCP send_message
@@ -491,6 +553,12 @@ func TestSendRefusedWhenStopped(t *testing.T) {
 	}
 	if err := d.self.SetState(identity.StateStopped); err != nil {
 		t.Fatal(err)
+	}
+	// The identity has a name here (the default one: its data directory is
+	// the home), and the sentence's command names it.
+	t.Setenv("ANET_HOME", d.layout.Root)
+	if IdentityNameForDir(d.layout.Root) == "" {
+		t.Fatal("the data directory of ANET_HOME has no identity name")
 	}
 	checkSendRefused(t, "stopped", d, peer.AID(), reasonStopped, a2ashape.Args{"name": IdentityNameForDir(d.layout.Root)})
 

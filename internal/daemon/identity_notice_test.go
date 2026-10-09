@@ -358,9 +358,8 @@ func TestTheNoticeIsReadBackAtStart(t *testing.T) {
 	// A notice the witness signed, observed after now: within the clock
 	// skew that is the hub's clock, and it is used; beyond it, the notice
 	// would pass for fresh longer than it is, and it is not.
-	ahead := func(by uint64) []byte {
+	observedAt := func(at uint64) []byte {
 		t.Helper()
-		at := uint64(time.Now().UnixMilli()) + by
 		wire, err := base64.RawURLEncoding.DecodeString(hubNotice(t, fh.self, d.self, at))
 		if err != nil {
 			t.Fatal(err)
@@ -371,8 +370,17 @@ func TestTheNoticeIsReadBackAtStart(t *testing.T) {
 		}
 		return b
 	}
+	ahead := func(by uint64) []byte { return observedAt(uint64(time.Now().UnixMilli()) + by) }
 	restart("a notice observed ten minutes from now", ahead(10*minuteMS), IdentityNoticeStale)
 	restart("a notice observed two minutes from now", ahead(2*minuteMS), IdentityOK)
+	// A notice the witness signed seven hours ago is read back all the
+	// same: checked as of when the hub observed it, its age is the gate's
+	// to judge. The gate stays closed, and the identity says how long the
+	// hub has not confirmed the key, from that notice.
+	restart("a notice observed seven hours ago", observedAt(uint64(time.Now().UnixMilli())-7*hourMS), IdentityNoticeStale)
+	if s := d.IdentityStatus(); s.Reason != reasonNoticeStale || s.Notice == nil || s.Notice.AgeS < 7*hourMS/1000 {
+		t.Fatalf("a notice observed seven hours ago: %+v", s)
+	}
 	restart("the file as written, again", good, IdentityOK)
 }
 
