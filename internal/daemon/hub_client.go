@@ -162,9 +162,11 @@ var errKeysHeld = errors.New("anet: key sets are held until the emergency rotati
 // the keys it does not list are no longer acceptable there (FS-K6). 409
 // keys_rollback means the hub holds a newer set of this identity than this
 // ring signed (a lost or restored key ring): the set is signed again above
-// it and sent once more (adoptKeysSeq). Every answer is checked for the
-// mailbox signing key (SSR-D4, noteKeysAtHub). Nothing is sent while key
-// sets are held (keysHeld).
+// it and sent once more (adoptKeysSeq). 400 bad_request means the hub
+// refused the set: when its mailbox key is behind the hub's, a new one is
+// made above it and the set sent once more (healMboxEpoch, SSR-W10a).
+// Every answer is checked for the mailbox signing key (SSR-D4,
+// noteKeysAtHub). Nothing is sent while key sets are held (keysHeld).
 func (d *Daemon) publishKeys(ctx context.Context, hubURL string) error {
 	if d.enc == nil {
 		return fmt.Errorf("anet: no key ring")
@@ -176,7 +178,23 @@ func (d *Daemon) publishKeys(ctx context.Context, hubURL string) error {
 	if stored, ok := keysRollbackSeq(err); ok && d.adoptKeysSeq(hubURL, stored) {
 		err = d.publishKeysOnce(ctx, hubURL)
 	}
+	// The hub refused the set as invalid: the mailbox key may be one it
+	// cannot take (SSR-W9), which a new key above the hub's heals, once
+	// (SSR-W10a).
+	if keySetRefused(err) && d.healMboxEpoch(ctx, hubURL) {
+		if rerr := d.resignKeyRing(); rerr != nil {
+			return rerr
+		}
+		err = d.publishKeysOnce(ctx, hubURL)
+	}
 	return err
+}
+
+// keySetRefused reports whether err is the hub refusing a key set as
+// invalid: POST /agents/{aid}/keys answers 400 bad_request, saying why
+// (forward-secrecy FS-H4, sealed-sender SSR-W9).
+func keySetRefused(err error) bool {
+	return hubStatus(err) == http.StatusBadRequest && hubReason(err) == "bad_request"
 }
 
 // publishKeysOnce is one POST /agents/{aid}/keys of the ring's current set.

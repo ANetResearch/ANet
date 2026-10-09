@@ -303,7 +303,11 @@ func TestMboxEpochRules(t *testing.T) {
 	}
 
 	// A fresh identity, which never named a witness hub: 1, and the hub is
-	// not asked, not even from a new machine.
+	// not asked, not even from a new machine. (The hub admits neither, so
+	// neither registers in the background: two copies of one identity with
+	// different mailbox keys would be the SSR-W10a case, whose heal asks
+	// the hub on purpose; TestMboxEpochHealsAfterSSRW9Refusal has it.)
+	setFake(t, srv.URL, func(h *fakeHub) { h.admission = fakeAdmitClosed })
 	fresh := newTestDaemon(t, srv.URL, true)
 	if got := currentMbox(t, fresh); got.Epoch != 1 {
 		t.Fatalf("a fresh identity's key is at %d", got.Epoch)
@@ -315,6 +319,9 @@ func TestMboxEpochRules(t *testing.T) {
 	if gets() != 0 {
 		t.Fatalf("the hub was asked %d times about an identity that never joined a hub", gets())
 	}
+	fresh.Close()
+	again.Close()
+	setFake(t, srv.URL, func(h *fakeHub) { h.admission = fakeAdmitAll })
 
 	// An identity that designated a witness hub is asked about; this hub
 	// has never seen it: 404, so 1.
@@ -837,6 +844,150 @@ func FuzzMboxKeyFile(f *testing.F) {
 		re, err := encodeMboxFile(epoch, seed)
 		if err != nil || !bytes.Equal(re, b) {
 			t.Fatalf("accepted bytes that are not the key's own encoding (%v)", err)
+		}
+	})
+}
+
+// TestMboxEpochHealsAfterSSRW9Refusal (SSR-W10a): a hub that refuses this
+// node's key set under the mailbox key rule (SSR-W9) because it holds a
+// key this node's does not follow gets a new key one above its own, once,
+// and the set with it:
+//
+//   - mbox.key restored from a backup, behind the key the hub holds;
+//   - mbox.key and the key ring both lost by an identity that was never at
+//     a hub (it does not ask the hub, SSR-W10), so its new key has the
+//     hub's number;
+//   - a hub that says it holds number 2^53: the new key restarts at 1, the
+//     anomaly is reported, and the hub that refuses it again is not healed
+//     from a second time.
+//
+// A refusal for another cause, with the hub holding this node's own key,
+// makes no new key.
+func TestMboxEpochHealsAfterSSRW9Refusal(t *testing.T) {
+	ctx := context.Background()
+	hubEpoch := func(t *testing.T, srv string, aid string) uint64 {
+		t.Helper()
+		h := fakeHubAt(t, srv)
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return decodedSet(t, h.agents[aid].keyset).Mbox.Epoch
+	}
+	t.Run("restored from a backup", func(t *testing.T) {
+		srv, _, prov := registeredPair(t)
+		layout := prov.layout
+		backup, err := os.ReadFile(layout.MboxKeyPath())
+		if err != nil {
+			t.Fatal(err)
+		}
+		// After the backup the node replaced its key (a full revocation
+		// list, say) and the hub took the new one.
+		if err := prov.revocationListFull(ctx, srv.URL); err != nil {
+			t.Fatal(err)
+		}
+		if got := hubEpoch(t, srv.URL, prov.AID()); got != 2 {
+			t.Fatalf("the hub holds epoch %d, want 2", got)
+		}
+		if err := prov.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(layout.MboxKeyPath(), backup, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		d := startAt(t, layout.Root)
+		if got := currentMbox(t, d); got.Epoch != 1 {
+			t.Fatalf("restored key at %d", got.Epoch)
+		}
+		if err := d.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := currentMbox(t, d); got.Epoch != 3 {
+			t.Fatalf("after the refusal the key is at %d, want 3 (one above the hub's 2)", got.Epoch)
+		}
+		if got := hubEpoch(t, srv.URL, d.AID()); got != 3 {
+			t.Fatalf("the hub holds epoch %d, want 3", got)
+		}
+		if reg, _ := d.mailboxStatus(); !reg {
+			t.Fatal("the hub is not reported holding the new key")
+		}
+	})
+	t.Run("both lost, never at a hub", func(t *testing.T) {
+		srv, _, prov := registeredPair(t)
+		if beenAtAHub(prov.self) {
+			t.Skip("the test identity designated a witness; SSR-W10 asks the hub for it instead")
+		}
+		layout := prov.layout
+		if err := prov.Close(); err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range []string{layout.MboxKeyPath(), layout.EncKeysPath()} {
+			if err := os.Remove(p); err != nil {
+				t.Fatal(err)
+			}
+		}
+		d := startAt(t, layout.Root)
+		if got := currentMbox(t, d); got.Epoch != 1 {
+			t.Fatalf("the new key is at %d", got.Epoch)
+		}
+		if err := d.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
+			t.Fatal(err)
+		}
+		if got := currentMbox(t, d); got.Epoch != 2 {
+			t.Fatalf("after the refusal the key is at %d, want 2", got.Epoch)
+		}
+		if got := hubEpoch(t, srv.URL, d.AID()); got != 2 {
+			t.Fatalf("the hub holds epoch %d, want 2", got)
+		}
+	})
+	t.Run("the hub says 2^53", func(t *testing.T) {
+		srv, _, prov := registeredPair(t)
+		h := fakeHubAt(t, srv.URL)
+		huge := keySetWithMboxEpoch(t, prov, 1<<53)
+		h.mu.Lock()
+		h.keysOverride[prov.AID()] = hubapi.KeysResponse{AID: prov.AID(), KeySet: hubapi.B64(huge)}
+		h.refuseKeySets = true
+		h.mu.Unlock()
+		// A new key the hub has not got yet: the set with it is refused.
+		if err := prov.ix.Update(func(tx *interactions.Tx) error { _, err := prov.rotateMboxTx(tx); return err }); err != nil {
+			t.Fatal(err)
+		}
+		if err := prov.resignKeyRing(); err != nil {
+			t.Fatal(err)
+		}
+		if err := prov.publishKeys(ctx, srv.URL); err == nil {
+			t.Fatal("the refused set was taken")
+		}
+		if got := currentMbox(t, prov); got.Epoch != 1 {
+			t.Fatalf("after the hub said 2^53 the key is at %d, want 1", got.Epoch)
+		}
+		if _, invalid := prov.mailboxStatus(); !invalid || prov.ReceiveStats()["hub-epoch-anomaly"] != 1 {
+			t.Fatal("the impossible epoch was not reported")
+		}
+		before := currentMbox(t, prov)
+		for i := 0; i < 3; i++ {
+			if err := prov.publishKeys(ctx, srv.URL); err == nil {
+				t.Fatal("the refused set was taken")
+			}
+		}
+		if after := currentMbox(t, prov); after.Epoch != before.Epoch || !bytes.Equal(after.Pub, before.Pub) {
+			t.Fatal("the same hub key was healed from again")
+		}
+	})
+	t.Run("another cause", func(t *testing.T) {
+		srv, _, prov := registeredPair(t)
+		h := fakeHubAt(t, srv.URL)
+		before := currentMbox(t, prov)
+		h.mu.Lock()
+		h.refuseKeySets = true
+		h.mu.Unlock()
+		atClock(prov, epochOf(prov.nowMS())+seal.EpochMS+60_000)
+		if err := prov.resignKeyRing(); err != nil {
+			t.Fatal(err)
+		}
+		if err := prov.publishKeys(ctx, srv.URL); err == nil {
+			t.Fatal("the refused set was taken")
+		}
+		if after := currentMbox(t, prov); after.Epoch != before.Epoch || !bytes.Equal(after.Pub, before.Pub) {
+			t.Fatal("a refusal with the hub holding this node's own key made a new key")
 		}
 	})
 }
