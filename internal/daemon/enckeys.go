@@ -1074,10 +1074,11 @@ func (d *Daemon) publishIfNeeded() {
 // unverified_run, the key ring (deletions, new keys, signature), the
 // interaction keys' close_after sweep (FS-X9), the retention sweep (FS-L6)
 // and the store's housekeeping after it (sweepHardBound), all under the
-// period's one gate level, and then the ring's publication. The deletions run with the mailbox poll's lock, after a poll
-// round, so they are serial with the receive path of the hub mailbox; the
-// publication, a hub call, runs after the lock is released, so a hub slow
-// to answer it does not hold up the next poll.
+// period's one gate level, and then the ring's publication. The deletions
+// run with the mailbox poll's lock, after a poll round, so they are serial
+// with the receive path of the hub mailbox; the publication, a hub call,
+// runs after the lock is released, so a hub slow to answer it does not
+// hold up the next poll.
 func (d *Daemon) keyMaintenance() {
 	if err := d.keyPeriod(); err != nil {
 		if !errors.Is(err, errMboxPending) {
