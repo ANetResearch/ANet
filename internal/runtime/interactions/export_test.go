@@ -47,8 +47,8 @@ func (s *Store) explain(q string, args []any) ([]string, error) {
 	return out, rows.Err()
 }
 
-// ExplainFindByClientMessage is the query plan of FindByClientMessage for q.
-func (s *Store) ExplainFindByClientMessage(q ClientMessageQuery) ([]string, error) {
+// ExplainFindByClientKey is the query plan of FindByClientKey for q.
+func (s *Store) ExplainFindByClientKey(q ClientKeyQuery) ([]string, error) {
 	sql, args := q.findSQL()
 	return s.explain(sql, args)
 }

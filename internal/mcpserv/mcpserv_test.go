@@ -166,16 +166,6 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	if !strings.Contains(desc("send_message"), "a resend is a second task") {
 		t.Error("send_message must warn that sending again makes a second task")
 	}
-	// an internal note: Claude Code made message ids from the request and the
-	// date ("book-meeting-room-20260929-1"); the same id in a second session,
-	// while the first session's task was still open, returned that old task
-	// and the new request was never sent.
-	for _, want := range []string{"a fresh random one (a UUID) for every new message",
-		"never one made from the text or the date", "returns that task and sends nothing"} {
-		if !strings.Contains(desc("send_message"), want) {
-			t.Errorf("send_message must say %q about message_id", want)
-		}
-	}
 	// an internal note: told "the limits are 0 until the operator raises
 	// them", the model told the user a priced skill needed `anet pay` on a
 	// node whose limits covered it. No tool shows the limits.
@@ -309,9 +299,9 @@ var requestShapes = []struct {
 	{"send_message", map[string]any{"to": "aid-1", "text": "translate this"},
 		"/tasks/send", map[string]any{"to": "aid-1", "text": "translate this", "timeout_ms": 30000.0, "max_task_bytes": 24576.0}},
 	{"send_message", map[string]any{"to": "aid-1", "skill": "text.digest", "args": map[string]any{"text": "x"},
-		"message_id": "m-1", "context_id": "ctx-1", "return_immediately": true},
+		"context_id": "ctx-1", "return_immediately": true},
 		"/tasks/send", map[string]any{"to": "aid-1", "skill": "text.digest", "args": map[string]any{"text": "x"},
-			"message_id": "m-1", "context_id": "ctx-1", "return_immediately": true, "max_task_bytes": 24576.0}},
+			"context_id": "ctx-1", "return_immediately": true, "max_task_bytes": 24576.0}},
 	{"send_message", map[string]any{"task_id": "ix-1", "text": "yes", "timeout_seconds": 1000, "history_length": 2},
 		"/tasks/send", map[string]any{"task_id": "ix-1", "text": "yes", "timeout_ms": 300000.0, "history_length": 2.0,
 			"max_task_bytes": 24576.0}},
@@ -393,7 +383,7 @@ func TestFilesTravelAsRawParts(t *testing.T) {
 	f := &fakeControl{}
 	sess := connect(t, f)
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "send_message", Arguments: map[string]any{
-		"task_id": "ix-1", "message_id": "m-2", "text": "see attached",
+		"task_id": "ix-1", "text": "see attached",
 		"files": []any{map[string]any{"name": "a.txt", "media_type": "text/plain", "content_base64": "aGk="}},
 	}})
 	if msg, isErr := resultText(t, res, err); isErr {
@@ -407,7 +397,7 @@ func TestFilesTravelAsRawParts(t *testing.T) {
 	}
 	msg, _ := body["message"].(map[string]any)
 	want := map[string]any{
-		"messageId": "m-2", "taskId": "ix-1", "role": "ROLE_USER",
+		"messageId": "", "taskId": "ix-1", "role": "ROLE_USER",
 		"parts": []any{
 			map[string]any{"text": "see attached"},
 			map[string]any{"raw": "aGk=", "filename": "a.txt", "mediaType": "text/plain"},

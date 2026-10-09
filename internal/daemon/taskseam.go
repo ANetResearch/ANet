@@ -17,20 +17,22 @@ package daemon
 //     (C22); for a scoped caller it must not belong to another agent's
 //     tasks (TaskNotFound, as for another agent's task id), and an unknown
 //     one starts a new context. Without one the
-//     daemon mints it. (contextId, client messageId) is the dedupe key: a
-//     retry returns the task the first attempt created (without a
-//     contextId, (agent, messageId): the retry cannot name the context the
-//     daemon minted). Only a task still open counts (an internal note item): a
-//     messageId seen on a finished task starts a new one. Only this
-//     node's own messages carry the key for it: a2a.messageId in a peer's
-//     message metadata is not the client's [redteam:F33]. The delegation
+//     daemon mints it. A client messageId makes the message a retry of an
+//     earlier one under the same id, with the agent and the contextId (or,
+//     without one, any of the agent's contexts: the retry cannot name the
+//     context the daemon minted), when the content is the same and the
+//     task is open — or ended moments ago after a call that was cut off
+//     before its answer; the same id with other content on an open task is
+//     refused, and on a finished one starts a new task (clientdedupe.go,
+//     correctness-ux CUX-D1 to D5; an internal note item). Only this node's own
+//     messages carry the key for it [redteam:F33]. The delegation
 //     goes through the retry queue (an internal note item): once the task is recorded
 //     the call answers submitted, and an unreachable provider or hub only
 //     delays it. A delegation the queue
 //     gives up on (expired, or refused for good by the hub) fails the task
-//     with anet.reason=undeliverable, and such a task does not count for
-//     the dedupe: a retry of its message is a new attempt. The client's
-//     messageId is stored in message.metadata["a2a.messageId"]; the
+//     with anet.reason=undeliverable, which was never run: a retry of its
+//     message is a new attempt. The client's messageId is also kept in
+//     message.metadata["a2a.messageId"] for the projection; the
 //     envelope carries a daemon-minted id. One leniency (an internal note item,
 //     taskseam_context.go): on the A2A interface, a contextId whose only
 //     input-required task of this endpoint waits for it is continued
@@ -236,8 +238,8 @@ func checkHistoryLen(n *int) error {
 
 // --- SendMessage ---
 
-// sendLocks serializes sends that share a dedupe key, so two copies of one
-// client message sent at once create one task. Keys carry this node's AID
+// sendLocks serializes sends that share a client messageId, so two copies of
+// one client message sent at once create one task. Keys carry this node's AID
 // (tests run several daemons in one process) and the remote agent.
 var sendLocks keyedLocks
 
@@ -316,24 +318,32 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 		}
 	}
 	release := func() {}
-	if msg.ID != "" {
+	cm, err := newClientMark(msg.ID, inputContent(in, msg, req.Extensions))
+	if err != nil {
+		return a2ashape.Task{}, err
+	}
+	var ans func(ix string) *answered
+	if cm != nil {
 		// Without a contextId the key is (agent, messageId): the lock key
 		// then has an empty context, and the lookup spans the agent's
-		// contexts.
-		release = lockSend(d.AID()+"\x00"+peer, contextID, msg.ID)
+		// contexts. (The key is taken now: contextID is minted below.)
+		lockCtx := contextID
+		lock := func() func() { return lockSend(d.AID()+"\x00"+peer, lockCtx, msg.ID) }
+		release = lock()
 		defer release()
-		// Only a task still open is a retry's (an internal note item): a message id
-		// seen on a finished task starts a new one, so a client that
-		// reuses ids is not answered with an old result.
-		prior, err := d.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
-			ContextID: contextID, PeerAID: peer, ClientMsgID: msg.ID, OpenOnly: true})
-		switch {
-		case err == nil:
-			// A retry of a message that already made a task.
-			release()
-			return d.finishSend(ctx, sc, prior.ID, 0, req, wait)
-		case !errors.Is(err, interactions.ErrNotFound):
+		ans = func(ix string) *answered { return &answered{lock: lock, ix: ix, key: cm.key} }
+		m, err := d.judgeClientMessage(cm, interactions.ClientKeyQuery{PeerAID: peer, ContextID: contextID})
+		if err != nil {
 			return a2ashape.Task{}, err
+		}
+		switch m.verdict {
+		case clientRetry:
+			// A retry of a message that already made a task: that task,
+			// and nothing is sent again.
+			release()
+			return dedupedTask(d.finishSend(ctx, sc, m.ix.ID, 0, req, wait, ans(m.ix.ID)))
+		case clientReusedOpen, clientReusedFollowUp:
+			return a2ashape.Task{}, reusedRefusal(m)
 		}
 	}
 	// an internal note item: a contextId-only message may continue the one task of this
@@ -361,7 +371,7 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
 	if in.capID != "" {
-		_, err = d.delegateCapabilityCtx(sctx, id, peer, in.capID, in.args, contextID)
+		_, err = d.delegateCapabilityCtx(sctx, id, peer, in.capID, in.args, contextID, cm)
 	} else {
 		var mb []byte
 		if len(meta) > 0 {
@@ -369,7 +379,11 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 				return a2ashape.Task{}, err
 			}
 		}
-		err = d.delegateInWithID(sctx, id, peer, in.goal(), in.atts, contextID, mb)
+		err = d.delegateInWithID(sctx, id, peer, in.goal(), in.atts, contextID, mb, cm)
+	}
+	var mark *answered
+	if ans != nil {
+		mark = ans(id)
 	}
 	switch {
 	case errors.Is(err, errUndeliverable):
@@ -377,7 +391,7 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 		// the task is failed (anet.reason=undeliverable) and answered as it
 		// is. A retry of the same message is a new attempt.
 		release()
-		return d.finishSend(ctx, sc, id, 0, req, wait)
+		return d.finishSend(ctx, sc, id, 0, req, wait, mark)
 	case err != nil:
 		// Nothing was recorded: no key for the agent, or the store.
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
@@ -398,7 +412,16 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 	release()
 	// A new task is written at state_seq 1 and nothing but the provider's
 	// answer moves it on.
-	return d.finishSend(ctx, sc, id, 1, req, wait)
+	return d.finishSend(ctx, sc, id, 1, req, wait, mark)
+}
+
+// dedupedTask is a retry's answer: the task, marked as the answer to a retry
+// (anet.deduplicated, CUX-D3).
+func dedupedTask(t a2ashape.Task, err error) (a2ashape.Task, error) {
+	if err != nil {
+		return t, err
+	}
+	return a2ashape.Deduplicated(t), nil
 }
 
 // appendTask is SendMessage with a taskId: a follow-up on a task.
@@ -414,23 +437,49 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 	if msg.ContextID != "" && msg.ContextID != ix.ContextID {
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "task %s is in context %q, not %q", ix.ID, ix.ContextID, msg.ContextID)
 	}
-	release := func() {}
-	if msg.ID != "" {
-		release = lockSend(d.AID()+"\x00"+ix.PeerAID, ix.ContextID, msg.ID)
-		defer release()
-		if _, err := d.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
-			ContextID: ix.ContextID, TaskID: ix.ID, ClientMsgID: msg.ID}); err == nil {
-			release()
-			return d.finishSend(ctx, sc, ix.ID, 0, req, wait)
-		} else if !errors.Is(err, interactions.ErrNotFound) {
+	payment := hasX402Meta(msg.Metadata)
+	// The content a messageId is held to (CUX-D1): a payment message's
+	// decision (CUX-D6), or the input of any other.
+	var in *taskInput
+	var content clientContent
+	if payment {
+		content = paymentContent(msg, req.Extensions)
+	} else {
+		if in, err = parseTaskInput(msg, a2ashape.RoleUser); err != nil {
 			return a2ashape.Task{}, err
 		}
+		content = inputContent(in, msg, req.Extensions)
 	}
-	if hasX402Meta(msg.Metadata) {
+	cm, err := newClientMark(msg.ID, content)
+	if err != nil {
+		return a2ashape.Task{}, err
+	}
+	release := func() {}
+	var mark *answered
+	if cm != nil {
+		lock := func() func() { return lockSend(d.AID()+"\x00"+ix.PeerAID, ix.ContextID, msg.ID) }
+		release = lock()
+		defer release()
+		mark = &answered{lock: lock, ix: ix.ID, key: cm.key}
+		m, err := d.judgeClientMessage(cm, interactions.ClientKeyQuery{TaskID: ix.ID})
+		if err != nil {
+			return a2ashape.Task{}, err
+		}
+		switch m.verdict {
+		case clientRetry:
+			release()
+			return dedupedTask(d.finishSend(ctx, sc, ix.ID, 0, req, wait, mark))
+		case clientReusedOpen, clientReusedFollowUp:
+			return a2ashape.Task{}, reusedRefusal(m)
+		}
+	}
+	if payment {
 		// A payment decision on the task (A2A-DESIGN §8.7). This is the one
 		// path a local client's payment message takes, so its messageId is
-		// deduplicated above like any other message's.
-		after, answer, err := d.taskPaymentMessage(ctx, ix, msg)
+		// held to its content above like any other message's: the same
+		// decision again is signed once, submit and reject under one id are
+		// refused (CUX-D6).
+		after, answer, err := d.taskPaymentMessage(ctx, ix, msg, cm)
 		if err != nil {
 			return a2ashape.Task{}, err
 		}
@@ -448,7 +497,7 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 			}
 			return answer.apply(t), nil
 		}
-		return d.finishSend(ctx, sc, ix.ID, after, req, wait)
+		return d.finishSend(ctx, sc, ix.ID, after, req, wait, mark)
 	}
 	if ix.IsTerminal() {
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s is %s and takes no new input", ix.ID, ix.State)
@@ -456,16 +505,12 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 	if ix.IsCapability {
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s is a capability call; it takes no follow-up message", ix.ID)
 	}
-	in, err := parseTaskInput(msg, a2ashape.RoleUser)
-	if err != nil {
-		return a2ashape.Task{}, err
-	}
 	if in.capID != "" {
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "a capability call starts a new task; send it without a taskId")
 	}
 	sctx, cancel := context.WithTimeout(ctx, relayCallTimeout)
 	defer cancel()
-	after, err := d.sendMessage(sctx, ix.ID, in.goal(), in.atts, clientMeta(req))
+	after, err := d.sendMessageMarked(sctx, ix.ID, in.goal(), in.atts, clientMeta(req), cm)
 	switch {
 	case errors.Is(err, ErrTaskTerminal):
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "%v", err)
@@ -479,20 +524,31 @@ func (d *Daemon) appendTask(ctx context.Context, sc taskScope, req module.TaskSe
 		return a2ashape.Task{}, err
 	}
 	release()
-	return d.finishSend(ctx, sc, ix.ID, after, req, wait)
+	return d.finishSend(ctx, sc, ix.ID, after, req, wait, mark)
 }
 
 // finishSend answers a send: at once, or once the task is terminal or
 // interrupted with a state_seq above after. after 0 on a retry means the
 // seq of the original write is not known; any terminal or interrupted
 // state then ends the wait.
-func (d *Daemon) finishSend(ctx context.Context, sc taskScope, id string, after int64, req module.TaskSend, wait time.Duration) (a2ashape.Task, error) {
+//
+// mark is the client message the call stands for (nil: the client named no
+// messageId). When the call's request has ended by the time the answer is
+// ready — the client went away or gave up — the message is marked
+// unanswered, so that a retry of it is still given this task for a while
+// after it ends (CUX-D4, D5). An answer the client did get leaves it
+// unmarked.
+func (d *Daemon) finishSend(ctx context.Context, sc taskScope, id string, after int64, req module.TaskSend,
+	wait time.Duration, mark *answered) (a2ashape.Task, error) {
 	var ix *interactions.Interaction
 	var err error
 	if req.ReturnImmediately {
 		ix, err = d.ix.Get(id)
 	} else {
 		ix, _, err = d.waitTask(ctx, id, after, wait)
+	}
+	if ctx.Err() != nil {
+		d.noteUnanswered(mark)
 	}
 	if err != nil {
 		return a2ashape.Task{}, err

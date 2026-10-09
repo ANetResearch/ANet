@@ -127,6 +127,36 @@ type Refusal struct {
 	HubCode string
 	// RetryAfter is when a passing state may have passed (A2ATransient).
 	RetryAfter time.Duration
+	// Task is the task a refusal is about, for a client to go on with
+	// (message_id_reused, correctness-ux CUX-A4): the control plane adds
+	// task_id and state to its body, the local A2A interface taskId,
+	// contextId and state to the anet ErrorInfo's metadata.
+	Task *RefusalTask
+}
+
+// RefusalTask is the task a refusal names (Refusal.Task).
+type RefusalTask struct {
+	ID        string
+	ContextID string
+	State     TaskState
+}
+
+// TaskBody is the control plane's error body of a refusal that names a task
+// (Refusal.Task): ErrorBody and the task's id and state.
+type TaskBody struct {
+	ErrorBody
+	TaskID string `json:"task_id"`
+	State  string `json:"state"`
+}
+
+// ControlBody is what the control plane writes for r in a language: Body,
+// with the task's id and state when r names one (CUX-A4).
+func (r *Refusal) ControlBody(lang Language) any {
+	b := r.Body(lang)
+	if r.Task == nil {
+		return b
+	}
+	return TaskBody{ErrorBody: b, TaskID: r.Task.ID, State: r.Task.State.String()}
 }
 
 // Refuse returns a refusal with key and args.
@@ -180,6 +210,11 @@ func (r *Refusal) A2A(lang Language) A2AError {
 	}
 	if _, v, ok := strings.Cut(shown, "."); ok && code != "" {
 		md["variant"] = v
+	}
+	if t := r.Task; t != nil {
+		// The task the client can go on with; ErrorInfo metadata values
+		// are strings (core G1).
+		md["taskId"], md["contextId"], md["state"] = t.ID, t.ContextID, t.State.String()
 	}
 	e.Details = []ErrorInfo{
 		{Type: ErrorInfoType, Reason: e.reason, Domain: DomainA2A},

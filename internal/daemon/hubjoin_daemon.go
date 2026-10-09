@@ -517,7 +517,7 @@ func writeRefusal(w http.ResponseWriter, status int, ref *a2ashape.Refusal) {
 		secs := int((ref.RetryAfter + time.Second - 1) / time.Second)
 		w.Header().Set("Retry-After", strconv.Itoa(secs))
 	}
-	writeJSON(w, status, ref.Body(a2ashape.Lang()))
+	writeJSON(w, status, ref.ControlBody(a2ashape.Lang()))
 }
 
 // passSendGate reports whether a send may go on, and answers the request

@@ -40,6 +40,9 @@ type fakeSeam struct {
 	hold bool
 	// gate is what SendGate answers (and Send with it): nil sends.
 	gate error
+	// refuse, when set, answers a send after it is recorded in sends, as
+	// the kernel answers a messageId already used for other content.
+	refuse func(module.TaskSend) error
 }
 
 type fakeTask struct {
@@ -144,6 +147,12 @@ func (f *fakeSeam) Send(ctx context.Context, peer string, req module.TaskSend) (
 	}
 	f.mu.Lock()
 	f.sends = append(f.sends, req)
+	if f.refuse != nil {
+		if err := f.refuse(req); err != nil {
+			f.mu.Unlock()
+			return module.Task{}, err
+		}
+	}
 	msg := req.Message
 	var ft *fakeTask
 	if msg.TaskID != "" && hasX402(msg.Metadata) {

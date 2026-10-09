@@ -1165,6 +1165,9 @@ type PayRequest struct {
 	// (a2a.messageId, never sent to the peer), so the same message sent
 	// again finds this one instead of deciding twice (§11.5).
 	ClientMsgID string
+	// client is that message's retry key (clientdedupe.go), stored with the
+	// payment message in the same transaction; nil without a messageId.
+	client *clientMark
 	// resendOnly allows only the authorization sent last, on the same
 	// terms; set for the automatic answer to a quote repeated after a
 	// payment was submitted.
@@ -1358,7 +1361,7 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 	}
 	switch req.Decision {
 	case PayDecisionReject:
-		return d.rejectQuote(ctx, ix, req.ClientMsgID)
+		return d.rejectQuote(ctx, ix, req.ClientMsgID, req.client)
 	case PayDecisionSubmit:
 	default:
 		return out, fmt.Errorf("anet: decision must be %q or %q", PayDecisionSubmit, PayDecisionReject)
@@ -1452,7 +1455,7 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 	if err != nil {
 		return out, err
 	}
-	if err := d.requesterPaymentMessage(ctx, ix, meta, req.ClientMsgID, interactions.StateWorking, func(tx *interactions.Tx) error {
+	if err := d.requesterPaymentMessage(ctx, ix, meta, req.ClientMsgID, req.client, interactions.StateWorking, func(tx *interactions.Tx) error {
 		cur, err := tx.Get(ix.ID)
 		if err != nil {
 			return err
@@ -1480,9 +1483,9 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 
 // rejectQuote declines a task's quote: payment-rejected to the provider,
 // the task canceled here (§8.3).
-func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction, clientMsgID string) (PayOutcome, error) {
+func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction, clientMsgID string, cm *clientMark) (PayOutcome, error) {
 	meta, _ := json.Marshal(map[string]any{x402a2a.KeyStatus: x402a2a.StatusRejected})
-	err := d.requesterPaymentMessage(ctx, ix, meta, clientMsgID, interactions.StateCanceled, func(tx *interactions.Tx) error {
+	err := d.requesterPaymentMessage(ctx, ix, meta, clientMsgID, cm, interactions.StateCanceled, func(tx *interactions.Tx) error {
 		applied, err := tx.SetPayment(ix.ID, interactions.PayUpdate{
 			From:  []string{interactions.PayRequired, interactions.PayFailed},
 			State: interactions.PayState(interactions.PayRejected)})
@@ -1504,9 +1507,10 @@ func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction, 
 // requesterPaymentMessage sends a payment message for an outbound task
 // through the retry queue, storing it (metadata only, kind payment) and
 // moving the task to state in the same transaction as write. A local
-// client's messageId, when given, is added to the stored copy only.
+// client's messageId, when given, is added to the stored copy only, with its
+// retry key cm (clientdedupe.go).
 func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.Interaction, meta []byte,
-	clientMsgID string, state interactions.State, write func(tx *interactions.Tx) error) error {
+	clientMsgID string, cm *clientMark, state interactions.State, write func(tx *interactions.Tx) error) error {
 	// The message id is the envelope's inner id (an internal note item), the same on
 	// both sides.
 	mid, msgID := newWireMID()
@@ -1535,8 +1539,12 @@ func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.I
 		if err := write(tx); err != nil {
 			return err
 		}
-		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ix.ID, SenderAID: d.AID(),
-			Kind: interactions.MsgPayment, MsgID: msgID, Metadata: stored}); err != nil {
+		rec := interactions.MessageRecord{InteractionID: ix.ID, SenderAID: d.AID(),
+			Kind: interactions.MsgPayment, MsgID: msgID, Metadata: stored}
+		if err := cm.stamp(tx, ix.ID, &rec); err != nil {
+			return err
+		}
+		if seq, _, err = tx.AddMessageRecord(rec); err != nil {
 			return err
 		}
 		_, err = tx.SetState(ix.ID, state, interactions.CauseLocalEnded.When(state)) // v030-todo(FS-7): confirm the Cause

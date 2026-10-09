@@ -69,7 +69,24 @@ const (
 	// the control plane's /tasks/* and MCP; it never travels to a peer
 	// (CORE-K17) and does not change the task.
 	KeyIdentityNote = "anet.identity_note"
+	// KeyDeduplicated marks the answer to a local client's retry of a
+	// message it sent: the task its first attempt made, and nothing was
+	// sent again (correctness-ux CUX-D3). Its value is true; it is on that
+	// one answer only and is never stored (core §2.13), and the sentence
+	// that goes with it is the reason table's "deduplicated".
+	KeyDeduplicated = "anet.deduplicated"
 )
+
+// Deduplicated is t as the answer to a retry (KeyDeduplicated).
+func Deduplicated(t Task) Task {
+	md := make(map[string]any, len(t.Metadata)+1)
+	for k, v := range t.Metadata {
+		md[k] = v
+	}
+	md[KeyDeduplicated] = true
+	t.Metadata = md
+	return t
+}
 
 // Keys reserved on the daemon-to-daemon wire (A2A-DESIGN §3.4) and on
 // messages from a local client (§11.5, §11.6).
