@@ -3,7 +3,7 @@ module github.com/ANetResearch/ANet
 go 1.26.6
 
 require (
-	github.com/ANetResearch/ANetCore v0.16.0-rc.1
+	github.com/ANetResearch/ANetCore v0.16.0-rc.2
 	github.com/a2aproject/a2a-go/v2 v2.6.0
 	github.com/ipfs/go-cid v0.6.2
 	github.com/modelcontextprotocol/go-sdk v1.7.0
@@ -14,7 +14,7 @@ require (
 )
 
 require (
-	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.2
 	github.com/mr-tron/base58 v1.3.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	golang.org/x/crypto v0.55.0 // indirect
