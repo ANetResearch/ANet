@@ -13,7 +13,7 @@
 # after layer 1, the key a lookup answers, Opened.Layers, the signature over the second layer) and keep
 # bad-pad retired in the registry; fs2-i and fs2-j hold an rk suite above 255 refused rather than
 # truncated, and an interaction key printed without its private half.
-# FS-3 adds 1, 2, 3 and 20 (the hub's half of 20; repo ANetHub) and fs3-a to fs3-u, which hold the hub's tests to
+# FS-3 adds 1, 2, 3 and 20 (the hub's half of 20; repo ANetHub) and fs3-a to fs3-v, which hold the hub's tests to
 # the rest of FS-H1 to FS-H8, to FS-T1 at the hub and to the base64url and G1 bodies of the key set routes and
 # the poll envelope (see the group at the end).
 
@@ -324,7 +324,7 @@ MUTS = [
 ]
 
 # ---- FS-3: the hub's kid check, more and prev_seq (FS §7.3 rows 1, 2, 3 and 20, and the package's own;
-# repo ANetHub, kept in this list so that a round's --check finds it). fs3-a to fs3-t hold the hub's tests
+# repo ANetHub, kept in this list so that a round's --check finds it). fs3-a to fs3-v hold the hub's tests
 # to the rest of FS-H1 to FS-H8, the base64url and G1 bodies of the key set routes and the poll envelope
 # (CORE-E5), and FS-T1 at the hub: fs3-q is the hub half of row 39 (L shortened in ANetCore, judged by the
 # hub's TestRelayTTLBelowHardBound); the daemon half is FS-4's.
@@ -419,4 +419,7 @@ MUTS += [
  dict(id='fs3-u', group='G1', repo='ANetHub', desc='GET /agents/{aid}/keys 对未在本 hub 注册的 AID 回 not_found 而不是 unknown_aid',
   edits=[('internal/aghub/keys.go', '\t\twire3.Write(w, wire3.Refusal{Reason: wire3.ReasonUnknownAID,', '\t\twire3.Write(w, wire3.Refusal{Reason: wire3.ReasonNotFound,')],
   tests=FS3_FIX_T + [(FS3_HUB, '^TestTheWire2RoutesAreServed$')], full=[FS3_HUB]),
+ dict(id='fs3-v', group='FS-H5', repo='ANetHub', desc='poll 的快照以写事务开始(_txlock=immediate 下占住整库写锁,发送与 ack 都等 poll)',
+  edits=[('internal/aghub/relay.go', 's.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})', 's.db.BeginTx(context.Background(), nil)')],
+  tests=[(FS3_HUB, '^TestPollDoesNotWaitForWriters$')], full=[FS3_HUB]),
 ]
