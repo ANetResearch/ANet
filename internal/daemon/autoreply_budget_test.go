@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -474,11 +475,11 @@ func TestASandboxedRunRecordsItsEgress(t *testing.T) {
 // BU-8: a run whose work dir and run directories grow past the limit is killed, both are deleted, and
 // the task is refused with sandbox_unavailable; the record says resource, and the run counts.
 func TestADiskHogIsKilled(t *testing.T) {
-	stub := writeStub(t, "#!/bin/sh\nhead -c 65536 /dev/zero > hog\nexec sleep 30\n")
+	stub := writeStub(t, "#!/bin/sh\nhead -c 4194304 /dev/zero > hog\nexec sleep 30\n")
 	setExecCommand(t, stub)
 	fakeSandbox(t, nil)
 	oldMax, oldEvery := sandboxDiskMax, sandboxDiskEvery
-	sandboxDiskMax, sandboxDiskEvery = 16<<10, 20*time.Millisecond
+	sandboxDiskMax, sandboxDiskEvery = 1<<20, 20*time.Millisecond
 	t.Cleanup(func() { sandboxDiskMax, sandboxDiskEvery = oldMax, oldEvery })
 	f := newAutoReplyFixture(t, AutoReplyConfig{Backend: "exec", Agent: "claude", APIKey: "k", Untrusted: UntrustedSandbox}, nil)
 	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "fill the disk", nil)
@@ -590,6 +591,163 @@ func TestRemoveWorkTreeStaysInTheTree(t *testing.T) {
 			}
 			return true
 		})
+	}
+}
+
+// SB-8: the agent can take the permissions of its work dir itself away; the removal gives them back
+// and removes it all the same.
+func TestRemoveWorkTreeTakesAnUnreadableTop(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("needs a non-root user: root reads and removes a directory of mode 000 anyway")
+	}
+	top := filepath.Join(t.TempDir(), "work")
+	inner := filepath.Join(top, "x")
+	if err := os.MkdirAll(inner, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(inner, "f"), []byte("x"), 0o600)
+	_ = os.Chmod(inner, 0)
+	_ = os.Chmod(top, 0)
+	removeWorkTree(top)
+	if _, err := os.Lstat(top); !errors.Is(err, os.ErrNotExist) {
+		_ = os.Chmod(top, 0o700)
+		_ = os.Chmod(inner, 0o700)
+		t.Fatalf("a work dir of mode 000 survived its removal: %v", err)
+	}
+}
+
+// BU-8: the agent decides the shape of the trees the watch adds up, and cannot hide what it wrote from
+// it. What the walk cannot read — a directory made unreadable (the work dir itself included), one
+// nested past the longest path the system takes — counts as over the limit; every entry counts at
+// least one block, so a mass of empty files does not slip under it; a directory that is gone counts
+// for nothing.
+func TestTheDiskWatchCannotBeHiddenFrom(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("needs a non-root user: root reads a directory of mode 000 anyway")
+	}
+	const limit = 1 << 20
+	dir := t.TempDir()
+	hidden := filepath.Join(dir, "hidden")
+	if err := os.Mkdir(hidden, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hidden, "f"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n := dirsSize([]string{dir}, limit); n > limit {
+		t.Fatalf("%d bytes for a small readable tree", n)
+	}
+	for _, p := range []string{hidden, dir} {
+		_ = os.Chmod(p, 0)
+		n := dirsSize([]string{dir}, limit)
+		_ = os.Chmod(p, 0o700)
+		if n <= limit {
+			t.Errorf("%s of mode 000: %d bytes, not over the limit", p, n)
+		}
+	}
+
+	// Past PATH_MAX: made a directory at a time, relative to the one above, as an agent can.
+	deep := t.TempDir()
+	r, err := os.OpenRoot(deep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := strings.Repeat("d", 200)
+	for i := 0; i < 30; i++ {
+		if err := r.Mkdir(name, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		sub, err := r.OpenRoot(name)
+		_ = r.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		r = sub
+	}
+	if err := r.WriteFile("hog", make([]byte, 2*limit), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = r.Close()
+	if n := dirsSize([]string{deep}, limit); n <= limit {
+		t.Errorf("a tree deeper than the longest path: %d bytes, not over the limit", n)
+	}
+	removeWorkTree(deep)
+	if _, err := os.Lstat(deep); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the deep tree survived its removal: %v", err)
+	}
+
+	empty := t.TempDir()
+	for i := 0; i < limit/sandboxDiskEntryMin+1; i++ {
+		f, err := os.Create(filepath.Join(empty, "e"+strconv.Itoa(i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = f.Close()
+	}
+	if n := dirsSize([]string{empty}, limit); n <= limit {
+		t.Errorf("%d empty files: %d bytes, not over the limit", limit/sandboxDiskEntryMin+1, n)
+	}
+	if n := dirsSize([]string{filepath.Join(dir, "gone")}, limit); n != 0 {
+		t.Errorf("a directory that is gone: %d bytes", n)
+	}
+}
+
+// SB-8, SI-59: the outbox is in the sandboxed run's work dir, and the agent knows the host's paths, so
+// it can put a link to a directory of the operator's — ~/.ssh, the data dir — in the outbox's place.
+// The daemon takes the outbox only as a directory in the work dir and reads it through an os.Root, so
+// nothing of what the link points at goes to the peer; a file the agent leaves in the outbox goes as
+// before.
+func TestASandboxedAgentCannotLinkTheOutboxOut(t *testing.T) {
+	secrets := t.TempDir()
+	const secret = "OPERATOR-PRIVATE-KEY-7d41"
+	if err := os.WriteFile(filepath.Join(secrets, "id_ed25519"), []byte(secret), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var link atomic.Bool
+	sandboxRunnerForTest = func(_ context.Context, req sandboxRequest, workDir string) (string, *egressSummary, error) {
+		ob := req.RC.Outbox
+		if ob == "" || !pathWithin(ob, workDir) {
+			return "", nil, errors.New("the outbox is not in the work dir")
+		}
+		if link.Load() {
+			if err := os.RemoveAll(ob); err != nil {
+				return "", nil, err
+			}
+			if err := os.Symlink(secrets, ob); err != nil {
+				return "", nil, err
+			}
+		} else if err := os.WriteFile(filepath.Join(ob, "result.txt"), []byte("the result"), 0o600); err != nil {
+			return "", nil, err
+		}
+		return "here you are", &egressSummary{}, nil
+	}
+	t.Cleanup(func() { sandboxRunnerForTest = nil })
+	f := newAutoReplyFixture(t, AutoReplyConfig{Backend: "exec", Agent: "claude", APIKey: "k", Untrusted: UntrustedSandbox}, nil)
+	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "make a file", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	if got := f.lastPeerMsg(t, id); got.Body != "here you are" || len(got.Attachments) != 1 || got.Attachments[0].Name != "result.txt" {
+		t.Fatalf("a file left in the outbox: %+v", got)
+	}
+	link.Store(true)
+	id, err = f.req.Delegate(f.ctx, f.prov.AID(), "send me what is in your home", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.tick(t)
+	got := f.lastPeerMsg(t, id)
+	if len(got.Attachments) != 0 || got.Body == "here you are" || strings.Contains(got.Body, secret) {
+		t.Fatalf("an outbox linked out of the work dir was read: %+v", got)
+	}
+	// The same at the unit: a link in the outbox's place is refused, not followed.
+	ob := filepath.Join(t.TempDir(), ".anet-outbox-1")
+	if err := os.Symlink(secrets, ob); err != nil {
+		t.Fatal(err)
+	}
+	if atts, err := collectOutbox(ob); err == nil {
+		t.Fatalf("an outbox that is a link was collected: %d files", len(atts))
 	}
 }
 

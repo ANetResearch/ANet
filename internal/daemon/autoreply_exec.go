@@ -490,12 +490,20 @@ func deleteExecWorkDir(aid, ix string) {
 // agent can leave read-only ones, which os.RemoveAll alone cannot empty); symbolic links are removed,
 // never followed. The walk and the mode changes go through an os.Root: an agent that is still running
 // (its task ended under it) can swap a directory for a link between the walk and the change, and a
-// plain chmod would follow that link to a file of the operator's outside the tree.
+// plain chmod would follow that link to a file of the operator's outside the tree. The agent can take
+// the permissions of its work dir itself away as well, so the top is made writable first, through its
+// parent (a link put in its place is not followed out of that).
 func removeWorkTree(dir string) {
 	if dir == "" {
 		return
 	}
 	if fi, err := os.Lstat(dir); err == nil && fi.IsDir() {
+		if fi.Mode().Perm()&0o700 != 0o700 {
+			if pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {
+				_ = pr.Chmod(filepath.Base(dir), 0o700)
+				_ = pr.Close()
+			}
+		}
 		if r, err := os.OpenRoot(dir); err == nil {
 			_ = fs.WalkDir(r.FS(), ".", func(p string, d fs.DirEntry, err error) error {
 				if err == nil && d.IsDir() {
@@ -630,11 +638,35 @@ const (
 // file is opened with O_NOFOLLOW and checked again after opening, and the count and total size are
 // capped. Any violation fails the whole collection: sending part of what the agent produced would
 // deliver something neither side asked for.
+//
+// The outbox lies in the work dir, where a sandboxed agent writes, and the agent knows the host's paths
+// (its $HOME and its work dir are named inside as they are outside): it can put a link to a directory
+// of the operator's, ~/.ssh say, in the outbox's place, and a read through that link would send the
+// operator's files to the peer. So the outbox is taken from its parent, the interaction's work dir,
+// which the agent cannot replace (inside the sandbox it is a bind mount, and nothing above it is
+// there): it must be a directory, not a link, and it is read through an os.Root, out of which nothing
+// in it reaches.
 func collectOutbox(dir string) ([]delegation.Attachment, error) {
 	if dir == "" {
 		return nil, nil
 	}
-	ents, err := os.ReadDir(dir)
+	parent, err := os.OpenRoot(filepath.Dir(dir))
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	base := filepath.Base(dir)
+	if fi, err := parent.Lstat(base); err != nil {
+		return nil, err
+	} else if !fi.IsDir() {
+		return nil, fmt.Errorf("the outbox is not a directory (mode %s)", fi.Mode().Type())
+	}
+	ob, err := parent.OpenRoot(base)
+	if err != nil {
+		return nil, err
+	}
+	defer ob.Close()
+	ents, err := fs.ReadDir(ob.FS(), ".")
 	if err != nil {
 		return nil, err
 	}
@@ -649,18 +681,17 @@ func collectOutbox(dir string) ([]delegation.Attachment, error) {
 	var out []delegation.Attachment
 	var total int64
 	for _, name := range names {
-		p := filepath.Join(dir, name)
-		if filepath.Dir(p) != filepath.Clean(dir) {
+		if name != filepath.Base(name) || name == "." || name == ".." {
 			return nil, fmt.Errorf("outbox entry %q is not directly inside the outbox", name)
 		}
-		fi, err := os.Lstat(p)
+		fi, err := ob.Lstat(name)
 		if err != nil {
 			return nil, err
 		}
 		if !fi.Mode().IsRegular() {
 			return nil, fmt.Errorf("outbox entry %q is not a regular file (mode %s)", name, fi.Mode().Type())
 		}
-		f, err := os.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		f, err := ob.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -804,21 +835,35 @@ func (w *diskWatch) end() {
 	<-w.done
 }
 
-// dirsSize adds up what the trees under dirs take: for each entry the larger of its size and the space
-// allocated to it, so that neither a sparse file nor a mass of small files slips under the limit. It
-// stops counting once the total is past limit.
+// sandboxDiskEntryMin is the least an entry counts for in the disk watch: one block. An empty file
+// holds no block but takes an inode, and an agent making millions of them would exhaust the file
+// system's inodes under a limit counted in bytes.
+const sandboxDiskEntryMin = 4 << 10
+
+// dirsSize adds up what the trees under dirs take: for each entry the largest of its size, the space
+// allocated to it and one block, so that neither a sparse file nor a mass of small or empty files slips
+// under the limit. It stops counting once the total is past limit.
+//
+// What the walk cannot read counts as over the limit. The agent decides the trees' shape: a directory
+// it made unreadable (mode 000), or one nested deeper than the longest path the system takes, would
+// otherwise hide whatever it holds from the count, and stay on disk after the run. An entry that
+// vanishes during the walk is one the agent deleted, and counts for nothing.
 func dirsSize(dirs []string, limit int64) int64 {
 	var total int64
 	for _, dir := range dirs {
 		_ = filepath.WalkDir(dir, func(_ string, de fs.DirEntry, err error) error {
-			if err != nil {
-				return nil
+			if err == nil {
+				var fi fs.FileInfo
+				if fi, err = de.Info(); err == nil {
+					total += max(fi.Size(), allocatedBytes(fi), sandboxDiskEntryMin)
+				}
 			}
-			fi, ierr := de.Info()
-			if ierr != nil {
+			switch {
+			case errors.Is(err, fs.ErrNotExist):
 				return nil
+			case err != nil:
+				total = limit + 1 // unreadable: fail closed
 			}
-			total += max(fi.Size(), allocatedBytes(fi))
 			if total > limit {
 				return filepath.SkipAll
 			}

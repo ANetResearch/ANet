@@ -565,3 +565,36 @@ MUTS += [
   full=[DAEMON],
  ),
 ]
+# EXE-4 second review: the outbox a sandboxed agent can put a link in the place of, and the trees the disk watch
+# and the removal cannot read through.
+MUTS += [
+ dict(
+  id='m-sb-10', group='SB-8', repo='ANet',
+  desc='outbox 换成指向运营者目录的链接时照样读取(把运营者的文件发给对端)',
+  edits=[('internal/daemon/autoreply_exec.go', '\t} else if !fi.IsDir() {\n\t\treturn nil, fmt.Errorf("the outbox is not a directory', '\t} else if false && !fi.IsDir() {\n\t\treturn nil, fmt.Errorf("the outbox is not a directory'),
+         ('internal/daemon/autoreply_exec.go', '\tob, err := parent.OpenRoot(base)', '\tob, err := os.OpenRoot(dir)')],
+  tests=[(DAEMON, 'TestASandboxedAgentCannotLinkTheOutboxOut|TestSandboxOutboxLinkSendsNothing')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8e', group='BU-8', repo='ANet',
+  desc='磁盘看门狗跳过读不了的目录(mode 000、超过最长路径),其中的内容不计',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\t\tcase err != nil:\n\t\t\t\ttotal = limit + 1 // unreadable: fail closed', '\t\t\tcase err != nil:\n\t\t\t\treturn nil')],
+  tests=[(DAEMON, 'TestTheDiskWatchCannotBeHiddenFrom')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8f', group='BU-8', repo='ANet',
+  desc='磁盘看门狗不给每一项计最少一个块(大量空文件不计)',
+  edits=[('internal/daemon/autoreply_exec.go', 'total += max(fi.Size(), allocatedBytes(fi), sandboxDiskEntryMin)', 'total += max(fi.Size(), allocatedBytes(fi))')],
+  tests=[(DAEMON, 'TestTheDiskWatchCannotBeHiddenFrom')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8g', group='SB-8', repo='ANet',
+  desc='删除工作目录时不先恢复顶层目录的权限(agent 把工作目录设为 000 后删不掉)',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\tif fi.Mode().Perm()&0o700 != 0o700 {\n\t\t\tif pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {', '\t\tif false && fi.Mode().Perm()&0o700 != 0o700 {\n\t\t\tif pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {')],
+  tests=[(DAEMON, 'TestRemoveWorkTreeTakesAnUnreadableTop')],
+  full=[DAEMON],
+ ),
+]
