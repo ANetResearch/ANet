@@ -1196,10 +1196,13 @@ MUTS += [
   edits=[('internal/federation/a2acards.go', '\t\t\t\tkel, kerr := wire3.DecodeB64URL("kel", e.KEL)', '\t\t\t\tkel, kerr := []byte(e.KEL), error(nil)')],
   tests=FED6_T(['TestFedCardsV3', 'TestFedCardsV3ReadsOnlyBase64URL']), full=FED6_FULL),
  dict(id='ss6-notice-kept', group='SS-6', repo='ANetHub', desc='对端卡片条目的见证通告不保存',
-  edits=[('internal/aghub/fed_a2acard.go', 'fedNoticeToStore(aid, e.Notice), home,', 'nil, home,')],
+  edits=[('internal/aghub/fed_a2acard.go', 'fedNoticeToStore(states[len(states)-1], e.Notice), home,', 'nil, home,')],
   tests=HUB6_T(['TestTheCardStreamCarriesTheNotice']), full=FED6_FULL),
  dict(id='ss6-notice-any', group='SS-6', repo='ANetHub', desc='对端卡片条目的见证通告不核对是否关于该 agent',
-  edits=[('internal/aghub/fed_a2acard.go', '\tif err != nil || body.AID != aid {\n\t\treturn nil\n\t}\n\treturn notice', '\tif err != nil || false && body.AID != aid {\n\t\treturn nil\n\t}\n\treturn notice')],
+  # Re-pointed by KEL-6: the row keeps a notice only about the tip of the KEL it came with, which names
+  # the agent too; dropping that check keeps another agent's notice.
+  edits=[('internal/aghub/fed_a2acard.go', '\tif err != nil || body.AID != tip.AID || body.Seq != tip.KeyStateSeq || body.Head != tip.LastEventID {\n',
+          '\tif err != nil || false && (body.AID != tip.AID || body.Seq != tip.KeyStateSeq || body.Head != tip.LastEventID) {\n')],
   tests=HUB6_T(['TestTheCardStreamCarriesTheNotice']), full=FED6_FULL),
 ]
 

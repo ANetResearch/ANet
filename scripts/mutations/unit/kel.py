@@ -715,8 +715,9 @@ MUTS += [
           'if tip := states[len(states)-1]; false && (a.Seq != tip.KeyStateSeq || tip.Status != identity.StatusActive) {')],
   tests=K5(['TestRetiredKeyRelayauthIs401KeyRetired']) + K5_FIX, full=K5_FULL),
  dict(id='kel-m17', group='KEL-5', repo='ANetHub', desc='M17:kel:push 后旧 hub 仍签通告(推送应答 200 却不改登记的 KEL)',
-  edits=[(KELPUSH, "if _, err := tx.Exec(`UPDATE agent SET kel=? WHERE aid=?`, raw, aid); err != nil {",
-          "if _, err := tx.Exec(`SELECT ?, ?`, raw, aid); err != nil {")],
+  # Re-pointed by KEL-6: the row's stored tip is written with the key history.
+  edits=[(KELPUSH, "if _, err := tx.Exec(`UPDATE agent SET kel=?, tip_seq=?, tip_head=? WHERE aid=?`, raw, tipSeq, tipHead, aid); err != nil {",
+          "if _, err := tx.Exec(`SELECT ?, ?, ?, ?`, raw, tipSeq, tipHead, aid); err != nil {")],
   tests=K5(['TestKELPushToTheOldWitnessStopsItsNotice']), full=K5_FULL),
  dict(id='kel-m42', group='KEL-5', repo='ANetHub', desc='M42:kel:push 限速按完整 IPv6 地址计',
   edits=[(KELPUSH, 'if ok, wait := s.kelPushLimiter.allow(clientIP(r)); !ok {',
