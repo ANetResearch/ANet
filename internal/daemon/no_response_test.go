@@ -17,10 +17,12 @@ func failedAt(d *Daemon, at int64) []string { return d.failUnanswered(at) }
 // an internal note §8.3: a provider's refusals past its notice rate limit
 // are dropped without a word, and the requester's task stayed submitted
 // for ever — 64 of 300 calls in a burst, every client waiting on them until
-// its own timeout. A task nobody answers now fails with anet.reason=
-// no_response and effect UNVERIFIED once no_response_after has passed; a
-// result that comes after that is still verified and recorded, and does not
-// reopen the task.
+// its own timeout. A task whose delegation the provider took (its token
+// confirmed it, engine ENG-T3) and that nobody answers now fails with
+// anet.reason=no_response and effect UNVERIFIED once no_response_after has
+// passed; a result that comes after that is still verified and recorded,
+// and does not reopen the task. (A delegation nobody confirmed is given up
+// at that deadline as delivery_unconfirmed instead: ENG-T1.)
 func TestAnUnansweredTaskFailsAsNoResponse(t *testing.T) {
 	_, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -33,8 +35,13 @@ func TestAnUnansweredTaskFailsAsNoResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UnixMilli()
-	// The provider has not polled: from the requester's side it said
-	// nothing at all.
+	// The provider takes the delegation and runs the call; the requester
+	// hears from its hub that it arrived, and does not read its mailbox:
+	// from its side the provider has said nothing at all.
+	settleDelivery(t, req, prov)
+	if len(lamp.invoked) != 1 {
+		t.Fatalf("provider ran the call %d times", len(lamp.invoked))
+	}
 	if got := failedAt(req, now+(DefaultNoResponseAfter-time.Minute).Milliseconds()); len(got) != 0 {
 		t.Fatalf("failed before the deadline: %v", got)
 	}
@@ -56,14 +63,8 @@ func TestAnUnansweredTaskFailsAsNoResponse(t *testing.T) {
 		t.Fatalf("failed again: %v", got)
 	}
 
-	// The provider was only slow: it runs the call and answers. The
-	// answer is recorded as a late result; the task stays failed.
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if len(lamp.invoked) != 1 {
-		t.Fatalf("provider ran the call %d times", len(lamp.invoked))
-	}
+	// The provider's answer only comes late. It is recorded as a late
+	// result; the task stays failed.
 	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -80,12 +81,12 @@ func TestAnUnansweredTaskFailsAsNoResponse(t *testing.T) {
 }
 
 // Only silence counts. A task whose peer said anything (a pending_approval
-// notice is a status), whose delegation is still in the retry queue (it
-// has not reached the provider: the queue fails it as undeliverable when it
-// gives up), or that has moved on is left alone; and no_response_after "0"
-// turns the deadline off.
+// notice is a status), whose delegation never left (it has not reached the
+// provider: the queue fails it as undeliverable when it gives up), or that
+// has moved on is left alone; and no_response_after "0" turns the deadline
+// off.
 func TestOnlyATaskThatHeardNothingFailsAsNoResponse(t *testing.T) {
-	srv, req, prov := registeredPair(t)
+	_, req, prov := registeredPair(t)
 	ctx := context.Background()
 	late := time.Now().Add(2 * DefaultNoResponseAfter).UnixMilli()
 
@@ -101,30 +102,26 @@ func TestOnlyATaskThatHeardNothingFailsAsNoResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := req.SendMessage(ctx, moved, "and a follow-up", nil); err != nil {
-		t.Fatal(err)
-	}
-	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
-	queued, err := req.Delegate(ctx, prov.AID(), "not delivered yet", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rows, _ := req.ix.Outbox(queued); len(rows) == 0 {
-		t.Fatal("setup: the delegation is not queued")
-	}
-	if got := failedAt(req, late); len(got) != 0 {
-		t.Fatalf("failed %v; none of these waits on silence", got)
-	}
-	for _, id := range []string{heard, queued} {
-		if st, _, _ := taskViewMap(t, req, id); st != string(a2ashape.TaskStateSubmitted) {
-			t.Fatalf("%s: %s", id, st)
-		}
-	}
-
-	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
 	silent, err := req.Delegate(ctx, prov.AID(), "never answered", nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The provider takes the three, and their tokens confirm them: the
+	// period counts from there (engine ENG-T3).
+	settleDelivery(t, req, prov)
+	if err := req.SendMessage(ctx, moved, "and a follow-up", nil); err != nil {
+		t.Fatal(err)
+	}
+	// The hub cannot be reached: this delegation never leaves.
+	hubURL := req.config().HubURL
+	setHubURL(req, deadHubURL)
+	queued, err := req.Delegate(ctx, prov.AID(), "not delivered yet", nil)
+	setHubURL(req, hubURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := outboxRows(t, req, queued); len(rows) != 1 || rows[0].HandedAt != 0 {
+		t.Fatalf("setup: the delegation is not queued unsent: %+v", rows)
 	}
 	req.mu.Lock()
 	req.cfg.NoResponseAfter = "0"
@@ -136,7 +133,12 @@ func TestOnlyATaskThatHeardNothingFailsAsNoResponse(t *testing.T) {
 	req.cfg.NoResponseAfter = ""
 	req.mu.Unlock()
 	if got := failedAt(req, late); len(got) != 1 || got[0] != silent {
-		t.Fatalf("failed %v, want only the silent one %s", got, silent)
+		t.Fatalf("failed %v, want only the silent one %s; none of the others waits on silence", got, silent)
+	}
+	for _, id := range []string{heard, queued} {
+		if st, _, _ := taskViewMap(t, req, id); st != string(a2ashape.TaskStateSubmitted) {
+			t.Fatalf("%s: %s", id, st)
+		}
 	}
 	// A text task has no effect status in its projection; the reason is
 	// the same.
@@ -145,14 +147,17 @@ func TestOnlyATaskThatHeardNothingFailsAsNoResponse(t *testing.T) {
 	}
 }
 
-// The deadline counts from when the delegation left this node, not from
-// when the task was made: a delegation that waited out a hub outage in the
-// retry queue gets the whole period after it is delivered.
+// The deadline counts from when the delegation was confirmed, not from
+// when the task was made (engine ENG-T3, DLV T30): a delegation that waited
+// out an outage, or a provider that was away, gets the whole period after
+// the provider took it.
 func TestTheNoResponseDeadlineCountsFromDelivery(t *testing.T) {
-	srv, req, prov := registeredPair(t)
+	_, req, prov := registeredPair(t)
 	ctx := context.Background()
-	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
+	hubURL := req.config().HubURL
+	setHubURL(req, deadHubURL)
 	id, err := req.Delegate(ctx, prov.AID(), "sent during an outage", nil)
+	setHubURL(req, hubURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,14 +166,15 @@ func TestTheNoResponseDeadlineCountsFromDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(60 * time.Millisecond) // the outage
-	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
-	rows, err := req.ix.Outbox(id)
+	rows, err := req.ix.OutboxRows(id)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("outbox %d %v", len(rows), err)
 	}
-	if err := req.deliverQueued(ctx, rows[0].ID); err != nil {
+	if err := retryNow(t, req, rows[0].ID); err != nil {
 		t.Fatal(err)
 	}
+	time.Sleep(60 * time.Millisecond) // the provider is away
+	settleDelivery(t, req, prov)
 	after := DefaultNoResponseAfter.Milliseconds()
 	// Past the deadline counted from the task's making, inside it counted
 	// from its delivery.
@@ -268,6 +274,8 @@ func TestTasksThatDoNotQualifyDoNotHideOnesThatDo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The provider takes them all: each delegation is confirmed (ENG-T3).
+	settleDelivery(t, req, prov)
 	if got := failedAt(req, time.Now().Add(2*DefaultNoResponseAfter).UnixMilli()); len(got) != 1 || got[0] != silent {
 		t.Fatalf("failed %v, want [%s]", got, silent)
 	}

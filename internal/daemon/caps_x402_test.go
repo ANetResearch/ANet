@@ -85,14 +85,18 @@ func TestAPaidCallRotatesPeerCaps(t *testing.T) {
 		peer    string
 		peerCap interactions.IssuedCap
 		oneShot interactions.IssuedCap
+		held    string
 	}{
-		{"provider", prov, req.AID(), pPeer, pOne},
-		{"requester", req, prov.AID(), rPeer, rOne},
+		// Each side also holds the one-shot capability the other's messages
+		// granted it for the task (engine ENG-K1, SS grantFor): one-shot
+		// ones stay.
+		{"provider", prov, req.AID(), pPeer, pOne, "peer:given-up+p2p,ix:valid,ix:valid,"},
+		{"requester", req, prov.AID(), rPeer, rOne, "peer:given-up+p2p,ix:valid,ix:valid,"},
 	} {
 		if got := issuedState(t, c.d, c.peerCap, c.oneShot); got != "withdrawn,given" {
 			t.Fatalf("%s: issued %s", c.name, got)
 		}
-		if got := heldState(t, c.d, c.peer); got != "peer:given-up+p2p,ix:valid," {
+		if got := heldState(t, c.d, c.peer); got != c.held {
 			t.Fatalf("%s: held %s", c.name, got)
 		}
 	}

@@ -609,10 +609,11 @@ func TestTheClientMessageIDKeyIsTheProjections(t *testing.T) {
 }
 
 // A new task whose delegation the hub refuses for good (here 413) is
-// recorded, failed with anet.reason=undeliverable and answered as it is
-// (an internal note item); the client's retry of the same message is a new attempt, not
-// the failed task handed back as its duplicate. Without a contextId a retry
-// is still recognised, by agent and messageId.
+// recorded, failed with the hub's reason (too_large, engine §2.8) and
+// answered as it is (an internal note item, ENG-H3); the client's retry of the same
+// message is a new attempt, not the failed task handed back as its
+// duplicate. Without a contextId a retry is still recognised, by agent and
+// messageId.
 func TestARetryAfterAnUndeliveredTaskIsANewAttempt(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -626,9 +627,8 @@ func TestARetryAfterAnUndeliveredTaskIsANewAttempt(t *testing.T) {
 	setHub(func() { fake.maxEnvelope = 1 })
 	send := module.TaskSend{Message: textMsg("hello", "ctx-u", "m-u"), ReturnImmediately: true}
 	refused, err := seam.Send(ctx, prov.AID(), send)
-	if err != nil || refused.Status.State != a2ashape.TaskStateFailed ||
-		refused.Metadata[a2ashape.KeyReason] != a2ashape.ReasonUndeliverable {
-		t.Fatalf("send with the hub refusing: %s %v (%v), want failed, undeliverable", refused.Status.State, refused.Metadata, err)
+	if err != nil || refused.Status.State != a2ashape.TaskStateFailed || refused.Metadata[a2ashape.KeyReason] != "too_large" {
+		t.Fatalf("send with the hub refusing: %s %v (%v), want failed, too_large", refused.Status.State, refused.Metadata, err)
 	}
 	failed, err := req.ix.ListAll(interactions.ListFilter{Role: interactions.RoleOutbound})
 	if err != nil || len(failed) != 1 || failed[0].State != interactions.StateFailed || failed[0].ID != refused.ID {
@@ -707,14 +707,14 @@ func TestAFollowUpIsQueuedWhileTheHubIsDown(t *testing.T) {
 	if n := countMsgs(t, req, task.ID); n != stored {
 		t.Fatalf("a retry stored the follow-up again (%d messages, was %d)", n, stored)
 	}
-	rows, err := req.ix.Outbox(task.ID)
+	rows, err := req.ix.OutboxRows(task.ID)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("outbox = %+v (%v), want the follow-up", rows, err)
 	}
 	fake.mu.Lock()
 	fake.relayDown = false
 	fake.mu.Unlock()
-	if err := req.deliverQueued(ctx, rows[0].ID); err != nil {
+	if err := retryNow(t, req, rows[0].ID); err != nil { // its backoff over
 		t.Fatal(err)
 	}
 	if err := prov.pollOnce(ctx); err != nil {

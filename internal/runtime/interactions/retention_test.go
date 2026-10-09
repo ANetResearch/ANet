@@ -46,10 +46,8 @@ func TestPruneTerminalDeletesOnlyOldFinishedCallsOfTheClass(t *testing.T) {
 		State: interactions.PayState(interactions.PaySubmitted), Payload: []byte("signed authorization")}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_queued", ToAID: "did:anet:caller",
-		Type: "anet.result/1", Body: []byte("b"), NextAt: old, CreatedAt: old}); err != nil {
-		t.Fatal(err)
-	}
+	enqueueOutbox(t, s, interactions.OutboxItem{IX: "ix_queued", ToAID: "did:anet:caller",
+		Type: "anet.result/1", Body: []byte("b")})
 
 	n, err := s.PruneTerminal(interactions.TrustPublicCap, cutoff)
 	if err != nil {

@@ -652,17 +652,24 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 	return nil
 }
 
-// CancelTask cancels a task from this side (A2A CancelTask, A2A-DESIGN §4.2).
+// CancelTask cancels a task from this side (A2A CancelTask, A2A-DESIGN §4.2;
+// engine ENG-O4).
 //
-//   - Requester, no payment submitted: the task is canceled locally and the provider is sent a
-//     cancel through the retry queue.
-//   - Requester, a payment submitted or settled: the local state does not change; the cancel is
-//     sent and the provider's status or result decides (it does not cancel paid work). The
-//     returned interaction is still open; its conversation log carries the cancel.
-//   - Provider: the task is canceled, a running capability call is asked to stop, and the
-//     requester is sent status{canceled} through the retry queue. A capability call whose payment
-//     was taken is not canceled (ErrNotCancelable); the pay_state is read again under the write
-//     lock, so a payment and a cancel racing each other cannot both win.
+//   - Requester, no payment submitted: the task is canceled locally. A
+//     delegation that never left this node and has no attempt under way is
+//     withdrawn with everything queued behind it, and nothing is sent: the
+//     provider never saw the task. Otherwise a cancel is queued behind it,
+//     the follow-ups that never left go, and the delegation, still queued,
+//     is frozen: it is not sent again, only asked about (ENG-O6).
+//   - Requester, a payment submitted or settled: the local state does not
+//     change; the cancel is sent and the provider's status or result
+//     decides (it does not cancel paid work, ENG-O7). The returned
+//     interaction is still open; its conversation log carries the cancel.
+//   - Provider: the task is canceled, a running capability call is asked to
+//     stop, and the requester is sent status{canceled} through the queue. A
+//     capability call whose payment was taken is not canceled
+//     (ErrNotCancelable); the pay_state is read again under the write lock,
+//     so a payment and a cancel racing each other cannot both win.
 func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interactions.Interaction, error) {
 	ix, err := d.ix.Get(interactionID)
 	if err != nil {
@@ -678,37 +685,21 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 		// the receipt; it is not canceled once the money moved (§4.2).
 		return ix, ErrNotCancelable
 	}
+	var send wireSend
 	if ix.Role == interactions.RoleOutbound {
-		withdrawn, seq, err := d.withdrawDelegation(ix, msgID)
-		if errors.Is(err, ErrNotCancelable) {
-			cur, _ := d.ix.Get(interactionID)
-			return cur, ErrNotCancelable
-		}
-		if err != nil {
-			return nil, err
-		}
-		if withdrawn {
-			d.publishMessage(ix.ID, seq, interactions.MsgCancel)
-			d.publishState(ix.ID)
-			return d.ix.Get(interactionID)
-		}
-	}
-	var typ string
-	var payload []byte
-	if ix.Role == interactions.RoleOutbound {
-		typ = seal.TypeMessage
-		payload, err = (&delegation.ChatMsg{Kind: delegation.KindCancel, MsgID: msgID}).Marshal()
+		send = wireSend{to: ix.PeerAID, typ: seal.TypeMessage, ix: ix.ID, kind: rowKindCancel, mid: mid}
+		send.body, err = (&delegation.ChatMsg{Kind: delegation.KindCancel, MsgID: msgID}).Marshal()
 	} else {
-		typ = seal.TypeStatus
-		payload, err = (&delegation.StatusMsg{State: delegation.StateCanceled,
+		send = wireSend{to: ix.PeerAID, typ: seal.TypeStatus, ix: ix.ID, mid: mid}
+		send.body, err = (&delegation.StatusMsg{State: delegation.StateCanceled,
 			Text: "the provider canceled the task", At: d.nowMS(), Metadata: canceledPaymentMeta(ix)}).Marshal()
 	}
 	if err != nil {
 		return nil, err
 	}
-	var seq int64
-	id, err := d.queueSendAs(ctx, wireSend{to: ix.PeerAID, typ: typ, ix: ix.ID, body: payload, mid: mid}, func(tx *interactions.Tx) error {
-		var err error
+	var seq, id int64
+	var withdrawn *interactions.OutboxRow
+	err = d.ix.Update(func(tx *interactions.Tx) error {
 		// Read again under the write lock: a payment submitted since the
 		// row was read (the auto tier, another caller) keeps the task
 		// open, and the provider's answer decides (§4.2).
@@ -716,26 +707,35 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 		if err != nil {
 			return err
 		}
+		if cur.IsTerminal() {
+			return ErrNotCancelable
+		}
 		paid := cur.PayState == interactions.PaySubmitted || cur.PayState == interactions.PayCompleted
 		if cur.Role == interactions.RoleInbound && cur.IsCapability && paid {
 			// A payment taken since the row was read: the paid work is
 			// not canceled (§4.2 [C34]).
 			return ErrNotCancelable
 		}
-		cancelState := true
-		if cur.Role == interactions.RoleOutbound {
-			cancelState = !paid
+		if cur.Role == interactions.RoleOutbound && !paid {
+			if withdrawn, err = d.freezeOrWithdraw(tx, ix.ID, ix.PeerAID); err != nil {
+				return err
+			}
 		}
 		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ix.ID,
 			SenderAID: d.AID(), Kind: interactions.MsgCancel, MsgID: msgID}); err != nil {
 			return err
 		}
+		cancelState := cur.Role == interactions.RoleInbound || !paid
 		if cancelState {
 			// The requester's cancel may still be answered; the provider's
-			// ends the task on its side.
-			cause := interactions.CauseLocalEnded // v030-todo(FS-7): confirm the Cause
-			if cur.Role == interactions.RoleInbound {
+			// ends the task on its side; a withdrawn delegation can bring
+			// no answer at all (ENG-X4).
+			cause := interactions.CauseLocalEnded
+			switch {
+			case cur.Role == interactions.RoleInbound:
 				cause = interactions.CauseProviderEnd
+			case withdrawn != nil:
+				cause = interactions.CauseNeverSent
 			}
 			changed, err := tx.SetState(ix.ID, interactions.StateCanceled, cause)
 			if err != nil {
@@ -745,7 +745,11 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 				return ErrNotCancelable // reached a terminal state since it was read
 			}
 		}
-		return nil
+		if withdrawn != nil {
+			return nil
+		}
+		id, _, err = d.enqueueTx(tx, send)
+		return err
 	})
 	if err != nil {
 		if errors.Is(err, ErrNotCancelable) {
@@ -757,91 +761,15 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 	d.stopRunning(ix.ID)
 	d.publishMessage(ix.ID, seq, interactions.MsgCancel)
 	d.publishState(ix.ID)
+	if withdrawn != nil {
+		d.noteWithdrawn(withdrawn)
+		return d.ix.Get(interactionID)
+	}
+	d.noteDelivery(ix.ID)
 	if err := d.deliverQueued(ctx, id); err != nil {
 		log.Printf("anet: %s: canceled; the notice to %s is queued for delivery (%v)", ix.ID, ix.PeerAID, err)
 	}
 	return d.ix.Get(interactionID)
-}
-
-// withdrawDelegation cancels a task this node asked for whose delegation
-// has not left this node: its row is still queued and no attempt may have
-// delivered it (OutboxItem.MaybeDelivered). The provider never saw the task,
-// so nothing is sent to it; the queued rows go, the cancel is recorded and
-// the task is canceled, in one transaction ([redteam:F23]). A cancel sent
-// instead would reach a provider that does not know the task and be
-// answered TaskNotFound, while the delegation — still queued — would go out
-// after it and run.
-//
-// A delegation that may have been delivered, or that an attempt is sending
-// right now, is not withdrawn: the cancel is queued behind it (the outbox
-// delivers a task's messages in order) and reaches the provider after it.
-func (d *Daemon) withdrawDelegation(ix *interactions.Interaction, msgID string) (bool, int64, error) {
-	rows, err := d.ix.Outbox(ix.ID)
-	if err != nil {
-		return false, 0, err
-	}
-	var row *interactions.OutboxItem
-	for i := range rows {
-		if rows[i].Type == seal.TypeDelegate && rows[i].ToAID == ix.PeerAID {
-			row = &rows[i]
-			break
-		}
-	}
-	if row == nil || row.MaybeDelivered {
-		return false, 0, nil
-	}
-	unlock, ok := d.outboxLocks.tryLock(fmt.Sprint(row.ID))
-	if !ok {
-		return false, 0, nil // an attempt is under way
-	}
-	defer unlock()
-	var seq int64
-	withdrawn := false
-	err = d.ix.Update(func(tx *interactions.Tx) error {
-		queued, maybe, err := tx.OutboxQueued(row.ID)
-		if err != nil || !queued || maybe {
-			return err
-		}
-		cur, err := tx.Get(ix.ID)
-		if err != nil {
-			return err
-		}
-		if cur.IsTerminal() {
-			return ErrNotCancelable
-		}
-		if cur.PayState != interactions.PayNone {
-			return nil // quoted: it was delivered after all
-		}
-		if _, err := tx.DeleteOutboxQueue(ix.ID, ix.PeerAID); err != nil {
-			return err
-		}
-		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ix.ID,
-			SenderAID: d.AID(), Kind: interactions.MsgCancel, MsgID: msgID}); err != nil {
-			return err
-		}
-		changed, err := tx.SetState(ix.ID, interactions.StateCanceled, interactions.CauseNeverSent) // v030-todo(FS-7): confirm the Cause
-		if err != nil {
-			return err
-		}
-		if !changed {
-			return ErrNotCancelable
-		}
-		withdrawn = true
-		return nil
-	})
-	if err != nil || !withdrawn {
-		return false, 0, err
-	}
-	if d.ledger != nil {
-		if _, lerr := d.ledger.Append(EvDeliveryExpired, map[string]any{
-			"interaction_id": ix.ID, "type": row.Type, "to_aid": row.ToAID,
-			"attempts": row.Attempts, "last_error": row.LastError, "reason": undeliveredWithdrawn,
-		}); lerr != nil {
-			log.Printf("anet: delivery withdrawal evidence: %v", lerr)
-		}
-	}
-	log.Printf("anet: %s: canceled before its delegation reached %s; the delegation is withdrawn", ix.ID, ix.PeerAID)
-	return true, seq, nil
 }
 
 // SendStatus sends a provider status update (anet.status/1) for an inbound task and moves the task
@@ -1847,47 +1775,27 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 	return res
 }
 
-// resendResult relays an answer this node already signed, for a
-// redelivered delegation (§3.6 step 10, C33). m is the redelivered
+// resendResult answers a redelivered delegation this node already
+// answered (§3.6 step 10, C33; engine §4.6). m is the redelivered
 // delegation; it passed steps 1-9, so its sender is the requester.
 //
-//   - The answer is still in the retry queue: that row is the answer. It is
-//     made due now, with every row queued ahead of it for the requester,
-//     and the loop woken; no second copy is queued, so the requester gets
-//     one answer, not one per redelivery. A row that was never sealed is
-//     sealed now, to the key set the delegation carried.
-//   - Otherwise the answer is sealed again, to the key set the redelivered
-//     delegation carried (m.noticeKeys, verified in step 8 or the stored
-//     one). A public or public_cap interaction keeps its requester's keys
-//     only while it is open (§3.8), so once it has ended these are the only
-//     keys there are; a peer's are as good as any stored.
+//   - The answer is still queued: the whole queue to the requester is made
+//     due now and the loop woken (hurryAnswerQueue) — the answer goes out
+//     behind what was queued ahead of it ([redteam:F23]), and the requester
+//     gets one answer, not one per redelivery.
+//   - Otherwise the answer is queued again, as it was first sent.
 //
-// The re-sent answer carries the result metadata the first did, and the
-// payment receipts as the row holds them now.
+// v030-todo(ENG-1c): engine ENG-V18 — only the queue is hurried; an answer
+// no longer queued was confirmed or given up, and is not queued again.
 func (d *Daemon) resendResult(m *rxMsg, ix *interactions.Interaction) {
 	ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
 	defer cancel()
-	var keys *seal.EncKeySet
-	if m != nil && m.noticeKeys != nil {
-		keys = m.noticeKeys.set
-	}
-	if rows, err := d.ix.Outbox(ix.ID); err == nil {
-		var queue []*interactions.OutboxItem
-		answer := false
-		for i := range rows {
-			if r := &rows[i]; r.ToAID == ix.PeerAID {
-				queue = append(queue, r)
-				answer = answer || r.Type == seal.TypeResult
+	if rows, err := d.ix.OutboxRows(ix.ID); err == nil {
+		for _, r := range rows {
+			if r.ToAID == ix.PeerAID && r.Type == seal.TypeResult {
+				d.hurryAnswerQueue(ix.ID, ix.PeerAID)
+				return
 			}
-		}
-		if answer {
-			// The whole queue, not the answer alone: a task's messages go
-			// out in order, so the answer waits for what was queued ahead
-			// of it, and that would sit out its backoff ([redteam:F23]).
-			for _, r := range queue {
-				d.hurryQueued(r, keys)
-			}
-			return
 		}
 	}
 	// The metadata the answer first went out with: anet.reason and
@@ -1919,17 +1827,7 @@ func (d *Daemon) resendResult(m *rxMsg, ix *interactions.Interaction) {
 	if err != nil {
 		return
 	}
-	send := wireSend{to: ix.PeerAID, typ: seal.TypeResult, ix: ix.ID, body: payload}
-	if keys != nil {
-		exp := d.nowMS() + messageLifetimeMS
-		env, err := d.sealWithOpts(ix.PeerAID, seal.TypeResult, ix.ID, payload, keys, sealOpts{exp: exp})
-		if err != nil {
-			log.Printf("anet: %s: seal the re-sent answer: %v", ix.ID, err)
-			return
-		}
-		send.sealed, send.sealedExp = env, exp
-	}
-	id, err := d.queueSendAs(ctx, send, nil)
+	id, err := d.queueSendAs(ctx, wireSend{to: ix.PeerAID, typ: seal.TypeResult, ix: ix.ID, body: payload}, nil)
 	if err != nil {
 		log.Printf("anet: %s: queue the re-sent answer: %v", ix.ID, err)
 		return
@@ -1937,30 +1835,4 @@ func (d *Daemon) resendResult(m *rxMsg, ix *interactions.Interaction) {
 	if err := d.deliverQueued(ctx, id); err != nil {
 		log.Printf("anet: %s: re-sending the answer: %v (queued)", ix.ID, err)
 	}
-}
-
-// hurryQueued makes a queued row due now and wakes the loop: the peer just
-// showed it is reachable. A row that was never sealed is sealed with keys
-// when the caller has them.
-func (d *Daemon) hurryQueued(r *interactions.OutboxItem, keys *seal.EncKeySet) {
-	unlock := d.outboxLocks.lock(fmt.Sprint(r.ID))
-	defer unlock()
-	cur, err := d.ix.GetOutbox(r.ID)
-	if err != nil {
-		return // delivered meanwhile
-	}
-	if len(cur.Envelope) == 0 && keys != nil {
-		deadline := cur.Deadline()
-		env, err := d.sealWithOpts(cur.ToAID, cur.Type, cur.IX, cur.Body, keys, sealOpts{mid: cur.MID, exp: deadline})
-		if err == nil {
-			err = d.ix.SetOutboxEnvelope(cur.ID, env, deadline)
-		}
-		if err != nil {
-			log.Printf("anet: %s: seal the queued answer: %v", cur.IX, err)
-		}
-	}
-	if err := d.ix.RescheduleOutbox(cur.ID, cur.Attempts, int64(d.nowMS()), cur.LastError); err != nil {
-		log.Printf("anet: %s: %v", cur.IX, err)
-	}
-	d.kickOutbox()
 }

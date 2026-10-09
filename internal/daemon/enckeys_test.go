@@ -74,6 +74,10 @@ func atClock(d *Daemon, at uint64) *atomic.Uint64 {
 	var c atomic.Uint64
 	c.Store(at)
 	d.setClock(c.Load)
+	// A test that moves a node's clock days on is about its key ring, not
+	// its witness notice, which its polls would keep fresh: the outbound
+	// gate is held open.
+	holdGateOpen(d)
 	return &c
 }
 

@@ -87,7 +87,9 @@ func TestLeavingAnotherHubKeepsTheCurrentOne(t *testing.T) {
 	newHub := newFakeHub(t)
 	defer newHub.Close()
 
-	d := newTestDaemon(t, oldHub.URL, true)
+	// A node that designates no witness: moving house is then a
+	// registration, not a key rotation.
+	d := newPlainTestDaemon(t, oldHub.URL, true)
 	if err := d.HubRegister(context.Background(), oldHub.URL, "n", nil); err != nil {
 		t.Fatal(err)
 	}

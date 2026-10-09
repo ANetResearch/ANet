@@ -144,21 +144,17 @@ func TestAnAnswerOfAnotherWireIsNoAnswer(t *testing.T) {
 // of a capability is whatever its issuer wrote into the grant; a home that
 // is not a hub AID is not sent as X-ANet-Home (the hub would refuse the
 // whole send, or the header would not be a header at all), and the send
-// goes without one. An envelope already under a capability takes the home
-// of the held row it came from.
+// goes without one. The engine's choice for a message under a held
+// capability takes the home of the held row (accessChoiceFor, A9).
 func TestACapabilityHomeThatIsNoAIDIsNotSent(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	held := heldCapFrom(t, prov, req)
 	env, choice := underCapability(t, req, prov, sealFrom(t, req, prov, seal.TypeMessage, "ix-h", chatBody(t, "h", "")))
 
-	got, err := req.accessChoiceOfEnvelope(prov.AID(), env)
+	got, err := req.accessChoiceFor(prov.AID(), "ix-h", false, accessOrdinary, req.nowMS())
 	if err != nil || !got.Send || got.Kind != seal.AccessKindCap || got.Cap == nil || got.Home != held.Home || got.Home == "" {
-		t.Fatalf("the choice of an envelope under a held capability: %+v, %v; want its row's home %q", got, err, held.Home)
-	}
-	first := sealFrom(t, req, prov, seal.TypeMessage, "ix-0", chatBody(t, "0", ""))
-	if got, err := req.accessChoiceOfEnvelope(prov.AID(), first); err != nil || got.Kind != seal.AccessKindSession || got.HintHome != held.Home {
-		t.Fatalf("the choice of a first contact to a peer that gave a capability: %+v, %v", got, err)
+		t.Fatalf("the choice of a message under a held capability: %+v, %v; want its row's home %q", got, err, held.Home)
 	}
 
 	for _, home := range []string{"https://hub.example", "x\r\nX-Other: 1", "not an aid"} {

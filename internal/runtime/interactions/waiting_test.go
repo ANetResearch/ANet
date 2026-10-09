@@ -73,50 +73,32 @@ func TestWaitingListsWhatWaitedSinceBeforeTheCutoff(t *testing.T) {
 	}
 }
 
-// A delegation's delivery moves its task's updated_at, which the
-// no-response deadline counts from; any other delivered row, and a task
-// that has ended, is not touched.
-func TestADeliveredDelegationMarksWhenItLeft(t *testing.T) {
+// A delegation's confirmation moves its task's updated_at, which the
+// no-response deadline counts from (engine ENG-C3, ENG-T3); a task that has
+// ended is not touched.
+func TestAConfirmedDelegationMarksWhenItArrived(t *testing.T) {
 	s := open(t)
 	if err := s.Create(interactions.New{ID: "ix", Role: interactions.RoleOutbound, PeerAID: "peer-a", Goal: "g"}); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := s.Get("ix")
-	id, err := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix", ToAID: "peer-a", Type: "anet.delegate/1", Body: []byte("b")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(5 * time.Millisecond)
-	if err := s.DeleteDeliveredOutbox(id, "ix", false); err != nil {
-		t.Fatal(err)
-	}
-	if cur, _ := s.Get("ix"); cur.UpdatedAt != before.UpdatedAt {
-		t.Fatalf("a row that is not a delegation moved updated_at: %s -> %s", before.UpdatedAt, cur.UpdatedAt)
-	}
-	id, err = s.EnqueueOutbox(interactions.OutboxItem{IX: "ix", ToAID: "peer-a", Type: "anet.delegate/1", Body: []byte("c")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DeleteDeliveredOutbox(id, "ix", true); err != nil {
+	at := time.Now().Add(time.Second).UTC().Format(time.RFC3339Nano)
+	if err := s.Update(func(tx *interactions.Tx) error { return tx.TouchUpdatedAt("ix", at) }); err != nil {
 		t.Fatal(err)
 	}
 	cur, _ := s.Get("ix")
-	if !cur.UpdatedAtTime().After(before.UpdatedAtTime()) {
-		t.Fatalf("the delegation's delivery did not move updated_at (%s, before %s)", cur.UpdatedAt, before.UpdatedAt)
-	}
-	if n, _ := s.OutboxLen(); n != 0 {
-		t.Fatalf("%d rows left", n)
+	if cur.UpdatedAt != at || !cur.UpdatedAtTime().After(before.UpdatedAtTime()) {
+		t.Fatalf("the confirmation did not move updated_at (%s, before %s)", cur.UpdatedAt, before.UpdatedAt)
 	}
 	if err := s.SetFailed("ix", nil, interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 	ended, _ := s.Get("ix")
-	id, _ = s.EnqueueOutbox(interactions.OutboxItem{IX: "ix", ToAID: "peer-a", Type: "anet.delegate/1", Body: []byte("d")})
-	time.Sleep(5 * time.Millisecond)
-	if err := s.DeleteDeliveredOutbox(id, "ix", true); err != nil {
+	later := time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
+	if err := s.Update(func(tx *interactions.Tx) error { return tx.TouchUpdatedAt("ix", later) }); err != nil {
 		t.Fatal(err)
 	}
 	if cur, _ := s.Get("ix"); cur.UpdatedAt != ended.UpdatedAt {
-		t.Fatal("a delivery touched a task that had ended")
+		t.Fatal("a confirmation touched a task that had ended")
 	}
 }

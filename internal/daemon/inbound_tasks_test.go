@@ -255,8 +255,12 @@ func TestInboundTasksReachTheBackendOnlyFromTrustedPeers(t *testing.T) {
 		t.Fatalf("backend contexts: a %s, %s; b %s — want one per peer, not the requester's", ca1.contextID, ca2.contextID, cb1.contextID)
 	}
 
-	// The requester answers the question: the task comes again, in the same
-	// context, and the auto-reply agent still leaves it alone.
+	// The requester reads the question and answers it: the task comes
+	// again, in the same context, and the auto-reply agent still leaves it
+	// alone.
+	if err := peerA.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if err := peerA.SendMessage(ctx, a2, "ask no more: the red one", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -425,9 +429,7 @@ func TestInboundFeedStartSettleAndFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
+	confirmDelegation(t, peer, prov) // the follow-up goes once it is confirmed (engine ENG-O2)
 	if err := peer.SendMessageAtts(ctx, id, "and another", file("two.txt", "the second file")); err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/seal"
 
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -51,17 +52,54 @@ func (f *fakeTransport) count() int {
 	return len(f.sent)
 }
 
-// A direct transport is preferred over the hub: a delegation between two
-// nodes on the same network should not need a round trip through someone
-// else's server.
+// confirmingTransport is a direct path to peer that answers as peer's
+// node does once it has the envelope: with the delivery token of outcome 1,
+// made under the envelope's ack_key (a test double of the receive side,
+// engine ENG-G3). confirmFail makes it answer with no token.
+type confirmingTransport struct {
+	fakeTransport
+	peer *Daemon
+}
+
+func (c *confirmingTransport) Send(ctx context.Context, toAID string, env []byte) ([]byte, bool, error) {
+	if _, _, err := c.fakeTransport.Send(ctx, toAID, env); err != nil {
+		return nil, true, err
+	}
+	op, err := seal.Open(env, c.peer.AID(), c.peer.enc, nil)
+	if err != nil {
+		return nil, true, err
+	}
+	dack, err := op.AckKey.MakeDAck(seal.OutcomeProcessed, seal.Note{})
+	if err != nil {
+		return nil, true, err
+	}
+	return dack[:], true, nil
+}
+
+// queueTo queues body to `to` as d's message on interaction ix and makes
+// the first attempt (engine §2.2, ENG-Q8); it returns the row.
+func queueTo(t *testing.T, d *Daemon, to, ix string, body []byte) (int64, error) {
+	t.Helper()
+	id, err := d.queueSend(context.Background(), to, seal.TypeMessage, ix, body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id, d.deliverQueued(context.Background(), id)
+}
+
+// A direct transport is preferred over the hub: a message between two
+// nodes on the same network does not need a round trip through someone
+// else's server, and the token the direct path brings back confirms it
+// there and then (engine A10).
 func TestDirectTransportIsPreferredOverTheHub(t *testing.T) {
 	srv := newFakeHub(t)
 	d, peer := twoRegistered(t, srv)
 
-	direct := &fakeTransport{name: "p2p", reachable: true}
+	direct := &confirmingTransport{fakeTransport: fakeTransport{name: "p2p", reachable: true}, peer: peer}
 	d.RegisterTransport(direct)
 
-	if err := d.relaySend(context.Background(), peer, seal.TypeDelegate, "ix-1", []byte("x")); err != nil {
+	id, err := queueTo(t, d, peer.AID(), "ix-1", chatBody(t, "x", ""))
+	if err != nil {
 		t.Fatal(err)
 	}
 	if direct.count() != 1 {
@@ -70,11 +108,16 @@ func TestDirectTransportIsPreferredOverTheHub(t *testing.T) {
 	if n := relayCountFor(srv.URL); n != 0 {
 		t.Fatalf("the hub should not have been used, got %d relay posts", n)
 	}
+	if _, _, err := d.ix.OutboxState(id); !errors.Is(err, interactions.ErrNotFound) {
+		t.Fatalf("the direct token did not confirm the row: %v", err)
+	}
+	if counter(d, cntDAckConfirmedP2P) != 1 {
+		t.Fatal("the confirmation was not counted as the direct path's")
+	}
 }
 
-// The hub catches what a direct transport cannot reach. This is the whole
-// reason the hub is never removed from the list: an offline peer, a NAT
-// that hole-punching lost, a peer this node has never seen.
+// The hub catches what a direct transport cannot reach: an offline peer, a
+// NAT that hole-punching lost, a peer this node has never seen.
 func TestHubCatchesAnUnreachablePeer(t *testing.T) {
 	srv := newFakeHub(t)
 	d, peer := twoRegistered(t, srv)
@@ -82,7 +125,7 @@ func TestHubCatchesAnUnreachablePeer(t *testing.T) {
 	direct := &fakeTransport{name: "p2p", reachable: false}
 	d.RegisterTransport(direct)
 
-	if err := d.relaySend(context.Background(), peer, seal.TypeDelegate, "ix-1", []byte("x")); err != nil {
+	if _, err := queueTo(t, d, peer.AID(), "ix-1", chatBody(t, "x", "")); err != nil {
 		t.Fatal(err)
 	}
 	if direct.count() != 0 {
@@ -93,8 +136,10 @@ func TestHubCatchesAnUnreachablePeer(t *testing.T) {
 	}
 }
 
-// A direct transport that says it can reach a peer and then fails must not
-// lose the delegation: the hub is tried next.
+// A direct transport that took the bytes and brought no valid token back
+// does not lose the message: the hub is tried next, in the same attempt and
+// with the same version (ENG-A3), and the direct path backs off for that
+// peer (DLV-S-30).
 func TestFailedDirectSendFallsThroughToTheHub(t *testing.T) {
 	srv := newFakeHub(t)
 	d, peer := twoRegistered(t, srv)
@@ -102,7 +147,7 @@ func TestFailedDirectSendFallsThroughToTheHub(t *testing.T) {
 	direct := &fakeTransport{name: "p2p", reachable: true, fail: errors.New("connection reset")}
 	d.RegisterTransport(direct)
 
-	if err := d.relaySend(context.Background(), peer, seal.TypeDelegate, "ix-1", []byte("x")); err != nil {
+	if _, err := queueTo(t, d, peer.AID(), "ix-1", chatBody(t, "x", "")); err != nil {
 		t.Fatal(err)
 	}
 	if direct.count() != 1 {
@@ -111,36 +156,50 @@ func TestFailedDirectSendFallsThroughToTheHub(t *testing.T) {
 	if n := relayCountFor(srv.URL); n != 1 {
 		t.Fatalf("the hub should have caught the failure, got %d relay posts", n)
 	}
+	if d.p2pPath(context.Background(), peer.AID(), d.nowMS()) != nil {
+		t.Fatal("the direct path does not back off after taking bytes without a token")
+	}
+	// The same version went both ways (ENG-A3).
+	got, _ := seal.EnvDigest(direct.envs[0])
+	want, _ := seal.EnvDigest(queuedFor(t, srv, peer.AID())[0])
+	if got != want {
+		t.Fatal("the direct path and the hub were handed different versions")
+	}
 }
 
-// With nothing able to deliver, the caller gets the last real failure —
-// not a summary. An operator debugging delivery wants to know what the hub
-// said.
-func TestEveryPathFailingReportsTheLastError(t *testing.T) {
-	d := newTestDaemon(t, "", false) // no hub configured
-
+// With nothing able to deliver, the row waits with what failed as its
+// last_error — a code, never a path's own words (engine ENG-S4) — and is
+// not given up.
+func TestEveryPathFailingKeepsTheRowWaiting(t *testing.T) {
+	srv := newFakeHub(t)
+	d, peer := twoRegistered(t, srv)
 	direct := &fakeTransport{name: "p2p", reachable: true, fail: errors.New("connection reset")}
 	d.RegisterTransport(direct)
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
 
-	err := d.deliverEnvelope(context.Background(), "peer-aid", []byte("x"))
+	id, err := queueTo(t, d, peer.AID(), "ix-1", chatBody(t, "x", ""))
 	if err == nil {
 		t.Fatal("delivery with no working path must fail")
 	}
-	if !strings.Contains(err.Error(), "connection reset") {
-		t.Errorf("the error should name what actually failed: %v", err)
+	row, _, err := d.ix.OutboxState(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Attempts != 1 || row.LastError != "-hub_503" || strings.Contains(row.LastError, "reset") {
+		t.Errorf("the row after every path failed: attempts %d, last_error %q", row.Attempts, row.LastError)
 	}
 }
 
-// A build with no transport module still delivers: the hub is always in the
-// list, which is what "sometimes you only distribute alongside a hub" means.
+// A build with no transport module still delivers: the hub is the path
+// the engine always has.
 func TestHubOnlyBuildStillDelivers(t *testing.T) {
 	srv := newFakeHub(t)
 	d, peer := twoRegistered(t, srv)
 
-	if got := len(d.transports()); got != 1 {
-		t.Fatalf("a build with no transport module should have exactly the hub, got %d", got)
+	if got := len(d.directTransports()); got != 0 {
+		t.Fatalf("a build with no transport module has no direct path, got %d", got)
 	}
-	if err := d.relaySend(context.Background(), peer, seal.TypeMessage, "ix-1", []byte("x")); err != nil {
+	if _, err := queueTo(t, d, peer.AID(), "ix-1", chatBody(t, "x", "")); err != nil {
 		t.Fatal(err)
 	}
 	if n := relayCountFor(srv.URL); n != 1 {
@@ -148,10 +207,10 @@ func TestHubOnlyBuildStillDelivers(t *testing.T) {
 	}
 }
 
-// twoRegistered gives a sending daemon and the AID of a peer that the hub
-// knows about — the hub refuses delivery to a stranger, which is the
-// behaviour these tests need rather than one to work around.
-func twoRegistered(t *testing.T, srv *httptest.Server) (*Daemon, string) {
+// twoRegistered gives a sending daemon and a peer the hub knows about — the
+// hub refuses delivery to a stranger, which is the behaviour these tests
+// need rather than one to work around.
+func twoRegistered(t *testing.T, srv *httptest.Server) (*Daemon, *Daemon) {
 	t.Helper()
 	ctx := context.Background()
 	d := newTestDaemon(t, srv.URL, false)
@@ -162,24 +221,25 @@ func twoRegistered(t *testing.T, srv *httptest.Server) (*Daemon, string) {
 	if err := peer.RegisterWithHub(ctx, srv.URL, "Peer", nil); err != nil {
 		t.Fatal(err)
 	}
-	return d, peer.AID()
+	return d, peer
 }
 
 // §3.5 step 1: a recipient whose encryption keys cannot be resolved gets
-// nothing. The send fails with an error naming the cause, and no transport
-// is handed any bytes — there is no unsealed fallback (SI-3).
+// nothing. The attempt waits on -no_keys (engine ENG-S4, A7), and no
+// transport is handed any bytes — there is no unsealed fallback (SI-3).
 func TestARecipientWithoutKeysIsSentNothing(t *testing.T) {
 	srv := newFakeHub(t)
 	d, _ := twoRegistered(t, srv)
 	direct := &fakeTransport{name: "p2p", reachable: true}
 	d.RegisterTransport(direct)
 	nobody := newStranger(t) // registered nowhere, so the hub has no keys for it
-	err := d.relaySend(context.Background(), nobody.aid, seal.TypeDelegate, "ix-1", []byte("the task in the clear"))
+	id, err := queueTo(t, d, nobody.aid, "ix-1", chatBody(t, "the task in the clear", ""))
 	if err == nil {
 		t.Fatal("a message to a recipient without keys was reported sent")
 	}
-	if !strings.Contains(err.Error(), "encryption keys") {
-		t.Errorf("the error does not name the missing keys: %v", err)
+	row, _, rerr := d.ix.OutboxState(id)
+	if rerr != nil || !strings.HasPrefix(row.LastError, errNoKeys) || row.CurVer != 0 || row.HandedAt != 0 {
+		t.Errorf("the row of a recipient without keys: %+v %v", row, rerr)
 	}
 	if n := direct.count(); n != 0 {
 		t.Fatalf("a transport was handed %d messages for a recipient without keys", n)
@@ -189,18 +249,29 @@ func TestARecipientWithoutKeysIsSentNothing(t *testing.T) {
 	}
 }
 
-// T49 at the hub path: a failed hub send handed the envelope over only when
-// the /relay/send request got a connection (hubapi.TraceHanded). The hub's
-// identity, looked up first, is a request of its own that carries no byte
-// of the envelope: a hub that answers it and is then gone, or that cannot
-// give an identity this node accepts, was handed nothing. A hub that took
-// the connection was handed the envelope, whatever it answered.
+// T49 at the hub path (engine ENG-A4): a failed hub send handed the
+// envelope over only when the /relay/send request got a connection
+// (hubapi.TraceHanded). The hub's identity, looked up first, is a request
+// of its own that carries no byte of the envelope: a hub that answers it
+// and is then gone, or that cannot give an identity this node accepts, was
+// handed nothing. A hub that took the connection was handed the envelope,
+// whatever it answered.
+//
+// Deterministic (ENG-1a, W3 EXE-10′ 5): the sender of the first three cases
+// has no hub of its own while the case runs, so its outbound gate holds
+// back every signed request the background loops might make (KEL D-1) and
+// nothing races the case's own requests to the hub.
 func TestTheHubPathIsHandedOnceRelaySendConnects(t *testing.T) {
 	ctx := context.Background()
+	underHub := func(d *Daemon, url string) {
+		d.mu.Lock()
+		d.cfg.HubURL = url
+		d.mu.Unlock()
+	}
 
 	t.Run("the identity is served and then the hub is gone", func(t *testing.T) {
 		fake := newFakeHub(t)
-		var others atomic.Int32
+		var identities, others atomic.Int32
 		var front *httptest.Server
 		front = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/hub/identity" {
@@ -208,6 +279,7 @@ func TestTheHubPathIsHandedOnceRelaySendConnects(t *testing.T) {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
+			identities.Add(1)
 			// Answer the lookup and stop listening, so the request that
 			// follows cannot connect.
 			front.Listener.Close()
@@ -215,39 +287,33 @@ func TestTheHubPathIsHandedOnceRelaySendConnects(t *testing.T) {
 			fake.Config.Handler.ServeHTTP(w, r)
 		}))
 		t.Cleanup(front.Close)
-		d := newTestDaemon(t, front.URL, false)
-		// The identity is learned once, by whichever call asks first: the
-		// daemon's own start-up (the mailbox key's publication) may race
-		// the send to it, and only one of them finds the hub listening.
-		waitUntil(t, "the hub's identity is pinned", func() bool {
-			_, _, err := d.hubIdentity(ctx, front.URL)
-			return err == nil
-		})
+		d := newTestDaemon(t, "", false)
+		underHub(d, front.URL)
+		if _, _, err := d.hubIdentity(ctx, front.URL); err != nil {
+			t.Fatalf("the identity lookup failed (%v); the case needs it to succeed", err)
+		}
 		// Under a capability: the send is the first request after the
 		// identity's (a first contact would open a session first).
-		_, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", outerEnvelope(t, "did:anet:someone", seal.AccessKindCap))
+		env := outerEnvelope(t, "did:anet:someone", seal.AccessKindCap)
+		_, handed, err := d.relaySendV3(ctx, env, AccessChoice{Send: true, Kind: seal.AccessKindCap})
 		if err == nil {
 			t.Fatal("a send to a hub that stopped listening succeeded")
-		}
-		if strings.Contains(err.Error(), "identity") {
-			t.Fatalf("the identity lookup failed (%v); the case needs it to succeed", err)
 		}
 		if handed {
 			t.Fatalf("handed after an identity lookup that connected and a /relay/send that could not (%v)", err)
 		}
-		if n := others.Load(); n != 0 {
-			t.Fatalf("the hub saw %d requests besides the identity lookup", n)
+		if n, o := identities.Load(), others.Load(); n != 1 || o != 0 {
+			t.Fatalf("the hub saw %d identity lookups and %d other requests; want the case's one lookup only", n, o)
 		}
 	})
 
 	t.Run("the identity is refused", func(t *testing.T) {
 		srv := newFakeHub(t)
-		fh := fakeHubAt(t, srv.URL)
-		fh.mu.Lock()
-		fh.identityDown = true
-		fh.mu.Unlock()
-		d := newTestDaemon(t, srv.URL, false)
-		_, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", outerEnvelope(t, "did:anet:someone", seal.AccessKindSession))
+		setFake(t, srv.URL, func(h *fakeHub) { h.identityDown = true })
+		d := newTestDaemon(t, "", false)
+		underHub(d, srv.URL)
+		env := outerEnvelope(t, "did:anet:someone", seal.AccessKindCap)
+		_, handed, err := d.relaySendV3(ctx, env, AccessChoice{Send: true, Kind: seal.AccessKindCap})
 		if err == nil || handed {
 			t.Fatalf("handed=%v err=%v; want a failure that handed nothing over", handed, err)
 		}
@@ -260,8 +326,10 @@ func TestTheHubPathIsHandedOnceRelaySendConnects(t *testing.T) {
 		}
 		addr := l.Addr().String()
 		l.Close()
-		d := newTestDaemon(t, "http://"+addr, false)
-		if _, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", outerEnvelope(t, "did:anet:someone", seal.AccessKindSession)); err == nil || handed {
+		d := newTestDaemon(t, "", false)
+		underHub(d, "http://"+addr)
+		env := outerEnvelope(t, "did:anet:someone", seal.AccessKindCap)
+		if _, handed, err := d.relaySendV3(ctx, env, AccessChoice{Send: true, Kind: seal.AccessKindCap}); err == nil || handed {
 			t.Fatalf("handed=%v err=%v; want a failure that handed nothing over", handed, err)
 		}
 	})
@@ -269,16 +337,14 @@ func TestTheHubPathIsHandedOnceRelaySendConnects(t *testing.T) {
 	t.Run("the hub answers", func(t *testing.T) {
 		srv := newFakeHub(t)
 		d, peer := twoRegistered(t, srv)
+		kind0 := AccessChoice{Send: true, Kind: seal.AccessKindSession}
 		// A first contact to nobody registered: the hub answers 404, and
 		// it had it.
-		if _, handed, err := (hubTransport{d}).Send(ctx, "did:anet:someone", outerEnvelope(t, "did:anet:someone", seal.AccessKindSession)); err == nil || !handed {
+		if _, handed, err := d.relaySendV3(ctx, outerEnvelope(t, "did:anet:someone", seal.AccessKindSession), kind0); err == nil || !handed {
 			t.Fatalf("a 4xx: handed=%v err=%v; want a failure that handed the envelope over", handed, err)
 		}
-		fh := fakeHubAt(t, srv.URL)
-		fh.mu.Lock()
-		fh.relayDown = true
-		fh.mu.Unlock()
-		if _, handed, err := (hubTransport{d}).Send(ctx, peer, outerEnvelope(t, peer, seal.AccessKindSession)); err == nil || !handed {
+		setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
+		if _, handed, err := d.relaySendV3(ctx, outerEnvelope(t, peer.AID(), seal.AccessKindSession), kind0); err == nil || !handed {
 			t.Fatalf("a 503: handed=%v err=%v; want a failure that handed the envelope over", handed, err)
 		}
 	})

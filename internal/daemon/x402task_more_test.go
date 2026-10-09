@@ -473,7 +473,12 @@ func TestARedeliveredPaidCallResendsItsReceipts(t *testing.T) {
 	if r := receive(t, prov, env); r.reason != dropDuplicate {
 		t.Fatalf("redelivery: %+v", r)
 	}
-	poll(t, req)
+	// The answer queue is hurried in the background (its status asked
+	// first): the requester polls until the answer is there again.
+	waitUntil(t, "the answer sent again", func() bool {
+		poll(t, req)
+		return getIX(t, req, id).State == interactions.StateCompleted
+	})
 	rix := getIX(t, req, id)
 	meta := decodeMeta([]byte(rix.ResultMeta))
 	if rix.State != interactions.StateCompleted || rix.PayState != interactions.PayCompleted ||
@@ -583,7 +588,10 @@ func TestEverySigningSurfaceIsHeldToTheSpendingPolicy(t *testing.T) {
 // authorizations signed today still count after a restart.
 func TestSpendTotalsAreRebuiltPastAThousandAuthorizations(t *testing.T) {
 	srv := newFakeHub(t)
-	d := newTestDaemon(t, srv.URL, false)
+	// A node whose join designates no witness: the records below are
+	// signed while it joins in the background, and are not about its key
+	// events.
+	d := newPlainTestDaemon(t, srv.URL, false)
 	payPolicy(t, d, PaymentsConfig{ExplicitMax: u64(10), DailyMax: u64(1100)}, "did:anet:a")
 	const n = 1001
 	for i := 0; i < n; i++ {

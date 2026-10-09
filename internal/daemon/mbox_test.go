@@ -326,6 +326,7 @@ func TestMboxEpochRules(t *testing.T) {
 	// An identity that designated a witness hub is asked about; this hub
 	// has never seen it: 404, so 1.
 	a := startAt(t, joinedRoot(t, srv.URL))
+	holdGateOpen(a) // its witness is no hub here: the gate is not what this is about
 	if got := currentMbox(t, a); got.Epoch != 1 {
 		t.Fatalf("identity unknown to the hub: key at %d, want 1", got.Epoch)
 	}
@@ -355,6 +356,7 @@ func TestMboxEpochRules(t *testing.T) {
 	// The identity on a new machine: one above what the hub stores.
 	n0 := gets()
 	b := startAt(t, rootWithIdentityOf(t, a, srv.URL))
+	holdGateOpen(b)
 	if got := currentMbox(t, b); got.Epoch != 4 {
 		t.Fatalf("restored identity's key is at %d, want 4 (the hub stores 3)", got.Epoch)
 	}
@@ -911,7 +913,7 @@ func TestMboxEpochHealsAfterSSRW9Refusal(t *testing.T) {
 		}
 	})
 	t.Run("both lost, never at a hub", func(t *testing.T) {
-		srv, _, prov := registeredPair(t)
+		srv, _, prov := plainRegisteredPair(t)
 		if beenAtAHub(prov.self) {
 			// SSR-W10 would ask the hub, and there would be no refusal to
 			// heal: this case needs an identity that never named a witness.

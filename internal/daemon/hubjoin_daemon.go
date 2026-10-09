@@ -65,6 +65,11 @@ func (d *Daemon) initJoin(cfg Config) {
 	d.join.wake = make(chan struct{}, 1)
 	if d.join.hooks == nil {
 		d.join.hooks = kernelJoinHooks{d}
+		if f := testJoinHooks; f != nil {
+			if h := f(d); h != nil {
+				d.join.hooks = h
+			}
+		}
 	}
 	if cfg.HubURL == "" {
 		return
@@ -231,6 +236,9 @@ func sameStrings(a, b []string) bool {
 // keeps its result when hubURL is the configured hub. The registration
 // carries name and caps.
 func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []string) joinRecord {
+	// The join flow's requests pass the outbound gate (KEL D-1) and reach a
+	// hub stopped for another wire, to check it again (core CORE-V1).
+	ctx = withJoinFlow(ctx)
 	// When this attempt began: a registration it gets accepted answers the
 	// kicks made before it, not those made while it ran (their inputs,
 	// a changed card say, may be newer than what it sent).
@@ -260,6 +268,8 @@ func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []
 		return r
 	}
 	r.HubAID = hubAID
+	// The join flow checked the hub's identity, and it speaks this wire.
+	d.clearHubWire(hubURL)
 	kelB, err := identity.MarshalKEL(d.self.KEL())
 	if err != nil {
 		r, _ = joinStep(r, transientAnswer(phaseRegister, whyLocal), time.Now())
@@ -625,7 +635,7 @@ type hubContact struct {
 // LEC §2.3.2) it is only checked to replay to the hub's AID.
 func (d *Daemon) contactHub(ctx context.Context, hubURL string, pin bool) (hubContact, *joinError) {
 	unreachable := &joinError{http.StatusBadGateway, a2ashape.Refuse(reasonHubUnreachable, a2ashape.Args{"hub": hubURL})}
-	ctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
+	ctx, cancel := context.WithTimeout(withJoinFlow(ctx), hubCallTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(hubURL, "/")+"/hub/identity", nil)
 	if err != nil {
@@ -682,6 +692,7 @@ func (d *Daemon) contactHub(ctx context.Context, hubURL string, pin bool) (hubCo
 	if err != nil {
 		return hubContact{}, unreachable
 	}
+	d.clearHubWire(hubURL)
 	return hubContact{hubAID: aid}, nil
 }
 
@@ -735,6 +746,7 @@ func (d *Daemon) dryRunJoin(ctx context.Context, hubURL string) (hubDryRunResp, 
 // the loop goes on in the background. It answers with the state the
 // attempt left.
 func (d *Daemon) joinHub(ctx context.Context, req joinRequest) (hubRegisterResp, *joinError) {
+	ctx = withJoinFlow(ctx)
 	c, jerr := d.contactHub(ctx, req.Hub, true)
 	if jerr != nil {
 		return hubRegisterResp{}, jerr
@@ -936,6 +948,7 @@ func (d *Daemon) relayRunning() bool {
 //   - another hub (the one before a switch): deregistered there; the
 //     configured hub's join is not touched (core X-KEL-7).
 func (d *Daemon) leaveHub(ctx context.Context, target string) (map[string]any, *joinError, error) {
+	ctx = withJoinFlow(ctx) // hub-leave is the join flow's (LEC AD-8)
 	cfg := d.config()
 	if strings.TrimSpace(target) == "" {
 		target = cfg.HubURL

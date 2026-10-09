@@ -97,9 +97,8 @@ func TestNoPlaintextContentInDB(t *testing.T) {
 		return tx.AppendPendingFollowup("ix_p", interactions.PendingFollowup{Kind: "text", Body: canary("followup"),
 			MsgID: "f1", Metadata: json.RawMessage(`{"f":"` + canary("followup_meta") + `"}`), At: 2}, 0)
 	}))
-	oid, err := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_2", ToAID: "peer", Type: "anet.result/1",
+	oid := enqueueOutbox(t, s, interactions.OutboxItem{IX: "ix_2", ToAID: "peer", Type: "anet.result/1",
 		Body: cb("outbox_body"), MID: []byte("0123456789abcdef")})
-	must(err)
 
 	// Read back through the store.
 	ix1, err := s.Get("ix_1")
@@ -114,7 +113,7 @@ func TestNoPlaintextContentInDB(t *testing.T) {
 	must(err)
 	p, err := s.GetPending("ix_p")
 	must(err)
-	ob, err := s.GetOutbox(oid)
+	obBody, _, err := s.OutboxContent(oid)
 	must(err)
 	byID, err := s.MessageByMsgID("ix_1", "m1")
 	must(err)
@@ -138,7 +137,7 @@ func TestNoPlaintextContentInDB(t *testing.T) {
 		{"pending att", p.Attachments[0].Name, canary("pending_att")},
 		{"followup", p.Followups[0].Body, canary("followup")},
 		{"followup meta", string(p.Followups[0].Metadata), `{"f":"` + canary("followup_meta") + `"}`},
-		{"outbox body", string(ob.Body), canary("outbox_body")},
+		{"outbox body", string(obBody), canary("outbox_body")},
 		{"context (plain)", ix1.ContextID, plainCanary},
 	} {
 		if c.got != c.want {
@@ -548,10 +547,7 @@ func TestContentGoneReadsAsNotFound(t *testing.T) {
 	if err := s.AddAttachment("ix_a", seq, interactions.Attachment{Name: "a.txt", Mime: "text/plain", Size: 1, CID: "c1", Data: []byte("x")}); err != nil {
 		t.Fatal(err)
 	}
-	oid, err := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_a", ToAID: "peer", Type: "anet.message/1", Body: []byte("B")})
-	if err != nil {
-		t.Fatal(err)
-	}
+	oid := enqueueOutbox(t, s, interactions.OutboxItem{IX: "ix_a", ToAID: "peer", Type: "anet.message/1", Body: []byte("B")})
 	if err := s.Update(func(tx *interactions.Tx) error {
 		if err := tx.PutPending(interactions.PendingItem{IX: "ix_p", FromAID: "peer", ArrivedAt: 1, Delegate: []byte("D")}, 0, 0); err != nil {
 			return err
@@ -584,8 +580,8 @@ func TestContentGoneReadsAsNotFound(t *testing.T) {
 	gone("Attachments", err)
 	_, err = s.AttachmentData("ix_a", "c1")
 	gone("AttachmentData", err)
-	_, err = s.GetOutbox(oid)
-	gone("GetOutbox", err)
+	_, _, err = s.OutboxContent(oid)
+	gone("OutboxContent", err)
 	_, err = s.GetPending("ix_p")
 	gone("GetPending", err)
 	_, err = s.AddMessage("ix_a", "me", interactions.MsgText, "more")
@@ -692,7 +688,9 @@ func TestDEKLivesAndDiesWithItsRow(t *testing.T) {
 		if ok, err := tx.ReleaseDEK("ix_1"); err != nil || ok {
 			return fmt.Errorf("release of a task with a row: %v %v", ok, err)
 		}
-		if _, err := tx.EnqueueOutbox(interactions.OutboxItem{IX: "ix_1", ToAID: "peer", Type: "anet.message/1", Body: []byte("B")}); err != nil {
+		it := interactions.OutboxItem{IX: "ix_1", ToAID: "peer", Type: "anet.message/1", Body: []byte("B")}
+		fillOutboxItem(&it)
+		if _, _, err := tx.EnqueueOutbox(it); err != nil {
 			return err
 		}
 		if ok, err := tx.DeleteDEK("ix_none"); err != nil || ok {
@@ -798,29 +796,26 @@ func TestReleaseDEKKeepsAKeyStillNeeded(t *testing.T) {
 
 	// An outbox row of the task holds a body under the key: deleting the held item keeps it.
 	hold("ix_q")
-	oid, err := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_q", ToAID: "peer", Type: "anet.status/1", Body: []byte("notice")})
-	if err != nil {
-		t.Fatal(err)
-	}
+	oid := enqueueOutbox(t, s, interactions.OutboxItem{IX: "ix_q", ToAID: "peer", Type: "anet.status/1", Body: []byte("notice")})
 	if ok, err := s.DeletePending("ix_q"); err != nil || !ok {
 		t.Fatal(ok, err)
 	}
 	if !hasKey("ix_q") {
 		t.Fatal("deleting the held item deleted the key its outbox row still needs")
 	}
-	if it, err := s.GetOutbox(oid); err != nil || string(it.Body) != "notice" {
-		t.Fatalf("outbox row after the held item went: %+v %v", it, err)
+	if body, _, err := s.OutboxContent(oid); err != nil || string(body) != "notice" {
+		t.Fatalf("outbox row after the held item went: %q %v", body, err)
 	}
-	// The last row goes: so does the key.
+	// The last row goes: so does the key, in the same transaction (engine
+	// ENG-S7, FS-L1).
 	if err := s.Update(func(tx *interactions.Tx) error {
-		if err := tx.DeleteOutbox(oid); err != nil {
-			return err
+		if ok, err := tx.DeleteOutboxRow(oid); err != nil || !ok {
+			return fmt.Errorf("delete the row: %v %v", ok, err)
 		}
-		ok, err := tx.ReleaseDEK("ix_q")
-		if err == nil && !ok {
-			err = errors.New("the key of a task with nothing left was kept")
+		if _, err := tx.DEK("ix_q"); !errors.Is(err, interactions.ErrContentGone) {
+			return fmt.Errorf("the key of a task with nothing left was kept: %v", err)
 		}
-		return err
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}

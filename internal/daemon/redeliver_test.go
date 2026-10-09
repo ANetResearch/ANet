@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"math"
 	"net/http"
 	"strings"
@@ -65,9 +64,11 @@ func TestAnEndedPublicCallAnswersARedeliveredDelegateOnce(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// The call ended, and its answer is queued: the requester's key set
+	// stays while it is, to seal it again (engine ENG-S7).
 	pix, err := prov.ix.Get(id)
-	if err != nil || pix.Trust != interactions.TrustPublicCap || !pix.IsTerminal() || len(pix.PeerKeys) != 0 {
-		t.Fatalf("the public call did not end with its keys cleared: %+v %v", pix, err)
+	if err != nil || pix.Trust != interactions.TrustPublicCap || !pix.IsTerminal() || len(pix.PeerKeys) == 0 {
+		t.Fatalf("the public call ended without the keys its queued answer needs: %+v %v", pix, err)
 	}
 	clearMailbox(t, srv, stranger.AID()) // the answer is lost on the way
 
@@ -78,18 +79,26 @@ func TestAnEndedPublicCallAnswersARedeliveredDelegateOnce(t *testing.T) {
 	if n := len(lamp.invoked); n != 1 {
 		t.Fatalf("the capability ran %d times", n)
 	}
+	// The redelivery hurried the answer: the hub no longer has it, so it
+	// goes again, the same version (engine §4.6, ENG-D8).
+	askHubNow(t, prov)
+	prov.flushOutboxAt(ctx, math.MaxInt64)
 	if n := len(queuedFor(t, srv, stranger.AID())); n != 1 {
 		t.Fatalf("%d answers re-sent for the redelivery, want 1", n)
 	}
-	if rows, _ := prov.ix.Outbox(id); len(rows) != 0 {
-		t.Fatalf("the re-sent answer is still queued: %+v", rows)
+	if rows := outboxRows(t, prov, id); len(rows) != 1 || rows[0].CurVer != 1 {
+		t.Fatalf("the answer was queued or sealed again: %+v", rows)
 	}
-	if err := stranger.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
+	settleDelivery(t, prov, stranger)
 	got, err := stranger.ix.Get(id)
 	if err != nil || got.State != interactions.StateCompleted || len(got.Receipt) == 0 {
 		t.Fatalf("the re-sent answer did not land: %+v %v", got, err)
+	}
+	if rows := outboxRows(t, prov, id); len(rows) != 0 {
+		t.Fatalf("the confirmed answer is still queued: %+v", rows)
+	}
+	if pix, err := prov.ix.Get(id); err != nil || len(pix.PeerKeys) != 0 || len(pix.PeerKEL) != 0 {
+		t.Fatalf("the requester's keys outlived the last queued message: %+v %v", pix, err)
 	}
 }
 
@@ -112,20 +121,20 @@ func TestAQueuedAnswerIsNotQueuedAgainForARedelivery(t *testing.T) {
 	if r := receive(t, prov, env); r.class != rxAccepted {
 		t.Fatalf("first delivery: %+v", r)
 	}
-	rows, err := prov.ix.Outbox(id)
-	if err != nil || len(rows) != 1 || rows[0].Type != seal.TypeResult {
-		t.Fatalf("outbox with the relay down = %+v (%v), want the answer", rows, err)
+	rows := outboxRows(t, prov, id)
+	if len(rows) != 1 || rows[0].Type != seal.TypeResult {
+		t.Fatalf("outbox with the relay down = %+v, want the answer", rows)
 	}
 	for i := 0; i < 3; i++ {
 		if r := receive(t, prov, env); r.reason != dropDuplicate {
 			t.Fatalf("redelivery %d: %+v", i, r)
 		}
 	}
-	if again, _ := prov.ix.Outbox(id); len(again) != 1 || again[0].ID != rows[0].ID {
+	if again := outboxRows(t, prov, id); len(again) != 1 || again[0].ID != rows[0].ID {
 		t.Fatalf("outbox after redeliveries = %+v, want the one answer", again)
 	}
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
-	if err := prov.deliverQueued(ctx, rows[0].ID); err != nil {
+	if err := retryNow(t, prov, rows[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	prov.flushOutboxAt(ctx, int64(prov.nowMS())+int64(retryMaxDelay.Milliseconds()))
@@ -137,9 +146,12 @@ func TestAQueuedAnswerIsNotQueuedAgainForARedelivery(t *testing.T) {
 	}
 }
 
-// 400, 404 and 413 from the relay are answers about the message: the row is
-// dropped at once with the reason on the chain, and never tried again. A
-// requester's task whose delegation was refused is failed as undeliverable.
+// 413 from the relay is an answer about the message: the row is given up at
+// once with the reason on the chain, and never tried again, and the task it
+// leaves waiting fails with the hub's code (engine §2.5, §2.8). The hub had
+// it, so the effect is never "not sent" (ENG-H1). A recipient that left the
+// hub refuses a message under its credential (403, SSR-D11): the row waits,
+// it is not dropped on one refusal (SI-86).
 func TestARefusalForGoodIsNotRetried(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -155,11 +167,11 @@ func TestARefusalForGoodIsNotRetried(t *testing.T) {
 	if err != nil || len(list) != 1 || list[0].State != interactions.StateFailed {
 		t.Fatalf("after a refused delegation: %+v %v", list, err)
 	}
-	if m := resultMetaOf(t, req, list[0].ID); m[a2ashape.KeyReason] != a2ashape.ReasonUndeliverable {
-		t.Fatalf("result meta %v, want anet.reason=undeliverable", m)
+	if m := resultMetaOf(t, req, list[0].ID); m[a2ashape.KeyReason] != "too_large" {
+		t.Fatalf("result meta %v, want anet.reason=too_large", m)
 	}
-	if ev := lastLedgerPayload(t, req, EvDeliveryExpired); ev["reason"] != undeliveredTooLarge {
-		t.Fatalf("evidence %v, want reason %s", ev, undeliveredTooLarge)
+	if ev := lastLedgerPayload(t, req, EvDeliveryExpired); ev["reason"] != "too_large" || ev["handed"] != true {
+		t.Fatalf("evidence %v, want reason too_large, handed", ev)
 	}
 	if n, _ := req.ix.OutboxLen(); n != 0 {
 		t.Fatalf("%d rows left to retry a refused message", n)
@@ -179,11 +191,15 @@ func TestARefusalForGoodIsNotRetried(t *testing.T) {
 	if err := prov.SendMessage(ctx, id, "here you are", nil); err != nil {
 		t.Fatalf("a provider message is recorded whatever the hub says: %v", err)
 	}
-	if n, _ := prov.ix.OutboxLen(); n != 0 {
-		t.Fatalf("%d rows left to retry a message to an unknown recipient", n)
+	var waiting bool
+	for _, r := range outboxRows(t, prov, id) {
+		if r.Type == seal.TypeMessage && lastErrorCode(r.LastError) == codeCredentialRefused {
+			waiting = true
+		}
 	}
-	if ev := lastLedgerPayload(t, prov, EvDeliveryExpired); ev["reason"] != undeliveredUnknown || ev["interaction_id"] != id {
-		t.Fatalf("evidence %v, want reason %s for %s", ev, undeliveredUnknown, id)
+	if !waiting {
+		t.Fatalf("a message under a credential the hub refuses once: %+v; want it waiting on credential_refused",
+			outboxRows(t, prov, id))
 	}
 	// The provider's own task is not failed by an undelivered reply.
 	if st := stateOf(t, prov, id); st != interactions.StateInputRequired {
@@ -219,16 +235,16 @@ func TestTheHubsRetryAfterIsKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	setFake(t, srv.URL, func(h *fakeHub) {
-		h.sendsBy[prov.AID()] = 1
-		h.senderLimit = 1
-		h.retryAfter = "3600"
+		h.sendHook = func([]byte) fakeSendAnswer {
+			return fakeSendAnswer{kind: fakeSendRefuse, status: 429, code: "rate_limited", retryAfter: "3600"}
+		}
 	})
 	before := int64(prov.nowMS())
 	if err := prov.CompleteTask(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	rows, _ := prov.ix.Outbox(id)
-	if len(rows) != 1 || rows[0].Attempts != 1 {
+	rows := outboxRows(t, prov, id)
+	if len(rows) != 1 || rows[0].Attempts != 1 || lastErrorCode(rows[0].LastError) != "rate_limited" {
 		t.Fatalf("outbox after a 429 = %+v", rows)
 	}
 	if wait := rows[0].NextAt - before; wait < 3599_000 || wait > 3700_000 {
@@ -243,39 +259,56 @@ func TestTheHubsRetryAfterIsKept(t *testing.T) {
 	}
 }
 
-// Which hub answers end a row, and which are retried.
-func TestPermanentRefusalsAreOnlyAnswersAboutTheMessage(t *testing.T) {
+// Which hub answers end a row, which are waits and which are retried
+// (engine §2.5): only the code decides, never the hub's sentence.
+func TestTheHubsAnswersAreReadByTheirCodes(t *testing.T) {
+	he := func(code int, reason string) error {
+		return &hubError{path: "/relay/send", code: code, reason: reason, msg: "the hub's own words"}
+	}
 	for _, c := range []struct {
-		err  error
-		want string
+		err    error
+		handed bool
+		want   hubAnswerKind
+		code   string
 	}{
-		{&hubError{path: "/relay/send", code: 400}, undeliveredBad},
-		{&hubError{path: "/relay/send", code: 404}, undeliveredUnknown},
-		{&hubError{path: "/relay/send", code: 413}, undeliveredTooLarge},
-		// The directory holds no entry for the recipient, in a whole
-		// answer; not one it could not read, or holds unverifiably.
-		{&peerResolveError{AID: "a", Verdict: verdictNotFound}, undeliveredUnknown},
-		{&peerResolveError{AID: "a", Verdict: verdictUnavailable}, ""},
-		{&peerResolveError{AID: "a", Verdict: verdictUnverifiable}, ""},
-		{fmt.Errorf("seal: %w", &peerResolveError{AID: "a", Verdict: verdictNotFound}), undeliveredUnknown},
-		// A by-AID key route is no answer about the recipient any more.
-		{&hubError{path: "/agents/aid_x/keys", code: 404}, ""},
-		{&hubError{path: "/relay/send", code: 429}, ""},
-		{&hubError{path: "/relay/send", code: 507}, ""},
-		{&hubError{path: "/relay/send", code: 401}, ""},
-		{&hubError{path: "/hub/identity", code: 404}, ""}, // a mistyped hub URL is not the recipient
-		{errors.New("connection refused"), ""},
+		{nil, true, ansAccepted, ""},
+		{he(409, "kid_stale"), true, ansKidStale, "kid_stale"},
+		{he(403, "access_invalid"), true, ansAccessInvalid, "access_invalid"},
+		{he(429, "rate_limited"), true, ansWait, "rate_limited"},
+		{he(429, "strangers_busy"), true, ansWait, "strangers_busy"},
+		{he(429, "redelivery_limited"), true, ansWait, "redelivery_limited"},
+		{he(507, "mailbox_full"), true, ansWait, "mailbox_full"},
+		{he(502, "home_unreachable"), true, ansWait, "home_unreachable"},
+		{he(404, "recipient_unknown"), true, ansUnknownRecipient, "recipient_unknown"},
+		{he(413, "too_large"), true, ansTooLarge, "too_large"},
+		{he(413, "too_large_for_stranger"), true, ansTooLarge, "too_large_for_stranger"},
+		{he(413, ""), true, ansTooLarge, "too_large"},
+		{he(400, "bad_envelope"), true, ansBadEnvelope, "bad_envelope"},
+		{he(400, "expired"), true, ansBadEnvelope, "expired"},
+		{he(400, ""), true, ansBadEnvelope, "bad_request"},
+		{he(400, "wire_too_new"), true, ansWire, "wire_too_new"},
+		{&hubWireError{msg: "wire 4"}, true, ansWire, ""},
+		{he(401, "session_invalid"), true, ansTemporary, "session_invalid"},
+		{he(404, ""), true, ansTemporary, ""},
+		{he(503, ""), true, ansTemporary, ""},
+		{he(429, "source_rate"), true, ansTemporary, "source_rate"},
+		{errors.New("connection reset"), true, ansTemporary, ""},
+		{errors.New("dial tcp: connection refused"), false, ansNotSent, ""},
+		{&sessionUnavailableError{he(403, "admission_required")}, false, ansSessionUnavailable, "admission_required"},
 	} {
-		got, ok := permanentRefusal(c.err)
-		if got != c.want || ok != (c.want != "") {
-			t.Errorf("%v: %q %v, want %q", c.err, got, ok, c.want)
+		got := hubAnswerOf(relaySendResult{}, c.handed, c.err)
+		if got.kind != c.want || got.code != c.code {
+			t.Errorf("%v: %+v, want kind %d code %q", c.err, got, c.want, c.code)
+		}
+		if strings.Contains(got.lastErr(), "own words") {
+			t.Errorf("%v: last_error %q carries the hub's sentence", c.err, got.lastErr())
 		}
 	}
 }
 
-// A row that was never sealed has a deadline too: once it passes, the row is
-// dropped with the evidence, whether it carries its own exp or (a row from
-// before) only the time it was queued.
+// A row that was never sealed has a deadline too (ENG-Q2): once it passes,
+// the row is given up as undeliverable — none of it ever left — with the
+// evidence.
 func TestAnUnsealedRowExpires(t *testing.T) {
 	_, req, _ := registeredPair(t)
 	ctx := context.Background()
@@ -285,31 +318,19 @@ func TestAnUnsealedRowExpires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	it, err := req.ix.GetOutbox(id)
-	if err != nil || len(it.Envelope) != 0 || it.Exp == 0 || len(it.MID) != seal.MIDLen {
-		t.Fatalf("unsealed row = %+v (%v), want a body, a deadline and its message id", it, err)
-	}
-	// Kept out of the background loop's way: this test attempts the rows.
-	later := int64(math.MaxInt64 / 2)
-	if err := req.ix.RescheduleOutbox(id, 0, later, ""); err != nil {
-		t.Fatal(err)
-	}
-	legacy, err := req.ix.EnqueueOutbox(interactions.OutboxItem{IX: "ix_legacy", ToAID: stranger.aid,
-		Type: seal.TypeStatus, Body: []byte("old"), NextAt: later})
-	if err != nil {
-		t.Fatal(err)
+	it, _, err := req.ix.OutboxState(id)
+	if err != nil || it.CurVer != 0 || it.Exp != it.TS+messageLifetimeMS || len(it.MID) != seal.MIDLen {
+		t.Fatalf("unsealed row = %+v (%v), want a deadline and its message id", it, err)
 	}
 	now := req.nowMS()
 	req.setClock(func() uint64 { return now + messageLifetimeMS + 60_000 })
-	for _, row := range []int64{id, legacy} {
-		if err := req.deliverQueued(ctx, row); !errors.Is(err, errUndeliverable) {
-			t.Fatalf("row %d past its deadline: %v, want errUndeliverable", row, err)
-		}
+	if err := req.deliverQueued(ctx, id); !errors.Is(err, errUndeliverable) {
+		t.Fatalf("row past its deadline: %v, want errUndeliverable", err)
 	}
 	if n, _ := req.ix.OutboxLen(); n != 0 {
 		t.Fatalf("%d expired rows kept", n)
 	}
-	if ev := lastLedgerPayload(t, req, EvDeliveryExpired); ev["reason"] != undeliveredExpired {
+	if ev := lastLedgerPayload(t, req, EvDeliveryExpired); ev["reason"] != reasonUndeliverable || ev["handed"] != false {
 		t.Fatalf("evidence %v", ev)
 	}
 }
@@ -383,9 +404,9 @@ func TestASendWhileTheRelayIsDownIsSubmittedAndDelivered(t *testing.T) {
 	if err != nil || task.Status.State != a2ashape.TaskStateSubmitted {
 		t.Fatalf("send with the relay down = %s (%v), want submitted", task.Status.State, err)
 	}
-	rows, err := req.ix.Outbox(task.ID)
-	if err != nil || len(rows) != 1 || rows[0].Type != seal.TypeDelegate || len(rows[0].Envelope) == 0 {
-		t.Fatalf("outbox = %+v (%v), want the sealed delegation", rows, err)
+	rows := outboxRows(t, req, task.ID)
+	if len(rows) != 1 || rows[0].Type != seal.TypeDelegate || rows[0].CurVer != 1 {
+		t.Fatalf("outbox = %+v, want the sealed delegation", rows)
 	}
 	if n := len(queuedFor(t, srv, prov.AID())); n != 0 {
 		t.Fatalf("%d delegations reached the hub while it was down", n)
@@ -395,7 +416,7 @@ func TestASendWhileTheRelayIsDownIsSubmittedAndDelivered(t *testing.T) {
 		t.Fatalf("retry = %s (%v), want %s", again.ID, err, task.ID)
 	}
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
-	if err := req.deliverQueued(ctx, rows[0].ID); err != nil {
+	if err := retryNow(t, req, rows[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(queuedFor(t, srv, prov.AID())); n != 1 {
@@ -417,8 +438,12 @@ func TestASendWhileTheRelayIsDownIsSubmittedAndDelivered(t *testing.T) {
 	}
 }
 
-// an internal note item: a delegation the queue gives up on fails the task with
-// anet.reason=undeliverable, and the A2A view says so.
+// an internal note item: a delegation the queue gives up on at its deadline fails the
+// task, and the A2A view says so: delivery_unconfirmed when the hub had it
+// (a 503 is an answer: the bytes left, ENG-H1), so whether it ran is not
+// known. The client's retry with the same message id is a new attempt:
+// the failed task keeps the id (engine ENG-X5), and the client dedupe hands
+// back open tasks only.
 func TestAnUndeliveredDelegationFailsTheTask(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -428,7 +453,7 @@ func TestAnUndeliveredDelegationFailsTheTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, _ := req.ix.Outbox(task.ID)
+	rows := outboxRows(t, req, task.ID)
 	if len(rows) != 1 {
 		t.Fatalf("outbox = %+v", rows)
 	}
@@ -438,13 +463,13 @@ func TestAnUndeliveredDelegationFailsTheTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := seam.Get(ctx, prov.AID(), task.ID, nil)
-	if err != nil || got.Status.State != a2ashape.TaskStateFailed || got.Metadata[a2ashape.KeyReason] != a2ashape.ReasonUndeliverable {
+	if err != nil || got.Status.State != a2ashape.TaskStateFailed || got.Metadata[a2ashape.KeyReason] != reasonDeliveryUnconfirmed {
 		t.Fatalf("task after its delegation expired = %s %v (%v)", got.Status.State, got.Metadata, err)
 	}
-	if ev := lastLedgerPayload(t, req, EvDeliveryExpired); ev["reason"] != undeliveredExpired || ev["interaction_id"] != task.ID {
+	if ev := lastLedgerPayload(t, req, EvDeliveryExpired); ev["reason"] != reasonDeliveryUnconfirmed ||
+		ev["interaction_id"] != task.ID || ev["handed"] != true {
 		t.Fatalf("evidence %v", ev)
 	}
-	// The client's retry of the message is a new attempt.
 	req.setClock(nil)
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
 	retry, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: textMsg("hello", "", "m-x"), ReturnImmediately: true})
@@ -463,9 +488,9 @@ func TestRequesterMessagesGoThroughTheQueue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
+	// The provider took the delegation; follow-ups go once its token says
+	// so (ENG-O2).
+	confirmDelegation(t, req, prov)
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
 	if err := req.SendMessage(ctx, id, "more detail", nil); err != nil {
 		t.Fatalf("follow-up with the relay down: %v", err)
@@ -473,13 +498,13 @@ func TestRequesterMessagesGoThroughTheQueue(t *testing.T) {
 	if err := req.RequestEnd(ctx, id); err != nil {
 		t.Fatalf("end request with the relay down: %v", err)
 	}
-	rows, _ := req.ix.Outbox(id)
+	rows := outboxRows(t, req, id)
 	if len(rows) != 2 {
 		t.Fatalf("outbox = %+v, want the follow-up and the end request", rows)
 	}
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
 	for _, r := range rows {
-		if err := req.deliverQueued(ctx, r.ID); err != nil {
+		if err := retryNow(t, req, r.ID); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -580,25 +605,34 @@ func mustIX(t *testing.T, d *Daemon, id string) *interactions.Interaction {
 	return ix
 }
 
-// A retry is never scheduled past the row's deadline: the row is abandoned,
+// A retry is never scheduled past the row's deadline: the row is given up,
 // and the task it leaves waiting failed, when the deadline passes, not up
-// to a backoff or a Retry-After later (an internal note item).
+// to a backoff or a Retry-After later (engine §0.4).
 func TestARetryIsNotScheduledPastTheDeadline(t *testing.T) {
-	_, req, _ := registeredPair(t)
-	now := req.nowMS()
-	far := int64(math.MaxInt64 / 2) // out of the background loop's way
-	id, err := req.ix.EnqueueOutbox(interactions.OutboxItem{IX: "ix_dl", ToAID: "did:anet:x", Type: seal.TypeStatus,
-		Envelope: []byte("env"), Exp: now + 10_000, NextAt: far})
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	id, err := req.queueSend(ctx, prov.AID(), seal.TypeStatus, "ix_dl", []byte("body"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	it, err := req.ix.GetOutbox(id)
+	row, _, err := req.ix.OutboxState(id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = req.rescheduleOutbox(it, &hubError{path: "/relay/send", code: http.StatusTooManyRequests, retryAfter: "3600"})
-	if got, _ := req.ix.GetOutbox(id); got == nil || got.NextAt != int64(it.Exp)+1 {
-		t.Fatalf("next attempt %+v, want right after the deadline %d", got, it.Exp)
+	// Ten seconds before its deadline, the hub asks for an hour.
+	req.setIdentityGate(func() GateState { return GateState{Open: true, State: IdentityOK} })
+	req.setClock(func() uint64 { return row.Exp - 10_000 })
+	setFake(t, srv.URL, func(h *fakeHub) {
+		h.senderLimit = 1
+		h.retryAfter = "3600"
+		h.sendsBy[req.AID()] = 1
+	})
+	if err := retryNow(t, req, id); err == nil {
+		t.Fatal("the attempt the hub refused succeeded")
+	}
+	got, _, err := req.ix.OutboxState(id)
+	if err != nil || got.NextAt != int64(row.Exp)+1 || lastErrorCode(got.LastError) != "rate_limited" {
+		t.Fatalf("next attempt %+v (%v), want right after the deadline %d", got, err, row.Exp)
 	}
 }
 
@@ -613,6 +647,7 @@ func TestARefusedFollowUpFailsTheTaskAndSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	confirmDelegation(t, req, prov)
 	setFake(t, srv.URL, func(h *fakeHub) { h.maxEnvelope = 1 })
 	if err := req.SendMessage(ctx, id, "too big for this hub", nil); !errors.Is(err, errUndeliverable) {
 		t.Fatalf("refused follow-up: %v, want errUndeliverable", err)
@@ -620,7 +655,7 @@ func TestARefusedFollowUpFailsTheTaskAndSaysSo(t *testing.T) {
 	if st := stateOf(t, req, id); st != interactions.StateFailed {
 		t.Fatalf("state after a refused follow-up = %s", st)
 	}
-	if m := resultMetaOf(t, req, id); m[a2ashape.KeyReason] != a2ashape.ReasonUndeliverable {
+	if m := resultMetaOf(t, req, id); m[a2ashape.KeyReason] != "too_large" {
 		t.Fatalf("result meta %v", m)
 	}
 
@@ -630,9 +665,10 @@ func TestARefusedFollowUpFailsTheTaskAndSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	confirmDelegation(t, req, prov)
 	setFake(t, srv.URL, func(h *fakeHub) { h.maxEnvelope = 1 })
 	got, err := seam.Send(ctx, prov.AID(), module.TaskSend{Message: followUp(task.ID, "too big", "m-b"), ReturnImmediately: true})
-	if err != nil || got.Status.State != a2ashape.TaskStateFailed || got.Metadata[a2ashape.KeyReason] != a2ashape.ReasonUndeliverable {
+	if err != nil || got.Status.State != a2ashape.TaskStateFailed || got.Metadata[a2ashape.KeyReason] != "too_large" {
 		t.Fatalf("refused follow-up over the task surface = %s %v (%v)", got.Status.State, got.Metadata, err)
 	}
 }
@@ -650,6 +686,9 @@ func TestAnApprovedDelegationKeepsTheRequestersMessageIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Held, and acknowledged: the follow-ups go once the requester hears
+	// it was taken (ENG-O2).
+	confirmDelegation(t, s, prov)
 	if err := s.SendMessage(ctx, id, "held detail", nil); err != nil {
 		t.Fatal(err)
 	}

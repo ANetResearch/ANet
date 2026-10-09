@@ -503,6 +503,15 @@ func classifyHubReply(phase joinPhase, r hubReply) joinAnswer {
 		return transientAnswer(phase, whyUnreachable)
 	}
 	a.retryAfter = parseRetryAfter(r.RetryAfter)
+	if we := hubWireCheck("", r); we != nil && r.Status != 426 {
+		// An answer that states another wire, a 2xx included, is a wire
+		// refusal, never a success (core CORE-V1).
+		a.kind, a.refusal, a.code, a.version = ansRefused, reasonWireTooOld, "wire_too_old", we.version
+		if we.hubOlder {
+			a.refusal, a.code, a.version = reasonWireTooNew, "wire_too_new", ""
+		}
+		return a
+	}
 	if r.Status >= 200 && r.Status < 300 {
 		return classifySuccess(a, r.Body)
 	}

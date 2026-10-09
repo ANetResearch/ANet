@@ -252,7 +252,7 @@ func (d *Daemon) relayPollPage(ctx context.Context, after int64) (hubapi.RelayPo
 		return hubapi.RelayPollResponse{}, fmt.Errorf("anet: no hub configured")
 	}
 	var resp hubapi.RelayPollResponse
-	if err := d.hubSigned(ctx, hub, http.MethodPost, "/relay/poll", relayauth.ActionPoll,
+	if err := d.hubSigned(ctx, hub, http.MethodPost, hubapi.RelayPollPath, relayauth.ActionPoll,
 		hubapi.RelayPollRequest{Limit: relayPollLimit, AfterID: after}, &resp); err != nil {
 		return hubapi.RelayPollResponse{}, err
 	}
@@ -422,7 +422,7 @@ func (d *Daemon) relayAck(ctx context.Context, items []hubapi.RelayAckItem) erro
 	for len(items) > 0 {
 		batch := items[:min(len(items), hubapi.RelayAckMaxItems)]
 		items = items[len(batch):]
-		if err := d.hubSigned(ctx, hub, http.MethodPost, "/relay/ack", relayauth.ActionAck,
+		if err := d.hubSigned(ctx, hub, http.MethodPost, hubapi.RelayAckPath, relayauth.ActionAck,
 			hubapi.RelayAckRequest{Items: batch}, nil); err != nil {
 			errs = append(errs, fmt.Errorf("ack mailbox rows %d to %d: %w", batch[0].ID, batch[len(batch)-1].ID, err))
 		}
@@ -476,9 +476,12 @@ func (d *Daemon) relayLoop(ctx context.Context) {
 			// than being cut short and redelivered forever.
 			d.pollMu.Lock()
 			pc, cancel := context.WithTimeout(ctx, relayCallTimeout)
-			if err := d.pollOnce(pc); err != nil && ctx.Err() == nil && !errors.Is(err, errHubWire) {
-				// A hub of another wire is reported once by noteHubWire;
-				// repeating it every second would fill the log.
+			if err := d.pollOnce(pc); err != nil && ctx.Err() == nil && !errors.Is(err, errHubWire) &&
+				!errors.Is(err, errGateClosed) {
+				// A hub of another wire is reported once by noteHubWire, and
+				// a closed gate by the identity's state (KEL D-1: no poll
+				// but in notice_stale); repeating either every second would
+				// fill the log.
 				log.Printf("anet: relay poll: %v", err)
 			}
 			cancel()

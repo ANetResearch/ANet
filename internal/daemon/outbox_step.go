@@ -16,6 +16,21 @@ package daemon
 //   - orderBlocked is rules 1–3 of ENG-O1–O3: whether an earlier row of the
 //     same task and peer holds this one back.
 
+import (
+	"strings"
+
+	"github.com/ANetResearch/ANetCore/seal"
+
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
+)
+
+// The abandonment reasons of a row whose deadline passed (engine §2.8):
+// anet.reason and the evidence reason.
+const (
+	reasonUndeliverable       = "undeliverable"
+	reasonDeliveryUnconfirmed = "delivery_unconfirmed"
+)
+
 // Row kinds (the outbox kind column): what an anet.message/1 row carries,
 // the ChatMsg kind as the ordering rules read it (ENG-O1–O3), and for an
 // anet.status/1 row the state it reports, or one of the three notices
@@ -109,6 +124,9 @@ type StepInput struct {
 	P2P bool
 	// Reseal is resealNeeded for the row (engine §3.1).
 	Reseal bool
+	// Bypass: a status query of this attempt just found the hub holding a
+	// version; a direct path may take it once (ENG-D7).
+	Bypass bool
 }
 
 // StepAction is what an attempt does.
@@ -140,29 +158,237 @@ type StepDecision struct {
 	Seal   bool
 	// P2POnly: hand it over directly and not through the hub (ENG-D7).
 	P2POnly bool
+	// Park, for a wait with nothing to send before it, is where the row's
+	// next_at moves (0: it stays).
+	Park uint64
 }
 
-// outboxStep decides steps A0–A6 of one attempt at row (engine §2.4).
-//
-// v030-todo(ENG-1a): the state machine.
-func outboxStep(row RowView, vers []VerView, in StepInput) StepDecision {
-	return StepDecision{Action: stepWait}
+// The engine's timing (engine §0.4). Code constants: there is nothing for
+// an operator to tune.
+const (
+	// statusFirstMS..: the status queries after a hand-over to the hub come
+	// at these offsets (DLV-S-7); after the last, the interval doubles up to
+	// statusMaxIntervalMS.
+	statusMaxIntervalMS uint64 = 30 * 60 * 1000
+	// statusStaleMS: a version whose hub has not answered a status query
+	// for this long counts as unknown (ENG-D5, DLV-S-13).
+	statusStaleMS uint64 = 3600 * 1000
+	// p2pBypassMS: a version the hub has held queued this long may also be
+	// handed over directly (ENG-D7, DLV-S-12).
+	p2pBypassMS uint64 = 2 * 60 * 1000
+)
+
+// statusOffsetsMS are the first status queries after a hand-over, as
+// offsets from it (DLV-S-7): 2, 5, 15, 30, 60 and 120 seconds.
+var statusOffsetsMS = [...]uint64{2000, 5000, 15000, 30000, 60000, 120000}
+
+// statusDelay is how long after a status answer of queued (the n-th since
+// the hand-over, n ≥ 1) the next query comes: the next offset of the table,
+// then twice the last interval, at most statusMaxIntervalMS.
+func statusDelay(n int) uint64 {
+	if n < 1 {
+		return statusOffsetsMS[0]
+	}
+	if n < len(statusOffsetsMS) {
+		return statusOffsetsMS[n] - statusOffsetsMS[n-1]
+	}
+	d := statusOffsetsMS[len(statusOffsetsMS)-1] - statusOffsetsMS[len(statusOffsetsMS)-2]
+	for i := len(statusOffsetsMS); i <= n; i++ {
+		d *= 2
+		if d >= statusMaxIntervalMS {
+			return statusMaxIntervalMS
+		}
+	}
+	return d
+}
+
+// versionsHanded reports whether any version of row was handed over: what
+// abandonment and withdrawal decide by (ENG-A5, ENG-X2).
+func versionsHanded(row RowView, vers []VerView) bool {
+	if row.HandedAt != 0 {
+		return true
+	}
+	for _, v := range vers {
+		if v.HandedAt != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// hubStateOf is the hub's last word on a version as the engine takes it:
+// unknown for a stale version (ENG-D5), its last answer otherwise ("" not
+// asked yet), and "" for one the hub gave no rid.
+func hubStateOf(v VerView) string {
+	switch {
+	case v.RID == nil:
+		return ""
+	case v.Stale:
+		return interactions.OutboxUnknown
+	}
+	return v.HubState
 }
 
 // needsTransmit is ENG-A1 without the backoff: whether row must be handed
-// over (again).
-//
-// v030-todo(ENG-1a): ENG-A1 (a)–(c).
-func needsTransmit(row RowView, vers []VerView) bool { return false }
+// over (again) for its message to arrive. It does when (a) no version was
+// ever handed over; (b) every version a hub took with a rid is known to be
+// gone from it (unknown, ENG-D5 included), and none is waiting for its
+// first status query; (c) versions were handed over, none with a rid (a
+// direct send without a valid token, or a hub request that got no 200).
+// A version the hub holds queued is not sent again (ENG-D6, SI-26).
+func needsTransmit(row RowView, vers []VerView) bool {
+	if !versionsHanded(row, vers) {
+		return true // (a)
+	}
+	for _, v := range vers {
+		if v.RID == nil {
+			continue
+		}
+		if hubStateOf(v) != interactions.OutboxUnknown {
+			return false // queued, or not asked yet
+		}
+	}
+	return true // (b), or (c) when no version has a rid
+}
+
+// lastErrorCode is the code last_error begins with (ENG-S4): the part
+// before ": ".
+func lastErrorCode(lastErr string) string {
+	code, _, _ := strings.Cut(lastErr, ":")
+	return strings.TrimSpace(code)
+}
+
+// rowWaitCodes are the last_error codes that are an anet.delivery_wait
+// (ENG-P1 item 2): the hub's waits, a first contact without a session, and
+// a credential the hub refused that anet keeps trying (SSR-D11).
+var rowWaitCodes = map[string]bool{
+	"rate_limited": true, "strangers_busy": true, "redelivery_limited": true, "mailbox_full": true,
+	"home_unreachable": true, "session_unavailable": true, "credential_refused": true,
+}
 
 // deliveryWait is ENG-P1: the anet.delivery_wait of a pending row, "" for
-// none.
-//
-// v030-todo(ENG-1a): the gate's code, then the wait code of last_error.
-func deliveryWait(row RowView, vers []VerView, gate GateState) string { return "" }
+// none. First the gate: while it is closed for a key event being published
+// or a notice too old, a row that has to be handed over (needsTransmit,
+// the backoff aside) waits for it — rotation_pending or notice_stale, read
+// from the gate now, never from last_error (KEL D-4); a row the hub holds
+// is not held back by it. Then the wait last_error names. RC-5's projection
+// and the variant inputs of an abandonment call it; nobody writes another.
+func deliveryWait(row RowView, vers []VerView, gate GateState) string {
+	if w := gateDeliveryWait(gate); w != "" && needsTransmit(row, vers) {
+		return w
+	}
+	if c := lastErrorCode(row.LastError); rowWaitCodes[c] {
+		return c
+	}
+	return ""
+}
 
 // orderBlocked is rules 1–3 (ENG-O1–O3): whether a row queued before row
-// for the same task and peer (ahead, oldest first) holds it back.
+// for the same task and peer (ahead) holds it back. Rule 1: a row goes
+// only once every row queued before it has been handed over. Rule 2: a
+// text or end_request message goes only once the task's delegation is
+// confirmed, which is when its row is gone. Rule 3: a cancel or a payment
+// waits for rule 1 alone. A5 and the projection's "waits for the message
+// before it" (DLV-W-21d) both call it.
 //
-// v030-todo(ENG-1a): rules 1 and 2.
-func orderBlocked(row RowView, ahead []RowView) bool { return false }
+// For rule 1 a row an attempt is sending now is not handed over yet: the
+// attempt may end with nothing of it gone, and a cancel that went ahead of
+// it would then have left for a delegation that is withdrawn (E-T13). A
+// row behind waits for the attempt to end, which is at most one attempt's
+// time; a row left attempting by a process that stopped counts as handed
+// over from the start on (CR2).
+func orderBlocked(row RowView, ahead []RowView) bool {
+	followUp := row.Type == seal.TypeMessage && (row.Kind == rowKindText || row.Kind == rowKindEndRequest)
+	for _, a := range ahead {
+		if a.ID >= row.ID {
+			continue
+		}
+		if a.HandedAt == 0 {
+			return true
+		}
+		if followUp && a.Type == seal.TypeDelegate {
+			return true
+		}
+	}
+	return false
+}
+
+// queryable reports whether the hub can be asked about version v now: it
+// has a rid, and it is not stale (its hub is this node's and answers).
+func queryable(v VerView) bool { return v.RID != nil && !v.Stale }
+
+// queuedLong reports whether the hub has held a version of row queued for
+// p2pBypassMS or more (ENG-D7).
+func queuedLong(vers []VerView, now uint64) bool {
+	for _, v := range vers {
+		if v.QueuedSince != 0 && now >= v.QueuedSince && now-v.QueuedSince >= p2pBypassMS && hubStateOf(v) == interactions.OutboxQueued {
+			return true
+		}
+	}
+	return false
+}
+
+// outboxStep decides steps A0–A6 of one attempt at row (engine §2.4), in
+// their normative order:
+//
+//	A1 the deadline: given up, undeliverable if no version was ever handed
+//	   over, delivery_unconfirmed otherwise;
+//	A3 a frozen delegation that never left and has no attempt under way is
+//	   withdrawn (ENG-O5);
+//	A4 the status query, when due: the only step a closed gate or a frozen
+//	   row allows;
+//	A2 the gate closed, or A3 frozen: nothing more;
+//	A5 an earlier row holds it back: nothing, the backoff untouched;
+//	A6 nothing to send (ENG-A1) or not yet (next_at): wait — except that
+//	   right after a query that found a version queued for long, a direct
+//	   path takes it once (ENG-D7);
+//	   otherwise transmit, through the hub when it may be asked, directly
+//	   when only a direct path is open.
+//
+// A wait says until when (At, 0 for until kicked) and, when nothing is to
+// be sent before then, Park: the time the row's next_at moves to so the
+// scan does not pick it up for nothing.
+func outboxStep(row RowView, vers []VerView, in StepInput) StepDecision {
+	handed := versionsHanded(row, vers)
+	if in.Now > row.Exp {
+		if handed {
+			return StepDecision{Action: stepAbandon, Reason: reasonDeliveryUnconfirmed}
+		}
+		return StepDecision{Action: stepAbandon, Reason: reasonUndeliverable}
+	}
+	if row.Frozen && !handed && !row.Attempting {
+		return StepDecision{Action: stepWithdraw}
+	}
+	if row.CheckAt != 0 && row.CheckAt <= in.Now && in.HubOK {
+		for _, v := range vers {
+			if queryable(v) {
+				return StepDecision{Action: stepQuery}
+			}
+		}
+	}
+	// When nothing is to be sent, the row is next looked at for its status
+	// query or its deadline.
+	wake := row.Exp + 1
+	if row.CheckAt != 0 && row.CheckAt < wake {
+		wake = row.CheckAt
+	}
+	if !in.Gate.Open || row.Frozen {
+		return StepDecision{Action: stepWait}
+	}
+	if in.OrderBlocked {
+		return StepDecision{Action: stepBlocked}
+	}
+	if !needsTransmit(row, vers) {
+		if in.Bypass && in.P2P && queuedLong(vers, in.Now) {
+			return StepDecision{Action: stepTransmit, Seal: in.Reseal, P2POnly: true}
+		}
+		return StepDecision{Action: stepWait, At: wake, Park: wake}
+	}
+	if row.NextAt > in.Now {
+		return StepDecision{Action: stepWait, At: min(row.NextAt, wake)}
+	}
+	if !in.HubOK && !in.P2P {
+		return StepDecision{Action: stepWait}
+	}
+	return StepDecision{Action: stepTransmit, Seal: in.Reseal, P2POnly: !in.HubOK}
+}

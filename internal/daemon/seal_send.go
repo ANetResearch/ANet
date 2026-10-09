@@ -8,18 +8,19 @@ package daemon
 //     the directory without naming the recipient to the hub
 //     (peer_resolve.go, sealed-sender SSR-D15), verified with expectAID =
 //     the recipient (C0) and against any stored KEL for it (§3.8);
-//  2. build the inner message with this node's full KEL and current signed
-//     key set, a 16-byte message id and exp = ts + 14 days, sign it and
-//     seal it (seal.Seal). A message this node records is sealed under the
-//     id it was recorded with (newWireMID), and a retry-queue row sealed
-//     late under the deadline it was queued with (sealOpts);
-//  3. hand the envelope to the transport list, p2p first, hub last. Every
-//     transport receives the same bytes.
+//  2. build the inner message with this node's full KEL, the witness notice
+//     confirming its tip and its current signed key set, sign it and seal
+//     it (seal.Seal), without outer key 7.
+//
+// A queued message is sealed by the outbound engine (reseal.go, A7), which
+// sets its credential for every attempt (ENG-I2). sealWith seals a message
+// that is not queued, once, as a first contact (sendNotice).
 //
 // There is no unsealed path. A recipient whose keys cannot be resolved is
 // an error, not a plaintext send.
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -42,106 +43,32 @@ const messageLifetimeMS = 14 * 24 * 3600 * 1000
 // a recipient. Nothing is sent.
 var errNoRecipientKeys = errors.New("no usable encryption key for the recipient")
 
-// relaySend seals one message to toAID and makes one attempt to deliver
-// it, with nothing persisted. Messages on an interaction do not use it:
-// every one goes through the retry queue (queueSendAs, an internal note item), which
-// seals with the same functions and delivers with deliverEnvelope.
-//
-// The recipient record is pinned "outbound" when the interaction is one
-// this node started: that relationship is this node's decision and the
-// record must outlive eviction pressure while it exists.
-func (d *Daemon) relaySend(ctx context.Context, toAID, typ, interactionID string, body []byte) error {
-	env, err := d.sealEnvelope(ctx, toAID, typ, interactionID, body)
-	if err != nil {
-		return err
-	}
-	return d.deliverEnvelope(ctx, toAID, env)
+// sealMsg is one inner message to seal: its recipient, type, interaction
+// and body, the identity every version of it shares (mid, ts, exp, ENG-R7),
+// and the grant it carries (inner key 14, nil for none).
+type sealMsg struct {
+	to, typ, ix string
+	body, mid   []byte
+	ts, exp     uint64
+	grant       []byte
 }
 
-// sealEnvelope builds and seals one message and returns the envelope bytes
-// without sending them. A caller that must retry the same logical message
-// (the result retry queue, §4.2) stores these bytes and passes them to
-// deliverEnvelope on every attempt, so a retry is never a second message.
-//
-// A reply on a public or public_cap interaction is sealed to the key set
-// kept on the interaction (A2A-DESIGN §3.8): that requester is not recorded
-// in peer_identity, and a hub fetch here would record it. Only a
-// peer_identity row that already exists (the requester is also a named
-// peer) is used in its place.
-func (d *Daemon) sealEnvelope(ctx context.Context, toAID, typ, interactionID string, body []byte) ([]byte, error) {
-	return d.sealEnvelopeOpts(ctx, toAID, typ, interactionID, body, sealOpts{})
-}
-
-// sealOpts fixes what sealWith otherwise chooses itself.
-type sealOpts struct {
-	// mid is the inner message id; nil mints a fresh one. A message this
-	// node records under its wire id (an internal note item) is sealed under the id it
-	// was recorded with.
-	mid []byte
-	// exp is the inner exp (unix ms); 0 is ts + 14 days. A retry-queue row
-	// sealed late keeps the deadline it was queued with.
-	exp uint64
-	// pin is the peer_identity pin for a recipient resolved here. Empty
-	// derives it from the interaction row; a new delegation, whose row is
-	// written after it is sealed, names it.
-	pin string
-}
-
-// sealEnvelopeOpts is sealEnvelope with the message id, exp or pin fixed.
-func (d *Daemon) sealEnvelopeOpts(ctx context.Context, toAID, typ, interactionID string, body []byte, o sealOpts) ([]byte, error) {
-	pin := o.pin
-	ix, ixErr := d.ix.Get(interactionID)
-	if ixErr == nil && ix.Role == interactions.RoleOutbound {
-		pin = interactions.PinOutbound
-	}
-	if ixErr == nil && ix.Role == interactions.RoleInbound &&
-		(ix.Trust == interactions.TrustPublic || ix.Trust == interactions.TrustPublicCap) {
-		now := d.nowMS()
-		if ks, ok := interactionKeySet(ix, now); ok {
-			return d.sealWithOpts(toAID, typ, interactionID, body, ks.set, o)
-		}
-		if row, err := d.ix.PeerIdentity(toAID); err == nil {
-			if ks, ok := d.storedKeySet(row, now); ok {
-				return d.sealWithOpts(toAID, typ, interactionID, body, ks.set, o)
-			}
-		}
-		return nil, fmt.Errorf("anet: %s: %w: the requester's key set on this interaction is gone or expired", toAID, errNoRecipientKeys)
-	}
-	keys, err := d.recipientKeys(ctx, toAID, pin)
-	if err != nil {
-		return nil, err
-	}
-	return d.sealWithOpts(toAID, typ, interactionID, body, keys.set, o)
-}
-
-// sealWith seals to a key set the caller already resolved.
-func (d *Daemon) sealWith(toAID, typ, interactionID string, body []byte, set *seal.EncKeySet) ([]byte, error) {
-	return d.sealWithOpts(toAID, typ, interactionID, body, set, sealOpts{})
-}
-
-// sealWithOpts is sealWith with the message id or exp fixed.
-func (d *Daemon) sealWithOpts(toAID, typ, interactionID string, body []byte, set *seal.EncKeySet, o sealOpts) ([]byte, error) {
-	if toAID == d.AID() {
+// sealMessage builds m's inner message and seals it to the usable key of
+// set at now: one Snapshot of this node's key state signs, is the KEL
+// carried and is what the notice confirms, so a rotation built meanwhile
+// does not split them (KEL-8a, engine ENG-K17). The envelope has no outer
+// key 7. What the version records about its keys comes with it (ENG-S3).
+func (d *Daemon) sealMessage(m sealMsg, set *seal.EncKeySet, now uint64) (*sealedVersion, error) {
+	if m.to == d.AID() {
 		return nil, fmt.Errorf("anet: refusing to seal a message to this node itself")
 	}
-	now := d.nowMS()
-	mid, exp := o.mid, o.exp
-	if mid == nil {
-		mid = seal.NewMID()
-	}
-	if exp == 0 {
-		exp = now + messageLifetimeMS
-	}
-	if exp <= now {
-		return nil, fmt.Errorf("anet: %s to %s: the message expired before it could be sealed", typ, toAID)
+	if m.exp <= now {
+		return nil, fmt.Errorf("anet: %s to %s: the message expired before it could be sealed", m.typ, m.to)
 	}
 	key, err := seal.SelectKey(set, now)
 	if err != nil {
-		return nil, fmt.Errorf("anet: %s: %w: %v", toAID, errNoRecipientKeys, err)
+		return nil, fmt.Errorf("anet: %s: %w: %v", m.to, errNoRecipientKeys, err)
 	}
-	// One key state signs, is the KEL carried and is what the notice
-	// confirms: a rotation built meanwhile does not split them (KEL-8a,
-	// engine ENG-K17).
 	s := d.self.Snapshot()
 	seq, err := identity.SeqOf(s)
 	if err != nil {
@@ -158,34 +85,49 @@ func (d *Daemon) sealWithOpts(toAID, typ, interactionID string, body []byte, set
 	// The witness notice for this KEL; seal v2 carries one exactly when it
 	// carries the KEL (C-52).
 	notice := []byte{}
+	var noticeAt uint64
 	if n := d.tipNotice(s); n != nil {
-		notice = n.Wire
+		notice, noticeAt = n.Wire, n.Body.ObservedAt
 	}
 	// v030-todo(ENG-1b): with no notice confirming the tip the gate is
-	// closed and nothing is sealed (ENG-K13); until the engine reads the
-	// gate an envelope goes with an empty notice, which receivers accept
-	// until they check step 6½ (ENG-1c).
+	// closed and nothing is sealed (ENG-K13); a rotation built between the
+	// gate's reading and this Snapshot still seals with an empty notice,
+	// which receivers accept until they check step 6½ (ENG-1c).
 	inner := &seal.SealedInner{
 		From:        d.AID(),
 		KeyStateSeq: seq,
-		To:          toAID,
-		Type:        typ,
-		IX:          interactionID,
-		MID:         mid,
-		TS:          now,
-		Exp:         exp,
-		Body:        body,
+		To:          m.to,
+		Type:        m.typ,
+		IX:          m.ix,
+		MID:         m.mid,
+		TS:          m.ts,
+		Exp:         m.exp,
+		Body:        m.body,
 		KEL:         kel,
 		Notices:     [][]byte{notice},
 		Keys:        own,
+		Grant:       m.grant,
 	}
-	env, _, err := seal.Seal(inner, key, s.Sign, seal.SealOpts{})
+	env, ack, err := seal.Seal(inner, key, s.Sign, seal.SealOpts{})
 	if err != nil {
-		return nil, fmt.Errorf("anet: seal %s to %s: %w", typ, toAID, err)
+		return nil, fmt.Errorf("anet: seal %s to %s: %w", m.typ, m.to, err)
 	}
-	// v030-todo(ENG-1a): the credential is set per attempt from accessFor
-	// (ENG-I2); until then every envelope travels as a first contact.
-	if env, err = seal.SetAccess(env, &seal.Access{Kind: seal.AccessKindSession}); err != nil {
+	return &sealedVersion{env: env, ackKey: ack, kid: bytes.Clone(key.KID), kidNA: key.NotAfter, kss: seq, noticeAt: noticeAt}, nil
+}
+
+// sealWith seals one message that is not queued to a key set the caller
+// resolved: a fresh message id, ts now, exp 14 days on, no grant, and the
+// first-contact credential in outer key 7 (it is sent once, sendNotice).
+func (d *Daemon) sealWith(toAID, typ, interactionID string, body []byte, set *seal.EncKeySet) ([]byte, error) {
+	now := d.nowMS()
+	sv, err := d.sealMessage(sealMsg{to: toAID, typ: typ, ix: interactionID, body: body, mid: seal.NewMID(), ts: now,
+		exp: now + messageLifetimeMS}, set, now)
+	if err != nil {
+		return nil, err
+	}
+	clear(sv.ackKey[:])
+	env, err := seal.SetAccess(sv.env, &seal.Access{Kind: seal.AccessKindSession})
+	if err != nil {
 		return nil, fmt.Errorf("anet: seal %s to %s: %w", typ, toAID, err)
 	}
 	return env, nil

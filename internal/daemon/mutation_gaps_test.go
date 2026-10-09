@@ -316,8 +316,12 @@ func TestAStoredKeySetOutlivesAHubThatNoLongerAnswersForIt(t *testing.T) {
 	if _, err := req.ix.PeerIdentity(prov.AID()); err != nil {
 		t.Fatalf("no stored record for the provider after the delegation: %v", err)
 	}
+	confirmDelegation(t, req, prov) // follow-ups go once it is confirmed (engine ENG-O2)
 	setFake(t, srv.URL, func(h *fakeHub) { h.agents[prov.AID()].keyset = nil })
 	start := uint64(time.Now().UnixMilli())
+	// The clock moves a day on: the notice this node holds is not what the
+	// test is about, so the gate is held open.
+	holdGateOpen(req)
 	req.setClock(func() uint64 { return start + 11*60*1000 })
 	before := len(queuedFor(t, srv, prov.AID()))
 	if err := req.SendMessage(ctx, id, "past the cache time", nil); err != nil {
@@ -371,7 +375,9 @@ func TestAnApprovedTaskIsAnsweredWithTheKeysItWasHeldWith(t *testing.T) {
 	// is in the hub before the count below starts, or it would be counted
 	// as a second answer.
 	waitUntil(t, "the held task's notice to reach the hub", func() bool { return len(queuedFor(t, srv, s.AID())) == 1 })
-	setFake(t, srv.URL, func(h *fakeHub) { h.agents[s.AID()].keyset = nil })
+	// The directory no longer lists the requester (its hub still holds its
+	// mailbox key, which checks the requester's capability).
+	setFake(t, srv.URL, func(h *fakeHub) { h.dirHide = map[string]bool{s.AID(): true} })
 	if _, err := prov.ApprovePending(id); err != nil {
 		t.Fatal(err)
 	}

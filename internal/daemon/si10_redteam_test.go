@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
@@ -57,20 +58,22 @@ func TestRedteamSI10_P2PMisrouteFallsBackToTheHub(t *testing.T) {
 	if n := counter(wrong, transientDirectUnopened); n != 1 {
 		t.Fatalf("wrong node t-direct-unopened = %d, want 1 (%v)", n, wrong.ReceiveStats())
 	}
-	// The sender fell through to the hub: the provider's mailbox holds it
-	// and nothing is left to retry.
+	// The sender fell through to the hub: the provider's mailbox holds it,
+	// and the row waits only for the word that it arrived.
 	if n := len(queuedFor(t, srv, prov.AID())); n != 1 {
 		t.Fatalf("hub holds %d envelopes for the provider, want the delegation", n)
 	}
-	if rows, err := req.ix.Outbox(id); err != nil || len(rows) != 0 {
-		t.Fatalf("requester outbox = %d rows (%v)", len(rows), err)
+	if rows := outboxRows(t, req, id); len(rows) != 1 || rows[0].HandedAt == 0 || rows[0].Attempting {
+		t.Fatalf("requester outbox = %+v, want the delegation handed over", rows)
 	}
-	// The intended provider gets the task.
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
+	// The intended provider gets the task, and the requester hears so from
+	// its hub: nothing is left to retry.
+	settleDelivery(t, req, prov)
 	if _, err := prov.ix.Get(id); err != nil {
 		t.Fatalf("provider does not have the task: %v", err)
+	}
+	if rows := outboxRows(t, req, id); len(rows) != 0 {
+		t.Fatalf("requester outbox = %+v after the provider took it", rows)
 	}
 	// From the hub mailbox the same refusal stays permanent: that mailbox
 	// is the node's own.
@@ -103,13 +106,13 @@ func (c *sharedClock) set(ms uint64) { c.ms.Store(ms) }
 // add advances the clock by ms.
 func (c *sharedClock) add(ms uint64) { c.ms.Add(ms) }
 
-// driveOutage keeps the hub's relay refusing sends (503) while the
-// requester's retry loop runs on its own backoff, until the clock passes
-// until. It returns the delegation row as the outage leaves it.
-func driveOutage(t *testing.T, ctx context.Context, d *Daemon, clk *sharedClock, rowID int64, until uint64) *interactions.OutboxItem {
+// driveOutage runs d's retry loop on its own backoff while the outage the
+// test set up lasts, until the clock passes until. It returns the row as
+// the outage leaves it.
+func driveOutage(t *testing.T, ctx context.Context, d *Daemon, clk *sharedClock, rowID int64, until uint64) *interactions.OutboxRow {
 	t.Helper()
 	for {
-		it, err := d.ix.GetOutbox(rowID)
+		it, _, err := d.ix.OutboxState(rowID)
 		if err != nil {
 			t.Fatalf("outbox row: %v", err)
 		}
@@ -124,9 +127,10 @@ func driveOutage(t *testing.T, ctx context.Context, d *Daemon, clk *sharedClock,
 }
 
 // [redteam:F23] regression (was TestRedteamSI10_OutboxReorderLosesCancelAndCanceledCallExecutes).
-// SI-10 / §3.6 step 9 / §4.2: after a hub outage the delegation sits in a
-// long backoff, never delivered. A cancel then withdraws it: nothing is
-// sent (a cancel sent ahead of it used to be answered TaskNotFound by a
+// SI-10 / §3.6 step 9 / §4.2: after an outage in which the hub could not
+// be reached at all the delegation sits in a long backoff, no byte of it
+// handed over. A cancel then withdraws it (engine ENG-O4): nothing is sent
+// (a cancel sent ahead of it used to be answered TaskNotFound by a
 // provider that did not know the task, and the delegation came after and
 // ran), the delegation never leaves, and the capability never runs.
 func TestRedteamSI10_ACancelBeforeDeliveryWithdrawsTheDelegation(t *testing.T) {
@@ -141,22 +145,29 @@ func TestRedteamSI10_ACancelBeforeDeliveryWithdrawsTheDelegation(t *testing.T) {
 	prov.setClock(clk.fn())
 	start := clk.now()
 
-	// The hub's relay is down (503): the delegation is recorded and queued.
-	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
+	// The hub cannot be reached (nothing connects): the delegation is
+	// recorded and queued, and nothing of it leaves this node. (A hub that
+	// answers 503 took the connection: it was handed the delegation, which
+	// a cancel then cannot withdraw.)
+	hubURL := req.config().HubURL
+	setHubURL(req, deadHubURL)
 	id, err := req.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true})
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
-	rows, err := req.ix.Outbox(id)
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("outbox = %+v (%v)", rows, err)
+	rows := outboxRows(t, req, id)
+	if len(rows) != 1 || rows[0].HandedAt != 0 {
+		t.Fatalf("outbox = %+v, want the delegation never handed over", rows)
 	}
 	dRow := rows[0].ID
 	// A 25-minute outage, the retry loop backing off as it does.
 	d := driveOutage(t, ctx, req, clk, dRow, start+uint64((25*time.Minute).Milliseconds()))
+	if d.HandedAt != 0 || d.Attempting {
+		t.Fatalf("setup: the outage handed the delegation over (%+v)", d)
+	}
 
 	// The hub is back. The requester cancels the call it no longer wants.
-	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
+	setHubURL(req, hubURL)
 	clk.set(start + uint64((25*time.Minute + 30*time.Second).Milliseconds()))
 	if _, err := req.CancelTask(ctx, id); err != nil {
 		t.Fatalf("cancel: %v", err)
@@ -168,7 +179,7 @@ func TestRedteamSI10_ACancelBeforeDeliveryWithdrawsTheDelegation(t *testing.T) {
 	if q := queuedFor(t, srv, prov.AID()); len(q) != 0 {
 		t.Fatalf("hub holds %d envelopes for the provider; the canceled delegation (or a cancel for it) was sent", len(q))
 	}
-	if rows, _ := req.ix.Outbox(id); len(rows) != 0 {
+	if rows := outboxRows(t, req, id); len(rows) != 0 {
 		t.Fatalf("outbox still holds %d rows for the canceled task", len(rows))
 	}
 
@@ -203,9 +214,9 @@ func (p *ambiguousP2P) Send(context.Context, string, []byte) ([]byte, bool, erro
 
 // [redteam:F23] SI-10 / §4.2: a delegation that may have reached the
 // provider cannot be withdrawn, so the cancel goes to the provider — after
-// the delegation, never before it: a task's messages leave the outbox in
-// the order they were queued. The provider sees the delegation, then the
-// cancel; it never holds the cancel as early or answers it TaskNotFound.
+// the delegation was handed over, never before (engine ENG-O1). The
+// delegation is frozen: whatever the provider has of it, nothing more of
+// it is sent (ENG-O6), only the cancel; the capability never runs.
 func TestRedteamSI10_ACancelWaitsBehindADelegationThatMayHaveArrived(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -224,15 +235,14 @@ func TestRedteamSI10_ACancelWaitsBehindADelegationThatMayHaveArrived(t *testing.
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
-	rows, _ := req.ix.Outbox(id)
-	if len(rows) != 1 || !rows[0].MaybeDelivered {
+	rows := outboxRows(t, req, id)
+	if len(rows) != 1 || rows[0].HandedAt == 0 {
 		t.Fatalf("setup: delegation row %+v, want one that may have been delivered", rows)
 	}
 	d := driveOutage(t, ctx, req, clk, rows[0].ID, clk.now()+uint64((20*time.Minute).Milliseconds()))
 
 	// The hub is back; the direct path is gone. The cancel is queued behind
-	// the delegation and, since a new message is a reason to try, takes it
-	// along: first the delegation, then the cancel.
+	// the delegation, which was handed over: it does not wait for it.
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
 	p2p.on.Store(false)
 	if uint64(d.NextAt) <= clk.now() {
@@ -241,21 +251,26 @@ func TestRedteamSI10_ACancelWaitsBehindADelegationThatMayHaveArrived(t *testing.
 	if _, err := req.CancelTask(ctx, id); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
-	if q := queuedFor(t, srv, prov.AID()); len(q) != 2 {
-		t.Fatalf("hub holds %d envelopes for the provider, want the delegation and then the cancel", len(q))
+	rows = outboxRows(t, req, id)
+	if len(rows) != 2 || rows[0].Type != seal.TypeDelegate || !rows[0].Frozen {
+		t.Fatalf("requester outbox = %+v, want the delegation frozen and the cancel behind it", rows)
+	}
+	got := innerTypes(t, srv, srv.URL, prov, queuedFor(t, srv, prov.AID()))
+	if len(got) != 1 || got[0] != seal.TypeMessage+":"+delegation.KindCancel {
+		t.Fatalf("hub mailbox = %v, want the cancel only", got)
+	}
+	// Long after the delegation's backoff would have ended, the frozen
+	// delegation still goes nowhere.
+	clk.set(uint64(d.NextAt) + uint64(time.Hour.Milliseconds()))
+	req.flushOutbox(ctx)
+	if got := innerTypes(t, srv, srv.URL, prov, queuedFor(t, srv, prov.AID())); len(got) != 1 {
+		t.Fatalf("hub mailbox = %v after the backoff; the frozen delegation went again", got)
 	}
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := counter(prov, transientUnknownIX) + counter(prov, dropUnknownIX); n != 0 {
-		t.Fatalf("the cancel reached the provider before its delegation: %v", prov.ReceiveStats())
-	}
-	msgs, err := prov.ix.Messages(id)
-	if err != nil {
-		t.Fatalf("provider: %v", err)
-	}
-	if last := msgs[len(msgs)-1]; last.Kind != interactions.MsgCancel {
-		t.Fatalf("provider's last message is %s, want the cancel after the delegation", last.Kind)
+	if n := len(lamp.invoked); n != 0 {
+		t.Fatalf("capability ran %d times after the cancel", n)
 	}
 }
 
@@ -278,9 +293,7 @@ func TestRedteamSI10_ASteadyStreamDoesNotPinTheRelayCursor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
+	confirmDelegation(t, req, prov) // the follow-up goes once it is confirmed (engine ENG-O2)
 	clk := newSharedClock(uint64(time.Now().UnixMilli()))
 	prov.setClock(clk.fn())
 
@@ -454,7 +467,7 @@ func TestRedteamSI10_AStrangerCannotKeepAnOnlineNodesMailboxFull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
-	if rows, _ := req.ix.Outbox(id); len(rows) != 0 {
+	if rows := outboxRows(t, req, id); len(rows) != 1 || rows[0].HandedAt == 0 || len(queuedFor(t, srv, prov.AID())) != 1 {
 		t.Fatalf("requester outbox = %+v; the delegation did not get in", rows)
 	}
 	if err := prov.pollOnce(ctx); err != nil {

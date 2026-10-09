@@ -23,6 +23,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/ANetResearch/ANetCore/seal"
 )
@@ -204,6 +205,9 @@ func closeIXKey(e execer, ix string, cause Cause, nowMS int64) error {
 	if cause == CauseNotTerminal {
 		return nil
 	}
+	if h := terminalWriteHook.Load(); h != nil {
+		(*h)(ix, cause)
+	}
 	var role string
 	err := e.QueryRow(`SELECT role FROM interaction WHERE id=?`, ix).Scan(&role)
 	if errors.Is(err, sql.ErrNoRows) && (cause == CauseRetention || cause == CauseClosed) {
@@ -217,6 +221,25 @@ func closeIXKey(e execer, ix string, cause Cause, nowMS int64) error {
 		return err
 	}
 	return applyIXKeyFate(e, ix, fate, nowMS)
+}
+
+// terminalWriteHook, when set, is called with every terminal write's task
+// and Cause, inside its transaction (SetTerminalWriteHook).
+var terminalWriteHook atomic.Pointer[func(ix string, cause Cause)]
+
+// SetTerminalWriteHook makes every terminal write — a state write to a
+// terminal state, a terminal Finish, a late result, CloseIXKey — call f
+// with its task and Cause inside its transaction, before its key is
+// settled; nil removes it. Only tests set it: the engine's tests count the
+// unified terminal writes of a path (engine E-T31). It returns what to
+// restore.
+func SetTerminalWriteHook(f func(ix string, cause Cause)) (restore func()) {
+	var p *func(ix string, cause Cause)
+	if f != nil {
+		p = &f
+	}
+	old := terminalWriteHook.Swap(p)
+	return func() { terminalWriteHook.Store(old) }
 }
 
 // notFound turns "no row" into ErrNotFound.

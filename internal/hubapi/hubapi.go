@@ -241,6 +241,15 @@ const (
 	RelayStatusUnknown = "unknown"
 )
 
+// The relay routes of the mailbox and the status query (core §2.12.2):
+// the signed poll and ack of a recipient, the anonymous status query of a
+// sender (DLV §2.4.3).
+const (
+	RelayPollPath   = "/relay/poll"
+	RelayAckPath    = "/relay/ack"
+	RelayStatusPath = "/relay/status"
+)
+
 // RelayStatusMaxItems is the most items one /relay/status request may
 // carry (DLV-W-16).
 const RelayStatusMaxItems = 64

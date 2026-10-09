@@ -40,13 +40,14 @@ func BenchmarkTransportDispatchFallThrough(b *testing.B) {
 
 	d := benchDaemon(b)
 	d.RegisterTransport(&benchTransport{name: "direct", reachable: true, fail: errors.New("unreachable")})
-	d.RegisterTransport(&benchTransport{name: "fallback", reachable: true}) // stands in for the hub
 	ctx := context.Background()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := d.deliverEnvelope(ctx, "aid-peer", benchPayload); err != nil {
-			b.Fatal(err)
+		// No hub behind it: the direct path fails, and the fall-through ends
+		// at the missing hub without a network call.
+		if err := d.deliverEnvelope(ctx, "aid-peer", benchPayload); err == nil {
+			b.Fatal("no path took it, yet it was delivered")
 		}
 	}
 }
@@ -61,7 +62,7 @@ func BenchmarkTransportDispatchHubOnly(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = d.transports()
+		_ = d.directTransports()
 		_ = ctx
 	}
 }
@@ -110,6 +111,9 @@ func benchDaemon(b *testing.B) *Daemon {
 		d.relayStop = nil
 	}
 	d.mu.Unlock()
+	// What is measured is the dispatch: the gate (engine ENG-K13) is held
+	// open, as for a node its witness confirmed.
+	d.setIdentityGate(func() GateState { return GateState{Open: true, State: IdentityOK} })
 	b.Cleanup(func() { d.Close() })
 	return d
 }

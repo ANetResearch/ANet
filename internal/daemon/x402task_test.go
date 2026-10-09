@@ -984,12 +984,17 @@ func TestAStrangerPaysForAPublicCapability(t *testing.T) {
 	}
 	poll(t, prov)
 	pix := getIX(t, prov, id2)
-	if pix.State != interactions.StateCanceled || pix.PayState != interactions.PayRejected || len(pix.PeerKEL) != 0 {
-		t.Fatalf("provider after the rejection: %s / %q / kel %d", pix.State, pix.PayState, len(pix.PeerKEL))
+	if pix.State != interactions.StateCanceled || pix.PayState != interactions.PayRejected {
+		t.Fatalf("provider after the rejection: %s / %q", pix.State, pix.PayState)
 	}
-	if q, _ := prov.ix.Outbox(id2); len(q) != 0 {
-		t.Errorf("the canceled notice is stuck in the queue: %+v", q[0])
-	}
+	// The caller's KEL goes with the last answer queued for it (engine
+	// ENG-S7): once the caller took the canceled notice and the provider
+	// heard so.
+	waitUntil(t, "the canceled notice confirmed and the caller's KEL dropped", func() bool {
+		settleDelivery(t, prov, stranger)
+		q, _ := prov.ix.OutboxRows(id2)
+		return len(q) == 0 && len(getIX(t, prov, id2).PeerKEL) == 0
+	})
 }
 
 // mustPayBind is x402a2a.PayBind for an interaction id and a nonce that hold no U+0000.
