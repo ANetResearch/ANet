@@ -2,9 +2,21 @@
 
 package a2a
 
-// precheck.go answers a streaming call that cannot start with an ordinary
-// error response instead of a stream (an internal note item; a2a-tck STREAM-SUB-003 and
-// STREAM-SUB-004).
+// precheck.go carries out every send before the binding, and answers a
+// streaming call that cannot start with an ordinary error response instead
+// of a stream (an internal note item; a2a-tck STREAM-SUB-003 and STREAM-SUB-004).
+//
+// A send — SendMessage or SendStreamingMessage, on either binding — is
+// read here from the request's own bytes, so that the numbers in the
+// message (its metadata, a capability call's args) reach the kernel as the
+// client wrote them: a2a-go reads them as doubles, which would make
+// 9007199254740993 and 9007199254740992 one number, and the kernel holds a
+// messageId to the literal content of its message (correctness-ux CUX-D1).
+// A refusal of the reason table that the send meets — a messageId already
+// used for other content (MESSAGE_ID_REUSED), the send gate — is written
+// here in the two-ErrorInfo form of core G1 (refusal.go), which a2a-go's
+// own error encoding cannot carry. Any other outcome of a SendMessage is
+// handed to the handler, which answers it through the binding as before.
 //
 // a2a-go writes a stream's headers — HTTP 200, text/event-stream — before
 // it asks the handler for the first event (a2asrv jsonrpc.go and rest.go),
@@ -37,6 +49,7 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -46,7 +59,7 @@ const (
 	methodSubscribe     = "SubscribeToTask"
 )
 
-// streamCall is a streaming call read from its request.
+// streamCall is a send or a streaming call read from its request.
 type streamCall struct {
 	// id is the JSON-RPC request id; nil for the HTTP+JSON binding.
 	id any
@@ -55,12 +68,17 @@ type streamCall struct {
 	send *a2a.SendMessageRequest
 	sub  *a2a.SubscribeToTaskRequest
 	err  error
+	// blocking marks a SendMessage (not streamed).
+	blocking bool
+	// msg is send's message as the client wrote it, numbers included
+	// (literalMessage); nil when it does not read so.
+	msg *a2ashape.Message
 }
 
-// readStreamCall reads r as a streaming call, and returns nil for any other
-// request, or for one the binding answers itself before its handler runs (a
-// body that is not a JSON-RPC request). The body is read and put back for
-// the binding.
+// readStreamCall reads r as a send or a streaming call, and returns nil for
+// any other request, or for one the binding answers itself before its
+// handler runs (a body that is not a JSON-RPC request). The body is read and
+// put back for the binding.
 func readStreamCall(r *http.Request, aid string, jsonrpc bool) *streamCall {
 	if jsonrpc {
 		body, err := io.ReadAll(r.Body)
@@ -76,18 +94,20 @@ func readStreamCall(r *http.Request, aid string, jsonrpc bool) *streamCall {
 			Method  string `json:"method"`
 		}
 		if decodeFirst(body, &env) != nil || env.JSONRPC != "2.0" || !validRPCID(env.ID) ||
-			(env.Method != methodSendStreaming && env.Method != methodSubscribe) {
+			(env.Method != methodSendStreaming && env.Method != methodSubscribe && env.Method != methodSend) {
 			return nil
 		}
 		var params struct {
 			Params json.RawMessage `json:"params"`
 		}
 		_ = decodeFirst(body, &params)
-		c := &streamCall{id: env.ID}
-		if env.Method == methodSendStreaming {
+		c := &streamCall{id: env.ID, blocking: env.Method == methodSend}
+		if env.Method != methodSubscribe {
 			c.send = &a2a.SendMessageRequest{}
 			if c.err = json.Unmarshal(params.Params, c.send); c.err != nil {
 				c.send = nil
+			} else {
+				c.msg = literalMessage(params.Params)
 			}
 		} else {
 			c.sub = &a2a.SubscribeToTaskRequest{}
@@ -102,17 +122,18 @@ func readStreamCall(r *http.Request, aid string, jsonrpc bool) *streamCall {
 	}
 	rest := strings.TrimPrefix(r.URL.Path, agentsPath+"/"+aid+"/rest")
 	switch {
-	case r.Method == http.MethodPost && rest == "/message:stream":
+	case r.Method == http.MethodPost && (rest == "/message:stream" || rest == "/message:send"):
 		body, err := io.ReadAll(r.Body)
 		r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), errReader{err}))
 		if err != nil {
 			return nil
 		}
-		c := &streamCall{send: &a2a.SendMessageRequest{}}
+		c := &streamCall{send: &a2a.SendMessageRequest{}, blocking: rest == "/message:send"}
 		if decodeFirst(body, c.send) != nil {
 			return nil // the binding answers a body that does not decode, before any stream
 		}
 		c.send.Tenant = aid
+		c.msg = literalMessage(body)
 		return c
 	case (r.Method == http.MethodGet || r.Method == http.MethodPost) &&
 		strings.HasPrefix(rest, "/tasks/") && strings.HasSuffix(rest, ":subscribe"):
@@ -123,6 +144,27 @@ func readStreamCall(r *http.Request, aid string, jsonrpc bool) *streamCall {
 		return &streamCall{sub: &a2a.SubscribeToTaskRequest{ID: a2a.TaskID(id), Tenant: aid}}
 	}
 	return nil
+}
+
+// literalMessage is the message member of a SendMessageRequest's JSON, read
+// into the projection's form with every number as the client wrote it
+// (json.Number): in the message's metadata, and in its data parts
+// (a2ashape.Part keeps theirs). nil when it does not read so — the caller
+// then has a2a-go's reading only.
+func literalMessage(req []byte) *a2ashape.Message {
+	var w struct {
+		Message json.RawMessage `json:"message"`
+	}
+	if decodeFirst(req, &w) != nil || len(w.Message) == 0 {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(w.Message))
+	dec.UseNumber()
+	var m a2ashape.Message
+	if dec.Decode(&m) != nil {
+		return nil
+	}
+	return &m
 }
 
 // decodeFirst decodes the first JSON value of body into v, as the bindings
@@ -154,9 +196,10 @@ func validRPCID(id any) bool {
 	return false
 }
 
-// precheckStream runs the checks of a streaming call (see the file comment)
-// and reports whether it answered the request with an error. The request
-// it returns is the one to serve: a streaming send carries its outcome.
+// precheckStream carries out a send and runs the checks of a streaming call
+// (see the file comment), and reports whether it answered the request with
+// an error. The request it returns is the one to serve: a send carries its
+// outcome.
 func (s *server) precheckStream(w http.ResponseWriter, r *http.Request, aid string, jsonrpc bool) (*http.Request, bool) {
 	c := readStreamCall(r, aid, jsonrpc)
 	if c == nil {
@@ -168,14 +211,41 @@ func (s *server) precheckStream(w http.ResponseWriter, r *http.Request, aid stri
 	case err != nil:
 	case c.sub != nil:
 		err = s.h.checkSubscribe(ctx, c.sub)
+	case c.send != nil && c.blocking:
+		// SendMessage: carried out here, answered by the binding through
+		// the handler — unless it meets a refusal of the reason table.
+		sent := s.h.sendBlocking(ctx, c.send, c.msg)
+		var ref *a2ashape.Refusal
+		if !errors.As(sent.err, &ref) {
+			return r.WithContext(context.WithValue(ctx, sentKey{}, sent)), false
+		}
+		lang := a2ashape.Lang()
+		if jsonrpc {
+			writeRefusalRPC(w, c.id, ref, lang)
+		} else {
+			writeRefusalREST(w, ref, lang)
+		}
+		return r, true
 	case c.send != nil:
 		var sent *sentStream
-		if sent, err = s.h.sendForStream(ctx, c.send); err == nil {
+		if sent, err = s.h.sendForStream(ctx, c.send, c.msg); err == nil {
 			return r.WithContext(context.WithValue(ctx, sentKey{}, sent)), false
 		}
 	}
 	if err == nil {
 		return r, false
+	}
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		// A stream's error goes with the status its binding gives it
+		// (writeRefusalRPCStatus).
+		lang := a2ashape.Lang()
+		if jsonrpc {
+			writeRefusalRPCStatus(w, c.id, ref, lang)
+		} else {
+			writeRefusalREST(w, ref, lang)
+		}
+		return r, true
 	}
 	err = toSDKError(err)
 	if jsonrpc {
@@ -186,10 +256,12 @@ func (s *server) precheckStream(w http.ResponseWriter, r *http.Request, aid stri
 	return r, true
 }
 
-// sentStream is a streaming send already carried out by precheckStream.
+// sentStream is a send already carried out by precheckStream: a streaming
+// one, or a SendMessage with its outcome (err).
 type sentStream struct {
 	req  module.TaskSend
 	task module.Task
+	err  error
 }
 
 type sentKey struct{}

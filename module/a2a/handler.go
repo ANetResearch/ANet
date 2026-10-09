@@ -7,8 +7,9 @@ package a2a
 // the remote agent named in the request's path.
 //
 // The kernel owns the semantics that need the task store — the contextId
-// belonging to this agent's tasks, the (contextId, messageId) dedupe, the
-// input part rules, waiting on state_seq rather than on the state [C35] —
+// belonging to this agent's tasks, holding a messageId to its content
+// (correctness-ux CUX-D1), the input part rules, waiting on state_seq
+// rather than on the state [C35] —
 // and this file owns what belongs to the A2A face: the service parameters,
 // the tenant, the refusals that need no store (a url part, a push config),
 // and the shape of a stream. A local client's payment message (§8.7) is a
@@ -23,6 +24,7 @@ package a2a
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"iter"
 	"strconv"
 	"strings"
@@ -56,11 +58,17 @@ func (h *handler) begin(ctx context.Context, tenant string) (*reqInfo, error) {
 	return info, nil
 }
 
-// taskSend reads a SendMessage request into the kernel's form.
-func (h *handler) taskSend(info *reqInfo, r *a2a.SendMessageRequest) (module.TaskSend, error) {
+// taskSend reads a SendMessage request into the kernel's form. lit, when
+// set, is the request's message as the client wrote it (literalMessage,
+// read before the binding), which is taken over a2a-go's reading of it:
+// its numbers are the client's own.
+func (h *handler) taskSend(info *reqInfo, r *a2a.SendMessageRequest, lit *a2ashape.Message) (module.TaskSend, error) {
 	msg, err := shapeMessage(r.Message)
 	if err != nil {
 		return module.TaskSend{}, err
+	}
+	if lit != nil && lit.ID == msg.ID {
+		msg = *lit
 	}
 	for i, p := range msg.Parts {
 		if p.Kind == a2ashape.PartURL {
@@ -95,27 +103,48 @@ func (h *handler) taskSend(info *reqInfo, r *a2a.SendMessageRequest) (module.Tas
 // the task is terminal or waits for the client (§11.5 [C22]); a client
 // that gives up waiting does not cancel the task.
 func (h *handler) SendMessage(ctx context.Context, r *a2a.SendMessageRequest) (a2a.SendMessageResult, error) {
+	sent, ok := sentFrom(ctx)
+	if !ok {
+		// Not carried out before the binding (precheck.go): a caller of
+		// the handler itself.
+		sent = h.sendBlocking(ctx, r, nil)
+	}
+	if sent.err != nil {
+		return nil, toSDKError(sent.err)
+	}
+	return sdkTask(sent.task)
+}
+
+// sendBlocking is SendMessage's send: the checks, then the kernel's Send.
+// The outcome is the task as the client is given it, or the error: a
+// refusal of the reason table as the kernel gave it (the caller writes it,
+// refusal.go), any other as the A2A error for the binding.
+func (h *handler) sendBlocking(ctx context.Context, r *a2a.SendMessageRequest, lit *a2ashape.Message) *sentStream {
 	info, err := h.begin(ctx, r.Tenant)
 	if err != nil {
-		return nil, err
+		return &sentStream{err: err}
 	}
-	req, err := h.taskSend(info, r)
+	req, err := h.taskSend(info, r, lit)
 	if err != nil {
-		return nil, err
+		return &sentStream{err: err}
 	}
 	// A payment message (§8.7) goes the same way as any message: the
-	// kernel's TaskSeam recognises it, deduplicates its messageId, makes
-	// the decision (PayTask) and waits like any send. Its answer is given
-	// as the kernel made it: a payment the operator has to approve says
-	// so, whether or not the extension was activated.
+	// kernel's TaskSeam recognises it, holds its messageId to its content,
+	// makes the decision (PayTask) and waits like any send. Its answer is
+	// given as the kernel made it: a payment the operator has to approve
+	// says so, whether or not the extension was activated.
 	t, err := h.seam.Send(ctx, info.aid, req)
 	if err != nil {
-		return nil, toSDKError(err)
+		var ref *a2ashape.Refusal
+		if errors.As(err, &ref) {
+			return &sentStream{req: req, err: ref}
+		}
+		return &sentStream{req: req, err: toSDKError(err)}
 	}
 	if !isPaymentMessage(req.Message) {
 		t = forClient(info, t)
 	}
-	return sdkTask(t)
+	return &sentStream{req: req, task: t}
 }
 
 // SendStreamingMessage sends like SendMessage and then streams the task:
@@ -131,7 +160,7 @@ func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRe
 		if sent, ok := sentFrom(ctx); ok && info != nil {
 			req, t = sent.req, sent.task
 		} else {
-			s, err := h.sendForStream(ctx, r)
+			s, err := h.sendForStream(ctx, r, nil)
 			if err != nil {
 				yield(nil, toSDKError(err))
 				return
@@ -165,13 +194,13 @@ func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRe
 }
 
 // sendForStream is the send of a streaming call: the checks SendMessage
-// makes, then the kernel's Send, answering at once.
-func (h *handler) sendForStream(ctx context.Context, r *a2a.SendMessageRequest) (*sentStream, error) {
+// makes, then the kernel's Send, answering at once. lit is as for taskSend.
+func (h *handler) sendForStream(ctx context.Context, r *a2a.SendMessageRequest, lit *a2ashape.Message) (*sentStream, error) {
 	info, err := h.begin(ctx, r.Tenant)
 	if err != nil {
 		return nil, err
 	}
-	req, err := h.taskSend(info, r)
+	req, err := h.taskSend(info, r, lit)
 	if err != nil {
 		return nil, err
 	}
