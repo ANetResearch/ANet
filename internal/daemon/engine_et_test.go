@@ -928,3 +928,38 @@ func TestARefusalWithAWaitSaysWhenToSendAgain(t *testing.T) {
 		t.Fatalf("the task's metadata %s (%v), want anet.retry_after_ms 90000", ix.ResultMeta, err)
 	}
 }
+
+// ENG-Q7: a notice after the fact is queued only within the notice limit;
+// past it the notice is not queued at all, and counted.
+func TestANoticePastTheLimitIsNotQueued(t *testing.T) {
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	prov := registered(t, srv.URL, "prov")
+	s := registered(t, srv.URL, "requester")
+	setPolicy(t, prov, PolicyApprove)
+	prov.notices.configure(1, 100) // one notice per peer an hour
+	prov.setOutboxHold(true)
+	var ids []string
+	for _, goal := range []string{"first held", "second held"} {
+		id, err := s.Delegate(ctx, prov.AID(), goal, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	queued := 0
+	for _, id := range ids {
+		if _, err := prov.ix.GetPending(id); err != nil {
+			t.Fatalf("not held: %v", err)
+		}
+		if rowOfKind(t, prov, id, rowKindPendingApproval) != nil {
+			queued++
+		}
+	}
+	if queued != 1 || counter(prov, noticeSuppressed) != 1 {
+		t.Fatalf("%d pending_approval notices queued, %d over the limit; want 1 and 1", queued, counter(prov, noticeSuppressed))
+	}
+}
