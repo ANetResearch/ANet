@@ -47,7 +47,7 @@ func TestBuildGolden(t *testing.T) {
 		`{"protocolBinding":"https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1","protocolVersion":"1.0","tenant":"bafyaid","url":"https://hub.example/relay"},` +
 		`{"protocolBinding":"https://agentnetwork.org.cn/a2a/bindings/anet-p2p/v1","protocolVersion":"1.0","tenant":"bafyaid","url":"tcp://203.0.113.7:4001"}],` +
 		`"version":"0.2.0",` +
-		`"capabilities":{"streaming":false,"pushNotifications":false,"extensions":[` +
+		`"capabilities":{"streaming":false,"pushNotifications":false,"extendedAgentCard":true,"extensions":[` +
 		`{"description":"anet identity (AID) and card sequence; the card is signed under the AID's current KEL key",` +
 		`"params":{"aid":"bafyaid","issuedAt":"1790000000123","notBefore":"1789999940123","seq":"1790000000"},` +
 		`"uri":"https://agentnetwork.org.cn/a2a/ext/anet-card/v1"},` +

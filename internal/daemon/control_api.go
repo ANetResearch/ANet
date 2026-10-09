@@ -590,7 +590,7 @@ func relayError(w http.ResponseWriter, err error) {
 
 // --- handlers ---
 
-func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
+func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	cfg := d.config()
 	out := map[string]any{
 		"aid":            d.AID(),
@@ -619,6 +619,14 @@ func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
 	// How long task content is kept (FS §2.10): `anet retention` reads it
 	// here while the daemon runs.
 	out["privacy"] = d.privacyRetention()
+	// What only doctor asks for, and costs more than a liveness check
+	// (anet up and doctor read /status for that): the extended cards, made
+	// and verified (doctor's payments.card). Absent when no card is priced.
+	if r.URL.Query().Get("doctor") != "" {
+		if c := d.paymentsCardCheck(); c != nil {
+			out["payments_card"] = c
+		}
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

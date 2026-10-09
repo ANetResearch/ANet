@@ -311,7 +311,8 @@ func daemonStatusAt(addr, tokenPath string) (map[string]any, error) {
 		return nil, err
 	}
 	c := &client{base: "http://" + addr, token: strings.TrimSpace(string(tb)), timeout: 1500 * time.Millisecond}
-	body, code, err := c.fetch("/status", nil)
+	// doctor=1: also the checks only doctor asks the daemon for (payments.card).
+	body, code, err := c.fetch("/status?doctor=1", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -568,6 +569,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	} else {
 		add("payments", stOK, payDetail, "")
 	}
+	paymentsCardCheck(say, add, rep, env, layout) // doctor_payments.go
 
 	// Tasks this node sends (§4.2): how long one may hear nothing at all
 	// from its peer before it fails as no_response.
