@@ -1119,6 +1119,11 @@ type sandboxPlan struct {
 	// run gets its own endpoint, bound into the sandbox, and the agent's environment names its injection
 	// route. Nil: no endpoint, and the sandbox has no way out at all.
 	Egress *egressUpstream
+	// AgentHome, when set, points the agent at Egress the agent's own way (LEC AV-4,
+	// agents_sandbox.go): run before each process starts, it writes the agent's configuration under the
+	// run's home directory (hostHome on this host, home inside the sandbox) and returns the variables the
+	// agent's environment needs besides the egress ones.
+	AgentHome func(hostHome, home string) ([]string, error)
 
 	egressMu    sync.Mutex
 	egressTotal *egressSummary
@@ -1212,7 +1217,8 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 		reply, err := r.Reply(ctx, req.RC, req.Turns)
 		return sandboxResult{Reply: reply}, err
 	}
-	if _, err := lookupAgent(cfg.Agent); err != nil {
+	spec, err := lookupAgent(cfg.Agent)
+	if err != nil {
 		return sandboxResult{}, err
 	}
 	// What a run killed in the middle left behind is removed before this daemon's first run (SB-9).
@@ -1231,6 +1237,9 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 			return sandboxResult{}, err
 		}
 		plan.Egress = up
+		if prepare := spec.sandbox.prepare; prepare != nil { // resolveEgressUpstream refused an agent without one
+			plan.AgentHome = func(hostHome, home string) ([]string, error) { return prepare(up, hostHome, home) }
+		}
 	}
 	workDir, err := execSandboxInteractionDir(d.layout.Root, d.AID(), req.RC.InteractionID)
 	if err != nil {

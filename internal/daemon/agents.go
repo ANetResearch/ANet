@@ -74,6 +74,11 @@ type agentSpec struct {
 	id, displayName string
 	// input is the agent's conversation channel.
 	input agentInput
+	// sandbox is how the agent runs in the sandbox (LEC AV-4); nil for an agent v0.3.0 does not run there,
+	// whose sandboxed turns fail closed (sandbox_unavailable, local detail agent_unsupported, with
+	// sandboxNote as the detail).
+	sandbox     *agentSandbox
+	sandboxNote string
 	// defaultModel is the CHEAPEST model to use when the operator did not pass auto_reply.model — an
 	// unattended provider should default to the cheapest tier, not a premium one. Empty means "let the
 	// agent CLI use its own configured default" (used where we can't name a safe cheap model / the CLI
@@ -83,14 +88,23 @@ type agentSpec struct {
 	invoke       func(ctx context.Context, o execInvokeOpts) (string, error)
 }
 
+// agentRegistry is every agent the exec backend runs. The channels (input, and where each invoke puts the
+// fixed instructions) and the sandbox configurations are the ones the per-agent trials established
+// (LEC AV-4, EXE-6; the versions tried are in the comments of agents_sandbox.go).
 func agentRegistry() []agentSpec {
 	return []agentSpec{
-		{id: agentCursor, displayName: "Cursor Agent", input: inputFile, defaultModel: "auto", detectBin: detectCursorBin, invoke: invokeCursor},
-		{id: agentClaude, displayName: "Claude Code", input: inputStdin, defaultModel: "haiku", detectBin: detectClaudeBin, invoke: invokeClaude},
-		{id: agentCodex, displayName: "Codex CLI", input: inputStdin, detectBin: detectCodexBin, invoke: invokeCodex},
-		{id: agentOpenCode, displayName: "opencode", input: inputFile, detectBin: detectOpenCodeBin, invoke: invokeOpenCode},
-		{id: agentOpenClaw, displayName: "OpenClaw", input: inputFile, detectBin: detectOpenClawBin, invoke: invokeOpenClaw},
-		{id: agentHermes, displayName: "hermes-agent", input: inputFile, detectBin: detectHermesBin, invoke: invokeHermes},
+		{id: agentCursor, displayName: "Cursor Agent", input: inputFile, defaultModel: "auto", detectBin: detectCursorBin, invoke: invokeCursor,
+			sandboxNote: "cursor has no model service address to point at this node"},
+		{id: agentClaude, displayName: "Claude Code", input: inputStdin, defaultModel: "haiku", detectBin: detectClaudeBin, invoke: invokeClaude,
+			sandbox: claudeSandbox},
+		{id: agentCodex, displayName: "Codex CLI", input: inputStdin, detectBin: detectCodexBin, invoke: invokeCodex,
+			sandbox: codexSandbox},
+		{id: agentOpenCode, displayName: "opencode", input: inputStdin, detectBin: detectOpenCodeBin, invoke: invokeOpenCode,
+			sandbox: openCodeSandbox},
+		{id: agentOpenClaw, displayName: "OpenClaw", input: inputFile, detectBin: detectOpenClawBin, invoke: invokeOpenClaw,
+			sandbox: openClawSandbox},
+		{id: agentHermes, displayName: "hermes-agent", input: inputFile, detectBin: detectHermesBin, invoke: invokeHermes,
+			sandbox: hermesSandbox},
 	}
 }
 
@@ -411,7 +425,7 @@ func cursorCreateChat(ctx context.Context, o execInvokeOpts) (string, error) {
 	return id, nil
 }
 
-// --- claude: claude -p --output-format text --permission-mode dontAsk --bare [--model]
+// --- claude: claude -p --output-format text --permission-mode dontAsk|bypassPermissions --bare [--model]
 //     [--append-system-prompt INSTRUCTIONS] < CONVERSATION ---
 
 func detectClaudeBin() (string, error) {
@@ -419,16 +433,7 @@ func detectClaudeBin() (string, error) {
 }
 
 func invokeClaude(ctx context.Context, o execInvokeOpts) (string, error) {
-	args := []string{"-p", "--output-format", "text", "--permission-mode", "dontAsk", "--bare"}
-	if o.Model != "" {
-		args = append(args, "--model", o.Model)
-	}
-	args = append(args, o.ExtraArgs...)
-	// The fixed instructions go through claude's own system prompt channel; with -p and no prompt
-	// argument, claude reads the prompt — the conversation — from stdin (LEC AV-4).
-	if o.Instructions != "" {
-		args = append(args, "--append-system-prompt", o.Instructions)
-	}
+	args := claudeArgs(o)
 	stdout, stderr, err := runCmd(ctx, o, []byte(o.Conversation), o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
@@ -440,7 +445,30 @@ func invokeClaude(ctx context.Context, o execInvokeOpts) (string, error) {
 	return reply, nil
 }
 
-// --- codex: codex exec --full-auto --ephemeral -o outfile [-C workdir] - < INSTRUCTIONS+CONVERSATION ---
+// claudeArgs is claude's command line for o (the conversation is its stdin).
+func claudeArgs(o execInvokeOpts) []string {
+	// dontAsk denies every tool that would ask (Bash, Edit, Write), which keeps a direct run to what the
+	// operator's own permission rules allow. In the sandbox there are no such rules (its home is empty)
+	// and the sandbox is the boundary, so the agent may use its tools there (LEC AV-4, EXE-6).
+	mode := "dontAsk"
+	if o.Sandbox != nil {
+		mode = "bypassPermissions"
+	}
+	args := []string{"-p", "--output-format", "text", "--permission-mode", mode, "--bare"}
+	if o.Model != "" {
+		args = append(args, "--model", o.Model)
+	}
+	args = append(args, o.ExtraArgs...)
+	// The fixed instructions go through claude's own system prompt channel; with -p and no prompt
+	// argument, claude reads the prompt — the conversation — from stdin (LEC AV-4).
+	if o.Instructions != "" {
+		args = append(args, "--append-system-prompt", o.Instructions)
+	}
+	return args
+}
+
+// --- codex: codex exec --skip-git-repo-check --ephemeral -s MODE -o outfile [-C workdir] [-m MODEL]
+//     [-c developer_instructions=INSTRUCTIONS] - < CONVERSATION ---
 
 func detectCodexBin() (string, error) {
 	return lookPathFirst("codex")
@@ -455,15 +483,8 @@ func invokeCodex(ctx context.Context, o execInvokeOpts) (string, error) {
 	}
 	outFile := filepath.Join(dir, fmt.Sprintf(".anet-codex-%d.txt", time.Now().UnixNano()))
 	defer os.Remove(outFile)
-	args := []string{"exec", "--full-auto", "--ephemeral", "-o", outFile}
-	if o.WorkDir != "" {
-		args = append(args, "-C", o.WorkDir)
-	}
-	args = append(args, o.ExtraArgs...)
-	// "-": the prompt is read from stdin. codex has no system prompt flag of its own that the sandbox
-	// tests have confirmed (LEC AV-4, EXE-6), so the fixed instructions lead the same stdin.
-	args = append(args, "-")
-	stdout, stderr, err := runCmd(ctx, o, stdinInput(o.Instructions, o.Conversation), o.Command, args...)
+	args := codexArgs(o, outFile)
+	stdout, stderr, err := runCmd(ctx, o, []byte(o.Conversation), o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
@@ -478,7 +499,33 @@ func invokeCodex(ctx context.Context, o execInvokeOpts) (string, error) {
 	return reply, nil
 }
 
-// --- opencode: opencode run [--model MODEL] MESSAGE (conversation in a file) ---
+// codexArgs is codex's command line for o, writing its reply to outFile (the conversation is its stdin).
+func codexArgs(o execInvokeOpts, outFile string) []string {
+	// The work dir is not a git repository, which codex otherwise refuses. --full-auto is gone from codex
+	// (0.162 rejects it); its sandbox mode is set directly: workspace-write for a direct run, as
+	// --full-auto did; in anet's sandbox codex cannot build its own (it needs a user namespace, which the
+	// sandbox refuses), so its commands run in anet's sandbox as they are.
+	mode := "workspace-write"
+	if o.Sandbox != nil {
+		mode = "danger-full-access"
+	}
+	args := []string{"exec", "--skip-git-repo-check", "--ephemeral", "-s", mode, "-o", outFile}
+	if o.WorkDir != "" {
+		args = append(args, "-C", o.WorkDir)
+	}
+	if o.Model != "" {
+		args = append(args, "-m", o.Model)
+	}
+	// The fixed instructions go through codex's developer instructions setting; the conversation is the
+	// prompt, read from stdin ("-") (LEC AV-2, AV-4).
+	if o.Instructions != "" {
+		args = append(args, "-c", "developer_instructions="+tomlString(o.Instructions))
+	}
+	args = append(args, o.ExtraArgs...)
+	return append(args, "-")
+}
+
+// --- opencode: opencode run [--model MODEL] INSTRUCTIONS < CONVERSATION ---
 
 func detectOpenCodeBin() (string, error) {
 	return lookPathFirst("opencode")
@@ -487,23 +534,16 @@ func detectOpenCodeBin() (string, error) {
 // invokeOpenCode runs one non-interactive opencode turn.
 //
 // `opencode run` prints the assistant's reply on stdout and exits, which is exactly the shape this
-// backend needs. No model is passed unless the operator named one: opencode resolves its own default
-// from the provider the user has configured, and there is no model id that is both cheap and valid
-// across the providers it supports — naming one here would break the node for anybody on a different
-// provider, which is worse than a default that costs more than necessary.
+// backend needs. Its message is its arguments followed by what it reads on stdin: the fixed instructions
+// are the argument and the conversation comes on stdin (opencode 1.18, EXE-6). No model is passed unless
+// the operator named one: opencode resolves its own default from the provider the user has configured,
+// and there is no model id that is both cheap and valid across the providers it supports — naming one
+// here would break the node for anybody on a different provider, which is worse than a default that
+// costs more than necessary. In the sandbox the model is the pinned one, on the provider the run's
+// configuration names (openCodeSandbox).
 func invokeOpenCode(ctx context.Context, o execInvokeOpts) (string, error) {
-	args := []string{"run"}
-	if o.Model != "" {
-		args = append(args, "--model", o.Model)
-	}
-	args = append(args, o.ExtraArgs...)
-	conv, cleanup, err := writeConversationFile(o)
-	if err != nil {
-		return "", err
-	}
-	defer cleanup()
-	args = append(args, fileInputMessage(o.Instructions, conv))
-	stdout, stderr, err := runCmd(ctx, o, nil, o.Command, args...)
+	args := openCodeArgs(o)
+	stdout, stderr, err := runCmd(ctx, o, []byte(o.Conversation), o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
@@ -514,7 +554,25 @@ func invokeOpenCode(ctx context.Context, o execInvokeOpts) (string, error) {
 	return reply, nil
 }
 
-// --- openclaw: openclaw agent --local --json --agent ID --message MESSAGE (conversation in a file) ---
+// openCodeArgs is opencode's command line for o (the conversation is its stdin).
+func openCodeArgs(o execInvokeOpts) []string {
+	args := []string{"run"}
+	if model := o.Model; model != "" {
+		if o.Sandbox != nil {
+			model = sandboxProviderModel(model)
+		}
+		args = append(args, "--model", model)
+	}
+	args = append(args, o.ExtraArgs...)
+	if o.Instructions != "" {
+		args = append(args, o.Instructions)
+	}
+	return args
+}
+
+// --- openclaw: openclaw agent --local --json --agent ID --message-file FILE, or in the sandbox
+//     openclaw agent exec --json --message-file FILE --cwd WORKDIR (instructions and conversation in the
+//     file) ---
 
 func detectOpenClawBin() (string, error) {
 	return lookPathFirst("openclaw")
@@ -525,13 +583,17 @@ func invokeOpenClaw(ctx context.Context, o execInvokeOpts) (string, error) {
 	if agentName == "" {
 		agentName = "main"
 	}
-	conv, cleanup, err := writeConversationFile(o)
+	// openclaw reads its message from a file (--message-file), so the message is the whole prompt — the
+	// fixed instructions, then the conversation — in the turn's 0600 conversation file, and argv names
+	// only the file. The agent needs no tool call to see the conversation (openclaw 2026.9, EXE-6).
+	whole := o
+	whole.Conversation = string(stdinInput(o.Instructions, o.Conversation))
+	conv, cleanup, err := writeConversationFile(whole)
 	if err != nil {
 		return "", err
 	}
 	defer cleanup()
-	args := []string{"agent", "--local", "--json", "--agent", agentName, "--message", fileInputMessage(o.Instructions, conv)}
-	args = append(args, o.ExtraArgs...)
+	args := openClawArgs(o, agentName, conv)
 	stdout, stderr, err := runCmd(ctx, o, nil, o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
@@ -540,25 +602,66 @@ func invokeOpenClaw(ctx context.Context, o execInvokeOpts) (string, error) {
 	if raw == "" {
 		return "", fmt.Errorf("openclaw agent returned empty output")
 	}
-	// Best-effort JSON parse; fall back to raw stdout.
+	return openClawReply(raw), nil
+}
+
+// openClawArgs is openclaw's command line for o, its message in the file conv. A direct run is a turn of
+// the operator's agent agentName. A sandboxed run is `agent exec`, openclaw's isolated headless turn: its
+// tools work in the interaction's work dir (--cwd), not in the agent workspace under $HOME, which the
+// sandbox discards with the run, and it bootstraps no workspace files (openclaw 2026.9, EXE-6).
+func openClawArgs(o execInvokeOpts, agentName, conv string) []string {
+	args := []string{"agent", "--local", "--json", "--agent", agentName, "--message-file", conv}
+	if o.Sandbox != nil {
+		args = []string{"agent", "exec", "--json", "--message-file", conv}
+		if o.WorkDir != "" {
+			args = append(args, "--cwd", o.WorkDir)
+		}
+	}
+	if o.Model != "" {
+		model := o.Model
+		if o.Sandbox != nil {
+			model = sandboxProviderModel(model)
+		}
+		args = append(args, "--model", model)
+	}
+	return append(args, o.ExtraArgs...)
+}
+
+// openClawReply is the reply text of `openclaw agent --json`: the text of its payloads (openclaw
+// 2026.9: {"payloads":[{"text":…}],"meta":…}), or one of the single text members older versions
+// printed, or, when the output is not such an object, the output itself.
+func openClawReply(raw string) string {
 	var parsed struct {
+		Payloads []struct {
+			Text string `json:"text"`
+		} `json:"payloads"`
 		Reply   string `json:"reply"`
 		Message string `json:"message"`
 		Text    string `json:"text"`
 		Result  string `json:"result"`
 		Output  string `json:"output"`
 	}
-	if json.Unmarshal([]byte(raw), &parsed) == nil {
-		for _, s := range []string{parsed.Reply, parsed.Message, parsed.Text, parsed.Result, parsed.Output} {
-			if strings.TrimSpace(s) != "" {
-				return trimReply(s), nil
-			}
+	if json.Unmarshal([]byte(raw), &parsed) != nil {
+		return trimReply(raw)
+	}
+	var texts []string
+	for _, p := range parsed.Payloads {
+		if t := strings.TrimSpace(p.Text); t != "" {
+			texts = append(texts, t)
 		}
 	}
-	return trimReply(raw), nil
+	if len(texts) > 0 {
+		return strings.Join(texts, "\n\n")
+	}
+	for _, s := range []string{parsed.Reply, parsed.Message, parsed.Text, parsed.Result, parsed.Output} {
+		if strings.TrimSpace(s) != "" {
+			return trimReply(s)
+		}
+	}
+	return trimReply(raw)
 }
 
-// --- hermes: hermes -z MESSAGE | hermes chat -q MESSAGE -m MODEL (conversation in a file) ---
+// --- hermes: hermes -z MESSAGE [-m MODEL] (conversation in a file) ---
 
 func detectHermesBin() (string, error) {
 	return lookPathFirst("hermes")
@@ -570,14 +673,10 @@ func invokeHermes(ctx context.Context, o execInvokeOpts) (string, error) {
 		return "", err
 	}
 	defer cleanup()
-	msg := fileInputMessage(o.Instructions, conv)
-	var args []string
-	if o.Model != "" {
-		args = []string{"chat", "-q", msg, "-m", o.Model}
-	} else {
-		args = []string{"-z", msg}
-	}
-	args = append(args, o.ExtraArgs...)
+	// -z is hermes's one-shot mode: it prints only the final reply and approves its own tool calls, and
+	// takes -m for the model (hermes 0.19; `chat -q` printed a banner and session lines around the reply).
+	// hermes takes its prompt only as an argument, so the conversation stays in the file it names.
+	args := hermesArgs(o, conv)
 	stdout, stderr, err := runCmd(ctx, o, nil, o.Command, args...)
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
@@ -587,4 +686,13 @@ func invokeHermes(ctx context.Context, o execInvokeOpts) (string, error) {
 		return "", fmt.Errorf("hermes returned empty output")
 	}
 	return reply, nil
+}
+
+// hermesArgs is hermes's command line for o, the conversation in the file conv.
+func hermesArgs(o execInvokeOpts, conv string) []string {
+	args := []string{"-z", fileInputMessage(o.Instructions, conv)}
+	if o.Model != "" {
+		args = append(args, "-m", o.Model)
+	}
+	return append(args, o.ExtraArgs...)
 }

@@ -713,10 +713,17 @@ func (p *sandboxPlan) command(workDir string, argv, env []string, stdin []byte) 
 	if p.SystemdRun != "" {
 		launchEnv = systemdEnv()
 	}
+	// The agent's own configuration for the injection route, in the run's home (LEC AV-4).
+	var agentEnv []string
+	if p.AgentHome != nil {
+		if agentEnv, err = p.AgentHome(sandboxHome(runDir), home); err != nil {
+			return nil, sandboxUnavailable("agent configuration: %v", err)
+		}
+	}
 	// The agent holds no key and no proxy setting of the daemon's: its model service is the injection
 	// route, with a placeholder key (UP-4). Its search path names only what the sandbox shows: the
 	// system directories and the agent's runtime (SB-4).
-	env = sandboxEnvOverlay(env, sandboxEgressEnv(p.Egress))
+	env = sandboxEnvOverlay(env, append(sandboxEgressEnv(p.Egress), agentEnv...))
 	env = envWithSandboxPath(env, runtimeDirs)
 	spec, err := json.Marshal(newSandboxInitSpec(append([]string{exe}, argv[1:]...), envWithHome(env, home), workDir, stdin != nil, bridge))
 	if err != nil {
@@ -1068,7 +1075,8 @@ func randHex(n int) string {
 
 // agentRuntime resolves the agent binary and lists what must be visible for it to run: the directory
 // holding the command as invoked (so argv[0] stays what the CLI expects), the directory or npm package
-// root holding the resolved file, and the same for a "#!" interpreter.
+// root holding the resolved file, the same for a "#!" interpreter, and, for a Python interpreter, the
+// installation or virtual environment it runs from (pythonRuntime).
 func agentRuntime(bin string) (exe string, dirs []string, err error) {
 	exe = bin
 	if !filepath.IsAbs(exe) {
@@ -1084,10 +1092,59 @@ func agentRuntime(bin string) (exe string, dirs []string, err error) {
 		return "", nil, err
 	}
 	dirs = append(dirs, filepath.Dir(exe), runtimeRoot(real))
-	if interp := shebangInterpreter(real); interp != "" {
+	if interp, named := shebangInterpreter(real); interp != "" {
 		dirs = append(dirs, filepath.Dir(interp), runtimeRoot(interp))
+		dirs = append(dirs, pythonRuntime(named, interp)...)
 	}
 	return exe, dirs, nil
+}
+
+// pythonRuntime lists what a Python interpreter needs besides its binary: a "#!" line naming a virtual
+// environment's bin/python (a pip-installed CLI such as hermes, or one installed with pipx or uv) runs
+// with that environment's packages, under <venv>/lib, and its pyvenv.cfg, so the whole environment
+// <venv> is listed; an interpreter of its own installation outside the system directories (a uv- or
+// pyenv-managed Python) needs its standard library, so that installation's prefix is. A directory is
+// listed only when it is recognisably one of the two (it holds pyvenv.cfg, or lib/python3.*), never the
+// mere parent of some bin directory: a "#!" naming ~/bin/python must not show the whole home directory.
+// named is the interpreter as the "#!" line names it, real the file it resolves to. Every link on the way
+// from one to the other is followed too, and its installation listed by the path the link names: uv links
+// a venv's python to <pythons>/cpython-3.12-<platform>/bin/python3.12, where cpython-3.12-<platform> is
+// itself a link to the installed patch release, and inside the sandbox that path has to exist as written.
+func pythonRuntime(named, real string) []string {
+	if !strings.HasPrefix(filepath.Base(real), "python") {
+		return nil
+	}
+	var out []string
+	hops := []string{named}
+	for p, i := named, 0; i < 8; i++ { // a chain longer than 8 links is not an installation we know
+		t, err := os.Readlink(p)
+		if err != nil {
+			break
+		}
+		if !filepath.IsAbs(t) {
+			t = filepath.Join(filepath.Dir(p), t)
+		}
+		hops = append(hops, t)
+		p = t
+	}
+	for _, p := range append(hops, real) {
+		bin := filepath.Dir(p)
+		if filepath.Base(bin) != "bin" {
+			continue
+		}
+		prefix := filepath.Dir(bin)
+		if prefix == "/" || underSystemDir(prefix) {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(prefix, "pyvenv.cfg")); err == nil && fi.Mode().IsRegular() {
+			out = append(out, prefix)
+			continue
+		}
+		if libs, _ := filepath.Glob(filepath.Join(prefix, "lib", "python3*")); len(libs) > 0 {
+			out = append(out, prefix)
+		}
+	}
+	return out
 }
 
 // runtimeRoot is the npm package root for a file inside node_modules (the directory directly below the
@@ -1111,23 +1168,24 @@ func runtimeRoot(file string) string {
 }
 
 // shebangInterpreter returns the resolved interpreter of a "#!" script, following "/usr/bin/env prog",
-// or "" when file is not a script or the interpreter cannot be found.
-func shebangInterpreter(file string) string {
+// and the interpreter as the line names it (found on PATH for env), or "" when file is not a script or
+// the interpreter cannot be found.
+func shebangInterpreter(file string) (real, named string) {
 	f, err := os.Open(file)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer f.Close()
 	line, err := bufio.NewReader(f).ReadString('\n')
 	if err != nil && line == "" {
-		return ""
+		return "", ""
 	}
 	if !strings.HasPrefix(line, "#!") {
-		return ""
+		return "", ""
 	}
 	fields := strings.Fields(strings.TrimPrefix(line, "#!"))
 	if len(fields) == 0 {
-		return ""
+		return "", ""
 	}
 	interp := fields[0]
 	if filepath.Base(interp) == "env" {
@@ -1139,15 +1197,15 @@ func shebangInterpreter(file string) string {
 			}
 		}
 		if interp == "" {
-			return ""
+			return "", ""
 		}
 		if interp, err = exec.LookPath(interp); err != nil {
-			return ""
+			return "", ""
 		}
 	}
-	real, err := filepath.EvalSymlinks(interp)
+	real, err = filepath.EvalSymlinks(interp)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return real
+	return real, interp
 }

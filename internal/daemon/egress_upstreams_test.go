@@ -6,8 +6,10 @@ import (
 	"testing"
 )
 
-// UP-2, UP-1: the upstream follows from the agent and api_base; an api_base on a built-in host is that
-// built-in; a run that cannot be served fails closed with the local reason of UX §1.4 H.
+// UP-2, UP-1, AV-4: the upstream follows from the agent and api_base; an api_base on a built-in host is
+// that built-in; the upstream's route must carry the API the agent speaks (codex: Responses, only to
+// api.openai.com; opencode, hermes, openclaw: chat completions, not to api.anthropic.com); a run that
+// cannot be served fails closed with the local reason of UX §1.4 H.
 func TestEgressUpstreamSelection(t *testing.T) {
 	const key = testOperatorKey
 	for _, tc := range []struct {
@@ -25,14 +27,20 @@ func TestEgressUpstreamSelection(t *testing.T) {
 		{AutoReplyConfig{Agent: agentCodex, APIKey: key}, "openai", "https://api.openai.com", "", false, false},
 		{AutoReplyConfig{Agent: agentCodex}, "", "", "no_api_key", false, false},
 		{AutoReplyConfig{Agent: agentCodex, APIKey: key, APIBase: "https://API.OpenAI.com/v1"}, "openai", "https://api.openai.com", "", false, false},
-		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:11434/v1/", Model: "qwen3"}, "custom", "http://127.0.0.1:11434/v1", "", true, false},
-		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:11434/v1"}, "", "", "no_model", false, false},
+		// codex 0.162 no longer speaks chat completions, the one API the custom route carries.
+		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:11434/v1/", Model: "qwen3"}, "", "", "agent_unsupported", false, false},
+		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:11434/v1"}, "", "", "agent_unsupported", false, false},
+		{AutoReplyConfig{Agent: agentCodex, APIBase: "https://openrouter.ai/api/v1", Model: "x/y", APIKey: key}, "", "", "agent_unsupported", false, false},
+		{AutoReplyConfig{Agent: agentOpenCode, APIBase: "http://127.0.0.1:11434/v1", Model: "qwen3"}, "custom", "http://127.0.0.1:11434/v1", "", true, false},
+		{AutoReplyConfig{Agent: agentHermes, APIKey: key, APIBase: "https://api.openai.com/v1", Model: "gpt-6-luna"}, "openai", "https://api.openai.com", "", false, false},
+		{AutoReplyConfig{Agent: agentOpenClaw}, "", "", "no_api_base", false, false},
 		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key}, "", "", "no_api_base", false, false},
 		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://openrouter.ai/api/v1", Model: "x/y"}, "custom", "https://openrouter.ai/api/v1", "", false, true},
 		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://OpenRouter.ai.:443/api/v1", Model: "x/y"}, "custom", "https://OpenRouter.ai.:443/api/v1", "", false, true},
 		{AutoReplyConfig{Agent: agentCodex, APIKey: key, APIBase: "https://api.openai.com./v1"}, "openai", "https://api.openai.com", "", false, false},
-		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://api.anthropic.com"}, "anthropic", "https://api.anthropic.com", "", false, false},
-		{AutoReplyConfig{Agent: agentHermes, APIBase: "https://api.anthropic.com"}, "", "", "no_api_key", false, false},
+		// The chat agents cannot use the Anthropic route, which carries only the Messages API.
+		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://api.anthropic.com"}, "", "", "agent_unsupported", false, false},
+		{AutoReplyConfig{Agent: agentHermes, APIBase: "https://api.anthropic.com"}, "", "", "agent_unsupported", false, false},
 		{AutoReplyConfig{Agent: agentHermes, APIBase: "http://198.51.100.5:8000/v1", Model: "m"}, "", "", "api_base_insecure", false, false},
 		{AutoReplyConfig{Agent: agentHermes, APIBase: "http://models.example/v1", Model: "m"}, "", "", "api_base_insecure", false, false},
 		{AutoReplyConfig{Agent: agentOpenClaw, APIBase: "http://localhost:8000/v1", Model: "m"}, "custom", "http://localhost:8000/v1", "", true, false},
