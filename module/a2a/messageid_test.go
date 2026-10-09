@@ -202,3 +202,28 @@ func FuzzLiteralMessage(f *testing.F) {
 		}
 	})
 }
+
+// A SendMessage whose parameters do not read is still the binding's to
+// answer, in the binding's own form: carrying out sends before the binding
+// changed nothing for it (a JSON-RPC error with HTTP 200, which a JSON-RPC
+// client reads).
+func TestABadSendMessageIsTheBindingsToAnswer(t *testing.T) {
+	e := newEnv(t)
+	hdr := map[string]string{"Authorization": "Bearer " + testToken, "Content-Type": "application/json", "A2A-Version": "1.0"}
+	resp, body := e.raw(http.MethodPost, agentsPath+"/"+agentA+"/jsonrpc", hdr,
+		`{"jsonrpc":"2.0","id":3,"method":"SendMessage","params":{"message":{"role":"ROLE_USER","messageId":"m1","parts":"not parts"}}}`)
+	var rpc struct {
+		ID    any `json:"id"`
+		Error *struct {
+			Code int `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &rpc); err != nil || resp.StatusCode != http.StatusOK || rpc.Error == nil || rpc.ID != float64(3) {
+		t.Fatalf("%d %s", resp.StatusCode, body)
+	}
+	e.seam.mu.Lock()
+	defer e.seam.mu.Unlock()
+	if len(e.seam.sends) != 0 {
+		t.Fatalf("%d sends reached the kernel", len(e.seam.sends))
+	}
+}

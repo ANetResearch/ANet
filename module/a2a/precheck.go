@@ -105,6 +105,9 @@ func readStreamCall(r *http.Request, aid string, jsonrpc bool) *streamCall {
 		if env.Method != methodSubscribe {
 			c.send = &a2a.SendMessageRequest{}
 			if c.err = json.Unmarshal(params.Params, c.send); c.err != nil {
+				if c.blocking {
+					return nil // a SendMessage the binding refuses as ever, in its own form
+				}
 				c.send = nil
 			} else {
 				c.msg = literalMessage(params.Params)

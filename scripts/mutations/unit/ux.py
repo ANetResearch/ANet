@@ -259,6 +259,7 @@ MUTS += [
   edits=[(UX1_TASKSEAM, '\t\tlockCtx := contextID\n', '\t\tlockCtx := &contextID\n'),
          (UX1_TASKSEAM, 'lockSend(d.AID()+"\\x00"+peer, lockCtx, msg.ID)', 'lockSend(d.AID()+"\\x00"+peer, *lockCtx, msg.ID)')],
   tests=[(DAEMON, '^TestTheUnansweredMarkTakesTheSendLock$')], full=[DAEMON]),
+ dict(id='ux1-a2a-badparams', group='UX-1', repo='ANet', desc='读不出参数的 SendMessage 由预执行以流式调用的形式(HTTP 400)答复,而不是交给 binding',
+  edits=[('module/a2a/precheck.go', '\t\t\t\tif c.blocking {\n\t\t\t\t\treturn nil // a SendMessage the binding refuses as ever, in its own form\n\t\t\t\t}\n', '')],
+  tests=[('ANet:./module/a2a', '^TestABadSendMessageIsTheBindingsToAnswer$')], full=['ANet:./module/a2a']),
 ]
-
-
