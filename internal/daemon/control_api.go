@@ -348,6 +348,9 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	// This node's own A2A network card and its publication status
 	// (a2a_card.go). Bearer only.
 	api.HandleFunc("POST /card", d.hCard)
+	// Changing the retention is the CLI's alone (FS-U3): bearer only, never
+	// in sessionRoutes, MCP's allowedPaths or the local A2A interface.
+	api.HandleFunc("POST /retention", d.hRetention)
 	return d.secureControlPlane(auth, api)
 }
 
@@ -613,7 +616,114 @@ func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
 	// Receive outcomes by reason since start (receive.go): every envelope
 	// dropped or held back, and why.
 	out["receive"] = d.ReceiveStats()
+	// How long task content is kept (FS §2.10): `anet retention` reads it
+	// here while the daemon runs.
+	out["privacy"] = d.privacyRetention()
 	writeJSON(w, http.StatusOK, out)
+}
+
+// privacyRetention is the retention part of /status.privacy (FS §2.10):
+// content_retention in force and what it leaves public tasks.
+func (d *Daemon) privacyRetention() map[string]any {
+	r := d.ContentRetention()
+	return map[string]any{"content_retention": r.String(), "public_retention": r.Public().String()}
+}
+
+// maxRetentionBody bounds a POST /retention body: one short member and a
+// flag.
+const maxRetentionBody = 4 << 10
+
+// errRetentionRequest is a POST /retention body that is not exactly
+// {"value": <text>} with an optional "dry_run": <bool>.
+var errRetentionRequest = errors.New("anet: a retention request is {\"value\": \"<N>d\"|\"forever\", \"dry_run\": true|false}")
+
+// decodeRetentionRequest reads a POST /retention body strictly (FS §2.10):
+// one JSON object with the member "value", a string, and optionally
+// "dry_run", a boolean, each once, named exactly so, and nothing after the
+// object. The value is returned as it was written; whether it is a setting
+// is the caller's to ask.
+func decodeRetentionRequest(b []byte) (value string, dryRun bool, err error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return "", false, errRetentionRequest
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", false, errRetentionRequest
+		}
+		key, _ := tok.(string)
+		if seen[key] {
+			return "", false, errRetentionRequest
+		}
+		seen[key] = true
+		v, err := dec.Token()
+		if err != nil {
+			return "", false, errRetentionRequest
+		}
+		switch key {
+		case "value":
+			s, ok := v.(string)
+			if !ok {
+				return "", false, errRetentionRequest
+			}
+			value = s
+		case "dry_run":
+			f, ok := v.(bool)
+			if !ok {
+				return "", false, errRetentionRequest
+			}
+			dryRun = f
+		default:
+			return "", false, errRetentionRequest
+		}
+	}
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') || !seen["value"] {
+		return "", false, errRetentionRequest
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return "", false, errRetentionRequest
+	}
+	return value, dryRun, nil
+}
+
+// hRetention is POST /retention, behind `anet retention set` (FS §2.10,
+// §5.2): {"value", "dry_run": true} says how many finished tasks the value
+// would delete at once (would_delete), and changes nothing; {"value"} puts
+// it in force, sweeps and records the change (SetContentRetention). A body
+// that is not exactly that, or a value that is not a setting, is
+// retention_invalid. The CLI asks for the terminal confirmation; the route
+// takes the control token alone (core Q-FS-5), so it is on no surface an
+// agent or a browser session reaches.
+func (d *Daemon) hRetention(w http.ResponseWriter, r *http.Request) {
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRetentionBody))
+	if err != nil {
+		writeRefusal(w, http.StatusBadRequest, a2ashape.Refuse("retention_invalid", nil))
+		return
+	}
+	v, dry, err := decodeRetentionRequest(b)
+	ret, ok := interactions.ParseRetention(v)
+	if err != nil || !ok {
+		writeRefusal(w, http.StatusBadRequest, a2ashape.Refuse("retention_invalid", nil))
+		return
+	}
+	if dry {
+		k, err := d.RetentionWouldDelete(ret)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"value": ret.String(), "would_delete": k})
+		return
+	}
+	n, err := d.SetContentRetention(ret)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"value": ret.String(), "deleted": n,
+		"message": a2ashape.Sentence("retention.set", a2ashape.Lang(), a2ashape.Args{"retention": ret.String()})})
 }
 
 // hShutdown gracefully stops the daemon — this backs `anet stop`, so a resident node can be shut down

@@ -123,7 +123,7 @@ var si5Items = []struct {
 		}
 		return nil
 	}},
-	{"content_retention is 30d", "v030-todo(FS-9)", func(f freshSI5) error {
+	{"content_retention is 30d", "", func(f freshSI5) error {
 		if v, _ := dig(f.config, "content_retention"); v != "30d" {
 			return errors.New("content_retention " + toString(v))
 		}
