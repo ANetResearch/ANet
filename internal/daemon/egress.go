@@ -237,8 +237,9 @@ type egressEndpoint struct {
 	peerCheck func(net.Conn) error
 	conns     atomic.Int32
 	// net is how CONNECT resolves and dials (egress_connect.go); tunnels are the run's CONNECT tunnels.
-	net     egressConnectNet
-	tunnels egressTunnels
+	net         egressConnectNet
+	connectWait egressConnectWait
+	tunnels     egressTunnels
 	// bodySlot lets one request body at a time be read and rewritten. Decoding a JSON body takes many
 	// times its size in memory (an 8 MiB body of empty arrays is several hundred MiB), and the run's
 	// egressMaxConns connections must not multiply that in the daemon.
@@ -256,7 +257,8 @@ type egressEndpoint struct {
 func newEgressEndpoint(up *egressUpstream) *egressEndpoint {
 	ctx, cancel := context.WithCancel(context.Background())
 	e := &egressEndpoint{up: up, lang: a2ashape.Lang(), transport: newEgressTransport(up), ctx: ctx, cancel: cancel,
-		bodySlot: make(chan struct{}, 1), net: newEgressConnectNet()}
+		bodySlot: make(chan struct{}, 1), net: newEgressConnectNet(),
+		connectWait: egressConnectWait{resolve: egressConnectResolveTimeout, hello: egressConnectHelloTimeout}}
 	e.srv = &http.Server{
 		Handler:           e,
 		ReadHeaderTimeout: 30 * time.Second,

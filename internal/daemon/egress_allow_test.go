@@ -110,6 +110,28 @@ func TestAutoReplyEgressAllowRoute(t *testing.T) {
 	}
 }
 
+// LEC §2.3.4: api_key is written, never read back. A request that changes only the allowlist keeps the
+// stored key, and no answer of POST /autoreply shows it (`anet autoreply set --egress-allow` prints the
+// answer).
+func TestAutoReplyAnswerHasNoKey(t *testing.T) {
+	d := newTestDaemon(t, "", false)
+	const key = "anet-test-key-written-only"
+	for _, body := range []string{
+		`{"backend":"exec","agent":"cursor","untrusted":"sandbox","api_key":"` + key + `"}`,
+		`{"sandbox":{"egress_allow":["pypi.org"]}}`,
+		`{"sandbox":{"egress_allow":[]}}`,
+	} {
+		rec := httptest.NewRecorder()
+		d.hAutoReply(rec, httptest.NewRequest(http.MethodPost, "/autoreply", strings.NewReader(body)))
+		if rec.Code != 200 || strings.Contains(rec.Body.String(), key) {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body)
+		}
+	}
+	if got := d.config().AutoReply.APIKey; got != key {
+		t.Errorf("the stored key is %q after changing only the allowlist", got)
+	}
+}
+
 // LEC §3.2: a config.json edited to hold an entry CN-1 refuses does not start, with the entry's sentence.
 func TestEgressAllowIsCheckedAtStart(t *testing.T) {
 	for _, tc := range []struct {

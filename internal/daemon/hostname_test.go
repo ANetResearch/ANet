@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math/rand/v2"
 	"net/netip"
 	"strings"
@@ -125,6 +126,14 @@ func TestEgressAllowSet(t *testing.T) {
 	up, err := resolveEgressUpstream(cfg)
 	if err != nil || len(up.ConnectAllow) != 2 || !up.ConnectAllow["pypi.org"] {
 		t.Errorf("upstream allowlist %v %v", up, err)
+	}
+	// At most 64 hosts, whatever the configuration holds.
+	cfg.Sandbox = &AutoReplySandboxConfig{}
+	for i := 0; i < egressAllowMax+6; i++ {
+		cfg.Sandbox.EgressAllow = append(cfg.Sandbox.EgressAllow, fmt.Sprintf("h%d.example", i))
+	}
+	if set := egressAllowSet(cfg); len(set) != egressAllowMax {
+		t.Errorf("%d hosts allowed of %d configured", len(set), len(cfg.Sandbox.EgressAllow))
 	}
 	cfg.Sandbox = nil
 	if up, _ := resolveEgressUpstream(cfg); len(up.ConnectAllow) != 0 {
