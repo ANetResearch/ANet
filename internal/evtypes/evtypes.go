@@ -139,6 +139,8 @@ type Payload struct {
 	Required []string
 	Optional []string
 	Nested   map[string]Payload
+	// Values are the values a member whose values are a closed set may take.
+	Values map[string][]string
 }
 
 // payloads are the fixed payloads, by event type.
@@ -147,6 +149,11 @@ var payloads = map[string]Payload{
 		Required: []string{"agent", "interaction_id", "peer_aid", "trusted", "sandboxed", "duration_ms",
 			"mode", "sandbox", "exit"},
 		Optional: []string{"unavailable", "egress"},
+		Values: map[string][]string{
+			"mode":    {"direct", "sandbox", "openai"},
+			"sandbox": {"bwrap", "seatbelt", ""},
+			"exit":    {"ok", "error", "sandbox_unavailable", "budget", "resource"},
+		},
 		Nested: map[string]Payload{"egress": {
 			Required: []string{"model_requests", "bytes_up", "bytes_down", "policy_refused", "connect"},
 			Nested: map[string]Payload{"connect": {
@@ -164,8 +171,9 @@ func PayloadOf(t string) (Payload, bool) {
 }
 
 // Check reports the first way the members of a record's payload differ
-// from the shape: a member it lacks, or one the shape does not have. Nested
-// members are checked when they are objects; their values are not.
+// from the shape: a member it lacks, one the shape does not have, or a value
+// outside a member's closed set. Nested members are checked when they are
+// objects; other values are not.
 func (p Payload) Check(m map[string]any) string {
 	allowed := map[string]bool{}
 	for _, k := range p.Required {
@@ -181,6 +189,9 @@ func (p Payload) Check(m map[string]any) string {
 		if !allowed[k] {
 			return "has " + k + ", which the payload does not"
 		}
+		if vals, ok := p.Values[k]; ok && !oneOf(v, vals) {
+			return k + " has a value outside its set"
+		}
 		if sub, ok := p.Nested[k]; ok {
 			obj, ok := v.(map[string]any)
 			if !ok {
@@ -192,4 +203,15 @@ func (p Payload) Check(m map[string]any) string {
 		}
 	}
 	return ""
+}
+
+// oneOf reports whether v is one of the strings vals.
+func oneOf(v any, vals []string) bool {
+	str, ok := v.(string)
+	for _, x := range vals {
+		if ok && str == x {
+			return true
+		}
+	}
+	return false
 }

@@ -85,7 +85,7 @@ func TestFixedPayloadSamples(t *testing.T) {
 	}
 }
 
-// Check finds a missing member, an extra one, and one of a nested object.
+// Check finds a missing member, an extra one, one of a nested object, and a value outside its set.
 func TestPayloadCheck(t *testing.T) {
 	shape, _ := PayloadOf(AutoReplyInvoked)
 	ok := map[string]any{"agent": "", "interaction_id": "ix", "peer_aid": "p", "trusted": false, "sandboxed": false,
@@ -98,6 +98,9 @@ func TestPayloadCheck(t *testing.T) {
 		"extra":   func(m map[string]any) { m["prompt"] = "x" },
 		"nested":  func(m map[string]any) { m["egress"] = map[string]any{"model_requests": 1} },
 		"scalar":  func(m map[string]any) { m["egress"] = "x" },
+		"mode":    func(m map[string]any) { m["mode"] = "unconfined" },
+		"exit":    func(m map[string]any) { m["exit"] = "sandbox_unavailble" },
+		"sandbox": func(m map[string]any) { m["sandbox"] = true },
 	} {
 		m := map[string]any{}
 		for k, v := range ok {
