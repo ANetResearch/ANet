@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,6 +119,11 @@ func TestAPeerProcessOfAnotherAccountIsSentNothing(t *testing.T) {
 		var re *backendconn.RefusedError
 		if !errors.As(err, &re) || re.Code != backendconn.CodePeerUIDMismatch {
 			t.Fatalf("a peer process of another account: %v", err)
+		}
+		// The log line says what to do with a peer process: modules.p2p has
+		// no expected_user to set.
+		if msg := err.Error(); !strings.Contains(msg, "run anetpeer as this daemon's user") || strings.Contains(msg, "expected_user") {
+			t.Fatalf("the refusal says %q", msg)
 		}
 	case <-ctx.Done():
 		t.Fatal("the session went on with a peer process of another account")

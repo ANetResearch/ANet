@@ -183,8 +183,33 @@ func (t *Transport) dial(ctx context.Context) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return rules.DialUnix(ctx, nil, t.socket)
+	c, err := rules.DialUnix(ctx, nil, t.socket)
+	var re *backendconn.RefusedError
+	if errors.As(err, &re) && re.Code != "" {
+		return nil, peerRefused{re, uid}
+	}
+	return c, err
 }
+
+// peerRefused is a refusal of the peer process's listener, said for this
+// module: the reason table's sentences end with keys (expected_user,
+// peer_check) a backend has and modules.p2p does not, so the log line says
+// what to do here instead. It unwraps to the backendconn refusal.
+type peerRefused struct {
+	*backendconn.RefusedError
+	uid int
+}
+
+func (e peerRefused) Error() string {
+	if e.Code == backendconn.CodePeerUIDMismatch {
+		return fmt.Sprintf("the peer process listening on %s runs as uid %s, not as this daemon's uid %d, and was sent nothing; "+
+			"run anetpeer as this daemon's user", e.Where, e.Args["n"], e.uid)
+	}
+	return fmt.Sprintf("this platform cannot tell who listens on %s, so the peer process was sent nothing; "+
+		"the p2p module needs Linux, macOS or FreeBSD", e.Where)
+}
+
+func (e peerRefused) Unwrap() error { return e.RefusedError }
 
 func (t *Transport) session(ctx context.Context) error {
 	c, err := t.dial(ctx)

@@ -132,7 +132,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("anetpeer: %v", err)
 	}
-	log.Printf("anetpeer: daemon on %s, peers on %s, rendezvous %s", *sock, *peerSock, *rv)
+	log.Printf("anetpeer: daemon on %s (modules.p2p.socket), peers on %s, rendezvous %s", p.daemonLn.Addr(), *peerSock, *rv)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
@@ -225,7 +225,17 @@ func startWith(sock, peerSock, rendezvous, advertise, teeDir string) (*peer, err
 // module applies before every connection): a path the daemon would refuse
 // is refused here, at start, with the reason, rather than by every connection
 // later. And where the kernel cannot say who connects, nothing is served.
+//
+// A relative sock is taken from the working directory, as a shell would:
+// the daemon dials what modules.p2p.socket names from its own working
+// directory, so it is the absolute path that is listened on, checked and
+// logged, for the daemon's configuration to name.
 func listenDaemon(sock string) (net.Listener, error) {
+	abs, err := filepath.Abs(sock)
+	if err != nil {
+		return nil, err
+	}
+	sock = abs
 	if !peercredSupported() {
 		return nil, fmt.Errorf("this platform cannot tell who connects to %s, so anyone on this machine could take the daemon's place; "+
 			"anetpeer runs on Linux, macOS and FreeBSD", sock)
@@ -301,9 +311,9 @@ const refusedLogEvery = time.Minute
 // is not let through for being root. A refusal is logged, at most once a
 // minute per account.
 func (p *peer) admitDaemon(c net.Conn) error {
-	p.mu.Lock()
+	p.admitMu.Lock()
 	credOf := p.credOf
-	p.mu.Unlock()
+	p.admitMu.Unlock()
 	if credOf == nil {
 		credOf = peercred.Of
 	}
@@ -316,7 +326,7 @@ func (p *peer) admitDaemon(c net.Conn) error {
 	default:
 		return nil
 	}
-	p.mu.Lock()
+	p.admitMu.Lock()
 	if p.refusedLog == nil {
 		p.refusedLog = map[int]time.Time{}
 	}
@@ -326,7 +336,7 @@ func (p *peer) admitDaemon(c net.Conn) error {
 	if !quiet {
 		p.refusedLog[cred.UID] = now
 	}
-	p.mu.Unlock()
+	p.admitMu.Unlock()
 	if !quiet {
 		log.Printf("anetpeer: %v", err)
 	}
@@ -373,6 +383,10 @@ type peer struct {
 	// down holds the peers whose published address could not be dialled
 	// just now (see markDown), keyed by AID.
 	down map[string]downEntry
+	// admitMu guards refusedLog and credOf. It is not mu: admitDaemon runs
+	// on the accept loop, which must not wait while a hand-off holds mu to
+	// write to the daemon.
+	admitMu sync.Mutex
 	// refusedLog is when each uid's refused connection to the daemon
 	// socket was last logged (admitDaemon).
 	refusedLog map[int]time.Time
