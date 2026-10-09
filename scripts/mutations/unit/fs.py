@@ -13,6 +13,9 @@
 # after layer 1, the key a lookup answers, Opened.Layers, the signature over the second layer) and keep
 # bad-pad retired in the registry; fs2-i and fs2-j hold an rk suite above 255 refused rather than
 # truncated, and an interaction key printed without its private half.
+# FS-3 adds 1, 2, 3 and 20 (the hub's half of 20; repo ANetHub) and fs3-a to fs3-x, which hold the hub's tests to
+# the rest of FS-H1 to FS-H8, to FS-T1 at the hub and to the base64url and G1 bodies of the key set routes and
+# the poll envelope (see the group at the end).
 
 IX = 'ANet:./internal/runtime/interactions'
 
@@ -318,4 +321,113 @@ MUTS = [
   tests=[(SEAL, '^TestGenerateIXKey$')],
   full=[SEAL],
  ),
+]
+
+# ---- FS-3: the hub's kid check, more and prev_seq (FS §7.3 rows 1, 2, 3 and 20, and the package's own;
+# repo ANetHub, kept in this list so that a round's --check finds it). fs3-a to fs3-x hold the hub's tests
+# to the rest of FS-H1 to FS-H8, the base64url and G1 bodies of the key set routes and the poll envelope
+# (CORE-E5), and FS-T1 at the hub: fs3-q is the hub half of row 39 (L shortened in ANetCore, judged by the
+# hub's TestRelayTTLBelowHardBound); the daemon half is FS-4's.
+FS3_HUB = 'ANetHub:./internal/aghub'
+FS3_KID_T = [(FS3_HUB, '^(TestRelayRejectsKidNotInSet|TestRandomKidsAreAllRefused|TestPreviewSubjectToKidCheck)$')]
+FS3_ROLLBACK_T = [(FS3_HUB, '^(TestPublishKeysRollback409|TestRegisterRollback409|TestPublishKeysNeedsPrevSeq)$')]
+FS3_POLL_T = [(FS3_HUB, '^TestPollMore$')]
+FS3_FIX_T = [(FS3_HUB, '^TestWire3Fixtures$')]
+MUTS += [
+ dict(id='fs-1', group='FS-H1', repo='ANetHub', desc='hub 不校验 kid 是否在收件方钥集中(红队 A3)',
+  edits=[('internal/aghub/relay.go', '\tif !ok {\n\t\treturn fmt.Errorf("%w: the kid is not in the recipient\'s key set seq %d", ErrKidStale, seq)\n\t}\n',
+          '\tif !ok {\n\t\treturn nil\n\t}\n')],
+  tests=FS3_KID_T, full=[FS3_HUB]),
+ dict(id='fs-2', group='FS-H1', repo='ANetHub', desc='hub 的截止改为 not_after + D + 1h',
+  edits=[('internal/aghub/relay.go', '\treturn at <= notAfter || at-notAfter <= uint64(seal.DeliveryDeadlineMS)\n',
+          '\treturn at <= notAfter || at-notAfter <= uint64(seal.DeliveryDeadlineMS)+3_600_000\n')],
+  tests=[(FS3_HUB, '^TestRelayRejectsAfterDeadline$')], full=[FS3_HUB]),
+ dict(id='fs-3', group='FS-H1', repo='ANetHub', desc='hub 在入库事务与锁之外读钥集与时钟(发布与入库并发时收下已换掉的钥)',
+  edits=[('internal/aghub/relay.go', '\tif err := s.kidAcceptable(tx, it.To, it.KID, nowMS); err != nil {\n\t\treturn Queued{}, err\n\t}\n', ''),
+         ('internal/aghub/relay.go', '\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\tif enqueueLocked != nil {',
+          '\tif err := s.kidAcceptable(s.db, it.To, it.KID, s.now().UnixMilli()); err != nil {\n\t\treturn Queued{}, err\n\t}\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\tif enqueueLocked != nil {')],
+  tests=[(FS3_HUB, '^TestKidCheckInsideEnqueueTx$')], full=[FS3_HUB]),
+ dict(id='fs-20', group='FS-H4', repo='ANetHub', desc='hub 不比较 prev_seq(已存更新的钥集仍被覆盖)',
+  edits=[('internal/aghub/keys.go', '\tif seen.Seq > prevSeq || decision == seal.Ignore', '\tif false && seen.Seq > prevSeq || decision == seal.Ignore')],
+  tests=FS3_ROLLBACK_T, full=[FS3_HUB]),
+ dict(id='fs3-a', group='FS-H1', repo='ANetHub', desc='收件方没有登记钥集时照收',
+  edits=[('internal/aghub/relay.go', '\t\treturn fmt.Errorf("%w: the recipient has registered no key set", ErrKidStale)\n', '\t\treturn nil\n')],
+  tests=FS3_KID_T, full=[FS3_HUB]),
+ dict(id='fs3-b', group='FS-H1', repo='ANetHub', desc='截止的边界差 1 毫秒(not_after + D 当刻已拒)',
+  edits=[('internal/aghub/relay.go', '\treturn at <= notAfter || at-notAfter <= uint64(seal.DeliveryDeadlineMS)\n',
+          '\treturn at <= notAfter || at-notAfter < uint64(seal.DeliveryDeadlineMS)\n')],
+  tests=[(FS3_HUB, '^TestRelayRejectsAfterDeadline$')], full=[FS3_HUB]),
+ dict(id='fs3-c', group='FS-H1', repo='ANetHub', desc='解码钥集的缓存不按 seq 与字节失效(收件方换钥后旧 kid 仍被收下)',
+  edits=[('internal/aghub/relay.go', '\tif e := c.entries[aid]; e != nil && e.seq == seq && bytes.Equal(e.raw, raw) {',
+          '\tif e := c.entries[aid]; e != nil && bytes.Equal(e.raw, e.raw) {')],
+  tests=[(FS3_HUB, '^(TestKidCacheFollowsTheStoredSet|TestRelayRejectsKidNotInSet)$')], full=[FS3_HUB]),
+ dict(id='fs3-d', group='FS-H3', repo='ANetHub', desc='来源 hub 把 home 的 409 kid_stale 改写为 502(红队 A4)',
+  edits=[('internal/aghub/fed_relay.go', '\twire3.ReasonAccessInvalid: true, wire3.ReasonKidStale: true,', '\twire3.ReasonAccessInvalid: true,')],
+  tests=[(FS3_HUB, '^TestFedForwardPassesKidStale$')], full=[FS3_HUB]),
+ dict(id='fs3-e', group='FS-H4', repo='ANetHub', desc='prev_seq 缺失时当作 0(不回 400)',
+  edits=[('internal/aghub/keys.go', '\tif req.Keys == "" || req.PrevSeq == nil {', '\tif req.PrevSeq == nil {\n\t\treq.PrevSeq = new(uint64)\n\t}\n\tif req.Keys == "" {')],
+  tests=FS3_ROLLBACK_T, full=[FS3_HUB]),
+ dict(id='fs3-f', group='FS-H4', repo='ANetHub', desc='/register 带 enc_keys 而缺 prev_seq 时当作 0(PAY-A1 第 3 步)',
+  edits=[('internal/aghub/server.go', '\t\tif req.PrevSeq == nil {\n\t\t\twire3.Write(', '\t\tif req.PrevSeq == nil {\n\t\t\treq.PrevSeq = new(uint64)\n\t\t}\n\t\tif false {\n\t\t\twire3.Write(')],
+  tests=FS3_ROLLBACK_T, full=[FS3_HUB]),
+ dict(id='fs3-g', group='FS-H4', repo='ANetHub', desc='/register 的 prev_seq 比较放到写入之后(被拒的注册已改了资料)',
+  edits=[('internal/aghub/server.go', 's.store.KeysRollbackOf(req.AID, encKeys, *req.PrevSeq); errors.As(err, &rb) {', 'error(nil); errors.As(err, &rb) {')],
+  tests=FS3_ROLLBACK_T, full=[FS3_HUB]),
+ dict(id='fs3-h', group='FS-H4', repo='ANetHub', desc='重发已存的同一钥集时也比较 prev_seq(丢了应答的重发得 409)',
+  edits=[('internal/aghub/keys.go', '\tif seen == nil || decision == seal.Same {', '\tif seen == nil {')],
+  tests=FS3_ROLLBACK_T, full=[FS3_HUB]),
+ dict(id='fs3-i', group='FS-H5', repo='ANetHub', desc='按字节预算截断的页报 more = false',
+  edits=[('internal/aghub/relay.go', '\t\t\tmore = true\n', '\t\t\tmore = len(msgs) == limit\n')],
+  tests=FS3_POLL_T, full=[FS3_HUB]),
+ dict(id='fs3-j', group='FS-H5', repo='ANetHub', desc='poll 返回并计入外层 exp 已过的行(只剩过期行时 more = true)',
+  edits=[('internal/aghub/relay.go', '(exp IS NULL OR exp>?)', '(exp IS NULL OR exp>? OR 1)', 2)],
+  tests=FS3_POLL_T, full=[FS3_HUB]),
+ dict(id='fs3-k', group='FS-H5', repo='ANetHub', desc='一页的条数不封顶(超过一次 ack 能清的 1000 条)',
+  edits=[('internal/aghub/relay.go', '\tif limit > MaxPollLimit {\n\t\tlimit = MaxPollLimit\n\t}\n', '')],
+  tests=FS3_POLL_T, full=[FS3_HUB]),
+ dict(id='fs3-l', group='CORE-E5', repo='ANetHub', desc='poll 的 envelope 用标准 base64',
+  edits=[('internal/aghub/server.go', 'Envelope: wire3.EncodeB64URL(m.Payload)', 'Envelope: base64.StdEncoding.EncodeToString(m.Payload)')],
+  tests=FS3_POLL_T, full=[FS3_HUB]),
+ dict(id='fs3-m', group='FS-H5', repo='ANetHub', desc='poll 的 accepted_at 取应答时刻而不是受理时刻',
+  edits=[('internal/aghub/server.go', 'AcceptedAt: uint64(m.CreatedAt)', 'AcceptedAt: uint64(time.Now().UnixMilli())')],
+  tests=FS3_POLL_T, full=[FS3_HUB]),
+ dict(id='fs3-n', group='CORE-E5', repo='ANetHub', desc='GET /agents/{aid}/keys 用标准 base64 编码 keys',
+  edits=[('internal/aghub/keys.go', '\t"bytes"\n\t"database/sql"\n', '\t"bytes"\n\t"database/sql"\n\t"encoding/base64"\n'),
+         ('internal/aghub/keys.go', 'Keys: wire3.EncodeB64URL(keyset)', 'Keys: base64.StdEncoding.EncodeToString(keyset)')],
+  tests=FS3_FIX_T, full=[FS3_HUB]),
+ dict(id='fs3-o', group='CORE-E5', repo='ANetHub', desc='POST /agents/{aid}/keys 收标准 base64 的钥集(hb64-keys)',
+  edits=[('internal/aghub/keys.go', '\t"bytes"\n\t"database/sql"\n', '\t"bytes"\n\t"database/sql"\n\t"encoding/base64"\n'),
+         ('internal/aghub/keys.go', 'raw, err := wire3.DecodeB64URL("keys", req.Keys)', 'raw, err := base64.StdEncoding.DecodeString(req.Keys)')],
+  tests=FS3_FIX_T, full=[FS3_HUB]),
+ dict(id='fs3-p', group='CORE-E5', repo='ANetHub', desc='/register 收标准 base64 的 enc_keys',
+  edits=[('internal/aghub/server.go', 'if encKeys, err = wire3.DecodeB64URL("enc_keys", req.EncKeys); err != nil {',
+          'if encKeys, err = base64.StdEncoding.DecodeString(req.EncKeys); err != nil {')],
+  tests=FS3_FIX_T, full=[FS3_HUB]),
+ dict(id='fs3-q', group='FS-T1', repo='ANetCore', desc='L 改为 14 天(hub 一侧:信封在 hub 存满 TTL 后钥已到硬界)',
+  edits=[('seal/limits.go', '\tMaxMessageLifetimeMS = 15 * dayMS', '\tMaxMessageLifetimeMS = 14 * dayMS')],
+  tests=[(FS3_HUB, '^TestRelayTTLBelowHardBound$')], full=[FS3_HUB]),
+ dict(id='fs3-r', group='FS-T1', repo='ANetHub', desc='-relay-ttl 可设得比 L − D − 时钟容差更长',
+  edits=[('internal/aghub/limits.go', '\tcase l.UndeliveredTTL > MaxUndeliveredTTL:', '\tcase false && l.UndeliveredTTL > MaxUndeliveredTTL:')],
+  tests=[(FS3_HUB, '^TestRelayTTLBelowHardBound$')], full=[FS3_HUB]),
+ dict(id='fs3-s', group='FS-H6', repo='ANetHub', desc='relay_message 加 kid 列',
+  edits=[('internal/aghub/relay.go', '\t   cap_id BLOB,\n\t   size INTEGER NOT NULL,', '\t   cap_id BLOB,\n\t   kid BLOB,\n\t   size INTEGER NOT NULL,')],
+  tests=[(FS3_HUB, '^TestRelaySchemaHasNoKid$')], full=[FS3_HUB]),
+ dict(id='fs3-t', group='FS-H8', repo='ANetHub', desc='中间件去掉 HTTP Date 头',
+  edits=[('internal/wire3/wire3.go', '\t\tw.Header().Set(Header, versionText)\n\t\tswitch declaredWire(r) {',
+          '\t\tw.Header().Set(Header, versionText)\n\t\tw.Header()["Date"] = nil\n\t\tswitch declaredWire(r) {')],
+  tests=[(FS3_HUB, '^TestHubResponsesCarryDate$')], full=[FS3_HUB]),
+ dict(id='fs3-u', group='G1', repo='ANetHub', desc='GET /agents/{aid}/keys 对未在本 hub 注册的 AID 回 not_found 而不是 unknown_aid',
+  edits=[('internal/aghub/keys.go', '\t\twire3.Write(w, wire3.Refusal{Reason: wire3.ReasonUnknownAID,', '\t\twire3.Write(w, wire3.Refusal{Reason: wire3.ReasonNotFound,')],
+  tests=FS3_FIX_T + [(FS3_HUB, '^TestTheWire2RoutesAreServed$')], full=[FS3_HUB]),
+ dict(id='fs3-v', group='FS-H5', repo='ANetHub', desc='poll 的快照以写事务开始(_txlock=immediate 下占住整库写锁,发送与 ack 都等 poll)',
+  edits=[('internal/aghub/relay.go', 's.db.BeginTx(context.Background(), &sql.TxOptions{ReadOnly: true})', 's.db.BeginTx(context.Background(), nil)')],
+  tests=[(FS3_HUB, '^TestPollDoesNotWaitForWriters$')], full=[FS3_HUB]),
+ dict(id='fs3-w', group='FS-H2', repo='ANetHub', desc='kid 校验移到去重复查之前(已在信箱里的同一信封换钥后重发得 409 而不是 duplicate)',
+  edits=[('internal/aghub/relay.go', '\t// The kid, after the duplicate check and before the capacity (core\n\t// G23).\n\tif err := s.kidAcceptable(tx, it.To, it.KID, nowMS); err != nil {\n\t\treturn Queued{}, err\n\t}\n', ''),
+         ('internal/aghub/relay.go', '\tvar held []byte\n', '\tif err := s.kidAcceptable(tx, it.To, it.KID, nowMS); err != nil {\n\t\treturn Queued{}, err\n\t}\n\tvar held []byte\n')],
+  tests=[(FS3_HUB, '^TestKidCheckOrder$')], full=[FS3_HUB]),
+ dict(id='fs3-x', group='FS-H2', repo='ANetHub', desc='kid 校验移到分级容量之后(无钥可开的信封在满信箱上得 507 而不是 kid_stale)',
+  edits=[('internal/aghub/relay.go', '\t// The kid, after the duplicate check and before the capacity (core\n\t// G23).\n\tif err := s.kidAcceptable(tx, it.To, it.KID, nowMS); err != nil {\n\t\treturn Queued{}, err\n\t}\n', ''),
+         ('internal/aghub/relay.go', '\tvar exp any\n', '\tif err := s.kidAcceptable(tx, it.To, it.KID, nowMS); err != nil {\n\t\treturn Queued{}, err\n\t}\n\tvar exp any\n')],
+  tests=[(FS3_HUB, '^TestKidCheckOrder$')], full=[FS3_HUB]),
 ]
