@@ -134,6 +134,9 @@ func TestAnAnswerOfAnotherWireIsNoAnswer(t *testing.T) {
 	if !errors.Is(err, errHubWire) || !handed {
 		t.Errorf("a send answered 200 under wire 4: handed %v, %v; want errHubWire, handed", handed, err)
 	}
+	// The send stopped the hub (engine ENG-K13); the module's read is
+	// tested on its own, against a hub not stopped yet.
+	req.clearHubWire(newer.URL)
 	resp, err := req.hubSeamDo(ctx, newer.URL, "/x402/supported")
 	if !errors.Is(err, errHubWire) {
 		t.Errorf("a module's read answered 200 under wire 4: %d, %v; want errHubWire", resp, err)
