@@ -1474,7 +1474,7 @@ MUTS += [
  dict(
   id='m-ms-net', group='MS-2', repo='ANet',
   desc='network-outbound 放行回环上的任意端口',
-  edits=[('internal/daemon/seatbelt_profile.go', 'sbplString("localhost:"+strconv.Itoa(spec.Port))', 'sbplString("localhost:*")')],
+  edits=[('internal/daemon/seatbelt_profile.go', 'sbplString("localhost:"+strconv.Itoa(spec.Port))', 'sbplString("localhost:*"+strconv.Itoa(spec.Port)[:0])')],
   tests=[(DAEMON, SBPL)],
   full=[DAEMON],
  ),
