@@ -334,10 +334,17 @@ func TestRegisterRepushesRevocations(t *testing.T) {
 	}
 	// The hub is restored from a backup without them.
 	setFake(t, srv.URL, func(h *fakeHub) { delete(h.revocations, prov.AID()) })
+	// The registration kicks the push loop, which keepRevokeLoopOut does
+	// not stop: hold the one-push-at-a-time lock until the queue has been
+	// looked at, or the loop may send them all before the look and leave 0.
+	prov.caps.push.run.Lock()
 	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
+		prov.caps.push.run.Unlock()
 		t.Fatal(err)
 	}
-	if left, _ := prov.ix.UnpushedRevocations(10); len(left) != 3 {
+	left, _ := prov.ix.UnpushedRevocations(10)
+	prov.caps.push.run.Unlock()
+	if len(left) != 3 {
 		t.Fatalf("%d queued again, want 3", len(left))
 	}
 	prov.revokeTick(ctx, time.Now())
