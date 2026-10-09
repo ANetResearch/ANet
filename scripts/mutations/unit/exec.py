@@ -532,7 +532,7 @@ MUTS += [
  dict(
   id='m-sb-8c', group='BU-8', repo='ANet',
   desc='磁盘看门狗只按文件大小计(fallocate --keep-size 占的块不计)',
-  edits=[('internal/daemon/autoreply_exec.go', 'total += max(fi.Size(), allocatedBytes(fi))', 'total += fi.Size()')],
+  edits=[('internal/daemon/autoreply_exec.go', 'total += max(fi.Size(), allocatedBytes(fi), sandboxDiskEntryMin)', 'total += max(fi.Size(), sandboxDiskEntryMin)')],
   tests=[(DAEMON, 'TestDirsSizeCountsAllocatedBlocks')],
   full=[DAEMON],
  ),
