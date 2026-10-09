@@ -1488,7 +1488,7 @@ MUTS += [
  dict(
   id='m-ms-4', group='MS-4', repo='ANet',
   desc='探针相信"连得上出站端点"的自报,不看宿主侧有没有收到连接',
-  edits=[('internal/daemon/sandbox_seatbelt.go', ' || !rep.EgressReached || egressReached.Load() == 0:', ' || !rep.EgressReached:')],
+  edits=[('internal/daemon/sandbox_seatbelt.go', ' || !rep.EgressReached || egressReached == 0:', ' || !rep.EgressReached:')],
   tests=[(DAEMON, 'TestSeatbeltProbeClassifiesEachItem')],
   full=[DAEMON],
  ),
@@ -1497,6 +1497,34 @@ MUTS += [
   desc='探针不核对第 1 项(读得到真实家目录与运行之外的文件也算通过)',
   edits=[('internal/daemon/sandbox_seatbelt.go', '\tcase !rep.HomeUnreadable || !rep.SecurityRefused || !rep.WorkWritable:', '\tcase !rep.SecurityRefused || !rep.WorkWritable:')],
   tests=[(DAEMON, 'TestSeatbeltProbeClassifiesEachItem')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-4c', group='MS-4', repo='ANet',
+  desc='探针相信"连不上另一端口"的自报,不看宿主侧有没有收到连接',
+  edits=[('internal/daemon/sandbox_seatbelt.go', '!rep.HostTCPRefused || otherReached > 0 ||', '!rep.HostTCPRefused ||')],
+  tests=[(DAEMON, 'TestSeatbeltProbeClassifiesEachItem')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-4d', group='MS-4', repo='ANet',
+  desc='探针第 1 项不试列真实家目录(只试运行之外的文件)',
+  edits=[('internal/daemon/sandbox_seatbelt.go', '\tif _, err := os.ReadDir(spec.Home); err == nil {', '\tif _, err := os.ReadDir(spec.Home); err == nil && false {')],
+  tests=[(DAEMON, 'TestSeatbeltProbeRefusesAnUnconfinedSandbox')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-never-launch', group='SB-3', repo='ANet',
+  desc='macOS 的启动不把不绑定名单交给 profile(运行时目录或工作目录可以在其中)',
+  edits=[('internal/daemon/sandbox_seatbelt.go', 'Port: port, NeverAllow: p.NeverBind,', 'Port: port,')],
+  tests=[(DAEMON, 'TestSeatbeltLaunchRefusesWhatMustNeverBeOpened')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg3-scheme', group='EG-3', repo='ANet',
+  desc='Proxy-Authorization 不核对 Basic 方案(别的方案带同样的凭据也放行)',
+  edits=[('internal/daemon/egress.go', 'if !ok || !strings.EqualFold(scheme, "Basic") {', 'if !ok || scheme == "" {')],
+  tests=[(DAEMON, 'TestEgressKeyedConnectNeedsTheRunKey')],
   full=[DAEMON],
  ),
  dict(

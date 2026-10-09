@@ -40,7 +40,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -151,8 +150,8 @@ func runSeatbeltProbe(path string) seatbeltProbe {
 
 	// What must stay out of reach: another port of the host's loopback. What must be reachable: the
 	// stand-in for the run's egress endpoint, the one port the profile opens. Connections are counted on
-	// this side too, so a probe that misreports is caught.
-	var otherReached, egressReached atomic.Int32
+	// this side too, so a probe that misreports is caught: nothing accepts while the probe runs (a connect
+	// completes once the kernel has queued it), and what is queued is counted after it exits.
 	other, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fail(seatbeltCodeNetnsFailed, "host listener: %v", err)
@@ -163,21 +162,6 @@ func runSeatbeltProbe(path string) seatbeltProbe {
 		return fail(seatbeltCodeNetnsFailed, "host listener: %v", err)
 	}
 	defer egress.Close()
-	for _, l := range []struct {
-		ln net.Listener
-		n  *atomic.Int32
-	}{{other, &otherReached}, {egress, &egressReached}} {
-		go func(ln net.Listener, n *atomic.Int32) {
-			for {
-				c, err := ln.Accept()
-				if err != nil {
-					return
-				}
-				n.Add(1)
-				_ = c.Close()
-			}
-		}(l.ln, l.n)
-	}
 
 	profile, err := buildSeatbeltProfile(seatbeltSpec{Init: initExe, RunDir: runDir, WorkDir: workDir,
 		Port: egress.Addr().(*net.TCPAddr).Port})
@@ -218,19 +202,37 @@ func runSeatbeltProbe(path string) seatbeltProbe {
 		return fail(seatbeltCodeFSIsolationFailed, "%s", firstLine(strings.TrimSpace(stderr.String()), runErr))
 	}
 	res.Report = rep
-	// The probe has exited; its connection may still be on its way through the accept loop.
-	for wait := time.Now().Add(time.Second); rep.EgressReached && egressReached.Load() == 0 && time.Now().Before(wait); {
-		time.Sleep(10 * time.Millisecond)
-	}
+	otherReached, egressReached := seatbeltQueued(other), seatbeltQueued(egress)
 	switch {
-	case !rep.HostTCPRefused || otherReached.Load() > 0 || !rep.EgressReached || egressReached.Load() == 0:
+	case !rep.HostTCPRefused || otherReached > 0 || !rep.EgressReached || egressReached == 0:
 		return fail(seatbeltCodeNetnsFailed, "network isolation self-check failed: %s",
-			seatbeltSummary(rep, otherReached.Load(), egressReached.Load()))
+			seatbeltSummary(rep, otherReached, egressReached))
 	case !rep.HomeUnreadable || !rep.SecurityRefused || !rep.WorkWritable:
 		return fail(seatbeltCodeFSIsolationFailed, "file and process isolation self-check failed: %s",
-			seatbeltSummary(rep, otherReached.Load(), egressReached.Load()))
+			seatbeltSummary(rep, otherReached, egressReached))
 	}
 	return res
+}
+
+// seatbeltQueued takes and counts the connections waiting on one of the probe's host listeners once the
+// probe has exited: every connection it made is in the listener's queue by then, so a short deadline
+// takes them all, and a probe that says it could not connect where it did, or could where it did not, is
+// caught whatever the scheduling.
+func seatbeltQueued(ln net.Listener) int32 {
+	tl, ok := ln.(*net.TCPListener)
+	if !ok {
+		return 0
+	}
+	_ = tl.SetDeadline(time.Now().Add(100 * time.Millisecond))
+	var n int32
+	for {
+		c, err := tl.Accept()
+		if err != nil {
+			return n
+		}
+		n++
+		_ = c.Close()
+	}
 }
 
 // seatbeltArgs are sandbox-exec's arguments: the profile, then anet's own init (or the probe) and

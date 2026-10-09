@@ -168,6 +168,7 @@ func TestEgressKeyedConnectNeedsTheRunKey(t *testing.T) {
 		"wrong user":     {"Proxy-Authorization": basicAuth("root", testRunKey)},
 		"key as user":    {"Proxy-Authorization": basicAuth(testRunKey, "anet")},
 		"bearer":         {"Proxy-Authorization": "Bearer " + testRunKey},
+		"not Basic":      {"Proxy-Authorization": strings.Replace(basicAuth("anet", testRunKey), "Basic", "Digest", 1)},
 		"bad base64":     {"Proxy-Authorization": "Basic !!" + testRunKey},
 		"no password":    {"Proxy-Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte("anet"))},
 	} {

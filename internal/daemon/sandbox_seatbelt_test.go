@@ -32,7 +32,8 @@ import (
 
 // seatbeltTestProbeArg is what the stand-in turns `__sandbox-probe` into: the macOS checks, whatever the
 // platform the test runs on. seatbeltTestReportArg prints a prepared report instead, after reaching the
-// probe's endpoint (unless the report's detail says "no_connect").
+// probe's endpoint (unless the report's detail says "no_connect") and, when the detail says
+// "connect_other", the port that must stay out of reach.
 const (
 	seatbeltTestProbeArg  = "__seatbelt-probe-test"
 	seatbeltTestReportArg = "__seatbelt-report-test"
@@ -70,6 +71,11 @@ func init() {
 		}
 		if rep.Detail["no_connect"] == "" {
 			if c, err := net.DialTimeout("tcp", spec.Egress, 5*time.Second); err == nil {
+				_ = c.Close()
+			}
+		}
+		if rep.Detail["connect_other"] != "" {
+			if c, err := net.DialTimeout("tcp", spec.TCP, 5*time.Second); err == nil {
 				_ = c.Close()
 			}
 		}
@@ -154,6 +160,41 @@ func TestSeatbeltProbeRefusesAnUnconfinedSandbox(t *testing.T) {
 	if !strings.Contains(pr.Err.Error(), "2 host_tcp") || !strings.Contains(pr.Err.Error(), "1 home") {
 		t.Errorf("the detail does not name the failed items: %v", pr.Err)
 	}
+	// Item 1 holds two checks, and each saw what an unconfined process can do.
+	if d := r.Detail["home"]; !strings.Contains(d, "listed the real home") || !strings.Contains(d, "read a file outside the run") {
+		t.Errorf("item 1 saw %q", d)
+	}
+	// Good is good: the five items holding, and the host seeing the one connection, pass.
+	p := standInSandboxExec(t, "report")
+	b, _ := json.Marshal(sandboxCheckReport{HomeUnreadable: true, HostTCPRefused: true, EgressReached: true,
+		SecurityRefused: true, WorkWritable: true, Detail: map[string]string{}})
+	if err := os.WriteFile(filepath.Join(filepath.Dir(p), "report.json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if pr := runSeatbeltProbe(p); pr.Err != nil {
+		t.Errorf("a sandbox whose five items hold: %v", pr.Err)
+	}
+}
+
+// MS-4: the macOS probe's spec names everything the five items need; one without any of them is not a
+// spec the probe runs.
+func TestSeatbeltSpecUsable(t *testing.T) {
+	full := sandboxCheckSpec{V: sandboxSpecVersion, TCP: "127.0.0.1:1", Egress: "127.0.0.1:2", Home: "/Users/u",
+		Outside: "/private/tmp/p/outside/probe", Work: "/private/tmp/p/work"}
+	if !seatbeltSpecUsable(full) {
+		t.Fatal("a full spec is not usable")
+	}
+	for name, drop := range map[string]func(*sandboxCheckSpec){
+		"tcp": func(s *sandboxCheckSpec) { s.TCP = "" }, "egress": func(s *sandboxCheckSpec) { s.Egress = "" },
+		"home": func(s *sandboxCheckSpec) { s.Home = "" }, "outside": func(s *sandboxCheckSpec) { s.Outside = "" },
+		"work": func(s *sandboxCheckSpec) { s.Work = "" },
+	} {
+		s := full
+		drop(&s)
+		if seatbeltSpecUsable(s) {
+			t.Errorf("a spec without %s is usable", name)
+		}
+	}
 }
 
 // MS-4: the probe's verdict from what the checks report and what the host saw: items 2 and 3 are the
@@ -174,6 +215,8 @@ func TestSeatbeltProbeClassifiesEachItem(t *testing.T) {
 		"5 work":     {func(r *sandboxCheckReport) { r.WorkWritable = false }, seatbeltCodeFSIsolationFailed},
 		// The report claims item 3 without connecting anywhere: it is not believed.
 		"3 claimed": {func(r *sandboxCheckReport) { r.Detail = map[string]string{"no_connect": "1"} }, seatbeltCodeNetnsFailed},
+		// The report claims item 2 while it reached the other port: the host saw it.
+		"2 host_tcp claimed": {func(r *sandboxCheckReport) { r.Detail = map[string]string{"connect_other": "1"} }, seatbeltCodeNetnsFailed},
 	} {
 		p := standInSandboxExec(t, "report")
 		r := good
@@ -427,6 +470,41 @@ func TestSeatbeltLaunchKeepsTheKeyInTheEnvironment(t *testing.T) {
 	}
 	if s := plan.egressSummary(); s == nil || s.ModelRequests != 1 || s.PolicyRefused["egress_unauthorized"] != 1 {
 		t.Errorf("the run's egress counts %+v", s)
+	}
+}
+
+// SB-3, MS-2: the never-bind list holds for a macOS run as for a Linux one. An agent whose runtime lies in
+// one of its directories, or a work dir inside one, is refused as sandbox_unavailable before anything
+// starts, and the run leaves no directory behind.
+func TestSeatbeltLaunchRefusesWhatMustNeverBeOpened(t *testing.T) {
+	f := newFakeModelService(t)
+	up := testUpstream(t, egressUpstreamAnthropic, f)
+	never := t.TempDir()
+	agent := filepath.Join(never, "agent")
+	if err := os.WriteFile(agent, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(never, "work"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct{ bin, work string }{
+		"runtime":  {agent, t.TempDir()},
+		"work dir": {selfExe(t), filepath.Join(never, "work")},
+	} {
+		plan := &sandboxPlan{SandboxExec: "/usr/bin/sandbox-exec", AID: "EaidSeatbeltNever01", Egress: up,
+			NeverBind: resolvedAll([]string{never})}
+		l, err := seatbeltCommand(plan, tc.work, []string{tc.bin}, []string{"PATH=/usr/bin:/bin"}, nil)
+		if err == nil {
+			l.Close()
+			t.Errorf("%s in a never-bind directory: launched", name)
+			continue
+		}
+		if !errors.Is(err, errSandboxUnavailable) || !strings.Contains(err.Error(), "overlaps") {
+			t.Errorf("%s in a never-bind directory: %v", name, err)
+		}
+		if runs := plan.liveRunDirs(); len(runs) != 0 {
+			t.Errorf("%s: run directories left %v", name, runs)
+		}
 	}
 }
 
