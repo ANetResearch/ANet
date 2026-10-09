@@ -54,6 +54,7 @@ package daemon
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdh"
 	"errors"
 	"fmt"
@@ -1048,28 +1049,39 @@ func (d *Daemon) publishIfNeeded() {
 	if hub == "" || d.keysHeld() || d.publishedKeySeq.Load() == d.enc.Seq() {
 		return
 	}
-	if err := d.publishKeys(d.ctx, hub); err != nil {
+	ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+	defer cancel()
+	if err := d.publishKeys(ctx, hub); err != nil {
 		log.Printf("anet: publish encryption keys to %s: %v", hub, err)
 	}
 }
 
 // keyMaintenance is the maintenance period S (FS-K4): the clock gate and
-// unverified_run, the key ring (deletions, new keys, signature) and its
-// publication, the interaction keys' close_after sweep (FS-X9) and the
-// retention sweep (FS-L6), all under the period's one gate level. It runs
-// with the mailbox poll's lock, after a poll round, so it is serial with the
-// receive path of the hub mailbox.
+// unverified_run, the key ring (deletions, new keys, signature), the
+// interaction keys' close_after sweep (FS-X9) and the retention sweep
+// (FS-L6), all under the period's one gate level, and then the ring's
+// publication. The deletions run with the mailbox poll's lock, after a poll
+// round, so they are serial with the receive path of the hub mailbox; the
+// publication, a hub call, runs after the lock is released, so a hub slow
+// to answer it does not hold up the next poll.
 func (d *Daemon) keyMaintenance() {
+	if err := d.keyPeriod(); err != nil {
+		if !errors.Is(err, errMboxPending) {
+			log.Printf("anet: key ring maintenance: %v (new keys not used or published)", err)
+		}
+		return
+	}
+	d.publishIfNeeded()
+}
+
+// keyPeriod is the part of a period that runs with the poll lock: the
+// ring's maintenance and the hard-bound sweeps at its level.
+func (d *Daemon) keyPeriod() error {
 	d.pollMu.Lock()
 	defer d.pollMu.Unlock()
 	level, err := d.maintainRing()
-	if err != nil && !errors.Is(err, errMboxPending) {
-		log.Printf("anet: key ring maintenance: %v (new keys not used or published)", err)
-	}
-	if err == nil {
-		d.publishIfNeeded()
-	}
 	d.sweepHardBound(level)
+	return err
 }
 
 // sweepHardBound runs the deletions with a hard bound other than the epoch
