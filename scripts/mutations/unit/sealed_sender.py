@@ -1266,7 +1266,7 @@ MUTS += [
   edits=[('internal/daemon/relay_send.go', '\tif !identity.ValidAID(home) {\n', '\tif false && !identity.ValidAID(home) {\n')],
   tests=S9_EDGE_T, full=S9_FULL),
  dict(id='ss9-held-home-dropped', group='SS-9', repo='ANet', desc='已在能力之下的信封不带所持行的 home',
-  edits=[('internal/daemon/relay_send.go', 'Cap: &held[i], Home: held[i].Home}, nil', 'Cap: &held[i]}, nil')],
+  edits=[('internal/daemon/caps.go', 'Cap: h, Home: h.Home}', 'Cap: h}')],
   tests=S9_EDGE_T, full=S9_FULL),
  dict(id='ss9-session-no-exp', group='SS-9', repo='ANet', desc='会话应答缺 exp(为 0)也收下',
   edits=[('internal/hubapi/relay3.go', '\tif r.Exp == 0 {\n', '\tif false && r.Exp == 0 {\n')],
@@ -1355,7 +1355,7 @@ MUTS += [
   tests=[('ANet:./internal/daemon', '^TestActiveContactRevalidatedOncePer24h$')], full=S10_FULL),
  # ---- M35: a 404 recipient_unknown
  dict(id='ss10-m35-no-refresh', group='SS-M35', repo='ANet', desc='404 recipient_unknown 后不刷新就放弃',
-  edits=[('internal/daemon/retry.go', '\tif err != nil && d.unknownRecipientResend(ctx, it, err) {', '\tif false && err != nil && d.unknownRecipientResend(ctx, it, err) {')],
+  edits=[('internal/daemon/outbox_attempt.go', '\t\t\tif !resentForHome && d.refreshOnUnknown(ctx, row.ID, row.ToAID, capHome) {', '\t\t\tif false && !resentForHome && d.refreshOnUnknown(ctx, row.ID, row.ToAID, capHome) {')],
   tests=[('ANet:./internal/daemon', '^TestUnknownRecipientRefreshesOnce$')], full=S10_FULL),
  dict(id='ss10-m35-again', group='SS-M35', repo='ANet', desc='404 后反复刷新(一小时内已刷新过也再刷新)',
   edits=[('internal/daemon/peer_resolve.go', '\tif t, ok := r.refreshed[to]; ok && now >= t && now-t < unknownRefreshMS {\n\t\treturn false\n\t}\n', '')],
@@ -1365,7 +1365,7 @@ MUTS += [
   edits=[('internal/daemon/peer_resolve.go', '\t\tif ans.partial {\n\t\t\tm.Err = errors.New("the hub\'s answer was partial', '\t\tif false {\n\t\t\tm.Err = errors.New("the hub\'s answer was partial')],
   tests=S10_RESOLVE_T, full=S10_FULL),
  dict(id='ss10-unavailable-final', group='SS-M36', repo='ANet', desc='目录暂不可用(unavailable)时严格发送同步失败而不入队',
-  edits=[('internal/daemon/retry.go', '\tcase verdictUnavailable:\n\t\treturn true\n', '\tcase verdictUnavailable:\n\t\treturn false\n')],
+  edits=[('internal/daemon/outbox_queue.go', '\tcase verdictUnavailable:\n\t\treturn lastErrorOf(reasonHomeUnreachable), nil\n', '\tcase verdictUnavailable:\n\t\treturn "", a2ashape.Refuse(reasonHomeUnreachable, nil)\n')],
   tests=S10_RESOLVE_T, full=S10_FULL),
  # ---- M38: the width a hub reports, taken as it is
  dict(id='ss10-m38-uncapped', group='SS-M38', repo='ANet', desc='DirQueryBits 不按 DirQueryMaxBits 封顶(直接用 hub 报的 dir_max_bits)',
@@ -1409,8 +1409,8 @@ MUTS += [
   edits=[('internal/daemon/relay_send.go', '\treturn homeHint(witness, capHome, d.peerDirHome(to))', '\treturn homeHint(witness, capHome, "")')],
   tests=S10_RESOLVE_T + [('ANet:./internal/daemon', '^TestUnknownRecipientRefreshesOnce$')], full=S10_FULL),
  dict(id='ss10-unknown-temporary', group='SS-10', repo='ANet', desc='目录没有收件方(not_found)不再是 recipient_unknown,一直重试',
-  edits=[('internal/daemon/retry.go', '\tif resolveVerdictOf(err) == verdictNotFound {\n\t\treturn undeliveredUnknown, true\n\t}\n', '')],
-  tests=[('ANet:./internal/daemon', '^(TestPermanentRefusalsAreOnlyAnswersAboutTheMessage|TestResolvePeerSourcesAndVerdicts)$')], full=S10_FULL),
+  edits=[('internal/daemon/outbox_queue.go', '\tcase verdictNotFound:\n\t\treturn "", a2ashape.Refuse(reasonRecipientUnknown, nil)\n', '\tcase verdictNotFound:\n\t\treturn lastErrorOf(reasonHomeUnreachable), nil\n')],
+  tests=[('ANet:./internal/daemon', '^(TestStrictSendRefusesWhatCannotBeVerified|TestResolvePeerSourcesAndVerdicts)$')], full=S10_FULL),
  # ---- SSR-D16: what a listing sends
  dict(id='ss10-registry-skill', group='SS-10', repo='ANet', desc='读注册表时把技能过滤发给 hub',
   edits=[('internal/daemon/taskseam_agents.go', '\t\terr := d.hubGet(hctx, hub, hubapi.RegistryAgentsPath, registryPage(cursor, size), &page)',

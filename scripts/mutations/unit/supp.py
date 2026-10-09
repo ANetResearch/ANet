@@ -256,7 +256,7 @@ MUTS = [
   id='c33-2', group='C33', repo='ANet',
   desc='resendResult: 队列里已有结果时仍再封装一份(重发两次)',
   edits=[
-   ('internal/daemon/delegation.go', '\t\t\tfor _, r := range queue {\n\t\t\t\td.hurryQueued(r, keys)\n\t\t\t}\n\t\t\treturn\n', '\t\t\tfor _, r := range queue {\n\t\t\t\td.hurryQueued(r, keys)\n\t\t\t}\n'),
+   ('internal/daemon/delegation.go', '\t\t\t\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n\t\t\t\treturn\n', '\t\t\t\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAQueuedAnswerIsNotQueuedAgainForARedelivery|TestARedeliveredDelegateResendsTheAnswer')],
   full=['ANet:./internal/daemon'],
@@ -265,8 +265,8 @@ MUTS = [
   id='c33-3', group='C33', repo='ANet',
   desc='重投时结果已在队列: 既催队列又另排一份(且 outbox 不去重)',
   edits=[
-   ('internal/daemon/delegation.go', '\t\t\tfor _, r := range queue {\n\t\t\t\td.hurryQueued(r, keys)\n\t\t\t}\n\t\t\treturn\n', '\t\t\tfor _, r := range queue {\n\t\t\t\td.hurryQueued(r, keys)\n\t\t\t}\n'),
-   ('internal/runtime/interactions/outbox.go', '\tif len(it.Digest) > 0 {\n\t\tvar prior int64', '\tif false && len(it.Digest) > 0 {\n\t\tvar prior int64'),
+   ('internal/daemon/delegation.go', '\t\t\t\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n\t\t\t\treturn\n', '\t\t\t\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n'),
+   ('internal/runtime/interactions/outbox.go', '\tcase err == nil:\n\t\treturn prior, false, nil\n', '\tcase err == nil && false:\n\t\treturn prior, false, nil\n'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAQueuedAnswerIsNotQueuedAgainForARedelivery|TestARedeliveredDelegateResendsTheAnswer')],
   full=[],

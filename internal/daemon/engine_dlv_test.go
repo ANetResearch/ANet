@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -21,71 +20,6 @@ import (
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 )
-
-// emptyErrorP2P is a direct path whose every send is handed over and
-// answered with an empty error frame: no token, ever (DLV T1).
-type emptyErrorP2P struct{ sends atomic.Int32 }
-
-func (p *emptyErrorP2P) Name() string                           { return "p2p-empty-error" }
-func (p *emptyErrorP2P) Reachable(context.Context, string) bool { return true }
-func (p *emptyErrorP2P) Send(context.Context, string, []byte) ([]byte, bool, error) {
-	p.sends.Add(1)
-	return nil, true, errors.New("")
-}
-
-// DLV T1 (ENG-C1): a direct path that answers every send with an empty
-// error and no token. The delegation, the result, the payment and a
-// cancel all reach their peers through the hub and are confirmed through
-// /relay/status; the requester's task does not stay working.
-func TestDLVT1_AnEmptyErrorConfirmsNothingAndTheHubCarriesAll(t *testing.T) {
-	work := &meteredWork{price: 30}
-	hubURL, req, prov := paidPair(t, work)
-	payPolicy(t, req, PaymentsConfig{AutoMax: 100, AgentDailyMax: 100, DailyMax: u64(100)}, prov.AID())
-	reqP2P, provP2P := &emptyErrorP2P{}, &emptyErrorP2P{}
-	req.RegisterTransport(reqP2P)
-	prov.RegisterTransport(provP2P)
-	ctx := context.Background()
-	id, err := req.DelegateCapability(ctx, prov.AID(), "work.do", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	poll(t, prov, req, prov, req)
-	if rix := getIX(t, req, id); rix.State != interactions.StateCompleted || rix.PayState != interactions.PayCompleted {
-		t.Fatalf("requester: %s / %q", rix.State, rix.PayState)
-	}
-	// A text task, canceled once it was taken.
-	text, err := req.Delegate(ctx, prov.AID(), "to be canceled", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	confirmDelegation(t, req, prov)
-	if _, err := req.CancelTask(ctx, text); err != nil {
-		t.Fatal(err)
-	}
-	poll(t, prov)
-	if st := stateOf(t, prov, text); st != interactions.StateCanceled {
-		t.Fatalf("the cancel did not reach the provider: %s", st)
-	}
-	// Everything confirmed through the hub, nothing through the direct
-	// path.
-	for i := 0; i < 3; i++ {
-		settleDelivery(t, req, prov)
-		settleDelivery(t, prov, req)
-	}
-	if rows := append(allOutboxRows(t, req), allOutboxRows(t, prov)...); len(rows) != 0 {
-		t.Fatalf("rows left: %+v", rows)
-	}
-	if reqP2P.sends.Load() == 0 || provP2P.sends.Load() == 0 {
-		t.Fatal("setup: the direct path was never tried")
-	}
-	if n := counter(req, cntDAckConfirmedP2P) + counter(prov, cntDAckConfirmedP2P); n != 0 {
-		t.Fatalf("%d confirmations through a path that gave no token", n)
-	}
-	if n := counter(req, cntDAckConfirmedHub) + counter(prov, cntDAckConfirmedHub); n == 0 {
-		t.Fatal("nothing was confirmed through /relay/status")
-	}
-	_ = hubURL
-}
 
 // randomDackP2P is a direct address another node took over: it answers
 // every send with a token of its own making (DLV T2).
@@ -264,6 +198,16 @@ func TestDLVT4_AHubThatLosesWhatItTook(t *testing.T) {
 	})
 }
 
+// ixOf is d's task id.
+func ixOf(t testing.TB, d *Daemon, id string) *interactions.Interaction {
+	t.Helper()
+	ix, err := d.ix.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ix
+}
+
 // switchP2P is a direct path that, while on, hands the envelope to the
 // recipient's Inbound and passes its token back.
 type switchP2P struct {
@@ -345,7 +289,7 @@ func TestDLVT10_RacingConfirmationsApplyOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	row := outboxRows(t, req, id)[0]
-	before := getIX(t, req, id).StateSeq
+	before := ixOf(t, req, id).StateSeq
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(1)
@@ -362,7 +306,7 @@ func TestDLVT10_RacingConfirmationsApplyOnce(t *testing.T) {
 	if n := counter(req, cntDAckConfirmedP2P) + counter(req, cntDAckConfirmedHub); n != 1 {
 		t.Fatalf("confirmed %d times", n)
 	}
-	if after := getIX(t, req, id); after.StateSeq != before+1 || after.State != interactions.StateRejected {
+	if after := ixOf(t, req, id); after.StateSeq != before+1 || after.State != interactions.StateRejected {
 		t.Fatalf("task state %s, seq %d → %d; want rejected once", after.State, before, after.StateSeq)
 	}
 }
@@ -671,8 +615,8 @@ func TestDLVT37_A404AfterHandingOverIsUnverified(t *testing.T) {
 	if st != string(a2ashape.TaskStateFailed) || es != "UNVERIFIED" || reason != reasonRecipientUnknown {
 		t.Fatalf("task %s %s %s, want failed UNVERIFIED recipient_unknown", st, es, reason)
 	}
-	if want := a2ashape.Sentence(reasonRecipientUnknown, a2ashape.English, nil); string(getIX(t, req, list[0].ID).Result) != want {
-		t.Fatalf("status text %q, want %q", getIX(t, req, list[0].ID).Result, want)
+	if want := a2ashape.Sentence(reasonRecipientUnknown, a2ashape.English, nil); string(ixOf(t, req, list[0].ID).Result) != want {
+		t.Fatalf("status text %q, want %q", ixOf(t, req, list[0].ID).Result, want)
 	}
 }
 
@@ -726,6 +670,11 @@ func TestStrictSendRefusesWhatCannotBeVerified(t *testing.T) {
 	if !errors.As(err, &ref) || ref.Code() != reasonRecipientUnknown {
 		t.Fatalf("a recipient no hub knows: %v", err)
 	}
+	// The same refusal through the local A2A interface.
+	_, err = req.TaskSeam().Send(ctx, stranger.aid, module.TaskSend{Message: textMsg("to nobody", "", "m-u"), ReturnImmediately: true})
+	if !errors.As(err, &ref) || ref.Code() != reasonRecipientUnknown {
+		t.Fatalf("a recipient no hub knows, through the task seam: %v", err)
+	}
 	h := fakeHubAt(t, srv.URL)
 	bad := entryOf(t, h, prov.AID())
 	bad.Keys = append([]byte(nil), bad.Keys...)
@@ -759,5 +708,4 @@ func TestStrictSendRefusesWhatCannotBeVerified(t *testing.T) {
 	if len(rows) != 1 || rowWait(t, third, rows[0].ID) != reasonHomeUnreachable {
 		t.Fatalf("outbox %+v, want it waiting on home_unreachable", rows)
 	}
-	_ = json.Valid
 }

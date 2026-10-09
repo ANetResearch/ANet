@@ -621,7 +621,7 @@ MUTS += [
   edits=[(HUBJOIN, '\t\td.noteHubNotice(out.reg.KeyStateNotice, out.reg.KeyStateNoticeError)\n', '')],
   tests=K8(['TestTheNoticeComesWithRegisterAndPoll']), full=K8_FULL),
  dict(id='kel8-seal', group='KEL-8', repo='ANet', desc='C-52、D-50:封装不装入本节点的通告',
-  edits=[('internal/daemon/seal_send.go', '\t\tnotice = n.Wire\n', '\t\t_ = n\n')],
+  edits=[('internal/daemon/seal_send.go', '\t\tnotice, noticeAt = n.Wire, n.Body.ObservedAt\n', '\t\t_, noticeAt = n.Wire, n.Body.ObservedAt\n')],
   tests=K8(['TestSealedEnvelopesCarryTheNotice']), full=K8_FULL),
  dict(id='kel8-v02', group='KEL-8', repo='ANet', desc='S-2:0.2 的身份文件不报 identity_v02',
   edits=[(IDFILE, '\t_, tagged := m[0]\n\treturn !tagged\n', '\t_, tagged := m[0]\n\treturn false && !tagged\n')],
