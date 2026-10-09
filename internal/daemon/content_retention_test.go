@@ -308,27 +308,33 @@ func rawDEK(t *testing.T, d *Daemon, ix string) []byte {
 	return k
 }
 
-// A log that stays busy is counted once every walBusyReport periods in a row (wal-checkpoint-busy),
-// and a period that truncates it starts the count again.
+// A log that stays busy is counted, once every walBusyReport periods in a row (wal-checkpoint-busy),
+// and a period that truncates it counts nothing and leaves it empty. (The daemon's own start sweep may
+// run a checkpoint of its own meanwhile, so the busy periods are counted up to the first report.)
 func TestCheckpointBusyIsCounted(t *testing.T) {
-	old := walBusyReport
-	walBusyReport = 2
-	t.Cleanup(func() { walBusyReport = old })
+	for n, want := range map[int]bool{0: false, 1: false, 11: false, 12: true, 13: false, 24: true} {
+		if walBusyDue(n, walBusyReport) != want {
+			t.Errorf("busy %d periods in a row: counted %v", n, !want)
+		}
+	}
 	d := newTestDaemon(t, "", true)
 	endedTask(t, d, "ix_a", interactions.ClassPeer, d.nowMS())
 	reader := holdSnapshot(t, d)
 	endedTask(t, d, "ix_b", interactions.ClassPeer, d.nowMS())
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 2*walBusyReport && d.ReceiveStats()[counterWALBusy] == 0; i++ {
 		d.checkpointStore()
 	}
-	if n := d.ReceiveStats()[counterWALBusy]; n != 1 {
-		t.Fatalf("after three busy periods %s = %d, want 1", counterWALBusy, n)
+	counted := d.ReceiveStats()[counterWALBusy]
+	if counted == 0 {
+		t.Fatalf("a log busy for %d periods was not counted", 2*walBusyReport)
 	}
 	reader()
 	d.checkpointStore()
-	d.checkpointStore()
-	if n := d.ReceiveStats()[counterWALBusy]; n != 1 {
-		t.Fatalf("after the log was truncated %s = %d, want 1", counterWALBusy, n)
+	if n := d.ReceiveStats()[counterWALBusy]; n != counted {
+		t.Fatalf("a period that truncated the log counted it: %d, was %d", n, counted)
+	}
+	if fi, err := os.Stat(filepath.Join(d.layout.InteractionsDir(), "interactions.db-wal")); err == nil && fi.Size() != 0 {
+		t.Fatalf("the log is %d bytes once the reader is gone", fi.Size())
 	}
 }
 
@@ -476,7 +482,9 @@ func TestWorkDirsPrunedWithinS(t *testing.T) {
 }
 
 // A directory made for a task that starts while the period runs is not taken for an ended one's: the
-// directories are listed before the open tasks are read.
+// directories are listed before the open tasks are read. Here the task's directory appears while the
+// store is asked, and the answer, read from a snapshot taken just before the task was recorded, does
+// not name it yet.
 func TestWorkDirPruneListsBeforeItAsks(t *testing.T) {
 	aid := "bafyreiexampleexampleexampleexample"
 	root := execWorkRoot()
@@ -486,11 +494,10 @@ func TestWorkDirPruneListsBeforeItAsks(t *testing.T) {
 		t.Fatal(err)
 	}
 	err := pruneExecWorkDirs(aid, func() (map[string]bool, error) {
-		// The task starts, and its directory is made, after the listing.
 		if err := os.MkdirAll(late, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		return map[string]bool{"ix_late": true}, nil
+		return map[string]bool{}, nil
 	})
 	if err != nil {
 		t.Fatal(err)

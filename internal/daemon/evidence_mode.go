@@ -173,9 +173,12 @@ func (d *Daemon) pruneEndedWorkDirs() {
 const counterWALBusy = "wal-checkpoint-busy"
 
 // walBusyReport is how many periods in a row the log may stay busy before
-// it is counted and logged: an hour. A variable so that a test can count
-// sooner.
-var walBusyReport = 12
+// it is counted and logged: an hour.
+const walBusyReport = 12
+
+// walBusyDue reports whether a log busy for n periods in a row is counted
+// now: once every `every` periods.
+func walBusyDue(n, every int) bool { return n > 0 && n%every == 0 }
 
 // checkpointStore truncates the store's write-ahead log, once a period
 // (FS-L8). A key deleted from the store is overwritten in the database file
@@ -195,7 +198,7 @@ func (d *Daemon) checkpointStore() {
 		log.Printf("anet: truncate the store's log: %v", err)
 		return
 	}
-	if n > 0 && n%walBusyReport == 0 {
+	if walBusyDue(n, walBusyReport) {
 		d.countErr(counterWALBusy, fmt.Errorf("the store's log stayed busy for %d maintenance periods in a row", n))
 	}
 }
