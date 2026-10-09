@@ -41,7 +41,7 @@
 #                       $SCENARIO_ROOT/bin incomplete: built here with go (GOWORK as in
 #                       joint.sh; HUB_SRC names the ANetHub checkout)
 #   SCENARIO_PORT_BASE  first port of the block this run uses (default 29500): hub +0,
-#                       second hub +1, daemons +10..+13, service +20, voucher door +30,
+#                       second hub +1, daemons +10..+13, service +20,
 #                       section 8's requesters +40..+43. On the test hosts pick a block
 #                       inside 47100-47499 (scripts/testnet/README.md), e.g. 47155. A port
 #                       in use aborts the run; nothing is stopped to free it
@@ -79,8 +79,8 @@ LIVE=0
 ROOT=${SCENARIO_ROOT:-/tmp/anet-scenario}
 BIN=${SCENARIO_BIN:-${JOINT_BIN:-$ROOT/bin}}
 # Every loopback port this run opens is an offset from PORT_BASE (SCENARIO_PORT_BASE, else HUB_PORT,
-# default 29500): +0 the hub, +1 the second hub, +10..+13 nodes A-D, +20 A's service backend, +30 A's
-# x402 voucher door, +40..+43 section 8's requesters R..R4, +50.. section 8's side 2 (XHUB_PORT_BASE2:
+# default 29500): +0 the hub, +1 the second hub, +10..+13 nodes A-D, +20 A's service backend,
+# +40..+43 section 8's requesters R..R4, +50.. section 8's side 2 (XHUB_PORT_BASE2:
 # hub, P, Q, service, then P's and Q's local A2A interfaces), +60..+63 the local A2A interfaces of A-D
 # and +64..+67 those of R..R4 (module/a2a; lib.sh pin_a2a). On the test hosts pick the base so the
 # block stays inside 47100-47499 (an internal note), e.g. SCENARIO_PORT_BASE=47155.
@@ -89,7 +89,6 @@ case "$PORT_BASE" in ''|*[!0-9]*) echo "SCENARIO_PORT_BASE=$PORT_BASE 不是端�
 HUB_PORT=${HUB_PORT:-$PORT_BASE}
 HUB=http://127.0.0.1:$HUB_PORT
 SVC_PORT=$((PORT_BASE+20))
-VOUCHER_PORT=$((PORT_BASE+30))
 SCENARIO_ENV=${SCENARIO_ENV:-$HOME/.config/anet-scenario.env}
 CAPTION_URL=${CAPTION_URL:-http://127.0.0.1:8099/caption}
 
@@ -205,7 +204,7 @@ trap 'exit 130' INT TERM
 # stopped just above). A busy port aborts the run and nothing is stopped to free it: on the test hosts it
 # can be a node deploy.sh put there (47100-47499 is the test net's range) or another checkout's run, and a
 # hub or daemon of this run that failed to bind would leave its health check to be answered by that one.
-SCN_PORTS="$HUB_PORT $((HUB_PORT+1)) $((PORT_BASE+10)) $((PORT_BASE+11)) $((PORT_BASE+12)) $((PORT_BASE+13)) $SVC_PORT $VOUCHER_PORT"
+SCN_PORTS="$HUB_PORT $((HUB_PORT+1)) $((PORT_BASE+10)) $((PORT_BASE+11)) $((PORT_BASE+12)) $((PORT_BASE+13)) $SVC_PORT"
 SCN_PORTS="$SCN_PORTS $((PORT_BASE+60)) $((PORT_BASE+61)) $((PORT_BASE+62)) $((PORT_BASE+63))"
 [ "${SCENARIO_XHUB:-1}" = 1 ] && SCN_PORTS="$SCN_PORTS $((PORT_BASE+40)) $((PORT_BASE+41)) $((PORT_BASE+42)) $((PORT_BASE+43))"
 [ "${SCENARIO_XHUB:-1}" = 1 ] && SCN_PORTS="$SCN_PORTS $((PORT_BASE+64)) $((PORT_BASE+65)) $((PORT_BASE+66)) $((PORT_BASE+67))"
@@ -272,9 +271,9 @@ sleep 1
 
 # A declares it. This is the whole of "putting your own service on the
 # network": an id, and a URL behind it.
-python3 - "$(home_of A)/.anet/config.json" "http://127.0.0.1:$SVC_PORT" "$VOUCHER_PORT" <<'PY'
+python3 - "$(home_of A)/.anet/config.json" "http://127.0.0.1:$SVC_PORT" <<'PY'
 import json, sys
-p, svc, door = sys.argv[1], sys.argv[2], sys.argv[3]
+p, svc = sys.argv[1], sys.argv[2]
 c = json.load(open(p))
 c["name"] = "NodeA"
 c["caps"] = ["digest"]
@@ -289,14 +288,8 @@ c["modules"] = {"service": {"allow_tcp": True, "capabilities": [
     # was working.
     {"id": "text.digest.paid", "url": svc, "price": 25,
      "description": "sha256, 25 credits"}]}}
-# A's public voucher face: where a buyer who paid at the hub brings the
-# voucher. The hub never sees this address's traffic, which is the whole
-# point of selling access rather than proxying it.
-c["modules"]["x402"] = {"voucher_addr": "127.0.0.1:" + door,
-                        "voucher_url": "http://127.0.0.1:%s/x402/redeem" % door}
-# The voucher door serves only public capabilities, through the kernel's
-# admission check (A2A-DESIGN §5.4). text.digest stays reachable only by
-# the peers A allows; the priced one is public.
+# text.digest stays reachable only by the peers A allows; the priced one is
+# public, and is paid for inside the task (a2a-x402).
 c["inbound"] = {"policy": "closed", "public_capabilities": [{"id": "text.digest.paid"}]}
 json.dump(c, open(p, "w"), indent=1)
 PY
@@ -371,19 +364,19 @@ ags={a['aid'] for a in json.load(sys.stdin).get('agents') or []}
 print(''.join(n for n, x in (('A','$A'),('B','$B'),('C','$C')) if x in ags))")
 [ "$listed" = A ] && ok "目录里只有 A —— 加入 ≠ 上架,B 声明的能力没有公开(Q14),C 没有声明能力" \
   || no "目录里是 '$listed',期望只有 A(只有公开能力会被列出,an internal note item)"
-found=$(ctl C /find '{"query":"digest"}' | python3 -c "
+found=$(ctl C /agents/list '{"q":"digest","include_uncarded":true}' | python3 -c "
 import sys,json
-print(next((a['name'] for a in json.load(sys.stdin).get('agents') or [] if a['aid']=='$A'), ''))")
+print(next((a.get('name','') for a in json.load(sys.stdin).get('agents') or [] if a['aid']=='$A'), ''))")
 [ "$found" = "NodeA" ] && ok "C 用散文找到了 A" || no "C 没找到 A(得到 '$found')"
 # The exact question, which the prose search cannot express. Asked for A's PUBLIC capability: the
 # directory's capability ids come from the agent's verified A2A card (A2A-DESIGN §10.5), and the card
 # lists only inbound.public_capabilities (§10.1-10.2). text.digest is served to A's allowed peers only,
 # so it is not advertised and cannot be found by id — by design, not a miss.
-byid=$(ctl C /find '{"capability":"text.digest.paid"}' | python3 -c "
+byid=$(ctl C /agents/list '{"skill":"text.digest.paid","include_uncarded":true}' | python3 -c "
 import sys,json
-print(next((a['name'] for a in json.load(sys.stdin).get('agents') or [] if a['aid']=='$A'), ''))")
+print(next((a.get('name','') for a in json.load(sys.stdin).get('agents') or [] if a['aid']=='$A'), ''))")
 [ "$byid" = "NodeA" ] && ok "C 按能力 id 精确找到了 A" || no "按 id 没找到 A(得到 '$byid')"
-none=$(ctl C /find '{"capability":"nobody.serves.this"}' | python3 -c "
+none=$(ctl C /agents/list '{"skill":"nobody.serves.this","include_uncarded":true}' | python3 -c "
 import sys,json;print(len(json.load(sys.stdin).get('agents') or []))")
 [ "$none" = "0" ] && ok "无人提供的能力返回空,而不是退回散文搜索" || no "无人提供的能力返回了 $none 个"
 
@@ -713,49 +706,13 @@ fd=$(echo "$freeres" | python3 -c 'import sys,json;print((json.load(sys.stdin).g
 pd=$(echo "$res"     | python3 -c 'import sys,json;print((json.load(sys.stdin).get("metrics") or {}).get("length",""))' 2>/dev/null)
 [ -n "$pd" ] && [ "$fd" = "$pd" ] && ok "付费与免费路径给出同一份结果,钱买的是执行不是别的东西"   || no "付费路径的结果与免费路径不一致($fd vs $pd)"
 
-hd "6.6  x402 网关:在 hub 付钱,到 daemon 取货"
-# The hub sells access and stops. It never sees the request or the
-# result — the buyer takes a voucher to the agent directly.
-HUBAID=$(curl -s -m 10 "$HUB/hub/identity" | python3 -c 'import sys,json;print(json.load(sys.stdin)["aid"])')
-RES_URL="$HUB/x402/resource/$A/text.digest.paid"
-q=$(curl -s -m 10 -D "$ROOT/402.hdr" "$RES_URL")
-code=$(head -1 "$ROOT/402.hdr" | awk '{print $2}')
-[ "$code" = "402" ] && ok "未付款时 hub 回 402(这是 x402 的第一句话)" || no "hub 回了 $code"
-grep -qi '^PAYMENT-REQUIRED:' "$ROOT/402.hdr" && ok "402 带 PAYMENT-REQUIRED 头" || no "402 没带 PAYMENT-REQUIRED 头"
-redeem=$(echo "$q" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("redeem_at",""))')
-[ "$redeem" = "http://127.0.0.1:$VOUCHER_PORT/x402/redeem" ] \
-  && ok "报价里写明了取货地址($redeem)—— hub 不代理内容" || no "报价没给取货地址:$q"
-gprice=$(echo "$q" | python3 -c '
-import sys,json
-print(((json.load(sys.stdin).get("accepts") or [{}])[0]).get("amount",""))')
-[ "$gprice" = "25" ] && ok "价钱来自 A 自己签的卡片,hub 只能拒卖不能改价" || no "网关报价 $gprice"
-
-# Pay at the gateway, using C's key. anetfixture signs the authorization
-# with the same code path the daemon uses.
-sig=$("$BIN/anetfixture" x402-authorize --home "$(home_of C)/.anet" \
-        --pay-to "$A" --amount 25 --network "hub:$HUBAID" --interaction "gw-1" 2>/dev/null)
-if [ -n "$sig" ]; then
-  vres=$(curl -s -m 20 -H @<(printf 'PAYMENT-SIGNATURE: %s\n' "$sig") -D "$ROOT/gw.hdr" "$RES_URL")
-  vcode=$(head -1 "$ROOT/gw.hdr" | awk '{print $2}')
-  voucher=$(echo "$vres" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("voucher",""))' 2>/dev/null)
-  [ "$vcode" = "200" ] && [ -n "$voucher" ] && ok "付款后拿到的是凭证,不是结果 —— hub 见不到内容" \
-    || no "网关付款失败($vcode): $vres"
-  grep -qi '^PAYMENT-RESPONSE:' "$ROOT/gw.hdr" && ok "结算响应带 PAYMENT-RESPONSE 头" || no "没带 PAYMENT-RESPONSE 头"
-  if [ -n "$voucher" ]; then
-    out=$(curl -s -m 60 -H 'Content-Type: application/json' \
-          -d "{\"voucher\":\"$voucher\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"via voucher\"}}" \
-          "$redeem")
-    vs=$(echo "$out" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("status",""))' 2>/dev/null)
-    [ "$vs" = "OK" ] && ok "凭证在 daemon 上兑成了真活(hub 全程没碰请求和结果)" || no "兑付失败:$out"
-    again=$(curl -s -m 30 -H 'Content-Type: application/json' \
-            -d "{\"voucher\":\"$voucher\",\"capability\":\"text.digest.paid\",\"args\":{\"text\":\"via voucher\"}}" \
-            "$redeem")
-    ae=$(echo "$again" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("error",""))' 2>/dev/null)
-    case "$ae" in *already*) ok "同一张凭证第二次被拒(一次性由 daemon 把关)";; *) no "凭证被重复兑付:$again";; esac
-  fi
-else
-  info "anetfixture 不支持 x402-authorize,跳过网关付款(仅验了 402 面)"
-fi
+hd "6.6  hub 网关已下线:付款只在任务里"
+# 0.3.0 removed the hub's x402 gateway and the vouchers it sold: the old address answers 410
+# gateway_removed with what to do instead, and no node opens a voucher door.
+gw=$(curl -s -m 10 -o "$ROOT/gw.body" -w '%{http_code}' "$HUB/x402/resource/$A/text.digest.paid")
+greason=$(python3 -c 'import sys,json;print(json.load(open(sys.argv[1])).get("reason",""))' "$ROOT/gw.body" 2>/dev/null)
+[ "$gw" = 410 ] && [ "$greason" = gateway_removed ] && ok "网关地址回 410 gateway_removed:付款在任务里进行" \
+  || no "网关地址回 $gw / '$greason',期望 410 gateway_removed"
 
 hd "6.7  兑付:credit 也能出去,且 hub 的负债可被数出来"
 sup(){ curl -s -m 10 "$HUB/x402/supply" | python3 -c "import sys,json;print(json.load(sys.stdin)['supply']['$1'])"; }

@@ -175,7 +175,7 @@ REG=$(curl -s -m 5 "$HUB_URL/agents" | python3 -c 'import sys,json;print(len(jso
 [ "$REG" = 3 ] && ok "三个 worker 都在 hub 目录里(控制端无能力,按设计不上架)" || no "hub 目录里有 $REG 个,应为 3"
 CTRL_REG=$(api "$CTRL_HOME" "$CTRL_PORT" /status '{}' | python3 -c 'import sys,json;print(json.load(sys.stdin).get("hub_url") or "")')
 [ -n "$CTRL_REG" ] && ok "控制端自己已接入 hub($CTRL_REG)" || no "控制端没接上 hub"
-FOUND=$(api "$CTRL_HOME" "$CTRL_PORT" /find '{"capability":"code.write"}' \
+FOUND=$(api "$CTRL_HOME" "$CTRL_PORT" /agents/list '{"skill":"code.write","include_uncarded":true}' \
         | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("agents") or []))')
 [ "$FOUND" = 3 ] && ok "控制端按能力找到了全部 3 个 worker" || no "按能力只找到 $FOUND 个 worker"
 
@@ -319,7 +319,7 @@ done
 # 撤销:把 worker 从 hub 摘掉,控制端就不该再找得到它
 api "$J/w-${W_NAMES[2]}" "${W_PORTS[2]}" /hub-leave '{}' >/dev/null
 sleep 2
-LEFT=$(api "$CTRL_HOME" "$CTRL_PORT" /find '{"capability":"code.write"}' \
+LEFT=$(api "$CTRL_HOME" "$CTRL_PORT" /agents/list '{"skill":"code.write","include_uncarded":true}' \
        | python3 -c 'import sys,json;print(len(json.load(sys.stdin).get("agents") or []))')
 [ "$LEFT" = 2 ] && ok "worker 退出后即刻从目录消失(3 → 2)" || no "退出后目录仍有 $LEFT 个,应为 2"
 
