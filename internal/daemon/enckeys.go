@@ -1072,12 +1072,13 @@ func (d *Daemon) publishIfNeeded() {
 
 // keyMaintenance is the maintenance period S (FS-K4): the clock gate and
 // unverified_run, the key ring (deletions, new keys, signature), the
-// interaction keys' close_after sweep (FS-X9) and the retention sweep
-// (FS-L6), all under the period's one gate level, and then the ring's
-// publication. The deletions run with the mailbox poll's lock, after a poll
-// round, so they are serial with the receive path of the hub mailbox; the
-// publication, a hub call, runs after the lock is released, so a hub slow
-// to answer it does not hold up the next poll.
+// interaction keys' close_after sweep (FS-X9), the retention sweep (FS-L6)
+// and the store's housekeeping after it (sweepHardBound), all under the
+// period's one gate level, and then the ring's publication. The deletions
+// run with the mailbox poll's lock, after a poll round, so they are serial
+// with the receive path of the hub mailbox; the publication, a hub call,
+// runs after the lock is released, so a hub slow to answer it does not
+// hold up the next poll.
 func (d *Daemon) keyMaintenance() {
 	if err := d.keyPeriod(); err != nil {
 		if !errors.Is(err, errMboxPending) {
@@ -1100,15 +1101,21 @@ func (d *Daemon) keyPeriod() error {
 
 // sweepHardBound runs the deletions with a hard bound other than the epoch
 // keys' at level: the interaction keys whose close_after has come, and the
-// public_cap tasks past their retention. Nothing goes at closed (FS-K15).
+// tasks past their retention. Each sweep takes the level and deletes
+// nothing at closed (FS-K15). Then, whatever the level, the exec work
+// directories of ended tasks go (FS-L11) and the store's log is truncated,
+// so no key deleted until now stays readable in it (FS-L8).
 func (d *Daemon) sweepHardBound(level clockLevel) {
-	if d.ix == nil || level == clockClosed {
+	if d.ix == nil {
 		return
 	}
-	if _, err := d.ix.SweepCloseAfter(int64(d.nowMS()), level); err != nil {
+	now := int64(d.nowMS())
+	if _, err := d.ix.SweepCloseAfter(now, level); err != nil {
 		log.Printf("anet: interaction keys past close_after: %v", err)
 	}
-	d.pruneRetention()
+	d.pruneRetentionAt(now, level)
+	d.pruneEndedWorkDirs()
+	d.checkpointStore()
 }
 
 // regenerateKeys is the key ring's part of the emergency rotation's E2

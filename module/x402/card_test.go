@@ -4,8 +4,11 @@ package x402
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/module"
 )
@@ -74,5 +77,63 @@ func TestCardExtensionsCarryNoPrice(t *testing.T) {
 				t.Errorf("skills %v: the card contribution carries %q: %s", skills, leak, raw)
 			}
 		}
+	}
+}
+
+// An extended card (HPP §2.6) carries the prices, as the quote states them
+// (Price): only the priced skills it lists, amounts as decimal strings, on
+// this node's hub ledger in credits. Its a2a-x402 declaration is the same
+// rule as the public card's, applied to its own skills.
+func TestExtendedCardExtensionsCarryThePrices(t *testing.T) {
+	h := newHost(t)
+	m := newModule(t, h)
+	withWork(t, h, 7919)
+	for _, v := range []module.CardVariant{module.VariantGeneral, module.VariantList} {
+		got := m.CardExtensions(module.CardContext{AID: h.AID(), Skills: []string{"free.thing", "work.do"}, Extended: true, Variant: v})
+		if len(got) != 2 || got[0]["uri"] != module.ExtX402URI || got[1]["uri"] != module.ExtPriceURI {
+			t.Fatalf("%s: want a2a-x402 and the price list, got %v", v, got)
+		}
+		if _, ok := got[0]["required"]; ok {
+			t.Fatalf("%s: required with a free skill listed", v)
+		}
+		want := map[string]any{"network": payment.CreditNetwork(h.hub.AID()), "asset": payment.AssetCredit,
+			"prices": []any{map[string]any{"skillId": "work.do", "amount": "7919"}}}
+		if !reflect.DeepEqual(got[1]["params"], want) {
+			t.Fatalf("%s: params %v, want %v", v, got[1]["params"], want)
+		}
+		if price, ok := m.Price("work.do"); !ok || price != 7919 {
+			t.Fatalf("Price = %d %v: the card and the quote must say the same", price, ok)
+		}
+	}
+	// Each card declares for what it lists: a variant whose only priced
+	// skill is beyond the public card declares a2a-x402 where the public
+	// card does not.
+	if got := m.CardExtensions(module.CardContext{AID: h.AID(), Skills: []string{"free.thing"}}); len(got) != 0 {
+		t.Fatalf("public card with only free skills: %v", got)
+	}
+	got := m.CardExtensions(module.CardContext{AID: h.AID(), Skills: []string{"work.do"}, Extended: true, Variant: module.VariantList})
+	if len(got) != 2 || got[0]["required"] != true {
+		t.Fatalf("every listed skill priced: %v", got)
+	}
+	// Nothing priced on the extended card either: nothing at all.
+	if got := m.CardExtensions(module.CardContext{AID: h.AID(), Skills: []string{"free.thing"}, Extended: true, Variant: module.VariantGeneral}); len(got) != 0 {
+		t.Fatalf("free extended card: %v", got)
+	}
+}
+
+// HasPrices (core X-SS-8): whether any served capability is priced, from
+// Price; without a ledger nothing is.
+func TestHasPrices(t *testing.T) {
+	h := newHost(t)
+	m := newModule(t, h)
+	if m.HasPrices() {
+		t.Fatal("no capability served, yet prices")
+	}
+	withWork(t, h, 3)
+	if !m.HasPrices() {
+		t.Fatal("a priced capability served, yet no prices")
+	}
+	if (&Module{}).HasPrices() || (&Module{host: h}).HasPrices() {
+		t.Fatal("prices without a host or a ledger")
 	}
 }

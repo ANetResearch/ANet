@@ -168,6 +168,9 @@ type Daemon struct {
 	// netCard is this node's A2A network card as last issued, and what the
 	// hub last said about it (a2a_card.go).
 	netCard netCardState
+	// extCard is this node's signed extended cards and who asked for one
+	// lately (extcard.go).
+	extCard extCardState
 	// longCalls bounds how many long-running capability invocations run
 	// at once. A buffered channel rather than a counter because the
 	// bound has to be enforced at the moment of accepting, and a

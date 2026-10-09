@@ -173,7 +173,7 @@ func TestTheNetworkCardGolden(t *testing.T) {
 	s = strings.ReplaceAll(s, h.URL, "<hub>")
 	s = strings.ReplaceAll(s, `"version":"`+Version+`"`, `"version":"<version>"`)
 
-	const golden = `{"capabilities":{"extensions":[` +
+	const golden = `{"capabilities":{"extendedAgentCard":true,"extensions":[` +
 		`{"description":"anet identity (AID) and card sequence; the card is signed under the AID's current KEL key",` +
 		`"params":{"aid":"<aid>","issuedAt":"<issuedAt>","notBefore":"<notBefore>","seq":"<seq>"},` +
 		`"uri":"https://agentnetwork.org.cn/a2a/ext/anet-card/v1"},` +

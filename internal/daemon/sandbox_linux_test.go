@@ -415,7 +415,9 @@ func TestSandboxedTurnsWorkUnderTheSandboxRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	pruneExecWorkDirs(aid, map[string]bool{"ix-root": true})
+	if err := pruneExecWorkDirs(aid, func() (map[string]bool, error) { return map[string]bool{"ix-root": true}, nil }); err != nil {
+		t.Fatal(err)
+	}
 	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
 		if _, err := os.Stat(filepath.Join(root, aidShort(aid), "ix-old")); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("an inactive interaction's work dir under %s survived pruning: %v", root, err)

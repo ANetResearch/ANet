@@ -44,6 +44,9 @@ const (
 	MessageReceived          = "anet.message.received"
 	// HubAdmission is a change of the hub join state (LEC §2.5, AD-7).
 	HubAdmission = "anet.hub.admission"
+	// RetentionChanged is a change of content_retention made with `anet
+	// retention set` (forward-secrecy §2.12).
+	RetentionChanged = "anet.retention.changed"
 )
 
 // Source says where the fact an event records came from.
@@ -98,6 +101,7 @@ var registry = []Event{
 	{Type: MessageReceived, Label: "message received", Source: SourcePeer,
 		AggregatedLabel: "messages received (aggregated)"},
 	{Type: HubAdmission, Label: "hub join state changed", Source: SourceHub},
+	{Type: RetentionChanged, Label: "content retention changed", Source: SourceNode},
 }
 
 var byType = func() map[string]Event {
@@ -158,6 +162,13 @@ var payloads = map[string]Payload{
 		}},
 	},
 	HubAdmission: {Required: []string{"hub", "state"}, Optional: []string{"reason"}},
+	// A retention sweep, one record per class it deleted tasks of (FS §2.12):
+	// counts, the cutoff and the retention in days; never an id or content.
+	InteractionPruned: {
+		Required: []string{"trust", "before", "retention_days", "interactions", "messages", "attachments"},
+		Values:   map[string][]string{"trust": {"outbound", "peer", "approved", "public", "public_cap"}},
+	},
+	RetentionChanged: {Required: []string{"from", "to", "deleted_interactions"}},
 }
 
 // PayloadOf returns the fixed payload of event type t, if it has one.
