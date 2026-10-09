@@ -944,3 +944,43 @@ MUTS += [
   edits=[(IDOPS, '\tif perr == nil && info.AID == id.AID && info.Commits.Seq == id.Seq()+1 &&', '\tif false && perr == nil && info.AID == id.AID && info.Commits.Seq == id.Seq()+1 &&')],
   tests=K7(K7_CMD, ['TestLeftoverNewRecoveryFile']), full=[K7_CMD]),
 ]
+
+# The review of KEL-7: rules the package's own list left to no test (the body budget held by bytes sent,
+# not declared lengths; a new hub's identity written only once its passphrase is accepted; the recovery
+# file's two-phase write and the checks before the passphrase; an agent's identity file; the first pin's
+# R-9; the pinned set; the notice of a peer under its new key).
+K7_ID = 'ANetHub:./internal/hubid'
+
+MUTS += [
+ dict(id='kel7-budget-idle', group='KEL-7', repo='ANetHub', desc='SSR-H16:声明长度先整块占用读体额度(只连不发的请求占满额度,拒绝全部对端)',
+  edits=[(BUDGET, '\tif r.ContentLength > s.bodies.free() {\n\t\treturn overBudget()\n\t}\n\thold := s.holdOf(r)\n',
+          '\thold := s.holdOf(r)\n\tif r.ContentLength >= 0 && !hold.take(r.ContentLength) {\n\t\treturn overBudget()\n\t}\n')],
+  tests=K7(K7_FED, ['TestFedBodyBudget']), full=[K7_FED]),
+ dict(id='kel7-fresh-dir', group='KEL-7', repo='ANetHub', desc='C-34:新数据目录上 setup-recovery 在问口令之前写身份文件(口令被拒仍留下身份)',
+  edits=[(IDOPS, '\t\tif id, err = hubid.Incept(); err != nil {', '\t\tif id, err = hubid.LoadOrIncept(dir); err != nil {')],
+  tests=K7(K7_CMD, ['TestHubPassphraseRefusals']), full=[K7_CMD]),
+ dict(id='kel7-l3-order', group='KEL-7', repo='ANetHub', desc='L-3:新恢复文件在身份文件写入之前 rename(身份写不进时旧文件已被覆盖)',
+  edits=[(IDOPS, '\tif err := id.Save(dir); err != nil {\n\t\treturn err // path.new stays; the next command removes it\n\t}\n\tif newFile == nil {\n\t\treturn nil\n\t}\n\tif err := os.Rename(path+".new", path); err != nil {\n\t\treturn err\n\t}\n',
+          '\tif newFile != nil {\n\t\tif err := os.Rename(path+".new", path); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\tif err := id.Save(dir); err != nil {\n\t\treturn err\n\t}\n\tif newFile == nil {\n\t\treturn nil\n\t}\n')],
+  tests=K7(K7_CMD, ['TestNewRecoveryFileReplacesTheOldOnlyAfterTheIdentity']), full=[K7_CMD]),
+ dict(id='kel7-l3-digest', group='KEL-7', repo='ANetHub', desc='L-3:遗留的 .new 只看 AID 就收尾(身份没承诺的种子覆盖在用的恢复文件)',
+  edits=[(IDOPS, '\tif perr == nil && info.AID == id.AID && info.Commits.Seq == id.Seq()+1 &&\n\t\tbytes.Equal(info.Commits.Digest[:], id.Commitment()) {',
+          '\tif perr == nil && info.AID == id.AID {')],
+  tests=K7(K7_CMD, ['TestLeftoverNewRecoveryFile']), full=[K7_CMD]),
+ dict(id='kel7-open-aid', group='KEL-7', repo='ANetHub', desc='别的 hub 的恢复文件在问口令之后才拒绝',
+  edits=[(IDOPS, '\tcase info.AID != id.AID:\n\t\treturn none, c.say("hub_identity.recovery_wrong_identity", args)',
+          '\tcase false && info.AID != id.AID:\n\t\treturn none, c.say("hub_identity.recovery_wrong_identity", args)')],
+  tests=K7(K7_CMD, ['TestHubRecoveryFileRefusals']), full=[K7_CMD]),
+ dict(id='kel7-toad-load', group='KEL-7', repo='ANetHub', desc='H-30:hub 载入 agent 的身份文件(toad 1)当作 hub 身份',
+  edits=[('internal/hubid/hubid.go', '\tif ctrl.Toad() != identity.ToadHub {', '\tif false && ctrl.Toad() != identity.ToadHub {')],
+  tests=K7(K7_ID, ['TestAnAgentIdentityFileIsNotAHubs']), full=[K7_ID]),
+ dict(id='kel7-r9-first', group='KEL-7', repo='ANetHub', desc='R-9:首次固定对端 hub KEL 时不查未来上界',
+  edits=[(PEERKEL, '\t\tif err := identity.CheckNewEvents(nil, next, now, nil); err != nil {', '\t\tif err := identity.CheckNewEvents(nil, next, now, nil); false && err != nil {')],
+  tests=K7(K7_FED, ['TestFirstPinAndPinnedSetOfPeers']), full=[K7_FED]),
+ dict(id='kel7-h16-peers', group='KEL-7', repo='ANetHub', desc='H-16:/hub/kels 带出已不在对等表中的 hub 的固定 KEL',
+  edits=[(PEERKEL, '\t\tif s.peer(k.AID) == nil {', '\t\tif false && s.peer(k.AID) == nil {')],
+  tests=K7(K7_FED, ['TestFirstPinAndPinnedSetOfPeers']), full=[K7_FED]),
+ dict(id='kel7-h34-notice', group='KEL-7', repo='ANetHub', desc='H-34:对端目录条目里新钥签的见证通告不按需再取对端 KEL',
+  edits=[('internal/aghub/fed_home.go', '\t\t\tk, err := s.store.peerKELFor(s.peerKEL, hubAID, env.KeyStateSeq)', '\t\t\t_ = env\n\t\t\tk, err := s.peerKEL(hubAID)')],
+  tests=K7(K7_HUB, ['TestAPeerNoticeUnderANewKeyFetchesTheKeyHistoryAgain']), full=[K7_HUB]),
+]
