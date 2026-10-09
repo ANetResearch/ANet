@@ -1434,3 +1434,32 @@ MUTS += [
   full=['ANet:./cmd/anet'],
  ),
 ]
+
+# --- EXE-6: the per-agent sandbox configuration (LEC AV-4, UP-3, BP-4 to BP-6) and SB-6's 2026-10-04 entries (the new
+# mount API refused, the personality query let through). The in-kernel filter test cannot tell fsopen's EPERM from the
+# kernel's own for an unprivileged caller, so the rule table and G-SECCOMP carry that kill; the personality mutations are
+# also red in TestSeccompFilterInKernel. ---
+SECCOMP = 'TestSeccompRules|TestSeccompGolden|TestSeccompFilterInKernel'
+MUTS += [
+ dict(
+  id='m-sb-6-fsopen', group='SB-6', repo='ANet',
+  desc='seccomp 放行 fsopen(新挂载 API 的入口)',
+  edits=[('internal/daemon/seccomp_linux.go', '\t"fsopen", "fsconfig", "fsmount",', '\t"fsconfig", "fsmount",')],
+  tests=[(DAEMON, SECCOMP)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-6-personality-query', group='SB-6', repo='ANet',
+  desc='personality 的查询值 0xffffffff 仍按 EPERM 拒绝(个别运行时启动即失败)',
+  edits=[('internal/daemon/seccomp_linux.go', '\ta.jeq(perQuery, "allow", "eperm")', '\ta.jeq(perQuery, "eperm", "eperm")')],
+  tests=[(DAEMON, SECCOMP)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-6-personality-any', group='SB-6', repo='ANet',
+  desc='personality 的任何取值都放行(ADDR_NO_RANDOMIZE、READ_IMPLIES_EXEC 等)',
+  edits=[('internal/daemon/seccomp_linux.go', '\ta.jeq(perQuery, "allow", "eperm")', '\ta.jeq(perQuery, "allow", "allow")')],
+  tests=[(DAEMON, SECCOMP)],
+  full=[DAEMON],
+ ),
+]

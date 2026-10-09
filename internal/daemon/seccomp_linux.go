@@ -14,9 +14,11 @@ package daemon
 //     mean something else there);
 //   - clone3 → ENOSYS, because its flags are in memory the filter cannot read; glibc then uses clone;
 //   - clone and unshare with CLONE_NEWUSER → EPERM, whether or not bwrap could add --disable-userns;
-//   - keyrings, bpf, perf, userfaultfd, io_uring, ptrace and process_vm_*, kexec and modules, mounts and
-//     setns, file handles, acct, swap, reboot and syslog → EPERM;
-//   - personality other than PER_LINUX, and the TIOCSTI and TIOCLINUX ioctls → EPERM.
+//   - keyrings, bpf, perf, userfaultfd, io_uring, ptrace and process_vm_*, kexec and modules, mounts (the
+//     old call and the new mount API: fsopen, fsconfig, fsmount, fspick, move_mount, open_tree,
+//     mount_setattr) and setns, file handles, acct, swap, reboot and syslog → EPERM;
+//   - personality other than PER_LINUX and the query 0xffffffff (which changes nothing, and which some
+//     runtimes make at start-up), and the TIOCSTI and TIOCLINUX ioctls → EPERM.
 //
 // The kernel reads personality's argument and ioctl's command as 32-bit values, so the filter compares
 // their low 32 bits only: a caller that sets the high bits must not slip a TIOCSTI past an equality test
@@ -46,6 +48,7 @@ const (
 	x32SyscallBit    = 0x40000000 // __X32_SYSCALL_BIT
 	cloneNewUser     = 0x10000000 // CLONE_NEWUSER
 	perLinux         = 0x0000     // PER_LINUX
+	perQuery         = 0xffffffff // personality(0xffffffff) reads the persona and sets nothing
 	ioctlTIOCSTI     = 0x5412
 	ioctlTIOCLINUX   = 0x541c
 )
@@ -68,6 +71,23 @@ var seccompDeniedEPERM = []string{
 	"process_vm_writev", "kexec_load", "kexec_file_load", "init_module", "finit_module",
 	"delete_module", "mount", "umount2", "pivot_root", "setns", "open_by_handle_at",
 	"name_to_handle_at", "acct", "swapon", "swapoff", "reboot", "syslog",
+	// The new mount API reaches what mount does (SB-6, 2026-10-04).
+	"fsopen", "fsconfig", "fsmount", "fspick", "move_mount", "open_tree", "mount_setattr",
+}
+
+// seccompNewMountNr are the new mount API's numbers, the same on both architectures (they were added after
+// the system call tables were unified: include/uapi/asm-generic/unistd.h, syscall_64.tbl).
+var seccompNewMountNr = map[string]uint32{
+	"open_tree": 428, "move_mount": 429, "fsopen": 430, "fsconfig": 431, "fsmount": 432, "fspick": 433,
+	"mount_setattr": 442,
+}
+
+func init() {
+	for _, abi := range seccompABIs {
+		for name, nr := range seccompNewMountNr {
+			abi.nr[name] = nr
+		}
+	}
 }
 
 // seccompABI is one architecture's audit value and system call numbers.
@@ -143,7 +163,8 @@ func seccompProgram(goarch string) ([]byte, error) {
 
 	a.label("personality") // the kernel takes an unsigned int
 	a.ld(seccompDataArg0Low)
-	a.jeq(perLinux, "allow", "eperm")
+	a.jeq(perLinux, "allow", "")
+	a.jeq(perQuery, "allow", "eperm")
 
 	a.label("ioctl") // the kernel takes the command as an unsigned int
 	a.ld(seccompDataArg1Low)
