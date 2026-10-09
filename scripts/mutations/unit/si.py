@@ -21,9 +21,9 @@ MUTS = [
  ),
  dict(
   id='si1-3', group='SI-1', repo='ANetHub',
-  desc='hub /reviews 不再拒收 request_doc/deliverable',
+  desc='hub /reviews 不再拒收 request_doc/deliverable(评价 v2 由严格解码拒收:上传体收下这两个成员)',
   edits=[
-   ('internal/aghub/server.go', '\tif req.RequestDoc != "" || req.Deliverable != "" {', '\tif false && (req.RequestDoc != "" || req.Deliverable != "") {'),
+   ('internal/aghub/reviews.go', '\tRSalt   string `json:"rsalt"`\n}', '\tRSalt   string `json:"rsalt"`\n\tRequestDoc  string `json:"request_doc,omitempty"`\n\tDeliverable string `json:"deliverable,omitempty"`\n}'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestAReviewUploadCarryingContentIsRefused|TestAReviewIsServedWithoutContent')],
   full=['ANetHub:./internal/aghub'],
