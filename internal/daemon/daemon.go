@@ -31,6 +31,9 @@ type Daemon struct {
 	// is the seq of the key set the hub last confirmed holding.
 	enc             *encKeyRing
 	publishedKeySeq atomic.Uint64
+	// clk is what the clock gate knows besides the ring: the latest check
+	// against the hub and the previous maintenance period (enckeys.go).
+	clk clockState
 	// mbox is this node's mailbox signing key and mboxSt what the daemon
 	// knows about getting it to the hub (mbox.go).
 	mbox   *mboxKey
@@ -43,6 +46,20 @@ type Daemon struct {
 	// wire. Tests only, through setClock (testhooks.go): the background
 	// loops read it while a test sets it, so it is atomic.
 	clock atomic.Pointer[func() uint64]
+	// monoClock, when set, replaces the boot clock (monoMS, bootclock.go)
+	// the clock gate counts running time on. Tests only, through
+	// setMonoClock.
+	monoClock atomic.Pointer[func() uint64]
+	// keyHold, when set, answers keysHeld (enckeys.go): whether key sets
+	// are held back between an emergency rotation's E1 and E2. Tests only,
+	// through setKeyHold, until the emergency rotation answers it.
+	keyHold atomic.Pointer[func() bool]
+	// drain is what the hub mailbox polls say about the epoch keys: how far
+	// each hub's mailbox was read, and what it holds back (relay.go).
+	drain drainState
+	// startLevel is the clock gate's level at the first maintenance period
+	// of the process (setupKeyRing).
+	startLevel clockLevel
 	// hubIDs caches each hub's pinned identity by URL (hub_client.go).
 	hubIDMu sync.Mutex
 	hubIDs  map[string]hubIdent
@@ -232,8 +249,8 @@ type Daemon struct {
 // New builds the daemon: load config + identity, open the interactions store, and (if a Hub is
 // configured) start the relay poll loop. It does not block; call Close to stop.
 func New(layout Layout) (*Daemon, error) {
-	// A data directory an earlier anet wrote is refused before anything
-	// is written to it (FS-S1).
+	// A data directory an earlier or a newer anet wrote is refused before
+	// anything is written to it (FS-S1, core CORE-V4).
 	if err := CheckDataDirForStart(layout); err != nil {
 		return nil, err
 	}
@@ -251,6 +268,9 @@ func New(layout Layout) (*Daemon, error) {
 	ix, err := interactions.Open(layout.InteractionsDir())
 	if errors.Is(err, interactions.ErrOldStore) {
 		return nil, oldDataDirRefusal()
+	}
+	if errors.Is(err, interactions.ErrNewerStore) {
+		return nil, newerDataDirRefusal()
 	}
 	if err != nil {
 		return nil, fmt.Errorf("anet: open interactions store: %w", err)
@@ -297,6 +317,7 @@ func New(layout Layout) (*Daemon, error) {
 	d.ledger = led
 	d.purgeReplay()
 	d.goBackground(func() { d.receiveMaintenance(ctx) })
+	d.goBackground(func() { d.keyMaintenanceLoop(ctx) })
 	d.goBackground(func() { d.mboxLoop(ctx) }) // mbox.go
 	// The peer lists may have changed while the daemon was stopped, or it
 	// stopped between a list write and its withdrawal (SS §4.3.8 item 1).

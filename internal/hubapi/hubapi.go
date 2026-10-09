@@ -147,6 +147,11 @@ type RelayPollRequest struct {
 // RelayPollResponse is the answer to POST /relay/poll.
 type RelayPollResponse struct {
 	Messages []RelayMessage `json:"messages"`
+	// More says the mailbox holds more after the last row of this page, in
+	// the snapshot the hub read it from (forward-secrecy FS-H5): the page
+	// was cut by its count or byte budget. A page that ends the mailbox has
+	// more false; the key ring's drain mark rests on it (FS-K9).
+	More bool `json:"more"`
 	// KeyStateNotice is the witness notice the hub signed for the caller's
 	// KEL tip (base64url of the NoticeWire bytes), or KeyStateNoticeError
 	// why it gave none: quarantine, not_admitted or not_witness (KEL §2.7,
@@ -161,6 +166,9 @@ type RelayPollResponse struct {
 type RelayMessage struct {
 	ID       int64  `json:"id"`
 	Envelope string `json:"envelope"`
+	// AcceptedAt is when the hub accepted the envelope, by the hub's
+	// clock (unix ms; relay_message.created_at, core §2.16).
+	AcceptedAt uint64 `json:"accepted_at"`
 }
 
 // RelayAckRequest is the body of POST /relay/ack (relayauth action ack;
@@ -314,17 +322,23 @@ func NewRelayAckItem(id int64, handle [HandleLen]byte, dack [DAckLen]byte) Relay
 // set comes from a directory bucket (dirquery.go), never by its AID.
 type KeysResponse struct {
 	AID    string `json:"aid"`
-	KeySet string `json:"keyset"` // seal.SignedEncKeySet encoding
-	KEL    string `json:"kel"`    // identity.MarshalKEL
+	KeySet string `json:"keys"` // seal.SignedEncKeySet encoding, base64url (B64)
+	KEL    string `json:"kel"`  // identity.MarshalKEL, base64url
 }
 
-// KeysPublishRequest is the body of POST /agents/{aid}/keys, signed with
-// relayauth action "keys" by the AID itself. The hub accepts a strictly
-// higher EncKeySet.seq, answers 200 without change to an identical set at
-// the same seq, 409 to a lower seq or a different set at the same seq, and
-// 400 to a set that does not verify.
+// KeysPublishRequest is the body of POST /agents/{aid}/keys (core
+// §2.12.2), signed with relayauth action "keys" by the AID itself. Keys is
+// the seal.SignedEncKeySet encoding in base64url (B64, CORE-E5); PrevSeq the
+// seq of the last set this node signed before it (forward-secrecy FS-K5),
+// 0 for none. The hub stores a set that follows the one it holds and
+// answers 200 with keys_status ok, or unchanged for the set it holds; 409
+// keys_rollback with stored_seq when it holds a newer set than PrevSeq, or
+// the set's seq is not above the one it holds (FS-H4); 400 bad_request,
+// saying why, to a set that does not verify or breaks the mailbox key rule
+// (sealed-sender SSR-W9).
 type KeysPublishRequest struct {
-	KeySet string `json:"keyset"` // seal.SignedEncKeySet encoding, standard base64
+	Keys    string `json:"keys"`
+	PrevSeq uint64 `json:"prev_seq"`
 }
 
 // KeysPublishResponse is the 200 answer to POST /agents/{aid}/keys.
@@ -340,8 +354,13 @@ const (
 	KeysStatusUnchanged = "unchanged" // same seq and same set bytes as stored
 	KeysStatusAbsent    = "absent"    // the registration carried no key set
 	KeysStatusInvalid   = "invalid"   // did not decode or verify; not stored
-	KeysStatusConflict  = "conflict"  // lower seq, or same seq with different bytes; not stored
 )
+
+// KeysRollbackReason is the reason of the 409 a hub answers a key set
+// publication (POST /agents/{aid}/keys, or /register with enc_keys) that
+// does not follow the set it holds; the body names that set's seq,
+// stored_seq (forward-secrecy FS-H4).
+const KeysRollbackReason = "keys_rollback"
 
 // RegisterRequest is the body of POST /register (core §2.12.2). It is
 // signed with relayauth v2 action "register" in the headers; the hub
@@ -358,10 +377,13 @@ type RegisterRequest struct {
 	KEL  string   `json:"kel"`
 	// Card is the signed ADP AgentCard (JSON), when the daemon could sign one.
 	Card json.RawMessage `json:"card,omitempty"`
-	// EncKeys is the AID's current seal.SignedEncKeySet encoding, standard
-	// base64, published with every registration so a re-registration
-	// after a restart also restates it.
-	EncKeys string `json:"enc_keys,omitempty"`
+	// EncKeys is the AID's current seal.SignedEncKeySet encoding, base64url
+	// (B64, CORE-E5), published with every registration so a
+	// re-registration after a restart also restates it. PrevSeq goes with
+	// it: as in KeysPublishRequest, the seq of the last set signed before
+	// it (forward-secrecy FS-K5).
+	EncKeys string  `json:"enc_keys,omitempty"`
+	PrevSeq *uint64 `json:"prev_seq,omitempty"`
 	// A2ACard is the node's signed A2A network card (A2A-DESIGN §10.1),
 	// the exact bytes a2acard.Sign returned. Absent from a node with no
 	// public skill, which publishes no card; JSON null (WithdrawCard)

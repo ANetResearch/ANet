@@ -138,6 +138,22 @@ func TestDoctorIdentityChecks(t *testing.T) {
 		t.Fatalf("0.2: %v, want identity.format alone", f)
 	}
 
+	// An identity file a newer anet wrote: upgrade, not move away (core
+	// CORE-V4).
+	newer := freshInit(t)
+	tagged, err := coredet.Marshal(map[uint64]any{0: "anet.identity/3", 1: []byte{0x80}, 6: "ok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newer.IdentityPath(), tagged, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f = identityFindings(t, newer, env)
+	checkFinding(t, "newer", f, "identity.format", stFail, "datadir_too_new", nil)
+	if len(f) != 1 {
+		t.Fatalf("newer: %v, want identity.format alone", f)
+	}
+
 	// Witnessed, never confirmed by a notice.
 	w := freshInit(t)
 	c, err := identity.InceptAgent(1)

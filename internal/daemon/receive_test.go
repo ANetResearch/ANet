@@ -1139,9 +1139,7 @@ func TestAStoredKeySetThatNoLongerVerifiesIsReplaced(t *testing.T) {
 	if err := identitytest.Rotate(prov.self, uint64(time.Now().UnixMilli())); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prov.enc.maintain(prov.self.Sign, prov.self.CurrentSeq()); err != nil {
-		t.Fatal(err)
-	}
+	prov.maintainKeyRing()
 	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
 		t.Fatal(err)
 	}

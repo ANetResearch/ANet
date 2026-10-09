@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -283,19 +284,26 @@ const relayPollLimit = 100
 // mailbox id after (0: from the head). The mailbox is the authenticated
 // caller's; the request carries no AID of its own.
 func (d *Daemon) relayPoll(ctx context.Context, after int64) ([]hubapi.RelayMessage, error) {
+	resp, err := d.relayPollPage(ctx, after)
+	return resp.Messages, err
+}
+
+// relayPollPage is relayPoll with the whole answer: the page, and whether
+// the mailbox holds more after it (more, FS-H5).
+func (d *Daemon) relayPollPage(ctx context.Context, after int64) (hubapi.RelayPollResponse, error) {
 	hub := d.config().HubURL
 	if hub == "" {
-		return nil, fmt.Errorf("anet: no hub configured")
+		return hubapi.RelayPollResponse{}, fmt.Errorf("anet: no hub configured")
 	}
 	var resp hubapi.RelayPollResponse
 	if err := d.hubSigned(ctx, hub, http.MethodPost, "/relay/poll", relayauth.ActionPoll,
 		hubapi.RelayPollRequest{Limit: relayPollLimit, AfterID: after}, &resp); err != nil {
-		return nil, err
+		return hubapi.RelayPollResponse{}, err
 	}
 	// Every poll answer says how the hub confirms this node's key (KEL
 	// D-50): the notice is checked before the gate sees it.
 	d.noteHubNotice(resp.KeyStateNotice, resp.KeyStateNoticeError)
-	return resp.Messages, nil
+	return resp, nil
 }
 
 // relayCursor is where the next mailbox poll starts reading (A2A-DESIGN
@@ -552,32 +560,153 @@ func (d *Daemon) pollFresh(ctx context.Context) {
 // in an earlier round do not stand in front of newer ones; when nothing is
 // queued after the cursor, and in any case every relayHeadEvery rounds, a
 // round goes back over the held envelopes instead.
+//
+// Each round also tells the epoch key ring what the mailbox holds (FS-K9 to
+// FS-K11; noteRound): the kid of every envelope it held back, and, when the
+// hub said nothing more is queued and every row it read was acknowledged,
+// that the mailbox was drained as of the moment the round asked.
 func (d *Daemon) pollOnce(ctx context.Context) error {
 	hub := d.config().HubURL
 	from, back := d.relayCur.next(hub)
-	msgs, err := d.relayPoll(ctx, from)
+	askedAt := d.nowMS()
+	resp, err := d.relayPollPage(ctx, from)
 	if err != nil {
 		return err
 	}
+	msgs := resp.Messages
 	var items []hubapi.RelayAckItem
 	var last int64
 	held := false
+	round := pollRound{hub: hub, from: from, more: resp.More, askedAt: askedAt, kids: map[int64][]byte{}}
 	for _, m := range msgs {
 		last = max(last, m.ID)
+		round.read = append(round.read, m.ID)
 		var r rxResult
+		var kid []byte
 		if env, derr := hubapi.DecodeB64(m.Envelope, -1); derr != nil {
 			r = d.drop(dropBadTransport, derr) // not strict base64url (core G2) — drop
 		} else {
 			r = d.receiveEnvelope(ctx, env)
+			kid = outerKID(env)
 		}
 		if it, ok := d.ackItem(m.ID, r); ok {
 			items = append(items, it)
+			round.acked = append(round.acked, m.ID)
 		} else {
 			held = true
+			round.kids[m.ID] = kid
 		}
 	}
 	d.relayCur.done(hub, back, last, held, len(msgs) >= relayPollLimit)
-	return d.relayAck(ctx, items)
+	ackErr := d.relayAck(ctx, items)
+	round.ackOK = ackErr == nil
+	d.drain.noteRound(round)
+	return ackErr
+}
+
+// outerKID is the kid of the epoch key an envelope is sealed to (outer key
+// 4), or nil when its outer does not parse.
+func outerKID(env []byte) []byte {
+	o, err := seal.ParseOuter(env)
+	if err != nil {
+		return nil
+	}
+	return o.KID
+}
+
+// drainState is what the polls of the hub mailboxes tell the epoch key ring
+// (FS-K9, FS-K10). In memory only: after a restart no hub has a drain mark,
+// so no key goes early right after a start, and nothing is held until a
+// round finds it again; the two start empty together.
+type drainState struct {
+	mu sync.Mutex
+	// marks is each polled hub's drainMark: the local time at which a round
+	// asked whose answer said nothing more was queued (more false) and whose
+	// rows were all acknowledged, or which had none to acknowledge. Every
+	// row the hub accepted before that moment was read at least once and is
+	// either gone from the mailbox or held back.
+	marks map[string]uint64
+	// held is the outer kid of each mailbox row a round held back (a
+	// temporary refusal, not acknowledged), by hub and row id, until a
+	// round acknowledges it or finds it gone.
+	held map[heldRow][]byte
+}
+
+// heldRow is a mailbox row of one hub.
+type heldRow struct {
+	hub string
+	id  int64
+}
+
+// pollRound is what one poll round read and did.
+type pollRound struct {
+	hub     string
+	from    int64   // after_id of the request
+	more    bool    // the hub said more is queued after the page
+	askedAt uint64  // local time when the request was made
+	read    []int64 // the ids on the page
+	acked   []int64 // the ids acknowledged (in the ack request)
+	kids    map[int64][]byte
+	ackOK   bool // the ack request succeeded, or there was none
+}
+
+// noteRound records a poll round (FS-K9, FS-K10). A held row is forgotten
+// once a round acknowledges it, or once a round reads past its id without
+// finding it: the hub holds it no more (it expired, or was acknowledged).
+func (s *drainState) noteRound(r pollRound) {
+	hub := strings.TrimRight(r.hub, "/")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.held == nil {
+		s.held, s.marks = map[heldRow][]byte{}, map[string]uint64{}
+	}
+	onPage := map[int64]bool{}
+	var last int64
+	for _, id := range r.read {
+		onPage[id] = true
+		last = max(last, id)
+	}
+	for row := range s.held {
+		if row.hub == hub && row.id > r.from && (row.id <= last || !r.more) && !onPage[row.id] {
+			delete(s.held, row)
+		}
+	}
+	for id, kid := range r.kids {
+		s.held[heldRow{hub, id}] = kid
+	}
+	if r.ackOK {
+		for _, id := range r.acked {
+			delete(s.held, heldRow{hub, id})
+		}
+	}
+	if !r.more && r.ackOK && r.askedAt > s.marks[hub] {
+		s.marks[hub] = r.askedAt
+	}
+}
+
+// drainInputs is the drainMark and heldKids the deletion rule takes
+// (epochKeyDeletable): for a node without a hub, the largest uint64 and none
+// (FS-K8); otherwise the configured hub's mark (0 before its first drained
+// round) and the kids it holds back. The marks and rows are kept per hub,
+// so that the old hub drained after a hub change (FS-K6a, KEL D-32) can
+// join: the mark is then the least of the polled hubs' and the kids are
+// every polled hub's.
+func (d *Daemon) drainInputs() (uint64, kidSet) {
+	hub := d.config().HubURL
+	if hub == "" {
+		return math.MaxUint64, nil
+	}
+	key := strings.TrimRight(hub, "/")
+	s := &d.drain
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	held := kidSet{}
+	for row, kid := range s.held {
+		if row.hub == key && kid != nil {
+			held[string(kid)] = struct{}{}
+		}
+	}
+	return s.marks[key], held
 }
 
 // kickAutoReply wakes the auto-reply loop immediately (non-blocking; coalesces bursts). No-op when the

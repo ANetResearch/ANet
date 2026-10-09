@@ -288,8 +288,11 @@ func ReadIdentityStatus(l Layout, lang a2ashape.Language) (IdentityStatus, error
 	if err != nil {
 		return IdentityStatus{}, err
 	}
-	if identityFileIsV02(b) {
+	if identityFileIsV02(b) || identityFileTagIsOlder(b) {
 		return IdentityStatus{}, oldDataDirRefusal()
+	}
+	if identityFileIsNewer(b) {
+		return IdentityStatus{}, newerDataDirRefusal()
 	}
 	c, err := identity.Restore(b)
 	if err != nil {

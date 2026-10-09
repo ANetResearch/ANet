@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -25,8 +26,8 @@ import (
 // (CheckDataDirForStart, what anet daemon and anet up print) and New say
 // the same.
 //
-// RC-4 covers interactions.db (user_version 0, 1 and 2); FS-4 adds its
-// enc_keys.cbor cases here.
+// RC-4 covers interactions.db (user_version 0, 1 and 2); FS-4 adds the
+// enc_keys.cbor cases: the key ring 0.2 wrote (v 1), and one with no v.
 func TestRefuseV02DataDir(t *testing.T) {
 	for _, v := range []int{0, 1, 2} {
 		t.Run(fmt.Sprintf("interactions.db user_version %d", v), func(t *testing.T) {
@@ -40,6 +41,128 @@ func TestRefuseV02DataDir(t *testing.T) {
 		layout := v02DataDir(t, false, func(l Layout) { writeV02Store(t, l, 0) })
 		refuseV02(t, layout)
 	})
+	for name, ring := range map[string]map[uint64]any{
+		"enc_keys.cbor v 1":    v02KeyRing(1),
+		"enc_keys.cbor v 0":    v02KeyRing(0),
+		"enc_keys.cbor no v":   v02KeyRing(-1),
+		"enc_keys.cbor v 1, a": {1: uint64(1), 2: "did:anet:someone", 3: uint64(1)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			layout := v02DataDir(t, true, func(l Layout) { writeRingFile(t, l, ring) })
+			refuseV02(t, layout)
+		})
+	}
+	t.Run("enc_keys.cbor v 1, no identity file", func(t *testing.T) {
+		layout := v02DataDir(t, false, func(l Layout) { writeRingFile(t, l, v02KeyRing(1)) })
+		refuseV02(t, layout)
+	})
+}
+
+// v02KeyRing is enc_keys.cbor as anet 0.2 wrote it — {1: v, 2: aid, 3:
+// last_seq, 4: key pairs, 5: signed set} — with v (absent when v < 0).
+func v02KeyRing(v int) map[uint64]any {
+	m := map[uint64]any{2: "did:anet:old", 3: uint64(1_700_000_000_000),
+		4: []any{map[uint64]any{1: map[uint64]any{1: make([]byte, 16), 2: uint64(1), 3: make([]byte, 32),
+			4: uint64(1_700_000_000_000), 5: uint64(1_700_604_800_000)}, 2: make([]byte, 32)}},
+		5: []byte{0xa0}}
+	if v >= 0 {
+		m[1] = uint64(v)
+	}
+	return m
+}
+
+// writeRingFile writes ring as enc_keys.cbor.
+func writeRingFile(t *testing.T, l Layout, ring map[uint64]any) {
+	t.Helper()
+	b, err := coredet.Marshal(ring)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(l.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(l.EncKeysPath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRefuseNewerDataDir (core CORE-V4, revision 5): a data directory a
+// newer anet wrote — interactions.db with a user_version above 3, a key
+// ring with a v above 2, an identity file whose type tag names a version
+// above 2 — is refused at start with datadir_too_new, whose next step is to
+// upgrade and keep the directory, never with identity_v02, whose next step
+// is to move it away. Nothing in it changes. When one part is newer and
+// another older, the newer wins: the directory holds data this version
+// cannot judge.
+func TestRefuseNewerDataDir(t *testing.T) {
+	t.Run("interactions.db user_version 4", func(t *testing.T) {
+		layout := v02DataDir(t, true, func(l Layout) { writeV02Store(t, l, 4) })
+		refuseDataDir(t, layout, "datadir_too_new")
+	})
+	t.Run("enc_keys.cbor v 3", func(t *testing.T) {
+		layout := v02DataDir(t, true, func(l Layout) {
+			ring := v02KeyRing(3)
+			ring[10] = "a member this version does not know"
+			writeRingFile(t, l, ring)
+		})
+		refuseDataDir(t, layout, "datadir_too_new")
+	})
+	t.Run("identity file anet.identity/3", func(t *testing.T) {
+		layout := v02DataDir(t, false, func(l Layout) { writeTaggedIdentity(t, l, 3) })
+		refuseDataDir(t, layout, "datadir_too_new")
+		_, err := LoadOrGenerateIdentity(layout)
+		assertDataDirRefusal(t, "LoadOrGenerateIdentity", err, "datadir_too_new")
+		if _, err := ReadIdentityStatus(layout, a2ashape.Lang()); !isRefusal(err, "datadir_too_new") {
+			t.Fatalf("ReadIdentityStatus: %v, want datadir_too_new", err)
+		}
+	})
+	t.Run("a newer key ring beside a 0.2 store", func(t *testing.T) {
+		layout := v02DataDir(t, true, func(l Layout) {
+			writeV02Store(t, l, 0)
+			writeRingFile(t, l, v02KeyRing(3))
+		})
+		refuseDataDir(t, layout, "datadir_too_new")
+	})
+	// An older tagged identity file is 0.2's case, and an identity file
+	// whose tag is not of that form is damaged, which neither says.
+	t.Run("identity file anet.identity/1", func(t *testing.T) {
+		layout := v02DataDir(t, false, func(l Layout) { writeTaggedIdentity(t, l, 1) })
+		refuseDataDir(t, layout, "identity_v02")
+	})
+	for name, tag := range map[string]string{"no number": identityFileTagPrefix, "leading zero": identityFileTagPrefix + "03",
+		"sign": identityFileTagPrefix + "+3", "other prefix": "anet-identity/3"} {
+		t.Run("identity file tag "+name, func(t *testing.T) {
+			layout := v02DataDir(t, false, func(l Layout) { writeIdentityTag(t, l, tag) })
+			if err := CheckDataDirForStart(layout); err != nil {
+				t.Fatalf("a damaged identity file was refused as old or new: %v", err)
+			}
+		})
+	}
+	if identity.IdentityFileType != identityFileTagPrefix+fmt.Sprint(identityFileVersion) {
+		t.Fatalf("this version's identity tag is %q, the check takes %q%d", identity.IdentityFileType, identityFileTagPrefix, identityFileVersion)
+	}
+}
+
+// writeTaggedIdentity writes an identity file whose type tag names version n.
+func writeTaggedIdentity(t *testing.T, l Layout, n int) {
+	t.Helper()
+	writeIdentityTag(t, l, fmt.Sprintf("%s%d", identityFileTagPrefix, n))
+}
+
+// writeIdentityTag writes an identity file of this version's shape with the
+// type tag tag.
+func writeIdentityTag(t *testing.T, l Layout, tag string) {
+	t.Helper()
+	b, err := coredet.Marshal(map[uint64]any{0: tag, 1: []byte{0x80}, 6: "ok", 20: "a member a newer version added"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(l.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(l.IdentityPath(), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // v02DataDir is a data directory with a config.json, an identity when
@@ -98,14 +221,21 @@ func writeV02Store(t *testing.T, l Layout, v int) {
 // was.
 func refuseV02(t *testing.T, layout Layout) {
 	t.Helper()
+	refuseDataDir(t, layout, "identity_v02")
+}
+
+// refuseDataDir checks that layout is refused with code alone, by the check
+// before the start and by New, and that the directory is left as it was.
+func refuseDataDir(t *testing.T, layout Layout, code string) {
+	t.Helper()
 	before := dataDirState(t, layout.Root)
 	time.Sleep(10 * time.Millisecond) // a write would show in a modification time
-	assertV02Refusal(t, "CheckDataDirForStart", CheckDataDirForStart(layout))
+	assertDataDirRefusal(t, "CheckDataDirForStart", CheckDataDirForStart(layout), code)
 	d, err := New(layout)
 	if d != nil {
 		d.Close()
 	}
-	assertV02Refusal(t, "New", err)
+	assertDataDirRefusal(t, "New", err, code)
 	if after := dataDirState(t, layout.Root); !reflect.DeepEqual(after, before) {
 		t.Fatalf("the refused data directory changed:\n before %v\n after  %v", before, after)
 	}
@@ -113,17 +243,24 @@ func refuseV02(t *testing.T, layout Layout) {
 
 func assertV02Refusal(t *testing.T, who string, err error) {
 	t.Helper()
+	assertDataDirRefusal(t, who, err, "identity_v02")
+}
+
+// assertDataDirRefusal checks that err is the one refusal code, saying its
+// sentence in both languages.
+func assertDataDirRefusal(t *testing.T, who string, err error, code string) {
+	t.Helper()
 	var cr *ConfigRefusal
-	if !errors.As(err, &cr) || len(cr.Refusals) != 1 || cr.Refusals[0].Code() != "identity_v02" {
-		t.Fatalf("%s: %v, want the one refusal identity_v02", who, err)
+	if !errors.As(err, &cr) || len(cr.Refusals) != 1 || cr.Refusals[0].Code() != code {
+		t.Fatalf("%s: %v, want the one refusal %s", who, err, code)
 	}
 	for _, lang := range []a2ashape.Language{a2ashape.English, a2ashape.Chinese} {
-		want := a2ashape.Sentence("identity_v02", lang, nil)
+		want := a2ashape.Sentence(code, lang, nil)
 		if got := cr.Sentences(lang); len(got) != 1 || got[0] != want {
 			t.Errorf("%s (%v): %q, want %q", who, lang, got, want)
 		}
 	}
-	if err.Error() != a2ashape.Sentence("identity_v02", a2ashape.Lang(), nil) {
+	if err.Error() != a2ashape.Sentence(code, a2ashape.Lang(), nil) {
 		t.Errorf("%s: the error reads %q, not the sentence", who, err.Error())
 	}
 }
@@ -207,4 +344,33 @@ func TestRefuseV02DataDirFoundOnlyInTheLog(t *testing.T) {
 	if version != 0 || objects != 2 || reason != 0 { // the table and its primary key index, as written
 		t.Fatalf("the refused store was converted: user_version %d, %d schema objects, reason column %d", version, objects, reason)
 	}
+}
+
+// FuzzDataDirVersions: the start check's readers of the key ring's v and
+// the identity file's type tag never panic, and agree with how the start
+// judges the file: a v the ring decoder takes is this version's, and a
+// version tag read from an identity file is the tag's own number.
+func FuzzDataDirVersions(f *testing.F) {
+	for _, m := range []map[uint64]any{v02KeyRing(1), v02KeyRing(3), v02KeyRing(-1), {0: "anet.identity/3"},
+		{0: "anet.identity/2", 1: []byte{0x80}}, {0: "anet.identity/03"}, {0: uint64(2)}} {
+		b, err := coredet.Marshal(m)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(b)
+	}
+	f.Add([]byte("not cbor"))
+	f.Fuzz(func(t *testing.T, b []byte) {
+		v, ok := keyRingFileVersion(b)
+		if fk, err := decodeEncKeyFile(b); err == nil && (!ok || v != encKeyFileVersion || fk.V != v) {
+			t.Fatalf("the ring decoder took v %d that the start reads as %d (%v)", fk.V, v, ok)
+		}
+		n, tagged := identityFileTagVersion(b)
+		if tagged && identityFileIsV02(b) {
+			t.Fatal("a tagged identity file is also 0.2's untagged one")
+		}
+		if tagged && (identityFileIsNewer(b) != (n > identityFileVersion) || identityFileTagIsOlder(b) != (n < identityFileVersion)) {
+			t.Fatalf("tag version %d judged inconsistently", n)
+		}
+	})
 }

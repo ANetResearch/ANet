@@ -327,6 +327,11 @@ type mboxState struct {
 	// epochInvalid is /status.sender_privacy.hub_epoch_invalid: an epoch
 	// with no room below 2^53 was seen in this run (SSR-W10).
 	epochInvalid atomic.Bool
+	// healedFrom is the epoch of the hub's mailbox key the last SSR-W10a
+	// heal went above (0: none in this run). The same hub key again is not
+	// healed from twice: the new key it made did not satisfy the hub, and
+	// making another would void every capability for nothing.
+	healedFrom uint64
 }
 
 // mailboxStatus is what /status.sender_privacy reports about the mailbox
@@ -414,33 +419,97 @@ func beenAtAHub(c *identity.Controller) bool {
 // after a rotation) must still be read. An epoch too large to add to is
 // caught by nextMboxEpoch.
 func (d *Daemon) hubStoredMboxEpoch(ctx context.Context, hub string) (epoch uint64, found bool, err error) {
+	m, found, err := d.hubStoredMbox(ctx, hub)
+	return m.Epoch, found, err
+}
+
+// hubStoredMbox is the mailbox signing key of the key set this node's hub
+// stores for it (GET /agents/{self}/keys, on the signed side): its epoch
+// and public key. found is false when the hub has none (404). The set is
+// decoded, not verified, as hubStoredMboxEpoch says.
+func (d *Daemon) hubStoredMbox(ctx context.Context, hub string) (seal.Mbox, bool, error) {
 	var out hubapi.KeysResponse
-	err = d.hubGet(ctx, hub, "/agents/"+url.PathEscape(d.AID())+"/keys", nil, &out)
+	err := d.hubGet(ctx, hub, "/agents/"+url.PathEscape(d.AID())+"/keys", nil, &out)
 	if hubStatus(err) == 404 {
-		return 0, false, nil
+		return seal.Mbox{}, false, nil
 	}
 	if err != nil {
-		return 0, false, err
+		return seal.Mbox{}, false, err
 	}
 	raw, err := decodeHubB64(out.KeySet)
 	if err != nil {
-		return 0, false, fmt.Errorf("anet: the hub's key set for this node is not base64: %w", err)
+		return seal.Mbox{}, false, fmt.Errorf("anet: the hub's key set for this node is not base64: %w", err)
 	}
 	signed, err := seal.UnmarshalSignedEncKeySet(raw)
 	if err != nil {
-		return 0, false, fmt.Errorf("anet: the hub's key set for this node: %w", err)
+		return seal.Mbox{}, false, fmt.Errorf("anet: the hub's key set for this node: %w", err)
 	}
 	var set seal.EncKeySet
 	if err := coredet.UnmarshalStrict(signed.Set, &set); err != nil {
-		return 0, false, fmt.Errorf("anet: the hub's key set for this node: %w", err)
+		return seal.Mbox{}, false, fmt.Errorf("anet: the hub's key set for this node: %w", err)
 	}
 	if set.AID != d.AID() || (out.AID != "" && out.AID != d.AID()) {
-		return 0, false, fmt.Errorf("anet: the hub answered with the key set of %s", set.AID)
+		return seal.Mbox{}, false, fmt.Errorf("anet: the hub answered with the key set of %s", set.AID)
 	}
 	if set.Mbox.Epoch == 0 {
-		return 0, false, errors.New("anet: the hub's key set for this node has no mailbox signing key")
+		return seal.Mbox{}, false, errors.New("anet: the hub's key set for this node has no mailbox signing key")
 	}
-	return set.Mbox.Epoch, true, nil
+	return set.Mbox, true, nil
+}
+
+// healMboxEpoch is SSR-W10a: the hub refused this node's key set as invalid
+// — at /register keys_status invalid, on POST /agents/{aid}/keys 400
+// bad_request — and the cause may be the mailbox key rule (SSR-W9): the
+// hub holds a mailbox key this node's does not follow, because mbox.key
+// came back from a backup, or was lost with the key ring by an identity
+// that had not been at a hub. The hub's stored key is read (on the signed
+// side); when its epoch is above this node's, or equal with another key, a
+// new mailbox key is made one above the hub's (rotateMboxAboveTx: the
+// capabilities the old key signed go with it), and the caller publishes
+// again. It reports whether it made one.
+//
+// At most once per refusal: the caller publishes once more and stops, and
+// the hub key healed from is remembered, so a hub that refuses again (one
+// whose stored epoch is 2^53 or more, which no honest hub stores, gives a
+// new key numbered 1 that it refuses too) is not healed from again; the
+// retries back off (SSR-D4). A refusal for any other cause — the hub's key
+// is this node's, or older — makes nothing.
+func (d *Daemon) healMboxEpoch(ctx context.Context, hub string) bool {
+	cur, ok := d.mbox.Current()
+	if !ok {
+		return false
+	}
+	stored, found, err := d.hubStoredMbox(ctx, hub)
+	if err != nil || !found {
+		if err != nil {
+			log.Printf("anet: read the mailbox signing key %s stores for this node: %v", hub, err)
+		}
+		return false
+	}
+	if stored.Epoch < cur.Epoch || stored.Epoch == cur.Epoch && bytes.Equal(stored.Pub, cur.Pub) {
+		return false
+	}
+	d.mboxSt.mu.Lock()
+	again := d.mboxSt.healedFrom != 0 && d.mboxSt.healedFrom == stored.Epoch
+	if !again {
+		d.mboxSt.healedFrom = stored.Epoch
+	}
+	d.mboxSt.mu.Unlock()
+	if again {
+		return false
+	}
+	var m seal.Mbox
+	if err := d.ix.Update(func(tx *interactions.Tx) error {
+		var err error
+		m, err = d.rotateMboxAboveTx(tx, stored.Epoch)
+		return err
+	}); err != nil {
+		log.Printf("anet: replace the mailbox signing key %s does not take: %v", hub, err)
+		return false
+	}
+	log.Printf("anet: %s holds mailbox signing key number %d, which this node's (number %d) does not follow; "+
+		"anet made number %d and publishes its keys again", hub, stored.Epoch, cur.Epoch, m.Epoch)
+	return true
 }
 
 // decodeHubB64 decodes a binary value of a hub answer: base64url without
@@ -467,9 +536,15 @@ func (d *Daemon) rotateMboxTx(tx *interactions.Tx) (seal.Mbox, error) {
 	if !ok {
 		return seal.Mbox{}, errMboxPending
 	}
-	epoch, anomaly := nextMboxEpoch(cur.Epoch)
+	return d.rotateMboxAboveTx(tx, cur.Epoch)
+}
+
+// rotateMboxAboveTx is rotateMboxTx with the new key numbered one above
+// prev rather than above this node's key (SSR-W10a: above the hub's).
+func (d *Daemon) rotateMboxAboveTx(tx *interactions.Tx, prev uint64) (seal.Mbox, error) {
+	epoch, anomaly := nextMboxEpoch(prev)
 	if anomaly {
-		d.noteMboxEpochAnomaly(cur.Epoch)
+		d.noteMboxEpochAnomaly(prev)
 	}
 	m, err := d.mbox.install(epoch, nil)
 	if err != nil {

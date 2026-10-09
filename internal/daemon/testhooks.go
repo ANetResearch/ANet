@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// Test hooks: the wire clock, the receive-transaction fault, the outbound
-// gate and the join loop's wait.
+// Test hooks: the wire clock, the boot clock, the receive-transaction fault,
+// the outbound gate and the join loop's wait.
 //
 // All are fields a test sets on a daemon that is already running. New
 // starts the outbox loop and the receive maintenance before it returns,
@@ -27,6 +27,37 @@ func (d *Daemon) setClock(f func() uint64) {
 		return
 	}
 	d.clock.Store(&f)
+}
+
+// setMonoClock replaces the boot clock the clock gate counts running time
+// on (monoMS) with f; nil restores the boot clock. The next maintenance
+// period starts the count afresh, as the first period of a process does,
+// so a reading of one clock is never subtracted from one of the other.
+func (d *Daemon) setMonoClock(f func() uint64) {
+	if f == nil {
+		d.monoClock.Store(nil)
+	} else {
+		d.monoClock.Store(&f)
+	}
+	d.forgetCycle()
+}
+
+// setKeyHold makes keysHeld answer f(): a test stands in for the emergency
+// rotation between its E1 and E2. nil restores the default.
+func (d *Daemon) setKeyHold(f func() bool) {
+	if f == nil {
+		d.keyHold.Store(nil)
+		return
+	}
+	d.keyHold.Store(&f)
+}
+
+// testKeyHold is the key hold a test set, or nil.
+func (d *Daemon) testKeyHold() func() bool {
+	if p := d.keyHold.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // setRxFault makes every receive transaction call f after its business
@@ -84,6 +115,14 @@ func (d *Daemon) setHubRoots(pool *x509.CertPool) {
 // testClock is the clock a test set, or nil.
 func (d *Daemon) testClock() func() uint64 {
 	if p := d.clock.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// testMonoClock is the boot clock a test set, or nil.
+func (d *Daemon) testMonoClock() func() uint64 {
+	if p := d.monoClock.Load(); p != nil {
 		return *p
 	}
 	return nil

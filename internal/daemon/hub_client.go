@@ -66,15 +66,22 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 	}
 	// The key set is restated on every registration, so a hub that lost
 	// it, or a registration after a restart, carries the current one. The
-	// hub answers an identical set at the same seq as unchanged.
+	// hub answers an identical set at the same seq as unchanged. It goes
+	// in base64url with its prev_seq (FS-K5), and not at all while key
+	// sets are held (keysHeld): the registration then restates nothing.
 	keysSeq := uint64(0)
 	var keySet []byte
-	if d.enc != nil {
-		if ks := d.enc.SignedSet(); len(ks) > 0 {
-			body.EncKeys = base64.StdEncoding.EncodeToString(ks)
-			keysSeq, keySet = d.enc.Seq(), ks
+	withKeys := func() {
+		keysSeq, keySet, body.EncKeys, body.PrevSeq = 0, nil, "", nil
+		if d.enc == nil || d.keysHeld() {
+			return
+		}
+		if ks, seq, prev := d.enc.published(); len(ks) > 0 {
+			body.EncKeys, body.PrevSeq = hubapi.B64(ks), &prev
+			keysSeq, keySet = seq, ks
 		}
 	}
+	withKeys()
 	// The card carries the same claims, signed by the node making them.
 	// The request signature proves who is calling; only this proves what
 	// they said. See card.go.
@@ -91,6 +98,18 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 		return hubReply{Local: true, Err: err}
 	}
 	reply := d.hubSignedRaw(ctx, hubURL, http.MethodPost, "/register", relayauth.ActionRegister, body)
+	if stored, ok := keysRollbackOf(reply); ok && keySet != nil {
+		// The hub holds a newer set of this identity than the one sent, and
+		// wrote nothing: the registration goes again once with a set above
+		// the hub's (adoptKeysSeq), or not at all.
+		if d.adoptKeysSeq(hubURL, stored) {
+			withKeys()
+			if err := d.screenPublication("this node's registration", body); err != nil {
+				return hubReply{Local: true, Err: err}
+			}
+			reply = d.hubSignedRaw(ctx, hubURL, http.MethodPost, "/register", relayauth.ActionRegister, body)
+		}
+	}
 	if reply.Status != http.StatusOK {
 		return reply
 	}
@@ -114,6 +133,9 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 	case keysAccepted(out.KeysStatus):
 		d.publishedKeySeq.Store(keysSeq)
 		d.noteKeysAtHub(keySet, true)
+		if err := d.enc.markRemoved(keySet, d.nowMS()); err != nil {
+			log.Printf("anet: record the keys %s no longer holds: %v", hubURL, err)
+		}
 	default:
 		log.Printf("anet: %s did not take this node's encryption keys at registration (keys_status %q: %s); publishing them separately",
 			hubURL, out.KeysStatus, out.KeysError)
@@ -130,22 +152,59 @@ func keysAccepted(status string) bool {
 	return status == hubapi.KeysStatusOK || status == hubapi.KeysStatusUnchanged
 }
 
+// errKeysHeld is a key set publication while key sets are held (keysHeld):
+// nothing is sent.
+var errKeysHeld = errors.New("anet: key sets are held until the emergency rotation publishes its new keys")
+
 // publishKeys sends the current signed key set to the hub (POST
-// /agents/{aid}/keys). 200 with keys_status ok or unchanged means the hub
-// holds this set; 409 means it holds a set this one does not supersede,
-// which after a lost key ring file is expected until the clock passes the
-// old seq (seal.NextSeq). Every answer is checked for the mailbox signing
-// key (SSR-D4, noteKeysAtHub).
+// /agents/{aid}/keys): base64url, with the prev_seq it follows (FS-K5).
+// 200 with keys_status ok or unchanged means the hub holds this set, and
+// the keys it does not list are no longer acceptable there (FS-K6). 409
+// keys_rollback means the hub holds a newer set of this identity than this
+// ring signed (a lost or restored key ring): the set is signed again above
+// it and sent once more (adoptKeysSeq). 400 bad_request means the hub
+// refused the set: when its mailbox key is behind the hub's, a new one is
+// made above it and the set sent once more (healMboxEpoch, SSR-W10a).
+// Every answer is checked for the mailbox signing key (SSR-D4,
+// noteKeysAtHub). Nothing is sent while key sets are held (keysHeld).
 func (d *Daemon) publishKeys(ctx context.Context, hubURL string) error {
 	if d.enc == nil {
 		return fmt.Errorf("anet: no key ring")
 	}
-	ks, seq := d.enc.SignedSet(), d.enc.Seq()
+	if d.keysHeld() {
+		return errKeysHeld
+	}
+	err := d.publishKeysOnce(ctx, hubURL)
+	if stored, ok := keysRollbackSeq(err); ok && d.adoptKeysSeq(hubURL, stored) {
+		err = d.publishKeysOnce(ctx, hubURL)
+	}
+	// The hub refused the set as invalid: the mailbox key may be one it
+	// cannot take (SSR-W9), which a new key above the hub's heals, once
+	// (SSR-W10a).
+	if keySetRefused(err) && d.healMboxEpoch(ctx, hubURL) {
+		if rerr := d.resignKeyRing(); rerr != nil {
+			return rerr
+		}
+		err = d.publishKeysOnce(ctx, hubURL)
+	}
+	return err
+}
+
+// keySetRefused reports whether err is the hub refusing a key set as
+// invalid: POST /agents/{aid}/keys answers 400 bad_request, saying why
+// (forward-secrecy FS-H4, sealed-sender SSR-W9).
+func keySetRefused(err error) bool {
+	return hubStatus(err) == http.StatusBadRequest && hubReason(err) == "bad_request"
+}
+
+// publishKeysOnce is one POST /agents/{aid}/keys of the ring's current set.
+func (d *Daemon) publishKeysOnce(ctx context.Context, hubURL string) error {
+	ks, seq, prev := d.enc.published()
 	if len(ks) == 0 {
 		d.noteKeysAtHub(nil, false)
 		return fmt.Errorf("anet: key ring has no signed set")
 	}
-	body := hubapi.KeysPublishRequest{KeySet: base64.StdEncoding.EncodeToString(ks)}
+	body := hubapi.KeysPublishRequest{Keys: hubapi.B64(ks), PrevSeq: prev}
 	var out hubapi.KeysPublishResponse
 	if err := d.hubSigned(ctx, hubURL, http.MethodPost, "/agents/"+url.PathEscape(d.AID())+"/keys",
 		relayauth.ActionKeys, body, &out); err != nil {
@@ -158,7 +217,54 @@ func (d *Daemon) publishKeys(ctx context.Context, hubURL string) error {
 	}
 	d.publishedKeySeq.Store(seq)
 	d.noteKeysAtHub(ks, true)
+	if err := d.enc.markRemoved(ks, d.nowMS()); err != nil {
+		log.Printf("anet: record the keys %s no longer holds: %v", hubURL, err)
+	}
 	return nil
+}
+
+// counterKeysRollbackUnverified counts the hub's keys_rollback answers this
+// node followed without finding that its own data went back (FS-B2).
+const counterKeysRollbackUnverified = "keys-rollback-unverified"
+
+// adoptKeysSeq answers the hub's 409 keys_rollback with stored_seq (FS-B2,
+// the branch that ends nothing): the ring signs its set again above
+// stored_seq, with prev_seq stored_seq, so the next publication follows the
+// hub's set. It reports whether there is a new set to send. Counted and
+// logged; no task ends and nothing is shown, since only a set this identity
+// signed would say this node's data went back.
+func (d *Daemon) adoptKeysSeq(hubURL string, storedSeq uint64) bool {
+	in := d.ringInputsAt(d.nowMS())
+	in.hold = d.keysHeld()
+	adopted, err := d.enc.adoptStoredSeq(storedSeq, in)
+	if err != nil {
+		log.Printf("anet: sign a key set above the one %s holds: %v", hubURL, err)
+		return false
+	}
+	if adopted {
+		d.countErr(counterKeysRollbackUnverified, fmt.Errorf("%s holds key set seq %d of this identity, newer than this node signed; the next set follows it",
+			hubURL, storedSeq))
+	}
+	return adopted
+}
+
+// keysRollbackSeq reads a hub's 409 keys_rollback refusal of a key set:
+// the stored_seq it names.
+func keysRollbackSeq(err error) (uint64, bool) {
+	var he *hubError
+	if !errors.As(err, &he) || he.code != http.StatusConflict || he.reason != hubapi.KeysRollbackReason || he.storedSeq == nil {
+		return 0, false
+	}
+	return *he.storedSeq, true
+}
+
+// keysRollbackOf is keysRollbackSeq for a reply read as it came
+// (/register).
+func keysRollbackOf(r hubReply) (uint64, bool) {
+	if r.Status != http.StatusConflict {
+		return 0, false
+	}
+	return keysRollbackSeq(newHubError("/register", r))
 }
 
 // PublishProfile uploads this agent's self-authored profile (summary/readme/pricing) to the Hub,
@@ -509,7 +615,13 @@ func (d *Daemon) hubTransmit(req *http.Request, hubURL, route string, kind int) 
 	req.Header.Set(hubapi.WireVersionHeader, strconv.Itoa(hubapi.WireVersion))
 	req.Header.Set("User-Agent", hubUserAgent)
 	req.Header.Del("Cookie")
-	return d.hubc.client(side).Do(req)
+	resp, err := d.hubc.client(side).Do(req)
+	if err == nil {
+		// Every answer of the configured hub checks this node's clock
+		// against the hub's (FS-K14).
+		d.noteHubDate(hubURL, resp.Header.Get("Date"))
+	}
+	return resp, err
 }
 
 // moduleHubDo is module.PaymentSeam.HubDo and module.HubSeam.HubDo: a
@@ -570,7 +682,16 @@ func (d *Daemon) hubDo(req *http.Request, hubURL, route string, out any) error {
 // and sentence (core G1), and its Retry-After.
 func newHubError(path string, rep hubReply) *hubError {
 	reason, msg := hubapi.ParseErrorBody(rep.Body)
-	return &hubError{path: path, code: rep.Status, reason: reason, msg: msg, retryAfter: rep.RetryAfter}
+	e := &hubError{path: path, code: rep.Status, reason: reason, msg: msg, retryAfter: rep.RetryAfter}
+	if reason == hubapi.KeysRollbackReason {
+		var extra struct {
+			StoredSeq *uint64 `json:"stored_seq"`
+		}
+		if json.Unmarshal(rep.Body, &extra) == nil {
+			e.storedSeq = extra.StoredSeq
+		}
+	}
+	return e
 }
 
 // hubError is a non-2xx hub answer. The status code is kept so a caller can
@@ -583,6 +704,8 @@ type hubError struct {
 	reason     string
 	msg        string
 	retryAfter string
+	// storedSeq is the stored_seq of a 409 keys_rollback (FS-H4).
+	storedSeq *uint64
 }
 
 func (e *hubError) Error() string {
