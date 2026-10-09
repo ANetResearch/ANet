@@ -128,7 +128,10 @@ func doctorIDKeys(id string) []string {
 func TestDoctorSandboxFromTheRunningDaemon(t *testing.T) {
 	calls := 0
 	env := testDoctorEnv(t)
-	env.sandbox = func() daemon.SandboxCheck { calls++; return daemon.SandboxCheck{Kind: "seatbelt", Reason: "netns_failed"} }
+	env.sandbox = func() daemon.SandboxCheck {
+		calls++
+		return daemon.SandboxCheck{Kind: "seatbelt", Reason: "netns_failed"}
+	}
 	status := map[string]any{}
 	env.running = func(string, string) bool { return true }
 	env.status = func(string, string) (map[string]any, error) { return status, nil }
