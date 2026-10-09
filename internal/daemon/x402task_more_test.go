@@ -22,7 +22,6 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -552,7 +551,6 @@ func TestEverySigningSurfaceIsHeldToTheSpendingPolicy(t *testing.T) {
 	for _, c := range []struct{ route, body string }{
 		{"/tasks/pay", `{"task_id":"` + id + `","decision":"submit"}`},                        // task-agent: agent_max 1
 		{"/tasks/pay-manual", `{"task_id":"` + id + `","decision":"submit"}`},                 // task-manual: explicit_max 2
-		{"/x402-authorize", `{"pay_to":"` + prov.AID() + `","amount":3}`},                     // gateway: explicit_max 2
 		{"/redeem", `{"amount":3,"reference":"c27-redeem","pay_to":"` + hubAIDOf(hub) + `"}`}, // redeem: explicit_max 2
 	} {
 		resp, b := p.req(t, "POST", c.route, c.body, p.bearer)
@@ -580,55 +578,6 @@ func TestEverySigningSurfaceIsHeldToTheSpendingPolicy(t *testing.T) {
 	}
 }
 
-// an internal note item on the busy path: a prepaid long call without a task nonce that
-// arrives while every long-call slot is taken is rejected with
-// task_nonce_required like any other priced call — not quoted, and its
-// payment not settled.
-func TestAPrepaidCallWithoutANonceIsRejectedWhenBusy(t *testing.T) {
-	t.Skip("v030-todo(PAY-9)") // prepayment (DelegateReq key 6) is retired with the gateway
-	work := &meteredWork{price: 10, gate: make(chan struct{}), started: make(chan struct{})}
-	defer close(work.gate)
-	hub, req, prov := paidPair(t, work)
-	payPolicy(t, req, PaymentsConfig{ExplicitMax: u64(100), DailyMax: u64(100)}, prov.AID())
-	const id = "ix_nononce_busy"
-	raw, err := req.payer().Authorize(payment.PaymentOption{Scheme: payment.SchemeCredit,
-		Network: payment.CreditNetwork(hubAIDOf(hub)), Amount: payment.Amount(10), Asset: payment.AssetCredit,
-		PayTo: prov.AID()}, id, mustPayBind(t, id, ""), module.PurposeGateway)
-	if err != nil {
-		t.Fatal(err)
-	}
-	dr, err := delegation.UnmarshalDelegateReq(delegateBody(t, req.self, id, "work.do", "work.do"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = raw // v030-todo(PAY-9): nothing carries a prepayment any more
-	body, err := dr.Marshal()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := 0; i < maxConcurrentLongCalls; i++ {
-		prov.longCalls <- struct{}{}
-	}
-	defer func() {
-		for i := 0; i < maxConcurrentLongCalls; i++ {
-			<-prov.longCalls
-		}
-	}()
-	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeDelegate, id, body)); r.class != rxAccepted {
-		t.Fatalf("delegate: %+v", r)
-	}
-	waitUntil(t, "the call to be answered", func() bool { return getIX(t, prov, id).IsTerminal() })
-	pix := getIX(t, prov, id)
-	meta := decodeMeta([]byte(pix.ResultMeta))
-	if pix.State != interactions.StateRejected || meta[x402a2a.KeyReason] != x402a2a.ReasonTaskNonceRequired ||
-		pix.PayState != interactions.PayNone || len(pix.PayRequired) != 0 {
-		t.Fatalf("provider: %s / %v / pay_state %q", pix.State, meta, pix.PayState)
-	}
-	if n := chainEvents(t, prov, EvPaymentQuoted); n != 0 || len(settleBodiesOn(hub)) != 0 || work.invoked.Load() != 0 {
-		t.Errorf("quoted %d times, %d settle calls, ran %d", n, len(settleBodiesOn(hub)), work.invoked.Load())
-	}
-}
-
 // §8.6 [C27]: the daily totals are rebuilt at start from the whole chain,
 // not from the bounded tail the evidence reads serve: more than a thousand
 // authorizations signed today still count after a restart.
@@ -639,7 +588,7 @@ func TestSpendTotalsAreRebuiltPastAThousandAuthorizations(t *testing.T) {
 	const n = 1001
 	for i := 0; i < n; i++ {
 		if _, err := d.ledger.Append(EvPaymentAuthorized, map[string]any{"amount": "1",
-			"purpose": module.PurposeGateway, "pay_to": "did:anet:a"}); err != nil {
+			"purpose": module.PurposeTaskManual, "pay_to": "did:anet:a"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -650,7 +599,7 @@ func TestSpendTotalsAreRebuiltPastAThousandAuthorizations(t *testing.T) {
 	if st := d.SpendStatus(); st.Spent24h != n {
 		t.Fatalf("after a restart: %d signed today, want %d", st.Spent24h, n)
 	}
-	if err := d.AdmitSpend("did:anet:a", 100, module.PurposeGateway); err == nil {
+	if err := d.AdmitSpend("did:anet:a", 100, module.PurposeTaskManual); err == nil {
 		t.Error("the daily limit forgot authorizations past the first thousand")
 	}
 }

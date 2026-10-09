@@ -6,10 +6,9 @@ import "github.com/ANetResearch/ANetCore/effect"
 // publishes.
 //
 // One function on purpose, and it is shared rather than copied because
-// the chain, the delegated result and the voucher-door result all carry
-// it. Evidence that differs depending on who is reading it is worse than
-// no evidence, and two field lists that must stay identical are two field
-// lists that will not.
+// the chain and the delegated result both carry it. Evidence that differs
+// depending on who is reading it is worse than no evidence, and two field
+// lists that must stay identical are two field lists that will not.
 //
 // A map rather than a struct because encoding/json sorts map keys, so the
 // deliverable stays byte-stable for the CID the receipt is taken over.

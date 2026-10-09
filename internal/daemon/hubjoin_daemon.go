@@ -790,9 +790,9 @@ func (d *Daemon) joinHub(ctx context.Context, req joinRequest) (hubRegisterResp,
 			d.cardInputsChanged()
 		}
 		// A fresh registration keeps the agent's self-description.
-		if cfg.Summary != "" || cfg.Readme != "" || cfg.Pricing != "" {
+		if cfg.Summary != "" || cfg.Readme != "" {
 			pctx, pcancel := context.WithTimeout(ctx, hubCallTimeout)
-			if err := d.PublishProfile(pctx, req.Hub, cfg.Summary, cfg.Readme, cfg.Pricing); err != nil {
+			if err := d.PublishProfile(pctx, req.Hub, cfg.Summary, cfg.Readme); err != nil {
 				log.Printf("anet: publish the profile at %s: %v", req.Hub, err)
 			}
 			pcancel()

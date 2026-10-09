@@ -558,7 +558,7 @@ func TestAStopBeforeAnUnservedCallIsAnsweredLeavesItUnacknowledged(t *testing.T)
 	const id = "ix_unserved_at_stop"
 	leftOpen(t, req, prov, id, "no.such.cap")
 	prov.cancel() // the stop has begun; Close runs at cleanup
-	if prov.runCapabilityCall(id, "no.such.cap", map[string]any{}, nil, nil) {
+	if prov.runCapabilityCall(id, "no.such.cap", map[string]any{}, nil) {
 		t.Fatal("a call the stop cut off was reported handled, so its delegation would be acknowledged")
 	}
 	pix, err := prov.ix.Get(id)

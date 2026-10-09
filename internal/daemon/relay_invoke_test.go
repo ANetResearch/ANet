@@ -14,19 +14,25 @@ import (
 
 // relayCallers are the functions that may hand a provider a call through the relay door, each with
 // why it runs only for a message the receive pipeline accepted. tryCapabilityPaid is the one place
-// that builds a provider.Call with Via ViaRelay; the rest reach it through runCapabilityCall.
+// that builds a provider.Call with Via ViaRelay; the rest reach it through runCall.
 var relayCallers = map[string]map[string]string{
 	"tryCapabilityPaid": {
-		"tryCapability":     "the same call without a payment",
-		"runCapabilityCall": "the executor every entry below goes through",
+		"tryCapability": "the same call without a payment",
+		"runCall":       "the executor every entry below goes through",
+	},
+	"runCall": {
+		"runCapabilityCall":     "an accepted delegation, without a payment",
+		"runPaidCapabilityCall": "an accepted delegation, with the payment submitted on its task",
 	},
 	"runCapabilityCall": {
 		"ingestDelegate":      "receive step 10: the delegation passed every step before it",
 		"redeliveredDelegate": "step 10 for a redelivery of a delegation already accepted",
 		"ApprovePending":      "an accepted delegation the operator held, approved later (its key state judged again)",
 		"runPaidCall":         "a settled payment for an accepted delegation",
-		"onRequesterPayment":  "a payment message, itself received through the pipeline, for an accepted delegation",
 		"recoverInterrupted":  "at start, a call an earlier process accepted and did not finish",
+	},
+	"runPaidCapabilityCall": {
+		"onRequesterPayment": "a payment message, itself received through the pipeline, for an accepted delegation",
 	},
 	"tryCapability": {},
 }

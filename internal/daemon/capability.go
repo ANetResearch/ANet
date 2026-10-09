@@ -117,10 +117,11 @@ func capabilityCall(td *tsir.TaskDoc) (capID string, args map[string]any, ok boo
 
 // DelegateCapability delegates a capability invocation to providerAID. The
 // TaskDoc carries the capability in Requires and args in Contexts — both
-// inside the signed canonical preimage.
-// DelegateCapability delegates a capability call, optionally paying for it.
+// inside the signed canonical preimage. A priced capability answers with a
+// quote on the task, and the payment is made on the same task (A2A-DESIGN
+// §8.3): nothing is paid in the message that asks for the work.
 func (d *Daemon) DelegateCapability(ctx context.Context, providerAID, capID string, args map[string]any) (string, error) {
-	return d.delegateCapabilityPaid(ctx, providerAID, capID, args, nil)
+	return d.DelegateCapabilityIn(ctx, providerAID, capID, args, "")
 }
 
 // DelegateCapabilityIn is DelegateCapability under a given A2A context id
@@ -130,38 +131,14 @@ func (d *Daemon) DelegateCapabilityIn(ctx context.Context, providerAID, capID st
 	if err != nil {
 		return "", err
 	}
-	return d.delegateCapabilityCtx(ctx, id, "", providerAID, capID, args, nil, contextID)
+	return d.delegateCapabilityCtx(ctx, id, providerAID, capID, args, contextID)
 }
 
-func (d *Daemon) delegateCapabilityPaid(ctx context.Context, providerAID, capID string,
-	args map[string]any, paymentJSON []byte) (string, error) {
-	id, err := newInteractionID()
-	if err != nil {
-		return "", err
-	}
-	return d.delegateCapabilityWithID(ctx, id, providerAID, capID, args, paymentJSON)
-}
-
-// delegateCapabilityWithID takes the interaction id from the caller,
-// because a paid delegation must name the id its authorization was signed
-// over — minting a fresh one here would leave the payment pointing at
-// work that never happened.
-func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, capID string,
-	args map[string]any, paymentJSON []byte) (string, error) {
-	return d.delegateCapabilityCtx(ctx, id, "", providerAID, capID, args, paymentJSON, "")
-}
-
-// delegateCapabilityCtx sends a capability call as interaction id. nonce is
-// the task nonce, minted here when empty; a prepaid call mints it first,
-// because its payment is bound to it (pay_bind).
-func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerAID, capID string,
-	args map[string]any, paymentJSON []byte, contextID string) (string, error) {
-	if len(paymentJSON) > 0 {
-		// v030-todo(PAY-9): the prepaid call goes with /delegate's pay and DelegateAndPay.
-		// DelegateReq key 6 (the prepayment) is retired in ANetCore 0.16, so there is nothing
-		// to carry it in.
-		return "", fmt.Errorf("anet: paying in the same message as the call is no longer supported; call the capability and pay the quote it answers with")
-	}
+// delegateCapabilityCtx sends a capability call as interaction id, with a
+// task nonce minted here: the binding its payment, if it is priced, is
+// signed over (pay_bind).
+func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, capID string,
+	args map[string]any, contextID string) (string, error) {
 	hub := d.config().HubURL
 	if hub == "" {
 		return "", fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
@@ -184,11 +161,9 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 		}
 		contextID = c
 	}
-	if nonce == "" {
-		var err error
-		if nonce, err = newTaskNonce(); err != nil {
-			return "", err
-		}
+	nonce, err := newTaskNonce()
+	if err != nil {
+		return "", err
 	}
 	goal := "invoke capability " + capID
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{{
@@ -223,18 +198,6 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, IsCapability: true,
 			TaskNonce: nonce}); err != nil {
 			return err
-		}
-		if len(paymentJSON) > 0 {
-			// The prepaid authorization is this task's, so its receipt can
-			// be checked against it when the result comes back (§8.3).
-			authID := ""
-			if _, _, aid, err := payloadAuth(paymentJSON); err == nil {
-				authID = aid
-			}
-			if _, err := tx.SetPayment(id, interactions.PayUpdate{
-				State: interactions.PayState(interactions.PaySubmitted), AddAuthID: authID, Payload: paymentJSON}); err != nil {
-				return err
-			}
 		}
 		var err error
 		seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
@@ -330,10 +293,10 @@ type paidView struct {
 }
 
 // provenanceOf renders an effect's evidence for every surface that
-// carries it. It lives in the provider package so the voucher door in
-// module/x402 uses the SAME function: evidence that differs depending on
-// which door a caller came through is worse than no evidence, and two
-// field lists that must stay identical are two field lists that will not.
+// carries it, with the provider package's one function (provider.Provenance):
+// evidence that differs depending on who reads it is worse than no
+// evidence, and two field lists that must stay identical are two field
+// lists that will not.
 func provenanceOf(e *effect.Evidence) map[string]any { return provider.Provenance(e) }
 
 // tryCapability resolves and executes a capability call, answering with the
@@ -342,8 +305,8 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 	return d.tryCapabilityPaid(ctx, interactionID, capID, args, nil)
 }
 
-// tryCapabilityPaid is tryCapability with the delegation's payment, if it
-// carried one.
+// tryCapabilityPaid is tryCapability with the payment the requester
+// submitted on the task after its quote (payment-submitted), if any.
 //
 // It returns false, having recorded nothing, when the daemon is stopping:
 // a call not started, or one whose failure is the stop's rather than its
@@ -730,7 +693,7 @@ func (d *Daemon) recoverInterrupted() {
 			}
 			ix, capID, args := ix, capID, args
 			log.Printf("anet: %s: %s was cut off by a restart; running it again", ix.ID, capID)
-			d.goBackground(func() { d.runCapabilityCall(ix.ID, capID, args, nil, nil) })
+			d.goBackground(func() { d.runCapabilityCall(ix.ID, capID, args, nil) })
 		case leftoverInterrupted:
 			d.reportInterrupted(ix, capID)
 		}

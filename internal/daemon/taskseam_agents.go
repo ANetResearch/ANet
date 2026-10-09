@@ -387,13 +387,22 @@ func (d *Daemon) uncardedAgents(ctx context.Context, hub string, q module.AgentQ
 			continue
 		}
 		seen[a.AID] = true
-		if q.Skill != "" && !capListed(a.Caps, q.Skill) {
+		// An official AID is matched against what the signed manifest says
+		// of it, never against what the hub wrote: the hub's words neither
+		// show beside the mark (uncardedAgent) nor make the official agent
+		// turn up for a search [redteam:F39]. Any other entry is matched
+		// against the hub's statement, as it is shown.
+		name, summary, caps := a.Name, a.Summary, a.Caps
+		if mName, mCaps, official := d.officialSays(a.AID); official {
+			name, summary, caps = mName, "", mCaps
+		}
+		if q.Skill != "" && !capListed(caps, q.Skill) {
 			continue
 		}
-		if q.Tag != "" && !containsFold(strings.Join(a.Caps, " "), q.Tag) {
+		if q.Tag != "" && !containsFold(strings.Join(caps, " "), q.Tag) {
 			continue
 		}
-		if q.Query != "" && !containsFold(strings.Join(append([]string{a.AID, a.Name, a.Summary}, a.Caps...), "\n"), q.Query) {
+		if q.Query != "" && !containsFold(strings.Join(append([]string{a.AID, name, summary}, caps...), "\n"), q.Query) {
 			continue
 		}
 		matched = append(matched, d.uncardedAgent(a))

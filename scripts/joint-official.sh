@@ -1082,7 +1082,7 @@ NA1=$(rx echo not-accepting)
 # scripts/official-testbin.sh (B5-01) with a manifest, signed by a throwaway key, that lists this run's
 # tools agent by AID. It must see that agent marked, and the impostor of the same name not.
 #
-# mark_report AID… — from the discovery answers on stdin (/find, /agents/list, /agents/card; one JSON
+# mark_report AID… — from the discovery answers on stdin (/agents/list, /agents/card; one JSON
 # document per line), for each AID "seen|unseen:marked|unmarked:flagged|clean": listed at all; carrying
 # "anet.official": true where the daemon puts it (on the agent entry); carrying anything official-like
 # anywhere in its entry, card included. Then "keyed|unkeyed" (does any entry carry the key at all), then
@@ -1131,7 +1131,7 @@ out.append(",".join(sorted({e.get("aid") or "?" for e in entries
 print(" ".join(out))' "$@"; }
 # discovery <node> — what that node is told about agents named anet-tools, and the two cards.
 discovery(){
-  ctl "$1" /find '{"query":"anet-tools"}'; echo
+  ctl "$1" /agents/list '{"q":"anet-tools","include_uncarded":true}'; echo
   ctl "$1" /agents/list '{"q":"anet-tools"}'; echo
   ctl "$1" /agents/card "{\"aid\":\"${AID_OF[tools]}\"}"; echo
   ctl "$1" /agents/card "{\"aid\":\"${AID_OF[imp]}\"}"; echo
@@ -1139,7 +1139,7 @@ discovery(){
 # As requester a sees it: a build of this checkout, whose manifest lists no AID of this run.
 read -r _ IMPA KEYED MARKED <<<"$(discovery a | mark_report "${AID_OF[tools]}" "${AID_OF[imp]}")"
 [ "${IMPA%%:*}" = seen ] && ok "the impostor is found under the name anet-tools" \
-  || no "the impostor did not show up in /find, /agents/list or /agents/card (nothing to check the mark on)"
+  || no "the impostor did not show up in /agents/list or /agents/card (nothing to check the mark on)"
 [ "$MARKED" = "-" ] || no "requester a, whose manifest lists no agent of this run, marks by name: $MARKED"
 
 OBS=0; OBS_WHY=""

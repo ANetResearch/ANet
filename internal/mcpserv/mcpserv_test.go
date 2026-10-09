@@ -424,12 +424,12 @@ func TestFilesTravelAsRawParts(t *testing.T) {
 	}
 }
 
-// §8.6: the MCP server never calls the task-manual, gateway or redeem
-// routes. Pinned three ways: the allowlist does not hold them, the guard
-// refuses them, and no tool — called with every shape above — reaches a
-// path outside the allowlist.
+// §8.6: the MCP server never calls the task-manual or redeem routes.
+// Pinned three ways: the allowlist does not hold them, the guard refuses
+// them, and no tool — called with every shape above — reaches a path
+// outside the allowlist.
 func TestMCPNeverCallsManualGatewayOrRedeemRoutes(t *testing.T) {
-	forbidden := []string{"/tasks/pay-manual", "/x402-authorize", "/redeem", "/delegate", "/message",
+	forbidden := []string{"/tasks/pay-manual", "/redeem", "/delegate", "/message",
 		"/end", "/payments/limits", "/peers/allow", "/inbound/approve", "/shutdown"}
 	for _, p := range forbidden {
 		if allowedPaths[p] {

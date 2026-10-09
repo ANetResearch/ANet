@@ -28,26 +28,19 @@ type Call struct {
 	CallID string
 	// CallerAID is the verified AID of the calling identity, or "" when the
 	// call originates from a local surface (CLI/MCP) before any delegation.
-	// When Via is ViaVoucher it is NOT an authenticated caller; see Via.
+	// It is an authenticated caller only when Via is ViaRelay; see
+	// VerifiedCaller.
 	CallerAID string
 	// Via says which door the call came through: ViaRelay (a delegation
-	// whose sender the daemon authenticated) or ViaVoucher (a hub-signed
-	// voucher presented at the payment module's public face). Empty means
-	// a local surface.
-	//
-	// A voucher is a bearer object: whoever presents it can redeem it. The
-	// daemon fills CallerAID with the payer the hub attested, which says who
-	// paid, not who is asking. A provider must therefore not authorize on
-	// CallerAID when Via is ViaVoucher, and a provider that implements
-	// Priced (the only kind the voucher door serves) must not read
-	// CallerAID at all; a test in this package checks the second rule.
+	// whose sender the daemon authenticated). Empty means a local surface.
+	// There is no other door: work is paid for inside the task, on the
+	// relay door, and the hub's gateway and its vouchers are gone (0.3.0).
 	Via string
 }
 
 // Values of Call.Via.
 const (
-	ViaRelay   = "relay"
-	ViaVoucher = "voucher"
+	ViaRelay = "relay"
 )
 
 // VerifiedCaller returns CallerAID when the daemon authenticated it (a call
@@ -55,11 +48,12 @@ const (
 //
 // It is the one caller a provider may pass on: to its log, to its own
 // backend, or across C1 to ANetLink as caller.aid (provider/anetlink). Any
-// other door answers "": at the voucher door the AID says who paid, not who
-// is asking, and a local surface has no remote caller at all. A provider
-// that implements Priced must not read CallerAID itself (the structural
-// test in this package checks that; provider/anetlink has its own), and no
-// provider may grant anything on the strength of an empty answer.
+// other Via answers "": a local surface has no remote caller at all, and a
+// door this version does not know is not one whose caller it vouches for.
+// A provider that implements Priced must not read CallerAID itself (the
+// structural test in this package checks that; provider/anetlink has its
+// own), and no provider may grant anything on the strength of an empty
+// answer.
 //
 // There is no second accessor saying how fresh the caller's witness notice
 // was: the daemon makes a relay call only for a message its receive
@@ -122,8 +116,8 @@ type CapabilityProvider interface {
 	// Capabilities lists the capability ids this provider currently offers.
 	Capabilities(ctx context.Context) ([]string, error)
 	// Describe returns the CID of the provider's descriptor object in the
-	// local CAS ("" when the provider publishes none). The daemon mounts it
-	// on the agent's ADP card without interpreting it.
+	// local CAS ("" when the provider publishes none). The daemon does not
+	// interpret it.
 	Describe(ctx context.Context) (string, error)
 	// Invoke executes one capability call and reports its effect. Transport
 	// or execution errors are returned as error; a reachable target whose

@@ -423,6 +423,7 @@ func TestTheSpendingPolicyTiers(t *testing.T) {
 		{"did:anet:b", 5, module.PurposeTaskAuto, SpendPayeeNotAllowed},
 		{"did:anet:a", 0, module.PurposeTaskAuto, SpendZeroAmount},
 		{"did:anet:a", 1, "whatever", SpendUnknownPurpose},
+		{"did:anet:a", 1, "gateway", SpendUnknownPurpose}, // the gateway tier is gone (0.3.0)
 		{"did:anet:a", 10, module.PurposeTaskAuto, ""},
 		{"did:anet:a", 10, module.PurposeTaskAuto, ""},
 		{"did:anet:a", 10, module.PurposeTaskAuto, SpendOverAgentDaily}, // auto payments split up still meet agent_daily_max
@@ -431,7 +432,7 @@ func TestTheSpendingPolicyTiers(t *testing.T) {
 		{"did:anet:a", 1, module.PurposeTaskAgent, SpendOverAgentDaily},
 		{"did:anet:a", 31, module.PurposeTaskManual, SpendOverSingle},
 		{"did:anet:a", 30, module.PurposeTaskManual, ""},
-		{"did:anet:a", 6, module.PurposeGateway, SpendOverDaily},
+		{"did:anet:a", 6, module.PurposeTaskManual, SpendOverDaily},
 		{"did:anet:hub-not-a-payee", 5, module.PurposeRedeem, ""}, // redeem is not held to the payee list
 		{"did:anet:hub-not-a-payee", 1, module.PurposeRedeem, SpendOverDaily},
 	}
@@ -529,7 +530,7 @@ func TestSpendTotalsAreRebuiltAtStart(t *testing.T) {
 		return payment.PaymentOption{Scheme: payment.SchemeCredit, Network: payment.CreditNetwork(hubAIDOf(srv.URL)),
 			Amount: payment.Amount(n), Asset: payment.AssetCredit, PayTo: "did:anet:a"}
 	}
-	if _, err := d.payer().Authorize(opt(7), "ix1", "b1", module.PurposeGateway); err != nil {
+	if _, err := d.payer().Authorize(opt(7), "ix1", "b1", module.PurposeTaskManual); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.payer().Authorize(opt(3), "ix2", "b2", module.PurposeTaskAgent); err != nil {
@@ -582,7 +583,7 @@ func TestAWrongPaymentIsRefusedBeforeSettlement(t *testing.T) {
 	} {
 		o := opt
 		o.Amount = tc.amount
-		raw, err := req.payer().Authorize(o, id, tc.bind, module.PurposeGateway)
+		raw, err := req.payer().Authorize(o, id, tc.bind, module.PurposeTaskManual)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -601,7 +602,7 @@ func TestAWrongPaymentIsRefusedBeforeSettlement(t *testing.T) {
 		t.Fatalf("a refused payment reached the hub (%d) or ran the work (%d)", n, work.invoked.Load())
 	}
 	// The right payment is taken after the wrong ones.
-	raw, err := req.payer().Authorize(opt, id, bind, module.PurposeGateway)
+	raw, err := req.payer().Authorize(opt, id, bind, module.PurposeTaskManual)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -610,7 +611,7 @@ func TestAWrongPaymentIsRefusedBeforeSettlement(t *testing.T) {
 		t.Fatalf("the right payment: %s, ran %d", pix.State, work.invoked.Load())
 	}
 	// A second payment on a settled task is not presented.
-	raw2, _ := req.payer().Authorize(opt, id, bind, module.PurposeGateway)
+	raw2, _ := req.payer().Authorize(opt, id, bind, module.PurposeTaskManual)
 	sendPayment(t, req, prov, id, raw2, "msg_again")
 	if n := len(settleBodiesOn(hub)); n != 1 || debitsOn(hub, req.AID()) != 1 {
 		t.Errorf("after a second payment: %d settle calls, %d debits", n, debitsOn(hub, req.AID()))
@@ -629,7 +630,7 @@ func TestATaskWithoutABindingTakesNoPayment(t *testing.T) {
 	id, _ := req.DelegateCapability(context.Background(), prov.AID(), "work.do", nil)
 	poll(t, prov, req)
 	opt := storedQuote(getIX(t, req, id)).Accepts[0]
-	unbound, err := req.payer().Authorize(opt, id, "", module.PurposeGateway)
+	unbound, err := req.payer().Authorize(opt, id, "", module.PurposeTaskManual)
 	if err != nil {
 		t.Fatal(err)
 	}

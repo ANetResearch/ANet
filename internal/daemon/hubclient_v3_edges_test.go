@@ -79,7 +79,7 @@ func TestAnAnonymousRequestCarriesNoSignature(t *testing.T) {
 
 	// The same requests without the header go, and a signed route keeps its
 	// signature.
-	if _, err := req.Find(ctx, "x"); err != nil {
+	if _, err := hubDirectory(ctx, req); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.hubSeamDo(ctx, srv.URL, "/x402/supported"); err != nil {

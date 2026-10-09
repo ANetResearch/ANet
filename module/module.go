@@ -92,11 +92,9 @@ type Host interface {
 	// signing is the payment.
 	//
 	// So the trade is deliberate: signing leaves the kernel, and in
-	// exchange 800 lines of facilitator client, voucher door and
-	// redemption path leave with it — including a PUBLIC listener, which
-	// is a security posture nothing else in the kernel has. A build with
-	// -tags no_x402 has none of it, which it could not claim while the
-	// code sat in the kernel being linked in regardless.
+	// exchange the facilitator client and the redemption path leave with
+	// it. A build with -tags no_x402 has none of it, which it could not
+	// claim while the code sat in the kernel being linked in regardless.
 	PaymentSeam() (PaymentSeam, bool)
 
 	// HubSeam hands over the ability to act as this node against its own
@@ -118,27 +116,6 @@ type Host interface {
 	// node's behalf. That is what a hub client is for and it is not a
 	// detail to leave implicit.
 	HubSeam() (HubSeam, bool)
-
-	// Admit is the kernel's admission check for a capability call that
-	// arrives through a door the inbound policy does not otherwise see
-	// (A2A-DESIGN §5.4). It applies the deny list (read at the moment of
-	// the call), membership of inbound.public_capabilities, the per-caller
-	// and global quotas, the in-flight bound and the argument size limit,
-	// all as configured for the kernel's own relay path.
-	//
-	// Added for the voucher door of the payment module. A voucher proves
-	// that somebody paid the hub; it does not make the capability public,
-	// and without this check that door served any priced capability to any
-	// payer, deny list and quotas included. Implementing the policy inside
-	// the module would give the node two copies of it that could disagree,
-	// and the kernel is the one that owns the lists and the counters.
-	//
-	// On success it returns a release function the caller must call once
-	// when the invocation ends, and an empty refusal. On refusal it returns
-	// a nil release and a reason code (denied, capability_not_public,
-	// args_too_large, quota_caller_per_min, quota_caller_per_day,
-	// quota_global_per_min, max_inflight), which the caller records.
-	Admit(callerAID, capID string, argsLen int) (release func(), refusal string)
 
 	// DeclareUntrustedBackend tells the kernel that this module will forward
 	// work from peers that are not on the inbound trust list to a local
@@ -418,10 +395,9 @@ type PaymentSeam interface {
 	// event type.
 	//
 	// Here rather than on Host because it is the read half of a write
-	// Host already grants, and because the payment module has the one use
-	// that needs it: a voucher is spent once, the guard must survive a
-	// restart, and the chain is where the redemption was recorded. A
-	// control nobody can consult is not a control — the alternative was a
+	// Host already grants, and because only the payment module needs it:
+	// reconciliation and the issuance audit compare the hub's ledger with
+	// what this node recorded of its own payments. The alternative was a
 	// second persistence layer holding the same facts, which is how two
 	// records of one event start disagreeing.
 	ReadEvidence(eventType string, limit int) []map[string]any
@@ -440,8 +416,8 @@ type PaymentSeam interface {
 	// decides its own limits is a module that has no limits. So the module
 	// asks, and signs only on a yes.
 	//
-	// purpose is one of task-auto, task-agent, task-manual, gateway and
-	// redeem; the kernel refuses any other.
+	// purpose is one of task-auto, task-agent, task-manual and redeem;
+	// the kernel refuses any other.
 	AdmitSpend(payTo string, amount uint64, purpose string) error
 
 	// HubDo sends one request to this node's hub (HubURL) the way the node
@@ -464,7 +440,6 @@ const (
 	PurposeTaskAuto   = "task-auto"   // the daemon paying a quote on its own, within auto_max
 	PurposeTaskAgent  = "task-agent"  // POST /tasks/pay: MCP submit_payment, a local A2A client
 	PurposeTaskManual = "task-manual" // POST /tasks/pay-manual: `anet pay` after a terminal confirmation
-	PurposeGateway    = "gateway"     // /x402-authorize, /delegate pay:true
 	PurposeRedeem     = "redeem"      // /redeem: credit given back to the hub
 )
 
@@ -572,9 +547,6 @@ type Payer interface {
 	// of the hub this node settles on now, else ErrRedeemPayee and nothing
 	// is signed.
 	Redeem(ctx context.Context, amount uint64, reference, payTo string) (map[string]any, error)
-	// RedeemURL is this node's public voucher face, or empty. It goes in
-	// the signed card so a gateway can tell buyers where to collect.
-	RedeemURL() string
 	// HomeNetwork is the ledger this node's own credits live on, so a
 	// caller offered several rails can pick the one it can actually pay
 	// from. Empty when this node has no hub.
@@ -592,8 +564,9 @@ type Payer interface {
 	// own chain. Opt-in — see the module's own documentation for why a
 	// trimmed node should not be made to do this.
 	WitnessHub(ctx context.Context) (uint64, string, error)
-	// Serve brings up whatever public face the module needs. Called once,
-	// after Start, by the kernel that owns the process lifetime.
+	// Serve starts the module's background work. Called once, after
+	// Start, by the kernel that owns the process lifetime. It opens no
+	// listener: the payment module has no public door.
 	Serve(ctx context.Context) error
 }
 

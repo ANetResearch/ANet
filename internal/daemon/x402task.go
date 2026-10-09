@@ -8,7 +8,7 @@ package daemon
 // Provider (inbound):
 //
 //	priced call, no payment   persist the quote (24 h) → status{input-required, payment-required}
-//	payment-submitted          dispatched like a capability call (runCapabilityCall), then
+//	payment-submitted          dispatched like a capability call (runPaidCapabilityCall), then
 //	                           merchant check (§8.4) → pay_state=submitted + auth id + payload
 //	                           → POST /x402/settle {paymentPayload, paymentRequirements}
 //	    settled                → status{working, payment-verified} → execute → result{payment-completed, receipts}
@@ -635,7 +635,7 @@ func (d *Daemon) runPaidCall(ixID string) {
 	if !ok {
 		return
 	}
-	d.runCapabilityCall(ixID, capID, args, nil, nil)
+	d.runCapabilityCall(ixID, capID, args, nil)
 }
 
 // paidViewOf is the settlement of a paid task, for the deliverable.
@@ -749,7 +749,7 @@ func (d *Daemon) onRequesterPayment(ctx context.Context, ixID string, prior *int
 		}
 		// Dispatched like the call itself (§8.3 [C29]): the same short and
 		// long paths and the same bound on long calls. Never auto-reply.
-		d.runCapabilityCall(ixID, capID, args, raw, nil)
+		d.runPaidCapabilityCall(ixID, capID, args, raw)
 	}
 }
 

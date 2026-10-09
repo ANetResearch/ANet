@@ -72,8 +72,8 @@ func TestLosingTheLastPublicSkillWithdrawsTheCard(t *testing.T) {
 		t.Fatalf("a restart withdrew again: %d withdrawals", n)
 	}
 
-	// Published again, then withdrawn again. The capability list and the
-	// ADP card name only the public capability.
+	// Published again, then withdrawn again. The registered capability
+	// list names only the public capability.
 	setPublic(d2, lampCap)
 	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", []string{"private.cap", lampCap}); err != nil {
 		t.Fatal(err)
@@ -82,10 +82,10 @@ func TestLosingTheLastPublicSkillWithdrawsTheCard(t *testing.T) {
 		t.Fatalf("published again: card_status %q, held %v", status, held)
 	}
 	fh.mu.Lock()
-	adp := fh.adpCaps[d.AID()]
+	caps := fh.agents[d.AID()].view.Caps
 	fh.mu.Unlock()
-	if len(adp) != 1 || adp[0] != lampCap {
-		t.Fatalf("the ADP card lists %v, want only the public %s (an internal note item)", adp, lampCap)
+	if len(caps) != 1 || caps[0] != lampCap {
+		t.Fatalf("the registration lists %v, want only the public %s (an internal note item)", caps, lampCap)
 	}
 	setPublic(d2)
 	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {

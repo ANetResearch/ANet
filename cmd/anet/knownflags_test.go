@@ -49,7 +49,7 @@ func TestKnownFlagsAreAccepted(t *testing.T) {
 		{"find", []string{"--cap", "text.digest"}},
 		{"find", []string{"--cap=text.digest"}},
 		{"hub-register", []string{"http://h", "--name", "n", "--caps", "a,b", "--recovery-file", "f", "--new-recovery"}},
-		{"delegate", []string{"aid", "--capability", "x", "--args", `{"a":1}`, "--pay"}},
+		{"delegate", []string{"aid", "--capability", "x", "--args", `{"a":1}`}},
 		{"message", []string{"ix", "--file", "/tmp/x", "--attach", "/tmp/y"}},
 		{"autoreply", []string{"set", "--backend", "openai", "--api-base", "u", "--model", "m"}},
 		{"verify", []string{"--receipt", "r", "--kel", "k", "--result", "f"}},

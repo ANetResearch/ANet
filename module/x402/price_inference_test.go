@@ -2,28 +2,25 @@
 
 package x402
 
-// Red team si1 (F1; A2A-DESIGN §1 SI-1, §2 X4, §21).
+// Red team si1 (F1; A2A-DESIGN §1 SI-1, §2 X4, §21), rerun for 0.3.0 (§7.4).
 //
 // SI-1 lists the x402 `resource` among the task content the hub must not
 // see, and X4 says the settlement sent to the hub carries no capability
 // id. Structurally that holds: the /x402/settle body has no resource,
-// description or extra. But the same node publishes, to the same hub, a
-// signed price list per skill (anet-pricing/v1 on the A2A card, and the ADP
-// card's price list), and the settle body names the payee and the exact
-// amount. Whenever the payee's prices are distinct per skill (or it prices
-// a single skill), the hub recovers which capability was bought, and so
-// the exact `resource` the quote carried end to end, from nothing but what
-// it is sent.
+// description or extra. Up to 0.2 the same node also published, to the same
+// hub, a signed price list per skill (anet-pricing/v1 on the A2A card, and
+// the ADP card's price list the hub gateway sold from), while the settle
+// body names the payee and the exact amount: whenever the payee's prices
+// were distinct per skill, the hub recovered which capability was bought
+// from nothing but what it was sent (the red team's PoC, cd73df0).
 //
-// That is a design-level inference, and it is now stated as a known
-// limitation (§21) rather than denied (the settle code's comment and note
-// 0006 said the hub learns nothing about the work). An operator who wants
-// it closed sets payments.publish_prices=false: the cards carry no price
-// per skill, the price is given only in the quote, and the same settlement
-// no longer names the skill. The test pins both: the inference with
-// prices published (so a change to it is noticed and §21 updated), and
-// its absence with prices withheld (the red team's PoC, cd73df0, turned
-// round).
+// 0.3.0 has one path: no price leaves this node in public. The card
+// contribution declares a2a-x402 and nothing about amounts; the price is in
+// the quote, inside the end-to-end encrypted task. So the hub's lookup has
+// nothing to look the amount up in. The other half of the rerun — anyone,
+// a probe identity included, can ask the provider for its extended card and
+// read the prices there, which is stated rather than prevented (PAY-N2) —
+// needs the extended card.
 
 import (
 	"context"
@@ -65,27 +62,7 @@ func (twoPriced) Invoke(context.Context, provider.Call) (effect.Effect, error) {
 	return effect.Effect{Status: effect.OK}, nil
 }
 
-func TestSettleAmountAndPublishedPricesNameTheSkillUnlessPricesAreWithheld(t *testing.T) {
-	t.Run("prices published (the default; A2A-DESIGN §21)", func(t *testing.T) {
-		recovered, secret := settleAndInfer(t, false)
-		if recovered != secret {
-			t.Fatalf("with prices published the hub no longer recovers the resource (got %q, quoted %q): "+
-				"update A2A-DESIGN §21 and this test", recovered, secret)
-		}
-	})
-	t.Run("payments.publish_prices=false", func(t *testing.T) {
-		if recovered, secret := settleAndInfer(t, true); recovered != "" {
-			t.Fatalf("with prices withheld the hub still recovers %q (quoted %q)", recovered, secret)
-		}
-	})
-}
-
-// settleAndInfer runs one priced settlement and plays the hub: from the
-// settle body and the card the provider published, it returns the
-// resource it can name, or "" when the amount names no skill. secret is
-// the resource the quote carried end to end.
-func settleAndInfer(t *testing.T, withhold bool) (recovered, secret string) {
-	t.Helper()
+func TestTheHubCannotNameThePaidSkillFromWhatItIsSent(t *testing.T) {
 	var mu sync.Mutex
 	var settleBodies [][]byte
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -112,14 +89,16 @@ func settleAndInfer(t *testing.T, withhold bool) (recovered, secret string) {
 	}
 	pm := newModule(t, prov)
 
-	// What the provider publishes to the hub: its card's pricing extension
-	// (A2A-DESIGN §10.1; module/x402/card.go). The hub stores and serves it.
+	// What the provider publishes to the hub about payment: its card's
+	// contribution (A2A-DESIGN §10.1; module/x402/card.go). The hub stores
+	// and serves it.
 	skills := []string{"legal.contract.review", "text.summarize"}
-	exts := pm.CardExtensions(module.CardContext{AID: prov.AID(), HubURL: hub.URL, Skills: skills,
-		WithholdPrices: withhold})
-	published, err := json.Marshal(exts)
+	published, err := json.Marshal(pm.CardExtensions(module.CardContext{AID: prov.AID(), HubURL: hub.URL, Skills: skills}))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(string(published), module.ExtX402URI) {
+		t.Fatalf("precondition: the card does not say this node takes payment: %s", published)
 	}
 
 	// Inside the sealed envelope (the hub never sees this): the provider
@@ -128,7 +107,6 @@ func settleAndInfer(t *testing.T, withhold bool) (recovered, secret string) {
 	const secretCap = "legal.contract.review"
 	price, _ := pm.Price(secretCap)
 	quote := pm.Quote(secretCap, price)
-	secret = quote.Resource.URL
 
 	// The payer (another node on the same hub) authorizes the quoted
 	// option, bound to the task; the provider settles it at the hub.
@@ -155,50 +133,40 @@ func settleAndInfer(t *testing.T, withhold bool) (recovered, secret string) {
 	// The structural half of SI-1 holds: nothing in the body names the work.
 	for _, s := range []string{secretCap, "resource", "description", "extra"} {
 		if strings.Contains(string(body), s) {
-			t.Fatalf("precondition: the settle body carries %q (a different defect): %s", s, body)
+			t.Fatalf("the settle body carries %q: %s", s, body)
 		}
 	}
-
-	// ---- the hub's side: only what it was sent ----
 	var fr struct {
 		PaymentRequirements payment.PaymentRequirements `json:"paymentRequirements"`
 	}
 	if err := json.Unmarshal(body, &fr); err != nil {
 		t.Fatal(err)
 	}
-	var cardExts []struct {
-		URI    string `json:"uri"`
-		Params struct {
-			Prices []struct {
-				SkillID string `json:"skillId"`
-				Amount  string `json:"amount"`
-			} `json:"prices"`
-		} `json:"params"`
+	// The hub sees whom and how much: the price is still what was paid.
+	if fr.PaymentRequirements.PayTo != prov.AID() || fr.PaymentRequirements.Amount != "11" {
+		t.Fatalf("settled %s to %s, want the quoted 11 to the provider", fr.PaymentRequirements.Amount, fr.PaymentRequirements.PayTo)
 	}
-	if err := json.Unmarshal(published, &cardExts); err != nil {
-		t.Fatal(err)
-	}
-	byAmount := map[string][]string{}
-	for _, e := range cardExts {
-		if e.URI != module.ExtPricingURI {
-			continue
-		}
-		for _, p := range e.Params.Prices {
-			byAmount[p.Amount] = append(byAmount[p.Amount], p.SkillID)
+
+	// ---- the hub's side: only what it was sent ----
+	// The 0.2 lookup read the amount in the provider's published prices.
+	// There are none: neither the amount, nor a skill beside a number, nor
+	// the price list's members.
+	for _, leak := range []string{`"11"`, `"3"`, ":11", ":3", "prices", "amount", "skillId", "anet-pricing", "anet-price/"} {
+		if strings.Contains(string(published), leak) {
+			t.Fatalf("the published card carries %s, from which the amount names the skill: %s", leak, published)
 		}
 	}
-	// payTo names whose card to read; the amount picks the skill.
-	if fr.PaymentRequirements.PayTo != prov.AID() {
-		t.Fatalf("payTo %q is not the provider", fr.PaymentRequirements.PayTo)
+	for _, s := range skills {
+		if strings.Contains(string(published), s) {
+			t.Fatalf("the payment contribution names the skill %s: %s", s, published)
+		}
 	}
-	// The price is still what was paid: withholding the list does not
-	// change the quote.
-	if fr.PaymentRequirements.Amount != "11" {
-		t.Fatalf("settled amount %s, want the quoted 11", fr.PaymentRequirements.Amount)
-	}
-	cands := byAmount[fr.PaymentRequirements.Amount]
-	if len(cands) != 1 {
-		return "", secret
-	}
-	return "anet:capability/" + cands[0], secret
+}
+
+// PAY-N2: the prices are not secret from someone who asks the provider. A
+// probe identity — an operator's own, say — fetches the provider's extended
+// card end to end and reads them there; the provider answers it as any other
+// caller. Stated in §21, not prevented.
+func TestAProbeIdentityCanReadThePricesFromTheExtendedCard(t *testing.T) {
+	t.Skip("v030-todo(PAY-11)") // the extended card: provider side (PAY-10) and its fetch (PAY-11)
 }

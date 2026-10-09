@@ -124,7 +124,7 @@ MUTS = [
   edits=[
    ('internal/daemon/x402task.go', 'signed, err := p.Authorize(*opt, ix.ID, bind, req.Purpose)', 'signed, err := p.Authorize(*opt, ix.ID, ix.ID+bind[:0], req.Purpose)'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAQuotedTaskIsPaidAndCompletedOnTheSameTask|TestThePaidLoopClosesEndToEnd')],
+  tests=[('ANet:./internal/daemon', 'TestAQuotedTaskIsPaidAndCompletedOnTheSameTask')],
   full=['ANet:./internal/daemon'],
  ),
  dict(

@@ -30,8 +30,6 @@ const (
 	PaymentAuthorized        = "anet.payment.authorized"
 	PaymentQuoted            = "anet.payment.quoted"
 	CreditRedeemed           = "anet.credit.redeemed"
-	VoucherRedeemed          = "anet.voucher.redeemed"
-	VoucherRefused           = "anet.voucher.refused"
 	IssuanceHeadSeen         = "anet.issuance.head_seen"
 	ShellCommand             = "anet.shell.command"
 	ShellRefused             = "anet.shell.refused"
@@ -85,8 +83,6 @@ var registry = []Event{
 	{Type: PaymentAuthorized, Label: "payment authorized", Source: SourceNode},
 	{Type: PaymentQuoted, Label: "payment quoted", Source: SourceNode},
 	{Type: CreditRedeemed, Label: "credit redeemed", Source: SourceHub},
-	{Type: VoucherRedeemed, Label: "voucher redeemed", Source: SourceHub},
-	{Type: VoucherRefused, Label: "voucher refused", Source: SourceNode},
 	{Type: IssuanceHeadSeen, Label: "hub issuance head seen", Source: SourceHub},
 	{Type: ShellCommand, Label: "shell command run", Source: SourceNode},
 	{Type: ShellRefused, Label: "shell command refused", Source: SourceNode},

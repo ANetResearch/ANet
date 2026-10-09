@@ -56,7 +56,7 @@ const (
 	hubOpIdentity
 	hubOpAgents
 	hubOpAgentsUncarded
-	hubOpFind
+	hubOpDirectory
 	hubOpBalance
 	hubOpCard
 	hubOpRegister
@@ -83,10 +83,9 @@ func FuzzHubAnswers(f *testing.F) {
 	}
 	peerKEL, _ := identity.MarshalKEL(peer.KEL())
 	peerKeys := signedKeysFor(f, peer, 0)
-	card, err := d.signedCard("fuzz", []string{"text.echo"})
-	if err != nil {
-		f.Fatal(err)
-	}
+	// A card that is not a network card: an object with a name and a skill,
+	// signed by nobody.
+	card := json.RawMessage(`{"name":"fuzz","skills":[{"id":"text.echo","name":"echo"}]}`)
 	// A bucket that holds the peer's entry, with its card, and one entry
 	// of nobody.
 	peerHash, _ := dirbox.Hash(peer.AID())
@@ -133,7 +132,7 @@ func FuzzHubAnswers(f *testing.F) {
 		{hubOpAgents, 0, "3", string(reg)},
 		{hubOpAgents, 0, "3", string(regKeys)},
 		{hubOpAgentsUncarded, 0, "3", `{"agents":[{"aid":"` + peer.AID() + `","name":"n","caps":["a"],"summary":"s","avg_rating":1e308}]}`},
-		{hubOpFind, 0, "3", `{"agents":[{"aid":"` + peer.AID() + `","name":"x"}]}`},
+		{hubOpDirectory, 0, "3", `{"agents":[{"aid":"` + peer.AID() + `","name":"x"}]}`},
 		{hubOpBalance, 0, "3", `{"balance":5,"entries":[{"amount":-3}]}`},
 		{hubOpCard, 0, "3", string(card)},
 		{hubOpRegister, 0, "3", `{"aid":"x","status":"registered","card":{"status":"accepted","seq":1}}`},
@@ -184,9 +183,8 @@ func FuzzHubAnswers(f *testing.F) {
 				checkAgents(t, agents)
 			}
 			checkDiscoveries(t, d)
-		case hubOpFind:
-			_, _ = d.Find(ctx, "x")
-			_, _ = d.FindByCapability(ctx, "text.echo")
+		case hubOpDirectory:
+			_, _ = hubDirectory(ctx, d)
 		case hubOpBalance:
 			_, _ = d.Balance(ctx)
 		case hubOpCard:

@@ -236,12 +236,13 @@ func cmdOrgCredential(args []string) error {
 
 // cmdX402Authorize signs an x402 payment the way an HTTP client would.
 //
-// The gateway's buyer is not necessarily a daemon — it is whoever holds a
-// key and can make an HTTP request — so the joint run needs to be able to
-// pay from outside the daemon. Doing it here, with the daemon's own
-// identity, means the hub resolves the payer's key history exactly as it
-// would for any stranger, and a signature the hub cannot check fails for
-// the right reason.
+// A joint run presents payments to the hub's facilitator directly — an
+// underpaid one, one to the wrong payee, one to a payee on another hub —
+// to check that the hub refuses them on its own, with no daemon in front
+// to refuse them first. Doing it here, with the daemon's own identity,
+// means the hub resolves the payer's key history exactly as it would for
+// any stranger, and a signature the hub cannot check fails for the right
+// reason.
 //
 // Prints one base64 line: the PAYMENT-SIGNATURE header value.
 func cmdX402Authorize(args []string) error {

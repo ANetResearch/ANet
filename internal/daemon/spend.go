@@ -9,7 +9,6 @@ package daemon
 //	task-auto     the daemon paying a quote on its own      auto_max       agent_daily_max and daily_max
 //	task-agent    POST /tasks/pay (MCP, local A2A client)   agent_max      agent_daily_max and daily_max
 //	task-manual   POST /tasks/pay-manual (`anet pay`)       explicit_max   daily_max
-//	gateway       /x402-authorize, /delegate pay:true       explicit_max   daily_max
 //	redeem        /redeem                                   explicit_max   daily_max, payees not applied
 //
 // The daily totals count what this node SIGNED, not what settled: an
@@ -53,21 +52,6 @@ type PaymentsConfig struct {
 	// data directory. Absent means payees.allow; an empty string turns the
 	// list off. A missing file is an empty list.
 	PayeesFile *string `json:"payees_file,omitempty"`
-	// PublishPrices says whether this node's cards carry a price per
-	// skill: the A2A card's anet-pricing/v1 and the ADP card's price list,
-	// which the hub gateway sells from. Absent means true. With false the
-	// price is given only in the quote, inside the end-to-end encrypted
-	// task: a settlement's payee and amount (which the hub sees, and the
-	// public issuance chain shows for a cross-hub payment) no longer name
-	// the skill through the published list, and the hub gateway cannot
-	// sell this node's skills (A2A-DESIGN §21) [redteam:F1].
-	PublishPrices *bool `json:"publish_prices,omitempty"`
-}
-
-// publishesPrices is payments.publish_prices with its default (true); a nil
-// block publishes.
-func (p *PaymentsConfig) publishesPrices() bool {
-	return p == nil || p.PublishPrices == nil || *p.PublishPrices
 }
 
 // Defaults of the payments block (A2A-DESIGN §8.6).
@@ -213,7 +197,7 @@ func (d *Daemon) AdmitSpend(payTo string, amount uint64, purpose string) error {
 		single = lim.AutoMax
 	case module.PurposeTaskAgent:
 		single = lim.AgentMax
-	case module.PurposeTaskManual, module.PurposeGateway, module.PurposeRedeem:
+	case module.PurposeTaskManual, module.PurposeRedeem:
 		single = lim.ExplicitMax
 	default:
 		return refuse(SpendUnknownPurpose, "%q is not a spending purpose", purpose)
@@ -300,7 +284,7 @@ func (d *Daemon) loadSpendLocked() {
 		}
 		purpose, _ := p["purpose"].(string)
 		if purpose == "" {
-			purpose = module.PurposeGateway
+			purpose = module.PurposeTaskManual
 		}
 		b.records = append(b.records, spendRecord{at: at, amount: amount, purpose: purpose})
 	})

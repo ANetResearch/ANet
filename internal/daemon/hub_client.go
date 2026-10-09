@@ -41,12 +41,12 @@ const maxHubResponse = 256 << 20 // 256 MiB
 // registerWithKEL sends one POST /register carrying kel (identity.MarshalKEL
 // bytes, base64url on the wire, core G2) and, when the hub asked for one, a
 // proof of work, and returns the hub's answer as it came (the join loop
-// reads it, hubjoin.go). It publishes this agent's card, encryption key set
-// and A2A network card with it, so it can be discovered, reached and
-// reviewed. The hub derives the AID from the KEL, refuses a mismatch and
-// verifies the relayauth v2 signature against that KEL — so this cannot
-// claim (or overwrite) another agent's AID. There is no invitation in it:
-// a hub admits by AID.
+// reads it, hubjoin.go). It publishes this agent's encryption key set and
+// A2A network card with it, so it can be discovered, reached and reviewed.
+// The hub derives the AID from the KEL, refuses a mismatch and verifies the
+// relayauth v2 signature against that KEL — so this cannot claim (or
+// overwrite) another agent's AID. There is no invitation in it: a hub
+// admits by AID.
 //
 // An accepted registration is followed through here: the card's answer
 // (afterCardAnswer) and the key set's (publishKeys when the hub did not take
@@ -82,16 +82,10 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 		}
 	}
 	withKeys()
-	// The card carries the same claims, signed by the node making them.
-	// The request signature proves who is calling; only this proves what
-	// they said. See card.go.
-	if card, cerr := d.signedCard(name, caps); cerr == nil {
-		body.Card = json.RawMessage(card)
-	} else {
-		log.Printf("anet: registering without a signed card: %v", cerr)
-	}
 	// The A2A network card (a2a_card.go), when this node has a public
-	// skill. The hub reports what it did with it in card_status.
+	// skill: the node's claims, signed by the node making them. The request
+	// signature proves who is calling; only the card proves what they said.
+	// The hub reports what it did with it in card_status.
 	a2aCard, a2aSeq := d.cardForRegistration(hubURL, name, false)
 	body.A2ACard = a2aCard
 	if err := d.screenPublication("this node's registration", body); err != nil {
@@ -267,14 +261,13 @@ func keysRollbackOf(r hubReply) (uint64, bool) {
 	return keysRollbackSeq(newHubError("/register", r))
 }
 
-// PublishProfile uploads this agent's self-authored profile (summary/readme/pricing) to the Hub,
-// authenticated with relayauth v2 against the registered KEL. Pricing is display-only text.
-func (d *Daemon) PublishProfile(ctx context.Context, hubURL, summary, readme, pricing string) error {
+// PublishProfile uploads this agent's self-authored profile (summary/readme) to the Hub,
+// authenticated with relayauth v2 against the registered KEL.
+func (d *Daemon) PublishProfile(ctx context.Context, hubURL, summary, readme string) error {
 	body := map[string]any{
 		"aid":     d.AID(),
 		"summary": summary,
 		"readme":  readme,
-		"pricing": pricing,
 	}
 	if err := d.screenPublication("this node's profile", body); err != nil {
 		return err

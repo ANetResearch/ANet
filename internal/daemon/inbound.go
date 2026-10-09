@@ -443,7 +443,7 @@ func (d *Daemon) decideDelegate(from, capID string, argsLen int) inboundDecision
 
 // --- kernel admission (§5.4) ---
 
-// Admission refusal codes (module.Host.Admit, anet.voucher.refused).
+// Admission refusal codes of a public capability call (§5.4).
 const (
 	admitDenied        = "denied"
 	admitNotPublic     = "capability_not_public"
@@ -569,12 +569,6 @@ func (d *Daemon) admitAt(now int64, caller, capID string, argsLen int) (release 
 			a.mu.Unlock()
 		})
 	}, "", 0
-}
-
-// Admit implements module.Host.Admit.
-func (h moduleHost) Admit(callerAID, capID string, argsLen int) (func(), string) {
-	release, refusal, _ := h.d.admit(callerAID, capID, argsLen)
-	return release, refusal
 }
 
 // DeclareUntrustedBackend implements module.Host.DeclareUntrustedBackend.

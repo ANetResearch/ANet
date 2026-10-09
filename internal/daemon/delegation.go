@@ -1135,9 +1135,7 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 	// natural-language task waits for the operator's agent or auto-reply.
 	if isCap {
 		released = true
-		// v030-todo(PAY-9): no prepayment (DelegateReq key 6 is retired); the runner's payment
-		// argument goes with the prepaid path.
-		if !d.runCapabilityCall(m.ix, capID, args, nil, release) {
+		if !d.runCapabilityCall(m.ix, capID, args, release) {
 			// Cut off by the daemon stopping (SI-10): nothing was
 			// answered, and the delegation is not acknowledged, so its
 			// redelivery finds the replay row and runs it again.
@@ -1210,7 +1208,7 @@ func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 		log.Printf("anet: %s: long call %s was interrupted before it answered; not running it again", m.ix, capID)
 		return true
 	}
-	return d.runCapabilityCall(m.ix, capID, args, nil, nil) // v030-todo(PAY-9): no prepayment (key 6 retired)
+	return d.runCapabilityCall(m.ix, capID, args, nil)
 }
 
 // recordedCall is the capability call an interaction was accepted for, read
@@ -1257,8 +1255,25 @@ func (d *Daemon) stopRunning(ix string) {
 	}
 }
 
-// runCapabilityCall invokes a capability, on this goroutine when it is
-// quick and on its own when the provider says it will not be.
+// runCapabilityCall runs a delegation this node accepted: the call itself,
+// with no payment. A priced call is answered with a quote, and its payment
+// comes later, on the same task (runPaidCapabilityCall; A2A-DESIGN §8.3):
+// a delegation never carries one.
+func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]any, release func()) bool {
+	return d.runCall(interactionID, capID, args, nil, release)
+}
+
+// runPaidCapabilityCall runs an accepted call with the payment its requester
+// submitted on the task (payment-submitted, after the quote): the payment is
+// checked and settled, then the call runs, on the same short and long paths
+// as the call itself (§8.3 [C29]).
+func (d *Daemon) runPaidCapabilityCall(interactionID, capID string, args map[string]any, payment []byte) bool {
+	return d.runCall(interactionID, capID, args, payment, nil)
+}
+
+// runCall invokes a capability, on this goroutine when it is quick and on
+// its own when the provider says it will not be. payment is the payload of
+// a payment-submitted on the task, or nil.
 //
 // The poll loop dispatches synchronously, which is right for work
 // measured in milliseconds and wrong for work measured in hours: this
@@ -1280,7 +1295,7 @@ func (d *Daemon) stopRunning(ix string) {
 // It returns false only when the daemon stopping cut short a call run on
 // this goroutine, which then recorded nothing (SI-10): the caller does not
 // acknowledge the message that carried it.
-func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]any, payment []byte, release func()) bool {
+func (d *Daemon) runCall(interactionID, capID string, args map[string]any, payment []byte, release func()) bool {
 	done := func() {
 		if release != nil {
 			release()
@@ -1342,20 +1357,10 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 		}
 		if len(payment) > 0 {
 			// A payment for a call this node has no room to run: it is
-			// not settled, and the task waits for another payment rather
-			// than ending with the requester's money taken (A2A-DESIGN
-			// §8.3). A prepaid call is quoted first, so its requester is
-			// told the terms it may pay again on. Only an open quote is
-			// refused: a payment already taken is not touched.
-			price, priced := priceOfCapability(p, capID)
-			if priced && d.refuseUnboundPriced(cctx, ix, capID) {
-				return true // no task nonce: rejected, not quoted (Q19)
-			}
-			if priced && ix.PayState == interactions.PayNone {
-				if err := d.recordQuote(cctx, ix, capID, price, false); err != nil && !errors.Is(err, errAlreadyQuoted) {
-					log.Printf("anet: %s: quote for a prepaid call: %v", interactionID, err)
-				}
-			}
+			// not settled, and the task waits for another payment on the
+			// quote it already has, rather than ending with the requester's
+			// money taken (A2A-DESIGN §8.3). Only an open quote is refused:
+			// a payment already taken is not touched.
 			d.paymentFailed(cctx, interactionID, payOpen, x402a2a.ReasonProviderBusy, "",
 				fmt.Sprintf("this node is already running %d long tasks; try again later", maxConcurrentLongCalls),
 				failureReceipt(x402a2a.ReasonProviderBusy, ""))

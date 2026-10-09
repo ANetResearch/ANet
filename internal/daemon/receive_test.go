@@ -1185,7 +1185,7 @@ func TestAnAnsweredCapabilityCallIsNotRunAgain(t *testing.T) {
 	if len(lamp.invoked) != 1 {
 		t.Fatalf("first delivery ran the capability %d times", len(lamp.invoked))
 	}
-	prov.runCapabilityCall(id, "light.onoff@sim/lamp-1", map[string]any{"on": true}, nil, nil)
+	prov.runCapabilityCall(id, "light.onoff@sim/lamp-1", map[string]any{"on": true}, nil)
 	if n := len(lamp.invoked); n != 1 {
 		t.Fatalf("an answered call ran again (%d invocations)", n)
 	}

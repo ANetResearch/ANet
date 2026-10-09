@@ -1085,12 +1085,12 @@ I=$(cap org.info '{}')
 # INV-2: which org a node belongs to is not public. The realistic leak is not a field someone
 # added on purpose — it is prose the agent wrote about itself, so the check belongs at the
 # publish chokepoint.
-LEAK=$(pc /profile "{\"summary\":\"I coordinate work for $ORG_ID\",\"readme\":\"\",\"pricing\":\"\"}")
+LEAK=$(pc /profile "{\"summary\":\"I coordinate work for $ORG_ID\",\"readme\":\"\"}")
 echo "$LEAK" | grep -qi "inv2\|refusing to publish" && ok "publishing the org id is refused (INV-2)" \
   || no "the node published its org membership: $(echo "$LEAK" | head -c 200)"
 # Judged by the answer it gives, not by the absence of an error: a provider that is down answers
 # nothing, and nothing contains no error.
-CLEAN=$(pc /profile '{"summary":"I operate devices over ANetLink","readme":"","pricing":""}')
+CLEAN=$(pc /profile '{"summary":"I operate devices over ANetLink","readme":""}')
 [ "$(printf '%s' "$CLEAN" | jget status)" = profile_set ] && ok "an ordinary profile still publishes" \
   || no "an ordinary profile did not publish: $(printf '%s' "${CLEAN:-<no answer>}" | head -c 200)"
 

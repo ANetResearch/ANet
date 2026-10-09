@@ -12,10 +12,9 @@ import (
 // The control token is the node's full authority: a process holding it can
 // call any route (A2A-DESIGN §21 item 13). The MCP server holds it on
 // behalf of a model, so it confines itself. In particular it never calls
-// the three payment routes that are not the agent tier (§8.6):
+// the payment routes that are not the agent tier (§8.6):
 //
 //	/tasks/pay-manual            task-manual: only `anet pay`, after a TTY confirmation
-//	/x402-authorize, /delegate   gateway: an authorization handed out, or pay:true
 //	/redeem                      redeem: credit taken out of the hub
 //
 // A payment an agent makes goes through /tasks/pay, whose route fixes the

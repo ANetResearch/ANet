@@ -16,9 +16,9 @@ import (
 
 // The fixture had no tests, which was tolerable while it only helped a
 // human paste a base64 string. It stopped being tolerable when the joint
-// run started depending on it: the gateway-payment section of
-// scenario.sh pays with `anetfixture x402-authorize`, so a fixture that
-// silently minted an unverifiable authorization would make that section
+// run started depending on it: the merchant-check sections of scenario.sh
+// present payments with `anetfixture x402-authorize`, so a fixture that
+// silently minted an unverifiable authorization would make those sections
 // fail with the hub blamed for it — a test tool that lies is worse than
 // no test tool, because its failures look like the system's.
 
@@ -85,9 +85,9 @@ func TestTheFixtureMintsAnAuthorizationTheHubWouldAccept(t *testing.T) {
 	if err := json.Unmarshal(raw, &pp); err != nil {
 		t.Fatalf("output is not a PaymentPayload: %v", err)
 	}
-	// The accepted terms must match what was asked for; a gateway checks
-	// them before settling, and a mismatch here would read as the gateway
-	// refusing a correct payment.
+	// The accepted terms must match what was asked for; the facilitator
+	// checks them before settling, and a mismatch here would read as the
+	// hub refusing a correct payment.
 	if pp.Accepted.PayTo != "did:anet:provider" || pp.Accepted.Amount != "120" {
 		t.Errorf("accepted terms = %+v", pp.Accepted)
 	}

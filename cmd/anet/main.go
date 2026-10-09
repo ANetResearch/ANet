@@ -208,15 +208,14 @@ var grpNetwork = []cmdDoc{
 	{"autoreply set --backend openai --api-base URL --model M", "全自动接单: 用你的 OpenAI 兼容 API 回复已接受的任务(可加 --require-image 等)"},
 	{"autoreply test [\"问题\"]", "本地验证自动回复(不经过 Hub, 不建身份, 零污染)"},
 	{"autoreply show|off", "查看 / 关闭内置自动回复循环"},
-	{"profile set [--summary S] [--readme S|@file] [--pricing S]", "由你的 agent 自述能力与收费(仅展示), 发布到 Hub"},
+	{"profile set [--summary S] [--readme S|@file]", "由你的 agent 自述能力, 发布到 Hub(不含价格: 价格在任务的报价里)"},
 	{"console [--url]", "打开本地控制台(浏览+委派+评价); --url 只打印一次性网址(60 秒内有效,交给操作者在浏览器打开)"},
-	{"find [query]", "在 Hub 上搜索 agent(按 AID/名字/能力/自述子串; 空 query 列全部)"},
+	{"find [query] [--cap id]", "列出 Hub 上的 agent(在本机按 AID/名字/能力/自述子串匹配, 查询词不发给 hub; 空 query 列全部)"},
 	{"delegate <provider-aid> <goal> [--attach PATH …]", "把任务经 Hub 中继排队给对方(立即返回 interaction_id, 对方可离线; 不在对方允许名单里会被 rejected; --attach 附带图片/媒体/压缩包)"},
-	{"delegate <provider-aid> --capability <id> [--args '<json>'] [--pay]", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent); --pay 表示对方报价就在同一任务里照价付款(受 explicit_max 与 payees.allow 约束)"},
+	{"delegate <provider-aid> --capability <id> [--args '<json>']", "调用对方注册的能力(由其 provider 确定性执行并返回证据, 不经 agent); 收费的能力先在同一任务里报价, 额度内自动付, 超出时用 anet pay 付"},
 	{"pay <interaction_id> [--option N] [--reject]", "付(或 --reject 拒付)对方对你所发任务的报价; 付款需在终端确认"},
 	{"reconcile", "把本节点签过/收到的付款与 hub 记的这个账户的流水做比对"},
 	{"audit-hub", "拉取并验证 hub 的发放链, 与本节点此前记录的链头比对"},
-	{"x402-authorize --pay-to <aid> --amount <n>", "为 x402 网关签一笔付款, 只打印 PAYMENT-SIGNATURE 的值(可直接管进 curl)"},
 	{"hub-leave [<hub-url>]", "从某个 hub 注销(换 hub 之后必须做, 否则旧 hub 会把活投进没人取的信箱; 证据链不动)"},
 	{"balance", "看本节点在 hub 账本上的余额与近期流水(余额托管在 hub, 事件在自己链上)"},
 	{"redeem <amount> [--ref <reference>]", "把 credit 兑付回 hub(额度真的离开流通, hub 为取走的数额签字); 需在终端确认金额与收款方"},
@@ -387,10 +386,10 @@ func usageAllText() string {
   anet autoreply set --backend openai --api-base URL --model M   auto-answer inbound tasks with your OpenAI-compatible API
   anet autoreply test ["q"]   verify auto-reply locally (never touches the Hub / creates no node)
   anet autoreply show|off     inspect or turn off the built-in auto-reply loop
-  anet profile set [--summary S] [--readme S|@file] [--pricing S]   publish your agent's self-description (display-only pricing)
+  anet profile set [--summary S] [--readme S|@file]   publish your agent's self-description (no prices: a price is in the task's quote)
   anet profile show           print the current self-description
   anet console [--url]        open the local web console (browse + one-click actions); --url prints a single-use URL (valid 60 s) for your operator to open
-  anet find [query]           search the Hub registry (AID/name/caps/profile substring; empty lists all)
+  anet find [query] [--cap id]   list the agents on your hub, matched here (AID/name/caps/profile substring; the query is not sent; empty lists all)
   anet delegate <provider-aid> <goal>   queue a task on a provider via the Hub relay (returns interaction_id; refused unless the provider accepts you)
   anet inbox [--pending]      list tasks other agents delegated to you
   anet thread <interaction_id>   read one interaction's full conversation (all messages, attachments and task state)
@@ -399,7 +398,7 @@ func usageAllText() string {
   anet end <interaction_id>   end a task: the provider completes it and signs the receipt; the requester asks the provider to complete
   anet accept-end <interaction_id>   removed: the provider completes a task itself (use 'anet end')
   anet results                pull the conversation for tasks you delegated that have ended (with the receipt)
-  anet delegate <aid> --capability <id> [--args '<json>'] [--pay]   call a registered capability; --pay pays a quoted price on the same task (limits: explicit_max, payees.allow)
+  anet delegate <aid> --capability <id> [--args '<json>']   call a registered capability; a priced one is quoted on the same task, paid within your limit or with anet pay
   anet hub-leave [<hub-url>]  stop being deliverable at a hub you have moved away from (the evidence stays)
   anet p2p-advertise [<addr>]   publish where peers can dial you directly (empty withdraws it; works in any build — what CONSUMES the address is the p2p module)
   anet verify --attestation <b64> --hub <url>   check a witness's statement about a hub's chain head
@@ -413,7 +412,6 @@ func usageAllText() string {
   anet review <interaction_id> <rating 1-5> [comment]   sign a review of an ended delegation (uploads to your Hub)
   anet visibility <local|hub-local|federated|public>   how far your entry travels: this hub only, or out to federated hubs
   anet evidence [--type T] [--since TS] [--limit N]   read this node's own evidence chain (id, prev_id, signature per record)
-  anet x402-authorize --pay-to <aid> --amount <n> [--network hub:<aid>] [--interaction <id>]   sign a PAYMENT-SIGNATURE header for a gateway (alias: pay-header)
   anet mcp                    serve this network to an MCP client over stdio (register it with 'anet agents wire')
                               (the local A2A interface for any A2A client is on by default: see 'anet doctor' for its address)
   anet verify <interaction_id>                  check a receipt you already hold locally
@@ -1323,33 +1321,31 @@ var knownFlags = map[string][]string{
 		"openclaw-agent", "require-image", "usage-hint", "error-reply", "command",
 		"poll-interval", "max-history", "api-timeout", "max-auto-replies", "egress-allow",
 	},
-	"profile": {"summary", "readme", "pricing"},
+	"profile": {"summary", "readme"},
 	"console": {"url", "print"},
 	// Both spellings on both commands. They named the same thing two ways
 	// and each rejected the other's, so the obvious two-step — find a node
 	// by capability, then call it — made you change the word halfway
 	// through. Neither name is worth breaking scripts over, so both work.
-	"find":           {"cap", "capability"},
-	"delegate":       {"cap", "capability", "args", "pay", "attach"},
-	"inbox":          {"pending"},
-	"thread":         {},
-	"task":           {"full", "history"},
-	"message":        {"file", "attach"},
-	"msg":            {"file", "attach"},
-	"pull":           {"out"},
-	"end":            {},
-	"accept-end":     {},
-	"results":        {},
-	"x402-authorize": {"pay-to", "amount", "network", "interaction"},
-	"pay-header":     {"pay-to", "amount", "network", "interaction"},
-	"reconcile":      {},
-	"audit-hub":      {},
-	"redeem":         {"ref"},
-	"balance":        {},
-	"credits":        {},
-	"visibility":     {},
-	"evidence":       {"type", "since", "limit"},
-	"review":         {},
+	"find":       {"cap", "capability"},
+	"delegate":   {"cap", "capability", "args", "attach"},
+	"inbox":      {"pending"},
+	"thread":     {},
+	"task":       {"full", "history"},
+	"message":    {"file", "attach"},
+	"msg":        {"file", "attach"},
+	"pull":       {"out"},
+	"end":        {},
+	"accept-end": {},
+	"results":    {},
+	"reconcile":  {},
+	"audit-hub":  {},
+	"redeem":     {"ref"},
+	"balance":    {},
+	"credits":    {},
+	"visibility": {},
+	"evidence":   {"type", "since", "limit"},
+	"review":     {},
 }
 
 // checkFlags refuses a flag the command does not accept.
@@ -1487,11 +1483,8 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 				}
 				body["readme"] = text
 			}
-			if v, ok := flags["pricing"]; ok {
-				body["pricing"] = v
-			}
 			if len(body) == 0 {
-				return fmt.Errorf("profile set [--summary S] [--readme S|@file] [--pricing S]")
+				return fmt.Errorf("profile set [--summary S] [--readme S|@file]")
 			}
 			return c.do("/profile", body)
 		case "", "show":
@@ -1544,15 +1537,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		}
 		return nil
 	case "find":
-		// --cap asks the exact question: who serves this capability id.
-		// "cas.put" means that id; "ptz.*" means that family. Without it
-		// the hub searches prose, which will return an agent that merely
-		// mentions the words.
-		pos, flags := splitFlags(rest)
-		if capID := capFlag(flags); capID != "" {
-			return c.do("/find", map[string]any{"capability": capID})
-		}
-		return c.do("/find", map[string]any{"query": strings.TrimSpace(strings.Join(pos, " "))})
+		return findCommand(c, rest)
 	case "delegate":
 		attachPaths, rest2 := extractAttach(rest)
 		rest2, flags := splitFlags(rest2)
@@ -1567,11 +1552,6 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		// than handing it to an agent to interpret.
 		if capID := capFlag(flags); capID != "" {
 			body["capability"] = capID
-			// --pay: if the provider quotes a price, pay it and delegate
-			// again rather than handing the quote back.
-			if flags["pay"] == "true" {
-				body["pay"] = true
-			}
 			if raw := strings.TrimSpace(flags["args"]); raw != "" {
 				var args map[string]any
 				if err := json.Unmarshal([]byte(raw), &args); err != nil {
@@ -1652,29 +1632,6 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 			"a requester asks it to with `anet end <interaction_id>`")
 	case "results":
 		return c.do("/results", map[string]any{})
-	case "x402-authorize", "pay-header":
-		// Sign a payment for an x402 gateway and print the header value.
-		// The gateway takes this, settles it, and hands back a voucher;
-		// the work then happens at the provider, not at the gateway.
-		_, flags := splitFlags(rest)
-		amount, err := strconv.ParseUint(strings.TrimSpace(flags["amount"]), 10, 64)
-		if err != nil || amount == 0 {
-			return fmt.Errorf("x402-authorize --pay-to <aid> --amount <n> [--network hub:<aid>] [--interaction <id>]")
-		}
-		body := map[string]any{
-			"pay_to": strings.TrimSpace(flags["pay-to"]),
-			"amount": amount,
-		}
-		if v := strings.TrimSpace(flags["network"]); v != "" {
-			body["network"] = v
-		}
-		if v := strings.TrimSpace(flags["interaction"]); v != "" {
-			body["interaction_id"] = v
-		}
-		// Only the header value on stdout, so it can be piped straight
-		// into a curl. Everything else about this command is noise to the
-		// one thing a caller wants.
-		return c.doField("/x402-authorize", body, "value")
 	case "reconcile":
 		// Compare what this node signed and was paid against what the hub
 		// says about this account. Both records already exist; this is
@@ -1840,35 +1797,6 @@ func jsonStringField(body []byte, field string) string {
 	return v
 }
 
-// doField prints one field of a JSON response and nothing else.
-//
-// For output meant to be piped. `anet x402-authorize` produces a header
-// value that goes straight into a curl, and a caller doing that should
-// not have to pick it out of a formatted object — nor should they get a
-// pretty-printed blob when what they piped into expects one line.
-func (c *client) doField(path string, body any, field string) error {
-	b, code, err := c.fetch(path, body)
-	if err != nil {
-		return err
-	}
-	var out map[string]any
-	if jerr := json.Unmarshal(b, &out); jerr != nil {
-		return fmt.Errorf("%s", strings.TrimSpace(string(b)))
-	}
-	if code != http.StatusOK {
-		if msg, _ := out["error"].(string); msg != "" {
-			return fmt.Errorf("%s", msg)
-		}
-		return fmt.Errorf("%s", strings.TrimSpace(string(b)))
-	}
-	v, ok := out[field].(string)
-	if !ok || v == "" {
-		return fmt.Errorf("anet: the daemon returned no %s", field)
-	}
-	fmt.Println(v)
-	return nil
-}
-
 // agentChoices renders the supported agent ids for help text, from the registry rather than a hand-kept
 // copy. The three copies that used to exist all said "cursor|claude|codex|openclaw|hermes", so adding an
 // agent meant remembering three places and the help was one edit away from lying about what works.
@@ -1891,6 +1819,29 @@ func capFlag(flags map[string]string) string {
 // terminal shows what the model was shown, and --full shows the rest — the
 // command the notice in a cut task names.
 const cliTaskBytes = 24 << 10
+
+// findLimit is how many agents `anet find` lists at once: the largest page
+// of the daemon's /agents/list. The answer's nextCursor says when there are
+// more.
+const findLimit = 100
+
+// findCommand is `anet find [query] [--cap id]`. The listing comes through
+// the daemon's /agents/list, which reads the hub's directory and matches
+// here: the query never reaches the hub (A2A-DESIGN §10.5). --cap asks the
+// exact question, who serves this capability id; without it the query is a
+// substring of what is shown. The agents without a network card are
+// included, as the hub directory listed them.
+func findCommand(c *client, rest []string) error {
+	pos, flags := splitFlags(rest)
+	body := map[string]any{"include_uncarded": true, "limit": findLimit}
+	if q := strings.TrimSpace(strings.Join(pos, " ")); q != "" {
+		body["q"] = q
+	}
+	if capID := capFlag(flags); capID != "" {
+		body["skill"] = capID
+	}
+	return c.do("/agents/list", body)
+}
 
 // taskCommand is `anet task get <task_id> [--full] [--history N]`: the task
 // as the control plane's /tasks/get projects it.

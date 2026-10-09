@@ -2,11 +2,11 @@ package daemon
 
 // published_caps.go limits what a registration tells the hub this node
 // serves to its public capabilities (an internal note item, A2A-DESIGN §10.2): the caps
-// list of /register and the ADP card signed with it, like the A2A network
-// card, name only entries of inbound.public_capabilities. A capability
-// this node serves to its allowed or trusted peers only is theirs to know
-// about; listing it in a public directory would advertise a private
-// surface and invite calls that the inbound policy refuses anyway.
+// list of /register, like the A2A network card signed with it, names only
+// entries of inbound.public_capabilities. A capability this node serves to
+// its allowed or trusted peers only is theirs to know about; listing it in
+// a public directory would advertise a private surface and invite calls
+// that the inbound policy refuses anyway.
 //
 // The same goes for a public capability whose provider refuses remote
 // callers (provider.RemotePolicy; LEC CC-5): ANetLink lets a remote call

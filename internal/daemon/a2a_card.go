@@ -14,8 +14,9 @@ package daemon
 // closed or approve with no public capability withdraws its card
 // (a2a_card_withdraw.go). The kernel writes the relay interface at the node's hub
 // and the anet-card and anet-evidence extensions; modules add their own
-// interfaces (p2p) and extensions (x402, pricing) through
-// module.CardContributor. The kernel never imports an A2A library.
+// interfaces (p2p) and extensions (a2a-x402) through module.CardContributor.
+// The card carries no price: what a skill costs is in the quote, inside the
+// task. The kernel never imports an A2A library.
 //
 // The card is in publish form (A2A specification §8.4.1): REQUIRED members
 // present, default values left out, numbers as strings. A verifier that
@@ -257,7 +258,7 @@ func (d *Daemon) selfKELResolver(aid string) ([]identity.SignedEvent, error) {
 // name is passed rather than read from the config because an explicit
 // hub-register writes its name to the config only after the hub accepted
 // it; the card sent with that registration must carry the same name as the
-// registration and its ADP card.
+// registration.
 func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 	caps := d.publicSkillIDs()
 	chat := d.publishesChat()
@@ -281,8 +282,7 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 	for _, s := range in.Skills {
 		skills = append(skills, s.ID)
 	}
-	cc := module.CardContext{AID: d.AID(), HubURL: hubURL, Skills: append([]string(nil), skills...),
-		WithholdPrices: !cfg.Payments.publishesPrices()}
+	cc := module.CardContext{AID: d.AID(), HubURL: hubURL, Skills: append([]string(nil), skills...)}
 	for _, m := range d.cardContributors() {
 		for _, e := range m.CardExtensions(cc) {
 			ext, err := netcard.Extension(e)
@@ -458,13 +458,6 @@ func (d *Daemon) afterCardAnswer(ctx context.Context, hubURL string, body hubapi
 	body.A2ACard = card
 	// The first attempt registered this AID: no proof of work again.
 	body.PoW = nil
-	// The ADP card of the first attempt was admitted at its seq, so the
-	// second attempt carries a newly minted one (card.go).
-	if body.Card != nil {
-		if adpCard, err := d.signedCard(body.Name, body.Caps); err == nil {
-			body.Card = adpCard
-		}
-	}
 	if err := d.screenPublication("this node's registration", body); err != nil {
 		log.Printf("anet: re-issued network card: %v", err)
 		return

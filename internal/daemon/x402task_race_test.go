@@ -44,7 +44,7 @@ func quotedTask(t *testing.T, req, prov *Daemon) (string, []byte) {
 		t.Fatalf("requester after the quote: %q", rix.PayState)
 	}
 	raw, err := req.payer().Authorize(storedQuote(rix).Accepts[0], id, mustPayBind(t, id, rix.TaskNonce),
-		module.PurposeGateway)
+		module.PurposeTaskManual)
 	if err != nil {
 		t.Fatal(err)
 	}

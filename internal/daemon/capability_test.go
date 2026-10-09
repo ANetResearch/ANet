@@ -773,7 +773,7 @@ func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
 	}
 	advertised := func() []string {
 		t.Helper()
-		agents, err := d.Find(ctx, "")
+		agents, err := hubDirectory(ctx, d)
 		if err != nil {
 			t.Fatal(err)
 		}

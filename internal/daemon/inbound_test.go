@@ -355,10 +355,6 @@ func TestAdmissionLimits(t *testing.T) {
 	refused("did:anet:e", "not.public", 1, admitNotPublic)
 	denyPeers(t, d, "did:anet:e")
 	refused("did:anet:e", "c", 1, admitDenied)
-	// moduleHost.Admit is the same check.
-	if _, refusal := (moduleHost{d}).Admit("did:anet:e", "c", 1); refusal != admitDenied {
-		t.Fatalf("module seam refusal %q", refusal)
-	}
 }
 
 // A caller over its quota for a public capability is refused with the

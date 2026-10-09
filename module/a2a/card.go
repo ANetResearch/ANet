@@ -37,8 +37,7 @@ import (
 	"github.com/ANetResearch/ANet/module"
 )
 
-// Extension URIs of the proxy card. anet-pricing is the network card's
-// (A2A-DESIGN §10.1); anet-origin is the proxy card's own.
+// Extension URIs of the proxy card: anet-origin is the proxy card's own.
 const (
 	// ExtOriginURI says which remote agent a proxy card stands for:
 	// params {aid, originVerification, originCard?, anet.official?},
@@ -46,8 +45,7 @@ const (
 	// padding, present only when originVerification is VERIFIED, and
 	// anet.official true when this node's official manifest lists the
 	// agent by that AID (A2A-DESIGN §15).
-	ExtOriginURI  = "https://agentnetwork.org.cn/a2a/ext/anet-origin/v1"
-	extPricingURI = "https://agentnetwork.org.cn/a2a/ext/anet-pricing/v1"
+	ExtOriginURI = "https://agentnetwork.org.cn/a2a/ext/anet-origin/v1"
 )
 
 // Verification values of a remote card (module.RemoteAgent.Verification).
@@ -128,25 +126,15 @@ func (b cardBuilder) build(ra module.RemoteAgent) (map[string]any, []string) {
 
 	if remote != nil {
 		copyVerified(card, remote)
-		var x402, pricing bool
+		// A public card carries no price (0.3.0): nothing of a remote
+		// card's extensions is passed on but whether it takes payment.
+		x402 := false
 		for _, e := range remote.Capabilities.Extensions {
-			switch e.URI {
-			case a2ashape.X402ExtensionURI:
+			if e.URI == a2ashape.X402ExtensionURI {
 				x402 = true
-			case extPricingURI:
-				pricing = true
-				ext := map[string]any{"uri": extPricingURI}
-				if p := clean(e.Params); p != nil {
-					ext["params"] = p
-				}
-				if d := strings.TrimSpace(e.Description); d != "" {
-					ext["description"] = d
-				}
-				exts = append(exts, ext)
-				uris = append(uris, extPricingURI)
 			}
 		}
-		if x402 || pricing {
+		if x402 {
 			// This node is the signing service (a2a-x402 §5.1, A2A-DESIGN
 			// §8.7): the client says payment-submitted and the daemon
 			// signs. Not required — "required" is omitted rather than
@@ -266,43 +254,6 @@ func orList(l, def []any) []any {
 		return def
 	}
 	return l
-}
-
-// clean removes empty values from extension params, recursively: "", nil,
-// [] and {} inside a Struct are values some verifiers drop before signing
-// and others keep (A2A-DESIGN §10.1). nil when nothing is left.
-func clean(m map[string]any) map[string]any {
-	out := map[string]any{}
-	for k, v := range m {
-		if c, ok := cleanValue(v); ok {
-			out[k] = c
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func cleanValue(v any) (any, bool) {
-	switch x := v.(type) {
-	case nil:
-		return nil, false
-	case string:
-		return x, x != ""
-	case map[string]any:
-		c := clean(x)
-		return c, c != nil
-	case []any:
-		var out []any
-		for _, e := range x {
-			if c, ok := cleanValue(e); ok {
-				out = append(out, c)
-			}
-		}
-		return out, len(out) > 0
-	}
-	return v, true
 }
 
 // cardCache holds the signed proxy cards, so a client reading a card and

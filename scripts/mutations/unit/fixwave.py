@@ -494,23 +494,25 @@ MUTS = [
   tests=[('ANet:./internal/daemon', 'TestAMessageIDSeenOnAFinishedTaskStartsANewOne')],
   full=['ANet:./internal/runtime/interactions', 'ANet:./internal/daemon'],
  ),
+ # fx39-1 and fx39-2 mutated official.go's /find view (foundView). /find is gone (PAY-9): `anet find`
+ # asks /agents/list, whose list of agents without a card applies the same two rules, so the
+ # mutations now take them out there.
  dict(
   id='fx39-1', group='F39', repo='ANet',
-  desc='/find 在官方标注旁照登 hub 写的文字',
+  desc='/agents/list 按 hub 写的文字匹配官方 agent(搜 hub 的话术能搜到官方标注)',
   edits=[
-   ('internal/daemon/official.go', '\t\tAgentView: hubapi.AgentView{AID: a.AID, Name: e.Name, Caps: e.Caps, Listed: a.Listed},', '\t\tAgentView: a,'),
-   ('internal/daemon/official.go', '\te, official := d.officials.Load().Lookup(a.AID, d.now())', '\t_, official := d.officials.Load().Lookup(a.AID, d.now())'),
+   ('internal/daemon/taskseam_agents.go', '\t\t\tname, summary, caps = mName, "", mCaps\n', '\t\t\t_, _ = mName, mCaps\n'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestFindShowsNoHubTextBesideTheOfficialMark')],
+  tests=[('ANet:./internal/daemon', 'TestTheAgentListShowsNoHubTextBesideTheOfficialMark')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
   id='fx39-2', group='F39', repo='ANet',
-  desc='/find 不丢弃非法 AID 的条目',
+  desc='/agents/list 不丢弃非法 AID 的目录条目',
   edits=[
-   ('internal/daemon/official.go', '\tif !validAgentID(a.AID) {\n\t\treturn foundAgent{}, false', '\tif false && !validAgentID(a.AID) {\n\t\treturn foundAgent{}, false'),
+   ('internal/daemon/taskseam_agents.go', '\t\tif !validAgentID(a.AID) || carded[a.AID] || seen[a.AID] {', '\t\tif carded[a.AID] || seen[a.AID] {'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestFindShowsNoHubTextBesideTheOfficialMark')],
+  tests=[('ANet:./internal/daemon', 'TestTheAgentListShowsNoHubTextBesideTheOfficialMark')],
   full=['ANet:./internal/daemon'],
  ),
  # fx41-1 (hub-register took --token, the invite on argv) and fx41-2 (--token-file accepted a file other
@@ -524,15 +526,11 @@ MUTS = [
  # themselves: since PAY-5 a hub admits by AID, anet-hub mints no invite and cmd/anet-hub/invite_ops.go
  # and its test are gone. The removed -invite-* flags are covered by TestARemovedFlagNamesItsSubcommand;
  # the F41 rerun checks that no invitation path is left (PAY-15, EXE-14).
- dict(
-  id='fx1-1', group='F1', repo='ANet',
-  desc='publish_prices=false 时卡片仍带逐 skill 价格',
-  edits=[
-   ('internal/daemon/card.go', '\tif d.providers == nil || !d.config().Payments.publishesPrices() {', '\tif d.providers == nil {'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestWithheldPricesAreOnNeitherCard')],
-  full=['ANet:./internal/daemon'],
- ),
+ # fx1-1 (publish_prices=false still priced the cards) is retired with the setting and the public prices
+ # themselves (PAY-9): a card never carries a price, and nothing turns one back on. Covered by
+ # TestCardExtensionsCarryNoPrice, TestTheHubCannotNameThePaidSkillFromWhatItIsSent (F1 rerun),
+ # TestNoPriceLeavesThisNode and TestProxyCard; their mutations are pay.py pay9-card-price,
+ # pay9-proxy-price and pay9-profile-hub.
  # fx3-1 (the key, card and KEL lookups went back to GETs with the AID in the request line) is retired
  # with the lookups themselves: sealed-sender SSR-D16 removed every lookup by a peer's AID, and a node now
  # learns a peer's material from a directory bucket (internal/daemon/peer_resolve.go). Nothing a node sends
@@ -610,15 +608,10 @@ MUTS = [
   tests=[('ANet:./module/x402', 'TestRedteamSI9MerchantCheckRefusesAnOverflowingAmount')],
   full=['ANet:./module/x402'],
  ),
- dict(
-  id='s9-2', group='si9', repo='ANet',
-  desc='兑付凭证放行 > 2^63-1 的金额',
-  edits=[
-   ('module/x402/voucher.go', '\tif v.Amount > math.MaxInt64 {', '\tif false && v.Amount > math.MaxInt64 {'),
-  ],
-  tests=[('ANet:./module/x402', 'TestRedeemRefusesAVoucherForMoreThanALedgerCanHold')],
-  full=['ANet:./module/x402'],
- ),
+ # s9-2 (the voucher door redeemed a voucher for more than a ledger holds) is retired with the door
+ # (PAY-9): nothing on a node redeems a voucher (TestTheVoucherDoorDoesNotOpen, TestThePaymentModule-
+ # ServesNoHTTP; pay.py M-PAY-37, M-PAY-37b). The other lines of defence keep their rows: s9-1 (the
+ # merchant check), s9-3 (the signer).
  dict(
   id='s9-3', group='si9', repo='ANet',
   desc='签名放行 > 2^63-1 的金额',
