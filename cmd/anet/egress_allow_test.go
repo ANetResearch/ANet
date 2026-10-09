@@ -47,10 +47,10 @@ func egressDaemon(t *testing.T, current []string) (*client, func() (paths []stri
 func runEgress(t *testing.T, c *client, args ...string) (error, string) {
 	t.Helper()
 	var stderr bytes.Buffer
-	prevErr, prevLine := egressStderr, commandLine
-	egressStderr = &stderr
+	prevErr, prevTTYErr, prevLine := egressStderr, ttyStderr, commandLine
+	egressStderr, ttyStderr = &stderr, &stderr
 	commandLine = func() []string { return append([]string{"autoreply", "set"}, args...) }
-	defer func() { egressStderr, commandLine = prevErr, prevLine }()
+	defer func() { egressStderr, ttyStderr, commandLine = prevErr, prevTTYErr, prevLine }()
 	if err := checkFlags("autoreply", append([]string{"set"}, args...)); err != nil {
 		t.Fatalf("flags: %v", err)
 	}

@@ -20,7 +20,7 @@ func TestUnknownFlagsAreRefused(t *testing.T) {
 		{"hub-register", "--nmae"},
 		{"delegate", "--caps"}, // plural; the real ones are --cap / --capability
 		{"redeem", "--reff"},
-		{"evidence", "--kind"}, // the real one is --type
+		{"audit", "--kind"}, // the real one is --type
 	} {
 		err := checkFlags(tc.cmd, []string{tc.flag, "value"})
 		if err == nil {
@@ -53,7 +53,9 @@ func TestKnownFlagsAreAccepted(t *testing.T) {
 		{"message", []string{"ix", "--file", "/tmp/x", "--attach", "/tmp/y"}},
 		{"autoreply", []string{"set", "--backend", "openai", "--api-base", "u", "--model", "m"}},
 		{"verify", []string{"--receipt", "r", "--kel", "k", "--result", "f"}},
-		{"install", []string{"--agent", "claude"}},
+		{"audit", []string{"--type", "anet.payment.settled", "--peer", "x", "--json"}},
+		{"task", []string{"list", "--role", "requester", "--state", "completed", "--peer", "x"}},
+		{"find", []string{"q", "--json"}},
 		{"results", nil},
 	} {
 		if err := checkFlags(tc.cmd, tc.args); err != nil {
@@ -128,9 +130,13 @@ func TestTheFlagCheckerAcceptsEverythingTheHelpPromises(t *testing.T) {
 // cannot catch a flag listed under the wrong command; it does catch a flag
 // listed under no command at all, which is the failure that actually happened.
 func TestEveryDocumentedFlagIsAcceptedBySomeCommand(t *testing.T) {
-	src, err := os.ReadFile("main.go")
-	if err != nil {
-		t.Fatal(err)
+	var src []byte
+	for _, f := range []string{"main.go", "help.go"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src = append(src, b...)
 	}
 	// Not per-command flags:
 	//   version / help — dispatched as commands (`anet --version` is `anet version`)

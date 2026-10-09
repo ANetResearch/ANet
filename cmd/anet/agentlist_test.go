@@ -64,7 +64,6 @@ func TestEveryAgentIdIsAcceptedByTheFlagChecker(t *testing.T) {
 			name string
 			rest []string
 		}{
-			{"install", []string{"--agent", id}},
 			{"autoreply", []string{"set", "--backend", "exec", "--agent", id}},
 		} {
 			if err := checkFlags(cmd.name, cmd.rest); err != nil {

@@ -14,7 +14,3 @@ import (
 func runAgents(daemon.Layout, []string) error {
 	return fmt.Errorf("anet agents: this build was compiled with -tags no_mcp (no MCP server to register)")
 }
-
-func runInstall(daemon.Layout, []string) error {
-	return fmt.Errorf("anet install: this build was compiled with -tags no_mcp (no MCP server to register)")
-}

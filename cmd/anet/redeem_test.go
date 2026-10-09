@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // redeemDaemon is a control plane with a hub it settles on
@@ -45,9 +47,11 @@ func redeemDaemon(t *testing.T, hubAID string) (*client, func() []string, func()
 		}
 }
 
-// The payee the operator is shown is the payee sent: /redeem carries the
-// hub AID the prompt named as pay_to, which the daemon signs to and to
-// nothing else (it refuses when the node settles on another hub by then).
+// The hub the operator is shown is the hub paid: the prompt is
+// redeem_confirm with the hub the node settles on (ux §1.4 M1, UX-R12), and
+// /redeem carries that hub's AID, read in the same answer, as pay_to, which
+// the daemon signs to and to nothing else (it refuses when the node settles
+// on another hub by then).
 // Without a terminal nothing reaches the daemon; without "yes", nothing
 // is redeemed.
 func TestRedeemSendsThePayeeItShowed(t *testing.T) {
@@ -71,8 +75,11 @@ func TestRedeemSendsThePayeeItShowed(t *testing.T) {
 	if err := runRedeem(c, []string{"7", "--ref", "invoice 7"}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(tty.prompt.String(), hub) || !strings.Contains(tty.prompt.String(), "Redeem 7 credits") {
-		t.Errorf("prompt %q", tty.prompt.String())
+	lang := a2ashape.Lang()
+	want := a2ashape.Sentence("redeem_confirm", lang, a2ashape.Args{"amount": 7, "hub": "https://hub.example",
+		"single": 10, "left": 47}) + "\n" + a2ashape.Sentence("confirm.yes", lang, nil) + " "
+	if tty.prompt.String() != want {
+		t.Errorf("prompt %q, want %q", tty.prompt.String(), want)
 	}
 	if got := strings.Join(paths(), ","); got != "/payments/status,/redeem" {
 		t.Fatalf("daemon asked %s", got)
@@ -96,7 +103,7 @@ func TestRedeemWithoutThePaymentModuleDoesNotAsk(t *testing.T) {
 	opened := false
 	openTTY = func() (io.ReadWriteCloser, error) { opened = true; return nil, errors.New("asked") }
 	err := runRedeem(c, []string{"7"})
-	if !errors.Is(err, errNoPaymentModule) || !strings.Contains(err.Error(), "未编入支付模块") {
+	if !errors.Is(err, errNoPaymentModule) || !strings.Contains(err.Error(), "no payment module") {
 		t.Fatalf("redeem without the payment module: %v", err)
 	}
 	if opened || len(paths()) != 0 {

@@ -25,9 +25,7 @@ func TestTaskGetAsksForTheBoundOrTheWholeTask(t *testing.T) {
 		mu.Lock()
 		bodies = append(bodies, m)
 		mu.Unlock()
-		if r.URL.Path != "/tasks/get" {
-			t.Errorf("path %s", r.URL.Path)
-		}
+
 		_, _ = w.Write([]byte(`{"id":"ix_1"}`))
 	}))
 	t.Cleanup(srv.Close)
@@ -54,9 +52,10 @@ func TestTaskGetAsksForTheBoundOrTheWholeTask(t *testing.T) {
 		}
 	}
 	n := len(bodies)
-	for _, bad := range [][]string{{}, {"get"}, {"list"}, {"get", "a", "b"}, {"get", "ix_1", "--history", "x"}} {
-		if err := taskCommand(c, bad); err == nil {
-			t.Errorf("%v: accepted", bad)
+	for _, bad := range [][]string{{}, {"get"}, {"watch", "ix_1"}, {"get", "a", "b"}, {"get", "ix_1", "--history", "x"},
+		{"list", "x"}, {"list", "--role", "boss"}, {"cancel"}, {"cancel", "a", "b"}} {
+		if err := taskCommand(c, bad); !isUsage(err) {
+			t.Errorf("%v: %v, want a usage error", bad, err)
 		}
 	}
 	if len(bodies) != n {

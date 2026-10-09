@@ -158,6 +158,9 @@ type auditFilter struct {
 	since       int64 // unix ms; 0 = none
 	peer        string
 	interaction string
+	// eventType keeps the records of one event type (anet audit --type,
+	// which took the place of anet evidence --type, ux §4.2).
+	eventType string
 	// peerIX are the interactions whose records name peer; buildAudit
 	// fills it, so that a record naming only the interaction (a result
 	// accepted, a settlement) is kept too.
@@ -165,19 +168,19 @@ type auditFilter struct {
 }
 
 // runAudit is `anet audit [--since D] [--peer AID] [--interaction ID]
-// [--json] [--export DIR]`.
+// [--type T] [--json] [--export DIR]`.
 func runAudit(layout daemon.Layout, rest []string) error {
 	pos, flags := splitFlags(rest)
 	if len(pos) > 0 {
-		return fmt.Errorf("audit [--since 24h|2006-01-02|RFC3339] [--peer AID] [--interaction ID] [--json] [--export DIR]\n" +
-			"       audit hub    (the hub's issuance chain; same as audit-hub)")
+		return usageError{"anet audit [--since 24h|2006-01-02|RFC3339] [--peer AID] [--interaction ID] [--type T] [--json] [--export DIR]\n" +
+			"       anet audit hub    (the hub's issuance chain; same as anet audit-hub)"}
 	}
 	var f auditFilter
 	fl := map[string]string{}
 	if v := strings.TrimSpace(flags["since"]); v != "" && v != "true" {
 		ms, err := parseSince(v, time.Now())
 		if err != nil {
-			return err
+			return usageError{fmt.Sprintf("anet audit --since 24h|7d|2006-01-02|RFC3339  (%q is none of these)", printable(v, 64))}
 		}
 		f.since, fl["since"] = ms, time.UnixMilli(ms).UTC().Format(time.RFC3339)
 	}
@@ -186,6 +189,9 @@ func runAudit(layout daemon.Layout, rest []string) error {
 	}
 	if v := strings.TrimSpace(flags["interaction"]); v != "" && v != "true" {
 		f.interaction, fl["interaction"] = v, v
+	}
+	if v := strings.TrimSpace(flags["type"]); v != "" && v != "true" {
+		f.eventType, fl["type"] = v, v
 	}
 	ch, err := daemon.ReadEvidenceChain(layout)
 	if err != nil {
@@ -234,6 +240,9 @@ func parseSince(v string, now time.Time) (int64, error) {
 // matches applies the filter to one record.
 func (f auditFilter) matches(r daemon.EvidenceRecord) bool {
 	if f.since > 0 && r.Timestamp < f.since {
+		return false
+	}
+	if f.eventType != "" && r.EventType != f.eventType {
 		return false
 	}
 	if f.interaction != "" && !namesInteraction(r, f.interaction) {

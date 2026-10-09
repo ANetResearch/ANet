@@ -15,5 +15,5 @@ var paymentsCompiled = func() bool { return slices.Contains(module.Compiled(), "
 
 // errNoPaymentModule is a paying command in a build without the payment
 // module.
-var errNoPaymentModule = errors.New("本构建未编入支付模块(-tags no_x402),不能付款或兑付;没有询问,也没有签任何东西 " +
-	"(this build has no payment module; nothing was asked or signed)")
+var errNoPaymentModule = errors.New("this build has no payment module (-tags no_x402), so it cannot pay or redeem; " +
+	"nothing was asked or signed")

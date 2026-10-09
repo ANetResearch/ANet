@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // dispatchCommands reads the verb names main.go actually dispatches on.
@@ -120,7 +123,8 @@ func TestEveryDispatchedCommandIsInTheFullHelp(t *testing.T) {
 // The daemon carries it on the /delegate answer; the CLI pretty-prints that object, where one more key
 // among five reads as noise. The extra line is what an operator actually sees before they start waiting
 // for a reply that may be days out. The delegation is queued either way, so this is a note, not an error
-// — the exit status stays 0.
+// — the exit status stays 0. The note is a human line, so it goes to stderr and the JSON on stdout stays
+// JSON (ux UX-C1, UX-C2 line 5).
 func TestDelegatePrintsTheQuietNotice(t *testing.T) {
 	const warning = "queued, but bafyreiabc has not collected its mail for 3 days — it may not be running"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -132,24 +136,17 @@ func TestDelegatePrintsTheQuietNotice(t *testing.T) {
 
 	c := &client{base: srv.URL, token: "t", timeout: 5 * time.Second}
 	var err error
-	out := captureStdout(t, func() { err = c.do("/delegate", map[string]any{"provider": "bafyreiabc"}) })
+	out, errOut := captureCLI(t, func() { err = c.do("/delegate", map[string]any{"provider": "bafyreiabc"}) })
 	if err != nil {
 		t.Fatalf("a queued delegation with a quiet recipient is not a failure: %v", err)
 	}
-	if !strings.Contains(out, `"interaction_id": "ix-1"`) {
-		t.Errorf("the answer itself must still be printed:\n%s", out)
+	var answer map[string]any
+	if json.Unmarshal([]byte(out), &answer) != nil || answer["interaction_id"] != "ix-1" {
+		t.Errorf("stdout must be the answer and only the answer:\n%s", out)
 	}
-	notice := ""
-	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(line, "note:") {
-			notice = line
-		}
-	}
-	if notice == "" {
-		t.Fatalf("the hub's warning was dropped instead of shown on its own line:\n%s", out)
-	}
-	if !strings.Contains(notice, "3 days") || !strings.Contains(notice, "not collected its mail") {
-		t.Errorf("the notice must say how long the recipient has been silent: %q", notice)
+	want := a2ashape.Label("task.note", a2ashape.Lang()) + ": " + warning + "\n"
+	if errOut != want {
+		t.Fatalf("the hub's warning must be its own line on stderr: %q, want %q", errOut, want)
 	}
 }
 
@@ -162,8 +159,8 @@ func TestAnOrdinaryAnswerPrintsNoNotice(t *testing.T) {
 	defer srv.Close()
 
 	c := &client{base: srv.URL, token: "t", timeout: 5 * time.Second}
-	out := captureStdout(t, func() { _ = c.do("/delegate", nil) })
-	if strings.Contains(out, "note:") {
-		t.Errorf("nothing was warned about; there must be no note:\n%s", out)
+	_, errOut := captureCLI(t, func() { _ = c.do("/delegate", nil) })
+	if errOut != "" {
+		t.Errorf("nothing was warned about; there must be no note:\n%s", errOut)
 	}
 }
