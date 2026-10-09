@@ -387,7 +387,8 @@ func TestListPageBoundaryIsTheIndexRead(t *testing.T) {
 	t.Run("a task of the page is pruned", func(t *testing.T) {
 		s, _ := setup(t, "ix_3")
 		got := walk(t, s, func() {
-			if n, err := s.PruneTerminal("t", 1<<40); err != nil || n.Interactions != 1 {
+			r, _ := interactions.RetentionDays(1)
+			if n, err := s.PruneTerminal(1<<42, interactions.ClockFull, r); err != nil || n[interactions.ClassOutbound].Interactions != 1 {
 				t.Fatalf("prune: %+v %v", n, err)
 			}
 		})

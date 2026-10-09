@@ -136,6 +136,8 @@ func main() {
 		fail(runInit(layout, rest))
 	case "doctor": // read-only report from the data directory; needs no daemon
 		fail(runDoctor(layout, rest))
+	case "retention": // how long task content is kept; works with or without the daemon (FS §5.2)
+		fail(runRetention(layout, rest))
 	case "audit":
 		// The local evidence chain, read and verified from disk with or without a daemon;
 		// `anet audit hub` is audit-hub (A2A-DESIGN §14).
@@ -356,6 +358,8 @@ func usageAllText() string {
   anet status                 show daemon identity + data dir + Hub registration + inbound policy + profile
   anet init [--json]          write the safe defaults into this identity's config and create the empty peer/payee lists (idempotent; never changes an existing value)
   anet doctor [--json]        report what this node is set up to do: version, modules, identity, addresses, hub, inbound policy, spending limits, agent wiring, file permissions
+  anet retention [--json]     how long task content is kept after a task ends (30 days unless you changed it; public calls 7 days)
+  anet retention set <N>d|forever   change it (1-3650 days, or forever); asks in your terminal, and before deleting anything
   anet logs [N|--all]         show the daemon log
 
  Identities (run several personas on one machine — e.g. a "coder" and a "delegator"):
@@ -1299,6 +1303,9 @@ var knownFlags = map[string][]string{
 	"init":     {"json"},
 	"doctor":   {"json"},
 	"audit":    {"since", "peer", "interaction", "json", "export"},
+
+	// through the daemon when it runs, from the data directory when not
+	"retention": {"json"},
 
 	// through the control plane
 	"status":        {},

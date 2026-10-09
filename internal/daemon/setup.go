@@ -166,6 +166,12 @@ func fillConfig(raw []byte) ([]InitChange, []byte, error) {
 	for _, block := range []string{"inbound", "payments"} {
 		changes = append(changes, fillMissing(cur, def, block, block)...)
 	}
+	// How long task content is kept, written out like the other defaults
+	// (FS §5.1): 30 days.
+	if v, ok := cur["content_retention"]; !ok || v == nil {
+		cur["content_retention"] = def["content_retention"]
+		changes = append(changes, InitChange{Key: "content_retention", Action: "added", Value: def["content_retention"]})
+	}
 	if ar, ok := cur["auto_reply"].(map[string]any); ok {
 		if _, has := ar["untrusted"]; !has {
 			ar["untrusted"] = UntrustedOff

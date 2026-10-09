@@ -284,13 +284,23 @@ func (s *Store) ListPending() ([]*PendingItem, error) {
 }
 
 // ExpiredPending returns the held items that arrived before cutoff (unix ms).
+// An item whose data key is gone is returned too, with its content (the
+// delegation, attachments and follow-ups) empty: its expiry reads none of
+// it, and an item left out here would never expire and would hold a place
+// in the queue for ever.
 func (s *Store) ExpiredPending(cutoff int64) ([]*PendingItem, error) {
-	return s.queryPending(`SELECT `+pendingColumns+` FROM pending WHERE arrived_at < ? ORDER BY arrived_at`, cutoff)
+	return s.readPending(true, `SELECT `+pendingColumns+` FROM pending WHERE arrived_at < ? ORDER BY arrived_at`, cutoff)
 }
 
 // queryPending reads the held items q selects. One whose data key is gone
 // (deleted with it since the query ran) is left out.
 func (s *Store) queryPending(q string, args ...any) ([]*PendingItem, error) {
+	return s.readPending(false, q, args...)
+}
+
+// readPending is queryPending; keyless keeps an item whose data key is gone,
+// its content left empty.
+func (s *Store) readPending(keyless bool, q string, args ...any) ([]*PendingItem, error) {
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
@@ -310,6 +320,8 @@ func (s *Store) queryPending(q string, args ...any) ([]*PendingItem, error) {
 	out := items[:0]
 	for _, p := range items {
 		switch err := openPending(s.db, p); {
+		case errors.Is(err, ErrContentGone) && keyless:
+			p.Delegate, p.Attachments, p.Followups, p.sealedAtts, p.sealedFollowups = nil, nil, nil, "", ""
 		case errors.Is(err, ErrContentGone):
 			continue
 		case err != nil:

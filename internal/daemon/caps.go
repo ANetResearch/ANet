@@ -36,7 +36,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -970,18 +969,8 @@ func (d *Daemon) capabilityPriced(capID string) bool {
 // the grant's pay (core X-SS-8, Q-SS-6): whether this node prices any
 // capability it serves. A node without payments prices nothing.
 func (d *Daemon) pricesSomething() bool {
-	if d.providers == nil {
-		return false
-	}
-	// v030-todo(PAY-10): ask Module.HasPrices; until then every served capability's price (HPP §8.1).
-	ids := d.providers.Capabilities()
-	sort.Strings(ids)
-	for _, id := range ids {
-		if d.capabilityPriced(id) {
-			return true
-		}
-	}
-	return false
+	p := d.payer()
+	return p != nil && p.HasPrices()
 }
 
 // p2pAdvertise is modules.p2p.advertise, the address a contact peer

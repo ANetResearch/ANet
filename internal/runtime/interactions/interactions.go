@@ -240,6 +240,9 @@ type Store struct {
 	refusedCaps    RefusedCaps
 	refusedRows    int
 	refusedCounted bool
+	// walBusy counts the TruncateWAL calls in a row that found the log
+	// busy (retention.go). Under mu.
+	walBusy int
 	// now is the clock for state_at; tests replace it.
 	now func() int64
 }

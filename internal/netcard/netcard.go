@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/url"
 	"sort"
@@ -84,8 +85,15 @@ type Input struct {
 	// DefaultMode.
 	DefaultModes []string
 	Skills       []Skill
+	// ListOnly are the skills served only to the callers in allow ∪ trust
+	// (allow_only capabilities). They are never on the public card or the
+	// general extended card; the list variant lists them beside Skills
+	// (BuildExtended).
+	ListOnly []Skill
 	// Extensions and Interfaces are module contributions (module.
-	// CardContributor), each already accepted by Extension or Interface.
+	// CardContributor) to the public card, each already accepted by
+	// Extension or Interface. An extended card takes its own extension
+	// contributions (BuildExtended) and these interfaces.
 	Extensions []map[string]any
 	Interfaces []map[string]any
 }
@@ -189,8 +197,13 @@ type caps struct {
 	// The relay binding is store-and-forward: no server-sent events and no
 	// push callbacks reach a node through it. Both are proto3 optional and
 	// written even when false, as a2a-go does.
-	Streaming         bool             `json:"streaming"`
-	PushNotifications bool             `json:"pushNotifications"`
+	Streaming         bool `json:"streaming"`
+	PushNotifications bool `json:"pushNotifications"`
+	// ExtendedAgentCard is true on every card this package builds: every
+	// public card says that an extended card may be asked for, whether or
+	// not this node has prices or capabilities for its lists, so the flag
+	// tells a reader nothing about either (CORE-K23 rule 1).
+	ExtendedAgentCard bool             `json:"extendedAgentCard"`
 	Extensions        []map[string]any `json:"extensions,omitempty"`
 }
 
@@ -204,19 +217,42 @@ type skill struct {
 	OutputModes []string `json:"outputModes,omitempty"`
 }
 
-// Build returns the unsigned network card. Interfaces come relay first,
-// then contributions ordered by (protocolBinding, url); extensions come
-// anet-card, anet-evidence, then contributions ordered by uri, a repeated
-// uri kept once. The result passes a2acard.CheckPublishForm.
+// Build returns the unsigned public network card. Interfaces come relay
+// first, then contributions ordered by (protocolBinding, url); extensions
+// come anet-card, anet-evidence, then contributions ordered by uri, a
+// repeated uri kept once. capabilities.extendedAgentCard is always true. A
+// price list contribution (anet-price/v1, or the public price list of 0.2)
+// is dropped with a log line, whatever the module that made it meant: the
+// public card names no price (PAY-C1). The result passes
+// a2acard.CheckPublishForm.
 func Build(in Input) ([]byte, error) {
+	return build(in, in.Skills, publicExtensions(in.Extensions))
+}
+
+// publicExtensions is exts without the price lists.
+func publicExtensions(exts []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(exts))
+	for _, e := range exts {
+		if u, _ := e["uri"].(string); isPriceURI(u) {
+			log.Printf("anet: a card contribution of %s was dropped: the public card carries no price", u)
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// build is the card of in's identity, hub, interfaces and defaults, with
+// the given skills and extension contributions.
+func build(in Input, skills []Skill, extensions []map[string]any) ([]byte, error) {
 	if in.AID == "" || trimHub(in.HubURL) == "" {
 		return nil, errors.New("netcard: AID and hub are required")
 	}
-	if len(in.Skills) == 0 {
+	if len(skills) == 0 {
 		return nil, ErrNoSkill
 	}
-	if len(in.Skills) > a2acard.MaxSkills {
-		return nil, fmt.Errorf("netcard: %d skills, a card holds at most %d", len(in.Skills), a2acard.MaxSkills)
+	if len(skills) > a2acard.MaxSkills {
+		return nil, fmt.Errorf("netcard: %d skills, a card holds at most %d", len(skills), a2acard.MaxSkills)
 	}
 	defModes := nonEmpty(in.DefaultModes)
 	if len(defModes) == 0 {
@@ -242,12 +278,13 @@ func Build(in Input) ([]byte, error) {
 			"protocolVersion": ProtocolVersion, "tenant": in.AID,
 		}},
 		Version:            version,
+		Capabilities:       caps{ExtendedAgentCard: true},
 		DefaultInputModes:  defModes,
 		DefaultOutputModes: defModes,
-		Skills:             make([]skill, 0, len(in.Skills)),
+		Skills:             make([]skill, 0, len(skills)),
 	}
 	seenSkill := map[string]bool{}
-	for _, s := range in.Skills {
+	for _, s := range skills {
 		if s.ID == "" || seenSkill[s.ID] {
 			return nil, fmt.Errorf("netcard: skill id %q is empty or repeated", s.ID)
 		}
@@ -289,7 +326,7 @@ func Build(in Input) ([]byte, error) {
 		}},
 		{"uri": module.ExtEvidenceURI, "description": evidenceExtDescription},
 	}
-	exts := append([]map[string]any(nil), in.Extensions...)
+	exts := append([]map[string]any(nil), extensions...)
 	for i, e := range exts {
 		if u, ok := e["uri"].(string); !ok || u == "" {
 			return nil, fmt.Errorf("netcard: extension %d has no uri", i)
