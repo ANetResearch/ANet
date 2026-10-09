@@ -115,6 +115,7 @@ var injectCorpus = []injectCase{
 	{"namespace-nested-hosted", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"namespace","name":"n","tools":[{"type":"namespace","name":"m","tools":[{"type":"mcp","server_url":"https://mcp.example"}]}]}]}`, "policy_server_tool"},
 	{"namespace-without-tools", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"namespace","name":"n"}]}`, "policy_server_tool"},
 	{"namespace-tools-not-a-list", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"namespace","name":"n","tools":{"type":"web_search"}}]}`, "policy_server_tool"},
+	{"namespace-member-not-an-object", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"namespace","name":"n","tools":[{"type":"function","name":"f"},"web_search"]}]}`, "policy_server_tool"},
 	{"codex-input-tools", "openai", "POST", "/v1/responses", nil, `{"input":[{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"functions",` +
 		`"tools":[{"type":"custom","name":"exec","format":{"type":"grammar"}},{"type":"function","name":"wait","parameters":{}}]}]},` +
 		`{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],"reasoning":{"effort":"medium"},"store":false}`, ""},
