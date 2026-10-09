@@ -92,6 +92,8 @@ func FuzzControlRoutes(f *testing.F) {
 		{"/tasks/pay", `{"task_id":"` + id + `","decision":"submit","accept":{"scheme":"credit"}}`},
 		{"/tasks/pay-manual", `{"task_id":"` + id + `","decision":"reject"}`},
 		{"/agents/list", `{"skill":"text.stats","limit":-1,"cursor":"uncarded:-9"}`},
+		{"/agents/list", `{"tag":"t","query":"q","limit":2,"cursor":"registry:1:c"}`},
+		{"/agents/list", `{"cursor":"registry:-1:"}`},
 		{"/agents/card", `{"aid":"` + prov.AID() + `"}`},
 		{"/agents/kel", `{"aid":"` + prov.AID() + `"}`},
 		{"/agents/kel", `{"aid":"../x"}`},
