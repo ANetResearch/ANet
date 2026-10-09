@@ -52,6 +52,13 @@ func TestHeldDelegationDataKeyFollowsTheApprovalQueue(t *testing.T) {
 	}
 
 	id := hold("approved under the key it was held with")
+	// The pending_approval notice leaves the queue first: a queued row of
+	// the task keeps its data key by itself (ENG-S7), and the approval must
+	// be what carries the key over.
+	waitUntil(t, "the pending_approval notice confirmed", func() bool {
+		settleDelivery(t, prov, s)
+		return len(outboxRows(t, prov, id)) == 0
+	})
 	held, err := prov.ix.MACKey(id)
 	if err != nil {
 		t.Fatal(err)
