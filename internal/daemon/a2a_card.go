@@ -107,12 +107,14 @@ type CardPublication struct {
 // admits. A public capability nobody serves is left out: a directory entry
 // for it would be an invitation to call something that cannot answer. So
 // is a priced one on a node that cannot take payment (a -tags no_x402
-// build, or no payment module): capability.go refuses every call to it.
+// build, or no payment module): capability.go refuses every call to it. So
+// is one its provider refuses to remote callers (published_caps.go).
 func (d *Daemon) publicSkillIDs() []string {
 	if d.providers == nil {
 		return nil
 	}
 	canCharge := d.payer() != nil
+	remote := d.remoteCheck()
 	seen := map[string]bool{}
 	var out []string
 	for _, p := range d.config().inbound().PublicCapabilities {
@@ -126,6 +128,9 @@ func (d *Daemon) publicSkillIDs() []string {
 			continue
 		}
 		if _, priced := priceOfCapability(prov, id); priced && !canCharge {
+			continue
+		}
+		if remote.refused(id) {
 			continue
 		}
 		out = append(out, id)

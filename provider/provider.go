@@ -53,18 +53,67 @@ const (
 // VerifiedCaller returns CallerAID when the daemon authenticated it (a call
 // that came through the relay, Via == ViaRelay), and "" otherwise.
 //
-// It is the way for a provider that implements Priced to learn who is
-// calling, for logging or to pass to its own backend: at the voucher door
-// the answer is "", because there the AID says who paid, not who is
-// asking. Such a provider still must not read CallerAID itself (the
-// structural test in this package checks that), and it must not grant
-// anything on the strength of an empty answer.
+// It is the one caller a provider may pass on: to its log, to its own
+// backend, or across C1 to ANetLink as caller.aid (provider/anetlink). Any
+// other door answers "": at the voucher door the AID says who paid, not who
+// is asking, and a local surface has no remote caller at all. A provider
+// that implements Priced must not read CallerAID itself (the structural
+// test in this package checks that; provider/anetlink has its own), and no
+// provider may grant anything on the strength of an empty answer.
+//
+// There is no second accessor saying how fresh the caller's witness notice
+// was: the daemon makes a relay call only for a message its receive
+// pipeline accepted, notice check included, so every relay caller is a
+// witnessed one.
 func (c Call) VerifiedCaller() string {
 	if c.Via != ViaRelay {
 		return ""
 	}
 	return c.CallerAID
 }
+
+// RemotePolicy is implemented by a provider whose far side decides, per
+// capability, whether a caller that came through the relay may use it
+// (ANetLink's c1.remote, which by default allows none).
+//
+// Optional. The daemon asks before it publishes: a public capability the
+// provider refuses to remote callers is left off the card and out of the
+// hub registration, since every call to it would be answered
+// provider_policy. The daemon learns nothing from the answer but which ids
+// to leave out; it does not know what stands behind them.
+type RemotePolicy interface {
+	// RemoteAllowed reports, for each capability id the provider serves,
+	// whether a remote caller may use it. An id it does not list is not
+	// allowed, and when it fails none is.
+	RemoteAllowed(ctx context.Context) (map[string]bool, error)
+}
+
+// RefusalError is an Invoke error for a call the far side refused, or
+// failed without an effect to report, for a reason the provider can name in
+// the user's words.
+//
+// Reason is a code of the reason table, the anet.reason the task ends with
+// (provider_policy, capability_not_served, args_too_large, unavailable,
+// backend_failed, …): never the far side's own code, which belongs to its
+// namespace and stays in this node's log (Err). The daemon ends the task as
+// that code's row says: rejected, effect UNAVAILABLE, for a call the far
+// side certainly did not run; failed, with the row's effect, otherwise. The
+// requester is sent the code, not a message: its own node renders the
+// sentence.
+type RefusalError struct {
+	Reason string
+	// Err is what happened, for this node's log only.
+	Err error
+}
+
+func (e *RefusalError) Error() string {
+	if e.Err == nil {
+		return "refused: " + e.Reason
+	}
+	return "refused (" + e.Reason + "): " + e.Err.Error()
+}
+
+func (e *RefusalError) Unwrap() error { return e.Err }
 
 // CapabilityProvider is C1. Implementations must be safe for concurrent use.
 type CapabilityProvider interface {
