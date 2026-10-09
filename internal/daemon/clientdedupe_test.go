@@ -615,9 +615,10 @@ func TestUnansweredOnlyBeforeReply(t *testing.T) {
 		t.Fatal("a call whose client went away is not marked")
 	}
 
-	// The client's own deadline.
+	// The client's own deadline (long enough to record the message on a
+	// loaded machine; nothing answers it).
 	m = textMsg("four", "", "m-deadline")
-	dctx, dcancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	dctx, dcancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer dcancel()
 	task, err = seam.Send(dctx, prov.AID(), module.TaskSend{Message: m})
 	if err != nil || !unanswered(t, req, task.ID, m.ID) {
