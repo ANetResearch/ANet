@@ -1395,4 +1395,42 @@ MUTS += [
   tests=[(DAEMON, 'TestWireRegistry')],
   full=[ANETLINK],
  ),
+ # EXE-12 review: what the client reads of an answer (LEC §2.1.2: at most 1 MiB, application/cbor only), and doctor's
+ # anetlink.socket on a /v0 or /v1 health answer of the wrong kind (LEC §5.5).
+ dict(
+  id='exe12-answer-limit', group='§2.1.2', repo='ANet',
+  desc='客户端读答复不设上限(读完对端写的全部字节)',
+  edits=[('provider/anetlink/anetlink.go', 'b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))', 'b, err := io.ReadAll(resp.Body)')],
+  tests=[(ANETLINK, 'TestAnAnswerOverTheLimitIsNotRead')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-answer-size', group='§2.1.2', repo='ANet',
+  desc='超过 1 MiB 的答复按截断后的前 1 MiB 解码(不判超限)',
+  edits=[('provider/anetlink/anetlink.go', '\tif len(b) > maxBody {\n\t\treturn nil, errTooLong', '\tif false && len(b) > maxBody {\n\t\treturn nil, errTooLong')],
+  tests=[(ANETLINK, 'TestAnAnswerOverTheLimitIsNotRead')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-answer-type', group='§2.1.2', repo='ANet',
+  desc='不核对答复的 Content-Type(非 application/cbor 的 CBOR 也照收)',
+  edits=[('provider/anetlink/anetlink.go', 'err != nil || mt != contentCBOR {', 'false && (err != nil || mt != contentCBOR) {')],
+  tests=[(ANETLINK, 'TestAnAnswerThatIsNotC1v1IsBackendFailed|TestRefusalsBecomeTheUsersReasons')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-not-c1v1-200', group='§5.5', repo='ANet',
+  desc='/v0/health 或 /v1/health 答 200 不算 C1 版本不一致',
+  edits=[('provider/anetlink/anetlink.go', '\treturn e.Reason == "c1_version" || e.Reason == "" || e.Err != nil',
+          '\treturn e.Reason == "c1_version" || e.Reason == "" && e.Status != http.StatusOK || e.Err != nil')],
+  tests=[(ANETLINK, 'TestSpeaksC1v1AsksBothVersions')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-doctor-failing', group='§5.5', repo='ANet',
+  desc='doctor 把健康检查答 C1 v1 拒绝(如 500 internal)的 anetlinkd 报成"无人监听"',
+  edits=[('cmd/anet/doctor_anetlink.go', '\tcase errors.As(err, &c1e):', '\tcase false && errors.As(err, &c1e):')],
+  tests=[('ANet:./cmd/anet', 'TestDoctorANetLinkSocketFailures')],
+  full=['ANet:./cmd/anet'],
+ ),
 ]

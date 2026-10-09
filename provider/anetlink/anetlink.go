@@ -390,14 +390,16 @@ func (e *C1Error) Unwrap() error { return e.Err }
 
 // NotC1v1 reports a far side that answers but does not speak C1 v1: ANetLink's own c1_version
 // refusal (an anetlinkd newer than this client), or an answer that is not C1 v1 at all (an older
-// one, C1 v0). The two programs are on different releases (ux §1.4 J, c1_version), which is what
-// the daemon's start and doctor's anetlink.socket say.
+// one, C1 v0), whatever its HTTP status: a 200 where C1 v1 answers 204 or 426 is no more C1 v1
+// than a 404 in text. The two programs are on different releases (ux §1.4 J, c1_version), which is
+// what the daemon's start and doctor's anetlink.socket say. A C1 v1 refusal of another kind (500
+// internal, say) is not that: the far side speaks C1 v1 and is failing.
 func NotC1v1(err error) bool {
 	var e *C1Error
 	if !errors.As(err, &e) {
 		return false
 	}
-	return e.Reason == "c1_version" || e.Reason == "" && e.Status != http.StatusOK || e.Err != nil
+	return e.Reason == "c1_version" || e.Reason == "" || e.Err != nil
 }
 
 // refusalOf reads an answer that is not a success, once: a CBOR Refusal whose reason is a C1 v1 code

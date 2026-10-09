@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/wire"
@@ -257,6 +258,12 @@ func TestRefusalsBecomeTheUsersReasons(t *testing.T) {
 			refuse(t, w, http.StatusInternalServerError, "not_permitted")
 		},
 		"refusal with 200": func(w http.ResponseWriter, _ *http.Request) { refuse(t, w, http.StatusOK, "not_permitted") },
+		// A C1 v1 refusal's bytes under another media type: C1 is application/cbor both ways.
+		"refusal not labelled cbor": func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write(enc(t, map[uint64]any{1: "not_permitted"}))
+		},
 	} {
 		f.answer(h)
 		_, err := p.Invoke(bg, relayCall(lampCap, "aid-caller"))
@@ -274,10 +281,13 @@ func TestAnAnswerThatIsNotC1v1IsBackendFailed(t *testing.T) {
 	f := startFakeLinkd(t)
 	p := newClient(t, f.sock)
 	for name, body := range map[string]func() (string, []byte){
-		"json":        func() (string, []byte) { return "application/json", []byte(`{"status":"OK"}`) },
-		"unknown key": func() (string, []byte) { return contentCBOR, enc(t, map[uint64]any{1: "OK", 5: uint64(1)}) },
-		"no status":   func() (string, []byte) { return contentCBOR, enc(t, map[uint64]any{3: "done"}) },
-		"bad status":  func() (string, []byte) { return contentCBOR, enc(t, map[uint64]any{1: "PAYMENT_REQUIRED"}) },
+		"json": func() (string, []byte) { return "application/json", []byte(`{"status":"OK"}`) },
+		// Good CBOR under another media type: C1 is application/cbor both ways, and this client does
+		// not guess.
+		"cbor labelled json": func() (string, []byte) { return "application/json", enc(t, map[uint64]any{1: "OK"}) },
+		"unknown key":        func() (string, []byte) { return contentCBOR, enc(t, map[uint64]any{1: "OK", 5: uint64(1)}) },
+		"no status":          func() (string, []byte) { return contentCBOR, enc(t, map[uint64]any{3: "done"}) },
+		"bad status":         func() (string, []byte) { return contentCBOR, enc(t, map[uint64]any{1: "PAYMENT_REQUIRED"}) },
 		"nan metric": func() (string, []byte) {
 			// CoreDet will not encode NaN; a half-precision NaN by hand: {1: "OK", 2: {"x": NaN}}.
 			return contentCBOR, []byte{0xa2, 0x01, 0x62, 'O', 'K', 0x02, 0xa1, 0x61, 'x', 0xf9, 0x7e, 0x00}
@@ -309,6 +319,76 @@ func TestArgumentsOverTheLimitAreNotSent(t *testing.T) {
 	}
 	if conns, _ := f.seen(); conns != 0 {
 		t.Fatal("oversize arguments were sent")
+	}
+}
+
+// okAnswerOf is a C1 v1 invoke answer, {1: "OK", 3: message}, of exactly n bytes.
+func okAnswerOf(t *testing.T, n int) []byte {
+	t.Helper()
+	// map(2), key 1, "OK", key 3, a text head of 5 bytes (length ≥ 65536): 11 bytes around the message.
+	b := enc(t, map[uint64]any{1: "OK", 3: strings.Repeat("x", n-11)})
+	if len(b) != n {
+		t.Fatalf("an answer of %d bytes, not %d", len(b), n)
+	}
+	return b
+}
+
+// LEC §2.1.2: this client reads at most 1 MiB of an answer. One of exactly 1 MiB is taken; one a
+// byte longer is backend_failed (the call ran; its answer cannot be read), and an endless one is
+// not read to its end: the client stops after the limit and hangs up, so a far side that keeps
+// writing costs this daemon a megabyte, not its memory.
+func TestAnAnswerOverTheLimitIsNotRead(t *testing.T) {
+	f := startFakeLinkd(t)
+	p := newClient(t, f.sock)
+	for _, c := range []struct {
+		size int
+		ok   bool
+	}{{maxBody, true}, {maxBody + 1, false}} {
+		body := okAnswerOf(t, c.size)
+		f.answer(func(w http.ResponseWriter, _ *http.Request) { writeCBOR(w, http.StatusOK, body) })
+		eff, err := p.Invoke(bg, relayCall(lampCap, "aid-caller"))
+		var re *provider.RefusalError
+		switch {
+		case c.ok && (err != nil || eff.Status != effect.OK || len(eff.Message) != c.size-11):
+			t.Errorf("an answer of %d bytes: %v, %v; want it taken", c.size, eff.Status, err)
+		case !c.ok && (!errors.As(err, &re) || re.Reason != "backend_failed"):
+			t.Errorf("an answer of %d bytes: %v; want backend_failed", c.size, err)
+		}
+	}
+
+	// Without an end, in pieces, until the client hangs up or 32 MiB have gone.
+	const endless = 32 << 20
+	written := make(chan int, 1)
+	f.answer(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", contentCBOR)
+		w.WriteHeader(http.StatusOK)
+		// A text string of 32 MiB inside the answer: well-formed for as long as it lasts.
+		head := []byte{0xa2, 0x01, 0x62, 'O', 'K', 0x03, 0x7a, 0x02, 0x00, 0x00, 0x00}
+		n, _ := w.Write(head)
+		chunk := []byte(strings.Repeat("x", 64<<10))
+		for n < endless {
+			k, err := w.Write(chunk)
+			n += k
+			if err != nil {
+				break
+			}
+		}
+		written <- n
+	})
+	_, err := p.Invoke(bg, relayCall(lampCap, "aid-caller"))
+	var re *provider.RefusalError
+	if !errors.As(err, &re) || re.Reason != "backend_failed" {
+		t.Fatalf("an endless answer: %v; want backend_failed", err)
+	}
+	select {
+	case n := <-written:
+		// What was read is at most the limit; what the far side got out besides sits in socket
+		// buffers, a few hundred KiB.
+		if n >= 8<<20 {
+			t.Fatalf("the far side wrote %d bytes before the client hung up; the client reads at most %d", n, maxBody)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the far side is still writing: the client did not hang up")
 	}
 }
 
@@ -392,6 +472,40 @@ func TestSpeaksC1v1AsksBothVersions(t *testing.T) {
 	serveOn(t, sock2, both)
 	if err := newClient(t, sock2).SpeaksC1v1(bg); err == nil || !NotC1v1(err) {
 		t.Fatalf("a server that still answers C1 v0: %v", err)
+	}
+
+	// Any answer but 426 c1_version at /v0/health, a 200 included (LEC §5.5), and anything but 204
+	// at /v1/health, is another C1 version. A C1 v1 refusal at /v1/health is not: that anetlinkd
+	// speaks C1 v1 and is failing.
+	for name, c := range map[string]struct {
+		v1, v0  func(w http.ResponseWriter, r *http.Request)
+		version bool
+	}{
+		"/v0/health 200": {
+			v1:      func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) },
+			v0:      func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) },
+			version: true,
+		},
+		"/v1/health 200": {
+			v1:      func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) },
+			v0:      func(w http.ResponseWriter, _ *http.Request) { refuse(t, w, http.StatusUpgradeRequired, "c1_version") },
+			version: true,
+		},
+		"/v1/health 500 internal": {
+			v1: func(w http.ResponseWriter, _ *http.Request) { refuse(t, w, http.StatusInternalServerError, "internal") },
+			v0: func(w http.ResponseWriter, _ *http.Request) { refuse(t, w, http.StatusUpgradeRequired, "c1_version") },
+		},
+	} {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /v1/health", c.v1)
+		mux.HandleFunc("GET /v0/health", c.v0)
+		s := filepath.Join(t.TempDir(), "c1.sock")
+		serveOn(t, s, mux)
+		err := newClient(t, s).SpeaksC1v1(bg)
+		var e *C1Error
+		if !errors.As(err, &e) || NotC1v1(err) != c.version {
+			t.Errorf("%s: %v (another C1 version: %v), want a C1 answer that is another version: %v", name, err, NotC1v1(err), c.version)
+		}
 	}
 }
 

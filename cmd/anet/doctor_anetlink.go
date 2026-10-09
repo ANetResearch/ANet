@@ -65,6 +65,7 @@ func anetlinkChecks(add func(id, status, detail, hint string), say func(id, stat
 	defer cancel()
 	err = p.SpeaksC1v1(ctx)
 	var re *backendconn.RefusedError
+	var c1e *linkprov.C1Error
 	switch {
 	case err == nil:
 	case linkprov.NotC1v1(err):
@@ -82,6 +83,11 @@ func anetlinkChecks(add func(id, status, detail, hint string), say func(id, stat
 	case errors.As(err, &re):
 		add(id, stFail, "ANetLink's socket "+sock+": "+re.Reason+"; the daemon sends it nothing",
 			"the socket's directory, and those above it, must be writable only by root, this user or ANetLink's user (or socket_group)")
+		return
+	case errors.As(err, &c1e):
+		// It answered in C1 v1, with a refusal: it is there, and failing.
+		add(id, stFail, "ANetLink at "+sock+" speaks C1 v1 but failed its health check ("+err.Error()+")",
+			"see anetlinkd's log for why")
 		return
 	default:
 		add(id, stFail, "nothing answers on ANetLink's socket "+sock+" ("+err.Error()+"); the daemon does not start without it",

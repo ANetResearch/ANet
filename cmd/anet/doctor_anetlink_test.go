@@ -35,8 +35,12 @@ func serveLinkd(t *testing.T, health int) string {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", func(w http.ResponseWriter, _ *http.Request) {
-		if health == http.StatusUpgradeRequired {
+		switch health {
+		case http.StatusUpgradeRequired:
 			cbor(w, health, map[uint64]any{1: "c1_version"})
+			return
+		case http.StatusInternalServerError:
+			cbor(w, health, map[uint64]any{1: "internal"})
 			return
 		}
 		w.WriteHeader(health)
@@ -141,6 +145,8 @@ func TestDoctorANetLinkSocketFailures(t *testing.T) {
 		{"impostor", map[string]any{"socket": serveLinkd(t, http.StatusNoContent), "expected_user": strconv.Itoa(os.Getuid() + 1)},
 			"peer_uid_mismatch", "expected_user"},
 		{"nobody", map[string]any{"socket": filepath.Join(t.TempDir(), "c1.sock")}, "", "start anetlinkd"},
+		// A C1 v1 anetlinkd that is there and failing is said to be that, not "nothing answers".
+		{"failing", map[string]any{"socket": serveLinkd(t, http.StatusInternalServerError)}, "", "failed its health check"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := anetlinkDoctor(t, c.block, "light.onoff@sim/lamp-1")["anetlink.socket"]
