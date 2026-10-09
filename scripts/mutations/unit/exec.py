@@ -1434,3 +1434,132 @@ MUTS += [
   full=['ANet:./cmd/anet'],
  ),
 ]
+
+# EXE-8: the macOS sandbox (LEC §4.3.8 MS-1 to MS-7, EG-3; SI-64). The profile is text built on every platform, so its
+# vector (G-SBPL) and shape tests carry M-MS-1 to M-MS-3 here; on a Mac the CI seatbelt job's probe goes red for them
+# too (TestSeatbeltProbeFiveItems, TestSeatbeltKeychainIsOutOfReach). The keyed endpoint and the macOS launch are
+# tested on every platform with a stand-in for sandbox-exec (sandbox_seatbelt_test.go). Mutations whose only killing
+# test needs a Mac (init keeping the agent in its group, MS-5) are not listed: unitmut runs on Linux.
+SBPL = 'TestSeatbeltProfileGolden|TestSeatbeltProfileHasTheSandboxShape|TestSeatbeltMachServicesAvoidForbiddenNames'
+MUTS += [
+ dict(
+  id='m-ms-1', group='MS-2', repo='ANet',
+  desc='Seatbelt profile 改为 (allow default)',
+  edits=[('internal/daemon/seatbelt_profile.go', '\tline("(deny default)")\n', '\tline("(allow default)")\n')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-2', group='SI-64', repo='ANet',
+  desc='mach-lookup 白名单加入 com.apple.SecurityServer',
+  edits=[('internal/daemon/seatbelt_profile.go', '\t"com.apple.logd",\n}', '\t"com.apple.logd",\n\t"com.apple.SecurityServer",\n}')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-3', group='MS-2', repo='ANet',
+  desc='允许执行 /usr/bin/security(从拒绝名单删去)',
+  edits=[('internal/daemon/seatbelt_profile.go', 'var seatbeltExecForbidden = []string{"/usr/bin/security", ', 'var seatbeltExecForbidden = []string{')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-3b', group='MS-2', repo='ANet',
+  desc='执行的拒绝规则写在允许规则之前(后写的允许覆盖它)',
+  edits=[('internal/daemon/seatbelt_profile.go', '\trule("allow process-exec", execs)\n', '\trule("deny process-exec", lits(seatbeltExecForbidden))\n\trule("allow process-exec", execs)\n'),
+         ('internal/daemon/seatbelt_profile.go', '\trule("deny process-exec", lits(seatbeltExecForbidden))\n\tforbidden :=', '\tforbidden :=')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-net', group='MS-2', repo='ANet',
+  desc='network-outbound 放行回环上的任意端口',
+  edits=[('internal/daemon/seatbelt_profile.go', 'sbplString("localhost:"+strconv.Itoa(spec.Port))', 'sbplString("localhost:*")')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-procargs', group='MS-2', repo='ANet',
+  desc='不拒绝读取其他进程的参数与环境(kern.procargs*)',
+  edits=[('internal/daemon/seatbelt_profile.go', 'var seatbeltSysctlForbidden = []string{"kern.procargs"}', 'var seatbeltSysctlForbidden = []string{}')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-4', group='MS-4', repo='ANet',
+  desc='探针相信"连得上出站端点"的自报,不看宿主侧有没有收到连接',
+  edits=[('internal/daemon/sandbox_seatbelt.go', ' || !rep.EgressReached || egressReached.Load() == 0:', ' || !rep.EgressReached:')],
+  tests=[(DAEMON, 'TestSeatbeltProbeClassifiesEachItem')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-4b', group='MS-4', repo='ANet',
+  desc='探针不核对第 1 项(读得到真实家目录与运行之外的文件也算通过)',
+  edits=[('internal/daemon/sandbox_seatbelt.go', '\tcase !rep.HomeUnreadable || !rep.SecurityRefused || !rep.WorkWritable:', '\tcase !rep.SecurityRefused || !rep.WorkWritable:')],
+  tests=[(DAEMON, 'TestSeatbeltProbeClassifiesEachItem')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg3-route', group='EG-3', repo='ANet',
+  desc='带密钥的端点不核对注入路由的密钥段',
+  edits=[('internal/daemon/egress.go', '\tif len(e.key) == 0 || !e.targetsSelf(r.URL) {\n\t\treturn true', '\tif true {\n\t\treturn true')],
+  tests=[(DAEMON, 'TestEgressKeyedRouteNeedsTheRunKey|FuzzEgressRunKey')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg3-connect', group='EG-3', repo='ANet',
+  desc='带密钥的端点不核对 CONNECT 的 Proxy-Authorization',
+  edits=[('internal/daemon/egress_connect.go', '\tif !e.proxyAuthorized(r.Header) {', '\tif false && !e.proxyAuthorized(r.Header) {')],
+  tests=[(DAEMON, 'TestEgressKeyedConnectNeedsTheRunKey')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg3-user', group='EG-3', repo='ANet',
+  desc='Proxy-Authorization 只核对密码,不核对用户名 anet',
+  edits=[('internal/daemon/egress.go', 'return ok && user == egressKeyUser && subtle.ConstantTimeCompare', 'return ok && user != "" && subtle.ConstantTimeCompare')],
+  tests=[(DAEMON, 'TestEgressKeyedConnectNeedsTheRunKey')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg3-fresh', group='EG-3', repo='ANet',
+  desc='每次运行用同一个密钥(不是每次 256 位随机)',
+  edits=[('internal/daemon/sandbox_seatbelt.go', 'randHex(egressKeyBytes)', 'strings.Repeat("ab", egressKeyBytes)')],
+  tests=[(DAEMON, 'TestSeatbeltLaunchKeepsTheKeyInTheEnvironment')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg3-env', group='MS-3', repo='ANet',
+  desc='代理变量不带本次运行的密钥(agent 的 CONNECT 全部 407)',
+  edits=[('internal/daemon/egress_upstreams.go', '\tif key != "" {\n\t\tproxy = "http://" + egressKeyUser', '\tif false {\n\t\tproxy = "http://" + egressKeyUser')],
+  tests=[(DAEMON, 'TestSandboxEgressEnvCarriesTheRunKey|TestSeatbeltLaunchRunsTheAgentThroughTheKeyedEndpoint')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-3env', group='MS-3', repo='ANet',
+  desc='macOS 沙箱的 TMPDIR 不指向本次运行目录的 tmp/',
+  edits=[('internal/daemon/sandbox_seatbelt.go', '\tenv = envWithValue(env, "TMPDIR", filepath.Join(realRun, "tmp"))\n', '')],
+  tests=[(DAEMON, 'TestSeatbeltLaunchKeepsTheKeyInTheEnvironment|TestSeatbeltLaunchRunsTheAgentThroughTheKeyedEndpoint')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-3path', group='MS-3', repo='ANet',
+  desc='macOS 沙箱的 PATH 不收窄到可执行的目录',
+  edits=[('internal/daemon/sandbox_seatbelt.go', '\tenv = envWithSeatbeltPath(env, runtimeDirs)\n', '')],
+  tests=[(DAEMON, 'TestSeatbeltLaunchKeepsTheKeyInTheEnvironment')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-never', group='SB-3', repo='ANet',
+  desc='profile 不核对不绑定名单(运行时目录可以是 ~/.claude 之下)',
+  edits=[('internal/daemon/seatbelt_profile.go', '\t\tif n, bad := bindConflict(p, spec.NeverAllow); bad {', '\t\tif n, bad := bindConflict(p, spec.NeverAllow); bad && false {')],
+  tests=[(DAEMON, 'TestSeatbeltProfileRefusesUnsafeInput')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-op-1', group='OP-1', repo='ANet',
+  desc='doctor 在沙箱模式下不显示 sandbox 项',
+  edits=[('cmd/anet/doctor.go', '\tsandboxCheck(say, rep, env, layout, cfg.AutoReply)', '\t_ = sandboxCheck')],
+  tests=[('ANet:./cmd/anet', 'TestDoctorSandbox')],
+  full=['ANet:./cmd/anet'],
+ ),
+]

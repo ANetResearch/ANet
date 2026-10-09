@@ -235,6 +235,46 @@ jobs:
             grep -q -- "--- PASS: $t" /tmp/peercred.out || { echo "$t did not run" >&2; exit 1; }
           done
 
+  # The macOS sandbox (Seatbelt, LEC §4.3.8 MS-7): the self-check's five
+  # items, the agent confined in the real sandbox, the keychain out of its
+  # reach (a cgo helper looks up the security daemon's Mach service from
+  # inside), what the agent leaves in its process group ended with the run,
+  # and the profile vector. A release gate: a skip here is a failure, and
+  # each test's PASS line is required, so a -run pattern that matched
+  # nothing cannot pass. TMPDIR is short for the Unix socket the
+  # confinement test puts in its data directory (104 bytes at most here).
+  seatbelt:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+    runs-on: ${{ matrix.os }}
+    env:
+      CGO_ENABLED: "0"
+      TMPDIR: /tmp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: the Seatbelt sandbox on this Mac, none skipped
+        shell: bash
+        run: |
+          go test -count=1 -v -run 'Seatbelt' ./internal/daemon/ | tee /tmp/seatbelt.out
+          if grep -- '--- SKIP' /tmp/seatbelt.out; then
+            echo "a Seatbelt test skipped; here that is a failure" >&2
+            exit 1
+          fi
+          for t in TestSeatbeltProbeFiveItems TestSeatbeltIntegrationConfinesTheAgent \
+                   TestSeatbeltIntegrationReachesTheModelOnlyThroughTheNode TestSeatbeltIntegrationHoldsNoSecret \
+                   TestSeatbeltKeychainIsOutOfReach TestSeatbeltEndsWhatTheAgentLeftInItsGroup \
+                   TestSeatbeltProfileGolden TestSeatbeltMachServicesAvoidForbiddenNames \
+                   TestSeatbeltLaunchRunsTheAgentThroughTheKeyedEndpoint; do
+            grep -q -- "--- PASS: $t" /tmp/seatbelt.out || { echo "$t did not run" >&2; exit 1; }
+          done
+      - name: init, the keyed egress endpoint and doctor on macOS
+        run: go test -count=1 -run 'SandboxInit|SandboxSpec|EgressKeyed|EgressUnkeyed|SandboxEgressEnv|Doctor' ./internal/daemon/ ./cmd/anet/
+
   # The platforms the release builds for, and one it does not: peercred is
   # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and
   # every Unix socket backend fails closed (peer_cred_unsupported).
@@ -255,6 +295,8 @@ jobs:
             GOOS=$os go vet ./internal/peercred/... ./internal/backendconn/ ./tools/anetpeer/ ./module/p2p/
             GOOS=$os go test -c -o /dev/null ./internal/peercred
             GOOS=$os go test -c -o /dev/null ./internal/backendconn
+            GOOS=$os go vet ./internal/daemon/ ./cmd/anet/
+            GOOS=$os go test -c -o /dev/null ./internal/daemon
           done
 
   # C1-1 across the two repositories: the C1 v1 golden vectors in
