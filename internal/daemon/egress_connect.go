@@ -41,13 +41,19 @@ import (
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
-// The CONNECT port and times (CN-2, CN-4, CN-5).
+// The CONNECT port and times (CN-2, CN-4, CN-5). An endpoint keeps the resolve and hello times as its
+// own (egressEndpoint.connectWait), which tests shorten.
 const (
 	egressConnectPort           = "443"
 	egressConnectResolveTimeout = 5 * time.Second
 	egressConnectHelloTimeout   = 10 * time.Second
 	egressConnectDialTimeout    = 10 * time.Second
 )
+
+// egressConnectWait is how long a CONNECT waits for the host to resolve and for the agent's hello.
+type egressConnectWait struct {
+	resolve, hello time.Duration
+}
 
 // egressConnectNet is how CONNECT reaches the network: a resolver, a dialer that connects to the one
 // address it is given and nowhere else, and this machine's own addresses. None of them reads a proxy
@@ -66,7 +72,9 @@ func defaultEgressConnectNet() egressConnectNet {
 	return egressConnectNet{lookup: egressLookup, dial: egressDialChecked, local: egressLocalAddrs}
 }
 
-// egressLookup resolves a host with this machine's resolver.
+// egressLookup resolves a host with this machine's resolver. It is given the absolute name (with the
+// final dot), so no search domain of the resolver's configuration is tried: an allowed public name never
+// becomes an internal one.
 func egressLookup(ctx context.Context, host string) ([]netip.Addr, error) {
 	return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 }
@@ -230,13 +238,13 @@ func (e *egressEndpoint) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer e.tunnels.untrack(agent)
 	opened = true
-	_ = agent.SetWriteDeadline(time.Now().Add(egressConnectHelloTimeout))
+	_ = agent.SetWriteDeadline(time.Now().Add(e.connectWait.hello))
 	if _, err := io.WriteString(agent, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
 		return
 	}
 	_ = agent.SetWriteDeadline(time.Time{})
 	// CN-5: the agent's first TLS message, before anything is dialed.
-	_ = agent.SetReadDeadline(time.Now().Add(egressConnectHelloTimeout))
+	_ = agent.SetReadDeadline(time.Now().Add(e.connectWait.hello))
 	hello, body, drop := readClientHello(brw.Reader)
 	if drop == "" {
 		drop = checkClientHello(body, host)
@@ -281,9 +289,11 @@ func (e *egressEndpoint) refuseConnect(w http.ResponseWriter, status int, code s
 // (403 egress_private_address) when one of them is special or this machine's, or 502 when the host does
 // not resolve.
 func (e *egressEndpoint) resolveConnect(ctx context.Context, host string) (addrs []netip.AddrPort, status int, code string) {
-	rctx, cancel := context.WithTimeout(ctx, egressConnectResolveTimeout)
+	rctx, cancel := context.WithTimeout(ctx, e.connectWait.resolve)
 	defer cancel()
-	ips, err := e.net.lookup(rctx, host)
+	// The absolute name: a relative one would let the resolver try it under its search domains first
+	// (with ndots above 1) or after a failure, and answer for another host than the one allowed.
+	ips, err := e.net.lookup(rctx, host+".")
 	if err != nil || len(ips) == 0 {
 		log.Printf("anet: sandbox egress: CONNECT %s: the host does not resolve: %v", host, err)
 		return nil, http.StatusBadGateway, ""
