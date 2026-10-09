@@ -659,6 +659,10 @@ func TestET35_AStopClosesEverythingAndTellsNobody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ended, err := req.Delegate(ctx, prov.AID(), "canceled before the stop", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	hubURL := req.config().HubURL
 	setHubURL(req, deadHubURL)
 	b, err := req.Delegate(ctx, prov.AID(), "never left", nil)
@@ -667,7 +671,7 @@ func TestET35_AStopClosesEverythingAndTellsNobody(t *testing.T) {
 	}
 	setHubURL(req, hubURL)
 	// Each task holds an interaction key (FS-X1).
-	for _, id := range []string{a, b} {
+	for _, id := range []string{a, b, ended} {
 		k, err := seal.GenerateIXKey(seal.SuiteX25519, id, prov.AID())
 		if err != nil {
 			t.Fatal(err)
@@ -680,6 +684,13 @@ func TestET35_AStopClosesEverythingAndTellsNobody(t *testing.T) {
 		if rk, err := req.ix.OwnRK(id); err != nil || rk == nil {
 			t.Fatalf("setup: no interaction key for %s (%v)", id, err)
 		}
+	}
+	// One ended before the stop: its key waits on close_after (FS-X7c).
+	if _, err := req.CancelTask(ctx, ended); err != nil {
+		t.Fatal(err)
+	}
+	if rk, err := req.ix.OwnRK(ended); err != nil || rk == nil {
+		t.Fatalf("setup: the ended task's key went at once (%v)", err)
 	}
 	epochKeys := len(req.enc.SignedSet())
 	// The identity is stopped (another device rotated it, KEL D-29); the
@@ -703,6 +714,9 @@ func TestET35_AStopClosesEverythingAndTellsNobody(t *testing.T) {
 		if rk, err := req.ix.OwnRK(id); err != nil || rk != nil {
 			t.Fatalf("%s: its interaction key is kept (%v)", id, err)
 		}
+	}
+	if rk, err := req.ix.OwnRK(ended); err != nil || rk != nil {
+		t.Fatalf("the key of a task that ended before the stop is kept (%v)", err)
 	}
 	if n := allOutboxRows(t, req); len(n) != 0 {
 		t.Fatalf("notices queued: %+v", n)
