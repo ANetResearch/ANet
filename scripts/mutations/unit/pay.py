@@ -291,11 +291,13 @@ MUTS += [
   edits=[('internal/aghub/supply.go', '\tif outstanding < 0 || tree.Outstanding() != uint64(outstanding) || hubRow != -outstanding {\n',
           '\tif outstanding < 0 || hubRow != -outstanding {\n')],
   tests=[(HUB, '^TestTheCloseRefusesALedgerThatDoesNotAddUp$')], full=[HUB]),
+ # pay3-event-out and pay3-event-redeem re-pointed by PAY-4: a payment to a peer's agent is the one a peer
+ # forwarded (via), no longer one to a payee not registered here.
  dict(id='pay3-event-out', group='PAY-3', repo='ANetHub', desc='向对端 agent 的付款不记供应事件(redeemed 不增)',
-  edits=[('internal/aghub/facilitator.go', '\tif auth.PayTo == hubAID || !local {\n', '\tif auth.PayTo == hubAID {\n')],
+  edits=[('internal/aghub/facilitator.go', '\tif auth.PayTo == hubAID || via != "" {\n', '\tif auth.PayTo == hubAID {\n')],
   tests=SUPPLY_EVENTS, full=[HUB]),
  dict(id='pay3-event-redeem', group='PAY-3', repo='ANetHub', desc='兑付不记供应事件',
-  edits=[('internal/aghub/facilitator.go', '\tif auth.PayTo == hubAID || !local {\n', '\tif !local {\n')],
+  edits=[('internal/aghub/facilitator.go', '\tif auth.PayTo == hubAID || via != "" {\n', '\tif via != "" {\n')],
   tests=SUPPLY_EVENTS, full=[HUB]),
  dict(id='pay3-event-clear', group='PAY-3', repo='ANetHub', desc='对端结算入账不记供应事件',
   edits=[('internal/aghub/facilitator.go',
