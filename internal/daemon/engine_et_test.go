@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -898,5 +899,32 @@ func TestAnEmergencyCloseTellsThePeersThatMayKnow(t *testing.T) {
 	rows := outboxRows(t, prov, confirmed)
 	if len(rows) != 1 || rows[0].Type != seal.TypeStatus || rows[0].Kind != delegation.StateFailed {
 		t.Fatalf("the provider's queue after the close: %+v, want one failed status", rows)
+	}
+}
+
+// ENG-C6: a refusal that says when to send again (a note with
+// retry_after) rejects the task with the reason table's sentence, the wait
+// put in, and carries the wait as anet.retry_after_ms.
+func TestARefusalWithAWaitSaysWhenToSendAgain(t *testing.T) {
+	_, req, prov := registeredPair(t)
+	id, err := req.Delegate(context.Background(), prov.AID(), "busy", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := outboxRows(t, req, id)[0]
+	if err := req.confirmOutbox(row.ID, seal.OutcomeRefused, seal.Note{Reason: "busy", RetryAfterS: 90}, cntDAckConfirmedHub); err != nil {
+		t.Fatal(err)
+	}
+	ix, err := req.ix.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := a2ashape.Sentence("busy", a2ashape.English, a2ashape.Args{"retry": 90 * time.Second})
+	if ix.State != interactions.StateRejected || string(ix.Result) != want || !strings.Contains(want, "2 minutes") {
+		t.Fatalf("the task: %s %q, want rejected %q", ix.State, ix.Result, want)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal([]byte(ix.ResultMeta), &meta); err != nil || meta[a2ashape.KeyRetryAfterMS] != float64(90_000) {
+		t.Fatalf("the task's metadata %s (%v), want anet.retry_after_ms 90000", ix.ResultMeta, err)
 	}
 }

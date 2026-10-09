@@ -1259,15 +1259,19 @@ func (d *Daemon) applyRefusalTx(tx *interactions.Tx, row *interactions.OutboxRow
 			reason = "refused"
 		}
 		m := map[string]any{a2ashape.KeyState: string(interactions.StateRejected), a2ashape.KeyReason: reason}
+		// A refusal with a wait says when to send again: the reason
+		// table's sentence with the wait put in (ENG-C6).
+		var args a2ashape.Args
 		if n.RetryAfterS > 0 {
 			m[a2ashape.KeyRetryAfterMS] = int64(n.RetryAfterS) * 1000
+			args = a2ashape.Args{"retry": time.Duration(n.RetryAfterS) * time.Second}
 		}
 		if ix.IsCapability {
 			m[a2ashape.KeyEffectStatus] = string(effect.Unavailable)
 		}
 		mb, _ := json.Marshal(m)
 		err := tx.Finish(ix.ID, interactions.Finish{State: interactions.StateRejected,
-			Result: []byte(a2ashape.Sentence(reason, a2ashape.English, nil)), Verified: interactions.VerificationUnknown,
+			Result: []byte(a2ashape.Sentence(reason, a2ashape.English, args)), Verified: interactions.VerificationUnknown,
 			Meta: mb}, interactions.CausePeerEnded)
 		if errors.Is(err, interactions.ErrTerminal) {
 			return false, nil
