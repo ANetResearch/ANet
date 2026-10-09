@@ -1506,6 +1506,8 @@ if (autopilot) {
     codex: exec("Codex", "codex", "have the <code>codex</code> CLI installed and logged in once."),
     openclaw: exec("OpenClaw", "openclaw", "have <code>openclaw</code> installed (an always-on harness, naturally suited to unattended use)."),
     hermes: exec("Hermes", "hermes", "have <code>hermes</code> installed (an always-on harness, naturally suited to unattended use)."),
+    // v030-todo(UX-9): the prompt below names --require-image, which goes with auto_reply.require_image
+    // (ux §4.3, cli_removed); take it out of the sentence when the flag is removed.
     openai: {
       hint: `You run an <b>OpenAI-compatible</b> <code>/chat/completions</code> endpoint locally or on your LAN (ollama / vLLM / llama.cpp server / cloud).`,
       prompt:
