@@ -208,6 +208,19 @@ func TestDeclinedIsExit1(t *testing.T) {
 	if code := exitStatus(err, io.Discard); code != 1 {
 		t.Fatalf("exit %d", code)
 	}
+	// The input ends on the terminal without an answer (Ctrl+D): that is a "no" said at a terminal,
+	// confirm.declined, not tty_required. [mut] an empty read is tty_required again → red.
+	openTTY = func() (io.ReadWriteCloser, error) { return &fakeTTY{r: strings.NewReader("")}, nil }
+	said.Reset()
+	if err := runPeers(c, []string{"allow", wholeAID}); err != errDeclined ||
+		said.String() != a2ashape.Sentence("confirm.declined", a2ashape.Lang(), nil)+"\n" {
+		t.Fatalf("no answer on the terminal: %v, said %q", err, said.String())
+	}
+	for _, p := range sent() {
+		if strings.HasPrefix(p, "/peers/") {
+			t.Fatalf("no answer, yet the daemon was asked %s", p)
+		}
+	}
 	if code := exitStatus(errNoTTY, io.Discard); code != 1 {
 		t.Fatalf("no terminal: exit %d", code)
 	}

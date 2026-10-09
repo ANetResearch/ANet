@@ -73,10 +73,11 @@ func ttyConfirm(action string, summary func() (string, error)) error {
 	if _, err := fmt.Fprintf(tty, "%s\n%s ", explanation, a2ashape.Sentence("confirm.yes", lang, nil)); err != nil {
 		return refuseNoTTY(action, lang)
 	}
-	line, err := bufio.NewReader(tty).ReadString('\n')
-	if err != nil && line == "" {
-		return refuseNoTTY(action, lang)
-	}
+	// The question is on the terminal now; an answer that ends without yes —
+	// Ctrl+D, or the read failing — is not a missing terminal but a "no":
+	// confirm.declined, not tty_required telling the person at that
+	// terminal to go and find one.
+	line, _ := bufio.NewReader(tty).ReadString('\n')
 	if strings.TrimSpace(strings.ToLower(line)) != "yes" {
 		fmt.Fprintln(ttyStderr, a2ashape.Sentence("confirm.declined", lang, nil))
 		return errDeclined
