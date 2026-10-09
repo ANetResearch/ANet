@@ -313,7 +313,7 @@ func TestRevokePushBatchesAndRetries(t *testing.T) {
 	}
 }
 
-// Core CORE-V1 (engine §11.1, the wire stop): a 200 to the push that
+// Core CORE-V1 (engine ENG-K13, the wire stop): a 200 to the push that
 // states another wire is a wire refusal, not a success. The withdrawals
 // stay to be pushed, and the hub is stopped until the join flow checks it
 // again.
