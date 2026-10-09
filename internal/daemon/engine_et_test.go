@@ -728,3 +728,55 @@ func TestET35_AStopClosesEverythingAndTellsNobody(t *testing.T) {
 		t.Fatal("the epoch keys went with the stop")
 	}
 }
+
+// ENG-O6 and A12: a cancel freezes the delegation while its attempt is at
+// the hub, and the hub answers 409 kid_stale. The attempt does not seal
+// again for a frozen row, and it still ends as every attempt does: what it
+// handed over is recorded and attempting is cleared at once, so the
+// cancel behind the delegation is free to go and nothing waits for a
+// later attempt to find the mark.
+func TestAFreezeBetweenTwoSendsOfAnAttemptRecordsWhatLeft(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	// Queued while the hub cannot be reached: nothing of it left.
+	hubURL := req.config().HubURL
+	setHubURL(req, deadHubURL)
+	id, err := req.Delegate(ctx, prov.AID(), "a task", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := outboxRows(t, req, id)
+	if len(rows) != 1 || rows[0].HandedAt != 0 {
+		t.Fatalf("setup: outbox %+v, want the delegation never handed over", rows)
+	}
+	setHubURL(req, hubURL)
+	var first atomic.Bool
+	setFake(t, srv.URL, func(h *fakeHub) {
+		h.sendHook = func([]byte) fakeSendAnswer {
+			if !first.CompareAndSwap(false, true) {
+				return fakeSendAnswer{}
+			}
+			// The requester cancels while the hub holds the request: the
+			// attempt holds the row, so the cancel freezes it.
+			if _, err := req.CancelTask(ctx, id); err != nil {
+				t.Errorf("cancel: %v", err)
+			}
+			return fakeSendAnswer{kind: fakeSendRefuse, status: 409, code: codeKidStale}
+		}
+	})
+	_ = retryNow(t, req, rows[0].ID)
+	if !first.Load() {
+		t.Fatal("the delegation never reached the hub")
+	}
+	rows = outboxRows(t, req, id)
+	if len(rows) != 2 || rows[0].Type != seal.TypeDelegate || !rows[0].Frozen || rows[1].Kind != rowKindCancel {
+		t.Fatalf("outbox %+v, want the delegation frozen and the cancel behind it", rows)
+	}
+	if rows[0].Attempting || rows[0].HandedAt == 0 {
+		t.Fatalf("the attempt ended with the delegation attempting %v, handed at %d: what it handed over is not recorded",
+			rows[0].Attempting, rows[0].HandedAt)
+	}
+	if vers := rowVersions(t, req, rows[0].ID); len(vers) != 1 || vers[0].HandedAt == 0 {
+		t.Fatalf("versions %+v, want the one the hub was handed, recorded so", vers)
+	}
+}

@@ -557,8 +557,14 @@ rounds:
 			return nil // confirmed or given up meanwhile
 		case errors.Is(err, interactions.ErrOutboxFrozen):
 			// Canceled meanwhile: nothing more goes (ENG-O6); one that never
-			// left is withdrawn (ENG-O5).
-			return d.withdrawFrozen(row)
+			// left is withdrawn (ENG-O5). When an earlier round of this
+			// attempt marked the row and handed a version over, the attempt
+			// still ends as every attempt does (A12): what left is recorded
+			// and attempting cleared, so the cancel behind it can go.
+			if !a.marked {
+				return d.withdrawFrozen(row)
+			}
+			break rounds
 		case err != nil:
 			switch v := resolveVerdictOf(err); {
 			case v == verdictUnavailable:
