@@ -82,7 +82,11 @@ func (d *Daemon) initJoin(cfg Config) {
 	if rec == nil || !sameHub(rec.Hub, cfg.HubURL) {
 		rec = freshJoinRecord(cfg.HubURL, time.Now())
 	}
+	// Under the record's lock: loops New started before this one read it
+	// already (the outbound gate does, KEL D-1).
+	d.join.mu.Lock()
 	d.join.rec = rec
+	d.join.mu.Unlock()
 }
 
 // freshJoinRecord is the record of a hub nothing has been asked of yet: the
