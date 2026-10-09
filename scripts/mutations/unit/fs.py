@@ -21,9 +21,27 @@
 # hard bound, the clock checks and the boot clock, the drain records, the publication (base64url, prev_seq,
 # removed_at, keys_rollback), SSR-W10a's heal, the E1-E2 hold, the ring file, and CORE-V4's data directory checks.
 # The review of FS-4 adds fs4-r1 to fs4-r12: mutations that the suite let through before, each now red.
+# FS-9 adds 18, 32, 33, 34, 35 and the production half of 16 (fs-16d: no checkpoint in the maintenance
+# period), moves 19 to the retention decision (the gate is contentDeletable's since FS-9), and adds fs9-a
+# to fs9-q, which hold the retention sweep, the held items' expiry, the work directories' removal, the
+# setting's checks and the route and command that change it to their tests (see the group at the end).
 
 IX = 'ANet:./internal/runtime/interactions'
 FS4_D = 'ANet:./internal/daemon'
+FS9_CLI = 'ANet:./cmd/anet'
+FS9_RET = 'internal/runtime/interactions/retention.go'
+FS9_CMD = 'cmd/anet/retention.go'
+FS9_EXEC = 'internal/daemon/autoreply_exec.go'
+
+MUT34_NOTTY = '''package main
+
+// noTTY is mutation 34: a process without a terminal is given one that answers nothing.
+type noTTY struct{}
+
+func (noTTY) Read([]byte) (int, error)    { return 0, errNoTTY }
+func (noTTY) Write(p []byte) (int, error) { return len(p), nil }
+func (noTTY) Close() error                { return nil }
+'''
 
 MUT13_SOLO = '''package interactions
 
@@ -443,9 +461,10 @@ MUTS += [
  dict(id='fs-17', group='FS-K12', repo='ANet', desc='钥环重写不覆零旧 inode',
   edits=[('internal/daemon/enckeys.go', '\tif old != nil {\n\t\tif err := zeroFile(old); err != nil {', '\tif false && old != nil {\n\t\tif err := zeroFile(old); err != nil {')],
   tests=[(FS4_D, '^TestKeyRingRewriteZeroesOldInode$')], full=[FS4_D]),
- dict(id='fs-19', group='FS-K15', repo='ANet', desc='保存期清理不受时钟门',
-  edits=[('internal/daemon/enckeys.go', '\tif d.ix == nil || level == clockClosed {\n\t\treturn\n\t}\n\tif _, err := d.ix.SweepCloseAfter', '\tif d.ix == nil {\n\t\treturn\n\t}\n\tif _, err := d.ix.SweepCloseAfter')],
-  tests=[(FS4_D, '^TestNoDeletionAfterClockJump$')], full=[FS4_D]),
+ dict(id='fs-19', group='FS-K15', repo='ANet', desc='保存期清理不受时钟门(contentDeletable 不看门级;FS-9 起门在判定函数里)',
+  edits=[('internal/runtime/interactions/retention.go', '\tif level != ClockFull && level != ClockLocal {\n\t\treturn false\n\t}\n', '')],
+  tests=[(FS4_D, '^(TestNoDeletionAfterClockJump|TestStartSweepFollowsTheGate|TestRetentionChangeAtClosedGate)$'),
+         (IX, '^(TestRetentionRules|TestPruneTerminalFollowsTheGate|TestContentDeletableProperties)$')], full=[IX, FS4_D]),
  dict(id='fs-21', group='FS-K3', repo='ANet', desc='发布集合在 t_e + D + M 之前去掉上一纪元钥',
   edits=[('internal/daemon/enckeys.go', 'if now < satAdd(satAdd(pk.NotAfter, seal.DeliveryDeadlineMS), drainMarginMS) || pk.NotBefore > now {', 'if now < pk.NotAfter || pk.NotBefore > now {')],
   tests=[(FS4_D, '^(TestPrevEpochKeyStaysPublishedUntilDeadline|TestPublishedSetComposition)$')], full=[FS4_D]),
@@ -597,4 +616,87 @@ MUTS += [
  dict(id='fs4-r12', group='FS-K5', repo='ANet', desc='注册的 prev_seq 写成集合自身的 seq',
   edits=[('internal/daemon/hub_client.go', '\t\t\tbody.EncKeys, body.PrevSeq = hubapi.B64(ks), &prev', '\t\t\tbody.EncKeys, body.PrevSeq = hubapi.B64(ks), func() *uint64 { _ = prev; return &seq }()')],
   tests=[(FS4_D, '^TestPublishCarriesPrevSeq$')], full=[FS4_D]),
+
+ # --- FS-9: content retention and `anet retention` (FS §4.6.2, §4.6.3, §5.2) ---
+ dict(id='fs-18', group='FS-L8', repo='ANet', desc='保存期清理不删数据钥',
+  edits=[(FS9_RET, '\t_, err := e.Exec(`DELETE FROM ix_dek WHERE ix IN `+in+`', '\t_, err := e.Exec(`DELETE FROM ix_dek WHERE 0 AND ix IN `+in+`')],
+  tests=[(IX, '^TestRetentionDeletesDEK$')], full=[IX]),
+ dict(id='fs-32', group='FS-L5', repo='ANet', desc='forever 时仍删非公开交互',
+  edits=[(FS9_RET, '\tif r.forever || !r.Valid() {\n\t\treturn Retention{}, false\n\t}', '\tif !r.Valid() {\n\t\treturn Retention{}, false\n\t}')],
+  tests=[(IX, '^TestForeverKeepsPrivateTasks$')], full=[IX]),
+ dict(id='fs-33', group='FS-L5', repo='ANet', desc='forever 时公开交互也不删',
+  edits=[(FS9_RET, '\tif PublicClass(class) {\n\t\treturn r.Public(), true\n\t}', '\tif PublicClass(class) && !r.forever {\n\t\treturn r.Public(), true\n\t}')],
+  tests=[(IX, '^TestPublicTasksCappedAtSevenDays$')], full=[IX]),
+ dict(id='fs-34', group='FS-U3', repo='ANet', desc='anet retention set 没有终端仍修改',
+  edits=[('cmd/anet/zz_mut34.go', None, MUT34_NOTTY),
+         (FS9_CMD, '\tif err != nil {\n\t\targs := a2ashape.Args{"action": "retention", "command": typedCommand(commandLine())}\n'
+                   '\t\tsay(retentionStderr, a2ashape.Sentence("tty_required", lang, args), a2ashape.Next("tty_required", lang, args))\n'
+                   '\t\treturn errExit1\n\t}\n',
+          '\tif err != nil {\n\t\ttty = noTTY{}\n\t}\n')],
+  tests=[(FS9_CLI, '^TestRetentionSetNeedsTTY$')], full=[FS9_CLI]),
+ dict(id='fs-35', group='FS-U3', repo='ANet', desc='缩短保存期不先确认',
+  edits=[(FS9_CMD, '\tif k > 0 {\n', '\tif k > 0 && false {\n')],
+  tests=[(FS9_CLI, '^TestRetentionShortenAsksWithCount$')], full=[FS9_CLI]),
+ dict(id='fs-16d', group='FS-L8', repo='ANet', desc='维护周期不做 wal_checkpoint(TRUNCATE)(删掉的钥留在 WAL)',
+  edits=[('internal/daemon/enckeys.go', '\td.pruneEndedWorkDirs()\n\td.checkpointStore()\n', '\td.pruneEndedWorkDirs()\n')],
+  tests=[(FS4_D, '^TestCheckpointAfterKeyDelete$')], full=[FS4_D]),
+ dict(id='fs9-a', group='FS-L11', repo='ANet', desc='维护周期不删已终态任务的 exec 工作目录',
+  edits=[('internal/daemon/enckeys.go', '\td.pruneEndedWorkDirs()\n\td.checkpointStore()\n', '\td.checkpointStore()\n')],
+  tests=[(FS4_D, '^TestWorkDirsPrunedWithinS$')], full=[FS4_D]),
+ dict(id='fs9-b', group='FS-L11', repo='ANet', desc='先问在途任务再列目录(期间新开任务的目录被当作已结束的删掉)',
+  edits=[(FS9_EXEC, '\tif aid == "" {\n\t\treturn nil\n\t}\n\ttype workDir struct{ name, path string }\n',
+          '\tif aid == "" {\n\t\treturn nil\n\t}\n\tids, err := open()\n\tif err != nil {\n\t\treturn err\n\t}\n\ttype workDir struct{ name, path string }\n'),
+         (FS9_EXEC, '\tids, err := open()\n\tif err != nil {\n\t\treturn err\n\t}\n\tkeep := make(map[string]bool, len(ids))\n',
+          '\tkeep := make(map[string]bool, len(ids))\n')],
+  tests=[(FS4_D, '^TestWorkDirPruneListsBeforeItAsks$')], full=[FS4_D]),
+ dict(id='fs9-c', group='FS-L7', repo='ANet', desc='保存期清理不看出站行(ENG-E2;结果行未确认就删内容与数据钥)',
+  edits=[(FS9_RET, '\treturn contentDeletable(c.contentFacts, now, level, r, queued, c.PayState == PaySubmitted), nil',
+          '\treturn contentDeletable(c.contentFacts, now, level, r, queued && false, c.PayState == PaySubmitted), nil')],
+  tests=[(IX, '^(TestPruneTerminalSweepsEveryClass|TestPruneTerminalDeletesInBatches|TestCountNewlyDeletable)$')], full=[IX]),
+ dict(id='fs9-d', group='FS-L7', repo='ANet', desc='保存期清理不看已提交未结算的付款',
+  edits=[(FS9_RET, '\treturn contentDeletable(c.contentFacts, now, level, r, queued, c.PayState == PaySubmitted), nil',
+          '\treturn contentDeletable(c.contentFacts, now, level, r, queued, c.PayState == PaySubmitted && false), nil')],
+  tests=[(IX, '^TestPruneTerminalSweepsEveryClass$')], full=[IX]),
+ dict(id='fs9-e', group='FS-L9', repo='ANet', desc='缺数据钥的待批项不过期(永远占着队列)',
+  edits=[('internal/runtime/interactions/pending.go', "\treturn s.readPending(true, `SELECT `", "\treturn s.readPending(false, `SELECT `")],
+  tests=[(IX, '^TestKeylessHeldItemExpires$'), (FS4_D, '^TestPendingExpiryDeletesDEK$')], full=[IX, FS4_D]),
+ dict(id='fs9-f', group='FS-L8', repo='ANet', desc='清理任务时连同同 id 待批项的数据钥一起删(待批内容读不出)',
+  edits=[(FS9_RET, '\t   AND NOT EXISTS (SELECT 1 FROM pending p WHERE p.ix = ix_dek.ix)\n', '')],
+  tests=[(IX, '^TestRetentionDeletesDEK$')], full=[IX]),
+ dict(id='fs9-g', group='FS §5.2', repo='ANet', desc='干跑计数含当前设置下本来就会删的任务(改长也要确认)',
+  edits=[(FS9_RET, '\t\t\tif !already {\n\t\t\t\tn++\n', '\t\t\tif true || !already {\n\t\t\t\tn++\n')],
+  tests=[(IX, '^(TestCountNewlyDeletable|TestForeverKeepsPrivateTasks)$')], full=[IX]),
+ dict(id='fs9-h', group='FS-L5', repo='ANet', desc='content_retention 短于 7 天时公开交互仍留 7 天',
+  edits=[(FS9_RET, '\tif !r.forever && r.days >= 1 && r.days < PublicRetentionDays {', '\tif !r.forever && r.days >= 1 && r.days < 0 {')],
+  tests=[(IX, '^(TestPublicTasksCappedAtSevenDays|TestRetentionRules)$')], full=[IX]),
+ dict(id='fs9-i', group='FS §5.1', repo='ANet', desc='content_retention 写错时 daemon 照常启动',
+  edits=[('internal/daemon/config.go', '\treturn a2ashape.Refuse("retention_invalid", nil)\n}\n\n// ParseContentRetention',
+          '\treturn nil\n}\n\n// ParseContentRetention')],
+  tests=[(FS4_D, '^TestContentRetentionConfig$')], full=[FS4_D]),
+ dict(id='fs9-j', group='FS §2.10', repo='ANet', desc='POST /retention 收下未登记的成员',
+  edits=[('internal/daemon/control_api.go', '\t\tdefault:\n\t\t\treturn "", false, errRetentionRequest\n\t\t}\n\t}\n\tif tok, err := dec.Token();',
+          '\t\tdefault:\n\t\t}\n\t}\n\tif tok, err := dec.Token();')],
+  tests=[(FS4_D, '^TestRetentionRoute$')], full=[FS4_D]),
+ dict(id='fs9-k', group='FS §5.2', repo='ANet', desc='POST /retention 改值后不立即清理',
+  edits=[('internal/daemon/evidence_mode.go', '\tdeleted := d.pruneRetentionAt(int64(d.nowMS()), d.clockLevelNow())', '\tdeleted := int64(0)')],
+  tests=[(FS4_D, '^TestRetentionRoute$')], full=[FS4_D]),
+ dict(id='fs9-l', group='FS-L6', repo='ANet', desc='改值后的立即清理不受时钟门',
+  edits=[('internal/daemon/evidence_mode.go', '\tdeleted := d.pruneRetentionAt(int64(d.nowMS()), d.clockLevelNow())', '\tdeleted := d.pruneRetentionAt(int64(d.nowMS()), clockFull)')],
+  tests=[(FS4_D, '^TestRetentionChangeAtClosedGate$')], full=[FS4_D]),
+ dict(id='fs9-m', group='FS §2.12', repo='ANet', desc='改值不写 anet.retention.changed',
+  edits=[('internal/daemon/evidence_mode.go', '\t\tif _, err := d.ledger.Append(EvRetentionChanged, map[string]any{', '\t\tif _, err := d.ledger.Append(EvRetentionChanged+"-", map[string]any{')],
+  tests=[(FS4_D, '^(TestRetentionRoute|TestRetentionChangeAtClosedGate)$')], full=[FS4_D]),
+ dict(id='fs9-n', group='FS §5.1', repo='ANet', desc='新数据目录的 config.json 不写 content_retention',
+  edits=[('internal/daemon/config.go', '\t\tContentRetention: RetentionValue(interactions.DefaultRetention().String())}', '\t}')],
+  tests=[(FS4_D, '^TestContentRetentionConfig$'), (FS9_CLI, '^TestFreshInstallIsSafe$')], full=[FS4_D, FS9_CLI]),
+ dict(id='fs9-o', group='FS §5.2', repo='ANet', desc='daemon 不在运行时改值把 config.json 的其他键丢掉',
+  edits=[('internal/daemon/config.go', '\tcur["content_retention"] = r.String()\n', '\tcur = map[string]any{"content_retention": r.String()}\n')],
+  tests=[(FS4_D, '^TestSetContentRetentionInFileKeepsTheRest$'), (FS9_CLI, '^TestRetentionOfflineRepair$')], full=[FS4_D, FS9_CLI]),
+ dict(id='fs9-p', group='FS-L11', repo='ANet', desc='维护周期不清已终态任务的会话绑定',
+  edits=[('internal/daemon/evidence_mode.go', '\tif err := sharedExecSessionStore(d.layout.Root).pruneEnded(open); err != nil {',
+          '\tif err := error(nil); err != nil {')],
+  tests=[(FS4_D, '^TestWorkDirsPrunedWithinS$')], full=[FS4_D]),
+ dict(id='fs9-q', group='FS-L5', repo='ANet', desc='保存期按清理时刻而不是按 UTC 日取整',
+  edits=[(FS9_RET, '\treturn utcDayStart(now) - int64(a.days)*dayMS, true', '\treturn now - int64(a.days)*dayMS, true')],
+  tests=[(IX, '^(TestRetentionRules|TestContentDeletableProperties)$'), (FS4_D, '^TestRetentionSweepPrunesOldPublicCapCalls$')], full=[IX, FS4_D]),
 ]
