@@ -1,0 +1,5 @@
+{
+  "hub": "https://hub.example",
+  "reason": "hub_pending_admission",
+  "state": "pending_admission"
+}

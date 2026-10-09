@@ -1,7 +1,8 @@
 # exec.py: local execution and credentials (v0.3.0 LEC §7.3) — mutation list for scripts/mutations/unitmut.py (see its
 # header for the format). EXE-1 adds M-SB-1 to M-SB-3 (the Linux sandbox kernel); EXE-2 adds M-BP-1 to M-BP-7 (the
 # injection route's request policy, with m-bp-3b, m-bp-4b and m-bp-5b) and the egress endpoint's own mutations (m-eg-*,
-# m-up-1); the other EXE packages append theirs.
+# m-up-1); EXE-4 adds M-BU-1 to M-BU-5 and M-SB-5 (the run budget, its slots, the work roots) with the
+# rest of its rules (m-bu-*, m-sb-*, m-gt-*, m-eg-7-invoked, m-evid-1, m-ld-1); the other EXE packages append theirs.
 #
 # The probe tests (TestSandboxProbe*, TestSandboxIntegrationConfinesTheAgent) need a bubblewrap that can create user
 # namespaces: on a host without one they skip, and the bwrap-free tests listed with them (G-BWRAP, G-SECCOMP, the
@@ -1012,6 +1013,250 @@ MUTS += [
   desc='轮换后 /ping 仍以启动时的控制令牌作证明(读不到套接字表的系统上 CLI 不再信任 daemon)',
   edits=[('internal/daemon/ctlsec.go', '\ttop.HandleFunc("GET /ping", d.pingHandler(auth))', '\ttop.HandleFunc("GET /ping", d.pingHandler(&ctlAuth{token: auth.bearer()}))')],
   tests=[(DAEMON, 'TestRotateLocalTokensRefusesBothOldTokens')],
+  full=[DAEMON],
+ ),
+]
+
+# --- EXE-4: the run budget, its slots, the work roots, the user scope and the records (LEC §4.3.1, SB-7 to
+# SB-9, §4.3.6, EG-7, §2.5; SI-58, SI-59). The daemon tests run a sandboxed turn through fakeSandbox where the
+# host has no usable bubblewrap; TestSandboxTrustChangeUsesFreshWorkDir and TestSandboxDiskWatchKillsTheRun are
+# the real-bwrap forms (Debian 12 container, CI sandbox job). ---
+BU = 'TestRunBudget|TestUntrustedRunsAreBudgeted|TestTheDailyBudgetSpansPeers|TestTheBudgetSurvivesARestart|TestTheBudgetAndTheSpendingLimitsShareTheLocalDay'
+MUTS += [
+ dict(
+  id='m-bu-1', group='BU-2', repo='ANet',
+  desc='预算不计数(放行的运行不计入当日次数)',
+  edits=[('internal/daemon/sandbox_budget.go', '\tday.add(peer, 1)\n\tb.running++', '\tb.running++')],
+  tests=[(DAEMON, BU)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-2', group='BU-2', repo='ANet',
+  desc='重启不回放证据链(当日计数从零开始)',
+  edits=[('internal/daemon/sandbox_budget.go', '\tfor _, r := range runs(start.Add(-48 * time.Hour)) {', '\tfor _, r := range runs(start.Add(-48 * time.Hour))[:0] {')],
+  tests=[(DAEMON, 'TestTheBudgetSurvivesARestart|TestRunBudgetReplaysTheChain|TestRunBudgetProperty')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-3', group='BU-4', repo='ANet',
+  desc='超限仍启动 agent / 调用模型',
+  edits=[('internal/daemon/autoreply.go', '\tcase budgetSpent:\n\t\treturn d.refuseTurn(', '\tcase budgetSpent + 100:\n\t\treturn d.refuseTurn(')],
+  tests=[(DAEMON, 'TestUntrustedRunsAreBudgeted|TestTheDailyBudgetSpansPeers|TestAnOutboundTurnOverTheBudgetStaysInTheInbox')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-4', group='BU-1', repo='ANet',
+  desc='openai 后端不计入预算(core Q-LEC-6)',
+  edits=[('internal/daemon/autoreply.go', 'return execGate{trusted: trusted, mode: modeOpenAI, counted: !trusted}', 'return execGate{trusted: trusted, mode: modeOpenAI, counted: false}')],
+  tests=[(DAEMON, 'TestUntrustedRunsAreBudgeted/openai|TestTheDailyBudgetSpansPeers|TestTheBudgetSurvivesARestart')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-5', group='BU-2', repo='ANet',
+  desc='预算按固定 24 小时窗口(UTC 日)而不是 localDayBounds',
+  edits=[('internal/daemon/sandbox_budget.go', '\tb.loadLocked(now, runs)\n\tstart, end := localDayBounds(now)', '\tb.loadLocked(now, runs)\n\tstart, end := now.Truncate(24*time.Hour), now.Truncate(24*time.Hour).Add(24*time.Hour)')],
+  tests=[(DAEMON, 'TestRunBudgetProperty|TestRunBudgetCountsTheLocalDay|TestTheBudgetAndTheSpendingLimitsShareTheLocalDay')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ld-1', group='BU-2', repo='ANet',
+  desc='localDayBounds 的结束取 time.Date(日+1) 并按 24 小时推开始(夏令时与跨零点的日子算错)',
+  edits=[('internal/daemon/localday.go', '\tend, ok = firstOnOrAfterDate(y, m, d+1, now, now.Add(50*time.Hour))', '\tend, ok = time.Date(y, m, d+1, 0, 0, 0, 0, now.Location()), true\n\tstart = end.Add(-24 * time.Hour)')],
+  tests=[(DAEMON, 'TestLocalDayBounds|TestRunBudgetProperty')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-6', group='BU-5', repo='ANet',
+  desc='没有空位时拒绝(budget)而不是留给下一次扫描',
+  edits=[('internal/daemon/autoreply.go', '\tcase budgetBusy:\n\t\treturn nil', '\tcase budgetBusy:\n\t\treturn d.refuseTurn(ctx, th, autoReplyRun{InteractionID: th.InteractionID, Peer: th.Peer, Mode: gate.mode, Exit: exitBudget}, wait)')],
+  tests=[(DAEMON, 'TestUntrustedRunsTakeTurns')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-7', group='BU-5', repo='ANet',
+  desc='未信任对端的并发放宽到 3',
+  edits=[('internal/daemon/sandbox_budget.go', '\tuntrustedRunsAtOnce        = 2', '\tuntrustedRunsAtOnce        = 3')],
+  tests=[(DAEMON, 'TestRunBudgetSlots|TestUntrustedRunsTakeTurns|TestRunBudgetProperty')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-8', group='BU-2', repo='ANet',
+  desc='沙箱不可用(什么都没启动)的运行也计入预算',
+  edits=[('internal/daemon/autoreply.go', '\t\t// refusal\'s (once per interaction).\n\t\tcounted = false', '\t\t// refusal\'s (once per interaction).\n\t\tcounted = true')],
+  tests=[(DAEMON, 'TestARunTheSandboxRefusedDoesNotCount')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-5', group='SB-8', repo='ANet',
+  desc='沙箱与 direct 共用工作根',
+  edits=[('internal/daemon/autoreply_exec.go', '\tif root := execWorkRoot(); root != "" {\n\t\treturn root + "-sandbox"', '\tif root := execWorkRoot(); root != "" {\n\t\treturn root')],
+  tests=[(DAEMON, 'TestTrustChangeUsesFreshWorkDir|TestSandboxTrustChangeUsesFreshWorkDir')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-5b', group='SB-8', repo='ANet',
+  desc='auto_reply.work_dir 可以落在沙箱工作根之内',
+  edits=[('internal/daemon/autoreply_exec.go', '\tabs, err := filepath.Abs(c.WorkDir)\n\tif err == nil {\n\t\terr = checkOutsideSandboxRoot(abs)\n\t}', '\tabs, err := filepath.Abs(c.WorkDir)'),
+         ('internal/daemon/autoreply_exec.go', '\t\tif err := checkOutsideSandboxRoot(abs); err != nil {\n\t\t\treturn execInvokeOpts{}, fmt.Errorf("auto_reply.work_dir: %w", err)\n\t\t}\n', '')],
+  tests=[(DAEMON, 'TestTheWorkDirStaysOutOfTheSandboxRoot')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-7', group='SB-7', repo='ANet',
+  desc='用户级 systemd 在运行时也不包 systemd-run(没有内存与进程数上限)',
+  edits=[('internal/daemon/sandbox_linux.go', '\tpath, full := sandboxCommandLine(p.Bwrap, p.SystemdRun, args)', '\tpath, full := sandboxCommandLine(p.Bwrap, "", args)')],
+  tests=[(DAEMON, 'TestRunsGetAUserScopeWhenTheUserSystemdRuns')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8', group='BU-8', repo='ANet',
+  desc='磁盘看门狗不杀超限的运行',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\t\tif dirsSize(dirs(), limit) > limit {', '\t\t\tif false && dirsSize(dirs(), limit) > limit {')],
+  tests=[(DAEMON, 'TestADiskHogIsKilled|TestSandboxDiskWatchKillsTheRun')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-9', group='SB-9', repo='ANet',
+  desc='启动后不清理上一个进程留下的运行目录',
+  edits=[('internal/daemon/autoreply_exec.go', '\td.sandboxSwept.Do(func() { removeSandboxLeftovers(d.AID()) })', '\td.sandboxSwept.Do(func() {})')],
+  tests=[(DAEMON, 'TestSandboxLeftoversAreSweptBeforeTheFirstRun')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-gt-2', group='GT-2', repo='ANet',
+  desc='trusted=sandbox 的一轮按 direct 运行(退回 direct)',
+  edits=[('internal/daemon/autoreply.go', '\tcase trusted && cfg.TrustedMode() == TrustedSandbox:\n\t\tg.mode = modeSandbox', '\tcase trusted && cfg.TrustedMode() == TrustedSandbox:\n\t\tg.mode = modeDirect')],
+  tests=[(DAEMON, 'TestTrustedPeersRunAsTrustedSays')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-gt-2b', group='GT-2', repo='ANet',
+  desc='拒绝的状态消息带正文(UX-R1:只带 anet.reason)',
+  edits=[('internal/daemon/autoreply.go', 'interactions.StateRejected, "", meta)', 'interactions.StateRejected, "turned away: "+reason, meta)')],
+  tests=[(DAEMON, 'TestUntrustedRunsAreBudgeted|TestTrustedPeersRunAsTrustedSays')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-gt-2c', group='GT-2', repo='ANet',
+  desc='同一交互同一原因的拒绝每次都记日志与证据',
+  edits=[('internal/daemon/autoreply.go', '\tif d.sbRefused.first(th.InteractionID, run.Exit) {', '\tif d.sbRefused.first(th.InteractionID, run.Exit) || true {')],
+  tests=[(DAEMON, 'TestAnOutboundTurnOverTheBudgetStaysInTheInbox')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-gt-5', group='GT-5', repo='ANet',
+  desc='恢复 policy open 与 exec untrusted=sandbox 的互斥',
+  edits=[('internal/daemon/inbound.go', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif untrustedBackend {', '\tif in.Policy != PolicyOpen {\n\t\treturn nil\n\t}\n\tif ar := c.AutoReply; ar != nil && ar.Backend == "exec" && ar.UntrustedMode() != UntrustedOff {\n\t\treturn ErrPolicyConflict\n\t}\n\tif untrustedBackend {')],
+  tests=[(DAEMON, 'TestOpenWithTheSandboxForUntrustedPeers')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg-7-invoked', group='EG-7', repo='ANet',
+  desc='anet.autoreply.invoked 不带沙箱运行的 egress 汇总',
+  edits=[('internal/daemon/autoreply.go', '\t\treply, run.Sandboxed, run.Egress = res.Reply, res.Sandboxed, res.Egress', '\t\treply, run.Sandboxed = res.Reply, res.Sandboxed')],
+  tests=[(DAEMON, 'TestASandboxedRunRecordsItsEgress|TestSandboxTrustChangeUsesFreshWorkDir')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-evid-1', group='§2.5', repo='ANet',
+  desc='anet.autoreply.invoked 多出一个成员(工作目录路径)',
+  edits=[('internal/daemon/autoreply.go', '\t\t"mode": r.Mode, "sandbox": r.Kind, "exit": r.Exit,\n', '\t\t"mode": r.Mode, "sandbox": r.Kind, "exit": r.Exit, "work_dir": "/work/" + r.InteractionID,\n')],
+  tests=[(DAEMON, 'TestAutoReplyEvidenceGolden|TestAutoReplyRecordHoldsNoContent|TestUntrustedRunsAreBudgeted')],
+  full=[DAEMON],
+ ),
+ # EXE-4 review: the halves of the disk watch, the budget's trusted exemption on the openai backend, the
+ # start-up sweep's owner and its first run, and the work-tree removal staying inside the tree.
+ dict(
+  id='m-sb-8b', group='BU-8', repo='ANet',
+  desc='磁盘看门狗只统计工作目录,不统计每次运行目录(沙箱内 /tmp、$HOME)',
+  edits=[('internal/daemon/autoreply_exec.go', 'return append(plan.liveRunDirs(), workDir)', 'return []string{workDir}')],
+  tests=[(DAEMON, 'TestSandboxDiskWatchCountsTheRunDirectory')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8c', group='BU-8', repo='ANet',
+  desc='磁盘看门狗只按文件大小计(fallocate --keep-size 占的块不计)',
+  edits=[('internal/daemon/autoreply_exec.go', 'total += max(fi.Size(), allocatedBytes(fi), sandboxDiskEntryMin)', 'total += max(fi.Size(), sandboxDiskEntryMin)')],
+  tests=[(DAEMON, 'TestDirsSizeCountsAllocatedBlocks')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8d', group='SB-8', repo='ANet',
+  desc='删除工作目录时按路径 chmod(可被仍在运行的 agent 换成指向树外的链接)',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\t\t\t\t_ = r.Chmod(p, 0o700)', '\t\t\t\t\t_ = os.Chmod(filepath.Join(dir, p), 0o700)')],
+  tests=[(DAEMON, 'TestRemoveWorkTreeStaysInTheTree')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bu-9', group='BU-1', repo='ANet',
+  desc='openai 后端把信任对端的轮次也计入预算',
+  edits=[('internal/daemon/autoreply.go', 'counted: !trusted}', 'counted: true}')],
+  tests=[(DAEMON, 'TestATrustedPeerOnTheOpenAIBackendIsNotBudgeted')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-9b', group='SB-9', repo='ANet',
+  desc='启动清理删掉临时目录里别的用户的同名目录',
+  edits=[('internal/daemon/sandbox_linux.go', 'if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != leftoverOwner() {', 'if st, ok := fi.Sys().(*syscall.Stat_t); !ok || false && int(st.Uid) != leftoverOwner() {')],
+  tests=[(DAEMON, 'TestSandboxLeftoversAreSweptBeforeTheFirstRun')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-9c', group='SB-9', repo='ANet',
+  desc='开启 exec 自动回复时不清理残留(推迟到第一次沙箱运行)',
+  edits=[('internal/daemon/autoreply.go', '\tif cfg.Backend == "exec" {\n\t\td.sweepSandboxLeftovers()\n\t}\n', '')],
+  tests=[(DAEMON, 'TestSandboxLeftoversAreSweptWhenAutoReplyStarts')],
+  full=[DAEMON],
+ ),
+]
+# EXE-4 second review: the outbox a sandboxed agent can put a link in the place of, and the trees the disk watch
+# and the removal cannot read through.
+MUTS += [
+ dict(
+  id='m-sb-10', group='SB-8', repo='ANet',
+  desc='outbox 换成指向运营者目录的链接时照样读取(把运营者的文件发给对端)',
+  edits=[('internal/daemon/autoreply_exec.go', '\t} else if !fi.IsDir() {\n\t\treturn nil, fmt.Errorf("the outbox is not a directory', '\t} else if false && !fi.IsDir() {\n\t\treturn nil, fmt.Errorf("the outbox is not a directory'),
+         ('internal/daemon/autoreply_exec.go', '\tob, err := parent.OpenRoot(base)', '\tob, err := os.OpenRoot(dir)')],
+  tests=[(DAEMON, 'TestASandboxedAgentCannotLinkTheOutboxOut|TestSandboxOutboxLinkSendsNothing')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8e', group='BU-8', repo='ANet',
+  desc='磁盘看门狗跳过读不了的目录(mode 000、超过最长路径),其中的内容不计',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\t\tcase err != nil:\n\t\t\t\ttotal = limit + 1 // unreadable: fail closed', '\t\t\tcase err != nil:\n\t\t\t\treturn nil')],
+  tests=[(DAEMON, 'TestTheDiskWatchCannotBeHiddenFrom')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8f', group='BU-8', repo='ANet',
+  desc='磁盘看门狗不给每一项计最少一个块(大量空文件不计)',
+  edits=[('internal/daemon/autoreply_exec.go', 'total += max(fi.Size(), allocatedBytes(fi), sandboxDiskEntryMin)', 'total += max(fi.Size(), allocatedBytes(fi))')],
+  tests=[(DAEMON, 'TestTheDiskWatchCannotBeHiddenFrom')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-8g', group='SB-8', repo='ANet',
+  desc='删除工作目录时不先恢复顶层目录的权限(agent 把工作目录设为 000 后删不掉)',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\tif fi.Mode().Perm()&0o700 != 0o700 {\n\t\t\tif pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {', '\t\tif false && fi.Mode().Perm()&0o700 != 0o700 {\n\t\t\tif pr, err := os.OpenRoot(filepath.Dir(dir)); err == nil {')],
+  tests=[(DAEMON, 'TestRemoveWorkTreeTakesAnUnreadableTop')],
+  full=[DAEMON],
+ ),
+]
+MUTS += [
+ dict(
+  id='m-sb-11', group='SB-8', repo='ANet',
+  desc='codex 的回复文件按路径读取(沙箱内把它换成指向运营者文件的链接,文件内容作为回复发给对端)',
+  edits=[('internal/daemon/agents.go', 'readWorkFile(dir, filepath.Base(outFile), maxAttachmentBytes)', 'os.ReadFile(outFile)')],
+  tests=[(DAEMON, 'TestCodexReplyFileIsNotReadThroughALink')],
+  full=[DAEMON],
+ ),
+]
+MUTS += [
+ dict(
+  id='m-bu-10', group='BU-2', repo='ANet',
+  desc='只保留当天的计数(时钟被调回前一日时,前一日的预算重新可用)',
+  edits=[('internal/daemon/sandbox_budget.go', '\tcut := today.Add(-30 * time.Hour).UnixMilli()', '\tcut := today.UnixMilli()')],
+  tests=[(DAEMON, 'TestRunBudgetCountsTheLocalDay')],
   full=[DAEMON],
  ),
 ]

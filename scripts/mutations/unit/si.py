@@ -286,7 +286,7 @@ MUTS = [
   edits=[
    ('internal/daemon/config.go', '\tif c.Untrusted == UntrustedSandbox {\n\t\treturn UntrustedSandbox', '\tif c.Untrusted != UntrustedOff {\n\t\treturn UntrustedSandbox'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults|TestExecRunsOnlyForTrustedPeers|TestOpenAndExecForUntrustedPeersConflict'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
+  tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults|TestExecRunsOnlyForTrustedPeers|TestOpenWithTheSandboxForUntrustedPeers'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
  ),
  dict(

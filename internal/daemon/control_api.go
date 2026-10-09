@@ -733,6 +733,9 @@ func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := d.SetAutoReply(cfg); err != nil {
+		if writeConfigRefusal(w, err) {
+			return
+		}
 		code := http.StatusBadRequest
 		if errors.Is(err, ErrPolicyConflict) {
 			code = http.StatusConflict
@@ -850,7 +853,9 @@ func mergeAutoReply(cur *AutoReplyConfig, members map[string]json.RawMessage) (*
 
 // inexactMember is the path of the first member of members (in name order) that is not exactly the JSON
 // name of a field of the struct t, looking into a member that is an object where its field is a struct
-// (a block of settings, merged member by member); "" when every name is exact.
+// (a block of settings, merged member by member); "" when every name is exact. A struct that decodes
+// itself (BudgetValue) is a value, not a block: any JSON is read into it and its own check says what it
+// must be (budget_invalid), so its members are not names to check.
 func inexactMember(t reflect.Type, members map[string]json.RawMessage) string {
 	fields := map[string]reflect.Type{}
 	for i := 0; i < t.NumField(); i++ {
@@ -872,7 +877,8 @@ func inexactMember(t reflect.Type, members map[string]json.RawMessage) string {
 			ft = ft.Elem()
 		}
 		var sub map[string]json.RawMessage
-		if ft.Kind() == reflect.Struct && json.Unmarshal(members[k], &sub) == nil && sub != nil {
+		if ft.Kind() == reflect.Struct && !reflect.PointerTo(ft).Implements(jsonUnmarshalerType) &&
+			json.Unmarshal(members[k], &sub) == nil && sub != nil {
 			if bad := inexactMember(ft, sub); bad != "" {
 				return k + "." + bad
 			}
@@ -880,6 +886,8 @@ func inexactMember(t reflect.Type, members map[string]json.RawMessage) string {
 	}
 	return ""
 }
+
+var jsonUnmarshalerType = reflect.TypeFor[json.Unmarshaler]()
 
 // mergeJSONMember is the value a member takes: v merged into cur when both are objects, nil (removed)
 // for null, else v.
