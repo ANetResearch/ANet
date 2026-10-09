@@ -147,16 +147,17 @@ func seatbeltMachForbiddenMatch(name string) (string, bool) {
 var seatbeltSysctlForbidden = []string{"kern.procargs"}
 
 // seatbeltRefused are operations Seatbelt allows by default even in a (deny default) profile of version 1,
-// which the profile refuses outright: a hard link or a clone would give a file the agent may not read a
-// second name in its work dir, and NVRAM holds the machine's settings and account tokens. A supported agent
-// needs none of them, and tools that clone or link where they can fall back to copying when refused.
+// which the profile refuses outright: a hard link or a clone could give a file the agent may not read a
+// second name in its work dir, and NVRAM holds the machine's settings, some of them tied to the owner's
+// account. A supported agent needs none of them, and tools that clone or link where they can fall back to
+// copying when refused.
 var seatbeltRefused = []string{"file-link", "file-clone", "nvram*"}
 
 // seatbeltFcntlForbidden are the fcntl commands that change a file through a descriptor opened only for
 // reading, which no file-write* rule sees and (deny default) does not cover: F_MAKECOMPRESSED (80)
-// truncates and compresses the file, F_TRANSFEREXTENTS (110) moves blocks between two files. The kernel
-// checks only the file's permission bits for them, and the anet binary and the agent's runtime are the
-// user's own files the profile lets the agent read.
+// truncates and compresses the file, F_TRANSFEREXTENTS (110) moves storage blocks between two files. The
+// kernel checks only the file's permission bits for them, and the anet binary and the agent's runtime are
+// the user's own files the profile lets the agent read.
 var seatbeltFcntlForbidden = []int{80, 110}
 
 // buildSeatbeltProfile returns the profile for spec. It fails on a path that is not absolute and clean,
