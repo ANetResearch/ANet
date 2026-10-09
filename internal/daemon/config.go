@@ -36,9 +36,6 @@ type Config struct {
 	Summary string `json:"summary,omitempty"` // one-line description
 	Readme  string `json:"readme,omitempty"`  // longer markdown description
 	Pricing string `json:"pricing,omitempty"` // free-form pricing text (no settlement in v0.1)
-	// Providers configures C1 capability providers. ANetLink connects the
-	// physical-world runtime over its UDS socket (anetlinkd --c1-socket).
-	Providers *ProvidersConfig `json:"providers,omitempty"`
 	// Modules configures optional subsystems by name (see module.Module).
 	Modules ModulesConfig `json:"modules,omitempty"`
 	// Inbound is the inbound policy (A2A-DESIGN §5.1): who may delegate to
@@ -302,16 +299,6 @@ func SaveConfig(l Layout, c Config) error {
 // A module that lands later takes its block from here rather than growing
 // the daemon a typed field for it.
 type ModulesConfig map[string]json.RawMessage
-
-// ProvidersConfig wires capability providers into the daemon.
-type ProvidersConfig struct {
-	ANetLink *ANetLinkProviderConfig `json:"anetlink,omitempty"`
-}
-
-// ANetLinkProviderConfig points at a running anetlinkd C1 socket.
-type ANetLinkProviderConfig struct {
-	Socket string `json:"socket"`
-}
 
 // updateConfig is one write of config.json from the running daemon: under
 // cfgWrite, change edits a copy of the config (an error refuses the write),

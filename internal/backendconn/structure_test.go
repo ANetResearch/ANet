@@ -28,8 +28,6 @@ var unixDialExempt = map[string]struct {
 	// removeStaleSocket asks whether anyone still listens on a path before replacing it, and writes
 	// nothing to what answers.
 	"cmd/anet-official/main.go": {1, "a stale-socket probe"},
-	// The C1 client (CC-1) dials through backendconn.Rules.DialUnix once its provider takes Rules.
-	"provider/anetlink/anetlink.go": {1, "v030-todo(EXE-12)"},
 }
 
 // PC-3: everything in ANet that dials a Unix socket goes through DialUnix (or Transport, which uses

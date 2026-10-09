@@ -29,6 +29,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/provider"
@@ -428,7 +429,17 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 		return false
 	}
 	var opts resultOpts
+	var refused *provider.RefusalError
 	switch unknown, isUnknown := provider.OutcomeOf(err); {
+	case errors.As(err, &refused):
+		// The far side refused the call, or failed it with nothing to
+		// report, and the provider named why in the user's words (LEC CC-4).
+		// The task ends as that reason's row says, and the requester is sent
+		// the code, no message: its own node renders the sentence. What the
+		// far side said (ANetLink's C1 code, the socket it could not reach)
+		// stays in this log.
+		log.Printf("anet: %s: %s: %v", interactionID, capID, err)
+		res.Status, opts = refusalOutcome(refused.Reason)
 	case isUnknown:
 		// Sent, and the answer lost — or the call's deadline passed while
 		// it ran, whatever the provider: whether the effect happened is not
@@ -450,6 +461,29 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 	}
 	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, eff.Evidence, opts)
 }
+
+// refusalOutcome is how a provider's refusal ends the task: the effect
+// status the result carries, and its options, as the reason's row of the
+// reason table says. A row of class R (the far side certainly did not run
+// the call) ends it rejected, effect UNAVAILABLE (failed once a payment has
+// settled, stateForEffect); a row of class F ends it failed with the row's
+// effect. A reason with neither is backend_failed.
+func refusalOutcome(reason string) (string, resultOpts) {
+	row, ok := a2ashape.Lookup(reason)
+	switch {
+	case ok && row.Class&a2ashape.ClassR != 0 && row.A2A.Effect == string(effect.Unavailable):
+		return row.A2A.Effect, resultOpts{reason: reason}
+	case ok && row.Class&a2ashape.ClassF != 0 && row.A2A.Effect != "":
+		return row.A2A.Effect, resultOpts{state: interactions.StateFailed, reason: reason}
+	case reason != reasonBackendFailed:
+		return refusalOutcome(reasonBackendFailed)
+	}
+	return string(effect.Unverified), resultOpts{state: interactions.StateFailed, reason: reasonBackendFailed}
+}
+
+// reasonBackendFailed is the reason of a provider whose far side failed
+// without a reason this node can repeat.
+const reasonBackendFailed = "backend_failed"
 
 // refuseUnboundPriced answers a priced call whose TaskDoc carries no task
 // nonce, and reports whether it did. The payment's binding is

@@ -137,23 +137,15 @@ func (d *Daemon) stopModules(ctx context.Context) {
 	}
 }
 
-// moduleConfig projects the daemon's typed config into the per-module raw
-// blocks module.Build expects.
-//
-// The typed fields stay for the modules that ship today, so an existing
-// config file keeps working; a module that lands later can take its block
-// from cfg.Modules without the daemon growing a field for it.
+// moduleConfig projects the daemon's config into the per-module raw blocks
+// module.Build expects: each module takes its block from cfg.Modules, and
+// the daemon grows no typed field for one. (providers.anetlink was the last
+// such field; 0.3.0 refuses it as a removed key, and the block is
+// modules.anetlink.)
 func moduleConfig(cfg Config) (map[string][]byte, error) {
 	out := map[string][]byte{}
 	for name, raw := range cfg.Modules {
 		out[name] = raw
-	}
-	if pc := cfg.Providers; pc != nil && pc.ANetLink != nil && pc.ANetLink.Socket != "" {
-		b, err := json.Marshal(map[string]any{"socket": pc.ANetLink.Socket})
-		if err != nil {
-			return nil, err
-		}
-		out["anetlink"] = b
 	}
 	return out, nil
 }

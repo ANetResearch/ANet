@@ -257,6 +257,50 @@ jobs:
             GOOS=$os go test -c -o /dev/null ./internal/backendconn
           done
 
+  # C1-1 across the two repositories: the C1 v1 golden vectors in
+  # provider/anetlink/testdata/c1v1 are byte for byte ANetLink's, at the
+  # ANetLink release that ANETLINK_REF names. anet and ANetLink are built on
+  # different ANetCore versions, and each encodes and decodes these bytes
+  # with its own (provider/anetlink/golden_test.go here, northbound/c1serv
+  # there); this job holds the two copies equal. A difference is never fixed
+  # by copying one side over the other: it is a wire change, made in both
+  # repositories, and ANETLINK_REF moves with it.
+  c1-golden-xrepo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the ANetLink release the vectors come from
+        id: ref
+        run: echo "ref=$(head -n 1 provider/anetlink/testdata/c1v1/ANETLINK_REF)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ANetResearch/ANetLink
+          ref: ${{ steps.ref.outputs.ref }}
+          path: .anetlink
+      - name: the two copies are the same files, byte for byte
+        shell: bash
+        run: |
+          set -euo pipefail
+          ours=provider/anetlink/testdata/c1v1
+          theirs=.anetlink/northbound/c1serv/testdata/c1v1
+          (cd "$ours" && sha256sum -c --quiet SHA256SUMS)
+          (cd "$theirs" && sha256sum -c --quiet SHA256SUMS)
+          diff <(cd "$ours" && ls | grep -vx ANETLINK_REF) <(cd "$theirs" && ls)
+          for f in "$theirs"/*; do cmp "$f" "$ours/$(basename "$f")"; done
+          echo "C1-1: $(ls "$theirs" | wc -l) files, the same in both repositories"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: each side's Go test, the cross-repository one not skipped
+        shell: bash
+        run: |
+          ANETLINK_DIR="$PWD/.anetlink" go test -count=1 -v -run 'C1Golden|StrictDecoderIsANetLinks' ./provider/anetlink/ | tee /tmp/c1golden.out
+          if grep -- '--- SKIP' /tmp/c1golden.out; then
+            echo "a C1-1 test skipped; here that is a failure" >&2
+            exit 1
+          fi
+          grep -q -- '--- PASS: TestC1GoldenIsANetLinks' /tmp/c1golden.out || { echo "TestC1GoldenIsANetLinks did not run" >&2; exit 1; }
+
   # continue-on-error until it has run green on the hosted runners once:
   # whether their kernel lets bwrap make namespaces after the sysctl is a
   # property of the runner image, not of this tree.
