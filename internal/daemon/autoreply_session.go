@@ -25,7 +25,6 @@ type execSessionStore struct {
 	mu   sync.Mutex
 	path string
 	m    map[string]string
-	aid  string // this identity's AID, read once; names its exec work dirs (pruneExcept)
 }
 
 func newExecSessionStore(root string) *execSessionStore {
@@ -73,21 +72,42 @@ func (s *execSessionStore) del(key string) {
 // pruneExcept drops session bindings whose interaction is no longer active (ended, failed, or gone).
 // Interaction ids are globally unique and never reused, so an id absent from the live active set will
 // never be resumed again — pruning it just keeps the file bounded as tasks complete (and mops up any
-// binding orphaned by an abrupt requester exit). The per-interaction exec work dirs of the same
-// interactions are removed too (pruneExecWorkDirs).
+// binding orphaned by an abrupt requester exit). The work dirs of the same interactions go in the
+// maintenance period (pruneEnded, pruneExecWorkDirs).
 func (s *execSessionStore) pruneExcept(active map[string]bool) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.aid == "" {
-		s.aid = ReadIdentityAID(Layout{Root: filepath.Dir(s.path)})
+	s.pruneLocked(active)
+}
+
+// pruneEnded drops the bindings of the interactions that are not open, in the maintenance period
+// (FS-L11): open is asked under the store's lock, so a binding set for a task that started since is
+// never dropped as an ended one's.
+func (s *execSessionStore) pruneEnded(open func() (map[string]bool, error)) error {
+	if s == nil {
+		return nil
 	}
-	pruneExecWorkDirs(s.aid, active)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.m) == 0 {
+		return nil
+	}
+	ids, err := open()
+	if err != nil {
+		return err
+	}
+	s.pruneLocked(ids)
+	return nil
+}
+
+// pruneLocked drops every binding whose interaction is not in keep. Under mu.
+func (s *execSessionStore) pruneLocked(keep map[string]bool) {
 	changed := false
 	for k := range s.m {
-		if !active[k] {
+		if !keep[k] {
 			delete(s.m, k)
 			changed = true
 		}

@@ -524,12 +524,12 @@ func TestCloseIXKey(t *testing.T) {
 func TestRetentionDeletesResidualIXKey(t *testing.T) {
 	s := open(t)
 	t0 := int64(1_700_000_000_000)
-	s.SetClock(func() int64 { return t0 })
-	keyed := func(id, trust string) interactions.IXKey {
+	keyed := func(id string, endedAt int64) interactions.IXKey {
+		s.SetClock(func() int64 { return endedAt })
+		defer s.SetClock(nil)
 		k := newIXKey(t, id)
 		if err := s.Update(func(tx *interactions.Tx) error {
-			if err := tx.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: ixPeer, Goal: "g",
-				Trust: trust}); err != nil {
+			if err := tx.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: ixPeer, Goal: "g"}); err != nil {
 				return err
 			}
 			return tx.PutIXKey(k)
@@ -542,19 +542,20 @@ func TestRetentionDeletesResidualIXKey(t *testing.T) {
 		k.KID = seal.KID(k.Suite, k.Pub)
 		return k
 	}
-	pruned, kept := keyed("ix_pruned", "t"), keyed("ix_kept", "u")
+	pruned, kept := keyed("ix_pruned", t0), keyed("ix_kept", t0+5*24*3600*1000)
 	if stored(t, s, pruned) == nil {
 		t.Fatal("the local end did not keep the key")
 	}
-	n, err := s.PruneTerminal("t", t0+1)
-	if err != nil || n.Interactions != 1 {
+	r, _ := interactions.RetentionDays(1)
+	n, err := s.PruneTerminal(t0+6*24*3600*1000, interactions.ClockFull, r)
+	if err != nil || n[interactions.ClassOutbound].Interactions != 1 {
 		t.Fatalf("PruneTerminal = %+v, %v", n, err)
 	}
 	if stored(t, s, pruned) != nil {
 		t.Fatal("the pruned task's key was left behind")
 	}
 	if stored(t, s, kept) == nil {
-		t.Fatal("pruning one class took another task's key")
+		t.Fatal("the sweep took the key of a task it kept")
 	}
 }
 
