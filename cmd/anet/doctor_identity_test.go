@@ -247,6 +247,10 @@ func TestDoctorRecoveryFile(t *testing.T) {
 	}
 	checkFinding(t, "readable", identityFindings(t, l, env), "identity.recovery", stWarn, "identity.recovery_perm",
 		a2ashape.Args{"path": path})
+	// Its hint is the command its sentence names (ux §5.2 next step, UX-K4).
+	if h := identityFindings(t, l, env)["identity.recovery"].Hint; h != "chmod 600 "+path {
+		t.Errorf("readable: hint %q, want chmod 600 %s", h, path)
+	}
 	if err := os.WriteFile(path+".new", []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}

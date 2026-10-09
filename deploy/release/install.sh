@@ -199,7 +199,7 @@ has_cmd() {
 removed_flag() {
   _lang="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
   case "$_lang" in
-    zh*) printf '%s 已在 0.3.0 删除；hub 已不再使用邀请码；请删掉这个参数，直接运行 anet hub-register <url>，再把它打印的 admit 命令发给运营者。\n' "install.sh $1" >&2 ;;
+    zh*) printf '%s 已在 0.3.0 删除；hub 已不再使用邀请码；请删掉这个参数，直接运行 anet hub-register <网址>，再把它打印的 admit 命令发给运营者。\n' "install.sh $1" >&2 ;;
     *)   printf '%s was removed in 0.3.0; hubs no longer use invites; remove this flag, run anet hub-register <url> and send the admit command it prints to the operator.\n' "install.sh $1" >&2 ;;
   esac
   exit 2

@@ -240,8 +240,8 @@ func TestDoctorHumanForm(t *testing.T) {
 }
 
 // UX-K2: a check that needs the running daemon reads /status, or is unknown
-// with doctor.daemon_down (whose row, like every doctor-only sentence of ux
-// §5.2, has no next step: its hint is "-", UX-K4).
+// with doctor.daemon_down, whose hint is its next step, anet up (UX-K4; ux
+// §5.2 gives the doctor-only sentences that name a command a next step).
 func TestDoctorRuntimeStatus(t *testing.T) {
 	l := freshInit(t)
 	env := testDoctorEnv(t)
@@ -251,7 +251,7 @@ func TestDoctorRuntimeStatus(t *testing.T) {
 		said = append(said, sayCheck(id, status, key, args, a2ashape.English))
 	}
 	if _, ok := runtimeStatus(env, rep, say, "delivery.outbox", l); ok || len(said) != 1 ||
-		said[0].Status != stUnknown || said[0].Reason != doctorDaemonDown || said[0].Hint != noHint {
+		said[0].Status != stUnknown || said[0].Reason != doctorDaemonDown || said[0].Hint != "anet up" {
 		t.Errorf("daemon down: %+v", said)
 	}
 	rep.Control.Running = true
