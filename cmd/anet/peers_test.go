@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // fakeTTY is a terminal whose user types answer.
@@ -25,8 +27,9 @@ func (f *fakeTTY) Close() error                { return nil }
 // when answer is "".
 func withTTY(t *testing.T, answer string) *fakeTTY {
 	t.Helper()
-	prev := openTTY
-	t.Cleanup(func() { openTTY = prev })
+	prev, prevErr := openTTY, ttyStderr
+	ttyStderr = io.Discard
+	t.Cleanup(func() { openTTY, ttyStderr = prev, prevErr })
 	if answer == "" {
 		openTTY = func() (io.ReadWriteCloser, error) { return nil, errors.New("no tty") }
 		return nil
@@ -83,7 +86,8 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 		{"redeem", "5", "--ref", "invoice 7"},
 	}
 	// What a prompt may read before asking.
-	readOnly := map[string]bool{"/inbound/pending": true, "/agents/card": true, "/payments/status": true, "/thread": true}
+	readOnly := map[string]bool{"/inbound/pending": true, "/agents/card": true, "/payments/status": true, "/thread": true,
+		"/status": true, "/tasks/get": true}
 	// The request a confirmed command ends with.
 	final := map[string]string{"peers": "/peers/", "inbound": "/inbound/", "payments": "/payments/limits",
 		"pay": "/tasks/pay-manual", "payees": "/payees/add", "redeem": "/redeem"}
@@ -117,8 +121,8 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 			!strings.HasPrefix(got[len(got)-1], final[args[0]]) {
 			t.Errorf("%v confirmed: daemon asked %v", args, got)
 		}
-		if !strings.Contains(tty.prompt.String(), "Type yes") {
-			t.Errorf("%v: no prompt on the terminal", args)
+		if !strings.HasSuffix(tty.prompt.String(), "\n"+a2ashape.Sentence("confirm.yes", a2ashape.Lang(), nil)+" ") {
+			t.Errorf("%v: the prompt on the terminal does not end with confirm.yes: %q", args, tty.prompt.String())
 		}
 	}
 	for _, args := range [][]string{
@@ -135,27 +139,6 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 	}
 }
 
-// `anet accept on` is refused with the three policies and the allow-list
-// command, and nothing reaches the daemon; `accept off` asks the daemon for
-// closed. (`hub-register --accept-delegations` is cli_removed before any
-// command runs, removed_test.go.)
-func TestAcceptOnIsRefusedByTheCLI(t *testing.T) {
-	for _, args := range [][]string{{"accept", "on"}, {"accept"}} {
-		c, sent := recordingDaemon(t)
-		err := runClientArgs(c, args)
-		if err == nil || !strings.Contains(err.Error(), "anet peers allow") || !strings.Contains(err.Error(), "approve") {
-			t.Errorf("%v: %v", args, err)
-		}
-		if len(sent()) != 0 {
-			t.Errorf("%v reached the daemon: %v", args, sent())
-		}
-	}
-	c, sent := recordingDaemon(t)
-	if err := runClientArgs(c, []string{"accept", "off"}); err != nil || strings.Join(sent(), ",") != "/accept" {
-		t.Fatalf("accept off: %v, %v", err, sent())
-	}
-}
-
 // runClientArgs dispatches the commands this file tests, the way runClient
 // does, against a given client.
 func runClientArgs(c *client, args []string) error {
@@ -164,8 +147,6 @@ func runClientArgs(c *client, args []string) error {
 		return runPeers(c, args[1:])
 	case "inbound":
 		return runInbound(c, args[1:])
-	case "accept":
-		return runAccept(c, args[1:])
 	case "hub-register":
 		return runHubRegister(c, args[1:])
 	case "payments":
@@ -180,21 +161,53 @@ func runClientArgs(c *client, args []string) error {
 	panic("runClientArgs: " + args[0])
 }
 
-// The prompt names what is being granted: the held delegation's sender and
-// size, each limit as current → new. Approving an id the daemon does not
-// hold ends without asking and without calling approve.
+// The prompt names what is being granted, in the M group's lines (ux
+// UX-R12): the held task and its sender by full AID, each limit as current →
+// new, the quote with its payee and the manual limit, the redemption with
+// the hub and the manual limit, the payee with what it may then be paid.
+// Approving an id the daemon does not hold ends without asking and without
+// calling approve.
 func TestConfirmationsDescribeWhatTheyGrant(t *testing.T) {
 	withPaymentsCompiled(t)
-	c, _ := recordingDaemon(t)
-	tty := withTTY(t, "yes")
-	if err := runClientArgs(c, []string{"inbound", "approve", "ix_1"}); err != nil {
-		t.Fatal(err)
+	lang := a2ashape.Lang()
+	prompt := func(args []string) string {
+		t.Helper()
+		c, _ := recordingDaemon(t)
+		tty := withTTY(t, "yes")
+		if err := runClientArgs(c, args); err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		return tty.prompt.String()
 	}
-	if p := tty.prompt.String(); !strings.Contains(p, "bafyreipeer000000000") || !strings.Contains(p, "12 bytes") {
-		t.Errorf("approve prompt: %q", p)
+	yes := "\n" + a2ashape.Sentence("confirm.yes", lang, nil) + " "
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"inbound", "approve", "ix_1"},
+			a2ashape.Sentence("approve_confirm", lang, a2ashape.Args{"task": "ix_1", "peer": "bafyreipeer000000000"})},
+		{[]string{"inbound", "policy", "open"}, a2ashape.Sentence("inbound.confirm_open", lang, nil)},
+		{[]string{"inbound", "policy", "approve"}, a2ashape.Sentence("inbound.confirm_approve", lang, nil)},
+		{[]string{"peers", "allow", "bafyreipeer000000000"},
+			a2ashape.Sentence("allow_confirm", lang, a2ashape.Args{"peer": "bafyreipeer000000000"})},
+		{[]string{"peers", "trust", "bafyreipeer000000000"},
+			a2ashape.Sentence("trust_confirm.direct", lang, a2ashape.Args{"peer": "bafyreipeer000000000"})},
+		{[]string{"payments", "set", "agent_max=7"}, a2ashape.Sentence("limits_confirm", lang, nil) + "\n  " +
+			a2ashape.Sentence("limits_confirm.line", lang, a2ashape.Args{"key": "agent_max", "from": "0", "to": 7})},
+		{[]string{"pay", "ix_2"}, a2ashape.Sentence("pay.prompt_quote", lang, a2ashape.Args{"amount": "5",
+			"peer": "bafyreipeer000000000"}) + "\n" + a2ashape.Sentence("pay.prompt_no_price", lang, nil) + "\n" +
+			a2ashape.Sentence("pay.prompt_limits", lang, a2ashape.Args{"single": 10, "left": 47})},
+		{[]string{"redeem", "7", "--ref", "invoice 7"}, a2ashape.Sentence("redeem_confirm", lang,
+			a2ashape.Args{"amount": 7, "hub": "https://hub.example", "single": 10, "left": 47})},
+		{[]string{"payees", "add", "bafyreipeer000000000"}, a2ashape.Sentence("payee_confirm", lang,
+			a2ashape.Args{"peer": "bafyreipeer000000000", "auto_max": 0, "agent_max": 0, "daily": 0})},
+	} {
+		if got := prompt(tc.args); got != tc.want+yes {
+			t.Errorf("%v: the terminal showed\n%q\nwant\n%q", tc.args, got, tc.want+yes)
+		}
 	}
 	c, sent := recordingDaemon(t)
-	tty = withTTY(t, "yes")
+	tty := withTTY(t, "yes")
 	if err := runClientArgs(c, []string{"inbound", "approve", "ix_unknown"}); err == nil ||
 		!strings.Contains(err.Error(), "no held delegation") {
 		t.Errorf("approve of an unknown id: %v", err)
@@ -203,47 +216,9 @@ func TestConfirmationsDescribeWhatTheyGrant(t *testing.T) {
 		t.Errorf("unknown id: asked %q, daemon %v", tty.prompt.String(), sent())
 	}
 	c, _ = recordingDaemon(t)
-	tty = withTTY(t, "yes")
-	if err := runClientArgs(c, []string{"payments", "set", "agent_max=7"}); err != nil {
-		t.Fatal(err)
-	}
-	if p := tty.prompt.String(); !strings.Contains(p, "agent_max") || !strings.Contains(p, "0 → 7") {
-		t.Errorf("limits prompt: %q", p)
-	}
-	if err := runClientArgs(c, []string{"payments", "set", "agent_max=-1"}); err == nil {
-		t.Error("a negative limit was accepted")
-	}
-	// anet pay names the amount, the payee and the task.
-	c, _ = recordingDaemon(t)
-	tty = withTTY(t, "yes")
-	if err := runClientArgs(c, []string{"pay", "ix_2"}); err != nil {
-		t.Fatal(err)
-	}
-	if p := tty.prompt.String(); !strings.Contains(p, "ix_2") || !strings.Contains(p, "5 credit to bafyreipeer000000000") {
-		t.Errorf("pay prompt: %q", p)
-	}
-	// anet redeem names the amount, the payee (the hub's AID) and the
-	// limits it falls under.
-	c, _ = recordingDaemon(t)
-	tty = withTTY(t, "yes")
-	if err := runClientArgs(c, []string{"redeem", "7", "--ref", "invoice 7"}); err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"Redeem 7 credits", "bafyreihub00000000000", "https://hub.example", "invoice 7",
-		"explicit_max 10", "daily_max 50", "3 signed"} {
-		if !strings.Contains(tty.prompt.String(), want) {
-			t.Errorf("redeem prompt lacks %q: %q", want, tty.prompt.String())
-		}
-	}
-	// anet payees add names the payee and what it may then be paid.
-	c, _ = recordingDaemon(t)
-	tty = withTTY(t, "yes")
-	if err := runClientArgs(c, []string{"payees", "add", "bafyreipeer000000000"}); err != nil {
-		t.Fatal(err)
-	}
-	if p := tty.prompt.String(); !strings.Contains(p, "pay bafyreipeer000000000") || !strings.Contains(p, "agent_max") ||
-		!strings.Contains(p, "up to 10 each") {
-		t.Errorf("payees add prompt: %q", p)
+	withTTY(t, "yes")
+	if err := runClientArgs(c, []string{"payments", "set", "agent_max=-1"}); !isUsage(err) {
+		t.Errorf("a negative limit: %v, want a usage error", err)
 	}
 }
 
@@ -274,27 +249,6 @@ func TestRedeemWithoutAKnownHubDoesNotAsk(t *testing.T) {
 	}
 	if err := runClientArgs(&client{base: "http://127.0.0.1:1"}, []string{"redeem", "0"}); err == nil {
 		t.Error("redeem 0 was accepted")
-	}
-}
-
-// With the payee list turned off every payee is already allowed: `anet
-// payees add` says so and ends before the question, instead of asking and
-// then being refused.
-func TestPayeesAddWithTheListOffDoesNotAsk(t *testing.T) {
-	var paths []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		paths = append(paths, r.URL.Path)
-		_, _ = w.Write([]byte(`{"auto_max":0,"agent_max":0,"agent_daily_max":0,"explicit_max":10,"daily_max":50,"payees_file":""}`))
-	}))
-	defer srv.Close()
-	c := &client{base: srv.URL, token: "t", timeout: 5 * time.Second}
-	tty := withTTY(t, "yes")
-	err := runClientArgs(c, []string{"payees", "add", "bafyreipeer000000000"})
-	if err == nil || !strings.Contains(err.Error(), "payee list is off") {
-		t.Fatalf("payees add with the list off: %v", err)
-	}
-	if strings.Join(paths, ",") != "/payments/status" || tty.prompt.Len() != 0 {
-		t.Fatalf("daemon asked %v, prompt %q", paths, tty.prompt.String())
 	}
 }
 

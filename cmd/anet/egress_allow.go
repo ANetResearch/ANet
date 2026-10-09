@@ -64,12 +64,11 @@ func egressAllowRequest(c *client, v, apiBase string) (map[string]any, error) {
 			}
 		}
 		if len(added) > 0 {
-			err := ttyConfirm(func() (string, error) {
+			err := ttyConfirm("egress", func() (string, error) {
 				return a2ashape.Sentence("egress_confirm", lang, a2ashape.Args{"hosts": strings.Join(added, ", ")}), nil
 			})
-			if errors.Is(err, errNoTTY) {
-				args := a2ashape.Args{"action": "egress", "command": typedCommand(commandLine())}
-				say(egressStderr, a2ashape.Sentence("tty_required", lang, args), a2ashape.Next("tty_required", lang, args))
+			if errors.Is(err, errNoTTY) || errors.Is(err, errDeclined) {
+				// Said already (tty.go): tty_required, or confirm.declined.
 				return nil, errExit1
 			}
 			if err != nil {

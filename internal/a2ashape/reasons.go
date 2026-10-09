@@ -837,18 +837,18 @@ var phraseSets = map[string]map[string]phrasePair{
 	"cli_instead": {
 		"x402_authorize": {"hub 网关已下线，付款在任务里进行；请改用 anet delegate 发任务，报价出来后用 anet pay 付款",
 			"the hub gateway is gone and payments happen inside the task; use anet delegate, then pay the quote with anet pay"},
-		"delegate_pay": {"报价在额度内会自动付，超出时请改用 anet pay <task>",
+		"delegate_pay": {"报价在额度内会自动付，超出时请改用 anet pay <任务>",
 			"quotes within your limit are paid automatically; otherwise use anet pay <task>"},
 		"profile_pricing": {"价格由签名的扩展卡片自动给出，请删掉这个参数",
 			"prices now come from the signed extended card; remove this flag"},
-		"hub_register_token": {"hub 已不再使用邀请码；请删掉这个参数，直接运行 anet hub-register <url>，再把它打印的 admit 命令发给运营者",
+		"hub_register_token": {"hub 已不再使用邀请码；请删掉这个参数，直接运行 anet hub-register <网址>，再把它打印的 admit 命令发给运营者",
 			"hubs no longer use invites; remove this flag, run anet hub-register <url> and send the admit command it prints to the operator"},
 		"hub_register_accept_delegations": {"请改用 anet inbound policy 设置入站策略",
 			"use anet inbound policy to set the inbound policy"},
 		"p2p_advertise": {"直连地址只发给你的联系人；需要时请改用 config.json 的 modules.p2p.advertise",
 			"direct addresses go only to your contacts; use modules.p2p.advertise in config.json if needed"},
 		"accept":     {"请改用 anet inbound policy closed|approve|open", "use anet inbound policy closed|approve|open"},
-		"accept_end": {"请改用 anet end <id>", "use anet end <id>"},
+		"accept_end": {"请改用 anet end <编号>", "use anet end <id>"},
 		"install":    {"请改用 anet agents wire <工具>", "use anet agents wire <tool>"},
 		"evidence":   {"请改用 anet audit（加 --type 按事件类型筛选）", "use anet audit (add --type to filter by event type)"},
 		"payments_payees_file": {"付款名单固定在数据目录的 payees.allow，请改用 anet payees 管理",
@@ -921,9 +921,10 @@ func C1Reason(c1 string) string {
 // --- labels ---
 
 // Label is a short label in a language: the labels of the status summary
-// (ux §4.7), the human lines of a task command (UX-C2) and `anet identity
-// status` (ux §1.4 M2). Keys: "status.<topic>", "task.<line>",
-// "identity_status.<line>". "" for a key it does not know.
+// (ux §4.7), the human lines of a task command (UX-C2), `anet identity
+// status` (ux §1.4 M2) and the columns of `anet find` (ux §3.1 text B). Keys:
+// "status.<topic>", "task.<line>", "identity_status.<line>", "find.<column>".
+// "" for a key it does not know.
 func Label(key string, lang Language) string {
 	return labels[key].in(lang)
 }
@@ -950,6 +951,16 @@ var labels = map[string]phrasePair{
 	"identity_status.witness":  {"见证 hub", "witness hub"},
 	"identity_status.recovery": {"恢复文件", "recovery file"},
 	"identity_status.state":    {"状态", "state"},
+
+	// ux §3.1 text B: the columns of `anet find`, and the name shown for an
+	// agent whose card this node did not verify (its self-description is
+	// not shown either).
+	"find.name":       {"名字", "name"},
+	"find.charge":     {"收费", "charge"},
+	"find.key":        {"密钥", "key"},
+	"find.skills":     {"能力", "skills"},
+	"find.aid":        {"AID", "AID"},
+	"find.unverified": {"（未验证）", "(not verified)"},
 }
 
 // joinSentences joins two sentences: directly in Chinese, with a space in
@@ -2551,11 +2562,13 @@ var reasonTable = []Row{
 		Zh: "恢复口令只在轮换、换 hub、恢复与注销时需要；忘记口令后这些操作都做不了，身份仍可正常收发。恢复文件不在缺省位置时，若你已另存则不需要处理。",
 		En: "The recovery passphrase is needed only to rotate, switch hubs, recover or deactivate; without it those are impossible, but the identity keeps working. If the recovery file is not in the default place and you saved a copy, nothing to do."},
 	{Code: "identity.recovery_perm", Class: ClassS, Level: LevelWarn,
-		Zh: "恢复文件 {path} 的权限不是 0600；请执行 chmod 600 {path}。",
-		En: "The recovery file {path} is not mode 0600; run chmod 600 {path}."},
+		Zh:       "恢复文件 {path} 的权限不是 0600；请执行 chmod 600 {path}。",
+		En:       "The recovery file {path} is not mode 0600; run chmod 600 {path}.",
+		NextKind: NextCommand, Next: "chmod 600 {path}"},
 	{Code: "identity.recovery_leftover", Class: ClassS, Level: LevelWarn,
-		Zh: "有一份没有完成的新恢复文件 {path}；运行任意 anet identity 命令会自动收尾。",
-		En: "There is an unfinished new recovery file {path}; any anet identity command finishes it."},
+		Zh:       "有一份没有完成的新恢复文件 {path}；运行任意 anet identity 命令会自动收尾。",
+		En:       "There is an unfinished new recovery file {path}; any anet identity command finishes it.",
+		NextKind: NextCommand, Next: "anet identity status"},
 	{Code: "sender_privacy.mailbox_pending", Class: ClassS, Level: LevelWarn,
 		Zh: "本机的信箱签名钥还没登记到 hub，anet 会自动重新发布；超过 1 小时仍如此，请检查与 hub 的连接。",
 		En: "This node's mailbox signing key is not registered at the hub yet, and anet republishes it on its own; if this lasts over an hour, check your connection to the hub."},
@@ -2563,11 +2576,13 @@ var reasonTable = []Row{
 		Zh: "最近 1 小时有 {n} 次签名时间被 hub 判为落后，本机时钟可能在跳变；请启用 NTP。",
 		En: "In the last hour the hub found this node's signing time behind {n} times, so the clock may be jumping; enable NTP."},
 	{Code: "payments.no_payees", Class: ClassS, Level: LevelWarn,
-		Zh: "已开自动付款或 agent 付款，但付款名单是空的，自动付款不会发生；请用 anet payees add <AID> 加入收款方。",
-		En: "Automatic or agent payments are on, but the payee list is empty, so nothing is paid automatically; add payees with anet payees add <AID>."},
+		Zh:       "已开自动付款或 agent 付款，但付款名单是空的，自动付款不会发生；请用 anet payees add <AID> 加入收款方。",
+		En:       "Automatic or agent payments are on, but the payee list is empty, so nothing is paid automatically; add payees with anet payees add <AID>.",
+		NextKind: NextCommand, Next: "anet payees add <AID>"},
 	{Code: "doctor.daemon_down", Class: ClassS, Level: LevelUnknown,
-		Zh: "daemon 没在运行；运行 anet up 后再查。",
-		En: "The daemon is not running; run anet up, then check again."},
+		Zh:       "daemon 没在运行；运行 anet up 后再查。",
+		En:       "The daemon is not running; run anet up, then check again.",
+		NextKind: NextCommand, Next: "anet up"},
 	{Code: "clock.ok", Class: ClassS, Level: LevelOK,
 		Zh: "本机时钟与 hub 相差 {n} 秒。",
 		En: "This computer's clock is {n} seconds off from the hub."},
@@ -2602,8 +2617,9 @@ var reasonTable = []Row{
 		Zh: "{name} 只对名单开放（{n} 个调用方）。",
 		En: "{name} is open only to your lists ({n} callers)."},
 	{Code: "capabilities.allow_only_empty", Class: ClassS, Level: LevelWarn,
-		Zh: "{name} 只对名单开放，但 allow 与 trust 名单都是空的，没有人能调用；请用 anet peers allow <AID> 加入调用方。",
-		En: "{name} is open only to your lists, but the allow and trust lists are both empty, so nobody can call it; add callers with anet peers allow <AID>."},
+		Zh:       "{name} 只对名单开放，但 allow 与 trust 名单都是空的，没有人能调用；请用 anet peers allow <AID> 加入调用方。",
+		En:       "{name} is open only to your lists, but the allow and trust lists are both empty, so nobody can call it; add callers with anet peers allow <AID>.",
+		NextKind: NextCommand, Next: "anet peers allow <AID>"},
 	{Code: "preview.no_source", Class: ClassS, Level: LevelInfo,
 		Zh: "预览开关已开，但没有 openai 自动回复，预览只来自 /tasks/preview。",
 		En: "Previews are on, but there is no openai auto-reply, so previews come only from /tasks/preview."},

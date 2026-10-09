@@ -26,6 +26,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -522,4 +523,46 @@ func (d *Daemon) hAgentsCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ra)
+}
+
+// fillStatusText sets each thread's StatusText (threadStatusText).
+func (d *Daemon) fillStatusText(ts []Thread) {
+	for i := range ts {
+		switch interactions.State(ts[i].State) {
+		case interactions.StateFailed, interactions.StateRejected, interactions.StateCanceled,
+			interactions.StateInputRequired:
+		default:
+			continue
+		}
+		ix, err := d.ix.Get(ts[i].InteractionID)
+		if err != nil {
+			continue
+		}
+		ts[i].StatusText = d.threadStatusText(ix)
+	}
+}
+
+// threadStatusText is the text of a task's status.message as its A2A
+// projection words it (ux UX-W1, UX-C6): the reason of a failed, rejected or
+// canceled task, and the payment sentence of a quote that waits for a
+// decision. The console shows it as it is and words no reason of its own;
+// when the projection's wording changes, the console follows. "" for any
+// other state, and for the question of an input-required task that is not
+// about payment: the conversation shows that already.
+func (d *Daemon) threadStatusText(ix *interactions.Interaction) string {
+	none := 0
+	t, err := d.taskView(ix, viewOpts{historyLen: &none})
+	if err != nil || t.Status.Message == nil {
+		return ""
+	}
+	if ix.State == interactions.StateInputRequired && t.Status.Message.Metadata[a2ashape.KeyX402Status] == nil {
+		return ""
+	}
+	var parts []string
+	for _, p := range t.Status.Message.Parts {
+		if p.Kind == a2ashape.PartText && strings.TrimSpace(p.Text) != "" {
+			parts = append(parts, strings.TrimSpace(p.Text))
+		}
+	}
+	return strings.Join(parts, " ")
 }

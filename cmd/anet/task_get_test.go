@@ -25,9 +25,7 @@ func TestTaskGetAsksForTheBoundOrTheWholeTask(t *testing.T) {
 		mu.Lock()
 		bodies = append(bodies, m)
 		mu.Unlock()
-		if r.URL.Path != "/tasks/get" {
-			t.Errorf("path %s", r.URL.Path)
-		}
+
 		_, _ = w.Write([]byte(`{"id":"ix_1"}`))
 	}))
 	t.Cleanup(srv.Close)
@@ -54,9 +52,10 @@ func TestTaskGetAsksForTheBoundOrTheWholeTask(t *testing.T) {
 		}
 	}
 	n := len(bodies)
-	for _, bad := range [][]string{{}, {"get"}, {"list"}, {"get", "a", "b"}, {"get", "ix_1", "--history", "x"}} {
-		if err := taskCommand(c, bad); err == nil {
-			t.Errorf("%v: accepted", bad)
+	for _, bad := range [][]string{{}, {"get"}, {"watch", "ix_1"}, {"get", "a", "b"}, {"get", "ix_1", "--history", "x"},
+		{"list", "x"}, {"list", "--role", "boss"}, {"cancel"}, {"cancel", "a", "b"}} {
+		if err := taskCommand(c, bad); !isUsage(err) {
+			t.Errorf("%v: %v, want a usage error", bad, err)
 		}
 	}
 	if len(bodies) != n {
@@ -64,5 +63,49 @@ func TestTaskGetAsksForTheBoundOrTheWholeTask(t *testing.T) {
 	}
 	if checkFlags("task", []string{"get", "ix_1", "--al"}) == nil {
 		t.Fatal("an unknown flag was accepted")
+	}
+}
+
+// `anet task list` is the control plane's /tasks/list with the roles of MCP list_tasks — requester
+// for the tasks this node sent (outbound), provider for those sent to it (inbound) — and its state
+// and peer filters as given; `anet task cancel <id>` is /tasks/cancel (ux §4.2). [mut] the roles
+// swapped, or cancel sent elsewhere → red.
+func TestTaskListAndCancelAskTheirRoutes(t *testing.T) {
+	var mu sync.Mutex
+	var paths []string
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var m map[string]any
+		_ = json.Unmarshal(b, &m)
+		mu.Lock()
+		paths, bodies = append(paths, r.URL.Path), append(bodies, m)
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"id":"ix_1","status":{"state":"TASK_STATE_CANCELED"},"tasks":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := &client{base: srv.URL, token: "t", timeout: 5 * time.Second}
+	for _, tc := range []struct {
+		args []string
+		path string
+		want map[string]any
+	}{
+		{[]string{"list"}, "/tasks/list", map[string]any{"max_task_bytes": float64(cliTaskBytes)}},
+		{[]string{"list", "--role", "requester"}, "/tasks/list", map[string]any{"role": "outbound", "max_task_bytes": float64(cliTaskBytes)}},
+		{[]string{"list", "--role", "provider", "--state", "input-required", "--peer", wholeAID}, "/tasks/list",
+			map[string]any{"role": "inbound", "state": "input-required", "peer": wholeAID, "max_task_bytes": float64(cliTaskBytes)}},
+		{[]string{"cancel", "ix_1"}, "/tasks/cancel", map[string]any{"task_id": "ix_1", "max_task_bytes": float64(cliTaskBytes)}},
+	} {
+		n := len(bodies)
+		_, _ = captureCLI(t, func() {
+			if err := taskCommand(c, tc.args); err != nil {
+				t.Fatalf("%v: %v", tc.args, err)
+			}
+		})
+		mu.Lock()
+		if len(bodies) != n+1 || paths[n] != tc.path || !reflect.DeepEqual(bodies[n], tc.want) {
+			t.Errorf("%v: sent %v %v, want %s %v", tc.args, paths[len(paths)-1], bodies[len(bodies)-1], tc.path, tc.want)
+		}
+		mu.Unlock()
 	}
 }

@@ -98,9 +98,6 @@
   .prof .summary { font-size: 13.5px; color: #c9d2f0; line-height: 1.65; margin-bottom: 10px; }
   .prof .readme { font-size: 12.5px; color: #cdd6f5; line-height: 1.65; word-break: break-word;
     border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: rgba(255,255,255,0.02); margin-bottom: 10px; }
-  .prof .pricing { font-size: 12px; color: var(--gold); border: 1px solid rgba(255,207,107,0.3); border-radius: 10px;
-    padding: 8px 12px; background: rgba(255,207,107,0.06); }
-  .prof .pricing .plabel { font-size: 9.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); display: block; margin-bottom: 3px; }
   .act { margin: 14px 0; border: 1px solid rgba(124,196,255,0.35); border-radius: 12px; padding: 14px 16px; background: rgba(124,196,255,0.05); }
   .act h4 { margin: 0 0 6px; font-size: 13px; color: var(--accent); }
   .act .acthint { font-size: 11.5px; color: var(--muted); line-height: 1.55; margin-bottom: 10px; }
@@ -666,9 +663,21 @@ async function ctl(path, body) {
   if (r.status === 401) { showNoSession(true); throw new Error("session expired"); }
   const text = await r.text();
   let j = {}; try { j = JSON.parse(text); } catch (e) {}
-  if (!r.ok) throw new Error(j.error || text || ("HTTP " + r.status));
+  if (!r.ok) throw ctlError(j, text, r.status);
   return j;
 }
+
+// ctlError is a refusal of the control plane as an Error: its sentence (the error body's "error", from
+// the daemon's reason table, ux UX-R9) and its next step ("next"), which errText shows together. The
+// console words no reason of its own (ux UX-W1, UX-W4).
+function ctlError(j, text, status) {
+  const e = new Error((j && j.error) || text || ("HTTP " + status));
+  e.next = (j && typeof j.next === "string") ? j.next : "";
+  return e;
+}
+
+// errText is what a failed action shows: the daemon's sentence, and its next step after an arrow.
+function errText(e) { return e.message + (e.next ? "  → " + e.next : ""); }
 
 let toastTimer = null;
 function toast(msg, isErr) {
@@ -934,7 +943,7 @@ async function ctlUpload(path, fields, files) {
   const r = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "X-Anet-CSRF": CSRF }, body: fd });
   if (r.status === 401) { showNoSession(true); throw new Error("session expired"); }
   const text = await r.text(); let j = {}; try { j = JSON.parse(text); } catch (e) {}
-  if (!r.ok) throw new Error(j.error || text || ("HTTP " + r.status));
+  if (!r.ok) throw ctlError(j, text, r.status);
   return j;
 }
 
@@ -987,7 +996,7 @@ async function consoleFirstSend(aid) {
     toast("已委派 · " + short(j.interaction_id || ""));
     await loadThreads();
     if (j.interaction_id) openConsoleThread(j.interaction_id);
-  } catch (e) { toast("委派失败：" + e.message, true); sb.disabled = false; }
+  } catch (e) { toast(errText(e), true); sb.disabled = false; }
 }
 
 // ---------- console conversation (existing thread) ----------
@@ -999,7 +1008,7 @@ function renderConversation(id) {
   // Only the 5s poll re-invokes this for the SAME open thread. Rebuilding the DOM every tick made the pane
   // flash and wiped whatever the user was typing (message OR review). Skip the rebuild when nothing that
   // affects rendering changed — this alone keeps the review form (stars + comment) stable while typing.
-  const sig = [t.status, t.end_req_by, t.reviewed, (t.messages || []).length].join("|");
+  const sig = [t.status, t.status_text, t.end_req_by, t.reviewed, (t.messages || []).length].join("|");
   if (renderedConvId === id && renderedConvSig === sig) return;
 
   const inbound = t.role === "inbound"; // inbound: peer is the requester; we are the provider
@@ -1034,6 +1043,9 @@ function renderConversation(id) {
     msgs += `<div class="bubble ${mine ? "me" : "them"}"><div class="bfrom">${esc(mine ? meLabel : themLabel)}</div><div class="md">${renderMd(m.body || "")}</div>${atts}</div>`;
   }
   if (isTerminal(t.status)) msgs += chatBubble("sys", "任务" + statusText(t.status));
+  // Why it ended, or what a quote waits for: the task projection's own sentence (ux UX-W1), never one
+  // of the console's.
+  if (t.status_text) msgs += chatBubble("sys", t.status_text);
   if (!msgs) msgs = `<div class="chatempty">还没有消息</div>`;
 
   let foot = "";
@@ -1080,7 +1092,7 @@ function renderConversation(id) {
       if (files.length) await ctlUpload("/message", { interaction_id: id, body }, files);
       else await ctl("/message", { interaction_id: id, body });
       ta.value = ""; resetPendingAtt(); renderAttBar(); loadThreads();
-    } catch (e) { toast("发送失败：" + e.message, true); }
+    } catch (e) { toast(errText(e), true); }
     btn.disabled = false;
   };
   const sBtn = document.getElementById("cSendBtn"); if (sBtn) sBtn.onclick = sendMsg;
@@ -1091,7 +1103,7 @@ function renderConversation(id) {
   const endBtn = document.getElementById("cEndBtn");
   if (endBtn) endBtn.onclick = async () => { endBtn.disabled = true;
     try { await ctl("/end", { interaction_id: id }); toast("已请求结束任务"); loadThreads(); }
-    catch (e) { toast("操作失败：" + e.message, true); endBtn.disabled = false; } };
+    catch (e) { toast(errText(e), true); endBtn.disabled = false; } };
   const star = document.getElementById("cStar");
   if (star) star.onclick = ev => { const rect = star.getBoundingClientRect();
     let r = Math.ceil(((ev.clientX - rect.left) / rect.width) * 5); r = Math.max(1, Math.min(5, r));
@@ -1102,7 +1114,7 @@ function renderConversation(id) {
     const comment = document.getElementById("cComment").value.trim();
     rBtn.disabled = true;
     try { await ctl("/review", { interaction_id: id, rating, comment }); toast("已评价 · " + short(id)); loadThreads(); }
-    catch (e) { toast("评价失败：" + e.message, true); rBtn.disabled = false; } };
+    catch (e) { toast(errText(e), true); rBtn.disabled = false; } };
 }
 
 // ===================== data loading =====================
@@ -1494,6 +1506,8 @@ if (autopilot) {
     codex: exec("Codex", "codex", "have the <code>codex</code> CLI installed and logged in once."),
     openclaw: exec("OpenClaw", "openclaw", "have <code>openclaw</code> installed (an always-on harness, naturally suited to unattended use)."),
     hermes: exec("Hermes", "hermes", "have <code>hermes</code> installed (an always-on harness, naturally suited to unattended use)."),
+    // v030-todo(UX-9): the prompt below names --require-image, which goes with auto_reply.require_image
+    // (ux §4.3, cli_removed); take it out of the sentence when the flag is removed.
     openai: {
       hint: `You run an <b>OpenAI-compatible</b> <code>/chat/completions</code> endpoint locally or on your LAN (ollama / vLLM / llama.cpp server / cloud).`,
       prompt:
