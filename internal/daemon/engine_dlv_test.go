@@ -494,6 +494,42 @@ func TestDLVT30_NoResponseCountsFromTheConfirmation(t *testing.T) {
 	}
 }
 
+// ENG-D3: the versions of a row the hub took at different home hubs (the
+// recipient moved between them) are asked about one via_hub per request,
+// and a version that is stale or has no rid is not asked about at all.
+func TestStatusQueriesGoOneViaHubAtATime(t *testing.T) {
+	rid := func(b byte) []byte { return bytes.Repeat([]byte{b}, hubapi.RIDLen) }
+	const there = "did:anet:hub-there"
+	views := []VerView{
+		{Ver: 1, RID: rid(1)},
+		{Ver: 2, RID: rid(2), ViaHub: there},
+		{Ver: 3, RID: rid(3)},
+		{Ver: 4},
+		{Ver: 5, RID: rid(5), ViaHub: there, Stale: true},
+		{Ver: 6, RID: rid(6), ViaHub: there},
+	}
+	stored := make([]interactions.OutboxVer, len(views))
+	for i, v := range views {
+		stored[i] = interactions.OutboxVer{Ver: v.Ver, RID: v.RID, ViaHub: v.ViaHub}
+	}
+	got := map[string][]uint64{}
+	for _, q := range statusGroups(views, stored) {
+		if _, again := got[q.viaHub]; again {
+			t.Fatalf("two requests for via_hub %q", q.viaHub)
+		}
+		for _, v := range q.vers {
+			if v.ViaHub != q.viaHub {
+				t.Fatalf("version %d of via_hub %q in the request for %q", v.Ver, v.ViaHub, q.viaHub)
+			}
+			got[q.viaHub] = append(got[q.viaHub], v.Ver)
+		}
+	}
+	if len(got) != 2 || len(got[""]) != 2 || got[""][0] != 1 || got[""][1] != 3 ||
+		len(got[there]) != 2 || got[there][0] != 2 || got[there][1] != 6 {
+		t.Fatalf("requests by via_hub: %v, want {\"\": [1 3], %s: [2 6]}", got, there)
+	}
+}
+
 // DLV T33 (ENG-D3, M30): every /relay/status request asks about one row's
 // versions only.
 func TestDLVT33_AStatusQueryIsAboutOneRow(t *testing.T) {
