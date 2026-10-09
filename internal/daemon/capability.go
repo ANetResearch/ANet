@@ -131,14 +131,15 @@ func (d *Daemon) DelegateCapabilityIn(ctx context.Context, providerAID, capID st
 	if err != nil {
 		return "", err
 	}
-	return d.delegateCapabilityCtx(ctx, id, providerAID, capID, args, contextID)
+	return d.delegateCapabilityCtx(ctx, id, providerAID, capID, args, contextID, nil)
 }
 
 // delegateCapabilityCtx sends a capability call as interaction id, with a
 // task nonce minted here: the binding its payment, if it is priced, is
-// signed over (pay_bind).
+// signed over (pay_bind). cm, when the client named a messageId, is stored
+// with the call's message, in the same transaction (clientdedupe.go).
 func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, capID string,
-	args map[string]any, contextID string) (string, error) {
+	args map[string]any, contextID string, cm *clientMark) (string, error) {
 	hub := d.config().HubURL
 	if hub == "" {
 		return "", fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
@@ -199,9 +200,13 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, cap
 			TaskNonce: nonce}); err != nil {
 			return err
 		}
+		rec := interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
+			Kind: interactions.MsgText, Body: goal + " args=" + argsJSON, MsgID: msgID}
+		if err := cm.stamp(tx, id, &rec); err != nil {
+			return err
+		}
 		var err error
-		seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
-			Kind: interactions.MsgText, Body: goal + " args=" + argsJSON, MsgID: msgID})
+		seq, _, err = tx.AddMessageRecord(rec)
 		return err
 	})
 	if err != nil {

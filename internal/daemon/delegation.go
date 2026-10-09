@@ -338,6 +338,14 @@ func (d *Daemon) SendMessageOpts(ctx context.Context, interactionID, body string
 // envelope's message id (an internal note item).
 func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
 	meta map[string]any) (stateSeq int64, err error) {
+	return d.sendMessageMarked(ctx, interactionID, body, atts, meta, nil)
+}
+
+// sendMessageMarked is sendMessage for a local client's message: client, when
+// the client named a messageId, is stored with it in the same transaction
+// (clientdedupe.go).
+func (d *Daemon) sendMessageMarked(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
+	meta map[string]any, client *clientMark) (stateSeq int64, err error) {
 	body = strings.TrimSpace(body)
 	if body == "" && len(atts) == 0 {
 		return 0, fmt.Errorf("anet: empty message (pass text and/or --attach PATH)")
@@ -367,9 +375,13 @@ func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, at
 	}
 	var seq int64
 	write := func(tx *interactions.Tx) error {
+		rec := interactions.MessageRecord{InteractionID: interactionID,
+			SenderAID: d.AID(), Kind: interactions.MsgText, Body: body, MsgID: msgID, Metadata: metaBytes}
+		if err := client.stamp(tx, interactionID, &rec); err != nil {
+			return err
+		}
 		var err error
-		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: interactionID,
-			SenderAID: d.AID(), Kind: interactions.MsgText, Body: body, MsgID: msgID, Metadata: metaBytes}); err != nil {
+		if seq, _, err = tx.AddMessageRecord(rec); err != nil {
 			return err
 		}
 		if next != "" {

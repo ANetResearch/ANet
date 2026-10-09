@@ -214,5 +214,95 @@
       "column": "interaction.goal",
       "stored": "0138a2cd0cb95f399bdc98480ebb671b66a9efa83ffd5a4dc7416e0f3b081139465d0bde6fa29621c18507a6dc7f0050e136c11893b61c88c43a242c33d7080b637d9cd9959eacde020a597c6723fac87ca9ee924b17e38b8b4c926c"
     }
-  ]
+  ],
+  "client": {
+    "description": "A local client's retry key (core L37, L38; correctness-ux CUX-D1): client_key = SHA-256(\"anet-client-key/v1\" || 0x00 || messageId); client_digest = HMAC-SHA256(mac_key, \"anet-client-msg/v1\" || 0x00 || canon), mac_key = keys.mac_key. canon is the message's content: {v, kind, texts, files, meta, ext} for text, {v, kind, skill, args, files, meta, ext} for a capability call, {v, kind, x402: {status, accept?}, meta, ext} for a payment decision; meta without a2a.*, anet.* and x402.* keys; ext sorted, each once, without the preview extension; members in RFC 8785 order, strings escaped as RFC 8785 does, numbers as the client wrote them. message is the client's message as JSON text, extensions the extensions it activated.",
+    "labels": {
+      "client_key": "anet-client-key/v1",
+      "client_digest": "anet-client-msg/v1"
+    },
+    "messages": [
+      {
+        "name": "text",
+        "note": "the four kinds: a text message with metadata of its own and of anet's, two extensions activated",
+        "message": "{\"messageId\":\"m-text-1\",\"role\":\"ROLE_USER\",\"contextId\":\"ctx-1\",\"parts\":[{\"text\":\"Book the small room for Friday 10:00.\"},{\"text\":\"Two people, \\\"quiet\\\" please\\n\\u0001 — merci\"}],\"metadata\":{\"trace\":\"t-7\",\"b\":[1,2.50,true,null],\"a2a.messageId\":\"x\",\"anet.preview_mode\":\"on\"}}",
+        "extensions": [
+          "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2",
+          "https://agentnetwork.org.cn/a2a/ext/anet-preview/v1",
+          "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2"
+        ],
+        "canon": "{\"ext\":[\"https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2\"],\"files\":[],\"kind\":\"text\",\"meta\":{\"b\":[1,2.50,true,null],\"trace\":\"t-7\"},\"texts\":[\"Book the small room for Friday 10:00.\",\"Two people, \\\"quiet\\\" please\\n\\u0001 — merci\"],\"v\":1}",
+        "client_key": "f3e897e081f0945f265203123bfb85a3ae080f0f13be3c85429de3c6a9d5ec8b",
+        "client_digest": "5216cf1ea7a54a383b993c695df46957f4094f477c80e4717ed979b231c865ed"
+      },
+      {
+        "name": "skill_big",
+        "note": "the four kinds: a capability call whose args hold 9007199254740993",
+        "message": "{\"messageId\":\"m-skill-1\",\"role\":\"ROLE_USER\",\"parts\":[{\"data\":{\"skill\":\"calc.add\",\"args\":{\"a\":9007199254740993,\"z\":{\"\\u00fc\":true,\"\\ud83d\\ude00\":0,\"\\ue000\":1},\"b\":-0}}}]}",
+        "extensions": [],
+        "canon": "{\"args\":{\"a\":9007199254740993,\"b\":-0,\"z\":{\"ü\":true,\"😀\":0,\"\":1}},\"ext\":[],\"files\":[],\"kind\":\"skill\",\"meta\":{},\"skill\":\"calc.add\",\"v\":1}",
+        "client_key": "ac2135ab726f16695cf5202139677643f6f2796c9d75d1a8bb983262babf725b",
+        "client_digest": "3cfe933a07f7ebef1f62fbbf323c250224cf82b9803ccec20b844987897873f3"
+      },
+      {
+        "name": "skill_big_neighbour",
+        "note": "skill_big with 9007199254740992: a double holds neither, and the digests differ",
+        "message": "{\"messageId\":\"m-skill-1\",\"role\":\"ROLE_USER\",\"parts\":[{\"data\":{\"skill\":\"calc.add\",\"args\":{\"a\":9007199254740992,\"z\":{\"\\u00fc\":true,\"\\ud83d\\ude00\":0,\"\\ue000\":1},\"b\":-0}}}]}",
+        "extensions": [],
+        "canon": "{\"args\":{\"a\":9007199254740992,\"b\":-0,\"z\":{\"ü\":true,\"😀\":0,\"\":1}},\"ext\":[],\"files\":[],\"kind\":\"skill\",\"meta\":{},\"skill\":\"calc.add\",\"v\":1}",
+        "client_key": "ac2135ab726f16695cf5202139677643f6f2796c9d75d1a8bb983262babf725b",
+        "client_digest": "aeb1427024f73cb5ae718fc44b771dbd83590508e57207caf1e84a60b2c33f3f"
+      },
+      {
+        "name": "skill_one",
+        "note": "a capability call with the number 1",
+        "message": "{\"messageId\":\"m-one\",\"role\":\"ROLE_USER\",\"parts\":[{\"data\":{\"skill\":\"calc.add\",\"args\":{\"n\":1}}}]}",
+        "extensions": [],
+        "canon": "{\"args\":{\"n\":1},\"ext\":[],\"files\":[],\"kind\":\"skill\",\"meta\":{},\"skill\":\"calc.add\",\"v\":1}",
+        "client_key": "29ed236311e42b1a8f94bffba7962805930d9d724fcbe77cb2397019fe538d37",
+        "client_digest": "1ea3ce702c3c04a430af52df9c2fa7f7ead7a521df7ae7f98252556130633d5d"
+      },
+      {
+        "name": "skill_one_point_zero",
+        "note": "skill_one with 1.0: the same double, another literal, another digest",
+        "message": "{\"messageId\":\"m-one\",\"role\":\"ROLE_USER\",\"parts\":[{\"data\":{\"skill\":\"calc.add\",\"args\":{\"n\":1.0}}}]}",
+        "extensions": [],
+        "canon": "{\"args\":{\"n\":1.0},\"ext\":[],\"files\":[],\"kind\":\"skill\",\"meta\":{},\"skill\":\"calc.add\",\"v\":1}",
+        "client_key": "29ed236311e42b1a8f94bffba7962805930d9d724fcbe77cb2397019fe538d37",
+        "client_digest": "e6edf4a50b7bd6795422da9703ff9332177a8fb2271c838220503c35febe1bcd"
+      },
+      {
+        "name": "files",
+        "note": "the four kinds: a text message with two files",
+        "message": "{\"messageId\":\"m-files-1\",\"role\":\"ROLE_USER\",\"parts\":[{\"text\":\"Compare the faces.\"},{\"raw\":\"/9j/4OtOxtRI7oCVKn3uklpnqpfekChiE8gH07KD+BhTmEDJcBzmPtEvGM6JkqULvEFjkUx+hJau3SD25hsoJQ==\",\"filename\":\"photos/a.jpg\",\"mediaType\":\"image/jpeg\"},{\"raw\":\"iVBORw0KGgpKxsFGqux6WGTWppC1nBxAA6esn9qCMgGXag5zjH7iZ9Dp4BCTIv15fzLgikPADRtj4Sh8Ugq3Wg==\",\"filename\":\"b.png\",\"mediaType\":\"image/png\"}]}",
+        "extensions": [],
+        "canon": "{\"ext\":[],\"files\":[{\"cid\":\"bafkreiayjggblrfdipl7ziqcf74ubkgceeidz6nonwiymv22ceuo5eblmi\",\"mime\":\"image/jpeg\",\"name\":\"a.jpg\"},{\"cid\":\"bafkreihj3efzwzka4ydl6ntg3uf6cwuo2sn4stzjuzpjgenev7pbb55qfy\",\"mime\":\"image/png\",\"name\":\"b.png\"}],\"kind\":\"text\",\"meta\":{},\"texts\":[\"Compare the faces.\"],\"v\":1}",
+        "client_key": "d7698d2fff3e22a5f025fdc5233fb30bce3dc1750067463e1b5501be2056a545",
+        "client_digest": "1206eb1a21c8bc73435a0bb61a31cf8c246dd8733ce7be7aa3becde2fc5b34a7"
+      },
+      {
+        "name": "payment_submit",
+        "note": "the four kinds: a payment decision; its parts are not part of it",
+        "message": "{\"messageId\":\"m-pay-1\",\"role\":\"ROLE_USER\",\"taskId\":\"ix_0\",\"parts\":[{\"text\":\"paying\"}],\"metadata\":{\"x402.payment.status\":\"payment-submitted\",\"anet.payment.accept\":{\"scheme\":\"exact\",\"network\":\"anet:hub\",\"amount\":\"3\",\"asset\":\"credits\",\"payTo\":\"bafyrei33f6be445b96706a843a961273b1141e21be0b47b0b2abb971ab\",\"maxTimeoutSeconds\":600}}}",
+        "extensions": [
+          "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2"
+        ],
+        "canon": "{\"ext\":[\"https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2\"],\"kind\":\"payment\",\"meta\":{},\"v\":1,\"x402\":{\"accept\":{\"amount\":\"3\",\"asset\":\"credits\",\"maxTimeoutSeconds\":600,\"network\":\"anet:hub\",\"payTo\":\"bafyrei33f6be445b96706a843a961273b1141e21be0b47b0b2abb971ab\",\"scheme\":\"exact\"},\"status\":\"payment-submitted\"}}",
+        "client_key": "662c283ea701b8ed5b613540657c13d2ab3a9889f81149963ecbb585b188da6f",
+        "client_digest": "be860d97ae92488911219b9112c525617c6e5538a22f80b2f543b4357526674b"
+      }
+    ],
+    "pairs": [
+      {
+        "a": "skill_big",
+        "b": "skill_big_neighbour",
+        "note": "one messageId, two contents: the digests differ"
+      },
+      {
+        "a": "skill_one",
+        "b": "skill_one_point_zero",
+        "note": "one messageId, two contents: the digests differ"
+      }
+    ]
+  }
 }

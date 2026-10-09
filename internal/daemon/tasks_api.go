@@ -23,6 +23,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -134,6 +135,51 @@ type tasksSendReq struct {
 	MaxTaskBytes int `json:"max_task_bytes"`
 }
 
+// readJSONNumbers is readJSON keeping the numbers of the message, its
+// metadata and a capability call's args as the client wrote them
+// (json.Number): a retry is judged on the literal content (correctness-ux
+// CUX-D1), and args go to the provider as written. A number no double holds
+// (1e400) is refused, as it is everywhere else: a client of the projection
+// that reads numbers as doubles could not read the task.
+func readJSONNumbers(r *http.Request, req *tasksSendReq) error {
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber()
+	if err := dec.Decode(req); err != nil {
+		return err
+	}
+	var msgMeta map[string]any
+	if req.Message != nil {
+		msgMeta = req.Message.Metadata
+	}
+	return doubleNumbers(req.Args, req.Metadata, msgMeta)
+}
+
+// doubleNumbers is an error naming the first number in vs that no double
+// holds, nil when there is none.
+func doubleNumbers(vs ...any) error {
+	for _, v := range vs {
+		switch x := v.(type) {
+		case json.Number:
+			if _, err := x.Float64(); err != nil {
+				return fmt.Errorf("the number %s is out of range", x)
+			}
+		case map[string]any:
+			for _, e := range x {
+				if err := doubleNumbers(e); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for _, e := range x {
+				if err := doubleNumbers(e); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // maxTaskBytes is the optional max_task_bytes of a route that returns one
 // task: above 0 the task is held to about that many bytes as JSON, what is
 // cut replaced by a notice of its size that says how to read it whole
@@ -177,7 +223,7 @@ func (r *tasksSendReq) message() a2ashape.Message {
 func (d *Daemon) hTasksSend(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, taskBodyMax)
 	var req tasksSendReq
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSONNumbers(r, &req); err != nil {
 		badTaskRequest(w, "body: %v", err)
 		return
 	}

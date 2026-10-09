@@ -72,7 +72,7 @@ func (d *Daemon) DelegateIn(ctx context.Context, providerAID, goal string, atts 
 	if err != nil {
 		return "", err
 	}
-	if err := d.delegateInWithID(ctx, id, providerAID, goal, atts, contextID, nil); err != nil {
+	if err := d.delegateInWithID(ctx, id, providerAID, goal, atts, contextID, nil, nil); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -82,7 +82,9 @@ func (d *Daemon) DelegateIn(ctx context.Context, providerAID, goal string, atts 
 // so a caller learns the id of a task whose row was written even when its
 // delivery then failed for good. meta is the first message's metadata (A2A
 // Message.metadata, a JSON object or nil): stored on the goal message here
-// and carried to the provider as DelegateReq.Metadata.
+// and carried to the provider as DelegateReq.Metadata. cm, when the client
+// named a messageId, is stored with the goal message, in the same
+// transaction (clientdedupe.go).
 //
 // The delegation goes through the retry queue in the same transaction as
 // the task and its first message are recorded (an internal note item), under the message
@@ -94,7 +96,7 @@ func (d *Daemon) DelegateIn(ctx context.Context, providerAID, goal string, atts 
 // keys cannot be resolved or do not verify is an error before anything is
 // written (§3.5 step 1).
 func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal string, atts []delegation.Attachment,
-	contextID string, meta []byte) error {
+	contextID string, meta []byte, cm *clientMark) error {
 	hub := d.config().HubURL
 	if hub == "" {
 		return fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
@@ -139,9 +141,13 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, TaskNonce: nonce}); err != nil {
 			return err
 		}
+		rec := interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
+			Kind: interactions.MsgText, Body: goal, MsgID: msgID, Metadata: meta}
+		if err := cm.stamp(tx, id, &rec); err != nil {
+			return err
+		}
 		var err error
-		seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
-			Kind: interactions.MsgText, Body: goal, MsgID: msgID, Metadata: meta})
+		seq, _, err = tx.AddMessageRecord(rec)
 		return err
 	})
 	if err != nil {

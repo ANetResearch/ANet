@@ -291,6 +291,10 @@ func (s *Store) nowMS() int64 {
 	return time.Now().UnixMilli()
 }
 
+// NowMS is the store's clock in unix milliseconds: the clock its state_at
+// times are written on (SetClock replaces it in tests).
+func (s *Store) NowMS() int64 { return s.nowMS() }
+
 // storeFile is the store's file in its directory.
 const storeFile = "interactions.db"
 
@@ -478,10 +482,22 @@ var interactionSchema = []string{
 	   -- this node records without one has none, and "unknown" is not an
 	   -- identity.
 	   msg_id TEXT NOT NULL DEFAULT '',
-	   metadata BLOB NOT NULL DEFAULT X''
+	   metadata BLOB NOT NULL DEFAULT X'',
+	   -- A local client's retry key (CUX-D1, core L37, L38): on a message
+	   -- this node wrote for a client that named a messageId,
+	   -- SHA-256 of that id and an HMAC of the message's content under
+	   -- the task's mac_key; NULL on every other message. Plain columns:
+	   -- neither tells the content without the task's data key.
+	   client_key BLOB,
+	   client_digest BLOB,
+	   -- 1 once the client's call ended before it was answered (CUX-D5).
+	   client_unanswered INTEGER NOT NULL DEFAULT 0
 	 )`,
 	`CREATE INDEX idx_msg_ix ON message(interaction_id, seq)`,
 	`CREATE UNIQUE INDEX idx_msg_dedupe ON message(interaction_id, msg_id) WHERE msg_id != ''`,
+	// The client-retry lookup (FindByClientKey) reads this index, never the
+	// metadata (FS-L3): the few messages that carry a client key.
+	`CREATE INDEX idx_msg_client_key ON message(client_key) WHERE client_key IS NOT NULL`,
 
 	// Binary attachments carried by messages (images / media / archives). Bytes stored inline;
 	// integrity pinned by cid = anetcid.SumRaw(data).
@@ -881,6 +897,12 @@ type MessageRecord struct {
 	Body          string
 	MsgID         string
 	Metadata      []byte // JSON object, or nil
+	// ClientKey and ClientDigest are the retry key of a message this node
+	// writes for a local client that named a messageId (core L37, L38):
+	// both or neither. FindByClientKey finds the message by the first; the
+	// second says whether a retry carries the same content.
+	ClientKey    []byte
+	ClientDigest []byte
 }
 
 // AddMessage appends one entry to an interaction's conversation log with no sender-minted id and
@@ -925,15 +947,19 @@ func addMessage(e execer, m MessageRecord) (seq int64, stored bool, err error) {
 	if err != nil {
 		return 0, false, err
 	}
+	if (len(m.ClientKey) == 0) != (len(m.ClientDigest) == 0) {
+		return 0, false, fmt.Errorf("%w: a client key goes with a client digest", ErrBadInput)
+	}
+	ckey, cdigest := nullBytes(m.ClientKey), nullBytes(m.ClientDigest)
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if m.MsgID != "" {
 		// The partial unique index makes this the whole of the dedupe: a
 		// second delivery of the same id inserts nothing and affects no
 		// rows, and there is no read-then-write to race with.
 		res, err := e.Exec(
-			`INSERT OR IGNORE INTO message(interaction_id,sender_aid,kind,body,created_at,msg_id,metadata)
-			 VALUES(?,?,?,?,?,?,?)`,
-			m.InteractionID, m.SenderAID, m.Kind, body, now, m.MsgID, meta)
+			`INSERT OR IGNORE INTO message(interaction_id,sender_aid,kind,body,created_at,msg_id,metadata,client_key,client_digest)
+			 VALUES(?,?,?,?,?,?,?,?,?)`,
+			m.InteractionID, m.SenderAID, m.Kind, body, now, m.MsgID, meta, ckey, cdigest)
 		if err != nil {
 			return 0, false, err
 		}
@@ -955,8 +981,9 @@ func addMessage(e execer, m MessageRecord) (seq int64, stored bool, err error) {
 		return seq, true, err
 	}
 	res, err := e.Exec(
-		`INSERT INTO message(interaction_id,sender_aid,kind,body,created_at,metadata) VALUES(?,?,?,?,?,?)`,
-		m.InteractionID, m.SenderAID, m.Kind, body, now, meta)
+		`INSERT INTO message(interaction_id,sender_aid,kind,body,created_at,metadata,client_key,client_digest)
+		 VALUES(?,?,?,?,?,?,?,?)`,
+		m.InteractionID, m.SenderAID, m.Kind, body, now, meta, ckey, cdigest)
 	if err != nil {
 		return 0, false, err
 	}
