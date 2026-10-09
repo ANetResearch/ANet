@@ -815,23 +815,23 @@ func (d *Daemon) sandboxNeverBind() []string {
 	return resolvedAll(never)
 }
 
-// anetlinkSockets returns the configured ANetLink C1 socket paths (modules.anetlink.socket and
-// providers.anetlink.socket). The kernel reads this one key only to keep the socket out of the sandbox;
-// it does not interpret the module's configuration otherwise.
+// anetlinkSockets returns the ANetLink C1 socket (CC-6): modules.anetlink.socket, or its default when
+// that is not set (anetlinkDefaultSocket; none without XDG_RUNTIME_DIR). The kernel reads this one key
+// only to keep the socket out of the sandbox; it does not interpret the module's configuration
+// otherwise.
 func anetlinkSockets(cfg Config) []string {
-	var out []string
 	if raw, ok := cfg.Modules["anetlink"]; ok {
 		var mc struct {
 			Socket string `json:"socket"`
 		}
 		if json.Unmarshal(raw, &mc) == nil && mc.Socket != "" {
-			out = append(out, mc.Socket)
+			return []string{mc.Socket}
 		}
 	}
-	if pc := cfg.Providers; pc != nil && pc.ANetLink != nil && pc.ANetLink.Socket != "" {
-		out = append(out, pc.ANetLink.Socket)
+	if def := anetlinkDefaultSocket(); def != "" {
+		return []string{def}
 	}
-	return out
+	return nil
 }
 
 // resolvedAll returns each path in its absolute form and, where it exists, also its symbolic-link

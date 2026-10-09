@@ -15,6 +15,9 @@ import (
 // with modules set: nil when the daemon would start.
 func startRefusals(t *testing.T, modules map[string]any) []*a2ashape.Refusal {
 	t.Helper()
+	// modules.anetlink.socket has a default only where XDG_RUNTIME_DIR is set
+	// (anetlink_config.go); the blocks here leave it out.
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	l := NewLayout(t.TempDir())
 	m := freshConfigFile(t)
 	m["modules"] = modules
