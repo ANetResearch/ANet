@@ -345,6 +345,15 @@ func (d *Daemon) withdrawFrozen(row *interactions.OutboxRow) error {
 		if _, err := tx.DeleteOutboxQueue(cur.IX, cur.ToAID); err != nil {
 			return err
 		}
+		// The canceled task's delegation never left after all: its
+		// interaction key goes now, as a withdrawal at the cancel takes it
+		// (ENG-X4), not at its close_after.
+		if cur.Type == seal.TypeDelegate {
+			if err := tx.CloseIXKey(cur.IX, interactions.CauseNeverSent); err != nil &&
+				!errors.Is(err, interactions.ErrNotFound) && !errors.Is(err, interactions.ErrBadInput) {
+				return err
+			}
+		}
 		withdrawn = true
 		return nil
 	})

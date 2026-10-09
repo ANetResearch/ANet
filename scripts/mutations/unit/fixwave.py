@@ -127,9 +127,10 @@ MUTS = [
  ),
  dict(
   id='fx23-2', group='F23', repo='ANet',
-  desc='取消不撤回从未交出的委派',
+  desc='取消不撤回从未交出的委派(取消时与冻结后的撤回两层都去掉;只去一层时 ENG-O5 照样撤回,是等价变异)',
   edits=[
    ('internal/daemon/outbox_seams.go', '\t\t\tif !del.Attempting && !versionsHanded(rowView(del), viewsOf(vers)) {', '\t\t\tif false && !del.Attempting && !versionsHanded(rowView(del), viewsOf(vers)) {'),
+   ('internal/daemon/outbox_step.go', '\tif row.Frozen && !handed && !row.Attempting {', '\tif false && row.Frozen && !handed && !row.Attempting {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestRedteamSI10_ACancelBeforeDeliveryWithdrawsTheDelegation|TestDLVT25_NeverHandedOver')],
   full=['ANet:./internal/daemon'],
@@ -138,7 +139,7 @@ MUTS = [
   id='fx23-3', group='F23/F12', repo='ANet',
   desc='已交出的委派也被取消撤回(不看是否交出)',
   edits=[
-   ('internal/daemon/outbox_seams.go', '\t\t\tif !del.Attempting && !versionsHanded(rowView(del), viewsOf(vers)) {', '\t\t\tif !del.Attempting {'),
+   ('internal/daemon/outbox_seams.go', '\t\t\tif !del.Attempting && !versionsHanded(rowView(del), viewsOf(vers)) {', '\t\t\tif !del.Attempting && len(vers) >= 0 {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestRedteamSI10_ACancelWaitsBehindADelegationThatMayHaveArrived|TestDLVT3_HandedOverAndUnconfirmedIsNeverUnavailable')],
   full=['ANet:./internal/daemon'],
@@ -147,7 +148,7 @@ MUTS = [
   id='fx23-3b', group='F23/F12', repo='ANet',
   desc='fx23-3 与冻结行的撤回条件一起去掉"是否交出"(两层)',
   edits=[
-   ('internal/daemon/outbox_seams.go', '\t\t\tif !del.Attempting && !versionsHanded(rowView(del), viewsOf(vers)) {', '\t\t\tif !del.Attempting {'),
+   ('internal/daemon/outbox_seams.go', '\t\t\tif !del.Attempting && !versionsHanded(rowView(del), viewsOf(vers)) {', '\t\t\tif !del.Attempting && len(vers) >= 0 {'),
    ('internal/daemon/outbox_step.go', '\tif row.Frozen && !handed && !row.Attempting {', '\tif row.Frozen && !row.Attempting {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestRedteamSI10_ACancelWaitsBehindADelegationThatMayHaveArrived|TestDLVT3_HandedOverAndUnconfirmedIsNeverUnavailable|TestDLVT23_AFrozenDelegationIsNotSentAgain')],

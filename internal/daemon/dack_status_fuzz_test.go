@@ -88,3 +88,24 @@ func FuzzDecodeStatusAnswer(f *testing.F) {
 		}
 	})
 }
+
+// FuzzParseRetryAfterHeader is the engine's reading of a hub's Retry-After
+// (§2.5): on any value it never panics, and a wait it takes lies between
+// the floor and a day — a hub cannot make a row wait longer, nor spin it.
+func FuzzParseRetryAfterHeader(f *testing.F) {
+	for _, s := range []string{"0", "1", "30", "3600", "86400", "999999999999", "-5", " 7 ", "Wed, 21 Oct 2015 07:28:00 GMT", "", "soon"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, v string) {
+		wait, ok := parseRetryAfterHeader(v)
+		if !ok {
+			if wait != 0 {
+				t.Fatalf("%q: refused with a wait of %s", v, wait)
+			}
+			return
+		}
+		if wait < retryAfterMin || wait > retryMaxDelay {
+			t.Fatalf("%q: a wait of %s", v, wait)
+		}
+	})
+}

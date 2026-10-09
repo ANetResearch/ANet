@@ -636,6 +636,17 @@ func cancelRacingAnAttempt(t *testing.T, hands bool) {
 		t.Fatalf("outbound tasks: %d (%v)", len(list), err)
 	}
 	id := list[0].ID
+	// The task's interaction key (FS-X1): a delegation that never left
+	// takes it at once (engine ENG-X4).
+	k, err := seal.GenerateIXKey(seal.SuiteX25519, id, prov.AID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := req.ix.Update(func(tx *interactions.Tx) error {
+		return tx.PutIXKey(interactions.IXKey{IX: id, PeerAID: prov.AID(), Suite: k.Suite, Pub: k.Pub, Priv: k.Private})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	// From here the direct path is gone: a cancel that did not wait for the
 	// attempt under way would reach the hub at once, ahead of it.
 	g.armed.Store(false)
@@ -668,6 +679,9 @@ func cancelRacingAnAttempt(t *testing.T, hands bool) {
 		}
 		if _, err := prov.ix.Get(id); !errors.Is(err, interactions.ErrNotFound) {
 			t.Fatalf("the provider has the withdrawn task (%v)", err)
+		}
+		if rk, err := req.ix.OwnRK(id); err != nil || rk != nil {
+			t.Fatalf("the withdrawn task's interaction key is kept (%v)", err)
 		}
 		return
 	}
