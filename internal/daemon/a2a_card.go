@@ -176,14 +176,29 @@ func (d *Daemon) networkCard(hubURL string) (json.RawMessage, uint64, error) {
 // name. fresh forces a new seq even when the content is unchanged, which is
 // how a hub's conflict answer is resolved.
 func (d *Daemon) networkCardLocked(hubURL, name string, fresh bool) (json.RawMessage, uint64, error) {
+	card, seq, _, err := d.issueNetworkCardLocked(hubURL, name, fresh)
+	return card, seq, err
+}
+
+// issueNetworkCardLocked is networkCardLocked that also returns what the
+// card was built from, for the extended cards (extcard.go), which are the
+// public card and more.
+func (d *Daemon) issueNetworkCardLocked(hubURL, name string, fresh bool) (json.RawMessage, uint64, netcard.Input, error) {
 	hubURL = strings.TrimRight(strings.TrimSpace(hubURL), "/")
 	if hubURL == "" {
-		return nil, 0, fmt.Errorf("anet: no hub, so no relay interface for a network card")
+		return nil, 0, netcard.Input{}, fmt.Errorf("anet: no hub, so no relay interface for a network card")
 	}
 	in, err := d.cardInput(hubURL, name)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, in, err
 	}
+	card, seq, err := d.signNetworkCardLocked(in, hubURL, fresh)
+	return card, seq, in, err
+}
+
+// signNetworkCardLocked signs the card of in, or returns the last issued one
+// when it says the same under the same key.
+func (d *Daemon) signNetworkCardLocked(in netcard.Input, hubURL string, fresh bool) (json.RawMessage, uint64, error) {
 	// One key state for the whole card: the kid that names it and the key that signs (KEL C-23).
 	signer := d.self.Snapshot()
 	seq, err := identity.SeqOf(signer)
@@ -278,11 +293,21 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 		in.Skills = append(in.Skills, netcard.ChatSkill())
 		sort.SliceStable(in.Skills, func(i, j int) bool { return in.Skills[i].ID < in.Skills[j].ID })
 	}
-	skills := make([]string, 0, len(in.Skills))
-	for _, s := range in.Skills {
-		skills = append(skills, s.ID)
+	cc := module.CardContext{AID: d.AID(), HubURL: hubURL, Skills: netcard.SkillIDs(in.Skills)}
+	in.Extensions, in.Interfaces = d.cardContributions(cc)
+	// The skills of the list variant of the extended card; the public card
+	// does not list them (netcard.Build reads only Skills).
+	for _, id := range d.listOnlySkillIDs(cc.Skills) {
+		p, _ := d.providers.Resolve(id)
+		in.ListOnly = append(in.ListOnly, netcard.SkillFor(p, id))
 	}
-	cc := module.CardContext{AID: d.AID(), HubURL: hubURL, Skills: append([]string(nil), skills...)}
+	return in, nil
+}
+
+// cardContributions asks the modules for their extensions and interfaces on
+// the card cc describes, each put in publish form or dropped with a log
+// line.
+func (d *Daemon) cardContributions(cc module.CardContext) (exts, ifaces []map[string]any) {
 	for _, m := range d.cardContributors() {
 		for _, e := range m.CardExtensions(cc) {
 			ext, err := netcard.Extension(e)
@@ -290,7 +315,7 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 				log.Printf("anet: module %s: card extension dropped: %v", moduleName(m), err)
 				continue
 			}
-			in.Extensions = append(in.Extensions, ext)
+			exts = append(exts, ext)
 		}
 		for _, it := range m.CardInterfaces(cc) {
 			iface, err := netcard.Interface(it, d.AID())
@@ -298,10 +323,10 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 				log.Printf("anet: module %s: card interface dropped: %v", moduleName(m), err)
 				continue
 			}
-			in.Interfaces = append(in.Interfaces, iface)
+			ifaces = append(ifaces, iface)
 		}
 	}
-	return in, nil
+	return exts, ifaces
 }
 
 // cardContributors are the running modules that add to the card.
