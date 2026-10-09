@@ -1,0 +1,11 @@
+{
+  "agent": "",
+  "duration_ms": 2100,
+  "exit": "error",
+  "interaction_id": "ix_0f1e2d3c4b5a69788796a5b4c3d2e1f0",
+  "mode": "openai",
+  "peer_aid": "bafyreiexamplepeeraid7hq2abcd",
+  "sandbox": "",
+  "sandboxed": false,
+  "trusted": false
+}

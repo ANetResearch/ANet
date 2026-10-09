@@ -110,6 +110,11 @@ type Daemon struct {
 	// sbRefused remembers outbound auto-reply turns that failed closed
 	// because the sandbox was unavailable (autoreply.go).
 	sbRefused sandboxRefused
+	// budget counts the auto-reply runs for untrusted peers per local day
+	// and holds their slots (sandbox_budget.go, LEC BU); sandboxSwept is
+	// the sweep of what an earlier process's sandboxed runs left (SB-9).
+	budget       runBudget
+	sandboxSwept sync.Once
 
 	// spend holds the payments signed in the last 24 hours, for the
 	// spending policy (spend.go); settling tracks the task payments whose

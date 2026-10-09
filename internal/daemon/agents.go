@@ -467,7 +467,8 @@ func invokeCodex(ctx context.Context, o execInvokeOpts) (string, error) {
 	if err != nil {
 		return "", cmdError(o.Command, args, stdout, stderr, err)
 	}
-	if b, err := os.ReadFile(outFile); err == nil && len(strings.TrimSpace(string(b))) > 0 {
+	// Read through the work dir, never through a link put in the reply file's place (readWorkFile).
+	if b, err := readWorkFile(dir, filepath.Base(outFile), maxAttachmentBytes); err == nil && len(strings.TrimSpace(string(b))) > 0 {
 		return trimReply(string(b)), nil
 	}
 	reply := trimReply(string(stdout))

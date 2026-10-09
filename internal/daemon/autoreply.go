@@ -145,6 +145,10 @@ func (d *Daemon) startAutoReply(cfg AutoReplyConfig) {
 		log.Printf("anet: auto-reply DISABLED: %v", err)
 		return
 	}
+	// Before the loop's first sandboxed run: what an earlier process's runs left (LEC SB-9).
+	if cfg.Backend == "exec" {
+		d.sweepSandboxLeftovers()
+	}
 	interval := autoReplyDefaultInterval
 	if cfg.PollIntervalSeconds > 0 {
 		interval = time.Duration(cfg.PollIntervalSeconds) * time.Second
@@ -179,6 +183,14 @@ func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
 		if _, err := newAutoReplier(*cfg, d.layout); err != nil {
 			return err // fail loudly on a bad config instead of silently persisting a loop that never runs
 		}
+		if ref := checkAutoReplyConfig(cfg, d.layout.Root); ref != nil {
+			return ref
+		}
+		if cfg.Sandbox.empty() {
+			c := *cfg
+			c.Sandbox = nil
+			cfg = &c
+		}
 	}
 	// Saved first and in force after (SetInboundPolicy): a write that
 	// failed to save leaves the running loop and the config as they were.
@@ -187,8 +199,7 @@ func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
 	next := d.config()
 	next.AutoReply = cfg
 	// The same check as at start and on inbound policy writes (A2A-DESIGN
-	// §5.1): policy open together with exec for untrusted peers is refused
-	// whichever of the two is written last.
+	// §5.1).
 	if err := validatePolicy(next, d.untrustedBackend.Load()); err != nil {
 		return err
 	}
@@ -205,6 +216,8 @@ func (d *Daemon) SetAutoReply(cfg *AutoReplyConfig) error {
 	d.mu.Unlock()
 	d.recordPolicyChange("auto_reply", autoReplySummary(from), autoReplySummary(cfg), nil)
 	recordEgressAllowChange(d, from, cfg)
+	recordTrustedChange(d, from, cfg)
+	recordBudgetChange(d, from, cfg)
 	if cfg != nil {
 		d.startAutoReply(*cfg)
 	} else {
@@ -262,8 +275,12 @@ func (d *Daemon) autoReplyLoop(ctx context.Context, cfg AutoReplyConfig, replier
 // autoReplyOnce scans the local store (the relay loop keeps it fresh) and services every conversation
 // that owes an action — in BOTH directions: tasks others delegated to us (inbound) AND tasks we delegated
 // to others where the peer has since replied (outbound). "Owing a reply" is symmetric: whenever the last
-// message is the peer's (not ours), we answer. Threads are handled sequentially: replies are model calls
-// and the loop must never answer the same thread twice concurrently.
+// message is the peer's (not ours), we answer.
+//
+// A trusted peer's turn runs in the scan, one after another. An untrusted peer's turn runs beside the
+// scan, at most two at once and one per peer (LEC BU-5): a turn that finds no free slot waits for the
+// next scan. The scan returns once every turn it started has ended, so no thread is ever answered twice
+// at once and the next scan sees what this one sent.
 func (d *Daemon) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier autoReplier) {
 	// ActiveThreads skips finished (done/failed) interactions before loading their message history, so this
 	// every-few-seconds loop stays O(active) rather than O(all-history) as completed tasks accumulate.
@@ -272,16 +289,19 @@ func (d *Daemon) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier
 		log.Printf("anet: auto-reply: list threads: %v", err)
 		return
 	}
+	active := make(map[string]bool, len(threads))
+	for _, th := range threads {
+		active[th.InteractionID] = true
+	}
 	// Keep the exec session map bounded: any binding whose interaction is no longer active (ended/failed/
 	// gone) can never be resumed again (ids are unique), so drop it. This also mops up bindings orphaned
 	// by an abrupt requester exit.
 	if cfg.Backend == "exec" {
-		active := make(map[string]bool, len(threads))
-		for _, th := range threads {
-			active[th.InteractionID] = true
-		}
 		sharedExecSessionStore(d.layout.Root).pruneExcept(active)
 	}
+	d.sbRefused.prune(active)
+	var runs sync.WaitGroup
+	defer runs.Wait()
 	for _, th := range threads {
 		if ctx.Err() != nil {
 			return
@@ -292,7 +312,7 @@ func (d *Daemon) autoReplyOnce(ctx context.Context, cfg AutoReplyConfig, replier
 			// leaves them out; this keeps the rule where it is applied.
 			continue
 		}
-		if err := d.autoReplyThread(ctx, cfg, replier, th); err != nil {
+		if err := d.autoReplyThread(ctx, cfg, replier, th, &runs); err != nil {
 			log.Printf("anet: auto-reply %s: %v", th.InteractionID, err)
 		}
 	}
@@ -347,8 +367,9 @@ func (d *Daemon) announceSlowTurn(th Thread) func() {
 // autoReplyThread services ONE conversation (inbound or outbound): produce the reply we owe (usage
 // hint / backend answer / error report), or end the task at the runaway cap or when the backend says
 // it is done. No-op when nothing is owed. A requester's end request needs no reply: the provider
-// daemon completes on receiving it (A2A-DESIGN §4.2).
-func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, th Thread) error {
+// daemon completes on receiving it (A2A-DESIGN §4.2). An untrusted peer's turn is started on runs and
+// left running (autoReplyOnce).
+func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, th Thread, runs *sync.WaitGroup) error {
 	// A task a module's A2A backend is given is answered there, not here
 	// as well (A2A-DESIGN §11.6, inbound_tasks.go).
 	if d.backendAnswers(th) {
@@ -361,20 +382,15 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	if ps.denied(th.Peer) {
 		return nil
 	}
-	// The exec backend runs a local program. It runs as before only for a
-	// peer on the trust list; for any other peer it runs in the sandbox
-	// when auto_reply.untrusted=sandbox, and not at all otherwise
-	// (A2A-DESIGN §6). A peer taken off the trust list stops reaching the
-	// agent at the next turn.
-	gate := execGate{}
-	if cfg.Backend == "exec" {
-		gate.exec, gate.trusted = true, ps.trusted(th.Peer)
-		if !gate.trusted && cfg.UntrustedMode() == UntrustedOff {
-			return nil // left in the inbox for the operator
-		}
-		if !gate.trusted && d.sandboxRefusedBefore(th) {
-			return nil // this turn already failed closed; wait for a new message
-		}
+	// How this turn runs is decided on every turn from the lists as they
+	// are now (LEC GT-1): a peer taken off the trust list stops reaching
+	// the agent unconfined at the next turn.
+	gate := gateFor(cfg, ps.trusted(th.Peer))
+	if gate.mode == "" {
+		return nil // untrusted=off: left in the inbox for the operator
+	}
+	if d.sbRefused.before(th) {
+		return nil // this turn already failed closed; wait for a new message
 	}
 
 	turns, hasImage, err := d.conversationTurns(th, cfg.MaxHistory)
@@ -424,6 +440,36 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 		return d.sendAutoReply(ctx, th.InteractionID, hint)
 	}
 
+	if !gate.counted {
+		return d.replyTurn(ctx, cfg, replier, gate, th, turns, nil)
+	}
+	// An untrusted peer's run takes its place in the budget before anything
+	// starts (LEC BU-2 to BU-5).
+	ticket, verdict, wait := d.reserveRun(cfg, th.Peer)
+	switch verdict {
+	case budgetBusy:
+		return nil // no free slot: the next scan tries again; nothing is refused
+	case budgetSpent:
+		return d.refuseTurn(ctx, th, autoReplyRun{Agent: gate.agent(cfg), InteractionID: th.InteractionID,
+			Peer: th.Peer, Trusted: gate.trusted, Mode: gate.mode, Exit: exitBudget}, wait)
+	}
+	runs.Add(1)
+	go func() {
+		defer runs.Done()
+		if err := d.replyTurn(ctx, cfg, replier, gate, th, turns, ticket); err != nil {
+			log.Printf("anet: auto-reply %s: %v", th.InteractionID, err)
+		}
+	}()
+	return nil
+}
+
+// replyTurn runs the backend for one owed turn and sends what it produced. ticket is the turn's place
+// in the run budget, nil when it does not count; it is released when the turn ends, and its count is
+// given back when nothing started (the sandbox was unavailable).
+func (d *Daemon) replyTurn(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, gate execGate, th Thread,
+	turns []chatTurn, ticket *budgetTicket) error {
+	counted := true
+	defer func() { ticket.release(counted) }()
 	timeout := autoReplyDefaultAPITimeout
 	if cfg.APITimeoutSeconds > 0 {
 		timeout = time.Duration(cfg.APITimeoutSeconds) * time.Second
@@ -433,7 +479,7 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	// reply text + these files as ONE message and owns end negotiation. It lives in the interaction's
 	// exec work dir, outside the data dir (autoreply_exec.go). Creation failure is non-fatal — we just
 	// fall back to text-only replies.
-	outbox, cleanupOutbox, obErr := d.newExecOutbox(th.InteractionID, gate.exec && !gate.trusted)
+	outbox, cleanupOutbox, obErr := d.newExecOutbox(th.InteractionID, gate.mode == modeSandbox)
 	if obErr != nil {
 		log.Printf("anet: auto-reply %s: no outbox: %v", th.InteractionID, obErr)
 		outbox = ""
@@ -444,15 +490,23 @@ func (d *Daemon) autoReplyThread(ctx context.Context, cfg AutoReplyConfig, repli
 	rctx, cancel := context.WithTimeout(ctx, timeout)
 	rc := replyContext{Role: th.Role, Goal: th.Goal, InteractionID: th.InteractionID, Outbox: outbox}
 	announced := d.announceSlowTurn(th)
-	reply, err := d.invokeReplier(rctx, cfg, replier, gate, th, rc, turns)
+	reply, run, err := d.invokeReplier(rctx, cfg, replier, gate, th, rc, turns)
 	cancel()
 	announced()
+	switch run.Exit {
+	case exitSandboxUnavailable:
+		// Nothing started: the run does not count, and its record is the
+		// refusal's (once per interaction).
+		counted = false
+	default:
+		d.recordAutoReplyInvoked(run)
+	}
 	if d.readPeers().denied(th.Peer) {
 		// Denied while the backend worked: nothing more goes to the peer.
 		return nil
 	}
 	if errors.Is(err, errSandboxUnavailable) {
-		return d.sandboxRefusedTurn(ctx, th)
+		return d.refuseTurn(ctx, th, run, 0)
 	}
 	if err != nil {
 		// Report the failure to the requester as a normal message. That reply is ours, so the loop will
@@ -632,105 +686,263 @@ func truncate(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// EvAutoReplyInvoked records one run of the exec auto-reply backend
-// (A2A-DESIGN §6): which agent, for which interaction and peer, whether the
-// peer was trusted, whether the run was sandboxed, how it ended and how
-// long it took.
+// EvAutoReplyInvoked records one auto-reply turn that ran, or was turned away before it started
+// (LEC §2.5): which agent, for which interaction and peer, whether the peer was trusted, how and where
+// it ran, how it ended and how long it took, and, for a sandboxed run, what it did through its egress
+// endpoint.
 const EvAutoReplyInvoked = "anet.autoreply.invoked"
+
+// How a turn runs (LEC GT-1, GT-4): the mode member of anet.autoreply.invoked.
+const (
+	modeDirect  = "direct"  // the exec backend as the operator's user
+	modeSandbox = "sandbox" // the exec backend in the sandbox
+	modeOpenAI  = "openai"  // the openai backend: no local process
+)
+
+// How a turn ended: the exit member of anet.autoreply.invoked.
+const (
+	exitOK                 = "ok"
+	exitError              = "error"
+	exitSandboxUnavailable = "sandbox_unavailable" // turned away before the agent started (GT-2)
+	exitBudget             = "budget"              // turned away by the run budget (BU-4)
+	exitResource           = "resource"            // killed for its disk use (BU-8)
+)
 
 // execGate is the auto-reply gating decision for one turn.
 type execGate struct {
-	exec    bool // the backend runs a local program
-	trusted bool // the peer is on the trust list
+	exec    bool   // the backend runs a local program
+	trusted bool   // the peer is on the trust list
+	mode    string // modeDirect, modeSandbox or modeOpenAI; "" when nothing runs (untrusted=off)
+	counted bool   // the turn counts against the run budget for untrusted peers (BU-1)
 }
 
-// invokeReplier runs the backend for one turn under the gating decision: a
-// trusted peer (or a backend that runs no local program) goes to the
-// configured replier; an untrusted peer under untrusted=sandbox goes to
-// runSandboxed, which never falls back to an unconfined run. Every exec run
-// is recorded as anet.autoreply.invoked.
-func (d *Daemon) invokeReplier(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, gate execGate,
-	th Thread, rc replyContext, turns []chatTurn) (string, error) {
-	if !gate.exec {
-		return replier.Reply(ctx, rc, turns)
+// gateFor decides how a turn runs (LEC GT-1, GT-4, BU-1). The exec backend runs a trusted peer's turn
+// as auto_reply.trusted says (direct by default) and an untrusted peer's in the sandbox when
+// auto_reply.untrusted=sandbox, else not at all; a turn decided for the sandbox never falls back to a
+// direct run (GT-2). The openai backend starts no local process and answers every peer the lists let
+// through, but an untrusted peer's turn counts against the budget like a sandboxed run.
+func gateFor(cfg AutoReplyConfig, trusted bool) execGate {
+	if cfg.Backend != "exec" {
+		return execGate{trusted: trusted, mode: modeOpenAI, counted: !trusted}
 	}
+	g := execGate{exec: true, trusted: trusted}
+	switch {
+	case trusted && cfg.TrustedMode() == TrustedSandbox:
+		g.mode = modeSandbox
+	case trusted:
+		g.mode = modeDirect
+	case cfg.UntrustedMode() == UntrustedSandbox:
+		g.mode, g.counted = modeSandbox, true
+	}
+	return g
+}
+
+// agent is the agent member of the turn's record: the exec backend's agent, none for openai.
+func (g execGate) agent(cfg AutoReplyConfig) string {
+	if g.exec {
+		return cfg.Agent
+	}
+	return ""
+}
+
+// invokeReplier runs the backend for one turn under the gating decision: a direct run and the openai
+// backend go to the configured replier; a sandboxed one to runSandboxed, which never falls back to an
+// unconfined run. It returns the turn's record for the caller to write.
+func (d *Daemon) invokeReplier(ctx context.Context, cfg AutoReplyConfig, replier autoReplier, gate execGate,
+	th Thread, rc replyContext, turns []chatTurn) (string, autoReplyRun, error) {
+	run := autoReplyRun{Agent: gate.agent(cfg), InteractionID: th.InteractionID, Peer: th.Peer,
+		Trusted: gate.trusted, Mode: gate.mode}
 	start := time.Now()
 	var reply string
 	var err error
-	sandboxed := false
-	if gate.trusted {
-		reply, err = replier.Reply(ctx, rc, turns)
-	} else {
+	if gate.mode == modeSandbox {
 		var res sandboxResult
 		res, err = d.runSandboxed(ctx, sandboxRequest{Cfg: cfg, RC: rc, Turns: turns})
-		reply, sandboxed = res.Reply, res.Sandboxed
+		reply, run.Sandboxed, run.Egress = res.Reply, res.Sandboxed, res.Egress
+		if res.Sandboxed {
+			run.Kind = sandboxKind
+		}
+	} else {
+		reply, err = replier.Reply(ctx, rc, turns)
 	}
-	exit := "ok"
-	switch {
-	case errors.Is(err, errSandboxUnavailable):
-		exit = "sandbox_unavailable"
-	case err != nil:
-		exit = "error"
-	}
-	d.recordAutoReplyInvoked(cfg, th, gate.trusted, sandboxed, exit, time.Since(start))
-	return reply, err
+	run.Duration = time.Since(start)
+	run.Exit, run.Unavailable = exitOf(err)
+	return reply, run, err
 }
 
-func (d *Daemon) recordAutoReplyInvoked(cfg AutoReplyConfig, th Thread, trusted, sandboxed bool, exit string, dur time.Duration) {
+// exitOf is how a turn that returned err ended, and for one turned away before its agent started the
+// local reason (ux §1.4 H) when there is one.
+func exitOf(err error) (exit, unavailable string) {
+	var pe *sandboxProbeError
+	switch {
+	case err == nil:
+		return exitOK, ""
+	case errors.Is(err, errSandboxResource):
+		return exitResource, ""
+	case errors.Is(err, errSandboxUnavailable):
+		if errors.As(err, &pe) {
+			return exitSandboxUnavailable, pe.Code
+		}
+		return exitSandboxUnavailable, ""
+	}
+	return exitError, ""
+}
+
+// autoReplyRun is one anet.autoreply.invoked record (LEC §2.5).
+type autoReplyRun struct {
+	Agent, InteractionID, Peer string
+	Trusted, Sandboxed         bool
+	Mode                       string // modeDirect, modeSandbox, modeOpenAI
+	Kind                       string // the sandbox it ran in: "bwrap", "seatbelt", or ""
+	Exit                       string // exitOK … exitResource
+	Unavailable                string // with exitSandboxUnavailable: the local reason, if known
+	Duration                   time.Duration
+	Egress                     *egressSummary // a sandboxed run's egress counts (EG-7)
+}
+
+// payload is the record's payload: exactly the members of LEC §2.5 — never a path, a request body, a
+// prompt, the model's output or a key.
+func (r autoReplyRun) payload() map[string]any {
+	p := map[string]any{
+		"agent": r.Agent, "interaction_id": r.InteractionID, "peer_aid": r.Peer,
+		"trusted": r.Trusted, "sandboxed": r.Sandboxed, "duration_ms": r.Duration.Milliseconds(),
+		"mode": r.Mode, "sandbox": r.Kind, "exit": r.Exit,
+	}
+	if r.Unavailable != "" {
+		p["unavailable"] = r.Unavailable
+	}
+	if e := r.Egress; e != nil {
+		counts := func(m map[string]int) map[string]any {
+			out := make(map[string]any, len(m))
+			for k, v := range m {
+				out[k] = v
+			}
+			return out
+		}
+		p["egress"] = map[string]any{
+			"model_requests": e.ModelRequests, "bytes_up": e.BytesUp, "bytes_down": e.BytesDown,
+			"policy_refused": counts(e.PolicyRefused),
+			"connect": map[string]any{
+				"allowed": counts(e.Connect.Allowed), "refused": counts(e.Connect.Refused),
+				"bytes_up": e.Connect.BytesUp, "bytes_down": e.Connect.BytesDown,
+			},
+		}
+	}
+	return p
+}
+
+func (d *Daemon) recordAutoReplyInvoked(run autoReplyRun) {
 	if d.ledger == nil {
 		return
 	}
-	if _, err := d.ledger.Append(EvAutoReplyInvoked, map[string]any{
-		"agent": cfg.Agent, "interaction_id": th.InteractionID, "peer_aid": th.Peer,
-		"trusted": trusted, "sandboxed": sandboxed, "exit": exit, "duration_ms": dur.Milliseconds(),
-	}); err != nil {
+	if _, err := d.ledger.Append(EvAutoReplyInvoked, run.payload()); err != nil {
 		log.Printf("anet: auto-reply evidence: %v", err)
 	}
 }
 
-// sandboxRefused remembers outbound turns that failed closed, so the loop
-// does not retry them every few seconds; a new message from the peer is a
-// new turn.
+// sandboxRefused remembers the turns that were turned away: an outbound turn is not tried again every
+// few seconds (a new message from the peer is a new turn), and a turn turned away again for the same
+// reason is not logged or recorded again (LEC GT-2).
 type sandboxRefused struct {
-	mu sync.Mutex
-	m  map[string]int // interaction id -> message count at refusal
+	mu    sync.Mutex
+	m     map[string]int             // interaction id -> message count at an outbound refusal
+	noted map[string]map[string]bool // interaction id -> the exits already logged and recorded
 }
 
-// sandboxRefusedTurn fails a turn closed when the sandbox is unavailable
-// (A2A-DESIGN §6), by direction: an inbound task is answered
-// status{rejected, anet.reason=sandbox_unavailable}; an outbound one (this
-// node is the requester) sends nothing and stays in the inbox. The refused
-// run was recorded by invokeReplier.
-func (d *Daemon) sandboxRefusedTurn(ctx context.Context, th Thread) error {
-	if th.Role == string(interactions.RoleInbound) {
-		sctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
-		defer cancel()
-		return d.SendStatus(sctx, th.InteractionID, interactions.StateRejected,
-			"this node runs its agent for untrusted peers only inside a sandbox, and the sandbox is unavailable",
-			map[string]any{"anet.reason": reasonSandboxUnavailble})
-	}
-	d.sbRefused.mu.Lock()
-	if d.sbRefused.m == nil {
-		d.sbRefused.m = map[string]int{}
-	}
-	d.sbRefused.m[th.InteractionID] = len(th.Messages)
-	d.sbRefused.mu.Unlock()
-	log.Printf("anet: auto-reply %s: sandbox unavailable; nothing sent, the task stays in the inbox", th.InteractionID)
-	return nil
-}
-
-// sandboxRefusedBefore reports whether this turn of th already failed closed.
-func (d *Daemon) sandboxRefusedBefore(th Thread) bool {
-	d.sbRefused.mu.Lock()
-	defer d.sbRefused.mu.Unlock()
-	n, ok := d.sbRefused.m[th.InteractionID]
+// before reports whether this turn of th was already turned away.
+func (s *sandboxRefused) before(th Thread) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.m[th.InteractionID]
 	return ok && n == len(th.Messages)
 }
 
+// hold keeps the outbound turn th from being tried again until the peer writes.
+func (s *sandboxRefused) hold(th Thread) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.m == nil {
+		s.m = map[string]int{}
+	}
+	s.m[th.InteractionID] = len(th.Messages)
+}
+
+// first reports whether ix is turned away for exit for the first time, and notes it.
+func (s *sandboxRefused) first(ix, exit string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.noted[ix][exit] {
+		return false
+	}
+	if s.noted == nil {
+		s.noted = map[string]map[string]bool{}
+	}
+	if s.noted[ix] == nil {
+		s.noted[ix] = map[string]bool{}
+	}
+	s.noted[ix][exit] = true
+	return true
+}
+
+// prune forgets the interactions that are no longer active.
+func (s *sandboxRefused) prune(active map[string]bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for ix := range s.m {
+		if !active[ix] {
+			delete(s.m, ix)
+		}
+	}
+	for ix := range s.noted {
+		if !active[ix] {
+			delete(s.noted, ix)
+		}
+	}
+}
+
+// refuseTurn turns a turn away by direction (LEC GT-2, BU-4, BU-8): an inbound task is answered
+// status{rejected} through the outbound queue, with anet.reason (budget, or sandbox_unavailable for
+// every local reason the sandbox could not run it) and for budget the wait until the next local
+// midnight, and no text — the requester renders the reason itself (ux UX-R1); an outbound one (this
+// node is the requester) sends nothing and stays in the inbox. A refusal before anything started is
+// logged and recorded once per interaction and reason; a run killed for its disk use was recorded by
+// its caller, since it counts.
+func (d *Daemon) refuseTurn(ctx context.Context, th Thread, run autoReplyRun, retryAfter time.Duration) error {
+	reason := reasonSandboxUnavailble
+	if run.Exit == exitBudget {
+		reason = "budget"
+	}
+	if d.sbRefused.first(th.InteractionID, run.Exit) {
+		if run.Exit != exitResource {
+			d.recordAutoReplyInvoked(run)
+		}
+		why := run.Exit
+		if run.Unavailable != "" {
+			why += " (" + run.Unavailable + ")"
+		}
+		dir := "nothing sent, the task stays in the inbox"
+		if th.Role == string(interactions.RoleInbound) {
+			dir = "the task is refused"
+		}
+		log.Printf("anet: auto-reply %s: turned away: %s; %s", th.InteractionID, why, dir)
+	}
+	if th.Role != string(interactions.RoleInbound) {
+		d.sbRefused.hold(th)
+		return nil
+	}
+	meta := map[string]any{a2ashape.KeyReason: reason}
+	if run.Exit == exitBudget {
+		meta[a2ashape.KeyRetryAfterMS] = max(retryAfter.Milliseconds(), 1)
+	}
+	sctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
+	defer cancel()
+	return d.SendStatus(sctx, th.InteractionID, interactions.StateRejected, "", meta)
+}
+
 // autoReplySummary is the part of an auto-reply configuration a policy
-// change event records: the backend, the agent, the untrusted mode and
-// whether an API key is set (LEC §2.5: never the key). Prompts and paths
-// are left out.
+// change event records: the backend, the agent, how untrusted and trusted
+// peers' turns run, the run budgets and whether an API key is set (LEC
+// §2.5: never the key). Prompts and paths are left out.
 func autoReplySummary(c *AutoReplyConfig) map[string]any {
 	if c == nil {
 		return nil
@@ -739,5 +951,69 @@ func autoReplySummary(c *AutoReplyConfig) map[string]any {
 	if backend == "" {
 		backend = "openai"
 	}
-	return map[string]any{"backend": backend, "agent": c.Agent, "untrusted": c.UntrustedMode(), "api_key_set": c.APIKey != ""}
+	daily, perPeer := c.runBudgets()
+	return map[string]any{"backend": backend, "agent": c.Agent, "untrusted": c.UntrustedMode(),
+		"trusted": c.TrustedMode(), "runs_per_day": daily, "runs_per_peer_per_day": perPeer,
+		"api_key_set": c.APIKey != ""}
+}
+
+// recordTrustedChange writes anet.policy.changed when a configuration write changes how trusted peers'
+// turns run (LEC §2.5). Turning auto-reply on or off is the auto_reply record's.
+func recordTrustedChange(d *Daemon, from, to *AutoReplyConfig) {
+	if from == nil || to == nil {
+		return
+	}
+	if a, b := from.TrustedMode(), to.TrustedMode(); a != b {
+		d.recordPolicyChange("auto_reply.trusted", a, b, nil)
+	}
+}
+
+// writeConfigRefusal answers a configuration write the checks refused (budget_invalid,
+// work_dir_invalid, config_invalid; LEC §2.3.4) with 400 and the error body with its reason (UX-R9),
+// and reports whether err was one.
+func writeConfigRefusal(w http.ResponseWriter, err error) bool {
+	var ref *a2ashape.Refusal
+	if !errors.As(err, &ref) {
+		return false
+	}
+	writeRefusal(w, http.StatusBadRequest, ref)
+	return true
+}
+
+// checkTrustedMode is config_invalid for an auto_reply.trusted that is neither direct nor sandbox (LEC
+// §3.2).
+func checkTrustedMode(c *AutoReplyConfig) *a2ashape.Refusal {
+	if c == nil {
+		return nil
+	}
+	switch c.Trusted {
+	case "", TrustedDirect, TrustedSandbox:
+		return nil
+	}
+	return a2ashape.Refuse(reasonConfigInvalid, a2ashape.Args{"key": "auto_reply.trusted",
+		"rule": ruleText("只能是 direct 或 sandbox", "it must be direct or sandbox")})
+}
+
+// checkAutoReplyConfig is the refusal for an auto-reply configuration this area does not take (LEC
+// §3.2): auto_reply.trusted neither direct nor sandbox, a run budget out of range, or a work_dir in the
+// data dir or the sandbox work root. dataDir empty skips the data dir.
+func checkAutoReplyConfig(c *AutoReplyConfig, dataDir string) *a2ashape.Refusal {
+	if r := checkTrustedMode(c); r != nil {
+		return r
+	}
+	if r := checkRunBudgets(c); r != nil {
+		return r
+	}
+	return checkWorkDir(c, dataDir)
+}
+
+// The auto-reply configuration is checked when the daemon starts (LEC §3.2); the data dir is checked
+// by New, which knows it (Daemon.validate).
+func init() {
+	configChecks = append(configChecks, func(c Config, _ map[string]any) *a2ashape.Refusal {
+		if r := checkTrustedMode(c.AutoReply); r != nil {
+			return r
+		}
+		return checkWorkDir(c.AutoReply, "")
+	})
 }

@@ -210,9 +210,13 @@ func (c InboundConfig) publicCapability(capID string) (PublicCapability, bool) {
 // --- configuration validation (A2A-DESIGN §5.1) ---
 
 // ErrPolicyConflict is returned when a configuration would accept work from
-// anyone (policy open) while also running a local agent, or forwarding to
-// a backend, for peers this node does not trust. The control plane answers
-// it with 409.
+// anyone (policy open) while also forwarding to an A2A backend that takes
+// peers this node does not trust. The control plane answers it with 409.
+//
+// Policy open together with the exec backend in the sandbox for untrusted
+// peers is not a conflict (LEC GT-5): the sandbox has no network beyond the
+// node's model route, holds no key and runs under a daily budget (SI-55 to
+// SI-58), which is what running an agent for anyone needs.
 var ErrPolicyConflict = errors.New("anet: inbound policy conflict")
 
 // validatePolicy is the one check of the inbound configuration. It runs at
@@ -251,10 +255,6 @@ func validatePolicy(c Config, untrustedBackend bool) error {
 	if in.Policy != PolicyOpen {
 		return nil
 	}
-	if ar := c.AutoReply; ar != nil && ar.Backend == "exec" && ar.UntrustedMode() != UntrustedOff {
-		return fmt.Errorf("%w: policy open accepts tasks from anyone, and auto_reply.untrusted=%s runs the "+
-			"local agent for peers not on the trust list; change one of the two", ErrPolicyConflict, ar.Untrusted)
-	}
 	if untrustedBackend {
 		return fmt.Errorf("%w: policy open accepts tasks from anyone, and an A2A backend is configured with "+
 			"accept_untrusted; change one of the two", ErrPolicyConflict)
@@ -263,8 +263,17 @@ func validatePolicy(c Config, untrustedBackend bool) error {
 }
 
 // validate runs validatePolicy against this daemon's module declarations.
+// It also runs the auto-reply checks that need the data dir (LEC §3.2):
+// a daemon whose config.json a person edited by hand does not start with a
+// value it would refuse to write.
 func (d *Daemon) validate(c Config) error {
-	return validatePolicy(c, d.untrustedBackend.Load())
+	if err := validatePolicy(c, d.untrustedBackend.Load()); err != nil {
+		return err
+	}
+	if ref := checkAutoReplyConfig(c.AutoReply, d.layout.Root); ref != nil {
+		return ref
+	}
+	return nil
 }
 
 // --- peer lists ---

@@ -90,6 +90,10 @@ type AutoReplyConfig struct {
 	// which fails closed when the sandbox is unavailable). The openai
 	// backend runs no local program and is not gated by it.
 	Untrusted string `json:"untrusted,omitempty"`
+	// Trusted says how the exec backend runs for a peer on the trust list
+	// (LEC GT-1): "direct" (the default; as the operator's user) or
+	// "sandbox" (in the sandbox, outside the run budget).
+	Trusted string `json:"trusted,omitempty"`
 	// --- "openai" backend ---
 	APIBase      string `json:"api_base,omitempty"` // e.g. http://127.0.0.1:11434/v1
 	APIKey       string `json:"api_key,omitempty"`  // bearer key, if the endpoint needs one
@@ -110,8 +114,8 @@ type AutoReplyConfig struct {
 	MaxHistory          int `json:"max_history,omitempty"`           // max conversation turns sent to the backend (default 20)
 	APITimeoutSeconds   int `json:"api_timeout_seconds,omitempty"`   // one backend call (default 180)
 	MaxAutoReplies      int `json:"max_auto_replies,omitempty"`      // runaway guard: max messages we auto-send per interaction before proposing end (default 30)
-	// Sandbox configures the sandbox's network (LEC §3.2, ux §2.2); absent, it has none beyond the
-	// model route.
+	// Sandbox configures the sandbox's network and its run budget (LEC §3.2, ux §2.2); absent, the
+	// defaults apply: no network beyond the model route, and the default budget.
 	Sandbox *AutoReplySandboxConfig `json:"sandbox,omitempty"`
 }
 
@@ -122,11 +126,16 @@ type AutoReplySandboxConfig struct {
 	// untrusted peer's task to send data out, so adding one is confirmed on a terminal (UX-C12);
 	// removing one is not.
 	EgressAllow []string `json:"egress_allow,omitempty"`
+	// RunsPerDay and RunsPerPeerPerDay are the run budget for untrusted
+	// peers per local calendar day (LEC BU-3): 20 and 5 when unset, 0 for
+	// no runs (sandbox_budget.go).
+	RunsPerDay        *BudgetValue `json:"runs_per_day,omitempty"`
+	RunsPerPeerPerDay *BudgetValue `json:"runs_per_peer_per_day,omitempty"`
 }
 
 // empty reports a sandbox block that sets nothing.
 func (s *AutoReplySandboxConfig) empty() bool {
-	return s == nil || len(s.EgressAllow) == 0
+	return s == nil || (len(s.EgressAllow) == 0 && s.RunsPerDay == nil && s.RunsPerPeerPerDay == nil)
 }
 
 // The egress allowlist is checked when the daemon starts (CN-1, LEC §3.2): a config.json edited by hand
@@ -154,6 +163,21 @@ func (c AutoReplyConfig) UntrustedMode() string {
 		return UntrustedSandbox
 	}
 	return UntrustedOff
+}
+
+// Values of AutoReplyConfig.Trusted.
+const (
+	TrustedDirect  = "direct"
+	TrustedSandbox = "sandbox"
+)
+
+// TrustedMode is the effective auto_reply.trusted value: "direct" unless
+// the operator set "sandbox".
+func (c AutoReplyConfig) TrustedMode() string {
+	if c.Trusted == TrustedSandbox {
+		return TrustedSandbox
+	}
+	return TrustedDirect
 }
 
 // DefaultConfig is the out-of-the-box daemon config. The inbound block is
