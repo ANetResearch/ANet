@@ -50,6 +50,16 @@ type Daemon struct {
 	// the clock gate counts running time on. Tests only, through
 	// setMonoClock.
 	monoClock atomic.Pointer[func() uint64]
+	// keyHold, when set, answers keysHeld (enckeys.go): whether key sets
+	// are held back between an emergency rotation's E1 and E2. Tests only,
+	// through setKeyHold, until the emergency rotation answers it.
+	keyHold atomic.Pointer[func() bool]
+	// drain is what the hub mailbox polls say about the epoch keys: how far
+	// each hub's mailbox was read, and what it holds back (relay.go).
+	drain drainState
+	// startLevel is the clock gate's level at the first maintenance period
+	// of the process (setupKeyRing).
+	startLevel clockLevel
 	// hubIDs caches each hub's pinned identity by URL (hub_client.go).
 	hubIDMu sync.Mutex
 	hubIDs  map[string]hubIdent

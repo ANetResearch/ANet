@@ -20,8 +20,11 @@ package daemon
 //     an AID not registered here, 413 over the envelope cap, 429 rate_limited (with Retry-After) over
 //     the per-sender budget, 507 over the per-recipient mailbox cap; the same envelope still queued is
 //     a 200 duplicate under its first rid;
-//   - GET/POST /agents/{aid}/keys with the publisher high-water rule (200 / 409), for the agents
-//     registered here;
+//   - GET/POST /agents/{aid}/keys for the agents registered here: keys in base64url with prev_seq,
+//     the publisher rule of FS-H4 (the stored set again is unchanged; a set that does not follow the
+//     stored one, by prev_seq or seq, is 409 keys_rollback with stored_seq), SSR-W9 refused with 400
+//     bad_request; /register applies the same rule to enc_keys before it writes anything;
+//   - every answer with a Date header (net/http's), or the one dateFn gives;
 //   - POST /directory:bucket (sealed-sender §2.9, SSR-W17 to SSR-W21): every agent registered here with a
 //     key set has an entry sealed under its AID (dirbox), filed under its directory hash; a query names a
 //     prefix of at most dir_max_bits bits (400 bucket_too_narrow with max_bits above), and is answered with
@@ -241,8 +244,20 @@ type fakeHub struct {
 	// (keys_status invalid at /register, 400 at POST /agents/{aid}/keys):
 	// a hub that does not hold this node's mailbox signing key.
 	refuseKeySets bool
-	// keyPosts counts POST /agents/{aid}/keys requests.
-	keyPosts int
+	// keyPosts counts POST /agents/{aid}/keys requests; keyBodies keeps
+	// their bodies.
+	keyPosts  int
+	keyBodies [][]byte
+	// dateFn, when set, is the time every answer's Date header states: a
+	// hub whose clock is off, or one a test drives.
+	dateFn func() time.Time
+	// pollMore, when set, is the more every poll answer states: a hub that
+	// always says more is queued (red team A1), or never does.
+	pollMore *bool
+	// keysAt, when set, is the time (unix ms) key sets are verified at, the
+	// hub's clock for them: a test whose nodes live days ahead moves it
+	// with them.
+	keysAt func() uint64
 	// peers are other fake hubs whose buckets this hub's answers merge,
 	// standing in for /fed/v3/directory:bucket (SSR-W19); a peer whose
 	// dirDown is set makes the answer partial (SSR-W21).
@@ -559,6 +574,9 @@ func (h *fakeHub) handler() http.Handler {
 		}
 		h.mu.Lock()
 		wire, cookie := h.wire, h.setCookie
+		if h.dateFn != nil {
+			w.Header().Set("Date", h.dateFn().UTC().Format(http.TimeFormat))
+		}
 		h.requests = append(h.requests, rec)
 		if h.closeConns {
 			w.Header().Set("Connection", "close")
@@ -767,6 +785,15 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
 		return
 	}
+	// enc_keys is base64url and comes with prev_seq (PAY-A1 step 3).
+	var encKeys []byte
+	if req.EncKeys != "" {
+		var err error
+		if encKeys, err = hubapi.DecodeB64(req.EncKeys, -1); err != nil || req.PrevSeq == nil {
+			fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+			return
+		}
+	}
 	var powSeed, powNonce []byte
 	if req.PoW != nil {
 		var e1, e2 error
@@ -848,6 +875,15 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 			fakeHubRefuse(w, http.StatusConflict, "kel_fork", nil)
 			return
 		}
+		// The key set must follow the stored one (PAY-A1 step 9, FS-H4):
+		// otherwise 409 keys_rollback, and nothing is written.
+		if encKeys != nil {
+			if stored, ok := keysRollbackLocked(prior, encKeys, *req.PrevSeq); ok {
+				h.mu.Unlock()
+				fakeHubRefuse(w, http.StatusConflict, hubapi.KeysRollbackReason, map[string]any{"stored_seq": stored})
+				return
+			}
+		}
 	}
 	h.mu.Unlock()
 	if req.CheckOnly {
@@ -911,8 +947,8 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 	if until, ok := h.probation[req.AID]; ok {
 		out.ProbationUntil, out.Trial = &until, "pending"
 	}
-	if req.EncKeys != "" {
-		out.KeysStatus, out.KeysError = h.admitKeysLocked(a, req.EncKeys, kelEvents)
+	if encKeys != nil {
+		out.KeysStatus, out.KeysError, _ = h.admitKeysLocked(a, encKeys, *req.PrevSeq, kelEvents)
 	}
 	h.registerKeys[req.AID] = out.KeysStatus
 	switch {
@@ -971,56 +1007,91 @@ func (h *fakeHub) admitA2ACardLocked(aid string, raw []byte, kel []identity.Sign
 	return hubapi.CardStatusOK, ""
 }
 
-// admitKeysLocked applies the publisher rules of §3.1 to a key set for a
-// registered agent and returns the per-field status (hubapi.KeysStatus*)
-// and, for a refusal, why. The caller holds h.mu.
-func (h *fakeHub) admitKeysLocked(a *fakeHubAgent, b64 string, kel []identity.SignedEvent) (string, string) {
-	raw, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return hubapi.KeysStatusInvalid, "not base64"
+// keysRollbackLocked is the prev_seq rule of FS-H4 for raw against what a
+// holds, as the real hub's followsStored applies it: the stored set again
+// (same seq, same set) follows whatever prev_seq says; otherwise a stored
+// seq above prevSeq, or a seq not above the stored one, does not follow.
+// It returns the stored seq when raw does not follow. The caller holds
+// h.mu.
+func keysRollbackLocked(a *fakeHubAgent, raw []byte, prevSeq uint64) (uint64, bool) {
+	if len(a.keyset) == 0 {
+		return 0, false
 	}
 	signed, err := seal.UnmarshalSignedEncKeySet(raw)
 	if err != nil {
-		return hubapi.KeysStatusInvalid, "undecodable"
+		return 0, false
 	}
-	set, err := seal.VerifyEncKeySet(signed, a.view.AID, kel, uint64(time.Now().UnixMilli()))
+	prev, err := seal.UnmarshalSignedEncKeySet(a.keyset)
 	if err != nil {
-		return hubapi.KeysStatusInvalid, err.Error()
+		return 0, false
+	}
+	var ps, ns seal.EncKeySet
+	if coredet.Unmarshal(prev.Set, &ps) != nil || coredet.Unmarshal(signed.Set, &ns) != nil {
+		return 0, false
+	}
+	if ns.Seq == ps.Seq && bytes.Equal(signed.Set, prev.Set) {
+		return 0, false
+	}
+	if ps.Seq > prevSeq || ns.Seq <= ps.Seq {
+		return ps.Seq, true
+	}
+	return 0, false
+}
+
+// admitKeysLocked applies the publisher rules of §3.1 to a key set for a
+// registered agent and returns the per-field status (hubapi.KeysStatus*)
+// and, for a refusal, why; rollback is the stored seq when the set does not
+// follow the stored one (keysRollbackLocked), with status "". The caller
+// holds h.mu.
+func (h *fakeHub) admitKeysLocked(a *fakeHubAgent, raw []byte, prevSeq uint64, kel []identity.SignedEvent) (string, string, *uint64) {
+	signed, err := seal.UnmarshalSignedEncKeySet(raw)
+	if err != nil {
+		return hubapi.KeysStatusInvalid, "undecodable", nil
+	}
+	if stored, ok := keysRollbackLocked(a, raw, prevSeq); ok {
+		return "", "the stored set is newer", &stored
+	}
+	at := uint64(time.Now().UnixMilli())
+	if h.keysAt != nil {
+		at = h.keysAt()
+	}
+	set, err := seal.VerifyEncKeySet(signed, a.view.AID, kel, at)
+	if err != nil {
+		return hubapi.KeysStatusInvalid, err.Error(), nil
 	}
 	if h.refuseKeySets {
-		return hubapi.KeysStatusInvalid, "this hub refuses key sets (test)"
+		return hubapi.KeysStatusInvalid, "this hub refuses key sets (test)", nil
 	}
 	// SSR-W9, as the real hub applies it: the mailbox epoch is below 2^53,
 	// never falls, and rises whenever the mailbox key changes.
 	if set.Mbox.Epoch >= 1<<53 {
-		return hubapi.KeysStatusInvalid, "mbox epoch past 2^53"
+		return hubapi.KeysStatusInvalid, "mbox epoch past 2^53", nil
 	}
-	var seen *seal.Seen
 	if len(a.keyset) > 0 {
 		if prev, err := seal.UnmarshalSignedEncKeySet(a.keyset); err == nil {
 			var ps seal.EncKeySet
 			if coredet.Unmarshal(prev.Set, &ps) == nil {
-				seen = &seal.Seen{Seq: ps.Seq, Set: prev.Set}
 				if set.Mbox.Epoch < ps.Mbox.Epoch ||
-					!bytes.Equal(set.Mbox.Pub, ps.Mbox.Pub) && set.Mbox.Epoch == ps.Mbox.Epoch {
-					return hubapi.KeysStatusInvalid, "mbox epoch must rise when the mailbox key changes"
+					!bytes.Equal(set.Mbox.Pub, ps.Mbox.Pub) && set.Mbox.Epoch == ps.Mbox.Epoch ||
+					bytes.Equal(set.Mbox.Pub, ps.Mbox.Pub) && set.Mbox.Epoch != ps.Mbox.Epoch {
+					return hubapi.KeysStatusInvalid, "mbox epoch must rise when the mailbox key changes", nil
+				}
+				if ps.Seq == set.Seq {
+					// The same set, maybe signed again (a KEL rotation).
+					a.keyset = append([]byte(nil), raw...)
+					return hubapi.KeysStatusUnchanged, "", nil
 				}
 			}
 		}
 	}
-	switch seal.DecideHighWater(seen, set.Seq, signed.Set) {
-	case seal.Replace:
-		a.keyset = raw
-		return hubapi.KeysStatusOK, ""
-	case seal.Same:
-		return hubapi.KeysStatusUnchanged, ""
-	default:
-		return hubapi.KeysStatusConflict, "seq does not supersede the stored key set"
-	}
+	a.keyset = append([]byte(nil), raw...)
+	return hubapi.KeysStatusOK, "", nil
 }
 
-// hKeysPost mirrors POST /agents/{aid}/keys: signed by the AID itself,
-// verified against the registered KEL, publisher high-water (200 or 409).
+// hKeysPost mirrors POST /agents/{aid}/keys (FS-H4): signed by the AID
+// itself, {keys: base64url, prev_seq} decoded strictly, verified against the
+// registered KEL; 200 ok or unchanged, 409 keys_rollback with stored_seq,
+// 400 bad_request for anything else.
 func (h *fakeHub) hKeysPost(w http.ResponseWriter, r *http.Request) {
 	body, ok := h.readBody(w, r, 1<<20)
 	if !ok {
@@ -1034,27 +1105,38 @@ func (h *fakeHub) hKeysPost(w http.ResponseWriter, r *http.Request) {
 		fakeHubJSON(w, http.StatusUnauthorized, map[string]string{"error": "signer is not the path AID"})
 		return
 	}
-	var req hubapi.KeysPublishRequest
-	if err := json.Unmarshal(body, &req); err != nil || req.KeySet == "" {
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "keyset required"})
+	var req struct {
+		Keys    string  `json:"keys"`
+		PrevSeq *uint64 `json:"prev_seq"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil || req.Keys == "" || req.PrevSeq == nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	raw, err := hubapi.DecodeB64(req.Keys, -1)
+	if err != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.keyPosts++
+	h.keyBodies = append(h.keyBodies, append([]byte(nil), body...))
 	a := h.agents[aid]
 	kel, err := identity.UnmarshalKEL(a.kel)
 	if err != nil {
 		fakeHubJSON(w, http.StatusInternalServerError, map[string]string{"error": "stored kel unreadable"})
 		return
 	}
-	switch st, why := h.admitKeysLocked(a, req.KeySet, kel); st {
-	case hubapi.KeysStatusOK, hubapi.KeysStatusUnchanged:
+	switch st, why, stored := h.admitKeysLocked(a, raw, *req.PrevSeq, kel); {
+	case stored != nil:
+		fakeHubRefuse(w, http.StatusConflict, hubapi.KeysRollbackReason, map[string]any{"stored_seq": *stored})
+	case st == hubapi.KeysStatusOK, st == hubapi.KeysStatusUnchanged:
 		fakeHubJSON(w, http.StatusOK, hubapi.KeysPublishResponse{AID: aid, KeysStatus: st})
-	case hubapi.KeysStatusConflict:
-		fakeHubJSON(w, http.StatusConflict, map[string]string{"error": why})
 	default:
-		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": why})
+		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"reason": "bad_request", "error": "The key set was not accepted: " + why + "."})
 	}
 }
 
@@ -1792,21 +1874,31 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	h.relayPolls[aid]++
 	out := []hubapi.RelayMessage{}
+	more := false
 	// h.mailbox is in id order: ids come from nextID and rows are appended.
 	for _, m := range h.mailbox {
 		if m.toAID != aid || m.id <= req.AfterID {
 			continue
 		}
-		out = append(out, hubapi.RelayMessage{ID: m.id, Envelope: hubapi.B64(m.payload)})
+		if len(out) >= limit {
+			// The page is full and a row follows it (FS-H5).
+			more = true
+			break
+		}
+		var accepted uint64
+		if at, err := time.Parse(time.RFC3339Nano, m.createdAt); err == nil {
+			accepted = uint64(at.UnixMilli())
+		}
+		out = append(out, hubapi.RelayMessage{ID: m.id, Envelope: hubapi.B64(m.payload), AcceptedAt: accepted})
 		if h.relayServed == nil {
 			h.relayServed = map[string][]int64{}
 		}
 		h.relayServed[aid] = append(h.relayServed[aid], m.id)
-		if len(out) >= limit {
-			break
-		}
 	}
-	resp := hubapi.RelayPollResponse{Messages: out}
+	if h.pollMore != nil {
+		more = *h.pollMore
+	}
+	resp := hubapi.RelayPollResponse{Messages: out, More: more}
 	resp.KeyStateNotice, resp.KeyStateNoticeError = h.noticeForLocked(aid)
 	fakeHubJSON(w, http.StatusOK, resp)
 }

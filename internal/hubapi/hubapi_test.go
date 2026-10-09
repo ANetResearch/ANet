@@ -50,8 +50,8 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		{"SessionRequest", hubapi.SessionRequest{}, []string{"epk"}},
 		{"SessionResponse", hubapi.SessionResponse{}, []string{"ct", "enc", "exp", "sid"}},
 		{"RelayPollRequest", hubapi.RelayPollRequest{}, []string{"after_id", "limit"}},
-		{"RelayPollResponse", hubapi.RelayPollResponse{}, []string{"key_state_notice", "key_state_notice_error", "messages"}},
-		{"RelayMessage", hubapi.RelayMessage{}, []string{"envelope", "id"}},
+		{"RelayPollResponse", hubapi.RelayPollResponse{}, []string{"key_state_notice", "key_state_notice_error", "messages", "more"}},
+		{"RelayMessage", hubapi.RelayMessage{}, []string{"accepted_at", "envelope", "id"}},
 		// Delivery tokens (DLV §2.4, core §2.12.2). Mirrors ANetHub
 		// internal/aghub: the same names on both sides, and the registry's
 		// (TestTheDeliveryTokenBodiesAreTheRegistrys).
@@ -62,19 +62,19 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		{"RelayStatusItem", hubapi.RelayStatusItem{}, []string{"handle", "rid", "via_hub"}},
 		{"RelayStatusResponse", hubapi.RelayStatusResponse{}, []string{"items"}},
 		{"RelayStatusResult", hubapi.RelayStatusResult{}, []string{"dack", "state"}},
-		{"KeysResponse", hubapi.KeysResponse{}, []string{"aid", "kel", "keyset"}},
+		{"KeysResponse", hubapi.KeysResponse{}, []string{"aid", "kel", "keys"}},
 		// POST /directory:bucket (core §2.12.2; TestTheBucketBodiesAreTheRegistrys
 		// holds them to the registry). Mirrors ANetHub internal/aghub/directory.go.
 		{"DirBucketRequest", hubapi.DirBucketRequest{}, []string{"bits", "cursor", "prefix"}},
 		{"DirBucketResponse", hubapi.DirBucketResponse{}, []string{"entries", "max_bits", "next", "partial"}},
 		{"DirBucketEntry", hubapi.DirBucketEntry{}, []string{"box", "h"}},
-		{"KeysPublishRequest", hubapi.KeysPublishRequest{}, []string{"keyset"}},
+		{"KeysPublishRequest", hubapi.KeysPublishRequest{}, []string{"keys", "prev_seq"}},
 		{"KeysPublishResponse", hubapi.KeysPublishResponse{}, []string{"aid", "keys_status"}},
 		// core §2.12.2. No invite: a hub admits by AID (LEC HN-5).
 		// Mirrors ANetHub internal/aghub/server.go RegisterRequest and the
 		// WIRE3 fixtures register*.json.
 		{"RegisterRequest", hubapi.RegisterRequest{}, []string{
-			"a2a_card", "aid", "caps", "card", "check_only", "enc_keys", "kel", "name", "pow",
+			"a2a_card", "aid", "caps", "card", "check_only", "enc_keys", "kel", "name", "pow", "prev_seq",
 		}},
 		{"RegisterPoW", hubapi.RegisterPoW{}, []string{"nonce", "seed"}},
 		{"RegisterResponse", hubapi.RegisterResponse{}, []string{
@@ -193,7 +193,7 @@ func fillStrings(v reflect.Value) reflect.Value {
 func TestTheKeysStatusValuesArePinned(t *testing.T) {
 	for want, got := range map[string]string{
 		"ok": hubapi.KeysStatusOK, "unchanged": hubapi.KeysStatusUnchanged, "absent": hubapi.KeysStatusAbsent,
-		"invalid": hubapi.KeysStatusInvalid, "conflict": hubapi.KeysStatusConflict,
+		"invalid": hubapi.KeysStatusInvalid, "keys_rollback": hubapi.KeysRollbackReason,
 	} {
 		if got != want {
 			t.Errorf("keys_status %q, want %q — the hub reports these exact strings", got, want)

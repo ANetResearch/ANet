@@ -683,7 +683,7 @@ func TestActiveContactRevalidatedOncePer24h(t *testing.T) {
 	seq0, checked0 := row.KeySetSeq, uint64(row.KeysCheckedAt)
 	// The provider rotates its encryption key and publishes the new set.
 	start := uint64(time.Now().UnixMilli())
-	prov.setClock(func() uint64 { return start + encKeyRotateEvery + 1 })
+	prov.setClock(func() uint64 { return start - start%seal.EpochMS + seal.EpochMS + 60_000 })
 	prov.maintainKeyRing()
 	newSeq := prov.enc.Seq()
 	if newSeq <= seq0 {
@@ -803,7 +803,7 @@ func TestKidStaleBypassesCaches(t *testing.T) {
 	row, _ := req.ix.PeerIdentity(prov.AID())
 	seq0 := row.KeySetSeq
 	start := uint64(time.Now().UnixMilli())
-	prov.setClock(func() uint64 { return start + encKeyRotateEvery + 1 })
+	prov.setClock(func() uint64 { return start - start%seal.EpochMS + seal.EpochMS + 60_000 })
 	prov.maintainKeyRing()
 	newSeq := prov.enc.Seq()
 	if newSeq <= seq0 {

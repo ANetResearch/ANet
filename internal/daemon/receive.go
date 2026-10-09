@@ -1435,17 +1435,26 @@ func (d *Daemon) purgeReplay() {
 }
 
 // receiveMaintenance runs the periodic housekeeping of the receive path
-// every hour until ctx ends: expired replay rows, key ring rotation and
-// publication, and the public_cap retention sweep. New runs the first purge
-// itself; the key ring is maintained at start by setupKeyRing and published
-// by the registration refresh; the first retention sweep runs here, off the
-// start path.
+// until ctx ends: every maintenance period S (keyMaintainEvery), the key
+// ring, its deletions under the clock gate and its publication, the
+// interaction keys past close_after and the public_cap retention sweep
+// (keyMaintenance, FS-K4); every hour, expired replay rows. New runs the
+// first purge and the first period of the key ring (setupKeyRing) itself,
+// and the registration at start publishes the set.
+//
+// The period takes the mailbox poll's lock, so it runs between two poll
+// rounds of the relay loop, serial with the receive path of the hub
+// mailbox; a node without a hub has no poll to wait for.
 func (d *Daemon) receiveMaintenance(ctx context.Context) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
+	k := time.NewTicker(keyMaintainEvery.get())
+	defer k.Stop()
 	m := time.NewTicker(time.Minute)
 	defer m.Stop()
-	d.pruneRetention() // at start too: a node restarted more often than hourly still sweeps
+	// The retention sweep at start too, as far as the first period's gate
+	// allows: a node restarted more often than every period still sweeps.
+	d.sweepHardBound(d.startLevel)
 	for {
 		select {
 		case <-ctx.Done():
@@ -1453,8 +1462,8 @@ func (d *Daemon) receiveMaintenance(ctx context.Context) {
 			return
 		case <-t.C:
 			d.purgeReplay()
-			d.maintainKeyRing()
-			d.pruneRetention() // daily in effect: the cutoff moves once a day (evidence_mode.go)
+		case <-k.C:
+			d.keyMaintenance()
 		case <-m.C:
 			// The inbound policy's periodic work (inbound.go, pending.go):
 			// the refusal and acceptance summaries, expiry of held

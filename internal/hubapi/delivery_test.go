@@ -73,6 +73,50 @@ func TestTheDeliveryTokenBodiesAreTheRegistrys(t *testing.T) {
 // The revocation bodies have exactly the members the registry gives POST
 // /mailbox/revoke, and the batch bound is the hub's (sealed-sender §2.12,
 // ANetHub MaxRevokeBatch).
+// The key set publication and the poll answer are the registry's (core
+// §2.12.2; forward-secrecy FS-H4, FS-H5): keys in base64url with prev_seq,
+// and a poll page that says whether more follows it.
+func TestTheKeyAndPollBodiesAreTheRegistrys(t *testing.T) {
+	r, err := wire.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		path     string
+		response bool
+		typ      reflect.Type
+	}{
+		{"/agents/{aid}/keys", false, reflect.TypeFor[hubapi.KeysPublishRequest]()},
+		{"/relay/poll", false, reflect.TypeFor[hubapi.RelayPollRequest]()},
+		{"/relay/poll", true, reflect.TypeFor[hubapi.RelayPollResponse]()},
+	} {
+		ep := r.Endpoint("POST", c.path)
+		if ep == nil {
+			t.Fatalf("POST %s is not a registered endpoint", c.path)
+		}
+		body := ep.Request
+		if c.response {
+			body = ep.Response
+		}
+		for _, d := range scan.JSONFields(c.typ, body) {
+			t.Errorf("POST %s %s: %s", c.path, c.typ, d)
+		}
+	}
+	// /register: enc_keys and prev_seq as the registry has them.
+	reg := r.Endpoint("POST", "/register")
+	members := map[string]string{}
+	for _, f := range reg.Request.Fields {
+		members[f.Name] = f.Type
+	}
+	if members["enc_keys"] != "b64url" || members["prev_seq"] != "uint" {
+		t.Fatalf("/register enc_keys %q, prev_seq %q in the registry", members["enc_keys"], members["prev_seq"])
+	}
+	for _, d := range scan.JSONFields(reflect.TypeFor[hubapi.RegisterRequest](), &wire.Body{Partial: true,
+		Fields: []*wire.Field{{Name: "enc_keys", Type: "b64url"}, {Name: "prev_seq", Type: "uint"}}}) {
+		t.Errorf("POST /register: %s", d)
+	}
+}
+
 func TestTheRevocationBodiesAreTheRegistrys(t *testing.T) {
 	r, err := wire.Load()
 	if err != nil {

@@ -42,6 +42,24 @@ func (d *Daemon) setMonoClock(f func() uint64) {
 	d.forgetCycle()
 }
 
+// setKeyHold makes keysHeld answer f(): a test stands in for the emergency
+// rotation between its E1 and E2. nil restores the default.
+func (d *Daemon) setKeyHold(f func() bool) {
+	if f == nil {
+		d.keyHold.Store(nil)
+		return
+	}
+	d.keyHold.Store(&f)
+}
+
+// testKeyHold is the key hold a test set, or nil.
+func (d *Daemon) testKeyHold() func() bool {
+	if p := d.keyHold.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
 // setRxFault makes every receive transaction call f after its business
 // writes, rolling back when f returns an error; nil removes it.
 func (d *Daemon) setRxFault(f func(typ string) error) {
