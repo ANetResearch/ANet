@@ -95,7 +95,9 @@ func TestThePaymentModuleServesNoHTTP(t *testing.T) {
 
 // The provider package names one door that carries a caller, the relay:
 // ViaVoucher, the door where CallerAID was the payer a hub attested rather
-// than the caller, is gone.
+// than the caller, is gone. Every package-level name starting with Via
+// counts, constant or variable: a door brought back as a var is as open as
+// one brought back as a const.
 func TestTheOnlyDoorIsTheRelay(t *testing.T) {
 	dir := filepath.Join("..", "..", "provider")
 	entries, err := os.ReadDir(dir)
@@ -114,7 +116,7 @@ func TestTheOnlyDoorIsTheRelay(t *testing.T) {
 		}
 		for _, d := range f.Decls {
 			gd, ok := d.(*ast.GenDecl)
-			if !ok || gd.Tok != token.CONST {
+			if !ok || (gd.Tok != token.CONST && gd.Tok != token.VAR) {
 				continue
 			}
 			for _, sp := range gd.Specs {

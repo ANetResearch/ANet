@@ -42,10 +42,11 @@ const maxHubResponse = 256 << 20 // 256 MiB
 // bytes, base64url on the wire, core G2) and, when the hub asked for one, a
 // proof of work, and returns the hub's answer as it came (the join loop
 // reads it, hubjoin.go). It publishes this agent's encryption key set and
-// A2A network card with it, so it can be discovered, reached and reviewed. The hub derives the AID from the KEL, refuses a mismatch and
-// verifies the relayauth v2 signature against that KEL — so this cannot
-// claim (or overwrite) another agent's AID. There is no invitation in it:
-// a hub admits by AID.
+// A2A network card with it, so it can be discovered, reached and reviewed.
+// The hub derives the AID from the KEL, refuses a mismatch and verifies the
+// relayauth v2 signature against that KEL — so this cannot claim (or
+// overwrite) another agent's AID. There is no invitation in it: a hub
+// admits by AID.
 //
 // An accepted registration is followed through here: the card's answer
 // (afterCardAnswer) and the key set's (publishKeys when the hub did not take

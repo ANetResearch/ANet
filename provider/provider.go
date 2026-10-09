@@ -116,8 +116,8 @@ type CapabilityProvider interface {
 	// Capabilities lists the capability ids this provider currently offers.
 	Capabilities(ctx context.Context) ([]string, error)
 	// Describe returns the CID of the provider's descriptor object in the
-	// local CAS ("" when the provider publishes none). The daemon mounts it
-	// on the agent's ADP card without interpreting it.
+	// local CAS ("" when the provider publishes none). The daemon does not
+	// interpret it.
 	Describe(ctx context.Context) (string, error)
 	// Invoke executes one capability call and reports its effect. Transport
 	// or execution errors are returned as error; a reachable target whose

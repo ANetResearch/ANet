@@ -139,6 +139,8 @@ func TestTheControlPlaneRefusesTheRemovedPaymentMembers(t *testing.T) {
 		hubPath    string // what the request would have sent the hub
 	}{
 		{"/profile", `{"summary":"s","pricing":"3 credits"}`, removedProfilePricing, "/profile"},
+		// The same member in another case: encoding/json would have read it.
+		{"/profile", `{"Summary":"s","Pricing":"3 credits"}`, removedProfilePricing, "/profile"},
 		{"/delegate", `{"provider":"bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz","capability":"work.do","pay":true}`,
 			removedDelegatePay, hubapi.RelaySendPath},
 	} {

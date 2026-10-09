@@ -643,28 +643,32 @@ func consoleURL(cfg Config) string {
 // profile is published (signed). Meant to be called by the operator's agent (`anet profile set`).
 //
 // A profile carries no price (0.3.0): a request that still sends "pricing" is refused with what to do
-// instead, nothing is changed, rather than having the member dropped without a word.
+// instead, nothing is changed, rather than having the member dropped without a word. The member is
+// matched whatever its case, as encoding/json matches "Summary" to summary: "Pricing" is the same
+// member and is refused the same way (UX-D3).
 func (d *Daemon) hProfile(w http.ResponseWriter, r *http.Request) {
-	m, err := readJSONMembers(r)
-	if err != nil {
+	body, err := io.ReadAll(r.Body)
+	var m map[string]json.RawMessage
+	if err == nil {
+		err = json.Unmarshal(body, &m)
+	}
+	if err != nil || m == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
-	if _, ok := m["pricing"]; ok {
-		writeRefusal(w, http.StatusBadRequest, removedProfilePricing)
-		return
+	for k := range m {
+		if strings.EqualFold(k, "pricing") {
+			writeRefusal(w, http.StatusBadRequest, removedProfilePricing)
+			return
+		}
 	}
 	var req struct {
 		Summary *string `json:"summary"`
 		Readme  *string `json:"readme"`
 	}
-	for k, dst := range map[string]**string{"summary": &req.Summary, "readme": &req.Readme} {
-		if raw, ok := m[k]; ok {
-			if err := json.Unmarshal(raw, dst); err != nil {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
-				return
-			}
-		}
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return
 	}
 	p := d.CurrentProfile()
 	if req.Summary != nil {

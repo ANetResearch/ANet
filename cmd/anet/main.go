@@ -1537,20 +1537,7 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		}
 		return nil
 	case "find":
-		// The listing comes through the daemon's /agents/list, which reads
-		// the hub's directory and matches here: the query never reaches the
-		// hub (A2A-DESIGN §10.5). --cap asks the exact question: who serves
-		// this capability id ("cas.put" means that id; "ptz.*" that family).
-		// Without it the query is a substring of what is shown.
-		pos, flags := splitFlags(rest)
-		body := map[string]any{"include_uncarded": true, "limit": findLimit}
-		if q := strings.TrimSpace(strings.Join(pos, " ")); q != "" {
-			body["q"] = q
-		}
-		if capID := capFlag(flags); capID != "" {
-			body["skill"] = capID
-		}
-		return c.do("/agents/list", body)
+		return findCommand(c, rest)
 	case "delegate":
 		attachPaths, rest2 := extractAttach(rest)
 		rest2, flags := splitFlags(rest2)
@@ -1837,6 +1824,24 @@ const cliTaskBytes = 24 << 10
 // of the daemon's /agents/list. The answer's nextCursor says when there are
 // more.
 const findLimit = 100
+
+// findCommand is `anet find [query] [--cap id]`. The listing comes through
+// the daemon's /agents/list, which reads the hub's directory and matches
+// here: the query never reaches the hub (A2A-DESIGN §10.5). --cap asks the
+// exact question, who serves this capability id; without it the query is a
+// substring of what is shown. The agents without a network card are
+// included, as the hub directory listed them.
+func findCommand(c *client, rest []string) error {
+	pos, flags := splitFlags(rest)
+	body := map[string]any{"include_uncarded": true, "limit": findLimit}
+	if q := strings.TrimSpace(strings.Join(pos, " ")); q != "" {
+		body["q"] = q
+	}
+	if capID := capFlag(flags); capID != "" {
+		body["skill"] = capID
+	}
+	return c.do("/agents/list", body)
+}
 
 // taskCommand is `anet task get <task_id> [--full] [--history N]`: the task
 // as the control plane's /tasks/get projects it.

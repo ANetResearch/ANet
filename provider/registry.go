@@ -111,7 +111,8 @@ func (r *Registry) IDs() []string {
 }
 
 // Capabilities lists every indexed capability id, sorted — the daemon's raw
-// material for ADP card aggregation.
+// material for what it publishes (the registration's caps and the network
+// card's skills, filtered to the public ones).
 func (r *Registry) Capabilities() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -123,10 +124,10 @@ func (r *Registry) Capabilities() []string {
 	return cs
 }
 
-// Resolve maps a called capability id to its provider. Matching follows the
-// ADP forms relevant on the invoke path: exact first, then parent walk on
-// '.' boundaries — a provider registered for "light" serves "light.onoff",
-// but "lightning" never matches "light".
+// Resolve maps a called capability id to its provider. Matching on the
+// invoke path is exact first, then a parent walk on '.' boundaries — a
+// provider registered for "light" serves "light.onoff", but "lightning"
+// never matches "light".
 func (r *Registry) Resolve(capability string) (CapabilityProvider, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

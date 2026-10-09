@@ -26,8 +26,8 @@
 //
 // What this surface may reach is closed (paths.go): the control token is
 // the node's full authority, and the MCP server must never call the
-// manual, gateway or redemption payment routes (§8.6), whatever a tool
-// handler is later changed to do.
+// manual or redemption payment routes (§8.6), whatever a tool handler is
+// later changed to do.
 package mcpserv
 
 import (
