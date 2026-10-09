@@ -6,10 +6,12 @@ package daemon
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/anethome"
+	"github.com/ANetResearch/ANet/internal/localpeer"
 )
 
 // postAutoReply sends one /autoreply body to d's handler.
@@ -171,6 +174,16 @@ func TestAutoReplyNeverShowsTheKey(t *testing.T) {
 	if d.config().AutoReply.APIKey != key {
 		t.Fatal("the key was not kept")
 	}
+	// The policy change the write records (anet.policy.changed, LEC §2.5) says whether a key is set, never
+	// the key: the evidence chain is read and exported by anet audit.
+	_, recs := d.ledger.Evidence(EvidenceQuery{EventType: EvPolicyChanged})
+	ev, _ := json.Marshal(recs)
+	if strings.Contains(string(ev), key) {
+		t.Fatalf("the policy change evidence holds the key: %s", ev)
+	}
+	if !strings.Contains(string(ev), `"api_key_set":true`) {
+		t.Fatalf("the policy change evidence does not say a key is set: %s", ev)
+	}
 	// Without a key: false, on both.
 	if code, out, raw = postAutoReply(t, d, `{"api_key":null}`); code != http.StatusOK {
 		t.Fatalf("%d %s", code, raw)
@@ -312,6 +325,20 @@ func TestRotateLocalTokensRefusesBothOldTokens(t *testing.T) {
 	if resp, b := p.req(t, "POST", "/threads", "{}", sess.as(p)); resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("a console session from before the rotation: %d %s", resp.StatusCode, b)
 	}
+	// /ping proves the token in force: where the socket table cannot be read (macOS, the BSDs), a CLI
+	// that read the new token sends it only after this proof checks out (internal/localpeer).
+	nonce := bytes.Repeat([]byte{0x5a}, 32)
+	resp, b := p.req(t, "GET", "/ping?"+localpeer.ProofParam+"="+hex.EncodeToString(nonce), "", nil)
+	var ping struct {
+		Proof string `json:"proof"`
+	}
+	if err := json.Unmarshal(b, &ping); err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("/ping after rotation: %d %s", resp.StatusCode, b)
+	}
+	listener := netip.MustParseAddrPort(p.srv.Listener.Addr().String())
+	if ping.Proof != localpeer.Proof(newCtl, nonce, listener) {
+		t.Fatalf("/ping after rotation proves %q, not the new token", ping.Proof)
+	}
 	// Idempotent: a rotation resumed after a crash calls it again.
 	if err := p.d.rotateLocalTokens(); err != nil {
 		t.Fatal(err)
@@ -329,6 +356,28 @@ func TestRotateLocalTokensWithoutAnA2AInterface(t *testing.T) {
 	}
 	if _, err := os.Stat(anethome.A2ADir(p.d.layout.Root)); !os.IsNotExist(err) {
 		t.Fatalf("an A2A state dir was made: %v", err)
+	}
+}
+
+// A token that could not be replaced is still the compromised one, so the caller (KEL's emergency
+// rotation) hears about it; the other token is replaced all the same.
+func TestRotateLocalTokensReportsWhatItCouldNotReplace(t *testing.T) {
+	p := newPlane(t)
+	// a2a_token.txt is a directory with something in it: no file can be renamed over it, whoever runs
+	// the test.
+	stuck := filepath.Join(anethome.A2ADir(p.d.layout.Root), anethome.A2ATokenFile)
+	if err := os.MkdirAll(filepath.Join(stuck, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err := p.d.rotateLocalTokens()
+	if err == nil || !strings.Contains(err.Error(), "local A2A token") {
+		t.Fatalf("rotateLocalTokens with an A2A token it cannot replace: %v", err)
+	}
+	if resp, b := p.req(t, "GET", "/status", "", p.bearer); resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("the old control token after a rotation that failed only for the A2A token: %d %s", resp.StatusCode, b)
+	}
+	if readTokenFile(t, p.d.layout.ControlTokenPath()) == p.token {
+		t.Fatal("the control token was not replaced")
 	}
 }
 

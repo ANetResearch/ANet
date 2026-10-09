@@ -579,4 +579,32 @@ MUTS += [
   tests=[(DAEMON, 'TestSandboxHoldsNoSecret')],
   full=[DAEMON],
  ),
+ dict(
+  id='m-av-1c', group='AV-8', repo='ANet',
+  desc='anet.policy.changed 的 auto_reply 摘要带上 key(证据链里出现 key)',
+  edits=[('internal/daemon/autoreply.go', '"api_key_set": c.APIKey != ""}', '"api_key_set": c.APIKey != "", "api_key": c.APIKey}')],
+  tests=[(DAEMON, 'TestAutoReplyNeverShowsTheKey')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-3d', group='AV-10', repo='ANet',
+  desc='rotateLocalTokens 换不掉本机 A2A 令牌时仍回 nil(调用方以为两个令牌都已换掉)',
+  edits=[('internal/daemon/control_api.go', '\treturn errors.Join(errs...)\n}\n\n// dirExists', '\t_ = errs\n\treturn nil\n}\n\n// dirExists')],
+  tests=[(DAEMON, 'TestRotateLocalTokensReportsWhatItCouldNotReplace')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-3e', group='AV-10', repo='ANet',
+  desc='本机 A2A 令牌文件不见了时仍认上次读到的令牌',
+  edits=[('module/a2a/server.go', '\tif err != nil || !fi.Mode().IsRegular() {\n\t\treturn ""\n\t}', '\tif err != nil || !fi.Mode().IsRegular() {\n\t\treturn ts.tok\n\t}')],
+  tests=[('ANet:./module/a2a', 'TestTheInterfaceFollowsItsTokenFile')],
+  full=['ANet:./module/a2a'],
+ ),
+ dict(
+  id='m-av-3f', group='AV-10', repo='ANet',
+  desc='轮换后 /ping 仍以启动时的控制令牌作证明(读不到套接字表的系统上 CLI 不再信任 daemon)',
+  edits=[('internal/daemon/ctlsec.go', '\ttop.HandleFunc("GET /ping", d.pingHandler(auth))', '\ttop.HandleFunc("GET /ping", d.pingHandler(&ctlAuth{token: auth.bearer()}))')],
+  tests=[(DAEMON, 'TestRotateLocalTokensRefusesBothOldTokens')],
+  full=[DAEMON],
+ ),
 ]

@@ -59,6 +59,17 @@ func TestTheInterfaceFollowsItsTokenFile(t *testing.T) {
 	if status(rotated) != http.StatusUnauthorized || status(edited) != http.StatusOK {
 		t.Fatal("an in-place edit of the token file was not followed")
 	}
+	// Gone while a good token was in force: the token read last is not accepted from memory.
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if status(edited) != http.StatusUnauthorized {
+		t.Fatal("the token read before the file went missing was still accepted")
+	}
+	replace(edited)
+	if status(edited) != http.StatusOK {
+		t.Fatal("the token file put back was not followed")
+	}
 	// Not a token, then gone: nothing is accepted.
 	replace("short")
 	if status(edited) != http.StatusUnauthorized || status("short") != http.StatusUnauthorized {
