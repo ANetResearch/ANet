@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -14,11 +15,14 @@ import (
 // self-test (seccomp_linux_test.go). A test file registers its hooks in init().
 var testMainHooks = map[string]func(args []string) int{}
 
+// testRealHome is the home the test binary was started with, where TestMain moved HOME (macOS).
+var testRealHome string
+
 // TestMain isolates the exec work dirs of this package's tests and hosts the sandbox probe.
 //
 // Exec auto-reply runs create per-interaction work dirs under the user cache dir
 // (execInteractionDir). XDG_CACHE_HOME is pointed at a temporary directory for the whole run so tests
-// never write into the real ~/.cache.
+// never write into the real ~/.cache; on macOS, whose cache dir is under the home, so is HOME.
 //
 // When the test binary is started by the sandbox integration test as the claude "agent" (its stdin then
 // carries sandboxProbeMarker), it runs the in-sandbox checks instead of the tests and prints their
@@ -47,6 +51,14 @@ func TestMain(m *testing.M) {
 		os.Exit(2)
 	}
 	_ = os.Setenv("XDG_CACHE_HOME", filepath.Join(cache, "cache"))
+	if runtime.GOOS == "darwin" {
+		// macOS's cache dir is ~/Library/Caches whatever XDG_CACHE_HOME says: a home of the run's own keeps
+		// the work and run directories there too. A test that runs the go command gives it the real one.
+		testRealHome = os.Getenv("HOME")
+		home := filepath.Join(cache, "home")
+		_ = os.MkdirAll(filepath.Join(home, "Library", "Caches"), 0o700)
+		_ = os.Setenv("HOME", home)
+	}
 	code := m.Run()
 	_ = os.RemoveAll(cache)
 	os.Exit(code)

@@ -1097,11 +1097,14 @@ type sandboxResult struct {
 	Egress *egressSummary
 }
 
-// sandboxPlan is the confinement of one agent process: what is bound into the bubblewrap sandbox and
-// what must never be. sandbox_linux.go turns it into a bwrap argv; other platforms refuse it.
+// sandboxPlan is the confinement of one agent process: what is bound into the bubblewrap sandbox (or
+// opened by the Seatbelt profile) and what must never be. sandbox_linux.go turns it into a bwrap argv,
+// sandbox_darwin.go into a profile for sandbox-exec; other platforms refuse it.
 type sandboxPlan struct {
-	// Bwrap is the absolute path of the bubblewrap binary.
+	// Bwrap is the absolute path of the bubblewrap binary (Linux).
 	Bwrap string
+	// SandboxExec is the absolute path of sandbox-exec (macOS, LEC MS-1).
+	SandboxExec string
 	// Features are the optional bwrap flags the probe found.
 	Features bwrapFeatures
 	// SystemdRun, when set, is the systemd-run that puts each run in a user scope with the memory and

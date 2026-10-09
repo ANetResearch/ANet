@@ -3,11 +3,13 @@ package daemon
 import (
 	"bufio"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,21 +46,26 @@ type sandboxProbeRequest struct {
 // sandboxProbeResult is what the probe could do. Every field except WorkDirWritable must come back
 // false (or zero) for the sandbox to hold.
 type sandboxProbeResult struct {
-	ControlTokenRead bool   `json:"control_token_read"`
-	A2ATokenRead     bool   `json:"a2a_token_read"`
-	SocketConnected  bool   `json:"socket_connected"`
-	DBusConnected    bool   `json:"dbus_connected"`
-	DataDirVisible   bool   `json:"data_dir_visible"`
-	HostTmpVisible   bool   `json:"host_tmp_visible"`
-	HomeEntries      int    `json:"home_entries"`
-	WorkDirWritable  bool   `json:"workdir_writable"`
-	Cwd              string `json:"cwd"`
-	Error            string `json:"error,omitempty"`
+	ControlTokenRead bool `json:"control_token_read"`
+	A2ATokenRead     bool `json:"a2a_token_read"`
+	SocketConnected  bool `json:"socket_connected"`
+	DBusConnected    bool `json:"dbus_connected"`
+	DataDirVisible   bool `json:"data_dir_visible"`
+	HostTmpVisible   bool `json:"host_tmp_visible"`
+	// DataDirListed and HostTmpRead are the same two with their contents: on macOS a path's metadata
+	// stays visible (LEC MS-2), what is in it must not.
+	DataDirListed   bool   `json:"data_dir_listed"`
+	HostTmpRead     bool   `json:"host_tmp_read"`
+	HomeEntries     int    `json:"home_entries"`
+	WorkDirWritable bool   `json:"workdir_writable"`
+	Cwd             string `json:"cwd"`
+	Error           string `json:"error,omitempty"`
 
 	// What the agent was started with (LEC SI-56, AV-1): its environment, its command line as the
 	// kernel shows it, and how many bytes it read on stdin (fd 4).
 	Environ    []string `json:"environ,omitempty"`
 	Cmdline    string   `json:"cmdline,omitempty"`
+	Argv       []string `json:"argv,omitempty"`
 	StdinBytes int      `json:"stdin_bytes,omitempty"`
 
 	KeyIsPlaceholder  bool   `json:"key_is_placeholder,omitempty"`
@@ -67,9 +74,11 @@ type sandboxProbeResult struct {
 	RouteBody         string `json:"route_body,omitempty"`
 	HostReached       bool   `json:"host_reached,omitempty"`
 	ConnectStatus     int    `json:"connect_status,omitempty"`
-	TunnelStatus      int    `json:"tunnel_status,omitempty"`
-	TunnelBody        string `json:"tunnel_body,omitempty"`
-	WrongNameFailed   bool   `json:"wrong_name_failed,omitempty"`
+	// ConnectNoKeyStatus is a CONNECT without the proxy variable's credentials: 407 on a keyed endpoint.
+	ConnectNoKeyStatus int    `json:"connect_no_key_status,omitempty"`
+	TunnelStatus       int    `json:"tunnel_status,omitempty"`
+	TunnelBody         string `json:"tunnel_body,omitempty"`
+	WrongNameFailed    bool   `json:"wrong_name_failed,omitempty"`
 }
 
 // runEgressProbe is the egress part of the probe, inside the sandbox.
@@ -97,14 +106,31 @@ func runEgressProbe(req sandboxProbeRequest, res *sandboxProbeResult) {
 		resp.Body.Close()
 		res.HostReached = true
 	}
-	if c, err := net.DialTimeout("tcp", "127.0.0.1:3128", 5*time.Second); err == nil {
-		_ = c.SetDeadline(time.Now().Add(10 * time.Second))
-		_, _ = io.WriteString(c, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
-		if resp, err := http.ReadResponse(bufio.NewReader(c), &http.Request{Method: http.MethodConnect}); err == nil {
-			res.ConnectStatus = resp.StatusCode
+	// CONNECT to the endpoint the proxy variables name, with their credentials (a keyed endpoint's
+	// run key) and without.
+	proxyAddr, proxyAuth := "127.0.0.1:3128", ""
+	if u, err := url.Parse(os.Getenv("HTTPS_PROXY")); err == nil && u.Host != "" {
+		proxyAddr = u.Host
+		if u.User != nil {
+			pw, _ := u.User.Password()
+			proxyAuth = "Proxy-Authorization: Basic " + base64.StdEncoding.EncodeToString([]byte(u.User.Username()+":"+pw)) + "\r\n"
 		}
-		c.Close()
 	}
+	connect := func(auth string) int {
+		c, err := net.DialTimeout("tcp", proxyAddr, 5*time.Second)
+		if err != nil {
+			return 0
+		}
+		defer c.Close()
+		_ = c.SetDeadline(time.Now().Add(10 * time.Second))
+		_, _ = io.WriteString(c, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n"+auth+"\r\n")
+		if resp, err := http.ReadResponse(bufio.NewReader(c), &http.Request{Method: http.MethodConnect}); err == nil {
+			return resp.StatusCode
+		}
+		return 0
+	}
+	res.ConnectStatus = connect(proxyAuth)
+	res.ConnectNoKeyStatus = connect("")
 	if req.ConnectURL != "" {
 		runTunnelProbe(req.ConnectURL, res)
 	}
@@ -164,9 +190,15 @@ func runSandboxProbe(arg string) int {
 		if _, err := os.Stat(req.DataDir); err == nil {
 			res.DataDirVisible = true
 		}
+		if _, err := os.ReadDir(req.DataDir); err == nil {
+			res.DataDirListed = true
+		}
 		if req.HostTmpMarker != "" {
 			if _, err := os.Stat(req.HostTmpMarker); err == nil {
 				res.HostTmpVisible = true
+			}
+			if _, err := os.ReadFile(req.HostTmpMarker); err == nil {
+				res.HostTmpRead = true
 			}
 		}
 		if home, err := os.UserHomeDir(); err == nil {
@@ -180,6 +212,7 @@ func runSandboxProbe(arg string) int {
 		}
 	}
 	res.Environ = os.Environ()
+	res.Argv = os.Args
 	if b, err := os.ReadFile("/proc/self/cmdline"); err == nil {
 		res.Cmdline = strings.ReplaceAll(string(b), "\x00", " ")
 	}

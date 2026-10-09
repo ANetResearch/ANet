@@ -820,7 +820,7 @@ MUTS += [
  dict(
   id='m-sb-6c', group='SB-5', repo='ANet',
   desc='沙箱里 fd 4 不写对话(agent 的 stdin 是空的)',
-  edits=[('internal/daemon/sandbox_linux.go', '\t\tfeed(inW, stdin)', '\t\tfeed(inW, nil)')],
+  edits=[('internal/daemon/sandbox_unix.go', '\t\tfeed(inW, stdin)', '\t\tfeed(inW, nil)')],
   tests=[(DAEMON, 'TestSandboxHoldsNoSecret|TestSandboxCommandPassesStdinOnFd4|TestSandboxIntegrationHoldsNoSecret')],
   full=[DAEMON],
  ),
@@ -1197,7 +1197,7 @@ MUTS += [
  dict(
   id='m-sb-9b', group='SB-9', repo='ANet',
   desc='启动清理删掉临时目录里别的用户的同名目录',
-  edits=[('internal/daemon/sandbox_linux.go', 'if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != leftoverOwner() {', 'if st, ok := fi.Sys().(*syscall.Stat_t); !ok || false && int(st.Uid) != leftoverOwner() {')],
+  edits=[('internal/daemon/sandbox_unix.go', 'if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != leftoverOwner() {', 'if st, ok := fi.Sys().(*syscall.Stat_t); !ok || false && int(st.Uid) != leftoverOwner() {')],
   tests=[(DAEMON, 'TestSandboxLeftoversAreSweptBeforeTheFirstRun')],
   full=[DAEMON],
  ),

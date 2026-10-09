@@ -2,18 +2,21 @@
 
 package daemon
 
-// sandbox_init.go is `anet __sandbox-init` and `anet __sandbox-probe` (LEC SB-5, SB-2, §2.6.5): the first
-// program that runs inside a sandbox. bwrap (Linux) starts `/run/anet/init __sandbox-init --spec-fd 3`,
-// where /run/anet/init is this binary bound read-only, so the bwrap command line carries nothing of the
-// agent's: its argv, environment and working directory arrive on fd 3 as a JSON spec, written by the
-// daemon and read here once.
+// sandbox_init.go is `anet __sandbox-init` and `anet __sandbox-probe` (LEC SB-5, SB-2, MS-4, §2.6.5): the
+// first program that runs inside a sandbox. bwrap (Linux) starts `/run/anet/init __sandbox-init --spec-fd
+// 3`, where /run/anet/init is this binary bound read-only; sandbox-exec (macOS) starts this binary where
+// it is, with the same arguments. Neither command line carries anything of the agent's: its argv,
+// environment and working directory arrive on fd 3 as a JSON spec, written by the daemon and read here
+// once.
 //
 // init then, in this order: reads and closes the spec; opens the agent's stdin (fd 4, or /dev/null);
 // marks every other inherited descriptor close-on-exec; sets RLIMIT_CORE, RLIMIT_FSIZE and RLIMIT_NOFILE;
 // when the spec has a bridge, listens on the sandbox's own 127.0.0.1:3128 and joins each connection to
 // the run's egress socket (/run/anet/egress.sock), which is the only way out of the sandbox's network
-// namespace; starts the agent in a process group of its own; forwards SIGTERM and SIGINT to that group;
-// and exits with the agent's status (128+n when a signal ended it).
+// namespace; starts the agent, in a process group of its own on Linux and in init's own group on macOS
+// (sandboxAgentSharesGroup); forwards SIGTERM and SIGINT to the agent's group; on macOS ends what the
+// agent left in the group once it exits; and exits with the agent's status (128+n when a signal ended
+// it).
 //
 // It never prints the spec: the agent's arguments and environment can hold the conversation and, until
 // the egress endpoint injects them, a model key. Its own messages are one line on stderr; stdout belongs
@@ -244,7 +247,7 @@ func runSandboxInit(spec sandboxInitSpec) int {
 	cmd := &exec.Cmd{
 		Path: spec.Argv[0], Args: spec.Argv, Env: spec.Env, Dir: spec.Cwd,
 		Stdin: stdin, Stdout: os.Stdout, Stderr: os.Stderr,
-		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
+		SysProcAttr: &syscall.SysProcAttr{Setpgid: !sandboxAgentSharesGroup},
 	}
 	sigs := make(chan os.Signal, 4)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
@@ -271,7 +274,7 @@ func runSandboxInit(spec sandboxInitSpec) int {
 		for {
 			select {
 			case s := <-sigs:
-				_ = syscall.Kill(-pgid, s.(syscall.Signal))
+				forwardSandboxSignal(pgid, s.(syscall.Signal))
 			case <-done:
 				return
 			}
@@ -279,6 +282,7 @@ func runSandboxInit(spec sandboxInitSpec) int {
 	}()
 	err = cmd.Wait()
 	close(done)
+	endSandboxAgentGroup()
 	return sandboxExitStatus(cmd.ProcessState, err)
 }
 
@@ -308,7 +312,8 @@ func sandboxInitStdin(mode string) (io.Reader, error) {
 }
 
 // closeOnExecFrom marks every open descriptor ≥ from close-on-exec, so exec passes the agent only what
-// exec.Cmd hands it explicitly.
+// exec.Cmd hands it explicitly. Where neither directory of open descriptors can be read, every number
+// below the agent's descriptor limit is marked (a number that is not open is left as it is).
 func closeOnExecFrom(from int) {
 	for _, dir := range []string{"/proc/self/fd", "/dev/fd"} {
 		ents, err := os.ReadDir(dir)
@@ -321,6 +326,9 @@ func closeOnExecFrom(from int) {
 			}
 		}
 		return
+	}
+	for fd := from; fd < sandboxRlimitNofile; fd++ {
+		syscall.CloseOnExec(fd)
 	}
 }
 
@@ -411,22 +419,34 @@ func sandboxLangZh() bool {
 // --- the probe ---
 
 // sandboxCheckSpec is the spec of `__sandbox-probe`: a TCP port the daemon listens on at the host's
-// 127.0.0.1 and an abstract Unix socket it listens on, both of which must be out of reach.
+// 127.0.0.1, which must be out of reach, and on Linux an abstract Unix socket it listens on, out of reach
+// too (SB-2). On macOS (MS-4) also the stand-in for the run's egress endpoint, which must be reachable,
+// the real home directory and a file outside the run, which must not be readable, and the work dir,
+// which must take a file. Which fields a platform needs is its usable().
 type sandboxCheckSpec struct {
 	V        int    `json:"v"`
 	TCP      string `json:"tcp"`
 	Abstract string `json:"abstract"`
+	Egress   string `json:"egress,omitempty"`
+	Home     string `json:"home,omitempty"`
+	Outside  string `json:"outside,omitempty"`
+	Work     string `json:"work,omitempty"`
 }
 
-// sandboxCheckReport is what the probe found inside the sandbox (LEC SB-2). The sandbox is usable only
-// when all five hold.
+// sandboxCheckReport is what the probe found inside the sandbox (LEC SB-2 on Linux, MS-4 on macOS). The
+// sandbox is usable only when the platform's five items all hold.
 type sandboxCheckReport struct {
-	LoUp            bool              `json:"lo_up"`            // 1: lo is up
-	HostTCPRefused  bool              `json:"host_tcp_refused"` // 2: the host's loopback port is unreachable
-	AbstractRefused bool              `json:"abstract_refused"` // 3: the host's abstract socket is unreachable
-	KeyctlEPERM     bool              `json:"keyctl_eperm"`     // 4: keyctl answers EPERM
-	UsernsRefused   bool              `json:"userns_refused"`   // 5: a new user namespace cannot be made
+	LoUp            bool              `json:"lo_up"`            // SB-2 1: lo is up
+	HostTCPRefused  bool              `json:"host_tcp_refused"` // SB-2 2, MS-4 2: the host's loopback port is unreachable
+	AbstractRefused bool              `json:"abstract_refused"` // SB-2 3: the host's abstract socket is unreachable
+	KeyctlEPERM     bool              `json:"keyctl_eperm"`     // SB-2 4: keyctl answers EPERM
+	UsernsRefused   bool              `json:"userns_refused"`   // SB-2 5: a new user namespace cannot be made
 	Detail          map[string]string `json:"detail,omitempty"` // what each check saw
+
+	HomeUnreadable  bool `json:"home_unreadable,omitempty"`  // MS-4 1: neither the real home nor a file outside the run can be read
+	EgressReached   bool `json:"egress_reached,omitempty"`   // MS-4 3: the run's egress endpoint can be reached
+	SecurityRefused bool `json:"security_refused,omitempty"` // MS-4 4: /usr/bin/security does not start
+	WorkWritable    bool `json:"work_writable,omitempty"`    // MS-4 5: the work dir takes a file
 }
 
 // netOK and filterOK group the five items the way the failure codes do (SB-2).
@@ -450,7 +470,7 @@ func SandboxProbeMain(args []string) int {
 	}
 	raw, err := readSandboxSpec(fd)
 	var spec sandboxCheckSpec
-	if err != nil || decodeSandboxSpec(raw, &spec) != nil || spec.V != sandboxSpecVersion || spec.TCP == "" || spec.Abstract == "" {
+	if err != nil || decodeSandboxSpec(raw, &spec) != nil || spec.V != sandboxSpecVersion || !spec.usable() {
 		sandboxInitSay("沙箱自检规格不可用。", "the sandbox self-check spec is not usable.")
 		return sandboxInitExitBadSpec
 	}
