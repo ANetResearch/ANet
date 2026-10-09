@@ -199,6 +199,8 @@ type doctorReport struct {
 		Untrusted        string `json:"untrusted"`
 		APIKeyConfigured bool   `json:"api_key_configured"`
 	} `json:"auto_reply"`
+	// Sandbox is this host's sandbox self-check (doctor_sandbox.go), when the sandbox item is shown.
+	Sandbox *daemon.SandboxCheck `json:"sandbox,omitempty"`
 	// SI5 is every key of SI-5 with its current value; SI5Changed names the
 	// keys whose value is not the fresh-install default.
 	SI5        map[string]any `json:"si5"`
@@ -238,6 +240,9 @@ type doctorEnv struct {
 	// status reads GET /status from the running daemon (UX-K2; nil: not
 	// read).
 	status func(addr, tokenPath string) (map[string]any, error)
+	// sandbox runs this host's sandbox self-check (nil: not run; see
+	// doctor_sandbox.go).
+	sandbox func() daemon.SandboxCheck
 }
 
 func defaultDoctorEnv() doctorEnv {
@@ -247,7 +252,7 @@ func defaultDoctorEnv() doctorEnv {
 		hh = filepath.Join(home, ".hermes")
 	}
 	return doctorEnv{home: home, hermesHome: hh, running: daemonAnswersAt, listenerUIDs: localpeer.ListenerUIDs,
-		status: daemonStatusAt}
+		status: daemonStatusAt, sandbox: daemon.SandboxSelfCheck}
 }
 
 // env reads an environment variable; HERMES_HOME is the one doctor
@@ -605,6 +610,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	default:
 		add("auto_reply", stOK, fmt.Sprintf("backend %s; untrusted peers: %s", rep.AutoReply.Backend, rep.AutoReply.Untrusted), "")
 	}
+	sandboxCheck(say, rep, env, layout, cfg.AutoReply)           // doctor_sandbox.go
 	a2aBackendChecks(add, st.Inbound.Policy, cfg, len(st.Trust)) // doctor_backends.go
 	backendTransportChecks(add, say, cfg)                        // doctor_backends.go
 	anetlinkChecks(add, say, cfg, st.Inbound.PublicCapabilities) // doctor_anetlink.go
