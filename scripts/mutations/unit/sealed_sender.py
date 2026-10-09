@@ -1429,4 +1429,9 @@ MUTS += [
  dict(id='ss10-console-fields', group='SS-10', repo='ANet', desc='/agents/list 的会话规则不限请求体成员',
   edits=[('internal/daemon/ctlsec.go', '\t"POST /agents/list": {jsonFields: []string{"limit", "cursor", "include_uncarded"}},', '\t"POST /agents/list": {},')],
   tests=[('ANet:./internal/daemon', '^TestConsoleNamesNoAgentToTheHub$')], full=S10_FULL),
+ # ---- SSR-D15 step 2: the discovery cache keeps only what verified here (FuzzHubAnswers' seeds)
+ dict(id='ss10-discover-unverified', group='SS-10', repo='ANet', desc='注册表条目的卡片在本机验不过也把其材料放进发现缓存',
+  edits=[('internal/daemon/taskseam_agents.go', '\t\tif kerr == nil {\n\t\t\tm.Card = append(json.RawMessage(nil), ra.Card...)\n\t\t\td.discover(m)\n\t\t}\n\t}',
+          '\t}\n\tif kerr == nil {\n\t\tm.Card = append(json.RawMessage(nil), ra.Card...)\n\t\td.discover(m)\n\t}')],
+  tests=[('ANet:./internal/daemon', '^FuzzHubAnswers$')], full=S10_FULL),
 ]
