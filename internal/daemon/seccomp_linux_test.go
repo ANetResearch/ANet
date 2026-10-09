@@ -31,6 +31,23 @@ var specDenied = []string{
 	"process_vm_writev", "kexec_load", "kexec_file_load", "init_module", "finit_module",
 	"delete_module", "mount", "umount2", "pivot_root", "setns", "open_by_handle_at",
 	"name_to_handle_at", "acct", "swapon", "swapoff", "reboot", "syslog",
+	// The new mount API, refused for the same reason as mount (SB-6, 2026-10-04).
+	"fsopen", "fsconfig", "fsmount", "fspick", "move_mount", "open_tree", "mount_setattr",
+}
+
+// The new mount API has the same numbers on every architecture (include/uapi/asm-generic/unistd.h;
+// arch/x86/entry/syscalls/syscall_64.tbl), checked against golang.org/x/sys/unix v0.47.0.
+var specNewMountNr = map[string]uint32{
+	"open_tree": 428, "move_mount": 429, "fsopen": 430, "fsconfig": 431, "fsmount": 432, "fspick": 433,
+	"mount_setattr": 442,
+}
+
+func init() {
+	for _, nr := range specNr {
+		for name, n := range specNewMountNr {
+			nr[name] = n
+		}
+	}
 }
 
 var specNr = map[string]map[string]uint32{
@@ -294,9 +311,20 @@ func TestSeccompRules(t *testing.T) {
 		}
 		check("personality(PER_LINUX)", run("personality", 0), retAllow)
 		check("personality(PER_LINUX, high bits)", run("personality", 0xffffffff00000000), retAllow)
-		check("personality(query)", run("personality", 0xffffffff), retEPERM)
+		// The query (0xffffffff) changes nothing and is allowed (SB-6, 2026-10-04); every other persona is
+		// refused, including the query's value with one bit less and with the high bits set around it.
+		check("personality(query)", run("personality", 0xffffffff), retAllow)
+		check("personality(query, high bits)", run("personality", 0xffffffff_ffffffff), retAllow)
+		check("personality(0xfffffffe)", run("personality", 0xfffffffe), retEPERM)
+		check("personality(0x7fffffff)", run("personality", 0x7fffffff), retEPERM)
 		check("personality(ADDR_NO_RANDOMIZE)", run("personality", 0x0040000), retEPERM)
 		check("personality(READ_IMPLIES_EXEC)", run("personality", 0x0400000), retEPERM)
+		check("personality(PER_LINUX32)", run("personality", 0x0008), retEPERM)
+		// The new mount API is refused whatever its arguments, like mount (SB-6, 2026-10-04).
+		for name := range specNewMountNr {
+			check(name+"()", run(name), retEPERM)
+			check(name+"(-1, all bits)", run(name, 0xffffffff, ^uint64(0), ^uint64(0)), retEPERM)
+		}
 		check("ioctl(TIOCSTI)", run("ioctl", 0, 0x5412), retEPERM)
 		check("ioctl(TIOCLINUX)", run("ioctl", 0, 0x541c), retEPERM)
 		check("ioctl(TIOCSTI, high bits)", run("ioctl", 0, 0x1_0000_5412), retEPERM)
@@ -359,7 +387,7 @@ func TestSeccompFilterInKernel(t *testing.T) {
 			t.Errorf("%s under the filter: %s, want EPERM", name, filtered[name])
 		}
 	}
-	for _, name := range []string{"unshare-newuser", "personality-query", "ioctl-tiocsti", "ioctl-tioclinux",
+	for _, name := range []string{"unshare-newuser", "personality-addr-no-randomize", "ioctl-tiocsti", "ioctl-tioclinux",
 		"ioctl-tiocsti-high", "clone-newuser"} {
 		if filtered[name] != "EPERM" {
 			t.Errorf("%s under the filter: %s, want EPERM", name, filtered[name])
@@ -368,14 +396,20 @@ func TestSeccompFilterInKernel(t *testing.T) {
 	if filtered["clone3"] != "ENOSYS" {
 		t.Errorf("clone3 under the filter: %s, want ENOSYS", filtered["clone3"])
 	}
-	for _, name := range []string{"getpid", "unshare-0", "personality-linux", "ioctl-tcgets", "clone-plain"} {
+	// The personality query answers as it does without the filter (it changes nothing), and so do the
+	// calls the filter lets through.
+	for _, name := range []string{"getpid", "unshare-0", "personality-linux", "personality-query", "ioctl-tcgets", "clone-plain"} {
 		if filtered[name] != plain[name] {
 			t.Errorf("%s: %s under the filter, %s without it", name, filtered[name], plain[name])
 		}
 	}
 	// These would not be EPERM without the filter on any kernel we ship for, so EPERM above came from it.
-	for _, name := range []string{"unshare-newuser", "personality-query", "ioctl-tiocsti", "ioctl-tiocsti-high",
-		"clone3", "setns", "name_to_handle_at", "io_uring_enter", "process_vm_readv"} {
+	// (fsopen, fsmount, fspick and move_mount check the mount capability before anything else and answer
+	// EPERM to an unprivileged caller either way; open_tree, fsconfig and mount_setattr look at their
+	// arguments first.)
+	for _, name := range []string{"unshare-newuser", "personality-addr-no-randomize", "ioctl-tiocsti", "ioctl-tiocsti-high",
+		"clone3", "setns", "name_to_handle_at", "io_uring_enter", "process_vm_readv",
+		"open_tree", "fsconfig", "mount_setattr"} {
 		if plain[name] == filtered[name] {
 			t.Errorf("%s answers %s with and without the filter; the check cannot tell them apart", name, plain[name])
 		}
@@ -414,7 +448,8 @@ func init() {
 var seccompSelfTestDenied = []string{"add_key", "request_key", "bpf", "perf_event_open", "io_uring_setup",
 	"io_uring_enter", "io_uring_register", "ptrace", "process_vm_readv", "process_vm_writev", "kexec_load",
 	"kexec_file_load", "init_module", "finit_module", "delete_module", "mount", "umount2", "pivot_root",
-	"setns", "open_by_handle_at", "name_to_handle_at", "acct", "swapon", "swapoff", "reboot", "syslog"}
+	"setns", "open_by_handle_at", "name_to_handle_at", "acct", "swapon", "swapoff", "reboot", "syslog",
+	"fsopen", "fsconfig", "fsmount", "fspick", "move_mount", "open_tree", "mount_setattr"}
 
 // runSeccompSelfTest is the child of TestSeccompFilterInKernel. It prints a JSON object mapping each
 // probe to the errno name it got ("ok" for success).
@@ -498,6 +533,19 @@ func runSeccompSelfTest(mode string) int {
 	res["unshare-0"] = call("unshare", 0)
 	res["personality-query"] = call("personality", 0xffffffff)
 	res["personality-linux"] = call("personality", 0)
+	// ADDR_NO_RANDOMIZE takes effect only at the next exec, which this child never does; PER_LINUX is set
+	// back right after.
+	res["personality-addr-no-randomize"] = call("personality", 0x0040000)
+	_ = call("personality", 0)
+	// The new mount API with arguments that cannot mount anything: no file system name, bad descriptors,
+	// flags no kernel defines.
+	res["fsopen"] = call("fsopen", 0, 0)
+	res["fsconfig"] = call("fsconfig", bad, 0, 0, 0, 0)
+	res["fsmount"] = call("fsmount", bad, 0, 0)
+	res["fspick"] = call("fspick", bad, 0, 0)
+	res["move_mount"] = call("move_mount", bad, 0, bad, 0, 0xffffffff)
+	res["open_tree"] = call("open_tree", bad, 0, 0)
+	res["mount_setattr"] = call("mount_setattr", bad, 0, 0, 0, 0)
 	res["ioctl-tiocsti"] = call("ioctl", bad, 0x5412, 0)
 	res["ioctl-tioclinux"] = call("ioctl", bad, 0x541c, 0)
 	res["ioctl-tiocsti-high"] = call("ioctl", bad, uintptr(uint64(0x1_0000_5412)), 0)

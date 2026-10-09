@@ -1,6 +1,6 @@
 {
   "upstream": "anthropic",
-  "model": "claude-haiku-4-5",
+  "model": "claude-haiku-5-5",
   "request": {
     "method": "POST",
     "target": "/v1/messages?beta=true",
@@ -44,7 +44,7 @@
           "role": "user"
         }
       ],
-      "model": "claude-haiku-4-5",
+      "model": "claude-haiku-5-5",
       "stream": true,
       "system": [
         {

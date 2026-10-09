@@ -6,8 +6,10 @@ import (
 	"testing"
 )
 
-// UP-2, UP-1: the upstream follows from the agent and api_base; an api_base on a built-in host is that
-// built-in; a run that cannot be served fails closed with the local reason of UX §1.4 H.
+// UP-2, UP-1, AV-4: the upstream follows from the agent and api_base; an api_base on a built-in host is
+// that built-in; the upstream's route must carry the API the agent speaks (codex: Responses, only to
+// api.openai.com; opencode, hermes, openclaw: chat completions, not to api.anthropic.com); a run that
+// cannot be served fails closed with the local reason of UX §1.4 H.
 func TestEgressUpstreamSelection(t *testing.T) {
 	const key = testOperatorKey
 	for _, tc := range []struct {
@@ -25,14 +27,20 @@ func TestEgressUpstreamSelection(t *testing.T) {
 		{AutoReplyConfig{Agent: agentCodex, APIKey: key}, "openai", "https://api.openai.com", "", false, false},
 		{AutoReplyConfig{Agent: agentCodex}, "", "", "no_api_key", false, false},
 		{AutoReplyConfig{Agent: agentCodex, APIKey: key, APIBase: "https://API.OpenAI.com/v1"}, "openai", "https://api.openai.com", "", false, false},
-		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:11434/v1/", Model: "qwen3"}, "custom", "http://127.0.0.1:11434/v1", "", true, false},
-		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:11434/v1"}, "", "", "no_model", false, false},
+		// codex 0.162 no longer speaks chat completions, the one API the custom route carries.
+		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:11434/v1/", Model: "qwen3"}, "", "", "agent_unsupported", false, false},
+		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:11434/v1"}, "", "", "agent_unsupported", false, false},
+		{AutoReplyConfig{Agent: agentCodex, APIBase: "https://openrouter.ai/api/v1", Model: "x/y", APIKey: key}, "", "", "agent_unsupported", false, false},
+		{AutoReplyConfig{Agent: agentOpenCode, APIBase: "http://127.0.0.1:11434/v1", Model: "qwen3"}, "custom", "http://127.0.0.1:11434/v1", "", true, false},
+		{AutoReplyConfig{Agent: agentHermes, APIKey: key, APIBase: "https://api.openai.com/v1", Model: "gpt-6-luna"}, "openai", "https://api.openai.com", "", false, false},
+		{AutoReplyConfig{Agent: agentOpenClaw}, "", "", "no_api_base", false, false},
 		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key}, "", "", "no_api_base", false, false},
 		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://openrouter.ai/api/v1", Model: "x/y"}, "custom", "https://openrouter.ai/api/v1", "", false, true},
 		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://OpenRouter.ai.:443/api/v1", Model: "x/y"}, "custom", "https://OpenRouter.ai.:443/api/v1", "", false, true},
 		{AutoReplyConfig{Agent: agentCodex, APIKey: key, APIBase: "https://api.openai.com./v1"}, "openai", "https://api.openai.com", "", false, false},
-		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://api.anthropic.com"}, "anthropic", "https://api.anthropic.com", "", false, false},
-		{AutoReplyConfig{Agent: agentHermes, APIBase: "https://api.anthropic.com"}, "", "", "no_api_key", false, false},
+		// The chat agents cannot use the Anthropic route, which carries only the Messages API.
+		{AutoReplyConfig{Agent: agentOpenCode, APIKey: key, APIBase: "https://api.anthropic.com"}, "", "", "agent_unsupported", false, false},
+		{AutoReplyConfig{Agent: agentHermes, APIBase: "https://api.anthropic.com"}, "", "", "agent_unsupported", false, false},
 		{AutoReplyConfig{Agent: agentHermes, APIBase: "http://198.51.100.5:8000/v1", Model: "m"}, "", "", "api_base_insecure", false, false},
 		{AutoReplyConfig{Agent: agentHermes, APIBase: "http://models.example/v1", Model: "m"}, "", "", "api_base_insecure", false, false},
 		{AutoReplyConfig{Agent: agentOpenClaw, APIBase: "http://localhost:8000/v1", Model: "m"}, "custom", "http://localhost:8000/v1", "", true, false},
@@ -72,21 +80,27 @@ func TestEgressUpstreamSelection(t *testing.T) {
 }
 
 // UP-3: the pinned model is auto_reply.model as an API id, the claude alias's API id, or the upstream's
-// cheapest model; a custom service without a model is refused (above).
+// cheapest model; a custom service without a model is refused (above). The tables are the constants of
+// 2026-10 (EXE-6): the claude CLI's aliases and its lowest-priced current model, and the codex CLI's
+// affordable model.
 func TestEgressPinnedModel(t *testing.T) {
 	for _, tc := range []struct {
 		cfg  AutoReplyConfig
 		want string
 	}{
-		{AutoReplyConfig{Agent: agentClaude, APIKey: "k"}, "claude-haiku-4-5"},
-		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "haiku"}, "claude-haiku-4-5"},
-		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "sonnet"}, "claude-sonnet-5"},
-		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "opus"}, "claude-opus-5"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k"}, "claude-haiku-5-5"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "haiku"}, "claude-haiku-5-5"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "sonnet"}, "claude-sonnet-5-5"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "opus"}, "claude-opus-5-5"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "fable"}, "claude-fable-5-1"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "best"}, "claude-fable-5-1"},
 		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: " claude-opus-4-8 "}, "claude-opus-4-8"},
-		{AutoReplyConfig{Agent: agentCodex, APIKey: "k"}, "gpt-5-nano"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "Haiku"}, "Haiku"}, // aliases are the CLI's, lower case
+		{AutoReplyConfig{Agent: agentCodex, APIKey: "k"}, "gpt-6-luna"},
 		{AutoReplyConfig{Agent: agentCodex, APIKey: "k", Model: "haiku"}, "haiku"},
-		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:1/v1", Model: "llama3"}, "llama3"},
-		{AutoReplyConfig{Agent: agentOpenCode, APIKey: "k", APIBase: "https://api.anthropic.com", Model: "sonnet"}, "claude-sonnet-5"},
+		{AutoReplyConfig{Agent: agentOpenCode, APIBase: "http://127.0.0.1:1/v1", Model: "llama3"}, "llama3"},
+		{AutoReplyConfig{Agent: agentHermes, APIKey: "k", APIBase: "https://api.openai.com/v1"}, "gpt-6-luna"},
+		{AutoReplyConfig{Agent: agentOpenClaw, APIKey: "k", APIBase: "https://api.openai.com/v1", Model: "sonnet"}, "sonnet"},
 	} {
 		up, err := resolveEgressUpstream(tc.cfg)
 		if err != nil || up.Model != tc.want {
@@ -169,5 +183,31 @@ func TestEgressRouteMatching(t *testing.T) {
 func TestEgressArg(t *testing.T) {
 	if got := egressArg("a\nb‮c\x00d​" + strings.Repeat("é", 100)); got != "abcd"+strings.Repeat("é", 60) {
 		t.Errorf("%q", got)
+	}
+}
+
+// UP-3's constant tables are what they claim: every alias names a model of the anthropic upstream that is
+// not itself an alias, the cheapest model of each built-in upstream is set and is no alias, and the
+// cheapest Anthropic model is the haiku alias's model (the lowest-priced family).
+func TestEgressModelTables(t *testing.T) {
+	for alias, model := range egressClaudeAliases {
+		if alias != strings.ToLower(alias) || !strings.HasPrefix(model, "claude-") || egressClaudeAliases[model] != "" {
+			t.Errorf("alias %q -> %q", alias, model)
+		}
+		if !egressModelIDRe.MatchString(model) {
+			t.Errorf("alias %q names %q, which GET /v1/models/{id} would refuse", alias, model)
+		}
+	}
+	for _, name := range []string{egressUpstreamAnthropic, egressUpstreamOpenAI} {
+		m := egressCheapestModel[name]
+		if m == "" || egressClaudeAliases[m] != "" || !egressModelIDRe.MatchString(m) {
+			t.Errorf("%s: cheapest model %q", name, m)
+		}
+	}
+	if egressCheapestModel[egressUpstreamAnthropic] != egressClaudeAliases["haiku"] {
+		t.Errorf("the cheapest Anthropic model %q is not the haiku alias's %q", egressCheapestModel[egressUpstreamAnthropic], egressClaudeAliases["haiku"])
+	}
+	if len(egressCheapestModel) != 2 {
+		t.Errorf("a cheapest model for a custom service: %v (custom requires auto_reply.model)", egressCheapestModel)
 	}
 }

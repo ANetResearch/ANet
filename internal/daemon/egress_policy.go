@@ -78,7 +78,12 @@ var egressDropResponseHeaders = map[string]bool{
 }
 
 // egressAnthropicBetas are the anthropic-beta values forwarded (BP-6); the rest are dropped. None of
-// them may begin with a prefix in egressForbiddenBetaPrefixes (the test asserts it).
+// them may begin with a prefix in egressForbiddenBetaPrefixes (the test asserts it). Besides the first
+// list, the values the claude CLI sends for every model it runs in the sandbox (2.1.295, EXE-6): each
+// shapes the one model call (thinking token counts, cache scope, system text in mid-conversation,
+// per-turn control, effort) and none gives the service network reach, hosted state or a dearer mode. The
+// CLI's others stay dropped, among them fast-mode (a dearer mode), server-side-fallback (another model),
+// message-threads and agent-memory (hosted state), mcp-servers and mcp-tunnels.
 var egressAnthropicBetas = map[string]bool{
 	"claude-code-20250219":                   true,
 	"interleaved-thinking-2025-05-14":        true,
@@ -91,6 +96,12 @@ var egressAnthropicBetas = map[string]bool{
 	"output-128k-2025-02-19":                 true,
 	"computer-use-2024-10-22":                true,
 	"computer-use-2025-01-24":                true,
+	"computer-use-2025-11-24":                true,
+	"thinking-token-count-2026-05-13":        true,
+	"prompt-caching-scope-2026-01-05":        true,
+	"mid-conversation-system-2026-04-07":     true,
+	"per-turn-control-2026-07-01":            true,
+	"effort-2025-11-24":                      true,
 }
 
 // egressOpenAIBetas are the OpenAI-Beta values forwarded (BP-6).
@@ -438,6 +449,9 @@ func responsesBodyPolicy(obj map[string]any) *egressRefusal {
 	if r := checkTools(obj, "tools", responsesClientTool); r != nil {
 		return r
 	}
+	if r := responsesInputTools(obj["input"]); r != nil {
+		return r
+	}
 	if r := checkToolChoice(obj, responsesClientTool); r != nil {
 		return r
 	}
@@ -595,15 +609,15 @@ func toolType(m map[string]any) (string, bool) {
 }
 
 // anthropicClientTool: a tool with no type or type custom (defined by the caller), or one of the
-// Anthropic-defined tools the client executes (bash_, text_editor_, computer_, memory_). Everything else,
-// web search, web fetch, code execution, MCP toolsets and any type not known here, runs on the model
-// service.
+// Anthropic-defined tools the client executes (bash_, text_editor_, memory_, and the computer use
+// versions listed in egressAnthropicComputerTools). Everything else, web search, web fetch, code
+// execution, MCP toolsets and any type not known here, runs on the model service.
 func anthropicClientTool(m map[string]any) (string, bool) {
 	typ, has := toolType(m)
-	if !has || typ == "custom" {
+	if !has || typ == "custom" || egressAnthropicComputerTools[typ] {
 		return typ, true
 	}
-	for _, p := range []string{"bash_", "text_editor_", "computer_", "memory_"} {
+	for _, p := range []string{"bash_", "text_editor_", "memory_"} {
 		if strings.HasPrefix(typ, p) {
 			return typ, true
 		}
@@ -611,13 +625,73 @@ func anthropicClientTool(m map[string]any) (string, bool) {
 	return typ, false
 }
 
-// egressResponsesClientTools are the OpenAI Responses tool types the client executes (BP-4); the
-// per-agent trials add what each agent needs.
+// egressAnthropicComputerTools are the computer use tool versions, which the client executes: it takes
+// the screenshots and makes the clicks (BP-4). They are listed by name, not passed by the computer_
+// prefix: none of the agents the sandbox runs sends one (claude 2.1.295 defines no computer tool, EXE-6),
+// and a later computer_ type the model service ran itself would be another way out of the sandbox.
+var egressAnthropicComputerTools = map[string]bool{
+	"computer_20241022": true, "computer_20250124": true, "computer_20251124": true,
+}
+
+// egressResponsesClientTools are the OpenAI Responses tool types the client executes (BP-4). codex 0.162
+// sends function and custom tools, some of them grouped in a namespace (responsesClientTool); local_shell
+// is an older codex's. Its hosted web search is turned off in the sandbox (prepareCodex).
 var egressResponsesClientTools = map[string]bool{"function": true, "custom": true, "local_shell": true}
 
+// responsesClientTool: a tool the client executes, or a namespace — a named group of tools (codex 0.162)
+// — whose tools all are. A namespace without a list of tools is refused: its tools could be anything.
 func responsesClientTool(m map[string]any) (string, bool) {
 	typ, _ := toolType(m)
-	return typ, egressResponsesClientTools[typ]
+	if typ != "namespace" {
+		return typ, egressResponsesClientTools[typ]
+	}
+	list, ok := m["tools"].([]any)
+	if !ok {
+		return typ, false
+	}
+	for _, t := range list {
+		inner, ok := t.(map[string]any)
+		if !ok {
+			return typ, false
+		}
+		if it, ok := responsesClientTool(inner); !ok {
+			return it, false
+		}
+	}
+	return typ, true
+}
+
+// responsesInputTools refuses a tool declared in the input rather than in tools: codex 0.162 sends the
+// tools of its newest models as an input item ({"type":"additional_tools","tools":[…]}), and the service
+// takes them as it takes tools. Any object under input with a list named tools is such a declaration,
+// whatever its type is called, and each of its tools is checked as tools' are (BP-4).
+func responsesInputTools(v any) *egressRefusal {
+	switch x := v.(type) {
+	case []any:
+		for _, e := range x {
+			if r := responsesInputTools(e); r != nil {
+				return r
+			}
+		}
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for k := range x {
+			keys = append(keys, k)
+		}
+		slices.Sort(keys) // the same request is refused for the same tool every time
+		for _, k := range keys {
+			if _, isList := x[k].([]any); k == "tools" && isList {
+				if r := checkTools(x, "tools", responsesClientTool); r != nil {
+					return r
+				}
+				continue // the tools themselves were checked, namespaces included
+			}
+			if r := responsesInputTools(x[k]); r != nil {
+				return r
+			}
+		}
+	}
+	return nil
 }
 
 // chatClientTool: chat completions pass function tools only.

@@ -56,6 +56,15 @@ var injectCorpus = []injectCase{
 	{"mcp-toolset", "anthropic", "POST", "/v1/messages", nil, `{"messages":[],"tools":[{"type":"mcp_toolset","mcp_server_name":"x"}]}`, "policy_server_tool"},
 	{"tool-search", "anthropic", "POST", "/v1/messages", nil, `{"messages":[],"tools":[{"type":"tool_search_tool_regex_20251119","name":"s"}]}`, "policy_server_tool"},
 	{"unknown-tool-type", "anthropic", "POST", "/v1/messages", nil, `{"messages":[],"tools":[{"type":"advisor_20991231","name":"a"}]}`, "policy_server_tool"},
+	// computer use versions are listed by name: an unknown computer_ type could be one the service runs (EXE-6)
+	{"computer-unknown-version", "anthropic", "POST", "/v1/messages", nil, `{"messages":[],"tools":[{"type":"computer_20991231","name":"computer"}]}`, "policy_server_tool"},
+	{"computer-hosted-like", "anthropic", "POST", "/v1/messages", nil, `{"messages":[],"tools":[{"type":"computer_use_hosted","name":"computer"}]}`, "policy_server_tool"},
+	{"computer-versions", "anthropic", "POST", "/v1/messages", nil, `{"messages":[],"tools":[{"type":"computer_20241022","name":"c1"},{"type":"computer_20250124","name":"c2"}]}`, ""},
+	// what claude 2.1.295 sends in the sandbox (--bare): custom tools, adaptive thinking, effort, context management
+	{"claude-cli-turn", "anthropic", "POST", "/v1/messages?beta=true", map[string]string{"anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,effort-2025-11-24"},
+		`{"model":"claude-haiku-5-5","max_tokens":32000,"stream":true,"thinking":{"type":"adaptive","display":"omitted"},"output_config":{"effort":"medium"},` +
+			`"context_management":{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]},"metadata":{"user_id":"u"},"system":[{"type":"text","text":"s"}],` +
+			`"messages":[{"role":"user","content":"hi"}],"tools":[{"name":"Bash","input_schema":{"type":"object"}},{"name":"Edit","input_schema":{"type":"object"}},{"name":"Read","input_schema":{"type":"object"}}]}`, ""},
 	{"tool-type-number", "anthropic", "POST", "/v1/messages", nil, `{"messages":[],"tools":[{"type":5,"name":"a"}]}`, "policy_server_tool"},
 	{"tool-type-empty", "anthropic", "POST", "/v1/messages", nil, `{"messages":[],"tools":[{"type":"","name":"a"}]}`, "policy_server_tool"},
 	{"tools-not-a-list", "anthropic", "POST", "/v1/messages", nil, `{"messages":[],"tools":{"type":"custom"}}`, "policy_field"},
@@ -99,6 +108,22 @@ var injectCorpus = []injectCase{
 	{"hosted-tool-choice", "openai", "POST", "/v1/responses", nil, `{"input":"x","tool_choice":{"type":"web_search_preview"}}`, "policy_server_tool"},
 	{"allowed-tools-choice", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"function","name":"f"}],"tool_choice":{"type":"allowed_tools","mode":"auto","tools":[{"type":"web_search"}]}}`, "policy_server_tool"},
 	{"function-choice", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"function","name":"f"}],"tool_choice":{"type":"function","name":"f"}}`, ""},
+	// codex 0.162: tools grouped in namespaces, and its newest models' tools declared in the input (EXE-6)
+	{"codex-namespace", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"function","name":"exec_command","parameters":{}},` +
+		`{"type":"namespace","name":"multi_agent_v1","description":"","tools":[{"type":"function","name":"spawn_agent","parameters":{}}]}]}`, ""},
+	{"namespace-hosted", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"namespace","name":"n","tools":[{"type":"function","name":"f"},{"type":"web_search"}]}]}`, "policy_server_tool"},
+	{"namespace-nested-hosted", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"namespace","name":"n","tools":[{"type":"namespace","name":"m","tools":[{"type":"mcp","server_url":"https://mcp.example"}]}]}]}`, "policy_server_tool"},
+	{"namespace-without-tools", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"namespace","name":"n"}]}`, "policy_server_tool"},
+	{"namespace-tools-not-a-list", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"namespace","name":"n","tools":{"type":"web_search"}}]}`, "policy_server_tool"},
+	{"namespace-member-not-an-object", "openai", "POST", "/v1/responses", nil, `{"input":"x","tools":[{"type":"namespace","name":"n","tools":[{"type":"function","name":"f"},"web_search"]}]}`, "policy_server_tool"},
+	{"codex-input-tools", "openai", "POST", "/v1/responses", nil, `{"input":[{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"functions",` +
+		`"tools":[{"type":"custom","name":"exec","format":{"type":"grammar"}},{"type":"function","name":"wait","parameters":{}}]}]},` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],"reasoning":{"effort":"medium"},"store":false}`, ""},
+	{"input-tools-hosted", "openai", "POST", "/v1/responses", nil, `{"input":[{"type":"additional_tools","tools":[{"type":"web_search"}]}]}`, "policy_server_tool"},
+	{"input-tools-namespaced-hosted", "openai", "POST", "/v1/responses", nil, `{"input":[{"type":"additional_tools","tools":[{"type":"namespace","name":"f","tools":[{"type":"code_interpreter"}]}]}]}`, "policy_server_tool"},
+	{"input-tools-any-item", "openai", "POST", "/v1/responses", nil, `{"input":[{"type":"tool_search_output","tools":[{"type":"mcp","server_url":"https://mcp.example"}]}]}`, "policy_server_tool"},
+	{"input-tools-deep", "openai", "POST", "/v1/responses", nil, `{"input":[{"type":"message","role":"user","content":[{"type":"x","tools":[{"type":"image_generation"}]}]}]}`, "policy_server_tool"},
+	{"input-tools-not-a-list", "openai", "POST", "/v1/responses", nil, `{"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi","tools":"web_search"}]}]}`, ""},
 	{"openai-agent-key", "openai", "POST", "/v1/responses", map[string]string{"x-api-key": testAgentKey, "api-key": testAgentKey, "OpenAI-Organization": "org-x", "OpenAI-Beta": "assistants=v2"}, `{"input":"x"}`, ""},
 	// openai chat
 	{"chat", "openai", "POST", "/v1/chat/completions", nil, `{"model":"gpt-5","messages":[],"n":4,"max_tokens":1000000,"store":true,"service_tier":"flex"}`, ""},
@@ -220,56 +245,56 @@ func TestInjectBodyPolicy(t *testing.T) {
 		in   string
 		want string // the forwarded body, or "refused:<code>"
 	}{
-		{ant, routeAnthropicMessages, `{"model":"claude-opus-5","max_tokens":100000}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
-		{ant, routeAnthropicMessages, `{"max_tokens":512}`, `{"max_tokens":512,"model":"claude-haiku-4-5"}`},
-		{ant, routeAnthropicMessages, `{}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
-		{ant, routeAnthropicMessages, `{"max_tokens":"512"}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
-		{ant, routeAnthropicMessages, `{"max_tokens":512.0}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
-		{ant, routeAnthropicMessages, `{"max_tokens":-1}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
-		{ant, routeAnthropicMessages, `{"max_tokens":0}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
+		{ant, routeAnthropicMessages, `{"model":"claude-opus-5","max_tokens":100000}`, `{"max_tokens":8192,"model":"claude-haiku-5-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":512}`, `{"max_tokens":512,"model":"claude-haiku-5-5"}`},
+		{ant, routeAnthropicMessages, `{}`, `{"max_tokens":8192,"model":"claude-haiku-5-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":"512"}`, `{"max_tokens":8192,"model":"claude-haiku-5-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":512.0}`, `{"max_tokens":8192,"model":"claude-haiku-5-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":-1}`, `{"max_tokens":8192,"model":"claude-haiku-5-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":0}`, `{"max_tokens":8192,"model":"claude-haiku-5-5"}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":-5,"thinking":{"type":"enabled","budget_tokens":-1}}`,
-			`{"max_tokens":8192,"model":"claude-haiku-4-5","thinking":{"budget_tokens":4096,"type":"enabled"}}`},
+			`{"max_tokens":8192,"model":"claude-haiku-5-5","thinking":{"budget_tokens":4096,"type":"enabled"}}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":64000,"thinking":{"type":"enabled","budget_tokens":60000}}`,
-			`{"max_tokens":8192,"model":"claude-haiku-4-5","thinking":{"budget_tokens":4096,"type":"enabled"}}`},
+			`{"max_tokens":8192,"model":"claude-haiku-5-5","thinking":{"budget_tokens":4096,"type":"enabled"}}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":1500,"thinking":{"type":"enabled","budget_tokens":1500}}`,
-			`{"max_tokens":1500,"model":"claude-haiku-4-5","thinking":{"budget_tokens":1024,"type":"enabled"}}`},
+			`{"max_tokens":1500,"model":"claude-haiku-5-5","thinking":{"budget_tokens":1024,"type":"enabled"}}`},
 		// max_tokens of 1024 or less leaves no valid budget (the service's smallest is 1024): no thinking
 		{ant, routeAnthropicMessages, `{"max_tokens":1,"thinking":{"type":"enabled","budget_tokens":""}}`,
-			`{"max_tokens":1,"model":"claude-haiku-4-5"}`},
+			`{"max_tokens":1,"model":"claude-haiku-5-5"}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":1000,"thinking":{"type":"enabled","budget_tokens":500}}`,
-			`{"max_tokens":1000,"model":"claude-haiku-4-5"}`},
-		{ant, routeAnthropicMessages, `{"max_tokens":1024,"thinking":{"type":"disabled"}}`, `{"max_tokens":1024,"model":"claude-haiku-4-5"}`},
+			`{"max_tokens":1000,"model":"claude-haiku-5-5"}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":1024,"thinking":{"type":"disabled"}}`, `{"max_tokens":1024,"model":"claude-haiku-5-5"}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":1025,"thinking":{"type":"enabled","budget_tokens":1025}}`,
-			`{"max_tokens":1025,"model":"claude-haiku-4-5","thinking":{"budget_tokens":1024,"type":"enabled"}}`},
-		{ant, routeAnthropicCountTokens, `{"max_tokens":10,"thinking":{"type":"enabled","budget_tokens":2048}}`, `{"max_tokens":10,"model":"claude-haiku-4-5"}`},
+			`{"max_tokens":1025,"model":"claude-haiku-5-5","thinking":{"budget_tokens":1024,"type":"enabled"}}`},
+		{ant, routeAnthropicCountTokens, `{"max_tokens":10,"thinking":{"type":"enabled","budget_tokens":2048}}`, `{"max_tokens":10,"model":"claude-haiku-5-5"}`},
 		{ant, routeAnthropicCountTokens, `{"thinking":{"type":"enabled","budget_tokens":2048}}`,
-			`{"model":"claude-haiku-4-5","thinking":{"budget_tokens":2048,"type":"enabled"}}`},
-		{ant, routeAnthropicMessages, `{"max_tokens":512,"thinking":null}`, `{"max_tokens":512,"model":"claude-haiku-4-5"}`},
+			`{"model":"claude-haiku-5-5","thinking":{"budget_tokens":2048,"type":"enabled"}}`},
+		{ant, routeAnthropicMessages, `{"max_tokens":512,"thinking":null}`, `{"max_tokens":512,"model":"claude-haiku-5-5"}`},
 		{ant, routeAnthropicMessages, `{"max_tokens":8000,"thinking":{"type":"enabled","budget_tokens":2000}}`,
-			`{"max_tokens":8000,"model":"claude-haiku-4-5","thinking":{"budget_tokens":2000,"type":"enabled"}}`},
+			`{"max_tokens":8000,"model":"claude-haiku-5-5","thinking":{"budget_tokens":2000,"type":"enabled"}}`},
 		{ant, routeAnthropicMessages, `{"thinking":{"type":"adaptive"},"output_config":{"effort":"low"}}`,
-			`{"max_tokens":8192,"model":"claude-haiku-4-5","output_config":{"effort":"low"},"thinking":{"type":"adaptive"}}`},
-		{ant, routeAnthropicCountTokens, `{"model":"x"}`, `{"model":"claude-haiku-4-5"}`},
-		{ant, routeAnthropicCountTokens, `{"max_tokens":9000}`, `{"max_tokens":8192,"model":"claude-haiku-4-5"}`},
-		{ant, routeAnthropicMessages, `{"system":"<b>&</b>","temperature":0.70}`, `{"max_tokens":8192,"model":"claude-haiku-4-5","system":"<b>&</b>","temperature":0.70}`},
+			`{"max_tokens":8192,"model":"claude-haiku-5-5","output_config":{"effort":"low"},"thinking":{"type":"adaptive"}}`},
+		{ant, routeAnthropicCountTokens, `{"model":"x"}`, `{"model":"claude-haiku-5-5"}`},
+		{ant, routeAnthropicCountTokens, `{"max_tokens":9000}`, `{"max_tokens":8192,"model":"claude-haiku-5-5"}`},
+		{ant, routeAnthropicMessages, `{"system":"<b>&</b>","temperature":0.70}`, `{"max_tokens":8192,"model":"claude-haiku-5-5","system":"<b>&</b>","temperature":0.70}`},
 		{ant, routeAnthropicMessages, `{"mcp_servers":[]}`, "refused:policy_mcp_servers"},
 		{ant, routeAnthropicMessages, `{"container":"c"}`, "refused:policy_field"},
 		{ant, routeAnthropicMessages, `{"tools":[{"type":"web_fetch_20260209","name":"f"}]}`, "refused:policy_server_tool"},
 		{ant, routeAnthropicMessages, `{"tools":[{"type":"code_execution_20260120","name":"c"}]}`, "refused:policy_server_tool"},
 		{ant, routeAnthropicMessages, `{"tools":[{"type":"zzz","name":"c"}]}`, "refused:policy_server_tool"},
 		{oai, routeResponses, `{"model":"gpt-5","store":true,"service_tier":"priority","input":"x"}`,
-			`{"input":"x","max_output_tokens":8192,"model":"gpt-5-nano","store":false}`},
-		{oai, routeResponses, `{"max_output_tokens":100,"background":false}`, `{"background":false,"max_output_tokens":100,"model":"gpt-5-nano","store":false}`},
+			`{"input":"x","max_output_tokens":8192,"model":"gpt-6-luna","store":false}`},
+		{oai, routeResponses, `{"max_output_tokens":100,"background":false}`, `{"background":false,"max_output_tokens":100,"model":"gpt-6-luna","store":false}`},
 		{oai, routeResponses, `{"previous_response_id":"resp_1"}`, "refused:policy_field"},
 		{oai, routeResponses, `{"tools":[{"type":"web_search_preview"}]}`, "refused:policy_server_tool"},
 		{oai, routeResponses, `{"tools":[{"type":"code_interpreter"}]}`, "refused:policy_server_tool"},
-		{oai, routeChat, `{"n":3,"max_tokens":100000}`, `{"max_tokens":8192,"model":"gpt-5-nano","n":1,"store":false}`},
-		{oai, routeChat, `{}`, `{"max_completion_tokens":8192,"model":"gpt-5-nano","store":false}`},
-		{oai, routeChat, `{"max_completion_tokens":10,"max_tokens":20000}`, `{"max_completion_tokens":10,"max_tokens":8192,"model":"gpt-5-nano","store":false}`},
+		{oai, routeChat, `{"n":3,"max_tokens":100000}`, `{"max_tokens":8192,"model":"gpt-6-luna","n":1,"store":false}`},
+		{oai, routeChat, `{}`, `{"max_completion_tokens":8192,"model":"gpt-6-luna","store":false}`},
+		{oai, routeChat, `{"max_completion_tokens":10,"max_tokens":20000}`, `{"max_completion_tokens":10,"max_tokens":8192,"model":"gpt-6-luna","store":false}`},
 		{cus, routeChat, `{}`, `{"max_tokens":8192,"model":"local-model","store":false}`},
 		{cus, routeChat, `{"max_tokens":-1}`, `{"max_tokens":8192,"model":"local-model","store":false}`},
 		{cus, routeChat, `{"max_completion_tokens":0}`, `{"max_completion_tokens":8192,"model":"local-model","store":false}`},
-		{oai, routeResponses, `{"max_output_tokens":-1}`, `{"max_output_tokens":8192,"model":"gpt-5-nano","store":false}`},
+		{oai, routeResponses, `{"max_output_tokens":-1}`, `{"max_output_tokens":8192,"model":"gpt-6-luna","store":false}`},
 		{cus, routeChat, `{"plugins":[1],"models":[2]}`, `{"max_tokens":8192,"model":"local-model","models":[2],"plugins":[1],"store":false}`},
 		// BP-5: media by URL, refused with the field's path; inline data passes
 		{ant, routeAnthropicMessages, `{"messages":[{"content":"x"},{"content":[{"type":"text"},{"type":"image","source":{"type":"url","url":"u"}}]}]}`,
@@ -277,22 +302,22 @@ func TestInjectBodyPolicy(t *testing.T) {
 		{ant, routeAnthropicMessages, `{"messages":[{"content":[{"type":"tool_result","content":[{"type":"document","source":{"type":"url"}}]}]}]}`,
 			"refused:policy_field:messages[0].content[0].content[0].source"},
 		{ant, routeAnthropicMessages, `{"messages":[{"content":[{"type":"image","source":{"type":"base64","data":"AA=="}}]}]}`,
-			`{"max_tokens":8192,"messages":[{"content":[{"source":{"data":"AA==","type":"base64"},"type":"image"}]}],"model":"claude-haiku-4-5"}`},
+			`{"max_tokens":8192,"messages":[{"content":[{"source":{"data":"AA==","type":"base64"},"type":"image"}]}],"model":"claude-haiku-5-5"}`},
 		{oai, routeResponses, `{"input":[{"content":[{"type":"input_image","image_url":"https://u"}]}]}`, "refused:policy_field:input[0].content[0].image_url"},
 		{oai, routeResponses, `{"input":[{"content":[{"type":"input_image","image_url":7}]}]}`, "refused:policy_field:input[0].content[0].image_url"},
 		{oai, routeResponses, `{"input":[{"content":[{"type":"input_file","file_url":"https://u/f.pdf"}]}]}`, "refused:policy_field:input[0].content[0].file_url"},
 		{oai, routeResponses, `{"input":[{"content":[{"type":"input_image","image_url":null,"file_id":"file_1"}]}]}`,
-			`{"input":[{"content":[{"file_id":"file_1","type":"input_image"}]}],"max_output_tokens":8192,"model":"gpt-5-nano","store":false}`},
+			`{"input":[{"content":[{"file_id":"file_1","type":"input_image"}]}],"max_output_tokens":8192,"model":"gpt-6-luna","store":false}`},
 		{oai, routeChat, `{"messages":[{"content":[{"type":"image_url","image_url":{"url":"http://u"}}]}]}`, "refused:policy_field:messages[0].content[0].image_url"},
 		{oai, routeChat, `{"messages":[{"content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AA=="}}]}]}`,
-			`{"max_completion_tokens":8192,"messages":[{"content":[{"image_url":{"url":"data:image/png;base64,AA=="},"type":"image_url"}]}],"model":"gpt-5-nano","store":false}`},
+			`{"max_completion_tokens":8192,"messages":[{"content":[{"image_url":{"url":"data:image/png;base64,AA=="},"type":"image_url"}]}],"model":"gpt-6-luna","store":false}`},
 		{cus, routeChat, `{"messages":[{"content":[{"type":"image_url","image_url":"https://u"}]}]}`, "refused:policy_field:messages[0].content[0].image_url"},
 		{cus, routeChat, `{"messages":[{"content":[{"type":"video_url","video_url":{"url":"https://u/v.mp4"}}]}]}`, "refused:policy_field:messages[0].content[0].video_url"},
 		{cus, routeChat, `{"messages":[{"content":[{"audio_url":{"url":"http://u/a.wav"}}]}]}`, "refused:policy_field:messages[0].content[0].audio_url"},
 		{cus, routeChat, `{"messages":[{"content":[{"type":"text","text":"x","image_url":{"url":"https://u"}}]}]}`, "refused:policy_field:messages[0].content[0].image_url"},
 		{oai, routeChat, `{"messages":[{"content":[{"type":"file","file":{"file_data":"https://u/f.pdf"}}]}]}`, "refused:policy_field:messages[0].content[0].file.file_data"},
 		{oai, routeChat, `{"messages":[{"content":[{"type":"file","file":{"file_data":"JVBERi0xLjQK"}}]}]}`,
-			`{"max_completion_tokens":8192,"messages":[{"content":[{"file":{"file_data":"JVBERi0xLjQK"},"type":"file"}]}],"model":"gpt-5-nano","store":false}`},
+			`{"max_completion_tokens":8192,"messages":[{"content":[{"file":{"file_data":"JVBERi0xLjQK"},"type":"file"}]}],"model":"gpt-6-luna","store":false}`},
 	} {
 		out, ref := rewriteInjectBody(tc.up, tc.kind, []byte(tc.in))
 		got := string(out)
@@ -327,6 +352,23 @@ func TestEgressBetaAllowlists(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("forbidden prefix %s is missing", p)
+		}
+	}
+	// What claude 2.1.295 sends for every model it runs in the sandbox passes; the CLI's betas that give the
+	// service reach, hosted state, another model or a dearer mode do not (EXE-6).
+	for _, b := range []string{"claude-code-20250219", "interleaved-thinking-2025-05-14", "thinking-token-count-2026-05-13",
+		"context-management-2025-06-27", "prompt-caching-scope-2026-01-05", "mid-conversation-system-2026-04-07",
+		"per-turn-control-2026-07-01", "effort-2025-11-24"} {
+		if !egressAnthropicBetas[b] {
+			t.Errorf("claude's beta %s is dropped", b)
+		}
+	}
+	for _, b := range []string{"mcp-servers-2025-12-04", "mcp-tunnels-2026-06-22", "fast-mode-2026-02-01", "server-side-fallback-2026-06-01",
+		"server-side-fallback-2026-07-01", "message-threads-2026-08-12", "agent-memory-2026-07-22", "managed-agents-2026-04-01",
+		"files-api-2025-04-14", "web-search-2025-03-05", "advisor-tool-2026-03-01", "tool-search-tool-2025-10-19", "environments-2025-11-01",
+		"user-profiles-2026-08-18", "oauth-2025-04-20"} {
+		if egressAnthropicBetas[b] {
+			t.Errorf("the beta allowlist holds %s", b)
 		}
 	}
 	h := http.Header{}
@@ -387,7 +429,7 @@ var goldenInjectCases = []injectCase{
 			`{"name":"Read","description":"read a file","input_schema":{"type":"object"}}]}`, ""},
 	{"anthropic-server-tool-refused", "anthropic", "POST", "/v1/messages",
 		map[string]string{"x-api-key": egressPlaceholderKey},
-		`{"model":"claude-haiku-4-5","max_tokens":1024,"messages":[],"tools":[{"type":"web_search_20260209","name":"web_search"}]}`, "policy_server_tool"},
+		`{"model":"claude-haiku-5-5","max_tokens":1024,"messages":[],"tools":[{"type":"web_search_20260209","name":"web_search"}]}`, "policy_server_tool"},
 	{"anthropic-mcp-refused", "anthropic", "POST", "/v1/messages", nil,
 		`{"max_tokens":1024,"messages":[],"mcp_servers":[{"type":"url","url":"https://mcp.example","name":"m"}]}`, "policy_mcp_servers"},
 	{"anthropic-count-tokens", "anthropic", "POST", "/v1/messages/count_tokens",
@@ -400,6 +442,15 @@ var goldenInjectCases = []injectCase{
 			`"tool_choice":"auto","parallel_tool_calls":false,"store":true,"stream":true,"service_tier":"priority","include":["reasoning.encrypted_content"]}`, ""},
 	{"openai-responses-hosted-refused", "openai", "POST", "/v1/responses", nil,
 		`{"input":"x","tools":[{"type":"web_search"}]}`, "policy_server_tool"},
+	{"openai-responses-codex-input-tools", "openai", "POST", "/v1/responses",
+		map[string]string{"Authorization": "Bearer " + egressPlaceholderKey, "originator": "codex_exec"},
+		`{"model":"gpt-6-luna","stream":true,"input":[{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"functions","description":"",` +
+			`"tools":[{"type":"custom","name":"exec","description":"Run JavaScript","format":{"type":"grammar","syntax":"lark","definition":"start: /.+/"}},` +
+			`{"type":"function","name":"wait","strict":false,"parameters":{"type":"object"}}]}]},` +
+			`{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],"tool_choice":"auto","parallel_tool_calls":false,` +
+			`"reasoning":{"effort":"medium","context":"all_turns"},"store":false,"include":["reasoning.encrypted_content"],"prompt_cache_key":"k","text":{"verbosity":"low"}}`, ""},
+	{"openai-responses-input-tools-refused", "openai", "POST", "/v1/responses", nil,
+		`{"input":[{"type":"additional_tools","tools":[{"type":"namespace","name":"n","tools":[{"type":"web_search"}]}]}]}`, "policy_server_tool"},
 	{"openai-previous-response-refused", "openai", "POST", "/v1/responses", nil,
 		`{"input":"x","previous_response_id":"resp_1"}`, "policy_field"},
 	{"openai-chat", "openai", "POST", "/v1/chat/completions",

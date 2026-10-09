@@ -10,16 +10,18 @@ import (
 )
 
 // ioStub is an agent binary that reports what it was given: its argv, then its stdin, then the
-// conversation file its message names, if any. codex reads its reply from the -o file when one is
-// present, so the report goes there too.
+// conversation file its message (or --message-file) names, if any. codex reads its reply from the -o
+// file when one is present, so the report goes there too.
 func ioStub(t *testing.T) string {
 	t.Helper()
 	stub := filepath.Join(t.TempDir(), "io.sh")
 	script := `#!/bin/sh
 out=""
+mf=""
 prev=""
 for a in "$@"; do
   if [ "$prev" = "-o" ]; then out="$a"; fi
+  if [ "$prev" = "--message-file" ]; then mf="$a"; fi
   prev="$a"
 done
 report() {
@@ -28,6 +30,7 @@ report() {
   cat
   printf '\n'
   f=$(printf '%s' "$*" | sed -n 's/.*Read the file \(.*conversation\.md\): .*/\1/p')
+  if [ -z "$f" ]; then f="$mf"; fi
   if [ -n "$f" ]; then printf 'FILE: '; cat "$f"; printf '\n'; fi
 }
 if [ -n "$out" ]; then report "$@" > "$out"; else report "$@"; fi

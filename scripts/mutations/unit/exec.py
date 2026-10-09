@@ -117,8 +117,8 @@ MUTS = [
   id='m-bp-7', group='BP', repo='ANet',
   desc='anthropic-beta 白名单加入 mcp-client-*',
   edits=[
-   ('internal/daemon/egress_policy.go', '\t"computer-use-2025-01-24":                true,\n}',
-    '\t"computer-use-2025-01-24":                true,\n\t"mcp-client-2025-11-20": true,\n}'),
+   ('internal/daemon/egress_policy.go', '\t"effort-2025-11-24":                      true,\n}',
+    '\t"effort-2025-11-24":                      true,\n\t"mcp-client-2025-11-20": true,\n}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestEgressBetaAllowlists|' + INJECT)],
   full=['ANet:./internal/daemon'],
@@ -805,15 +805,16 @@ MUTS += [
  dict(
   id='m-sb-6', group='AV-2', repo='ANet',
   desc='恢复 append(args, prompt):claude 的对话放回命令行',
-  edits=[('internal/daemon/agents.go', '\tstdout, stderr, err := runCmd(ctx, o, []byte(o.Conversation), o.Command, args...)',
-          '\targs = append(args, o.Conversation)\n\tstdout, stderr, err := runCmd(ctx, o, nil, o.Command, args...)')],
+  edits=[('internal/daemon/agents.go', '\targs := claudeArgs(o)\n\tstdout, stderr, err := runCmd(ctx, o, []byte(o.Conversation), o.Command, args...)',
+          '\targs := append(claudeArgs(o), o.Conversation)\n\tstdout, stderr, err := runCmd(ctx, o, nil, o.Command, args...)')],
   tests=[(DAEMON, ARGV), ('ANet:./scripts', 'TestExecArgumentsCarryNoSecretAndNoConversation')],
   full=[DAEMON],
  ),
  dict(
   id='m-sb-6b', group='AV-2', repo='ANet',
   desc='读文件的 agent(hermes)把对话本身放进命令行,而不是写进文件',
-  edits=[('internal/daemon/agents.go', '\tmsg := fileInputMessage(o.Instructions, conv)', '\tmsg := o.Instructions + o.Conversation + conv')],
+  edits=[('internal/daemon/agents.go', '\targs := []string{"-z", fileInputMessage(o.Instructions, conv)}',
+          '\targs := []string{"-z", o.Instructions + o.Conversation + conv}')],
   tests=[(DAEMON, ARGV), ('ANet:./scripts', 'TestExecArgumentsCarryNoSecretAndNoConversation')],
   full=[DAEMON],
  ),
@@ -1432,5 +1433,246 @@ MUTS += [
   edits=[('cmd/anet/doctor_anetlink.go', '\tcase errors.As(err, &c1e):', '\tcase false && errors.As(err, &c1e):')],
   tests=[('ANet:./cmd/anet', 'TestDoctorANetLinkSocketFailures')],
   full=['ANet:./cmd/anet'],
+ ),
+]
+
+# --- EXE-6: the per-agent sandbox configuration (LEC AV-4, UP-3, BP-4 to BP-6) and SB-6's 2026-10-04 entries (the new
+# mount API refused, the personality query let through). The in-kernel filter test cannot tell fsopen's EPERM from the
+# kernel's own for an unprivileged caller, so the rule table and G-SECCOMP carry that kill; the personality mutations are
+# also red in TestSeccompFilterInKernel. ---
+SECCOMP = 'TestSeccompRules|TestSeccompGolden|TestSeccompFilterInKernel'
+MUTS += [
+ dict(
+  id='m-sb-6-fsopen', group='SB-6', repo='ANet',
+  desc='seccomp 放行 fsopen(新挂载 API 的入口)',
+  edits=[('internal/daemon/seccomp_linux.go', '\t"fsopen", "fsconfig", "fsmount",', '\t"fsconfig", "fsmount",')],
+  tests=[(DAEMON, SECCOMP)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-6-personality-query', group='SB-6', repo='ANet',
+  desc='personality 的查询值 0xffffffff 仍按 EPERM 拒绝(个别运行时启动即失败)',
+  edits=[('internal/daemon/seccomp_linux.go', '\ta.jeq(perQuery, "allow", "eperm")', '\ta.jeq(perQuery, "eperm", "eperm")')],
+  tests=[(DAEMON, SECCOMP)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-sb-6-personality-any', group='SB-6', repo='ANet',
+  desc='personality 的任何取值都放行(ADDR_NO_RANDOMIZE、READ_IMPLIES_EXEC 等)',
+  edits=[('internal/daemon/seccomp_linux.go', '\ta.jeq(perQuery, "allow", "eperm")', '\ta.jeq(perQuery, "allow", "allow")')],
+  tests=[(DAEMON, SECCOMP)],
+  full=[DAEMON],
+ ),
+]
+
+# EXE-6: the per-agent sandbox configuration (AV-4), the agents' command lines (AV-2), UP-3's tables and the request
+# policy the trials changed (BP-4: computer use by version, namespaces and tools declared in the input; BP-6: the
+# betas claude sends). m-av-4-run-prepare is red only where TestSandboxIntegrationConfiguresEachAgent runs (a usable
+# bwrap: the CI sandbox job, the Debian 12 container, a host with the anet-bwrap profile); elsewhere it skips.
+AGENTS = ('TestAgentSandboxTable|TestAgentSandboxConfigFiles|TestAgentCommandLines|TestOpenClawReply|'
+          'TestUnsupportedAgentsFailClosedInTheSandbox|TestSandboxCommandWritesTheAgentConfiguration|'
+          'TestAgentRuntimeShowsAPythonEnvironment|TestSandboxIntegrationConfiguresEachAgent|'
+          'TestEgressUpstreamSelection|TestEgressPinnedModel|TestEgressModelTables')
+MUTS += [
+ dict(
+  id='m-av-4-codex-full-auto', group='AV-4', repo='ANet',
+  desc='codex 改回 exec --full-auto(codex 0.162 拒绝该参数,也不带 --skip-git-repo-check)',
+  edits=[('internal/daemon/agents.go', 'args := []string{"exec", "--skip-git-repo-check", "--ephemeral", "-s", mode, "-o", outFile}',
+          'args := []string{"exec", "--full-auto", "--ephemeral", "-o", outFile}\n\t_ = mode')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-codex-own-sandbox', group='AV-4', repo='ANet',
+  desc='沙箱里的 codex 仍用自带沙箱 workspace-write(在 anet 沙箱里建不了 user namespace,命令全部失败)',
+  edits=[('internal/daemon/agents.go', '\t\tmode = "danger-full-access"', '\t\tmode = "workspace-write"')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-codex-instructions', group='AV-2', repo='ANet',
+  desc='codex 的固定指令不走 developer_instructions(回到与对话同走 stdin)',
+  edits=[('internal/daemon/agents.go', '\t\targs = append(args, "-c", "developer_instructions="+tomlString(o.Instructions))\n',
+          '\t\t_ = tomlString\n')],
+  tests=[(DAEMON, AGENTS + '|TestEveryRegisteredAgentGetsTheConversationOffItsArgv')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-codex-web-search', group='AV-4', repo='ANet',
+  desc='沙箱里的 codex 配置不关 web_search(托管工具被 BP-4 拒,整个请求失败)',
+  edits=[('internal/daemon/agents_sandbox.go', '\tb.WriteString("web_search = \\"disabled\\"\\ncheck_for_update_on_startup = false\\n\\n")',
+          '\tb.WriteString("check_for_update_on_startup = false\\n\\n")')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-codex-websockets', group='AV-4', repo='ANet',
+  desc='沙箱里的 codex 供应方允许 WebSocket(注入路由不承载)',
+  edits=[('internal/daemon/agents_sandbox.go', 'supports_websockets = false\\n', 'supports_websockets = true\\n')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-codex-custom', group='AV-4', repo='ANet',
+  desc='codex 在沙箱里也接受 custom 上游(codex 已不支持 chat completions)',
+  edits=[('internal/daemon/agents_sandbox.go', '\t\tspeaks:   []string{egressUpstreamOpenAI}, api: "the OpenAI Responses API",',
+          '\t\tspeaks:   []string{egressUpstreamOpenAI, egressUpstreamCustom}, api: "the OpenAI Responses API",')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-cursor-sandbox', group='AV-4', repo='ANet',
+  desc='cursor 也按 claude 的方式进沙箱(它没有可改的模型服务地址)',
+  edits=[('internal/daemon/agents.go', '\t\t\tsandboxNote: "cursor has no model service address to point at this node"},',
+          '\t\t\tsandbox: claudeSandbox, sandboxNote: "cursor has no model service address to point at this node"},')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-chat-anthropic', group='AV-4', repo='ANet',
+  desc='opencode 在沙箱里也接受 anthropic 上游(该路由不承载 chat completions)',
+  edits=[('internal/daemon/agents_sandbox.go', '\topenCodeSandbox = &agentSandbox{\n\t\tspeaks: []string{egressUpstreamCustom, egressUpstreamOpenAI},',
+          '\topenCodeSandbox = &agentSandbox{\n\t\tspeaks: []string{egressUpstreamCustom, egressUpstreamOpenAI, egressUpstreamAnthropic},')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-up-2-speaks', group='UP-2', repo='ANet',
+  desc='不核对上游路由是否承载 agent 用的 API',
+  edits=[('internal/daemon/egress_upstreams.go', '\tif !slices.Contains(sb.speaks, up.Name) {', '\tif false && !slices.Contains(sb.speaks, up.Name) {')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-claude-dontask', group='AV-4', repo='ANet',
+  desc='沙箱里的 claude 仍是 dontAsk(Bash、Edit、Write 一律被拒,做不了任务)',
+  edits=[('internal/daemon/agents.go', '\t\tmode = "bypassPermissions"', '\t\tmode = "dontAsk"')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-claude-is-sandbox', group='AV-4', repo='ANet',
+  desc='沙箱里的 claude 不设 IS_SANDBOX(以 root 运行的 daemon 下 claude 拒绝放开工具)',
+  edits=[('internal/daemon/agents_sandbox.go', 'return []string{"IS_SANDBOX=1"}, nil', 'return nil, nil')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-opencode-model', group='AV-4', repo='ANet',
+  desc='沙箱里的 opencode 不带供应方前缀(--model P 解析成供应方 P)',
+  edits=[('internal/daemon/agents.go', '\tif model := o.Model; model != "" {\n\t\tif o.Sandbox != nil {',
+          '\tif model := o.Model; model != "" {\n\t\tif false && o.Sandbox != nil {')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-opencode-project-config', group='AV-4', repo='ANet',
+  desc='沙箱里的 opencode 读工作目录里的项目配置(对端上一轮可能留下)',
+  edits=[('internal/daemon/agents_sandbox.go', '"OPENCODE_DISABLE_SHARE=1", "OPENCODE_DISABLE_PROJECT_CONFIG=1",', '"OPENCODE_DISABLE_SHARE=1",')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-openclaw-exec', group='AV-4', repo='ANet',
+  desc='沙箱里的 openclaw 用 agent --local(工具在 $HOME 的工作区里,随运行目录丢弃)',
+  edits=[('internal/daemon/agents.go', '\tif o.Sandbox != nil {\n\t\targs = []string{"agent", "exec", "--json", "--message-file", conv}',
+          '\tif false && o.Sandbox != nil {\n\t\targs = []string{"agent", "exec", "--json", "--message-file", conv}')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-openclaw-payloads', group='AV-4', repo='ANet',
+  desc='openclaw 的回复不读 payloads(2026.9 的 JSON 整体当作回复)',
+  edits=[('internal/daemon/agents.go', '\tfor _, p := range parsed.Payloads {', '\tfor _, p := range parsed.Payloads[:0] {')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-agent-home', group='AV-4', repo='ANet',
+  desc='沙箱启动前不写 agent 的配置(command 跳过 AgentHome)',
+  edits=[('internal/daemon/sandbox_linux.go', '\tif p.AgentHome != nil {\n\t\tif agentEnv, err = p.AgentHome(sandboxHome(runDir), home); err != nil {',
+          '\tif false && p.AgentHome != nil {\n\t\tif agentEnv, err = p.AgentHome(sandboxHome(runDir), home); err != nil {')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-run-prepare', group='AV-4', repo='ANet',
+  desc='runSandboxed 不把 agent 的配置交给沙箱计划',
+  edits=[('internal/daemon/autoreply_exec.go', '\t\tif prepare := spec.sandbox.prepare; prepare != nil {', '\t\tif prepare := spec.sandbox.prepare; false && prepare != nil {')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-python-venv', group='AV-4', repo='ANet',
+  desc='Python agent 的虚拟环境与安装前缀不进沙箱(hermes 找不到自己的包)',
+  edits=[('internal/daemon/sandbox_linux.go', '\t\tdirs = append(dirs, pythonRuntime(named, interp)...)\n', '\t\t_ = named\n')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-python-hops', group='AV-4', repo='ANet',
+  desc='不沿解释器的链接逐跳列出安装(uv 的小版本链接在沙箱里不存在)',
+  edits=[('internal/daemon/sandbox_linux.go', '\tfor p, i := named, 0; i < 8; i++ {', '\tfor p, i := named, 8; i < 8; i++ {')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-4-python-any-bin', group='AV-4', repo='ANet',
+  desc='任何 bin 目录的上一级都列入沙箱(#! 指向 ~/bin/python 时露出整个家目录)',
+  edits=[('internal/daemon/sandbox_linux.go', '\t\tif libs, _ := filepath.Glob(filepath.Join(prefix, "lib", "python3*")); len(libs) > 0 {',
+          '\t\tif libs, _ := filepath.Glob(filepath.Join(prefix, "lib", "python3*")); len(libs) >= 0 {')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bp-4-computer-prefix', group='BP-4', repo='ANet',
+  desc='anthropic 的 computer_ 按前缀放行(未知版本可能由服务端执行)',
+  edits=[('internal/daemon/egress_policy.go', '\tfor _, p := range []string{"bash_", "text_editor_", "memory_"} {', '\tfor _, p := range []string{"bash_", "text_editor_", "memory_", "computer_"} {')],
+  tests=[(DAEMON, INJECT)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bp-4-namespace', group='BP-4', repo='ANet',
+  desc='Responses 的 namespace 不逐个核对其中的工具',
+  edits=[('internal/daemon/egress_policy.go', '\tif typ != "namespace" {\n\t\treturn typ, egressResponsesClientTools[typ]\n\t}',
+          '\tif typ != "namespace" {\n\t\treturn typ, egressResponsesClientTools[typ]\n\t}\n\tif true {\n\t\treturn typ, true\n\t}')],
+  tests=[(DAEMON, INJECT)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bp-4-input-tools', group='BP-4', repo='ANet',
+  desc='不核对 input 里声明的工具(codex 的 additional_tools)',
+  edits=[('internal/daemon/egress_policy.go', '\tif r := responsesInputTools(obj["input"]); r != nil {', '\tif r := responsesInputTools(nil); r != nil {')],
+  tests=[(DAEMON, INJECT)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bp-4-namespace-member', group='BP-4', repo='ANet',
+  desc='namespace 里不是对象的成员被跳过(裸字符串 "web_search" 未经核对到达服务方)',
+  edits=[('internal/daemon/egress_policy.go', '\t\tinner, ok := t.(map[string]any)\n\t\tif !ok {\n\t\t\treturn typ, false\n\t\t}',
+          '\t\tinner, ok := t.(map[string]any)\n\t\tif !ok {\n\t\t\tcontinue\n\t\t}')],
+  tests=[(DAEMON, INJECT)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-bp-6-claude-betas', group='BP-6', repo='ANet',
+  desc='beta 白名单去掉 claude 每次都发的 effort(真实服务会因 output_config 拒收)',
+  edits=[('internal/daemon/egress_policy.go', '\t"effort-2025-11-24":                      true,\n', '')],
+  tests=[(DAEMON, 'TestEgressBetaAllowlists')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-up-3-cheapest', group='UP-3', repo='ANet',
+  desc='anthropic 最低价档仍是 claude-haiku-4-5(Haiku 5.5 更便宜)',
+  edits=[('internal/daemon/egress_upstreams.go', '\tegressUpstreamAnthropic: "claude-haiku-5-5",', '\tegressUpstreamAnthropic: "claude-haiku-4-5",')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-up-3-fable', group='UP-3', repo='ANet',
+  desc='别名表没有 fable(按 claude CLI 的写法设的模型送到 API 成了未知模型)',
+  edits=[('internal/daemon/egress_upstreams.go', '\t"fable":  "claude-fable-5-1",\n', '')],
+  tests=[(DAEMON, AGENTS)],
+  full=[DAEMON],
  ),
 ]

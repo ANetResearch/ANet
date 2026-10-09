@@ -27,16 +27,18 @@ const (
 
 // cmdlineStub is an agent that records its own command line as the kernel shows it to every local user
 // (/proc/<pid>/cmdline, else its arguments), then reports what it was given on stdin and in the
-// conversation file its message names. codex reads its reply from -o.
+// conversation file its message (or --message-file) names. codex reads its reply from -o.
 func cmdlineStub(t *testing.T, cmdlineLog string) string {
 	t.Helper()
 	return writeStub(t, `#!/bin/sh
 if [ -r /proc/$$/cmdline ]; then tr '\0' ' ' < /proc/$$/cmdline >> "`+cmdlineLog+`"; else printf '%s ' "$0" "$@" >> "`+cmdlineLog+`"; fi
 printf '\n' >> "`+cmdlineLog+`"
 out=""
+mf=""
 prev=""
 for a in "$@"; do
   if [ "$prev" = "-o" ]; then out="$a"; fi
+  if [ "$prev" = "--message-file" ]; then mf="$a"; fi
   prev="$a"
 done
 report() {
@@ -44,6 +46,7 @@ report() {
   cat
   printf '\n'
   f=$(printf '%s' "$*" | sed -n 's/.*Read the file \(.*conversation\.md\): .*/\1/p')
+  if [ -z "$f" ]; then f="$mf"; fi
   if [ -n "$f" ]; then printf 'FILE: '; cat "$f"; printf '\n'; fi
 }
 if [ -n "$out" ]; then report "$@" > "$out"; else report "$@"; fi

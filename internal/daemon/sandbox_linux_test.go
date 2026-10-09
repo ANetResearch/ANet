@@ -1008,7 +1008,7 @@ func TestSandboxIntegrationReachesTheModelOnlyThroughTheNode(t *testing.T) {
 	if err := si57Check(up, reqs[0]); err != nil {
 		t.Errorf("SI-57: %v", err)
 	}
-	if !strings.Contains(string(reqs[0].Body), `"max_tokens":8192`) || !strings.Contains(string(reqs[0].Body), `"model":"claude-haiku-4-5"`) {
+	if !strings.Contains(string(reqs[0].Body), `"max_tokens":8192`) || !strings.Contains(string(reqs[0].Body), `"model":"`+egressCheapestModel[egressUpstreamAnthropic]+`"`) {
 		t.Errorf("forwarded body %s", reqs[0].Body)
 	}
 	if res.Egress == nil || res.Egress.ModelRequests != 1 || res.Egress.Connect.Refused["egress_host_not_allowed"] != 1 {

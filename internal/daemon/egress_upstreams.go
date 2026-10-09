@@ -16,6 +16,9 @@ package daemon
 //	cursor                        none: it cannot send its model requests through this node
 //
 // An api_base whose host is api.anthropic.com or api.openai.com is that built-in upstream, not custom.
+// The upstream's route must carry the API the agent speaks (agentSandbox.speaks, agents_sandbox.go):
+// codex speaks only the Responses API, which no custom route carries, and the chat agents cannot use the
+// Anthropic route; such a configuration fails closed with agent_unsupported.
 // The model is pinned (UP-3): every request is rewritten to it, and the agent is started with it.
 
 import (
@@ -23,6 +26,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -56,18 +60,26 @@ var egressBuiltinHosts = map[string]string{
 }
 
 // egressCheapestModel is the model of each built-in upstream when auto_reply.model is not set (UP-3,
-// item 3): the lowest-priced tier, which an unattended run for an untrusted peer should use. The values
-// are refined by the per-agent trials and updated with releases.
+// item 3): the lowest-priced tier, which an unattended run for an untrusted peer should use. Updated with
+// releases; as of 2026-10 (EXE-6): for Anthropic, Haiku 5.5, the lowest price of the current models in
+// the claude CLI's catalog (2.1.295: 0.10/0.50 per million input/output tokens, against 1/5 for Haiku
+// 4.5); for OpenAI, the model the codex CLI's catalog (0.162) offers as its fast and affordable one —
+// codex is the only agent that uses the openai upstream without an api_base.
 var egressCheapestModel = map[string]string{
-	egressUpstreamAnthropic: "claude-haiku-4-5",
-	egressUpstreamOpenAI:    "gpt-5-nano",
+	egressUpstreamAnthropic: "claude-haiku-5-5",
+	egressUpstreamOpenAI:    "gpt-6-luna",
 }
 
-// egressClaudeAliases are the claude CLI's model aliases and the API model each stands for (UP-3, item 2).
+// egressClaudeAliases are the claude CLI's model aliases and the API model each stands for (UP-3, item 2):
+// the first-party defaults of the CLI's catalog (claude 2.1.295), so that a model set the way the CLI
+// takes it is the model the CLI would have used. fable and best are aliases the CLI added after haiku,
+// sonnet and opus; left untranslated they would reach the API as unknown models.
 var egressClaudeAliases = map[string]string{
-	"haiku":  "claude-haiku-4-5",
-	"sonnet": "claude-sonnet-5",
-	"opus":   "claude-opus-5",
+	"haiku":  "claude-haiku-5-5",
+	"sonnet": "claude-sonnet-5-5",
+	"opus":   "claude-opus-5-5",
+	"fable":  "claude-fable-5-1",
+	"best":   "claude-fable-5-1",
 }
 
 // egressRouteKind is what one allowed upstream path is, which decides the body policy it gets.
@@ -138,27 +150,25 @@ type egressUpstream struct {
 }
 
 // resolveEgressUpstream chooses the upstream, key and pinned model of a sandboxed run from the auto-reply
-// configuration (UP-1 to UP-3). An error is a *sandboxProbeError with the local reason (UX §1.4 H):
-// agent_unsupported, no_api_base, no_api_key, no_model, or api_base_insecure for an address the
-// configuration check should already have refused.
+// configuration (UP-1 to UP-3) and the agent's sandbox configuration (AV-4). An error is a
+// *sandboxProbeError with the local reason (UX §1.4 H): agent_unsupported, no_api_base, no_api_key,
+// no_model, or api_base_insecure for an address the configuration check should already have refused.
 func resolveEgressUpstream(cfg AutoReplyConfig) (*egressUpstream, error) {
 	apiBase := strings.TrimSpace(cfg.APIBase)
-	name := ""
-	switch cfg.Agent {
-	case agentClaude:
-		name = egressUpstreamAnthropic
-	case agentCodex:
-		name = egressUpstreamOpenAI
-		if apiBase != "" {
-			name = egressUpstreamCustom
-		}
-	case agentOpenCode, agentHermes, agentOpenClaw:
-		if apiBase == "" {
-			return nil, &sandboxProbeError{Code: "no_api_base", Detail: cfg.Agent + " needs auto_reply.api_base in the sandbox"}
-		}
+	spec, err := lookupAgent(cfg.Agent)
+	if err != nil {
+		return nil, &sandboxProbeError{Code: "agent_unsupported", Detail: fmt.Sprintf("%q is not an agent anet runs", cfg.Agent)}
+	}
+	sb := spec.sandbox
+	if sb == nil {
+		return nil, &sandboxProbeError{Code: "agent_unsupported", Detail: spec.sandboxNote}
+	}
+	name := sb.upstream
+	if apiBase != "" && !sb.fixedUpstream {
 		name = egressUpstreamCustom
-	default:
-		return nil, &sandboxProbeError{Code: "agent_unsupported", Detail: cfg.Agent + " has no model service address to point at this node"}
+	}
+	if name == "" {
+		return nil, &sandboxProbeError{Code: "no_api_base", Detail: cfg.Agent + " needs auto_reply.api_base in the sandbox"}
 	}
 	up := &egressUpstream{Name: name, Key: strings.TrimSpace(cfg.APIKey)}
 	if name == egressUpstreamCustom {
@@ -177,6 +187,14 @@ func resolveEgressUpstream(cfg AutoReplyConfig) (*egressUpstream, error) {
 			up.OpenRouter = host == "openrouter.ai"
 			up.LoopbackOnly = base.Scheme == "http"
 		}
+	}
+	if !slices.Contains(sb.speaks, up.Name) {
+		where := "a custom model service (auto_reply.api_base)"
+		if up.Name != egressUpstreamCustom {
+			where = egressBuiltinBase[up.Name]
+		}
+		return nil, &sandboxProbeError{Code: "agent_unsupported",
+			Detail: fmt.Sprintf("%s speaks %s, which the sandbox does not carry to %s", cfg.Agent, sb.api, where)}
 	}
 	switch up.Name {
 	case egressUpstreamAnthropic, egressUpstreamOpenAI:

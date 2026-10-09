@@ -364,8 +364,9 @@ func si57Body(up *egressUpstream, rel string, body []byte) error {
 			return err
 		}
 		for _, typ := range types {
-			ok := typ == "" || typ == "custom"
-			for _, p := range []string{"bash_", "text_editor_", "computer_", "memory_"} {
+			// computer use by its versions only (EXE-6); the other client tool families by prefix
+			ok := typ == "" || typ == "custom" || typ == "computer_20241022" || typ == "computer_20250124" || typ == "computer_20251124"
+			for _, p := range []string{"bash_", "text_editor_", "memory_"} {
 				ok = ok || strings.HasPrefix(typ, p)
 			}
 			if !ok {
@@ -388,11 +389,50 @@ func si57Body(up *egressUpstream, rel string, body []byte) error {
 		if err := openAIRules(); err != nil {
 			return err
 		}
-		types, err := toolTypes(obj["tools"])
-		if err != nil {
-			return err
+		// Every tool the request declares — in tools, in a namespace (codex 0.162), or in a list named tools
+		// anywhere in the input (codex's additional_tools item) — is one the client executes.
+		var declared []any
+		if obj["tools"] != nil {
+			l, ok := obj["tools"].([]any)
+			if !ok {
+				return fmt.Errorf("tools is not a list")
+			}
+			declared = append(declared, l...)
 		}
-		for _, typ := range types {
+		var inInput func(v any)
+		inInput = func(v any) {
+			switch x := v.(type) {
+			case []any:
+				for _, e := range x {
+					inInput(e)
+				}
+			case map[string]any:
+				for k, e := range x {
+					if l, ok := e.([]any); ok && k == "tools" {
+						declared = append(declared, l...)
+						continue
+					}
+					inInput(e)
+				}
+			}
+		}
+		inInput(obj["input"])
+		for len(declared) > 0 {
+			t := declared[0]
+			declared = declared[1:]
+			m, ok := t.(map[string]any)
+			if !ok {
+				return fmt.Errorf("a declared tool is not an object")
+			}
+			typ, _ := m["type"].(string)
+			if typ == "namespace" {
+				l, ok := m["tools"].([]any)
+				if !ok {
+					return fmt.Errorf("a namespace without a list of tools reached the service")
+				}
+				declared = append(declared, l...)
+				continue
+			}
 			if typ != "function" && typ != "custom" && typ != "local_shell" {
 				return fmt.Errorf("responses tool type %q reached the service", typ)
 			}
