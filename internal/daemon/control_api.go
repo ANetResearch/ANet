@@ -151,6 +151,10 @@ func (c *consoleSessions) endAll() {
 	}
 }
 
+// RotateLocalTokens is rotateLocalTokens for a caller outside this package: the CLI's tests drive it
+// to check that a running `anet mcp` follows the replaced control token (TestMCPSurvivesTokenRotation).
+func (d *Daemon) RotateLocalTokens() error { return d.rotateLocalTokens() }
+
 // rotateLocalTokens replaces this node's two local credentials (LEC AV-10, core §4.7 E3): the control
 // token (control_token.txt) and the local A2A interface's token (modules/a2a/a2a_token.txt), each a new
 // random value written with writeSecretFile (0600). When it returns, the old ones are refused (401) on
