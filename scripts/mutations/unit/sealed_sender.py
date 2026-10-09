@@ -1247,3 +1247,31 @@ MUTS += [
   edits=[('internal/aghub/fed_home.go', ' || bound != nil && bytes.Compare(pe.h, bound) > 0 {', ' || bound != nil && bytes.Compare(pe.h, bound) > 0 && false {')],
   tests=HUB6_T(['TestFedBucketPagesMergeWithoutLossOrRepeat']), full=FED6_FULL),
 ]
+
+# ---- SS-9, second review: a naming header on the anonymous side, a 200 under another wire (a send, a
+# module's read), a capability home that is no AID, the held row's home, a session answer without an
+# end, the dry run's reading of a wire header that is not a number.
+S9_EDGE_T = [('ANet:./internal/daemon', '^(TestAnAnonymousRequestCarriesNoSignature|TestAnAnswerOfAnotherWireIsNoAnswer|TestACapabilityHomeThatIsNoAIDIsNotSent|TestDryRunReadsTheWireHeaderFirst)$')]
+MUTS += [
+ dict(id='ss9-anon-naming-allowed', group='SS-9', repo='ANet', desc='匿名侧照发带签名或会话头的请求(连接因此点名本节点)',
+  edits=[('internal/daemon/hub_client.go', '\tif side == hubapi.SideAnonymous {\n\t\tfor _, h := range namingHeaders {', '\tif false && side == hubapi.SideAnonymous {\n\t\tfor _, h := range namingHeaders {')],
+  tests=S9_EDGE_T, full=S9_FULL),
+ dict(id='ss9-module-other-wire', group='SS-9', repo='ANet', desc='模块经 HubDo 照收另一线协的应答',
+  edits=[('internal/daemon/hub_client.go', 'Wire: resp.Header.Get(hubapi.WireVersionHeader)}); we != nil {\n\t\tresp.Body.Close()', 'Wire: resp.Header.Get(hubapi.WireVersionHeader)}); false && we != nil {\n\t\tresp.Body.Close()')],
+  tests=S9_EDGE_T, full=S9_FULL),
+ dict(id='ss9-send-other-wire', group='SS-9', repo='ANet', desc='/relay/send 在另一线协下的 200 照当已排队',
+  edits=[('internal/daemon/relay_send.go', '\t\tif we := hubWireCheck(hub, rep); we != nil {\n\t\t\treturn res, handed, we', '\t\tif we := hubWireCheck(hub, rep); false && we != nil {\n\t\t\treturn res, handed, we')],
+  tests=S9_EDGE_T, full=S9_FULL),
+ dict(id='ss9-home-unchecked', group='SS-9', repo='ANet', desc='能力的 home 不核对是否 AID 就写进 X-ANet-Home',
+  edits=[('internal/daemon/relay_send.go', '\tif !identity.ValidAID(home) {\n', '\tif false && !identity.ValidAID(home) {\n')],
+  tests=S9_EDGE_T, full=S9_FULL),
+ dict(id='ss9-held-home-dropped', group='SS-9', repo='ANet', desc='已在能力之下的信封不带所持行的 home',
+  edits=[('internal/daemon/relay_send.go', 'Cap: &held[i], Home: held[i].Home}, nil', 'Cap: &held[i]}, nil')],
+  tests=S9_EDGE_T, full=S9_FULL),
+ dict(id='ss9-session-no-exp', group='SS-9', repo='ANet', desc='会话应答缺 exp(为 0)也收下',
+  edits=[('internal/hubapi/relay3.go', '\tif r.Exp == 0 {\n', '\tif false && r.Exp == 0 {\n')],
+  tests=[('ANet:./internal/hubapi', '^TestASessionAnswerIsReadStrictly$')], full=S9_FULL),
+ dict(id='ss9-dryrun-body-wire', group='SS-9', repo='ANet', desc='dry_run 在线协头不是数字时改读身份体的 wire',
+  edits=[('internal/daemon/hubjoin_daemon.go', '\t} else if rep.Wire == "" && out.Wire != nil {', '\t} else if out.Wire != nil {')],
+  tests=S9_EDGE_T, full=S9_FULL),
+]
