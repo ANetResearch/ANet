@@ -420,6 +420,23 @@ func (d *Daemon) attemptRowLocked(ctx context.Context, id int64, noBackoff bool)
 	return nil
 }
 
+// recoverOutboxAttempts is engine §6.3 step 3, before anything is sent: a
+// row an attempt marked attempting may have been sent by the process that
+// stopped, so its current version counts as handed over now (CR2) — a
+// cancel does not withdraw it, and it is not reported never sent.
+func (d *Daemon) recoverOutboxAttempts() {
+	err := d.ix.Update(func(tx *interactions.Tx) error {
+		n, err := tx.RecoverOutboxAttempts(int64(d.nowMS()))
+		if err == nil && n > 0 {
+			log.Printf("anet: %d message(s) an earlier run may have sent count as handed over", n)
+		}
+		return err
+	})
+	if err != nil {
+		log.Printf("anet: recover the outbox: %v", err)
+	}
+}
+
 // recoverStaleAttempt is CR2 for row id at run time: every attempt marks a
 // row attempting under the row's lock, which the caller holds, so a mark
 // found now was left by an attempt that ended without recording its

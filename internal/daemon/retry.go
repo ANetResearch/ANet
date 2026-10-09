@@ -202,20 +202,3 @@ func (d *Daemon) flushOutboxAt(ctx context.Context, at int64) {
 	}
 	d.kickOutbox()
 }
-
-// recoverOutboxAttempts is engine §6.3 step 3, before anything is sent: a
-// row an attempt marked attempting may have been sent by the process that
-// stopped, so its current version counts as handed over now (CR2) — a
-// cancel does not withdraw it, and it is not reported never sent.
-func (d *Daemon) recoverOutboxAttempts() {
-	err := d.ix.Update(func(tx *interactions.Tx) error {
-		n, err := tx.RecoverOutboxAttempts(int64(d.nowMS()))
-		if err == nil && n > 0 {
-			log.Printf("anet: %d message(s) an earlier run may have sent count as handed over", n)
-		}
-		return err
-	})
-	if err != nil {
-		log.Printf("anet: recover the outbox: %v", err)
-	}
-}

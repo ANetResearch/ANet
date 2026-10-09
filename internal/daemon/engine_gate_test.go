@@ -188,11 +188,12 @@ func TestGrantOmitsAnUnfitP2PAddress(t *testing.T) {
 	}
 }
 
-// engineFiles are the files of the outbound engine (engine §1.1): the
-// only ones that write the outbox and its versions (ENG-G1).
+// engineFiles are the files of the outbound engine in this package (engine
+// §1.1, ENG-G1): outbox_*.go, reseal.go and dack_status.go are the only
+// ones that write the outbox and its versions.
 var engineFiles = map[string]bool{
 	"outbox_step.go": true, "outbox_attempt.go": true, "outbox_queue.go": true, "outbox_scan.go": true,
-	"outbox_seams.go": true, "dack_status.go": true, "retry.go": true, "reseal.go": true,
+	"outbox_seams.go": true, "dack_status.go": true, "reseal.go": true,
 }
 
 // outboxWriters are the store's writes of the outbox and its versions.
@@ -203,29 +204,45 @@ var outboxWriters = map[string]bool{
 	"RecoverOutboxAttempts": true, "RecoverOutboxAttempt": true,
 }
 
-// TestOnlyTheEngineWritesTheOutbox (ENG-G1): outside the engine's files, no
-// code of the daemon calls a write of the outbox; the rest of the daemon
-// goes through the engine's entry points (outbox_seams.go, queueSend).
+// TestOnlyTheEngineWritesTheOutbox (ENG-G1): no code of the module outside
+// the engine's files and the store itself calls a write of the outbox; the
+// rest of the daemon, and every other package, goes through the engine's
+// entry points (outbox_seams.go, queueSend).
 func TestOnlyTheEngineWritesTheOutbox(t *testing.T) {
-	files, err := filepath.Glob("*.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	const root, store = "../..", "internal/runtime/interactions"
 	fset := token.NewFileSet()
 	seen, calls := 0, 0
-	for _, name := range files {
-		if strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		src, err := os.ReadFile(name)
+	err := filepath.WalkDir(root, func(path string, e os.DirEntry, err error) error {
 		if err != nil {
-			t.Fatal(err)
+			return err
 		}
-		f, err := parser.ParseFile(fset, name, src, 0)
+		if e.IsDir() {
+			if name := e.Name(); path != root && (strings.HasPrefix(name, ".") || name == "testdata") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
 		if err != nil {
-			t.Fatal(err)
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if filepath.ToSlash(filepath.Dir(rel)) == store {
+			return nil
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		f, err := parser.ParseFile(fset, rel, src, 0)
+		if err != nil {
+			return err
 		}
 		seen++
+		engine := filepath.ToSlash(filepath.Dir(rel)) == "internal/daemon" && engineFiles[filepath.Base(rel)]
 		ast.Inspect(f, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
@@ -236,13 +253,17 @@ func TestOnlyTheEngineWritesTheOutbox(t *testing.T) {
 				return true
 			}
 			calls++
-			if !engineFiles[name] {
+			if !engine {
 				t.Errorf("%s: %s writes the outbox outside the engine", fset.Position(call.Pos()), sel.Sel.Name)
 			}
 			return true
 		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if seen < 50 || calls < 10 {
+	if seen < 200 || calls < 10 {
 		t.Fatalf("read %d files and %d outbox writes: the scan is not looking where it should", seen, calls)
 	}
 }
