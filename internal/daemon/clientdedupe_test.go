@@ -256,6 +256,22 @@ func TestTheCanonIsTheContent(t *testing.T) {
 			t.Errorf("%s did not change the content: %s", name, got)
 		}
 	}
+	// The texts and the files keep their order ("first A, then B" is not
+	// "first B, then A"; a client comparing two images names them in its
+	// order); the activated extensions are a set.
+	msg := func(parts ...a2ashape.Part) a2ashape.Message {
+		return a2ashape.Message{ID: "m-1", Role: a2ashape.RoleUser, Parts: parts}
+	}
+	hello, world := a2ashape.TextPart("hello"), a2ashape.TextPart("world")
+	if canon(msg(hello, world)) == canon(msg(world, hello)) {
+		t.Error("the texts in another order are the same content")
+	}
+	if canon(msg(hello, file("a.txt", "AAAA"), file("b.txt", "BBBB"))) == canon(msg(hello, file("b.txt", "BBBB"), file("a.txt", "AAAA"))) {
+		t.Error("the files in another order are the same content")
+	}
+	if canon(base, "urn:x:a", "urn:x:b") != canon(base, "urn:x:b", "urn:x:a", "urn:x:b") {
+		t.Error("the extensions in another order, or one named twice, are another content")
+	}
 	// A capability call: its args, to the literal (M2, M42).
 	call := func(args string) string {
 		return canon(decodeLiteral(t, `{"messageId":"m","role":"ROLE_USER","parts":[{"data":{"skill":"calc.add","args":`+args+`}}]}`))
@@ -421,6 +437,35 @@ func TestARetryIsTheSameWithOrWithoutAPreview(t *testing.T) {
 	if again.ID != first.ID || !deduplicated(again) || outboundCount(t, req) != 1 {
 		t.Fatalf("retry without the preview = %s (deduplicated %v), %d tasks; want %s", again.ID, deduplicated(again),
 			outboundCount(t, req), first.ID)
+	}
+}
+
+// CUX-D2: a new task's messageId is looked up among the agent's tasks in the
+// context the client names. The same id and content in another context is
+// another request — a new task in that context — and each context's retry
+// finds its own task; other content in a context is refused naming that
+// context's task.
+func TestAMessageIDIsLookedUpInItsContext(t *testing.T) {
+	_, req, prov := registeredPair(t)
+	a := mustSend(t, req, prov.AID(), textMsg("the same words", "ctx-a", "m-ctx"))
+	b := mustSend(t, req, prov.AID(), textMsg("the same words", "ctx-b", "m-ctx"))
+	if b.ID == a.ID || deduplicated(b) || b.ContextID != "ctx-b" || outboundCount(t, req) != 2 {
+		t.Fatalf("the same id in another context = %s in %s (deduplicated %v), %d tasks; want a new task in ctx-b",
+			b.ID, b.ContextID, deduplicated(b), outboundCount(t, req))
+	}
+	for _, c := range []struct {
+		ctx  string
+		task a2ashape.Task
+	}{{"ctx-a", a}, {"ctx-b", b}} {
+		again := mustSend(t, req, prov.AID(), textMsg("the same words", c.ctx, "m-ctx"))
+		if again.ID != c.task.ID || !deduplicated(again) {
+			t.Fatalf("the retry in %s = %s (deduplicated %v), want %s", c.ctx, again.ID, deduplicated(again), c.task.ID)
+		}
+		_, err := clientSend(t, req, prov.AID(), textMsg("other words", c.ctx, "m-ctx"))
+		reusedAs(t, err, "open", c.task.ID)
+	}
+	if n := outboundCount(t, req); n != 2 {
+		t.Fatalf("%d tasks, want 2", n)
 	}
 }
 

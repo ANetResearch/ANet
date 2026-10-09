@@ -72,6 +72,8 @@ func TestFindByClientKey(t *testing.T) {
 	add("ix_3", "me", key, "d3")
 	add("ix_2", "peer-a", other, "planted") // the peer's message under a client key
 	add("ix_in", "me", other, "inbound")    // this node's message on a task sent to it
+	followUpKey := []byte("key-3-key-3-key-3-key-3-key-3-ky")
+	add("ix_1", "me", followUpKey, "d1-follow-up") // a second message of ix_1, under its own key
 
 	find := func(q interactions.ClientKeyQuery) *interactions.ClientMessage {
 		t.Helper()
@@ -99,6 +101,11 @@ func TestFindByClientKey(t *testing.T) {
 	}
 	if c := find(interactions.ClientKeyQuery{Key: key, TaskID: "ix_2"}); c.Unanswered {
 		t.Fatal("the unanswered mark reached another task")
+	}
+	// The mark is the one message's: a follow-up whose call was answered is
+	// not marked with the first message's (CUX-D5).
+	if c := find(interactions.ClientKeyQuery{Key: followUpKey, TaskID: "ix_1"}); c.Unanswered {
+		t.Fatal("the unanswered mark reached another message of the task")
 	}
 	for name, miss := range map[string]interactions.ClientKeyQuery{
 		"other peer":       {Key: key, PeerAID: "peer-c"},
