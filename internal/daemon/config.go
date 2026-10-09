@@ -141,50 +141,6 @@ func checkEgressAllowConfig(c Config, _ map[string]any) *a2ashape.Refusal {
 	return ref
 }
 
-// withSandboxRequest is the configuration a POST /autoreply asks for, as far as auto_reply.sandbox goes
-// (LEC §2.3.4; the rest of the request is SetAutoReply's): a request that names nothing but sandbox
-// changes only that block of the current configuration, and in it only the members it names; another
-// request keeps the current block unless it names one. The allowlist is checked against the result's
-// api_base and kept in its normalized form (CN-1).
-func withSandboxRequest(cur *AutoReplyConfig, req AutoReplyConfig, members map[string]json.RawMessage) (*AutoReplyConfig, *a2ashape.Refusal) {
-	sandbox, named := members["sandbox"]
-	onlySandbox := named
-	for k := range members {
-		if k != "sandbox" && k != "off" {
-			onlySandbox = false
-		}
-	}
-	var next AutoReplyConfig
-	switch {
-	case onlySandbox && cur != nil:
-		next = *cur
-	case !onlySandbox:
-		next = req
-	}
-	var block AutoReplySandboxConfig
-	if cur != nil && cur.Sandbox != nil {
-		block = *cur.Sandbox
-		block.EgressAllow = slices.Clone(block.EgressAllow)
-	}
-	if named {
-		var in map[string]json.RawMessage
-		_ = json.Unmarshal(sandbox, &in)
-		if _, ok := in["egress_allow"]; ok && req.Sandbox != nil {
-			block.EgressAllow = req.Sandbox.EgressAllow
-		}
-	}
-	norm, ref := checkEgressAllow(block.EgressAllow, next.APIBase)
-	if ref != nil {
-		return nil, ref
-	}
-	block.EgressAllow = norm
-	next.Sandbox = nil
-	if !block.empty() {
-		next.Sandbox = &block
-	}
-	return &next, nil
-}
-
 // Values of AutoReplyConfig.Untrusted.
 const (
 	UntrustedOff     = "off"

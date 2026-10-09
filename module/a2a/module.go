@@ -157,7 +157,8 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	_ = os.Remove(filepath.Join(dir, ConflictFile))
 	host, port, _ := net.SplitHostPort(ln.Addr().String())
 	signer, _ := h.(module.ProxyCardSigner)
-	s := newServer(seam, serverConfig{token: token, host: host, port: port, self: h.AID(), signer: signer})
+	s := newServer(seam, serverConfig{token: token, tokenFile: filepath.Join(dir, TokenFile), host: host, port: port,
+		self: h.AID(), signer: signer})
 	srv := &http.Server{
 		Handler: s,
 		// No WriteTimeout: a blocking SendMessage waits for the remote

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -15,14 +16,19 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/payment"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -49,18 +55,141 @@ func loadOrGenControlToken(l Layout) (string, error) {
 
 // newControlToken makes a control token and writes it to control_token.txt (0600), replacing any.
 func newControlToken(l Layout) (string, error) {
-	var raw [24]byte
-	if _, err := rand.Read(raw[:]); err != nil {
+	tok, err := randomHex(24)
+	if err != nil {
 		return "", err
 	}
-	tok := hex.EncodeToString(raw[:])
 	if err := l.EnsureRoot(); err != nil {
 		return "", err
 	}
-	if err := writeFileAtomic(l.ControlTokenPath(), []byte(tok+"\n"), 0o600); err != nil {
+	if err := writeSecretFile(l.ControlTokenPath(), []byte(tok+"\n")); err != nil {
 		return "", err
 	}
 	return tok, nil
+}
+
+// randomHex is n random bytes, hex.
+func randomHex(n int) (string, error) {
+	raw := make([]byte, n)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+// writeSecretFile replaces path with data, mode 0600, so that a reader sees the old file or the new one
+// and a crash leaves one of the two on disk: a new file in the same directory (created 0600), synced,
+// renamed over path, and the directory synced (KEL D-42 E3: written, synced, then replaced).
+func writeSecretFile(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Chmod(0o600)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
+}
+
+// --- the local credentials (LEC AV-10) ---
+
+// ctlAuth is the control plane's credential as it is now: the bearer token, and the console sessions
+// opened under it. The control plane reads it on every request, so a replaced token is refused from
+// the next request on.
+type ctlAuth struct {
+	mu       sync.RWMutex
+	token    string
+	sessions *consoleSessions
+}
+
+// bearer is the token the control plane accepts now.
+func (a *ctlAuth) bearer() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.token
+}
+
+// replace puts tok in force and ends every console ticket and session: they were obtained with the
+// token being replaced.
+func (a *ctlAuth) replace(tok string) {
+	a.mu.Lock()
+	a.token = tok
+	cs := a.sessions
+	a.mu.Unlock()
+	if cs != nil {
+		cs.endAll()
+	}
+}
+
+// endAll ends every outstanding console ticket (removing its launcher page) and every session.
+func (c *consoleSessions) endAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.tickets {
+		delete(c.tickets, k)
+		c.dropLauncherLocked(k)
+	}
+	for k := range c.sessions {
+		delete(c.sessions, k)
+	}
+}
+
+// rotateLocalTokens replaces this node's two local credentials (LEC AV-10, core §4.7 E3): the control
+// token (control_token.txt) and the local A2A interface's token (modules/a2a/a2a_token.txt), each a new
+// random value written with writeSecretFile (0600). When it returns, the old ones are refused (401) on
+// the control plane and on the local A2A interface, and the console sessions opened under the old
+// control token have ended. anet's CLI and MCP server read the token files, so they follow; a client
+// that keeps a copy (Hermes' a2a_agents) needs `anet agents wire --all`. KEL's emergency rotation calls
+// it after E2 and decides when; it is idempotent, so a rotation resumed after a crash calls it again.
+//
+// Both are replaced even when one write fails, and the failures are returned together: a token that
+// could not be replaced is still the compromised one, which the caller must hear about.
+func (d *Daemon) rotateLocalTokens() error {
+	var errs []error
+	if tok, err := newControlToken(d.layout); err != nil {
+		errs = append(errs, fmt.Errorf("replace the control token: %w", err))
+	} else if a := d.ctlAuth.Load(); a != nil {
+		a.replace(tok)
+	}
+	// The interface reads its token file on every request (module/a2a), so replacing the file is what
+	// puts the new token in force. A data dir whose interface never ran has no token to replace; one
+	// made later is new anyway.
+	if dir := anethome.A2ADir(d.layout.Root); dirExists(dir) {
+		tok, err := randomHex(32)
+		if err == nil {
+			err = writeSecretFile(filepath.Join(dir, anethome.A2ATokenFile), []byte(tok+"\n"))
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("replace the local A2A token: %w", err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// dirExists reports a directory (not a link to one) at p.
+func dirExists(p string) bool {
+	fi, err := os.Lstat(p)
+	return err == nil && fi.IsDir()
 }
 
 // daemonPointer is the JSON written to DaemonPointerPath so a CLI in a different env can find the daemon.
@@ -163,6 +292,8 @@ func ResolveControlStrict(l Layout) (baseURL, token string, err error) {
 // or a console session for the routes in ctlsec.go's sessionRoutes); the Host/Origin guard, the console
 // page and the console session routes are added by secureControlPlane (ctlsec.go).
 func (d *Daemon) ControlHandler(token string) http.Handler {
+	auth := &ctlAuth{token: token}
+	d.ctlAuth.Store(auth)
 	api := newRouteMux()
 	api.HandleFunc("GET /status", d.hStatus)
 	api.HandleFunc("POST /status", d.hStatus)
@@ -222,7 +353,7 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	// This node's own A2A network card and its publication status
 	// (a2a_card.go). Bearer only.
 	api.HandleFunc("POST /card", d.hCard)
-	return d.secureControlPlane(token, api)
+	return d.secureControlPlane(auth, api)
 }
 
 // maxControlBody caps a control-plane request body.
@@ -478,28 +609,7 @@ func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
 		"console_url":    consoleURL(cfg),
 	}
 	if ar := cfg.AutoReply; ar != nil {
-		backend := ar.Backend
-		if backend == "" {
-			backend = "openai"
-		}
-		entry := map[string]any{"backend": backend, "untrusted": ar.UntrustedMode()}
-		switch backend {
-		case "exec":
-			entry["agent"] = ar.Agent
-			if ar.WorkDir != "" {
-				entry["work_dir"] = ar.WorkDir
-			}
-		default:
-			entry["model"] = ar.Model
-			entry["api_base"] = ar.APIBase
-		}
-		// LEC §2.3.3: the CONNECT allowlist, [] when there is none.
-		allow := []string{}
-		if ar.Sandbox != nil {
-			allow = append(allow, ar.Sandbox.EgressAllow...)
-		}
-		entry["sandbox"] = map[string]any{"egress_allow": allow}
-		out["auto_reply"] = entry
+		out["auto_reply"] = autoReplyView(ar)
 	}
 	// The hub join state (LEC §2.3.3): what the node is waiting for, and
 	// the one command, if any, that moves it on.
@@ -592,29 +702,35 @@ func (d *Daemon) hAccept(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"inbound_policy": PolicyClosed, "status": "updated"})
 }
 
-// hAutoReply reconfigures the built-in auto-reply loop live (see autoreply.go): `{"off":true}` turns it
-// off; otherwise the body is an AutoReplyConfig that is validated, persisted, and started immediately —
-// no daemon restart, no hand-editing config.json. This is the switch behind `anet autoreply set|off`.
+// hAutoReply changes the auto-reply configuration live (see autoreply.go), behind `anet autoreply set|off`
+// (LEC §2.3.4). `{"off":true}` removes the whole block. Any other body is merged into the current
+// configuration: the members it names change, the others stay, so settings made one at a time do not
+// undo each other; a member set to null goes back to its default. api_key is write-only: absent keeps
+// it, a value replaces it, "" is refused (api_key_empty). The answer never holds the key, only
+// api_key_set. "off" is a boolean: any other value would leave auto-reply running while the caller
+// believes it stopped, so it is refused.
 func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Off bool `json:"off"`
-		AutoReplyConfig
-	}
-	var members map[string]json.RawMessage
-	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil || json.Unmarshal(raw, &req) != nil || json.Unmarshal(raw, &members) != nil {
+	members, err := readJSONMembers(r)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
+	off := false
+	if raw, ok := members["off"]; ok && string(raw) != "null" && json.Unmarshal(raw, &off) != nil {
+		writeRefusal(w, http.StatusBadRequest, configInvalid("off", ruleText("只能是 true 或 false", "it must be true or false")))
+		return
+	}
+	// The configuration read here is the one the merge result replaces: a second request waits, so
+	// two settings sent at once do not undo each other.
+	d.autoReplyWrite.Lock()
+	defer d.autoReplyWrite.Unlock()
 	var cfg *AutoReplyConfig
-	if !req.Off {
-		// auto_reply.sandbox merges, and its allowlist is checked (LEC §2.3.4, CN-1).
-		c, ref := withSandboxRequest(d.config().AutoReply, req.AutoReplyConfig, members)
-		if ref != nil {
+	if !off {
+		var ref *a2ashape.Refusal
+		if cfg, ref = mergeAutoReply(d.config().AutoReply, members); ref != nil {
 			writeRefusal(w, http.StatusBadRequest, ref)
 			return
 		}
-		cfg = c
 	}
 	if err := d.SetAutoReply(cfg); err != nil {
 		code := http.StatusBadRequest
@@ -624,15 +740,232 @@ func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, code, map[string]string{"error": err.Error()})
 		return
 	}
-	// api_key is written, never read back (LEC §2.3.4): a request that names only sandbox keeps the
-	// stored key, and the answer, which the CLI prints, must not show it.
-	var shown *AutoReplyConfig
+	var view any
 	if cfg != nil {
-		c := *cfg
-		c.APIKey = ""
-		shown = &c
+		view = autoReplyView(cfg)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"auto_reply": shown, "status": "updated"})
+	writeJSON(w, http.StatusOK, map[string]any{"auto_reply": view, "status": "updated"})
+}
+
+// readJSONMembers reads a request body that is one JSON object into its members.
+func readJSONMembers(r *http.Request) (map[string]json.RawMessage, error) {
+	var m map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, errors.New("not a JSON object")
+	}
+	return m, nil
+}
+
+// autoReplyView is the auto-reply configuration as /status and /autoreply show it (LEC §2.3.3): what
+// it does, never the key — only whether one is set (AV-8) — and the sandbox's CONNECT allowlist, [] when
+// there is none.
+func autoReplyView(ar *AutoReplyConfig) map[string]any {
+	backend := ar.Backend
+	if backend == "" {
+		backend = "openai"
+	}
+	entry := map[string]any{"backend": backend, "untrusted": ar.UntrustedMode(), "api_key_set": ar.APIKey != ""}
+	switch backend {
+	case "exec":
+		entry["agent"] = ar.Agent
+		if ar.WorkDir != "" {
+			entry["work_dir"] = ar.WorkDir
+		}
+	default:
+		entry["model"] = ar.Model
+		entry["api_base"] = ar.APIBase
+	}
+	entry["sandbox"] = map[string]any{"egress_allow": egressAllowOf(ar)}
+	return entry
+}
+
+// mergeAutoReply is the configuration a POST /autoreply asks for (LEC §2.3.4): cur with the request's
+// members applied — an object member merged member by member into the current object, null resetting a
+// member, any other value replacing it — then checked (checkAutoReply, and checkEgressAllow for the
+// sandbox's allowlist). A member that is not an auto-reply setting, or has the wrong type, is
+// config_invalid.
+func mergeAutoReply(cur *AutoReplyConfig, members map[string]json.RawMessage) (*AutoReplyConfig, *a2ashape.Refusal) {
+	// A member is named exactly, at every depth: JSON decoding would match "Model" to model, and a merge
+	// with both would keep whichever came last.
+	settings := make(map[string]json.RawMessage, len(members))
+	for k, v := range members {
+		if k != "off" {
+			settings[k] = v
+		}
+	}
+	if bad := inexactMember(reflect.TypeFor[AutoReplyConfig](), settings); bad != "" {
+		return nil, configInvalid("auto_reply."+bad, ruleText("不是自动回复的配置项", "it is not an auto-reply setting"))
+	}
+	if raw, ok := members["api_key"]; ok && string(raw) != "null" {
+		var key string
+		if json.Unmarshal(raw, &key) != nil {
+			return nil, configInvalid("api_key", ruleText("必须是字符串", "it must be a string"))
+		}
+		if strings.TrimSpace(key) == "" {
+			return nil, a2ashape.Refuse("api_key_empty", nil)
+		}
+		members["api_key"], _ = json.Marshal(strings.TrimSpace(key))
+	}
+	base := map[string]json.RawMessage{}
+	if cur != nil {
+		raw, _ := json.Marshal(cur)
+		_ = json.Unmarshal(raw, &base)
+	}
+	for k, v := range members {
+		if k == "off" {
+			continue
+		}
+		base[k] = mergeJSONMember(base[k], v)
+		if base[k] == nil {
+			delete(base, k)
+		}
+	}
+	raw, _ := json.Marshal(base)
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var next AutoReplyConfig
+	if err := dec.Decode(&next); err != nil {
+		return nil, autoReplyDecodeRefusal(err)
+	}
+	if ref := checkAutoReply(next); ref != nil {
+		return nil, ref
+	}
+	// The sandbox block, merged like any other, holds the allowlist: checked against the merged api_base
+	// and kept in its normal form (CN-1); a block that sets nothing is dropped.
+	if next.Sandbox != nil {
+		norm, ref := checkEgressAllow(next.Sandbox.EgressAllow, next.APIBase)
+		if ref != nil {
+			return nil, ref
+		}
+		next.Sandbox.EgressAllow = norm
+		if next.Sandbox.empty() {
+			next.Sandbox = nil
+		}
+	}
+	return &next, nil
+}
+
+// inexactMember is the path of the first member of members (in name order) that is not exactly the JSON
+// name of a field of the struct t, looking into a member that is an object where its field is a struct
+// (a block of settings, merged member by member); "" when every name is exact.
+func inexactMember(t reflect.Type, members map[string]json.RawMessage) string {
+	fields := map[string]reflect.Type{}
+	for i := 0; i < t.NumField(); i++ {
+		if name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ","); name != "" && name != "-" {
+			fields[name] = t.Field(i).Type
+		}
+	}
+	names := make([]string, 0, len(members))
+	for k := range members {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		ft, ok := fields[k]
+		if !ok {
+			return k
+		}
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		var sub map[string]json.RawMessage
+		if ft.Kind() == reflect.Struct && json.Unmarshal(members[k], &sub) == nil && sub != nil {
+			if bad := inexactMember(ft, sub); bad != "" {
+				return k + "." + bad
+			}
+		}
+	}
+	return ""
+}
+
+// mergeJSONMember is the value a member takes: v merged into cur when both are objects, nil (removed)
+// for null, else v.
+func mergeJSONMember(cur, v json.RawMessage) json.RawMessage {
+	if string(bytes.TrimSpace(v)) == "null" {
+		return nil
+	}
+	var co, vo map[string]json.RawMessage
+	if json.Unmarshal(cur, &co) != nil || co == nil || json.Unmarshal(v, &vo) != nil || vo == nil {
+		return v
+	}
+	for k, m := range vo {
+		if co[k] = mergeJSONMember(co[k], m); co[k] == nil {
+			delete(co, k)
+		}
+	}
+	out, _ := json.Marshal(co)
+	return out
+}
+
+// autoReplyDecodeRefusal is config_invalid for a merged configuration that does not decode: the member
+// that is not a setting, or has the wrong type.
+func autoReplyDecodeRefusal(err error) *a2ashape.Refusal {
+	var te *json.UnmarshalTypeError
+	if errors.As(err, &te) && te.Field != "" {
+		return configInvalid("auto_reply."+te.Field, ruleText("类型不对,应为 "+te.Type.String(), "it must be of type "+te.Type.String()))
+	}
+	if name, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		return configInvalid("auto_reply."+strings.Trim(name, `"`), ruleText("不是自动回复的配置项", "it is not an auto-reply setting"))
+	}
+	return configInvalid("auto_reply", ruleText("不是合法的 JSON 对象", "it is not a valid JSON object"))
+}
+
+// checkAutoReply checks an auto-reply configuration before it is saved (LEC §2.3.4, §3.2): the backend,
+// the agent the exec backend runs, the untrusted mode, what the openai backend needs, and an api_base
+// that is https or http on this machine's loopback. Each failure is config_invalid with the key and the
+// rule, or api_base_insecure.
+func checkAutoReply(c AutoReplyConfig) *a2ashape.Refusal {
+	switch c.Backend {
+	case "", "openai":
+		if strings.TrimSpace(c.APIBase) == "" {
+			return configInvalid("auto_reply.api_base", ruleText("openai 后端必填", "the openai backend needs it"))
+		}
+		if strings.TrimSpace(c.Model) == "" {
+			return configInvalid("auto_reply.model", ruleText("openai 后端必填", "the openai backend needs it"))
+		}
+	case "exec":
+		if _, err := lookupAgent(c.Agent); err != nil {
+			agents := strings.Join(SupportedExecAgents(), ", ")
+			return configInvalid("auto_reply.agent", ruleText("exec 后端必填,只能是 "+agents, "the exec backend needs one of "+agents))
+		}
+	default:
+		return configInvalid("auto_reply.backend", ruleText("只能是 openai 或 exec", "it must be openai or exec"))
+	}
+	if ref := checkAutoReplyStart(c); ref != nil {
+		return ref
+	}
+	return nil
+}
+
+// checkAutoReplyStart is the part of checkAutoReply that a daemon also makes before it starts (LEC §3.2,
+// CheckConfigForStart): the untrusted mode and the api_base.
+func checkAutoReplyStart(c AutoReplyConfig) *a2ashape.Refusal {
+	switch c.Untrusted {
+	case "", UntrustedOff, UntrustedSandbox:
+	default:
+		return configInvalid("auto_reply.untrusted", ruleText("只能是 off 或 sandbox", "it must be off or sandbox"))
+	}
+	if base := strings.TrimSpace(c.APIBase); base != "" {
+		if _, err := parseEgressAPIBase(base); err != nil {
+			return a2ashape.Refuse("api_base_insecure", nil)
+		}
+	}
+	return nil
+}
+
+// The untrusted mode and the api_base are checked when the daemon starts, too (LEC §3.2): a config.json
+// edited by hand to hold another mode, or a model service on plain http elsewhere than this machine,
+// does not start.
+func init() {
+	configChecks = append(configChecks, func(c Config, _ map[string]any) *a2ashape.Refusal {
+		if c.AutoReply == nil {
+			return nil
+		}
+		return checkAutoReplyStart(*c.AutoReply)
+	})
 }
 
 // hAutoReplyTest runs the configured backend once on a synthetic prompt (no Hub, no identity) so an
