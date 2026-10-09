@@ -264,6 +264,9 @@ func TestDLVT9_AQueuedVersionIsAskedAboutNotSentAgain(t *testing.T) {
 		}
 		clk.set(max(next, clk.now()+1000))
 		req.flushOutbox(ctx)
+		if n := len(log.digests(t)); n > 1 {
+			t.Fatalf("the envelope was uploaded again %d hours on, while the hub held it", (clk.now()-end+3*24*3600*1000)/3_600_000)
+		}
 	}
 	if n := len(log.digests(t)); n != 1 {
 		t.Fatalf("the envelope was uploaded %d times in three days", n)
