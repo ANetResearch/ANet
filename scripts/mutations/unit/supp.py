@@ -311,7 +311,7 @@ MUTS = [
   id='c35-3', group='C35', repo='ANet',
   desc='阻塞式追问不等 provider 的新回复(after 置 0)',
   edits=[
-   ('internal/daemon/taskseam.go', '\trelease()\n\treturn d.finishSend(ctx, sc, ix.ID, after, req, wait)\n}', '\trelease()\n\t_ = after\n\treturn d.finishSend(ctx, sc, ix.ID, 0, req, wait)\n}'),
+   ('internal/daemon/taskseam.go', '\trelease()\n\treturn d.finishSend(ctx, sc, ix.ID, after, req, wait, mark)\n}', '\trelease()\n\t_ = after\n\treturn d.finishSend(ctx, sc, ix.ID, 0, req, wait, mark)\n}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestABlockingFollowUpWaitsForTheNextReply|TestAFollowUpWaitsForANewerStateEvent')],
   full=['ANet:./internal/daemon'],
