@@ -668,4 +668,22 @@ MUTS += [
  dict(id='kel8-doctor-aging', group='KEL-8', repo='ANet', desc='doctor identity.witness:identity.confirm_aging 不报 warn',
   edits=[(DOCID, '\t\tif reason == "identity.ok" {\n\t\t\treturn stOK\n\t\t}\n\t\treturn stWarn\n', '\t\treturn stOK\n')],
   tests=K8CLI(['TestDoctorIdentityChecks']), full=['ANet:./cmd/anet']),
+ # Second review (2026-10-09): checks no test held. Each is a separate row, so a later edit of one
+ # check cannot hide behind another's.
+ dict(id='kel8-lc-update', group='KEL-8', repo='ANet', desc='D-14:已有见证时 hub-register(只更新资料)仍按请求的 next_digest 改写 local_commit(提醒可被控制面调用方消掉)',
+  edits=[(HUBJOIN, '\tif action == joinActionJoin {\n\t\tif err := d.keepLocalCommit(req)', '\tif true {\n\t\tif err := d.keepLocalCommit(req)')],
+  tests=K8(['TestLocalCommitAndTheCommitmentThatReplacesIt']), full=K8_FULL),
+ dict(id='kel8-nohub-said', group='KEL-8', repo='ANet', desc='UX-C9:no_hub 时身份句不取 hub 行的句子与参数(hub_refused 缺 {code})',
+  edits=[(IDSTAT, '\tif st.State == IdentityNoHub {\n', '\tif false && st.State == IdentityNoHub {\n')],
+  tests=K8(['TestIdentityStatusSaysEachState']), full=K8_FULL),
+ dict(id='kel8-status-notice', group='KEL-8', repo='ANet', desc='/identity/status.notice 在所持通告不确认当前顶端时仍给出',
+  edits=[(IDSTAT, '\tif in.Notice.confirms(in.File) {\n\t\ts.Notice =', '\tif in.Notice != nil {\n\t\ts.Notice =')],
+  tests=K8(['TestIdentityStatusSaysEachState']), full=K8_FULL),
+ dict(id='kel8-d50m', group='KEL-8', repo='ANet', desc='D-50:启动时以当前时刻而非 observed_at 重验文件里的通告(超过 6 小时的通告不载入,notice 与 {dur} 失真)',
+  edits=[(IDNOTICE, '\tchecked, err := d.verifyOwnNotice(n.Wire, n.Body.ObservedAt)', '\tchecked, err := d.verifyOwnNotice(n.Wire, d.nowMS())')],
+  tests=K8(['TestTheNoticeIsReadBackAtStart']), full=K8_FULL),
+ dict(id='kel8-d3-name', group='KEL-8', repo='ANet', desc='D-3、UX-R7:identity_stopped 的发送拒绝不带身份名({name},下一步命令缺名字)',
+  edits=[(IDSTAT, '\t\tif n := d.identityName(); n != "" {\n\t\t\targs = a2ashape.Args{"name": n}\n\t\t}\n\t\treturn a2ashape.Refuse(reasonStopped, args)',
+          '\t\treturn a2ashape.Refuse(reasonStopped, args)')],
+  tests=K8(['TestSendRefusedWhenStopped']), full=K8_FULL),
 ]
