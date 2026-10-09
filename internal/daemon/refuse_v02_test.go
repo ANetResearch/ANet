@@ -345,3 +345,32 @@ func TestRefuseV02DataDirFoundOnlyInTheLog(t *testing.T) {
 		t.Fatalf("the refused store was converted: user_version %d, %d schema objects, reason column %d", version, objects, reason)
 	}
 }
+
+// FuzzDataDirVersions: the start check's readers of the key ring's v and
+// the identity file's type tag never panic, and agree with how the start
+// judges the file: a v the ring decoder takes is this version's, and a
+// version tag read from an identity file is the tag's own number.
+func FuzzDataDirVersions(f *testing.F) {
+	for _, m := range []map[uint64]any{v02KeyRing(1), v02KeyRing(3), v02KeyRing(-1), {0: "anet.identity/3"},
+		{0: "anet.identity/2", 1: []byte{0x80}}, {0: "anet.identity/03"}, {0: uint64(2)}} {
+		b, err := coredet.Marshal(m)
+		if err != nil {
+			f.Fatal(err)
+		}
+		f.Add(b)
+	}
+	f.Add([]byte("not cbor"))
+	f.Fuzz(func(t *testing.T, b []byte) {
+		v, ok := keyRingFileVersion(b)
+		if fk, err := decodeEncKeyFile(b); err == nil && (!ok || v != encKeyFileVersion || fk.V != v) {
+			t.Fatalf("the ring decoder took v %d that the start reads as %d (%v)", fk.V, v, ok)
+		}
+		n, tagged := identityFileTagVersion(b)
+		if tagged && identityFileIsV02(b) {
+			t.Fatal("a tagged identity file is also 0.2's untagged one")
+		}
+		if tagged && (identityFileIsNewer(b) != (n > identityFileVersion) || identityFileTagIsOlder(b) != (n < identityFileVersion)) {
+			t.Fatalf("tag version %d judged inconsistently", n)
+		}
+	})
+}
