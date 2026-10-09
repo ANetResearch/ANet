@@ -9,11 +9,13 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 
@@ -813,5 +815,88 @@ func TestOnlyThePeerConfirmsADelegationImplicitly(t *testing.T) {
 	}
 	if n := confirm(prov.AID()); n != 1 || len(outboxRows(t, req, id)) != 0 {
 		t.Fatalf("the peer's message confirmed %d delegation(s), want 1", n)
+	}
+}
+
+// ENG-K15: an emergency close fails every open task and tells each peer
+// that may know of its task — a delegation that left this node, confirmed
+// or not, gets a cancel; a provider's task gets a failed status — and
+// tells nothing about a delegation that never left. The rows of a task
+// that had ended before stay queued, to go after the gate opens.
+func TestAnEmergencyCloseTellsThePeersThatMayKnow(t *testing.T) {
+	_, req, prov := registeredPair(t)
+	ctx := context.Background()
+	delegate := func(goal string) string {
+		t.Helper()
+		id, err := req.Delegate(ctx, prov.AID(), goal, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	confirmed := delegate("confirmed")
+	confirmDelegation(t, req, prov)
+	if rows := outboxRows(t, req, confirmed); len(rows) != 0 {
+		t.Fatalf("setup: the confirmed delegation is still queued: %+v", rows)
+	}
+	handed := delegate("handed over")
+	ended := delegate("canceled before the close")
+	if _, err := req.CancelTask(ctx, ended); err != nil {
+		t.Fatal(err)
+	}
+	endedRows := len(outboxRows(t, req, ended))
+	hubURL := req.config().HubURL
+	setHubURL(req, deadHubURL)
+	neverSent := delegate("never sent")
+	setHubURL(req, hubURL)
+	if rows := outboxRows(t, req, neverSent); len(rows) != 1 || rows[0].HandedAt != 0 {
+		t.Fatalf("setup: %+v, want a delegation never handed over", rows)
+	}
+
+	var closed *closedSet
+	if err := req.ix.Update(func(tx *interactions.Tx) error {
+		var err error
+		closed, err = req.closeInteractionsTx(tx, closeKeyCompromise)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req.afterClose(closed)
+	notice := func(id string) string {
+		t.Helper()
+		var kinds []string
+		for _, r := range outboxRows(t, req, id) {
+			kinds = append(kinds, r.Type+":"+r.Kind)
+		}
+		return strings.Join(kinds, ",")
+	}
+	for _, c := range []struct{ id, want string }{
+		{confirmed, seal.TypeMessage + ":" + rowKindCancel},
+		{handed, seal.TypeMessage + ":" + rowKindCancel},
+		{neverSent, ""},
+	} {
+		if got := notice(c.id); got != c.want {
+			t.Errorf("queued for the task after the close: %q, want %q", got, c.want)
+		}
+		if st, _, reason := taskViewMap(t, req, c.id); st != string(a2ashape.TaskStateFailed) || reason != string(closeKeyCompromise) {
+			t.Errorf("the task after the close: %s %s, want failed key_compromise", st, reason)
+		}
+	}
+	if n := len(outboxRows(t, req, ended)); n != endedRows || n == 0 {
+		t.Errorf("the task that had ended: %d rows queued after the close, want its %d kept", n, endedRows)
+	}
+
+	// The provider's side: its open task is failed and its requester told.
+	if err := prov.ix.Update(func(tx *interactions.Tx) error {
+		var err error
+		closed, err = prov.closeInteractionsTx(tx, closeLocalStateLost)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	prov.afterClose(closed)
+	rows := outboxRows(t, prov, confirmed)
+	if len(rows) != 1 || rows[0].Type != seal.TypeStatus || rows[0].Kind != delegation.StateFailed {
+		t.Fatalf("the provider's queue after the close: %+v, want one failed status", rows)
 	}
 }
