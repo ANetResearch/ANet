@@ -1235,7 +1235,7 @@ MUTS += [
   edits=[('internal/aghub/fed_home.go', '\t\tif last != nil && bytes.Compare(h, last) < 0 {', '\t\tif false && last != nil && bytes.Compare(h, last) < 0 {')],
   tests=HUB6_T(['TestAPeersBucketPageIsInHashOrder']), full=FED6_FULL),
  dict(id='ss6-entry-notice', group='SS-6', repo='ANetHub', desc='目录条目的见证通告不核对(SSR-W22)',
-  edits=[('internal/aghub/fed_home.go', '\tif len(e.Notice) > 0 {\n\t\thubKELs', '\tif false && len(e.Notice) > 0 {\n\t\thubKELs')],
+  edits=[('internal/aghub/fed_home.go', '\tif len(e.Notice) > 0 {\n\t\t// The key state the witness signed under', '\tif false && len(e.Notice) > 0 {\n\t\t// The key state the witness signed under')],
   tests=HUB6_T(['TestAnEntryIsTakenOnlyWhenItVerifies']), full=FED6_FULL),
  dict(id='ss6-entry-card', group='SS-6', repo='ANetHub', desc='目录条目的 A2A 卡片不对 KEL 核对(SSR-W22)',
   edits=[('internal/aghub/fed_home.go', '\t\tif _, err := verifyA2ACardFor(aid, e.Card, kel, now); err != nil {', '\t\tif _, err := verifyA2ACardFor(aid, e.Card, kel, now); false && err != nil {')],
