@@ -1435,3 +1435,29 @@ MUTS += [
           '\t}\n\tif kerr == nil {\n\t\tm.Card = append(json.RawMessage(nil), ra.Card...)\n\t\td.discover(m)\n\t}')],
   tests=[('ANet:./internal/daemon', '^FuzzHubAnswers$')], full=S10_FULL),
 ]
+
+# ---- SS-10, second review: the checks the first lists left without a red test
+MUTS += [
+ dict(id='ss10-r2-cli-replay', group='SS-10', repo='ANet', desc='anet verify(无 daemon)取回不回放到该 AID 的 KEL',
+  edits=[('internal/daemon/peer_resolve.go', '\t\tif got, err := replayedAID(kel); err != nil || got != aid {\n\t\t\tcontinue\n\t\t}\n\t\tkels = append(kels, kel)',
+          '\t\tkels = append(kels, kel)')],
+  tests=[('ANet:./internal/daemon', '^TestDirectoryKELTakesOnlyTheAgentsHistory$')], full=S10_FULL),
+ dict(id='ss10-r2-cli-fork', group='SS-10', repo='ANet', desc='anet verify(无 daemon)对分叉的两份 KEL 取较长者而不报错',
+  edits=[('internal/daemon/peer_resolve.go', '\t\tif err := identity.ExtendsKEL(k, best); err != nil {', '\t\tif err := identity.ExtendsKEL(k, best); false && err != nil {')],
+  tests=[('ANet:./internal/daemon', '^TestDirectoryKELTakesOnlyTheAgentsHistory$')], full=S10_FULL),
+ dict(id='ss10-r2-cli-partial', group='SS-10', repo='ANet', desc='anet verify(无 daemon)把 partial 答复里找不到说成目录里没有',
+  edits=[('internal/daemon/peer_resolve.go', '\t\tif partial {\n\t\t\treturn nil, fmt.Errorf("%s\'s directory could not ask every peer hub', '\t\tif false {\n\t\t\treturn nil, fmt.Errorf("%s\'s directory could not ask every peer hub')],
+  tests=[('ANet:./internal/daemon', '^TestDirectoryKELTakesOnlyTheAgentsHistory$')], full=S10_FULL),
+ dict(id='ss10-r2-narrow', group='SS-10', repo='ANet', desc='hub 回 bucket_too_narrow 后不按其 max_bits 再问',
+  edits=[('internal/daemon/peer_resolve.go', '\t\tif errors.As(err, &narrow) && attempt == 0 {', '\t\tif errors.As(err, &narrow) && false {')],
+  tests=[('ANet:./internal/daemon', '^TestBucketTooNarrowIsAskedOnceWider$')], full=S10_FULL),
+ dict(id='ss10-r2-keys-fork', group='SS-10', repo='ANet', desc='同一 seq 两份不同钥集的条目仍取其一',
+  edits=[('internal/daemon/peer_resolve.go', '\t\tif ok[i].Keys.set.Seq == ok[best].Keys.set.Seq &&\n', '\t\tif false && ok[i].Keys.set.Seq == ok[best].Keys.set.Seq &&\n')],
+  tests=[('ANet:./internal/daemon', '^TestEntrySelectionLongestKEL$')], full=S10_FULL),
+ dict(id='ss10-r2-kel-self', group='SS-10', repo='ANet', desc='/agents/kel 对本节点自己的 AID 也去查目录',
+  edits=[('internal/daemon/peer_resolve.go', '\tif req.AID == d.AID() {\n\t\tanswer(d.self.KEL(), "self")', '\tif false && req.AID == d.AID() {\n\t\tanswer(d.self.KEL(), "self")')],
+  tests=[('ANet:./internal/daemon', '^TestAgentsKELSources$')], full=S10_FULL),
+ dict(id='ss10-r2-cli-cursor', group='SS-10', repo='ANet', desc='anet verify(无 daemon)遇到不前进的游标就按已读部分下结论',
+  edits=[('internal/daemon/peer_resolve.go', '\t\tif p.Next == q.Cursor {\n\t\t\t// Read no further', '\t\tif false && p.Next == q.Cursor {\n\t\t\t// Read no further')],
+  tests=[('ANet:./internal/daemon', '^TestDirectoryKELStopsAtACursorThatDoesNotMove$')], full=S10_FULL),
+]

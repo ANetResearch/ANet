@@ -13,7 +13,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -646,6 +649,18 @@ func TestEntrySelectionLongestKEL(t *testing.T) {
 	if v != verdictFound || m.Card != nil || m.CardErr == "" || m.Keys == nil {
 		t.Fatalf("an entry with a bad card: %v card %q (%s), keys %v", v, m.Card, m.CardErr, m.Keys != nil)
 	}
+	// Two entries of one KEL whose key sets differ at the same seq: the
+	// agent's own signature on both, and no way to tell which one it
+	// meant. Neither is sealed to.
+	seq := uint64(time.Now().UnixMilli())
+	one, two := entry(s, nil), entry(s, nil)
+	one.Keys, two.Keys = signedKeysFor(t, s, seq), signedKeysFor(t, s, seq)
+	keyForks := counter(req, keysFork)
+	h.setDir(func(h *fakeHub) { h.dirExtra[s.AID()] = []dirbox.DirEntry{one, two} })
+	if m, v := req.resolvePeer(ctx, s.AID(), resolveOpts{need: needKeys, bypass: true}); v != verdictUnverifiable ||
+		counter(req, keysFork) != keyForks+1 {
+		t.Fatalf("two key sets at one seq: %v (%v), %d key-set forks counted", v, m.Err, counter(req, keysFork)-keyForks)
+	}
 }
 
 // SSR-D18: an active contact's stored key set is used as it is, and looked
@@ -812,4 +827,193 @@ func TestKidStaleBypassesCaches(t *testing.T) {
 		t.Fatalf("a second kid_stale: %v after %d queries", err, queryCount(h)-q0)
 	}
 	_ = seal.EpochMS
+}
+
+// A hub that refuses a query as narrower than its dir_max_bits (400
+// bucket_too_narrow, SSR-D15; the dir_max_bits this node held was an hour
+// old) is asked once more, at the max_bits it gave, which only ever widens
+// the bucket; later queries take that width at once.
+func TestBucketTooNarrowIsAskedOnceWider(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	h := fakeHubAt(t, srv.URL)
+	setFake(t, srv.URL, func(h *fakeHub) { h.dirMaxBits, h.dirPad = 10, 40 })
+	restarted := restartDaemon(t, req) // forgets any dir_max_bits read before
+	if _, v := restarted.resolvePeer(ctx, prov.AID(), resolveOpts{need: needKeys, bypass: true}); v != verdictFound {
+		t.Fatalf("set-up: %v", v)
+	}
+	if qs := h.queries(); qs[len(qs)-1].Bits != 10 {
+		t.Fatalf("set-up: the query was %d bits wide", qs[len(qs)-1].Bits)
+	}
+	// The hub's directory shrank since: it now answers at most 6 bits.
+	setFake(t, srv.URL, func(h *fakeHub) { h.dirMaxBits = 6 })
+	n, narrow := queryCount(h), counter(restarted, cntDirBucketNarrow)
+	if m, v := restarted.resolvePeer(ctx, prov.AID(), resolveOpts{need: needKeys, bypass: true}); v != verdictFound {
+		t.Fatalf("after bucket_too_narrow: %v (%v)", v, m.Err)
+	}
+	qs := h.queries()
+	if len(qs) != n+2 || qs[n].Bits != 10 || qs[n+1].Bits != 6 || counter(restarted, cntDirBucketNarrow) != narrow+1 {
+		t.Fatalf("%d queries (want 2: 10 bits, then 6), %d refusals counted", len(qs)-n, counter(restarted, cntDirBucketNarrow)-narrow)
+	}
+	n = queryCount(h)
+	restarted.resolvePeer(ctx, prov.AID(), resolveOpts{need: needKeys, bypass: true})
+	if qs := h.queries(); len(qs) != n+1 || qs[n].Bits != 6 {
+		t.Fatalf("the next lookup: %d queries, the last %d bits wide", len(qs)-n, qs[len(qs)-1].Bits)
+	}
+}
+
+// DirectoryKEL (anet verify with no daemon) returns the key history of the
+// AID it was asked about and of no one else: an entry whose KEL replays to
+// another AID is passed over, the longest of the agent's own is taken, two
+// that disagree are an error, and an agent missing from a partial answer is
+// "try again", not "not in the directory".
+func TestDirectoryKELTakesOnlyTheAgentsHistory(t *testing.T) {
+	srv, _, prov := registeredPair(t)
+	ctx := context.Background()
+	h := fakeHubAt(t, srv.URL)
+	marshal := func(kel []identity.SignedEvent) []byte {
+		t.Helper()
+		b, err := identity.MarshalKEL(kel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	// An entry filed under the agent's hash carrying another identity's
+	// history, longer than the agent's own.
+	mallory, err := identitytest.Hub()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := identitytest.Rotate(mallory, uint64(time.Now().UnixMilli())-1000); err != nil {
+		t.Fatal(err)
+	}
+	impostor := dirbox.DirEntry{AID: prov.AID(), Home: h.self.AID(), KEL: marshal(mallory.KEL()),
+		Keys: signedKeysFor(t, mallory, 0)}
+	h.setDir(func(h *fakeHub) { h.dirExtra[prov.AID()] = []dirbox.DirEntry{impostor} })
+	kel, err := DirectoryKEL(ctx, srv.URL, prov.AID())
+	if err != nil || !bytes.Equal(marshal(kel), marshal(prov.self.KEL())) {
+		t.Fatalf("an agent with an impostor's entry beside its own: %v", err)
+	}
+	stranger := newStranger(t)
+	theirs := dirbox.DirEntry{AID: stranger.aid, Home: h.self.AID(), KEL: marshal(mallory.KEL()), Keys: signedKeysFor(t, mallory, 0)}
+	h.setDir(func(h *fakeHub) { h.dirOverride[stranger.aid] = theirs })
+	if kel, err := DirectoryKEL(ctx, srv.URL, stranger.aid); err == nil {
+		t.Fatalf("an entry holding only another identity's history was returned (%d events)", len(kel))
+	}
+	// Two histories of one identity that fork.
+	s, err := identitytest.Hub()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported, err := s.Export()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fork, err := identity.Restore(exported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	short := dirbox.DirEntry{AID: s.AID(), Home: h.self.AID(), KEL: marshal(s.KEL()), Keys: signedKeysFor(t, s, 0)}
+	now := uint64(time.Now().UnixMilli())
+	if err := identitytest.Rotate(s, now-1000); err != nil {
+		t.Fatal(err)
+	}
+	long := dirbox.DirEntry{AID: s.AID(), Home: h.self.AID(), KEL: marshal(s.KEL()), Keys: signedKeysFor(t, s, 0)}
+	h.setDir(func(h *fakeHub) { h.dirExtra[s.AID()] = []dirbox.DirEntry{long, short} })
+	if kel, err := DirectoryKEL(ctx, srv.URL, s.AID()); err != nil || len(kel) != len(s.KEL()) {
+		t.Fatalf("a short and a long history: %v, %d events, want %d", err, len(kel), len(s.KEL()))
+	}
+	if err := identitytest.Rotate(fork, now-2000); err != nil {
+		t.Fatal(err)
+	}
+	forked := dirbox.DirEntry{AID: s.AID(), Home: h.self.AID(), KEL: marshal(fork.KEL()), Keys: signedKeysFor(t, fork, 0)}
+	h.setDir(func(h *fakeHub) { h.dirExtra[s.AID()] = []dirbox.DirEntry{long, forked} })
+	if _, err := DirectoryKEL(ctx, srv.URL, s.AID()); err == nil || !strings.Contains(err.Error(), "disagree") {
+		t.Fatalf("two histories that fork: %v", err)
+	}
+	// Not in a partial answer: try again later.
+	nobody := newStranger(t)
+	setFake(t, srv.URL, func(h *fakeHub) { h.dirPartial = true })
+	if _, err := DirectoryKEL(ctx, srv.URL, nobody.aid); err == nil || !strings.Contains(err.Error(), "try again later") {
+		t.Fatalf("an agent missing from a partial answer: %v", err)
+	}
+	setFake(t, srv.URL, func(h *fakeHub) { h.dirPartial = false })
+	if _, err := DirectoryKEL(ctx, srv.URL, nobody.aid); err == nil || !strings.Contains(err.Error(), "no entry") {
+		t.Fatalf("an agent missing from a whole answer: %v", err)
+	}
+}
+
+// POST /agents/kel (anet verify through the daemon) answers this node's own
+// key history, a recorded peer's, and one the directory holds, and says
+// which; an agent the directory does not hold is 404 with the daemon's
+// reason, a directory that cannot be read is 503, and what is not an AID
+// is 400. The KEL is the agent's, in the control plane's standard base64.
+func TestAgentsKELSources(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	ctx := context.Background()
+	if _, err := req.Delegate(ctx, prov.AID(), "a task", nil); err != nil {
+		t.Fatal(err)
+	}
+	third := newTestDaemon(t, srv.URL, false)
+	if err := third.RegisterWithHub(ctx, srv.URL, "Third", nil); err != nil {
+		t.Fatal(err)
+	}
+	p := newPlaneFor(t, req, "tok")
+	ask := func(aid string) (int, map[string]string) {
+		t.Helper()
+		resp, raw := p.req(t, "POST", "/agents/kel", `{"aid":"`+aid+`"}`, p.bearer)
+		var out map[string]string
+		_ = json.Unmarshal(raw, &out)
+		return resp.StatusCode, out
+	}
+	for _, c := range []struct {
+		aid, source string
+		kel         []identity.SignedEvent
+	}{
+		{req.AID(), "self", req.self.KEL()},
+		{prov.AID(), "record", prov.self.KEL()},
+		{third.AID(), "directory", third.self.KEL()},
+	} {
+		code, out := ask(c.aid)
+		want, _ := identity.MarshalKEL(c.kel)
+		if code != 200 || out["source"] != c.source || out["aid"] != c.aid || out["kel"] != base64.StdEncoding.EncodeToString(want) {
+			t.Errorf("%s: %d, source %q, want 200 from %s with its KEL", c.source, code, out["source"], c.source)
+		}
+	}
+	nobody := newStranger(t)
+	if code, out := ask(nobody.aid); code != 404 || !strings.Contains(out["error"], "no hub knows") {
+		t.Errorf("an agent the directory does not hold: %d %v", code, out)
+	}
+	if code, _ := ask("not an aid"); code != 400 {
+		t.Errorf("not an AID: %d", code)
+	}
+	setFake(t, srv.URL, func(h *fakeHub) { h.dirDown = true })
+	if code, _ := ask(newStranger(t).aid); code != 503 {
+		t.Errorf("a directory that cannot be read: %d, want 503", code)
+	}
+}
+
+// A hub whose bucket answer names, as the next page, the page just read is
+// not read forever, and nothing is concluded from the part read: the CLI
+// says to try again, as the daemon does (fetchBucket).
+func TestDirectoryKELStopsAtACursorThatDoesNotMove(t *testing.T) {
+	asked := 0
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/hub/identity":
+			_ = json.NewEncoder(w).Encode(hubapi.HubIdentity{AID: "bhubwithaloopingcursor"})
+		case hubapi.DirectoryBucketPath:
+			asked++
+			_ = json.NewEncoder(w).Encode(hubapi.DirBucketResponse{Entries: []hubapi.DirBucketEntry{}, Next: "again"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer hub.Close()
+	_, err := DirectoryKEL(context.Background(), hub.URL, newStranger(t).aid)
+	if err == nil || !strings.Contains(err.Error(), "try again later") || asked != 2 {
+		t.Fatalf("a cursor that does not move: %v after %d pages", err, asked)
+	}
 }

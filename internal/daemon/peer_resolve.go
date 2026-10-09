@@ -1258,8 +1258,13 @@ func DirectoryKEL(ctx context.Context, hubURL, aid string) ([]identity.SignedEve
 		}
 		entries = append(entries, p.Entries...)
 		partial = partial || p.Partial
-		if p.Next == "" || p.Next == q.Cursor {
+		if p.Next == "" {
 			break
+		}
+		if p.Next == q.Cursor {
+			// Read no further, and conclude nothing from a part: the
+			// agent may be on a page this hub never gets to.
+			return nil, fmt.Errorf("%s's directory does not move past its cursor; try again later", hub)
 		}
 		q.Cursor = p.Next
 	}
