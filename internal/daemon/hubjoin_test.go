@@ -128,6 +128,12 @@ func TestHubAnswersMapAsUXR6(t *testing.T) {
 		{"401 replayed", phaseRegister, hubReply{Status: 401, Body: refusalBody("replayed", nil)}, JoinRetrying, reasonRetrying, whyBusy, "", actWait},
 		{"403 without a code", phaseRegister, hubReply{Status: 403, Body: []byte(`{"error":"no"}`)}, JoinRefused, reasonHubRefused, "", "http_403", actWait},
 		{"a 2xx that is no registration", phaseRegister, hubReply{Status: 200, Body: []byte(`{"status":"maybe"}`)}, JoinRetrying, reasonRetrying, whyInternal, "", actWait},
+		// A 2xx that states another wire is a wire refusal, never a
+		// success (core CORE-V1).
+		{"registered over an older wire", phaseRegister, hubReply{Status: 200, Wire: "2", Body: reg.Body}, JoinRefused, reasonWireTooNew, "", "", actWait},
+		{"registered over a newer wire", phaseRegister, hubReply{Status: 200, Wire: "4", Body: reg.Body}, JoinRefused, reasonWireTooOld, "", "", actWait},
+		{"admitted over a newer wire", phaseCheck, hubReply{Status: 200, Wire: "4", Body: []byte(`{"status":"admitted"}`)}, JoinRefused, reasonWireTooOld, "", "", actWait},
+		{"registered over this wire", phaseRegister, hubReply{Status: 200, Wire: "3", Body: reg.Body}, JoinRegistered, reasonRegistered, "", "", actAdopt},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := *freshJoinRecord("https://hub.example", now)
