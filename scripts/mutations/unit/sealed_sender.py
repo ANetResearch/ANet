@@ -223,8 +223,9 @@ MUTS += [
   edits=[('internal/aghub/deregister.go', '\t\tif _, err := tx.Exec(`DELETE FROM quota_override WHERE aid=?`, aid); err != nil {\n\t\t\treturn DeregResult{}, err\n\t\t}\n', '')],
   tests=[('ANetHub:./internal/aghub', '^TestDeregRemovesEveryAIDKeyedRow$')], full=['ANetHub:./internal/aghub']),
  # ---- the removed flags (SSR-H20)
+ # Re-pointed by PAY-4: beforeServing answers the first removed action or setting (firstRemoved).
  dict(id='ss3-flag-fixed', group='SS-3', repo='ANetHub', desc='删除的 relay flag 不按 hub_flag_removed.fixed 拒绝',
-  edits=[('cmd/anet-hub/main.go', '\t\tif r[0].fixed {', '\t\tif false && r[0].fixed {')],
+  edits=[('cmd/anet-hub/main.go', '\t\tcase u.fixed:\n', '\t\tcase false && u.fixed:\n')],
   tests=[('ANetHub:./cmd/anet-hub', '^TestRemovedRelayFlagsRefuse$')], full=['ANetHub:./cmd/anet-hub']),
  # ss3-fed-lookup-wired (anet-hub stopped wiring the federated key lookup) is retired with the lookup:
  # SS-5 removed it, and GET /agents/{aid}/keys answers for this hub's own agents only
