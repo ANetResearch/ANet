@@ -938,7 +938,7 @@ MUTS += [
   tests=K7(K7_CMD, ['TestHubRefusesToStartWithV1IdentityFile']), full=[K7_CMD]),
  dict(id='kel7-v02-store', group='KEL-7', repo='ANetHub', desc='S-2:hub 先打开数据库再查身份文件(拒绝时目录已被写)',
   edits=[('cmd/anet-hub/main.go', '\tif err := hubid.CheckFile(dir); err != nil {\n\t\treturn nil, c.refuseIdentity(err)\n\t}\n\tstore, err := aghub.Open(dir)',
-          '\tstore, err := aghub.Open(dir)')],
+          '\t_ = hubid.CheckFile\n\tstore, err := aghub.Open(dir)')],
   tests=K7(K7_CMD, ['TestHubRefusesToStartWithV1IdentityFile']), full=[K7_CMD]),
  dict(id='kel7-h31', group='KEL-7', repo='ANetHub', desc='H-31:恢复口令未设置时启动不写提醒',
   edits=[(IDOPS, '\tif !id.RecoverySet() {\n\t\tlogf(', '\tif false {\n\t\tlogf(')],
