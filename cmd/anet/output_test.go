@@ -161,7 +161,7 @@ func TestCLISaysTheControlPlanesSentence(t *testing.T) {
 		}
 		for _, lang := range []a2ashape.Language{a2ashape.English, a2ashape.Chinese} {
 			args := a2ashape.Args{"task": "ix_1", "hub": "https://hub.example", "aid": wholeAID, "peer": wholeAID,
-				"path": "/home/u/.anet", "value": "x", "key": "k", "rule": "r", "what": "anet x", "instead": "accept"}
+				"path": "/srv/u/.anet", "value": "x", "key": "k", "rule": "r", "what": "anet x", "instead": "accept"}
 			body := a2ashape.Refuse(r.Key(), args).Body(lang)
 			b, _ := json.Marshal(body)
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

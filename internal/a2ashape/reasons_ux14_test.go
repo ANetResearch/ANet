@@ -11,10 +11,10 @@ import (
 // (UX-K4); one that names no command has none. The command is the same in both languages. [mut] the
 // next step of doctor.daemon_down removed → red.
 func TestDoctorSentencesNameTheirNextStep(t *testing.T) {
-	args := Args{"path": "/home/u/.anet-recovery/x.anetrec", "name": "face.compare", "n": 3, "m": 2,
+	args := Args{"path": "/srv/u/.anet-recovery/x.anetrec", "name": "face.compare", "n": 3, "m": 2,
 		"code": "bad_signature", "key": "HTTPS_PROXY", "daily": 100, "time": "now"}
 	want := map[string]string{
-		"identity.recovery_perm":        "chmod 600 /home/u/.anet-recovery/x.anetrec",
+		"identity.recovery_perm":        "chmod 600 /srv/u/.anet-recovery/x.anetrec",
 		"identity.recovery_leftover":    "anet identity status",
 		"payments.no_payees":            "anet payees add <AID>",
 		"doctor.daemon_down":            "anet up",

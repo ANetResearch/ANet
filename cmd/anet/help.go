@@ -211,7 +211,7 @@ func guideBanner() string {
 
 // guide is a bare `anet`: where this node stands and what to do next. It
 // asks the running daemon (/status) and says, in the daemon's own
-// sentences, whether it runs, the recovery reminder and the hub line
+// sentences, whether it runs, the recovery reminder (ux §3.4 (g)) and the hub line
 // with its command; then the common commands. The next steps follow the
 // state: a node without a hub is told the one command that joins one,
 // a joined node how to find agents and send them tasks.

@@ -91,7 +91,7 @@ func (sc *scriptedControl) lastBody(path string) map[string]any {
 const wholeAID = "bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4"
 
 // scriptedJoin is a control plane that answers hub-register's dry run with a first join and the join with
-// state (and, with unprotected, the recovery reminder of a join without a terminal).
+// state (and, with unprotected, the recovery reminder of a join without a terminal, ux §3.4 (g)).
 func scriptedJoin(state string, unprotected bool) func(string, map[string]any) (int, string) {
 	return func(path string, body map[string]any) (int, string) {
 		if path != "/hub-register" {
