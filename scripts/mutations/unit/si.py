@@ -557,7 +557,8 @@ MUTS = [
   desc='新结算不查授权有效期与当前密钥(settle 路径的 currentAuth)',
   edits=[
    # Re-pointed by PAY-4: the settlement reads the store's clock, and SettleForPeer has its own call.
-   ('internal/aghub/facilitator.go', '\tif rf := currentAuth(auth, kel, s.now().UnixMilli()); rf != nil {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\treturn s.settleAuth(hubAID, auth, id, "")', '\tif rf := currentAuth(auth, kel, s.now().UnixMilli()); rf != nil && false {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\treturn s.settleAuth(hubAID, auth, id, "")'),
+   # Re-pointed by KEL-6: the window and the key are checked by keyAtFirstVerify (KEL H-40, H-41).
+   ('internal/aghub/facilitator.go', '\tif rf := s.keyAtFirstVerify(auth, id, kel, s.now().UnixMilli()); rf != nil {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\treturn s.settleAuth(hubAID, auth, id, "")', '\tif rf := s.keyAtFirstVerify(auth, id, kel, s.now().UnixMilli()); rf != nil && false {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\treturn s.settleAuth(hubAID, auth, id, "")'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestPaymentRefusals|TestSettleRefusesPaymentsThatDoNotMeetTheRequirements|TestAChargedAuthorizationGetsItsReceiptAfterItsWindow')],
   full=['ANetHub:./internal/aghub', 'ANetHub:./cmd/anet-hub'],
