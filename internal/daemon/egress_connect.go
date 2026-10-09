@@ -6,6 +6,8 @@ package daemon
 //
 // A CONNECT goes through, in this order:
 //
+//  0. on a keyed endpoint (macOS), its Proxy-Authorization carries the run's key (EG-3): else 407
+//     egress_unauthorized;
 //  1. its host is an entry of auto_reply.sandbox.egress_allow, exactly (CN-2; hostname.go), and its port
 //     is 443: else 403 egress_host_not_allowed or egress_port. With the list empty, the default, every
 //     CONNECT ends here;
@@ -176,6 +178,13 @@ func (t *egressTunnels) closeAll(end bool) {
 
 // connect answers a CONNECT (CN-2 to CN-7).
 func (e *egressEndpoint) connect(w http.ResponseWriter, r *http.Request) {
+	if !e.proxyAuthorized(r.Header) {
+		// EG-3: a keyed endpoint (macOS) is on the host's loopback; a CONNECT without the run's key, from
+		// whatever process, is answered 407 and nothing of it is looked at.
+		w.Header().Set("Proxy-Authenticate", `Basic realm="anet"`)
+		e.refuseConnect(w, http.StatusProxyAuthRequired, "egress_unauthorized", nil)
+		return
+	}
 	u := r.URL
 	if u == nil || u.Host == "" || u.Scheme != "" || u.Opaque != "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
 		// Not CONNECT host:port: there is no host to look at.

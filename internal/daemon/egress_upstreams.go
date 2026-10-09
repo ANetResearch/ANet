@@ -283,10 +283,20 @@ func (up *egressUpstream) target(p, rawQuery string) *url.URL {
 	return &u
 }
 
-// egressRouteBase is the address the agent in the sandbox uses for its model service: the injection
+// egressRouteBase is the address the agent in a Linux sandbox uses for its model service: the injection
 // route of this run's upstream on the sandbox's own 127.0.0.1:3128 (LEC §2.6.2).
 func egressRouteBase(up *egressUpstream) string {
-	return "http://" + sandboxBridgeListen + egressRoutePrefix + up.Name
+	return egressRouteBaseAt(up, sandboxBridgeListen, "")
+}
+
+// egressRouteBaseAt is the injection route of the run's upstream on the endpoint at addr; with the run's
+// key (macOS) the route starts with it: http://127.0.0.1:<P>/anet-upstream/<S>/<name> (LEC §2.6.2).
+func egressRouteBaseAt(up *egressUpstream, addr, key string) string {
+	prefix := egressRoutePrefix
+	if key != "" {
+		prefix += key + "/"
+	}
+	return "http://" + addr + prefix + up.Name
 }
 
 // egressProxyVars are the proxy variables pointed at the endpoint in the sandbox (LEC §2.6.3), and
@@ -307,12 +317,23 @@ var egressSecretVars = []string{
 
 // sandboxEgressEnv is what the agent in the sandbox is told about its egress (LEC §2.6.3, AV-4, UP-4):
 // every proxy variable names the endpoint, and the model service address of the run's upstream is the
-// injection route, with the placeholder key. Nil without an upstream.
+// injection route, with the placeholder key. Nil without an upstream. This is the Linux endpoint, the
+// sandbox's own 127.0.0.1:3128.
 func sandboxEgressEnv(up *egressUpstream) []string {
+	return sandboxEgressEnvAt(up, sandboxBridgeListen, "")
+}
+
+// sandboxEgressEnvAt is sandboxEgressEnv for the endpoint at addr. With the run's key (macOS, MS-3) the
+// proxy variables carry it as their password (http://anet:<S>@127.0.0.1:<P>) and the injection route
+// starts with it; the key is in this environment and nowhere else (EG-3).
+func sandboxEgressEnvAt(up *egressUpstream, addr, key string) []string {
 	if up == nil {
 		return nil
 	}
-	proxy := "http://" + sandboxBridgeListen
+	proxy := "http://" + addr
+	if key != "" {
+		proxy = "http://" + egressKeyUser + ":" + key + "@" + addr
+	}
 	var env []string
 	for _, k := range egressProxyVars {
 		env = append(env, k+"="+proxy)
@@ -320,7 +341,7 @@ func sandboxEgressEnv(up *egressUpstream) []string {
 	for _, k := range egressNoProxyVars {
 		env = append(env, k+"=127.0.0.1,localhost")
 	}
-	base := egressRouteBase(up)
+	base := egressRouteBaseAt(up, addr, key)
 	switch up.Name {
 	case egressUpstreamAnthropic:
 		env = append(env, "ANTHROPIC_BASE_URL="+base, "ANTHROPIC_API_KEY="+egressPlaceholderKey,

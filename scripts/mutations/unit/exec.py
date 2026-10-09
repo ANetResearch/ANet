@@ -127,7 +127,7 @@ MUTS = [
   id='m-eg-1', group='EG', repo='ANet',
   desc='absolute-form 不核对目标是端点自身(任何主机的同名路径都当作注入路由)',
   edits=[
-   ('internal/daemon/egress.go', '!egressSelf[strings.ToLower(u.Host)]', 'false'),
+   ('internal/daemon/egress.go', '!e.self[strings.ToLower(u.Host)]', 'false'),
   ],
   tests=[('ANet:./internal/daemon', 'TestEgressRefusesWhatIsNotTheRoute')],
   full=['ANet:./internal/daemon'],
