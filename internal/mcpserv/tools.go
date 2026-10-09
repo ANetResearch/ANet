@@ -158,11 +158,7 @@ func addTaskTools(s *mcp.Server, c Control) {
 			"request is attributable to you and cannot be repudiated, and it is end-to-end encrypted " +
 			"to the agent. The call waits up to timeout_seconds (default 30) for the task to finish " +
 			"or to need you, then returns the Task as it is; a task still working is normal — call " +
-			"wait_task, and do not send it again: a resend is a second task. To make a retry of this " +
-			"call safe, give a `message_id`: a fresh random one (a UUID) for every new message — never " +
-			"one made from the text or the date — and the same one only when you repeat this very call. " +
-			"While the task a message_id made is open, that message_id sent to the same agent again " +
-			"returns that task and sends nothing, whatever the new text says. " +
+			"wait_task, and do not send it again: a resend is a second task. " +
 			"input-required with metadata x402.payment.required is a price quote: see " +
 			"submit_payment. (A quote within the operator's automatic limit, payments.auto_max, is paid " +
 			"by the node itself and the task simply goes on. The limit is 0 on a new node and no tool " +
@@ -187,7 +183,6 @@ func addTaskTools(s *mcp.Server, c Control) {
 		if len(in.Files) == 0 {
 			setIf(body, "task_id", in.TaskID)
 			setIf(body, "context_id", in.ContextID)
-			setIf(body, "message_id", in.MessageID)
 			setIf(body, "text", in.Text)
 			setIf(body, "skill", in.Skill)
 			if in.Args != nil {
@@ -198,7 +193,7 @@ func addTaskTools(s *mcp.Server, c Control) {
 			if err != nil {
 				return nil, nil, err
 			}
-			m.ID, m.TaskID, m.ContextID = in.MessageID, in.TaskID, in.ContextID
+			m.TaskID, m.ContextID = in.TaskID, in.ContextID
 			body["message"] = m
 		}
 		if in.ReturnImmediately {
@@ -617,7 +612,6 @@ type sendIn struct {
 	To                string         `json:"to,omitempty" jsonschema:"the agent's AID, to start a new task"`
 	TaskID            string         `json:"task_id,omitempty" jsonschema:"a task this node sent, to continue it"`
 	ContextID         string         `json:"context_id,omitempty" jsonschema:"the conversation (contextId) a new task belongs to; omit to start a new one"`
-	MessageID         string         `json:"message_id,omitempty" jsonschema:"a fresh random id (a UUID) for this message, never one made from its text or the date; send it again only to retry this same call: while its task is open, the same id to the same agent returns that task and sends nothing"`
 	Text              string         `json:"text,omitempty" jsonschema:"what you want, in prose"`
 	Skill             string         `json:"skill,omitempty" jsonschema:"a capability id from the agent's card, for a deterministic call; not the chat skill of an open node, which is plain text: send text instead"`
 	Args              map[string]any `json:"args,omitempty" jsonschema:"the skill call's arguments"`
