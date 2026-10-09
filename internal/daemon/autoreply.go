@@ -171,7 +171,13 @@ func (d *Daemon) startAutoReply(cfg AutoReplyConfig) {
 	}
 	d.autoReplyStop = cancel
 	d.mu.Unlock()
-	go d.autoReplyLoop(ctx, cfg, replier, interval)
+	// A background goroutine like the others, so that Close waits for the
+	// loop, and the untrusted turns a scan waits for, before it closes the
+	// store they read and write. When the daemon is already closing nothing
+	// starts.
+	if !d.goBackground(func() { d.autoReplyLoop(ctx, cfg, replier, interval) }) {
+		cancel()
+	}
 }
 
 // SetAutoReply reconfigures the built-in auto-reply loop live (no daemon restart): it validates cfg,
