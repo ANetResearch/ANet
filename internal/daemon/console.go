@@ -10,8 +10,10 @@ package daemon
 // not loopback) obtained full control of the daemon, including local code execution through /autoreply
 // (found in the 2026-09 A2A security survey of the control plane).
 //
-// The page reads public registry data (/graph, /stats, /agents/{aid}) cross-origin from the configured
-// hub, whose CORS is open; the Content-Security-Policy allows exactly that origin in connect-src.
+// The page reads the hub's public statistics (/stats) cross-origin from the configured hub, whose CORS
+// is open; the Content-Security-Policy allows exactly that origin in connect-src. The agents — the list
+// and one agent's card — come through this daemon (/agents/list, /agents/card), which names no agent to
+// the hub (sealed-sender SSR-D17).
 
 import (
 	"bytes"

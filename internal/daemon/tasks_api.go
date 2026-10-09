@@ -8,17 +8,18 @@ package daemon
 //	POST /tasks/cancel  CancelTask
 //	POST /tasks/wait    wait until the task is terminal or waits for this node (newer than after_seq)
 //	POST /tasks/reply   the provider's answer on a task delegated to this node
-//	POST /agents/list   discovery: verified network cards by skill/tag, free text matched here
+//	POST /agents/list   discovery: verified network cards, skill, tag and free text matched here
 //	POST /agents/card   one agent's network card (original bytes) and this node's verification
+//	POST /agents/kel    one agent's key history (anet verify), from this node's record or the directory
 //
 // They return the internal/a2ashape projection and share taskseam.go with
 // the A2A interface, without the per-agent scope: the control token is the
 // node's full authority. (/tasks/pay and /tasks/pay-manual belong to the
 // payment work package.)
 //
-// All of them are bearer-only. None is on the console session allowlist
-// (ctlsec.go, §7.3), and TestEveryRouteIsAllowlistedOrRefusedForASession
-// names them explicitly.
+// All of them are bearer-only but /agents/list and /agents/card, which the
+// console reads (ctlsec.go sessionRoutes, sealed-sender SSR-D17);
+// TestEveryRouteIsAllowlistedOrRefusedForASession names them explicitly.
 
 import (
 	"context"
@@ -56,6 +57,7 @@ func (d *Daemon) registerTaskRoutes(api *routeMux) {
 	api.HandleFunc("POST /tasks/reply", d.hTasksReply)
 	api.HandleFunc("POST /agents/list", d.hAgentsList)
 	api.HandleFunc("POST /agents/card", d.hAgentsCard)
+	api.HandleFunc("POST /agents/kel", d.hAgentsKEL)
 }
 
 // writeTaskError answers a task operation's error with a status code and

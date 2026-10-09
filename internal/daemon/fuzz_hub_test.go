@@ -5,7 +5,6 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,10 +13,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/a2acard"
+	"github.com/ANetResearch/ANetCore/dirbox"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
+	"github.com/ANetResearch/ANet/internal/netcard"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -85,11 +87,36 @@ func FuzzHubAnswers(f *testing.F) {
 	if err != nil {
 		f.Fatal(err)
 	}
-	b64 := base64.StdEncoding.EncodeToString
-	keysAnswer, _ := json.Marshal(hubapi.KeysResponse{KeySet: b64(peerKeys), KEL: b64(peerKEL)})
+	// A bucket that holds the peer's entry, with its card, and one entry
+	// of nobody.
+	peerHash, _ := dirbox.Hash(peer.AID())
+	peerBox, err := dirbox.Seal(peer.AID(), &dirbox.DirEntry{AID: peer.AID(), Home: peer.AID(), KEL: peerKEL,
+		Keys: peerKeys, Card: card}, nil)
+	if err != nil {
+		f.Fatal(err)
+	}
+	keysAnswer, _ := json.Marshal(hubapi.DirBucketResponse{Entries: []hubapi.DirBucketEntry{
+		{H: hubapi.B64(peerHash), Box: hubapi.B64(peerBox)}, {H: hubapi.B64(make([]byte, 32)), Box: "AAAA"}}})
 	idAnswer, _ := json.Marshal(hubapi.HubIdentity{AID: peer.AID(), KEL: hubapi.B64(peerKEL)})
 	reg, _ := json.Marshal(hubapi.A2AAgentList{Agents: []hubapi.A2AAgentEntry{{AID: d.AID(), Card: card,
 		CardVerification: "ok", HomeHub: "https://h", ReviewCount: 3, AvgRating: 4.5}, {AID: peer.AID(), Card: card}}})
+	// Registry entries that carry key material (SSR-D15 step 2): the
+	// peer's, under a network card it signed, which verifies and is kept as
+	// a discovery, with a notice that is no notice; and this node's own
+	// under a card that is not a network card.
+	unsignedCard, err := netcard.Build(netcard.Input{AID: peer.AID(), Name: "peer", HubURL: "https://hub.example",
+		Seq: 1, IssuedAtMs: 1, NotBeforeMs: 1, Skills: []netcard.Skill{{ID: "text.echo", Name: "echo", Description: "echoes"}}})
+	if err != nil {
+		f.Fatal(err)
+	}
+	peerCard, err := a2acard.SignWithSnapshot(unsignedCard, peer, netcard.JKU("https://hub.example", peer.AID()))
+	if err != nil {
+		f.Fatal(err)
+	}
+	selfKEL, _ := identity.MarshalKEL(d.self.KEL())
+	regKeys, _ := json.Marshal(hubapi.A2AAgentList{Agents: []hubapi.A2AAgentEntry{
+		{AID: peer.AID(), Card: peerCard, KEL: hubapi.B64(peerKEL), Keys: hubapi.B64(peerKeys), KeyStateNotice: "AAAA"},
+		{AID: d.AID(), Card: card, KEL: hubapi.B64(selfKEL), Keys: hubapi.B64(signedKeysFor(f, d.self, 1))}}})
 	seeds := []struct {
 		op     uint8
 		status uint8
@@ -99,9 +126,12 @@ func FuzzHubAnswers(f *testing.F) {
 		{hubOpPoll, 0, "3", `{"messages":[{"id":1,"envelope":"AAEC"},{"id":-1,"envelope":"!!"}]}`},
 		{hubOpPoll, 0, "3", `{"messages":[]}`},
 		{hubOpKeys, 0, "3", string(keysAnswer)},
-		{hubOpKeys, 3, "", `{"error":"no key set"}`},
+		{hubOpKeys, 0, "3", `{"max_bits":0,"entries":[],"partial":true}`},
+		{hubOpKeys, 3, "", `{"reason":"bucket_too_narrow","max_bits":0}`},
+		{hubOpCard, 0, "3", string(keysAnswer)},
 		{hubOpIdentity, 0, "", string(idAnswer)},
 		{hubOpAgents, 0, "3", string(reg)},
+		{hubOpAgents, 0, "3", string(regKeys)},
 		{hubOpAgentsUncarded, 0, "3", `{"agents":[{"aid":"` + peer.AID() + `","name":"n","caps":["a"],"summary":"s","avg_rating":1e308}]}`},
 		{hubOpFind, 0, "3", `{"agents":[{"aid":"` + peer.AID() + `","name":"x"}]}`},
 		{hubOpBalance, 0, "3", `{"balance":5,"entries":[{"amount":-3}]}`},
@@ -120,7 +150,7 @@ func FuzzHubAnswers(f *testing.F) {
 		case hubOpPoll:
 			_ = d.pollOnce(ctx)
 		case hubOpKeys:
-			ks, err := d.fetchRecipientKeys(ctx, srv.URL, peer.AID(), "")
+			ks, err := bucketKeys(d, peer.AID(), "")
 			if err == nil {
 				if ks == nil || ks.set == nil || ks.set.AID != peer.AID() {
 					t.Fatalf("a key set for another AID was taken: %+v", ks)
@@ -153,6 +183,7 @@ func FuzzHubAnswers(f *testing.F) {
 			if err == nil {
 				checkAgents(t, agents)
 			}
+			checkDiscoveries(t, d)
 		case hubOpFind:
 			_, _ = d.Find(ctx, "x")
 			_, _ = d.FindByCapability(ctx, "text.echo")
@@ -167,6 +198,26 @@ func FuzzHubAnswers(f *testing.F) {
 			_ = d.RegisterWithHub(ctx, srv.URL, "fuzz", []string{"text.echo"})
 		}
 	})
+}
+
+// checkDiscoveries: whatever a registry listing returned, the discovery
+// cache (SSR-D15 step 2) holds only material that verified here — a KEL
+// that replays to the AID it is kept under, a key set of that AID, and a
+// card — so nothing a hub made up can reach a seal through it.
+func checkDiscoveries(t *testing.T, d *Daemon) {
+	d.peers.mu.Lock()
+	defer d.peers.mu.Unlock()
+	for aid, m := range d.peers.disc {
+		if m.AID != aid || !replaysTo(m.KEL, aid) {
+			t.Fatalf("a discovery of %s holds a KEL that does not replay to it", aid)
+		}
+		if m.Keys != nil && (m.Keys.set == nil || m.Keys.set.AID != aid) {
+			t.Fatalf("a discovery of %s holds another agent's key set", aid)
+		}
+		if len(m.Card) == 0 {
+			t.Fatalf("a discovery of %s without the card it was kept for", aid)
+		}
+	}
 }
 
 // replaysTo reports whether kel is a valid key history of aid.

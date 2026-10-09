@@ -26,7 +26,7 @@ var fuzzRoutes = []string{
 	"/peers/list", "/peers/allow", "/peers/trust", "/peers/deny", "/peers/remove",
 	"/inbound/policy", "/inbound/pending", "/inbound/approve", "/inbound/reject",
 	"/tasks/send", "/tasks/get", "/tasks/list", "/tasks/cancel", "/tasks/wait", "/tasks/reply",
-	"/agents/list", "/agents/card", "/tasks/pay", "/tasks/pay-manual",
+	"/agents/list", "/agents/card", "/agents/kel", "/tasks/pay", "/tasks/pay-manual",
 	"/payments/status", "/payments/limits", "/payees/list", "/payees/add", "/payees/remove", "/card",
 }
 
@@ -92,7 +92,11 @@ func FuzzControlRoutes(f *testing.F) {
 		{"/tasks/pay", `{"task_id":"` + id + `","decision":"submit","accept":{"scheme":"credit"}}`},
 		{"/tasks/pay-manual", `{"task_id":"` + id + `","decision":"reject"}`},
 		{"/agents/list", `{"skill":"text.stats","limit":-1,"cursor":"uncarded:-9"}`},
+		{"/agents/list", `{"tag":"t","query":"q","limit":2,"cursor":"registry:1:c"}`},
+		{"/agents/list", `{"cursor":"registry:-1:"}`},
 		{"/agents/card", `{"aid":"` + prov.AID() + `"}`},
+		{"/agents/kel", `{"aid":"` + prov.AID() + `"}`},
+		{"/agents/kel", `{"aid":"../x"}`},
 		{"/message", `{"interaction_id":"` + id + `","body":"b"}`},
 		{"/delegate", `{"provider":"` + prov.AID() + `","goal":"g","pay":true}`},
 		{"/delegate", `{"provider":"` + prov.AID() + `","capability":"x.y","args":{"a":1}}`},

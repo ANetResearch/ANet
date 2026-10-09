@@ -83,7 +83,7 @@ func TestGrantingCommandsNeedATerminal(t *testing.T) {
 		{"redeem", "5", "--ref", "invoice 7"},
 	}
 	// What a prompt may read before asking.
-	readOnly := map[string]bool{"/inbound/pending": true, "/find": true, "/payments/status": true, "/thread": true}
+	readOnly := map[string]bool{"/inbound/pending": true, "/agents/card": true, "/payments/status": true, "/thread": true}
 	// The request a confirmed command ends with.
 	final := map[string]string{"peers": "/peers/", "inbound": "/inbound/", "payments": "/payments/limits",
 		"pay": "/tasks/pay-manual", "payees": "/payees/add", "redeem": "/redeem"}

@@ -46,7 +46,6 @@ import (
 
 	"github.com/ANetResearch/ANetCore/seal"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -285,7 +284,15 @@ func (d *Daemon) attemptOutbox(ctx context.Context, id int64) error {
 	if err := d.ix.BeginOutboxAttempt(it.ID); err != nil {
 		return err
 	}
-	if maybe, err := d.deliverEnvelopeTracked(ctx, it.ToAID, it.Envelope); err != nil {
+	maybe, err := d.deliverEnvelopeTracked(ctx, it.ToAID, it.Envelope)
+	if err != nil && d.unknownRecipientResend(ctx, it, err) {
+		// The recipient's home moved: the same envelope once more, at
+		// once, not counted as a failure (SSR-D12).
+		var again bool
+		again, err = d.deliverEnvelopeTracked(ctx, it.ToAID, it.Envelope)
+		maybe = maybe || again
+	}
+	if err != nil {
 		// Kept on the row: the attempt that fails for good later (the hub
 		// refusing what only a direct path could carry) is not the whole
 		// story ([redteam:F12]).
@@ -298,6 +305,22 @@ func (d *Daemon) attemptOutbox(ctx context.Context, id int64) error {
 	// A delegation's delivery is when its requester starts waiting for an
 	// answer (no_response.go).
 	return d.ix.DeleteDeliveredOutbox(it.ID, it.IX, it.Type == seal.TypeDelegate)
+}
+
+// unknownRecipientResend is SSR-D12 for the row it: the hub answered its
+// first contact 404 recipient_unknown, so before the row is abandoned the
+// recipient is looked up in the directory again (refreshOnUnknown, at most
+// once an hour); true when that moved the recipient's home hint, and the
+// same envelope goes once more.
+func (d *Daemon) unknownRecipientResend(ctx context.Context, it *interactions.OutboxItem, err error) bool {
+	if hubStatus(err) != http.StatusNotFound || hubReason(err) != "recipient_unknown" {
+		return false
+	}
+	choice, cerr := d.accessChoiceOfEnvelope(it.ToAID, it.Envelope)
+	if cerr != nil || choice.Kind != seal.AccessKindSession {
+		return false
+	}
+	return d.refreshOnUnknown(ctx, it.ID, it.ToAID, choice.HintHome)
 }
 
 // abandonOutbox drops a row that will not be delivered, records why, and
@@ -375,11 +398,15 @@ func (d *Daemon) rescheduleOutbox(it *interactions.OutboxItem, cause error) erro
 }
 
 // permanentRefusal reports whether a failed attempt is one a retry cannot
-// change, and why. Only the hub's answer about this envelope counts: 400,
-// 404 and 413 from /relay/send, and 404 for the recipient's keys. Any other
-// status — a 404 from a mistyped hub URL on another path included — and any
-// transport failure is temporary.
+// change, and why. Only the hub's answer about this envelope or this
+// recipient counts: 400, 404 and 413 from /relay/send, and a directory
+// that holds no entry for the recipient in a whole answer (resolvePeer's
+// not_found). Any other status — a 404 from a mistyped hub URL on another
+// path included — and any transport failure is temporary.
 func permanentRefusal(err error) (string, bool) {
+	if resolveVerdictOf(err) == verdictNotFound {
+		return undeliveredUnknown, true
+	}
 	var he *hubError
 	if !errors.As(err, &he) {
 		return "", false
@@ -394,10 +421,6 @@ func permanentRefusal(err error) (string, bool) {
 			return undeliveredTooLarge, true
 		}
 		return "", false
-	}
-	if he.code == http.StatusNotFound && (he.path == hubapi.KeysLookupPath ||
-		strings.HasPrefix(he.path, "/agents/") && strings.HasSuffix(he.path, "/keys")) {
-		return undeliveredUnknown, true
 	}
 	return "", false
 }
@@ -426,8 +449,16 @@ func retryAfter(err error) (time.Duration, bool) {
 
 // hubUnreachable reports whether a failure is the hub not answering, or
 // answering "later" (5xx, 429, 408), rather than an answer about the
-// message or the recipient.
+// message or the recipient. A directory that could not be read, or whose
+// answer was partial, is the hub out of reach (resolvePeer's unavailable,
+// engine ENG-Q5).
 func hubUnreachable(err error) bool {
+	switch resolveVerdictOf(err) {
+	case verdictUnavailable:
+		return true
+	case verdictNotFound, verdictUnverifiable:
+		return false
+	}
 	var he *hubError
 	if errors.As(err, &he) {
 		return he.code >= 500 || he.code == http.StatusTooManyRequests || he.code == http.StatusRequestTimeout

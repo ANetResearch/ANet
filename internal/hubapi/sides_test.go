@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
-	"github.com/ANetResearch/ANetCore/wire"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
 )
@@ -110,6 +109,16 @@ func TestEveryHubRouteHasOneSide(t *testing.T) {
 		{"GET", "/agents/" + esc(self) + "%2Fkeys"},
 		{"POST", "/fed/v3/forward"},
 		{"POST", "/tasks/create"},
+		// The lookups by another agent's AID are gone: no route of the
+		// table takes a peer's AID (SSR-D14, SSR-D16).
+		{"POST", "/agents/keys:lookup"},
+		{"POST", "/agents/kel:lookup"},
+		{"POST", "/a2a/v1/agents/card:lookup"},
+		{"GET", "/agents/" + esc(peer) + "/keys"},
+		{"GET", "/agents/" + esc(peer) + "/kel"},
+		{"GET", "/a2a/v1/agents/" + esc(peer) + "/card"},
+		{"GET", "/agents/" + esc(peer)},
+		{"GET", "/agents/" + esc(peer) + "/jwks.json"},
 	} {
 		if _, side, ok := hubapi.SideOf(r[0], r[1], self, hub, -1); ok || side != hubapi.SideNone {
 			t.Errorf("%s %s: side %v, want none (not in the table)", r[0], r[1], side)
@@ -124,7 +133,7 @@ func TestEveryHubRouteHasOneSide(t *testing.T) {
 	}
 
 	// The table itself: one side per route, the two kinds of /relay/send
-	// only there, and every pending route named by the item that removes it.
+	// only there, and no path segment that takes any AID.
 	seen := map[string]bool{}
 	for _, r := range hubapi.Routes {
 		key := r.Method + " " + r.Path
@@ -141,8 +150,10 @@ func TestEveryHubRouteHasOneSide(t *testing.T) {
 		default:
 			t.Errorf("%s has side %v", key, r.Side)
 		}
-		if r.Pending != "" && (!wire.TodoPattern.MatchString(r.Pending) || r.Side != hubapi.SideAnonymous) {
-			t.Errorf("%s: pending %q (side %v)", key, r.Pending, r.Side)
+		for _, seg := range strings.Split(r.Path, "/") {
+			if strings.HasPrefix(seg, "{") && seg != "{self}" && seg != "{hub}" {
+				t.Errorf("%s: segment %s takes an AID that is neither this node's nor its hub's", key, seg)
+			}
 		}
 	}
 }

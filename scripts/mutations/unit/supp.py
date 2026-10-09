@@ -418,11 +418,11 @@ MUTS = [
  ),
  dict(
   id='c2-1', group='C2', repo='ANet',
-  desc='recipientKeys: 超过缓存时限即只信 hub(hub 404 时丢掉仍有效的已存密钥)',
+  desc='recipientKeys: 超过复核时限即只信目录(目录不再列出对方时丢掉仍有效的已存密钥)',
   edits=[
-   ('internal/daemon/seal_send.go', '\t\t\tif now-uint64(row.KeysCheckedAt) > keysRevalidateMS {\n\t\t\t\td.revalidateKeys(toAID, pin)\n\t\t\t}', '\t\t\tif now-uint64(row.KeysCheckedAt) > keysRevalidateMS {\n\t\t\t\treturn d.fetchRecipientKeys(ctx, d.config().HubURL, toAID, pin)\n\t\t\t}'),
+   ('internal/daemon/seal_send.go', '\t\tif _, serr := seal.SelectKey(ks.set, now); serr == nil {\n\t\t\td.recheckActiveContact(row, pin, now)', '\t\tif _, serr := seal.SelectKey(ks.set, now); serr == nil && now-uint64(row.KeysCheckedAt) <= activeRecheckMS {\n\t\t\td.recheckActiveContact(row, pin, now)'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAStoredKeySetIsRecheckedAfterTenMinutes|TestAStoredKeySetThatNoLongerVerifiesIsReplaced|TestTheApprovalQueue|TestAStoredKeySetOutlivesAHubThatNoLongerAnswersForIt')],
+  tests=[('ANet:./internal/daemon', 'TestActiveContactRevalidatedOncePer24h|TestAStoredKeySetThatNoLongerVerifiesIsReplaced|TestTheApprovalQueue|TestAStoredKeySetOutlivesAHubThatNoLongerAnswersForIt')],
   full=['ANet:./internal/daemon'],
  ),
  dict(

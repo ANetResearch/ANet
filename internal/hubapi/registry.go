@@ -8,8 +8,10 @@ import "encoding/json"
 //	GET /a2a/v1/agents/{aid}/card   (the card's bytes; ETag, max-age=300)
 //	GET /agents/{aid}/jwks.json     (the jku of the card, derived from the KEL)
 //
-// The daemon asks by skill or tag and matches free text against the
-// returned cards itself; q exists for the hub's web UI and is not sent.
+// The daemon reads the listing whole, a page at a time, and matches skill,
+// tag and free text against the cards itself (sealed-sender SSR-D16): what
+// an operator looks for says what they are about to do, and the hub has no
+// need to know it. skill, tag and q exist for the hub's web UI.
 // The member names follow A2A's camelCase, unlike the hub's older
 // snake_case routes, because external A2A clients read this listing too.
 // Mirrors ANetHub internal/aghub/registry.go, pinned on both sides.
@@ -40,6 +42,13 @@ type A2AAgentEntry struct {
 	Quiet            bool            `json:"quiet"`
 	ReviewCount      int             `json:"reviewCount"`
 	AvgRating        float64         `json:"avgRating"`
+	// KEL is the agent's key history and Keys its signed encryption key
+	// set, base64url (core G2); KeyStateNotice the witness notice of the
+	// KEL's tip, when there is one. A daemon that verifies them keeps the
+	// entry as a discovery (sealed-sender SSR-D15 step 2).
+	KEL            string `json:"kel"`
+	Keys           string `json:"keys"`
+	KeyStateNotice string `json:"key_state_notice,omitempty"`
 }
 
 // A2AAgentList is the GET /a2a/v1/agents response. NextCursor, when set,

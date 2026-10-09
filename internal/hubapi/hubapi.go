@@ -308,48 +308,15 @@ func NewRelayAckItem(id int64, handle [HandleLen]byte, dack [DAckLen]byte) Relay
 	return RelayAckItem{ID: id, Handle: B64(handle[:]), DAck: B64(dack[:])}
 }
 
-// KeysResponse is the answer to GET /agents/{aid}/keys: the AID's signed
-// encryption key set and the KEL it verifies against, both standard base64.
-// A hub may answer for an AID registered elsewhere by asking a peer hub
-// (/fed/v2/keys/{aid}); the daemon verifies the answer itself with
-// expectAID = the AID it asked about, so the hub is not trusted with it.
+// KeysResponse is the answer to GET /agents/{aid}/keys, which this node
+// asks of its own AID only (on the signed side, SSR-W16): its signed
+// encryption key set and the KEL it verifies against. Another agent's key
+// set comes from a directory bucket (dirquery.go), never by its AID.
 type KeysResponse struct {
 	AID    string `json:"aid"`
 	KeySet string `json:"keyset"` // seal.SignedEncKeySet encoding
 	KEL    string `json:"kel"`    // identity.MarshalKEL
 }
-
-// KeysLookupPath is POST /agents/keys:lookup: the same lookup as
-// GET /agents/{aid}/keys, with the AID in the body (KeysLookupRequest) and
-// a KeysResponse answer. A daemon looks up its recipient before the first
-// message and every ten minutes of a conversation, from its own address;
-// with the AID in the path, a reverse proxy logging request lines would
-// keep the edge sender-address -> recipient on the hub host
-// (A2A-DESIGN §3.5 step 1, §3.7) [redteam:F3]. A hub that predates the
-// route answers it from its mux (405 or 404 without the hub's JSON error),
-// and only then does the daemon fall back to the GET. Mirrors ANetHub
-// internal/aghub/keys.go, pinned on both sides.
-const KeysLookupPath = "/agents/keys:lookup"
-
-// KeysLookupRequest is the body of POST /agents/keys:lookup, and of
-// KELLookupPath and CardLookupPath.
-type KeysLookupRequest struct {
-	AID string `json:"aid"`
-}
-
-// KELLookupPath and CardLookupPath are GET /agents/{aid}/kel and
-// GET RegistryAgentsPath/{aid}/card with the AID in the body
-// (KeysLookupRequest), answering what the GETs answer. Before it writes to
-// a peer a daemon reads the peer's card (the proxy card an A2A client asks
-// for first, MCP get_agent_card) and the peer's KEL to verify it, from its
-// own address; with the AID in the path, those request lines gave a
-// logging proxy the edge sender-address -> peer that the key lookup did
-// [redteam:F3]. The fallback to the GET is KeysLookupPath's. Mirrors
-// ANetHub internal/aghub/keys.go, pinned on both sides.
-const (
-	KELLookupPath  = "/agents/kel:lookup"
-	CardLookupPath = RegistryAgentsPath + "/card:lookup"
-)
 
 // KeysPublishRequest is the body of POST /agents/{aid}/keys, signed with
 // relayauth action "keys" by the AID itself. The hub accepts a strictly

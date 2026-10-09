@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"strings"
@@ -18,7 +19,6 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
-	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 )
@@ -252,8 +252,14 @@ func TestPermanentRefusalsAreOnlyAnswersAboutTheMessage(t *testing.T) {
 		{&hubError{path: "/relay/send", code: 400}, undeliveredBad},
 		{&hubError{path: "/relay/send", code: 404}, undeliveredUnknown},
 		{&hubError{path: "/relay/send", code: 413}, undeliveredTooLarge},
-		{&hubError{path: "/agents/aid_x/keys", code: 404}, undeliveredUnknown},
-		{&hubError{path: hubapi.KeysLookupPath, code: 404, msg: "no key set"}, undeliveredUnknown},
+		// The directory holds no entry for the recipient, in a whole
+		// answer; not one it could not read, or holds unverifiably.
+		{&peerResolveError{AID: "a", Verdict: verdictNotFound}, undeliveredUnknown},
+		{&peerResolveError{AID: "a", Verdict: verdictUnavailable}, ""},
+		{&peerResolveError{AID: "a", Verdict: verdictUnverifiable}, ""},
+		{fmt.Errorf("seal: %w", &peerResolveError{AID: "a", Verdict: verdictNotFound}), undeliveredUnknown},
+		// A by-AID key route is no answer about the recipient any more.
+		{&hubError{path: "/agents/aid_x/keys", code: 404}, ""},
 		{&hubError{path: "/relay/send", code: 429}, ""},
 		{&hubError{path: "/relay/send", code: 507}, ""},
 		{&hubError{path: "/relay/send", code: 401}, ""},
