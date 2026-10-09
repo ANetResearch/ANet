@@ -789,3 +789,92 @@ MUTS += [
   edits=[('internal/daemon/extcard.go', '\t\t\tif t > since && t <= now {', '\t\t\tif t > since {')],
   tests=[(DAEMON, '^TestCardRequestLimitSurvivesAClockStepBack$')], full=[DAEMON]),
 ]
+
+# M-PAY-43 and M-PAY-45 are the hub operator plane (PAY-16, repo ANetHub): its delete is
+# aghub.DeregisterTx, which keeps the key history as the tombstone and revokes the admission, and
+# nothing of it writes a stored key history back into the registry. TestSingleDeregisterPath scans
+# internal/admin and cmd/anet-hub-admin for SQL that writes agent, departed_kel or admitted, and the
+# module for any other DELETE FROM agent. pay16-* are the rest of the package: the refusals of a hub
+# data directory and an admin.db this release does not open, the v2 views, the deleted list as an
+# admit file, anet-hub redemptions and the -relay-ttl help.
+
+ADMIN = 'ANetHub:./internal/admin'
+ADMINCMD = 'ANetHub:./cmd/anet-hub-admin'
+HUBCMD = 'ANetHub:./cmd/anet-hub'
+AHR = 'internal/admin/hubread.go'
+ASV = 'internal/admin/server.go'
+FORK_T = [(HUB, '^TestSingleDeregisterPath$'), (ADMIN, '^(TestAdminDeleteWritesDepartedKEL|TestAdminForkReregisterRefused)$')]
+REDEEM16_T = [(HUBCMD, '^TestRedemptionsListsTheWindow$')]
+
+MUTS += [
+ dict(id='M-PAY-43', group='PAY', repo='ANetHub', desc='运营面删除不经 DeregisterTx(只删 agent 行)',
+  edits=[(AHR, '\tres, err := aghub.DeregisterTx(tx, aid, aghub.DeregOperator)\n',
+          '\tres, err := aghub.DeregResult{}, error(nil)\n\tif r, e := tx.Exec(`DELETE FROM agent WHERE aid=?`, aid); e != nil {\n'
+          '\t\terr = e\n\t} else if n, _ := r.RowsAffected(); n == 0 {\n\t\terr = aghub.ErrNotRegistered\n\t}\n')],
+  tests=FORK_T, full=[ADMIN, HUB]),
+ dict(id='M-PAY-45', group='PAY', repo='ANetHub', desc='恢复"恢复"路径:把墓碑里的旧 KEL 写回 agent 表',
+  edits=[(ASV, '\tapi("GET "+b+"/api/deleted", s.hDeleted)\n',
+          '\tapi("GET "+b+"/api/deleted", s.hDeleted)\n\tapi("POST "+b+"/api/deleted/{aid}/restore", func(w http.ResponseWriter, r *http.Request) {\n'
+          '\t\t_, _ = s.hub.db.Exec(`INSERT OR IGNORE INTO agent(aid,name,caps,summary,readme,kel,registered_at) '
+          'SELECT aid,\'\',\'[]\',\'\',\'\',kel,at FROM departed_kel WHERE aid=?`, r.PathValue("aid"))\n'
+          '\t\twriteJSON(w, http.StatusOK, map[string]any{"ok": true})\n\t})\n')],
+  tests=FORK_T, full=[ADMIN, HUB]),
+ dict(id='pay16-checkdata', group='PAY-16', repo='ANetHub', desc='运营面打开 hub.db 前不先 CheckData(以 WAL 读写方式动了被拒的目录)',
+  edits=[(AHR, '\tif err := aghub.CheckData(dir); err != nil {\n\t\treturn nil, err\n\t}\n', '')],
+  tests=[(ADMIN, '^TestAdminRefusesOldHubData$'), (ADMINCMD, '^TestTheAdminRefusesOldHubData$')], full=[ADMIN, ADMINCMD]),
+ dict(id='pay16-open-message', group='PAY-16', repo='ANetHub', desc='开放注册的 hub 上删除也说 admin.deleted(不说仍可重新注册)',
+  edits=[(ASV, '\tif del.Open {\n\t\tkey = "admin.deleted.open"\n\t}\n', '')],
+  tests=[(ADMIN, '^TestAdminForkReregisterRefused$')], full=[ADMIN]),
+ dict(id='pay16-not-recorded', group='PAY-16', repo='ANetHub', desc='运营面删除不记入 deleted_agent',
+  edits=[(ASV, '\tif err := s.store.RecordDeletedAgent(aid, "admin"); err != nil {', '\tif err := error(nil); err != nil {')],
+  tests=[(ADMIN, '^(TestDeletedAsAnAdmitFile|TestDeletedListShapeMatchesTheConsole)$')], full=[ADMIN]),
+ dict(id='pay16-admit-file-dup', group='PAY-16', repo='ANetHub', desc='?format=admit 重复列出删了两次的 AID',
+  edits=[(ASV, '\t\tif seen[d.AID] || !aghub.ValidAID(d.AID) {', '\t\tif !aghub.ValidAID(d.AID) {')],
+  tests=[(ADMIN, '^TestDeletedAsAnAdmitFile$')], full=[ADMIN]),
+ dict(id='pay16-agent-reviews', group='PAY-16', repo='ANetHub', desc='agent 页列出全部评价(不按被评价方)',
+  edits=[(ASV, '\town, err := s.hub.ReviewsOf(aid, 200)', '\town, err := s.hub.RecentReviews(200)')],
+  tests=[(ADMIN, '^TestAdminReviewViewFields$')], full=[ADMIN]),
+ dict(id='pay16-review-ms', group='PAY-16', repo='ANetHub', desc='运营面的评价给出毫秒时间',
+  edits=[(AHR, '\t\tr.IXCommit = wire3.EncodeB64URL(ix)\n', '\t\tr.IXCommit = wire3.EncodeB64URL(ix)\n\t\tr.CreatedDay = uint64(time.Now().UnixMilli())\n')],
+  tests=[(ADMIN, '^(TestAdminReviewViewFields|TestTheOperatorSurfaceNamesNoReviewer)$')], full=[ADMIN]),
+ dict(id='pay16-listed-keys', group='PAY-16', repo='ANetHub', desc='运营面的 listed 不要求钥集(SSR-H18)',
+  edits=[(AHR, '\treturn hasKeys && (len(caps) > 0 || summary != "" || readme != "")', '\treturn len(caps) > 0 || summary != "" || readme != ""')],
+  tests=[(ADMIN, '^TestAdminListsByTheRegistryRule$')], full=[ADMIN]),
+ dict(id='pay16-secure-delete', group='PAY-16', repo='ANetHub', desc='运营面打开 hub.db 不带 secure_delete(删掉的信封留在空闲页)',
+  edits=[(AHR, '"&_pragma=secure_delete(ON)&_txlock=immediate"', '"&_txlock=immediate"')],
+  tests=[(ADMIN, '^TestAdminDeleteLeavesNoMailInTheFile$')], full=[ADMIN]),
+ dict(id='pay16-admin-db-old', group='PAY-16', repo='ANetHub', desc='带 row 列的旧 admin.db 照常打开',
+  edits=[('internal/admin/recovery.go', '\tif n > 0 {\n\t\treturn ErrAdminDBTooOld\n\t}', '\tif false && n > 0 {\n\t\treturn ErrAdminDBTooOld\n\t}')],
+  tests=[(ADMIN, '^TestAdminRefusesAnOldAdminDB$'), (ADMINCMD, '^TestTheAdminRefusesAnOldAdminDB$')], full=[ADMIN, ADMINCMD]),
+ dict(id='pay16-removed-flags', group='PAY-16', repo='ANetHub', desc='已删 flag 不先回答(照常打开库后再失败)',
+  edits=[('cmd/anet-hub-admin/main.go', '\tif len(*removed) > 0 {\n\t\tos.Exit(admin.Say(os.Stderr, (*removed)[0], nil))', '\tif false && len(*removed) > 0 {\n\t\tos.Exit(admin.Say(os.Stderr, (*removed)[0], nil))')],
+  tests=[(ADMINCMD, '^TestRemovedAdminFlagsAreAnswered$')], full=[ADMINCMD]),
+ dict(id='pay16-redemptions-window', group='PAY-16', repo='ANetHub', desc='anet-hub redemptions 列出窗口外的兑付',
+  edits=[('internal/aghub/redemption.go', '\t\t WHERE at >= ? ORDER BY at, seq`, windowStart(s.now()))', '\t\t WHERE at >= ? ORDER BY at, seq`, "")')],
+  tests=REDEEM16_T, full=[HUBCMD]),
+ dict(id='pay16-redemptions-order', group='PAY-16', repo='ANetHub', desc='anet-hub redemptions 从新到旧列出',
+  edits=[('internal/aghub/redemption.go', '\t\t WHERE at >= ? ORDER BY at, seq`', '\t\t WHERE at >= ? ORDER BY at DESC, seq DESC`')],
+  tests=REDEEM16_T, full=[HUBCMD]),
+ dict(id='pay16-redemptions-quote', group='PAY-16', repo='ANetHub', desc='anet-hub redemptions 原样打印兑付人给的 reference(控制序列到达终端)',
+  edits=[('cmd/anet-hub/redemptions.go', 'strconv.Quote(r.Reference)', 'r.Reference')],
+  tests=REDEEM16_T, full=[HUBCMD]),
+ dict(id='pay16-relay-ttl-help', group='PAY-16', repo='ANetHub', desc='-relay-ttl 帮助文字写的上界与启动校验不一致',
+  edits=[('cmd/anet-hub/main.go', '\t\t\taghub.MaxUndeliveredTTL.String()+" ("', '\t\t\t(aghub.MaxUndeliveredTTL+time.Hour).String()+" ("')],
+  tests=[(HUBCMD, '^TestRelayTTLHelpStatesTheBound$')], full=[HUBCMD]),
+ dict(id='pay16-tombstone-409', group='PAY-16', repo='ANetHub', desc='墓碑不被延伸时运营面删除答 500 而不是 409',
+  edits=[(ASV, 'errJSON(w, http.StatusConflict, err)', 'errJSON(w, http.StatusInternalServerError, err)')],
+  tests=[(ADMIN, '^TestAdminDeleteRefusesAShrinkingTombstone$')], full=[ADMIN]),
+ dict(id='pay16-second-look', group='PAY-16', repo='ANetHub', desc='OpenHubDB 经 WAL 的第二眼不判版本(只在日志里的旧 schema 被打开)',
+  edits=[(AHR, '\tcase version > aghub.SchemaVersion:\n\t\treturn fmt.Errorf("%w (user_version %d)", aghub.ErrHubDataTooNew, version)\n\t}\n'
+          '\treturn fmt.Errorf("%w (user_version %d)", aghub.ErrHubDataV02, version)', '\t}\n\treturn nil')],
+  tests=[(ADMIN, '^TestAdminRefusesOldHubDataSeenThroughTheLog$')], full=[ADMIN]),
+ dict(id='pay16-review-order', group='PAY-16', repo='ANetHub', desc='运营面的评价在同一天内按存入顺序排列(透露上传先后)',
+  edits=[(AHR, 'ORDER BY created_day DESC, ix_commit LIMIT ?', 'ORDER BY created_day DESC, rowid DESC LIMIT ?')],
+  tests=[(ADMIN, '^TestAdminReviewsNewestDayFirst$')], full=[ADMIN]),
+ dict(id='pay16-totals-listed', group='PAY-16', repo='ANetHub', desc='Totals 的 listed 不要求钥集',
+  edits=[(AHR, '\t\tif listed(capsJSON, sum, rd, hasKeys) {', '\t\tif listed(capsJSON, sum, rd, true) {')],
+  tests=[(ADMIN, '^TestAdminListsByTheRegistryRule$')], full=[ADMIN]),
+ dict(id='pay16-txlock', group='PAY-16', repo='ANetHub', desc='运营面删除的事务不在开始时取写锁(hub 同时写入时 database is locked)',
+  edits=[(AHR, '"&_pragma=secure_delete(ON)&_txlock=immediate"', '"&_pragma=secure_delete(ON)"')],
+  tests=[(ADMIN, '^TestAdminDeleteBesideABusyHub$')], full=[ADMIN]),
+]
