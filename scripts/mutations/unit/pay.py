@@ -772,7 +772,7 @@ MUTS += [
   edits=[('internal/admin/recovery.go', '\tif n > 0 {\n\t\treturn ErrAdminDBTooOld\n\t}', '\tif false && n > 0 {\n\t\treturn ErrAdminDBTooOld\n\t}')],
   tests=[(ADMIN, '^TestAdminRefusesAnOldAdminDB$'), (ADMINCMD, '^TestTheAdminRefusesAnOldAdminDB$')], full=[ADMIN, ADMINCMD]),
  dict(id='pay16-removed-flags', group='PAY-16', repo='ANetHub', desc='已删 flag 不先回答(照常打开库后再失败)',
-  edits=[('cmd/anet-hub-admin/main.go', '\tif len(*removed) > 0 {\n\t\tos.Exit(admin.Say(os.Stderr, (*removed)[0], nil))\n\t}\n', '')],
+  edits=[('cmd/anet-hub-admin/main.go', '\tif len(*removed) > 0 {\n\t\tos.Exit(admin.Say(os.Stderr, (*removed)[0], nil))', '\tif false && len(*removed) > 0 {\n\t\tos.Exit(admin.Say(os.Stderr, (*removed)[0], nil))')],
   tests=[(ADMINCMD, '^TestRemovedAdminFlagsAreAnswered$')], full=[ADMINCMD]),
  dict(id='pay16-redemptions-window', group='PAY-16', repo='ANetHub', desc='anet-hub redemptions 列出窗口外的兑付',
   edits=[('internal/aghub/redemption.go', '\t\t WHERE at >= ? ORDER BY at, seq`, windowStart(s.now()))', '\t\t WHERE at >= ? ORDER BY at, seq`, "")')],
