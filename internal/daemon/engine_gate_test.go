@@ -246,3 +246,34 @@ func TestOnlyTheEngineWritesTheOutbox(t *testing.T) {
 		t.Fatalf("read %d files and %d outbox writes: the scan is not looking where it should", seen, calls)
 	}
 }
+
+// The opening of a first-contact session is every waiting send's: it runs
+// under a deadline of its own, so the send that started it giving up does
+// not leave another waiting on it with session_unavailable.
+func TestASessionOpeningOutlivesTheCallerThatStartedIt(t *testing.T) {
+	srv, req, _ := quietPair(t)
+	entered, release := make(chan struct{}, 1), make(chan struct{})
+	setFake(t, srv.URL, func(h *fakeHub) {
+		h.sessionHook = func() {
+			select {
+			case entered <- struct{}{}:
+			default:
+			}
+			<-release
+		}
+	})
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	first := make(chan error, 1)
+	go func() { _, err := req.firstContactSession(ctx1, srv.URL); first <- err }()
+	<-entered
+	second := make(chan error, 1)
+	go func() { _, err := req.firstContactSession(context.Background(), srv.URL); second <- err }()
+	time.Sleep(50 * time.Millisecond) // the second waits on the opening
+	cancel1()
+	time.Sleep(50 * time.Millisecond)
+	close(release)
+	if err := <-second; err != nil {
+		t.Fatalf("the send waiting on the opening: %v", err)
+	}
+	<-first
+}
