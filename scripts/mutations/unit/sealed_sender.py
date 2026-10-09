@@ -502,10 +502,10 @@ MUTS += [
   edits=[('cmd/anet-hub/mounts.go', '\tid.DirMaxBits = srv0.DirMaxBits\n', '')],
   tests=[('ANetHub:./cmd/anet-hub', '^TestHubIdentityStatesDirMaxBits$')], full=['ANetHub:./cmd/anet-hub']),
  # ---- added by the SS-5 review: paths the first group left untested
- dict(id='ss5-h17-keys-resigned', group='SS-5', repo='ANetHub', desc='同一钥集在轮换后重签(unchanged)时不重算目录条目(条目留着旧签名)',
-  edits=[('internal/aghub/keys.go', '\t\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\t\treturn "", err\n\t\t}\n\t\tif err := tx.Commit(); err != nil {\n\t\t\treturn "", err\n\t\t}\n\t\treturn KeysStatusUnchanged, nil\n',
-          '\t\tif err := tx.Commit(); err != nil {\n\t\t\treturn "", err\n\t\t}\n\t\treturn KeysStatusUnchanged, nil\n')],
-  tests=DIR_T, full=['ANetHub:./internal/aghub']),
+ # ss5-h17-keys-resigned (the "same set, re-signed" branch of PublishKeys no longer refreshed the
+ # directory entry) is retired with the branch (KEL-6): since KEL H-2 a rotation deletes the stored set,
+ # so the branch was reached only by a signer whose Ed25519 signatures are not deterministic, and no test
+ # could reach it. Such a set now takes the path of a new one, whose refresh ss5-h17-keys holds.
  dict(id='ss5-h17-card-relisted', group='SS-5', repo='ANetHub', desc='下架的卡片以原字节重新上架时不重算目录条目',
   edits=[('internal/aghub/a2acard.go', '\t\t\t// A delisted card listed again is back in the directory entry.\n\t\t\tif err := s.refreshDirTx(tx, aid); err != nil {\n\t\t\t\treturn CardStatusInvalid, "not stored: " + err.Error()\n\t\t\t}\n', '')],
   tests=DIR_T, full=['ANetHub:./internal/aghub']),
