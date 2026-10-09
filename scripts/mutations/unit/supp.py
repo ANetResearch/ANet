@@ -61,7 +61,7 @@ MUTS = [
   id='c1-3', group='C1', repo='ANet',
   desc='redeliveredDelegate: 短调用不重跑(破坏至少一次)',
   edits=[
-   ('internal/daemon/delegation.go', '\treturn d.runCapabilityCall(m.ix, capID, args, nil, nil)', '\t_ = args\n\treturn true'),
+   ('internal/daemon/delegation.go', '\treturn d.runCapabilityCall(m.ix, capID, args, nil)', '\t_ = args\n\treturn true'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAStopDoesNotAnswerAShortCallItCutOff|TestAStopBeforeAnUnservedCallIsAnsweredLeavesItUnacknowledged|TestAStoreFailureThenRedeliveryIsProcessedOnce')],
   full=['ANet:./internal/daemon'],
