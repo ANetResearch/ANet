@@ -11,6 +11,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/seal"
 
+	"github.com/ANetResearch/ANet/internal/evtypes"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -226,13 +227,16 @@ func TestPublicCapabilityEvidenceModes(t *testing.T) {
 }
 
 // The retention sweep deletes public_cap calls that ended more than seven
-// days before the start of the day, and says how many on the chain; a
-// sweep that deletes nothing writes nothing.
+// days before the start of the day, and says how many on the chain, in the
+// registered payload; a sweep that deletes nothing writes nothing. The
+// sweep runs at a time beyond the daemon's own start sweep (beyondStartSweep),
+// which could otherwise take the call first.
 func TestRetentionSweepPrunesOldPublicCapCalls(t *testing.T) {
 	d := newBareDaemon(t)
-	now := time.Date(2026, 9, 27, 15, 0, 0, 0, time.UTC).UnixMilli()
-	cutoff := retentionCutoff(now)
-	if want := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC).UnixMilli(); cutoff != want {
+	now := beyondStartSweep()
+	cutoff, _ := interactions.RetentionCutoff(now, interactions.ClassPublicCap, d.ContentRetention())
+	day := time.UnixMilli(now).UTC()
+	if want := time.Date(day.Year(), day.Month(), day.Day()-7, 0, 0, 0, 0, time.UTC).UnixMilli(); cutoff != want {
 		t.Fatalf("cutoff %s, want %s", time.UnixMilli(cutoff).UTC(), time.UnixMilli(want).UTC())
 	}
 	d.ix.SetClock(func() int64 { return cutoff - 1 })
@@ -244,15 +248,22 @@ func TestRetentionSweepPrunesOldPublicCapCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.ix.SetClock(nil)
-	d.pruneRetentionAt(now)
+	if n := d.pruneRetentionAt(now, clockFull); n != 1 {
+		t.Fatalf("the sweep deleted %d", n)
+	}
 	if _, err := d.ix.Get("ix_pc"); err == nil {
 		t.Fatal("the old public_cap call is still stored")
 	}
 	evs := ledgerPayloads(t, d, EvInteractionPruned)
-	if len(evs) != 1 || fmt.Sprint(evs[0]["interactions"]) != "1" || evs[0]["trust"] != interactions.TrustPublicCap {
+	if len(evs) != 1 || fmt.Sprint(evs[0]["interactions"]) != "1" || evs[0]["trust"] != interactions.TrustPublicCap ||
+		fmt.Sprint(evs[0]["retention_days"]) != "7" || fmt.Sprint(evs[0]["before"]) != fmt.Sprint(cutoff) {
 		t.Fatalf("prune evidence %v", evs)
 	}
-	d.pruneRetentionAt(now + 3600_000)
+	shape, _ := evtypes.PayloadOf(EvInteractionPruned)
+	if why := shape.Check(evs[0]); why != "" {
+		t.Fatalf("prune evidence %v: %s", evs[0], why)
+	}
+	d.pruneRetentionAt(now+3600_000, clockFull)
 	if n := chainEvents(t, d, EvInteractionPruned); n != 1 {
 		t.Fatalf("an empty sweep wrote evidence (%d events)", n)
 	}

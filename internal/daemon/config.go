@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // Config is the daemon's persisted configuration (config.json). v0.1 is centralized: the daemon is a
@@ -75,6 +76,15 @@ type Config struct {
 	// notice past its rate limit, §2 X2) otherwise leaves the task, and
 	// every client waiting on it, waiting for ever.
 	NoResponseAfter string `json:"no_response_after,omitempty"`
+	// ContentRetention is how long the content of a finished task that is
+	// not public is kept on this node (FS §4.6.2, ux §2.2): "<N>d" for N
+	// from 1 to 3650, or "forever". A fresh config.json says "30d", which is
+	// also what a config without the key gets. A public task is kept 7 days,
+	// or this when it is shorter, whatever it says. `anet retention set`
+	// changes it, after a confirmation typed on a terminal; a value that is
+	// neither a number of days nor forever stops the daemon from starting
+	// (retention_invalid).
+	ContentRetention RetentionValue `json:"content_retention,omitempty"`
 }
 
 // AutoReplyConfig configures the daemon's built-in auto-reply loop (see autoreply.go). Backend selects
@@ -192,7 +202,8 @@ func (c AutoReplyConfig) TrustedMode() string {
 func DefaultConfig() Config {
 	in := defaultInbound()
 	pay := defaultPayments()
-	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in, Payments: &pay, NoResponseAfter: defaultNoResponseAfterText}
+	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in, Payments: &pay, NoResponseAfter: defaultNoResponseAfterText,
+		ContentRetention: RetentionValue(interactions.DefaultRetention().String())}
 }
 
 // freshConfig is the config a data dir with no config.json is created with: DefaultConfig, but with a
@@ -557,4 +568,126 @@ func CheckConfigForStart(l Layout) error {
 // RemovedSettingRefusal is config_key_removed for a key found in a file.
 func RemovedSettingRefusal(f RemovedSetting) *a2ashape.Refusal {
 	return a2ashape.Refuse("config_key_removed", a2ashape.Args{"key": f.Path, "instead": f.Instead})
+}
+
+// --- content_retention (FS §4.6.2, §5.1) ---
+
+// RetentionValue is content_retention as config.json holds it. Any JSON
+// value decodes into it, so that one that is not a setting — a number, a
+// list, "30" without its d — is refused with retention_invalid, whose
+// sentence says how to write it, rather than making the whole file
+// unreadable. A value that is not a string is kept as its JSON text, which
+// is never a setting.
+type RetentionValue string
+
+// UnmarshalJSON keeps any JSON value: a string as it is, null as absent,
+// anything else as its JSON text.
+func (v *RetentionValue) UnmarshalJSON(p []byte) error {
+	var s string
+	if err := json.Unmarshal(p, &s); err == nil {
+		*v = RetentionValue(s)
+		return nil
+	}
+	*v = RetentionValue(p)
+	return nil
+}
+
+// contentRetention is the setting in force: the configured one, 30 days
+// when config.json has none. A value that is not a setting stops the daemon
+// from starting, so a running daemon holds one only if something wrote it
+// past the checks; it then keeps every task that is not public, since
+// nothing should go that the operator may have meant to keep.
+func (c Config) contentRetention() interactions.Retention {
+	if c.ContentRetention == "" {
+		return interactions.DefaultRetention()
+	}
+	if r, ok := interactions.ParseRetention(string(c.ContentRetention)); ok {
+		return r
+	}
+	return interactions.RetentionForever
+}
+
+// The setting is checked when the daemon starts (FS §5.1): a config.json
+// edited by hand to an unreadable retention does not start, and says how to
+// write it (retention_invalid). An absent key, or null, is the default.
+func init() { configChecks = append(configChecks, checkContentRetention) }
+
+func checkContentRetention(_ Config, raw map[string]any) *a2ashape.Refusal {
+	v, ok := raw["content_retention"]
+	if !ok || v == nil {
+		return nil
+	}
+	if s, isText := v.(string); isText {
+		if _, ok := interactions.ParseRetention(s); ok {
+			return nil
+		}
+	}
+	return a2ashape.Refuse("retention_invalid", nil)
+}
+
+// ParseContentRetention reads a content_retention value as the daemon does:
+// "<N>d" (1 to 3650) or "forever".
+func ParseContentRetention(s string) (interactions.Retention, bool) {
+	return interactions.ParseRetention(s)
+}
+
+// ContentRetentionInFile is the content_retention l's config.json sets, read
+// without creating or changing anything: the setting, and the text the file
+// holds ("" when it has none, or no config.json). A value that is not a
+// setting is retention_invalid.
+func ContentRetentionInFile(l Layout) (interactions.Retention, string, *a2ashape.Refusal, error) {
+	raw, err := os.ReadFile(l.ConfigPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return interactions.DefaultRetention(), "", nil, nil
+	}
+	if err != nil {
+		return interactions.Retention{}, "", nil, fmt.Errorf("anet: read config: %w", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return interactions.Retention{}, "", nil, fmt.Errorf("anet: parse config %s: not a JSON object", l.ConfigPath())
+	}
+	v, ok := m["content_retention"]
+	if !ok || v == nil {
+		return interactions.DefaultRetention(), "", nil, nil
+	}
+	text, _ := json.Marshal(v)
+	if s, isText := v.(string); isText {
+		if r, ok := interactions.ParseRetention(s); ok {
+			return r, s, nil, nil
+		}
+		return interactions.Retention{}, s, a2ashape.Refuse("retention_invalid", nil), nil
+	}
+	return interactions.Retention{}, string(text), a2ashape.Refuse("retention_invalid", nil), nil
+}
+
+// SetContentRetentionInFile writes content_retention = r into l's
+// config.json while no daemon runs (`anet retention set` with the daemon
+// stopped, FS §5.2 step 5): that key alone changes, every other key stays as
+// it is written, and the file is replaced at once (0600). A data directory
+// without a config.json gets one first, as every command gives it. The
+// daemon reads the new value when it next starts.
+func SetContentRetentionInFile(l Layout, r interactions.Retention) error {
+	if !r.Valid() {
+		return fmt.Errorf("anet: content_retention: %w", interactions.ErrBadInput)
+	}
+	if _, err := os.Stat(l.ConfigPath()); errors.Is(err, os.ErrNotExist) {
+		if _, err := LoadConfig(l); err != nil {
+			return err
+		}
+	}
+	raw, err := os.ReadFile(l.ConfigPath())
+	if err != nil {
+		return fmt.Errorf("anet: read config: %w", err)
+	}
+	cur, err := decodeObject(raw)
+	if err != nil {
+		return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
+	}
+	cur["content_retention"] = r.String()
+	out, err := json.MarshalIndent(cur, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(l.ConfigPath(), out, 0o600)
 }

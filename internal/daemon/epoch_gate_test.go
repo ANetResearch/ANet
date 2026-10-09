@@ -340,10 +340,13 @@ func stallWorld(t *testing.T, skewed bool, days int, restartEvery uint64) {
 // part, P-6 item 3): a hub that answers with a Date six minutes off, or does
 // not answer at all, for a month keeps the hub gate closed the whole time;
 // every epoch key still goes, no earlier than not_after + L and no later
-// than a day of running time after it.
+// than a day of running time after it. So do an interaction key past
+// close_after and the tasks past their retention (stallContentWorld).
 func TestHardBoundDeletesDespiteHubStall(t *testing.T) {
 	t.Run("Date six minutes off", func(t *testing.T) { stallWorld(t, true, 33, 0) })
 	t.Run("no answer", func(t *testing.T) { stallWorld(t, false, 33, 0) })
+	t.Run("close_after and retention, Date six minutes off", func(t *testing.T) { stallContentWorld(t, true) })
+	t.Run("close_after and retention, no answer", func(t *testing.T) { stallContentWorld(t, false) })
 }
 
 // TestStallCounterSurvivesRestart (FS-K14a, mutation 42): unverified_run is

@@ -632,16 +632,19 @@ func removeWorkTree(dir string) {
 	_ = os.RemoveAll(dir)
 }
 
-// pruneExecWorkDirs removes the work dirs of interactions that are no longer active. Interaction ids
-// are never reused, so a removed dir is never needed again.
-func pruneExecWorkDirs(aid string, active map[string]bool) {
+// pruneExecWorkDirs removes the work dirs of the interactions that are not open (FS-L11), under both
+// roots. The directories are listed first and only then is open asked which interactions are, so a
+// directory made for a task that started in between is never taken for an ended one's: its task is
+// open by the time open answers. Interaction ids are never reused, so a removed dir is never needed
+// again; "selftest" (`anet autoreply test`) is not a task's and stays. A task that ended while its
+// agent still runs has its directory removed under it; removeWorkTree does not follow what the agent
+// may have put in its place.
+func pruneExecWorkDirs(aid string, open func() (map[string]bool, error)) error {
 	if aid == "" {
-		return
+		return nil
 	}
-	keep := map[string]bool{}
-	for ix := range active {
-		keep[ixDirName(ix)] = true
-	}
+	type workDir struct{ name, path string }
+	var found []workDir
 	for _, root := range []string{execWorkRoot(), execSandboxWorkRoot()} {
 		if root == "" {
 			continue
@@ -652,12 +655,28 @@ func pruneExecWorkDirs(aid string, active map[string]bool) {
 			continue
 		}
 		for _, e := range ents {
-			if !e.IsDir() || keep[e.Name()] || e.Name() == "selftest" {
-				continue
+			if e.IsDir() && e.Name() != "selftest" {
+				found = append(found, workDir{e.Name(), filepath.Join(base, e.Name())})
 			}
-			removeWorkTree(filepath.Join(base, e.Name()))
 		}
 	}
+	if len(found) == 0 {
+		return nil
+	}
+	ids, err := open()
+	if err != nil {
+		return err
+	}
+	keep := make(map[string]bool, len(ids))
+	for ix := range ids {
+		keep[ixDirName(ix)] = true
+	}
+	for _, w := range found {
+		if !keep[w.name] {
+			removeWorkTree(w.path)
+		}
+	}
+	return nil
 }
 
 // --- environment ---
