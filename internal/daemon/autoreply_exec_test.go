@@ -46,13 +46,20 @@ func TestExecReplierBuildPromptWithImage(t *testing.T) {
 		Role: "user", Text: "describe",
 		Images: []chatImage{{Mime: "image/png", Data: []byte("fakepng")}},
 	}}
-	prompt, cleanup, err := r.buildPrompt(t.TempDir(), turns)
-	defer cleanup()
+	work := t.TempDir()
+	prompt, inputDir, cleanup, err := r.buildPrompt(work, turns)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if prompt == "" || !contains(prompt, "describe") || !contains(prompt, ".png") {
 		t.Fatalf("prompt = %q", prompt)
+	}
+	if filepath.Dir(inputDir) != work || !strings.HasPrefix(filepath.Base(inputDir), ".anet-in-") {
+		t.Fatalf("input dir %q is not a .anet-in- directory of the work dir", inputDir)
+	}
+	cleanup()
+	if _, err := os.Stat(inputDir); !os.IsNotExist(err) {
+		t.Fatalf("the input dir survived the turn: %v", err)
 	}
 }
 
@@ -62,7 +69,8 @@ func TestExecReplierBuildPromptWithImage(t *testing.T) {
 func TestExecReplierCursorSession(t *testing.T) {
 	dir := t.TempDir()
 	logf := filepath.Join(dir, "calls.log")
-	// Stub: `create-chat` prints a uuid-like id; otherwise it echoes the LAST arg (the prompt) so the
+	// Stub: `create-chat` prints a uuid-like id; otherwise it echoes the LAST arg (the message: the
+	// instructions, if any, and the sentence naming the conversation file) and then that file, so the
 	// test can inspect exactly what was sent. Every invocation is appended to the log.
 	stub := filepath.Join(dir, "stub.sh")
 	script := `#!/bin/sh
@@ -74,7 +82,9 @@ for a in "$@"; do
   fi
   last="$a"
 done
-printf '%s' "$last"
+printf '%s\n' "$last"
+f=$(printf '%s' "$last" | sed -n 's/.*Read the file \(.*conversation\.md\): .*/\1/p')
+[ -n "$f" ] && cat "$f"
 `
 	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
 		t.Fatal(err)

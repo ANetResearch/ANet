@@ -13,16 +13,6 @@ import (
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
-// postAutoReply sends body to POST /autoreply and decodes the answer.
-func postAutoReply(t *testing.T, d *Daemon, body string) (int, map[string]any) {
-	t.Helper()
-	rec := httptest.NewRecorder()
-	d.hAutoReply(rec, httptest.NewRequest(http.MethodPost, "/autoreply", strings.NewReader(body)))
-	var out map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	return rec.Code, out
-}
-
 // savedEgressAllow is the allowlist config.json holds now.
 func savedEgressAllow(t *testing.T, d *Daemon) []string {
 	t.Helper()
@@ -46,17 +36,17 @@ func savedEgressAllow(t *testing.T, d *Daemon) []string {
 // value; /status shows it.
 func TestAutoReplyEgressAllowRoute(t *testing.T) {
 	d := newTestDaemon(t, "", false)
-	code, out := postAutoReply(t, d, `{"backend":"exec","agent":"cursor","untrusted":"sandbox","sandbox":{"egress_allow":["PyPI.org","pypi.org"]}}`)
+	code, out, _ := postAutoReply(t, d, `{"backend":"exec","agent":"cursor","untrusted":"sandbox","sandbox":{"egress_allow":["PyPI.org","pypi.org"]}}`)
 	if code != 200 || fmt.Sprint(savedEgressAllow(t, d)) != "[pypi.org]" {
 		t.Fatalf("set: %d %v; saved %v", code, out, savedEgressAllow(t, d))
 	}
-	code, out = postAutoReply(t, d, `{"sandbox":{"egress_allow":["pypi.org","files.pythonhosted.org"]}}`)
+	code, out, _ = postAutoReply(t, d, `{"sandbox":{"egress_allow":["pypi.org","files.pythonhosted.org"]}}`)
 	cur := d.config().AutoReply
 	if code != 200 || cur.Backend != "exec" || cur.Agent != "cursor" || cur.UntrustedMode() != UntrustedSandbox ||
 		fmt.Sprint(egressAllowOf(cur)) != "[pypi.org files.pythonhosted.org]" {
 		t.Fatalf("sandbox only: %d %v; now %+v", code, out, cur)
 	}
-	if code, _ := postAutoReply(t, d, `{"backend":"exec","agent":"cursor","untrusted":"sandbox","model":"sonnet"}`); code != 200 ||
+	if code, _, _ := postAutoReply(t, d, `{"backend":"exec","agent":"cursor","untrusted":"sandbox","model":"sonnet"}`); code != 200 ||
 		len(egressAllowOf(d.config().AutoReply)) != 2 {
 		t.Fatalf("a request without sandbox dropped the list: %d %v", code, d.config().AutoReply)
 	}
@@ -70,7 +60,7 @@ func TestAutoReplyEgressAllowRoute(t *testing.T) {
 		{`{"sandbox":{"egress_allow":["a.b","*.c.d"]}}`, "egress_allow_invalid",
 			a2ashape.Sentence("egress_allow_invalid", a2ashape.Lang(), a2ashape.Args{"value": "*.c.d", "why": "wildcard"})},
 	} {
-		code, out := postAutoReply(t, d, tc.body)
+		code, out, _ := postAutoReply(t, d, tc.body)
 		if code != 400 || out["reason"] != tc.reason || out["error"] != tc.sentence {
 			t.Errorf("%s: %d %v", tc.body, code, out)
 		}
@@ -90,7 +80,7 @@ func TestAutoReplyEgressAllowRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &st); err != nil || fmt.Sprint(st.AutoReply.Sandbox.EgressAllow) != "[pypi.org files.pythonhosted.org]" {
 		t.Errorf("/status: %v %s", err, rec.Body)
 	}
-	if code, _ := postAutoReply(t, d, `{"sandbox":{"egress_allow":[]}}`); code != 200 || d.config().AutoReply.Sandbox != nil {
+	if code, _, _ := postAutoReply(t, d, `{"sandbox":{"egress_allow":[]}}`); code != 200 || d.config().AutoReply.Sandbox != nil {
 		t.Fatalf("clear: %d %+v", code, d.config().AutoReply)
 	}
 	rec = httptest.NewRecorder()

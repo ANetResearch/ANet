@@ -419,7 +419,7 @@ MUTS = [
   id='si7-4', group='SI-7', repo='ANet',
   desc='authGate: 任意 Bearer 都当作控制令牌',
   edits=[
-   ('internal/daemon/ctlsec.go', '\t\t\tif subtle.ConstantTimeCompare([]byte(auth), want) != 1 {', '\t\t\tif false && subtle.ConstantTimeCompare([]byte(auth), want) != 1 {'),
+   ('internal/daemon/ctlsec.go', '\t\t\tif subtle.ConstantTimeCompare([]byte(bearer), want) != 1 {', '\t\t\tif false && subtle.ConstantTimeCompare([]byte(bearer), want) != 1 {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAuthenticatedRoutesNeedACredential|TestTheLocalA2ATokenIsRefusedByTheControlPlane')],
   full=['ANet:./internal/daemon'],
@@ -428,7 +428,7 @@ MUTS = [
   id='si7-5', group='SI-7', repo='ANet',
   desc='module/a2a authorized: 任意非空 Bearer 都放行(含控制令牌)',
   edits=[
-   ('module/a2a/server.go', '\treturn subtle.ConstantTimeCompare([]byte(cred), []byte(s.cfg.token)) == 1', '\treturn cred != "" || subtle.ConstantTimeCompare([]byte(cred), []byte(s.cfg.token)) == 1'),
+   ('module/a2a/server.go', '\treturn subtle.ConstantTimeCompare([]byte(cred), []byte(token)) == 1', '\treturn cred != "" || subtle.ConstantTimeCompare([]byte(cred), []byte(token)) == 1'),
   ],
   tests=[('ANet:./module/a2a', 'TestClientWithoutCredentialsIsRefused|TestEachLocalSurfaceTakesOnlyItsOwnCredential|TestRequestChecks')],
   full=['ANet:./module/a2a'],
@@ -437,7 +437,7 @@ MUTS = [
   id='si7-6', group='SI-7', repo='ANet',
   desc='控制台页面 HTML 末尾带控制令牌',
   edits=[
-   ('internal/daemon/ctlsec.go', '\ttop.HandleFunc("GET /console", d.consoleHandler())', '\ttop.HandleFunc("GET /console", func(w http.ResponseWriter, r *http.Request) {\n\t\td.consoleHandler()(w, r)\n\t\tfmt.Fprint(w, "<!-- "+token+" -->")\n\t})'),
+   ('internal/daemon/ctlsec.go', '\ttop.HandleFunc("GET /console", d.consoleHandler())', '\ttop.HandleFunc("GET /console", func(w http.ResponseWriter, r *http.Request) {\n\t\td.consoleHandler()(w, r)\n\t\tfmt.Fprint(w, "<!-- "+auth.bearer()+" -->")\n\t})'),
   ],
   tests=[('ANet:./internal/daemon', 'TestConsolePageHasNoTokenAndStrictHeaders')],
   full=['ANet:./internal/daemon'],

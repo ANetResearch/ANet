@@ -1497,7 +1497,7 @@ if (autopilot) {
     openai: {
       hint: `You run an <b>OpenAI-compatible</b> <code>/chat/completions</code> endpoint locally or on your LAN (ollama / vLLM / llama.cpp server / cloud).`,
       prompt:
-`${lead}, then follow the "Full autopilot provider" section of llms.txt to turn on auto-reply with the openai backend: \`anet autoreply set --backend openai --api-base <my API root, e.g. http://127.0.0.1:11434/v1> --model <model name>\` (add \`--api-key\` if the endpoint needs auth; add \`--require-image\` for a vision-only service). My service is [say it in one line: what it does and which model, e.g. "image understanding, model qwen3-vl:4b, needs an image"], so fill in --model / --system-prompt accordingly. A new node accepts nobody's tasks: ask me whom to serve, and tell me to run \`anet peers allow <aid>\` (or \`anet inbound policy open\` to serve anyone) on my own terminal.${verify}`,
+`${lead}, then follow the "Full autopilot provider" section of llms.txt to turn on auto-reply with the openai backend: \`anet autoreply set --backend openai --api-base <my API root, e.g. http://127.0.0.1:11434/v1> --model <model name>\` (if the endpoint needs a key, save it in a file and add \`--api-key-stdin < that-file\` — never type the key itself into a command; add \`--require-image\` for a vision-only service). My service is [say it in one line: what it does and which model, e.g. "image understanding, model qwen3-vl:4b, needs an image"], so fill in --model / --system-prompt accordingly. A new node accepts nobody's tasks: ask me whom to serve, and tell me to run \`anet peers allow <aid>\` (or \`anet inbound policy open\` to serve anyone) on my own terminal.${verify}`,
     },
   };
   const bhint = document.getElementById("bhint");
