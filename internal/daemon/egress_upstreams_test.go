@@ -72,21 +72,27 @@ func TestEgressUpstreamSelection(t *testing.T) {
 }
 
 // UP-3: the pinned model is auto_reply.model as an API id, the claude alias's API id, or the upstream's
-// cheapest model; a custom service without a model is refused (above).
+// cheapest model; a custom service without a model is refused (above). The tables are the constants of
+// 2026-10 (EXE-6): the claude CLI's aliases and its lowest-priced current model, and the codex CLI's
+// affordable model.
 func TestEgressPinnedModel(t *testing.T) {
 	for _, tc := range []struct {
 		cfg  AutoReplyConfig
 		want string
 	}{
-		{AutoReplyConfig{Agent: agentClaude, APIKey: "k"}, "claude-haiku-4-5"},
-		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "haiku"}, "claude-haiku-4-5"},
-		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "sonnet"}, "claude-sonnet-5"},
-		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "opus"}, "claude-opus-5"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k"}, "claude-haiku-5-5"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "haiku"}, "claude-haiku-5-5"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "sonnet"}, "claude-sonnet-5-5"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "opus"}, "claude-opus-5-5"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "fable"}, "claude-fable-5-1"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "best"}, "claude-fable-5-1"},
 		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: " claude-opus-4-8 "}, "claude-opus-4-8"},
-		{AutoReplyConfig{Agent: agentCodex, APIKey: "k"}, "gpt-5-nano"},
+		{AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "Haiku"}, "Haiku"}, // aliases are the CLI's, lower case
+		{AutoReplyConfig{Agent: agentCodex, APIKey: "k"}, "gpt-6-luna"},
 		{AutoReplyConfig{Agent: agentCodex, APIKey: "k", Model: "haiku"}, "haiku"},
-		{AutoReplyConfig{Agent: agentCodex, APIBase: "http://127.0.0.1:1/v1", Model: "llama3"}, "llama3"},
-		{AutoReplyConfig{Agent: agentOpenCode, APIKey: "k", APIBase: "https://api.anthropic.com", Model: "sonnet"}, "claude-sonnet-5"},
+		{AutoReplyConfig{Agent: agentOpenCode, APIBase: "http://127.0.0.1:1/v1", Model: "llama3"}, "llama3"},
+		{AutoReplyConfig{Agent: agentHermes, APIKey: "k", APIBase: "https://api.openai.com/v1"}, "gpt-6-luna"},
+		{AutoReplyConfig{Agent: agentOpenClaw, APIKey: "k", APIBase: "https://api.openai.com/v1", Model: "sonnet"}, "sonnet"},
 	} {
 		up, err := resolveEgressUpstream(tc.cfg)
 		if err != nil || up.Model != tc.want {
@@ -169,5 +175,31 @@ func TestEgressRouteMatching(t *testing.T) {
 func TestEgressArg(t *testing.T) {
 	if got := egressArg("a\nb‮c\x00d​" + strings.Repeat("é", 100)); got != "abcd"+strings.Repeat("é", 60) {
 		t.Errorf("%q", got)
+	}
+}
+
+// UP-3's constant tables are what they claim: every alias names a model of the anthropic upstream that is
+// not itself an alias, the cheapest model of each built-in upstream is set and is no alias, and the
+// cheapest Anthropic model is the haiku alias's model (the lowest-priced family).
+func TestEgressModelTables(t *testing.T) {
+	for alias, model := range egressClaudeAliases {
+		if alias != strings.ToLower(alias) || !strings.HasPrefix(model, "claude-") || egressClaudeAliases[model] != "" {
+			t.Errorf("alias %q -> %q", alias, model)
+		}
+		if !egressModelIDRe.MatchString(model) {
+			t.Errorf("alias %q names %q, which GET /v1/models/{id} would refuse", alias, model)
+		}
+	}
+	for _, name := range []string{egressUpstreamAnthropic, egressUpstreamOpenAI} {
+		m := egressCheapestModel[name]
+		if m == "" || egressClaudeAliases[m] != "" || !egressModelIDRe.MatchString(m) {
+			t.Errorf("%s: cheapest model %q", name, m)
+		}
+	}
+	if egressCheapestModel[egressUpstreamAnthropic] != egressClaudeAliases["haiku"] {
+		t.Errorf("the cheapest Anthropic model %q is not the haiku alias's %q", egressCheapestModel[egressUpstreamAnthropic], egressClaudeAliases["haiku"])
+	}
+	if len(egressCheapestModel) != 2 {
+		t.Errorf("a cheapest model for a custom service: %v (custom requires auto_reply.model)", egressCheapestModel)
 	}
 }

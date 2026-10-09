@@ -56,18 +56,26 @@ var egressBuiltinHosts = map[string]string{
 }
 
 // egressCheapestModel is the model of each built-in upstream when auto_reply.model is not set (UP-3,
-// item 3): the lowest-priced tier, which an unattended run for an untrusted peer should use. The values
-// are refined by the per-agent trials and updated with releases.
+// item 3): the lowest-priced tier, which an unattended run for an untrusted peer should use. Updated with
+// releases; as of 2026-10 (EXE-6): for Anthropic, Haiku 5.5, the lowest price of the current models in
+// the claude CLI's catalog (2.1.295: 0.10/0.50 per million input/output tokens, against 1/5 for Haiku
+// 4.5); for OpenAI, the model the codex CLI's catalog (0.162) offers as its fast and affordable one —
+// codex is the only agent that uses the openai upstream without an api_base.
 var egressCheapestModel = map[string]string{
-	egressUpstreamAnthropic: "claude-haiku-4-5",
-	egressUpstreamOpenAI:    "gpt-5-nano",
+	egressUpstreamAnthropic: "claude-haiku-5-5",
+	egressUpstreamOpenAI:    "gpt-6-luna",
 }
 
-// egressClaudeAliases are the claude CLI's model aliases and the API model each stands for (UP-3, item 2).
+// egressClaudeAliases are the claude CLI's model aliases and the API model each stands for (UP-3, item 2):
+// the first-party defaults of the CLI's catalog (claude 2.1.295), so that a model set the way the CLI
+// takes it is the model the CLI would have used. fable and best are aliases the CLI added after haiku,
+// sonnet and opus; left untranslated they would reach the API as unknown models.
 var egressClaudeAliases = map[string]string{
-	"haiku":  "claude-haiku-4-5",
-	"sonnet": "claude-sonnet-5",
-	"opus":   "claude-opus-5",
+	"haiku":  "claude-haiku-5-5",
+	"sonnet": "claude-sonnet-5-5",
+	"opus":   "claude-opus-5-5",
+	"fable":  "claude-fable-5-1",
+	"best":   "claude-fable-5-1",
 }
 
 // egressRouteKind is what one allowed upstream path is, which decides the body policy it gets.

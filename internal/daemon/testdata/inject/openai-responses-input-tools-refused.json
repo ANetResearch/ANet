@@ -1,0 +1,19 @@
+{
+  "upstream": "openai",
+  "model": "gpt-6-luna",
+  "request": {
+    "method": "POST",
+    "target": "/v1/responses",
+    "body": "{\"input\":[{\"type\":\"additional_tools\",\"tools\":[{\"type\":\"namespace\",\"name\":\"n\",\"tools\":[{\"type\":\"web_search\"}]}]}]}"
+  },
+  "refused": {
+    "status": 403,
+    "body": {
+      "error": {
+        "code": "policy_server_tool",
+        "message": "anet: the server-side model tool web_search is not allowed in the sandbox (it would bypass this node's network limits); use a local tool instead.",
+        "type": "invalid_request_error"
+      }
+    }
+  }
+}

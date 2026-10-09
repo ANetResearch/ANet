@@ -1,6 +1,6 @@
 {
   "upstream": "openai",
-  "model": "gpt-5-nano",
+  "model": "gpt-6-luna",
   "request": {
     "method": "POST",
     "target": "/v1/chat/completions",
