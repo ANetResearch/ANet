@@ -317,6 +317,7 @@ func New(layout Layout) (*Daemon, error) {
 	d.ledger = led
 	d.purgeReplay()
 	d.goBackground(func() { d.receiveMaintenance(ctx) })
+	d.goBackground(func() { d.keyMaintenanceLoop(ctx) })
 	d.goBackground(func() { d.mboxLoop(ctx) }) // mbox.go
 	// The peer lists may have changed while the daemon was stopped, or it
 	// stopped between a list write and its withdrawal (SS §4.3.8 item 1).

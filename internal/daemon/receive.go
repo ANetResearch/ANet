@@ -1435,26 +1435,14 @@ func (d *Daemon) purgeReplay() {
 }
 
 // receiveMaintenance runs the periodic housekeeping of the receive path
-// until ctx ends: every maintenance period S (keyMaintainEvery), the key
-// ring, its deletions under the clock gate and its publication, the
-// interaction keys past close_after and the public_cap retention sweep
-// (keyMaintenance, FS-K4); every hour, expired replay rows. New runs the
-// first purge and the first period of the key ring (setupKeyRing) itself,
-// and the registration at start publishes the set.
-//
-// The period takes the mailbox poll's lock, so it runs between two poll
-// rounds of the relay loop, serial with the receive path of the hub
-// mailbox; a node without a hub has no poll to wait for.
+// until ctx ends: every hour, expired replay rows; every minute, the
+// inbound policy's periodic work. New runs the first purge itself. The
+// key ring's maintenance period has a loop of its own (keyMaintenanceLoop).
 func (d *Daemon) receiveMaintenance(ctx context.Context) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
-	k := time.NewTicker(keyMaintainEvery.get())
-	defer k.Stop()
 	m := time.NewTicker(time.Minute)
 	defer m.Stop()
-	// The retention sweep at start too, as far as the first period's gate
-	// allows: a node restarted more often than every period still sweeps.
-	d.sweepHardBound(d.startLevel)
 	for {
 		select {
 		case <-ctx.Done():
@@ -1462,8 +1450,6 @@ func (d *Daemon) receiveMaintenance(ctx context.Context) {
 			return
 		case <-t.C:
 			d.purgeReplay()
-		case <-k.C:
-			d.keyMaintenance()
 		case <-m.C:
 			// The inbound policy's periodic work (inbound.go, pending.go):
 			// the refusal and acceptance summaries, expiry of held
@@ -1472,6 +1458,34 @@ func (d *Daemon) receiveMaintenance(ctx context.Context) {
 			d.flushInboundSummary(false)
 			d.expirePending()
 			d.revocationSweep()
+		}
+	}
+}
+
+// keyMaintenanceLoop runs a maintenance period every S until ctx ends
+// (keyMaintenance, FS-K4): the key ring, its deletions under the clock gate
+// and its publication, the interaction keys past close_after and the
+// public_cap retention sweep. It starts with the hard-bound sweeps at the
+// level of the process's first period (setupKeyRing), so a node restarted
+// more often than every period still sweeps; New runs that period itself,
+// and the registration at start publishes the set.
+//
+// A period takes the mailbox poll's lock, so it runs between two poll
+// rounds of the relay loop, serial with the receive path of the hub
+// mailbox; a node without a hub has no poll to wait for. The loop is its
+// own because a poll moving a large envelope holds that lock for minutes,
+// and the rest of the receive path's housekeeping (receiveMaintenance)
+// does not wait with it.
+func (d *Daemon) keyMaintenanceLoop(ctx context.Context) {
+	k := time.NewTicker(keyMaintainEvery.get())
+	defer k.Stop()
+	d.sweepHardBound(d.startLevel)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-k.C:
+			d.keyMaintenance()
 		}
 	}
 }

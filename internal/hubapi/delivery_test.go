@@ -70,9 +70,6 @@ func TestTheDeliveryTokenBodiesAreTheRegistrys(t *testing.T) {
 	}
 }
 
-// The revocation bodies have exactly the members the registry gives POST
-// /mailbox/revoke, and the batch bound is the hub's (sealed-sender §2.12,
-// ANetHub MaxRevokeBatch).
 // The key set publication and the poll answer are the registry's (core
 // §2.12.2; forward-secrecy FS-H4, FS-H5): keys in base64url with prev_seq,
 // and a poll page that says whether more follows it.
@@ -117,6 +114,9 @@ func TestTheKeyAndPollBodiesAreTheRegistrys(t *testing.T) {
 	}
 }
 
+// The revocation bodies have exactly the members the registry gives POST
+// /mailbox/revoke, and the batch bound is the hub's (sealed-sender §2.12,
+// ANetHub MaxRevokeBatch).
 func TestTheRevocationBodiesAreTheRegistrys(t *testing.T) {
 	r, err := wire.Load()
 	if err != nil {

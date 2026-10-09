@@ -171,6 +171,11 @@ func TestNoDeletionAfterClockJump(t *testing.T) {
 	if len(keys) != 15 {
 		t.Fatalf("%d keys at the start", len(keys))
 	}
+	privs := map[string][]byte{} // the private halves the ring holds, as it holds them
+	for kid := range keys {
+		kp, _ := d.enc.Key([]byte(kid))
+		privs[kid] = kp.Private
+	}
 	jumped := start + 20*dayMS
 	clocks.wall.Store(jumped)
 	clocks.mono.Add(keyMaintainEveryMS)
@@ -180,6 +185,7 @@ func TestNoDeletionAfterClockJump(t *testing.T) {
 	for ran+step < clockFallbackAfter {
 		hubSays(d, trueTime) // an honest hub: the clock is 20 days off
 		d.keyMaintenance()
+		d.maintainKeyRing() // the mailbox loop's maintenance between periods deletes nothing either
 		if level, state := clockGate(d.clockObservation(), d.enc.unverifiedRun(), clocks.wall.Load(), clocks.mono.Load()); level != clockClosed || state != clockSkewed {
 			t.Fatalf("%d ms after the jump: %v %s, want closed and skewed", ran, level, state)
 		}
@@ -214,6 +220,9 @@ func TestNoDeletionAfterClockJump(t *testing.T) {
 			t.Fatal("a key went before its hard bound")
 		case !held:
 			gone++
+			if p := privs[k]; bytes.Count(p, []byte{0}) != len(p) {
+				t.Fatal("a deleted private key was not cleared in memory (FS-K12)")
+			}
 		}
 	}
 	if gone == 0 {
@@ -225,6 +234,55 @@ func TestNoDeletionAfterClockJump(t *testing.T) {
 	if _, err := d.ix.Get("ix_public"); err == nil {
 		t.Fatal("the public_cap task past its retention stayed")
 	}
+}
+
+// TestStartSweepFollowsTheGate (FS-K15, mutation 19 at the start): the
+// sweeps a process runs as it starts, before its first period, run at the
+// level of the period New ran. A node whose hub has not answered yet starts
+// closed and deletes nothing — not an interaction key past close_after, not
+// a public call past its retention; one that starts with a day of running
+// time behind it starts at local and deletes both.
+func TestStartSweepFollowsTheGate(t *testing.T) {
+	if n := newTestDaemon(t, "", true); n.startLevel != clockFull {
+		t.Fatalf("a node without a hub started at level %v, want full", n.startLevel)
+	}
+	d := newTestDaemon(t, silentHub, true)
+	if d.startLevel != clockClosed {
+		t.Fatalf("a node whose hub never answered started at level %v, want closed", d.startLevel)
+	}
+	now := d.nowMS()
+	kid := keyedOutboundTask(t, d, "ix_closing", now-20*dayMS) // close_after five days ago
+	endedPublicCapTask(t, d, "ix_public", now-20*dayMS)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	d.keyMaintenanceLoop(ctx) // its start sweep, then it stops
+	if k, err := d.ix.IXKeyByKID(kid); err != nil || k == nil {
+		t.Fatalf("the start sweep at closed deleted the interaction key: %v", err)
+	}
+	if _, err := d.ix.Get("ix_public"); err != nil {
+		t.Fatalf("the start sweep at closed deleted the public call: %v", err)
+	}
+	// A day of running time with the hub silent, on disk: the next process
+	// starts at local, and its start sweep deletes what is due.
+	d.enc.mu.Lock()
+	d.enc.run = clockFallbackAfter
+	d.enc.mu.Unlock()
+	if err := d.enc.persist(); err != nil {
+		t.Fatal(err)
+	}
+	layout := d.layout
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	d2 := startAt(t, layout.Root)
+	if d2.startLevel != clockLocal {
+		t.Fatalf("after a day of running time on disk the start level is %v, want local", d2.startLevel)
+	}
+	waitUntil(t, "the start sweep at local", func() bool {
+		k, _ := d2.ix.IXKeyByKID(kid)
+		_, err := d2.ix.Get("ix_public")
+		return k == nil && err != nil
+	})
 }
 
 // stallWorld runs a node whose hub never confirms its clock — its Date six
@@ -429,12 +487,17 @@ func TestDrainMarkNeedsAck(t *testing.T) {
 	}
 	// The ack succeeds and nothing more is queued: the mark is when the
 	// round asked.
+	// The hub takes two seconds to answer: rows it accepted meanwhile may
+	// be in no page, so the mark is the asking, not the answer.
+	h.mu.Lock()
+	h.whilePolling = func() { clock.Add(2000) }
+	h.mu.Unlock()
 	asked := clock.Add(minuteMS)
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if mark, _ := prov.drainInputs(); mark != asked {
-		t.Fatalf("drain mark %d, want %d", mark, asked)
+		t.Fatalf("drain mark %d, want %d (when the round asked)", mark, asked)
 	}
 	// The hub says more is queued: the mark stays.
 	more := true
@@ -465,6 +528,16 @@ func TestDrainMarkNeedsAck(t *testing.T) {
 	if _, held := prov.drainInputs(); !held.has(o.KID) {
 		t.Fatal("the held envelope's kid is not held")
 	}
+	// The rounds after it — one reading on past the row, one going back
+	// over it — keep it held while the hub holds it.
+	for i := 0; i < 2; i++ {
+		if err := prov.pollOnce(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if _, held := prov.drainInputs(); !held.has(o.KID) {
+			t.Fatalf("round %d after it: a row the hub still holds is no longer held", i+1)
+		}
+	}
 	h.mu.Lock()
 	h.mailbox = nil
 	h.mu.Unlock()
@@ -482,6 +555,56 @@ func TestDrainMarkNeedsAck(t *testing.T) {
 	if mark, _ := prov.drainInputs(); mark != fresh {
 		t.Fatalf("after pollFresh the drain mark is %d, want %d", mark, fresh)
 	}
+}
+
+// TestHeldRowsFollowTheMailbox (FS-K10): a held row is forgotten only when
+// the hub no longer holds it — a round acknowledged it, or read the span it
+// was in without finding it — and never by a round that did not read that
+// span: one reading on from after it, or one whose page the hub cut before
+// it. The hub URL is one hub with or without its trailing slash.
+func TestHeldRowsFollowTheMailbox(t *testing.T) {
+	const hub = "https://hub.example"
+	k5, k7, k9 := []byte("kid-5"), []byte("kid-7"), []byte("kid-9")
+	var s drainState
+	rows := func() map[int64]bool {
+		out := map[int64]bool{}
+		for r := range s.held {
+			out[r.id] = true
+		}
+		return out
+	}
+	want := func(step string, ids ...int64) {
+		t.Helper()
+		got := rows()
+		if len(got) != len(ids) {
+			t.Fatalf("%s: held %v, want %v", step, got, ids)
+		}
+		for _, id := range ids {
+			if !got[id] {
+				t.Fatalf("%s: held %v, want %v", step, got, ids)
+			}
+		}
+	}
+	// Rows 5, 7 and 9 held back.
+	s.noteRound(pollRound{hub: hub, read: []int64{5, 7, 9}, kids: map[int64][]byte{5: k5, 7: k7, 9: k9}, ackOK: true})
+	want("held", 5, 7, 9)
+	// Reading on from after them (nothing new) says nothing of them.
+	s.noteRound(pollRound{hub: hub + "/", from: 9, kids: map[int64][]byte{}, ackOK: true})
+	want("a round reading on past them", 5, 7, 9)
+	// Going back with a page cut after 5: 7 and 9 were not read.
+	s.noteRound(pollRound{hub: hub, read: []int64{5}, more: true, kids: map[int64][]byte{5: k5}, ackOK: true})
+	want("a page cut after 5", 5, 7, 9)
+	// Going back to the end without finding 7: the hub holds it no more.
+	s.noteRound(pollRound{hub: hub, read: []int64{5, 9}, kids: map[int64][]byte{5: k5, 9: k9}, ackOK: true})
+	want("7 not found", 5, 9)
+	// An acknowledgement that failed keeps 5; one that succeeded does not.
+	s.noteRound(pollRound{hub: hub, from: 4, read: []int64{5}, more: true, acked: []int64{5}, kids: map[int64][]byte{}})
+	want("5's ack failed", 5, 9)
+	s.noteRound(pollRound{hub: hub, from: 4, read: []int64{5}, more: true, acked: []int64{5}, kids: map[int64][]byte{}, ackOK: true})
+	want("5 acknowledged", 9)
+	// Another hub's rounds touch none of this hub's rows.
+	s.noteRound(pollRound{hub: "https://other.example", kids: map[int64][]byte{}, ackOK: true})
+	want("another hub drained", 9)
 }
 
 // TestNoPublishBetweenE1AndE2 (core §4.7; SS-7's handoff): between the
