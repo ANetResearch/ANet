@@ -1074,7 +1074,7 @@ func absPath(p string) string {
 func runAutoReply(c *client, rest []string) error {
 	usage := "autoreply <show|set|test|off>\n" +
 		"  set --backend exec  --agent <" + agentChoices() + "> [--model M] [--work-dir DIR] [--system-prompt S]\n" +
-		"  set --backend openai --api-base URL --model M [--system-prompt S] [--require-image] [--usage-hint H]\n" +
+		"  set --backend openai --api-base URL --model M [--system-prompt S] [--require-image[=false]] [--usage-hint H]\n" +
 		"  set --api-key-stdin < FILE   # the model API key: from a file, or typed on the terminal (never on the command line)\n" +
 		"  common: [--poll-interval SEC] [--max-history N] [--api-timeout SEC] [--max-auto-replies N]\n" +
 		"  test [\"自定义问题\"]    # 本地跑一次配置好的后端验证（不经过 Hub、不建任何身份）\n" +
@@ -1131,8 +1131,17 @@ func runAutoReply(c *client, rest []string) error {
 				body[jsonKey] = v
 			}
 		}
-		if hasFlag(rest, "--require-image") {
-			body["require_image"] = true
+		// The daemon merges what set names, so a setting that is on stays on until set turns it off:
+		// --require-image turns it on, --require-image=false off.
+		if v, ok := flags["require-image"]; ok {
+			switch strings.TrimSpace(v) {
+			case "true":
+				body["require_image"] = true
+			case "false":
+				body["require_image"] = false
+			default:
+				return usageError{usage}
+			}
 		}
 		for cliKey, jsonKey := range map[string]string{
 			"poll-interval": "poll_interval_seconds", "max-history": "max_history", "api-timeout": "api_timeout_seconds",

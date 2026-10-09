@@ -131,6 +131,10 @@ func TestAutoReplySetSendsOnlyWhatItNames(t *testing.T) {
 		{[]string{"--api-base", "https://models.example/v1"}, `{"api_base":"https://models.example/v1"}`},
 		{[]string{"--backend", "openai", "--api-base", "http://127.0.0.1:1/v1", "--model", "m"},
 			`{"api_base":"http://127.0.0.1:1/v1","backend":"openai","model":"m"}`},
+		// A setting that is on stays on until set turns it off; a string is cleared with "".
+		{[]string{"--require-image"}, `{"require_image":true}`},
+		{[]string{"--require-image=false"}, `{"require_image":false}`},
+		{[]string{"--require-image=true", "--system-prompt", ""}, `{"require_image":true,"system_prompt":""}`},
 	} {
 		h := newCLIHome(t, "C")
 		rc := newRecordingControl(t, h)
@@ -141,6 +145,12 @@ func TestAutoReplySetSendsOnlyWhatItNames(t *testing.T) {
 		if len(b) != 1 || string(bytes.TrimSpace(b[0])) != c.want {
 			t.Errorf("%v: sent %q, want %s", c.args, b, c.want)
 		}
+	}
+	// --require-image takes true or false; anything else is a usage error (exit 2) and nothing is sent.
+	h := newCLIHome(t, "C")
+	rc := newRecordingControl(t, h)
+	if _, stderr, code := runCLIStdin(t, h, "", []string{"autoreply", "set", "--require-image=no"}); code != 2 || len(rc.bodies()) != 0 {
+		t.Fatalf("--require-image=no: exit %d, %d requests: %s", code, len(rc.bodies()), stderr)
 	}
 }
 
