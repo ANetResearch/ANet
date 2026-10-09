@@ -21,9 +21,9 @@ MUTS = [
  ),
  dict(
   id='si1-3', group='SI-1', repo='ANetHub',
-  desc='hub /reviews 不再拒收 request_doc/deliverable',
+  desc='hub /reviews 不再拒收 request_doc/deliverable(评价 v2 由严格解码拒收:上传体收下这两个成员)',
   edits=[
-   ('internal/aghub/server.go', '\tif req.RequestDoc != "" || req.Deliverable != "" {', '\tif false && (req.RequestDoc != "" || req.Deliverable != "") {'),
+   ('internal/aghub/reviews.go', '\tRSalt   string `json:"rsalt"`\n}', '\tRSalt   string `json:"rsalt"`\n\tRequestDoc  string `json:"request_doc,omitempty"`\n\tDeliverable string `json:"deliverable,omitempty"`\n}'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestAReviewUploadCarryingContentIsRefused|TestAReviewIsServedWithoutContent')],
   full=['ANetHub:./internal/aghub'],
@@ -545,7 +545,9 @@ MUTS = [
   id='si9-4', group='SI-9', repo='ANetHub',
   desc='账本 hub 不核对 requirements',
   edits=[
-   ('internal/aghub/facilitator.go', '\tif rf := CheckRequirements(p, auth, req); rf != nil {\n\t\treturn refusedSettlement(rf, auth, own)', '\tif rf := CheckRequirements(p, auth, req); rf != nil && false {\n\t\treturn refusedSettlement(rf, auth, own)'),
+   # Re-pointed by PAY-4: SettleForPeer has the same check; this is SettleWithRequirements' (the repeat
+   # lookup that follows it is the one without a peer).
+   ('internal/aghub/facilitator.go', '\tif rf := CheckRequirements(p, auth, req); rf != nil {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\tif out, done := s.repeatOf(hubAID, id, auth, ""); done {', '\tif rf := CheckRequirements(p, auth, req); rf != nil && false {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\tif out, done := s.repeatOf(hubAID, id, auth, ""); done {'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestSettleRefusesPaymentsThatDoNotMeetTheRequirements'), ('ANetHub:./cmd/anet-hub', 'TestACrossHubPaymentIsCheckedAtBothHubsAndCreditedOnce')],
   full=['ANetHub:./internal/aghub', 'ANetHub:./cmd/anet-hub'],
@@ -554,18 +556,21 @@ MUTS = [
   id='si9-5', group='SI-9', repo='ANetHub',
   desc='新结算不查授权有效期与当前密钥(settle 路径的 currentAuth)',
   edits=[
-   ('internal/aghub/facilitator.go', '\tif rf := currentAuth(auth, kel, time.Now().UnixMilli()); rf != nil {\n\t\treturn refusedSettlement(rf, auth, own)', '\tif rf := currentAuth(auth, kel, time.Now().UnixMilli()); rf != nil && false {\n\t\treturn refusedSettlement(rf, auth, own)'),
+   # Re-pointed by PAY-4: the settlement reads the store's clock, and SettleForPeer has its own call.
+   ('internal/aghub/facilitator.go', '\tif rf := currentAuth(auth, kel, s.now().UnixMilli()); rf != nil {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\treturn s.settleAuth(hubAID, auth, id, "")', '\tif rf := currentAuth(auth, kel, s.now().UnixMilli()); rf != nil && false {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\treturn s.settleAuth(hubAID, auth, id, "")'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestPaymentRefusals|TestSettleRefusesPaymentsThatDoNotMeetTheRequirements|TestAChargedAuthorizationGetsItsReceiptAfterItsWindow')],
   full=['ANetHub:./internal/aghub', 'ANetHub:./cmd/anet-hub'],
  ),
  dict(
   id='si9-6', group='SI-9', repo='ANetHub',
-  desc='绑定唯一索引改为普通索引(同一绑定可两次扣款)',
+  desc='绑定守卫的冲突被忽略(同一绑定可两次扣款)',
+  # Re-pointed by PAY-4: the binding is the settle_guard row (L33), no longer a unique index on
+  # credit_settled; a guard insert that took no row is the conflict.
   edits=[
-   ('internal/aghub/aghub.go', 'CREATE UNIQUE INDEX IF NOT EXISTS idx_settled_binding', 'CREATE INDEX IF NOT EXISTS idx_settled_binding'),
+   ('internal/aghub/facilitator.go', '\t\tif n, err := res.RowsAffected(); err != nil || n == 0 {\n', '\t\tif n, err := res.RowsAffected(); err != nil || n < 0 {\n'),
   ],
-  tests=[('ANetHub:./internal/aghub', 'TestASecondAuthorizationForOneBindingMovesNothing|TestTheBindingIndexHoldsOneSettlementPerBinding')],
+  tests=[('ANetHub:./internal/aghub', 'TestASecondAuthorizationForOneBindingMovesNothing|TestASecondPaymentForATaskIsRefusedFor30Days')],
   full=['ANetHub:./internal/aghub'],
  ),
  dict(

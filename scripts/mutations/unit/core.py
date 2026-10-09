@@ -256,9 +256,10 @@ MUTS = [
   edits=[('internal/aghub/server.go', '\tif req.AfterID < 0 || req.Limit < 0 {', '\tif req.AfterID < 0 {')],
   tests=[('ANetHub:./internal/aghub', '^TestWire3Fixtures$')],
   full=['ANetHub:./internal/aghub']),
- dict(id='core4-clear', group='CORE-4', repo='ANetHub', desc='CORE-V1:anet-hub -clear 对对端 hub 的请求不带 X-ANet-Wire',
-  edits=[('cmd/anet-hub/main.go', '\tpeer := &http.Client{Transport: wire3.Transport(nil)}', '\tpeer := http.DefaultClient\n\t_ = wire3.Transport')],
-  tests=[('ANetHub:./cmd/anet-hub', '^TestClearStatesTheWireToThePeer$')],
+ # Re-pointed by PAY-4: -clear is the subcommand anet-hub clear, which sends through federation.ClearAtPeer.
+ dict(id='core4-clear', group='CORE-4', repo='ANetHub', desc='CORE-V1:anet-hub clear 对对端 hub 的请求不带 X-ANet-Wire',
+  edits=[('internal/federation/settle.go', 'Transport: newPeerWire(wire3.Transport(nil), time.Now)}', 'Transport: newPeerWire(http.DefaultTransport, time.Now)}')],
+  tests=[('ANetHub:./cmd/anet-hub', '^TestClearIsASignedHubRequestToThePeer$')],
   full=['ANetHub:./cmd/anet-hub']),
  dict(id='core4-identitynow', group='CORE-4', repo='ANetHub', desc='§2.12.2:/hub/identity 的体在建处理器时固定(轮换后仍给旧 KEL)',
   edits=[('internal/hubid/hubid.go', '\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n', '\tkel := i.KEL\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n'),
