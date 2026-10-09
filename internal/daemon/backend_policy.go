@@ -23,11 +23,11 @@ func init() { configChecks = append(configChecks, checkBackendPolicies) }
 // backendPolicyKeys are the keys checked, with config_invalid's {rule} for
 // each in both languages.
 var backendPolicyKeys = []struct{ key, zh, en string }{
-	{"expected_user", `须是本机的用户名或十进制数字 uid,写成字符串,如 "1001"`,
+	{"expected_user", `须是本机的用户名或十进制数字 uid，写成字符串，如 "1001"`,
 		`it is a user name on this machine or a decimal uid, written as a string such as "1001"`},
-	{"socket_group", `须是本机的组名或十进制数字 gid,写成字符串`,
+	{"socket_group", `须是本机的组名或十进制数字 gid，写成字符串`,
 		`it is a group name on this machine or a decimal gid, written as a string`},
-	{"peer_check", `只能不设(严格核实,缺省)或设为 "path-only"`,
+	{"peer_check", `只能不设（严格核实，缺省）或设为 "path-only"`,
 		`it is left out (the strict default) or "path-only"`},
 }
 

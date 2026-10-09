@@ -590,7 +590,7 @@ MUTS += [
  dict(
   id='m-pc-2', group='PC-3', repo='ANet',
   desc='module/p2p 直接拨 anetpeer 的 socket,不经 backendconn',
-  edits=[('module/p2p/transport.go', '\treturn rules.DialUnix(ctx, nil, t.socket)', '\t_ = rules\n\treturn (&net.Dialer{}).DialContext(ctx, "unix", t.socket)')],
+  edits=[('module/p2p/transport.go', '\tc, err := rules.DialUnix(ctx, nil, t.socket)', '\t_ = rules\n\tc, err := (&net.Dialer{}).DialContext(ctx, "unix", t.socket)')],
   tests=[(BACKENDCONN, 'TestNothingDialsAUnixSocketAroundBackendconn'), ('ANet:./module/p2p', 'TestAPeerProcessOfAnotherAccountIsSentNothing')],
   full=['ANet:./module/p2p'],
  ),
@@ -685,5 +685,19 @@ MUTS += [
   edits=[('module/a2a/backend.go', 'since+wait > f.retry.giveUp {', 'since+wait > 2*f.retry.giveUp {')],
   tests=[('ANet:./module/a2a', 'TestRetriesGiveUpAndAnswersAreNotRetried')],
   full=['ANet:./module/a2a'],
+ ),
+ dict(
+  id='exe10-anetpeer-root', group='PC-4', repo='ANet',
+  desc='anetpeer 的 daemon 套接字放行 root 的连接(root 顶替当前 daemon)',
+  edits=[('tools/anetpeer/main.go', '\tcase cred.UID != os.Getuid():', '\tcase cred.UID != os.Getuid() && cred.UID != 0:')],
+  tests=[('ANet:./tools/anetpeer', 'TestAConnectionOfAnotherAccountDoesNotReplaceTheDaemon')],
+  full=['ANet:./tools/anetpeer'],
+ ),
+ dict(
+  id='exe10-anetpeer-relative', group='PC-4', repo='ANet',
+  desc='anetpeer 不把相对的 --socket 换成绝对路径(包注释里的用法启动即被拒)',
+  edits=[('tools/anetpeer/main.go', '\tsock = abs\n', '\t_ = abs\n')],
+  tests=[('ANet:./tools/anetpeer', 'TestARelativeDaemonSocketIsTheAbsolutePathItNames')],
+  full=['ANet:./tools/anetpeer'],
  ),
 ]
