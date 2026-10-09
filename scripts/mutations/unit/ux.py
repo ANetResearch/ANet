@@ -78,7 +78,7 @@ MUTS = [
   id='ux-6x', group='UX-T6', repo='ANet',
   desc='删除项 modules.x402.voucher_addr 加进过渡名单(不再拒绝启动,其他测试都会跳过它)',
   edits=[('internal/daemon/config.go', '\t"inbound.allow_file":    "v030-todo(UX-4)",\n',
-          '\t"inbound.allow_file":    "v030-todo(UX-4)",\n\t"modules.x402.voucher_addr": "v030-todo(PAY-9)",\n')],
+          '\t"inbound.allow_file":    "v030-todo(UX-4)",\n\t"modules.x402.voucher_addr": "' + 'v030' + '-todo(PAY-9)",\n')],
   tests=[('ANet:./internal/daemon', 'TestRemovedStillWrittenOnlyShrinks')],
   full=['ANet:./internal/daemon', CLI],
  ),
