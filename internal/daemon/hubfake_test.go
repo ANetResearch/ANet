@@ -244,6 +244,10 @@ type fakeHub struct {
 	// (keys_status invalid at /register, 400 at POST /agents/{aid}/keys):
 	// a hub that does not hold this node's mailbox signing key.
 	refuseKeySets bool
+	// forgedRollback, while not empty, answers each POST /agents/{aid}/keys
+	// with 409 keys_rollback naming its first stored_seq, then drops it:
+	// a hub that lies about the set it holds (red team A6).
+	forgedRollback []uint64
 	// keyPosts counts POST /agents/{aid}/keys requests; keyBodies keeps
 	// their bodies.
 	keyPosts  int
@@ -254,6 +258,10 @@ type fakeHub struct {
 	// pollMore, when set, is the more every poll answer states: a hub that
 	// always says more is queued (red team A1), or never does.
 	pollMore *bool
+	// whilePolling, when set, runs while the hub answers a poll, before
+	// the answer is written: time a test lets pass between the request and
+	// the answer.
+	whilePolling func()
 	// keysAt, when set, is the time (unix ms) key sets are verified at, the
 	// hub's clock for them: a test whose nodes live days ahead moves it
 	// with them.
@@ -1062,6 +1070,10 @@ func (h *fakeHub) admitKeysLocked(a *fakeHubAgent, raw []byte, prevSeq uint64, k
 	if h.refuseKeySets {
 		return hubapi.KeysStatusInvalid, "this hub refuses key sets (test)", nil
 	}
+	// A seq the hub's signed column cannot hold, as the real hub refuses it.
+	if set.Seq > 1<<63-1 {
+		return hubapi.KeysStatusInvalid, "seq above 2^63 - 1", nil
+	}
 	// SSR-W9, as the real hub applies it: the mailbox epoch is below 2^53,
 	// never falls, and rises whenever the mailbox key changes.
 	if set.Mbox.Epoch >= 1<<53 {
@@ -1124,6 +1136,12 @@ func (h *fakeHub) hKeysPost(w http.ResponseWriter, r *http.Request) {
 	defer h.mu.Unlock()
 	h.keyPosts++
 	h.keyBodies = append(h.keyBodies, append([]byte(nil), body...))
+	if len(h.forgedRollback) > 0 {
+		stored := h.forgedRollback[0]
+		h.forgedRollback = h.forgedRollback[1:]
+		fakeHubRefuse(w, http.StatusConflict, hubapi.KeysRollbackReason, map[string]any{"stored_seq": stored})
+		return
+	}
 	a := h.agents[aid]
 	kel, err := identity.UnmarshalKEL(a.kel)
 	if err != nil {
@@ -1897,6 +1915,9 @@ func (h *fakeHub) hRelayPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.pollMore != nil {
 		more = *h.pollMore
+	}
+	if h.whilePolling != nil {
+		h.whilePolling()
 	}
 	resp := hubapi.RelayPollResponse{Messages: out, More: more}
 	resp.KeyStateNotice, resp.KeyStateNoticeError = h.noticeForLocked(aid)

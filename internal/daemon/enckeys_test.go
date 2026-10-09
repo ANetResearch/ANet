@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -544,9 +545,15 @@ func TestTmpLeftoverZeroed(t *testing.T) {
 func TestRegenerateIsIdempotent(t *testing.T) {
 	d := newTestDaemon(t, "", true)
 	old := ringKids(d)
+	seqBefore := d.enc.Seq()
 	done, err := d.regenerateKeys(7)
 	if err != nil || !done {
 		t.Fatalf("regenerate: %v %v", done, err)
+	}
+	// The new set follows the one before it (FS-K5): its prev_seq is the
+	// last_seq from before the regeneration.
+	if _, seq, prev := d.enc.published(); prev != seqBefore || seq <= seqBefore {
+		t.Fatalf("after regenerating: seq %d, prev_seq %d; want above and equal to %d", seq, prev, seqBefore)
 	}
 	after := ringKids(d)
 	if len(after) != len(old)+15 {
@@ -751,6 +758,24 @@ func TestRemovedAtAfter200(t *testing.T) {
 			t.Fatal("a new key was marked removed")
 		}
 	}
+	if n := counter(prov, counterKeysRollbackUnverified); n != 0 {
+		t.Fatalf("the set after a regeneration did not follow the hub's (%d keys_rollback answers)", n)
+	}
+	// A registration the hub takes with its key set marks them the same
+	// way.
+	registered := clock.Add(60_000)
+	old = ringKids(prov)
+	if _, err := prov.regenerateKeys(10); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(context.Background(), srv.URL, "Prov", nil); err != nil {
+		t.Fatal(err)
+	}
+	for kid, k := range ringKids(prov) {
+		if o := old[kid]; o != nil && o.RemovedAt == 0 && k.RemovedAt != registered {
+			t.Fatalf("a key retired before a registration: removed_at %d, want %d", k.RemovedAt, registered)
+		}
+	}
 }
 
 // TestKeysRollbackAdoptsStoredSeq (FS-B2's branch that ends nothing, until
@@ -829,6 +854,58 @@ func TestKeysRollbackAdoptsStoredSeq(t *testing.T) {
 	}
 	if ix, err := p2.ix.Get(id); err != nil || ix.IsTerminal() {
 		t.Fatalf("a keys_rollback ended the task in flight: %v %v", ix, err)
+	}
+}
+
+// TestForgedStoredSeqNotFollowedPastJSON (FS-B2, red team A6): a hub that
+// answers a publication with a forged keys_rollback ends nothing either way.
+// A stored_seq below 2^53 is followed and the next publication goes through;
+// one of 2^53 or more — 2^63 − 1 would leave the ring signing seq 2^63, which
+// every hub refuses — is not followed, is not counted as a rollback, and the
+// ring's seq stays where it was, so an honest answer next takes the set.
+func TestForgedStoredSeqNotFollowedPastJSON(t *testing.T) {
+	srv, _, prov := registeredPair(t)
+	h := fakeHubAt(t, srv.URL)
+	ctx := context.Background()
+	hubSeq := func() uint64 {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return decodedSet(t, h.agents[prov.AID()].keyset).Seq
+	}
+	for _, forged := range []uint64{math.MaxInt64, math.MaxInt64 - 1, maxFollowedSeq} {
+		seq := prov.enc.Seq()
+		h.mu.Lock()
+		h.forgedRollback = []uint64{forged}
+		h.mu.Unlock()
+		if err := prov.publishKeys(ctx, srv.URL); err == nil {
+			t.Fatalf("stored_seq %d: the forged refusal was not reported", forged)
+		}
+		if got := prov.enc.Seq(); got != seq {
+			t.Fatalf("stored_seq %d was followed: the ring's seq went from %d to %d", forged, seq, got)
+		}
+		if n := counter(prov, counterKeysRollbackUnverified); n != 0 {
+			t.Fatalf("stored_seq %d counted as a rollback (%d)", forged, n)
+		}
+		if err := prov.publishKeys(ctx, srv.URL); err != nil {
+			t.Fatalf("after a forged stored_seq %d an honest answer refused the set: %v", forged, err)
+		}
+	}
+	// Just below the bound: followed, and the room left under 2^63 is the
+	// next sets'.
+	h.mu.Lock()
+	h.forgedRollback = []uint64{maxFollowedSeq - 1}
+	h.mu.Unlock()
+	if err := prov.publishKeys(ctx, srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	if n := counter(prov, counterKeysRollbackUnverified); n != 1 {
+		t.Fatalf("a stored_seq below 2^53 was not followed (counted %d)", n)
+	}
+	if got := hubSeq(); got != maxFollowedSeq || prov.enc.Seq() != maxFollowedSeq {
+		t.Fatalf("the hub holds seq %d, the ring %d; want both %d", got, prov.enc.Seq(), uint64(maxFollowedSeq))
+	}
+	if _, _, prev := prov.enc.published(); prev != maxFollowedSeq-1 {
+		t.Fatalf("prev_seq %d, want the stored_seq followed", prev)
 	}
 }
 

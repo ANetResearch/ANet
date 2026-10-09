@@ -612,14 +612,25 @@ func (r *encKeyRing) markRemoved(published []byte, now uint64) error {
 	return r.commit(keys, nil)
 }
 
+// maxFollowedSeq bounds the stored_seq a keys_rollback can make the ring
+// follow. A set's seq is the unix ms of its signing, or one above the last
+// (seal.NextSeq), which a JSON number holds exactly (FS §2.9): every seq a
+// hub honestly holds for this identity is below 2^53. One at or above it is
+// a hub's error or forgery, and following it would leave last_seq close to
+// 2^63 − 1, above which every hub refuses a set (ANetHub keys.go): a
+// node led there could not publish its keys to any hub again. Below the
+// bound, the room left under 2^63 is never used up.
+const maxFollowedSeq = 1 << 53
+
 // adoptStoredSeq is the hub's 409 keys_rollback with stored_seq (FS-B2, the
 // unverified branch): the hub holds a set this ring's publication did not
 // follow — newer than its prev_seq, or with a seq not below it. last_seq
 // becomes max(last_seq, stored_seq), and the same keys and mailbox key are
 // signed again above it, with prev_seq stored_seq. Nothing else changes. It
-// reports whether a new set was signed. A stored_seq above 2^63 − 1 is not
-// followed: no hub stores one (its seq column is a signed integer), and
-// following it would leave no seq above it for any later set.
+// reports whether a new set was signed. A stored_seq of maxFollowedSeq or
+// more is not followed (an error, which the caller logs): no set of this
+// identity has one, and following it would bring last_seq near the 2^63 − 1
+// a hub stores at most, past which no set could be published to any hub.
 //
 // v030-todo(FS-10): FS-B2 first checks the hub's set against this node's
 // KEL; when this identity did sign it, the data directory went back (a
@@ -631,8 +642,11 @@ func (r *encKeyRing) adoptStoredSeq(storedSeq uint64, in ringInputs) (bool, erro
 	r.mu.RLock()
 	keys, lastSeq, mbox := r.keys, r.lastSeq, r.mbox
 	r.mu.RUnlock()
-	if storedSeq > math.MaxInt64 || in.hold {
+	if in.hold {
 		return false, nil
+	}
+	if storedSeq >= maxFollowedSeq {
+		return false, fmt.Errorf("the hub names stored_seq %d, which no key set of this identity has (a seq is unix ms, below 2^53)", storedSeq)
 	}
 	mbox = r.mboxNow(mbox)
 	pub := publishedKeys(keys, in.now)
