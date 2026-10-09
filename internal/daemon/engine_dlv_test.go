@@ -769,3 +769,37 @@ func TestStrictSendRefusesWhatCannotBeVerified(t *testing.T) {
 		t.Fatalf("outbox %+v, want it waiting on home_unreachable", rows)
 	}
 }
+
+// Core CORE-V1 on the anonymous side: a status answer that states another
+// wire is no answer. Nothing it says is recorded, and the hub is stopped.
+func TestAStatusAnswerOverAnotherWireIsNoAnswer(t *testing.T) {
+	srv, req, prov := registeredPair(t)
+	req.setOutboxHold(true)
+	id, err := req.Delegate(context.Background(), prov.AID(), "a task", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := outboxRows(t, req, id)[0]
+	if row.HandedAt == 0 || row.CheckN != 0 {
+		t.Fatalf("setup: %+v, want the delegation at the hub and not asked about yet", row)
+	}
+	fh := fakeHubAt(t, srv.URL)
+	fh.mu.Lock()
+	fh.wire = hubapi.WireVersion - 1
+	fh.mu.Unlock()
+	askHubNow(t, req)
+	if statusCalls(srv.URL) != 1 {
+		t.Fatalf("%d status requests, want the one answered over another wire", statusCalls(srv.URL))
+	}
+	after := outboxRows(t, req, id)[0]
+	if after.CheckN != 0 || counter(req, cntDAckStatusQueued) != 0 {
+		t.Fatalf("the answer over another wire was taken: check_n %d, %d queued answers counted", after.CheckN,
+			counter(req, cntDAckStatusQueued))
+	}
+	if vers := rowVersions(t, req, row.ID); len(vers) != 1 || vers[0].HubState != "" {
+		t.Fatalf("versions %+v, want no state recorded", vers)
+	}
+	if !req.hubWireStopped(srv.URL) {
+		t.Fatal("the hub that answered over another wire was not stopped")
+	}
+}
