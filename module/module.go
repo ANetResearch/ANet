@@ -497,6 +497,10 @@ type Payer interface {
 	// Price reports what a capability costs here and whether it costs
 	// anything. Free is (0, false), never (0, true).
 	Price(capID string) (uint64, bool)
+	// HasPrices reports whether any capability this node serves has a
+	// price, from the same answers as Price: the pay flag of the
+	// capabilities this node gives its peers (core X-SS-8).
+	HasPrices() bool
 	// Quote builds the PAYMENT_REQUIRED body for a priced capability.
 	Quote(capID string, price uint64) *payment.PaymentRequired
 	// Authorize signs a payment for one interaction and returns the
