@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -216,5 +217,49 @@ func TestAuditFlagsARepeatedSettlement(t *testing.T) {
 	}
 	if held := buildAudit(ch, "", auditFilter{interaction: "ix_h"}); held.Summary.Events != 1 {
 		t.Fatalf("--interaction of a held delegation: %d events", held.Summary.Events)
+	}
+}
+
+// `anet audit --type T`, which took the place of `anet evidence --type` (ux §4.2, §4.3), keeps the
+// records of one event type, together with the other filters; the flag on the command line reaches
+// the filter and the report names it. [mut] the type filter dropped from matches → red.
+func TestAuditTypeKeepsOneEventType(t *testing.T) {
+	layout := writeChain(t, auditEvents)
+	ch, err := daemon.ReadEvidenceChain(layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := buildAudit(ch, "", auditFilter{eventType: "anet.result.accepted"})
+	if rep.Summary.Events != 2 || len(rep.Events) != 2 {
+		t.Fatalf("--type anet.result.accepted kept %d events", rep.Summary.Events)
+	}
+	for _, ev := range rep.Events {
+		if ev.Type != "anet.result.accepted" {
+			t.Errorf("--type kept a record of %s", ev.Type)
+		}
+	}
+	if both := buildAudit(ch, "", auditFilter{eventType: "anet.result.accepted", interaction: "ix_a"}); both.Summary.Events != 1 {
+		t.Fatalf("--type with --interaction kept %d events", both.Summary.Events)
+	}
+	if none := buildAudit(ch, "", auditFilter{eventType: "anet.no.such.event"}); none.Summary.Events != 0 {
+		t.Fatalf("an event type nothing has kept %d events", none.Summary.Events)
+	}
+
+	var runErr error
+	out := captureStdout(t, func() { runErr = runAudit(layout, []string{"--type", "anet.payment.settled", "--json"}) })
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	var got struct {
+		Filter map[string]string `json:"filter"`
+		Events []struct {
+			Type string `json:"type"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("anet audit --type … --json: %v\n%s", err, out)
+	}
+	if got.Filter["type"] != "anet.payment.settled" || len(got.Events) != 1 || got.Events[0].Type != "anet.payment.settled" {
+		t.Fatalf("anet audit --type anet.payment.settled: filter %v, events %v", got.Filter, got.Events)
 	}
 }

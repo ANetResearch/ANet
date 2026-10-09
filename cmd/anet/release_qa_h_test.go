@@ -125,6 +125,12 @@ func TestEveryDispatchedCommandIsInTheFullHelp(t *testing.T) {
 // for a reply that may be days out. The delegation is queued either way, so this is a note, not an error
 // — the exit status stays 0. The note is a human line, so it goes to stderr and the JSON on stdout stays
 // JSON (ux UX-C1, UX-C2 line 5).
+//
+// `anet delegate` itself no longer asks /delegate (the console's route, ux UX-C10): it sends through
+// /tasks/send, whose answer is the task, and there a quiet recipient is the delivery line, the
+// queued_at_hub sentence of anet.delivery_detail (ux §1.4 C3). Until the projection carries it the CLI
+// shows no line for it. v030-todo(RC-5): a test that `anet delegate` to a quiet recipient prints that
+// delivery line.
 func TestDelegatePrintsTheQuietNotice(t *testing.T) {
 	const warning = "queued, but bafyreiabc has not collected its mail for 3 days — it may not be running"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

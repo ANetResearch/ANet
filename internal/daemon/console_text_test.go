@@ -152,3 +152,41 @@ func TestConsoleRendersWithoutEdges(t *testing.T) {
 		}
 	}
 }
+
+// UX-W1's other side: status_text is a reason or a payment sentence, nothing else. A task that waits
+// for the answer to the other side's question has a status message — the question — and no
+// status_text, since the conversation shows the question already. [mut] the input-required gate
+// dropped → red.
+func TestConsoleStatusTextOnlyForAReasonOrAPayment(t *testing.T) {
+	p := newPlane(t)
+	const asked = "ix_w1_asked"
+	const peer = "bafyreie6k7xot2qpitfcoseuevnuq7zcztdpdgx4coe3p2jlqjjl65hqu4" // the provider, who asks
+	if err := p.d.ix.Create(interactions.New{ID: asked, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.d.ix.AddMessage(asked, peer, interactions.MsgText, "which language?"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.d.ix.SetState(asked, interactions.StateInputRequired, interactions.CauseNotTerminal); err != nil {
+		t.Fatal(err)
+	}
+	resp, b := p.req(t, "POST", "/tasks/get", `{"task_id":"`+asked+`"}`, p.bearer)
+	var task a2ashape.Task
+	if resp.StatusCode != 200 || json.Unmarshal(b, &task) != nil {
+		t.Fatalf("/tasks/get = %d %s", resp.StatusCode, b)
+	}
+	if task.Status.Message == nil || task.Status.Message.Metadata[a2ashape.KeyX402Status] != nil {
+		t.Fatalf("the question is not the task's status message, or carries a payment: %s", b)
+	}
+	s := p.session(t)
+	resp, b = p.req(t, "POST", "/thread", `{"interaction_id":"`+asked+`"}`, s.as(p))
+	var one struct {
+		Thread consoleThread `json:"thread"`
+	}
+	if resp.StatusCode != 200 || json.Unmarshal(b, &one) != nil {
+		t.Fatalf("/thread = %d %s", resp.StatusCode, b)
+	}
+	if one.Thread.State != string(interactions.StateInputRequired) || one.Thread.StatusText != "" {
+		t.Errorf("a question waiting for an answer: state %q, status_text %q, want none", one.Thread.State, one.Thread.StatusText)
+	}
+}
