@@ -852,7 +852,7 @@ MUTS += [
  dict(
   id='exe12-publish', group='CC-5', repo='ANet',
   desc='hub 注册的 caps 不过滤不接受远端调用的公开能力',
-  edits=[('internal/daemon/published_caps.go', 'public[id] && !remote.refused(id) {', 'public[id] {')],
+  edits=[('internal/daemon/published_caps.go', 'public[id] && !remote.refused(id) {', 'public[id] && (!remote.refused(id) || true) {')],
   tests=[(DAEMON, 'TestOnlyCapabilitiesRemoteCallersMayUseArePublished')],
   full=[DAEMON],
  ),
