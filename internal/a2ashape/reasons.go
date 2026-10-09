@@ -1810,6 +1810,12 @@ var reasonTable = []Row{
 		Zh:       "这是 anet 0.2 的数据目录，0.3.0 不迁移旧数据；请把这个目录移走后运行 anet up 生成新身份。",
 		En:       "This data directory is from anet 0.2, and 0.3.0 does not migrate old data; move it away and run anet up to create a new identity.",
 		NextKind: NextCommand, Next: "anet up"},
+	// A data directory a newer anet wrote (core CORE-V4, FS-S1): not an old
+	// one, so the next step is to upgrade, never to move it away.
+	{Code: "datadir_too_new", Class: ClassC,
+		Zh:       "这个数据目录由更新版本的 anet 写入，本版本打不开；请运行 anet update 升级后再启动（不要删除这个目录）。",
+		En:       "This data directory was written by a newer anet, which this version cannot open; run anet update and start again (do not delete the directory).",
+		NextKind: NextCommand, Next: "anet update"},
 	{Code: "rotation_emergency_done", Class: ClassI,
 		Zh:       "紧急轮换已完成；请检查 peers 名单与 config.json 是否被改过，到各服务商更换模型 API key，重启已接入的编码工具，A2A 客户端请重新运行 anet agents wire --all。",
 		En:       "The emergency rotation is done; check your peer lists and config.json for changes, replace model API keys with each provider, restart wired coding tools, and run anet agents wire --all again for A2A clients.",

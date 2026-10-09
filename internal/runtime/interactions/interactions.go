@@ -299,13 +299,21 @@ const storeFile = "interactions.db"
 // was written by an earlier anet and is refused.
 const SchemaVersion = 3
 
-// ErrOldStore is a store an earlier anet wrote: its user_version is not SchemaVersion. v0.3.0 does
-// not convert one (core CORE-V4); the daemon refuses to start and says identity_v02 (FS-S1).
+// ErrOldStore is a store an earlier anet wrote: its user_version is below SchemaVersion (0 for v0.1
+// and v0.2, which set none). v0.3.0 does not convert one (core CORE-V4); the daemon refuses to start and
+// says identity_v02 (FS-S1).
 var ErrOldStore = errors.New("interactions: the store was written by an earlier anet, and 0.3.0 does not migrate it")
+
+// ErrNewerStore is a store a newer anet wrote: its user_version is above SchemaVersion. This version
+// cannot read it and leaves it alone; the daemon refuses to start and says datadir_too_new, whose next
+// step is to upgrade — not to move the directory away, which would lose data that is still good (core
+// CORE-V4).
+var ErrNewerStore = errors.New("interactions: the store was written by a newer anet, which this version cannot open")
 
 // CheckStore says whether this version can open the store in dir, and writes nothing: nil when
 // there is no store yet, when the file holds no schema (a creation that never committed) and for
-// a v0.3.0 store; an error wrapping ErrOldStore for a store an earlier anet wrote. The daemon asks
+// a v0.3.0 store; an error wrapping ErrOldStore for a store an earlier anet wrote, ErrNewerStore
+// for one a newer anet wrote. The daemon asks
 // before it starts (FS-S1), so a data directory it refuses is left exactly as it was: the file is
 // read with SQLite's immutable flag, which takes no lock and makes no -wal or -shm file.
 func CheckStore(dir string) error {
@@ -345,11 +353,14 @@ func schemaState(e execer) (version, objects int, err error) {
 	return version, objects, err
 }
 
-// judgeSchema is nil for a v0.3.0 store and for a file with no schema yet, and ErrOldStore for
-// anything else.
+// judgeSchema is nil for a v0.3.0 store and for a file with no schema yet, ErrNewerStore for a
+// user_version above SchemaVersion, and ErrOldStore for anything else.
 func judgeSchema(version, objects int) error {
-	if version == SchemaVersion || (version == 0 && objects == 0) {
+	switch {
+	case version == SchemaVersion || (version == 0 && objects == 0):
 		return nil
+	case version > SchemaVersion:
+		return fmt.Errorf("%w (user_version %d, this version writes %d)", ErrNewerStore, version, SchemaVersion)
 	}
 	return fmt.Errorf("%w (user_version %d, not %d)", ErrOldStore, version, SchemaVersion)
 }

@@ -57,3 +57,34 @@ func writeEarlierStore(t *testing.T, l daemon.Layout) {
 		t.Fatal(err)
 	}
 }
+
+// core CORE-V4 (revision 5) through the binary: in a data directory a newer
+// anet wrote — its interactions.db has a user_version above 3 — `anet
+// daemon` and `anet up` print datadir_too_new, whose next step is to
+// upgrade and keep the directory, exit 1, and write nothing there.
+func TestAnetDaemonRefusesANewerDataDir(t *testing.T) {
+	h := newCLIHome(t, "C")
+	layout := daemon.NewLayout(h.data)
+	writeEarlierStore(t, layout)
+	db, err := sql.Open("sqlite", filepath.Join(layout.InteractionsDir(), "interactions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 4`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotDir(t, h.data)
+	want := a2ashape.Sentence("datadir_too_new", a2ashape.English, nil)
+	for _, args := range [][]string{{"daemon"}, {"up"}} {
+		_, stderr, code := runCLIWithin(t, h, 20*time.Second, args)
+		if code != 1 || stderr != want+"\n" {
+			t.Fatalf("anet %s: exit %d, stderr %q; want 1 and %q", args[0], code, stderr, want)
+		}
+		if !sameSnapshot(before, snapshotDir(t, h.data)) {
+			t.Fatalf("anet %s wrote to the refused data directory", args[0])
+		}
+	}
+}

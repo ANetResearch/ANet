@@ -44,8 +44,9 @@ import (
 // EncKeysPath is the key ring file.
 func (l Layout) EncKeysPath() string { return filepath.Join(l.Root, "enc_keys.cbor") }
 
-// encKeyFileVersion is the version of the key ring file format.
-const encKeyFileVersion = 1
+// encKeyFileVersion is v, key 1, of enc_keys.cbor (FS §2.11). A ring of
+// another version stops the start (CheckDataDirForStart): 0.2 wrote 1.
+const encKeyFileVersion = 2
 
 // v030-todo(FS-4): the epoch key ring replaces this interim policy (one key
 // per UTC epoch, published seal.PublishAheadMS ahead, deleted by the drain

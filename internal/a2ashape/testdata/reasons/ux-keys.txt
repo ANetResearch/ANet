@@ -124,6 +124,7 @@ recover_target_exists
 recover_not_witness
 clock_skew
 identity_v02
+datadir_too_new
 rotation_emergency_done
 identity_deactivated.unconfirmed
 identity.ok

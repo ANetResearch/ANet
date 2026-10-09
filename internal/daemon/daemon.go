@@ -239,8 +239,8 @@ type Daemon struct {
 // New builds the daemon: load config + identity, open the interactions store, and (if a Hub is
 // configured) start the relay poll loop. It does not block; call Close to stop.
 func New(layout Layout) (*Daemon, error) {
-	// A data directory an earlier anet wrote is refused before anything
-	// is written to it (FS-S1).
+	// A data directory an earlier or a newer anet wrote is refused before
+	// anything is written to it (FS-S1, core CORE-V4).
 	if err := CheckDataDirForStart(layout); err != nil {
 		return nil, err
 	}
@@ -258,6 +258,9 @@ func New(layout Layout) (*Daemon, error) {
 	ix, err := interactions.Open(layout.InteractionsDir())
 	if errors.Is(err, interactions.ErrOldStore) {
 		return nil, oldDataDirRefusal()
+	}
+	if errors.Is(err, interactions.ErrNewerStore) {
+		return nil, newerDataDirRefusal()
 	}
 	if err != nil {
 		return nil, fmt.Errorf("anet: open interactions store: %w", err)

@@ -147,28 +147,37 @@ func TestAFreshStoreIsVersion3(t *testing.T) {
 }
 
 // A store an earlier anet wrote — v0.1 and v0.2 set no user_version, and
-// any value other than 3 is not this version's — is refused, not converted
-// (core CORE-V4, FS-S1, DLV-ST-10), and the refusal writes nothing: the
-// file keeps its bytes and its time, and no -wal or -shm file appears.
+// any value below 3 is not this version's — is refused, not converted
+// (core CORE-V4, FS-S1, DLV-ST-10); so is one a newer anet wrote, with the
+// user_version above 3, but as ErrNewerStore and never as ErrOldStore: its
+// next step is to upgrade, not to move the data away. The refusal writes
+// nothing: the file keeps its bytes and its time, and no -wal or -shm file
+// appears.
 func TestOpenRefusesAnEarlierStore(t *testing.T) {
 	for _, tc := range []struct {
 		version int
 		wal     bool
-	}{{0, true}, {0, false}, {1, true}, {2, true}, {2, false}, {4, true}} {
+		want    error
+	}{
+		{0, true, interactions.ErrOldStore}, {0, false, interactions.ErrOldStore}, {1, true, interactions.ErrOldStore},
+		{2, true, interactions.ErrOldStore}, {2, false, interactions.ErrOldStore},
+		{4, true, interactions.ErrNewerStore}, {4, false, interactions.ErrNewerStore}, {1 << 30, true, interactions.ErrNewerStore},
+	} {
 		t.Run(fmt.Sprintf("user_version %d wal %v", tc.version, tc.wal), func(t *testing.T) {
 			dir := t.TempDir()
 			writeOldStore(t, dir, tc.version, tc.wal)
 			before := readDirState(t, dir)
 			time.Sleep(10 * time.Millisecond) // a write would show in the modification time
-			if err := interactions.CheckStore(dir); !errors.Is(err, interactions.ErrOldStore) {
-				t.Fatalf("CheckStore: %v, want ErrOldStore", err)
+			err := interactions.CheckStore(dir)
+			if !errors.Is(err, tc.want) || errors.Is(err, interactions.ErrOldStore) && errors.Is(err, interactions.ErrNewerStore) {
+				t.Fatalf("CheckStore: %v, want %v", err, tc.want)
 			}
 			s, err := interactions.Open(dir)
-			if !errors.Is(err, interactions.ErrOldStore) {
+			if !errors.Is(err, tc.want) {
 				if s != nil {
 					s.Close()
 				}
-				t.Fatalf("Open: %v, want ErrOldStore", err)
+				t.Fatalf("Open: %v, want %v", err, tc.want)
 			}
 			if after := readDirState(t, dir); !reflect.DeepEqual(after, before) {
 				t.Fatalf("the refused store's directory changed:\n before %v\n after  %v", before, after)

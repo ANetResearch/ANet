@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +25,12 @@ func LoadOrGenerateIdentity(l Layout) (*identity.Controller, error) {
 	if err == nil {
 		if identityFileIsV02(b) {
 			return nil, oldDataDirRefusal()
+		}
+		if identityFileTagIsOlder(b) {
+			return nil, oldDataDirRefusal()
+		}
+		if identityFileIsNewer(b) {
+			return nil, newerDataDirRefusal()
 		}
 		c, rerr := identity.Restore(b)
 		if rerr != nil {
@@ -56,10 +64,50 @@ func identityFileIsV02(b []byte) bool {
 	return !tagged
 }
 
+// identityFileIsNewer reports whether b is an identity file a newer anet wrote: its type tag (key 0)
+// is "anet.identity/<n>" with n above this version's (core CORE-V4). Such a file is not 0.2's: the
+// advice for it is to upgrade, and moving the data directory away would lose an identity that is
+// still good. An older tag than this version's is 0.2's (identityFileTagIsOlder).
+func identityFileIsNewer(b []byte) bool {
+	n, ok := identityFileTagVersion(b)
+	return ok && n > identityFileVersion
+}
+
+// identityFileTagIsOlder reports whether b is a tagged identity file of a version below this one's.
+// No anet released one; it is refused like 0.2's untagged file, which it would be older than.
+func identityFileTagIsOlder(b []byte) bool {
+	n, ok := identityFileTagVersion(b)
+	return ok && n < identityFileVersion
+}
+
+// identityFileVersion is n of this version's type tag, identity.IdentityFileType.
+const identityFileVersion = 2
+
+// identityFileTagVersion reads n from the type tag "anet.identity/<n>" (key 0) of b. ok is false
+// when b is not a CBOR map, or its key 0 is not a tag of that form: a damaged file, which the start
+// reports as damaged.
+func identityFileTagVersion(b []byte) (n uint64, ok bool) {
+	var m map[uint64]any
+	if err := coredet.Unmarshal(b, &m); err != nil {
+		return 0, false
+	}
+	tag, isStr := m[0].(string)
+	digits, found := strings.CutPrefix(tag, identityFileTagPrefix)
+	if !isStr || !found || digits == "" || len(digits) > 9 || strings.TrimLeft(digits, "0123456789") != "" ||
+		(len(digits) > 1 && digits[0] == '0') {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(digits, 10, 32)
+	return n, err == nil
+}
+
+// identityFileTagPrefix is identity.IdentityFileType without its version ("anet.identity/").
+var identityFileTagPrefix = strings.TrimRight(identity.IdentityFileType, "0123456789")
+
 // checkIdentityFileForStart is the identity file's part of CheckDataDirForStart: an identity file
-// of anet 0.2 or earlier is refused with identity_v02, before anything is written. It only reads.
-// A missing file passes (the start incepts one); a damaged one is left to the start, which says
-// what is wrong with it.
+// of anet 0.2 or earlier is refused with identity_v02, one a newer anet wrote with
+// datadir_too_new, before anything is written. It only reads. A missing file passes (the start
+// incepts one); a damaged one is left to the start, which says what is wrong with it.
 func checkIdentityFileForStart(l Layout) error {
 	b, err := os.ReadFile(l.IdentityPath())
 	switch {
@@ -67,8 +115,10 @@ func checkIdentityFileForStart(l Layout) error {
 		return nil
 	case err != nil:
 		return fmt.Errorf("anet: read identity: %w", err)
-	case identityFileIsV02(b):
+	case identityFileIsV02(b), identityFileTagIsOlder(b):
 		return oldDataDirRefusal()
+	case identityFileIsNewer(b):
+		return newerDataDirRefusal()
 	}
 	return nil
 }
