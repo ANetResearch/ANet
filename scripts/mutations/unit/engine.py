@@ -378,4 +378,13 @@ MUTS += [
   tests=[(D, 'TestANoticePastTheLimitIsNotQueued')],
   full=[D],
  ),
+ dict(
+  id='eng1a-gate-reread', group='ENG-1a', repo='ANet',
+  desc='尝试内交出字节之前不再读闸门(ENG-K13):会话期间关闭的闸门挡不住信封',
+  edits=[
+   ('internal/daemon/outbox_attempt.go', '''	return d.frozenNow(id) || !d.identityGate().Open''', '''	return d.frozenNow(id)'''),
+  ],
+  tests=[(D, 'TestAGateThatClosesMidAttemptHoldsTheEnvelope')],
+  full=[D],
+ ),
 ]
