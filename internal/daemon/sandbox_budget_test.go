@@ -111,6 +111,12 @@ func TestRunBudgetCountsTheLocalDay(t *testing.T) {
 	if v, _ := run("Q"); v != budgetGranted {
 		t.Fatalf("Q on the next day: %v", v)
 	}
+	// A clock set back over midnight (a time correction) is in the day before again, whose runs still
+	// count there.
+	clk.t = time.Date(2026, 10, 4, 23, 59, 59, 0, loc)
+	if v, _ := run("Z"); v != budgetSpent {
+		t.Fatalf("a run after the clock went back into a spent day: %v", v)
+	}
 	// 0 runs nothing.
 	if _, v, _ := b.reserve("R", 0, 0, nil); v != budgetSpent {
 		t.Fatalf("a budget of 0: %v", v)

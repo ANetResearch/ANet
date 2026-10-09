@@ -607,3 +607,12 @@ MUTS += [
   full=[DAEMON],
  ),
 ]
+MUTS += [
+ dict(
+  id='m-bu-10', group='BU-2', repo='ANet',
+  desc='只保留当天的计数(时钟被调回前一日时,前一日的预算重新可用)',
+  edits=[('internal/daemon/sandbox_budget.go', '\tcut := today.Add(-30 * time.Hour).UnixMilli()', '\tcut := today.UnixMilli()')],
+  tests=[(DAEMON, 'TestRunBudgetCountsTheLocalDay')],
+  full=[DAEMON],
+ ),
+]
