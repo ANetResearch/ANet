@@ -9,7 +9,8 @@ package daemon
 // listed here.
 //
 //   - processes: fork; exec only of /bin, /usr/bin, path_helper, the anet binary and the agent's runtime;
-//     process information and signals only within the same sandbox;
+//     process information and signals only within the same sandbox (process information is refused first:
+//     Seatbelt allows it by default even under (deny default));
 //   - files: metadata anywhere (a program walking a path stats every directory on it); contents of the
 //     system's libraries and tools, a short list of /private/etc, a few devices, the agent's runtime, the
 //     run directory and the work dir; writes only to the work dir, the run directory's home/ and tmp/,
@@ -25,7 +26,9 @@ package daemon
 // It ends with what stays refused whatever is allowed above, since a later rule wins over an earlier one:
 // executing /usr/bin/security (the keychain), /usr/bin/osascript and /usr/bin/open (other applications),
 // the keychain, pasteboard, Launch Services, TCC and window server Mach services (seatbeltMachForbidden),
-// binding, accepting and Apple events.
+// binding, accepting and Apple events. It also refuses what a (deny default) profile of version 1 still
+// allows by default (seatbeltRefused, seatbeltFcntlForbidden): hard links, clones and NVRAM, and the two
+// fcntl commands that change a file through a descriptor opened only for reading.
 //
 // The profile names paths and one port, never a key (EG-3): the run's key reaches the agent in its
 // environment alone.
@@ -143,6 +146,19 @@ func seatbeltMachForbiddenMatch(name string) (string, bool) {
 // arguments and environment.
 var seatbeltSysctlForbidden = []string{"kern.procargs"}
 
+// seatbeltRefused are operations Seatbelt allows by default even in a (deny default) profile of version 1,
+// which the profile refuses outright: a hard link or a clone would give a file the agent may not read a
+// second name in its work dir, and NVRAM holds the machine's settings and account tokens. A supported agent
+// needs none of them, and tools that clone or link where they can fall back to copying when refused.
+var seatbeltRefused = []string{"file-link", "file-clone", "nvram*"}
+
+// seatbeltFcntlForbidden are the fcntl commands that change a file through a descriptor opened only for
+// reading, which no file-write* rule sees and (deny default) does not cover: F_MAKECOMPRESSED (80)
+// truncates and compresses the file, F_TRANSFEREXTENTS (110) moves blocks between two files. The kernel
+// checks only the file's permission bits for them, and the anet binary and the agent's runtime are the
+// user's own files the profile lets the agent read.
+var seatbeltFcntlForbidden = []int{80, 110}
+
 // buildSeatbeltProfile returns the profile for spec. It fails on a path that is not absolute and clean,
 // that holds a character the profile cannot carry, or that overlaps spec.NeverAllow, and on a Mach service
 // of the allowed list that matches a forbidden name: the caller then refuses the run, it never runs it
@@ -224,6 +240,7 @@ func buildSeatbeltProfile(spec seatbeltSpec) (string, error) {
 	execs = append(execs, lit(spec.Init))
 	execs = append(execs, subs(runtime)...)
 	rule("allow process-exec", execs)
+	line("(deny process-info*)")
 	line("(allow process-info* (target same-sandbox))")
 	line("(allow signal (target same-sandbox))")
 	line("(allow sysctl-read)")
@@ -278,6 +295,14 @@ func buildSeatbeltProfile(spec seatbeltSpec) (string, error) {
 		sysctls = append(sysctls, "(sysctl-name-prefix "+sbplString(p)+")")
 	}
 	rule("deny sysctl-read", sysctls)
+	for _, op := range seatbeltRefused {
+		line("(deny " + op + ")")
+	}
+	fcntls := make([]string, 0, len(seatbeltFcntlForbidden))
+	for _, c := range seatbeltFcntlForbidden {
+		fcntls = append(fcntls, strconv.Itoa(c))
+	}
+	line("(deny system-fcntl (fcntl-command " + strings.Join(fcntls, " ") + "))")
 	line("(deny network-bind)")
 	line("(deny network-inbound)")
 	line("(deny appleevent-send)")

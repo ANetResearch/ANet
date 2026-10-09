@@ -238,8 +238,8 @@ jobs:
   # The macOS sandbox (Seatbelt, LEC §4.3.8 MS-7): the self-check's five
   # items, the agent confined in the real sandbox, the keychain out of its
   # reach (a cgo helper looks up the security daemon's Mach service from
-  # inside), what the agent leaves in its process group ended with the run,
-  # and the profile vector. A release gate: a skip here is a failure, and
+  # inside), what Seatbelt allows by default refused, what the agent leaves
+  # in its process group ended with the run, and the profile vector. A release gate: a skip here is a failure, and
   # each test's PASS line is required, so a -run pattern that matched
   # nothing cannot pass. TMPDIR is short for the Unix socket the
   # confinement test puts in its data directory (104 bytes at most here).
@@ -268,6 +268,7 @@ jobs:
           for t in TestSeatbeltProbeFiveItems TestSeatbeltIntegrationConfinesTheAgent \
                    TestSeatbeltIntegrationReachesTheModelOnlyThroughTheNode TestSeatbeltIntegrationHoldsNoSecret \
                    TestSeatbeltKeychainIsOutOfReach TestSeatbeltEndsWhatTheAgentLeftInItsGroup \
+                   TestSeatbeltRefusesWhatItWouldAllowByDefault \
                    TestSeatbeltProfileGolden TestSeatbeltMachServicesAvoidForbiddenNames \
                    TestSeatbeltLaunchRunsTheAgentThroughTheKeyedEndpoint; do
             grep -q -- "--- PASS: $t" /tmp/seatbelt.out || { echo "$t did not run" >&2; exit 1; }

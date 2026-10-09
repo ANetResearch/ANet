@@ -14,6 +14,7 @@
   (subpath "/Users/u/.local/share/claude/versions/1.0.0")
   (subpath "/opt/homebrew/Cellar/node/22.1.0/bin")
 )
+(deny process-info*)
 (allow process-info* (target same-sandbox))
 (allow signal (target same-sandbox))
 (allow sysctl-read)
@@ -117,6 +118,10 @@
 (deny sysctl-read
   (sysctl-name-prefix "kern.procargs")
 )
+(deny file-link)
+(deny file-clone)
+(deny nvram*)
+(deny system-fcntl (fcntl-command 80 110))
 (deny network-bind)
 (deny network-inbound)
 (deny appleevent-send)

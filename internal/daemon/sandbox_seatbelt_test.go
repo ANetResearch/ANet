@@ -176,6 +176,38 @@ func TestSeatbeltProbeRefusesAnUnconfinedSandbox(t *testing.T) {
 	}
 }
 
+// MS-4 item 4 holds only when a program the profile allows runs and the keychain tool then does not
+// start: a sandbox in which nothing starts does not pass for one that refuses the keychain tool, and a
+// keychain tool that starts fails the item.
+func TestSeatbeltProbeItem4NeedsAProgramThatRuns(t *testing.T) {
+	ctl, sec := seatbeltProbeControl, seatbeltSecurityTool
+	t.Cleanup(func() { seatbeltProbeControl, seatbeltSecurityTool = ctl, sec })
+	missing := filepath.Join(t.TempDir(), "missing")
+	runs := standInSandboxExec(t, "fail") // any executable file that exits non-zero
+	for name, tc := range map[string]struct {
+		control, security string
+		refused           bool
+		why               string
+	}{
+		"nothing starts":        {missing, missing, false, "no program runs in the sandbox"},
+		"the control fails":     {runs, missing, false, "no program runs in the sandbox"},
+		"keychain tool refused": {"/usr/bin/true", missing, true, ""},
+		"keychain tool starts":  {"/usr/bin/true", "/usr/bin/true", false, "started"},
+	} {
+		seatbeltProbeControl, seatbeltSecurityTool = tc.control, tc.security
+		refused, why := seatbeltSecurityRefused()
+		if refused != tc.refused || !strings.Contains(why, tc.why) || (tc.why == "" && why != "") {
+			t.Errorf("%s: refused %v (%q), want %v (%q)", name, refused, why, tc.refused, tc.why)
+		}
+	}
+	// Inside the checks, a failed item 4 says why.
+	seatbeltProbeControl, seatbeltSecurityTool = missing, missing
+	spec := sandboxCheckSpec{TCP: "127.0.0.1:1", Egress: "127.0.0.1:1", Home: t.TempDir(), Outside: missing, Work: t.TempDir()}
+	if r := seatbeltChecks(spec); r.SecurityRefused || !strings.Contains(r.Detail["security"], "no program runs") {
+		t.Errorf("the checks with nothing starting: %+v", r)
+	}
+}
+
 // MS-4: the macOS probe's spec names everything the five items need; one without any of them is not a
 // spec the probe runs.
 func TestSeatbeltSpecUsable(t *testing.T) {

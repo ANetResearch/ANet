@@ -27,7 +27,8 @@ package daemon
 // Before the first run, and again every five minutes, the same kind of profile runs `__sandbox-probe`,
 // which checks five things from inside (MS-4): the real home and a file outside the run cannot be read,
 // another port of the host's loopback cannot be reached, the egress endpoint can, /usr/bin/security does
-// not start, and the work dir takes a file. A sandbox that fails one is not used.
+// not start (while /usr/bin/true runs), and the work dir takes a file. A sandbox that fails one is not
+// used.
 
 import (
 	"context"
@@ -44,8 +45,13 @@ import (
 	"time"
 )
 
-// seatbeltSecurityTool is the keychain tool the probe must not be able to start (MS-4 item 4).
-const seatbeltSecurityTool = "/usr/bin/security"
+// seatbeltSecurityTool is the keychain tool the probe must not be able to start (MS-4 item 4), and
+// seatbeltProbeControl a program the profile lets run, which must run first: the item then tells a
+// sandbox that refuses the keychain tool from one in which nothing starts at all.
+var (
+	seatbeltSecurityTool = "/usr/bin/security"
+	seatbeltProbeControl = "/usr/bin/true"
+)
 
 // Local reasons the macOS sandbox is unavailable (ux §1.4 H, MS-4). A peer only ever sees
 // sandbox_unavailable.
@@ -295,15 +301,11 @@ func seatbeltChecks(spec sandboxCheckSpec) sandboxCheckReport {
 		_ = c.Close()
 		r.EgressReached = true
 	}
-	// 4. The keychain tool does not start: its execution is refused, whatever it would have done.
-	cmd := exec.Command(seatbeltSecurityTool, "-h")
-	cmd.Env = []string{}
-	if err := cmd.Start(); err != nil {
+	// 4. The keychain tool does not start.
+	if ok, why := seatbeltSecurityRefused(); ok {
 		r.SecurityRefused = true
 	} else {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		r.Detail["security"] = "started"
+		r.Detail["security"] = why
 	}
 	// 5. The work dir takes a file.
 	f := filepath.Join(spec.Work, sandboxProbeName+randHex(4))
@@ -314,6 +316,25 @@ func seatbeltChecks(spec sandboxCheckSpec) sandboxCheckReport {
 		r.WorkWritable = true
 	}
 	return r
+}
+
+// seatbeltSecurityRefused is MS-4 item 4 inside the sandbox: a program the profile allows runs to its end,
+// and then the keychain tool's execution is refused, whatever it would have done. Without the first, a
+// sandbox in which no program can start at all would pass. The string says why the item does not hold.
+func seatbeltSecurityRefused() (bool, string) {
+	ctl := exec.Command(seatbeltProbeControl)
+	ctl.Env = []string{}
+	if err := ctl.Run(); err != nil {
+		return false, "no program runs in the sandbox (" + seatbeltProbeControl + ": " + err.Error() + ")"
+	}
+	cmd := exec.Command(seatbeltSecurityTool, "-h")
+	cmd.Env = []string{}
+	if err := cmd.Start(); err != nil {
+		return true, ""
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	return false, "started"
 }
 
 // --- one sandboxed process ---

@@ -128,7 +128,10 @@ func TestSeatbeltMachServicesAvoidForbiddenNames(t *testing.T) {
 // osascript and open are refused after every allow; process information and signals stay within the
 // sandbox; the only network is out to the endpoint's port on the loopback (none without an endpoint),
 // and binding, accepting and Apple events are refused; files are written only in the work dir, the run's
-// home/ and tmp/ and the descriptors a process holds; other processes' arguments cannot be read.
+// home/ and tmp/ and the descriptors a process holds; other processes' arguments cannot be read. What
+// Seatbelt allows by default even under (deny default) is refused explicitly: process information outside
+// the sandbox (refused before the allow within it), hard links, clones, NVRAM, and the two fcntl commands
+// that change a file through a descriptor opened for reading (F_MAKECOMPRESSED 80, F_TRANSFEREXTENTS 110).
 func TestSeatbeltProfileHasTheSandboxShape(t *testing.T) {
 	spec := goldenSeatbeltSpec(49152)
 	p, err := buildSeatbeltProfile(spec)
@@ -183,6 +186,34 @@ func TestSeatbeltProfileHasTheSandboxShape(t *testing.T) {
 	}
 	if got := filters("allow", "process-info*"); !slices.Equal(got, []string{"(target same-sandbox)"}) {
 		t.Errorf("process-info* %v", got)
+	}
+	// process-info* is allowed by default: a bare refusal must come before the one allow, or the allow
+	// restricts nothing.
+	infoDeny, infoAllow := -1, lastRuleIndex(forms, "allow", "process-info*")
+	for i, f := range forms {
+		if f.String() == "(deny process-info*)" && infoDeny < 0 {
+			infoDeny = i
+		}
+	}
+	if infoDeny < 0 || infoDeny > infoAllow || lastRuleIndex(forms, "deny", "process-info*") != infoDeny {
+		t.Errorf("process information outside the sandbox: (deny process-info*) at %d, the allow at %d", infoDeny, infoAllow)
+	}
+	lastAllow := -1
+	for i, f := range forms {
+		if f.list[0].atom == "allow" {
+			lastAllow = i
+		}
+	}
+	for _, want := range []string{"(deny file-link)", "(deny file-clone)", "(deny nvram*)", "(deny system-fcntl (fcntl-command 80 110))"} {
+		at := slices.IndexFunc(forms, func(f sbplForm) bool { return f.String() == want })
+		if at < 0 || at < lastAllow {
+			t.Errorf("%s: at %d, the last allow at %d", want, at, lastAllow)
+		}
+	}
+	for _, op := range []string{"file-link", "file-clone", "nvram*", "system-fcntl"} {
+		if at := lastRuleIndex(forms, "allow", op); at >= 0 {
+			t.Errorf("the profile allows %s", forms[at])
+		}
 	}
 	if got := filters("allow", "signal"); !slices.Equal(got, []string{"(target same-sandbox)"}) {
 		t.Errorf("signal %v", got)
@@ -334,12 +365,13 @@ func (f sbplForm) String() string {
 // otherwise turn into a profile sandbox-exec refuses to load.
 var sbplOps = []string{"default", "process-fork", "process-exec", "process-info*", "signal", "sysctl-read",
 	"file-read-metadata", "file-read*", "file-write*", "file-ioctl", "system-socket", "mach-lookup",
-	"network-outbound", "network-bind", "network-inbound", "appleevent-send"}
+	"network-outbound", "network-bind", "network-inbound", "appleevent-send", "file-link", "file-clone", "nvram*",
+	"system-fcntl"}
 
 // sbplFilters are the filters a profile of ours may use, with their argument kinds ("s" a string, "y" a
-// symbol).
+// symbol, "N" one or more decimal numbers).
 var sbplFilters = map[string]string{"literal": "s", "subpath": "s", "global-name": "s", "global-name-prefix": "s",
-	"sysctl-name-prefix": "s", "remote": "ys", "target": "y", "socket-domain": "y"}
+	"sysctl-name-prefix": "s", "remote": "ys", "target": "y", "socket-domain": "y", "fcntl-command": "N"}
 
 // parseSBPL reads text into top-level forms and checks each is (version 1) or (allow|deny op filter…)
 // with a known operation and well-formed filters; comments start with ";".
@@ -439,6 +471,14 @@ func parseSBPL(text string) ([]sbplForm, error) {
 			}
 			for _, x := range f.list[2:] {
 				kinds, ok := sbplFilters[x.list0()]
+				if ok && kinds == "N" && len(x.list) >= 2 {
+					for _, arg := range x.list[1:] {
+						if _, err := strconv.ParseUint(arg.atom, 10, 32); arg.list != nil || arg.str || err != nil {
+							return nil, fmt.Errorf("filter %s: %s is not a number", x, arg)
+						}
+					}
+					continue
+				}
 				if x.list == nil || !ok || len(x.list) != len(kinds)+1 {
 					return nil, fmt.Errorf("unknown filter %s", x)
 				}

@@ -1590,4 +1590,34 @@ MUTS += [
   tests=[('ANet:./cmd/anet', 'TestDoctorSandbox')],
   full=['ANet:./cmd/anet'],
  ),
+ # What Seatbelt allows by default even under (deny default), refused by the profile. On a Mac
+ # TestSeatbeltRefusesWhatItWouldAllowByDefault goes red for these too.
+ dict(
+  id='m-ms-procinfo', group='MS-2', repo='ANet',
+  desc='profile 不先拒绝 process-info*(缺省放行,同沙箱的 allow 形同虚设)',
+  edits=[('internal/daemon/seatbelt_profile.go', '\tline("(deny process-info*)")\n', '')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-fcntl', group='MS-2', repo='ANet',
+  desc='profile 不拒绝 F_TRANSFEREXTENTS(经只读描述符改写可读文件)',
+  edits=[('internal/daemon/seatbelt_profile.go', 'var seatbeltFcntlForbidden = []int{80, 110}', 'var seatbeltFcntlForbidden = []int{80}')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-link', group='MS-2', repo='ANet',
+  desc='profile 不拒绝 file-link(运行之外的文件可在工作目录得到硬链接)',
+  edits=[('internal/daemon/seatbelt_profile.go', 'var seatbeltRefused = []string{"file-link", "file-clone", "nvram*"}', 'var seatbeltRefused = []string{"file-clone", "nvram*"}')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-4e', group='MS-4', repo='ANet',
+  desc='探针第 4 项不先跑放行的程序(沙箱里什么都启动不了也算通过)',
+  edits=[('internal/daemon/sandbox_seatbelt.go', '\tif err := ctl.Run(); err != nil {', '\tif err := ctl.Run(); err != nil && false {')],
+  tests=[(DAEMON, 'TestSeatbeltProbeItem4NeedsAProgramThatRuns')],
+  full=[DAEMON],
+ ),
 ]

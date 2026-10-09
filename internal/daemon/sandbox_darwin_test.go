@@ -12,6 +12,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -21,6 +23,9 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
 // noSandbox makes the Mac's sandbox unavailable for the test, and returns the local reason a refused run
@@ -278,16 +283,31 @@ func buildMachLookup(t *testing.T, dir string) string {
 // runtime, and returns its exit status and output.
 func seatbeltRun(t *testing.T, argv ...string) (int, string) {
 	t.Helper()
+	run, work := seatbeltRunDirs(t)
+	return seatbeltRunIn(t, run, work, nil, argv...)
+}
+
+// seatbeltRunDirs makes a run directory (with home/ and tmp/) and a work dir, by their real paths.
+func seatbeltRunDirs(t *testing.T) (run, work string) {
+	t.Helper()
 	tmp, _ := filepath.EvalSymlinks(t.TempDir())
-	run, work := filepath.Join(tmp, "run"), filepath.Join(tmp, "work")
+	run, work = filepath.Join(tmp, "run"), filepath.Join(tmp, "work")
 	for _, d := range []string{run, filepath.Join(run, "home"), filepath.Join(run, "tmp"), work} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
+	return run, work
+}
+
+// seatbeltRunIn is seatbeltRun with the run directory and work dir given, and runtime directories besides
+// the program's own.
+func seatbeltRunIn(t *testing.T, run, work string, runtime []string, argv ...string) (int, string) {
+	t.Helper()
 	initExe, _ := sandboxInitExe()
 	rt, _ := filepath.EvalSymlinks(filepath.Dir(argv[0]))
-	profile, err := buildSeatbeltProfile(seatbeltSpec{Init: initExe, RunDir: run, WorkDir: work, Runtime: []string{rt}})
+	profile, err := buildSeatbeltProfile(seatbeltSpec{Init: initExe, RunDir: run, WorkDir: work,
+		Runtime: append([]string{rt}, runtime...)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,5 +391,138 @@ func TestSeatbeltEndsWhatTheAgentLeftInItsGroup(t *testing.T) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 			t.Errorf("%s: the agent's background process %d outlived the run", name, pid)
 		}
+	}
+}
+
+// seatbeltReachArg starts the test binary as the helper of TestSeatbeltRefusesWhatItWouldAllowByDefault:
+// in the sandbox, it tries what Seatbelt allows by default even under (deny default) and a run's profile
+// refuses, and prints what it could do as one JSON line. Its arguments are a file of its runtime, a file
+// outside the run and the work dir.
+const seatbeltReachArg = "__seatbelt-reach-test"
+
+// seatbeltReach is what the helper could do: "EPERM" is the sandbox's refusal, "done" success, anything
+// else another error.
+type seatbeltReach struct {
+	ReadRuntime bool   `json:"read_runtime"` // control: the runtime's file reads
+	GetFL       bool   `json:"getfl"`        // control: an ordinary fcntl works on it
+	SelfInfo    bool   `json:"self_info"`    // control: process information on itself
+	Compress    string `json:"compress"`     // F_MAKECOMPRESSED on the runtime file, opened for reading
+	Transfer    string `json:"transfer"`     // F_TRANSFEREXTENTS from a work dir file into the runtime file
+	Link        string `json:"link"`         // a hard link of the outside file into the work dir
+	Clone       string `json:"clone"`        // a clone of the outside file into the work dir
+	ParentInfo  string `json:"parent_info"`  // process information on the test process, outside the sandbox
+}
+
+func reachResult(err error) string {
+	switch {
+	case err == nil:
+		return "done"
+	case errors.Is(err, syscall.EPERM):
+		return "EPERM"
+	}
+	return err.Error()
+}
+
+func init() {
+	testMainHooks[seatbeltReachArg] = func(args []string) int {
+		if len(args) != 3 {
+			return 2
+		}
+		runtimeFile, outside, work := args[0], args[1], args[2]
+		var r seatbeltReach
+		if f, err := os.Open(runtimeFile); err == nil {
+			_, err = io.ReadAll(f)
+			r.ReadRuntime = err == nil
+			_, err = unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
+			r.GetFL = err == nil
+			_, err = unix.FcntlInt(f.Fd(), 80, 0) // F_MAKECOMPRESSED
+			r.Compress = reachResult(err)
+			if donor, err := os.OpenFile(filepath.Join(work, "donor"), os.O_RDWR|os.O_CREATE, 0o600); err == nil {
+				_, _ = donor.Write(bytes.Repeat([]byte("d"), 64<<10))
+				_ = donor.Sync()
+				_, err = unix.FcntlInt(donor.Fd(), 110, int(f.Fd())) // F_TRANSFEREXTENTS
+				r.Transfer = reachResult(err)
+				_ = donor.Close()
+			} else {
+				r.Transfer = "donor: " + err.Error()
+			}
+			_ = f.Close()
+		}
+		r.Link = reachResult(os.Link(outside, filepath.Join(work, "linked")))
+		r.Clone = reachResult(unix.Clonefile(outside, filepath.Join(work, "cloned"), 0))
+		buf := make([]byte, 256) // struct proc_bsdinfo is 136 bytes
+		info := func(pid int) error {
+			// proc_pidinfo(pid, PROC_PIDTBSDINFO): proc_info call 2, flavour 3
+			if _, _, e := syscall.Syscall6(syscall.SYS_PROC_INFO, 2, uintptr(pid), 3, 0,
+				uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf))); e != 0 {
+				return e
+			}
+			return nil
+		}
+		r.SelfInfo = info(os.Getpid()) == nil
+		r.ParentInfo = reachResult(info(os.Getppid()))
+		b, _ := json.Marshal(r)
+		fmt.Println(string(b))
+		return 0
+	}
+}
+
+// MS-2, SI-55: what Seatbelt allows by default even under (deny default) is refused by a run's profile.
+// The agent's runtime (like the anet binary), which it may read, cannot be truncated nor handed another
+// file's blocks through a descriptor opened for reading (F_MAKECOMPRESSED, F_TRANSFEREXTENTS: the kernel
+// checks only the file's permission bits); a file outside the run gets neither a hard link nor a clone in
+// the work dir; process information on a process outside the sandbox is refused. Reading the runtime, an
+// ordinary fcntl and process information on itself still work, and outside the sandbox the same link
+// succeeds.
+func TestSeatbeltRefusesWhatItWouldAllowByDefault(t *testing.T) {
+	if _, err := os.Stat(seatbeltExecPath); err != nil {
+		t.Skipf("needs %s (a Mac): %v", seatbeltExecPath, err)
+	}
+	run, work := seatbeltRunDirs(t)
+	base := filepath.Dir(run)
+	rt, outside := filepath.Join(base, "runtime"), filepath.Join(base, "outside")
+	for _, d := range []string{rt, outside} {
+		if err := os.Mkdir(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runtimeFile, outsideFile := filepath.Join(rt, "lib.dat"), filepath.Join(outside, "secret")
+	want := bytes.Repeat([]byte("r"), 64<<10)
+	if err := os.WriteFile(runtimeFile, want, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outsideFile, []byte("outside the run\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The setup is one in which a link works: the same volume, outside the sandbox.
+	if err := os.Link(outsideFile, filepath.Join(outside, "host-link")); err != nil {
+		t.Fatalf("outside the sandbox the link fails too: %v", err)
+	}
+	code, out := seatbeltRunIn(t, run, work, []string{rt}, selfExe(t), seatbeltReachArg, runtimeFile, outsideFile, work)
+	var r seatbeltReach
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if code != 0 || json.Unmarshal([]byte(lines[len(lines)-1]), &r) != nil {
+		t.Fatalf("the helper in the sandbox: exit %d\n%s", code, out)
+	}
+	t.Logf("in the sandbox: %+v", r)
+	if !r.ReadRuntime || !r.GetFL || !r.SelfInfo {
+		t.Errorf("the controls failed (read %v, F_GETFL %v, own process information %v): the profile is broken", r.ReadRuntime, r.GetFL, r.SelfInfo)
+	}
+	if r.Compress != "EPERM" || r.Transfer != "EPERM" {
+		t.Errorf("fcntl through a descriptor opened for reading: F_MAKECOMPRESSED %s, F_TRANSFEREXTENTS %s, want EPERM", r.Compress, r.Transfer)
+	}
+	if r.Link == "done" || r.Clone == "done" {
+		t.Errorf("the outside file got a name in the work dir: link %s, clone %s", r.Link, r.Clone)
+	}
+	for _, n := range []string{"linked", "cloned"} {
+		if _, err := os.Lstat(filepath.Join(work, n)); err == nil {
+			t.Errorf("%s exists in the work dir", n)
+		}
+	}
+	if r.ParentInfo == "done" {
+		t.Error("process information on a process outside the sandbox was given")
+	}
+	if got, err := os.ReadFile(runtimeFile); err != nil || !bytes.Equal(got, want) {
+		t.Errorf("the runtime's file changed (%d bytes, %v)", len(got), err)
 	}
 }
