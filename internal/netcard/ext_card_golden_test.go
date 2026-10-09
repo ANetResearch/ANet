@@ -123,7 +123,7 @@ func buildExtCard1(t *testing.T) extCard1 {
 	return out
 }
 
-func loadExtCard1(t *testing.T) extCard1 {
+func loadExtCard1(t testing.TB) extCard1 {
 	t.Helper()
 	b, err := os.ReadFile(extCard1Path)
 	if err != nil {

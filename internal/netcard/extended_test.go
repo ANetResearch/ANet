@@ -96,7 +96,7 @@ func TestThePublicCardDropsEveryPriceList(t *testing.T) {
 }
 
 // The two variants of a node with a priced public skill, a free one and a
-// priced allow_only one (J-PAY-4's d3): the general card lists the public
+// priced allow_only one (the provider of J-PAY-4): the general card lists the public
 // skills and their prices; the list card adds the allow_only skill and its
 // price; both declare a2a-x402 without required; neither is the public
 // card.
@@ -155,10 +155,10 @@ func mustBuild(t testing.TB, in Input) []byte {
 	return raw
 }
 
-// A free node with an allow_only skill (the Host-C face node, J-PAY-4 d5):
+// A free node with an allow_only skill (a face-detection node, J-PAY-4):
 // the general variant is the public card (not_configured), the list variant
 // lists the allow_only skill with no price and no a2a-x402. A node with
-// only allow_only skills priced (J-PAY-15 d6): the public card and the
+// only allow_only skills priced (J-PAY-15): the public card and the
 // general variant declare nothing, the list variant declares a2a-x402
 // without required.
 func TestVariantsOfFreeAndListPricedNodes(t *testing.T) {
@@ -181,21 +181,21 @@ func TestVariantsOfFreeAndListPricedNodes(t *testing.T) {
 		t.Fatalf("a free list variant has prices %v", p)
 	}
 
-	d6 := testNode{aid: "bafyaid", hub: suiteHubAID(), public: []string{"echo"}, listOnly: []string{"y"},
+	listPriced := testNode{aid: "bafyaid", hub: suiteHubAID(), public: []string{"echo"}, listOnly: []string{"y"},
 		prices: map[string]uint64{"y": 2}}
-	in = d6.input(t)
+	in = listPriced.input(t)
 	if d, _, _ := X402Declaration(mustBuild(t, in)); d {
 		t.Fatal("the public card of a node whose public skills are free declares a2a-x402")
 	}
-	if _, same, err := d6.variant(t, in, module.VariantGeneral); err != nil || !same {
-		t.Fatalf("d6 general: same %v, %v", same, err)
+	if _, same, err := listPriced.variant(t, in, module.VariantGeneral); err != nil || !same {
+		t.Fatalf("list priced, general: same %v, %v", same, err)
 	}
-	card, _, err = d6.variant(t, in, module.VariantList)
+	card, _, err = listPriced.variant(t, in, module.VariantList)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if d, r, _ := X402Declaration(card); !d || r {
-		t.Fatalf("d6 list: declared %v required %v; want declared, required left out", d, r)
+		t.Fatalf("list priced, list: declared %v required %v; want declared, required left out", d, r)
 	}
 	// Every skill of the list priced: required.
 	all := testNode{aid: "bafyaid", hub: suiteHubAID(), public: []string{"a"}, listOnly: []string{"b"},

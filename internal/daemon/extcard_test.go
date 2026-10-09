@@ -177,7 +177,7 @@ func TestCardAnswerOfANode(t *testing.T) {
 	}{
 		{name: "free, nothing for the lists", public: []string{lampCap},
 			general: want{notConfigured: true}, list: want{notConfigured: true}},
-		// The Host-C face node: face.compare only for the lists, nothing priced.
+		// A face-detection node: face.compare only for the lists, nothing priced.
 		// The list variant differs from the public card by a skill alone and
 		// is still an extended card.
 		{name: "free, an allow_only skill", public: []string{"face.detect"}, listOnly: []string{"face.compare"},
