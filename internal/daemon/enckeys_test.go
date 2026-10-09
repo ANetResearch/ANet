@@ -256,6 +256,9 @@ func TestPublishedSetComposition(t *testing.T) {
 				t.Fatalf("step %d: the set lists %x: in ring %v, %+v", step, k.KID, rk != nil, rk)
 			}
 			perEpoch[k.NotBefore]++
+			if k.NotBefore > e+ringWindowEpochs*seal.EpochMS {
+				t.Fatalf("step %d: a key [%d, %d) past the window is published at %d", step, k.NotBefore, k.NotAfter, now)
+			}
 			if k.NotBefore < e {
 				if k.NotBefore != e-seal.EpochMS || now >= k.NotAfter+seal.DeliveryDeadlineMS+drainMarginMS {
 					t.Fatalf("step %d: an old key [%d, %d) is published at %d", step, k.NotBefore, k.NotAfter, now)
@@ -745,8 +748,19 @@ func TestRemovedAtAfter200(t *testing.T) {
 	// registered, the future ones too.
 	clock.Store(past + 60_000)
 	old := ringKids(prov)
+	stale := append([]byte(nil), prov.enc.SignedSet()...)
 	if _, err := prov.regenerateKeys(9); err != nil {
 		t.Fatal(err)
+	}
+	// A 200 for the set before it, arriving late, says nothing of the keys
+	// the ring holds now.
+	if err := prov.enc.markRemoved(stale, clock.Load()); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range ringKids(prov) {
+		if k.RemovedAt != 0 && old[string(k.Pair.Public.KID)] == nil {
+			t.Fatal("a late answer for the set before the regeneration marked a new key removed")
+		}
 	}
 	if err := prov.publishKeys(context.Background(), srv.URL); err != nil {
 		t.Fatal(err)

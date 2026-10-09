@@ -20,6 +20,7 @@
 # FS-5's) and fs4-a to fs4-z4, which hold the daemon's epoch key ring to the rest of its rules: the window and the
 # hard bound, the clock checks and the boot clock, the drain records, the publication (base64url, prev_seq,
 # removed_at, keys_rollback), SSR-W10a's heal, the E1-E2 hold, the ring file, and CORE-V4's data directory checks.
+# The review of FS-4 adds fs4-r1 to fs4-r12: mutations that the suite let through before, each now red.
 
 IX = 'ANet:./internal/runtime/interactions'
 FS4_D = 'ANet:./internal/daemon'
@@ -560,4 +561,40 @@ MUTS += [
  dict(id='fs4-z4', group='CORE-V4', repo='ANet', desc='身份文件标签版本高于 2 不报 datadir_too_new',
   edits=[('internal/daemon/identity.go', '\treturn ok && n > identityFileVersion\n', '\treturn false && ok && n > identityFileVersion\n')],
   tests=[(FS4_D, '^TestRefuseNewerDataDir$')], full=[FS4_D]),
+ dict(id='fs4-r1', group='FS-K10', repo='ANet', desc='往后读的一轮把它之前的暂扣行当作已不在',
+  edits=[('internal/daemon/relay.go', 'row.hub == hub && row.id > r.from && (row.id <= last || !r.more) && !onPage[row.id]', 'row.hub == hub && (row.id <= last || !r.more) && !onPage[row.id]')],
+  tests=[(FS4_D, '^(TestHeldRowsFollowTheMailbox|TestDrainMarkNeedsAck)$')], full=[FS4_D]),
+ dict(id='fs4-r2', group='FS-K10', repo='ANet', desc='hub 截断的页之后的暂扣行当作已不在',
+  edits=[('internal/daemon/relay.go', 'row.hub == hub && row.id > r.from && (row.id <= last || !r.more) && !onPage[row.id]', 'row.hub == hub && row.id > r.from && !onPage[row.id]')],
+  tests=[(FS4_D, '^TestHeldRowsFollowTheMailbox$')], full=[FS4_D]),
+ dict(id='fs4-r3', group='FS-K9', repo='ANet', desc='drainMark 取应答到达时刻而不是发出请求时刻',
+  edits=[('internal/daemon/relay.go', '\taskedAt := d.nowMS()\n\tresp, err := d.relayPollPage(ctx, from)\n', '\tresp, err := d.relayPollPage(ctx, from)\n\taskedAt := d.nowMS()\n')],
+  tests=[(FS4_D, '^TestDrainMarkNeedsAck$')], full=[FS4_D]),
+ dict(id='fs4-r4', group='FS-K15', repo='ANet', desc='启动时的清扫不受时钟门',
+  edits=[('internal/daemon/receive.go', '\td.sweepHardBound(d.startLevel)', '\td.sweepHardBound(clockFull)')],
+  tests=[(FS4_D, '^TestStartSweepFollowsTheGate$')], full=[FS4_D]),
+ dict(id='fs4-r5', group='FS-K15', repo='ANet', desc='两个维护周期之间(信箱循环)的维护不受时钟门',
+  edits=[('internal/daemon/enckeys.go', '\tin.gate, in.hold = clockClosed, d.keysHeld()\n', '\tin.gate, in.hold = clockFull, d.keysHeld()\n')],
+  tests=[(FS4_D, '^TestNoDeletionAfterClockJump$')], full=[FS4_D]),
+ dict(id='fs4-r6', group='FS-B2', repo='ANet', desc='跟随 2^53 以上的 stored_seq(钥环被带到 2^63 后再也发布不了)',
+  edits=[('internal/daemon/enckeys.go', '\tif storedSeq >= maxFollowedSeq {', '\tif storedSeq > math.MaxInt64 {')],
+  tests=[(FS4_D, '^TestForgedStoredSeqNotFollowedPastJSON$')], full=[FS4_D]),
+ dict(id='fs4-r7', group='FS-K5', repo='ANet', desc='再生成后的 prev_seq 沿用旧值',
+  edits=[('internal/daemon/enckeys.go', '\tr.keys, r.lastSeq, r.prevSeq, r.signed, r.regenTag, r.mbox = keys, seq, lastSeq, b, tag, mbox', '\tr.keys, r.lastSeq, r.prevSeq, r.signed, r.regenTag, r.mbox = keys, seq, r.prevSeq+0*lastSeq, b, tag, mbox')],
+  tests=[(FS4_D, '^(TestRegenerateIsIdempotent|TestRemovedAtAfter200)$')], full=[FS4_D]),
+ dict(id='fs4-r8', group='FS-K6', repo='ANet', desc='注册 200 后不置 removed_at',
+  edits=[('internal/daemon/hub_client.go', '\t\tif err := d.enc.markRemoved(keySet, d.nowMS()); err != nil {', '\t\tif err := error(nil); err != nil {')],
+  tests=[(FS4_D, '^TestRemovedAtAfter200$')], full=[FS4_D]),
+ dict(id='fs4-r9', group='FS-K12', repo='ANet', desc='维护删掉的私钥不在内存中清零',
+  edits=[('internal/daemon/enckeys.go', '\tr.mu.Unlock()\n\tclearRingKeys(gone)\n\tif len(newSigned) == 0 {', '\tr.mu.Unlock()\n\t_ = gone\n\tif len(newSigned) == 0 {')],
+  tests=[(FS4_D, '^TestNoDeletionAfterClockJump$')], full=[FS4_D]),
+ dict(id='fs4-r10', group='FS-K6', repo='ANet', desc='迟到的旧集合 200 也置 removed_at',
+  edits=[('internal/daemon/enckeys.go', '\tif !bytes.Equal(published, signed) {\n\t\treturn nil\n\t}\n\tlisted, ok := setKIDs(published)', '\tif false && !bytes.Equal(published, signed) {\n\t\treturn nil\n\t}\n\tlisted, ok := setKIDs(published)')],
+  tests=[(FS4_D, '^TestRemovedAtAfter200$')], full=[FS4_D]),
+ dict(id='fs4-r11', group='FS-K3', repo='ANet', desc='发布集合含窗口之外的未来钥',
+  edits=[('internal/daemon/enckeys.go', '\t\tif !publishable(k) || pk.NotBefore >= windowEnd {', '\t\tif !publishable(k) || pk.NotBefore >= windowEnd+windowEnd {')],
+  tests=[(FS4_D, '^TestPublishedSetComposition$')], full=[FS4_D]),
+ dict(id='fs4-r12', group='FS-K5', repo='ANet', desc='注册的 prev_seq 写成集合自身的 seq',
+  edits=[('internal/daemon/hub_client.go', '\t\t\tbody.EncKeys, body.PrevSeq = hubapi.B64(ks), &prev', '\t\t\tbody.EncKeys, body.PrevSeq = hubapi.B64(ks), func() *uint64 { _ = prev; return &seq }()')],
+  tests=[(FS4_D, '^TestPublishCarriesPrevSeq$')], full=[FS4_D]),
 ]
