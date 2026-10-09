@@ -183,6 +183,10 @@ func TestRemovedSettingsHaveTheirPhrases(t *testing.T) {
 // the sentence names the key and what to do instead. A fresh config and a
 // missing one start.
 func TestRemovedSettingsStopTheDaemon(t *testing.T) {
+	// A removed key under modules.anetlink makes a block without socket,
+	// which has a default only where XDG_RUNTIME_DIR is set
+	// (anetlink_config.go): the one refusal is then the removed key's.
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	l := NewLayout(t.TempDir())
 	if err := CheckConfigForStart(l); err != nil {
 		t.Fatalf("no config.json: %v", err)

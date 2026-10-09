@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -14,27 +15,24 @@ import (
 	"github.com/ANetResearch/ANet/module/org"
 )
 
-// The typed provider config keeps working: an existing config file must not
-// need rewriting because the wiring moved behind a seam.
-func TestLegacyProviderConfigBecomesAModuleBlock(t *testing.T) {
-	raw, err := moduleConfig(Config{
-		Providers: &ProvidersConfig{ANetLink: &ANetLinkProviderConfig{Socket: "/run/link.sock"}},
-	})
-	if err != nil {
-		t.Fatal(err)
+// CC-6: providers.anetlink is gone. The daemon has no typed field for it,
+// so nothing reads it into a module block, and a config.json that still
+// has it is refused at start as a removed key (modules.anetlink is the
+// block); modules.anetlink reaches the module as it is.
+func TestTheProvidersKeyIsGone(t *testing.T) {
+	typ := reflect.TypeOf(Config{})
+	for i := range typ.NumField() {
+		if name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ","); name == "providers" {
+			t.Fatalf("Config still has the field %s for providers", typ.Field(i).Name)
+		}
 	}
-	b, ok := raw["anetlink"]
-	if !ok {
-		t.Fatal("the anetlink provider config must reach the module as its block")
+	found, err := FindRemovedSettings([]byte(`{"providers":{"anetlink":{"socket":"/run/link.sock"}}}`))
+	if err != nil || len(found) != 1 || found[0].Key != "providers" || found[0].Pending != "" {
+		t.Fatalf("providers is not refused as a removed key: %+v %v", found, err)
 	}
-	var got struct {
-		Socket string `json:"socket"`
-	}
-	if err := json.Unmarshal(b, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Socket != "/run/link.sock" {
-		t.Fatalf("socket = %q, want the configured one", got.Socket)
+	raw, err := moduleConfig(Config{Modules: ModulesConfig{"anetlink": json.RawMessage(`{"socket":"/run/link.sock"}`)}})
+	if err != nil || string(raw["anetlink"]) != `{"socket":"/run/link.sock"}` {
+		t.Fatalf("modules.anetlink must reach the module as its block: %s %v", raw["anetlink"], err)
 	}
 }
 

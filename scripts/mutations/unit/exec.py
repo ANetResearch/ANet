@@ -1260,3 +1260,177 @@ MUTS += [
   full=[DAEMON],
  ),
 ]
+
+# EXE-12: the C1 v1 client (LEC §4.3.12 CC-1 to CC-7, §7.3 M-CC-1 to M-CC-3): the caller it tells ANetLink of, the
+# socket checks it dials through, the refusals it maps, what the daemon publishes and how a refusal ends the task, the
+# start checks of modules.anetlink and doctor's anetlink.* findings. m-cc-3b maps an unknown door to the retired via 2:
+# the request's read-back through C1's entrance refuses that by itself, so the mutation removes it as well.
+ANETLINK = 'ANet:./provider/anetlink'
+MUTS += [
+ dict(
+  id='m-cc-1', group='CC-2', repo='ANet',
+  desc='C1 客户端改回发送 call.CallerAID(不经 VerifiedCaller)',
+  edits=[('provider/anetlink/anetlink.go', '\t\taid := call.VerifiedCaller()', '\t\taid := call.CallerAID')],
+  tests=[(ANETLINK, 'TestTheClientNeverReadsCallerAID')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='m-cc-2', group='CC-1', repo='ANet',
+  desc='C1 客户端绕过 backendconn,直接拨 c1.sock(不核实路径与监听者)',
+  edits=[
+   ('provider/anetlink/anetlink.go', '\treturn &Provider{id: id, sock: socketPath, cli: rules.Client(t, clientTimeout)}, nil',
+    '\t_ = rules\n\treturn &Provider{id: id, sock: socketPath, cli: &http.Client{Timeout: clientTimeout, Transport: &http.Transport{'
+    'DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {\n'
+    '\t\treturn (&net.Dialer{}).DialContext(ctx, "unix", socketPath)\n\t}}}}, nil'),
+   ('provider/anetlink/anetlink.go', '\t"mime"\n', '\t"mime"\n\t"net"\n'),
+  ],
+  tests=[(ANETLINK, 'TestAnImpostorListenerIsSentNothing'), (BACKENDCONN, 'TestNothingDialsAUnixSocketAroundBackendconn')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='m-cc-3', group='CC-2', repo='ANet',
+  desc='未知 Via(含 voucher)映射为 via = 0 并拨号',
+  edits=[('provider/anetlink/anetlink.go',
+          '\treturn caller{}, fmt.Errorf("a call through %q cannot cross C1 (only a local surface or the relay can); not sent", call.Via)',
+          '\tvia := viaLocal\n\treturn caller{Via: &via}, nil')],
+  tests=[(ANETLINK, 'TestOtherDoorsAreNotDialled')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='m-cc-3b', group='CC-2', repo='ANet',
+  desc='未知 Via 映射为退役的 via = 2,且发送前不再按入口规则回读请求',
+  edits=[
+   ('provider/anetlink/anetlink.go',
+    '\treturn caller{}, fmt.Errorf("a call through %q cannot cross C1 (only a local surface or the relay can); not sent", call.Via)',
+    '\tvia := uint64(2)\n\treturn caller{Via: &via}, nil'),
+   ('provider/anetlink/wire.go', '\tif _, err := decodeInvokeReq(b); err != nil {\n\t\treturn nil, fmt.Errorf("the request would be refused: %w", err)',
+    '\tif _, err := decodeInvokeReq(b); false && err != nil {\n\t\treturn nil, fmt.Errorf("the request would be refused: %w", err)'),
+  ],
+  tests=[(ANETLINK, 'TestOtherDoorsAreNotDialled')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-c1-reason', group='CC-4', repo='ANet',
+  desc='C1 拒绝码原样交给 daemon(不映射为用户码)',
+  edits=[('provider/anetlink/anetlink.go', 'Reason: a2ashape.C1Reason(ref.Reason),', 'Reason: ref.Reason,')],
+  tests=[(ANETLINK, 'TestRefusalsBecomeTheUsersReasons')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-unsent', group='CC-4', repo='ANet',
+  desc='没有发出的调用(连不上或监听者不符)按 backend_failed 失败,而不是 unavailable 拒绝',
+  edits=[('provider/anetlink/anetlink.go', '\t\treturn effect.Effect{}, &provider.RefusalError{Reason: reasonUnavailable,',
+          '\t\treturn effect.Effect{}, &provider.RefusalError{Reason: reasonBackendFailed,')],
+  tests=[(ANETLINK, 'TestNothingThereIsUnavailable|TestAnImpostorListenerIsSentNothing')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-refusal-outcome', group='CC-4', repo='ANet',
+  desc='daemon 不按 provider 的拒绝原因结束任务(按普通错误记 FAILED)',
+  edits=[('internal/daemon/capability.go', '\tcase errors.As(err, &refused):', '\tcase false && errors.As(err, &refused):')],
+  tests=[(DAEMON, 'TestAProviderRefusalEndsTheTaskWithItsReason')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe12-publish', group='CC-5', repo='ANet',
+  desc='hub 注册的 caps 不过滤不接受远端调用的公开能力',
+  edits=[('internal/daemon/published_caps.go', 'public[id] && !remote.refused(id) {', 'public[id] && (!remote.refused(id) || true) {')],
+  tests=[(DAEMON, 'TestOnlyCapabilitiesRemoteCallersMayUseArePublished')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe12-card', group='CC-5', repo='ANet',
+  desc='卡片的 skills 不过滤不接受远端调用的公开能力',
+  edits=[('internal/daemon/a2a_card.go', '\t\tif remote.refused(id) {', '\t\tif false && remote.refused(id) {')],
+  tests=[(DAEMON, 'TestOnlyCapabilitiesRemoteCallersMayUseArePublished')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe12-remote-flag', group='CC-5', repo='ANet',
+  desc='remote 取 1 以外的非零值也当作接受远端调用',
+  edits=[('provider/anetlink/anetlink.go', '\t\tout[c.ID] = *c.Remote == viaRelay', '\t\tout[c.ID] = *c.Remote != 0')],
+  tests=[(ANETLINK, 'TestRemoteAllowedIsTheRemoteFlag')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-strict', group='§2.1.1', repo='ANet',
+  desc='C1 请求入口改用非严格解码(未知键、退役键 4、Caller 键 3 被静默丢弃)',
+  edits=[('provider/anetlink/wire.go', '\tif err := coredet.UnmarshalStrict(b, &req); err != nil {', '\tif err := coredet.Unmarshal(b, &req); err != nil {')],
+  tests=[(ANETLINK, 'TestC1GoldenNegative')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-via-aid', group='§2.1.1', repo='ANet',
+  desc='via = 0 带 aid 不拒收',
+  edits=[('provider/anetlink/wire.go', '\t\tif c.AID != nil {\n\t\t\treturn invokeReq{}, errors.New("caller.via is 0 (local) but carries an aid")',
+          '\t\tif false && c.AID != nil {\n\t\t\treturn invokeReq{}, errors.New("caller.via is 0 (local) but carries an aid")')],
+  tests=[(ANETLINK, 'TestC1GoldenNegative')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-allow-tcp', group='§3.2', repo='ANet',
+  desc='启动时不检查 modules.anetlink(allow_tcp: true 与缺 socket 都不报 config_invalid)',
+  edits=[('internal/daemon/anetlink_config.go', 'func init() { configChecks = append(configChecks, checkANetLinkConfig) }', 'func init() {}')],
+  tests=[(DAEMON, 'TestTheANetLinkBlockIsCheckedAtStart')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='exe12-doctor-version', group='§5.5', repo='ANet',
+  desc='doctor anetlink.socket 不把 C1 版本不一致报为 c1_version',
+  edits=[('cmd/anet/doctor_anetlink.go', '\tcase linkprov.NotC1v1(err):\n\t\tsay(id, stFail, "c1_version", nil)\n\t\treturn\n', '')],
+  tests=[('ANet:./cmd/anet', 'TestDoctorANetLinkSocketFailures')],
+  full=['ANet:./cmd/anet'],
+ ),
+ dict(
+  id='exe12-doctor-publish', group='§5.5', repo='ANet',
+  desc='doctor 不报 anetlink.publish(公开却不接受远端调用的能力)',
+  edits=[('cmd/anet/doctor_anetlink.go', '\tfor _, cid := range refused {\n\t\tsay(', '\tfor _, cid := range refused[:0] {\n\t\tsay(')],
+  tests=[('ANet:./cmd/anet', 'TestDoctorANetLinkSocketAndPublish')],
+  full=['ANet:./cmd/anet'],
+ ),
+ dict(
+  id='exe12-registry', group='CORE-S3', repo='ANet',
+  desc='C1 结构体的 caller 用退役的键 4(登记表扫描应报错,金标也变红)',
+  edits=[('provider/anetlink/wire.go', '\tCaller     *caller        `cbor:"5,keyasint,omitempty"`', '\tCaller     *caller        `cbor:"4,keyasint,omitempty"`')],
+  tests=[(DAEMON, 'TestWireRegistry')],
+  full=[ANETLINK],
+ ),
+ # EXE-12 review: what the client reads of an answer (LEC §2.1.2: at most 1 MiB, application/cbor only), and doctor's
+ # anetlink.socket on a /v0 or /v1 health answer of the wrong kind (LEC §5.5).
+ dict(
+  id='exe12-answer-limit', group='§2.1.2', repo='ANet',
+  desc='客户端读答复不设上限(读完对端写的全部字节)',
+  edits=[('provider/anetlink/anetlink.go', 'b, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))', 'b, err := io.ReadAll(resp.Body)')],
+  tests=[(ANETLINK, 'TestAnAnswerOverTheLimitIsNotRead')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-answer-size', group='§2.1.2', repo='ANet',
+  desc='超过 1 MiB 的答复按截断后的前 1 MiB 解码(不判超限)',
+  edits=[('provider/anetlink/anetlink.go', '\tif len(b) > maxBody {\n\t\treturn nil, errTooLong', '\tif false && len(b) > maxBody {\n\t\treturn nil, errTooLong')],
+  tests=[(ANETLINK, 'TestAnAnswerOverTheLimitIsNotRead')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-answer-type', group='§2.1.2', repo='ANet',
+  desc='不核对答复的 Content-Type(非 application/cbor 的 CBOR 也照收)',
+  edits=[('provider/anetlink/anetlink.go', 'err != nil || mt != contentCBOR {', 'false && (err != nil || mt != contentCBOR) {')],
+  tests=[(ANETLINK, 'TestAnAnswerThatIsNotC1v1IsBackendFailed|TestRefusalsBecomeTheUsersReasons')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-not-c1v1-200', group='§5.5', repo='ANet',
+  desc='/v0/health 或 /v1/health 答 200 不算 C1 版本不一致',
+  edits=[('provider/anetlink/anetlink.go', '\treturn e.Reason == "c1_version" || e.Reason == "" || e.Err != nil',
+          '\treturn e.Reason == "c1_version" || e.Reason == "" && e.Status != http.StatusOK || e.Err != nil')],
+  tests=[(ANETLINK, 'TestSpeaksC1v1AsksBothVersions')],
+  full=[ANETLINK],
+ ),
+ dict(
+  id='exe12-doctor-failing', group='§5.5', repo='ANet',
+  desc='doctor 把健康检查答 C1 v1 拒绝(如 500 internal)的 anetlinkd 报成"无人监听"',
+  edits=[('cmd/anet/doctor_anetlink.go', '\tcase errors.As(err, &c1e):', '\tcase false && errors.As(err, &c1e):')],
+  tests=[('ANet:./cmd/anet', 'TestDoctorANetLinkSocketFailures')],
+  full=['ANet:./cmd/anet'],
+ ),
+]

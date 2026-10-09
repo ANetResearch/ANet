@@ -607,6 +607,7 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	}
 	a2aBackendChecks(add, st.Inbound.Policy, cfg, len(st.Trust)) // doctor_backends.go
 	backendTransportChecks(add, say, cfg)                        // doctor_backends.go
+	anetlinkChecks(add, say, cfg, st.Inbound.PublicCapabilities) // doctor_anetlink.go
 
 	// SI-5.
 	if len(rep.SI5Changed) == 0 {
