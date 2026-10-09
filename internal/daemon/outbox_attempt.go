@@ -648,8 +648,10 @@ rounds:
 		}
 
 		// A cancel may have frozen the row since A8: nothing more of it
-		// goes, on any path (ENG-O6).
-		if d.frozenNow(row.ID) {
+		// goes, on any path (ENG-O6). And the gate is read again: one that
+		// closed since A2 (a key event being published, the notice gone
+		// stale) lets no byte out (ENG-K13); the row waits for it to open.
+		if d.holdBack(row.ID) {
 			break
 		}
 		// A10: a direct path first, with the same bytes (ENG-A3).
@@ -690,7 +692,7 @@ rounds:
 			break
 		}
 
-		if d.frozenNow(row.ID) {
+		if d.holdBack(row.ID) {
 			break
 		}
 		// A11: the hub.
@@ -815,6 +817,13 @@ func (d *Daemon) giveUpHeldCap(c *interactions.HeldCap, now uint64) {
 	if err != nil {
 		log.Printf("anet: give up the delivery credential from %s: %v", c.Issuer, err)
 	}
+}
+
+// holdBack reports whether nothing of row id may be handed over now,
+// though the attempt decided to transmit: a cancel froze the row since it
+// was read (ENG-O6), or the outbound gate closed (ENG-K13).
+func (d *Daemon) holdBack(id int64) bool {
+	return d.frozenNow(id) || !d.identityGate().Open
 }
 
 // frozenNow reports whether a cancel froze row id since it was read (an

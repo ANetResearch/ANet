@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -297,4 +298,47 @@ func TestASessionOpeningOutlivesTheCallerThatStartedIt(t *testing.T) {
 		t.Fatalf("the send waiting on the opening: %v", err)
 	}
 	<-first
+}
+
+// ENG-K13 within an attempt: the gate is read again right before any byte
+// is handed over. A gate that closes while the attempt opens its
+// first-contact session holds the envelope back — nothing reaches the
+// hub, the row is left never handed over — and the message goes once the
+// gate opens.
+func TestAGateThatClosesMidAttemptHoldsTheEnvelope(t *testing.T) {
+	srv, req, prov := quietPair(t)
+	ctx := context.Background()
+	closed := GateState{false, IdentityNoticeStale, reasonNoticeStale}
+	var hooked atomic.Bool
+	setFake(t, srv.URL, func(h *fakeHub) {
+		h.sessionHook = func() {
+			if hooked.CompareAndSwap(false, true) {
+				req.setIdentityGate(func() GateState { return closed })
+			}
+		}
+	})
+	req.setOutboxHold(true)
+	sends := relayCountFor(srv.URL)
+	id, err := req.Delegate(ctx, prov.AID(), "a task", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hooked.Load() {
+		t.Fatal("setup: the attempt opened no first-contact session")
+	}
+	if n := relayCountFor(srv.URL) - sends; n != 0 {
+		t.Fatalf("%d sends reached the hub after the gate closed", n)
+	}
+	rows := outboxRows(t, req, id)
+	if len(rows) != 1 || rows[0].HandedAt != 0 || rows[0].Attempting {
+		t.Fatalf("outbox %+v, want the delegation never handed over and no attempt under way", rows)
+	}
+	req.setIdentityGate(nil)
+	holdGateOpen(req)
+	if err := retryNow(t, req, rows[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if n := relayCountFor(srv.URL) - sends; n != 1 {
+		t.Fatalf("%d sends once the gate opened, want 1", n)
+	}
 }
