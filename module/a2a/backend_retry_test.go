@@ -241,8 +241,14 @@ func TestAForwardWaitsForABackendThatIsNotListeningYet(t *testing.T) {
 // longer go to a backend (its peer left the trust list, it was answered),
 // nothing more is sent, although the backend is up again — and no failure
 // is recorded for a forward that was withdrawn rather than given up.
+//
+// The retries run on a stillClock and the test waits for the first attempt
+// rather than for a time, so the outcome does not depend on the load: a
+// retry, if one came, would take no time to come, and the 100 ms after the
+// first attempt is room for it, not a wait for it.
 func TestRetriesEndWhenTheKernelSaysNo(t *testing.T) {
 	quickRetries(t)
+	stillRetries(t)
 	f := &flaky{fail: 1, status: http.StatusServiceUnavailable}
 	b := flakyBackend(t, f)
 	h := newInboundHost(t)
@@ -250,7 +256,14 @@ func TestRetriesEndWhenTheKernelSaysNo(t *testing.T) {
 	kernelSays(h, task, false)
 	startBackendModule(t, h, `{"backends":[{"allow_tcp":true,"match":"*","url":"`+b.srv.URL+`","token_file":"`+tokenFile(t)+`"}]}`)
 	h.tasks <- task
-	time.Sleep(400 * time.Millisecond)
+	deadline := time.Now().Add(60 * time.Second)
+	for len(f.seen()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("no attempt within a minute")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(100 * time.Millisecond)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if n := len(f.seen()); n != 1 || b.n() != 0 || len(h.replies) != 0 || len(h.evidence) != 0 {

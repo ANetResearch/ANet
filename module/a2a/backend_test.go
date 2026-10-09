@@ -293,7 +293,11 @@ func TestBackendAcceptUntrusted(t *testing.T) {
 	}
 }
 
+// The test waits for the failure's record rather than for a time, and the
+// retries run on a stillClock: a retry or an answer, if one came, would come
+// at once, so the 100 ms after the record is room for it, whatever the load.
 func TestBackendFailureLeavesTheTask(t *testing.T) {
+	clocks := stillRetries(t)
 	b := newTestBackend(t)
 	h := newInboundHost(t)
 	// Wrong token: the backend refuses (401, not retried); nothing is
@@ -304,11 +308,12 @@ func TestBackendFailureLeavesTheTask(t *testing.T) {
 	}
 	startBackendModule(t, h, `{"backends":[{"allow_tcp":true,"match":"*","url":"`+b.srv.URL+`","token_file":"`+p+`"}]}`)
 	h.tasks <- inboundTask("ix1", "bafypeer", true, "hi")
-	time.Sleep(300 * time.Millisecond)
+	waitEvidence(t, h, 1)
+	time.Sleep(100 * time.Millisecond)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if !h.refusedOnce() || b.n() != 0 {
-		t.Fatalf("a refused forward was answered: %+v %+v", h.replies, h.evidence)
+	if !h.refusedOnce() || b.n() != 0 || h.evidence[0]["attempts"] != 1 || clocks()[0].total() != 0 {
+		t.Fatalf("a refused forward was answered or tried again: %+v %+v", h.replies, h.evidence)
 	}
 }
 
