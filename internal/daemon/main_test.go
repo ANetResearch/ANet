@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,9 +20,9 @@ var testMainHooks = map[string]func(args []string) int{}
 // (execInteractionDir). XDG_CACHE_HOME is pointed at a temporary directory for the whole run so tests
 // never write into the real ~/.cache.
 //
-// When the test binary is started by the sandbox integration test as the "agent" (its argument list
-// then contains sandboxProbeMarker), it runs the in-sandbox checks instead of the tests and prints
-// their results as the agent's reply. Started as /run/anet/init (the sandbox binds os.Executable(),
+// When the test binary is started by the sandbox integration test as the claude "agent" (its stdin then
+// carries sandboxProbeMarker), it runs the in-sandbox checks instead of the tests and prints their
+// results as the agent's reply. Started as /run/anet/init (the sandbox binds os.Executable(),
 // which in a test is this binary), it is `anet __sandbox-init` or `anet __sandbox-probe`.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 {
@@ -29,10 +30,16 @@ func TestMain(m *testing.M) {
 			os.Exit(hook(os.Args[2:]))
 		}
 	}
-	for _, a := range os.Args[1:] {
-		if i := strings.Index(a, sandboxProbeMarker); i >= 0 {
-			os.Exit(runSandboxProbe(a[i+len(sandboxProbeMarker):]))
+	// Started as the claude agent (invokeClaude: `-p --output-format …`), the probe request is in the
+	// conversation, which claude reads on stdin (LEC AV-2).
+	if len(os.Args) > 2 && os.Args[1] == "-p" && os.Args[2] == "--output-format" {
+		in, _ := io.ReadAll(io.LimitReader(os.Stdin, 4<<20))
+		probeStdinBytes = len(in)
+		if i := strings.Index(string(in), sandboxProbeMarker); i >= 0 {
+			os.Exit(runSandboxProbe(string(in[i+len(sandboxProbeMarker):])))
 		}
+		fmt.Fprintln(os.Stderr, "started as an agent without a probe request on stdin")
+		os.Exit(2)
 	}
 	cache, err := os.MkdirTemp("", "anet-test-cache-")
 	if err != nil {

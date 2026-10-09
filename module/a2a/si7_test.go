@@ -23,6 +23,7 @@ import (
 // interface where the module put it, and both tokens as the files hold
 // them.
 type si7Node struct {
+	root            string // the node's data directory
 	ctlURL, ctlPort string
 	ctlToken        string
 	a2aURL, a2aPort string
@@ -64,7 +65,7 @@ func newSI7Node(t *testing.T) *si7Node {
 	}
 	addr = strings.TrimSpace(addr)
 	_, a2aPort, _ := net.SplitHostPort(addr)
-	n := &si7Node{ctlURL: ctl.URL, ctlPort: cu.Port(), ctlToken: ctlToken,
+	n := &si7Node{root: root, ctlURL: ctl.URL, ctlPort: cu.Port(), ctlToken: ctlToken,
 		a2aURL: "http://" + addr, a2aPort: a2aPort, a2aToken: strings.TrimSpace(tok)}
 	if n.a2aToken == "" || n.a2aToken == n.ctlToken {
 		t.Fatalf("the local A2A token must be its own secret: %q", n.a2aToken)

@@ -237,7 +237,7 @@ func runBwrapProbe(path string, feats bwrapFeatures) bwrapProbe {
 		return fail(sandboxCodeNetnsFailed, "%v", err)
 	}
 	spec, _ := json.Marshal(sandboxCheckSpec{V: sandboxSpecVersion, TCP: tcpLn.Addr().String(), Abstract: abstract})
-	files, closeFiles, err := sandboxFds(spec, prog)
+	files, closeFiles, err := sandboxFds(spec, prog, nil)
 	if err != nil {
 		return fail(sandboxCodeNetnsFailed, "%v", err)
 	}
@@ -562,10 +562,10 @@ func underSystemDir(p string) bool {
 // --- one sandboxed process ---
 
 // command prepares one agent process for the sandbox: argv and env are the agent's command and complete
-// environment, workDir its working directory. The returned launch runs bwrap with the spec on fd 3 and
-// the filter on fd 5; Close removes the run directory and releases the descriptors after the process
-// ended.
-func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunch, error) {
+// environment, workDir its working directory, stdin what it reads on its standard input (nil: nothing).
+// The returned launch runs bwrap with the spec on fd 3, stdin on fd 4 and the filter on fd 5; Close
+// removes the run directory and releases the descriptors after the process ended.
+func (p *sandboxPlan) command(workDir string, argv, env []string, stdin []byte) (*sandboxLaunch, error) {
 	if p.Bwrap == "" {
 		return nil, sandboxUnavailable("sandbox plan was not prepared")
 	}
@@ -628,16 +628,18 @@ func (p *sandboxPlan) command(workDir string, argv, env []string) (*sandboxLaunc
 	// v030-todo(EXE-4): wrap in systemd-run (SB-7) when the user's systemd is running.
 	path, full := sandboxCommandLine(p.Bwrap, "", args)
 	// The agent holds no key and no proxy setting of the daemon's: its model service is the injection
-	// route, with a placeholder key (UP-4).
+	// route, with a placeholder key (UP-4). Its search path names only what the sandbox shows: the
+	// system directories and the agent's runtime (SB-4).
 	env = sandboxEnvOverlay(env, sandboxEgressEnv(p.Egress))
-	spec, err := json.Marshal(newSandboxInitSpec(append([]string{exe}, argv[1:]...), envWithHome(env, home), workDir, false, bridge))
+	env = envWithSandboxPath(env, runtimeDirs)
+	spec, err := json.Marshal(newSandboxInitSpec(append([]string{exe}, argv[1:]...), envWithHome(env, home), workDir, stdin != nil, bridge))
 	if err != nil {
 		return nil, err
 	}
 	if len(spec) > sandboxSpecMax {
 		return nil, fmt.Errorf("the agent's command and environment are %d bytes, over the sandbox's %d", len(spec), sandboxSpecMax)
 	}
-	files, closeFiles, err := sandboxFds(spec, prog)
+	files, closeFiles, err := sandboxFds(spec, prog, stdin)
 	if err != nil {
 		return nil, sandboxUnavailable("%v", err)
 	}
@@ -755,44 +757,100 @@ func egressPeerCheck(c net.Conn, want int) error {
 }
 
 // sandboxFds returns the descriptors a sandboxed process starts with, as exec.Cmd.ExtraFiles: fd 3 a pipe
-// carrying spec, fd 4 closed (no conversation input yet), fd 5 a pipe carrying the seccomp program. The
-// spec is written from a goroutine, since it can be larger than a pipe holds; closeFiles closes the read
-// ends and waits for that write to end.
-func sandboxFds(spec, prog []byte) ([]*os.File, func(), error) {
-	specR, specW, err := os.Pipe()
+// carrying spec, fd 4 a pipe carrying stdin (closed when stdin is nil), fd 5 a pipe carrying the seccomp
+// program. The spec and stdin are written from goroutines, since either can be larger than a pipe holds
+// (the conversation is up to 256 KiB, LEC AV-9); closeFiles closes the read ends and waits for those
+// writes to end — an agent that never read its stdin leaves the writer to fail on the closed pipe.
+func sandboxFds(spec, prog, stdin []byte) ([]*os.File, func(), error) {
+	var opened []*os.File
+	closeAll := func() {
+		for _, f := range opened {
+			_ = f.Close()
+		}
+	}
+	pipe := func() (*os.File, *os.File, error) {
+		r, w, err := os.Pipe()
+		if err == nil {
+			opened = append(opened, r, w)
+		}
+		return r, w, err
+	}
+	specR, specW, err := pipe()
 	if err != nil {
 		return nil, nil, err
 	}
-	progR, progW, err := os.Pipe()
+	progR, progW, err := pipe()
 	if err != nil {
-		specR.Close()
-		specW.Close()
+		closeAll()
 		return nil, nil, err
+	}
+	var inR, inW *os.File
+	if stdin != nil {
+		if inR, inW, err = pipe(); err != nil {
+			closeAll()
+			return nil, nil, err
+		}
 	}
 	// The filter is a few hundred bytes: it fits in the pipe, and bwrap reads it to the end.
 	_, werr := progW.Write(prog)
 	progW.Close()
 	if werr != nil {
-		specR.Close()
-		specW.Close()
-		progR.Close()
+		closeAll()
 		return nil, nil, werr
 	}
-	wrote := make(chan struct{})
-	go func() {
-		defer close(wrote)
-		_, _ = specW.Write(spec)
-		_ = specW.Close()
-	}()
+	var writers sync.WaitGroup
+	feed := func(w *os.File, b []byte) {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			_, _ = w.Write(b)
+			_ = w.Close()
+		}()
+	}
+	feed(specW, spec)
+	if inW != nil {
+		feed(inW, stdin)
+	}
 	var once sync.Once
 	closeFiles := func() {
 		once.Do(func() {
 			_ = specR.Close()
 			_ = progR.Close()
-			<-wrote
+			if inR != nil {
+				_ = inR.Close()
+			}
+			writers.Wait()
 		})
 	}
-	return []*os.File{specR, nil, progR}, closeFiles, nil
+	return []*os.File{specR, inR, progR}, closeFiles, nil
+}
+
+// envWithSandboxPath returns env with PATH narrowed to the directories the sandbox shows (LEC SB-4): the
+// system directories and the agent's runtime directories. A directory of the daemon's search path that
+// is not bound would be empty in the sandbox, and its name says something about the operator's home.
+func envWithSandboxPath(env, runtimeDirs []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		v, ok := strings.CutPrefix(kv, "PATH=")
+		if !ok {
+			out = append(out, kv)
+			continue
+		}
+		var keep []string
+		for _, d := range filepath.SplitList(v) {
+			shown := underSystemDir(d)
+			for _, r := range runtimeDirs {
+				if r != "" && pathWithin(d, r) {
+					shown = true
+				}
+			}
+			if shown && filepath.IsAbs(d) {
+				keep = append(keep, d)
+			}
+		}
+		out = append(out, "PATH="+strings.Join(keep, string(filepath.ListSeparator)))
+	}
+	return out
 }
 
 // envWithHome returns env with HOME set to home (the sandbox's home, which may differ from the daemon's

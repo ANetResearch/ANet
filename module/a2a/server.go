@@ -37,10 +37,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -60,6 +62,10 @@ const agentsPath = "/a2a/v1/agents"
 
 type serverConfig struct {
 	token string
+	// tokenFile, when set, is where the token is kept (a2a_token.txt): the interface accepts the token
+	// the file holds now, so a token the daemon replaced (rotateLocalTokens, LEC AV-10) is refused from
+	// the next request on. token is then only the value the file held at start.
+	tokenFile string
 	// host and port are the listener's own address, which the URLs in the
 	// cards and the agent list name: an address bound on [::1] is not
 	// reached at 127.0.0.1. An empty host is 127.0.0.1.
@@ -78,10 +84,11 @@ func listenerURLHost(host, port string) string {
 }
 
 type server struct {
-	cfg   serverConfig
-	seam  module.TaskSeam
-	cards *cardCache
-	mux   *http.ServeMux
+	cfg    serverConfig
+	tokens *tokenSource
+	seam   module.TaskSeam
+	cards  *cardCache
+	mux    *http.ServeMux
 	// h is the handler behind both bindings, which precheckStream asks
 	// before a stream opens.
 	h *handler
@@ -89,6 +96,9 @@ type server struct {
 
 func newServer(seam module.TaskSeam, cfg serverConfig) *server {
 	s := &server{cfg: cfg, seam: seam}
+	if cfg.tokenFile != "" {
+		s.tokens = &tokenSource{path: cfg.tokenFile}
+	}
 	s.cards = newCardCache(seam, cardBuilder{host: cfg.host, port: cfg.port}, cfg.signer)
 	h := &handler{seam: seam}
 	s.h = h
@@ -159,15 +169,49 @@ func (s *server) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-// authorized compares the bearer with the token in constant time.
+// authorized compares the bearer with the token in force, in constant time.
 func (s *server) authorized(r *http.Request) bool {
+	token := s.cfg.token
+	if s.tokens != nil {
+		token = s.tokens.current()
+	}
 	h := r.Header.Get("Authorization")
 	scheme, cred, ok := strings.Cut(h, " ")
-	if !ok || !strings.EqualFold(scheme, "Bearer") || s.cfg.token == "" {
+	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
 		return false
 	}
 	cred = strings.TrimSpace(cred)
-	return subtle.ConstantTimeCompare([]byte(cred), []byte(s.cfg.token)) == 1
+	return subtle.ConstantTimeCompare([]byte(cred), []byte(token)) == 1
+}
+
+// tokenSource is the token the token file holds now. It is read again whenever the file is not the one
+// last read (another inode, size or modification time): the daemon replaces it by renaming a new file
+// over it. A file that is gone or does not hold a token accepts nothing until it does.
+type tokenSource struct {
+	path string
+	mu   sync.Mutex
+	fi   os.FileInfo
+	tok  string
+}
+
+func (ts *tokenSource) current() string {
+	fi, err := os.Lstat(ts.path)
+	if err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.fi != nil && os.SameFile(ts.fi, fi) && fi.Size() == ts.fi.Size() && fi.ModTime().Equal(ts.fi.ModTime()) {
+		return ts.tok
+	}
+	b, err := readSmallFile(ts.path)
+	tok := strings.TrimSpace(b)
+	if err != nil || len(tok) < 32 || strings.ContainsAny(tok, " \t\r\n\"'\\") {
+		ts.fi, ts.tok = nil, ""
+		return ""
+	}
+	ts.fi, ts.tok = fi, tok
+	return tok
 }
 
 // aidRe is the form of an AID in a path: the character set of the base32

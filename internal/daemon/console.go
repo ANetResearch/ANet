@@ -103,7 +103,7 @@ func (d *Daemon) consoleHandler() http.HandlerFunc {
 // read the kernel's socket table and must not send the token to a listener it has not verified
 // (internal/localpeer, A2A-DESIGN §7 item 10 [redteam:F18]). The proof is bound to the listener address the
 // request arrived on, so a squatter relaying the challenge here gets an answer for the wrong address.
-func (d *Daemon) pingHandler(token string) http.HandlerFunc {
+func (d *Daemon) pingHandler(auth *ctlAuth) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// The build is reported here as well as the identity. A check
@@ -114,7 +114,7 @@ func (d *Daemon) pingHandler(token string) http.HandlerFunc {
 			"anet": true, "aid": d.AID(), "name": d.config().Name,
 			"version": Version, "commit": BuildCommit, "built_at": BuildAt, "tags": BuildTags,
 		}
-		if p, ok := localpeer.Answer(r, token); ok {
+		if p, ok := localpeer.Answer(r, auth.bearer()); ok {
 			out["proof"] = p
 			w.Header().Set("Cache-Control", "no-store")
 		}
