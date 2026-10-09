@@ -38,15 +38,15 @@ var commandTree = []string{
 // that adds it. It may only shrink: the package that adds a command lists it in the help and takes it
 // off here, or this test is red (the help would be promising nothing, or listing it twice).
 var pendingCommands = map[string]string{
-	"identity status":     "v030-todo(KEL-10)",
-	"identity protect":    "v030-todo(KEL-10)",
-	"identity rotate":     "v030-todo(KEL-10)",
-	"identity recover":    "v030-todo(KEL-10)",
-	"identity deactivate": "v030-todo(KEL-10)",
-	"card":                "v030-todo(PAY-11)",
-	"task watch":          "v030-todo(UX-10)",
-	"preview":             "v030-todo(UX-9)",
-	"retention":           "v030-todo(FS-9)",
+	"identity status":     "KEL-10", // v030-todo(KEL-10)
+	"identity protect":    "KEL-10", // v030-todo(KEL-10)
+	"identity rotate":     "KEL-10", // v030-todo(KEL-10)
+	"identity recover":    "KEL-10", // v030-todo(KEL-10)
+	"identity deactivate": "KEL-10", // v030-todo(KEL-10)
+	"card":                "PAY-11", // v030-todo(PAY-11)
+	"task watch":          "UX-10",  // v030-todo(UX-10)
+	"preview":             "UX-9",   // v030-todo(UX-9)
+	"retention":           "FS-9",   // v030-todo(FS-9)
 }
 
 // helpForms reads the invocations a help text lists: "anet <word>", and "anet <word> <sub>" for the
@@ -94,7 +94,7 @@ func TestHelpListsTheCommandTree(t *testing.T) {
 		for c := range got {
 			if !want[c] {
 				if p, ok := pendingCommands[c]; ok {
-					t.Errorf("%v: `anet %s` is in the help; take it off pendingCommands (%s)", lang, c, p)
+					t.Errorf("%v: `anet %s` is in the help; %s takes it off pendingCommands", lang, c, p)
 				} else {
 					t.Errorf("%v: `anet help --all` lists `anet %s`, which ux §4.2 does not have", lang, c)
 				}
