@@ -215,6 +215,16 @@ func TestNoPeerAIDInHubRequests(t *testing.T) {
 			t.Errorf("a query of %d bits", q.Bits)
 		}
 	}
+	// Every one of those requests went out on the side the table gives it:
+	// none was refused before it was sent as a route without a side, or as
+	// an anonymous request that carries a signature or a session (SI-13,
+	// hubTransmit). A directory or registry read built with a naming header
+	// would fail here rather than go unnoticed in a fallback.
+	for _, n := range []*Daemon{req, prov, third, fourth} {
+		if got := n.ReceiveStats()[counterHubRouteUnmapped]; got != 0 {
+			t.Errorf("%s refused %d of its own hub requests before sending them (%s)", n.AID(), got, counterHubRouteUnmapped)
+		}
+	}
 }
 
 // SSR-D15a, M38: whatever dir_max_bits a hub reports (24 here, in its

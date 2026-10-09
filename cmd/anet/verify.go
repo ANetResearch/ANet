@@ -295,10 +295,17 @@ func fetchKELThrough(layout daemon.Layout, hubURL, aid, why string) (string, err
 				case code == http.StatusOK && out.KEL != "":
 					fmt.Printf("· key history for %s fetched through this node's daemon (%s)\n", aid, out.Source)
 					return out.KEL, nil
-				case code == http.StatusNotFound:
+				case code == http.StatusNotFound && out.Error != "":
+					// The daemon's own answer: the directory holds no
+					// entry for aid, in a whole answer.
 					return "", fmt.Errorf("verify: %s", out.Error)
 				case hubURL == "":
-					return "", fmt.Errorf("verify: the daemon could not fetch %s's key history (%d): %s", aid, code, out.Error)
+					why := out.Error
+					if why == "" {
+						why = strings.TrimSpace(string(raw))
+					}
+					return "", fmt.Errorf("verify: the daemon could not fetch %s's key history (%d): %s; try again later, or give --hub URL",
+						aid, code, printable(why, 200))
 				}
 				// The daemon cannot read its directory now; the hub given
 				// with --hub may.
