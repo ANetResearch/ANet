@@ -203,14 +203,29 @@ func (d *Daemon) checkpointStore() {
 	}
 }
 
-// clockLevelNow is the clock gate's level now (FS-K14b), from the latest
-// check against the hub and unverified_run as the last period left it: the
-// level a deletion made between periods runs at.
+// clockLevelNow is the clock gate's level now (FS-K14b), as a maintenance
+// period starting now would find it: the latest check against the hub, and
+// unverified_run as the last period left it brought up to now by the same
+// rule (nextUnverifiedRun). A wall clock that jumped since the last period
+// therefore closes the gate here as it would there (P-6 item 4), rather
+// than letting a deletion run at the level the period before the jump
+// reached. Nothing is stored: the next period makes its own update. It is
+// the level a deletion made between periods runs at.
 func (d *Daemon) clockLevelNow() clockLevel {
 	if d.enc == nil {
 		return clockClosed
 	}
-	level, _ := clockGate(d.clockObservation(), d.enc.unverifiedRun(), d.nowMS(), d.monoMS())
+	wall, mono := d.nowMS(), d.monoMS()
+	obs := d.clockObservation()
+	d.clk.mu.Lock()
+	var prev *cycleMark
+	if d.clk.prev != nil {
+		p := *d.clk.prev
+		prev = &p
+	}
+	d.clk.mu.Unlock()
+	run := nextUnverifiedRun(d.enc.unverifiedRun(), hubGateOpen(obs, wall, mono), prev, wall, mono)
+	level, _ := clockGate(obs, run, wall, mono)
 	return level
 }
 

@@ -23,7 +23,7 @@
 # The review of FS-4 adds fs4-r1 to fs4-r12: mutations that the suite let through before, each now red.
 # FS-9 adds 18, 32, 33, 34, 35 and the production half of 16 (fs-16d: no checkpoint in the maintenance
 # period), moves 19 to the retention decision (the gate is contentDeletable's since FS-9), and adds fs9-a
-# to fs9-q, which hold the retention sweep, the held items' expiry, the work directories' removal, the
+# to fs9-r, which hold the retention sweep, the held items' expiry, the work directories' removal, the
 # setting's checks and the route and command that change it to their tests (see the group at the end).
 
 IX = 'ANet:./internal/runtime/interactions'
@@ -699,4 +699,8 @@ MUTS += [
  dict(id='fs9-q', group='FS-L5', repo='ANet', desc='保存期按清理时刻而不是按 UTC 日取整',
   edits=[(FS9_RET, '\treturn utcDayStart(now) - int64(a.days)*dayMS, true', '\treturn now - int64(a.days)*dayMS, true')],
   tests=[(IX, '^(TestRetentionRules|TestContentDeletableProperties)$'), (FS4_D, '^TestRetentionSweepPrunesOldPublicCapCalls$')], full=[IX, FS4_D]),
+ dict(id='fs9-r', group='FS-K14a', repo='ANet', desc='改值后的立即清理按上一周期的 unverified_run 取门级(其后的墙钟跳变不关门)',
+  edits=[('internal/daemon/evidence_mode.go', '\trun := nextUnverifiedRun(d.enc.unverifiedRun(), hubGateOpen(obs, wall, mono), prev, wall, mono)\n',
+          '\trun := d.enc.unverifiedRun()\n\t_ = prev\n')],
+  tests=[(FS4_D, '^TestRetentionChangeAfterWallJump$')], full=[FS4_D]),
 ]

@@ -674,6 +674,31 @@ func TestRetentionChangeAtClosedGate(t *testing.T) {
 	}
 }
 
+// The sweep a change runs between two periods reads the gate as a period starting then would (FS-K14a,
+// P-6 item 4): after a day of running time with the hub silent the last period ran at local, but a wall
+// clock that has jumped since closes the gate, and the change deletes nothing until a day of running
+// time has passed again.
+func TestRetentionChangeAfterWallJump(t *testing.T) {
+	d := newTestDaemon(t, silentHub, true)
+	clocks := newGateClocks(t, d, d.nowMS())
+	d.forgetCycle()
+	d.enc.mu.Lock()
+	d.enc.run = clockFallbackAfter
+	d.enc.mu.Unlock()
+	d.keyMaintenance()
+	if level := d.clockLevelNow(); level != clockLocal {
+		t.Fatalf("after a day of running time with the hub silent the level is %v, want local", level)
+	}
+	endedTask(t, d, "ix_recent", interactions.ClassPeer, clocks.wall.Load()-2*dayMS)
+	clocks.wall.Add(20 * dayMS) // the wall clock jumps; the boot clock does not
+	if level := d.clockLevelNow(); level != clockClosed {
+		t.Fatalf("after the wall clock jumped the level is %v, want closed", level)
+	}
+	if n, err := d.SetContentRetention(mustRet(t, "7d")); err != nil || n != 0 || !stored(t, d, "ix_recent") {
+		t.Fatalf("a change after the wall clock jumped deleted %d (%v); the task stored %v", n, err, stored(t, d, "ix_recent"))
+	}
+}
+
 // TestRetentionRouteNotInMCPOrConsole (FS-U3, UX-M2): changing the retention is the CLI's alone. The
 // route is bearer only — not on the console session allowlist, and a session is refused it — and no
 // MCP tool or route and nothing of the local A2A interface names it.
