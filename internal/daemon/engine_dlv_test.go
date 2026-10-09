@@ -394,13 +394,20 @@ func TestDLVT23_AFrozenDelegationIsNotSentAgain(t *testing.T) {
 // nothing.
 func TestDLVT25_NeverHandedOver(t *testing.T) {
 	setup := func(t *testing.T) (*Daemon, *Daemon, string, *sharedClock) {
-		_, req, prov := registeredPair(t)
+		srv, req, prov := registeredPair(t)
 		knowPeer(t, req, prov.AID())
+		// The requester holds the provider's capability, so the hub is
+		// dialed for the envelope itself (no session to open first), and
+		// knows the hub's identity; then the hub goes away.
+		heldCapFrom(t, prov, req)
+		if _, _, err := req.hubIdentity(context.Background(), srv.URL); err != nil {
+			t.Fatal(err)
+		}
 		holdGateOpen(req)
 		req.setOutboxHold(true)
 		clk := newSharedClock(uint64(time.Now().UnixMilli()))
 		req.setClock(clk.fn())
-		setHubURL(req, deadHubURL)
+		srv.Close()
 		id, err := req.DelegateCapability(context.Background(), prov.AID(), lampCap, map[string]any{"on": true})
 		if err != nil {
 			t.Fatal(err)
