@@ -138,6 +138,10 @@ type Thread struct {
 	IsCapability bool        `json:"capability,omitempty"`
 	ContextID    string      `json:"context_id,omitempty"`
 	Messages     []ThreadMsg `json:"messages"`
+	// StatusText is the task's status sentence as its A2A projection words
+	// it, for the console (ux UX-W1; threadStatusText): set by /threads and
+	// /thread, empty elsewhere.
+	StatusText string `json:"status_text,omitempty"`
 	// EndReqBy is "me", "them" or "": who asked for the task to end.
 	EndReqBy  string `json:"end_req_by"`
 	Reviewed  bool   `json:"reviewed"`

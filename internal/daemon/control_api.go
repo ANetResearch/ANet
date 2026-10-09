@@ -1291,6 +1291,7 @@ func (d *Daemon) hThreads(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	d.fillStatusText(ts)
 	cfg := d.config()
 	writeJSON(w, http.StatusOK, map[string]any{"threads": ts, "aid": d.AID(), "name": cfg.Name, "hub": cfg.HubURL})
 }
@@ -1316,7 +1317,9 @@ func (d *Daemon) hThread(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"thread": t})
+	one := []Thread{t}
+	d.fillStatusText(one)
+	writeJSON(w, http.StatusOK, map[string]any{"thread": one[0]})
 }
 
 // hIdentities lists all locally-running anet identities (daemons) so the console can offer an
