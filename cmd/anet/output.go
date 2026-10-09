@@ -132,6 +132,9 @@ func answerLines(out []byte, task bool, lang a2ashape.Language, now time.Time) [
 		if t.Status.State == a2ashape.TaskStateFailed || t.Status.State == a2ashape.TaskStateRejected {
 			reasonLine = messageText(t.Status.Message)
 		}
+		// v030-todo(RC-5): line 1 is also the sentence of one message the other side refused while
+		// the task goes on (ux §1.1 class M: that message's anet.reason, its placeholder text), once
+		// the Message projection carries it.
 		add("task.reason", reasonLine)
 		if s, ok := deliveryLine(t, lang, now); ok {
 			add("task.delivery", s)
@@ -270,7 +273,15 @@ func diagnoseNoDaemon(base, dataDir string, cause error) error {
 	say(errW(), a2ashape.Sentence("daemon_not_running", lang, args), a2ashape.Next("daemon_not_running", lang, args))
 	typed := commandLine()
 	for _, e := range runningElsewhere(base) {
-		fmt.Fprintln(errW(), nextPrefix+typedCommand(append([]string{"--id", e}, typed...)))
+		fmt.Fprintln(errW(), nextPrefix+elsewhereCommand(e, typed))
 	}
 	return errExit1
+}
+
+// elsewhereCommand is the command as typed, for the identity name: an --id
+// the user gave is taken out first, since the last --id on a command line
+// is the one that counts and would point the command back here.
+func elsewhereCommand(name string, typed []string) string {
+	_, rest := extractGlobalID(typed)
+	return typedCommand(append([]string{"--id", name}, rest...))
 }

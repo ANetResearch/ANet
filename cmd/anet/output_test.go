@@ -186,3 +186,21 @@ func TestCLISaysTheControlPlanesSentence(t *testing.T) {
 		t.Fatalf("only %d refusals checked", n)
 	}
 }
+
+// daemon_not_running's command for another identity's running daemon is the command as typed with
+// that identity's --id, and none other: an --id the user gave, in either spelling, is taken out, or
+// the command would point back at the daemon that is not running.
+func TestElsewhereCommandNamesOneIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		typed []string
+		want  string
+	}{
+		{[]string{"status"}, "anet --id coder status"},
+		{[]string{"--id", "gone", "task", "get", "ix_1"}, "anet --id coder task get ix_1"},
+		{[]string{"delegate", wholeAID, "hello world", "--id=gone"}, "anet --id coder delegate " + wholeAID + " 'hello world'"},
+	} {
+		if got := elsewhereCommand("coder", tc.typed); got != tc.want {
+			t.Errorf("%q: %q, want %q", tc.typed, got, tc.want)
+		}
+	}
+}
