@@ -11,7 +11,7 @@ import (
 // directHookWrite is a test writing the clock, the receive fault or the
 // gate without the setters: an assignment, or a Store, Swap or
 // CompareAndSwap on the atomic field.
-var directHookWrite = regexp.MustCompile(`\.(clock|rxFault|gateHook|waitHook)\s*(=([^=]|$)|\.(Store|Swap|CompareAndSwap)\()`)
+var directHookWrite = regexp.MustCompile(`\.(clock|monoClock|keyHold|rxFault|gateHook|waitHook)\s*(=([^=]|$)|\.(Store|Swap|CompareAndSwap)\()`)
 
 // No test sets a hook on a running daemon except through setClock,
 // setRxFault and setIdentityGate (testhooks.go). The daemon's loops read

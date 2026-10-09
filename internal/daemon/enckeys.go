@@ -30,9 +30,11 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/ANetResearch/ANetCore/coredet"
@@ -63,6 +65,22 @@ func keptAt(k *seal.EncKey, now uint64) bool {
 		return true
 	}
 	return now < k.NotAfter+encKeyKeptAfter
+}
+
+// ringKey is one key of the epoch key ring as enc_keys.cbor keeps it
+// (RingKey, FS §2.11): the pair, when the hub's registered set stopped
+// holding it, and whether a regeneration retired it.
+//
+//anet:wire RingKey
+type ringKey struct {
+	Pair seal.KeyPair `cbor:"1,keyasint"`
+	// RemovedAt is when a set without the key was registered at the
+	// current hub (FS-K6), local unix ms; 0 while the registered set holds
+	// it.
+	RemovedAt uint64 `cbor:"2,keyasint"`
+	// Retired: an emergency rotation or a local state rollback replaced the
+	// ring (FS-K21); the key is published no more and kept until deletable.
+	Retired bool `cbor:"3,keyasint"`
 }
 
 // encKeyFile is the persisted form of the ring. It holds private keys.
@@ -400,4 +418,65 @@ func (d *Daemon) maintainKeyRing() {
 	if err := d.publishKeys(d.ctx, hub); err != nil {
 		log.Printf("anet: publish encryption keys to %s: %v", hub, err)
 	}
+}
+
+// clockState is what the clock gate reads besides the ring's
+// unverified_run (FS-K14, FS-K14a): the latest check of this node's clock
+// against its hub, and the two clocks at the previous maintenance period of
+// this process. In memory only: a restart starts with no check, and its
+// first period adds nothing to unverified_run.
+type clockState struct {
+	mu sync.Mutex
+	// hub is the hub the check was made with; a check made with another
+	// hub says nothing about this one.
+	hub string
+	obs clockObs
+	// prev is the clocks at the previous maintenance period; nil before the
+	// first.
+	prev *cycleMark
+}
+
+// noteHubDate records a check of this node's clock against the hub at
+// hubURL, from the Date header of one of its answers (FS-K14). Only the
+// configured hub's answers count, and an answer without a Date that parses
+// counts as none. Every answer of the hub is a check: the signed polls,
+// registrations and join attempts, key set publications, GET /hub/identity
+// and the anonymous side's requests alike (hubTransmit).
+func (d *Daemon) noteHubDate(hubURL, date string) {
+	if date == "" || !sameHub(hubURL, d.config().HubURL) {
+		return
+	}
+	at, err := http.ParseTime(date)
+	if err != nil || at.UnixMilli() < 0 {
+		return
+	}
+	wall, mono := d.nowMS(), d.monoMS()
+	d.clk.mu.Lock()
+	defer d.clk.mu.Unlock()
+	d.clk.hub = strings.TrimRight(hubURL, "/")
+	d.clk.obs = clockObs{hub: true, checked: true, wall: wall, mono: mono, offset: int64(wall) - at.UnixMilli()}
+}
+
+// clockObservation is the latest check that applies to the configured hub,
+// as the gate reads it: no hub configured, or the hub and what its last
+// answer said (nothing yet when it has not answered in this process).
+func (d *Daemon) clockObservation() clockObs {
+	hub := d.config().HubURL
+	if hub == "" {
+		return clockObs{}
+	}
+	d.clk.mu.Lock()
+	defer d.clk.mu.Unlock()
+	if !sameHub(d.clk.hub, hub) {
+		return clockObs{hub: true}
+	}
+	return d.clk.obs
+}
+
+// forgetCycle makes the next maintenance period count as the first of the
+// process (FS-K14a step 2): it adds nothing to unverified_run.
+func (d *Daemon) forgetCycle() {
+	d.clk.mu.Lock()
+	d.clk.prev = nil
+	d.clk.mu.Unlock()
 }

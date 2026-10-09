@@ -119,10 +119,8 @@ func ixKeyFate(role Role, cause Cause) (ixFate, error) {
 
 // ClockLevel is the level of the deletion clock gate (FS-K14b) as this package's deletions take it: they
 // run at ClockFull and ClockLocal and wait at ClockClosed (FS-K15). The zero value is ClockClosed, so a
-// caller that does not know the level deletes nothing.
-//
-// v030-todo(FS-4): FS-4's clockLevel (internal/daemon/epoch_delete.go) is what callers pass here; FS-4
-// makes its type this one, or maps its three values onto these.
+// caller that does not know the level deletes nothing. The daemon's clockLevel (internal/daemon,
+// epoch_delete.go) is this type: the gate it computes is passed here as it is.
 type ClockLevel uint8
 
 const (

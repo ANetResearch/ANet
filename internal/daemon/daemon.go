@@ -31,6 +31,9 @@ type Daemon struct {
 	// is the seq of the key set the hub last confirmed holding.
 	enc             *encKeyRing
 	publishedKeySeq atomic.Uint64
+	// clk is what the clock gate knows besides the ring: the latest check
+	// against the hub and the previous maintenance period (enckeys.go).
+	clk clockState
 	// mbox is this node's mailbox signing key and mboxSt what the daemon
 	// knows about getting it to the hub (mbox.go).
 	mbox   *mboxKey
@@ -43,6 +46,10 @@ type Daemon struct {
 	// wire. Tests only, through setClock (testhooks.go): the background
 	// loops read it while a test sets it, so it is atomic.
 	clock atomic.Pointer[func() uint64]
+	// monoClock, when set, replaces the boot clock (monoMS, bootclock.go)
+	// the clock gate counts running time on. Tests only, through
+	// setMonoClock.
+	monoClock atomic.Pointer[func() uint64]
 	// hubIDs caches each hub's pinned identity by URL (hub_client.go).
 	hubIDMu sync.Mutex
 	hubIDs  map[string]hubIdent
