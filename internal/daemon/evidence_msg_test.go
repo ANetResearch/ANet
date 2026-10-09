@@ -228,12 +228,15 @@ func TestPublicCapabilityEvidenceModes(t *testing.T) {
 
 // The retention sweep deletes public_cap calls that ended more than seven
 // days before the start of the day, and says how many on the chain, in the
-// registered payload; a sweep that deletes nothing writes nothing.
+// registered payload; a sweep that deletes nothing writes nothing. The
+// sweep runs at a time beyond the daemon's own start sweep (beyondStartSweep),
+// which could otherwise take the call first.
 func TestRetentionSweepPrunesOldPublicCapCalls(t *testing.T) {
 	d := newBareDaemon(t)
-	now := time.Date(2026, 9, 27, 15, 0, 0, 0, time.UTC).UnixMilli()
+	now := beyondStartSweep()
 	cutoff, _ := interactions.RetentionCutoff(now, interactions.ClassPublicCap, d.ContentRetention())
-	if want := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC).UnixMilli(); cutoff != want {
+	day := time.UnixMilli(now).UTC()
+	if want := time.Date(day.Year(), day.Month(), day.Day()-7, 0, 0, 0, 0, time.UTC).UnixMilli(); cutoff != want {
 		t.Fatalf("cutoff %s, want %s", time.UnixMilli(cutoff).UTC(), time.UnixMilli(want).UTC())
 	}
 	d.ix.SetClock(func() int64 { return cutoff - 1 })

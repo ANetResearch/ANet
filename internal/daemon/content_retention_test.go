@@ -53,6 +53,15 @@ func stored(t *testing.T, d *Daemon, id string) bool {
 	return err == nil
 }
 
+// beyondStartSweep is 15:00 UTC on the day a year after the real clock (unix ms). The sweep a daemon
+// runs as it starts (keyMaintenanceLoop) uses the real clock and may run at any moment after New
+// returns; a task a test ends relative to this time is in that sweep's future, so it can never take
+// the task from the test, however late it runs.
+func beyondStartSweep() int64 {
+	day := time.Now().UTC().AddDate(1, 0, 0)
+	return time.Date(day.Year(), day.Month(), day.Day(), 15, 0, 0, 0, time.UTC).UnixMilli()
+}
+
 // storeHits names the files of d's store that hold needle.
 func storeHits(t *testing.T, d *Daemon, needle []byte) []string {
 	t.Helper()
@@ -206,7 +215,7 @@ func mustRet(t testing.TB, s string) interactions.Retention {
 // payload with the class's cutoff and retention, and nothing else is written.
 func TestRetentionSweepRecordsEveryClass(t *testing.T) {
 	d := newBareDaemon(t)
-	now := time.Date(2026, 9, 27, 15, 0, 0, 0, time.UTC).UnixMilli()
+	now := beyondStartSweep()
 	for _, c := range interactions.ContentClasses() {
 		endedTask(t, d, "ix_"+c, c, uint64(now-40*dayMS))
 	}
@@ -248,7 +257,9 @@ func TestRetentionSweepRecordsEveryClass(t *testing.T) {
 // TestCheckpointAfterKeyDelete (FS-L8, mutation 16's checkpoint half): a key deleted from the store —
 // a provider's interaction key at the task's end, a held item's data key at its expiry — stays in the
 // write-ahead log until it is truncated; the next maintenance period truncates it, and the key's bytes
-// are then in no file of the store.
+// are then in no file of the store. A reader holds a snapshot from before the deletions until the
+// period, so the checkpoint of the daemon's own start sweep, which may run at any moment, cannot
+// truncate the log before the test has seen the keys in it.
 func TestCheckpointAfterKeyDelete(t *testing.T) {
 	d := newTestDaemon(t, "", true)
 	priv, err := ecdh.X25519().GenerateKey(rand.Reader)
@@ -270,6 +281,7 @@ func TestCheckpointAfterKeyDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	dekBytes := rawDEK(t, d, "ix_held")
+	reader := holdSnapshot(t, d)
 	if _, err := d.ix.SetState("ix_p", interactions.StateCompleted, interactions.CauseProviderEnd); err != nil {
 		t.Fatal(err)
 	}
@@ -282,6 +294,7 @@ func TestCheckpointAfterKeyDelete(t *testing.T) {
 			t.Fatalf("the deleted %s is in no file before the period: the test would prove nothing", name)
 		}
 	}
+	reader()
 	d.keyMaintenance()
 	for name, b := range map[string][]byte{"interaction key": priv.Bytes(), "data key": dekBytes} {
 		if hits := storeHits(t, d, b); len(hits) != 0 {
@@ -575,12 +588,14 @@ func stallContentWorld(t *testing.T, skewed bool) {
 // TestRetentionRoute (FS §2.10): a dry run says how many finished tasks the value deletes at once and
 // changes nothing; the change writes config.json, sweeps, records anet.retention.changed and answers
 // with retention.set; the same value again changes nothing; /status.privacy follows; a body that is not
-// exactly the request, or a value that is not a setting, is retention_invalid.
+// exactly the request, or a value that is not a setting, is retention_invalid. No task is past the
+// setting in force: the daemon's own start sweep may run at any moment and would take it first (that
+// a task already due is not counted is TestCountNewlyDeletable's).
 func TestRetentionRoute(t *testing.T) {
 	p := newPlane(t)
 	d := p.d
 	now := d.nowMS()
-	endedTask(t, d, "ix_40", interactions.ClassPeer, now-40*dayMS)
+	endedTask(t, d, "ix_20", interactions.ClassPeer, now-20*dayMS)
 	endedTask(t, d, "ix_10", interactions.ClassOutbound, now-10*dayMS)
 	endedTask(t, d, "ix_pub", interactions.ClassPublicCap, now-5*dayMS)
 	post := func(body string) (int, map[string]any) {
@@ -590,7 +605,7 @@ func TestRetentionRoute(t *testing.T) {
 		_ = json.Unmarshal(b, &m)
 		return resp.StatusCode, m
 	}
-	if code, m := post(`{"value":"7d","dry_run":true}`); code != 200 || m["value"] != "7d" || fmt.Sprint(m["would_delete"]) != "1" {
+	if code, m := post(`{"value":"7d","dry_run":true}`); code != 200 || m["value"] != "7d" || fmt.Sprint(m["would_delete"]) != "2" {
 		t.Fatalf("dry run: %d %v", code, m)
 	}
 	if r, _, _, _ := ContentRetentionInFile(d.layout); r != interactions.DefaultRetention() || !stored(t, d, "ix_10") {
@@ -604,7 +619,7 @@ func TestRetentionRoute(t *testing.T) {
 	if r, _, _, _ := ContentRetentionInFile(d.layout); r != mustRet(t, "7d") || d.ContentRetention() != mustRet(t, "7d") {
 		t.Fatalf("after the change config.json says %q, the daemon %q", r, d.ContentRetention())
 	}
-	if stored(t, d, "ix_40") || stored(t, d, "ix_10") || !stored(t, d, "ix_pub") {
+	if stored(t, d, "ix_20") || stored(t, d, "ix_10") || !stored(t, d, "ix_pub") {
 		t.Fatal("the sweep after the change did not delete what was due, or deleted the public call")
 	}
 	evs := ledgerPayloads(t, d, EvRetentionChanged)
