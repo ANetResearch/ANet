@@ -494,7 +494,7 @@ func TestADiskHogIsKilled(t *testing.T) {
 	if meta := awaitState(t, f.req, id, interactions.StateRejected); meta[a2ashape.KeyReason] != reasonSandboxUnavailble {
 		t.Fatalf("the requester was told %v", meta)
 	}
-	work := filepath.Join(execSandboxWorkRoot(), aidShort(f.prov.AID()), safeName(id))
+	work := filepath.Join(execSandboxWorkRoot(), aidShort(f.prov.AID()), ixDirName(id))
 	if _, err := os.Stat(work); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the work dir survived: %v", err)
 	}
