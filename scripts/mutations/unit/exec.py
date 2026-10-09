@@ -598,3 +598,12 @@ MUTS += [
   full=[DAEMON],
  ),
 ]
+MUTS += [
+ dict(
+  id='m-sb-11', group='SB-8', repo='ANet',
+  desc='codex 的回复文件按路径读取(沙箱内把它换成指向运营者文件的链接,文件内容作为回复发给对端)',
+  edits=[('internal/daemon/agents.go', 'readWorkFile(dir, filepath.Base(outFile), maxAttachmentBytes)', 'os.ReadFile(outFile)')],
+  tests=[(DAEMON, 'TestCodexReplyFileIsNotReadThroughALink')],
+  full=[DAEMON],
+ ),
+]

@@ -718,6 +718,31 @@ func collectOutbox(dir string) ([]delegation.Attachment, error) {
 	return out, nil
 }
 
+// readWorkFile reads the regular file name, directly in the work dir dir, that an agent wrote there for
+// the daemon to read (codex's reply file). It goes through an os.Root and refuses anything but a regular
+// file: a sandboxed agent can put a link in the file's place, and since it knows the host's paths a
+// plain read would follow that link to a file of the operator's and hand it to the peer as the reply.
+func readWorkFile(dir, name string, limit int64) ([]byte, error) {
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	fi, err := r.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file (mode %s)", name, fi.Mode().Type())
+	}
+	f, err := r.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return readRegular(f, limit)
+}
+
 // readRegular reads an opened file after confirming it is still a regular file of at most limit bytes.
 func readRegular(f *os.File, limit int64) ([]byte, error) {
 	fi, err := f.Stat()

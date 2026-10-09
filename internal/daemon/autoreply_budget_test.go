@@ -751,6 +751,33 @@ func TestASandboxedAgentCannotLinkTheOutboxOut(t *testing.T) {
 	}
 }
 
+// SB-8, SI-59: codex writes its reply to a file in its work dir, and a sandboxed codex can put a link
+// to a file of the operator's in that file's place (the path is on its own command line). The reply is
+// never read through such a link; a reply file codex wrote is read as before.
+func TestCodexReplyFileIsNotReadThroughALink(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "id_ed25519")
+	const key = "OPERATOR-PRIVATE-KEY-c0d3"
+	if err := os.WriteFile(secret, []byte(key), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	codex := func(onReplyFile string) string {
+		t.Helper()
+		stub := writeStub(t, "#!/bin/sh\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = -o ]; then "+onReplyFile+"; fi\n  shift\ndone\necho 'the reply on stdout'\n")
+		got, err := invokeCodex(context.Background(), execInvokeOpts{AgentID: agentCodex, Prompt: "p", WorkDir: t.TempDir(),
+			Command: stub, Env: []string{"PATH=/usr/bin:/bin"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := codex("ln -s '" + secret + "' \"$2\""); got != "the reply on stdout" || strings.Contains(got, key) {
+		t.Fatalf("a reply file linked to the operator's file: the reply was %q", got)
+	}
+	if got := codex("echo 'the reply in the file' > \"$2\""); got != "the reply in the file" {
+		t.Fatalf("a reply file codex wrote: the reply was %q", got)
+	}
+}
+
 // T3 (SI-59, M-SB-5): what an untrusted peer's sandboxed run left in its work dir — project
 // configuration an agent would pick up — is not in the directory its next turn runs in once the peer
 // is trusted and the turn runs directly.
