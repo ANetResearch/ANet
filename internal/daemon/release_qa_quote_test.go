@@ -50,6 +50,21 @@ func storeQuote(t *testing.T, d *Daemon, id string, seen interactions.Verificati
 	}
 }
 
+// actableQuote is the price a payer of task id would act on: the quote stored on
+// the task, once a payment flow began on it (pay_required), and nothing for
+// a task that has none — a PAYMENT_REQUIRED result is not a quote.
+func actableQuote(t *testing.T, d *Daemon, id string) *payment.PaymentRequired {
+	t.Helper()
+	ix, err := d.ix.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ix.PayState == interactions.PayNone {
+		return nil
+	}
+	return storedQuote(ix)
+}
+
 // A quote is acted on only when the task's provider stated it.
 //
 // It used to arrive as a result, and a result with no key history was
@@ -69,9 +84,8 @@ func TestAnUnverifiedQuoteIsNotPaidAutomatically(t *testing.T) {
 		interactions.VerificationUnknown, interactions.VerificationVerified} {
 		id := "ix_result_" + string(seen)
 		storeQuote(t, d, id, seen, "999999")
-		q, err := d.awaitQuote(context.Background(), id)
-		if err != nil || q != nil {
-			t.Errorf("a PAYMENT_REQUIRED result (%q) was taken as a quote: %+v %v", seen, q, err)
+		if q := actableQuote(t, d, id); q != nil {
+			t.Errorf("a PAYMENT_REQUIRED result (%q) was taken as a quote: %+v", seen, q)
 		}
 	}
 
@@ -100,10 +114,7 @@ func TestAnUnverifiedQuoteIsNotPaidAutomatically(t *testing.T) {
 		Required: raw}); err != nil {
 		t.Fatal(err)
 	}
-	q, err := req.awaitQuote(context.Background(), id)
-	if err != nil {
-		t.Fatalf("a stored quote was refused: %v", err)
-	}
+	q := actableQuote(t, req, id)
 	if q == nil || len(q.Accepts) != 1 || q.Accepts[0].Amount != "25" {
 		t.Fatalf("wrong quote returned: %+v", q)
 	}

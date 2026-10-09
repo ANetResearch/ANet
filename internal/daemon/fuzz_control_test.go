@@ -20,9 +20,9 @@ import (
 // another hub, configure a program to run, or write where the body says
 // (shutdown, hub-register, hub-leave, autoreply, autoreply-test, pull).
 var fuzzRoutes = []string{
-	"/status", "/p2p-advertise", "/accept", "/profile", "/find", "/delegate", "/inbox", "/message", "/end",
+	"/status", "/p2p-advertise", "/accept", "/profile", "/delegate", "/inbox", "/message", "/end",
 	"/end-accept", "/results", "/review", "/threads", "/thread", "/identities", "/evidence", "/balance",
-	"/redeem", "/x402-authorize", "/reconcile", "/audit-hub", "/visibility",
+	"/redeem", "/reconcile", "/audit-hub", "/visibility",
 	"/peers/list", "/peers/allow", "/peers/trust", "/peers/deny", "/peers/remove",
 	"/inbound/policy", "/inbound/pending", "/inbound/approve", "/inbound/reject",
 	"/tasks/send", "/tasks/get", "/tasks/list", "/tasks/cancel", "/tasks/wait", "/tasks/reply",
@@ -104,14 +104,14 @@ func FuzzControlRoutes(f *testing.F) {
 		{"/review", `{"interaction_id":"` + id + `","rating":99}`},
 		{"/thread", `{"interaction_id":"` + id + `"}`},
 		{"/redeem", `{"amount":18446744073709551615,"reference":"r","pay_to":"x"}`},
-		{"/x402-authorize", `{"pay_to":"x","amount":-1}`},
+		{"/profile", `{"summary":"s","pricing":""}`},
 		{"/payments/limits", `{"agent_per_task":1e30}`},
 		{"/payees/add", `{"aid":"` + prov.AID() + `","max":-1}`},
 		{"/peers/allow", `{"aids":["` + prov.AID() + `","not an aid"]}`},
 		{"/inbound/policy", `{"policy":"open"}`},
 		{"/inbound/approve", `{"interaction_id":"x"}`},
 		{"/evidence", `{"since":-1,"limit":0,"event_type":"x"}`},
-		{"/find", `{"capability":"text.stats"}`},
+		{"/agents/list", `{"skill":"text.stats","include_uncarded":true}`},
 		{"/status", ``},
 		{"/threads", `[]`},
 		{"/inbox", `{"state":"nope"}`},

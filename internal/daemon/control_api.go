@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -25,11 +24,9 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/anethome"
-	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
@@ -306,7 +303,6 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /autoreply-test", d.hAutoReplyTest)
 	api.HandleFunc("POST /shutdown", d.hShutdown)
 	api.HandleFunc("POST /profile", d.hProfile)
-	api.HandleFunc("POST /find", d.hFind)
 	api.HandleFunc("POST /delegate", d.hDelegate)
 	api.HandleFunc("POST /inbox", d.hInbox)
 	api.HandleFunc("POST /message", d.hMessage)
@@ -321,7 +317,6 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /evidence", d.hEvidence)
 	api.HandleFunc("POST /balance", d.hBalance)
 	api.HandleFunc("POST /redeem", d.hRedeemCredit)
-	api.HandleFunc("POST /x402-authorize", d.hX402Authorize)
 	api.HandleFunc("POST /reconcile", d.hReconcile)
 	api.HandleFunc("POST /audit-hub", d.hAuditHub)
 	api.HandleFunc("POST /visibility", d.hVisibility)
@@ -579,8 +574,7 @@ const hubCallTimeout = 30 * time.Second
 func relayError(w http.ResponseWriter, err error) {
 	if sr, ok := isSpendRefusal(err); ok {
 		// §8.6: a spending-policy refusal is 403 with its code, on every
-		// route that signs (/x402-authorize, /delegate pay:true), as on
-		// /tasks/pay.
+		// route that signs, as on /tasks/pay.
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "reason": sr.Code})
 		return
 	}
@@ -604,7 +598,6 @@ func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
 		"caps":           cfg.Caps,
 		"summary":        cfg.Summary,
 		"readme":         cfg.Readme,
-		"pricing":        cfg.Pricing,
 		"inbound_policy": cfg.inbound().Policy,
 		"console_url":    consoleURL(cfg),
 	}
@@ -645,18 +638,33 @@ func consoleURL(cfg Config) string {
 	return "http://" + consoleHost(cfg.ControlAddr) + ":" + port + "/console"
 }
 
-// hProfile sets this agent's self-authored profile (summary/readme/pricing). Fields omitted from the
-// request keep their current value (partial update); provided fields overwrite. If a Hub is configured
-// the new profile is published (signed). Meant to be called by the operator's agent (`anet profile set`).
+// hProfile sets this agent's self-authored profile (summary/readme). Fields omitted from the request
+// keep their current value (partial update); provided fields overwrite. If a Hub is configured the new
+// profile is published (signed). Meant to be called by the operator's agent (`anet profile set`).
+//
+// A profile carries no price (0.3.0): a request that still sends "pricing" is refused with what to do
+// instead, nothing is changed, rather than having the member dropped without a word.
 func (d *Daemon) hProfile(w http.ResponseWriter, r *http.Request) {
+	m, err := readJSONMembers(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return
+	}
+	if _, ok := m["pricing"]; ok {
+		writeRefusal(w, http.StatusBadRequest, removedProfilePricing)
+		return
+	}
 	var req struct {
 		Summary *string `json:"summary"`
 		Readme  *string `json:"readme"`
-		Pricing *string `json:"pricing"`
 	}
-	if err := readJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
-		return
+	for k, dst := range map[string]**string{"summary": &req.Summary, "readme": &req.Readme} {
+		if raw, ok := m[k]; ok {
+			if err := json.Unmarshal(raw, dst); err != nil {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+				return
+			}
+		}
 	}
 	p := d.CurrentProfile()
 	if req.Summary != nil {
@@ -665,19 +673,24 @@ func (d *Daemon) hProfile(w http.ResponseWriter, r *http.Request) {
 	if req.Readme != nil {
 		p.Readme = *req.Readme
 	}
-	if req.Pricing != nil {
-		p.Pricing = *req.Pricing
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
 	defer cancel()
 	if err := d.SetProfile(ctx, p); err != nil {
 		relayError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status": "profile_set", "summary": p.Summary, "readme": p.Readme, "pricing": p.Pricing,
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "profile_set", "summary": p.Summary, "readme": p.Readme})
 }
+
+// The control plane's refusals of the members 0.3.0 removed from the routes it kept: the sentences of
+// the CLI flags that sent them (ux §4.3), so a script that still sends one is told the same thing a
+// person typing the old flag is.
+var (
+	removedDelegatePay = a2ashape.Refuse("cli_removed",
+		a2ashape.Args{"what": "anet delegate --pay", "instead": "delegate_pay"})
+	removedProfilePricing = a2ashape.Refuse("cli_removed",
+		a2ashape.Args{"what": "anet profile set --pricing", "instead": "profile_pricing"})
+)
 
 // hAccept is the wire-1 accept_delegations switch (A2A-DESIGN §5.1). "on" used to mean "anyone may
 // delegate" and has no equivalent that is safe to pick for the operator, so it is refused with the
@@ -991,32 +1004,6 @@ func (d *Daemon) hAutoReplyTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"reply": reply, "status": "ok"})
 }
 
-// hFind searches the Hub registry (substring over AID/name/caps). Each
-// agent the official manifest lists by AID carries "anet.official": true
-// (official.go).
-func (d *Daemon) hFind(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Query string `json:"query"`
-		// Capability asks the exact question instead: who serves this id.
-		Capability string `json:"capability"`
-	}
-	_ = readJSON(r, &req)
-	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
-	defer cancel()
-	var agents []hubapi.AgentView
-	var err error
-	if capID := strings.TrimSpace(req.Capability); capID != "" {
-		agents, err = d.FindByCapability(ctx, capID)
-	} else {
-		agents, err = d.Find(ctx, req.Query)
-	}
-	if err != nil {
-		relayError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"agents": d.markFound(agents)})
-}
-
 // hDelegate queues a task on a provider AID via the Hub relay and returns an interaction_id immediately.
 func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 	// Web console: multipart upload (goal + uploaded files). The browser sends bytes, not paths.
@@ -1053,13 +1040,19 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 		// instead of handing it to an agent.
 		Capability string         `json:"capability,omitempty"`
 		Args       map[string]any `json:"args,omitempty"`
-		// Pay makes this a paying delegation: a PAYMENT_REQUIRED answer is
-		// paid for and the work delegated again, rather than handed back
-		// to the caller as a quote to act on.
+		// Pay was "pay for it now" (removed in 0.3.0): a payment is made on
+		// the task, after its quote, within the automatic tier or by the
+		// operator. It is refused rather than ignored, so a caller that
+		// asked to pay is not left with a task waiting for a payment it
+		// thought it had made.
 		Pay bool `json:"pay,omitempty"`
 	}
 	if err := readJSON(r, &req); err != nil || req.Provider == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider (AID) required"})
+		return
+	}
+	if req.Pay {
+		writeRefusal(w, http.StatusBadRequest, removedDelegatePay)
 		return
 	}
 	// A capability call needs no goal: the capability id IS the request.
@@ -1080,19 +1073,6 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 		// sitting in the goal text where no resolver looks. Both repos'
 		// suites passed throughout, because each fakes the other and the
 		// capability round-trip test calls DelegateCapability in-process.
-		if req.Pay {
-			id, quote, err := d.DelegateAndPay(ctx, req.Provider, req.Capability, req.Args)
-			if err != nil {
-				relayError(w, err)
-				return
-			}
-			out := map[string]any{"interaction_id": id, "status": "queued", "capability": req.Capability}
-			if quote != nil {
-				out["paid"] = quote
-			}
-			d.writeDelegated(w, req.Provider, out)
-			return
-		}
 		id, err := d.DelegateCapability(ctx, req.Provider, req.Capability, req.Args)
 		if err != nil {
 			relayError(w, err)
@@ -1459,62 +1439,6 @@ func (d *Daemon) hP2PAdvertise(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
-}
-
-// hX402Authorize signs a payment for an x402 resource server.
-//
-// Exists because buying through a gateway is something a person does, not
-// only something a test does. The gateway wants a PAYMENT-SIGNATURE
-// header; producing one needs this node's key, which never leaves the
-// daemon — so the daemon signs and hands back the header value.
-//
-// It does NOT settle anything. The signature authorises a payment the
-// gateway may then present to its facilitator; until it does, nothing has
-// moved. Handing out an authorization is closer to writing a cheque than
-// to spending, and the window and nonce are what keep it that way.
-func (d *Daemon) hX402Authorize(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PayTo         string `json:"pay_to"`
-		Amount        uint64 `json:"amount"`
-		Network       string `json:"network"`
-		InteractionID string `json:"interaction_id"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if req.PayTo == "" || req.Amount == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "pay_to and amount are required"})
-		return
-	}
-	p := d.payer()
-	if p == nil {
-		relayError(w, errNoPayments())
-		return
-	}
-	network := strings.TrimSpace(req.Network)
-	if network == "" {
-		// Default to this node's own hub, which is the only ledger it can
-		// actually draw on. Naming another one is allowed — a buyer may
-		// hold credit somewhere else — but it has to be deliberate.
-		network = payment.CreditNetwork(d.hubAID())
-	}
-	raw, err := p.Authorize(payment.PaymentOption{
-		Scheme: payment.SchemeCredit, Network: network,
-		Amount: payment.Amount(req.Amount), Asset: payment.AssetCredit, PayTo: req.PayTo,
-	}, req.InteractionID, req.InteractionID, module.PurposeGateway)
-	if err != nil {
-		relayError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"header":  payment.HeaderPaymentSignature,
-		"value":   base64.StdEncoding.EncodeToString(raw),
-		"pay_to":  req.PayTo,
-		"amount":  req.Amount,
-		"network": network,
-	})
 }
 
 // hReconcile compares this node's payment history against the hub's

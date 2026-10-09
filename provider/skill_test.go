@@ -95,16 +95,17 @@ func TestSkillInfoOfPrefersTheProviderAndFillsGaps(t *testing.T) {
 	}
 }
 
-// At the voucher door CallerAID is the payer the hub attested, not an
-// authenticated caller; VerifiedCaller must not hand it out there, nor on a
-// local surface where there is no caller at all.
-func TestVerifiedCallerIsEmptyAtTheVoucherDoor(t *testing.T) {
+// VerifiedCaller hands out CallerAID only for a call through the relay
+// door, whose sender the daemon authenticated: not on a local surface,
+// where there is no caller at all, and not for any other Via, among them
+// "voucher", the door 0.3.0 removed.
+func TestVerifiedCallerIsOnlyTheRelayCaller(t *testing.T) {
 	cases := []struct {
 		via  string
 		want string
 	}{
 		{ViaRelay, "aid-caller"},
-		{ViaVoucher, ""},
+		{"voucher", ""},
 		{"", ""},
 		{"something-else", ""},
 	}

@@ -49,6 +49,16 @@ func hubRequests(t testing.TB, url string) []fakeHubRequest {
 	return append([]fakeHubRequest(nil), h.requests...)
 }
 
+// hubDirectory is the hub's /agents directory as d reads it: the anonymous
+// side, and no query (the free text of a search never leaves the node).
+func hubDirectory(ctx context.Context, d *Daemon) ([]hubapi.AgentView, error) {
+	var resp struct {
+		Agents []hubapi.AgentView `json:"agents"`
+	}
+	err := d.hubGet(ctx, d.config().HubURL, "/agents", nil, &resp)
+	return resp.Agents, err
+}
+
 // relaySends is the requests to /relay/send among rs.
 func relaySends(rs []fakeHubRequest) []fakeHubRequest {
 	var out []fakeHubRequest
@@ -149,7 +159,7 @@ func TestHubRequestsSpeakWire3(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := req.Find(ctx, "anything"); err != nil {
+	if _, err := hubDirectory(ctx, req); err != nil {
 		t.Fatal(err)
 	}
 	if err := prov.publishKeys(ctx, srv.URL); err != nil {
@@ -227,7 +237,7 @@ func TestFixedUserAgentNoCookies(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := req.Find(ctx, "x"); err != nil {
+	if _, err := hubDirectory(ctx, req); err != nil {
 		t.Fatal(err)
 	}
 	sides := map[hubapi.Side]int{}
@@ -648,8 +658,7 @@ func TestDaemonDecodesHubBinaryAsBase64URL(t *testing.T) {
 		"tools/anetfixture/attack.go readEnvelope":               "the fixture's command line",
 		"tools/anetfixture/main.go parseGenesisArg":              "the fixture's command line",
 		// Not this package's to change: each goes with its item.
-		"module/x402/audit.go auditIssuance":   "v030-todo(PAY-13): per-event issuance records, replaced by supply epochs",
-		"module/x402/voucher.go RedeemVoucher": "v030-todo(PAY-9): vouchers are removed",
+		"module/x402/audit.go auditIssuance": "v030-todo(PAY-13): per-event issuance records, replaced by supply epochs",
 	}
 	found := stdBase64Decoders(t, anetRoot(t))
 	for site := range found {
@@ -754,7 +763,7 @@ func TestHubSidesNeverShareAConnection(t *testing.T) {
 		// Alternate the sides, so that one pool would reuse one connection
 		// across them.
 		for i := 0; i < 3; i++ {
-			if _, err := req.Find(ctx, "x"); err != nil {
+			if _, err := hubDirectory(ctx, req); err != nil {
 				t.Fatal(err)
 			}
 			if _, _, err := req.relaySendV3(ctx, sealFrom(t, req, prov, seal.TypeMessage, "ix", chatBody(t, "m", "")),

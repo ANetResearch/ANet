@@ -188,9 +188,9 @@ func invokeCall(t *testing.T, reg *provider.Registry, call provider.Call) effect
 }
 
 // The service learns who is calling only when the daemon authenticated the
-// caller. At the voucher door the AID is the payer the hub attested, and a
-// service that authorized on it would let a voucher holder act as the
-// payer; so there the header is absent, and Via says why.
+// caller: a call through the relay. Any other Via (a local call, or a door
+// this version does not have, such as the voucher door 0.3.0 removed) names
+// no caller. No header says which door a call came through: there is one.
 func TestTheServiceIsToldTheVerifiedCallerOnly(t *testing.T) {
 	const tok = "0123456789abcdef0123456789abcdef"
 	var got http.Header
@@ -207,7 +207,7 @@ func TestTheServiceIsToldTheVerifiedCallerOnly(t *testing.T) {
 		wantCaller string
 	}{
 		{provider.ViaRelay, "aid-caller"},
-		{provider.ViaVoucher, ""},
+		{"voucher", ""},
 		{"", ""},
 	}
 	for _, c := range cases {
@@ -222,8 +222,8 @@ func TestTheServiceIsToldTheVerifiedCallerOnly(t *testing.T) {
 		if h := got.Get("X-ANet-Call"); h != "ix-1" {
 			t.Errorf("via %q: X-ANet-Call = %q, want the interaction id", c.via, h)
 		}
-		if h := got.Get("X-ANet-Via"); h != c.via {
-			t.Errorf("X-ANet-Via = %q, want %q", h, c.via)
+		if h, ok := got["X-Anet-Via"]; ok {
+			t.Errorf("via %q: X-ANet-Via = %q; the header is gone with the voucher door", c.via, h)
 		}
 		if h := got.Get("X-ANet-Capability"); h != "x.do" {
 			t.Errorf("X-ANet-Capability = %q", h)

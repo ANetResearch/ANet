@@ -33,7 +33,6 @@ func (h *testHost) RecordEvidence(string, any) error                 { return ni
 func (h *testHost) ResolveKEL(string) ([]identity.SignedEvent, bool) { return nil, false }
 func (h *testHost) PaymentSeam() (module.PaymentSeam, bool)          { return nil, false }
 func (h *testHost) HubSeam() (module.HubSeam, bool)                  { return nil, false }
-func (h *testHost) Admit(string, string, int) (func(), string)       { return func() {}, "" }
 func (h *testHost) DeclareUntrustedBackend()                         { h.untrusted = true }
 func (h *testHost) StateDir(string) string                           { return h.dir }
 func (h *testHost) TaskSeam() (module.TaskSeam, bool)                { return h.seam, h.seam != nil }

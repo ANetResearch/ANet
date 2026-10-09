@@ -223,7 +223,7 @@ func TestEveryRouteIsAllowlistedOrRefusedForASession(t *testing.T) {
 	// The task routes (§12) are bearer-only too: a console that later moves
 	// to them needs a sessionRule with jsonFields, never a blanket entry, as
 	// /agents/list and /agents/card have (sealed-sender SSR-D17).
-	for _, pat := range []string{"POST /pull", "POST /autoreply", "POST /shutdown", "POST /x402-authorize",
+	for _, pat := range []string{"POST /pull", "POST /autoreply", "POST /shutdown",
 		"POST /redeem", "POST /reconcile", "POST /hub-leave", "POST /visibility", "POST /p2p-advertise",
 		"POST /console/ticket", "POST /tasks/send", "POST /tasks/get", "POST /tasks/list", "POST /tasks/cancel",
 		"POST /tasks/wait", "POST /tasks/reply", "POST /agents/kel"} {

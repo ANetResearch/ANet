@@ -128,14 +128,14 @@ func TestTheCallerIsTheVerifiedOne(t *testing.T) {
 	}
 }
 
-// CC-2, M-CC-3: a call through any other door (the voucher door, or a Via this client does not
-// know) is not dialled at all: the retired via 2, or a via 0 that hides a remote caller, is never
-// sent. Neither is a relay call that came without a verified caller.
+// CC-2, M-CC-3: a call through any other door (a Via this client does not know, such as the
+// voucher door 0.3.0 removed) is not dialled at all: the retired via 2, or a via 0 that hides a
+// remote caller, is never sent. Neither is a relay call that came without a verified caller.
 func TestOtherDoorsAreNotDialled(t *testing.T) {
 	f := startFakeLinkd(t)
 	p := newClient(t, f.sock)
 	for _, c := range []provider.Call{
-		{Capability: lampCap, CallerAID: "aid-payer", Via: provider.ViaVoucher},
+		{Capability: lampCap, CallerAID: "aid-payer", Via: "voucher"},
 		{Capability: lampCap, CallerAID: "aid-x", Via: "mcp"},
 		{Capability: lampCap, Via: provider.ViaRelay},
 	} {

@@ -33,7 +33,7 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 	}{
 		{"AgentView", hubapi.AgentView{}, []string{
 			"aid", "avg_rating", "caps", "home_hub", "listed",
-			"name", "pricing", "readme", "registered_at", "review_count", "summary",
+			"name", "readme", "registered_at", "review_count", "summary",
 		}},
 		// No goal, no deliverable: the hub holds no task content (A2A-DESIGN
 		// §9). Mirrors ANetHub internal/aghub/wirecontract_test.go.
@@ -70,11 +70,12 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 		{"DirBucketEntry", hubapi.DirBucketEntry{}, []string{"box", "h"}},
 		{"KeysPublishRequest", hubapi.KeysPublishRequest{}, []string{"keyset"}},
 		{"KeysPublishResponse", hubapi.KeysPublishResponse{}, []string{"aid", "keys_status"}},
-		// core §2.12.2. No invite: a hub admits by AID (LEC HN-5).
+		// core §2.12.2. No invite: a hub admits by AID (LEC HN-5). No card
+		// and no pricing: the ADP card and public prices are gone (0.3.0).
 		// Mirrors ANetHub internal/aghub/server.go RegisterRequest and the
 		// WIRE3 fixtures register*.json.
 		{"RegisterRequest", hubapi.RegisterRequest{}, []string{
-			"a2a_card", "aid", "caps", "card", "check_only", "enc_keys", "kel", "name", "pow",
+			"a2a_card", "aid", "caps", "check_only", "enc_keys", "kel", "name", "pow",
 		}},
 		{"RegisterPoW", hubapi.RegisterPoW{}, []string{"nonce", "seed"}},
 		{"RegisterResponse", hubapi.RegisterResponse{}, []string{

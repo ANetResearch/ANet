@@ -63,7 +63,7 @@ type sessionRule struct {
 // registered ServeMux pattern (A2A-DESIGN §7.3). It matches what console.html actually calls, plus the
 // read-only routes the design lists. Everything else is bearer-only, including /pull, /autoreply*,
 // policy and peer writes, /hub-register, /hub-leave, /visibility, /p2p-advertise, /shutdown,
-// /x402-authorize, /redeem, /reconcile and /console/ticket.
+// /redeem, /reconcile and /console/ticket.
 var sessionRoutes = map[string]sessionRule{
 	"GET /status":          {},
 	"POST /status":         {},
@@ -74,7 +74,6 @@ var sessionRoutes = map[string]sessionRule{
 	"POST /evidence":       {},
 	"POST /balance":        {},
 	"POST /identities":     {},
-	"POST /find":           {},
 	"GET /attachment":      {noCSRF: true},
 	"POST /delegate":       {jsonFields: []string{"provider", "goal"}, multipart: true},
 	"POST /message":        {jsonFields: []string{"interaction_id", "body"}, multipart: true},

@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -47,49 +46,6 @@ const relayCallTimeout = 15 * time.Minute
 // freshPollTimeout bounds the best-effort poll a read command (inbox/thread/results) triggers, so a large
 // inbound transfer never blocks the interactive command — big messages are left to the background loop.
 const freshPollTimeout = 12 * time.Second
-
-// FindByCapability asks who serves a capability id.
-//
-// A different question from Find, and deliberately not a better-phrased
-// version of it. A capability id is exact and structured, so this is a
-// membership test: "cas.put" means that id, and "ptz.*" means that
-// family. Find searches prose, which will happily return an agent that
-// merely mentions the words.
-func (d *Daemon) FindByCapability(ctx context.Context, capID string) ([]hubapi.AgentView, error) {
-	hub := d.config().HubURL
-	if hub == "" {
-		return nil, fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
-	}
-	var resp struct {
-		Agents []hubapi.AgentView `json:"agents"`
-	}
-	q := url.Values{}
-	q.Set("cap", capID)
-	if err := d.hubGet(ctx, hub, "/agents", q, &resp); err != nil {
-		return nil, err
-	}
-	return resp.Agents, nil
-}
-
-// Find searches the Hub registry (substring over AID/name/summary/readme/caps).
-//
-// The free text never leaves this node (A2A-DESIGN §10.5): the daemon
-// fetches the listing and matches locally (discover.go).
-func (d *Daemon) Find(ctx context.Context, query string) ([]hubapi.AgentView, error) {
-	hub := d.config().HubURL
-	if hub == "" {
-		return nil, fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
-	}
-	var resp struct {
-		Agents []hubapi.AgentView `json:"agents"`
-	}
-	if err := d.hubGet(ctx, hub, "/agents", nil, &resp); err != nil {
-		return nil, err
-	}
-	// Matched against what /find shows (markFound), not against what the
-	// hub wrote for an entry it does not show (redteam F39).
-	return matchAgents(d.shownAgents(resp.Agents), query), nil
-}
 
 // Delegate builds a signed TaskDoc for goal, stores the outbound interaction, and sends the delegation
 // into the provider's Hub mailbox. It returns the shared interaction_id immediately (the provider may be

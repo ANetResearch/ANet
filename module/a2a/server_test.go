@@ -544,8 +544,13 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+// publicPricingURI is the public price list of 0.2 (anet-pricing/v1). A
+// 0.3.0 card does not carry it; a remote card that still does has it left
+// out of the proxy card.
+const publicPricingURI = "https://agentnetwork.org.cn/a2a/ext/anet-pricing/v1"
+
 // verifiedRemote is a network card for agent A that this node verified,
-// declaring a2a-x402 and anet-pricing.
+// declaring a2a-x402 and, as a 0.2 card did, anet-pricing.
 func verifiedRemote(aid string) module.RemoteAgent {
 	card := map[string]any{
 		"name": "Echo", "description": "Echoes things.", "version": "1.2.0",
@@ -553,7 +558,7 @@ func verifiedRemote(aid string) module.RemoteAgent {
 			"protocolVersion": "1.0", "tenant": aid}},
 		"capabilities": map[string]any{"streaming": false, "pushNotifications": false, "extensions": []any{
 			map[string]any{"uri": a2ashape.X402ExtensionURI, "required": true},
-			map[string]any{"uri": extPricingURI, "params": map[string]any{"network": "hub:x", "prices": []any{
+			map[string]any{"uri": publicPricingURI, "params": map[string]any{"network": "hub:x", "prices": []any{
 				map[string]any{"skillId": "text.stats", "amount": "5"}}, "empty": ""}},
 			map[string]any{"uri": a2acard.ExtCardURI, "params": map[string]any{"aid": aid, "seq": "1"}},
 		}},
@@ -599,8 +604,12 @@ func TestProxyCard(t *testing.T) {
 	if _, ok := uris[a2acard.ExtCardURI]; ok {
 		t.Fatal("the remote's anet-card extension was copied into the proxy card")
 	}
-	if p, ok := uris[extPricingURI]; !ok || p.Params["network"] != "hub:x" || p.Params["empty"] != nil {
-		t.Fatalf("anet-pricing: %+v", p)
+	// No price is passed on: the remote's says only that it takes payment.
+	if p, ok := uris[publicPricingURI]; ok {
+		t.Fatalf("the remote's public price list was copied into the proxy card: %+v", p)
+	}
+	if strings.Contains(string(raw), `"prices"`) || strings.Contains(string(raw), "hub:x") {
+		t.Fatalf("the proxy card carries the remote's prices: %s", raw)
 	}
 	origin := uris[ExtOriginURI].Params
 	if origin["aid"] != agentA || origin["originVerification"] != verified {

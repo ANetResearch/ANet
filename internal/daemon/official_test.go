@@ -157,8 +157,10 @@ func markedByAID(t *testing.T, d *Daemon, listBody string) {
 		t.Fatalf("/agents/list does not spell the mark \"anet.official\":true: %s", raw)
 	}
 	want("/agents/list", marks("/agents/list", raw))
-	want("/find", marks("/find", call("/find", `{"query":"anet-tools"}`)))
-	want("/find --cap", marks("/find", call("/find", `{"capability":"text.stats"}`)))
+	// What `anet find` asks, with --cap and without: the uncarded agents
+	// included (the v1 /find route is gone).
+	want("anet find", marks("/agents/list", call("/agents/list", `{"include_uncarded":true}`)))
+	want("anet find --cap", marks("/agents/list", call("/agents/list", `{"skill":"text.stats","include_uncarded":true}`)))
 
 	one := func(aid string) any {
 		var ra map[string]any
@@ -178,7 +180,7 @@ func markedByAID(t *testing.T, d *Daemon, listBody string) {
 // The contract of the mark (A2A-DESIGN §15): the key is "anet.official",
 // its value is true, and it appears on the agent whose AID the manifest
 // lists — in /agents/list and /agents/card (MCP list_agents,
-// get_agent_card) and in /find (anet find) — and on no other. The imposter
+// get_agent_card, anet find) — and on no other. The imposter
 // has the same name, the same card and the same skill, and the hub calls
 // it official; it is not marked: the key is absent, not false. [mut]
 // Lookup by name → the imposter is marked and this is red.
@@ -243,11 +245,13 @@ func TestNoOrExpiredManifestMarksNoOne(t *testing.T) {
 		if ra, err := d.agentCard(ctx, offAID); err != nil || ra.AID != offAID || ra.Official {
 			t.Errorf("%s: the card of the listed AID: %v %+v", name, err, ra)
 		}
-		found, err := d.Find(ctx, "anet-tools")
+		// `anet find` asks /agents/list with the free text, the uncarded
+		// agents included.
+		found, _, err := d.listAgents(ctx, module.AgentQuery{Query: "anet-tools", IncludeUncarded: true})
 		if err != nil || len(found) != 2 {
 			t.Fatalf("%s: find: %v %d", name, err, len(found))
 		}
-		for _, f := range d.markFound(found) {
+		for _, f := range found {
 			if f.Official {
 				t.Errorf("%s: find marks %s official", name, f.AID)
 			}
@@ -310,21 +314,20 @@ func TestTheOfficialMarkGrantsNoAdmission(t *testing.T) {
 }
 
 // The manifest is read for labels and nowhere else: in this package only
-// official.go asks it, and only discovery and /find call what official.go
-// offers. A use on the admission, trust, payment or delivery path would be
+// official.go asks it, and only discovery (the agent list and card) calls
+// what official.go offers. A use on the admission, trust, payment or delivery path would be
 // a channel the design (§15) rules out, and has to be added here, on
 // purpose, to pass.
 func TestTheOfficialManifestIsReadOnlyForLabels(t *testing.T) {
 	allowed := map[string]map[string]bool{
-		"official.go":        {"officials": true, "IsOfficial": true, "markOfficial": true, "markFound": true, "official": true, "Official": true},
+		"official.go":        {"officials": true, "IsOfficial": true, "markOfficial": true, "official": true, "Official": true},
 		"daemon.go":          {"officials": true, "loadOfficials": true, "official": true},
-		"taskseam_agents.go": {"IsOfficial": true, "markOfficial": true},
-		"control_api.go":     {"markFound": true},
+		"taskseam_agents.go": {"IsOfficial": true, "markOfficial": true, "officialSays": true},
 	}
-	// Official is the mark itself (module.RemoteAgent.Official,
-	// foundAgent.Official): reading it back, e.g. from agentCard on the
-	// admission path, is as much a use of the manifest as asking it.
-	watched := map[string]bool{"officials": true, "IsOfficial": true, "markOfficial": true, "markFound": true,
+	// Official is the mark itself (module.RemoteAgent.Official): reading it
+	// back, e.g. from agentCard on the admission path, is as much a use of
+	// the manifest as asking it.
+	watched := map[string]bool{"officials": true, "IsOfficial": true, "markOfficial": true, "officialSays": true,
 		"loadOfficials": true, "official": true, "Official": true}
 	files, err := filepath.Glob("*.go")
 	if err != nil {

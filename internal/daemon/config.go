@@ -32,10 +32,10 @@ type Config struct {
 	// Caps is this agent's advertised capability list (shown + searchable on the Hub via `find`).
 	Caps []string `json:"caps,omitempty"`
 	// Profile is this agent's self-authored description published to the Hub (set via `anet profile set`,
-	// typically by the operator's agent, not hand-written). Pricing is display-only text in v0.1.
+	// typically by the operator's agent, not hand-written). It carries no price (0.3.0: the setting
+	// "pricing" is a removed key, refused at start).
 	Summary string `json:"summary,omitempty"` // one-line description
 	Readme  string `json:"readme,omitempty"`  // longer markdown description
-	Pricing string `json:"pricing,omitempty"` // free-form pricing text (no settlement in v0.1)
 	// Modules configures optional subsystems by name (see module.Module).
 	Modules ModulesConfig `json:"modules,omitempty"`
 	// Inbound is the inbound policy (A2A-DESIGN §5.1): who may delegate to

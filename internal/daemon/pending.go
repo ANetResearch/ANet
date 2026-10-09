@@ -244,8 +244,7 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 	d.publishState(ixID)
 	if isCap {
 		_, args, _ := capabilityCall(td)
-		// v030-todo(PAY-9): no prepayment (DelegateReq key 6 is retired).
-		d.goBackground(func() { d.runCapabilityCall(ixID, capID, args, nil, nil) })
+		d.goBackground(func() { d.runCapabilityCall(ixID, capID, args, nil) })
 	} else {
 		d.kickAutoReply()
 		for _, f := range item.Followups {

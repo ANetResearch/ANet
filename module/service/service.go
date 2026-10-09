@@ -29,9 +29,7 @@
 //	                                itself to the service
 //	X-ANet-Caller: <AID>            the caller, only when the daemon
 //	                                authenticated it (a relayed delegation)
-//	X-ANet-Call: <id>               the interaction id (the voucher id at the
-//	                                voucher door)
-//	X-ANet-Via: relay|voucher       which door the call came through
+//	X-ANet-Call: <id>               the interaction id
 //	X-ANet-Capability: <id>         the capability being invoked
 //
 // The token matters because a service on 127.0.0.1 is reachable by every
@@ -482,18 +480,15 @@ func (p *svcProvider) Invoke(ctx context.Context, call provider.Call) (effect.Ef
 	if tok := p.m.tokens[target.ID]; tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
-	// Only a caller the daemon authenticated is named. At the voucher door
-	// the AID is the payer the hub attested, and a service that authorized
-	// on it would let whoever holds a voucher act as its payer
-	// (provider.Call.Via).
+	// Only a caller the daemon authenticated is named: a call that came
+	// through the relay (provider.Call.VerifiedCaller). A local call has
+	// no caller, and its absence is how the service tells the two apart;
+	// there is no other door, so no header says which door it was.
 	if caller := call.VerifiedCaller(); caller != "" {
 		req.Header.Set(HeaderCaller, caller)
 	}
 	if call.CallID != "" {
 		req.Header.Set(HeaderCall, call.CallID)
-	}
-	if call.Via != "" {
-		req.Header.Set(HeaderVia, call.Via)
 	}
 	req.Header.Set(HeaderCapability, target.ID)
 
@@ -702,7 +697,6 @@ var _ provider.Priced = (*svcProvider)(nil)
 const (
 	HeaderCaller     = "X-ANet-Caller"
 	HeaderCall       = "X-ANet-Call"
-	HeaderVia        = "X-ANet-Via"
 	HeaderCapability = "X-ANet-Capability"
 )
 

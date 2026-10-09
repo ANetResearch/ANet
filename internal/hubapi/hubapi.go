@@ -18,15 +18,14 @@ import (
 
 // AgentView is an agent's public registry entry plus its aggregate rating. Agents are addressed purely
 // by AID; delivery goes through the hub relay, or directly when both nodes run the p2p module. The
-// profile fields (summary/readme/pricing) are AGENT-authored self-description (set via `anet profile
-// set`); pricing is display-only text — the prices that settle are the ones in the agent's signed card.
+// profile fields (summary/readme) are AGENT-authored self-description (set via `anet profile set`). No
+// entry carries a price: what a skill costs is given in the quote, inside the task.
 type AgentView struct {
 	AID          string   `json:"aid"`
 	Name         string   `json:"name"`
 	Caps         []string `json:"caps"`
 	Summary      string   `json:"summary,omitempty"` // one-line self-description
 	Readme       string   `json:"readme,omitempty"`  // longer markdown self-description
-	Pricing      string   `json:"pricing,omitempty"` // free-form pricing text (display-only)
 	Listed       bool     `json:"listed"`            // true if it advertises a service (caps or profile) — only listed agents appear in the starfield/find
 	AvgRating    float64  `json:"avg_rating"`
 	ReviewCount  int      `json:"review_count"`
@@ -356,8 +355,6 @@ type RegisterRequest struct {
 	Name string   `json:"name,omitempty"`
 	Caps []string `json:"caps,omitempty"`
 	KEL  string   `json:"kel"`
-	// Card is the signed ADP AgentCard (JSON), when the daemon could sign one.
-	Card json.RawMessage `json:"card,omitempty"`
 	// EncKeys is the AID's current seal.SignedEncKeySet encoding, standard
 	// base64, published with every registration so a re-registration
 	// after a restart also restates it.

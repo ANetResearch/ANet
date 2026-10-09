@@ -5,16 +5,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/adp"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/module/blackboard"
 	"github.com/ANetResearch/ANet/module/inv1"
 	"github.com/ANetResearch/ANet/module/org"
 )
 
 // The runtime INV-1 guard rejects org-scoped objects on a commons publish path — by value, by pointer,
-// and inside a slice — while public commons types (a gossip card, a TaskDoc) pass.
+// and inside a slice — while public commons types (a registration, a TaskDoc) pass.
 func TestGuardCommonsPublish(t *testing.T) {
 	orgScoped := []any{
 		blackboard.CogUnit{},
@@ -31,8 +31,8 @@ func TestGuardCommonsPublish(t *testing.T) {
 
 	public := []any{
 		nil,
-		&adp.GossipCardMessage{},
-		adp.GossipCardMessage{},
+		&hubapi.RegisterRequest{},
+		hubapi.RegisterRequest{},
 		&tsir.TaskDoc{},
 		[]byte("encoded record"),
 		"a plain string",

@@ -52,7 +52,6 @@ import (
 
 	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/a2acard"
-	"github.com/ANetResearch/ANetCore/adp"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/dirbox"
 	"github.com/ANetResearch/ANetCore/identity"
@@ -146,9 +145,6 @@ type fakeHub struct {
 	// "foreign-receipt" settles nothing and answers success, flagged as a
 	// replay, with the receipt of an authorization settled earlier.
 	settleFaults []string
-	// cardHighWater is the per-subject high water the card gate compares
-	// against — the same rule the real hub keeps in agent_card.seq.
-	cardHighWater map[string]uint64
 	// departedKEL keeps a deregistered agent's key history, so a receipt it
 	// signed before leaving can still be verified.
 	departedKEL map[string][]byte
@@ -263,12 +259,6 @@ type fakeHub struct {
 	a2aCardSends  int
 	// a2aWithdrawals counts registrations that carried a2a_card: null.
 	a2aWithdrawals int
-	// adpCaps is the capability list of each agent's last admitted ADP
-	// card.
-	adpCaps map[string][]string
-	// agentsQueries records the query string of every GET /agents, so a
-	// test can tell what a search sent to the hub.
-	agentsQueries []string
 
 	// Admission (hRegister): the mode, the AIDs the operator admitted, the
 	// bits of open registration's proof of work and its key, and whether
@@ -407,10 +397,9 @@ func startFakeHub(t testing.TB, tlsOn bool) *httptest.Server {
 	}
 	h := &fakeHub{
 		agents: map[string]*fakeHubAgent{}, reviews: map[string]hubapi.ReviewView{},
-		cardHighWater: map[string]uint64{},
-		departedKEL:   map[string][]byte{},
-		self:          self,
-		balance:       map[string]uint64{}, entries: map[string][]map[string]any{},
+		departedKEL: map[string][]byte{},
+		self:        self,
+		balance:     map[string]uint64{}, entries: map[string][]map[string]any{},
 		settled: map[string]string{}, settledReceipt: map[string]string{}, bindings: map[string]string{},
 		lastSeen: map[string]time.Time{},
 		wire:     hubapi.WireVersion,
@@ -418,8 +407,8 @@ func startFakeHub(t testing.TB, tlsOn bool) *httptest.Server {
 		keysOverride: map[string]hubapi.KeysResponse{},
 		registerKeys: map[string]string{},
 		a2aCards:     map[string][]byte{}, a2aMarks: map[string]a2acard.Mark{},
-		registerCards: map[string]string{}, adpCaps: map[string][]string{},
-		admitted: map[string]bool{}, powBits: 4, probation: map[string]uint64{},
+		registerCards: map[string]string{},
+		admitted:      map[string]bool{}, powBits: 4, probation: map[string]uint64{},
 	}
 	// The hub is an agent on its own registry, so its settlement
 	// signatures can be checked the same way everyone else's are.
@@ -673,9 +662,7 @@ type fakeRegisterReq struct {
 	Caps    []string        `json:"caps"`
 	Summary string          `json:"summary"`
 	Readme  string          `json:"readme"`
-	Pricing string          `json:"pricing"`
 	KEL     string          `json:"kel"`
-	Card    json.RawMessage `json:"card"`
 	EncKeys string          `json:"enc_keys,omitempty"`
 	PrevSeq *uint64         `json:"prev_seq,omitempty"`
 	A2ACard json.RawMessage `json:"a2a_card,omitempty"`
@@ -854,37 +841,6 @@ func (h *fakeHub) hRegister(w http.ResponseWriter, r *http.Request) {
 		fakeHubJSON(w, http.StatusOK, map[string]string{"status": checkStatus})
 		return
 	}
-	// The card gate, with the same rule the real hub applies.
-	//
-	// This fake used not to read the card field at all. That made every
-	// card-related defect invisible on this side: the daemon minted a
-	// sequence, the fake stored an agent, both suites went green, and the
-	// hub refused the registration in production. A fake that implements
-	// only the happy path is a fake that agrees with whatever the code
-	// does — see the STALE_SEQ defect this arrived with.
-	if len(req.Card) > 0 {
-		var card adp.AgentCard
-		if err := json.Unmarshal(req.Card, &card); err != nil {
-			fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
-			return
-		}
-		if card.SubjectDID != req.AID {
-			fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
-			return
-		}
-		h.mu.Lock()
-		high := h.cardHighWater[req.AID]
-		h.mu.Unlock()
-		if _, err := adp.AdmitCard(&card, time.Now(), high, kelEvents, map[uint16]bool{1: true}, nil); err != nil {
-			fakeHubRefuse(w, http.StatusBadRequest, "bad_request", map[string]any{"error": "card refused: " + err.Error()})
-			return
-		}
-		h.mu.Lock()
-		h.cardHighWater[req.AID] = card.Seq
-		h.adpCaps[req.AID] = append([]string(nil), card.Capabilities...)
-		h.mu.Unlock()
-	}
-
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	a, ok := h.agents[req.AID]
@@ -1303,13 +1259,20 @@ func (h *fakeHub) hProfile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Decoded strictly, as the real hub decodes it: a member it does not
+	// list (pricing, gone in 0.3.0) is 400 bad_request.
 	var req struct {
 		AID     string `json:"aid"`
 		Summary string `json:"summary"`
 		Readme  string `json:"readme"`
-		Pricing string `json:"pricing"`
 	}
-	if err := json.Unmarshal(body, &req); err != nil || req.AID == "" {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	if req.AID == "" {
 		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "aid required"})
 		return
 	}
@@ -1326,7 +1289,7 @@ func (h *fakeHub) hProfile(w http.ResponseWriter, r *http.Request) {
 		fakeHubJSON(w, http.StatusBadRequest, map[string]string{"error": "agent not registered"})
 		return
 	}
-	a.view.Summary, a.view.Readme, a.view.Pricing = req.Summary, req.Readme, req.Pricing
+	a.view.Summary, a.view.Readme = req.Summary, req.Readme
 	fakeHubJSON(w, http.StatusOK, map[string]any{"aid": req.AID, "status": "profile_updated"})
 }
 
@@ -1364,7 +1327,7 @@ func (h *fakeHub) hP2P(w http.ResponseWriter, r *http.Request) {
 // Caller must hold h.mu.
 func (h *fakeHub) viewWithAggregates(a *fakeHubAgent) hubapi.AgentView {
 	v := a.view
-	v.Listed = len(v.Caps) > 0 || v.Summary != "" || v.Readme != "" || v.Pricing != ""
+	v.Listed = len(v.Caps) > 0 || v.Summary != "" || v.Readme != ""
 	var sum, n int
 	for _, rv := range h.reviews {
 		if rv.SubjectAID == v.AID {
@@ -1384,7 +1347,6 @@ func (h *fakeHub) hAgents(w http.ResponseWriter, r *http.Request) {
 	q := strings.ToLower(r.URL.Query().Get("q"))
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.agentsQueries = append(h.agentsQueries, r.URL.RawQuery)
 	agents := []hubapi.AgentView{}
 	for _, a := range h.agents {
 		v := h.viewWithAggregates(a)
