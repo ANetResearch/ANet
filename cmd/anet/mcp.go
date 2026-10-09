@@ -69,9 +69,17 @@ func runMCP(layout daemon.Layout, explicit bool) error {
 // answered 401, and a session that kept it would fail every tool call until
 // it was restarted. On a 401 the client finds the daemon again the way
 // `anet mcp` did at start — the token file of the same identity — and, when
-// that gives another token or address, sends the call once more with it. A
-// 401 is answered before a route does anything, so the second attempt is
-// the first one the daemon acts on.
+// that gives another token for the same address, sends the call once more
+// with it. A 401 is answered before a route does anything, so the second
+// attempt is the first one the daemon acts on.
+//
+// The address does not change mid-session. A 401 comes from a daemon of
+// this user's at the address the session has used (the listener is checked
+// before the token is sent), so the daemon that rotated is at that address;
+// a lookup that names another one has found another daemon — without an
+// explicit identity, ResolveControl falls back to whichever daemon started
+// last — and following it would have the agent's tool calls, its tasks and
+// payments among them, act as another identity from one call to the next.
 type controlClient struct {
 	mu sync.Mutex
 	c  *client
@@ -107,23 +115,23 @@ func (cc *controlClient) current() client {
 
 // refreshed finds the daemon again after a 401 that used was answered
 // with: the client to send with, and whether it differs from used (another
-// token or address). Concurrent calls that were all refused share one
-// lookup's result.
+// token at the same address; see controlClient). Concurrent calls that were
+// all refused share one lookup's result.
 func (cc *controlClient) refreshed(used client) (client, bool) {
 	if cc.resolve == nil {
 		return used, false
 	}
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	if cc.c.token != used.token || cc.c.base != used.base {
+	if cc.c.token != used.token {
 		// Another call found the new token already.
 		return *cc.c, true
 	}
 	base, token, err := cc.resolve()
-	if err != nil || (token == used.token && base == used.base) {
+	if err != nil || base != used.base || token == used.token {
 		return used, false
 	}
-	cc.c.base, cc.c.token = base, token
+	cc.c.token = token
 	return *cc.c, true
 }
 

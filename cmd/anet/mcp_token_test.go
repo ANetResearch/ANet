@@ -135,6 +135,26 @@ func TestControlClientRetriesOnlyANewToken(t *testing.T) {
 	}
 }
 
+// A lookup that names another address has found another daemon (without an explicit identity,
+// whichever started last), not the one that rotated its token: the session keeps its address, the
+// call is not sent there, and the 401 is the answer. [mut] refreshed follows a new address → red.
+func TestControlClientStaysWithItsDaemon(t *testing.T) {
+	calls, otherCalls := &tokenCalls{n: map[string]int{}}, &tokenCalls{n: map[string]int{}}
+	srv := newTokenServer(t, "current", calls)
+	other := newTokenServer(t, "other", otherCalls)
+	cc := &controlClient{c: &client{base: srv, token: "stale", timeout: 5 * time.Second},
+		resolve: func() (string, string, error) { return other, "other", nil }}
+	if _, code, err := cc.fetch(context.Background(), "/status", map[string]any{}); err != nil || code != 401 {
+		t.Fatalf("a lookup naming another daemon: %d %v", code, err)
+	}
+	if otherCalls.get("other") != 0 || calls.get("stale") != 1 {
+		t.Fatalf("the call went to another daemon: here %v, there %v", calls, otherCalls)
+	}
+	if got := cc.current(); got.base != srv || got.token != "stale" {
+		t.Fatalf("the session moved to %s with %q", got.base, got.token)
+	}
+}
+
 // tokenCalls counts the calls each token made.
 type tokenCalls struct {
 	mu sync.Mutex
