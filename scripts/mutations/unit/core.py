@@ -449,4 +449,10 @@ MUTS = [
  dict(id='core5-37', group='CORE-5', repo='ANet', desc='advertise 的 tcp:// 前缀不去掉(grant 里丢掉直连地址)',
   edits=[('internal/daemon/caps.go', '\ta = strings.TrimPrefix(strings.TrimSpace(a), "tcp://")', '\ta = strings.TrimSpace(a)')],
   tests=[('ANet:./internal/daemon', '^TestGrantP2PAddrIsTheGrantsForm$')], full=['ANet:./internal/daemon']),
+ dict(id='core5-38', group='CORE-5', repo='ANetCore', desc='p2p 端口的数字不设上限地累加(2^64 + 80 回绕成 80)',
+  edits=[('seal/grant.go', "\t\tif c < '0' || c > '9' || n > 65535 {", "\t\tif c < '0' || c > '9' {")],
+  tests=[('ANetCore:./seal', '^TestGrantHomeAndP2PBounds$')], full=['ANetCore:./seal']),
+ dict(id='core5-39', group='CORE-5', repo='ANet', desc='没有绑定的任务(id 或 nonce 含 U+0000)收下绑定为空的付款',
+  edits=[('module/x402/check.go', '\tif t.Bind == "" || auth.InteractionID != t.Bind {', '\tif auth.InteractionID != t.Bind {')],
+  tests=[('ANet:./internal/daemon', '^TestATaskWithoutABindingTakesNoPayment$')], full=['ANet:./internal/daemon']),
 ]
