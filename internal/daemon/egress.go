@@ -5,7 +5,11 @@ package daemon
 // A sandboxed agent has no network of its own. Its only way out is this endpoint, which the daemon opens
 // before the agent starts and closes the moment the run ends (EG-1). On Linux it listens on a Unix socket
 // bound into the sandbox at /run/anet/egress.sock, which anet __sandbox-init bridges to the sandbox's
-// 127.0.0.1:3128; only a process of this daemon's user may connect (sandbox_linux.go).
+// 127.0.0.1:3128; only a process of this daemon's user may connect (sandbox_linux.go). On macOS it
+// listens on a random port of the host's 127.0.0.1, which every local process can reach, so it is keyed
+// (EG-3, sandbox_darwin.go): the injection route starts with the run's random key and every CONNECT
+// carries it in Proxy-Authorization; without it a request is refused with egress_unauthorized (404 on
+// the route, 407 for CONNECT).
 //
 // The endpoint answers two things and refuses the rest with egress_plain_http (EG-2):
 //
@@ -26,13 +30,16 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"crypto/tls"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -219,9 +226,14 @@ func (a *egressSummary) add(b egressSummary) {
 	a.Connect.BytesDown += b.Connect.BytesDown
 }
 
-// egressSelf are the request-target authorities that name the endpoint itself: a client that sends its
-// model requests through the proxy variables writes the route in absolute form to them (LEC §2.6.2).
+// egressSelf are the request-target authorities that name the Linux endpoint itself: a client that sends
+// its model requests through the proxy variables writes the route in absolute form to them (LEC §2.6.2).
+// A keyed endpoint names its own port instead (keyed).
 var egressSelf = map[string]bool{sandboxBridgeListen: true, "localhost:3128": true}
+
+// egressKeyUser is the user name of the Proxy-Authorization a keyed endpoint takes: Basic "anet:" ‖ S
+// (LEC §2.6.3).
+const egressKeyUser = "anet"
 
 // egressEndpoint serves one sandboxed run.
 type egressEndpoint struct {
@@ -235,7 +247,13 @@ type egressEndpoint struct {
 	// peerCheck, when set, admits a connection only from the expected process owner (Linux: the
 	// daemon's own uid, read with SO_PEERCRED).
 	peerCheck func(net.Conn) error
-	conns     atomic.Int32
+	// self are the authorities an absolute-form request names the endpoint by (egressSelf, or a keyed
+	// endpoint's own address).
+	self map[string]bool
+	// key, when set, is the run's random key S (macOS, EG-3): the injection route's first segment and
+	// the password of every CONNECT's Proxy-Authorization, compared in constant time and never logged.
+	key   []byte
+	conns atomic.Int32
 	// net is how CONNECT resolves and dials (egress_connect.go); tunnels are the run's CONNECT tunnels.
 	net         egressConnectNet
 	connectWait egressConnectWait
@@ -257,7 +275,7 @@ type egressEndpoint struct {
 func newEgressEndpoint(up *egressUpstream) *egressEndpoint {
 	ctx, cancel := context.WithCancel(context.Background())
 	e := &egressEndpoint{up: up, lang: a2ashape.Lang(), transport: newEgressTransport(up), ctx: ctx, cancel: cancel,
-		bodySlot: make(chan struct{}, 1), net: newEgressConnectNet(),
+		bodySlot: make(chan struct{}, 1), net: newEgressConnectNet(), self: egressSelf,
 		connectWait: egressConnectWait{resolve: egressConnectResolveTimeout, hello: egressConnectHelloTimeout}}
 	e.srv = &http.Server{
 		Handler:           e,
@@ -268,6 +286,72 @@ func newEgressEndpoint(up *egressUpstream) *egressEndpoint {
 		ErrorLog:          log.New(io.Discard, "", 0),
 	}
 	return e
+}
+
+// keyed makes the endpoint one that listens on addr, a port of the host's loopback, and takes only
+// requests that carry key (EG-3): the injection route /anet-upstream/<key>/<name>/…, and CONNECT with
+// Proxy-Authorization Basic "anet:" ‖ key. It is called before Serve.
+func (e *egressEndpoint) keyed(addr, key string) {
+	_, port, _ := net.SplitHostPort(addr)
+	e.self = map[string]bool{strings.ToLower(addr): true, "localhost:" + port: true}
+	e.key = []byte(key)
+}
+
+// keyIs reports, in constant time, whether s is the run's key. An endpoint without a key takes anything.
+func (e *egressEndpoint) keyIs(s string) bool {
+	return len(e.key) == 0 || subtle.ConstantTimeCompare([]byte(s), e.key) == 1
+}
+
+// routeKeyOK is the keyed endpoint's check of the injection route (EG-3), before routePath: a request
+// for the route must name the run's key as its first segment, which is then taken off the path. A request
+// that is not for the route is left to routePath, which refuses it as plain HTTP.
+func (e *egressEndpoint) routeKeyOK(r *http.Request) bool {
+	if len(e.key) == 0 || !e.targetsSelf(r.URL) {
+		return true
+	}
+	rest, isRoute := strings.CutPrefix(r.URL.Path, egressRoutePrefix)
+	if !isRoute {
+		return true
+	}
+	key, after, _ := strings.Cut(rest, "/")
+	if r.URL.RawPath != "" || !e.keyIs(key) {
+		return false
+	}
+	r.URL.Path = egressRoutePrefix + after
+	return true
+}
+
+// proxyAuthorized is the keyed endpoint's check of a CONNECT (EG-3): exactly one Proxy-Authorization,
+// Basic, user "anet", password the run's key.
+func (e *egressEndpoint) proxyAuthorized(h http.Header) bool {
+	if len(e.key) == 0 {
+		return true
+	}
+	vals := h.Values("Proxy-Authorization")
+	if len(vals) != 1 {
+		return false
+	}
+	scheme, cred, ok := strings.Cut(strings.TrimSpace(vals[0]), " ")
+	if !ok || !strings.EqualFold(scheme, "Basic") {
+		return false
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(cred))
+	if err != nil {
+		return false
+	}
+	user, pass, ok := strings.Cut(string(raw), ":")
+	return ok && user == egressKeyUser && subtle.ConstantTimeCompare([]byte(pass), e.key) == 1
+}
+
+// targetsSelf reports a request target in origin form, or in absolute form naming the endpoint itself.
+func (e *egressEndpoint) targetsSelf(u *url.URL) bool {
+	if u == nil {
+		return false
+	}
+	if u.IsAbs() || u.Host != "" {
+		return strings.EqualFold(u.Scheme, "http") && e.self[strings.ToLower(u.Host)]
+	}
+	return true
 }
 
 // newEgressTransport is the HTTP client side of the injection route (EG-5): TLS verified against the
@@ -392,6 +476,12 @@ func (e *egressEndpoint) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		e.connect(w, r)
 		return
 	}
+	if !e.routeKeyOK(r) {
+		// EG-3: on a keyed endpoint another local process can reach the port; it gets nothing without the key.
+		w.Header().Set("Connection", "close")
+		e.refuse(w, refuseEgress(http.StatusNotFound, "egress_unauthorized", nil))
+		return
+	}
 	upPath, routed, ok := e.routePath(r)
 	switch {
 	case !routed:
@@ -412,7 +502,7 @@ func (e *egressEndpoint) routePath(r *http.Request) (upPath string, routed, ok b
 		return "", false, false
 	}
 	if u.IsAbs() || u.Host != "" {
-		if !strings.EqualFold(u.Scheme, "http") || !egressSelf[strings.ToLower(u.Host)] {
+		if !strings.EqualFold(u.Scheme, "http") || !e.self[strings.ToLower(u.Host)] {
 			return "", false, false
 		}
 	}

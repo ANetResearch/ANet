@@ -1,16 +1,20 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package daemon
 
-// sandbox_other.go: the bubblewrap sandbox exists only on Linux. On other platforms every sandboxed run
-// fails closed until that platform has its own sandbox (macOS Seatbelt: LEC §4.3.8).
+// sandbox_other.go: there is a sandbox on Linux (bubblewrap, sandbox_linux.go) and on macOS (Seatbelt,
+// sandbox_darwin.go) only. Everywhere else every sandboxed run fails closed with platform_unsupported
+// (LEC OP-1).
+
+// sandboxCodePlatformUnsupported is the local reason (ux §1.4 H) a sandboxed run is refused with here.
+const sandboxCodePlatformUnsupported = "platform_unsupported"
 
 func (p *sandboxPlan) prepare() error {
-	return sandboxUnavailable("the sandbox is implemented only on Linux (bubblewrap)")
+	return &sandboxProbeError{Code: sandboxCodePlatformUnsupported, Detail: "the sandbox runs only on Linux (bubblewrap) and macOS (Seatbelt)"}
 }
 
 func (p *sandboxPlan) command(workDir string, argv, env []string, stdin []byte) (*sandboxLaunch, error) {
-	return nil, sandboxUnavailable("the sandbox is implemented only on Linux (bubblewrap)")
+	return nil, p.prepare()
 }
 
 // sandboxKind: no sandbox runs here.
