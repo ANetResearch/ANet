@@ -348,8 +348,8 @@ func TestALateCardIsKept(t *testing.T) {
 		t.Fatalf("no one read the mailboxes: %+v", res)
 	}
 	waitUntil(t, "the late answer", func() bool {
-		poll(t, prov)
-		poll(t, req)
+		_ = prov.pollOnce(context.Background())
+		_ = req.pollOnce(context.Background())
 		_, ok, _ := req.ix.PeerExtCard(prov.AID())
 		return ok
 	})
