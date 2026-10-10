@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -83,7 +84,7 @@ func TestEmergencyRotationReplacesEverySecret(t *testing.T) {
 		}
 		if err := req.ix.Update(func(tx *interactions.Tx) error {
 			return tx.PutIXKey(interactions.IXKey{IX: id, PeerAID: prov.AID(), Suite: k.Suite, Pub: k.Pub, Priv: k.Private})
-		}); err != nil {
+		}); err != nil && !errors.Is(err, interactions.ErrIXKeyExists) { // FS-7: sending already made one
 			t.Fatal(err)
 		}
 	}

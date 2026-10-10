@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -77,7 +78,7 @@ func TestStoppedClosesInteractions(t *testing.T) {
 	}
 	if err := req.ix.Update(func(tx *interactions.Tx) error {
 		return tx.PutIXKey(interactions.IXKey{IX: id, PeerAID: prov.AID(), Suite: k.Suite, Pub: k.Pub, Priv: k.Private})
-	}); err != nil {
+	}); err != nil && !errors.Is(err, interactions.ErrIXKeyExists) { // FS-7: Delegate already made one
 		t.Fatal(err)
 	}
 	epochKeys := len(req.enc.keys)
