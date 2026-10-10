@@ -1518,6 +1518,11 @@ func (d *Daemon) hReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := d.SubmitReview(req.InteractionID, req.Rating, req.Comment)
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		writeRefusal(w, http.StatusConflict, ref)
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return

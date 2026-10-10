@@ -114,10 +114,12 @@ func StoreState(s TaskState) (interactions.State, bool) {
 
 // ControlMetadata reports whether message metadata makes a text message a
 // control message rather than a conversation turn: any x402.* key, or
-// anet.state (A2A-DESIGN §4.1 [C29]) — except on a final reply
-// (FinalReply), whose anet.state=working only keeps the requester waiting
-// for the result that follows it. Such a message is neither in the
-// transcript a receipt covers nor in the history.
+// anet.state (A2A-DESIGN §4.1 [C29]) — a progress note sent with
+// anet.state=working among them. Such a message is neither in the
+// transcript a receipt covers nor in the history. There is no exception:
+// a provider's reply that completes a task travels in its result
+// (ResultResp.reply, correctness-ux CUX-R4), not as a message marked to
+// keep the requester waiting.
 func ControlMetadata(meta map[string]any) bool {
 	for k := range meta {
 		if strings.HasPrefix(k, "x402.") {
@@ -125,18 +127,7 @@ func ControlMetadata(meta map[string]any) bool {
 		}
 	}
 	_, state := meta[KeyState]
-	return state && !FinalReply(meta)
-}
-
-// FinalReply reports a provider's final reply on a text task it completes
-// (KeyFinal, an internal note item): anet.state=working and anet.final=true.
-func FinalReply(meta map[string]any) bool {
-	return meta[KeyFinal] == true && meta[KeyState] == string(interactions.StateWorking)
-}
-
-// FinalReplyMetadata is the metadata of a final reply (FinalReply).
-func FinalReplyMetadata() map[string]any {
-	return map[string]any{KeyState: string(interactions.StateWorking), KeyFinal: true}
+	return state
 }
 
 // AttachmentURI names a stored attachment by the parameters of the control
@@ -207,6 +198,13 @@ type Options struct {
 	// IdentityNote, when set, is anet.identity_note (KeyIdentityNote): the
 	// node's reminder that its identity has no recovery passphrase yet.
 	IdentityNote string
+	// ForBackend says the projection is for a local backend that answers
+	// the task on this node's behalf (modules.a2a.backends[], the
+	// auto-reply), not for the operator's own clients. It never carries
+	// IdentityNote: the reminder is for the operator, and a model answering
+	// a stranger could repeat it, telling the stranger the identity can be
+	// taken over.
+	ForBackend bool
 }
 
 // Load reads what Project needs for one interaction.
@@ -271,7 +269,7 @@ func Project(src Source, opt Options) Task {
 		Metadata:  p.metadata(why),
 	}
 	t.History = p.history()
-	if opt.IdentityNote != "" {
+	if opt.IdentityNote != "" && !opt.ForBackend {
 		t.Metadata[KeyIdentityNote] = opt.IdentityNote
 	}
 	if opt.Artifacts {
@@ -1052,6 +1050,8 @@ func receiptVerified(v interactions.Verification) string {
 		return ReceiptVerified
 	case interactions.VerificationUnverified:
 		return ReceiptUnverified
+	case interactions.VerificationMismatch:
+		return ReceiptMismatch
 	}
 	return ReceiptUnknown
 }

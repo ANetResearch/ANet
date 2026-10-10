@@ -5,7 +5,8 @@ package daemon
 // what only the daemon has: attachment bytes, safe file names and the key
 // history a receipt was checked against, the payment flow's reading of
 // the task's payment columns (PaymentStatusMeta), and the reminder that the
-// identity has no recovery passphrase yet (anet.identity_note, KEL D-15). The projection carries the state
+// identity has no recovery passphrase yet (anet.identity_note, KEL D-15) —
+// for the operator's clients, never for a backend answering the task. The projection carries the state
 // sequence number (a2ashape.KeyStateSeq), which a caller passes back to
 // /tasks/wait as after_seq to wait for a state newer than the one it has
 // seen (C35).
@@ -32,6 +33,11 @@ type viewOpts struct {
 	// /attachment and `anet pull` resolve, and which keeps a task small
 	// enough to hand to a model.
 	inline bool
+	// backend: the view is for a local backend that answers the task for
+	// this node (modules.a2a.backends[], inbound_tasks.go), not for the
+	// operator's clients. It carries no anet.identity_note
+	// (a2ashape.Options.ForBackend).
+	backend bool
 }
 
 // taskView renders ix as an A2A task.
@@ -45,7 +51,7 @@ func (d *Daemon) taskView(ix *interactions.Interaction, o viewOpts) (a2ashape.Ta
 		return a2ashape.Task{}, err
 	}
 	opt := a2ashape.Options{HistoryLength: o.historyLen, Artifacts: o.artifacts, InlineFiles: o.inline, SafeName: safeName,
-		IdentityNote: d.identityNote(a2ashape.Lang())}
+		IdentityNote: d.identityNote(a2ashape.Lang()), ForBackend: o.backend}
 	if o.inline {
 		opt.LoadFile = func(cid string) ([]byte, error) {
 			a, err := d.ix.AttachmentData(ix.ID, cid)

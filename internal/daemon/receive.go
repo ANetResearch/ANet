@@ -1233,6 +1233,12 @@ func (d *Daemon) authorizeReply(m *rxMsg) *rxResult {
 		r := d.drop(dropNotPeer, fmt.Errorf("%s belongs to %s", m.ix, ix.PeerAID))
 		return &r
 	}
+	if m.rr != nil && m.rr.Reply != nil && ix.IsCapability {
+		// Only a text task's result carries a reply (CUX-R1); the decoder
+		// cannot tell, this node knows the task.
+		r := d.drop(dropBadBody, fmt.Errorf("a capability task's result carries a reply"))
+		return &r
+	}
 	m.existing = ix
 	return nil
 }

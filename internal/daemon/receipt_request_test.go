@@ -76,8 +76,10 @@ func TestAReceiptForAnotherRequestIsRefused(t *testing.T) {
 		r.reason != dropResultRefused {
 		t.Fatalf("a receipt for another request: %+v, want %s", r, dropResultRefused)
 	}
+	// The task is failed, result_refused, before the provider is told
+	// (correctness-ux CUX-R7): nothing of the result is kept.
 	ix := mustIX(t, req, id)
-	if len(ix.Receipt) > 0 || ix.IsTerminal() {
+	if len(ix.Receipt) > 0 || ix.ResultCID != "" || ix.State != interactions.StateFailed {
 		t.Fatalf("the refused result was stored: state %s, receipt %d bytes", ix.State, len(ix.Receipt))
 	}
 	if _, err := req.SubmitReview(id, 5, "great"); err == nil {

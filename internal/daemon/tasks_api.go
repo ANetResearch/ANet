@@ -426,10 +426,10 @@ type replyReq struct {
 	// State is what the answer does to the task:
 	//   input-required (default)  a message; the requester is asked to answer
 	//   working                   a progress message; the task stays working
-	//   completed                 the message (if any, as the final reply:
-	//                             anet.state=working, anet.final, 0017
-	//                             Q30), then completion: a receipt is
-	//                             signed over the transcript
+	//   completed                 completion: a receipt is signed over the
+	//                             transcript, which ends with the message
+	//                             (if any); the result carries it as its
+	//                             reply (completeWithReply, CUX-R4)
 	//   failed, rejected          a status with the text as the reason
 	//   canceled                  the provider cancels
 	State string `json:"state"`
@@ -515,18 +515,14 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 			_, err = d.sendMessage(sctx, ix.ID, text, in.atts, map[string]any{a2ashape.KeyState: string(interactions.StateWorking)})
 		}
 	case interactions.StateCompleted:
-		if in != nil {
-			// The final reply (an internal note item): a conversation turn, so the
-			// transcript the receipt covers ends with it and it becomes the
-			// anet.reply artifact, sent with anet.state=working so the
-			// requester stays working until the result arrives rather than
-			// stopping at an input-required between the two (a blocking
-			// SendMessage would return there, without the answer).
-			if _, err = d.sendMessage(sctx, ix.ID, text, in.atts, a2ashape.FinalReplyMetadata()); err != nil {
-				break
-			}
+		if in == nil {
+			err = d.CompleteTask(sctx, ix.ID)
+			break
 		}
-		err = d.CompleteTask(sctx, ix.ID)
+		// The reply and the completion are one write and one message to
+		// the requester (CUX-R4, R5): the result carries the reply, so the
+		// requester's blocking SendMessage returns completed with it.
+		err = d.completeWithReply(sctx, ix.ID, text, in.atts)
 	case interactions.StateFailed, interactions.StateRejected:
 		err = d.SendStatus(sctx, ix.ID, state, text, nil)
 	case interactions.StateCanceled:

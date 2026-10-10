@@ -216,7 +216,7 @@ func FuzzReceiveInner(f *testing.F) {
 		{route: routeToProvider, verb: delegation.ChatText, meta: []byte(`{"x402.payment.status":"payment-submitted","x402.payment.payload":{"x402Version":1}}`)},
 		{route: routeToProvider, verb: delegation.KindCancel},
 		{route: routeToProvider, verb: delegation.ChatEndRequest},
-		{route: routeToRequester, typ: 0, verb: delegation.ChatText, text: "reply", meta: []byte(`{"anet.state":"working","anet.final":true}`)},
+		{route: routeToRequester, typ: 0, verb: delegation.ChatText, text: "reply", meta: []byte(`{"anet.state":"working"}`)},
 		{route: routeToRequester, typ: 1, verb: delegation.StateInputRequired, text: "pay", capID: "text.echo",
 			meta: []byte(`{"x402.payment.status":"payment-required","x402.payment.required":{"x402Version":1,"accepts":[{"scheme":"exact","network":"anet","maxAmountRequired":"100","payTo":"x","asset":"credit","resource":"r","description":"d","mimeType":"application/json","maxTimeoutSeconds":60}]}}`)},
 		{route: routeToRequester, typ: 1, verb: delegation.StateFailed, meta: []byte(`{"anet.effect_status":"OK","anet.receipt_verified":"verified"}`)},

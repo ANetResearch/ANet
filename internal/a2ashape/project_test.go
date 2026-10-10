@@ -135,7 +135,7 @@ func checkSI6(task *a2a.Task) error {
 			return fmt.Errorf("completed task has no %s", a2ashape.KeyReceiptVerified)
 		}
 		switch rv {
-		case a2ashape.ReceiptVerified, a2ashape.ReceiptUnverified, a2ashape.ReceiptUnknown:
+		case a2ashape.ReceiptVerified, a2ashape.ReceiptUnverified, a2ashape.ReceiptUnknown, a2ashape.ReceiptMismatch:
 		default:
 			return fmt.Errorf("%s=%q", a2ashape.KeyReceiptVerified, rv)
 		}
