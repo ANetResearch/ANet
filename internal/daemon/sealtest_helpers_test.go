@@ -21,15 +21,30 @@ import (
 // set d publishes, decoded. Tests that seal without a hub use it.
 func keySetOf(t testing.TB, d *Daemon) *seal.EncKeySet {
 	t.Helper()
-	signed, err := seal.UnmarshalSignedEncKeySet(d.enc.SignedSet())
+	set, err := verifiedKeySetOf(d)
 	if err != nil {
-		t.Fatal(err)
+		// Every start makes a join attempt in the background, and a test
+		// node's join designates its witness and then signs its key set
+		// again (sendingJoinHooks): between the two the set is under a
+		// retired key. The attempt holds regMu throughout, so wait for it
+		// and read once more.
+		d.regMu.Lock()
+		d.regMu.Unlock() //nolint:staticcheck // waiting for the attempt is the point
+		set, err = verifiedKeySetOf(d)
 	}
-	set, err := seal.VerifyEncKeySet(signed, d.AID(), d.self.KEL(), d.nowMS())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return set
+}
+
+// verifiedKeySetOf is the key set d publishes, verified against its KEL.
+func verifiedKeySetOf(d *Daemon) (*seal.EncKeySet, error) {
+	signed, err := seal.UnmarshalSignedEncKeySet(d.enc.SignedSet())
+	if err != nil {
+		return nil, err
+	}
+	return seal.VerifyEncKeySet(signed, d.AID(), d.self.KEL(), d.nowMS())
 }
 
 // sealFrom seals body as a message of type typ for interaction ix, from
