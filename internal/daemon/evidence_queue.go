@@ -89,6 +89,10 @@ func decodeQueuedRecord(line []byte) (queuedRecord, error) {
 	if err != nil {
 		return r, fmt.Errorf("%w: %v", errEvidenceQueue, err)
 	}
+	if base64.StdEncoding.EncodeToString(raw) != string(line) {
+		// The decoder skips line breaks inside the text; a line holds none.
+		return r, fmt.Errorf("%w: not base64 in its one spelling", errEvidenceQueue)
+	}
 	if err := coredet.UnmarshalStrict(raw, &r); err != nil {
 		return r, fmt.Errorf("%w: %v", errEvidenceQueue, err)
 	}

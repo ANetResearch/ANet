@@ -334,6 +334,8 @@ func TestOldHubLeaveKeepsCurrentJoin(t *testing.T) {
 	d.stopRelayLoop()
 	waitUntil(t, "the old hub confirmed", func() bool { return len(d.oldWitnessUnacked()) == 0 })
 	joinBefore := mustRead(t, d.layout.hubJoinPath())
+	prevPoll := oldHubPollEvery.set(10 * time.Millisecond)
+	t.Cleanup(func() { oldHubPollEvery.set(prevPoll) })
 	later := d.nowMS() + OldHubDrain + 60_000
 	d.setClock(func() uint64 { return later })
 	d.idOps.mu.Lock()

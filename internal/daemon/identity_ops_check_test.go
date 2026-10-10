@@ -88,6 +88,7 @@ func TestStoppedClosesInteractions(t *testing.T) {
 		t.Fatal("the hub took a poll signed with a key its record retired")
 	}
 	waitIdentity(t, req, IdentityStopped)
+	waitUntil(t, "the tasks of the stopped identity are closed", func() bool { return interactionsCountOpen(t, req) == 0 })
 	if st, _, reason := taskViewMap(t, req, id); st != string(a2ashape.TaskStateFailed) || reason != string(closeStopped) {
 		t.Fatalf("the task after the stop: %s %s, want failed identity_stopped", st, reason)
 	}

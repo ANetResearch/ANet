@@ -312,6 +312,9 @@ func (h identityJoinHooks) Prepare(_ context.Context, hubAID string) ([]byte, er
 				return nil, err
 			}
 		}
+		// The key set goes with it, signed under its key (a restart may
+		// have come between the two).
+		d.resignForPending()
 		return identity.MarshalKEL(c.KEL())
 	}
 	r := d.joinSnapshot()
