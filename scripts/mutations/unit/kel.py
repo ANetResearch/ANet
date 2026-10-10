@@ -635,8 +635,9 @@ MUTS += [
   edits=[('internal/daemon/config.go', '\t{"rotation_grace", "rotation_grace"},\n', '')],
   tests=K8(['TestRotationGraceConfigKeyRejected']), full=K8_FULL),
  dict(id='kel8-ksn', group='KEL-8', repo='ANet', desc='C-58:非测试代码出现名为 ksn 的标识符',
-  edits=[('internal/daemon/pending.go', 'func (d *Daemon) keyStateUsable(kel []identity.SignedEvent, seq uint64) error {\n',
-          'func (d *Daemon) keyStateUsable(kel []identity.SignedEvent, ksn uint64) error {\n\tseq := ksn\n')],
+  # Re-pointed by KEL-11: keyStateUsable is a function of the arrival now (KEL D-25).
+  edits=[('internal/daemon/pending.go', 'func keyStateUsable(kel []identity.SignedEvent, seq, arrival uint64) error {\n',
+          'func keyStateUsable(kel []identity.SignedEvent, ksn, arrival uint64) error {\n\tseq := ksn\n')],
   tests=K8(['TestNoKSNIdentifiers']), full=K8_FULL),
  dict(id='kel8-status-witness', group='KEL-8', repo='ANet', desc='/identity/status 的 last_rotation 把指定见证说成计划内轮换',
   edits=[(IDSTAT, '\t\tcase i == 1 && e.Toad != nil && *e.Toad == identity.ToadAgent:\n', '\t\tcase false:\n')],
