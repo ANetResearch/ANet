@@ -7,7 +7,6 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"testing"
 	"time"
 
@@ -29,12 +28,9 @@ import (
 func TestRedteamSI4_PaddedKELMakesEachEnvelopeExpensive(t *testing.T) {
 	prov := newTestDaemon(t, "", false)
 	measure := func(extra int) (time.Duration, int) {
-		c, err := identitytest.Hub()
-		if err != nil {
-			t.Fatal(err)
-		}
+		c := witnessedIdentity(t)
 		for i := 0; i < extra; i++ {
-			if err := identitytest.Rotate(c, uint64(i+2)); err != nil {
+			if err := identitytest.Rotate(c, identitytest.InceptTS+2+uint64(i)); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -51,25 +47,26 @@ func TestRedteamSI4_PaddedKELMakesEachEnvelopeExpensive(t *testing.T) {
 		return total / reps, len(kb)
 	}
 	small, _ := measure(0)
-	big, size := measure(180)
+	big, size := measure(150)
 	if size > seal.MaxKELBytes {
 		t.Fatalf("setup: KEL %d bytes over the cap", size)
 	}
 	ratio := float64(big) / float64(small)
-	t.Logf("1-event KEL: %s/envelope; 181-event KEL (%d bytes): %s/envelope; x%.0f; 20 env/s from one AID = %s of receive work per second",
+	t.Logf("2-event KEL: %s/envelope; 152-event KEL (%d bytes): %s/envelope; x%.0f; 20 env/s from one AID = %s of receive work per second",
 		small, size, big, ratio, 20*big)
 	if ratio < 20 {
 		t.Fatalf("attack failed: ratio only %.1f", ratio)
 	}
 }
 
-// SI4-RT-4. §3.6 step 9 holds (does not acknowledge) an authenticated
-// message for an ix this node does not know while now - inner.ts <= 10 min.
-// inner.ts is the sender's choice up to now + 5 min (step 5), so a stranger
-// holds each message ~15 min. The held envelopes stay in the hub mailbox and
-// count against the per-recipient quota (5000 envelopes / 1 GiB; 1 GiB is
-// eleven 96 MiB envelopes), so one free AID keeps an ONLINE victim's
-// mailbox full: every other sender gets 507 and nothing reaches it.
+// SI4-RT-4, fixed by engine ENG-V10. §3.6 step 9 used to hold (not
+// acknowledge) an authenticated message for an ix this node does not know
+// while now - inner.ts <= 10 min. inner.ts is the sender's choice up to
+// now + 5 min (step 5), so a stranger held each message ~15 min; the held
+// envelopes stayed in the hub mailbox against the per-recipient quota, so
+// one free AID kept an ONLINE victim's mailbox full and every other sender
+// got 507. There is no window now: the victim refuses them in the round
+// that reads them (task_not_found), and the mailbox stays open.
 func TestRedteamSI4_UnknownIXWaitPinsTheMailboxFull(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -85,20 +82,12 @@ func TestRedteamSI4_UnknownIXWaitPinsTheMailboxFull(t *testing.T) {
 	for i := 0; i < quota; i++ {
 		env := craft(t, s, prov, seal.TypeMessage, fmt.Sprintf("ix_no_such_task_%d", i), chatBody(t, "x", ""),
 			func(in *seal.SealedInner) { in.TS = base + 4*60*1000 }) // ts in the future, inside the 5 min skew
-		if err := stranger.deliverEnvelope(ctx, prov.AID(), env); err != nil {
-			t.Fatal(err)
-		}
+		injectEnvelope(t, srv, prov.AID(), env)
 	}
-	// The victim is online and polls; 14 minutes later it still holds them.
-	for _, at := range []uint64{0, 5, 10, 14} {
-		now := base + at*60*1000
-		prov.setClock(func() uint64 { return now })
-		if err := prov.pollOnce(ctx); err != nil {
-			t.Fatal(err)
-		}
-		if err := prov.pollOnce(ctx); err != nil { // the cursor round back to the head
-			t.Fatal(err)
-		}
+	// The victim is online and polls once.
+	prov.setClock(func() uint64 { return base })
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
 	}
 	fake.mu.Lock()
 	held := 0
@@ -108,12 +97,12 @@ func TestRedteamSI4_UnknownIXWaitPinsTheMailboxFull(t *testing.T) {
 		}
 	}
 	fake.mu.Unlock()
-	// A legitimate, allowed peer now cannot reach the victim through the hub.
-	env := sealFrom(t, req, prov, seal.TypeMessage, "ix_whatever", chatBody(t, "hello", ""))
-	err := req.deliverEnvelope(ctx, prov.AID(), env)
-	if held != quota || hubStatus(err) != http.StatusInsufficientStorage {
-		t.Fatalf("attack failed: held %d, legit send %v", held, err)
+	if held != 0 || counter(prov, dropUnknownIX) != quota {
+		t.Fatalf("the victim held %d stranger envelopes (%d refused task_not_found)", held, counter(prov, dropUnknownIX))
 	}
-	t.Logf("DEFECT: %d stranger envelopes held for 14+ min by an online victim (t-unknown-ix=%d); legit sender gets %v",
-		held, counter(prov, transientUnknownIX), err)
+	// A legitimate, allowed peer still reaches the victim through the hub.
+	injectEnvelope(t, srv, prov.AID(), sealFrom(t, req, prov, seal.TypeMessage, "ix_whatever", chatBody(t, "hello", "")))
+	if n := len(queuedFor(t, srv, prov.AID())); n != 1 {
+		t.Fatalf("the legitimate envelope did not get into the mailbox (%d there)", n)
+	}
 }

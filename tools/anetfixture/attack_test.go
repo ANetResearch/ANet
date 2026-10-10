@@ -84,6 +84,19 @@ func newFakeHub(t *testing.T) *fakeHub {
 		_ = json.NewEncoder(w).Encode(hubapi.KeysResponse{AID: r.PathValue("aid"),
 			KeySet: hubapi.B64(ks), KEL: hubapi.B64(kb)})
 	})
+	// The agent as a hub lists it, with the witness notice of its KEL's tip
+	// (key_state_notice), which the fixture carries for a claimed sender.
+	mux.HandleFunc("GET /agents/{aid}", func(w http.ResponseWriter, r *http.Request) {
+		h.mu.Lock()
+		kel := h.kels[r.PathValue("aid")]
+		h.mu.Unlock()
+		if kel == nil {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]string{"aid": r.PathValue("aid"),
+			"key_state_notice": hubapi.B64(suiteNotice(t, kel))})
+	})
 	mux.HandleFunc("POST /relay/poll", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if _, err := h.verify(r, relayauth.ActionPoll, body); err != "" {

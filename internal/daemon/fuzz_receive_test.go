@@ -377,6 +377,7 @@ func FuzzReceiveInner(f *testing.F) {
 
 // craftE is craft that returns seal.Seal's refusal instead of failing.
 func craftE(t *testing.T, s sender, to *Daemon, typ, ix string, body []byte, edit func(*seal.SealedInner)) ([]byte, error) {
+	trustSuiteWitness(t, to)
 	now := uint64(time.Now().UnixMilli())
 	kel, err := identity.MarshalKEL(s.kel)
 	if err != nil {
@@ -384,7 +385,7 @@ func craftE(t *testing.T, s sender, to *Daemon, typ, ix string, body []byte, edi
 	}
 	in := &seal.SealedInner{From: s.aid, KeyStateSeq: s.ksn, To: to.AID(), Type: typ, IX: ix,
 		MID: seal.NewMID(), TS: now, Exp: now + messageLifetimeMS, Body: body, KEL: kel, Keys: s.keys,
-		Notices: s.notices()}
+		Notices: s.notices(t)}
 	if edit != nil {
 		edit(in)
 	}

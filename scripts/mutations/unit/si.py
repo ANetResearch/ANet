@@ -203,7 +203,7 @@ MUTS = [
   id='si4-1', group='SI-4', repo='ANet',
   desc='daemon 第 7 步: 签名不符(bad-sig)仍放行(= scripts/mutations/si4-skip-step7.patch)',
   edits=[
-   ('internal/daemon/receive.go', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, now); err != nil {', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, now); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {'),
+   ('internal/daemon/receive.go', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, arrival); err != nil {', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, arrival); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAForgedSenderInjectedAtTheHubIsDropped|TestEachReceiveStepRefusesWithItsClass')],
   full=['ANet:./internal/daemon'],
@@ -668,7 +668,7 @@ MUTS = [
   id='si10-5', group='SI-10', repo='ANet',
   desc='commitRx: 存储错误按永久失败(ack 并丢弃)',
   edits=[
-   ('internal/daemon/receive.go', '\t\treturn d.drop(perm.reason, perm.err)\n\tdefault:\n\t\treturn d.transient(transientStore, err)', '\t\treturn d.drop(perm.reason, perm.err)\n\tdefault:\n\t\treturn d.drop(transientStore, err)'),
+   ('internal/daemon/receive.go', '\t\treturn r\n\tdefault:\n\t\treturn d.transient(transientStore, err)\n\t}\n}', '\t\treturn r\n\tdefault:\n\t\treturn d.drop(transientStore, err)\n\t}\n}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAStoreFailureThenRedeliveryIsProcessedOnce|TestAStoreFailureOnTheP2PCopyThenRedeliveryThroughTheHubIsProcessedOnce')],
   full=['ANet:./internal/daemon'],
@@ -686,7 +686,7 @@ MUTS = [
   id='si10-7', group='SI-10', repo='ANet',
   desc='p2p 第 0 步限速返回 nil(被限速的投递被 ack)',
   edits=[
-   ('internal/daemon/transport.go', '\t\tin.d.count(transientP2PRate)\n\t\treturn errP2PRateLimited', '\t\tin.d.count(transientP2PRate)\n\t\treturn nil'),
+   ('internal/daemon/transport.go', '\t\tin.d.count(transientP2PRate)\n\t\treturn nil, errP2PRateLimited', '\t\tin.d.count(transientP2PRate)\n\t\treturn nil, nil'),
   ],
   tests=[('ANet:./internal/daemon', 'TestTheP2PRateLimitIsTemporary')],
   full=['ANet:./internal/daemon'],

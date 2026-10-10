@@ -517,9 +517,11 @@ func TestDrainMarkNeedsAck(t *testing.T) {
 	h.mu.Lock()
 	h.pollMore = nil
 	h.mu.Unlock()
-	// An envelope held back (a message for a task the provider does not
-	// know yet): its kid is held, and goes with the row.
-	env := sealFrom(t, req, prov, seal.TypeMessage, "ix_0123456789abcdef0123456789abcdef", chatBody(t, "early", ""))
+	// An envelope held back (its sender's witness is a hub the provider
+	// does not know yet: step 6½, witness-unknown): its kid is held, and
+	// goes with the row.
+	peer, _ := unknownWitnessSender(t)
+	env := craft(t, peer, prov, seal.TypeMessage, "ix_0123456789abcdef0123456789abcdef", chatBody(t, "early", ""), nil)
 	injectEnvelope(t, srv, prov.AID(), env)
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)

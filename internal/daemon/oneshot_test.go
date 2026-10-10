@@ -195,9 +195,9 @@ func TestET30_OneShotsAreNotQueued(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.ix.Update(func(tx *interactions.Tx) error { _, err := tx.PutHeldGrant(held); return err }); err != nil {
-		t.Fatal(err)
-	}
+	// The one-shot capability a card request brings is kept in memory, not
+	// in caps_held (SSR-W8); the answer takes it.
+	prov.cardGrants.put(req.AID(), cix, held, prov.nowMS())
 	answer, err := (&delegation.CardResp{Error: delegation.CardNotConfigured}).Marshal()
 	if err != nil {
 		t.Fatal(err)
@@ -349,7 +349,10 @@ func TestDLVT26_OneShotsEarnNoToken(t *testing.T) {
 	if res := co.frame(t, req.AID(), id, "direct"); !res.Handed {
 		t.Fatalf("a direct frame: %+v", res)
 	}
-	if direct.sends() != 1 || direct.withToken() != 0 {
+	// The frame goes directly; so may the answers to the card requests
+	// above, which the recipient sends in the background (a one-shot too):
+	// none of their acks carries a token.
+	if direct.sends() < 1 || direct.withToken() != 0 {
 		t.Fatalf("%d direct sends, %d acks with a token", direct.sends(), direct.withToken())
 	}
 	// What the outbox sends never carries outer key 8.

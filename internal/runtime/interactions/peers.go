@@ -39,6 +39,9 @@ type execer interface {
 type Tx struct {
 	tx  *sql.Tx
 	now int64 // unix ms at the start of the transaction, for state_at
+	// peerCap is the bound on unpinned peer_identity rows (Store.cap), for a
+	// peer record written in the transaction (UpdatePeerIdentity).
+	peerCap int
 }
 
 // Update runs fn inside one SQLite transaction and commits it when fn
@@ -55,7 +58,7 @@ func (s *Store) Update(fn func(*Tx) error) error {
 	if err != nil {
 		return fmt.Errorf("interactions: begin: %w", err)
 	}
-	if err := fn(&Tx{tx: tx, now: s.nowMS()}); err != nil {
+	if err := fn(&Tx{tx: tx, now: s.nowMS(), peerCap: s.cap()}); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -270,6 +273,26 @@ func (s *Store) UpdatePeerIdentity(aid string, fn func(cur *PeerIdentity) (*Peer
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := updatePeerIdentity(tx, aid, fn, s.cap(), uint64(s.nowMS())); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// UpdatePeerIdentity is Store.UpdatePeerIdentity inside t: the receive
+// pipeline's step 10 records the sender's KEL and key set in the
+// transaction that commits the message (engine §4.7 item 7), so the
+// capabilities the write voids or revokes (peerWritten) go with it.
+func (t *Tx) UpdatePeerIdentity(aid string, fn func(cur *PeerIdentity) (*PeerIdentity, error)) error {
+	if aid == "" {
+		return fmt.Errorf("%w: aid required", ErrBadInput)
+	}
+	return updatePeerIdentity(t.tx, aid, fn, t.peerCap, uint64(t.now))
+}
+
+// updatePeerIdentity is the read-decide-write of UpdatePeerIdentity in tx;
+// limit bounds the unpinned rows.
+func updatePeerIdentity(tx *sql.Tx, aid string, fn func(cur *PeerIdentity) (*PeerIdentity, error), limit int, now uint64) error {
 	cur, err := getPeer(tx, aid)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return err
@@ -300,7 +323,10 @@ func (s *Store) UpdatePeerIdentity(aid string, fn func(cur *PeerIdentity) (*Peer
 		return err
 	}
 	if cur == nil && next.PinnedReason == "" {
-		if err := evictPeers(tx, s.cap()); err != nil {
+		if limit <= 0 {
+			limit = defaultPeerIdentityCap
+		}
+		if err := evictPeers(tx, limit); err != nil {
 			return err
 		}
 	}
@@ -308,10 +334,7 @@ func (s *Store) UpdatePeerIdentity(aid string, fn func(cur *PeerIdentity) (*Peer
 	// transaction: a key set with a higher mailbox epoch voids the ones the
 	// peer signed under the older one (SSR-D19), an emergency rotation of
 	// the peer voids and revokes all of them (ENG-K4).
-	if err := peerWritten(tx, aid, cur, next, uint64(s.nowMS())); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return peerWritten(tx, aid, cur, next, now)
 }
 
 // cap returns the configured bound; the caller holds s.mu.

@@ -3,6 +3,16 @@
 # for scripts/mutations/unitmut.py (see its header for the format). Written for an internal note: each fix's
 # guard is taken out (or put back the way it was before the fix) and its regression test must go red.
 # A mutation that no longer applies reports APPLY-ERR: fix its edit to the moved code rather than dropping it.
+#
+# Retired with the code they guarded (engine §7, ENG-L2; ENG-1c, 2026-10-10):
+#   fx25-1, fx25-2, fx25-3 — the unknown-interaction wait window of F25 (a known peer's early message held in the
+#   mailbox, at most 32 a sender; a direct one refused for now) is gone: every message for an interaction this node
+#   does not hold is refused at once with task_not_found (engine ENG-V10, §4.5), and a follow-up does not overtake
+#   its delegation because the sender's outbox sends none before the delegation is confirmed (ENG-O2). Covered by
+#   ENG-M32 (engine.py: TestRedteamSI10_AStrangerCannotKeepAnOnlineNodesMailboxFull, rewritten so a stranger's and
+#   an allowed peer's messages are all acknowledged in the round that read them; TestAMessageForAnUnknownTaskGetsTaskNotFound,
+#   DLV T22), DLV M8a (rule 2, the sender side: TestADirectFollowUpThatOvertakesItsDelegationArrivesAfterIt,
+#   TestDLVT21_AFollowUpWaitsForItsDelegation) and DLV M11 (the cancel tombstone: TestDLVT11_ACancelAheadOfItsDelegationStopsIt).
 
 MUTS = [
  dict(
@@ -25,11 +35,11 @@ MUTS = [
  ),
  dict(
   id='fx5-3', group='F5', repo='ANet',
-  desc='拒收落盘失败仍回 rejected(recordRefusal 忽略写错误)',
+  desc='拒收落盘失败仍产出 tok(2)(answerEnvelope 忽略拒收表的写错误)',
   edits=[
-   ('internal/daemon/receive.go', '\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, reason); err != nil {\n\t\tr := d.transient(', '\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, reason); false && err != nil {\n\t\tr := d.transient('),
+   ('internal/daemon/receive.go', '\t\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, tok.Note.Reason); err != nil {', '\t\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, tok.Note.Reason); false && err != nil {'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestARefusalIsStoredBeforeTheRequesterIsTold')],
+  tests=[('ANet:./internal/daemon', 'TestARefusalIsStoredBeforeTheRequesterIsTold|TestAHeldRowIsNotAcked')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
@@ -38,7 +48,7 @@ MUTS = [
   edits=[
    ('internal/daemon/receive.go', '\tif ix.RequestCID == "" || ix.RequestCID != m.requestCID {', '\tif false && (ix.RequestCID == "" || ix.RequestCID != m.requestCID) {'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestARedeliveryUnderOpenCannotSwapInACapability|TestARegisteredStrangerCannotSwapACapabilityIntoItsOpenTask|TestAnApprovedChatCannotBeSwappedForACapability|TestAQuotedPublicCallCannotBeSwappedForAPrivateCapability|TestSpotASwapUnderTheAcceptedMessageIDDoesNotRun|TestSpotASwapAfterARestartDoesNotRun')],
+  tests=[('ANet:./internal/daemon', 'TestASwapUnderANewMessageIDIsACollisionAtStep9|TestARedeliveryUnderOpenCannotSwapInACapability|TestARegisteredStrangerCannotSwapACapabilityIntoItsOpenTask|TestAnApprovedChatCannotBeSwappedForACapability|TestAQuotedPublicCallCannotBeSwappedForAPrivateCapability|TestSpotASwapUnderTheAcceptedMessageIDDoesNotRun|TestSpotASwapAfterARestartDoesNotRun')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
@@ -52,12 +62,21 @@ MUTS = [
   full=['ANet:./internal/daemon'],
  ),
  dict(
-  id='fx7-2', group='F6/F7', repo='ANet',
-  desc='重投不再对 trust=peer 交互重查 allow',
+  id='fx7-1c', group='F6/F7', repo='ANet',
+  desc='重放命中的 delegate 不核对 request CID(mayRedeliver;只抑制副作用的那一层,ENG-V18)',
   edits=[
-   ('internal/daemon/receive.go', '\tif ix.Trust == interactions.TrustPeer && !ps.allowed(m.from) {\n\t\tr := d.drop(dropNotAllowed, nil)\n\t\treturn &r\n\t}\n\tm.existing, m.trust = ix, ix.Trust', '\tif false && ix.Trust == interactions.TrustPeer && !ps.allowed(m.from) {\n\t\tr := d.drop(dropNotAllowed, nil)\n\t\treturn &r\n\t}\n\tm.existing, m.trust = ix, ix.Trust'),
+   ('internal/daemon/receive.go', '\tif m.requestCID == "" || m.requestCID != ix.RequestCID {\n\t\treturn false\n\t}', '\tif false {\n\t\treturn false\n\t}'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestARevokedPeerCannotUseItsOldInteraction')],
+  tests=[('ANet:./internal/daemon', 'TestSpotASwapUnderTheAcceptedMessageIDDoesNotRun|TestSpotASwapAfterARestartDoesNotRun')],
+  full=['ANet:./internal/daemon'],
+ ),
+ dict(
+  id='fx7-2', group='F6/F7', repo='ANet',
+  desc='重投不再对 trust=peer 交互重查 allow(mayRedeliver)',
+  edits=[
+   ('internal/daemon/receive.go', '\tif ix.Trust == interactions.TrustPeer && !ps.allowed(m.from) {\n\t\treturn false\n\t}', '\tif false && ix.Trust == interactions.TrustPeer && !ps.allowed(m.from) {\n\t\treturn false\n\t}'),
+  ],
+  tests=[('ANet:./internal/daemon', 'TestARevokedPeerCannotUseItsOldInteraction|TestET14_ADelegationTakenThenUnlistedIsStillTaken')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
@@ -108,11 +127,11 @@ MUTS = [
  ),
  dict(
   id='fx22-1', group='F22', repo='ANet',
-  desc='直连路径上打不开的信封判永久(drop 并 ack)',
+  desc='直连路径上第一层打不开的信封判永久(drop 并 ack)',
   edits=[
-   ('internal/daemon/receive.go', '\t\tif path.direct {\n\t\t\t// [redteam:F22]', '\t\tif false && path.direct {\n\t\t\t// [redteam:F22]'),
+   ('internal/daemon/receive.go', '\tif path.direct {\n\t\treturn d.transient(transientDirectUnopened,', '\tif false && path.direct {\n\t\treturn d.transient(transientDirectUnopened,'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestRedteamSI10_P2PMisrouteFallsBackToTheHub')],
+  tests=[('ANet:./internal/daemon', 'TestRedteamSI10_P2PMisrouteFallsBackToTheHub|TestEachFailureIsAnsweredAlikeOnBothPaths')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
@@ -210,33 +229,6 @@ MUTS = [
   full=['ANet:./internal/daemon'],
  ),
  dict(
-  id='fx25-1', group='F25', repo='ANet',
-  desc='陌生人的未知 ix 消息也获等待窗',
-  edits=[
-   ('internal/daemon/receive.go', '\tif !related {\n\t\treturn false, nil\n\t}\n\tif !d.heldEarly.admit(', '\tif false && !related {\n\t\treturn false, nil\n\t}\n\tif !d.heldEarly.admit('),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestRedteamSI10_AStrangerCannotKeepAnOnlineNodesMailboxFull|TestRedteamUnknownIXFromAStrangerIsNotReworked')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
-  id='fx25-2', group='F25', repo='ANet',
-  desc='每发送方暂扣上限失效',
-  edits=[
-   ('internal/daemon/receive.go', '\tif !d.heldEarly.admit(', '\tif false && !d.heldEarly.admit('),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestRedteamSI10_AKnownPeerHoldsOnlySoManyEarlyMessages')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
-  id='fx25-3', group='F25', repo='ANet',
-  desc='直连路径上指向未知 ix 的 message 不再暂拒(按信箱规则)',
-  edits=[
-   ('internal/daemon/receive.go', '\t\tif m.direct {\n\t\t\tr := d.transient(transientDirectUnknownIX, nil)', '\t\tif false && m.direct {\n\t\t\tr := d.transient(transientDirectUnknownIX, nil)'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestADirectFollowUpThatOvertakesItsDelegationArrivesAfterIt')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
   id='fx27-1', group='F27', repo='ANet',
   desc='入站附件写入错误被忽略(事务照常提交)',
   edits=[
@@ -274,9 +266,9 @@ MUTS = [
  ),
  dict(
   id='fx30-2', group='F30', repo='ANet',
-  desc='直连入站先等启动完成再过限速',
+  desc='直连入站先等启动完成再过第 0 步限速',
   edits=[
-   ('internal/daemon/transport.go', '\tif !in.d.p2pLimit.allow(in.d.nowMS()) {\n\t\tin.d.count(transientP2PRate)\n\t\treturn errP2PRateLimited\n\t}\n\tif err := in.d.awaitReady(ctx); err != nil {\n\t\treturn err\n\t}', '\tif err := in.d.awaitReady(ctx); err != nil {\n\t\treturn err\n\t}\n\tif !in.d.p2pLimit.allow(in.d.nowMS()) {\n\t\tin.d.count(transientP2PRate)\n\t\treturn errP2PRateLimited\n\t}'),
+   ('internal/daemon/transport.go', '\tif !in.d.rxStep0(envelope, &path) {\n\t\tin.d.count(transientP2PRate)\n\t\treturn nil, errP2PRateLimited\n\t}\n\tif err := in.d.awaitReady(ctx); err != nil {\n\t\treturn nil, err\n\t}', '\tif err := in.d.awaitReady(ctx); err != nil {\n\t\treturn nil, err\n\t}\n\tif !in.d.rxStep0(envelope, &path) {\n\t\tin.d.count(transientP2PRate)\n\t\treturn nil, errP2PRateLimited\n\t}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestTheDirectRateLimitHoldsDuringStartUp')],
   full=['ANet:./internal/daemon'],
@@ -285,7 +277,7 @@ MUTS = [
   id='q29-1', group='Q29', repo='ANet',
   desc='直连投递等整条管线结束才 ack(不在第 10 步提交时)',
   edits=[
-   ('internal/daemon/transport.go', '\tselect {\n\tcase <-committed:\n\t\treturn nil\n\tcase res := <-done:', '\tselect {\n\tcase <-make(chan struct{}):\n\t\treturn nil\n\tcase res := <-done:'),
+   ('internal/daemon/transport.go', '\tselect {\n\tcase dack := <-committed:\n\t\treturn dack, nil\n\tcase res := <-done:', '\tselect {\n\tcase dack := <-make(chan []byte):\n\t\treturn dack, nil\n\tcase res := <-done:'),
   ],
   tests=[('ANet:./internal/daemon', 'TestADirectDeliveryIsAcknowledgedAtItsCommit')],
   full=['ANet:./internal/daemon'],
@@ -294,7 +286,7 @@ MUTS = [
   id='q29-2', group='Q29', repo='ANet',
   desc='已在第 10 步提交的直连投递,管线返回暂时性结果时回 nack',
   edits=[
-   ('internal/daemon/transport.go', '\tselect {\n\tcase <-committed:\n\t\treturn nil\n\tdefault:\n\t}\n', ''),
+   ('internal/daemon/transport.go', '\tselect {\n\tcase dack := <-committed:\n\t\treturn dack, nil\n\tdefault:\n\t}\n', ''),
   ],
   tests=[('ANet:./internal/daemon', 'TestACommittedDirectDeliveryIsNeverRefused')],
   full=['ANet:./internal/daemon'],

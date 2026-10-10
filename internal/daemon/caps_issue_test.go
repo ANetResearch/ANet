@@ -392,6 +392,7 @@ func TestCardGetCapCommittedBeforeSend(t *testing.T) {
 // oneShot.
 func craftGrant(t *testing.T, s sender, to *Daemon, typ, ix string, body, grant []byte, oneShot bool) []byte {
 	t.Helper()
+	trustSuiteWitness(t, to)
 	now := uint64(time.Now().UnixMilli())
 	kel, err := identity.MarshalKEL(s.kel)
 	if err != nil {
@@ -399,7 +400,7 @@ func craftGrant(t *testing.T, s sender, to *Daemon, typ, ix string, body, grant 
 	}
 	in := &seal.SealedInner{From: s.aid, KeyStateSeq: s.ksn, To: to.AID(), Type: typ, IX: ix,
 		MID: seal.NewMID(), TS: now, Exp: now + messageLifetimeMS, Body: body, KEL: kel, Keys: s.keys,
-		Notices: [][]byte{{}}, Grant: grant}
+		Notices: s.notices(t), Grant: grant}
 	var o seal.SealOpts
 	if oneShot {
 		in.Exp = now + 10*60*1000
@@ -678,7 +679,10 @@ func TestPeerEmergencyRotRevokesIssuedCaps(t *testing.T) {
 	vPeer, vOne, _, _ := capsBetween(t, d, v.AID(), 50)
 	noteRequester := func() {
 		t.Helper()
-		d.recordSenderIdentity(&rxMsg{from: v.AID(), ix: pubIX, kelUpdate: v.KEL()})
+		m := &rxMsg{from: v.AID(), ix: pubIX, kelUpdate: v.KEL()}
+		if err := d.ix.Update(func(tx *interactions.Tx) error { return d.recordSenderTx(tx, m, d.readPeers()) }); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := identitytest.Rotate(v, 2000); err != nil {
 		t.Fatal(err)

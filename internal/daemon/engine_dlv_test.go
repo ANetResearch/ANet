@@ -165,14 +165,13 @@ func TestDLVT4_AHubThatLosesWhatItTook(t *testing.T) {
 		if err := req.attemptOutbox(context.Background(), row.ID); err != nil {
 			t.Fatal(err)
 		}
-		// The direct path first; its answer carries no token yet (the
-		// direct receive's token is engine ENG-1c's), so the hub too.
-		if direct.sends.Load() != 1 || relayCountFor(srv.URL) != sends+1 {
+		// The direct path first, and its ack carries the provider's tok(1)
+		// (engine ENG-V2): confirmed there, with nothing sent to the hub.
+		if direct.sends.Load() != 1 || relayCountFor(srv.URL) != sends {
 			t.Fatalf("direct sends %d, hub sends %d", direct.sends.Load(), relayCountFor(srv.URL)-sends)
 		}
-		settleDelivery(t, req, prov)
 		if rows := outboxRows(t, req, id); len(rows) != 0 {
-			t.Fatalf("not confirmed: %+v", rows)
+			t.Fatalf("not confirmed by the direct token: %+v", rows)
 		}
 	})
 	t.Run("lost for good", func(t *testing.T) {
@@ -337,7 +336,7 @@ func TestDLVT21_AFollowUpWaitsForItsDelegation(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := counter(prov, transientUnknownIX) + counter(prov, dropUnknownIX); n != 0 {
+	if n := counter(prov, dropUnknownIX); n != 0 {
 		t.Fatalf("task_not_found: %v", prov.ReceiveStats())
 	}
 	msgs, _ := prov.ix.Messages(task.ID)

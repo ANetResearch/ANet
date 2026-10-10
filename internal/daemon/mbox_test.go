@@ -913,7 +913,11 @@ func TestMboxEpochHealsAfterSSRW9Refusal(t *testing.T) {
 		}
 	})
 	t.Run("both lost, never at a hub", func(t *testing.T) {
-		srv, _, prov := plainRegisteredPair(t)
+		srv := newFakeHub(t)
+		prov := newPlainTestDaemon(t, srv.URL, true)
+		if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
+			t.Fatal(err)
+		}
 		if beenAtAHub(prov.self) {
 			// SSR-W10 would ask the hub, and there would be no refusal to
 			// heal: this case needs an identity that never named a witness.

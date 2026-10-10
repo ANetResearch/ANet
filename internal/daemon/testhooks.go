@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/ANetResearch/ANetCore/seal"
 )
 
 // Test hooks: the wire clock, the boot clock, the receive-transaction fault,
@@ -68,6 +70,63 @@ func (d *Daemon) setRxFault(f func(typ string) error) {
 		return
 	}
 	d.rxFault.Store(&f)
+}
+
+// setRxUnlockHook makes the receive pipeline call f each time it has
+// released an envelope's (from, mid) and (from, ix) locks, before the
+// envelope is answered; nil removes it.
+func (d *Daemon) setRxUnlockHook(f func()) {
+	if f == nil {
+		d.rxUnlockHook.Store(nil)
+		return
+	}
+	d.rxUnlockHook.Store(&f)
+}
+
+// testRxUnlockHook is the unlock hook a test set, or nil.
+func (d *Daemon) testRxUnlockHook() func() {
+	if p := d.rxUnlockHook.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// setIXLookup makes receive step 3a open a second layer with l (ixKeys);
+// nil restores the daemon's own lookup.
+func (d *Daemon) setIXLookup(l seal.IXKeyLookup) {
+	if l == nil {
+		d.ixLookup.Store(nil)
+		return
+	}
+	d.ixLookup.Store(&l)
+}
+
+// testIXLookup is the interaction key lookup a test set, or nil.
+func (d *Daemon) testIXLookup() seal.IXKeyLookup {
+	if p := d.ixLookup.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
+// setCardAnswerHook makes the receive pipeline hand every answer to a card
+// request to f instead of sending it (answerCardRequest), so a test reads
+// the reply grant it kept without racing the one-shot sender that takes it;
+// nil removes it.
+func (d *Daemon) setCardAnswerHook(f func(to, ix string, body []byte)) {
+	if f == nil {
+		d.cardAnswerHook.Store(nil)
+		return
+	}
+	d.cardAnswerHook.Store(&f)
+}
+
+// testCardAnswerHook is the card answer hook a test set, or nil.
+func (d *Daemon) testCardAnswerHook() func(to, ix string, body []byte) {
+	if p := d.cardAnswerHook.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // setIdentityGate makes identityGate answer f(); nil restores the gate the

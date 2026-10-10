@@ -152,12 +152,8 @@ func (d *Daemon) sealMessage(m sealMsg, set *seal.EncKeySet, o seal.SealOpts, no
 
 // sealWith seals one message that is not queued to a key set the caller
 // resolved: a fresh message id, ts now, exp 14 days on, no grant, and the
-// first-contact credential in outer key 7 (it is sent once, sendNotice).
-//
-// v030-todo(ENG-1c): the refusal notices are the last envelopes neither
-// queued nor one-shot (engine ENG-Q1, ENG-V15): sendNotice and
-// deliverEnvelope go with replyRejected and sendNoticeStatus, and sealWith
-// with them (the tests' sealFrom can seal through sealMessage).
+// first-contact credential in outer key 7. Only tests call it (sealFrom):
+// the refusal notices it sealed are gone (engine ENG-V15).
 func (d *Daemon) sealWith(toAID, typ, interactionID string, body []byte, set *seal.EncKeySet) ([]byte, error) {
 	now := d.nowMS()
 	sv, err := d.sealMessage(sealMsg{to: toAID, typ: typ, ix: interactionID, body: body, mid: seal.NewMID(), ts: now,
@@ -222,29 +218,6 @@ func (d *Daemon) recipientKeys(ctx context.Context, toAID, pin string) (*peerKey
 		return nil, fmt.Errorf("anet: fetch %s's encryption keys: %w", toAID, &peerResolveError{AID: toAID, Verdict: v, Cause: m.Err})
 	}
 	return m.Keys, nil
-}
-
-// sendNotice seals and delivers a refusal reply (a status message) to a
-// sender whose key set is in the stranger cache. It runs in the background,
-// is attempted once and never retried or queued: a refusal must not delay
-// or block anything else (A2A-DESIGN §2 X2). It never fetches keys from the
-// hub and never writes peer_identity.
-func (d *Daemon) sendNotice(toAID, interactionID string, body []byte) {
-	keys, ok := d.strangers.get(toAID)
-	if !ok || keys.set == nil {
-		return
-	}
-	d.goBackground(func() {
-		env, err := d.sealWith(toAID, seal.TypeStatus, interactionID, body, keys.set)
-		if err != nil {
-			return
-		}
-		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeoutShort)
-		defer cancel()
-		if err := d.deliverEnvelope(ctx, toAID, env); err != nil {
-			d.logOnce("notice:"+toAID, "anet: refusal notice to %s not delivered: %v", toAID, err)
-		}
-	})
 }
 
 // nowMS is the daemon's clock in unix milliseconds. Tests replace it with
