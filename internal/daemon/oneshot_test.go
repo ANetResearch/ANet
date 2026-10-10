@@ -28,10 +28,12 @@ import (
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
-// testCoalescer stands in for UX-8's preview coalescer: it sends the frames
-// a test gives it through the one-shot sender, and records the rounds the
-// engine cancels.
+// testCoalescer stands in for the preview coalescer (preview.go): it sends
+// the frames a test gives it through the one-shot sender, and records the
+// rounds the engine cancels. The rest of previewCoalescer is what
+// previewsUnavailable does.
 type testCoalescer struct {
+	previewsUnavailable
 	d        *Daemon
 	mu       sync.Mutex
 	seq      uint64

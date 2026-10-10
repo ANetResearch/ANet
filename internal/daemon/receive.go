@@ -527,6 +527,12 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 
 	// Step 10.
 	out := d.process(ctx, m)
+	if out.class == rxAccepted {
+		// The round a requester's message opened, and whether it asked
+		// for previews: read from the message as it arrived, before
+		// anet.* is stripped for storage (CUX-P0).
+		d.notePreviewRound(m)
+	}
 	if m.release != nil {
 		// Admitted in step 9 but not executed (a store error, a duplicate):
 		// the admission slot is returned.
