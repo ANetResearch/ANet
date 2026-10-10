@@ -21,6 +21,7 @@ func TestEveryStrictDecoderRefusesNullAndUndefined(t *testing.T) {
 		"decodeKeyStateNoticeFile &f":  func() any { return new(keyStateNoticeFile) },
 		"decodeMboxFile &f":            func() any { return new(mboxKeyFile) },
 		"(*Daemon).hubStoredMbox &set": func() any { return new(seal.EncKeySet) },
+		"storedRK &rk":                 func() any { return new(seal.RK) },
 	})
 	if err != nil {
 		t.Fatal(err)
