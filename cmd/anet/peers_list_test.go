@@ -121,3 +121,30 @@ func TestPeersListTable(t *testing.T) {
 		t.Errorf("an empty list: %q", table)
 	}
 }
+
+// UX-T1, the CLI's place for the area's codes that end a task (ux §1.4 C1;
+// the control plane and the local A2A interface are compared in
+// internal/daemon TestSenderPrivacyCodesSayOneSentence): the reason line is
+// the task's status message as the control plane gave it, and the next
+// step is the code's own.
+func TestSenderPrivacyFailuresOnTheCLI(t *testing.T) {
+	for _, code := range []string{"recipient_unknown", "too_large_for_stranger"} {
+		for _, lang := range []a2ashape.Language{a2ashape.English, a2ashape.Chinese} {
+			s := a2ashape.Sentence(code, lang, nil)
+			b, _ := json.Marshal(map[string]any{"id": "ix_1",
+				"status":   map[string]any{"state": "TASK_STATE_FAILED", "message": map[string]any{"messageId": "m", "role": "ROLE_AGENT", "parts": []any{map[string]any{"text": s}}}},
+				"metadata": map[string]any{"anet.reason": code}})
+			got := answerLines(b, true, lang, time.Now())
+			want := []string{a2ashape.Label("task.reason", lang) + ": " + s}
+			if n := a2ashape.Next(code, lang, a2ashape.Args{"task": "ix_1"}); n != "" {
+				want = append(want, nextPrefix+n)
+			}
+			if strings.Join(got, "\n") != strings.Join(want, "\n") {
+				t.Errorf("%s (%v):\n got:  %q\n want: %q", code, lang, got, want)
+			}
+		}
+	}
+	if a2ashape.Next("recipient_unknown", a2ashape.English, nil) != "anet find" {
+		t.Error("recipient_unknown names anet find as its next step (ux §1.4 C1)")
+	}
+}
