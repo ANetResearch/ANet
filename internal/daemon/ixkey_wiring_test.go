@@ -981,3 +981,67 @@ func TestReceiveWipesTheKeyItOpenedWith(t *testing.T) {
 	}
 	ownKID(t, req, id) // the stored key stays
 }
+
+// FS-R4, step 9 for the two routes the plain message test does not reach: a
+// message for a delegation held for approval is compared with the rk the
+// held delegation carried, and a preview frame with the rk of its task
+// (never recorded); another rk is refused rk-mismatch before anything is
+// written.
+func TestRKComparedOnHeldAndPreviewRoutes(t *testing.T) {
+	ctx := context.Background()
+
+	// A held delegation.
+	_, s, hp := heldPair(t)
+	held, err := s.Delegate(ctx, hp.AID(), "held with its rk", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := hp.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	item, err := hp.ix.GetPending(held)
+	if err != nil {
+		t.Fatalf("not held: %v", err)
+	}
+	other, err := rkBytes(otherRK(t, held, s.AID()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := hp.authorizeRK(&rxMsg{ix: held, rk: other, pendingRoute: true}); r == nil || r.reason != dropRKMismatch {
+		t.Fatalf("a message for a held delegation under another rk: %+v", r)
+	}
+	if r := hp.authorizeRK(&rxMsg{ix: held, rk: item.PeerRK, pendingRoute: true}); r != nil {
+		t.Fatalf("a message for a held delegation under its rk: %+v", r)
+	}
+
+	// A preview frame.
+	_, req, prov := quietPair(t)
+	id, reqKey := previewTask(t, req, prov)
+	if err := prov.SendStatus(ctx, id, interactions.StateWorking, "on it", nil); err != nil {
+		t.Fatal(err)
+	}
+	settleDelivery(t, prov, req)
+	provRK := rkOf(t, prov, id)
+	body, err := (&delegation.ChatMsg{Kind: delegation.ChatStreamPreview, Body: "so far"}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := func(rk *seal.RK) rxResult {
+		env, _ := craftWith(t, senderOf(prov), req, seal.TypeMessage, id, body, craftOpt{oneShot: true, peerRK: reqKey.RK(),
+			edit: func(in *seal.SealedInner) { in.KEL, in.Notices, in.Keys, in.RK = nil, nil, nil, rk }})
+		return receive(t, req, env)
+	}
+	before := counter(req, dropRKMismatch)
+	if r := frame(otherRK(t, id, req.AID())); r.class != rxDropped || r.reason != dropRKMismatch || r.step != rxStep9 {
+		t.Fatalf("a preview frame under another rk: %+v", r)
+	}
+	if counter(req, dropRKMismatch) != before+1 {
+		t.Fatal("the mismatch was not counted")
+	}
+	if r := frame(nil); r.reason == dropRKMismatch {
+		t.Fatalf("a preview frame without an rk: %+v", r)
+	}
+	if ix, _ := req.ix.Get(id); !bytes.Equal(ix.PeerRK, provRK) {
+		t.Fatalf("the task's rk changed to %x", ix.PeerRK)
+	}
+}

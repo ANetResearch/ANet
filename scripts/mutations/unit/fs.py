@@ -856,4 +856,10 @@ MUTS += [
   edits=[('internal/runtime/interactions/interactions.go', '\tif cause != CausePeerEnded {\n\t\treturn false, fmt.Errorf("%w: a late result',
           '\tif false && cause != CausePeerEnded {\n\t\treturn false, fmt.Errorf("%w: a late result')],
   tests=[(IX, '^TestLateResultTakesOnlyPeerEnded$')], full=[IX]),
+ dict(id='fs7-t', group='FS-R4', repo='ANet', desc='待批路径的消息不与待批项带的 rk 比较',
+  edits=[(FS7_RX, '\t\trecorded = held.PeerRK\n', '\t\trecorded = held.PeerRK[:0]\n')],
+  tests=[(FS4_D, '^TestRKComparedOnHeldAndPreviewRoutes$')], full=[FS4_D]),
+ dict(id='fs7-u', group='FS-R4', repo='ANet', desc='预览帧不比较 rk',
+  edits=[(FS7_RX, 'ix.PeerAID == m.from && interactions.RKConflict(ix.PeerRK, m.rk)', 'false')],
+  tests=[(FS4_D, '^TestRKComparedOnHeldAndPreviewRoutes$')], full=[FS4_D]),
 ]
