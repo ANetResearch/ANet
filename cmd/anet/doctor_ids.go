@@ -64,7 +64,7 @@ var doctorIDs = []doctorID{
 	{id: "payments.audit", keys: []string{"payments.audit_ok", "proof_expired", "balance_mismatch", "omitted_from_ledger",
 		"unknown_debit", "proof_invalid", "proof_unavailable"}},
 	{id: "payments.reviews", keys: []string{"payments.reviews_pending", "payments.reviews_stuck"}},
-	{id: "payments.card", keys: []string{"payments.card_failed", "payments.price_invalid"}},
+	{id: "payments.card", keys: []string{"payments.card_no_public", "payments.card_failed", "payments.price_invalid"}},
 	{id: "auto_reply", keys: []string{"autoreply.off", "autoreply.summary", "sandbox.trusted_direct", "sandbox.trusted_sandbox"}},
 	{id: "sandbox", keys: []string{"sandbox.ready", "sandbox.ready_egress", "platform_unsupported", "no_bwrap",
 		"userns_blocked", "userns_unavailable", "netns_failed", "seccomp_failed", "fs_isolation_failed", "no_sandbox_exec"}},

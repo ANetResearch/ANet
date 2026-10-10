@@ -57,9 +57,6 @@ const (
 type extCardState struct {
 	mu     sync.Mutex
 	signed map[module.CardVariant]*signedExtCard
-	// allowOnly stands in for the capabilities served to allow ∪ trust only
-	// until the configuration says which they are (allowOnlyCapabilityIDs).
-	allowOnly []string
 
 	reqMu    sync.Mutex
 	requests map[string][]uint64 // sender -> times (unix ms) of its requests in the window
@@ -323,14 +320,10 @@ func (d *Daemon) extendedCardLocked(in netcard.Input, pubSeq uint64, signer iden
 }
 
 // allowOnlyCapabilityIDs are the capabilities this node serves only to the
-// callers in allow ∪ trust (CUX-F12), which the list variant lists.
-//
-// v030-todo(UX-4): read inbound.public_capabilities[].allow_only; until
-// then only a test sets them.
+// callers in allow ∪ trust (inbound.public_capabilities[].allow_only,
+// CUX-F12), which the list variant lists.
 func (d *Daemon) allowOnlyCapabilityIDs() []string {
-	d.extCard.mu.Lock()
-	defer d.extCard.mu.Unlock()
-	return append([]string(nil), d.extCard.allowOnly...)
+	return d.config().inbound().allowOnlyIDs()
 }
 
 // listOnlySkillIDs are the skills the list variant adds to the public
@@ -385,11 +378,15 @@ type cardCheck struct {
 }
 
 // paymentsCardCheck is doctor's payments.card (HPP §5.6, ux §5.2), nil when
-// this node lists no priced skill on any card. Otherwise, in order: every
-// price is between 1 and 2^63-1 (payments.price_invalid, the first one
-// that is not); the public card declares an extended card; and each
-// variant is made, verifies under this node's own KEL and states exactly
-// the prices of its skills (payments.card_failed, with variant and step).
+// this node has no priced capability, public or for the allow and trust
+// lists only. Otherwise, in order: every price is between 1 and 2^63-1
+// (payments.price_invalid, the first one that is not); a node with no
+// public card — the priced capabilities are all allow_only and nothing is
+// public — is warned that it has no extended card either, so its listed
+// callers pay each task by hand (payments.card_no_public); the public card
+// declares an extended card; and each variant is made, verifies under this
+// node's own KEL and states exactly the prices of its skills
+// (payments.card_failed, with variant and step).
 func (d *Daemon) paymentsCardCheck() *cardCheck {
 	p := d.payer()
 	if p == nil || strings.TrimSpace(d.config().HubURL) == "" {
@@ -416,6 +413,13 @@ func (d *Daemon) paymentsCardCheck() *cardCheck {
 	}
 	failed := func(code string) *cardCheck {
 		return &cardCheck{Status: "fail", Reason: "payments.card_failed", Args: map[string]string{"code": code}}
+	}
+	// An A2A card lists at least one skill: with nothing public (no
+	// public capability, no chat skill) there is no public card, and no
+	// extended card is asked for. Not a failure to report (2026-10-10, the
+	// owner's ruling on PAY-10's record): a choice to tell the operator of.
+	if len(public) == 0 && !d.publishesChat() {
+		return &cardCheck{Status: "warn", Reason: "payments.card_no_public"}
 	}
 	card, err := d.NetworkCard()
 	if err != nil {

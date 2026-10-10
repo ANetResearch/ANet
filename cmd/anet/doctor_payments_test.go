@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -50,6 +51,18 @@ func TestPaymentsCardDoctorCheck(t *testing.T) {
 	want = sayCheck("payments.card", stFail, "payments.card_failed", a2ashape.Args{"code": "list_verify"}, a2ashape.English)
 	if len(got) != 1 || got[0] != want || want.Hint != "anet doctor --json" {
 		t.Errorf("card_failed: %+v, want %+v", got, want)
+	}
+	// Priced allow_only capabilities and nothing public: no extended card,
+	// a warning in its own words (the owner's 2026-10-10 ruling, UX-4).
+	got = run(true, map[string]any{"payments_card": map[string]any{"status": "warn", "reason": "payments.card_no_public"}})
+	want = sayCheck("payments.card", stWarn, "payments.card_no_public", nil, a2ashape.English)
+	if len(got) != 1 || got[0] != want || want.Hint != noHint || !strings.Contains(want.Detail, "make at least one capability public") {
+		t.Errorf("card_no_public: %+v, want %+v", got, want)
+	}
+	// Another warning is not passed through either.
+	got = run(true, map[string]any{"payments_card": map[string]any{"status": "warn", "reason": "something.else"}})
+	if len(got) != 1 || got[0].Reason != "payments.card_failed" || got[0].Status != stFail {
+		t.Errorf("unknown warning: %+v", got)
 	}
 	// A reason this doctor does not know is told as a failure to make the
 	// cards, not passed through as a sentence key.

@@ -78,10 +78,8 @@ func TestARefusalIsRecordedWithItsReason(t *testing.T) {
 
 	// The approval queue's refusal in step 10 keeps its reason the same way.
 	setPolicy(t, prov, PolicyApprove)
-	prov.mu.Lock()
-	prov.cfg.Inbound.Pending.MaxPerPeer = 1
-	prov.mu.Unlock()
 	q := newStranger(t)
+	holdFor(t, prov, q, "ix_before", pendingMaxPerPeer-1) // the one below fills the queue
 	held := "ix_reason_held"
 	if r := receive(t, prov, craft(t, q, prov, seal.TypeDelegate, held, delegateBody(t, q.ctrl, held, "one", ""), nil)); r.class != rxAccepted {
 		t.Fatalf("first held: %+v", r)

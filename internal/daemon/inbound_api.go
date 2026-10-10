@@ -21,6 +21,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // errAcceptOn is the answer to the wire-1 "accept on" switch.
@@ -115,17 +117,29 @@ func (d *Daemon) hInboundPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Policy != "" {
 		if err := d.SetInboundPolicy(strings.TrimSpace(req.Policy)); err != nil {
-			writeJSON(w, policyErrorCode(err), map[string]string{"error": err.Error()})
+			writePolicyError(w, err)
 			return
 		}
 	}
 	if req.PublicCapabilities != nil {
 		if err := d.SetPublicCapabilities(*req.PublicCapabilities); err != nil {
-			writeJSON(w, policyErrorCode(err), map[string]string{"error": err.Error()})
+			writePolicyError(w, err)
 			return
 		}
 	}
 	writeJSON(w, http.StatusOK, d.InboundStatus())
+}
+
+// writePolicyError answers a refused inbound write: a value the daemon
+// would not start with is config_invalid, 409, in the reason table's
+// words (CUX §2.10); a conflict with the backends 409; anything else 400.
+func writePolicyError(w http.ResponseWriter, err error) {
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		writeRefusal(w, http.StatusConflict, ref)
+		return
+	}
+	writeJSON(w, policyErrorCode(err), map[string]string{"error": err.Error()})
 }
 
 func policyErrorCode(err error) int {

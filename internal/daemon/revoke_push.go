@@ -298,16 +298,15 @@ func listRevocations(aid string, ps peerSets) []interactions.IssuedFilter {
 // not taken for an empty one here (readPeers fails closed for decisions
 // that can be made again).
 func (d *Daemon) readPeersStrict() (peerSets, error) {
-	in := d.config().inbound()
 	var ps peerSets
 	var err error
-	if ps.deny, err = readPeerFile(d.peerFile(in.DenyFile)); err != nil {
+	if ps.deny, err = readPeerFile(d.peerFile(peersDenyFile)); err != nil {
 		return ps, err
 	}
-	if ps.allow, err = readPeerFile(d.peerFile(in.AllowFile)); err != nil {
+	if ps.allow, err = readPeerFile(d.peerFile(peersAllowFile)); err != nil {
 		return ps, err
 	}
-	if ps.trust, err = readPeerFile(d.peerFile(in.TrustFile)); err != nil {
+	if ps.trust, err = readPeerFile(d.peerFile(peersTrustFile)); err != nil {
 		return ps, err
 	}
 	return ps, nil

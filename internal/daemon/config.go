@@ -42,19 +42,12 @@ type Config struct {
 	// Inbound is the inbound policy (A2A-DESIGN §5.1): who may delegate to
 	// this node, who may drive its local agents, and which capabilities are
 	// public. A config without the block is given the defaults of
-	// defaultInbound (policy closed) at load; see migrateInbound.
+	// defaultInbound (policy closed) at load; see fillInbound.
 	Inbound *InboundConfig `json:"inbound,omitempty"`
-	// LegacyAcceptDelegations is the wire-1 accept_delegations key. It is
-	// read only to migrate it (A2A-DESIGN §5.1: absent or true → closed,
-	// false → closed) and is never written back.
-	LegacyAcceptDelegations *bool `json:"accept_delegations,omitempty"`
-	// migratedInbound is set by LoadConfig when it created the inbound
-	// block from a wire-1 config that said accept_delegations=true; New
-	// logs it once. rewriteConfig is set when the file on disk lacks the inbound or
-	// payments block or still carries accept_delegations; New saves the
-	// migrated config.
-	migratedInbound bool
-	rewriteConfig   bool
+	// rewriteConfig is set when the file on disk lacks the inbound or
+	// payments block; New saves the config with the block written out, so
+	// the file states the defaults explicitly (SI-5).
+	rewriteConfig bool
 	// AutoReply, when set, turns this daemon into a SELF-DRIVING provider: a background loop watches
 	// inbound conversations and answers them by calling the operator's own service (e.g. a self-hosted
 	// small model behind an OpenAI-compatible REST API). This keeps anet's core promise — anet itself
@@ -267,27 +260,20 @@ func LoadConfig(l Layout) (Config, error) {
 	if c.ControlAddr == "" {
 		c.ControlAddr = DefaultConfig().ControlAddr
 	}
-	migrateInbound(&c)
+	fillInbound(&c)
 	migratePayments(&c)
 	return c, nil
 }
 
-// migrateInbound gives a config without an inbound block the closed default
-// and drops the wire-1 accept_delegations key (A2A-DESIGN §5.1). Every
-// value of the old key maps to closed: "accept" used to mean "anyone", and
-// no allow list exists yet to carry that forward to.
-func migrateInbound(c *Config) {
-	c.rewriteConfig = c.Inbound == nil || c.LegacyAcceptDelegations != nil
+// fillInbound gives a config without an inbound block the closed default
+// (A2A-DESIGN §5.1). The wire-1 accept_delegations key is not read: 0.3.0
+// refuses to start with it (ux §2.3), and migrates nothing.
+func fillInbound(c *Config) {
+	c.rewriteConfig = c.Inbound == nil
 	if c.Inbound == nil {
 		in := defaultInbound()
 		c.Inbound = &in
-		// Told only to an operator whose config carried the old key set to
-		// accept: accept_delegations=false asked for what closed does, and
-		// a config without the key (a minimal one, or one `anet init`
-		// wrote) replaced nothing, so the notice would only mislead.
-		c.migratedInbound = c.LegacyAcceptDelegations != nil && *c.LegacyAcceptDelegations
 	}
-	c.LegacyAcceptDelegations = nil
 	c.Inbound.normalize()
 }
 
@@ -397,12 +383,6 @@ const InviteEnv = "ANET_INVITE"
 // its own files, so each waits for the work item that deletes its code,
 // which also deletes its line here (R-5).
 var removedStillWritten = map[string]string{
-	// The defaults write the list files and the queue and notice limits.
-	"inbound.allow_file":    "v030-todo(UX-4)",
-	"inbound.deny_file":     "v030-todo(UX-4)",
-	"inbound.trust_file":    "v030-todo(UX-4)",
-	"inbound.reject_notice": "v030-todo(UX-4)",
-	"inbound.pending":       "v030-todo(UX-4)",
 	// The defaults write the payee list's file.
 	"payments.payees_file": "v030-todo(PAY-12)",
 	// `anet autoreply set --require-image|--usage-hint|--error-reply|

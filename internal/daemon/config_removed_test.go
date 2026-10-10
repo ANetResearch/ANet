@@ -233,11 +233,6 @@ func TestRemovedSettingsStopTheDaemon(t *testing.T) {
 // here and there.
 func TestRemovedStillWrittenOnlyShrinks(t *testing.T) {
 	most := map[string]string{
-		"inbound.allow_file":               "v030-todo(UX-4)",
-		"inbound.deny_file":                "v030-todo(UX-4)",
-		"inbound.trust_file":               "v030-todo(UX-4)",
-		"inbound.reject_notice":            "v030-todo(UX-4)",
-		"inbound.pending":                  "v030-todo(UX-4)",
 		"payments.payees_file":             "v030-todo(PAY-12)",
 		"auto_reply.require_image":         "v030-todo(UX-9)",
 		"auto_reply.usage_hint":            "v030-todo(UX-9)",

@@ -78,12 +78,23 @@ func extNode(t *testing.T, public, listOnly []string, prices map[string]uint64) 
 	return d, w
 }
 
-// setAllowOnly stands in for inbound.public_capabilities[].allow_only
-// (allowOnlyCapabilityIDs) until the configuration has it.
+// setAllowOnly makes ids the allow_only capabilities of d's configuration
+// (inbound.public_capabilities[].allow_only), in place of the ones it had.
 func setAllowOnly(d *Daemon, ids ...string) {
-	d.extCard.mu.Lock()
-	defer d.extCard.mu.Unlock()
-	d.extCard.allowOnly = append([]string(nil), ids...)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	in := d.cfg.inbound()
+	var caps []PublicCapability
+	for _, p := range in.PublicCapabilities {
+		if !p.AllowOnly {
+			caps = append(caps, p)
+		}
+	}
+	for _, id := range ids {
+		caps = append(caps, PublicCapability{ID: id, AllowOnly: true})
+	}
+	in.PublicCapabilities = caps
+	d.cfg.Inbound = &in
 }
 
 // PAY-C8, rule by rule: the variant for the sender, then not_configured,

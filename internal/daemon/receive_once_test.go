@@ -70,7 +70,7 @@ func TestConcurrentCopiesOfAPublicCallAreJudgedOnce(t *testing.T) {
 	if hubCopy.class != rxDropped || hubCopy.reason != dropDuplicate {
 		t.Fatalf("hub copy: %+v, want a duplicate", hubCopy)
 	}
-	if n := counter(prov, dropRefusedPrefix+admitInflightLimit); n != 0 {
+	if n := counter(prov, dropRefusedPrefix+admitBusy); n != 0 {
 		t.Fatalf("the second copy was refused by admission %d times", n)
 	}
 	if n := len(lamp.invoked); n != 1 {
@@ -152,10 +152,10 @@ func TestADelegationSealedTwiceAtTheQuotaEdgeIsJudgedOnce(t *testing.T) {
 	}
 	r2 := <-secondDone
 	prov.setRxFault(nil)
-	if !r2.ack() || r2.reason == dropRefusedPrefix+admitInflightLimit {
+	if !r2.ack() || r2.reason == dropRefusedPrefix+admitBusy {
 		t.Fatalf("second copy: %+v", r2)
 	}
-	if n := counter(prov, dropRefusedPrefix+admitInflightLimit); n != 0 {
+	if n := counter(prov, dropRefusedPrefix+admitBusy); n != 0 {
 		t.Fatalf("the second copy was refused by admission %d times", n)
 	}
 	if n := len(lamp.invoked); n != 1 {

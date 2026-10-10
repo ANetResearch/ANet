@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -331,50 +332,45 @@ func TestAPublicCapabilityCallTakesNoText(t *testing.T) {
 	}
 }
 
-// The kernel's admission check (A2A-DESIGN §5.4): deny list, membership of
-// public_capabilities, argument size, per-caller per-minute and per-day
-// quotas, the global per-minute quota and the in-flight bound. A refused
-// call consumes no quota; a released call frees its slot.
+// The kernel's admission check (A2A-DESIGN §5.4, CUX-Q1a steps 3 and 5–9):
+// argument size, the in-flight bound, per-caller per-minute and per-day
+// quotas and the global per-minute quota; the deny list and membership of
+// public_capabilities are the policy's, step 1. A refused call consumes no
+// quota; a released call frees its slot.
 func TestAdmissionLimits(t *testing.T) {
 	d := newTestDaemon(t, "", false)
 	now := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC).UnixMilli()
-	if err := d.SetPublicCapabilities([]PublicCapability{{ID: "c", PerCallerPerMin: 2, PerCallerPerDay: 3,
-		GlobalPerMin: 4, MaxInflight: 1, MaxArgsBytes: 10}}); err != nil {
-		t.Fatal(err)
-	}
+	pc := PublicCapability{ID: "c", PerCallerPerMin: 2, PerCallerPerDay: 3, GlobalPerMin: 4, MaxInflight: 1, MaxArgsBytes: 10}
 	must := func(caller string) func() {
 		t.Helper()
-		rel, refusal, _ := d.admitAt(now, caller, "c", 5)
+		rel, refusal, _ := d.admitAt(now, caller, pc, 5)
 		if refusal != "" {
 			t.Fatalf("%s refused: %s", caller, refusal)
 		}
 		return rel
 	}
-	refused := func(caller, capID string, argsLen int, want string) {
+	refused := func(caller string, argsLen int, want string) {
 		t.Helper()
-		if _, refusal, _ := d.admitAt(now, caller, capID, argsLen); refusal != want {
-			t.Fatalf("%s %s %d: refusal %q, want %q", caller, capID, argsLen, refusal, want)
+		if _, refusal, _ := d.admitAt(now, caller, pc, argsLen); refusal != want {
+			t.Fatalf("%s %d: refusal %q, want %q", caller, argsLen, refusal, want)
 		}
 	}
 	rel := must("did:anet:a")
-	refused("did:anet:b", "c", 5, admitInflightLimit)
+	refused("did:anet:b", 5, admitBusy)
 	rel()
 	rel() // idempotent
 	must("did:anet:b")()
 	must("did:anet:a")()
-	if _, refusal, retry := d.admitAt(now, "did:anet:a", "c", 5); refusal != admitCallerMinute || retry <= 0 {
+	if _, refusal, retry := d.admitAt(now, "did:anet:a", pc, 5); refusal != admitCallerMinute || retry <= 0 {
 		t.Fatalf("third call in a minute: %q retry %d", refusal, retry)
 	}
 	must("did:anet:c")()
-	refused("did:anet:d", "c", 5, admitGlobalMinute) // four admitted in this minute
+	refused("did:anet:d", 5, admitBusy) // four admitted in this minute
 	now += 61_000
 	must("did:anet:a")() // third of the day
 	now += 61_000
-	refused("did:anet:a", "c", 5, admitCallerDay)
-	refused("did:anet:e", "c", 11, admitArgsTooLarge)
-	refused("did:anet:e", "not.public", 1, admitNotPublic)
-	denyPeers(t, d, "did:anet:e")
-	refused("did:anet:e", "c", 1, admitDenied)
+	refused("did:anet:a", 5, admitCallerDay)
+	refused("did:anet:e", 11, admitArgsTooLarge)
 }
 
 // A caller over its quota for a public capability is refused with the
@@ -547,12 +543,13 @@ func TestTheApprovalQueue(t *testing.T) {
 		t.Fatalf("second approval: %v", err)
 	}
 
-	// The per-peer limit.
-	prov.mu.Lock()
-	prov.cfg.Inbound.Pending.MaxPerPeer = 1
-	prov.mu.Unlock()
-	r1 := hold("one")
-	r2 := hold("two")
+	// The per-peer limit, a constant (pendingMaxPerPeer).
+	var full []string
+	for i := range pendingMaxPerPeer {
+		full = append(full, hold(fmt.Sprintf("held %d", i)))
+	}
+	r1 := full[0]
+	r2 := hold("over")
 	if st, meta := lastStatusMeta(t, s, r2); st != interactions.StateRejected || meta["anet.reason"] != reasonPendingFull {
 		t.Fatalf("over the per-peer limit: %s %v", st, meta)
 	}
@@ -715,8 +712,7 @@ func TestAFreshInstallIsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := cfg.inbound()
-	if in.Policy != PolicyClosed || in.AllowFile != "peers.allow" || in.TrustFile != "peers.trust" ||
-		in.DenyFile != "peers.deny" || in.PublicCapabilities == nil || len(in.PublicCapabilities) != 0 {
+	if in.Policy != PolicyClosed || in.PublicCapabilities == nil || len(in.PublicCapabilities) != 0 {
 		t.Fatalf("fresh inbound block = %+v", in)
 	}
 	var disk map[string]any
@@ -804,7 +800,7 @@ func TestAcceptOnIsRefused(t *testing.T) {
 // not an AID.
 func TestPeerListEdits(t *testing.T) {
 	d := newTestDaemon(t, "", false)
-	path := d.peerFile(d.config().inbound().AllowFile)
+	path := d.peerFile(peersAllowFile)
 	if err := os.WriteFile(path, []byte("# my peers\ndid:anet:bkeep # a friend\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -838,5 +834,18 @@ func TestPeerListEdits(t *testing.T) {
 	}
 	if d.readPeers().allowed("did:anet:bkeep") {
 		t.Fatal("deny does not win over allow")
+	}
+}
+
+// holdFor has prov, under the approve policy, hold n delegations of q, ids
+// prefix_0 on: with pendingMaxPerPeer of them, q's next is over the
+// queue's per-peer bound (pending_full), which is a constant.
+func holdFor(t *testing.T, prov *Daemon, q sender, prefix string, n int) {
+	t.Helper()
+	for i := range n {
+		ix := fmt.Sprintf("%s_%d", prefix, i)
+		if r := receive(t, prov, craft(t, q, prov, seal.TypeDelegate, ix, delegateBody(t, q.ctrl, ix, "held", ""), nil)); r.class != rxAccepted {
+			t.Fatalf("held %s: %+v", ix, r)
+		}
 	}
 }

@@ -310,19 +310,11 @@ func New(layout Layout) (*Daemon, error) {
 	// This node's latest witness notice, checked again, so the outbound gate
 	// does not wait for the first hub answer after a restart (KEL D-50).
 	d.loadKeyStateNotice()
-	if cfg.migratedInbound {
-		// Logged once: the migrated config is saved below without the old
-		// key, so the next start reads an explicit inbound block.
-		log.Printf("anet: accept_delegations is replaced by inbound.policy (A2A-DESIGN §5.1); this node now runs " +
-			"policy closed. Allow a peer with `anet peers allow <aid>` or list public capabilities under inbound.public_capabilities")
-	}
 	if cfg.rewriteConfig {
 		if err := SaveConfig(layout, cfg); err != nil {
 			log.Printf("anet: save migrated config: %v", err)
 		}
 	}
-	in := cfg.inbound()
-	d.notices.configure(in.RejectNotice.PerPeerPerHour, in.RejectNotice.GlobalPerMin)
 	// From here on a failed start goes through Close, which releases
 	// whatever had been opened by then — the context, the background
 	// loops, the modules started so far, the ledger and the store — in

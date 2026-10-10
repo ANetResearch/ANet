@@ -148,7 +148,7 @@ var si5Items = []struct {
 		}
 		return nil
 	}},
-	{"the keys a work item still writes are gone", "v030-todo(UX-4) v030-todo(PAY-12)", func(f freshSI5) error {
+	{"the keys a work item still writes are gone", "v030-todo(PAY-12)", func(f freshSI5) error {
 		b, _ := json.Marshal(f.config)
 		found, _ := daemon.FindRemovedSettings(b)
 		if len(found) > 0 {
@@ -218,9 +218,6 @@ func TestRemovedKeysStopAnetDaemon(t *testing.T) {
 				_ = json.Unmarshal(b, &cfg)
 				// Only this key: a fresh config.json holds some removed keys a
 				// work item still writes; leave out all of those but this one.
-				for _, k := range []string{"allow_file", "deny_file", "trust_file", "reject_notice", "pending"} {
-					delete(cfg["inbound"].(map[string]any), k)
-				}
 				delete(cfg["payments"].(map[string]any), "payees_file")
 				putKey(cfg, key, value)
 				b, _ = json.Marshal(cfg)
