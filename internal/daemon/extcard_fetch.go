@@ -400,7 +400,9 @@ func (s *extFetchState) takePending(aid, ix string, now uint64) *cardFetch {
 // skills of aid's public card (a display's fetch).
 func (d *Daemon) fetchExtendedCard(ctx context.Context, aid string, public []string) extFetchResult {
 	start := d.nowMS()
-	deadline := time.UnixMilli(int64(start + cardWaitMS))
+	// The wait is the caller's, on the wall clock; the exchange's exp is
+	// on the envelope's clock, as the request's outer exp is.
+	deadline := time.Now().Add(time.Duration(cardWaitMS) * time.Millisecond)
 	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
 		deadline = dl
 	}
