@@ -1483,7 +1483,7 @@ MUTS += [
   tests=S11_DAEMON, full=['ANet:./internal/daemon']),
  dict(id='ss11-stranger-addr', group='SS-11', repo='ANet', desc='stranger 级对端能力里的地址也拿来直连',
   edits=[('internal/daemon/p2p_addr.go', 'h.Scope != interactions.CapScopePeer || h.Class != seal.CapClassContact || h.P2P == ""',
-          'h.Scope != interactions.CapScopePeer || h.P2P == ""')],
+          'h.Scope != interactions.CapScopePeer || h.Class != seal.CapClassContact && false || h.P2P == ""')],
   tests=S11_DAEMON, full=['ANet:./internal/daemon']),
  dict(id='ss11-reachable-any', group='SS-11', repo='ANet', desc='Reachable 不看地址,anetpeer 在线即真',
   edits=[('module/p2p/transport.go', '\tif _, ok := t.addrFor(toAID); !ok {\n\t\treturn false\n\t}', '')],
