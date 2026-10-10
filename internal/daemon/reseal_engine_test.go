@@ -549,20 +549,18 @@ func TestAVersionCarriesTheTasksInteractionKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	row := onlyRow(t, req, id)
-	if op := openAt(t, prov, log.last(t)); op.Layers != 1 || op.RK != nil {
-		t.Fatalf("without interaction keys: %d layers, rk %v", op.Layers, op.RK)
+	// This node's key for the task, made with it (FS-X1): the first
+	// version carries its rk, in one layer, the provider having announced
+	// none yet.
+	own := ownIXKey(t, req, id)
+	if op := openAt(t, prov, log.last(t)); op.Layers != 1 || op.RK == nil || !bytes.Equal(op.RK.Pub, own.Pub) {
+		t.Fatalf("before the peer's rk: %d layers, rk %v", op.Layers, op.RK)
 	}
-	// This node's key for the task, and the provider's, as FS-7's wiring
-	// makes them; the provider's rk recorded as its first message carried it.
-	own, err := seal.GenerateIXKey(seal.SuiteX25519, id, prov.AID())
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The provider's key, its rk recorded as its first message carried it.
 	peer, err := seal.GenerateIXKey(seal.SuiteX25519, id, req.AID())
 	if err != nil {
 		t.Fatal(err)
 	}
-	putIXKey(t, req, own)
 	if err := req.ix.Update(func(tx *interactions.Tx) error {
 		rk, err := coredet.Marshal(peer.RK())
 		if err != nil {

@@ -648,7 +648,7 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 		// Our own signature over our own transcript.
 		return tx.Finish(ix.ID, interactions.Finish{State: interactions.StateCompleted, Result: tr,
 			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified, Meta: meta},
-			interactions.CauseProviderEnd) // v030-todo(FS-7): confirm the Cause
+			interactions.CauseProviderEnd)
 	})
 	if errors.Is(err, interactions.ErrTerminal) {
 		return fmt.Errorf("%w (%s ended before it could be completed)", ErrTaskTerminal, interactionID)
@@ -825,7 +825,7 @@ func (d *Daemon) SendStatus(ctx context.Context, interactionID string, state int
 			SenderAID: d.AID(), Kind: interactions.MsgStatus, Body: text, MsgID: msgID, Metadata: mb}); err != nil {
 			return err
 		}
-		changed, err := tx.SetState(ix.ID, state, interactions.CauseProviderEnd.When(state)) // v030-todo(FS-7): confirm the Cause
+		changed, err := tx.SetState(ix.ID, state, interactions.CauseProviderEnd.When(state))
 		if err != nil {
 			return err
 		}
@@ -1004,6 +1004,14 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 	if !publicCap {
 		attRows, attErr = receivedAttachments(m.dr.Attachments)
 	}
+	// E_p, made before the transaction and stored in it with the task it
+	// accepts (FS-X2); a redelivery of a task already accepted keeps the key
+	// it has, and this one is wiped unused.
+	ep, err := newOwnIXKey(m.ix, m.from)
+	if err != nil {
+		return d.transient(transientStore, err)
+	}
+	defer wipeIXKey(ep)
 	var seq int64
 	redelivery := false
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
@@ -1030,7 +1038,10 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 		if err := tx.Create(interactions.New{ID: m.ix, Role: interactions.RoleInbound, PeerAID: m.from,
 			Goal: goal, RequestCID: requestCID, RequestDoc: m.tdBytes, ContextID: m.dr.ContextID,
 			Trust: m.trust, IsCapability: isCap, TaskNonce: taskNonce(m.td),
-			PeerKEL: peerKEL, PeerKeys: peerKeys}); err != nil {
+			PeerKEL: peerKEL, PeerKeys: peerKeys, PeerRK: m.rk}); err != nil {
+			return err
+		}
+		if err := putOwnIXKeyTx(tx, ep); err != nil {
 			return err
 		}
 		if isCap && m.ackNow != nil && !d.longCall(capID) {
@@ -1626,10 +1637,12 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	rr, ix := m.rr, m.existing
 	if rr.Status == delegation.StatusFailed && len(rr.Receipt) == 0 {
 		if len(ix.Receipt) > 0 || ix.IsTerminal() {
-			return d.commitRx(m, nil)
+			// The provider's end of a task that ended here first: the key
+			// a local end kept for its answer goes (X7b).
+			return d.commitRx(m, func(tx *interactions.Tx) error { return peerEndedTx(tx, m.ix) })
 		}
 		res := d.commitRx(m, func(tx *interactions.Tx) error {
-			err := tx.SetFailed(m.ix, rr.Deliverable, interactions.CausePeerEnded) // v030-todo(FS-7): confirm the Cause
+			err := tx.SetFailed(m.ix, rr.Deliverable, interactions.CausePeerEnded)
 			if errors.Is(err, interactions.ErrTerminal) {
 				return nil
 			}
@@ -1652,7 +1665,7 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	// twice is harmless; appending "result accepted" to the chain twice is
 	// not.
 	if len(ix.Receipt) > 0 {
-		return d.commitRx(m, nil)
+		return d.commitRx(m, func(tx *interactions.Tx) error { return peerEndedTx(tx, m.ix) })
 	}
 
 	// Verify the receipt before accepting the work it certifies.
@@ -1714,13 +1727,13 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 			// recorded then (§3.6 step 10).
 			late = true
 			if _, err := tx.SetLateResult(m.ix, rr.Deliverable, resultCID, rr.Receipt, seen,
-				interactions.CausePeerEnded); err != nil { // v030-todo(FS-7): confirm the Cause
+				interactions.CausePeerEnded); err != nil {
 				return err
 			}
 			return rp.applyTx(tx, m.ix)
 		}
 		if err := tx.Finish(m.ix, interactions.Finish{State: state, Result: rr.Deliverable, ResultCID: resultCID,
-			Receipt: rr.Receipt, Verified: seen, Meta: resultMeta}, interactions.CausePeerEnded.When(state)); err != nil { // v030-todo(FS-7): confirm the Cause
+			Receipt: rr.Receipt, Verified: seen, Meta: resultMeta}, interactions.CausePeerEnded.When(state)); err != nil {
 			return err
 		}
 		return rp.applyTx(tx, m.ix)
@@ -1755,6 +1768,31 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	return res
 }
 
+// peerEndedTx settles this node's key for task ix, which this node asked
+// for, when the provider's terminal message is stored while the task had
+// already ended here (FS §4.5.4 X7b): a result, a failed result or a
+// terminal status that no state write takes, since the task's state does
+// not change any more. A local end kept the key for the answer
+// (close_after); the answer has come, so it goes in this transaction. A
+// task not terminal is left to the state write that ends it; one deleted
+// meanwhile has no key left.
+func peerEndedTx(tx *interactions.Tx, ix string) error {
+	cur, err := tx.Get(ix)
+	if errors.Is(err, interactions.ErrNotFound) || errors.Is(err, interactions.ErrContentGone) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !cur.IsTerminal() {
+		return nil
+	}
+	if err := tx.CloseIXKey(ix, interactions.CausePeerEnded); err != nil && !errors.Is(err, interactions.ErrNotFound) {
+		return err
+	}
+	return nil
+}
+
 // ingestStatus lands an anet.status/1 for an interaction this node
 // started, from its provider (checked in step 9): the status is stored as
 // a status message and the task moves to the state it carries. A status
@@ -1770,7 +1808,16 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 			rp = d.planReceipts(m.ix, decodeMeta(sm.Metadata), true)
 		}
 		defer rp.release()
-		res := d.commitRx(m, func(tx *interactions.Tx) error { return rp.applyTx(tx, m.ix) })
+		res := d.commitRx(m, func(tx *interactions.Tx) error {
+			if interactions.State(sm.State).IsTerminal() {
+				// The provider ended the task too: the key a local end kept
+				// for its answer goes now, not at its close_after (X7b).
+				if err := peerEndedTx(tx, m.ix); err != nil {
+					return err
+				}
+			}
+			return rp.applyTx(tx, m.ix)
+		})
 		if res.class == rxAccepted {
 			d.recordReceipts(rp)
 		}
@@ -1800,7 +1847,7 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 			return err
 		}
 		st := interactions.State(sm.State)
-		if _, err = tx.SetState(m.ix, st, interactions.CausePeerEnded.When(st)); err != nil { // v030-todo(FS-7): confirm the Cause
+		if _, err = tx.SetState(m.ix, st, interactions.CausePeerEnded.When(st)); err != nil {
 			return err
 		}
 		if pp != nil {

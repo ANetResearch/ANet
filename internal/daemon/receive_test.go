@@ -1086,7 +1086,7 @@ func TestAResultSealedTwiceArrivingTogetherIsRecordedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := onlyQueuedEnvelope(t, srv, req.AID())
-	op, err := seal.Open(first, req.AID(), req.enc, nil)
+	op, err := seal.Open(first, req.AID(), req.enc, req.ixKeys())
 	if err != nil {
 		t.Fatal(err)
 	}

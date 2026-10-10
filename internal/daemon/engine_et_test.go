@@ -673,17 +673,8 @@ func TestET35_AStopClosesEverythingAndTellsNobody(t *testing.T) {
 		t.Fatal(err)
 	}
 	setHubURL(req, hubURL)
-	// Each task holds an interaction key (FS-X1).
+	// Each task holds an interaction key, made with it (FS-X1).
 	for _, id := range []string{a, b, ended} {
-		k, err := seal.GenerateIXKey(seal.SuiteX25519, id, prov.AID())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := req.ix.Update(func(tx *interactions.Tx) error {
-			return tx.PutIXKey(interactions.IXKey{IX: id, PeerAID: prov.AID(), Suite: k.Suite, Pub: k.Pub, Priv: k.Private})
-		}); err != nil {
-			t.Fatal(err)
-		}
 		if rk, err := req.ix.OwnRK(id); err != nil || rk == nil {
 			t.Fatalf("setup: no interaction key for %s (%v)", id, err)
 		}

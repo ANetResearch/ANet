@@ -173,6 +173,44 @@ func storedRK(b []byte) (*seal.RK, error) {
 // suite of an interaction key (FS-C10).
 const storedRKPubLen = 32
 
+// newOwnIXKey makes, in memory, this node's interaction key for task ix
+// with peer (FS-X1, FS-X2): before the transaction that records the task,
+// which stores it with putOwnIXKeyTx. The caller wipes it (wipeIXKey) once
+// that transaction has ended, committed or not: the stored copy is the
+// only one kept, and a failed transaction leaves none (FS-X1).
+func newOwnIXKey(ix, peer string) (*seal.IXKey, error) {
+	k, err := seal.GenerateIXKey(seal.SuiteX25519, ix, peer)
+	if err != nil {
+		return nil, fmt.Errorf("anet: %s: make the interaction key: %w", ix, err)
+	}
+	return k, nil
+}
+
+// putOwnIXKeyTx stores k as this node's key for its task, in tx, the
+// transaction that records the task (FS-X1, FS-X2): from then on every
+// message this node seals on the task carries its rk (ixKeysForSeal,
+// FS-X4), and the peer seals its own to it.
+func putOwnIXKeyTx(tx *interactions.Tx, k *seal.IXKey) error {
+	return tx.PutIXKey(interactions.IXKey{IX: k.IX, PeerAID: k.PeerAID, Suite: k.Suite, Pub: k.Pub, Priv: k.Private})
+}
+
+// wipeIXKey zeroes the private half of a key this node holds in memory
+// (FS-X8).
+func wipeIXKey(k *seal.IXKey) {
+	if k != nil {
+		clear(k.Private)
+	}
+}
+
+// rkBytes is rk as the store records it (FS-R4): coredet(RK), the canonical
+// encoding storedRK reads back. nil for none.
+func rkBytes(rk *seal.RK) ([]byte, error) {
+	if rk == nil {
+		return nil, nil
+	}
+	return coredet.Marshal(rk)
+}
+
 // sealKeys is the recipient's key set a version is sealed to (engine §3.2):
 // the one kept on a public or public_cap interaction this node serves
 // (A2A-DESIGN §3.8), the held delegation's for a notice about one, the

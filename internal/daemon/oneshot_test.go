@@ -76,8 +76,10 @@ func cardIX(t testing.TB) string {
 }
 
 // previewTask is a task req delegated to prov that prov took, with both
-// sides' interaction keys as FS-7's wiring makes them: prov holds its own
-// key and has recorded req's rk. It returns the task and req's key.
+// sides' interaction keys as FS-7's wiring makes them: req made its key
+// with the task, and prov made its own when it took the delegation and
+// recorded req's rk from it. It returns the task and req's key, read back
+// from req's store.
 func previewTask(t *testing.T, req, prov *Daemon) (string, *seal.IXKey) {
 	t.Helper()
 	ctx := context.Background()
@@ -88,26 +90,28 @@ func previewTask(t *testing.T, req, prov *Daemon) (string, *seal.IXKey) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prov.ix.Get(id); err != nil {
+	ix, err := prov.ix.Get(id)
+	if err != nil {
 		t.Fatalf("setup: the provider has no task: %v", err)
 	}
-	reqKey, err := seal.GenerateIXKey(seal.SuiteX25519, id, prov.AID())
-	if err != nil {
-		t.Fatal(err)
+	if own, err := prov.ix.OwnRK(id); err != nil || own == nil || len(ix.PeerRK) == 0 {
+		t.Fatalf("setup: the provider holds key %v (%v) and the requester's rk %x", own, err, ix.PeerRK)
 	}
-	provKey, err := seal.GenerateIXKey(seal.SuiteX25519, id, req.AID())
-	if err != nil {
-		t.Fatal(err)
+	return id, ownIXKey(t, req, id)
+}
+
+// ownIXKey is d's own interaction key for task ix, as its store holds it.
+func ownIXKey(t testing.TB, d *Daemon, ix string) *seal.IXKey {
+	t.Helper()
+	rk, err := d.ix.OwnRK(ix)
+	if err != nil || rk == nil {
+		t.Fatalf("%s holds no key for %s (%v)", d.AID(), ix, err)
 	}
-	putIXKey(t, prov, provKey)
-	rk, err := coredet.Marshal(reqKey.RK())
-	if err != nil {
-		t.Fatal(err)
+	k, err := d.ix.IXKeyByKID(seal.KID(rk.Suite, rk.Pub))
+	if err != nil || k == nil {
+		t.Fatalf("%s: read the key of %s back: %v", d.AID(), ix, err)
 	}
-	if err := prov.ix.Update(func(tx *interactions.Tx) error { return tx.RecordPeerRK(id, rk) }); err != nil {
-		t.Fatal(err)
-	}
-	return id, reqKey
+	return &seal.IXKey{IX: k.IX, PeerAID: k.PeerAID, Suite: k.Suite, Pub: k.Pub, Private: k.Priv}
 }
 
 // outboxCounts is how many rows and versions d's outbox holds.
@@ -439,6 +443,10 @@ func TestAOneShotThatCannotGoSaysWhy(t *testing.T) {
 		// (FS-X6, ENG-K19), so none is sent.
 		{"a preview frame without this node's own rk", nil,
 			func() OneShotResult {
+				// The key req made with the task goes, as at its end.
+				if err := req.ix.Update(func(tx *interactions.Tx) error { _, err := tx.DeleteAllIXKeys(); return err }); err != nil {
+					t.Fatal(err)
+				}
 				k, err := seal.GenerateIXKey(seal.SuiteX25519, id, req.AID())
 				if err != nil {
 					t.Fatal(err)
