@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sync/atomic"
 	"time"
+
+	"github.com/ANetResearch/ANetCore/seal"
 )
 
 // Test hooks: the wire clock, the boot clock, the receive-transaction fault,
@@ -68,6 +70,24 @@ func (d *Daemon) setRxFault(f func(typ string) error) {
 		return
 	}
 	d.rxFault.Store(&f)
+}
+
+// setIXLookup makes receive step 3a open a second layer with l (ixKeys);
+// nil restores the daemon's own lookup.
+func (d *Daemon) setIXLookup(l seal.IXKeyLookup) {
+	if l == nil {
+		d.ixLookup.Store(nil)
+		return
+	}
+	d.ixLookup.Store(&l)
+}
+
+// testIXLookup is the interaction key lookup a test set, or nil.
+func (d *Daemon) testIXLookup() seal.IXKeyLookup {
+	if p := d.ixLookup.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // setIdentityGate makes identityGate answer f(); nil restores the gate the

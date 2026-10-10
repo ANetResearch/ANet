@@ -12,6 +12,7 @@ import (
 	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/official"
@@ -101,6 +102,12 @@ type Daemon struct {
 	// through setRxFault (testhooks.go), atomic for the same reason as
 	// clock.
 	rxFault atomic.Pointer[func(typ string) error]
+	// ixLookup, when set, is the interaction key lookup receive step 3a
+	// uses (ixKeys). Tests only, through setIXLookup (testhooks.go).
+	ixLookup atomic.Pointer[seal.IXKeyLookup]
+	// cardGrants are the reply grants of card requests waiting for their
+	// answer (rx_seams.go).
+	cardGrants cardReplyGrants
 	// bgWG counts background goroutines that use the store (goBackground),
 	// so Close can wait for them before closing it. bgMu orders their
 	// start against Close's cancel.
