@@ -521,7 +521,7 @@ MUTS += [
   edits=[('internal/aghub/janitor.go', '\tguardKept = 30 * 24 * time.Hour\n', '\tguardKept = 7 * 24 * time.Hour\n')],
   tests=GUARD, full=[HUB]),
  dict(id='pay4-settled-days', group='PAY-4', repo='ANetHub', desc='结算行在 NotAfter 一过就删(重复请求得不到原收据)',
-  edits=[('internal/aghub/janitor.go', '\tsettledKeptAfter = 7 * 24 * time.Hour\n', '\tsettledKeptAfter = 0\n')],
+  edits=[('internal/aghub/janitor.go', '\tsettledKeptAfter = 7 * 24 * time.Hour\n', '\tsettledKeptAfter = time.Duration(0)\n')],
   tests=[(HUB, '^TestTheJanitorKeepsWhatIsStillNeeded$')], full=[HUB]),
  dict(id='pay4-cleared-days', group='PAY-4', repo='ANetHub', desc='去重行在收据 SettleAt 当天就删(7 天内的重复收据再次入账)',
   edits=[('internal/aghub/janitor.go', '\tclearedKeptAfter  = 8 * 24 * time.Hour\n', '\tclearedKeptAfter  = 0\n')],
