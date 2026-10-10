@@ -12,6 +12,9 @@ package a2a
 //	POST /a2a/v1/agents/{aid}/jsonrpc/                    the same
 //	     /a2a/v1/agents/{aid}/rest/...                    A2A HTTP+JSON binding
 //
+// GetExtendedAgentCard, on either binding, is answered before the binding
+// (extcard.go).
+//
 // The bare /a2a/v1/agents/{aid} serves the card too because that is the URL
 // clients are configured with (Hermes' a2a_agents), and a2a-go's card
 // resolver fetches a base URL with a path as it is, without appending the
@@ -100,7 +103,7 @@ func newServer(seam module.TaskSeam, cfg serverConfig) *server {
 		s.tokens = &tokenSource{path: cfg.tokenFile}
 	}
 	s.cards = newCardCache(seam, cardBuilder{host: cfg.host, port: cfg.port}, cfg.signer)
-	h := &handler{seam: seam}
+	h := &handler{seam: seam, extended: s.extendedAgentCard}
 	s.h = h
 	opts := []a2asrv.TransportOption{
 		a2asrv.WithTransportKeepAlive(15 * time.Second),
@@ -291,6 +294,12 @@ func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 			}
 		}
 		r = r.WithContext(withInfo(r.Context(), info))
+		// GetExtendedAgentCard is answered here, its refusals in the form
+		// of core G1 (extcard.go). A version the interface does not speak
+		// is the binding's to refuse.
+		if info.versionErr == nil && s.precheckExtendedCard(w, r, aid, jsonrpc) {
+			return
+		}
 		// A send while this node is not registered at its hub is refused
 		// with the join state's sentence, nothing created (sendgate.go).
 		if s.precheckSendGate(w, r, aid, jsonrpc) {
@@ -629,17 +638,20 @@ const cardMaxAge = 300
 // a2a-tck CARD-CACHE-001/002). Every other response of this interface is
 // no-store (ServeHTTP).
 func writeCacheable(w http.ResponseWriter, r *http.Request, body []byte) {
-	sum := sha256.Sum256(body)
-	etag := `"` + base64.RawURLEncoding.EncodeToString(sum[:18]) + `"`
+	etag := setCacheHeaders(w, body)
 	h := w.Header()
-	h.Set("Cache-Control", "private, max-age="+strconv.Itoa(cardMaxAge))
-	h.Set("ETag", etag)
 	if etagMatch(r.Header.Get("If-None-Match"), etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	h.Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
+}
+
+// cardETag is the ETag of a card's bytes.
+func cardETag(body []byte) string {
+	sum := sha256.Sum256(body)
+	return `"` + base64.RawURLEncoding.EncodeToString(sum[:18]) + `"`
 }
 
 // etagMatch reports whether an If-None-Match value names etag: "*", or the

@@ -39,6 +39,9 @@ import (
 // handler implements a2asrv.RequestHandler over a TaskSeam.
 type handler struct {
 	seam module.TaskSeam
+	// extended is the proxy extended card of an agent (server.
+	// extendedAgentCard); nil answers that there is none.
+	extended func(ctx context.Context, aid string) (*a2a.AgentCard, error)
 }
 
 // begin checks what every operation shares: the agent from the path, the
@@ -343,10 +346,19 @@ func (h *handler) DeleteTaskPushConfig(context.Context, *a2a.DeleteTaskPushConfi
 
 var errNoPush = a2a.NewError(a2a.ErrPushNotificationNotSupported, "push notifications are not supported")
 
-// GetExtendedAgentCard is not offered: the cards declare no extended card,
-// and the specification answers that with UnsupportedOperation (A2A §3.3.4).
-func (h *handler) GetExtendedAgentCard(context.Context, *a2a.GetExtendedAgentCardRequest) (*a2a.AgentCard, error) {
-	return nil, a2a.NewError(a2a.ErrUnsupportedOperation, "this agent has no extended card")
+// GetExtendedAgentCard is the proxy extended card of the agent in the path
+// (extcard.go). A call over HTTP is answered before it reaches here, so
+// that a refusal carries its two ErrorInfo; this serves a caller of the
+// handler itself, with the A2A error alone.
+func (h *handler) GetExtendedAgentCard(ctx context.Context, r *a2a.GetExtendedAgentCardRequest) (*a2a.AgentCard, error) {
+	info, err := h.begin(ctx, r.Tenant)
+	if err != nil {
+		return nil, err
+	}
+	if h.extended == nil {
+		return nil, a2a.NewError(a2a.ErrUnsupportedOperation, "this agent has no extended card")
+	}
+	return h.extended(ctx, info.aid)
 }
 
 // --- streams ---
