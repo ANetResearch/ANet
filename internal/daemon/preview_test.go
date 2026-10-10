@@ -1265,3 +1265,30 @@ func FuzzPreviewTail(f *testing.F) {
 		}
 	})
 }
+
+// CUX-P16: a result that carries no reply (the provider ended the task
+// without a last word) ends the task's preview too.
+func TestPreviewClearedByAResultWithoutReply(t *testing.T) {
+	req, prov, co, clk, id, _ := previewPair(t, previewModeOn)
+	ctx := context.Background()
+	co.Offer(id, "almost there", "", previewModeOn)
+	flushPreviews(co, clk.now())
+	if err := req.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := req.previews().Current(id); !ok {
+		t.Fatal("the frame is not shown")
+	}
+	if err := prov.CompleteTask(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if cur, err := req.ix.Get(id); err != nil || !cur.IsTerminal() {
+		t.Fatalf("the requester's task: %+v %v", cur, err)
+	}
+	if f, ok := req.previews().Current(id); ok {
+		t.Fatalf("the requester shows %q after the result", f.Text)
+	}
+}

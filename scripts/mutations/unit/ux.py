@@ -652,7 +652,7 @@ MUTS += [
   edits=[('internal/daemon/eventbus.go', '\tif cur.IsTerminal() {\n\t\td.clearPreview(ix) // CUX-P16\n\t}\n', ''),
          ('internal/daemon/eventbus.go', '\td.clearPreview(ix)\n\td.bus.publish(Event{IX: ix, Kind: EventResult, At: d.nowMS()})\n',
           '\td.bus.publish(Event{IX: ix, Kind: EventResult, At: d.nowMS()})\n')],
-  tests=[(DAEMON, '^TestPreviewRoundAfterRestartSendsNoFrames$')], full=[DAEMON]),
+  tests=[(DAEMON, '^(TestPreviewRoundAfterRestartSendsNoFrames|TestPreviewClearedByAResultWithoutReply)$')], full=[DAEMON]),
  dict(id='ux8-p16-race', group='UX-8', repo='ANet', desc='SI-75 正在判定的帧在任务清除之后仍被留下',
   edits=[(UX8_PREVIEW, '\t\tif e > in.Epoch {\n', '\t\tif false && e > in.Epoch {\n')],
   tests=[(DAEMON, '^TestPreviewCacheClears$')], full=[DAEMON]),
