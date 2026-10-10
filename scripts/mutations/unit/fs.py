@@ -761,7 +761,7 @@ MUTS += [
   edits=[(FS10_RB, '\t\treturn rollbackRetryLater, why\n\tcase setSignedElsewhere:', '\tcase setSignedElsewhere:')],
   tests=[(FS4_D, '^TestRollbackWaitsForTheDirectory$')], full=[FS4_D]),
  dict(id='fs10-k', group='FS-B2', repo='ANet', desc='注册遇无法核验的 keys_rollback 时把 409 交给加入流程(判为终局拒绝)',
-  edits=[('internal/daemon/hub_client.go', '\t\tcase rollbackRetryLater:\n\t\t\treturn hubReply{Err: err}\n', '')],
+  edits=[('internal/daemon/hub_client.go', '\t\tcase rollbackRetryLater:\n\t\t\treturn hubReply{Err: err}\n', '\t\tcase rollbackRetryLater:\n\t\t\t_ = err\n')],
   tests=[(FS4_D, '^TestRollbackWaitsForTheDirectory$')], full=[FS4_D]),
  dict(id='fs10-l', group='FS-B3', repo='ANet', desc='同一 stored_seq 的 keys_rollback 再到时写新标记(一次回退被算成两次)',
   edits=[(FS10_RB, '\tif mark != nil && mark.StoredSeq == storedSeq {', '\tif false && mark != nil && mark.StoredSeq == storedSeq {')],
