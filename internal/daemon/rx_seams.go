@@ -3,9 +3,8 @@ package daemon
 // rx_seams.go is where the receive pipeline v3 meets what other packages
 // deliver after it (engine ENG-G3, §0.2): each seam has the signature the
 // pipeline calls and, until its package replaces it, the stub behavior the
-// engine fixes (no preview frame is taken, every card answer is refused,
-// nothing more is written for a refused result, the hub KEL set is not
-// refreshed). The interaction key lookup of step 3a (FS-7) is the store's.
+// engine fixes (every card answer is refused, nothing more is written for a
+// refused result, the hub KEL set is not refreshed). The interaction key lookup of step 3a (FS-7) is the store's.
 // The reply grant of anet.card.get/1 is kept here for the one-shot sender
 // (ENG-1b), which seals the answer.
 
@@ -79,15 +78,8 @@ func wipeLookup(l seal.IXKeyLookup) {
 	}
 }
 
-// previewArrived is receive step 9 for a stream_preview frame (engine §4.5;
-// CUX-P14): UX-8's previewAccept decides, an accepted frame is kept in
-// memory and published (EventPreview), and nothing is written to the store.
-// It reports whether the frame was taken; one that was not is dropped
-// without a word (preview-rejected).
-//
-// v030-todo(UX-8): previewAccept and the preview cache; until then no frame
-// is taken.
-func (d *Daemon) previewArrived(m *rxMsg) bool { return false }
+// previewArrived, receive step 9 for a stream_preview frame, is in
+// preview.go (UX-8).
 
 // cardAnswerArrived is receive step 9 for an anet.card/1 (engine §4.5; HPP
 // PAY-C13, C14): taken only for an ix this node has a card fetch pending

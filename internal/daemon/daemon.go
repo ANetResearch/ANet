@@ -145,9 +145,9 @@ type Daemon struct {
 	// outboxHold, set by a test (setOutboxHold), skips the passes of the
 	// outbox loop and of the no-response sweep.
 	outboxHold atomic.Bool
-	// previewer is the stream_preview coalescer (UX-8, set with
-	// setPreviewer); none is the stub that sends nothing (previews,
-	// outbox_seams.go).
+	// previewer is the stream_preview coalescer and preview cache
+	// (preview.go, set with setPreviewer); none leaves previews
+	// unavailable (previewsUnavailable).
 	previewer atomic.Pointer[previewCoalescer]
 	// sbRefused remembers outbound auto-reply turns that failed closed
 	// because the sandbox was unavailable (autoreply.go).
@@ -334,6 +334,7 @@ func New(layout Layout) (*Daemon, error) {
 	}
 	d.ledger = led
 	d.purgeReplay()
+	d.startPreviews(ctx) // before anything can arrive (preview.go)
 	d.goBackground(func() { d.receiveMaintenance(ctx) })
 	d.goBackground(func() { d.keyMaintenanceLoop(ctx) })
 	d.goBackground(func() { d.mboxLoop(ctx) }) // mbox.go
