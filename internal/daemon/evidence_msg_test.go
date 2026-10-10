@@ -112,6 +112,7 @@ func TestStrangerMessagesAreAggregated(t *testing.T) {
 	if ix, err := prov.ix.Get(id); err != nil || ix.Trust != interactions.TrustPublic {
 		t.Fatalf("interaction %+v %v, want trust public", ix, err)
 	}
+	askHubNow(t, stranger) // the delegation is confirmed: follow-ups go (engine ENG-O2)
 	for i := 0; i < 3; i++ {
 		if err := stranger.SendMessage(ctx, id, fmt.Sprintf("more %d", i), nil); err != nil {
 			t.Fatal(err)

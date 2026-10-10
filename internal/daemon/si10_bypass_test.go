@@ -52,7 +52,9 @@ func (p *directTo) Send(ctx context.Context, _ string, env []byte) ([]byte, bool
 // was failed by the notice — while the delegation behind it was taken and
 // worked on. Over a direct path a message for a task the node does not
 // know is refused for now instead, whoever sent it: it goes through the hub
-// after the delegation already there, and arrives in order.
+// after the delegation already there, and arrives in order. And the
+// requester sends no follow-up at all until its delegation is confirmed
+// (engine ENG-O2): the follow-up cannot overtake it on any path.
 func TestADirectFollowUpThatOvertakesItsDelegationArrivesAfterIt(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -73,18 +75,23 @@ func TestADirectFollowUpThatOvertakesItsDelegationArrivesAfterIt(t *testing.T) {
 	if err := stranger.SendMessage(ctx, id, "and one more thing", nil); err != nil {
 		t.Fatalf("follow-up: %v", err)
 	}
+	if direct.sent.Load() != 0 {
+		t.Fatalf("the follow-up went before its delegation was confirmed")
+	}
+	if rows := outboxRows(t, stranger, id); len(rows) != 2 {
+		t.Fatalf("the requester's queue: %+v, want the delegation and the follow-up waiting behind it", rows)
+	}
+	// The provider collects its mail (the delegation), the requester hears
+	// it arrived, and the follow-up goes, here over the direct path.
+	settleDelivery(t, stranger, prov)
+	if err := stranger.deliverQueued(ctx, outboxRows(t, stranger, id)[0].ID); err != nil {
+		t.Fatalf("follow-up after the confirmation: %v", err)
+	}
 	if direct.sent.Load() != 1 {
-		t.Fatalf("setup: the follow-up was not tried over the direct path")
+		t.Fatalf("the follow-up did not go once its delegation was confirmed")
 	}
 	if n := counter(prov, dropUnknownIX); n != 0 {
 		t.Fatalf("the direct follow-up was answered TaskNotFound and dropped (%v)", prov.ReceiveStats())
-	}
-	if rows, _ := stranger.ix.Outbox(id); len(rows) != 0 {
-		t.Fatalf("the follow-up is still queued: %+v", rows)
-	}
-	// The provider collects its mail: the delegation, then the follow-up.
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
 	}
 	msgs, err := prov.ix.Messages(id)
 	if err != nil {
@@ -245,19 +252,19 @@ func TestADelegationWhoseAttemptWasNeverRecordedIsNotWithdrawn(t *testing.T) {
 	// The process comes back; the direct path is gone, the hub still down.
 	recovered()
 	direct.on.Store(false)
-	rows, err := req.ix.Outbox(id)
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("setup: outbox %+v (%v), want the delegation", rows, err)
+	rows := outboxRows(t, req, id)
+	if len(rows) != 1 {
+		t.Fatalf("setup: outbox %+v, want the delegation", rows)
 	}
-	if !rows[0].MaybeDelivered {
-		t.Fatalf("a delegation whose attempt's outcome was never recorded counts as never delivered")
+	if !rows[0].Attempting && rows[0].HandedAt == 0 {
+		t.Fatalf("a delegation whose attempt's outcome was never recorded counts as never handed over")
 	}
 
 	if _, err := req.CancelTask(ctx, id); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
-	rows, _ = req.ix.Outbox(id)
-	if len(rows) != 2 {
+	rows = outboxRows(t, req, id)
+	if len(rows) != 2 || !rows[0].Frozen {
 		t.Fatalf("outbox after the cancel: %d rows, want the delegation and the cancel behind it (withdrawn?)", len(rows))
 	}
 	// The hub is back: the cancel reaches the provider, after the
@@ -381,7 +388,7 @@ func TestARedeliveredDelegationHurriesTheWholeAnswerQueue(t *testing.T) {
 	if err := prov.CompleteTask(ctx, id); err != nil {
 		t.Logf("complete: %v", err)
 	}
-	rows, _ := prov.ix.Outbox(id)
+	rows := outboxRows(t, prov, id)
 	if len(rows) != 2 || rows[1].Type != seal.TypeResult {
 		t.Fatalf("setup: provider outbox %+v, want a status and then the result", rows)
 	}
@@ -395,8 +402,10 @@ func TestARedeliveredDelegationHurriesTheWholeAnswerQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	prov.flushOutbox(ctx)
-	if rows, _ := prov.ix.Outbox(id); len(rows) != 0 {
-		t.Fatalf("after the redelivery %d answers still wait (the first due at +%d ms)", len(rows), rows[0].NextAt-int64(clk.now()))
+	if n := len(queuedFor(t, srv, req.AID())); n != 2 {
+		rows := outboxRows(t, prov, id)
+		t.Fatalf("after the redelivery %d answers reached the hub, want both (the first due at +%d ms)", n,
+			rows[0].NextAt-int64(clk.now()))
 	}
 	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)

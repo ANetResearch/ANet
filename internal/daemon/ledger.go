@@ -174,6 +174,11 @@ func (l *evidenceLedger) Append(eventType string, payload any) (string, error) {
 	if err := rec.Sign(l.self); err != nil {
 		return "", err
 	}
+	// The identity's KEL as it is now, read after the signature: a key
+	// event adopted since the ledger opened (a rotation, a witness
+	// designation) signs under a key state the KEL read at open does not
+	// reach.
+	l.kel = l.self.KEL()
 	if err := l.led.Append(rec, l.kel); err != nil {
 		return "", err
 	}

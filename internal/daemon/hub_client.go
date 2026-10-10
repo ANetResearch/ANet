@@ -341,6 +341,18 @@ func (d *Daemon) hubGet(ctx context.Context, hubURL, path string, query url.Valu
 // cannot be replayed at another; it comes from GET /hub/identity and is
 // fetched before the first signed call to that hub.
 func (d *Daemon) hubSigned(ctx context.Context, hubURL, method, path, action string, body, out any) error {
+	// A hub that answered over another wire is asked nothing until the join
+	// flow checks it again (core CORE-V1); that is said first, as the gate
+	// of a node whose join it refused is closed for that very reason.
+	key := strings.TrimRight(hubURL, "/")
+	if v, ok := d.hubc.wireStopped.Load(key); ok && gateExempt(ctx) != gateJoin {
+		return &hubStoppedError{hub: key, we: v.(*hubWireError)}
+	}
+	// The outbound gate (KEL D-1): nothing is signed with a key state the
+	// witness has not confirmed, outside the join and the publication.
+	if err := d.signedGate(ctx, path); err != nil {
+		return err
+	}
 	hubAID, _, err := d.hubIdentity(ctx, hubURL)
 	if err != nil {
 		return err
@@ -398,6 +410,103 @@ func (d *Daemon) hubSignedRaw(ctx context.Context, hubURL, method, path, action 
 		return hubReply{Err: err}
 	}
 	return rep
+}
+
+// errGateClosed is a signed request the outbound gate holds back (KEL D-1,
+// engine ENG-K13, SI-84): nothing was signed or sent.
+var errGateClosed = errors.New("anet: the outbound gate is closed")
+
+// gateClosedError is errGateClosed naming the identity's state.
+type gateClosedError struct{ state string }
+
+func (e *gateClosedError) Error() string {
+	return "anet: this node's identity is " + e.state + ": no signed request goes to the hub until its witness confirms it"
+}
+func (e *gateClosedError) Is(target error) bool { return target == errGateClosed }
+
+// gateCtxKey marks a request's context with what lets its signed requests
+// through a closed gate (KEL D-1).
+type gateCtxKey struct{}
+
+// The requests a closed gate lets through.
+const (
+	// gateJoin: the join flow (LEC AD-1–AD-8): check_only, /register to the
+	// witness with the key set it carries, hub-leave; and its GET
+	// /hub/identity reaches a hub that answered over another wire, which is
+	// how the stop ends (core CORE-V1).
+	gateJoin = iota + 1
+	// gatePublication: the publication sequence of a key event (KEL D-13,
+	// core §4.7 E2): the registration with the witness, kel:push and the key
+	// set signed under the new key. KEL-9 marks it.
+	gatePublication
+)
+
+// withJoinFlow marks ctx as the join flow's.
+func withJoinFlow(ctx context.Context) context.Context {
+	return context.WithValue(ctx, gateCtxKey{}, gateJoin)
+}
+
+// withPublication marks ctx as the publication sequence's.
+func withPublication(ctx context.Context) context.Context {
+	return context.WithValue(ctx, gateCtxKey{}, gatePublication)
+}
+
+// gateExempt is what ctx is marked with, 0 for nothing.
+func gateExempt(ctx context.Context) int {
+	if v, ok := ctx.Value(gateCtxKey{}).(int); ok {
+		return v
+	}
+	return 0
+}
+
+// signedGate is nil when a relayauth-signed request to path may be signed
+// and sent now (KEL D-1, engine ENG-K13): the gate is open; or the request
+// is the join flow's or the publication sequence's; or the gate is closed
+// for a notice too old and the request is the mailbox poll or its ack —
+// the poll's answer brings a fresh notice, and is how the gate opens again
+// on its own (2026-10-09). Otherwise it is a gateClosedError, and nothing
+// is signed.
+func (d *Daemon) signedGate(ctx context.Context, path string) error {
+	g := d.identityGate()
+	if g.Open || gateExempt(ctx) != 0 {
+		return nil
+	}
+	if g.State == IdentityNoticeStale && (path == hubapi.RelayPollPath || path == hubapi.RelayAckPath) {
+		return nil
+	}
+	return &gateClosedError{state: g.State}
+}
+
+// hubStoppedError is a request to a hub that answered over another wire:
+// nothing is sent to it, on either side, until the join flow checks its
+// identity again and it passes (core CORE-V1, engine ENG-K13).
+type hubStoppedError struct {
+	hub string
+	we  *hubWireError
+}
+
+func (e *hubStoppedError) Error() string {
+	return "anet: hub " + e.hub + " answered over another wire; nothing is sent to it until it is joined again (" + e.we.msg + ")"
+}
+func (e *hubStoppedError) Is(target error) bool { return target == errHubWire }
+func (e *hubStoppedError) Unwrap() error        { return e.we }
+
+// hubWireStopped reports whether the hub at hubURL answered over another
+// wire since its identity was last checked by the join flow.
+func (d *Daemon) hubWireStopped(hubURL string) bool {
+	_, ok := d.hubc.wireStopped.Load(strings.TrimRight(hubURL, "/"))
+	return ok
+}
+
+// clearHubWire ends the stop of the hub at hubURL: the join flow checked
+// its identity and it speaks this daemon's wire.
+func (d *Daemon) clearHubWire(hubURL string) {
+	key := strings.TrimRight(hubURL, "/")
+	if _, ok := d.hubc.wireStopped.LoadAndDelete(key); ok {
+		d.hubc.wireNoted.Delete(key)
+		log.Printf("anet: hub %s speaks this daemon's wire again; requests to it resume", key)
+		d.kickOutbox()
+	}
 }
 
 // errHubWire is returned for every call to a hub that does not speak this
@@ -500,7 +609,11 @@ type hubClient struct {
 	// anet release its last 426 named (wire_too_old's {version}).
 	wireNoted sync.Map
 	wireNeeds sync.Map
-	sessions  sessionTable
+	// wireStopped holds, per hub, the refusal that stopped every request to
+	// it (core CORE-V1): until the join flow checks its identity again.
+	// In this process only; a restart decides afresh.
+	wireStopped sync.Map
+	sessions    sessionTable
 }
 
 // client is the HTTP client of one side, built on first use.
@@ -549,7 +662,9 @@ func (d *Daemon) hubExchange(req *http.Request, hubURL, route string, kind int) 
 	resp, err := d.hubTransmit(req, hubURL, route, kind)
 	if err != nil {
 		var unmapped *hubRouteError
-		return hubReply{Err: err, Local: errors.As(err, &unmapped)}
+		var stopped *hubStoppedError
+		local := errors.As(err, &unmapped) || errors.As(err, &stopped) || errors.Is(err, errGateClosed)
+		return hubReply{Err: err, Local: local}
 	}
 	defer resp.Body.Close()
 	// Cap the response to bound memory against a hostile/broken Hub. It must comfortably exceed the
@@ -602,6 +717,19 @@ func (d *Daemon) hubTransmit(req *http.Request, hubURL, route string, kind int) 
 				d.countErr(counterHubRouteUnmapped, err)
 				return nil, err
 			}
+		}
+	}
+	// A hub that answered over another wire gets nothing, on either side,
+	// until the join flow checks its identity again (core CORE-V1).
+	if v, ok := d.hubc.wireStopped.Load(strings.TrimRight(hubURL, "/")); ok &&
+		!(route == "/hub/identity" && gateExempt(req.Context()) == gateJoin) {
+		return nil, &hubStoppedError{hub: strings.TrimRight(hubURL, "/"), we: v.(*hubWireError)}
+	}
+	// A signed request — a module's included — goes only through the gate
+	// (KEL D-1); hubSigned asks before it signs, this is the backstop.
+	if len(req.Header.Values(hubapi.HeaderSig)) > 0 {
+		if err := d.signedGate(req.Context(), route); err != nil {
+			return nil, err
 		}
 	}
 	// Every request states the C2 contract version this daemon speaks.
@@ -736,14 +864,16 @@ func hubReason(err error) string {
 }
 
 // noteHubWire handles a hub that answered over another wire (CORE-V1): the
-// daemon stops talking to it. The hub's identity is forgotten, so the next
-// call asks GET /hub/identity again and meets the same refusal before it
-// signs anything; a node registered there has its join loop make an
-// attempt now, which records wire_too_old or wire_too_new — `anet status`
-// says so in one sentence, and the relay loop stops polling (it polls only
-// while registered). Logged once per hub per process.
+// daemon stops talking to it, on the signed and the anonymous side alike,
+// until the join flow checks its identity again and it passes
+// (hubTransmit, clearHubWire); the outbound engine sends and asks nothing
+// meanwhile (engine ENG-K13). The hub's identity is forgotten; a node
+// registered there has its join loop make an attempt now, which records
+// wire_too_old or wire_too_new — `anet status` says so in one sentence.
+// Logged once per hub per process.
 func (d *Daemon) noteHubWire(hubURL string, we *hubWireError) {
 	key := strings.TrimRight(hubURL, "/")
+	d.hubc.wireStopped.Store(key, we)
 	d.hubIDMu.Lock()
 	delete(d.hubIDs, key)
 	d.hubIDMu.Unlock()

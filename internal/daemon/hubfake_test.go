@@ -196,6 +196,21 @@ type fakeHub struct {
 	// relayDown makes /relay/send answer 503: the hub is up but not
 	// carrying mail, the temporary failure a sender retries.
 	relayDown bool
+	// dropSends makes /relay/send answer 200 queued with a rid and keep
+	// nothing: a hub that loses what it took (DLV T4).
+	dropSends bool
+	// sendHook, when set, is asked about every /relay/send whose envelope
+	// and credential passed, before the hub queues it, and its answer is
+	// what the hub does (a scripted hub: the engine's model test).
+	sendHook func(env []byte) fakeSendAnswer
+	// statusRequests are the items of every /relay/status request, in
+	// order, and statusHeaders their headers; statusDown answers them 503;
+	// statusHook, when set, answers an item instead of the mailbox and the
+	// tokens (ok false: the usual answer): a hub that lies (E-T24).
+	statusRequests [][]hubapi.RelayStatusItem
+	statusHeaders  []http.Header
+	statusDown     bool
+	statusHook     func(it hubapi.RelayStatusItem) (hubapi.RelayStatusResult, bool)
 	// identityDown makes GET /hub/identity answer 503: the hub is up and
 	// carrying mail, and a node that has not learned its identity yet
 	// cannot learn it now.
@@ -432,6 +447,10 @@ func startFakeHub(t testing.TB, tlsOn bool) *httptest.Server {
 		a2aCards:     map[string][]byte{}, a2aMarks: map[string]a2acard.Mark{},
 		registerCards: map[string]string{},
 		admitted:      map[string]bool{}, powBits: 4, probation: map[string]uint64{},
+		// It witnesses the agents whose key history names it, and every
+		// answer about their key state carries its notice (KEL H-10, D-50):
+		// a test node is confirmed, and its gate open, once it joined.
+		notices: true,
 	}
 	// The hub is an agent on its own registry, so its settlement
 	// signatures can be checked the same way everyone else's are.
@@ -547,6 +566,7 @@ func (h *fakeHub) handler() http.Handler {
 	mux.HandleFunc("POST /relay/send", h.hRelaySend)
 	mux.HandleFunc("POST /relay/poll", h.hRelayPoll)
 	mux.HandleFunc("POST /relay/ack", h.hRelayAck)
+	mux.HandleFunc("POST "+hubapi.RelayStatusPath, h.hRelayStatus)
 	mux.HandleFunc("GET /agents/{aid}/keys", h.hKeysGet)
 	mux.HandleFunc("POST /agents/{aid}/keys", h.hKeysPost)
 	mux.HandleFunc("POST "+hubapi.DirectoryBucketPath, h.hDirBucket)
@@ -1724,6 +1744,12 @@ func (h *fakeHub) hRelaySend(w http.ResponseWriter, r *http.Request) {
 		sender = "cap:" + hex.EncodeToString(capIDOf(outer.Access))
 	}
 	h.mu.Lock()
+	hook := h.sendHook
+	h.mu.Unlock()
+	if hook != nil && hook(env).answer(w) {
+		return
+	}
+	h.mu.Lock()
 	defer h.mu.Unlock()
 	if _, ok := h.agents[outer.To]; !ok {
 		fakeHubRefuse(w, http.StatusNotFound, "recipient_unknown", nil)
@@ -1775,6 +1801,10 @@ func (h *fakeHub) hRelaySend(w http.ResponseWriter, r *http.Request) {
 	h.nextID++
 	rid := make([]byte, hubapi.RIDLen)
 	_, _ = rand.Read(rid)
+	if h.dropSends {
+		answer(hubapi.RelayQueued, rid)
+		return
+	}
 	h.mailbox = append(h.mailbox, &fakeHubMsg{
 		id: h.nextID, toAID: outer.To, payload: env, rid: rid, digest: digest,
 		createdAt: time.Now().UTC().Format(time.RFC3339Nano),
@@ -1971,6 +2001,145 @@ func (h *fakeHub) hRelayAck(w http.ResponseWriter, r *http.Request) {
 	}
 	h.mailbox = kept
 	fakeHubJSON(w, http.StatusOK, hubapi.RelayAckResponse{Acked: acked, Stored: stored})
+}
+
+// hRelayStatus mirrors POST /relay/status (DLV §2.4.3): anonymous — a
+// request with an identity header is refused — and, for each item, queued
+// while its rid is in a mailbox, else done with the token an ack left under
+// its handle, else unknown.
+func (h *fakeHub) hRelayStatus(w http.ResponseWriter, r *http.Request) {
+	for _, hd := range []string{hubapi.HeaderAID, hubapi.HeaderSeq, hubapi.HeaderSig} {
+		if len(r.Header.Values(hd)) > 0 {
+			fakeHubRefuse(w, http.StatusBadRequest, "identity_headers_not_allowed", nil)
+			return
+		}
+	}
+	body, ok := h.readBody(w, r, 16<<10)
+	if !ok {
+		return
+	}
+	var req hubapi.RelayStatusRequest
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	if len(req.Items) == 0 || len(req.Items) > hubapi.RelayStatusMaxItems {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_status_query", nil)
+		return
+	}
+	for _, it := range req.Items {
+		if _, err := hubapi.DecodeB64(it.RID, hubapi.RIDLen); err != nil {
+			fakeHubRefuse(w, http.StatusBadRequest, "bad_status_query", nil)
+			return
+		}
+		if _, err := hubapi.DecodeB64(it.Handle, hubapi.HandleLen); err != nil {
+			fakeHubRefuse(w, http.StatusBadRequest, "bad_status_query", nil)
+			return
+		}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.statusRequests = append(h.statusRequests, req.Items)
+	h.statusHeaders = append(h.statusHeaders, r.Header.Clone())
+	if h.statusDown {
+		w.Header().Set("Retry-After", "1")
+		fakeHubRefuse(w, http.StatusServiceUnavailable, "unavailable", nil)
+		return
+	}
+	out := hubapi.RelayStatusResponse{Items: make([]hubapi.RelayStatusResult, len(req.Items))}
+	for i, it := range req.Items {
+		if h.statusHook != nil {
+			if res, ok := h.statusHook(it); ok {
+				out.Items[i] = res
+				continue
+			}
+		}
+		rid, _ := hubapi.DecodeB64(it.RID, hubapi.RIDLen)
+		out.Items[i] = hubapi.RelayStatusResult{State: hubapi.RelayStatusUnknown}
+		for _, m := range h.mailbox {
+			if bytes.Equal(m.rid, rid) {
+				out.Items[i] = hubapi.RelayStatusResult{State: hubapi.RelayStatusQueued}
+				break
+			}
+		}
+		if out.Items[i].State == hubapi.RelayStatusUnknown {
+			if dack, ok := h.relayDacks[it.Handle]; ok {
+				out.Items[i] = hubapi.RelayStatusResult{State: hubapi.RelayStatusDone, DAck: dack}
+			}
+		}
+	}
+	fakeHubJSON(w, http.StatusOK, out)
+}
+
+// fakeSendAnswer is what a scripted hub does with a /relay/send
+// (fakeHub.sendHook).
+type fakeSendAnswer struct {
+	kind fakeSendKind
+	// status, code and retryAfter are the refusal of fakeSendRefuse.
+	status     int
+	code       string
+	retryAfter string
+}
+
+type fakeSendKind int
+
+const (
+	// fakeSendPass: the hub's own rules.
+	fakeSendPass fakeSendKind = iota
+	// fakeSendAccept: 200 queued with a fresh rid, and the envelope kept
+	// nowhere.
+	fakeSendAccept
+	// fakeSendBadRID: 200 queued with a rid that is not 16 bytes.
+	fakeSendBadRID
+	// fakeSendRefuse: the refusal given.
+	fakeSendRefuse
+	// fakeSendReset: the connection is closed without an answer, after
+	// the hub read the request.
+	fakeSendReset
+)
+
+// answer writes a's answer to w and reports whether it did (false for
+// fakeSendPass).
+func (a fakeSendAnswer) answer(w http.ResponseWriter) bool {
+	switch a.kind {
+	case fakeSendAccept, fakeSendBadRID:
+		rid := make([]byte, hubapi.RIDLen)
+		_, _ = rand.Read(rid)
+		if a.kind == fakeSendBadRID {
+			rid = rid[:5]
+		}
+		fakeHubJSON(w, http.StatusOK, hubapi.RelaySendResponse{Status: hubapi.RelayQueued, RID: hubapi.B64(rid)})
+	case fakeSendRefuse:
+		if a.retryAfter != "" {
+			w.Header().Set("Retry-After", a.retryAfter)
+		}
+		fakeHubRefuse(w, a.status, a.code, nil)
+	case fakeSendReset:
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				_ = conn.Close()
+				return true
+			}
+		}
+		panic(http.ErrAbortHandler)
+	default:
+		return false
+	}
+	return true
+}
+
+// statusCalls is how many /relay/status requests the hub at url got.
+func statusCalls(url string) int {
+	v, ok := hubsByURL.Load(url)
+	if !ok {
+		return 0
+	}
+	h := v.(*fakeHub)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.statusRequests)
 }
 
 // queuedFor returns the envelopes the hub holds for toAID, oldest first.

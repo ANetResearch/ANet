@@ -552,6 +552,15 @@ func TestTheRelayLoopWaitsForRegistration(t *testing.T) {
 	fh.admission = fakeAdmitClosed
 	fh.mu.Unlock()
 	d, _ := joinDaemon(t)
+	// The join designates the hub the witness, whose notice then confirms
+	// the identity: polling is what the gate lets through first (KEL D-1).
+	d.regMu.Lock()
+	d.join.hooks = witnessJoinHooks{d}
+	d.regMu.Unlock()
+	// The gate is held open: what keeps the loop from polling while the
+	// node waits for admission must be the loop's own wait, not a gate
+	// that happens to be closed then.
+	holdGateOpen(d)
 	controlCall(t, d.hHubRegister, "/hub-register", hubRegisterBody(srv.URL, `,"next_digest":"`+testDigest+`"`))
 	waitJoinState(t, d, JoinPendingAdmission)
 	if !d.relayRunning() {

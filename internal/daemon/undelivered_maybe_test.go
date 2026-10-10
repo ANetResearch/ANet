@@ -65,10 +65,11 @@ func taskViewMap(t *testing.T, d *Daemon, id string) (state, effectStatus, reaso
 
 // [redteam:F12] SI-6: a delegation a direct transport delivered (its Send
 // then failed, as a timed-out round trip must) and the hub then refused for
-// good (413: only p2p could carry it) is abandoned — but it is not reported
-// as "never delivered, did not run" (UNAVAILABLE): the provider ran it. The
-// task fails with effect UNVERIFIED and the caller is told delivery was not
-// confirmed.
+// good (413: only p2p could carry it) is abandoned with the hub's reason —
+// but it is not reported as "never delivered, did not run" (UNAVAILABLE):
+// the provider ran it. Whether any of it left decides, and nothing else
+// (engine ENG-X2, ENG-H1): the task fails with effect UNVERIFIED and the
+// caller is told delivery was not confirmed.
 func TestAnAbandonedDelegationThatMayHaveArrivedIsNotUnavailable(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -98,17 +99,18 @@ func TestAnAbandonedDelegationThatMayHaveArrivedIsNotUnavailable(t *testing.T) {
 		t.Fatalf("setup: the provider ran the call %d times (p2p sends %d)", len(lamp.invoked), p2p.calls.Load())
 	}
 	state, es, reason := taskViewMap(t, req, id)
-	if state != string(a2ashape.TaskStateFailed) || es != "UNVERIFIED" || reason != a2ashape.ReasonUndeliverable {
-		t.Fatalf("requester: state=%s effect_status=%s reason=%s; want failed, UNVERIFIED, undeliverable", state, es, reason)
+	if state != string(a2ashape.TaskStateFailed) || es != "UNVERIFIED" || reason != "too_large" {
+		t.Fatalf("requester: state=%s effect_status=%s reason=%s; want failed, UNVERIFIED, too_large", state, es, reason)
 	}
 	if derr == nil || !strings.Contains(derr.Error(), "not confirmed") {
 		t.Fatalf("DelegateCapability = %v, want an error saying delivery was not confirmed", derr)
 	}
 }
 
-// The same refusal when no attempt can have delivered it (the direct path
-// said it reached nobody) is still reported as a call that did not run:
-// UNAVAILABLE ([redteam:F12], the other side of the line).
+// A delegation no byte of which ever left — the direct path said it
+// reached nobody, the hub could not be reached at all — is given up at its
+// deadline as a call that did not run: undeliverable, UNAVAILABLE
+// ([redteam:F12], the other side of the line; engine ENG-X2).
 func TestAnAbandonedDelegationThatReachedNobodyIsUnavailable(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -120,19 +122,30 @@ func TestAnAbandonedDelegationThatReachedNobodyIsUnavailable(t *testing.T) {
 	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
 		t.Fatal(err)
 	}
-	setFake(t, srv.URL, func(h *fakeHub) { h.maxEnvelope = 1 })
+	knowPeer(t, req, prov.AID())
+	setHubURL(req, deadHubURL)
 	req.RegisterTransport(&deliveredThenFailedNot{})
-	_, derr := req.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true})
+	if _, err := req.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true}); err != nil {
+		t.Fatalf("DelegateCapability = %v, want it queued", err)
+	}
 	list, err := req.ix.List(interactions.RoleOutbound, "", 0, 10)
 	if err != nil || len(list) != 1 {
 		t.Fatalf("outbound tasks: %v %d", err, len(list))
 	}
-	state, es, _ := taskViewMap(t, req, list[0].ID)
-	if state != string(a2ashape.TaskStateFailed) || es != "UNAVAILABLE" {
-		t.Fatalf("requester: state=%s effect_status=%s; want failed, UNAVAILABLE", state, es)
+	rows := outboxRows(t, req, list[0].ID)
+	if len(rows) != 1 || rows[0].HandedAt != 0 {
+		t.Fatalf("setup: %+v", rows)
+	}
+	holdGateOpen(req) // the clock moves past the deadline
+	now := req.nowMS()
+	req.setClock(func() uint64 { return now + messageLifetimeMS + 60_000 })
+	derr := req.deliverQueued(ctx, rows[0].ID)
+	state, es, reason := taskViewMap(t, req, list[0].ID)
+	if state != string(a2ashape.TaskStateFailed) || es != "UNAVAILABLE" || reason != a2ashape.ReasonUndeliverable {
+		t.Fatalf("requester: state=%s effect_status=%s reason=%s; want failed, UNAVAILABLE, undeliverable", state, es, reason)
 	}
 	if derr == nil || !strings.Contains(derr.Error(), "not delivered") {
-		t.Fatalf("DelegateCapability = %v", derr)
+		t.Fatalf("the attempt at the deadline = %v", derr)
 	}
 }
 
@@ -163,14 +176,14 @@ func TestAnAbandonedDelegationTakesItsQueueWithIt(t *testing.T) {
 	if err := req.SendMessage(ctx, id, "and a follow-up", nil); err != nil {
 		t.Fatal(err)
 	}
-	if rows, _ := req.ix.Outbox(id); len(rows) != 2 {
+	if rows, _ := req.ix.OutboxRows(id); len(rows) != 2 {
 		t.Fatalf("setup: %d rows queued, want the delegation and the follow-up", len(rows))
 	}
 	// The hub comes back refusing the delegation for good.
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown, h.maxEnvelope = false, 1 })
 	clk.add(uint64(time.Hour.Milliseconds()))
 	req.flushOutbox(ctx)
-	if rows, _ := req.ix.Outbox(id); len(rows) != 0 {
+	if rows, _ := req.ix.OutboxRows(id); len(rows) != 0 {
 		t.Fatalf("%d rows left queued for a task whose delegation was abandoned", len(rows))
 	}
 	n := 0

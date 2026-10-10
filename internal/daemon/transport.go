@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
-	"net/http"
 	"sync"
+
+	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/module"
@@ -18,158 +18,44 @@ import (
 // address publication below still uses it until its replacement lands.
 const actionP2PRetired = "p2p" // v030-todo(SS-11): the hub rendezvous route is removed
 
-// hubTransport is the always-available delivery path.
-//
-// It is the transport the daemon has always had, now behind the same
-// contract everything else uses. Making the existing path implement the
-// seam first — rather than writing the seam for a peer-to-peer module that
-// does not exist yet — is what keeps the contract honest: it was shaped by
-// something real before anything speculative touched it.
-type hubTransport struct{ d *Daemon }
-
-func (h hubTransport) Name() string { return "hub" }
-
-// Reachable: a configured hub can reach any AID. That is the property that
-// makes it the fallback — it holds a mailbox, so the peer does not have to
-// be online, or routable, or even running.
-func (h hubTransport) Reachable(context.Context, string) bool {
-	return h.d.config().HubURL != ""
-}
-
-// Send posts the envelope to the hub (relaySendV3) under the credential
-// its outer key 7 carries. The hub's answer carries no delivery
-// confirmation (only the recipient makes one), so dack is always nil;
-// handed is whether the send got a connection (hubapi.TraceHanded).
-func (h hubTransport) Send(ctx context.Context, toAID string, envelope []byte) ([]byte, bool, error) {
-	if h.d.config().HubURL == "" {
-		return nil, false, fmt.Errorf("anet: no hub configured")
-	}
-	choice, err := h.d.accessChoiceOfEnvelope(toAID, envelope)
-	if err != nil {
-		return nil, false, err
-	}
-	res, handed, err := h.d.relaySendV3(ctx, envelope, choice)
-	if err != nil {
-		return nil, handed, err
-	}
-	// The hub knows the recipient has not collected its mail in a long
-	// time, and said so. The mark is kept against the recipient's AID so
-	// the caller that just sent can report it (see QuietPeer): the daemon
-	// log is where the operator of THIS node reads, and the person who
-	// needs the fact is whoever typed `anet delegate`.
-	//
-	// Recorded on every send rather than only logged: an operator watching
-	// a delegation sit unanswered otherwise has no way to learn that the
-	// other end stopped running last Tuesday. An answer without the mark
-	// drops one left from an earlier send, so the reported state is what
-	// was last actually observed.
-	if res.Quiet {
-		h.d.noteQuietPeer(toAID)
-	} else {
-		h.d.noteLivePeer(toAID)
-	}
-	return nil, true, nil
-}
-
-// transports returns the delivery paths in preference order.
-//
-// Direct paths first, hub last. A module that can reach a peer without a
-// round trip through someone else's server should, and the hub is what
-// catches everything it cannot: an offline peer, a peer behind a NAT that
-// hole-punching lost, a peer this node has never seen. The hub is never
-// removed from the list — "sometimes you only distribute alongside a hub"
-// is the ordinary case, not a degraded one.
-func (d *Daemon) transports() []module.Transport {
-	d.transportMu.RLock()
-	extra := append([]module.Transport(nil), d.extraTransports...)
-	d.transportMu.RUnlock()
-	return append(extra, hubTransport{d})
-}
-
-// RegisterTransport adds a delivery path. Called by a transport module at
-// start; the hub path is always present and is not registered this way.
+// RegisterTransport adds a direct delivery path. Called by a transport
+// module at start; the hub is not one of them: the outbound engine sends to
+// it itself (outbox_attempt.go, A11).
 func (d *Daemon) RegisterTransport(t module.Transport) {
 	d.transportMu.Lock()
 	defer d.transportMu.Unlock()
 	d.extraTransports = append(d.extraTransports, t)
 }
 
-// deliverEnvelope delivers one sealed envelope, trying each transport in
-// order with the same bytes.
+// deliverEnvelope hands one envelope that is not queued to its recipient
+// once: a direct path first, then the hub, with the same bytes. The
+// envelope travels as a first contact (sealWith). It obeys the outbound
+// gate like every send (ENG-K13): while it is closed nothing goes.
 //
-// A transport that reports itself unreachable is skipped without being
-// asked to try; one that fails is logged and the next is tried. Only when
-// every path has failed does the caller see an error, and that error names
-// the last failure rather than a summary — an operator debugging delivery
-// wants to know what the hub said, not that "all transports failed".
+// v030-todo(ENG-1b): a message that is not queued is a one-shot envelope
+// (oneShotSend); the refusal notices that still come here go with ENG-1c
+// (ENG-V15).
 func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []byte) error {
-	_, err := d.deliverEnvelopeTracked(ctx, toAID, envelope)
-	return err
-}
-
-// deliverEnvelopeTracked is deliverEnvelope that also says, when every
-// path failed, whether one of the failures may have delivered the envelope
-// anyway (mayHaveDelivered). The retry queue keeps that on the row: a
-// message that may have arrived is not reported as one that never did
-// ([redteam:F12]).
-func (d *Daemon) deliverEnvelopeTracked(ctx context.Context, toAID string, envelope []byte) (maybe bool, err error) {
-	var lastErr error
-	for _, t := range d.transports() {
-		if !t.Reachable(ctx, toAID) {
-			continue
-		}
-		// v030-todo(ENG-1a): a delivery confirmation that came back is
-		// checked with seal.VerifyDAck and confirms the row (A10); until the
-		// engine does that, a send that did not fail counts as delivered,
-		// as it did with frame v2.
-		_, handed, err := t.Send(ctx, toAID, envelope)
-		if err == nil {
-			d.noteTransport(t.Name(), nil)
-			return false, nil
-		}
-		maybe = maybe || mayHaveDelivered(t, handed, err)
-		lastErr = err
-		// Logged on the transition, not on every message.
-		//
-		// A direct transport quietly failing while the hub covers for it is
-		// degradation worth knowing about — but a node behind NAT fails
-		// this way on every single delegation, and a line each would bury
-		// the log in the steady state. A benchmark made that concrete: the
-		// fall-through path emitted 200,000 lines and never finished
-		// reporting. So: one line when it starts failing, one when it
-		// recovers, silence in between.
+	if g := d.identityGate(); !g.Open {
+		return &gateClosedError{state: g.State}
+	}
+	if t := d.p2pPath(ctx, toAID, d.nowMS()); t != nil {
+		_, _, err := t.Send(ctx, toAID, envelope)
 		d.noteTransport(t.Name(), err)
+		if err == nil {
+			return nil
+		}
 	}
-	if lastErr == nil {
-		return false, fmt.Errorf("anet: no transport can reach %s", toAID)
+	hub := d.configuredHub()
+	if hub == "" {
+		return fmt.Errorf("anet: no hub configured")
 	}
-	return maybe, lastErr
-}
-
-// mayHaveDelivered reports whether a failed Send may still have delivered
-// the envelope. A failure counts as "may have" unless it is known to have
-// reached nobody: no byte of it left this process (handed is false), an
-// answer from the hub itself (it stored nothing; a gateway's 502 or 504
-// speaks for a hub that may have), or a hub that could not be dialled.
-//
-// v030-todo(ENG-1a): deleted with deliverEnvelopeTracked; whether a row was
-// handed decides alone (engine ENG-A4, ENG-H1), a hub's 4xx included.
-func mayHaveDelivered(t module.Transport, handed bool, err error) bool {
-	if !handed {
-		return false
+	choice := AccessChoice{Send: true, Kind: seal.AccessKindSession}
+	if c, err := d.accessChoiceFor(toAID, "", false, accessOrdinary, d.nowMS()); err == nil && c.Kind == seal.AccessKindSession {
+		choice.HintHome = c.HintHome
 	}
-	if _, hub := t.(hubTransport); !hub {
-		return true
-	}
-	var he *hubError
-	if errors.As(err, &he) {
-		return he.code == http.StatusBadGateway || he.code == http.StatusGatewayTimeout
-	}
-	var op *net.OpError
-	if errors.As(err, &op) && op.Op == "dial" {
-		return false
-	}
-	return true
+	_, _, err := d.relaySendV3(ctx, envelope, choice)
+	return err
 }
 
 // noteTransport reports a transport's health only when it changes.

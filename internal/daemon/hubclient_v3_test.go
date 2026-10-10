@@ -376,8 +376,8 @@ func TestSessionClientReuseAndReopen(t *testing.T) {
 	if n := len(relaySends(hubRequests(t, srv.URL))); n != before {
 		t.Fatal("a first contact without a session was sent")
 	}
-	if permanent, _ := permanentRefusal(err); permanent != "" {
-		t.Fatalf("session_unavailable ends the message (%s); it is a wait", permanent)
+	if a := hubAnswerOf(relaySendResult{}, handed, err); a.kind != ansSessionUnavailable || a.code != "admission_required" {
+		t.Fatalf("session_unavailable is taken as %+v; it is a wait, naming the hub's code (ENG-A6)", a)
 	}
 	setFake(t, srv.URL, func(h *fakeHub) { h.sessionRefuse = "" })
 

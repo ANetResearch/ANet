@@ -579,6 +579,14 @@ const hubCallTimeout = 30 * time.Second
 
 // relayError maps a Hub/relay failure to a status: a context deadline → 504, else 400.
 func relayError(w http.ResponseWriter, err error) {
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		// A refusal of the reason table: a recipient no hub knows, or whose
+		// identity does not verify, refused before anything was recorded
+		// (engine ENG-U5, ux UX-R9).
+		writeRefusal(w, refusalStatus(ref), ref)
+		return
+	}
 	if sr, ok := isSpendRefusal(err); ok {
 		// §8.6: a spending-policy refusal is 403 with its code, on every
 		// route that signs, as on /tasks/pay.

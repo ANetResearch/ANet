@@ -17,7 +17,13 @@ import (
 // in module/x402 Redeem, or key its hub cache by nothing → red.
 func TestRedeemIsSignedOnlyToTheConfirmedHub(t *testing.T) {
 	one, two := newFakeHub(t), newFakeHub(t)
-	d := registered(t, one.URL, "redeemer")
+	// A node that designates no witness: moving to another hub is then a
+	// registration, not a key rotation.
+	d := newPlainTestDaemon(t, one.URL, false)
+	if err := d.RegisterWithHub(context.Background(), one.URL, "redeemer", nil); err != nil {
+		t.Fatal(err)
+	}
+	d.stopRelayLoop()
 	d.mu.Lock()
 	d.cfg.HubURL = one.URL
 	d.mu.Unlock()

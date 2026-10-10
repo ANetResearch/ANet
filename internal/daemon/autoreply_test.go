@@ -275,6 +275,9 @@ func TestAutoReplyCapProposesEnd(t *testing.T) {
 		t.Fatalf("want 1 backend call, got %d", got)
 	}
 	// Peer sends again; we are at the cap → propose end, no new backend call.
+	// It hears from its hub first that the delegation arrived: a follow-up
+	// goes only once it did (engine ENG-O2).
+	askHubNow(t, f.req)
 	if err := f.req.SendMessage(f.ctx, id, "q2", nil); err != nil {
 		t.Fatal(err)
 	}

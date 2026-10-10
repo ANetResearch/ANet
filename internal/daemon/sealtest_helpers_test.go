@@ -167,9 +167,10 @@ func craft(t testing.TB, s sender, to *Daemon, typ, ix string, body []byte, edit
 	return withSessionAccess(t, env)
 }
 
-// withSessionAccess adds the first-contact credential, the form every
-// envelope takes until the per-attempt credential lands.
-// v030-todo(ENG-1a): the credential comes from accessFor (ENG-I2).
+// withSessionAccess adds the first-contact credential to a crafted
+// envelope: what a sender holding no capability of the recipient's puts in
+// outer key 7. The engine chooses the credential for every attempt
+// (accessFor, ENG-I2); a crafted envelope is one sealing, sent once.
 func withSessionAccess(t testing.TB, env []byte) []byte {
 	t.Helper()
 	out, err := seal.SetAccess(env, &seal.Access{Kind: seal.AccessKindSession})

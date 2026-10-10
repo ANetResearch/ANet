@@ -123,9 +123,14 @@ type Daemon struct {
 	// no agent official.
 	officials atomic.Pointer[official.Manifest]
 	// outboxKick wakes the retry loop; outboxLocks serializes attempts at
-	// one queued message (retry.go).
+	// one queued message (retry.go); outboxMem is what the engine keeps in
+	// memory (outbox_attempt.go).
 	outboxKick  chan struct{}
 	outboxLocks keyedLocks
+	outboxMem   outboxMem
+	// outboxHold, set by a test (setOutboxHold), skips the passes of the
+	// outbox loop and of the no-response sweep.
+	outboxHold atomic.Bool
 	// sbRefused remembers outbound auto-reply turns that failed closed
 	// because the sandbox was unavailable (autoreply.go).
 	sbRefused sandboxRefused
@@ -341,6 +346,11 @@ func New(layout Layout) (*Daemon, error) {
 		_ = d.Close()
 		return nil, err
 	}
+	// A stopped or deactivated identity whose close a crash cut short is
+	// closed first (engine §6.3 step 2); then the rows an attempt left
+	// marked count as handed over (step 3), before anything is sent.
+	d.closeLeftAtStart()
+	d.recoverOutboxAttempts()
 	d.recoverInterrupted()
 	d.startPayments(ctx)
 	d.goBackground(func() { d.outboxLoop(ctx) })

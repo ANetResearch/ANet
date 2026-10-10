@@ -171,6 +171,9 @@ func (d *Daemon) pushRevocations(ctx context.Context, hub string) error {
 		d.caps.push.mu.Unlock()
 		rep := d.hubSignedRaw(ctx, hub, http.MethodPost, hubapi.MailboxRevokePath, relayauth.ActionRevoke, req)
 		switch {
+		case rep.Status != 0 && hubWireCheck(hub, rep) != nil:
+			// Another wire, whatever the status: not pushed (core CORE-V1).
+			return hubWireCheck(hub, rep)
 		case rep.Status == http.StatusOK:
 			var out hubapi.MailboxRevokeResponse
 			if err := json.Unmarshal(rep.Body, &out); err != nil {

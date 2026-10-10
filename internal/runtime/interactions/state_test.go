@@ -229,19 +229,22 @@ func TestPendingLimits(t *testing.T) {
 }
 
 // The outbox survives closing and reopening the store: it is the part of
-// the retry queue that lives on disk.
+// the retry queue that lives on disk, versions and their ack_keys included.
 func TestOutboxSurvivesReopen(t *testing.T) {
 	dir := t.TempDir()
 	s, err := interactions.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_o", ToAID: "did:anet:r", Type: "anet.result/1",
-		Envelope: []byte("ENV"), Exp: 99})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RescheduleOutbox(id, 3, 12345, "hub down"); err != nil {
+	id := enqueueOutbox(t, s, interactions.OutboxItem{IX: "ix_o", ToAID: "did:anet:r", Type: "anet.result/1",
+		Body: []byte("BODY"), MID: []byte("0123456789abcdef"), TS: 1, Exp: 99999})
+	if err := s.Update(func(tx *interactions.Tx) error {
+		if _, _, err := tx.SealOutboxVersion(id, interactions.OutboxSeal{AckKey: []byte("K1"), Envelope: []byte("ENV")}); err != nil {
+			return err
+		}
+		return tx.EndOutboxAttempt(id, interactions.OutboxEnd{At: 7, Handed: []uint64{1}, Attempts: 3, NextAt: 12345,
+			LastError: "-network"})
+	}); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -250,14 +253,23 @@ func TestOutboxSurvivesReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	due, err := s2.DueOutbox(12345, 10)
-	if err != nil || len(due) != 1 {
+	due, err := s2.DueOutboxIDs(12345, 10)
+	if err != nil || len(due) != 1 || due[0] != id {
 		t.Fatalf("due after reopen = %v (%v)", due, err)
 	}
-	if string(due[0].Envelope) != "ENV" || due[0].Attempts != 3 || due[0].Exp != 99 || due[0].LastError != "hub down" {
-		t.Fatalf("row after reopen: %+v", due[0])
+	row, vers, err := s2.OutboxState(id)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if early, _ := s2.DueOutbox(12344, 10); len(early) != 0 {
+	if row.Attempts != 3 || row.Exp != 99999 || row.LastError != "-network" || row.HandedAt != 7 || row.CurVer != 1 ||
+		len(vers) != 1 || string(vers[0].AckKey) != "K1" || vers[0].HandedAt != 7 {
+		t.Fatalf("row after reopen: %+v %+v", row, vers)
+	}
+	body, env, err := s2.OutboxContent(id)
+	if err != nil || string(body) != "BODY" || string(env) != "ENV" {
+		t.Fatalf("content after reopen: %q %q %v", body, env, err)
+	}
+	if early, _ := s2.DueOutboxIDs(12344, 10); len(early) != 0 {
 		t.Fatalf("row due before its time: %v", early)
 	}
 }

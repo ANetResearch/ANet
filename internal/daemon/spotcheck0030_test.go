@@ -383,9 +383,17 @@ func TestSpotAMisroutedResultReachesTheRequesterThroughTheHub(t *testing.T) {
 	if n := len(lamp.invoked); n != 1 {
 		t.Fatalf("lamp ran %d times", n)
 	}
-	waitUntil(t, "the provider's outbox to empty", func() bool {
-		rows, err := prov.ix.Outbox(id)
-		return err == nil && len(rows) == 0
+	waitUntil(t, "the provider's answer to reach the hub", func() bool {
+		rows, err := prov.ix.OutboxRows(id)
+		if err != nil || len(rows) == 0 {
+			return false
+		}
+		for _, r := range rows {
+			if r.HandedAt == 0 || r.Attempting {
+				return false
+			}
+		}
+		return len(queuedFor(t, srv, req.AID())) > 0
 	})
 	if n := counter(wrong, transientDirectUnopened); n == 0 {
 		t.Fatalf("the wrong node never refused the misrouted result (%v)", wrong.ReceiveStats())
@@ -398,6 +406,12 @@ func TestSpotAMisroutedResultReachesTheRequesterThroughTheHub(t *testing.T) {
 		ix, err := req.ix.Get(id)
 		return err == nil && ix.State == interactions.StateCompleted && len(ix.Receipt) > 0
 	})
+	// The requester's tokens reach the provider through its hub: nothing
+	// is left to send.
+	askHubNow(t, prov)
+	if rows := outboxRows(t, prov, id); len(rows) != 0 {
+		t.Fatalf("the provider's outbox = %+v after the requester took the answer", rows)
+	}
 }
 
 // ---- F23 ----
@@ -425,8 +439,10 @@ func innerTypes(t *testing.T, srv interface{ Close() }, url string, to *Daemon, 
 
 // A follow-up (not a cancel) queued while the hub is still down, behind a
 // text delegation in backoff. Once the hub is back the follow-up does not
-// go out ahead of the delegation — it is not due while the delegation is
-// queued — and when the delegation's backoff ends both go, in order.
+// go out ahead of the delegation, nor with it: a follow-up goes only once
+// the provider confirmed the delegation (engine ENG-O2, rule 2). When the
+// delegation's backoff ends it goes; the provider takes it, its token
+// confirms it, and the follow-up goes after.
 func TestSpotAFollowUpNeverOvertakesItsDelegation(t *testing.T) {
 	srv, req, prov := quietPair(t)
 	ctx := context.Background()
@@ -439,20 +455,16 @@ func TestSpotAFollowUpNeverOvertakesItsDelegation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
-	rows, err := req.ix.Outbox(id)
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("outbox = %+v (%v)", rows, err)
+	rows := outboxRows(t, req, id)
+	if len(rows) != 1 {
+		t.Fatalf("outbox = %+v", rows)
 	}
 	d := driveOutage(t, ctx, req, clk, rows[0].ID, start+uint64((25*time.Minute).Milliseconds()))
 	_ = req.SendMessage(ctx, id, "and keep it short", nil) // queued; the hub is still down
-	rows, _ = req.ix.Outbox(id)
-	if len(rows) != 2 || rows[0].Type != seal.TypeDelegate {
-		t.Fatalf("outbox = %+v, want the delegation and the follow-up", rows)
+	rows = outboxRows(t, req, id)
+	if len(rows) != 2 || rows[0].Type != seal.TypeDelegate || rows[0].NextAt != d.NextAt {
+		t.Fatalf("outbox = %+v, want the delegation, its backoff as it was, and the follow-up", rows)
 	}
-	// The follow-up took the delegation along (a new message is a reason
-	// to try), and that attempt failed too: its backoff is the one to wait
-	// out now.
-	d = &rows[0]
 	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
 	clk.set(start + uint64((25*time.Minute + 30*time.Second).Milliseconds()))
 	if uint64(d.NextAt) <= clk.now() {
@@ -467,8 +479,16 @@ func TestSpotAFollowUpNeverOvertakesItsDelegation(t *testing.T) {
 	req.flushOutbox(ctx)
 	req.flushOutbox(ctx)
 	got := innerTypes(t, srv, srv.URL, prov, queuedFor(t, srv, prov.AID()))
-	if len(got) != 2 || got[0] != seal.TypeDelegate || got[1] != seal.TypeMessage+":"+delegation.ChatText {
-		t.Fatalf("hub mailbox = %v, want the delegation then the follow-up", got)
+	if len(got) != 1 || got[0] != seal.TypeDelegate {
+		t.Fatalf("hub mailbox = %v, want the delegation alone until it is confirmed", got)
+	}
+	// The provider takes it, and its token reaches the requester through
+	// the hub: the follow-up goes now.
+	settleDelivery(t, req, prov)
+	req.flushOutbox(ctx)
+	got = innerTypes(t, srv, srv.URL, prov, queuedFor(t, srv, prov.AID()))
+	if len(got) != 1 || got[0] != seal.TypeMessage+":"+delegation.ChatText {
+		t.Fatalf("hub mailbox = %v after the delegation was confirmed, want the follow-up", got)
 	}
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
@@ -482,10 +502,11 @@ func TestSpotAFollowUpNeverOvertakesItsDelegation(t *testing.T) {
 }
 
 // The requester crashed in the middle of the delegation's attempt: the
-// row is left marked as being attempted, which may have delivered it. After
-// the restart a cancel does not withdraw it — the provider may have it —
-// but goes out behind it, so the provider sees the delegation, then the
-// cancel.
+// version was written and the row marked attempting (A8), and the outcome
+// never recorded. After the restart the version counts as handed over
+// (engine CR2): a cancel does not withdraw it — the provider may have it —
+// but freezes it (CR9, ENG-O4) and goes out after it; the frozen
+// delegation never goes again (ENG-O6).
 func TestSpotACrashMidAttemptLeavesTheCancelBehindTheDelegation(t *testing.T) {
 	srv, req, prov := quietPair(t)
 	ctx := context.Background()
@@ -493,66 +514,101 @@ func TestSpotACrashMidAttemptLeavesTheCancelBehindTheDelegation(t *testing.T) {
 	if err := prov.Providers().Register(ctx, lamp); err != nil {
 		t.Fatal(err)
 	}
-	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
+	// Sealed, but nothing connects: written, never handed over.
+	knowPeer(t, req, prov.AID())
+	hubURL := req.config().HubURL
+	setHubURL(req, deadHubURL)
 	id, err := req.DelegateCapability(ctx, prov.AID(), lampCap, map[string]any{"on": true})
 	if err != nil {
 		t.Fatalf("delegate: %v", err)
 	}
-	rows, err := req.ix.Outbox(id)
-	if err != nil || len(rows) != 1 || rows[0].MaybeDelivered {
-		t.Fatalf("setup: %+v %v", rows, err)
+	setHubURL(req, hubURL)
+	rows := outboxRows(t, req, id)
+	if len(rows) != 1 || rows[0].CurVer == 0 || rows[0].HandedAt != 0 || rows[0].Attempting {
+		t.Fatalf("setup: %+v", rows)
 	}
 	// The process stops inside an attempt: begun, outcome never recorded.
-	if err := req.ix.BeginOutboxAttempt(rows[0].ID); err != nil {
+	if err := req.ix.Update(func(tx *interactions.Tx) error { return tx.BeginOutboxAttempt(rows[0].ID) }); err != nil {
 		t.Fatal(err)
 	}
+	// The hub's relay refuses sends while the node starts again, so what
+	// the first pass sends is answered 503 and nothing reaches a mailbox.
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = true })
 	req = restartDaemon(t, req)
-	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
+	// The start's first pass may be attempting it again (and is answered
+	// 503); once it is done, the row is handed over.
+	waitUntil(t, "the start's first pass", func() bool {
+		rows := outboxRows(t, req, id)
+		return len(rows) == 1 && !rows[0].Attempting
+	})
+	if rows = outboxRows(t, req, id); len(rows) != 1 || rows[0].HandedAt == 0 {
+		t.Fatalf("after the restart: %+v, want the delegation handed over", rows)
+	}
 	if _, err := req.CancelTask(ctx, id); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
+	rows = outboxRows(t, req, id)
+	if len(rows) != 2 || rows[0].Type != seal.TypeDelegate || !rows[0].Frozen {
+		t.Fatalf("outbox = %+v, want the delegation frozen and the cancel behind it", rows)
+	}
+	setFake(t, srv.URL, func(h *fakeHub) { h.relayDown = false })
+	if err := retryNow(t, req, rows[1].ID); err != nil {
+		t.Fatalf("the cancel: %v", err)
+	}
+	_ = retryNow(t, req, rows[0].ID)
 	got := innerTypes(t, srv, srv.URL, prov, queuedFor(t, srv, prov.AID()))
-	if len(got) != 2 || got[0] != seal.TypeDelegate || got[1] != seal.TypeMessage+":"+delegation.KindCancel {
-		t.Fatalf("hub mailbox = %v, want the delegation then the cancel", got)
+	if len(got) != 1 || got[0] != seal.TypeMessage+":"+delegation.KindCancel {
+		t.Fatalf("hub mailbox = %v, want the cancel only", got)
 	}
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := counter(prov, transientUnknownIX) + counter(prov, dropUnknownIX); n != 0 {
-		t.Fatalf("the cancel reached the provider before its delegation: %v", prov.ReceiveStats())
-	}
-	msgs, err := prov.ix.Messages(id)
-	if err != nil || len(msgs) == 0 || msgs[len(msgs)-1].Kind != interactions.MsgCancel {
-		t.Fatalf("provider messages %+v (%v), want the cancel last", msgs, err)
+	if n := len(lamp.invoked); n != 0 {
+		t.Fatalf("the canceled call ran %d times", n)
 	}
 }
 
 // gateP2P is a direct transport whose sends wait for the test: the first
-// entry is reported on entered; every send fails without having handed
-// anything over once release is closed, so the hub is tried next.
+// entry is reported on entered. Once release is closed a send fails; it
+// handed nothing over, or — with to set — it handed the envelope to to's
+// Inbound and lost the answer (no token came back).
 type gateP2P struct {
 	armed   atomic.Bool
 	once    sync.Once
 	entered chan struct{}
 	release chan struct{}
+	to      *Daemon
 }
 
 func (g *gateP2P) Name() string                           { return "p2p-gate" }
 func (g *gateP2P) Reachable(context.Context, string) bool { return g.armed.Load() }
-func (g *gateP2P) Send(ctx context.Context, _ string, _ []byte) ([]byte, bool, error) {
+func (g *gateP2P) Send(ctx context.Context, _ string, env []byte) ([]byte, bool, error) {
 	g.once.Do(func() { close(g.entered) })
 	select {
 	case <-g.release:
 	case <-ctx.Done():
 	}
+	if g.to != nil {
+		_, _ = g.to.Inbound().Receive(ctx, env)
+		return nil, true, errors.New("p2p gate: the answer was lost")
+	}
 	return nil, false, errors.New("p2p gate: nothing sent")
 }
 
 // A cancel while the delegation's first attempt is under way. The cancel
-// cannot withdraw a delegation an attempt is sending; it waits for that
-// attempt and goes out after it. The hub holds the delegation, then the
-// cancel.
+// cannot withdraw a delegation an attempt is sending: it freezes it, and
+// waits for that attempt (engine ENG-O1, O4). Nothing more of the frozen
+// delegation goes, on any path (ENG-O6). An attempt that handed nothing
+// over ends in the withdrawal of the whole queue, the cancel with it, and
+// neither path got a byte (ENG-O5, E-T13); one that handed the delegation
+// over is followed by the cancel, so the provider sees the delegation,
+// then the cancel.
 func TestSpotACancelRacingAnAttemptGoesOutBehindIt(t *testing.T) {
+	t.Run("the attempt hands nothing over", func(t *testing.T) { cancelRacingAnAttempt(t, false) })
+	t.Run("the attempt hands the delegation over", func(t *testing.T) { cancelRacingAnAttempt(t, true) })
+}
+
+func cancelRacingAnAttempt(t *testing.T, hands bool) {
 	srv, req, prov := quietPair(t)
 	ctx := context.Background()
 	lamp := &lampProvider{}
@@ -560,6 +616,9 @@ func TestSpotACancelRacingAnAttemptGoesOutBehindIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := &gateP2P{entered: make(chan struct{}), release: make(chan struct{})}
+	if hands {
+		g.to = prov
+	}
 	g.armed.Store(true)
 	req.RegisterTransport(g)
 	delegated := make(chan error, 1)
@@ -577,6 +636,17 @@ func TestSpotACancelRacingAnAttemptGoesOutBehindIt(t *testing.T) {
 		t.Fatalf("outbound tasks: %d (%v)", len(list), err)
 	}
 	id := list[0].ID
+	// The task's interaction key (FS-X1): a delegation that never left
+	// takes it at once (engine ENG-X4).
+	k, err := seal.GenerateIXKey(seal.SuiteX25519, id, prov.AID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := req.ix.Update(func(tx *interactions.Tx) error {
+		return tx.PutIXKey(interactions.IXKey{IX: id, PeerAID: prov.AID(), Suite: k.Suite, Pub: k.Pub, Priv: k.Private})
+	}); err != nil {
+		t.Fatal(err)
+	}
 	// From here the direct path is gone: a cancel that did not wait for the
 	// attempt under way would reach the hub at once, ahead of it.
 	g.armed.Store(false)
@@ -597,19 +667,43 @@ func TestSpotACancelRacingAnAttemptGoesOutBehindIt(t *testing.T) {
 			t.Fatal("a call never returned")
 		}
 	}
-	waitUntil(t, "the requester's outbox to empty", func() bool {
-		rows, err := req.ix.Outbox(id)
-		return err == nil && len(rows) == 0
-	})
+	if cur, err := req.ix.Get(id); err != nil || cur.State != interactions.StateCanceled {
+		t.Fatalf("requester: %+v (%v), want canceled", cur, err)
+	}
+	if !hands {
+		if rows := outboxRows(t, req, id); len(rows) != 0 {
+			t.Fatalf("requester outbox = %+v, want the queue withdrawn", rows)
+		}
+		if q := queuedFor(t, srv, prov.AID()); len(q) != 0 {
+			t.Fatalf("the hub holds %v; nothing of a withdrawn queue may leave", innerTypes(t, srv, srv.URL, prov, q))
+		}
+		if _, err := prov.ix.Get(id); !errors.Is(err, interactions.ErrNotFound) {
+			t.Fatalf("the provider has the withdrawn task (%v)", err)
+		}
+		if rk, err := req.ix.OwnRK(id); err != nil || rk != nil {
+			t.Fatalf("the withdrawn task's interaction key is kept (%v)", err)
+		}
+		return
+	}
+	// The cancel follows the delegation the attempt handed over.
+	waitUntil(t, "the cancel at the hub", func() bool { return len(queuedFor(t, srv, prov.AID())) == 1 })
+	rows := outboxRows(t, req, id)
+	if len(rows) == 0 || rows[0].Type != seal.TypeDelegate || !rows[0].Frozen || rows[0].HandedAt == 0 {
+		t.Fatalf("requester outbox = %+v, want the delegation handed over and frozen", rows)
+	}
 	got := innerTypes(t, srv, srv.URL, prov, queuedFor(t, srv, prov.AID()))
-	if len(got) != 2 || got[0] != seal.TypeDelegate || got[1] != seal.TypeMessage+":"+delegation.KindCancel {
-		t.Fatalf("hub mailbox = %v, want the delegation then the cancel", got)
+	if len(got) != 1 || got[0] != seal.TypeMessage+":"+delegation.KindCancel {
+		t.Fatalf("hub mailbox = %v, want the cancel only: the frozen delegation goes nowhere", got)
 	}
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if n := counter(prov, transientUnknownIX) + counter(prov, dropUnknownIX); n != 0 {
 		t.Fatalf("the cancel reached the provider before its delegation: %v", prov.ReceiveStats())
+	}
+	msgs, err := prov.ix.Messages(id)
+	if err != nil || len(msgs) == 0 || msgs[len(msgs)-1].Kind != interactions.MsgCancel {
+		t.Fatalf("provider messages %+v (%v), want the cancel last", msgs, err)
 	}
 }
 

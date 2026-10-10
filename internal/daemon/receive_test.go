@@ -403,7 +403,7 @@ func mustKEL(t *testing.T, d *Daemon) []byte {
 // to a public capability (accepted as public_cap), and again after a
 // restart. Neither kind of stranger traffic writes peer_identity (§3.8).
 func TestATruncatedKELIsRefusedAfterTableChurnAndRestart(t *testing.T) {
-	srv, req, prov := registeredPair(t)
+	srv, req, prov := plainRegisteredPair(t)
 	ctx := context.Background()
 	prov.ix.SetPeerIdentityCap(100)
 	const lampCap = "light.onoff@sim/lamp-1"
@@ -417,9 +417,7 @@ func TestATruncatedKELIsRefusedAfterTableChurnAndRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
+	confirmDelegation(t, req, prov)
 
 	// The requester rotates; its previous key is what an attacker holds.
 	stale := sender{aid: req.AID(), kel: append([]identity.SignedEvent(nil), req.self.KEL()...),
@@ -709,7 +707,7 @@ func TestAStaleOrBadKeysAttachmentDoesNotDropTheMessage(t *testing.T) {
 // within the rotation grace after the rotation (identity.RotationGrace, one
 // hour, not configurable), and refused after it.
 func TestRotationGrace(t *testing.T) {
-	_, req, prov := registeredPair(t)
+	_, req, prov := plainRegisteredPair(t)
 	ctx := context.Background()
 	id, err := req.Delegate(ctx, prov.AID(), "task", nil)
 	if err != nil {
@@ -788,6 +786,9 @@ func TestAnUnchangedKeySetIsAcceptedAgain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Follow-ups go once the delegation is confirmed (engine ENG-O2), and
+	// still before any reply.
+	confirmDelegation(t, req, prov)
 	for _, text := range []string{"second", "third"} {
 		if err := req.SendMessage(ctx, id, text, nil); err != nil {
 			t.Fatal(err)
@@ -836,6 +837,7 @@ func TestARedeliveredDelegateResendsTheAnswer(t *testing.T) {
 	if n := len(lamp.invoked); n != 1 {
 		t.Fatalf("the capability ran %d times", n)
 	}
+	waitUntil(t, "the answer to be sent again", func() bool { return len(queuedFor(t, srv, req.AID())) >= 1 })
 	if n := len(queuedFor(t, srv, req.AID())); n != 1 {
 		t.Fatalf("%d answers re-sent, want 1", n)
 	}
@@ -888,7 +890,7 @@ func signedKeysWith(t *testing.T, aid string, sign seal.SignFunc, seq uint64) []
 // forks from the stored one with a key set signed under the fork, does not
 // get this node to seal to its key.
 func TestAHubCannotRollBackOrForkAKnownRecipientsKeys(t *testing.T) {
-	srv, req, prov := registeredPair(t)
+	srv, req, prov := plainRegisteredPair(t)
 	if _, err := bucketKeys(req, prov.AID(), interactions.PinOutbound); err != nil {
 		t.Fatal(err)
 	}
@@ -1131,6 +1133,7 @@ func TestAStoredKeySetThatNoLongerVerifiesIsReplaced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	confirmDelegation(t, req, prov) // the follow-up below goes once it is confirmed (engine ENG-O2)
 	row, err := req.ix.PeerIdentity(prov.AID())
 	if err != nil {
 		t.Fatal(err)

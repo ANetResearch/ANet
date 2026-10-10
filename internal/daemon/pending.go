@@ -101,8 +101,12 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 	})
 	switch {
 	case res.class == rxAccepted:
-		d.sendNoticeStatus(m, delegation.StateSubmitted, "this node holds the task for its operator's approval",
-			map[string]any{"anet.inbound": "pending_approval"})
+		// The requester hears that its task waits for approval, through the
+		// queue and only under a credential it gave (engine ENG-Q7).
+		if body, err := noticeBodyMeta(delegation.StateSubmitted, "this node holds the task for its operator's approval",
+			map[string]any{"anet.inbound": "pending_approval"}, d.nowMS()); err == nil {
+			d.queueNotice(m.from, m.ix, rowKindPendingApproval, body)
+		}
 	case res.reason == dropRefusedPrefix+reasonPendingFull:
 		if r := d.recordRefusal(m, reasonPendingFull); r != nil {
 			return *r
@@ -382,43 +386,17 @@ func (d *Daemon) expirePendingAt(now int64) {
 	}
 }
 
-// tellHeldRequester sends status{rejected} to the requester of a held item,
-// sealed to the key set the delegation carried. It is attempted once and
-// not queued; it goes through the same per-peer and daemon-wide limit as
-// every other refusal.
+// tellHeldRequester tells the requester of a held item that it was not
+// accepted: status{rejected} with anet.reason, queued under a credential the
+// requester gave and within the notice limit (engine ENG-Q1, Q7).
 func (d *Daemon) tellHeldRequester(item *interactions.PendingItem, reason string) {
-	if len(item.Keys) == 0 || !d.notices.allow(item.FromAID, d.nowMS()) {
-		d.count(noticeSuppressed)
-		return
+	kind := rowKindPendingExpired
+	if reason == reasonOperatorRejected {
+		kind = rowKindOperatorReject
 	}
-	kel, err := identity.UnmarshalKEL(item.KEL)
+	body, err := noticeBody(delegation.StateRejected, "this node did not accept the task: "+reason, reason, d.nowMS())
 	if err != nil {
 		return
 	}
-	signed, err := seal.UnmarshalSignedEncKeySet(item.Keys)
-	if err != nil {
-		return
-	}
-	set, err := seal.VerifyEncKeySet(signed, item.FromAID, kel, d.nowMS())
-	if err != nil {
-		return
-	}
-	meta, _ := json.Marshal(map[string]any{"anet.reason": reason})
-	body, err := (&delegation.StatusMsg{State: delegation.StateRejected,
-		Text: "this node did not accept the task: " + reason, Metadata: meta, At: d.nowMS()}).Marshal()
-	if err != nil {
-		return
-	}
-	d.count(noticeSent)
-	d.goBackground(func() {
-		env, err := d.sealWith(item.FromAID, seal.TypeStatus, item.IX, body, set)
-		if err != nil {
-			return
-		}
-		cctx, cancel := context.WithTimeout(d.ctx, hubCallTimeoutShort)
-		defer cancel()
-		if err := d.deliverEnvelope(cctx, item.FromAID, env); err != nil {
-			d.logOnce("notice:"+item.FromAID, "anet: refusal notice to %s not delivered: %v", item.FromAID, err)
-		}
-	})
+	d.queueNotice(item.FromAID, item.IX, kind, body)
 }

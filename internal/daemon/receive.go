@@ -249,11 +249,15 @@ func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
 
 // receiveEnvelopeVia runs steps 1 to 10 on one envelope that arrived by
 // path.
-func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath) rxResult {
+func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath) (result rxResult) {
 	now := d.nowMS()
 
 	// Steps 1-4.
 	op, err := seal.Open(env, d.AID(), d.enc, nil) // v030-todo(FS-7): ixLookup
+	if err == nil {
+		ack, oneShot := op.AckKey, op.Outer.Exp != nil
+		defer func() { result = processedToken(result, ack, oneShot) }()
+	}
 	if err != nil {
 		if path.direct {
 			// [redteam:F22] From the hub mailbox an envelope this node
@@ -392,6 +396,27 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		m.release = nil
 	}
 	return d.expireTransient(out, m, d.nowMS())
+}
+
+// processedToken gives res the delivery token of outcome 1 (processed) when
+// the envelope was committed at step 10 or was a duplicate of one that was
+// (engine ENG-V12, V13): what tells its sender, through the hub's /relay/ack
+// or a direct ack, that it arrived. A one-shot envelope gets none (ENG-V6).
+//
+// v030-todo(ENG-1c): rxTokenFor decides every token (ENG-V11), refusals'
+// tok(2) with their notes included; until then only a processed envelope
+// earns one.
+func processedToken(res rxResult, ack seal.AckKey, oneShot bool) rxResult {
+	defer clear(ack[:])
+	if oneShot || res.dack != nil || !(res.class == rxAccepted || res.class == rxDropped && res.reason == dropDuplicate) {
+		return res
+	}
+	dack, err := ack.MakeDAck(seal.OutcomeProcessed, seal.Note{})
+	if err != nil {
+		return res
+	}
+	res.dack = &rxDAck{handle: ack.Handle(), dack: dack}
+	return res
 }
 
 // noteRefusedEnvelope remembers an envelope step 9 refused for good: in the
@@ -1061,6 +1086,7 @@ func rxPermanent(reason string, err error) error { return &rxPermanentErr{reason
 // processed, and a crash after the commit leaves both, so it is not
 // processed twice.
 func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
+	implicit := 0
 	err := d.ix.Update(func(tx *interactions.Tx) error {
 		claimed, err := tx.ClaimReplay(m.from, m.mid, m.exp)
 		if err != nil {
@@ -1080,6 +1106,12 @@ func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
 				return err
 			}
 		}
+		// A message from the peer of a task this node asked for confirms
+		// its delegation, in the same transaction (ENG §4.7 item 2,
+		// ENG-C2).
+		if implicit, err = d.confirmImplicitTx(tx, m.ix, m.from); err != nil {
+			return err
+		}
 		if fault := d.testRxFault(); fault != nil {
 			return fault(m.typ)
 		}
@@ -1089,6 +1121,7 @@ func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
 	switch {
 	case err == nil:
 		m.committed()
+		d.implicitConfirmed(m.ix, implicit)
 		return accepted()
 	case errors.Is(err, errReplayDuplicate):
 		return d.drop(dropDuplicate, nil)

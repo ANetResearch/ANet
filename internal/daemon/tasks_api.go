@@ -67,9 +67,9 @@ func (d *Daemon) registerTaskRoutes(api *routeMux) {
 func writeTaskError(w http.ResponseWriter, err error) {
 	var ref *a2ashape.Refusal
 	if errors.As(err, &ref) {
-		// A refusal of the reason table (the send gate, LEC AD-6): its
-		// sentence, code and command (ux UX-R9).
-		writeGateRefusal(w, ref)
+		// A refusal of the reason table (the send gate, LEC AD-6; a strict
+		// send, engine ENG-U5): its sentence, code and command (ux UX-R9).
+		writeRefusal(w, refusalStatus(ref), ref)
 		return
 	}
 	code := http.StatusInternalServerError
@@ -86,6 +86,18 @@ func writeTaskError(w http.ResponseWriter, err error) {
 		code = http.StatusGatewayTimeout
 	}
 	writeJSON(w, code, map[string]string{"error": err.Error(), "code": a2ashape.ErrorName(err)})
+}
+
+// refusalStatus is the control plane's status for a refusal: a send gate's
+// is 409 (LEC AD-6); a strict send's is the REST status its row gives
+// (engine ENG-U5: 400 for a recipient no hub knows, 503 for one that does
+// not verify).
+func refusalStatus(ref *a2ashape.Refusal) int {
+	switch ref.Code() {
+	case reasonRecipientUnknown, reasonRecipientUnverifiable:
+		return ref.A2A(a2ashape.Lang()).HTTPStatus
+	}
+	return http.StatusConflict
 }
 
 func badTaskRequest(w http.ResponseWriter, format string, a ...any) {

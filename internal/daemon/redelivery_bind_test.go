@@ -14,6 +14,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -361,19 +362,33 @@ func TestAnApprovedCallRedeliveredIsAnsweredAgainNotRun(t *testing.T) {
 		ix, err := prov.ix.Get(id)
 		return err == nil && len(ix.Receipt) > 0
 	})
-	// Everything the approval sent has left the outbox (the answer queues
-	// behind the status rows of its task, F23) before it is lost.
-	waitUntil(t, "the approved call's answers sent", func() bool {
-		rows, err := prov.ix.Outbox(id)
-		return err == nil && len(rows) == 0
+	// Everything the approval sent has reached the hub (the answer queues
+	// behind the status rows of its task, F23) before it is lost; the rows
+	// wait for the requester's tokens.
+	sent := 0
+	waitUntil(t, "the approved call's answers at the hub", func() bool {
+		rows, err := prov.ix.OutboxRows(id)
+		if err != nil || len(rows) == 0 {
+			return false
+		}
+		for _, r := range rows {
+			if r.HandedAt == 0 || r.Attempting {
+				return false
+			}
+		}
+		sent = len(rows)
+		return len(queuedFor(t, srv, req.AID())) == sent
 	})
 	clearMailbox(t, srv, req.AID()) // the held notice and the answer are lost
 
+	// The same envelope again: the answer queue is hurried, its status asked,
+	// and what the hub no longer holds is sent again, once.
 	if r := receive(t, prov, env); !r.ack() || r.reason != dropDuplicate {
 		t.Fatalf("the same envelope again: %+v", r)
 	}
-	if n := len(queuedFor(t, srv, req.AID())); n != 1 {
-		t.Fatalf("%d answers re-sent for the redelivered envelope, want 1", n)
+	waitUntil(t, "the answers sent again", func() bool { return len(queuedFor(t, srv, req.AID())) >= sent })
+	if n := len(queuedFor(t, srv, req.AID())); n != sent {
+		t.Fatalf("%d answers re-sent for the redelivered envelope, want %d", n, sent)
 	}
 	op, err := seal.Open(env, prov.AID(), prov.enc, nil)
 	if err != nil {
@@ -383,8 +398,10 @@ func TestAnApprovedCallRedeliveredIsAnsweredAgainNotRun(t *testing.T) {
 	if r := receive(t, prov, resealed); r.class != rxAccepted {
 		t.Fatalf("the same request under a new message id: %+v", r)
 	}
-	if n := len(queuedFor(t, srv, req.AID())); n != 2 {
-		t.Fatalf("%d answers queued after the re-sealed copy, want 2", n)
+	// The hub holds the answers sent again: none is sent twice.
+	time.Sleep(100 * time.Millisecond)
+	if n := len(queuedFor(t, srv, req.AID())); n != sent {
+		t.Fatalf("%d answers queued after the re-sealed copy, want the %d the hub holds", n, sent)
 	}
 	if n := len(lamp.invoked); n != 1 {
 		t.Fatalf("the approved call ran %d times", n)

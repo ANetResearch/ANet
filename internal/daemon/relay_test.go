@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -57,6 +58,13 @@ func newTestDaemonCfg(t testing.TB, hubURL string, modules map[string]any) *Daem
 // loop and closes it when the test ends.
 func buildTestDaemon(t testing.TB, hubURL string, modules map[string]any) *Daemon {
 	t.Helper()
+	return buildTestDaemonAs(t, hubURL, modules, false)
+}
+
+// buildTestDaemonAs is buildTestDaemon; a plain node's join designates no
+// witness (newPlainTestDaemon).
+func buildTestDaemonAs(t testing.TB, hubURL string, modules map[string]any, plain bool) *Daemon {
+	t.Helper()
 	root := t.TempDir()
 	cfg := map[string]any{"control_addr": "127.0.0.1:0", "hub_url": hubURL}
 	if modules != nil {
@@ -72,6 +80,10 @@ func buildTestDaemon(t testing.TB, hubURL string, modules map[string]any) *Daemo
 	if err := saveIdentity(NewLayout(root), self); err != nil {
 		t.Fatal(err)
 	}
+	if !plain {
+		witnessRoots.Store(root, true)
+		t.Cleanup(func() { witnessRoots.Delete(root) })
+	}
 	d, err := New(NewLayout(root))
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +97,72 @@ func buildTestDaemon(t testing.TB, hubURL string, modules map[string]any) *Daemo
 	d.mu.Unlock()
 	t.Cleanup(func() { d.Close() })
 	return d
+}
+
+// newPlainTestDaemon is newTestDaemon for a node whose join designates no
+// witness (the kernel's hooks), with its outbound gate held open: a test
+// that builds key events of its own dated in the recent past, which a
+// designation made at the join would postdate.
+func newPlainTestDaemon(t testing.TB, hubURL string, accept bool) *Daemon {
+	t.Helper()
+	d := buildTestDaemonAs(t, hubURL, nil, true)
+	joinTestGroup(t, d, accept)
+	holdGateOpen(d)
+	return d
+}
+
+// witnessRoots are the data directories of the test daemons
+// buildTestDaemon made (not plain): their daemons, restarts included, join
+// with sendingJoinHooks. Any other daemon keeps the kernel's.
+var witnessRoots sync.Map
+
+// Joining a hub designates it the identity's witness (KEL D-13), as the
+// identity area's join hooks do, so a test node that joined is confirmed by
+// its hub's notices and its outbound gate opens (KEL D-1, engine ENG-K13).
+func init() {
+	testJoinHooks = func(d *Daemon) JoinHooks {
+		if _, ok := witnessRoots.Load(d.layout.Root); !ok {
+			return nil
+		}
+		return sendingJoinHooks{witnessJoinHooks{d}}
+	}
+}
+
+// plainRegisteredPair is registeredPair of plain test daemons
+// (newPlainTestDaemon).
+func plainRegisteredPair(t testing.TB) (*httptest.Server, *Daemon, *Daemon) {
+	t.Helper()
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newPlainTestDaemon(t, srv.URL, false)
+	prov := newPlainTestDaemon(t, srv.URL, true)
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
+		t.Fatal(err)
+	}
+	return srv, req, prov
+}
+
+// sendingJoinHooks are witnessJoinHooks for a node that sends: the witness
+// designation retires the key its encryption key set was signed under, so
+// once it is adopted the set is signed again under the new key state and
+// published to the hub just joined, as part of the join.
+type sendingJoinHooks struct{ witnessJoinHooks }
+
+func (h sendingJoinHooks) Adopt(ctx context.Context, res RegisterResult) error {
+	if err := h.witnessJoinHooks.Adopt(ctx, res); err != nil {
+		return err
+	}
+	d := h.d
+	if err := d.resignKeyRing(); err != nil {
+		return err
+	}
+	if err := d.publishKeys(ctx, res.Hub); err != nil {
+		log.Printf("anet: test join: publish the key set signed after the designation: %v", err)
+	}
+	return nil
 }
 
 // testGroups holds, per test, the daemons newTestDaemon created and which of

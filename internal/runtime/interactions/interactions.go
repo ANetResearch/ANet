@@ -641,8 +641,10 @@ func setState(e execer, id string, st State, cause Cause, nowMS int64) (bool, er
 	q := `UPDATE interaction SET state=?, state_at=?, state_seq=state_seq+1, updated_at=?`
 	if st.IsTerminal() {
 		// §3.8: the requester's key material held for a public interaction
-		// is kept only while the interaction is open.
-		q += `, peer_kel=NULL, peer_keys=NULL`
+		// is kept only while the interaction is open — and while a message
+		// to it is queued, which may have to be sealed again with it
+		// (engine ENG-S7); the last row's deletion clears it then.
+		q += peerMaterialCleared
 	}
 	q += ` WHERE id=? AND state NOT IN ` + terminalSQL + ` AND state != ?`
 	res, err := e.Exec(q, string(st), nowMS, now, id, string(st))
@@ -723,7 +725,7 @@ func finish(e execer, id string, f Finish, cause Cause, nowMS int64) error {
 	q := `UPDATE interaction SET state=?, state_at=?, state_seq=state_seq+1, result=?, result_cid=?, receipt=?,
 	        receipt_verified=?, result_meta=?, updated_at=?`
 	if f.State.IsTerminal() {
-		q += `, peer_kel=NULL, peer_keys=NULL`
+		q += peerMaterialCleared
 	}
 	q += ` WHERE id=? AND state NOT IN ` + terminalSQL
 	res, err := e.Exec(q, string(f.State), nowMS, result, f.ResultCID, f.Receipt, string(f.Verified), meta, now, id)
@@ -745,6 +747,21 @@ func finish(e execer, id string, f Finish, cause Cause, nowMS int64) error {
 		return nil
 	}
 	return ErrTerminal
+}
+
+// peerMaterialCleared is the part of a terminal write that clears the
+// peer's key material (§3.8), unless a message of the task is still queued
+// (engine ENG-S7, releasePeerMaterial).
+const peerMaterialCleared = `, peer_kel=CASE WHEN EXISTS (SELECT 1 FROM outbox o WHERE o.ix = interaction.id) THEN peer_kel ELSE NULL END,
+	peer_keys=CASE WHEN EXISTS (SELECT 1 FROM outbox o WHERE o.ix = interaction.id) THEN peer_keys ELSE NULL END`
+
+// releasePeerMaterial clears the peer's key material of a terminal task ix
+// once no message of it is queued: what a terminal write kept for sealing
+// again goes with the last row (engine ENG-S7).
+func releasePeerMaterial(e execer, ix string) error {
+	_, err := e.Exec(`UPDATE interaction SET peer_kel=NULL, peer_keys=NULL WHERE id=? AND state IN `+terminalSQL+`
+	   AND (peer_kel IS NOT NULL OR peer_keys IS NOT NULL) AND NOT EXISTS (SELECT 1 FROM outbox WHERE ix=?)`, ix, ix)
+	return err
 }
 
 // sealResult returns what the result and result_meta columns of

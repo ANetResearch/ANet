@@ -290,11 +290,8 @@ func TestPruneTerminalSweepsEveryClass(t *testing.T) {
 	task(t, s, "week_"+interactions.ClassPublicCap, interactions.ClassPublicCap, now-10*dayMS, true)
 	task(t, s, "days_"+interactions.ClassPublicCap, interactions.ClassPublicCap, now-3*dayMS, true)
 	task(t, s, "queued", interactions.ClassPeer, old, true)
-	rowID, err := s.EnqueueOutbox(interactions.OutboxItem{IX: "queued", ToAID: "did:anet:peer", Type: "anet.result/1",
-		Body: []byte("b"), NextAt: old, CreatedAt: old})
-	if err != nil {
-		t.Fatal(err)
-	}
+	rowID := enqueueOutbox(t, s, interactions.OutboxItem{IX: "queued", ToAID: "did:anet:peer", Type: "anet.result/1",
+		Body: []byte("b")})
 	task(t, s, "unsettled", interactions.ClassPublicCap, old, true)
 	if _, err := s.SetPayment("unsettled", interactions.PayUpdate{
 		State: interactions.PayState(interactions.PaySubmitted), Payload: []byte("signed authorization")}); err != nil {
@@ -343,7 +340,12 @@ func TestPruneTerminalSweepsEveryClass(t *testing.T) {
 		t.Fatalf("a second sweep: %+v %v", again, err)
 	}
 	// The row is confirmed and the payment settled: the next sweep takes both.
-	if err := s.DeleteOutbox(rowID); err != nil {
+	if err := s.Update(func(tx *interactions.Tx) error {
+		if ok, err := tx.DeleteOutboxRow(rowID); err != nil || !ok {
+			return fmt.Errorf("delete the row: %v %v", ok, err)
+		}
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SetPayment("unsettled", interactions.PayUpdate{State: interactions.PayState(interactions.PayCompleted)}); err != nil {
@@ -518,10 +520,8 @@ func TestPruneTerminalDeletesInBatches(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		id := fmt.Sprintf("ix_q%d", i)
 		task(t, s, id, interactions.ClassPublicCap, now-30*dayMS+int64(i), true)
-		if _, err := s.EnqueueOutbox(interactions.OutboxItem{IX: id, ToAID: "did:anet:peer", Type: "anet.result/1",
-			Body: []byte("b"), NextAt: now, CreatedAt: now}); err != nil {
-			t.Fatal(err)
-		}
+		enqueueOutbox(t, s, interactions.OutboxItem{IX: id, ToAID: "did:anet:peer", Type: "anet.result/1",
+			Body: []byte("b")})
 	}
 	for i := 0; i < 5; i++ {
 		task(t, s, fmt.Sprintf("ix_%d", i), interactions.ClassPublicCap, now-20*dayMS+int64(i), true)
@@ -552,10 +552,8 @@ func TestCountNewlyDeletable(t *testing.T) {
 	task(t, s, "ix_pub", interactions.ClassPublicCap, now-10*dayMS, true) // already the sweep's
 	task(t, s, "ix_pub_new", interactions.ClassPublicCap, now-4*dayMS, true)
 	task(t, s, "ix_queued", interactions.ClassPeer, now-40*dayMS, true)
-	if _, err := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_queued", ToAID: "did:anet:peer", Type: "anet.result/1",
-		Body: []byte("b"), NextAt: now, CreatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
+	enqueueOutbox(t, s, interactions.OutboxItem{IX: "ix_queued", ToAID: "did:anet:peer", Type: "anet.result/1",
+		Body: []byte("b")})
 	r30, r7, r90 := mustRetention(t, "30d"), mustRetention(t, "7d"), mustRetention(t, "90d")
 	r3 := mustRetention(t, "3d")
 	for _, tc := range []struct {

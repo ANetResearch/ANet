@@ -144,6 +144,20 @@ func (d *Daemon) testIdentityGate() func() GateState {
 	return nil
 }
 
+// testJoinHooks, when set, gives a new daemon its join hooks in place of
+// the kernel's, before its join loop makes its first attempt (initJoin):
+// the package's tests set it once, in an init function, so that a test
+// node designates its hub its witness when it joins (KEL D-13) whichever
+// attempt — the loop's first or the test's — registers it. A nil result
+// keeps the kernel's. Nothing else sets it.
+var testJoinHooks func(d *Daemon) JoinHooks
+
+// setOutboxHold holds the outbox loop and the no-response sweep while on:
+// their passes are skipped, so a test that drives every attempt, status
+// query and sweep itself (the engine's model test) is the only one that
+// makes them. What a call queues is still attempted by the call.
+func (d *Daemon) setOutboxHold(on bool) { d.outboxHold.Store(on) }
+
 // knob is a package-level duration the tests shorten (settleRetryBase).
 // A plain variable raced the same way the hooks did: a test sets it while
 // the loop of a daemon it started earlier — or reopened — still reads it.

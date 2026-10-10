@@ -260,7 +260,7 @@ func TestTheDenySweepLeavesAPaidTaskAlone(t *testing.T) {
 			t.Fatalf("the sweep sent a cancel for a paid task: %+v", m)
 		}
 	}
-	if q, _ := req.ix.Outbox(id); len(q) > 1 {
+	if q, _ := req.ix.OutboxRows(id); len(q) > 1 {
 		t.Errorf("%d messages queued for the paid task", len(q))
 	}
 }

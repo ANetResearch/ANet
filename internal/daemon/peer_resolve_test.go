@@ -28,6 +28,7 @@ import (
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
@@ -508,13 +509,20 @@ func TestResolvePeerSourcesAndVerdicts(t *testing.T) {
 		if _, v := req.resolvePeer(ctx, prov.AID(), resolveOpts{need: needKeys, bypass: true}); v != verdictFound {
 			t.Fatalf("a partial answer with the agent: %v", v)
 		}
-		// The send path's errors say which, and which of them a retry can
-		// change.
-		for v, want := range map[peerVerdict][2]bool{verdictNotFound: {true, false}, verdictUnverifiable: {false, false},
-			verdictUnavailable: {false, true}} {
-			err := error(&peerResolveError{AID: nobody.aid, Verdict: v})
-			if _, permanent := permanentRefusal(err); permanent != want[0] || hubUnreachable(err) != want[1] {
-				t.Errorf("%v: permanent %v, unreachable %v", v, permanent, hubUnreachable(err))
+		// A new delegation's lookup says which (engine ENG-Q5): the two
+		// refusals are refused at once with their codes, a hub that
+		// cannot be asked queues the delegation waiting on
+		// home_unreachable.
+		for v, want := range map[peerVerdict][2]string{verdictNotFound: {reasonRecipientUnknown, ""},
+			verdictUnverifiable: {reasonRecipientUnverifiable, ""}, verdictUnavailable: {"", reasonHomeUnreachable}} {
+			wait, err := strictOutcome(&peerResolveError{AID: nobody.aid, Verdict: v})
+			var ref *a2ashape.Refusal
+			refused := ""
+			if errors.As(err, &ref) {
+				refused = ref.Code()
+			}
+			if refused != want[0] || lastErrorCode(wait) != want[1] {
+				t.Errorf("%v: refused %q, waits on %q", v, refused, wait)
 			}
 		}
 		// A cached bucket that lacks an agent is asked again before the
@@ -564,7 +572,7 @@ func TestPartialBucketIsNotNotFound(t *testing.T) {
 	if err != nil || ix.State == interactions.StateFailed {
 		t.Fatalf("the task: %+v %v", ix, err)
 	}
-	if items, err := req.ix.Outbox(id); err != nil || len(items) != 1 {
+	if items, err := req.ix.OutboxRows(id); err != nil || len(items) != 1 {
 		t.Fatalf("the queued delegation: %d rows %v", len(items), err)
 	}
 	setFake(t, srvB.URL, func(h *fakeHub) { h.dirDown = false })
@@ -669,13 +677,14 @@ func TestEntrySelectionLongestKEL(t *testing.T) {
 // which picks up the set the peer published since, and not again for a
 // day.
 func TestActiveContactRevalidatedOncePer24h(t *testing.T) {
-	srv, req, prov := registeredPair(t)
+	srv, req, prov := plainRegisteredPair(t)
 	ctx := context.Background()
 	h := fakeHubAt(t, srv.URL)
 	id, err := req.Delegate(ctx, prov.AID(), "task", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	confirmDelegation(t, req, prov) // the sends below are follow-ups (engine ENG-O2)
 	row, err := req.ix.PeerIdentity(prov.AID())
 	if err != nil || row.PinnedReason != interactions.PinOutbound {
 		t.Fatalf("the recipient's record: %+v %v", row, err)
@@ -740,7 +749,7 @@ func TestActiveContactRevalidatedOncePer24h(t *testing.T) {
 // sends the same envelope again at once; a second 404 within the hour does
 // not look again, and the message is given up.
 func TestUnknownRecipientRefreshesOnce(t *testing.T) {
-	srv, req, prov := registeredPair(t)
+	srv, req, prov := plainRegisteredPair(t)
 	ctx := context.Background()
 	h := fakeHubAt(t, srv.URL)
 	moved, err := identitytest.Hub()
@@ -782,7 +791,7 @@ func TestUnknownRecipientRefreshesOnce(t *testing.T) {
 	// refresh, and the message is given up as recipient_unknown.
 	setFake(t, srv.URL, func(h *fakeHub) { h.homeMustBe[prov.AID()] = moved.AID() })
 	_, err = req.Delegate(ctx, prov.AID(), "another task", nil)
-	if !errors.Is(err, errUndeliverable) || !strings.Contains(err.Error(), undeliveredUnknown) {
+	if !errors.Is(err, errUndeliverable) || !strings.Contains(err.Error(), reasonRecipientUnknown) {
 		t.Fatalf("a recipient still unknown: %v", err)
 	}
 	if n := queryCount(h); n != q0+1 {
@@ -794,7 +803,7 @@ func TestUnknownRecipientRefreshesOnce(t *testing.T) {
 // set is fetched again past this node's record and every cache; the newer
 // set the recipient published is recorded and returned.
 func TestKidStaleBypassesCaches(t *testing.T) {
-	srv, req, prov := registeredPair(t)
+	srv, req, prov := plainRegisteredPair(t)
 	ctx := context.Background()
 	h := fakeHubAt(t, srv.URL)
 	if _, err := req.Delegate(ctx, prov.AID(), "task", nil); err != nil {

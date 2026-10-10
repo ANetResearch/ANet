@@ -302,9 +302,21 @@ func TestAPublicCapabilityCallTakesNoText(t *testing.T) {
 		t.Fatalf("cancel: %+v", r)
 	}
 	waitUntil(t, "the running call to be canceled", gate.wasCanceled)
-	waitUntil(t, "the public_cap interaction to end and drop the caller's keys", func() bool {
+	waitUntil(t, "the public_cap interaction to end", func() bool {
 		pix, _ := prov.ix.Get(id)
-		return pix.IsTerminal() && len(pix.PeerKEL) == 0 && len(pix.PeerKeys) == 0
+		return pix.IsTerminal()
+	})
+	// Its answers to the caller are queued: the caller's keys are kept, as
+	// they may have to be sealed again (engine ENG-S7).
+	if pix, _ := prov.ix.Get(id); len(outboxRows(t, prov, id)) == 0 || len(pix.PeerKEL) == 0 || len(pix.PeerKeys) == 0 {
+		t.Fatalf("ended with its answers queued, the caller's keys: kel %d, keys %d", len(pix.PeerKEL), len(pix.PeerKeys))
+	}
+	// The caller takes them, and the provider hears so: the keys go with
+	// the last row.
+	waitUntil(t, "the caller's answers to be confirmed and its keys dropped", func() bool {
+		settleDelivery(t, prov, stranger)
+		pix, _ := prov.ix.Get(id)
+		return len(outboxRows(t, prov, id)) == 0 && len(pix.PeerKEL) == 0 && len(pix.PeerKeys) == 0
 	})
 	if _, err := prov.ix.PeerIdentity(stranger.AID()); !errors.Is(err, interactions.ErrNotFound) {
 		t.Fatal("a public_cap caller was recorded in peer_identity")
@@ -487,6 +499,7 @@ func TestTheApprovalQueue(t *testing.T) {
 		if err := prov.pollOnce(ctx); err != nil {
 			t.Fatal(err)
 		}
+		askHubNow(t, s) // held, it was taken: follow-ups go (engine ENG-O2)
 		return id
 	}
 	id := hold("a secret goal the operator must approve")

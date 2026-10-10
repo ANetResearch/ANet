@@ -200,7 +200,7 @@ func TestAStopDoesNotAnswerAShortCallItCutOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, _ := st.Outbox(id)
+	rows, _ := st.OutboxRows(id)
 	st.Close()
 	if pix.IsTerminal() || len(pix.Result) > 0 || len(pix.Receipt) > 0 || len(rows) != 0 {
 		t.Fatalf("the stop answered the call: state %s, result %q, receipt %d bytes, %d queued",
@@ -259,10 +259,16 @@ func TestAStopLeavesALongCallToStartupRecovery(t *testing.T) {
 	}
 	st := storeAfterStop(t, layout)
 	pix, _ := st.Get(id)
-	rows, _ := st.Outbox(id)
+	rows, _ := st.OutboxRows(id)
 	st.Close()
-	if pix == nil || pix.State != interactions.StateWorking || len(pix.Receipt) > 0 || len(rows) != 0 {
-		t.Fatalf("the stop answered the long call: %+v, %d queued", pix, len(rows))
+	results := 0
+	for _, r := range rows {
+		if r.Type == seal.TypeResult {
+			results++ // what is queued besides waits for its token: the working status
+		}
+	}
+	if pix == nil || pix.State != interactions.StateWorking || len(pix.Receipt) > 0 || results != 0 {
+		t.Fatalf("the stop answered the long call: %+v, %d results queued", pix, results)
 	}
 	prov2 := restartDaemon(t, prov)
 	wasInterrupted(t, prov2, id)
@@ -505,6 +511,7 @@ func TestApprovedFollowUpsKeepTheirKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	confirmDelegation(t, s, prov) // held, it was taken: the follow-up goes (engine ENG-O2)
 	if err := s.SendMessage(ctx, text, "held detail", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +572,7 @@ func TestAStopBeforeAnUnservedCallIsAnsweredLeavesItUnacknowledged(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, _ := prov.ix.Outbox(id)
+	rows, _ := prov.ix.OutboxRows(id)
 	if pix.IsTerminal() || len(pix.Result) > 0 || len(rows) != 0 {
 		t.Fatalf("the stop answered: state %s, result %q, %d queued", pix.State, pix.Result, len(rows))
 	}

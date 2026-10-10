@@ -11,7 +11,8 @@ import (
 
 // FS-L1 and FS-L9 through the approval queue: the interaction an approval creates keeps the data
 // key its held delegation had; a held delegation the operator rejects, the requester cancels or the
-// TTL expires takes its data key with it.
+// TTL expires takes its data key with it — once the notices about it that are queued for the
+// requester, sealed from what the key keeps, have left the queue (engine ENG-S7, E-T27).
 func TestHeldDelegationDataKeyFollowsTheApprovalQueue(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -35,12 +36,29 @@ func TestHeldDelegationDataKeyFollowsTheApprovalQueue(t *testing.T) {
 	}
 	keyGone := func(what, id string) {
 		t.Helper()
+		if rows := outboxRows(t, prov, id); len(rows) > 0 {
+			if _, err := prov.ix.MACKey(id); err != nil {
+				t.Errorf("%s: the data key went while %d notices are queued (%v)", what, len(rows), err)
+			}
+		}
+		// The requester takes the notices and the provider hears so.
+		waitUntil(t, what+": the notices confirmed", func() bool {
+			settleDelivery(t, prov, s)
+			return len(outboxRows(t, prov, id)) == 0
+		})
 		if _, err := prov.ix.MACKey(id); !errors.Is(err, interactions.ErrContentGone) {
 			t.Errorf("%s: the held item's data key is still there (%v)", what, err)
 		}
 	}
 
 	id := hold("approved under the key it was held with")
+	// The pending_approval notice leaves the queue first: a queued row of
+	// the task keeps its data key by itself (ENG-S7), and the approval must
+	// be what carries the key over.
+	waitUntil(t, "the pending_approval notice confirmed", func() bool {
+		settleDelivery(t, prov, s)
+		return len(outboxRows(t, prov, id)) == 0
+	})
 	held, err := prov.ix.MACKey(id)
 	if err != nil {
 		t.Fatal(err)

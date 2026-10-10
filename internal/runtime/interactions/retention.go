@@ -315,23 +315,9 @@ func candidates(q querier, now int64, r Retention, cur pruneCursor, limit int) (
 	return out, closeRows(rows)
 }
 
-// outboxRowsLeft reports whether the outbound queue holds a row of task ix (ENG-E2).
-//
-// v030-todo(ENG-1a): the engine's HasOutboxRowsTx answers this once ENG-1a lands; the sweep asks it.
-func outboxRowsLeft(q querier, ix string) (bool, error) {
-	var one int
-	switch err := q.QueryRow(`SELECT 1 FROM outbox WHERE ix=? LIMIT 1`, ix).Scan(&one); {
-	case errors.Is(err, sql.ErrNoRows):
-		return false, nil
-	case err != nil:
-		return false, err
-	}
-	return true, nil
-}
-
 // deletable reads the facts of c the decision needs beyond its row and asks contentDeletable.
 func (c candidate) deletable(q querier, now int64, level ClockLevel, r Retention) (bool, error) {
-	queued, err := outboxRowsLeft(q, c.ID)
+	queued, err := hasOutboxRows(q, c.ID) // the engine's answer (ENG-E2), as HasOutboxRowsTx gives it
 	if err != nil {
 		return false, err
 	}

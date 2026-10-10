@@ -37,6 +37,10 @@ import (
 // a send made just before the end could reach the hub after it.
 const sessionRenewBefore = 5 * time.Minute
 
+// sessionOpenTimeout bounds one opening of a session, whoever waits for
+// it.
+const sessionOpenTimeout = 30 * time.Second
+
 // sessionMaxLife bounds the end a hub may give a session, from now. A hub
 // gives an hour (sealed-sender §2.12); an end further out is the hub's
 // mistake, and a session believed open for longer than the hub keeps it
@@ -157,7 +161,12 @@ func (d *Daemon) firstContactSession(ctx context.Context, hubURL string) (*first
 	gen := t.gen
 	t.mu.Unlock()
 
-	op.s, op.err = d.openSession(ctx, key)
+	// The opening is every waiting send's, so it runs under a deadline of
+	// its own and not under the first caller's context: one caller giving
+	// up does not leave the others without a session.
+	octx, cancel := context.WithTimeout(d.ctx, sessionOpenTimeout)
+	op.s, op.err = d.openSession(octx, key)
+	cancel()
 
 	t.mu.Lock()
 	delete(t.opening, key)

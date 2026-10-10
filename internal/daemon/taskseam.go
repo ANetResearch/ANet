@@ -393,7 +393,13 @@ func (d *Daemon) sendTask(ctx context.Context, sc taskScope, to string, req modu
 		release()
 		return d.finishSend(ctx, sc, id, 0, req, wait, mark)
 	case err != nil:
-		// Nothing was recorded: no key for the agent, or the store.
+		// Nothing was recorded: a recipient no hub knows or that does not
+		// verify (a refusal of the reason table, engine ENG-U5), or the
+		// store.
+		var ref *a2ashape.Refusal
+		if errors.As(err, &ref) {
+			return a2ashape.Task{}, ref
+		}
 		return a2ashape.Task{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
 	}
 	if in.capID != "" && len(meta) > 0 {

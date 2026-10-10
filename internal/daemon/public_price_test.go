@@ -58,6 +58,7 @@ func TestNoPriceLeavesThisNode(t *testing.T) {
 	}
 	h := newFakeHub(t)
 	d := newCardDaemon(t, "Worker", "")
+	holdGateOpen(d) // a node that designates no witness: the gate is not what this is about
 	if err := d.Providers().Register(context.Background(), &distinctPricedWork{}); err != nil {
 		t.Fatal(err)
 	}

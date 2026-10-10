@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -309,6 +310,32 @@ func TestRevokePushBatchesAndRetries(t *testing.T) {
 		if got := revokeRetryAfter(f); got != want {
 			t.Errorf("revokeRetryAfter(%d) = %v, want %v", f, got, want)
 		}
+	}
+}
+
+// Core CORE-V1 (engine ENG-K13, the wire stop): a 200 to the push that
+// states another wire is a wire refusal, not a success. The withdrawals
+// stay to be pushed, and the hub is stopped until the join flow checks it
+// again.
+func TestARevokePushAnsweredOverAnotherWireIsNotPushed(t *testing.T) {
+	keepRevokeLoopOut(t)
+	srv, _, prov := registeredPair(t)
+	if r := prov.joinSnapshot(); r == nil || r.State != JoinRegistered {
+		t.Fatalf("the provider is not registered: %+v", r)
+	}
+	withdrawn(t, prov, "did:anet:wire-peer-0001", 0, 3)
+	fh := fakeHubAt(t, srv.URL)
+	fh.mu.Lock()
+	fh.wire = hubapi.WireVersion - 1
+	fh.mu.Unlock()
+	if err := prov.pushRevocations(context.Background(), srv.URL); !errors.Is(err, errHubWire) {
+		t.Fatalf("the push: %v, want the wire refusal", err)
+	}
+	if left, err := prov.ix.UnpushedRevocations(10); err != nil || len(left) != 3 {
+		t.Fatalf("%d withdrawals left to push (%v), want all 3", len(left), err)
+	}
+	if !prov.hubWireStopped(srv.URL) {
+		t.Fatal("the hub that answered over another wire was not stopped")
 	}
 }
 

@@ -12,21 +12,26 @@ package daemon
 // cannot read, is the same from here. Nothing on this side would ever move
 // such a task.
 //
-// So a task this node sent is failed with anet.reason=no_response when all
-// of these hold:
+// Two things are looked at each minute (engine §2.10):
+//
+//   - a delegation handed over that its provider has not confirmed within
+//     no_response_after is given up as delivery_unconfirmed, and a cancel
+//     follows it (ENG-T1, outbox_scan.go);
+//   - a task whose delegation was confirmed and whose peer has said nothing
+//     since is failed with anet.reason=no_response (ENG-T3) when all of
+//     these hold:
 //
 //   - it is still submitted: the provider has not answered anything, and
 //     this node has not sent anything after the delegation (a follow-up or
 //     a payment moves it to working);
-//   - nothing of it is still queued to go out: a delegation the retry queue
-//     is still trying to deliver has not reached the provider yet, and when
-//     the queue gives up on it the task fails as undeliverable
-//     (undelivered.go);
+//   - its delegation is confirmed: no delegation row of it is queued — one
+//     not confirmed is the scan's above, and one never sent fails as
+//     undeliverable (undelivered.go);
 //   - no status, message or result from the peer is stored for it — a
 //     pending_approval notice (submitted, §5.3) is an answer;
 //   - no_response_after has passed both since the task was made and since
-//     its delegation left this node (DeleteDeliveredOutbox): a delegation
-//     that waited out a hub outage gets the whole period after delivery.
+//     its delegation was confirmed (the confirmation sets updated_at): the
+//     period counts from when the provider had it.
 //
 // The effect is UNVERIFIED (SI-6): the peer may have refused the task, may
 // never have read it, or may have run it — a long capability call started
@@ -104,19 +109,24 @@ func (d *Daemon) noResponseLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			d.failUnanswered(int64(d.nowMS()))
+			if !d.outboxHold.Load() {
+				d.failUnanswered(int64(d.nowMS()))
+			}
 		}
 	}
 }
 
-// failUnanswered fails, as of now (unix ms), every task this node sent that
-// has waited past no_response_after with no answer at all. It returns the
-// ids it failed.
+// failUnanswered gives up, as of now (unix ms), every delegation not
+// confirmed within no_response_after (ENG-T1) and fails every task this
+// node sent that was confirmed and has waited past it with no answer at all
+// (ENG-T3). It returns the ids it failed. no_response_after "0" does
+// neither (ENG-T2): a delegation is then given up at its deadline.
 func (d *Daemon) failUnanswered(now int64) []string {
 	after, err := d.config().noResponseAfter()
 	if err != nil || after <= 0 {
 		return nil
 	}
+	failed := d.scanUnconfirmed(now, after)
 	cutoff := now - after.Milliseconds()
 	// Every candidate is looked at, a page at a time: the ones that do not
 	// qualify (a peer that said pending_approval, a delegation still queued)
@@ -137,7 +147,7 @@ func (d *Daemon) failUnanswered(now int64) []string {
 			if heard, err := d.ix.HeardFrom(w.ID, w.PeerAID); err != nil || heard {
 				continue
 			}
-			if queued, err := d.ix.OutboxPending(w.ID); err != nil || queued {
+			if queued, err := d.ix.HasOutboxDelegation(w.ID); err != nil || queued {
 				continue
 			}
 			candidates = append(candidates, w)
@@ -147,7 +157,6 @@ func (d *Daemon) failUnanswered(now int64) []string {
 		}
 		cursor = page[len(page)-1]
 	}
-	var failed []string
 	for _, w := range candidates {
 		id := w.ID
 		ok, peer, err := d.failNoResponse(id, cutoff, after)
@@ -191,9 +200,9 @@ func (d *Daemon) failNoResponse(id string, cutoff int64, after time.Duration) (o
 			return nil
 		}
 		if at := cur.UpdatedAtTime(); at.IsZero() || at.UnixMilli() >= cutoff {
-			return nil // handed off, or changed, since the cutoff
+			return nil // confirmed, or changed, since the cutoff
 		}
-		if queued, err := tx.OutboxPending(id); err != nil || queued {
+		if queued, err := tx.HasOutboxDelegation(id); err != nil || queued {
 			return err
 		}
 		if heard, err := tx.HeardFrom(id, cur.PeerAID); err != nil || heard {
@@ -207,7 +216,7 @@ func (d *Daemon) failNoResponse(id string, cutoff int64, after time.Duration) (o
 		if err != nil {
 			return err
 		}
-		result := fmt.Sprintf("no answer from %s within %s of delivery: it may have refused the task without telling "+
+		result := fmt.Sprintf("no answer from %s within %s of the confirmed delivery: it may have refused the task without telling "+
 			"(refusal notices are rate limited), not have read it, or be running it — whether it took effect is not known; "+
 			"a result that comes later is still recorded", cur.PeerAID, after)
 		err = tx.Finish(id, interactions.Finish{State: interactions.StateFailed, Result: []byte(result),

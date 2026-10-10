@@ -90,8 +90,8 @@ func TestPollAckItems(t *testing.T) {
 	}
 
 	// Through pollOnce: an accepted delegation (A) and a mailbox row that is
-	// no envelope (P) are acknowledged in one request, each by its id alone —
-	// the receive path makes no token yet (engine ENG-1c) — and counted.
+	// no envelope (P) are acknowledged in one request: the delegation with
+	// its token (processed, tok(1)), the row by its id alone, counted.
 	srv, req, prov := registeredPair(t)
 	prov.stopRelayLoop()
 	ctx := context.Background()
@@ -106,11 +106,12 @@ func TestPollAckItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	reqs := ackRequestsOf(h)
-	if len(reqs) != 1 || len(reqs[0]) != 2 || reqs[0][0] != (hubapi.RelayAckItem{ID: ids[0]}) || reqs[0][1] != (hubapi.RelayAckItem{ID: junk[0]}) {
-		t.Fatalf("ack requests %+v, want one with ids %v and nothing else", reqs, ids)
+	if len(reqs) != 1 || len(reqs[0]) != 2 || reqs[0][0].ID != ids[0] || reqs[0][0].Handle == "" || reqs[0][0].DAck == "" ||
+		reqs[0][1] != (hubapi.RelayAckItem{ID: junk[0]}) {
+		t.Fatalf("ack requests %+v, want one: %v with its token, %v alone", reqs, ids, junk)
 	}
-	if n := counter(prov, dackNone) - none; n != 2 {
-		t.Fatalf("dack-none +%d, want 2", n)
+	if n := counter(prov, dackNone) - none; n != 1 {
+		t.Fatalf("dack-none +%d, want 1", n)
 	}
 	if left := mailboxIDsFor(srv.URL, prov.AID()); len(left) != 0 {
 		t.Fatalf("left in the mailbox: %v", left)

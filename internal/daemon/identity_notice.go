@@ -195,8 +195,12 @@ func (d *Daemon) noteHubNotice(notice, noticeErr string) {
 			// about the one before would only close the gate again.
 			return
 		}
+		wasOpen := d.identityGate().Open
 		if d.idGate.noteNotice(n, "") {
 			d.saveKeyStateNotice()
+		}
+		if !wasOpen && d.identityGate().Open {
+			d.kickOutbox() // what the closed gate held back goes now (engine A2)
 		}
 	case knownNoticeErrors[noticeErr]:
 		d.idGate.noteNotice(nil, noticeErr)

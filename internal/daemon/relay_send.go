@@ -225,37 +225,3 @@ func (d *Daemon) kindZeroHome(to, capHome string) string {
 	}
 	return homeHint(witness, capHome, d.peerDirHome(to))
 }
-
-// accessChoiceOfEnvelope is the AccessChoice of an envelope sealed with its
-// credential already in key 7, for a sender that has no choice of its own
-// (until the engine chooses per attempt, engine ENG-K1): a capability's home
-// from the held row it came from, and for a first contact the home of any
-// valid capability `to` gave.
-func (d *Daemon) accessChoiceOfEnvelope(to string, env []byte) (AccessChoice, error) {
-	_, outer, err := outerAccess(env)
-	if err != nil {
-		return AccessChoice{}, err
-	}
-	held, err := d.ix.HeldCaps(to)
-	if err != nil {
-		return AccessChoice{}, err
-	}
-	now := d.nowMS()
-	switch outer.Access.Kind {
-	case seal.AccessKindCap:
-		id := capIDOf(outer.Access)
-		for i := range held {
-			if bytes.Equal(held[i].CapID, id) {
-				return AccessChoice{Send: true, Kind: seal.AccessKindCap, Cap: &held[i], Home: held[i].Home}, nil
-			}
-		}
-		return AccessChoice{Send: true, Kind: seal.AccessKindCap}, nil
-	default:
-		c := accessFor(accessRow{To: to, PeerEpoch: d.peerMboxEpoch(to, "")}, held, accessOrdinary, now)
-		hint := c.HintHome
-		if c.Kind == seal.AccessKindCap {
-			hint = c.Home
-		}
-		return AccessChoice{Send: true, Kind: seal.AccessKindSession, HintHome: hint}, nil
-	}
-}
