@@ -177,8 +177,8 @@ MUTS += [
   edits=[('internal/aghub/server.go', '\tmux.HandleFunc("GET "+gatewayPath, hGatewayRemoved)\n', '')],
   tests=TOMB_T, full=[HUB]),
  dict(id='pay8-profile-lenient', group='PAY-8', repo='ANetHub', desc='/profile 恢复宽松解码(pricing 成员被静默接受)',
-  edits=[('internal/aghub/server.go', '\tif err := wire3.DecodeStrict(a.Body, &req); err != nil {\n\t\twire3.RefuseDecode(w, err)\n',
-          '\tif err := json.Unmarshal(a.Body, &req); err != nil {\n\t\twire3.RefuseDecode(w, err)\n')],
+  edits=[('internal/aghub/server.go', '\tvar req ProfileRequest\n\tif err := wire3.DecodeStrict(a.Body, &req); err != nil {\n\t\twire3.RefuseDecode(w, err)\n',
+          '\tvar req ProfileRequest\n\tif err := json.Unmarshal(a.Body, &req); err != nil {\n\t\twire3.RefuseDecode(w, err)\n')],
   tests=[(HUB, '^TestNoPriceInTheRegistryOrTheDatabase$')], full=[HUB]),
 ]
 
