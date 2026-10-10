@@ -1837,7 +1837,7 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	// twice is harmless; appending "result accepted" to the chain twice is
 	// not. Its reply is stored if it is not yet (CUX-R6 item 3).
 	if len(ix.Receipt) > 0 {
-		res := d.commitRx(m, func(tx *interactions.Tx) error { return reply.writeTx(tx, m.ix, m.from) })
+		res := d.commitRx(m, func(tx *interactions.Tx) error { return reply.writeTx(tx, m.ix, m.from, resultCID) })
 		if res.class == rxAccepted {
 			reply.announce(d, m.ix)
 		}
@@ -1893,7 +1893,7 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 		if err != nil {
 			return err
 		}
-		if err := reply.writeTx(tx, m.ix, m.from); err != nil {
+		if err := reply.writeTx(tx, m.ix, m.from, resultCID); err != nil {
 			return err
 		}
 		if len(cur.Receipt) > 0 {

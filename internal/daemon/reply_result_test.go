@@ -589,6 +589,18 @@ func TestLateAndAlreadyResultWriteReply(t *testing.T) {
 		t.Fatalf("already: reply %+v, %d messages (want %d)", m, countMsgs(t, req2, id2), n+1)
 	}
 
+	// A copy that rides on another transcript than the stored one is not
+	// the stored result: its reply was never checked against the receipt
+	// this node holds, and is not stored.
+	forgedEntries := []transcript.Message{{From: transcriptRequester, Body: "already one"}, {From: transcriptProvider, Body: "forged late word"}}
+	forged := providerResult(t, prov2, id2, forgedEntries, textReply("forged late word", "m-forged"))
+	if r := receive(t, req2, sealFrom(t, prov2, req2, seal.TypeResult, id2, forged)); r.class == rxAccepted {
+		t.Fatalf("a copy on another transcript: %+v", r)
+	}
+	if msgWithBody(t, req2, id2, "forged late word") != nil || mustIX(t, req2, id2).State != interactions.StateCompleted {
+		t.Fatal("a reply on another transcript was stored")
+	}
+
 	// A reply whose message id names another message is not that entry.
 	_, req3, prov3 := registeredPair(t)
 	id3 := delegated(t, req3, prov3, "collide")

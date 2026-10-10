@@ -168,9 +168,19 @@ func newReplyRow(r *delegation.ReplyMsg) (*replyRow, error) {
 // under its message id is the reply only when it is the provider's text
 // with the same body and files, and anything else stored under that id is a
 // reply-mismatch (CUX-R2: the reply's key 9 is the id of the entry it is).
-func (r *replyRow) writeTx(tx *interactions.Tx, ix, provider string) error {
+func (r *replyRow) writeTx(tx *interactions.Tx, ix, provider, resultCID string) error {
 	if r == nil {
 		return nil
+	}
+	// A result stored already is the one the receipt covers: a reply riding
+	// on another transcript was never checked against that receipt and is
+	// not stored.
+	cur, err := tx.Get(ix)
+	if err != nil {
+		return err
+	}
+	if len(cur.Receipt) > 0 && cur.ResultCID != resultCID {
+		return rxPermanent(dropReplyMismatch, fmt.Errorf("%w: it rides on a transcript other than the stored one", errReplyMismatch))
 	}
 	prior, err := tx.MessageByMsgID(ix, r.msgID)
 	switch {
