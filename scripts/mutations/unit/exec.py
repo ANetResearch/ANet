@@ -753,7 +753,8 @@ MUTS += [
  dict(
   id='exe10-anetpeer-probe', group='PC-4', repo='ANet',
   desc='daemon 套接字的连接一被接受就顶替当前 daemon(另一 anetpeer 探测 socket 是否在用后,当前 daemon 收不到投递)',
-  edits=[('tools/anetpeer/main.go', '\t\tif first && err == nil {', '\t\tif first {')],
+  edits=[('tools/anetpeer/main.go', '\tbr := bufio.NewReaderSize(c, 64<<10)\n\tfor first := true; ; first = false {',
+          '\tp.mu.Lock()\n\tp.conn = dc\n\tp.mu.Unlock()\n\tbr := bufio.NewReaderSize(c, 64<<10)\n\tfor first := true; ; first = false {')],
   tests=[('ANet:./tools/anetpeer', 'TestTheDaemonSocketIsListenedOnSafely')],
   full=['ANet:./tools/anetpeer'],
  ),

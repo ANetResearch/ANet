@@ -641,7 +641,7 @@ MUTS = [
   id='si10-2', group='SI-10', repo='ANet',
   desc='p2p deliverInbound: Receive 失败仍回 ack',
   edits=[
-   ('module/p2p/transport.go', '\t\t_ = t.write(c, frame{Op: opNack, V: WireVersion, ID: f.ID, Error: err.Error()})\n\t\treturn\n', ''),
+   ('module/p2p/transport.go', '\t\t_ = t.write(c, frame{Op: opNack, V: WireVersion, ID: f.ID, Error: reason})\n\t\treturn\n', ''),
   ],
   tests=[('ANet:./module/p2p', 'TestATemporaryRefusalIsNotAcked')],
   full=['ANet:./module/p2p'],
