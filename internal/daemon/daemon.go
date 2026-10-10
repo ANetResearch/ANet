@@ -131,6 +131,9 @@ type Daemon struct {
 	// outboxHold, set by a test (setOutboxHold), skips the passes of the
 	// outbox loop and of the no-response sweep.
 	outboxHold atomic.Bool
+	// previewer is the stream_preview coalescer (UX-8); nil is the stub that
+	// sends nothing (previews, outbox_seams.go).
+	previewer previewCoalescer
 	// sbRefused remembers outbound auto-reply turns that failed closed
 	// because the sandbox was unavailable (autoreply.go).
 	sbRefused sandboxRefused

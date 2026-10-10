@@ -488,27 +488,29 @@ func HasOutboxRowsTx(tx *interactions.Tx, ix string) (bool, error) { return tx.H
 // v030-todo(RC-5): compare and publish the delivery event (DLV-P-3).
 func (d *Daemon) noteDelivery(ix string) {}
 
-// oneShotKind is what a one-shot envelope carries (engine §2.12): outer key
-// 8, no outbox row, no retry, no delivery token.
-type oneShotKind uint8
-
-const (
-	oneShotPreview oneShotKind = iota + 1 // a stream_preview frame
-	oneShotCardGet                        // anet.card.get/1
-	oneShotCard                           // anet.card/1
-)
-
-// OneShotResult is how a one-shot send ended (ENG-O8b): whether a byte of
-// it left this process, and the hub's registered reason for its last
-// answer ("" for none or a network failure).
-type OneShotResult struct {
-	Handed    bool
-	HubReason string
+// previewCoalescer is how the engine reaches the stream_preview coalescer
+// (UX-8, CUX-P6–P8; engine ENG-G3): the provider's frames of a task go out
+// only through oneShotSend (ENG-K18), and a round's frames stop once its
+// real answer or result is queued (ENG-K20).
+type previewCoalescer interface {
+	// CancelRound drops the frames of task ix not yet handed over: a real
+	// answer or result of the round was queued in the same call, and no
+	// frame of that round goes after it (ENG-K20, CUX-P8).
+	CancelRound(ix string)
 }
 
-// oneShotSend seals body once as kind and hands it over once (ENG-O8).
+// noPreviews is the coalescer until UX-8's (engine ENG-G3): it never sends
+// a frame, so there is nothing to cancel.
 //
-// v030-todo(ENG-1b): the one-shot sender; until then nothing is sent.
-func (d *Daemon) oneShotSend(ctx context.Context, kind oneShotKind, to, ix string, body []byte) OneShotResult {
-	return OneShotResult{}
+// v030-todo(UX-8): previewCoalescer, the frames and CancelRound.
+type noPreviews struct{}
+
+func (noPreviews) CancelRound(string) {}
+
+// previews is this node's preview coalescer.
+func (d *Daemon) previews() previewCoalescer {
+	if d.previewer == nil {
+		return noPreviews{}
+	}
+	return d.previewer
 }

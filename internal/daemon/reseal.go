@@ -85,6 +85,22 @@ func (d *Daemon) sealVersion(ctx context.Context, row *interactions.OutboxRow, b
 	return sv, nil
 }
 
+// sealIXKeys is what a sealing on a task carries of its interaction keys
+// (engine §3.2, FS-X4–X6): own, the rk of this node's key on the task while
+// it holds one (inner key 15; none once it is deleted); peer, the rk the
+// peer announced on the task, which seals a second layer to it (none: one
+// layer).
+type sealIXKeys struct {
+	own, peer *seal.RK
+}
+
+// ixKeysForSeal is sealIXKeys for task ix now.
+//
+// v030-todo(ENG-1b): the store's own key and the recorded peer_rk.
+func (d *Daemon) ixKeysForSeal(ix string) (sealIXKeys, error) {
+	return sealIXKeys{}, nil
+}
+
 // sealKeys is the recipient's key set a version is sealed to (engine §3.2):
 // the one kept on a public or public_cap interaction this node serves
 // (A2A-DESIGN §3.8), the held delegation's for a notice about one, the
