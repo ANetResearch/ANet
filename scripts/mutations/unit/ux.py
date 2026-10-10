@@ -453,7 +453,7 @@ MUTS += [
   full=[DAEMON]),
  dict(id='ux4-unknown-code', group='UX-4', repo='ANet', desc='表外的码原样写进附注(不是空原因)',
   edits=[(UX4_NOTE, '\tif !ok || !seal.ValidNoteReason(v.Refusal) {\n\t\treturn "", 0\n\t}\n',
-          '\tif !seal.ValidNoteReason(v.Refusal) {\n\t\treturn "", 0\n\t}\n')],
+          '\tif !seal.ValidNoteReason(v.Refusal) || (!ok && false) {\n\t\treturn "", 0\n\t}\n')],
   tests=UX4_T('^(TestNoteReasonTable|TestNoteReasonForProperties)$'),
   full=[DAEMON]),
  dict(id='ux4-form-first', group='UX-4', repo='ANet', desc='请求形式先于策略检查(closed 下陌生人得到 bad_request)',
