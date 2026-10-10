@@ -107,8 +107,8 @@ func buildTestDaemonAs(t testing.TB, hubURL string, modules map[string]any, plai
 // designation made at the join would postdate.
 //
 // Its hub is not its witness, so nothing it sends passes a receiver's step
-// 6½ on its hub's word: a test whose plain node sends gives it the suite
-// witness (witnessBySuite, as plainRegisteredPair does).
+// 6½: a test whose node without a witness sends uses
+// newSuiteWitnessedTestDaemon instead (as plainRegisteredPair does).
 func newPlainTestDaemon(t testing.TB, hubURL string, accept bool) *Daemon {
 	t.Helper()
 	d := buildTestDaemonAs(t, hubURL, nil, true)
@@ -117,38 +117,40 @@ func newPlainTestDaemon(t testing.TB, hubURL string, accept bool) *Daemon {
 	return d
 }
 
-// witnessBySuite makes the suite witness d's witness, designated just after
-// its inception — before any event a test dates — has d trust that
-// witness's KEL, and gives d the witness's notice of its tip
-// (renoticeBySuite): what d sends then passes a receiver's step 6½, and
-// every test daemon trusts the suite witness (craft). A test that adds an
-// event to d's key history gives it the notice of the new tip with
-// renoticeBySuite.
-func witnessBySuite(t testing.TB, d *Daemon) {
+// newSuiteWitnessedTestDaemon is newPlainTestDaemon for a node whose key
+// history names the suite witness, designated just after its inception —
+// before any event a test dates, and before the daemon starts, so that
+// nothing it signs at start (its key set, its evidence chain) is under the
+// key the designation retires. It trusts that witness's KEL, as every test
+// daemon a crafted envelope reaches does (craft), and holds the witness's
+// notice of its tip (renoticeBySuite): what it sends passes a receiver's
+// step 6½. A test that adds an event to its key history gives it the
+// notice of the new tip with renoticeBySuite.
+func newSuiteWitnessedTestDaemon(t testing.TB, hubURL string, accept bool) *Daemon {
 	t.Helper()
-	trustSuiteWitness(t, d)
-	states, err := identity.Replay(d.self.Accepted())
+	root := t.TempDir()
+	writeTestConfig(t, root, map[string]any{"control_addr": "127.0.0.1:0", "hub_url": hubURL})
+	self, err := identity.InceptAgent(uint64(time.Now().Add(-24 * time.Hour).UnixMilli()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if states[len(states)-1].Witness == "" {
-		icp := d.self.Accepted()[0].Event.Timestamp
-		if err := identitytest.SwitchWitness(d.self, identitytest.Witness, icp+1); err != nil {
-			t.Fatal(err)
-		}
-		if err := saveIdentity(d.layout, d.self); err != nil {
-			t.Fatal(err)
-		}
-		// The key set was signed under the inception's key, which the
-		// designation retired.
-		if err := d.resignKeyRing(); err != nil {
-			t.Fatal(err)
-		}
-		if signed, err := seal.UnmarshalSignedEncKeySet(d.enc.SignedSet()); err != nil || signed.KeyStateSeq != d.self.CurrentSeq() {
-			t.Fatalf("the key set was not signed again after the designation: %v (hold %v)", err, d.keysHeld())
-		}
+	if err := identitytest.SwitchWitness(self, identitytest.Witness, self.Accepted()[0].Event.Timestamp+1); err != nil {
+		t.Fatal(err)
 	}
+	if err := saveIdentity(NewLayout(root), self); err != nil {
+		t.Fatal(err)
+	}
+	d, err := New(NewLayout(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.stopRelayLoop()
+	t.Cleanup(func() { d.Close() })
+	joinTestGroup(t, d, accept)
+	holdGateOpen(d)
+	trustSuiteWitness(t, d)
 	renoticeBySuite(t, d)
+	return d
 }
 
 // renoticeBySuite gives d, witnessed by the suite witness, that witness's
@@ -184,17 +186,15 @@ func init() {
 	}
 }
 
-// plainRegisteredPair is registeredPair of plain test daemons
-// (newPlainTestDaemon), witnessed by the suite witness (witnessBySuite) so
-// that what one sends the other takes.
+// plainRegisteredPair is registeredPair of test daemons whose join
+// designates no witness, witnessed by the suite witness instead
+// (newSuiteWitnessedTestDaemon) so that what one sends the other takes.
 func plainRegisteredPair(t testing.TB) (*httptest.Server, *Daemon, *Daemon) {
 	t.Helper()
 	srv := newFakeHub(t)
 	ctx := context.Background()
-	req := newPlainTestDaemon(t, srv.URL, false)
-	prov := newPlainTestDaemon(t, srv.URL, true)
-	witnessBySuite(t, req)
-	witnessBySuite(t, prov)
+	req := newSuiteWitnessedTestDaemon(t, srv.URL, false)
+	prov := newSuiteWitnessedTestDaemon(t, srv.URL, true)
 	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
@@ -24,8 +25,14 @@ import (
 
 func withIdentity(t *testing.T) (string, *identity.Controller) {
 	t.Helper()
-	c, err := identitytest.Hub()
+	c, err := identitytest.Agent()
 	if err != nil {
+		t.Fatal(err)
+	}
+	// Witnessed by the conformance hub, whose notice the node holds as its
+	// daemon would (key_state_notice.cbor): what the fixture seals carries
+	// it, and a receiver's step 6½ checks it.
+	if err := identitytest.SwitchWitness(c, identitytest.Witness, identitytest.InceptTS+1); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
@@ -36,7 +43,31 @@ func withIdentity(t *testing.T) (string, *identity.Controller) {
 	if err := os.WriteFile(filepath.Join(dir, "identity.kel"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	file, err := coredet.Marshal(map[uint64]any{1: suiteNotice(t, c.KEL()), 2: uint64(time.Now().UnixMilli())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "key_state_notice.cbor"), file, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return dir, c
+}
+
+// suiteNotice is the conformance hub's notice of the tip of kel, observed
+// now: what the hub publishes with the agent and a node keeps.
+func suiteNotice(t *testing.T, kel []identity.SignedEvent) []byte {
+	t.Helper()
+	states, err := identity.Replay(kel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tip := kel[len(kel)-1]
+	n, err := identity.SignNotice(identity.SuiteController(), identity.NoticeBody{AID: states[len(states)-1].AID,
+		Seq: tip.Event.Seq, Head: tip.EventID, ObservedAt: uint64(time.Now().UnixMilli())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 // capture runs a command and returns what it printed.

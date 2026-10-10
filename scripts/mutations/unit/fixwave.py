@@ -37,7 +37,7 @@ MUTS = [
   id='fx5-3', group='F5', repo='ANet',
   desc='拒收落盘失败仍产出 tok(2)(answerEnvelope 忽略拒收表的写错误)',
   edits=[
-   ('internal/daemon/receive.go', '\t\t\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, tok.Note.Reason); err != nil {', '\t\t\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, tok.Note.Reason); false && err != nil {'),
+   ('internal/daemon/receive.go', '\t\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, tok.Note.Reason); err != nil {', '\t\tif err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, tok.Note.Reason); false && err != nil {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestARefusalIsStoredBeforeTheRequesterIsTold|TestAHeldRowIsNotAcked')],
   full=['ANet:./internal/daemon'],

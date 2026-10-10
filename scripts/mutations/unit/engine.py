@@ -504,8 +504,8 @@ MUTS += [
   id='eng1c-tok-before-record', group='ENG-1c', repo='ANet',
   desc='第 9 步的拒收不记入内存拒收表(重投的副本再走一遍并可能得到别的结论)',
   edits=[
-   ('internal/daemon/receive.go', '''		d.refused.add(replayKey(m.from, m.mid), tok.Note.Reason)
-	}''', '''	}'''),
+   ('internal/daemon/receive.go', '''	d.refused.add(replayKey(m.from, m.mid), tok.Note.Reason)
+	return res''', '''	return res'''),
   ],
   tests=[(D, 'TestAMessageForAnUnknownTaskGetsTaskNotFound|TestRedteamUnknownIXFromAStrangerIsNotReworked')],
   full=[D],
@@ -547,6 +547,22 @@ MUTS += [
   full=[D],
  ),
  dict(
+  id='eng1c-stick-under-lock', group='ENG-1c', repo='ANet',
+  desc='拒收在释放 (from, mid) 锁之后才落盘(等锁的副本看不到它,可能被判定两次)',
+  edits=[
+   ('internal/daemon/receive.go', '''	// A refusal is made to stick before the locks are released, so the copy
+	// waiting on them finds it [redteam:F5][redteam:F26].
+	defer func() { result = d.stickRefusal(result, m) }()
+''', ''),
+   ('internal/daemon/receive.go', '''			result = d.answerEnvelope(result, ack, oneShot)''', '''			if m != nil {
+				result = d.stickRefusal(result, m)
+			}
+			result = d.answerEnvelope(result, ack, oneShot)'''),
+  ],
+  tests=[(D, 'TestSpotCopiesRacingAnAllowAreDecidedOnce')],
+  full=[D],
+ ),
+ dict(
   id='eng1c-tombstone', group='ENG-1c', repo='ANet',
   desc='委派不查取消墓碑(DLV M11)',
   edits=[
@@ -573,7 +589,8 @@ MUTS += [
   desc='直连 ack 不带提交时的 tok(1)(ENG-V2)',
   edits=[
    ('internal/daemon/receive.go', '''	m.ackNow(b)
-	m.ackNow = nil''', '''	m.ackNow(nil)
+	m.ackNow = nil''', '''	_ = b
+	m.ackNow(nil)
 	m.ackNow = nil'''),
   ],
   tests=[(D, 'TestEachFailureIsAnsweredAlikeOnBothPaths|TestDLVT4_AHubThatLosesWhatItTook')],

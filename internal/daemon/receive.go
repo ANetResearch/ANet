@@ -323,7 +323,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	if layer1 {
 		// Step 11: what the envelope is answered with (ENG-V11, V12).
 		defer func() {
-			result = d.answerEnvelope(result, ack, oneShot, m)
+			result = d.answerEnvelope(result, ack, oneShot)
 			clear(ack[:])
 			if m != nil {
 				clear(m.ackKey[:])
@@ -465,6 +465,9 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		unlockIX := d.rxIXLocks.lock(m.from + "\x00" + m.ix)
 		defer unlockIX()
 	}
+	// A refusal is made to stick before the locks are released, so the copy
+	// waiting on them finds it [redteam:F5][redteam:F26].
+	defer func() { result = d.stickRefusal(result, m) }()
 	if reason, refused := d.refused.get(key); refused {
 		return d.refusedReplay(rxStep8b, reason)
 	}
@@ -590,30 +593,38 @@ func (d *Daemon) refusedReplay(step rxStep, reason string) rxResult {
 	return r
 }
 
-// answerEnvelope is step 11: what an envelope whose first layer opened is
-// answered with (engine ENG-V11, V12). A refusal of an authenticated message
-// by step 9 or 10 is first made to stick — a delegation's in the refused
-// table, every one in the in-memory list, with the note it is told — and
-// one that cannot be written is not told: the envelope is temporary and
-// judged again when it comes back [redteam:F5]. A result refused for its
-// receipt or its reply first fails the task (CUX-R7). Then rxTokenFor
-// decides the token, and the envelope's ack_key makes it.
-func (d *Daemon) answerEnvelope(res rxResult, ack seal.AckKey, oneShot bool, m *rxMsg) rxResult {
-	v := rxVerdict{Class: res.class, Step: res.step, Reason: res.reason, OneShot: oneShot, Layer1: true, Note: res.note}
-	tok := rxTokenFor(v)
-	if m != nil && !oneShot && res.class == rxDropped && res.step >= rxStep9 && res.reason != dropDuplicate {
-		if res.reason == dropResultRefused || res.reason == dropReplyMismatch {
-			if err := d.resultRefused(m, res.reason); err != nil {
-				return d.expireTransient(d.transient(transientStore, fmt.Errorf("fail %s for its refused result: %w", m.ix, err)).at(res.step), m, d.nowMS())
-			}
-		}
-		if m.typ == seal.TypeDelegate {
-			if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, tok.Note.Reason); err != nil {
-				return d.expireTransient(d.transient(transientStore, fmt.Errorf("record the refusal of %s: %w", m.ix, err)).at(res.step), m, d.nowMS())
-			}
-		}
-		d.refused.add(replayKey(m.from, m.mid), tok.Note.Reason)
+// stickRefusal makes a refusal of an authenticated message by step 9 or 10
+// stick before it is told (engine ENG-V12, V13), while the envelope's locks
+// are still held: a delegation's in the refused table, every one in the
+// in-memory list, with the note it is told. One that cannot be written is
+// not told: the envelope is temporary and judged again when it comes back
+// [redteam:F5]. A result refused for its receipt or its reply first fails
+// the task (CUX-R7).
+func (d *Daemon) stickRefusal(res rxResult, m *rxMsg) rxResult {
+	if m.oneShot || res.class != rxDropped || res.step < rxStep9 || res.reason == dropDuplicate {
+		return res
 	}
+	tok := rxTokenFor(rxVerdict{Class: res.class, Step: res.step, Reason: res.reason, Layer1: true, Note: res.note})
+	if res.reason == dropResultRefused || res.reason == dropReplyMismatch {
+		if err := d.resultRefused(m, res.reason); err != nil {
+			return d.expireTransient(d.transient(transientStore, fmt.Errorf("fail %s for its refused result: %w", m.ix, err)).at(res.step), m, d.nowMS())
+		}
+	}
+	if m.typ == seal.TypeDelegate {
+		if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, tok.Note.Reason); err != nil {
+			return d.expireTransient(d.transient(transientStore, fmt.Errorf("record the refusal of %s: %w", m.ix, err)).at(res.step), m, d.nowMS())
+		}
+	}
+	d.refused.add(replayKey(m.from, m.mid), tok.Note.Reason)
+	return res
+}
+
+// answerEnvelope is step 11: what an envelope whose first layer opened is
+// answered with (engine ENG-V11, V12): rxTokenFor decides the token, and the
+// envelope's ack_key makes it. A refusal it answers was made to stick first
+// (stickRefusal).
+func (d *Daemon) answerEnvelope(res rxResult, ack seal.AckKey, oneShot bool) rxResult {
+	tok := rxTokenFor(rxVerdict{Class: res.class, Step: res.step, Reason: res.reason, OneShot: oneShot, Layer1: true, Note: res.note})
 	if !tok.Make || res.dack != nil {
 		return res
 	}
