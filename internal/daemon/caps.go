@@ -21,9 +21,11 @@ package daemon
 //     anet.card.get/1; accessChoiceFor on every attempt (A9) and
 //     accessFromChoice for outer key 7; accessRefusedTx on a 403
 //     access_invalid and accessAcceptedTx on a 200 (SSR-D11);
-//   - the receive pipeline calls grantToKeep at step 8 and keeps the
-//     result in its step-10 transaction (SSR-W8); ENG-1c adds p2pRxBucket
-//     at step 0 and capMisuse and grantMisuse at steps 3 to 7½.
+//   - the receive pipeline (receive.go) calls p2pRxBucket at step 0 of a
+//     direct delivery and at step 1a of a mailbox envelope (capUnder),
+//     capMisuse when one under a capability fails at steps 3 to 7
+//     (misused), grantMisuse at step 7½, and grantToKeep at step 8, whose
+//     result it keeps in its step-10 transaction (SSR-W8).
 //
 // The revocations these decisions make reach the hub through
 // revoke_push.go.
