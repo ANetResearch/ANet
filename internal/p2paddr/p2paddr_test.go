@@ -17,9 +17,9 @@ func TestRefused(t *testing.T) {
 		off, lan bool // dialled with LAN mode off, on
 	}{
 		{"203.0.113.9", true, true},
-		{"8.8.8.8", true, true},
+		{"198.51.100.9", true, true},
 		{"2001:db8::1", true, true},
-		{"2606:4700::1111", true, true},
+		{"2001:db8:ffff::1", true, true},
 		{"10.0.0.1", false, true},
 		{"172.16.5.4", false, true},
 		{"192.168.1.1", false, true},
