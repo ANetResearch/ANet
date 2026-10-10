@@ -319,9 +319,9 @@ MUTS = [
  ),
  dict(
   id='c27-1', group='C27', repo='ANet',
-  desc='agentTier: auto 档不计入 agent_daily_max',
+  desc='countsAgentDaily: agent 档也不计入 agent_daily_max(HPP PAY-D6 之后自动档本来就不计入,PAY-12 改锚)',
   edits=[
-   ('internal/daemon/spend.go', '\treturn purpose == module.PurposeTaskAuto || purpose == module.PurposeTaskAgent', '\treturn purpose == module.PurposeTaskAgent'),
+   ('internal/daemon/spend.go', '\treturn purpose == module.PurposeTaskAgent\n}', '\treturn false\n}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestTheSpendingPolicyTiers|TestATaskIsPaidAutomaticallyAtMostOnce'), ('ANet:./module/x402', 'TestARefusedSpendSignsAndRecordsNothing')],
   full=['ANet:./internal/daemon'],
@@ -330,7 +330,7 @@ MUTS = [
   id='c27-2', group='C27', repo='ANet',
   desc='AdmitSpend: 检查与记录不在一把锁下',
   edits=[
-   ('internal/daemon/spend.go', '\tb := &d.spend\n\tb.mu.Lock()\n\tdefer b.mu.Unlock()\n\td.loadSpendLocked()\n\tnow := time.Now().UnixMilli()', '\tb := &d.spend\n\td.loadSpendLocked()\n\tnow := time.Now().UnixMilli()'),
+   ('internal/daemon/spend.go', '\tb := &d.spend\n\tb.mu.Lock()\n\tdefer b.mu.Unlock()\n\td.loadSpendLocked()\n\tnow := d.now()', '\tb := &d.spend\n\td.loadSpendLocked()\n\tnow := d.now()'),
   ],
   tests=[('ANet:./internal/daemon', 'TestConcurrentSpendsDoNotBothPass'), ('ANet:sh go test -race -count=1 -run TestConcurrentSpendsDoNotBothPass ./internal/daemon', '')],
   full=['ANet:./internal/daemon'],
@@ -339,7 +339,7 @@ MUTS = [
   id='c27-3', group='C27', repo='ANet',
   desc='AdmitSpend: 通过后不记账(日累计永不增长)',
   edits=[
-   ('internal/daemon/spend.go', '\tb.records = append(b.records, spendRecord{at: now, amount: amount, purpose: purpose})\n\treturn nil', '\treturn nil'),
+   ('internal/daemon/spend.go', '\tb.records = append(b.records, spendRecord{at: now.UnixMilli(), amount: amount, purpose: purpose})\n\treturn nil', '\treturn nil'),
   ],
   tests=[('ANet:./internal/daemon', 'TestTheSpendingPolicyTiers|TestConcurrentSpendsDoNotBothPass')],
   full=['ANet:./internal/daemon'],
