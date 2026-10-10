@@ -1599,7 +1599,7 @@ MUTS += [
  dict(
   id='m-av-4-run-prepare', group='AV-4', repo='ANet',
   desc='runSandboxed 不把 agent 的配置交给沙箱计划',
-  edits=[('internal/daemon/autoreply_exec.go', '\t\tplan.AgentHome = spec.sandbox.homeFor(up)', '\t\tplan.AgentHome = (*agentSandbox)(nil).homeFor(up)')],
+  edits=[('internal/daemon/autoreply_exec.go', '\t\tplan.AgentHome = spec.sandbox.homeFor(up)', '\t\tplan.AgentHome = (*agentSandbox)(nil).homeFor(up); _ = spec')],
   tests=[(DAEMON, AGENTS)],
   full=[DAEMON],
  ),

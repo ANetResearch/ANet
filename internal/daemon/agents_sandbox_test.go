@@ -437,6 +437,7 @@ func TestUnsupportedAgentsFailClosedInTheSandbox(t *testing.T) {
 			case "codex-custom", "claude-custom":
 				// a local model service: codex speaks only the Responses API, which the custom route does not
 				// carry; claude only the Anthropic API, which only api.anthropic.com's route carries
+				f.cfg.APIBase = "http://127.0.0.1:11434/v1"
 			default:
 				f.cfg.APIBase = "https://api.anthropic.com"
 			}
