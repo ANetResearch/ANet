@@ -8,6 +8,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -419,10 +420,19 @@ func TestReadLineIsBounded(t *testing.T) {
 	}
 }
 
-// countingReader is an endless line of 'A'.
+// countingReader is a line of 'A' with no end in sight: 64 KiB, far over
+// any bound the test sets, and then EOF. It ends so that a readLine that
+// lost its bound reads it all and the test fails on the count, rather than
+// growing one line until the test is out of memory.
 type countingReader struct{ n int }
 
+const countingReaderLen = 64 << 10
+
 func (r *countingReader) Read(b []byte) (int, error) {
+	if r.n >= countingReaderLen {
+		return 0, io.EOF
+	}
+	b = b[:min(len(b), countingReaderLen-r.n)]
 	for i := range b {
 		b[i] = 'A'
 	}
