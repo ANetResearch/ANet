@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -352,11 +353,13 @@ func TestListTasksPages(t *testing.T) {
 	d := newTestDaemon(t, "", false)
 	seam := d.TaskSeam()
 	ctx := context.Background()
-	clock := int64(1_000_000)
-	d.ix.SetClock(func() int64 { return clock })
+	// The store reads the clock from the daemon's maintenance goroutine too.
+	var clock atomic.Int64
+	clock.Store(1_000_000)
+	d.ix.SetClock(clock.Load)
 	var ids []string
 	for i := 0; i < 7; i++ {
-		clock += 1000
+		clock.Add(1000)
 		id := fmt.Sprintf("ix_%02d", i)
 		if err := d.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: "peer-a", Goal: "g", ContextID: "c"}); err != nil {
 			t.Fatal(err)
@@ -364,7 +367,7 @@ func TestListTasksPages(t *testing.T) {
 		ids = append(ids, id)
 	}
 	for i := 0; i < 2; i++ {
-		clock += 1000
+		clock.Add(1000)
 		_ = d.ix.Create(interactions.New{ID: fmt.Sprintf("ix_b%d", i), Role: interactions.RoleOutbound, PeerAID: "peer-b", Goal: "g"})
 	}
 	var got []string
@@ -405,7 +408,7 @@ func TestListTasksPages(t *testing.T) {
 	if _, err := seam.List(ctx, "peer-a", module.TaskFilter{PageToken: "forged"}); !errors.Is(err, a2ashape.ErrInvalidParams) {
 		t.Fatalf("forged token: %v", err)
 	}
-	clock += 1000
+	clock.Add(1000)
 	if _, err := d.ix.SetState(ids[0], interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +416,7 @@ func TestListTasksPages(t *testing.T) {
 	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].ID != ids[0] || page.TotalSize != 1 {
 		t.Fatalf("status filter = %+v (%v)", page, err)
 	}
-	after := time.UnixMilli(clock - 1)
+	after := time.UnixMilli(clock.Load() - 1)
 	page, err = seam.List(ctx, "peer-a", module.TaskFilter{UpdatedAfter: &after})
 	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].ID != ids[0] {
 		t.Fatalf("statusTimestampAfter = %+v (%v)", page, err)

@@ -384,6 +384,7 @@ func TestSandboxPlanNeverBindListIsComplete(t *testing.T) {
 // under <cache>/anet/work-sandbox; a direct turn stays under <cache>/anet/work; pruning empties both.
 func TestSandboxedTurnsWorkUnderTheSandboxRoot(t *testing.T) {
 	d := newBareDaemon(t)
+	openSandboxTask(t, d, "ix-root") // newExecOutbox makes its directory under the daemon's own AID
 	const aid = "EaidSandboxRoot00001"
 	for _, tc := range []struct {
 		sandbox *sandboxPlan
