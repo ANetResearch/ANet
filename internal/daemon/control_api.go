@@ -299,6 +299,8 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("GET /status", d.hStatus)
 	api.HandleFunc("POST /status", d.hStatus)
 	api.HandleFunc("POST /identity/status", d.hIdentityStatus)
+	api.HandleFunc("POST /identity/rotate", d.hIdentityRotate)
+	api.HandleFunc("POST /identity/deactivate", d.hIdentityDeactivate)
 	api.HandleFunc("POST /hub-register", d.hHubRegister)
 	api.HandleFunc("POST /hub-leave", d.hHubLeave)
 	api.HandleFunc("POST /p2p-advertise", d.hP2PAdvertise)

@@ -151,10 +151,10 @@ func (t *Transport) Name() string { return name }
 func (t *Transport) run(ctx context.Context) {
 	backoff := 250 * time.Millisecond
 	for {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || t.isClosed() {
 			return
 		}
-		if err := t.session(ctx); err != nil && ctx.Err() == nil {
+		if err := t.session(ctx); err != nil && ctx.Err() == nil && !t.isClosed() {
 			log.Printf("anet: p2p peer process: %v (retrying in %s; hub is carrying delivery)",
 				err, backoff)
 		}
@@ -530,6 +530,19 @@ func (t *Transport) close() error {
 		return t.conn.Close()
 	}
 	return nil
+}
+
+// Close ends the transport for good: the session to the peer process ends,
+// so it carries nothing for this node and announces it no more, and none
+// is opened again. The daemon calls it when its identity stops or is
+// deactivated (KEL D-1): nothing may leave or arrive directly then.
+func (t *Transport) Close() error { return t.close() }
+
+// isClosed reports whether Close ended the transport.
+func (t *Transport) isClosed() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.closed
 }
 
 var _ module.Transport = (*Transport)(nil)

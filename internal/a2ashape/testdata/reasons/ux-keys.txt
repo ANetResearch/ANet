@@ -157,7 +157,9 @@ hub_pending_admission
 hub_retrying
 hub_retrying.quota
 hub_refused
+hub_publication_blocked
 hub_unreachable
+hub_unreachable.leave
 invite_removed
 wire_too_old
 wire_too_new

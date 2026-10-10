@@ -359,6 +359,16 @@ type fakeHub struct {
 	// closeConns ends every connection after its answer, so every request
 	// comes on a new one.
 	closeConns bool
+
+	// The key-history side of the hub (KEL §2.7): kelPushes counts the
+	// accepted POST /agents/kel:push per AID; kelPushDown answers them
+	// 503; agentKELOverride, when it holds an AID, is what GET
+	// /agents/{aid}/kel serves for it (a hub that lies about the record,
+	// KEL D-27), and agentKELCalls counts those requests.
+	kelPushes        map[string]int
+	kelPushDown      bool
+	agentKELOverride map[string][]byte
+	agentKELCalls    int
 }
 
 // noticeForLocked is what the hub answers about aid's key state: its
@@ -576,6 +586,7 @@ func (h *fakeHub) handler() http.Handler {
 	// unconnected — the real hub answers these, so this one does too.
 	mux.HandleFunc("GET /hub/identity", h.hIdentity)
 	mux.HandleFunc("GET /agents/{aid}/kel", h.hAgentKEL)
+	mux.HandleFunc("POST "+hubapi.KELPushPath, h.hKELPush)
 	mux.HandleFunc("POST /x402/settle", h.hSettle)
 	mux.HandleFunc("GET /agents/{aid}/balance", h.hBalance)
 	mux.HandleFunc("GET /agents/{aid}/ledger", h.hLedgerRead)
@@ -647,7 +658,7 @@ func (h *fakeHub) verifyAuth(w http.ResponseWriter, r *http.Request, body []byte
 		h.mu.Lock()
 		h.authFailures++
 		h.mu.Unlock()
-		fakeHubJSON(w, http.StatusUnauthorized, map[string]string{"error": "auth: " + why})
+		fakeHubJSON(w, http.StatusUnauthorized, map[string]string{"reason": "unauthorized", "error": "auth: " + why})
 		return ""
 	}
 	aid := r.Header.Get(hubapi.HeaderAID)
@@ -2659,18 +2670,94 @@ func (h *fakeHub) hAgentKEL(w http.ResponseWriter, r *http.Request) {
 
 func (h *fakeHub) serveAgentKEL(w http.ResponseWriter, aid string) {
 	h.mu.Lock()
+	h.agentKELCalls++
 	a := h.agents[aid]
 	var kel []byte
+	registered := a != nil
 	if a != nil {
 		kel = a.kel
+	} else if k, ok := h.departedKEL[aid]; ok {
+		kel = k
+	}
+	if forged, ok := h.agentKELOverride[aid]; ok {
+		kel = forged
 	}
 	h.mu.Unlock()
-	if a == nil {
-		fakeHubJSON(w, http.StatusNotFound, map[string]string{"error": "unknown agent"})
+	if kel == nil {
+		fakeHubJSON(w, http.StatusNotFound, map[string]string{"reason": "unknown_aid", "error": "unknown agent"})
 		return
 	}
 	fakeHubJSON(w, http.StatusOK, map[string]any{
-		"aid": aid, "kel": hubapi.B64(kel), "registered": true})
+		"aid": aid, "kel": hubapi.B64(kel), "registered": registered})
+}
+
+// hKELPush is POST /agents/kel:push (KEL §2.7, H-4): no authentication; an
+// AID this hub knows (registered, or departed), a key history that replays
+// to it and extends the one held, or equals it (unchanged).
+func (h *fakeHub) hKELPush(w http.ResponseWriter, r *http.Request) {
+	body, ok := h.readBody(w, r, 1<<20)
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	down := h.kelPushDown
+	h.mu.Unlock()
+	if down {
+		fakeHubRefuse(w, http.StatusServiceUnavailable, "internal", nil)
+		return
+	}
+	var req hubapi.KELPushRequest
+	if err := json.Unmarshal(body, &req); err != nil || req.AID == "" {
+		fakeHubRefuse(w, http.StatusBadRequest, "bad_request", nil)
+		return
+	}
+	raw, err := hubapi.DecodeB64(req.KEL, -1)
+	if err != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "kel_invalid", nil)
+		return
+	}
+	kel, err := identity.UnmarshalKEL(raw)
+	if err != nil {
+		fakeHubRefuse(w, http.StatusBadRequest, "kel_invalid", nil)
+		return
+	}
+	if got, err := replayedAID(kel); err != nil || got != req.AID {
+		fakeHubRefuse(w, http.StatusBadRequest, "kel_invalid", nil)
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var held []byte
+	a := h.agents[req.AID]
+	if a != nil {
+		held = a.kel
+	} else if k, ok := h.departedKEL[req.AID]; ok {
+		held = k
+	} else {
+		fakeHubRefuse(w, http.StatusNotFound, "unknown_aid", nil)
+		return
+	}
+	old, _ := identity.UnmarshalKEL(held)
+	if err := identity.ExtendsKEL(old, kel); err != nil {
+		code := "kel_fork"
+		if errors.Is(err, identity.ErrKELRollback) {
+			code = "kel_rollback"
+		}
+		fakeHubRefuse(w, http.StatusConflict, code, nil)
+		return
+	}
+	if a != nil {
+		a.kel = raw
+	} else {
+		h.departedKEL[req.AID] = raw
+	}
+	if h.kelPushes == nil {
+		h.kelPushes = map[string]int{}
+	}
+	h.kelPushes[req.AID]++
+	tip := kel[len(kel)-1]
+	fakeHubJSON(w, http.StatusOK, hubapi.KELPushResponse{AID: req.AID, Seq: tip.Event.Seq, Head: tip.EventID,
+		Unchanged: len(kel) == len(old)})
 }
 
 // grantOn credits an account on the fake hub behind url.

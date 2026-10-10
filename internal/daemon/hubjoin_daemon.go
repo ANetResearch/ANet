@@ -5,6 +5,7 @@ package daemon
 // hub object of /status (§2.3.3), the send gate (AD-6) and hub-leave (AD-8).
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -64,7 +65,7 @@ func (d *Daemon) initJoin(cfg Config) {
 	d.join.kick = make(chan struct{}, 1)
 	d.join.wake = make(chan struct{}, 1)
 	if d.join.hooks == nil {
-		d.join.hooks = kernelJoinHooks{d}
+		d.join.hooks = identityJoinHooks{d}
 		if f := testJoinHooks; f != nil {
 			if h := f(d); h != nil {
 				d.join.hooks = h
@@ -254,6 +255,11 @@ func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []
 	} else {
 		r = *freshJoinRecord(hubURL, time.Now())
 	}
+	if !d.joinMayRegister() {
+		// Nothing is registered for a stopped or deactivated identity, nor
+		// while the publication sequence owns the registration.
+		return r
+	}
 	hubAID, _, err := d.hubIdentity(ctx, hubURL)
 	if err != nil {
 		// No hub identity, no signed request: the hub cannot be reached
@@ -288,7 +294,7 @@ func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []
 		aid:       d.AID(),
 		witnessed: d.identityWitness() == hubAID,
 		ownKEL:    kelB,
-		tip:       d.self.CurrentSeq(),
+		tip:       uint64(len(d.self.Accepted()) - 1),
 		prepared:  &d.join.prepared,
 		solve: func(ctx context.Context, ch powChallenge) ([]byte, error) {
 			return regpow.Solve(ctx, hubAID, d.AID(), ch.Seed, ch.Bits)
@@ -297,6 +303,17 @@ func (d *Daemon) attemptLocked(ctx context.Context, hubURL, name string, caps []
 		logf: log.Printf,
 	}
 	out := runJoinAttempt(ctx, r, env)
+	if out.last != nil {
+		if out.prepared {
+			// What the hub said of the designation is the identity's to
+			// read (KEL D-14a, D-36).
+			d.afterDesignationAnswer(*out.last)
+		} else if code := out.last.code; isAuthRefusal(code) || code == "kel_fork" || code == "kel_rollback" {
+			// The witness refuses this node's key or holds another record
+			// of it: what it holds decides why (KEL D-27).
+			d.triggerHubKELCheck(hubURL, triggerRegister)
+		}
+	}
 	if out.reg != nil {
 		d.join.okAt.Store(start)
 		// What the hub said of the key state, after Adopt made the rot the
@@ -323,6 +340,11 @@ func (d *Daemon) keepJoinRecord(hubURL string, r joinRecord) {
 	// The file and the evidence first, then the state others read: a
 	// reader that sees the new state finds its record on the chain.
 	cp := r
+	if cp.WitnessRot != nil && d.self != nil && d.identityWitness() != "" {
+		// The designation is the accepted tip: its material is spent (KEL
+		// D-13 step 4).
+		cp.WitnessRot = nil
+	}
 	if err := saveJoinRecord(d.layout, &cp); err != nil {
 		log.Printf("anet: save hub_join.json: %v", err)
 	}
@@ -352,29 +374,37 @@ func (d *Daemon) recordJoinChange(r joinRecord) {
 }
 
 // identityWitness is the AID of the identity's witness hub, "" while it has
-// none (KEL §2.2: the tip's witness).
+// none (KEL §2.2: the tip's witness). The tip is the one the witness
+// accepted: a designation being published names a hub that is not the
+// witness until it accepts it (KEL §4.3.1 row 3), so its join still goes
+// through the hooks, which adopt it.
 func (d *Daemon) identityWitness() string {
 	if d.join.witness != nil {
 		return d.join.witness()
 	}
-	states, err := identity.Replay(d.self.KEL())
+	states, err := identity.Replay(d.self.Accepted())
 	if err != nil || len(states) == 0 {
 		return ""
 	}
 	return states[len(states)-1].Witness
 }
 
-// kernelJoinHooks are the join hooks until the identity area's land: the
-// identity registers its own KEL as it stands and adopts nothing.
-// v030-todo(KEL-9): identity_ops.go implements Prepare (the witness
-// designation rot, KEL D-13) and Adopt.
-type kernelJoinHooks struct{ d *Daemon }
-
-func (k kernelJoinHooks) Prepare(context.Context, string) ([]byte, error) {
-	return identity.MarshalKEL(k.d.self.KEL())
+// joinMayRegister reports whether the join loop may register now: the
+// identity is neither stopped nor deactivated (KEL D-29, D-46), and no rot
+// or dip is being published, which the publication sequence registers
+// itself (identity_ops.go).
+func (d *Daemon) joinMayRegister() bool {
+	if d.self == nil {
+		return true
+	}
+	if d.self.State() != identity.StateOK {
+		return false
+	}
+	if p, ok := d.self.Pending(); ok && p.Kind != identity.PendingWitness {
+		return false
+	}
+	return true
 }
-
-func (kernelJoinHooks) Adopt(context.Context, RegisterResult) error { return nil }
 
 // --- the hub over HTTP ---
 
@@ -767,6 +797,16 @@ func (d *Daemon) joinHub(ctx context.Context, req joinRequest) (hubRegisterResp,
 				a2ashape.Args{"key": "next_digest", "rule": ruleText("首次接入 hub 时必须带上(anet hub-register 会自动带上)",
 					"a first join must carry it (anet hub-register adds it)")})}
 		}
+		if d.designationFixed(c.hubAID, req.NextDigest) {
+			// The designation is built: its hub and its commitment are fixed
+			// until it is accepted or refused for good (KEL D-14).
+			return hubRegisterResp{}, &joinError{http.StatusConflict, a2ashape.Refuse(reasonRotationPending, nil)}
+		}
+	default:
+		// The identity has its witness: hub-register only updates the
+		// registration, and a commitment in the request is not used (KEL
+		// D-14).
+		req.NextDigest, req.Unprotected = nil, false
 	}
 	caps := withServedCapabilities(req.Caps, d.providers)
 
@@ -816,6 +856,25 @@ func (d *Daemon) joinHub(ctx context.Context, req joinRequest) (hubRegisterResp,
 	}
 	d.writeRegistry() // the identity entry shows the (possibly new) name
 	return d.registerAnswer(&rec, a2ashape.Lang()), nil
+}
+
+// designationFixed reports whether a witness designation is built for
+// another hub than hubAID, or with another commitment than next (when
+// given): after it is built, only its own hub and commitment can be asked
+// for (KEL D-14, M35).
+func (d *Daemon) designationFixed(hubAID string, next []byte) bool {
+	p, ok := d.self.Pending()
+	if !ok || p.Kind != identity.PendingWitness {
+		return false
+	}
+	ev, err := pendingEvent(p)
+	if err != nil || ev == nil {
+		return true
+	}
+	if len(ev.Event.Witnesses) != 1 || ev.Event.Witnesses[0] != hubAID {
+		return true
+	}
+	return next != nil && !bytes.Equal(next, ev.Event.NextDigest)
 }
 
 // keepLocalCommit writes local_commit, identity file key 7, for a first
@@ -874,9 +933,18 @@ func (d *Daemon) adoptJoinTarget(req joinRequest, hubAID string, caps []string) 
 	now := time.Now()
 	d.join.mu.Lock()
 	r := d.join.rec
-	if r == nil || !sameHub(r.Hub, req.Hub) {
+	switch {
+	case r == nil || !sameHub(r.Hub, req.Hub):
 		r = freshJoinRecord(req.Hub, now)
-	} else {
+	case r.State == JoinRefused:
+		// Asked again after a refusal: the record starts over, so what it
+		// says is the answer to this attempt — a temporary failure is
+		// hub_retrying, not a refusal with a retry behind it (KEL-9, EXE-13
+		// note). The commitment stays.
+		fresh := freshJoinRecord(req.Hub, now)
+		fresh.WitnessRot = r.WitnessRot
+		r = fresh
+	default:
 		cp := *r
 		r = &cp
 		r.Attempts = 0
@@ -885,8 +953,8 @@ func (d *Daemon) adoptJoinTarget(req joinRequest, hubAID string, caps []string) 
 	if req.NextDigest != nil {
 		// Before the rot is built a new commitment replaces the old one
 		// (KEL D-14); with unprotected, joinHub wrote local_commit first
-		// (KEL D-11). v030-todo(KEL-9): a commitment arriving after the rot
-		// was built is rotation_pending.
+		// (KEL D-11). After it is built joinHub refused a new one
+		// (rotation_pending, designationFixed).
 		r.WitnessRot = &WitnessRot{NextDigest: append([]byte(nil), req.NextDigest...), HubAID: hubAID}
 	}
 	d.join.rec = r
@@ -944,7 +1012,12 @@ func (d *Daemon) relayRunning() bool {
 // --- hub-leave (AD-8) ---
 
 // leaveHub is hub-leave for target (the configured hub when empty):
-//   - the identity's witness hub: refused, witness_hub_leave;
+//   - the identity's witness hub: refused, witness_hub_leave. Which hub
+//     target is comes from its AID — the join record's, the one this
+//     process learned, or the hub's answer now — compared with the witness
+//     the identity's KEL names; when it cannot be told (no record, and the
+//     hub does not answer), leaving is refused, hub_unreachable.leave: a
+//     node never leaves its witness by not knowing it is that hub;
 //   - the configured hub, not registered yet: the join stops, hub_join.json
 //     and hub_url go, the state is none;
 //   - the configured hub, registered (an identity without a witness): the
@@ -963,8 +1036,23 @@ func (d *Daemon) leaveHub(ctx context.Context, target string) (map[string]any, *
 	}
 	r := d.joinSnapshot()
 	current := r != nil && sameHub(r.Hub, target) && sameHub(cfg.HubURL, target)
-	if current && r.HubAID != "" && d.identityWitness() == r.HubAID {
-		return nil, &joinError{http.StatusConflict, a2ashape.Refuse(reasonWitnessHubLeave, a2ashape.Args{"hub": r.Hub})}, nil
+	if witness := d.identityWitness(); witness != "" {
+		targetAID := ""
+		switch {
+		case r != nil && sameHub(r.Hub, target) && r.HubAID != "":
+			targetAID = r.HubAID
+		case d.knownHubAID(target) != "":
+			targetAID = d.knownHubAID(target)
+		default:
+			c, jerr := d.contactHub(ctx, target, false)
+			if jerr != nil {
+				return nil, &joinError{http.StatusBadGateway, a2ashape.Refuse(reasonHubUnreachableLeave, a2ashape.Args{"hub": target})}, nil
+			}
+			targetAID = c.hubAID
+		}
+		if targetAID == witness {
+			return nil, &joinError{http.StatusConflict, a2ashape.Refuse(reasonWitnessHubLeave, a2ashape.Args{"hub": target})}, nil
+		}
 	}
 	if current && r.State != JoinRegistered {
 		d.forgetJoin(target)
@@ -972,6 +1060,11 @@ func (d *Daemon) leaveHub(ctx context.Context, target string) (map[string]any, *
 	}
 	out, err := d.LeaveHub(ctx, target)
 	if err != nil {
+		if hubStatus(err) == 0 && !errors.Is(err, errGateClosed) && !errors.Is(err, errHubWire) {
+			// No answer from the hub: nothing was left and nothing changed
+			// here either (config.json and hub_join.json as they were).
+			return nil, &joinError{http.StatusBadGateway, a2ashape.Refuse(reasonHubUnreachableLeave, a2ashape.Args{"hub": target})}, nil
+		}
 		return out, nil, err
 	}
 	if current {

@@ -220,6 +220,11 @@ func (d *Daemon) openSession(ctx context.Context, hubURL string) (*firstContactS
 		return nil, &sessionUnavailableError{we}
 	}
 	if rep.Status != http.StatusOK {
+		if rep.Status == http.StatusUnauthorized {
+			// The witness refused this node's signature: what it holds of
+			// this identity decides why (KEL D-27).
+			d.triggerHubKELCheck(hubURL, triggerSession401)
+		}
 		return nil, &sessionUnavailableError{newHubError(hubapi.RelaySessionPath, rep)}
 	}
 	return openSessionAnswer(esk, hubAID, rep.Body, time.Now())
