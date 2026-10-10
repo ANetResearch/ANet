@@ -19,6 +19,7 @@ import (
 
 	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -65,6 +66,18 @@ func buildTestDaemon(t testing.TB, hubURL string, modules map[string]any) *Daemo
 // witness (newPlainTestDaemon).
 func buildTestDaemonAs(t testing.TB, hubURL string, modules map[string]any, plain bool) *Daemon {
 	t.Helper()
+	if plain {
+		return buildTestDaemonAt(t, hubURL, modules, -1)
+	}
+	return buildTestDaemonAt(t, hubURL, modules, 0)
+}
+
+// buildTestDaemonAt is buildTestDaemon whose join designates its hub its
+// witness at designateAt (unix ms; 0 at the join; -1 designates none, a
+// plain node).
+func buildTestDaemonAt(t testing.TB, hubURL string, modules map[string]any, designateAt int64) *Daemon {
+	t.Helper()
+	plain := designateAt < 0
 	root := t.TempDir()
 	cfg := map[string]any{"control_addr": "127.0.0.1:0", "hub_url": hubURL}
 	if modules != nil {
@@ -81,7 +94,7 @@ func buildTestDaemonAs(t testing.TB, hubURL string, modules map[string]any, plai
 		t.Fatal(err)
 	}
 	if !plain {
-		witnessRoots.Store(root, true)
+		witnessRoots.Store(root, uint64(designateAt))
 		t.Cleanup(func() { witnessRoots.Delete(root) })
 	}
 	d, err := New(NewLayout(root))
@@ -111,9 +124,39 @@ func newPlainTestDaemon(t testing.TB, hubURL string, accept bool) *Daemon {
 	return d
 }
 
+// newPastWitnessedDaemon is newTestDaemon for a node that sends and also
+// builds key events of its own dated in the recent past: its join
+// designates the hub its witness at designateAt (unix ms), before them, so
+// the hub's notices confirm it and its outbound gate opens like any test
+// node's — a node no witness confirms seals nothing (engine ENG-K13).
+func newPastWitnessedDaemon(t testing.TB, hubURL string, accept bool, designateAt uint64) *Daemon {
+	t.Helper()
+	d := buildTestDaemonAt(t, hubURL, nil, int64(designateAt))
+	joinTestGroup(t, d, accept)
+	return d
+}
+
+// pastWitnessedPair is registeredPair of nodes designated at designateAt
+// (newPastWitnessedDaemon).
+func pastWitnessedPair(t testing.TB, designateAt uint64) (*httptest.Server, *Daemon, *Daemon) {
+	t.Helper()
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newPastWitnessedDaemon(t, srv.URL, false, designateAt)
+	prov := newPastWitnessedDaemon(t, srv.URL, true, designateAt)
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
+		t.Fatal(err)
+	}
+	return srv, req, prov
+}
+
 // witnessRoots are the data directories of the test daemons
-// buildTestDaemon made (not plain): their daemons, restarts included, join
-// with sendingJoinHooks. Any other daemon keeps the kernel's.
+// buildTestDaemon made (not plain), with when their join designates the
+// witness (0: at the join): their daemons, restarts included, join with
+// sendingJoinHooks. Any other daemon keeps the kernel's.
 var witnessRoots sync.Map
 
 // Joining a hub designates it the identity's witness (KEL D-13), as the
@@ -121,11 +164,35 @@ var witnessRoots sync.Map
 // its hub's notices and its outbound gate opens (KEL D-1, engine ENG-K13).
 func init() {
 	testJoinHooks = func(d *Daemon) JoinHooks {
-		if _, ok := witnessRoots.Load(d.layout.Root); !ok {
+		v, ok := witnessRoots.Load(d.layout.Root)
+		if !ok {
 			return nil
 		}
-		return sendingJoinHooks{witnessJoinHooks{d}}
+		h := sendingJoinHooks{witnessJoinHooks{d}}
+		if at, _ := v.(uint64); at != 0 {
+			return pastJoinHooks{h, at}
+		}
+		return h
 	}
+}
+
+// pastJoinHooks are sendingJoinHooks whose designation is dated at.
+type pastJoinHooks struct {
+	sendingJoinHooks
+	at uint64
+}
+
+func (h pastJoinHooks) Prepare(_ context.Context, hubAID string) ([]byte, error) {
+	c := h.d.self
+	if _, ok := c.Pending(); !ok {
+		if _, err := c.BuildWitnessDesignation(hubAID, identitytest.NewNext(), h.at); err != nil {
+			return nil, err
+		}
+		if err := saveIdentity(h.d.layout, c); err != nil {
+			return nil, err
+		}
+	}
+	return identity.MarshalKEL(c.KEL())
 }
 
 // plainRegisteredPair is registeredPair of plain test daemons

@@ -509,8 +509,18 @@ func (noPreviews) CancelRound(string) {}
 
 // previews is this node's preview coalescer.
 func (d *Daemon) previews() previewCoalescer {
-	if d.previewer == nil {
-		return noPreviews{}
+	if p := d.previewer.Load(); p != nil && *p != nil {
+		return *p
 	}
-	return d.previewer
+	return noPreviews{}
+}
+
+// setPreviewer makes c this node's preview coalescer; nil restores the
+// stub. It may be called while the daemon runs.
+func (d *Daemon) setPreviewer(c previewCoalescer) {
+	if c == nil {
+		d.previewer.Store(nil)
+		return
+	}
+	d.previewer.Store(&c)
 }

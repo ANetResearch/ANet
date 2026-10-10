@@ -572,6 +572,12 @@ rounds:
 			return d.abandonOutbox(row, vers, abandonDeadline(deadlineReason(a.handedNow())), a)
 		case errors.Is(err, interactions.ErrNotFound):
 			return nil // confirmed or given up meanwhile
+		case errors.Is(err, errGateClosed):
+			// The gate closed since A2, or a rotation was built since this
+			// attempt read the key state: nothing was sealed (ENG-K13,
+			// ENG-R3 S3). Not a failure: the row waits for the gate, which
+			// kicks the outbox when it opens.
+			break rounds
 		case errors.Is(err, interactions.ErrOutboxFrozen):
 			// Canceled meanwhile: nothing more goes (ENG-O6); one that never
 			// left is withdrawn (ENG-O5). When an earlier round of this

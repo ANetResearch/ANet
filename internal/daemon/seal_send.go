@@ -9,12 +9,16 @@ package daemon
 //     (peer_resolve.go, sealed-sender SSR-D15), verified with expectAID =
 //     the recipient (C0) and against any stored KEL for it (§3.8);
 //  2. build the inner message with this node's full KEL, the witness notice
-//     confirming its tip and its current signed key set, sign it and seal
-//     it (seal.Seal), without outer key 7.
+//     confirming its tip and its current signed key set (innerFor), sign it
+//     and seal it (seal.Seal), without outer key 7.
 //
 // A queued message is sealed by the outbound engine (reseal.go, A7), which
-// sets its credential for every attempt (ENG-I2). sealWith seals a message
-// that is not queued, once, as a first contact (sendNotice).
+// sets its credential for every attempt (ENG-I2); a one-shot envelope by the
+// one-shot sender (oneshot.go), the only place outer key 8 is set (engine
+// ENG-I1). Nothing is sealed while the outbound gate is closed, or while no
+// witness notice confirms the key state the message would be signed under
+// (engine ENG-K13, ENG-R3 S3). sealWith seals a refusal notice that is not
+// queued, once, as a first contact (sendNotice).
 //
 // There is no unsealed path. A recipient whose keys cannot be resolved is
 // an error, not a plaintext send.
@@ -45,54 +49,56 @@ var errNoRecipientKeys = errors.New("no usable encryption key for the recipient"
 
 // sealMsg is one inner message to seal: its recipient, type, interaction
 // and body, the identity every version of it shares (mid, ts, exp, ENG-R7),
-// and the grant it carries (inner key 14, nil for none).
+// the grant it carries (inner key 14, nil for none) and this node's rk on
+// the task (inner key 15, nil for none: FS-X4).
 type sealMsg struct {
 	to, typ, ix string
 	body, mid   []byte
 	ts, exp     uint64
 	grant       []byte
+	rk          *seal.RK
+	// bare leaves out this node's KEL, its notice and its key set (inner
+	// keys 10, 11 and 12): a preview frame carries none of them (core
+	// CORE-K5, G7).
+	bare bool
 }
 
-// sealMessage builds m's inner message and seals it to the usable key of
-// set at now: one Snapshot of this node's key state signs, is the KEL
-// carried and is what the notice confirms, so a rotation built meanwhile
-// does not split them (KEL-8a, engine ENG-K17). The envelope has no outer
-// key 7. What the version records about its keys comes with it (ENG-S3).
-func (d *Daemon) sealMessage(m sealMsg, set *seal.EncKeySet, now uint64) (*sealedVersion, error) {
+// errNoTipNotice is why nothing is sealed when no witness notice confirms
+// the key state a message would be signed under: a rotation was built
+// between the gate's reading and the Snapshot. The gate is closed at its
+// next reading, and the message waits for it like any other.
+var errNoTipNotice = fmt.Errorf("%w: no witness notice confirms the key state to sign under", errGateClosed)
+
+// innerFor builds m's inner message at now under one Snapshot of this
+// node's key state, which it returns to sign with: one Snapshot signs, is
+// the KEL carried and is what the notice confirms, so a rotation built
+// meanwhile does not split them (KEL-8a, engine ENG-K17). The notice's
+// observed_at is the version's sealed_notice_at (ENG-S3); 0 for a bare
+// message.
+//
+// It builds nothing while the outbound gate is closed (ENG-K13, ENG-R3 S3:
+// no signature under a key that may be leaking), nor when no notice
+// confirms the Snapshot's tip (tipNotice): either is an error that is
+// errGateClosed, and the caller waits for the gate.
+func (d *Daemon) innerFor(m sealMsg, now uint64) (*seal.SealedInner, identity.Signer, uint64, error) {
 	if m.to == d.AID() {
-		return nil, fmt.Errorf("anet: refusing to seal a message to this node itself")
+		return nil, nil, 0, fmt.Errorf("anet: refusing to seal a message to this node itself")
 	}
 	if m.exp <= now {
-		return nil, fmt.Errorf("anet: %s to %s: the message expired before it could be sealed", m.typ, m.to)
+		return nil, nil, 0, fmt.Errorf("anet: %s to %s: the message expired before it could be sealed", m.typ, m.to)
 	}
-	key, err := seal.SelectKey(set, now)
-	if err != nil {
-		return nil, fmt.Errorf("anet: %s: %w: %v", m.to, errNoRecipientKeys, err)
+	if g := d.identityGate(); !g.Open {
+		return nil, nil, 0, &gateClosedError{state: g.State}
 	}
 	s := d.self.Snapshot()
+	n := d.tipNotice(s)
+	if n == nil {
+		return nil, nil, 0, errNoTipNotice
+	}
 	seq, err := identity.SeqOf(s)
 	if err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
-	kel, err := identity.MarshalKEL(s.KEL())
-	if err != nil {
-		return nil, err
-	}
-	own := d.enc.SignedSet()
-	if len(own) == 0 {
-		return nil, fmt.Errorf("anet: this node has no encryption key set to attach")
-	}
-	// The witness notice for this KEL; seal v2 carries one exactly when it
-	// carries the KEL (C-52).
-	notice := []byte{}
-	var noticeAt uint64
-	if n := d.tipNotice(s); n != nil {
-		notice, noticeAt = n.Wire, n.Body.ObservedAt
-	}
-	// v030-todo(ENG-1b): with no notice confirming the tip the gate is
-	// closed and nothing is sealed (ENG-K13); a rotation built between the
-	// gate's reading and this Snapshot still seals with an empty notice,
-	// which receivers accept until they check step 6½ (ENG-1c).
 	inner := &seal.SealedInner{
 		From:        d.AID(),
 		KeyStateSeq: seq,
@@ -103,25 +109,59 @@ func (d *Daemon) sealMessage(m sealMsg, set *seal.EncKeySet, now uint64) (*seale
 		TS:          m.ts,
 		Exp:         m.exp,
 		Body:        m.body,
-		KEL:         kel,
-		Notices:     [][]byte{notice},
-		Keys:        own,
 		Grant:       m.grant,
+		RK:          m.rk,
 	}
-	env, ack, err := seal.Seal(inner, key, s.Sign, seal.SealOpts{})
+	if m.bare {
+		return inner, s, 0, nil
+	}
+	if inner.KEL, err = identity.MarshalKEL(s.KEL()); err != nil {
+		return nil, nil, 0, err
+	}
+	if inner.Keys = d.enc.SignedSet(); len(inner.Keys) == 0 {
+		return nil, nil, 0, fmt.Errorf("anet: this node has no encryption key set to attach")
+	}
+	// The witness notice for this KEL; seal v2 carries one exactly when it
+	// carries the KEL (C-52).
+	inner.Notices = [][]byte{n.Wire}
+	return inner, s, n.Body.ObservedAt, nil
+}
+
+// sealMessage builds m's inner message (innerFor) and seals it to the
+// usable key of set at now, under o: o.PeerRK seals a second layer to the
+// peer's rk (FS-X5); o.Exp is outer key 8, which only the one-shot sender
+// sets, equal to m.exp (engine ENG-I1, TestOnlyOneShotSealsWithExp) — a
+// queued message never carries it. The envelope has no outer key 7. What
+// the version records about its keys comes with it (ENG-S3).
+func (d *Daemon) sealMessage(m sealMsg, set *seal.EncKeySet, o seal.SealOpts, now uint64) (*sealedVersion, error) {
+	key, err := seal.SelectKey(set, now)
+	if err != nil {
+		return nil, fmt.Errorf("anet: %s: %w: %v", m.to, errNoRecipientKeys, err)
+	}
+	inner, s, noticeAt, err := d.innerFor(m, now)
+	if err != nil {
+		return nil, err
+	}
+	env, ack, err := seal.Seal(inner, key, s.Sign, o)
 	if err != nil {
 		return nil, fmt.Errorf("anet: seal %s to %s: %w", m.typ, m.to, err)
 	}
-	return &sealedVersion{env: env, ackKey: ack, kid: bytes.Clone(key.KID), kidNA: key.NotAfter, kss: seq, noticeAt: noticeAt}, nil
+	return &sealedVersion{env: env, ackKey: ack, kid: bytes.Clone(key.KID), kidNA: key.NotAfter, kss: inner.KeyStateSeq,
+		noticeAt: noticeAt}, nil
 }
 
 // sealWith seals one message that is not queued to a key set the caller
 // resolved: a fresh message id, ts now, exp 14 days on, no grant, and the
 // first-contact credential in outer key 7 (it is sent once, sendNotice).
+//
+// v030-todo(ENG-1c): the refusal notices are the last envelopes neither
+// queued nor one-shot (engine ENG-Q1, ENG-V15): sendNotice and
+// deliverEnvelope go with replyRejected and sendNoticeStatus, and sealWith
+// with them (the tests' sealFrom can seal through sealMessage).
 func (d *Daemon) sealWith(toAID, typ, interactionID string, body []byte, set *seal.EncKeySet) ([]byte, error) {
 	now := d.nowMS()
 	sv, err := d.sealMessage(sealMsg{to: toAID, typ: typ, ix: interactionID, body: body, mid: seal.NewMID(), ts: now,
-		exp: now + messageLifetimeMS}, set, now)
+		exp: now + messageLifetimeMS}, set, seal.SealOpts{}, now)
 	if err != nil {
 		return nil, err
 	}
