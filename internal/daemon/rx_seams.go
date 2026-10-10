@@ -64,7 +64,6 @@ func (l *storeIXKeys) wipe() {
 	for _, k := range l.gave {
 		wipeIXKey(k)
 	}
-	l.gave = nil
 }
 
 // wipeLookup wipes what the interaction key lookup l handed out, when it is

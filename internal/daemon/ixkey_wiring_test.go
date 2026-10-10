@@ -964,3 +964,31 @@ func TestOpenedKeyIsWiped(t *testing.T) {
 	fixed := holdingIXKey(k)
 	wipeLookup(fixed) // a test's lookup is not the store's: nothing to wipe
 }
+
+// FS-X8 on the receive path: the key a second layer was opened with is
+// wiped before the message is handled any further.
+func TestReceiveWipesTheKeyItOpenedWith(t *testing.T) {
+	srv, req, prov := quietPair(t)
+	ctx := context.Background()
+	id, err := req.Delegate(ctx, prov.AID(), "opened, then wiped", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	confirmDelegation(t, req, prov)
+	if err := prov.SendStatus(ctx, id, interactions.StateWorking, "on it", nil); err != nil {
+		t.Fatal(err)
+	}
+	env := onlyQueuedEnvelope(t, srv, req.AID())
+	l := &storeIXKeys{s: req.ix}
+	req.setIXLookup(l)
+	if r := receive(t, req, env); r.class != rxAccepted {
+		t.Fatalf("the status: %+v", r)
+	}
+	if len(l.gave) != 1 {
+		t.Fatalf("the lookup handed out %d keys, want the one", len(l.gave))
+	}
+	if p := l.gave[0].Private; len(p) == 0 || !bytes.Equal(p, make([]byte, len(p))) {
+		t.Fatal("the key the second layer was opened with was not wiped")
+	}
+	ownKID(t, req, id) // the stored key stays
+}
