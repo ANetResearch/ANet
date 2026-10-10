@@ -849,7 +849,9 @@ MUTS += [
   tests=S8_KEEP_T, full=S8_FULL),
  dict(id='ss8-m26-oneshot', group='SS-8', repo='ANet', desc='一次性信封所带的 grant 也写入',
   edits=[('internal/daemon/caps.go', '\tif in == nil || len(in.Grant) == 0 || oneShot {', '\tif in == nil || len(in.Grant) == 0 {')],
-  tests=S8_KEEP_T, full=S8_FULL),
+  # The receive pipeline never reaches step 10 for a one-shot envelope (engine §4.2 step 8½, ENG-1c), so
+  # TestRefusedMessageGrantIsNotKept's one-shot case stays green; grantToKeep's own rule is held by its fuzz seeds.
+  tests=S8_KEEP_T + [('ANet:./internal/daemon', '^FuzzGrantToKeep$')], full=S8_FULL),
  dict(id='ss8-keep-none', group='SS-8', repo='ANet', desc='第 10 步不保存 grant',
   edits=[('internal/daemon/receive.go', '\t\tif m.grant != nil {\n\t\t\tif _, err := tx.PutHeldGrant(*m.grant); err != nil {', '\t\tif false && m.grant != nil {\n\t\t\tif _, err := tx.PutHeldGrant(*m.grant); err != nil {')],
   tests=S8_KEEP_T, full=S8_FULL),
