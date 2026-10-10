@@ -387,4 +387,226 @@ MUTS += [
   tests=[(D, 'TestAGateThatClosesMidAttemptHoldsTheEnvelope')],
   full=[D],
  ),
+ # ---- ENG-1c: the receive pipeline v3 (engine §4, §8.2)
+ dict(
+  id='ENG-M17', group='ENG-1c', repo='ANet',
+  desc='重投授权失败的重复件给 tok(2)(而不是 tok(1) 只抑制副作用)',
+  edits=[
+   ('internal/daemon/receive.go', '''	if !d.mayRedeliver(m, ix) {
+		d.count(redeliveryNotAuthorized)
+		return dup
+	}''', '''	if !d.mayRedeliver(m, ix) {
+		d.count(redeliveryNotAuthorized)
+		return d.drop(dropNotAllowed, nil).at(rxStep9)
+	}'''),
+  ],
+  tests=[(D, 'TestET14_ADelegationTakenThenUnlistedIsStillTaken')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M18', group='ENG-1c', repo='ANet',
+  desc='重复件不给令牌',
+  edits=[
+   ('internal/daemon/rx_token.go', '''	dropDuplicate:     tokProcessed,''', '''	dropDuplicate:     tokNone,'''),
+  ],
+  tests=[(D, 'TestRxTokenForTable|TestRxTokenForReplayAndOneShotProperty|TestET14_ADelegationTakenThenUnlistedIsStillTaken')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M21', group='ENG-1c', repo='ANet',
+  desc='重投的已答复委派在答复已不在队列时重新封装一份新结果',
+  edits=[
+   ('internal/daemon/delegation.go', '''		if !d.answerQueued(prior) {
+			return true
+		}''', '''		if !d.answerQueued(prior) {
+			if payload, err := (&delegation.ResultResp{Status: delegation.StatusDone, Deliverable: prior.Result,
+				Receipt: prior.Receipt}).Marshal(); err == nil {
+				qctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
+				if id, err := d.queueSendAs(qctx, wireSend{to: prior.PeerAID, typ: seal.TypeResult, ix: prior.ID, body: payload}, nil); err == nil {
+					_ = d.deliverQueued(qctx, id)
+				}
+				cancel()
+			}
+			return true
+		}'''),
+  ],
+  tests=[(D, 'TestET16_AnAnsweredDelegationRedeliveredIsAnsweredOnce')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M22', group='ENG-1c', repo='ANet',
+  desc='隐式确认也确认委派以外的行(text、cancel)',
+  edits=[
+   ('internal/daemon/outbox_seams.go', '''		if r.Type != seal.TypeDelegate || r.ToAID != from {''', '''		if r.ToAID != from {'''),
+  ],
+  tests=[(D, 'TestET17_AStatusConfirmsOnlyTheDelegation')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M31', group='ENG-1c', repo='ANet',
+  desc='第一层成功之后的失败在直连路径按 T',
+  edits=[
+   ('internal/daemon/receive.go', '''		d.misused(issued, step, reason, oneShot, "")
+		if reason == seal.ReasonSealedToClosedInteraction {''', '''		d.misused(issued, step, reason, oneShot, "")
+		if path.direct {
+			return d.transient(transientDirectUnopened, err).at(step)
+		}
+		if reason == seal.ReasonSealedToClosedInteraction {'''),
+  ],
+  tests=[(D, 'TestEachFailureIsAnsweredAlikeOnBothPaths')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M32', group='ENG-1c', repo='ANet',
+  desc='恢复未知交互消息的 T 暂扣(不 ack、不给令牌)',
+  edits=[
+   ('internal/daemon/receive.go', '''			m.cm, m.tombstone = cm, true
+			return nil
+		}
+		r := d.drop(dropUnknownIX, nil)''', '''			m.cm, m.tombstone = cm, true
+			return nil
+		}
+		r := d.transient("t-unknown-ix", nil)'''),
+  ],
+  tests=[(D, 'TestRedteamSI10_AStrangerCannotKeepAnOnlineNodesMailboxFull|TestAMessageForAnUnknownTaskGetsTaskNotFound')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M33', group='ENG-1c', repo='ANet',
+  desc='ixLookup 读库错误按 sealed-to-closed-interaction(ack 并给 tok(1))',
+  edits=[
+   ('internal/daemon/receive.go', '''			return d.transient(transientStore, err).at(rxStep3a)''', '''			return rxResult{class: rxAccepted, reason: seal.ReasonSealedToClosedInteraction, step: rxStep3a}'''),
+  ],
+  tests=[(D, 'TestET22_AStoreErrorAtTheSecondLayerIsTemporary')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M34', group='ENG-1c', repo='ANet',
+  desc='第 1a 步复核失败的能力仍按"经能力送达"处理,其后的失败即吊销它',
+  edits=[
+   ('internal/daemon/receive.go', '''	if k.Class == 0 {
+		return nil, k, true
+	}''', '''	if k.Class == 0 {
+		return issued, k, true
+	}'''),
+  ],
+  tests=[(D, 'TestET23_ACredentialThatFailsAtTheRecipientIsNoCapability')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M41', group='ENG-1c', repo='ANet',
+  desc='合并对端紧急 rot 时不吊销 caps_issued 中给该对端的行(与 SS M46 同一处)',
+  edits=[('internal/runtime/interactions/caps.go', '\t_, err := revokeIssued(e, IssuedFilter{Grantee: aid}, now)\n\treturn err\n}', '\treturn nil\n}')],
+  tests=[(D, 'TestPeerEmergencyRotRevokesIssuedCaps|TestET29_APeersEmergencyRotationGoesWithTheMessage')],
+  full=[D, IX],
+ ),
+ dict(
+  id='eng1c-tok-before-record', group='ENG-1c', repo='ANet',
+  desc='第 9 步的拒收不记入内存拒收表(重投的副本再走一遍并可能得到别的结论)',
+  edits=[
+   ('internal/daemon/receive.go', '''		d.refused.add(replayKey(m.from, m.mid), tok.Note.Reason)
+	}''', '''	}'''),
+  ],
+  tests=[(D, 'TestAMessageForAnUnknownTaskGetsTaskNotFound|TestRedteamUnknownIXFromAStrangerIsNotReworked')],
+  full=[D],
+ ),
+ dict(
+  id='eng1c-step6half', group='ENG-1c', repo='ANet',
+  desc='去掉第 6½ 步(不核对见证通告)',
+  edits=[
+   ('internal/daemon/receive.go', '''	err := seal.CheckNotice(in, kel, d.hubKELs, arrival)''', '''	var err error'''),
+  ],
+  tests=[(D, 'TestStep6HalfChecksTheNoticeOfEveryEnvelope|TestEachFailureIsAnsweredAlikeOnBothPaths')],
+  full=[D],
+ ),
+ dict(
+  id='eng1c-arrival-now', group='ENG-1c', repo='ANet',
+  desc='信箱路径的 arrival 取 now,不取 hub 的 accepted_at(KEL D-20)',
+  edits=[
+   ('internal/daemon/receive.go', '''		arrival = hubArrival(path.acceptedAt, in.TS, now)''', '''		arrival = now'''),
+  ],
+  tests=[(D, 'TestAHeldDelegationKeepsItsArrival')],
+  full=[D],
+ ),
+ dict(
+  id='eng1c-r9', group='ENG-1c', repo='ANet',
+  desc='第 6 步合并新事件时不执行 R-9(KEL D-23)',
+  edits=[
+   ('internal/daemon/receive.go', '''		if err := identity.CheckNewEvents(stored, inner, now, nil); err != nil {''', '''		if err := identity.CheckNewEvents(stored, inner, now, nil); false && err != nil {'''),
+  ],
+  tests=[(D, 'TestStep6RefusesAKeyEventFromTheFuture')],
+  full=[D],
+ ),
+ dict(
+  id='eng1c-4a', group='ENG-1c', repo='ANet',
+  desc='去掉第 4a 步(按类型的键出现规则)',
+  edits=[
+   ('internal/daemon/receive.go', '''	if !kindKeysOK(op, preview) {''', '''	if false && !kindKeysOK(op, preview) {'''),
+  ],
+  tests=[(D, 'TestStepFourAChecksTheKeysOfEachType|TestEachFailureIsAnsweredAlikeOnBothPaths')],
+  full=[D],
+ ),
+ dict(
+  id='eng1c-tombstone', group='ENG-1c', repo='ANet',
+  desc='委派不查取消墓碑(DLV M11)',
+  edits=[
+   ('internal/daemon/receive.go', '''	} else if tomb {
+		r := d.drop(dropCanceled, nil)''', '''	} else if false && tomb {
+		r := d.drop(dropCanceled, nil)'''),
+  ],
+  tests=[(D, 'TestDLVT11_ACancelAheadOfItsDelegationStopsIt')],
+  full=[D],
+ ),
+ dict(
+  id='eng1c-closed-ix', group='ENG-1c', repo='ANet',
+  desc='封给已关闭交互的信按 P 处理、给 tok(2)(DLV M13)',
+  edits=[
+   ('internal/daemon/receive.go', '''		if reason == seal.ReasonSealedToClosedInteraction {
+			// Sealed to an interaction this node has closed''', '''		if false && reason == seal.ReasonSealedToClosedInteraction {
+			// Sealed to an interaction this node has closed'''),
+  ],
+  tests=[(D, 'TestDLVT13_AResultToAClosedInteractionIsTaken|TestRxTokenForTable')],
+  full=[D],
+ ),
+ dict(
+  id='eng1c-direct-dack', group='ENG-1c', repo='ANet',
+  desc='直连 ack 不带提交时的 tok(1)(ENG-V2)',
+  edits=[
+   ('internal/daemon/receive.go', '''	m.ackNow(b)
+	m.ackNow = nil''', '''	m.ackNow(nil)
+	m.ackNow = nil'''),
+  ],
+  tests=[(D, 'TestEachFailureIsAnsweredAlikeOnBothPaths|TestDLVT4_AHubThatLosesWhatItTook')],
+  full=[D],
+ ),
+ dict(
+  id='eng1c-card-no-grant', group='ENG-1c', repo='ANet',
+  desc='卡片请求没有带回信 grant 也照样回答(ENG-K2)',
+  edits=[
+   ('internal/daemon/receive.go', '''	grant, ok := d.cardRequestGrant(in, keys, now)
+	if !ok {
+		return d.drop(cardGetNoGrant, nil).at(rxStep9)
+	}''', '''	grant, _ := d.cardRequestGrant(in, keys, now)'''),
+  ],
+  tests=[(D, 'TestACardRequestIsAnsweredUnderItsOwnGrant')],
+  full=[D],
+ ),
+ dict(
+  id='eng1c-sender-tx', group='ENG-1c', repo='ANet',
+  desc='发送方 KEL 与钥集在第 10 步事务之外先行写入(事务回滚时它们与连带的吊销留下)',
+  edits=[
+   ('internal/daemon/receive.go', '''	ps := d.readPeers()
+	err := d.ix.Update(func(tx *interactions.Tx) error {
+		claimed, err := tx.ClaimReplay(m.from, m.mid, m.exp)''', '''	ps := d.readPeers()
+	_ = d.ix.Update(func(tx *interactions.Tx) error { return d.recordSenderTx(tx, m, ps) })
+	err := d.ix.Update(func(tx *interactions.Tx) error {
+		claimed, err := tx.ClaimReplay(m.from, m.mid, m.exp)'''),
+   ('internal/daemon/receive.go', '''		if err := d.recordSenderTx(tx, m, ps); err != nil {
+			return err
+		}
+''', ''),
+  ],
+  tests=[(D, 'TestET29_APeersEmergencyRotationGoesWithTheMessage')],
+  full=[D],
+ ),
 ]

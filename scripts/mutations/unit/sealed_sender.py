@@ -844,8 +844,8 @@ MUTS += [
   tests=S8_MISUSE_T, full=S8_FULL),
  # ---- M26: grants kept only by step 10
  dict(id='ss8-m26-early', group='SS-8', repo='ANet', desc='grant 在第 8 步就写入 caps_held(被拒或回滚的消息也留下 grant)',
-  edits=[('internal/daemon/receive.go', '\tm.grant = d.grantToKeep(in, verifiedKeys, op.Outer.Exp != nil, now)\n',
-          '\tm.grant = d.grantToKeep(in, verifiedKeys, op.Outer.Exp != nil, now)\n\tif m.grant != nil {\n\t\t_ = d.ix.Update(func(tx *interactions.Tx) error { _, err := tx.PutHeldGrant(*m.grant); return err })\n\t}\n')],
+  edits=[('internal/daemon/receive.go', '\tm.grant = d.grantToKeep(in, verifiedKeys, oneShot, now)\n',
+          '\tm.grant = d.grantToKeep(in, verifiedKeys, oneShot, now)\n\tif m.grant != nil {\n\t\t_ = d.ix.Update(func(tx *interactions.Tx) error { _, err := tx.PutHeldGrant(*m.grant); return err })\n\t}\n')],
   tests=S8_KEEP_T, full=S8_FULL),
  dict(id='ss8-m26-oneshot', group='SS-8', repo='ANet', desc='一次性信封所带的 grant 也写入',
   edits=[('internal/daemon/caps.go', '\tif in == nil || len(in.Grant) == 0 || oneShot {', '\tif in == nil || len(in.Grant) == 0 {')],

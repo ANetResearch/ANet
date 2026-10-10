@@ -19,15 +19,15 @@ Repository: ANet
 Expect: joint.sh 8/11 red
 
 diff --git a/internal/daemon/receive.go b/internal/daemon/receive.go
-index dec8c69..dcecb13 100644
+index 6232e95..efbcfdc 100644
 --- a/internal/daemon/receive.go
 +++ b/internal/daemon/receive.go
-@@ -268,7 +268,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath) rxResult {
+@@ -398,7 +398,7 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
  	}
  
- 	// Step 7. v030-todo(ENG-1c): the arrival is KEL D-20's, from the hub's accepted_at, not now.
--	if err := seal.VerifyInnerSig(in, op.Preimage, use, now); err != nil {
-+	if err := seal.VerifyInnerSig(in, op.Preimage, use, now); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {
- 		return d.drop(reasonOf(err), err)
- 	}
- 
+ 	// Step 7, at the arrival (KEL D-22).
+-	if err := seal.VerifyInnerSig(in, op.Preimage, use, arrival); err != nil {
++	if err := seal.VerifyInnerSig(in, op.Preimage, use, arrival); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {
+ 		reason := reasonOf(err)
+ 		d.misused(issued, rxStep7, reason, oneShot, in.Type)
+ 		return d.drop(reason, err).at(rxStep7)
