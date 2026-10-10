@@ -495,6 +495,9 @@ func TestABadAnswerFromTheReceivingPeerCarriesNothing(t *testing.T) {
 		if err == nil || d.set {
 			t.Errorf("%s: dack %+v err %v; want a failure carrying nothing", line, d, err)
 		}
+		if line != "not json" && p.badFrames.Load() != 1 {
+			t.Errorf("%s: counted %d bad frames", line, p.badFrames.Load())
+		}
 		l.Close()
 	}
 }

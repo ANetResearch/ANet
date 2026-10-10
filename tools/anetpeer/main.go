@@ -579,8 +579,10 @@ type peer struct {
 	// (see markDown), keyed by AID.
 	down map[string]downEntry
 	// refusedAddrs counts the sends whose address was refused
-	// (p2p-addr-refused).
+	// (p2p-addr-refused); badFrames the frames refused as bad on any leg
+	// (core CORE-K13a). Both are said in the log with each refusal.
 	refusedAddrs atomic.Uint64
+	badFrames    atomic.Uint64
 	// admitMu guards refusedLog and credOf. It is not mu: admitDaemon runs
 	// on the accept loop, which must not wait while a hand-off holds mu.
 	admitMu sync.Mutex
@@ -746,7 +748,7 @@ func (p *peer) serveDaemon(c net.Conn) {
 			// a daemon that speaks another version cannot be carried for.
 			// A send is answered and not delivered. Anything else is
 			// dropped: an ack this process cannot read releases nothing.
-			log.Printf("anetpeer: refusing a %q frame from the daemon: %s", f.Op, bad)
+			log.Printf("anetpeer: bad-frame (count %d): refusing a %q frame from the daemon: %s", p.badFrames.Add(1), f.Op, bad)
 			switch f.Op {
 			case "hello":
 				p.reply(dc, frame{Op: "error", V: wireVersion, Error: bad})
@@ -899,6 +901,7 @@ func (p *peer) servePeer(c net.Conn) {
 		bad = checkEnvelope(f.Envelope)
 	}
 	if bad != "" {
+		log.Printf("anetpeer: bad-frame (count %d): refusing a %q frame from %s: %s", p.badFrames.Add(1), f.Op, sourceOf(c), bad)
 		answer(frame{Op: "error", V: wireVersion, ID: f.ID, Error: bad})
 		return
 	}
@@ -1107,6 +1110,7 @@ func (p *peer) deliver(f frame) (dackText, error) {
 		return dackText{}, fmt.Errorf("the receiving peer answered with a line that is not a frame: %v", err)
 	case bad != "":
 		// Nothing in a bad answer is passed on, a dack included.
+		p.badFrames.Add(1)
 		return dackText{}, fmt.Errorf("the receiving peer answered with a bad frame: %s", bad)
 	case reply.Op != "send" || reply.Error != "":
 		msg := reply.Error
