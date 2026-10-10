@@ -363,6 +363,12 @@ func TestAQuoteAboveTheAutoTierWaitsForADecision(t *testing.T) {
 	if ev := lastLedgerPayload(t, req, EvPaymentAuthorized); ev["purpose"] != module.PurposeTaskAgent {
 		t.Errorf("purpose = %v, want task-agent", ev["purpose"])
 	}
+	// The agent tier's payment is said as paid.agent, in the answer (MCP
+	// submit_payment's note) and on the task alike (UX-T1, ux D2).
+	if n, ok := storedPayNote(getIX(t, req, id)); !ok || n.Code != "paid.agent" || out["note"] != a2ashape.PaymentNote(n, a2ashape.Lang()) ||
+		getTaskProjection(t, req, id).Metadata[a2ashape.KeyPaymentNote] != out["note"] {
+		t.Errorf("the agent's payment: %+v, note %v", n, out["note"])
+	}
 	// One payment in flight per task (§8.3).
 	if code, _ := pay(submit); code != http.StatusConflict {
 		t.Errorf("a second payment while one is pending: %d", code)

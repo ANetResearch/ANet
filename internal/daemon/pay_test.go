@@ -15,11 +15,13 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
 	_ "github.com/ANetResearch/ANet/module/x402"
@@ -161,6 +163,43 @@ func TestPayingWithoutCreditIsRefusedAsAPayment(t *testing.T) {
 	}
 	if got := balanceOf(srv.URL, req.AID()); got != 10 {
 		t.Errorf("a refused payment moved credit: balance = %d", got)
+	}
+	// The payment that did not settle is the task's payment sentence (HPP
+	// PAY-U5, ux D3), with its own next step, and the automatic tier does
+	// not pay again by itself (at most once per task).
+	n, ok := storedPayNote(getIX(t, req, id))
+	if !ok || n.Code != "x402:INSUFFICIENT_FUNDS" || n.Amount != 120 || n.Peer != prov.AID() {
+		t.Fatalf("the snapshot of the failure: %+v (%v)", n, ok)
+	}
+	task := getTaskProjection(t, req, id)
+	want := a2ashape.PaymentNote(n, a2ashape.Lang())
+	if task.Metadata[a2ashape.KeyPaymentNote] != want || task.Metadata[a2ashape.KeyNext] != "anet balance" ||
+		task.Metadata[a2ashape.KeyReason] != x402a2a.ReasonNeedsOperatorApproval ||
+		task.Status.Message == nil || task.Status.Message.Parts[0].Text != want {
+		t.Fatalf("the task after the failure: %+v", task)
+	}
+	if n := chainEvents(t, req, EvPaymentAuthorized); n != 1 {
+		t.Fatalf("%d authorizations", n)
+	}
+}
+
+// failureNote picks the row of ux D3 from what the provider said, and only
+// from this node's table.
+func TestAFailedPaymentIsSaidByARowOfD3(t *testing.T) {
+	at := time.Now()
+	for _, c := range []struct{ reason, code, want string }{
+		{"payee_not_local", "SETTLEMENT_FAILED", "payee_not_local"},
+		{"auth_window_too_long", "SETTLEMENT_FAILED", "auth_window_too_long"},
+		{"binding_mismatch", "SETTLEMENT_FAILED", "binding_mismatch"},
+		{"insufficient_funds", "INSUFFICIENT_FUNDS", "x402:INSUFFICIENT_FUNDS"},
+		{"", "DUPLICATE_NONCE", "x402:DUPLICATE_NONCE"},
+		{"needs_operator_approval.off", "INVALID_AMOUNT", "x402:INVALID_AMOUNT"}, // a D1 code is no failure
+		{"paid.auto", "", "x402:SETTLEMENT_FAILED"},
+		{"anything the provider likes", "NOT_A_CODE", "x402:SETTLEMENT_FAILED"},
+	} {
+		if n := failureNote(c.reason, c.code, 3, "p", at); n.Code != c.want {
+			t.Errorf("%q/%q: %s, want %s", c.reason, c.code, n.Code, c.want)
+		}
 	}
 }
 

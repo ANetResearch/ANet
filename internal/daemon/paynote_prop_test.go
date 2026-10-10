@@ -26,11 +26,17 @@ func (m payModel) input(purpose string, amount uint64, capID string, price cardP
 	in := PayInput{Purpose: purpose, Amount: amount, CapID: capID, Price: price, ManualSingle: m.explicit,
 		ManualLeft: left, SpentToday: m.spent, PayeesReadable: readable, PayeeListed: readable && listed,
 		Peer: payNotePeer, At: payNoteAt}
+	// What is left today is the tier's as the daemon counts it
+	// (countsAgentDaily): the agent tier's two remainders, or daily_max's.
+	in.Left = left
+	if countsAgentDaily(purpose) {
+		in.Left = min(leftOf(m.agentDaily, m.agentSpent), left)
+	}
 	switch purpose {
 	case module.PurposeTaskAuto:
-		in.Single, in.Left = m.auto, left
+		in.Single = m.auto
 	case module.PurposeTaskAgent:
-		in.Single, in.Left = m.agent, min(leftOf(m.agentDaily, m.agentSpent), left)
+		in.Single = m.agent
 	}
 	return in
 }
