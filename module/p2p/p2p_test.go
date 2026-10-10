@@ -289,6 +289,7 @@ func dialTransportCounting(t *testing.T, peer *fakePeer, rec module.Inbound) (*T
 		sendTimeout: 2 * time.Second,
 		inbound:     rec,
 		badDAck:     func() { bad.Add(1) },
+		addrOf:      anyAddr,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel(); tr.close() })
@@ -297,6 +298,14 @@ func dialTransportCounting(t *testing.T, peer *fakePeer, rec module.Inbound) (*T
 	waitFor(t, func() bool { return tr.Reachable(context.Background(), "aid-any") }, "the session to be up")
 	return tr, bad
 }
+
+// testAddr is the address every AID has in these tests (RFC 5737), unless
+// a test says otherwise.
+const testAddr = "203.0.113.7:39100"
+
+// anyAddr gives every AID testAddr: the daemon's P2PAddr for a node that
+// holds a contact capability with an address from everyone.
+func anyAddr(aid string) (string, bool) { return testAddr, aid != "" }
 
 func waitFor(t *testing.T, cond func() bool, why string) {
 	t.Helper()
@@ -372,7 +381,7 @@ func TestSendCarriesTheEnvelopeUnaltered(t *testing.T) {
 	if !bytes.Equal(got, body) {
 		t.Fatalf("envelope = %q, want it unaltered", got)
 	}
-	if f.To != "aid-peer" || f.V != WireVersion {
+	if f.To != "aid-peer" || f.V != WireVersion || f.Addr != testAddr {
 		t.Fatalf("addressing lost: %+v", f)
 	}
 	for k := range raw {
@@ -662,7 +671,7 @@ func TestHandedMeansAByteReachedThePeerProcess(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("not connected", func(t *testing.T) {
-		tr := &Transport{sendTimeout: time.Second}
+		tr := &Transport{sendTimeout: time.Second, addrOf: anyAddr}
 		if _, handed, err := tr.Send(ctx, "aid", []byte("x")); err == nil || handed {
 			t.Fatalf("handed=%v err=%v", handed, err)
 		}
@@ -670,7 +679,7 @@ func TestHandedMeansAByteReachedThePeerProcess(t *testing.T) {
 
 	t.Run("cancelled before the write", func(t *testing.T) {
 		c := &stubConn{}
-		tr := &Transport{sendTimeout: time.Second, conn: c, pending: map[string]chan frame{}}
+		tr := &Transport{sendTimeout: time.Second, conn: c, pending: map[string]chan answer{}, addrOf: anyAddr}
 		cctx, cancel := context.WithCancel(ctx)
 		cancel()
 		if _, handed, err := tr.Send(cctx, "aid", []byte("x")); err == nil || handed {
@@ -683,7 +692,7 @@ func TestHandedMeansAByteReachedThePeerProcess(t *testing.T) {
 
 	t.Run("the write fails before its first byte", func(t *testing.T) {
 		c := &stubConn{n: 0, err: errors.New("broken pipe")}
-		tr := &Transport{sendTimeout: time.Second, conn: c, pending: map[string]chan frame{}}
+		tr := &Transport{sendTimeout: time.Second, conn: c, pending: map[string]chan answer{}, addrOf: anyAddr}
 		if _, handed, err := tr.Send(ctx, "aid", []byte("x")); err == nil || handed {
 			t.Fatalf("handed=%v err=%v", handed, err)
 		}
@@ -691,7 +700,7 @@ func TestHandedMeansAByteReachedThePeerProcess(t *testing.T) {
 
 	t.Run("the write fails part of the way", func(t *testing.T) {
 		c := &stubConn{n: 5, err: errors.New("broken pipe")}
-		tr := &Transport{sendTimeout: time.Second, conn: c, pending: map[string]chan frame{}}
+		tr := &Transport{sendTimeout: time.Second, conn: c, pending: map[string]chan answer{}, addrOf: anyAddr}
 		if _, handed, err := tr.Send(ctx, "aid", []byte("x")); err == nil || !handed {
 			t.Fatalf("handed=%v err=%v", handed, err)
 		}

@@ -77,7 +77,7 @@ func TestTeeKeepsExactlyWhatWasDelivered(t *testing.T) {
 	}
 	send := func(id, env string) frame {
 		t.Helper()
-		if err := aenc.Encode(frame{Op: "send", V: wireVersion, ID: id, To: "aid-bob", Envelope: env}); err != nil {
+		if err := aenc.Encode(frame{Op: "send", V: wireVersion, ID: id, To: "aid-bob", Envelope: env, Addr: "203.0.113.7:39100"}); err != nil {
 			t.Fatal(err)
 		}
 		_ = ac.SetReadDeadline(time.Now().Add(5 * time.Second))

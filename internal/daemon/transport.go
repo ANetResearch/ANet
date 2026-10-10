@@ -13,11 +13,6 @@ import (
 	"github.com/ANetResearch/ANet/module"
 )
 
-// actionP2PRetired is the relayauth action of the hub rendezvous, which
-// relayauth no longer defines (wire 3 removes the rendezvous); the p2p
-// address publication below still uses it until its replacement lands.
-const actionP2PRetired = "p2p" // v030-todo(SS-11): the hub rendezvous route is removed
-
 // RegisterTransport adds a direct delivery path. Called by a transport
 // module at start; the hub is not one of them: the outbound engine sends to
 // it itself (outbox_attempt.go, A11).

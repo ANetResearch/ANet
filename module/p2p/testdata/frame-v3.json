@@ -1,6 +1,6 @@
 {
   "id": "FRAME-3",
-  "about": "p2p frame v3: one JSON object per line. Each frame of the registry's p2p table (op, dir) as module/p2p and tools/anetpeer write it, byte for byte; both read every line and write it back unchanged. Binary values are base64url without padding (core CORE-E5): the envelope here, and the dack (80 bytes, 107 characters), which only the recipient's daemon makes and everything between carries as it came. No frame says whether a message was processed or refused. The refused frames are answered with an error frame of v 3 (with the frame's id when it had one) and are never handed to a daemon or acked; a hello is also answered by closing the connection. Written by the Go test (go test ./module/p2p -run FRAME3 -update-frames).",
+  "about": "p2p frame v3: one JSON object per line. Each frame of the registry's p2p table (op, dir) as module/p2p and tools/anetpeer write it, byte for byte; both read every line and write it back unchanged. Binary values are base64url without padding (core CORE-E5): the envelope here, and the dack (80 bytes, 107 characters), which only the recipient's daemon makes and everything between carries as it came. No frame says whether a message was processed or refused. A frame of another version, or with a member its row does not have, or without one it must have, is refused (core CORE-K13a): answered with an error frame of v 3 (with the frame's id when it had one), never handed to a daemon or acked; a hello is also answered by closing the connection. Written by the Go test (go test ./module/p2p -run FRAME3 -update-frames).",
   "version": 3,
   "seeds": "every value below is SHA-256(\"anet-golden/v016/FRAME-3/<role>\"): envelope = H(envelope/0) || H(envelope/1), 64 bytes; dack = H(dack/0) || H(dack/1) || H(dack/2)[:16], 80 bytes. The AIDs are those of KEL-2B; the address is in 203.0.113.0/24 (RFC 5737).",
   "values": {
@@ -147,6 +147,48 @@
       "case": "send of v 2 with not_delivered",
       "at": "anetpeer from a peer",
       "line": "{\"op\":\"send\",\"v\":2,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"not_delivered\":true}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "hello with an unregistered member",
+      "at": "daemon",
+      "line": "{\"op\":\"hello\",\"v\":3,\"self\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"lan\":true}",
+      "answer": "error",
+      "closes": true
+    },
+    {
+      "case": "recv with an unregistered member",
+      "at": "daemon",
+      "line": "{\"op\":\"recv\",\"v\":3,\"id\":\"d1\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"from\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send with an unregistered member",
+      "at": "anetpeer from its daemon",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"addr\":\"203.0.113.7:39100\",\"from\":\"bafyreibkccppym6ec5j7a4gq2gvk5x6w2fdjmifisqeshpmik4q2wj6aei\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send without its addr",
+      "at": "anetpeer from its daemon",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send with an unregistered member",
+      "at": "anetpeer from a peer",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"from\":\"bafyreibkccppym6ec5j7a4gq2gvk5x6w2fdjmifisqeshpmik4q2wj6aei\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send that carries the addr on to a peer",
+      "at": "anetpeer from a peer",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"addr\":\"203.0.113.7:39100\"}",
       "answer": "error",
       "closes": false
     }
