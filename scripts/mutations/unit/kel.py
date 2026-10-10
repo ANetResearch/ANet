@@ -562,7 +562,7 @@ MUTS += [
   edits=[(IDREC, '\t\treturn RecoveryState{State: RecoveryNone}\n', '\t\treturn RecoveryState{State: RecoveryProtected}\n')],
   tests=K8(['TestRecoveryStateTable', 'TestRecoveryStateFollowsTheKEL', 'TestIdentityStatusSaysEachState']), full=K8_FULL),
  dict(id='kel8-m47a', group='KEL-8', repo='ANet', desc='M47:任务投影不带 anet.identity_note',
-  edits=[('internal/daemon/taskview.go', '\t\tIdentityNote: d.identityNote(a2ashape.Lang())}', '\t\tIdentityNote: ""}')],
+  edits=[('internal/daemon/taskview.go', '\t\tIdentityNote: d.identityNote(a2ashape.Lang()), ForBackend: o.backend}', '\t\tIdentityNote: "", ForBackend: o.backend}')],
   tests=K8_REMIND, full=K8_FULL),
  dict(id='kel8-m47b', group='KEL-8', repo='ANet', desc='M47:/status(MCP node_status)不带 identity',
   edits=[('internal/daemon/control_api.go', '\tout["identity"] = d.IdentityStatus()\n', '')],
