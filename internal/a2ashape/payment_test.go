@@ -1,6 +1,10 @@
 package a2ashape_test
 
 import (
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -31,27 +35,59 @@ func TestPaymentHold(t *testing.T) {
 	}
 }
 
-// §8.7: needs_operator_approval, and only that, is said as
-// payment_extension_not_activated, in the task and its status message, on
-// copies.
-func TestWithoutX402Extension(t *testing.T) {
-	md := map[string]any{a2ashape.KeyReason: x402a2a.ReasonNeedsOperatorApproval, "k": 1}
-	msg := &a2ashape.Message{ID: "m", Metadata: map[string]any{a2ashape.KeyReason: x402a2a.ReasonNeedsOperatorApproval}}
-	task := a2ashape.Task{ID: "ix_1", Status: a2ashape.TaskStatus{State: a2ashape.TaskStateInputRequired, Message: msg}, Metadata: md}
-	out := a2ashape.WithoutX402Extension(task)
-	if out.Metadata[a2ashape.KeyReason] != x402a2a.ReasonExtensionNotActivated || out.Metadata["k"] != 1 ||
-		out.Status.Message.Metadata[a2ashape.KeyReason] != x402a2a.ReasonExtensionNotActivated {
-		t.Fatalf("rewritten: %v %v", out.Metadata, out.Status.Message.Metadata)
+// IsPaymentHold knows every sentence of ux D1 a decision leaves a quote to
+// a person with, and nothing else.
+func TestIsPaymentHoldKnowsEveryD1Code(t *testing.T) {
+	waiting := func(reason string) a2ashape.Task {
+		msg := &a2ashape.Message{ID: "m", Metadata: map[string]any{a2ashape.KeyReason: reason}}
+		return a2ashape.Task{ID: "ix_1", Status: a2ashape.TaskStatus{State: a2ashape.TaskStateInputRequired, Message: msg}}
 	}
-	if md[a2ashape.KeyReason] != x402a2a.ReasonNeedsOperatorApproval || msg.Metadata[a2ashape.KeyReason] != x402a2a.ReasonNeedsOperatorApproval {
-		t.Fatal("the task given was changed")
+	for _, r := range []string{"needs_operator_approval", "quote_above_card_price", "card_price_unavailable"} {
+		if !a2ashape.IsPaymentHold(waiting(r)) {
+			t.Errorf("%s is a hold", r)
+		}
 	}
-	su := a2ashape.StatusWithoutX402Extension(a2ashape.StatusUpdate(task))
-	if su.Metadata[a2ashape.KeyReason] != x402a2a.ReasonExtensionNotActivated {
-		t.Fatalf("status update: %v", su.Metadata)
+	for _, r := range []string{"quote_expired", "rail_not_payable", "paid", ""} {
+		if a2ashape.IsPaymentHold(waiting(r)) {
+			t.Errorf("%q is not a hold", r)
+		}
 	}
-	other := a2ashape.Task{Metadata: map[string]any{a2ashape.KeyReason: "quote_expired"}}
-	if a2ashape.WithoutX402Extension(other).Metadata[a2ashape.KeyReason] != "quote_expired" {
-		t.Fatal("another reason was rewritten")
+}
+
+// HPP PAY-D9, M-PAY-49: the code a client that did not activate a2a-x402
+// was once told instead of needs_operator_approval is gone from the kernel,
+// the local A2A interface and every other Go file of this repository; the
+// reason table has no row for it.
+func TestNoPaymentExtensionNotActivated(t *testing.T) {
+	needle := "payment_extension" + "_not_activated"
+	if _, ok := a2ashape.Lookup(needle); ok {
+		t.Errorf("the reason table has %s", needle)
+	}
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, dir := range []string{"internal", "module", "cmd", "tools"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, de fs.DirEntry, err error) error {
+			if err != nil || de.IsDir() || !strings.HasSuffix(path, ".go") {
+				return err
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			n++
+			if strings.Contains(string(b), needle) {
+				t.Errorf("%s still says %s", path, needle)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n < 100 {
+		t.Fatalf("only %d Go files scanned", n)
 	}
 }

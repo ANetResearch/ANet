@@ -1,0 +1,27 @@
+{
+  "input": {
+    "tier": "auto",
+    "amount": 3,
+    "capability": "translate",
+    "signed_price": 3,
+    "single": 5,
+    "left": 6,
+    "manual_single": 10,
+    "manual_left": 6,
+    "spent_today": 44,
+    "payees_readable": true,
+    "payee_listed": true
+  },
+  "snapshot": {
+    "code": "paid.auto",
+    "amount": 3,
+    "price": 3,
+    "tier": "auto",
+    "single": 5,
+    "left": 3,
+    "peer": "bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz",
+    "at": "2026-10-10T09:30:00Z"
+  },
+  "zh": "报价 3 credits，在你的自动付款额度内（单笔 ≤5，今日剩 3），已自动付款。",
+  "en": "Quoted 3 credits, within your automatic limit (≤5 per payment, 3 left today): paid automatically."
+}

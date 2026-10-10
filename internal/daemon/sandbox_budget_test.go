@@ -380,7 +380,6 @@ func TestTheBudgetAndTheSpendingLimitsShareTheLocalDay(t *testing.T) {
 		}
 	}
 	t.Run("spend", func(t *testing.T) {
-		t.Skip("v030-todo(PAY-12)") // spend.go's totals still look back 24 hours; PAY-12 moves them to localDayBounds
 		got := calls("spend.go", "AdmitSpend", "loadSpendLocked", "SpendStatus")
 		for _, fn := range []string{"AdmitSpend", "loadSpendLocked", "SpendStatus"} {
 			if !got[fn] {

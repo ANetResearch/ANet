@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // captureCLI runs fn with the CLI's stdout and stderr (cliStdout, cliStderr) captured.
@@ -58,7 +59,8 @@ func TestCLIJSONOnStdout(t *testing.T) {
 	// A reason whose command is the same in every sentence of its code (no_local_task: anet audit
 	// --interaction {task}) gets its "  → " line.
 	rejected := `{"id":"ix_r","contextId":"c","status":{"state":"TASK_STATE_REJECTED","message":{"messageId":"m","role":"ROLE_AGENT",` +
-		`"parts":[{"text":"You are not on their list."}]}},"metadata":{"anet.role":"requester","anet.reason":"no_local_task"}}`
+		`"parts":[{"text":"You are not on their list."}]}},"metadata":{"anet.role":"requester","anet.reason":"no_local_task",` +
+		`"anet.next":"anet audit --interaction ix_r"}}`
 	submitted := `{"id":"ix_s","contextId":"c","status":{"state":"TASK_STATE_SUBMITTED"},"metadata":{"anet.role":"requester"}}`
 	refusal, _ := json.Marshal(a2ashape.Refuse("hub_pending_admission", a2ashape.Args{"hub": "https://hub.example", "aid": wholeAID}).Body(en))
 	var ref a2ashape.ErrorBody
@@ -112,32 +114,59 @@ func jsonEqual(a, b any) bool {
 }
 
 // UX-C2: the five human lines in their order, each "label: sentence" in the language of the
-// process, only those with a value, and the next step last. The delivery and kept lines come from
-// the work packages that give the projection their keys (deliveryLine, keptLine); here they are
-// stood in for.
+// process, only those with a value, and the next step last — read from a real projection: the
+// reason's sentence, the payment note and anet.next as the daemon gives them (core §2.13 revision
+// 7: the CLI works no command out itself). The delivery and kept lines come from the work packages
+// that give the projection their keys (deliveryLine, keptLine); here they are stood in for.
 func TestTaskLinesOrder(t *testing.T) {
 	prevD, prevK := deliveryLine, keptLine
 	t.Cleanup(func() { deliveryLine, keptLine = prevD, prevK })
 	deliveryLine = func(a2ashape.Task, a2ashape.Language, time.Time) (string, bool) { return "D sentence.", true }
 	keptLine = func(a2ashape.Task, a2ashape.Language, time.Time) (string, bool) { return "K sentence.", true }
-	answer := `{"id":"ix_1","status":{"state":"TASK_STATE_REJECTED","message":{"messageId":"m","role":"ROLE_AGENT",` +
-		`"parts":[{"text":"R sentence."}]}},"metadata":{"anet.reason":"no_local_task","anet.payment_note":"P sentence."},` +
-		`"warning":"N sentence."}`
+	note, _ := json.Marshal(a2ashape.PayNote{Code: "paid.auto", Amount: 3, Tier: "auto", Single: 5, Left: 44,
+		At: time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)})
+	ix := &interactions.Interaction{ID: "ix_1", Role: interactions.RoleOutbound, PeerAID: wholeAID,
+		State: interactions.StateRejected, StateSeq: 3, ContextID: "c", PayState: interactions.PayCompleted,
+		ResultMeta: `{"anet.reason":"no_local_task"}`, PayNote: note}
+	task := a2ashape.Project(a2ashape.Source{Interaction: ix, Payment: map[string]any{}}, a2ashape.Options{})
+	b, _ := json.Marshal(task)
+	var top map[string]any
+	_ = json.Unmarshal(b, &top)
+	top["warning"] = "N sentence."
+	answer, _ := json.Marshal(top)
+	reason, payment := messageText(task.Status.Message), task.Metadata[a2ashape.KeyPaymentNote].(string)
+	next, _ := task.Metadata[a2ashape.KeyNext].(string)
+	if reason == "" || payment != a2ashape.PaymentNote(a2ashape.PayNote{Code: "paid.auto", Amount: 3, Tier: "auto",
+		Single: 5, Left: 44}, a2ashape.Lang()) || next != "anet audit --interaction ix_1" {
+		t.Fatalf("the projection: reason %q, payment %q, next %q", reason, payment, next)
+	}
 	for _, lang := range []a2ashape.Language{a2ashape.English, a2ashape.Chinese} {
-		got := answerLines([]byte(answer), true, lang, time.Now())
+		got := answerLines(answer, true, lang, time.Now())
 		label := func(k string) string { return a2ashape.Label(k, lang) + ": " }
-		want := []string{label("task.reason") + "R sentence.", label("task.delivery") + "D sentence.",
-			label("task.payment") + "P sentence.", label("task.kept") + "K sentence.", label("task.note") + "N sentence.",
-			nextPrefix + a2ashape.Next("no_local_task", lang, a2ashape.Args{"task": "ix_1"})}
+		want := []string{label("task.reason") + reason, label("task.delivery") + "D sentence.",
+			label("task.payment") + payment, label("task.kept") + "K sentence.", label("task.note") + "N sentence.",
+			nextPrefix + next}
 		if strings.Join(got, "\n") != strings.Join(want, "\n") {
 			t.Errorf("%v:\n%s\nwant\n%s", lang, strings.Join(got, "\n"), strings.Join(want, "\n"))
 		}
-		if !strings.HasSuffix(want[5], "anet audit --interaction ix_1") {
-			t.Errorf("%v: next %q", lang, want[5])
-		}
+	}
+	deliveryLine, keptLine = prevD, prevK
+	// A task waiting on manual_limit: the command is the variant's (anet payments set first), not
+	// the anet pay the code's other variants give.
+	twelve := uint64(12)
+	note, _ = json.Marshal(a2ashape.PayNote{Code: "needs_operator_approval.manual_limit", Amount: 12, Tier: "auto",
+		Single: 10, Left: 50, Key: "explicit_max", Value: &twelve, At: time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)})
+	quote := []byte(`{"x402Version":2,"accepts":[{"scheme":"credit","network":"n","amount":"12","asset":"credit","payTo":"` + wholeAID + `"}]}`)
+	waiting := &interactions.Interaction{ID: "ix_2", Role: interactions.RoleOutbound, PeerAID: wholeAID,
+		State: interactions.StateInputRequired, StateSeq: 2, ContextID: "c", PayState: interactions.PayRequired,
+		PayRequired: quote, IsCapability: true, PayNote: note}
+	wt := a2ashape.Project(a2ashape.Source{Interaction: waiting, Payment: map[string]any{"anet.reason": "needs_operator_approval"}},
+		a2ashape.Options{})
+	b, _ = json.Marshal(wt)
+	if ml := answerLines(b, true, a2ashape.English, time.Now()); len(ml) != 2 || ml[1] != nextPrefix+"anet payments set explicit_max=12" {
+		t.Errorf("manual_limit: %q", ml)
 	}
 	// Only the lines with a value: a completed task has none; a working one with a message only that.
-	deliveryLine, keptLine = prevD, prevK
 	if got := answerLines([]byte(`{"id":"ix_1","status":{"state":"TASK_STATE_COMPLETED"}}`), true, a2ashape.English, time.Now()); len(got) != 0 {
 		t.Errorf("a completed task: %q", got)
 	}

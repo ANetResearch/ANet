@@ -571,15 +571,6 @@ func hasSkillBeyond(skills, public []string) bool {
 	return false
 }
 
-// signedPriceArrived is PAY-D5's wake-up: aid's extended card was just
-// kept, and each task of aid's that waits in input-required with a
-// card_price_unavailable snapshot for want of an answer (timeout), its
-// quote unexpired, has its payment decided again, once.
-//
-// v030-todo(PAY-12): decidePay and the pay_note snapshot it reads; until
-// then nothing waits for a signed price.
-func (d *Daemon) signedPriceArrived(aid string) {}
-
 // extendedForDisplay is the extended card a display shows for aid (PAY-C10
 // case 1): nothing when rule 2 does not hold (ra.ExtendedOffered), the
 // cached card when it is fresh, and otherwise a fetch.

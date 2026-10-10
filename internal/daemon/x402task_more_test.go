@@ -575,7 +575,7 @@ func TestEverySigningSurfaceIsHeldToTheSpendingPolicy(t *testing.T) {
 	if n := chainEvents(t, req, EvPaymentAuthorized); n != 0 {
 		t.Errorf("%d authorizations recorded for refused payments", n)
 	}
-	if st := req.SpendStatus(); st.Spent24h != 0 {
+	if st := req.SpendStatus(); st.SpentToday != 0 {
 		t.Errorf("refused payments counted: %+v", st)
 	}
 	if len(settleBodiesOn(hub)) != 0 || balanceOf(hub, req.AID()) != 500 {
@@ -604,8 +604,8 @@ func TestSpendTotalsAreRebuiltPastAThousandAuthorizations(t *testing.T) {
 		t.Fatal(err)
 	}
 	d = reopen(t, d)
-	if st := d.SpendStatus(); st.Spent24h != n {
-		t.Fatalf("after a restart: %d signed today, want %d", st.Spent24h, n)
+	if st := d.SpendStatus(); st.SpentToday != n {
+		t.Fatalf("after a restart: %d signed today, want %d", st.SpentToday, n)
 	}
 	if err := d.AdmitSpend("did:anet:a", 100, module.PurposeTaskManual); err == nil {
 		t.Error("the daily limit forgot authorizations past the first thousand")

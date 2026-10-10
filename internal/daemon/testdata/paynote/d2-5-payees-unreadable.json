@@ -1,0 +1,27 @@
+{
+  "input": {
+    "tier": "auto",
+    "amount": 3,
+    "capability": "translate",
+    "signed_price": 3,
+    "single": 5,
+    "left": 6,
+    "manual_single": 10,
+    "manual_left": 6,
+    "spent_today": 44,
+    "payees_readable": false,
+    "payee_listed": false
+  },
+  "snapshot": {
+    "code": "needs_operator_approval.payees_unreadable",
+    "amount": 3,
+    "price": 3,
+    "tier": "auto",
+    "single": 5,
+    "left": 6,
+    "peer": "bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz",
+    "at": "2026-10-10T09:30:00Z"
+  },
+  "zh": "报价 3 credits，付款名单读不了，没有自动付款；请执行 anet pay t_9f3c，再用 anet doctor 修复名单。",
+  "en": "Quoted 3 credits; the payee list cannot be read, so nothing was paid automatically; run anet pay t_9f3c, then fix the list with anet doctor."
+}

@@ -43,7 +43,6 @@ func TestTheWireStringsArePinned(t *testing.T) {
 		ExtAuthID:                   "anet.auth_id",
 		ReasonTaskNonceRequired:     "task_nonce_required",
 		ReasonNeedsOperatorApproval: "needs_operator_approval",
-		ReasonExtensionNotActivated: "payment_extension_not_activated",
 	} {
 		if got != want {
 			t.Errorf("%q, want %q", got, want)

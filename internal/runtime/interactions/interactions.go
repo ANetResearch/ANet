@@ -191,6 +191,10 @@ type Interaction struct {
 	PayPayload      []byte
 	PayReceipts     []byte // JSON array of settlement responses
 	QuoteExpiresAt  int64  // unix ms
+	// PayNote is the payment decision as it was taken (HPP PAY-U5): the
+	// JSON of an a2ashape.PayNote, nil before the first decision. Every
+	// surface renders it as it is; nothing is computed again (PAY-U6).
+	PayNote []byte
 	// PeerKEL and PeerKeys hold the requester's KEL and SignedEncKeySet for
 	// a public or public_cap interaction, whose peer is not recorded in
 	// peer_identity (A2A-DESIGN §3.8). They are deleted when the
@@ -473,7 +477,10 @@ var interactionSchema = []string{
 	   peer_kel BLOB,
 	   peer_keys BLOB,
 	   result_meta BLOB NOT NULL DEFAULT X'',
-	   peer_rk BLOB
+	   peer_rk BLOB,
+	   -- The payment decision as it was taken (HPP PAY-U5, §3.5): JSON, or
+	   -- NULL before the first one.
+	   pay_note BLOB
 	 )`,
 	// The per-interaction conversation log.
 	`CREATE TABLE message (
@@ -900,7 +907,7 @@ func (s *Store) SetReview(id string, review []byte) error {
 // ixColumns is the shared SELECT column list for scanning an Interaction (keep in sync with scanRows).
 const ixColumns = `seq,id,role,peer_aid,goal,state,state_at,state_seq,request_cid,request_doc,result_cid,result,receipt,review,
 receipt_verified,end_req_by,end_acc_by,context_id,trust,is_capability,task_nonce,pay_state,pay_required,pay_auth_ids,
-pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,peer_rk,created_at,updated_at`
+pay_payload,pay_receipts,quote_expires_at,peer_kel,peer_keys,result_meta,peer_rk,pay_note,created_at,updated_at`
 
 // Get returns one interaction by id.
 func (s *Store) Get(id string) (*Interaction, error) {
@@ -1603,7 +1610,7 @@ func scanRows(sc scanner) (*Interaction, error) {
 		&ix.RequestCID, &ix.RequestDoc, &ix.ResultCID, &ix.Result, &ix.Receipt, &ix.Review,
 		&verified, &ix.EndReqBy, &ix.EndAccBy, &ix.ContextID, &ix.Trust, &capFlag, &ix.TaskNonce,
 		&ix.PayState, &ix.PayRequired, &authIDs, &ix.PayPayload, &ix.PayReceipts, &ix.QuoteExpiresAt,
-		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.PeerRK, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
+		&ix.PeerKEL, &ix.PeerKeys, &ix.ResultMeta, &ix.PeerRK, &ix.PayNote, &ix.CreatedAt, &ix.UpdatedAt); err != nil {
 		return nil, err
 	}
 	ix.Role = Role(role)

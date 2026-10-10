@@ -132,7 +132,8 @@ func TestPayingWithoutCreditIsRefusedAsAPayment(t *testing.T) {
 		t.Fatal(err)
 	}
 	grantOn(srv.URL, req.AID(), 10) // not enough
-	payPolicy(t, req, PaymentsConfig{AutoMax: 200, AgentDailyMax: 500, DailyMax: u64(1000)}, prov.AID())
+	cardPriced(t, req, prov, "work.do")
+	payPolicy(t, req, PaymentsConfig{AutoMax: 200, DailyMax: u64(1000)}, prov.AID())
 	ctx := context.Background()
 
 	id, err := req.DelegateCapability(ctx, prov.AID(), "work.do", nil)

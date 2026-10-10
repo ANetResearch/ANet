@@ -12,25 +12,24 @@ import (
 )
 
 // A payments block that leaves a key out gets that key's default, not zero;
-// an explicit 0 is kept; an explicit empty payees_file turns the payee list
-// off.
+// an explicit 0 is kept. There is no payee-list setting (N-UX1).
 func TestPaymentsBlockDefaults(t *testing.T) {
 	var c Config
 	if err := json.Unmarshal([]byte(`{"payments":{"auto_max":3}}`), &c); err != nil {
 		t.Fatal(err)
 	}
-	want := SpendLimits{AutoMax: 3, ExplicitMax: defaultExplicitMax, DailyMax: defaultDailyMax, PayeesFile: defaultPayeesFile}
+	want := SpendLimits{AutoMax: 3, ExplicitMax: defaultExplicitMax, DailyMax: defaultDailyMax}
 	if got := c.Payments.Limits(); got != want {
 		t.Fatalf("partial block = %+v, want %+v", got, want)
 	}
-	if err := json.Unmarshal([]byte(`{"payments":{"payees_file":"","explicit_max":0}}`), &c); err != nil {
+	if err := json.Unmarshal([]byte(`{"payments":{"explicit_max":0}}`), &c); err != nil {
 		t.Fatal(err)
 	}
-	if got := c.Payments.Limits(); got.PayeesFile != "" || got.ExplicitMax != 0 || got.DailyMax != defaultDailyMax {
-		t.Fatalf("explicit empty payees_file and explicit_max 0: %+v", got)
+	if got := c.Payments.Limits(); got.ExplicitMax != 0 || got.DailyMax != defaultDailyMax {
+		t.Fatalf("explicit_max 0: %+v", got)
 	}
 	var none *PaymentsConfig
-	if got := none.Limits(); got != (SpendLimits{ExplicitMax: defaultExplicitMax, DailyMax: defaultDailyMax, PayeesFile: defaultPayeesFile}) {
+	if got := none.Limits(); got != (SpendLimits{ExplicitMax: defaultExplicitMax, DailyMax: defaultDailyMax}) {
 		t.Fatalf("no block: %+v", got)
 	}
 	// defaultPayments states every key and means the same as no block.
@@ -41,10 +40,13 @@ func TestPaymentsBlockDefaults(t *testing.T) {
 	b, _ := json.Marshal(d)
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
-	for _, k := range []string{"auto_max", "agent_max", "agent_daily_max", "explicit_max", "daily_max", "payees_file"} {
+	for _, k := range []string{"auto_max", "agent_max", "agent_daily_max", "explicit_max", "daily_max"} {
 		if _, ok := m[k]; !ok {
 			t.Errorf("defaultPayments leaves %s out: %s", k, b)
 		}
+	}
+	if _, ok := m["payees_file"]; ok {
+		t.Errorf("defaultPayments writes payees_file, a removed key: %s", b)
 	}
 }
 
@@ -62,7 +64,7 @@ func TestAConfigWithoutPaymentsIsGivenTheDefaults(t *testing.T) {
 	}
 	var p map[string]any
 	if err := json.Unmarshal(m["payments"], &p); err != nil || p["auto_max"] != float64(0) ||
-		p["explicit_max"] != float64(defaultExplicitMax) || p["payees_file"] != defaultPayeesFile {
+		p["explicit_max"] != float64(defaultExplicitMax) || p["payees_file"] != nil {
 		t.Fatalf("payments on disk = %s (%v)", m["payments"], err)
 	}
 }
@@ -103,7 +105,7 @@ func TestPaymentLimitsRoute(t *testing.T) {
 			t.Errorf("%s: %d, want 400", body, code)
 		}
 	}
-	if got := p.d.config().Payments.Limits(); got.AutoMax != 5 || got.PayeesFile != defaultPayeesFile {
+	if got := p.d.config().Payments.Limits(); got.AutoMax != 5 {
 		t.Fatalf("a refused request changed the limits: %+v", got)
 	}
 }
@@ -119,7 +121,7 @@ func TestAFailedLimitWriteLeavesTheLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, prior := d.ledger.Evidence(EvidenceQuery{EventType: EvPolicyChanged})
-	if err := d.SetSpendLimits(map[string]uint64{"agent_max": 5}, nil); err == nil {
+	if err := d.SetSpendLimits(map[string]uint64{"agent_max": 5}); err == nil {
 		t.Fatal("save over a directory succeeded")
 	}
 	if got := d.config().Payments.Limits(); got != before {

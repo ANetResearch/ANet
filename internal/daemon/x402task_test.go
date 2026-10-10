@@ -26,6 +26,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
@@ -41,7 +42,7 @@ func payPolicy(t *testing.T, d *Daemon, pc PaymentsConfig, payees ...string) {
 	d.cfg.Payments = &pc
 	d.mu.Unlock()
 	if len(payees) > 0 {
-		appendPeerFile(t, d, d.config().Payments.limits().PayeesFile, payees...)
+		appendPeerFile(t, d, payeesFile, payees...)
 	}
 }
 
@@ -100,7 +101,23 @@ func paidPair(t *testing.T, work *meteredWork) (string, *Daemon, *Daemon) {
 		t.Fatal(err)
 	}
 	grantOn(srv.URL, req.AID(), 500)
+	cardPriced(t, req, prov, "work.do")
 	return srv.URL, req, prov
+}
+
+// cardPriced publishes caps on prov's public card and has req keep prov's
+// extended card, as a payment asks for it (PAY-C10 case 2): the price prov
+// signed, which the automatic and the agent tier compare a quote with (HPP
+// PAY-D2). Without it those tiers ask prov when the quote arrives.
+func cardPriced(t *testing.T, req, prov *Daemon, caps ...string) {
+	t.Helper()
+	setPublic(prov, caps...)
+	p := whilePolling(t, func() cardPrice {
+		return req.signedPriceFor(context.Background(), prov.AID(), caps[0], 0)
+	}, req, prov)
+	if !p.Have {
+		t.Fatalf("%s's extended card: %+v", prov.AID(), p)
+	}
 }
 
 func poll(t *testing.T, ds ...*Daemon) {
@@ -263,50 +280,56 @@ func TestAQuoteAboveTheAutoTierWaitsForADecision(t *testing.T) {
 		_ = json.Unmarshal(b, &out)
 		return resp.StatusCode, out
 	}
-	// Above the agent tier the answer is not an error (§8.3): 200, the task
-	// still waiting (input-required, payment-required) with anet.reason
-	// needs_operator_approval, the policy's code, and a message that says
-	// the operator pays with `anet pay <task>`.
-	//
-	// `anet pay` is bound by explicit_max, daily_max and the payee list as
-	// well, so the message names what the operator has to change first; on
-	// a new node (payee list on and empty) that is `anet payees add`.
+	// A decision the agent tier leaves to a person is not an error (HPP
+	// PAY-D3): 200, the task still waiting (input-required,
+	// payment-required) with the decision's anet.reason, the first check
+	// that did not pass (spend_refusal), and its sentence as message and
+	// note — the task's anet.payment_note, word for word. The sentence's
+	// command works as it says: when `anet pay` would be refused too, it
+	// names the setting to raise first (manual_limit, P-PAY-6 ②).
 	submit := `{"task_id":"` + id + `","decision":"submit"}`
-	addPayee := "`anet payees add " + prov.AID() + "`"
-	held := func(what, code string, first ...string) {
+	held := func(what, code, variant string) {
 		t.Helper()
 		status, out := pay(submit)
 		msg, _ := out["message"].(string)
 		if status != http.StatusOK || out["anet.reason"] != x402a2a.ReasonNeedsOperatorApproval ||
 			out["spend_refusal"] != code || out["state"] != string(interactions.StateInputRequired) ||
-			out[x402a2a.KeyStatus] != x402a2a.StatusRequired || !strings.Contains(msg, "anet pay "+id) {
+			out[x402a2a.KeyStatus] != x402a2a.StatusRequired || out["note"] != msg {
 			t.Fatalf("%s: %d %v", what, status, out)
 		}
-		payAt := strings.Index(msg, "`anet pay "+id+"`")
-		for _, f := range first {
-			if i := strings.Index(msg, f); i < 0 || i > payAt {
-				t.Fatalf("%s: the message does not name %s before `anet pay`: %q", what, f, msg)
-			}
+		n, ok := storedPayNote(getIX(t, req, id))
+		if !ok || n.Code != "needs_operator_approval."+variant || n.Tier != a2ashape.PayTierAgent ||
+			msg != a2ashape.PaymentNote(n, a2ashape.Lang()) {
+			t.Fatalf("%s: the stored decision %+v (%v) for %q", what, n, ok, msg)
 		}
-		if len(first) == 0 && strings.Contains(msg, ", then ") {
-			t.Fatalf("%s: the message names steps that are not needed: %q", what, msg)
+		if task := getTaskProjection(t, req, id); task.Metadata[a2ashape.KeyPaymentNote] != msg ||
+			task.Status.Message == nil || len(task.Status.Message.Parts) != 1 || task.Status.Message.Parts[0].Text != msg {
+			t.Fatalf("%s: the task does not say the sentence: %+v", what, task)
 		}
 	}
-	held("agent tier at agent_max 0", SpendOverSingle, addPayee)
+	held("agent tier at agent_max 0", SpendOverSingle, "off")
 	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10})
-	held("a payee not on the list", SpendPayeeNotAllowed, addPayee)
-	// The manual tier has no one above it: its refusal stays a refusal.
+	held("a payee not on the list", SpendPayeeNotAllowed, "payee_not_allowed")
+	// The manual tier has no one above it: its refusal stays a refusal,
+	// said in its sentence (ux D4); it is not held to the payee list.
+	three := uint64(3)
+	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10, ExplicitMax: &three})
 	manual, mb := p.req(t, "POST", "/tasks/pay-manual", `{"task_id":"`+id+`","decision":"submit"}`, p.bearer)
-	if manual.StatusCode != http.StatusForbidden || !strings.Contains(string(mb), SpendPayeeNotAllowed) {
-		t.Fatalf("the manual tier to a payee not on the list: %d %s", manual.StatusCode, mb)
+	var body a2ashape.ErrorBody
+	if manual.StatusCode != http.StatusForbidden || json.Unmarshal(mb, &body) != nil || body.Reason != SpendOverSingle ||
+		body.Next != "anet payments set explicit_max=5" ||
+		body.Error != a2ashape.Sentence(SpendOverSingle, a2ashape.Lang(), a2ashape.Args{"amount": 5, "single": 3, "key": "explicit_max"}) {
+		t.Fatalf("the manual tier above explicit_max: %d %s", manual.StatusCode, mb)
 	}
 	// With the payee on the list, `anet pay` alone is what the operator
 	// runs; above explicit_max as well, raising it comes first.
 	payPolicy(t, req, PaymentsConfig{AgentMax: 1, AgentDailyMax: 10}, prov.AID())
-	held("over agent_max, payee listed", SpendOverSingle)
-	three := uint64(3)
+	held("over agent_max, payee listed", SpendOverSingle, "over_limit")
 	payPolicy(t, req, PaymentsConfig{AgentMax: 1, AgentDailyMax: 10, ExplicitMax: &three})
-	held("over agent_max and explicit_max", SpendOverSingle, "`anet payments set explicit_max=5`")
+	held("over agent_max and explicit_max", SpendOverSingle, "manual_limit")
+	if task := getTaskProjection(t, req, id); task.Metadata[a2ashape.KeyNext] != "anet payments set explicit_max=5" {
+		t.Fatalf("anet.next of manual_limit: %v", task.Metadata[a2ashape.KeyNext])
+	}
 	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10})
 	if n := chainEvents(t, req, EvPaymentAuthorized); n != 0 {
 		t.Fatalf("refused payments were recorded as authorized: %d", n)
@@ -426,14 +449,17 @@ func TestTheSpendingPolicyTiers(t *testing.T) {
 		{"did:anet:a", 1, "gateway", SpendUnknownPurpose}, // the gateway tier is gone (0.3.0)
 		{"did:anet:a", 10, module.PurposeTaskAuto, ""},
 		{"did:anet:a", 10, module.PurposeTaskAuto, ""},
-		{"did:anet:a", 10, module.PurposeTaskAuto, SpendOverAgentDaily}, // auto payments split up still meet agent_daily_max
+		// The automatic tier counts against daily_max alone, not
+		// agent_daily_max (HPP PAY-D6, countsAgentDaily).
+		{"did:anet:a", 10, module.PurposeTaskAuto, ""},
 		{"did:anet:a", 21, module.PurposeTaskAgent, SpendOverSingle},
 		{"did:anet:a", 5, module.PurposeTaskAgent, ""},
-		{"did:anet:a", 1, module.PurposeTaskAgent, SpendOverAgentDaily},
+		{"did:anet:a", 1, module.PurposeTaskAgent, ""},
+		{"did:anet:a", 20, module.PurposeTaskAgent, SpendOverAgentDaily}, // 6 + 20 > 25
 		{"did:anet:a", 31, module.PurposeTaskManual, SpendOverSingle},
-		{"did:anet:a", 30, module.PurposeTaskManual, ""},
+		{"did:anet:b", 19, module.PurposeTaskManual, ""}, // a person's payment is not held to the payee list
 		{"did:anet:a", 6, module.PurposeTaskManual, SpendOverDaily},
-		{"did:anet:hub-not-a-payee", 5, module.PurposeRedeem, ""}, // redeem is not held to the payee list
+		{"did:anet:hub-not-a-payee", 5, module.PurposeRedeem, ""}, // nor is a redemption
 		{"did:anet:hub-not-a-payee", 1, module.PurposeRedeem, SpendOverDaily},
 	}
 	for i, s := range steps {
@@ -448,7 +474,8 @@ func TestTheSpendingPolicyTiers(t *testing.T) {
 			t.Errorf("step %d (%s %d to %s): %q, want %q", i, s.purpose, s.amount, s.payTo, got, s.want)
 		}
 	}
-	if st := d.SpendStatus(); st.Spent24h != 60 || st.AgentSpent24h != 25 {
+	if st := d.SpendStatus(); st.SpentToday != 60 || st.AgentSpentToday != 6 || st.LeftToday != 0 ||
+		st.AgentLeftToday != 0 || st.Payees != 1 {
 		t.Errorf("totals = %+v", st)
 	}
 	// Through the module: a refusal signs and records nothing.
@@ -540,7 +567,7 @@ func TestSpendTotalsAreRebuiltAtStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	d = reopen(t, d)
-	if st := d.SpendStatus(); st.Spent24h != 10 || st.AgentSpent24h != 3 {
+	if st := d.SpendStatus(); st.SpentToday != 10 || st.AgentSpentToday != 3 {
 		t.Fatalf("after a restart: %+v, want 10 in total and 3 in the agent tiers", st)
 	}
 	if err := d.AdmitSpend("did:anet:a", 8, module.PurposeTaskAgent); err == nil {
@@ -1010,4 +1037,14 @@ func mustPayBind(tb testing.TB, ix, nonce string) string {
 		tb.Fatal(err)
 	}
 	return b
+}
+
+// getTaskProjection is the task as the control plane's /tasks/get shows it.
+func getTaskProjection(t *testing.T, d *Daemon, id string) a2ashape.Task {
+	t.Helper()
+	task, err := d.getTask(controlScope, id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return task
 }

@@ -16,10 +16,11 @@ package a2a
 // message like any other here: the kernel recognises it on Send, so its
 // messageId is deduplicated with the rest, and makes the decision.
 //
-// One thing depends on the request rather than the task: a client that did
-// not activate a2a-x402 cannot answer a quote itself, so where the kernel
-// says a task waits for a payment decision (needs_operator_approval) such
-// a client is told payment_extension_not_activated (§8.7, forClient).
+// Nothing about a task depends on whether the client activated a2a-x402:
+// a task that waits on a payment decision says the decision's reason and
+// sentence to every client, word for word what the CLI and MCP show (HPP
+// PAY-D9). Whether the extension was activated is told by the standard
+// mechanism alone, the A2A-Extensions header of the response.
 
 import (
 	"context"
@@ -32,7 +33,6 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
-	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -143,9 +143,6 @@ func (h *handler) sendBlocking(ctx context.Context, r *a2a.SendMessageRequest, l
 			return &sentStream{req: req, err: ref}
 		}
 		return &sentStream{req: req, err: toSDKError(err)}
-	}
-	if !isPaymentMessage(req.Message) {
-		t = forClient(info, t)
 	}
 	return &sentStream{req: req, task: t}
 }
@@ -269,7 +266,7 @@ func (h *handler) GetTask(ctx context.Context, r *a2a.GetTaskRequest) (*a2a.Task
 	if err != nil {
 		return nil, toSDKError(err)
 	}
-	return sdkTask(forClient(info, t))
+	return sdkTask(t)
 }
 
 // ListTasks lists this node's tasks with the agent, most recent state
@@ -294,7 +291,6 @@ func (h *handler) ListTasks(ctx context.Context, r *a2a.ListTasksRequest) (*a2a.
 		if !r.IncludeArtifacts {
 			page.Tasks[i].Artifacts = nil
 		}
-		page.Tasks[i] = forClient(info, page.Tasks[i])
 	}
 	out, err := convert[a2a.ListTasksResponse](page)
 	if err != nil {
@@ -321,7 +317,7 @@ func (h *handler) CancelTask(ctx context.Context, r *a2a.CancelTaskRequest) (*a2
 	if err != nil {
 		return nil, toSDKError(err)
 	}
-	return sdkTask(forClient(info, t))
+	return sdkTask(t)
 }
 
 // The push-notification operations: this interface has no way to reach a
@@ -399,7 +395,7 @@ func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after in
 	for _, a := range snap.Artifacts {
 		seen[a.ID] = true
 	}
-	first, err := sdkTask(a2ashape.TaskForStream(forClient(info, snap)))
+	first, err := sdkTask(a2ashape.TaskForStream(snap))
 	if err != nil {
 		yield(nil, err)
 		return
@@ -437,7 +433,7 @@ func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after in
 		if isStatus && state.Terminal() && !h.flushArtifacts(ctx, peer, id, seen, yield) {
 			return
 		}
-		out, err := sdkEvent(a2ashape.EventForStream(eventForClient(info, ev)))
+		out, err := sdkEvent(a2ashape.EventForStream(ev))
 		if err != nil {
 			yield(nil, err)
 			return
@@ -516,34 +512,6 @@ func stateSeq(meta map[string]any) int64 {
 }
 
 // --- payments (A2A-DESIGN §8.7) ---
-
-// forClient is t as this request's client is told it: a client that did
-// not activate a2a-x402 reads payment_extension_not_activated where the
-// kernel says the task waits for a payment decision (§8.7). The kernel
-// pays within the automatic tier either way; above it, such a client
-// cannot answer the quote until it activates the extension.
-func forClient(info *reqInfo, t module.Task) module.Task {
-	if x402a2a.Activated(info.requested) {
-		return t
-	}
-	return a2ashape.WithoutX402Extension(t)
-}
-
-// eventForClient is forClient for one stream event.
-func eventForClient(info *reqInfo, ev module.TaskEvent) module.TaskEvent {
-	if x402a2a.Activated(info.requested) {
-		return ev
-	}
-	switch {
-	case ev.StatusUpdate != nil:
-		su := a2ashape.StatusWithoutX402Extension(*ev.StatusUpdate)
-		ev.StatusUpdate = &su
-	case ev.Task != nil:
-		t := a2ashape.WithoutX402Extension(*ev.Task)
-		ev.Task = &t
-	}
-	return ev
-}
 
 // isPaymentMessage reports a message that carries a2a-x402 metadata: a
 // local client answering a payment-required task.

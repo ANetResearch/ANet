@@ -558,17 +558,10 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	// Payments (§8.6).
 	rep.Payments, rep.Payees = st.Payments, st.Payees
 	p := st.Payments
-	payees := "payee list off (any payee)"
-	if p.PayeesFile != "" {
-		payees = fmt.Sprintf("payee list on, %d entries (%s)", len(st.Payees), st.PayeesPath)
-	}
-	payDetail := fmt.Sprintf("auto_max %d; agent_max %d, agent_daily_max %d; explicit_max %d, daily_max %d; %s",
-		p.AutoMax, p.AgentMax, p.AgentDailyMax, p.ExplicitMax, p.DailyMax, payees)
-	if p.PayeesFile == "" && (p.AutoMax > 0 || p.AgentMax > 0) {
-		add("payments", stWarn, payDetail+" — automatic or agent payments to any payee", "")
-	} else {
-		add("payments", stOK, payDetail, "")
-	}
+	payDetail := fmt.Sprintf("auto_max %d; agent_max %d, agent_daily_max %d; explicit_max %d, daily_max %d; "+
+		"payee list %d entries (%s)", p.AutoMax, p.AgentMax, p.AgentDailyMax, p.ExplicitMax, p.DailyMax,
+		len(st.Payees), st.PayeesPath)
+	add("payments", stOK, payDetail, "")
 	paymentsCardCheck(say, add, rep, env, layout) // doctor_payments.go
 
 	// Tasks this node sends (§4.2): how long one may hear nothing at all

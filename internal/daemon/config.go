@@ -383,8 +383,6 @@ const InviteEnv = "ANET_INVITE"
 // its own files, so each waits for the work item that deletes its code,
 // which also deletes its line here (R-5).
 var removedStillWritten = map[string]string{
-	// The defaults write the payee list's file.
-	"payments.payees_file": "v030-todo(PAY-12)",
 	// `anet autoreply set --require-image|--usage-hint|--error-reply|
 	// --poll-interval|--max-auto-replies` still write these.
 	"auto_reply.require_image":         "v030-todo(UX-9)",

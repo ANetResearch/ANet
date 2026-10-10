@@ -29,9 +29,6 @@ const (
 	reasonOptionNotOffered      = "option_not_offered"
 	reasonClientPayload         = "client_payload_unsupported"
 	reasonNeedsOperatorApproval = "needs_operator_approval"
-	// reasonNotActivated is the reason §8.7 gives a quote above the auto
-	// tier when the client did not activate a2a-x402.
-	reasonNotActivated = "payment_extension_not_activated"
 	// spendOverSingle is the spending policy's refusal code for a payment
 	// above the tier's single limit (agent_max here). The kernel's refusal
 	// of an over-limit payment message names it; a refusal that does not
@@ -56,10 +53,11 @@ func (p *probe) payFlow(ctx context.Context, card *a2a.AgentCard, paid, pricey s
 		return
 	}
 	p.st.Paid = string(t.ID)
-	if r := str(taskMeta(t, keyReason)); !p.x402 && r != reasonNotActivated {
-		// Without a2a-x402 on the card the activator asked for nothing.
+	if !p.x402 {
+		// Without a2a-x402 on the card the activator asked for nothing; the
+		// task says the same as to any other client (HPP PAY-D9).
 		p.rep.note("pay-not-activated", "the client did not activate a2a-x402 (the card does not declare it); "+
-			"§8.7 then says %s=%s above the auto tier, the task says %q", keyReason, reasonNotActivated, r)
+			"the task says %s=%q, as to a client that did", keyReason, str(taskMeta(t, keyReason)))
 	}
 
 	// An option the quote did not offer: refused here, nothing signed; the
@@ -116,7 +114,7 @@ func (p *probe) payFlow(ctx context.Context, card *a2a.AgentCard, paid, pricey s
 	g, err = cl.GetTask(gctx, &a2a.GetTaskRequest{ID: t2.ID})
 	cancel()
 	reason := str(metaOf(g, keyReason))
-	waits := reason == reasonNeedsOperatorApproval || (!p.x402 && reason == reasonNotActivated)
+	waits := reason == reasonNeedsOperatorApproval
 	p.rep.check(err == nil && g.Status.State == a2a.TaskStateInputRequired && str(taskMeta(g, keyX402Status)) == payRequired &&
 		waits, "pay-over-limit-task",
 		"the task waits: %s, %s=%v, %s=%v (%v)", stateOf(g), keyX402Status, metaOf(g, keyX402Status), keyReason, metaOf(g, keyReason), errText(err))

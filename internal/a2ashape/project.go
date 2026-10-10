@@ -313,6 +313,10 @@ type projector struct {
 	resultMeta map[string]any
 	// payment is Source.Payment.
 	payment map[string]any
+	// note is the latest payment decision on a task this node started
+	// (pay_note, HPP PAY-U5), with the task's id to render it; nil when
+	// there is none or it does not read (ParsePayNote).
+	note *PayNote
 	// inlineLeft is what is left of the inline limit (Options.InlineLimit).
 	inlineLeft int64
 }
@@ -349,6 +353,12 @@ func newProjector(src Source, opt Options) *projector {
 		}
 	}
 	p.resultMeta = decodeObject([]byte(ix.ResultMeta))
+	if p.outbound && len(ix.PayNote) > 0 {
+		if n, err := ParsePayNote(ix.PayNote); err == nil {
+			n.Task = ix.ID
+			p.note = &n
+		}
+	}
 	if src.Payment != nil {
 		// Re-read as the projection's own JSON values: the quote in it is
 		// the peer's, and is held to the same rules (finite numbers) as
@@ -679,6 +689,12 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 		}
 	case interactions.StateInputRequired:
 		if p.paymentRequired() {
+			if p.waitingNote() {
+				// The decision's own sentence, word for word what the CLI's
+				// payment line and MCP show, whether or not the client
+				// activated a2a-x402 (HPP PAY-D9, SI-79).
+				return p.paymentNoteMessage(), nil
+			}
 			if fresh && p.metas[prov][KeyX402Status] != nil {
 				return p.statusRow(prov), p.metas[prov]
 			}
@@ -783,6 +799,45 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 		return msg, why
 	}
 	return nil, nil
+}
+
+// waitingNote reports a task this node started that waits on a payment
+// with a decision that did not pay: a sentence of ux D1 (a person
+// decides) or D3 (the last payment did not settle). A paid.* snapshot is
+// not why a task waits.
+func (p *projector) waitingNote() bool {
+	return p.note != nil && p.ix.State == interactions.StateInputRequired && p.paymentRequired() &&
+		!strings.HasPrefix(p.note.Code, "paid.")
+}
+
+// paymentNoteMessage is status.message of a task waiting on a payment
+// decision (HPP PAY-D9, PAY-U6): the payment sentence and nothing else, so
+// a client that reads only text reads what the CLI's payment line says,
+// with the quote's a2a-x402 keys and anet.reason in its metadata for a
+// client that answers it.
+func (p *projector) paymentNoteMessage() *Message {
+	meta := map[string]any{KeyX402Status: PaymentRequired}
+	if p.kernelPayment() {
+		for _, k := range x402Keys {
+			if v, ok := p.payment[k]; ok {
+				meta[k] = v
+			}
+		}
+	} else {
+		if p.ix.PayState == interactions.PayFailed {
+			meta[KeyX402Status] = PaymentFailed
+			if rc := p.x402Receipts(); rc != nil {
+				meta[KeyX402Receipts] = rc
+			}
+		}
+		if req := p.x402Required(); req != nil {
+			meta[KeyX402Required] = req
+		}
+	}
+	if r, ok := p.payment[KeyReason]; ok {
+		meta[KeyReason] = r
+	}
+	return p.synthesized(PaymentNote(*p.note, Lang()), meta)
 }
 
 // paymentRequiredMessage is the a2a-x402 payment-required message, built
@@ -1041,7 +1096,40 @@ func (p *projector) metadata(why map[string]any) map[string]any {
 			m[KeyReason] = v
 		}
 	}
+	if p.note != nil {
+		// From the first decision on, ended or not (HPP §2.7).
+		m[KeyPaymentNote] = PaymentNote(*p.note, Lang())
+	}
+	if next := p.next(m); next != "" {
+		m[KeyNext] = next
+	}
 	return m
+}
+
+// next is anet.next (core §2.13 revision 7): the command of the row that
+// says why the task is where it is — the payment note's own key while the
+// task waits on it (the variant decides the command: manual_limit asks for
+// anet payments set first), otherwise anet.reason's row — when the row's
+// next step is a command and every value it needs is known. A code whose
+// rows differ by variant and that has no row of its own gives none: the
+// projection does not guess a variant.
+func (p *projector) next(m map[string]any) string {
+	key, _ := m[KeyReason].(string)
+	args := Args{"task": p.ix.ID, "peer": p.ix.PeerAID}
+	if p.waitingNote() {
+		key, args = p.note.Code, PayNoteArgs(*p.note)
+		if args["peer"] == "" {
+			args["peer"] = p.ix.PeerAID
+		}
+	}
+	if key == "" {
+		return ""
+	}
+	r, ok := Lookup(key)
+	if !ok || r.NextKind != NextCommand {
+		return ""
+	}
+	return Next(key, Lang(), args)
 }
 
 func receiptVerified(v interactions.Verification) string {

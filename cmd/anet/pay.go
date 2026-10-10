@@ -171,23 +171,21 @@ func taskSkill(c *client, ix string) string {
 }
 
 // spendLimits is what /payments/status says of the limits and today's
-// spending.
+// spending (HPP §2.7).
 type spendLimits struct {
 	AutoMax       uint64 `json:"auto_max"`
 	AgentMax      uint64 `json:"agent_max"`
 	AgentDailyMax uint64 `json:"agent_daily_max"`
 	ExplicitMax   uint64 `json:"explicit_max"`
 	DailyMax      uint64 `json:"daily_max"`
-	Spent24h      uint64 `json:"spent_24h"`
+	// LeftToday is what the manual tier may still pay today, as the
+	// daemon counted it (daily_max − spent_today): the {left} of the
+	// prompts, never worked out here.
+	LeftToday uint64 `json:"left_today"`
 }
 
 // left is what may still be paid today under daily_max.
-func (s spendLimits) left() uint64 {
-	if s.Spent24h >= s.DailyMax {
-		return 0
-	}
-	return s.DailyMax - s.Spent24h
-}
+func (s spendLimits) left() uint64 { return s.LeftToday }
 
 // spendStatus reads /payments/status; false when it cannot be read.
 func spendStatus(c *client) (spendLimits, bool) {

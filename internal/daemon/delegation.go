@@ -2073,19 +2073,21 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 	if res.class == rxAccepted {
 		if d.triesAutoPay(pp) {
 			// A quote this node pays by itself: the status message (the quote,
-			// on a task stored input-required) is announced after the attempt,
-			// as the state is — a stream reads the row on any event, and would
-			// hand its client the quote as a question (afterProviderPayment,
-			// an internal note F1).
-			d.afterProviderPayment(ctx, m.ix, pp)
-			d.publishMessage(m.ix, seq, interactions.MsgStatus)
+			// on a task stored input-required) is announced after the
+			// decision, as the state is — a stream reads the row on any event,
+			// and would hand its client the quote as a question
+			// (afterProviderPayment, an internal note F1).
+			d.afterProviderPayment(ctx, m.ix, pp, func() {
+				d.publishMessage(m.ix, seq, interactions.MsgStatus)
+				d.publishState(m.ix)
+			})
 		} else {
 			d.publishMessage(m.ix, seq, interactions.MsgStatus)
 			if pp != nil {
-				d.afterProviderPayment(ctx, m.ix, pp)
+				d.afterProviderPayment(ctx, m.ix, pp, func() {})
 			}
+			d.publishState(m.ix)
 		}
-		d.publishState(m.ix)
 	}
 	return res
 }

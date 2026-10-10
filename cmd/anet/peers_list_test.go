@@ -131,9 +131,15 @@ func TestSenderPrivacyFailuresOnTheCLI(t *testing.T) {
 	for _, code := range []string{"recipient_unknown", "too_large_for_stranger"} {
 		for _, lang := range []a2ashape.Language{a2ashape.English, a2ashape.Chinese} {
 			s := a2ashape.Sentence(code, lang, nil)
+			// The projection carries the reason's command (anet.next); the
+			// CLI prints it and works out none itself.
+			meta := map[string]any{"anet.reason": code}
+			if n := a2ashape.Next(code, lang, a2ashape.Args{"task": "ix_1"}); n != "" {
+				meta[a2ashape.KeyNext] = n
+			}
 			b, _ := json.Marshal(map[string]any{"id": "ix_1",
 				"status":   map[string]any{"state": "TASK_STATE_FAILED", "message": map[string]any{"messageId": "m", "role": "ROLE_AGENT", "parts": []any{map[string]any{"text": s}}}},
-				"metadata": map[string]any{"anet.reason": code}})
+				"metadata": meta})
 			got := answerLines(b, true, lang, time.Now())
 			want := []string{a2ashape.Label("task.reason", lang) + ": " + s}
 			if n := a2ashape.Next(code, lang, a2ashape.Args{"task": "ix_1"}); n != "" {
