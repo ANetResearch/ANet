@@ -14,7 +14,6 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -295,6 +294,13 @@ const (
 	reasonInviteRemoved   = "invite_removed"
 	reasonConfigInvalid   = "config_invalid"
 	reasonWitnessHubLeave = "witness_hub_leave"
+	// reasonPublicationBlocked: the registration was not sent, because this
+	// node's publication screen found something an organization module
+	// marks confidential in it (KEL-9; ux §1.4 F).
+	reasonPublicationBlocked = "hub_publication_blocked"
+	// reasonHubUnreachableLeave: hub-leave could not reach the hub, or
+	// could not tell which hub it is (ux §1.4 F; LEC AD-8).
+	reasonHubUnreachableLeave = "hub_unreachable.leave"
 )
 
 // joinReasons are the sentence keys a record may hold.
@@ -302,6 +308,7 @@ var joinReasons = map[string]bool{
 	reasonRegistered: true, reasonProbation: true, reasonPending: true, reasonRetrying: true,
 	reasonRetryingQuota: true, reasonHubRefused: true, reasonClockSkew: true, reasonDeactivated: true,
 	reasonStopped: true, reasonSwitch: true, reasonWireTooOld: true, reasonWireTooNew: true,
+	reasonPublicationBlocked: true,
 }
 
 // The {why} of hub_retrying: the keys of a2ashape's hub_why phrase set.
@@ -497,6 +504,12 @@ func transientAnswer(phase joinPhase, why string) joinAnswer {
 func classifyHubReply(phase joinPhase, r hubReply) joinAnswer {
 	a := joinAnswer{phase: phase}
 	if r.Status == 0 {
+		if r.Local && errors.Is(r.Err, errPublicationBlocked) {
+			// This node's own screen kept the registration back (INV-1,
+			// INV-2): the data is the user's to change, and retrying sends
+			// nothing either (ux §1.4 F, hub_publication_blocked).
+			return joinAnswer{phase: phase, kind: ansRefused, refusal: reasonPublicationBlocked}
+		}
 		if r.Local {
 			return transientAnswer(phase, whyLocal)
 		}
@@ -603,17 +616,11 @@ func classifySuccess(a joinAnswer, b []byte) joinAnswer {
 		}
 		return transientAnswer(a.phase, whyInternal)
 	}
-	var reg struct {
-		hubapi.RegisterResponse
-		ProbationUntil      *uint64 `json:"probation_until"`
-		Trial               string  `json:"trial"`
-		KeyStateNotice      string  `json:"key_state_notice"`
-		KeyStateNoticeError string  `json:"key_state_notice_error"`
-	}
+	var reg hubapi.RegisterResponse
 	if json.Unmarshal(b, &reg) != nil || reg.Status != "registered" {
 		return transientAnswer(a.phase, whyInternal)
 	}
-	a.kind, a.reg = ansRegistered, reg.RegisterResponse
+	a.kind, a.reg = ansRegistered, reg
 	a.probationUntil, a.trial = reg.ProbationUntil, reg.Trial
 	a.notice, a.noticeError = reg.KeyStateNotice, reg.KeyStateNoticeError
 	return a
@@ -631,8 +638,9 @@ func parseChallenge(raw json.RawMessage) *powChallenge {
 	if len(raw) == 0 || json.Unmarshal(raw, &c) != nil || c.Bits < 1 || c.Bits > regpow.Bits {
 		return nil
 	}
-	seed, err := base64.RawURLEncoding.Strict().DecodeString(c.Seed)
-	if err != nil || len(seed) != 32 {
+	// One spelling of 32 bytes, white space refused (core CORE-E5).
+	seed, err := hubapi.DecodeB64(c.Seed, 32)
+	if err != nil {
 		return nil
 	}
 	ch := &powChallenge{Bits: c.Bits, NotAfter: c.NotAfter}
@@ -867,6 +875,13 @@ func (e joinEnv) log(format string, a ...any) {
 type joinOutcome struct {
 	rec joinRecord
 	reg *RegisterResult
+	// last is the hub's last answer to this attempt's registration, and
+	// prepared says the KEL registered was Prepare's (the witness
+	// designation): what the identity area reads to restamp (KEL D-36),
+	// discard (D-14a) or check the hub's record (D-27) of the pending
+	// event. nil when the attempt did not get as far as registering.
+	last     *joinAnswer
+	prepared bool
 }
 
 // runJoinAttempt makes one attempt (AD-4): for an identity whose witness
@@ -914,13 +929,14 @@ func runJoinAttempt(ctx context.Context, r joinRecord, e joinEnv) joinOutcome {
 		a = classifyHubReply(phaseRegisterPow, e.hub.register(ctx, kel, proof))
 		r, act = joinStep(r, a, now())
 	}
+	last := &a
 	if a.kind == ansClockSkew && !e.witnessed {
 		// The rot's time was refused (kel_ts_out_of_window): the identity
 		// area signs it again on the next Prepare (KEL D-36).
 		e.prepared.drop(key)
 	}
 	if act != actAdopt {
-		return joinOutcome{rec: r}
+		return joinOutcome{rec: r, last: last, prepared: !e.witnessed}
 	}
 	res := RegisterResult{Hub: e.hubURL, HubAID: e.hubAID, KEL: kel, AID: a.reg.AID, Status: a.reg.Status,
 		KeysStatus: a.reg.KeysStatus, KeysError: a.reg.KeysError, CardStatus: a.reg.CardStatus,
@@ -934,11 +950,11 @@ func runJoinAttempt(ctx context.Context, r joinRecord, e joinEnv) joinOutcome {
 			e.log("anet: %s accepted the registration, but adopting it failed: %v", e.hubURL, err)
 			r.Attempts++
 			r.NextAttemptAt = now().Add(joinBackoff(r.Attempts, 0)).UnixMilli()
-			return joinOutcome{rec: r, reg: &res}
+			return joinOutcome{rec: r, reg: &res, last: last, prepared: true}
 		}
 		e.prepared.drop(key)
 	}
-	return joinOutcome{rec: r, reg: &res}
+	return joinOutcome{rec: r, reg: &res, last: last, prepared: !e.witnessed}
 }
 
 // solveChallenge is a proof of work for ch, or nil and the {why} of the

@@ -184,6 +184,14 @@ func (d *Daemon) identityStatus(lang a2ashape.Language) IdentityStatus {
 	st := identityStateOf(in)
 	said := d.identitySaid(st, in, lang, now)
 	rec := d.recoveryState()
+	if st.State == IdentityOK && d.idOps.hubRecordInvalid.Load() {
+		// The witness's record of this identity did not verify at the last
+		// check (KEL D-27 row a): the identity is not affected, the hub is
+		// suspect, and that is what the state says until a check finds
+		// otherwise.
+		st.Reason = reasonHubRecordInvalid
+		said = a2ashape.Said{Key: reasonHubRecordInvalid, Args: a2ashape.Args{"hub": d.witnessURL(in.File.Witness)}}
+	}
 	s := IdentityStatus{State: st.State, Reason: said.Key, Message: a2ashape.Sentence(said.Key, lang, said.Args),
 		Next: a2ashape.Next(said.Key, lang, said.Args), OldWitnessUnacked: d.oldWitnessUnacked(),
 		Recovery: rec.view(st.State, lang), said: said, rec: rec}
@@ -195,7 +203,7 @@ func (d *Daemon) identityStatus(lang a2ashape.Language) IdentityStatus {
 		tip := kel[len(kel)-1].Event
 		s.KeySeq, s.Commitment = tip.Seq, tip.NextDigest
 	}
-	s.LastRotation = lastRotation(d.self.Accepted())
+	s.LastRotation = d.lastRotationOf(d.self.Accepted())
 	if w := in.File.Witness; w != "" {
 		s.Witness = &IdentityWitness{URL: d.witnessURL(w), AID: w}
 	}
@@ -211,21 +219,11 @@ func (d *Daemon) identityStatus(lang a2ashape.Language) IdentityStatus {
 // IdentityStatus is /identity/status in this process's language.
 func (d *Daemon) IdentityStatus() IdentityStatus { return d.identityStatus(a2ashape.Lang()) }
 
-// oldWitnessUnacked lists the former witnesses that have not confirmed the
-// hub switch (KEL §4.3.1, D-33): the push loop knows which have, at run
-// time.
-// v030-todo(KEL-9): the push loop of witnesses_to_push (D-33) reports the
-// former witnesses it has not had confirmed, within OldHubDrain of the
-// switch; until it runs, nothing is pushed and the list is empty.
-func (d *Daemon) oldWitnessUnacked() []IdentityOldWitness {
-	return []IdentityOldWitness{}
-}
-
 // lastRotation is the latest rot of an accepted KEL: when, and how it was
 // made — the witness designation (an agent's first rot), an emergency rot,
-// or a planned one. nil before the first.
-// v030-todo(KEL-9): a recover's rot reads as emergency here; the
-// anet.identity.rotated evidence of KEL §2.10 says recover.
+// or a planned one. nil before the first. A recover's rot reads as
+// emergency here: only this node's evidence says recover
+// (lastRotationOf).
 func lastRotation(kel []identity.SignedEvent) *IdentityRotation {
 	for i := len(kel) - 1; i > 0; i-- {
 		e := kel[i].Event
@@ -243,6 +241,28 @@ func lastRotation(kel []identity.SignedEvent) *IdentityRotation {
 	}
 	return nil
 }
+
+// lastRotationOf is lastRotation, with the mode this node's evidence chain
+// records for that rot when it records one (a recover's, KEL §2.10).
+func (d *Daemon) lastRotationOf(kel []identity.SignedEvent) *IdentityRotation {
+	r := lastRotation(kel)
+	if r == nil {
+		return nil
+	}
+	for i := len(kel) - 1; i > 0; i-- {
+		if kel[i].Event.Type == identity.Rotation {
+			if mode := d.rotationEvidence(kel[i].Event.Seq); mode != "" {
+				r.Mode = mode
+			}
+			break
+		}
+	}
+	return r
+}
+
+// reasonHubRecordInvalid is the state sentence of a witness record that
+// does not verify (KEL D-27 row a; ux §1.4 E3).
+const reasonHubRecordInvalid = "identity.hub_record_invalid"
 
 // rfc3339 is a unix ms time as the control plane writes times.
 func rfc3339(ms uint64) string {

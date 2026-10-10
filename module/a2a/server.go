@@ -565,7 +565,8 @@ func (s *server) listAgents(w http.ResponseWriter, r *http.Request) {
 		}
 		base := s.baseURL(a.AID)
 		e := agentEntry{AID: a.AID, URL: base, CardURL: base + "/.well-known/agent-card.json",
-			Verification: a.Verification, VerificationError: a.VerificationError, Official: a.Official}
+			Verification: a.Verification, VerificationError: a.VerificationError, Official: a.Official,
+			KeyState: originKeyState(a)}
 		if a.Verification == verified {
 			// Only a verified agent is described: of any other, what a
 			// hub says is not shown beside the official mark (an internal note item),
@@ -606,6 +607,10 @@ type agentEntry struct {
 	// Official: the agent's AID is on this node's official manifest
 	// (module.RemoteAgent.Official).
 	Official bool `json:"anet.official,omitempty"`
+	// KeyState is fresh when the agent's hub confirmed its current key,
+	// stale otherwise (module.RemoteAgent.KeyState, KEL D-28). A stale one
+	// does not stop a send.
+	KeyState string `json:"keyState"`
 }
 
 func (s *server) baseURL(aid string) string {

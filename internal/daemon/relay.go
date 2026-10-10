@@ -264,18 +264,32 @@ func (d *Daemon) relayPoll(ctx context.Context, after int64) ([]hubapi.RelayMess
 // relayPollPage is relayPoll with the whole answer: the page, and whether
 // the mailbox holds more after it (more, FS-H5).
 func (d *Daemon) relayPollPage(ctx context.Context, after int64) (hubapi.RelayPollResponse, error) {
-	hub := d.config().HubURL
+	return d.relayPollPageAt(ctx, d.config().HubURL, after, true)
+}
+
+// relayPollPageAt is relayPollPage at hub. own is the configured hub,
+// whose answers say how it confirms this node's key; the old hub a switch
+// left is read too while it drains (KEL D-32 step 5), and what it says of
+// the key is not this node's witness's word.
+func (d *Daemon) relayPollPageAt(ctx context.Context, hub string, after int64, own bool) (hubapi.RelayPollResponse, error) {
 	if hub == "" {
 		return hubapi.RelayPollResponse{}, fmt.Errorf("anet: no hub configured")
 	}
 	var resp hubapi.RelayPollResponse
 	if err := d.hubSigned(ctx, hub, http.MethodPost, hubapi.RelayPollPath, relayauth.ActionPoll,
 		hubapi.RelayPollRequest{Limit: relayPollLimit, AfterID: after}, &resp); err != nil {
+		if own && hubStatus(err) == http.StatusUnauthorized {
+			// The witness refused this node's signature: what it holds of
+			// this identity decides why (KEL D-27).
+			d.triggerHubKELCheck(hub, triggerPoll401)
+		}
 		return hubapi.RelayPollResponse{}, err
 	}
-	// Every poll answer says how the hub confirms this node's key (KEL
-	// D-50): the notice is checked before the gate sees it.
-	d.noteHubNotice(resp.KeyStateNotice, resp.KeyStateNoticeError)
+	if own {
+		// Every poll answer says how the hub confirms this node's key (KEL
+		// D-50): the notice is checked before the gate sees it.
+		d.noteHubNoticeFrom(hub, resp.KeyStateNotice, resp.KeyStateNoticeError)
+	}
 	return resp, nil
 }
 
@@ -425,10 +439,14 @@ func (d *Daemon) ackItem(id int64, r rxResult) (hubapi.RelayAckItem, bool) {
 // cursor's rounds that go back read those rows again, and the receive path
 // answers each copy with the outcome it gave the first (engine ENG-V13).
 func (d *Daemon) relayAck(ctx context.Context, items []hubapi.RelayAckItem) error {
+	return d.relayAckAt(ctx, d.config().HubURL, items)
+}
+
+// relayAckAt is relayAck at hub.
+func (d *Daemon) relayAckAt(ctx context.Context, hub string, items []hubapi.RelayAckItem) error {
 	if len(items) == 0 {
 		return nil
 	}
-	hub := d.config().HubURL
 	if hub == "" {
 		return fmt.Errorf("anet: no hub configured")
 	}
@@ -539,10 +557,15 @@ func (d *Daemon) pollFresh(ctx context.Context) {
 // hub said nothing more is queued and every row it read was acknowledged,
 // that the mailbox was drained as of the moment the round asked.
 func (d *Daemon) pollOnce(ctx context.Context) error {
-	hub := d.config().HubURL
-	from, back := d.relayCur.next(hub)
+	return d.pollHubOnce(ctx, d.config().HubURL, &d.relayCur, true)
+}
+
+// pollHubOnce is pollOnce at hub, with its cursor cur; own is the
+// configured hub (relayPollPageAt). The caller holds d.pollMu.
+func (d *Daemon) pollHubOnce(ctx context.Context, hub string, cur *relayCursor, own bool) error {
+	from, back := cur.next(hub)
 	askedAt := d.nowMS()
-	resp, err := d.relayPollPage(ctx, from)
+	resp, err := d.relayPollPageAt(ctx, hub, from, own)
 	if err != nil {
 		return err
 	}
@@ -570,8 +593,8 @@ func (d *Daemon) pollOnce(ctx context.Context) error {
 			round.kids[m.ID] = kid
 		}
 	}
-	d.relayCur.done(hub, back, last, held, len(msgs) >= relayPollLimit)
-	ackErr := d.relayAck(ctx, items)
+	cur.done(hub, back, last, held, len(msgs) >= relayPollLimit)
+	ackErr := d.relayAckAt(ctx, hub, items)
 	round.ackOK = ackErr == nil
 	d.drain.noteRound(round)
 	return ackErr
@@ -669,17 +692,24 @@ func (d *Daemon) drainInputs() (uint64, kidSet) {
 	if hub == "" {
 		return math.MaxUint64, nil
 	}
-	key := strings.TrimRight(hub, "/")
+	keys := map[string]bool{strings.TrimRight(hub, "/"): true}
+	for _, old := range d.drainingHubs() {
+		keys[strings.TrimRight(old, "/")] = true
+	}
 	s := &d.drain
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	held := kidSet{}
 	for row, kid := range s.held {
-		if row.hub == key && kid != nil {
+		if keys[row.hub] && kid != nil {
 			held[string(kid)] = struct{}{}
 		}
 	}
-	return s.marks[key], held
+	mark := uint64(math.MaxUint64)
+	for k := range keys {
+		mark = min(mark, s.marks[k])
+	}
+	return mark, held
 }
 
 // kickAutoReply wakes the auto-reply loop immediately (non-blocking; coalesces bursts). No-op when the

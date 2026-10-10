@@ -42,6 +42,7 @@ import (
 	"sync"
 
 	"github.com/ANetResearch/ANetCore/ael"
+	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/module"
@@ -358,9 +359,18 @@ func (l *evidenceLedger) scan(eventType string, sinceMS int64, fn func(at int64,
 			recs = append(recs, r)
 		}
 	}
+	// The records a pending key event holds back count as well
+	// (evidence_queue.go): they were written, only not yet signed.
+	queued := l.queuedOf(eventType, sinceMS)
 	l.mu.Unlock()
 	for _, r := range recs {
 		fn(r.Timestamp, plainMap(r.Payload))
+	}
+	for _, r := range queued {
+		var p any
+		if coredet.Unmarshal(r.Payload, &p) == nil {
+			fn(r.Timestamp, plainMap(p))
+		}
 	}
 }
 

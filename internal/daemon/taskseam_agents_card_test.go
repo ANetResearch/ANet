@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/dirbox"
@@ -42,10 +43,10 @@ func newCardAgent(t *testing.T, name, description, skill string) cardAgent {
 // newCardAgentWith is newCardAgent with the one skill given whole.
 func newCardAgentWith(t *testing.T, name, description string, skill netcard.Skill) cardAgent {
 	t.Helper()
-	ctl, err := identitytest.Hub()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// An agent the suite witness witnesses: its registry and directory
+	// entries carry that witness's notice (registryHub.list), so it is
+	// listed key_state fresh and may be sealed to (KEL D-26, D-28).
+	ctl := witnessedIdentity(t)
 	unsigned, err := netcard.Build(netcard.Input{AID: ctl.AID(), Name: name, Description: description,
 		HubURL: "https://hub.example", Seq: 1, IssuedAtMs: 1, NotBeforeMs: 1,
 		Skills: []netcard.Skill{skill}})
@@ -128,6 +129,13 @@ func (h *registryHub) serve(w http.ResponseWriter, r *http.Request) {
 			out.Agents = append(out.Agents, e)
 		}
 		_ = json.NewEncoder(w).Encode(out)
+	case p == hubKELsPath:
+		// The suite witness's key history, whose notices the listed
+		// agents' entries carry (KEL D-24).
+		own, _ := identity.MarshalKEL(h.self.KEL())
+		suite, _ := identity.MarshalKEL(identity.SuiteController().KEL())
+		_ = json.NewEncoder(w).Encode(map[string]any{"hubs": []map[string]string{
+			{"aid": h.self.AID(), "kel": hubapi.B64(own)}, {"aid": identitytest.Witness, "kel": hubapi.B64(suite)}}})
 	case p == "/hub/identity":
 		kel, _ := identity.MarshalKEL(h.self.KEL())
 		zero := 0
@@ -170,6 +178,15 @@ func (h *registryHub) serve(w http.ResponseWriter, r *http.Request) {
 func (h *registryHub) list(a cardAgent, extra func(*hubapi.A2AAgentEntry)) {
 	e := hubapi.A2AAgentEntry{AID: a.aid, Card: a.card, CardVerification: "ok", HomeHub: h.srv.URL,
 		LastSeen: "2026-09-27T00:00:00Z", ReviewCount: 3, AvgRating: 4.5, KEL: a.kel, Keys: hubapi.B64(a.keys)}
+	var notice []byte
+	if raw, err := hubapi.DecodeB64(a.kel, -1); err == nil {
+		if kel, err := identity.UnmarshalKEL(raw); err == nil {
+			notice = suiteNotice(h.t, kel, uint64(time.Now().UnixMilli()))
+		}
+	}
+	if notice != nil {
+		e.KeyStateNotice = hubapi.B64(notice)
+	}
 	if extra != nil {
 		extra(&e)
 	}
@@ -177,7 +194,7 @@ func (h *registryHub) list(a cardAgent, extra func(*hubapi.A2AAgentEntry)) {
 	slices.SortFunc(h.registry, func(x, y hubapi.A2AAgentEntry) int { return strings.Compare(x.AID, y.AID) })
 	h.cards[a.aid] = a.card
 	if kel, err := hubapi.DecodeB64(a.kel, -1); err == nil && len(kel) > 0 && len(a.keys) > 0 && identity.ValidAID(a.aid) {
-		h.entries[a.aid] = dirbox.DirEntry{AID: a.aid, Home: h.self.AID(), KEL: kel, Keys: a.keys, Card: a.card}
+		h.entries[a.aid] = dirbox.DirEntry{AID: a.aid, Home: h.self.AID(), KEL: kel, Keys: a.keys, Card: a.card, Notice: notice}
 	}
 }
 
@@ -279,10 +296,10 @@ func TestAnUnverifiedCardIsNotPassedOn(t *testing.T) {
 		t.Errorf("%d cards in /agents/list, want the verified one: %s", n, raw)
 	}
 	members := memberNames(t, raw)
-	if got := members[offAID]; !slices.Equal(got, []string{"aid", "anet.official", "verification", "verificationError"}) {
+	if got := members[offAID]; !slices.Equal(got, []string{"aid", "anet.official", "key_state", "verification", "verificationError"}) {
 		t.Errorf("the unverified official AID carries %v", got)
 	}
-	if got := members[shy.aid]; !slices.Equal(got, []string{"aid", "verification", "verificationError"}) {
+	if got := members[shy.aid]; !slices.Equal(got, []string{"aid", "key_state", "verification", "verificationError"}) {
 		t.Errorf("the unverified agent carries %v", got)
 	}
 	if got := members[good.aid]; !slices.Contains(got, "card") || !slices.Contains(got, "name") || !slices.Contains(got, "homeHub") {
@@ -324,7 +341,7 @@ func TestAnUnverifiedCardIsNotPassedOn(t *testing.T) {
 	if err := json.Unmarshal(raw, &one); err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("/agents/card: %d %s", resp.StatusCode, raw)
 	}
-	if len(one) != 4 || one["verification"] != cardUnverified || one["anet.official"] != true || one["card"] != nil {
+	if len(one) != 5 || one["verification"] != cardUnverified || one["anet.official"] != true || one["card"] != nil {
 		t.Errorf("/agents/card of the forged card: %s", raw)
 	}
 	ra, err := d.agentCard(context.Background(), good.aid)
