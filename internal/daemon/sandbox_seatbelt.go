@@ -422,11 +422,13 @@ func seatbeltCommand(p *sandboxPlan, workDir string, argv, env []string, stdin [
 	// model service is the keyed injection route and every proxy variable names the keyed endpoint; its
 	// search path names only what the profile lets it run.
 	// The agent's own configuration for the injection route, in the run's home (LEC AV-4). The home is
-	// at the same path on the host and in the sandbox.
+	// at the same path on the host and in the sandbox. The route it names is the keyed one, as in the
+	// environment (EG-3): an agent that reads its model service's address only from that file reaches the
+	// endpoint only with the key.
 	var agentEnv []string
 	if p.AgentHome != nil {
 		home := filepath.Join(realRun, "home")
-		if agentEnv, err = p.AgentHome(home, home); err != nil {
+		if agentEnv, err = p.AgentHome(home, home, egressRouteBaseAt(p.Egress, addr, key)); err != nil {
 			return nil, sandboxUnavailable("agent configuration: %v", err)
 		}
 	}

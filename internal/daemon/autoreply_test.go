@@ -80,7 +80,11 @@ func newAutoReplyFixture(t *testing.T, cfg AutoReplyConfig, api *fakeOpenAI) *au
 		d.mu.Unlock()
 	}
 
-	cfg.APIBase = apiSrv.URL + "/v1"
+	// The fake service is the openai backend's and a chat agent's model service. A sandboxed claude speaks
+	// only the Anthropic API, and any other api_base would be refused (LEC UP-2): it is given none.
+	if cfg.Backend != "exec" || cfg.Agent != agentClaude {
+		cfg.APIBase = apiSrv.URL + "/v1"
+	}
 	replier, err := newAutoReplier(cfg, prov.layout)
 	if err != nil {
 		t.Fatal(err)

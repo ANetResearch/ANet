@@ -525,7 +525,7 @@ func codexArgs(o execInvokeOpts, outFile string) []string {
 	return append(args, "-")
 }
 
-// --- opencode: opencode run [--model MODEL] INSTRUCTIONS < CONVERSATION ---
+// --- opencode: opencode run [--model MODEL] -- INSTRUCTIONS < CONVERSATION ---
 
 func detectOpenCodeBin() (string, error) {
 	return lookPathFirst("opencode")
@@ -554,7 +554,10 @@ func invokeOpenCode(ctx context.Context, o execInvokeOpts) (string, error) {
 	return reply, nil
 }
 
-// openCodeArgs is opencode's command line for o (the conversation is its stdin).
+// openCodeArgs is opencode's command line for o (the conversation is its stdin). The instructions follow
+// "--": the operator's system_prompt may start with "-", and opencode would read it as an option
+// otherwise. opencode takes what follows "--" as its message, as it takes positional words (opencode
+// run joins both).
 func openCodeArgs(o execInvokeOpts) []string {
 	args := []string{"run"}
 	if model := o.Model; model != "" {
@@ -565,7 +568,7 @@ func openCodeArgs(o execInvokeOpts) []string {
 	}
 	args = append(args, o.ExtraArgs...)
 	if o.Instructions != "" {
-		args = append(args, o.Instructions)
+		args = append(args, "--", o.Instructions)
 	}
 	return args
 }
@@ -661,7 +664,7 @@ func openClawReply(raw string) string {
 	return trimReply(raw)
 }
 
-// --- hermes: hermes -z MESSAGE [-m MODEL] (conversation in a file) ---
+// --- hermes: hermes --oneshot=MESSAGE [-m MODEL] (conversation in a file) ---
 
 func detectHermesBin() (string, error) {
 	return lookPathFirst("hermes")
@@ -673,9 +676,10 @@ func invokeHermes(ctx context.Context, o execInvokeOpts) (string, error) {
 		return "", err
 	}
 	defer cleanup()
-	// -z is hermes's one-shot mode: it prints only the final reply and approves its own tool calls, and
-	// takes -m for the model (hermes 0.19; `chat -q` printed a banner and session lines around the reply).
-	// hermes takes its prompt only as an argument, so the conversation stays in the file it names.
+	// --oneshot (-z) is hermes's one-shot mode: it prints only the final reply and approves its own tool
+	// calls, and takes -m for the model (hermes 0.19; `chat -q` printed a banner and session lines around
+	// the reply). hermes takes its prompt only as an argument, so the conversation stays in the file it
+	// names.
 	args := hermesArgs(o, conv)
 	stdout, stderr, err := runCmd(ctx, o, nil, o.Command, args...)
 	if err != nil {
@@ -688,9 +692,11 @@ func invokeHermes(ctx context.Context, o execInvokeOpts) (string, error) {
 	return reply, nil
 }
 
-// hermesArgs is hermes's command line for o, the conversation in the file conv.
+// hermesArgs is hermes's command line for o, the conversation in the file conv. The message is attached to
+// its option (--oneshot=MESSAGE): the operator's system_prompt may start with "-", and hermes would read a
+// separate argument starting with "-" as an option of its own rather than as the value of -z.
 func hermesArgs(o execInvokeOpts, conv string) []string {
-	args := []string{"-z", fileInputMessage(o.Instructions, conv)}
+	args := []string{hermesOneShot + fileInputMessage(o.Instructions, conv)}
 	if o.Model != "" {
 		args = append(args, "-m", o.Model)
 	}

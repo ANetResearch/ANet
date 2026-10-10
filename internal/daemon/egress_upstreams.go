@@ -10,15 +10,18 @@ package daemon
 //
 // A run has exactly one upstream, chosen from the agent and auto_reply.api_base (UP-2):
 //
-//	claude                        anthropic
-//	codex                         custom when api_base is set, else openai
-//	opencode, hermes, openclaw    custom (api_base required: no_api_base)
+//	claude                        anthropic (api_base unset, or on api.anthropic.com)
+//	codex                         openai (api_base unset, or on api.openai.com)
+//	opencode, hermes, openclaw    custom, or openai for an api_base on api.openai.com (api_base required:
+//	                              no_api_base)
 //	cursor                        none: it cannot send its model requests through this node
 //
 // An api_base whose host is api.anthropic.com or api.openai.com is that built-in upstream, not custom.
-// The upstream's route must carry the API the agent speaks (agentSandbox.speaks, agents_sandbox.go):
-// codex speaks only the Responses API, which no custom route carries, and the chat agents cannot use the
-// Anthropic route; such a configuration fails closed with agent_unsupported.
+// The upstream's route must carry the API the agent speaks (agentSandbox.speaks, agents_sandbox.go); a
+// configuration where it does not is refused here, as agent_unsupported.combo with the agent's {why},
+// before anything runs and the same on every platform: claude with any other api_base (it would otherwise
+// send a key meant for a third-party service to api.anthropic.com), codex with any other (it speaks only
+// the Responses API, which no custom route carries), the chat agents with api.anthropic.com.
 // The model is pinned (UP-3): every request is rewritten to it, and the agent is started with it.
 
 import (
@@ -149,10 +152,29 @@ type egressUpstream struct {
 	ConnectAllow map[string]bool
 }
 
+// egressComboError is agent_unsupported.combo (ux §1.4 H, LEC UP-2): an agent the sandbox runs, with an
+// api_base whose model service does not carry the API the agent speaks. Its code stays agent_unsupported
+// (the unavailable member of anet.autoreply.invoked, doctor's fail); the variant and Why choose the
+// sentence that says what to change.
+type egressComboError struct {
+	sandboxProbeError
+	// Why is the sentence's {why}: agentComboAnthropicOnly, agentComboOpenAIOnly or agentComboNoChat.
+	Why string
+}
+
+// Unwrap is the refusal as every sandbox refusal is seen (errors.As to *sandboxProbeError, errors.Is
+// errSandboxUnavailable).
+func (e *egressComboError) Unwrap() error { return &e.sandboxProbeError }
+
+// reasonKey is the row of the reason table that says it (ux §1.4 H).
+func (e *egressComboError) reasonKey() string { return e.Code + ".combo" }
+
 // resolveEgressUpstream chooses the upstream, key and pinned model of a sandboxed run from the auto-reply
 // configuration (UP-1 to UP-3) and the agent's sandbox configuration (AV-4). An error is a
-// *sandboxProbeError with the local reason (UX §1.4 H): agent_unsupported, no_api_base, no_api_key,
-// no_model, or api_base_insecure for an address the configuration check should already have refused.
+// *sandboxProbeError with the local reason (UX §1.4 H): agent_unsupported (an *egressComboError when the
+// agent is supported but not with this api_base), no_api_base, no_api_key, no_model, or
+// api_base_insecure for an address the configuration check should already have refused. It depends on
+// the configuration alone, so /status, `autoreply set` and doctor can show its answer before any run.
 func resolveEgressUpstream(cfg AutoReplyConfig) (*egressUpstream, error) {
 	apiBase := strings.TrimSpace(cfg.APIBase)
 	spec, err := lookupAgent(cfg.Agent)
@@ -163,15 +185,8 @@ func resolveEgressUpstream(cfg AutoReplyConfig) (*egressUpstream, error) {
 	if sb == nil {
 		return nil, &sandboxProbeError{Code: "agent_unsupported", Detail: spec.sandboxNote}
 	}
-	name := sb.upstream
-	if apiBase != "" && !sb.fixedUpstream {
-		name = egressUpstreamCustom
-	}
-	if name == "" {
-		return nil, &sandboxProbeError{Code: "no_api_base", Detail: cfg.Agent + " needs auto_reply.api_base in the sandbox"}
-	}
-	up := &egressUpstream{Name: name, Key: strings.TrimSpace(cfg.APIKey)}
-	if name == egressUpstreamCustom {
+	up := &egressUpstream{Name: sb.upstream, Key: strings.TrimSpace(cfg.APIKey)}
+	if apiBase != "" {
 		base, err := parseEgressAPIBase(apiBase)
 		if err != nil {
 			return nil, err
@@ -182,19 +197,23 @@ func resolveEgressUpstream(cfg AutoReplyConfig) (*egressUpstream, error) {
 		if builtin, ok := egressBuiltinHosts[host]; ok {
 			up.Name = builtin
 		} else {
+			up.Name = egressUpstreamCustom
 			up.Base = base
 			up.Routes = egressCustomRoutes
 			up.OpenRouter = host == "openrouter.ai"
 			up.LoopbackOnly = base.Scheme == "http"
 		}
 	}
+	if up.Name == "" {
+		return nil, &sandboxProbeError{Code: "no_api_base", Detail: cfg.Agent + " needs auto_reply.api_base in the sandbox"}
+	}
 	if !slices.Contains(sb.speaks, up.Name) {
 		where := "a custom model service (auto_reply.api_base)"
 		if up.Name != egressUpstreamCustom {
 			where = egressBuiltinBase[up.Name]
 		}
-		return nil, &sandboxProbeError{Code: "agent_unsupported",
-			Detail: fmt.Sprintf("%s speaks %s, which the sandbox does not carry to %s", cfg.Agent, sb.api, where)}
+		return nil, &egressComboError{Why: sb.combo, sandboxProbeError: sandboxProbeError{Code: "agent_unsupported",
+			Detail: fmt.Sprintf("%s speaks %s, which the sandbox does not carry to %s (%s)", cfg.Agent, sb.api, where, sb.combo)}}
 	}
 	switch up.Name {
 	case egressUpstreamAnthropic, egressUpstreamOpenAI:
@@ -308,8 +327,13 @@ func egressRouteBase(up *egressUpstream) string {
 }
 
 // egressRouteBaseAt is the injection route of the run's upstream on the endpoint at addr; with the run's
-// key (macOS) the route starts with it: http://127.0.0.1:<P>/anet-upstream/<S>/<name> (LEC §2.6.2).
+// key (macOS) the route starts with it: http://127.0.0.1:<P>/anet-upstream/<S>/<name> (LEC §2.6.2). It is
+// what the agent's environment and, for an agent that reads its model service's address only from a
+// file, the agent's configuration name (EG-3). "" without an upstream.
 func egressRouteBaseAt(up *egressUpstream, addr, key string) string {
+	if up == nil {
+		return ""
+	}
 	prefix := egressRoutePrefix
 	if key != "" {
 		prefix += key + "/"
