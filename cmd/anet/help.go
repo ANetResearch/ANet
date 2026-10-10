@@ -74,7 +74,8 @@ func helpSections() []helpSection {
 			{"review <id> <1-5> [comment]", "评价一个已结束的任务", "review an ended task", false},
 		}},
 		{"接单", "Taking tasks", []helpEntry{
-			{"peers list|allow|trust|deny|remove [<aid>]", "名单：allow 可以发任务，trust 另可驱动本机 agent；allow 与 trust 要在终端确认", "the lists: allow may send tasks, trust may also drive your local agent; allow and trust ask on the terminal", true},
+			{"peers list [--json]", "名单上的对端，以及给每个对端发信时信里带不带你的身份", "the peers on your lists, and whether your messages to each carry your identity", true},
+			{"peers allow|trust|deny|remove <aid>", "名单：allow 可以发任务，trust 另可驱动本机 agent；allow 与 trust 要在终端确认", "the lists: allow may send tasks, trust may also drive your local agent; allow and trust ask on the terminal", true},
 			{"inbound policy [closed|approve|open]", "入站策略（缺省 closed）；放宽要在终端确认", "the inbound policy (closed by default); loosening asks on the terminal", false},
 			{"inbound list|approve|reject [<id>]", "approve 策略下的待批任务；批准要在终端确认", "the tasks held for approval; approving asks on the terminal", false},
 			{"autoreply set --backend exec --agent <" + agents + "> [--untrusted M]", "收到任务时拉起本机编码 agent 自动答复", "answer tasks with a local coding agent", false},

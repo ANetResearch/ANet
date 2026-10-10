@@ -586,6 +586,10 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 			"fails (anet.reason=no_response, effect UNVERIFIED); a later answer is still recorded (no_response_after)", after), "")
 	}
 
+	// Sender privacy (sealed-sender §5.4) and p2p.lan.
+	senderPrivacyChecks(say, add, rep, env, layout, cfg) // doctor_sender.go
+	p2pLANCheck(say, cfg)
+
 	// Auto-reply and the sandbox (§6).
 	if ar := cfg.AutoReply; ar != nil {
 		rep.AutoReply.Configured = true
