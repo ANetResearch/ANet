@@ -9,7 +9,6 @@ package daemon
 // (SSR-U5).
 
 import (
-	"log"
 	"net/http"
 	"sort"
 
@@ -127,7 +126,7 @@ type senderPrivacy struct {
 }
 
 // senderPrivacyStatus reads /status.sender_privacy at now (milliseconds).
-// A count the store cannot give is 0, and logged.
+// A count the store cannot give is 0, and logged once.
 func (d *Daemon) senderPrivacyStatus(now uint64) senderPrivacy {
 	var sp senderPrivacy
 	sp.MailboxRegistered, sp.HubEpochInvalid = d.mailboxStatus()
@@ -148,7 +147,7 @@ func (d *Daemon) senderPrivacyStatus(now uint64) senderPrivacy {
 	}
 	for _, e := range []error{err, err2, err3} {
 		if e != nil {
-			log.Printf("anet: /status.sender_privacy: %v", e)
+			d.logOnce("status-sender-privacy", "anet: /status.sender_privacy: %v", e)
 			break
 		}
 	}
