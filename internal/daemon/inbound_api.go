@@ -21,6 +21,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // errAcceptOn is the answer to the wire-1 "accept on" switch.
@@ -159,6 +161,12 @@ func (d *Daemon) hInboundApprove(w http.ResponseWriter, r *http.Request) {
 	ix, err := d.ApprovePending(strings.TrimSpace(req.InteractionID))
 	if errors.Is(err, ErrNotPending) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		// key_state.approve (KEL D-25): the reason table's sentence.
+		writeRefusal(w, http.StatusConflict, ref)
 		return
 	}
 	if err != nil {

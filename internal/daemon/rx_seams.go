@@ -4,12 +4,11 @@ package daemon
 // deliver after it (engine ENG-G3, §0.2): each seam has the signature the
 // pipeline calls and, until its package replaces it, the stub behavior the
 // engine fixes (no second layer opens, no preview frame is taken, every card
-// answer is refused, nothing more is written for a refused result, the hub
-// KEL set is not refreshed). The reply grant of anet.card.get/1 is the one
+// answer is refused, nothing more is written for a refused result). The
+// reply grant of anet.card.get/1 is the one
 // thing kept here for the one-shot sender (ENG-1b), which seals the answer.
 
 import (
-	"context"
 	"sync"
 
 	"github.com/ANetResearch/ANetCore/delegation"
@@ -65,16 +64,6 @@ func (d *Daemon) cardAnswerArrived(from, ix string, kel []identity.SignedEvent, 
 //
 // v030-todo(UX-3): the terminal write; until then nothing is written.
 func (d *Daemon) resultRefused(m *rxMsg, reason string) error { return nil }
-
-// refreshHubKELs is receive step 6½'s refresh for a notice under a witness
-// this node does not hold the KEL of as far as the notice needs
-// (witness-unknown; KEL D-24): the federation hub KEL set is fetched again
-// from this node's hub, at most once a minute. It reports whether the set
-// may have changed, so the notice is checked again.
-//
-// v030-todo(KEL-11): /hub/kels on demand; until then nothing is refreshed and
-// witness-unknown stays temporary.
-func (d *Daemon) refreshHubKELs(ctx context.Context) bool { return false }
 
 // cardReplyGrants keeps, by (requester, ix), the one-shot capability an
 // anet.card.get/1 brought for its answer (SS §4.3.2 rule 0): the only

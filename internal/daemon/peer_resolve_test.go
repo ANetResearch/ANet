@@ -599,10 +599,10 @@ func TestEntrySelectionLongestKEL(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := fakeHubAt(t, srv.URL)
-	s, err := identitytest.Hub()
-	if err != nil {
-		t.Fatal(err)
-	}
+	// An agent the suite witness witnesses: each entry carries its notice
+	// (the fake passes it on), without which none would be sealed to (KEL
+	// D-26).
+	s := witnessedIdentity(t)
 	exported, err := s.Export()
 	if err != nil {
 		t.Fatal(err)
@@ -680,6 +680,11 @@ func TestActiveContactRevalidatedOncePer24h(t *testing.T) {
 	srv, req, prov := plainRegisteredPair(t)
 	ctx := context.Background()
 	h := fakeHubAt(t, srv.URL)
+	// The witness's notices the directory passes on are observed at the
+	// requester's time, which the test moves days ahead: the recheck's
+	// material comes with a fresh one, without which it is not recorded
+	// (KEL D-26 item 4; TestRefreshWithoutNoticeKeepsStoredRecord).
+	setFake(t, srv.URL, func(h *fakeHub) { h.noticeAt = req.nowMS })
 	id, err := req.Delegate(ctx, prov.AID(), "task", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -767,13 +772,19 @@ func TestUnknownRecipientRefreshesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The directory names another home for the provider; the requester
-	// learns it, and the record with it.
+	// learns it. The requester holds a record of the provider (one it had
+	// before: a provider that names no witness has no notice, and directory
+	// material without one is never recorded, KEL D-26), so the home hint
+	// is the directory's.
 	old := entryOf(t, h, prov.AID())
 	old.Home = moved.AID()
 	h.setDir(func(h *fakeHub) { h.dirOverride[prov.AID()] = old })
-	if _, v := req.resolvePeer(ctx, prov.AID(), resolveOpts{need: needKeys, record: true}); v != verdictFound ||
-		req.peerDirHome(prov.AID()) != moved.AID() {
+	m, v := req.resolvePeer(ctx, prov.AID(), resolveOpts{need: needKeySet})
+	if v != verdictFound || req.peerDirHome(prov.AID()) != moved.AID() {
 		t.Fatalf("set-up: %v home %q", v, req.peerDirHome(prov.AID()))
+	}
+	if err := req.notePeer(prov.AID(), m.KEL, m.Keys, "", true); err != nil {
+		t.Fatal(err)
 	}
 	// The provider's entry now names this hub, which finds it only with
 	// that hint. An hour on, the requester's material is due a refresh.

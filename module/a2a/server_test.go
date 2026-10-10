@@ -737,7 +737,7 @@ func TestAgentList(t *testing.T) {
 	}
 	base := "http://127.0.0.1:" + e.port + agentsPath + "/" + agentB
 	want := agentEntry{AID: agentB, URL: base, CardURL: base + "/.well-known/agent-card.json",
-		Verification: unverified, VerificationError: "INVALID_SIGNATURE", Official: true}
+		Verification: unverified, VerificationError: "INVALID_SIGNATURE", Official: true, KeyState: "stale"}
 	if got := out.Agents[1]; got != want {
 		t.Fatalf("unverified entry %+v, want %+v", got, want)
 	}

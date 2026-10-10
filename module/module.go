@@ -334,12 +334,25 @@ type RemoteAgent struct {
 	Quiet       bool     `json:"quiet,omitempty"`
 	ReviewCount int      `json:"reviewCount,omitempty"`
 	AvgRating   any      `json:"avgRating,omitempty"`
+	// KeyState is KeyStateFresh when the directory's entry for the agent
+	// carried a notice its witness hub signed, checked here and fresh, about
+	// the tip of its key history; KeyStateStale otherwise. It says whether
+	// the agent's hub confirmed its current key, not whether its card
+	// verified (Verification), and a stale one does not stop a send: the
+	// send waits for a fresh confirmation itself (KEL D-26, D-28).
+	KeyState string `json:"key_state,omitempty"`
 	// Official is true when AID is listed in the official-agent manifest
 	// built into this binary, signed with the release key (A2A-DESIGN §15,
 	// internal/official). The AID alone decides it: a name, a card or a
 	// hub's word never does. It is a label; it grants the agent nothing.
 	Official bool `json:"anet.official,omitempty"`
 }
+
+// RemoteAgent.KeyState values (KEL D-28).
+const (
+	KeyStateFresh = "fresh"
+	KeyStateStale = "stale"
+)
 
 // PayDecision answers a payment-required task.
 type PayDecision struct {

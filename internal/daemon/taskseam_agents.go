@@ -232,7 +232,7 @@ func (d *Daemon) listedAgent(e hubapi.A2AAgentEntry, q module.AgentQuery, now ui
 	}
 	m, kerr := d.registryMaterial(e, now)
 	stored, haveStored := d.peerKEL(e.AID)
-	ra := module.RemoteAgent{AID: e.AID, Card: e.Card}
+	ra := module.RemoteAgent{AID: e.AID, Card: e.Card, KeyState: keyStateOf(kerr == nil && m.NoticeOK)}
 	d.verifyCardInto(&ra, func(aid string) ([]identity.SignedEvent, error) {
 		switch {
 		case aid != e.AID:
@@ -290,7 +290,7 @@ func (d *Daemon) registryMaterial(e hubapi.A2AAgentEntry, now uint64) (peerMater
 	}
 	if notice, err := hubapi.DecodeB64(e.KeyStateNotice, -1); err == nil && len(notice) > 0 && len(notice) <= seal.MaxNoticeBytes {
 		m.Notice = notice
-		m.NoticeOK = identity.VerifyNotice(notice, kel, d.hubKELs, now) == nil
+		m.NoticeOK = d.dirNoticeOK(d.ctx, notice, kel, now)
 	}
 	if d.againstRecord(&m, now) != verdictFound {
 		return m, m.Err
@@ -421,11 +421,13 @@ func (d *Daemon) uncardedAgents(ctx context.Context, hub string, q module.AgentQ
 // official agent publishes a card, and an entry without one carries only
 // what a hub wrote, which is not shown beside the mark (an internal note item).
 func (d *Daemon) uncardedAgent(a hubDirEntry) module.RemoteAgent {
+	// The directory listing carries no notice: its key state is stale
+	// (KEL D-28), which does not stop a send.
 	if official := d.IsOfficial(a.AID); official {
 		return module.RemoteAgent{AID: a.AID, Verification: cardNone, Official: official,
-			VerificationError: "the agent publishes no network card"}
+			VerificationError: "the agent publishes no network card", KeyState: module.KeyStateStale}
 	}
-	ra := module.RemoteAgent{AID: a.AID, Verification: cardNone, VerificationError: uncardedNote}
+	ra := module.RemoteAgent{AID: a.AID, Verification: cardNone, VerificationError: uncardedNote, KeyState: module.KeyStateStale}
 	ra.Name, ra.Caps, ra.Summary = a.Name, a.Caps, a.Summary
 	ra.HomeHub, ra.LastSeen, ra.Quiet = a.HomeHub, a.LastSeen, a.Quiet
 	ra.ReviewCount, ra.AvgRating = a.ReviewCount, a.AvgRating
@@ -459,23 +461,26 @@ func (d *Daemon) agentCard(ctx context.Context, aid string) (module.RemoteAgent,
 	switch v {
 	case verdictNotFound:
 		return module.RemoteAgent{AID: aid, Verification: cardNone, Official: official,
-			VerificationError: CardUnknownAgent}, nil
+			VerificationError: CardUnknownAgent, KeyState: module.KeyStateStale}, nil
 	case verdictUnverifiable:
 		return module.RemoteAgent{AID: aid, Verification: cardUnverified, Official: official,
-			VerificationError: "the directory's entries for this agent do not verify"}, nil
+			VerificationError: "the directory's entries for this agent do not verify", KeyState: module.KeyStateStale}, nil
 	case verdictFound:
 	default:
 		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", &peerResolveError{AID: aid, Verdict: v, Cause: m.Err})
 	}
+	// Whether the agent's hub confirmed its current key, checked now: the
+	// entry may come from the discovery cache (KEL D-28).
+	keyState := keyStateOf(d.noticeFresh(ctx, &m, d.nowMS()))
 	if len(m.Card) == 0 {
 		ra := module.RemoteAgent{AID: aid, Verification: cardNone, Official: official,
-			VerificationError: "the agent publishes no network card"}
+			VerificationError: "the agent publishes no network card", KeyState: keyState}
 		if m.CardErr != "" {
 			ra.Verification, ra.VerificationError = cardUnverified, m.CardErr
 		}
 		return ra, nil
 	}
-	ra := module.RemoteAgent{AID: aid, Card: m.Card}
+	ra := module.RemoteAgent{AID: aid, Card: m.Card, KeyState: keyState}
 	d.verifyCardInto(&ra, singleKEL(aid, m.KEL))
 	d.markOfficial(&ra)
 	return ra, nil

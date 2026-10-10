@@ -622,28 +622,49 @@ func TestApprovalVerifiesTheDelegationAgain(t *testing.T) {
 	}
 }
 
-// The key-state rule applied at approval time: a retired key state is
-// usable only within the rotation grace after its retirement, the constant
-// identity.RotationGrace (one hour; KEL §2.12, nothing configures it).
-func TestApprovalAppliesTheRotationGraceNow(t *testing.T) {
-	d := newTestDaemon(t, "", false)
+// The key-state rule applied at approval time (KEL D-25): the sender's
+// signing key state is judged at the arrival kept with the held task, under
+// the latest KEL this node knows, by identity.SenderKeyUsable. A state a
+// scheduled rotation retired is usable for a task that arrived before it or
+// within the one-hour grace after it, however long the approval took; one
+// an emergency rotation retired is not usable for any arrival.
+func TestApprovalJudgesTheKeyStateAtArrival(t *testing.T) {
+	rotatedAt := uint64(time.Now().Add(-2 * time.Hour).UnixMilli())
+	hour := uint64(time.Hour.Milliseconds())
 	for _, c := range []struct {
-		ago    time.Duration
-		usable bool
-	}{{2 * time.Hour, false}, {30 * time.Minute, true}} {
+		name      string
+		emergency bool
+		arrival   uint64
+		usable    bool
+	}{
+		{"scheduled, arrived before", false, rotatedAt - 1000, true},
+		{"scheduled, arrived within the grace", false, rotatedAt + hour, true},
+		{"scheduled, arrived past the grace", false, rotatedAt + hour + 1, false},
+		{"emergency, arrived before", true, rotatedAt - 1000, false},
+		{"emergency, arrived at it", true, rotatedAt, false},
+	} {
 		h, err := identitytest.Hub()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := identitytest.Rotate(h, uint64(time.Now().Add(-c.ago).UnixMilli())); err != nil {
+		rotate := identitytest.Rotate
+		if c.emergency {
+			rotate = identitytest.RotateEmergency
+		}
+		if err := rotate(h, rotatedAt); err != nil {
 			t.Fatal(err)
 		}
-		if err := d.keyStateUsable(h.KEL(), h.CurrentSeq()); err != nil {
-			t.Fatalf("the current key state was refused: %v", err)
+		if err := keyStateUsable(h.KEL(), h.CurrentSeq(), c.arrival); err != nil {
+			t.Fatalf("%s: the current key state was refused: %v", c.name, err)
 		}
-		if err := d.keyStateUsable(h.KEL(), 0); (err == nil) != c.usable {
-			t.Fatalf("a key state retired %v ago: %v, want usable %v under the one-hour grace", c.ago, err, c.usable)
+		err = keyStateUsable(h.KEL(), 0, c.arrival)
+		if (err == nil) != c.usable || (err != nil && !errors.Is(err, errHeldKeyState)) {
+			t.Fatalf("%s: %v, want usable %v", c.name, err, c.usable)
 		}
+	}
+	h, _ := identitytest.Hub()
+	if err := keyStateUsable(h.KEL(), 5, rotatedAt); err == nil || errors.Is(err, errHeldKeyState) {
+		t.Fatalf("a key state past the KEL: %v", err)
 	}
 }
 
