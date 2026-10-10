@@ -396,7 +396,7 @@ func TestStoppedClosesP2P(t *testing.T) {
 		if d.identityRefusesInbound() {
 			t.Fatal("no_hub refuses direct deliveries")
 		}
-		if err := (inbound{d}).receive(context.Background(), []byte("not an envelope")); err == errIdentityGone {
+		if _, err := (inbound{d}).receive(context.Background(), []byte("not an envelope")); err == errIdentityGone {
 			t.Fatal("no_hub refuses direct deliveries")
 		}
 		switch end {
@@ -414,7 +414,7 @@ func TestStoppedClosesP2P(t *testing.T) {
 		if d.p2pPath(context.Background(), "x", d.nowMS()) != nil {
 			t.Fatalf("%s: a direct path is still offered", end)
 		}
-		if err := (inbound{d}).receive(context.Background(), []byte("x")); err != errIdentityGone {
+		if _, err := (inbound{d}).receive(context.Background(), []byte("x")); err != errIdentityGone {
 			t.Fatalf("%s: a direct delivery was not refused: %v", end, err)
 		}
 	}

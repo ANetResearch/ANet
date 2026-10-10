@@ -224,7 +224,7 @@ func TestEveryRouteIsAllowlistedOrRefusedForASession(t *testing.T) {
 	// to them needs a sessionRule with jsonFields, never a blanket entry, as
 	// /agents/list and /agents/card have (sealed-sender SSR-D17).
 	for _, pat := range []string{"POST /pull", "POST /autoreply", "POST /shutdown",
-		"POST /redeem", "POST /reconcile", "POST /hub-leave", "POST /visibility", "POST /p2p-advertise",
+		"POST /redeem", "POST /reconcile", "POST /hub-leave", "POST /visibility",
 		"POST /console/ticket", "POST /tasks/send", "POST /tasks/get", "POST /tasks/list", "POST /tasks/cancel",
 		"POST /tasks/wait", "POST /tasks/reply", "POST /agents/kel"} {
 		if !registered[pat] {

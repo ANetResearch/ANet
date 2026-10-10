@@ -24,10 +24,11 @@ import (
 func TestSandboxCommandWritesTheAgentConfiguration(t *testing.T) {
 	agent := writeStub(t, "#!/bin/sh\necho hi\n")
 	home := filepath.Join(t.TempDir(), "home")
-	var gotHost, gotHome string
-	plan := &sandboxPlan{Bwrap: "/usr/bin/bwrap", AID: "EaidAgentHome0000001", Home: home,
-		AgentHome: func(hostHome, inside string) ([]string, error) {
-			gotHost, gotHome = hostHome, inside
+	var gotHost, gotHome, gotRoute string
+	up := &egressUpstream{Name: egressUpstreamCustom}
+	plan := &sandboxPlan{Bwrap: "/usr/bin/bwrap", AID: "EaidAgentHome0000001", Home: home, Egress: up,
+		AgentHome: func(hostHome, inside, route string) ([]string, error) {
+			gotHost, gotHome, gotRoute = hostHome, inside, route
 			return []string{"AGENT_CONFIGURED=1"}, writeHomeFile(hostHome, filepath.Join(".agent", "config"), []byte("route"))
 		}}
 	l, err := plan.command(t.TempDir(), []string{agent}, []string{"PATH=/usr/bin"}, nil)
@@ -37,6 +38,10 @@ func TestSandboxCommandWritesTheAgentConfiguration(t *testing.T) {
 	defer l.Close()
 	if gotHome != home {
 		t.Errorf("the agent's home is %q inside, want %q", gotHome, home)
+	}
+	// On Linux the route is the sandbox's own 127.0.0.1:3128, which carries no key.
+	if gotRoute != liveRoute(egressUpstreamCustom) {
+		t.Errorf("the agent's configuration is for the route %q, want %q", gotRoute, liveRoute(egressUpstreamCustom))
 	}
 	bound := ""
 	for i := 0; i+2 < len(l.Args); i++ {
@@ -60,7 +65,7 @@ func TestSandboxCommandWritesTheAgentConfiguration(t *testing.T) {
 	}
 
 	failing := &sandboxPlan{Bwrap: "/usr/bin/bwrap", AID: "EaidAgentHomeFails01", Home: home,
-		AgentHome: func(string, string) ([]string, error) { return nil, errors.New("disk full") }}
+		AgentHome: func(string, string, string) ([]string, error) { return nil, errors.New("disk full") }}
 	if _, err := failing.command(t.TempDir(), []string{agent}, nil, nil); !errors.Is(err, errSandboxUnavailable) {
 		t.Fatalf("a configuration that cannot be written: %v", err)
 	}

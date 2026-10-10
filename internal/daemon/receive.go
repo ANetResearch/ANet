@@ -1,33 +1,42 @@
 package daemon
 
-// receive.go is the receive pipeline for sealed envelopes (A2A-DESIGN §3.6).
-// Every envelope, from the hub mailbox or from a transport module, passes
-// through receiveEnvelope, and nothing reaches the interaction store any
-// other way.
+// receive.go is the receive pipeline v3 (engine §4). Every envelope, from the
+// hub mailbox (relay.go, pollOnce) or from a transport module (transport.go,
+// inbound.Receive), passes through receiveEnvelopeVia, and nothing reaches
+// the interaction store any other way.
 //
-//	step 0   (transport modules only) daemon-wide rate limit before Open — transport.go
-//	step 1-4 outer checks, key lookup, HPKE open, inner decode         seal.Open
-//	step 5   time window                                                 seal.CheckTime
-//	step 6   sender KEL: inner vs stored, extension rule, no network     resolveSenderKEL
-//	step 7   signature under the resolved KEL, rotation grace            seal.VerifyInnerSig
-//	step 8   attached key set: advisory, high-water rule                 seal.VerifyInnerKeys
-//	         (from, mid) lock, refused list and replay table: a duplicate
-//	         is not judged again                                         duplicate
-//	step 9   authorization by type (no writes)                           authorize*
-//	step 10  business write and replay row in one transaction, then
-//	         side effects                                                ingest* (delegation.go)
+//	step 0    (direct) rate limit by the capability it came under, before Open  transport.go
+//	step 0a   (direct) wait for start-up to finish                             transport.go
+//	step 1    the outer; 1a (hub) the capability it came under, checked again  seal.ParseOuter
+//	step 2-4  key lookup, layer 1, the Wrap and layer 2 (3a), the inner        seal.Open
+//	step 4a   the keys its type must and must not carry                        kindKeysOK
+//	step 5    time window; 5a the refused list                                 seal.CheckTime
+//	step 6    sender KEL: inner vs stored, extension and R-9, no network       resolveSenderKEL
+//	step 6½   the witness notice of the KEL it carries                         seal.CheckNotice
+//	step 7    signature under the merged KEL at its arrival                    seal.VerifyInnerSig
+//	step 7½   the capability's grantee                                         grantMisuse
+//	step 8    attached key set and grant: advisory                             seal.VerifyInnerKeys
+//	step 8½   (from, mid) lock, refused list and table, replay table           duplicate
+//	step 9    authorization by type (no writes)                                authorize*
+//	step 10   business writes and replay row in one transaction                ingest* (delegation.go)
+//	step 11   the delivery token and the ack                                   answerEnvelope, rxTokenFor
 //
-// Failure classes. Permanent (P): the envelope is acknowledged and dropped,
-// and the reason counted; the same bytes would fail the same way again.
-// Temporary (T): a store error, the transport rate limit, a message that
-// arrived before the delegation it belongs to; the envelope is not
-// acknowledged, so the hub delivers it again and a p2p sender falls back to
-// the hub. A temporary failure becomes permanent once the message has
-// expired.
+// Result classes (engine §4.3). A: step 10 committed it, or it is a copy of
+// one that did, or it was sealed to an interaction this node closed; it is
+// acknowledged and answered tok(1). P: the same bytes would fail the same
+// way again; acknowledged, and answered tok(2) with a note once the first
+// layer opened. T: a store error, a rate limit, start-up, a witness this node
+// does not know yet, and over a direct transport anything that did not open;
+// not acknowledged, no token, so the hub delivers it again and a direct
+// sender goes to the hub. A temporary failure becomes permanent once the
+// message has expired. Before the first layer opens nothing knows the
+// envelope's ack_key, and nothing is answered with a token (ENG-V4); a
+// one-shot envelope (outer key 8) is never answered with one (ENG-V6).
 //
 // Every value a handler acts on comes from the authenticated inner message:
 // the sender is inner.from as proven by the signature in step 7, and the
-// interaction is inner.ix. Nothing is taken from transport metadata.
+// interaction is inner.ix. Nothing is taken from transport metadata. An
+// immediate refusal sends nothing: it is told in the token's note (ENG-V15).
 
 import (
 	"context"
@@ -61,11 +70,17 @@ const (
 type rxResult struct {
 	class  rxClass
 	reason string
+	// step is the step that decided the envelope (rxVerdict.Step).
+	step rxStep
+	// note is the note a refusal is given where its step chose one: the
+	// inbound policy's (noteReasonFor), or the reason a refusal of the same
+	// envelope was recorded with (rxVerdict.Note).
+	note seal.Note
 	// dack is the delivery token the envelope is answered with, or nil
 	// for none (DLV-R-6b). Only the engine sets it, once rxTokenFor has
 	// decided the envelope earns one and MakeDAck has made it (engine
 	// ENG-V11, V12). The hub path puts it in the envelope's /relay/ack
-	// item (ackItem, relay.go).
+	// item (ackItem, relay.go), the direct path in its ack frame.
 	dack *rxDAck
 }
 
@@ -79,7 +94,13 @@ type rxDAck struct {
 // ack reports whether the transport should acknowledge the delivery.
 func (r rxResult) ack() bool { return r.class != rxTransient }
 
-func accepted() rxResult { return rxResult{class: rxAccepted} }
+func accepted() rxResult { return rxResult{class: rxAccepted, step: rxStep10} }
+
+// at is r decided by step s.
+func (r rxResult) at(s rxStep) rxResult {
+	r.step = s
+	return r
+}
 
 // Counter names beyond the seal.Reason* strings. They are stable: tests and
 // operators read them from /status (ReceiveStats).
@@ -92,7 +113,7 @@ const (
 	dropBadTaskDoc    = "bad-taskdoc"            // the TaskDoc does not verify under the resolved KEL
 	dropSignerIsOther = "signer-mismatch"        // the TaskDoc signer is not inner.from
 	dropIXCollision   = "ix-collision"           // delegation for an ix this node holds in another role or with another peer
-	dropUnknownIX     = "unknown-ix"             // status/result, or an expired message, for an ix this node does not hold
+	dropUnknownIX     = "unknown-ix"             // message, status or result for an ix this node does not hold
 	dropNotPeer       = "not-peer"               // sender is not the interaction's peer
 	dropWrongRole     = "wrong-role"             // status/result for an interaction this node did not start
 	dropUnknownType   = "unknown-type"           // inner type this node does not implement
@@ -104,59 +125,51 @@ const (
 	dropExpiredWait   = "expired-while-waiting"  // a temporary failure outlived the message's exp
 	dropEmptyIX       = "empty-ix"               // a message type that needs an interaction id carries none
 
-	dropRefusedPrefix      = "refused-"             // + an anet.reason: a delegation the inbound policy refused
-	dropDenied             = "denied"               // message, status or result from a peer on the deny list
-	dropNotAllowed         = "not-allowed"          // message on a trust=peer interaction from a peer no longer allowed
-	dropPublicCapText      = "public-cap-text"      // text on a public capability call; only cancel, end_request and payment are taken
-	dropAfterTerminal      = "input-after-terminal" // new input for an interaction in a terminal state
-	dropEndRequestIgnored  = "end-request-ignored"  // end_request from the provider, or after a terminal state
-	dropCancelFromProvider = "cancel-from-provider" // cancel sent by the provider; the provider sends status canceled
-	dropPendingCollision   = "pending-collision"    // delegation for an ix held in the approval queue for another peer
+	dropRefusedPrefix        = "refused-"               // + the code: a delegation the inbound policy or its admission refused
+	dropDenied               = "denied"                 // message, status or result from a peer on the deny list
+	dropNotAllowed           = "not-allowed"            // message on a trust=peer interaction from a peer no longer allowed
+	dropPublicCapText        = "public-cap-text"        // text on a public capability call; only cancel, end_request and payment are taken
+	dropAfterTerminal        = "input-after-terminal"   // new input for an interaction in a terminal state
+	dropEndRequestIgnored    = "end-request-ignored"    // end_request from the provider
+	dropCancelFromProvider   = "cancel-from-provider"   // cancel sent by the provider; the provider sends status canceled
+	dropPendingCollision     = "pending-collision"      // delegation for an ix held in the approval queue for another peer
+	dropPendingFollowupsFull = "pending-followups-full" // a follow-up to a held delegation that has as many as it may hold
 
 	keysInvalid  = "keys-invalid"  // attached key set did not verify (advisory; message still processed)
 	keysFork     = "keys-fork"     // attached or fetched key set differs from the stored one at the same seq
 	keysRollback = "keys-rollback" // attached or fetched key set is older than the stored one
 
-	noticeTaskNotFound = "notice-task-not-found" // TaskNotFound status sent
-	noticeSent         = "notice-sent"           // a refusal or pending notice sent
-	noticeSuppressed   = "notice-rate-limited"   // a notice not sent: rate limit or no keys
-	resendSuppressed   = "resend-rate-limited"   // a redelivered delegation's answer not re-sent: rate limit
+	noticeSent       = "notice-sent"         // a notice after the fact queued (queueNotice)
+	noticeSuppressed = "notice-rate-limited" // a notice after the fact not queued: rate limit
+	resendSuppressed = "resend-rate-limited" // a redelivered delegation's answer not hurried: rate limit
 
-	transientStore       = "t-store"             // interactions store error
-	transientP2PRate     = "t-p2p-rate-limit"    // step 0
-	transientUnknownIX   = "t-unknown-ix"        // message before its delegation, inside the wait window
-	unknownIXNotHeld     = "unknown-ix-not-held" // inside the window, but the sender does not get the wait (F25)
-	unknownIXOverCap     = "unknown-ix-over-cap" // a sender that gets the wait has unknownIXHeldPerSender waiting
-	transientReplayCheck = "t-replay-read"       // replay table read failed
+	// redeliveryNotAuthorized counts a redelivered delegation whose side
+	// effects were not taken: the sender may no longer send on its
+	// interaction, or the copy is not the request it was accepted for. It
+	// is answered tok(1) all the same (engine ENG-V18).
+	redeliveryNotAuthorized = "redelivery-not-authorized"
+	// accessInvalidAtRx counts a kind-1 credential on a mailbox envelope that
+	// does not check here (step 1a): the envelope goes on as one under no
+	// capability, and the capability is not revoked.
+	accessInvalidAtRx = "access-invalid-at-rx"
+	// The one-shot envelopes of step 9 (engine §4.5).
+	previewRejected  = "preview-rejected"  // a preview frame not taken
+	cardGetNoGrant   = "card-get-no-grant" // a card request without the one-shot grant to answer under: not answered
+	cardGetAnswered  = "card-get-answered" // a card request answered
+	cardRejected     = "card-rejected"     // a card answer not taken
+	cancelTombEvict  = "cancel-tombstone-evicted"
+	cancelTombstoned = "cancel-tombstone" // a cancel for a task this node does not hold, kept as a tombstone
+
+	transientStore       = "t-store"          // interactions store error
+	transientP2PRate     = "t-p2p-rate-limit" // step 0
+	transientReplayCheck = "t-replay-read"    // replay table read failed
 	// transientDirectUnopened: an envelope a transport module delivered
-	// that this node cannot open (steps 1-4); the sender is sent to the hub.
+	// that this node cannot open (steps 1-3); the sender is sent to the hub.
 	transientDirectUnopened = "t-direct-unopened"
 	// transientNotReady: a direct delivery that arrived during start-up and
 	// could not wait for it to finish (awaitReady).
 	transientNotReady = "t-not-ready"
-	// transientDirectUnknownIX: a message for a task this node does not
-	// hold, delivered directly; the sender is sent to the hub, where its
-	// delegation may be waiting ahead of it (authorizeMessage).
-	transientDirectUnknownIX = "t-direct-unknown-ix"
 )
-
-// unknownIXWait is how long a message for an interaction this node does not
-// know is treated as early rather than wrong (§3.6 step 9). The delegation
-// and a follow-up can take different paths (p2p and hub) and arrive out of
-// order; within the window the message stays in the mailbox.
-//
-// Only a sender this node has something to do with waits (mayWaitForTask),
-// and only unknownIXHeldPerSender of its messages at a time
-// ([redteam:F25]): what waits stays in this node's own hub mailbox, and a
-// stranger's wait was a way for anyone registered to keep an online node's
-// mailbox full (507 for everyone else) while sending below its own rate
-// limit.
-const unknownIXWait = 10 * time.Minute
-
-// unknownIXHeldPerSender bounds the messages for unknown interactions one
-// sender can have waiting at once; past it they are answered TaskNotFound
-// at once. A requester's follow-ups racing its own delegation are a few.
-const unknownIXHeldPerSender = 32
 
 // rxMsg is an envelope that passed steps 1 to 8.
 type rxMsg struct {
@@ -165,6 +178,10 @@ type rxMsg struct {
 	ts, exp       uint64
 	keySeq        uint64 // the sender's key state seq in the inner message
 	body          []byte
+	// arrival is when the envelope counts as arrived (KEL D-20): the hub's
+	// accepted_at bounded by the sender's time and now, or now for a direct
+	// delivery. A held delegation keeps it (KEL D-25).
+	arrival uint64
 	// kel is the sender KEL resolved in step 6; the signature and every
 	// nested signed object are checked against it.
 	kel []identity.SignedEvent
@@ -177,6 +194,8 @@ type rxMsg struct {
 	// direct: it arrived over a transport module, not from the hub mailbox
 	// (rxPath.direct).
 	direct bool
+	// oneShot: the outer carries key 8 (a preview frame or a card message).
+	oneShot bool
 	// keysUpdate is the attached key set when it passed step 8 and is newer
 	// than the stored one; noticeKeys is any verified set usable to reply.
 	keysUpdate, noticeKeys *peerKeySet
@@ -207,27 +226,37 @@ type rxMsg struct {
 	// pendingRoute marks a message for a delegation held in the approval
 	// queue.
 	pendingRoute bool
-	// refusalStored marks a delegation whose refusal is in the refused
-	// table already (recordRefusal), and refusalReason is the note reason
-	// it was recorded with, which the in-memory list keeps too.
-	refusalStored bool
-	refusalReason string
+	// tombstone marks a cancel for a task this node does not hold: step 10
+	// keeps it as a tombstone with its replay row (engine §4.5).
+	tombstone bool
+	// redeliveryDenied marks a delegation for an interaction of the
+	// sender's that it may no longer send on: step 10 records its replay
+	// row and does nothing else (engine ENG-V18).
+	redeliveryDenied bool
 
-	// ackNow is rxPath.ack: set on a direct delivery, called once by
-	// committed.
-	ackNow func()
+	// ackKey is the envelope's ack_key, for the token committed makes; ackNow
+	// is rxPath.ack: set on a direct delivery, called once by committed.
+	ackKey seal.AckKey
+	ackNow func(dack []byte)
 }
 
 // committed reports that step 10 has committed this message: a direct
-// delivery is acknowledged now, not after the side effects that follow
-// (an internal note item). Until this point every failure is still one the sender must
-// hear about; after it, redelivering the envelope could only be a
-// duplicate.
+// delivery is acknowledged now, with its tok(1), not after the side effects
+// that follow (an internal note item, engine ENG-V2). Until this point every failure is
+// still one the sender must hear about; after it, redelivering the envelope
+// could only be a duplicate.
 func (m *rxMsg) committed() {
-	if m.ackNow != nil {
-		m.ackNow()
-		m.ackNow = nil
+	if m.ackNow == nil {
+		return
 	}
+	var b []byte
+	if tok := rxTokenFor(rxVerdict{Class: rxAccepted, Step: rxStep10, Layer1: true, OneShot: m.oneShot}); tok.Make {
+		if dack, err := m.ackKey.MakeDAck(tok.Outcome, tok.Note); err == nil {
+			b = dack[:]
+		}
+	}
+	m.ackNow(b)
+	m.ackNow = nil
 }
 
 // rxPath is how an envelope reached this node.
@@ -235,87 +264,180 @@ type rxPath struct {
 	// direct: a transport module handed it over (module.Inbound, p2p), not
 	// the hub mailbox.
 	direct bool
+	// acceptedAt is when the hub accepted a mailbox envelope (unix ms, the
+	// row's accepted_at): its arrival (KEL D-20).
+	acceptedAt uint64
+	// issued is the capability this node issued that a direct delivery came
+	// under, as step 0 checked it (nil: none).
+	issued *interactions.IssuedCap
 	// ack, when set, is called once step 10 has committed the envelope's
 	// business writes and replay row, before the side effects that follow
-	// the commit (running a capability, sending an answer). A direct
-	// delivery is acknowledged there (an internal note item, inbound.Receive).
-	ack func()
+	// the commit (running a capability, sending an answer), with the tok(1)
+	// it is answered with. A direct delivery is acknowledged there (0017
+	// Q29, inbound.Receive).
+	ack func(dack []byte)
 }
 
-// receiveEnvelope runs steps 1 to 10 on one envelope from the hub mailbox.
+// receiveEnvelope runs the pipeline on one envelope from the hub mailbox
+// that the hub accepted just now.
 func (d *Daemon) receiveEnvelope(ctx context.Context, env []byte) rxResult {
-	return d.receiveEnvelopeVia(ctx, env, rxPath{})
+	return d.receiveEnvelopeVia(ctx, env, rxPath{acceptedAt: d.nowMS()})
 }
 
-// receiveEnvelopeVia runs steps 1 to 10 on one envelope that arrived by
-// path.
+// receiveEnvelopeVia runs the pipeline on one envelope that arrived by path.
 func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath) (result rxResult) {
 	now := d.nowMS()
 
-	// Steps 1-4.
-	op, err := seal.Open(env, d.AID(), d.enc, nil) // v030-todo(FS-7): ixLookup
+	// Step 1: the outer. Open parses it again; it is read first for what the
+	// steps after it need before the inner opens: whether the envelope is
+	// one-shot (outer key 8), and which capability of this node's it came
+	// under.
+	outer, err := seal.ParseOuter(env)
+	if err != nil {
+		return d.unopened(path, err)
+	}
+	oneShot := outer.Exp != nil
+	// Step 1a (the hub path) or step 0 (direct): the capability this node
+	// issued that the envelope came under and proved, nil for none. On the
+	// hub path a credential that does not check here only means none; it is
+	// not revoked (ENG-V7).
+	issued := path.issued
+	if !path.direct {
+		var kind1 bool
+		issued, _, kind1 = d.capUnder(outer, env, now)
+		if kind1 && issued == nil {
+			d.count(accessInvalidAtRx)
+		}
+	}
+
+	// Steps 2 to 4.
+	op, err := seal.Open(env, d.AID(), d.enc, d.ixKeys())
+	var ack seal.AckKey
+	layer1 := false
 	if err == nil {
-		ack, oneShot := op.AckKey, op.Outer.Exp != nil
-		defer func() { result = processedToken(result, ack, oneShot) }()
+		ack, layer1 = op.AckKey, true
+	} else {
+		ack, layer1 = seal.AckKeyOf(err)
+	}
+	var m *rxMsg
+	if layer1 {
+		// Step 11: what the envelope is answered with (ENG-V11, V12).
+		defer func() {
+			result = d.answerEnvelope(result, ack, oneShot)
+			clear(ack[:])
+			if m != nil {
+				clear(m.ackKey[:])
+			}
+		}()
 	}
 	if err != nil {
-		if path.direct {
-			// [redteam:F22] From the hub mailbox an envelope this node
-			// cannot open is wrong for good: the mailbox is this node's,
-			// and the hub checked the outer to. Over a direct transport it
-			// may only be someone else's: the address the sender dialled
-			// can lead to another node (a stale or reused rendezvous entry,
-			// another identity behind the same host and port). Acked here,
-			// the sender would count it delivered and never try the hub,
-			// where the real recipient's mailbox is, and the message would
-			// be lost. Not acked, it goes through the hub, which refuses it
-			// there if it is malformed after all (§3.6 steps 1-4, §3.10).
-			return d.transient(transientDirectUnopened, fmt.Errorf("%s: %w", reasonOf(err), err))
+		reason := seal.ReasonOf(err)
+		switch {
+		case !layer1:
+			return d.unopened(path, err)
+		case reason == "":
+			// The interaction key store could not be read: not a property of
+			// the bytes, so neither a refusal nor a closed interaction
+			// (ENG-V8).
+			return d.transient(transientStore, err).at(rxStep3a)
 		}
-		return d.drop(reasonOf(err), err)
+		step := rxStep4
+		switch reason {
+		case seal.ReasonBadWrap, seal.ReasonDecrypt, seal.ReasonSealedToClosedInteraction:
+			step = rxStep3a
+		}
+		d.misused(issued, step, reason, oneShot, "")
+		if reason == seal.ReasonSealedToClosedInteraction {
+			// Sealed to an interaction this node has closed: what it carried
+			// has nothing left to land on, and the sender is told it was
+			// taken (tok(1); FS-R2, DLV T13).
+			d.count(reason)
+			return rxResult{class: rxAccepted, reason: reason, step: step}
+		}
+		return d.drop(reason, err).at(step)
 	}
 	in := &op.Inner
 
+	// Step 4a: the keys its type must and must not carry.
+	cm, preview := previewOf(in)
+	if !kindKeysOK(op, preview) {
+		d.misused(issued, rxStep4a, dropBadKindKeys, oneShot, in.Type)
+		return d.drop(dropBadKindKeys, fmt.Errorf("type %s, outer key 8 %v, layers %d", in.Type, oneShot, op.Layers)).at(rxStep4a)
+	}
+
 	// Step 5.
 	if err := seal.CheckTime(in, now); err != nil {
-		return d.drop(reasonOf(err), err)
+		return d.drop(reasonOf(err), err).at(rxStep5)
 	}
-	if _, refused := d.refused.get(replayKey(in.From, in.MID)); refused {
-		return d.drop(dropRefusedReplay, nil)
+	// Step 5a: a copy of an envelope refused before is answered as the
+	// first was, before any work is spent on it again.
+	if reason, refused := d.refused.get(replayKey(in.From, in.MID)); refused {
+		return d.refusedReplay(rxStep5a, reason)
+	}
+
+	arrival := now
+	if !path.direct {
+		arrival = hubArrival(path.acceptedAt, in.TS, now)
 	}
 
 	// Step 6.
-	use, update, row, res := d.resolveSenderKEL(in.From, op.KEL)
+	use, update, row, res := d.resolveSenderKEL(in, op.KEL, preview, now)
 	if res != nil {
-		return *res
+		d.misused(issued, rxStep6, res.reason, oneShot, in.Type)
+		return res.at(rxStep6)
 	}
 
-	// Step 7. v030-todo(ENG-1c): the arrival is KEL D-20's, from the hub's accepted_at, not now.
-	if err := seal.VerifyInnerSig(in, op.Preimage, use, now); err != nil {
-		return d.drop(reasonOf(err), err)
+	// Step 6½: the witness notice of the KEL the envelope carries, whether
+	// or not this node holds a record of the sender (KEL D-21). A preview
+	// frame carries none (C-52).
+	if !preview {
+		if res := d.checkNotice(ctx, in, op.KEL, arrival); res != nil {
+			d.misused(issued, rxStep6b, res.reason, oneShot, in.Type)
+			return res.at(rxStep6b)
+		}
 	}
 
-	m := &rxMsg{from: in.From, typ: in.Type, ix: in.IX, mid: in.MID, ts: in.TS, exp: in.Exp,
-		keySeq: in.KeyStateSeq, body: in.Body, kel: use, kelUpdate: update, ackNow: path.ack, known: row != nil,
-		direct: path.direct}
+	// Step 7, at the arrival (KEL D-22).
+	if err := seal.VerifyInnerSig(in, op.Preimage, use, arrival); err != nil {
+		reason := reasonOf(err)
+		d.misused(issued, rxStep7, reason, oneShot, in.Type)
+		return d.drop(reason, err).at(rxStep7)
+	}
+
+	// Step 7½: a capability this node issued, used by someone other than
+	// its grantee or, one-shot, for another interaction, is revoked; the
+	// message goes on as one under no capability (SS §4.3.10).
+	if issued != nil && grantMisuse(issued, in.From, in.IX) {
+		if _, err := d.revokeMisused(issued.CapID); err != nil {
+			log.Printf("anet: revoke a misused capability: %v", err)
+		}
+		issued = nil
+	}
+
+	m = &rxMsg{from: in.From, typ: in.Type, ix: in.IX, mid: in.MID, ts: in.TS, exp: in.Exp,
+		keySeq: in.KeyStateSeq, body: in.Body, arrival: arrival, kel: use, kelUpdate: update,
+		ackNow: path.ack, ackKey: ack, known: row != nil, direct: path.direct, oneShot: oneShot, cm: cm}
 
 	// Step 8: advisory. A key set that fails here does not affect the
-	// message; the authenticity of the message was decided in step 7.
+	// message; the authenticity of the message was decided in step 7. A
+	// preview frame carries neither a key set nor a grant (CORE-K5).
 	var verifiedKeys *seal.EncKeySet
-	if signed, set, kerr := seal.VerifyInnerKeys(in, use, now); kerr != nil {
-		d.count(keysInvalid)
-	} else {
-		verifiedKeys = set
-		ks := &peerKeySet{signed: in.Keys, set: set}
-		switch seal.DecideHighWater(seenOf(row), set.Seq, signed.Set) {
-		case seal.Replace:
-			m.keysUpdate, m.noticeKeys = ks, ks
-		case seal.Same:
-			m.noticeKeys = ks
-		case seal.Fork:
-			d.count(keysFork)
-		case seal.Ignore:
-			d.count(keysRollback)
+	if !preview {
+		if signed, set, kerr := seal.VerifyInnerKeys(in, use, now); kerr != nil {
+			d.count(keysInvalid)
+		} else {
+			verifiedKeys = set
+			ks := &peerKeySet{signed: in.Keys, set: set}
+			switch seal.DecideHighWater(seenOf(row), set.Seq, signed.Set) {
+			case seal.Replace:
+				m.keysUpdate, m.noticeKeys = ks, ks
+			case seal.Same:
+				m.noticeKeys = ks
+			case seal.Fork:
+				d.count(keysFork)
+			case seal.Ignore:
+				d.count(keysRollback)
+			}
 		}
 	}
 	if m.noticeKeys == nil {
@@ -324,18 +446,23 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		}
 	}
 	// Step 8: the grant, checked against the key set this message carries.
-	m.grant = d.grantToKeep(in, verifiedKeys, op.Outer.Exp != nil, now)
+	m.grant = d.grantToKeep(in, verifiedKeys, oneShot, now)
 
-	// Steps 9 and 10 for one (from, mid) at a time, and a message handled
+	// Steps 8½ to 10 for one (from, mid) at a time, and a message handled
 	// or refused before is not judged again [redteam:F26]. Two copies of
 	// one envelope (the hub's and a p2p peer's, or a redelivery racing the
 	// first) meet here: the second waits for the first to be decided and
 	// committed, then finds it in the refused list or the replay table. It
-	// takes no admission slot, sends no refusal and runs nothing the first
-	// did not; a delegation's duplicate goes to the redelivery path.
+	// takes no admission slot and runs nothing the first did not; a
+	// delegation's duplicate goes to the redelivery path.
 	key := replayKey(m.from, m.mid)
 	unlock := d.rxLocks.lock(key)
-	defer unlock()
+	defer func() {
+		unlock()
+		if f := d.testRxUnlockHook(); f != nil {
+			f()
+		}
+	}()
 	if m.typ == seal.TypeDelegate && m.ix != "" {
 		// The same delegation sealed twice (two message ids) is one
 		// decision too: the second copy finds the interaction the first
@@ -343,28 +470,35 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		unlockIX := d.rxIXLocks.lock(m.from + "\x00" + m.ix)
 		defer unlockIX()
 	}
-	if _, refused := d.refused.get(key); refused {
-		return d.drop(dropRefusedReplay, nil)
+	// A refusal is made to stick before the locks are released, so the copy
+	// waiting on them finds it [redteam:F5][redteam:F26].
+	defer func() { result = d.stickRefusal(result, m) }()
+	if reason, refused := d.refused.get(key); refused {
+		return d.refusedReplay(rxStep8b, reason)
 	}
-	// A delegation refused before is refused again, without a reply,
-	// after a restart or after the in-memory list forgot it: the policy
-	// may have changed since, and the requester was told `rejected`
-	// [redteam:F5].
+	if oneShot {
+		// A one-shot envelope is judged by its type alone: no refused table,
+		// no replay row (engine §4.2 step 8½, §4.7).
+		return d.receiveOneShot(ctx, m, preview, verifiedKeys, in, now)
+	}
+	// A delegation refused before is refused again, with the reason it was
+	// first told, after a restart or after the in-memory list forgot it:
+	// the policy may have changed since [redteam:F5].
 	var floor uint64
 	if m.typ == seal.TypeDelegate {
 		exact, reason, f, err := d.ix.Refused(m.from, m.mid)
 		if err != nil {
-			return d.expireTransient(d.transient(transientReplayCheck, err), m, now)
+			return d.expireTransient(d.transient(transientReplayCheck, err).at(rxStep8b), m, now)
 		}
 		if exact {
 			d.refused.add(key, reason)
-			return d.drop(dropRefusedReplay, nil)
+			return d.refusedReplay(rxStep8b, reason)
 		}
 		floor = f
 	}
 	seen, err := d.ix.ReplaySeen(m.from, m.mid)
 	if err != nil {
-		return d.expireTransient(d.transient(transientReplayCheck, err), m, now)
+		return d.expireTransient(d.transient(transientReplayCheck, err).at(rxStep8b), m, now)
 	}
 	if seen {
 		return d.expireTransient(d.duplicate(ctx, m), m, d.nowMS())
@@ -372,19 +506,12 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	if m.ts <= floor {
 		// Older than refusals of this sender's that the table let go of
 		// (refused.go): it may be one of them.
-		return d.drop(dropRefusedFloor, nil)
+		return d.drop(dropRefusedFloor, nil).at(rxStep8b)
 	}
 
 	// Step 9.
-	ares := d.authorize(m, now)
-	if m.typ == seal.TypeMessage && (ares == nil || (ares.reason != transientUnknownIX && ares.reason != transientDirectUnknownIX)) {
-		d.heldEarly.forget(m.from, m.mid) // no longer waiting, if it was
-	}
-	if ares != nil {
-		if ares.class == rxDropped {
-			d.noteRefusedEnvelope(m)
-		}
-		return d.expireTransient(*ares, m, now)
+	if ares := d.authorize(m, now); ares != nil {
+		return d.expireTransient(ares.at(rxStep9), m, now)
 	}
 
 	// Step 10.
@@ -395,106 +522,169 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		m.release()
 		m.release = nil
 	}
+	if out.step == 0 {
+		out.step = rxStep10
+	}
 	return d.expireTransient(out, m, d.nowMS())
 }
 
-// processedToken gives res the delivery token of outcome 1 (processed) when
-// the envelope was committed at step 10 or was a duplicate of one that was
-// (engine ENG-V12, V13): what tells its sender, through the hub's /relay/ack
-// or a direct ack, that it arrived. A one-shot envelope gets none (ENG-V6).
-//
-// v030-todo(ENG-1c): rxTokenFor decides every token (ENG-V11), refusals'
-// tok(2) with their notes included; until then only a processed envelope
-// earns one.
-func processedToken(res rxResult, ack seal.AckKey, oneShot bool) rxResult {
-	defer clear(ack[:])
-	if oneShot || res.dack != nil || !(res.class == rxAccepted || res.class == rxDropped && res.reason == dropDuplicate) {
+// unopened is the answer to an envelope whose first layer did not open
+// (steps 1 to 3; engine ENG-V4). From the hub mailbox it is wrong for good:
+// the mailbox is this node's, and the hub checked the outer to. Over a direct
+// transport it may only be someone else's [redteam:F22]: the address the
+// sender dialled can lead to another node (a stale or reused address,
+// another identity behind the same host and port). Acknowledged there, the
+// sender would count it delivered and never try the hub, where the real
+// recipient's mailbox is, and the message would be lost; not acknowledged,
+// it goes through the hub, which refuses it there if it is malformed after
+// all. Neither is answered with a token: none can be made before layer 1.
+func (d *Daemon) unopened(path rxPath, err error) rxResult {
+	if path.direct {
+		return d.transient(transientDirectUnopened, fmt.Errorf("%s: %w", reasonOf(err), err)).at(rxStep1)
+	}
+	if seal.ReasonOf(err) == seal.ReasonUnknownKey {
+		d.unknownKeyDrops.note(d.nowMS())
+	}
+	return d.drop(reasonOf(err), err).at(rxStep1)
+}
+
+// hourCounts counts events in the last 24 hours, by the hour they fell in
+// (unix ms); in memory, bounded, and as old as the process at most.
+type hourCounts struct {
+	mu    sync.Mutex
+	hours [24]struct{ hour, n uint64 }
+}
+
+// countHourMS is the width of one of hourCounts' buckets.
+const countHourMS = 3_600_000
+
+// note counts one event at now.
+func (c *hourCounts) note(now uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h := now / countHourMS
+	b := &c.hours[h%24]
+	if b.hour != h {
+		b.hour, b.n = h, 0
+	}
+	b.n++
+}
+
+// last24h is the events in the 24 hours up to now.
+func (c *hourCounts) last24h(now uint64) uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h := now / countHourMS
+	var n uint64
+	for _, b := range c.hours {
+		if b.hour+24 > h && b.hour <= h {
+			n += b.n
+		}
+	}
+	return n
+}
+
+// unknownKeyDrops24h is how many envelopes from the hub mailbox were dropped
+// in the last 24 hours as sealed to an epoch key this node does not hold
+// (engine §4.2 step 2): /status privacy's unknown_key_drops_24h (FS §2.10).
+// A direct delivery that fails the same way is temporary and not counted.
+func (d *Daemon) unknownKeyDrops24h() uint64 { return d.unknownKeyDrops.last24h(d.nowMS()) }
+
+// refusedReplay answers a copy of an envelope refused before with the reason
+// the first was refused with, and no wait (engine ENG-V13).
+func (d *Daemon) refusedReplay(step rxStep, reason string) rxResult {
+	r := d.drop(dropRefusedReplay, nil).at(step)
+	r.note = seal.Note{Reason: reason}
+	return r
+}
+
+// stickRefusal makes a refusal of an authenticated message by step 9 or 10
+// stick before it is told (engine ENG-V12, V13), while the envelope's locks
+// are still held: a delegation's in the refused table, every one in the
+// in-memory list, with the note it is told. One that cannot be written is
+// not told: the envelope is temporary and judged again when it comes back
+// [redteam:F5]. A result refused for its receipt or its reply first fails
+// the task (CUX-R7).
+func (d *Daemon) stickRefusal(res rxResult, m *rxMsg) rxResult {
+	if m.oneShot || res.class != rxDropped || res.step < rxStep9 || res.reason == dropDuplicate {
 		return res
 	}
-	dack, err := ack.MakeDAck(seal.OutcomeProcessed, seal.Note{})
+	tok := rxTokenFor(rxVerdict{Class: res.class, Step: res.step, Reason: res.reason, Layer1: true, Note: res.note})
+	if res.reason == dropResultRefused || res.reason == dropReplyMismatch {
+		if err := d.resultRefused(m, res.reason); err != nil {
+			return d.expireTransient(d.transient(transientStore, fmt.Errorf("fail %s for its refused result: %w", m.ix, err)).at(res.step), m, d.nowMS())
+		}
+	}
+	if m.typ == seal.TypeDelegate {
+		if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, tok.Note.Reason); err != nil {
+			return d.expireTransient(d.transient(transientStore, fmt.Errorf("record the refusal of %s: %w", m.ix, err)).at(res.step), m, d.nowMS())
+		}
+	}
+	d.refused.add(replayKey(m.from, m.mid), tok.Note.Reason)
+	return res
+}
+
+// answerEnvelope is step 11: what an envelope whose first layer opened is
+// answered with (engine ENG-V11, V12): rxTokenFor decides the token, and the
+// envelope's ack_key makes it. A refusal it answers was made to stick first
+// (stickRefusal).
+func (d *Daemon) answerEnvelope(res rxResult, ack seal.AckKey, oneShot bool) rxResult {
+	tok := rxTokenFor(rxVerdict{Class: res.class, Step: res.step, Reason: res.reason, OneShot: oneShot, Layer1: true, Note: res.note})
+	if !tok.Make || res.dack != nil {
+		return res
+	}
+	dack, err := ack.MakeDAck(tok.Outcome, tok.Note)
 	if err != nil {
+		log.Printf("anet: receive: make the delivery token: %v", err)
 		return res
 	}
 	res.dack = &rxDAck{handle: ack.Handle(), dack: dack}
 	return res
 }
 
-// noteRefusedEnvelope remembers an envelope step 9 refused for good: in the
-// in-memory list, which a replay meets before any decryption work is
-// repeated, and for a delegation also in the refused table, which outlives
-// a restart and the list's eviction [redteam:F5]. A refusal the requester
-// is told of was written before it was told (recordRefusal); for one that
-// is not answered a table write that fails is logged, and the list still
-// covers this process.
-func (d *Daemon) noteRefusedEnvelope(m *rxMsg) {
-	d.refused.add(replayKey(m.from, m.mid), m.refusalReason)
-	if m.typ != seal.TypeDelegate || m.refusalStored {
-		return
-	}
-	if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, m.refusalReason); err != nil {
-		log.Printf("anet: record the refused delegation %s from %s: %v", m.ix, m.from, err)
-	}
-}
-
-// recordRefusal writes a delegation's refusal, and the reason it is told
-// with, to the refused table before the requester is told `rejected`
-// [redteam:F5]: a refusal the requester was told of must outlive a restart
-// and the in-memory list, or the same envelope could be judged again later
-// and run — and a replay must be told the same reason (DLV-ST-8). One that
-// cannot be written is not told either: the envelope is not acknowledged
-// (T) and is judged again when it comes back, as if this delivery had not
-// happened.
-func (d *Daemon) recordRefusal(m *rxMsg, reason string) *rxResult {
-	if err := d.ix.RecordRefused(m.from, m.mid, m.ts, m.exp, reason); err != nil {
-		r := d.transient(transientStore, fmt.Errorf("record the refusal of %s: %w", m.ix, err))
-		return &r
-	}
-	m.refusalStored, m.refusalReason = true, reason
-	return nil
-}
-
-// duplicate handles an envelope whose (from, mid) the replay table holds:
-// it was accepted before, and nothing is decided about it again. A
-// delegation may mean the requester never got the answer: when the
-// interaction it opened is still this sender's and the envelope carries the
-// same request (authorizeRedelivery), redeliveredDelegate re-sends the
-// answer or finishes work a crash interrupted. Anything else is
-// acknowledged and dropped, without a reply.
+// duplicate handles an envelope whose (from, mid) the replay table holds: it
+// was taken before, it is answered tok(1) whatever follows (engine ENG-V13,
+// V17), and nothing is decided about it again. A delegation may mean the
+// requester never got the answer: when the interaction it opened is still
+// the sender's, the envelope carries the request it was accepted for, and
+// the sender may still send on it, redeliveredDelegate hurries the answer
+// or finishes work a crash interrupted (ENG-V18). Otherwise nothing follows,
+// counted redelivery-not-authorized.
 func (d *Daemon) duplicate(ctx context.Context, m *rxMsg) rxResult {
+	dup := d.drop(dropDuplicate, nil).at(rxStep8b)
 	if m.typ != seal.TypeDelegate {
-		return d.drop(dropDuplicate, nil)
+		return dup
 	}
 	if res := d.parseDelegate(m); res != nil {
-		return *res
+		d.count(redeliveryNotAuthorized)
+		return dup
 	}
 	ix, res := d.lookupIX(m.ix)
 	if res != nil {
-		return *res
+		return res.at(rxStep8b)
 	}
 	if ix == nil || ix.Role != interactions.RoleInbound || ix.PeerAID != m.from {
 		// Held for approval, refused on approval, or not a delegation
-		// this node took: nothing to re-send and nothing to run.
-		return d.drop(dropDuplicate, nil)
+		// this node took: nothing to hurry and nothing to run.
+		return dup
 	}
-	if res := d.authorizeRedelivery(m, ix); res != nil {
-		return *res
+	if !d.mayRedeliver(m, ix) {
+		d.count(redeliveryNotAuthorized)
+		return dup
 	}
-	// A redelivered delegation may mean the requester never got the
-	// answer: resend it, or finish work a crash interrupted. Over a direct
-	// transport the duplicate is acknowledged first and the answer re-sent
-	// after (an internal note item): a crash in between leaves the call to startup
-	// recovery, as for a first delivery.
+	// Over a direct transport the duplicate is acknowledged first, with its
+	// token, and the side effects follow (an internal note item): a crash in between
+	// leaves the call to startup recovery, as for a first delivery.
 	if m.ackNow != nil {
-		dup := d.drop(dropDuplicate, nil)
 		m.committed()
 		d.redeliveredDelegate(ctx, m)
 		return dup
 	}
 	// A re-run the daemon's stop cut short is not acknowledged (SI-10).
 	if !d.redeliveredDelegate(ctx, m) {
-		return d.transient(transientStopping, d.ctx.Err())
+		return d.transient(transientStopping, d.ctx.Err()).at(rxStep10)
 	}
-	return d.drop(dropDuplicate, nil)
+	return dup
 }
 
 // reasonOf maps an error from the seal package to its counter name.
@@ -506,27 +696,126 @@ func reasonOf(err error) string {
 }
 
 // expireTransient turns a temporary failure into a permanent one once the
-// message has expired: the hub would otherwise hold it until its TTL and
-// every later delivery would fail step 5 anyway.
+// message has expired (engine ENG-V5): the hub would otherwise hold it
+// until its TTL and every later delivery would fail step 5 anyway.
 func (d *Daemon) expireTransient(r rxResult, m *rxMsg, now uint64) rxResult {
 	if r.class == rxTransient && now > m.exp {
-		return d.drop(dropExpiredWait, nil)
+		return d.drop(dropExpiredWait, nil).at(rxStep5)
 	}
 	return r
+}
+
+// capUnder is the capability this node issued that an envelope came under,
+// when its credential (outer key 7, kind 1) checks: issued by this node
+// under its current mailbox key, not revoked, not expired, and the holder's
+// proof over the envelope's digest verifies (p2pRxBucket). It returns the
+// row (nil: none, or a credential that does not check), the rate bucket a
+// direct delivery is charged to, and whether the envelope named a
+// capability at all. It reads caps_issued once; a store error is no
+// capability.
+func (d *Daemon) capUnder(outer *seal.SealedEnvelope, env []byte, now uint64) (*interactions.IssuedCap, rxBucketKey, bool) {
+	a := outer.Access
+	if a == nil || a.Kind != seal.AccessKindCap {
+		return nil, rxBucketKey{}, false
+	}
+	capID := capIDOf(a)
+	if capID == nil || d.mbox == nil {
+		return nil, rxBucketKey{}, true
+	}
+	issued, err := d.ix.IssuedCap(capID)
+	if err != nil {
+		return nil, rxBucketKey{}, true
+	}
+	mbox, ok := d.mbox.Current()
+	if !ok {
+		return nil, rxBucketKey{}, true
+	}
+	digest, err := seal.EnvDigest(env)
+	if err != nil {
+		return nil, rxBucketKey{}, true
+	}
+	k := p2pRxBucket(a, digest, issued, d.AID(), mbox, now)
+	if k.Class == 0 {
+		return nil, k, true
+	}
+	return issued, k, true
+}
+
+// misused revokes issued, the capability an envelope came under, when the
+// envelope failed at step for a reason its holder cannot meet by accident
+// (capMisuse; SS §4.3.8 item 2, engine ENG-V7). A preview frame's failure
+// never does (CUX-P20): before step 4 decoded its type, a one-shot envelope
+// may be one.
+func (d *Daemon) misused(issued *interactions.IssuedCap, step rxStep, reason string, oneShot bool, typ string) {
+	if issued == nil || !capMisuse(step, reason) {
+		return
+	}
+	if oneShot && (typ == "" || typ == seal.TypeMessage) {
+		return
+	}
+	if _, err := d.revokeMisused(issued.CapID); err != nil {
+		log.Printf("anet: revoke a misused capability: %v", err)
+	}
+}
+
+// previewOf decodes the ChatMsg of an anet.message/1 (nil when it does not
+// decode: step 9 refuses it as bad-body) and reports whether it is a
+// stream_preview frame (core CORE-K5).
+func previewOf(in *seal.SealedInner) (*delegation.ChatMsg, bool) {
+	if in.Type != seal.TypeMessage {
+		return nil, false
+	}
+	cm, err := delegation.UnmarshalChatMsg(in.Body)
+	if err != nil {
+		return nil, false
+	}
+	return cm, cm.Kind == delegation.ChatStreamPreview
+}
+
+// kindKeysOK is step 4a (core CORE-K3, K5, G7, G11): which keys a message
+// type must and must not carry, which the seal layer leaves to the daemon.
+//
+//   - a preview frame: no KEL, notice, key set or grant (10, 11, 12, 14);
+//     outer key 8; two layers, with rk;
+//   - anet.card.get/1 and anet.card/1: the KEL, its notice and the key set
+//     (the requester checks the card under the provider's KEL, and the
+//     provider answers to the requester's keys); outer key 8; one layer;
+//   - everything else: the KEL, its notice and the key set; no outer key 8.
+func kindKeysOK(op *seal.Opened, preview bool) bool {
+	in := &op.Inner
+	oneShot := op.Outer.Exp != nil
+	carries := in.KEL != nil && len(in.Notices) > 0 && len(in.Keys) > 0
+	switch {
+	case preview:
+		return in.KEL == nil && len(in.Notices) == 0 && in.Keys == nil && len(in.Grant) == 0 &&
+			oneShot && op.Layers == 2 && in.RK != nil
+	case in.Type == delegation.TypeCardGet, in.Type == delegation.TypeCard:
+		return carries && oneShot && op.Layers == 1
+	}
+	return carries && !oneShot
 }
 
 // resolveSenderKEL is step 6. It makes no network request: the KEL comes
 // from the message or from the persisted peer record.
 //
 //   - the inner KEL extends the stored one (or nothing is stored): use the
-//     inner KEL and store it after acceptance;
+//     inner KEL and store it after acceptance — once its new events pass
+//     R-9 (none dated more than five minutes after this node's clock;
+//     kel-from-future, KEL D-23);
 //   - the stored KEL extends the inner one: use the stored KEL, so a
 //     signature by a key the stored history retired is judged as retired;
 //   - they fork: refuse.
 //
-// With nothing stored the inner KEL is trusted on first use (§21 item 6).
-func (d *Daemon) resolveSenderKEL(from string, inner []identity.SignedEvent) (
+// With nothing stored the inner KEL is trusted on first use (§21 item 6). A
+// preview frame carries no KEL (CORE-K5): the sender's stored one is used,
+// from its peer_identity row or, for the requester of a public task, the
+// one kept on the interaction.
+func (d *Daemon) resolveSenderKEL(in *seal.SealedInner, inner []identity.SignedEvent, preview bool, now uint64) (
 	use, update []identity.SignedEvent, row *interactions.PeerIdentity, res *rxResult) {
+	from := in.From
+	if preview {
+		return d.storedSenderKEL(in)
+	}
 	aid, err := replayedAID(inner)
 	if err != nil {
 		r := d.drop(seal.ReasonBadKEL, err)
@@ -537,15 +826,15 @@ func (d *Daemon) resolveSenderKEL(from string, inner []identity.SignedEvent) (
 		return nil, nil, nil, &r
 	}
 	row, err = d.ix.PeerIdentity(from)
-	if errors.Is(err, interactions.ErrNotFound) {
-		return inner, inner, nil, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, interactions.ErrNotFound) {
 		r := d.transient(transientStore, err)
 		return nil, nil, nil, &r
 	}
+	if errors.Is(err, interactions.ErrNotFound) {
+		row = nil
+	}
 	var stored []identity.SignedEvent
-	if len(row.KEL) > 0 {
+	if row != nil && len(row.KEL) > 0 {
 		if stored, err = identity.UnmarshalKEL(row.KEL); err != nil {
 			stored = nil
 		}
@@ -556,20 +845,70 @@ func (d *Daemon) resolveSenderKEL(from string, inner []identity.SignedEvent) (
 		return nil, nil, nil, &r
 	}
 	if replace {
+		if err := identity.CheckNewEvents(stored, inner, now, nil); err != nil {
+			r := d.drop(seal.ReasonKELFromFuture, err)
+			return nil, nil, nil, &r
+		}
 		update = inner
 	}
 	return use, update, row, nil
 }
 
+// storedSenderKEL is step 6 for a preview frame: the KEL this node holds for
+// its sender.
+func (d *Daemon) storedSenderKEL(in *seal.SealedInner) (use, update []identity.SignedEvent, row *interactions.PeerIdentity, res *rxResult) {
+	row, err := d.ix.PeerIdentity(in.From)
+	switch {
+	case err == nil && len(row.KEL) > 0:
+		if kel, kerr := identity.UnmarshalKEL(row.KEL); kerr == nil {
+			return kel, nil, row, nil
+		}
+	case err != nil && !errors.Is(err, interactions.ErrNotFound):
+		r := d.transient(transientStore, err)
+		return nil, nil, nil, &r
+	}
+	if ix, rerr := d.lookupIX(in.IX); rerr != nil {
+		return nil, nil, nil, rerr
+	} else if ix != nil && ix.PeerAID == in.From && len(ix.PeerKEL) > 0 {
+		if kel, kerr := identity.UnmarshalKEL(ix.PeerKEL); kerr == nil {
+			return kel, nil, nil, nil
+		}
+	}
+	r := d.drop(seal.ReasonBadKEL, fmt.Errorf("no KEL held for %s", in.From))
+	return nil, nil, nil, &r
+}
+
+// checkNotice is step 6½ (KEL C-55, D-21): the notice must confirm the tip
+// of the KEL the envelope carries, at its arrival, under the hub KELs this
+// node holds. A witness whose KEL this node does not hold as far as the
+// notice needs (witness-unknown) has the hub KEL set refreshed once and the
+// notice checked again; still unknown, the envelope is temporary (T, no
+// token): the refresh that would know the witness may come later.
+func (d *Daemon) checkNotice(ctx context.Context, in *seal.SealedInner, kel []identity.SignedEvent, arrival uint64) *rxResult {
+	err := seal.CheckNotice(in, kel, d.hubKELs, arrival)
+	if seal.ReasonOf(err) == seal.ReasonWitnessUnknown && d.refreshHubKELs(ctx) {
+		err = seal.CheckNotice(in, kel, d.hubKELs, arrival)
+	}
+	switch reason := seal.ReasonOf(err); {
+	case err == nil:
+		return nil
+	case reason == seal.ReasonWitnessUnknown:
+		r := d.transient(reason, err)
+		return &r
+	default:
+		r := d.drop(reasonOf(err), err)
+		return &r
+	}
+}
+
 // authorize is step 9: decide whether the sender may send this message for
-// this interaction. It writes nothing. A refusal that owes the sender an
-// answer (TaskNotFound) sends it here, rate limited and never retried.
+// this interaction. It writes nothing and sends nothing (ENG-V15).
 func (d *Daemon) authorize(m *rxMsg, now uint64) *rxResult {
 	switch m.typ {
 	case seal.TypeDelegate:
-		return d.authorizeDelegate(m)
+		return d.authorizeDelegate(m, now)
 	case seal.TypeMessage:
-		return d.authorizeMessage(m, now)
+		return d.authorizeMessage(m)
 	case seal.TypeStatus, seal.TypeResult:
 		return d.authorizeReply(m)
 	default:
@@ -595,10 +934,11 @@ func (d *Daemon) lookupIX(id string) (*interactions.Interaction, *rxResult) {
 // authorizeDelegate checks an anet.delegate/1: the body is a DelegateReq for
 // inner.ix whose TaskDoc verifies under the resolved KEL at the message time
 // and is signed by inner.from; inner.ix is not an interaction this node
-// holds in another role or with another peer; and the inbound policy
-// (§5.2) accepts, holds or refuses it. A refusal is answered here, rate
-// limited, and nothing is written.
-func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
+// holds in another role or with another peer, nor one its requester
+// canceled before it arrived (a tombstone); and the inbound policy (§5.2)
+// accepts, holds or refuses it. A refusal writes nothing here: step 11
+// records it and answers it with the note noteReasonFor gives (engine §4.5).
+func (d *Daemon) authorizeDelegate(m *rxMsg, now uint64) *rxResult {
 	if res := d.parseDelegate(m); res != nil {
 		return res
 	}
@@ -609,7 +949,7 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 	if ix != nil && (ix.Role != interactions.RoleInbound || ix.PeerAID != m.from) {
 		// Another party's interaction id, or ours for a task we started:
 		// executing it would let a peer attach work to an interaction it
-		// is not part of. No reply, so the collision reveals nothing.
+		// is not part of.
 		r := d.drop(dropIXCollision, fmt.Errorf("%s is %s with %s", m.ix, ix.Role, ix.PeerAID))
 		return &r
 	}
@@ -635,6 +975,15 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 		r := d.transient(transientStore, err)
 		return &r
 	}
+	// Its requester canceled it before it arrived (DLV T11): refused, and
+	// not run.
+	if tomb, err := d.ix.HasCancelTomb(m.from, m.ix, now); err != nil {
+		r := d.transient(transientStore, err)
+		return &r
+	} else if tomb {
+		r := d.drop(dropCanceled, nil)
+		return &r
+	}
 	capID, args, _ := capabilityCall(m.td)
 	argsLen := 0
 	if capID != "" {
@@ -645,16 +994,13 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 	dec := d.decideDelegate(m.from, capID, argsLen)
 	switch dec.action {
 	case actRefuse:
-		if res := d.recordRefusal(m, dec.reason); res != nil {
-			return res
-		}
 		d.noteRefused(m.from, m.ix, m.typ, dec.reason, capID)
-		d.replyRejected(m, dec.reason, dec.retryAfterMS)
 		reason := dropRefusedPrefix + dec.reason
 		if dec.reason == reasonNotAccepting {
 			reason = dropNotAccepting
 		}
 		r := d.drop(reason, nil)
+		r.note = refusalNote(dec.reason, dec.retryAfterMS, now)
 		return &r
 	case actHold:
 		m.hold = true
@@ -664,10 +1010,19 @@ func (d *Daemon) authorizeDelegate(m *rxMsg) *rxResult {
 	return nil
 }
 
+// refusalNote is the note a delegation refused with code is answered with
+// (noteReasonFor, CUX-Q1).
+func refusalNote(code string, retryAfterMS int64, now uint64) seal.Note {
+	reason, retryS := noteReasonFor(AdmitVerdict{Refusal: code, RetryAfterMS: retryAfterMS, Now: now})
+	return seal.Note{Reason: reason, RetryAfterS: retryS}
+}
+
 // parseDelegate decodes and verifies an anet.delegate/1 body: a DelegateReq
 // for inner.ix whose TaskDoc verifies under the resolved KEL at the message
 // time and is signed by inner.from. It fills m.dr, m.td, m.tdBytes and
-// m.requestCID.
+// m.requestCID. A body that does not decode — an unknown member, a TaskDoc
+// that does not decode or holds no task — is bad-body (delegation.ErrBody,
+// CUX §4.1); bad-taskdoc is a TaskDoc whose signature does not verify.
 func (d *Daemon) parseDelegate(m *rxMsg) *rxResult {
 	dr, err := delegation.UnmarshalDelegateReq(m.body)
 	if err != nil {
@@ -680,7 +1035,11 @@ func (d *Daemon) parseDelegate(m *rxMsg) *rxResult {
 	}
 	signer, td, tdBytes, err := delegation.VerifyDelegateReqWithKEL(dr, m.kel, m.ts)
 	if err != nil {
-		r := d.drop(dropBadTaskDoc, err)
+		reason := dropBadTaskDoc
+		if errors.Is(err, delegation.ErrBody) {
+			reason = dropBadBody
+		}
+		r := d.drop(reason, err)
 		return &r
 	}
 	if signer != m.from {
@@ -700,60 +1059,68 @@ func (d *Daemon) parseDelegate(m *rxMsg) *rxResult {
 // interaction of the sender's: a redelivery of the delegation ix was
 // accepted for, and of nothing else [redteam:F7]. The policy decided on
 // that request, so only that request may come this way; another TaskDoc
-// under the same ix is a collision, dropped without a reply. Revocation
-// reaches existing interactions (§5.1): the deny list, and on a trust=peer
-// interaction the allow list, as for a message. The interaction's trust is
-// kept.
+// under the same ix is a collision. Revocation reaches existing
+// interactions (§5.1): a sender on the deny list, or no longer allowed on a
+// trust=peer interaction, has its copy taken as what it is — the
+// delegation this node accepted, answered tok(1) — and nothing more done
+// for it (engine ENG-V18). The interaction's trust is kept.
 func (d *Daemon) authorizeRedelivery(m *rxMsg, ix *interactions.Interaction) *rxResult {
 	if ix.RequestCID == "" || ix.RequestCID != m.requestCID {
 		r := d.drop(dropIXCollision, fmt.Errorf("%s was accepted for request %s, this one is %s",
 			m.ix, ix.RequestCID, m.requestCID))
 		return &r
 	}
+	m.existing, m.trust = ix, ix.Trust
+	if !d.mayRedeliver(m, ix) {
+		d.count(redeliveryNotAuthorized)
+		m.redeliveryDenied = true
+	}
+	return nil
+}
+
+// mayRedeliver reports whether the sender of a redelivered delegation for
+// ix, the interaction it was accepted for, may still have it acted on: the
+// same request, a sender not on the deny list, and on a trust=peer
+// interaction one still allowed [redteam:F7].
+func (d *Daemon) mayRedeliver(m *rxMsg, ix *interactions.Interaction) bool {
+	if m.requestCID == "" || m.requestCID != ix.RequestCID {
+		return false
+	}
 	ps := d.readPeers()
 	if ps.denied(m.from) {
-		r := d.drop(dropDenied, nil)
-		return &r
+		return false
 	}
 	if ix.Trust == interactions.TrustPeer && !ps.allowed(m.from) {
-		r := d.drop(dropNotAllowed, nil)
-		return &r
+		return false
 	}
-	m.existing, m.trust = ix, ix.Trust
-	return nil
+	return true
 }
 
 // authorizeMessage checks an anet.message/1: the interaction exists (or is
 // held in the approval queue), its peer is the sender, in either role, and
 // the sender is not denied. On a trust=peer interaction the sender must
 // still be allowed; on a public_cap interaction only cancel, end_request
-// and payment messages are taken. For an interaction this node does not
-// hold, the message waits (not acknowledged) for unknownIXWait after its
-// send time, in case the delegation is still on its way; after that the
-// sender is told TaskNotFound.
+// and payment messages are taken.
+//
+// A message for an interaction this node does not hold is refused at once,
+// task_not_found, whoever sent it and by whichever path (engine ENG-V10):
+// no message waits in the mailbox for its delegation. The sender's outbox
+// does not send a follow-up before its delegation is confirmed (ENG-O2), so
+// an honest one does not arrive first. A cancel for such an interaction is
+// the exception: it is taken, and kept as a tombstone, so the delegation it
+// cancels is refused if it arrives after it (DLV T11).
 //
 // The deny list is read after the interaction, not before: a denied peer
-// writing to an interaction this node does not hold is treated exactly as
-// a stranger is — the same wait, the same TaskNotFound, the same notice
-// limiter — so under closed it cannot tell it is denied (X2).
-//
-// Over a direct transport a message for an interaction this node does not
-// hold is refused for now, whoever sent it and however old it is: it is not
-// acknowledged, so the sender delivers it through the hub. The sender's
-// outbox sends a task's messages in order, but only in order of sending:
-// a delegation the direct path turned away (the peer process over its
-// limit, this node starting) went into the hub mailbox, and the follow-up
-// sent after it can take the direct path and arrive first. Answered
-// TaskNotFound here — as a stranger's message is, from the mailbox — it was
-// lost while its delegation behind it was taken; through the hub it lands
-// after that delegation. A refusal on the direct path holds nothing in the
-// mailbox, so it needs neither the wait window nor the per-sender cap
-// ([redteam:F25] bypass).
-func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
-	cm, err := delegation.UnmarshalChatMsg(m.body)
-	if err != nil {
-		r := d.drop(dropBadBody, err)
-		return &r
+// writing to an interaction this node does not hold is answered exactly as
+// a stranger is, so under closed it cannot tell it is denied (X2).
+func (d *Daemon) authorizeMessage(m *rxMsg) *rxResult {
+	cm := m.cm
+	if cm == nil {
+		var err error
+		if cm, err = delegation.UnmarshalChatMsg(m.body); err != nil {
+			r := d.drop(dropBadBody, err)
+			return &r
+		}
 	}
 	if m.ix == "" {
 		r := d.drop(dropEmptyIX, nil)
@@ -778,22 +1145,10 @@ func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 			r := d.transient(transientStore, err)
 			return &r
 		}
-		if m.direct {
-			r := d.transient(transientDirectUnknownIX, nil)
-			return &r
+		if cm.Kind == delegation.KindCancel {
+			m.cm, m.tombstone = cm, true
+			return nil
 		}
-		if int64(now)-int64(m.ts) <= unknownIXWait.Milliseconds() {
-			wait, res := d.mayWaitForTask(m, ps, now)
-			if res != nil {
-				return res
-			}
-			if wait {
-				r := d.transient(transientUnknownIX, nil)
-				return &r
-			}
-			d.count(unknownIXNotHeld)
-		}
-		d.replyTaskNotFound(m)
 		r := d.drop(dropUnknownIX, nil)
 		return &r
 	}
@@ -820,100 +1175,6 @@ func (d *Daemon) authorizeMessage(m *rxMsg, now uint64) *rxResult {
 	}
 	m.cm, m.existing = cm, ix
 	return nil
-}
-
-// mayWaitForTask decides whether a message for an interaction this node
-// does not hold, inside the wait window, waits in the mailbox for its
-// delegation (class T) or is answered TaskNotFound now ([redteam:F25]).
-//
-// It waits only when the sender is someone this node deals with: it has a
-// persistent peer_identity row, is on the allow or trust list, or this node
-// has asked it for something (an outbound interaction). A message that
-// waits is not acknowledged, so it occupies this node's own hub mailbox for
-// the window; granted to anyone, one registered AID could keep an online
-// node's mailbox at its quota. A sender this node deals with gets the
-// window for unknownIXHeldPerSender messages at a time.
-//
-// A denied peer is answered as a stranger is (X2): no wait, the same
-// TaskNotFound through the same limiter. It decides only for the mailbox: a
-// follow-up that overtook its delegation by the direct path is sent to the
-// hub before it gets here (authorizeMessage), and the sender's outbox sends
-// a task's messages in order, so in the mailbox it comes after its
-// delegation.
-func (d *Daemon) mayWaitForTask(m *rxMsg, ps peerSets, now uint64) (bool, *rxResult) {
-	if ps.denied(m.from) {
-		return false, nil
-	}
-	related := m.known || ps.allowed(m.from) || ps.trusted(m.from)
-	if !related {
-		has, err := d.ix.HasOutboundWith(m.from)
-		if err != nil {
-			r := d.transient(transientStore, err)
-			return false, &r
-		}
-		related = has
-	}
-	if !related {
-		return false, nil
-	}
-	if !d.heldEarly.admit(m.from, m.mid, m.ts+uint64(unknownIXWait.Milliseconds()), now) {
-		d.count(unknownIXOverCap)
-		return false, nil
-	}
-	return true, nil
-}
-
-// heldUnknown tracks, per sender, the messages for unknown interactions
-// this node is leaving in its mailbox (class T, mayWaitForTask), each until
-// its window ends. In memory: after a restart the count starts again, as
-// the window does for every message read again.
-type heldUnknown struct {
-	mu sync.Mutex
-	by map[string]map[string]uint64 // sender -> message id -> end of its window (unix ms)
-}
-
-// heldUnknownSenders bounds the senders tracked; past it the table starts
-// over.
-const heldUnknownSenders = 4096
-
-// admit reports whether one more message from sender may wait: it already
-// is waiting, or the sender has fewer than unknownIXHeldPerSender waiting.
-func (h *heldUnknown) admit(from string, mid []byte, until, now uint64) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.by == nil || len(h.by) > heldUnknownSenders {
-		h.by = map[string]map[string]uint64{}
-	}
-	set := h.by[from]
-	if set == nil {
-		set = map[string]uint64{}
-		h.by[from] = set
-	}
-	for k, end := range set {
-		if end < now {
-			delete(set, k)
-		}
-	}
-	if _, ok := set[string(mid)]; ok {
-		return true
-	}
-	if len(set) >= unknownIXHeldPerSender {
-		return false
-	}
-	set[string(mid)] = until
-	return true
-}
-
-// forget drops a message that is no longer waiting.
-func (h *heldUnknown) forget(from string, mid []byte) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if set := h.by[from]; set != nil {
-		delete(set, string(mid))
-		if len(set) == 0 {
-			delete(h.by, from)
-		}
-	}
 }
 
 // publicCapPayment reports whether a message on a public_cap interaction is
@@ -976,13 +1237,106 @@ func (d *Daemon) authorizeReply(m *rxMsg) *rxResult {
 	return nil
 }
 
+// receiveOneShot is steps 8½ to 10 of a one-shot envelope (engine §4.5): a
+// preview frame, a card request or a card answer. None creates or changes an
+// interaction, none is held for approval, none has a replay row, and none is
+// answered with a token (ENG-V6); a mailbox row carrying one is acknowledged
+// with its id alone. Whatever happens to it is counted.
+func (d *Daemon) receiveOneShot(ctx context.Context, m *rxMsg, preview bool, keys *seal.EncKeySet,
+	in *seal.SealedInner, now uint64) rxResult {
+	switch {
+	case preview:
+		if !d.previewArrived(m) {
+			return d.drop(previewRejected, nil).at(rxStep9)
+		}
+		return rxResult{class: rxAccepted, reason: "preview", step: rxStep9}
+	case m.typ == delegation.TypeCardGet:
+		if _, err := delegation.UnmarshalCardGet(m.body); err != nil {
+			return d.drop(dropBadBody, err).at(rxStep9)
+		}
+		return d.answerCardRequest(ctx, m, in, keys, now)
+	case m.typ == delegation.TypeCard:
+		resp, err := delegation.UnmarshalCardResp(m.body)
+		if err != nil {
+			return d.drop(dropBadBody, err).at(rxStep9)
+		}
+		if !d.cardAnswerArrived(m.from, m.ix, m.kel, resp) {
+			return d.drop(cardRejected, nil).at(rxStep9)
+		}
+		return rxResult{class: rxAccepted, reason: "card", step: rxStep9}
+	}
+	// Step 4a lets no other type through with outer key 8.
+	return d.drop(dropBadKindKeys, nil).at(rxStep9)
+}
+
+// answerCardRequest is a provider's answer to anet.card.get/1 (engine §4.5;
+// HPP PAY-C8, C9): the card answerCardGet gives the sender, sent once under
+// the one-shot capability the request brought for it (SS §4.3.2 rule 0) and
+// under no other (ENG-K2): a request without one is not answered. The deny
+// list and strangers are treated alike (answerCardGet). Nothing is written:
+// no interaction, no approval queue, no replay row. The answer goes in the
+// background, so a slow hub or peer does not hold the mailbox round or the
+// direct ack.
+func (d *Daemon) answerCardRequest(ctx context.Context, m *rxMsg, in *seal.SealedInner, keys *seal.EncKeySet,
+	now uint64) rxResult {
+	grant, ok := d.cardRequestGrant(in, keys, now)
+	if !ok {
+		return d.drop(cardGetNoGrant, nil).at(rxStep9)
+	}
+	body, err := func() ([]byte, error) {
+		resp := d.answerCardGet(m.from)
+		return resp.Marshal()
+	}()
+	if err != nil {
+		log.Printf("anet: answer a card request from %s: %v", m.from, err)
+		return d.drop(cardGetNoGrant, nil).at(rxStep9)
+	}
+	d.cardGrants.put(m.from, m.ix, grant, now)
+	from, ix := m.from, m.ix
+	if f := d.testCardAnswerHook(); f != nil {
+		f(from, ix, body)
+		d.count(cardGetAnswered)
+		return rxResult{class: rxAccepted, reason: cardGetAnswered, step: rxStep9}
+	}
+	d.goBackground(func() {
+		sctx, cancel := context.WithTimeout(d.ctx, hubCallTimeoutShort)
+		defer cancel()
+		d.oneShotSend(sctx, oneShotCard, from, ix, body)
+	})
+	d.count(cardGetAnswered)
+	return rxResult{class: rxAccepted, reason: cardGetAnswered, step: rxStep9}
+}
+
+// cardRequestGrant is the reply capability a card request brought (inner key
+// 14): checked against the key set it carries, one-shot for the request's
+// own interaction, contact class (core G11). It is held in memory for the
+// answer only, never in caps_held (SSR-W8).
+func (d *Daemon) cardRequestGrant(in *seal.SealedInner, keys *seal.EncKeySet, now uint64) (interactions.HeldCap, bool) {
+	if len(in.Grant) == 0 || keys == nil {
+		return interactions.HeldCap{}, false
+	}
+	g, body, err := seal.CheckGrant(in, keys, now)
+	if err != nil {
+		d.countErr(cntGrantInvalid, err)
+		return interactions.HeldCap{}, false
+	}
+	h, err := interactions.HeldFromGrant(g, body, now)
+	if err != nil {
+		d.countErr(cntGrantInvalid, err)
+		return interactions.HeldCap{}, false
+	}
+	if h.Scope != interactions.CapScopeIX || h.IX != in.IX || h.Class != seal.CapClassContact {
+		return interactions.HeldCap{}, false
+	}
+	return h, true
+}
+
 // process is step 10: run the type's handler, under the (from, mid) lock
 // receiveEnvelope holds, for a message the replay table did not hold when
 // the lock was taken (each handler's transaction claims the replay row, so
-// a copy under another message id is still recorded once). After an
-// accepted message the sender's KEL and key set are recorded, because
-// every message that reaches this point is from the peer of an interaction
-// this node holds or accepted.
+// a copy under another message id is still recorded once). The sender's KEL
+// and key set are recorded in the handler's transaction (commitRx,
+// recordSenderTx).
 func (d *Daemon) process(ctx context.Context, m *rxMsg) rxResult {
 	var res rxResult
 	switch m.typ {
@@ -1000,7 +1354,6 @@ func (d *Daemon) process(ctx context.Context, m *rxMsg) rxResult {
 	if res.class != rxAccepted {
 		return res
 	}
-	d.recordSenderIdentity(m)
 	d.noteLivePeer(m.from)
 	if m.typ == seal.TypeDelegate {
 		d.kickAutoReply()
@@ -1008,58 +1361,61 @@ func (d *Daemon) process(ctx context.Context, m *rxMsg) rxResult {
 	return res
 }
 
-// recordSenderIdentity writes the sender's KEL and key set after an
-// accepted message, only in the authorized contexts of A2A-DESIGN §3.8:
-// the interaction is one this node started (pinned "outbound"), the sender
-// is on the allow or trust list (pinned "allow" or "trust"), or the
-// interaction was approved by the operator. The requester of a public or
-// public_cap interaction is not recorded in peer_identity; its key material
-// is kept on the interaction instead. A held delegation's sender is
-// recorded in the pending row, and nothing is written for it here.
-func (d *Daemon) recordSenderIdentity(m *rxMsg) {
-	if m.hold || m.pendingRoute {
-		return
+// recordSenderTx writes the sender's KEL and key set in the step-10
+// transaction of an accepted message (engine §4.7 item 7), only in the
+// authorized contexts of A2A-DESIGN §3.8: the interaction is one this node
+// started (pinned "outbound"), the sender is on the allow or trust list
+// (pinned "allow" or "trust"), or the interaction was approved by the
+// operator. The requester of a public or public_cap interaction is not
+// recorded in peer_identity; its key material is kept on the interaction
+// instead. A held delegation's sender is recorded in the pending row, and a
+// cancel kept as a tombstone has no interaction: nothing is written for
+// either. What the write voids or revokes — the capabilities the sender
+// signed under an older mailbox epoch, and on its emergency rotation every
+// capability the two gave each other (ENG-K4) — goes in the same
+// transaction (interactions.UpdatePeerIdentity, SetPeerKeys).
+func (d *Daemon) recordSenderTx(tx *interactions.Tx, m *rxMsg, ps peerSets) error {
+	if m.hold || m.pendingRoute || m.tombstone {
+		return nil
 	}
-	ix, err := d.ix.Get(m.ix)
+	ix, err := tx.Get(m.ix)
+	if errors.Is(err, interactions.ErrNotFound) {
+		return nil
+	}
 	if err != nil {
-		return
+		return err
 	}
 	pin, authorized := "", false
 	switch {
 	case ix.Role == interactions.RoleOutbound:
 		pin, authorized = interactions.PinOutbound, true
-	default:
-		ps := d.readPeers()
-		switch {
-		case ps.trusted(m.from):
-			pin, authorized = interactions.PinTrust, true
-		case ps.allowed(m.from):
-			pin, authorized = interactions.PinAllow, true
-		case ix.Trust == interactions.TrustApproved:
-			authorized = true
-		}
+	case ps.trusted(m.from):
+		pin, authorized = interactions.PinTrust, true
+	case ps.allowed(m.from):
+		pin, authorized = interactions.PinAllow, true
+	case ix.Trust == interactions.TrustApproved:
+		authorized = true
 	}
 	if authorized {
-		if m.kelUpdate != nil || m.keysUpdate != nil || pin != "" {
-			if err := d.notePeer(m.from, m.kelUpdate, m.keysUpdate, pin, false); err != nil {
-				log.Printf("anet: record %s's identity: %v", m.from, err)
-			}
+		if m.kelUpdate == nil && m.keysUpdate == nil && pin == "" {
+			return nil
 		}
-		return
+		return tx.UpdatePeerIdentity(m.from, d.peerUpdate(m.from, m.kelUpdate, m.keysUpdate, pin, false, d.nowMS()))
 	}
 	if (ix.Trust == interactions.TrustPublic || ix.Trust == interactions.TrustPublicCap) && !ix.IsTerminal() &&
 		(m.kelUpdate != nil || m.keysUpdate != nil) {
 		var kel, keys []byte
 		if m.kelUpdate != nil {
-			kel, _ = identity.MarshalKEL(m.kelUpdate)
+			if kel, err = identity.MarshalKEL(m.kelUpdate); err != nil {
+				return err
+			}
 		}
 		if m.keysUpdate != nil {
 			keys = m.keysUpdate.signed
 		}
-		if err := d.ix.SetPeerKeys(m.ix, kel, keys); err != nil {
-			log.Printf("anet: %s: record the requester's keys: %v", m.ix, err)
-		}
+		return tx.SetPeerKeys(m.ix, kel, keys)
 	}
+	return nil
 }
 
 // errReplayDuplicate aborts a transaction whose replay row already exists.
@@ -1070,6 +1426,7 @@ var errReplayDuplicate = errors.New("replay row exists")
 // as a permanent refusal with the given counter, not as a store error.
 type rxPermanentErr struct {
 	reason string
+	note   seal.Note
 	err    error
 }
 
@@ -1081,12 +1438,16 @@ func (e *rxPermanentErr) Unwrap() error { return e.err }
 func rxPermanent(reason string, err error) error { return &rxPermanentErr{reason: reason, err: err} }
 
 // commitRx runs a message's business writes and its replay row in one
-// SQLite transaction (§3.6 step 10). Either both are stored or neither is:
-// a store error leaves no replay row behind, so the redelivered message is
-// processed, and a crash after the commit leaves both, so it is not
-// processed twice.
+// SQLite transaction (engine §4.7). Either all are stored or none is: a
+// store error leaves no replay row behind, so the redelivered message is
+// processed, and a crash after the commit leaves all, so it is not
+// processed twice. With them, in the same transaction: the grant the
+// message carries (item 4), the implicit confirmation of this node's
+// delegation to the sender (item 2) and the sender's KEL and key set (item
+// 7).
 func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
 	implicit := 0
+	ps := d.readPeers()
 	err := d.ix.Update(func(tx *interactions.Tx) error {
 		claimed, err := tx.ClaimReplay(m.from, m.mid, m.exp)
 		if err != nil {
@@ -1112,6 +1473,9 @@ func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
 		if implicit, err = d.confirmImplicitTx(tx, m.ix, m.from); err != nil {
 			return err
 		}
+		if err := d.recordSenderTx(tx, m, ps); err != nil {
+			return err
+		}
 		if fault := d.testRxFault(); fault != nil {
 			return fault(m.typ)
 		}
@@ -1126,23 +1490,11 @@ func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
 	case errors.Is(err, errReplayDuplicate):
 		return d.drop(dropDuplicate, nil)
 	case errors.As(err, &perm):
-		return d.drop(perm.reason, perm.err)
+		r := d.drop(perm.reason, perm.err)
+		r.note = perm.note
+		return r
 	default:
 		return d.transient(transientStore, err)
-	}
-}
-
-// replyTaskNotFound tells an authenticated sender that the interaction its
-// message names does not exist here (A2A TaskNotFound), rate limited per
-// peer and daemon-wide, with the same limiter as refusal notices. It needs
-// the sender's key set from this message or from the stored record;
-// without one nothing is sent. The sender may be a stranger: its key set
-// goes to the bounded in-memory cache that exists for such replies, never
-// to peer_identity.
-func (d *Daemon) replyTaskNotFound(m *rxMsg) {
-	if d.sendNoticeStatus(m, delegation.StateFailed, "this node has no task "+m.ix,
-		map[string]any{"anet.a2aError": "TaskNotFoundError"}) {
-		d.count(noticeTaskNotFound)
 	}
 }
 
@@ -1311,40 +1663,11 @@ func (b *tokenBucket) allow(now uint64) bool {
 	return true
 }
 
-// p2pLimiter is step 0 of §3.6 for envelopes that arrive through a
-// transport module: one daemon-wide bucket, checked before any decryption.
-// The per-connection half of step 0 is enforced by the peer process, the
-// only party that sees connections (tools/anetpeer).
-//
-// The rate is of the same order as the hub's per-sender budget (20/s, burst
-// 200). A sender over it is not refused outright: its delivery is not
-// acknowledged and it falls back to the hub, which applies its own
-// per-sender limit.
-type p2pLimiter struct {
-	mu sync.Mutex
-	b  tokenBucket
-}
-
-const (
-	p2pRatePerSecond = 20
-	p2pBurst         = 100
-)
-
-var errP2PRateLimited = errors.New("anet: inbound transport rate limit reached; use the hub")
-
-func (l *p2pLimiter) allow(now uint64) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if !l.b.primed && l.b.burst == 0 {
-		l.b = newBucket(p2pRatePerSecond, p2pBurst)
-	}
-	return l.b.allow(now)
-}
-
-// noticeLimiter bounds refusal notices: per peer and daemon-wide, with the
-// defaults of the inbound reject_notice block (A2A-DESIGN §5.1:
-// per_peer_per_hour 6, global_per_min 60). A notice over either limit is
-// dropped silently; notices never queue and never delay other work.
+// noticeLimiter bounds the notices after the fact (a held task's approval
+// wait, expiry or rejection; queueNotice, engine ENG-Q7): per peer and
+// daemon-wide, at most 6 a peer an hour and 60 a minute. A notice over
+// either limit is not queued. An immediate refusal is no notice: it is told
+// in its delivery token (ENG-V15).
 type noticeLimiter struct {
 	mu     sync.Mutex
 	global tokenBucket
@@ -1400,14 +1723,14 @@ func (l *noticeLimiter) allow(peer string, now uint64) bool {
 	return l.global.allow(now)
 }
 
-// resendLimiter bounds the answers re-sent for redelivered delegations
-// (§3.6 step 10, C33) [redteam:F29], the way noticeLimiter bounds refusal
+// resendLimiter bounds the answers hurried for redelivered delegations
+// (engine ENG-V18, C33) [redteam:F29], the way noticeLimiter bounds the
 // notices: per (peer, interaction) and daemon-wide. A redelivery means the
-// requester may not have the answer, and one re-send is what that needs;
-// every further redelivery of the same answered delegation — a hub or a
-// requester replaying it to spend this node's hub send budget — is
-// acknowledged and not answered again until the bucket refills. The keys
-// are bounded; the oldest is forgotten first.
+// requester may not have the answer, and one hurry of its queue is what
+// that needs; every further redelivery of the same answered delegation — a
+// hub or a requester replaying it to spend this node's hub send budget — is
+// acknowledged and does not hurry it again until the bucket refills. The
+// keys are bounded; the oldest is forgotten first.
 type resendLimiter struct {
 	mu     sync.Mutex
 	global tokenBucket

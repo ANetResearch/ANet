@@ -1062,6 +1062,11 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 		return res
 	}
 	if redelivery {
+		if m.redeliveryDenied {
+			// The sender may no longer send on it (authorizeRedelivery): the
+			// copy is taken, and nothing follows (engine ENG-V18).
+			return res
+		}
 		if !d.redeliveredDelegate(ctx, m) {
 			return d.transient(transientStopping, d.ctx.Err())
 		}
@@ -1096,11 +1101,13 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 // capability that has one, a second signed receipt for work that happened
 // once, and a second entry on the chain.
 //
-//   - Answered already (a receipt exists): send the answer again. The
-//     redelivery means the first may never have reached the requester, and
-//     the receipt is signed over content that has not changed. Re-sends of
-//     one answer are rate limited (resendLimiter): past the limit the
-//     redelivery is only acknowledged.
+//   - Answered already (a receipt exists): the redelivery means the answer
+//     may not have reached the requester. While the answer is still queued
+//     the whole queue to the requester is hurried (resendResult), rate
+//     limited per answer (resendLimiter): past the limit the redelivery is
+//     only acknowledged. An answer no longer queued was confirmed — the
+//     requester has it — or given up — it would not get through — and is
+//     never sealed again (engine ENG-V18).
 //   - Being executed by this process: nothing to do.
 //   - Terminal without a receipt (canceled, or refused): nothing to do.
 //   - A short capability call with no answer: the daemon stopped between
@@ -1125,13 +1132,16 @@ func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 		return true
 	}
 	if len(prior.Receipt) > 0 {
+		if !d.answerQueued(prior) {
+			return true
+		}
 		if !d.resends.allow(prior.PeerAID, prior.ID, d.nowMS()) {
-			// Answered, and re-sent lately [redteam:F29].
+			// Answered, and hurried lately [redteam:F29].
 			d.count(resendSuppressed)
 			return true
 		}
-		log.Printf("anet: %s redelivered; re-sending the answer we already signed", m.ix)
-		d.resendResult(m, prior)
+		log.Printf("anet: %s redelivered; hurrying the answer we already signed", m.ix)
+		d.resendResult(prior)
 		return true
 	}
 	if prior.IsTerminal() {
@@ -1394,15 +1404,17 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 	if m.pendingRoute {
 		return d.routePendingMessage(m)
 	}
+	if m.tombstone {
+		return d.cancelTombstone(m)
+	}
 	cm, ix := m.cm, m.existing
 	fromRequester := ix.Role == interactions.RoleInbound
 	switch cm.Kind {
 	case delegation.ChatText:
 		if ix.IsTerminal() {
-			// §4.2: after a terminal state only new input is refused. The
-			// message is acknowledged and not stored.
-			d.count(dropAfterTerminal)
-			return d.commitRx(m, nil)
+			// §4.2: after a terminal state new input is refused, and the
+			// sender told the task has ended (task_ended; engine §4.5).
+			return d.drop(dropAfterTerminal, nil)
 		}
 		kind := interactions.MsgText
 		body, atts := cm.Body, cm.Attachments
@@ -1454,9 +1466,12 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 		}
 		return res
 	case delegation.ChatEndRequest:
-		if !fromRequester || ix.IsTerminal() {
-			d.count(dropEndRequestIgnored)
-			return d.commitRx(m, nil)
+		switch {
+		case !fromRequester:
+			// Only the requester ends a task this way.
+			return d.drop(dropEndRequestIgnored, nil)
+		case ix.IsTerminal():
+			return d.drop(dropAfterTerminal, nil)
 		}
 		var seq int64
 		res := d.commitRx(m, func(tx *interactions.Tx) error {
@@ -1485,8 +1500,8 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 		return res
 	case delegation.KindCancel:
 		if !fromRequester {
-			d.count(dropCancelFromProvider)
-			return d.commitRx(m, nil)
+			// The provider ends a task with status canceled, not a cancel.
+			return d.drop(dropCancelFromProvider, nil)
 		}
 		var seq int64
 		res := d.commitRx(m, func(tx *interactions.Tx) error {
@@ -1508,10 +1523,32 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 		}
 		return res
 	default:
-		// stream_preview is ephemeral and not stored.
-		d.count("message-kind-ignored")
-		return accepted()
+		// A stream_preview frame is a one-shot envelope (receiveOneShot):
+		// step 4a lets none through to here.
+		return d.drop(dropBadKindKeys, fmt.Errorf("message kind %q", cm.Kind))
 	}
+}
+
+// cancelTombstone is step 10 for a cancel naming a task this node does not
+// hold (engine §4.5, DLV-R-10): it keeps a tombstone for the sender and the
+// interaction id in the transaction of its replay row, so a delegation that
+// arrives after its cancel is refused (canceled) instead of being run (DLV
+// T11). Only the sender's own (sender, ix) gets one: inner.from is what step
+// 7 proved (DLV-R-12). The cancel is answered tok(1): it was taken.
+func (d *Daemon) cancelTombstone(m *rxMsg) rxResult {
+	evicted := 0
+	res := d.commitRx(m, func(tx *interactions.Tx) error {
+		var err error
+		evicted, err = tx.PutCancelTomb(m.from, m.ix, m.exp)
+		return err
+	})
+	if res.class == rxAccepted {
+		d.count(cancelTombstoned)
+		for range evicted {
+			d.count(cancelTombEvict)
+		}
+	}
+	return res
 }
 
 // providerCancel handles a requester's cancel on an inbound text task: the
@@ -1791,64 +1828,31 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 	return res
 }
 
+// answerQueued reports whether the answer to ix, an inbound interaction
+// this node answered, is still in the outbox to its requester: neither
+// confirmed nor given up. A store error is answered false: nothing is
+// hurried, and the next redelivery asks again.
+func (d *Daemon) answerQueued(ix *interactions.Interaction) bool {
+	rows, err := d.ix.OutboxRows(ix.ID)
+	if err != nil {
+		log.Printf("anet: %s: read the queued answer: %v", ix.ID, err)
+		return false
+	}
+	for _, r := range rows {
+		if r.ToAID == ix.PeerAID && r.Type == seal.TypeResult {
+			return true
+		}
+	}
+	return false
+}
+
 // resendResult answers a redelivered delegation this node already
-// answered (§3.6 step 10, C33; engine §4.6). m is the redelivered
-// delegation; it passed steps 1-9, so its sender is the requester.
-//
-//   - The answer is still queued: the whole queue to the requester is made
-//     due now and the loop woken (hurryAnswerQueue) — the answer goes out
-//     behind what was queued ahead of it ([redteam:F23]), and the requester
-//     gets one answer, not one per redelivery.
-//   - Otherwise the answer is queued again, as it was first sent.
-//
-// v030-todo(ENG-1c): engine ENG-V18 — only the queue is hurried; an answer
-// no longer queued was confirmed or given up, and is not queued again.
-func (d *Daemon) resendResult(m *rxMsg, ix *interactions.Interaction) {
-	ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
-	defer cancel()
-	if rows, err := d.ix.OutboxRows(ix.ID); err == nil {
-		for _, r := range rows {
-			if r.ToAID == ix.PeerAID && r.Type == seal.TypeResult {
-				d.hurryAnswerQueue(ix.ID, ix.PeerAID)
-				return
-			}
-		}
-	}
-	// The metadata the answer first went out with: anet.reason and
-	// anet.retry_after_ms are in no other place. A row from before it was
-	// kept has only the state and, for a capability, the effect status to
-	// say.
-	meta := decodeMeta([]byte(ix.ResultMeta))
-	if len(meta) == 0 {
-		meta["anet.state"] = string(ix.State)
-		if ix.IsCapability {
-			var res capabilityResult
-			if json.Unmarshal(ix.Result, &res) == nil && res.Status != "" {
-				meta["anet.effect_status"] = res.Status
-			}
-		}
-	}
-	// The payment part as it stands now: receipts and payment-completed
-	// follow the row, not the first send.
-	paymentResultMeta(ix, meta)
-	mb, _ := json.Marshal(meta)
-	status := delegation.StatusDone
-	if ix.State == interactions.StateFailed || ix.State == interactions.StateRejected {
-		status = delegation.StatusFailed
-	}
-	payload, err := (&delegation.ResultResp{
-		Status: status, Deliverable: ix.Result,
-		Receipt: ix.Receipt, Metadata: mb,
-	}).Marshal()
-	if err != nil {
-		return
-	}
-	id, err := d.queueSendAs(ctx, wireSend{to: ix.PeerAID, typ: seal.TypeResult, ix: ix.ID, body: payload}, nil)
-	if err != nil {
-		log.Printf("anet: %s: queue the re-sent answer: %v", ix.ID, err)
-		return
-	}
-	if err := d.deliverQueued(ctx, id); err != nil {
-		log.Printf("anet: %s: re-sending the answer: %v (queued)", ix.ID, err)
-	}
+// answered, whose answer is still queued (engine ENG-V18, C33): the whole
+// queue to the requester is made due now and tried (hurryAnswerQueue), so
+// the answer goes out behind what was queued ahead of it ([redteam:F23])
+// and the requester gets one answer, not one per redelivery. Nothing is
+// sealed again: the answer is the queued row, which leaves the queue only
+// when it is confirmed or given up.
+func (d *Daemon) resendResult(ix *interactions.Interaction) {
+	d.hurryAnswerQueue(ix.ID, ix.PeerAID)
 }

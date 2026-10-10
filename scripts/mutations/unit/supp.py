@@ -1,6 +1,15 @@
 # supp.py: A2A-DESIGN §17 supplementary rows — mutation list for scripts/mutations/unitmut.py (see its header for the format).
 # Written for an internal note (each row at least one mutation); a mutation that no longer applies reports APPLY-ERR: fix its
 # edit to the moved code rather than dropping it.
+#
+# Retired with the code they guarded (engine §7, ENG-L2; ENG-1c, 2026-10-10):
+#   c19-1, c19-2 — the unknown-interaction wait window (C19: ten minutes before TaskNotFound) is gone; a message for an
+#   interaction this node does not hold is refused at once with task_not_found (engine ENG-V10). Covered by ENG-M32
+#   (engine.py) and fixwave.py's retirement note for fx25.
+#   c33-2 — "re-queue an answer that is still queued": the fallback it edited (queue the answer again when it is no
+#   longer queued) is gone (engine ENG-V18: an answer no longer queued was confirmed or given up, and is never sealed
+#   again). Its successor is ENG-M21 (engine.py, TestET16_AnAnsweredDelegationRedeliveredIsAnsweredOnce); c33-3 keeps
+#   "hurry and also queue another".
 
 MUTS = [
  dict(
@@ -68,9 +77,9 @@ MUTS = [
  ),
  dict(
   id='c12-1', group='C12', repo='ANet',
-  desc='recordSenderIdentity: public_cap 请求方写入 peer_identity',
+  desc='recordSenderTx: public_cap 请求方写入 peer_identity',
   edits=[
-   ('internal/daemon/receive.go', '\t\tcase ix.Trust == interactions.TrustApproved:\n\t\t\tauthorized = true', '\t\tcase ix.Trust == interactions.TrustApproved, ix.Trust == interactions.TrustPublicCap:\n\t\t\tauthorized = true'),
+   ('internal/daemon/receive.go', '\tcase ix.Trust == interactions.TrustApproved:\n\t\tauthorized = true', '\tcase ix.Trust == interactions.TrustApproved, ix.Trust == interactions.TrustPublicCap:\n\t\tauthorized = true'),
   ],
   tests=[('ANet:./internal/daemon', 'TestATruncatedKELIsRefusedAfterTableChurnAndRestart')],
   full=['ANet:./internal/daemon'],
@@ -119,24 +128,6 @@ MUTS = [
    ('internal/daemon/delegation.go', '\t\t\tif prior.Role != interactions.RoleInbound || prior.PeerAID != m.from {', '\t\t\tif false && (prior.Role != interactions.RoleInbound || prior.PeerAID != m.from) {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestEachReceiveStepRefusesWithItsClass|TestAReflectedRequestIsAnIXCollisionNotARedelivery')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
-  id='c19-1', group='C19', repo='ANet',
-  desc='未知 ix 的 message 不等待,立即 TaskNotFound',
-  edits=[
-   ('internal/daemon/receive.go', '\t\tif int64(now)-int64(m.ts) <= unknownIXWait.Milliseconds() {', '\t\tif false && int64(now)-int64(m.ts) <= unknownIXWait.Milliseconds() {'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestAMessageForAnUnknownTaskGetsTaskNotFound|TestHeldBackEnvelopesDoNotBlockNewerMail|TestAHeldEnvelopeIsRetriedAtOnePollPerRound')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
-  id='c19-2', group='C19', repo='ANet',
-  desc='未知 ix 等待窗口常量 10 分钟 → 100 分钟',
-  edits=[
-   ('internal/daemon/receive.go', 'const unknownIXWait = 10 * time.Minute', 'const unknownIXWait = 100 * time.Minute'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestAMessageForAnUnknownTaskGetsTaskNotFound|TestHeldBackEnvelopesDoNotBlockNewerMail|TestAHeldEnvelopeIsRetriedAtOnePollPerRound|TestADeniedPeerWritingToAnUnknownTaskIsAnsweredLikeAStranger|TestTheUnknownTaskWindowIsTenMinutes')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
@@ -245,30 +236,21 @@ MUTS = [
  ),
  dict(
   id='c33-1', group='C33', repo='ANet',
-  desc='重投的 delegate 不重发已签回执的结果',
+  desc='重投的已答复委派不催现存答复队列',
   edits=[
-   ('internal/daemon/delegation.go', '\t\tlog.Printf("anet: %s redelivered; re-sending the answer we already signed", m.ix)\n\t\td.resendResult(m, prior)\n', '\t\tlog.Printf("anet: %s redelivered; re-sending the answer we already signed", m.ix)\n'),
+   ('internal/daemon/delegation.go', '\t\tlog.Printf("anet: %s redelivered; hurrying the answer we already signed", m.ix)\n\t\td.resendResult(prior)\n', '\t\tlog.Printf("anet: %s redelivered; hurrying the answer we already signed", m.ix)\n'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestARedeliveredDelegateResendsTheAnswer|TestAQueuedAnswerIsNotQueuedAgainForARedelivery|TestAnEndedPublicCallAnswersARedeliveredDelegateOnce|TestARedeliveredPaidCallResendsItsReceipts')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
-  id='c33-2', group='C33', repo='ANet',
-  desc='resendResult: 队列里已有结果时仍再排一份(出站队列按摘要去重(ENG-Q4)时是等价变异:同一答复体落在同一行;去重一起去掉的是 c33-3)',
-  edits=[
-   ('internal/daemon/delegation.go', '\t\t\t\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n\t\t\t\treturn\n', '\t\t\t\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestAQueuedAnswerIsNotQueuedAgainForARedelivery|TestARedeliveredDelegateResendsTheAnswer')],
+  tests=[('ANet:./internal/daemon', 'TestARedeliveredDelegateResendsTheAnswer|TestARedeliveredDelegationHurriesTheWholeAnswerQueue|TestARedeliveredPaidCallResendsItsReceipts')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
   id='c33-3', group='C33', repo='ANet',
   desc='重投时结果已在队列: 既催队列又另排一份(且 outbox 不去重)',
   edits=[
-   ('internal/daemon/delegation.go', '\t\t\t\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n\t\t\t\treturn\n', '\t\t\t\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n'),
+   ('internal/daemon/delegation.go', 'func (d *Daemon) resendResult(ix *interactions.Interaction) {\n\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n}', 'func (d *Daemon) resendResult(ix *interactions.Interaction) {\n\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n\tif payload, err := (&delegation.ResultResp{Status: delegation.StatusDone, Deliverable: ix.Result, Receipt: ix.Receipt}).Marshal(); err == nil {\n\t\tqctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)\n\t\tif id, err := d.queueSendAs(qctx, wireSend{to: ix.PeerAID, typ: seal.TypeResult, ix: ix.ID, body: payload}, nil); err == nil {\n\t\t\t_ = d.deliverQueued(qctx, id)\n\t\t}\n\t\tcancel()\n\t}\n}'),
    ('internal/runtime/interactions/outbox.go', 'AND typ=? AND kind=? AND digest=? ORDER BY id LIMIT 1`', 'AND typ=? AND kind=? AND digest=? AND 0 ORDER BY id LIMIT 1`'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAQueuedAnswerIsNotQueuedAgainForARedelivery|TestARedeliveredDelegateResendsTheAnswer')],
+  tests=[('ANet:./internal/daemon', 'TestAQueuedAnswerIsNotQueuedAgainForARedelivery|TestET16_AnAnsweredDelegationRedeliveredIsAnsweredOnce')],
   full=[],
  ),
  dict(
@@ -446,6 +428,9 @@ MUTS = [
   id='m-p2p-1', group='m(p2p 旧帧)', repo='ANet',
   desc='anetpeer: 另一帧版本(含无 V)的投递帧也交给 daemon',
   edits=[
+   # Both checks: the strict reader's (SS-11, core CORE-K13a) refuses the version first, and receive's
+   # is the second line behind it, so taking out either one alone changes nothing a test can see.
+   ('tools/anetpeer/main.go', '\tif f.V != wireVersion {\n\t\treturn f, versionRefused(f.V), nil\n\t}', '\tif false && f.V != wireVersion {\n\t\treturn f, versionRefused(f.V), nil\n\t}'),
    ('tools/anetpeer/main.go', '\tif f.V != wireVersion {\n\t\t// A sender of another frame version', '\tif false && f.V != wireVersion {\n\t\t// A sender of another frame version'),
   ],
   tests=[('ANet:./tools/anetpeer', 'TestAnUnversionedDeliveryIsRefused')],
@@ -455,6 +440,8 @@ MUTS = [
   id='m-p2p-2', group='m(p2p 旧帧)', repo='ANet',
   desc='module/p2p: 另一帧版本(含无 V)的投递帧也调用 Receive',
   edits=[
+   # Both checks, as in m-p2p-1: the strict reader's, then checkRecv's.
+   ('module/p2p/transport.go', '\tif f.V != WireVersion {\n\t\treturn f, has, versionRefused(f.V), nil\n\t}', '\tif false && f.V != WireVersion {\n\t\treturn f, has, versionRefused(f.V), nil\n\t}'),
    ('module/p2p/transport.go', '\tif f.V != WireVersion {\n\t\treturn nil, versionRefused(f.V)\n\t}', '\tif false && f.V != WireVersion {\n\t\treturn nil, versionRefused(f.V)\n\t}'),
   ],
   tests=[('ANet:./module/p2p', 'TestADeliveryOfAnotherVersionIsNotHandedToTheDaemon')],

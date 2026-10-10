@@ -749,18 +749,17 @@ func TestActiveContactRevalidatedOncePer24h(t *testing.T) {
 // sends the same envelope again at once; a second 404 within the hour does
 // not look again, and the message is given up.
 func TestUnknownRecipientRefreshesOnce(t *testing.T) {
-	// The provider designates no witness, so the home hint of a first
-	// contact comes from its directory entry (SS §4.3.6); the requester's
-	// witness confirms it, so it seals (engine ENG-K13).
+	// The requester is witnessed (a node no witness confirms seals
+	// nothing, engine ENG-K13); the provider names none, as nothing here
+	// is received: the hub's answers to a first contact are the subject.
 	srv := newFakeHub(t)
 	ctx := context.Background()
-	req := newTestDaemon(t, srv.URL, false)
+	req := newSuiteWitnessedTestDaemon(t, srv.URL, false)
 	prov := newPlainTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
-		t.Fatal(err)
+	for _, d := range []*Daemon{req, prov} {
+		if err := d.RegisterWithHub(ctx, srv.URL, "x", nil); err != nil {
+			t.Fatal(err)
+		}
 	}
 	h := fakeHubAt(t, srv.URL)
 	moved, err := identitytest.Hub()

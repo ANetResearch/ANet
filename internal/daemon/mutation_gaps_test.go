@@ -154,7 +154,9 @@ func TestALongCallLeftWorkingIsNotRunAgainWhenItsProviderIsBack(t *testing.T) {
 // being decided twice. Step 10 repeats the check inside its transaction
 // (against a delegation racing the first), which is why mutations m-ix-1
 // and m-ix-2 (the step-9 check weakened or removed) left the step table
-// green: the counter came out the same, one step later.
+// green: the counter came out the same, one step later. Since a refusal at
+// step 10 sticks like one at step 9 (engine ENG-V12), the second copy no
+// longer tells the two apart either: the step the result names does.
 func TestACollidingDelegationIsRefusedBeforeAnyWrite(t *testing.T) {
 	_, _, prov := registeredPair(t)
 	ctx := context.Background()
@@ -175,8 +177,8 @@ func TestACollidingDelegationIsRefusedBeforeAnyWrite(t *testing.T) {
 		{"capability", delegateBody(t, peer.ctrl, ixo, "", lampCap)},
 	} {
 		env := craft(t, peer, prov, seal.TypeDelegate, ixo, c.body, nil)
-		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropIXCollision {
-			t.Fatalf("%s: %+v, want dropped %s", c.name, r, dropIXCollision)
+		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropIXCollision || r.step != rxStep9 {
+			t.Fatalf("%s: %+v, want dropped %s at step 9", c.name, r, dropIXCollision)
 		}
 		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedReplay {
 			t.Fatalf("%s: the same envelope again = %+v, want %s (refused at step 9, before any write)",
@@ -253,8 +255,8 @@ func TestAReflectedRequestIsAnIXCollisionNotARedelivery(t *testing.T) {
 		{"a peer's request, sent by a third party", third, ixi, copied},
 	} {
 		env := craft(t, c.from, prov, seal.TypeDelegate, c.ix, c.body, nil)
-		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropIXCollision {
-			t.Fatalf("%s: %+v, want dropped %s", c.name, r, dropIXCollision)
+		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropIXCollision || r.step != rxStep9 {
+			t.Fatalf("%s: %+v, want dropped %s at step 9", c.name, r, dropIXCollision)
 		}
 		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedReplay {
 			t.Fatalf("%s: the same envelope again = %+v, want %s (refused at step 9, before any write)",
@@ -276,26 +278,6 @@ func TestAReflectedRequestIsAnIXCollisionNotARedelivery(t *testing.T) {
 		if msgs, err := prov.ix.Messages(id); err != nil || len(msgs) != 0 {
 			t.Fatalf("%s: messages %+v (%v), want none recorded", id, msgs, err)
 		}
-	}
-}
-
-// C19: a message for an interaction this node does not hold waits ten
-// minutes for its delegation (§3.6 step 9), then is answered TaskNotFound.
-// Ten minutes is the design's number: the other tests measure the window
-// with unknownIXWait itself, so mutation c19-2 (10 → 100 minutes) moved
-// them along and stayed green.
-func TestTheUnknownTaskWindowIsTenMinutes(t *testing.T) {
-	_, req, prov := registeredPair(t)
-	const ix = "ix_not_here"
-	aged := func(age time.Duration) []byte {
-		return craft(t, senderOf(req), prov, seal.TypeMessage, ix, chatBody(t, "early or late", ""),
-			func(in *seal.SealedInner) { in.TS -= uint64(age.Milliseconds()) })
-	}
-	if r := receive(t, prov, aged(9*time.Minute)); r.class != rxTransient || r.reason != transientUnknownIX {
-		t.Fatalf("a message 9 minutes old = %+v, want held (%s)", r, transientUnknownIX)
-	}
-	if r := receive(t, prov, aged(11*time.Minute)); r.class != rxDropped || r.reason != dropUnknownIX {
-		t.Fatalf("a message 11 minutes old = %+v, want %s", r, dropUnknownIX)
 	}
 }
 

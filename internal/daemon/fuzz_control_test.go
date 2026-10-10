@@ -20,7 +20,7 @@ import (
 // another hub, configure a program to run, or write where the body says
 // (shutdown, hub-register, hub-leave, autoreply, autoreply-test, pull).
 var fuzzRoutes = []string{
-	"/status", "/p2p-advertise", "/accept", "/profile", "/delegate", "/inbox", "/message", "/end",
+	"/status", "/accept", "/profile", "/delegate", "/inbox", "/message", "/end",
 	"/end-accept", "/results", "/review", "/threads", "/thread", "/identities", "/evidence", "/balance",
 	"/redeem", "/reconcile", "/audit-hub", "/visibility",
 	"/peers/list", "/peers/allow", "/peers/trust", "/peers/deny", "/peers/remove",

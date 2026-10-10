@@ -257,10 +257,20 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # J8's subset runs the real claude in the sandbox against a scripted model service on this host
+      # (TestSeatbeltClaudeCompletesATask); nothing reaches a real model service.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: the claude CLI
+        shell: bash
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.295
+          echo "ANET_TEST_CLAUDE=$(command -v claude)" >> "$GITHUB_ENV"
       - name: the Seatbelt sandbox on this Mac, none skipped
         shell: bash
         run: |
-          go test -count=1 -v -run 'Seatbelt' ./internal/daemon/ | tee /tmp/seatbelt.out
+          go test -count=1 -v -timeout 30m -run 'Seatbelt|Darwin' ./internal/daemon/ | tee /tmp/seatbelt.out
           if grep -- '--- SKIP' /tmp/seatbelt.out; then
             echo "a Seatbelt test skipped; here that is a failure" >&2
             exit 1
@@ -269,12 +279,16 @@ jobs:
                    TestSeatbeltIntegrationReachesTheModelOnlyThroughTheNode TestSeatbeltIntegrationHoldsNoSecret \
                    TestSeatbeltKeychainIsOutOfReach TestSeatbeltEndsWhatTheAgentLeftInItsGroup \
                    TestSeatbeltRefusesWhatItWouldAllowByDefault \
-                   TestSeatbeltProfileGolden TestSeatbeltMachServicesAvoidForbiddenNames \
-                   TestSeatbeltLaunchRunsTheAgentThroughTheKeyedEndpoint; do
+                   TestSeatbeltProfileGolden TestSeatbeltMachServicesAvoidForbiddenNames TestSeatbeltExecSystemIsReadable \
+                   TestSeatbeltLaunchRunsTheAgentThroughTheKeyedEndpoint TestDarwinAgentConfigsCarryTheKeyedRoute \
+                   TestSeatbeltClaudeCompletesATask TestSeatbeltPythonRuntimeOutsideTheExecutableSystem \
+                   TestSeatbeltLaunchShowsAPythonEnvironment; do
             grep -q -- "--- PASS: $t" /tmp/seatbelt.out || { echo "$t did not run" >&2; exit 1; }
           done
       - name: init, the keyed egress endpoint and doctor on macOS
         run: go test -count=1 -run 'SandboxInit|SandboxSpec|EgressKeyed|EgressUnkeyed|SandboxEgressEnv|Doctor' ./internal/daemon/ ./cmd/anet/
+      - name: the agents' configurations and command lines on macOS
+        run: go test -count=1 -run 'UpstreamCombinationsFailClosed|SystemPromptStartingWithADash|AgentSandbox|AgentCommandLines|EgressUpstream|UnsupportedAgentsFailClosed' ./internal/daemon/
 
   # The platforms the release builds for, and one it does not: peercred is
   # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and

@@ -35,9 +35,10 @@ func FuzzDecodeB64(f *testing.F) {
 }
 
 // A send answer, whatever its bytes: a confirmation is returned only from a
-// send answer of this version, exactly DAckLen bytes, in its one spelling;
-// a confirmation member that is not one is reported bad; an answer of
-// another version yields nothing but an error.
+// good send answer of this version, exactly DAckLen bytes, in its one
+// spelling of 107 characters; a dack member that is not one, "" included, is
+// reported bad; a bad frame (another version, a member frame v3 does not
+// have) yields an error, no dack, and is reported bad (core CORE-K13a).
 func FuzzReadAnswer(f *testing.F) {
 	dack := encodeB64(bytes.Repeat([]byte{0xfb}, module.DAckLen))
 	for _, l := range []string{
@@ -48,34 +49,47 @@ func FuzzReadAnswer(f *testing.F) {
 		`{"op":"error","v":3,"id":"1","dack":"` + dack + `"}`,
 		`{"op":"send","v":3,"id":"1","dack":"` + dack + `="}`,
 		`{"op":"send","v":3,"id":"1","dack":"` + dack[:106] + `"}`,
+		`{"op":"send","v":3,"id":"1","dack":""}`,
+		`{"op":"send","v":3,"id":"1","dack":"` + dack + `","outcome":1}`,
 		`{"op":"send","v":3,"id":"1","dack":7}`,
 		`{"op":"send","v":"3"}`,
+		`{"op":"send","v":3}`,
 		`[]`,
 	} {
 		f.Add([]byte(l))
 	}
 	f.Fuzz(func(t *testing.T, line []byte) {
-		var reply frame
-		if json.Unmarshal(line, &reply) != nil {
+		reply, has, badFrame, err := readFrame(line)
+		if err != nil {
 			return
 		}
-		got, bad, err := readAnswer(reply)
+		got, bad, aerr := readAnswer(answer{f: reply, has: has, bad: badFrame})
 		if got != nil {
-			if len(got) != module.DAckLen || reply.V != WireVersion || reply.Op != opSend || encodeB64(got) != reply.DAck {
+			if len(got) != module.DAckLen || badFrame != "" || reply.Op != opSend || encodeB64(got) != reply.DAck || len(reply.DAck) != 107 {
 				t.Fatalf("%s: returned dack %x", line, got)
 			}
 			if bad {
 				t.Fatalf("%s: a dack returned and reported bad", line)
 			}
 		}
-		if reply.V != WireVersion && (got != nil || bad || err == nil) {
-			t.Fatalf("%s: an answer of version %d read as dack=%x bad=%v err=%v", line, reply.V, got, bad, err)
+		if badFrame != "" && (got != nil || !bad || aerr == nil) {
+			t.Fatalf("%s: a bad frame (%s) read as dack=%x bad=%v err=%v", line, badFrame, got, bad, aerr)
 		}
-		if reply.V == WireVersion && reply.Op == opSend && reply.DAck != "" && got == nil && !bad {
+		if reply.V != WireVersion && badFrame == "" {
+			t.Fatalf("%s: a frame of version %d is not bad", line, reply.V)
+		}
+		if badFrame == "" && reply.Op == opSend && has["dack"] && got == nil && !bad {
 			t.Fatalf("%s: a dack member neither returned nor reported bad", line)
 		}
-		if (reply.Op != opSend || reply.Error != "") && reply.V == WireVersion && err == nil {
+		if badFrame == "" && (reply.Op != opSend || reply.Error != "") && aerr == nil {
 			t.Fatalf("%s: a failed answer read as a success", line)
+		}
+		var members map[string]any
+		_ = json.Unmarshal(line, &members)
+		for m := range members {
+			if badFrame == "" && !map[string]bool{"op": true, "v": true, "id": true, "dack": true, "error": true, "self": true, "envelope": true}[m] {
+				t.Fatalf("%s: member %q let through", line, m)
+			}
 		}
 	})
 }

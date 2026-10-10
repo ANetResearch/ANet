@@ -433,34 +433,41 @@ func TestRedteamSI10_StartupRecoveryLeavesACallRunningNowAlone(t *testing.T) {
 	}
 }
 
-// [redteam:F25] regression (was TestRedteamSI10_StrangerKeepsAnOnlineNodesMailboxFull).
-// Q1 / §3.6 step 9 / §3.7 quota: a registered AID's messages for
-// interactions the node does not hold used to be class T for ten minutes,
-// so the ONLINE recipient's own daemon kept them in its hub mailbox, and one
-// stranger could keep the mailbox at its quota (507 for every legitimate
-// sender) while sending below its own rate limit. A stranger's messages are
-// now answered TaskNotFound and acknowledged at once: the mailbox empties
-// on the next poll and the legitimate delegation gets in. Scaled here to a
-// 50-envelope quota.
+// [redteam:F25] regression (was TestRedteamSI10_StrangerKeepsAnOnlineNodesMailboxFull),
+// rewritten for engine ENG-V10 (mutation ENG-M32). Q1 / §3.7 quota: a
+// registered AID's messages for interactions the node does not hold used to
+// be class T for ten minutes, so the ONLINE recipient's own daemon kept them
+// in its hub mailbox, and one stranger could keep the mailbox at its quota
+// (507 for every legitimate sender) while sending below its own rate limit;
+// a peer the node deals with kept 32 at a time. Every sender's messages are
+// now refused at once — task_not_found in their tokens — and acknowledged
+// in the round that read them: the mailbox empties on the next poll and the
+// legitimate delegation gets in. Scaled here to a 50-envelope quota, half
+// from a stranger and half from an allowed peer.
 func TestRedteamSI10_AStrangerCannotKeepAnOnlineNodesMailboxFull(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	const quota = 50
 	setFake(t, srv.URL, func(h *fakeHub) { h.mailboxCap = quota })
-	mallory := newStranger(t)
+	mallory, peer := newStranger(t), newStranger(t)
+	allowPeers(t, prov, peer.aid)
 	for i := 0; i < quota; i++ {
+		from := mallory
+		if i%2 == 1 {
+			from = peer
+		}
 		ix := "ix_fill_" + time.Duration(i).String()
-		injectEnvelope(t, srv, prov.AID(), craft(t, mallory, prov, seal.TypeMessage, ix, chatBody(t, "x", ""), nil))
+		injectEnvelope(t, srv, prov.AID(), craft(t, from, prov, seal.TypeMessage, ix, chatBody(t, "x", ""), nil))
 	}
-	// The provider is online and polling.
+	// The provider is online and polling: one round.
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(queuedFor(t, srv, prov.AID())); n != 0 {
-		t.Fatalf("the provider left %d stranger messages in its mailbox", n)
+		t.Fatalf("the provider left %d messages for unknown tasks in its mailbox", n)
 	}
-	if n := counter(prov, transientUnknownIX); n != 0 {
-		t.Fatalf("%d stranger messages were held", n)
+	if n := counter(prov, dropUnknownIX); n != quota {
+		t.Fatalf("%d refused task_not_found, want all %d", n, quota)
 	}
 	// A legitimate delegation gets in and is taken.
 	id, err := req.Delegate(ctx, prov.AID(), "real work", nil)
@@ -475,64 +482,6 @@ func TestRedteamSI10_AStrangerCannotKeepAnOnlineNodesMailboxFull(t *testing.T) {
 	}
 	if _, err := prov.ix.Get(id); err != nil {
 		t.Fatalf("the provider did not get the delegation: %v", err)
-	}
-}
-
-// [redteam:F25] A peer this node deals with keeps the wait window for its
-// messages that overtake their delegation, but only unknownIXHeldPerSender
-// at a time: past that they are answered TaskNotFound and acknowledged, so
-// even an allowed peer cannot fill the mailbox with held messages. One that
-// waited and whose delegation then arrives is processed as before.
-func TestRedteamSI10_AKnownPeerHoldsOnlySoManyEarlyMessages(t *testing.T) {
-	srv, req, prov := registeredPair(t)
-	ctx := context.Background()
-	peer := newStranger(t)
-	allowPeers(t, prov, peer.aid)
-	const extra = 8
-	for i := 0; i < unknownIXHeldPerSender+extra; i++ {
-		injectEnvelope(t, srv, prov.AID(), craft(t, peer, prov, seal.TypeMessage,
-			"ix_early_"+time.Duration(i).String(), chatBody(t, "x", ""), nil))
-	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if n := counter(prov, transientUnknownIX); n != unknownIXHeldPerSender {
-		t.Fatalf("%d held, want %d", n, unknownIXHeldPerSender)
-	}
-	if n := len(queuedFor(t, srv, prov.AID())); n != unknownIXHeldPerSender {
-		t.Fatalf("%d left in the mailbox, want the %d held", n, unknownIXHeldPerSender)
-	}
-	if n := counter(prov, unknownIXOverCap); n != extra {
-		t.Fatalf("%d answered over the cap, want %d", n, extra)
-	}
-
-	// The requester (allowed too) sends a follow-up before its delegation:
-	// it waits, then is taken once the delegation arrives.
-	clearMailbox(t, srv, prov.AID())
-	const ix = "ix_follow_first"
-	follow := craft(t, senderOf(req), prov, seal.TypeMessage, ix, chatBody(t, "follow-up", ""), nil)
-	if r := receive(t, prov, follow); r.class != rxTransient || r.reason != transientUnknownIX {
-		t.Fatalf("the early follow-up: %+v, want held", r)
-	}
-	if r := receive(t, prov, craft(t, senderOf(req), prov, seal.TypeDelegate, ix,
-		delegateBody(t, req.self, ix, "the task", ""), nil)); r.class != rxAccepted {
-		t.Fatalf("the delegation: %+v", r)
-	}
-	if r := receive(t, prov, follow); r.class != rxAccepted {
-		t.Fatalf("the follow-up after its delegation: %+v", r)
-	}
-
-	// A peer this node has asked for something, and nothing more, deals
-	// with it too; a stranger does not.
-	asked, other := newStranger(t), newStranger(t)
-	if err := prov.ix.Put("ix_asked", interactions.RoleOutbound, asked.aid, "a question", "", nil); err != nil {
-		t.Fatal(err)
-	}
-	if r := receive(t, prov, craft(t, asked, prov, seal.TypeMessage, "ix_unknown_a", chatBody(t, "x", ""), nil)); r.reason != transientUnknownIX {
-		t.Fatalf("a peer this node asked: %+v, want held", r)
-	}
-	if r := receive(t, prov, craft(t, other, prov, seal.TypeMessage, "ix_unknown_b", chatBody(t, "x", ""), nil)); r.reason != dropUnknownIX {
-		t.Fatalf("a stranger: %+v, want TaskNotFound at once", r)
 	}
 }
 

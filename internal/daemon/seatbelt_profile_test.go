@@ -124,14 +124,16 @@ func TestSeatbeltMachServicesAvoidForbiddenNames(t *testing.T) {
 }
 
 // MS-2: the profile's shape. It starts from (deny default) and imports nothing; processes are forked and
-// executed only from /bin, /usr/bin, path_helper, the anet binary and the runtime, and /usr/bin/security,
-// osascript and open are refused after every allow; process information and signals stay within the
+// executed only from /bin, /usr/bin, the command line tools, path_helper, the anet binary, the runtime and
+// the work dir, and /usr/bin/security, osascript and open are refused after every allow; process information and signals stay within the
 // sandbox; the only network is out to the endpoint's port on the loopback (none without an endpoint),
 // and binding, accepting and Apple events are refused; files are written only in the work dir, the run's
 // home/ and tmp/ and the descriptors a process holds; other processes' arguments cannot be read. What
 // Seatbelt allows by default even under (deny default) is refused explicitly: process information outside
-// the sandbox (refused before the allow within it), hard links, clones, NVRAM, and the two fcntl commands
-// that change a file through a descriptor opened for reading (F_MAKECOMPRESSED 80, F_TRANSFEREXTENTS 110).
+// the sandbox (refused before the allow within it), hard links, clones, NVRAM, the two fcntl commands
+// that change a file through a descriptor opened for reading (F_MAKECOMPRESSED 80, F_TRANSFEREXTENTS 110),
+// Mach lookups across domains, the hardware's properties, posting notifications and socket ioctls
+// (2026-10-10).
 func TestSeatbeltProfileHasTheSandboxShape(t *testing.T) {
 	spec := goldenSeatbeltSpec(49152)
 	p, err := buildSeatbeltProfile(spec)
@@ -168,10 +170,12 @@ func TestSeatbeltProfileHasTheSandboxShape(t *testing.T) {
 	lit := func(p string) string { return "(literal " + strconv.Quote(p) + ")" }
 	sub := func(p string) string { return "(subpath " + strconv.Quote(p) + ")" }
 
-	wantExec := []string{sub("/bin"), sub("/usr/bin"), lit("/usr/libexec/path_helper"), lit(spec.Init)}
+	wantExec := []string{sub("/bin"), sub("/usr/bin"), sub("/Library/Developer/CommandLineTools"),
+		lit("/usr/libexec/path_helper"), lit(spec.Init)}
 	for _, r := range spec.Runtime {
 		wantExec = append(wantExec, sub(r))
 	}
+	wantExec = append(wantExec, sub(spec.WorkDir))
 	if got := filters("allow", "process-exec"); !slices.Equal(got, wantExec) {
 		t.Errorf("process-exec allows %v, want %v", got, wantExec)
 	}
@@ -204,13 +208,15 @@ func TestSeatbeltProfileHasTheSandboxShape(t *testing.T) {
 			lastAllow = i
 		}
 	}
-	for _, want := range []string{"(deny file-link)", "(deny file-clone)", "(deny nvram*)", "(deny system-fcntl (fcntl-command 80 110))"} {
+	for _, want := range []string{"(deny file-link)", "(deny file-clone)", "(deny nvram*)", "(deny system-fcntl (fcntl-command 80 110))",
+		"(deny mach-cross-domain-lookup)", "(deny iokit-get-properties)", "(deny darwin-notification-post)", "(deny socket-ioctl)"} {
 		at := slices.IndexFunc(forms, func(f sbplForm) bool { return f.String() == want })
 		if at < 0 || at < lastAllow {
 			t.Errorf("%s: at %d, the last allow at %d", want, at, lastAllow)
 		}
 	}
-	for _, op := range []string{"file-link", "file-clone", "nvram*", "system-fcntl"} {
+	for _, op := range []string{"file-link", "file-clone", "nvram*", "system-fcntl", "mach-cross-domain-lookup",
+		"iokit-get-properties", "darwin-notification-post", "socket-ioctl"} {
 		if at := lastRuleIndex(forms, "allow", op); at >= 0 {
 			t.Errorf("the profile allows %s", forms[at])
 		}
@@ -328,6 +334,31 @@ func TestSeatbeltProfileCarriesNoKey(t *testing.T) {
 	}
 }
 
+// MS-2: every system directory the agent may execute from is one it may read (darwin's underSystemDir
+// takes them as already shown, so pythonRuntime lists no prefix inside them), and the command line tools
+// are read only and executable while nothing else of /Library is opened.
+func TestSeatbeltExecSystemIsReadable(t *testing.T) {
+	for _, d := range seatbeltExecSystem {
+		if !slices.Contains(seatbeltReadSystem, d) {
+			t.Errorf("%s is executable but not readable", d)
+		}
+	}
+	p, err := buildSeatbeltProfile(goldenSeatbeltSpec(49152))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range mustParseSBPL(t, p) {
+		for _, x := range f.list[2:] {
+			if strings.Contains(x.String(), `"/Library`) && x.String() != `(subpath "/Library/Developer/CommandLineTools")` {
+				t.Errorf("%s opens %s", f.list[1].atom, x)
+			}
+			if f.list[0].atom == "allow" && f.list[1].atom == "file-write*" && strings.Contains(x.String(), "CommandLineTools") {
+				t.Errorf("the command line tools are writable")
+			}
+		}
+	}
+}
+
 // The Homebrew tree of a runtime installed by it, and nothing for any other runtime.
 func TestSeatbeltPackageTrees(t *testing.T) {
 	got := seatbeltPackageTrees([]string{"/opt/homebrew/Cellar/node/22.1.0/bin", "/usr/local/Cellar/python@3.12/3.12.4/bin",
@@ -366,7 +397,7 @@ func (f sbplForm) String() string {
 var sbplOps = []string{"default", "process-fork", "process-exec", "process-info*", "signal", "sysctl-read",
 	"file-read-metadata", "file-read*", "file-write*", "file-ioctl", "system-socket", "mach-lookup",
 	"network-outbound", "network-bind", "network-inbound", "appleevent-send", "file-link", "file-clone", "nvram*",
-	"system-fcntl"}
+	"system-fcntl", "mach-cross-domain-lookup", "iokit-get-properties", "darwin-notification-post", "socket-ioctl"}
 
 // sbplFilters are the filters a profile of ours may use, with their argument kinds ("s" a string, "y" a
 // symbol, "N" one or more decimal numbers).

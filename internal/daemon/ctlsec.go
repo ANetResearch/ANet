@@ -62,7 +62,7 @@ type sessionRule struct {
 // sessionRoutes is the complete set of control routes a browser console session may call, keyed by the
 // registered ServeMux pattern (A2A-DESIGN §7.3). It matches what console.html actually calls, plus the
 // read-only routes the design lists. Everything else is bearer-only, including /pull, /autoreply*,
-// policy and peer writes, /hub-register, /hub-leave, /visibility, /p2p-advertise, /shutdown,
+// policy and peer writes, /hub-register, /hub-leave, /visibility, /shutdown,
 // /redeem, /reconcile and /console/ticket.
 var sessionRoutes = map[string]sessionRule{
 	"GET /status":          {},

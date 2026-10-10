@@ -85,7 +85,9 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 	}
 	capID, _, _ := capabilityCall(m.td)
 	item := interactions.PendingItem{
-		IX: m.ix, FromAID: m.from, ArrivedAt: int64(d.nowMS()), MsgTS: m.ts, KeyState: m.keySeq,
+		// Its arrival (KEL D-20) is kept: an approval judges the sender's
+		// key state at it (KEL D-25, engine §4.7 item 8).
+		IX: m.ix, FromAID: m.from, ArrivedAt: int64(m.arrival), MsgTS: m.ts, KeyState: m.keySeq,
 		Capability: capID, RequestCID: requestCID, Bytes: int64(len(m.body)),
 		Delegate: delegateBytes, KEL: kelBytes, Keys: keys, ContextID: m.dr.ContextID, Attachments: atts,
 		MsgID: wireMsgID("", m.mid),
@@ -93,7 +95,8 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
 		if err := tx.PutPending(item, in.Pending.MaxTotal, in.Pending.MaxPerPeer); err != nil {
 			if errors.Is(err, interactions.ErrPendingFull) {
-				return rxPermanent(dropRefusedPrefix+reasonPendingFull, err)
+				return &rxPermanentErr{reason: dropRefusedPrefix + reasonPendingFull, err: err,
+					note: refusalNote(reasonPendingFull, 0, d.nowMS())}
 			}
 			return err
 		}
@@ -108,12 +111,9 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 			d.queueNotice(m.from, m.ix, rowKindPendingApproval, body)
 		}
 	case res.reason == dropRefusedPrefix+reasonPendingFull:
-		if r := d.recordRefusal(m, reasonPendingFull); r != nil {
-			return *r
-		}
-		d.noteRefusedEnvelope(m)
+		// Refused: told in its token (pending_full) once step 11 has
+		// recorded it (engine §4.5 row 1).
 		d.noteRefused(m.from, m.ix, m.typ, reasonPendingFull, capID)
-		d.replyRejected(m, reasonPendingFull, 0)
 	}
 	return res
 }
@@ -135,7 +135,7 @@ func (d *Daemon) routePendingMessage(m *rxMsg) rxResult {
 	return d.commitRx(m, func(tx *interactions.Tx) error {
 		err := tx.AppendPendingFollowup(m.ix, f, pendingFollowupsMax)
 		if errors.Is(err, interactions.ErrPendingFollowupsFull) {
-			return rxPermanent("pending-followups-full", err)
+			return rxPermanent(dropPendingFollowupsFull, err)
 		}
 		return err
 	})

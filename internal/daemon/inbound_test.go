@@ -20,6 +20,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -36,9 +37,12 @@ func registered(t *testing.T, srvURL, name string) *Daemon {
 	return d
 }
 
-// lastStatusMeta polls d until ix has a status message (notices are sent in
-// the background) or two seconds pass, and returns the state of ix and the
-// metadata of its last status message.
+// lastStatusMeta polls d — its mailbox, and its hub about what it sent —
+// until ix has its provider's answer or two seconds pass, and returns the
+// state of ix and the metadata of that answer. A refusal comes back in the
+// delivery token of what d sent (engine §2.7): the task's result metadata
+// then carries its reason. A notice after the fact comes as a status
+// message (engine ENG-Q7): its metadata is returned otherwise.
 func lastStatusMeta(t *testing.T, d *Daemon, ix string) (interactions.State, map[string]any) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -46,9 +50,13 @@ func lastStatusMeta(t *testing.T, d *Daemon, ix string) (interactions.State, map
 		if err := d.pollOnce(context.Background()); err != nil {
 			t.Fatal(err)
 		}
+		askHubNow(t, d)
 		got, err := d.ix.Get(ix)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if meta := decodeMeta([]byte(got.ResultMeta)); meta[a2ashape.KeyReason] != nil {
+			return got.State, meta
 		}
 		msgs, _ := d.ix.Messages(ix)
 		for i := len(msgs) - 1; i >= 0; i-- {

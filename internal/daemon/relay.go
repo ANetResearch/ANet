@@ -286,35 +286,32 @@ func (d *Daemon) relayPollPageAt(ctx context.Context, hub string, after int64, o
 // §3.6 step 9, §3.7; decision Q1).
 //
 // An envelope the receive pipeline refuses for a temporary reason (class
-// T: a message that arrived before its delegation, a store error) is not
-// acknowledged and stays in the mailbox. The hub answers oldest first, so
-// without a cursor a page of such envelopes would be the whole answer to
-// every poll until they turn permanent: anyone registered could hold back
-// this node's newer mail for the ten-minute unknown-ix window by sending it
-// a hundred messages for interactions it does not hold, and a few envelopes
-// over the hub's byte budget would do the same with fewer.
+// T: a store error, a witness notice under a hub KEL this node does not hold
+// yet) is not acknowledged and stays in the mailbox. The hub answers oldest
+// first, so without a cursor a page of such envelopes would be the whole
+// answer to every poll until they turn permanent, and a few envelopes over
+// the hub's byte budget would hold back this node's newer mail the same way.
+// (A message for an interaction this node does not hold is no longer held
+// at all: it is answered task_not_found at once, engine ENG-V10.)
 //
 // After a page that held something back, the next poll asks for what was
 // queued after that page. When nothing is, the next round goes back to the
 // head, so held envelopes are tried again every other round while the
 // mailbox has nothing newer, and are acknowledged once they succeed or turn
-// permanent (expired, or past the window).
+// permanent (expired).
 //
 // A round is one poll request, never two. Going back to the head in the
 // same round would retry held envelopes every round, but it would also
 // double this node's requests to the hub (each one a signature check and a
-// liveness write there) for as long as anything is held, and a stranger can
-// keep something held with one message every ten minutes.
+// liveness write there) for as long as anything is held.
 //
 // A mailbox that always has something new after the cursor would never
 // send it back to the head: anyone registered can keep that so with one
-// message per round, and what was held back — a message that came before
-// its delegation, one a store error turned away — would wait as long as
-// they keep going, and their own held messages would never be read again
-// to turn permanent. So at least every relayHeadEvery rounds a round goes
-// back over the held envelopes whatever lies after the cursor
-// ([redteam:F24]; decision Q1: held rows are gone back to once their window
-// ends).
+// message per round, and what was held back — one a store error turned
+// away, one whose witness was not known yet — would wait as long as they
+// keep going. So at least every relayHeadEvery rounds a round goes back over
+// the held envelopes whatever lies after the cursor ([redteam:F24];
+// decision Q1).
 //
 // Going back has a place of its own (back), and the forward cursor (after)
 // never goes back. With one cursor, a round sent to the head started the
@@ -532,12 +529,12 @@ func (d *Daemon) pollFresh(ctx context.Context) {
 }
 
 // pollOnce pulls the mailbox, runs each envelope through the receive
-// pipeline (receive.go) and acks the ones the pipeline says to ack:
-// accepted, or refused for a reason that will not change on retry, each
-// with the delivery token the pipeline made for it (ackItem). An envelope
-// refused for a temporary reason (a store error, a message that arrived
-// before its task) stays in the mailbox and is delivered again on a later
-// poll.
+// pipeline (receive.go) at its arrival (the row's accepted_at, KEL D-20) and
+// acks the ones the pipeline says to ack: accepted, or refused for a reason
+// that will not change on retry, each with the delivery token the pipeline
+// made for it (ackItem; engine ENG-V1). An envelope refused for a temporary
+// reason (a store error, a witness this node does not know yet) stays in
+// the mailbox and is delivered again on a later poll.
 //
 // A poll starts at the relay cursor (relayCursor), so envelopes held back
 // in an earlier round do not stand in front of newer ones; when nothing is
@@ -574,7 +571,7 @@ func (d *Daemon) pollHubOnce(ctx context.Context, hub string, cur *relayCursor, 
 		if env, derr := hubapi.DecodeB64(m.Envelope, -1); derr != nil {
 			r = d.drop(dropBadTransport, derr) // not strict base64url (core G2) — drop
 		} else {
-			r = d.receiveEnvelope(ctx, env)
+			r = d.receiveEnvelopeVia(ctx, env, rxPath{acceptedAt: m.AcceptedAt})
 			kid = outerKID(env)
 		}
 		if it, ok := d.ackItem(m.ID, r); ok {

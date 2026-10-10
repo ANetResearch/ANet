@@ -233,9 +233,11 @@ func TestET10_TheNoticeAgeTrigger(t *testing.T) {
 		if err := retryNow(t, req, v1.ID); err != nil && !errors.Is(err, errUndeliverable) {
 			t.Log(err) // the hub is out of reach: the attempt fails after the direct hand-over
 		}
-		row := onlyRow(t, req, v1.IX)
-		if direct.sent.Load() != 1 || row.CurVer != 1 || row.HandedAt == 0 {
-			t.Fatalf("%d direct sends, row %+v; want version 1 handed over as it is", direct.sent.Load(), row)
+		// The direct hand-over of version 1 as it is was taken and its
+		// delivery token confirmed it: no row is left (the v3 receive
+		// answers a direct delivery with the token).
+		if rows := outboxRows(t, req, v1.IX); direct.sent.Load() != 1 || len(rows) != 0 {
+			t.Fatalf("%d direct sends, rows %+v; want version 1 handed over as it is and confirmed", direct.sent.Load(), rows)
 		}
 		if _, err := prov.ix.Get(v1.IX); err != nil {
 			t.Fatalf("the provider did not take the delegation: %v", err)
@@ -252,7 +254,7 @@ func TestET10_TheNoticeAgeTrigger(t *testing.T) {
 		}
 		req.flushOutboxAt(context.Background(), int64(clk.now())+int64(dayMS))
 		second := onlyRow(t, req, id2)
-		if direct.sent.Load() != 1 || second.CurVer != 0 || onlyRow(t, req, v1.IX).CurVer != 1 {
+		if direct.sent.Load() != 1 || second.CurVer != 0 || len(outboxRows(t, req, v1.IX)) != 0 {
 			t.Fatalf("past the stop line: %d direct sends, new row %+v", direct.sent.Load(), second)
 		}
 		if w := rowWait(t, req, second.ID); w != reasonNoticeStale {

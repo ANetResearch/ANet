@@ -12,8 +12,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +47,11 @@ func (h *host) AID() string                   { return h.aid }
 func (h *host) Providers() *provider.Registry { return provider.NewRegistry() }
 func (h *host) Inbound() module.Inbound       { return h.in }
 func (h *host) NoteBadDAck()                  { h.bad.Add(1) }
+
+// P2PAddr gives every AID an address: these nodes run on a rendezvous
+// directory, which a send dials instead of the address (a peer process in
+// test mode), so the address is only what the frame must carry.
+func (h *host) P2PAddr(aid string) (string, bool) { return "203.0.113.7:39100", aid != "" }
 func (h *host) RegisterTransport(t module.Transport) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -145,7 +148,7 @@ func newNodeAt(t *testing.T, dir, rendezvous, name, peerAddr string, box *mailbo
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(p.stop)
+	t.Cleanup(p.stopAndWait)
 
 	h := &host{aid: "aid-" + name, in: box}
 	mods, err := module.Build(map[string][]byte{
@@ -183,7 +186,7 @@ func waitAnnounced(t *testing.T, rv string, nodes ...*node) {
 			if _, err := os.Stat(filepath.Join(rv, n.aid)); err != nil {
 				return false
 			}
-			if !n.host.transport(t).Reachable(context.Background(), "") {
+			if !n.host.transport(t).Reachable(context.Background(), "aid-any") {
 				return false
 			}
 		}
@@ -496,7 +499,7 @@ func TestAnUnversionedDeliveryIsRefused(t *testing.T) {
 		}
 		c.Close()
 		v, _ := f["v"].(int)
-		if reply.Op != "error" || reply.V != wireVersion || reply.ID != f["id"] || reply.Error != versionRefused(v) || reply.DAck != "" {
+		if reply.Op != "error" || reply.V != wireVersion || reply.ID != f["id"] || reply.Error != versionRefused(v) || reply.DAck.set {
 			t.Fatalf("reply = %+v, want an error naming the frame version", reply)
 		}
 	}
@@ -683,120 +686,6 @@ func freeTCP(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return addr
-}
-
-// Two peers on different machines must be able to find each other.
-//
-// The rendezvous was a shared filesystem directory, so a transport built
-// to carry traffic between hosts could only be used by nodes on one host
-// — the one case that does not need it. A hub URL is accepted instead,
-// and the address is read from the hub over HTTP.
-func TestAHubCanBeTheRendezvous(t *testing.T) {
-	var asked []string
-	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		aid := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/agents/"), "/p2p")
-		asked = append(asked, aid)
-		if aid != "aid-remote" {
-			// Published nothing. 404 rather than an empty address: a
-			// caller must be able to tell "not listed" from "listed at
-			// nowhere", because the first falls back to the hub.
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"error":"not listed"}`))
-			return
-		}
-		_, _ = w.Write([]byte(`{"aid":"aid-remote","addr":"tcp://10.9.9.9:39100"}`))
-	}))
-	defer hub.Close()
-
-	p := &peer{rendezvous: hub.URL, self: "aid-local"}
-	addr, ok := p.lookup("aid-remote")
-	if !ok || addr != "tcp://10.9.9.9:39100" {
-		t.Fatalf("lookup = %q %v, want the hub's answer", addr, ok)
-	}
-	if addr, ok := p.lookup("aid-nobody"); ok || addr != "" {
-		t.Errorf("an unlisted peer looked reachable: %q %v", addr, ok)
-	}
-
-	// Answers are cached, including "no address". A send asks before
-	// every delivery, so without this a busy node queries the hub once
-	// per message — and the negative answer is the common one.
-	n := len(asked)
-	p.lookup("aid-remote")
-	p.lookup("aid-nobody")
-	if len(asked) != n {
-		t.Errorf("the hub was asked %d more times; answers are not cached", len(asked)-n)
-	}
-}
-
-// A hub rendezvous must not be treated as a directory path.
-//
-// announce writes a file named after the AID into the rendezvous; doing
-// that with a URL would create a directory tree named "http:" beside the
-// process and publish nothing. Publishing is the daemon's job there,
-// because it is a signed statement and this process holds no key.
-func TestAHubRendezvousIsNotWrittenTo(t *testing.T) {
-	dir := t.TempDir()
-	p := &peer{rendezvous: "https://hub.example.org", advertise: "tcp://1.2.3.4:5"}
-	p.announce("aid-local")
-	p.forget()
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ents) != 0 {
-		t.Errorf("announce wrote %d entries next to a URL rendezvous", len(ents))
-	}
-	if !isURL("http://x") || !isURL("https://x") || isURL("/tmp/rv") || isURL("rv") {
-		t.Error("isURL does not separate a hub from a directory")
-	}
-}
-
-// A peer that banks on another hub must still be findable.
-//
-// The address directory is per-hub: a node publishes where it can be
-// dialled to the hub that verified its signature. Asking only our own hub
-// therefore failed in exactly the case this transport exists for — two
-// nodes on two hubs — and returned a flat "not listed" with nowhere to go
-// next. Our hub names the home hub instead of relaying the answer, so
-// what it vouches for stays what it checked.
-func TestAPeerOnAnotherHubIsFoundViaTheReferral(t *testing.T) {
-	var homeAsked int
-	home := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		homeAsked++
-		_, _ = w.Write([]byte(`{"aid":"aid-remote","addr":"tcp://10.9.9.9:39100"}`))
-	}))
-	defer home.Close()
-
-	ours := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-		if strings.Contains(r.URL.Path, "aid-remote") {
-			_, _ = w.Write([]byte(`{"error":"banks elsewhere","home_hub":"` + home.URL + `"}`))
-			return
-		}
-		// No referral: this AID is not known anywhere, and the referral
-		// must not be invented.
-		_, _ = w.Write([]byte(`{"error":"not listed"}`))
-	}))
-	defer ours.Close()
-
-	p := &peer{rendezvous: ours.URL, self: "aid-local"}
-	addr, ok := p.lookup("aid-remote")
-	if !ok || addr != "tcp://10.9.9.9:39100" {
-		t.Fatalf("lookup = %q %v, want the home hub's answer", addr, ok)
-	}
-	if homeAsked != 1 {
-		t.Errorf("the home hub was asked %d times, want 1", homeAsked)
-	}
-
-	// A 404 with no referral stays a 404: nothing to follow, and
-	// inventing a second request would be asking a hub about an agent it
-	// just said it does not know.
-	if addr, ok := p.lookup("aid-nobody"); ok || addr != "" {
-		t.Errorf("an unreferred peer looked reachable: %q %v", addr, ok)
-	}
-	if homeAsked != 1 {
-		t.Errorf("the home hub was asked again for an unreferred AID")
-	}
 }
 
 // A peer reads another's rendezvous entry while that one writes it. The

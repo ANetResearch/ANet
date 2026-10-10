@@ -13,11 +13,6 @@ import (
 	"github.com/ANetResearch/ANet/module"
 )
 
-// actionP2PRetired is the relayauth action of the hub rendezvous, which
-// relayauth no longer defines (wire 3 removes the rendezvous); the p2p
-// address publication below still uses it until its replacement lands.
-const actionP2PRetired = "p2p" // v030-todo(SS-11): the hub rendezvous route is removed
-
 // RegisterTransport adds a direct delivery path. Called by a transport
 // module at start; the hub is not one of them: the outbound engine sends to
 // it itself (outbox_attempt.go, A11).
@@ -32,9 +27,9 @@ func (d *Daemon) RegisterTransport(t module.Transport) {
 // envelope travels as a first contact (sealWith). It obeys the outbound
 // gate like every send (ENG-K13): while it is closed nothing goes.
 //
-// v030-todo(ENG-1c): only the refusal notices (sendNotice) still come
-// here; they go with ENG-1c (ENG-V15). Every other message is queued or a
-// one-shot envelope (oneShotSend).
+// v030-todo(ENG-1b): a message that is not queued is a one-shot envelope
+// (oneShotSend). The refusal notices it carried are gone (engine ENG-V15):
+// nothing in the daemon calls it any more.
 func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []byte) error {
 	if g := d.identityGate(); !g.Open {
 		return &gateClosedError{state: g.State}
@@ -100,43 +95,49 @@ func (d *Daemon) Inbound() module.Inbound { return inbound{d} }
 // an envelope that fails to open or verify, not one that is believed
 // because of how it arrived.
 //
-// Two things differ from the hub path. Step 0 of §3.6: an envelope that
-// arrives directly has not passed the hub's per-sender rate limit, so a
-// daemon-wide limit applies before any decryption work is spent on it. An
-// envelope over the limit is refused with an error, which tells the
-// transport not to acknowledge it; the sender then falls back to the hub,
-// where its own sender budget applies. And steps 1-4: an envelope this node
-// cannot open may have been meant for another node the sender's address led
-// astray, so it is refused the same way rather than acknowledged and lost
-// (receiveEnvelopeVia, [redteam:F22]).
+// Three things differ from the hub path (engine §4.8). Step 0: an envelope
+// that arrives directly has not passed the hub's per-sender rate limit, so
+// the direct buckets apply before any decryption work is spent on it — the
+// one of the capability it came under, when this node issued it and the
+// holder's proof checks, otherwise the shared one, and a global one. An
+// envelope over a limit is refused with an error, which tells the transport
+// not to acknowledge it; the sender then falls back to the hub, where its
+// own budget applies. Steps 1-3: an envelope this node cannot open may have
+// been meant for another node the sender's address led astray, so it is
+// refused the same way rather than acknowledged and lost (receiveEnvelopeVia,
+// [redteam:F22]). And the answer: the delivery token travels back in the
+// ack itself — tok(1) the moment step 10 commits, tok(2) when the pipeline
+// refuses for good (engine ENG-V2).
 type inbound struct{ d *Daemon }
 
-// Receive is module.Inbound. It answers no delivery confirmation yet.
-//
-// v030-todo(ENG-1c): the dack of the pipeline's verdict (rxTokenFor), so a
-// direct sender learns from the ack itself that the envelope arrived.
+// Receive is module.Inbound: nil and the delivery token (nil for none) to
+// acknowledge the delivery, an error to refuse it for now.
 func (in inbound) Receive(ctx context.Context, envelope []byte) ([]byte, error) {
-	return nil, in.receive(ctx, envelope)
+	return in.receive(ctx, envelope)
 }
 
-// receive is the pipeline's answer to a direct delivery: nil to acknowledge
-// it, an error to refuse it for now.
-func (in inbound) receive(ctx context.Context, envelope []byte) error {
-	// The rate limit comes before the wait for start-up: a delivery that
-	// waits holds its envelope and a goroutine, and without the limit
-	// first a slow start-up let anyone who reaches the peer process pile
-	// them up ([redteam:F30] bypass).
-	if !in.d.p2pLimit.allow(in.d.nowMS()) {
+// errP2PRateLimited refuses a direct delivery over a step-0 bucket.
+var errP2PRateLimited = errors.New("anet: inbound transport rate limit reached; use the hub")
+
+// receive is the pipeline's answer to a direct delivery: the token to
+// acknowledge it with, or an error to refuse it for now.
+func (in inbound) receive(ctx context.Context, envelope []byte) ([]byte, error) {
+	// Step 0 comes before the wait for start-up: a delivery that waits
+	// holds its envelope and a goroutine, and without the limit first a slow
+	// start-up let anyone who reaches the peer process pile them up
+	// ([redteam:F30] bypass).
+	path := rxPath{direct: true}
+	if !in.d.rxStep0(envelope, &path) {
 		in.d.count(transientP2PRate)
-		return errP2PRateLimited
+		return nil, errP2PRateLimited
 	}
 	if in.d.identityRefusesInbound() {
 		// A stopped or deactivated identity takes nothing in (KEL D-1):
 		// the sender's transport hears a nack.
-		return errIdentityGone
+		return nil, errIdentityGone
 	}
 	if err := in.d.awaitReady(ctx); err != nil {
-		return err
+		return nil, err
 	}
 	// Acknowledged as soon as step 10 has committed, not after what follows
 	// it (an internal note item, an internal note N3). The sender waits on this answer
@@ -144,46 +145,64 @@ func (in inbound) receive(ctx context.Context, envelope []byte) error {
 	// that has to time out before it falls back to the hub, used to hold
 	// the ack past it, and the sender sent the same envelope again through
 	// the hub. The pipeline keeps running on its own goroutine after the
-	// ack, and the answer goes out through the retry queue as before. What
-	// the commit leaves undone if the process dies then is startup
-	// recovery's: a short capability call accepted this way is recorded
-	// working (ingestDelegate), so it is run again at the next start.
-	committed := make(chan struct{})
+	// ack, and the answer goes out through the outbox as before. What the
+	// commit leaves undone if the process dies then is startup recovery's:
+	// a short capability call accepted this way is recorded working
+	// (ingestDelegate), so it is run again at the next start.
+	committed := make(chan []byte, 1)
 	var once sync.Once
-	ack := func() { once.Do(func() { close(committed) }) }
+	path.ack = func(dack []byte) { once.Do(func() { committed <- dack }) }
 	done := make(chan rxResult, 1)
 	if !in.d.goBackground(func() {
-		done <- in.d.receiveEnvelopeVia(ctx, envelope, rxPath{direct: true, ack: ack})
+		done <- in.d.receiveEnvelopeVia(ctx, envelope, path)
 	}) {
 		in.d.count(transientNotReady)
-		return errNotReady
+		return nil, errNotReady
 	}
 	select {
-	case <-committed:
-		return nil
+	case dack := <-committed:
+		return dack, nil
 	case res := <-done:
 		return directAnswer(committed, res)
 	}
 }
 
+// rxStep0 is step 0 of a direct delivery (engine §4.2, SS §4.3.10): the
+// capability this node issued that the envelope came under, checked before
+// anything is decrypted (capUnder), and whether its bucket and the global one
+// have room. It records the capability in path for the steps after it.
+func (d *Daemon) rxStep0(env []byte, path *rxPath) bool {
+	now := d.nowMS()
+	var key rxBucketKey
+	if outer, err := seal.ParseOuter(env); err == nil {
+		path.issued, key, _ = d.capUnder(outer, env, now)
+	}
+	return d.caps.rx.allow(key, now)
+}
+
 // directAnswer is what a direct delivery answers once its pipeline returned
-// res. An envelope whose step 10 committed is acknowledged whatever the
-// pipeline returned after that — a stop cutting the call or the re-sent
-// answer short returns a temporary result — and the pipeline can finish
-// before Receive has seen the commit, both then ready at once. A refusal
-// there would reach the sender as a nack, and a delegation this node holds
-// would then be one the sender falls back to the hub for, may withdraw on a
-// cancel, or report as never run ([redteam:F12][redteam:F23]; Q29 bypass).
-func directAnswer(committed <-chan struct{}, res rxResult) error {
+// res. An envelope whose step 10 committed is acknowledged, with its tok(1),
+// whatever the pipeline returned after that — a stop cutting the call or the
+// hurried answer short returns a temporary result — and the pipeline can
+// finish before Receive has seen the commit, both then ready at once. A
+// refusal there would reach the sender as a nack, and a delegation this
+// node holds would then be one the sender falls back to the hub for, may
+// withdraw on a cancel, or report as never run ([redteam:F12][redteam:F23];
+// Q29 bypass). Otherwise a permanent result is acknowledged with the token
+// the pipeline made (tok(2), or none), a temporary one refused.
+func directAnswer(committed <-chan []byte, res rxResult) ([]byte, error) {
 	select {
-	case <-committed:
-		return nil
+	case dack := <-committed:
+		return dack, nil
 	default:
 	}
 	if !res.ack() {
-		return fmt.Errorf("anet: envelope not accepted yet (%s); not acknowledging", res.reason)
+		return nil, fmt.Errorf("anet: envelope not accepted yet (%s); not acknowledging", res.reason)
 	}
-	return nil
+	if res.dack == nil {
+		return nil, nil
+	}
+	return res.dack.dack[:], nil
 }
 
 // errNotReady refuses a delivery that arrived while the daemon was starting

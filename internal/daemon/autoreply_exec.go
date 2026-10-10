@@ -1143,9 +1143,10 @@ type sandboxPlan struct {
 	Egress *egressUpstream
 	// AgentHome, when set, points the agent at Egress the agent's own way (LEC AV-4,
 	// agents_sandbox.go): run before each process starts, it writes the agent's configuration under the
-	// run's home directory (hostHome on this host, home inside the sandbox) and returns the variables the
-	// agent's environment needs besides the egress ones.
-	AgentHome func(hostHome, home string) ([]string, error)
+	// run's home directory (hostHome on this host, home inside the sandbox) for the run's injection route
+	// (route, egressRouteBaseAt: keyed on macOS, EG-3) and returns the variables the agent's environment
+	// needs besides the egress ones.
+	AgentHome func(hostHome, home, route string) ([]string, error)
 
 	egressMu    sync.Mutex
 	egressTotal *egressSummary
@@ -1259,9 +1260,7 @@ func (d *Daemon) runSandboxed(ctx context.Context, req sandboxRequest) (sandboxR
 			return sandboxResult{}, err
 		}
 		plan.Egress = up
-		if prepare := spec.sandbox.prepare; prepare != nil { // resolveEgressUpstream refused an agent without one
-			plan.AgentHome = func(hostHome, home string) ([]string, error) { return prepare(up, hostHome, home) }
-		}
+		plan.AgentHome = spec.sandbox.homeFor(up) // resolveEgressUpstream refused an agent without a sandbox
 	}
 	workDir, err := execSandboxInteractionDir(d.layout.Root, d.AID(), req.RC.InteractionID)
 	if err != nil {

@@ -194,7 +194,7 @@ func TestTheDAckIsCarriedAsItCame(t *testing.T) {
 			mu.Lock()
 			recvs = append(recvs, m)
 			mu.Unlock()
-			bob.send(frame{Op: "ack", V: wireVersion, ID: f.ID, DAck: dacks[f.Envelope]})
+			bob.send(frame{Op: "ack", V: wireVersion, ID: f.ID, DAck: dack(dacks[f.Envelope])})
 		}
 	}()
 	n := 0
@@ -209,8 +209,8 @@ func TestTheDAckIsCarriedAsItCame(t *testing.T) {
 		if reply.Op != "send" || reply.V != wireVersion || reply.ID != id || reply.Error != "" {
 			t.Fatalf("answer %+v", reply)
 		}
-		if reply.DAck != want {
-			t.Errorf("dack %q came back as %q", want, reply.DAck)
+		if reply.DAck.s != want {
+			t.Errorf("dack %q came back as %q", want, reply.DAck.s)
 		}
 		_, has := members["dack"]
 		if has != (want != "") {
@@ -303,12 +303,18 @@ func TestFRAME3RefusedByThePeer(t *testing.T) {
 			default:
 				t.Fatalf("unknown reader %q", r.At)
 			}
+			// A frame of another version is refused for its version; one of
+			// this version for a member it should not have, or lacks.
+			why := versionRefused(in.V)
+			if in.V == wireVersion {
+				why = "member"
+			}
 			if r.Answer != "error" || reply.Op != "error" || reply.V != wireVersion || reply.ID != in.ID ||
-				reply.Error != versionRefused(in.V) || reply.DAck != "" {
-				t.Fatalf("answer %+v, want an error frame of v %d naming version %d, id %q", reply, wireVersion, in.V, in.ID)
+				!strings.Contains(reply.Error, why) || reply.DAck.set {
+				t.Fatalf("answer %+v, want an error frame of v %d saying %q, id %q", reply, wireVersion, why, in.ID)
 			}
 			if r.Closes && !closed {
-				t.Fatal("the connection stayed open after a hello of another version")
+				t.Fatal("the connection stayed open after a refused hello")
 			}
 			select {
 			case f := <-handed:
@@ -372,13 +378,13 @@ func TestADaemonsErrorFrameAnswersItsDeliveryAtOnce(t *testing.T) {
 		}
 	}()
 	start := time.Now()
-	alice.send(frame{Op: "send", V: wireVersion, ID: "s1", To: "aid-bob", Envelope: "ZW52"})
+	alice.send(frame{Op: "send", V: wireVersion, ID: "s1", To: "aid-bob", Envelope: "ZW52", Addr: "203.0.113.7:39100"})
 	// read gives up after 5 seconds, half the hand-off timeout.
 	reply, _, err := alice.read()
 	if err != nil {
 		t.Fatalf("no answer (the hand-off waits %s): %v", handOffTimeout, err)
 	}
-	if reply.Op != "send" || reply.V != wireVersion || reply.ID != "s1" || reply.Error == "" || reply.DAck != "" {
+	if reply.Op != "send" || reply.V != wireVersion || reply.ID != "s1" || reply.Error == "" || reply.DAck.set {
 		t.Fatalf("answer %+v, want the send answered with an error and no dack", reply)
 	}
 	if d := time.Since(start); d >= handOffTimeout {
@@ -422,15 +428,16 @@ func fixedAnswerPeer(t *testing.T, answer frame) string {
 // An answer of another version is no answer: the send fails and nothing in
 // it, a dack included, is passed on.
 func TestTheReceivingPeersAnswerIsPassedOnInThisVersionOnly(t *testing.T) {
-	dack := strings.Repeat("Ab-_", 26) + "Abc"
+	d := strings.Repeat("Ab-_", 26) + "Abc"
 	for _, tc := range []struct {
 		name     string
 		answer   frame
 		wantDAck string
 	}{
-		{"a failure with a dack", frame{Op: "send", V: wireVersion, DAck: dack, Error: "the answer came late"}, dack},
-		{"an answer of version 2", frame{Op: "send", V: 2, DAck: dack}, ""},
-		{"an answer of version 0", frame{Op: "send", DAck: dack}, ""},
+		{"a failure with a dack", frame{Op: "send", V: wireVersion, DAck: dack(d), Error: "the answer came late"}, d},
+		{"an answer of version 2", frame{Op: "send", V: 2, DAck: dack(d)}, ""},
+		{"an answer of version 0", frame{Op: "send", DAck: dack(d)}, ""},
+		{"an answer with a member v3 does not have", frame{Op: "send", V: wireVersion, DAck: dack(d), Self: "x"}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -446,14 +453,14 @@ func TestTheReceivingPeersAnswerIsPassedOnInThisVersionOnly(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(rv, "aid-far"), []byte("tcp://"+fixedAnswerPeer(t, tc.answer)), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			d := dialRawDaemon(t, filepath.Join(dir, "a.sock"))
-			d.send(frame{Op: "hello", V: wireVersion, Self: "aid-alice"})
-			d.send(frame{Op: "send", V: wireVersion, ID: "s1", To: "aid-far", Envelope: "ZW52"})
-			reply, _, err := d.read()
+			rd := dialRawDaemon(t, filepath.Join(dir, "a.sock"))
+			rd.send(frame{Op: "hello", V: wireVersion, Self: "aid-alice"})
+			rd.send(frame{Op: "send", V: wireVersion, ID: "s1", To: "aid-far", Envelope: "ZW52", Addr: "203.0.113.7:39100"})
+			reply, _, err := rd.read()
 			if err != nil {
 				t.Fatalf("no answer: %v", err)
 			}
-			if reply.Op != "send" || reply.V != wireVersion || reply.ID != "s1" || reply.Error == "" || reply.DAck != tc.wantDAck {
+			if reply.Op != "send" || reply.V != wireVersion || reply.ID != "s1" || reply.Error == "" || reply.DAck.s != tc.wantDAck {
 				t.Fatalf("answer %+v, want a failed send carrying dack %q", reply, tc.wantDAck)
 			}
 		})

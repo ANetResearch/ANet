@@ -610,9 +610,14 @@ func TestAWrongPaymentIsRefusedBeforeSettlement(t *testing.T) {
 	if pix := getIX(t, prov, id); pix.State != interactions.StateCompleted || work.invoked.Load() != 1 {
 		t.Fatalf("the right payment: %s, ran %d", pix.State, work.invoked.Load())
 	}
-	// A second payment on a settled task is not presented.
+	// A second payment on a settled task is not presented: the task has
+	// ended, and the payment is refused task_ended (engine §4.5).
 	raw2, _ := req.payer().Authorize(opt, id, bind, module.PurposeTaskManual)
-	sendPayment(t, req, prov, id, raw2, "msg_again")
+	meta2, _ := json.Marshal(map[string]any{x402a2a.KeyStatus: x402a2a.StatusSubmitted, x402a2a.KeyPayload: json.RawMessage(raw2)})
+	body2, _ := (&delegation.ChatMsg{Kind: delegation.ChatText, MsgID: "msg_again", Metadata: meta2}).Marshal()
+	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeMessage, id, body2)); r.reason != dropAfterTerminal {
+		t.Fatalf("a payment after the end: %+v, want %s", r, dropAfterTerminal)
+	}
 	if n := len(settleBodiesOn(hub)); n != 1 || debitsOn(hub, req.AID()) != 1 {
 		t.Errorf("after a second payment: %d settle calls, %d debits", n, debitsOn(hub, req.AID()))
 	}

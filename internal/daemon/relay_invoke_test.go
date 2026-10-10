@@ -171,9 +171,9 @@ func TestRelayInvokeOnlyAfterNoticeCheck(t *testing.T) {
 			}
 		}
 		if !checked {
-			// The receive pipeline v3 adds the notice check; until then an envelope's notice is not
-			// read, and a relay call follows steps 1 to 10 without it.
-			t.Skip("v030-todo(ENG-1c)")
+			// Every envelope with a KEL has its notice checked at step 6½ (KEL D-21), before a relay
+			// call can follow from it.
+			t.Fatal("the receive pipeline does not check the witness notice (seal.CheckNotice, step 6½)")
 		}
 	})
 }

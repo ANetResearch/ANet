@@ -753,7 +753,8 @@ MUTS += [
  dict(
   id='exe10-anetpeer-probe', group='PC-4', repo='ANet',
   desc='daemon 套接字的连接一被接受就顶替当前 daemon(另一 anetpeer 探测 socket 是否在用后,当前 daemon 收不到投递)',
-  edits=[('tools/anetpeer/main.go', '\t\tif first && err == nil {', '\t\tif first {')],
+  edits=[('tools/anetpeer/main.go', '\tbr := bufio.NewReaderSize(c, 64<<10)\n\tfor first := true; ; first = false {',
+          '\tp.mu.Lock()\n\tp.conn = dc\n\tp.mu.Unlock()\n\tbr := bufio.NewReaderSize(c, 64<<10)\n\tfor first := true; ; first = false {')],
   tests=[('ANet:./tools/anetpeer', 'TestTheDaemonSocketIsListenedOnSafely')],
   full=['ANet:./tools/anetpeer'],
  ),
@@ -813,8 +814,8 @@ MUTS += [
  dict(
   id='m-sb-6b', group='AV-2', repo='ANet',
   desc='读文件的 agent(hermes)把对话本身放进命令行,而不是写进文件',
-  edits=[('internal/daemon/agents.go', '\targs := []string{"-z", fileInputMessage(o.Instructions, conv)}',
-          '\targs := []string{"-z", o.Instructions + o.Conversation + conv}')],
+  edits=[('internal/daemon/agents.go', '\targs := []string{hermesOneShot + fileInputMessage(o.Instructions, conv)}',
+          '\targs := []string{hermesOneShot + o.Instructions + o.Conversation + conv}')],
   tests=[(DAEMON, ARGV), ('ANet:./scripts', 'TestExecArgumentsCarryNoSecretAndNoConversation')],
   full=[DAEMON],
  ),
@@ -1472,7 +1473,8 @@ MUTS += [
 AGENTS = ('TestAgentSandboxTable|TestAgentSandboxConfigFiles|TestAgentCommandLines|TestOpenClawReply|'
           'TestUnsupportedAgentsFailClosedInTheSandbox|TestSandboxCommandWritesTheAgentConfiguration|'
           'TestAgentRuntimeShowsAPythonEnvironment|TestSandboxIntegrationConfiguresEachAgent|'
-          'TestEgressUpstreamSelection|TestEgressPinnedModel|TestEgressModelTables')
+          'TestEgressUpstreamSelection|TestEgressPinnedModel|TestEgressModelTables|TestUpstreamCombinationsFailClosed|'
+          'TestDarwinAgentConfigsCarryTheKeyedRoute|TestSeatbeltLaunchShowsAPythonEnvironment')
 MUTS += [
  dict(
   id='m-av-4-codex-full-auto', group='AV-4', repo='ANet',
@@ -1515,8 +1517,8 @@ MUTS += [
  dict(
   id='m-av-4-codex-custom', group='AV-4', repo='ANet',
   desc='codex 在沙箱里也接受 custom 上游(codex 已不支持 chat completions)',
-  edits=[('internal/daemon/agents_sandbox.go', '\t\tspeaks:   []string{egressUpstreamOpenAI}, api: "the OpenAI Responses API",',
-          '\t\tspeaks:   []string{egressUpstreamOpenAI, egressUpstreamCustom}, api: "the OpenAI Responses API",')],
+  edits=[('internal/daemon/agents_sandbox.go', '\t\tspeaks:   []string{egressUpstreamOpenAI}, combo: agentComboOpenAIOnly,',
+          '\t\tspeaks:   []string{egressUpstreamOpenAI, egressUpstreamCustom}, combo: agentComboOpenAIOnly,')],
   tests=[(DAEMON, AGENTS)],
   full=[DAEMON],
  ),
@@ -1590,15 +1592,15 @@ MUTS += [
  dict(
   id='m-av-4-agent-home', group='AV-4', repo='ANet',
   desc='沙箱启动前不写 agent 的配置(command 跳过 AgentHome)',
-  edits=[('internal/daemon/sandbox_linux.go', '\tif p.AgentHome != nil {\n\t\tif agentEnv, err = p.AgentHome(sandboxHome(runDir), home); err != nil {',
-          '\tif false && p.AgentHome != nil {\n\t\tif agentEnv, err = p.AgentHome(sandboxHome(runDir), home); err != nil {')],
+  edits=[('internal/daemon/sandbox_linux.go', '\tif p.AgentHome != nil {\n\t\tif agentEnv, err = p.AgentHome(sandboxHome(runDir), home, egressRouteBase(p.Egress)); err != nil {',
+          '\tif false && p.AgentHome != nil {\n\t\tif agentEnv, err = p.AgentHome(sandboxHome(runDir), home, egressRouteBase(p.Egress)); err != nil {')],
   tests=[(DAEMON, AGENTS)],
   full=[DAEMON],
  ),
  dict(
   id='m-av-4-run-prepare', group='AV-4', repo='ANet',
   desc='runSandboxed 不把 agent 的配置交给沙箱计划',
-  edits=[('internal/daemon/autoreply_exec.go', '\t\tif prepare := spec.sandbox.prepare; prepare != nil {', '\t\tif prepare := spec.sandbox.prepare; false && prepare != nil {')],
+  edits=[('internal/daemon/autoreply_exec.go', '\t\tplan.AgentHome = spec.sandbox.homeFor(up)', '\t\tplan.AgentHome = (*agentSandbox)(nil).homeFor(up); _ = spec')],
   tests=[(DAEMON, AGENTS)],
   full=[DAEMON],
  ),
@@ -1851,7 +1853,7 @@ MUTS += [
  dict(
   id='m-ms-link', group='MS-2', repo='ANet',
   desc='profile 不拒绝 file-link(运行之外的文件可在工作目录得到硬链接)',
-  edits=[('internal/daemon/seatbelt_profile.go', 'var seatbeltRefused = []string{"file-link", "file-clone", "nvram*"}', 'var seatbeltRefused = []string{"file-clone", "nvram*"}')],
+  edits=[('internal/daemon/seatbelt_profile.go', 'var seatbeltRefused = []string{"file-link", "file-clone", "nvram*",\n', 'var seatbeltRefused = []string{"file-clone", "nvram*",\n')],
   tests=[(DAEMON, SBPL)],
   full=[DAEMON],
  ),
@@ -1860,6 +1862,107 @@ MUTS += [
   desc='探针第 4 项不先跑放行的程序(沙箱里什么都启动不了也算通过)',
   edits=[('internal/daemon/sandbox_seatbelt.go', '\tif err := ctl.Run(); err != nil {', '\tif err := ctl.Run(); err != nil && false {')],
   tests=[(DAEMON, 'TestSeatbeltProbeItem4NeedsAProgramThatRuns')],
+  full=[DAEMON],
+ ),
+]
+
+# EXE-9: the agents in the macOS sandbox, the half that runs on Linux (LEC §8 EXE-9; the release plan). UP-2's
+# combinations fail closed when the configuration is resolved; on macOS the configuration file of codex, opencode,
+# hermes and openclaw names the keyed route (EG-3, 2026-10-10), tested through the stand-in for sandbox-exec; an
+# operator's system_prompt starting with "-" stays opencode's and hermes's message; the profile's 2026-10-10
+# tightening. The darwin-only half (underSystemDir in sandbox_darwin.go, the real claude in Seatbelt) is held by the
+# CI seatbelt job (TestSeatbeltPythonRuntimeOutsideTheExecutableSystem, TestSeatbeltClaudeCompletesATask) and is not
+# listed: unitmut runs on Linux.
+COMBO = 'TestUpstreamCombinationsFailClosed|TestEgressUpstreamSelection|TestUnsupportedAgentsFailClosedInTheSandbox'
+DASH = 'TestASystemPromptStartingWithADashStaysAMessage|TestAgentCommandLines'
+MUTS += [
+ dict(
+  id='m-up-2-combo', group='UP-2', repo='ANet',
+  desc='去掉组合判定:与 agent 不能组合的 api_base 不当场拒绝(不再是 agent_unsupported.combo)',
+  edits=[('internal/daemon/egress_upstreams.go', '\t\treturn nil, &egressComboError{Why: sb.combo,', '\t\treturn nil, &sandboxProbeError{Code: "agent_unsupported"}\n\t\treturn nil, &egressComboError{Why: sb.combo,')],
+  tests=[(DAEMON, COMBO)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-up-2-claude-ignores-base', group='UP-2', repo='ANet',
+  desc='沙箱里的 claude 忽略 api_base(第三方服务的 key 被发往 api.anthropic.com)',
+  edits=[('internal/daemon/egress_upstreams.go', '\tif apiBase != "" {\n\t\tbase, err := parseEgressAPIBase(apiBase)',
+          '\tif apiBase != "" && sb.upstream != egressUpstreamAnthropic {\n\t\tbase, err := parseEgressAPIBase(apiBase)')],
+  tests=[(DAEMON, COMBO)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-up-2-why', group='UP-2', repo='ANet',
+  desc='组合拒绝不带 agent 的 {why}(句子说不出要改什么)',
+  edits=[('internal/daemon/egress_upstreams.go', '\t\treturn nil, &egressComboError{Why: sb.combo,', '\t\treturn nil, &egressComboError{Why: "",')],
+  tests=[(DAEMON, COMBO)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg3-config-unkeyed', group='EG-3', repo='ANet',
+  desc='macOS 上 agent 的配置文件写不带密钥的路由(codex、opencode、hermes、openclaw 连不上模型)',
+  edits=[('internal/daemon/sandbox_seatbelt.go', 'p.AgentHome(home, home, egressRouteBaseAt(p.Egress, addr, key))', 'p.AgentHome(home, home, egressRouteBaseAt(p.Egress, addr, ""))')],
+  tests=[(DAEMON, 'TestDarwinAgentConfigsCarryTheKeyedRoute')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-eg3-config-linux-route', group='EG-3', repo='ANet',
+  desc='agent 的配置文件不用本次运行给的路由,一律写 Linux 沙箱里的 127.0.0.1:3128',
+  edits=[('internal/daemon/agents_sandbox.go', '\tif up.Name == egressUpstreamOpenAI {\n\t\treturn route + "/v1"\n\t}\n\treturn route\n',
+          '\tif up.Name == egressUpstreamOpenAI {\n\t\treturn egressRouteBase(up) + "/v1"\n\t}\n\treturn egressRouteBase(up)\n')],
+  tests=[(DAEMON, 'TestDarwinAgentConfigsCarryTheKeyedRoute')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-dash-opencode', group='AV-2', repo='ANet',
+  desc='去掉 - 的保护:opencode 的固定指令前不加 --(以 - 开头的 system_prompt 被当成选项)',
+  edits=[('internal/daemon/agents.go', '\t\targs = append(args, "--", o.Instructions)', '\t\targs = append(args, o.Instructions)')],
+  tests=[(DAEMON, DASH)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-av-dash-hermes', group='AV-2', repo='ANet',
+  desc='去掉 - 的保护:hermes 的消息作为 -z 的下一个参数(以 - 开头时 argparse 当成选项)',
+  edits=[('internal/daemon/agents.go', '\targs := []string{hermesOneShot + fileInputMessage(o.Instructions, conv)}',
+          '\targs := []string{"-z", fileInputMessage(o.Instructions, conv)}')],
+  tests=[(DAEMON, DASH)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-refused-2', group='MS-2', repo='ANet',
+  desc='profile 不显式拒绝 iokit-get-properties(沙箱里可读序列号)',
+  edits=[('internal/daemon/seatbelt_profile.go', '\t"mach-cross-domain-lookup", "iokit-get-properties", "darwin-notification-post", "socket-ioctl"}',
+          '\t"mach-cross-domain-lookup", "darwin-notification-post", "socket-ioctl"}')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-refused-mach', group='MS-2', repo='ANet',
+  desc='profile 不显式拒绝 mach-cross-domain-lookup(可能绕过 mach-lookup 白名单)',
+  edits=[('internal/daemon/seatbelt_profile.go', '\t"mach-cross-domain-lookup", "iokit-get-properties", "darwin-notification-post", "socket-ioctl"}',
+          '\t"iokit-get-properties", "darwin-notification-post", "socket-ioctl"}')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-workexec', group='MS-2', repo='ANet',
+  desc='工作目录内的文件不可执行(与 Linux 沙箱不一致,agent 运行不了自己构建的程序)',
+  edits=[('internal/daemon/seatbelt_profile.go', '\texecs = append(execs, sub(spec.WorkDir))\n', '')],
+  tests=[(DAEMON, SBPL)],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-clt-read', group='MS-2', repo='ANet',
+  desc='命令行工具目录从读集合里去掉(git、python3 的垫片在沙箱里跑不起来)',
+  edits=[('internal/daemon/seatbelt_profile.go', '"/System/Volumes/Preboot/Cryptexes", seatbeltCommandLineTools,', '"/System/Volumes/Preboot/Cryptexes",')],
+  tests=[(DAEMON, SBPL + '|TestSeatbeltExecSystemIsReadable')],
+  full=[DAEMON],
+ ),
+ dict(
+  id='m-ms-python-exec', group='AV-4', repo='ANet',
+  desc='macOS 上 Python agent 的 venv 与安装前缀只给读不给执行(框架版 python 重新执行 app 包里的解释器失败)',
+  edits=[('internal/daemon/seatbelt_profile.go', '\texecs = append(execs, subs(runtime)...)\n', '\texecs = append(execs, subs(runtime[:min(len(runtime), 1)])...)\n')],
+  tests=[(DAEMON, 'TestSeatbeltLaunchShowsAPythonEnvironment')],
   full=[DAEMON],
  ),
 ]

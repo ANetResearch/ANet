@@ -51,7 +51,7 @@ func TestSessionWriteHasADeadline(t *testing.T) {
 			}
 		}
 	}()
-	tr := &Transport{socket: sock, selfAID: "aid-self", sendTimeout: 10 * time.Minute, inbound: &recorder{}}
+	tr := &Transport{socket: sock, selfAID: "aid-self", sendTimeout: 10 * time.Minute, inbound: &recorder{}, addrOf: anyAddr}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel(); tr.close() })
 	go tr.run(ctx)
@@ -109,7 +109,7 @@ func TestSessionWriteHasADeadline(t *testing.T) {
 func TestAPeerProcessOfAnotherAccountIsSentNothing(t *testing.T) {
 	peer := newFakePeer(t)
 	other := os.Getuid() + 1
-	tr := &Transport{socket: peer.socket(), selfAID: "aid-self", sendTimeout: time.Second, inbound: &recorder{}, listenerUID: &other}
+	tr := &Transport{socket: peer.socket(), selfAID: "aid-self", sendTimeout: time.Second, inbound: &recorder{}, listenerUID: &other, addrOf: anyAddr}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	errc := make(chan error, 1)

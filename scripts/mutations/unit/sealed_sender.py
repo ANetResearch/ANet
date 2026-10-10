@@ -844,12 +844,14 @@ MUTS += [
   tests=S8_MISUSE_T, full=S8_FULL),
  # ---- M26: grants kept only by step 10
  dict(id='ss8-m26-early', group='SS-8', repo='ANet', desc='grant 在第 8 步就写入 caps_held(被拒或回滚的消息也留下 grant)',
-  edits=[('internal/daemon/receive.go', '\tm.grant = d.grantToKeep(in, verifiedKeys, op.Outer.Exp != nil, now)\n',
-          '\tm.grant = d.grantToKeep(in, verifiedKeys, op.Outer.Exp != nil, now)\n\tif m.grant != nil {\n\t\t_ = d.ix.Update(func(tx *interactions.Tx) error { _, err := tx.PutHeldGrant(*m.grant); return err })\n\t}\n')],
+  edits=[('internal/daemon/receive.go', '\tm.grant = d.grantToKeep(in, verifiedKeys, oneShot, now)\n',
+          '\tm.grant = d.grantToKeep(in, verifiedKeys, oneShot, now)\n\tif m.grant != nil {\n\t\t_ = d.ix.Update(func(tx *interactions.Tx) error { _, err := tx.PutHeldGrant(*m.grant); return err })\n\t}\n')],
   tests=S8_KEEP_T, full=S8_FULL),
  dict(id='ss8-m26-oneshot', group='SS-8', repo='ANet', desc='一次性信封所带的 grant 也写入',
   edits=[('internal/daemon/caps.go', '\tif in == nil || len(in.Grant) == 0 || oneShot {', '\tif in == nil || len(in.Grant) == 0 {')],
-  tests=S8_KEEP_T, full=S8_FULL),
+  # The receive pipeline never reaches step 10 for a one-shot envelope (engine §4.2 step 8½, ENG-1c), so
+  # TestRefusedMessageGrantIsNotKept's one-shot case stays green; grantToKeep's own rule is held by its fuzz seeds.
+  tests=S8_KEEP_T + [('ANet:./internal/daemon', '^FuzzGrantToKeep$')], full=S8_FULL),
  dict(id='ss8-keep-none', group='SS-8', repo='ANet', desc='第 10 步不保存 grant',
   edits=[('internal/daemon/receive.go', '\t\tif m.grant != nil {\n\t\t\tif _, err := tx.PutHeldGrant(*m.grant); err != nil {', '\t\tif false && m.grant != nil {\n\t\t\tif _, err := tx.PutHeldGrant(*m.grant); err != nil {')],
   tests=S8_KEEP_T, full=S8_FULL),
@@ -1464,6 +1466,69 @@ MUTS += [
  dict(id='ss10-r2-cli-cursor', group='SS-10', repo='ANet', desc='anet verify(无 daemon)遇到不前进的游标就按已读部分下结论',
   edits=[('internal/daemon/peer_resolve.go', '\t\tif p.Next == q.Cursor {\n\t\t\t// Read no further', '\t\tif false && p.Next == q.Cursor {\n\t\t\t// Read no further')],
   tests=[('ANet:./internal/daemon', '^TestDirectoryKELStopsAtACursorThatDoesNotMove$')], full=S10_FULL),
+]
+
+# ---- SS-11: the daemon's p2p and anetpeer (SSR-P1 to SSR-P4, SI-18, M15 on anetpeer's side, core
+# CORE-K13a), and coredet's null and undefined (core CORE-E4, revision 7)
+S11_DAEMON = [('ANet:./internal/daemon', '^(TestReachableNeedsContactGrantWithAddr|TestP2PAddrLiteralPrecheck|TestP2PConfigIsCheckedAtStart)$')]
+S11_MODULE = [('ANet:./module/p2p', '^(TestTheTransportReachesOnlyAnAIDWithAnAddress|TestAnAnswerIsReadStrictly|TestAFrameFromThePeerProcessIsReadStrictly|TestFRAME3RefusedByTheDaemon|TestCardHasNoP2PInterface)$')]
+S11_PEER = [('ANet:./tools/anetpeer', '^(TestDialFilter|TestASendDialsItsAddressOnly|TestStrictFramesOnEveryLeg|TestFRAME3RefusedByThePeer|TestAWriteToTheDaemonHasADeadlineAndHoldsNoLock|TestAPeerConnectionIsBoundedInTimeAndSize|TestReadLineIsBounded)$')]
+S11_NULL = [('ANetCore:./coredet', '^(TestUnmarshalStrictRefusesNullAndUndefined|TestNullErrorSaysWhereAndWhat)$'),
+            ('ANetCore:./identity', '^TestEveryStrictDecoderRefusesNullAndUndefined$')]
+MUTS += [
+ # ---- M15, anetpeer's half: the dial filter
+ dict(id='ss11-m15-dial-filter', group='SS-M15', repo='ANet', desc='anetpeer 不过滤拨号地址(回环、私网、链路本地照拨)',
+  edits=[('tools/anetpeer/main.go', '\t\tif w := p2paddr.Refused(ip, p.lan); w != "" {', '\t\tif w := p2paddr.Refused(ip, p.lan); false && w != "" {')],
+  tests=S11_PEER, full=['ANet:./tools/anetpeer']),
+ dict(id='ss11-literal', group='SS-11', repo='ANet', desc='daemon 把字面回环、私网地址交给 anetpeer(不做字面检查)',
+  edits=[('internal/daemon/p2p_addr.go', '\t\tif err := p2paddr.LiteralRefused(h.P2P, lan); err != nil {', '\t\tif err := p2paddr.LiteralRefused(h.P2P, lan); false && err != nil {')],
+  tests=S11_DAEMON, full=['ANet:./internal/daemon']),
+ dict(id='ss11-stranger-addr', group='SS-11', repo='ANet', desc='stranger 级对端能力里的地址也拿来直连',
+  edits=[('internal/daemon/p2p_addr.go', 'h.Scope != interactions.CapScopePeer || h.Class != seal.CapClassContact || h.P2P == ""',
+          'h.Scope != interactions.CapScopePeer || h.Class != seal.CapClassContact && false || h.P2P == ""')],
+  tests=S11_DAEMON, full=['ANet:./internal/daemon']),
+ dict(id='ss11-reachable-any', group='SS-11', repo='ANet', desc='Reachable 不看地址,anetpeer 在线即真',
+  edits=[('module/p2p/transport.go', '\tif _, ok := t.addrFor(toAID); !ok {\n\t\treturn false\n\t}', '')],
+  tests=S11_MODULE, full=['ANet:./module/p2p']),
+ dict(id='ss11-card-iface', group='SS-11', repo='ANet', desc='卡片仍贡献 p2p 直连接口',
+  edits=[('module/p2p/card.go', 'func (m *Module) CardInterfaces(module.CardContext) []map[string]any { return nil }',
+          'func (m *Module) CardInterfaces(c module.CardContext) []map[string]any {\n\tif m.cfg.Advertise == "" {\n\t\treturn nil\n\t}\n\treturn []map[string]any{{"url": "tcp://" + m.cfg.Advertise, "protocolBinding": module.BindingP2PURI, "tenant": c.AID}}\n}')],
+  tests=S11_MODULE, full=['ANet:./module/p2p']),
+ dict(id='ss11-socket-relative', group='SS-11', repo='ANet', desc='modules.p2p.socket 相对路径照常启动',
+  edits=[('internal/daemon/p2p_addr.go', '\t\tif s, ok := v.(string); !ok || !filepath.IsAbs(s) {', '\t\tif s, ok := v.(string); !ok || s == "" && !filepath.IsAbs(s) {')],
+  tests=S11_DAEMON, full=['ANet:./internal/daemon']),
+ # ---- core CORE-K13a: frames are read strictly
+ dict(id='ss11-strict-daemon', group='SS-11', repo='ANet', desc='module/p2p 收下带未登记成员的帧(含其中的 dack)',
+  edits=[('module/p2p/transport.go', '\t\tif m != "op" && !slices.Contains(row.must, m) && !slices.Contains(row.may, m) {',
+          '\t\tif false && m != "op" && !slices.Contains(row.must, m) && !slices.Contains(row.may, m) {')],
+  tests=S11_MODULE, full=['ANet:./module/p2p']),
+ dict(id='ss11-empty-dack', group='SS-11', repo='ANet', desc='"dack":"" 当作没有 dack,不计 dack-bad-frame',
+  edits=[('module/p2p/transport.go', '\tif reply.Op == opSend && a.has["dack"] {', '\tif reply.Op == opSend && reply.DAck != "" {')],
+  tests=S11_MODULE, full=['ANet:./module/p2p']),
+ dict(id='ss11-strict-peer', group='SS-11', repo='ANet', desc='anetpeer 收下带未登记成员的帧',
+  edits=[('tools/anetpeer/main.go', '\t\tif m != "op" && !slices.Contains(row.must, m) && !slices.Contains(row.may, m) {',
+          '\t\tif false && m != "op" && !slices.Contains(row.must, m) && !slices.Contains(row.may, m) {')],
+  tests=S11_PEER, full=['ANet:./tools/anetpeer']),
+ # ---- anetpeer bounds what a peer or its daemon can hold
+ dict(id='ss11-peer-read-deadline', group='SS-11', repo='ANet', desc='servePeers 读远端帧没有期限',
+  edits=[('tools/anetpeer/main.go', '\t_ = c.SetReadDeadline(deadline)\n', '')],
+  tests=S11_PEER, full=['ANet:./tools/anetpeer']),
+ dict(id='ss11-frame-cap', group='SS-11', repo='ANet', desc='anetpeer 读一行没有长度上限',
+  edits=[('tools/anetpeer/main.go', '\t\tif len(line)+len(chunk) > max+1 {', '\t\tif false && len(line)+len(chunk) > max+1 {')],
+  tests=S11_PEER, full=['ANet:./tools/anetpeer']),
+ dict(id='ss11-daemon-write-deadline', group='SS-11', repo='ANet', desc='anetpeer 写 daemon 连接没有期限',
+  edits=[('tools/anetpeer/main.go', '\t_ = d.c.SetWriteDeadline(time.Now().Add(daemonWriteTimeout))\n', '')],
+  tests=S11_PEER, full=['ANet:./tools/anetpeer']),
+ # ---- coredet: null and undefined (core CORE-E4, revision 7)
+ dict(id='ss11-null', group='SS-11', repo='ANetCore', desc='UnmarshalStrict 把解进非指针目标的 null 当零值收下(去掉 null 检查)',
+  edits=[('coredet/null.go', '\t\tcase tg.t != nil && !nullable(tg.t):\n\t\t\treturn w.errAt(false, tg.t)\n', '')],
+  tests=S11_NULL, full=['ANetCore:./coredet', 'ANetCore:./identity', 'ANetCore:./seal']),
+ dict(id='ss11-undefined', group='SS-11', repo='ANetCore', desc='UnmarshalStrict 收下 CBOR undefined',
+  edits=[('coredet/null.go', '\tcase 0xf7:\n\t\treturn w.errAt(true, nil)\n', '\tcase 0xf7:\n\t\tw.off++\n\t\treturn nil\n')],
+  tests=S11_NULL, full=['ANetCore:./coredet', 'ANetCore:./identity']),
+ dict(id='ss11-null-fastpath', group='SS-11', repo='ANetCore', desc='没有 f6 字节就跳过检查的条件写错(总是跳过)',
+  edits=[('coredet/null.go', '\tif bytes.IndexByte(b, 0xf6) < 0 && bytes.IndexByte(b, 0xf7) < 0 {', '\tif bytes.IndexByte(b, 0xf6) < 0 || bytes.IndexByte(b, 0xf7) < 0 {')],
+  tests=S11_NULL, full=['ANetCore:./coredet']),
 ]
 
 # ---- SS-12: what the user sees of sender privacy (SS §4.8, §5.2–§5.4): the sender identity column
