@@ -431,6 +431,25 @@ func TestAOneShotThatCannotGoSaysWhy(t *testing.T) {
 		{"a preview frame without the peer's rk", nil,
 			func() OneShotResult { return (&testCoalescer{d: req}).frame(t, prov.AID(), id, "no rk") },
 			OneShotResult{}, cntPreviewNoRK},
+		// The peer's rk is on record but this node holds no key of its own on
+		// the task: a frame needs this node's rk inside its two layers too
+		// (FS-X6, ENG-K19), so none is sent.
+		{"a preview frame without this node's own rk", nil,
+			func() OneShotResult {
+				k, err := seal.GenerateIXKey(seal.SuiteX25519, id, req.AID())
+				if err != nil {
+					t.Fatal(err)
+				}
+				rk, err := coredet.Marshal(k.RK())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := req.ix.Update(func(tx *interactions.Tx) error { return tx.RecordPeerRK(id, rk) }); err != nil {
+					t.Fatal(err)
+				}
+				return (&testCoalescer{d: req}).frame(t, prov.AID(), id, "no own rk")
+			},
+			OneShotResult{}, cntPreviewNoRK},
 		{"not one of the three", nil,
 			func() OneShotResult {
 				return req.oneShotSend(ctx, oneShotCardGet, prov.AID(), cardIX(t), []byte("text"))

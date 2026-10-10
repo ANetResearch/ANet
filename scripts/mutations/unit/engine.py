@@ -594,6 +594,15 @@ rounds:'''),
   full=[D],
  ),
  dict(
+  id='eng1b-k19-own', group='ENG-1b', repo='ANet',
+  desc='本方没有交互钥时预览帧也发(双层内无本方 rk;ENG-K19、FS-X6)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''		if ixk.peer == nil || ixk.own == nil {''', '''		if ixk.peer == nil {'''),
+  ],
+  tests=[(D, 'TestAOneShotThatCannotGoSaysWhy')],
+  full=[D],
+ ),
+ dict(
   id='eng1b-k2-card', group='ENG-1b', repo='ANet',
   desc='没有请求带来的一次性能力时 anet.card/1 改走首次联系(ENG-K2)',
   edits=[
