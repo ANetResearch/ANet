@@ -117,7 +117,8 @@ func (d *Daemon) sealMessage(m sealMsg, set *seal.EncKeySet, now uint64) (*seale
 
 // sealWith seals one message that is not queued to a key set the caller
 // resolved: a fresh message id, ts now, exp 14 days on, no grant, and the
-// first-contact credential in outer key 7 (it is sent once, sendNotice).
+// first-contact credential in outer key 7. Only tests call it (sealFrom):
+// the refusal notices it sealed are gone (engine ENG-V15).
 func (d *Daemon) sealWith(toAID, typ, interactionID string, body []byte, set *seal.EncKeySet) ([]byte, error) {
 	now := d.nowMS()
 	sv, err := d.sealMessage(sealMsg{to: toAID, typ: typ, ix: interactionID, body: body, mid: seal.NewMID(), ts: now,

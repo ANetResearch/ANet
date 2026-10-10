@@ -33,8 +33,8 @@ func (d *Daemon) RegisterTransport(t module.Transport) {
 // gate like every send (ENG-K13): while it is closed nothing goes.
 //
 // v030-todo(ENG-1b): a message that is not queued is a one-shot envelope
-// (oneShotSend); the refusal notices that still come here go with ENG-1c
-// (ENG-V15).
+// (oneShotSend). The refusal notices it carried are gone (engine ENG-V15):
+// nothing in the daemon calls it any more.
 func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []byte) error {
 	if g := d.identityGate(); !g.Open {
 		return &gateClosedError{state: g.State}

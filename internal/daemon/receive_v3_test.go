@@ -993,3 +993,46 @@ func TestATaskDocThatDoesNotDecodeIsBadBody(t *testing.T) {
 		t.Fatalf("refused table: %v %q %v", exact, reason, err)
 	}
 }
+
+// Engine §4.2 step 2, FS §2.10: an envelope from the hub mailbox sealed to an
+// epoch key this node does not hold is counted for unknown_key_drops_24h; one
+// that came directly is temporary and is not; the count covers 24 hours.
+func TestUnknownKeyDropsAreCountedForADay(t *testing.T) {
+	_, req, prov := registeredPair(t)
+	roomyRxBuckets(prov)
+	now := uint64(time.Now().UnixMilli())
+	clock := now
+	prov.setClock(func() uint64 { return clock })
+	stray, err := seal.GenerateKeyPair(seal.SuiteX25519, now, now+seal.MaxKeyValidityMS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed := func() []byte {
+		kel, _ := identity.MarshalKEL(req.self.KEL())
+		env, _, err := seal.Seal(&seal.SealedInner{From: req.AID(), KeyStateSeq: req.self.CurrentSeq(), To: prov.AID(),
+			Type: seal.TypeMessage, IX: "ix_x", MID: seal.NewMID(), TS: now, Exp: now + messageLifetimeMS,
+			Body: chatBody(t, "x", ""), KEL: kel, Notices: senderOf(req).notices(t), Keys: req.enc.SignedSet()},
+			&stray.Public, req.self.Sign, seal.SealOpts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return withSessionAccess(t, env)
+	}
+	if r := receive(t, prov, sealed()); r.reason != seal.ReasonUnknownKey {
+		t.Fatalf("%+v", r)
+	}
+	if _, err := receiveDirect(t, prov, sealed()); err == nil {
+		t.Fatal("a direct delivery to an unknown key was acknowledged")
+	}
+	if n := prov.unknownKeyDrops24h(); n != 1 {
+		t.Fatalf("%d counted, want the mailbox's one", n)
+	}
+	clock = now + 23*3600*1000
+	if n := prov.unknownKeyDrops24h(); n != 1 {
+		t.Fatalf("23 hours on: %d", n)
+	}
+	clock = now + 25*3600*1000
+	if n := prov.unknownKeyDrops24h(); n != 0 {
+		t.Fatalf("25 hours on: %d", n)
+	}
+}

@@ -534,8 +534,53 @@ func (d *Daemon) unopened(path rxPath, err error) rxResult {
 	if path.direct {
 		return d.transient(transientDirectUnopened, fmt.Errorf("%s: %w", reasonOf(err), err)).at(rxStep1)
 	}
+	if seal.ReasonOf(err) == seal.ReasonUnknownKey {
+		d.unknownKeyDrops.note(d.nowMS())
+	}
 	return d.drop(reasonOf(err), err).at(rxStep1)
 }
+
+// hourCounts counts events in the last 24 hours, by the hour they fell in
+// (unix ms); in memory, bounded, and as old as the process at most.
+type hourCounts struct {
+	mu    sync.Mutex
+	hours [24]struct{ hour, n uint64 }
+}
+
+// countHourMS is the width of one of hourCounts' buckets.
+const countHourMS = 3_600_000
+
+// note counts one event at now.
+func (c *hourCounts) note(now uint64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h := now / countHourMS
+	b := &c.hours[h%24]
+	if b.hour != h {
+		b.hour, b.n = h, 0
+	}
+	b.n++
+}
+
+// last24h is the events in the 24 hours up to now.
+func (c *hourCounts) last24h(now uint64) uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	h := now / countHourMS
+	var n uint64
+	for _, b := range c.hours {
+		if b.hour+24 > h && b.hour <= h {
+			n += b.n
+		}
+	}
+	return n
+}
+
+// unknownKeyDrops24h is how many envelopes from the hub mailbox were dropped
+// in the last 24 hours as sealed to an epoch key this node does not hold
+// (engine §4.2 step 2): /status privacy's unknown_key_drops_24h (FS §2.10).
+// A direct delivery that fails the same way is temporary and not counted.
+func (d *Daemon) unknownKeyDrops24h() uint64 { return d.unknownKeyDrops.last24h(d.nowMS()) }
 
 // refusedReplay answers a copy of an envelope refused before with the reason
 // the first was refused with, and no wait (engine ENG-V13).

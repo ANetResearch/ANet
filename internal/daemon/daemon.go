@@ -83,6 +83,9 @@ type Daemon struct {
 	rxStats   rxCounters
 	notices   noticeLimiter
 	resends   resendLimiter
+	// unknownKeyDrops counts the mailbox envelopes sealed to an epoch key
+	// this node does not hold (unknownKeyDrops24h).
+	unknownKeyDrops hourCounts
 	// peers is the resolver's state: where this node learns another
 	// agent's material without naming it to a hub (peer_resolve.go).
 	peers       peerResolver
