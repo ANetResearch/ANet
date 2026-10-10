@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
 )
@@ -66,7 +67,13 @@ func TestIdentityOpsCrashMatrix(t *testing.T) {
 	modes := func(want ...string) func(*testing.T, *Daemon) {
 		return func(t *testing.T, d *Daemon) {
 			t.Helper()
+			// The state turns ok when the event is adopted; the evidence of it
+			// is written right after, so wait for it.
 			got := rotations(t, d)
+			for end := time.Now().Add(10 * time.Second); len(got) < len(want) && time.Now().Before(end); {
+				time.Sleep(20 * time.Millisecond)
+				got = rotations(t, d)
+			}
 			if len(got) != len(want) {
 				t.Fatalf("anet.identity.rotated after the restart: %v, want %v", got, want)
 			}
