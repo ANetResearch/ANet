@@ -21,7 +21,7 @@ package daemon
 // rotation grace. An approved item becomes an interaction with
 // trust=approved and follows the ordinary execution path.
 //
-// A held item that is not decided within ttl_hours expires and the
+// A held item that is not decided within 72 hours (pendingTTL) expires and the
 // requester is told status{rejected, anet.reason=pending_expired}.
 
 import (
@@ -60,7 +60,6 @@ var ErrNotPending = errors.New("anet: no held delegation with that id")
 
 // holdDelegate is step 10 for a delegation the approve policy holds.
 func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
-	in := d.config().inbound()
 	requestCID, err := anetcid.Sum(m.tdBytes)
 	if err != nil {
 		return d.drop(dropBadTaskDoc, err)
@@ -93,7 +92,7 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 		MsgID: wireMsgID("", m.mid),
 	}
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
-		if err := tx.PutPending(item, in.Pending.MaxTotal, in.Pending.MaxPerPeer); err != nil {
+		if err := tx.PutPending(item, pendingMaxTotal, pendingMaxPerPeer); err != nil {
 			if errors.Is(err, interactions.ErrPendingFull) {
 				return &rxPermanentErr{reason: dropRefusedPrefix + reasonPendingFull, err: err,
 					note: refusalNote(reasonPendingFull, 0, d.nowMS())}
@@ -147,7 +146,7 @@ func (d *Daemon) PendingList() ([]PendingView, error) {
 	if err != nil {
 		return nil, err
 	}
-	ttl := int64(d.config().inbound().Pending.TTLHours) * 3600 * 1000
+	ttl := pendingTTL.Milliseconds()
 	out := make([]PendingView, 0, len(items))
 	for _, p := range items {
 		out = append(out, PendingView{
@@ -369,7 +368,7 @@ func (d *Daemon) expirePending() { d.expirePendingAt(int64(d.nowMS())) }
 
 // expirePendingAt is expirePending with the current time given (unix ms).
 func (d *Daemon) expirePendingAt(now int64) {
-	ttl := int64(d.config().inbound().Pending.TTLHours) * 3600 * 1000
+	ttl := pendingTTL.Milliseconds()
 	cutoff := now - ttl
 	items, err := d.ix.ExpiredPending(cutoff)
 	if err != nil {

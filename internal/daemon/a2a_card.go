@@ -124,6 +124,11 @@ func (d *Daemon) publicSkillIDs() []string {
 			continue
 		}
 		seen[id] = true
+		if p.AllowOnly {
+			// On the list variant of the extended card only
+			// (listOnlySkillIDs, CUX-F32).
+			continue
+		}
 		prov, ok := d.providers.Resolve(id)
 		if !ok {
 			continue

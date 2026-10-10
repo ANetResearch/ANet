@@ -14,8 +14,9 @@ package daemon
 //	5 policy open                              capability call: refuse; otherwise trust=public
 //	6 otherwise                                refuse, anet.reason=not_accepting
 //
-// The three peer files are read on every decision, so an edit takes effect
-// on the next message without a restart. A missing file is an empty list.
+// The three peer files (peers.allow, peers.deny and peers.trust in the data
+// directory) are read on every decision, so an edit takes effect on the
+// next message without a restart. A missing file is an empty list.
 //
 // A refusal sends nothing: the requester is told in the delivery token of
 // its delegation, whose note carries the reason and when to try again
@@ -40,6 +41,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/tsir"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -51,21 +55,19 @@ const (
 )
 
 // InboundConfig is the inbound block of config.json.
+//
+// The three peer lists live in the data directory under fixed names
+// (peersAllowFile, peersDenyFile, peersTrustFile); the approval queue's
+// bounds are constants (pendingMaxTotal, pendingMaxPerPeer, pendingTTL)
+// and a refusal is told in its delivery token, so 0.3.0 has no setting for
+// any of them (ux §2.2, §2.3): a key that named one stops the daemon.
 type InboundConfig struct {
 	// Policy is closed (default), approve or open.
 	Policy string `json:"policy"`
-	// AllowFile lists peers that may delegate; TrustFile peers that may in
-	// addition drive this node's exec auto-reply and A2A backends; DenyFile
-	// peers refused whatever else says. One AID per line, '#' starts a
-	// comment. A relative path is relative to the data directory.
-	AllowFile string `json:"allow_file"`
-	DenyFile  string `json:"deny_file"`
-	TrustFile string `json:"trust_file"`
 	// PublicCapabilities are the capabilities anyone may call, each with
-	// its quotas.
+	// its quotas; an allow_only one only the peers on the allow and trust
+	// lists (CUX-F12).
 	PublicCapabilities []PublicCapability `json:"public_capabilities"`
-	RejectNotice       RejectNoticeConfig `json:"reject_notice"`
-	Pending            PendingQueueConfig `json:"pending"`
 }
 
 // PublicCapability is one capability anyone may call. A zero limit takes
@@ -76,7 +78,16 @@ type PublicCapability struct {
 	PerCallerPerDay int    `json:"per_caller_per_day,omitempty"`
 	GlobalPerMin    int    `json:"global_per_min,omitempty"`
 	MaxInflight     int    `json:"max_inflight,omitempty"`
-	MaxArgsBytes    int    `json:"max_args_bytes,omitempty"`
+	// PerCallerInflight is how many calls of one caller may run at once
+	// (CUX-F11): 1 by default, at most MaxInflight, so that one caller
+	// cannot hold every slot of the capability.
+	PerCallerInflight int `json:"per_caller_inflight,omitempty"`
+	MaxArgsBytes      int `json:"max_args_bytes,omitempty"`
+	// AllowOnly serves the capability only to the callers on the allow
+	// and trust lists (CUX-F12). To anyone else it is not there: the same
+	// answer, at the same moment, as a capability this node does not have
+	// (CUX-Q2), and it is on no card the hub sees (CUX-F32).
+	AllowOnly bool `json:"allow_only,omitempty"`
 	// Evidence is what the chain keeps of a call of this capability
 	// (trust public_cap, whoever the caller): "cid" (the default) keeps
 	// the result CID and the metrics, "full" also keeps the provenance
@@ -85,41 +96,37 @@ type PublicCapability struct {
 	Evidence string `json:"evidence,omitempty"`
 }
 
-// RejectNoticeConfig bounds refusal replies. The global rate is kept well
-// below the hub's per-sender budget (20/s), so refusals cannot use up this
-// node's ability to send results.
-type RejectNoticeConfig struct {
-	PerPeerPerHour int `json:"per_peer_per_hour"`
-	GlobalPerMin   int `json:"global_per_min"`
-}
-
-// PendingQueueConfig bounds the approval queue.
-type PendingQueueConfig struct {
-	MaxTotal   int `json:"max_total"`
-	MaxPerPeer int `json:"max_per_peer"`
-	TTLHours   int `json:"ttl_hours"`
-}
-
-// Defaults of the inbound block.
+// The peer lists, in the data directory (ux §2.2: "固定为数据目录下的
+// peers.*"). One AID per line, '#' starts a comment.
 const (
-	defaultAllowFile     = "peers.allow"
-	defaultDenyFile      = "peers.deny"
-	defaultTrustFile     = "peers.trust"
-	defaultPendingTotal  = 200
-	defaultPendingPeer   = 3
-	defaultPendingTTLHrs = 72
-	// pendingFollowupsMax bounds the messages kept for one held delegation.
-	pendingFollowupsMax = 5
-
-	defaultCapPerCallerPerMin = 60
-	defaultCapPerCallerPerDay = 2000
-	defaultCapGlobalPerMin    = 1200
-	defaultCapMaxInflight     = 16
-	defaultCapMaxArgsBytes    = 4096
+	peersAllowFile = "peers.allow"
+	peersDenyFile  = "peers.deny"
+	peersTrustFile = "peers.trust"
 )
 
-// defaultInbound is the inbound block of a fresh install: closed, empty
-// lists, no public capability (SI-5).
+// The approval queue's bounds (ux §2.2, §2.6). They are a safety boundary,
+// not a preference: a full queue answers pending_full, and what the
+// operator does about it is clear the queue, not raise the bound.
+const (
+	pendingMaxTotal   = 200
+	pendingMaxPerPeer = 3
+	pendingTTL        = 72 * time.Hour
+	// pendingFollowupsMax bounds the messages kept for one held delegation.
+	pendingFollowupsMax = 5
+)
+
+// Defaults of a public capability's limits.
+const (
+	defaultCapPerCallerPerMin   = 60
+	defaultCapPerCallerPerDay   = 2000
+	defaultCapGlobalPerMin      = 1200
+	defaultCapMaxInflight       = 16
+	defaultCapPerCallerInflight = 1
+	defaultCapMaxArgsBytes      = 4096
+)
+
+// defaultInbound is the inbound block of a fresh install: closed, no public
+// capability (SI-5).
 func defaultInbound() InboundConfig {
 	c := InboundConfig{Policy: PolicyClosed, PublicCapabilities: []PublicCapability{}}
 	c.normalize()
@@ -133,36 +140,14 @@ func (c *InboundConfig) normalize() {
 	if c.Policy == "" {
 		c.Policy = PolicyClosed
 	}
-	if c.AllowFile == "" {
-		c.AllowFile = defaultAllowFile
-	}
-	if c.DenyFile == "" {
-		c.DenyFile = defaultDenyFile
-	}
-	if c.TrustFile == "" {
-		c.TrustFile = defaultTrustFile
-	}
 	if c.PublicCapabilities == nil {
 		c.PublicCapabilities = []PublicCapability{}
 	}
-	if c.RejectNotice.PerPeerPerHour <= 0 {
-		c.RejectNotice.PerPeerPerHour = noticePerPeerPerHour
-	}
-	if c.RejectNotice.GlobalPerMin <= 0 {
-		c.RejectNotice.GlobalPerMin = noticeGlobalPerMin
-	}
-	if c.Pending.MaxTotal <= 0 {
-		c.Pending.MaxTotal = defaultPendingTotal
-	}
-	if c.Pending.MaxPerPeer <= 0 {
-		c.Pending.MaxPerPeer = defaultPendingPeer
-	}
-	if c.Pending.TTLHours <= 0 {
-		c.Pending.TTLHours = defaultPendingTTLHrs
-	}
 }
 
-// limits returns p with zero fields replaced by the defaults.
+// limits returns p with zero fields replaced by the defaults. A
+// per_caller_inflight above max_inflight stops the daemon from starting
+// (checkPublicCapabilities); one that got past that is held to it here.
 func (p PublicCapability) limits() PublicCapability {
 	if p.PerCallerPerMin <= 0 {
 		p.PerCallerPerMin = defaultCapPerCallerPerMin
@@ -176,6 +161,10 @@ func (p PublicCapability) limits() PublicCapability {
 	if p.MaxInflight <= 0 {
 		p.MaxInflight = defaultCapMaxInflight
 	}
+	if p.PerCallerInflight <= 0 {
+		p.PerCallerInflight = defaultCapPerCallerInflight
+	}
+	p.PerCallerInflight = min(p.PerCallerInflight, p.MaxInflight)
 	if p.MaxArgsBytes <= 0 {
 		p.MaxArgsBytes = defaultCapMaxArgsBytes
 	}
@@ -195,7 +184,8 @@ func (c Config) inbound() InboundConfig {
 	return in
 }
 
-// publicCapability returns the public capability entry for capID.
+// publicCapability returns the public_capabilities entry for capID,
+// allow_only or not.
 func (c InboundConfig) publicCapability(capID string) (PublicCapability, bool) {
 	for _, p := range c.PublicCapabilities {
 		if p.ID == capID && capID != "" {
@@ -203,6 +193,36 @@ func (c InboundConfig) publicCapability(capID string) (PublicCapability, bool) {
 		}
 	}
 	return PublicCapability{}, false
+}
+
+// publicTo returns the entry for capID when it is public to a caller: any
+// caller, or for an allow_only capability one on the allow or trust list
+// (listed). To any other caller an allow_only capability is not public,
+// exactly as if it were not in the list (CUX-F12).
+func (c InboundConfig) publicTo(capID string, listed bool) (PublicCapability, bool) {
+	p, ok := c.publicCapability(capID)
+	if !ok || (p.AllowOnly && !listed) {
+		return PublicCapability{}, false
+	}
+	return p, true
+}
+
+// openToAll reports whether capID is public to every caller: in the list
+// and not allow_only. Only those are on a card the hub sees (CUX-F32).
+func (c InboundConfig) openToAll(capID string) bool {
+	_, ok := c.publicTo(capID, false)
+	return ok
+}
+
+// allowOnlyIDs are the allow_only capabilities, in the order of the list.
+func (c InboundConfig) allowOnlyIDs() []string {
+	var out []string
+	for _, p := range c.PublicCapabilities {
+		if p.AllowOnly && strings.TrimSpace(p.ID) != "" {
+			out = append(out, p.ID)
+		}
+	}
+	return out
 }
 
 // --- configuration validation (A2A-DESIGN §5.1) ---
@@ -250,6 +270,9 @@ func validatePolicy(c Config, untrustedBackend bool) error {
 			return err
 		}
 	}
+	if ref := checkPublicCapabilities(in); ref != nil {
+		return ref
+	}
 	if in.Policy != PolicyOpen {
 		return nil
 	}
@@ -258,6 +281,42 @@ func validatePolicy(c Config, untrustedBackend bool) error {
 			"accept_untrusted; change one of the two", ErrPolicyConflict)
 	}
 	return nil
+}
+
+// checkPublicCapabilities is the check of the public capabilities' own
+// settings (CUX §2.10): each capability is listed once, and
+// per_caller_inflight is from 1 to max_inflight, 1 when it is left out.
+// It stops the daemon from starting (configChecks) and refuses a
+// control-plane write (409), with config_invalid naming the entry.
+func checkPublicCapabilities(in InboundConfig) *a2ashape.Refusal {
+	seen := map[string]bool{}
+	for i, p := range in.PublicCapabilities {
+		// One entry a capability: two could say allow_only and not, and the
+		// cards and the admission would each believe another one.
+		id := strings.TrimSpace(p.ID)
+		if id != "" && seen[id] {
+			return configInvalid(fmt.Sprintf("inbound.public_capabilities[%d].id", i),
+				ruleText(fmt.Sprintf("能力 %s 已在前面列过，每个能力只写一项", id),
+					fmt.Sprintf("the capability %s is listed already; list each capability once", id)))
+		}
+		seen[id] = true
+		if p.PerCallerInflight == 0 {
+			continue
+		}
+		maxIn := p.limits().MaxInflight
+		if p.PerCallerInflight < 1 || p.PerCallerInflight > maxIn {
+			return configInvalid(fmt.Sprintf("inbound.public_capabilities[%d].per_caller_inflight", i),
+				ruleText(fmt.Sprintf("须是 1 到 %d 之间的整数（不超过 max_inflight）", maxIn),
+					fmt.Sprintf("it is a whole number from 1 to %d (no more than max_inflight)", maxIn)))
+		}
+	}
+	return nil
+}
+
+func init() {
+	configChecks = append(configChecks, func(c Config, _ map[string]any) *a2ashape.Refusal {
+		return checkPublicCapabilities(c.inbound())
+	})
 }
 
 // validate runs validatePolicy against this daemon's module declarations.
@@ -286,7 +345,7 @@ type peerLists struct {
 	skippedPaid sync.Map // interaction id -> struct{}
 }
 
-// peerFile resolves a configured list path against the data directory.
+// peerFile is a peer list's file in the data directory.
 func (d *Daemon) peerFile(name string) string {
 	if name == "" || filepath.IsAbs(name) {
 		return name
@@ -333,19 +392,18 @@ type peerSets struct {
 // treated as follows: deny as containing everyone (fail closed), allow and
 // trust as empty.
 func (d *Daemon) readPeers() peerSets {
-	in := d.config().inbound()
 	var ps peerSets
 	var err error
-	if ps.deny, err = readPeerFile(d.peerFile(in.DenyFile)); err != nil {
-		d.logOnce("peers-deny-read", "anet: cannot read %s (%v); refusing every peer until it can be read", in.DenyFile, err)
+	if ps.deny, err = readPeerFile(d.peerFile(peersDenyFile)); err != nil {
+		d.logOnce("peers-deny-read", "anet: cannot read %s (%v); refusing every peer until it can be read", peersDenyFile, err)
 		ps.deny = nil
 	}
-	if ps.allow, err = readPeerFile(d.peerFile(in.AllowFile)); err != nil {
-		d.logOnce("peers-allow-read", "anet: cannot read %s (%v); treating it as empty", in.AllowFile, err)
+	if ps.allow, err = readPeerFile(d.peerFile(peersAllowFile)); err != nil {
+		d.logOnce("peers-allow-read", "anet: cannot read %s (%v); treating it as empty", peersAllowFile, err)
 		ps.allow = map[string]bool{}
 	}
-	if ps.trust, err = readPeerFile(d.peerFile(in.TrustFile)); err != nil {
-		d.logOnce("peers-trust-read", "anet: cannot read %s (%v); treating it as empty", in.TrustFile, err)
+	if ps.trust, err = readPeerFile(d.peerFile(peersTrustFile)); err != nil {
+		d.logOnce("peers-trust-read", "anet: cannot read %s (%v); treating it as empty", peersTrustFile, err)
 		ps.trust = map[string]bool{}
 	}
 	return ps
@@ -366,7 +424,7 @@ func (ps peerSets) allowed(aid string) bool {
 // A2A backends.
 func (ps peerSets) trusted(aid string) bool { return !ps.denied(aid) && ps.trust[aid] }
 
-// --- the delegation decision (§5.2) ---
+// --- the delegation decision (§5.2, CUX-Q1a) ---
 
 // Actions of inboundDecision.
 const (
@@ -375,13 +433,14 @@ const (
 	actRefuse = "refuse"
 )
 
-// Refusal reasons carried as anet.reason. Admission refusals use the codes
-// of admit.
+// Refusal reasons carried as anet.reason. The policy's and the admission's
+// are the note codes a refusal is answered with (core §2.15.2, CUX-Q1).
 const (
 	reasonNotAccepting      = "not_accepting"
 	reasonDenied            = "denied"
 	reasonCapabilityNotPub  = "capability_not_public"
 	reasonPendingFull       = "pending_full"
+	reasonBadRequest        = "bad_request"
 	reasonPendingExpired    = "pending_expired"
 	reasonOperatorRejected  = "operator_rejected"
 	reasonSandboxUnavailble = "sandbox_unavailable"
@@ -399,68 +458,188 @@ type inboundDecision struct {
 	release func()
 }
 
-// decideDelegate applies §5.2 to a delegation from `from`. capID is the
-// capability id of a capability call (empty for a natural-language task).
-func (d *Daemon) decideDelegate(from, capID string, argsLen int) inboundDecision {
+func refuseWith(reason string, retryAfterMS int64) inboundDecision {
+	return inboundDecision{action: actRefuse, reason: reason, retryAfterMS: retryAfterMS}
+}
+
+// delegateForm is what step 9 reads of a delegation's TaskDoc.
+type delegateForm struct {
+	// capID is the capability called; empty for a natural-language task.
+	capID string
+	// argsLen is the size of the call's args as JSON.
+	argsLen int
+	// bad is a request whose form is refused, bad_request (CORE-K7,
+	// CUX-Q1a step 2): a capability call without its args, or with args
+	// that are not one JSON object, or with a top-level key that starts
+	// with "$" and is not one anet defines.
+	bad bool
+}
+
+// argsFilesKey is the one "$" key of a capability call's args that anet
+// defines (core §2.4.3): the files the call carries. Its admission is the
+// files' (CUX-F10, step 4).
+const argsFilesKey = "$files"
+
+// readDelegateForm reads td as step 9 does. The capability is the first
+// requirement of type capability, as capabilityCall finds it; its args
+// are the one args context, which every capability call carries.
+func readDelegateForm(td *tsir.TaskDoc) delegateForm {
+	var f delegateForm
+	if td == nil || len(td.Tasks) == 0 {
+		return f
+	}
+	t := td.Tasks[0]
+	for _, r := range t.Requires {
+		if r.Type == RequireTypeCapability && r.ID != "" {
+			f.capID = r.ID
+			break
+		}
+	}
+	if f.capID == "" {
+		return f
+	}
+	var raw *string
+	for _, c := range t.Contexts {
+		if c.Key != "args" {
+			continue
+		}
+		if raw != nil {
+			f.bad = true // two args: which one would run is a guess
+			return f
+		}
+		v := c.Value
+		raw = &v
+	}
+	var args map[string]any
+	if raw == nil || json.Unmarshal([]byte(*raw), &args) != nil || args == nil {
+		f.bad = true
+		return f
+	}
+	for k := range args {
+		if strings.HasPrefix(k, "$") && k != argsFilesKey {
+			f.bad = true
+			return f
+		}
+	}
+	if b, err := json.Marshal(args); err == nil {
+		f.argsLen = len(b)
+	}
+	return f
+}
+
+// decideDelegate applies §5.2 to a delegation from `from`, in the order of
+// CUX-Q1a; the first step that refuses decides, and a refusal takes no
+// quota.
+func (d *Daemon) decideDelegate(from string, f delegateForm) inboundDecision {
+	return d.decideDelegateAt(int64(d.nowMS()), from, f)
+}
+
+// decideDelegateAt is decideDelegate at a given time (unix ms):
+//
+//  1. the policy (decidePolicy);
+//  2. the request's form (bad_request);
+//  3. and 5–9 for a public capability call, its admission (admitAt).
+//
+// Step 4, the files a call carries, is the files' own (CUX-F10). A
+// natural-language task stops after step 2.
+func (d *Daemon) decideDelegateAt(now int64, from string, f delegateForm) inboundDecision {
 	in := d.config().inbound()
-	ps := d.readPeers()
+	dec, pc, public := decidePolicy(in, d.readPeers(), from, f.capID)
+	if dec.action == actRefuse {
+		return dec
+	}
+	if f.bad {
+		return refuseWith(reasonBadRequest, 0)
+	}
+	if !public {
+		return dec
+	}
+	release, refusal, retry := d.admitAt(now, from, pc, f.argsLen)
+	if refusal != "" {
+		return refuseWith(refusal, retry)
+	}
+	dec.release = release
+	return dec
+}
+
+// decidePolicy is step 1 (§5.2):
+//
+//	1 from ∈ deny                              refuse (closed: the same answer as row 6)
+//	2 capability call, public to from          admission, then trust=public_cap
+//	3 from ∈ allow ∪ trust                     trust=peer
+//	4 policy approve                           hold in the pending queue
+//	5 policy open                              capability call: refuse; otherwise trust=public
+//	6 otherwise                                refuse, not_accepting
+//
+// An allow_only capability is public only to a caller on the allow or
+// trust list; to any other it is a capability that is not in the list, and
+// what it is told is what a call of one this node does not have is told:
+// not_accepting under closed, capability_not_public under open, the queue
+// under approve (CUX-F12, CUX-Q2). public reports row 2, with the entry.
+func decidePolicy(in InboundConfig, ps peerSets, from, capID string) (dec inboundDecision, pc PublicCapability, public bool) {
 	// Row 1. Under closed a denied peer is told exactly what a stranger is
 	// told (the same note, at the same moment), so the deny list is not
 	// observable there. Under approve and open it is (§2 X2).
 	if ps.denied(from) {
 		if in.Policy == PolicyClosed {
-			return inboundDecision{action: actRefuse, reason: reasonNotAccepting}
+			return refuseWith(reasonNotAccepting, 0), pc, false
 		}
-		return inboundDecision{action: actRefuse, reason: reasonDenied}
+		return refuseWith(reasonDenied, 0), pc, false
 	}
+	listed := ps.allowed(from)
 	// Row 2.
 	if capID != "" {
-		if _, public := in.publicCapability(capID); public {
-			release, refusal, retry := d.admit(from, capID, argsLen)
-			if refusal != "" {
-				return inboundDecision{action: actRefuse, reason: refusal, retryAfterMS: retry}
-			}
-			return inboundDecision{action: actAccept, trust: interactions.TrustPublicCap, release: release}
+		if pc, public = in.publicTo(capID, listed); public {
+			return inboundDecision{action: actAccept, trust: interactions.TrustPublicCap}, pc, true
 		}
 	}
 	// Row 3.
-	if ps.allowed(from) {
-		return inboundDecision{action: actAccept, trust: interactions.TrustPeer}
+	if listed {
+		return inboundDecision{action: actAccept, trust: interactions.TrustPeer}, pc, false
 	}
 	switch in.Policy {
 	case PolicyApprove: // row 4
-		return inboundDecision{action: actHold}
+		return inboundDecision{action: actHold}, pc, false
 	case PolicyOpen: // row 5
 		if capID != "" {
-			return inboundDecision{action: actRefuse, reason: reasonCapabilityNotPub}
+			return refuseWith(reasonCapabilityNotPub, 0), pc, false
 		}
-		return inboundDecision{action: actAccept, trust: interactions.TrustPublic}
+		return inboundDecision{action: actAccept, trust: interactions.TrustPublic}, pc, false
 	}
-	return inboundDecision{action: actRefuse, reason: reasonNotAccepting} // row 6
+	return refuseWith(reasonNotAccepting, 0), pc, false // row 6
 }
 
-// --- kernel admission (§5.4) ---
+// --- kernel admission (§5.4, CUX-Q1a steps 3 and 5–9) ---
 
-// Admission refusal codes of a public capability call (§5.4).
+// Admission refusal codes of a public capability call: the note codes
+// they are answered with (CUX-Q1). busy is the capability's in-flight
+// bound and its global per-minute quota alike, so a caller is not told
+// that someone else is using it (review V9).
 const (
-	admitDenied        = "denied"
-	admitNotPublic     = "capability_not_public"
-	admitArgsTooLarge  = "args_too_large"
-	admitCallerMinute  = "quota_caller_per_min"
-	admitCallerDay     = "quota_caller_per_day"
-	admitGlobalMinute  = "quota_global_per_min"
-	admitInflightLimit = "max_inflight"
+	admitArgsTooLarge = "args_too_large"
+	admitBusy         = "busy"
+	admitCallerBusy   = "caller_busy"
+	admitCallerMinute = "quota_caller_per_min"
+	admitCallerDay    = "quota_caller_per_day"
 )
 
-// admission holds the counters behind admit. Windows are fixed (the current
-// minute, the current day), which is coarse and cheap: a caller can make at
-// most twice the per-minute quota across a window boundary.
+// admitBusyWaitMS is how long a call refused for a slot (busy for the
+// in-flight bound, caller_busy) is told to wait: 5 seconds (CUX-Q1).
+const admitBusyWaitMS = 5_000
+
+// admission holds the counters behind admitAt. Windows are fixed (the
+// current minute, the current day), which is coarse and cheap: a caller can
+// make at most twice the per-minute quota across a window boundary.
 type admission struct {
 	mu       sync.Mutex
 	callers  map[string]*callerCount // key: capID + "\x00" + caller
 	order    []string
 	global   map[string]*window // key: capID
 	inflight map[string]int     // key: capID
+	// callerInflight is the calls of one caller running on a capability
+	// (CUX-F11), key capID + "\x00" + caller. An entry goes when its count
+	// is back to 0, so the map holds no more than the calls running.
+	callerInflight map[string]int
 }
 
 type window struct {
@@ -495,26 +674,18 @@ func (w *window) retryAfter(now, size int64) int64 {
 	return 0
 }
 
-// admit is the kernel's admission check for a public capability call
-// (A2A-DESIGN §5.4): the deny list (read now), membership of
-// public_capabilities, the argument size, the per-caller and global quotas
-// and the in-flight bound. On success it returns a release function that
-// must be called once when the invocation ends; on refusal it returns the
-// refusal code and, for a quota, how long until it may succeed.
-func (d *Daemon) admit(caller, capID string, argsLen int) (release func(), refusal string, retryAfterMS int64) {
-	return d.admitAt(int64(d.nowMS()), caller, capID, argsLen)
-}
-
-// admitAt is admit at a given time (unix ms).
-func (d *Daemon) admitAt(now int64, caller, capID string, argsLen int) (release func(), refusal string, retryAfterMS int64) {
-	in := d.config().inbound()
-	if d.readPeers().denied(caller) {
-		return nil, admitDenied, 0
-	}
-	pc, ok := in.publicCapability(capID)
-	if !ok {
-		return nil, admitNotPublic, 0
-	}
+// admitAt is the kernel's admission check of a call of pc, a capability
+// public to caller (A2A-DESIGN §5.4), at now (unix ms), in the order of
+// CUX-Q1a: the argument size (3), the capability's in-flight bound (5),
+// the caller's (6), the caller's per-minute (7) and per-day (8) quotas and
+// the capability's global per-minute quota (9). Every limit is checked
+// before any is taken from, so a refused call takes nothing. On success it
+// returns a release function that must be called once when the invocation
+// ends, freeing both in-flight slots; on refusal, the code and how long
+// until the call may be admitted.
+func (d *Daemon) admitAt(now int64, caller string, pc PublicCapability, argsLen int) (release func(), refusal string, retryAfterMS int64) {
+	pc = pc.limits()
+	capID := pc.ID
 	if argsLen > pc.MaxArgsBytes {
 		return nil, admitArgsTooLarge, 0
 	}
@@ -525,27 +696,26 @@ func (d *Daemon) admitAt(now int64, caller, capID string, argsLen int) (release 
 	if a.callers == nil {
 		a.callers, a.global, a.inflight = map[string]*callerCount{}, map[string]*window{}, map[string]int{}
 	}
-	if a.inflight[capID] >= pc.MaxInflight {
-		return nil, admitInflightLimit, 1000
+	if a.callerInflight == nil {
+		a.callerInflight = map[string]int{}
 	}
 	key := capID + "\x00" + caller
+	if a.inflight[capID] >= pc.MaxInflight {
+		return nil, admitBusy, admitBusyWaitMS
+	}
+	if a.callerInflight[key] >= pc.PerCallerInflight {
+		return nil, admitCallerBusy, admitBusyWaitMS
+	}
 	cc := a.callers[key]
+	var fresh callerCount
 	if cc == nil {
-		cc = &callerCount{}
-		a.callers[key] = cc
-		a.order = append(a.order, key)
-		if len(a.order) > admissionCallerLimit {
-			delete(a.callers, a.order[0])
-			a.order = a.order[1:]
-		}
+		cc = &fresh
 	}
 	g := a.global[capID]
+	var freshG window
 	if g == nil {
-		g = &window{}
-		a.global[capID] = g
+		g = &freshG
 	}
-	// Check every limit before taking from any, so a refused call does not
-	// consume quota.
 	probe := func(w window, size int64, limit int) bool { return w.take(now, size, limit) }
 	switch {
 	case !probe(cc.minute, minute, pc.PerCallerPerMin):
@@ -553,18 +723,36 @@ func (d *Daemon) admitAt(now int64, caller, capID string, argsLen int) (release 
 	case !probe(cc.day, day, pc.PerCallerPerDay):
 		return nil, admitCallerDay, cc.day.retryAfter(now, day)
 	case !probe(*g, minute, pc.GlobalPerMin):
-		return nil, admitGlobalMinute, g.retryAfter(now, minute)
+		return nil, admitBusy, g.retryAfter(now, minute)
+	}
+	// Admitted: only now is anything recorded.
+	if a.callers[key] == nil {
+		a.callers[key] = cc
+		a.order = append(a.order, key)
+		if len(a.order) > admissionCallerLimit {
+			delete(a.callers, a.order[0])
+			a.order = a.order[1:]
+		}
+	}
+	if a.global[capID] == nil {
+		a.global[capID] = g
 	}
 	cc.minute.take(now, minute, pc.PerCallerPerMin)
 	cc.day.take(now, day, pc.PerCallerPerDay)
 	g.take(now, minute, pc.GlobalPerMin)
 	a.inflight[capID]++
+	a.callerInflight[key]++
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			a.mu.Lock()
-			a.inflight[capID]--
-			a.mu.Unlock()
+			defer a.mu.Unlock()
+			if a.inflight[capID]--; a.inflight[capID] <= 0 {
+				delete(a.inflight, capID)
+			}
+			if a.callerInflight[key]--; a.callerInflight[key] <= 0 {
+				delete(a.callerInflight, key)
+			}
 		})
 	}, "", 0
 }
@@ -735,9 +923,6 @@ func (d *Daemon) logRefused(entry map[string]any) {
 // reports them.
 type InboundState struct {
 	Policy             string             `json:"policy"`
-	AllowFile          string             `json:"allow_file"`
-	DenyFile           string             `json:"deny_file"`
-	TrustFile          string             `json:"trust_file"`
 	Allow              []string           `json:"allow"`
 	Deny               []string           `json:"deny"`
 	Trust              []string           `json:"trust"`
@@ -761,7 +946,7 @@ func (d *Daemon) InboundStatus() InboundState {
 	cfg := d.config()
 	in := cfg.inbound()
 	ps := d.readPeers()
-	st := InboundState{Policy: in.Policy, AllowFile: in.AllowFile, DenyFile: in.DenyFile, TrustFile: in.TrustFile,
+	st := InboundState{Policy: in.Policy,
 		Allow: sortedKeys(ps.allow), Deny: sortedKeys(ps.deny), Trust: sortedKeys(ps.trust),
 		PublicCapabilities: in.PublicCapabilities, UntrustedAutoReply: UntrustedOff}
 	if cfg.AutoReply != nil {
@@ -858,15 +1043,14 @@ func (d *Daemon) editPeerFile(list, aid string, add bool) (changed bool, err err
 	if !validAIDSyntax(aid) {
 		return false, fmt.Errorf("anet: %q is not an AID", aid)
 	}
-	in := d.config().inbound()
 	var name string
 	switch list {
 	case ListAllow:
-		name = in.AllowFile
+		name = peersAllowFile
 	case ListDeny:
-		name = in.DenyFile
+		name = peersDenyFile
 	case ListTrust:
-		name = in.TrustFile
+		name = peersTrustFile
 	case ListPayees:
 		// The spending policy's payee list (payees.go), kept like these.
 		if name = d.config().Payments.limits().PayeesFile; name == "" {

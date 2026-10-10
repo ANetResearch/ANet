@@ -41,12 +41,12 @@ func TestCommitRxRunsTheBusinessWriteOncePerMessage(t *testing.T) {
 }
 
 // SI-5, fail closed: an inbound block that names no policy is closed. A
-// hand-written block that sets only a list file (or a policy key lost in an
-// edit) must not open the node. Mutation si5-2 (normalize filling "open")
+// hand-written block that sets only the public capabilities (or a policy
+// key lost in an edit) must not open the node. Mutation si5-2 (normalize filling "open")
 // passed every fresh-install test, because those configs state the policy.
 func TestAnInboundBlockWithoutAPolicyIsClosed(t *testing.T) {
 	l := NewLayout(t.TempDir())
-	raw := `{"control_addr":"127.0.0.1:0","inbound":{"allow_file":"peers.allow"}}`
+	raw := `{"control_addr":"127.0.0.1:0","inbound":{"public_capabilities":[]}}`
 	if err := os.WriteFile(l.ConfigPath(), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}

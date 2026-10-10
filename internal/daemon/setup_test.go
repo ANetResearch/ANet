@@ -108,7 +108,7 @@ func TestInitOnlyAddsMissingKeys(t *testing.T) {
   "control_addr": "127.0.0.1:40001",
   "hub_url": "http://hub.example",
   "accept_delegations": true,
-  "inbound": {"policy": "open", "allow_file": "my.allow"},
+  "inbound": {"policy": "open"},
   "payments": {"auto_max": 7},
   "auto_reply": {"backend": "openai", "api_base": "http://127.0.0.1:1", "model": "m"},
   "future_key": {"x": 1}
@@ -116,7 +116,7 @@ func TestInitOnlyAddsMissingKeys(t *testing.T) {
 	if err := os.WriteFile(l.ConfigPath(), []byte(orig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "my.allow"), []byte(aid+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, peersAllowFile), []byte(aid+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	rep, err := InitLayout(l)
@@ -132,8 +132,6 @@ func TestInitOnlyAddsMissingKeys(t *testing.T) {
 		"control_addr":          {cfg["control_addr"], "127.0.0.1:40001"},
 		"hub_url":               {cfg["hub_url"], "http://hub.example"},
 		"inbound.policy":        {in["policy"], PolicyOpen},
-		"inbound.allow_file":    {in["allow_file"], "my.allow"},
-		"inbound.deny_file":     {in["deny_file"], defaultDenyFile},
 		"payments.auto_max":     {pay["auto_max"], json.Number("7")},
 		"payments.agent_max":    {pay["agent_max"], json.Number("0")},
 		"payments.explicit_max": {pay["explicit_max"], json.Number("10")},
@@ -152,7 +150,12 @@ func TestInitOnlyAddsMissingKeys(t *testing.T) {
 	if fk, ok := cfg["future_key"].(map[string]any); !ok || fk["x"] != json.Number("1") {
 		t.Errorf("unknown key lost: %#v", cfg["future_key"])
 	}
-	if b, _ := os.ReadFile(filepath.Join(root, "my.allow")); string(b) != aid+"\n" {
+	for _, k := range []string{"allow_file", "deny_file", "trust_file", "reject_notice", "pending"} {
+		if _, ok := in[k]; ok {
+			t.Errorf("init wrote inbound.%s, a key 0.3.0 refuses (ux §2.3)", k)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, peersAllowFile)); string(b) != aid+"\n" {
 		t.Errorf("allow list changed: %q", b)
 	}
 	if fi, _ := os.Stat(l.ConfigPath()); fi.Mode().Perm() != 0o600 {
@@ -173,7 +176,7 @@ func TestInitOnlyAddsMissingKeys(t *testing.T) {
 			added[c.Key] = true
 		}
 	}
-	for _, k := range []string{"inbound.deny_file", "inbound.public_capabilities", "payments.explicit_max",
+	for _, k := range []string{"inbound.public_capabilities", "payments.explicit_max",
 		"auto_reply.untrusted", "accept_delegations"} {
 		if !added[k] {
 			t.Errorf("change %s not reported: %+v", k, rep.Changes)

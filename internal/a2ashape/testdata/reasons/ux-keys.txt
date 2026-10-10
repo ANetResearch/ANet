@@ -364,6 +364,7 @@ payments.reviews_pending
 payments.reviews_stuck
 payments.card_failed
 payments.price_invalid
+payments.card_no_public
 autoreply.off
 sandbox.proxy_env
 sandbox.worst_case

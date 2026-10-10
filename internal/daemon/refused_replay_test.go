@@ -293,10 +293,8 @@ func TestARefusalIsStoredBeforeTheRequesterIsTold(t *testing.T) {
 
 	// pending_full, refused in step 10.
 	setPolicy(t, prov, PolicyApprove)
-	prov.mu.Lock()
-	prov.cfg.Inbound.Pending.MaxPerPeer = 1
-	prov.mu.Unlock()
 	q := newStranger(t)
+	holdFor(t, prov, q, "ix_before", pendingMaxPerPeer-1) // the one below fills the queue
 	held := "ix_refused_store_held"
 	if r := receive(t, prov, craft(t, q, prov, seal.TypeDelegate, held, delegateBody(t, q.ctrl, held, "one", ""), nil)); r.class != rxAccepted {
 		t.Fatalf("first held: %+v", r)
