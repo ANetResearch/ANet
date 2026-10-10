@@ -963,6 +963,9 @@ var labels = map[string]phrasePair{
 	"find.skills":     {"能力", "skills"},
 	"find.aid":        {"AID", "AID"},
 	"find.unverified": {"（未验证）", "(not verified)"},
+	// The key column (KEL M-3): key_state fresh or stale.
+	"find.key_fresh": {"已确认", "confirmed"},
+	"find.key_stale": {"暂未确认", "not confirmed yet"},
 
 	// sealed-sender §5.2: the columns of `anet peers list`; the last says
 	// whether this node's messages to the peer carry its identity.
