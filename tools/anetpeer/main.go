@@ -383,7 +383,11 @@ func startOpts(o options) (*peer, error) {
 		return nil, fmt.Errorf("daemon wire: %w", err)
 	}
 	p.peerLn, p.daemonLn = pl, dl
-	go p.servePeers(pl)
+	p.inbound.Add(1)
+	go func() {
+		defer p.inbound.Done()
+		p.servePeers(pl)
+	}()
 	go func() {
 		for {
 			c, err := dl.Accept()
@@ -583,6 +587,10 @@ type peer struct {
 	// (core CORE-K13a). Both are said in the log with each refusal.
 	refusedAddrs atomic.Uint64
 	badFrames    atomic.Uint64
+	// inbound counts the peer listener's accept loop and the connections
+	// it is serving; stop does not wait for them (each ends within
+	// handOffTimeout + replyMargin), tests that change those do.
+	inbound sync.WaitGroup
 	// admitMu guards refusedLog and credOf. It is not mu: admitDaemon runs
 	// on the accept loop, which must not wait while a hand-off holds mu.
 	admitMu sync.Mutex
@@ -853,7 +861,11 @@ func (p *peer) servePeers(l net.Listener) {
 		if err != nil {
 			return
 		}
-		go p.servePeer(c)
+		p.inbound.Add(1)
+		go func() {
+			defer p.inbound.Done()
+			p.servePeer(c)
+		}()
 	}
 }
 

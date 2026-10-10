@@ -28,12 +28,12 @@ func TestTeeKeepsExactlyWhatWasDelivered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(alice.stop)
+	t.Cleanup(alice.stopAndWait)
 	bob, err := start(filepath.Join(dir, "b.sock"), filepath.Join(dir, "b.wire"), rv, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(bob.stop)
+	t.Cleanup(bob.stopAndWait)
 
 	// The frame carries base64url; the copy holds the standard base64 that
 	// anetfixture --envelope reads. Bytes whose two spellings differ.

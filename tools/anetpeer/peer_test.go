@@ -148,7 +148,7 @@ func newNodeAt(t *testing.T, dir, rendezvous, name, peerAddr string, box *mailbo
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(p.stop)
+	t.Cleanup(p.stopAndWait)
 
 	h := &host{aid: "aid-" + name, in: box}
 	mods, err := module.Build(map[string][]byte{

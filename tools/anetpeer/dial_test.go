@@ -373,7 +373,7 @@ func TestAPeerConnectionIsBoundedInTimeAndSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(p.stop)
+	t.Cleanup(p.stopAndWait)
 
 	silent, err := net.Dial("unix", filepath.Join(dir, "a.wire"))
 	if err != nil {
@@ -389,6 +389,14 @@ func TestAPeerConnectionIsBoundedInTimeAndSize(t *testing.T) {
 		t.Fatalf("a silent connection was held %s", d)
 	}
 
+}
+
+// stopAndWait stops p and waits for the peer connections it was serving,
+// so that a test which changed handOffTimeout or replyMargin puts them back
+// only after the last read of them.
+func (p *peer) stopAndWait() {
+	p.stop()
+	p.inbound.Wait()
 }
 
 // A line is read up to its bound and no further: one without end fails once
