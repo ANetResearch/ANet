@@ -90,6 +90,10 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 		Capability: capID, RequestCID: requestCID, Bytes: int64(len(m.body)),
 		Delegate: delegateBytes, KEL: kelBytes, Keys: keys, ContextID: m.dr.ContextID, Attachments: atts,
 		MsgID: wireMsgID("", m.mid),
+		// The rk it carried waits with it: an approval records it on the
+		// task (FS-R4). No key of this node's is made for a held task: one
+		// is made only if it is approved (FS-X2).
+		PeerRK: m.rk,
 	}
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
 		if err := tx.PutPending(item, pendingMaxTotal, pendingMaxPerPeer); err != nil {
@@ -191,6 +195,14 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 	}
 	capID, _, isCap := capabilityCall(td)
 	goal := delegation.TaskGoal(td)
+	// E_p, stored with the task the approval makes (FS-X2); the rk the held
+	// delegation carried becomes the task's peer_rk in the same transaction
+	// (FS-R4).
+	ep, err := newOwnIXKey(ixID, item.FromAID)
+	if err != nil {
+		return nil, err
+	}
+	defer wipeIXKey(ep)
 	var goalSeq int64
 	var held []heldMessage
 	err = d.ix.Update(func(tx *interactions.Tx) error {
@@ -210,7 +222,11 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 		}
 		if err := tx.Create(interactions.New{ID: ixID, Role: interactions.RoleInbound, PeerAID: item.FromAID,
 			Goal: goal, RequestCID: requestCID, RequestDoc: tdBytes, ContextID: item.ContextID,
-			Trust: interactions.TrustApproved, IsCapability: isCap, TaskNonce: taskNonce(td)}); err != nil {
+			Trust: interactions.TrustApproved, IsCapability: isCap, TaskNonce: taskNonce(td),
+			PeerRK: item.PeerRK}); err != nil {
+			return err
+		}
+		if err := putOwnIXKeyTx(tx, ep); err != nil {
 			return err
 		}
 		// Under the delegation's envelope id and with the requester's

@@ -276,4 +276,5 @@ func TestEveryReceiveReasonHasATokenRule(t *testing.T) {
 var sealReasons = map[string]string{
 	"ReasonBadKEL": seal.ReasonBadKEL, "ReasonFromMismatch": seal.ReasonFromMismatch,
 	"ReasonKELFromFuture": seal.ReasonKELFromFuture, "ReasonBadInner": seal.ReasonBadInner,
+	"ReasonBadRK": seal.ReasonBadRK,
 }

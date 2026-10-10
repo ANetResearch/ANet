@@ -25,6 +25,11 @@
 # lock (FS-K5a), the check of the hub's set (FS-B2: a set this identity signed that this ring did not), the
 # restart and retry of a rollback cut short (FS-B3) and the registration's answer to a check it could not
 # make to their tests (see the group at the end).
+# FS-7 adds 11, 14, 15 and 24 (rows 11, 14 and 15 judged at the daemon; fs6-c, fs6-d and fs6-e stay their
+# storage halves) and fs7-a to fs7-s, which hold the daemon's wiring of the interaction keys to its tests: the
+# keys made with the task (E_r, E_p, the approval), the lookup of receive step 3a and its wipe, the rk compared
+# at step 9 and recorded and checked again at step 10, the duplicate under another rk, the terminal paths that
+# settle the key, and the late result's single Cause (see the group at the end).
 # FS-9 adds 18, 32, 33, 34, 35 and the production half of 16 (fs-16d: no checkpoint in the maintenance
 # period), moves 19 to the retention decision (the gate is contentDeletable's since FS-9), and adds fs9-a
 # to fs9-r, which hold the retention sweep, the held items' expiry, the work directories' removal, the
@@ -37,6 +42,8 @@ FS9_RET = 'internal/runtime/interactions/retention.go'
 FS9_CMD = 'cmd/anet/retention.go'
 FS9_EXEC = 'internal/daemon/autoreply_exec.go'
 FS10_RB = 'internal/daemon/rollback.go'
+FS7_RX = 'internal/daemon/receive.go'
+FS7_SEAMS = 'internal/daemon/rx_seams.go'
 
 MUT34_NOTTY = '''package main
 
@@ -766,4 +773,93 @@ MUTS += [
  dict(id='fs10-l', group='FS-B3', repo='ANet', desc='同一 stored_seq 的 keys_rollback 再到时写新标记(一次回退被算成两次)',
   edits=[(FS10_RB, '\tif mark != nil && mark.StoredSeq == storedSeq {', '\tif false && mark != nil && mark.StoredSeq == storedSeq {')],
   tests=[(FS4_D, '^TestRollbackStepsIdempotent$')], full=[FS4_D]),
+ # FS-7: the interaction keys wired into the daemon (FS §4.5, FS-R1–R5, FS-X1–X8).
+ dict(id='fs-11', group='FS-R4', repo='ANet', desc='接受 rk 变更(第 9 步不比较,第 10 步的复核也放过)',
+  edits=[(FS7_RX, '\tif interactions.RKConflict(recorded, m.rk) {\n', '\tif false && interactions.RKConflict(recorded, m.rk) {\n'),
+         (FS7_RX, '\tcase errors.Is(err, interactions.ErrRKMismatch):\n\t\treturn rxPermanent(dropRKMismatch, err)\n',
+          '\tcase errors.Is(err, interactions.ErrRKMismatch):\n\t\treturn nil\n')],
+  tests=[(FS4_D, '^TestRKMismatchRefusedBeforeWrites$')], full=[FS4_D]),
+ dict(id='fs-14', group='FS-X7', repo='ANet', desc='终态路径传 CauseNotTerminal(提供方完成文本任务)',
+  edits=[('internal/daemon/delegation.go',
+          'Receipt: receiptBytes, Verified: interactions.VerificationVerified, Meta: meta},\n\t\t\tinteractions.CauseProviderEnd)\n',
+          'Receipt: receiptBytes, Verified: interactions.VerificationVerified, Meta: meta},\n\t\t\tinteractions.CauseNotTerminal)\n')],
+  tests=[(FS4_D, '^TestEveryTerminalPathSettlesIXKey$')], full=[FS4_D]),
+ dict(id='fs-15', group='FS-X7', repo='ANet', desc='请求方本地取消即删 E_r(取消按"从未交出"处置)',
+  edits=[('internal/daemon/delegation.go', '\t\t\tcause := interactions.CauseLocalEnded\n', '\t\t\tcause := interactions.CauseNeverSent\n')],
+  tests=[(FS4_D, '^(TestLateResultAfterCancelIsStored|TestEveryTerminalPathSettlesIXKey)$')], full=[FS4_D]),
+ dict(id='fs-24', group='FS-X6', repo='ANet', desc='预览帧走单层(一次性信封不封第二层)',
+  edits=[('internal/daemon/oneshot.go', 'seal.SealOpts{PeerRK: ixk.peer, Exp: exp}', 'seal.SealOpts{Exp: exp}')],
+  tests=[(FS4_D, '^TestPreviewIsDoubleLayered$')], full=[FS4_D]),
+ dict(id='fs7-a', group='FS-R4', repo='ANet', desc='第 9 步不比较 rk(只靠第 10 步事务内的复核,拒绝晚于第 9 步)',
+  edits=[(FS7_RX, '\tif interactions.RKConflict(recorded, m.rk) {\n', '\tif false && interactions.RKConflict(recorded, m.rk) {\n')],
+  tests=[(FS4_D, '^TestRKMismatchRefusedBeforeWrites$')], full=[FS4_D]),
+ dict(id='fs7-b', group='FS-R4', repo='ANet', desc='第 10 步事务内复核不同的 rk 时放过(并发竞争下收下另一把 rk 的消息)',
+  edits=[(FS7_RX, '\tcase errors.Is(err, interactions.ErrRKMismatch):\n\t\treturn rxPermanent(dropRKMismatch, err)\n',
+          '\tcase errors.Is(err, interactions.ErrRKMismatch):\n\t\treturn nil\n')],
+  tests=[(FS4_D, '^TestRKRecheckedInTheReceiveTransaction$')], full=[FS4_D]),
+ dict(id='fs7-c', group='FS-R4', repo='ANet', desc='第 10 步不记录 peer_rk(请求方永远单层)',
+  edits=[(FS7_RX, '\t\tif err := recordPeerRKTx(tx, m); err != nil {\n\t\t\treturn err\n\t\t}\n', '')],
+  tests=[(FS4_D, '^(TestLayerFollowsPeerRK|TestEveryVersionCarriesRKWhileHeld|TestRKMismatchRefusedBeforeWrites)$')], full=[FS4_D]),
+ dict(id='fs7-d', group='FS-R5', repo='ANet', desc='重放表命中的委派副本不比较 rk(另一把 rk 的副本仍催发答复)',
+  edits=[(FS7_RX, '\tif interactions.RKConflict(ix.PeerRK, m.rk) {\n\t\t// A copy of what was taken',
+          '\tif false && interactions.RKConflict(ix.PeerRK, m.rk) {\n\t\t// A copy of what was taken')],
+  tests=[(FS4_D, '^TestDuplicateWithOtherRKGetsTok1NoSideEffect$')], full=[FS4_D]),
+ dict(id='fs7-e', group='FS-R1', repo='ANet', desc='第 3a 步不查交互钥(ixKeys 退回桩:第二层一律不开)',
+  edits=[(FS7_SEAMS, '\treturn &storeIXKeys{s: d.ix}\n', '\treturn nil\n')],
+  tests=[(FS4_D, '^(TestLayerFollowsPeerRK|TestLateResultAfterCancelIsStored)$')], full=[FS4_D]),
+ dict(id='fs7-f', group='FS-R2', repo='ANet', desc='读交互钥出错按查无处理(暂时的存储错误变成 sealed-to-closed-interaction)',
+  edits=[(FS7_SEAMS, '\t\treturn nil, fmt.Errorf("anet: read the interaction key: %w", err)\n',
+          '\t\t_ = fmt.Sprint(err)\n\t\treturn nil, nil\n')],
+  tests=[(FS4_D, '^TestIXLookupErrorIsTransient$')], full=[FS4_D]),
+ dict(id='fs7-g', group='FS-X8', repo='ANet', desc='查出的交互私钥用后不清零',
+  edits=[(FS7_SEAMS, '\tif w, ok := l.(*storeIXKeys); ok {\n\t\tw.wipe()\n\t}\n', '\t_ = l\n')],
+  tests=[(FS4_D, '^(TestOpenedKeyIsWiped|TestReceiveWipesTheKeyItOpenedWith)$')], full=[FS4_D]),
+ dict(id='fs7-h', group='FS-X8', repo='ANet', desc='接收路径打开第二层后不清零所用私钥',
+  edits=[(FS7_RX, '\twipeLookup(lookup)\n', '')],
+  tests=[(FS4_D, '^TestReceiveWipesTheKeyItOpenedWith$')], full=[FS4_D]),
+ dict(id='fs7-i', group='FS-X1', repo='ANet', desc='文本委派不存 E_r(请求方不带 rk,对端无从封第二层)',
+  edits=[('internal/daemon/relay.go', '\t\tif err := putOwnIXKeyTx(tx, er); err != nil {\n\t\t\treturn err\n\t\t}\n', '')],
+  tests=[(FS4_D, '^(TestDelegateWritesERInSameTx|TestLayerFollowsPeerRK)$')], full=[FS4_D]),
+ dict(id='fs7-j', group='FS-X1', repo='ANet', desc='能力调用委派不存 E_r',
+  edits=[('internal/daemon/capability.go', '\t\tif err := putOwnIXKeyTx(tx, er); err != nil {\n\t\t\treturn err\n\t\t}\n', '')],
+  tests=[(FS4_D, '^TestDelegateWritesERInSameTx$')], full=[FS4_D]),
+ dict(id='fs7-k', group='FS-X2', repo='ANet', desc='提供方受理委派时不生成 E_p',
+  edits=[('internal/daemon/delegation.go', '\t\tif err := putOwnIXKeyTx(tx, ep); err != nil {\n\t\t\treturn err\n\t\t}\n', '')],
+  tests=[(FS4_D, '^(TestProviderKeyOnAcceptAndApprove|TestLayerFollowsPeerRK)$')], full=[FS4_D]),
+ dict(id='fs7-l', group='FS-X2', repo='ANet', desc='批准待批项时不生成 E_p',
+  edits=[('internal/daemon/pending.go', '\t\tif err := putOwnIXKeyTx(tx, ep); err != nil {\n\t\t\treturn err\n\t\t}\n', '')],
+  tests=[(FS4_D, '^(TestProviderKeyOnAcceptAndApprove|TestPendingRKCarriedOnApprove)$')], full=[FS4_D]),
+ dict(id='fs7-m', group='FS-R4', repo='ANet', desc='批准时不把 pending.peer_rk 复制到交互行',
+  edits=[('internal/daemon/pending.go', '\t\t\tPeerRK: item.PeerRK}); err != nil {', '\t\t\t}); err != nil {')],
+  tests=[(FS4_D, '^(TestProviderKeyOnAcceptAndApprove|TestPendingRKCarriedOnApprove)$')], full=[FS4_D]),
+ dict(id='fs7-n', group='FS-R4', repo='ANet', desc='待批的委派不保存它带的 rk',
+  edits=[('internal/daemon/pending.go', '\t\tPeerRK: m.rk,\n\t}\n', '\t}\n')],
+  tests=[(FS4_D, '^(TestProviderKeyOnAcceptAndApprove|TestPendingRKCarriedOnApprove)$')], full=[FS4_D]),
+ dict(id='fs7-o', group='FS-X7', repo='ANet', desc='本地已终态后对端的终态 status 不删 E_r(留到 close_after)',
+  edits=[('internal/daemon/delegation.go', '\t\t\tif interactions.State(sm.State).IsTerminal() {\n',
+          '\t\t\tif false && interactions.State(sm.State).IsTerminal() {\n')],
+  tests=[(FS4_D, '^TestEveryTerminalPathSettlesIXKey$')], full=[FS4_D]),
+ dict(id='fs7-p', group='FS-X7', repo='ANet', desc='本地已终态后对端无回执的 failed 结果不删 E_r',
+  edits=[('internal/daemon/delegation.go',
+          '\t\t\treturn d.commitRx(m, func(tx *interactions.Tx) error { return peerEndedTx(tx, m.ix) })\n',
+          '\t\t\treturn d.commitRx(m, nil)\n')],
+  tests=[(FS4_D, '^TestEveryTerminalPathSettlesIXKey$')], full=[FS4_D]),
+ dict(id='fs7-q', group='FS-X7', repo='ANet', desc='对端终态 status 以 CauseNotTerminal 写入(14 的另一调用点)',
+  edits=[('internal/daemon/delegation.go', 'tx.SetState(m.ix, st, interactions.CausePeerEnded.When(st))',
+          'tx.SetState(m.ix, st, interactions.CauseNotTerminal)')],
+  tests=[(FS4_D, '^TestEveryTerminalPathSettlesIXKey$')], full=[FS4_D]),
+ dict(id='fs7-r', group='FS-X7', repo='ANet', desc='no_response 以 CauseNotTerminal 写入(14 的另一调用点)',
+  edits=[('internal/daemon/no_response.go', 'Verified: interactions.VerificationUnknown, Meta: meta}, interactions.CauseLocalEnded)',
+          'Verified: interactions.VerificationUnknown, Meta: meta}, interactions.CauseNotTerminal)')],
+  tests=[(FS4_D, '^TestEveryTerminalPathSettlesIXKey$')], full=[FS4_D]),
+ dict(id='fs7-s', group='FS-X7', repo='ANet', desc='迟到结果收任何属于请求方的终态原因',
+  edits=[('internal/runtime/interactions/interactions.go', '\tif cause != CausePeerEnded {\n\t\treturn false, fmt.Errorf("%w: a late result',
+          '\tif false && cause != CausePeerEnded {\n\t\treturn false, fmt.Errorf("%w: a late result')],
+  tests=[(IX, '^TestLateResultTakesOnlyPeerEnded$')], full=[IX]),
+ dict(id='fs7-t', group='FS-R4', repo='ANet', desc='待批路径的消息不与待批项带的 rk 比较',
+  edits=[(FS7_RX, '\t\trecorded = held.PeerRK\n', '\t\trecorded = held.PeerRK[:0]\n')],
+  tests=[(FS4_D, '^TestRKComparedOnHeldAndPreviewRoutes$')], full=[FS4_D]),
+ dict(id='fs7-u', group='FS-R4', repo='ANet', desc='预览帧不比较 rk',
+  edits=[(FS7_RX, 'ix.PeerAID == m.from && interactions.RKConflict(ix.PeerRK, m.rk)', 'false')],
+  tests=[(FS4_D, '^TestRKComparedOnHeldAndPreviewRoutes$')], full=[FS4_D]),
 ]

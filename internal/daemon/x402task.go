@@ -179,7 +179,7 @@ func (d *Daemon) providerStatus(ctx context.Context, ixID, peer string, state in
 			return err
 		}
 		if move {
-			_, err = tx.SetState(ixID, state, interactions.CauseProviderEnd.When(state)) // v030-todo(FS-7): confirm the Cause
+			_, err = tx.SetState(ixID, state, interactions.CauseProviderEnd.When(state))
 		}
 		return err
 	})
@@ -1547,7 +1547,7 @@ func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.I
 		if seq, _, err = tx.AddMessageRecord(rec); err != nil {
 			return err
 		}
-		_, err = tx.SetState(ix.ID, state, interactions.CauseLocalEnded.When(state)) // v030-todo(FS-7): confirm the Cause
+		_, err = tx.SetState(ix.ID, state, interactions.CauseLocalEnded.When(state))
 		return err
 	})
 	if err != nil {

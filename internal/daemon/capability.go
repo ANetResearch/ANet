@@ -192,12 +192,21 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, cap
 	// Recorded and queued together, under the envelope's message id (0017
 	// Q5, Q9); see delegateInWithID.
 	mid, msgID := newWireMID()
+	// E_r, stored with the task in the transaction that queues it (FS-X1).
+	er, err := newOwnIXKey(id, providerAID)
+	if err != nil {
+		return "", err
+	}
+	defer wipeIXKey(er)
 	var seq int64
 	qid, err := d.queueSendAs(ctx, wireSend{to: providerAID, typ: seal.TypeDelegate, ix: id, body: payload, mid: mid,
 		pin: interactions.PinOutbound, strict: true}, func(tx *interactions.Tx) error {
 		if err := tx.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
 			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, IsCapability: true,
 			TaskNonce: nonce}); err != nil {
+			return err
+		}
+		if err := putOwnIXKeyTx(tx, er); err != nil {
 			return err
 		}
 		rec := interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
@@ -593,7 +602,7 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 		// nothing to take on trust.
 		if err := tx.Finish(interactionID, interactions.Finish{State: state, Result: deliverable,
 			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified,
-			Meta: metaBytes}, interactions.CauseProviderEnd.When(state)); err != nil { // v030-todo(FS-7): confirm the Cause
+			Meta: metaBytes}, interactions.CauseProviderEnd.When(state)); err != nil {
 			return err
 		}
 		var err error

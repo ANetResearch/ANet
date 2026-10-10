@@ -790,10 +790,11 @@ func sealResult(e execer, id string, result, meta []byte) (any, any, error) {
 // is not changed, and nothing is written when a receipt is already stored.
 // It reports whether it wrote.
 //
-// cause is the requester's CausePeerEnded: the provider has answered, so the
-// key a local end kept for this answer goes in the same transaction, whether
-// or not this copy of the result is the one stored. An interaction that is
-// not terminal is left alone, key and all.
+// cause is the requester's CausePeerEnded, and only that (any other is
+// ErrBadInput): the provider has answered, so the key a local end kept for
+// this answer goes in the same transaction, whether or not this copy of the
+// result is the one stored. An interaction that is not terminal is left
+// alone, key and all.
 func (s *Store) SetLateResult(id string, result []byte, resultCID string, receipt []byte, verified Verification, cause Cause) (wrote bool, err error) {
 	err = s.Update(func(t *Tx) error {
 		wrote, err = t.SetLateResult(id, result, resultCID, receipt, verified, cause)
@@ -807,6 +808,11 @@ func (s *Store) SetLateResult(id string, result []byte, resultCID string, receip
 func setLateResult(e execer, id string, result []byte, resultCID string, receipt []byte, verified Verification, cause Cause, nowMS int64) (bool, error) {
 	if id == "" {
 		return false, fmt.Errorf("%w: id required", ErrBadInput)
+	}
+	// A late result is the provider's answer and nothing else: the only end
+	// it can be is the peer's (FS §4.5.4 X7b).
+	if cause != CausePeerEnded {
+		return false, fmt.Errorf("%w: a late result is the peer's end of the task (CausePeerEnded), not %q", ErrBadInput, cause)
 	}
 	if err := checkCause(e, id, true, cause); err != nil {
 		return false, err

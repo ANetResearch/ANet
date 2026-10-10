@@ -134,11 +134,22 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 	// kept under the delegation's envelope id: the provider records its
 	// copy under the same id.
 	mid, msgID := newWireMID()
+	// E_r, made before the transaction and stored in it with the task, its
+	// first message and its outbox row; a transaction that fails leaves no
+	// key and no envelope (FS-X1, ENG-Q6).
+	er, err := newOwnIXKey(id, providerAID)
+	if err != nil {
+		return err
+	}
+	defer wipeIXKey(er)
 	var seq int64
 	qid, err := d.queueSendAs(ctx, wireSend{to: providerAID, typ: seal.TypeDelegate, ix: id, body: payload, mid: mid,
 		pin: interactions.PinOutbound, strict: true}, func(tx *interactions.Tx) error {
 		if err := tx.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: providerAID,
 			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, TaskNonce: nonce}); err != nil {
+			return err
+		}
+		if err := putOwnIXKeyTx(tx, er); err != nil {
 			return err
 		}
 		rec := interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),

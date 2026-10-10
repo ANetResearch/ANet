@@ -820,3 +820,40 @@ func TestDeletedKeyBytesAbsentFromDBFiles(t *testing.T) {
 		t.Fatalf("the deleted key's private bytes are still in %v", hits)
 	}
 }
+
+// A late result is the provider's answer: the store takes it under CausePeerEnded alone. A local end, a
+// delegation never sent or a close are not what a late result is, and writing one under them is
+// ErrBadInput — nothing stored, the key a local end kept left as it was (FS §4.5.4 X7b; FS-6 note §5).
+func TestLateResultTakesOnlyPeerEnded(t *testing.T) {
+	s := open(t)
+	now := int64(1_700_000_000_000)
+	s.SetClock(func() int64 { return now })
+	k := keyedTask(t, s, "ix_req", interactions.RoleOutbound)
+	if _, err := s.SetState("ix_req", interactions.StateCanceled, interactions.CauseLocalEnded); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []interactions.Cause{interactions.CauseLocalEnded, interactions.CauseNeverSent, interactions.CauseClosed} {
+		if _, err := s.SetLateResult("ix_req", []byte("r"), "cid", []byte("rc"), interactions.VerificationVerified, c); !errors.Is(err, interactions.ErrBadInput) {
+			t.Errorf("SetLateResult under %s = %v, want ErrBadInput", c, err)
+		}
+		err := s.Update(func(tx *interactions.Tx) error {
+			_, err := tx.SetLateResult("ix_req", []byte("r"), "cid", []byte("rc"), interactions.VerificationVerified, c)
+			return err
+		})
+		if !errors.Is(err, interactions.ErrBadInput) {
+			t.Errorf("Tx.SetLateResult under %s = %v, want ErrBadInput", c, err)
+		}
+		if ix, _ := s.Get("ix_req"); len(ix.Receipt) != 0 {
+			t.Fatalf("a late result under %s was stored", c)
+		}
+		if got := stored(t, s, k); got == nil || got.CloseAfter != now+int64(seal.MaxMessageLifetimeMS) {
+			t.Fatalf("a late result refused under %s changed the key kept for the answer: %+v", c, got)
+		}
+	}
+	if wrote, err := s.SetLateResult("ix_req", []byte("r"), "cid", []byte("rc"), interactions.VerificationVerified, interactions.CausePeerEnded); err != nil || !wrote {
+		t.Fatalf("SetLateResult under CausePeerEnded = %v, %v", wrote, err)
+	}
+	if stored(t, s, k) != nil {
+		t.Fatal("the provider's late answer left the requester's key")
+	}
+}

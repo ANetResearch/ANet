@@ -198,6 +198,11 @@ type rxMsg struct {
 	// keysUpdate is the attached key set when it passed step 8 and is newer
 	// than the stored one; noticeKeys is any verified set usable to reply.
 	keysUpdate, noticeKeys *peerKeySet
+	// rk is the interaction key the sender announces on the task (inner key
+	// 15) as the store records it, coredet(RK), or nil when it carries none
+	// (FS-R4): compared with the task's peer_rk at step 9, recorded at step
+	// 10 when the task has none yet.
+	rk []byte
 	// grant is the capability the message gives this node (inner key 14),
 	// checked at step 8 against the attached key set and kept by the
 	// step-10 transaction that commits the message, and by no other
@@ -309,8 +314,11 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		}
 	}
 
-	// Steps 2 to 4.
-	op, err := seal.Open(env, d.AID(), d.enc, d.ixKeys())
+	// Steps 2 to 4. The private half of an interaction key the second layer
+	// was opened with is wiped as soon as Open is done with it (FS-X8).
+	lookup := d.ixKeys()
+	op, err := seal.Open(env, d.AID(), d.enc, lookup)
+	wipeLookup(lookup)
 	var ack seal.AckKey
 	layer1 := false
 	if err == nil {
@@ -413,9 +421,13 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 		issued = nil
 	}
 
+	rk, err := rkBytes(in.RK)
+	if err != nil {
+		return d.drop(seal.ReasonBadRK, err).at(rxStep4)
+	}
 	m = &rxMsg{from: in.From, typ: in.Type, ix: in.IX, mid: in.MID, ts: in.TS, exp: in.Exp,
 		keySeq: in.KeyStateSeq, body: in.Body, arrival: arrival, kel: use, kelUpdate: update,
-		ackNow: path.ack, ackKey: ack, known: row != nil, direct: path.direct, oneShot: oneShot, cm: cm}
+		ackNow: path.ack, ackKey: ack, known: row != nil, direct: path.direct, oneShot: oneShot, cm: cm, rk: rk}
 
 	// Step 8: advisory. A key set that fails here does not affect the
 	// message; the authenticity of the message was decided in step 7. A
@@ -667,6 +679,13 @@ func (d *Daemon) duplicate(ctx context.Context, m *rxMsg) rxResult {
 		// this node took: nothing to hurry and nothing to run.
 		return dup
 	}
+	if interactions.RKConflict(ix.PeerRK, m.rk) {
+		// A copy of what was taken, under another rk than the task holds:
+		// answered as the copy it is, and nothing follows it (FS-R5,
+		// ENG-V18).
+		d.count(dropRKMismatch)
+		return dup
+	}
 	if !d.mayRedeliver(m, ix) {
 		d.count(redeliveryNotAuthorized)
 		return dup
@@ -903,17 +922,55 @@ func (d *Daemon) checkNotice(ctx context.Context, in *seal.SealedInner, kel []id
 // authorize is step 9: decide whether the sender may send this message for
 // this interaction. It writes nothing and sends nothing (ENG-V15).
 func (d *Daemon) authorize(m *rxMsg, now uint64) *rxResult {
+	var res *rxResult
 	switch m.typ {
 	case seal.TypeDelegate:
-		return d.authorizeDelegate(m, now)
+		res = d.authorizeDelegate(m, now)
 	case seal.TypeMessage:
-		return d.authorizeMessage(m)
+		res = d.authorizeMessage(m)
 	case seal.TypeStatus, seal.TypeResult:
-		return d.authorizeReply(m)
+		res = d.authorizeReply(m)
 	default:
 		r := d.drop(dropUnknownType, fmt.Errorf("type %q", m.typ))
 		return &r
 	}
+	if res != nil {
+		return res
+	}
+	return d.authorizeRK(m)
+}
+
+// authorizeRK is step 9's comparison of the rk a message carries with the
+// one its task holds from the peer (FS-R4): a different one is refused,
+// rk-mismatch, before anything is written; the peer announced one key for
+// the task and keeps it (there is no change of rk within a task, FS §4.5.5).
+// A message that carries none declares nothing, and a task with none yet
+// records the first at step 10. A message for a delegation held for
+// approval is compared with the rk the held delegation carried, which the
+// approval makes the task's.
+func (d *Daemon) authorizeRK(m *rxMsg) *rxResult {
+	var recorded []byte
+	switch {
+	case len(m.rk) == 0:
+		return nil
+	case m.existing != nil:
+		recorded = m.existing.PeerRK
+	case m.pendingRoute:
+		held, err := d.ix.GetPending(m.ix)
+		if errors.Is(err, interactions.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			r := d.transient(transientStore, err)
+			return &r
+		}
+		recorded = held.PeerRK
+	}
+	if interactions.RKConflict(recorded, m.rk) {
+		r := d.drop(dropRKMismatch, fmt.Errorf("%s: the rk is not the one the peer announced on the task", m.ix))
+		return &r
+	}
+	return nil
 }
 
 // lookupIX reads the interaction named by the message. A missing row is
@@ -1245,6 +1302,16 @@ func (d *Daemon) receiveOneShot(ctx context.Context, m *rxMsg, preview bool, key
 	in *seal.SealedInner, now uint64) rxResult {
 	switch {
 	case preview:
+		// A frame's rk is compared with the task's, and never recorded
+		// (FS-R4): a task with no rk of the peer's yet compares nothing.
+		ix, res := d.lookupIX(m.ix)
+		if res != nil {
+			return res.at(rxStep9)
+		}
+		if ix != nil && ix.PeerAID == m.from && interactions.RKConflict(ix.PeerRK, m.rk) {
+			return d.drop(dropRKMismatch, fmt.Errorf("%s: a preview frame under another rk", m.ix)).at(rxStep9)
+		}
+		m.existing = ix
 		if !d.previewArrived(m) {
 			return d.drop(previewRejected, nil).at(rxStep9)
 		}
@@ -1417,6 +1484,26 @@ func (d *Daemon) recordSenderTx(tx *interactions.Tx, m *rxMsg, ps peerSets) erro
 	return nil
 }
 
+// recordPeerRKTx records m's rk as the peer's for its task, in the step-10
+// transaction (engine §4.7 item 3, FS-R4), when the task has none yet. A
+// task the message does not reach — a delegation held for approval (the held
+// row keeps it), a cancel kept as a tombstone, a task deleted meanwhile —
+// records nothing. One that holds another rk is a permanent refusal,
+// rk-mismatch, and the transaction rolls back with every write it held.
+func recordPeerRKTx(tx *interactions.Tx, m *rxMsg) error {
+	if len(m.rk) == 0 || m.ix == "" || m.hold || m.pendingRoute || m.tombstone {
+		return nil
+	}
+	switch err := tx.RecordPeerRK(m.ix, m.rk); {
+	case err == nil, errors.Is(err, interactions.ErrNotFound):
+		return nil
+	case errors.Is(err, interactions.ErrRKMismatch):
+		return rxPermanent(dropRKMismatch, err)
+	default:
+		return err
+	}
+}
+
 // errReplayDuplicate aborts a transaction whose replay row already exists.
 var errReplayDuplicate = errors.New("replay row exists")
 
@@ -1459,6 +1546,13 @@ func (d *Daemon) commitRx(m *rxMsg, fn func(*interactions.Tx) error) rxResult {
 			if err := fn(tx); err != nil {
 				return err
 			}
+		}
+		// The peer's rk for the task, the first time it announces one; a
+		// different one than the task holds, which a copy racing this one
+		// recorded since step 9 read it, refuses the message (ENG §4.7
+		// item 3, FS-R4).
+		if err := recordPeerRKTx(tx, m); err != nil {
+			return err
 		}
 		// The grant goes with the message it came in (ENG §4.7 item 4).
 		if m.grant != nil {

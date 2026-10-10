@@ -434,17 +434,12 @@ func TestDLVT25_NeverHandedOver(t *testing.T) {
 	t.Run("a cancel withdraws it", func(t *testing.T) {
 		req, prov, id, clk := setup(t)
 		drive(req, clk, clk.now()+2*24*3600*1000)
-		// The task's interaction key: a delegation that never left takes
-		// it with it at once (engine ENG-X4, FS X7d).
-		k, err := seal.GenerateIXKey(seal.SuiteX25519, id, prov.AID())
-		if err != nil {
-			t.Fatal(err)
+		// The task's interaction key, made with it (FS-X1): a delegation
+		// that never left takes it with it at once (engine ENG-X4, FS X7d).
+		if rk, err := req.ix.OwnRK(id); err != nil || rk == nil {
+			t.Fatalf("setup: the task has no interaction key (%v)", err)
 		}
-		if err := req.ix.Update(func(tx *interactions.Tx) error {
-			return tx.PutIXKey(interactions.IXKey{IX: id, PeerAID: prov.AID(), Suite: k.Suite, Pub: k.Pub, Priv: k.Private})
-		}); err != nil {
-			t.Fatal(err)
-		}
+		_ = prov
 		if _, err := req.CancelTask(context.Background(), id); err != nil {
 			t.Fatal(err)
 		}
