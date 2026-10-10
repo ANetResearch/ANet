@@ -43,11 +43,6 @@ func readAID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return strings.TrimSpace(req.AID), true
 }
 
-// hPeersList reports the inbound policy and the three peer lists.
-func (d *Daemon) hPeersList(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, d.InboundStatus())
-}
-
 func (d *Daemon) hPeersAllow(w http.ResponseWriter, r *http.Request) { d.peersGrant(w, r, ListAllow) }
 func (d *Daemon) hPeersTrust(w http.ResponseWriter, r *http.Request) { d.peersGrant(w, r, ListTrust) }
 

@@ -479,6 +479,19 @@ func (s *Store) OldestUnpushedRevocation() (revokedAt uint64, ok bool, err error
 	return uint64(at.Int64), true, nil
 }
 
+// UnpushedRevocationsBefore counts the revocations the hub does not have
+// yet that were made at or before cut (doctor sender_privacy.grants: the
+// withdrawals that waited an hour or more).
+func (s *Store) UnpushedRevocationsBefore(cut uint64) (int, error) {
+	if err := checkInts(cut); err != nil {
+		return 0, err
+	}
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM caps_issued WHERE revoked_at IS NOT NULL AND revoke_pushed = 0 AND revoked_at <= ?`,
+		int64(cut)).Scan(&n)
+	return n, err
+}
+
 // MarkRevocationsPushed records that the hub took these revocations. A
 // cap_id that is not revoked here is left alone.
 func (s *Store) MarkRevocationsPushed(capIDs [][]byte) (int64, error) {
