@@ -469,7 +469,7 @@ func TestUnsupportedAgentsFailClosedInTheSandbox(t *testing.T) {
 	}
 }
 
-// openCodeArgsStub parses its arguments as opencode run does (yargs, with "--" populated): --model takes a
+// openCodeArgsStub parses its arguments as opencode run does (what follows "--" joins the message): --model takes a
 // value, any other argument starting with "-" before "--" is an option it does not know (an error), the
 // other words and everything after "--" are the message. It writes the message beside itself.
 const openCodeArgsStub = `#!/bin/sh
@@ -509,7 +509,7 @@ printf '%s' "$msg" > "$here/message"
 echo STUB-OK
 `
 
-// hermesArgparse is hermes's top-level parser as far as the one-shot run goes (hermes_cli: -z/--oneshot,
+// hermesArgparse is hermes's top-level parser as far as the one-shot run goes (-z/--oneshot,
 // -m/--model and the options around them), run on Python's own argparse: it prints the one-shot message
 // as JSON, or exits 2 as hermes does when its arguments do not parse.
 const hermesArgparse = `
