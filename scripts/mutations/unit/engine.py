@@ -559,7 +559,7 @@ MUTS += [
 			}
 			result = d.answerEnvelope(result, ack, oneShot)'''),
   ],
-  tests=[(D, 'TestSpotCopiesRacingAnAllowAreDecidedOnce')],
+  tests=[(D, 'TestARefusalSticksBeforeItsLocksAreReleased|TestSpotCopiesRacingAnAllowAreDecidedOnce')],
   full=[D],
  ),
  dict(

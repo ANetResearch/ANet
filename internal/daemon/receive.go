@@ -457,7 +457,12 @@ func (d *Daemon) receiveEnvelopeVia(ctx context.Context, env []byte, path rxPath
 	// delegation's duplicate goes to the redelivery path.
 	key := replayKey(m.from, m.mid)
 	unlock := d.rxLocks.lock(key)
-	defer unlock()
+	defer func() {
+		unlock()
+		if f := d.testRxUnlockHook(); f != nil {
+			f()
+		}
+	}()
 	if m.typ == seal.TypeDelegate && m.ix != "" {
 		// The same delegation sealed twice (two message ids) is one
 		// decision too: the second copy finds the interaction the first

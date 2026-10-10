@@ -102,6 +102,9 @@ type Daemon struct {
 	// through setRxFault (testhooks.go), atomic for the same reason as
 	// clock.
 	rxFault atomic.Pointer[func(typ string) error]
+	// rxUnlockHook, when set, is called each time the receive pipeline has
+	// released an envelope's locks. Tests only, through setRxUnlockHook.
+	rxUnlockHook atomic.Pointer[func()]
 	// ixLookup, when set, is the interaction key lookup receive step 3a
 	// uses (ixKeys). Tests only, through setIXLookup (testhooks.go).
 	ixLookup atomic.Pointer[seal.IXKeyLookup]

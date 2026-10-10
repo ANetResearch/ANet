@@ -72,6 +72,25 @@ func (d *Daemon) setRxFault(f func(typ string) error) {
 	d.rxFault.Store(&f)
 }
 
+// setRxUnlockHook makes the receive pipeline call f each time it has
+// released an envelope's (from, mid) and (from, ix) locks, before the
+// envelope is answered; nil removes it.
+func (d *Daemon) setRxUnlockHook(f func()) {
+	if f == nil {
+		d.rxUnlockHook.Store(nil)
+		return
+	}
+	d.rxUnlockHook.Store(&f)
+}
+
+// testRxUnlockHook is the unlock hook a test set, or nil.
+func (d *Daemon) testRxUnlockHook() func() {
+	if p := d.rxUnlockHook.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
 // setIXLookup makes receive step 3a open a second layer with l (ixKeys);
 // nil restores the daemon's own lookup.
 func (d *Daemon) setIXLookup(l seal.IXKeyLookup) {

@@ -1060,3 +1060,51 @@ func TestUnknownKeyDropsAreCountedForADay(t *testing.T) {
 		t.Fatalf("25 hours on: %d", n)
 	}
 }
+
+// Engine ENG-V12, [redteam:F5][redteam:F26]: a refusal sticks before the
+// envelope's locks are released. A copy of a refused delegation that takes
+// the locks the moment the first copy lets them go — after the node began
+// to accept its sender — finds the refusal and is not judged again, and
+// nothing runs (mutation eng1c-stick-under-lock; the racing version is
+// TestSpotCopiesRacingAnAllowAreDecidedOnce).
+func TestARefusalSticksBeforeItsLocksAreReleased(t *testing.T) {
+	prov := newTestDaemon(t, "", false) // closed
+	ctx := context.Background()
+	lamp := &countingLamp{}
+	if err := prov.Providers().Register(ctx, lamp); err != nil {
+		t.Fatal(err)
+	}
+	s := newStranger(t)
+	const ix = "ix_stick_under_lock"
+	env := craft(t, s, prov, seal.TypeDelegate, ix, delegateBody(t, s.ctrl, ix, "on", lampCap), nil)
+	var second rxResult
+	fired := false
+	prov.setRxUnlockHook(func() {
+		if fired {
+			return
+		}
+		fired = true
+		if _, err := prov.AllowPeer(ctx, s.aid, ListAllow); err != nil {
+			t.Error(err)
+		}
+		second = prov.receiveEnvelope(ctx, env)
+	})
+	first := prov.receiveEnvelope(ctx, env)
+	prov.setRxUnlockHook(nil)
+	if first.reason != dropNotAccepting {
+		t.Fatalf("the first copy: %+v, want %s", first, dropNotAccepting)
+	}
+	if !fired {
+		t.Fatal("the unlock hook did not run")
+	}
+	if second.class != rxDropped || second.reason != dropRefusedReplay {
+		t.Fatalf("the copy behind the locks: %+v, want %s (judged once)", second, dropRefusedReplay)
+	}
+	waitUntil(t, "no call running", func() bool {
+		_, running := prov.running.Load(ix)
+		return !running
+	})
+	if n := lamp.by(s.aid); n != 0 {
+		t.Fatalf("the refused delegation ran %d times", n)
+	}
+}
