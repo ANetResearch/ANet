@@ -685,8 +685,25 @@ func TestIssuedCapLifecycle(t *testing.T) {
 	if at, ok, err := s.OldestUnpushedRevocation(); err != nil || !ok || at != capsT0+10 {
 		t.Fatalf("oldest unpushed = %d %v %v", at, ok, err)
 	}
+	// How many waited since a cut, the cut included (doctor
+	// sender_privacy.grants, SS-12).
+	unpushedBefore := func(cut uint64, want int) {
+		t.Helper()
+		if n, err := s.UnpushedRevocationsBefore(cut); err != nil || n != want {
+			t.Fatalf("UnpushedRevocationsBefore(T0+%d) = %d %v, want %d", cut-capsT0, n, err, want)
+		}
+	}
+	unpushedBefore(capsT0+9, 0)
+	unpushedBefore(capsT0+10, 1)
+	unpushedBefore(capsT0+20, 3)
+	unpushedBefore(capsT0+30, 4)
 	if n, err := s.MarkRevocationsPushed([][]byte{capID(2), capID(1), capID(77)}); err != nil || n != 2 {
 		t.Fatalf("MarkRevocationsPushed: %d %v", n, err)
+	}
+	unpushedBefore(capsT0+20, 1)
+	unpushedBefore(capsT0+30, 2)
+	if _, err := s.UnpushedRevocationsBefore(1 << 63); !errors.Is(err, interactions.ErrBadInput) {
+		t.Fatalf("a cut past the store's integers: %v", err)
 	}
 	if q, _ := s.UnpushedRevocations(10); !reflect.DeepEqual(q, [][]byte{capID(3), capID(4)}) {
 		t.Fatalf("queue after a push = %x", q)

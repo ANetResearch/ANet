@@ -922,8 +922,10 @@ func C1Reason(c1 string) string {
 
 // Label is a short label in a language: the labels of the status summary
 // (ux §4.7), the human lines of a task command (UX-C2), `anet identity
-// status` (ux §1.4 M2) and the columns of `anet find` (ux §3.1 text B). Keys:
-// "status.<topic>", "task.<line>", "identity_status.<line>", "find.<column>".
+// status` (ux §1.4 M2), the columns of `anet find` (ux §3.1 text B) and of
+// `anet peers list` (sealed-sender §5.2). Keys: "status.<topic>",
+// "task.<line>", "identity_status.<line>", "find.<column>",
+// "peers_list.<column>".
 // "" for a key it does not know.
 func Label(key string, lang Language) string {
 	return labels[key].in(lang)
@@ -961,6 +963,12 @@ var labels = map[string]phrasePair{
 	"find.skills":     {"能力", "skills"},
 	"find.aid":        {"AID", "AID"},
 	"find.unverified": {"（未验证）", "(not verified)"},
+
+	// sealed-sender §5.2: the columns of `anet peers list`; the last says
+	// whether this node's messages to the peer carry its identity.
+	"peers_list.aid":    {"AID", "AID"},
+	"peers_list.lists":  {"名单", "lists"},
+	"peers_list.sender": {"发件人身份", "sender identity"},
 }
 
 // joinSentences joins two sentences: directly in Chinese, with a space in

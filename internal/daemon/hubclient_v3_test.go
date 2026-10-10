@@ -587,20 +587,30 @@ func TestDaemonDecodesHubBinaryAsBase64URL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A KEL whose standard spelling has +, / or =.
-	std := base64.StdEncoding.EncodeToString(kel)
+	// A hub KEL whose standard spelling has +, / or =: the frozen
+	// conformance hub's, the same bytes on every run (a random hub KEL
+	// spelled without them would leave nothing to refuse).
+	suite := identity.SuiteController()
+	suiteKEL, err := identity.MarshalKEL(suite.KEL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	std := base64.StdEncoding.EncodeToString(suiteKEL)
 	if !strings.ContainsAny(std, "+/=") {
-		t.Skip("the hub KEL's standard base64 has no character outside base64url")
+		t.Fatal("the conformance hub KEL's standard base64 has no character outside base64url; pick another fixed KEL")
 	}
 	fresh := newTestDaemon(t, "", false)
-	if _, _, err := fresh.pinHubIdentity(srv.URL, hubapi.HubIdentity{AID: hub.self.AID(), KEL: std}); err == nil {
+	if _, _, err := fresh.pinHubIdentity(srv.URL, hubapi.HubIdentity{AID: suite.AID(), KEL: std}); err == nil {
 		t.Error("a hub identity with a standard-base64 KEL was pinned")
 	}
-	if _, _, err := fresh.pinHubIdentity(srv.URL, hubapi.HubIdentity{AID: hub.self.AID(), KEL: hubapi.B64(kel)}); err != nil {
+	if _, _, err := fresh.pinHubIdentity(srv.URL, hubapi.HubIdentity{AID: suite.AID(), KEL: hubapi.B64(suiteKEL)}); err != nil {
 		t.Errorf("a hub identity with a base64url KEL: %v", err)
 	}
-	if hubKELReplays(hubapi.HubIdentity{AID: hub.self.AID(), KEL: std}) {
+	if hubKELReplays(hubapi.HubIdentity{AID: suite.AID(), KEL: std}) {
 		t.Error("dry_run took a standard-base64 KEL")
+	}
+	if !hubKELReplays(hubapi.HubIdentity{AID: suite.AID(), KEL: hubapi.B64(suiteKEL)}) {
+		t.Error("dry_run refused the same KEL in base64url")
 	}
 	if _, err := decodeHubB64(std); err == nil {
 		t.Error("this node's key set in standard base64 was read")

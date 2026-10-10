@@ -631,6 +631,9 @@ func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	// How long task content is kept (FS §2.10): `anet retention` reads it
 	// here while the daemon runs.
 	out["privacy"] = d.privacyRetention()
+	// What doctor's sender_privacy checks decide on (SS §4.8 SSR-U2); the
+	// status summary has no line of it (ux §4.7).
+	out["sender_privacy"] = d.senderPrivacyStatus(d.nowMS())
 	// What only doctor asks for, and costs more than a liveness check
 	// (anet up and doctor read /status for that): the extended cards, made
 	// and verified (doctor's payments.card). Absent when no card is priced.

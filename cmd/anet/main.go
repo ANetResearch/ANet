@@ -1090,7 +1090,7 @@ var knownFlags = map[string][]string{
 	"status":       {},
 	"hub-register": {"name", "caps", "recovery-file", "new-recovery"}, // --token, --token-file, --accept-delegations: cli_removed (removed.go)
 	"hub-leave":    {},
-	"peers":        {},
+	"peers":        {"json"},
 	"inbound":      {},
 	"pay":          {"option", "reject"},
 	"payments":     {}, // --payees-file: cli_removed (removed.go)

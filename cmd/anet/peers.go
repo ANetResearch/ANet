@@ -8,16 +8,18 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
-// runPeers is `anet peers list|allow|trust|deny|remove [<aid>]`.
+// runPeers is `anet peers list [--json]` and `anet peers
+// allow|trust|deny|remove <aid>`.
 func runPeers(c *client, rest []string) error {
-	const use = "anet peers list|allow|trust|deny|remove [<aid>]"
-	pos, _ := splitFlags(rest)
+	const use = "anet peers list [--json] | allow|trust|deny|remove <aid>"
+	pos, flags := splitFlags(rest)
 	sub := ""
 	if len(pos) > 0 {
 		sub = pos[0]
@@ -28,7 +30,7 @@ func runPeers(c *client, rest []string) error {
 	}
 	switch sub {
 	case "", "list", "ls":
-		return c.do("/peers/list", map[string]any{})
+		return peersList(c, flags["json"] == "true")
 	case "allow", "trust":
 		if aid == "" {
 			return usageError{"anet peers " + sub + " <aid>"}
@@ -47,6 +49,84 @@ func runPeers(c *client, rest []string) error {
 		return c.do("/peers/"+sub, map[string]any{"aid": aid})
 	}
 	return usageError{use}
+}
+
+// peersList is `anet peers list` (ux UX-C1, a command for a person): a
+// table of the peers on the lists — the whole AID (UX-G8a), the lists it is
+// on, and whether this node's messages to it carry this node's identity
+// (sealed-sender §5.2, SSR-U3) — or with --json the daemon's answer as it
+// came. The sentence of the last column is the control plane's
+// sender_hidden_text, word for word (UX-C5, UX-T1).
+func peersList(c *client, asJSON bool) error {
+	if asJSON {
+		return c.do("/peers/list", map[string]any{})
+	}
+	out, code, err := c.fetch("/peers/list", map[string]any{})
+	if err != nil {
+		return diagnoseNoDaemon(c.base, c.dataDir, err)
+	}
+	if code != 200 {
+		return answerError(code, out)
+	}
+	var list struct {
+		Peers []peerRow `json:"peers"`
+	}
+	if err := json.Unmarshal(out, &list); err != nil {
+		return answerError(code, out)
+	}
+	writePeersTable(outW(), list.Peers, a2ashape.Lang())
+	return nil
+}
+
+// peerRow is one /peers/list peer, as the table reads it.
+type peerRow struct {
+	AID              string   `json:"aid"`
+	Lists            []string `json:"lists"`
+	SenderHidden     bool     `json:"sender_hidden"`
+	SenderHiddenText string   `json:"sender_hidden_text"`
+}
+
+// writePeersTable writes the `anet peers list` table in the language's
+// column titles: the AID first and whole, so it can be copied to any
+// command that takes one (UX-G8a), and the sentence last, where a long one
+// runs on without pushing anything else off the line.
+func writePeersTable(w io.Writer, peers []peerRow, lang a2ashape.Language) {
+	const none = "—"
+	rows := [][]string{{a2ashape.Label("peers_list.aid", lang), a2ashape.Label("peers_list.lists", lang),
+		a2ashape.Label("peers_list.sender", lang)}}
+	for _, p := range peers {
+		var lists []string
+		for _, l := range p.Lists {
+			if l = printable(l, 16); l != "" {
+				lists = append(lists, l)
+			}
+		}
+		listCol := none
+		if len(lists) > 0 {
+			listCol = strings.Join(lists, ",")
+		}
+		aid := printable(p.AID, 128)
+		if aid == "" {
+			aid = none
+		}
+		rows = append(rows, []string{aid, listCol, oneLine(p.SenderHiddenText, maxLineRunes)})
+	}
+	widths := make([]int, len(rows[0]))
+	for _, r := range rows {
+		for i, cell := range r[:len(r)-1] {
+			widths[i] = max(widths[i], displayWidth(cell))
+		}
+	}
+	for _, r := range rows {
+		var b strings.Builder
+		for i, cell := range r {
+			b.WriteString(cell)
+			if i < len(r)-1 {
+				b.WriteString(strings.Repeat(" ", widths[i]-displayWidth(cell)+2))
+			}
+		}
+		fmt.Fprintln(w, strings.TrimRight(b.String(), " "))
+	}
 }
 
 // peerPrompt is the confirmation of `anet peers allow|trust <aid>`:
