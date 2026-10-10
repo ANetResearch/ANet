@@ -550,7 +550,7 @@ rounds:'''),
   id='ENG-M43b', group='ENG-1b', repo='ANet',
   desc='取价请求遇 429 重发不止一次(ENG-O8a)',
   edits=[
-   ('internal/daemon/oneshot.go', '''		if !resent && kind == oneShotCardGet {''', '''		if (resent || !resent) && kind == oneShotCardGet {'''),
+   ('internal/daemon/oneshot.go', '''		if !resent && kind == oneShotCardGet {''', '''		if _ = resent; kind == oneShotCardGet {'''),
   ],
   tests=[(D, 'TestET33_ACardRequestTheHubFindsBusy')],
   full=[D],
