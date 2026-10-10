@@ -4,36 +4,39 @@ package daemon
 // and in a sandboxed run, and the agents and configurations the sandbox does not run, which fail closed.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // The AV-4 table as the trials left it: which agents run in the sandbox, the model service each uses
-// without an api_base, and the services whose routes carry the API it speaks. An agent the sandbox does
-// not run says why.
+// without an api_base, the services whose routes carry the API it speaks, and the {why} of the refusal
+// when api_base names another (UP-2). An agent the sandbox does not run says why.
 func TestAgentSandboxTable(t *testing.T) {
 	type row struct {
 		supported bool
 		upstream  string
-		fixed     bool
+		combo     string
 		speaks    []string
 	}
 	want := map[string]row{
-		agentClaude:   {true, egressUpstreamAnthropic, true, []string{egressUpstreamAnthropic}},
-		agentCodex:    {true, egressUpstreamOpenAI, false, []string{egressUpstreamOpenAI}},
-		agentOpenCode: {true, "", false, []string{egressUpstreamCustom, egressUpstreamOpenAI}},
-		agentHermes:   {true, "", false, []string{egressUpstreamCustom, egressUpstreamOpenAI}},
-		agentOpenClaw: {true, "", false, []string{egressUpstreamCustom, egressUpstreamOpenAI}},
-		agentCursor:   {false, "", false, nil},
+		agentClaude:   {true, egressUpstreamAnthropic, agentComboAnthropicOnly, []string{egressUpstreamAnthropic}},
+		agentCodex:    {true, egressUpstreamOpenAI, agentComboOpenAIOnly, []string{egressUpstreamOpenAI}},
+		agentOpenCode: {true, "", agentComboNoChat, []string{egressUpstreamCustom, egressUpstreamOpenAI}},
+		agentHermes:   {true, "", agentComboNoChat, []string{egressUpstreamCustom, egressUpstreamOpenAI}},
+		agentOpenClaw: {true, "", agentComboNoChat, []string{egressUpstreamCustom, egressUpstreamOpenAI}},
+		agentCursor:   {false, "", "", nil},
 	}
 	reg := agentRegistry()
 	if len(reg) != len(want) {
@@ -56,8 +59,8 @@ func TestAgentSandboxTable(t *testing.T) {
 			continue
 		}
 		sb := a.sandbox
-		if sb.upstream != w.upstream || sb.fixedUpstream != w.fixed || !slices.Equal(sb.speaks, w.speaks) || sb.api == "" {
-			t.Errorf("%s: upstream %q fixed %v speaks %v api %q", a.id, sb.upstream, sb.fixedUpstream, sb.speaks, sb.api)
+		if sb.upstream != w.upstream || sb.combo != w.combo || !slices.Equal(sb.speaks, w.speaks) || sb.api == "" {
+			t.Errorf("%s: upstream %q combo %q speaks %v api %q", a.id, sb.upstream, sb.combo, sb.speaks, sb.api)
 		}
 		if sb.upstream != "" && !slices.Contains(sb.speaks, sb.upstream) {
 			t.Errorf("%s: its default upstream %s carries no API it speaks", a.id, sb.upstream)
@@ -99,7 +102,7 @@ func TestAgentSandboxConfigFiles(t *testing.T) {
 			if err := os.Mkdir(hostHome, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			env, err := spec.sandbox.prepare(up, hostHome, "/home/someone")
+			env, err := spec.sandbox.prepare(up, hostHome, "/home/someone", egressRouteBase(up))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -148,85 +151,93 @@ func TestAgentSandboxConfigFiles(t *testing.T) {
 			if strings.Contains(string(raw), testOperatorKey) {
 				t.Errorf("the operator's key is in %s", tc.file)
 			}
-			var gotBase, gotModel, gotKey string
-			switch tc.agent {
-			case agentCodex:
-				vals := tomlValues(t, string(raw))
-				gotBase, gotModel, gotKey = vals["base_url"], vals["model"], egressPlaceholderKey
-				for k, v := range map[string]string{"model_provider": "anet", "name": "anet", "wire_api": "responses",
-					"env_key": "OPENAI_API_KEY", "supports_websockets": "false", "web_search": "disabled",
-					"check_for_update_on_startup": "false"} {
-					if vals[k] != v {
-						t.Errorf("codex %s = %q, want %q", k, vals[k], v)
-					}
-				}
-				if !strings.Contains(string(raw), "\n[model_providers.anet]\n") {
-					t.Errorf("codex provider table missing:\n%s", raw)
-				}
-			case agentOpenCode:
-				var c struct {
-					Provider map[string]struct {
-						NPM     string                           `json:"npm"`
-						Options struct{ BaseURL, APIKey string } `json:"options"`
-						Models  map[string]any                   `json:"models"`
-					} `json:"provider"`
-					Model      string            `json:"model"`
-					Permission map[string]string `json:"permission"`
-				}
-				if err := json.Unmarshal(raw, &c); err != nil {
-					t.Fatal(err)
-				}
-				p := c.Provider["anet"]
-				gotBase, gotKey = p.Options.BaseURL, p.Options.APIKey
-				if _, ok := p.Models[model]; ok && c.Model == "anet/"+model {
-					gotModel = model
-				}
-				if p.NPM != "@ai-sdk/openai-compatible" || c.Permission["bash"] != "allow" || c.Permission["edit"] != "allow" {
-					t.Errorf("opencode configuration %s", raw)
-				}
-			case agentHermes:
-				vals := yamlJSONValues(t, string(raw))
-				gotBase, gotModel, gotKey = vals["base_url"], vals["default"], vals["api_key"]
-				if !strings.HasPrefix(string(raw), "model:\n  provider: custom\n") {
-					t.Errorf("hermes configuration %s", raw)
-				}
-			case agentOpenClaw:
-				var c struct {
-					Models struct {
-						Providers map[string]struct {
-							BaseURL string                `json:"baseUrl"`
-							APIKey  string                `json:"apiKey"`
-							API     string                `json:"api"`
-							Models  []struct{ ID string } `json:"models"`
-						} `json:"providers"`
-					} `json:"models"`
-					Agents struct {
-						Defaults struct {
-							Model struct{ Primary string } `json:"model"`
-						} `json:"defaults"`
-					} `json:"agents"`
-				}
-				if err := json.Unmarshal(raw, &c); err != nil {
-					t.Fatal(err)
-				}
-				p := c.Models.Providers["anet"]
-				gotBase, gotKey = p.BaseURL, p.APIKey
-				if len(p.Models) == 1 && p.Models[0].ID == model && c.Agents.Defaults.Model.Primary == "anet/"+model {
-					gotModel = model
-				}
-				if p.API != "openai-completions" {
-					t.Errorf("openclaw api %q", p.API)
-				}
-			}
+			gotBase, gotModel, gotKey := readAgentConfig(t, tc.agent, raw, model)
 			if gotBase != tc.base || gotModel != model || gotKey != egressPlaceholderKey {
 				t.Errorf("%s: base %q model %q key %q; want %q, the pinned model, the placeholder", tc.file, gotBase, gotModel, gotKey, tc.base)
 			}
 			// The run's home is fresh: a file already there is not written through.
-			if _, err := spec.sandbox.prepare(up, hostHome, "/home/someone"); err == nil {
+			if _, err := spec.sandbox.prepare(up, hostHome, "/home/someone", egressRouteBase(up)); err == nil {
 				t.Error("a second configuration overwrote the first")
 			}
 		})
 	}
+}
+
+// readAgentConfig reads the model service address, pinned model and key out of the configuration file an
+// agent's prepare wrote (raw), parsed as the agent parses it, and checks the rest of what the file must
+// say. model is the pinned model; gotModel is "" unless every place the file names it agrees.
+func readAgentConfig(t *testing.T, agent string, raw []byte, model string) (gotBase, gotModel, gotKey string) {
+	t.Helper()
+	switch agent {
+	case agentCodex:
+		vals := tomlValues(t, string(raw))
+		gotBase, gotModel, gotKey = vals["base_url"], vals["model"], egressPlaceholderKey
+		for k, v := range map[string]string{"model_provider": "anet", "name": "anet", "wire_api": "responses",
+			"env_key": "OPENAI_API_KEY", "supports_websockets": "false", "web_search": "disabled",
+			"check_for_update_on_startup": "false"} {
+			if vals[k] != v {
+				t.Errorf("codex %s = %q, want %q", k, vals[k], v)
+			}
+		}
+		if !strings.Contains(string(raw), "\n[model_providers.anet]\n") {
+			t.Errorf("codex provider table missing:\n%s", raw)
+		}
+	case agentOpenCode:
+		var c struct {
+			Provider map[string]struct {
+				NPM     string                           `json:"npm"`
+				Options struct{ BaseURL, APIKey string } `json:"options"`
+				Models  map[string]any                   `json:"models"`
+			} `json:"provider"`
+			Model      string            `json:"model"`
+			Permission map[string]string `json:"permission"`
+		}
+		if err := json.Unmarshal(raw, &c); err != nil {
+			t.Fatal(err)
+		}
+		p := c.Provider["anet"]
+		gotBase, gotKey = p.Options.BaseURL, p.Options.APIKey
+		if _, ok := p.Models[model]; ok && c.Model == "anet/"+model {
+			gotModel = model
+		}
+		if p.NPM != "@ai-sdk/openai-compatible" || c.Permission["bash"] != "allow" || c.Permission["edit"] != "allow" {
+			t.Errorf("opencode configuration %s", raw)
+		}
+	case agentHermes:
+		vals := yamlJSONValues(t, string(raw))
+		gotBase, gotModel, gotKey = vals["base_url"], vals["default"], vals["api_key"]
+		if !strings.HasPrefix(string(raw), "model:\n  provider: custom\n") {
+			t.Errorf("hermes configuration %s", raw)
+		}
+	case agentOpenClaw:
+		var c struct {
+			Models struct {
+				Providers map[string]struct {
+					BaseURL string                `json:"baseUrl"`
+					APIKey  string                `json:"apiKey"`
+					API     string                `json:"api"`
+					Models  []struct{ ID string } `json:"models"`
+				} `json:"providers"`
+			} `json:"models"`
+			Agents struct {
+				Defaults struct {
+					Model struct{ Primary string } `json:"model"`
+				} `json:"defaults"`
+			} `json:"agents"`
+		}
+		if err := json.Unmarshal(raw, &c); err != nil {
+			t.Fatal(err)
+		}
+		p := c.Models.Providers["anet"]
+		gotBase, gotKey = p.BaseURL, p.APIKey
+		if len(p.Models) == 1 && p.Models[0].ID == model && c.Agents.Defaults.Model.Primary == "anet/"+model {
+			gotModel = model
+		}
+		if p.API != "openai-completions" {
+			t.Errorf("openclaw api %q", p.API)
+		}
+	}
+	return gotBase, gotModel, gotKey
 }
 
 // tomlValues reads `key = value` lines (strings decoded) of the TOML prepareCodex writes.
@@ -313,10 +324,10 @@ func TestAgentCommandLines(t *testing.T) {
 		t.Errorf("codex without instructions, model or work dir: %q", args)
 	}
 
-	if got := openCodeArgs(base); !slices.Equal(got, []string{"run", "--model", "m1", ins}) {
+	if got := openCodeArgs(base); !slices.Equal(got, []string{"run", "--model", "m1", "--", ins}) {
 		t.Errorf("opencode direct: %q", got)
 	}
-	if got := openCodeArgs(sandboxed); !slices.Equal(got, []string{"run", "--model", "anet/m1", ins}) {
+	if got := openCodeArgs(sandboxed); !slices.Equal(got, []string{"run", "--model", "anet/m1", "--", ins}) {
 		t.Errorf("opencode sandboxed: %q", got)
 	}
 	if got := openClawArgs(base, "main", "/w/in/conversation.md"); !slices.Equal(got,
@@ -327,8 +338,8 @@ func TestAgentCommandLines(t *testing.T) {
 		[]string{"agent", "exec", "--json", "--message-file", "/f", "--cwd", "/w", "--model", "anet/m1"}) {
 		t.Errorf("openclaw sandboxed: %q", got)
 	}
-	if got := hermesArgs(base, "/f/conversation.md"); len(got) != 4 || got[0] != "-z" || !strings.HasPrefix(got[1], ins) ||
-		!strings.Contains(got[1], "Read the file /f/conversation.md") || got[2] != "-m" || got[3] != "m1" {
+	if got := hermesArgs(base, "/f/conversation.md"); len(got) != 3 || !strings.HasPrefix(got[0], "--oneshot="+ins) ||
+		!strings.Contains(got[0], "Read the file /f/conversation.md") || got[1] != "-m" || got[2] != "m1" {
 		t.Errorf("hermes: %q", got)
 	}
 }
@@ -410,6 +421,7 @@ func TestUnsupportedAgentsFailClosedInTheSandbox(t *testing.T) {
 	}{
 		{"cursor", AutoReplyConfig{Agent: agentCursor, APIKey: "k"}},
 		{"codex-custom", AutoReplyConfig{Agent: agentCodex, APIKey: "k", Model: "qwen3"}},
+		{"claude-custom", AutoReplyConfig{Agent: agentClaude, APIKey: "k", Model: "qwen3"}},
 		{"opencode-anthropic", AutoReplyConfig{Agent: agentOpenCode, APIKey: "k", Model: "m"}},
 		{"hermes-anthropic", AutoReplyConfig{Agent: agentHermes, APIKey: "k", Model: "m"}},
 	} {
@@ -422,8 +434,9 @@ func TestUnsupportedAgentsFailClosedInTheSandbox(t *testing.T) {
 			switch tc.name {
 			case "cursor":
 				f.cfg.APIBase = ""
-			case "codex-custom":
-				// a local model service: codex speaks only the Responses API, which the custom route does not carry
+			case "codex-custom", "claude-custom":
+				// a local model service: codex speaks only the Responses API, which the custom route does not
+				// carry; claude only the Anthropic API, which only api.anthropic.com's route carries
 			default:
 				f.cfg.APIBase = "https://api.anthropic.com"
 			}
@@ -452,5 +465,135 @@ func TestUnsupportedAgentsFailClosedInTheSandbox(t *testing.T) {
 				t.Fatalf("invocation evidence %s", ev)
 			}
 		})
+	}
+}
+
+// openCodeArgsStub parses its arguments as opencode run does (yargs, with "--" populated): --model takes a
+// value, any other argument starting with "-" before "--" is an option it does not know (an error), the
+// other words and everything after "--" are the message. It writes the message beside itself.
+const openCodeArgsStub = `#!/bin/sh
+here=$(dirname "$0")
+[ "$1" = run ] || { echo "not a run" >&2; exit 2; }
+shift
+msg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --) shift; for a in "$@"; do msg="$msg${msg:+ }$a"; done; break ;;
+    --model) shift 2 ;;
+    -*) echo "unknown option $1" >&2; exit 2 ;;
+    *) msg="$msg${msg:+ }$1"; shift ;;
+  esac
+done
+printf '%s' "$msg" > "$here/message"
+echo STUB-OK
+`
+
+// hermesArgsStub parses its arguments as hermes does (argparse): -z/--oneshot and -m/--model take a value,
+// given as the next argument or after "="; a next argument starting with "-" is not a value but an
+// option, so -z is left without one (an error). It writes the one-shot message beside itself.
+const hermesArgsStub = `#!/bin/sh
+here=$(dirname "$0")
+msg=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --oneshot=*) msg=${1#--oneshot=}; shift ;;
+    -z|--oneshot)
+      case "$2" in -*|"") echo "argument -z/--oneshot: expected one argument" >&2; exit 2 ;; esac
+      msg=$2; shift 2 ;;
+    -m|--model) shift 2 ;;
+    *) echo "unrecognized arguments: $1" >&2; exit 2 ;;
+  esac
+done
+printf '%s' "$msg" > "$here/message"
+echo STUB-OK
+`
+
+// hermesArgparse is hermes's top-level parser as far as the one-shot run goes (hermes_cli: -z/--oneshot,
+// -m/--model and the options around them), run on Python's own argparse: it prints the one-shot message
+// as JSON, or exits 2 as hermes does when its arguments do not parse.
+const hermesArgparse = `
+import argparse, json, sys
+p = argparse.ArgumentParser(prog="hermes")
+p.add_argument("-z", "--oneshot", metavar="PROMPT", default=None)
+p.add_argument("-m", "--model", default=None)
+p.add_argument("--provider", default=None)
+p.add_argument("-t", "--toolsets", default=None)
+p.add_argument("-s", "--skills", action="append", default=None)
+p.add_argument("-r", "--resume", default=None)
+p.add_argument("-c", "--continue", dest="continue_last", nargs="?", const=True, default=None)
+p.add_argument("--usage-file", default=None)
+p.add_argument("--yolo", action="store_true")
+p.add_argument("-v", "--version", action="store_true")
+ns = p.parse_args(sys.argv[1:])
+print(json.dumps(ns.oneshot))
+`
+
+// LEC AV-2, AV-4 (EXE-6 record §5 item 9): an operator's system_prompt that starts with "-" stays the
+// message of opencode and hermes, direct and in the sandbox, on every platform (the command line is the
+// same for both sandboxes). opencode is given it after "--", hermes as --oneshot=MESSAGE; each stand-in
+// parses its arguments as the CLI does and receives the instructions whole, and Python's argparse — what
+// hermes parses with — reads the message out of hermes's command line unchanged.
+func TestASystemPromptStartingWithADashStaysAMessage(t *testing.T) {
+	prompts := []string{"-v", "--model evil-model", "-m evil be brief", "-zx", "--oneshot=x", "--", "-",
+		"- a list item first\n- then another", "--help me", "-c", "-s skill"}
+	run := func(t *testing.T, agent, stub string, o execInvokeOpts) string {
+		t.Helper()
+		bin := writeStub(t, stub)
+		o.AgentID, o.Command, o.WorkDir, o.Env = agent, bin, t.TempDir(), []string{"PATH=/usr/bin:/bin"}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		reply, err := InvokeAgent(ctx, o)
+		if err != nil || reply != "STUB-OK" {
+			t.Fatalf("%s with instructions %q: %q %v", agent, o.Instructions, reply, err)
+		}
+		b, err := os.ReadFile(filepath.Join(filepath.Dir(bin), "message"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	for _, ins := range prompts {
+		for _, sandboxed := range []bool{false, true} {
+			o := execInvokeOpts{Instructions: ins, Conversation: "CONVERSATION", Model: "m1"}
+			if sandboxed {
+				o.Sandbox = &sandboxPlan{}
+				// The command line in the sandbox is the one built here; the stand-in runs it directly.
+				args := openCodeArgs(o)
+				if i := slices.Index(args, "--"); i < 0 || !slices.Equal(args[i+1:], []string{ins}) {
+					t.Errorf("opencode sandboxed, instructions %q: %q", ins, args)
+				}
+				args = hermesArgs(o, "/w/.anet-in-x/conversation.md")
+				if args[0] != hermesOneShot+fileInputMessage(ins, "/w/.anet-in-x/conversation.md") {
+					t.Errorf("hermes sandboxed, instructions %q: %q", ins, args)
+				}
+				continue
+			}
+			if got := run(t, agentOpenCode, openCodeArgsStub, o); got != ins {
+				t.Errorf("opencode's message is %q, want the instructions %q", got, ins)
+			}
+			if got := run(t, agentHermes, hermesArgsStub, o); !strings.HasPrefix(got, ins+"\n\n") ||
+				!strings.Contains(got, "/"+conversationFileName) {
+				t.Errorf("hermes's message is %q, want the instructions %q and the conversation file", got, ins)
+			}
+		}
+	}
+
+	// hermes's own parser: Python's argparse reads the message out of the command line hermesArgs builds.
+	py, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skipf("the argparse half needs python3 on PATH: %v", err)
+	}
+	for _, ins := range prompts {
+		args := hermesArgs(execInvokeOpts{Instructions: ins, Model: "m1"}, "/w/c.md")
+		out, err := exec.Command(py, append([]string{"-I", "-c", hermesArgparse}, args...)...).CombinedOutput()
+		var got string
+		if err != nil || json.Unmarshal(out, &got) != nil || got != fileInputMessage(ins, "/w/c.md") {
+			t.Errorf("argparse read hermes %q as %q (%v)", args, out, err)
+		}
+	}
+	// The spelling before this fix, -z MESSAGE, does not parse for such a message: the reason for it.
+	out, err := exec.Command(py, "-I", "-c", hermesArgparse, "-z", "-m evil be brief", "-m", "m1").CombinedOutput()
+	if err == nil {
+		t.Errorf("argparse took -z with a message starting with -m: %s", out)
 	}
 }

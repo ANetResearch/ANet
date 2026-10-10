@@ -8,9 +8,11 @@ package daemon
 // The profile starts from (deny default) and imports nothing: every operation the agent may perform is
 // listed here.
 //
-//   - processes: fork; exec only of /bin, /usr/bin, path_helper, the anet binary and the agent's runtime;
-//     process information and signals only within the same sandbox (process information is refused first:
-//     Seatbelt allows it by default even under (deny default));
+//   - processes: fork; exec only of /bin, /usr/bin, path_helper, the command line tools (where /usr/bin/git
+//     and python3 lead), the anet binary, the agent's runtime and the files of the run's work dir (as in
+//     the Linux sandbox, where the agent runs what it builds there); process information and signals only
+//     within the same sandbox (process information is refused first: Seatbelt allows it by default even
+//     under (deny default));
 //   - files: metadata anywhere (a program walking a path stats every directory on it); contents of the
 //     system's libraries and tools, a short list of /private/etc, a few devices, the agent's runtime, the
 //     run directory and the work dir; writes only to the work dir, the run directory's home/ and tmp/,
@@ -27,8 +29,11 @@ package daemon
 // executing /usr/bin/security (the keychain), /usr/bin/osascript and /usr/bin/open (other applications),
 // the keychain, pasteboard, Launch Services, TCC and window server Mach services (seatbeltMachForbidden),
 // binding, accepting and Apple events. It also refuses what a (deny default) profile of version 1 still
-// allows by default (seatbeltRefused, seatbeltFcntlForbidden): hard links, clones and NVRAM, and the two
-// fcntl commands that change a file through a descriptor opened only for reading.
+// allows by default (seatbeltRefused, seatbeltFcntlForbidden): hard links, clones and NVRAM, the two
+// fcntl commands that change a file through a descriptor opened only for reading, Mach lookups across
+// domains (around the allowed list), the hardware's properties (its serial number), posting system-wide
+// notifications and ioctls on sockets. What a supported agent is seen to need on a Mac is opened by name,
+// never by dropping these.
 //
 // The profile names paths and one port, never a key (EG-3): the run's key reaches the agent in its
 // environment alone.
@@ -58,9 +63,15 @@ type seatbeltSpec struct {
 	NeverAllow []string
 }
 
-// seatbeltExecSystem are the system directories the agent may execute from (MS-2). /usr/sbin and the rest
-// of /usr/libexec are left out until a supported agent is seen to need them.
-var seatbeltExecSystem = []string{"/bin", "/usr/bin"}
+// seatbeltExecSystem are the system directories the agent may execute from (MS-2), each also in
+// seatbeltReadSystem: /bin and /usr/bin, and the command line tools, which /usr/bin/git, python3 and the
+// other developer tools in /usr/bin are shims for (read only, as every system directory). /usr/sbin and the
+// rest of /usr/libexec are left out until a supported agent is seen to need them.
+var seatbeltExecSystem = []string{"/bin", "/usr/bin", seatbeltCommandLineTools}
+
+// seatbeltCommandLineTools is where Apple's command line tools are installed (xcode-select --install):
+// the programs behind the /usr/bin shims, and the Python they bring.
+const seatbeltCommandLineTools = "/Library/Developer/CommandLineTools"
 
 // seatbeltExecSystemFiles are single system programs the agent may execute: path_helper, which a login
 // shell's /etc/zprofile runs.
@@ -71,12 +82,12 @@ var seatbeltExecSystemFiles = []string{"/usr/libexec/path_helper"}
 var seatbeltExecForbidden = []string{"/usr/bin/security", "/usr/bin/osascript", "/usr/bin/open"}
 
 // seatbeltReadSystem are the system trees whose contents the agent may read: libraries, tools, shared
-// data, the frameworks and the OS cryptexes holding the shared library cache, the time zone data
-// /etc/localtime points into, and the link /bin/sh reads to choose its shell. None holds anything of a
-// user's.
+// data, the frameworks and the OS cryptexes holding the shared library cache, the command line tools, the
+// time zone data /etc/localtime points into and the link /bin/sh reads to choose its shell. None holds
+// anything of a user's.
 var seatbeltReadSystem = []string{
 	"/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/libexec", "/usr/share",
-	"/System/Library", "/System/Cryptexes", "/System/Volumes/Preboot/Cryptexes",
+	"/System/Library", "/System/Cryptexes", "/System/Volumes/Preboot/Cryptexes", seatbeltCommandLineTools,
 	"/private/var/db/timezone", "/private/var/select/sh",
 }
 
@@ -150,8 +161,14 @@ var seatbeltSysctlForbidden = []string{"kern.procargs"}
 // which the profile refuses outright: a hard link or a clone could give a file the agent may not read a
 // second name in its work dir, and NVRAM holds the machine's settings, some of them tied to the owner's
 // account. A supported agent needs none of them, and tools that clone or link where they can fall back to
-// copying when refused.
-var seatbeltRefused = []string{"file-link", "file-clone", "nvram*"}
+// copying when refused. The rest are refused because nothing the agent does needs them and each tells the
+// peer something of the machine or reaches past the profile (LEC MS-2, 2026-10-10): a Mach lookup in
+// another domain could reach a service seatbeltMachServices does not list, the hardware's properties
+// include its serial number, a posted notification reaches every process of the user, and a socket ioctl
+// reads the network interfaces. One is opened only when a run on a Mac shows a supported agent needs it,
+// and then here, in G-SBPL and in the record of that run.
+var seatbeltRefused = []string{"file-link", "file-clone", "nvram*",
+	"mach-cross-domain-lookup", "iokit-get-properties", "darwin-notification-post", "socket-ioctl"}
 
 // seatbeltFcntlForbidden are the fcntl commands that change a file through a descriptor opened only for
 // reading, which no file-write* rule sees and (deny default) does not cover: F_MAKECOMPRESSED (80)
@@ -240,6 +257,7 @@ func buildSeatbeltProfile(spec seatbeltSpec) (string, error) {
 	execs = append(execs, lits(seatbeltExecSystemFiles)...)
 	execs = append(execs, lit(spec.Init))
 	execs = append(execs, subs(runtime)...)
+	execs = append(execs, sub(spec.WorkDir))
 	rule("allow process-exec", execs)
 	line("(deny process-info*)")
 	line("(allow process-info* (target same-sandbox))")

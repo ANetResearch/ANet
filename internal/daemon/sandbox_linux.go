@@ -701,7 +701,7 @@ func (p *sandboxPlan) command(workDir string, argv, env []string, stdin []byte) 
 	// The agent's own configuration for the injection route, in the run's home (LEC AV-4).
 	var agentEnv []string
 	if p.AgentHome != nil {
-		if agentEnv, err = p.AgentHome(sandboxHome(runDir), home); err != nil {
+		if agentEnv, err = p.AgentHome(sandboxHome(runDir), home, egressRouteBase(p.Egress)); err != nil {
 			return nil, sandboxUnavailable("agent configuration: %v", err)
 		}
 	}

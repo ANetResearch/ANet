@@ -101,10 +101,13 @@ func sandboxGroupOthers() []int {
 	return out
 }
 
-// underSystemDir reports a path the profile already lets the agent read as part of the system
-// (seatbeltReadSystem), for pythonRuntime.
+// underSystemDir reports a path the profile already lets the agent read and execute from as part of the
+// system (seatbeltExecSystem, each also in seatbeltReadSystem), for pythonRuntime: a Python installed
+// anywhere else — a framework build under /Library/Frameworks, Homebrew's, uv's or pyenv's, or one in a
+// system directory the agent may only read — is listed with its prefix, which it reads its standard
+// library from and where a framework build's python re-executes the interpreter inside its app bundle.
 func underSystemDir(p string) bool {
-	for _, d := range seatbeltReadSystem {
+	for _, d := range seatbeltExecSystem {
 		if pathWithin(p, d) {
 			return true
 		}

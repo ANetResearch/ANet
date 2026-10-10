@@ -17,9 +17,18 @@ package daemon
 //
 // cursor has no model service address of its own to point anywhere, and is not run in the sandbox.
 //
+// An api_base that names a model service whose route does not carry the agent's API is refused when the
+// configuration is resolved (agent_unsupported.combo, LEC UP-2), the same on Linux and macOS: claude
+// with a service other than api.anthropic.com (a key meant for a third-party service must not be sent
+// to Anthropic), codex with one other than api.openai.com, and the chat agents with api.anthropic.com.
+//
 // Every file written here is the agent's ordinary configuration in the run's home directory, which is
 // empty and private to the run: it names the injection route and the placeholder key, never the
-// operator's key, and it is gone when the run ends.
+// operator's key, and it is gone when the run ends. On macOS the route the files name carries the run's
+// key, as the agent's environment does (EG-3): codex, opencode, hermes and openclaw read their model
+// service's address only from these files, and the endpoint there takes nothing without the key. The
+// files are 0600 in the run's home, readable only by the user who can read the agent's environment
+// anyway, and the key is void once the run's endpoint closes.
 
 import (
 	"encoding/json"
@@ -36,18 +45,42 @@ type agentSandbox struct {
 	// upstream is the model service the agent uses when auto_reply.api_base is not set; "" when the agent
 	// needs one (no_api_base, LEC UP-2).
 	upstream string
-	// fixedUpstream: the agent always uses upstream, whatever api_base says (claude, which speaks only
-	// the Anthropic API).
-	fixedUpstream bool
 	// speaks are the upstreams whose injection route carries the API the agent uses (UP-1). An api_base
-	// that makes the run's upstream another one fails closed (agent_unsupported), before anything runs.
+	// that makes the run's upstream another one fails closed (agent_unsupported.combo), before anything
+	// runs.
 	speaks []string
+	// combo is that refusal's {why} (one of the agentCombo constants): what the agent can use instead.
+	combo string
 	// api names that API, for the refusal's local detail.
 	api string
 	// prepare points the agent at the run's upstream: it writes the agent's configuration under the run's
 	// home directory (hostHome on this host, which the agent sees as home) and returns what the agent's
-	// environment needs besides sandboxEgressEnv. Nil: nothing.
-	prepare func(up *egressUpstream, hostHome, home string) ([]string, error)
+	// environment needs besides the egress variables. route is the run's injection route as the agent
+	// reaches it (egressRouteBaseAt: on Linux the sandbox's own 127.0.0.1:3128, on macOS the keyed
+	// endpoint on the host's loopback); a configuration file names it, never another address. Nil:
+	// nothing.
+	prepare func(up *egressUpstream, hostHome, home, route string) ([]string, error)
+}
+
+// The {why} of agent_unsupported.combo (ux §1.4 H, LEC UP-2): why an agent the sandbox runs cannot use
+// the model service auto_reply.api_base names. They are local values of the operator's sentence.
+const (
+	// agentComboAnthropicOnly: claude speaks only the Anthropic Messages API, which only the anthropic
+	// upstream carries; it would otherwise send a third-party service's key to api.anthropic.com.
+	agentComboAnthropicOnly = "anthropic_only"
+	// agentComboOpenAIOnly: codex speaks only the Responses API, which no custom route carries.
+	agentComboOpenAIOnly = "openai_only"
+	// agentComboNoChat: api.anthropic.com does not offer the chat completions API the chat agents speak.
+	agentComboNoChat = "no_chat"
+)
+
+// homeFor is the plan's AgentHome for this agent and the run's upstream: nil when the agent needs no
+// configuration of its own.
+func (sb *agentSandbox) homeFor(up *egressUpstream) func(hostHome, home, route string) ([]string, error) {
+	if sb == nil || sb.prepare == nil {
+		return nil
+	}
+	return func(hostHome, home, route string) ([]string, error) { return sb.prepare(up, hostHome, home, route) }
 }
 
 // sandboxProviderID names the model provider in the configuration files the sandbox writes for an agent
@@ -57,39 +90,39 @@ const sandboxProviderID = "anet"
 // sandboxProviderModel is the pinned model as an agent that writes "provider/model" names it.
 func sandboxProviderModel(model string) string { return sandboxProviderID + "/" + model }
 
-// chatAPIBase is the address an OpenAI-compatible client is given for the run's upstream: the route of a
-// custom service is relative to api_base, which already holds its version path (/v1 or other); the route
-// of api.openai.com takes the /v1 an SDK's base address carries.
-func chatAPIBase(up *egressUpstream) string {
+// chatAPIBase is the address an OpenAI-compatible client is given for the run's upstream on the injection
+// route: the route of a custom service is relative to api_base, which already holds its version path
+// (/v1 or other); the route of api.openai.com takes the /v1 an SDK's base address carries.
+func chatAPIBase(up *egressUpstream, route string) string {
 	if up.Name == egressUpstreamOpenAI {
-		return egressRouteBase(up) + "/v1"
+		return route + "/v1"
 	}
-	return egressRouteBase(up)
+	return route
 }
 
 var (
 	claudeSandbox = &agentSandbox{
-		upstream: egressUpstreamAnthropic, fixedUpstream: true,
-		speaks: []string{egressUpstreamAnthropic}, api: "the Anthropic Messages API",
+		upstream: egressUpstreamAnthropic,
+		speaks:   []string{egressUpstreamAnthropic}, combo: agentComboAnthropicOnly, api: "the Anthropic Messages API",
 		// IS_SANDBOX tells claude it runs confined, which it requires before it lets a root user's agent
 		// use its tools without asking (a daemon run as root).
-		prepare: func(*egressUpstream, string, string) ([]string, error) { return []string{"IS_SANDBOX=1"}, nil },
+		prepare: func(*egressUpstream, string, string, string) ([]string, error) { return []string{"IS_SANDBOX=1"}, nil },
 	}
 	codexSandbox = &agentSandbox{
 		upstream: egressUpstreamOpenAI,
-		speaks:   []string{egressUpstreamOpenAI}, api: "the OpenAI Responses API",
+		speaks:   []string{egressUpstreamOpenAI}, combo: agentComboOpenAIOnly, api: "the OpenAI Responses API",
 		prepare: prepareCodex,
 	}
 	openCodeSandbox = &agentSandbox{
-		speaks: []string{egressUpstreamCustom, egressUpstreamOpenAI}, api: "the OpenAI chat completions API",
+		speaks: []string{egressUpstreamCustom, egressUpstreamOpenAI}, combo: agentComboNoChat, api: "the OpenAI chat completions API",
 		prepare: prepareOpenCode,
 	}
 	hermesSandbox = &agentSandbox{
-		speaks: []string{egressUpstreamCustom, egressUpstreamOpenAI}, api: "the OpenAI chat completions API",
+		speaks: []string{egressUpstreamCustom, egressUpstreamOpenAI}, combo: agentComboNoChat, api: "the OpenAI chat completions API",
 		prepare: prepareHermes,
 	}
 	openClawSandbox = &agentSandbox{
-		speaks: []string{egressUpstreamCustom, egressUpstreamOpenAI}, api: "the OpenAI chat completions API",
+		speaks: []string{egressUpstreamCustom, egressUpstreamOpenAI}, combo: agentComboNoChat, api: "the OpenAI chat completions API",
 		prepare: prepareOpenClaw,
 	}
 )
@@ -117,14 +150,14 @@ func writeHomeFile(hostHome, rel string, data []byte) error {
 // injection route, over HTTP (codex prefers a WebSocket to api.openai.com for its newest models, which the
 // route does not carry), with codex's web search off — it is a tool the model service runs, which the
 // route refuses (BP-4), and a request that lists it would be refused whole.
-func prepareCodex(up *egressUpstream, hostHome, _ string) ([]string, error) {
+func prepareCodex(up *egressUpstream, hostHome, _, route string) ([]string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "model = %s\n", tomlString(up.Model))
 	fmt.Fprintf(&b, "model_provider = %s\n", tomlString(sandboxProviderID))
 	b.WriteString("web_search = \"disabled\"\ncheck_for_update_on_startup = false\n\n")
 	fmt.Fprintf(&b, "[model_providers.%s]\n", sandboxProviderID)
 	fmt.Fprintf(&b, "name = %s\n", tomlString(sandboxProviderID))
-	fmt.Fprintf(&b, "base_url = %s\n", tomlString(chatAPIBase(up)))
+	fmt.Fprintf(&b, "base_url = %s\n", tomlString(chatAPIBase(up, route)))
 	b.WriteString("wire_api = \"responses\"\nenv_key = \"OPENAI_API_KEY\"\nsupports_websockets = false\n")
 	return nil, writeHomeFile(hostHome, filepath.Join(".codex", "config.toml"), []byte(b.String()))
 }
@@ -140,13 +173,13 @@ var openCodeFlags = []string{
 // prepareOpenCode writes $HOME/.config/opencode/opencode.json: an OpenAI-compatible provider that is the
 // run's injection route, holding the pinned model, and the permission to edit and run commands (the sandbox
 // is the boundary; opencode run cannot ask).
-func prepareOpenCode(up *egressUpstream, hostHome, _ string) ([]string, error) {
+func prepareOpenCode(up *egressUpstream, hostHome, _, route string) ([]string, error) {
 	cfg := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"provider": map[string]any{sandboxProviderID: map[string]any{
 			"npm":     "@ai-sdk/openai-compatible",
 			"name":    sandboxProviderID,
-			"options": map[string]any{"baseURL": chatAPIBase(up), "apiKey": egressPlaceholderKey},
+			"options": map[string]any{"baseURL": chatAPIBase(up, route), "apiKey": egressPlaceholderKey},
 			"models":  map[string]any{up.Model: map[string]any{"name": up.Model}},
 		}},
 		"model":      sandboxProviderModel(up.Model),
@@ -163,11 +196,11 @@ func prepareOpenCode(up *egressUpstream, hostHome, _ string) ([]string, error) {
 
 // prepareHermes writes $HOME/.hermes/config.yaml: the custom provider at the run's injection route, with
 // the pinned model. The values are JSON strings, which YAML reads as the same strings.
-func prepareHermes(up *egressUpstream, hostHome, _ string) ([]string, error) {
+func prepareHermes(up *egressUpstream, hostHome, _, route string) ([]string, error) {
 	q := func(s string) string { b, _ := json.Marshal(s); return string(b) }
 	y := "model:\n" +
 		"  provider: custom\n" +
-		"  base_url: " + q(chatAPIBase(up)) + "\n" +
+		"  base_url: " + q(chatAPIBase(up, route)) + "\n" +
 		"  default: " + q(up.Model) + "\n" +
 		"  api_key: " + q(egressPlaceholderKey) + "\n"
 	return nil, writeHomeFile(hostHome, filepath.Join(".hermes", "config.yaml"), []byte(y))
@@ -175,10 +208,10 @@ func prepareHermes(up *egressUpstream, hostHome, _ string) ([]string, error) {
 
 // prepareOpenClaw writes $HOME/.openclaw/openclaw.json: an OpenAI-completions provider that is the run's
 // injection route, holding the pinned model, as the default agent model.
-func prepareOpenClaw(up *egressUpstream, hostHome, _ string) ([]string, error) {
+func prepareOpenClaw(up *egressUpstream, hostHome, _, route string) ([]string, error) {
 	cfg := map[string]any{
 		"models": map[string]any{"mode": "merge", "providers": map[string]any{sandboxProviderID: map[string]any{
-			"baseUrl": chatAPIBase(up),
+			"baseUrl": chatAPIBase(up, route),
 			"apiKey":  egressPlaceholderKey,
 			"api":     "openai-completions",
 			"models":  []any{map[string]any{"id": up.Model, "name": up.Model}},
@@ -222,3 +255,9 @@ func tomlString(s string) string {
 	b.WriteByte('"')
 	return b.String()
 }
+
+// hermesOneShot is hermes's one-shot option with its message attached ("--oneshot=" + message): hermes
+// parses its arguments with Python's argparse, which takes everything after the "=" as the value, while
+// a separate value starting with "-" would be read as an option (the operator's system_prompt may start
+// with one). hermes's own launcher recognises the same spelling.
+const hermesOneShot = "--oneshot="
