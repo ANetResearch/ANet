@@ -12,11 +12,13 @@ import (
 	"log"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/backendconn"
+	"github.com/ANetResearch/ANet/internal/hubapi"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -96,16 +98,9 @@ func encodeB64(b []byte) string { return base64.RawURLEncoding.EncodeToString(b)
 
 // decodeB64 decodes base64url without padding and refuses every other
 // spelling of the same bytes: "=", "+", "/", white space, and trailing bits
-// that are not zero. One value, one spelling.
-func decodeB64(s string) ([]byte, error) {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if !('A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '_') {
-			return nil, fmt.Errorf("not base64url without padding (byte %d)", i)
-		}
-	}
-	return base64.RawURLEncoding.Strict().DecodeString(s)
-}
+// that are not zero. One value, one spelling: it is the daemon's rule for
+// every binary value of the hub wire (hubapi.DecodeB64, core CORE-E5).
+func decodeB64(s string) ([]byte, error) { return hubapi.DecodeB64(s, -1) }
 
 // versionRefused is the error sentence for a frame of another version.
 func versionRefused(v int) string {
@@ -118,9 +113,15 @@ type Transport struct {
 	selfAID     string
 	sendTimeout time.Duration
 	inbound     module.Inbound
-	// badDAck counts an answer whose dack is malformed (the daemon's
+	// badDAck counts an answer whose dack is malformed, or that is a bad
+	// frame and so carries none that can be taken (the daemon's
 	// dack-bad-frame); nil counts nothing.
 	badDAck func()
+	// addrOf is where an AID said it may be dialled: the p2p address of a
+	// valid contact-class peer capability it gave this node (SS SSR-P2,
+	// engine ENG-I7), from the daemon (module.TransportHost.P2PAddr). nil
+	// knows no address, and nothing is sent.
+	addrOf func(aid string) (string, bool)
 
 	// listenerUID is the account the peer process must run as; nil is this
 	// daemon's own (LEC §4.4). Tests set another to stand for a peer process
@@ -137,8 +138,17 @@ type Transport struct {
 	wmu sync.Mutex
 
 	// pending maps a request id to the caller waiting for its reply.
-	pending map[string]chan frame
+	pending map[string]chan answer
 	nextID  uint64
+}
+
+// answer is the peer process's reply to a request: the frame as far as it
+// could be read, the members it carries, and why it is a bad frame ("" for
+// a good one).
+type answer struct {
+	f   frame
+	has map[string]bool
+	bad string
 }
 
 func (t *Transport) Name() string { return name }
@@ -222,7 +232,7 @@ func (t *Transport) session(ctx context.Context) error {
 		c.Close()
 		return errors.New("closed")
 	}
-	t.conn, t.pending = c, map[string]chan frame{}
+	t.conn, t.pending = c, map[string]chan answer{}
 	t.mu.Unlock()
 
 	defer func() {
@@ -249,11 +259,17 @@ func (t *Transport) session(ctx context.Context) error {
 		return err
 	}
 
-	dec := json.NewDecoder(bufio.NewReader(c))
+	br := bufio.NewReaderSize(c, 64<<10)
 	for {
-		var f frame
-		if err := dec.Decode(&f); err != nil {
+		line, err := readLine(br, maxFrameLen)
+		if err != nil {
 			return err
+		}
+		f, has, bad, err := readFrame(line)
+		if err != nil {
+			// Not a JSON object at all: the peer process does not speak
+			// this wire, and nothing after it can be trusted to line up.
+			return fmt.Errorf("the peer process wrote a line that is not a frame: %v", err)
 		}
 		switch f.Op {
 		case opHello:
@@ -261,9 +277,12 @@ func (t *Transport) session(ctx context.Context) error {
 			// speaks. Another one cannot carry this node's traffic: say
 			// so once and hang up, rather than trade frames neither side
 			// reads the same way.
-			if f.V != WireVersion {
-				_ = t.write(c, frame{Op: opError, V: WireVersion, Error: versionRefused(f.V)})
-				return fmt.Errorf("the peer process speaks frame version %d and this node %d: run a peer process of anet 0.3.0", f.V, WireVersion)
+			if bad != "" {
+				_ = t.write(c, frame{Op: opError, V: WireVersion, Error: bad})
+				if f.V != WireVersion {
+					return fmt.Errorf("the peer process speaks frame version %d and this node %d: run a peer process of anet 0.3.0", f.V, WireVersion)
+				}
+				return fmt.Errorf("the peer process greeted with a bad frame: %s", bad)
 			}
 		case opRecv:
 			// Off the loop, and this is the whole of the bug it fixes.
@@ -275,7 +294,7 @@ func (t *Transport) session(ctx context.Context) error {
 			// so the transport reported failure and every capability call
 			// fell through to the hub. A transport that cannot carry a
 			// reply is not carrying anything.
-			go t.deliverInbound(ctx, c, f)
+			go t.deliverInbound(ctx, c, f, bad)
 		default:
 			t.mu.Lock()
 			ch, waiting := t.pending[f.ID]
@@ -289,11 +308,106 @@ func (t *Transport) session(ctx context.Context) error {
 				// never asked. Dropping it is right — the delegation
 				// already went to the hub, and acting on it now would be a
 				// duplicate.
+				if bad != "" {
+					log.Printf("anet: p2p: dropping a bad frame from the peer process: %s", bad)
+				}
 				continue
 			}
-			ch <- f
+			ch <- answer{f: f, has: has, bad: bad}
 		}
 	}
+}
+
+// maxFrameLen bounds one frame line from the peer process: a frame around
+// the largest envelope a hub carries (96 MiB, which base64url makes 128 MiB),
+// with room for the rest of the frame. A longer line is not a frame this
+// wire has, and the session ends.
+const maxFrameLen = (96<<20+2)/3*4 + 64<<10
+
+// readLine reads one line, newline excluded, of at most max bytes.
+func readLine(br *bufio.Reader, max int) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if len(line)+len(chunk) > max+1 {
+			return nil, fmt.Errorf("a frame over %d bytes", max)
+		}
+		line = append(line, chunk...)
+		switch {
+		case err == nil:
+			return line[:len(line)-1], nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		default:
+			return nil, err
+		}
+	}
+}
+
+// frameRow is what a frame of one op may carry from the peer process to the
+// daemon (core §2.10): the members every such frame has and those it may.
+type frameRow struct{ must, may []string }
+
+// rowsFromPeer are the frames the daemon reads from its peer process. A
+// send frame from the peer process is the answer to one of the daemon's.
+var rowsFromPeer = map[string]frameRow{
+	opHello: {must: []string{"v", "self"}},
+	opSend:  {must: []string{"v", "id"}, may: []string{"dack", "error"}},
+	opRecv:  {must: []string{"v", "id", "envelope"}},
+	opError: {must: []string{"v"}, may: []string{"id", "error"}},
+}
+
+// readFrame decodes one line from the peer process strictly (core CORE-G4,
+// CORE-K13a): a frame of another version, of an op the peer process does
+// not send, with a member its row does not have, without one it must have,
+// or with a member of the wrong type is a bad frame, and bad says why. f is
+// the frame as far as it could be read — its op, v and id, to answer or
+// route it — and has the members it carries, "dack":"" included. err is a
+// line that is not a JSON object.
+func readFrame(line []byte) (f frame, has map[string]bool, bad string, err error) {
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(line, &members); err != nil {
+		return frame{}, nil, "", err
+	}
+	if members == nil {
+		return frame{}, nil, "", errors.New("null")
+	}
+	has = make(map[string]bool, len(members))
+	for m := range members {
+		has[m] = true
+	}
+	typeErr := json.Unmarshal(line, &f)
+	for m, raw := range members {
+		// v is a number; every other member is a string (null is neither).
+		if m == "v" {
+			if len(raw) == 0 || !(raw[0] == '-' || raw[0] >= '0' && raw[0] <= '9') {
+				typeErr = errors.New("member v is not a number")
+			}
+		} else if len(raw) == 0 || raw[0] != '"' {
+			typeErr = fmt.Errorf("member %q is not a string", m)
+		}
+	}
+	if f.V != WireVersion {
+		return f, has, versionRefused(f.V), nil
+	}
+	row, ok := rowsFromPeer[f.Op]
+	if !ok {
+		return f, has, fmt.Sprintf("a frame with op %q, which a peer process does not send a daemon", f.Op), nil
+	}
+	for m := range members {
+		if m != "op" && !slices.Contains(row.must, m) && !slices.Contains(row.may, m) {
+			return f, has, fmt.Sprintf("a %s frame with the member %q, which frame version %d does not have", f.Op, m, WireVersion), nil
+		}
+	}
+	for _, m := range row.must {
+		if !has[m] {
+			return f, has, fmt.Sprintf("a %s frame without its member %q", f.Op, m), nil
+		}
+	}
+	if typeErr != nil {
+		return f, has, "a frame with a member of the wrong type: " + typeErr.Error(), nil
+	}
+	return f, has, "", nil
 }
 
 // deliverInbound hands a received envelope to the daemon and acks it with
@@ -305,8 +419,11 @@ func (t *Transport) session(ctx context.Context) error {
 // reason, so the peer process reports the delivery as failed at once and
 // the sender falls back to the hub instead of waiting out the peer
 // process's hand-off timeout (A2A-DESIGN §3.6, §3.10; an internal note item).
-func (t *Transport) deliverInbound(ctx context.Context, c net.Conn, f frame) {
+func (t *Transport) deliverInbound(ctx context.Context, c net.Conn, f frame, bad string) {
 	env, refusal := checkRecv(f)
+	if bad != "" {
+		env, refusal = nil, bad
+	}
 	if env == nil {
 		log.Printf("anet: p2p: refusing a delivery frame from the peer process: %s", refusal)
 		if f.ID != "" || f.V != WireVersion {
@@ -321,7 +438,11 @@ func (t *Transport) deliverInbound(ctx context.Context, c net.Conn, f frame) {
 	dack, err := t.inbound.Receive(ctx, env)
 	if err != nil {
 		log.Printf("anet: p2p: inbound delivery %s not acknowledged: %v", f.ID, err)
-		_ = t.write(c, frame{Op: opNack, V: WireVersion, ID: f.ID, Error: err.Error()})
+		reason := err.Error()
+		if reason == "" {
+			reason = "refused for now" // a nack always says why (core §2.10)
+		}
+		_ = t.write(c, frame{Op: opNack, V: WireVersion, ID: f.ID, Error: reason})
 		return
 	}
 	_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: f.ID, DAck: dackText(dack)})
@@ -411,26 +532,40 @@ func (t *Transport) writeN(c net.Conn, f frame) (int, error) {
 	return n, nil
 }
 
-// Reachable reports whether the peer process is there to hand an envelope
-// to. It asks the peer process nothing: whether the recipient can be
-// reached is not something a peer process gets to answer, and a send to an
-// AID it cannot reach comes back as a failure the caller falls through on.
+// Reachable reports whether a send to toAID can be handed over now: this
+// node holds a contact-class peer capability toAID gave it that carries a
+// p2p address (SS SSR-P2, engine ENG-I7), and the peer process is there to
+// take the frame. It asks the peer process nothing: whether the recipient
+// can be reached is not something a peer process gets to answer, and a
+// send to an AID it cannot reach comes back as a failure the caller falls
+// through on.
 func (t *Transport) Reachable(ctx context.Context, toAID string) bool {
-	// v030-todo(SS-11): true only when this node holds a contact grant from
-	// toAID that carries a p2p address (engine ENG-I7), which Send puts in
-	// the frame's addr.
+	if _, ok := t.addrFor(toAID); !ok {
+		return false
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.conn != nil
 }
 
+// addrFor is the address toAID may be dialled at, from the daemon.
+func (t *Transport) addrFor(toAID string) (string, bool) {
+	if t.addrOf == nil || toAID == "" {
+		return "", false
+	}
+	return t.addrOf(toAID)
+}
+
 // Send hands one envelope to the peer process and waits for its answer.
+// The frame carries the address toAID gave this node (addr): the peer
+// process dials that and nothing else.
 //
 // handed is false only when the frame never reached the peer process's
-// socket: no session, a cancellation before the write, a write that failed
-// before its first byte. From the first byte written it is true, whatever
-// the answer: a peer process that has the envelope may deliver it even
-// while it answers an error, or after the answer timed out here.
+// socket: no address, no session, a cancellation before the write, a write
+// that failed before its first byte. From the first byte written it is
+// true, whatever the answer: a peer process that has the envelope may
+// deliver it even while it answers an error, or after the answer timed out
+// here.
 //
 // dack is the confirmation in the answer, decoded; nil when the answer has
 // none, or one that is not base64url of DAckLen bytes, which is counted
@@ -438,12 +573,16 @@ func (t *Transport) Reachable(ctx context.Context, toAID string) bool {
 // recipient's is for the caller to check: this transport has no key to
 // check it with, and does not try.
 func (t *Transport) Send(ctx context.Context, toAID string, envelope []byte) ([]byte, bool, error) {
+	addr, ok := t.addrFor(toAID)
+	if !ok {
+		return nil, false, fmt.Errorf("p2p: %s gave this node no direct address", toAID)
+	}
 	sctx, cancel := context.WithTimeout(ctx, t.sendTimeout)
 	defer cancel()
 	reply, handed, err := t.roundTrip(sctx, frame{
 		Op: opSend, V: WireVersion, To: toAID,
 		Envelope: encodeB64(envelope),
-		// v030-todo(SS-11): Addr, from the recipient's contact grant.
+		Addr:     addr,
 	})
 	if err != nil {
 		return nil, handed, err
@@ -456,16 +595,21 @@ func (t *Transport) Send(ctx context.Context, toAID string, envelope []byte) ([]
 }
 
 // readAnswer reads the peer process's answer to a send: the confirmation in
-// it, whether a confirmation was there but malformed (bad), and the failure
-// it reports. Only a send answer of this version carries a confirmation;
-// one that is not base64url without padding, or not DAckLen bytes, is none.
-func readAnswer(reply frame) (dack []byte, bad bool, err error) {
-	if reply.V != WireVersion {
-		return nil, false, fmt.Errorf("p2p: the peer process answered in frame version %d, not %d", reply.V, WireVersion)
+// it, whether a confirmation was due but cannot be taken (bad), and the
+// failure it reports. Only a good send answer carries a confirmation: a bad
+// frame — of another version, or with a member frame v3 does not have — is a
+// failure whose dack is not taken, and is counted (core CORE-K13a). A dack
+// member that is not exactly 107 characters of base64url without padding
+// spelling DAckLen bytes, "" included, is no confirmation and is counted;
+// the answer stands without it (DLV-W-11b).
+func readAnswer(a answer) (dack []byte, bad bool, err error) {
+	reply := a.f
+	if a.bad != "" {
+		return nil, true, fmt.Errorf("p2p: the peer process answered with a bad frame: %s", a.bad)
 	}
-	if reply.Op == opSend && reply.DAck != "" {
+	if reply.Op == opSend && a.has["dack"] {
 		b, derr := decodeB64(reply.DAck)
-		if derr == nil && len(b) == module.DAckLen {
+		if derr == nil && len(reply.DAck) == dackChars && len(b) == module.DAckLen {
 			dack = b
 		} else {
 			bad = true
@@ -480,15 +624,19 @@ func readAnswer(reply frame) (dack []byte, bad bool, err error) {
 	return dack, bad, nil
 }
 
+// dackChars is the length of a dack as a frame carries it: DAckLen bytes in
+// base64url without padding (core CORE-K13a).
+const dackChars = (module.DAckLen*8 + 5) / 6
+
 // roundTrip sends one frame and waits for the reply carrying its id. handed
 // reports whether any byte of the frame reached the connection.
-func (t *Transport) roundTrip(ctx context.Context, f frame) (frame, bool, error) {
-	ch := make(chan frame, 1)
+func (t *Transport) roundTrip(ctx context.Context, f frame) (answer, bool, error) {
+	ch := make(chan answer, 1)
 	t.mu.Lock()
 	conn := t.conn
 	if conn == nil || t.pending == nil {
 		t.mu.Unlock()
-		return frame{}, false, errors.New("p2p: peer process not connected")
+		return answer{}, false, errors.New("p2p: peer process not connected")
 	}
 	t.nextID++
 	f.ID = strconv.FormatUint(t.nextID, 10)
@@ -504,19 +652,19 @@ func (t *Transport) roundTrip(ctx context.Context, f frame) (frame, bool, error)
 	}
 	if err := ctx.Err(); err != nil {
 		forget()
-		return frame{}, false, err
+		return answer{}, false, err
 	}
 	if n, err := t.writeN(conn, f); err != nil {
 		forget()
-		return frame{}, n > 0, err
+		return answer{}, n > 0, err
 	}
 	select {
 	case <-ctx.Done():
 		forget()
-		return frame{}, true, ctx.Err()
+		return answer{}, true, ctx.Err()
 	case r, ok := <-ch:
 		if !ok {
-			return frame{}, true, errors.New("p2p: peer process went away")
+			return answer{}, true, errors.New("p2p: peer process went away")
 		}
 		return r, true, nil
 	}

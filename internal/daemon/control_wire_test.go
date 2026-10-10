@@ -62,7 +62,8 @@ func TestControlWireFields(t *testing.T) {
 		resp  reflect.Type
 		todo  string // the work item's marker (wire.TodoMarker) until the Go type has the registered shape
 	}{
-		{route: "error body", resp: reflect.TypeFor[a2ashape.ErrorBody]()},
+		// TaskBody is ErrorBody with the members only message_id_reused carries (task_id, state).
+		{route: "error body", resp: reflect.TypeFor[a2ashape.TaskBody]()},
 		{route: "/status", todo: "v030-todo(UX-15)"},
 		{route: "/tasks/events delivery", todo: "v030-todo(RC-5)"},
 		{route: "/identity/status", req: reflect.TypeFor[struct{}](), resp: reflect.TypeFor[IdentityStatus]()},

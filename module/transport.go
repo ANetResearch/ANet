@@ -108,9 +108,18 @@ type TransportHost interface {
 	// assertion to spread, only the absence of something saying no.
 	RegisterTransport(Transport)
 	// NoteBadDAck counts one answer to a Send whose delivery confirmation
-	// was malformed: not base64url, or not DAckLen bytes once decoded. The
-	// transport then returns no dack for that answer. The count is the
-	// node's dack-bad-frame counter, which says that something between
-	// here and the recipient spoils confirmations.
+	// was malformed: not base64url, or not DAckLen bytes once decoded, or
+	// in a frame the transport could not read as one. The transport then
+	// returns no dack for that answer. The count is the node's
+	// dack-bad-frame counter, which says that something between here and
+	// the recipient spoils confirmations.
 	NoteBadDAck()
+	// P2PAddr is where aid may be dialled directly: the p2p address of a
+	// valid contact-class peer capability aid gave this node (sealed-sender
+	// SSR-P2, SSR-D8), and true. It is "" and false when this node holds no
+	// such capability, and when the address is one no dial should go to: a
+	// literal IP of a refused range (loopback, private, link-local and the
+	// like, private ones allowed in LAN mode) or the name localhost. A
+	// transport that dials offers a send only to an AID that has one.
+	P2PAddr(aid string) (string, bool)
 }

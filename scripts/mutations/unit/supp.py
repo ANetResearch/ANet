@@ -446,6 +446,9 @@ MUTS = [
   id='m-p2p-1', group='m(p2p 旧帧)', repo='ANet',
   desc='anetpeer: 另一帧版本(含无 V)的投递帧也交给 daemon',
   edits=[
+   # Both checks: the strict reader's (SS-11, core CORE-K13a) refuses the version first, and receive's
+   # is the second line behind it, so taking out either one alone changes nothing a test can see.
+   ('tools/anetpeer/main.go', '\tif f.V != wireVersion {\n\t\treturn f, versionRefused(f.V), nil\n\t}', '\tif false && f.V != wireVersion {\n\t\treturn f, versionRefused(f.V), nil\n\t}'),
    ('tools/anetpeer/main.go', '\tif f.V != wireVersion {\n\t\t// A sender of another frame version', '\tif false && f.V != wireVersion {\n\t\t// A sender of another frame version'),
   ],
   tests=[('ANet:./tools/anetpeer', 'TestAnUnversionedDeliveryIsRefused')],
@@ -455,6 +458,8 @@ MUTS = [
   id='m-p2p-2', group='m(p2p 旧帧)', repo='ANet',
   desc='module/p2p: 另一帧版本(含无 V)的投递帧也调用 Receive',
   edits=[
+   # Both checks, as in m-p2p-1: the strict reader's, then checkRecv's.
+   ('module/p2p/transport.go', '\tif f.V != WireVersion {\n\t\treturn f, has, versionRefused(f.V), nil\n\t}', '\tif false && f.V != WireVersion {\n\t\treturn f, has, versionRefused(f.V), nil\n\t}'),
    ('module/p2p/transport.go', '\tif f.V != WireVersion {\n\t\treturn nil, versionRefused(f.V)\n\t}', '\tif false && f.V != WireVersion {\n\t\treturn nil, versionRefused(f.V)\n\t}'),
   ],
   tests=[('ANet:./module/p2p', 'TestADeliveryOfAnotherVersionIsNotHandedToTheDaemon')],

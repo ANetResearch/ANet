@@ -27,8 +27,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/p2paddr"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -46,8 +48,17 @@ func init() {
 		if cfg.Socket == "" {
 			return nil, fmt.Errorf("socket is required")
 		}
-		if err := checkAdvertise(cfg.Advertise); err != nil {
-			return nil, err
+		// The daemon refuses a relative socket before it starts
+		// (config_invalid); refused here too, for whoever builds the
+		// module another way, rather than as a dial that fails every
+		// time it is retried.
+		if !filepath.IsAbs(cfg.Socket) {
+			return nil, fmt.Errorf("socket %q is not an absolute path", cfg.Socket)
+		}
+		// An advertise value no contact could dial is refused at start,
+		// rather than left out of every grant without a word.
+		if err := p2paddr.CheckAdvertise(cfg.Advertise); err != nil {
+			return nil, fmt.Errorf("advertise: %v", err)
 		}
 		return &Module{cfg: cfg}, nil
 	})
@@ -71,12 +82,20 @@ type Config struct {
 	// brings the double delivery back.
 	DialTimeoutMS int `json:"dial_timeout_ms"`
 	// Advertise is the address other peers dial to reach this node's peer
-	// process directly ("tcp://host:port" or "host:port"), the same value
-	// given to `anet p2p-advertise`. When set, the node's network card
-	// carries a direct interface for it (card.go). Empty, the card has
-	// none: a peer process listening on a local socket has nothing a
-	// remote reader could dial.
+	// process directly, host:port. It goes only into the contact-class
+	// peer capabilities this node gives its contacts (sealed-sender SSR-D8,
+	// the daemon reads it): never into the network card, which anyone may
+	// read. Empty, contacts get no direct address and reach this node
+	// through the hub.
 	Advertise string `json:"advertise,omitempty"`
+	// LAN lets a direct delivery be dialled at a private address (RFC 1918,
+	// IPv6 unique local) and at 100.64.0.0/10 — for a lab on one network,
+	// never for a node on the internet. Off, those are refused like
+	// loopback and link-local, which stay refused either way
+	// (internal/p2paddr). The daemon checks the addresses it hands its
+	// peer process with it; the peer process, which resolves names, takes
+	// the same choice as its own --lan flag.
+	LAN bool `json:"lan,omitempty"`
 }
 
 // DefaultSendTimeout is how long a send waits for the peer process's
@@ -90,17 +109,6 @@ type Module struct {
 	cfg  Config
 	tr   *Transport
 	stop context.CancelFunc
-}
-
-// checkAdvertise refuses an advertise value a remote peer could not
-// dial, at start rather than as an interface silently missing from the
-// card.
-func checkAdvertise(a string) error {
-	if a == "" {
-		return nil
-	}
-	_, err := directURL(a)
-	return err
 }
 
 func (m *Module) Name() string { return name }
@@ -121,6 +129,7 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 		sendTimeout: send,
 		inbound:     th.Inbound(),
 		badDAck:     th.NoteBadDAck,
+		addrOf:      th.P2PAddr,
 	}
 	// Connecting is not required to start. A peer process that is not up
 	// yet, or has crashed, must not stop the daemon from running: the hub

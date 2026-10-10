@@ -557,7 +557,6 @@ func (h *fakeHub) handler() http.Handler {
 	mux.HandleFunc("POST /register", h.hRegister)
 	mux.HandleFunc("POST /agents/{aid}/deregister", h.hDeregister)
 	mux.HandleFunc("POST /agents/{aid}/visibility", h.hVisibility)
-	mux.HandleFunc("POST /agents/{aid}/p2p", h.hP2P)
 	mux.HandleFunc("POST /profile", h.hProfile)
 	mux.HandleFunc("GET /agents", h.hAgents)
 	mux.HandleFunc("GET /agents/{aid}", h.hAgent)
@@ -1426,21 +1425,6 @@ func (h *fakeHub) hVisibility(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fakeHubJSON(w, http.StatusOK, map[string]any{"status": "set"})
-}
-
-// hP2P mirrors POST /agents/{aid}/p2p (relayauth v2).
-func (h *fakeHub) hP2P(w http.ResponseWriter, r *http.Request) {
-	body, ok := h.readBody(w, r, 1<<16)
-	if !ok {
-		return
-	}
-	if who := h.verifyAuth(w, r, body, actionP2PRetired, nil); who != r.PathValue("aid") {
-		if who != "" {
-			fakeHubJSON(w, http.StatusUnauthorized, map[string]string{"error": "signer is not the path AID"})
-		}
-		return
-	}
-	fakeHubJSON(w, http.StatusOK, map[string]any{"status": "published"})
 }
 
 // viewWithAggregates fills the derived fields (Listed + rating aggregate) the way the real Hub does.

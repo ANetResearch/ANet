@@ -942,10 +942,16 @@ ORG_ID=$(sed 's/^org id: //' "$RUN/orgid.txt")
 # terminal, which a script does not have. The daemon reads the file on every decision. The
 # stranger is on no list.
 peer_allow "$PROV/.anet" "$REQ_AID"
+peer_allow "$REQ/.anet" "$PROV_AID"
 
 # Two peer processes sharing a rendezvous directory. Without them the p2p module is the one module
 # that changes how delegations travel and the one module no joint run could exercise.
 # The requester's keeps a copy of every envelope it carried (--tee-dir), for the replay section (9/11).
+# A node dials a peer directly only with the address that peer put in the contact delivery credential
+# it gave the node (modules.p2p.advertise, sealed-sender SSR-P2): so each node advertises one, and
+# allows the other, whose credential then carries it. On one machine the peer processes find each
+# other through the directory instead of dialling that address (--rendezvous, for tests only): the
+# addresses are names under .invalid, which nothing resolves.
 mkdir -p "$RUN/rv" "$RUN/peer"
 ( cd "$RUN" && exec setsid "$BIN/anetpeer" --socket "$RUN/peer/req.sock" --peer "$RUN/peer/req.wire" \
     --rendezvous "$RUN/rv" --tee-dir "$RUN/tee" ) >"$RUN/peer-req.log" 2>&1 </dev/null 9>&- &
@@ -963,7 +969,7 @@ m = {
     "cas":        {"dir": run + "/cas"},
     "blackboard": {"enabled": True},
     "org":        {"genesis": genesis},
-    "p2p":        {"socket": run + "/peer/prov.sock"},
+    "p2p":        {"socket": run + "/peer/prov.sock", "advertise": "prov.joint.invalid:39100"},
 }
 if devices == "1":
     m["anetlink"] = {"socket": link}
@@ -971,7 +977,7 @@ print(json.dumps(m))
 PY
 )
 node_config prov "$PROV_MODULES"
-node_config req "{\"p2p\":{\"socket\":\"$RUN/peer/req.sock\"}}"
+node_config req "{\"p2p\":{\"socket\":\"$RUN/peer/req.sock\",\"advertise\":\"req.joint.invalid:39100\"}}"
 node_config str '{}'
 
 for n in req prov str; do start_node $n "$RUN/$n.log"; done

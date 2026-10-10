@@ -108,10 +108,10 @@ func frame3Build(t *testing.T) []byte {
 			"and write it back unchanged. Binary values are base64url without padding (core CORE-E5): " +
 			"the envelope here, and the dack (80 bytes, 107 characters), which only the recipient's " +
 			"daemon makes and everything between carries as it came. No frame says whether a message was " +
-			"processed or refused. The refused frames are answered with an error frame of v 3 (with the " +
-			"frame's id when it had one) and are never handed to a daemon or acked; a hello is also " +
-			"answered by closing the connection. Written by the Go test (go test ./module/p2p -run FRAME3 " +
-			"-update-frames).",
+			"processed or refused. A frame of another version, or with a member its row does not have, or " +
+			"without one it must have, is refused (core CORE-K13a): answered with an error frame of v 3 (with " +
+			"the frame's id when it had one), never handed to a daemon or acked; a hello is also answered by " +
+			"closing the connection. Written by the Go test (go test ./module/p2p -run FRAME3 -update-frames).",
 		Version: WireVersion,
 		Seeds: "every value below is SHA-256(\"anet-golden/v016/FRAME-3/<role>\"): envelope = " +
 			"H(envelope/0) || H(envelope/1), 64 bytes; dack = H(dack/0) || H(dack/1) || H(dack/2)[:16], " +
@@ -150,6 +150,20 @@ func frame3Build(t *testing.T) []byte {
 			{Case: "send of v 2", At: "anetpeer from a peer", Line: line(frame{Op: opSend, V: 2, ID: "7", To: to, Envelope: env}), Answer: "error"},
 			{Case: "send of v 2 with not_delivered", At: "anetpeer from a peer",
 				Line: `{"op":"send","v":2,"id":"7","to":"` + to + `","envelope":"` + env + `","not_delivered":true}`, Answer: "error"},
+			// Core CORE-K13a: a member its row does not have, or without one
+			// it must have, is a bad frame in this version too.
+			{Case: "hello with an unregistered member", At: "daemon",
+				Line: `{"op":"hello","v":3,"self":"` + to + `","lan":true}`, Answer: "error", Closes: true},
+			{Case: "recv with an unregistered member", At: "daemon",
+				Line: `{"op":"recv","v":3,"id":"d1","envelope":"` + env + `","from":"` + to + `"}`, Answer: "error"},
+			{Case: "send with an unregistered member", At: "anetpeer from its daemon",
+				Line: `{"op":"send","v":3,"id":"7","to":"` + to + `","envelope":"` + env + `","addr":"` + addr + `","from":"` + self + `"}`, Answer: "error"},
+			{Case: "send without its addr", At: "anetpeer from its daemon",
+				Line: line(frame{Op: opSend, V: v, ID: "7", To: to, Envelope: env}), Answer: "error"},
+			{Case: "send with an unregistered member", At: "anetpeer from a peer",
+				Line: `{"op":"send","v":3,"id":"7","to":"` + to + `","envelope":"` + env + `","from":"` + self + `"}`, Answer: "error"},
+			{Case: "send that carries the addr on to a peer", At: "anetpeer from a peer",
+				Line: line(frame{Op: opSend, V: v, ID: "7", To: to, Envelope: env, Addr: addr}), Answer: "error"},
 		},
 	}
 	var b bytes.Buffer
@@ -356,6 +370,7 @@ func TestFRAME3RoundTrip(t *testing.T) {
 	peer := newFakePeer(t)
 	rec := &recorder{dack: frame3DAck()}
 	tr := dialTransport(t, peer, rec)
+	tr.addrOf = func(aid string) (string, bool) { return g.Values.Addr, aid == g.Values.To }
 
 	peer.pushLine(find("recv", ""))
 	waitFor(t, func() bool { return peer.acksFor("d1") == 1 }, "the ack")
@@ -386,7 +401,7 @@ func TestFRAME3RoundTrip(t *testing.T) {
 	peer.mu.Lock()
 	sent := peer.sent[0]
 	peer.mu.Unlock()
-	sent.ID, sent.Addr = "7", g.Values.Addr // the id this transport minted; the address SS-11 fills in
+	sent.ID = "7" // the id this transport minted
 	if b, _ := json.Marshal(sent); string(b) != find("send", "") || fmt.Sprint(sent.V) != "3" {
 		t.Fatalf("send written as\n%s\nnot\n%s", b, find("send", ""))
 	}
