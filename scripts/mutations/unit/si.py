@@ -503,6 +503,7 @@ MUTS = [
    ('module/a2a/backend.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/card.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/convert.go', '//go:build !no_a2a\n', ''),
+   ('module/a2a/extcard.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/handler.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/module.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/precheck.go', '//go:build !no_a2a\n', ''),

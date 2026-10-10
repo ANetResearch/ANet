@@ -43,6 +43,17 @@ type fakeSeam struct {
 	// refuse, when set, answers a send after it is recorded in sends, as
 	// the kernel answers a messageId already used for other content.
 	refuse func(module.TaskSend) error
+	// ext answers ExtendedCard by AID: the extended agent, or the error;
+	// an AID it has no entry for is extended_card_not_offered.
+	ext map[string]fakeExt
+	// extCalls counts ExtendedCard calls.
+	extCalls int
+}
+
+// fakeExt is one scripted answer of ExtendedCard.
+type fakeExt struct {
+	agent module.ExtendedAgent
+	err   error
 }
 
 type fakeTask struct {
@@ -317,6 +328,16 @@ func (f *fakeSeam) Card(_ context.Context, aid string) (module.RemoteAgent, erro
 		return ra, nil
 	}
 	return module.RemoteAgent{AID: aid, Verification: unverified}, nil
+}
+
+func (f *fakeSeam) ExtendedCard(_ context.Context, aid string) (module.ExtendedAgent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.extCalls++
+	if e, ok := f.ext[aid]; ok {
+		return e.agent, e.err
+	}
+	return module.ExtendedAgent{}, a2ashape.Refuse("extended_card_not_offered", nil)
 }
 
 func (f *fakeSeam) Pay(_ context.Context, peer, id string, d module.PayDecision) (module.Task, error) {

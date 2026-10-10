@@ -192,6 +192,20 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	if !strings.Contains(desc("get_agent_card"), "Only a VERIFIED card is returned") {
 		t.Error("get_agent_card must say an unverified card is not returned")
 	}
+	// HPP §4.6: what the prices are, that fetching them is seen by the
+	// agent and waits, what decides a payment, and when list-only skills
+	// show; and that a list fetches none.
+	for _, want := range []string{"`charge`", "`prices`", "`pricesFetchedAt`", "`priceNote`", "the agent knows you looked",
+		"up to 10 seconds", "follows the a2a-x402 quote", "never paid automatically", "after your first exchange"} {
+		if !strings.Contains(desc("get_agent_card"), want) {
+			t.Errorf("get_agent_card must say %q", want)
+		}
+	}
+	for _, want := range []string{"`charge`", "fetches no prices"} {
+		if !strings.Contains(desc("list_agents"), want) {
+			t.Errorf("list_agents must say %q", want)
+		}
+	}
 	// Paying spends the operator's money. The model has to learn whose
 	// credit it is, what caps it, and what to do when it is refused.
 	for _, want := range []string{"agent_max", "payees.allow", "anet pay <task_id>", "never try to raise a limit",
