@@ -155,7 +155,7 @@ func TestDelegateWritesERInSameTx(t *testing.T) {
 // a key only when it is approved, in the approval's transaction, with that
 // rk as the task's.
 func TestProviderKeyOnAcceptAndApprove(t *testing.T) {
-	srv, req, prov := quietPair(t)
+	_, req, prov := quietPair(t)
 	ctx := context.Background()
 	id, err := req.Delegate(ctx, prov.AID(), "taken", nil)
 	if err != nil {
@@ -170,7 +170,6 @@ func TestProviderKeyOnAcceptAndApprove(t *testing.T) {
 	}
 
 	// A delegation held for approval.
-	_ = srv
 	_, s, prov := heldPair(t)
 	held, err := s.Delegate(ctx, prov.AID(), "held, then approved", nil)
 	if err != nil {
@@ -201,7 +200,7 @@ func TestProviderKeyOnAcceptAndApprove(t *testing.T) {
 // FS-X2: no key is made for a delegation that is refused, held, or held and
 // then rejected.
 func TestNoKeyOnRefuseOrPending(t *testing.T) {
-	srv, req, prov := quietPair(t)
+	_, req, prov := quietPair(t)
 	ctx := context.Background()
 	// req accepts nobody: prov's delegation to it is refused.
 	refused, err := prov.Delegate(ctx, req.AID(), "refused", nil)
@@ -219,7 +218,6 @@ func TestNoKeyOnRefuseOrPending(t *testing.T) {
 		t.Fatalf("a refused delegation left %d keys", n-before)
 	}
 
-	_ = srv
 	_, s, prov := heldPair(t)
 	held, err := s.Delegate(ctx, prov.AID(), "held, then rejected", nil)
 	if err != nil {
@@ -344,7 +342,7 @@ func TestLayerFollowsPeerRK(t *testing.T) {
 // key carries its rk; one sealed after the key is deleted carries none,
 // and still goes in two layers to the peer's rk (ENG-K11, ENG-E2).
 func TestEveryVersionCarriesRKWhileHeld(t *testing.T) {
-	srv, req, prov := quietPair(t)
+	_, req, prov := quietPair(t)
 	ctx := context.Background()
 	id, err := req.Delegate(ctx, prov.AID(), "versions", nil)
 	if err != nil {
@@ -370,7 +368,6 @@ func TestEveryVersionCarriesRKWhileHeld(t *testing.T) {
 			t.Fatalf("version %d: %d layers, rk %v", i+1, op.Layers, op.RK)
 		}
 	}
-	_ = srv
 	// The key goes (the provider's terminal status); a version sealed after
 	// carries no rk.
 	env, _ := craftWith(t, senderOf(prov), req, seal.TypeStatus, id,
@@ -396,8 +393,7 @@ func TestEveryVersionCarriesRKWhileHeld(t *testing.T) {
 func TestCardsAreSingleLayerWithoutRK(t *testing.T) {
 	srv, req, prov := quietPair(t)
 	ctx := context.Background()
-	id, _ := previewTask(t, req, prov)
-	_ = id
+	_, _ = previewTask(t, req, prov) // both hold keys for a task of theirs
 	log := &sentLog{}
 	setFake(t, srv.URL, func(h *fakeHub) { h.sendHook = log.hook })
 	cix := cardIX(t)
@@ -448,11 +444,6 @@ func TestPreviewIsDoubleLayered(t *testing.T) {
 	}
 
 	// A task whose requester announced no rk.
-	bare, err := prov.ix.Get(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = bare
 	if err := prov.ix.Update(func(tx *interactions.Tx) error {
 		return tx.Create(interactions.New{ID: "ix_no_rk", Role: interactions.RoleInbound, PeerAID: req.AID(), Goal: "g"})
 	}); err != nil {
@@ -664,8 +655,6 @@ func TestLateResultAfterCancelIsStored(t *testing.T) {
 	if r.class != rxAccepted || r.reason != seal.ReasonSealedToClosedInteraction {
 		t.Fatalf("the result again: %+v, want sealed-to-closed-interaction", r)
 	}
-	op, _ := seal.ParseOuter(result)
-	_ = op
 }
 
 // terminalWrites records the Cause of every terminal write per task
