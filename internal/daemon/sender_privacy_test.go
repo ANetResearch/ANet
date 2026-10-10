@@ -152,6 +152,45 @@ func TestPeersListSenderHidden(t *testing.T) {
 	}
 }
 
+// TestPeersListAfterAReply: end to end, a peer that answered this node's
+// task gave it a peer capability with the answer, so its column turns from
+// visible to hidden (SS §5.2 peers.sender_visible: "this changes on its own
+// once they reply").
+func TestPeersListAfterAReply(t *testing.T) {
+	_, req, prov := registeredPair(t)
+	ctx := context.Background()
+	allowPeers(t, req, prov.AID())
+	column := func() PeerView {
+		t.Helper()
+		for _, p := range req.PeersList().Peers {
+			if p.AID == prov.AID() {
+				return p
+			}
+		}
+		t.Fatalf("%s is not in the list", prov.AID())
+		return PeerView{}
+	}
+	if p := column(); p.SenderHidden || p.SenderHiddenText != a2ashape.Sentence(senderVisibleKey, a2ashape.Lang(), nil) {
+		t.Fatalf("before any reply: %+v", p)
+	}
+	id, err := req.Delegate(ctx, prov.AID(), "a task", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.SendMessage(ctx, id, "a question", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := req.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if p := column(); !p.SenderHidden || p.SenderHiddenText != a2ashape.Sentence(senderHiddenKey, a2ashape.Lang(), nil) {
+		t.Fatalf("after the reply: %+v", p)
+	}
+}
+
 // statusSenderPrivacy is GET /status's sender_privacy object.
 func statusSenderPrivacy(t *testing.T, d *Daemon) map[string]any {
 	t.Helper()
