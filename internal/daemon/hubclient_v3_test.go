@@ -655,6 +655,8 @@ func TestDaemonDecodesHubBinaryAsBase64URL(t *testing.T) {
 		"internal/daemon/hubjoin_daemon.go decodeHubRegisterReq": "the control plane's request (the control plane keeps standard base64)",
 		"internal/mcpserv/tools.go buildMessage":                 "an MCP tool's argument",
 		"internal/daemon/ledger.go decodeRecord":                 "this node's evidence chain file",
+		"internal/daemon/evidence_queue.go decodeQueuedRecord":   "this node's evidence queue file",
+		"internal/daemon/identity_ops.go decodeIdentityReq":      "the control plane's request (the control plane keeps standard base64)",
 		"internal/daemon/egress.go proxyAuthorized":              "a sandboxed agent's Proxy-Authorization (HTTP Basic is standard base64)",
 		"internal/release/sshsig.go ParseAuthorizedKey":          "a release signing key file",
 		"internal/release/sshsig.go dearmor":                     "a release signature file",

@@ -430,6 +430,13 @@ type RegisterResponse struct {
 	// (sealed-sender SSR-D21): the hub was restored from a backup or lost
 	// them. Nil from a hub that does not say.
 	Revocations *uint64 `json:"revocations,omitempty"`
+	// KeyStateNotice is the witness notice the hub signed for the caller's
+	// KEL tip (base64url of the NoticeWire bytes), or KeyStateNoticeError
+	// why it signed none: quarantine, not_admitted, not_witness (KEL H-13).
+	// Every registration answer carries one of them, the card's and the
+	// profile's second registrations included (KEL D-50).
+	KeyStateNotice      string `json:"key_state_notice,omitempty"`
+	KeyStateNoticeError string `json:"key_state_notice_error,omitempty"`
 }
 
 // MailboxRevokePath is POST /mailbox/revoke (core §2.12.2), signed with
@@ -497,4 +504,35 @@ type HubIdentity struct {
 	KEL        string `json:"kel"`
 	Wire       *int   `json:"wire,omitempty"`
 	DirMaxBits *int   `json:"dir_max_bits,omitempty"`
+}
+
+// KELPushPath is POST /agents/kel:push (KEL §2.7, core §2.12.2): a key
+// history pushed to a hub that holds this identity's (a former witness, or
+// the current one after it lost events), without authentication.
+const KELPushPath = "/agents/kel:push"
+
+// KELPushRequest is the POST /agents/kel:push body: the AID and its whole
+// key history (identity.MarshalKEL bytes, base64url).
+type KELPushRequest struct {
+	AID string `json:"aid"`
+	KEL string `json:"kel"`
+}
+
+// KELPushResponse is the answer to an accepted push: the tip the hub holds
+// now, and whether the push added nothing.
+type KELPushResponse struct {
+	AID       string `json:"aid"`
+	Seq       uint64 `json:"seq"`
+	Head      string `json:"head"`
+	Unchanged bool   `json:"unchanged"`
+}
+
+// AgentKELResponse is GET /agents/{aid}/kel: the key history the hub holds
+// for aid (base64url), and whether aid is registered there; false means the
+// history is the tombstone it keeps for an agent that is gone (KEL D-27 row
+// d).
+type AgentKELResponse struct {
+	AID        string `json:"aid"`
+	KEL        string `json:"kel"`
+	Registered bool   `json:"registered"`
 }
