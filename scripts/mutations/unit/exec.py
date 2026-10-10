@@ -257,7 +257,7 @@ MUTS += [
   id='m-ad-6a', group='AD-9', repo='ANet',
   desc='unprotected 改变了应答的加入状态码',
   edits=[('internal/daemon/hubjoin_daemon.go', 'State: v.State, Reason: v.Reason, Message: v.Message,',
-          'State: v.State, Reason: map[bool]string{true: "recovery_setup_required", false: v.Reason}[unprotected], Message: v.Message,')],
+          'State: v.State, Reason: map[bool]string{true: "recovery_setup_required", false: v.Reason}[rec.reminderKey(d.identityState().State) != ""], Message: v.Message,')],
   tests=[(DAEMON, 'TestUnprotectedChangesOnlyTheRecoveryReminder|TestGJoin')],
   full=[DAEMON],
  ),

@@ -1088,4 +1088,9 @@ MUTS += [
  dict(id='kel6-list-tip-write', group='KEL-6', repo='ANetHub', desc='重新注册更长的 KEL 时不更新存下的顶端',
   edits=[(AGHUB, '\t\t   tip_seq=excluded.tip_seq, tip_head=excluded.tip_head`,\n', '\t\t   tip_seq=agent.tip_seq, tip_head=agent.tip_head`,\n')],
   tests=K6(['TestListingsReadTheStoredTip']), full=K6_FULL),
+ # Round 4 (integration): an entry without an event (null, undefined, a map without key 1) decodes to a
+ # zero SignedEvent without KeyEvent's decoder running; UnmarshalKEL refuses it (FuzzUnmarshalKEL's crash).
+ dict(id='kel-r4-null-entry', group='round-4', repo='ANetCore', desc='UnmarshalKEL 不拒绝不带事件的条目(null、undefined、缺键 1)',
+  edits=[(REPLAY, '\t\tif kel[i].Event.KELType != KELType {\n', '\t\tif false && kel[i].Event.KELType != KELType {\n')],
+  tests=[('ANetCore:./identity', '^(TestUnmarshalKELRefusesAnEntryWithoutAnEvent|FuzzUnmarshalKEL)$')], full=ID_FULL),
 ]
