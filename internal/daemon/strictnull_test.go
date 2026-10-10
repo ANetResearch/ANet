@@ -18,6 +18,7 @@ import (
 func TestEveryStrictDecoderRefusesNullAndUndefined(t *testing.T) {
 	probs, err := coredettest.Check(".", map[string]func() any{
 		"decodeEncKeyFile &f":          func() any { return new(encKeyFile) },
+		"decodeQueuedRecord &r":        func() any { return new(queuedRecord) },
 		"decodeKeyStateNoticeFile &f":  func() any { return new(keyStateNoticeFile) },
 		"decodeMboxFile &f":            func() any { return new(mboxKeyFile) },
 		"(*Daemon).hubStoredMbox &set": func() any { return new(seal.EncKeySet) },
