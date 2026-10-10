@@ -157,7 +157,7 @@ func TestRollbackClosesAndRegenerates(t *testing.T) {
 		t.Fatalf("the record says %v; want hub_seq %d, local_seq %d, failed_tasks 1", ev[0], stored, before)
 	}
 	m := prov.enc.rollbackMark()
-	if m == nil || m.Silent || !m.Logged || m.StoredSeq != stored || m.Tasks != 1 || m.PrevAt != 0 || m.At != prov.nowMS() && m.At > prov.nowMS() {
+	if m == nil || m.Silent || !m.Logged || m.StoredSeq != stored || m.Tasks != 1 || m.PrevAt != 0 || m.At == 0 || m.At > prov.nowMS() {
 		t.Fatalf("the rollback mark: %+v", m)
 	}
 	if n := prov.localStateLost(); n == nil || n.Tasks != 1 || n.Repeated {
