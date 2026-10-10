@@ -9,6 +9,8 @@ CLI = 'ANet:./cmd/anet'
 DAEMON = 'ANet:./internal/daemon'
 UX1_DEDUPE = 'internal/daemon/clientdedupe.go'
 UX1_TASKSEAM = 'internal/daemon/taskseam.go'
+UX3_DLG = 'internal/daemon/delegation.go'
+UX3_RR = 'internal/daemon/reply_result.go'
 
 MUTS = [
  dict(
@@ -406,4 +408,82 @@ MUTS += [
   edits=[('internal/daemon/tasks_api.go', '\tif ix.State == interactions.StateInputRequired && t.Status.Message.Metadata[a2ashape.KeyX402Status] == nil {\n\t\treturn ""\n\t}\n', '')],
   tests=[(DAEMON, 'TestConsoleStatusTextOnlyForAReasonOrAPayment')],
   full=[DAEMON]),
+ # UX-3: the reply folded into the result (correctness-ux §4.3.3; §7.3 M11, M12, M13, M30, M39, and the
+ # halves of CUX-R1, R6 and R7 and the backend projection). q30-1 and q30-2 (fixwave.py) are retired for
+ # ux3-m11 and ux3-m30.
+ dict(id='ux3-m11', group='UX-3', repo='ANet', desc='M11 答复行与结果分两个事务(答复先单独提交)',
+  edits=[(UX3_DLG, '\t\tif seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: interactionID,\n'
+                   '\t\t\tSenderAID: d.AID(), Kind: interactions.MsgText, Body: text, MsgID: msgID}); err != nil {\n'
+                   '\t\t\treturn nil, err\n\t\t}\n', ''),
+         (UX3_DLG, '\tid, err := d.queueSendAs(ctx, wireSend{to: ix.PeerAID, typ: seal.TypeResult, ix: interactionID, build: build}, write)\n',
+                   '\tif seq, _, err = d.ix.AddMessageRecord(interactions.MessageRecord{InteractionID: interactionID,\n'
+                   '\t\tSenderAID: d.AID(), Kind: interactions.MsgText, Body: text, MsgID: msgID}); err != nil {\n'
+                   '\t\treturn err\n\t}\n'
+                   '\tid, err := d.queueSendAs(ctx, wireSend{to: ix.PeerAID, typ: seal.TypeResult, ix: interactionID, build: build}, write)\n')],
+  tests=[(DAEMON, '^TestCompleteWithReplyOneTx$')], full=[DAEMON]),
+ dict(id='ux3-m12', group='UX-3', repo='ANet', desc='M12 去掉 CUX-R2 相等核对',
+  edits=[(UX3_DLG, '\t\tif err := replyMatches(rr.Deliverable, rr.Reply); err != nil {\n',
+          '\t\tif err := replyMatches(rr.Deliverable, rr.Reply); false && err != nil {\n')],
+  tests=[(DAEMON, '^(TestReplyMismatchFailsTaskBeforeToken|TestResultRefusedAndReceiptMismatchSayOneSentence)$')], full=[DAEMON]),
+ dict(id='ux3-m13', group='UX-3', repo='ANet', desc='M13 去掉请求方条目核对',
+  edits=[(UX3_DLG, '\t\tif mismatch, err = d.conversationMismatch(tx, cur, rr.Deliverable); err != nil {\n',
+          '\t\tif mismatch, err = false, error(nil); err != nil {\n')],
+  tests=[(DAEMON, '^(TestRequesterEntryMismatch|TestATranscriptMisquotingTheRequesterIsAMismatch)$')], full=[DAEMON]),
+ dict(id='ux3-m13-greedy', group='UX-3', repo='ANet', desc='M13 请求方条目核对不按顺序(每条都从头找)',
+  edits=[(UX3_RR, '\t\tfor j < len(sent) && !sameEntry(sent[j], e) {\n', '\t\tfor j = 0; j < len(sent) && !sameEntry(sent[j], e); {\n')],
+  tests=[(DAEMON, '^(TestRequesterEntriesMatchProperty|TestRequesterEntriesMatchOrder)$')], full=[DAEMON]),
+ dict(id='ux3-m30', group='UX-3', repo='ANet', desc='M30 恢复最终答复上的 anet.state = working 标记',
+  edits=[(UX3_DLG, '\t\t\tSenderAID: d.AID(), Kind: interactions.MsgText, Body: text, MsgID: msgID}); err != nil {\n\t\t\treturn nil, err\n',
+          '\t\t\tSenderAID: d.AID(), Kind: interactions.MsgText, Body: text, MsgID: msgID,\n'
+          '\t\t\tMetadata: []byte(`{"anet.state":"working"}`)}); err != nil {\n\t\t\treturn nil, err\n')],
+  tests=[(DAEMON, '^(TestNoHistoryMessageCarriesAState|TestReplyCompletedEndsABlockingSendWithTheAnswer|TestCompleteWithReplyOneTx)$')], full=[DAEMON]),
+ dict(id='ux3-m30-control', group='UX-3', repo='ANet', desc='M30 anet.state=working 的消息不再算控制消息(最终答复例外的反面)',
+  edits=[('internal/a2ashape/project.go', '\t_, state := meta[KeyState]\n\treturn state\n',
+          '\t_, state := meta[KeyState]\n\treturn state && meta[KeyState] != "working"\n')],
+  tests=[(A2A, '^TestAStateMarkIsAlwaysControl$')], full=[A2A]),
+ dict(id='ux3-m39', group='UX-3', repo='ANet', desc='M39 结果被拒收后请求方任务不结束',
+  edits=[('internal/daemon/receive.go', '\t\tif err := d.resultRefused(m, res.reason); err != nil {\n',
+          '\t\tif err := error(nil); err != nil {\n')],
+  tests=[(DAEMON, '^(TestReplyMismatchFailsTaskBeforeToken|TestARefusedReceiptFailsTheTask|TestAReceiptForAnotherRequestIsRefused)$')],
+  full=[DAEMON]),
+ dict(id='ux3-r7-tx', group='UX-3', repo='ANet', desc='CUX-R7 终态事务写失败仍产出 tok(2)',
+  edits=[('internal/daemon/receive.go', '\t\tif err := d.resultRefused(m, res.reason); err != nil {\n',
+          '\t\tif err := d.resultRefused(m, res.reason); false && err != nil {\n')],
+  tests=[(DAEMON, '^TestReplyMismatchFailsTaskBeforeToken$')], full=[DAEMON]),
+ dict(id='ux3-r7-cap', group='UX-3', repo='ANet', desc='CUX-R7 能力任务被拒收后不写 UNVERIFIED',
+  edits=[('internal/daemon/rx_seams.go', '\t\t\tmeta[a2ashape.KeyEffectStatus] = string(effect.Unverified)\n',
+          '\t\t\tmeta[a2ashape.KeyEffectStatus] = string(effect.Unavailable)\n')],
+  tests=[(DAEMON, '^TestARefusedCapabilityResultIsUnverified$')], full=[DAEMON]),
+ dict(id='ux3-r1', group='UX-3', repo='ANet', desc='CUX-R1 能力任务的结果带 reply 不按 bad-body 拒收',
+  edits=[('internal/daemon/receive.go', '\tif m.rr != nil && m.rr.Reply != nil && ix.IsCapability {\n',
+          '\tif false && m.rr != nil && m.rr.Reply != nil && ix.IsCapability {\n')],
+  tests=[(DAEMON, '^TestARefusedCapabilityResultIsUnverified$')], full=[DAEMON]),
+ dict(id='ux3-late', group='UX-3', repo='ANet', desc='CUX-R6 第 3 条:终态之后到达(late)的结果不补写答复行',
+  edits=[(UX3_DLG, '\t\tif err := reply.writeTx(tx, m.ix, m.from); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif len(cur.Receipt) > 0 {\n',
+          '\t\tif !cur.IsTerminal() {\n\t\t\tif err := reply.writeTx(tx, m.ix, m.from); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n\t\tif len(cur.Receipt) > 0 {\n')],
+  tests=[(DAEMON, '^TestLateAndAlreadyResultWriteReply$')], full=[DAEMON]),
+ dict(id='ux3-already', group='UX-3', repo='ANet', desc='CUX-R6 第 3 条:已有回执(already)的结果不补写答复行',
+  edits=[(UX3_DLG, '\t\tres := d.commitRx(m, func(tx *interactions.Tx) error { return reply.writeTx(tx, m.ix, m.from) })\n',
+          '\t\tres := d.commitRx(m, nil)\n')],
+  tests=[(DAEMON, '^TestLateAndAlreadyResultWriteReply$')], full=[DAEMON]),
+ dict(id='ux3-msgid', group='UX-3', repo='ANet', desc='CUX-R2 第 3 条:reply 的消息 id 指向别的消息时照样受理',
+  edits=[(UX3_RR, '\t\tif prior.SenderAID != provider || prior.Kind != interactions.MsgText || prior.Body != r.body ||\n\t\t\thasControlMeta(prior.Metadata) {\n',
+          '\t\tif false {\n')],
+  tests=[(DAEMON, '^TestLateAndAlreadyResultWriteReply$')], full=[DAEMON]),
+ dict(id='ux3-c5', group='UX-3', repo='ANet', desc='CUX-R6 第 4 条:条目不符仍写结果受理证据(C5)',
+  edits=[(UX3_DLG, '\tif mismatch {\n\t\t// No evidence of a result whose transcript changes what this node\n',
+          '\tif false && mismatch {\n\t\t// No evidence of a result whose transcript changes what this node\n')],
+  tests=[(DAEMON, '^TestRequesterEntryMismatch$')], full=[DAEMON]),
+ dict(id='ux3-review', group='UX-3', repo='ANet', desc='CUX-R6 第 4 条:条目不符仍可评价',
+  edits=[(UX3_DLG, '\tif ix.ReceiptVerified == interactions.VerificationMismatch {\n',
+          '\tif false && ix.ReceiptVerified == interactions.VerificationMismatch {\n')],
+  tests=[(DAEMON, '^(TestRequesterEntryMismatch|TestResultRefusedAndReceiptMismatchSayOneSentence|TestATranscriptMisquotingTheRequesterIsAMismatch)$')],
+  full=[DAEMON]),
+ dict(id='ux3-note', group='UX-3', repo='ANet', desc='交给后端的投影带 anet.identity_note(投影不区分读者)',
+  edits=[('internal/a2ashape/project.go', '\tif opt.IdentityNote != "" && !opt.ForBackend {\n', '\tif opt.IdentityNote != "" {\n')],
+  tests=[(A2A, '^TestProjectionForBackendHasNoIdentityNote$'), (DAEMON, '^TestBackendProjectionHasNoIdentityNote$')],
+  full=[A2A, DAEMON]),
+ dict(id='ux3-note-feed', group='UX-3', repo='ANet', desc='入站任务的后端投影按"给本人"取(带 anet.identity_note)',
+  edits=[('internal/daemon/inbound_tasks.go', 'viewOpts{backend: true}', 'viewOpts{}', 3)],
+  tests=[(DAEMON, '^TestBackendProjectionHasNoIdentityNote$')], full=[DAEMON]),
 ]
