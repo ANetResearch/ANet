@@ -68,7 +68,14 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 	// it, or a registration after a restart, carries the current one. The
 	// hub answers an identical set at the same seq as unchanged. It goes
 	// in base64url with its prev_seq (FS-K5), and not at all while key
-	// sets are held (keysHeld): the registration then restates nothing.
+	// sets are held (keysHeld): the registration then restates nothing. A
+	// registration that carries it is a publication: it holds the publish
+	// lock from reading the set to the end (FS-K5a), the card's second
+	// registration and a separate publication of the set included.
+	if d.enc != nil {
+		defer d.enc.lockPublish()()
+		d.finishLeftRollback()
+	}
 	keysSeq := uint64(0)
 	var keySet []byte
 	withKeys := func() {
@@ -93,15 +100,20 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 	}
 	reply := d.hubSignedRaw(ctx, hubURL, http.MethodPost, "/register", relayauth.ActionRegister, body)
 	if stored, ok := keysRollbackOf(reply); ok && keySet != nil {
-		// The hub holds a newer set of this identity than the one sent, and
-		// wrote nothing: the registration goes again once with a set above
-		// the hub's (adoptKeysSeq), or not at all.
-		if d.adoptKeysSeq(hubURL, stored) {
+		// The hub holds a set of this identity the one sent does not
+		// follow, and wrote nothing (FS-B2): the registration goes again
+		// once with a set above the hub's (answerKeysRollback), or not at
+		// all; when the hub's set could not be checked, nothing is decided
+		// and the join loop tries again later.
+		switch ans, err := d.answerKeysRollback(ctx, hubURL, stored); ans {
+		case rollbackResend:
 			withKeys()
 			if err := d.screenPublication("this node's registration", body); err != nil {
 				return hubReply{Local: true, Err: err}
 			}
 			reply = d.hubSignedRaw(ctx, hubURL, http.MethodPost, "/register", relayauth.ActionRegister, body)
+		case rollbackRetryLater:
+			return hubReply{Err: err}
 		}
 	}
 	if reply.Status != http.StatusOK {
@@ -133,7 +145,7 @@ func (d *Daemon) registerWithKEL(ctx context.Context, hubURL, name string, caps 
 	default:
 		log.Printf("anet: %s did not take this node's encryption keys at registration (keys_status %q: %s); publishing them separately",
 			hubURL, out.KeysStatus, out.KeysError)
-		if err := d.publishKeys(ctx, hubURL); err != nil {
+		if err := d.publishKeysLocked(ctx, hubURL); err != nil {
 			log.Printf("anet: publish encryption keys to %s: %v", hubURL, err)
 		}
 	}
@@ -154,23 +166,38 @@ var errKeysHeld = errors.New("anet: key sets are held until the emergency rotati
 // /agents/{aid}/keys): base64url, with the prev_seq it follows (FS-K5).
 // 200 with keys_status ok or unchanged means the hub holds this set, and
 // the keys it does not list are no longer acceptable there (FS-K6). 409
-// keys_rollback means the hub holds a newer set of this identity than this
-// ring signed (a lost or restored key ring): the set is signed again above
-// it and sent once more (adoptKeysSeq). 400 bad_request means the hub
-// refused the set: when its mailbox key is behind the hub's, a new one is
-// made above it and the set sent once more (healMboxEpoch, SSR-W10a).
-// Every answer is checked for the mailbox signing key (SSR-D4,
-// noteKeysAtHub). Nothing is sent while key sets are held (keysHeld).
+// keys_rollback means the hub holds a set of this identity this ring's set
+// does not follow (a lost or restored key ring, or a copy of the data
+// directory running elsewhere): answerKeysRollback decides what that says
+// (FS-B2) and the set, signed again above the hub's, is sent once more. 400
+// bad_request means the hub refused the set: when its mailbox key is behind
+// the hub's, a new one is made above it and the set sent once more
+// (healMboxEpoch, SSR-W10a). Every answer is checked for the mailbox
+// signing key (SSR-D4, noteKeysAtHub). Nothing is sent while key sets are
+// held (keysHeld). It holds the publish lock throughout (FS-K5a).
 func (d *Daemon) publishKeys(ctx context.Context, hubURL string) error {
 	if d.enc == nil {
 		return fmt.Errorf("anet: no key ring")
 	}
+	defer d.enc.lockPublish()()
+	return d.publishKeysLocked(ctx, hubURL)
+}
+
+// publishKeysLocked is publishKeys for a caller that holds the publish
+// lock.
+func (d *Daemon) publishKeysLocked(ctx context.Context, hubURL string) error {
 	if d.keysHeld() {
 		return errKeysHeld
 	}
+	d.finishLeftRollback()
 	err := d.publishKeysOnce(ctx, hubURL)
-	if stored, ok := keysRollbackSeq(err); ok && d.adoptKeysSeq(hubURL, stored) {
-		err = d.publishKeysOnce(ctx, hubURL)
+	if stored, ok := keysRollbackSeq(err); ok {
+		switch ans, aerr := d.answerKeysRollback(ctx, hubURL, stored); ans {
+		case rollbackResend:
+			err = d.publishKeysOnce(ctx, hubURL)
+		case rollbackRetryLater:
+			err = fmt.Errorf("%w (the hub's set could not be checked: %v; anet tries again on its own)", err, aerr)
+		}
 	}
 	// The hub refused the set as invalid: the mailbox key may be one it
 	// cannot take (SSR-W9), which a new key above the hub's heals, once
@@ -191,12 +218,16 @@ func keySetRefused(err error) bool {
 	return hubStatus(err) == http.StatusBadRequest && hubReason(err) == "bad_request"
 }
 
-// publishKeysOnce is one POST /agents/{aid}/keys of the ring's current set.
+// publishKeysOnce is one POST /agents/{aid}/keys of the ring's current set,
+// read under the publish lock the caller holds.
 func (d *Daemon) publishKeysOnce(ctx context.Context, hubURL string) error {
 	ks, seq, prev := d.enc.published()
 	if len(ks) == 0 {
 		d.noteKeysAtHub(nil, false)
 		return fmt.Errorf("anet: key ring has no signed set")
+	}
+	if h := d.enc.pubSent.Load(); h != nil {
+		(*h)()
 	}
 	body := hubapi.KeysPublishRequest{Keys: hubapi.B64(ks), PrevSeq: prev}
 	var out hubapi.KeysPublishResponse
@@ -215,31 +246,6 @@ func (d *Daemon) publishKeysOnce(ctx context.Context, hubURL string) error {
 		log.Printf("anet: record the keys %s no longer holds: %v", hubURL, err)
 	}
 	return nil
-}
-
-// counterKeysRollbackUnverified counts the hub's keys_rollback answers this
-// node followed without finding that its own data went back (FS-B2).
-const counterKeysRollbackUnverified = "keys-rollback-unverified"
-
-// adoptKeysSeq answers the hub's 409 keys_rollback with stored_seq (FS-B2,
-// the branch that ends nothing): the ring signs its set again above
-// stored_seq, with prev_seq stored_seq, so the next publication follows the
-// hub's set. It reports whether there is a new set to send. Counted and
-// logged; no task ends and nothing is shown, since only a set this identity
-// signed would say this node's data went back.
-func (d *Daemon) adoptKeysSeq(hubURL string, storedSeq uint64) bool {
-	in := d.ringInputsAt(d.nowMS())
-	in.hold = d.keysHeld()
-	adopted, err := d.enc.adoptStoredSeq(storedSeq, in)
-	if err != nil {
-		log.Printf("anet: sign a key set above the one %s holds: %v", hubURL, err)
-		return false
-	}
-	if adopted {
-		d.countErr(counterKeysRollbackUnverified, fmt.Errorf("%s holds key set seq %d of this identity, newer than this node signed; the next set follows it",
-			hubURL, storedSeq))
-	}
-	return adopted
 }
 
 // keysRollbackSeq reads a hub's 409 keys_rollback refusal of a key set:

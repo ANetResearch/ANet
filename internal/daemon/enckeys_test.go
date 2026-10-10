@@ -796,11 +796,13 @@ func TestRemovedAtAfter200(t *testing.T) {
 	}
 }
 
-// TestKeysRollbackAdoptsStoredSeq (FS-B2's branch that ends nothing, until
-// FS-10 adds the check): a hub that holds a newer set of this identity than
-// the ring signed answers 409 keys_rollback with stored_seq; the ring signs
-// its set again above it with prev_seq stored_seq, and the registration or
-// the publication goes through. Counted, nothing else: no task ends.
+// TestKeysRollbackAdoptsStoredSeq (FS-B2's branch that ends nothing): a hub
+// that holds a newer set of this identity than the ring signed answers 409
+// keys_rollback with stored_seq; when its directory shows no set this
+// identity signed elsewhere at that seq — here it shows none at all — the
+// ring signs its set again above it with prev_seq stored_seq, and the
+// registration or the publication goes through. Counted, nothing else: no
+// task ends, no mark is written.
 func TestKeysRollbackAdoptsStoredSeq(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	h := fakeHubAt(t, srv.URL)
@@ -817,6 +819,7 @@ func TestKeysRollbackAdoptsStoredSeq(t *testing.T) {
 	}
 	stored := prov.enc.Seq()
 	layout := prov.layout
+	h.setDir(func(h *fakeHub) { h.dirHide[prov.AID()] = true })
 	// The provider loses its key ring: the new one signs from last_seq 0,
 	// so its first publication names prev_seq 0 under the hub's set.
 	if err := prov.Close(); err != nil {
@@ -847,7 +850,7 @@ func TestKeysRollbackAdoptsStoredSeq(t *testing.T) {
 		t.Fatalf("keys-rollback-unverified counted %d times", n)
 	}
 	// The same through POST /agents/{aid}/keys: the hub gets a newer set
-	// this identity signed (another copy of it, say).
+	// this identity signed (another copy of it, say), still not shown.
 	newer := decodedSet(t, got)
 	newer.Seq += 1000
 	newer.IssuedAt = newer.Seq
@@ -873,18 +876,22 @@ func TestKeysRollbackAdoptsStoredSeq(t *testing.T) {
 	if ix, err := p2.ix.Get(id); err != nil || ix.IsTerminal() {
 		t.Fatalf("a keys_rollback ended the task in flight: %v %v", ix, err)
 	}
+	if m := p2.enc.rollbackMark(); m != nil {
+		t.Fatalf("a keys_rollback it found nothing behind wrote a mark: %+v", m)
+	}
 }
 
 // TestForgedStoredSeqNotFollowedPastJSON (FS-B2, red team A6): a hub that
-// answers a publication with a forged keys_rollback ends nothing either way.
+// answers a publication with a forged keys_rollback ends nothing either way
+// (the provider has a task in flight, so each answer is checked).
 // A stored_seq below 2^53 is followed and the next publication goes through;
 // one of 2^53 or more — 2^63 − 1 would leave the ring signing seq 2^63, which
 // every hub refuses — is not followed, is not counted as a rollback, and the
 // ring's seq stays where it was, so an honest answer next takes the set.
 func TestForgedStoredSeqNotFollowedPastJSON(t *testing.T) {
-	srv, _, prov := registeredPair(t)
-	h := fakeHubAt(t, srv.URL)
+	h, srv, _, prov, id := rollbackPair(t)
 	ctx := context.Background()
+	defer stillOpen(t, prov, id)
 	hubSeq := func() uint64 {
 		h.mu.Lock()
 		defer h.mu.Unlock()

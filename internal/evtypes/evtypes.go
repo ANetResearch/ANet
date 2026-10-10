@@ -47,6 +47,10 @@ const (
 	// RetentionChanged is a change of content_retention made with `anet
 	// retention set` (forward-secrecy §2.12).
 	RetentionChanged = "anet.retention.changed"
+	// LocalStateLost is a rollback of this node's data that it found: the
+	// hub held a key set this identity signed and this node did not, and
+	// the tasks in flight were ended (forward-secrecy §2.12, FS-B3).
+	LocalStateLost = "anet.local_state.lost"
 )
 
 // Source says where the fact an event records came from.
@@ -102,6 +106,7 @@ var registry = []Event{
 		AggregatedLabel: "messages received (aggregated)"},
 	{Type: HubAdmission, Label: "hub join state changed", Source: SourceHub},
 	{Type: RetentionChanged, Label: "content retention changed", Source: SourceNode},
+	{Type: LocalStateLost, Label: "local data went back (tasks in flight ended)", Source: SourceNode},
 }
 
 var byType = func() map[string]Event {
@@ -169,6 +174,9 @@ var payloads = map[string]Payload{
 		Values:   map[string][]string{"trust": {"outbound", "peer", "approved", "public", "public_cap"}},
 	},
 	RetentionChanged: {Required: []string{"from", "to", "deleted_interactions"}},
+	// The hub's seq of the set this node's data was behind, this node's
+	// last_seq before it (0 when not known), the tasks ended (FS §2.12).
+	LocalStateLost: {Required: []string{"hub_seq", "local_seq", "failed_tasks"}},
 }
 
 // PayloadOf returns the fixed payload of event type t, if it has one.

@@ -350,6 +350,7 @@ func New(layout Layout) (*Daemon, error) {
 	// closed first (engine §6.3 step 2); then the rows an attempt left
 	// marked count as handed over (step 3), before anything is sent.
 	d.closeLeftAtStart()
+	d.finishLeftRollback() // a local state rollback a crash cut short (FS-B3)
 	d.recoverOutboxAttempts()
 	d.recoverInterrupted()
 	d.startPayments(ctx)

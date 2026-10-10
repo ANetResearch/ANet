@@ -1144,7 +1144,7 @@ MUTS += [
   tests=HUB6_T(['TestNegativeCacheMissAfterOwnerMoves']), full=FED6_FULL),
  # ---- the area's own: the origin
  dict(id='ss6-answer-retry', group='SS-6', repo='ANetHub', desc='origin 转回目的 hub 的拒绝时不带它的 Retry-After',
-  edits=[('internal/aghub/fed_relay.go', '\t\twire3.Write(w, wire3.Refusal{Reason: reason, RetryAfter: wait})', '\t\twire3.Write(w, wire3.Refusal{Reason: reason})')],
+  edits=[('internal/aghub/fed_relay.go', '\t\twire3.Write(w, wire3.Refusal{Reason: reason, RetryAfter: passedRetryAfter(resp, 0)})', '\t\twire3.Write(w, wire3.Refusal{Reason: reason})')],
   tests=HUB6_T(['TestForwardAnswerMapping']), full=FED6_FULL),
  dict(id='ss6-answer-unknown', group='SS-6', repo='ANetHub', desc='目的 hub 的 404 unknown_destination 转回为 502 而不是 recipient_unknown',
   edits=[('internal/aghub/fed_relay.go', '\tcase reason == wire3.ReasonUnknownDestination && resp.StatusCode == http.StatusNotFound:',
