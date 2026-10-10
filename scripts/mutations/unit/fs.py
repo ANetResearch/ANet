@@ -21,6 +21,10 @@
 # hard bound, the clock checks and the boot clock, the drain records, the publication (base64url, prev_seq,
 # removed_at, keys_rollback), SSR-W10a's heal, the E1-E2 hold, the ring file, and CORE-V4's data directory checks.
 # The review of FS-4 adds fs4-r1 to fs4-r12: mutations that the suite let through before, each now red.
+# FS-10 adds 27, 28, 29, 45, 46 and 47 (20 is fs-20 and fs4-k) and fs10-a to fs10-l, which hold the publish
+# lock (FS-K5a), the check of the hub's set (FS-B2: a set this identity signed that this ring did not), the
+# restart and retry of a rollback cut short (FS-B3) and the registration's answer to a check it could not
+# make to their tests (see the group at the end).
 # FS-9 adds 18, 32, 33, 34, 35 and the production half of 16 (fs-16d: no checkpoint in the maintenance
 # period), moves 19 to the retention decision (the gate is contentDeletable's since FS-9), and adds fs9-a
 # to fs9-r, which hold the retention sweep, the held items' expiry, the work directories' removal, the
@@ -32,6 +36,7 @@ FS9_CLI = 'ANet:./cmd/anet'
 FS9_RET = 'internal/runtime/interactions/retention.go'
 FS9_CMD = 'cmd/anet/retention.go'
 FS9_EXEC = 'internal/daemon/autoreply_exec.go'
+FS10_RB = 'internal/daemon/rollback.go'
 
 MUT34_NOTTY = '''package main
 
@@ -533,7 +538,7 @@ MUTS += [
   edits=[('internal/daemon/hub_client.go', '\td.noteKeysAtHub(ks, true)\n\tif err := d.enc.markRemoved(ks, d.nowMS()); err != nil {', '\td.noteKeysAtHub(ks, true)\n\tif err := error(nil); err != nil {')],
   tests=[(FS4_D, '^(TestRemovedAtAfter200|TestEmergencyPublishesOnlyNewKeys)$')], full=[FS4_D]),
  dict(id='fs4-n', group='FS-B2', repo='ANet', desc='发布遇 409 keys_rollback 不采纳 stored_seq',
-  edits=[('internal/daemon/hub_client.go', 'if stored, ok := keysRollbackSeq(err); ok && d.adoptKeysSeq(hubURL, stored) {', 'if stored, ok := keysRollbackSeq(err); false && ok && d.adoptKeysSeq(hubURL, stored) {')],
+  edits=[('internal/daemon/hub_client.go', '\tif stored, ok := keysRollbackSeq(err); ok {\n', '\tif stored, ok := keysRollbackSeq(err); false && ok {\n')],
   tests=[(FS4_D, '^TestKeysRollbackAdoptsStoredSeq$')], full=[FS4_D]),
  dict(id='fs4-o', group='FS-B2', repo='ANet', desc='注册遇 409 keys_rollback 不重发(加入流程判为终局拒绝)',
   edits=[('internal/daemon/hub_client.go', 'if stored, ok := keysRollbackOf(reply); ok && keySet != nil {', 'if stored, ok := keysRollbackOf(reply); false && ok && keySet != nil {')],
@@ -703,4 +708,62 @@ MUTS += [
   edits=[('internal/daemon/evidence_mode.go', '\trun := nextUnverifiedRun(d.enc.unverifiedRun(), hubGateOpen(obs, wall, mono), prev, wall, mono)\n',
           '\trun := d.enc.unverifiedRun()\n\t_ = prev\n')],
   tests=[(FS4_D, '^TestRetentionChangeAfterWallJump$')], full=[FS4_D]),
+ # --- FS-10: the local state rollback and the publish lock (FS §4.3.1 FS-K5a, §4.7) ---
+ dict(id='fs-27', group='FS-B2', repo='ANet', desc='keys_rollback 不核验即结束交互(红队 A6、J10)',
+  edits=[(FS10_RB, '\tcheck, why := d.checkStoredKeySet(ctx, hubURL, storedSeq)\n', '\tcheck, why := setSignedElsewhere, error(nil)\n')],
+  tests=[(FS4_D, '^TestForgedRollbackEndsNothing$')], full=[FS4_D]),
+ dict(id='fs-28', group='G25', repo='ANet', desc='没有交互行时也写 anet.local_state.lost(J9)',
+  edits=[(FS10_RB, '\tif rows == 0 && !recentMark(mark, now) {', '\tif false && rows == 0 && !recentMark(mark, now) {')],
+  tests=[(FS4_D, '^TestRecoverOnFreshDirIsSilent$')], full=[FS4_D]),
+ dict(id='fs-29', group='FS-B3', repo='ANet', desc='回退处理不重新生成纪元钥(只把原钥集签到 stored_seq 之上)',
+  edits=[(FS10_RB, '\tif _, err := d.enc.regenerate(m.StoredSeq, m.StoredSeq, d.ringInputsAt(d.nowMS())); err != nil {',
+          '\tif _, err := d.enc.adoptStoredSeq(m.StoredSeq, d.ringInputsAt(d.nowMS()), nil); err != nil {')],
+  tests=[(FS4_D, '^TestRollbackRegeneratesKeys$')], full=[FS4_D]),
+ dict(id='fs-45', group='FS-B4a', repo='ANet', desc='7 天内第二次经核验的回退不升级为 fail(J12)',
+  edits=[(FS10_RB, '\trepeated := m.PrevAt != 0 && ', '\trepeated := false && m.PrevAt != 0 && ')],
+  tests=[(FS4_D, '^(TestRepeatedRollbackFailsDoctor|TestSecondFreshDirRollbackIsVerified)$')], full=[FS4_D]),
+ dict(id='fs-46', group='FS-B4', repo='ANet', desc='tasks = 0 的经核验回退不显示提示',
+  edits=[(FS10_RB, '\tif m == nil || m.Silent || !withinNotice(m.At, now) {', '\tif m == nil || m.Silent || m.Tasks == 0 || !withinNotice(m.At, now) {')],
+  tests=[(FS4_D, '^TestRollbackNoticeEvenWithoutTasks$')], full=[FS4_D]),
+ dict(id='fs-47', group='FS-B2', repo='ANet', desc='没有交互行的节点 7 天内每次回退都静默采纳',
+  edits=[(FS10_RB, '\tif rows == 0 && !recentMark(mark, now) {', '\tif rows == 0 {')],
+  tests=[(FS4_D, '^TestSecondFreshDirRollbackIsVerified$')], full=[FS4_D]),
+ dict(id='fs10-a', group='FS-K5a', repo='ANet', desc='钥集发布不串行(发布锁形同虚设)',
+  edits=[('internal/daemon/enckeys.go', 'func (r *encKeyRing) lockPublish() (unlock func()) {\n\tif !r.pubMu.TryLock() {',
+          'func (r *encKeyRing) lockPublish() (unlock func()) {\n\tif true {\n\t\treturn func() {}\n\t}\n\tif !r.pubMu.TryLock() {')],
+  tests=[(FS4_D, '^TestKeySetPublishesAreSerialized$')], full=[FS4_D]),
+ dict(id='fs10-b', group='FS-K5a', repo='ANet', desc='带钥集的注册不取发布锁(在锁外读钥集)',
+  edits=[('internal/daemon/hub_client.go', '\tif d.enc != nil {\n\t\tdefer d.enc.lockPublish()()\n\t\td.finishLeftRollback()\n\t}\n',
+          '\tif d.enc != nil {\n\t\td.finishLeftRollback()\n\t}\n')],
+  tests=[(FS4_D, '^TestKeySetPublishesAreSerialized/registration$')], full=[FS4_D]),
+ dict(id='fs10-c', group='FS-B2', repo='ANet', desc='按字面 stored_seq > last_seq 判定(另一份副本先签的钥集被当作伪造)',
+  edits=[(FS10_RB, '\tif storedSeq <= ownPrev {', '\tif storedSeq <= last {')],
+  tests=[(FS4_D, '^TestACopyThatSignedFirstIsFound$')], full=[FS4_D]),
+ dict(id='fs10-d', group='FS-B2', repo='ANet', desc='不排除本钥环签过的早先钥集(hub 重放本机旧钥集即可结束任务)',
+  edits=[(FS10_RB, '\tif storedSeq <= ownPrev {', '\tif false && storedSeq <= ownPrev {')],
+  tests=[(FS4_D, '^TestHubReplayingThisNodesOwnSetEndsNothing$')], full=[FS4_D]),
+ dict(id='fs10-e', group='FS-B2', repo='ANet', desc='不排除本钥环当前的钥集',
+  edits=[(FS10_RB, '\tif storedSeq == last && sameSetContent(ours, s.Set) {', '\tif false && storedSeq == last && sameSetContent(ours, s.Set) {')],
+  tests=[(FS4_D, '^TestHubReplayingThisNodesOwnSetEndsNothing$')], full=[FS4_D]),
+ dict(id='fs10-f', group='FS-B2', repo='ANet', desc='不要求目录钥集的 seq 等于 stored_seq',
+  edits=[(FS10_RB, '\tif set.Seq != storedSeq {', '\tif false && set.Seq != storedSeq {')],
+  tests=[(FS4_D, '^TestForgedRollbackEndsNothing$')], full=[FS4_D]),
+ dict(id='fs10-g', group='FS-B2', repo='ANet', desc='目录钥集不经本机 KEL 验签',
+  edits=[(FS10_RB, '\tset, err := seal.VerifyEncKeySet(s, aid, kel, head.IssuedAt)\n', '\tset, err := &head, error(nil)\n')],
+  tests=[(FS4_D, '^TestForgedRollbackEndsNothing$')], full=[FS4_D]),
+ dict(id='fs10-h', group='FS-B3', repo='ANet', desc='重做时不查证据是否已写(崩溃后证据重复)',
+  edits=[(FS10_RB, '\tif known || !d.rollbackLogged(m.StoredSeq) {', '\tif true {')],
+  tests=[(FS4_D, '^TestRollbackStepsIdempotent$')], full=[FS4_D]),
+ dict(id='fs10-i', group='FS-B3', repo='ANet', desc='重启时不从第 2 步重做',
+  edits=[('internal/daemon/daemon.go', '\td.finishLeftRollback() // a local state rollback a crash cut short (FS-B3)\n', '')],
+  tests=[(FS4_D, '^TestRollbackStepsIdempotent$')], full=[FS4_D]),
+ dict(id='fs10-j', group='FS-B2', repo='ANet', desc='目录读不到时按核验不通过处理(网络失败也采纳 stored_seq 并计数)',
+  edits=[(FS10_RB, '\t\treturn rollbackRetryLater, why\n\tcase setSignedElsewhere:', '\tcase setSignedElsewhere:')],
+  tests=[(FS4_D, '^TestRollbackWaitsForTheDirectory$')], full=[FS4_D]),
+ dict(id='fs10-k', group='FS-B2', repo='ANet', desc='注册遇无法核验的 keys_rollback 时把 409 交给加入流程(判为终局拒绝)',
+  edits=[('internal/daemon/hub_client.go', '\t\tcase rollbackRetryLater:\n\t\t\treturn hubReply{Err: err}\n', '')],
+  tests=[(FS4_D, '^TestRollbackWaitsForTheDirectory$')], full=[FS4_D]),
+ dict(id='fs10-l', group='FS-B3', repo='ANet', desc='同一 stored_seq 的 keys_rollback 再到时写新标记(一次回退被算成两次)',
+  edits=[(FS10_RB, '\tif mark != nil && mark.StoredSeq == storedSeq {', '\tif false && mark != nil && mark.StoredSeq == storedSeq {')],
+  tests=[(FS4_D, '^TestRollbackStepsIdempotent$')], full=[FS4_D]),
 ]

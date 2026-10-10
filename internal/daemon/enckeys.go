@@ -67,6 +67,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/coredet"
@@ -215,7 +216,13 @@ type encKeyRing struct {
 	// (FS-K5). After a restart it is last_seq, which is not below the true
 	// one: a hub holding a set this node never signed is still refused by
 	// it unless that set's seq falls between the two.
-	prevSeq  uint64
+	prevSeq uint64
+	// ownPrev is the largest seq this ring signed before signed: every set
+	// it ever signed is at ownPrev or below, or is signed itself. It is
+	// prevSeq except after a stored_seq was followed (prevSeq is then the
+	// hub's seq), and last_seq after a restart. A hub's set above it that is
+	// not signed is one this ring did not sign (FS-B2, rollback.go).
+	ownPrev  uint64
 	signed   []byte    // current SignedEncKeySet encoding
 	mbox     seal.Mbox // the mailbox signing key the signed set publishes; zero until known
 	lastWall uint64
@@ -231,6 +238,34 @@ type encKeyRing struct {
 	mboxOf func() (seal.Mbox, bool)
 	// noteErr counts a failure the ring survives (the daemon's countErr).
 	noteErr func(counter string, err error)
+
+	// pubMu is the publish lock (FS-K5a): every publication of the ring's
+	// set — the maintenance period's, a registration that carries it, the
+	// mailbox key's republish and heal, an explicit publishKeys — holds it
+	// from reading the set it sends to the end of the hub's answer, and
+	// the answer to a keys_rollback runs under it (rollback.go). Not the
+	// poll lock: a hub slow to answer a publication holds up only the next
+	// publication. Lock order: the join's regMu, then pubMu, then maintMu
+	// and the store's transactions.
+	pubMu sync.Mutex
+	// Test hooks (rollback.go's setters): pubWait runs when a publication
+	// finds the lock held, before it waits; pubSent runs in a publication
+	// after it read the set it sends, before it sends it; rbStep runs after
+	// each step of a rollback, and an error stops it there as a crash would.
+	pubWait atomic.Pointer[func()]
+	pubSent atomic.Pointer[func()]
+	rbStep  atomic.Pointer[func(step int) error]
+}
+
+// lockPublish takes the publish lock (FS-K5a) and returns its release.
+func (r *encKeyRing) lockPublish() (unlock func()) {
+	if !r.pubMu.TryLock() {
+		if h := r.pubWait.Load(); h != nil {
+			(*h)()
+		}
+		r.pubMu.Lock()
+	}
+	return r.pubMu.Unlock
 }
 
 // counterOverwriteFailed counts a rewrite of the key ring that could not
@@ -276,7 +311,7 @@ func openKeyRing(path, aid string, now func() uint64) (*encKeyRing, error) {
 		}
 		return r, nil
 	}
-	r.lastSeq, r.prevSeq, r.signed = f.LastSeq, f.LastSeq, f.Signed
+	r.lastSeq, r.prevSeq, r.ownPrev, r.signed = f.LastSeq, f.LastSeq, f.LastSeq, f.Signed
 	r.lastWall, r.run, r.rollback, r.regenTag = f.LastWall, f.UnverifiedRun, f.Rollback, f.RegenTag
 	// The mailbox key stays what the last signed set published.
 	if s, err := seal.UnmarshalSignedEncKeySet(f.Signed); err == nil {
@@ -338,6 +373,48 @@ func (r *encKeyRing) published() (signed []byte, seq, prevSeq uint64) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.signed, r.lastSeq, r.prevSeq
+}
+
+// ownSets is what tells a set this ring signed from one it did not
+// (FS-B2): its current set, last_seq, and ownPrev — every other set it
+// signed is at ownPrev or below.
+func (r *encKeyRing) ownSets() (signed []byte, last, ownPrev uint64) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.signed, r.lastSeq, r.ownPrev
+}
+
+// rollbackMark returns a copy of the ring's rollback mark, or nil.
+func (r *encKeyRing) rollbackMark() *rollbackMark {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.rollback == nil {
+		return nil
+	}
+	m := *r.rollback
+	return &m
+}
+
+// regeneratedFor reports whether the ring's last regeneration was the one
+// tagged tag (regen_tag).
+func (r *encKeyRing) regeneratedFor(tag uint64) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.regenTag == tag
+}
+
+// setRollback writes m as the ring's rollback mark (FS-B3 step 1, and
+// logged once its evidence is written), durably before it is the ring's.
+func (r *encKeyRing) setRollback(m rollbackMark) error {
+	r.maintMu.Lock()
+	defer r.maintMu.Unlock()
+	if err := r.writeState(r.stateWith(func(s *ringState) { s.rollback = &m })); err != nil {
+		return fmt.Errorf("anet: save key ring: %w", err)
+	}
+	r.mu.Lock()
+	r.rollback = &m
+	r.mu.Unlock()
+	return nil
 }
 
 // unverifiedRun is unverified_run as the ring holds it.
@@ -417,6 +494,7 @@ func (r *encKeyRing) maintain(in ringInputs) (bool, error) {
 	r.mu.RLock()
 	current := append([]*ringKey(nil), r.keys...)
 	lastSeq, prevSeq, signedNow, mbox, run := r.lastSeq, r.prevSeq, r.signed, r.mbox, r.run
+	ownPrev := r.ownPrev
 	r.mu.RUnlock()
 	mbox = r.mboxNow(mbox)
 	changed := false
@@ -470,7 +548,7 @@ func (r *encKeyRing) maintain(in ringInputs) (bool, error) {
 			clearRingKeys(made)
 			return false, err
 		}
-		newSigned, newLast, newPrev = b, seq, lastSeq
+		newSigned, newLast, newPrev, ownPrev = b, seq, lastSeq, lastSeq
 		changed = true
 	}
 	if !changed {
@@ -488,6 +566,7 @@ func (r *encKeyRing) maintain(in ringInputs) (bool, error) {
 	}
 	r.mu.Lock()
 	r.keys, r.lastSeq, r.prevSeq, r.signed, r.lastWall, r.run = keys, newLast, newPrev, newSigned, in.now, run
+	r.ownPrev = ownPrev
 	if mbox.Epoch != 0 && !bytes.Equal(newSigned, signedNow) {
 		r.mbox = mbox
 	}
@@ -622,21 +701,19 @@ func (r *encKeyRing) markRemoved(published []byte, now uint64) error {
 // bound, the room left under 2^63 is never used up.
 const maxFollowedSeq = 1 << 53
 
-// adoptStoredSeq is the hub's 409 keys_rollback with stored_seq (FS-B2, the
-// unverified branch): the hub holds a set this ring's publication did not
-// follow — newer than its prev_seq, or with a seq not below it. last_seq
-// becomes max(last_seq, stored_seq), and the same keys and mailbox key are
-// signed again above it, with prev_seq stored_seq. Nothing else changes. It
-// reports whether a new set was signed. A stored_seq of maxFollowedSeq or
-// more is not followed (an error, which the caller logs): no set of this
-// identity has one, and following it would bring last_seq near the 2^63 − 1
-// a hub stores at most, past which no set could be published to any hub.
-//
-// v030-todo(FS-10): FS-B2 first checks the hub's set against this node's
-// KEL; when this identity did sign it, the data directory went back (a
-// restored backup, or a copy running elsewhere) and FS-B3 ends the tasks in
-// flight and regenerates the ring.
-func (r *encKeyRing) adoptStoredSeq(storedSeq uint64, in ringInputs) (bool, error) {
+// adoptStoredSeq follows the hub's 409 keys_rollback with stored_seq where
+// nothing of this node went back (FS-B2: core G25's silent adoption, and a
+// set the check did not find signed elsewhere): the hub holds a set this
+// ring's publication did not follow — newer than its prev_seq, or with a
+// seq not below it. last_seq becomes max(last_seq, stored_seq), and the same
+// keys and mailbox key are signed again above it, with prev_seq stored_seq.
+// mark, when not nil, is the ring's new rollback mark (G25's silent one),
+// written with it. Nothing else changes. It reports whether a new set was
+// signed. A stored_seq of maxFollowedSeq or more is not followed (an error,
+// which the caller logs): no set of this identity has one, and following it
+// would bring last_seq near the 2^63 − 1 a hub stores at most, past which
+// no set could be published to any hub.
+func (r *encKeyRing) adoptStoredSeq(storedSeq uint64, in ringInputs, mark *rollbackMark) (bool, error) {
 	r.maintMu.Lock()
 	defer r.maintMu.Unlock()
 	r.mu.RLock()
@@ -657,11 +734,20 @@ func (r *encKeyRing) adoptStoredSeq(storedSeq uint64, in ringInputs) (bool, erro
 	if err != nil {
 		return false, err
 	}
-	if err := r.writeState(r.stateWith(func(s *ringState) { s.lastSeq, s.signed = seq, b })); err != nil {
+	if err := r.writeState(r.stateWith(func(s *ringState) {
+		s.lastSeq, s.signed = seq, b
+		if mark != nil {
+			s.rollback = mark
+		}
+	})); err != nil {
 		return false, fmt.Errorf("anet: save key ring: %w", err)
 	}
 	r.mu.Lock()
 	r.lastSeq, r.prevSeq, r.signed, r.mbox = seq, storedSeq, b, mbox
+	r.ownPrev = lastSeq
+	if mark != nil {
+		r.rollback = mark
+	}
 	r.mu.Unlock()
 	return true, nil
 }
@@ -673,13 +759,17 @@ func (r *encKeyRing) adoptStoredSeq(storedSeq uint64, in ringInputs) (bool, erro
 // mailbox key. The emergency rotation's E2 (tag: the emergency rot's seq,
 // FS-K18) and a local state rollback (tag: stored_seq, FS-B3) call it. With
 // regen_tag already tag it does nothing, so redoing it after a crash is
-// harmless (engine CR11). It reports whether it regenerated.
+// harmless (engine CR11). It reports whether it regenerated. A rollback
+// passes floor stored_seq, the seq of the set the hub holds: the new set's
+// seq is above it as well as last_seq, and its prev_seq is stored_seq, the
+// set it follows (FS-B3 steps 3 and 5). The emergency rotation passes 0:
+// prev_seq is then last_seq.
 //
 // Every key is retired, the previous epoch's included, which FS-K21 does not
 // name: the set published after it then holds only new keys (FS-K18), and a
 // key the old data directory holds cannot be the target of new mail even in
 // its last hour.
-func (r *encKeyRing) regenerate(tag uint64, in ringInputs) (bool, error) {
+func (r *encKeyRing) regenerate(tag, floor uint64, in ringInputs) (bool, error) {
 	if tag == 0 {
 		return false, errors.New("anet: a regeneration needs a tag")
 	}
@@ -712,7 +802,8 @@ func (r *encKeyRing) regenerate(tag uint64, in ringInputs) (bool, error) {
 	}
 	keys = append(keys, made...)
 	sortRingKeys(keys)
-	b, seq, err := r.signSet(in, publishedKeys(keys, in.now), mbox, lastSeq)
+	own := lastSeq
+	b, seq, err := r.signSet(in, publishedKeys(keys, in.now), mbox, max(lastSeq, floor))
 	if err != nil {
 		clearRingKeys(made)
 		return false, err
@@ -723,8 +814,13 @@ func (r *encKeyRing) regenerate(tag uint64, in ringInputs) (bool, error) {
 		clearRingKeys(made)
 		return false, fmt.Errorf("anet: save key ring: %w", err)
 	}
+	if floor != 0 {
+		// A rollback: the new set follows the hub's (FS-B3 step 5).
+		lastSeq = floor
+	}
 	r.mu.Lock()
 	r.keys, r.lastSeq, r.prevSeq, r.signed, r.regenTag, r.mbox = keys, seq, lastSeq, b, tag, mbox
+	r.ownPrev = own
 	r.mu.Unlock()
 	return true, nil
 }
@@ -1119,12 +1215,12 @@ func (d *Daemon) sweepHardBound(level clockLevel) {
 }
 
 // regenerateKeys is the key ring's part of the emergency rotation's E2
-// (FS-K18; tag: the emergency rot's seq) and of a local state rollback
-// (FS-B3; tag: stored_seq): the ring is regenerated and the set of its new
-// keys signed with the current mailbox key (regenerate). The caller
-// publishes it.
+// (FS-K18; tag: the emergency rot's seq): the ring is regenerated and the
+// set of its new keys signed with the current mailbox key (regenerate). The
+// caller publishes it. A local state rollback regenerates above the hub's
+// stored_seq (rollBack, FS-B3).
 func (d *Daemon) regenerateKeys(tag uint64) (bool, error) {
-	return d.enc.regenerate(tag, d.ringInputsAt(d.nowMS()))
+	return d.enc.regenerate(tag, 0, d.ringInputsAt(d.nowMS()))
 }
 
 // ringInputsAt is what the ring signs a set with at now: the identity's
