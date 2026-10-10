@@ -435,10 +435,12 @@ func (d *Daemon) afterDesignationAnswer(a joinAnswer) {
 		d.idGate.notePublishError("")
 	case a.kind == ansClockSkew && a.code == hubKELTSOutOfWindow:
 		d.idGate.notePublishError(hubKELTSOutOfWindow)
-	case a.kind == ansRefused && (a.refusal == reasonHubRefused || a.refusal == reasonSwitch):
-		// Refused for good: no hub took it, so dropping it forks nothing,
-		// and the identity can be joined to another hub (KEL D-14a).
-		// witness_rot stays.
+	case a.kind == ansRefused && (a.refusal == reasonHubRefused || a.refusal == reasonSwitch ||
+		a.refusal == reasonPublicationBlocked):
+		// Refused for good: no hub took it — or it never left this node,
+		// its registration kept back by the publication screen — so
+		// dropping it forks nothing, and the identity can be joined to
+		// another hub (KEL D-14a). witness_rot stays.
 		ev, _ := pendingEvent(p)
 		if err := d.discardDesignation(); err != nil {
 			log.Printf("anet: drop the witness designation the hub refused: %v", err)

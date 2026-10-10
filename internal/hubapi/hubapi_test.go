@@ -78,8 +78,18 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 			"a2a_card", "aid", "caps", "check_only", "enc_keys", "kel", "name", "pow", "prev_seq",
 		}},
 		{"RegisterPoW", hubapi.RegisterPoW{}, []string{"nonce", "seed"}},
+		// The key history's own endpoints (KEL §2.7). Mirrors ANetHub
+		// internal/aghub kelpush.go (KELPushRequest, KELPushResponse) and
+		// server.go (AgentKELView).
+		{"KELPushRequest", hubapi.KELPushRequest{}, []string{"aid", "kel"}},
+		{"KELPushResponse", hubapi.KELPushResponse{}, []string{"aid", "head", "seq", "unchanged"}},
+		{"AgentKELResponse", hubapi.AgentKELResponse{}, []string{"aid", "kel", "registered"}},
+		// key_state_notice and key_state_notice_error as the hub's
+		// register answer writes them (ANetHub internal/aghub server.go;
+		// KEL D-50: the card's second registration records them too).
 		{"RegisterResponse", hubapi.RegisterResponse{}, []string{
-			"aid", "card_error", "card_status", "keys_error", "keys_status", "probation_until", "revocations", "status", "trial",
+			"aid", "card_error", "card_status", "key_state_notice", "key_state_notice_error", "keys_error", "keys_status",
+			"probation_until", "revocations", "status", "trial",
 		}},
 		// POST /mailbox/revoke (sealed-sender SSR-D20). Mirrors ANetHub
 		// internal/aghub/revoke.go; TestTheRevocationBodiesAreTheRegistrys

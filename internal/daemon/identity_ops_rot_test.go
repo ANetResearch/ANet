@@ -87,6 +87,15 @@ func TestEmergencyRotationReplacesEverySecret(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Capabilities both ways: one req holds (with the direct address a
+	// grant may carry) and one it issued.
+	heldCapFrom(t, prov, req)
+	if g, _ := issueNow(t, req, prov.AID(), decContactPeer(req.nowMS()), req.nowMS()); g == nil {
+		t.Fatal("setup: req issued nothing")
+	}
+	if held, issued, err := req.ix.CapsCounts(req.nowMS()); err != nil || held == 0 || issued == 0 {
+		t.Fatalf("setup: %d held, %d issued capabilities (%v)", held, issued, err)
+	}
 	oldKIDs := publishedKIDs(t, req)
 	oldMbox, _ := req.mbox.Current()
 	if _, err := newControlToken(req.layout); err != nil {
