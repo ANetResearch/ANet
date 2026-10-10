@@ -45,6 +45,8 @@ func TestRefused(t *testing.T) {
 		{"::ffff:10.0.0.1", false, true},
 		{"::ffff:169.254.1.1", false, false},
 		{"::ffff:203.0.113.9", true, true},
+		{"::ffff:100.64.0.1", false, true},
+		{"::ffff:0.1.2.3", false, false},
 	} {
 		ip := netip.MustParseAddr(c.ip)
 		for _, lan := range []bool{false, true} {
