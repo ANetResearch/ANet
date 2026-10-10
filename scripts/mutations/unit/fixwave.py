@@ -48,7 +48,7 @@ MUTS = [
   edits=[
    ('internal/daemon/receive.go', '\tif ix.RequestCID == "" || ix.RequestCID != m.requestCID {', '\tif false && (ix.RequestCID == "" || ix.RequestCID != m.requestCID) {'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestARedeliveryUnderOpenCannotSwapInACapability|TestARegisteredStrangerCannotSwapACapabilityIntoItsOpenTask|TestAnApprovedChatCannotBeSwappedForACapability|TestAQuotedPublicCallCannotBeSwappedForAPrivateCapability|TestSpotASwapUnderTheAcceptedMessageIDDoesNotRun|TestSpotASwapAfterARestartDoesNotRun')],
+  tests=[('ANet:./internal/daemon', 'TestASwapUnderANewMessageIDIsACollisionAtStep9|TestARedeliveryUnderOpenCannotSwapInACapability|TestARegisteredStrangerCannotSwapACapabilityIntoItsOpenTask|TestAnApprovedChatCannotBeSwappedForACapability|TestAQuotedPublicCallCannotBeSwappedForAPrivateCapability|TestSpotASwapUnderTheAcceptedMessageIDDoesNotRun|TestSpotASwapAfterARestartDoesNotRun')],
   full=['ANet:./internal/daemon'],
  ),
  dict(

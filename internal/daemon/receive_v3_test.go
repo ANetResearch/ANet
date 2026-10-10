@@ -1108,3 +1108,28 @@ func TestARefusalSticksBeforeItsLocksAreReleased(t *testing.T) {
 		t.Fatalf("the refused delegation ran %d times", n)
 	}
 }
+
+// Step 9 [redteam:F7] (engine §4.5): another request under an interaction
+// the sender already holds, sealed under a new message id, is an ix
+// collision found at step 9 — before step 10's transaction, which checks it
+// again — and not a redelivery: nothing counts it as one, and it is
+// answered tok(2), not as the delegation this node took (mutation fx7-1).
+func TestASwapUnderANewMessageIDIsACollisionAtStep9(t *testing.T) {
+	_, req, prov := registeredPair(t)
+	id, err := req.Delegate(context.Background(), prov.AID(), "a task", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settleDelivery(t, req, prov)
+	before := counter(prov, redeliveryNotAuthorized)
+	env, ack := craftAck(t, senderOf(req), prov, seal.TypeDelegate, id,
+		delegateBody(t, req.self, id, "something else entirely", ""), nil)
+	r := receive(t, prov, env)
+	if r.class != rxDropped || r.reason != dropIXCollision || r.step != rxStep9 {
+		t.Fatalf("a swap under a new message id: %+v, want %s at step 9", r, dropIXCollision)
+	}
+	wantToken(t, r, ack, seal.OutcomeRefused, "")
+	if n := counter(prov, redeliveryNotAuthorized) - before; n != 0 {
+		t.Fatalf("the swap was counted as %d redeliveries", n)
+	}
+}
