@@ -88,8 +88,10 @@ func (l *countingLamp) total() int {
 
 // The swap sealed under the message id of the accepted delegation. The
 // replay table holds (from, mid), so the copy is not judged in step 9's
-// existing-ix branch but goes to the duplicate branch; that branch compares
-// the request too, and a redelivery runs only the recorded call.
+// existing-ix branch but goes to the duplicate branch: answered tok(1)
+// (engine ENG-V13), and since it is not the request the interaction was
+// accepted for, nothing is done for it (ENG-V18) — and a redelivery would
+// run only the recorded call anyway.
 func TestSpotASwapUnderTheAcceptedMessageIDDoesNotRun(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -109,7 +111,8 @@ func TestSpotASwapUnderTheAcceptedMessageIDDoesNotRun(t *testing.T) {
 	}
 	swap := craft(t, s, prov, seal.TypeDelegate, ix, delegateBody(t, s.ctrl, ix, "turn it on", lampCap),
 		func(in *seal.SealedInner) { in.MID = mid })
-	assertSwapRefused(t, prov, receive(t, prov, swap), lamp, ix)
+	before := counter(prov, redeliveryNotAuthorized)
+	assertSwapNotRun(t, prov, receive(t, prov, swap), before, lamp, ix)
 	if seen, err := prov.ix.ReplaySeen(s.aid, mid); err != nil || !seen {
 		t.Fatalf("precondition: the accepted message id is in the replay table (%v %v)", seen, err)
 	}
@@ -135,8 +138,9 @@ func TestSpotASwapAfterARestartDoesNotRun(t *testing.T) {
 	}
 	// A new message id, and the accepted one.
 	assertSwapRefused(t, prov, swapDelegateFrom(t, s, prov, ix, lampCap), lamp, ix)
-	assertSwapRefused(t, prov, receive(t, prov, craft(t, s, prov, seal.TypeDelegate, ix,
-		delegateBody(t, s.ctrl, ix, "turn it on", lampCap), func(in *seal.SealedInner) { in.MID = mid })), lamp, ix)
+	before := counter(prov, redeliveryNotAuthorized)
+	assertSwapNotRun(t, prov, receive(t, prov, craft(t, s, prov, seal.TypeDelegate, ix,
+		delegateBody(t, s.ctrl, ix, "turn it on", lampCap), func(in *seal.SealedInner) { in.MID = mid })), before, lamp, ix)
 }
 
 // swapDelegateFrom is swapDelegate for a bare identity.
@@ -493,7 +497,7 @@ func TestSpotAFollowUpNeverOvertakesItsDelegation(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := counter(prov, transientUnknownIX) + counter(prov, dropUnknownIX) + counter(prov, transientDirectUnknownIX); n != 0 {
+	if n := counter(prov, dropUnknownIX); n != 0 {
 		t.Fatalf("the follow-up reached the provider before its delegation: %v", prov.ReceiveStats())
 	}
 	if n := countMsgs(t, prov, id); n != 2 {
@@ -698,7 +702,7 @@ func cancelRacingAnAttempt(t *testing.T, hands bool) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := counter(prov, transientUnknownIX) + counter(prov, dropUnknownIX); n != 0 {
+	if n := counter(prov, dropUnknownIX); n != 0 {
 		t.Fatalf("the cancel reached the provider before its delegation: %v", prov.ReceiveStats())
 	}
 	msgs, err := prov.ix.Messages(id)
@@ -798,7 +802,8 @@ func TestSpotASenderKELRotatingToAShortKeyIsDroppedNotAPanic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := sender{aid: aid, kel: []identity.SignedEvent{icp, rot}, keys: keys, ksn: 0, sign: sign}
+	// Its notice is never read: step 6 refuses the KEL before step 6½.
+	s := sender{aid: aid, kel: []identity.SignedEvent{icp, rot}, keys: keys, ksn: 0, sign: sign, notice: []byte{0xa0}}
 	ix, _ := newInteractionID()
 	body := []byte(`{}`)
 	var r rxResult

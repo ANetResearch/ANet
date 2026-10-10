@@ -90,6 +90,24 @@ func (d *Daemon) testIXLookup() seal.IXKeyLookup {
 	return nil
 }
 
+// setCardAnswerHook makes the receive pipeline tell f every answer to a
+// card request it sends (answerCardRequest); nil removes it.
+func (d *Daemon) setCardAnswerHook(f func(to, ix string, body []byte)) {
+	if f == nil {
+		d.cardAnswerHook.Store(nil)
+		return
+	}
+	d.cardAnswerHook.Store(&f)
+}
+
+// testCardAnswerHook is the card answer hook a test set, or nil.
+func (d *Daemon) testCardAnswerHook() func(to, ix string, body []byte) {
+	if p := d.cardAnswerHook.Load(); p != nil {
+		return *p
+	}
+	return nil
+}
+
 // setIdentityGate makes identityGate answer f(); nil restores the gate the
 // identity's state decides. Only tests call it (TestOnlyTestsReplaceTheGate):
 // the engine's tests hold the gate open or closed without building a

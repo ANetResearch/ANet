@@ -279,26 +279,6 @@ func TestAReflectedRequestIsAnIXCollisionNotARedelivery(t *testing.T) {
 	}
 }
 
-// C19: a message for an interaction this node does not hold waits ten
-// minutes for its delegation (§3.6 step 9), then is answered TaskNotFound.
-// Ten minutes is the design's number: the other tests measure the window
-// with unknownIXWait itself, so mutation c19-2 (10 → 100 minutes) moved
-// them along and stayed green.
-func TestTheUnknownTaskWindowIsTenMinutes(t *testing.T) {
-	_, req, prov := registeredPair(t)
-	const ix = "ix_not_here"
-	aged := func(age time.Duration) []byte {
-		return craft(t, senderOf(req), prov, seal.TypeMessage, ix, chatBody(t, "early or late", ""),
-			func(in *seal.SealedInner) { in.TS -= uint64(age.Milliseconds()) })
-	}
-	if r := receive(t, prov, aged(9*time.Minute)); r.class != rxTransient || r.reason != transientUnknownIX {
-		t.Fatalf("a message 9 minutes old = %+v, want held (%s)", r, transientUnknownIX)
-	}
-	if r := receive(t, prov, aged(11*time.Minute)); r.class != rxDropped || r.reason != dropUnknownIX {
-		t.Fatalf("a message 11 minutes old = %+v, want %s", r, dropUnknownIX)
-	}
-}
-
 // §3.5 step 1 [C2]: a stored key set is used while it holds a usable key,
 // and a directory that no longer lists the recipient does not take it away,
 // neither before the daily recheck of an active contact nor at it

@@ -17,10 +17,10 @@ package daemon
 // The three peer files are read on every decision, so an edit takes effect
 // on the next message without a restart. A missing file is an empty list.
 //
-// Refusals cost the refused party a bounded amount of this node's work: the
-// reply is rate limited per peer and daemon-wide and dropped silently when
-// either limit is reached; it is never queued or retried. Refusals are
-// counted into one anet.delegation.refused_summary evidence event per
+// A refusal sends nothing: the requester is told in the delivery token of
+// its delegation, whose note carries the reason and when to try again
+// (engine ENG-V15, CUX-Q1), and it costs this node no envelope. Refusals
+// are counted into one anet.delegation.refused_summary evidence event per
 // window rather than one event each, and the per-request detail goes to a
 // rotating local log that is not on the chain. The same aggregation applies
 // to delegations accepted from parties this node did not name (public and
@@ -39,8 +39,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/ANetResearch/ANetCore/delegation"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
@@ -407,7 +405,7 @@ func (d *Daemon) decideDelegate(from, capID string, argsLen int) inboundDecision
 	in := d.config().inbound()
 	ps := d.readPeers()
 	// Row 1. Under closed a denied peer is told exactly what a stranger is
-	// told (same reason, same rate limit), so the deny list is not
+	// told (the same note, at the same moment), so the deny list is not
 	// observable there. Under approve and open it is (§2 X2).
 	if ps.denied(from) {
 		if in.Policy == PolicyClosed {
@@ -729,36 +727,6 @@ func (d *Daemon) logRefused(entry map[string]any) {
 	}
 	_, _ = f.Write(append(b, '\n'))
 	_ = f.Close()
-}
-
-// replyRejected tells a refused requester so, through the notice limiter:
-// status{rejected, anet.reason}. It is sent once, never queued, and dropped
-// silently when either the per-peer or the daemon-wide bucket is empty.
-func (d *Daemon) replyRejected(m *rxMsg, reason string, retryAfterMS int64) {
-	meta := map[string]any{"anet.reason": reason}
-	if retryAfterMS > 0 {
-		meta["anet.retry_after_ms"] = retryAfterMS
-	}
-	d.sendNoticeStatus(m, delegation.StateRejected, "this node did not accept the task: "+reason, meta)
-}
-
-// sendNoticeStatus seals a status notice to the sender of m with the key set
-// it carried or the stored one, rate limited. It is the common path of
-// TaskNotFound and refusal replies.
-func (d *Daemon) sendNoticeStatus(m *rxMsg, state, text string, meta map[string]any) bool {
-	if m.noticeKeys == nil || !d.notices.allow(m.from, d.nowMS()) {
-		d.count(noticeSuppressed)
-		return false
-	}
-	d.strangers.put(m.from, m.noticeKeys)
-	mb, _ := json.Marshal(meta)
-	body, err := (&delegation.StatusMsg{State: state, Text: text, Metadata: mb, At: d.nowMS()}).Marshal()
-	if err != nil {
-		return false
-	}
-	d.count(noticeSent)
-	d.sendNotice(m.from, m.ix, body)
-	return true
 }
 
 // --- policy writes ---

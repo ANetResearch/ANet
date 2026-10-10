@@ -130,6 +130,25 @@ func fetchPublished(hub, aid string, now uint64) (*published, error) {
 	return &published{kel: kel, kelRaw: kelRaw, keysRaw: keysRaw, set: set}, nil
 }
 
+// publishedNotice is the witness notice of aid's KEL tip as its hub
+// publishes it with the agent (GET /agents/{aid}, key_state_notice).
+func publishedNotice(hub, aid string) ([]byte, error) {
+	var v struct {
+		KeyStateNotice string `json:"key_state_notice"`
+	}
+	if err := hubGetJSON(hub, "/agents/"+url.PathEscape(aid), &v); err != nil {
+		return nil, fmt.Errorf("the witness notice of %s: %w", aid, err)
+	}
+	if v.KeyStateNotice == "" {
+		return nil, fmt.Errorf("the hub publishes no witness notice for %s: a receiver would refuse the envelope at step 6½", aid)
+	}
+	n, err := hubapi.DecodeB64(v.KeyStateNotice, -1)
+	if err != nil || len(n) > seal.MaxNoticeBytes {
+		return nil, fmt.Errorf("the hub served an unreadable witness notice for %s", aid)
+	}
+	return n, nil
+}
+
 // randomID is prefix + 32 hex characters.
 func randomID(prefix string) string {
 	var b [16]byte
@@ -266,18 +285,24 @@ func cmdSeal(args []string) error {
 		sig, _ := c.Sign(pre)
 		return sig, seq
 	}
-	// The witness notice the node holds for its own KEL (KEL D-50), as its
-	// daemon would carry it. A claimed KEL has none here: the receiver
-	// refuses such an envelope at step 6½ or 7, which is the point.
-	notice := []byte{}
-	if *kelOf == "self" {
-		if n := daemon.StoredNotice(daemon.NewLayout(*home), c.KEL()); n != nil {
-			notice = n
+	// The witness notice of the KEL the inner carries (KEL D-50, inner key
+	// 11): for its own KEL the one the node holds, as its daemon would carry
+	// it; for a claimed KEL the claimed sender's, as its hub publishes it —
+	// what an attacker who saw any of its messages has too — so the receiver
+	// meets the forgery at step 7, where it is one. Without a notice a
+	// receiver refuses the envelope at step 6½ whatever else it holds, which
+	// is not the attack being made: the fixture says so instead.
+	var notice []byte
+	switch *kelOf {
+	case "self":
+		if notice = daemon.StoredNotice(daemon.NewLayout(*home), c.KEL()); notice == nil {
+			return fmt.Errorf("the node at %s holds no witness notice for its key history: join a hub that witnesses it first", *home)
+		}
+	default:
+		if notice, err = publishedNotice(*hub, from); err != nil {
+			return err
 		}
 	}
-	// v030-todo(ENG-1c): a node its witness has not confirmed has no notice,
-	// and its envelope goes with an empty one, which receivers accept until
-	// they check step 6½.
 	inner := &seal.SealedInner{From: from, KeyStateSeq: seq, To: *to, Type: innerType, IX: *ix,
 		MID: seal.NewMID(), TS: now, Exp: now + fixtureLifetimeMS, Body: body, KEL: kel, Keys: sender.keysRaw,
 		Notices: [][]byte{notice}}

@@ -20,17 +20,15 @@ package daemon
 // accepted a message from the peer (§3.6 step 10), when this node initiates
 // contact, when the operator pins a peer (PinPeer), for a hub's own KEL, and
 // for KELs a module resolved to verify a signed object. KELs and key sets of
-// senders this node has not accepted anything from are kept only in a small
-// in-memory cache (strangers below), used to encrypt a refusal reply and for
-// nothing else, so inbound traffic from new AIDs cannot displace or rewrite
-// a stored row.
+// senders this node has not accepted anything from are not kept at all
+// (a refusal is told in the delivery token, engine ENG-V15), so inbound
+// traffic from new AIDs cannot displace or rewrite a stored row.
 
 import (
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -206,8 +204,15 @@ func (d *Daemon) notePeer(aid string, kel []identity.SignedEvent, keys *peerKeyS
 			return fmt.Errorf("anet: refusing to record a KEL for %s that does not replay to it", aid)
 		}
 	}
-	now := d.nowMS()
-	return d.ix.UpdatePeerIdentity(aid, func(cur *interactions.PeerIdentity) (*interactions.PeerIdentity, error) {
+	return d.ix.UpdatePeerIdentity(aid, d.peerUpdate(aid, kel, keys, pin, fetched, d.nowMS()))
+}
+
+// peerUpdate is notePeer's read-decide-write of aid's row at now, for
+// UpdatePeerIdentity in a transaction of its own or in the receive
+// pipeline's step 10 (recordSenderTx).
+func (d *Daemon) peerUpdate(aid string, kel []identity.SignedEvent, keys *peerKeySet, pin string, fetched bool,
+	now uint64) func(*interactions.PeerIdentity) (*interactions.PeerIdentity, error) {
+	return func(cur *interactions.PeerIdentity) (*interactions.PeerIdentity, error) {
 		if cur == nil && len(kel) == 0 {
 			// A record starts with a KEL; nothing else can be checked
 			// without one.
@@ -218,6 +223,7 @@ func (d *Daemon) notePeer(aid string, kel []identity.SignedEvent, keys *peerKeyS
 			next = &interactions.PeerIdentity{}
 		}
 		write := cur == nil
+		keys := keys
 		if len(kel) > 0 {
 			var stored []identity.SignedEvent
 			if cur != nil && len(cur.KEL) > 0 {
@@ -268,7 +274,7 @@ func (d *Daemon) notePeer(aid string, kel []identity.SignedEvent, keys *peerKeyS
 			return nil, nil
 		}
 		return next, nil
-	})
+	}
 }
 
 // mustSetBytes returns the Set field of a SignedEncKeySet encoding, or nil.
@@ -315,46 +321,4 @@ func (d *Daemon) PinPeer(ctx context.Context, aid, reason string) error {
 			aid, &peerResolveError{AID: aid, Verdict: v, Cause: m.Err})
 	}
 	return nil
-}
-
-// strangers holds the KEL and key set of senders this node has not
-// accepted anything from, for encrypting a refusal reply to them. It is
-// bounded and in memory only; it never feeds ResolveKEL, the high-water
-// marks or peer_identity.
-type strangerCache struct {
-	mu    sync.Mutex
-	limit int
-	order []string
-	sets  map[string]*peerKeySet
-}
-
-const strangerCacheLimit = 256
-
-func (c *strangerCache) put(aid string, ks *peerKeySet) {
-	if ks == nil {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.sets == nil {
-		c.sets = map[string]*peerKeySet{}
-	}
-	if c.limit == 0 {
-		c.limit = strangerCacheLimit
-	}
-	if _, ok := c.sets[aid]; !ok {
-		c.order = append(c.order, aid)
-		if len(c.order) > c.limit {
-			delete(c.sets, c.order[0])
-			c.order = c.order[1:]
-		}
-	}
-	c.sets[aid] = ks
-}
-
-func (c *strangerCache) get(aid string) (*peerKeySet, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	ks, ok := c.sets[aid]
-	return ks, ok
 }

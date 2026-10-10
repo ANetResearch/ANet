@@ -442,10 +442,10 @@ func (d *Daemon) implicitConfirmed(ix string, n int) {
 // (engine §4.6): a redelivered delegation that was answered says its
 // requester did not get the answer, and the answer goes out behind
 // whatever was queued ahead of it — after its status is asked, so one the
-// hub still holds is not sent twice. The caller limits how often
-// (resendLimiter). It reports whether there was anything queued.
-//
-// v030-todo(ENG-1c): engine ENG-V18 decides what a redelivery hurries.
+// hub still holds is not sent twice. The caller decides when (engine
+// ENG-V18: an answered delegation redelivered while its answer is still
+// queued) and limits how often (resendLimiter). It reports whether there
+// was anything queued.
 func (d *Daemon) hurryAnswerQueue(ix, to string) bool {
 	var n int64
 	err := d.ix.Update(func(tx *interactions.Tx) error {

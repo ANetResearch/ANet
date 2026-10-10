@@ -100,6 +100,9 @@ func TestAnUnverifiedQuoteIsNotPaidAutomatically(t *testing.T) {
 		x402a2a.KeyRequired: payment.PaymentRequired{X402Version: 2, Accepts: []payment.PaymentOption{{
 			Scheme: payment.SchemeCredit, Network: "hub:x", Amount: "999999", PayTo: stranger.AID()}}}})
 	body, _ := (&delegation.StatusMsg{State: delegation.StateInputRequired, Metadata: meta, At: 1}).Marshal()
+	// The stranger's witness is its own hub, which req knows of (as it
+	// would through its hub's /hub/kels): the quote gets to step 9.
+	trustWitness(t, req, fakeHubAt(t, srv.URL).self)
 	if r := receive(t, req, sealFrom(t, stranger, req, seal.TypeStatus, id, body)); r.class != rxDropped {
 		t.Fatalf("a stranger's quote: %+v", r)
 	}

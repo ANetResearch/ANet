@@ -48,6 +48,27 @@ func assertSwapRefused(t *testing.T, prov *Daemon, r rxResult, lamp *lampProvide
 	}
 }
 
+// assertSwapNotRun is assertSwapRefused for a swap sealed under the message
+// id of the accepted delegation: the replay table holds it, so it is
+// answered as the copy it claims to be (tok(1), engine ENG-V13) and nothing
+// is done for it — counted redelivery-not-authorized (ENG-V18).
+func assertSwapNotRun(t *testing.T, prov *Daemon, r rxResult, before uint64, lamp *lampProvider, ix string) {
+	t.Helper()
+	if r.class != rxDropped || r.reason != dropDuplicate {
+		t.Fatalf("swapped delegation: %+v, want taken as the %s it claims to be", r, dropDuplicate)
+	}
+	if n := counter(prov, redeliveryNotAuthorized) - before; n != 1 {
+		t.Fatalf("redelivery-not-authorized %d, want 1", n)
+	}
+	waitUntil(t, "no call running", func() bool {
+		_, running := prov.running.Load(ix)
+		return !running
+	})
+	if n := len(lamp.invoked); n != 0 {
+		t.Fatalf("the swapped-in capability ran %d times", n)
+	}
+}
+
 // Policy open takes a stranger's natural-language task (trust=public) and
 // refuses its capability calls (§5.2 row 5). A delegation on the task's id
 // naming a non-public capability is refused; the same TaskDoc sealed again
@@ -235,9 +256,16 @@ func TestARevokedPeerCannotUseItsOldInteraction(t *testing.T) {
 	r := receive(t, prov, sealFrom(t, req, prov, seal.TypeDelegate, id, delegateBody(t, req.self, id, "x", lampCap)))
 	assertSwapRefused(t, prov, r, lamp, id)
 	// The accepted request itself, sealed again under a new message id: the
-	// allow list is checked as for a message.
-	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeDelegate, id, accepted)); r.reason != dropNotAllowed {
-		t.Fatalf("redelivery by a revoked peer: %+v, want %s", r, dropNotAllowed)
+	// allow list is checked as for a message — and since this node did
+	// accept that request, the copy is answered as taken (tok(1)), with
+	// nothing done for it (engine ENG-V18): the requester must not read a
+	// refusal of what this node accepted (E-T14).
+	before := counter(prov, redeliveryNotAuthorized)
+	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeDelegate, id, accepted)); r.class != rxAccepted {
+		t.Fatalf("redelivery by a revoked peer: %+v, want taken", r)
+	}
+	if n := counter(prov, redeliveryNotAuthorized) - before; n != 1 {
+		t.Fatalf("redelivery by a revoked peer: %d not authorized, want 1", n)
 	}
 }
 

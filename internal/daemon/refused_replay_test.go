@@ -116,10 +116,12 @@ func TestAHubReplayOfARefusedDelegationDoesNotRun(t *testing.T) {
 	if counter(prov, dropNotAccepting) != 1 || len(queuedFor(t, srv, prov.AID())) != 0 {
 		t.Fatalf("setup: not refused and acked: %v", prov.ReceiveStats())
 	}
-	waitUntil(t, "the rejected notice", func() bool { return len(queuedFor(t, srv, req.AID())) == 1 })
-	if err := req.pollOnce(ctx); err != nil {
-		t.Fatal(err)
+	// The requester hears the refusal in the delegation's token (engine
+	// §2.7): nothing was sent to it.
+	if n := len(queuedFor(t, srv, req.AID())); n != 0 {
+		t.Fatalf("%d envelopes sent to the requester for the refusal", n)
 	}
+	askHubNow(t, req)
 	if cur, _ := req.ix.Get(id); cur.State != interactions.StateRejected {
 		t.Fatalf("requester state = %s, want rejected", cur.State)
 	}
@@ -280,12 +282,8 @@ func TestARefusalIsStoredBeforeTheRequesterIsTold(t *testing.T) {
 	ix := "ix_refused_store_fails"
 	env := craft(t, s, prov, seal.TypeDelegate, ix, delegateBody(t, s.ctrl, ix, "a task", ""), nil)
 	recovered := refusedTableFault(t, prov)
-	notices := counter(prov, noticeSent)
-	if r := receive(t, prov, env); r.class != rxTransient {
-		t.Fatalf("refusal that could not be stored: %+v, want not acknowledged", r)
-	}
-	if n := counter(prov, noticeSent); n != notices {
-		t.Fatalf("the requester was told rejected (%d notices) though the refusal was not stored", n-notices)
+	if r := receive(t, prov, env); r.class != rxTransient || r.dack != nil {
+		t.Fatalf("refusal that could not be stored: %+v, want not acknowledged and no token", r)
 	}
 	recovered()
 	allowPeers(t, prov, s.aid)
@@ -306,12 +304,8 @@ func TestARefusalIsStoredBeforeTheRequesterIsTold(t *testing.T) {
 	over := "ix_refused_store_over"
 	overEnv := craft(t, q, prov, seal.TypeDelegate, over, delegateBody(t, q.ctrl, over, "two", ""), nil)
 	recovered = refusedTableFault(t, prov)
-	notices = counter(prov, noticeSent)
-	if r := receive(t, prov, overEnv); r.class != rxTransient {
-		t.Fatalf("pending_full that could not be stored: %+v, want not acknowledged", r)
-	}
-	if n := counter(prov, noticeSent); n != notices {
-		t.Fatalf("the requester was told pending_full (%d notices) though the refusal was not stored", n-notices)
+	if r := receive(t, prov, overEnv); r.class != rxTransient || r.dack != nil {
+		t.Fatalf("pending_full that could not be stored: %+v, want not acknowledged and no token", r)
 	}
 	recovered()
 	if r := receive(t, prov, overEnv); r.class != rxDropped || r.reason != dropRefusedPrefix+reasonPendingFull {

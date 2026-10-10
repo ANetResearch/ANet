@@ -147,8 +147,10 @@ func TestAHeldRowIsNotAcked(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Refused for good once its refusal is stored, and acknowledged with
+	// the refusal's token (engine ENG-V12).
 	reqs := ackRequestsOf(h)
-	if len(reqs) != 1 || len(reqs[0]) != 1 || reqs[0][0] != (hubapi.RelayAckItem{ID: queued[0]}) {
+	if len(reqs) != 1 || len(reqs[0]) != 1 || reqs[0][0].ID != queued[0] || reqs[0][0].Handle == "" || reqs[0][0].DAck == "" {
 		t.Fatalf("after recovery: %+v", reqs)
 	}
 }

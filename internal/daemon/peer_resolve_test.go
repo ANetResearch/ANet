@@ -749,8 +749,17 @@ func TestActiveContactRevalidatedOncePer24h(t *testing.T) {
 // sends the same envelope again at once; a second 404 within the hour does
 // not look again, and the message is given up.
 func TestUnknownRecipientRefreshesOnce(t *testing.T) {
-	srv, req, prov := plainRegisteredPair(t)
+	// Plain nodes that name no witness: nothing here is received, and the
+	// hub's answers to a first contact are the subject.
+	srv := newFakeHub(t)
 	ctx := context.Background()
+	req := newPlainTestDaemon(t, srv.URL, false)
+	prov := newPlainTestDaemon(t, srv.URL, true)
+	for _, d := range []*Daemon{req, prov} {
+		if err := d.RegisterWithHub(ctx, srv.URL, "x", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
 	h := fakeHubAt(t, srv.URL)
 	moved, err := identitytest.Hub()
 	if err != nil {

@@ -17,8 +17,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -103,12 +105,66 @@ func buildTestDaemonAs(t testing.TB, hubURL string, modules map[string]any, plai
 // witness (the kernel's hooks), with its outbound gate held open: a test
 // that builds key events of its own dated in the recent past, which a
 // designation made at the join would postdate.
+//
+// Its hub is not its witness, so nothing it sends passes a receiver's step
+// 6½ on its hub's word: a test whose plain node sends gives it the suite
+// witness (witnessBySuite, as plainRegisteredPair does).
 func newPlainTestDaemon(t testing.TB, hubURL string, accept bool) *Daemon {
 	t.Helper()
 	d := buildTestDaemonAs(t, hubURL, nil, true)
 	joinTestGroup(t, d, accept)
 	holdGateOpen(d)
 	return d
+}
+
+// witnessBySuite makes the suite witness d's witness, designated just after
+// its inception — before any event a test dates — has d trust that
+// witness's KEL, and gives d the witness's notice of its tip
+// (renoticeBySuite): what d sends then passes a receiver's step 6½, and
+// every test daemon trusts the suite witness (craft). A test that adds an
+// event to d's key history gives it the notice of the new tip with
+// renoticeBySuite.
+func witnessBySuite(t testing.TB, d *Daemon) {
+	t.Helper()
+	trustSuiteWitness(t, d)
+	states, err := identity.Replay(d.self.Accepted())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if states[len(states)-1].Witness == "" {
+		icp := d.self.Accepted()[0].Event.Timestamp
+		if err := identitytest.SwitchWitness(d.self, identitytest.Witness, icp+1); err != nil {
+			t.Fatal(err)
+		}
+		if err := saveIdentity(d.layout, d.self); err != nil {
+			t.Fatal(err)
+		}
+		// The key set was signed under the inception's key, which the
+		// designation retired.
+		if err := d.resignKeyRing(); err != nil {
+			t.Fatal(err)
+		}
+		if signed, err := seal.UnmarshalSignedEncKeySet(d.enc.SignedSet()); err != nil || signed.KeyStateSeq != d.self.CurrentSeq() {
+			t.Fatalf("the key set was not signed again after the designation: %v (hold %v)", err, d.keysHeld())
+		}
+	}
+	renoticeBySuite(t, d)
+}
+
+// renoticeBySuite gives d, witnessed by the suite witness, that witness's
+// notice of its KEL's tip, observed now: what it carries in what it seals.
+func renoticeBySuite(t testing.TB, d *Daemon) {
+	t.Helper()
+	now := d.nowMS()
+	wire := suiteNotice(t, d.self.Accepted(), now)
+	if wire == nil {
+		t.Fatal("the node's witness is not the suite witness")
+	}
+	n, err := d.verifyOwnNotice(wire, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.idGate.noteNotice(n, "")
 }
 
 // witnessRoots are the data directories of the test daemons
@@ -129,13 +185,16 @@ func init() {
 }
 
 // plainRegisteredPair is registeredPair of plain test daemons
-// (newPlainTestDaemon).
+// (newPlainTestDaemon), witnessed by the suite witness (witnessBySuite) so
+// that what one sends the other takes.
 func plainRegisteredPair(t testing.TB) (*httptest.Server, *Daemon, *Daemon) {
 	t.Helper()
 	srv := newFakeHub(t)
 	ctx := context.Background()
 	req := newPlainTestDaemon(t, srv.URL, false)
 	prov := newPlainTestDaemon(t, srv.URL, true)
+	witnessBySuite(t, req)
+	witnessBySuite(t, prov)
 	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -465,16 +524,22 @@ func TestRelayDelegationRefusedWhenNotAccepting(t *testing.T) {
 	if len(inbox) != 0 {
 		t.Fatalf("non-accepting provider stored %d tasks, want 0", len(inbox))
 	}
-	waitUntil(t, "the refusal notice reaches the requester", func() bool {
-		_ = req.pollOnce(ctx)
+	// The refusal comes back in the delegation's delivery token, with its
+	// reason (engine ENG-V15, §2.7): no message is sent for it.
+	waitUntil(t, "the refusal reaches the requester", func() bool {
+		askHubNow(t, req)
 		list, _ := req.ix.List(interactions.RoleOutbound, interactions.StateRejected, 0, 0)
 		return len(list) == 1
 	})
 	list, _ := req.ix.List(interactions.RoleOutbound, interactions.StateRejected, 0, 0)
+	if meta := decodeMeta([]byte(list[0].ResultMeta)); meta[a2ashape.KeyReason] != seal.NoteNotAccepting {
+		t.Fatalf("the refused task's metadata = %v, want reason %s", meta, seal.NoteNotAccepting)
+	}
 	msgs, _ := req.ix.Messages(list[0].ID)
-	last := msgs[len(msgs)-1]
-	if last.Kind != interactions.MsgStatus || !strings.Contains(last.Metadata, `"anet.reason":"not_accepting"`) {
-		t.Fatalf("refusal notice = %+v", last)
+	for _, m := range msgs {
+		if m.Kind == interactions.MsgStatus {
+			t.Fatalf("a status message reached the requester: %+v", m)
+		}
 	}
 }
 
@@ -578,15 +643,12 @@ func TestRelayAttachmentRoundTrip(t *testing.T) {
 }
 
 // Envelopes held back in the mailbox do not stand in front of newer mail
-// (A2A-DESIGN §3.6 step 9, §3.7; decision Q1). Peers the provider deals
-// with fill its mailbox with more than a page of signed messages for
-// interactions it does not hold — each one class T for the unknown-ix
-// window, so none is acknowledged — and a real delegation queued behind
-// them is taken on the next round. Without the relay cursor every poll is
-// handed the same first page and the delegation waits out the window.
-// (A stranger's messages for unknown tasks do not wait at all, and one
-// peer has at most unknownIXHeldPerSender waiting, [redteam:F25]: the flood
-// comes from several allowed peers.)
+// (A2A-DESIGN §3.6, §3.7; decision Q1). The provider's mailbox holds more
+// than a page of signed messages it cannot judge yet — their senders'
+// witness is a hub it does not know (step 6½, witness-unknown, class T) —
+// and a real delegation queued behind them is taken on the next round.
+// Without the relay cursor every poll is handed the same first page and the
+// delegation waits behind it.
 func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	// The test drives the rounds: no background poll may move the cursor.
@@ -601,11 +663,11 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 
 	const flood = relayPollLimit + 50
 	var peers []sender
+	var witnesses []*identity.Controller
 	for i := 0; i < flood; i++ {
 		if i%30 == 0 {
-			p := newStranger(t)
-			allowPeers(t, prov, p.aid)
-			peers = append(peers, p)
+			p, w := unknownWitnessSender(t)
+			peers, witnesses = append(peers, p), append(witnesses, w)
 		}
 		injectEnvelope(t, srv, prov.AID(), craft(t, peers[len(peers)-1], prov, seal.TypeMessage,
 			fmt.Sprintf("ix_not_held_%03d", i), chatBody(t, "noise", ""), nil))
@@ -624,7 +686,7 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := counter(prov, transientUnknownIX); n != relayPollLimit {
+	if n := counter(prov, seal.ReasonWitnessUnknown); n != relayPollLimit {
 		t.Fatalf("round 1 held back %d envelopes, want the first page of %d", n, relayPollLimit)
 	}
 	if taken() {
@@ -645,16 +707,18 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 		t.Fatalf("%d envelopes left after round 2, want the %d held back", n, flood)
 	}
 
-	// Past the window the held envelopes turn permanent (TaskNotFound) and
-	// are acknowledged on the way back through the mailbox.
-	clock.Add(uint64((unknownIXWait + time.Minute).Milliseconds()))
+	// Once the provider knows their witnesses the held envelopes are judged
+	// (task_not_found) and acknowledged on the way back through the mailbox.
+	for _, w := range witnesses {
+		trustWitness(t, prov, w)
+	}
 	for round := 0; round < 4 && queued() > 0; round++ {
 		if err := prov.pollOnce(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if n := queued(); n != 0 {
-		t.Fatalf("%d envelopes still queued after the window; they were not retried from the head", n)
+		t.Fatalf("%d envelopes still queued once they could be judged; they were not retried from the head", n)
 	}
 	if n := counter(prov, dropUnknownIX); n != flood {
 		t.Fatalf("%d envelopes dropped as unknown-ix, want %d", n, flood)
@@ -664,9 +728,9 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 // An envelope held back at the tail of the mailbox is still retried, and
 // holding it costs the hub no extra requests: every round is one poll
 // (relayCursor). A round that finds nothing after the cursor sends the next
-// round back to the head rather than polling the head itself, so a
-// stranger who keeps one message held cannot double how often this node
-// calls its hub.
+// round back to the head rather than polling the head itself, so a sender
+// who keeps one message held cannot double how often this node calls its
+// hub.
 func TestAHeldEnvelopeIsRetriedAtOnePollPerRound(t *testing.T) {
 	srv, _, prov := registeredPair(t)
 	prov.stopRelayLoop()
@@ -677,12 +741,11 @@ func TestAHeldEnvelopeIsRetriedAtOnePollPerRound(t *testing.T) {
 	clock.Store(uint64(time.Now().UnixMilli()))
 	prov.setClock(clock.Load)
 
-	peer := newStranger(t)
-	allowPeers(t, prov, peer.aid) // a stranger's message would not be held ([redteam:F25])
+	peer, witness := unknownWitnessSender(t)
 	injectEnvelope(t, srv, prov.AID(), craft(t, peer, prov, seal.TypeMessage,
 		"ix_not_held_tail", chatBody(t, "noise", ""), nil))
 	polls0 := relayPollsFor(srv.URL, prov.AID())
-	tries0 := counter(prov, transientUnknownIX)
+	tries0 := counter(prov, seal.ReasonWitnessUnknown)
 	const rounds = 6
 	for i := 0; i < rounds; i++ {
 		if err := prov.pollOnce(ctx); err != nil {
@@ -692,21 +755,22 @@ func TestAHeldEnvelopeIsRetriedAtOnePollPerRound(t *testing.T) {
 	if n := relayPollsFor(srv.URL, prov.AID()) - polls0; n != rounds {
 		t.Fatalf("%d rounds made %d poll requests, want one each", rounds, n)
 	}
-	if n := counter(prov, transientUnknownIX) - tries0; n < rounds/2 {
+	if n := counter(prov, seal.ReasonWitnessUnknown) - tries0; n < rounds/2 {
 		t.Fatalf("the held envelope was tried %d times in %d rounds, want at least every other round", n, rounds)
 	}
 	if n := len(queuedFor(t, srv, prov.AID())); n != 1 {
 		t.Fatalf("%d envelopes queued, want the held one", n)
 	}
 
-	// Past the window it turns permanent and is acknowledged.
-	clock.Add(uint64((unknownIXWait + time.Minute).Milliseconds()))
+	// Once its witness is known it is judged (task_not_found) and
+	// acknowledged.
+	trustWitness(t, prov, witness)
 	for i := 0; i < 2; i++ {
 		if err := prov.pollOnce(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if n := len(queuedFor(t, srv, prov.AID())); n != 0 {
-		t.Fatalf("%d envelopes still queued two rounds after the window", n)
+		t.Fatalf("%d envelopes still queued two rounds after it could be judged", n)
 	}
 }

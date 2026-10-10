@@ -73,19 +73,16 @@ type Daemon struct {
 	lastSignTS atomic.Uint64
 
 	// Receive pipeline state (receive.go): the per-message lock, the
-	// refused-envelope list, outcome counters, the transport rate limit,
-	// the refusal-notice limit, the limit on answers re-sent for
-	// redeliveries, the sender keys a refusal is encrypted to,
-	// and the capability calls this process is executing.
+	// refused-envelope list, outcome counters, the limit on notices after
+	// the fact, the limit on answers hurried for redeliveries, and the
+	// capability calls this process is executing. The direct path's rate
+	// buckets are caps.rx (caps.go).
 	rxLocks   keyedLocks
 	rxIXLocks keyedLocks // (from, ix) of a delegation, taken after rxLocks
 	refused   refusedLRU
 	rxStats   rxCounters
-	p2pLimit  p2pLimiter
 	notices   noticeLimiter
 	resends   resendLimiter
-	strangers strangerCache
-	heldEarly heldUnknown
 	// peers is the resolver's state: where this node learns another
 	// agent's material without naming it to a hub (peer_resolve.go).
 	peers       peerResolver
@@ -108,6 +105,9 @@ type Daemon struct {
 	// cardGrants are the reply grants of card requests waiting for their
 	// answer (rx_seams.go).
 	cardGrants cardReplyGrants
+	// cardAnswerHook, when set, is told every card answer the receive
+	// pipeline sends. Tests only, through setCardAnswerHook.
+	cardAnswerHook atomic.Pointer[func(to, ix string, body []byte)]
 	// bgWG counts background goroutines that use the store (goBackground),
 	// so Close can wait for them before closing it. bgMu orders their
 	// start against Close's cancel.
