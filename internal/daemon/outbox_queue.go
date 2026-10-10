@@ -66,6 +66,12 @@ func (d *Daemon) queueSendAs(ctx context.Context, s wireSend, write func(tx *int
 		}
 		s.lastErr = code
 	}
+	if endsPreviewRound(s) {
+		// The round's real answer or result: no preview frame of the
+		// round goes after it (ENG-K20, CUX-P8). Canceled before the row
+		// exists, so none can be handed over while it is queued.
+		d.previews().CancelRound(s.ix)
+	}
 	var id int64
 	var fresh bool
 	err := d.ix.Update(func(tx *interactions.Tx) error {
@@ -99,6 +105,22 @@ func (d *Daemon) queueSendAs(ctx context.Context, s wireSend, write func(tx *int
 		d.noteDelivery(s.ix)
 	}
 	return id, nil
+}
+
+// endsPreviewRound reports whether queuing s ends the preview round of its
+// task (engine ENG-K20, CUX-P4, CUX-P8): a result, a conversation message,
+// or a status that ends the task — what the requester takes in place of
+// the frames. A status that leaves the task running (working, a payment
+// asked for) does not.
+func endsPreviewRound(s wireSend) bool {
+	switch s.typ {
+	case seal.TypeResult, seal.TypeMessage:
+		return true
+	case seal.TypeStatus:
+		sm, err := delegation.UnmarshalStatusMsg(s.body)
+		return err == nil && interactions.State(sm.State).IsTerminal()
+	}
+	return false
 }
 
 // enqueueTx queues s in tx (engine §2.2): its identity is fixed now — mid,

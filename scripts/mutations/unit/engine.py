@@ -388,3 +388,267 @@ MUTS += [
   full=[D],
  ),
 ]
+
+# ENG-1b: re-sealing (engine §3) and the one-shot sender (§2.12, §2.11.5). ENG-M3 to M13, M28, M38, M43
+# and M46 of §8.2; M9 and M10 take one of T3 and T4 out at the engine's call (kel.py's kel8a-1 and kel8a-2
+# take them out of kelResealDue itself); M12 is the one-shot sender's hand-over (a queued row's is
+# eng1a-gate-reread); M43 is three ways of getting ENG-O8a wrong.
+MUTS += [
+ dict(
+  id='ENG-M3', group='ENG-1b', repo='ANet',
+  desc='重封装铸新 mid(ENG-R7、SI-82)',
+  edits=[
+   ('internal/daemon/reseal.go', '''body: body, mid: row.MID, ts: row.TS,''', '''body: body, mid: seal.NewMID(), ts: row.TS,'''),
+  ],
+  tests=[(D, 'TestEveryVersionIsTheSameMessage|TestT1_AVersionPastItsKeysDeadlineIsSealedAgainFirst')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M4', group='ENG-1b', repo='ANet',
+  desc='重封装改 ts(取封装时刻;ENG-R7)',
+  edits=[
+   ('internal/daemon/reseal.go', '''body: body, mid: row.MID, ts: row.TS,''', '''body: body, mid: row.MID, ts: now,'''),
+  ],
+  tests=[(D, 'TestEveryVersionIsTheSameMessage')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M6', group='ENG-1b', repo='ANet',
+  desc='出站行封装时写外层 exp(ENG-I1)',
+  edits=[
+   ('internal/daemon/reseal.go', '''set, seal.SealOpts{PeerRK: ixk.peer}, now)''', '''set, seal.SealOpts{PeerRK: ixk.peer, Exp: row.Exp}, now)'''),
+  ],
+  tests=[(D, 'TestOnlyOneShotSealsWithExp|TestDLVT26_OneShotsEarnNoToken')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M7', group='ENG-1b', repo='ANet',
+  desc='预览帧进出站队列(ENG-K18)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''	start := d.nowMS()
+	if g := d.identityGate(); !g.Open {''', '''	start := d.nowMS()
+	if kind == oneShotPreview {
+		if _, err := d.queueSendAs(ctx, wireSend{to: to, typ: seal.TypeMessage, ix: ix, body: body}, nil); err == nil {
+			return OneShotResult{Handed: true}
+		}
+	}
+	if g := d.identityGate(); !g.Open {'''),
+  ],
+  tests=[(D, 'TestET30_OneShotsAreNotQueued')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M8', group='ENG-1b', repo='ANet',
+  desc='去掉触发器 T1(fsResealDue;FS mutation 8)',
+  edits=[
+   ('internal/daemon/reseal.go', '''	return fsResealDue(row.EpochSealed, now) || kelResealDue(row.KELSealed, cur)''', '''	return kelResealDue(row.KELSealed, cur)'''),
+  ],
+  tests=[(D, 'TestT1_AVersionPastItsKeysDeadlineIsSealedAgainFirst|TestResealNeeded|TestResealModel')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M9', group='ENG-1b', repo='ANet',
+  desc='去掉触发器 T3(引擎不比较签名的密钥态;KEL M23)',
+  edits=[
+   ('internal/daemon/reseal.go', '''	return fsResealDue(row.EpochSealed, now) || kelResealDue(row.KELSealed, cur)''', '''	return fsResealDue(row.EpochSealed, now) || kelResealDue(row.KELSealed, KeyCursor{KeyStateSeq: row.SealedKSS, NoticeObservedAt: cur.NoticeObservedAt, Now: cur.Now})'''),
+  ],
+  tests=[(D, 'TestT3_ARotationSealsTheQueuedMessageAgain|TestResealNeeded|TestResealModel')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M10', group='ENG-1b', repo='ANet',
+  desc='去掉触发器 T4(引擎不看更新的通告;E-T10(a))',
+  edits=[
+   ('internal/daemon/reseal.go', '''	return fsResealDue(row.EpochSealed, now) || kelResealDue(row.KELSealed, cur)''', '''	return fsResealDue(row.EpochSealed, now) || kelResealDue(row.KELSealed, KeyCursor{KeyStateSeq: cur.KeyStateSeq, NoticeObservedAt: row.SealedNoticeAt, Now: cur.Now})'''),
+  ],
+  tests=[(D, 'TestET10_TheNoticeAgeTrigger|TestResealNeeded|TestResealModel')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M11', group='ENG-1b', repo='ANet',
+  desc='kid_stale 后仍用缓存的收件方钥集(不经目录重取;ENG-R11)',
+  edits=[
+   ('internal/daemon/outbox_attempt.go', '''	sealNow, refresh := dec.Seal, lastErrorCode(row.LastError) == codeKidStale''', '''	sealNow, refresh := dec.Seal, false'''),
+   ('internal/daemon/outbox_attempt.go', '''				sealNow, refresh = true, true''', '''				sealNow, refresh = true, false'''),
+  ],
+  tests=[(D, 'TestET11_AStaleKidFetchesTheKeysAgain')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M12', group='ENG-1b', repo='ANet',
+  desc='一次性信封交给 hub 之前不再读闸门(ENG-K13):会话期间关闭的闸门挡不住它',
+  edits=[
+   ('internal/daemon/oneshot.go', '''	for resent := false; ; resent = true {
+		if g := d.identityGate(); !g.Open {''', '''	for resent := false; ; resent = true {
+		if g := d.identityGate(); false && !g.Open {'''),
+  ],
+  tests=[(D, 'TestAGateThatClosesMidSendHoldsTheOneShot|TestET12_TheGateHoldsEveryEnvelope')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M13', group='ENG-1b', repo='ANet',
+  desc='闸门关闭时仍封装(封装处不读闸门;ENG-R3 S3)',
+  edits=[
+   ('internal/daemon/seal_send.go', '''	if g := d.identityGate(); !g.Open {
+		return nil, nil, 0, &gateClosedError{state: g.State}
+	}''', ''''''),
+  ],
+  tests=[(D, 'TestNothingIsSealedWhileTheGateIsClosed|TestSealedEnvelopesCarryTheNotice')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M13b', group='ENG-1b', repo='ANet',
+  desc='没有通告确认所签的密钥态时仍封装(带空通告;KEL-8 交接)',
+  edits=[
+   ('internal/daemon/seal_send.go', '''	if n == nil {
+		return nil, nil, 0, errNoTipNotice
+	}''', '''	if n == nil {
+		n = &keyStateNotice{Wire: []byte{}}
+	}'''),
+  ],
+  tests=[(D, 'TestNothingIsSealedWhileTheGateIsClosed|TestSealedEnvelopesCarryTheNotice')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M28', group='ENG-1b', repo='ANet',
+  desc='重封装后不重签持有证明(一次尝试内沿用第一个版本的 env_digest)',
+  edits=[
+   ('internal/daemon/outbox_attempt.go', '''	var choice AccessChoice
+rounds:''', '''	var choice AccessChoice
+	var firstEnv []byte
+rounds:'''),
+   ('internal/daemon/outbox_attempt.go', '''		digest, err := seal.EnvDigest(env)
+		var access *seal.Access''', '''		if firstEnv == nil {
+			firstEnv = env
+		}
+		digest, err := seal.EnvDigest(firstEnv)
+		var access *seal.Access'''),
+  ],
+  tests=[(D, 'TestET20_AResealedVersionCarriesItsOwnProof')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M38', group='ENG-1b', repo='ANet',
+  desc='公开交互终态时在仍有出站行时清空 peer_kel、peer_keys(ENG-S7)',
+  edits=[
+   ('internal/runtime/interactions/interactions.go', '''const peerMaterialCleared = `, peer_kel=CASE WHEN EXISTS (SELECT 1 FROM outbox o WHERE o.ix = interaction.id) THEN peer_kel ELSE NULL END,
+	peer_keys=CASE WHEN EXISTS (SELECT 1 FROM outbox o WHERE o.ix = interaction.id) THEN peer_keys ELSE NULL END`''', '''const peerMaterialCleared = `, peer_kel=NULL, peer_keys=NULL`'''),
+  ],
+  tests=[(D, 'TestET26_AnEndedPublicCallStillSealsItsAnswerAgain')],
+  full=[D, IX],
+ ),
+ dict(
+  id='ENG-M43a', group='ENG-1b', repo='ANet',
+  desc='取价请求遇 429 不重发(ENG-O8a)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''		if !resent && kind == oneShotCardGet {''', '''		if false && !resent && kind == oneShotCardGet {'''),
+  ],
+  tests=[(D, 'TestET33_ACardRequestTheHubFindsBusy')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M43b', group='ENG-1b', repo='ANet',
+  desc='取价请求遇 429 重发不止一次(ENG-O8a)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''		if !resent && kind == oneShotCardGet {''', '''		if _ = resent; kind == oneShotCardGet {'''),
+  ],
+  tests=[(D, 'TestET33_ACardRequestTheHubFindsBusy')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M43c', group='ENG-1b', repo='ANet',
+  desc='预览帧遇 429 也重发(ENG-O8a 只对取价)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''		if !resent && kind == oneShotCardGet {''', '''		if !resent && kind != oneShotCard {'''),
+  ],
+  tests=[(D, 'TestET33_ACardRequestTheHubFindsBusy')],
+  full=[D],
+ ),
+ dict(
+  id='ENG-M46', group='ENG-1b', repo='ANet',
+  desc='触发器 T4 去掉"有更新的通告"条件(hub 不可达时每次尝试都产生新版本)',
+  edits=[
+   ('internal/daemon/identity_state.go', '''		cur.NoticeObservedAt > row.SealedNoticeAt
+''', '''		true
+'''),
+  ],
+  tests=[(D, 'TestET10_TheNoticeAgeTrigger|TestResealModel')],
+  full=[D],
+ ),
+ dict(
+  id='eng1b-k20', group='ENG-1b', repo='ANet',
+  desc='答复或结果入队时不取消该任务的预览帧(ENG-K20)',
+  edits=[
+   ('internal/daemon/outbox_queue.go', '''		d.previews().CancelRound(s.ix)''', '''		_ = s.ix'''),
+  ],
+  tests=[(D, 'TestTheRoundsAnswerCancelsItsPreviews')],
+  full=[D],
+ ),
+ dict(
+  id='eng1b-k19', group='ENG-1b', repo='ANet',
+  desc='没有对端 rk 时预览帧也发(单层;ENG-K19、FS-X6)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''		if ixk.peer == nil || ixk.own == nil {''', '''		if false && (ixk.peer == nil || ixk.own == nil) {'''),
+  ],
+  tests=[(D, 'TestAOneShotThatCannotGoSaysWhy')],
+  full=[D],
+ ),
+ dict(
+  id='eng1b-k19-own', group='ENG-1b', repo='ANet',
+  desc='本方没有交互钥时预览帧也发(双层内无本方 rk;ENG-K19、FS-X6)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''		if ixk.peer == nil || ixk.own == nil {''', '''		if ixk.peer == nil {'''),
+  ],
+  tests=[(D, 'TestAOneShotThatCannotGoSaysWhy')],
+  full=[D],
+ ),
+ dict(
+  id='eng1b-k2-card', group='ENG-1b', repo='ANet',
+  desc='没有请求带来的一次性能力时 anet.card/1 改走首次联系(ENG-K2)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''	if err != nil || !choice.Send {
+		return nil, none, oneShotWhyAccess
+	}''', '''	if err != nil || !choice.Send {
+		choice = AccessChoice{Send: true, Kind: seal.AccessKindSession}
+	}'''),
+  ],
+  tests=[(D, 'TestAOneShotThatCannotGoSaysWhy')],
+  full=[D],
+ ),
+ dict(
+  id='eng1b-cardget-grant', group='ENG-1b', repo='ANet',
+  desc='卡片请求不带回信 grant(SSR-D10、core G11)',
+  edits=[
+   ('internal/daemon/oneshot.go', '''		if grant, err = d.cardGetGrant(to, ix, now); err != nil {''', '''		if _, err = d.cardGetGrant(to, ix, now); err != nil {'''),
+  ],
+  tests=[(D, 'TestET30_OneShotsAreNotQueued')],
+  full=[D],
+ ),
+ dict(
+  id='eng1b-k10', group='ENG-1b', repo='ANet',
+  desc='交互行已有 peer_rk 时仍单层封装(ENG-K10、FS-X5)',
+  edits=[
+   ('internal/daemon/reseal.go', '''	if out.peer, err = storedRK(row.PeerRK); err != nil {''', '''	if _, err = storedRK(row.PeerRK); err != nil {'''),
+  ],
+  tests=[(D, 'TestAVersionCarriesTheTasksInteractionKeys|TestET30_OneShotsAreNotQueued')],
+  full=[D],
+ ),
+ dict(
+  id='eng1b-k11', group='ENG-1b', repo='ANet',
+  desc='持有本方交互钥时版本不带 rk(ENG-K11、FS-X4)',
+  edits=[
+   ('internal/daemon/reseal.go', '''		out.own = &seal.RK{Suite: own.Suite, Pub: bytes.Clone(own.Pub)}''', '''		_ = own'''),
+  ],
+  tests=[(D, 'TestAVersionCarriesTheTasksInteractionKeys|TestET30_OneShotsAreNotQueued')],
+  full=[D],
+ ),
+ dict(
+  id='eng1b-rk-strict', group='ENG-1b', repo='ANet',
+  desc='记录的 peer_rk 不核对规范编码',
+  edits=[
+   ('internal/daemon/reseal.go', '''	if re, err := coredet.Marshal(&rk); err != nil || !bytes.Equal(re, b) {''', '''	if re, err := coredet.Marshal(&rk); err != nil || false && !bytes.Equal(re, b) {'''),
+  ],
+  tests=[(D, 'TestStoredRK')],
+  full=[D],
+ ),
+]

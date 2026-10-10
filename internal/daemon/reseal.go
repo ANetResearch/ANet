@@ -8,10 +8,12 @@ package daemon
 // unchanged (ENG-R7, SI-82).
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 
+	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 
@@ -19,18 +21,33 @@ import (
 )
 
 // resealNeeded is engine ENG-R2 with the suppressions of ENG-R3: whether
-// the attempt at row seals a new version before it transmits. cur is this
-// node's key state now (keyCursor).
+// the attempt at row seals a new version before it transmits. now is the
+// sender's clock; cur is this node's key state now (keyCursor). Every input
+// is stored or read now, so the answer is the same after a restart.
 //
 //   - T0: the row was never sealed (cur_ver 0, ENG-Q3).
+//   - T1: the epoch key the version is sealed to is past its delivery
+//     deadline, not_after + D (fsResealDue, FS-O1): a hub refuses it as
+//     kid_stale, and a recipient may have deleted the key (SI-29).
 //   - T2: the hub's last answer was 409 kid_stale (last_error says so, and
 //     it survives a restart).
-//   - S2: a frozen row is not sealed. S3, the gate, and S4, once an attempt,
-//     are the attempt's (outboxStep, transmitOutbox).
-//
-// v030-todo(ENG-1b): T1 fsResealDue(row.EpochSealed, now), T3 and T4
-// kelResealDue(row.KELSealed, cur), and S1: no version sealed for the hub
-// while one is queued there (ENG-R3).
+//   - T3: the version was signed under another key state than this node's
+//     now (kelResealDue, KEL D-51(a)): after a rotation nothing goes out
+//     under the old key.
+//   - T4: the notice it carries is over NoticeResealAge old and this node
+//     holds a newer one (kelResealDue, KEL D-51(b)). Without a newer one (the
+//     witness out of reach) a new version would carry the same notice, so
+//     none is made; the gate caps the notice's age instead (ENG-K17).
+//   - S1: a version the hub holds queued is neither sent again nor sealed
+//     again for the hub (ENG-D6). outboxStep keeps it: needsTransmit is
+//     false while a version is queued or not asked about yet, so the only
+//     transmission then is the direct bypass of ENG-D7 — and that one is
+//     judged by the triggers like any (a direct recipient takes it at
+//     arrival now, not at the hub's acceptance), its new version going
+//     direct only. resealNeeded is therefore not asked to hold it back.
+//   - S2: a frozen row is not sealed. S3, the gate, is sealMessage's
+//     (innerFor) as well as the attempt's; S4, once an attempt and three
+//     kid_stale retries an hour, is transmitOutbox's.
 func resealNeeded(row RowView, vers []VerView, now uint64, cur KeyCursor) bool {
 	switch {
 	case row.Frozen:
@@ -40,7 +57,7 @@ func resealNeeded(row RowView, vers []VerView, now uint64, cur KeyCursor) bool {
 	case lastErrorCode(row.LastError) == codeKidStale:
 		return true
 	}
-	return false
+	return fsResealDue(row.EpochSealed, now) || kelResealDue(row.KELSealed, cur)
 }
 
 // sealedVersion is one sealing of a queued message (A7): the envelope
@@ -60,11 +77,18 @@ type sealedVersion struct {
 
 // sealVersion is A7: a new version of row, whose body is body. Its key is
 // the recipient's (sealKeys; from the directory when refresh, trigger T2,
-// ENG-R11); its grant is what grantFor gives the recipient with this
-// message (ENG-K5); its mid, ts and exp are the row's.
+// ENG-R11); its layers and rk are what the task's interaction keys give now
+// (ixKeysForSeal: a single-layer task becomes a double-layer one once the
+// peer announced its rk, ENG-K10); its grant is what grantFor gives the
+// recipient with this message (ENG-K5); its mid, ts, exp, ix, type and body
+// are the row's, the same in every version (ENG-R7).
 func (d *Daemon) sealVersion(ctx context.Context, row *interactions.OutboxRow, body []byte, refresh bool) (*sealedVersion, error) {
 	now := d.nowMS()
 	set, err := d.sealKeys(ctx, row.ToAID, row.IX, refresh)
+	if err != nil {
+		return nil, err
+	}
+	ixk, err := d.ixKeysForSeal(row.IX)
 	if err != nil {
 		return nil, err
 	}
@@ -77,13 +101,77 @@ func (d *Daemon) sealVersion(ctx context.Context, row *interactions.OutboxRow, b
 		grant = plan.Grant
 	}
 	sv, err := d.sealMessage(sealMsg{to: row.ToAID, typ: row.Type, ix: row.IX, body: body, mid: row.MID, ts: row.TS,
-		exp: row.Exp, grant: grant}, set, now)
+		exp: row.Exp, grant: grant, rk: ixk.own}, set, seal.SealOpts{PeerRK: ixk.peer}, now)
 	if err != nil {
 		return nil, err
 	}
 	sv.grant = plan
 	return sv, nil
 }
+
+// sealIXKeys is what a sealing on a task carries of its interaction keys
+// (engine §3.2, FS-X4–X6): own, the rk of this node's key on the task while
+// it holds one (inner key 15; none once it is deleted); peer, the rk the
+// peer announced on the task, which seals a second layer to it (none: one
+// layer).
+type sealIXKeys struct {
+	own, peer *seal.RK
+}
+
+// ixKeysForSeal is sealIXKeys for task ix now: this node's own key while
+// the store holds it (FS-X4), and the rk the peer announced on the task when
+// the task records one (FS-X5). A message that is not on a task (a price
+// card's, an id that names no task) has neither: one layer, no rk.
+func (d *Daemon) ixKeysForSeal(ix string) (sealIXKeys, error) {
+	var out sealIXKeys
+	if ix == "" {
+		return out, nil
+	}
+	own, err := d.ix.OwnRK(ix)
+	if err != nil {
+		return out, fmt.Errorf("anet: %s: read this node's interaction key: %w", ix, err)
+	}
+	if own != nil {
+		out.own = &seal.RK{Suite: own.Suite, Pub: bytes.Clone(own.Pub)}
+	}
+	row, err := d.ix.Get(ix)
+	switch {
+	case errors.Is(err, interactions.ErrNotFound):
+		return out, nil
+	case err != nil:
+		return out, fmt.Errorf("anet: %s: read the task: %w", ix, err)
+	case len(row.PeerRK) == 0:
+		return out, nil
+	}
+	if out.peer, err = storedRK(row.PeerRK); err != nil {
+		return out, fmt.Errorf("anet: %s: the peer's rk on record: %w", ix, err)
+	}
+	return out, nil
+}
+
+// storedRK reads an rk the store recorded as coredet(RK) (FS-R4): exactly
+// the canonical encoding of {1: suite, 2: pub}, suite 1 and a 32-byte
+// public key, as the receive path took it from the peer's message. Anything
+// else is an error: a second layer is never sealed to a key read loosely,
+// nor dropped to one layer because the record is damaged.
+func storedRK(b []byte) (*seal.RK, error) {
+	var rk seal.RK
+	if err := coredet.UnmarshalStrict(b, &rk); err != nil {
+		return nil, err
+	}
+	if re, err := coredet.Marshal(&rk); err != nil || !bytes.Equal(re, b) {
+		return nil, errors.New("not the canonical encoding of an rk")
+	}
+	if rk.Suite != seal.SuiteX25519 || len(rk.Pub) != storedRKPubLen {
+		return nil, fmt.Errorf("suite %d with a %d-byte key, want suite %d with %d bytes", rk.Suite, len(rk.Pub),
+			seal.SuiteX25519, storedRKPubLen)
+	}
+	return &rk, nil
+}
+
+// storedRKPubLen is the public key length of suite 1 (X25519), the only
+// suite of an interaction key (FS-C10).
+const storedRKPubLen = 32
 
 // sealKeys is the recipient's key set a version is sealed to (engine §3.2):
 // the one kept on a public or public_cap interaction this node serves

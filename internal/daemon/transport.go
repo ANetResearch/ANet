@@ -27,9 +27,9 @@ func (d *Daemon) RegisterTransport(t module.Transport) {
 // envelope travels as a first contact (sealWith). It obeys the outbound
 // gate like every send (ENG-K13): while it is closed nothing goes.
 //
-// v030-todo(ENG-1b): a message that is not queued is a one-shot envelope
-// (oneShotSend); the refusal notices that still come here go with ENG-1c
-// (ENG-V15).
+// v030-todo(ENG-1c): only the refusal notices (sendNotice) still come
+// here; they go with ENG-1c (ENG-V15). Every other message is queued or a
+// one-shot envelope (oneShotSend).
 func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []byte) error {
 	if g := d.identityGate(); !g.Open {
 		return &gateClosedError{state: g.State}
