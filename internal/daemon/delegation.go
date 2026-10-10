@@ -18,6 +18,11 @@ package daemon
 //	provider sends a message without anet.state=working  input-required
 //	provider sends anet.state=working, or a StatusMsg  the state it carries
 //	result                                             completed / failed / rejected (§4.3)
+//	result whose reply or receipt is refused           failed, result_refused (CUX-R7)
+//
+// A provider that completes a text task with a reply puts it in the result (completeWithReply,
+// correctness-ux CUX-R4): the requester gets the completion and the reply at once, and the
+// reply is never a message of its own marked to keep the requester waiting.
 
 import (
 	"context"
@@ -565,11 +570,19 @@ func (d *Daemon) buildTranscript(ix *interactions.Interaction) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return encodeTranscript(ix, conversationOf(ix, d.AID(), msgs, atts))
+}
+
+// conversationOf is the conversation turns of ix as a transcript lists them: its text messages
+// without control metadata that have a body or files, oldest first, each with its files'
+// fingerprints and whether the provider or the requester said it. self is this node's AID.
+func conversationOf(ix *interactions.Interaction, self string, msgs []interactions.Message,
+	atts []interactions.Attachment) []transcript.Message {
 	bySeq := map[int64][]transcript.Attachment{}
 	for _, a := range atts {
 		bySeq[a.MsgSeq] = append(bySeq[a.MsgSeq], transcript.Attachment{Name: a.Name, Mime: a.Mime, Size: a.Size, CID: a.CID})
 	}
-	provider := d.AID()
+	provider := self
 	if ix.Role == interactions.RoleOutbound {
 		provider = ix.PeerAID
 	}
@@ -582,19 +595,185 @@ func (d *Daemon) buildTranscript(ix *interactions.Interaction) ([]byte, error) {
 		if m.Body == "" && len(mAtts) == 0 {
 			continue
 		}
-		from := "requester"
+		from := transcriptRequester
 		if m.SenderAID == provider {
-			from = "provider"
+			from = transcriptProvider
 		}
 		out = append(out, transcript.Message{From: from, Body: m.Body, Attachments: mAtts})
 	}
+	return out
+}
+
+// The two speakers of a transcript.
+const (
+	transcriptProvider  = "provider"
+	transcriptRequester = "requester"
+)
+
+// encodeTranscript is the v2 transcript of ix's conversation.
+func encodeTranscript(ix *interactions.Interaction, conv []transcript.Message) ([]byte, error) {
 	nonce := ix.TaskNonce
 	if nonce == "" {
+		var err error
 		if nonce, err = newTaskNonce(); err != nil {
 			return nil, err
 		}
 	}
-	return transcript.EncodeV2(nonce, out)
+	return transcript.EncodeV2(nonce, conv)
+}
+
+// signedResult is a completed text task's result: the transcript, its CID and the provider's
+// receipt over it.
+type signedResult struct {
+	transcript, receipt []byte
+	resultCID           string
+}
+
+// signResult signs this node's receipt over tr, the transcript of ix, an inbound task.
+func (d *Daemon) signResult(ix *interactions.Interaction, tr []byte) (signedResult, error) {
+	resultCID, err := anetcid.Sum(tr)
+	if err != nil {
+		return signedResult{}, err
+	}
+	rc := &evidence.Receipt{
+		InteractionID: ix.ID,
+		RequesterAID:  ix.PeerAID,
+		ProviderAID:   d.AID(),
+		RequestCID:    ix.RequestCID,
+		ResultCID:     resultCID,
+		CompletedAt:   uint64(nowMillis()),
+	}
+	if err := rc.Sign(d.self); err != nil {
+		return signedResult{}, err
+	}
+	receiptBytes, err := rc.Marshal()
+	if err != nil {
+		return signedResult{}, err
+	}
+	return signedResult{transcript: tr, receipt: receiptBytes, resultCID: resultCID}, nil
+}
+
+// completedMeta is the metadata of a done result: the state it asks for.
+func completedMeta() []byte {
+	meta, _ := json.Marshal(map[string]any{"anet.state": string(interactions.StateCompleted)})
+	return meta
+}
+
+// completeWithReply is a provider completing an inbound text task with a reply (correctness-ux
+// CUX-R4): text and atts are its last word. In ONE transaction, the queued result's: the reply
+// is stored as a conversation message (kind text, no control metadata) with its files; the
+// transcript of the conversation that now ends with it is made in the same transaction and a
+// receipt signed over it; the result is stored and the task completed through the terminal
+// write (its interaction key settled with it); and the result is queued with the reply in
+// ResultResp.reply. A crash anywhere leaves all of it or none: never a reply without the result
+// that completes the task, or a completed task whose result does not carry its reply (SI-69).
+// Queuing the result ends the task's preview round (queueSendAs, ENG-K20).
+//
+// `anet end` (a completion with no reply) stays CompleteTask; its result carries no reply.
+func (d *Daemon) completeWithReply(ctx context.Context, interactionID, text string, atts []delegation.Attachment) error {
+	text = strings.TrimSpace(text)
+	if text == "" && len(atts) == 0 {
+		return d.CompleteTask(ctx, interactionID)
+	}
+	ix, err := d.ix.Get(interactionID)
+	if err != nil {
+		return err
+	}
+	switch {
+	case ix.Role != interactions.RoleInbound:
+		return fmt.Errorf("anet: only the provider completes a task; ask it with `anet end`")
+	case ix.IsCapability:
+		return fmt.Errorf("anet: %s is a capability call; it completes when the capability answers", interactionID)
+	case ix.IsTerminal():
+		return fmt.Errorf("%w (%s is %s)", ErrTaskTerminal, interactionID, ix.State)
+	}
+	// The files as they are stored, so the reply names them as the transcript does (the
+	// stored type is the sniffed one).
+	rows := make([]interactions.Attachment, 0, len(atts))
+	for _, a := range atts {
+		if err := verifyAttachment(a); err != nil {
+			return err
+		}
+		rows = append(rows, interactions.Attachment{Name: a.Name, Mime: sniffMime(a.Data), Size: a.Size, CID: a.CID, Data: a.Data})
+	}
+	_, msgID := newWireMID()
+	reply := &delegation.ReplyMsg{Kind: delegation.ChatText, Body: text, MsgID: msgID}
+	for _, r := range rows {
+		reply.Attachments = append(reply.Attachments, delegation.Attachment{Name: r.Name, Mime: r.Mime, Size: r.Size, CID: r.CID, Data: r.Data})
+	}
+	var (
+		seq    int64
+		signed signedResult
+	)
+	meta := completedMeta()
+	build := func(tx *interactions.Tx) ([]byte, error) {
+		cur, err := tx.Get(interactionID)
+		if err != nil {
+			return nil, err
+		}
+		if cur.IsTerminal() {
+			return nil, interactions.ErrTerminal
+		}
+		// 1. The reply, a conversation turn.
+		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: interactionID,
+			SenderAID: d.AID(), Kind: interactions.MsgText, Body: text, MsgID: msgID}); err != nil {
+			return nil, err
+		}
+		if err := addAttachmentsTx(tx, interactionID, seq, rows); err != nil {
+			return nil, err
+		}
+		// 2. The transcript, which ends with it.
+		msgs, err := tx.Messages(interactionID)
+		if err != nil {
+			return nil, err
+		}
+		stored, err := tx.Attachments(interactionID)
+		if err != nil {
+			return nil, err
+		}
+		tr, err := encodeTranscript(cur, conversationOf(cur, d.AID(), msgs, stored))
+		if err != nil {
+			return nil, err
+		}
+		// 3. The receipt.
+		if signed, err = d.signResult(cur, tr); err != nil {
+			return nil, err
+		}
+		// 5. The result, carrying the reply.
+		return (&delegation.ResultResp{Status: delegation.StatusDone, Deliverable: signed.transcript,
+			Receipt: signed.receipt, Metadata: meta, Reply: reply}).Marshal()
+	}
+	// 4. The result stored and the task completed, after the row is queued (a terminal write
+	// sees the row and keeps the key material it may be sealed with, ENG-S7).
+	write := func(tx *interactions.Tx) error {
+		return tx.Finish(interactionID, interactions.Finish{State: interactions.StateCompleted, Result: signed.transcript,
+			ResultCID: signed.resultCID, Receipt: signed.receipt, Verified: interactions.VerificationVerified, Meta: meta},
+			interactions.CauseProviderEnd)
+	}
+	id, err := d.queueSendAs(ctx, wireSend{to: ix.PeerAID, typ: seal.TypeResult, ix: interactionID, build: build}, write)
+	if errors.Is(err, interactions.ErrTerminal) {
+		return fmt.Errorf("%w (%s ended before it could be completed)", ErrTaskTerminal, interactionID)
+	}
+	if err != nil {
+		return err
+	}
+	d.afterCompleted(ctx, ix, signed.resultCID, id)
+	d.publishMessage(interactionID, seq, interactions.MsgText)
+	return nil
+}
+
+// afterCompleted is what follows a provider's completion once it is committed: the receipt on
+// the evidence chain, the result announced and its first delivery attempt.
+func (d *Daemon) afterCompleted(ctx context.Context, ix *interactions.Interaction, resultCID string, outboxID int64) {
+	if _, lerr := d.ledger.Append(EvReceipt, map[string]any{
+		"interaction_id": ix.ID, "requester_aid": ix.PeerAID, "result_cid": resultCID,
+	}); lerr != nil {
+		log.Printf("anet: receipt evidence ledger: %v", lerr)
+	}
+	d.publishResult(ix.ID)
+	if err := d.deliverQueued(ctx, outboxID); err != nil {
+		log.Printf("anet: %s: completed; the result is queued for delivery (%v)", ix.ID, err)
+	}
 }
 
 // CompleteTask completes an inbound text task (A2A-DESIGN §4.2): the provider signs a receipt over
@@ -619,35 +798,20 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 	if err != nil {
 		return err
 	}
-	resultCID, err := anetcid.Sum(tr)
+	signed, err := d.signResult(ix, tr)
 	if err != nil {
 		return err
 	}
-	rc := &evidence.Receipt{
-		InteractionID: ix.ID,
-		RequesterAID:  ix.PeerAID,
-		ProviderAID:   d.AID(),
-		RequestCID:    ix.RequestCID,
-		ResultCID:     resultCID,
-		CompletedAt:   uint64(nowMillis()),
-	}
-	if err := rc.Sign(d.self); err != nil {
-		return err
-	}
-	receiptBytes, err := rc.Marshal()
-	if err != nil {
-		return err
-	}
-	meta, _ := json.Marshal(map[string]any{"anet.state": string(interactions.StateCompleted)})
-	payload, err := (&delegation.ResultResp{Status: delegation.StatusDone, Deliverable: tr,
-		Receipt: receiptBytes, Metadata: meta}).Marshal()
+	meta := completedMeta()
+	payload, err := (&delegation.ResultResp{Status: delegation.StatusDone, Deliverable: signed.transcript,
+		Receipt: signed.receipt, Metadata: meta}).Marshal()
 	if err != nil {
 		return err
 	}
 	id, err := d.queueSend(ctx, ix.PeerAID, seal.TypeResult, ix.ID, payload, func(tx *interactions.Tx) error {
 		// Our own signature over our own transcript.
-		return tx.Finish(ix.ID, interactions.Finish{State: interactions.StateCompleted, Result: tr,
-			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified, Meta: meta},
+		return tx.Finish(ix.ID, interactions.Finish{State: interactions.StateCompleted, Result: signed.transcript,
+			ResultCID: signed.resultCID, Receipt: signed.receipt, Verified: interactions.VerificationVerified, Meta: meta},
 			interactions.CauseProviderEnd) // v030-todo(FS-7): confirm the Cause
 	})
 	if errors.Is(err, interactions.ErrTerminal) {
@@ -656,15 +820,7 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 	if err != nil {
 		return err
 	}
-	if _, lerr := d.ledger.Append(EvReceipt, map[string]any{
-		"interaction_id": ix.ID, "requester_aid": ix.PeerAID, "result_cid": resultCID,
-	}); lerr != nil {
-		log.Printf("anet: receipt evidence ledger: %v", lerr)
-	}
-	d.publishResult(ix.ID)
-	if err := d.deliverQueued(ctx, id); err != nil {
-		log.Printf("anet: %s: completed; the result is queued for delivery (%v)", ix.ID, err)
-	}
+	d.afterCompleted(ctx, ix, signed.resultCID, id)
 	return nil
 }
 
@@ -864,6 +1020,11 @@ func (d *Daemon) SubmitReview(interactionID string, rating int, comment string) 
 	}
 	if len(ix.Receipt) == 0 {
 		return zero, fmt.Errorf("anet: no receipt for %s yet (run `results` first)", interactionID)
+	}
+	if ix.ReceiptVerified == interactions.VerificationMismatch {
+		// The receipt covers a conversation that changes what this node
+		// said: a review would vouch for it (CUX-R6 item 4).
+		return zero, a2ashape.Refuse(reasonReceiptMismatch, nil)
 	}
 	rc, err := evidence.UnmarshalReceipt(ix.Receipt)
 	if err != nil {
@@ -1622,6 +1783,17 @@ func resultState(ix *interactions.Interaction, rr *delegation.ResultResp) intera
 // reached a terminal state here (a local cancel) is still verified and
 // recorded — its deliverable, receipt and any settlement evidence — without
 // changing the state (A2A-DESIGN §4.2).
+//
+// A text task's result may carry the provider's reply (correctness-ux
+// CUX-R6): it is checked against the transcript first (CUX-R2,
+// reply-mismatch), then the receipt; the reply is stored with the result in
+// one transaction, and in every branch — the result stored now, after the
+// task ended here (late), or already stored (already) — so the reply is
+// never missing beside its result. The transcript's account of what this
+// node said is checked too: one that adds to or changes it is stored as
+// receipt_verified=mismatch, with no evidence of the result and no review.
+// A result refused for its reply or its receipt fails the task before the
+// provider is told (CUX-R7, resultRefused).
 func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	rr, ix := m.rr, m.existing
 	if rr.Status == delegation.StatusFailed && len(rr.Receipt) == 0 {
@@ -1645,14 +1817,31 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 		return d.drop(dropBadBody, err)
 	}
 
+	// CUX-R2: the reply is the transcript's last provider entry. Checked
+	// before the receipt: a reply the receipt does not cover is refused
+	// whatever the receipt says.
+	var reply *replyRow
+	if rr.Reply != nil {
+		if err := replyMatches(rr.Deliverable, rr.Reply); err != nil {
+			return d.drop(dropReplyMismatch, err)
+		}
+		if reply, err = newReplyRow(rr.Reply); err != nil {
+			return d.drop(dropReplyMismatch, err)
+		}
+	}
+
 	// Have we already accepted this one?
 	//
 	// A result can arrive again under a new message id (the provider
 	// re-sent it for a redelivered delegation). Storing identical content
 	// twice is harmless; appending "result accepted" to the chain twice is
-	// not.
+	// not. Its reply is stored if it is not yet (CUX-R6 item 3).
 	if len(ix.Receipt) > 0 {
-		return d.commitRx(m, nil)
+		res := d.commitRx(m, func(tx *interactions.Tx) error { return reply.writeTx(tx, m.ix, m.from, resultCID) })
+		if res.class == rxAccepted {
+			reply.announce(d, m.ix)
+		}
+		return res
 	}
 
 	// Verify the receipt before accepting the work it certifies.
@@ -1667,7 +1856,7 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	// review this node anchors to it would vouch for that request to anyone
 	// who checks the interlock (redteam F15).
 	//
-	// A failed check drops the result rather than storing it.
+	// A failed check refuses the result rather than storing it.
 	verified := false
 	// v030-todo(PAY-14): the 0.2 receipt check; evidence v2 is delegation.VerifyResultForRequest.
 	switch _, verr := evidence.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts); {
@@ -1698,15 +1887,26 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	// The receipt check above read the interaction outside this
 	// transaction. A second copy of the result under another message id can
 	// have committed since, so it is read again under the write lock.
-	already, late := false, false
+	already, late, mismatch := false, false, false
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
 		cur, err := tx.Get(m.ix)
 		if err != nil {
 			return err
 		}
+		if err := reply.writeTx(tx, m.ix, m.from, resultCID); err != nil {
+			return err
+		}
 		if len(cur.Receipt) > 0 {
 			already = true
 			return nil
+		}
+		// CUX-R6 item 4, against what this node holds as it stores the
+		// result.
+		if mismatch, err = d.conversationMismatch(tx, cur, rr.Deliverable); err != nil {
+			return err
+		}
+		if mismatch {
+			seen = interactions.VerificationMismatch
 		}
 		if cur.IsTerminal() {
 			// Stored with the replay row, in this transaction: a store
@@ -1725,23 +1925,33 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 		}
 		return rp.applyTx(tx, m.ix)
 	})
-	if res.class != rxAccepted || already {
+	if res.class != rxAccepted {
 		return res
 	}
-	// C5: the requester records the receipt it accepted on its own chain, so
-	// both sides of a completed interaction carry evidence.
-	ev := map[string]any{
-		"interaction_id":   m.ix,
-		"result_cid":       resultCID,
-		"receipt_bytes":    len(rr.Receipt),
-		"receipt_verified": verified,
-		"state":            string(state),
+	reply.announce(d, m.ix)
+	if already {
+		return res
 	}
-	if late {
-		ev["after_terminal"] = true
-	}
-	if _, lerr := d.ledger.Append(EvResultAccepted, ev); lerr != nil {
-		log.Printf("anet: result evidence ledger: %v", lerr)
+	if mismatch {
+		// No evidence of a result whose transcript changes what this node
+		// said (CUX-R6 item 4; C5 is not written).
+		log.Printf("anet: %s: the transcript of the result changes what this node said (receipt_mismatch)", m.ix)
+	} else {
+		// C5: the requester records the receipt it accepted on its own
+		// chain, so both sides of a completed interaction carry evidence.
+		ev := map[string]any{
+			"interaction_id":   m.ix,
+			"result_cid":       resultCID,
+			"receipt_bytes":    len(rr.Receipt),
+			"receipt_verified": verified,
+			"state":            string(state),
+		}
+		if late {
+			ev["after_terminal"] = true
+		}
+		if _, lerr := d.ledger.Append(EvResultAccepted, ev); lerr != nil {
+			log.Printf("anet: result evidence ledger: %v", lerr)
+		}
 	}
 	// §4.2: the receipts are verified and recorded even when the task
 	// ended here first.

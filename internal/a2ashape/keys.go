@@ -98,13 +98,6 @@ const (
 	KeyA2AError = "anet.a2aError"
 	// KeyState is the task state a provider message or result asks for.
 	KeyState = "anet.state"
-	// KeyFinal marks a provider's last message on a text task it is
-	// completing (an internal note item): sent with anet.state=working so the requester
-	// does not stop at it (a blocking send would otherwise return at an
-	// input-required the result ends a moment later), the result following
-	// it. Unlike a progress note it is a conversation turn: it is in the
-	// transcript the receipt covers and in the history. Its value is true.
-	KeyFinal = "anet.final"
 	// KeyInbound is the inbound-policy outcome a provider reports, such as
 	// "pending_approval".
 	KeyInbound = "anet.inbound"
@@ -151,12 +144,16 @@ const (
 	PaymentRejected  = x402a2a.StatusRejected
 )
 
-// anet.receipt_verified values. Three, not two: "we checked and it holds",
-// "we could not check" and "nobody recorded which" are different answers.
+// anet.receipt_verified values. Not two: "we checked and it holds", "we
+// could not check" and "nobody recorded which" are different answers, and
+// so is "it holds, but the conversation it covers changes what this node
+// said" (ReceiptMismatch, correctness-ux CUX-R6; the reason table's
+// receipt_mismatch says what that means).
 const (
 	ReceiptVerified   = "verified"
 	ReceiptUnverified = "unverified"
 	ReceiptUnknown    = "unknown"
+	ReceiptMismatch   = "mismatch"
 )
 
 // anet.role values.

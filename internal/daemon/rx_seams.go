@@ -10,12 +10,17 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"log"
 	"sync"
 
 	"github.com/ANetResearch/ANetCore/delegation"
+	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -63,8 +68,54 @@ func (d *Daemon) cardAnswerArrived(from, ix string, kel []identity.SignedEvent, 
 // acknowledged and no token, so its refusal is told only once it is written
 // (as ENG-V12 for a delegation).
 //
-// v030-todo(UX-3): the terminal write; until then nothing is written.
-func (d *Daemon) resultRefused(m *rxMsg, reason string) error { return nil }
+// The provider holds the task ended and sends no other result, so the task
+// cannot stay working. Nothing of the result is stored: no deliverable, no
+// receipt. A capability task says its effect is UNVERIFIED: the provider
+// may have run it. A task already ended here is left as it is.
+func (d *Daemon) resultRefused(m *rxMsg, reason string) error {
+	ended := false
+	err := d.ix.Update(func(tx *interactions.Tx) error {
+		cur, err := tx.Get(m.ix)
+		if err != nil {
+			return err
+		}
+		if cur.Role != interactions.RoleOutbound || cur.PeerAID != m.from || cur.IsTerminal() {
+			return nil
+		}
+		meta := map[string]any{a2ashape.KeyState: string(interactions.StateFailed), a2ashape.KeyReason: reasonResultRefused}
+		if cur.IsCapability {
+			meta[a2ashape.KeyEffectStatus] = string(effect.Unverified)
+		}
+		b, err := json.Marshal(meta)
+		if err != nil {
+			return err
+		}
+		// The result column holds the reason's sentence, as for any task
+		// that fails here (undelivered.go), never the refused deliverable.
+		if err := tx.Finish(m.ix, interactions.Finish{State: interactions.StateFailed,
+			Result:   []byte(a2ashape.Sentence(reasonResultRefused, a2ashape.English, nil)),
+			Verified: interactions.VerificationUnknown, Meta: b}, interactions.CausePeerEnded); err != nil {
+			return err
+		}
+		ended = true
+		return nil
+	})
+	if errors.Is(err, interactions.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if ended {
+		log.Printf("anet: %s: failed: the provider's result was refused (%s)", m.ix, reason)
+		d.publishResult(m.ix)
+	}
+	return nil
+}
+
+// reasonResultRefused is the code of a task whose result was refused
+// (CUX-R7; ux §1.4).
+const reasonResultRefused = "result_refused"
 
 // refreshHubKELs is receive step 6½'s refresh for a notice under a witness
 // this node does not hold the KEL of as far as the notice needs

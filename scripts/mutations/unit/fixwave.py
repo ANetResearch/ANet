@@ -13,6 +13,11 @@
 #   an allowed peer's messages are all acknowledged in the round that read them; TestAMessageForAnUnknownTaskGetsTaskNotFound,
 #   DLV T22), DLV M8a (rule 2, the sender side: TestADirectFollowUpThatOvertakesItsDelegationArrivesAfterIt,
 #   TestDLVT21_AFollowUpWaitsForItsDelegation) and DLV M11 (the cancel tombstone: TestDLVT11_ACancelAheadOfItsDelegationStopsIt).
+#   q30-1, q30-2 — the final reply marked anet.state=working with anet.final, sent ahead of the result (an internal note item), is
+#   gone: a provider that completes a text task with a reply folds it into the result, one transaction and one message
+#   (correctness-ux CUX-R4, completeWithReply). Covered by ux.py ux3-m11 (the reply and the result in two
+#   transactions: TestCompleteWithReplyOneTx) and ux3-m30 (the old marker put back:
+#   TestReplyCompletedEndsABlockingSendWithTheAnswer, TestNoHistoryMessageCarriesAState).
 
 MUTS = [
  dict(
@@ -560,24 +565,6 @@ MUTS = [
    ('internal/daemon/x402task.go', '\t\t\trequired = payableFirst(ix.PayRequired, d.knownHomeNetwork())', '\t\t\trequired = payableFirst(ix.PayRequired, "")'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAQuoteIsOrderedByWhatThisNodeCanPayAndAnUnpayableRailIsRefused')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
-  id='q30-1', group='Q30', repo='ANet',
-  desc='/tasks/reply state=completed 的最后一条回复不带 anet.state=working',
-  edits=[
-   ('internal/daemon/tasks_api.go', 'd.sendMessage(sctx, ix.ID, text, in.atts, a2ashape.FinalReplyMetadata())', 'd.sendMessage(sctx, ix.ID, text, in.atts, nil)'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestAFinalReplyKeepsTheRequesterWorkingUntilTheResult|TestReplyCompletedDoesNotEndABlockingSendEarly')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
-  id='q30-2', group='Q30', repo='ANet',
-  desc='自动回复判定完成时最后一条回复不带 final 标记',
-  edits=[
-   ('internal/daemon/autoreply.go', '\t\tmeta = a2ashape.FinalReplyMetadata()\n', '\t\tmeta, _ = nil, a2ashape.FinalReplyMetadata\n'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestAnAutoReplyThatCompletesSendsAFinalReply')],
   full=['ANet:./internal/daemon'],
  ),
  dict(

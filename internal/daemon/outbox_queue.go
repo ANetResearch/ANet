@@ -44,6 +44,11 @@ type wireSend struct {
 	// asked is queued, waiting on home_unreachable. A new delegation is
 	// strict.
 	strict bool
+	// build, when set, makes the body in the transaction, before the row is
+	// queued: a body that depends on rows the same transaction writes (a
+	// result whose transcript ends with the reply it carries,
+	// completeWithReply). It replaces body. The task must exist.
+	build func(tx *interactions.Tx) ([]byte, error)
 }
 
 // queueSend queues body to toAID, recording write in the same transaction;
@@ -82,6 +87,14 @@ func (d *Daemon) queueSendAs(ctx context.Context, s wireSend, write func(tx *int
 		exists, err := tx.Exists(s.ix)
 		if err != nil {
 			return err
+		}
+		if s.build != nil {
+			if !exists {
+				return interactions.ErrNotFound
+			}
+			if s.body, err = s.build(tx); err != nil {
+				return err
+			}
 		}
 		if exists {
 			if id, fresh, err = d.enqueueTx(tx, s); err != nil {
