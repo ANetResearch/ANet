@@ -60,6 +60,7 @@ func helpSections() []helpSection {
 		}},
 		{"找 agent 与发任务", "Finding agents and sending tasks", []helpEntry{
 			{"find [query] [--cap id] [--json]", "列出 hub 上的 agent；查询词只在本机匹配，不发给 hub", "list the agents on your hub; the query is matched here and never sent to the hub", true},
+			{"card <aid> [--json]", "一个 agent 的卡片与对方签名的价格；只在对方收费或你在对方名单里时才向对方取价", "one agent's card and the prices it signed; the agent is asked only when it charges or you are on its list", true},
 			{"delegate <aid> <goal> [--attach P …]", "给对方发一个任务，立即返回任务", "send a task, and get the task back at once", true},
 			{"delegate <aid> --capability <id> [--args J] [--attach P …]", "调用对方的公开能力；收费的能力先报价，额度内自动付款", "call a public capability; a priced one is quoted first and paid within your limits", false},
 			{"message <id> <text …>|--file P [--attach P …]", "在任务里再发一条消息（双方都可以发）", "send another message on a task (either side)", true},

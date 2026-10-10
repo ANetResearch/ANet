@@ -255,11 +255,12 @@ func approvePrompt(c *client, ix string) (string, error) {
 // the hub and verifies against the peer's key history (/agents/card,
 // sealed-sender SSR-D16). "" (shown as unnamed) when the card does not
 // verify or there is none: a name nobody signed is not shown. The AID
-// beside it is what is being granted.
+// beside it is what is being granted. It asks for no prices, so the peer
+// is not contacted (prices: false; HPP PAY-C10).
 func peerName(c *client, aid string) string {
 	fc := *c
 	fc.timeout = 10 * time.Second
-	b, code, err := fc.fetch("/agents/card", map[string]any{"aid": aid})
+	b, code, err := fc.fetch("/agents/card", map[string]any{"aid": aid, "prices": false})
 	if err != nil || code != 200 {
 		return ""
 	}

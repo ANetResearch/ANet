@@ -626,6 +626,10 @@ func TestARetryIsNotScheduledPastTheDeadline(t *testing.T) {
 		h.senderLimit = 1
 		h.retryAfter = "3600"
 		h.sendsBy[req.AID()] = 1
+		// The hub's notices are as fresh as its clock, which moved with
+		// the requester's: the recipient's keys, past their time, are
+		// fetched again, and sealed to only with a fresh notice (KEL D-26).
+		h.noticeAt = req.nowMS
 	})
 	if err := retryNow(t, req, id); err == nil {
 		t.Fatal("the attempt the hub refused succeeded")

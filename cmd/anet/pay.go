@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
@@ -81,22 +82,75 @@ func payPrompt(c *client, ix string, option json.RawMessage) string {
 	_ = json.Unmarshal(option, &o)
 	// The provider wrote these: made safe to show on a terminal.
 	quote := a2ashape.Args{"amount": printable(o.Amount, 40), "peer": printable(o.PayTo, 256)}
-	if name := peerName(c, o.PayTo); name != "" {
+	// One /agents/card for the payee's name and the prices it signed: from
+	// the daemon's cache, or asked of the payee within 10 seconds (HPP
+	// §4.5).
+	card, haveCard := payeeCard(c, o.PayTo)
+	if name := card.name(); haveCard && name != "" {
 		quote["name"] = name
 	}
-	if skill := taskSkill(c, ix); skill != "" {
+	skill := taskSkill(c, ix)
+	if skill != "" {
 		quote["skill"] = printable(skill, 128)
 	}
 	lines := []string{a2ashape.Sentence("pay.prompt_quote", lang, quote)}
-	// v030-todo(PAY-11): the price the payee signed on its extended card
-	// (pay.prompt_price, or pay.prompt_price_higher when the quote is
-	// above it); this node fetches no extended card yet.
-	lines = append(lines, a2ashape.Sentence("pay.prompt_no_price", lang, nil))
+	lines = append(lines, signedPriceLine(card, haveCard, skill, o.Amount, lang))
 	if st, ok := spendStatus(c); ok {
 		lines = append(lines, a2ashape.Sentence("pay.prompt_limits", lang,
 			a2ashape.Args{"single": st.ExplicitMax, "left": st.left()}))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// payeeCard is /agents/card for aid, with the prices it signed; false when
+// it cannot be read or is not the payee's.
+func payeeCard(c *client, aid string) (cardAnswer, bool) {
+	fc := *c
+	// The daemon waits up to 10 seconds for the payee's answer.
+	fc.timeout = 20 * time.Second
+	b, code, err := fc.fetch("/agents/card", map[string]any{"aid": aid})
+	var ra cardAnswer
+	if err != nil || code != 200 || json.Unmarshal(b, &ra) != nil || ra.AID != aid || ra.Verification != "VERIFIED" {
+		return cardAnswer{}, false
+	}
+	return ra, true
+}
+
+// name is the name on a verified card, made safe for a terminal.
+func (ra cardAnswer) name() string {
+	var card struct {
+		Name string `json:"name"`
+	}
+	_ = json.Unmarshal(ra.Card, &card)
+	return printable(card.Name, 80)
+}
+
+// signedPriceLine is the second line of `anet pay`'s prompt (ux §3.2 text
+// E): the price the payee signed for the task's skill — one the card does
+// not list is 0, as for an automatic payment (HPP PAY-D2 step 4) — and
+// whether this quote is above it; or that there is no signed price (a text
+// task, or no extended card was had). The manual tier pays either way: the
+// line is for the person deciding.
+func signedPriceLine(ra cardAnswer, have bool, skill, amount string, lang a2ashape.Language) string {
+	if !have || skill == "" || len(ra.Prices) == 0 {
+		return a2ashape.Sentence("pay.prompt_no_price", lang, nil)
+	}
+	price := uint64(0)
+	for _, p := range ra.Prices {
+		if p.Skill == skill {
+			n, err := strconv.ParseUint(p.Amount, 10, 64)
+			if err != nil {
+				return a2ashape.Sentence("pay.prompt_no_price", lang, nil)
+			}
+			price = n
+			break
+		}
+	}
+	key := "pay.prompt_price"
+	if q, err := strconv.ParseUint(amount, 10, 64); err != nil || q > price {
+		key = "pay.prompt_price_higher"
+	}
+	return a2ashape.Sentence(key, lang, a2ashape.Args{"price": price})
 }
 
 // taskSkill is the capability a task calls (metadata anet.skill), "" for a

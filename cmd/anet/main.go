@@ -1112,6 +1112,7 @@ var knownFlags = map[string][]string{
 	// by capability, then call it — made you change the word halfway
 	// through. Neither name is worth breaking scripts over, so both work.
 	"find":       {"cap", "capability", "json"},
+	"card":       {"json"},
 	"delegate":   {"cap", "capability", "args", "attach"},
 	"inbox":      {"pending"},
 	"thread":     {},
@@ -1309,6 +1310,8 @@ func runClient(layout daemon.Layout, cmd string, rest []string, explicit bool) e
 		return nil
 	case "find":
 		return findCommand(c, rest)
+	case "card":
+		return cardCommand(c, rest)
 	case "delegate":
 		return delegateCommand(c, rest)
 	case "inbox":
@@ -1602,21 +1605,36 @@ type findAgent struct {
 	AID          string          `json:"aid"`
 	Card         json.RawMessage `json:"card"`
 	Verification string          `json:"verification"`
+	// Charge is read from the public card (HPP PAY-C15); KeyState is
+	// fresh or stale (KEL M-3).
+	Charge   string `json:"charge"`
+	KeyState string `json:"key_state"`
 }
 
-// writeFindTable writes the `anet find` table: name, skills and the whole
-// AID, in the language's column titles. Only a card this node verified is
-// read: an agent without one is "(not verified)" with no name or skills,
-// since what it says of itself could be anyone's words.
-//
-// v030-todo(PAY-11): the charge and key columns (ux §3.1 text B, HPP
-// PAY-C15, KEL M-3) between the name and the skills.
+// writeFindTable writes the `anet find` table (ux §3.1 text B): name,
+// charge, key, skills and the whole AID, in the language's column titles.
+// Only a card this node verified is read: an agent without one is "(not
+// verified)" with no name, charge, key or skills, since what it says of
+// itself could be anyone's words. The charge is the public card's — a list
+// asks no agent for its extended card — and the key column says whether
+// the agent's key was confirmed by its hub lately (stale does not stop a
+// send).
 func writeFindTable(w io.Writer, agents []findAgent, lang a2ashape.Language) {
 	const none = "—"
-	rows := [][]string{{a2ashape.Label("find.name", lang), a2ashape.Label("find.skills", lang), a2ashape.Label("find.aid", lang)}}
+	rows := [][]string{{a2ashape.Label("find.name", lang), a2ashape.Label("find.charge", lang), a2ashape.Label("find.key", lang),
+		a2ashape.Label("find.skills", lang), a2ashape.Label("find.aid", lang)}}
 	for _, a := range agents {
-		name, skills := a2ashape.Label("find.unverified", lang), none
+		name, charge, key, skills := a2ashape.Label("find.unverified", lang), none, none, none
 		if a.Verification == "VERIFIED" {
+			if t := a2ashape.ChargeText(a.Charge, lang); t != "" {
+				charge = t
+			}
+			switch a.KeyState {
+			case "fresh":
+				key = a2ashape.Label("find.key_fresh", lang)
+			case "stale":
+				key = a2ashape.Label("find.key_stale", lang)
+			}
 			var card struct {
 				Name   string `json:"name"`
 				Skills []struct {
@@ -1645,7 +1663,7 @@ func writeFindTable(w io.Writer, agents []findAgent, lang a2ashape.Language) {
 		if !identity.ValidAID(aid) {
 			aid = none
 		}
-		rows = append(rows, []string{name, printable(skills, 120), aid})
+		rows = append(rows, []string{name, charge, key, printable(skills, 120), aid})
 	}
 	widths := make([]int, len(rows[0]))
 	for _, r := range rows {

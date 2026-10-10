@@ -170,6 +170,14 @@ var knownNoticeErrors = map[string]bool{noticeErrQuarantine: true, noticeErrNotA
 // An answer with neither, a notice that does not pass, or an error this node
 // does not know changes nothing.
 func (d *Daemon) noteHubNotice(notice, noticeErr string) {
+	d.noteHubNoticeFrom(d.config().HubURL, notice, noticeErr)
+}
+
+// noteHubNoticeFrom is noteHubNotice for an answer of hub. When hub is the
+// witness, an answer that states another tip than this node's, or a
+// quarantine, makes this node look at what the witness holds of its
+// identity (KEL D-27).
+func (d *Daemon) noteHubNoticeFrom(hub, notice, noticeErr string) {
 	switch {
 	case notice != "":
 		if len(notice) > base64.RawURLEncoding.EncodedLen(seal.MaxNoticeBytes) {
@@ -183,6 +191,11 @@ func (d *Daemon) noteHubNotice(notice, noticeErr string) {
 			return
 		}
 		n, err := d.verifyOwnNotice(wire, d.nowMS())
+		if errors.Is(err, identity.ErrNoticeMismatch) {
+			// The witness says the tip is another one than this node's
+			// (KEL D-27): a rotation made elsewhere, or a record it lost.
+			d.triggerHubKELCheck(hub, triggerNoticeTip)
+		}
 		if err != nil {
 			// Not recorded: the gate stays as it was, and the next answer
 			// brings another. A notice that does not verify is the hub's
@@ -204,6 +217,12 @@ func (d *Daemon) noteHubNotice(notice, noticeErr string) {
 		}
 	case knownNoticeErrors[noticeErr]:
 		d.idGate.noteNotice(nil, noticeErr)
+		if noticeErr == noticeErrQuarantine {
+			// The hub was restored from a backup and holds this identity
+			// as it was then; when that is a prefix of this node's KEL, the
+			// longer one ends the quarantine within seconds (KEL D-27, H-22).
+			d.triggerHubKELCheck(hub, triggerQuarantine)
+		}
 	}
 }
 

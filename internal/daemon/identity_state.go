@@ -370,8 +370,9 @@ func hubArrival(acceptedAt, innerTS, now uint64) uint64 {
 // and the hub's latest refusal of the pending event.
 //
 // The notice comes from key_state_notice.cbor at start and from every
-// /register and /relay/poll answer after (identity_notice.go, KEL D-50).
-// v030-todo(KEL-9): the publication sequence records its refusals here.
+// /register and /relay/poll answer after (identity_notice.go, KEL D-50);
+// the publication sequence and the join's designation record the hub's
+// refusals of the pending event (identity_ops.go).
 type identityGateInputs struct {
 	mu         sync.Mutex
 	notice     *keyStateNotice
@@ -392,7 +393,10 @@ type identityGateInputs struct {
 // A notice replaces the one held when it states another tip — whatever its
 // time: after a hub switch the new hub's clock may run behind the old one's
 // — or the same tip observed later (KEL D-50). An older notice about the
-// same tip changes nothing, so the notice held never goes back in time.
+// same tip changes nothing, so the notice held never goes back in time;
+// nor does one about an earlier key state of the same AID (a lower seq),
+// which only an answer that took long enough to cross an Adopt can bring:
+// the KEL only grows.
 //
 // The gate checks only that n is about this node's tip and witness, not its
 // signature or its time: the caller records a notice that
@@ -403,6 +407,9 @@ func (g *identityGateInputs) noteNotice(n *keyStateNotice, noticeErr string) boo
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if n != nil {
+		if g.notice != nil && n.Body.AID == g.notice.Body.AID && n.Body.Seq < g.notice.Body.Seq {
+			return false
+		}
 		if n.sameTip(g.notice) && n.Body.ObservedAt <= g.notice.Body.ObservedAt {
 			g.noticeErr = ""
 			return false
@@ -431,6 +438,11 @@ func (g *identityGateInputs) read() (n *keyStateNotice, noticeErr, publishErr st
 // identityInputs reads the inputs of the state table now.
 func (d *Daemon) identityInputs() identityInputs {
 	in := identityInputs{File: identityFactsOf(d.self), Now: d.nowMS()}
+	if d.idOps.emergencyOpen.Load() {
+		// An emergency rotation is accepted and its E1–E5 are not done: it
+		// is still being published (core §4.7: the gate opens at E5).
+		in.File.Pending = true
+	}
 	in.Notice, in.NoticeErr, in.PublishErr = d.idGate.read()
 	if r := d.joinSnapshot(); r != nil {
 		in.HubReason = r.Reason

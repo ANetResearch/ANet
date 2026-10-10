@@ -9,7 +9,7 @@ package daemon
 //	POST /tasks/wait    wait until the task is terminal or waits for this node (newer than after_seq)
 //	POST /tasks/reply   the provider's answer on a task delegated to this node
 //	POST /agents/list   discovery: verified network cards, skill, tag and free text matched here
-//	POST /agents/card   one agent's network card (original bytes) and this node's verification
+//	POST /agents/card   one agent's network card (original bytes), this node's verification, and its signed prices
 //	POST /agents/kel    one agent's key history (anet verify), from this node's record or the directory
 //
 // They return the internal/a2ashape projection and share taskseam.go with
@@ -562,16 +562,27 @@ func (d *Daemon) hAgentsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"agents": agents, "nextCursor": next})
 }
 
-// hAgentsCard returns one agent's network card (MCP get_agent_card).
+// hAgentsCard returns one agent's network card (MCP get_agent_card, anet
+// card), with the prices of its extended card when CORE-K23 rule 2 holds
+// (HPP §2.7, PAY-C10 case 1): from the cache, or asked of the agent, which
+// may take up to 10 seconds. "prices": false leaves the agent alone — what
+// a confirmation prompt asks when it wants only the agent's name.
 func (d *Daemon) hAgentsCard(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		AID string `json:"aid"`
+		AID    string `json:"aid"`
+		Prices *bool  `json:"prices"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		badTaskRequest(w, "body: %v", err)
 		return
 	}
-	ra, err := d.agentCard(r.Context(), req.AID)
+	var ra module.RemoteAgent
+	var err error
+	if req.Prices != nil && !*req.Prices {
+		ra, err = d.agentCard(r.Context(), req.AID)
+	} else {
+		ra, _, err = d.agentCardWithPrices(r.Context(), req.AID)
+	}
 	if err != nil {
 		writeTaskError(w, err)
 		return

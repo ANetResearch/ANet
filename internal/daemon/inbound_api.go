@@ -175,6 +175,12 @@ func (d *Daemon) hInboundApprove(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 		return
 	}
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		// key_state.approve (KEL D-25): the reason table's sentence.
+		writeRefusal(w, http.StatusConflict, ref)
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return

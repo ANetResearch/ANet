@@ -232,7 +232,7 @@ func (d *Daemon) listedAgent(e hubapi.A2AAgentEntry, q module.AgentQuery, now ui
 	}
 	m, kerr := d.registryMaterial(e, now)
 	stored, haveStored := d.peerKEL(e.AID)
-	ra := module.RemoteAgent{AID: e.AID, Card: e.Card}
+	ra := module.RemoteAgent{AID: e.AID, Card: e.Card, KeyState: keyStateOf(kerr == nil && m.NoticeOK)}
 	d.verifyCardInto(&ra, func(aid string) ([]identity.SignedEvent, error) {
 		switch {
 		case aid != e.AID:
@@ -245,6 +245,9 @@ func (d *Daemon) listedAgent(e hubapi.A2AAgentEntry, q module.AgentQuery, now ui
 		return nil, kerr
 	})
 	if ra.Verification == cardVerified {
+		// The list's charge is the public card's, always (PAY-C15): a
+		// list never asks anyone for an extended card (PAY-C10).
+		ra.Charge = chargeOf(ra.Card)
 		ra.HubVerification, ra.HomeHub, ra.LastSeen, ra.Quiet = e.CardVerification, e.HomeHub, e.LastSeen, e.Quiet
 		ra.ReviewCount, ra.AvgRating = e.ReviewCount, e.AvgRating
 		if kerr == nil {
@@ -290,7 +293,7 @@ func (d *Daemon) registryMaterial(e hubapi.A2AAgentEntry, now uint64) (peerMater
 	}
 	if notice, err := hubapi.DecodeB64(e.KeyStateNotice, -1); err == nil && len(notice) > 0 && len(notice) <= seal.MaxNoticeBytes {
 		m.Notice = notice
-		m.NoticeOK = identity.VerifyNotice(notice, kel, d.hubKELs, now) == nil
+		m.NoticeOK = d.dirNoticeOK(d.ctx, notice, kel, now)
 	}
 	if d.againstRecord(&m, now) != verdictFound {
 		return m, m.Err
@@ -299,8 +302,10 @@ func (d *Daemon) registryMaterial(e hubapi.A2AAgentEntry, now uint64) (peerMater
 }
 
 // cardClaims reports whether the card claims a skill of id skill and a
-// skill tagged tag ("" matches anything), exactly, as the hub's registry
-// indexes them: read from the card as it is, before it is verified.
+// skill tagged tag ("" matches anything), as the hub's registry indexes
+// them: read from the card as it is, before it is verified. The skill is
+// matched as the directory's capabilities are (capListed): exactly, or a
+// family "x.*" that a listed id falls in.
 func cardClaims(card json.RawMessage, skill, tag string) bool {
 	if skill == "" && tag == "" {
 		return true
@@ -316,7 +321,7 @@ func cardClaims(card json.RawMessage, skill, tag string) bool {
 	}
 	hasSkill, hasTag := skill == "", tag == ""
 	for _, s := range c.Skills {
-		hasSkill = hasSkill || s.ID == skill
+		hasSkill = hasSkill || capListed([]string{s.ID}, skill)
 		hasTag = hasTag || slices.Contains(s.Tags, tag)
 	}
 	return hasSkill && hasTag
@@ -421,11 +426,13 @@ func (d *Daemon) uncardedAgents(ctx context.Context, hub string, q module.AgentQ
 // official agent publishes a card, and an entry without one carries only
 // what a hub wrote, which is not shown beside the mark (an internal note item).
 func (d *Daemon) uncardedAgent(a hubDirEntry) module.RemoteAgent {
+	// The directory listing carries no notice: its key state is stale
+	// (KEL D-28), which does not stop a send.
 	if official := d.IsOfficial(a.AID); official {
 		return module.RemoteAgent{AID: a.AID, Verification: cardNone, Official: official,
-			VerificationError: "the agent publishes no network card"}
+			VerificationError: "the agent publishes no network card", KeyState: module.KeyStateStale}
 	}
-	ra := module.RemoteAgent{AID: a.AID, Verification: cardNone, VerificationError: uncardedNote}
+	ra := module.RemoteAgent{AID: a.AID, Verification: cardNone, VerificationError: uncardedNote, KeyState: module.KeyStateStale}
 	ra.Name, ra.Caps, ra.Summary = a.Name, a.Caps, a.Summary
 	ra.HomeHub, ra.LastSeen, ra.Quiet = a.HomeHub, a.LastSeen, a.Quiet
 	ra.ReviewCount, ra.AvgRating = a.ReviewCount, a.AvgRating
@@ -447,38 +454,71 @@ func capListed(caps []string, id string) bool {
 // error: it is returned NONE with an empty card, and the caller describes it
 // by its AID (§11.3); a card that does not verify is returned UNVERIFIED,
 // without its bytes; an agent no hub knows is NONE and says so.
+//
+// It never contacts the agent: the charge is the public card's, and
+// ExtendedOffered says whether a display would ask the agent for its
+// extended card (CORE-K23 rule 2; agentCardWithPrices asks).
 func (d *Daemon) agentCard(ctx context.Context, aid string) (module.RemoteAgent, error) {
+	ra, _, err := d.resolveAgentCard(ctx, aid)
+	return ra, err
+}
+
+// publicCardFacts are what a verified public card and the key history it
+// verified under tell the extended card's fetch and check (PAY-C13, C14):
+// the card's seq and the agent's KEL.
+type publicCardFacts struct {
+	Seq uint64
+	KEL []identity.SignedEvent
+	// Skills are the public card's skill ids.
+	Skills []string
+}
+
+// resolveAgentCard is agentCard, with the facts of a VERIFIED card (nil
+// for any other).
+func (d *Daemon) resolveAgentCard(ctx context.Context, aid string) (module.RemoteAgent, *publicCardFacts, error) {
 	if !validAgentID(aid) {
-		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "%q is not an agent id", aid)
+		return module.RemoteAgent{}, nil, a2ashape.Errorf(a2ashape.ErrInvalidParams, "%q is not an agent id", aid)
 	}
 	if d.config().HubURL == "" {
-		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "this node has no hub (run `anet hub-register` first)")
+		return module.RemoteAgent{}, nil, a2ashape.Errorf(a2ashape.ErrUnavailable, "this node has no hub (run `anet hub-register` first)")
 	}
 	official := d.IsOfficial(aid)
 	m, v := d.resolvePeer(ctx, aid, resolveOpts{need: needCard})
 	switch v {
 	case verdictNotFound:
 		return module.RemoteAgent{AID: aid, Verification: cardNone, Official: official,
-			VerificationError: CardUnknownAgent}, nil
+			VerificationError: CardUnknownAgent, KeyState: module.KeyStateStale}, nil, nil
 	case verdictUnverifiable:
 		return module.RemoteAgent{AID: aid, Verification: cardUnverified, Official: official,
-			VerificationError: "the directory's entries for this agent do not verify"}, nil
+			VerificationError: "the directory's entries for this agent do not verify", KeyState: module.KeyStateStale}, nil, nil
 	case verdictFound:
 	default:
-		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", &peerResolveError{AID: aid, Verdict: v, Cause: m.Err})
+		return module.RemoteAgent{}, nil, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", &peerResolveError{AID: aid, Verdict: v, Cause: m.Err})
 	}
+	// Whether the agent's hub confirmed its current key, checked now: the
+	// entry may come from the discovery cache (KEL D-28).
+	keyState := keyStateOf(d.noticeFresh(ctx, &m, d.nowMS()))
 	if len(m.Card) == 0 {
 		ra := module.RemoteAgent{AID: aid, Verification: cardNone, Official: official,
-			VerificationError: "the agent publishes no network card"}
+			VerificationError: "the agent publishes no network card", KeyState: keyState}
 		if m.CardErr != "" {
 			ra.Verification, ra.VerificationError = cardUnverified, m.CardErr
 		}
-		return ra, nil
+		return ra, nil, nil
 	}
-	ra := module.RemoteAgent{AID: aid, Card: m.Card}
-	d.verifyCardInto(&ra, singleKEL(aid, m.KEL))
+	ra := module.RemoteAgent{AID: aid, Card: m.Card, KeyState: keyState}
+	pv := d.verifyCardInto(&ra, singleKEL(aid, m.KEL))
 	d.markOfficial(&ra)
-	return ra, nil
+	if pv == nil {
+		return ra, nil, nil
+	}
+	facts := &publicCardFacts{Seq: pv.Seq, KEL: m.KEL}
+	for _, sk := range pv.Skills {
+		facts.Skills = append(facts.Skills, sk.ID)
+	}
+	ra.Charge = chargeOf(ra.Card)
+	ra.ExtendedOffered = d.extendedOffered(aid, ra.Card, d.nowMS())
+	return ra, facts, nil
 }
 
 // validAgentID reports whether aid has the form of an agent id: the
@@ -495,12 +535,13 @@ func validAgentID(aid string) bool {
 // served under this AID is refused. A card that does not verify is dropped
 // from ra (an internal note item): what is kept is the AID, UNVERIFIED and the reason,
 // in words of this node's or the a2acard code, never an error's detail,
-// which can quote the card or the hub.
-func (d *Daemon) verifyCardInto(ra *module.RemoteAgent, resolve a2acard.Resolver) {
+// which can quote the card or the hub. It returns what a2acard.Verify
+// read of a card that verified, nil otherwise.
+func (d *Daemon) verifyCardInto(ra *module.RemoteAgent, resolve a2acard.Resolver) *a2acard.Verified {
 	ra.Verification = cardUnverified
 	if len(ra.Card) == 0 {
 		ra.VerificationError = "no card"
-		return
+		return nil
 	}
 	v, err := a2acard.Verify(ra.Card, resolve, d.nowMS())
 	switch {
@@ -517,9 +558,10 @@ func (d *Daemon) verifyCardInto(ra *module.RemoteAgent, resolve a2acard.Resolver
 		}
 		ra.Verification = cardVerified
 		ra.Name = v.Name
-		return
+		return v
 	}
 	ra.Card, ra.Name = nil, ""
+	return nil
 }
 
 // verificationReason names why a card did not verify: the a2acard code

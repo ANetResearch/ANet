@@ -582,3 +582,60 @@ func TestPricesSomethingAsksThePaymentModule(t *testing.T) {
 		t.Fatalf("pricesSomething = %v with payments compiled %v", got, paymentsCompiled())
 	}
 }
+
+// W4 PAY-10 7: the per-sender limit is judged before anything is made. A
+// sender over it is answered busy with no card built, signed or checked;
+// another sender is answered as before.
+func TestABusyCardRequestBuildsNothing(t *testing.T) {
+	if !paymentsCompiled() {
+		t.Skip("no payment module in this build: a priced capability is published nowhere")
+	}
+	d, _ := extNode(t, []string{"translate"}, nil, map[string]uint64{"translate": 3})
+	const sender, other = "did:anet:bsender", "did:anet:bother"
+	for i := range cardRequestsPerWindow {
+		if got := answerOf(t, d, sender); len(got.Card) == 0 {
+			t.Fatalf("request %d: %+v", i+1, got)
+		}
+	}
+	built := d.extCard.builds.Load()
+	if got := answerOf(t, d, sender); got.Error != delegation.CardBusy {
+		t.Fatalf("the seventh request: %+v", got)
+	}
+	if n := d.extCard.builds.Load(); n != built {
+		t.Fatalf("a busy request built the cards (%d times)", n-built)
+	}
+	if got := answerOf(t, d, other); len(got.Card) == 0 || d.extCard.builds.Load() != built+1 {
+		t.Fatalf("another sender: %+v", got)
+	}
+}
+
+// W4 PAY-10 7: "this variant is the public card" is kept with what it was
+// made from. The same content asked again is not built again; a change to
+// what the variant says is.
+func TestTheSameConclusionIsKept(t *testing.T) {
+	d, w := extNode(t, []string{"face.detect"}, []string{"face.compare"}, nil)
+	if got := answerOf(t, d, "did:anet:bstranger"); got.Error != delegation.CardNotConfigured {
+		t.Fatalf("a stranger: %+v", got)
+	}
+	built := d.extCard.templates.Load()
+	for range 3 {
+		if got := answerOf(t, d, "did:anet:bstranger2"); got.Error != delegation.CardNotConfigured {
+			t.Fatalf("again: %+v", got)
+		}
+	}
+	// The list variant is a card: kept the way a signed card is.
+	if n := d.extCard.templates.Load(); n != built {
+		t.Fatalf("the same content was built %d more times", n-built)
+	}
+	if !paymentsCompiled() {
+		return
+	}
+	w.setPrice("face.detect", 4)
+	got := answerOf(t, d, "did:anet:bstranger")
+	if len(got.Card) == 0 || d.extCard.templates.Load() == built {
+		t.Fatalf("a new price was not built: %+v", got)
+	}
+	if p, err := netcard.PricesOf(got.Card); err != nil || p["face.detect"] != 4 {
+		t.Fatalf("prices %v (%v)", p, err)
+	}
+}

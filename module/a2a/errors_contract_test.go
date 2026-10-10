@@ -7,8 +7,9 @@ package a2a
 // recognizes the standard error behind the code; the raw body's data or
 // details is an array whose first ErrorInfo is in the A2A domain and whose
 // second carries the anet code. The handlers that produce these refusals
-// (PAY-11 the extended card, UX-1 a reused messageId, the send gate) add
-// their trigger paths; this test fixes what they write.
+// have their trigger paths beside them (the extended card in
+// extcard_test.go, a reused messageId, the send gate); this test fixes
+// what they write.
 
 import (
 	"bytes"

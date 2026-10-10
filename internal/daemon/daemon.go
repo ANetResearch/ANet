@@ -194,6 +194,9 @@ type Daemon struct {
 	// extCard is this node's signed extended cards and who asked for one
 	// lately (extcard.go).
 	extCard extCardState
+	// extFetch is the extended cards this node asked agents for and waits
+	// on (extcard_fetch.go).
+	extFetch extFetchState
 	// longCalls bounds how many long-running capability invocations run
 	// at once. A buffered channel rather than a counter because the
 	// bound has to be enforced at the moment of accepting, and a
@@ -265,6 +268,9 @@ type Daemon struct {
 	// created before it was left by an earlier process (wire_edges.go).
 	started time.Time
 
+	// idOps is the state of the identity's key events (identity_ops.go).
+	idOps identityOps
+
 	// ready is closed when New has finished: every module started, startup
 	// recovery (recoverInterrupted, startPayments) done. A transport module
 	// delivers from the moment its Start runs, so its deliveries wait for
@@ -333,6 +339,9 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, err
 	}
 	d.ledger = led
+	// Where the identity's key events stand: what a crash cut short is
+	// finished first (KEL D-35), by the identity loop started below.
+	d.initIdentityOps()
 	d.purgeReplay()
 	d.startPreviews(ctx) // before anything can arrive (preview.go)
 	d.goBackground(func() { d.receiveMaintenance(ctx) })
@@ -361,6 +370,12 @@ func New(layout Layout) (*Daemon, error) {
 	// closed first (engine §6.3 step 2); then the rows an attempt left
 	// marked count as handed over (step 3), before anything is sent.
 	d.closeLeftAtStart()
+	gone := d.identityRefusesInbound()
+	if gone {
+		// A stopped or deactivated identity sends and receives nothing
+		// directly (KEL D-1): the transports close, and no poll starts.
+		d.closeP2P()
+	}
 	d.finishLeftRollback() // a local state rollback a crash cut short (FS-B3)
 	d.recoverOutboxAttempts()
 	d.recoverInterrupted()
@@ -373,10 +388,13 @@ func New(layout Layout) (*Daemon, error) {
 	d.initJoin(cfg)
 	// The withdrawal push reads the join record, so it starts after it.
 	d.goBackground(func() { d.revokeLoop(ctx) }) // revoke_push.go
-	if cfg.HubURL != "" {
+	// The federation hub KEL set follows the hub's /hub/kels (KEL D-24).
+	d.goBackground(func() { d.hubKELSyncLoop(ctx) }) // peerkel.go
+	if cfg.HubURL != "" && !gone {
 		d.startRelayLoop(cfg.HubURL)
 	}
 	d.startJoinLoop()
+	d.startIdentityLoop()
 	if cfg.AutoReply != nil {
 		d.startAutoReply(*cfg.AutoReply)
 	}

@@ -3,22 +3,22 @@ package daemon
 // rx_seams.go is where the receive pipeline v3 meets what other packages
 // deliver after it (engine ENG-G3, §0.2): each seam has the signature the
 // pipeline calls and, until its package replaces it, the stub behavior the
-// engine fixes (every card answer is refused, nothing more is written for a
-// refused result, the hub KEL set is not refreshed). The interaction key lookup of step 3a (FS-7) is the store's.
-// The reply grant of anet.card.get/1 is kept here for the one-shot sender
-// (ENG-1b), which seals the answer.
+// engine fixes (nothing more is written for a refused result). The hub KEL
+// refresh of step 6½ is the peer key state's (peerkel.go, KEL-11). The
+// interaction key lookup of step 3a (FS-7) is the store's. A card answer is
+// taken by cardAnswerArrived (extcard_fetch.go, PAY-11), and a preview
+// frame by previewArrived (preview.go, UX-8). The reply grant of
+// anet.card.get/1 is kept here for the one-shot sender (ENG-1b), which
+// seals the answer.
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"sync"
 
-	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -81,18 +81,6 @@ func wipeLookup(l seal.IXKeyLookup) {
 // previewArrived, receive step 9 for a stream_preview frame, is in
 // preview.go (UX-8).
 
-// cardAnswerArrived is receive step 9 for an anet.card/1 (engine §4.5; HPP
-// PAY-C13, C14): taken only for an ix this node has a card fetch pending
-// for, verified (verifyExtCard) against kel, the sender's KEL as steps 6 and
-// 7 resolved it, written to peer_ext_card outside any receive transaction,
-// then PAY-D5's wake-up. It reports whether the card was taken.
-//
-// v030-todo(PAY-11): the requester's half of the card exchange; until then
-// every answer is refused (verifyExtCard refuses, ENG-G3).
-func (d *Daemon) cardAnswerArrived(from, ix string, kel []identity.SignedEvent, resp *delegation.CardResp) bool {
-	return false
-}
-
 // resultRefused is CUX-R7's terminal transaction: before a result refused
 // for result-refused or reply-mismatch is answered with tok(2), the task
 // is failed (anet.reason = result_refused) through the terminal write, in a
@@ -148,16 +136,6 @@ func (d *Daemon) resultRefused(m *rxMsg, reason string) error {
 // reasonResultRefused is the code of a task whose result was refused
 // (CUX-R7; ux §1.4).
 const reasonResultRefused = "result_refused"
-
-// refreshHubKELs is receive step 6½'s refresh for a notice under a witness
-// this node does not hold the KEL of as far as the notice needs
-// (witness-unknown; KEL D-24): the federation hub KEL set is fetched again
-// from this node's hub, at most once a minute. It reports whether the set
-// may have changed, so the notice is checked again.
-//
-// v030-todo(KEL-11): /hub/kels on demand; until then nothing is refreshed and
-// witness-unknown stays temporary.
-func (d *Daemon) refreshHubKELs(ctx context.Context) bool { return false }
 
 // cardReplyGrants keeps, by (requester, ix), the one-shot capability an
 // anet.card.get/1 brought for its answer (SS §4.3.2 rule 0): the only
