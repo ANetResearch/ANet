@@ -29,7 +29,8 @@ package daemon
 //     key set has an entry sealed under its AID (dirbox), filed under its directory hash; a query names a
 //     prefix of at most dir_max_bits bits (400 bucket_too_narrow with max_bits above), and is answered with
 //     the entries of the bucket, this hub's and its peer fakes', paged, partial when a peer is down;
-//   - GET /hub/identity, with dir_max_bits.
+//   - GET /hub/identity, with dir_max_bits;
+//   - GET /hub/kels (KEL H-16): this hub's key history, its peer fakes' and the ones a test sets.
 //
 // Relay messages are OPAQUE: the fake stores the envelope bytes keyed by to_aid and nothing else. It
 // applies seal.ParseOuter, the structural check the real hub applies, and never opens a payload — a
@@ -281,6 +282,11 @@ type fakeHub struct {
 	// standing in for /fed/v3/directory:bucket (SSR-W19); a peer whose
 	// dirDown is set makes the answer partial (SSR-W21).
 	peers []*fakeHub
+	// hubKELs are hub key histories (identity.MarshalKEL) GET /hub/kels
+	// lists besides this hub's own and its peer fakes', by AID: the hubs a
+	// test makes this one federate with; hubKELReads counts the reads.
+	hubKELs     map[string][]byte
+	hubKELReads int
 	// authFailures counts 401 answers, so a test can tell "refused by the
 	// hub" from "never sent".
 	authFailures int
@@ -335,6 +341,11 @@ type fakeHub struct {
 	notices   bool
 	noticeAt  func() uint64
 	noticeErr string
+	// noSuiteNotices leaves the directory entries of agents the suite
+	// witness witnesses without its notice; by default each carries one
+	// (suiteNoticeLocked), as a peer hub passes its notice on, and
+	// /hub/kels lists the suite witness's key history.
+	noSuiteNotices bool
 
 	// sessions are the open first-contact sessions by session id;
 	// sessionLife is the life the next one gets (0: an hour, the real
@@ -397,6 +408,33 @@ func (h *fakeHub) noticeForLocked(aid string) (notice, noticeErr string) {
 		return "", ""
 	}
 	return base64.RawURLEncoding.EncodeToString(b), ""
+}
+
+// suiteNoticeLocked is the notice of the suite witness (the conformance
+// hub, identitytest.Witness) for the tip of kel (its encoding), observed at
+// noticeAt() (the hub's clock when nil), or nil when kel names another
+// witness or none: what an entry of an agent the suite witness witnesses
+// carries when a peer hub passes it on (KEL §2.7). The caller holds h.mu.
+func (h *fakeHub) suiteNoticeLocked(kelBytes []byte) []byte {
+	kel, err := identity.UnmarshalKEL(kelBytes)
+	if err != nil {
+		return nil
+	}
+	states, err := identity.Replay(kel)
+	if err != nil || len(states) == 0 || states[len(states)-1].Witness != identitytest.Witness {
+		return nil
+	}
+	at := uint64(time.Now().UnixMilli())
+	if h.noticeAt != nil {
+		at = h.noticeAt()
+	}
+	tip := kel[len(kel)-1]
+	n, err := identity.SignNotice(identity.SuiteController(), identity.NoticeBody{AID: states[len(states)-1].AID,
+		Seq: tip.Event.Seq, Head: tip.EventID, ObservedAt: at})
+	if err != nil {
+		return nil
+	}
+	return n
 }
 
 // fakeRegisterResponse is the /register answer with the notice fields.
@@ -579,6 +617,7 @@ func (h *fakeHub) handler() http.Handler {
 	// endpoints the happy path happens to touch is how a seam gets shipped
 	// unconnected — the real hub answers these, so this one does too.
 	mux.HandleFunc("GET /hub/identity", h.hIdentity)
+	mux.HandleFunc("GET /hub/kels", h.hHubKELs)
 	mux.HandleFunc("GET /agents/{aid}/kel", h.hAgentKEL)
 	mux.HandleFunc("POST /x402/settle", h.hSettle)
 	mux.HandleFunc("GET /agents/{aid}/balance", h.hBalance)
@@ -1271,6 +1310,9 @@ func (h *fakeHub) bucketEntries(prefix []byte, bits int) []hubapi.DirBucketEntry
 		hh, err := dirbox.Hash(aid)
 		if err != nil || !dirbox.InBucket(hh, prefix, bits) {
 			return
+		}
+		if len(e.Notice) == 0 && !h.noSuiteNotices {
+			e.Notice = h.suiteNoticeLocked(e.KEL)
 		}
 		box, err := dirbox.Seal(aid, &e, nil)
 		if err != nil {
@@ -2205,6 +2247,78 @@ func (h *fakeHub) hIdentity(w http.ResponseWriter, _ *http.Request) {
 	maxBits := h.dirMaxBits
 	h.mu.Unlock()
 	fakeHubJSON(w, http.StatusOK, hubapi.HubIdentity{AID: h.self.AID(), KEL: hubapi.B64(kel), Wire: &wire, DirMaxBits: &maxBits})
+}
+
+// hHubKELs mirrors GET /hub/kels (KEL H-16): this hub's own key history
+// first, then its peer fakes' and the ones a test set (hubKELs), by AID,
+// base64url.
+func (h *fakeHub) hHubKELs(w http.ResponseWriter, _ *http.Request) {
+	h.mu.Lock()
+	h.hubKELReads++
+	others := map[string][]byte{}
+	if !h.noSuiteNotices {
+		if kel, err := identity.MarshalKEL(identity.SuiteController().KEL()); err == nil {
+			others[identitytest.Witness] = kel
+		}
+	}
+	for aid, kel := range h.hubKELs {
+		others[aid] = kel
+	}
+	peers := append([]*fakeHub(nil), h.peers...)
+	h.mu.Unlock()
+	for _, p := range peers {
+		if kel, err := identity.MarshalKEL(p.self.KEL()); err == nil {
+			others[p.self.AID()] = kel
+		}
+	}
+	own, err := identity.MarshalKEL(h.self.KEL())
+	if err != nil {
+		fakeHubJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	type entry struct {
+		AID string `json:"aid"`
+		KEL string `json:"kel"`
+	}
+	out := []entry{{AID: h.self.AID(), KEL: hubapi.B64(own)}}
+	aids := make([]string, 0, len(others))
+	for aid := range others {
+		if aid != h.self.AID() {
+			aids = append(aids, aid)
+		}
+	}
+	sort.Strings(aids)
+	for _, aid := range aids {
+		out = append(out, entry{AID: aid, KEL: hubapi.B64(others[aid])})
+	}
+	w.Header().Set("Cache-Control", "max-age=300")
+	fakeHubJSON(w, http.StatusOK, map[string]any{"hubs": out})
+}
+
+// setHubKEL has the hub list kel as the key history of the hub aid in GET
+// /hub/kels (nil removes it).
+func (h *fakeHub) setHubKEL(aid string, kel []identity.SignedEvent) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.hubKELs == nil {
+		h.hubKELs = map[string][]byte{}
+	}
+	if kel == nil {
+		delete(h.hubKELs, aid)
+		return
+	}
+	b, err := identity.MarshalKEL(kel)
+	if err != nil {
+		panic(err)
+	}
+	h.hubKELs[aid] = b
+}
+
+// hubKELReadCount is how many times GET /hub/kels was read.
+func (h *fakeHub) hubKELReadCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.hubKELReads
 }
 
 // grant credits an account, standing in for the admin grant and the

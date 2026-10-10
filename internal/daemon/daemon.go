@@ -375,6 +375,8 @@ func New(layout Layout) (*Daemon, error) {
 	d.initJoin(cfg)
 	// The withdrawal push reads the join record, so it starts after it.
 	d.goBackground(func() { d.revokeLoop(ctx) }) // revoke_push.go
+	// The federation hub KEL set follows the hub's /hub/kels (KEL D-24).
+	d.goBackground(func() { d.hubKELSyncLoop(ctx) }) // peerkel.go
 	if cfg.HubURL != "" {
 		d.startRelayLoop(cfg.HubURL)
 	}

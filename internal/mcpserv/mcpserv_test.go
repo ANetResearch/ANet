@@ -776,3 +776,29 @@ func TestNodeStatusSaysToRelayTheRecoveryReminder(t *testing.T) {
 	}
 	t.Fatal("no node_status tool")
 }
+
+// KEL M-3: list_agents and get_agent_card say what key_state is, and that
+// a stale one does not affect sending.
+func TestAgentToolsSayWhatKeyStateMeans(t *testing.T) {
+	sess := connect(t, &fakeControl{})
+	tools, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, tl := range tools.Tools {
+		if tl.Name != "list_agents" && tl.Name != "get_agent_card" {
+			continue
+		}
+		seen++
+		for _, want := range []string{"key_state is fresh when the agent's own hub confirmed its current key, stale otherwise",
+			"key_state stale does not affect sending"} {
+			if !strings.Contains(tl.Description, want) {
+				t.Errorf("%s does not say %q", tl.Name, want)
+			}
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("%d of the two agent tools found", seen)
+	}
+}

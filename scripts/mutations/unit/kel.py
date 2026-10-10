@@ -331,7 +331,8 @@ MUTS += [
  dict(id='kel-m40', group='KEL-4', repo='ANetCore', desc='SenderKeyUsable 退化为 RetiredUsableAt(紧急退役态按受理时刻)',
   edits=[(REPLAY, '\tif ks.RetiredUrgently {\n\t\treturn false\n\t}\n\treturn RetiredUsableAt(ks, arrival)\n',
           '\treturn RetiredUsableAt(ks, arrival)\n')],
-  tests=IDUNIT(['TestSenderKeyUsable', 'TestSenderKeyUsableProperty']) + SEALUNIT(['TestRotationGrace', 'TestNoticeAndSignatureAcrossARotation']),
+  tests=IDUNIT(['TestSenderKeyUsable', 'TestSenderKeyUsableProperty']) + SEALUNIT(['TestRotationGrace', 'TestNoticeAndSignatureAcrossARotation']) +
+  [('ANet:./internal/daemon', '^TestApproveRejectsAfterPeerEmergencyRotation$')],
   full=ID_FULL + SEAL_FULL),
  dict(id='kel4-1', group='KEL-4', repo='ANetCore', desc='R-3:rot 见证只拒空串,不查 AID 语法',
   edits=[(REPLAY, '\tcase !ValidAID(e.Witnesses[0]):\n', '\tcase e.Witnesses[0] == "":\n')],
@@ -634,8 +635,9 @@ MUTS += [
   edits=[('internal/daemon/config.go', '\t{"rotation_grace", "rotation_grace"},\n', '')],
   tests=K8(['TestRotationGraceConfigKeyRejected']), full=K8_FULL),
  dict(id='kel8-ksn', group='KEL-8', repo='ANet', desc='C-58:非测试代码出现名为 ksn 的标识符',
-  edits=[('internal/daemon/pending.go', 'func (d *Daemon) keyStateUsable(kel []identity.SignedEvent, seq uint64) error {\n',
-          'func (d *Daemon) keyStateUsable(kel []identity.SignedEvent, ksn uint64) error {\n\tseq := ksn\n')],
+  # Re-pointed by KEL-11: keyStateUsable is a function of the arrival now (KEL D-25).
+  edits=[('internal/daemon/pending.go', 'func keyStateUsable(kel []identity.SignedEvent, seq, arrival uint64) error {\n',
+          'func keyStateUsable(kel []identity.SignedEvent, ksn, arrival uint64) error {\n\tseq := ksn\n')],
   tests=K8(['TestNoKSNIdentifiers']), full=K8_FULL),
  dict(id='kel8-status-witness', group='KEL-8', repo='ANet', desc='/identity/status 的 last_rotation 把指定见证说成计划内轮换',
   edits=[(IDSTAT, '\t\tcase i == 1 && e.Toad != nil && *e.Toad == identity.ToadAgent:\n', '\t\tcase false:\n')],
@@ -686,6 +688,70 @@ MUTS += [
   edits=[(IDSTAT, '\t\tif n := d.identityName(); n != "" {\n\t\t\targs = a2ashape.Args{"name": n}\n\t\t}\n\t\treturn a2ashape.Refuse(reasonStopped, args)',
           '\t\treturn a2ashape.Refuse(reasonStopped, args)')],
   tests=K8(['TestSendRefusedWhenStopped']), full=K8_FULL),
+]
+
+# KEL-11 (ANet: the peer key state, KEL §8.1, D-24 to D-26, D-28, M-3, A-2): M19 (the daemon's side), M25
+# and M41 of KEL §7.3, and the package's own: the hub KEL set's other rules (a hub's KEL only, R-9) and
+# its once-a-minute refresh, the refresh itself, the stored record a recheck without a notice keeps, the
+# key_state of a listing and of a card shown from the discovery cache, and anet-origin's keyState.
+
+PEERKEL_D = 'internal/daemon/peerkel.go'
+RESOLVE = 'internal/daemon/peer_resolve.go'
+K11 = lambda names: [('ANet:./internal/daemon', '^(' + '|'.join(names) + ')$')]  # noqa: E731
+K11_FULL = ['ANet:./internal/daemon']
+MUTS += [
+ dict(id='kel-m19-daemon', group='KEL-11', repo='ANet', desc='M19(daemon 侧):hub KEL 集接受严格前缀(旧钥签的通告又能验过)',
+  edits=[(PEERKEL_D, '\t\tcase errors.Is(err, identity.ErrKELRollback):\n\t\t\t// The pinned KEL is longer: what is offered is its past.\n',
+          '\t\tcase errors.Is(err, identity.ErrKELRollback):\n\t\t\treplace = true\n')],
+  tests=K11(['TestHubKELSetExtendOnly']), full=K11_FULL),
+ dict(id='kel11-toad', group='KEL-11', repo='ANet', desc='D-24:toad ≠ 0 的 KEL 也当作 hub KEL 固定',
+  edits=[(PEERKEL_D, '\tif states[len(states)-1].Toad != identity.ToadHub {', '\tif false && states[len(states)-1].Toad != identity.ToadHub {')],
+  tests=K11(['TestHubKELSetExtendOnly']), full=K11_FULL),
+ dict(id='kel11-r9', group='KEL-11', repo='ANet', desc='D-24、R-9:延伸 hub KEL 时不查新增事件的未来上界',
+  edits=[(PEERKEL_D, '\t\t\tif err := identity.CheckNewEvents(stored, kel, now, nil); err != nil {',
+          '\t\t\tif err := identity.CheckNewEvents(stored, kel, now, nil); false && err != nil {')],
+  tests=K11(['TestHubKELSetExtendOnly']), full=K11_FULL),
+ dict(id='kel11-refresh-rate', group='KEL-11', repo='ANet', desc='D-24:witness-unknown 的按需刷新不限速',
+  edits=[(RESOLVE, '\tif every > 0 && r.hubKELsAt != 0 && now >= r.hubKELsAt && now-r.hubKELsAt < every {',
+          '\tif false && every > 0 && r.hubKELsAt != 0 && now >= r.hubKELsAt && now-r.hubKELsAt < every {')],
+  tests=K11(['TestWitnessUnknownRefreshesOncePerMinute']), full=K11_FULL),
+ dict(id='kel11-refresh-none', group='KEL-11', repo='ANet', desc='D-24:witness-unknown 不刷新 hub KEL 集(一直是 T)',
+  edits=[(PEERKEL_D, '\t\tchanged, err := d.syncHubKELs(ctx)\n\t\tif err != nil {\n\t\t\td.logOnce("hub-kels-refresh"',
+          '\t\tchanged, err := false, error(nil)\n\t\tif err != nil {\n\t\t\td.logOnce("hub-kels-refresh"')],
+  tests=K11(['TestWitnessUnknownRefreshesOncePerMinute']), full=K11_FULL),
+ dict(id='kel-m25', group='KEL-11', repo='ANet', desc='M25:批准时不重判发送方的密钥态',
+  edits=[('internal/daemon/pending.go', '\tif err := keyStateUsable(kel, item.KeyState, arrival); err != nil {',
+          '\tif err := keyStateUsable(kel, item.KeyState, arrival); false && err != nil {'),
+         ('internal/daemon/pending.go', '\t\tif err := keyStateUsable(kel, dr.Envelope.KeyStateSeq, arrival); err != nil {',
+          '\t\tif err := keyStateUsable(kel, dr.Envelope.KeyStateSeq, arrival); false && err != nil {')],
+  tests=K11(['TestApproveRejectsAfterPeerEmergencyRotation', 'TestApprovalJudgesTheKeyStateAtArrival']), full=K11_FULL),
+ dict(id='kel11-d25-now', group='KEL-11', repo='ANet', desc='D-25:批准时按批准时刻而非保存的 arrival 判定(计划内轮换后过一小时批准被拒)',
+  edits=[('internal/daemon/pending.go', '\tarrival := uint64(max(item.ArrivedAt, 0))\n', '\tarrival := d.nowMS()\n')],
+  tests=K11(['TestApproveRejectsAfterPeerEmergencyRotation']), full=K11_FULL),
+ dict(id='kel11-d25-keep', group='KEL-11', repo='ANet', desc='D-25:key_state 拒绝批准后不删待批项',
+  edits=[('internal/daemon/pending.go', '\t\tif _, derr := d.ix.DeletePending(ixID); derr != nil {', '\t\tif _, derr := false, error(nil); derr != nil {')],
+  tests=K11(['TestApproveRejectsAfterPeerEmergencyRotation']), full=K11_FULL),
+ dict(id='kel-m41', group='KEL-11', repo='ANet', desc='M41:用没有新鲜通告的目录材料封装(D-26 第 2 项失效)',
+  edits=[(RESOLVE, '\tgate := o.record || o.need == needKeys\n', '\tgate := false\n')],
+  tests=K11(['TestFirstContactNeedsFreshNotice']), full=K11_FULL),
+ dict(id='kel11-d26-refetch', group='KEL-11', repo='ANet', desc='D-26 第 3 项:绕过缓存重取不限 10 分钟一次',
+  edits=[(RESOLVE, '\tif t, ok := r.noticeRefetches[aid]; ok && now >= t && now-t < noticeRefetchMS {',
+          '\tif t, ok := r.noticeRefetches[aid]; false && ok && now >= t && now-t < noticeRefetchMS {')],
+  tests=K11(['TestFirstContactNeedsFreshNotice']), full=K11_FULL),
+ dict(id='kel11-d26-record', group='KEL-11', repo='ANet', desc='D-26 第 4 项:异步刷新把没有新鲜通告的材料写入本机记录',
+  edits=[(RESOLVE, '\tgate := o.record || o.need == needKeys\n', '\tgate := o.need == needKeys\n'),
+         (RESOLVE, '\tif !m.NoticeOK {\n\t\td.logOnce("record-peer-notice:"', '\tif false {\n\t\td.logOnce("record-peer-notice:"')],
+  tests=K11(['TestRefreshWithoutNoticeKeepsStoredRecord']), full=K11_FULL),
+ dict(id='kel11-d28-list', group='KEL-11', repo='ANet', desc='D-28:列表条目不看通告一律 fresh',
+  edits=[('internal/daemon/taskseam_agents.go', 'KeyState: keyStateOf(kerr == nil && m.NoticeOK)}', 'KeyState: keyStateOf(kerr == nil)}')],
+  tests=K11(['TestKeyStateFreshStale']), full=K11_FULL),
+ dict(id='kel11-d28-cached', group='KEL-11', repo='ANet', desc='D-28:卡片取自发现缓存时沿用取得时的通告结论(不按现在复核)',
+  edits=[('internal/daemon/taskseam_agents.go', '\tkeyState := keyStateOf(d.noticeFresh(ctx, &m, d.nowMS()))\n', '\tkeyState := keyStateOf(m.NoticeOK)\n')],
+  tests=K11(['TestKeyStateFreshStale']), full=K11_FULL),
+ dict(id='kel11-a2', group='KEL-11', repo='ANet', desc='A-2:anet-origin 的 keyState 一律 fresh',
+  edits=[('module/a2a/card.go', '\tif ra.KeyState == module.KeyStateFresh {\n\t\treturn module.KeyStateFresh\n\t}\n\treturn module.KeyStateStale\n',
+          '\treturn module.KeyStateFresh\n')],
+  tests=[('ANet:./module/a2a', '^TestProxyCardAndListSayTheKeyState$')], full=['ANet:./module/a2a']),
 ]
 
 # KEL-5 (ANetHub: the hub as a witness; KEL §4.2 H-1 to H-5, H-10 to H-14, §2.7; repo ANetHub, kept in this

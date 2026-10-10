@@ -40,12 +40,14 @@ import (
 // Extension URIs of the proxy card: anet-origin is the proxy card's own.
 const (
 	// ExtOriginURI says which remote agent a proxy card stands for:
-	// params {aid, originVerification, originCard?, originExtendedCard?,
-	// anet.official?}, originCard being the remote network card's bytes,
-	// base64url without padding, present only when originVerification is
-	// VERIFIED; originExtendedCard the remote extended card's bytes, the
-	// same way, only on a proxy extended card (HPP §2.6); and anet.official
-	// true when this node's official manifest lists the agent by that AID
+	// params {aid, originVerification, keyState, originCard?,
+	// originExtendedCard?, anet.official?}, originCard being the remote
+	// network card's bytes, base64url without padding, present only when
+	// originVerification is VERIFIED; originExtendedCard the remote extended
+	// card's bytes, the same way, only on a proxy extended card (HPP §2.6);
+	// keyState "fresh" when the agent's hub confirmed its current key and
+	// "stale" otherwise (KEL A-2, D-28); and anet.official true when this
+	// node's official manifest lists the agent by that AID
 	// (A2A-DESIGN §15).
 	ExtOriginURI = "https://agentnetwork.org.cn/a2a/ext/anet-origin/v1"
 )
@@ -66,6 +68,16 @@ const originOfficial = "anet.official"
 // maxOriginCard bounds the remote card carried in anet-origin: the limit a
 // network card is admitted under (ANetCore a2acard.MaxCardBytes).
 const maxOriginCard = 64 << 10
+
+// originKeyState is anet-origin's keyState for ra (KEL A-2): fresh only
+// when the kernel said so; anything else — an agent the directory does not
+// hold, a placeholder — is stale.
+func originKeyState(ra module.RemoteAgent) string {
+	if ra.KeyState == module.KeyStateFresh {
+		return module.KeyStateFresh
+	}
+	return module.KeyStateStale
+}
 
 // cardBuilder builds proxy cards for one listener.
 type cardBuilder struct {
@@ -142,7 +154,7 @@ func (b cardBuilder) buildFrom(ra module.RemoteAgent, ext []byte) (map[string]an
 		}
 	}
 
-	origin := map[string]any{"aid": ra.AID, "originVerification": verification}
+	origin := map[string]any{"aid": ra.AID, "originVerification": verification, "keyState": originKeyState(ra)}
 	// The remote card's bytes only when they verified: a card that did not
 	// is not passed on in any form (an internal note item), and the proxy card is then
 	// the one for an agent without a card.

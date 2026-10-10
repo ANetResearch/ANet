@@ -71,8 +71,8 @@ func TestControlWireFields(t *testing.T) {
 		{route: "/hub-register", alt: "joined", req: reflect.TypeFor[hubRegisterReq](), resp: reflect.TypeFor[hubRegisterResp]()},
 		{route: "/payments/status", resp: reflect.TypeFor[SpendStatus](), todo: "v030-todo(PAY-12)"},
 		// One entry of /agents/list, and /agents/card: key_state is KEL's.
-		{route: "/agents/card", resp: reflect.TypeFor[module.RemoteAgent](), todo: "v030-todo(KEL-11)"},
-		{route: "/agents/list", resp: reflect.TypeFor[module.RemoteAgent](), todo: "v030-todo(KEL-11)"},
+		{route: "/agents/card", resp: reflect.TypeFor[module.RemoteAgent]()},
+		{route: "/agents/list", resp: reflect.TypeFor[module.RemoteAgent]()},
 	}
 	covered := map[string]bool{}
 	for _, row := range rows {
