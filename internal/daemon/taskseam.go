@@ -148,6 +148,27 @@ func (s *DaemonTaskSeam) Card(ctx context.Context, aid string) (module.RemoteAge
 	return s.d.agentCard(ctx, aid)
 }
 
+// ExtendedCard is the local A2A GetExtendedAgentCard (HPP §4.7, CORE-K23):
+// the agent's extended card through the same fetch as /agents/card, or the
+// refusal of the extended_card_* code its outcome is. A request that could
+// not go because this node may not send (it is not registered at its hub,
+// or its identity is stopped) is refused with that state's sentence.
+func (s *DaemonTaskSeam) ExtendedCard(ctx context.Context, aid string) (module.ExtendedAgent, error) {
+	ra, res, err := s.d.agentCardWithPrices(ctx, aid)
+	if err != nil {
+		return module.ExtendedAgent{}, err
+	}
+	if res.Outcome == extNotSent {
+		if ref := s.d.sendGate(); ref != nil {
+			return module.ExtendedAgent{}, ref
+		}
+	}
+	if ref := extendedRefusal(res); ref != nil {
+		return module.ExtendedAgent{}, ref
+	}
+	return module.ExtendedAgent{Agent: ra, Card: append([]byte(nil), res.Card.Bytes...)}, nil
+}
+
 // Pay answers a payment-required task at the agent tier (A2A-DESIGN §8.7).
 func (s *DaemonTaskSeam) Pay(ctx context.Context, peerAID, taskID string, decision module.PayDecision) (a2ashape.Task, error) {
 	sc, err := peerScope(peerAID)

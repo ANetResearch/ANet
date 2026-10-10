@@ -390,6 +390,7 @@ var schema = [][]string{
 	ixKeySchema,
 	capsSchema,
 	outboxSchema,
+	extCardSchema,
 }
 
 // createSchema gives a file with no schema the whole of schema and user_version SchemaVersion, in

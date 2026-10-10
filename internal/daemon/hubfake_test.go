@@ -359,6 +359,10 @@ type fakeHub struct {
 	// closeConns ends every connection after its answer, so every request
 	// comes on a new one.
 	closeConns bool
+
+	// registry serves GET /a2a/v1/agents (hubfake_registry_test.go); off,
+	// the fake is a hub without the A2A registry.
+	registry bool
 }
 
 // noticeForLocked is what the hub answers about aid's key state: its
@@ -560,6 +564,7 @@ func (h *fakeHub) handler() http.Handler {
 	mux.HandleFunc("POST /profile", h.hProfile)
 	mux.HandleFunc("GET /agents", h.hAgents)
 	mux.HandleFunc("GET /agents/{aid}", h.hAgent)
+	mux.HandleFunc("GET "+hubapi.RegistryAgentsPath, h.hRegistry)
 	mux.HandleFunc("POST /reviews", h.hUploadReview)
 	mux.HandleFunc("POST "+hubapi.RelaySessionPath, h.hRelaySession)
 	mux.HandleFunc("POST /relay/send", h.hRelaySend)

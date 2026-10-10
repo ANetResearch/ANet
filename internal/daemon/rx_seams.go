@@ -3,17 +3,16 @@ package daemon
 // rx_seams.go is where the receive pipeline v3 meets what other packages
 // deliver after it (engine ENG-G3, §0.2): each seam has the signature the
 // pipeline calls and, until its package replaces it, the stub behavior the
-// engine fixes (no second layer opens, no preview frame is taken, every card
-// answer is refused, nothing more is written for a refused result, the hub
-// KEL set is not refreshed). The reply grant of anet.card.get/1 is the one
-// thing kept here for the one-shot sender (ENG-1b), which seals the answer.
+// engine fixes (no second layer opens, no preview frame is taken, nothing
+// more is written for a refused result, the hub KEL set is not refreshed).
+// A card answer is taken by cardAnswerArrived (extcard_fetch.go, PAY-11).
+// The reply grant of anet.card.get/1 is the one thing kept here for the
+// one-shot sender (ENG-1b), which seals the answer.
 
 import (
 	"context"
 	"sync"
 
-	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
@@ -43,18 +42,6 @@ func (d *Daemon) ixKeys() seal.IXKeyLookup {
 // v030-todo(UX-8): previewAccept and the preview cache; until then no frame
 // is taken.
 func (d *Daemon) previewArrived(m *rxMsg) bool { return false }
-
-// cardAnswerArrived is receive step 9 for an anet.card/1 (engine §4.5; HPP
-// PAY-C13, C14): taken only for an ix this node has a card fetch pending
-// for, verified (verifyExtCard) against kel, the sender's KEL as steps 6 and
-// 7 resolved it, written to peer_ext_card outside any receive transaction,
-// then PAY-D5's wake-up. It reports whether the card was taken.
-//
-// v030-todo(PAY-11): the requester's half of the card exchange; until then
-// every answer is refused (verifyExtCard refuses, ENG-G3).
-func (d *Daemon) cardAnswerArrived(from, ix string, kel []identity.SignedEvent, resp *delegation.CardResp) bool {
-	return false
-}
 
 // resultRefused is CUX-R7's terminal transaction: before a result refused
 // for result-refused or reply-mismatch is answered with tok(2), the task

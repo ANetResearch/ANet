@@ -194,6 +194,9 @@ type Daemon struct {
 	// extCard is this node's signed extended cards and who asked for one
 	// lately (extcard.go).
 	extCard extCardState
+	// extFetch is the extended cards this node asked agents for and waits
+	// on (extcard_fetch.go).
+	extFetch extFetchState
 	// longCalls bounds how many long-running capability invocations run
 	// at once. A buffered channel rather than a counter because the
 	// bound has to be enforced at the moment of accepting, and a
