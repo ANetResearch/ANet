@@ -38,6 +38,7 @@ func TestSandboxIntegrationConnectsOnlyToAllowedHosts(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	openSandboxTask(t, d, "ix-connect")
 	res, err := d.runSandboxed(ctx, sandboxRequest{
 		Cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", Command: self, APIKey: testOperatorKey, APITimeoutSeconds: 50,
 			Sandbox: &AutoReplySandboxConfig{EgressAllow: []string{"PyPI.org"}}},

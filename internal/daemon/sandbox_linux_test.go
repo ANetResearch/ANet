@@ -900,6 +900,7 @@ func TestSandboxIntegrationConfinesTheAgent(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	openSandboxTask(t, d, "ix-probe")
 	res, err := d.runSandboxed(ctx, sandboxRequest{
 		Cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", Command: self, APIKey: "k", APITimeoutSeconds: 50},
 		RC: replyContext{Role: "inbound", InteractionID: "ix-probe",
@@ -972,6 +973,7 @@ func TestSandboxIntegrationReachesTheModelOnlyThroughTheNode(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	openSandboxTask(t, d, "ix-egress")
 	res, err := d.runSandboxed(ctx, sandboxRequest{
 		Cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", Command: self, APIKey: testOperatorKey, APITimeoutSeconds: 50},
 		RC: replyContext{Role: "inbound", InteractionID: "ix-egress",
@@ -1047,6 +1049,7 @@ func TestSandboxIntegrationHoldsNoSecret(t *testing.T) {
 	pad := strings.Repeat("p", 200<<10)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	openSandboxTask(t, d, canaryIX)
 	res, err := d.runSandboxed(ctx, sandboxRequest{
 		Cfg: AutoReplyConfig{Backend: "exec", Agent: "claude", Command: self, APIKey: canaryKey, APITimeoutSeconds: 50},
 		RC: replyContext{Role: "inbound", InteractionID: canaryIX,

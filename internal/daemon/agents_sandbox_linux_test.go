@@ -186,6 +186,7 @@ func TestSandboxIntegrationConfiguresEachAgent(t *testing.T) {
 		t.Run(tc.agent, func(t *testing.T) {
 			d := newBareDaemon(t)
 			ix := "ix-config-" + tc.agent
+			openSandboxTask(t, d, ix)
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
 			res, err := d.runSandboxed(ctx, sandboxRequest{

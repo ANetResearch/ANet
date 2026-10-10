@@ -92,6 +92,7 @@ func sandboxedProbe(t *testing.T, d *Daemon, cfg AutoReplyConfig, ix string, req
 	if turns == nil {
 		turns = []chatTurn{{Role: "user", Text: "probe"}}
 	}
+	openSandboxTask(t, d, ix)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	res, err := d.runSandboxed(ctx, sandboxRequest{Cfg: cfg,
