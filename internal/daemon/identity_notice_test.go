@@ -523,8 +523,9 @@ func FuzzKeyStateNoticeFile(f *testing.F) {
 
 // Every envelope the node seals carries the notice that confirms the KEL it
 // carries (inner key 11, KEL D-50, C-52), signed under the key state that
-// KEL ends at; a node without one carries an empty notice until the engine
-// keeps such envelopes back (ENG-1b).
+// KEL ends at; a node without one seals nothing (engine ENG-K13, ENG-R3
+// S3): its gate is closed, and with the gate held open no notice confirms
+// the key state it would sign under.
 func TestSealedEnvelopesCarryTheNotice(t *testing.T) {
 	d, _, _ := witnessedNode(t, true)
 	peer := newTestDaemon(t, "", false)
@@ -546,12 +547,12 @@ func TestSealedEnvelopesCarryTheNotice(t *testing.T) {
 		t.Fatalf("signed under key state %d, the notice confirms %d", op.Inner.KeyStateSeq, held.Body.Seq)
 	}
 	bare := newTestDaemon(t, "", false)
-	op, err = seal.Open(sealFrom(t, bare, peer, seal.TypeMessage, "ix_2", []byte("hi")), peer.AID(), peer.enc, nil)
-	if err != nil {
-		t.Fatal(err)
+	if env, err := bare.sealWith(peer.AID(), seal.TypeMessage, "ix_2", []byte("hi"), keySetOf(t, peer)); !errors.Is(err, errGateClosed) {
+		t.Fatalf("a node without a notice sealed %d bytes (%v)", len(env), err)
 	}
-	if len(op.Inner.Notices) != 1 || len(op.Inner.Notices[0]) != 0 {
-		t.Fatalf("a node without a notice: inner key 11 is %x", op.Inner.Notices)
+	holdGateOpen(bare)
+	if env, err := bare.sealWith(peer.AID(), seal.TypeMessage, "ix_2", []byte("hi"), keySetOf(t, peer)); !errors.Is(err, errNoTipNotice) {
+		t.Fatalf("a node without a notice, its gate held open, sealed %d bytes (%v)", len(env), err)
 	}
 }
 

@@ -403,7 +403,7 @@ func mustKEL(t *testing.T, d *Daemon) []byte {
 // to a public capability (accepted as public_cap), and again after a
 // restart. Neither kind of stranger traffic writes peer_identity (§3.8).
 func TestATruncatedKELIsRefusedAfterTableChurnAndRestart(t *testing.T) {
-	srv, req, prov := plainRegisteredPair(t)
+	srv, req, prov := pastWitnessedPair(t, uint64(time.Now().Add(-3*time.Hour).UnixMilli()))
 	ctx := context.Background()
 	prov.ix.SetPeerIdentityCap(100)
 	const lampCap = "light.onoff@sim/lamp-1"
@@ -439,8 +439,8 @@ func TestATruncatedKELIsRefusedAfterTableChurnAndRestart(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if kel, _ := prov.peerKEL(req.AID()); len(kel) != 2 {
-		t.Fatalf("provider holds %d events of the requester's KEL, want 2", len(kel))
+	if kel, _ := prov.peerKEL(req.AID()); len(kel) != len(req.self.KEL()) {
+		t.Fatalf("provider holds %d events of the requester's KEL, want %d", len(kel), len(req.self.KEL()))
 	}
 
 	rows, err := prov.ix.PeerIdentityCount()
@@ -707,7 +707,7 @@ func TestAStaleOrBadKeysAttachmentDoesNotDropTheMessage(t *testing.T) {
 // within the rotation grace after the rotation (identity.RotationGrace, one
 // hour, not configurable), and refused after it.
 func TestRotationGrace(t *testing.T) {
-	_, req, prov := plainRegisteredPair(t)
+	_, req, prov := pastWitnessedPair(t, uint64(time.Now().Add(-time.Hour).UnixMilli()))
 	ctx := context.Background()
 	id, err := req.Delegate(ctx, prov.AID(), "task", nil)
 	if err != nil {
