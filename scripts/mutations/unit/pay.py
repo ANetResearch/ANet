@@ -894,7 +894,7 @@ MUTS += [
  dict(id='M-PAY-32', group='PAY', repo='ANet', desc='扩展卡进入公开卡高水位表',
   edits=[('internal/daemon/extcard_fetch.go', '\tvariant := string(module.VariantGeneral)\n',
           '\t_ = d.admitCardMark(&a2acard.Verified{AID: from, Seq: c.PublicSeq, PayloadHash: [32]byte{1}})\n\tvariant := string(module.VariantGeneral)\n')],
-  tests=[(DAEMON, '^TestJPAY4PartlyPricedProvider$')], full=[DAEMON]),
+  tests=[(DAEMON, '^(TestTheExtendedCardIsNotThePublicCardsMark|TestJPAY4PartlyPricedProvider)$')], full=[DAEMON]),
  dict(id='M-PAY-39', group='PAY', repo='ANet', desc='anet find 或 list_agents 触发取价(/agents/list 为每个条目取扩展卡)',
   edits=[('internal/daemon/tasks_api.go', '\twriteJSON(w, http.StatusOK, map[string]any{"agents": agents, "nextCursor": next})',
           '\tfor i := range agents {\n\t\tif agents[i].Verification == cardVerified {\n\t\t\tagents[i], _, _ = d.agentCardWithPrices(r.Context(), agents[i].AID)\n\t\t}\n\t}\n'

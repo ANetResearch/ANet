@@ -593,7 +593,7 @@ MUTS = [
   id='q33-1', group='Q33', repo='ANet',
   desc='卡片与列表回 no-store',
   edits=[
-   ('module/a2a/extcard.go', '\th.Set("Cache-Control", "private, max-age="+strconv.Itoa(cardMaxAge))', '\th.Set("Cache-Control", "no-store")'),
+   ('module/a2a/extcard.go', '\th.Set("Cache-Control", "private, max-age="+strconv.Itoa(cardMaxAge))', '\th.Set("Cache-Control", "no-store"+strconv.Itoa(cardMaxAge)[:0])'),
   ],
   tests=[('ANet:./module/a2a', 'TestCardsAndTheAgentListAreCacheablePrivately')],
   full=['ANet:./module/a2a'],

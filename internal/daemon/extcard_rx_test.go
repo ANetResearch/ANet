@@ -394,6 +394,28 @@ func TestSignedPriceForAPayment(t *testing.T) {
 	}
 }
 
+// M-PAY-32's regression: the extended card repeats its public card's seq
+// with another payload, so it must never become the public card's
+// high-water mark. A payment that fetches the card before this node has
+// looked at the agent's public card leaves that card verifiable, not a
+// SEQ_FORK.
+func TestTheExtendedCardIsNotThePublicCardsMark(t *testing.T) {
+	srv := newFakeHub(t)
+	withRegistry(t, srv.URL)
+	prov := cardLabProvider(t, srv, "Translator", []string{"translate"}, nil, map[string]uint64{"translate": 3})
+	req := cardLabRequester(t, srv, "Req")
+	p := whilePolling(t, func() cardPrice { return req.signedPriceFor(context.Background(), prov.AID(), "translate", 3) }, req, prov)
+	if !p.Have || p.Price != 3 {
+		t.Fatalf("the signed price: %+v", p)
+	}
+	if pub, err := req.agentCard(context.Background(), prov.AID()); err != nil || pub.Verification != cardVerified {
+		t.Fatalf("the public card after the extended one: %+v %v", pub, err)
+	}
+	if e := listRouteEntry(t, req, prov.AID()); e.Verification != cardVerified {
+		t.Fatalf("the list after the extended card: %+v", e)
+	}
+}
+
 func mapsEqual(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
