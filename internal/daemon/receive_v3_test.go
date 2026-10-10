@@ -924,11 +924,35 @@ func TestACardRequestIsAnsweredUnderItsOwnGrant(t *testing.T) {
 	if len(answers) != 1 {
 		t.Fatalf("answers %q, want one", answers)
 	}
-	if h, ok := prov.cardReplyGrant(req.AID(), ix2); !ok || h.IX != ix2 || h.Issuer != req.AID() {
-		t.Fatalf("the reply grant kept for the answer: %+v %v", h, ok)
+	// The answer goes under the grant its request brought, kept in memory
+	// and not in caps_held (SSR-W8), and only once; the request without a
+	// grant has none to go under (ENG-K2).
+	cardChoice := func(ix string) AccessChoice {
+		t.Helper()
+		c, err := prov.accessChoiceFor(req.AID(), ix, false, accessCard, prov.nowMS())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
 	}
-	if _, ok := prov.cardReplyGrant(req.AID(), ix2); ok {
-		t.Fatal("the reply grant was kept for a second answer")
+	if c := cardChoice(ix1); c.Send {
+		t.Fatalf("the answer to a request without a grant goes under %+v", c)
+	}
+	held, err := prov.ix.HeldCaps(req.AID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range held {
+		if h.IX == ix2 {
+			t.Fatalf("a card request's grant in caps_held: %+v", h)
+		}
+	}
+	if c := cardChoice(ix2); !c.Send || c.Kind != seal.AccessKindCap || c.Cap == nil || c.Cap.IX != ix2 ||
+		c.Cap.Issuer != req.AID() {
+		t.Fatalf("the answer's credential: %+v, want the request's one-shot grant", c)
+	}
+	if c := cardChoice(ix2); c.Send {
+		t.Fatalf("the reply grant was kept for a second answer: %+v", c)
 	}
 	for _, ix := range []string{ix1, ix2} {
 		if _, err := prov.ix.Get(ix); !errors.Is(err, interactions.ErrNotFound) {

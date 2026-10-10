@@ -1202,6 +1202,16 @@ func (d *Daemon) cardGetGrant(to, ix string, now uint64) ([]byte, error) {
 // accessChoiceFor is accessFor over the daemon's facts for one attempt of a
 // message to `to` in interaction ix.
 func (d *Daemon) accessChoiceFor(to, ix string, delegate bool, mode accessMode, now uint64) (AccessChoice, error) {
+	if mode == accessCard {
+		// An anet.card/1 goes only under the one-shot capability its
+		// anet.card.get/1 brought, which is kept in memory and never in
+		// caps_held (SSR-W8), and is taken by this one answer (ENG-K2).
+		var held []interactions.HeldCap
+		if h, ok := d.cardReplyGrant(to, ix); ok {
+			held = append(held, h)
+		}
+		return accessFor(accessRow{To: to, IX: ix, PeerEpoch: d.peerMboxEpoch(to, ix)}, held, mode, now), nil
+	}
 	held, err := d.ix.HeldCaps(to)
 	if err != nil {
 		return AccessChoice{}, err

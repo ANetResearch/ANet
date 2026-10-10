@@ -90,8 +90,10 @@ func (d *Daemon) testIXLookup() seal.IXKeyLookup {
 	return nil
 }
 
-// setCardAnswerHook makes the receive pipeline tell f every answer to a
-// card request it sends (answerCardRequest); nil removes it.
+// setCardAnswerHook makes the receive pipeline hand every answer to a card
+// request to f instead of sending it (answerCardRequest), so a test reads
+// the reply grant it kept without racing the one-shot sender that takes it;
+// nil removes it.
 func (d *Daemon) setCardAnswerHook(f func(to, ix string, body []byte)) {
 	if f == nil {
 		d.cardAnswerHook.Store(nil)

@@ -1290,6 +1290,8 @@ func (d *Daemon) answerCardRequest(ctx context.Context, m *rxMsg, in *seal.Seale
 	from, ix := m.from, m.ix
 	if f := d.testCardAnswerHook(); f != nil {
 		f(from, ix, body)
+		d.count(cardGetAnswered)
+		return rxResult{class: rxAccepted, reason: cardGetAnswered, step: rxStep9}
 	}
 	d.goBackground(func() {
 		sctx, cancel := context.WithTimeout(d.ctx, hubCallTimeoutShort)

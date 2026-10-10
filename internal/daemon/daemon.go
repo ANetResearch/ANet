@@ -108,8 +108,9 @@ type Daemon struct {
 	// cardGrants are the reply grants of card requests waiting for their
 	// answer (rx_seams.go).
 	cardGrants cardReplyGrants
-	// cardAnswerHook, when set, is told every card answer the receive
-	// pipeline sends. Tests only, through setCardAnswerHook.
+	// cardAnswerHook, when set, is handed every card answer the receive
+	// pipeline would send, in place of sending it. Tests only, through
+	// setCardAnswerHook.
 	cardAnswerHook atomic.Pointer[func(to, ix string, body []byte)]
 	// bgWG counts background goroutines that use the store (goBackground),
 	// so Close can wait for them before closing it. bgMu orders their

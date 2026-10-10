@@ -609,6 +609,17 @@ MUTS += [
   full=[D],
  ),
  dict(
+  id='eng1c-card-caps-held', group='ENG-1c', repo='ANet',
+  desc='卡片答复不用请求带来的回信 grant,改从 caps_held 取(SSR-W8、ENG-K2)',
+  edits=[
+   ('internal/daemon/caps.go', '''	if mode == accessCard {
+		// An anet.card/1''', '''	if mode == accessCard && false {
+		// An anet.card/1'''),
+  ],
+  tests=[(D, 'TestACardRequestIsAnsweredUnderItsOwnGrant')],
+  full=[D],
+ ),
+ dict(
   id='eng1c-sender-tx', group='ENG-1c', repo='ANet',
   desc='发送方 KEL 与钥集在第 10 步事务之外先行写入(事务回滚时它们与连带的吊销留下)',
   edits=[
