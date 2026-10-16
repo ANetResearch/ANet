@@ -33,6 +33,10 @@ var (
 	// difference to be readable from the binary rather than inferred
 	// from which file they think they copied.
 	Tags = ""
+	// Variant is the name of the released build this binary is: "default" or
+	// "shell". Only build-release.sh stamps it (-X); an empty Variant is a
+	// build made from source, and `anet update` does not update it.
+	Variant = ""
 )
 
 // Full is the version as a service reports it.

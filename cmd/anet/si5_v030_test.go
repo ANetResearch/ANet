@@ -203,7 +203,7 @@ func TestRemovedKeysStopAnetDaemon(t *testing.T) {
 				}
 				h := newCLIHome(t, lang)
 				layout := daemon.NewLayout(h.data)
-				if err := initTo(nopWriter{}, layout, false); err != nil {
+				if err := initTo(nopWriter{}, layout, false, nil, nil); err != nil {
 					t.Fatal(err)
 				}
 				b, _ := os.ReadFile(layout.ConfigPath())

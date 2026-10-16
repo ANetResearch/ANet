@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/release"
 	"github.com/ANetResearch/ANet/internal/version"
 	"github.com/ANetResearch/ANet/module"
@@ -44,14 +45,14 @@ func runUpdate(rest []string) error {
 		return fmt.Errorf("cannot resolve this binary: %w", err)
 	}
 
-	// The variant is read off the module registry, not off the build-tag
-	// stamp: a module is in the registry because the linker kept it, so a
-	// binary that can execute commands updates to the build that can, and
-	// one that cannot never updates into one that can.
+	// The variant is the name build-release.sh stamped into this binary
+	// (version.Variant), and only the release of that name is looked at.
+	// A binary without the stamp was built from source: it is not updated,
+	// and nothing is downloaded (update_variant_unknown).
 	compiled := module.Compiled()
-	variant := "default"
-	if slices.Contains(compiled, "shell") {
-		variant = "shell"
+	variant := version.Variant
+	if variant == "" {
+		return refuseUpdate("update_variant_unknown", a2ashape.Args{})
 	}
 
 	bases := release.DefaultBases
@@ -79,11 +80,22 @@ func runUpdate(rest []string) error {
 
 	fmt.Printf("anet %s (%s variant, %s/%s) at %s\n", version.V, variant, runtime.GOOS, runtime.GOARCH, exe)
 	f, err := u.Check(ctx)
+	if errors.Is(err, release.ErrNoVariant) {
+		return refuseUpdate("update_variant_unknown.mismatch", mismatchArgs(variant, compiled))
+	}
 	if errors.Is(err, release.ErrExpired) {
 		return fmt.Errorf("%w; --base URL checks another mirror", err)
 	}
 	if err != nil {
 		return err
+	}
+	// "The default build never turns into one that can execute commands":
+	// the additive modules of this binary must be those of the target.
+	// Which subtractive modules differ does not matter (a later default may
+	// gain or lose one); the downloaded binary is probed against the
+	// manifest in Apply.
+	if additiveMismatch(compiled, f.Modules) {
+		return refuseUpdate("update_variant_unknown.mismatch", mismatchArgs(variant, compiled))
 	}
 	m := f.Manifest
 	fmt.Printf("  manifest  %s%s/release.json\n", f.Base, release.DLPath)
@@ -148,4 +160,38 @@ func shortCommit(c string) string {
 		return c[:12]
 	}
 	return c
+}
+
+// additiveMismatch is true when the additive modules (shell) this binary has
+// are not the ones the target build has. Only these decide whether a release
+// is a build this binary may turn into.
+func additiveMismatch(compiled, target []string) bool {
+	return !slices.Equal(additiveOf(compiled), additiveOf(target))
+}
+
+// additiveOf is the modules of l that a build tag adds (shell), sorted.
+func additiveOf(l []string) []string {
+	var out []string
+	for _, k := range module.Known() {
+		if k.Additive && slices.Contains(l, k.Name) {
+			out = append(out, k.Name)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+func mismatchArgs(variant string, compiled []string) a2ashape.Args {
+	mods := strings.Join(compiled, ",")
+	if mods == "" {
+		mods = "(none)"
+	}
+	return a2ashape.Args{"variant": variant, "modules": mods}
+}
+
+// refuseUpdate says why anet update downloads nothing and ends with status 1.
+func refuseUpdate(key string, args a2ashape.Args) error {
+	lang := a2ashape.Lang()
+	say(os.Stderr, a2ashape.Sentence(key, lang, args), a2ashape.Next(key, lang, args))
+	return errExit1
 }

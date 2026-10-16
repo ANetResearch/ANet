@@ -225,10 +225,13 @@ func (m *Manifest) CheckFresh(now time.Time) error {
 }
 
 // AssetFor picks the asset for one variant and platform.
+// ErrNoVariant is a manifest that has no variant of the requested name.
+var ErrNoVariant = errors.New("the release has no such variant")
+
 func (m *Manifest) AssetFor(variant, goos, goarch string) (string, Asset, error) {
 	v, ok := m.Variants[variant]
 	if !ok {
-		return "", Asset{}, fmt.Errorf("release %s has no %q variant", m.Version, variant)
+		return "", Asset{}, fmt.Errorf("%w: release %s has no %q variant", ErrNoVariant, m.Version, variant)
 	}
 	name := v.AssetPrefix + "-" + goos + "-" + goarch
 	a, ok := m.Assets[name]

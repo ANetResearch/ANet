@@ -415,7 +415,7 @@ build_one() {
 
   CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
     go build -C "$ROOT" -trimpath -tags "$tags" \
-      -ldflags "$LDFLAGS -X $VPKG.Commit=$COMMIT -X $VPKG.BuiltAt=$BUILT -X $VPKG.Tags=$tags" \
+      -ldflags "$LDFLAGS -X $VPKG.Commit=$COMMIT -X $VPKG.BuiltAt=$BUILT -X $VPKG.Tags=$tags -X $VPKG.Variant=$variant" \
       -o "$out" ./cmd/anet/ || die "build failed: $plat ${tags:-default}"
 
   local raw_sha raw_size gz_sha gz_size
@@ -454,10 +454,10 @@ cp "$REL_DIR/install.sh" "$DIST/install.sh"
 info "module sets"
 HOSTBIN="$(mktemp -d)"
 trap 'rm -rf "$HOSTBIN"' EXIT
-host_modules() { # <tags> → modules line of a host build, kept at $HOSTBIN/anet-<variant>
+host_modules() { # <tags> <variant> → modules line of a host build, kept at $HOSTBIN/anet-<variant>
   local bin="$HOSTBIN/anet-${1:-default}"
   CGO_ENABLED=0 go build -C "$ROOT" -trimpath -tags "$1" \
-    -ldflags "$LDFLAGS -X $VPKG.Commit=$COMMIT -X $VPKG.BuiltAt=$BUILT -X $VPKG.Tags=$1" \
+    -ldflags "$LDFLAGS -X $VPKG.Commit=$COMMIT -X $VPKG.BuiltAt=$BUILT -X $VPKG.Tags=$1 -X $VPKG.Variant=$2" \
     -o "$bin" ./cmd/anet/ || die "host build failed (${1:-default})"
   local out ver mods
   out="$("$bin" version)" || die "host build does not run"
@@ -465,12 +465,24 @@ host_modules() { # <tags> → modules line of a host build, kept at $HOSTBIN/ane
   [ "$ver" = "$VERSION" ] || die "host build reports version '$ver', expected $VERSION"
   mods="$(printf '%s\n' "$out" | sed -n 's/^modules: //p')"
   [ "$mods" = "(none)" ] && mods=""
+  [ "$(printf '%s\n' "$out" | sed -n 's/^variant: //p')" = "$2" ] \
+    || die "host build (${1:-default}) does not report 'variant: $2'; anet update would not know what it is"
   printf '%s' "$mods"
 }
-MODS_DEFAULT="$(host_modules "")"
-MODS_SHELL="$(host_modules shell)"
+MODS_DEFAULT="$(host_modules "" default)"
+MODS_SHELL="$(host_modules shell shell)"
 case ",$MODS_DEFAULT," in *,shell,*) die "the default build reports the shell module: $MODS_DEFAULT" ;; esac
 case ",$MODS_SHELL," in *,shell,*) ;; *) die "the shell build does not report the shell module: $MODS_SHELL" ;; esac
+# The sets the release must have (MOD-V1, MOD-7a): the default variant carries
+# every module a user is told is there, and the shell variant is the default
+# plus shell and nothing else. A build that dropped one of them would be
+# shipped and installed as "the default" by a name alone.
+for m in autoreply preview service anetlink x402 console; do
+  case ",$MODS_DEFAULT," in *",$m,"*) ;; *) die "the default build does not report the $m module: $MODS_DEFAULT" ;; esac
+done
+WANT_SHELL="$(printf '%s,shell\n' "$MODS_DEFAULT" | tr ',' '\n' | sort | paste -sd, -)"
+[ "$WANT_SHELL" = "$MODS_SHELL" ] \
+  || die "the shell build is not the default build plus shell: default [$MODS_DEFAULT], shell [$MODS_SHELL]"
 ok "default: $MODS_DEFAULT"
 ok "shell:   $MODS_SHELL"
 

@@ -147,18 +147,16 @@ jobs:
           # only "nothing of it in the lean build" is checked.
           - "no_a2a"
           - "no_a2a,no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-          # The tag sets docs/DISTRIBUTIONS-zh.md proposes as shipping
-          # variants. A design naming combinations nobody builds is a
-          # design that will stop compiling without anyone noticing.
-          # Whether they take no_a2a is open there (待决问题 五).
-          #
-          # min, first, on its own row: it used to be the all-out row
-          # above, and stopped being that when no_a2a joined it.
-          - "no_x402,no_service,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-          - "no_x402,no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-          - "no_mcp,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-          - "no_x402,no_cas,no_org,no_blackboard,no_p2p,no_anetlink"
-          - "no_x402,no_mcp,no_cas,no_org,no_blackboard,no_anetlink"
+          # The self-build recipes, as `bash scripts/tagcheck.sh recipes`
+          # prints them; TestRecipesMatchCI compares these five rows with
+          # that output (full is the default build and takes no tags).
+          # A design naming combinations nobody builds is a design that
+          # will stop compiling without anyone noticing.
+          - "no_a2a,no_anetlink,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_service,no_x402"
+          - "no_anetlink,no_blackboard,no_cas,no_mcp,no_org,no_p2p,no_x402"
+          - "no_anetlink,no_blackboard,no_cas,no_mcp,no_org,no_p2p"
+          - "no_anetlink,no_blackboard,no_cas,no_org,no_p2p,no_x402"
+          - "no_anetlink,no_blackboard,no_cas,no_mcp,no_org,no_x402"
           # Reserved for the anet3 subsystems as they land. Each name is
           # claimed here first so the seam is enforced from the module's
           # first commit rather than retrofitted after it has spread:

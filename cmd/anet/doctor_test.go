@@ -40,7 +40,7 @@ func doctorJSON(t *testing.T, layout daemon.Layout, env doctorEnv) (map[string]a
 func freshInit(t *testing.T) daemon.Layout {
 	t.Helper()
 	layout := daemon.NewLayout(t.TempDir())
-	if err := initTo(io.Discard, layout, false); err != nil {
+	if err := initTo(io.Discard, layout, false, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	return layout
