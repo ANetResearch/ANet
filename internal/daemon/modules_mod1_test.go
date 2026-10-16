@@ -723,6 +723,7 @@ func TestKernelReadsOnlyAllowedModuleBlocks(t *testing.T) {
 		"caps.go":            "p2pAdvertise, which decides Grant key 5",
 		"p2p_addr.go":        "checkP2PConfig, before the module starts",
 		"setup.go":           "SI5, which reports modules.p2p.lan (UX-D5); the P2P module work item moves it",
+		"init_without.go":    "init --without, which writes the without list and keeps the module blocks as they are",
 		// MOD-3 removes the next line: autoreply reads its own block then.
 		"autoreply_exec.go": "anetlinkSockets, the sandbox's never-bind list",
 	}
