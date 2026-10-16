@@ -75,7 +75,7 @@ MUTS = [
   full=['ANet:./module/autoreply'],
  ),
  dict(
-  id='m-av-9', group='AV', repo='ANet',
+  id='m-av-t1a', group='AV', repo='ANet',
   desc='agent 的 stdout/stderr 不设上限(提示注入让 agent 死循环打印即可撑爆 daemon 堆,T-1 EXE F2)',
   edits=[
    ('module/autoreply/agents.go', '\tfull := room < len(p)\n', '\tfull := false\n'),
@@ -85,7 +85,7 @@ MUTS = [
   full=['ANet:./module/autoreply'],
  ),
  dict(
-  id='m-av-9b', group='AV', repo='ANet',
+  id='m-av-t1b', group='AV', repo='ANet',
   desc='agent 的输出原样进日志(换行/ESC 可伪造日志行,T-1 EXE F5)',
   edits=[
    ('module/autoreply/agents.go', 'return fmt.Errorf("%s: %s", filepath.Base(bin), logText(msg, 400))', 'return fmt.Errorf("%s: %s", filepath.Base(bin), truncate(msg, 400))'),
@@ -94,16 +94,16 @@ MUTS = [
   full=['ANet:./module/autoreply'],
  ),
  dict(
-  id='m-bu-10', group='BU-2', repo='ANet',
+  id='m-bu-t1', group='BU-2', repo='ANet',
   desc='读不到证据链时预算从 0 开始计(把一天的额度全部还回去,T-1 EXE F8)',
   edits=[
-   ('module/autoreply/sandbox_budget.go', '\t\tif past, err = runs(start.Add(-48 * time.Hour)); err != nil {\n\t\t\treturn err\n\t\t}', '\t\tpast, _ = runs(start.Add(-48 * time.Hour))'),
+   ('module/autoreply/sandbox_budget.go', '\t\tif past, err = runs(start.Add(-48 * time.Hour)); err != nil {\n\t\t\treturn err\n\t\t}', '\t\tpast, err = runs(start.Add(-48 * time.Hour))\n\t\t_ = err'),
   ],
   tests=[('ANet:./module/autoreply', 'TestRunBudgetDoesNotStartWhenTheChainCannotBeRead')],
   full=['ANet:./module/autoreply'],
  ),
  dict(
-  id='m-cn-6', group='CN-5', repo='ANet',
+  id='m-cn-t1', group='CN-5', repo='ANet',
   desc='只判拒 ECH 正式码位 0xfe0d(草案号与 ESNI 的 ClientHello 通过,T-1 EXE F-4)',
   edits=[
    ('module/autoreply/clienthello.go', 'case tlsExtECH, 0xfe08, 0xfe09, 0xfe0a, 0xfe0b, 0xfe0c, 0xff02, 0xff03, 0xffce:', 'case tlsExtECH:'),
