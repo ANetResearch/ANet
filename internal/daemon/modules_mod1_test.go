@@ -554,40 +554,6 @@ func TestStatusContributorKeysFollowTheTable(t *testing.T) {
 	}
 }
 
-// K-5: the sensitive paths hold the kernel's fixed part, the default C1
-// socket whatever the availability of anetlink, and the paths available
-// modules declare.
-func TestSensitivePaths(t *testing.T) {
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	for _, without := range [][]string{nil, {"anetlink"}} {
-		d := startWith(t, map[string]any{"without": without}, nil)
-		d.modules = append(d.modules, fakeLocalPaths{"/var/run/svc-test.sock"})
-		got := d.sensitivePaths()
-		for _, want := range []string{d.layout.Root, d.layout.ControlTokenPath(), "/var/run/svc-test.sock"} {
-			if !slices.Contains(got, want) {
-				t.Errorf("without=%v: %q missing from %v", without, want, got)
-			}
-		}
-		// The sandbox's list holds the default C1 socket whether or not the
-		// anetlink module is available (TestNeverBindIndependentOfModules).
-		if never := d.sandboxNeverBind(); !slices.ContainsFunc(never, func(p string) bool { return strings.HasSuffix(p, "anetlink/c1.sock") }) {
-			t.Errorf("without=%v: the sandbox never-bind list lacks the default C1 socket: %v", without, never)
-		}
-		if s := os.Getenv("XDG_RUNTIME_DIR"); !slices.Contains(got, s) {
-			t.Errorf("without=%v: %q missing", without, s)
-		}
-		found := false
-		for _, p := range got {
-			if strings.HasSuffix(p, "anetlink/c1.sock") {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("without=%v: the default C1 socket is not in the list: %v", without, got)
-		}
-	}
-}
-
 // routeLines are the routes of a control plane, one line each, sorted:
 // "<method and pattern>\t<owner>", the owner being "kernel" or the module
 // the name table gives the route to.

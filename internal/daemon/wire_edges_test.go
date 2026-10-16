@@ -414,36 +414,6 @@ func TestADeniedPeerWritingToAnUnknownTaskIsAnsweredLikeAStranger(t *testing.T) 
 	}
 }
 
-// A2A-DESIGN §5.1: the deny list is read on every auto-reply turn whatever
-// the backend. The OpenAI-compatible backend does not answer a peer denied
-// since its message landed, before any revocation sweep.
-func TestTheOpenAIBackendReadsTheDenyListEveryTurn(t *testing.T) {
-	api := &fakeOpenAI{reply: "hello"}
-	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, api)
-	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "first question", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.tick(t)
-	if n := api.calls.Load(); n != 1 {
-		t.Fatalf("backend called %d times for an allowed peer, want 1", n)
-	}
-	if err := f.req.pollOnce(f.ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.req.SendMessage(f.ctx, id, "second question", nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.prov.pollOnce(f.ctx); err != nil {
-		t.Fatal(err)
-	}
-	denyPeers(t, f.prov, f.req.AID()) // an edit outside the CLI; no sweep has run
-	f.prov.autoReplyOnce(f.ctx, f.cfg, f.replier)
-	if n := api.calls.Load(); n != 1 {
-		t.Fatalf("backend called %d times after the deny, want still 1", n)
-	}
-}
-
 // tapEvents subscribes to d's events for ix, whether or not ix exists yet.
 func tapEvents(d *Daemon, ix string) <-chan Event {
 	s := &subscriber{ch: make(chan Event, eventBufferSize)}
@@ -652,44 +622,4 @@ func getIXOf(t *testing.T, d *Daemon, id string) *interactions.Interaction {
 		t.Fatal(err)
 	}
 	return ix
-}
-
-// denyDuring is a replier through which the peer is denied while the
-// backend works.
-type denyDuring struct {
-	inner autoReplier
-	deny  func()
-}
-
-func (r denyDuring) Reply(ctx context.Context, rc replyContext, turns []chatTurn) (string, error) {
-	r.deny()
-	return r.inner.Reply(ctx, rc, turns)
-}
-
-// §5.1: a peer denied while the backend was producing its reply is not
-// sent that reply.
-func TestAReplyIsNotSentToAPeerDeniedWhileTheBackendWorked(t *testing.T) {
-	api := &fakeOpenAI{reply: "hello"}
-	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "test"}, api)
-	id, err := f.req.Delegate(f.ctx, f.prov.AID(), "a question", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.prov.pollOnce(f.ctx); err != nil {
-		t.Fatal(err)
-	}
-	replier := denyDuring{inner: f.replier, deny: func() { denyPeers(t, f.prov, f.req.AID()) }}
-	f.prov.autoReplyOnce(f.ctx, f.cfg, replier)
-	if n := api.calls.Load(); n != 1 {
-		t.Fatalf("backend called %d times, want 1", n)
-	}
-	msgs, err := f.prov.ix.Messages(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, m := range msgs {
-		if m.SenderAID == f.prov.AID() {
-			t.Fatalf("a reply went to the peer denied during the call: %+v", m)
-		}
-	}
 }

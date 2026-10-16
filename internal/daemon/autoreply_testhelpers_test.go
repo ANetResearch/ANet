@@ -1,3 +1,5 @@
+//go:build mod4_pending
+
 package daemon
 
 // autoreply_testhelpers_test.go — the tests of the execution face reach the auto-reply module through

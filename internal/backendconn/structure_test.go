@@ -22,9 +22,9 @@ var unixDialExempt = map[string]struct {
 	// Inside the sandbox, not the daemon: the bridge from the agent's 127.0.0.1:3128 to the run's
 	// egress socket, which the daemon itself made in the run's own directory. It carries the agent's
 	// bytes; the daemon's key and its decisions stay on the other side (EXE-2).
-	"internal/daemon/sandbox_init.go": {1, "the sandbox's egress bridge"},
+	"module/autoreply/sandbox_init.go": {1, "the sandbox's egress bridge"},
 	// Inside the sandbox: the isolation probe, which must fail to reach the host's abstract socket.
-	"internal/daemon/sandbox_linux.go": {1, "the sandbox probe"},
+	"module/autoreply/sandbox_linux.go": {1, "the sandbox probe"},
 	// removeStaleSocket asks whether anyone still listens on a path before replacing it, and writes
 	// nothing to what answers.
 	"cmd/anet-official/main.go": {1, "a stale-socket probe"},

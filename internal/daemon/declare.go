@@ -7,7 +7,7 @@ import "github.com/ANetResearch/ANet/module"
 // that removes them yet, so a build cannot lack them, and `anet version`
 // and the name table's Availability must still list them.
 //
-// No build tag, on purpose. MOD-4 (autoreply), MOD-6 (preview) and v0.3.x
-// (console) each delete their own name from this call when the code moves
+// No build tag, on purpose. MOD-6 (preview) and v0.3.x (console) each
+// delete their own name from this call when the code moves
 // out and registers itself (module.Register) under a tag.
-func init() { module.DeclareCompiled("autoreply", "preview", "console") }
+func init() { module.DeclareCompiled("preview", "console") }

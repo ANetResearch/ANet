@@ -176,8 +176,8 @@ func fillConfig(raw []byte) ([]InitChange, []byte, error) {
 	}
 	if ar, ok := cur["auto_reply"].(map[string]any); ok {
 		if _, has := ar["untrusted"]; !has {
-			ar["untrusted"] = UntrustedOff
-			changes = append(changes, InitChange{Key: "auto_reply.untrusted", Action: "added", Value: UntrustedOff})
+			ar["untrusted"] = untrustedOff
+			changes = append(changes, InitChange{Key: "auto_reply.untrusted", Action: "added", Value: untrustedOff})
 		}
 	}
 	if len(changes) == 0 {
@@ -409,7 +409,7 @@ var si5DefaultText = map[string]string{
 	"peers.allow":                 "empty",
 	"peers.trust":                 "empty",
 	"inbound.public_capabilities": "empty",
-	"auto_reply.untrusted":        UntrustedOff,
+	"auto_reply.untrusted":        untrustedOff,
 	"payments.auto_max":           "0",
 	"payments.agent_max":          "0",
 	"payments.agent_daily_max":    "0",
@@ -426,7 +426,7 @@ var si5DefaultText = map[string]string{
 // from the fresh-install default, in SI5Keys order.
 func (st PolicyState) SI5() (values map[string]any, changed []string) {
 	// The auto-reply module's value (its ConfigSpec.SI5): "off" without a block, an invalid one as written.
-	untrusted := UntrustedOff
+	untrusted := untrustedOff
 	if v, ok := moduleSI5(st.Config)["auto_reply.untrusted"].(string); ok {
 		untrusted = v
 	}
@@ -463,7 +463,7 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 		"peers.allow":                 len(st.Allow) == 0,
 		"peers.trust":                 len(st.Trust) == 0,
 		"inbound.public_capabilities": len(caps) == 0,
-		"auto_reply.untrusted":        untrusted == UntrustedOff,
+		"auto_reply.untrusted":        untrusted == untrustedOff,
 		"payments.auto_max":           st.Payments.AutoMax == 0,
 		"payments.agent_max":          st.Payments.AgentMax == 0,
 		"payments.agent_daily_max":    st.Payments.AgentDailyMax == 0,

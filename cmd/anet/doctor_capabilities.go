@@ -100,7 +100,7 @@ func previewCheck(say func(id, status, key string, args a2ashape.Args), cfg daem
 	default:
 		return
 	}
-	if ar := daemon.ParseAutoReply(cfg.AutoReply); ar == nil || (ar.Backend != "" && ar.Backend != "openai") {
+	if backend, configured := autoReplyBackend(cfg.AutoReply); !configured || (backend != "" && backend != "openai") {
 		say("preview", stInfo, "preview.no_source", nil)
 	}
 }

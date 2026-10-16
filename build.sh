@@ -83,7 +83,6 @@ if [ -n "$WITHOUT" ] || [ -n "$WITH" ]; then
       case ",$TAGS," in *",no_$m,"*) ;; *) TAGS="${TAGS:+$TAGS,}no_$m" ;; esac
     elif printf '%s\n' "$PENDING" | grep -qx "$m"; then
       case "$m" in
-        autoreply) build_tag_pending autoreply 自动回复 auto-reply ;;
         preview)   build_tag_pending preview 预览 preview ;;
         console)   build_tag_pending console 控制台 console ;;
         *)         build_tag_pending "$m" "$m" "$m" ;;

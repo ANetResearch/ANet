@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -39,27 +38,15 @@ func (d *Daemon) startModules(ctx context.Context, cfg Config) error {
 	// called, it is not registered and not started. A configuration block
 	// for a module that is not available is the refusal module_absent.
 	// configured, whichever way it is absent (MOD-F1).
+	// The auto-reply block keeps its historical top-level key; the module is handed it as its own. In a
+	// build or a configuration without the module the block is not passed on (ModuleRefusals has refused
+	// it: module_absent.configured).
+	if blk := blockOrNil(cfg.AutoReply); blk != nil && d.avail.Available("autoreply") {
+		raw["autoreply"] = blk
+	}
 	mods, err := module.BuildWith(d.avail, raw)
 	if err != nil {
 		return err
-	}
-	// The modules that still live in this package are built beside the registered ones. A turned-off
-	// module is not built; a block for an absent module was refused by ModuleRefusals.
-	names := make([]string, 0, len(inProcModules))
-	for n := range inProcModules {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, n := range names {
-		if !d.avail.Available(n) {
-			continue
-		}
-		info, _ := module.Lookup(n)
-		m, err := inProcModules[n](moduleBlock(cfg, info))
-		if err != nil {
-			return fmt.Errorf("module %q: %w", n, err)
-		}
-		mods = append(mods, m)
 	}
 	for _, m := range mods {
 		h, st := newModuleHost(d, m.Name())

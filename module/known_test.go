@@ -35,13 +35,16 @@ func TestKnownNameTable(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("names %v, want %v", got, want)
 	}
-	// The two that have no tag yet and whose absent path has landed (preview's with MOD-5, console's with MOD-8;
-	// autoreply's with MOD-3 -- none has a tag until MOD-4/6).
-	for _, n := range []string{"autoreply", "preview", "console"} {
+	// The two that have no tag yet and whose absent path has landed (preview's with MOD-5, console's with MOD-8).
+	for _, n := range []string{"preview", "console"} {
 		k, _ := Lookup(n)
 		if k.Tag != "" || !k.AbsenceReady {
 			t.Errorf("%s: tag %q, AbsenceReady %v", n, k.Tag, k.AbsenceReady)
 		}
+	}
+	// autoreply moved out with its tag (MOD-4).
+	if k, _ := Lookup("autoreply"); k.Tag != "no_autoreply" || !k.AbsenceReady || len(k.Packages) != 1 || k.Packages[0] != "module/autoreply" {
+		t.Errorf("autoreply: tag %q, packages %v, AbsenceReady %v", k.Tag, k.Packages, k.AbsenceReady)
 	}
 	if _, ok := Lookup("nothing"); ok {
 		t.Error("Lookup found a name that is not there")

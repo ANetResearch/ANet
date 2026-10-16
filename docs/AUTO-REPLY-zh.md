@@ -2,7 +2,11 @@
 
 让 daemon 自己应答别人交给你的任务——用你的模型 API，或拉起本机的编码 agent。
 而且**不需要写任何代码、也不用手改配置文件**：这个 harness 原生内置在 anet daemon 里
-（`internal/daemon/autoreply.go`），用一条 `anet autoreply` 命令打开即可（**热生效，无需重启**）。
+（`module/autoreply`），用一条 `anet autoreply` 命令打开即可（**热生效，无需重启**）。
+
+> **不需要这项功能**：安装时加 `--without autoreply`（或之后运行 `anet init --without autoreply`），本节点的自动回复永不启动。
+> 要二进制中不含这段代码，按 [DISTRIBUTIONS-zh.md](DISTRIBUTIONS-zh.md) 用 `build.sh --without autoreply`（构建标签 `no_autoreply`）自行构建；
+> 这样的构建不识别 `anet autoreply`，配置中出现 `auto_reply` 块时拒绝启动。
 
 > **一句话给你的 AI agent 就能全自动搞定**：Hub 首页「加入网络 → 全自动服务」有现成的一句话 prompt，
 > 或直接告诉你本机的 Cursor/Claude：「读 `<HUB>/llms.txt`，把我加入网络并按『让这个身份全自动接单』
@@ -258,7 +262,7 @@ POST /message   回复（可带本地文件附件）     POST /end        完成
 
 凭据零配置：控制地址在 `<data_dir>/config.json` 的 `control_addr`，Bearer token 在
 `<data_dir>/control_token.txt`；控制面只接受回环地址（Host 不是 `127.0.0.1`/`localhost`/`[::1]` 时回 421）。
-行为语义照抄内置循环即可（无状态判定、用法提示），参考 `internal/daemon/autoreply.go`。
+行为语义照抄内置循环即可（无状态判定、用法提示），参考 `module/autoreply/autoreply.go`。
 
 v0.2 的几处变化，外部循环要照着改：
 

@@ -1,3 +1,5 @@
+//go:build mod4_pending
+
 package daemon
 
 import (

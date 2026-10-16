@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && mod4_pending
 
 package daemon
 

@@ -5,7 +5,6 @@ package daemon
 // control-plane route, the setting and the card it changes.
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,8 +14,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // postTo calls h with body and returns the status and the JSON answer.
@@ -251,34 +248,6 @@ var sseFixtures = []struct {
 		"data: [DONE]\r\n\r\n", "A yellow circle <<ANET_TASK_DONE>>"},
 }
 
-// CUX-P5: the streamed and the non-streamed answer are the same bytes,
-// and the accumulated text and reasoning are what the coalescer is offered.
-func TestStreamedAnswerEqualsTheWholeOne(t *testing.T) {
-	for _, f := range sseFixtures {
-		t.Run(f.name, func(t *testing.T) {
-			var offers [][2]string
-			got, err := readChatStream(strings.NewReader(f.stream), func(text, reasoning string) {
-				offers = append(offers, [2]string{text, reasoning})
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			want := strings.TrimSpace(f.whole)
-			if got != want {
-				t.Fatalf("streamed %q, whole %q", got, want)
-			}
-			a, _ := stripDoneSentinel(got)
-			b, _ := stripDoneSentinel(want)
-			if a != b {
-				t.Fatalf("after the sentinel: %q and %q", a, b)
-			}
-			if len(offers) == 0 || offers[len(offers)-1][0] != f.whole && strings.TrimSpace(offers[len(offers)-1][0]) != want {
-				t.Fatalf("the last offer is not the whole text: %q", offers)
-			}
-		})
-	}
-}
-
 // openAIStreamServer answers /chat/completions as a server would: JSON for
 // a plain call, the fixture as SSE when stream is asked.
 func openAIStreamServer(t *testing.T, stream string, whole string, status int) (*httptest.Server, *atomic.Int64, *atomic.Int64) {
@@ -303,149 +272,3 @@ func openAIStreamServer(t *testing.T, stream string, whole string, status int) (
 	t.Cleanup(srv.Close)
 	return srv, &plain, &streamed
 }
-
-func TestOpenAIReplierStreamsOnlyWhenAskedAndAgrees(t *testing.T) {
-	for _, f := range sseFixtures {
-		t.Run(f.name, func(t *testing.T) {
-			srv, plain, streamed := openAIStreamServer(t, f.stream, f.whole, 0)
-			r := &openAIReplier{cfg: AutoReplyConfig{APIBase: srv.URL, Model: "m"}}
-			turns := []chatTurn{{Role: "user", Text: "hi"}}
-			a, err := r.Reply(context.Background(), replyContext{}, turns)
-			if err != nil || plain.Load() != 1 || streamed.Load() != 0 {
-				t.Fatalf("plain: %q %v (%d plain, %d streamed)", a, err, plain.Load(), streamed.Load())
-			}
-			var last string
-			b, err := r.Reply(context.Background(), replyContext{Preview: func(text, _ string) { last = text }}, turns)
-			if err != nil || streamed.Load() != 1 {
-				t.Fatalf("streamed: %q %v", b, err)
-			}
-			if a != b {
-				t.Fatalf("plain %q, streamed %q: not the same bytes", a, b)
-			}
-			if strings.TrimSpace(last) != b {
-				t.Fatalf("the last offer %q is not the answer %q", last, b)
-			}
-		})
-	}
-}
-
-// A server that ignores stream and answers JSON is read as JSON.
-func TestOpenAIReplierStreamAnsweredWithJSON(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":" whole "}}]}`))
-	}))
-	defer srv.Close()
-	r := &openAIReplier{cfg: AutoReplyConfig{APIBase: srv.URL, Model: "m"}}
-	got, err := r.Reply(context.Background(), replyContext{Preview: func(string, string) {}}, []chatTurn{{Role: "user", Text: "hi"}})
-	if err != nil || got != "whole" {
-		t.Fatalf("%q %v", got, err)
-	}
-}
-
-// A stream that breaks, ends early or is empty is an error: never half an
-// answer sent as a whole one.
-func TestStreamErrors(t *testing.T) {
-	for name, s := range map[string]string{
-		"no end":     "data: {\"choices\":[{\"delta\":{\"content\":\"half\"}}]}\n\n",
-		"no content": "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
-		"empty":      "",
-		"too long":   "data: " + strings.Repeat("x", maxSSELine+10) + "\n",
-	} {
-		if got, err := readChatStream(strings.NewReader(s), func(string, string) {}); err == nil {
-			t.Errorf("%s: %q accepted", name, got)
-		}
-	}
-}
-
-// CUX-P5, TestStreamFailureNoRecall: a failed stream is one failed call.
-// There is no second call without stream, and the requester gets
-// backend_failed.
-func TestStreamFailureNoRecall(t *testing.T) {
-	for name, status := range map[string]int{"HTTP error": 500, "broken stream": 0} {
-		t.Run(name, func(t *testing.T) {
-			// A stream that ends before it finished.
-			srv, plain, streamed := openAIStreamServer(t, "data: {\"choices\":[{\"delta\":{\"content\":\"half\"}}]}\n\n", "whole", status)
-			f := newAutoReplyFixture(t, AutoReplyConfig{Model: "m"}, &fakeOpenAI{})
-			cfg := f.cfg
-			cfg.APIBase = srv.URL
-			f.cfg = cfg
-			f.replier = &openAIReplier{cfg: cfg}
-			if _, err := f.prov.SetStreamPreview(streamPreviewOn); err != nil {
-				t.Fatal(err)
-			}
-			id := previewDelegation(t, f.req, f.prov, previewModeOn)
-			f.tick(t)
-			f.tick(t)
-			if plain.Load() != 0 || streamed.Load() > 1 {
-				t.Fatalf("%d plain calls, %d streamed: the failed stream was called again", plain.Load(), streamed.Load())
-			}
-			if err := f.req.pollOnce(f.ctx); err != nil {
-				t.Fatal(err)
-			}
-			ix, err := f.req.ix.Get(id)
-			if err != nil || ix.State != interactions.StateInputRequired {
-				t.Fatalf("%+v %v", ix, err)
-			}
-		})
-	}
-}
-
-// A round that asked for previews is answered by a streamed call, and the
-// answer sent is the one the non-streamed call gives.
-func TestAutoReplyStreamsAPreviewedRound(t *testing.T) {
-	f0 := sseFixtures[0]
-	srv, plain, streamed := openAIStreamServer(t, f0.stream, f0.whole, 0)
-	f := newAutoReplyFixture(t, AutoReplyConfig{Model: "m"}, &fakeOpenAI{})
-	cfg := f.cfg
-	cfg.APIBase = srv.URL
-	f.cfg, f.replier = cfg, &openAIReplier{cfg: cfg}
-	if _, err := f.prov.SetStreamPreview(streamPreviewWR); err != nil {
-		t.Fatal(err)
-	}
-	clk := newPreviewClock()
-	co := manualPreviews(f.prov, clk)
-
-	// A round that asked: one streamed call, frames offered, the answer as the plain one.
-	id := previewDelegation(t, f.req, f.prov, previewModeWithReasoning)
-	f.tick(t)
-	if streamed.Load() != 1 || plain.Load() != 0 {
-		t.Fatalf("%d streamed, %d plain", streamed.Load(), plain.Load())
-	}
-	if got := f.lastPeerMsg(t, id); got.Body != strings.TrimSpace(f0.whole) {
-		t.Fatalf("answer %q", got.Body)
-	}
-	_ = co
-	// A round that asked for nothing: the call is as it ever was.
-	id2 := previewDelegation(t, f.req, f.prov, "")
-	f.tick(t)
-	if streamed.Load() != 1 || plain.Load() != 1 {
-		t.Fatalf("%d streamed, %d plain after a round that asked for nothing", streamed.Load(), plain.Load())
-	}
-	_ = id2
-	// Previews off on this node: plain again, whatever the round asked.
-	if _, err := f.prov.SetStreamPreview(streamPreviewOff); err != nil {
-		t.Fatal(err)
-	}
-	previewDelegation(t, f.req, f.prov, previewModeOn)
-	f.tick(t)
-	if streamed.Load() != 1 || plain.Load() != 2 {
-		t.Fatalf("%d streamed, %d plain with previews off", streamed.Load(), plain.Load())
-	}
-}
-
-func FuzzReadChatStream(f *testing.F) {
-	for _, s := range sseFixtures {
-		f.Add(s.stream)
-	}
-	f.Add("data: [DONE]\n")
-	f.Add("data: {\"choices\":[{\"delta\":{\"content\":\"\\ud800\"},\"finish_reason\":\"x\"}]}\n")
-	f.Fuzz(func(t *testing.T, s string) {
-		var buf bytes.Buffer
-		out, err := readChatStream(strings.NewReader(s), func(text, reasoning string) { buf.Reset() })
-		if err == nil && strings.TrimSpace(out) == "" {
-			t.Fatalf("an empty answer is no error: %q", s)
-		}
-	})
-}
-

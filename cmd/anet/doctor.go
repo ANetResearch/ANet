@@ -206,7 +206,7 @@ type doctorReport struct {
 		APIKeyConfigured bool   `json:"api_key_configured"`
 	} `json:"auto_reply"`
 	// Sandbox is this host's sandbox self-check (doctor_sandbox.go), when the sandbox item is shown.
-	Sandbox *daemon.SandboxCheck `json:"sandbox,omitempty"`
+	Sandbox *sandboxReport `json:"sandbox,omitempty"`
 	// SI5 is every key of SI-5 with its current value; SI5Changed names the
 	// keys whose value is not the fresh-install default.
 	SI5        map[string]any `json:"si5"`
@@ -248,7 +248,7 @@ type doctorEnv struct {
 	status func(addr, tokenPath string) (map[string]any, error)
 	// sandbox runs this host's sandbox self-check (nil: not run; see
 	// doctor_sandbox.go).
-	sandbox func() daemon.SandboxCheck
+	sandbox func() sandboxReport
 }
 
 func defaultDoctorEnv() doctorEnv {
@@ -258,7 +258,7 @@ func defaultDoctorEnv() doctorEnv {
 		hh = filepath.Join(home, ".hermes")
 	}
 	return doctorEnv{home: home, hermesHome: hh, running: daemonAnswersAt, listenerUIDs: localpeer.ListenerUIDs,
-		status: daemonStatusAt, sandbox: daemon.SandboxSelfCheck}
+		status: daemonStatusAt, sandbox: sandboxSelfCheck}
 }
 
 // env reads an environment variable; HERMES_HOME is the one doctor
@@ -612,23 +612,13 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 	privacyChecks(say, rep, env, layout, cfg, time.Now())
 
 	// Auto-reply and the sandbox (§6).
-	arCfg := daemon.ParseAutoReply(cfg.AutoReply) // the auto_reply block, decoded (the daemon keeps it raw)
-	if ar := arCfg; ar != nil {
-		rep.AutoReply.Configured = true
-		rep.AutoReply.Backend = ar.Backend
-		if rep.AutoReply.Backend == "" {
-			rep.AutoReply.Backend = "openai"
-		}
-		rep.AutoReply.APIKeyConfigured = strings.TrimSpace(ar.APIKey) != ""
-	}
+	autoReplyReport(rep, cfg) // doctor_sandbox.go
 	rep.SI5, rep.SI5Changed = st.SI5()
 	if rep.SI5Changed == nil {
 		rep.SI5Changed = []string{}
 	}
 	rep.AutoReply.Untrusted, _ = rep.SI5["auto_reply.untrusted"].(string)
-	autoReplyCheck(rep, arCfg, lang)           // doctor_sandbox.go
-	sandboxCheck(say, rep, env, layout, arCfg) // doctor_sandbox.go
-	sandboxDetailChecks(add, say, rep, env, layout, arCfg, lang)
+	autoReplyChecks(add, say, rep, env, layout, cfg, lang)       // doctor_sandbox.go
 	capabilitiesFilesChecks(say, avail, st.ConfigPath)           // doctor_modules.go
 	a2aBackendChecks(add, st.Inbound.Policy, cfg, len(st.Trust)) // doctor_backends.go
 	backendTransportChecks(add, say, cfg)                        // doctor_backends.go
@@ -833,4 +823,24 @@ func renderDoctor(w io.Writer, rep *doctorReport) {
 	if !rep.OK {
 		fmt.Fprintln(w, "\nA check failed ([fail]); see above.")
 	}
+}
+
+// sandboxReport is this host's sandbox as doctor reports it: which sandbox the platform has and, when it
+// cannot be used, the local reason and a detail for the operator. It has the shape of the auto-reply
+// module's SandboxCheck, which a build with the module converts it from.
+type sandboxReport struct {
+	Kind   string `json:"kind"`
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// runtimeStatusQuiet is GET /status of the running daemon, without saying anything when it does not
+// answer.
+func runtimeStatusQuiet(env doctorEnv, rep *doctorReport, layout daemon.Layout) (map[string]any, bool) {
+	if rep.Control.Running && env.status != nil {
+		if st, err := env.status(rep.Control.Addr, layout.ControlTokenPath()); err == nil {
+			return st, true
+		}
+	}
+	return nil, false
 }

@@ -19,6 +19,7 @@ import (
 	"sort"
 
 	"github.com/ANetResearch/ANet/internal/anethome"
+	"github.com/ANetResearch/ANet/internal/pathsafe"
 	"github.com/ANetResearch/ANet/module"
 )
 
@@ -120,4 +121,31 @@ func (d *Daemon) sensitivePaths() []string {
 	}
 	sort.Strings(paths)
 	return resolvedAll(paths)
+}
+
+// resolvedAll returns each path in its absolute form and, where it exists, also its symbolic-link
+// resolved form, without duplicates. (The auto-reply module keeps the same helper for its own lists.)
+func resolvedAll(paths []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(p string) {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			continue
+		}
+		add(filepath.Clean(abs))
+		if r, err := pathsafe.ResolveThroughExisting(abs); err == nil {
+			add(r)
+		}
+	}
+	return out
 }
