@@ -50,7 +50,7 @@ func TestStatusSummaryFreshInstall(t *testing.T) {
 hub     已在 https://hub.example 注册。
 接单    只接受 allow 名单里 0 个对端的任务；公开 0 项能力；自动回复关。
 付款    自动付款与 agent 付款都关着（额度为 0）；人工付款（anet pay）单笔 ≤10，今日还能付 50。
-隐私    任务内容在任务结束 30 天后删除（公开调用 7 天）。
+隐私    任务内容的保存期是 30 天，从任务结束起算（公开调用 7 天）。
 `
 	got := renderSummary(StatusSummary(freshInstall(), Chinese), Chinese, 8)
 	// The product uses full-width punctuation where the spec's example has
