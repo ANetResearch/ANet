@@ -168,10 +168,13 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	}
 	// an internal note: told "the limits are 0 until the operator raises
 	// them", the model told the user a priced skill needed `anet pay` on a
-	// node whose limits covered it. No tool shows the limits.
+	// node whose limits covered it. The limits are in get_balance.limits.
 	for _, n := range []string{"send_message", "submit_payment"} {
-		if !strings.Contains(desc(n), "no tool shows") {
-			t.Errorf("%s must say that no tool shows the spending limits", n)
+		if strings.Contains(desc(n), "no tool shows") {
+			t.Errorf("%s still says that no tool shows the spending limits", n)
+		}
+		if !strings.Contains(desc(n), "get_balance.limits") || !strings.Contains(desc(n), "anet.spend_check") {
+			t.Errorf("%s must say where the limits and who can pay are", n)
 		}
 	}
 	if !strings.Contains(desc("list_agents"), "never sent to the hub") {
@@ -360,7 +363,7 @@ var requestShapes = []struct {
 // the body is compared whole, so a field that leaks in (a pay flag, a
 // payload) fails as surely as one that goes missing.
 func TestEachToolSendsTheRequestTheRouteExpects(t *testing.T) {
-	f := &fakeControl{reply: map[string]string{"/inbound/pending": `{"pending":[]}`}}
+	f := &fakeControl{reply: map[string]string{"/inbound/pending": `{"pending":[]}`, "/payments/status": statusAnswer}}
 	sess := connect(t, f)
 	covered := map[string]bool{}
 	for _, tc := range requestShapes {
@@ -370,8 +373,12 @@ func TestEachToolSendsTheRequestTheRouteExpects(t *testing.T) {
 			t.Errorf("%s%v: %s", tc.tool, tc.args, msg)
 			continue
 		}
-		if len(f.calls) != n+1 {
-			t.Errorf("%s made %d calls, want 1", tc.tool, len(f.calls)-n)
+		want := 1
+		if tc.tool == "get_balance" {
+			want = 2 // /balance, then /payments/status
+		}
+		if len(f.calls) != n+want {
+			t.Errorf("%s made %d calls, want %d", tc.tool, len(f.calls)-n, want)
 			continue
 		}
 		got := f.calls[n]
@@ -436,7 +443,7 @@ func TestMCPNeverCallsManualGatewayOrRedeemRoutes(t *testing.T) {
 	forbidden := []string{"/tasks/pay-manual", "/redeem", "/delegate", "/message",
 		"/end", "/payments/limits", "/peers/allow", "/inbound/approve", "/shutdown"}
 	for _, p := range forbidden {
-		if allowedPaths[p] {
+		if _, ok := allowedPaths[p]; ok {
 			t.Errorf("%s is on the MCP allowlist", p)
 		}
 		f := &fakeControl{}
@@ -455,7 +462,7 @@ func TestMCPNeverCallsManualGatewayOrRedeemRoutes(t *testing.T) {
 	}
 	_, _ = sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "reply_task", Arguments: map[string]any{}})
 	for _, c := range f.calls {
-		if !allowedPaths[c.path] {
+		if _, ok := allowedPaths[c.path]; !ok {
 			t.Errorf("a tool called %s, outside the allowlist", c.path)
 		}
 		if c.path == "/tasks/pay" && c.body["purpose"] != nil {

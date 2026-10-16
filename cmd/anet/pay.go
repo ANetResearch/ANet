@@ -263,7 +263,7 @@ func runPayments(c *client, rest []string) error {
 	}
 	switch sub {
 	case "", "show":
-		return c.do("/payments/status", map[string]any{})
+		return showPayments(c)
 	case "set":
 		set := map[string]uint64{}
 		for _, kv := range pos[1:] {
@@ -284,6 +284,26 @@ func runPayments(c *client, rest []string) error {
 	default:
 		return usageError{use}
 	}
+}
+
+// showPayments is `anet payments`: the answer as JSON, then the limits at a
+// glance (limits_summary, or its .off variant) on stderr, the very sentence
+// MCP's get_balance.limits.summary carries (ux D5).
+func showPayments(c *client) error {
+	out, code, err := c.fetch("/payments/status", map[string]any{})
+	if err != nil {
+		return diagnoseNoDaemon(c.base, c.dataDir, err)
+	}
+	if err := printAnswer(out, code, false); err != nil {
+		return err
+	}
+	var st struct {
+		Summary string `json:"summary"`
+	}
+	if json.Unmarshal(out, &st) == nil && st.Summary != "" {
+		fmt.Fprintln(errW(), printable(st.Summary, 1024))
+	}
+	return nil
 }
 
 // limitsPrompt is limits_confirm, then one limits_confirm.line per change,
