@@ -6,7 +6,6 @@ package main
 // stderr (UX-C1), except `show` and `test`, whose lines are the answer.
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -65,12 +64,7 @@ func needBackendFirst(lang a2ashape.Language) {
 // printAutoReplySet prints the answer of a successful POST /autoreply: the JSON, then the line that says
 // the setting is saved (with "API key set" when the key was part of it) and the sandbox's line (LEC CL-1).
 func printAutoReplySet(out []byte, keyGiven bool) {
-	var pretty bytes.Buffer
-	if json.Indent(&pretty, out, "", "  ") == nil {
-		fmt.Fprintln(outW(), strings.TrimRight(pretty.String(), "\n"))
-	} else {
-		fmt.Fprintln(outW(), strings.TrimRight(string(out), "\n"))
-	}
+	printJSONSafe(out)
 	lang := a2ashape.Lang()
 	key := "autoreply.updated"
 	if keyGiven {
