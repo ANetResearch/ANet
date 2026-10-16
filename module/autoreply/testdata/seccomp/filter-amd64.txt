@@ -1,59 +1,66 @@
-; seccomp filter for amd64 (LEC SB-6), 58 instructions
+; seccomp filter for amd64 (LEC SB-6), 65 instructions
 (000) ld       [4]                                 ; arch
-(001) jeq      #0xc000003e     jt 2	jf 54
+(001) jeq      #0xc000003e     jt 2	jf 61
 (002) ld       [0]                                 ; nr
-(003) jset     #0x40000000     jt 54	jf 4
-(004) jeq      #0x1b3          jt 56	jf 5          ; clone3
-(005) jeq      #0x38           jt 46	jf 6          ; clone
-(006) jeq      #0x110          jt 46	jf 7          ; unshare
-(007) jeq      #0xfa           jt 55	jf 8          ; keyctl
-(008) jeq      #0xf8           jt 55	jf 9          ; add_key
-(009) jeq      #0xf9           jt 55	jf 10         ; request_key
-(010) jeq      #0x141          jt 55	jf 11         ; bpf
-(011) jeq      #0x12a          jt 55	jf 12         ; perf_event_open
-(012) jeq      #0x143          jt 55	jf 13         ; userfaultfd
-(013) jeq      #0x1a9          jt 55	jf 14         ; io_uring_setup
-(014) jeq      #0x1aa          jt 55	jf 15         ; io_uring_enter
-(015) jeq      #0x1ab          jt 55	jf 16         ; io_uring_register
-(016) jeq      #0x65           jt 55	jf 17         ; ptrace
-(017) jeq      #0x136          jt 55	jf 18         ; process_vm_readv
-(018) jeq      #0x137          jt 55	jf 19         ; process_vm_writev
-(019) jeq      #0xf6           jt 55	jf 20         ; kexec_load
-(020) jeq      #0x140          jt 55	jf 21         ; kexec_file_load
-(021) jeq      #0xaf           jt 55	jf 22         ; init_module
-(022) jeq      #0x139          jt 55	jf 23         ; finit_module
-(023) jeq      #0xb0           jt 55	jf 24         ; delete_module
-(024) jeq      #0xa5           jt 55	jf 25         ; mount
-(025) jeq      #0xa6           jt 55	jf 26         ; umount2
-(026) jeq      #0x9b           jt 55	jf 27         ; pivot_root
-(027) jeq      #0x134          jt 55	jf 28         ; setns
-(028) jeq      #0x130          jt 55	jf 29         ; open_by_handle_at
-(029) jeq      #0x12f          jt 55	jf 30         ; name_to_handle_at
-(030) jeq      #0xa3           jt 55	jf 31         ; acct
-(031) jeq      #0xa7           jt 55	jf 32         ; swapon
-(032) jeq      #0xa8           jt 55	jf 33         ; swapoff
-(033) jeq      #0xa9           jt 55	jf 34         ; reboot
-(034) jeq      #0x67           jt 55	jf 35         ; syslog
-(035) jeq      #0x1ae          jt 55	jf 36         ; fsopen
-(036) jeq      #0x1af          jt 55	jf 37         ; fsconfig
-(037) jeq      #0x1b0          jt 55	jf 38         ; fsmount
-(038) jeq      #0x1b1          jt 55	jf 39         ; fspick
-(039) jeq      #0x1ad          jt 55	jf 40         ; move_mount
-(040) jeq      #0x1ac          jt 55	jf 41         ; open_tree
-(041) jeq      #0x1ba          jt 55	jf 42         ; mount_setattr
-(042) jeq      #0x1d3          jt 55	jf 43         ; open_tree_attr
-(043) jeq      #0x87           jt 48	jf 44         ; personality
-(044) jeq      #0x10           jt 51	jf 45         ; ioctl
-(045) ret      #0x7fff0000                         ; ALLOW
-(046) ld       [16]                                ; args[0] low 32 bits
-(047) jset     #0x10000000     jt 55	jf 57
+(003) jset     #0x40000000     jt 61	jf 4
+(004) jeq      #0x1b3          jt 63	jf 5          ; clone3
+(005) jeq      #0x38           jt 48	jf 6          ; clone
+(006) jeq      #0x110          jt 48	jf 7          ; unshare
+(007) jeq      #0xfa           jt 62	jf 8          ; keyctl
+(008) jeq      #0xf8           jt 62	jf 9          ; add_key
+(009) jeq      #0xf9           jt 62	jf 10         ; request_key
+(010) jeq      #0x141          jt 62	jf 11         ; bpf
+(011) jeq      #0x12a          jt 62	jf 12         ; perf_event_open
+(012) jeq      #0x143          jt 62	jf 13         ; userfaultfd
+(013) jeq      #0x1a9          jt 62	jf 14         ; io_uring_setup
+(014) jeq      #0x1aa          jt 62	jf 15         ; io_uring_enter
+(015) jeq      #0x1ab          jt 62	jf 16         ; io_uring_register
+(016) jeq      #0x65           jt 62	jf 17         ; ptrace
+(017) jeq      #0x136          jt 62	jf 18         ; process_vm_readv
+(018) jeq      #0x137          jt 62	jf 19         ; process_vm_writev
+(019) jeq      #0xf6           jt 62	jf 20         ; kexec_load
+(020) jeq      #0x140          jt 62	jf 21         ; kexec_file_load
+(021) jeq      #0xaf           jt 62	jf 22         ; init_module
+(022) jeq      #0x139          jt 62	jf 23         ; finit_module
+(023) jeq      #0xb0           jt 62	jf 24         ; delete_module
+(024) jeq      #0xa5           jt 62	jf 25         ; mount
+(025) jeq      #0xa6           jt 62	jf 26         ; umount2
+(026) jeq      #0x9b           jt 62	jf 27         ; pivot_root
+(027) jeq      #0x134          jt 62	jf 28         ; setns
+(028) jeq      #0x130          jt 62	jf 29         ; open_by_handle_at
+(029) jeq      #0x12f          jt 62	jf 30         ; name_to_handle_at
+(030) jeq      #0xa3           jt 62	jf 31         ; acct
+(031) jeq      #0xa7           jt 62	jf 32         ; swapon
+(032) jeq      #0xa8           jt 62	jf 33         ; swapoff
+(033) jeq      #0xa9           jt 62	jf 34         ; reboot
+(034) jeq      #0x67           jt 62	jf 35         ; syslog
+(035) jeq      #0x1ae          jt 62	jf 36         ; fsopen
+(036) jeq      #0x1af          jt 62	jf 37         ; fsconfig
+(037) jeq      #0x1b0          jt 62	jf 38         ; fsmount
+(038) jeq      #0x1b1          jt 62	jf 39         ; fspick
+(039) jeq      #0x1ad          jt 62	jf 40         ; move_mount
+(040) jeq      #0x1ac          jt 62	jf 41         ; open_tree
+(041) jeq      #0x1ba          jt 62	jf 42         ; mount_setattr
+(042) jeq      #0x1d3          jt 62	jf 43         ; open_tree_attr
+(043) jeq      #0x29           jt 50	jf 44         ; socket
+(044) jeq      #0x35           jt 50	jf 45         ; socketpair
+(045) jeq      #0x87           jt 55	jf 46         ; personality
+(046) jeq      #0x10           jt 58	jf 47         ; ioctl
+(047) ret      #0x7fff0000                         ; ALLOW
 (048) ld       [16]                                ; args[0] low 32 bits
-(049) jeq      #0x0            jt 57	jf 50
-(050) jeq      #0xffffffff     jt 57	jf 55
-(051) ld       [24]                                ; args[1] low 32 bits
-(052) jeq      #0x5412         jt 55	jf 53
-(053) jeq      #0x541c         jt 55	jf 57
-(054) ret      #0x80000000                         ; KILL_PROCESS
-(055) ret      #0x50001                            ; ERRNO(EPERM)
-(056) ret      #0x50026                            ; ERRNO(ENOSYS)
-(057) ret      #0x7fff0000                         ; ALLOW
+(049) jset     #0x10000000     jt 62	jf 64
+(050) ld       [16]                                ; args[0] low 32 bits
+(051) jeq      #0x1            jt 64	jf 52
+(052) jeq      #0x2            jt 64	jf 53
+(053) jeq      #0xa            jt 64	jf 54
+(054) jeq      #0x10           jt 64	jf 62
+(055) ld       [16]                                ; args[0] low 32 bits
+(056) jeq      #0x0            jt 64	jf 57
+(057) jeq      #0xffffffff     jt 64	jf 62
+(058) ld       [24]                                ; args[1] low 32 bits
+(059) jeq      #0x5412         jt 62	jf 60
+(060) jeq      #0x541c         jt 62	jf 64
+(061) ret      #0x80000000                         ; KILL_PROCESS
+(062) ret      #0x50001                            ; ERRNO(EPERM)
+(063) ret      #0x50026                            ; ERRNO(ENOSYS)
+(064) ret      #0x7fff0000                         ; ALLOW

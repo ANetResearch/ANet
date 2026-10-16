@@ -434,13 +434,14 @@ type sandboxCheckSpec struct {
 }
 
 // sandboxCheckReport is what the probe found inside the sandbox (LEC SB-2 on Linux, MS-4 on macOS). The
-// sandbox is usable only when the platform's five items all hold.
+// sandbox is usable only when the platform's items all hold (six on Linux, five on macOS).
 type sandboxCheckReport struct {
 	LoUp            bool              `json:"lo_up"`            // SB-2 1: lo is up
 	HostTCPRefused  bool              `json:"host_tcp_refused"` // SB-2 2, MS-4 2: the host's loopback port is unreachable
 	AbstractRefused bool              `json:"abstract_refused"` // SB-2 3: the host's abstract socket is unreachable
 	KeyctlEPERM     bool              `json:"keyctl_eperm"`     // SB-2 4: keyctl answers EPERM
 	UsernsRefused   bool              `json:"userns_refused"`   // SB-2 5: a new user namespace cannot be made
+	VsockRefused    bool              `json:"vsock_refused"`    // SB-2 6: socket(AF_VSOCK) answers EPERM, so no vsock peer (CID 1, 2) is reachable
 	Detail          map[string]string `json:"detail,omitempty"` // what each check saw
 
 	HomeUnreadable  bool `json:"home_unreadable,omitempty"`  // MS-4 1: neither the real home nor a file outside the run can be read
@@ -449,9 +450,11 @@ type sandboxCheckReport struct {
 	WorkWritable    bool `json:"work_writable,omitempty"`    // MS-4 5: the work dir takes a file
 }
 
-// netOK and filterOK group the five items the way the failure codes do (SB-2).
-func (r sandboxCheckReport) netOK() bool    { return r.LoUp && r.HostTCPRefused && r.AbstractRefused }
-func (r sandboxCheckReport) filterOK() bool { return r.KeyctlEPERM && r.UsernsRefused }
+// netOK and filterOK group the six items the way the failure codes do (SB-2).
+func (r sandboxCheckReport) netOK() bool { return r.LoUp && r.HostTCPRefused && r.AbstractRefused }
+func (r sandboxCheckReport) filterOK() bool {
+	return r.KeyctlEPERM && r.UsernsRefused && r.VsockRefused
+}
 
 // sandboxProbeUsernsChild is the argument the probe starts itself with when it tries to create a user
 // namespace; the child exits 0 at once.

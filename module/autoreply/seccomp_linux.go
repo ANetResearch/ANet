@@ -17,6 +17,10 @@ package autoreply
 //   - keyrings, bpf, perf, userfaultfd, io_uring, ptrace and process_vm_*, kexec and modules, mounts (the
 //     old call and the new mount API: fsopen, fsconfig, fsmount, fspick, move_mount, open_tree,
 //     open_tree_attr, mount_setattr) and setns, file handles, acct, swap, reboot and syslog → EPERM;
+//   - socket and socketpair with a domain other than AF_UNIX, AF_INET, AF_INET6 and AF_NETLINK → EPERM:
+//     AF_VSOCK (and AF_QIPCRTR) belong to no network namespace, so a sandbox with an empty network could
+//     still reach a hypervisor's or the host's vsock services (SI-55); the rest of the families are kernel
+//     attack surface the agent has no use for;
 //   - personality other than PER_LINUX and the query 0xffffffff (which changes nothing, and which some
 //     runtimes make at start-up), and the TIOCSTI and TIOCLINUX ioctls → EPERM.
 //
@@ -49,6 +53,10 @@ const (
 	cloneNewUser     = 0x10000000 // CLONE_NEWUSER
 	perLinux         = 0x0000     // PER_LINUX
 	perQuery         = 0xffffffff // personality(0xffffffff) reads the persona and sets nothing
+	afUnix           = 1          // AF_UNIX
+	afInet           = 2          // AF_INET
+	afInet6          = 10         // AF_INET6
+	afNetlink        = 16         // AF_NETLINK
 	ioctlTIOCSTI     = 0x5412
 	ioctlTIOCLINUX   = 0x541c
 )
@@ -103,7 +111,7 @@ type seccompABI struct {
 // (arch/x86/entry/syscalls/syscall_64.tbl; include/uapi/asm-generic/unistd.h for arm64).
 var seccompABIs = map[string]seccompABI{
 	"amd64": {audit: auditArchX86_64, x32: true, nr: map[string]uint32{
-		"clone": 56, "clone3": 435, "unshare": 272, "personality": 135, "ioctl": 16,
+		"socket": 41, "socketpair": 53, "clone": 56, "clone3": 435, "unshare": 272, "personality": 135, "ioctl": 16,
 		"keyctl": 250, "add_key": 248, "request_key": 249, "bpf": 321, "perf_event_open": 298,
 		"userfaultfd": 323, "io_uring_setup": 425, "io_uring_enter": 426, "io_uring_register": 427,
 		"ptrace": 101, "process_vm_readv": 310, "process_vm_writev": 311, "kexec_load": 246,
@@ -113,7 +121,7 @@ var seccompABIs = map[string]seccompABI{
 		"syslog": 103,
 	}},
 	"arm64": {audit: auditArchAARCH64, nr: map[string]uint32{
-		"clone": 220, "clone3": 435, "unshare": 97, "personality": 92, "ioctl": 29,
+		"socket": 198, "socketpair": 199, "clone": 220, "clone3": 435, "unshare": 97, "personality": 92, "ioctl": 29,
 		"keyctl": 219, "add_key": 217, "request_key": 218, "bpf": 280, "perf_event_open": 241,
 		"userfaultfd": 282, "io_uring_setup": 425, "io_uring_enter": 426, "io_uring_register": 427,
 		"ptrace": 117, "process_vm_readv": 270, "process_vm_writev": 271, "kexec_load": 104,
@@ -155,6 +163,8 @@ func seccompProgram(goarch string) ([]byte, error) {
 		}
 		a.jeq(nr, "eperm", "")
 	}
+	a.jeq(abi.nr["socket"], "socket", "")
+	a.jeq(abi.nr["socketpair"], "socket", "")
 	a.jeq(abi.nr["personality"], "personality", "")
 	a.jeq(abi.nr["ioctl"], "ioctl", "")
 	a.ret(seccompRetAllow)
@@ -162,6 +172,13 @@ func seccompProgram(goarch string) ([]byte, error) {
 	a.label("newuser") // clone, unshare: flags in args[0]; CLONE_NEWUSER is in the low word
 	a.ld(seccompDataArg0Low)
 	a.jset(cloneNewUser, "eperm", "allow")
+
+	a.label("socket") // socket, socketpair: the domain is args[0]; only Unix, IPv4, IPv6 and netlink (SI-55)
+	a.ld(seccompDataArg0Low)
+	a.jeq(afUnix, "allow", "")
+	a.jeq(afInet, "allow", "")
+	a.jeq(afInet6, "allow", "")
+	a.jeq(afNetlink, "allow", "eperm")
 
 	a.label("personality") // the kernel takes an unsigned int
 	a.ld(seccompDataArg0Low)

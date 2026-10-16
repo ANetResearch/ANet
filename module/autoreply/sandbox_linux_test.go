@@ -658,9 +658,9 @@ func reportJSON(r sandboxCheckReport) string {
 // items 4-5 fail is seccomp_failed. The probe runs with the same namespace flags and the same filter as a
 // real run.
 func TestSandboxProbeFailureCodes(t *testing.T) {
-	all := sandboxCheckReport{LoUp: true, HostTCPRefused: true, AbstractRefused: true, KeyctlEPERM: true, UsernsRefused: true}
-	noLo, noKeyctl, noUserns := all, all, all
-	noLo.LoUp, noKeyctl.KeyctlEPERM, noUserns.UsernsRefused = false, false, false
+	all := sandboxCheckReport{LoUp: true, HostTCPRefused: true, AbstractRefused: true, KeyctlEPERM: true, UsernsRefused: true, VsockRefused: true}
+	noLo, noKeyctl, noUserns, noVsock := all, all, all, all
+	noLo.LoUp, noKeyctl.KeyctlEPERM, noUserns.UsernsRefused, noVsock.VsockRefused = false, false, false, false
 	// A probe that reaches the host's loopback port but reports all five items: the daemon counts the
 	// connection on its own side and does not take the report's word for it.
 	reachHost := `addr=$(sed -n 's/.*"tcp":"\([^"]*\)".*/\1/p' "$(dirname "$0")/spec"); "` + selfExe(t) + `" ` +
@@ -683,6 +683,7 @@ func TestSandboxProbeFailureCodes(t *testing.T) {
 		{"lo-down", "0", reportJSON(noLo), sandboxCodeNetnsFailed},
 		{"keyctl", "0", reportJSON(noKeyctl), sandboxCodeSeccompFailed},
 		{"userns", "0", reportJSON(noUserns), sandboxCodeSeccompFailed},
+		{"vsock", "0", reportJSON(noVsock), sandboxCodeSeccompFailed},
 		{"host-reached", "0", reachHost, sandboxCodeNetnsFailed},
 		{"ok", "1", reportJSON(all), ""},
 	} {
@@ -764,7 +765,7 @@ func TestSandboxProbeUsernsCheckNeedsAChildThatStarts(t *testing.T) {
 func TestSandboxProbeFollowsTheFlagsBwrapHas(t *testing.T) {
 	dir := t.TempDir()
 	bw := fakeBwrap(t, dir, "--unshare-user", reportJSON(sandboxCheckReport{LoUp: true, HostTCPRefused: true,
-		AbstractRefused: true, KeyctlEPERM: true, UsernsRefused: true}))
+		AbstractRefused: true, KeyctlEPERM: true, UsernsRefused: true, VsockRefused: true}))
 	pr := runBwrapProbe(bw, detectBwrapFeatures(bw))
 	if pr.Err != nil || pr.Features.DisableUserns || pr.Features.Size {
 		t.Fatalf("probe %+v", pr)
@@ -831,7 +832,7 @@ func realBwrapProbe(t *testing.T, feats func(bwrapFeatures) bwrapFeatures) bwrap
 
 // SB-2 on the real thing: inside the sandbox lo is up, the host's loopback port and abstract socket are
 // out of reach, keyctl answers EPERM and no user namespace can be made (M-SB-1, M-SB-2, M-SB-3).
-func TestSandboxProbeFiveItems(t *testing.T) {
+func TestSandboxProbeSixItems(t *testing.T) {
 	pr := realBwrapProbe(t, func(f bwrapFeatures) bwrapFeatures { return f })
 	t.Logf("bwrap features %+v; report %+v", pr.Features, pr.Report)
 	if pr.Err != nil {
@@ -839,7 +840,8 @@ func TestSandboxProbeFiveItems(t *testing.T) {
 	}
 	r := pr.Report
 	for name, ok := range map[string]bool{"1 lo up": r.LoUp, "2 host loopback port refused": r.HostTCPRefused,
-		"3 abstract socket refused": r.AbstractRefused, "4 keyctl EPERM": r.KeyctlEPERM, "5 user namespace refused": r.UsernsRefused} {
+		"3 abstract socket refused": r.AbstractRefused, "4 keyctl EPERM": r.KeyctlEPERM, "5 user namespace refused": r.UsernsRefused,
+		"6 vsock refused": r.VsockRefused} {
 		if !ok {
 			t.Errorf("item %s does not hold: %v", name, r.Detail)
 		}
@@ -1108,3 +1110,30 @@ func (m localPathsModule) Name() string                             { return m.n
 func (m localPathsModule) Start(context.Context, module.Host) error { return nil }
 func (m localPathsModule) Stop(context.Context) error               { return nil }
 func (m localPathsModule) LocalPaths() []string                     { return m.paths }
+
+// Item 6 of the probe (SI-55): only EPERM, which the filter gives, counts as refused. A socket that opens is the
+// hole; EAFNOSUPPORT (no vsock in this kernel) says nothing about the filter, so the item fails and the
+// sandbox is not used until the filter is the one that answers.
+func TestCheckSandboxVsock(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fd   int
+		err  error
+		want bool
+	}{
+		{"opens", 7, nil, false},
+		{"eperm", -1, syscall.EPERM, true},
+		{"no-vsock-in-kernel", -1, syscall.EAFNOSUPPORT, false},
+		{"other", -1, syscall.EACCES, false},
+	} {
+		got, detail := checkVsockWith(func(d, ty, p int) (int, error) {
+			if d != 40 {
+				t.Errorf("%s: domain %d, want AF_VSOCK (40)", tc.name, d)
+			}
+			return tc.fd, tc.err
+		})
+		if got != tc.want || detail == "" {
+			t.Errorf("%s: refused %v (%q), want %v", tc.name, got, detail, tc.want)
+		}
+	}
+}

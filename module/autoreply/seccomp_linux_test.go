@@ -54,7 +54,7 @@ func init() {
 
 var specNr = map[string]map[string]uint32{
 	"amd64": {
-		"read": 0, "write": 1, "openat": 257, "getpid": 39, "clone": 56, "clone3": 435, "unshare": 272,
+		"socket": 41, "socketpair": 53, "read": 0, "write": 1, "openat": 257, "getpid": 39, "clone": 56, "clone3": 435, "unshare": 272,
 		"keyctl": 250, "add_key": 248, "request_key": 249, "bpf": 321, "perf_event_open": 298,
 		"userfaultfd": 323, "io_uring_setup": 425, "io_uring_enter": 426, "io_uring_register": 427,
 		"ptrace": 101, "process_vm_readv": 310, "process_vm_writev": 311, "kexec_load": 246,
@@ -64,7 +64,7 @@ var specNr = map[string]map[string]uint32{
 		"syslog": 103, "personality": 135, "ioctl": 16, "prctl": 157,
 	},
 	"arm64": {
-		"read": 63, "write": 64, "openat": 56, "getpid": 172, "clone": 220, "clone3": 435, "unshare": 97,
+		"socket": 198, "socketpair": 199, "read": 63, "write": 64, "openat": 56, "getpid": 172, "clone": 220, "clone3": 435, "unshare": 97,
 		"keyctl": 219, "add_key": 217, "request_key": 218, "bpf": 280, "perf_event_open": 241,
 		"userfaultfd": 282, "io_uring_setup": 425, "io_uring_enter": 426, "io_uring_register": 427,
 		"ptrace": 117, "process_vm_readv": 270, "process_vm_writev": 271, "kexec_load": 104,
@@ -327,6 +327,18 @@ func TestSeccompRules(t *testing.T) {
 			check(name+"()", run(name), retEPERM)
 			check(name+"(-1, all bits)", run(name, 0xffffffff, ^uint64(0), ^uint64(0)), retEPERM)
 		}
+		// The socket families (SI-55): Unix, IPv4, IPv6 and netlink pass; every other domain, vsock above
+		// all, is refused, also with the high bits of the argument set (the kernel reads an int).
+		for _, name := range []string{"socket", "socketpair"} {
+			for _, dom := range []uint64{1, 2, 10, 16} {
+				check(fmt.Sprintf("%s(domain %d)", name, dom), run(name, dom, 1, 0), retAllow)
+				check(fmt.Sprintf("%s(domain %d, high bits)", name, dom), run(name, 0xffffffff00000000|dom, 1, 0), retAllow)
+			}
+			for _, dom := range []uint64{0, 3, 4, 5, 9, 11, 17, 24, 38, 40, 41, 42, 43, 44, 45, 46, 0xffffffff} {
+				check(fmt.Sprintf("%s(domain %d)", name, dom), run(name, dom, 1, 0), retEPERM)
+			}
+			check(name+"(AF_VSOCK, high bits)", run(name, 0x1_0000_0000|40, 1, 0), retEPERM)
+		}
 		check("ioctl(TIOCSTI)", run("ioctl", 0, 0x5412), retEPERM)
 		check("ioctl(TIOCLINUX)", run("ioctl", 0, 0x541c), retEPERM)
 		check("ioctl(TIOCSTI, high bits)", run("ioctl", 0, 0x1_0000_5412), retEPERM)
@@ -390,7 +402,7 @@ func TestSeccompFilterInKernel(t *testing.T) {
 		}
 	}
 	for _, name := range []string{"unshare-newuser", "personality-addr-no-randomize", "ioctl-tiocsti", "ioctl-tioclinux",
-		"ioctl-tiocsti-high", "clone-newuser"} {
+		"ioctl-tiocsti-high", "clone-newuser", "socket-vsock", "socket-qipcrtr", "socketpair-vsock"} {
 		if filtered[name] != "EPERM" {
 			t.Errorf("%s under the filter: %s, want EPERM", name, filtered[name])
 		}
@@ -400,7 +412,7 @@ func TestSeccompFilterInKernel(t *testing.T) {
 	}
 	// The personality query answers as it does without the filter (it changes nothing), and so do the
 	// calls the filter lets through.
-	for _, name := range []string{"getpid", "unshare-0", "personality-linux", "personality-query", "ioctl-tcgets", "clone-plain"} {
+	for _, name := range []string{"getpid", "unshare-0", "personality-linux", "personality-query", "ioctl-tcgets", "clone-plain", "socket-unix", "socket-inet"} {
 		if filtered[name] != plain[name] {
 			t.Errorf("%s: %s under the filter, %s without it", name, filtered[name], plain[name])
 		}
@@ -410,7 +422,7 @@ func TestSeccompFilterInKernel(t *testing.T) {
 	// EPERM to an unprivileged caller either way; open_tree, fsconfig and mount_setattr look at their
 	// arguments first.)
 	for _, name := range []string{"unshare-newuser", "personality-addr-no-randomize", "ioctl-tiocsti", "ioctl-tiocsti-high",
-		"clone3", "setns", "name_to_handle_at", "io_uring_enter", "process_vm_readv",
+		"socket-vsock", "clone3", "setns", "name_to_handle_at", "io_uring_enter", "process_vm_readv",
 		"open_tree", "fsconfig", "mount_setattr"} {
 		if plain[name] == filtered[name] {
 			t.Errorf("%s answers %s with and without the filter; the check cannot tell them apart", name, plain[name])
@@ -531,6 +543,11 @@ func runSeccompSelfTest(mode string) int {
 	res["reboot"] = call("reboot", 0, 0, 0, 0)
 	res["syslog"] = call("syslog", 10 /* SYSLOG_ACTION_SIZE_BUFFER */, 0, 0)
 	res["clone3"] = call("clone3", 0, 0)
+	res["socket-vsock"] = call("socket", 40, 1, 0)   // AF_VSOCK, SOCK_STREAM
+	res["socket-qipcrtr"] = call("socket", 42, 2, 0) // AF_QIPCRTR, SOCK_DGRAM
+	res["socketpair-vsock"] = call("socketpair", 40, 1, 0, 0)
+	res["socket-unix"] = call("socket", 1, 2, 0) // AF_UNIX, SOCK_DGRAM
+	res["socket-inet"] = call("socket", 2, 2, 0) // AF_INET, SOCK_DGRAM
 	res["unshare-newuser"] = call("unshare", 0x10000000)
 	res["unshare-0"] = call("unshare", 0)
 	res["personality-query"] = call("personality", 0xffffffff)

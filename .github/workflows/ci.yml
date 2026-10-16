@@ -395,7 +395,7 @@ jobs:
       SANDBOX_RUN: Sandbox|Bwrap|Seccomp
       SANDBOX_MUST_PASS: >-
         TestSandboxIntegrationConfinesTheAgent TestSandboxIntegrationConfiguresEachAgent
-        TestSandboxProbeFiveItems TestSandboxProbeSeccompAloneRefusesUserNamespaces
+        TestSandboxProbeSixItems TestSandboxProbeSeccompAloneRefusesUserNamespaces
         TestSandboxDiskWatchCountsTheRunDirectory TestSeccompFilterInKernel
     steps:
       - uses: actions/checkout@v4

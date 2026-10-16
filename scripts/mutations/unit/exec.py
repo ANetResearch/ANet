@@ -9,7 +9,7 @@
 # rule table and the in-kernel filter test) carry the kill. The CI sandbox job, where a skip is a failure, and a
 # Debian 12 host run the probe tests themselves red for each of these mutations.
 
-PROBE = 'TestSandboxProbeFiveItems|TestSandboxProbeSeccompAloneRefusesUserNamespaces|TestSandboxIntegrationConfinesTheAgent'
+PROBE = 'TestSandboxProbeSixItems|TestSandboxProbeSeccompAloneRefusesUserNamespaces|TestSandboxIntegrationConfinesTheAgent'
 
 # The injection route's policy tests (EXE-2): the SI-57 corpus through the endpoint, the rules one by one, G-BP, and the
 # endpoint's credential test.
@@ -45,6 +45,33 @@ MUTS = [
     'return bwrapFeatures{DisableUserns: false, Size: has("--size")}'),
   ],
   tests=[('ANet:./module/autoreply', PROBE), ('ANet:./module/autoreply', 'TestSeccompGolden|TestSeccompRules|TestSeccompFilterInKernel')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-sb-3v', group='SB-2', repo='ANet',
+  desc='seccomp 放行所有 socket 协议族(AF_VSOCK 不属任何网络命名空间,沙箱里能连宿主/hypervisor 的 vsock,SI-55)',
+  edits=[
+   ('module/autoreply/seccomp_linux.go', '\ta.jeq(afNetlink, "allow", "eperm")\n', '\ta.jeq(afNetlink, "allow", "allow")\n'),
+  ],
+  tests=[('ANet:./module/autoreply', PROBE), ('ANet:./module/autoreply', 'TestSeccompGolden|TestSeccompRules|TestSeccompFilterInKernel')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-sb-3w', group='SB-2', repo='ANet',
+  desc='seccomp 只过滤 socket 不过滤 socketpair 的协议族',
+  edits=[
+   ('module/autoreply/seccomp_linux.go', '\ta.jeq(abi.nr["socketpair"], "socket", "")\n', ''),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestSeccompGolden|TestSeccompRules|TestSeccompFilterInKernel')],
+  full=['ANet:./module/autoreply'],
+ ),
+ dict(
+  id='m-sb-3x', group='SB-2', repo='ANet',
+  desc='探针第 6 项把任何错误(含 EAFNOSUPPORT)都当作被拒',
+  edits=[
+   ('module/autoreply/sandbox_linux.go', '\tcase err == syscall.EPERM:\n\t\treturn true, err.Error()\n\t}\n\treturn false, "socket(AF_VSOCK)', '\tcase err != nil:\n\t\treturn true, err.Error()\n\t}\n\treturn false, "socket(AF_VSOCK)'),
+  ],
+  tests=[('ANet:./module/autoreply', 'TestCheckSandboxVsock')],
   full=['ANet:./module/autoreply'],
  ),
  # --- EXE-2: the egress endpoint and the injection route (LEC §4.3.3, §4.3.4; SI-57) ---
