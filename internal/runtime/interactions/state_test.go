@@ -1,11 +1,8 @@
 package interactions_test
 
 import (
-	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
@@ -33,12 +30,12 @@ func TestTerminalStates(t *testing.T) {
 			t.Fatal(err)
 		}
 		if st != interactions.StateSubmitted {
-			if _, err := s.SetState(id, st); err != nil {
+			if _, err := s.SetState(id, st, interactions.CauseLocalEnded.When(st)); err != nil {
 				t.Fatal(err)
 			}
 		}
 		// The SQL guard must agree: a write after a terminal state is refused.
-		changed, err := s.SetState(id, interactions.StateWorking)
+		changed, err := s.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -64,25 +61,25 @@ func TestStateWritesAreGuarded(t *testing.T) {
 	if ix0.State != interactions.StateSubmitted || ix0.StateSeq != 1 || ix0.StateAt == 0 {
 		t.Fatalf("new interaction: state %s seq %d at %d", ix0.State, ix0.StateSeq, ix0.StateAt)
 	}
-	if ch, err := s.SetState(id, interactions.StateWorking); err != nil || !ch {
+	if ch, err := s.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal); err != nil || !ch {
 		t.Fatalf("submitted→working: changed=%v err=%v", ch, err)
 	}
-	if ch, err := s.SetState(id, interactions.StateWorking); err != nil || ch {
+	if ch, err := s.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal); err != nil || ch {
 		t.Fatalf("working→working must not count as a change: changed=%v err=%v", ch, err)
 	}
 	ix1, _ := s.Get(id)
 	if ix1.StateSeq != 2 {
 		t.Fatalf("state_seq = %d after one change, want 2", ix1.StateSeq)
 	}
-	if ch, err := s.SetState(id, interactions.StateCanceled); err != nil || !ch {
+	if ch, err := s.SetState(id, interactions.StateCanceled, interactions.CauseProviderEnd); err != nil || !ch {
 		t.Fatalf("working→canceled: changed=%v err=%v", ch, err)
 	}
 	// SetResult after cancel leaves the interaction canceled with no receipt.
-	err := s.SetResult(id, []byte("late"), "cid", []byte("RECEIPT"), interactions.VerificationVerified)
+	err := s.SetResult(id, []byte("late"), "cid", []byte("RECEIPT"), interactions.VerificationVerified, interactions.CauseProviderEnd)
 	if !errors.Is(err, interactions.ErrTerminal) {
 		t.Fatalf("SetResult on canceled: err = %v, want ErrTerminal", err)
 	}
-	if ch, err := s.SetState(id, interactions.StateCompleted); err != nil || ch {
+	if ch, err := s.SetState(id, interactions.StateCompleted, interactions.CauseProviderEnd); err != nil || ch {
 		t.Fatalf("canceled→completed: changed=%v err=%v", ch, err)
 	}
 	ix2, _ := s.Get(id)
@@ -90,10 +87,10 @@ func TestStateWritesAreGuarded(t *testing.T) {
 		t.Fatalf("after refused writes: state %s receipt %q seq %d", ix2.State, ix2.Receipt, ix2.StateSeq)
 	}
 	// An absent row is ErrNotFound, not a silent no-op.
-	if _, err := s.SetState("ix_absent", interactions.StateWorking); !errors.Is(err, interactions.ErrNotFound) {
+	if _, err := s.SetState("ix_absent", interactions.StateWorking, interactions.CauseNotTerminal); !errors.Is(err, interactions.ErrNotFound) {
 		t.Fatalf("SetState on absent row: %v", err)
 	}
-	if err := s.SetFailed("ix_absent", nil); !errors.Is(err, interactions.ErrNotFound) {
+	if err := s.SetFailed("ix_absent", nil, interactions.CauseProviderEnd); !errors.Is(err, interactions.ErrNotFound) {
 		t.Fatalf("SetFailed on absent row: %v", err)
 	}
 }
@@ -111,7 +108,7 @@ func TestPeerKeysAreDeletedAtTerminal(t *testing.T) {
 	if string(ix.PeerKEL) != "KEL" || string(ix.PeerKeys) != "KEYS" || ix.Trust != interactions.TrustPublicCap || !ix.IsCapability {
 		t.Fatalf("created row: %+v", ix)
 	}
-	if err := s.SetResult("ix_p", []byte("{}"), "cid", []byte("R"), interactions.VerificationVerified); err != nil {
+	if err := s.SetResult("ix_p", []byte("{}"), "cid", []byte("R"), interactions.VerificationVerified, interactions.CauseProviderEnd); err != nil {
 		t.Fatal(err)
 	}
 	ix, _ = s.Get("ix_p")
@@ -135,7 +132,7 @@ func TestListPageIsNewestFirstWithCursor(t *testing.T) {
 	}
 	// Touch the oldest row: it must move to the head.
 	clock++
-	if _, err := s.SetState("ix_aa", interactions.StateWorking); err != nil {
+	if _, err := s.SetState("ix_aa", interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	var seen []string
@@ -171,102 +168,6 @@ func TestListPageIsNewestFirstWithCursor(t *testing.T) {
 	}
 	if _, err := s.ListPage(interactions.ListFilter{Cursor: "garbage"}); !errors.Is(err, interactions.ErrBadCursor) {
 		t.Fatalf("bad cursor: %v", err)
-	}
-}
-
-// A store written with the wire-1 status column is migrated to state by the
-// rule of A2A-DESIGN §4.1, and the status column is gone afterwards.
-func TestStatusColumnMigratesToState(t *testing.T) {
-	dir := t.TempDir()
-	db, err := sql.Open("sqlite", filepath.Join(dir, "interactions.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
-	for _, q := range []string{
-		`CREATE TABLE interaction (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, role TEXT NOT NULL,
-		  peer_aid TEXT NOT NULL, goal TEXT NOT NULL, status TEXT NOT NULL, request_cid TEXT NOT NULL DEFAULT '',
-		  request_doc BLOB, result_cid TEXT NOT NULL DEFAULT '', result BLOB, receipt BLOB, review BLOB,
-		  end_req_by TEXT NOT NULL DEFAULT '', end_acc_by TEXT NOT NULL DEFAULT '',
-		  created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE INDEX idx_ix_role_status ON interaction(role, status, seq)`,
-		`CREATE TABLE message (seq INTEGER PRIMARY KEY AUTOINCREMENT, interaction_id TEXT NOT NULL,
-		  sender_aid TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)`,
-	} {
-		if _, err := db.Exec(q); err != nil {
-			t.Fatal(err)
-		}
-	}
-	const me, peer = "did:anet:me", "did:anet:peer"
-	rows := []struct{ id, role, status string }{
-		{"done_in", "inbound", "done"},
-		{"failed_out", "outbound", "failed"},
-		{"queued_in_req_last", "inbound", "queued"},  // requester (peer) spoke last → working
-		{"queued_in_prov_last", "inbound", "ending"}, // provider (me) spoke last → input-required
-		{"queued_out_req_last", "outbound", "queued"},
-		{"queued_out_prov_last", "outbound", "queued"},
-		{"queued_empty", "inbound", "queued"},
-	}
-	for _, r := range rows {
-		if _, err := db.Exec(`INSERT INTO interaction(id,role,peer_aid,goal,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`,
-			r.id, r.role, peer, "g", r.status, now, now); err != nil {
-			t.Fatal(err)
-		}
-	}
-	msg := func(ix, sender, kind string) {
-		if _, err := db.Exec(`INSERT INTO message(interaction_id,sender_aid,kind,body,created_at) VALUES(?,?,?,?,?)`,
-			ix, sender, kind, "b", now); err != nil {
-			t.Fatal(err)
-		}
-	}
-	msg("queued_in_req_last", me, "text")
-	msg("queued_in_req_last", peer, "text")
-	msg("queued_in_prov_last", peer, "text")
-	msg("queued_in_prov_last", me, "text")
-	msg("queued_in_prov_last", peer, "end_request") // not a text message: does not count
-	msg("queued_out_req_last", peer, "text")
-	msg("queued_out_req_last", me, "text")
-	msg("queued_out_prov_last", me, "text")
-	msg("queued_out_prov_last", peer, "text")
-	db.Close()
-
-	s, err := interactions.Open(dir)
-	if err != nil {
-		t.Fatalf("open old store: %v", err)
-	}
-	defer s.Close()
-	want := map[string]interactions.State{
-		"done_in":              interactions.StateCompleted,
-		"failed_out":           interactions.StateFailed,
-		"queued_in_req_last":   interactions.StateWorking,
-		"queued_in_prov_last":  interactions.StateInputRequired,
-		"queued_out_req_last":  interactions.StateWorking,
-		"queued_out_prov_last": interactions.StateInputRequired,
-		"queued_empty":         interactions.StateSubmitted,
-	}
-	for id, st := range want {
-		ix, err := s.Get(id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if ix.State != st {
-			t.Errorf("%s: migrated to %s, want %s", id, ix.State, st)
-		}
-		if ix.StateAt == 0 {
-			t.Errorf("%s: state_at not set from updated_at", id)
-		}
-	}
-	db2, _ := sql.Open("sqlite", filepath.Join(dir, "interactions.db"))
-	defer db2.Close()
-	var n int
-	if err := db2.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('interaction') WHERE name='status'`).Scan(&n); err != nil || n != 0 {
-		t.Fatalf("status column still present (%d, %v)", n, err)
-	}
-	if err := db2.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name='idx_ix_role_status'`).Scan(&n); err != nil || n != 0 {
-		t.Fatalf("old index still present (%d, %v)", n, err)
-	}
-	if err := db2.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name='idx_ix_role_state'`).Scan(&n); err != nil || n != 1 {
-		t.Fatalf("state index missing (%d, %v)", n, err)
 	}
 }
 
@@ -328,19 +229,22 @@ func TestPendingLimits(t *testing.T) {
 }
 
 // The outbox survives closing and reopening the store: it is the part of
-// the retry queue that lives on disk.
+// the retry queue that lives on disk, versions and their ack_keys included.
 func TestOutboxSurvivesReopen(t *testing.T) {
 	dir := t.TempDir()
 	s, err := interactions.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, err := s.EnqueueOutbox(interactions.OutboxItem{IX: "ix_o", ToAID: "did:anet:r", Type: "anet.result/1",
-		Envelope: []byte("ENV"), Exp: 99})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RescheduleOutbox(id, 3, 12345, "hub down"); err != nil {
+	id := enqueueOutbox(t, s, interactions.OutboxItem{IX: "ix_o", ToAID: "did:anet:r", Type: "anet.result/1",
+		Body: []byte("BODY"), MID: []byte("0123456789abcdef"), TS: 1, Exp: 99999})
+	if err := s.Update(func(tx *interactions.Tx) error {
+		if _, _, err := tx.SealOutboxVersion(id, interactions.OutboxSeal{AckKey: []byte("K1"), Envelope: []byte("ENV")}); err != nil {
+			return err
+		}
+		return tx.EndOutboxAttempt(id, interactions.OutboxEnd{At: 7, Handed: []uint64{1}, Attempts: 3, NextAt: 12345,
+			LastError: "-network"})
+	}); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()
@@ -349,14 +253,23 @@ func TestOutboxSurvivesReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s2.Close()
-	due, err := s2.DueOutbox(12345, 10)
-	if err != nil || len(due) != 1 {
+	due, err := s2.DueOutboxIDs(12345, 10)
+	if err != nil || len(due) != 1 || due[0] != id {
 		t.Fatalf("due after reopen = %v (%v)", due, err)
 	}
-	if string(due[0].Envelope) != "ENV" || due[0].Attempts != 3 || due[0].Exp != 99 || due[0].LastError != "hub down" {
-		t.Fatalf("row after reopen: %+v", due[0])
+	row, vers, err := s2.OutboxState(id)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if early, _ := s2.DueOutbox(12344, 10); len(early) != 0 {
+	if row.Attempts != 3 || row.Exp != 99999 || row.LastError != "-network" || row.HandedAt != 7 || row.CurVer != 1 ||
+		len(vers) != 1 || string(vers[0].AckKey) != "K1" || vers[0].HandedAt != 7 {
+		t.Fatalf("row after reopen: %+v %+v", row, vers)
+	}
+	body, env, err := s2.OutboxContent(id)
+	if err != nil || string(body) != "BODY" || string(env) != "ENV" {
+		t.Fatalf("content after reopen: %q %q %v", body, env, err)
+	}
+	if early, _ := s2.DueOutboxIDs(12344, 10); len(early) != 0 {
 		t.Fatalf("row due before its time: %v", early)
 	}
 }

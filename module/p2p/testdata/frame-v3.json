@@ -1,0 +1,196 @@
+{
+  "id": "FRAME-3",
+  "about": "p2p frame v3: one JSON object per line. Each frame of the registry's p2p table (op, dir) as module/p2p and tools/anetpeer write it, byte for byte; both read every line and write it back unchanged. Binary values are base64url without padding (core CORE-E5): the envelope here, and the dack (80 bytes, 107 characters), which only the recipient's daemon makes and everything between carries as it came. No frame says whether a message was processed or refused. A frame of another version, or with a member its row does not have, or without one it must have, is refused (core CORE-K13a): answered with an error frame of v 3 (with the frame's id when it had one), never handed to a daemon or acked; a hello is also answered by closing the connection. Written by the Go test (go test ./module/p2p -run FRAME3 -update-frames).",
+  "version": 3,
+  "seeds": "every value below is SHA-256(\"anet-golden/v016/FRAME-3/<role>\"): envelope = H(envelope/0) || H(envelope/1), 64 bytes; dack = H(dack/0) || H(dack/1) || H(dack/2)[:16], 80 bytes. The AIDs are those of KEL-2B; the address is in 203.0.113.0/24 (RFC 5737).",
+  "values": {
+    "self": "bafyreibkccppym6ec5j7a4gq2gvk5x6w2fdjmifisqeshpmik4q2wj6aei",
+    "to": "bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse",
+    "addr": "203.0.113.7:39100",
+    "envelope_hex": "c58b226c3da3f22b094a3981728ee0ab33b86a8115ea8654758d7db84e89db92c704e6dcdebad5b7e7e97fe09f584558caefde834155d8a1c35ce1a60daad937",
+    "dack_hex": "865b906cba29140485fa97f324a84c3a759c29d6fa1de0076a3e15a1b8bc0cae2734d1a3aeeb25210218afc53f3dbd1ad1df397e2983c93fc3279317318d8fba4d3a2878a9b07136e8715096b0bae74e"
+  },
+  "frames": [
+    {
+      "op": "hello",
+      "dir": "both",
+      "line": "{\"op\":\"hello\",\"v\":3,\"self\":\"bafyreibkccppym6ec5j7a4gq2gvk5x6w2fdjmifisqeshpmik4q2wj6aei\"}"
+    },
+    {
+      "op": "send",
+      "dir": "daemon -> local anetpeer",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"addr\":\"203.0.113.7:39100\"}"
+    },
+    {
+      "op": "send",
+      "dir": "anetpeer -> remote anetpeer",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\"}"
+    },
+    {
+      "op": "send answer",
+      "dir": "remote anetpeer -> anetpeer; anetpeer -> daemon",
+      "case": "with the recipient's dack",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"dack\":\"hluQbLopFASF-pfzJKhMOnWcKdb6HeAHaj4Vobi8DK4nNNGjruslIQIYr8U_Pb0a0d85fimDyT_DJ5MXMY2Puk06KHipsHE26HFQlrC6504\"}"
+    },
+    {
+      "op": "send answer",
+      "dir": "remote anetpeer -> anetpeer; anetpeer -> daemon",
+      "case": "acked without a dack",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\"}"
+    },
+    {
+      "op": "send answer",
+      "dir": "remote anetpeer -> anetpeer; anetpeer -> daemon",
+      "case": "not taken",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"error\":\"receiving daemon did not take the delivery: temporarily refused\"}"
+    },
+    {
+      "op": "recv",
+      "dir": "anetpeer -> local daemon",
+      "line": "{\"op\":\"recv\",\"v\":3,\"id\":\"d1\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\"}"
+    },
+    {
+      "op": "ack",
+      "dir": "daemon -> anetpeer",
+      "case": "with a dack",
+      "line": "{\"op\":\"ack\",\"v\":3,\"id\":\"d1\",\"dack\":\"hluQbLopFASF-pfzJKhMOnWcKdb6HeAHaj4Vobi8DK4nNNGjruslIQIYr8U_Pb0a0d85fimDyT_DJ5MXMY2Puk06KHipsHE26HFQlrC6504\"}"
+    },
+    {
+      "op": "ack",
+      "dir": "daemon -> anetpeer",
+      "case": "without a dack",
+      "line": "{\"op\":\"ack\",\"v\":3,\"id\":\"d1\"}"
+    },
+    {
+      "op": "nack",
+      "dir": "daemon -> anetpeer",
+      "line": "{\"op\":\"nack\",\"v\":3,\"id\":\"d1\",\"error\":\"temporarily refused\"}"
+    },
+    {
+      "op": "error",
+      "dir": "either",
+      "case": "about a frame with an id",
+      "line": "{\"op\":\"error\",\"v\":3,\"id\":\"7\",\"error\":\"frame version 2 refused: this node speaks frame version 3 (anet 0.3.0)\"}"
+    },
+    {
+      "op": "error",
+      "dir": "either",
+      "case": "about a hello",
+      "line": "{\"op\":\"error\",\"v\":3,\"error\":\"frame version 2 refused: this node speaks frame version 3 (anet 0.3.0)\"}"
+    }
+  ],
+  "refused": [
+    {
+      "case": "hello of v 2",
+      "at": "daemon",
+      "line": "{\"op\":\"hello\",\"v\":2,\"self\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\"}",
+      "answer": "error",
+      "closes": true
+    },
+    {
+      "case": "hello of v 2",
+      "at": "anetpeer from its daemon",
+      "line": "{\"op\":\"hello\",\"v\":2,\"self\":\"bafyreibkccppym6ec5j7a4gq2gvk5x6w2fdjmifisqeshpmik4q2wj6aei\"}",
+      "answer": "error",
+      "closes": true
+    },
+    {
+      "case": "hello without v",
+      "at": "anetpeer from its daemon",
+      "line": "{\"op\":\"hello\",\"self\":\"bafyreibkccppym6ec5j7a4gq2gvk5x6w2fdjmifisqeshpmik4q2wj6aei\"}",
+      "answer": "error",
+      "closes": true
+    },
+    {
+      "case": "recv of v 2",
+      "at": "daemon",
+      "line": "{\"op\":\"recv\",\"v\":2,\"id\":\"d1\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "recv without v",
+      "at": "daemon",
+      "line": "{\"op\":\"recv\",\"id\":\"d1\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "recv with a padded envelope",
+      "at": "daemon",
+      "line": "{\"op\":\"recv\",\"v\":3,\"id\":\"d1\",\"envelope\":\"ZW52ZWxvcGU=\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "recv with an envelope in the standard alphabet",
+      "at": "daemon",
+      "line": "{\"op\":\"recv\",\"v\":3,\"id\":\"d1\",\"envelope\":\"+/+/ZW52\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send of v 2",
+      "at": "anetpeer from its daemon",
+      "line": "{\"op\":\"send\",\"v\":2,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send of v 2",
+      "at": "anetpeer from a peer",
+      "line": "{\"op\":\"send\",\"v\":2,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send of v 2 with not_delivered",
+      "at": "anetpeer from a peer",
+      "line": "{\"op\":\"send\",\"v\":2,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"not_delivered\":true}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "hello with an unregistered member",
+      "at": "daemon",
+      "line": "{\"op\":\"hello\",\"v\":3,\"self\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"lan\":true}",
+      "answer": "error",
+      "closes": true
+    },
+    {
+      "case": "recv with an unregistered member",
+      "at": "daemon",
+      "line": "{\"op\":\"recv\",\"v\":3,\"id\":\"d1\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"from\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send with an unregistered member",
+      "at": "anetpeer from its daemon",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"addr\":\"203.0.113.7:39100\",\"from\":\"bafyreibkccppym6ec5j7a4gq2gvk5x6w2fdjmifisqeshpmik4q2wj6aei\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send without its addr",
+      "at": "anetpeer from its daemon",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send with an unregistered member",
+      "at": "anetpeer from a peer",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"from\":\"bafyreibkccppym6ec5j7a4gq2gvk5x6w2fdjmifisqeshpmik4q2wj6aei\"}",
+      "answer": "error",
+      "closes": false
+    },
+    {
+      "case": "send that carries the addr on to a peer",
+      "at": "anetpeer from a peer",
+      "line": "{\"op\":\"send\",\"v\":3,\"id\":\"7\",\"to\":\"bafyreiaal7k2ike6wvs46k4ga2s7klovc2hdfrn7xqsnp6quc4jzcr2pse\",\"envelope\":\"xYsibD2j8isJSjmBco7gqzO4aoEV6oZUdY19uE6J25LHBObc3rrVt-fpf-CfWEVYyu_eg0FV2KHDXOGmDarZNw\",\"addr\":\"203.0.113.7:39100\"}",
+      "answer": "error",
+      "closes": false
+    }
+  ]
+}

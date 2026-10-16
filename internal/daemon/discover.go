@@ -1,11 +1,15 @@
 package daemon
 
 import (
+	"context"
+	"errors"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
+	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/seal"
+
+	"github.com/ANetResearch/ANet/module"
 )
 
 // RunningDaemons returns the locally-recorded identities whose daemon is actually reachable right now
@@ -35,27 +39,27 @@ func RunningDaemons() []IdentityEntry {
 	return out
 }
 
-// matchAgents keeps the agents whose AID, name, summary, readme or one of
-// whose capabilities contains query, ignoring case — the fields the hub's
-// own search reads. An empty query keeps every agent.
-//
-// Done here rather than by the hub's ?q= because what an operator searches
-// for says what they are about to do, and the hub has no need to know it
-// (A2A-DESIGN §10.5: the daemon matches free text locally; the hub's q is
-// for its web UI).
-func matchAgents(agents []hubapi.AgentView, query string) []hubapi.AgentView {
-	q := strings.ToLower(strings.TrimSpace(query))
-	if q == "" {
-		return agents
+// keyStateOf is a directory entry's key_state as listings show it (KEL
+// D-28): fresh when the entry carried a notice that passed C-51 here at
+// arrival = now, stale otherwise. It only describes the entry; whether a
+// message may be sealed to it is resolvePeer's to decide (D-26).
+func keyStateOf(noticeOK bool) string {
+	if noticeOK {
+		return module.KeyStateFresh
 	}
-	out := make([]hubapi.AgentView, 0, len(agents))
-	for _, a := range agents {
-		for _, f := range append([]string{a.AID, a.Name, a.Summary, a.Readme}, a.Caps...) {
-			if strings.Contains(strings.ToLower(f), q) {
-				out = append(out, a)
-				break
-			}
-		}
+	return module.KeyStateStale
+}
+
+// dirNoticeOK checks a notice a directory or registry entry carried about
+// kel at now (KEL C-51), with the hub KEL set refreshed once when it names
+// a witness this node does not hold far enough (witness-unknown, D-24).
+func (d *Daemon) dirNoticeOK(ctx context.Context, notice []byte, kel []identity.SignedEvent, now uint64) bool {
+	if len(notice) == 0 || len(notice) > seal.MaxNoticeBytes || len(kel) == 0 {
+		return false
 	}
-	return out
+	err := identity.VerifyNotice(notice, kel, d.hubKELs, now)
+	if errors.Is(err, identity.ErrNoticeUnknownWitness) && d.refreshHubKELs(ctx) {
+		err = identity.VerifyNotice(notice, kel, d.hubKELs, now)
+	}
+	return err == nil
 }

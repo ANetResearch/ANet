@@ -19,10 +19,9 @@ import (
 	"testing"
 	"time"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/evidence"
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -37,10 +36,10 @@ func pvPair(t *testing.T) (req, prov *Daemon, id string) {
 	ctx := context.Background()
 	req = newTestDaemon(t, srv.URL, false)
 	prov = newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.DelegateCapability(ctx, prov.AID(), "text.free", map[string]any{"q": 1})
@@ -71,13 +70,9 @@ func pvResult(t *testing.T, req, prov *Daemon, id string, deliverable []byte, me
 	if err != nil {
 		t.Fatal(err)
 	}
-	kel, err := identity.MarshalKEL(prov.self.KEL())
-	if err != nil {
-		t.Fatal(err)
-	}
 	mb, _ := json.Marshal(meta)
 	payload := mustMarshal(t, &delegation.ResultResp{Status: delegation.StatusDone, Deliverable: deliverable,
-		Receipt: receipt, KEL: kel, Metadata: mb})
+		Receipt: receipt, Metadata: mb})
 	return sealFrom(t, prov, req, seal.TypeResult, id, payload)
 }
 

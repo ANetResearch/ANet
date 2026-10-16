@@ -6,11 +6,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/tsir"
@@ -60,7 +60,7 @@ func init() {
 			return nil, err
 		}
 		if cfg.Genesis == "" {
-			return nil, fmt.Errorf("org: genesis is required (base64 of the signed genesis)")
+			return nil, fmt.Errorf("org: genesis is required (base64 of the encoded genesis)")
 		}
 		return &Module{cfg: cfg}, nil
 	})
@@ -68,9 +68,10 @@ func init() {
 
 // Config points the module at the org it serves.
 type Config struct {
-	// Genesis is the org's signed genesis object, base64 CBOR. A node that
-	// cannot state which org it is verifying for has nothing to verify
-	// against — there is no default org.
+	// Genesis is the org's genesis object as Genesis.Marshal encodes it,
+	// base64. It is not signed: its hash is the org id. A node that cannot
+	// state which org it is verifying for has nothing to verify against —
+	// there is no default org.
 	Genesis string `json:"genesis"`
 }
 
@@ -92,14 +93,18 @@ func (m *Module) Start(ctx context.Context, h module.Host) error {
 	if err != nil {
 		return fmt.Errorf("org: genesis not base64: %w", err)
 	}
-	var g Genesis
-	if err := coredet.Unmarshal(b, &g); err != nil {
+	g, err := ParseGenesis(b)
+	if errors.Is(err, ErrGenesisV02) {
+		// No migration (core CORE-K26): say what the genesis is and what to do.
+		return err
+	}
+	if err != nil {
 		return fmt.Errorf("org: genesis malformed: %w", err)
 	}
 	if err := g.Validate(); err != nil {
 		return fmt.Errorf("org: genesis invalid: %w", err)
 	}
-	m.genesis = &g
+	m.genesis = g
 	m.admins = map[string]*Credential{}
 	m.revoked = map[string]bool{}
 	m.host = h

@@ -1,10 +1,10 @@
 package interactions
 
-// waiting.go holds what the requester's no-response deadline reads and
-// writes (A2A-DESIGN §4.2, daemon no_response.go): the tasks that have sat
-// in one state since before a cutoff, whether a task has heard from its
-// peer at all, whether anything of it is still queued to go out, and the
-// moment its delegation left this node.
+// waiting.go holds what the requester's no-response deadline reads
+// (A2A-DESIGN §4.2, daemon no_response.go): the tasks that have sat in one
+// state since before a cutoff, and whether a task has heard from its peer
+// at all. Whether its delegation is still unconfirmed is the outbound
+// queue's (HasOutboxDelegation, outbox.go).
 
 import (
 	"fmt"
@@ -57,9 +57,6 @@ func (s *Store) Waiting(role Role, state State, before int64, after WaitingTask,
 // heardFromSQL reads no message body: sender_aid comes before it in the row.
 const heardFromSQL = `SELECT COUNT(*) FROM (SELECT 1 FROM message WHERE interaction_id=? AND sender_aid=? LIMIT 1)`
 
-// outboxPendingSQL reads idx_outbox_ix.
-const outboxPendingSQL = `SELECT COUNT(*) FROM (SELECT 1 FROM outbox WHERE ix=? LIMIT 1)`
-
 // HeardFrom reports whether interaction id holds a message from sender: a
 // status, a text or a payment message, whatever became of it.
 func (s *Store) HeardFrom(id, sender string) (bool, error) {
@@ -75,21 +72,6 @@ func (t *Tx) HeardFrom(id, sender string) (bool, error) {
 	return n > 0, err
 }
 
-// OutboxPending reports whether any message of interaction ix is still in
-// the outbound retry queue (not delivered, not abandoned).
-func (s *Store) OutboxPending(ix string) (bool, error) {
-	var n int
-	err := s.db.QueryRow(outboxPendingSQL, ix).Scan(&n)
-	return n > 0, err
-}
-
-// OutboxPending is Store.OutboxPending inside the transaction.
-func (t *Tx) OutboxPending(ix string) (bool, error) {
-	var n int
-	err := t.tx.QueryRow(outboxPendingSQL, ix).Scan(&n)
-	return n > 0, err
-}
-
 // UpdatedAtTime is the interaction's updated_at as a time; the zero time when it
 // does not read as one.
 func (ix *Interaction) UpdatedAtTime() time.Time {
@@ -98,24 +80,4 @@ func (ix *Interaction) UpdatedAtTime() time.Time {
 		return time.Time{}
 	}
 	return t
-}
-
-// DeleteDeliveredOutbox removes a row the recipient took. For a delegation
-// (delegation set) it also records, as the interaction's updated_at, when
-// the task left this node: a delegation can wait in the queue for hours
-// while the hub is unreachable, and the requester's no-response deadline
-// counts from its delivery, not from when the task was made. A task that has
-// ended meanwhile is not touched.
-func (s *Store) DeleteDeliveredOutbox(id int64, ix string, delegation bool) error {
-	return s.Update(func(t *Tx) error {
-		if _, err := t.tx.Exec(`DELETE FROM outbox WHERE id=?`, id); err != nil {
-			return err
-		}
-		if !delegation {
-			return nil
-		}
-		_, err := t.tx.Exec(`UPDATE interaction SET updated_at=? WHERE id=? AND state NOT IN `+terminalSQL,
-			time.Now().UTC().Format(time.RFC3339Nano), ix)
-		return err
-	})
 }

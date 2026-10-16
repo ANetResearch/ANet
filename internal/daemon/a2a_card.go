@@ -14,8 +14,9 @@ package daemon
 // closed or approve with no public capability withdraws its card
 // (a2a_card_withdraw.go). The kernel writes the relay interface at the node's hub
 // and the anet-card and anet-evidence extensions; modules add their own
-// interfaces (p2p) and extensions (x402, pricing) through
-// module.CardContributor. The kernel never imports an A2A library.
+// interfaces (p2p) and extensions (a2a-x402) through module.CardContributor.
+// The card carries no price: what a skill costs is in the quote, inside the
+// task. The kernel never imports an A2A library.
 //
 // The card is in publish form (A2A specification §8.4.1): REQUIRED members
 // present, default values left out, numbers as strings. A verifier that
@@ -107,12 +108,14 @@ type CardPublication struct {
 // admits. A public capability nobody serves is left out: a directory entry
 // for it would be an invitation to call something that cannot answer. So
 // is a priced one on a node that cannot take payment (a -tags no_x402
-// build, or no payment module): capability.go refuses every call to it.
+// build, or no payment module): capability.go refuses every call to it. So
+// is one its provider refuses to remote callers (published_caps.go).
 func (d *Daemon) publicSkillIDs() []string {
 	if d.providers == nil {
 		return nil
 	}
 	canCharge := d.payer() != nil
+	remote := d.remoteCheck()
 	seen := map[string]bool{}
 	var out []string
 	for _, p := range d.config().inbound().PublicCapabilities {
@@ -121,11 +124,19 @@ func (d *Daemon) publicSkillIDs() []string {
 			continue
 		}
 		seen[id] = true
+		if p.AllowOnly {
+			// On the list variant of the extended card only
+			// (listOnlySkillIDs, CUX-F32).
+			continue
+		}
 		prov, ok := d.providers.Resolve(id)
 		if !ok {
 			continue
 		}
 		if _, priced := priceOfCapability(prov, id); priced && !canCharge {
+			continue
+		}
+		if remote.refused(id) {
 			continue
 		}
 		out = append(out, id)
@@ -170,15 +181,36 @@ func (d *Daemon) networkCard(hubURL string) (json.RawMessage, uint64, error) {
 // name. fresh forces a new seq even when the content is unchanged, which is
 // how a hub's conflict answer is resolved.
 func (d *Daemon) networkCardLocked(hubURL, name string, fresh bool) (json.RawMessage, uint64, error) {
+	card, seq, _, err := d.issueNetworkCardLocked(hubURL, name, fresh)
+	return card, seq, err
+}
+
+// issueNetworkCardLocked is networkCardLocked that also returns what the
+// card was built from, for the extended cards (extcard.go), which are the
+// public card and more.
+func (d *Daemon) issueNetworkCardLocked(hubURL, name string, fresh bool) (json.RawMessage, uint64, netcard.Input, error) {
 	hubURL = strings.TrimRight(strings.TrimSpace(hubURL), "/")
 	if hubURL == "" {
-		return nil, 0, fmt.Errorf("anet: no hub, so no relay interface for a network card")
+		return nil, 0, netcard.Input{}, fmt.Errorf("anet: no hub, so no relay interface for a network card")
 	}
 	in, err := d.cardInput(hubURL, name)
 	if err != nil {
+		return nil, 0, in, err
+	}
+	card, seq, err := d.signNetworkCardLocked(in, hubURL, fresh)
+	return card, seq, in, err
+}
+
+// signNetworkCardLocked signs the card of in, or returns the last issued one
+// when it says the same under the same key.
+func (d *Daemon) signNetworkCardLocked(in netcard.Input, hubURL string, fresh bool) (json.RawMessage, uint64, error) {
+	// One key state for the whole card: the kid that names it and the key that signs (KEL C-23).
+	signer := d.self.Snapshot()
+	seq, err := identity.SeqOf(signer)
+	if err != nil {
 		return nil, 0, err
 	}
-	kid := a2acard.KID(d.AID(), d.self.CurrentSeq())
+	kid := a2acard.KID(signer.AID(), seq)
 	jku := netcard.JKU(hubURL, d.AID())
 
 	template, err := netcard.Build(in) // seq and times zero
@@ -215,7 +247,7 @@ func (d *Daemon) networkCardLocked(hubURL, name string, fresh bool) (json.RawMes
 	if err != nil {
 		return nil, 0, err
 	}
-	signed, err := a2acard.SignWithController(unsigned, d.self, jku)
+	signed, err := a2acard.SignWithSnapshot(unsigned, signer, jku)
 	if err != nil {
 		return nil, 0, fmt.Errorf("anet: sign network card: %w", err)
 	}
@@ -246,7 +278,7 @@ func (d *Daemon) selfKELResolver(aid string) ([]identity.SignedEvent, error) {
 // name is passed rather than read from the config because an explicit
 // hub-register writes its name to the config only after the hub accepted
 // it; the card sent with that registration must carry the same name as the
-// registration and its ADP card.
+// registration.
 func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 	caps := d.publicSkillIDs()
 	chat := d.publishesChat()
@@ -266,12 +298,21 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 		in.Skills = append(in.Skills, netcard.ChatSkill())
 		sort.SliceStable(in.Skills, func(i, j int) bool { return in.Skills[i].ID < in.Skills[j].ID })
 	}
-	skills := make([]string, 0, len(in.Skills))
-	for _, s := range in.Skills {
-		skills = append(skills, s.ID)
+	cc := module.CardContext{AID: d.AID(), HubURL: hubURL, Skills: netcard.SkillIDs(in.Skills)}
+	in.Extensions, in.Interfaces = d.cardContributions(cc)
+	// The skills of the list variant of the extended card; the public card
+	// does not list them (netcard.Build reads only Skills).
+	for _, id := range d.listOnlySkillIDs(cc.Skills) {
+		p, _ := d.providers.Resolve(id)
+		in.ListOnly = append(in.ListOnly, netcard.SkillFor(p, id))
 	}
-	cc := module.CardContext{AID: d.AID(), HubURL: hubURL, Skills: append([]string(nil), skills...),
-		WithholdPrices: !cfg.Payments.publishesPrices()}
+	return in, nil
+}
+
+// cardContributions asks the modules for their extensions and interfaces on
+// the card cc describes, each put in publish form or dropped with a log
+// line.
+func (d *Daemon) cardContributions(cc module.CardContext) (exts, ifaces []map[string]any) {
 	for _, m := range d.cardContributors() {
 		for _, e := range m.CardExtensions(cc) {
 			ext, err := netcard.Extension(e)
@@ -279,7 +320,7 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 				log.Printf("anet: module %s: card extension dropped: %v", moduleName(m), err)
 				continue
 			}
-			in.Extensions = append(in.Extensions, ext)
+			exts = append(exts, ext)
 		}
 		for _, it := range m.CardInterfaces(cc) {
 			iface, err := netcard.Interface(it, d.AID())
@@ -287,10 +328,10 @@ func (d *Daemon) cardInput(hubURL, name string) (netcard.Input, error) {
 				log.Printf("anet: module %s: card interface dropped: %v", moduleName(m), err)
 				continue
 			}
-			in.Interfaces = append(in.Interfaces, iface)
+			ifaces = append(ifaces, iface)
 		}
 	}
-	return in, nil
+	return exts, ifaces
 }
 
 // cardContributors are the running modules that add to the card.
@@ -445,16 +486,8 @@ func (d *Daemon) afterCardAnswer(ctx context.Context, hubURL string, body hubapi
 		return
 	}
 	body.A2ACard = card
-	// The first attempt registered this AID, so an admission token has
-	// been spent and is not sent again (RegisterWithHub).
-	body.Invite = ""
-	// The ADP card of the first attempt was admitted at its seq, so the
-	// second attempt carries a newly minted one (card.go).
-	if body.Card != nil {
-		if adpCard, err := d.signedCard(body.Name, body.Caps); err == nil {
-			body.Card = adpCard
-		}
-	}
+	// The first attempt registered this AID: no proof of work again.
+	body.PoW = nil
 	if err := d.screenPublication("this node's registration", body); err != nil {
 		log.Printf("anet: re-issued network card: %v", err)
 		return
@@ -463,6 +496,10 @@ func (d *Daemon) afterCardAnswer(ctx context.Context, hubURL string, body hubapi
 	if err := d.hubSigned(ctx, hubURL, http.MethodPost, "/register", relayauth.ActionRegister, body, &again); err != nil {
 		log.Printf("anet: registering the re-issued network card with %s: %v", hubURL, err)
 		return
+	}
+	// This answer says how the hub confirms the key as well (KEL D-50).
+	if sameHub(hubURL, d.config().HubURL) {
+		d.noteHubNoticeFrom(hubURL, again.KeyStateNotice, again.KeyStateNoticeError)
 	}
 	if d.noteCardAnswer(hubURL, seq, again) {
 		log.Printf("anet: %s still reports a conflict for the network card at seq %d; leaving it", hubURL, seq)

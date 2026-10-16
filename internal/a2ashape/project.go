@@ -59,10 +59,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/jsonread"
@@ -114,10 +114,12 @@ func StoreState(s TaskState) (interactions.State, bool) {
 
 // ControlMetadata reports whether message metadata makes a text message a
 // control message rather than a conversation turn: any x402.* key, or
-// anet.state (A2A-DESIGN §4.1 [C29]) — except on a final reply
-// (FinalReply), whose anet.state=working only keeps the requester waiting
-// for the result that follows it. Such a message is neither in the
-// transcript a receipt covers nor in the history.
+// anet.state (A2A-DESIGN §4.1 [C29]) — a progress note sent with
+// anet.state=working among them. Such a message is neither in the
+// transcript a receipt covers nor in the history. There is no exception:
+// a provider's reply that completes a task travels in its result
+// (ResultResp.reply, correctness-ux CUX-R4), not as a message marked to
+// keep the requester waiting.
 func ControlMetadata(meta map[string]any) bool {
 	for k := range meta {
 		if strings.HasPrefix(k, "x402.") {
@@ -125,18 +127,7 @@ func ControlMetadata(meta map[string]any) bool {
 		}
 	}
 	_, state := meta[KeyState]
-	return state && !FinalReply(meta)
-}
-
-// FinalReply reports a provider's final reply on a text task it completes
-// (KeyFinal, an internal note item): anet.state=working and anet.final=true.
-func FinalReply(meta map[string]any) bool {
-	return meta[KeyFinal] == true && meta[KeyState] == string(interactions.StateWorking)
-}
-
-// FinalReplyMetadata is the metadata of a final reply (FinalReply).
-func FinalReplyMetadata() map[string]any {
-	return map[string]any{KeyState: string(interactions.StateWorking), KeyFinal: true}
+	return state
 }
 
 // AttachmentURI names a stored attachment by the parameters of the control
@@ -204,6 +195,20 @@ type Options struct {
 	// against, base64, carried in anet.receipt so a holder can check it
 	// again rather than take this node's word for it.
 	ProviderKEL string
+	// IdentityNote, when set, is anet.identity_note (KeyIdentityNote): the
+	// node's reminder that its identity has no recovery passphrase yet.
+	IdentityNote string
+	// ForBackend says the projection is for a local backend that answers
+	// the task on this node's behalf (modules.a2a.backends[], the
+	// auto-reply), not for the operator's own clients. It never carries
+	// IdentityNote: the reminder is for the operator, and a model answering
+	// a stranger could repeat it, telling the stranger the identity can be
+	// taken over.
+	ForBackend bool
+	// SelfAID is this node's AID: the {aid} of a refusal's sentence that
+	// asks the other side to let this node in (not_accepting: "ask them
+	// to run anet peers allow {aid}").
+	SelfAID string
 }
 
 // Load reads what Project needs for one interaction.
@@ -268,6 +273,9 @@ func Project(src Source, opt Options) Task {
 		Metadata:  p.metadata(why),
 	}
 	t.History = p.history()
+	if opt.IdentityNote != "" && !opt.ForBackend {
+		t.Metadata[KeyIdentityNote] = opt.IdentityNote
+	}
 	if opt.Artifacts {
 		t.Artifacts = artifacts
 		if p.hasOutputReceipt() {
@@ -309,6 +317,10 @@ type projector struct {
 	resultMeta map[string]any
 	// payment is Source.Payment.
 	payment map[string]any
+	// note is the latest payment decision on a task this node started
+	// (pay_note, HPP PAY-U5), with the task's id to render it; nil when
+	// there is none or it does not read (ParsePayNote).
+	note *PayNote
 	// inlineLeft is what is left of the inline limit (Options.InlineLimit).
 	inlineLeft int64
 }
@@ -345,6 +357,12 @@ func newProjector(src Source, opt Options) *projector {
 		}
 	}
 	p.resultMeta = decodeObject([]byte(ix.ResultMeta))
+	if p.outbound && len(ix.PayNote) > 0 {
+		if n, err := ParsePayNote(ix.PayNote); err == nil {
+			n.Task = ix.ID
+			p.note = &n
+		}
+	}
 	if src.Payment != nil {
 		// Re-read as the projection's own JSON values: the quote in it is
 		// the peer's, and is held to the same rules (finite numbers) as
@@ -675,6 +693,12 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 		}
 	case interactions.StateInputRequired:
 		if p.paymentRequired() {
+			if p.waitingNote() {
+				// The decision's own sentence, word for word what the CLI's
+				// payment line and MCP show, whether or not the client
+				// activated a2a-x402 (HPP PAY-D9, SI-79).
+				return p.paymentNoteMessage(), nil
+			}
 			if fresh && p.metas[prov][KeyX402Status] != nil {
 				return p.statusRow(prov), p.metas[prov]
 			}
@@ -730,8 +754,9 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 			// an internal note item P4: an ended task with a reason says so, for a
 			// client that reads only the status text. The reason is the
 			// one the task's metadata carries.
-			if r, _ := p.metadata(nil)[KeyReason].(string); strings.TrimSpace(r) != "" {
-				msg = p.synthesized(reasonText(ix.State, r), nil)
+			meta := p.metadata(nil)
+			if r, _ := meta[KeyReason].(string); strings.TrimSpace(r) != "" {
+				msg = p.synthesized(p.endText(r, meta[KeyRetryAfterMS]), nil)
 			}
 		}
 		// a2a-x402 §7: the final message of a task that took part in the
@@ -779,6 +804,45 @@ func (p *projector) statusMessage() (msg *Message, why map[string]any) {
 		return msg, why
 	}
 	return nil, nil
+}
+
+// waitingNote reports a task this node started that waits on a payment
+// with a decision that did not pay: a sentence of ux D1 (a person
+// decides) or D3 (the last payment did not settle). A paid.* snapshot is
+// not why a task waits.
+func (p *projector) waitingNote() bool {
+	return p.note != nil && p.ix.State == interactions.StateInputRequired && p.paymentRequired() &&
+		!strings.HasPrefix(p.note.Code, "paid.")
+}
+
+// paymentNoteMessage is status.message of a task waiting on a payment
+// decision (HPP PAY-D9, PAY-U6): the payment sentence and nothing else, so
+// a client that reads only text reads what the CLI's payment line says,
+// with the quote's a2a-x402 keys and anet.reason in its metadata for a
+// client that answers it.
+func (p *projector) paymentNoteMessage() *Message {
+	meta := map[string]any{KeyX402Status: PaymentRequired}
+	if p.kernelPayment() {
+		for _, k := range x402Keys {
+			if v, ok := p.payment[k]; ok {
+				meta[k] = v
+			}
+		}
+	} else {
+		if p.ix.PayState == interactions.PayFailed {
+			meta[KeyX402Status] = PaymentFailed
+			if rc := p.x402Receipts(); rc != nil {
+				meta[KeyX402Receipts] = rc
+			}
+		}
+		if req := p.x402Required(); req != nil {
+			meta[KeyX402Required] = req
+		}
+	}
+	if r, ok := p.payment[KeyReason]; ok {
+		meta[KeyReason] = r
+	}
+	return p.synthesized(PaymentNote(*p.note, Lang()), meta)
 }
 
 // paymentRequiredMessage is the a2a-x402 payment-required message, built
@@ -1037,7 +1101,45 @@ func (p *projector) metadata(why map[string]any) map[string]any {
 			m[KeyReason] = v
 		}
 	}
+	if p.note != nil {
+		// From the first decision on, ended or not (HPP §2.7).
+		m[KeyPaymentNote] = PaymentNote(*p.note, Lang())
+	}
+	if next := p.next(m); next != "" {
+		m[KeyNext] = next
+	}
 	return m
+}
+
+// next is anet.next (core §2.13 revision 7): the command of the row that
+// says why the task is where it is — the payment note's own key while the
+// task waits on it (the variant decides the command: manual_limit asks for
+// anet payments set first), otherwise anet.reason's row — when the row's
+// next step is a command and every value it needs is known. A code whose
+// rows differ by variant and that has no row of its own gives none: the
+// projection does not guess a variant.
+func (p *projector) next(m map[string]any) string {
+	key, _ := m[KeyReason].(string)
+	args := Args{"task": p.ix.ID, "peer": p.ix.PeerAID}
+	if p.opt.SelfAID != "" {
+		// {aid} is this node's own AID in every row that names it, as in
+		// the refusal's sentence (endText).
+		args["aid"] = p.opt.SelfAID
+	}
+	if p.waitingNote() {
+		key, args = p.note.Code, PayNoteArgs(*p.note)
+		if args["peer"] == "" {
+			args["peer"] = p.ix.PeerAID
+		}
+	}
+	if key == "" {
+		return ""
+	}
+	r, ok := Lookup(key)
+	if !ok || r.NextKind != NextCommand {
+		return ""
+	}
+	return Next(key, Lang(), args)
 }
 
 func receiptVerified(v interactions.Verification) string {
@@ -1046,6 +1148,8 @@ func receiptVerified(v interactions.Verification) string {
 		return ReceiptVerified
 	case interactions.VerificationUnverified:
 		return ReceiptUnverified
+	case interactions.VerificationMismatch:
+		return ReceiptMismatch
 	}
 	return ReceiptUnknown
 }

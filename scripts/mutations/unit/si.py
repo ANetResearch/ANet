@@ -7,7 +7,7 @@ MUTS = [
   id='si1-1', group='SI-1', repo='ANetCore',
   desc='关闭加密: 密文即明文(scripts/mutations/si1-plaintext-envelope.patch)',
   patch=MUTATIONS + '/si1-plaintext-envelope.patch',
-  tests=[('ANetCore:./seal', 'TestOpenRecipientAndKey|TestVEC_SEALED_1|TestRFC9180'), ('ANet:./internal/daemon', 'TestTheHubHoldsOnlyCiphertext')],
+  tests=[('ANetCore:./seal', 'TestOpenRecipientAndKey|TestSEALED_2A|TestRFC9180'), ('ANet:./internal/daemon', 'TestTheHubHoldsOnlyCiphertext')],
   full=['ANetCore:./seal', 'ANet:./internal/daemon'],
  ),
  dict(
@@ -21,18 +21,19 @@ MUTS = [
  ),
  dict(
   id='si1-3', group='SI-1', repo='ANetHub',
-  desc='hub /reviews 不再拒收 request_doc/deliverable',
+  desc='hub /reviews 不再拒收 request_doc/deliverable(评价 v2 由严格解码拒收:上传体收下这两个成员)',
   edits=[
-   ('internal/aghub/server.go', '\tif req.RequestDoc != "" || req.Deliverable != "" {', '\tif false && (req.RequestDoc != "" || req.Deliverable != "") {'),
+   ('internal/aghub/reviews.go', '\tRSalt   string `json:"rsalt"`\n}', '\tRSalt   string `json:"rsalt"`\n\tRequestDoc  string `json:"request_doc,omitempty"`\n\tDeliverable string `json:"deliverable,omitempty"`\n}'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestAReviewUploadCarryingContentIsRefused|TestAReviewIsServedWithoutContent')],
   full=['ANetHub:./internal/aghub'],
  ),
  dict(
   id='si1-4', group='SI-1', repo='ANetHub',
-  desc='hub CheckEnvelope 恒放行(明文/错投的载荷也入库)',
+  desc='hub /relay/send 第 4 步宽松解码(不是封装信封的 CBOR 载荷也入库;relay v3 后由 hRelaySend 的 ParseOuter 把关)',
   edits=[
-   ('internal/aghub/relay.go', 'func CheckEnvelope(toAID string, envelope []byte) error {\n', 'func CheckEnvelope(toAID string, envelope []byte) error {\n\tif true {\n\t\treturn nil\n\t}\n'),
+   ('internal/aghub/server.go', '\touter, err := seal.ParseOuter(body)\n\tif err != nil {\n\t\twire3.Refuse(w, wire3.ReasonBadEnvelope)\n\t\treturn\n\t}\n',
+    '\touter, err := seal.ParseOuter(body)\n\tif err != nil {\n\t\tvar loose seal.SealedEnvelope\n\t\tif coredet.Unmarshal(body, &loose) != nil {\n\t\t\twire3.Refuse(w, wire3.ReasonBadEnvelope)\n\t\t\treturn\n\t\t}\n\t\touter = &loose\n\t}\n'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestTheRelayRefusesAnythingButASealedEnvelopeForTheRecipient')],
   full=['ANetHub:./internal/aghub'],
@@ -84,7 +85,7 @@ MUTS = [
   id='si2-2', group='SI-2', repo='ANetHub',
   desc='hub 库关闭 secure_delete',
   edits=[
-   ('internal/aghub/aghub.go', '&_pragma=secure_delete(ON)")', '&_pragma=secure_delete(OFF)")'),
+   ('internal/aghub/aghub.go', '&_pragma=secure_delete(ON)"+', '&_pragma=secure_delete(OFF)"+'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestAnAckedEnvelopeLeavesNoBytesOnDisk|TestAnAckDeletesTheRow')],
   full=['ANetHub:./internal/aghub'],
@@ -93,16 +94,17 @@ MUTS = [
   id='si2-3', group='SI-2', repo='ANetHub',
   desc='relay_message 表加回 from_aid 列',
   edits=[
-   ('internal/aghub/relay.go', '   to_aid TEXT NOT NULL,\n   size INTEGER NOT NULL,', '   to_aid TEXT NOT NULL,\n   from_aid TEXT,\n   size INTEGER NOT NULL,'),
+   ('internal/aghub/relay.go', '\t   to_aid TEXT NOT NULL,\n\t   env_digest BLOB NOT NULL,', '\t   to_aid TEXT NOT NULL,\n\t   from_aid TEXT,\n\t   env_digest BLOB NOT NULL,'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestTheRelayDoesNotStoreTheSender')],
   full=['ANetHub:./internal/aghub'],
  ),
  dict(
   id='si2-4', group='SI-2', repo='ANetHub',
-  desc='hRelaySend 把每条信封的发送方写进 hub_meta(换个表存 from)',
+  desc='hRelaySend 把首次联系的发送方写进 hub_meta(换个表存 from)',
   edits=[
-   ('internal/aghub/server.go', '\tid, err := s.store.RelayEnqueue(req.ToAID, envelope)\n', '\tid, err := s.store.RelayEnqueue(req.ToAID, envelope)\n\tif err == nil {\n\t\t_, _ = s.store.db.Exec(`INSERT OR REPLACE INTO hub_meta(key, value) VALUES(?, ?)`, fmt.Sprintf("relay_from/%d", id), a.AID)\n\t}\n'),
+   ('internal/aghub/server.go', '\t\tClass: class, CapID: capID, Exp: outer.Exp, KID: outer.KID})\n',
+    '\t\tClass: class, CapID: capID, Exp: outer.Exp, KID: outer.KID})\n\tif err == nil && sess != nil {\n\t\t_, _ = s.store.db.Exec(`INSERT OR REPLACE INTO hub_meta(key, value) VALUES(?, ?)`, fmt.Sprintf("relay_from/%d", queued.ID), sess.aid)\n\t}\n'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestTheRelayDoesNotStoreTheSender|TestASendLeavesTheSenderInNoTable')],
   full=['ANetHub:./internal/aghub'],
@@ -120,9 +122,9 @@ MUTS = [
   id='si2-6', group='SI-2', repo='ANet',
   desc='requester 授权的 InteractionID 填 ix 而不是 pay_bind(hub 存交互 id)',
   edits=[
-   ('internal/daemon/x402task.go', 'signed, err := p.Authorize(*opt, ix.ID, x402a2a.PayBind(ix.ID, ix.TaskNonce), req.Purpose)', 'signed, err := p.Authorize(*opt, ix.ID, ix.ID, req.Purpose)'),
+   ('internal/daemon/x402task.go', 'signed, err := p.Authorize(*opt, ix.ID, bind, req.Purpose)', 'signed, err := p.Authorize(*opt, ix.ID, ix.ID+bind[:0], req.Purpose)'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAQuotedTaskIsPaidAndCompletedOnTheSameTask|TestThePaidLoopClosesEndToEnd')],
+  tests=[('ANet:./internal/daemon', 'TestAQuotedTaskIsPaidAndCompletedOnTheSameTask')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
@@ -201,7 +203,7 @@ MUTS = [
   id='si4-1', group='SI-4', repo='ANet',
   desc='daemon 第 7 步: 签名不符(bad-sig)仍放行(= scripts/mutations/si4-skip-step7.patch)',
   edits=[
-   ('internal/daemon/receive.go', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, now, d.rotationGrace()); err != nil {', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, now, d.rotationGrace()); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {'),
+   ('internal/daemon/receive.go', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, arrival); err != nil {', 'if err := seal.VerifyInnerSig(in, op.Preimage, use, arrival); err != nil && seal.ReasonOf(err) != seal.ReasonBadSig {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAForgedSenderInjectedAtTheHubIsDropped|TestEachReceiveStepRefusesWithItsClass')],
   full=['ANet:./internal/daemon'],
@@ -284,14 +286,14 @@ MUTS = [
   edits=[
    ('internal/daemon/config.go', '\tif c.Untrusted == UntrustedSandbox {\n\t\treturn UntrustedSandbox', '\tif c.Untrusted != UntrustedOff {\n\t\treturn UntrustedSandbox'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults|TestExecRunsOnlyForTrustedPeers|TestOpenAndExecForUntrustedPeersConflict'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
+  tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults|TestExecRunsOnlyForTrustedPeers|TestOpenWithTheSandboxForUntrustedPeers'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
  ),
  dict(
   id='si5-5', group='SI-5', repo='ANet',
   desc='defaultPayments: auto_max=5',
   edits=[
-   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}', 'return PaymentsConfig{AutoMax: 5, ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}'),
+   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm}', 'return PaymentsConfig{AutoMax: 5, ExplicitMax: &em, DailyMax: &dm}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
@@ -300,7 +302,7 @@ MUTS = [
   id='si5-6', group='SI-5', repo='ANet',
   desc='defaultPayments: agent_max=5',
   edits=[
-   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}', 'return PaymentsConfig{AgentMax: 5, ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}'),
+   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm}', 'return PaymentsConfig{AgentMax: 5, ExplicitMax: &em, DailyMax: &dm}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
@@ -309,27 +311,27 @@ MUTS = [
   id='si5-7', group='SI-5', repo='ANet',
   desc='defaultPayments: agent_daily_max=20',
   edits=[
-   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}', 'return PaymentsConfig{AgentDailyMax: 20, ExplicitMax: &em, DailyMax: &dm, PayeesFile: &pf}'),
+   ('internal/daemon/spend.go', 'return PaymentsConfig{ExplicitMax: &em, DailyMax: &dm}', 'return PaymentsConfig{AgentDailyMax: 20, ExplicitMax: &em, DailyMax: &dm}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
  ),
  dict(
   id='si5-8', group='SI-5', repo='ANet',
-  desc='defaultPayments: payees_file 为空串(收款方白名单关闭)',
+  desc='收款方白名单关闭(AdmitSpend 不查 payees.allow;N-UX1 之后名单总是启用,PAY-12 改锚)',
   edits=[
-   ('internal/daemon/spend.go', 'em, dm, pf := uint64(defaultExplicitMax), uint64(defaultDailyMax), defaultPayeesFile', 'em, dm, pf := uint64(defaultExplicitMax), uint64(defaultDailyMax), ""'),
+   ('internal/daemon/spend.go', '\t\tif !payees[payTo] {\n\t\t\treturn refuse(SpendRefusal{Code: SpendPayeeNotAllowed}', '\t\tif false && !payees[payTo] {\n\t\t\treturn refuse(SpendRefusal{Code: SpendPayeeNotAllowed}'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
+  tests=[('ANet:./internal/daemon', 'TestTheSpendingPolicyTiers|TestPayeeListRoutes')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
  ),
  dict(
   id='si5-9', group='SI-5', repo='ANet',
-  desc='PaymentsConfig.limits: 无 payments 块时收款方白名单关闭',
+  desc='收款方名单不在 payees.allow(读写另一个文件,全新安装的空名单不再是它;PAY-12 改锚)',
   edits=[
-   ('internal/daemon/spend.go', 'l := SpendLimits{ExplicitMax: defaultExplicitMax, DailyMax: defaultDailyMax, PayeesFile: defaultPayeesFile}', 'l := SpendLimits{ExplicitMax: defaultExplicitMax, DailyMax: defaultDailyMax, PayeesFile: ""}'),
+   ('internal/daemon/spend.go', '\tpayeesFile         = "payees.allow"', '\tpayeesFile         = "payees.list"'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAFreshInstallIsClosed|TestInitWritesTheSafeDefaultsExplicitlyAndIsIdempotent|TestInitOnlyAddsMissingKeys|TestPaymentsBlockDefaults|TestAConfigWithoutPaymentsIsGivenTheDefaults'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON|TestDoctorReportsEachSI5KeyThatChanged')],
+  tests=[('ANet:./internal/daemon', 'TestPayeeListRoutes'), ('ANet:./cmd/anet', 'TestAFreshInitIsSafeByDoctorJSON')],
   full=['ANet:./internal/daemon', 'ANet:./cmd/anet'],
  ),
  dict(
@@ -417,7 +419,7 @@ MUTS = [
   id='si7-4', group='SI-7', repo='ANet',
   desc='authGate: 任意 Bearer 都当作控制令牌',
   edits=[
-   ('internal/daemon/ctlsec.go', '\t\t\tif subtle.ConstantTimeCompare([]byte(auth), want) != 1 {', '\t\t\tif false && subtle.ConstantTimeCompare([]byte(auth), want) != 1 {'),
+   ('internal/daemon/ctlsec.go', '\t\t\tif subtle.ConstantTimeCompare([]byte(bearer), want) != 1 {', '\t\t\tif false && subtle.ConstantTimeCompare([]byte(bearer), want) != 1 {'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAuthenticatedRoutesNeedACredential|TestTheLocalA2ATokenIsRefusedByTheControlPlane')],
   full=['ANet:./internal/daemon'],
@@ -426,7 +428,7 @@ MUTS = [
   id='si7-5', group='SI-7', repo='ANet',
   desc='module/a2a authorized: 任意非空 Bearer 都放行(含控制令牌)',
   edits=[
-   ('module/a2a/server.go', '\treturn subtle.ConstantTimeCompare([]byte(cred), []byte(s.cfg.token)) == 1', '\treturn cred != "" || subtle.ConstantTimeCompare([]byte(cred), []byte(s.cfg.token)) == 1'),
+   ('module/a2a/server.go', '\treturn subtle.ConstantTimeCompare([]byte(cred), []byte(token)) == 1', '\treturn cred != "" || subtle.ConstantTimeCompare([]byte(cred), []byte(token)) == 1'),
   ],
   tests=[('ANet:./module/a2a', 'TestClientWithoutCredentialsIsRefused|TestEachLocalSurfaceTakesOnlyItsOwnCredential|TestRequestChecks')],
   full=['ANet:./module/a2a'],
@@ -435,7 +437,7 @@ MUTS = [
   id='si7-6', group='SI-7', repo='ANet',
   desc='控制台页面 HTML 末尾带控制令牌',
   edits=[
-   ('internal/daemon/ctlsec.go', '\ttop.HandleFunc("GET /console", d.consoleHandler())', '\ttop.HandleFunc("GET /console", func(w http.ResponseWriter, r *http.Request) {\n\t\td.consoleHandler()(w, r)\n\t\tfmt.Fprint(w, "<!-- "+token+" -->")\n\t})'),
+   ('internal/daemon/ctlsec.go', '\ttop.HandleFunc("GET /console", d.consoleHandler())', '\ttop.HandleFunc("GET /console", func(w http.ResponseWriter, r *http.Request) {\n\t\td.consoleHandler()(w, r)\n\t\tfmt.Fprint(w, "<!-- "+auth.bearer()+" -->")\n\t})'),
   ],
   tests=[('ANet:./internal/daemon', 'TestConsolePageHasNoTokenAndStrictHeaders')],
   full=['ANet:./internal/daemon'],
@@ -476,27 +478,13 @@ MUTS = [
   tests=[('ANet:./internal/mcpserv', 'TestSI8NoA2AGoInTheClosure'), ('ANet:./internal/loopguard', 'TestSharedPackagesStayFreeOfTheDaemonAndTheSDK')],
   full=[],
  ),
- dict(
-  id='si8-4', group='SI-8', repo='ANet',
-  desc='taskboard 改回减法 tag(module_taskboard.go 与 module/taskboard 默认编入)',
-  edits=[
-   ('cmd/anet/module_taskboard.go', '//go:build taskboard\n', '//go:build !no_taskboard\n'),
-   ('module/taskboard/taskboard.go', '//go:build taskboard\n', '//go:build !no_taskboard\n'),
-  ],
-  tests=[('ANet:./cmd/anet', 'TestTheDefaultBuildHasNoTaskboard'), ('ANet:sh bash scripts/tagcheck.sh check taskboard', '')],
-  full=[],
- ),
- dict(
-  id='si8-5', group='SI-8', repo='ANetHub',
-  desc='anet-hub wire_taskboard.go 改回默认编入',
-  edits=[
-   ('cmd/anet-hub/wire_taskboard.go', '//go:build taskboard\n', '//go:build !no_taskboard\n'),
-   ('internal/taskboard/http.go', '//go:build taskboard\n', '//go:build !no_taskboard\n'),
-   ('internal/taskboard/taskboard.go', '//go:build taskboard\n', '//go:build !no_taskboard\n'),
-  ],
-  tests=[('ANetHub:./cmd/anet-hub', 'TestTheDefaultBuildHasNoTaskboard')],
-  full=[],
- ),
+ # si8-4 (the daemon's task-board client compiled into the default build) is retired with the client,
+ # which 0.3.0 removes on both sides (SS-9): there is no code left to compile in, and a config.json
+ # that still has a modules.taskboard block stops the daemon with config_key_removed
+ # (TestRemovedSettingsStopTheDaemon); sealed_sender.py ss9-taskboard-key is its mutation.
+ # si8-5 (the hub's task board compiled into the default build) is retired with the task board, which
+ # the hub no longer has: TestTheTaskBoardIsGone (cmd/anet-hub) keeps /tasks/ unrouted in every build,
+ # and sealed_sender.py ss4-taskboard-back is its mutation.
  dict(
   id='si8-6', group='SI-8', repo='ANet',
   desc='internal/a2ashape 引入 a2a-go(控制面/MCP 经它间接依赖)',
@@ -515,9 +503,12 @@ MUTS = [
    ('module/a2a/backend.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/card.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/convert.go', '//go:build !no_a2a\n', ''),
+   ('module/a2a/extcard.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/handler.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/module.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/precheck.go', '//go:build !no_a2a\n', ''),
+   ('module/a2a/refusal.go', '//go:build !no_a2a\n', ''),
+   ('module/a2a/sendgate.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/server.go', '//go:build !no_a2a\n', ''),
    ('module/a2a/kelresolver/kelresolver.go', '//go:build !no_a2a\n', ''),
   ],
@@ -555,7 +546,9 @@ MUTS = [
   id='si9-4', group='SI-9', repo='ANetHub',
   desc='账本 hub 不核对 requirements',
   edits=[
-   ('internal/aghub/facilitator.go', '\tif rf := CheckRequirements(p, auth, req); rf != nil {\n\t\treturn refusedSettlement(rf, auth, own)', '\tif rf := CheckRequirements(p, auth, req); rf != nil && false {\n\t\treturn refusedSettlement(rf, auth, own)'),
+   # Re-pointed by PAY-4: SettleForPeer has the same check; this is SettleWithRequirements' (the repeat
+   # lookup that follows it is the one without a peer).
+   ('internal/aghub/facilitator.go', '\tif rf := CheckRequirements(p, auth, req); rf != nil {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\tif out, done := s.repeatOf(hubAID, id, auth, ""); done {', '\tif rf := CheckRequirements(p, auth, req); rf != nil && false {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\tif out, done := s.repeatOf(hubAID, id, auth, ""); done {'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestSettleRefusesPaymentsThatDoNotMeetTheRequirements'), ('ANetHub:./cmd/anet-hub', 'TestACrossHubPaymentIsCheckedAtBothHubsAndCreditedOnce')],
   full=['ANetHub:./internal/aghub', 'ANetHub:./cmd/anet-hub'],
@@ -564,18 +557,22 @@ MUTS = [
   id='si9-5', group='SI-9', repo='ANetHub',
   desc='新结算不查授权有效期与当前密钥(settle 路径的 currentAuth)',
   edits=[
-   ('internal/aghub/facilitator.go', '\tif rf := currentAuth(auth, kel, time.Now().UnixMilli()); rf != nil {\n\t\treturn refusedSettlement(rf, auth, own)', '\tif rf := currentAuth(auth, kel, time.Now().UnixMilli()); rf != nil && false {\n\t\treturn refusedSettlement(rf, auth, own)'),
+   # Re-pointed by PAY-4: the settlement reads the store's clock, and SettleForPeer has its own call.
+   # Re-pointed by KEL-6: the window and the key are checked by keyAtFirstVerify (KEL H-40, H-41).
+   ('internal/aghub/facilitator.go', '\tif rf := s.keyAtFirstVerify(auth, id, kel, s.now().UnixMilli()); rf != nil {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\treturn s.settleAuth(hubAID, auth, id, "")', '\tif rf := s.keyAtFirstVerify(auth, id, kel, s.now().UnixMilli()); rf != nil && false {\n\t\treturn refusedSettlement(rf, auth, own)\n\t}\n\treturn s.settleAuth(hubAID, auth, id, "")'),
   ],
   tests=[('ANetHub:./internal/aghub', 'TestPaymentRefusals|TestSettleRefusesPaymentsThatDoNotMeetTheRequirements|TestAChargedAuthorizationGetsItsReceiptAfterItsWindow')],
   full=['ANetHub:./internal/aghub', 'ANetHub:./cmd/anet-hub'],
  ),
  dict(
   id='si9-6', group='SI-9', repo='ANetHub',
-  desc='绑定唯一索引改为普通索引(同一绑定可两次扣款)',
+  desc='绑定守卫的冲突被忽略(同一绑定可两次扣款)',
+  # Re-pointed by PAY-4: the binding is the settle_guard row (L33), no longer a unique index on
+  # credit_settled; a guard insert that took no row is the conflict.
   edits=[
-   ('internal/aghub/facilitator.go', 'CREATE UNIQUE INDEX IF NOT EXISTS idx_settled_binding', 'CREATE INDEX IF NOT EXISTS idx_settled_binding'),
+   ('internal/aghub/facilitator.go', '\t\tif n, err := res.RowsAffected(); err != nil || n == 0 {\n', '\t\tif n, err := res.RowsAffected(); err != nil || n < 0 {\n'),
   ],
-  tests=[('ANetHub:./internal/aghub', 'TestASecondAuthorizationForOneBindingMovesNothing|TestUpgradingAHubWithDuplicateBindingsKeepsTheFirstAsHolder')],
+  tests=[('ANetHub:./internal/aghub', 'TestASecondAuthorizationForOneBindingMovesNothing|TestASecondPaymentForATaskIsRefusedFor30Days')],
   full=['ANetHub:./internal/aghub'],
  ),
  dict(
@@ -609,7 +606,7 @@ MUTS = [
   id='si9-10', group='SI-9', repo='ANet',
   desc='商户核对: 不查授权过期',
   edits=[
-   ('module/x402/check.go', '\tif auth.NotAfter <= auth.IssuedAt || t.Now > auth.NotAfter+payment.ClockSkew ||', '\tif auth.NotAfter <= auth.IssuedAt ||'),
+   ('module/x402/check.go', '\tif auth.NotAfter <= auth.IssuedAt || pastNotAfter ||', '\tif auth.NotAfter <= auth.IssuedAt || (pastNotAfter && false) ||'),
   ],
   tests=[('ANet:./module/x402', 'TestTheMerchantCheckRefusesEachWrongTerm'), ('ANet:./internal/daemon', 'TestAWrongPaymentIsRefusedBeforeSettlement')],
   full=['ANet:./module/x402', 'ANet:./internal/daemon'],
@@ -645,7 +642,7 @@ MUTS = [
   id='si10-2', group='SI-10', repo='ANet',
   desc='p2p deliverInbound: Receive 失败仍回 ack',
   edits=[
-   ('module/p2p/transport.go', '\t\t_ = t.write(c, frame{Op: opNack, V: WireVersion, ID: f.ID, Error: err.Error()})\n\t\treturn\n', ''),
+   ('module/p2p/transport.go', '\t\t_ = t.write(c, frame{Op: opNack, V: WireVersion, ID: f.ID, Error: reason})\n\t\treturn\n', ''),
   ],
   tests=[('ANet:./module/p2p', 'TestATemporaryRefusalIsNotAcked')],
   full=['ANet:./module/p2p'],
@@ -654,7 +651,7 @@ MUTS = [
   id='si10-3', group='SI-10', repo='ANet',
   desc='p2p ack 键改常量(设计 §3.10 指定的 mutation)',
   edits=[
-   ('module/p2p/transport.go', '_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: f.ID})', '_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: "1"})'),
+   ('module/p2p/transport.go', '_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: f.ID, DAck: dackText(dack)})', '_ = t.write(c, frame{Op: opAck, V: WireVersion, ID: "1", DAck: dackText(dack)})'),
   ],
   tests=[('ANet:./module/p2p', 'TestConcurrentDeliveriesAreAckedByTheirOwnID')],
   full=['ANet:./module/p2p'],
@@ -672,7 +669,7 @@ MUTS = [
   id='si10-5', group='SI-10', repo='ANet',
   desc='commitRx: 存储错误按永久失败(ack 并丢弃)',
   edits=[
-   ('internal/daemon/receive.go', '\t\treturn d.drop(perm.reason, perm.err)\n\tdefault:\n\t\treturn d.transient(transientStore, err)', '\t\treturn d.drop(perm.reason, perm.err)\n\tdefault:\n\t\treturn d.drop(transientStore, err)'),
+   ('internal/daemon/receive.go', '\t\treturn r\n\tdefault:\n\t\treturn d.transient(transientStore, err)\n\t}\n}', '\t\treturn r\n\tdefault:\n\t\treturn d.drop(transientStore, err)\n\t}\n}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAStoreFailureThenRedeliveryIsProcessedOnce|TestAStoreFailureOnTheP2PCopyThenRedeliveryThroughTheHubIsProcessedOnce')],
   full=['ANet:./internal/daemon'],
@@ -681,7 +678,7 @@ MUTS = [
   id='si10-6', group='SI-10', repo='ANet',
   desc='pollOnce: 暂缓的信封也 ack',
   edits=[
-   ('internal/daemon/relay.go', '\t\tif d.receiveEnvelope(ctx, env).ack() {', '\t\tif d.receiveEnvelope(ctx, env).ack() || true {'),
+   ('internal/daemon/relay.go', '\tif !r.ack() {\n\t\treturn hubapi.RelayAckItem{}, false\n\t}', '\tif false && !r.ack() {\n\t\treturn hubapi.RelayAckItem{}, false\n\t}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAStoreFailureThenRedeliveryIsProcessedOnce|TestHeldBackEnvelopesDoNotBlockNewerMail|TestAHeldEnvelopeIsRetriedAtOnePollPerRound|TestAMessageForAnUnknownTaskGetsTaskNotFound')],
   full=['ANet:./internal/daemon'],
@@ -690,7 +687,7 @@ MUTS = [
   id='si10-7', group='SI-10', repo='ANet',
   desc='p2p 第 0 步限速返回 nil(被限速的投递被 ack)',
   edits=[
-   ('internal/daemon/transport.go', '\t\tin.d.count(transientP2PRate)\n\t\treturn errP2PRateLimited', '\t\tin.d.count(transientP2PRate)\n\t\treturn nil'),
+   ('internal/daemon/transport.go', '\t\tin.d.count(transientP2PRate)\n\t\treturn nil, errP2PRateLimited', '\t\tin.d.count(transientP2PRate)\n\t\treturn nil, nil'),
   ],
   tests=[('ANet:./internal/daemon', 'TestTheP2PRateLimitIsTemporary')],
   full=['ANet:./internal/daemon'],

@@ -1,9 +1,9 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -15,15 +15,18 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/payment"
 
-	"github.com/ANetResearch/ANet/internal/hubapi"
+	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/anethome"
 	"github.com/ANetResearch/ANet/internal/localpeer"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
@@ -49,18 +52,145 @@ func loadOrGenControlToken(l Layout) (string, error) {
 
 // newControlToken makes a control token and writes it to control_token.txt (0600), replacing any.
 func newControlToken(l Layout) (string, error) {
-	var raw [24]byte
-	if _, err := rand.Read(raw[:]); err != nil {
+	tok, err := randomHex(24)
+	if err != nil {
 		return "", err
 	}
-	tok := hex.EncodeToString(raw[:])
 	if err := l.EnsureRoot(); err != nil {
 		return "", err
 	}
-	if err := writeFileAtomic(l.ControlTokenPath(), []byte(tok+"\n"), 0o600); err != nil {
+	if err := writeSecretFile(l.ControlTokenPath(), []byte(tok+"\n")); err != nil {
 		return "", err
 	}
 	return tok, nil
+}
+
+// randomHex is n random bytes, hex.
+func randomHex(n int) (string, error) {
+	raw := make([]byte, n)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(raw), nil
+}
+
+// writeSecretFile replaces path with data, mode 0600, so that a reader sees the old file or the new one
+// and a crash leaves one of the two on disk: a new file in the same directory (created 0600), synced,
+// renamed over path, and the directory synced (KEL D-42 E3: written, synced, then replaced).
+func writeSecretFile(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	_, err = f.Write(data)
+	if err == nil {
+		err = f.Chmod(0o600)
+	}
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
+	return nil
+}
+
+// --- the local credentials (LEC AV-10) ---
+
+// ctlAuth is the control plane's credential as it is now: the bearer token, and the console sessions
+// opened under it. The control plane reads it on every request, so a replaced token is refused from
+// the next request on.
+type ctlAuth struct {
+	mu       sync.RWMutex
+	token    string
+	sessions *consoleSessions
+}
+
+// bearer is the token the control plane accepts now.
+func (a *ctlAuth) bearer() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.token
+}
+
+// replace puts tok in force and ends every console ticket and session: they were obtained with the
+// token being replaced.
+func (a *ctlAuth) replace(tok string) {
+	a.mu.Lock()
+	a.token = tok
+	cs := a.sessions
+	a.mu.Unlock()
+	if cs != nil {
+		cs.endAll()
+	}
+}
+
+// endAll ends every outstanding console ticket (removing its launcher page) and every session.
+func (c *consoleSessions) endAll() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k := range c.tickets {
+		delete(c.tickets, k)
+		c.dropLauncherLocked(k)
+	}
+	for k := range c.sessions {
+		delete(c.sessions, k)
+	}
+}
+
+// RotateLocalTokens is rotateLocalTokens for a caller outside this package: the CLI's tests drive it
+// to check that a running `anet mcp` follows the replaced control token (TestMCPSurvivesTokenRotation).
+func (d *Daemon) RotateLocalTokens() error { return d.rotateLocalTokens() }
+
+// rotateLocalTokens replaces this node's two local credentials (LEC AV-10, core §4.7 E3): the control
+// token (control_token.txt) and the local A2A interface's token (modules/a2a/a2a_token.txt), each a new
+// random value written with writeSecretFile (0600). When it returns, the old ones are refused (401) on
+// the control plane and on the local A2A interface, and the console sessions opened under the old
+// control token have ended. anet's CLI and MCP server read the token files, so they follow; a client
+// that keeps a copy (Hermes' a2a_agents) needs `anet agents wire --all`. KEL's emergency rotation calls
+// it after E2 and decides when; it is idempotent, so a rotation resumed after a crash calls it again.
+//
+// Both are replaced even when one write fails, and the failures are returned together: a token that
+// could not be replaced is still the compromised one, which the caller must hear about.
+func (d *Daemon) rotateLocalTokens() error {
+	var errs []error
+	if tok, err := newControlToken(d.layout); err != nil {
+		errs = append(errs, fmt.Errorf("replace the control token: %w", err))
+	} else if a := d.ctlAuth.Load(); a != nil {
+		a.replace(tok)
+	}
+	// The interface reads its token file on every request (module/a2a), so replacing the file is what
+	// puts the new token in force. A data dir whose interface never ran has no token to replace; one
+	// made later is new anyway.
+	if dir := anethome.A2ADir(d.layout.Root); dirExists(dir) {
+		tok, err := randomHex(32)
+		if err == nil {
+			err = writeSecretFile(filepath.Join(dir, anethome.A2ATokenFile), []byte(tok+"\n"))
+		}
+		if err != nil {
+			errs = append(errs, fmt.Errorf("replace the local A2A token: %w", err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// dirExists reports a directory (not a link to one) at p.
+func dirExists(p string) bool {
+	fi, err := os.Lstat(p)
+	return err == nil && fi.IsDir()
 }
 
 // daemonPointer is the JSON written to DaemonPointerPath so a CLI in a different env can find the daemon.
@@ -163,18 +293,21 @@ func ResolveControlStrict(l Layout) (baseURL, token string, err error) {
 // or a console session for the routes in ctlsec.go's sessionRoutes); the Host/Origin guard, the console
 // page and the console session routes are added by secureControlPlane (ctlsec.go).
 func (d *Daemon) ControlHandler(token string) http.Handler {
+	auth := &ctlAuth{token: token}
+	d.ctlAuth.Store(auth)
 	api := newRouteMux()
 	api.HandleFunc("GET /status", d.hStatus)
 	api.HandleFunc("POST /status", d.hStatus)
+	api.HandleFunc("POST /identity/status", d.hIdentityStatus)
+	api.HandleFunc("POST /identity/rotate", d.hIdentityRotate)
+	api.HandleFunc("POST /identity/deactivate", d.hIdentityDeactivate)
 	api.HandleFunc("POST /hub-register", d.hHubRegister)
 	api.HandleFunc("POST /hub-leave", d.hHubLeave)
-	api.HandleFunc("POST /p2p-advertise", d.hP2PAdvertise)
 	api.HandleFunc("POST /accept", d.hAccept)
 	api.HandleFunc("POST /autoreply", d.hAutoReply)
 	api.HandleFunc("POST /autoreply-test", d.hAutoReplyTest)
 	api.HandleFunc("POST /shutdown", d.hShutdown)
 	api.HandleFunc("POST /profile", d.hProfile)
-	api.HandleFunc("POST /find", d.hFind)
 	api.HandleFunc("POST /delegate", d.hDelegate)
 	api.HandleFunc("POST /inbox", d.hInbox)
 	api.HandleFunc("POST /message", d.hMessage)
@@ -189,7 +322,6 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	api.HandleFunc("POST /evidence", d.hEvidence)
 	api.HandleFunc("POST /balance", d.hBalance)
 	api.HandleFunc("POST /redeem", d.hRedeemCredit)
-	api.HandleFunc("POST /x402-authorize", d.hX402Authorize)
 	api.HandleFunc("POST /reconcile", d.hReconcile)
 	api.HandleFunc("POST /audit-hub", d.hAuditHub)
 	api.HandleFunc("POST /visibility", d.hVisibility)
@@ -221,7 +353,10 @@ func (d *Daemon) ControlHandler(token string) http.Handler {
 	// This node's own A2A network card and its publication status
 	// (a2a_card.go). Bearer only.
 	api.HandleFunc("POST /card", d.hCard)
-	return d.secureControlPlane(token, api)
+	// Changing the retention is the CLI's alone (FS-U3): bearer only, never
+	// in sessionRoutes, MCP's allowedPaths or the local A2A interface.
+	api.HandleFunc("POST /retention", d.hRetention)
+	return d.secureControlPlane(auth, api)
 }
 
 // maxControlBody caps a control-plane request body.
@@ -445,11 +580,18 @@ const hubCallTimeout = 30 * time.Second
 
 // relayError maps a Hub/relay failure to a status: a context deadline → 504, else 400.
 func relayError(w http.ResponseWriter, err error) {
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		// A refusal of the reason table: a recipient no hub knows, or whose
+		// identity does not verify, refused before anything was recorded
+		// (engine ENG-U5, ux UX-R9).
+		writeRefusal(w, refusalStatus(ref), ref)
+		return
+	}
 	if sr, ok := isSpendRefusal(err); ok {
 		// §8.6: a spending-policy refusal is 403 with its code, on every
-		// route that signs (/x402-authorize, /delegate pay:true), as on
-		// /tasks/pay.
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "reason": sr.Code})
+		// route that signs, as on /tasks/pay.
+		writeSpendRefusal(w, sr, "", err)
 		return
 	}
 	code := http.StatusBadRequest
@@ -461,7 +603,7 @@ func relayError(w http.ResponseWriter, err error) {
 
 // --- handlers ---
 
-func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
+func (d *Daemon) hStatus(w http.ResponseWriter, r *http.Request) {
 	cfg := d.config()
 	out := map[string]any{
 		"aid":            d.AID(),
@@ -472,32 +614,140 @@ func (d *Daemon) hStatus(w http.ResponseWriter, _ *http.Request) {
 		"caps":           cfg.Caps,
 		"summary":        cfg.Summary,
 		"readme":         cfg.Readme,
-		"pricing":        cfg.Pricing,
 		"inbound_policy": cfg.inbound().Policy,
 		"console_url":    consoleURL(cfg),
 	}
 	if ar := cfg.AutoReply; ar != nil {
-		backend := ar.Backend
-		if backend == "" {
-			backend = "openai"
-		}
-		entry := map[string]any{"backend": backend, "untrusted": ar.UntrustedMode()}
-		switch backend {
-		case "exec":
-			entry["agent"] = ar.Agent
-			if ar.WorkDir != "" {
-				entry["work_dir"] = ar.WorkDir
-			}
-		default:
-			entry["model"] = ar.Model
-			entry["api_base"] = ar.APIBase
-		}
-		out["auto_reply"] = entry
+		out["auto_reply"] = autoReplyView(ar)
 	}
+	// The hub join state (LEC §2.3.3): what the node is waiting for, and
+	// the one command, if any, that moves it on.
+	out["hub"] = d.HubView()
+	// The identity, as /identity/status says it (KEL M-2): MCP node_status
+	// passes it on, the recovery reminder included (KEL D-15).
+	out["identity"] = d.IdentityStatus()
 	// Receive outcomes by reason since start (receive.go): every envelope
 	// dropped or held back, and why.
 	out["receive"] = d.ReceiveStats()
+	// How long task content is kept (FS §2.10): `anet retention` reads it
+	// here while the daemon runs.
+	out["privacy"] = d.privacyRetention()
+	// What doctor's sender_privacy checks decide on (SS §4.8 SSR-U2); the
+	// status summary has no line of it (ux §4.7).
+	out["sender_privacy"] = d.senderPrivacyStatus(d.nowMS())
+	// What only doctor asks for, and costs more than a liveness check
+	// (anet up and doctor read /status for that): the extended cards, made
+	// and verified (doctor's payments.card). Absent when no card is priced.
+	if r.URL.Query().Get("doctor") != "" {
+		if c := d.paymentsCardCheck(); c != nil {
+			out["payments_card"] = c
+		}
+	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// privacyRetention is the retention part of /status.privacy (FS §2.10):
+// content_retention in force and what it leaves public tasks.
+func (d *Daemon) privacyRetention() map[string]any {
+	r := d.ContentRetention()
+	return map[string]any{"content_retention": r.String(), "public_retention": r.Public().String()}
+}
+
+// maxRetentionBody bounds a POST /retention body: one short member and a
+// flag.
+const maxRetentionBody = 4 << 10
+
+// errRetentionRequest is a POST /retention body that is not exactly
+// {"value": <text>} with an optional "dry_run": <bool>.
+var errRetentionRequest = errors.New("anet: a retention request is {\"value\": \"<N>d\"|\"forever\", \"dry_run\": true|false}")
+
+// decodeRetentionRequest reads a POST /retention body strictly (FS §2.10):
+// one JSON object with the member "value", a string, and optionally
+// "dry_run", a boolean, each once, named exactly so, and nothing after the
+// object. The value is returned as it was written; whether it is a setting
+// is the caller's to ask.
+func decodeRetentionRequest(b []byte) (value string, dryRun bool, err error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return "", false, errRetentionRequest
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", false, errRetentionRequest
+		}
+		key, _ := tok.(string)
+		if seen[key] {
+			return "", false, errRetentionRequest
+		}
+		seen[key] = true
+		v, err := dec.Token()
+		if err != nil {
+			return "", false, errRetentionRequest
+		}
+		switch key {
+		case "value":
+			s, ok := v.(string)
+			if !ok {
+				return "", false, errRetentionRequest
+			}
+			value = s
+		case "dry_run":
+			f, ok := v.(bool)
+			if !ok {
+				return "", false, errRetentionRequest
+			}
+			dryRun = f
+		default:
+			return "", false, errRetentionRequest
+		}
+	}
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') || !seen["value"] {
+		return "", false, errRetentionRequest
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return "", false, errRetentionRequest
+	}
+	return value, dryRun, nil
+}
+
+// hRetention is POST /retention, behind `anet retention set` (FS §2.10,
+// §5.2): {"value", "dry_run": true} says how many finished tasks the value
+// would delete at once (would_delete), and changes nothing; {"value"} puts
+// it in force, sweeps and records the change (SetContentRetention). A body
+// that is not exactly that, or a value that is not a setting, is
+// retention_invalid. The CLI asks for the terminal confirmation; the route
+// takes the control token alone (core Q-FS-5), so it is on no surface an
+// agent or a browser session reaches.
+func (d *Daemon) hRetention(w http.ResponseWriter, r *http.Request) {
+	b, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRetentionBody))
+	if err != nil {
+		writeRefusal(w, http.StatusBadRequest, a2ashape.Refuse("retention_invalid", nil))
+		return
+	}
+	v, dry, err := decodeRetentionRequest(b)
+	ret, ok := interactions.ParseRetention(v)
+	if err != nil || !ok {
+		writeRefusal(w, http.StatusBadRequest, a2ashape.Refuse("retention_invalid", nil))
+		return
+	}
+	if dry {
+		k, err := d.RetentionWouldDelete(ret)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"value": ret.String(), "would_delete": k})
+		return
+	}
+	n, err := d.SetContentRetention(ret)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"value": ret.String(), "deleted": n,
+		"message": a2ashape.Sentence("retention.set", a2ashape.Lang(), a2ashape.Args{"retention": ret.String()})})
 }
 
 // hShutdown gracefully stops the daemon — this backs `anet stop`, so a resident node can be shut down
@@ -522,16 +772,35 @@ func consoleURL(cfg Config) string {
 	return "http://" + consoleHost(cfg.ControlAddr) + ":" + port + "/console"
 }
 
-// hProfile sets this agent's self-authored profile (summary/readme/pricing). Fields omitted from the
-// request keep their current value (partial update); provided fields overwrite. If a Hub is configured
-// the new profile is published (signed). Meant to be called by the operator's agent (`anet profile set`).
+// hProfile sets this agent's self-authored profile (summary/readme). Fields omitted from the request
+// keep their current value (partial update); provided fields overwrite. If a Hub is configured the new
+// profile is published (signed). Meant to be called by the operator's agent (`anet profile set`).
+//
+// A profile carries no price (0.3.0): a request that still sends "pricing" is refused with what to do
+// instead, nothing is changed, rather than having the member dropped without a word. The member is
+// matched whatever its case, as encoding/json matches "Summary" to summary: "Pricing" is the same
+// member and is refused the same way (UX-D3).
 func (d *Daemon) hProfile(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	var m map[string]json.RawMessage
+	if err == nil {
+		err = json.Unmarshal(body, &m)
+	}
+	if err != nil || m == nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+		return
+	}
+	for k := range m {
+		if strings.EqualFold(k, "pricing") {
+			writeRefusal(w, http.StatusBadRequest, removedProfilePricing)
+			return
+		}
+	}
 	var req struct {
 		Summary *string `json:"summary"`
 		Readme  *string `json:"readme"`
-		Pricing *string `json:"pricing"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
@@ -542,63 +811,24 @@ func (d *Daemon) hProfile(w http.ResponseWriter, r *http.Request) {
 	if req.Readme != nil {
 		p.Readme = *req.Readme
 	}
-	if req.Pricing != nil {
-		p.Pricing = *req.Pricing
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
 	defer cancel()
 	if err := d.SetProfile(ctx, p); err != nil {
 		relayError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status": "profile_set", "summary": p.Summary, "readme": p.Readme, "pricing": p.Pricing,
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "profile_set", "summary": p.Summary, "readme": p.Readme})
 }
 
-// hHubRegister registers this agent with the official Hub, persists the Hub target + profile to config,
-// and (re)starts the relay poll loop so delegations/results start flowing.
-func (d *Daemon) hHubRegister(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Hub  string   `json:"hub"`
-		Name string   `json:"name"`
-		Caps []string `json:"caps"`
-		// AcceptDelegations is the wire-1 switch. true is refused with the
-		// same explanation as POST /accept; false asks for what the closed
-		// policy already does (A2A-DESIGN §5.1).
-		AcceptDelegations *bool `json:"accept_delegations"`
-		// Token is an admission token for a hub that requires one. It is
-		// passed through and not stored: it is spent on arrival, and a
-		// spent credential kept on disk is a credential that can leak
-		// long after it bought anything.
-		Token string `json:"token"`
-	}
-	if err := readJSON(r, &req); err != nil || req.Hub == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "hub URL required"})
-		return
-	}
-	if req.AcceptDelegations != nil && *req.AcceptDelegations {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": errAcceptOn.Error()})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
-	defer cancel()
-	if err := d.HubRegister(ctx, req.Hub, req.Name, req.Caps, req.Token); err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
-		return
-	}
-	if req.AcceptDelegations != nil {
-		if err := d.SetInboundPolicy(PolicyClosed); err != nil {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
-			return
-		}
-	}
-	d.writeRegistry() // refresh the identity entry so the switcher shows the (possibly new) name
-	writeJSON(w, http.StatusOK, map[string]any{
-		"hub": req.Hub, "aid": d.AID(), "status": "registered",
-		"inbound_policy": d.config().inbound().Policy,
-	})
-}
+// The control plane's refusals of the members 0.3.0 removed from the routes it kept: the sentences of
+// the CLI flags that sent them (ux §4.3), so a script that still sends one is told the same thing a
+// person typing the old flag is.
+var (
+	removedDelegatePay = a2ashape.Refuse("cli_removed",
+		a2ashape.Args{"what": "anet delegate --pay", "instead": "delegate_pay"})
+	removedProfilePricing = a2ashape.Refuse("cli_removed",
+		a2ashape.Args{"what": "anet profile set --pricing", "instead": "profile_pricing"})
+)
 
 // hAccept is the wire-1 accept_delegations switch (A2A-DESIGN §5.1). "on" used to mean "anyone may
 // delegate" and has no equivalent that is safe to pick for the operator, so it is refused with the
@@ -623,24 +853,40 @@ func (d *Daemon) hAccept(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"inbound_policy": PolicyClosed, "status": "updated"})
 }
 
-// hAutoReply reconfigures the built-in auto-reply loop live (see autoreply.go): `{"off":true}` turns it
-// off; otherwise the body is an AutoReplyConfig that is validated, persisted, and started immediately —
-// no daemon restart, no hand-editing config.json. This is the switch behind `anet autoreply set|off`.
+// hAutoReply changes the auto-reply configuration live (see autoreply.go), behind `anet autoreply set|off`
+// (LEC §2.3.4). `{"off":true}` removes the whole block. Any other body is merged into the current
+// configuration: the members it names change, the others stay, so settings made one at a time do not
+// undo each other; a member set to null goes back to its default. api_key is write-only: absent keeps
+// it, a value replaces it, "" is refused (api_key_empty). The answer never holds the key, only
+// api_key_set. "off" is a boolean: any other value would leave auto-reply running while the caller
+// believes it stopped, so it is refused.
 func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Off bool `json:"off"`
-		AutoReplyConfig
-	}
-	if err := readJSON(r, &req); err != nil {
+	members, err := readJSONMembers(r)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 		return
 	}
+	off := false
+	if raw, ok := members["off"]; ok && string(raw) != "null" && json.Unmarshal(raw, &off) != nil {
+		writeRefusal(w, http.StatusBadRequest, configInvalid("off", ruleText("只能是 true 或 false", "it must be true or false")))
+		return
+	}
+	// The configuration read here is the one the merge result replaces: a second request waits, so
+	// two settings sent at once do not undo each other.
+	d.autoReplyWrite.Lock()
+	defer d.autoReplyWrite.Unlock()
 	var cfg *AutoReplyConfig
-	if !req.Off {
-		c := req.AutoReplyConfig
-		cfg = &c
+	if !off {
+		var ref *a2ashape.Refusal
+		if cfg, ref = mergeAutoReply(d.config().AutoReply, members); ref != nil {
+			writeRefusal(w, http.StatusBadRequest, ref)
+			return
+		}
 	}
 	if err := d.SetAutoReply(cfg); err != nil {
+		if writeConfigRefusal(w, err) {
+			return
+		}
 		code := http.StatusBadRequest
 		if errors.Is(err, ErrPolicyConflict) {
 			code = http.StatusConflict
@@ -648,7 +894,237 @@ func (d *Daemon) hAutoReply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, code, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"auto_reply": cfg, "status": "updated"})
+	var view any
+	if cfg != nil {
+		view = autoReplyView(cfg)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"auto_reply": view, "status": "updated"})
+}
+
+// readJSONMembers reads a request body that is one JSON object into its members.
+func readJSONMembers(r *http.Request) (map[string]json.RawMessage, error) {
+	var m map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, errors.New("not a JSON object")
+	}
+	return m, nil
+}
+
+// autoReplyView is the auto-reply configuration as /status and /autoreply show it (LEC §2.3.3): what
+// it does, never the key — only whether one is set (AV-8) — and the sandbox's CONNECT allowlist, [] when
+// there is none.
+func autoReplyView(ar *AutoReplyConfig) map[string]any {
+	backend := ar.Backend
+	if backend == "" {
+		backend = "openai"
+	}
+	entry := map[string]any{"backend": backend, "untrusted": ar.UntrustedMode(), "api_key_set": ar.APIKey != ""}
+	switch backend {
+	case "exec":
+		entry["agent"] = ar.Agent
+		if ar.WorkDir != "" {
+			entry["work_dir"] = ar.WorkDir
+		}
+	default:
+		entry["model"] = ar.Model
+		entry["api_base"] = ar.APIBase
+	}
+	entry["sandbox"] = map[string]any{"egress_allow": egressAllowOf(ar)}
+	return entry
+}
+
+// mergeAutoReply is the configuration a POST /autoreply asks for (LEC §2.3.4): cur with the request's
+// members applied — an object member merged member by member into the current object, null resetting a
+// member, any other value replacing it — then checked (checkAutoReply, and checkEgressAllow for the
+// sandbox's allowlist). A member that is not an auto-reply setting, or has the wrong type, is
+// config_invalid.
+func mergeAutoReply(cur *AutoReplyConfig, members map[string]json.RawMessage) (*AutoReplyConfig, *a2ashape.Refusal) {
+	// A member is named exactly, at every depth: JSON decoding would match "Model" to model, and a merge
+	// with both would keep whichever came last.
+	settings := make(map[string]json.RawMessage, len(members))
+	for k, v := range members {
+		if k != "off" {
+			settings[k] = v
+		}
+	}
+	if bad := inexactMember(reflect.TypeFor[AutoReplyConfig](), settings); bad != "" {
+		return nil, configInvalid("auto_reply."+bad, ruleText("不是自动回复的配置项", "it is not an auto-reply setting"))
+	}
+	if raw, ok := members["api_key"]; ok && string(raw) != "null" {
+		var key string
+		if json.Unmarshal(raw, &key) != nil {
+			return nil, configInvalid("api_key", ruleText("必须是字符串", "it must be a string"))
+		}
+		if strings.TrimSpace(key) == "" {
+			return nil, a2ashape.Refuse("api_key_empty", nil)
+		}
+		members["api_key"], _ = json.Marshal(strings.TrimSpace(key))
+	}
+	base := map[string]json.RawMessage{}
+	if cur != nil {
+		raw, _ := json.Marshal(cur)
+		_ = json.Unmarshal(raw, &base)
+	}
+	for k, v := range members {
+		if k == "off" {
+			continue
+		}
+		base[k] = mergeJSONMember(base[k], v)
+		if base[k] == nil {
+			delete(base, k)
+		}
+	}
+	raw, _ := json.Marshal(base)
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	var next AutoReplyConfig
+	if err := dec.Decode(&next); err != nil {
+		return nil, autoReplyDecodeRefusal(err)
+	}
+	if ref := checkAutoReply(next); ref != nil {
+		return nil, ref
+	}
+	// The sandbox block, merged like any other, holds the allowlist: checked against the merged api_base
+	// and kept in its normal form (CN-1); a block that sets nothing is dropped.
+	if next.Sandbox != nil {
+		norm, ref := checkEgressAllow(next.Sandbox.EgressAllow, next.APIBase)
+		if ref != nil {
+			return nil, ref
+		}
+		next.Sandbox.EgressAllow = norm
+		if next.Sandbox.empty() {
+			next.Sandbox = nil
+		}
+	}
+	return &next, nil
+}
+
+// inexactMember is the path of the first member of members (in name order) that is not exactly the JSON
+// name of a field of the struct t, looking into a member that is an object where its field is a struct
+// (a block of settings, merged member by member); "" when every name is exact. A struct that decodes
+// itself (BudgetValue) is a value, not a block: any JSON is read into it and its own check says what it
+// must be (budget_invalid), so its members are not names to check.
+func inexactMember(t reflect.Type, members map[string]json.RawMessage) string {
+	fields := map[string]reflect.Type{}
+	for i := 0; i < t.NumField(); i++ {
+		if name, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ","); name != "" && name != "-" {
+			fields[name] = t.Field(i).Type
+		}
+	}
+	names := make([]string, 0, len(members))
+	for k := range members {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		ft, ok := fields[k]
+		if !ok {
+			return k
+		}
+		for ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		var sub map[string]json.RawMessage
+		if ft.Kind() == reflect.Struct && !reflect.PointerTo(ft).Implements(jsonUnmarshalerType) &&
+			json.Unmarshal(members[k], &sub) == nil && sub != nil {
+			if bad := inexactMember(ft, sub); bad != "" {
+				return k + "." + bad
+			}
+		}
+	}
+	return ""
+}
+
+var jsonUnmarshalerType = reflect.TypeFor[json.Unmarshaler]()
+
+// mergeJSONMember is the value a member takes: v merged into cur when both are objects, nil (removed)
+// for null, else v.
+func mergeJSONMember(cur, v json.RawMessage) json.RawMessage {
+	if string(bytes.TrimSpace(v)) == "null" {
+		return nil
+	}
+	var co, vo map[string]json.RawMessage
+	if json.Unmarshal(cur, &co) != nil || co == nil || json.Unmarshal(v, &vo) != nil || vo == nil {
+		return v
+	}
+	for k, m := range vo {
+		if co[k] = mergeJSONMember(co[k], m); co[k] == nil {
+			delete(co, k)
+		}
+	}
+	out, _ := json.Marshal(co)
+	return out
+}
+
+// autoReplyDecodeRefusal is config_invalid for a merged configuration that does not decode: the member
+// that is not a setting, or has the wrong type.
+func autoReplyDecodeRefusal(err error) *a2ashape.Refusal {
+	var te *json.UnmarshalTypeError
+	if errors.As(err, &te) && te.Field != "" {
+		return configInvalid("auto_reply."+te.Field, ruleText("类型不对,应为 "+te.Type.String(), "it must be of type "+te.Type.String()))
+	}
+	if name, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+		return configInvalid("auto_reply."+strings.Trim(name, `"`), ruleText("不是自动回复的配置项", "it is not an auto-reply setting"))
+	}
+	return configInvalid("auto_reply", ruleText("不是合法的 JSON 对象", "it is not a valid JSON object"))
+}
+
+// checkAutoReply checks an auto-reply configuration before it is saved (LEC §2.3.4, §3.2): the backend,
+// the agent the exec backend runs, the untrusted mode, what the openai backend needs, and an api_base
+// that is https or http on this machine's loopback. Each failure is config_invalid with the key and the
+// rule, or api_base_insecure.
+func checkAutoReply(c AutoReplyConfig) *a2ashape.Refusal {
+	switch c.Backend {
+	case "", "openai":
+		if strings.TrimSpace(c.APIBase) == "" {
+			return configInvalid("auto_reply.api_base", ruleText("openai 后端必填", "the openai backend needs it"))
+		}
+		if strings.TrimSpace(c.Model) == "" {
+			return configInvalid("auto_reply.model", ruleText("openai 后端必填", "the openai backend needs it"))
+		}
+	case "exec":
+		if _, err := lookupAgent(c.Agent); err != nil {
+			agents := strings.Join(SupportedExecAgents(), ", ")
+			return configInvalid("auto_reply.agent", ruleText("exec 后端必填,只能是 "+agents, "the exec backend needs one of "+agents))
+		}
+	default:
+		return configInvalid("auto_reply.backend", ruleText("只能是 openai 或 exec", "it must be openai or exec"))
+	}
+	if ref := checkAutoReplyStart(c); ref != nil {
+		return ref
+	}
+	return nil
+}
+
+// checkAutoReplyStart is the part of checkAutoReply that a daemon also makes before it starts (LEC §3.2,
+// CheckConfigForStart): the untrusted mode and the api_base.
+func checkAutoReplyStart(c AutoReplyConfig) *a2ashape.Refusal {
+	switch c.Untrusted {
+	case "", UntrustedOff, UntrustedSandbox:
+	default:
+		return configInvalid("auto_reply.untrusted", ruleText("只能是 off 或 sandbox", "it must be off or sandbox"))
+	}
+	if base := strings.TrimSpace(c.APIBase); base != "" {
+		if _, err := parseEgressAPIBase(base); err != nil {
+			return a2ashape.Refuse("api_base_insecure", nil)
+		}
+	}
+	return nil
+}
+
+// The untrusted mode and the api_base are checked when the daemon starts, too (LEC §3.2): a config.json
+// edited by hand to hold another mode, or a model service on plain http elsewhere than this machine,
+// does not start.
+func init() {
+	configChecks = append(configChecks, func(c Config, _ map[string]any) *a2ashape.Refusal {
+		if c.AutoReply == nil {
+			return nil
+		}
+		return checkAutoReplyStart(*c.AutoReply)
+	})
 }
 
 // hAutoReplyTest runs the configured backend once on a synthetic prompt (no Hub, no identity) so an
@@ -666,32 +1142,6 @@ func (d *Daemon) hAutoReplyTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"reply": reply, "status": "ok"})
 }
 
-// hFind searches the Hub registry (substring over AID/name/caps). Each
-// agent the official manifest lists by AID carries "anet.official": true
-// (official.go).
-func (d *Daemon) hFind(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Query string `json:"query"`
-		// Capability asks the exact question instead: who serves this id.
-		Capability string `json:"capability"`
-	}
-	_ = readJSON(r, &req)
-	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
-	defer cancel()
-	var agents []hubapi.AgentView
-	var err error
-	if capID := strings.TrimSpace(req.Capability); capID != "" {
-		agents, err = d.FindByCapability(ctx, capID)
-	} else {
-		agents, err = d.Find(ctx, req.Query)
-	}
-	if err != nil {
-		relayError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"agents": d.markFound(agents)})
-}
-
 // hDelegate queues a task on a provider AID via the Hub relay and returns an interaction_id immediately.
 func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 	// Web console: multipart upload (goal + uploaded files). The browser sends bytes, not paths.
@@ -704,6 +1154,9 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 		provider, goal := fields["provider"], strings.TrimSpace(fields["goal"])
 		if provider == "" || goal == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider + goal required"})
+			return
+		}
+		if !d.passSendGate(w) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)
@@ -725,18 +1178,27 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 		// instead of handing it to an agent.
 		Capability string         `json:"capability,omitempty"`
 		Args       map[string]any `json:"args,omitempty"`
-		// Pay makes this a paying delegation: a PAYMENT_REQUIRED answer is
-		// paid for and the work delegated again, rather than handed back
-		// to the caller as a quote to act on.
+		// Pay was "pay for it now" (removed in 0.3.0): a payment is made on
+		// the task, after its quote, within the automatic tier or by the
+		// operator. It is refused rather than ignored, so a caller that
+		// asked to pay is not left with a task waiting for a payment it
+		// thought it had made.
 		Pay bool `json:"pay,omitempty"`
 	}
 	if err := readJSON(r, &req); err != nil || req.Provider == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "provider (AID) required"})
 		return
 	}
+	if req.Pay {
+		writeRefusal(w, http.StatusBadRequest, removedDelegatePay)
+		return
+	}
 	// A capability call needs no goal: the capability id IS the request.
 	if req.Capability == "" && req.Goal == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "goal or capability required"})
+		return
+	}
+	if !d.passSendGate(w) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)
@@ -749,19 +1211,6 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 		// sitting in the goal text where no resolver looks. Both repos'
 		// suites passed throughout, because each fakes the other and the
 		// capability round-trip test calls DelegateCapability in-process.
-		if req.Pay {
-			id, quote, err := d.DelegateAndPay(ctx, req.Provider, req.Capability, req.Args)
-			if err != nil {
-				relayError(w, err)
-				return
-			}
-			out := map[string]any{"interaction_id": id, "status": "queued", "capability": req.Capability}
-			if quote != nil {
-				out["paid"] = quote
-			}
-			d.writeDelegated(w, req.Provider, out)
-			return
-		}
 		id, err := d.DelegateCapability(ctx, req.Provider, req.Capability, req.Args)
 		if err != nil {
 			relayError(w, err)
@@ -782,11 +1231,11 @@ func (d *Daemon) hDelegate(w http.ResponseWriter, r *http.Request) {
 // writeDelegated answers a successful delegation, carrying through what the hub said about the
 // recipient when it said the recipient has stopped collecting its mail.
 //
-// The hub returns recipient_quiet + warning on /relay/send; the daemon used to consume them for its own
-// log and answer the CLI with the interaction id alone, so the person who typed `anet delegate` was the
-// one party who did not learn that the provider had been silent for days. The task is still queued —
-// quiet is not dead, and one poll by the provider collects everything waiting — so this adds a field,
-// never a refusal.
+// The hub answers recipient_quiet on /relay/send; the daemon used to consume it for its own log and
+// answer the CLI with the interaction id alone, so the person who typed `anet delegate` was the one
+// party who did not learn that the provider had been silent for days. The task is still queued —
+// quiet is not dead, and one poll by the provider collects everything waiting — so this adds a field
+// and the delivery sentence for it, never a refusal.
 func (d *Daemon) writeDelegated(w http.ResponseWriter, providerAID string, out map[string]any) {
 	if warn := d.QuietPeer(providerAID); warn != "" {
 		out["recipient_quiet"] = true
@@ -829,6 +1278,9 @@ func (d *Daemon) hMessage(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interaction_id required"})
 			return
 		}
+		if !d.passSendGate(w) {
+			return
+		}
 		ctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)
 		defer cancel()
 		if err := d.SendMessageAtts(ctx, ixID, fields["body"], atts); err != nil {
@@ -845,6 +1297,9 @@ func (d *Daemon) hMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil || strings.TrimSpace(req.InteractionID) == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "interaction_id + body required"})
+		return
+	}
+	if !d.passSendGate(w) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), relayCallTimeout)
@@ -970,6 +1425,7 @@ func (d *Daemon) hThreads(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	d.fillStatusText(ts)
 	cfg := d.config()
 	writeJSON(w, http.StatusOK, map[string]any{"threads": ts, "aid": d.AID(), "name": cfg.Name, "hub": cfg.HubURL})
 }
@@ -995,7 +1451,9 @@ func (d *Daemon) hThread(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"thread": t})
+	one := []Thread{t}
+	d.fillStatusText(one)
+	writeJSON(w, http.StatusOK, map[string]any{"thread": one[0]})
 }
 
 // hIdentities lists all locally-running anet identities (daemons) so the console can offer an
@@ -1062,6 +1520,11 @@ func (d *Daemon) hReview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := d.SubmitReview(req.InteractionID, req.Rating, req.Comment)
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		writeRefusal(w, http.StatusConflict, ref)
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -1103,103 +1566,6 @@ func (d *Daemon) hEvidence(w http.ResponseWriter, r *http.Request) {
 		recs = []EvidenceRecord{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"head": head, "records": recs})
-}
-
-// hHubLeave stops this node being deliverable at a hub it has left.
-func (d *Daemon) hHubLeave(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Hub string `json:"hub"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if strings.TrimSpace(req.Hub) == "" {
-		req.Hub = d.config().HubURL
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
-	defer cancel()
-	out, err := d.LeaveHub(ctx, req.Hub)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "result": out})
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// hP2PAdvertise publishes this node's direct address on its hub.
-func (d *Daemon) hP2PAdvertise(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Addr string `json:"addr"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), hubCallTimeout)
-	defer cancel()
-	out, err := d.AdvertisePeerAddress(ctx, req.Addr)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "result": out})
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// hX402Authorize signs a payment for an x402 resource server.
-//
-// Exists because buying through a gateway is something a person does, not
-// only something a test does. The gateway wants a PAYMENT-SIGNATURE
-// header; producing one needs this node's key, which never leaves the
-// daemon — so the daemon signs and hands back the header value.
-//
-// It does NOT settle anything. The signature authorises a payment the
-// gateway may then present to its facilitator; until it does, nothing has
-// moved. Handing out an authorization is closer to writing a cheque than
-// to spending, and the window and nonce are what keep it that way.
-func (d *Daemon) hX402Authorize(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PayTo         string `json:"pay_to"`
-		Amount        uint64 `json:"amount"`
-		Network       string `json:"network"`
-		InteractionID string `json:"interaction_id"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	if req.PayTo == "" || req.Amount == 0 {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": "pay_to and amount are required"})
-		return
-	}
-	p := d.payer()
-	if p == nil {
-		relayError(w, errNoPayments())
-		return
-	}
-	network := strings.TrimSpace(req.Network)
-	if network == "" {
-		// Default to this node's own hub, which is the only ledger it can
-		// actually draw on. Naming another one is allowed — a buyer may
-		// hold credit somewhere else — but it has to be deliberate.
-		network = payment.CreditNetwork(d.hubAID())
-	}
-	raw, err := p.Authorize(payment.PaymentOption{
-		Scheme: payment.SchemeCredit, Network: network,
-		Amount: payment.Amount(req.Amount), Asset: payment.AssetCredit, PayTo: req.PayTo,
-	}, req.InteractionID, req.InteractionID, module.PurposeGateway)
-	if err != nil {
-		relayError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"header":  payment.HeaderPaymentSignature,
-		"value":   base64.StdEncoding.EncodeToString(raw),
-		"pay_to":  req.PayTo,
-		"amount":  req.Amount,
-		"network": network,
-	})
 }
 
 // hReconcile compares this node's payment history against the hub's
@@ -1278,7 +1644,7 @@ func (d *Daemon) hRedeemCredit(w http.ResponseWriter, r *http.Request) {
 	}
 	if sr, ok := isSpendRefusal(err); ok {
 		// §8.6: refused by the spending policy, as on every signing route.
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": err.Error(), "reason": sr.Code})
+		writeSpendRefusal(w, sr, "", err)
 		return
 	}
 	if err != nil {

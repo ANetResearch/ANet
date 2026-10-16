@@ -18,6 +18,11 @@ package daemon
 //	provider sends a message without anet.state=working  input-required
 //	provider sends anet.state=working, or a StatusMsg  the state it carries
 //	result                                             completed / failed / rejected (§4.3)
+//	result whose reply or receipt is refused           failed, result_refused (CUX-R7)
+//
+// A provider that completes a text task with a reply puts it in the result (completeWithReply,
+// correctness-ux CUX-R4): the requester gets the completion and the reply at once, and the
+// reply is never a message of its own marked to keep the requester waiting.
 
 import (
 	"context"
@@ -30,10 +35,10 @@ import (
 	"log"
 	"strings"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
@@ -138,6 +143,10 @@ type Thread struct {
 	IsCapability bool        `json:"capability,omitempty"`
 	ContextID    string      `json:"context_id,omitempty"`
 	Messages     []ThreadMsg `json:"messages"`
+	// StatusText is the task's status sentence as its A2A projection words
+	// it, for the console (ux UX-W1; threadStatusText): set by /threads and
+	// /thread, empty elsewhere.
+	StatusText string `json:"status_text,omitempty"`
 	// EndReqBy is "me", "them" or "": who asked for the task to end.
 	EndReqBy  string `json:"end_req_by"`
 	Reviewed  bool   `json:"reviewed"`
@@ -338,6 +347,14 @@ func (d *Daemon) SendMessageOpts(ctx context.Context, interactionID, body string
 // envelope's message id (an internal note item).
 func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
 	meta map[string]any) (stateSeq int64, err error) {
+	return d.sendMessageMarked(ctx, interactionID, body, atts, meta, nil)
+}
+
+// sendMessageMarked is sendMessage for a local client's message: client, when
+// the client named a messageId, is stored with it in the same transaction
+// (clientdedupe.go).
+func (d *Daemon) sendMessageMarked(ctx context.Context, interactionID, body string, atts []delegation.Attachment,
+	meta map[string]any, client *clientMark) (stateSeq int64, err error) {
 	body = strings.TrimSpace(body)
 	if body == "" && len(atts) == 0 {
 		return 0, fmt.Errorf("anet: empty message (pass text and/or --attach PATH)")
@@ -367,13 +384,17 @@ func (d *Daemon) sendMessage(ctx context.Context, interactionID, body string, at
 	}
 	var seq int64
 	write := func(tx *interactions.Tx) error {
+		rec := interactions.MessageRecord{InteractionID: interactionID,
+			SenderAID: d.AID(), Kind: interactions.MsgText, Body: body, MsgID: msgID, Metadata: metaBytes}
+		if err := client.stamp(tx, interactionID, &rec); err != nil {
+			return err
+		}
 		var err error
-		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: interactionID,
-			SenderAID: d.AID(), Kind: interactions.MsgText, Body: body, MsgID: msgID, Metadata: metaBytes}); err != nil {
+		if seq, _, err = tx.AddMessageRecord(rec); err != nil {
 			return err
 		}
 		if next != "" {
-			if _, err = tx.SetState(interactionID, next); err != nil {
+			if _, err = tx.SetState(interactionID, next, interactions.CauseNotTerminal); err != nil {
 				return err
 			}
 		}
@@ -549,11 +570,19 @@ func (d *Daemon) buildTranscript(ix *interactions.Interaction) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return encodeTranscript(ix, conversationOf(ix, d.AID(), msgs, atts))
+}
+
+// conversationOf is the conversation turns of ix as a transcript lists them: its text messages
+// without control metadata that have a body or files, oldest first, each with its files'
+// fingerprints and whether the provider or the requester said it. self is this node's AID.
+func conversationOf(ix *interactions.Interaction, self string, msgs []interactions.Message,
+	atts []interactions.Attachment) []transcript.Message {
 	bySeq := map[int64][]transcript.Attachment{}
 	for _, a := range atts {
 		bySeq[a.MsgSeq] = append(bySeq[a.MsgSeq], transcript.Attachment{Name: a.Name, Mime: a.Mime, Size: a.Size, CID: a.CID})
 	}
-	provider := d.AID()
+	provider := self
 	if ix.Role == interactions.RoleOutbound {
 		provider = ix.PeerAID
 	}
@@ -566,19 +595,185 @@ func (d *Daemon) buildTranscript(ix *interactions.Interaction) ([]byte, error) {
 		if m.Body == "" && len(mAtts) == 0 {
 			continue
 		}
-		from := "requester"
+		from := transcriptRequester
 		if m.SenderAID == provider {
-			from = "provider"
+			from = transcriptProvider
 		}
 		out = append(out, transcript.Message{From: from, Body: m.Body, Attachments: mAtts})
 	}
+	return out
+}
+
+// The two speakers of a transcript.
+const (
+	transcriptProvider  = "provider"
+	transcriptRequester = "requester"
+)
+
+// encodeTranscript is the v2 transcript of ix's conversation.
+func encodeTranscript(ix *interactions.Interaction, conv []transcript.Message) ([]byte, error) {
 	nonce := ix.TaskNonce
 	if nonce == "" {
+		var err error
 		if nonce, err = newTaskNonce(); err != nil {
 			return nil, err
 		}
 	}
-	return transcript.EncodeV2(nonce, out)
+	return transcript.EncodeV2(nonce, conv)
+}
+
+// signedResult is a completed text task's result: the transcript, its CID and the provider's
+// receipt over it.
+type signedResult struct {
+	transcript, receipt []byte
+	resultCID           string
+}
+
+// signResult signs this node's receipt over tr, the transcript of ix, an inbound task.
+func (d *Daemon) signResult(ix *interactions.Interaction, tr []byte) (signedResult, error) {
+	resultCID, err := anetcid.Sum(tr)
+	if err != nil {
+		return signedResult{}, err
+	}
+	rc := &evidence.Receipt{
+		InteractionID: ix.ID,
+		RequesterAID:  ix.PeerAID,
+		ProviderAID:   d.AID(),
+		RequestCID:    ix.RequestCID,
+		ResultCID:     resultCID,
+		CompletedAt:   uint64(nowMillis()),
+	}
+	if err := rc.Sign(d.self); err != nil {
+		return signedResult{}, err
+	}
+	receiptBytes, err := rc.Marshal()
+	if err != nil {
+		return signedResult{}, err
+	}
+	return signedResult{transcript: tr, receipt: receiptBytes, resultCID: resultCID}, nil
+}
+
+// completedMeta is the metadata of a done result: the state it asks for.
+func completedMeta() []byte {
+	meta, _ := json.Marshal(map[string]any{"anet.state": string(interactions.StateCompleted)})
+	return meta
+}
+
+// completeWithReply is a provider completing an inbound text task with a reply (correctness-ux
+// CUX-R4): text and atts are its last word. In ONE transaction, the queued result's: the reply
+// is stored as a conversation message (kind text, no control metadata) with its files; the
+// transcript of the conversation that now ends with it is made in the same transaction and a
+// receipt signed over it; the result is stored and the task completed through the terminal
+// write (its interaction key settled with it); and the result is queued with the reply in
+// ResultResp.reply. A crash anywhere leaves all of it or none: never a reply without the result
+// that completes the task, or a completed task whose result does not carry its reply (SI-69).
+// Queuing the result ends the task's preview round (queueSendAs, ENG-K20).
+//
+// `anet end` (a completion with no reply) stays CompleteTask; its result carries no reply.
+func (d *Daemon) completeWithReply(ctx context.Context, interactionID, text string, atts []delegation.Attachment) error {
+	text = strings.TrimSpace(text)
+	if text == "" && len(atts) == 0 {
+		return d.CompleteTask(ctx, interactionID)
+	}
+	ix, err := d.ix.Get(interactionID)
+	if err != nil {
+		return err
+	}
+	switch {
+	case ix.Role != interactions.RoleInbound:
+		return fmt.Errorf("anet: only the provider completes a task; ask it with `anet end`")
+	case ix.IsCapability:
+		return fmt.Errorf("anet: %s is a capability call; it completes when the capability answers", interactionID)
+	case ix.IsTerminal():
+		return fmt.Errorf("%w (%s is %s)", ErrTaskTerminal, interactionID, ix.State)
+	}
+	// The files as they are stored, so the reply names them as the transcript does (the
+	// stored type is the sniffed one).
+	rows := make([]interactions.Attachment, 0, len(atts))
+	for _, a := range atts {
+		if err := verifyAttachment(a); err != nil {
+			return err
+		}
+		rows = append(rows, interactions.Attachment{Name: a.Name, Mime: sniffMime(a.Data), Size: a.Size, CID: a.CID, Data: a.Data})
+	}
+	_, msgID := newWireMID()
+	reply := &delegation.ReplyMsg{Kind: delegation.ChatText, Body: text, MsgID: msgID}
+	for _, r := range rows {
+		reply.Attachments = append(reply.Attachments, delegation.Attachment{Name: r.Name, Mime: r.Mime, Size: r.Size, CID: r.CID, Data: r.Data})
+	}
+	var (
+		seq    int64
+		signed signedResult
+	)
+	meta := completedMeta()
+	build := func(tx *interactions.Tx) ([]byte, error) {
+		cur, err := tx.Get(interactionID)
+		if err != nil {
+			return nil, err
+		}
+		if cur.IsTerminal() {
+			return nil, interactions.ErrTerminal
+		}
+		// 1. The reply, a conversation turn.
+		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: interactionID,
+			SenderAID: d.AID(), Kind: interactions.MsgText, Body: text, MsgID: msgID}); err != nil {
+			return nil, err
+		}
+		if err := addAttachmentsTx(tx, interactionID, seq, rows); err != nil {
+			return nil, err
+		}
+		// 2. The transcript, which ends with it.
+		msgs, err := tx.Messages(interactionID)
+		if err != nil {
+			return nil, err
+		}
+		stored, err := tx.Attachments(interactionID)
+		if err != nil {
+			return nil, err
+		}
+		tr, err := encodeTranscript(cur, conversationOf(cur, d.AID(), msgs, stored))
+		if err != nil {
+			return nil, err
+		}
+		// 3. The receipt.
+		if signed, err = d.signResult(cur, tr); err != nil {
+			return nil, err
+		}
+		// 5. The result, carrying the reply.
+		return (&delegation.ResultResp{Status: delegation.StatusDone, Deliverable: signed.transcript,
+			Receipt: signed.receipt, Metadata: meta, Reply: reply}).Marshal()
+	}
+	// 4. The result stored and the task completed, after the row is queued (a terminal write
+	// sees the row and keeps the key material it may be sealed with, ENG-S7).
+	write := func(tx *interactions.Tx) error {
+		return tx.Finish(interactionID, interactions.Finish{State: interactions.StateCompleted, Result: signed.transcript,
+			ResultCID: signed.resultCID, Receipt: signed.receipt, Verified: interactions.VerificationVerified, Meta: meta},
+			interactions.CauseProviderEnd)
+	}
+	id, err := d.queueSendAs(ctx, wireSend{to: ix.PeerAID, typ: seal.TypeResult, ix: interactionID, build: build}, write)
+	if errors.Is(err, interactions.ErrTerminal) {
+		return fmt.Errorf("%w (%s ended before it could be completed)", ErrTaskTerminal, interactionID)
+	}
+	if err != nil {
+		return err
+	}
+	d.afterCompleted(ctx, ix, signed.resultCID, id)
+	d.publishMessage(interactionID, seq, interactions.MsgText)
+	return nil
+}
+
+// afterCompleted is what follows a provider's completion once it is committed: the receipt on
+// the evidence chain, the result announced and its first delivery attempt.
+func (d *Daemon) afterCompleted(ctx context.Context, ix *interactions.Interaction, resultCID string, outboxID int64) {
+	if _, lerr := d.ledger.Append(EvReceipt, map[string]any{
+		"interaction_id": ix.ID, "requester_aid": ix.PeerAID, "result_cid": resultCID,
+	}); lerr != nil {
+		log.Printf("anet: receipt evidence ledger: %v", lerr)
+	}
+	d.publishResult(ix.ID)
+	if err := d.deliverQueued(ctx, outboxID); err != nil {
+		log.Printf("anet: %s: completed; the result is queued for delivery (%v)", ix.ID, err)
+	}
 }
 
 // CompleteTask completes an inbound text task (A2A-DESIGN §4.2): the provider signs a receipt over
@@ -603,39 +798,21 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 	if err != nil {
 		return err
 	}
-	resultCID, err := anetcid.Sum(tr)
+	signed, err := d.signResult(ix, tr)
 	if err != nil {
 		return err
 	}
-	rc := &evidence.Receipt{
-		InteractionID: ix.ID,
-		RequesterAID:  ix.PeerAID,
-		ProviderAID:   d.AID(),
-		RequestCID:    ix.RequestCID,
-		ResultCID:     resultCID,
-		CompletedAt:   uint64(nowMillis()),
-	}
-	if err := rc.Sign(d.self); err != nil {
-		return err
-	}
-	receiptBytes, err := rc.Marshal()
-	if err != nil {
-		return err
-	}
-	selfKEL, err := identity.MarshalKEL(d.self.KEL())
-	if err != nil {
-		return fmt.Errorf("anet: marshal KEL: %w", err)
-	}
-	meta, _ := json.Marshal(map[string]any{"anet.state": string(interactions.StateCompleted)})
-	payload, err := (&delegation.ResultResp{Status: delegation.StatusDone, Deliverable: tr,
-		Receipt: receiptBytes, KEL: selfKEL, Metadata: meta}).Marshal()
+	meta := completedMeta()
+	payload, err := (&delegation.ResultResp{Status: delegation.StatusDone, Deliverable: signed.transcript,
+		Receipt: signed.receipt, Metadata: meta}).Marshal()
 	if err != nil {
 		return err
 	}
 	id, err := d.queueSend(ctx, ix.PeerAID, seal.TypeResult, ix.ID, payload, func(tx *interactions.Tx) error {
 		// Our own signature over our own transcript.
-		return tx.Finish(ix.ID, interactions.Finish{State: interactions.StateCompleted, Result: tr,
-			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified, Meta: meta})
+		return tx.Finish(ix.ID, interactions.Finish{State: interactions.StateCompleted, Result: signed.transcript,
+			ResultCID: signed.resultCID, Receipt: signed.receipt, Verified: interactions.VerificationVerified, Meta: meta},
+			interactions.CauseProviderEnd)
 	})
 	if errors.Is(err, interactions.ErrTerminal) {
 		return fmt.Errorf("%w (%s ended before it could be completed)", ErrTaskTerminal, interactionID)
@@ -643,29 +820,28 @@ func (d *Daemon) CompleteTask(ctx context.Context, interactionID string) error {
 	if err != nil {
 		return err
 	}
-	if _, lerr := d.ledger.Append(EvReceipt, map[string]any{
-		"interaction_id": ix.ID, "requester_aid": ix.PeerAID, "result_cid": resultCID,
-	}); lerr != nil {
-		log.Printf("anet: receipt evidence ledger: %v", lerr)
-	}
-	d.publishResult(ix.ID)
-	if err := d.deliverQueued(ctx, id); err != nil {
-		log.Printf("anet: %s: completed; the result is queued for delivery (%v)", ix.ID, err)
-	}
+	d.afterCompleted(ctx, ix, signed.resultCID, id)
 	return nil
 }
 
-// CancelTask cancels a task from this side (A2A CancelTask, A2A-DESIGN §4.2).
+// CancelTask cancels a task from this side (A2A CancelTask, A2A-DESIGN §4.2;
+// engine ENG-O4).
 //
-//   - Requester, no payment submitted: the task is canceled locally and the provider is sent a
-//     cancel through the retry queue.
-//   - Requester, a payment submitted or settled: the local state does not change; the cancel is
-//     sent and the provider's status or result decides (it does not cancel paid work). The
-//     returned interaction is still open; its conversation log carries the cancel.
-//   - Provider: the task is canceled, a running capability call is asked to stop, and the
-//     requester is sent status{canceled} through the retry queue. A capability call whose payment
-//     was taken is not canceled (ErrNotCancelable); the pay_state is read again under the write
-//     lock, so a payment and a cancel racing each other cannot both win.
+//   - Requester, no payment submitted: the task is canceled locally. A
+//     delegation that never left this node and has no attempt under way is
+//     withdrawn with everything queued behind it, and nothing is sent: the
+//     provider never saw the task. Otherwise a cancel is queued behind it,
+//     the follow-ups that never left go, and the delegation, still queued,
+//     is frozen: it is not sent again, only asked about (ENG-O6).
+//   - Requester, a payment submitted or settled: the local state does not
+//     change; the cancel is sent and the provider's status or result
+//     decides (it does not cancel paid work, ENG-O7). The returned
+//     interaction is still open; its conversation log carries the cancel.
+//   - Provider: the task is canceled, a running capability call is asked to
+//     stop, and the requester is sent status{canceled} through the queue. A
+//     capability call whose payment was taken is not canceled
+//     (ErrNotCancelable); the pay_state is read again under the write lock,
+//     so a payment and a cancel racing each other cannot both win.
 func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interactions.Interaction, error) {
 	ix, err := d.ix.Get(interactionID)
 	if err != nil {
@@ -681,37 +857,21 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 		// the receipt; it is not canceled once the money moved (§4.2).
 		return ix, ErrNotCancelable
 	}
+	var send wireSend
 	if ix.Role == interactions.RoleOutbound {
-		withdrawn, seq, err := d.withdrawDelegation(ix, msgID)
-		if errors.Is(err, ErrNotCancelable) {
-			cur, _ := d.ix.Get(interactionID)
-			return cur, ErrNotCancelable
-		}
-		if err != nil {
-			return nil, err
-		}
-		if withdrawn {
-			d.publishMessage(ix.ID, seq, interactions.MsgCancel)
-			d.publishState(ix.ID)
-			return d.ix.Get(interactionID)
-		}
-	}
-	var typ string
-	var payload []byte
-	if ix.Role == interactions.RoleOutbound {
-		typ = seal.TypeMessage
-		payload, err = (&delegation.ChatMsg{Kind: delegation.KindCancel, MsgID: msgID}).Marshal()
+		send = wireSend{to: ix.PeerAID, typ: seal.TypeMessage, ix: ix.ID, kind: rowKindCancel, mid: mid}
+		send.body, err = (&delegation.ChatMsg{Kind: delegation.KindCancel, MsgID: msgID}).Marshal()
 	} else {
-		typ = seal.TypeStatus
-		payload, err = (&delegation.StatusMsg{State: delegation.StateCanceled,
+		send = wireSend{to: ix.PeerAID, typ: seal.TypeStatus, ix: ix.ID, mid: mid}
+		send.body, err = (&delegation.StatusMsg{State: delegation.StateCanceled,
 			Text: "the provider canceled the task", At: d.nowMS(), Metadata: canceledPaymentMeta(ix)}).Marshal()
 	}
 	if err != nil {
 		return nil, err
 	}
-	var seq int64
-	id, err := d.queueSendAs(ctx, wireSend{to: ix.PeerAID, typ: typ, ix: ix.ID, body: payload, mid: mid}, func(tx *interactions.Tx) error {
-		var err error
+	var seq, id int64
+	var withdrawn *interactions.OutboxRow
+	err = d.ix.Update(func(tx *interactions.Tx) error {
 		// Read again under the write lock: a payment submitted since the
 		// row was read (the auto tier, another caller) keeps the task
 		// open, and the provider's answer decides (§4.2).
@@ -719,22 +879,37 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 		if err != nil {
 			return err
 		}
+		if cur.IsTerminal() {
+			return ErrNotCancelable
+		}
 		paid := cur.PayState == interactions.PaySubmitted || cur.PayState == interactions.PayCompleted
 		if cur.Role == interactions.RoleInbound && cur.IsCapability && paid {
 			// A payment taken since the row was read: the paid work is
 			// not canceled (§4.2 [C34]).
 			return ErrNotCancelable
 		}
-		cancelState := true
-		if cur.Role == interactions.RoleOutbound {
-			cancelState = !paid
+		if cur.Role == interactions.RoleOutbound && !paid {
+			if withdrawn, err = d.freezeOrWithdraw(tx, ix.ID, ix.PeerAID); err != nil {
+				return err
+			}
 		}
 		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ix.ID,
 			SenderAID: d.AID(), Kind: interactions.MsgCancel, MsgID: msgID}); err != nil {
 			return err
 		}
+		cancelState := cur.Role == interactions.RoleInbound || !paid
 		if cancelState {
-			changed, err := tx.SetState(ix.ID, interactions.StateCanceled)
+			// The requester's cancel may still be answered; the provider's
+			// ends the task on its side; a withdrawn delegation can bring
+			// no answer at all (ENG-X4).
+			cause := interactions.CauseLocalEnded
+			switch {
+			case cur.Role == interactions.RoleInbound:
+				cause = interactions.CauseProviderEnd
+			case withdrawn != nil:
+				cause = interactions.CauseNeverSent
+			}
+			changed, err := tx.SetState(ix.ID, interactions.StateCanceled, cause)
 			if err != nil {
 				return err
 			}
@@ -742,7 +917,11 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 				return ErrNotCancelable // reached a terminal state since it was read
 			}
 		}
-		return nil
+		if withdrawn != nil {
+			return nil
+		}
+		id, _, err = d.enqueueTx(tx, send)
+		return err
 	})
 	if err != nil {
 		if errors.Is(err, ErrNotCancelable) {
@@ -754,91 +933,15 @@ func (d *Daemon) CancelTask(ctx context.Context, interactionID string) (*interac
 	d.stopRunning(ix.ID)
 	d.publishMessage(ix.ID, seq, interactions.MsgCancel)
 	d.publishState(ix.ID)
+	if withdrawn != nil {
+		d.noteWithdrawn(withdrawn)
+		return d.ix.Get(interactionID)
+	}
+	d.noteDelivery(ix.ID)
 	if err := d.deliverQueued(ctx, id); err != nil {
 		log.Printf("anet: %s: canceled; the notice to %s is queued for delivery (%v)", ix.ID, ix.PeerAID, err)
 	}
 	return d.ix.Get(interactionID)
-}
-
-// withdrawDelegation cancels a task this node asked for whose delegation
-// has not left this node: its row is still queued and no attempt may have
-// delivered it (OutboxItem.MaybeDelivered). The provider never saw the task,
-// so nothing is sent to it; the queued rows go, the cancel is recorded and
-// the task is canceled, in one transaction ([redteam:F23]). A cancel sent
-// instead would reach a provider that does not know the task and be
-// answered TaskNotFound, while the delegation — still queued — would go out
-// after it and run.
-//
-// A delegation that may have been delivered, or that an attempt is sending
-// right now, is not withdrawn: the cancel is queued behind it (the outbox
-// delivers a task's messages in order) and reaches the provider after it.
-func (d *Daemon) withdrawDelegation(ix *interactions.Interaction, msgID string) (bool, int64, error) {
-	rows, err := d.ix.Outbox(ix.ID)
-	if err != nil {
-		return false, 0, err
-	}
-	var row *interactions.OutboxItem
-	for i := range rows {
-		if rows[i].Type == seal.TypeDelegate && rows[i].ToAID == ix.PeerAID {
-			row = &rows[i]
-			break
-		}
-	}
-	if row == nil || row.MaybeDelivered {
-		return false, 0, nil
-	}
-	unlock, ok := d.outboxLocks.tryLock(fmt.Sprint(row.ID))
-	if !ok {
-		return false, 0, nil // an attempt is under way
-	}
-	defer unlock()
-	var seq int64
-	withdrawn := false
-	err = d.ix.Update(func(tx *interactions.Tx) error {
-		queued, maybe, err := tx.OutboxQueued(row.ID)
-		if err != nil || !queued || maybe {
-			return err
-		}
-		cur, err := tx.Get(ix.ID)
-		if err != nil {
-			return err
-		}
-		if cur.IsTerminal() {
-			return ErrNotCancelable
-		}
-		if cur.PayState != interactions.PayNone {
-			return nil // quoted: it was delivered after all
-		}
-		if _, err := tx.DeleteOutboxQueue(ix.ID, ix.PeerAID); err != nil {
-			return err
-		}
-		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ix.ID,
-			SenderAID: d.AID(), Kind: interactions.MsgCancel, MsgID: msgID}); err != nil {
-			return err
-		}
-		changed, err := tx.SetState(ix.ID, interactions.StateCanceled)
-		if err != nil {
-			return err
-		}
-		if !changed {
-			return ErrNotCancelable
-		}
-		withdrawn = true
-		return nil
-	})
-	if err != nil || !withdrawn {
-		return false, 0, err
-	}
-	if d.ledger != nil {
-		if _, lerr := d.ledger.Append(EvDeliveryExpired, map[string]any{
-			"interaction_id": ix.ID, "type": row.Type, "to_aid": row.ToAID,
-			"attempts": row.Attempts, "last_error": row.LastError, "reason": undeliveredWithdrawn,
-		}); lerr != nil {
-			log.Printf("anet: delivery withdrawal evidence: %v", lerr)
-		}
-	}
-	log.Printf("anet: %s: canceled before its delegation reached %s; the delegation is withdrawn", ix.ID, ix.PeerAID)
-	return true, seq, nil
 }
 
 // SendStatus sends a provider status update (anet.status/1) for an inbound task and moves the task
@@ -878,7 +981,7 @@ func (d *Daemon) SendStatus(ctx context.Context, interactionID string, state int
 			SenderAID: d.AID(), Kind: interactions.MsgStatus, Body: text, MsgID: msgID, Metadata: mb}); err != nil {
 			return err
 		}
-		changed, err := tx.SetState(ix.ID, state)
+		changed, err := tx.SetState(ix.ID, state, interactions.CauseProviderEnd.When(state))
 		if err != nil {
 			return err
 		}
@@ -917,6 +1020,11 @@ func (d *Daemon) SubmitReview(interactionID string, rating int, comment string) 
 	}
 	if len(ix.Receipt) == 0 {
 		return zero, fmt.Errorf("anet: no receipt for %s yet (run `results` first)", interactionID)
+	}
+	if ix.ReceiptVerified == interactions.VerificationMismatch {
+		// The receipt covers a conversation that changes what this node
+		// said: a review would vouch for it (CUX-R6 item 4).
+		return zero, a2ashape.Refuse(reasonReceiptMismatch, nil)
 	}
 	rc, err := evidence.UnmarshalReceipt(ix.Receipt)
 	if err != nil {
@@ -1057,6 +1165,14 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 	if !publicCap {
 		attRows, attErr = receivedAttachments(m.dr.Attachments)
 	}
+	// E_p, made before the transaction and stored in it with the task it
+	// accepts (FS-X2); a redelivery of a task already accepted keeps the key
+	// it has, and this one is wiped unused.
+	ep, err := newOwnIXKey(m.ix, m.from)
+	if err != nil {
+		return d.transient(transientStore, err)
+	}
+	defer wipeIXKey(ep)
 	var seq int64
 	redelivery := false
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
@@ -1083,7 +1199,10 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 		if err := tx.Create(interactions.New{ID: m.ix, Role: interactions.RoleInbound, PeerAID: m.from,
 			Goal: goal, RequestCID: requestCID, RequestDoc: m.tdBytes, ContextID: m.dr.ContextID,
 			Trust: m.trust, IsCapability: isCap, TaskNonce: taskNonce(m.td),
-			PeerKEL: peerKEL, PeerKeys: peerKeys}); err != nil {
+			PeerKEL: peerKEL, PeerKeys: peerKeys, PeerRK: m.rk}); err != nil {
+			return err
+		}
+		if err := putOwnIXKeyTx(tx, ep); err != nil {
 			return err
 		}
 		if isCap && m.ackNow != nil && !d.longCall(capID) {
@@ -1092,7 +1211,7 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 			// if the process stops first. Recorded working, startup
 			// recovery runs it again instead (leftoverAction: a short call
 			// left working, at-least-once).
-			if _, err := tx.SetState(m.ix, interactions.StateWorking); err != nil {
+			if _, err := tx.SetState(m.ix, interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 				return err
 			}
 		}
@@ -1115,6 +1234,11 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 		return res
 	}
 	if redelivery {
+		if m.redeliveryDenied {
+			// The sender may no longer send on it (authorizeRedelivery): the
+			// copy is taken, and nothing follows (engine ENG-V18).
+			return res
+		}
 		if !d.redeliveredDelegate(ctx, m) {
 			return d.transient(transientStopping, d.ctx.Err())
 		}
@@ -1132,7 +1256,7 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 	// natural-language task waits for the operator's agent or auto-reply.
 	if isCap {
 		released = true
-		if !d.runCapabilityCall(m.ix, capID, args, m.dr.Payment, release) {
+		if !d.runCapabilityCall(m.ix, capID, args, release) {
 			// Cut off by the daemon stopping (SI-10): nothing was
 			// answered, and the delegation is not acknowledged, so its
 			// redelivery finds the replay row and runs it again.
@@ -1149,11 +1273,13 @@ func (d *Daemon) ingestDelegate(ctx context.Context, m *rxMsg) rxResult {
 // capability that has one, a second signed receipt for work that happened
 // once, and a second entry on the chain.
 //
-//   - Answered already (a receipt exists): send the answer again. The
-//     redelivery means the first may never have reached the requester, and
-//     the receipt is signed over content that has not changed. Re-sends of
-//     one answer are rate limited (resendLimiter): past the limit the
-//     redelivery is only acknowledged.
+//   - Answered already (a receipt exists): the redelivery means the answer
+//     may not have reached the requester. While the answer is still queued
+//     the whole queue to the requester is hurried (resendResult), rate
+//     limited per answer (resendLimiter): past the limit the redelivery is
+//     only acknowledged. An answer no longer queued was confirmed — the
+//     requester has it — or given up — it would not get through — and is
+//     never sealed again (engine ENG-V18).
 //   - Being executed by this process: nothing to do.
 //   - Terminal without a receipt (canceled, or refused): nothing to do.
 //   - A short capability call with no answer: the daemon stopped between
@@ -1178,13 +1304,16 @@ func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 		return true
 	}
 	if len(prior.Receipt) > 0 {
+		if !d.answerQueued(prior) {
+			return true
+		}
 		if !d.resends.allow(prior.PeerAID, prior.ID, d.nowMS()) {
-			// Answered, and re-sent lately [redteam:F29].
+			// Answered, and hurried lately [redteam:F29].
 			d.count(resendSuppressed)
 			return true
 		}
-		log.Printf("anet: %s redelivered; re-sending the answer we already signed", m.ix)
-		d.resendResult(m, prior)
+		log.Printf("anet: %s redelivered; hurrying the answer we already signed", m.ix)
+		d.resendResult(prior)
 		return true
 	}
 	if prior.IsTerminal() {
@@ -1205,7 +1334,7 @@ func (d *Daemon) redeliveredDelegate(ctx context.Context, m *rxMsg) bool {
 		log.Printf("anet: %s: long call %s was interrupted before it answered; not running it again", m.ix, capID)
 		return true
 	}
-	return d.runCapabilityCall(m.ix, capID, args, m.dr.Payment, nil)
+	return d.runCapabilityCall(m.ix, capID, args, nil)
 }
 
 // recordedCall is the capability call an interaction was accepted for, read
@@ -1252,8 +1381,25 @@ func (d *Daemon) stopRunning(ix string) {
 	}
 }
 
-// runCapabilityCall invokes a capability, on this goroutine when it is
-// quick and on its own when the provider says it will not be.
+// runCapabilityCall runs a delegation this node accepted: the call itself,
+// with no payment. A priced call is answered with a quote, and its payment
+// comes later, on the same task (runPaidCapabilityCall; A2A-DESIGN §8.3):
+// a delegation never carries one.
+func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]any, release func()) bool {
+	return d.runCall(interactionID, capID, args, nil, release)
+}
+
+// runPaidCapabilityCall runs an accepted call with the payment its requester
+// submitted on the task (payment-submitted, after the quote): the payment is
+// checked and settled, then the call runs, on the same short and long paths
+// as the call itself (§8.3 [C29]).
+func (d *Daemon) runPaidCapabilityCall(interactionID, capID string, args map[string]any, payment []byte) bool {
+	return d.runCall(interactionID, capID, args, payment, nil)
+}
+
+// runCall invokes a capability, on this goroutine when it is quick and on
+// its own when the provider says it will not be. payment is the payload of
+// a payment-submitted on the task, or nil.
 //
 // The poll loop dispatches synchronously, which is right for work
 // measured in milliseconds and wrong for work measured in hours: this
@@ -1275,7 +1421,7 @@ func (d *Daemon) stopRunning(ix string) {
 // It returns false only when the daemon stopping cut short a call run on
 // this goroutine, which then recorded nothing (SI-10): the caller does not
 // acknowledge the message that carried it.
-func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]any, payment []byte, release func()) bool {
+func (d *Daemon) runCall(interactionID, capID string, args map[string]any, payment []byte, release func()) bool {
 	done := func() {
 		if release != nil {
 			release()
@@ -1337,20 +1483,10 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 		}
 		if len(payment) > 0 {
 			// A payment for a call this node has no room to run: it is
-			// not settled, and the task waits for another payment rather
-			// than ending with the requester's money taken (A2A-DESIGN
-			// §8.3). A prepaid call is quoted first, so its requester is
-			// told the terms it may pay again on. Only an open quote is
-			// refused: a payment already taken is not touched.
-			price, priced := priceOfCapability(p, capID)
-			if priced && d.refuseUnboundPriced(cctx, ix, capID) {
-				return true // no task nonce: rejected, not quoted (Q19)
-			}
-			if priced && ix.PayState == interactions.PayNone {
-				if err := d.recordQuote(cctx, ix, capID, price, false); err != nil && !errors.Is(err, errAlreadyQuoted) {
-					log.Printf("anet: %s: quote for a prepaid call: %v", interactionID, err)
-				}
-			}
+			// not settled, and the task waits for another payment on the
+			// quote it already has, rather than ending with the requester's
+			// money taken (A2A-DESIGN §8.3). Only an open quote is refused:
+			// a payment already taken is not touched.
 			d.paymentFailed(cctx, interactionID, payOpen, x402a2a.ReasonProviderBusy, "",
 				fmt.Sprintf("this node is already running %d long tasks; try again later", maxConcurrentLongCalls),
 				failureReceipt(x402a2a.ReasonProviderBusy, ""))
@@ -1364,7 +1500,7 @@ func (d *Daemon) runCapabilityCall(interactionID, capID string, args map[string]
 		return true
 	}
 	log.Printf("anet: %s: %s may take up to %s — running it off the poll loop", interactionID, capID, bound)
-	if _, err := d.ix.SetState(interactionID, interactions.StateWorking); err != nil {
+	if _, err := d.ix.SetState(interactionID, interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		log.Printf("anet: %s: mark working: %v", interactionID, err)
 	}
 	d.publishState(interactionID)
@@ -1440,15 +1576,17 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 	if m.pendingRoute {
 		return d.routePendingMessage(m)
 	}
+	if m.tombstone {
+		return d.cancelTombstone(m)
+	}
 	cm, ix := m.cm, m.existing
 	fromRequester := ix.Role == interactions.RoleInbound
 	switch cm.Kind {
 	case delegation.ChatText:
 		if ix.IsTerminal() {
-			// §4.2: after a terminal state only new input is refused. The
-			// message is acknowledged and not stored.
-			d.count(dropAfterTerminal)
-			return d.commitRx(m, nil)
+			// §4.2: after a terminal state new input is refused, and the
+			// sender told the task has ended (task_ended; engine §4.5).
+			return d.drop(dropAfterTerminal, nil)
 		}
 		kind := interactions.MsgText
 		body, atts := cm.Body, cm.Attachments
@@ -1480,7 +1618,7 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 			if next == "" {
 				return nil
 			}
-			_, err = tx.SetState(m.ix, next)
+			_, err = tx.SetState(m.ix, next, interactions.CauseNotTerminal)
 			return err
 		})
 		if res.class == rxAccepted && stored {
@@ -1500,9 +1638,12 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 		}
 		return res
 	case delegation.ChatEndRequest:
-		if !fromRequester || ix.IsTerminal() {
-			d.count(dropEndRequestIgnored)
-			return d.commitRx(m, nil)
+		switch {
+		case !fromRequester:
+			// Only the requester ends a task this way.
+			return d.drop(dropEndRequestIgnored, nil)
+		case ix.IsTerminal():
+			return d.drop(dropAfterTerminal, nil)
 		}
 		var seq int64
 		res := d.commitRx(m, func(tx *interactions.Tx) error {
@@ -1531,8 +1672,8 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 		return res
 	case delegation.KindCancel:
 		if !fromRequester {
-			d.count(dropCancelFromProvider)
-			return d.commitRx(m, nil)
+			// The provider ends a task with status canceled, not a cancel.
+			return d.drop(dropCancelFromProvider, nil)
 		}
 		var seq int64
 		res := d.commitRx(m, func(tx *interactions.Tx) error {
@@ -1553,16 +1694,33 @@ func (d *Daemon) ingestMessage(ctx context.Context, m *rxMsg) rxResult {
 			d.providerCancel(fctx, m.ix)
 		}
 		return res
-	case delegation.ChatEndAccept:
-		// Wire 1's second step of the end negotiation. The provider now
-		// completes on its own; the message is dropped (A2A-DESIGN §3.4).
-		d.count(dropEndAccept)
-		return d.commitRx(m, nil)
 	default:
-		// stream_preview is ephemeral and not stored.
-		d.count("message-kind-ignored")
-		return accepted()
+		// A stream_preview frame is a one-shot envelope (receiveOneShot):
+		// step 4a lets none through to here.
+		return d.drop(dropBadKindKeys, fmt.Errorf("message kind %q", cm.Kind))
 	}
+}
+
+// cancelTombstone is step 10 for a cancel naming a task this node does not
+// hold (engine §4.5, DLV-R-10): it keeps a tombstone for the sender and the
+// interaction id in the transaction of its replay row, so a delegation that
+// arrives after its cancel is refused (canceled) instead of being run (DLV
+// T11). Only the sender's own (sender, ix) gets one: inner.from is what step
+// 7 proved (DLV-R-12). The cancel is answered tok(1): it was taken.
+func (d *Daemon) cancelTombstone(m *rxMsg) rxResult {
+	evicted := 0
+	res := d.commitRx(m, func(tx *interactions.Tx) error {
+		var err error
+		evicted, err = tx.PutCancelTomb(m.from, m.ix, m.exp)
+		return err
+	})
+	if res.class == rxAccepted {
+		d.count(cancelTombstoned)
+		for range evicted {
+			d.count(cancelTombEvict)
+		}
+	}
+	return res
 }
 
 // providerCancel handles a requester's cancel on an inbound text task: the
@@ -1636,14 +1794,27 @@ func resultState(ix *interactions.Interaction, rr *delegation.ResultResp) intera
 // reached a terminal state here (a local cancel) is still verified and
 // recorded — its deliverable, receipt and any settlement evidence — without
 // changing the state (A2A-DESIGN §4.2).
+//
+// A text task's result may carry the provider's reply (correctness-ux
+// CUX-R6): it is checked against the transcript first (CUX-R2,
+// reply-mismatch), then the receipt; the reply is stored with the result in
+// one transaction, and in every branch — the result stored now, after the
+// task ended here (late), or already stored (already) — so the reply is
+// never missing beside its result. The transcript's account of what this
+// node said is checked too: one that adds to or changes it is stored as
+// receipt_verified=mismatch, with no evidence of the result and no review.
+// A result refused for its reply or its receipt fails the task before the
+// provider is told (CUX-R7, resultRefused).
 func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	rr, ix := m.rr, m.existing
 	if rr.Status == delegation.StatusFailed && len(rr.Receipt) == 0 {
 		if len(ix.Receipt) > 0 || ix.IsTerminal() {
-			return d.commitRx(m, nil)
+			// The provider's end of a task that ended here first: the key
+			// a local end kept for its answer goes (X7b).
+			return d.commitRx(m, func(tx *interactions.Tx) error { return peerEndedTx(tx, m.ix) })
 		}
 		res := d.commitRx(m, func(tx *interactions.Tx) error {
-			err := tx.SetFailed(m.ix, rr.Deliverable)
+			err := tx.SetFailed(m.ix, rr.Deliverable, interactions.CausePeerEnded)
 			if errors.Is(err, interactions.ErrTerminal) {
 				return nil
 			}
@@ -1659,14 +1830,36 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 		return d.drop(dropBadBody, err)
 	}
 
+	// CUX-R2: the reply is the transcript's last provider entry. Checked
+	// before the receipt: a reply the receipt does not cover is refused
+	// whatever the receipt says.
+	var reply *replyRow
+	if rr.Reply != nil {
+		if err := replyMatches(rr.Deliverable, rr.Reply); err != nil {
+			return d.drop(dropReplyMismatch, err)
+		}
+		if reply, err = newReplyRow(rr.Reply); err != nil {
+			return d.drop(dropReplyMismatch, err)
+		}
+	}
+
 	// Have we already accepted this one?
 	//
 	// A result can arrive again under a new message id (the provider
 	// re-sent it for a redelivered delegation). Storing identical content
 	// twice is harmless; appending "result accepted" to the chain twice is
-	// not.
+	// not. Its reply is stored if it is not yet (CUX-R6 item 3).
 	if len(ix.Receipt) > 0 {
-		return d.commitRx(m, nil)
+		res := d.commitRx(m, func(tx *interactions.Tx) error {
+			if err := reply.writeTx(tx, m.ix, m.from, resultCID); err != nil {
+				return err
+			}
+			return peerEndedTx(tx, m.ix)
+		})
+		if res.class == rxAccepted {
+			reply.announce(d, m.ix)
+		}
+		return res
 	}
 
 	// Verify the receipt before accepting the work it certifies.
@@ -1681,12 +1874,13 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	// review this node anchors to it would vouch for that request to anyone
 	// who checks the interlock (redteam F15).
 	//
-	// A failed check drops the result rather than storing it.
+	// A failed check refuses the result rather than storing it.
 	verified := false
-	switch _, verr := delegation.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts); {
+	// v030-todo(PAY-14): the 0.2 receipt check; evidence v2 is delegation.VerifyResultForRequest.
+	switch _, verr := evidence.VerifyResultForRequest(rr, m.kel, m.ix, d.AID(), ix.PeerAID, ix.RequestCID, m.ts); {
 	case verr == nil:
 		verified = true
-	case errors.Is(verr, delegation.ErrUnverifiable):
+	case errors.Is(verr, evidence.ErrUnverifiable):
 		log.Printf("anet: %s: result accepted UNVERIFIED (no provider KEL)", m.ix)
 	default:
 		log.Printf("anet: %s: REFUSING result: %v", m.ix, verr)
@@ -1711,49 +1905,71 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	// The receipt check above read the interaction outside this
 	// transaction. A second copy of the result under another message id can
 	// have committed since, so it is read again under the write lock.
-	already, late := false, false
+	already, late, mismatch := false, false, false
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
 		cur, err := tx.Get(m.ix)
 		if err != nil {
+			return err
+		}
+		if err := reply.writeTx(tx, m.ix, m.from, resultCID); err != nil {
 			return err
 		}
 		if len(cur.Receipt) > 0 {
 			already = true
 			return nil
 		}
+		// CUX-R6 item 4, against what this node holds as it stores the
+		// result.
+		if mismatch, err = d.conversationMismatch(tx, cur, rr.Deliverable); err != nil {
+			return err
+		}
+		if mismatch {
+			seen = interactions.VerificationMismatch
+		}
 		if cur.IsTerminal() {
 			// Stored with the replay row, in this transaction: a store
 			// failure leaves neither, so the redelivered result is
 			// recorded then (§3.6 step 10).
 			late = true
-			if _, err := tx.SetLateResult(m.ix, rr.Deliverable, resultCID, rr.Receipt, seen); err != nil {
+			if _, err := tx.SetLateResult(m.ix, rr.Deliverable, resultCID, rr.Receipt, seen,
+				interactions.CausePeerEnded); err != nil {
 				return err
 			}
 			return rp.applyTx(tx, m.ix)
 		}
 		if err := tx.Finish(m.ix, interactions.Finish{State: state, Result: rr.Deliverable, ResultCID: resultCID,
-			Receipt: rr.Receipt, Verified: seen, Meta: resultMeta}); err != nil {
+			Receipt: rr.Receipt, Verified: seen, Meta: resultMeta}, interactions.CausePeerEnded.When(state)); err != nil {
 			return err
 		}
 		return rp.applyTx(tx, m.ix)
 	})
-	if res.class != rxAccepted || already {
+	if res.class != rxAccepted {
 		return res
 	}
-	// C5: the requester records the receipt it accepted on its own chain, so
-	// both sides of a completed interaction carry evidence.
-	ev := map[string]any{
-		"interaction_id":   m.ix,
-		"result_cid":       resultCID,
-		"receipt_bytes":    len(rr.Receipt),
-		"receipt_verified": verified,
-		"state":            string(state),
+	reply.announce(d, m.ix)
+	if already {
+		return res
 	}
-	if late {
-		ev["after_terminal"] = true
-	}
-	if _, lerr := d.ledger.Append(EvResultAccepted, ev); lerr != nil {
-		log.Printf("anet: result evidence ledger: %v", lerr)
+	if mismatch {
+		// No evidence of a result whose transcript changes what this node
+		// said (CUX-R6 item 4; C5 is not written).
+		log.Printf("anet: %s: the transcript of the result changes what this node said (receipt_mismatch)", m.ix)
+	} else {
+		// C5: the requester records the receipt it accepted on its own
+		// chain, so both sides of a completed interaction carry evidence.
+		ev := map[string]any{
+			"interaction_id":   m.ix,
+			"result_cid":       resultCID,
+			"receipt_bytes":    len(rr.Receipt),
+			"receipt_verified": verified,
+			"state":            string(state),
+		}
+		if late {
+			ev["after_terminal"] = true
+		}
+		if _, lerr := d.ledger.Append(EvResultAccepted, ev); lerr != nil {
+			log.Printf("anet: result evidence ledger: %v", lerr)
+		}
 	}
 	// §4.2: the receipts are verified and recorded even when the task
 	// ended here first.
@@ -1765,6 +1981,31 @@ func (d *Daemon) ingestResult(ctx context.Context, m *rxMsg) rxResult {
 	d.recordReceipts(rp)
 	d.publishResult(m.ix)
 	return res
+}
+
+// peerEndedTx settles this node's key for task ix, which this node asked
+// for, when the provider's terminal message is stored while the task had
+// already ended here (FS §4.5.4 X7b): a result, a failed result or a
+// terminal status that no state write takes, since the task's state does
+// not change any more. A local end kept the key for the answer
+// (close_after); the answer has come, so it goes in this transaction. A
+// task not terminal is left to the state write that ends it; one deleted
+// meanwhile has no key left.
+func peerEndedTx(tx *interactions.Tx, ix string) error {
+	cur, err := tx.Get(ix)
+	if errors.Is(err, interactions.ErrNotFound) || errors.Is(err, interactions.ErrContentGone) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !cur.IsTerminal() {
+		return nil
+	}
+	if err := tx.CloseIXKey(ix, interactions.CausePeerEnded); err != nil && !errors.Is(err, interactions.ErrNotFound) {
+		return err
+	}
+	return nil
 }
 
 // ingestStatus lands an anet.status/1 for an interaction this node
@@ -1782,7 +2023,16 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 			rp = d.planReceipts(m.ix, decodeMeta(sm.Metadata), true)
 		}
 		defer rp.release()
-		res := d.commitRx(m, func(tx *interactions.Tx) error { return rp.applyTx(tx, m.ix) })
+		res := d.commitRx(m, func(tx *interactions.Tx) error {
+			if interactions.State(sm.State).IsTerminal() {
+				// The provider ended the task too: the key a local end kept
+				// for its answer goes now, not at its close_after (X7b).
+				if err := peerEndedTx(tx, m.ix); err != nil {
+					return err
+				}
+			}
+			return rp.applyTx(tx, m.ix)
+		})
 		if res.class == rxAccepted {
 			d.recordReceipts(rp)
 		}
@@ -1811,7 +2061,8 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 			Kind: interactions.MsgStatus, Body: sm.Text, MsgID: wireMsgID("", m.mid), Metadata: meta}); err != nil {
 			return err
 		}
-		if _, err = tx.SetState(m.ix, interactions.State(sm.State)); err != nil {
+		st := interactions.State(sm.State)
+		if _, err = tx.SetState(m.ix, st, interactions.CausePeerEnded.When(st)); err != nil {
 			return err
 		}
 		if pp != nil {
@@ -1822,141 +2073,50 @@ func (d *Daemon) ingestStatus(ctx context.Context, m *rxMsg) rxResult {
 	if res.class == rxAccepted {
 		if d.triesAutoPay(pp) {
 			// A quote this node pays by itself: the status message (the quote,
-			// on a task stored input-required) is announced after the attempt,
-			// as the state is — a stream reads the row on any event, and would
-			// hand its client the quote as a question (afterProviderPayment,
-			// an internal note F1).
-			d.afterProviderPayment(ctx, m.ix, pp)
-			d.publishMessage(m.ix, seq, interactions.MsgStatus)
+			// on a task stored input-required) is announced after the
+			// decision, as the state is — a stream reads the row on any event,
+			// and would hand its client the quote as a question
+			// (afterProviderPayment, an internal note F1).
+			d.afterProviderPayment(ctx, m.ix, pp, func() {
+				d.publishMessage(m.ix, seq, interactions.MsgStatus)
+				d.publishState(m.ix)
+			})
 		} else {
 			d.publishMessage(m.ix, seq, interactions.MsgStatus)
 			if pp != nil {
-				d.afterProviderPayment(ctx, m.ix, pp)
+				d.afterProviderPayment(ctx, m.ix, pp, func() {})
 			}
+			d.publishState(m.ix)
 		}
-		d.publishState(m.ix)
 	}
 	return res
 }
 
-// resendResult relays an answer this node already signed, for a
-// redelivered delegation (§3.6 step 10, C33). m is the redelivered
-// delegation; it passed steps 1-9, so its sender is the requester.
-//
-//   - The answer is still in the retry queue: that row is the answer. It is
-//     made due now, with every row queued ahead of it for the requester,
-//     and the loop woken; no second copy is queued, so the requester gets
-//     one answer, not one per redelivery. A row that was never sealed is
-//     sealed now, to the key set the delegation carried.
-//   - Otherwise the answer is sealed again, to the key set the redelivered
-//     delegation carried (m.noticeKeys, verified in step 8 or the stored
-//     one). A public or public_cap interaction keeps its requester's keys
-//     only while it is open (§3.8), so once it has ended these are the only
-//     keys there are; a peer's are as good as any stored.
-//
-// The re-sent answer carries the result metadata the first did, and the
-// payment receipts as the row holds them now.
-func (d *Daemon) resendResult(m *rxMsg, ix *interactions.Interaction) {
-	ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
-	defer cancel()
-	var keys *seal.EncKeySet
-	if m != nil && m.noticeKeys != nil {
-		keys = m.noticeKeys.set
-	}
-	if rows, err := d.ix.Outbox(ix.ID); err == nil {
-		var queue []*interactions.OutboxItem
-		answer := false
-		for i := range rows {
-			if r := &rows[i]; r.ToAID == ix.PeerAID {
-				queue = append(queue, r)
-				answer = answer || r.Type == seal.TypeResult
-			}
-		}
-		if answer {
-			// The whole queue, not the answer alone: a task's messages go
-			// out in order, so the answer waits for what was queued ahead
-			// of it, and that would sit out its backoff ([redteam:F23]).
-			for _, r := range queue {
-				d.hurryQueued(r, keys)
-			}
-			return
-		}
-	}
-	selfKEL, err := identity.MarshalKEL(d.self.KEL())
+// answerQueued reports whether the answer to ix, an inbound interaction
+// this node answered, is still in the outbox to its requester: neither
+// confirmed nor given up. A store error is answered false: nothing is
+// hurried, and the next redelivery asks again.
+func (d *Daemon) answerQueued(ix *interactions.Interaction) bool {
+	rows, err := d.ix.OutboxRows(ix.ID)
 	if err != nil {
-		return
+		log.Printf("anet: %s: read the queued answer: %v", ix.ID, err)
+		return false
 	}
-	// The metadata the answer first went out with: anet.reason and
-	// anet.retry_after_ms are in no other place. A row from before it was
-	// kept has only the state and, for a capability, the effect status to
-	// say.
-	meta := decodeMeta([]byte(ix.ResultMeta))
-	if len(meta) == 0 {
-		meta["anet.state"] = string(ix.State)
-		if ix.IsCapability {
-			var res capabilityResult
-			if json.Unmarshal(ix.Result, &res) == nil && res.Status != "" {
-				meta["anet.effect_status"] = res.Status
-			}
+	for _, r := range rows {
+		if r.ToAID == ix.PeerAID && r.Type == seal.TypeResult {
+			return true
 		}
 	}
-	// The payment part as it stands now: receipts and payment-completed
-	// follow the row, not the first send.
-	paymentResultMeta(ix, meta)
-	mb, _ := json.Marshal(meta)
-	status := delegation.StatusDone
-	if ix.State == interactions.StateFailed || ix.State == interactions.StateRejected {
-		status = delegation.StatusFailed
-	}
-	payload, err := (&delegation.ResultResp{
-		Status: status, Deliverable: ix.Result,
-		Receipt: ix.Receipt, KEL: selfKEL, Metadata: mb,
-	}).Marshal()
-	if err != nil {
-		return
-	}
-	send := wireSend{to: ix.PeerAID, typ: seal.TypeResult, ix: ix.ID, body: payload}
-	if keys != nil {
-		exp := d.nowMS() + messageLifetimeMS
-		env, err := d.sealWithOpts(ix.PeerAID, seal.TypeResult, ix.ID, payload, keys, sealOpts{exp: exp})
-		if err != nil {
-			log.Printf("anet: %s: seal the re-sent answer: %v", ix.ID, err)
-			return
-		}
-		send.sealed, send.sealedExp = env, exp
-	}
-	id, err := d.queueSendAs(ctx, send, nil)
-	if err != nil {
-		log.Printf("anet: %s: queue the re-sent answer: %v", ix.ID, err)
-		return
-	}
-	if err := d.deliverQueued(ctx, id); err != nil {
-		log.Printf("anet: %s: re-sending the answer: %v (queued)", ix.ID, err)
-	}
+	return false
 }
 
-// hurryQueued makes a queued row due now and wakes the loop: the peer just
-// showed it is reachable. A row that was never sealed is sealed with keys
-// when the caller has them.
-func (d *Daemon) hurryQueued(r *interactions.OutboxItem, keys *seal.EncKeySet) {
-	unlock := d.outboxLocks.lock(fmt.Sprint(r.ID))
-	defer unlock()
-	cur, err := d.ix.GetOutbox(r.ID)
-	if err != nil {
-		return // delivered meanwhile
-	}
-	if len(cur.Envelope) == 0 && keys != nil {
-		deadline := cur.Deadline()
-		env, err := d.sealWithOpts(cur.ToAID, cur.Type, cur.IX, cur.Body, keys, sealOpts{mid: cur.MID, exp: deadline})
-		if err == nil {
-			err = d.ix.SetOutboxEnvelope(cur.ID, env, deadline)
-		}
-		if err != nil {
-			log.Printf("anet: %s: seal the queued answer: %v", cur.IX, err)
-		}
-	}
-	if err := d.ix.RescheduleOutbox(cur.ID, cur.Attempts, int64(d.nowMS()), cur.LastError); err != nil {
-		log.Printf("anet: %s: %v", cur.IX, err)
-	}
-	d.kickOutbox()
+// resendResult answers a redelivered delegation this node already
+// answered, whose answer is still queued (engine ENG-V18, C33): the whole
+// queue to the requester is made due now and tried (hurryAnswerQueue), so
+// the answer goes out behind what was queued ahead of it ([redteam:F23])
+// and the requester gets one answer, not one per redelivery. Nothing is
+// sealed again: the answer is the queued row, which leaves the queue only
+// when it is confirmed or given up.
+func (d *Daemon) resendResult(ix *interactions.Interaction) {
+	d.hurryAnswerQueue(ix.ID, ix.PeerAID)
 }

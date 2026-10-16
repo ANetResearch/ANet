@@ -52,6 +52,14 @@ type evidenceLedger struct {
 	did     string
 	nextSeq uint64
 	prevID  string
+	// qpath is the queue of records written while a key event is pending
+	// (evidence_queue.go), and queue what it holds, oldest first.
+	qpath string
+	queue []queuedRecord
+	// lastTS is the latest Timestamp of a record signed or queued: a key
+	// event is dated after it (eventTime), so no record the key it retires
+	// signed is dated at or after the retirement.
+	lastTS int64
 }
 
 // openEvidenceLedger loads (verify-before-use) or creates the chain file.
@@ -62,6 +70,7 @@ func openEvidenceLedger(path string, self *identity.Controller) (*evidenceLedger
 		kel:    self.KEL(),
 		did:    self.DID(),
 		prevID: ael.GenesisPrev(),
+		qpath:  evidenceQueuePath(path),
 	}
 	var tornTail []byte
 	var tornErr error
@@ -114,6 +123,7 @@ func openEvidenceLedger(path string, self *identity.Controller) (*evidenceLedger
 				l.nextSeq = r.Seq + 1
 				l.prevID = r.ID
 			}
+			l.lastTS = max(l.lastTS, r.Timestamp)
 		}
 	} else if err != nil && !os.IsNotExist(err) {
 		return nil, err
@@ -131,6 +141,22 @@ func openEvidenceLedger(path string, self *identity.Controller) (*evidenceLedger
 		return nil, err
 	}
 	l.f = f
+	// The records a key event held back when the last process ended
+	// (evidence_queue.go): signed now when the event is over, kept queued
+	// while it still is.
+	q, err := readEvidenceQueue(l.qpath)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	l.queue = q
+	for _, r := range q {
+		l.lastTS = max(l.lastTS, r.Timestamp)
+	}
+	if err := l.flushIfFreeLocked(); err != nil {
+		f.Close()
+		return nil, err
+	}
 	if tornTail != nil {
 		// The gap goes on the chain, so it is verifiable rather than merely
 		// logged. Failing to record it is fatal: starting while silently
@@ -163,17 +189,49 @@ func dropTornTail(path string, line []byte) error {
 
 // Append signs and chains one event, verifies it into the in-memory ledger,
 // then persists the line. Returns the event id.
+//
+// While a key event is pending (KEL D-13, D-30–D-46, from its Prepare to
+// its Adopt or Discard) the record is written to the queue unsigned and
+// the id is "": no key may sign it then, since either outcome would leave
+// a record the chain refuses on its next open (the old key's dated after
+// the event retired it, or a key the event that revealed it never made
+// valid). It is signed, with the time it was written, by the key of the
+// tip once the event is over (flushQueue). A deactivated identity records
+// nothing: its dip is the record, and no key of it signs again.
 func (l *evidenceLedger) Append(eventType string, payload any) (string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	ts := nowMillis()
+	switch l.hold() {
+	case holdNone:
+	case holdQueue:
+		return "", l.enqueueLocked(eventType, payload, ts)
+	default:
+		return "", errEvidenceDeactivated
+	}
+	if err := l.flushLocked(); err != nil {
+		return "", err
+	}
+	return l.appendLocked(eventType, payload, ts)
+}
+
+// appendLocked signs one record dated ts with the key of the tip and
+// chains it. The caller holds l.mu and has checked that no key event is
+// pending.
+func (l *evidenceLedger) appendLocked(eventType string, payload any, ts int64) (string, error) {
 	rec := &ael.EventRecord{
 		ChainDID: l.did, Seq: l.nextSeq, PrevID: l.prevID,
 		EventType: eventType, VersionMajor: ael.VersionMajor2,
-		Payload: payload, Timestamp: nowMillis(),
+		Payload: payload, Timestamp: ts,
 	}
 	if err := rec.Sign(l.self); err != nil {
 		return "", err
 	}
+	// The identity's KEL as it is now, read after the signature: a key
+	// event adopted since the ledger opened (a rotation, a witness
+	// designation) signs under a key state the KEL read at open does not
+	// reach.
+	l.kel = l.self.KEL()
 	if err := l.led.Append(rec, l.kel); err != nil {
 		return "", err
 	}
@@ -193,6 +251,7 @@ func (l *evidenceLedger) Append(eventType string, payload any) (string, error) {
 		return "", err
 	}
 	l.nextSeq, l.prevID = rec.Seq+1, rec.ID
+	l.lastTS = max(l.lastTS, ts)
 	return rec.ID, nil
 }
 

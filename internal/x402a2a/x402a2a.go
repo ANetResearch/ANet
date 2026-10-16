@@ -12,6 +12,7 @@ package x402a2a
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"strings"
 )
 
@@ -121,10 +122,10 @@ const (
 	ReasonOptionNotOffered         = "option_not_offered"         // the chosen option is not a quoted one (§8.7)
 	ReasonRailNotPayable           = "rail_not_payable"           // the chosen option settles where this node holds no credit (§8.7, an internal note item)
 	ReasonProviderBusy             = "provider_busy"              // no long-call slot; nothing was settled
-	ReasonNeedsOperatorApproval    = "needs_operator_approval"    // the quote is above the automatic tier
-	// ReasonExtensionNotActivated: a local client that did not activate
-	// a2a-x402 is shown a quote above the automatic tier (§8.7).
-	ReasonExtensionNotActivated = "payment_extension_not_activated"
+	// ReasonNeedsOperatorApproval: the quote waits for a person (ux D1;
+	// the variant of the payment sentence says why). Every client is told
+	// it, whether or not it activated a2a-x402 (HPP PAY-D9).
+	ReasonNeedsOperatorApproval = "needs_operator_approval"
 	// ReasonTaskNonceRequired: a priced capability call whose TaskDoc
 	// carries no anet.nonce is rejected; its payment could not be bound to
 	// it (§2 X4, an internal note item).
@@ -140,12 +141,29 @@ const (
 // (base64url, not decoded). The hub stores the binding to allow one
 // settlement per task and cannot recover the interaction id from it; the
 // two daemons can recompute it.
-func PayBind(ix, taskNonce string) string {
+//
+// The two fields are separated by 0x00, so neither may hold U+0000 (core
+// CORE-E9): ("a\x00b", "c") and ("a", "b\x00c") would bind alike, and a
+// payment for one task would pass for the other. Such a field is
+// ErrBindNUL and no binding. The decoders refuse those fields before they
+// get here (the inner ix at the seal layer, anet.nonce at the provider's
+// step 9); this is the second line.
+func PayBind(ix, taskNonce string) (string, error) {
+	if strings.IndexByte(ix, 0) >= 0 || strings.IndexByte(taskNonce, 0) >= 0 {
+		return "", ErrBindNUL
+	}
 	h := sha256.New()
-	h.Write([]byte("anet/x402-bind/v1"))
+	h.Write([]byte(payBindLabel))
 	h.Write([]byte{0})
 	h.Write([]byte(ix))
 	h.Write([]byte{0})
 	h.Write([]byte(taskNonce))
-	return hex.EncodeToString(h.Sum(nil))
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
+
+// payBindLabel is the label of PayBind (core L34, carried from 0.2.1).
+const payBindLabel = "anet/x402-bind/v1"
+
+// ErrBindNUL: PayBind was given an interaction id or a task nonce holding
+// U+0000 (core CORE-E9).
+var ErrBindNUL = errors.New("x402a2a: an interaction id or task nonce holding U+0000 has no payment binding")

@@ -14,11 +14,13 @@ func TestPayBindIsPinned(t *testing.T) {
 		{"ix_0123456789abcdef0123456789abcdef", "AAECAwQFBgcICQoLDA0ODw",
 			"80eebf319c70ca5038d1954e922139d4e926af5bbfca5f86816a7dc996c7778c"},
 	} {
-		if got := PayBind(v.ix, v.nonce); got != v.want {
-			t.Errorf("PayBind(%q, %q) = %s, want %s", v.ix, v.nonce, got, v.want)
+		if got, err := PayBind(v.ix, v.nonce); err != nil || got != v.want {
+			t.Errorf("PayBind(%q, %q) = %s (%v), want %s", v.ix, v.nonce, got, err, v.want)
 		}
 	}
-	if PayBind("a", "bc") == PayBind("ab", "c") {
+	a, _ := PayBind("a", "bc")
+	b, _ := PayBind("ab", "c")
+	if a == b {
 		t.Error("the separator does not separate")
 	}
 }
@@ -41,7 +43,6 @@ func TestTheWireStringsArePinned(t *testing.T) {
 		ExtAuthID:                   "anet.auth_id",
 		ReasonTaskNonceRequired:     "task_nonce_required",
 		ReasonNeedsOperatorApproval: "needs_operator_approval",
-		ReasonExtensionNotActivated: "payment_extension_not_activated",
 	} {
 		if got != want {
 			t.Errorf("%q, want %q", got, want)

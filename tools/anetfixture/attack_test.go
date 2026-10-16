@@ -2,6 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -16,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/relayauth"
@@ -34,22 +38,39 @@ import (
 const testHubAID = "did:anet:test-hub"
 
 // fakeHub serves what the fixture reads from a hub (its identity and agents'
-// keys) and verifies relay v2 on POST /relay/send the way a wire-2 hub does.
+// keys), verifies relay v2 on the signed routes and the session MAC on POST
+// /relay/send the way a wire-3 hub does.
 type fakeHub struct {
 	*httptest.Server
-	mu    sync.Mutex
-	kels  map[string][]identity.SignedEvent
-	keys  map[string][]byte
-	sends []hubapi.RelaySendRequest
-	errs  []string
+	mu       sync.Mutex
+	kels     map[string][]identity.SignedEvent
+	keys     map[string][]byte
+	sessions map[string][]byte // sid → session key
+	sends    []fakeSend
+	errs     []string
+}
+
+// fakeSend is one /relay/send the fake took: the envelope and the session's
+// owner.
+type fakeSend struct {
+	from string
+	env  []byte
 }
 
 func newFakeHub(t *testing.T) *fakeHub {
 	t.Helper()
-	h := &fakeHub{kels: map[string][]identity.SignedEvent{}, keys: map[string][]byte{}}
+	h := &fakeHub{kels: map[string][]identity.SignedEvent{}, keys: map[string][]byte{}, sessions: map[string][]byte{}}
+	owners := map[string]string{}
+	refuse := func(w http.ResponseWriter, code int, why string) {
+		h.mu.Lock()
+		h.errs = append(h.errs, why)
+		h.mu.Unlock()
+		w.WriteHeader(code)
+		_ = json.NewEncoder(w).Encode(map[string]string{"reason": "unauthorized", "error": why})
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /hub/identity", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(hubapi.HubIdentity{AID: testHubAID, KEL: "AA=="})
+		_ = json.NewEncoder(w).Encode(hubapi.HubIdentity{AID: testHubAID, KEL: "AA"})
 	})
 	mux.HandleFunc("GET /agents/{aid}/keys", func(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
@@ -61,52 +82,134 @@ func newFakeHub(t *testing.T) *fakeHub {
 		}
 		kb, _ := identity.MarshalKEL(kel)
 		_ = json.NewEncoder(w).Encode(hubapi.KeysResponse{AID: r.PathValue("aid"),
-			KeySet: base64.StdEncoding.EncodeToString(ks), KEL: base64.StdEncoding.EncodeToString(kb)})
+			KeySet: hubapi.B64(ks), KEL: hubapi.B64(kb)})
 	})
-	mux.HandleFunc("POST /relay/send", func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		if err := h.verify(r, relayauth.ActionSend, body); err != "" {
-			h.mu.Lock()
-			h.errs = append(h.errs, err)
-			h.mu.Unlock()
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": err})
+	// The agent as a hub lists it, with the witness notice of its KEL's tip
+	// (key_state_notice), which the fixture carries for a claimed sender.
+	mux.HandleFunc("GET /agents/{aid}", func(w http.ResponseWriter, r *http.Request) {
+		h.mu.Lock()
+		kel := h.kels[r.PathValue("aid")]
+		h.mu.Unlock()
+		if kel == nil {
+			http.NotFound(w, r)
 			return
 		}
-		var req hubapi.RelaySendRequest
+		_ = json.NewEncoder(w).Encode(map[string]string{"aid": r.PathValue("aid"),
+			"key_state_notice": hubapi.B64(suiteNotice(t, kel))})
+	})
+	mux.HandleFunc("POST /relay/poll", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if _, err := h.verify(r, relayauth.ActionPoll, body); err != "" {
+			refuse(w, http.StatusUnauthorized, err)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"messages": []any{}, "more": false})
+	})
+	mux.HandleFunc("POST "+hubapi.RelaySessionPath, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		aid, err := h.verify(r, relayauth.ActionSession, body)
+		if err != "" {
+			refuse(w, http.StatusUnauthorized, err)
+			return
+		}
+		var req hubapi.SessionRequest
 		_ = json.Unmarshal(body, &req)
+		epk, derr := hubapi.DecodeB64(req.EPK, relayauth.SessionPublicKeyLen)
+		if derr != nil {
+			refuse(w, http.StatusBadRequest, "epk")
+			return
+		}
+		sid, key := randBytes(16), randBytes(32)
+		enc, ct, serr := relayauth.SealSessionKey(epk, testHubAID, sid, key)
+		if serr != nil {
+			refuse(w, http.StatusBadRequest, serr.Error())
+			return
+		}
 		h.mu.Lock()
-		h.sends = append(h.sends, req)
-		n := len(h.sends)
+		h.sessions[string(sid)], owners[string(sid)] = key, aid
 		h.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": n, "status": "queued"})
+		_ = json.NewEncoder(w).Encode(hubapi.SessionResponse{SID: hubapi.B64(sid),
+			Exp: uint64(time.Now().Add(time.Hour).UnixMilli()), Enc: hubapi.B64(enc), CT: hubapi.B64(ct)})
+	})
+	mux.HandleFunc("POST "+hubapi.RelaySendPath, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if r.Header.Get(hubapi.WireVersionHeader) != "3" || r.Header.Get("Content-Type") != hubapi.EnvelopeContentType ||
+			r.Header.Get(relayauth.HeaderAID) != "" || r.Header.Get(relayauth.HeaderSig) != "" {
+			refuse(w, http.StatusBadRequest, "headers")
+			return
+		}
+		outer, err := seal.ParseOuter(body)
+		if err != nil {
+			refuse(w, http.StatusBadRequest, "envelope: "+err.Error())
+			return
+		}
+		access, _ := coredet.Marshal(outer.Access)
+		if r.Header.Get(hubapi.HeaderAccess) != hubapi.B64(access) {
+			refuse(w, http.StatusBadRequest, "access")
+			return
+		}
+		sid, err1 := relayauth.DecodeSessionID(r.Header.Get(hubapi.HeaderSession))
+		mac, err2 := relayauth.DecodeMAC(r.Header.Get(hubapi.HeaderMAC))
+		ts, err3 := strconv.ParseUint(r.Header.Get(relayauth.HeaderTS), 10, 64)
+		h.mu.Lock()
+		key, owner := h.sessions[string(sid)], owners[string(sid)]
+		h.mu.Unlock()
+		if err1 != nil || err2 != nil || err3 != nil || key == nil ||
+			relayauth.VerifySessionMAC(key, sid, ts, r.Method, r.URL.RequestURI(), r.Header.Get(hubapi.HeaderHome), body, mac) != nil {
+			refuse(w, http.StatusUnauthorized, "session")
+			return
+		}
+		h.mu.Lock()
+		h.sends = append(h.sends, fakeSend{from: owner, env: body})
+		h.mu.Unlock()
+		_ = json.NewEncoder(w).Encode(hubapi.RelaySendResponse{Status: hubapi.RelayQueued, RID: hubapi.B64(randBytes(16))})
 	})
 	h.Server = httptest.NewServer(mux)
 	t.Cleanup(h.Close)
 	return h
 }
 
+// randBytes is n random bytes.
+func randBytes(n int) []byte {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return b
+}
+
 // verify is the hub's relay v2 check (ANetHub auth2.go verifyV2), minus the
-// replay cache.
-func (h *fakeHub) verify(r *http.Request, action string, body []byte) string {
-	if r.Header.Get(hubapi.WireVersionHeader) != "2" {
-		return "no wire version"
+// replay cache. It returns the signer.
+func (h *fakeHub) verify(r *http.Request, action string, body []byte) (string, string) {
+	if r.Header.Get(hubapi.WireVersionHeader) != "3" {
+		return "", "no wire version"
 	}
 	aid := r.Header.Get(relayauth.HeaderAID)
 	ts, err1 := strconv.ParseUint(r.Header.Get(relayauth.HeaderTS), 10, 64)
 	seq, err2 := strconv.ParseUint(r.Header.Get(relayauth.HeaderSeq), 10, 64)
 	sig, err3 := relayauth.DecodeSig(r.Header.Get(relayauth.HeaderSig))
 	if err1 != nil || err2 != nil || err3 != nil {
-		return "malformed headers"
+		return "", "malformed headers"
 	}
 	h.mu.Lock()
 	kel := h.kels[aid]
 	h.mu.Unlock()
 	pre := relayauth.PreimageV2(action, aid, testHubAID, ts, r.Method, r.URL.RequestURI(), body)
 	if err := identity.VerifyObject(kel, aid, seq, ts, pre, sig); err != nil {
-		return "signature: " + err.Error()
+		return "", "signature: " + err.Error()
 	}
-	return ""
+	return aid, ""
+}
+
+// mboxPub is a fresh Ed25519 public key for a test key set's mailbox
+// signing key.
+func mboxPub(t *testing.T) []byte {
+	t.Helper()
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pub
 }
 
 // register publishes c's KEL and a fresh key set, and returns the key pair
@@ -114,12 +217,12 @@ func (h *fakeHub) verify(r *http.Request, action string, body []byte) string {
 func (h *fakeHub) register(t *testing.T, c *identity.Controller) *seal.KeyPair {
 	t.Helper()
 	now := uint64(time.Now().UnixMilli())
-	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now-1000, now+seal.KeyLifetimeMS)
+	kp, err := seal.GenerateKeyPair(seal.SuiteX25519, now-1000, now-1000+seal.MaxKeyValidityMS)
 	if err != nil {
 		t.Fatal(err)
 	}
 	signed, err := seal.SignEncKeySet(&seal.EncKeySet{Type: seal.EncKeySetType, AID: c.AID(), Seq: now,
-		Keys: []seal.EncKey{kp.Public}, IssuedAt: now}, c.Sign)
+		Keys: []seal.EncKey{kp.Public}, IssuedAt: now, Mbox: seal.Mbox{Epoch: 1, Pub: mboxPub(t)}}, c.Sign)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +244,7 @@ func sealWith(t *testing.T, recipient string, kp *seal.KeyPair, args ...string) 
 	if err != nil {
 		t.Fatalf("seal output is not base64: %v", err)
 	}
-	op, err := seal.Open(env, recipient, seal.StaticKeyRing{kp})
+	op, err := seal.Open(env, recipient, seal.StaticKeyRing{kp}, nil)
 	if err != nil {
 		t.Fatalf("the recipient cannot open what seal made: %v", err)
 	}
@@ -173,7 +276,7 @@ func TestSealMakesTheEnvelopeItClaimsToMake(t *testing.T) {
 		if err := seal.CheckTime(in, now); err != nil {
 			t.Fatalf("time window: %v", err)
 		}
-		if err := seal.VerifyInnerSig(in, op.Preimage, op.KEL, now, time.Hour); err != nil {
+		if err := seal.VerifyInnerSig(in, op.Preimage, op.KEL, now); err != nil {
 			t.Fatalf("a genuine envelope does not verify: %v", err)
 		}
 		cm, err := delegation.UnmarshalChatMsg(in.Body)
@@ -199,7 +302,7 @@ func TestSealMakesTheEnvelopeItClaimsToMake(t *testing.T) {
 		if got := replayAID(t, op.KEL); got != req.AID() {
 			t.Fatalf("inner KEL replays to %s, want the claimed %s", got, req.AID())
 		}
-		err := seal.VerifyInnerSig(&op.Inner, op.Preimage, op.KEL, now, time.Hour)
+		err := seal.VerifyInnerSig(&op.Inner, op.Preimage, op.KEL, now)
 		if seal.ReasonOf(err) != seal.ReasonBadSig {
 			t.Fatalf("forgery under the claimed KEL: %v, want %s", err, seal.ReasonBadSig)
 		}
@@ -242,7 +345,7 @@ func TestSealCarriesAMessagesMetadata(t *testing.T) {
 	op := sealWith(t, prov.AID(), provKP, "--home", reqDir, "--hub", hub.URL, "--to", prov.AID(),
 		"--type", "message", "--ix", "ix_pay", "--metadata", meta)
 	now := uint64(time.Now().UnixMilli())
-	if err := seal.VerifyInnerSig(&op.Inner, op.Preimage, op.KEL, now, time.Hour); err != nil || op.Inner.From != req.AID() {
+	if err := seal.VerifyInnerSig(&op.Inner, op.Preimage, op.KEL, now); err != nil || op.Inner.From != req.AID() {
 		t.Fatalf("not a genuine envelope from the requester: from %s, %v", op.Inner.From, err)
 	}
 	cm, err := delegation.UnmarshalChatMsg(op.Inner.Body)
@@ -282,20 +385,20 @@ func replayAID(t *testing.T, kel []identity.SignedEvent) string {
 
 // relay-sign's headers are what the hub checks: a signature by the loaded
 // identity over PreimageV2 of exactly this request on this hub.
-func TestRelaySignOutputIsAcceptedByAWire2Hub(t *testing.T) {
+func TestRelaySignOutputIsAcceptedByTheHub(t *testing.T) {
 	hub := newFakeHub(t)
 	dir, c := withIdentity(t)
 	hub.register(t, c)
-	body := `{"to_aid":"x","envelope":"AA=="}`
+	body := `{"limit":1}`
 	bodyFile := filepath.Join(t.TempDir(), "req.json")
 	if err := os.WriteFile(bodyFile, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out := capture(t, func() error {
-		return cmdRelaySign([]string{"--home", dir, "--hub", hub.URL, "--action", relayauth.ActionSend,
-			"--method", "POST", "--path", "/relay/send", "--body-file", bodyFile})
+		return cmdRelaySign([]string{"--home", dir, "--hub", hub.URL, "--action", relayauth.ActionPoll,
+			"--method", "POST", "--path", "/relay/poll", "--body-file", bodyFile})
 	})
-	req, err := http.NewRequest(http.MethodPost, hub.URL+"/relay/send", strings.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, hub.URL+"/relay/poll", strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +419,7 @@ func TestRelaySignOutputIsAcceptedByAWire2Hub(t *testing.T) {
 	}
 
 	// The same headers over another body are a different request.
-	req2, _ := http.NewRequest(http.MethodPost, hub.URL+"/relay/send", strings.NewReader(body+" "))
+	req2, _ := http.NewRequest(http.MethodPost, hub.URL+"/relay/poll", strings.NewReader(body+" "))
 	req2.Header = req.Header.Clone()
 	resp2, err := http.DefaultClient.Do(req2)
 	if err != nil {
@@ -328,25 +431,23 @@ func TestRelaySignOutputIsAcceptedByAWire2Hub(t *testing.T) {
 	}
 }
 
-// The wire-1 form stays available for the hub taskboard only when asked for.
+// relay-sign signs a request it was told in full, never one it guessed.
 func TestRelaySignRefusesToGuessTheRequest(t *testing.T) {
 	dir, _ := withIdentity(t)
-	if err := cmdRelaySign([]string{"--home", dir, "--action", "task.create"}); err == nil ||
-		!strings.Contains(err.Error(), "--v1") {
-		t.Fatalf("no --path and no --v1: %v", err)
-	}
-	out := capture(t, func() error { return cmdRelaySign([]string{"--home", dir, "--v1", "--action", "task.create"}) })
-	var v1 map[string]any
-	if err := json.Unmarshal([]byte(out), &v1); err != nil || v1["sig"] == nil || v1["aid"] == nil {
-		t.Fatalf("--v1 output = %q", out)
+	if err := cmdRelaySign([]string{"--home", dir, "--action", relayauth.ActionPoll}); err == nil ||
+		!strings.Contains(err.Error(), "--path") {
+		t.Fatalf("no --path: %v", err)
 	}
 }
 
-// relay-send hands the same bytes to both paths: the hub gets them in a
-// relay-v2-signed /relay/send, the peer wire in a v2 "send" frame.
+// relay-send hands the same bytes to both paths: the hub gets them as a
+// first contact (a session opened with the sender's signature, the send
+// under its MAC, no identity header), the peer wire in a v3 "send" frame.
 func TestRelaySendDeliversTheSameBytesOnBothPaths(t *testing.T) {
 	hub := newFakeHub(t)
+	_, prov := withIdentity(t)
 	dir, c := withIdentity(t)
+	hub.register(t, prov)
 	hub.register(t, c)
 
 	sock := filepath.Join(t.TempDir(), "p.wire")
@@ -367,13 +468,19 @@ func TestRelaySendDeliversTheSameBytesOnBothPaths(t *testing.T) {
 			return
 		}
 		got <- f
-		_ = json.NewEncoder(conn).Encode(peerFrame{Op: "send", V: 2, ID: f.ID})
+		_ = json.NewEncoder(conn).Encode(peerFrame{Op: "send", V: 3, ID: f.ID})
 	}()
 
-	env := base64.StdEncoding.EncodeToString([]byte("sealed bytes"))
+	envB64 := capture(t, func() error {
+		return cmdSeal([]string{"--home", dir, "--hub", hub.URL, "--to", prov.AID(), "--type", "message", "--ix", "ix_1", "--text", "hi"})
+	})
+	env, err := base64.StdEncoding.DecodeString(envB64)
+	if err != nil {
+		t.Fatal(err)
+	}
 	out := capture(t, func() error {
 		return cmdRelaySend([]string{"--home", dir, "--hub", hub.URL, "--p2p", sock,
-			"--to", "did:anet:prov", "--envelope", env})
+			"--to", prov.AID(), "--envelope", envB64})
 	})
 	var res struct {
 		Hub *hubOutcome `json:"hub"`
@@ -382,16 +489,16 @@ func TestRelaySendDeliversTheSameBytesOnBothPaths(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &res); err != nil {
 		t.Fatalf("output %q: %v", out, err)
 	}
-	if res.Hub == nil || res.Hub.Code != 200 || res.Hub.Status != "queued" || res.P2P == nil || !res.P2P.OK {
-		t.Fatalf("outcomes: %s", out)
+	if res.Hub == nil || res.Hub.Code != 200 || res.Hub.Status != "queued" || res.Hub.RID == "" || res.P2P == nil || !res.P2P.OK {
+		t.Fatalf("outcomes: %s (hub refusals %v)", out, hub.errs)
 	}
 	f := <-got
-	if f.Op != "send" || f.V != 2 || f.To != "did:anet:prov" || f.Envelope != env || f.ID == "" {
+	if f.Op != "send" || f.V != 3 || f.To != prov.AID() || f.ID == "" || f.Envelope != hubapi.B64(env) {
 		t.Fatalf("peer frame = %+v", f)
 	}
 	hub.mu.Lock()
 	defer hub.mu.Unlock()
-	if len(hub.sends) != 1 || hub.sends[0].Envelope != env || hub.sends[0].ToAID != "did:anet:prov" {
-		t.Fatalf("hub got %+v", hub.sends)
+	if len(hub.sends) != 1 || !bytes.Equal(hub.sends[0].env, env) || hub.sends[0].from != c.AID() {
+		t.Fatalf("hub got %d sends (refusals %v)", len(hub.sends), hub.errs)
 	}
 }

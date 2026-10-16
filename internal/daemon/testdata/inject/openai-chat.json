@@ -1,0 +1,48 @@
+{
+  "upstream": "openai",
+  "model": "gpt-6-luna",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "header": {
+      "Authorization": "Bearer anet-sandbox"
+    },
+    "body": "{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"n\":3,\"max_tokens\":100000,\"store\":true,\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"f\",\"parameters\":{}}}]}"
+  },
+  "forwarded": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/chat/completions",
+    "header": {
+      "Accept-Encoding": [
+        "identity"
+      ],
+      "Authorization": [
+        "Bearer operator-key-golden"
+      ],
+      "Content-Type": [
+        "application/json"
+      ]
+    },
+    "body": {
+      "max_tokens": 8192,
+      "messages": [
+        {
+          "content": "hi",
+          "role": "user"
+        }
+      ],
+      "model": "gpt-6-luna",
+      "n": 1,
+      "store": false,
+      "tools": [
+        {
+          "function": {
+            "name": "f",
+            "parameters": {}
+          },
+          "type": "function"
+        }
+      ]
+    }
+  }
+}

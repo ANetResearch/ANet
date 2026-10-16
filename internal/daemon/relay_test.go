@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,7 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/evidence"
+	"github.com/ANetResearch/ANet/internal/a2ashape"
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
+	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/hubapi"
@@ -56,12 +60,44 @@ func newTestDaemonCfg(t testing.TB, hubURL string, modules map[string]any) *Daem
 // loop and closes it when the test ends.
 func buildTestDaemon(t testing.TB, hubURL string, modules map[string]any) *Daemon {
 	t.Helper()
+	return buildTestDaemonAs(t, hubURL, modules, false)
+}
+
+// buildTestDaemonAs is buildTestDaemon; a plain node's join designates no
+// witness (newPlainTestDaemon).
+func buildTestDaemonAs(t testing.TB, hubURL string, modules map[string]any, plain bool) *Daemon {
+	t.Helper()
+	if plain {
+		return buildTestDaemonAt(t, hubURL, modules, -1)
+	}
+	return buildTestDaemonAt(t, hubURL, modules, 0)
+}
+
+// buildTestDaemonAt is buildTestDaemon whose join designates its hub its
+// witness at designateAt (unix ms; 0 at the join; -1 designates none, a
+// plain node).
+func buildTestDaemonAt(t testing.TB, hubURL string, modules map[string]any, designateAt int64) *Daemon {
+	t.Helper()
+	plain := designateAt < 0
 	root := t.TempDir()
 	cfg := map[string]any{"control_addr": "127.0.0.1:0", "hub_url": hubURL}
 	if modules != nil {
 		cfg["modules"] = modules
 	}
 	writeTestConfig(t, root, cfg)
+	// The node's identity was incepted a day ago, so that a test can date a rotation in the
+	// recent past (a rot's ts must follow its icp's).
+	self, err := identity.InceptAgent(uint64(time.Now().Add(-24 * time.Hour).UnixMilli()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := saveIdentity(NewLayout(root), self); err != nil {
+		t.Fatal(err)
+	}
+	if !plain {
+		witnessRoots.Store(root, uint64(designateAt))
+		t.Cleanup(func() { witnessRoots.Delete(root) })
+	}
 	d, err := New(NewLayout(root))
 	if err != nil {
 		t.Fatal(err)
@@ -75,6 +111,183 @@ func buildTestDaemon(t testing.TB, hubURL string, modules map[string]any) *Daemo
 	d.mu.Unlock()
 	t.Cleanup(func() { d.Close() })
 	return d
+}
+
+// newPlainTestDaemon is newTestDaemon for a node whose join designates no
+// witness (the kernel's hooks), with its outbound gate held open: a test
+// that builds key events of its own dated in the recent past, which a
+// designation made at the join would postdate.
+//
+// Its hub is not its witness, so nothing it sends passes a receiver's step
+// 6½: a test whose node without a witness sends uses
+// newSuiteWitnessedTestDaemon instead (as plainRegisteredPair does).
+func newPlainTestDaemon(t testing.TB, hubURL string, accept bool) *Daemon {
+	t.Helper()
+	d := buildTestDaemonAs(t, hubURL, nil, true)
+	joinTestGroup(t, d, accept)
+	holdGateOpen(d)
+	return d
+}
+
+// newPastWitnessedDaemon is newTestDaemon for a node that sends and also
+// builds key events of its own dated in the recent past: its join
+// designates the hub its witness at designateAt (unix ms), before them, so
+// the hub's notices confirm it and its outbound gate opens like any test
+// node's — a node no witness confirms seals nothing (engine ENG-K13).
+func newPastWitnessedDaemon(t testing.TB, hubURL string, accept bool, designateAt uint64) *Daemon {
+	t.Helper()
+	d := buildTestDaemonAt(t, hubURL, nil, int64(designateAt))
+	joinTestGroup(t, d, accept)
+	return d
+}
+
+// pastWitnessedPair is registeredPair of nodes designated at designateAt
+// (newPastWitnessedDaemon).
+func pastWitnessedPair(t testing.TB, designateAt uint64) (*httptest.Server, *Daemon, *Daemon) {
+	t.Helper()
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newPastWitnessedDaemon(t, srv.URL, false, designateAt)
+	prov := newPastWitnessedDaemon(t, srv.URL, true, designateAt)
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
+		t.Fatal(err)
+	}
+	return srv, req, prov
+}
+
+// newSuiteWitnessedTestDaemon is newPlainTestDaemon for a node whose key
+// history names the suite witness, designated just after its inception —
+// before any event a test dates, and before the daemon starts, so that
+// nothing it signs at start (its key set, its evidence chain) is under the
+// key the designation retires. It trusts that witness's KEL, as every test
+// daemon a crafted envelope reaches does (craft), and holds the witness's
+// notice of its tip (renoticeBySuite): what it sends passes a receiver's
+// step 6½. A test that adds an event to its key history gives it the
+// notice of the new tip with renoticeBySuite.
+func newSuiteWitnessedTestDaemon(t testing.TB, hubURL string, accept bool) *Daemon {
+	t.Helper()
+	root := t.TempDir()
+	writeTestConfig(t, root, map[string]any{"control_addr": "127.0.0.1:0", "hub_url": hubURL})
+	self, err := identity.InceptAgent(uint64(time.Now().Add(-24 * time.Hour).UnixMilli()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := identitytest.SwitchWitness(self, identitytest.Witness, self.Accepted()[0].Event.Timestamp+1); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveIdentity(NewLayout(root), self); err != nil {
+		t.Fatal(err)
+	}
+	d, err := New(NewLayout(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.stopRelayLoop()
+	t.Cleanup(func() { d.Close() })
+	joinTestGroup(t, d, accept)
+	holdGateOpen(d)
+	trustSuiteWitness(t, d)
+	renoticeBySuite(t, d)
+	return d
+}
+
+// renoticeBySuite gives d, witnessed by the suite witness, that witness's
+// notice of its KEL's tip, observed now: what it carries in what it seals.
+func renoticeBySuite(t testing.TB, d *Daemon) {
+	t.Helper()
+	now := d.nowMS()
+	wire := suiteNotice(t, d.self.Accepted(), now)
+	if wire == nil {
+		t.Fatal("the node's witness is not the suite witness")
+	}
+	n, err := d.verifyOwnNotice(wire, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.idGate.noteNotice(n, "")
+}
+
+// witnessRoots are the data directories of the test daemons
+// buildTestDaemon made (not plain), with when their join designates the
+// witness (0: at the join): their daemons, restarts included, join with
+// sendingJoinHooks. Any other daemon keeps the kernel's.
+var witnessRoots sync.Map
+
+// Joining a hub designates it the identity's witness (KEL D-13), as the
+// identity area's join hooks do, so a test node that joined is confirmed by
+// its hub's notices and its outbound gate opens (KEL D-1, engine ENG-K13).
+func init() {
+	testJoinHooks = func(d *Daemon) JoinHooks {
+		v, ok := witnessRoots.Load(d.layout.Root)
+		if !ok {
+			return nil
+		}
+		h := sendingJoinHooks{witnessJoinHooks{d}}
+		if at, _ := v.(uint64); at != 0 {
+			return pastJoinHooks{h, at}
+		}
+		return h
+	}
+}
+
+// pastJoinHooks are sendingJoinHooks whose designation is dated at.
+type pastJoinHooks struct {
+	sendingJoinHooks
+	at uint64
+}
+
+func (h pastJoinHooks) Prepare(_ context.Context, hubAID string) ([]byte, error) {
+	c := h.d.self
+	if _, ok := c.Pending(); !ok {
+		if _, err := c.BuildWitnessDesignation(hubAID, identitytest.NewNext(), h.at); err != nil {
+			return nil, err
+		}
+		if err := saveIdentity(h.d.layout, c); err != nil {
+			return nil, err
+		}
+	}
+	return identity.MarshalKEL(c.KEL())
+}
+
+// plainRegisteredPair is registeredPair of test daemons whose join
+// designates no witness, witnessed by the suite witness instead
+// (newSuiteWitnessedTestDaemon) so that what one sends the other takes.
+func plainRegisteredPair(t testing.TB) (*httptest.Server, *Daemon, *Daemon) {
+	t.Helper()
+	srv := newFakeHub(t)
+	ctx := context.Background()
+	req := newSuiteWitnessedTestDaemon(t, srv.URL, false)
+	prov := newSuiteWitnessedTestDaemon(t, srv.URL, true)
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
+		t.Fatal(err)
+	}
+	return srv, req, prov
+}
+
+// sendingJoinHooks are witnessJoinHooks for a node that sends: the witness
+// designation retires the key its encryption key set was signed under, so
+// once it is adopted the set is signed again under the new key state and
+// published to the hub just joined, as part of the join.
+type sendingJoinHooks struct{ witnessJoinHooks }
+
+func (h sendingJoinHooks) Adopt(ctx context.Context, res RegisterResult) error {
+	if err := h.witnessJoinHooks.Adopt(ctx, res); err != nil {
+		return err
+	}
+	d := h.d
+	if err := d.resignKeyRing(); err != nil {
+		return err
+	}
+	if err := d.publishKeys(ctx, res.Hub); err != nil {
+		log.Printf("anet: test join: publish the key set signed after the designation: %v", err)
+	}
+	return nil
 }
 
 // testGroups holds, per test, the daemons newTestDaemon created and which of
@@ -112,19 +325,19 @@ func joinTestGroup(t testing.TB, d *Daemon, accept bool) {
 // do it without the CLI (the CLI's `anet peers allow` requires a TTY).
 func allowPeers(t testing.TB, d *Daemon, aids ...string) {
 	t.Helper()
-	appendPeerFile(t, d, d.config().inbound().AllowFile, aids...)
+	appendPeerFile(t, d, peersAllowFile, aids...)
 }
 
 // trustPeers appends AIDs to d's peers.trust.
 func trustPeers(t testing.TB, d *Daemon, aids ...string) {
 	t.Helper()
-	appendPeerFile(t, d, d.config().inbound().TrustFile, aids...)
+	appendPeerFile(t, d, peersTrustFile, aids...)
 }
 
 // denyPeers appends AIDs to d's peers.deny.
 func denyPeers(t *testing.T, d *Daemon, aids ...string) {
 	t.Helper()
-	appendPeerFile(t, d, d.config().inbound().DenyFile, aids...)
+	appendPeerFile(t, d, peersDenyFile, aids...)
 }
 
 func appendPeerFile(t testing.TB, d *Daemon, name string, aids ...string) {
@@ -153,10 +366,10 @@ func TestRelayDelegationRoundTrip(t *testing.T) {
 	prov := newTestDaemon(t, srv.URL, true)
 
 	// Both must be registered so the relay knows their mailboxes + KELs (for poll auth + review verify).
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatalf("register requester: %v", err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Bakery Bot", []string{"haiku"}, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Bakery Bot", []string{"haiku"}); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}
 
@@ -286,7 +499,7 @@ func TestTheReviewUploadCarriesNoContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	rcb, _ := rc.Marshal()
-	if err := d.ix.SetResult(id, []byte("SECRET-DELIVERABLE"), "res", rcb, interactions.VerificationVerified); err != nil {
+	if err := d.ix.SetResult(id, []byte("SECRET-DELIVERABLE"), "res", rcb, interactions.VerificationVerified, interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.SubmitReview(id, 4, "ok"); err != nil {
@@ -335,7 +548,7 @@ func TestResultsPaginatesBeyondStoreDefaultLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := req.ix.SetResult(id, []byte("result"), resultCID, receiptBytes, interactions.VerificationVerified); err != nil {
+		if err := req.ix.SetResult(id, []byte("result"), resultCID, receiptBytes, interactions.VerificationVerified, interactions.CausePeerEnded); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -358,10 +571,10 @@ func TestRelayDelegationRefusedWhenNotAccepting(t *testing.T) {
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, false) // NOT accepting
 
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Closed Bot", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Closed Bot", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.Delegate(ctx, prov.AID(), "do something", nil); err != nil {
@@ -377,16 +590,22 @@ func TestRelayDelegationRefusedWhenNotAccepting(t *testing.T) {
 	if len(inbox) != 0 {
 		t.Fatalf("non-accepting provider stored %d tasks, want 0", len(inbox))
 	}
-	waitUntil(t, "the refusal notice reaches the requester", func() bool {
-		_ = req.pollOnce(ctx)
+	// The refusal comes back in the delegation's delivery token, with its
+	// reason (engine ENG-V15, §2.7): no message is sent for it.
+	waitUntil(t, "the refusal reaches the requester", func() bool {
+		askHubNow(t, req)
 		list, _ := req.ix.List(interactions.RoleOutbound, interactions.StateRejected, 0, 0)
 		return len(list) == 1
 	})
 	list, _ := req.ix.List(interactions.RoleOutbound, interactions.StateRejected, 0, 0)
+	if meta := decodeMeta([]byte(list[0].ResultMeta)); meta[a2ashape.KeyReason] != seal.NoteNotAccepting {
+		t.Fatalf("the refused task's metadata = %v, want reason %s", meta, seal.NoteNotAccepting)
+	}
 	msgs, _ := req.ix.Messages(list[0].ID)
-	last := msgs[len(msgs)-1]
-	if last.Kind != interactions.MsgStatus || !strings.Contains(last.Metadata, `"anet.reason":"not_accepting"`) {
-		t.Fatalf("refusal notice = %+v", last)
+	for _, m := range msgs {
+		if m.Kind == interactions.MsgStatus {
+			t.Fatalf("a status message reached the requester: %+v", m)
+		}
 	}
 }
 
@@ -400,10 +619,10 @@ func TestRelayAttachmentRoundTrip(t *testing.T) {
 
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatalf("register requester: %v", err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Coder", []string{"coding"}, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Coder", []string{"coding"}); err != nil {
 		t.Fatalf("register provider: %v", err)
 	}
 
@@ -490,15 +709,12 @@ func TestRelayAttachmentRoundTrip(t *testing.T) {
 }
 
 // Envelopes held back in the mailbox do not stand in front of newer mail
-// (A2A-DESIGN §3.6 step 9, §3.7; decision Q1). Peers the provider deals
-// with fill its mailbox with more than a page of signed messages for
-// interactions it does not hold — each one class T for the unknown-ix
-// window, so none is acknowledged — and a real delegation queued behind
-// them is taken on the next round. Without the relay cursor every poll is
-// handed the same first page and the delegation waits out the window.
-// (A stranger's messages for unknown tasks do not wait at all, and one
-// peer has at most unknownIXHeldPerSender waiting, [redteam:F25]: the flood
-// comes from several allowed peers.)
+// (A2A-DESIGN §3.6, §3.7; decision Q1). The provider's mailbox holds more
+// than a page of signed messages it cannot judge yet — their senders'
+// witness is a hub it does not know (step 6½, witness-unknown, class T) —
+// and a real delegation queued behind them is taken on the next round.
+// Without the relay cursor every poll is handed the same first page and the
+// delegation waits behind it.
 func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	// The test drives the rounds: no background poll may move the cursor.
@@ -513,11 +729,11 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 
 	const flood = relayPollLimit + 50
 	var peers []sender
+	var witnesses []*identity.Controller
 	for i := 0; i < flood; i++ {
 		if i%30 == 0 {
-			p := newStranger(t)
-			allowPeers(t, prov, p.aid)
-			peers = append(peers, p)
+			p, w := unknownWitnessSender(t)
+			peers, witnesses = append(peers, p), append(witnesses, w)
 		}
 		injectEnvelope(t, srv, prov.AID(), craft(t, peers[len(peers)-1], prov, seal.TypeMessage,
 			fmt.Sprintf("ix_not_held_%03d", i), chatBody(t, "noise", ""), nil))
@@ -536,7 +752,7 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := counter(prov, transientUnknownIX); n != relayPollLimit {
+	if n := counter(prov, seal.ReasonWitnessUnknown); n != relayPollLimit {
 		t.Fatalf("round 1 held back %d envelopes, want the first page of %d", n, relayPollLimit)
 	}
 	if taken() {
@@ -557,16 +773,18 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 		t.Fatalf("%d envelopes left after round 2, want the %d held back", n, flood)
 	}
 
-	// Past the window the held envelopes turn permanent (TaskNotFound) and
-	// are acknowledged on the way back through the mailbox.
-	clock.Add(uint64((unknownIXWait + time.Minute).Milliseconds()))
+	// Once the provider knows their witnesses the held envelopes are judged
+	// (task_not_found) and acknowledged on the way back through the mailbox.
+	for _, w := range witnesses {
+		trustWitness(t, prov, w)
+	}
 	for round := 0; round < 4 && queued() > 0; round++ {
 		if err := prov.pollOnce(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if n := queued(); n != 0 {
-		t.Fatalf("%d envelopes still queued after the window; they were not retried from the head", n)
+		t.Fatalf("%d envelopes still queued once they could be judged; they were not retried from the head", n)
 	}
 	if n := counter(prov, dropUnknownIX); n != flood {
 		t.Fatalf("%d envelopes dropped as unknown-ix, want %d", n, flood)
@@ -576,9 +794,9 @@ func TestHeldBackEnvelopesDoNotBlockNewerMail(t *testing.T) {
 // An envelope held back at the tail of the mailbox is still retried, and
 // holding it costs the hub no extra requests: every round is one poll
 // (relayCursor). A round that finds nothing after the cursor sends the next
-// round back to the head rather than polling the head itself, so a
-// stranger who keeps one message held cannot double how often this node
-// calls its hub.
+// round back to the head rather than polling the head itself, so a sender
+// who keeps one message held cannot double how often this node calls its
+// hub.
 func TestAHeldEnvelopeIsRetriedAtOnePollPerRound(t *testing.T) {
 	srv, _, prov := registeredPair(t)
 	prov.stopRelayLoop()
@@ -589,12 +807,11 @@ func TestAHeldEnvelopeIsRetriedAtOnePollPerRound(t *testing.T) {
 	clock.Store(uint64(time.Now().UnixMilli()))
 	prov.setClock(clock.Load)
 
-	peer := newStranger(t)
-	allowPeers(t, prov, peer.aid) // a stranger's message would not be held ([redteam:F25])
+	peer, witness := unknownWitnessSender(t)
 	injectEnvelope(t, srv, prov.AID(), craft(t, peer, prov, seal.TypeMessage,
 		"ix_not_held_tail", chatBody(t, "noise", ""), nil))
 	polls0 := relayPollsFor(srv.URL, prov.AID())
-	tries0 := counter(prov, transientUnknownIX)
+	tries0 := counter(prov, seal.ReasonWitnessUnknown)
 	const rounds = 6
 	for i := 0; i < rounds; i++ {
 		if err := prov.pollOnce(ctx); err != nil {
@@ -604,21 +821,22 @@ func TestAHeldEnvelopeIsRetriedAtOnePollPerRound(t *testing.T) {
 	if n := relayPollsFor(srv.URL, prov.AID()) - polls0; n != rounds {
 		t.Fatalf("%d rounds made %d poll requests, want one each", rounds, n)
 	}
-	if n := counter(prov, transientUnknownIX) - tries0; n < rounds/2 {
+	if n := counter(prov, seal.ReasonWitnessUnknown) - tries0; n < rounds/2 {
 		t.Fatalf("the held envelope was tried %d times in %d rounds, want at least every other round", n, rounds)
 	}
 	if n := len(queuedFor(t, srv, prov.AID())); n != 1 {
 		t.Fatalf("%d envelopes queued, want the held one", n)
 	}
 
-	// Past the window it turns permanent and is acknowledged.
-	clock.Add(uint64((unknownIXWait + time.Minute).Milliseconds()))
+	// Once its witness is known it is judged (task_not_found) and
+	// acknowledged.
+	trustWitness(t, prov, witness)
 	for i := 0; i < 2; i++ {
 		if err := prov.pollOnce(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if n := len(queuedFor(t, srv, prov.AID())); n != 0 {
-		t.Fatalf("%d envelopes still queued two rounds after the window", n)
+		t.Fatalf("%d envelopes still queued two rounds after it could be judged", n)
 	}
 }

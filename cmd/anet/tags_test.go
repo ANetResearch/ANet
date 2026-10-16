@@ -139,7 +139,7 @@ func TestTheOptInDeclarationNamesEveryAdditiveTag(t *testing.T) {
 
 // CI checks every subtractive tag on a row of its own, every additive tag
 // in the optin job, and names no tag the check does not know — a stale
-// `no_taskboard` row would build the default binary and pass forever.
+// `no_shell` row would build the default binary and pass forever.
 func TestCIChecksEveryTagOnARowOfItsOwn(t *testing.T) {
 	sub, add := tagLists(t)
 	b, err := os.ReadFile(filepath.Join(repoRoot, ".github", "workflows", "ci.yml"))

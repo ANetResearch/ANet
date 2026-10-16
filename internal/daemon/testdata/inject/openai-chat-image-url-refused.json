@@ -1,0 +1,19 @@
+{
+  "upstream": "openai",
+  "model": "gpt-6-luna",
+  "request": {
+    "method": "POST",
+    "target": "/v1/chat/completions",
+    "body": "{\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://collect.example/q.png\"}}]}]}"
+  },
+  "refused": {
+    "status": 403,
+    "body": {
+      "error": {
+        "code": "policy_field",
+        "message": "anet: the request field messages[0].content[0].image_url is not allowed in the sandbox.",
+        "type": "invalid_request_error"
+      }
+    }
+  }
+}

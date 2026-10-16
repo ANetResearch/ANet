@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -92,7 +93,7 @@ func (d *Daemon) screenPublication(what string, body any) error {
 	// question about the same bytes: INV-1 asks whether the TYPE may go
 	// out, INV-2 whether these VALUES may.
 	if err := inv1.GuardCommonsPublish(body); err != nil {
-		return fmt.Errorf("anet: refusing to publish %s: %w", what, err)
+		return fmt.Errorf("%w %s: %w", errPublicationBlocked, what, err)
 	}
 	var forbidden []string
 	for _, m := range d.modules {
@@ -108,10 +109,14 @@ func (d *Daemon) screenPublication(what string, body any) error {
 		return err
 	}
 	if err := inv2.Screen(b, forbidden); err != nil {
-		return fmt.Errorf("anet: refusing to publish %s: %w", what, err)
+		return fmt.Errorf("%w %s: %w", errPublicationBlocked, what, err)
 	}
 	return nil
 }
+
+// errPublicationBlocked is a publication screenPublication refused: this
+// node's own data, which no retry changes (hub_publication_blocked).
+var errPublicationBlocked = errors.New("anet: refusing to publish")
 
 // moduleStopTimeout is the deadline the modules' Stop calls share. It
 // bounds a Stop that honours its context (an http.Server.Shutdown, say);
@@ -137,23 +142,15 @@ func (d *Daemon) stopModules(ctx context.Context) {
 	}
 }
 
-// moduleConfig projects the daemon's typed config into the per-module raw
-// blocks module.Build expects.
-//
-// The typed fields stay for the modules that ship today, so an existing
-// config file keeps working; a module that lands later can take its block
-// from cfg.Modules without the daemon growing a field for it.
+// moduleConfig projects the daemon's config into the per-module raw blocks
+// module.Build expects: each module takes its block from cfg.Modules, and
+// the daemon grows no typed field for one. (providers.anetlink was the last
+// such field; 0.3.0 refuses it as a removed key, and the block is
+// modules.anetlink.)
 func moduleConfig(cfg Config) (map[string][]byte, error) {
 	out := map[string][]byte{}
 	for name, raw := range cfg.Modules {
 		out[name] = raw
-	}
-	if pc := cfg.Providers; pc != nil && pc.ANetLink != nil && pc.ANetLink.Socket != "" {
-		b, err := json.Marshal(map[string]any{"socket": pc.ANetLink.Socket})
-		if err != nil {
-			return nil, err
-		}
-		out["anetlink"] = b
 	}
 	return out, nil
 }

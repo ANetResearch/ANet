@@ -9,22 +9,30 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
 )
 
 // The fixture had no tests, which was tolerable while it only helped a
 // human paste a base64 string. It stopped being tolerable when the joint
-// run started depending on it: the gateway-payment section of
-// scenario.sh pays with `anetfixture x402-authorize`, so a fixture that
-// silently minted an unverifiable authorization would make that section
+// run started depending on it: the merchant-check sections of scenario.sh
+// present payments with `anetfixture x402-authorize`, so a fixture that
+// silently minted an unverifiable authorization would make those sections
 // fail with the hub blamed for it — a test tool that lies is worse than
 // no test tool, because its failures look like the system's.
 
 func withIdentity(t *testing.T) (string, *identity.Controller) {
 	t.Helper()
-	c, err := identity.Incept()
+	c, err := identitytest.Agent()
 	if err != nil {
+		t.Fatal(err)
+	}
+	// Witnessed by the conformance hub, whose notice the node holds as its
+	// daemon would (key_state_notice.cbor): what the fixture seals carries
+	// it, and a receiver's step 6½ checks it.
+	if err := identitytest.SwitchWitness(c, identitytest.Witness, identitytest.InceptTS+1); err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
@@ -35,7 +43,31 @@ func withIdentity(t *testing.T) (string, *identity.Controller) {
 	if err := os.WriteFile(filepath.Join(dir, "identity.kel"), b, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	file, err := coredet.Marshal(map[uint64]any{1: suiteNotice(t, c.KEL()), 2: uint64(time.Now().UnixMilli())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "key_state_notice.cbor"), file, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return dir, c
+}
+
+// suiteNotice is the conformance hub's notice of the tip of kel, observed
+// now: what the hub publishes with the agent and a node keeps.
+func suiteNotice(t *testing.T, kel []identity.SignedEvent) []byte {
+	t.Helper()
+	states, err := identity.Replay(kel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tip := kel[len(kel)-1]
+	n, err := identity.SignNotice(identity.SuiteController(), identity.NoticeBody{AID: states[len(states)-1].AID,
+		Seq: tip.Event.Seq, Head: tip.EventID, ObservedAt: uint64(time.Now().UnixMilli())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 // capture runs a command and returns what it printed.
@@ -84,9 +116,9 @@ func TestTheFixtureMintsAnAuthorizationTheHubWouldAccept(t *testing.T) {
 	if err := json.Unmarshal(raw, &pp); err != nil {
 		t.Fatalf("output is not a PaymentPayload: %v", err)
 	}
-	// The accepted terms must match what was asked for; a gateway checks
-	// them before settling, and a mismatch here would read as the gateway
-	// refusing a correct payment.
+	// The accepted terms must match what was asked for; the facilitator
+	// checks them before settling, and a mismatch here would read as the
+	// hub refusing a correct payment.
 	if pp.Accepted.PayTo != "did:anet:provider" || pp.Accepted.Amount != "120" {
 		t.Errorf("accepted terms = %+v", pp.Accepted)
 	}

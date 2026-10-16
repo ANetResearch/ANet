@@ -16,8 +16,8 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/coredet"
-	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -63,7 +63,12 @@ func msg(t *testing.T, st *interactions.Store, ix, from, kind, body, id string, 
 
 func setState(t *testing.T, st *interactions.Store, ix string, s interactions.State) {
 	t.Helper()
-	_, err := st.SetState(ix, s)
+	// A terminal state ends the task on the side the fixture plays.
+	cause := interactions.CausePeerEnded
+	if cur, err := st.Get(ix); err == nil && cur.Role == interactions.RoleInbound {
+		cause = interactions.CauseProviderEnd
+	}
+	_, err := st.SetState(ix, s, cause.When(s))
 	must(t, err)
 }
 
@@ -130,7 +135,7 @@ func checkSI6(task *a2a.Task) error {
 			return fmt.Errorf("completed task has no %s", a2ashape.KeyReceiptVerified)
 		}
 		switch rv {
-		case a2ashape.ReceiptVerified, a2ashape.ReceiptUnverified, a2ashape.ReceiptUnknown:
+		case a2ashape.ReceiptVerified, a2ashape.ReceiptUnverified, a2ashape.ReceiptUnknown, a2ashape.ReceiptMismatch:
 		default:
 			return fmt.Errorf("%s=%q", a2ashape.KeyReceiptVerified, rv)
 		}
@@ -187,7 +192,7 @@ func TestTextTaskCompleted(t *testing.T) {
 	must(t, err)
 	must(t, st.Finish(ix, interactions.Finish{State: interactions.StateCompleted, Result: tr, ResultCID: "bafyresult",
 		Receipt: receipt(t, ix, self, peer, "bafyresult"), Verified: interactions.VerificationVerified,
-		Meta: []byte(`{"anet.state":"completed"}`)}))
+		Meta: []byte(`{"anet.state":"completed"}`)}, interactions.CausePeerEnded))
 
 	task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{Artifacts: true, InlineFiles: true, SafeName: safe,
 		ProviderKEL: "a2VsCg=="})
@@ -281,7 +286,7 @@ func TestUnverifiedReceiptStaysCompleted(t *testing.T) {
 		msg(t, st, ix, self, interactions.MsgText, "g", "m1", nil)
 		tr, _ := transcript.EncodeV2("n", []transcript.Message{{From: "requester", Body: "g"}, {From: "provider", Body: "ok"}})
 		must(t, st.Finish(ix, interactions.Finish{State: interactions.StateCompleted, Result: tr, ResultCID: "bafyr",
-			Receipt: receipt(t, ix, self, peer, "bafyr"), Verified: v}))
+			Receipt: receipt(t, ix, self, peer, "bafyr"), Verified: v}, interactions.CausePeerEnded))
 		task, err := a2ashape.ProjectStored(st, ix, a2ashape.Options{Artifacts: true})
 		must(t, err)
 		sdk := contract(t, task)
@@ -361,7 +366,7 @@ func capTask(t *testing.T, st *interactions.Store, ix string, state interactions
 		mb = []byte(meta)
 	}
 	must(t, st.Finish(ix, interactions.Finish{State: state, Result: []byte(deliverable), ResultCID: "bafyresult",
-		Receipt: receipt(t, ix, self, peer, "bafyresult"), Verified: interactions.VerificationVerified, Meta: mb}))
+		Receipt: receipt(t, ix, self, peer, "bafyresult"), Verified: interactions.VerificationVerified, Meta: mb}, interactions.CausePeerEnded.When(state)))
 }
 
 // SI-6 and §4.3: a capability whose effect could not be verified is

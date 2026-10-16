@@ -15,11 +15,11 @@ import (
 // keep the daily limit a limit whatever the single one is.
 func TestADailyLimitHoldsAgainstAnAmountThatWouldWrapTheSum(t *testing.T) {
 	d := newTestDaemon(t, "", false)
-	none := ""
 	d.mu.Lock()
 	d.cfg.Payments = &PaymentsConfig{AgentMax: math.MaxUint64, AgentDailyMax: 100,
-		ExplicitMax: u64max(), DailyMax: u64val(100), PayeesFile: &none}
+		ExplicitMax: u64max(), DailyMax: u64val(100)}
 	d.mu.Unlock()
+	appendPeerFile(t, d, payeesFile, "did:anet:a")
 	if err := d.AdmitSpend("did:anet:a", 50, module.PurposeTaskManual); err != nil {
 		t.Fatalf("50 of 100: %v", err)
 	}
@@ -34,8 +34,8 @@ func TestADailyLimitHoldsAgainstAnAmountThatWouldWrapTheSum(t *testing.T) {
 			t.Errorf("%s: refused with %s, want a daily limit", purpose, r.Code)
 		}
 	}
-	if st := d.SpendStatus(); st.Spent24h != 50 {
-		t.Errorf("spent in 24h = %d, want 50", st.Spent24h)
+	if st := d.SpendStatus(); st.SpentToday != 50 {
+		t.Errorf("spent in 24h = %d, want 50", st.SpentToday)
 	}
 }
 

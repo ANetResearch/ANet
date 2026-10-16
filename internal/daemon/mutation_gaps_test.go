@@ -41,12 +41,12 @@ func TestCommitRxRunsTheBusinessWriteOncePerMessage(t *testing.T) {
 }
 
 // SI-5, fail closed: an inbound block that names no policy is closed. A
-// hand-written block that sets only a list file (or a policy key lost in an
-// edit) must not open the node. Mutation si5-2 (normalize filling "open")
+// hand-written block that sets only the public capabilities (or a policy
+// key lost in an edit) must not open the node. Mutation si5-2 (normalize filling "open")
 // passed every fresh-install test, because those configs state the policy.
 func TestAnInboundBlockWithoutAPolicyIsClosed(t *testing.T) {
 	l := NewLayout(t.TempDir())
-	raw := `{"control_addr":"127.0.0.1:0","inbound":{"allow_file":"peers.allow"}}`
+	raw := `{"control_addr":"127.0.0.1:0","inbound":{"public_capabilities":[]}}`
 	if err := os.WriteFile(l.ConfigPath(), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestASecondCopyWaitsForTheFirstUnderTheMessageLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := craft(t, senderOf(req), prov, seal.TypeMessage, id, chatBody(t, "one copy at a time", ""), nil)
-	op, err := seal.Open(env, prov.AID(), prov.enc)
+	op, err := seal.Open(env, prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestALongCallLeftWorkingIsNotRunAgainWhenItsProviderIsBack(t *testing.T) {
 	}
 	const id = "ix_long_working"
 	leftOpen(t, req, prov, id, gateCap)
-	if _, err := prov.ix.SetState(id, interactions.StateWorking); err != nil {
+	if _, err := prov.ix.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	// What New does once the modules have registered their providers.
@@ -154,7 +154,9 @@ func TestALongCallLeftWorkingIsNotRunAgainWhenItsProviderIsBack(t *testing.T) {
 // being decided twice. Step 10 repeats the check inside its transaction
 // (against a delegation racing the first), which is why mutations m-ix-1
 // and m-ix-2 (the step-9 check weakened or removed) left the step table
-// green: the counter came out the same, one step later.
+// green: the counter came out the same, one step later. Since a refusal at
+// step 10 sticks like one at step 9 (engine ENG-V12), the second copy no
+// longer tells the two apart either: the step the result names does.
 func TestACollidingDelegationIsRefusedBeforeAnyWrite(t *testing.T) {
 	_, _, prov := registeredPair(t)
 	ctx := context.Background()
@@ -175,8 +177,8 @@ func TestACollidingDelegationIsRefusedBeforeAnyWrite(t *testing.T) {
 		{"capability", delegateBody(t, peer.ctrl, ixo, "", lampCap)},
 	} {
 		env := craft(t, peer, prov, seal.TypeDelegate, ixo, c.body, nil)
-		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropIXCollision {
-			t.Fatalf("%s: %+v, want dropped %s", c.name, r, dropIXCollision)
+		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropIXCollision || r.step != rxStep9 {
+			t.Fatalf("%s: %+v, want dropped %s at step 9", c.name, r, dropIXCollision)
 		}
 		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedReplay {
 			t.Fatalf("%s: the same envelope again = %+v, want %s (refused at step 9, before any write)",
@@ -253,8 +255,8 @@ func TestAReflectedRequestIsAnIXCollisionNotARedelivery(t *testing.T) {
 		{"a peer's request, sent by a third party", third, ixi, copied},
 	} {
 		env := craft(t, c.from, prov, seal.TypeDelegate, c.ix, c.body, nil)
-		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropIXCollision {
-			t.Fatalf("%s: %+v, want dropped %s", c.name, r, dropIXCollision)
+		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropIXCollision || r.step != rxStep9 {
+			t.Fatalf("%s: %+v, want dropped %s at step 9", c.name, r, dropIXCollision)
 		}
 		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedReplay {
 			t.Fatalf("%s: the same envelope again = %+v, want %s (refused at step 9, before any write)",
@@ -279,33 +281,13 @@ func TestAReflectedRequestIsAnIXCollisionNotARedelivery(t *testing.T) {
 	}
 }
 
-// C19: a message for an interaction this node does not hold waits ten
-// minutes for its delegation (§3.6 step 9), then is answered TaskNotFound.
-// Ten minutes is the design's number: the other tests measure the window
-// with unknownIXWait itself, so mutation c19-2 (10 → 100 minutes) moved
-// them along and stayed green.
-func TestTheUnknownTaskWindowIsTenMinutes(t *testing.T) {
-	_, req, prov := registeredPair(t)
-	const ix = "ix_not_here"
-	aged := func(age time.Duration) []byte {
-		return craft(t, senderOf(req), prov, seal.TypeMessage, ix, chatBody(t, "early or late", ""),
-			func(in *seal.SealedInner) { in.TS -= uint64(age.Milliseconds()) })
-	}
-	if r := receive(t, prov, aged(9*time.Minute)); r.class != rxTransient || r.reason != transientUnknownIX {
-		t.Fatalf("a message 9 minutes old = %+v, want held (%s)", r, transientUnknownIX)
-	}
-	if r := receive(t, prov, aged(11*time.Minute)); r.class != rxDropped || r.reason != dropUnknownIX {
-		t.Fatalf("a message 11 minutes old = %+v, want %s", r, dropUnknownIX)
-	}
-}
-
-// §3.5 step 1 [C2]: a stored key set is re-checked with the hub every ten
-// minutes, and a hub that no longer answers for the recipient (404) does
-// not take the stored set away; it stays in use until it holds no valid
-// key. This is what delivers a reply past the cache time to a requester
-// whose hub cannot be asked (scenario.sh 8.5/8.6). The re-check test's hub
-// always answers, so mutation c2-1 (past the cache time only the hub's
-// answer counts) left it green.
+// §3.5 step 1 [C2]: a stored key set is used while it holds a usable key,
+// and a directory that no longer lists the recipient does not take it away,
+// neither before the daily recheck of an active contact nor at it
+// (sealed-sender SSR-D18). This is what delivers a reply to a requester
+// whose hub cannot be asked (scenario.sh 8.5/8.6). The recheck test's hub
+// always answers, so mutation c2-1 (past the recheck time only the
+// directory's answer counts) left it green.
 func TestAStoredKeySetOutlivesAHubThatNoLongerAnswersForIt(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -316,8 +298,12 @@ func TestAStoredKeySetOutlivesAHubThatNoLongerAnswersForIt(t *testing.T) {
 	if _, err := req.ix.PeerIdentity(prov.AID()); err != nil {
 		t.Fatalf("no stored record for the provider after the delegation: %v", err)
 	}
+	confirmDelegation(t, req, prov) // follow-ups go once it is confirmed (engine ENG-O2)
 	setFake(t, srv.URL, func(h *fakeHub) { h.agents[prov.AID()].keyset = nil })
 	start := uint64(time.Now().UnixMilli())
+	// The clock moves a day on: the notice this node holds is not what the
+	// test is about, so the gate is held open.
+	holdGateOpen(req)
 	req.setClock(func() uint64 { return start + 11*60*1000 })
 	before := len(queuedFor(t, srv, prov.AID()))
 	if err := req.SendMessage(ctx, id, "past the cache time", nil); err != nil {
@@ -326,6 +312,25 @@ func TestAStoredKeySetOutlivesAHubThatNoLongerAnswersForIt(t *testing.T) {
 	if n := len(queuedFor(t, srv, prov.AID())); n != before+1 {
 		t.Fatalf("%d envelopes reached the hub for the provider, want %d: the stored key set was not used",
 			n, before+1)
+	}
+	// Past a day the stored set is rechecked in the directory, which no
+	// longer lists the provider: the send still goes under the stored set,
+	// and the record stays as it was (sealed-sender SSR-D18).
+	row, _ := req.ix.PeerIdentity(prov.AID())
+	h := fakeHubAt(t, srv.URL)
+	q := queryCount(h)
+	req.setClock(func() uint64 { return uint64(row.KeysCheckedAt) + activeRecheckMS + 60*1000 })
+	if err := req.SendMessage(ctx, id, "past the daily recheck", nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(queuedFor(t, srv, prov.AID())); n != before+2 {
+		t.Fatalf("%d envelopes reached the hub for the provider, want %d: the stored key set was dropped",
+			n, before+2)
+	}
+	waitUntil(t, "the recheck to make its query", func() bool { return queryCount(h) > q })
+	time.Sleep(50 * time.Millisecond) // and to finish with it
+	if again, _ := req.ix.PeerIdentity(prov.AID()); !bytes.Equal(again.KeySet, row.KeySet) || again.KeysCheckedAt != row.KeysCheckedAt {
+		t.Fatal("a recheck that found nothing changed the stored record")
 	}
 }
 
@@ -348,7 +353,13 @@ func TestAnApprovedTaskIsAnsweredWithTheKeysItWasHeldWith(t *testing.T) {
 	if err := prov.pollOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
-	setFake(t, srv.URL, func(h *fakeHub) { h.agents[s.AID()].keyset = nil })
+	// Holding the task sends the requester a notice in the background; it
+	// is in the hub before the count below starts, or it would be counted
+	// as a second answer.
+	waitUntil(t, "the held task's notice to reach the hub", func() bool { return len(queuedFor(t, srv, s.AID())) == 1 })
+	// The directory no longer lists the requester (its hub still holds its
+	// mailbox key, which checks the requester's capability).
+	setFake(t, srv.URL, func(h *fakeHub) { h.dirHide = map[string]bool{s.AID(): true} })
 	if _, err := prov.ApprovePending(id); err != nil {
 		t.Fatal(err)
 	}

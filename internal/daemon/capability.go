@@ -20,16 +20,16 @@ import (
 	"log"
 	"time"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/evidence"
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/provider"
@@ -117,10 +117,11 @@ func capabilityCall(td *tsir.TaskDoc) (capID string, args map[string]any, ok boo
 
 // DelegateCapability delegates a capability invocation to providerAID. The
 // TaskDoc carries the capability in Requires and args in Contexts — both
-// inside the signed canonical preimage.
-// DelegateCapability delegates a capability call, optionally paying for it.
+// inside the signed canonical preimage. A priced capability answers with a
+// quote on the task, and the payment is made on the same task (A2A-DESIGN
+// §8.3): nothing is paid in the message that asks for the work.
 func (d *Daemon) DelegateCapability(ctx context.Context, providerAID, capID string, args map[string]any) (string, error) {
-	return d.delegateCapabilityPaid(ctx, providerAID, capID, args, nil)
+	return d.DelegateCapabilityIn(ctx, providerAID, capID, args, "")
 }
 
 // DelegateCapabilityIn is DelegateCapability under a given A2A context id
@@ -130,32 +131,15 @@ func (d *Daemon) DelegateCapabilityIn(ctx context.Context, providerAID, capID st
 	if err != nil {
 		return "", err
 	}
-	return d.delegateCapabilityCtx(ctx, id, "", providerAID, capID, args, nil, contextID)
+	return d.delegateCapabilityCtx(ctx, id, providerAID, capID, args, contextID, nil)
 }
 
-func (d *Daemon) delegateCapabilityPaid(ctx context.Context, providerAID, capID string,
-	args map[string]any, paymentJSON []byte) (string, error) {
-	id, err := newInteractionID()
-	if err != nil {
-		return "", err
-	}
-	return d.delegateCapabilityWithID(ctx, id, providerAID, capID, args, paymentJSON)
-}
-
-// delegateCapabilityWithID takes the interaction id from the caller,
-// because a paid delegation must name the id its authorization was signed
-// over — minting a fresh one here would leave the payment pointing at
-// work that never happened.
-func (d *Daemon) delegateCapabilityWithID(ctx context.Context, id, providerAID, capID string,
-	args map[string]any, paymentJSON []byte) (string, error) {
-	return d.delegateCapabilityCtx(ctx, id, "", providerAID, capID, args, paymentJSON, "")
-}
-
-// delegateCapabilityCtx sends a capability call as interaction id. nonce is
-// the task nonce, minted here when empty; a prepaid call mints it first,
-// because its payment is bound to it (pay_bind).
-func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerAID, capID string,
-	args map[string]any, paymentJSON []byte, contextID string) (string, error) {
+// delegateCapabilityCtx sends a capability call as interaction id, with a
+// task nonce minted here: the binding its payment, if it is priced, is
+// signed over (pay_bind). cm, when the client named a messageId, is stored
+// with the call's message, in the same transaction (clientdedupe.go).
+func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, providerAID, capID string,
+	args map[string]any, contextID string, cm *clientMark) (string, error) {
 	hub := d.config().HubURL
 	if hub == "" {
 		return "", fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
@@ -178,11 +162,9 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 		}
 		contextID = c
 	}
-	if nonce == "" {
-		var err error
-		if nonce, err = newTaskNonce(); err != nil {
-			return "", err
-		}
+	nonce, err := newTaskNonce()
+	if err != nil {
+		return "", err
 	}
 	goal := "invoke capability " + capID
 	td := &tsir.TaskDoc{Version: tsir.VersionPair{Major: 1}, Tasks: []tsir.Task{{
@@ -201,14 +183,8 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 	if err != nil {
 		return "", err
 	}
-	kelB, err := identity.MarshalKEL(d.self.KEL())
-	if err != nil {
-		return "", err
-	}
-	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, KEL: kelB, InteractionID: id, ContextID: contextID}
-	if len(paymentJSON) > 0 {
-		dr.Payment = paymentJSON
-	}
+	// The KEL travels in the sealed envelope (inner key 10), not in the body.
+	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, InteractionID: id, ContextID: contextID}
 	payload, err := dr.Marshal()
 	if err != nil {
 		return "", err
@@ -216,6 +192,12 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 	// Recorded and queued together, under the envelope's message id (0017
 	// Q5, Q9); see delegateInWithID.
 	mid, msgID := newWireMID()
+	// E_r, stored with the task in the transaction that queues it (FS-X1).
+	er, err := newOwnIXKey(id, providerAID)
+	if err != nil {
+		return "", err
+	}
+	defer wipeIXKey(er)
 	var seq int64
 	qid, err := d.queueSendAs(ctx, wireSend{to: providerAID, typ: seal.TypeDelegate, ix: id, body: payload, mid: mid,
 		pin: interactions.PinOutbound, strict: true}, func(tx *interactions.Tx) error {
@@ -224,21 +206,16 @@ func (d *Daemon) delegateCapabilityCtx(ctx context.Context, id, nonce, providerA
 			TaskNonce: nonce}); err != nil {
 			return err
 		}
-		if len(paymentJSON) > 0 {
-			// The prepaid authorization is this task's, so its receipt can
-			// be checked against it when the result comes back (§8.3).
-			authID := ""
-			if _, _, aid, err := payloadAuth(paymentJSON); err == nil {
-				authID = aid
-			}
-			if _, err := tx.SetPayment(id, interactions.PayUpdate{
-				State: interactions.PayState(interactions.PaySubmitted), AddAuthID: authID, Payload: paymentJSON}); err != nil {
-				return err
-			}
+		if err := putOwnIXKeyTx(tx, er); err != nil {
+			return err
+		}
+		rec := interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
+			Kind: interactions.MsgText, Body: goal + " args=" + argsJSON, MsgID: msgID}
+		if err := cm.stamp(tx, id, &rec); err != nil {
+			return err
 		}
 		var err error
-		seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
-			Kind: interactions.MsgText, Body: goal + " args=" + argsJSON, MsgID: msgID})
+		seq, _, err = tx.AddMessageRecord(rec)
 		return err
 	})
 	if err != nil {
@@ -330,10 +307,10 @@ type paidView struct {
 }
 
 // provenanceOf renders an effect's evidence for every surface that
-// carries it. It lives in the provider package so the voucher door in
-// module/x402 uses the SAME function: evidence that differs depending on
-// which door a caller came through is worse than no evidence, and two
-// field lists that must stay identical are two field lists that will not.
+// carries it, with the provider package's one function (provider.Provenance):
+// evidence that differs depending on who reads it is worse than no
+// evidence, and two field lists that must stay identical are two field
+// lists that will not.
 func provenanceOf(e *effect.Evidence) map[string]any { return provider.Provenance(e) }
 
 // tryCapability resolves and executes a capability call, answering with the
@@ -342,8 +319,8 @@ func (d *Daemon) tryCapability(ctx context.Context, interactionID, capID string,
 	return d.tryCapabilityPaid(ctx, interactionID, capID, args, nil)
 }
 
-// tryCapabilityPaid is tryCapability with the delegation's payment, if it
-// carried one.
+// tryCapabilityPaid is tryCapability with the payment the requester
+// submitted on the task after its quote (payment-submitted), if any.
 //
 // It returns false, having recorded nothing, when the daemon is stopping:
 // a call not started, or one whose failure is the stop's rather than its
@@ -429,7 +406,17 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 		return false
 	}
 	var opts resultOpts
+	var refused *provider.RefusalError
 	switch unknown, isUnknown := provider.OutcomeOf(err); {
+	case errors.As(err, &refused):
+		// The far side refused the call, or failed it with nothing to
+		// report, and the provider named why in the user's words (LEC CC-4).
+		// The task ends as that reason's row says, and the requester is sent
+		// the code, no message: its own node renders the sentence. What the
+		// far side said (ANetLink's C1 code, the socket it could not reach)
+		// stays in this log.
+		log.Printf("anet: %s: %s: %v", interactionID, capID, err)
+		res.Status, opts = refusalOutcome(refused.Reason)
 	case isUnknown:
 		// Sent, and the answer lost — or the call's deadline passed while
 		// it ran, whatever the provider: whether the effect happened is not
@@ -451,6 +438,29 @@ func (d *Daemon) tryCapabilityPaid(ctx context.Context, interactionID, capID str
 	}
 	return d.deliverCapabilityResult(ctx, interactionID, capID, ix, res, eff.Evidence, opts)
 }
+
+// refusalOutcome is how a provider's refusal ends the task: the effect
+// status the result carries, and its options, as the reason's row of the
+// reason table says. A row of class R (the far side certainly did not run
+// the call) ends it rejected, effect UNAVAILABLE (failed once a payment has
+// settled, stateForEffect); a row of class F ends it failed with the row's
+// effect. A reason with neither is backend_failed.
+func refusalOutcome(reason string) (string, resultOpts) {
+	row, ok := a2ashape.Lookup(reason)
+	switch {
+	case ok && row.Class&a2ashape.ClassR != 0 && row.A2A.Effect == string(effect.Unavailable):
+		return row.A2A.Effect, resultOpts{reason: reason}
+	case ok && row.Class&a2ashape.ClassF != 0 && row.A2A.Effect != "":
+		return row.A2A.Effect, resultOpts{state: interactions.StateFailed, reason: reason}
+	case reason != reasonBackendFailed:
+		return refusalOutcome(reasonBackendFailed)
+	}
+	return string(effect.Unverified), resultOpts{state: interactions.StateFailed, reason: reasonBackendFailed}
+}
+
+// reasonBackendFailed is the reason of a provider whose far side failed
+// without a reason this node can repeat.
+const reasonBackendFailed = "backend_failed"
 
 // refuseUnboundPriced answers a priced call whose TaskDoc carries no task
 // nonce, and reports whether it did. The payment's binding is
@@ -574,20 +584,15 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 	if err != nil {
 		return false
 	}
-	// The receipt travels with the key that signed it, so the requester can
-	// check what it accepts.
-	selfKEL, err := identity.MarshalKEL(d.self.KEL())
-	if err != nil {
-		log.Printf("anet: capability %s: marshal KEL: %v", capID, err)
-		return false
-	}
+	// The key that signed the receipt travels in the sealed envelope (inner
+	// key 10), so the requester can check what it accepts.
 	status := delegation.StatusDone
 	if state == interactions.StateFailed || state == interactions.StateRejected {
 		status = delegation.StatusFailed
 	}
 	metaBytes, _ := json.Marshal(meta)
 	payload, err := (&delegation.ResultResp{Status: status, Deliverable: deliverable,
-		Receipt: receiptBytes, KEL: selfKEL, Metadata: metaBytes}).Marshal()
+		Receipt: receiptBytes, Metadata: metaBytes}).Marshal()
 	if err != nil {
 		return false
 	}
@@ -597,7 +602,7 @@ func (d *Daemon) deliverCapabilityResult(_ context.Context, interactionID, capID
 		// nothing to take on trust.
 		if err := tx.Finish(interactionID, interactions.Finish{State: state, Result: deliverable,
 			ResultCID: resultCID, Receipt: receiptBytes, Verified: interactions.VerificationVerified,
-			Meta: metaBytes}); err != nil {
+			Meta: metaBytes}, interactions.CauseProviderEnd.When(state)); err != nil {
 			return err
 		}
 		var err error
@@ -702,7 +707,7 @@ func (d *Daemon) recoverInterrupted() {
 			}
 			ix, capID, args := ix, capID, args
 			log.Printf("anet: %s: %s was cut off by a restart; running it again", ix.ID, capID)
-			d.goBackground(func() { d.runCapabilityCall(ix.ID, capID, args, nil, nil) })
+			d.goBackground(func() { d.runCapabilityCall(ix.ID, capID, args, nil) })
 		case leftoverInterrupted:
 			d.reportInterrupted(ix, capID)
 		}

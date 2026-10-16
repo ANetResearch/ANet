@@ -38,57 +38,101 @@ func TestGetForComparesRoleAndPeer(t *testing.T) {
 	}
 }
 
-// A client message id is found in its context, for its peer and task, and
-// a message whose metadata is not JSON does not break the query.
-func TestFindByClientMessage(t *testing.T) {
+// A client key is found for its peer, in its context when one is named, on its
+// task for a follow-up; the newest of several wins; a peer's message, an
+// inbound task and a task whose data key is gone never match (CUX-D2).
+func TestFindByClientKey(t *testing.T) {
 	s := open(t)
-	mk := func(id, peer, ctx string) {
+	mk := func(id string, role interactions.Role, peer, ctx string) {
 		t.Helper()
-		if err := s.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: peer, Goal: "g", ContextID: ctx}); err != nil {
+		if err := s.Create(interactions.New{ID: id, Role: role, PeerAID: peer, Goal: "g", ContextID: ctx}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	mk("ix_1", "peer-a", "ctx-1")
-	mk("ix_2", "peer-a", "ctx-1")
-	mk("ix_3", "peer-b", "ctx-2")
-	add := func(ix, meta string) {
+	mk("ix_1", interactions.RoleOutbound, "peer-a", "ctx-1")
+	mk("ix_2", interactions.RoleOutbound, "peer-a", "ctx-1")
+	mk("ix_3", interactions.RoleOutbound, "peer-b", "ctx-2")
+	mk("ix_in", interactions.RoleInbound, "peer-a", "ctx-1")
+	key, other := []byte("key-1-key-1-key-1-key-1-key-1-ky"), []byte("key-2-key-2-key-2-key-2-key-2-ky")
+	add := func(ix, sender string, k []byte, digest string) int64 {
 		t.Helper()
-		if _, _, err := s.AddMessageRecord(interactions.MessageRecord{InteractionID: ix, SenderAID: "me",
-			Kind: interactions.MsgText, Body: "b", Metadata: []byte(meta)}); err != nil {
+		rec := interactions.MessageRecord{InteractionID: ix, SenderAID: sender, Kind: interactions.MsgText, Body: "b"}
+		if k != nil {
+			rec.ClientKey, rec.ClientDigest = k, []byte(digest)
+		}
+		seq, _, err := s.AddMessageRecord(rec)
+		if err != nil {
 			t.Fatal(err)
 		}
+		return seq
 	}
-	add("ix_1", "")
-	add("ix_1", "not json")
-	add("ix_2", `{"a2a.messageId":"m-1","other":1}`)
-	add("ix_3", `{"a2a.messageId":"m-1"}`)
+	add("ix_1", "me", nil, "")
+	add("ix_1", "me", key, "d1")
+	seq2 := add("ix_2", "me", key, "d2")
+	add("ix_3", "me", key, "d3")
+	add("ix_2", "peer-a", other, "planted") // the peer's message under a client key
+	add("ix_in", "me", other, "inbound")    // this node's message on a task sent to it
+	followUpKey := []byte("key-3-key-3-key-3-key-3-key-3-ky")
+	add("ix_1", "me", followUpKey, "d1-follow-up") // a second message of ix_1, under its own key
 
-	q := interactions.ClientMessageQuery{Role: interactions.RoleOutbound, ContextID: "ctx-1", ClientMsgID: "m-1"}
-	if ix, err := s.FindByClientMessage(q); err != nil || ix.ID != "ix_2" {
-		t.Fatalf("find = %v %v, want ix_2", ix, err)
+	find := func(q interactions.ClientKeyQuery) *interactions.ClientMessage {
+		t.Helper()
+		c, err := s.FindByClientKey(q)
+		if err != nil {
+			t.Fatalf("%+v: %v", q, err)
+		}
+		return c
 	}
-	q.PeerAID = "peer-a"
-	if ix, err := s.FindByClientMessage(q); err != nil || ix.ID != "ix_2" {
-		t.Fatalf("find with peer = %v %v", ix, err)
+	c := find(interactions.ClientKeyQuery{Key: key, PeerAID: "peer-a", ContextID: "ctx-1"})
+	if c.Interaction.ID != "ix_2" || c.Seq != seq2 || string(c.Digest) != "d2" || c.Unanswered {
+		t.Fatalf("newest in the context = %s #%d %q %v, want ix_2 #%d d2", c.Interaction.ID, c.Seq, c.Digest, c.Unanswered, seq2)
 	}
-	// No context: the peer's tasks in every context (a client that gave no
-	// contextId retries without one).
-	if ix, err := s.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
-		PeerAID: "peer-b", ClientMsgID: "m-1"}); err != nil || ix.ID != "ix_3" {
-		t.Fatalf("find by peer = %v %v, want ix_3", ix, err)
+	if c := find(interactions.ClientKeyQuery{Key: key, PeerAID: "peer-b"}); c.Interaction.ID != "ix_3" {
+		t.Fatalf("without a context, the peer's tasks in every context: %s, want ix_3", c.Interaction.ID)
 	}
-	for name, miss := range map[string]interactions.ClientMessageQuery{
-		"other peer":             {Role: interactions.RoleOutbound, ContextID: "ctx-1", PeerAID: "peer-b", ClientMsgID: "m-1"},
-		"other task":             {Role: interactions.RoleOutbound, ContextID: "ctx-1", TaskID: "ix_1", ClientMsgID: "m-1"},
-		"other id":               {Role: interactions.RoleOutbound, ContextID: "ctx-1", ClientMsgID: "m-2"},
-		"other context":          {Role: interactions.RoleOutbound, ContextID: "ctx-9", ClientMsgID: "m-1"},
-		"inbound":                {Role: interactions.RoleInbound, ContextID: "ctx-1", ClientMsgID: "m-1"},
-		"no scope":               {Role: interactions.RoleOutbound, ClientMsgID: "m-1"},
-		"no context, other peer": {Role: interactions.RoleOutbound, PeerAID: "peer-c", ClientMsgID: "m-1"},
+	if c := find(interactions.ClientKeyQuery{Key: key, TaskID: "ix_1"}); c.Interaction.ID != "ix_1" || string(c.Digest) != "d1" {
+		t.Fatalf("on a task: %s %q, want ix_1 d1", c.Interaction.ID, c.Digest)
+	}
+	if err := s.MarkClientUnanswered("ix_1", key); err != nil {
+		t.Fatal(err)
+	}
+	if c := find(interactions.ClientKeyQuery{Key: key, TaskID: "ix_1"}); !c.Unanswered {
+		t.Fatal("the unanswered mark was not kept")
+	}
+	if c := find(interactions.ClientKeyQuery{Key: key, TaskID: "ix_2"}); c.Unanswered {
+		t.Fatal("the unanswered mark reached another task")
+	}
+	// The mark is the one message's: a follow-up whose call was answered is
+	// not marked with the first message's (CUX-D5).
+	if c := find(interactions.ClientKeyQuery{Key: followUpKey, TaskID: "ix_1"}); c.Unanswered {
+		t.Fatal("the unanswered mark reached another message of the task")
+	}
+	for name, miss := range map[string]interactions.ClientKeyQuery{
+		"other peer":       {Key: key, PeerAID: "peer-c"},
+		"other context":    {Key: key, PeerAID: "peer-a", ContextID: "ctx-9"},
+		"other key":        {Key: []byte("no such key"), PeerAID: "peer-a"},
+		"other task":       {Key: key, TaskID: "ix_9"},
+		"the peer's":       {Key: other, PeerAID: "peer-a"},
+		"the peer's, task": {Key: other, TaskID: "ix_2"},
+		"inbound task":     {Key: other, TaskID: "ix_in"},
+		"no key":           {PeerAID: "peer-a"},
+		"no scope":         {Key: key},
 	} {
-		if _, err := s.FindByClientMessage(miss); !errors.Is(err, interactions.ErrNotFound) {
+		if _, err := s.FindByClientKey(miss); !errors.Is(err, interactions.ErrNotFound) {
 			t.Errorf("%s: %v, want ErrNotFound", name, err)
 		}
+	}
+	// A task whose content has expired cannot be compared with: no match.
+	if err := s.Update(func(tx *interactions.Tx) error { _, err := tx.DeleteDEK("ix_3"); return err }); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FindByClientKey(interactions.ClientKeyQuery{Key: key, PeerAID: "peer-b"}); !errors.Is(err, interactions.ErrNotFound) {
+		t.Fatalf("a task without its data key: %v, want ErrNotFound", err)
+	}
+	// A key goes with a digest.
+	if _, _, err := s.AddMessageRecord(interactions.MessageRecord{InteractionID: "ix_1", SenderAID: "me",
+		Kind: interactions.MsgText, Body: "b", ClientKey: key}); !errors.Is(err, interactions.ErrBadInput) {
+		t.Fatalf("a client key without a digest: %v", err)
 	}
 }
 
@@ -263,25 +307,26 @@ func TestListPageTwoStepKeepsOrderAndRows(t *testing.T) {
 	}
 }
 
-// The client-retry lookup (FindByClientMessage) finds the message by an index
-// on its client message id. Without one, a SendMessage that names no context
-// read the metadata of every message of every task with the peer — a column
-// SQLite reaches only through the overflow pages of the body before it, the
-// whole of every long message each time (an internal note: 0.15–0.3 s per send
-// after an hour, growing with the conversation).
+// The client-retry lookup (FindByClientKey) finds the message through the
+// partial index on its plain client key (CUX-D2). Without one, a SendMessage
+// that names no context read the metadata of every message of every task with
+// the peer — a column SQLite reaches only through the overflow pages of the
+// body before it, the whole of every long message each time (an internal note:
+// 0.15–0.3 s per send after an hour, growing with the conversation) — and the
+// metadata is data-key ciphertext that no index may cover (FS-L3).
 func TestClientMessageLookupReadsAnIndex(t *testing.T) {
 	s := open(t)
-	for _, q := range []interactions.ClientMessageQuery{
-		{ClientMsgID: "m-1", Role: interactions.RoleOutbound, PeerAID: "peer-a"},
-		{ClientMsgID: "m-1", Role: interactions.RoleOutbound, PeerAID: "peer-a", OpenOnly: true},
-		{ClientMsgID: "m-1", Role: interactions.RoleOutbound, ContextID: "c"},
+	for _, q := range []interactions.ClientKeyQuery{
+		{Key: []byte("k"), PeerAID: "peer-a"},
+		{Key: []byte("k"), PeerAID: "peer-a", ContextID: "c"},
+		{Key: []byte("k"), TaskID: "ix_1"},
 	} {
-		plan, err := s.ExplainFindByClientMessage(q)
+		plan, err := s.ExplainFindByClientKey(q)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p := strings.Join(plan, "; "); !strings.Contains(p, "idx_msg_client") {
-			t.Errorf("%+v: plan %q, want the message lookup through idx_msg_client", q, p)
+		if p := strings.Join(plan, "; "); !strings.Contains(p, "INDEX idx_msg_client_key (client_key=?)") {
+			t.Errorf("%+v: plan %q, want the message lookup through idx_msg_client_key", q, p)
 		}
 	}
 }
@@ -338,7 +383,7 @@ func TestListPageBoundaryIsTheIndexRead(t *testing.T) {
 				t.Fatal(err)
 			}
 			if id == finished {
-				if _, err := s.SetState(id, interactions.StateCompleted); err != nil {
+				if _, err := s.SetState(id, interactions.StateCompleted, interactions.CausePeerEnded); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -371,7 +416,7 @@ func TestListPageBoundaryIsTheIndexRead(t *testing.T) {
 		s, clock := setup(t, "")
 		got := walk(t, s, func() {
 			*clock = 5000
-			if _, err := s.SetState("ix_3", interactions.StateWorking); err != nil {
+			if _, err := s.SetState("ix_3", interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -382,7 +427,8 @@ func TestListPageBoundaryIsTheIndexRead(t *testing.T) {
 	t.Run("a task of the page is pruned", func(t *testing.T) {
 		s, _ := setup(t, "ix_3")
 		got := walk(t, s, func() {
-			if n, err := s.PruneTerminal("t", 1<<40); err != nil || n.Interactions != 1 {
+			r, _ := interactions.RetentionDays(1)
+			if n, err := s.PruneTerminal(1<<42, interactions.ClockFull, r); err != nil || n[interactions.ClassOutbound].Interactions != 1 {
 				t.Fatalf("prune: %+v %v", n, err)
 			}
 		})

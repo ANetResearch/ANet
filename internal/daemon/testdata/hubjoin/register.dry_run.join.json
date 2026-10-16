@@ -1,0 +1,6 @@
+{
+  "hub": "https://hub.example",
+  "hub_aid": "bafyreihqsa3dn4fbfwbkn2dhwxbz6nmzvqjvhqrfmkmvjdnozqbgpj6vjy",
+  "action": "join",
+  "recovery_needed": true
+}

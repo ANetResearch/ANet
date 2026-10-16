@@ -39,6 +39,9 @@ type execer interface {
 type Tx struct {
 	tx  *sql.Tx
 	now int64 // unix ms at the start of the transaction, for state_at
+	// peerCap is the bound on unpinned peer_identity rows (Store.cap), for a
+	// peer record written in the transaction (UpdatePeerIdentity).
+	peerCap int
 }
 
 // Update runs fn inside one SQLite transaction and commits it when fn
@@ -55,7 +58,7 @@ func (s *Store) Update(fn func(*Tx) error) error {
 	if err != nil {
 		return fmt.Errorf("interactions: begin: %w", err)
 	}
-	if err := fn(&Tx{tx: tx, now: s.nowMS()}); err != nil {
+	if err := fn(&Tx{tx: tx, now: s.nowMS(), peerCap: s.cap()}); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
@@ -66,9 +69,7 @@ func (s *Store) Update(fn func(*Tx) error) error {
 }
 
 // Get reads one interaction inside the transaction.
-func (t *Tx) Get(id string) (*Interaction, error) {
-	return scanOne(t.tx.QueryRow(`SELECT `+ixColumns+` FROM interaction WHERE id=?`, id))
-}
+func (t *Tx) Get(id string) (*Interaction, error) { return getIX(t.tx, id) }
 
 // Put is Store.Put inside the transaction.
 func (t *Tx) Put(id string, role Role, peerAID, goal, requestCID string, requestDoc []byte) error {
@@ -93,30 +94,38 @@ func (t *Tx) AddMessageID(interactionID, senderAID, kind, body, msgID string) (i
 func (t *Tx) AddMessageRecord(m MessageRecord) (int64, bool, error) { return addMessage(t.tx, m) }
 
 // SetResult is Store.SetResult inside the transaction.
-func (t *Tx) SetResult(id string, result []byte, resultCID string, receipt []byte, verified Verification) error {
-	return finish(t.tx, id, Finish{State: StateCompleted, Result: result, ResultCID: resultCID, Receipt: receipt, Verified: verified}, t.now)
+func (t *Tx) SetResult(id string, result []byte, resultCID string, receipt []byte, verified Verification, cause Cause) error {
+	return finish(t.tx, id, Finish{State: StateCompleted, Result: result, ResultCID: resultCID, Receipt: receipt, Verified: verified}, cause, t.now)
 }
 
 // SetFailed is Store.SetFailed inside the transaction.
-func (t *Tx) SetFailed(id string, detail []byte) error {
-	return finish(t.tx, id, Finish{State: StateFailed, Result: detail, Verified: VerificationUnknown}, t.now)
+func (t *Tx) SetFailed(id string, detail []byte, cause Cause) error {
+	return finish(t.tx, id, Finish{State: StateFailed, Result: detail, Verified: VerificationUnknown}, cause, t.now)
 }
 
-// Finish is Store.Finish inside the transaction.
-func (t *Tx) Finish(id string, f Finish) error { return finish(t.tx, id, f, t.now) }
+// Finish is Store.Finish inside the transaction. With a terminal f.State on
+// a task that is already terminal it settles the key in the transaction and
+// answers ErrTerminal: rolling back undoes both; committing keeps the
+// settlement, which is right only when the transaction stored the peer's
+// terminal message some other way.
+func (t *Tx) Finish(id string, f Finish, cause Cause) error { return finish(t.tx, id, f, cause, t.now) }
 
 // SetState is Store.SetState inside the transaction.
-func (t *Tx) SetState(id string, st State) (bool, error) { return setState(t.tx, id, st, t.now) }
+func (t *Tx) SetState(id string, st State, cause Cause) (bool, error) {
+	return setState(t.tx, id, st, cause, t.now)
+}
 
 // SetLateResult is Store.SetLateResult inside the transaction, so a result
 // that arrives after the task ended commits with its replay row
 // (A2A-DESIGN §3.6 step 10, §4.2).
-func (t *Tx) SetLateResult(id string, result []byte, resultCID string, receipt []byte, verified Verification) (bool, error) {
-	return setLateResult(t.tx, id, result, resultCID, receipt, verified)
+func (t *Tx) SetLateResult(id string, result []byte, resultCID string, receipt []byte, verified Verification, cause Cause) (bool, error) {
+	return setLateResult(t.tx, id, result, resultCID, receipt, verified, cause, t.now)
 }
 
 // SetPeerKeys is Store.SetPeerKeys inside the transaction.
-func (t *Tx) SetPeerKeys(id string, kel, keys []byte) error { return setPeerKeys(t.tx, id, kel, keys) }
+func (t *Tx) SetPeerKeys(id string, kel, keys []byte) error {
+	return setPeerKeys(t.tx, id, kel, keys, t.now)
+}
 
 // SetEndRequested is Store.SetEndRequested inside the transaction.
 func (t *Tx) SetEndRequested(id, by string) error { return setEndRequested(t.tx, id, by) }
@@ -264,6 +273,26 @@ func (s *Store) UpdatePeerIdentity(aid string, fn func(cur *PeerIdentity) (*Peer
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := updatePeerIdentity(tx, aid, fn, s.cap(), uint64(s.nowMS())); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// UpdatePeerIdentity is Store.UpdatePeerIdentity inside t: the receive
+// pipeline's step 10 records the sender's KEL and key set in the
+// transaction that commits the message (engine §4.7 item 7), so the
+// capabilities the write voids or revokes (peerWritten) go with it.
+func (t *Tx) UpdatePeerIdentity(aid string, fn func(cur *PeerIdentity) (*PeerIdentity, error)) error {
+	if aid == "" {
+		return fmt.Errorf("%w: aid required", ErrBadInput)
+	}
+	return updatePeerIdentity(t.tx, aid, fn, t.peerCap, uint64(t.now))
+}
+
+// updatePeerIdentity is the read-decide-write of UpdatePeerIdentity in tx;
+// limit bounds the unpinned rows.
+func updatePeerIdentity(tx *sql.Tx, aid string, fn func(cur *PeerIdentity) (*PeerIdentity, error), limit int, now uint64) error {
 	cur, err := getPeer(tx, aid)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return err
@@ -294,11 +323,18 @@ func (s *Store) UpdatePeerIdentity(aid string, fn func(cur *PeerIdentity) (*Peer
 		return err
 	}
 	if cur == nil && next.PinnedReason == "" {
-		if err := evictPeers(tx, s.cap()); err != nil {
+		if limit <= 0 {
+			limit = defaultPeerIdentityCap
+		}
+		if err := evictPeers(tx, limit); err != nil {
 			return err
 		}
 	}
-	return tx.Commit()
+	// What the write means for the capabilities the two exchanged, in this
+	// transaction: a key set with a higher mailbox epoch voids the ones the
+	// peer signed under the older one (SSR-D19), an emergency rotation of
+	// the peer voids and revokes all of them (ENG-K4).
+	return peerWritten(tx, aid, cur, next, now)
 }
 
 // cap returns the configured bound; the caller holds s.mu.
@@ -341,36 +377,29 @@ func (s *Store) PeerIdentityCount() (int, error) {
 	return n, err
 }
 
-// migrateWire2 creates the replay and peer_identity tables.
-func (s *Store) migrateWire2() error {
-	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS replay (
-		   from_aid TEXT NOT NULL,
-		   mid BLOB NOT NULL,
-		   exp INTEGER NOT NULL,
-		   PRIMARY KEY (from_aid, mid)
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_replay_exp ON replay(exp)`,
-		`CREATE TABLE IF NOT EXISTS peer_identity (
-		   aid TEXT PRIMARY KEY,
-		   kel BLOB,
-		   kel_len INTEGER NOT NULL DEFAULT 0,
-		   keyset BLOB,
-		   keyset_seq INTEGER NOT NULL DEFAULT 0,
-		   keys_checked_at INTEGER NOT NULL DEFAULT 0,
-		   card_seq INTEGER NOT NULL DEFAULT 0,
-		   pinned_reason TEXT NOT NULL DEFAULT '',
-		   updated_at INTEGER NOT NULL DEFAULT 0
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_peer_lru ON peer_identity(pinned_reason, updated_at)`,
-		// The eviction rule asks, per candidate row, whether an active
-		// interaction names the peer; without this index that is a scan of
-		// the interaction table per row.
-		`CREATE INDEX IF NOT EXISTS idx_ix_peer ON interaction(peer_aid)`,
-	} {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate wire 2: %w", err)
-		}
-	}
-	return s.migratePeerCardHash()
+// wire2Schema is the replay and peer_identity tables. card_hash is the
+// card high-water mark's payload hash (peercard.go). The eviction rule's
+// question per candidate row — does an active interaction name the peer —
+// reads idx_ix_peer (interactionSchema).
+var wire2Schema = []string{
+	`CREATE TABLE replay (
+	   from_aid TEXT NOT NULL,
+	   mid BLOB NOT NULL,
+	   exp INTEGER NOT NULL,
+	   PRIMARY KEY (from_aid, mid)
+	 )`,
+	`CREATE INDEX idx_replay_exp ON replay(exp)`,
+	`CREATE TABLE peer_identity (
+	   aid TEXT PRIMARY KEY,
+	   kel BLOB,
+	   kel_len INTEGER NOT NULL DEFAULT 0,
+	   keyset BLOB,
+	   keyset_seq INTEGER NOT NULL DEFAULT 0,
+	   keys_checked_at INTEGER NOT NULL DEFAULT 0,
+	   card_seq INTEGER NOT NULL DEFAULT 0,
+	   pinned_reason TEXT NOT NULL DEFAULT '',
+	   updated_at INTEGER NOT NULL DEFAULT 0,
+	   card_hash BLOB
+	 )`,
+	`CREATE INDEX idx_peer_lru ON peer_identity(pinned_reason, updated_at)`,
 }

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"github.com/ANetResearch/ANetCore/aobj"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
 	"github.com/ANetResearch/ANet/internal/official"
@@ -30,42 +32,89 @@ type Daemon struct {
 	// is the seq of the key set the hub last confirmed holding.
 	enc             *encKeyRing
 	publishedKeySeq atomic.Uint64
+	// clk is what the clock gate knows besides the ring: the latest check
+	// against the hub and the previous maintenance period (enckeys.go).
+	clk clockState
+	// mbox is this node's mailbox signing key and mboxSt what the daemon
+	// knows about getting it to the hub (mbox.go).
+	mbox   *mboxKey
+	mboxSt mboxState
+	// caps is the delivery credential policy's state in memory: recent
+	// downgrades, the direct delivery buckets and the withdrawal push
+	// (caps.go, revoke_push.go).
+	caps capsState
 	// clock, when set, replaces the wall clock (unix ms) for the sealed
 	// wire. Tests only, through setClock (testhooks.go): the background
 	// loops read it while a test sets it, so it is atomic.
 	clock atomic.Pointer[func() uint64]
+	// monoClock, when set, replaces the boot clock (monoMS, bootclock.go)
+	// the clock gate counts running time on. Tests only, through
+	// setMonoClock.
+	monoClock atomic.Pointer[func() uint64]
+	// keyHold, when set, answers keysHeld (enckeys.go): whether key sets
+	// are held back between an emergency rotation's E1 and E2. Tests only,
+	// through setKeyHold, until the emergency rotation answers it.
+	keyHold atomic.Pointer[func() bool]
+	// drain is what the hub mailbox polls say about the epoch keys: how far
+	// each hub's mailbox was read, and what it holds back (relay.go).
+	drain drainState
+	// startLevel is the clock gate's level at the first maintenance period
+	// of the process (setupKeyRing).
+	startLevel clockLevel
 	// hubIDs caches each hub's pinned identity by URL (hub_client.go).
 	hubIDMu sync.Mutex
 	hubIDs  map[string]hubIdent
-	// wireRefuseOnce keeps the "hub below wire 2" notice to one line.
-	wireRefuseOnce sync.Once
+	// hubc is the daemon's HTTP client of its hub: the signed and the
+	// anonymous transports and the first-contact sessions (hub_client.go,
+	// session_client.go).
+	hubc hubClient
 	// lastSignTS is the time of the last relayauth v2 signature, kept
 	// strictly increasing (hubSigned).
 	lastSignTS atomic.Uint64
 
 	// Receive pipeline state (receive.go): the per-message lock, the
-	// refused-envelope list, outcome counters, the transport rate limit,
-	// the refusal-notice limit, the limit on answers re-sent for
-	// redeliveries, the sender keys a refusal is encrypted to,
-	// and the capability calls this process is executing.
-	rxLocks     keyedLocks
-	rxIXLocks   keyedLocks // (from, ix) of a delegation, taken after rxLocks
-	refused     boundedSet
-	rxStats     rxCounters
-	p2pLimit    p2pLimiter
-	notices     noticeLimiter
-	resends     resendLimiter
-	strangers   strangerCache
-	heldEarly   heldUnknown
-	reval       revalidating
+	// refused-envelope list, outcome counters, the limit on notices after
+	// the fact, the limit on answers hurried for redeliveries, and the
+	// capability calls this process is executing. The direct path's rate
+	// buckets are caps.rx (caps.go).
+	rxLocks   keyedLocks
+	rxIXLocks keyedLocks // (from, ix) of a delegation, taken after rxLocks
+	refused   refusedLRU
+	rxStats   rxCounters
+	notices   noticeLimiter
+	resends   resendLimiter
+	// unknownKeyDrops counts the mailbox envelopes sealed to an epoch key
+	// this node does not hold (unknownKeyDrops24h).
+	unknownKeyDrops hourCounts
+	// peers is the resolver's state: where this node learns another
+	// agent's material without naming it to a hub (peer_resolve.go).
+	peers       peerResolver
 	running     sync.Map // interaction id -> *runningCall
 	logOnceMu   sync.Mutex
 	logOnceSeen map[string]bool
+	// join is the hub join loop's state (hubjoin_daemon.go).
+	join hubJoin
+	// idGate is what the outbound gate reads besides the identity file and
+	// the join record (identity_state.go).
+	idGate identityGateInputs
 	// rxFault, when set, is called inside the receive transaction after the
 	// business writes; an error rolls the transaction back. Tests only,
 	// through setRxFault (testhooks.go), atomic for the same reason as
 	// clock.
 	rxFault atomic.Pointer[func(typ string) error]
+	// rxUnlockHook, when set, is called each time the receive pipeline has
+	// released an envelope's locks. Tests only, through setRxUnlockHook.
+	rxUnlockHook atomic.Pointer[func()]
+	// ixLookup, when set, is the interaction key lookup receive step 3a
+	// uses (ixKeys). Tests only, through setIXLookup (testhooks.go).
+	ixLookup atomic.Pointer[seal.IXKeyLookup]
+	// cardGrants are the reply grants of card requests waiting for their
+	// answer (rx_seams.go).
+	cardGrants cardReplyGrants
+	// cardAnswerHook, when set, is handed every card answer the receive
+	// pipeline would send, in place of sending it. Tests only, through
+	// setCardAnswerHook.
+	cardAnswerHook atomic.Pointer[func(to, ix string, body []byte)]
 	// bgWG counts background goroutines that use the store (goBackground),
 	// so Close can wait for them before closing it. bgMu orders their
 	// start against Close's cancel.
@@ -88,12 +137,26 @@ type Daemon struct {
 	// no agent official.
 	officials atomic.Pointer[official.Manifest]
 	// outboxKick wakes the retry loop; outboxLocks serializes attempts at
-	// one queued message (retry.go).
+	// one queued message (retry.go); outboxMem is what the engine keeps in
+	// memory (outbox_attempt.go).
 	outboxKick  chan struct{}
 	outboxLocks keyedLocks
+	outboxMem   outboxMem
+	// outboxHold, set by a test (setOutboxHold), skips the passes of the
+	// outbox loop and of the no-response sweep.
+	outboxHold atomic.Bool
+	// previewer is the stream_preview coalescer and preview cache
+	// (preview.go, set with setPreviewer); none leaves previews
+	// unavailable (previewsUnavailable).
+	previewer atomic.Pointer[previewCoalescer]
 	// sbRefused remembers outbound auto-reply turns that failed closed
 	// because the sandbox was unavailable (autoreply.go).
 	sbRefused sandboxRefused
+	// budget counts the auto-reply runs for untrusted peers per local day
+	// and holds their slots (sandbox_budget.go, LEC BU); sandboxSwept is
+	// the sweep of what an earlier process's sandboxed runs left (SB-9).
+	budget       runBudget
+	sandboxSwept sync.Once
 
 	// spend holds the payments signed in the last 24 hours, for the
 	// spending policy (spend.go); settling tracks the task payments whose
@@ -106,18 +169,21 @@ type Daemon struct {
 	// no_x402, and every payment surface says so rather than pretending.
 	pay module.Payer
 
-	// quietPeers maps a peer AID to the hub's most recent "this recipient is
-	// not collecting its mail" sentence about it. Presence is the mark, so
-	// the warning is logged on the transition rather than on every message,
-	// and the text is kept rather than discarded because the caller that
-	// just sent to that peer is who needs to read it (see QuietPeer).
-	quietPeers map[string]string
+	// quietPeers holds the peers the hub last said have stopped collecting
+	// their mail (recipient_quiet). The mark is logged on the transition
+	// rather than on every message, and kept because the caller that just
+	// sent to that peer is who needs to read it (see QuietPeer).
+	quietPeers map[string]bool
 	// transportState carries the optional delivery paths modules add.
 	transportState
 	// modules are the optional subsystems this build carries.
 	modules []module.Module
-	// wireWarnOnce keeps the C2 version-mismatch notice to one line.
-	wireWarnOnce sync.Once
+	// ctlAuth is the control plane's credential in force (control_api.go); rotateLocalTokens replaces
+	// it.
+	ctlAuth atomic.Pointer[ctlAuth]
+	// autoReplyWrite makes POST /autoreply's read of the configuration, its merge and its save one step,
+	// so that two settings sent at once both land (control_api.go hAutoReply).
+	autoReplyWrite sync.Mutex
 	// lastCardSeq is the highest sequence this process has minted for its
 	// own AgentCard. See cardSeq — the clock alone cannot keep the number
 	// strictly increasing, and the hub refuses a card that does not.
@@ -125,6 +191,12 @@ type Daemon struct {
 	// netCard is this node's A2A network card as last issued, and what the
 	// hub last said about it (a2a_card.go).
 	netCard netCardState
+	// extCard is this node's signed extended cards and who asked for one
+	// lately (extcard.go).
+	extCard extCardState
+	// extFetch is the extended cards this node asked agents for and waits
+	// on (extcard_fetch.go).
+	extFetch extFetchState
 	// longCalls bounds how many long-running capability invocations run
 	// at once. A buffered channel rather than a counter because the
 	// bound has to be enforced at the moment of accepting, and a
@@ -196,6 +268,9 @@ type Daemon struct {
 	// created before it was left by an earlier process (wire_edges.go).
 	started time.Time
 
+	// idOps is the state of the identity's key events (identity_ops.go).
+	idOps identityOps
+
 	// ready is closed when New has finished: every module started, startup
 	// recovery (recoverInterrupted, startPayments) done. A transport module
 	// delivers from the moment its Start runs, so its deliveries wait for
@@ -206,6 +281,11 @@ type Daemon struct {
 // New builds the daemon: load config + identity, open the interactions store, and (if a Hub is
 // configured) start the relay poll loop. It does not block; call Close to stop.
 func New(layout Layout) (*Daemon, error) {
+	// A data directory an earlier or a newer anet wrote is refused before
+	// anything is written to it (FS-S1, core CORE-V4).
+	if err := CheckDataDirForStart(layout); err != nil {
+		return nil, err
+	}
 	if err := layout.EnsureRoot(); err != nil {
 		return nil, err
 	}
@@ -218,6 +298,12 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, err
 	}
 	ix, err := interactions.Open(layout.InteractionsDir())
+	if errors.Is(err, interactions.ErrOldStore) {
+		return nil, oldDataDirRefusal()
+	}
+	if errors.Is(err, interactions.ErrNewerStore) {
+		return nil, newerDataDirRefusal()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("anet: open interactions store: %w", err)
 	}
@@ -225,20 +311,16 @@ func New(layout Layout) (*Daemon, error) {
 	d := &Daemon{layout: layout, cfg: cfg, self: self, ix: ix, ctx: ctx, cancel: cancel, started: time.Now(),
 		stop: make(chan struct{}), autoReplyKick: make(chan struct{}, 1), outboxKick: make(chan struct{}, 1),
 		longCalls: make(chan struct{}, maxConcurrentLongCalls), ready: make(chan struct{})}
+	d.caps.push.kick = make(chan struct{}, 1)
 	d.loadOfficials()
-	if cfg.migratedInbound {
-		// Logged once: the migrated config is saved below without the old
-		// key, so the next start reads an explicit inbound block.
-		log.Printf("anet: accept_delegations is replaced by inbound.policy (A2A-DESIGN §5.1); this node now runs " +
-			"policy closed. Allow a peer with `anet peers allow <aid>` or list public capabilities under inbound.public_capabilities")
-	}
+	// This node's latest witness notice, checked again, so the outbound gate
+	// does not wait for the first hub answer after a restart (KEL D-50).
+	d.loadKeyStateNotice()
 	if cfg.rewriteConfig {
 		if err := SaveConfig(layout, cfg); err != nil {
 			log.Printf("anet: save migrated config: %v", err)
 		}
 	}
-	in := cfg.inbound()
-	d.notices.configure(in.RejectNotice.PerPeerPerHour, in.RejectNotice.GlobalPerMin)
 	// From here on a failed start goes through Close, which releases
 	// whatever had been opened by then — the context, the background
 	// loops, the modules started so far, the ledger and the store — in
@@ -257,8 +339,19 @@ func New(layout Layout) (*Daemon, error) {
 		return nil, err
 	}
 	d.ledger = led
+	// Where the identity's key events stand: what a crash cut short is
+	// finished first (KEL D-35), by the identity loop started below.
+	d.initIdentityOps()
 	d.purgeReplay()
+	d.startPreviews(ctx) // before anything can arrive (preview.go)
 	d.goBackground(func() { d.receiveMaintenance(ctx) })
+	d.goBackground(func() { d.keyMaintenanceLoop(ctx) })
+	d.goBackground(func() { d.mboxLoop(ctx) }) // mbox.go
+	// The peer lists may have changed while the daemon was stopped, or it
+	// stopped between a list write and its withdrawal (SS §4.3.8 item 1).
+	if _, err := d.reconcileCapsWithLists(); err != nil {
+		log.Printf("anet: withdraw delivery credentials by the peer lists: %v", err)
+	}
 	d.loadCardSeq()
 	d.providers = provider.NewRegistry()
 	if err := d.startModules(ctx, cfg); err != nil {
@@ -273,14 +366,35 @@ func New(layout Layout) (*Daemon, error) {
 		_ = d.Close()
 		return nil, err
 	}
+	// A stopped or deactivated identity whose close a crash cut short is
+	// closed first (engine §6.3 step 2); then the rows an attempt left
+	// marked count as handed over (step 3), before anything is sent.
+	d.closeLeftAtStart()
+	gone := d.identityRefusesInbound()
+	if gone {
+		// A stopped or deactivated identity sends and receives nothing
+		// directly (KEL D-1): the transports close, and no poll starts.
+		d.closeP2P()
+	}
+	d.finishLeftRollback() // a local state rollback a crash cut short (FS-B3)
+	d.recoverOutboxAttempts()
 	d.recoverInterrupted()
 	d.startPayments(ctx)
 	d.goBackground(func() { d.outboxLoop(ctx) })
 	d.goBackground(func() { d.noResponseLoop(ctx) }) // no_response.go
-	if cfg.HubURL != "" {
+	// The join loop registers again at every start (hubjoin_daemon.go,
+	// LEC AD-5); the relay loop polls once the hub has registered this
+	// node.
+	d.initJoin(cfg)
+	// The withdrawal push reads the join record, so it starts after it.
+	d.goBackground(func() { d.revokeLoop(ctx) }) // revoke_push.go
+	// The federation hub KEL set follows the hub's /hub/kels (KEL D-24).
+	d.goBackground(func() { d.hubKELSyncLoop(ctx) }) // peerkel.go
+	if cfg.HubURL != "" && !gone {
 		d.startRelayLoop(cfg.HubURL)
-		d.refreshRegistration()
 	}
+	d.startJoinLoop()
+	d.startIdentityLoop()
 	if cfg.AutoReply != nil {
 		d.startAutoReply(*cfg.AutoReply)
 	}
@@ -294,73 +408,39 @@ func New(layout Layout) (*Daemon, error) {
 	return d, nil
 }
 
-// refreshRegistration re-publishes what this node serves, in the background.
+// refreshRegistration re-publishes what this node serves, in the
+// background: the join loop registers again now (LEC AD-5).
 //
-// The capability list a hub advertises is folded in at hub-register time
-// and never afterwards. Modules are wired at start, so their capabilities
-// change whenever the build or the config changes — and a restart, which
-// is exactly how an operator applies such a change, did not tell the hub.
-// The heartbeat kept refreshing last_seen, so the node looked healthy
-// while its advertised capabilities were whatever they had been at the
-// last explicit registration.
+// The capability list a hub advertises is folded in at registration time.
+// Modules are wired at start, so their capabilities change whenever the
+// build or the config changes — and a restart, which is exactly how an
+// operator applies such a change, has to tell the hub, or the hub goes on
+// advertising a capability the node has dropped and a delegation sent on
+// the strength of that lands where nobody serves it. The start-up attempt of
+// the join loop is that refresh; this one is for a change while running
+// (cardInputsChanged).
 //
-// The removal direction is the worse one. A hub goes on advertising a
-// capability the node has dropped; `anet find --cap` returns it as a live
-// answer; a delegation sent on the strength of that lands in the path
-// nobody serves, where the requester gets no error, the provider logs
-// nothing and neither chain records anything.
-//
-// Background and non-fatal on purpose: a daemon must come up when its hub
-// is unreachable, and this is a refresh of something the hub already has,
-// not a precondition for running. Found by the release matrix.
-// The config is read inside the goroutine, not captured at start: an
-// explicit `hub-register` can land first, and a refresh carrying the
-// snapshot from before it would overwrite what the operator just set.
+// Only a registered node re-registers here: a node waiting for admission or
+// for its hub carries the change in its next scheduled attempt, and a
+// refused one waits for `anet hub-register` (AD-3).
 func (d *Daemon) refreshRegistration() {
-	d.goBackground(func() {
-		ctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)
-		defer cancel()
-		// Read and register under one lock, so an explicit hub-register
-		// racing this cannot be overwritten by a stale snapshot.
-		d.regMu.Lock()
-		defer d.regMu.Unlock()
-		cfg := d.config()
-		if cfg.HubURL == "" {
-			return // left the hub between start and now
-		}
-		caps := withServedCapabilities(cfg.Caps, d.providers)
-		if err := d.registerWithHubLocked(ctx, cfg.HubURL, cfg.Name, caps, ""); err != nil {
-			// Not an error the operator must act on: the node runs either
-			// way, and the next explicit hub-register will carry it.
-			log.Printf("anet: could not refresh this node's registration with %s: %v", cfg.HubURL, err)
-			return
-		}
-		if !sameStrings(cfg.Caps, caps) {
-			// What the hub was sent, which is only the public ones
-			// (registerWithHubLocked, an internal note item). The served list printed
-			// here read as if the private ones had been published
-			// (an internal note).
-			log.Printf("anet: refreshed capabilities at %s: %v", cfg.HubURL, d.publicOnly(caps))
-		}
-	})
-}
-
-// sameStrings reports whether two capability lists have the same members.
-func sameStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+	hub := d.config().HubURL
+	if hub == "" {
+		return
 	}
-	seen := make(map[string]int, len(a))
-	for _, x := range a {
-		seen[x]++
+	d.join.mu.Lock()
+	r := d.join.rec
+	if r == nil || !sameHub(r.Hub, hub) {
+		// A hub the loop has no record of (config.json changed under the
+		// running daemon): its first attempt is this one.
+		d.join.rec = freshJoinRecord(hub, time.Now())
+		r = d.join.rec
 	}
-	for _, x := range b {
-		seen[x]--
-		if seen[x] < 0 {
-			return false
-		}
+	registered, fresh := r.State == JoinRegistered, r.RegisteredAt == 0 && r.Attempts == 0
+	d.join.mu.Unlock()
+	if registered || fresh {
+		d.kickJoin()
 	}
-	return true
 }
 
 // goBackground runs f on its own goroutine and makes Close wait for it.

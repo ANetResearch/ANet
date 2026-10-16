@@ -13,11 +13,6 @@ const (
 	// ExtX402URI is the a2a-x402 v0.2 extension (A2A-DESIGN §8.1), as
 	// internal/x402a2a defines it for the payment flow.
 	ExtX402URI = x402a2a.ExtensionURI
-	// ExtPricingURI carries this node's signed price list:
-	// params {network, prices: [{skillId, amount}]}, amounts as decimal
-	// strings. Inside the card signature so a hub cannot quote a price the
-	// provider never agreed to.
-	ExtPricingURI = "https://agentnetwork.org.cn/a2a/ext/anet-pricing/v1"
 	// ExtEvidenceURI says that tasks this node completes carry
 	// provider-signed receipts and anet.* evidence metadata.
 	ExtEvidenceURI = "https://agentnetwork.org.cn/a2a/ext/anet-evidence/v1"
@@ -29,6 +24,28 @@ const (
 	// for natural-language tasks (an internal note item): not a capability, and never
 	// priced. A capability of that id, where one exists, is not it.
 	ChatSkillID = "chat"
+	// ExtPriceURI is the per-skill price list of an extended card: params
+	// {network, asset, prices: [{skillId, amount}]}, amounts as decimal
+	// strings of 1..2^63-1, every skillId one of the card's skills, and a
+	// skill the list does not name free. It appears only on the extended
+	// cards this node signs and answers anet.card.get/1 with, never on the
+	// public card: the kernel drops it there, and a hub refuses a public card
+	// that carries it.
+	ExtPriceURI = "https://agentnetwork.org.cn/a2a/ext/anet-price/v1"
+)
+
+// CardVariant names one of the two extended cards a node signs at a time.
+// The public card is neither; CardContext.Variant is empty for it.
+type CardVariant string
+
+const (
+	// VariantGeneral is the extended card every caller gets: the public card
+	// and the prices of its skills.
+	VariantGeneral CardVariant = "general"
+	// VariantList is the extended card of the callers in allow ∪ trust: the
+	// public card, the capabilities served to those lists only (allow_only),
+	// and the prices of all of them.
+	VariantList CardVariant = "list"
 )
 
 // CardContext is what the kernel tells a contributor about the network
@@ -46,20 +63,19 @@ type CardContext struct {
 	// HubURL is the hub the card is published to, without a trailing
 	// slash.
 	HubURL string
-	// Skills are the ids of the skills the card publishes, sorted: the
-	// public capabilities this node serves and, on a node whose inbound
-	// policy is open, ChatSkillID (natural-language tasks, never priced).
-	// Never empty: a node with no skill publishes no card.
+	// Skills are the ids of the skills the card lists, sorted: the public
+	// capabilities this node serves and, on a node whose inbound policy is
+	// open, ChatSkillID (natural-language tasks, never priced); on the list
+	// variant of the extended card also the capabilities served only to the
+	// allow and trust lists. Never empty: a node with no skill publishes no
+	// card.
 	Skills []string
-	// WithholdPrices is set when the operator chose not to publish a
-	// price per skill (payments.publish_prices=false). A contributor may
-	// still say that this node takes payment; what each skill costs is
-	// then given only in the quote, inside the end-to-end encrypted task.
-	// Published prices let anyone who sees a settlement's payee and
-	// amount — the hub, and readers of the public issuance chain for a
-	// cross-hub payment — name the skill it paid for (A2A-DESIGN §21)
-	// [redteam:F1].
-	WithholdPrices bool
+	// Extended is set when the card is an extended card, signed by this node
+	// and given only to a caller that asks for it end to end (anet.card.get/1),
+	// and Variant says which. A payment module states prices only here
+	// (ExtPriceURI); on the public card a price contribution is dropped.
+	Extended bool
+	Variant  CardVariant
 }
 
 // CardContributor is implemented by a module that adds to this node's A2A
@@ -82,7 +98,13 @@ type CardContext struct {
 // direct (anet-p2p) interface whose tenant is not the node's AID, and an
 // interface whose URL host is loopback, unspecified or a local socket
 // (127.0.0.1 never enters a network card). A repeated extension URI is
-// kept once.
+// kept once. A price list (ExtPriceURI, or the public price list of 0.2) is
+// dropped from the public card whatever the module meant: the kernel
+// checks it only on an extended card, against the skills that card lists.
+//
+// CardExtensions is asked once per card: for the public card, then with
+// Extended set for each variant of the extended card, each time with that
+// card's skills.
 type CardContributor interface {
 	CardExtensions(c CardContext) []map[string]any
 	CardInterfaces(c CardContext) []map[string]any

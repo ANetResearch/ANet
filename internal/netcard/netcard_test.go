@@ -23,8 +23,8 @@ func goldenInput() Input {
 			{ID: "text.digest"},
 		},
 		Extensions: []map[string]any{
-			{"uri": module.ExtPricingURI, "params": map[string]any{"network": "hub:bafyhub",
-				"prices": []any{map[string]any{"skillId": "text.digest", "amount": "5"}}}},
+			{"uri": "https://example.org/a2a/ext/catalog/v1", "params": map[string]any{"network": "hub:bafyhub",
+				"list": []any{map[string]any{"skillId": "text.digest", "amount": "5"}}}},
 			{"uri": module.ExtX402URI, "required": true},
 		},
 		Interfaces: []map[string]any{
@@ -47,14 +47,14 @@ func TestBuildGolden(t *testing.T) {
 		`{"protocolBinding":"https://agentnetwork.org.cn/a2a/bindings/anet-relay/v1","protocolVersion":"1.0","tenant":"bafyaid","url":"https://hub.example/relay"},` +
 		`{"protocolBinding":"https://agentnetwork.org.cn/a2a/bindings/anet-p2p/v1","protocolVersion":"1.0","tenant":"bafyaid","url":"tcp://203.0.113.7:4001"}],` +
 		`"version":"0.2.0",` +
-		`"capabilities":{"streaming":false,"pushNotifications":false,"extensions":[` +
+		`"capabilities":{"streaming":false,"pushNotifications":false,"extendedAgentCard":true,"extensions":[` +
 		`{"description":"anet identity (AID) and card sequence; the card is signed under the AID's current KEL key",` +
 		`"params":{"aid":"bafyaid","issuedAt":"1790000000123","notBefore":"1789999940123","seq":"1790000000"},` +
 		`"uri":"https://agentnetwork.org.cn/a2a/ext/anet-card/v1"},` +
 		`{"description":"completed tasks carry a provider-signed receipt and anet.* evidence metadata",` +
 		`"uri":"https://agentnetwork.org.cn/a2a/ext/anet-evidence/v1"},` +
-		`{"params":{"network":"hub:bafyhub","prices":[{"amount":"5","skillId":"text.digest"}]},` +
-		`"uri":"https://agentnetwork.org.cn/a2a/ext/anet-pricing/v1"},` +
+		`{"params":{"list":[{"amount":"5","skillId":"text.digest"}],"network":"hub:bafyhub"},` +
+		`"uri":"https://example.org/a2a/ext/catalog/v1"},` +
 		`{"required":true,"uri":"https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2"}]},` +
 		`"defaultInputModes":["application/json"],"defaultOutputModes":["application/json"],` +
 		`"skills":[` +

@@ -22,20 +22,27 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
-// runPay is `anet pay <interaction_id> [--option N] [--reject]`.
+// runPay is `anet pay <task> [--option N] [--reject]`. The confirmation is
+// ux §1.4 M4: the quote (amount, payee by its full AID, its name and the
+// skill), the price the payee signed, the manual limit, then confirm.yes
+// (UX-R12).
 func runPay(c *client, rest []string) error {
+	const use = "anet pay <task> [--option N] [--reject]"
 	pos, flags := splitFlags(rest)
 	if len(pos) == 0 || strings.TrimSpace(pos[0]) == "" {
-		return fmt.Errorf("pay <interaction_id> [--option N] [--reject]")
+		return usageError{use}
 	}
 	ix := strings.TrimSpace(pos[0])
 	if flags["reject"] == "true" {
 		return c.do("/tasks/pay-manual", map[string]any{"task_id": ix, "decision": "reject"})
 	}
 	var chosen json.RawMessage
-	if err := ttyConfirm(func() (string, error) {
+	if err := ttyConfirm("pay", func() (string, error) {
 		accepts, err := quotedOptions(c, ix)
 		if err != nil {
 			return "", err
@@ -44,23 +51,150 @@ func runPay(c *client, rest []string) error {
 		if v, ok := flags["option"]; ok {
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 1 || n > len(accepts) {
-				return "", fmt.Errorf("pay: --option must be 1..%d", len(accepts))
+				return "", usageError{fmt.Sprintf("%s  (--option is 1 to %d)", use, len(accepts))}
 			}
 			i = n - 1
 		} else if len(accepts) > 1 {
 			var b strings.Builder
-			fmt.Fprintf(&b, "the provider offers %d ways to pay; choose one with --option N:\n", len(accepts))
+			fmt.Fprintf(&b, "%s  (the provider offers %d ways to pay; choose one with --option N:", use, len(accepts))
 			for n, a := range accepts {
-				fmt.Fprintf(&b, "  %d. %s\n", n+1, describeOption(a))
+				fmt.Fprintf(&b, "\n  %d. %s", n+1, describeOption(a))
 			}
-			return "", fmt.Errorf("%s", strings.TrimRight(b.String(), "\n"))
+			b.WriteString(")")
+			return "", usageError{b.String()}
 		}
 		chosen = accepts[i]
-		return fmt.Sprintf("Pay for task %s: %s", printable(ix, 128), describeOption(chosen)), nil
+		return payPrompt(c, ix, chosen), nil
 	}); err != nil {
 		return err
 	}
 	return c.do("/tasks/pay-manual", map[string]any{"task_id": ix, "decision": "submit", "accept": chosen})
+}
+
+// payPrompt is the explanation of `anet pay` (ux §1.4 M4): pay.prompt_quote,
+// the signed price line and pay.prompt_limits.
+func payPrompt(c *client, ix string, option json.RawMessage) string {
+	lang := a2ashape.Lang()
+	var o struct {
+		Amount string `json:"amount"`
+		PayTo  string `json:"payTo"`
+	}
+	_ = json.Unmarshal(option, &o)
+	// The provider wrote these: made safe to show on a terminal.
+	quote := a2ashape.Args{"amount": printable(o.Amount, 40), "peer": printable(o.PayTo, 256)}
+	// One /agents/card for the payee's name and the prices it signed: from
+	// the daemon's cache, or asked of the payee within 10 seconds (HPP
+	// §4.5).
+	card, haveCard := payeeCard(c, o.PayTo)
+	if name := card.name(); haveCard && name != "" {
+		quote["name"] = name
+	}
+	skill := taskSkill(c, ix)
+	if skill != "" {
+		quote["skill"] = printable(skill, 128)
+	}
+	lines := []string{a2ashape.Sentence("pay.prompt_quote", lang, quote)}
+	lines = append(lines, signedPriceLine(card, haveCard, skill, o.Amount, lang))
+	if st, ok := spendStatus(c); ok {
+		lines = append(lines, a2ashape.Sentence("pay.prompt_limits", lang,
+			a2ashape.Args{"single": st.ExplicitMax, "left": st.left()}))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// payeeCard is /agents/card for aid, with the prices it signed; false when
+// it cannot be read or is not the payee's.
+func payeeCard(c *client, aid string) (cardAnswer, bool) {
+	fc := *c
+	// The daemon waits up to 10 seconds for the payee's answer.
+	fc.timeout = 20 * time.Second
+	b, code, err := fc.fetch("/agents/card", map[string]any{"aid": aid})
+	var ra cardAnswer
+	if err != nil || code != 200 || json.Unmarshal(b, &ra) != nil || ra.AID != aid || ra.Verification != "VERIFIED" {
+		return cardAnswer{}, false
+	}
+	return ra, true
+}
+
+// name is the name on a verified card, made safe for a terminal.
+func (ra cardAnswer) name() string {
+	var card struct {
+		Name string `json:"name"`
+	}
+	_ = json.Unmarshal(ra.Card, &card)
+	return printable(card.Name, 80)
+}
+
+// signedPriceLine is the second line of `anet pay`'s prompt (ux §3.2 text
+// E): the price the payee signed for the task's skill — one the card does
+// not list is 0, as for an automatic payment (HPP PAY-D2 step 4) — and
+// whether this quote is above it; or that there is no signed price (a text
+// task, or no extended card was had). The manual tier pays either way: the
+// line is for the person deciding.
+func signedPriceLine(ra cardAnswer, have bool, skill, amount string, lang a2ashape.Language) string {
+	if !have || skill == "" || len(ra.Prices) == 0 {
+		return a2ashape.Sentence("pay.prompt_no_price", lang, nil)
+	}
+	price := uint64(0)
+	for _, p := range ra.Prices {
+		if p.Skill == skill {
+			n, err := strconv.ParseUint(p.Amount, 10, 64)
+			if err != nil {
+				return a2ashape.Sentence("pay.prompt_no_price", lang, nil)
+			}
+			price = n
+			break
+		}
+	}
+	key := "pay.prompt_price"
+	if q, err := strconv.ParseUint(amount, 10, 64); err != nil || q > price {
+		key = "pay.prompt_price_higher"
+	}
+	return a2ashape.Sentence(key, lang, a2ashape.Args{"price": price})
+}
+
+// taskSkill is the capability a task calls (metadata anet.skill), "" for a
+// text task or when the task cannot be read.
+func taskSkill(c *client, ix string) string {
+	b, code, err := c.fetch("/tasks/get", map[string]any{"task_id": ix, "history_length": 0, "max_task_bytes": cliTaskBytes})
+	if err != nil || code != 200 {
+		return ""
+	}
+	var t struct {
+		Metadata map[string]any `json:"metadata"`
+	}
+	if json.Unmarshal(b, &t) != nil {
+		return ""
+	}
+	s, _ := t.Metadata[a2ashape.KeySkill].(string)
+	return s
+}
+
+// spendLimits is what /payments/status says of the limits and today's
+// spending (HPP §2.7).
+type spendLimits struct {
+	AutoMax       uint64 `json:"auto_max"`
+	AgentMax      uint64 `json:"agent_max"`
+	AgentDailyMax uint64 `json:"agent_daily_max"`
+	ExplicitMax   uint64 `json:"explicit_max"`
+	DailyMax      uint64 `json:"daily_max"`
+	// LeftToday is what the manual tier may still pay today, as the
+	// daemon counted it (daily_max − spent_today): the {left} of the
+	// prompts, never worked out here.
+	LeftToday uint64 `json:"left_today"`
+}
+
+// left is what may still be paid today under daily_max.
+func (s spendLimits) left() uint64 { return s.LeftToday }
+
+// spendStatus reads /payments/status; false when it cannot be read.
+func spendStatus(c *client) (spendLimits, bool) {
+	var st spendLimits
+	b, code, err := c.fetch("/payments/status", map[string]any{})
+	if err != nil || code != 200 || json.Unmarshal(b, &st) != nil {
+		return spendLimits{}, false
+	}
+	return st, true
 }
 
 // quotedOptions reads the options of the latest quote on a task, exactly
@@ -119,9 +253,10 @@ func describeOption(raw json.RawMessage) string {
 }
 
 // runPayments is `anet payments [show]` and
-// `anet payments set <key>=<n>... [--payees-file PATH]`.
+// `anet payments set <limit>=<n>...`.
 func runPayments(c *client, rest []string) error {
-	pos, flags := splitFlags(rest)
+	const use = "anet payments [show] | anet payments set <limit>=<n> ..."
+	pos, _ := splitFlags(rest)
 	sub := ""
 	if len(pos) > 0 {
 		sub = pos[0]
@@ -135,95 +270,83 @@ func runPayments(c *client, rest []string) error {
 			k, v, ok := strings.Cut(kv, "=")
 			n, err := strconv.ParseUint(v, 10, 64)
 			if !ok || err != nil {
-				return fmt.Errorf("payments set: %q is not <limit>=<whole number>", kv)
+				return usageError{fmt.Sprintf("anet payments set <limit>=<whole number> ...  (%q is not one)", printable(kv, 64))}
 			}
 			set[k] = n
 		}
-		body := map[string]any{"set": set}
-		pf, setPayees := flags["payees-file"]
-		if setPayees {
-			body["payees_file"] = pf
+		if len(set) == 0 {
+			return usageError{"anet payments set <limit>=<n> ..."}
 		}
-		if len(set) == 0 && !setPayees {
-			return fmt.Errorf("payments set <limit>=<n>... [--payees-file PATH]")
-		}
-		if err := ttyConfirm(func() (string, error) { return limitsPrompt(c, set, pf, setPayees) }); err != nil {
+		if err := ttyConfirm("payment_limits", func() (string, error) { return limitsPrompt(c, set) }); err != nil {
 			return err
 		}
-		return c.do("/payments/limits", body)
+		return c.do("/payments/limits", map[string]any{"set": set})
 	default:
-		return fmt.Errorf("payments [show] | payments set <limit>=<n>... [--payees-file PATH]")
+		return usageError{use}
 	}
 }
 
-// limitsPrompt states each change as current → new, from the daemon's
-// current limits (/payments/status), in a fixed order.
-func limitsPrompt(c *client, set map[string]uint64, payeesFile string, setPayees bool) (string, error) {
+// limitsPrompt is limits_confirm, then one limits_confirm.line per change,
+// current → new, from the daemon's current limits (/payments/status), in a
+// fixed order (ux §1.4 M1).
+func limitsPrompt(c *client, set map[string]uint64) (string, error) {
 	b, code, err := c.fetch("/payments/status", map[string]any{})
 	if err != nil {
 		return "", err
 	}
 	if code != 200 {
-		return "", fmt.Errorf("payments: the daemon answered %d: %s", code, strings.TrimSpace(string(b)))
+		return "", answerError(code, b)
 	}
 	cur := map[string]json.RawMessage{}
 	_ = json.Unmarshal(b, &cur)
-	from := func(k string) string {
-		if v, ok := cur[k]; ok {
-			return printable(string(v), 256)
-		}
-		return "?"
-	}
-	var sb strings.Builder
-	sb.WriteString("Change the spending limits of this node?")
+	lang := a2ashape.Lang()
+	lines := []string{a2ashape.Sentence("limits_confirm", lang, nil)}
 	keys := make([]string, 0, len(set))
 	for k := range set {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		fmt.Fprintf(&sb, "\n  %-16s %s → %d", printable(k, 64), from(k), set[k])
+		args := a2ashape.Args{"key": printable(k, 64), "to": set[k]}
+		if v, ok := cur[k]; ok {
+			args["from"] = printable(string(v), 32)
+		}
+		lines = append(lines, "  "+a2ashape.Sentence("limits_confirm.line", lang, args))
 	}
-	if setPayees {
-		fmt.Fprintf(&sb, "\n  %-16s %s → %s", "payees_file", from("payees_file"), strconv.Quote(payeesFile))
-	}
-	return sb.String(), nil
+	return strings.Join(lines, "\n"), nil
 }
 
 // runRedeem is `anet redeem <amount> [--ref <reference>]`: give credit back
 // to the hub, which destroys it and signs for what it took. It is a
 // payment to the hub (purpose redeem: explicit_max and daily_max, no payee
-// list), so it is confirmed on the terminal with the amount and the payee —
-// the hub's AID, the key the authorization is signed to — before anything
-// is signed.
+// list), so it is confirmed on the terminal with redeem_confirm — the
+// amount, the hub and the manual limit — before anything is signed.
 //
-// The payee shown is the payee sent: /redeem carries it as pay_to, and the
-// daemon signs only to that hub, refusing when the node settles on another
-// by then (a hub-register in between), so what the operator confirmed and
-// what is signed cannot differ. A build without the payment module says so
-// before anything is asked.
+// The payee is the hub's AID, sent as pay_to: the daemon signs only to that
+// hub, refusing when the node settles on another by then (a hub-register in
+// between), so what the operator confirmed and what is signed cannot
+// differ. A build without the payment module says so before anything is
+// asked.
 func runRedeem(c *client, rest []string) error {
+	const use = "anet redeem <amount> [--ref R]"
 	if !paymentsCompiled() {
 		return errNoPaymentModule
 	}
 	pos, flags := splitFlags(rest)
 	if len(pos) < 1 {
-		return fmt.Errorf("redeem <amount> [--ref <reference>]")
+		return usageError{use}
 	}
 	n, err := strconv.ParseUint(pos[0], 10, 64)
-	if err != nil {
-		return fmt.Errorf("redeem: amount must be a whole number of credits: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("redeem: the amount must be above 0")
+	if err != nil || n == 0 {
+		return usageError{use + "  (the amount is a whole number of credits above 0)"}
 	}
 	ref := strings.TrimSpace(flags["ref"])
 	if ref == "" && len(pos) > 1 {
 		ref = strings.Join(pos[1:], " ")
 	}
 	var payee string
-	if err := ttyConfirm(func() (string, error) {
-		prompt, hubAID, err := redeemPrompt(c, n, ref)
+	if err := ttyConfirm("redeem", func() (string, error) {
+		prompt, hubAID, err := redeemPrompt(c, n)
 		payee = hubAID
 		return prompt, err
 	}); err != nil {
@@ -232,29 +355,23 @@ func runRedeem(c *client, rest []string) error {
 	return c.do("/redeem", map[string]any{"amount": n, "reference": ref, "pay_to": payee})
 }
 
-// redeemPrompt names the amount, the payee and the limits it falls under,
-// from /payments/status with the hub, and returns the payee it named.
-// Without a hub AID there is no payee to name and nothing the daemon could
-// sign to, so it ends without asking.
-func redeemPrompt(c *client, amount uint64, ref string) (string, string, error) {
+// redeemPrompt is redeem_confirm, from /payments/status with the hub, and
+// the payee (the hub's AID) it will be signed to. Without a hub AID there is
+// no payee and nothing the daemon could sign to, so it ends without asking.
+func redeemPrompt(c *client, amount uint64) (string, string, error) {
 	b, code, err := c.fetch("/payments/status", map[string]any{"hub": true})
 	if err != nil {
 		return "", "", err
 	}
 	var st struct {
-		Hub         string `json:"hub"`
-		HubAID      string `json:"hub_aid"`
-		HubError    string `json:"hub_error"`
-		ExplicitMax uint64 `json:"explicit_max"`
-		DailyMax    uint64 `json:"daily_max"`
-		Spent24h    uint64 `json:"spent_24h"`
-		Error       string `json:"error"`
+		spendLimits
+		Hub      string `json:"hub"`
+		HubAID   string `json:"hub_aid"`
+		HubError string `json:"hub_error"`
+		Error    string `json:"error"`
 	}
 	if json.Unmarshal(b, &st) != nil || code != 200 {
-		if st.Error != "" {
-			return "", "", fmt.Errorf("redeem: %s", st.Error)
-		}
-		return "", "", fmt.Errorf("redeem: the daemon answered %d", code)
+		return "", "", answerError(code, b)
 	}
 	switch {
 	case st.Hub == "":
@@ -263,26 +380,16 @@ func redeemPrompt(c *client, amount uint64, ref string) (string, string, error) 
 		return "", "", fmt.Errorf("redeem: the identity of the hub %s is not known (%s); nothing was signed",
 			printable(st.Hub, 256), printable(st.HubError, 256))
 	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Redeem %d credits: give them back to your hub, which destroys them and signs for what it took.", amount)
-	fmt.Fprintf(&sb, "\n  payee      %s (the hub at %s)", printable(st.HubAID, 256), printable(st.Hub, 256))
-	if ref != "" {
-		fmt.Fprintf(&sb, "\n  reference  %s", printable(ref, 256))
-	}
-	fmt.Fprintf(&sb, "\n  limits     explicit_max %d per payment; daily_max %d (%d signed in the last 24 hours)",
-		st.ExplicitMax, st.DailyMax, st.Spent24h)
-	if amount > st.ExplicitMax || st.Spent24h+amount > st.DailyMax {
-		sb.WriteString("\n  above these limits the daemon refuses it; `anet payments set` changes them")
-	}
-	sb.WriteString("\nThis cannot be undone.")
-	return sb.String(), st.HubAID, nil
+	return a2ashape.Sentence("redeem_confirm", a2ashape.Lang(), a2ashape.Args{"amount": amount,
+		"hub": printable(st.Hub, 256), "single": st.ExplicitMax, "left": st.left()}), st.HubAID, nil
 }
 
 // runPayees is `anet payees list`, `anet payees add <aid>` and
 // `anet payees remove <aid>`: the payee list of the spending policy
-// (payments.payees_file). Adding widens what this node can pay, so it is
-// confirmed on the terminal; removing narrows it and is not.
+// (payees.allow). Adding widens what this node can pay, so it is confirmed
+// on the terminal; removing narrows it and is not.
 func runPayees(c *client, rest []string) error {
+	const use = "anet payees list|add|remove [<aid>]"
 	pos, _ := splitFlags(rest)
 	sub := ""
 	if len(pos) > 0 {
@@ -297,52 +404,36 @@ func runPayees(c *client, rest []string) error {
 		return c.do("/payees/list", map[string]any{})
 	case "add", "allow":
 		if aid == "" {
-			return fmt.Errorf("payees add <aid>")
+			return usageError{"anet payees add <aid>"}
 		}
-		if err := ttyConfirm(func() (string, error) { return payeePrompt(c, aid) }); err != nil {
+		if err := ttyConfirm("payees", func() (string, error) { return payeePrompt(c, aid) }); err != nil {
 			return err
 		}
 		return c.do("/payees/add", map[string]any{"aid": aid})
 	case "remove", "rm":
 		if aid == "" {
-			return fmt.Errorf("payees remove <aid>")
+			return usageError{"anet payees remove <aid>"}
 		}
 		return c.do("/payees/remove", map[string]any{"aid": aid})
 	}
-	return fmt.Errorf("payees list | add <aid> | remove <aid>")
+	return usageError{use}
 }
 
-// payeePrompt says what putting aid on the payee list allows: payments to
-// it within each tier's limits, which it lists as they stand. With the
-// list turned off there is nothing to add to — every payee is already
-// allowed — so it ends without asking.
+// payeePrompt is payee_confirm: putting aid on the payee list lets the
+// automatic and agent tiers pay it, within their limits as they stand.
 func payeePrompt(c *client, aid string) (string, error) {
 	b, code, err := c.fetch("/payments/status", map[string]any{})
 	if err != nil {
 		return "", err
 	}
 	if code != 200 {
-		return "", fmt.Errorf("payees: the daemon answered %d: %s", code, strings.TrimSpace(string(b)))
+		return "", answerError(code, b)
 	}
-	var st struct {
-		AutoMax       uint64  `json:"auto_max"`
-		AgentMax      uint64  `json:"agent_max"`
-		AgentDailyMax uint64  `json:"agent_daily_max"`
-		ExplicitMax   uint64  `json:"explicit_max"`
-		DailyMax      uint64  `json:"daily_max"`
-		PayeesFile    *string `json:"payees_file"`
-	}
+	var st spendLimits
 	_ = json.Unmarshal(b, &st)
-	if st.PayeesFile != nil && *st.PayeesFile == "" {
-		return "", fmt.Errorf("payees: the payee list is off (payments.payees_file is empty), so every payee is " +
-			"already allowed within the limits; nothing was changed. `anet payments set --payees-file payees.allow` " +
-			"turns it on")
+	args := a2ashape.Args{"peer": aid, "auto_max": st.AutoMax, "agent_max": st.AgentMax, "daily": st.AgentDailyMax}
+	if name := peerName(c, aid); name != "" {
+		args["name"] = name
 	}
-	return fmt.Sprintf("Allow this node to pay %s?%s\n"+
-		"  Payments to it are then possible within the spending limits:\n"+
-		"    automatic   up to %d each (auto_max)\n"+
-		"    agents      up to %d each, %d a day (agent_max, agent_daily_max)\n"+
-		"    you         up to %d each, %d a day in all (explicit_max, daily_max)",
-		printable(aid, 256), peerNote(c, aid), st.AutoMax, st.AgentMax, st.AgentDailyMax,
-		st.ExplicitMax, st.DailyMax), nil
+	return a2ashape.Sentence("payee_confirm", a2ashape.Lang(), args), nil
 }

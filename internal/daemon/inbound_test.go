@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,9 +17,11 @@ import (
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -28,16 +31,19 @@ const lampCap = "light.onoff@sim/lamp-1"
 func registered(t *testing.T, srvURL, name string) *Daemon {
 	t.Helper()
 	d := newTestDaemon(t, srvURL, false)
-	if err := d.RegisterWithHub(context.Background(), srvURL, name, nil, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), srvURL, name, nil); err != nil {
 		t.Fatal(err)
 	}
 	d.stopRelayLoop()
 	return d
 }
 
-// lastStatusMeta polls d until ix has a status message (notices are sent in
-// the background) or two seconds pass, and returns the state of ix and the
-// metadata of its last status message.
+// lastStatusMeta polls d — its mailbox, and its hub about what it sent —
+// until ix has its provider's answer or two seconds pass, and returns the
+// state of ix and the metadata of that answer. A refusal comes back in the
+// delivery token of what d sent (engine §2.7): the task's result metadata
+// then carries its reason. A notice after the fact comes as a status
+// message (engine ENG-Q7): its metadata is returned otherwise.
 func lastStatusMeta(t *testing.T, d *Daemon, ix string) (interactions.State, map[string]any) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -45,9 +51,13 @@ func lastStatusMeta(t *testing.T, d *Daemon, ix string) (interactions.State, map
 		if err := d.pollOnce(context.Background()); err != nil {
 			t.Fatal(err)
 		}
+		askHubNow(t, d)
 		got, err := d.ix.Get(ix)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if meta := decodeMeta([]byte(got.ResultMeta)); meta[a2ashape.KeyReason] != nil {
+			return got.State, meta
 		}
 		msgs, _ := d.ix.Messages(ix)
 		for i := len(msgs) - 1; i >= 0; i-- {
@@ -301,63 +311,66 @@ func TestAPublicCapabilityCallTakesNoText(t *testing.T) {
 		t.Fatalf("cancel: %+v", r)
 	}
 	waitUntil(t, "the running call to be canceled", gate.wasCanceled)
-	waitUntil(t, "the public_cap interaction to end and drop the caller's keys", func() bool {
+	waitUntil(t, "the public_cap interaction to end", func() bool {
 		pix, _ := prov.ix.Get(id)
-		return pix.IsTerminal() && len(pix.PeerKEL) == 0 && len(pix.PeerKeys) == 0
+		return pix.IsTerminal()
+	})
+	// Its answers to the caller are queued: the caller's keys are kept, as
+	// they may have to be sealed again (engine ENG-S7).
+	if pix, _ := prov.ix.Get(id); len(outboxRows(t, prov, id)) == 0 || len(pix.PeerKEL) == 0 || len(pix.PeerKeys) == 0 {
+		t.Fatalf("ended with its answers queued, the caller's keys: kel %d, keys %d", len(pix.PeerKEL), len(pix.PeerKeys))
+	}
+	// The caller takes them, and the provider hears so: the keys go with
+	// the last row.
+	waitUntil(t, "the caller's answers to be confirmed and its keys dropped", func() bool {
+		settleDelivery(t, prov, stranger)
+		pix, _ := prov.ix.Get(id)
+		return len(outboxRows(t, prov, id)) == 0 && len(pix.PeerKEL) == 0 && len(pix.PeerKeys) == 0
 	})
 	if _, err := prov.ix.PeerIdentity(stranger.AID()); !errors.Is(err, interactions.ErrNotFound) {
 		t.Fatal("a public_cap caller was recorded in peer_identity")
 	}
 }
 
-// The kernel's admission check (A2A-DESIGN §5.4): deny list, membership of
-// public_capabilities, argument size, per-caller per-minute and per-day
-// quotas, the global per-minute quota and the in-flight bound. A refused
-// call consumes no quota; a released call frees its slot.
+// The kernel's admission check (A2A-DESIGN §5.4, CUX-Q1a steps 3 and 5–9):
+// argument size, the in-flight bound, per-caller per-minute and per-day
+// quotas and the global per-minute quota; the deny list and membership of
+// public_capabilities are the policy's, step 1. A refused call consumes no
+// quota; a released call frees its slot.
 func TestAdmissionLimits(t *testing.T) {
 	d := newTestDaemon(t, "", false)
 	now := time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC).UnixMilli()
-	if err := d.SetPublicCapabilities([]PublicCapability{{ID: "c", PerCallerPerMin: 2, PerCallerPerDay: 3,
-		GlobalPerMin: 4, MaxInflight: 1, MaxArgsBytes: 10}}); err != nil {
-		t.Fatal(err)
-	}
+	pc := PublicCapability{ID: "c", PerCallerPerMin: 2, PerCallerPerDay: 3, GlobalPerMin: 4, MaxInflight: 1, MaxArgsBytes: 10}
 	must := func(caller string) func() {
 		t.Helper()
-		rel, refusal, _ := d.admitAt(now, caller, "c", 5)
+		rel, refusal, _ := d.admitAt(now, caller, pc, 5)
 		if refusal != "" {
 			t.Fatalf("%s refused: %s", caller, refusal)
 		}
 		return rel
 	}
-	refused := func(caller, capID string, argsLen int, want string) {
+	refused := func(caller string, argsLen int, want string) {
 		t.Helper()
-		if _, refusal, _ := d.admitAt(now, caller, capID, argsLen); refusal != want {
-			t.Fatalf("%s %s %d: refusal %q, want %q", caller, capID, argsLen, refusal, want)
+		if _, refusal, _ := d.admitAt(now, caller, pc, argsLen); refusal != want {
+			t.Fatalf("%s %d: refusal %q, want %q", caller, argsLen, refusal, want)
 		}
 	}
 	rel := must("did:anet:a")
-	refused("did:anet:b", "c", 5, admitInflightLimit)
+	refused("did:anet:b", 5, admitBusy)
 	rel()
 	rel() // idempotent
 	must("did:anet:b")()
 	must("did:anet:a")()
-	if _, refusal, retry := d.admitAt(now, "did:anet:a", "c", 5); refusal != admitCallerMinute || retry <= 0 {
+	if _, refusal, retry := d.admitAt(now, "did:anet:a", pc, 5); refusal != admitCallerMinute || retry <= 0 {
 		t.Fatalf("third call in a minute: %q retry %d", refusal, retry)
 	}
 	must("did:anet:c")()
-	refused("did:anet:d", "c", 5, admitGlobalMinute) // four admitted in this minute
+	refused("did:anet:d", 5, admitBusy) // four admitted in this minute
 	now += 61_000
 	must("did:anet:a")() // third of the day
 	now += 61_000
-	refused("did:anet:a", "c", 5, admitCallerDay)
-	refused("did:anet:e", "c", 11, admitArgsTooLarge)
-	refused("did:anet:e", "not.public", 1, admitNotPublic)
-	denyPeers(t, d, "did:anet:e")
-	refused("did:anet:e", "c", 1, admitDenied)
-	// moduleHost.Admit is the same check.
-	if _, refusal := (moduleHost{d}).Admit("did:anet:e", "c", 1); refusal != admitDenied {
-		t.Fatalf("module seam refusal %q", refusal)
-	}
+	refused("did:anet:a", 5, admitCallerDay)
+	refused("did:anet:e", 11, admitArgsTooLarge)
 }
 
 // A caller over its quota for a public capability is refused with the
@@ -490,6 +503,7 @@ func TestTheApprovalQueue(t *testing.T) {
 		if err := prov.pollOnce(ctx); err != nil {
 			t.Fatal(err)
 		}
+		askHubNow(t, s) // held, it was taken: follow-ups go (engine ENG-O2)
 		return id
 	}
 	id := hold("a secret goal the operator must approve")
@@ -529,12 +543,13 @@ func TestTheApprovalQueue(t *testing.T) {
 		t.Fatalf("second approval: %v", err)
 	}
 
-	// The per-peer limit.
-	prov.mu.Lock()
-	prov.cfg.Inbound.Pending.MaxPerPeer = 1
-	prov.mu.Unlock()
-	r1 := hold("one")
-	r2 := hold("two")
+	// The per-peer limit, a constant (pendingMaxPerPeer).
+	var full []string
+	for i := range pendingMaxPerPeer {
+		full = append(full, hold(fmt.Sprintf("held %d", i)))
+	}
+	r1 := full[0]
+	r2 := hold("over")
 	if st, meta := lastStatusMeta(t, s, r2); st != interactions.StateRejected || meta["anet.reason"] != reasonPendingFull {
 		t.Fatalf("over the per-peer limit: %s %v", st, meta)
 	}
@@ -572,11 +587,11 @@ func TestTheApprovalQueue(t *testing.T) {
 // held.
 func TestApprovalVerifiesTheDelegationAgain(t *testing.T) {
 	d := newTestDaemon(t, "", false)
-	claimed, err := identity.Incept()
+	claimed, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := identity.Incept()
+	signer, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,68 +619,82 @@ func TestApprovalVerifiesTheDelegationAgain(t *testing.T) {
 	}
 }
 
-// The key-state rule applied at approval time: a retired key state is
-// usable only within the rotation grace after its retirement.
-func TestApprovalAppliesTheRotationGraceNow(t *testing.T) {
-	d := newTestDaemon(t, "", false)
-	c, err := identity.Incept()
-	if err != nil {
-		t.Fatal(err)
+// The key-state rule applied at approval time (KEL D-25): the sender's
+// signing key state is judged at the arrival kept with the held task, under
+// the latest KEL this node knows, by identity.SenderKeyUsable. A state a
+// scheduled rotation retired is usable for a task that arrived before it or
+// within the one-hour grace after it, however long the approval took; one
+// an emergency rotation retired is not usable for any arrival.
+func TestApprovalJudgesTheKeyStateAtArrival(t *testing.T) {
+	rotatedAt := uint64(time.Now().Add(-2 * time.Hour).UnixMilli())
+	hour := uint64(time.Hour.Milliseconds())
+	for _, c := range []struct {
+		name      string
+		emergency bool
+		arrival   uint64
+		usable    bool
+	}{
+		{"scheduled, arrived before", false, rotatedAt - 1000, true},
+		{"scheduled, arrived within the grace", false, rotatedAt + hour, true},
+		{"scheduled, arrived past the grace", false, rotatedAt + hour + 1, false},
+		{"emergency, arrived before", true, rotatedAt - 1000, false},
+		{"emergency, arrived at it", true, rotatedAt, false},
+	} {
+		h, err := identitytest.Hub()
+		if err != nil {
+			t.Fatal(err)
+		}
+		rotate := identitytest.Rotate
+		if c.emergency {
+			rotate = identitytest.RotateEmergency
+		}
+		if err := rotate(h, rotatedAt); err != nil {
+			t.Fatal(err)
+		}
+		if err := keyStateUsable(h.KEL(), h.CurrentSeq(), c.arrival); err != nil {
+			t.Fatalf("%s: the current key state was refused: %v", c.name, err)
+		}
+		err = keyStateUsable(h.KEL(), 0, c.arrival)
+		if (err == nil) != c.usable || (err != nil && !errors.Is(err, errHeldKeyState)) {
+			t.Fatalf("%s: %v, want usable %v", c.name, err, c.usable)
+		}
 	}
-	retiredAt := uint64(time.Now().Add(-2 * time.Hour).UnixMilli())
-	if err := c.Rotate(retiredAt); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.keyStateUsable(c.KEL(), c.CurrentSeq()); err != nil {
-		t.Fatalf("the current key state was refused: %v", err)
-	}
-	if err := d.keyStateUsable(c.KEL(), 0); err == nil {
-		t.Fatal("a key state retired two hours ago was accepted with the default one-hour grace")
-	}
-	d.mu.Lock()
-	d.cfg.RotationGrace = "3h"
-	d.mu.Unlock()
-	if err := d.keyStateUsable(c.KEL(), 0); err != nil {
-		t.Fatalf("within a three-hour grace: %v", err)
+	h, _ := identitytest.Hub()
+	if err := keyStateUsable(h.KEL(), 5, rotatedAt); err == nil || errors.Is(err, errHeldKeyState) {
+		t.Fatalf("a key state past the KEL: %v", err)
 	}
 }
 
-// The configuration check of A2A-DESIGN §5.1: policy open together with exec
-// for untrusted peers (or an untrusted backend) is refused whichever is
-// written first, over the control plane with 409, and at start.
-func TestOpenAndExecForUntrustedPeersConflict(t *testing.T) {
+// LEC GT-5: policy open together with the exec backend in the sandbox for
+// untrusted peers is a configuration like any other: it is saved whichever
+// of the two is written first, over the control plane too, and the daemon
+// starts with it — the sandbox has no network beyond the node's model route,
+// holds no key and runs under the daily budget. An A2A backend that takes
+// untrusted peers still conflicts with open (A2A-DESIGN §5.1).
+func TestOpenWithTheSandboxForUntrustedPeers(t *testing.T) {
 	sandboxExec := &AutoReplyConfig{Backend: "exec", Agent: "cursor", Untrusted: UntrustedSandbox}
 
 	a := newTestDaemon(t, "", false)
 	if err := a.SetAutoReply(sandboxExec); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.SetInboundPolicy(PolicyOpen); !errors.Is(err, ErrPolicyConflict) {
+	if err := a.SetInboundPolicy(PolicyOpen); err != nil {
 		t.Fatalf("open after exec-for-untrusted: %v", err)
 	}
-	if a.config().inbound().Policy != PolicyClosed {
-		t.Fatal("the refused policy was applied")
-	}
-	rec := httptest.NewRecorder()
-	a.hInboundPolicy(rec, httptest.NewRequest(http.MethodPost, "/inbound/policy", strings.NewReader(`{"policy":"open"}`)))
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("control plane: %d %s", rec.Code, rec.Body)
+	if a.config().inbound().Policy != PolicyOpen {
+		t.Fatal("the policy was not applied")
 	}
 
 	b := newTestDaemon(t, "", false)
 	setPolicy(t, b, PolicyOpen)
-	if err := b.SetAutoReply(sandboxExec); !errors.Is(err, ErrPolicyConflict) {
-		t.Fatalf("exec-for-untrusted after open: %v", err)
-	}
-	rec = httptest.NewRecorder()
+	rec := httptest.NewRecorder()
 	b.hAutoReply(rec, httptest.NewRequest(http.MethodPost, "/autoreply",
 		strings.NewReader(`{"backend":"exec","agent":"cursor","untrusted":"sandbox"}`)))
-	if rec.Code != http.StatusConflict {
+	if rec.Code != http.StatusOK {
 		t.Fatalf("control plane: %d %s", rec.Code, rec.Body)
 	}
-	// Exec for trusted peers only is compatible with open.
-	if err := b.SetAutoReply(&AutoReplyConfig{Backend: "exec", Agent: "cursor"}); err != nil {
-		t.Fatalf("exec for trusted peers under open: %v", err)
+	if ar := b.config().AutoReply; ar == nil || ar.UntrustedMode() != UntrustedSandbox {
+		t.Fatalf("auto_reply after the write: %+v", ar)
 	}
 
 	c := newTestDaemon(t, "", false)
@@ -682,11 +711,16 @@ func TestOpenAndExecForUntrustedPeersConflict(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "config.json"), raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if d, err := New(NewLayout(root)); !errors.Is(err, ErrPolicyConflict) {
-		if d != nil {
-			d.Close()
-		}
-		t.Fatalf("start with a conflicting config: %v", err)
+	if err := CheckConfigForStart(NewLayout(root)); err != nil {
+		t.Fatalf("the start check refuses open with the sandbox for untrusted peers: %v", err)
+	}
+	d, err := New(NewLayout(root))
+	if err != nil {
+		t.Fatalf("start with open and the sandbox for untrusted peers: %v", err)
+	}
+	defer d.Close()
+	if d.config().inbound().Policy != PolicyOpen || d.config().AutoReply.UntrustedMode() != UntrustedSandbox {
+		t.Fatalf("started with %+v / %+v", d.config().inbound(), d.config().AutoReply)
 	}
 }
 
@@ -699,8 +733,7 @@ func TestAFreshInstallIsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	in := cfg.inbound()
-	if in.Policy != PolicyClosed || in.AllowFile != "peers.allow" || in.TrustFile != "peers.trust" ||
-		in.DenyFile != "peers.deny" || in.PublicCapabilities == nil || len(in.PublicCapabilities) != 0 {
+	if in.Policy != PolicyClosed || in.PublicCapabilities == nil || len(in.PublicCapabilities) != 0 {
 		t.Fatalf("fresh inbound block = %+v", in)
 	}
 	var disk map[string]any
@@ -757,8 +790,9 @@ func TestAcceptDelegationsMigratesToClosed(t *testing.T) {
 }
 
 // `accept on` has no safe equivalent and is refused with the three policies
-// and the allow-list command; `accept off` sets closed; hub-register with
-// accept_delegations=true is refused the same way (A2A-DESIGN §5.1 [C8]).
+// and the allow-list command; `accept off` sets closed (A2A-DESIGN §5.1
+// [C8]). hub-register no longer reads accept_delegations: the CLI refuses
+// the flag before it reaches the daemon (cli_removed, ux §4.3).
 func TestAcceptOnIsRefused(t *testing.T) {
 	d := newTestDaemon(t, "", false)
 	setPolicy(t, d, PolicyApprove)
@@ -780,12 +814,6 @@ func TestAcceptOnIsRefused(t *testing.T) {
 	if rec.Code != http.StatusOK || d.config().inbound().Policy != PolicyClosed {
 		t.Fatalf("accept off: %d, policy %s", rec.Code, d.config().inbound().Policy)
 	}
-	rec = httptest.NewRecorder()
-	d.hHubRegister(rec, httptest.NewRequest(http.MethodPost, "/hub-register",
-		strings.NewReader(`{"hub":"http://hub.invalid","accept_delegations":true}`)))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "anet peers allow") {
-		t.Fatalf("hub-register --accept-delegations true: %d %s", rec.Code, rec.Body)
-	}
 }
 
 // The peer list routes: allow, trust, deny and remove edit the files the
@@ -793,7 +821,7 @@ func TestAcceptOnIsRefused(t *testing.T) {
 // not an AID.
 func TestPeerListEdits(t *testing.T) {
 	d := newTestDaemon(t, "", false)
-	path := d.peerFile(d.config().inbound().AllowFile)
+	path := d.peerFile(peersAllowFile)
 	if err := os.WriteFile(path, []byte("# my peers\ndid:anet:bkeep # a friend\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -827,5 +855,18 @@ func TestPeerListEdits(t *testing.T) {
 	}
 	if d.readPeers().allowed("did:anet:bkeep") {
 		t.Fatal("deny does not win over allow")
+	}
+}
+
+// holdFor has prov, under the approve policy, hold n delegations of q, ids
+// prefix_0 on: with pendingMaxPerPeer of them, q's next is over the
+// queue's per-peer bound (pending_full), which is a constant.
+func holdFor(t *testing.T, prov *Daemon, q sender, prefix string, n int) {
+	t.Helper()
+	for i := range n {
+		ix := fmt.Sprintf("%s_%d", prefix, i)
+		if r := receive(t, prov, craft(t, q, prov, seal.TypeDelegate, ix, delegateBody(t, q.ctrl, ix, "held", ""), nil)); r.class != rxAccepted {
+			t.Fatalf("held %s: %+v", ix, r)
+		}
 	}
 }

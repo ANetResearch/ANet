@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -35,7 +36,7 @@ func TestSeamsAreGrantedBeforeAnyHubIsConfigured(t *testing.T) {
 	if got := seam.HubURL(); got != "" {
 		t.Fatalf("with no hub the address must be empty, got %q", got)
 	}
-	if err := d.HubRegister(context.Background(), h.URL, "n", nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), h.URL, "n", nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := seam.HubURL(); got != h.URL {
@@ -48,15 +49,26 @@ func TestSeamsAreGrantedBeforeAnyHubIsConfigured(t *testing.T) {
 // Deregistering removed the routing at the hub; locally hub_url stayed, so
 // the relay loop went on polling a hub that had just refused this node —
 // once a second, every rejection a log line, surviving restarts.
+//
+// Only a node whose identity has no witness yet can leave its current hub:
+// a witness is never left (KEL D-34, LEC AD-8), and hub-leave says so.
 func TestLeavingTheCurrentHubForgetsIt(t *testing.T) {
 	h := newFakeHub(t)
 	defer h.Close()
-	d := newTestDaemon(t, h.URL, true)
-	if err := d.HubRegister(context.Background(), h.URL, "n", nil, ""); err != nil {
+	w := newTestDaemon(t, h.URL, true)
+	if err := w.HubRegister(context.Background(), h.URL, "n", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.LeaveHub(context.Background(), h.URL); err != nil {
+	if code, out := controlCall(t, w.hHubLeave, "/hub-leave", `{"hub":"`+h.URL+`"}`); code != http.StatusConflict ||
+		out["reason"] != reasonWitnessHubLeave || w.config().HubURL != h.URL {
+		t.Fatalf("hub-leave of the witness: %d %v", code, out)
+	}
+	d := newPlainTestDaemon(t, h.URL, true)
+	if err := d.HubRegister(context.Background(), h.URL, "n", nil); err != nil {
 		t.Fatal(err)
+	}
+	if code, out := controlCall(t, d.hHubLeave, "/hub-leave", `{"hub":"`+h.URL+`"}`); code != http.StatusOK {
+		t.Fatalf("hub-leave of the current hub, no witness: %d %v", code, out)
 	}
 	if got := d.config().HubURL; got != "" {
 		t.Fatalf("hub_url still names the hub this node left: %q", got)
@@ -87,11 +99,13 @@ func TestLeavingAnotherHubKeepsTheCurrentOne(t *testing.T) {
 	newHub := newFakeHub(t)
 	defer newHub.Close()
 
-	d := newTestDaemon(t, oldHub.URL, true)
-	if err := d.HubRegister(context.Background(), oldHub.URL, "n", nil, ""); err != nil {
+	// A node that designates no witness: moving house is then a
+	// registration, not a key rotation.
+	d := newPlainTestDaemon(t, oldHub.URL, true)
+	if err := d.HubRegister(context.Background(), oldHub.URL, "n", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.HubRegister(context.Background(), newHub.URL, "n", nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), newHub.URL, "n", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.LeaveHub(context.Background(), oldHub.URL); err != nil {
@@ -111,11 +125,11 @@ func TestACapabilityDelegationIsOnTheRequestersChain(t *testing.T) {
 	h := newFakeHub(t)
 	defer h.Close()
 	d := newTestDaemon(t, h.URL, true)
-	if err := d.HubRegister(context.Background(), h.URL, "req", nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), h.URL, "req", nil); err != nil {
 		t.Fatal(err)
 	}
 	other := newTestDaemon(t, h.URL, true)
-	if err := other.HubRegister(context.Background(), h.URL, "prov", nil, ""); err != nil {
+	if err := other.HubRegister(context.Background(), h.URL, "prov", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,7 +193,7 @@ func TestStartupRepublishesTheCurrentCapabilities(t *testing.T) {
 	// Public, so it is published (an internal note item); HubRegister writes the config
 	// the restart reads.
 	setPublic(d, "stale.cap")
-	if err := d.HubRegister(context.Background(), h.URL, "n", []string{"stale.cap"}, ""); err != nil {
+	if err := d.HubRegister(context.Background(), h.URL, "n", []string{"stale.cap"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -231,7 +245,7 @@ func TestAnUnservedCapabilityAnswersUnavailable(t *testing.T) {
 	req := newTestDaemon(t, h.URL, true)
 	prov := newTestDaemon(t, h.URL, true)
 	for _, d := range []*Daemon{req, prov} {
-		if err := d.HubRegister(context.Background(), h.URL, "n", nil, ""); err != nil {
+		if err := d.HubRegister(context.Background(), h.URL, "n", nil); err != nil {
 			t.Fatal(err)
 		}
 	}

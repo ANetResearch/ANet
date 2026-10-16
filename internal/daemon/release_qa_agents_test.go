@@ -9,24 +9,31 @@ import (
 	"time"
 )
 
-// argvStub is an agent binary that reports the argv it was called with,
-// so a test can assert on the command line each agent gets rather than on
-// a reply the stub invented.
-func argvStub(t *testing.T) string {
+// ioStub is an agent binary that reports what it was given: its argv, then its stdin, then the
+// conversation file its message (or --message-file) names, if any. codex reads its reply from the -o
+// file when one is present, so the report goes there too.
+func ioStub(t *testing.T) string {
 	t.Helper()
-	stub := filepath.Join(t.TempDir(), "argv.sh")
-	// codex reads its reply from the -o file when one is present, so write
-	// the argv there too — otherwise the codex case would assert on a path
-	// the real binary does not take.
+	stub := filepath.Join(t.TempDir(), "io.sh")
 	script := `#!/bin/sh
 out=""
+mf=""
 prev=""
 for a in "$@"; do
   if [ "$prev" = "-o" ]; then out="$a"; fi
+  if [ "$prev" = "--message-file" ]; then mf="$a"; fi
   prev="$a"
 done
-if [ -n "$out" ]; then printf '%s\n' "$*" > "$out"; fi
-printf '%s\n' "$*"
+report() {
+  printf 'ARGV: %s\n' "$*"
+  printf 'STDIN: '
+  cat
+  printf '\n'
+  f=$(printf '%s' "$*" | sed -n 's/.*Read the file \(.*conversation\.md\): .*/\1/p')
+  if [ -z "$f" ]; then f="$mf"; fi
+  if [ -n "$f" ]; then printf 'FILE: '; cat "$f"; printf '\n'; fi
+}
+if [ -n "$out" ]; then report "$@" > "$out"; else report "$@"; fi
 `
 	if err := os.WriteFile(stub, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -34,25 +41,33 @@ printf '%s\n' "$*"
 	return stub
 }
 
-// Every agent in the registry must actually run and come back with the
-// prompt in its command line. A registry entry whose invoke builds a
-// command the binary rejects is an agent that is listed and broken, and
-// the listing is what an operator picks from.
-func TestEveryRegisteredAgentInvokesWithThePrompt(t *testing.T) {
-	stub := argvStub(t)
-	setExecCommand(t, stub)
-	for _, id := range SupportedExecAgents() {
+// Every agent in the registry must actually run and come back with the conversation, and never with
+// it on its command line (LEC AV-1, AV-2): claude and codex read it on stdin, the others from a file
+// whose path is all their argv says about it. A registry entry whose invoke builds a command the binary
+// rejects is an agent that is listed and broken, and the listing is what an operator picks from.
+func TestEveryRegisteredAgentGetsTheConversationOffItsArgv(t *testing.T) {
+	setExecCommand(t, ioStub(t))
+	for _, spec := range agentRegistry() {
+		id := spec.id
 		t.Run(id, func(t *testing.T) {
 			got, err := InvokeAgent(context.Background(), execInvokeOpts{
-				AgentID: id,
-				Prompt:  "SENTINEL-PROMPT",
-				Timeout: 10 * time.Second,
+				AgentID:      id,
+				Instructions: "FIXED-INSTRUCTIONS",
+				Conversation: "SENTINEL-CONVERSATION",
+				WorkDir:      t.TempDir(),
+				Timeout:      10 * time.Second,
 			})
 			if err != nil {
 				t.Fatalf("%s: %v", id, err)
 			}
-			if !strings.Contains(got, "SENTINEL-PROMPT") {
-				t.Errorf("%s never passed the prompt to the binary: %q", id, got)
+			argv, rest, _ := strings.Cut(strings.TrimPrefix(got, "ARGV: "), "\nSTDIN: ")
+			stdin, file, _ := strings.Cut(rest, "\nFILE: ")
+			if strings.Contains(argv, "SENTINEL-CONVERSATION") {
+				t.Errorf("%s has the conversation on its command line: %q", id, argv)
+			}
+			channel := map[agentInput]string{inputStdin: stdin, inputFile: file}[spec.input]
+			if !strings.Contains(channel, "SENTINEL-CONVERSATION") || !strings.Contains(got, "FIXED-INSTRUCTIONS") {
+				t.Errorf("%s never received the conversation (on its channel, %d) and the instructions: %q", id, spec.input, got)
 			}
 		})
 	}
@@ -62,8 +77,6 @@ func TestEveryRegisteredAgentInvokesWithThePrompt(t *testing.T) {
 // should act on. An agent that silently ignores it runs in whatever
 // directory the daemon happens to be in.
 func TestEveryRegisteredAgentRunsInTheRequestedWorkDir(t *testing.T) {
-	stub := argvStub(t)
-	setExecCommand(t, stub)
 	work := t.TempDir()
 	pwdStub := filepath.Join(t.TempDir(), "pwd.sh")
 	if err := os.WriteFile(pwdStub, []byte("#!/bin/sh\npwd\n"), 0o755); err != nil {
@@ -75,7 +88,7 @@ func TestEveryRegisteredAgentRunsInTheRequestedWorkDir(t *testing.T) {
 			// using a stub that ignores -o entirely.
 			setExecCommand(t, pwdStub)
 			got, err := InvokeAgent(context.Background(), execInvokeOpts{
-				AgentID: id, Prompt: "p", WorkDir: work, Timeout: 10 * time.Second,
+				AgentID: id, Conversation: "p", WorkDir: work, Timeout: 10 * time.Second,
 			})
 			if err != nil {
 				t.Fatalf("%s: %v", id, err)
@@ -102,7 +115,7 @@ func TestAFailingAgentIsAnErrorNotAnEmptyReply(t *testing.T) {
 	for _, id := range SupportedExecAgents() {
 		t.Run(id, func(t *testing.T) {
 			reply, err := InvokeAgent(context.Background(), execInvokeOpts{
-				AgentID: id, Prompt: "p", Timeout: 10 * time.Second,
+				AgentID: id, Conversation: "p", Timeout: 10 * time.Second,
 			})
 			if err == nil {
 				t.Fatalf("%s: a failing agent returned reply %q and no error", id, reply)
@@ -126,7 +139,7 @@ func TestAnAgentThatSaysNothingIsAnError(t *testing.T) {
 	for _, id := range SupportedExecAgents() {
 		t.Run(id, func(t *testing.T) {
 			reply, err := InvokeAgent(context.Background(), execInvokeOpts{
-				AgentID: id, Prompt: "p", Timeout: 10 * time.Second,
+				AgentID: id, Conversation: "p", Timeout: 10 * time.Second,
 			})
 			if err == nil {
 				t.Errorf("%s: an agent that printed nothing returned %q and no error", id, reply)
@@ -146,7 +159,7 @@ func TestAHungAgentIsCutOffAtTheTimeout(t *testing.T) {
 	setExecCommand(t, stub)
 	start := time.Now()
 	_, err := InvokeAgent(context.Background(), execInvokeOpts{
-		AgentID: "claude", Prompt: "p", Timeout: 2 * time.Second,
+		AgentID: "claude", Conversation: "p", Timeout: 2 * time.Second,
 	})
 	if err == nil {
 		t.Fatal("a hung agent returned successfully")
@@ -161,7 +174,7 @@ func TestAHungAgentIsCutOffAtTheTimeout(t *testing.T) {
 // that quietly answers nothing.
 func TestAnUnknownAgentIsRefusedByName(t *testing.T) {
 	_, err := InvokeAgent(context.Background(), execInvokeOpts{
-		AgentID: "opencodex", Prompt: "p", Timeout: time.Second,
+		AgentID: "opencodex", Conversation: "p", Timeout: time.Second,
 	})
 	if err == nil {
 		t.Fatal("an unknown agent id was accepted")

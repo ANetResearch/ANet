@@ -2,32 +2,24 @@ package main
 
 // peers.go holds `anet peers` and `anet inbound` (A2A-DESIGN §5). The
 // commands that grant — allow and trust, approving a held delegation,
-// loosening the inbound policy — confirm on the terminal first (tty.go).
+// loosening the inbound policy — confirm on the terminal first (tty.go),
+// each with its line of the reason table's M group (ux UX-R12).
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
-// errAcceptOn is the answer to `anet accept on` and to
-// `hub-register --accept-delegations true`.
-var errAcceptOn = errors.New("`accept on` was removed: it let anyone delegate to this node.\n" +
-	"Inbound delegations are governed by the inbound policy:\n" +
-	"  closed   (the default) only peers on your allow list; add one with `anet peers allow <aid>`\n" +
-	"  approve  anyone else is held until you run `anet inbound approve <id>`\n" +
-	"  open     anyone may send a natural-language task (capability calls still need inbound.public_capabilities)\n" +
-	"Set it with `anet inbound policy <closed|approve|open>`.")
-
-// runPeers is `anet peers list|allow|trust|deny|remove [<aid>]`.
+// runPeers is `anet peers list [--json]` and `anet peers
+// allow|trust|deny|remove <aid>`.
 func runPeers(c *client, rest []string) error {
-	pos, _ := splitFlags(rest)
+	const use = "anet peers list [--json] | allow|trust|deny|remove <aid>"
+	pos, flags := splitFlags(rest)
 	sub := ""
 	if len(pos) > 0 {
 		sub = pos[0]
@@ -38,36 +30,148 @@ func runPeers(c *client, rest []string) error {
 	}
 	switch sub {
 	case "", "list", "ls":
-		return c.do("/peers/list", map[string]any{})
+		return peersList(c, flags["json"] == "true")
 	case "allow", "trust":
 		if aid == "" {
-			return fmt.Errorf("peers %s <aid>", sub)
+			return usageError{"anet peers " + sub + " <aid>"}
 		}
-		what := "delegate tasks to this node"
-		if sub == "trust" {
-			what = "delegate tasks to this node AND drive its local agent through exec auto-reply"
-		}
-		if err := ttyConfirm(func() (string, error) {
-			return fmt.Sprintf("Allow %s to %s?%s", printable(aid, 256), what, peerNote(c, aid)), nil
-		}); err != nil {
+		if err := ttyConfirm("trust", func() (string, error) { return peerPrompt(c, sub, aid), nil }); err != nil {
 			return err
 		}
 		return c.do("/peers/"+sub, map[string]any{"aid": aid})
 	case "deny", "remove", "rm":
 		if aid == "" {
-			return fmt.Errorf("peers %s <aid>", sub)
+			return usageError{"anet peers " + sub + " <aid>"}
 		}
 		if sub == "rm" {
 			sub = "remove"
 		}
 		return c.do("/peers/"+sub, map[string]any{"aid": aid})
 	}
-	return fmt.Errorf("peers list|allow|trust|deny|remove [<aid>]")
+	return usageError{use}
+}
+
+// peersList is `anet peers list` (ux UX-C1, a command for a person): a
+// table of the peers on the lists — the whole AID (UX-G8a), the lists it is
+// on, and whether this node's messages to it carry this node's identity
+// (sealed-sender §5.2, SSR-U3) — or with --json the daemon's answer as it
+// came. The sentence of the last column is the control plane's
+// sender_hidden_text, word for word (UX-C5, UX-T1).
+func peersList(c *client, asJSON bool) error {
+	if asJSON {
+		return c.do("/peers/list", map[string]any{})
+	}
+	out, code, err := c.fetch("/peers/list", map[string]any{})
+	if err != nil {
+		return diagnoseNoDaemon(c.base, c.dataDir, err)
+	}
+	if code != 200 {
+		return answerError(code, out)
+	}
+	var list struct {
+		Peers []peerRow `json:"peers"`
+	}
+	if err := json.Unmarshal(out, &list); err != nil {
+		return answerError(code, out)
+	}
+	writePeersTable(outW(), list.Peers, a2ashape.Lang())
+	return nil
+}
+
+// peerRow is one /peers/list peer, as the table reads it.
+type peerRow struct {
+	AID              string   `json:"aid"`
+	Lists            []string `json:"lists"`
+	SenderHidden     bool     `json:"sender_hidden"`
+	SenderHiddenText string   `json:"sender_hidden_text"`
+}
+
+// writePeersTable writes the `anet peers list` table in the language's
+// column titles: the AID first and whole, so it can be copied to any
+// command that takes one (UX-G8a), and the sentence last, where a long one
+// runs on without pushing anything else off the line.
+func writePeersTable(w io.Writer, peers []peerRow, lang a2ashape.Language) {
+	const none = "—"
+	rows := [][]string{{a2ashape.Label("peers_list.aid", lang), a2ashape.Label("peers_list.lists", lang),
+		a2ashape.Label("peers_list.sender", lang)}}
+	for _, p := range peers {
+		var lists []string
+		for _, l := range p.Lists {
+			if l = printable(l, 16); l != "" {
+				lists = append(lists, l)
+			}
+		}
+		listCol := none
+		if len(lists) > 0 {
+			listCol = strings.Join(lists, ",")
+		}
+		aid := printable(p.AID, 128)
+		if aid == "" {
+			aid = none
+		}
+		rows = append(rows, []string{aid, listCol, oneLine(p.SenderHiddenText, maxLineRunes)})
+	}
+	widths := make([]int, len(rows[0]))
+	for _, r := range rows {
+		for i, cell := range r[:len(r)-1] {
+			widths[i] = max(widths[i], displayWidth(cell))
+		}
+	}
+	for _, r := range rows {
+		var b strings.Builder
+		for i, cell := range r {
+			b.WriteString(cell)
+			if i < len(r)-1 {
+				b.WriteString(strings.Repeat(" ", widths[i]-displayWidth(cell)+2))
+			}
+		}
+		fmt.Fprintln(w, strings.TrimRight(b.String(), " "))
+	}
+}
+
+// peerPrompt is the confirmation of `anet peers allow|trust <aid>`:
+// allow_confirm, or for trust the trust_confirm line of how a trusted
+// peer's tasks run on this node (ux §1.4 M1, M3).
+func peerPrompt(c *client, sub, aid string) string {
+	args := a2ashape.Args{"peer": aid}
+	if name := peerName(c, aid); name != "" {
+		args["name"] = name
+	}
+	key := "allow_confirm"
+	if sub == "trust" {
+		key = "trust_confirm.direct"
+		if trustedMode(c) == "sandbox" {
+			key = "trust_confirm.sandbox"
+		}
+	}
+	return a2ashape.Sentence(key, a2ashape.Lang(), args)
+}
+
+// trustedMode is how this node runs a trusted peer's tasks (auto_reply.trusted:
+// direct or sandbox), as /status says it; "" when it does not say.
+//
+// v030-todo(EXE-7): /status.auto_reply carries trusted; until it does the
+// prompt says direct, the stronger of the two statements.
+func trustedMode(c *client) string {
+	b, code, err := c.fetch("/status", nil)
+	if err != nil || code != 200 {
+		return ""
+	}
+	var st struct {
+		AutoReply *struct {
+			Trusted string `json:"trusted"`
+		} `json:"auto_reply"`
+	}
+	if json.Unmarshal(b, &st) != nil || st.AutoReply == nil {
+		return ""
+	}
+	return st.AutoReply.Trusted
 }
 
 // runInbound is `anet inbound policy [closed|approve|open]`,
 // `anet inbound list` (alias pending) and `anet inbound approve|reject <id>`.
 func runInbound(c *client, rest []string) error {
+	const use = "anet inbound policy [closed|approve|open] | list | approve <id> | reject <id>"
 	pos, _ := splitFlags(rest)
 	sub := ""
 	if len(pos) > 0 {
@@ -85,266 +189,92 @@ func runInbound(c *client, rest []string) error {
 		switch arg {
 		case "closed":
 		case "approve", "open":
-			if err := confirmOnTTY(fmt.Sprintf("Set the inbound policy to %s? (%s)", arg, policyNote(arg))); err != nil {
+			if err := confirmOnTTY("inbound_policy", a2ashape.Sentence("inbound.confirm_"+arg, a2ashape.Lang(), nil)); err != nil {
 				return err
 			}
 		default:
-			return fmt.Errorf("inbound policy closed|approve|open")
+			return usageError{"anet inbound policy closed|approve|open"}
 		}
 		return c.do("/inbound/policy", map[string]any{"policy": arg})
 	case "pending", "list", "ls":
 		return c.do("/inbound/pending", map[string]any{})
 	case "approve":
 		if arg == "" {
-			return fmt.Errorf("inbound approve <interaction_id>")
+			return usageError{"anet inbound approve <id>"}
 		}
-		if err := ttyConfirm(func() (string, error) {
-			note, err := pendingNote(c, arg)
-			if err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("Approve the held delegation %s?%s", printable(arg, 128), note), nil
-		}); err != nil {
+		if err := ttyConfirm("approve", func() (string, error) { return approvePrompt(c, arg) }); err != nil {
 			return err
 		}
 		return c.do("/inbound/approve", map[string]any{"interaction_id": arg})
 	case "reject":
 		if arg == "" {
-			return fmt.Errorf("inbound reject <interaction_id>")
+			return usageError{"anet inbound reject <id>"}
 		}
 		return c.do("/inbound/reject", map[string]any{"interaction_id": arg})
 	}
-	return fmt.Errorf("inbound policy [closed|approve|open] | list | approve <id> | reject <id>")
+	return usageError{use}
 }
 
-func policyNote(p string) string {
-	if p == "open" {
-		return "anyone may then send this node natural-language tasks"
-	}
-	return "delegations from peers not on the allow list are then held for your approval"
-}
-
-// pendingNote describes a held item for the confirmation prompt: who sent
-// it, when, and how large, not what it asks (A2A-DESIGN §5.3). An item the
-// daemon does not list is an error, so nobody is asked to approve nothing;
-// when the list cannot be read the prompt goes without the description and
+// approvePrompt is approve_confirm for a held task: who sent it, by its
+// full AID and its verified name (A2A-DESIGN §5.3), never what it asks. An
+// item the daemon does not list is an error, so nobody is asked to approve
+// nothing; when the list cannot be read the prompt names the task alone and
 // the daemon has the last word.
-func pendingNote(c *client, ix string) (string, error) {
+func approvePrompt(c *client, ix string) (string, error) {
+	args := a2ashape.Args{"task": ix}
 	b, code, err := c.fetch("/inbound/pending", map[string]any{})
-	if err != nil || code != 200 {
-		return "", nil
-	}
-	var out struct {
-		Pending []struct {
-			InteractionID string `json:"interaction_id"`
-			Requester     string `json:"requester"`
-			ArrivedAt     int64  `json:"arrived_at"`
-			Capability    string `json:"capability"`
-			Bytes         int64  `json:"bytes"`
-			Attachments   int    `json:"attachments"`
-		} `json:"pending"`
-	}
-	if json.Unmarshal(b, &out) != nil {
-		return "", nil
-	}
-	for _, p := range out.Pending {
-		if p.InteractionID != ix {
-			continue
+	if err == nil && code == 200 {
+		var out struct {
+			Pending []struct {
+				InteractionID string `json:"interaction_id"`
+				Requester     string `json:"requester"`
+			} `json:"pending"`
 		}
-		s := fmt.Sprintf("\n  from      %s\n  size      %d bytes", printable(p.Requester, 128), p.Bytes)
-		if p.ArrivedAt > 0 {
-			s += "\n  arrived   " + time.UnixMilli(p.ArrivedAt).Local().Format(time.RFC3339)
+		if json.Unmarshal(b, &out) == nil {
+			found := false
+			for _, p := range out.Pending {
+				if p.InteractionID != ix {
+					continue
+				}
+				found = true
+				args["peer"] = printable(p.Requester, 128)
+				if name := peerName(c, p.Requester); name != "" {
+					args["name"] = name
+				}
+			}
+			if !found {
+				return "", fmt.Errorf("no held delegation %s (see `anet inbound list`)", printable(ix, 128))
+			}
 		}
-		if p.Attachments > 0 {
-			s += fmt.Sprintf("\n  files     %d attachment(s)", p.Attachments)
-		}
-		if p.Capability != "" {
-			s += "\n  calls     " + printable(p.Capability, 128)
-		}
-		return s + "\nApproving runs it as if this peer were on your allow list, this once.", nil
 	}
-	return "", fmt.Errorf("no held delegation %s (see `anet inbound list`)", ix)
+	return a2ashape.Sentence("approve_confirm", a2ashape.Lang(), args), nil
 }
 
-// peerNote describes a peer for the confirmation prompt from the hub
-// directory, when the hub lists it. The directory entry is the peer's own
-// description, not verified by anyone, and the prompt says so; the AID
-// above it is what is being granted.
-func peerNote(c *client, aid string) string {
+// peerName is a peer's name for a confirmation: the name on its network
+// card, which the daemon takes from the directory without naming the peer to
+// the hub and verifies against the peer's key history (/agents/card,
+// sealed-sender SSR-D16). "" (shown as unnamed) when the card does not
+// verify or there is none: a name nobody signed is not shown. The AID
+// beside it is what is being granted. It asks for no prices, so the peer
+// is not contacted (prices: false; HPP PAY-C10).
+func peerName(c *client, aid string) string {
 	fc := *c
-	fc.timeout = 5 * time.Second
-	b, code, err := fc.fetch("/find", map[string]any{"query": aid})
+	fc.timeout = 10 * time.Second
+	b, code, err := fc.fetch("/agents/card", map[string]any{"aid": aid, "prices": false})
 	if err != nil || code != 200 {
 		return ""
 	}
 	var out struct {
-		Agents []struct {
-			AID     string `json:"aid"`
-			Name    string `json:"name"`
-			Summary string `json:"summary"`
-			HomeHub string `json:"home_hub"`
-		} `json:"agents"`
+		AID          string          `json:"aid"`
+		Card         json.RawMessage `json:"card"`
+		Verification string          `json:"verification"`
 	}
-	if json.Unmarshal(b, &out) != nil {
+	if json.Unmarshal(b, &out) != nil || out.AID != aid || out.Verification != "VERIFIED" {
 		return ""
 	}
-	for _, a := range out.Agents {
-		if a.AID != aid {
-			continue
-		}
-		s := "\n  hub directory entry (self-described, not verified):"
-		if a.Name != "" {
-			s += "\n    name     " + printable(a.Name, 80)
-		}
-		if a.Summary != "" {
-			s += "\n    summary  " + printable(a.Summary, 160)
-		}
-		if a.HomeHub != "" {
-			s += "\n    home hub " + printable(a.HomeHub, 120)
-		}
-		return s
+	var card struct {
+		Name string `json:"name"`
 	}
-	return "\n  this AID is not in your hub's directory"
-}
-
-// runHubRegister is `anet hub-register <url> [--name N] [--caps a,b]
-// [--token-file F]`, with an invite in ANET_INVITE or the file. The wire-1
-// --accept-delegations flag is still read: true is refused like `accept
-// on`, false asks for what the closed policy does (A2A-DESIGN §5.1).
-func runHubRegister(c *client, rest []string) error {
-	pos, flags := splitFlags(rest)
-	if len(pos) < 1 || pos[0] == "" {
-		return fmt.Errorf("hub-register <url> [--name NAME] [--caps a,b] [--token-file FILE]   (invite: ANET_INVITE or --token-file)")
-	}
-	invite, err := inviteFrom(flags)
-	if err != nil {
-		return err
-	}
-	body := map[string]any{"hub": pos[0], "name": flags["name"]}
-	// Only sent when given. A hub that admits openly has no use for it, and
-	// sending an empty string would make the two cases look different on
-	// the wire when they are not.
-	if invite != "" {
-		body["token"] = invite
-	}
-	if v := flags["caps"]; v != "" {
-		body["caps"] = strings.Split(v, ",")
-	}
-	if v, ok := flags["accept-delegations"]; ok {
-		b, err := parseBool(v)
-		if err != nil {
-			return fmt.Errorf("--accept-delegations takes true or false")
-		}
-		if b {
-			return errAcceptOn
-		}
-		body["accept_delegations"] = false
-	}
-	return c.do("/hub-register", body)
-}
-
-// inviteEnv is the environment variable a hub invite is passed in.
-const inviteEnv = "ANET_INVITE"
-
-// errInviteOnCommandLine refuses `--token <invite>`.
-var errInviteOnCommandLine = fmt.Errorf("hub-register: the invite is not taken on the command line, where every local user can read it " +
-	"(ps, /proc/<pid>/cmdline) while the command runs; pass it in the " + inviteEnv + " environment variable " +
-	"(" + inviteEnv + "=anetinv_… anet hub-register <url> …) or with --token-file FILE (- reads standard input). " +
-	"An agent's shell tool puts the whole command it runs on a command line, an " + inviteEnv + "=… prefix included: " +
-	"an agent writes the invite into a file with its file-editing tool, in a directory only this user can enter, " +
-	"and passes --token-file FILE")
-
-// inviteFrom returns the hub invite for hub-register: from --token-file (a file, or - for standard
-// input), else from ANET_INVITE, else "" (a hub that admits openly needs none). An invite is a
-// credential — whoever presents it first is admitted, and a single-use one is then spent for its owner
-// — so it is never read from argv [redteam:F41].
-func inviteFrom(flags map[string]string) (string, error) {
-	if _, ok := flags["token"]; ok {
-		return "", errInviteOnCommandLine
-	}
-	if f, ok := flags["token-file"]; ok {
-		var r io.Reader
-		if f == "-" {
-			r = os.Stdin
-		} else {
-			fh, err := os.Open(f)
-			if err != nil {
-				return "", fmt.Errorf("hub-register: --token-file: %w", err)
-			}
-			defer fh.Close()
-			if err := inviteFileExposed(fh, f); err != nil {
-				return "", err
-			}
-			r = fh
-		}
-		b, err := io.ReadAll(io.LimitReader(r, 4096))
-		if err != nil {
-			return "", fmt.Errorf("hub-register: --token-file: %w", err)
-		}
-		v := strings.TrimSpace(string(b))
-		if v == "" {
-			return "", fmt.Errorf("hub-register: --token-file %s holds no invite", f)
-		}
-		return v, nil
-	}
-	return strings.TrimSpace(os.Getenv(inviteEnv)), nil
-}
-
-// inviteFileExposed refuses an invite file that other local users can read: the file is where the invite
-// goes instead of the command line, and one they can read leaks it the same way [redteam:F41].
-// `echo anetinv_… > invite.txt` makes a 0644 file, and home directories are often searchable by everyone.
-// A file readable by group or others is accepted only inside a directory that class cannot enter. Only a
-// regular file is judged; a pipe (--token-file <(…)) or a terminal is not on disk.
-func inviteFileExposed(fh *os.File, path string) error {
-	fi, err := fh.Stat()
-	if err != nil || !fi.Mode().IsRegular() {
-		return err
-	}
-	m := fi.Mode().Perm()
-	if m&0o044 == 0 {
-		return nil
-	}
-	var dm fs.FileMode
-	if real, err := filepath.EvalSymlinks(path); err == nil {
-		if di, err := os.Stat(filepath.Dir(real)); err == nil {
-			dm = di.Mode().Perm()
-		} else {
-			dm = 0o011 // cannot tell: assume it can be entered
-		}
-	} else {
-		dm = 0o011
-	}
-	if (m&0o040 != 0 && dm&0o010 != 0) || (m&0o004 != 0 && dm&0o001 != 0) {
-		return fmt.Errorf("hub-register: --token-file %s can be read by other local users (mode %04o in a directory they can enter); "+
-			"chmod 600 %s, or keep it in a directory only you can enter, and run the command again — "+
-			"an invite someone else reads first is theirs", path, m, path)
-	}
-	return nil
-}
-
-// envWithout returns env without the variable named key. The daemon does not need a hub invite, and a
-// long-lived process that holds one passes it on to everything it runs.
-func envWithout(env []string, key string) []string {
-	out := make([]string, 0, len(env))
-	for _, kv := range env {
-		if !strings.HasPrefix(kv, key+"=") {
-			out = append(out, kv)
-		}
-	}
-	return out
-}
-
-// runAccept is the wire-1 `anet accept <on|off>` (A2A-DESIGN §5.1). "on"
-// let anyone delegate and has no safe equivalent, so it is refused with the
-// policies and the allow-list command; "off" sets policy closed.
-func runAccept(c *client, rest []string) error {
-	arg := ""
-	if len(rest) > 0 {
-		arg = rest[0]
-	}
-	b, err := parseBool(arg)
-	if err != nil || b {
-		return errAcceptOn
-	}
-	return c.do("/accept", map[string]any{"enabled": false})
+	_ = json.Unmarshal(out.Card, &card)
+	return printable(card.Name, 80)
 }

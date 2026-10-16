@@ -753,7 +753,7 @@ func finishText(t *testing.T, st *interactions.Store, ix string, state interacti
 		mb = []byte(meta)
 	}
 	must(t, st.Finish(ix, interactions.Finish{State: state, Result: tr, ResultCID: "bafyresult",
-		Receipt: receipt(t, ix, self, peer, "bafyresult"), Verified: interactions.VerificationVerified, Meta: mb}))
+		Receipt: receipt(t, ix, self, peer, "bafyresult"), Verified: interactions.VerificationVerified, Meta: mb}, interactions.CausePeerEnded.When(state)))
 }
 
 // hermesCapTask is capTask with Hermes' context id.
@@ -771,7 +771,7 @@ func hermesCapTask(t *testing.T, st *interactions.Store, ix string, state intera
 		mb = []byte(meta)
 	}
 	must(t, st.Finish(ix, interactions.Finish{State: state, Result: []byte(deliverable), ResultCID: "bafyresult",
-		Receipt: receipt(t, ix, self, peer, "bafyresult"), Verified: interactions.VerificationVerified, Meta: mb}))
+		Receipt: receipt(t, ix, self, peer, "bafyresult"), Verified: interactions.VerificationVerified, Meta: mb}, interactions.CausePeerEnded.When(state)))
 }
 
 const hermesQuote = `{"x402Version":2,"accepts":[{"scheme":"anet-credit","network":"hub:did:anet:h","amount":"5","asset":"credit","payTo":"did:anet:peer","maxTimeoutSeconds":600}]}`
@@ -833,7 +833,7 @@ func hermesCases() []hermesCase {
 				hermesTextTask(t, st, "ix", "g")
 				tr, _ := transcript.EncodeV2("n", []transcript.Message{{From: "requester", Body: "g"}, {From: "provider", Body: "ok"}})
 				must(t, st.Finish("ix", interactions.Finish{State: interactions.StateCompleted, Result: tr, ResultCID: "bafyresult",
-					Receipt: receipt(t, "ix", self, peer, "bafyresult"), Verified: interactions.VerificationUnverified}))
+					Receipt: receipt(t, "ix", self, peer, "bafyresult"), Verified: interactions.VerificationUnverified}, interactions.CausePeerEnded))
 				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task
@@ -898,7 +898,7 @@ func hermesCases() []hermesCase {
 			task: func(t *testing.T) a2ashape.Task {
 				st := openStore(t)
 				hermesTextTask(t, st, "ix", "g")
-				must(t, st.SetFailed("ix", []byte("provider error: model quota exhausted")))
+				must(t, st.SetFailed("ix", []byte("provider error: model quota exhausted"), interactions.CausePeerEnded))
 				task, err := a2ashape.ProjectStored(st, "ix", hermesOpts)
 				must(t, err)
 				return task

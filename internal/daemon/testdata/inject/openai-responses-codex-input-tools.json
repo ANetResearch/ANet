@@ -1,0 +1,93 @@
+{
+  "upstream": "openai",
+  "model": "gpt-6-luna",
+  "request": {
+    "method": "POST",
+    "target": "/v1/responses",
+    "header": {
+      "Authorization": "Bearer anet-sandbox",
+      "originator": "codex_exec"
+    },
+    "body": "{\"model\":\"gpt-6-luna\",\"stream\":true,\"input\":[{\"type\":\"additional_tools\",\"role\":\"developer\",\"tools\":[{\"type\":\"namespace\",\"name\":\"functions\",\"description\":\"\",\"tools\":[{\"type\":\"custom\",\"name\":\"exec\",\"description\":\"Run JavaScript\",\"format\":{\"type\":\"grammar\",\"syntax\":\"lark\",\"definition\":\"start: /.+/\"}},{\"type\":\"function\",\"name\":\"wait\",\"strict\":false,\"parameters\":{\"type\":\"object\"}}]}]},{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hi\"}]}],\"tool_choice\":\"auto\",\"parallel_tool_calls\":false,\"reasoning\":{\"effort\":\"medium\",\"context\":\"all_turns\"},\"store\":false,\"include\":[\"reasoning.encrypted_content\"],\"prompt_cache_key\":\"k\",\"text\":{\"verbosity\":\"low\"}}"
+  },
+  "forwarded": {
+    "method": "POST",
+    "url": "https://api.openai.com/v1/responses",
+    "header": {
+      "Accept-Encoding": [
+        "identity"
+      ],
+      "Authorization": [
+        "Bearer operator-key-golden"
+      ],
+      "Content-Type": [
+        "application/json"
+      ],
+      "Originator": [
+        "codex_exec"
+      ]
+    },
+    "body": {
+      "include": [
+        "reasoning.encrypted_content"
+      ],
+      "input": [
+        {
+          "role": "developer",
+          "tools": [
+            {
+              "description": "",
+              "name": "functions",
+              "tools": [
+                {
+                  "description": "Run JavaScript",
+                  "format": {
+                    "definition": "start: /.+/",
+                    "syntax": "lark",
+                    "type": "grammar"
+                  },
+                  "name": "exec",
+                  "type": "custom"
+                },
+                {
+                  "name": "wait",
+                  "parameters": {
+                    "type": "object"
+                  },
+                  "strict": false,
+                  "type": "function"
+                }
+              ],
+              "type": "namespace"
+            }
+          ],
+          "type": "additional_tools"
+        },
+        {
+          "content": [
+            {
+              "text": "hi",
+              "type": "input_text"
+            }
+          ],
+          "role": "user",
+          "type": "message"
+        }
+      ],
+      "max_output_tokens": 8192,
+      "model": "gpt-6-luna",
+      "parallel_tool_calls": false,
+      "prompt_cache_key": "k",
+      "reasoning": {
+        "context": "all_turns",
+        "effort": "medium"
+      },
+      "store": false,
+      "stream": true,
+      "text": {
+        "verbosity": "low"
+      },
+      "tool_choice": "auto"
+    }
+  }
+}

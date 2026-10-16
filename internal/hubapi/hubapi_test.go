@@ -33,7 +33,7 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 	}{
 		{"AgentView", hubapi.AgentView{}, []string{
 			"aid", "avg_rating", "caps", "home_hub", "listed",
-			"name", "pricing", "readme", "registered_at", "review_count", "summary",
+			"name", "readme", "registered_at", "review_count", "summary",
 		}},
 		// No goal, no deliverable: the hub holds no task content (A2A-DESIGN
 		// §9). Mirrors ANetHub internal/aghub/wirecontract_test.go.
@@ -43,28 +43,61 @@ func TestTheWireFieldNamesArePinned(t *testing.T) {
 			"result_cid", "reviewer_aid", "subject_aid",
 		}},
 		{"UploadReviewRequest", hubapi.UploadReviewRequest{}, []string{"receipt", "review"}},
-		// Relay v2 (A2A-DESIGN §3.7). No sender, kind or interaction id
-		// appears in any of these: the hub routes by to_aid alone and the
-		// rest is inside the sealed envelope.
-		{"RelaySendRequest", hubapi.RelaySendRequest{}, []string{"envelope", "to_aid"}},
-		{"RelaySendResponse", hubapi.RelaySendResponse{}, []string{"id", "recipient_quiet", "status", "via_hub", "warning"}},
+		// Relay v3 (core §2.12.2). No sender, kind or interaction id
+		// appears in any of these: a send's body is the envelope itself,
+		// the hub routes by its outer to, and the rest is sealed.
+		{"RelaySendResponse", hubapi.RelaySendResponse{}, []string{"recipient_quiet", "rid", "status", "via_hub"}},
+		{"SessionRequest", hubapi.SessionRequest{}, []string{"epk"}},
+		{"SessionResponse", hubapi.SessionResponse{}, []string{"ct", "enc", "exp", "sid"}},
 		{"RelayPollRequest", hubapi.RelayPollRequest{}, []string{"after_id", "limit"}},
-		{"RelayPollResponse", hubapi.RelayPollResponse{}, []string{"messages"}},
-		{"RelayMessage", hubapi.RelayMessage{}, []string{"envelope", "id"}},
-		{"RelayAckRequest", hubapi.RelayAckRequest{}, []string{"ids"}},
-		{"KeysResponse", hubapi.KeysResponse{}, []string{"aid", "kel", "keyset"}},
-		// POST /agents/keys:lookup [redteam:F3]. Mirrors ANetHub
-		// internal/aghub/wirecontract_test.go.
-		{"KeysLookupRequest", hubapi.KeysLookupRequest{}, []string{"aid"}},
-		{"KeysPublishRequest", hubapi.KeysPublishRequest{}, []string{"keyset"}},
+		{"RelayPollResponse", hubapi.RelayPollResponse{}, []string{"key_state_notice", "key_state_notice_error", "messages", "more"}},
+		{"RelayMessage", hubapi.RelayMessage{}, []string{"accepted_at", "envelope", "id"}},
+		// Delivery tokens (DLV §2.4, core §2.12.2). Mirrors ANetHub
+		// internal/aghub: the same names on both sides, and the registry's
+		// (TestTheDeliveryTokenBodiesAreTheRegistrys).
+		{"RelayAckRequest", hubapi.RelayAckRequest{}, []string{"items"}},
+		{"RelayAckItem", hubapi.RelayAckItem{}, []string{"dack", "handle", "id"}},
+		{"RelayAckResponse", hubapi.RelayAckResponse{}, []string{"acked", "stored"}},
+		{"RelayStatusRequest", hubapi.RelayStatusRequest{}, []string{"items"}},
+		{"RelayStatusItem", hubapi.RelayStatusItem{}, []string{"handle", "rid", "via_hub"}},
+		{"RelayStatusResponse", hubapi.RelayStatusResponse{}, []string{"items"}},
+		{"RelayStatusResult", hubapi.RelayStatusResult{}, []string{"dack", "state"}},
+		{"KeysResponse", hubapi.KeysResponse{}, []string{"aid", "kel", "keys"}},
+		// POST /directory:bucket (core §2.12.2; TestTheBucketBodiesAreTheRegistrys
+		// holds them to the registry). Mirrors ANetHub internal/aghub/directory.go.
+		{"DirBucketRequest", hubapi.DirBucketRequest{}, []string{"bits", "cursor", "prefix"}},
+		{"DirBucketResponse", hubapi.DirBucketResponse{}, []string{"entries", "max_bits", "next", "partial"}},
+		{"DirBucketEntry", hubapi.DirBucketEntry{}, []string{"box", "h"}},
+		{"KeysPublishRequest", hubapi.KeysPublishRequest{}, []string{"keys", "prev_seq"}},
 		{"KeysPublishResponse", hubapi.KeysPublishResponse{}, []string{"aid", "keys_status"}},
+		// core §2.12.2. No invite: a hub admits by AID (LEC HN-5). No card
+		// and no pricing: the ADP card and public prices are gone (0.3.0).
+		// Mirrors ANetHub internal/aghub/server.go RegisterRequest and the
+		// WIRE3 fixtures register*.json.
 		{"RegisterRequest", hubapi.RegisterRequest{}, []string{
-			"a2a_card", "aid", "caps", "card", "enc_keys", "invite", "kel", "name",
+			"a2a_card", "aid", "caps", "check_only", "enc_keys", "kel", "name", "pow", "prev_seq",
 		}},
+		{"RegisterPoW", hubapi.RegisterPoW{}, []string{"nonce", "seed"}},
+		// The key history's own endpoints (KEL §2.7). Mirrors ANetHub
+		// internal/aghub kelpush.go (KELPushRequest, KELPushResponse) and
+		// server.go (AgentKELView).
+		{"KELPushRequest", hubapi.KELPushRequest{}, []string{"aid", "kel"}},
+		{"KELPushResponse", hubapi.KELPushResponse{}, []string{"aid", "head", "seq", "unchanged"}},
+		{"AgentKELResponse", hubapi.AgentKELResponse{}, []string{"aid", "kel", "registered"}},
+		// key_state_notice and key_state_notice_error as the hub's
+		// register answer writes them (ANetHub internal/aghub server.go;
+		// KEL D-50: the card's second registration records them too).
 		{"RegisterResponse", hubapi.RegisterResponse{}, []string{
-			"aid", "card_error", "card_status", "keys_error", "keys_status", "status",
+			"aid", "card_error", "card_status", "key_state_notice", "key_state_notice_error", "keys_error", "keys_status",
+			"probation_until", "revocations", "status", "trial",
 		}},
-		{"HubIdentity", hubapi.HubIdentity{}, []string{"aid", "kel"}},
+		// POST /mailbox/revoke (sealed-sender SSR-D20). Mirrors ANetHub
+		// internal/aghub/revoke.go; TestTheRevocationBodiesAreTheRegistrys
+		// holds them to the registry.
+		{"MailboxRevokeRequest", hubapi.MailboxRevokeRequest{}, []string{"cap_ids"}},
+		{"MailboxRevokeResponse", hubapi.MailboxRevokeResponse{}, []string{"revoked", "total"}},
+		{"CheckOnlyResponse", hubapi.CheckOnlyResponse{}, []string{"status"}},
+		{"HubIdentity", hubapi.HubIdentity{}, []string{"aid", "dir_max_bits", "kel", "wire"}},
 		// The facilitator contract as the daemon speaks it (module/x402
 		// settle, A2A-DESIGN §8.5): paymentRequirements is required by the
 		// hub. Mirrors ANetHub internal/aghub/wirecontract_test.go
@@ -153,6 +186,13 @@ func fillStrings(v reflect.Value) reflect.Value {
 				continue
 			}
 			f.Set(reflect.MakeSlice(f.Type(), 1, 1))
+		case reflect.Pointer:
+			// An optional member (probation_until, pow): present when set.
+			p := reflect.New(f.Type().Elem())
+			if p.Elem().Kind() == reflect.Struct {
+				fillStrings(p.Elem())
+			}
+			f.Set(p)
 		}
 	}
 	return v
@@ -164,7 +204,7 @@ func fillStrings(v reflect.Value) reflect.Value {
 func TestTheKeysStatusValuesArePinned(t *testing.T) {
 	for want, got := range map[string]string{
 		"ok": hubapi.KeysStatusOK, "unchanged": hubapi.KeysStatusUnchanged, "absent": hubapi.KeysStatusAbsent,
-		"invalid": hubapi.KeysStatusInvalid, "conflict": hubapi.KeysStatusConflict,
+		"invalid": hubapi.KeysStatusInvalid, "keys_rollback": hubapi.KeysRollbackReason,
 	} {
 		if got != want {
 			t.Errorf("keys_status %q, want %q — the hub reports these exact strings", got, want)
@@ -204,28 +244,35 @@ func TestACardWithdrawalIsSentAsNull(t *testing.T) {
 	}
 }
 
-// The wire version and the relay v2 authentication header names are
-// strings the hub in another repository matches exactly. A daemon that
-// states version 1, or signs under a header the hub does not read, is
-// refused on every signed call.
+// The wire version and the header names are strings the hub in another
+// repository matches exactly. A daemon that states another version, or
+// signs under a header the hub does not read, is refused on every call.
 func TestTheWireVersionAndAuthHeadersArePinned(t *testing.T) {
-	if hubapi.WireVersion != 2 {
-		t.Errorf("WireVersion = %d, want 2 (sealed envelopes, relayauth v2)", hubapi.WireVersion)
+	if hubapi.WireVersion != 3 {
+		t.Errorf("WireVersion = %d, want 3 (core CORE-V1)", hubapi.WireVersion)
 	}
 	for want, got := range map[string]string{
-		"X-ANet-Wire": hubapi.WireVersionHeader,
-		"X-ANet-AID":  hubapi.HeaderAID,
-		"X-ANet-TS":   hubapi.HeaderTS,
-		"X-ANet-Seq":  hubapi.HeaderSeq,
-		"X-ANet-Sig":  hubapi.HeaderSig,
-		// The recipient key lookup (ANetHub pins the same path).
-		"/agents/keys:lookup": hubapi.KeysLookupPath,
-		// The card and KEL lookups, likewise [redteam:F3].
-		"/agents/kel:lookup":         hubapi.KELLookupPath,
-		"/a2a/v1/agents/card:lookup": hubapi.CardLookupPath,
+		"X-ANet-Wire":                        hubapi.WireVersionHeader,
+		"X-ANet-AID":                         hubapi.HeaderAID,
+		"X-ANet-TS":                          hubapi.HeaderTS,
+		"X-ANet-Seq":                         hubapi.HeaderSeq,
+		"X-ANet-Sig":                         hubapi.HeaderSig,
+		"X-ANet-Access":                      hubapi.HeaderAccess,
+		"X-ANet-Session":                     hubapi.HeaderSession,
+		"X-ANet-MAC":                         hubapi.HeaderMAC,
+		"X-ANet-Home":                        hubapi.HeaderHome,
+		"application/vnd.anet.envelope+cbor": hubapi.EnvelopeContentType,
+		"/relay/send":                        hubapi.RelaySendPath,
+		"/relay/session":                     hubapi.RelaySessionPath,
+		// The directory's buckets, the only way this node learns another
+		// agent's material (sealed-sender SSR-D15).
+		"/directory:bucket": hubapi.DirectoryBucketPath,
 	} {
 		if got != want {
 			t.Errorf("header = %q, want %q", got, want)
 		}
+	}
+	if hubapi.MaxAccessHeader != 1024 {
+		t.Errorf("MaxAccessHeader = %d, want 1 KiB (core §2.12.1)", hubapi.MaxAccessHeader)
 	}
 }

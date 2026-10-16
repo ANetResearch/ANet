@@ -35,7 +35,7 @@ func runAgents(layout daemon.Layout, rest []string) error {
 	switch verb {
 	case "status", "list", "ls":
 		if len(args.tools) > 0 || args.all || len(args.a2a) > 0 || args.refresh {
-			return fmt.Errorf("anet agents status 不带参数")
+			return usageError{"anet agents  (status takes no arguments)"}
 		}
 		return agentsStatus(opts)
 	case "wire":
@@ -46,7 +46,7 @@ func runAgents(layout daemon.Layout, rest []string) error {
 		return printWireResults("wire", results, opts)
 	case "unwire":
 		if args.refresh {
-			return fmt.Errorf("--refresh 只用于 wire")
+			return usageError{"anet agents wire [--all|<tool>…] [--refresh]  (--refresh is for wire only)"}
 		}
 		results, err := agentwire.Unwire(opts, args.tools, args.all)
 		if err != nil {
@@ -54,7 +54,7 @@ func runAgents(layout daemon.Layout, rest []string) error {
 		}
 		return printWireResults("unwire", results, opts)
 	}
-	return fmt.Errorf("anet agents %s:不认识的子命令(wire | unwire | status)", verb)
+	return usageError{fmt.Sprintf("anet agents [wire|unwire …]  (%q is not one of wire, unwire, status)", printable(verb, 64))}
 }
 
 type agentsArgs struct {
@@ -93,7 +93,7 @@ func parseAgentsArgs(rest []string) (agentsArgs, error) {
 			addAIDs(strings.TrimPrefix(arg, "--a2a="))
 			inA2A, sawA2A = true, true
 		case strings.HasPrefix(arg, "--"):
-			return a, fmt.Errorf("anet agents:不认识的参数 %s", arg)
+			return a, usageError{fmt.Sprintf("anet agents wire|unwire [--all|<tool>…] [--refresh] [--a2a <aid>…]  (%q is not one of them)", printable(arg, 64))}
 		case inA2A && !isTool[strings.ToLower(arg)]:
 			addAIDs(arg)
 		default:
@@ -102,12 +102,12 @@ func parseAgentsArgs(rest []string) (agentsArgs, error) {
 		}
 	}
 	if a.all && len(a.tools) > 0 {
-		return a, fmt.Errorf("--all 与工具名不能同时给出")
+		return a, usageError{"anet agents wire|unwire --all|<tool>…  (--all or tool names, not both)"}
 	}
 	// `--a2a` with nothing after it would otherwise be a plain wire, and a
 	// plain unwire removes the MCP entries as well as every token.
 	if sawA2A && len(a.a2a) == 0 {
-		return a, fmt.Errorf("--a2a 后面要跟至少一个远端 agent 的 AID")
+		return a, usageError{"anet agents wire|unwire hermes --a2a <aid>…  (--a2a needs at least one AID)"}
 	}
 	return a, nil
 }
@@ -188,7 +188,7 @@ func printWireResults(verb string, results []agentwire.Result, opts agentwire.Op
 	if failed > 0 {
 		// A conflict is an answer the operator has to act on, so the exit
 		// status says so — an installer running this must not report success.
-		return fmt.Errorf("%d 个工具未完成", failed)
+		return fmt.Errorf("%d of the tools were not done; see the lines above", failed)
 	}
 	return nil
 }
@@ -238,36 +238,4 @@ func agentsStatus(opts agentwire.Options) error {
 		}
 	}
 	return nil
-}
-
-// runInstall is the older spelling, `anet install --agent <tool>`, kept
-// because the hub's join page and the published guides still tell people
-// to type it. It now does what `anet agents wire <tool>` does.
-func runInstall(layout daemon.Layout, rest []string) error {
-	pos, flags := splitFlags(rest)
-	agent := flags["agent"]
-	if agent == "" && len(pos) > 0 {
-		agent = pos[0]
-	}
-	if agent == "" {
-		return fmt.Errorf("install --agent <%s>(新写法:anet agents wire <工具>)", strings.Join(agentwire.Tools(), "|"))
-	}
-	if agent == agentwire.LegacyOpenClaw {
-		// The old install wrote a persona block into ~/.openclaw/AGENTS.md;
-		// the exec auto-reply never read it (it builds its own prompt), so
-		// nothing is lost for `autoreply set --backend exec --agent
-		// openclaw`. What that block says is out of date, so it goes.
-		if opts, err := wireOptions(layout); err == nil {
-			if r, err := agentwire.RemoveLegacyOpenClaw(opts); err == nil && r.Status != agentwire.NotWired {
-				if perr := printWireResults("unwire", []agentwire.Result{r}, opts); perr != nil {
-					return perr
-				}
-			}
-		}
-		return fmt.Errorf("OpenClaw 不在 anet agents wire 支持的工具内(它的 MCP 配置方式没有核实过)," +
-			"这一步不再写任何东西;自动接单(autoreply set --backend exec --agent openclaw)不需要它。" +
-			"要让 OpenClaw 调用 anet,请在 OpenClaw 里把 `anet mcp` 注册为 stdio MCP 服务并设置环境变量 ANET_DATA_DIR")
-	}
-	fmt.Fprintln(os.Stderr, "anet install --agent 现在等同于 anet agents wire "+agent)
-	return runAgents(layout, []string{"wire", agent})
 }

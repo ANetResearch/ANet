@@ -304,7 +304,20 @@ anet peers trust <aid>                                             # exec 只为
 anet autoreply show                                                # 看当前配置与对不信任对端的处理
 ```
 
-`exec` 后端会在你的机器上运行一个带工具的编码 agent,对方写的任务就是它的输入,所以它只为 `peers.trust` 里的对端运行。对允许但不信任的对端,`auto_reply.untrusted`(在 `config.json` 里设,改完重启)决定怎么办:`off`(默认)不调用本机 agent,任务留在收件箱;`sandbox`(仅 Linux,bubblewrap)在沙箱里运行,须同时配 `auto_reply.api_key`,沙箱不可用时按失败处理,不退回无沙箱。`openai` 后端不在本机运行程序,不受这一条约束。细节见[自动回复](AUTO-REPLY-zh.md)。
+`exec` 后端会在你的机器上运行一个带工具的编码 agent,对方写的任务就是它的输入,所以它只为 `peers.trust` 里的对端运行。对允许但不信任的对端,`auto_reply.untrusted`(在 `config.json` 里设,改完重启)决定怎么办:`off`(默认)不调用本机 agent,任务留在收件箱;`sandbox`(仅 Linux,bubblewrap)在沙箱里运行,须配好该 agent 在沙箱里用的模型服务(见下表),沙箱不可用时按失败处理,不退回无沙箱。`openai` 后端不在本机运行程序,不受这一条约束。细节见[自动回复](AUTO-REPLY-zh.md)。
+
+沙箱里的 agent 只能经本节点访问模型服务:节点替它带上你的 key,它自己拿不到;除此之外只能连 `auto_reply.sandbox.egress_allow` 里的主机。它可以在本次交互的工作目录里读写文件、运行命令,沙箱就是边界。各 agent 的情况:
+
+| agent | 沙箱里用的模型服务 | 要配的项 | 状态 |
+|---|---|---|---|
+| `claude` | Anthropic API | `api_key`;`model` 可写 `haiku`、`sonnet`、`opus`、`fable` 或 API 模型 id,不写时用最低价档 | 支持 |
+| `codex` | OpenAI Responses API(api.openai.com) | `api_key`;`api_base` 不能指向别的服务:codex 只用 Responses API,沙箱只把它送到 api.openai.com | 支持 |
+| `opencode` | OpenAI 兼容的 chat completions:`api_base` 指向的服务(本机的 Ollama、vLLM 等,或 api.openai.com) | `api_base`、`model`,服务要鉴权时加 `api_key` | 支持 |
+| `hermes` | 同上 | 同上;模型的上下文须不少于 64K | 支持 |
+| `openclaw` | 同上 | 同上 | 支持 |
+| `cursor` | — | — | 不支持:它没有可以改的模型服务地址。设为 `sandbox` 时,这类对端的任务按"沙箱不可用"拒绝 |
+
+不支持的组合(例如 `codex` 加一个本机 `api_base`)同样按"沙箱不可用"拒绝。以上按 claude 2.1.295、codex 0.162、opencode 1.18、hermes-agent 0.19、openclaw 2026.9 实测。
 
 ### 6.2 把本机 HTTP 服务挂上网络(`service` 模块)
 

@@ -80,8 +80,10 @@ func (a *payAnswer) apply(t a2ashape.Task) a2ashape.Task {
 // A decision PayTask answers without carrying it out — refused with an
 // a2a-x402 outcome, or held for the operator above the agent tier — is not
 // an error: answer is set and the caller returns the task with it
-// (payAnswer.apply).
-func (d *Daemon) taskPaymentMessage(ctx context.Context, ix *interactions.Interaction, msg a2ashape.Message) (after int64, answer *payAnswer, err error) {
+// (payAnswer.apply). cm, when the client named a messageId, is stored with
+// the payment message the decision sends (clientdedupe.go).
+func (d *Daemon) taskPaymentMessage(ctx context.Context, ix *interactions.Interaction, msg a2ashape.Message,
+	cm *clientMark) (after int64, answer *payAnswer, err error) {
 	var decision string
 	switch msg.Metadata[x402a2a.KeyStatus] {
 	case x402a2a.StatusSubmitted:
@@ -105,7 +107,7 @@ func (d *Daemon) taskPaymentMessage(ctx context.Context, ix *interactions.Intera
 		return 0, nil, a2ashape.Errorf(a2ashape.ErrUnsupportedOperation, "task %s: %v", ix.ID, errNoPayments())
 	}
 	_, err = d.PayTask(ctx, PayRequest{TaskID: ix.ID, Decision: decision, Accept: accept,
-		Payload: payload, Purpose: module.PurposeTaskAgent, ClientMsgID: msg.ID})
+		Payload: payload, Purpose: module.PurposeTaskAgent, ClientMsgID: msg.ID, client: cm})
 	if answer, err = payAnswerOf(err); err != nil {
 		return 0, nil, payTaskError(ix.ID, err)
 	}

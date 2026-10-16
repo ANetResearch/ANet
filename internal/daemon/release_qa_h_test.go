@@ -5,9 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // delegateThrough posts one goal delegation at the control API exactly as the CLI does, and returns the
@@ -32,8 +33,8 @@ func delegateThrough(t *testing.T, d *Daemon, providerAID, goal string) map[stri
 
 // The hub says the provider has stopped collecting its mail; `anet delegate` has to say so too.
 //
-// The hub returns recipient_quiet + warning on /relay/send. The daemon parsed both, logged them to its
-// own file and answered the control plane with the interaction id alone — so the one party who never
+// The hub answers recipient_quiet on /relay/send. The daemon parsed it, logged it to its own file and
+// answered the control plane with the interaction id alone — so the one party who never
 // learned that the provider had been silent for days was the person who typed the command and then
 // waited for an answer. The task is still queued: quiet is not dead, and a single poll by the provider
 // collects everything waiting, so the mark is an addition to the answer and never a refusal.
@@ -42,10 +43,10 @@ func TestDelegateCarriesTheHubsQuietWarning(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -65,15 +66,10 @@ func TestDelegateCarriesTheHubsQuietWarning(t *testing.T) {
 	if quiet, _ := out["recipient_quiet"].(bool); !quiet {
 		t.Fatalf("the hub reported the recipient quiet and the answer dropped it: %v", out)
 	}
-	warn, _ := out["warning"].(string)
-	if !strings.Contains(warn, "has not collected its mail") {
-		t.Fatalf("the warning must say what is wrong: %q", warn)
-	}
-	if !strings.Contains(warn, "3 days") {
-		t.Fatalf("the warning must say how long the recipient has been silent: %q", warn)
-	}
-	if !strings.Contains(warn, prov.AID()) {
-		t.Fatalf("the warning must name the recipient: %q", warn)
+	// The hub states the fact (recipient_quiet), and the words are this
+	// node's: the delivery sentence for mail waiting at the hub (ux §1.4 C3).
+	if warn, _ := out["warning"].(string); warn != a2ashape.Sentence("delivery.queued_at_hub", a2ashape.Lang(), nil) {
+		t.Fatalf("the warning must say the mail waits at the hub: %q", warn)
 	}
 }
 
@@ -88,10 +84,10 @@ func TestTheQuietMarkIsRetractedWhenThePeerCollectsAgain(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Bob", nil); err != nil {
 		t.Fatal(err)
 	}
 	backdateLastSeen(srv.URL, prov.AID(), 72*time.Hour)

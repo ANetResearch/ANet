@@ -1,6 +1,7 @@
 package org
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -19,25 +20,68 @@ var _ inv1.OrgScoped = Credential{}
 
 func (Credential) OrgScopedObject() {}
 
-// Credential is a membership grant: a signed AObj asserting that Subject holds Role in the org
-// identified by OrgID, issued (single-signature) by the envelope's signer. The envelope is
-// detached (cbor:"-"), never inside the signed map (mirrors acc/aet/tsir discipline) — so the
-// CanonicalPreimage marshals the Credential directly and every signed field is covered by
-// construction (adding a field automatically signs it; only cbor:"-" fields are excluded).
+// CredentialType is key 0 of a credential body (core §2.19 OrgCredBody, L42): the type tag the
+// issuer's identity key signs under, which keeps a credential's signature from passing for the
+// signature of any other object that key signs (core §3.4).
+const CredentialType = "anet.org-cred/1"
+
+// Credential is a membership grant: a signed object asserting that Subject holds Role in the org
+// identified by OrgID, issued (single-signature) by the envelope's signer. What is signed is its
+// body, coredet(OrgCredBody) with the type tag (credBody); the envelope is detached, never inside
+// the signed bytes (mirrors acc/aet/tsir discipline). Every field but the envelope is in the
+// body, so every one is signed.
 type Credential struct {
-	OrgID    string `cbor:"1,keyasint"`
-	Subject  string `cbor:"2,keyasint"`           // the AID being granted membership
-	Role     string `cbor:"3,keyasint"`           // RoleAdmin / RoleMember / RoleGuest
-	Epoch    uint64 `cbor:"4,keyasint,omitempty"` // governance epoch (see VerifyMembership: only 0 accepted today)
-	IssuedAt int64  `cbor:"5,keyasint"`           // unix-millis; also the envelope's binding time (revocation gate)
-	NotAfter int64  `cbor:"6,keyasint"`           // unix-millis expiry (mandatory; must be > IssuedAt)
+	OrgID    string
+	Subject  string // the AID being granted membership
+	Role     string // RoleAdmin / RoleMember / RoleGuest
+	Epoch    uint64 // governance epoch; 0.3.0 accepts only 0, the default (VerifyMembership)
+	IssuedAt int64  // unix-millis; also the envelope's binding time (revocation gate)
+	NotAfter int64  // unix-millis expiry (mandatory; must be > IssuedAt)
 
 	// Envelope is the detached issuer signature; Envelope.SignerAID is the issuer (founder or admin).
 	// Issuance is SINGLE-SIGNATURE throughout the chain root→admin→member (spec §O2: a founder acts as
 	// CA to issue admin creds, an admin/founder issues member creds — "delegated admin without bothering
 	// the governance layer"). The M-of-N threshold is NOT applied here; it governs the separate epoch'd
 	// governance event chain (GovernanceCert), see internal/v3rt/org/govepoch.go.
-	Envelope *aobj.Envelope `cbor:"-"`
+	Envelope *aobj.Envelope
+}
+
+// credBody is the signed encoding of a Credential.
+//
+//anet:wire OrgCredBody
+type credBody struct {
+	Type     string `cbor:"0,keyasint"` // CredentialType
+	OrgID    string `cbor:"1,keyasint"`
+	Subject  string `cbor:"2,keyasint"`
+	Role     string `cbor:"3,keyasint"`
+	Epoch    uint64 `cbor:"4,keyasint,omitempty"`
+	IssuedAt int64  `cbor:"5,keyasint"`
+	NotAfter int64  `cbor:"6,keyasint"`
+}
+
+func (c *Credential) body() credBody {
+	return credBody{Type: CredentialType, OrgID: c.OrgID, Subject: c.Subject, Role: c.Role, Epoch: c.Epoch,
+		IssuedAt: c.IssuedAt, NotAfter: c.NotAfter}
+}
+
+// decodeCredBody decodes a credential body strictly (core CORE-E2, CORE-E4, CORE-K26): every key
+// registered and of its type, nothing else, the type tag CredentialType, and the bytes exactly
+// coredet of what they decode to. Any failure is ErrMalformed.
+func decodeCredBody(b []byte) (*Credential, error) {
+	var body credBody
+	if err := coredet.UnmarshalStrict(b, &body); err != nil {
+		return nil, fmt.Errorf("%w: the body does not decode: %v", ErrMalformed, err)
+	}
+	if body.Type != CredentialType {
+		return nil, fmt.Errorf("%w: the body's type is %q, want %q", ErrMalformed, body.Type, CredentialType)
+	}
+	c := &Credential{OrgID: body.OrgID, Subject: body.Subject, Role: body.Role, Epoch: body.Epoch,
+		IssuedAt: body.IssuedAt, NotAfter: body.NotAfter}
+	again, err := c.CanonicalPreimage()
+	if err != nil || !bytes.Equal(again, b) {
+		return nil, fmt.Errorf("%w: the body is not the canonical encoding of a credential (a required key is missing, or an encoding is not CoreDet)", ErrMalformed)
+	}
+	return c, nil
 }
 
 // Credential / verification errors.
@@ -52,6 +96,11 @@ var (
 	ErrIssuerNotFounder = errors.New("org: admin credential not issued by a GovernanceRoot founder")
 	ErrIssuerNotAuth    = errors.New("org: member credential issuer is neither founder nor a valid admin")
 	ErrNilCredential    = errors.New("org: nil credential")
+	ErrEpoch            = errors.New("org: the credential names a governance epoch; 0.3.0 accepts only epoch 0")
+	// ErrMalformed: the bytes are not a credential as 0.3.0 writes it — a body without the type tag
+	// (a 0.2 credential), with another tag, a key it does not register or a non-canonical encoding,
+	// or a wire form without its envelope.
+	ErrMalformed = errors.New("org: not a well-formed credential")
 )
 
 // KELResolver resolves an AID to its key-event log for signature verification.
@@ -61,10 +110,10 @@ type KELResolver func(aid string) (kel []identity.SignedEvent, ok bool)
 // verify a member credential whose issuer is an admin rather than a founder. ok=false if none.
 type AdminLookup func(adminAID string) (*Credential, bool)
 
-// CanonicalPreimage is the CoreDet-CBOR signing/CID preimage. The detached Envelope (cbor:"-")
-// is excluded by construction; all other fields are signed.
+// CanonicalPreimage is the CoreDet-CBOR signing/CID preimage: coredet(OrgCredBody), type tag
+// included (L42). The detached Envelope is not in it; all other fields are.
 func (c *Credential) CanonicalPreimage() ([]byte, error) {
-	return coredet.Marshal(c)
+	return coredet.Marshal(c.body())
 }
 
 // CID returns the credential content id over its canonical preimage.
@@ -76,14 +125,15 @@ func (c *Credential) CID() (string, error) {
 	return anetcid.Sum(pre)
 }
 
-// Sign attaches the issuer's detached signature (sign-binds-CID). The issuer is ctrl.
-func (c *Credential) Sign(ctrl *identity.Controller) error {
+// Sign attaches the issuer's detached signature (sign-binds-CID). The issuer is signer, which
+// signs and does nothing else: a module never holds an identity's controller or its key (KEL O-1).
+func (c *Credential) Sign(signer identity.Signer) error {
 	pre, err := c.CanonicalPreimage()
 	if err != nil {
 		return err
 	}
-	sig, seq := ctrl.Sign(pre)
-	c.Envelope = &aobj.Envelope{SignerAID: ctrl.AID(), KeyStateSeq: seq, Alg: aobj.AlgEdDSA, Sig: sig}
+	sig, seq := signer.Sign(pre)
+	c.Envelope = &aobj.Envelope{SignerAID: signer.AID(), KeyStateSeq: seq, Alg: aobj.AlgEdDSA, Sig: sig}
 	return nil
 }
 
@@ -184,7 +234,7 @@ func NewVerifier(g *Genesis, resolve KELResolver, lookupAdmin AdminLookup, revok
 }
 
 // VerifyMembership checks that cred is a valid membership grant in this org at time now
-// (unix-millis): correct org, known role, epoch 0 (governance epoch chain deferred), bounded
+// (unix-millis): correct org, known role, epoch 0 (ErrEpoch otherwise), bounded
 // window, not revoked, issuer signature valid, and the issuer authorized — an admin credential
 // MUST be founder-issued; a member/guest credential MUST be issued by a founder or by a valid
 // (founder-issued) admin. Re-verifying the issuing admin at `now` makes admin revocation/expiry
@@ -199,11 +249,14 @@ func (v *Verifier) VerifyMembership(cred *Credential, now int64) error {
 	if !validRole(cred.Role) {
 		return ErrBadRole
 	}
-	// The cred.Epoch field references the governance epoch it was issued under; it is informational here.
+	if cred.Epoch != 0 {
+		return ErrEpoch
+	}
 	// Issuance AUTHORITY is enforced against the CURRENT governance root (isFounder, updated by the epoch
 	// chain), so a founder removed by an advance loses authority and one added gains it — turnover is
 	// effective immediately rather than resolved per historical epoch (a deliberate "removal takes effect
-	// now" semantic; per-epoch B1-preserving resolution would need the full chain).
+	// now" semantic; per-epoch B1-preserving resolution would need the full chain). A credential that
+	// names an epoch is refused above (core §2.19: 0.3.0 accepts only the default).
 	if err := cred.checkWindow(now); err != nil {
 		return err
 	}
@@ -263,7 +316,7 @@ func VerifyMembership(cred *Credential, g *Genesis, now int64, resolve KELResolv
 // Issue mints and signs a credential granting subject the given role in g, valid [issuedAt,
 // notAfter]. It validates role + bounded window + non-empty subject and fills org_id from g,
 // so callers cannot mis-set it. issuer is the founder (for admin) or founder/admin (for member).
-func (g *Genesis) Issue(issuer *identity.Controller, subject, role string, issuedAt, notAfter int64) (*Credential, error) {
+func (g *Genesis) Issue(issuer identity.Signer, subject, role string, issuedAt, notAfter int64) (*Credential, error) {
 	if !validRole(role) {
 		return nil, ErrBadRole
 	}

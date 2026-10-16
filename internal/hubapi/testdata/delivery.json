@@ -1,0 +1,105 @@
+{
+  "format": "hubapi-samples/1",
+  "about": "Bodies of the hub's delivery-token endpoints as core §2.12.2 and DLV §2.4 give them, members in the order the daemon's internal/hubapi types write them, binary values as base64url without padding (CORE-E5): rid and handle 16 bytes, dack 80. TestTheDeliveryTokenBodiesRoundTrip decodes each into its type and checks that encoding it again gives the same bytes. The byte values are patterns, not real tokens.",
+  "samples": [
+    {
+      "name": "an ack round: a token, no token, a token",
+      "path": "/relay/ack",
+      "dir": "request",
+      "type": "RelayAckRequest",
+      "wire": {
+        "items": [
+          {
+            "id": 7,
+            "handle": "MDEyMzQ1Njc4OTo7PD0-Pw",
+            "dack": "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dzj6vH4_wYNFBsiKTA3PkVMU1phaG92fYSLkpmgp661vMPK0djf5u30-wIJEBceJSw"
+          },
+          {
+            "id": 8
+          },
+          {
+            "id": 9,
+            "handle": "QEFCQ0RFRkdISUpLTE1OTw",
+            "dack": "-gcUIS47SFVib3yJlqOwvcrX5PH-CxglMj9MWWZzgI2ap7TBztvo9QIPHCk2Q1BdaneEkZ6ruMXS3-z5BhMgLTpHVGFue4iVoq-8ydbj8P0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "one row without a token",
+      "path": "/relay/ack",
+      "dir": "request",
+      "type": "RelayAckRequest",
+      "wire": {
+        "items": [
+          {
+            "id": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "the ack answer",
+      "path": "/relay/ack",
+      "dir": "response",
+      "type": "RelayAckResponse",
+      "wire": {
+        "acked": 3,
+        "stored": 2
+      }
+    },
+    {
+      "name": "a status check at the hub the envelopes were sent to",
+      "path": "/relay/status",
+      "dir": "request",
+      "type": "RelayStatusRequest",
+      "wire": {
+        "items": [
+          {
+            "rid": "EBESExQVFhcYGRobHB0eHw",
+            "handle": "MDEyMzQ1Njc4OTo7PD0-Pw"
+          },
+          {
+            "rid": "oKGio6SlpqeoqaqrrK2urw",
+            "handle": "_____________________w"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a status check of envelopes queued at another hub",
+      "path": "/relay/status",
+      "dir": "request",
+      "type": "RelayStatusRequest",
+      "wire": {
+        "items": [
+          {
+            "rid": "EBESExQVFhcYGRobHB0eHw",
+            "handle": "MDEyMzQ1Njc4OTo7PD0-Pw",
+            "via_hub": "did:anet:hub-two-example"
+          }
+        ]
+      }
+    },
+    {
+      "name": "the three states",
+      "path": "/relay/status",
+      "dir": "response",
+      "type": "RelayStatusResponse",
+      "wire": {
+        "items": [
+          {
+            "state": "queued"
+          },
+          {
+            "state": "done",
+            "dack": "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dzj6vH4_wYNFBsiKTA3PkVMU1phaG92fYSLkpmgp661vMPK0djf5u30-wIJEBceJSw"
+          },
+          {
+            "state": "unknown"
+          }
+        ]
+      }
+    }
+  ]
+}

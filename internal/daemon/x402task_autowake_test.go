@@ -34,7 +34,7 @@ func drainEvents(ch <-chan Event) []Event {
 // blocking SendMessage and its streams (pumpTaskEvents re-reads the row on any
 // event, a status message included). Woken there, each answered
 // input-required, x402.payment.status payment-required, anet.reason
-// needs_operator_approval (payment_extension_not_activated on A2A) with a
+// needs_operator_approval (then also said differently on A2A) with a
 // status message telling the operator to pay — for a payment already on its
 // way. The lab soak found every blocking paid call within auto_max answered
 // that way (an internal note F1).

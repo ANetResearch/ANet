@@ -2,7 +2,7 @@ package interactions
 
 // tasks.go holds the queries behind the A2A task operations (A2A-DESIGN
 // §11.1, §11.5, §12): the scoped lookup every peer-bound operation starts
-// with, the (contextId, client messageId) dedupe of SendMessage, and the
+// with, the client-key lookup of SendMessage's retry check (CUX-D2), and the
 // context ownership check.
 
 import (
@@ -15,8 +15,8 @@ import (
 
 // ClientMessageIDKey is the message metadata key that carries the message
 // id an A2A client chose (A2A-DESIGN §11.5). It is not the envelope message
-// id: the daemon mints its own for the wire, and a client id is only a
-// dedupe key for that client's retries.
+// id: the daemon mints its own for the wire. It is kept for the projection
+// only; a retry is recognised by the message's client_key (FindByClientKey).
 const ClientMessageIDKey = "a2a.messageId"
 
 // GetFor returns interaction id only when it has the given role and peer.
@@ -28,80 +28,124 @@ func (s *Store) GetFor(id string, role Role, peerAID string) (*Interaction, erro
 	if id == "" || role == "" || peerAID == "" {
 		return nil, ErrNotFound
 	}
-	return scanOne(s.db.QueryRow(`SELECT `+ixColumns+` FROM interaction WHERE id=? AND role=? AND peer_aid=?`,
+	ix, err := scanOne(s.db.QueryRow(`SELECT `+ixColumns+` FROM interaction WHERE id=? AND role=? AND peer_aid=?`,
 		id, string(role), peerAID))
+	if err != nil {
+		return nil, err
+	}
+	if err := openIX(s.db, ix); err != nil {
+		return nil, err
+	}
+	return ix, nil
 }
 
-// ClientMessageQuery selects the interaction that already holds a message
-// with a client-chosen message id.
-type ClientMessageQuery struct {
-	Role Role
-	// ContextID limits the search to one context. Empty searches every
-	// context of PeerAID (a client that gave no contextId cannot repeat
-	// the one the daemon minted, so its retry is recognised by the peer
-	// and its message id alone).
-	ContextID string
-	// PeerAID, when set, limits the search to interactions with that peer.
-	PeerAID string
-	// TaskID, when set, limits the search to that interaction.
+// ClientKeyQuery selects the messages this node wrote for its own client
+// under one client key (core L37; CUX-D2): on a follow-up, those of one task;
+// on a new task, those of the peer's tasks, in one context when the client
+// named one (a client that gave no contextId cannot repeat the one the
+// daemon minted, so its retry is recognised by the peer and the key alone).
+type ClientKeyQuery struct {
+	// Key is the client key (required).
+	Key []byte
+	// TaskID is the task of a follow-up. When it is set the rest is not
+	// read.
 	TaskID string
-	// ClientMsgID is the client's message id (required).
-	ClientMsgID string
-	// OpenOnly limits the search to interactions not in a terminal state:
-	// a message id seen on a finished task makes a new one (an internal note item).
-	OpenOnly bool
+	// PeerAID is the peer of a new task (required without TaskID).
+	PeerAID string
+	// ContextID, when set, limits a new task's search to that context.
+	ContextID string
 }
 
-// FindByClientMessage returns the interaction holding a message whose
-// metadata carries ClientMessageIDKey == q.ClientMsgID, within q.ContextID,
-// q.PeerAID and q.TaskID as far as they are set (at least one must be), or
-// ErrNotFound. It is how SendMessage recognises a client retry and returns
-// the task it already created instead of creating a second one.
+// ClientMessage is the message a client key found: its task as it is now,
+// and the message's digest and answered mark (CUX-D1, D5).
+type ClientMessage struct {
+	Interaction *Interaction
+	Seq         int64
+	Digest      []byte
+	// Unanswered says the client's call that wrote it ended before it was
+	// answered (MarkClientUnanswered).
+	Unanswered bool
+}
+
+// FindByClientKey returns the newest message that q selects, or ErrNotFound.
+// Only this node's outbound tasks are searched, and only the messages this
+// node wrote on them — those whose sender is not the interaction's peer. The
+// key is the local client's; a peer's message carrying a client id (a
+// provider planting the ids it expects the client to use next) is not a
+// message this client sent [redteam:F33]. A task whose data key is gone
+// (its content expired) is no match: there is nothing left to compare the
+// retry with (CUX-D1).
 //
-// Only messages this node wrote count — those whose sender is not the
-// interaction's peer. The key is the local client's; a peer's message
-// carrying it (a provider planting the ids it expects the client to use
-// next) is not a message this client sent [redteam:F33].
-func (s *Store) FindByClientMessage(q ClientMessageQuery) (*Interaction, error) {
-	if q.ClientMsgID == "" || q.Role == "" || (q.ContextID == "" && q.PeerAID == "" && q.TaskID == "") {
+// It reads the plain client_key column through idx_msg_client_key; the
+// metadata, data-key ciphertext, is never looked into (FS-L3).
+func (s *Store) FindByClientKey(q ClientKeyQuery) (*ClientMessage, error) {
+	if len(q.Key) == 0 || (q.TaskID == "" && q.PeerAID == "") {
 		return nil, ErrNotFound
 	}
-	sql, args := q.findSQL()
-	return scanOne(s.db.QueryRow(sql, args...))
+	query, args := q.findSQL()
+	var c ClientMessage
+	var ix string
+	var unanswered int
+	err := s.db.QueryRow(query, args...).Scan(&ix, &c.Seq, &c.Digest, &unanswered)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	c.Unanswered = unanswered != 0
+	c.Interaction, err = getIX(s.db, ix)
+	if errors.Is(err, ErrContentGone) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &c, nil
 }
 
-// clientMsgIDExpr is a message's client message id as SQL, the column
-// prefixed with p ("m." or ""): the expression of idx_msg_client, which
-// FindByClientMessage must use unchanged for SQLite to read that index.
-// json_valid guards json_extract, which fails on malformed input: a message
-// without metadata stores the empty string.
-func clientMsgIDExpr(p string) string {
-	return `(CASE WHEN json_valid(` + p + `metadata) THEN json_extract(` + p + `metadata, '$."` + ClientMessageIDKey + `"') END)`
-}
-
-// findSQL is FindByClientMessage's query.
-func (q ClientMessageQuery) findSQL() (string, []any) {
-	inner := `SELECT m.interaction_id FROM interaction i JOIN message m ON m.interaction_id = i.id
-	           WHERE i.role=? AND m.sender_aid <> i.peer_aid`
-	args := []any{string(q.Role)}
-	if q.OpenOnly {
-		inner += ` AND i.state NOT IN ` + terminalSQL
-	}
-	if q.ContextID != "" {
-		inner += ` AND i.context_id=?`
-		args = append(args, q.ContextID)
-	}
-	if q.PeerAID != "" {
-		inner += ` AND i.peer_aid=?`
-		args = append(args, q.PeerAID)
-	}
+// findSQL is FindByClientKey's query: the newest local message under the key
+// in the query's scope.
+func (q ClientKeyQuery) findSQL() (string, []any) {
+	query := `SELECT m.interaction_id, m.seq, m.client_digest, m.client_unanswered
+	   FROM message m INDEXED BY idx_msg_client_key JOIN interaction i ON i.id = m.interaction_id
+	  WHERE m.client_key = ? AND i.role = ? AND m.sender_aid <> i.peer_aid`
+	args := []any{q.Key, string(RoleOutbound)}
 	if q.TaskID != "" {
-		inner += ` AND i.id=?`
+		query += ` AND i.id = ?`
 		args = append(args, q.TaskID)
+	} else {
+		query += ` AND i.peer_aid = ?`
+		args = append(args, q.PeerAID)
+		if q.ContextID != "" {
+			query += ` AND i.context_id = ?`
+			args = append(args, q.ContextID)
+		}
 	}
-	inner += ` AND ` + clientMsgIDExpr("m.") + ` = ? ORDER BY i.seq, m.seq LIMIT 1`
-	args = append(args, q.ClientMsgID)
-	return `SELECT ` + ixColumns + ` FROM interaction WHERE id = (` + inner + `)`, args
+	return query + ` ORDER BY m.seq DESC LIMIT 1`, args
+}
+
+// MarkClientUnanswered records that the client's call that wrote task ix's
+// message under client key key ended before the call was answered (CUX-D5):
+// a retry of it may then be given the task even after the task ended
+// (CUX-D4). A task holds at most one message under one key.
+func (s *Store) MarkClientUnanswered(ix string, key []byte) error {
+	if ix == "" || len(key) == 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.Exec(`UPDATE message SET client_unanswered = 1
+	   WHERE interaction_id = ? AND client_key = ? AND client_unanswered = 0`, ix, key)
+	return err
+}
+
+// nullBytes is b as a column value: NULL when it is empty.
+func nullBytes(b []byte) any {
+	if len(b) == 0 {
+		return nil
+	}
+	return b
 }
 
 // contextPeersSQL reads idx_ix_context: left to itself SQLite took the role
@@ -154,11 +198,19 @@ func (t *Tx) MergeMessageMeta(interactionID string, msgSeq int64, add map[string
 }
 
 func mergeMessageMeta(e execer, interactionID string, msgSeq int64, add map[string]any) error {
-	var cur string
-	err := e.QueryRow(`SELECT metadata FROM message WHERE seq=? AND interaction_id=?`, msgSeq, interactionID).Scan(&cur)
+	var stored string
+	err := e.QueryRow(`SELECT metadata FROM message WHERE seq=? AND interaction_id=?`, msgSeq, interactionID).Scan(&stored)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
+	if err != nil {
+		return err
+	}
+	b, err := boxOf(e, interactionID)
+	if err != nil {
+		return err
+	}
+	cur, err := b.getText(ColMessageMetadata, stored)
 	if err != nil {
 		return err
 	}
@@ -183,11 +235,15 @@ func mergeMessageMeta(e execer, interactionID string, msgSeq int64, add map[stri
 	if !changed {
 		return nil
 	}
-	b, err := json.Marshal(m)
+	plain, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
-	_, err = e.Exec(`UPDATE message SET metadata=? WHERE seq=? AND interaction_id=?`, string(b), msgSeq, interactionID)
+	sealed, err := b.putText(ColMessageMetadata, string(plain))
+	if err != nil {
+		return err
+	}
+	_, err = e.Exec(`UPDATE message SET metadata=? WHERE seq=? AND interaction_id=?`, sealed, msgSeq, interactionID)
 	return err
 }
 

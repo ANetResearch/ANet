@@ -5,8 +5,8 @@ package daemon
 //
 //	POST /tasks/pay          {task_id, decision: submit|reject, accept?}   purpose task-agent
 //	POST /tasks/pay-manual   {task_id, decision: submit|reject, accept?}   purpose task-manual
-//	POST /payments/status    {hub?}                                        limits and 24 h totals
-//	POST /payments/limits    {set: {key: n}, payees_file?}                 change the limits
+//	POST /payments/status    {hub?}                                        limits and today's totals
+//	POST /payments/limits    {set: {key: n}}                               change the limits
 //	POST /payees/list        {}                                            the payee list
 //	POST /payees/add         {aid}                                         put a payee on it
 //	POST /payees/remove      {aid}                                         take one off
@@ -31,6 +31,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/module"
 )
@@ -65,25 +66,30 @@ func (d *Daemon) handlePay(w http.ResponseWriter, r *http.Request, purpose strin
 		Accept: req.Accept, Payload: req.Payload, Purpose: purpose})
 	var hold *PayHold
 	if errors.As(err, &hold) {
-		// The agent tier's answer above its limits: the task waits for
-		// the operator (§8.3).
+		// A decision left to a person (HPP PAY-D3): the task waits for
+		// the operator, and the answer says why in its sentence (note).
 		writeJSON(w, http.StatusOK, hold.Outcome)
 		return
 	}
 	if err != nil {
-		writePayError(w, err)
+		writePayError(w, req.TaskID, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 // writePayError answers a refused decision with a status that says whose
-// move it is, and the machine-readable reason.
-func writePayError(w http.ResponseWriter, err error) {
+// move it is, and the machine-readable reason. A refusal of the spending
+// policy is its sentence of ux §1.4 D4 with the numbers of the check that
+// failed (the control plane's error body, UX-R9).
+func writePayError(w http.ResponseWriter, taskID string, err error) {
+	if sr, ok := isSpendRefusal(err); ok {
+		writeSpendRefusal(w, sr, taskID, err)
+		return
+	}
 	body := map[string]any{"error": err.Error()}
 	code := http.StatusBadRequest
 	var pr *PayRefusal
-	var sr *SpendRefusal
 	switch {
 	case errors.As(err, &pr):
 		// §8.7: the caller is told payment-failed with the code; nothing
@@ -91,9 +97,6 @@ func writePayError(w http.ResponseWriter, err error) {
 		code = http.StatusUnprocessableEntity
 		body["result"] = pr.Outcome
 		body["reason"] = pr.Outcome.Reason
-	case errors.As(err, &sr):
-		code = http.StatusForbidden
-		body["reason"] = sr.Code
 	case errors.Is(err, interactions.ErrNotFound):
 		code = http.StatusNotFound
 	case errors.Is(err, ErrPaymentPending), errors.Is(err, ErrNoQuote), errors.Is(err, ErrTaskTerminal),
@@ -141,16 +144,42 @@ func (d *Daemon) hPaymentsStatus(w http.ResponseWriter, r *http.Request) {
 
 func (d *Daemon) hPaymentsLimits(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Set        map[string]uint64 `json:"set"`
-		PayeesFile *string           `json:"payees_file,omitempty"`
+		Set map[string]uint64 `json:"set"`
 	}
-	if err := readJSON(r, &req); err != nil || (len(req.Set) == 0 && req.PayeesFile == nil) {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "set: {limit: amount} or payees_file required"})
+	if err := readJSON(r, &req); err != nil || len(req.Set) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "set: {limit: amount} required"})
 		return
 	}
-	if err := d.SetSpendLimits(req.Set, req.PayeesFile); err != nil {
+	if err := d.SetSpendLimits(req.Set); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, d.SpendStatus())
+}
+
+// spendRefusalSentence is a spending-policy refusal as ux §1.4 D4 says it:
+// the per-payment limit and the setting that raises it, or what was paid
+// today against which daily limit and the limit that would let it through.
+func spendRefusalSentence(sr *SpendRefusal, taskID string) *a2ashape.Refusal {
+	args := a2ashape.Args{"amount": sr.Amount, "single": sr.Single, "key": sr.Key, "spent": sr.Spent,
+		"daily": sr.Daily, "need": sr.Need}
+	if taskID != "" {
+		args["task"] = taskID
+	}
+	if sr.PayTo != "" {
+		args["peer"] = sr.PayTo
+	}
+	return a2ashape.Refuse(sr.Code, args)
+}
+
+// writeSpendRefusal answers a spending-policy refusal: 403, with the
+// sentence of its code (ux §1.4 D4) when the reason table has one, and
+// otherwise (zero_amount, unknown_purpose: no tier pays these) the error
+// and the code.
+func writeSpendRefusal(w http.ResponseWriter, sr *SpendRefusal, taskID string, err error) {
+	if _, ok := a2ashape.Lookup(sr.Code); ok {
+		writeRefusal(w, http.StatusForbidden, spendRefusalSentence(sr, taskID))
+		return
+	}
+	writeJSON(w, http.StatusForbidden, map[string]string{"error": err.Error(), "reason": sr.Code})
 }

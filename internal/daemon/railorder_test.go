@@ -160,11 +160,11 @@ func TestPayableFirstReordersAndChangesNothingElse(t *testing.T) {
 // offering only another hub's ledger — or several, with the provider's
 // first — was signed as chosen, with the automatic tier choosing the
 // provider's first option. Unknown is not payable: refused before
-// anything is signed, saying why, on both paths that pick a rail
-// [redteam:Q28].
+// anything is signed, saying why, on the path that picks a rail (PayTask;
+// the prepaid path that also picked one is gone) [redteam:Q28].
 func TestNothingIsSignedWhileThisNodesLedgerIsUnknown(t *testing.T) {
 	work := &meteredWork{price: 5}
-	hub, req, prov := paidPair(t, work)
+	_, req, prov := paidPair(t, work)
 	ctx := context.Background()
 	id, err := req.DelegateCapability(ctx, prov.AID(), "work.do", nil)
 	if err != nil {
@@ -199,27 +199,7 @@ func TestNothingIsSignedWhileThisNodesLedgerIsUnknown(t *testing.T) {
 	if msg := refusal.Outcome.Message; !strings.Contains(msg, "could not learn") {
 		t.Errorf("the refusal does not say why: %q", msg)
 	}
-	own := pr.Accepts[0]
-	if _, err := req.PayAndRetry(ctx, prov.AID(), "work.do", nil,
-		&payment.PaymentRequired{Accepts: []payment.PaymentOption{foreign, own}}); err == nil ||
-		!strings.Contains(err.Error(), x402a2a.ReasonRailNotPayable) {
-		t.Errorf("PayAndRetry with this node's ledger unknown: %v", err)
-	}
 	if n := chainEvents(t, req, EvPaymentAuthorized); n != 0 {
 		t.Fatalf("%d authorizations signed while this node's ledger was unknown", n)
-	}
-
-	// Known again, PayAndRetry does not fall back to an option on another
-	// ledger either.
-	req.mu.Lock()
-	req.cfg.HubURL = hub
-	req.mu.Unlock()
-	if _, err := req.PayAndRetry(ctx, prov.AID(), "work.do", nil,
-		&payment.PaymentRequired{Accepts: []payment.PaymentOption{foreign}}); err == nil ||
-		!strings.Contains(err.Error(), x402a2a.ReasonRailNotPayable) {
-		t.Errorf("PayAndRetry with only another ledger's option: %v", err)
-	}
-	if n := chainEvents(t, req, EvPaymentAuthorized); n != 0 {
-		t.Fatalf("%d authorizations signed for an option on another ledger", n)
 	}
 }

@@ -13,7 +13,7 @@
 #   TAGS=shell bash scripts/build.sh                 pick the build tags
 #
 # TAGS carries both kinds of tag: `no_<name>` removes a module that is in
-# by default, `shell` and `taskboard` add the ones that are not
+# by default, `shell` adds the one that is not
 # (`bash scripts/tagcheck.sh list` prints them all). A release builds this
 # script more than once — see the variant list in docs/DISTRIBUTIONS-zh.md
 # — and the tag string is what distinguishes the artifacts, so it is

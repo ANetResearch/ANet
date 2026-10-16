@@ -30,8 +30,6 @@ const (
 	PaymentAuthorized        = "anet.payment.authorized"
 	PaymentQuoted            = "anet.payment.quoted"
 	CreditRedeemed           = "anet.credit.redeemed"
-	VoucherRedeemed          = "anet.voucher.redeemed"
-	VoucherRefused           = "anet.voucher.refused"
 	IssuanceHeadSeen         = "anet.issuance.head_seen"
 	ShellCommand             = "anet.shell.command"
 	ShellRefused             = "anet.shell.refused"
@@ -44,6 +42,19 @@ const (
 	EvidenceGap              = "anet.evidence.gap"
 	MessageSent              = "anet.message.sent"
 	MessageReceived          = "anet.message.received"
+	// HubAdmission is a change of the hub join state (LEC §2.5, AD-7).
+	HubAdmission = "anet.hub.admission"
+	// RetentionChanged is a change of content_retention made with `anet
+	// retention set` (forward-secrecy §2.12).
+	RetentionChanged = "anet.retention.changed"
+	// LocalStateLost is a rollback of this node's data that it found: the
+	// hub held a key set this identity signed and this node did not, and
+	// the tasks in flight were ended (forward-secrecy §2.12, FS-B3).
+	LocalStateLost = "anet.local_state.lost"
+	// IdentityRotated is a key event of this node's identity the witness
+	// accepted: the witness designation, a planned or emergency rotation, a
+	// hub switch or a recover (KEL §2.10), signed by the new key.
+	IdentityRotated = "anet.identity.rotated"
 )
 
 // Source says where the fact an event records came from.
@@ -83,8 +94,6 @@ var registry = []Event{
 	{Type: PaymentAuthorized, Label: "payment authorized", Source: SourceNode},
 	{Type: PaymentQuoted, Label: "payment quoted", Source: SourceNode},
 	{Type: CreditRedeemed, Label: "credit redeemed", Source: SourceHub},
-	{Type: VoucherRedeemed, Label: "voucher redeemed", Source: SourceHub},
-	{Type: VoucherRefused, Label: "voucher refused", Source: SourceNode},
 	{Type: IssuanceHeadSeen, Label: "hub issuance head seen", Source: SourceHub},
 	{Type: ShellCommand, Label: "shell command run", Source: SourceNode},
 	{Type: ShellRefused, Label: "shell command refused", Source: SourceNode},
@@ -99,6 +108,10 @@ var registry = []Event{
 		AggregatedLabel: "messages sent (aggregated)"},
 	{Type: MessageReceived, Label: "message received", Source: SourcePeer,
 		AggregatedLabel: "messages received (aggregated)"},
+	{Type: HubAdmission, Label: "hub join state changed", Source: SourceHub},
+	{Type: RetentionChanged, Label: "content retention changed", Source: SourceNode},
+	{Type: LocalStateLost, Label: "local data went back (tasks in flight ended)", Source: SourceNode},
+	{Type: IdentityRotated, Label: "identity key rotated", Source: SourceNode},
 }
 
 var byType = func() map[string]Event {
@@ -124,4 +137,105 @@ func Lookup(t string) (Event, bool) {
 func Registered(t string) bool {
 	_, ok := byType[t]
 	return ok
+}
+
+// Payload is the shape of an event whose payload is fixed (LEC §2.5): the
+// members every record of the type has, the members a record has only when
+// they apply, and for a member that is an object, its own shape. A record
+// has no other member: the tests read the records the daemon writes against
+// it, so a payload that grew a path, a request body, a prompt or a key would
+// not pass.
+type Payload struct {
+	Required []string
+	Optional []string
+	Nested   map[string]Payload
+	// Values are the values a member whose values are a closed set may take.
+	Values map[string][]string
+}
+
+// payloads are the fixed payloads, by event type.
+var payloads = map[string]Payload{
+	AutoReplyInvoked: {
+		Required: []string{"agent", "interaction_id", "peer_aid", "trusted", "sandboxed", "duration_ms",
+			"mode", "sandbox", "exit"},
+		Optional: []string{"unavailable", "egress"},
+		Values: map[string][]string{
+			"mode":    {"direct", "sandbox", "openai"},
+			"sandbox": {"bwrap", "seatbelt", ""},
+			"exit":    {"ok", "error", "sandbox_unavailable", "budget", "resource"},
+		},
+		Nested: map[string]Payload{"egress": {
+			Required: []string{"model_requests", "bytes_up", "bytes_down", "policy_refused", "connect"},
+			Nested: map[string]Payload{"connect": {
+				Required: []string{"allowed", "refused", "bytes_up", "bytes_down"},
+			}},
+		}},
+	},
+	HubAdmission: {Required: []string{"hub", "state"}, Optional: []string{"reason"}},
+	// A retention sweep, one record per class it deleted tasks of (FS §2.12):
+	// counts, the cutoff and the retention in days; never an id or content.
+	InteractionPruned: {
+		Required: []string{"trust", "before", "retention_days", "interactions", "messages", "attachments"},
+		Values:   map[string][]string{"trust": {"outbound", "peer", "approved", "public", "public_cap"}},
+	},
+	RetentionChanged: {Required: []string{"from", "to", "deleted_interactions"}},
+	// The hub's seq of the set this node's data was behind, this node's
+	// last_seq before it (0 when not known), the tasks ended (FS §2.12).
+	LocalStateLost: {Required: []string{"hub_seq", "local_seq", "failed_tasks"}},
+	// The seq of the event, how it was made and the witness that accepted
+	// it (KEL §2.10; core §2.14).
+	IdentityRotated: {Required: []string{"seq", "mode", "witness"},
+		Values: map[string][]string{"mode": {"witness", "scheduled", "emergency", "recover"}}},
+}
+
+// PayloadOf returns the fixed payload of event type t, if it has one.
+func PayloadOf(t string) (Payload, bool) {
+	p, ok := payloads[t]
+	return p, ok
+}
+
+// Check reports the first way the members of a record's payload differ
+// from the shape: a member it lacks, one the shape does not have, or a value
+// outside a member's closed set. Nested members are checked when they are
+// objects; other values are not.
+func (p Payload) Check(m map[string]any) string {
+	allowed := map[string]bool{}
+	for _, k := range p.Required {
+		allowed[k] = true
+		if _, ok := m[k]; !ok {
+			return "lacks " + k
+		}
+	}
+	for _, k := range p.Optional {
+		allowed[k] = true
+	}
+	for k, v := range m {
+		if !allowed[k] {
+			return "has " + k + ", which the payload does not"
+		}
+		if vals, ok := p.Values[k]; ok && !oneOf(v, vals) {
+			return k + " has a value outside its set"
+		}
+		if sub, ok := p.Nested[k]; ok {
+			obj, ok := v.(map[string]any)
+			if !ok {
+				return k + " is not an object"
+			}
+			if why := sub.Check(obj); why != "" {
+				return k + ": " + why
+			}
+		}
+	}
+	return ""
+}
+
+// oneOf reports whether v is one of the strings vals.
+func oneOf(v any, vals []string) bool {
+	str, ok := v.(string)
+	for _, x := range vals {
+		if ok && str == x {
+			return true
+		}
+	}
+	return false
 }

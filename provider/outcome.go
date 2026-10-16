@@ -86,9 +86,9 @@ func AnswerLost(err error) *OutcomeUnknownError {
 // set the deadline around Invoke), and a provider that says nothing more
 // about it cannot say the effect did not happen. Any other error is not.
 //
-// The daemon and the voucher door both read an Invoke error through this,
-// so that no provider has to know the rule for its timeouts to be reported
-// as "not known" rather than FAILED (redteam F10).
+// The daemon reads every Invoke error through this, so that no provider
+// has to know the rule for its timeouts to be reported as "not known"
+// rather than FAILED (redteam F10).
 func OutcomeOf(err error) (*OutcomeUnknownError, bool) {
 	if err == nil {
 		return nil, false

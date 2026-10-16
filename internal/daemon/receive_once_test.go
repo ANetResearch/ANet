@@ -52,7 +52,7 @@ func TestConcurrentCopiesOfAPublicCallAreJudgedOnce(t *testing.T) {
 		return nil
 	})
 	p2pDone := make(chan error, 1)
-	go func() { p2pDone <- prov.Inbound().Receive(ctx, env) }()
+	go func() { p2pDone <- recvErr(prov.Inbound(), ctx, env) }()
 	<-entered
 	hubDone := make(chan rxResult, 1)
 	go func() { hubDone <- prov.receiveEnvelope(ctx, env) }()
@@ -70,7 +70,7 @@ func TestConcurrentCopiesOfAPublicCallAreJudgedOnce(t *testing.T) {
 	if hubCopy.class != rxDropped || hubCopy.reason != dropDuplicate {
 		t.Fatalf("hub copy: %+v, want a duplicate", hubCopy)
 	}
-	if n := counter(prov, dropRefusedPrefix+admitInflightLimit); n != 0 {
+	if n := counter(prov, dropRefusedPrefix+admitBusy); n != 0 {
 		t.Fatalf("the second copy was refused by admission %d times", n)
 	}
 	if n := len(lamp.invoked); n != 1 {
@@ -120,7 +120,7 @@ func TestADelegationSealedTwiceAtTheQuotaEdgeIsJudgedOnce(t *testing.T) {
 	}
 	first := onlyQueuedEnvelope(t, srv, prov.AID())
 	clearMailbox(t, srv, prov.AID())
-	op, err := seal.Open(first, prov.AID(), prov.enc)
+	op, err := seal.Open(first, prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,10 +152,10 @@ func TestADelegationSealedTwiceAtTheQuotaEdgeIsJudgedOnce(t *testing.T) {
 	}
 	r2 := <-secondDone
 	prov.setRxFault(nil)
-	if !r2.ack() || r2.reason == dropRefusedPrefix+admitInflightLimit {
+	if !r2.ack() || r2.reason == dropRefusedPrefix+admitBusy {
 		t.Fatalf("second copy: %+v", r2)
 	}
-	if n := counter(prov, dropRefusedPrefix+admitInflightLimit); n != 0 {
+	if n := counter(prov, dropRefusedPrefix+admitBusy); n != 0 {
 		t.Fatalf("the second copy was refused by admission %d times", n)
 	}
 	if n := len(lamp.invoked); n != 1 {
@@ -185,7 +185,7 @@ func TestConcurrentCopiesOfARefusedDelegationAreAnsweredOnce(t *testing.T) {
 	second := make(chan rxResult, 1)
 	go func() { second <- prov.receiveEnvelope(context.Background(), env) }()
 	time.Sleep(50 * time.Millisecond)
-	prov.refused.add(replayKey(s.aid, mustMID(t, prov, env))) // what the first copy's refusal records
+	prov.refused.add(replayKey(s.aid, mustMID(t, prov, env)), reasonNotAccepting) // what the first copy's refusal records
 	unlock()
 	if r := <-second; r.reason != dropRefusedReplay {
 		t.Fatalf("second copy: %+v, want %s", r, dropRefusedReplay)
@@ -198,7 +198,7 @@ func TestConcurrentCopiesOfARefusedDelegationAreAnsweredOnce(t *testing.T) {
 // mustMID is the inner message id of env, sealed to d.
 func mustMID(t *testing.T, d *Daemon, env []byte) []byte {
 	t.Helper()
-	op, err := seal.Open(env, d.AID(), d.enc)
+	op, err := seal.Open(env, d.AID(), d.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,8 +208,9 @@ func mustMID(t *testing.T, d *Daemon, env []byte) []byte {
 // From TestRedteamSI10_ReplayedDelegationMakesTheProviderResendWithoutLimit
 // [redteam:F29]: a caller replays its answered delegation forty times. Each
 // replay is acknowledged as a duplicate, the call ran once, and the answer
-// is re-sent at most resendBurst times, not once per replay: the replays
-// do not spend the provider's hub send budget.
+// queue is hurried at most resendBurst times, not once per replay: the
+// replays do not spend the provider's hub send budget. The answer the hub
+// lost is sent again once; a later hurry finds the hub holding it.
 func TestReplaysOfAnAnsweredDelegationAreNotEachAnswered(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -236,11 +237,13 @@ func TestReplaysOfAnAnsweredDelegationAreNotEachAnswered(t *testing.T) {
 	if n := len(lamp.invoked); n != 1 {
 		t.Fatalf("ran %d times", n)
 	}
-	if got := relayCountFor(srv.URL) - sendsBefore; got != resendBurst {
-		t.Fatalf("provider sent %d answers for %d replays, want %d", got, replays, resendBurst)
+	waitUntil(t, "the lost answer sent again", func() bool { return len(queuedFor(t, srv, req.AID())) >= 1 })
+	time.Sleep(100 * time.Millisecond) // and the second hurry done with
+	if got := relayCountFor(srv.URL) - sendsBefore; got != 1 {
+		t.Fatalf("provider sent %d answers for %d replays, want 1", got, replays)
 	}
-	if n := len(queuedFor(t, srv, req.AID())); n != resendBurst {
-		t.Fatalf("%d answers queued for the caller, want %d", n, resendBurst)
+	if n := len(queuedFor(t, srv, req.AID())); n != 1 {
+		t.Fatalf("%d answers queued for the caller, want 1", n)
 	}
 	if n := counter(prov, resendSuppressed); n != replays-resendBurst {
 		t.Fatalf("%d re-sends suppressed, want %d", n, replays-resendBurst)

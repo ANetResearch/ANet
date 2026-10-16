@@ -78,7 +78,7 @@ func TestARefusedDelegationStaysRefusedWhenTheListForgetsIt(t *testing.T) {
 	if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropNotAccepting {
 		t.Fatalf("first delivery: %+v, want refused as not-accepting", r)
 	}
-	prov.refused = boundedSet{}
+	prov.refused = refusedLRU{}
 	allowPeers(t, prov, s.aid)
 	if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedReplay {
 		t.Fatalf("replay: %+v, want %s", r, dropRefusedReplay)
@@ -96,10 +96,10 @@ func TestAHubReplayOfARefusedDelegationDoesNotRun(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, false) // closed: refuses everyone
-	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Req", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Prov", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := prov.Providers().Register(ctx, &lampProvider{}); err != nil {
@@ -116,10 +116,12 @@ func TestAHubReplayOfARefusedDelegationDoesNotRun(t *testing.T) {
 	if counter(prov, dropNotAccepting) != 1 || len(queuedFor(t, srv, prov.AID())) != 0 {
 		t.Fatalf("setup: not refused and acked: %v", prov.ReceiveStats())
 	}
-	waitUntil(t, "the rejected notice", func() bool { return len(queuedFor(t, srv, req.AID())) == 1 })
-	if err := req.pollOnce(ctx); err != nil {
-		t.Fatal(err)
+	// The requester hears the refusal in the delegation's token (engine
+	// §2.7): nothing was sent to it.
+	if n := len(queuedFor(t, srv, req.AID())); n != 0 {
+		t.Fatalf("%d envelopes sent to the requester for the refusal", n)
 	}
+	askHubNow(t, req)
 	if cur, _ := req.ix.Get(id); cur.State != interactions.StateRejected {
 		t.Fatalf("requester state = %s, want rejected", cur.State)
 	}
@@ -175,7 +177,7 @@ func TestAnEvictedRefusalIsCoveredByTheFloor(t *testing.T) {
 	if rows, floors, err := prov.ix.RefusedCount(); err != nil || rows != 1 || floors != 1 {
 		t.Fatalf("refused table: %d rows, %d floors, %v", rows, floors, err)
 	}
-	prov.refused = boundedSet{}
+	prov.refused = refusedLRU{}
 	allowPeers(t, prov, s.aid)
 	notices := counter(prov, noticeSent)
 	if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedFloor {
@@ -221,7 +223,7 @@ func TestOtherSendersRefusalsDoNotDropAPeersDelegation(t *testing.T) {
 			t.Fatalf("junk %d: %+v", i, r)
 		}
 	}
-	if exact, floor, err := prov.ix.Refused(victim.aid, []byte("none")); err != nil || exact || floor == 0 {
+	if exact, _, floor, err := prov.ix.Refused(victim.aid, []byte("none")); err != nil || exact || floor == 0 {
 		t.Fatalf("the victim's refusal was not evicted into its floor: floor %d, %v", floor, err)
 	}
 	fresh := "ix_refused_total_friend"
@@ -229,7 +231,7 @@ func TestOtherSendersRefusalsDoNotDropAPeersDelegation(t *testing.T) {
 		delegateBody(t, friend.ctrl, fresh, "real work", ""), nil)); r.class != rxAccepted {
 		t.Fatalf("an allowed peer's fresh delegation after strangers' refusals: %+v", r)
 	}
-	prov.refused = boundedSet{}
+	prov.refused = refusedLRU{}
 	allowPeers(t, prov, victim.aid)
 	notices := counter(prov, noticeSent)
 	if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedFloor {
@@ -280,12 +282,8 @@ func TestARefusalIsStoredBeforeTheRequesterIsTold(t *testing.T) {
 	ix := "ix_refused_store_fails"
 	env := craft(t, s, prov, seal.TypeDelegate, ix, delegateBody(t, s.ctrl, ix, "a task", ""), nil)
 	recovered := refusedTableFault(t, prov)
-	notices := counter(prov, noticeSent)
-	if r := receive(t, prov, env); r.class != rxTransient {
-		t.Fatalf("refusal that could not be stored: %+v, want not acknowledged", r)
-	}
-	if n := counter(prov, noticeSent); n != notices {
-		t.Fatalf("the requester was told rejected (%d notices) though the refusal was not stored", n-notices)
+	if r := receive(t, prov, env); r.class != rxTransient || r.dack != nil {
+		t.Fatalf("refusal that could not be stored: %+v, want not acknowledged and no token", r)
 	}
 	recovered()
 	allowPeers(t, prov, s.aid)
@@ -295,10 +293,8 @@ func TestARefusalIsStoredBeforeTheRequesterIsTold(t *testing.T) {
 
 	// pending_full, refused in step 10.
 	setPolicy(t, prov, PolicyApprove)
-	prov.mu.Lock()
-	prov.cfg.Inbound.Pending.MaxPerPeer = 1
-	prov.mu.Unlock()
 	q := newStranger(t)
+	holdFor(t, prov, q, "ix_before", pendingMaxPerPeer-1) // the one below fills the queue
 	held := "ix_refused_store_held"
 	if r := receive(t, prov, craft(t, q, prov, seal.TypeDelegate, held, delegateBody(t, q.ctrl, held, "one", ""), nil)); r.class != rxAccepted {
 		t.Fatalf("first held: %+v", r)
@@ -306,18 +302,14 @@ func TestARefusalIsStoredBeforeTheRequesterIsTold(t *testing.T) {
 	over := "ix_refused_store_over"
 	overEnv := craft(t, q, prov, seal.TypeDelegate, over, delegateBody(t, q.ctrl, over, "two", ""), nil)
 	recovered = refusedTableFault(t, prov)
-	notices = counter(prov, noticeSent)
-	if r := receive(t, prov, overEnv); r.class != rxTransient {
-		t.Fatalf("pending_full that could not be stored: %+v, want not acknowledged", r)
-	}
-	if n := counter(prov, noticeSent); n != notices {
-		t.Fatalf("the requester was told pending_full (%d notices) though the refusal was not stored", n-notices)
+	if r := receive(t, prov, overEnv); r.class != rxTransient || r.dack != nil {
+		t.Fatalf("pending_full that could not be stored: %+v, want not acknowledged and no token", r)
 	}
 	recovered()
 	if r := receive(t, prov, overEnv); r.class != rxDropped || r.reason != dropRefusedPrefix+reasonPendingFull {
 		t.Fatalf("the redelivery once the store recovered: %+v", r)
 	}
-	prov.refused = boundedSet{}
+	prov.refused = refusedLRU{}
 	if r := receive(t, prov, overEnv); r.reason != dropRefusedReplay {
 		t.Fatalf("the refusal told this time was not stored: %+v", r)
 	}

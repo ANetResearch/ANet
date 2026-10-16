@@ -62,7 +62,44 @@ const (
 	// KeyCancelRequested marks a requester's task whose cancel was sent
 	// after its payment was submitted (§4.2, an internal note item).
 	KeyCancelRequested = x402a2a.KeyCancelRequested
+	// KeyIdentityNote is the one sentence this node adds to every task it
+	// projects while its identity has no recovery passphrase
+	// (identity.unprotected or its .resume variant; KEL D-15, core §2.13).
+	// It is the node's note to its own clients: the local A2A interface,
+	// the control plane's /tasks/* and MCP; it never travels to a peer
+	// (CORE-K17) and does not change the task.
+	KeyIdentityNote = "anet.identity_note"
+	// KeyPaymentNote is the payment sentence of a task this node started
+	// (ux §1.4 D1–D3, core §2.13): the snapshot of its latest payment
+	// decision (pay_note) rendered by PaymentNote, the very words the CLI's
+	// payment line, MCP and the local A2A interface's status.message show
+	// (UX-G3, SI-79). Present from the first decision on.
+	KeyPaymentNote = "anet.payment_note"
+	// KeyNext is the one command the task's reason asks the person to run,
+	// placeholders filled (core §2.13 revision 7): the next step of the row
+	// of anet.reason — with the sentence variant the projection shows, the
+	// payment note's for a task waiting on a payment — when that row's
+	// next_kind is command. The CLI prints it on its "→" line; it never
+	// guesses a variant itself.
+	KeyNext = "anet.next"
+	// KeyDeduplicated marks the answer to a local client's retry of a
+	// message it sent: the task its first attempt made, and nothing was
+	// sent again (correctness-ux CUX-D3). Its value is true; it is on that
+	// one answer only and is never stored (core §2.13), and the sentence
+	// that goes with it is the reason table's "deduplicated".
+	KeyDeduplicated = "anet.deduplicated"
 )
+
+// Deduplicated is t as the answer to a retry (KeyDeduplicated).
+func Deduplicated(t Task) Task {
+	md := make(map[string]any, len(t.Metadata)+1)
+	for k, v := range t.Metadata {
+		md[k] = v
+	}
+	md[KeyDeduplicated] = true
+	t.Metadata = md
+	return t
+}
 
 // Keys reserved on the daemon-to-daemon wire (A2A-DESIGN §3.4) and on
 // messages from a local client (§11.5, §11.6).
@@ -74,13 +111,6 @@ const (
 	KeyA2AError = "anet.a2aError"
 	// KeyState is the task state a provider message or result asks for.
 	KeyState = "anet.state"
-	// KeyFinal marks a provider's last message on a text task it is
-	// completing (an internal note item): sent with anet.state=working so the requester
-	// does not stop at it (a blocking send would otherwise return at an
-	// input-required the result ends a moment later), the result following
-	// it. Unlike a progress note it is a conversation turn: it is in the
-	// transcript the receipt covers and in the history. Its value is true.
-	KeyFinal = "anet.final"
 	// KeyInbound is the inbound-policy outcome a provider reports, such as
 	// "pending_approval".
 	KeyInbound = "anet.inbound"
@@ -127,12 +157,16 @@ const (
 	PaymentRejected  = x402a2a.StatusRejected
 )
 
-// anet.receipt_verified values. Three, not two: "we checked and it holds",
-// "we could not check" and "nobody recorded which" are different answers.
+// anet.receipt_verified values. Not two: "we checked and it holds", "we
+// could not check" and "nobody recorded which" are different answers, and
+// so is "it holds, but the conversation it covers changes what this node
+// said" (ReceiptMismatch, correctness-ux CUX-R6; the reason table's
+// receipt_mismatch says what that means).
 const (
 	ReceiptVerified   = "verified"
 	ReceiptUnverified = "unverified"
 	ReceiptUnknown    = "unknown"
+	ReceiptMismatch   = "mismatch"
 )
 
 // anet.role values.

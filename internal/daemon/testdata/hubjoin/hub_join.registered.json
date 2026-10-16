@@ -1,0 +1,11 @@
+{
+  "attempts": 0,
+  "hub": "https://hub.example",
+  "hub_aid": "bafyreihqsa3dn4fbfwbkn2dhwxbz6nmzvqjvhqrfmkmvjdnozqbgpj6vjy",
+  "next_attempt_at": 0,
+  "reason": "registered",
+  "registered_at": 1790000740000,
+  "since": 1790000740000,
+  "state": "registered",
+  "v": 1
+}

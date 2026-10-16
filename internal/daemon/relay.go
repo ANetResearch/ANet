@@ -1,7 +1,7 @@
 package daemon
 
-// relay.go is the daemon's client of the Hub relay, wire 2 (A2A-DESIGN §3.7; wire types in
-// internal/hubapi). A requester SENDS a sealed delegation envelope into the provider's Hub mailbox,
+// relay.go is the daemon's client of the Hub relay, wire 3 (core §2.12; wire types in
+// internal/hubapi; the send itself is relay_send.go). A requester SENDS a sealed delegation envelope into the provider's Hub mailbox,
 // the provider PULLS it (relayauth v2 signed poll), completes it, and SENDS a sealed result back to
 // the requester's mailbox. A single background loop polls this daemon's mailbox and runs each
 // envelope through the receive pipeline (receive.go). Every envelope is encrypted to its recipient and
@@ -14,17 +14,16 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/evidence"
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/relayauth"
 	"github.com/ANetResearch/ANetCore/seal"
 
@@ -48,105 +47,6 @@ const relayCallTimeout = 15 * time.Minute
 // freshPollTimeout bounds the best-effort poll a read command (inbox/thread/results) triggers, so a large
 // inbound transfer never blocks the interactive command — big messages are left to the background loop.
 const freshPollTimeout = 12 * time.Second
-
-// HubRegister persists the Hub target + profile to config, registers with the Hub, and (re)starts the
-// relay poll loop so delegations and results start flowing. Whether this node accepts delegations is
-// the inbound policy (A2A-DESIGN §5), not a registration setting.
-// invite carries an admission token to a hub that requires one; empty
-// otherwise, and never written to config — see RegisterWithHub.
-func (d *Daemon) HubRegister(ctx context.Context, hubURL, name string, caps []string, invite string) error {
-	caps = withServedCapabilities(caps, d.providers)
-	if err := d.RegisterWithHub(ctx, hubURL, name, caps, invite); err != nil {
-		return err
-	}
-	var prevHub string
-	set := func(c *Config) {
-		c.HubURL, c.Name = hubURL, name
-		if caps != nil {
-			c.Caps = caps
-		}
-	}
-	var adopted *AutoReplyConfig
-	cfg, err := d.updateConfig(func(c *Config) error {
-		prevHub = c.HubURL
-		set(c)
-		// Don't clobber an auto_reply block that was hand-added to config.json after this daemon started
-		// (its in-memory cfg wouldn't know about it): adopt the on-disk value before writing back.
-		if c.AutoReply == nil {
-			if prev, err := LoadConfig(d.layout); err == nil && prev.AutoReply != nil {
-				c.AutoReply, adopted = prev.AutoReply, prev.AutoReply
-			}
-		}
-		return nil
-	}, func(live *Config) {
-		set(live)
-		if adopted != nil && live.AutoReply == nil {
-			live.AutoReply = adopted
-		}
-	})
-	if err != nil {
-		return err
-	}
-	if prevHub != hubURL && d.CardPublicationStatus().Sent {
-		// The payment module learns the hub, and so the ledger its prices
-		// are on, from the config, which is written only now: on a node
-		// that had no hub, the card just sent carries no price list
-		// (a2a_card.go). Publish once more with the config in place; a
-		// card that comes out the same is answered "unchanged".
-		d.cardInputsChanged()
-	}
-	// Re-publish any existing self-description so a fresh registration keeps the agent's profile.
-	if cfg.Summary != "" || cfg.Readme != "" || cfg.Pricing != "" {
-		if err := d.PublishProfile(ctx, hubURL, cfg.Summary, cfg.Readme, cfg.Pricing); err != nil {
-			return err
-		}
-	}
-	d.startRelayLoop(hubURL)
-	return nil
-}
-
-// FindByCapability asks who serves a capability id.
-//
-// A different question from Find, and deliberately not a better-phrased
-// version of it. A capability id is exact and structured, so this is a
-// membership test: "cas.put" means that id, and "ptz.*" means that
-// family. Find searches prose, which will happily return an agent that
-// merely mentions the words.
-func (d *Daemon) FindByCapability(ctx context.Context, capID string) ([]hubapi.AgentView, error) {
-	hub := d.config().HubURL
-	if hub == "" {
-		return nil, fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
-	}
-	var resp struct {
-		Agents []hubapi.AgentView `json:"agents"`
-	}
-	q := url.Values{}
-	q.Set("cap", capID)
-	if err := d.hubGet(ctx, hub, "/agents", q, &resp); err != nil {
-		return nil, err
-	}
-	return resp.Agents, nil
-}
-
-// Find searches the Hub registry (substring over AID/name/summary/readme/caps).
-//
-// The free text never leaves this node (A2A-DESIGN §10.5): the daemon
-// fetches the listing and matches locally (discover.go).
-func (d *Daemon) Find(ctx context.Context, query string) ([]hubapi.AgentView, error) {
-	hub := d.config().HubURL
-	if hub == "" {
-		return nil, fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
-	}
-	var resp struct {
-		Agents []hubapi.AgentView `json:"agents"`
-	}
-	if err := d.hubGet(ctx, hub, "/agents", nil, &resp); err != nil {
-		return nil, err
-	}
-	// Matched against what /find shows (markFound), not against what the
-	// hub wrote for an entry it does not show (redteam F39).
-	return matchAgents(d.shownAgents(resp.Agents), query), nil
-}
 
 // Delegate builds a signed TaskDoc for goal, stores the outbound interaction, and sends the delegation
 // into the provider's Hub mailbox. It returns the shared interaction_id immediately (the provider may be
@@ -172,7 +72,7 @@ func (d *Daemon) DelegateIn(ctx context.Context, providerAID, goal string, atts 
 	if err != nil {
 		return "", err
 	}
-	if err := d.delegateInWithID(ctx, id, providerAID, goal, atts, contextID, nil); err != nil {
+	if err := d.delegateInWithID(ctx, id, providerAID, goal, atts, contextID, nil, nil); err != nil {
 		return "", err
 	}
 	return id, nil
@@ -182,7 +82,9 @@ func (d *Daemon) DelegateIn(ctx context.Context, providerAID, goal string, atts 
 // so a caller learns the id of a task whose row was written even when its
 // delivery then failed for good. meta is the first message's metadata (A2A
 // Message.metadata, a JSON object or nil): stored on the goal message here
-// and carried to the provider as DelegateReq.Metadata.
+// and carried to the provider as DelegateReq.Metadata. cm, when the client
+// named a messageId, is stored with the goal message, in the same
+// transaction (clientdedupe.go).
 //
 // The delegation goes through the retry queue in the same transaction as
 // the task and its first message are recorded (an internal note item), under the message
@@ -194,7 +96,7 @@ func (d *Daemon) DelegateIn(ctx context.Context, providerAID, goal string, atts 
 // keys cannot be resolved or do not verify is an error before anything is
 // written (§3.5 step 1).
 func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal string, atts []delegation.Attachment,
-	contextID string, meta []byte) error {
+	contextID string, meta []byte, cm *clientMark) error {
 	hub := d.config().HubURL
 	if hub == "" {
 		return fmt.Errorf("anet: no hub configured (run `anet hub-register` first)")
@@ -221,11 +123,8 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 	if err != nil {
 		return err
 	}
-	kelB, err := identity.MarshalKEL(d.self.KEL())
-	if err != nil {
-		return err
-	}
-	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: env, KEL: kelB, InteractionID: id, Attachments: atts,
+	// The KEL travels in the sealed envelope (inner key 10), not in the body.
+	dr := &delegation.DelegateReq{TaskDoc: doc, Envelope: env, InteractionID: id, Attachments: atts,
 		ContextID: contextID, Metadata: meta}
 	payload, err := dr.Marshal()
 	if err != nil {
@@ -235,6 +134,14 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 	// kept under the delegation's envelope id: the provider records its
 	// copy under the same id.
 	mid, msgID := newWireMID()
+	// E_r, made before the transaction and stored in it with the task, its
+	// first message and its outbox row; a transaction that fails leaves no
+	// key and no envelope (FS-X1, ENG-Q6).
+	er, err := newOwnIXKey(id, providerAID)
+	if err != nil {
+		return err
+	}
+	defer wipeIXKey(er)
 	var seq int64
 	qid, err := d.queueSendAs(ctx, wireSend{to: providerAID, typ: seal.TypeDelegate, ix: id, body: payload, mid: mid,
 		pin: interactions.PinOutbound, strict: true}, func(tx *interactions.Tx) error {
@@ -242,9 +149,16 @@ func (d *Daemon) delegateInWithID(ctx context.Context, id, providerAID, goal str
 			Goal: goal, RequestCID: requestCID, RequestDoc: doc, ContextID: contextID, TaskNonce: nonce}); err != nil {
 			return err
 		}
+		if err := putOwnIXKeyTx(tx, er); err != nil {
+			return err
+		}
+		rec := interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
+			Kind: interactions.MsgText, Body: goal, MsgID: msgID, Metadata: meta}
+		if err := cm.stamp(tx, id, &rec); err != nil {
+			return err
+		}
 		var err error
-		seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: id, SenderAID: d.AID(),
-			Kind: interactions.MsgText, Body: goal, MsgID: msgID, Metadata: meta})
+		seq, _, err = tx.AddMessageRecord(rec)
 		return err
 	})
 	if err != nil {
@@ -334,7 +248,7 @@ func (d *Daemon) Results(ctx context.Context) ([]ResultItem, error) {
 	return out, nil
 }
 
-// --- relay HTTP client (wire 2, A2A-DESIGN §3.7) ---
+// --- relay HTTP client (wire 3, core §2.12) ---
 
 // relayPollLimit is how many envelopes one poll asks the hub for.
 const relayPollLimit = 100
@@ -343,51 +257,72 @@ const relayPollLimit = 100
 // mailbox id after (0: from the head). The mailbox is the authenticated
 // caller's; the request carries no AID of its own.
 func (d *Daemon) relayPoll(ctx context.Context, after int64) ([]hubapi.RelayMessage, error) {
-	hub := d.config().HubURL
+	resp, err := d.relayPollPage(ctx, after)
+	return resp.Messages, err
+}
+
+// relayPollPage is relayPoll with the whole answer: the page, and whether
+// the mailbox holds more after it (more, FS-H5).
+func (d *Daemon) relayPollPage(ctx context.Context, after int64) (hubapi.RelayPollResponse, error) {
+	return d.relayPollPageAt(ctx, d.config().HubURL, after, true)
+}
+
+// relayPollPageAt is relayPollPage at hub. own is the configured hub,
+// whose answers say how it confirms this node's key; the old hub a switch
+// left is read too while it drains (KEL D-32 step 5), and what it says of
+// the key is not this node's witness's word.
+func (d *Daemon) relayPollPageAt(ctx context.Context, hub string, after int64, own bool) (hubapi.RelayPollResponse, error) {
 	if hub == "" {
-		return nil, fmt.Errorf("anet: no hub configured")
+		return hubapi.RelayPollResponse{}, fmt.Errorf("anet: no hub configured")
 	}
 	var resp hubapi.RelayPollResponse
-	if err := d.hubSigned(ctx, hub, http.MethodPost, "/relay/poll", relayauth.ActionPoll,
+	if err := d.hubSigned(ctx, hub, http.MethodPost, hubapi.RelayPollPath, relayauth.ActionPoll,
 		hubapi.RelayPollRequest{Limit: relayPollLimit, AfterID: after}, &resp); err != nil {
-		return nil, err
+		if own && hubStatus(err) == http.StatusUnauthorized {
+			// The witness refused this node's signature: what it holds of
+			// this identity decides why (KEL D-27).
+			d.triggerHubKELCheck(hub, triggerPoll401)
+		}
+		return hubapi.RelayPollResponse{}, err
 	}
-	return resp.Messages, nil
+	if own {
+		// Every poll answer says how the hub confirms this node's key (KEL
+		// D-50): the notice is checked before the gate sees it.
+		d.noteHubNoticeFrom(hub, resp.KeyStateNotice, resp.KeyStateNoticeError)
+	}
+	return resp, nil
 }
 
 // relayCursor is where the next mailbox poll starts reading (A2A-DESIGN
 // §3.6 step 9, §3.7; decision Q1).
 //
 // An envelope the receive pipeline refuses for a temporary reason (class
-// T: a message that arrived before its delegation, a store error) is not
-// acknowledged and stays in the mailbox. The hub answers oldest first, so
-// without a cursor a page of such envelopes would be the whole answer to
-// every poll until they turn permanent: anyone registered could hold back
-// this node's newer mail for the ten-minute unknown-ix window by sending it
-// a hundred messages for interactions it does not hold, and a few envelopes
-// over the hub's byte budget would do the same with fewer.
+// T: a store error, a witness notice under a hub KEL this node does not hold
+// yet) is not acknowledged and stays in the mailbox. The hub answers oldest
+// first, so without a cursor a page of such envelopes would be the whole
+// answer to every poll until they turn permanent, and a few envelopes over
+// the hub's byte budget would hold back this node's newer mail the same way.
+// (A message for an interaction this node does not hold is no longer held
+// at all: it is answered task_not_found at once, engine ENG-V10.)
 //
 // After a page that held something back, the next poll asks for what was
 // queued after that page. When nothing is, the next round goes back to the
 // head, so held envelopes are tried again every other round while the
 // mailbox has nothing newer, and are acknowledged once they succeed or turn
-// permanent (expired, or past the window).
+// permanent (expired).
 //
 // A round is one poll request, never two. Going back to the head in the
 // same round would retry held envelopes every round, but it would also
 // double this node's requests to the hub (each one a signature check and a
-// liveness write there) for as long as anything is held, and a stranger can
-// keep something held with one message every ten minutes.
+// liveness write there) for as long as anything is held.
 //
 // A mailbox that always has something new after the cursor would never
 // send it back to the head: anyone registered can keep that so with one
-// message per round, and what was held back — a message that came before
-// its delegation, one a store error turned away — would wait as long as
-// they keep going, and their own held messages would never be read again
-// to turn permanent. So at least every relayHeadEvery rounds a round goes
-// back over the held envelopes whatever lies after the cursor
-// ([redteam:F24]; decision Q1: held rows are gone back to once their window
-// ends).
+// message per round, and what was held back — one a store error turned
+// away, one whose witness was not known yet — would wait as long as they
+// keep going. So at least every relayHeadEvery rounds a round goes back over
+// the held envelopes whatever lies after the cursor ([redteam:F24];
+// decision Q1).
 //
 // Going back has a place of its own (back), and the forward cursor (after)
 // never goes back. With one cursor, a round sent to the head started the
@@ -476,17 +411,55 @@ func (c *relayCursor) done(hub string, back bool, last int64, held, full bool) {
 	}
 }
 
-// relayAck tells the hub these envelopes are handled; the hub deletes them.
-func (d *Daemon) relayAck(ctx context.Context, ids []int64) error {
-	if len(ids) == 0 {
+// dackNone counts the mailbox rows acknowledged without a delivery token:
+// the receive path decided them for good and made none (DLV-R-6a, §2.8).
+const dackNone = "dack-none"
+
+// ackItem is the /relay/ack item for mailbox row id, which the receive path
+// decided as r (DLV-R-6a): accepted (A) or refused for good (P) gets an
+// item, with its delivery token when the pipeline made one and the id alone
+// otherwise, counted dack-none; a temporary refusal (T) gets none — the row
+// stays in the mailbox and is read again.
+func (d *Daemon) ackItem(id int64, r rxResult) (hubapi.RelayAckItem, bool) {
+	if !r.ack() {
+		return hubapi.RelayAckItem{}, false
+	}
+	if r.dack == nil {
+		d.count(dackNone)
+		return hubapi.RelayAckItem{ID: id}, true
+	}
+	return hubapi.NewRelayAckItem(id, r.dack.handle, r.dack.dack), true
+}
+
+// relayAck tells the hub these mailbox rows are decided, with the delivery
+// tokens some of them carry; the hub deletes the rows and keeps the tokens
+// for their senders (DLV §2.4.2). The items go in their order, at most
+// hubapi.RelayAckMaxItems a request. A request that fails leaves only its
+// own rows in the mailbox, and the others are still sent: the relay
+// cursor's rounds that go back read those rows again, and the receive path
+// answers each copy with the outcome it gave the first (engine ENG-V13).
+func (d *Daemon) relayAck(ctx context.Context, items []hubapi.RelayAckItem) error {
+	return d.relayAckAt(ctx, d.config().HubURL, items)
+}
+
+// relayAckAt is relayAck at hub.
+func (d *Daemon) relayAckAt(ctx context.Context, hub string, items []hubapi.RelayAckItem) error {
+	if len(items) == 0 {
 		return nil
 	}
-	hub := d.config().HubURL
 	if hub == "" {
 		return fmt.Errorf("anet: no hub configured")
 	}
-	return d.hubSigned(ctx, hub, http.MethodPost, "/relay/ack", relayauth.ActionAck,
-		hubapi.RelayAckRequest{IDs: ids}, nil)
+	var errs []error
+	for len(items) > 0 {
+		batch := items[:min(len(items), hubapi.RelayAckMaxItems)]
+		items = items[len(batch):]
+		if err := d.hubSigned(ctx, hub, http.MethodPost, hubapi.RelayAckPath, relayauth.ActionAck,
+			hubapi.RelayAckRequest{Items: batch}, nil); err != nil {
+			errs = append(errs, fmt.Errorf("ack mailbox rows %d to %d: %w", batch[0].ID, batch[len(batch)-1].ID, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // --- background poll loop ---
@@ -525,14 +498,22 @@ func (d *Daemon) relayLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			if !d.joinRegistered() {
+				// Until the hub registered this node it holds no mailbox for
+				// it, and a poll would only be refused (LEC AD-2).
+				continue
+			}
 			// Block-acquire pollMu so the loop always eventually polls (a brief freshness poll may hold
 			// it). Use the generous relayCallTimeout so a large inbound attachment fully transfers rather
 			// than being cut short and redelivered forever.
 			d.pollMu.Lock()
 			pc, cancel := context.WithTimeout(ctx, relayCallTimeout)
-			if err := d.pollOnce(pc); err != nil && ctx.Err() == nil && !errors.Is(err, errHubWire) {
-				// A hub below wire 2 is reported once by checkHubWire;
-				// repeating it every second would fill the log.
+			if err := d.pollOnce(pc); err != nil && ctx.Err() == nil && !errors.Is(err, errHubWire) &&
+				!errors.Is(err, errGateClosed) {
+				// A hub of another wire is reported once by noteHubWire, and
+				// a closed gate by the identity's state (KEL D-1: no poll
+				// but in notice_stale); repeating either every second would
+				// fill the log.
 				log.Printf("anet: relay poll: %v", err)
 			}
 			cancel()
@@ -546,7 +527,7 @@ func (d *Daemon) relayLoop(ctx context.Context) {
 // whatever is already local — so an in-flight large transfer never blocks the command. Errors are
 // intentionally swallowed (freshness is best-effort; the background loop retries).
 func (d *Daemon) pollFresh(ctx context.Context) {
-	if d.config().HubURL == "" {
+	if d.config().HubURL == "" || !d.joinRegistered() {
 		return
 	}
 	if !d.pollMu.TryLock() {
@@ -559,42 +540,176 @@ func (d *Daemon) pollFresh(ctx context.Context) {
 }
 
 // pollOnce pulls the mailbox, runs each envelope through the receive
-// pipeline (receive.go) and acks the ones the pipeline says to ack:
-// accepted, or refused for a reason that will not change on retry. An
-// envelope refused for a temporary reason (a store error, a message that
-// arrived before its task) stays in the mailbox and is delivered again on a
-// later poll.
+// pipeline (receive.go) at its arrival (the row's accepted_at, KEL D-20) and
+// acks the ones the pipeline says to ack: accepted, or refused for a reason
+// that will not change on retry, each with the delivery token the pipeline
+// made for it (ackItem; engine ENG-V1). An envelope refused for a temporary
+// reason (a store error, a witness this node does not know yet) stays in
+// the mailbox and is delivered again on a later poll.
 //
 // A poll starts at the relay cursor (relayCursor), so envelopes held back
 // in an earlier round do not stand in front of newer ones; when nothing is
 // queued after the cursor, and in any case every relayHeadEvery rounds, a
 // round goes back over the held envelopes instead.
+//
+// Each round also tells the epoch key ring what the mailbox holds (FS-K9 to
+// FS-K11; noteRound): the kid of every envelope it held back, and, when the
+// hub said nothing more is queued and every row it read was acknowledged,
+// that the mailbox was drained as of the moment the round asked.
 func (d *Daemon) pollOnce(ctx context.Context) error {
-	hub := d.config().HubURL
-	from, back := d.relayCur.next(hub)
-	msgs, err := d.relayPoll(ctx, from)
+	return d.pollHubOnce(ctx, d.config().HubURL, &d.relayCur, true)
+}
+
+// pollHubOnce is pollOnce at hub, with its cursor cur; own is the
+// configured hub (relayPollPageAt). The caller holds d.pollMu.
+func (d *Daemon) pollHubOnce(ctx context.Context, hub string, cur *relayCursor, own bool) error {
+	from, back := cur.next(hub)
+	askedAt := d.nowMS()
+	resp, err := d.relayPollPageAt(ctx, hub, from, own)
 	if err != nil {
 		return err
 	}
-	var acked []int64
+	msgs := resp.Messages
+	var items []hubapi.RelayAckItem
 	var last int64
 	held := false
+	round := pollRound{hub: hub, from: from, more: resp.More, askedAt: askedAt, kids: map[int64][]byte{}}
 	for _, m := range msgs {
 		last = max(last, m.ID)
-		env, derr := base64.StdEncoding.DecodeString(m.Envelope)
-		if derr != nil {
-			d.count(dropBadTransport)
-			acked = append(acked, m.ID) // undecodable — drop
-			continue
+		round.read = append(round.read, m.ID)
+		var r rxResult
+		var kid []byte
+		if env, derr := hubapi.DecodeB64(m.Envelope, -1); derr != nil {
+			r = d.drop(dropBadTransport, derr) // not strict base64url (core G2) — drop
+		} else {
+			r = d.receiveEnvelopeVia(ctx, env, rxPath{acceptedAt: m.AcceptedAt})
+			kid = outerKID(env)
 		}
-		if d.receiveEnvelope(ctx, env).ack() {
-			acked = append(acked, m.ID)
+		if it, ok := d.ackItem(m.ID, r); ok {
+			items = append(items, it)
+			round.acked = append(round.acked, m.ID)
 		} else {
 			held = true
+			round.kids[m.ID] = kid
 		}
 	}
-	d.relayCur.done(hub, back, last, held, len(msgs) >= relayPollLimit)
-	return d.relayAck(ctx, acked)
+	cur.done(hub, back, last, held, len(msgs) >= relayPollLimit)
+	ackErr := d.relayAckAt(ctx, hub, items)
+	round.ackOK = ackErr == nil
+	d.drain.noteRound(round)
+	return ackErr
+}
+
+// outerKID is the kid of the epoch key an envelope is sealed to (outer key
+// 4), or nil when its outer does not parse.
+func outerKID(env []byte) []byte {
+	o, err := seal.ParseOuter(env)
+	if err != nil {
+		return nil
+	}
+	return o.KID
+}
+
+// drainState is what the polls of the hub mailboxes tell the epoch key ring
+// (FS-K9, FS-K10). In memory only: after a restart no hub has a drain mark,
+// so no key goes early right after a start, and nothing is held until a
+// round finds it again; the two start empty together.
+type drainState struct {
+	mu sync.Mutex
+	// marks is each polled hub's drainMark: the local time at which a round
+	// asked whose answer said nothing more was queued (more false) and whose
+	// rows were all acknowledged, or which had none to acknowledge. Every
+	// row the hub accepted before that moment was read at least once and is
+	// either gone from the mailbox or held back.
+	marks map[string]uint64
+	// held is the outer kid of each mailbox row a round held back (a
+	// temporary refusal, not acknowledged), by hub and row id, until a
+	// round acknowledges it or finds it gone.
+	held map[heldRow][]byte
+}
+
+// heldRow is a mailbox row of one hub.
+type heldRow struct {
+	hub string
+	id  int64
+}
+
+// pollRound is what one poll round read and did.
+type pollRound struct {
+	hub     string
+	from    int64   // after_id of the request
+	more    bool    // the hub said more is queued after the page
+	askedAt uint64  // local time when the request was made
+	read    []int64 // the ids on the page
+	acked   []int64 // the ids acknowledged (in the ack request)
+	kids    map[int64][]byte
+	ackOK   bool // the ack request succeeded, or there was none
+}
+
+// noteRound records a poll round (FS-K9, FS-K10). A held row is forgotten
+// once a round acknowledges it, or once a round reads past its id without
+// finding it: the hub holds it no more (it expired, or was acknowledged).
+func (s *drainState) noteRound(r pollRound) {
+	hub := strings.TrimRight(r.hub, "/")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.held == nil {
+		s.held, s.marks = map[heldRow][]byte{}, map[string]uint64{}
+	}
+	onPage := map[int64]bool{}
+	var last int64
+	for _, id := range r.read {
+		onPage[id] = true
+		last = max(last, id)
+	}
+	for row := range s.held {
+		if row.hub == hub && row.id > r.from && (row.id <= last || !r.more) && !onPage[row.id] {
+			delete(s.held, row)
+		}
+	}
+	for id, kid := range r.kids {
+		s.held[heldRow{hub, id}] = kid
+	}
+	if r.ackOK {
+		for _, id := range r.acked {
+			delete(s.held, heldRow{hub, id})
+		}
+	}
+	if !r.more && r.ackOK && r.askedAt > s.marks[hub] {
+		s.marks[hub] = r.askedAt
+	}
+}
+
+// drainInputs is the drainMark and heldKids the deletion rule takes
+// (epochKeyDeletable): for a node without a hub, the largest uint64 and none
+// (FS-K8); otherwise the configured hub's mark (0 before its first drained
+// round) and the kids it holds back. The marks and rows are kept per hub,
+// so that the old hub drained after a hub change (FS-K6a, KEL D-32) can
+// join: the mark is then the least of the polled hubs' and the kids are
+// every polled hub's.
+func (d *Daemon) drainInputs() (uint64, kidSet) {
+	hub := d.config().HubURL
+	if hub == "" {
+		return math.MaxUint64, nil
+	}
+	keys := map[string]bool{strings.TrimRight(hub, "/"): true}
+	for _, old := range d.drainingHubs() {
+		keys[strings.TrimRight(old, "/")] = true
+	}
+	s := &d.drain
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	held := kidSet{}
+	for row, kid := range s.held {
+		if keys[row.hub] && kid != nil {
+			held[string(kid)] = struct{}{}
+		}
+	}
+	mark := uint64(math.MaxUint64)
+	for k := range keys {
+		mark = min(mark, s.marks[k])
+	}
+	return mark, held
 }
 
 // kickAutoReply wakes the auto-reply loop immediately (non-blocking; coalesces bursts). No-op when the

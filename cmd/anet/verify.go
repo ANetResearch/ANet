@@ -1,19 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/ael"
 	"github.com/ANetResearch/ANetCore/anetcid"
-	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 
 	"github.com/ANetResearch/ANet/internal/daemon"
@@ -50,17 +49,17 @@ func verify(layout daemon.Layout, rest []string) error {
 		kel := flags["kel"]
 		if kel == "" {
 			// A receipt names the AID that signed it, so the key history
-			// can be fetched rather than supplied — from any hub that
-			// knows the signer. The receipt is still the thing being
-			// checked; the hub only hands over a public log, and holding
-			// it lets you check signatures, never make them.
-			hub := flags["hub"]
-			if hub == "" {
+			// can be fetched rather than supplied: through this node's
+			// daemon, or from the directory of a hub that knows the
+			// signer. The receipt is still the thing being checked; the
+			// hub only hands over a public log, and holding it lets you
+			// check signatures, never make them.
+			if flags["hub"] == "" && !daemonConfigured(layout) {
 				return fmt.Errorf("verify: give --kel, or --hub URL to fetch the signer's key history\n" +
 					"       (a receipt alone proves nothing without the key that signed it)")
 			}
 			var err error
-			kel, err = fetchKEL(hub, r)
+			kel, err = fetchKEL(layout, flags["hub"], r)
 			if err != nil {
 				return err
 			}
@@ -68,7 +67,7 @@ func verify(layout daemon.Layout, rest []string) error {
 		return verifyOffline(r, kel, flags["result"], flags["request"])
 	}
 	if a := flags["attestation"]; a != "" {
-		return verifyAttestation(a, flags["kel"], flags["hub"])
+		return verifyAttestation(layout, a, flags["kel"], flags["hub"])
 	}
 	if flags["kel"] != "" {
 		return fmt.Errorf("verify: --kel needs a --receipt, --attestation or --chain to check")
@@ -81,7 +80,8 @@ func verify(layout daemon.Layout, rest []string) error {
 			"       verify --chain DIR [--kel <base64>|--hub <url>] [--head ID]\n\n" +
 			"The second form needs nothing at all: a receipt and the signer's key\n" +
 			"history are enough, offline. The third fetches that key history from a\n" +
-			"hub, for a stranger who was handed a receipt and nothing else.\n" +
+			"hub's directory, for a stranger who was handed a receipt and nothing\n" +
+			"else; with a daemon running, the daemon fetches it and --hub may go.\n" +
 			"The fourth checks a witness attestation from a hub's /x402/witnesses.\n" +
 			"The fifth checks an evidence chain exported by `anet audit --export DIR`.")
 	}
@@ -243,12 +243,12 @@ func (quietError) Error() string { return "" }
 func anetcidSum(b []byte) (string, error) { return anetcid.Sum(b) }
 func base64Std(b []byte) string           { return base64.StdEncoding.EncodeToString(b) }
 
-// fetchKEL asks a hub for the key history of whoever signed this receipt.
+// fetchKEL gets the key history of whoever signed this receipt.
 //
 // The AID comes out of the receipt, so the caller does not have to know
 // who signed it — which is the ordinary case for a third party handed a
 // receipt and asked whether it is real.
-func fetchKEL(hubURL, receiptB64 string) (string, error) {
+func fetchKEL(layout daemon.Layout, hubURL, receiptB64 string) (string, error) {
 	rb, err := base64.StdEncoding.DecodeString(strings.TrimSpace(receiptB64))
 	if err != nil {
 		return "", fmt.Errorf("verify: receipt is not base64: %w", err)
@@ -260,45 +260,95 @@ func fetchKEL(hubURL, receiptB64 string) (string, error) {
 	if rc.ProviderAID == "" {
 		return "", fmt.Errorf("verify: the receipt names no signer")
 	}
-	return fetchKELFor(hubURL, rc.ProviderAID)
+	return fetchKELThrough(layout, hubURL, rc.ProviderAID,
+		"(a receipt alone proves nothing without the key that signed it)")
 }
 
-// fetchKELFor asks a hub for one AID's key history.
+// daemonConfigured reports whether layout names a data directory whose
+// daemon the CLI can address (it may still not be running).
+func daemonConfigured(layout daemon.Layout) bool {
+	if layout.Root == "" {
+		return false
+	}
+	_, _, err := daemon.ResolveControl(layout)
+	return err == nil
+}
+
+// fetchKELThrough gets one AID's key history without naming that AID to
+// any hub (sealed-sender SSR-D14, SSR-D16): from the daemon of layout when
+// one is running (POST /agents/kel: its own record of the signer, or its
+// hub's directory), else from the directory of the hub given with --hub
+// (fetchKELFor). why says, when neither is at hand, why a key is needed.
+func fetchKELThrough(layout daemon.Layout, hubURL, aid, why string) (string, error) {
+	if daemonConfigured(layout) {
+		if base, token, err := daemon.ResolveControl(layout); err == nil {
+			c := &client{base: base, token: token, timeout: 60 * time.Second, dataDir: layout.Root}
+			raw, code, err := c.fetch("/agents/kel", map[string]any{"aid": aid})
+			if err == nil {
+				var out struct {
+					KEL    string `json:"kel"`
+					Source string `json:"source"`
+					Error  string `json:"error"`
+				}
+				_ = json.Unmarshal(raw, &out)
+				switch {
+				case code == http.StatusOK && out.KEL != "":
+					fmt.Printf("· key history for %s fetched through this node's daemon (%s)\n", aid, out.Source)
+					return out.KEL, nil
+				case code == http.StatusNotFound && out.Error != "":
+					// The daemon's own answer: the directory holds no
+					// entry for aid, in a whole answer.
+					return "", fmt.Errorf("verify: %s", out.Error)
+				case hubURL == "":
+					why := out.Error
+					if why == "" {
+						why = strings.TrimSpace(string(raw))
+					}
+					return "", fmt.Errorf("verify: the daemon could not fetch %s's key history (%d): %s; try again later, or give --hub URL",
+						aid, code, printable(why, 200))
+				}
+				// The daemon cannot read its directory now; the hub given
+				// with --hub may.
+			}
+		}
+	}
+	if hubURL == "" {
+		return "", fmt.Errorf("verify: give --kel, or --hub URL to fetch the key history of %s\n"+
+			"       (or run this where its daemon runs) %s", aid, why)
+	}
+	return fetchKELFor(hubURL, aid)
+}
+
+// fetchKELFor gets one AID's key history from the directory of the hub at
+// hubURL, with no daemon (daemon.DirectoryKEL): a bucket of agents asked
+// by a few bits of the AID's directory hash and the one entry opened here,
+// so the request names nobody; the hub's own key history when the AID is
+// the hub's.
 //
 // Split out from fetchKEL, which could only start from a receipt. A
-// witness attestation names its signer the same way and needs the same
-// lookup; tying the fetch to the receipt type meant the only object that
-// could be resolved was the only object the command already handled.
+// witness attestation and an exported chain name their signer the same way
+// and need the same lookup.
 func fetchKELFor(hubURL, aid string) (string, error) {
-	u := strings.TrimSuffix(hubURL, "/") + "/agents/" + url.PathEscape(aid) + "/kel"
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Get(u)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	kel, err := daemon.DirectoryKEL(ctx, hubURL, aid)
 	if err != nil {
-		return "", fmt.Errorf("verify: fetch key history: %w", err)
+		return "", fmt.Errorf("verify: fetch the key history of %s: %w", aid, err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("verify: %s does not know %s (hub returned %d)",
-			hubURL, aid, resp.StatusCode)
-	}
-	var out struct {
-		KEL string `json:"kel"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return "", fmt.Errorf("verify: hub reply: %w", err)
-	}
-	if out.KEL == "" {
-		return "", fmt.Errorf("verify: %s published no key history for %s", hubURL, aid)
+	raw, err := identity.MarshalKEL(kel)
+	if err != nil {
+		return "", err
 	}
 	// Said out loud, because it is the difference between a check that
 	// needed nothing and one that asked a hub. A verifier that cannot
 	// tell those apart will record the stronger.
 	//
-	// Printed here rather than at the two call sites: it was at one of
-	// them, and splitting the fetch out of the receipt path dropped it
-	// for that path while the attestation path had its own copy. One
-	// place, both callers.
-	fmt.Printf("· key history for %s fetched from %s\n", aid, hubURL)
-	return out.KEL, nil
+	// Printed here rather than at the call sites: it was at one of them,
+	// and splitting the fetch out of the receipt path dropped it for that
+	// path while the attestation path had its own copy. One place, every
+	// caller.
+	fmt.Printf("· key history for %s fetched from %s (its directory, which was not told whose)\n", aid, hubURL)
+	return base64Std(raw), nil
 }
 
 // verifyAttestation checks a witness's statement about a chain head.
@@ -316,7 +366,7 @@ func fetchKELFor(hubURL, aid string) (string, error) {
 // chain is honest — it means that if the hub ever serves a different
 // record at sequence N, this signed statement contradicts it and nobody
 // has to take anyone's word for which came first.
-func verifyAttestation(attB64, kelB64, hubURL string) error {
+func verifyAttestation(layout daemon.Layout, attB64, kelB64, hubURL string) error {
 	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(attB64))
 	if err != nil {
 		return fmt.Errorf("verify: attestation is not base64: %w", err)
@@ -330,11 +380,7 @@ func verifyAttestation(attB64, kelB64, hubURL string) error {
 	}
 	witness := att.Envelope.SignerAID
 	if kelB64 == "" {
-		if hubURL == "" {
-			return fmt.Errorf("verify: give --kel, or --hub URL to fetch the witness's key history\n"+
-				"       (the witness is %s)", witness)
-		}
-		kelB64, err = fetchKELFor(hubURL, witness)
+		kelB64, err = fetchKELThrough(layout, hubURL, witness, "(the witness is "+witness+")")
 		if err != nil {
 			return err
 		}

@@ -23,7 +23,7 @@ func TestLosingTheLastPublicSkillWithdrawsTheCard(t *testing.T) {
 	}
 
 	fresh := newCardDaemon(t, "Nobody", "")
-	if err := fresh.RegisterWithHub(ctx, h.URL, "Nobody", nil, ""); err != nil {
+	if err := fresh.RegisterWithHub(ctx, h.URL, "Nobody", nil); err != nil {
 		t.Fatal(err)
 	}
 	if n, status, _ := state(fresh.AID()); n != 0 || status != hubapi.CardStatusAbsent {
@@ -31,7 +31,7 @@ func TestLosingTheLastPublicSkillWithdrawsTheCard(t *testing.T) {
 	}
 
 	d := lampNode(t)
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, status, held := state(d.AID()); status != hubapi.CardStatusOK || !held {
@@ -39,7 +39,7 @@ func TestLosingTheLastPublicSkillWithdrawsTheCard(t *testing.T) {
 	}
 
 	setPublic(d)
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	if n, status, held := state(d.AID()); n != 1 || status != hubapi.CardStatusWithdrawn || held {
@@ -48,7 +48,7 @@ func TestLosingTheLastPublicSkillWithdrawsTheCard(t *testing.T) {
 	if pub := d.CardPublicationStatus(); pub.Sent || pub.Status != hubapi.CardStatusWithdrawn {
 		t.Fatalf("publication status %+v", pub)
 	}
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	if n, status, _ := state(d.AID()); n != 1 || status != hubapi.CardStatusAbsent {
@@ -65,30 +65,30 @@ func TestLosingTheLastPublicSkillWithdrawsTheCard(t *testing.T) {
 		t.Fatal(err)
 	}
 	setPublic(d2)
-	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	if n, _, _ := state(d.AID()); n != 1 {
 		t.Fatalf("a restart withdrew again: %d withdrawals", n)
 	}
 
-	// Published again, then withdrawn again. The capability list and the
-	// ADP card name only the public capability.
+	// Published again, then withdrawn again. The registered capability
+	// list names only the public capability.
 	setPublic(d2, lampCap)
-	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", []string{"private.cap", lampCap}, ""); err != nil {
+	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", []string{"private.cap", lampCap}); err != nil {
 		t.Fatal(err)
 	}
 	if _, status, held := state(d.AID()); status != hubapi.CardStatusOK || !held {
 		t.Fatalf("published again: card_status %q, held %v", status, held)
 	}
 	fh.mu.Lock()
-	adp := fh.adpCaps[d.AID()]
+	caps := fh.agents[d.AID()].view.Caps
 	fh.mu.Unlock()
-	if len(adp) != 1 || adp[0] != lampCap {
-		t.Fatalf("the ADP card lists %v, want only the public %s (an internal note item)", adp, lampCap)
+	if len(caps) != 1 || caps[0] != lampCap {
+		t.Fatalf("the registration lists %v, want only the public %s (an internal note item)", caps, lampCap)
 	}
 	setPublic(d2)
-	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	if n, status, held := state(d.AID()); n != 2 || status != hubapi.CardStatusWithdrawn || held {

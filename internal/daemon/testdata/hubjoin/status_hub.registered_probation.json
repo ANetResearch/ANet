@@ -1,0 +1,7 @@
+{
+  "url": "https://hub.example",
+  "state": "registered",
+  "reason": "registered.probation",
+  "message": "Registered at https://hub.example; the new account is on probation until <TIME> and cannot upload reviews before then.",
+  "since": "2026-09-21T14:25:40Z"
+}

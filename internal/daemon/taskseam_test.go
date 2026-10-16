@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func TestTheTaskSeamIsScopedToOneAgent(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
 	other := newTestDaemon(t, srv.URL, true)
-	if err := other.RegisterWithHub(ctx, srv.URL, "Other", nil, ""); err != nil {
+	if err := other.RegisterWithHub(ctx, srv.URL, "Other", nil); err != nil {
 		t.Fatal(err)
 	}
 	seam := req.TaskSeam()
@@ -278,7 +279,7 @@ func TestSendingToAFailedTaskIsUnsupported(t *testing.T) {
 		Goal: "g", ContextID: "c"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.ix.SetFailed("ix_failed", []byte("broken")); err != nil {
+	if err := req.ix.SetFailed("ix_failed", []byte("broken"), interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 	_, err := req.TaskSeam().Send(ctx, prov.AID(), module.TaskSend{Message: followUp("ix_failed", "try again", "m-1"), ReturnImmediately: true})
@@ -352,11 +353,13 @@ func TestListTasksPages(t *testing.T) {
 	d := newTestDaemon(t, "", false)
 	seam := d.TaskSeam()
 	ctx := context.Background()
-	clock := int64(1_000_000)
-	d.ix.SetClock(func() int64 { return clock })
+	// The store reads the clock from the daemon's maintenance goroutine too.
+	var clock atomic.Int64
+	clock.Store(1_000_000)
+	d.ix.SetClock(clock.Load)
 	var ids []string
 	for i := 0; i < 7; i++ {
-		clock += 1000
+		clock.Add(1000)
 		id := fmt.Sprintf("ix_%02d", i)
 		if err := d.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: "peer-a", Goal: "g", ContextID: "c"}); err != nil {
 			t.Fatal(err)
@@ -364,7 +367,7 @@ func TestListTasksPages(t *testing.T) {
 		ids = append(ids, id)
 	}
 	for i := 0; i < 2; i++ {
-		clock += 1000
+		clock.Add(1000)
 		_ = d.ix.Create(interactions.New{ID: fmt.Sprintf("ix_b%d", i), Role: interactions.RoleOutbound, PeerAID: "peer-b", Goal: "g"})
 	}
 	var got []string
@@ -405,15 +408,15 @@ func TestListTasksPages(t *testing.T) {
 	if _, err := seam.List(ctx, "peer-a", module.TaskFilter{PageToken: "forged"}); !errors.Is(err, a2ashape.ErrInvalidParams) {
 		t.Fatalf("forged token: %v", err)
 	}
-	clock += 1000
-	if _, err := d.ix.SetState(ids[0], interactions.StateWorking); err != nil {
+	clock.Add(1000)
+	if _, err := d.ix.SetState(ids[0], interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	page, err := seam.List(ctx, "peer-a", module.TaskFilter{State: string(a2ashape.TaskStateWorking)})
 	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].ID != ids[0] || page.TotalSize != 1 {
 		t.Fatalf("status filter = %+v (%v)", page, err)
 	}
-	after := time.UnixMilli(clock - 1)
+	after := time.UnixMilli(clock.Load() - 1)
 	page, err = seam.List(ctx, "peer-a", module.TaskFilter{UpdatedAfter: &after})
 	if err != nil || len(page.Tasks) != 1 || page.Tasks[0].ID != ids[0] {
 		t.Fatalf("statusTimestampAfter = %+v (%v)", page, err)
@@ -558,7 +561,7 @@ func TestAWaitThatTimesOutAnswersTheTask(t *testing.T) {
 		t.Fatalf("wait = %+v %v %v", ix, timedOut, err)
 	}
 	// Already waiting for input, and nothing newer asked for: at once.
-	if _, err := d.ix.SetState("ix_w", interactions.StateInputRequired); err != nil {
+	if _, err := d.ix.SetState("ix_w", interactions.StateInputRequired, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	ix, timedOut, err = d.waitTask(context.Background(), "ix_w", 0, time.Minute)
@@ -609,10 +612,11 @@ func TestTheClientMessageIDKeyIsTheProjections(t *testing.T) {
 }
 
 // A new task whose delegation the hub refuses for good (here 413) is
-// recorded, failed with anet.reason=undeliverable and answered as it is
-// (an internal note item); the client's retry of the same message is a new attempt, not
-// the failed task handed back as its duplicate. Without a contextId a retry
-// is still recognised, by agent and messageId.
+// recorded, failed with the hub's reason (too_large, engine §2.8) and
+// answered as it is (an internal note item, ENG-H3); the client's retry of the same
+// message is a new attempt, not the failed task handed back as its
+// duplicate. Without a contextId a retry is still recognised, by agent and
+// messageId.
 func TestARetryAfterAnUndeliveredTaskIsANewAttempt(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -626,9 +630,8 @@ func TestARetryAfterAnUndeliveredTaskIsANewAttempt(t *testing.T) {
 	setHub(func() { fake.maxEnvelope = 1 })
 	send := module.TaskSend{Message: textMsg("hello", "ctx-u", "m-u"), ReturnImmediately: true}
 	refused, err := seam.Send(ctx, prov.AID(), send)
-	if err != nil || refused.Status.State != a2ashape.TaskStateFailed ||
-		refused.Metadata[a2ashape.KeyReason] != a2ashape.ReasonUndeliverable {
-		t.Fatalf("send with the hub refusing: %s %v (%v), want failed, undeliverable", refused.Status.State, refused.Metadata, err)
+	if err != nil || refused.Status.State != a2ashape.TaskStateFailed || refused.Metadata[a2ashape.KeyReason] != "too_large" {
+		t.Fatalf("send with the hub refusing: %s %v (%v), want failed, too_large", refused.Status.State, refused.Metadata, err)
 	}
 	failed, err := req.ix.ListAll(interactions.ListFilter{Role: interactions.RoleOutbound})
 	if err != nil || len(failed) != 1 || failed[0].State != interactions.StateFailed || failed[0].ID != refused.ID {
@@ -662,7 +665,7 @@ func TestARetryAfterAnUndeliveredTaskIsANewAttempt(t *testing.T) {
 	}
 	// The same message id sent to another agent is that agent's own task.
 	other := newTestDaemon(t, srv.URL, true)
-	if err := other.RegisterWithHub(ctx, srv.URL, "Other", nil, ""); err != nil {
+	if err := other.RegisterWithHub(ctx, srv.URL, "Other", nil); err != nil {
 		t.Fatal(err)
 	}
 	elsewhere, err := seam.Send(ctx, other.AID(), noCtx)
@@ -707,14 +710,14 @@ func TestAFollowUpIsQueuedWhileTheHubIsDown(t *testing.T) {
 	if n := countMsgs(t, req, task.ID); n != stored {
 		t.Fatalf("a retry stored the follow-up again (%d messages, was %d)", n, stored)
 	}
-	rows, err := req.ix.Outbox(task.ID)
+	rows, err := req.ix.OutboxRows(task.ID)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("outbox = %+v (%v), want the follow-up", rows, err)
 	}
 	fake.mu.Lock()
 	fake.relayDown = false
 	fake.mu.Unlock()
-	if err := req.deliverQueued(ctx, rows[0].ID); err != nil {
+	if err := retryNow(t, req, rows[0].ID); err != nil { // its backoff over
 		t.Fatal(err)
 	}
 	if err := prov.pollOnce(ctx); err != nil {
@@ -919,11 +922,13 @@ func TestDiscoveryAppliesTheCardHighWater(t *testing.T) {
 	}
 }
 
-// Discovery asks the hub by skill and tag only; the free text is matched
-// here against the cards that come back and is never sent (A2A-DESIGN
-// §10.5). The hub's word that a card verified is recorded, not taken: an
-// unsigned card is UNVERIFIED, and neither returned nor searched (0017
-// Q24). A verified card is returned as the bytes served.
+// Discovery reads the registry with no query of any kind; skill, tag and
+// free text are matched here against the cards that come back, and never
+// sent (A2A-DESIGN §10.5, sealed-sender SSR-D16). The hub's word that a
+// card verified is recorded, not taken: an unsigned card is UNVERIFIED, and
+// neither returned nor searched (an internal note item). A verified card is returned as
+// the bytes served, and one agent's card comes from what this node already
+// verified, without a request that names the agent.
 func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 	kyoto := newCardAgent(t, "Kyoto guide", "trips", "plan")
 	var mu sync.Mutex
@@ -936,18 +941,13 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 		switch r.URL.Path {
 		case "/a2a/v1/agents":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"agents":[{"aid":%q,"card":%s,"cardVerification":"VERIFIED"},`+
-				`{"aid":"agentb","card":{"name":"Kyoto tax helper","skills":[]},"cardVerification":"VERIFIED"}],"nextCursor":"c2"}`,
-				kyoto.aid, kyoto.card)
-		case "/a2a/v1/agents/" + kyoto.aid + "/card":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(kyoto.card)
-		case "/a2a/v1/agents/agentb/card":
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"name":"Kyoto tax helper","skills":[]}`)
-		case "/agents/" + kyoto.aid + "/kel":
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprintf(w, `{"aid":%q,"kel":%q}`, kyoto.aid, kyoto.kel)
+			if r.URL.Query().Get("cursor") == "c2" {
+				fmt.Fprint(w, `{"agents":[]}`)
+				return
+			}
+			fmt.Fprintf(w, `{"agents":[{"aid":%q,"card":%s,"cardVerification":"VERIFIED","kel":%q},`+
+				`{"aid":"agentb","card":{"name":"Kyoto tax helper","skills":[{"id":"plan"}]},"cardVerification":"VERIFIED"}],"nextCursor":"c2"}`,
+				kyoto.aid, kyoto.card, kyoto.kel)
 		default:
 			http.NotFound(w, r)
 		}
@@ -959,7 +959,7 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(agents) != 1 || agents[0].AID != kyoto.aid || next != "c2" {
+	if len(agents) != 1 || agents[0].AID != kyoto.aid || next != "" {
 		t.Fatalf("agents %+v next %q, want only the verified Kyoto guide", agents, next)
 	}
 	if a := agents[0]; a.Verification != cardVerified || a.HubVerification != "VERIFIED" {
@@ -970,12 +970,16 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 		all[1].HubVerification != "" || len(all[1].Card) != 0 {
 		t.Fatalf("the unsigned card: %v %+v", err, all)
 	}
+	if none, _, err := d.listAgents(ctx, module.AgentQuery{Skill: "no.such.skill"}); err != nil || len(none) != 0 {
+		t.Fatalf("a skill no card claims: %v %+v", err, none)
+	}
 	card, err := d.agentCard(ctx, kyoto.aid)
 	if err != nil || string(card.Card) != string(kyoto.card) || card.Verification != cardVerified {
 		t.Fatalf("card = %s %q (%v), want the bytes served, verified", card.Card, card.Verification, err)
 	}
-	if card, err := d.agentCard(ctx, "agentb"); err != nil || len(card.Card) != 0 || card.Verification != cardUnverified {
-		t.Fatalf("unsigned card = %s %q (%v), want no bytes, unverified", card.Card, card.Verification, err)
+	if card, err := d.agentCard(ctx, "agentb"); err != nil || len(card.Card) != 0 || card.Verification != cardNone ||
+		card.VerificationError != CardUnknownAgent {
+		t.Fatalf("an id no directory holds = %s %q %q (%v), want no bytes, NONE", card.Card, card.Verification, card.VerificationError, err)
 	}
 	if _, err := d.agentCard(ctx, "../agents"); !errors.Is(err, a2ashape.ErrInvalidParams) {
 		t.Fatalf("a malformed agent id: %v", err)
@@ -983,16 +987,11 @@ func TestDiscoveryNeverSendsTheFreeText(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for _, u := range asked {
-		if u.Query().Has("q") || strings.Contains(strings.ToLower(u.String()), "kyoto") {
-			t.Fatalf("the free text reached the hub: %s", u)
+		q := u.Query()
+		if q.Has("q") || q.Has("skill") || q.Has("tag") || strings.Contains(strings.ToLower(u.String()), "kyoto") ||
+			strings.Contains(u.String(), "plan") || strings.Contains(u.Path, kyoto.aid) {
+			t.Fatalf("what was looked for reached the hub: %s", u)
 		}
-	}
-	listed := false
-	for _, u := range asked {
-		listed = listed || (u.Path == "/a2a/v1/agents" && u.Query().Get("skill") == "plan")
-	}
-	if !listed {
-		t.Fatalf("hub requests %v, want the registry asked with skill=plan", asked)
 	}
 }
 

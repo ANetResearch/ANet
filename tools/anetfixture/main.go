@@ -16,8 +16,7 @@
 //	anetfixture org-genesis   --home DIR [--nonce N]
 //	anetfixture org-credential --home DIR --genesis B64 --subject AID [--role member]
 //	anetfixture x402-authorize --home DIR --pay-to AID --amount N --network hub:AID [--interaction ID]
-//	anetfixture relay-sign    --home DIR --hub URL --action send --method POST --path /relay/send --body-file F
-//	anetfixture relay-sign    --home DIR --v1 --action task.create
+//	anetfixture relay-sign    --home DIR --hub URL --action poll --method POST --path /relay/poll --body-file F
 //	anetfixture seal          --home DIR --hub URL --to AID [--as AID --kel self|claimed] …   (attack.go)
 //	anetfixture relay-send    --to AID --envelope B64|@FILE [--home DIR --hub URL] [--p2p ADDR] (attack.go)
 //
@@ -37,10 +36,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/payment"
-	"github.com/ANetResearch/ANetCore/relayauth"
 
 	"github.com/ANetResearch/ANet/module/blackboard"
 	"github.com/ANetResearch/ANet/module/org"
@@ -202,13 +199,9 @@ func cmdOrgCredential(args []string) error {
 	if err != nil {
 		return err
 	}
-	raw, err := base64.StdEncoding.DecodeString(*genesis)
+	g, err := parseGenesisArg(*genesis)
 	if err != nil {
-		return fmt.Errorf("--genesis not base64: %w", err)
-	}
-	var g org.Genesis
-	if err := coredet.Unmarshal(raw, &g); err != nil {
-		return fmt.Errorf("--genesis malformed: %w", err)
+		return err
 	}
 	orgID, err := g.OrgID()
 	if err != nil {
@@ -243,12 +236,13 @@ func cmdOrgCredential(args []string) error {
 
 // cmdX402Authorize signs an x402 payment the way an HTTP client would.
 //
-// The gateway's buyer is not necessarily a daemon — it is whoever holds a
-// key and can make an HTTP request — so the joint run needs to be able to
-// pay from outside the daemon. Doing it here, with the daemon's own
-// identity, means the hub resolves the payer's key history exactly as it
-// would for any stranger, and a signature the hub cannot check fails for
-// the right reason.
+// A joint run presents payments to the hub's facilitator directly — an
+// underpaid one, one to the wrong payee, one to a payee on another hub —
+// to check that the hub refuses them on its own, with no daemon in front
+// to refuse them first. Doing it here, with the daemon's own identity,
+// means the hub resolves the payer's key history exactly as it would for
+// any stranger, and a signature the hub cannot check fails for the right
+// reason.
 //
 // Prints one base64 line: the PAYMENT-SIGNATURE header value.
 func cmdX402Authorize(args []string) error {
@@ -299,7 +293,7 @@ func cmdX402Authorize(args []string) error {
 }
 
 // cmdRelaySign signs one hub request as this daemon, with relayauth v2
-// (A2A-DESIGN §3.7) unless --v1 is given.
+// (A2A-DESIGN §3.7).
 //
 // The hub gates every mutating action behind a signature, and several of
 // those actions have no client in this suite. v2 binds the signature to one
@@ -309,14 +303,11 @@ func cmdX402Authorize(args []string) error {
 // the signature, one "Name: value" line each, ready for `curl -H @FILE`
 // with the body sent as `--data-binary @FILE` of the same file:
 //
-//	anetfixture relay-sign --home H --hub URL --action send \
-//	    --method POST --path /relay/send --body-file req.json > hdr
-//	curl -H @hdr -H 'Content-Type: application/json' --data-binary @req.json URL/relay/send
+//	anetfixture relay-sign --home H --hub URL --action poll \
+//	    --method POST --path /relay/poll --body-file req.json > hdr
+//	curl -H @hdr -H 'Content-Type: application/json' --data-binary @req.json URL/relay/poll
 //
-// --v1 prints the wire-1 challenge (aid, ts, key_state_seq, sig) as JSON to
-// merge into a request body. The hub's taskboard, an additive build tag,
-// still authenticates that way; nothing on the hub's own wire-2 endpoints
-// accepts it.
+// A send is not signed at wire 3 (relay-send opens a session for it).
 //
 // A fixture rather than an `anet` subcommand because that is what this
 // is for: a check that needs a signature, not a product surface nobody
@@ -324,14 +315,13 @@ func cmdX402Authorize(args []string) error {
 func cmdRelaySign(args []string) error {
 	fs := flag.NewFlagSet("relay-sign", flag.ExitOnError)
 	home := fs.String("home", "", "daemon data dir")
-	action := fs.String("action", "", "action name: send, poll, ack, keys, … (v1: e.g. task.create)")
+	action := fs.String("action", "", "action name: poll, ack, keys, session, revoke, …")
 	hub := fs.String("hub", "", "hub URL; its AID is part of what v2 signs")
 	hubAID := fs.String("hub-aid", "", "the hub's AID, instead of asking --hub for it")
 	method := fs.String("method", http.MethodPost, "HTTP method as sent")
 	path := fs.String("path", "", "request target as sent, path and query (e.g. /relay/send)")
 	body := fs.String("body", "", "request body, exactly as sent")
 	bodyFile := fs.String("body-file", "", "read the request body from this file (the bytes curl will send)")
-	v1 := fs.Bool("v1", false, "wire-1 challenge JSON for the hub taskboard (additive tag)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -342,21 +332,8 @@ func cmdRelaySign(args []string) error {
 	if err != nil {
 		return err
 	}
-	if *v1 {
-		ts := uint64(time.Now().UnixMilli())
-		sig, seq := c.Sign(relayauth.Preimage(*action, c.AID(), ts))
-		out, err := json.Marshal(map[string]any{
-			"aid": c.AID(), "ts": ts, "key_state_seq": seq,
-			"sig": base64.StdEncoding.EncodeToString(sig),
-		})
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(out))
-		return nil
-	}
 	if *path == "" || !strings.HasPrefix(*path, "/") {
-		return fmt.Errorf("--path is required and starts with /: v2 signs the request target (the wire-1 form is --v1)")
+		return fmt.Errorf("--path is required and starts with /: v2 signs the request target")
 	}
 	if *body != "" && *bodyFile != "" {
 		return fmt.Errorf("--body or --body-file, not both")
@@ -397,13 +374,9 @@ func cmdOrgID(args []string) error {
 	if *genesis == "" {
 		return fmt.Errorf("--genesis is required")
 	}
-	raw, err := base64.StdEncoding.DecodeString(*genesis)
+	g, err := parseGenesisArg(*genesis)
 	if err != nil {
-		return fmt.Errorf("--genesis not base64: %w", err)
-	}
-	var g org.Genesis
-	if err := coredet.Unmarshal(raw, &g); err != nil {
-		return fmt.Errorf("--genesis malformed: %w", err)
+		return err
 	}
 	id, err := g.OrgID()
 	if err != nil {
@@ -411,4 +384,20 @@ func cmdOrgID(args []string) error {
 	}
 	fmt.Println(id)
 	return nil
+}
+
+// parseGenesisArg decodes a --genesis value: base64 of the encoding org-genesis prints, read
+// with the org module's own strict decoder. Genesis is not a CBOR struct of its own (its
+// encoding carries the type tag in key 0), so decoding it any other way yields an empty genesis
+// and the id of an organization nobody founded.
+func parseGenesisArg(b64 string) (*org.Genesis, error) {
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		return nil, fmt.Errorf("--genesis not base64: %w", err)
+	}
+	g, err := org.ParseGenesis(raw)
+	if err != nil {
+		return nil, fmt.Errorf("--genesis malformed: %w", err)
+	}
+	return g, nil
 }

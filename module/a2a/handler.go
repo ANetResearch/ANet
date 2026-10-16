@@ -7,22 +7,25 @@ package a2a
 // the remote agent named in the request's path.
 //
 // The kernel owns the semantics that need the task store — the contextId
-// belonging to this agent's tasks, the (contextId, messageId) dedupe, the
-// input part rules, waiting on state_seq rather than on the state [C35] —
+// belonging to this agent's tasks, holding a messageId to its content
+// (correctness-ux CUX-D1), the input part rules, waiting on state_seq
+// rather than on the state [C35] —
 // and this file owns what belongs to the A2A face: the service parameters,
 // the tenant, the refusals that need no store (a url part, a push config),
 // and the shape of a stream. A local client's payment message (§8.7) is a
 // message like any other here: the kernel recognises it on Send, so its
 // messageId is deduplicated with the rest, and makes the decision.
 //
-// One thing depends on the request rather than the task: a client that did
-// not activate a2a-x402 cannot answer a quote itself, so where the kernel
-// says a task waits for a payment decision (needs_operator_approval) such
-// a client is told payment_extension_not_activated (§8.7, forClient).
+// Nothing about a task depends on whether the client activated a2a-x402:
+// a task that waits on a payment decision says the decision's reason and
+// sentence to every client, word for word what the CLI and MCP show (HPP
+// PAY-D9). Whether the extension was activated is told by the standard
+// mechanism alone, the A2A-Extensions header of the response.
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"iter"
 	"strconv"
 	"strings"
@@ -30,13 +33,15 @@ import (
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
-	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
 )
 
 // handler implements a2asrv.RequestHandler over a TaskSeam.
 type handler struct {
 	seam module.TaskSeam
+	// extended is the proxy extended card of an agent (server.
+	// extendedAgentCard); nil answers that there is none.
+	extended func(ctx context.Context, aid string) (*a2a.AgentCard, error)
 }
 
 // begin checks what every operation shares: the agent from the path, the
@@ -56,11 +61,17 @@ func (h *handler) begin(ctx context.Context, tenant string) (*reqInfo, error) {
 	return info, nil
 }
 
-// taskSend reads a SendMessage request into the kernel's form.
-func (h *handler) taskSend(info *reqInfo, r *a2a.SendMessageRequest) (module.TaskSend, error) {
+// taskSend reads a SendMessage request into the kernel's form. lit, when
+// set, is the request's message as the client wrote it (literalMessage,
+// read before the binding), which is taken over a2a-go's reading of it:
+// its numbers are the client's own.
+func (h *handler) taskSend(info *reqInfo, r *a2a.SendMessageRequest, lit *a2ashape.Message) (module.TaskSend, error) {
 	msg, err := shapeMessage(r.Message)
 	if err != nil {
 		return module.TaskSend{}, err
+	}
+	if lit != nil && lit.ID == msg.ID {
+		msg = *lit
 	}
 	for i, p := range msg.Parts {
 		if p.Kind == a2ashape.PartURL {
@@ -95,27 +106,45 @@ func (h *handler) taskSend(info *reqInfo, r *a2a.SendMessageRequest) (module.Tas
 // the task is terminal or waits for the client (§11.5 [C22]); a client
 // that gives up waiting does not cancel the task.
 func (h *handler) SendMessage(ctx context.Context, r *a2a.SendMessageRequest) (a2a.SendMessageResult, error) {
+	sent, ok := sentFrom(ctx)
+	if !ok {
+		// Not carried out before the binding (precheck.go): a caller of
+		// the handler itself.
+		sent = h.sendBlocking(ctx, r, nil)
+	}
+	if sent.err != nil {
+		return nil, toSDKError(sent.err)
+	}
+	return sdkTask(sent.task)
+}
+
+// sendBlocking is SendMessage's send: the checks, then the kernel's Send.
+// The outcome is the task as the client is given it, or the error: a
+// refusal of the reason table as the kernel gave it (the caller writes it,
+// refusal.go), any other as the A2A error for the binding.
+func (h *handler) sendBlocking(ctx context.Context, r *a2a.SendMessageRequest, lit *a2ashape.Message) *sentStream {
 	info, err := h.begin(ctx, r.Tenant)
 	if err != nil {
-		return nil, err
+		return &sentStream{err: err}
 	}
-	req, err := h.taskSend(info, r)
+	req, err := h.taskSend(info, r, lit)
 	if err != nil {
-		return nil, err
+		return &sentStream{err: err}
 	}
 	// A payment message (§8.7) goes the same way as any message: the
-	// kernel's TaskSeam recognises it, deduplicates its messageId, makes
-	// the decision (PayTask) and waits like any send. Its answer is given
-	// as the kernel made it: a payment the operator has to approve says
-	// so, whether or not the extension was activated.
+	// kernel's TaskSeam recognises it, holds its messageId to its content,
+	// makes the decision (PayTask) and waits like any send. Its answer is
+	// given as the kernel made it: a payment the operator has to approve
+	// says so, whether or not the extension was activated.
 	t, err := h.seam.Send(ctx, info.aid, req)
 	if err != nil {
-		return nil, toSDKError(err)
+		var ref *a2ashape.Refusal
+		if errors.As(err, &ref) {
+			return &sentStream{req: req, err: ref}
+		}
+		return &sentStream{req: req, err: toSDKError(err)}
 	}
-	if !isPaymentMessage(req.Message) {
-		t = forClient(info, t)
-	}
-	return sdkTask(t)
+	return &sentStream{req: req, task: t}
 }
 
 // SendStreamingMessage sends like SendMessage and then streams the task:
@@ -131,7 +160,7 @@ func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRe
 		if sent, ok := sentFrom(ctx); ok && info != nil {
 			req, t = sent.req, sent.task
 		} else {
-			s, err := h.sendForStream(ctx, r)
+			s, err := h.sendForStream(ctx, r, nil)
 			if err != nil {
 				yield(nil, toSDKError(err))
 				return
@@ -165,13 +194,13 @@ func (h *handler) SendStreamingMessage(ctx context.Context, r *a2a.SendMessageRe
 }
 
 // sendForStream is the send of a streaming call: the checks SendMessage
-// makes, then the kernel's Send, answering at once.
-func (h *handler) sendForStream(ctx context.Context, r *a2a.SendMessageRequest) (*sentStream, error) {
+// makes, then the kernel's Send, answering at once. lit is as for taskSend.
+func (h *handler) sendForStream(ctx context.Context, r *a2a.SendMessageRequest, lit *a2ashape.Message) (*sentStream, error) {
 	info, err := h.begin(ctx, r.Tenant)
 	if err != nil {
 		return nil, err
 	}
-	req, err := h.taskSend(info, r)
+	req, err := h.taskSend(info, r, lit)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +266,7 @@ func (h *handler) GetTask(ctx context.Context, r *a2a.GetTaskRequest) (*a2a.Task
 	if err != nil {
 		return nil, toSDKError(err)
 	}
-	return sdkTask(forClient(info, t))
+	return sdkTask(t)
 }
 
 // ListTasks lists this node's tasks with the agent, most recent state
@@ -262,7 +291,6 @@ func (h *handler) ListTasks(ctx context.Context, r *a2a.ListTasksRequest) (*a2a.
 		if !r.IncludeArtifacts {
 			page.Tasks[i].Artifacts = nil
 		}
-		page.Tasks[i] = forClient(info, page.Tasks[i])
 	}
 	out, err := convert[a2a.ListTasksResponse](page)
 	if err != nil {
@@ -289,7 +317,7 @@ func (h *handler) CancelTask(ctx context.Context, r *a2a.CancelTaskRequest) (*a2
 	if err != nil {
 		return nil, toSDKError(err)
 	}
-	return sdkTask(forClient(info, t))
+	return sdkTask(t)
 }
 
 // The push-notification operations: this interface has no way to reach a
@@ -314,10 +342,19 @@ func (h *handler) DeleteTaskPushConfig(context.Context, *a2a.DeleteTaskPushConfi
 
 var errNoPush = a2a.NewError(a2a.ErrPushNotificationNotSupported, "push notifications are not supported")
 
-// GetExtendedAgentCard is not offered: the cards declare no extended card,
-// and the specification answers that with UnsupportedOperation (A2A §3.3.4).
-func (h *handler) GetExtendedAgentCard(context.Context, *a2a.GetExtendedAgentCardRequest) (*a2a.AgentCard, error) {
-	return nil, a2a.NewError(a2a.ErrUnsupportedOperation, "this agent has no extended card")
+// GetExtendedAgentCard is the proxy extended card of the agent in the path
+// (extcard.go). A call over HTTP is answered before it reaches here, so
+// that a refusal carries its two ErrorInfo; this serves a caller of the
+// handler itself, with the A2A error alone.
+func (h *handler) GetExtendedAgentCard(ctx context.Context, r *a2a.GetExtendedAgentCardRequest) (*a2a.AgentCard, error) {
+	info, err := h.begin(ctx, r.Tenant)
+	if err != nil {
+		return nil, err
+	}
+	if h.extended == nil {
+		return nil, a2a.NewError(a2a.ErrUnsupportedOperation, "this agent has no extended card")
+	}
+	return h.extended(ctx, info.aid)
 }
 
 // --- streams ---
@@ -358,7 +395,7 @@ func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after in
 	for _, a := range snap.Artifacts {
 		seen[a.ID] = true
 	}
-	first, err := sdkTask(a2ashape.TaskForStream(forClient(info, snap)))
+	first, err := sdkTask(a2ashape.TaskForStream(snap))
 	if err != nil {
 		yield(nil, err)
 		return
@@ -396,7 +433,7 @@ func (h *handler) stream(ctx context.Context, info *reqInfo, id string, after in
 		if isStatus && state.Terminal() && !h.flushArtifacts(ctx, peer, id, seen, yield) {
 			return
 		}
-		out, err := sdkEvent(a2ashape.EventForStream(eventForClient(info, ev)))
+		out, err := sdkEvent(a2ashape.EventForStream(ev))
 		if err != nil {
 			yield(nil, err)
 			return
@@ -475,34 +512,6 @@ func stateSeq(meta map[string]any) int64 {
 }
 
 // --- payments (A2A-DESIGN §8.7) ---
-
-// forClient is t as this request's client is told it: a client that did
-// not activate a2a-x402 reads payment_extension_not_activated where the
-// kernel says the task waits for a payment decision (§8.7). The kernel
-// pays within the automatic tier either way; above it, such a client
-// cannot answer the quote until it activates the extension.
-func forClient(info *reqInfo, t module.Task) module.Task {
-	if x402a2a.Activated(info.requested) {
-		return t
-	}
-	return a2ashape.WithoutX402Extension(t)
-}
-
-// eventForClient is forClient for one stream event.
-func eventForClient(info *reqInfo, ev module.TaskEvent) module.TaskEvent {
-	if x402a2a.Activated(info.requested) {
-		return ev
-	}
-	switch {
-	case ev.StatusUpdate != nil:
-		su := a2ashape.StatusWithoutX402Extension(*ev.StatusUpdate)
-		ev.StatusUpdate = &su
-	case ev.Task != nil:
-		t := a2ashape.WithoutX402Extension(*ev.Task)
-		ev.Task = &t
-	}
-	return ev
-}
 
 // isPaymentMessage reports a message that carries a2a-x402 metadata: a
 // local client answering a payment-required task.

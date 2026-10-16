@@ -3,7 +3,7 @@
 #
 #   bash scripts/testnet/build.sh                        按 topology.env 的架构构建
 #   bash scripts/testnet/build.sh -t shell               daemon(anet)带 -tags shell
-#   bash scripts/testnet/build.sh --hub-tags taskboard   hub 带 -tags taskboard
+#   bash scripts/testnet/build.sh --hub-tags no_federation  hub 带 -tags no_federation
 #   bash scripts/testnet/build.sh --variant min=no_mcp,no_a2a --variant shell=shell
 #                                                        另出 anet-min、anet-shell 两个变体
 #   bash scripts/testnet/build.sh --arch arm64 -o DIR    指定架构 / 输出目录

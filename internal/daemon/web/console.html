@@ -98,9 +98,6 @@
   .prof .summary { font-size: 13.5px; color: #c9d2f0; line-height: 1.65; margin-bottom: 10px; }
   .prof .readme { font-size: 12.5px; color: #cdd6f5; line-height: 1.65; word-break: break-word;
     border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: rgba(255,255,255,0.02); margin-bottom: 10px; }
-  .prof .pricing { font-size: 12px; color: var(--gold); border: 1px solid rgba(255,207,107,0.3); border-radius: 10px;
-    padding: 8px 12px; background: rgba(255,207,107,0.06); }
-  .prof .pricing .plabel { font-size: 9.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); display: block; margin-bottom: 3px; }
   .act { margin: 14px 0; border: 1px solid rgba(124,196,255,0.35); border-radius: 12px; padding: 14px 16px; background: rgba(124,196,255,0.05); }
   .act h4 { margin: 0 0 6px; font-size: 13px; color: var(--accent); }
   .act .acthint { font-size: 11.5px; color: var(--muted); line-height: 1.55; margin-bottom: 10px; }
@@ -611,13 +608,16 @@ anet console                              # 打开这个身份的本地控制台
 const A = window.__ANET || { aid: "", name: "", hub: "" };
 const CONSOLE = true;
 function qparam(k) { return new URLSearchParams(location.search).get(k) || ""; }
-// Public registry data (/graph, /stats, /agents/:aid) is read cross-origin from the hub this daemon is
-// registered with; the page's Content-Security-Policy admits exactly that origin in connect-src.
+// The hub's public statistics (/stats) are read cross-origin from the hub this daemon is registered
+// with; the page's Content-Security-Policy admits exactly that origin in connect-src. The agents
+// themselves — the list and one agent's card — come through this daemon (/agents/list, /agents/card),
+// which never names an agent to the hub: asking the hub for /agents/<aid> from the browser would tell
+// it, with this user's address, whom the user is about to write to (sealed-sender SSR-D17).
 const HUB = A.hub || "";
 let CSRF = ""; // session CSRF value, memory only
 
 // app state: the directory, console threads, current selection.
-const app = { agents: [], edges: [], threads: [], sel: { kind: "", id: "", chat: false }, q: "", gcollapsed: false, right: "home" };
+const app = { agents: [], threads: [], sel: { kind: "", id: "", chat: false }, q: "", gcollapsed: false, right: "home" };
 
 // On phones the sidebar (list) and main pane overlap full-width; setDetail(true) slides the detail/chat
 // pane in (and shows the topbar back button). On desktop the class is inert — both panes are side by side.
@@ -663,9 +663,21 @@ async function ctl(path, body) {
   if (r.status === 401) { showNoSession(true); throw new Error("session expired"); }
   const text = await r.text();
   let j = {}; try { j = JSON.parse(text); } catch (e) {}
-  if (!r.ok) throw new Error(j.error || text || ("HTTP " + r.status));
+  if (!r.ok) throw ctlError(j, text, r.status);
   return j;
 }
+
+// ctlError is a refusal of the control plane as an Error: its sentence (the error body's "error", from
+// the daemon's reason table, ux UX-R9) and its next step ("next"), which errText shows together. The
+// console words no reason of its own (ux UX-W1, UX-W4).
+function ctlError(j, text, status) {
+  const e = new Error((j && j.error) || text || ("HTTP " + status));
+  e.next = (j && typeof j.next === "string") ? j.next : "";
+  return e;
+}
+
+// errText is what a failed action shows: the daemon's sentence, and its next step after an arrow.
+function errText(e) { return e.message + (e.next ? "  → " + e.next : ""); }
 
 let toastTimer = null;
 function toast(msg, isErr) {
@@ -790,44 +802,33 @@ function renderWelcome() {
 async function renderAgentDetail(aid, target) {
   const main = target || document.getElementById("main");
   main.innerHTML = `<div class="detail"><div class="dscroll"><div class="no-rev">加载中…</div></div></div>`;
-  let a, reviews;
+  let ra;
   try {
-    const r = await fetch(HUB + "/agents/" + encodeURIComponent(aid));
-    const j = await r.json(); a = j.agent; reviews = j.reviews || [];
-  } catch (e) { main.innerHTML = `<div class="detail"><div class="dscroll"><div class="no-rev">加载失败</div></div></div>`; return; }
+    ra = await ctl("/agents/card", { aid });
+  } catch (e) { main.innerHTML = `<div class="detail"><div class="dscroll"><div class="no-rev">加载失败：${esc(e.message)}</div></div></div>`; return; }
   if (app.sel.kind !== "agent" || app.sel.id !== aid) return; // selection changed while fetching
+  const a = agentView(ra);
+  const listed = app.agents.find(x => x.aid === aid);
+  if (listed) { a.review_count = listed.review_count; a.avg_rating = listed.avg_rating; }
 
   const chips = (a.caps || []).map(c => `<span class="chip">${esc(c)}</span>`).join("");
+  const check = ra.verification === "VERIFIED" ? "✓ 名片已由对方签名并在本机核验"
+    : ra.verification === "UNVERIFIED" ? "名片未通过本机核验，不显示其内容（" + esc(ra.verificationError || "") + "）"
+    : "对方没有发布名片" + (ra.verificationError ? "（" + esc(ra.verificationError) + "）" : "");
   const profile =
     (a.summary ? `<div class="summary">${esc(a.summary)}</div>` : "") +
-    (a.readme ? `<div class="readme md">${renderMd(a.readme)}</div>` : "") +
-    (a.pricing ? `<div class="pricing"><span class="plabel">收费（仅展示）</span>${esc(a.pricing)}</div>` : "");
+    `<div class="verified">${check}</div>`;
 
   const isSelf = CONSOLE && a.aid === A.aid;
   const actionBtn = isSelf
     ? `<div class="dhself">这是你自己</div>`
     : `<button class="btn" id="startChatBtn">开始对话 →</button>`;
 
-  let rv = "";
-  if (!reviews.length) {
-    rv = `<div class="no-rev">还没有可信评价。评价必须锚定一次双方签名的交互回执，Hub 验签通过后才会显示。</div>`;
-  } else {
-    // Reviews carry the receipt and the rating only; the task content is not uploaded with them, so the
-    // hub cannot and does not check what was asked or delivered (A2A-DESIGN §9).
-    rv = `<h4>Verified reviews</h4>` + reviews.map(r => {
-      const io = (r.request_cid || r.result_cid || r.completed_at) ? `<div class="io">
-          <div class="anchors">
-            ${r.request_cid ? `<div><b>request_cid</b> ${esc(r.request_cid)}</div>` : ""}
-            ${r.result_cid ? `<div><b>result_cid</b> ${esc(r.result_cid)}</div>` : ""}
-            ${r.completed_at ? `<div><b>completed</b> ${esc(fmtTime(r.completed_at))}</div>` : ""}
-          </div></div>` : "";
-      return `<div class="review">
-        <div class="top"><span class="stars">${stars(r.rating)}</span><span class="rv">by ${esc(short(r.reviewer_aid))}</span></div>
-        ${r.comment ? `<div class="cm">“${esc(r.comment)}”</div>` : ""}${io}
-        <div class="verified">✓ 双方签名已验证 · 回执 ${esc(short(r.receipt_cid))}${r.created_at ? ` · ${esc(fmtTime(r.created_at))}` : ""}</div>
-      </div>`;
-    }).join("");
-  }
+  // Reviews are listed by the hub per agent; reading them here would name this agent to the hub, so the
+  // console shows the summary that came with the list and nothing per review.
+  const rv = a.review_count
+    ? `<div class="no-rev">共 ${a.review_count} 条可信评价，平均 ${a.avg_rating.toFixed(1)}。逐条评价请在 hub 网页查看：本机控制台不向 hub 点名查询任何 agent。</div>`
+    : `<div class="no-rev">还没有可信评价。评价必须锚定一次双方签名的交互回执，Hub 验签通过后才会显示。</div>`;
 
   main.innerHTML = `<div class="detail">
     <div class="dh">
@@ -851,6 +852,20 @@ async function renderAgentDetail(aid, target) {
     catch (e) { toast("复制失败：" + e.message, true); }
     setTimeout(() => { cp.textContent = "⧉ 复制 AID"; }, 1600);
   };
+}
+
+// agentView turns an entry of /agents/list or /agents/card (the daemon's RemoteAgent) into what the page
+// draws: the name, skills and description of a card this node verified, or what the hub's directory
+// says of an agent that publishes no card; an unverified card shows its AID only.
+function agentView(ra) {
+  const v = { aid: ra.aid || "", name: ra.name || "", caps: ra.caps || [], summary: ra.summary || "",
+    review_count: ra.reviewCount || 0, avg_rating: Number(ra.avgRating) || 0, listed: true };
+  if (ra.verification === "VERIFIED" && ra.card && typeof ra.card === "object") {
+    v.name = ra.card.name || v.name;
+    v.summary = ra.card.description || v.summary;
+    v.caps = (ra.card.skills || []).map(s => s.id || s.name).filter(Boolean);
+  }
+  return v;
 }
 
 // openChat continues an existing active conversation with this agent, or opens a fresh chat whose first
@@ -928,7 +943,7 @@ async function ctlUpload(path, fields, files) {
   const r = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "X-Anet-CSRF": CSRF }, body: fd });
   if (r.status === 401) { showNoSession(true); throw new Error("session expired"); }
   const text = await r.text(); let j = {}; try { j = JSON.parse(text); } catch (e) {}
-  if (!r.ok) throw new Error(j.error || text || ("HTTP " + r.status));
+  if (!r.ok) throw ctlError(j, text, r.status);
   return j;
 }
 
@@ -981,7 +996,7 @@ async function consoleFirstSend(aid) {
     toast("已委派 · " + short(j.interaction_id || ""));
     await loadThreads();
     if (j.interaction_id) openConsoleThread(j.interaction_id);
-  } catch (e) { toast("委派失败：" + e.message, true); sb.disabled = false; }
+  } catch (e) { toast(errText(e), true); sb.disabled = false; }
 }
 
 // ---------- console conversation (existing thread) ----------
@@ -993,7 +1008,7 @@ function renderConversation(id) {
   // Only the 5s poll re-invokes this for the SAME open thread. Rebuilding the DOM every tick made the pane
   // flash and wiped whatever the user was typing (message OR review). Skip the rebuild when nothing that
   // affects rendering changed — this alone keeps the review form (stars + comment) stable while typing.
-  const sig = [t.status, t.end_req_by, t.reviewed, (t.messages || []).length].join("|");
+  const sig = [t.status, t.status_text, t.end_req_by, t.reviewed, (t.messages || []).length].join("|");
   if (renderedConvId === id && renderedConvSig === sig) return;
 
   const inbound = t.role === "inbound"; // inbound: peer is the requester; we are the provider
@@ -1028,6 +1043,9 @@ function renderConversation(id) {
     msgs += `<div class="bubble ${mine ? "me" : "them"}"><div class="bfrom">${esc(mine ? meLabel : themLabel)}</div><div class="md">${renderMd(m.body || "")}</div>${atts}</div>`;
   }
   if (isTerminal(t.status)) msgs += chatBubble("sys", "任务" + statusText(t.status));
+  // Why it ended, or what a quote waits for: the task projection's own sentence (ux UX-W1), never one
+  // of the console's.
+  if (t.status_text) msgs += chatBubble("sys", t.status_text);
   if (!msgs) msgs = `<div class="chatempty">还没有消息</div>`;
 
   let foot = "";
@@ -1074,7 +1092,7 @@ function renderConversation(id) {
       if (files.length) await ctlUpload("/message", { interaction_id: id, body }, files);
       else await ctl("/message", { interaction_id: id, body });
       ta.value = ""; resetPendingAtt(); renderAttBar(); loadThreads();
-    } catch (e) { toast("发送失败：" + e.message, true); }
+    } catch (e) { toast(errText(e), true); }
     btn.disabled = false;
   };
   const sBtn = document.getElementById("cSendBtn"); if (sBtn) sBtn.onclick = sendMsg;
@@ -1085,7 +1103,7 @@ function renderConversation(id) {
   const endBtn = document.getElementById("cEndBtn");
   if (endBtn) endBtn.onclick = async () => { endBtn.disabled = true;
     try { await ctl("/end", { interaction_id: id }); toast("已请求结束任务"); loadThreads(); }
-    catch (e) { toast("操作失败：" + e.message, true); endBtn.disabled = false; } };
+    catch (e) { toast(errText(e), true); endBtn.disabled = false; } };
   const star = document.getElementById("cStar");
   if (star) star.onclick = ev => { const rect = star.getBoundingClientRect();
     let r = Math.ceil(((ev.clientX - rect.left) / rect.width) * 5); r = Math.max(1, Math.min(5, r));
@@ -1096,18 +1114,19 @@ function renderConversation(id) {
     const comment = document.getElementById("cComment").value.trim();
     rBtn.disabled = true;
     try { await ctl("/review", { interaction_id: id, rating, comment }); toast("已评价 · " + short(id)); loadThreads(); }
-    catch (e) { toast("评价失败：" + e.message, true); rBtn.disabled = false; } };
+    catch (e) { toast(errText(e), true); rBtn.disabled = false; } };
 }
 
 // ===================== data loading =====================
+// loadDirectory reads the agents through this daemon (/agents/list): the daemon reads the hub's
+// registry page by page without any query and verifies every card itself; the search box filters what
+// it returned, here.
 async function loadDirectory() {
   if (!HUB) { app.agents = []; if (app.right === "explore") renderGrid(); return; }
   try {
-    const r = await fetch(HUB + "/graph"); const g = await r.json();
-    app.agents = g.nodes || [];
-    app.edges = g.edges || [];
+    const j = await ctl("/agents/list", { limit: 100, include_uncarded: true });
+    app.agents = (j.agents || []).map(agentView);
     if (app.right === "explore") renderGrid();
-    updateHeroStats();
     renderSessions();
   } catch (e) { /* keep last known list */ }
 }
@@ -1312,7 +1331,7 @@ function initConsole() {
   setRight("explore"); // land on 浏览 Agents (no 首页 in console)
   updateSideBar();
   updateHeroStats(); setInterval(updateHeroStats, 8000);
-  loadDirectory(); setInterval(loadDirectory, 5000);
+  loadDirectory(); setInterval(loadDirectory, 30000);
   loadThreads().then(() => { setInterval(loadThreads, 5000); initConsoleTarget(); });
 }
 
@@ -1487,10 +1506,12 @@ if (autopilot) {
     codex: exec("Codex", "codex", "have the <code>codex</code> CLI installed and logged in once."),
     openclaw: exec("OpenClaw", "openclaw", "have <code>openclaw</code> installed (an always-on harness, naturally suited to unattended use)."),
     hermes: exec("Hermes", "hermes", "have <code>hermes</code> installed (an always-on harness, naturally suited to unattended use)."),
+    // v030-todo(UX-9): the prompt below names --require-image, which goes with auto_reply.require_image
+    // (ux §4.3, cli_removed); take it out of the sentence when the flag is removed.
     openai: {
       hint: `You run an <b>OpenAI-compatible</b> <code>/chat/completions</code> endpoint locally or on your LAN (ollama / vLLM / llama.cpp server / cloud).`,
       prompt:
-`${lead}, then follow the "Full autopilot provider" section of llms.txt to turn on auto-reply with the openai backend: \`anet autoreply set --backend openai --api-base <my API root, e.g. http://127.0.0.1:11434/v1> --model <model name>\` (add \`--api-key\` if the endpoint needs auth; add \`--require-image\` for a vision-only service). My service is [say it in one line: what it does and which model, e.g. "image understanding, model qwen3-vl:4b, needs an image"], so fill in --model / --system-prompt accordingly. A new node accepts nobody's tasks: ask me whom to serve, and tell me to run \`anet peers allow <aid>\` (or \`anet inbound policy open\` to serve anyone) on my own terminal.${verify}`,
+`${lead}, then follow the "Full autopilot provider" section of llms.txt to turn on auto-reply with the openai backend: \`anet autoreply set --backend openai --api-base <my API root, e.g. http://127.0.0.1:11434/v1> --model <model name>\` (if the endpoint needs a key, save it in a file and add \`--api-key-stdin < that-file\` — never type the key itself into a command; add \`--require-image\` for a vision-only service). My service is [say it in one line: what it does and which model, e.g. "image understanding, model qwen3-vl:4b, needs an image"], so fill in --model / --system-prompt accordingly. A new node accepts nobody's tasks: ask me whom to serve, and tell me to run \`anet peers allow <aid>\` (or \`anet inbound policy open\` to serve anyone) on my own terminal.${verify}`,
     },
   };
   const bhint = document.getElementById("bhint");

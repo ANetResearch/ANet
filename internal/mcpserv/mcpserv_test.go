@@ -166,16 +166,6 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	if !strings.Contains(desc("send_message"), "a resend is a second task") {
 		t.Error("send_message must warn that sending again makes a second task")
 	}
-	// an internal note: Claude Code made message ids from the request and the
-	// date ("book-meeting-room-20260929-1"); the same id in a second session,
-	// while the first session's task was still open, returned that old task
-	// and the new request was never sent.
-	for _, want := range []string{"a fresh random one (a UUID) for every new message",
-		"never one made from the text or the date", "returns that task and sends nothing"} {
-		if !strings.Contains(desc("send_message"), want) {
-			t.Errorf("send_message must say %q about message_id", want)
-		}
-	}
 	// an internal note: told "the limits are 0 until the operator raises
 	// them", the model told the user a priced skill needed `anet pay` on a
 	// node whose limits covered it. No tool shows the limits.
@@ -201,6 +191,20 @@ func TestTheToolSurfaceIsWhatWePromise(t *testing.T) {
 	}
 	if !strings.Contains(desc("get_agent_card"), "Only a VERIFIED card is returned") {
 		t.Error("get_agent_card must say an unverified card is not returned")
+	}
+	// HPP §4.6: what the prices are, that fetching them is seen by the
+	// agent and waits, what decides a payment, and when list-only skills
+	// show; and that a list fetches none.
+	for _, want := range []string{"`charge`", "`prices`", "`pricesFetchedAt`", "`priceNote`", "the agent knows you looked",
+		"up to 10 seconds", "follows the a2a-x402 quote", "never paid automatically", "after your first exchange"} {
+		if !strings.Contains(desc("get_agent_card"), want) {
+			t.Errorf("get_agent_card must say %q", want)
+		}
+	}
+	for _, want := range []string{"`charge`", "fetches no prices"} {
+		if !strings.Contains(desc("list_agents"), want) {
+			t.Errorf("list_agents must say %q", want)
+		}
 	}
 	// Paying spends the operator's money. The model has to learn whose
 	// credit it is, what caps it, and what to do when it is refused.
@@ -309,9 +313,9 @@ var requestShapes = []struct {
 	{"send_message", map[string]any{"to": "aid-1", "text": "translate this"},
 		"/tasks/send", map[string]any{"to": "aid-1", "text": "translate this", "timeout_ms": 30000.0, "max_task_bytes": 24576.0}},
 	{"send_message", map[string]any{"to": "aid-1", "skill": "text.digest", "args": map[string]any{"text": "x"},
-		"message_id": "m-1", "context_id": "ctx-1", "return_immediately": true},
+		"context_id": "ctx-1", "return_immediately": true},
 		"/tasks/send", map[string]any{"to": "aid-1", "skill": "text.digest", "args": map[string]any{"text": "x"},
-			"message_id": "m-1", "context_id": "ctx-1", "return_immediately": true, "max_task_bytes": 24576.0}},
+			"context_id": "ctx-1", "return_immediately": true, "max_task_bytes": 24576.0}},
 	{"send_message", map[string]any{"task_id": "ix-1", "text": "yes", "timeout_seconds": 1000, "history_length": 2},
 		"/tasks/send", map[string]any{"task_id": "ix-1", "text": "yes", "timeout_ms": 300000.0, "history_length": 2.0,
 			"max_task_bytes": 24576.0}},
@@ -393,7 +397,7 @@ func TestFilesTravelAsRawParts(t *testing.T) {
 	f := &fakeControl{}
 	sess := connect(t, f)
 	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: "send_message", Arguments: map[string]any{
-		"task_id": "ix-1", "message_id": "m-2", "text": "see attached",
+		"task_id": "ix-1", "text": "see attached",
 		"files": []any{map[string]any{"name": "a.txt", "media_type": "text/plain", "content_base64": "aGk="}},
 	}})
 	if msg, isErr := resultText(t, res, err); isErr {
@@ -407,7 +411,7 @@ func TestFilesTravelAsRawParts(t *testing.T) {
 	}
 	msg, _ := body["message"].(map[string]any)
 	want := map[string]any{
-		"messageId": "m-2", "taskId": "ix-1", "role": "ROLE_USER",
+		"messageId": "", "taskId": "ix-1", "role": "ROLE_USER",
 		"parts": []any{
 			map[string]any{"text": "see attached"},
 			map[string]any{"raw": "aGk=", "filename": "a.txt", "mediaType": "text/plain"},
@@ -424,12 +428,12 @@ func TestFilesTravelAsRawParts(t *testing.T) {
 	}
 }
 
-// §8.6: the MCP server never calls the task-manual, gateway or redeem
-// routes. Pinned three ways: the allowlist does not hold them, the guard
-// refuses them, and no tool — called with every shape above — reaches a
-// path outside the allowlist.
+// §8.6: the MCP server never calls the task-manual or redeem routes.
+// Pinned three ways: the allowlist does not hold them, the guard refuses
+// them, and no tool — called with every shape above — reaches a path
+// outside the allowlist.
 func TestMCPNeverCallsManualGatewayOrRedeemRoutes(t *testing.T) {
-	forbidden := []string{"/tasks/pay-manual", "/x402-authorize", "/redeem", "/delegate", "/message",
+	forbidden := []string{"/tasks/pay-manual", "/redeem", "/delegate", "/message",
 		"/end", "/payments/limits", "/peers/allow", "/inbound/approve", "/shutdown"}
 	for _, p := range forbidden {
 		if allowedPaths[p] {
@@ -709,5 +713,92 @@ func TestASingleTaskToolResultStaysUnderTheClientLimit(t *testing.T) {
 				t.Errorf("%s: the cut result does not say how to read the task whole: %.300s", tc.tool, text)
 			}
 		}
+	}
+}
+
+// LEC MC-2, ux UX-M4: a refusal of the reason table — a send while this
+// node is not registered at its hub — reaches the model as the control
+// plane's sentence and nothing else.
+func TestASendRefusalIsTheSentence(t *testing.T) {
+	sentence := a2ashape.Sentence("hub_pending_admission", a2ashape.Lang(),
+		a2ashape.Args{"hub": "https://hub.example", "aid": "bafyreiujzdegxdncf32epf3dhodzdocis2jhtlgmxgedn73u557hq2abcd"})
+	sess := connect(t, &fakeControl{err: &DaemonError{Status: 409, Message: sentence, Reason: "hub_pending_admission"}})
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "send_message", Arguments: map[string]any{"to": "aid-1", "text": "hi"}})
+	msg, isErr := resultText(t, res, err)
+	if !isErr || msg != sentence {
+		t.Fatalf("tool error %q, want the sentence %q", msg, sentence)
+	}
+}
+
+// LEC MC-1: node_status tells the model what to do with the hub join state,
+// and send_message what a refusal of it means.
+func TestNodeStatusSaysWhatToDoWhileWaitingForAdmission(t *testing.T) {
+	sess := connect(t, &fakeControl{})
+	tools, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desc := map[string]string{}
+	for _, tl := range tools.Tools {
+		desc[tl.Name] = tl.Description
+	}
+	for _, want := range []string{"hub.state is pending_admission", "relay hub.message to the user as it is", "do not register again"} {
+		if !strings.Contains(desc["node_status"], want) {
+			t.Errorf("node_status does not say %q", want)
+		}
+	}
+	if !strings.Contains(desc["send_message"], "Until this node is registered at its hub") {
+		t.Error("send_message does not say what a refusal while joining means")
+	}
+}
+
+// KEL M-5: node_status tells the model to relay the recovery reminder
+// as it is, and that the passphrase is the user's alone to set, in a
+// terminal.
+func TestNodeStatusSaysToRelayTheRecoveryReminder(t *testing.T) {
+	sess := connect(t, &fakeControl{})
+	tools, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range tools.Tools {
+		if tl.Name != "node_status" {
+			continue
+		}
+		for _, want := range []string{"identity.recovery.state is unprotected", "relay identity.recovery.message to the user as it is",
+			"only the user can set the recovery passphrase", "anet identity protect in a terminal", "do not enter one"} {
+			if !strings.Contains(tl.Description, want) {
+				t.Errorf("node_status does not say %q", want)
+			}
+		}
+		return
+	}
+	t.Fatal("no node_status tool")
+}
+
+// KEL M-3: list_agents and get_agent_card say what key_state is, and that
+// a stale one does not affect sending.
+func TestAgentToolsSayWhatKeyStateMeans(t *testing.T) {
+	sess := connect(t, &fakeControl{})
+	tools, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := 0
+	for _, tl := range tools.Tools {
+		if tl.Name != "list_agents" && tl.Name != "get_agent_card" {
+			continue
+		}
+		seen++
+		for _, want := range []string{"key_state is fresh when the agent's own hub confirmed its current key, stale otherwise",
+			"key_state stale does not affect sending"} {
+			if !strings.Contains(tl.Description, want) {
+				t.Errorf("%s does not say %q", tl.Name, want)
+			}
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("%d of the two agent tools found", seen)
 	}
 }

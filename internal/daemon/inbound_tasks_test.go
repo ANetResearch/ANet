@@ -88,7 +88,16 @@ func (b *fakeA2ABackend) byText(t *testing.T, text string) backendCall {
 // the task's context, and the backend's answer comes back through
 // ReplyTask — a question for a message that starts with "ask", a final
 // answer otherwise. Errors are collected for the test to read.
-func forwardInbound(ctx context.Context, h moduleHost, tasks <-chan module.Task, b *fakeA2ABackend) *[]error {
+func forwardInbound(t testing.TB, ctx context.Context, h moduleHost, tasks <-chan module.Task, b *fakeA2ABackend) *[]error {
+	// The forwarder stops, and is waited for, before the daemons it
+	// replies through close: a reply still on its way would use a store
+	// being closed.
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 	var mu sync.Mutex
 	errs := &[]error{}
 	fail := func(err error) {
@@ -99,10 +108,22 @@ func forwardInbound(ctx context.Context, h moduleHost, tasks <-chan module.Task,
 	cl, err := a2aclient.NewFromCard(ctx, b.card, a2aclient.WithJSONRPCTransport(http.DefaultClient))
 	if err != nil {
 		fail(err)
+		close(done)
 		return errs
 	}
 	go func() {
-		for task := range tasks {
+		defer close(done)
+		for {
+			var task module.Task
+			select {
+			case <-ctx.Done():
+				return
+			case tk, ok := <-tasks:
+				if !ok {
+					return
+				}
+				task = tk
+			}
 			last := task.History[len(task.History)-1]
 			text := last.Parts[0].Text
 			msg := a2a.NewMessage(a2a.MessageRoleUser, a2a.NewTextPart(text))
@@ -224,7 +245,7 @@ func TestInboundTasksReachTheBackendOnlyFromTrustedPeers(t *testing.T) {
 	}
 
 	backend := newFakeA2ABackend(t)
-	errs := forwardInbound(fctx, host, tasks, backend)
+	errs := forwardInbound(t, fctx, host, tasks, backend)
 	waitUntil(t, "the three trusted tasks to be answered", func() bool {
 		return stateOf(t, prov, a1) == interactions.StateCompleted && stateOf(t, prov, b1) == interactions.StateCompleted &&
 			stateOf(t, prov, a2) == interactions.StateInputRequired
@@ -255,8 +276,12 @@ func TestInboundTasksReachTheBackendOnlyFromTrustedPeers(t *testing.T) {
 		t.Fatalf("backend contexts: a %s, %s; b %s — want one per peer, not the requester's", ca1.contextID, ca2.contextID, cb1.contextID)
 	}
 
-	// The requester answers the question: the task comes again, in the same
-	// context, and the auto-reply agent still leaves it alone.
+	// The requester reads the question and answers it: the task comes
+	// again, in the same context, and the auto-reply agent still leaves it
+	// alone.
+	if err := peerA.pollOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if err := peerA.SendMessage(ctx, a2, "ask no more: the red one", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -425,9 +450,7 @@ func TestInboundFeedStartSettleAndFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
+	confirmDelegation(t, peer, prov) // the follow-up goes once it is confirmed (engine ENG-O2)
 	if err := peer.SendMessageAtts(ctx, id, "and another", file("two.txt", "the second file")); err != nil {
 		t.Fatal(err)
 	}

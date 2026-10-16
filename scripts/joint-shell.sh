@@ -267,7 +267,7 @@ hd "7/8  what was never enabled cannot be called"
 # served to the callers on the module's allow list, so /register names none of them and the hub
 # directory has nothing to list for this node. (Before Q14 this step expected shell.run@whoami in the
 # directory; an internal note)
-CARD=$(rc /find "{\"query\":\"$PROV_AID\"}")
+CARD=$(rc /agents/list "{\"q\":\"$PROV_AID\",\"include_uncarded\":true}")
 if ! printf '%s' "$CARD" | python3 -c 'import sys,json;assert isinstance(json.load(sys.stdin).get("agents"),list)' 2>/dev/null; then
   no "the directory did not answer: $CARD"
 elif printf '%s' "$CARD" | grep -q 'shell\.run@'; then

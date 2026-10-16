@@ -2,10 +2,8 @@ package daemon
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
-
-	"github.com/ANetResearch/ANetCore/adp"
+	"time"
 )
 
 // A node that registers twice in a row must be admitted twice.
@@ -22,7 +20,7 @@ func TestTwoRegistrationsInTheSameSecondBothSucceed(t *testing.T) {
 	d := newTestDaemon(t, h.URL, true)
 
 	for i, name := range []string{"First", "Second", "Third"} {
-		if err := d.RegisterWithHub(context.Background(), h.URL, name, []string{"work.do"}, ""); err != nil {
+		if err := d.RegisterWithHub(context.Background(), h.URL, name, []string{"work.do"}); err != nil {
 			t.Fatalf("registration %d (%s) was refused: %v", i+1, name, err)
 		}
 	}
@@ -36,18 +34,11 @@ func TestCardSequenceStrictlyIncreases(t *testing.T) {
 
 	var prev uint64
 	for i := 0; i < 50; i++ {
-		raw, err := d.signedCard("n", []string{"work.do"})
-		if err != nil {
-			t.Fatal(err)
+		seq := d.cardSeq()
+		if seq <= prev {
+			t.Fatalf("card %d: seq %d did not exceed the previous %d", i, seq, prev)
 		}
-		var card adp.AgentCard
-		if err := json.Unmarshal(raw, &card); err != nil {
-			t.Fatal(err)
-		}
-		if card.Seq <= prev {
-			t.Fatalf("card %d: seq %d did not exceed the previous %d", i, card.Seq, prev)
-		}
-		prev = card.Seq
+		prev = seq
 	}
 }
 
@@ -60,7 +51,17 @@ func TestTheSequenceSurvivesARestart(t *testing.T) {
 	h := newFakeHub(t)
 	defer h.Close()
 	d := newTestDaemon(t, h.URL, true)
-	if err := d.RegisterWithHub(context.Background(), h.URL, "a", nil, ""); err != nil {
+	// A public skill, so the registration carries a network card and mints
+	// its seq.
+	publishLamp := func(d *Daemon) {
+		t.Helper()
+		if err := d.Providers().Register(context.Background(), &lampProvider{}); err != nil {
+			t.Fatal(err)
+		}
+		setPublic(d, lampCap)
+	}
+	publishLamp(d)
+	if err := d.RegisterWithHub(context.Background(), h.URL, "a", nil); err != nil {
 		t.Fatal(err)
 	}
 	// A restart: the first process is gone before the second starts.
@@ -84,10 +85,11 @@ func TestTheSequenceSurvivesARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d2.Close()
+	publishLamp(d2)
 	if got := d2.lastCardSeq.Load(); got < first {
 		t.Fatalf("the restarted node forgot where it had got to: %d < %d", got, first)
 	}
-	if err := d2.RegisterWithHub(context.Background(), h.URL, "a", nil, ""); err != nil {
+	if err := d2.RegisterWithHub(context.Background(), h.URL, "a", nil); err != nil {
 		t.Fatalf("registering immediately after a restart was refused: %v", err)
 	}
 }
@@ -101,18 +103,11 @@ func TestSequenceStaysInSecondsSoADowngradeIsNotLockedOut(t *testing.T) {
 	defer h.Close()
 	d := newTestDaemon(t, h.URL, true)
 
-	raw, err := d.signedCard("n", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var card adp.AgentCard
-	if err := json.Unmarshal(raw, &card); err != nil {
-		t.Fatal(err)
-	}
-	// Within a day of IssuedAt, which is the clock in seconds. A
-	// millisecond sequence would be about 55,000 years past it.
-	if diff := int64(card.Seq) - card.IssuedAt; diff < 0 || diff > 86400 {
-		t.Fatalf("seq %d is not a second-resolution value beside issued_at %d (diff %d)",
-			card.Seq, card.IssuedAt, diff)
+	now := time.Now().Unix()
+	seq := d.cardSeq()
+	// Within a day of now, which is the clock in seconds. A millisecond
+	// sequence would be about 55,000 years past it.
+	if diff := int64(seq) - now; diff < 0 || diff > 86400 {
+		t.Fatalf("seq %d is not a second-resolution value beside the clock %d (diff %d)", seq, now, diff)
 	}
 }

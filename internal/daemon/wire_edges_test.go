@@ -200,7 +200,7 @@ func TestAStopDoesNotAnswerAShortCallItCutOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, _ := st.Outbox(id)
+	rows, _ := st.OutboxRows(id)
 	st.Close()
 	if pix.IsTerminal() || len(pix.Result) > 0 || len(pix.Receipt) > 0 || len(rows) != 0 {
 		t.Fatalf("the stop answered the call: state %s, result %q, receipt %d bytes, %d queued",
@@ -259,10 +259,16 @@ func TestAStopLeavesALongCallToStartupRecovery(t *testing.T) {
 	}
 	st := storeAfterStop(t, layout)
 	pix, _ := st.Get(id)
-	rows, _ := st.Outbox(id)
+	rows, _ := st.OutboxRows(id)
 	st.Close()
-	if pix == nil || pix.State != interactions.StateWorking || len(pix.Receipt) > 0 || len(rows) != 0 {
-		t.Fatalf("the stop answered the long call: %+v, %d queued", pix, len(rows))
+	results := 0
+	for _, r := range rows {
+		if r.Type == seal.TypeResult {
+			results++ // what is queued besides waits for its token: the working status
+		}
+	}
+	if pix == nil || pix.State != interactions.StateWorking || len(pix.Receipt) > 0 || results != 0 {
+		t.Fatalf("the stop answered the long call: %+v, %d results queued", pix, results)
 	}
 	prov2 := restartDaemon(t, prov)
 	wasInterrupted(t, prov2, id)
@@ -300,7 +306,7 @@ func TestALongCallRecordedButNeverStartedIsReportedAtStart(t *testing.T) {
 	}
 	// A short call that was working: at-least-once, it runs again.
 	leftOpen(t, req, prov, "ix_short_working", lampCap)
-	if _, err := prov.ix.SetState("ix_short_working", interactions.StateWorking); err != nil {
+	if _, err := prov.ix.SetState("ix_short_working", interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	// What New does once the modules have registered their providers.
@@ -361,10 +367,10 @@ func TestARedeliveryReportsALongCallAnEarlierProcessNeverStarted(t *testing.T) {
 }
 
 // X2: under closed, a denied peer writing to a task this node does not hold
-// gets what a stranger gets — TaskNotFound at once, inside the wait window
-// or past it ([redteam:F25]: a stranger's message is not held), from the
-// same notice limiter — so it cannot tell it is denied. On a task it does
-// hold, its messages are still dropped.
+// gets what a stranger gets — task_not_found in its delivery token, at once,
+// whatever the message's age, and nothing sent back (engine ENG-V15, V16) —
+// so it cannot tell it is denied. On a task it does hold, its messages are
+// still dropped.
 func TestADeniedPeerWritingToAnUnknownTaskIsAnsweredLikeAStranger(t *testing.T) {
 	srv := newFakeHub(t)
 	prov := registered(t, srv.URL, "prov")
@@ -372,34 +378,39 @@ func TestADeniedPeerWritingToAnUnknownTaskIsAnsweredLikeAStranger(t *testing.T) 
 	stranger := registered(t, srv.URL, "stranger")
 	denyPeers(t, prov, denied.AID())
 	const ix = "ix_unknown_to_provider"
-	type outcome struct {
-		early, late rxResult
-		state       interactions.State
-		meta        map[string]any
+	type answer struct {
+		class   rxClass
+		reason  string
+		outcome seal.Outcome
+		note    seal.Note
 	}
+	type outcome struct{ early, late answer }
+	recv := func(from *Daemon, age time.Duration) answer {
+		t.Helper()
+		env, ack := craftAck(t, senderOf(from), prov, seal.TypeMessage, ix, chatBody(t, "x", ""),
+			func(in *seal.SealedInner) { in.TS -= uint64(age.Milliseconds()) })
+		r := receive(t, prov, env)
+		o, n, ok := tokenOf(t, r, ack)
+		if !ok {
+			t.Fatalf("%s: no token", r.reason)
+		}
+		return answer{r.class, r.reason, o, n}
+	}
+	sent := relayCountFor(srv.URL)
 	send := func(from *Daemon) outcome {
 		t.Helper()
-		if err := from.ix.Put(ix, interactions.RoleOutbound, prov.AID(), "never delivered", "", nil); err != nil {
-			t.Fatal(err)
-		}
-		var o outcome
-		o.early = receive(t, prov, craft(t, senderOf(from), prov, seal.TypeMessage, ix, chatBody(t, "early", ""), nil))
-		o.late = receive(t, prov, craft(t, senderOf(from), prov, seal.TypeMessage, ix, chatBody(t, "late", ""),
-			func(in *seal.SealedInner) { in.TS -= uint64((unknownIXWait + time.Minute).Milliseconds()) }))
-		o.state, o.meta = lastStatusMeta(t, from, ix)
-		return o
+		return outcome{early: recv(from, 0), late: recv(from, time.Hour)}
 	}
 	s, d := send(stranger), send(denied)
-	if s.early.reason != dropUnknownIX || s.late.reason != dropUnknownIX || s.meta["anet.a2aError"] != "TaskNotFoundError" {
-		t.Fatalf("stranger: early %+v, late %+v, answer %s %v", s.early, s.late, s.state, s.meta)
+	want := answer{rxDropped, dropUnknownIX, seal.OutcomeRefused, seal.Note{Reason: seal.NoteTaskNotFound}}
+	if s.early != want || s.late != want {
+		t.Fatalf("stranger: early %+v, late %+v; want %+v", s.early, s.late, want)
 	}
-	if d.early != s.early || d.late != s.late || d.state != s.state ||
-		string(mustJSON(t, d.meta)) != string(mustJSON(t, s.meta)) {
-		t.Fatalf("denied peer: early %+v, late %+v, answer %s %v; a stranger: %+v, %+v, %s %v",
-			d.early, d.late, d.state, d.meta, s.early, s.late, s.state, s.meta)
+	if d != s {
+		t.Fatalf("denied peer: %+v; a stranger: %+v", d, s)
 	}
-	if n := counter(prov, noticeTaskNotFound); n != 4 {
-		t.Fatalf("%d TaskNotFound notices, want two each", n)
+	if n := relayCountFor(srv.URL) - sent; n != 0 {
+		t.Fatalf("the refusals sent %d envelopes", n)
 	}
 }
 
@@ -505,6 +516,7 @@ func TestApprovedFollowUpsKeepTheirKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	confirmDelegation(t, s, prov) // held, it was taken: the follow-up goes (engine ENG-O2)
 	if err := s.SendMessage(ctx, text, "held detail", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -558,14 +570,14 @@ func TestAStopBeforeAnUnservedCallIsAnsweredLeavesItUnacknowledged(t *testing.T)
 	const id = "ix_unserved_at_stop"
 	leftOpen(t, req, prov, id, "no.such.cap")
 	prov.cancel() // the stop has begun; Close runs at cleanup
-	if prov.runCapabilityCall(id, "no.such.cap", map[string]any{}, nil, nil) {
+	if prov.runCapabilityCall(id, "no.such.cap", map[string]any{}, nil) {
 		t.Fatal("a call the stop cut off was reported handled, so its delegation would be acknowledged")
 	}
 	pix, err := prov.ix.Get(id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, _ := prov.ix.Outbox(id)
+	rows, _ := prov.ix.OutboxRows(id)
 	if pix.IsTerminal() || len(pix.Result) > 0 || len(rows) != 0 {
 		t.Fatalf("the stop answered: state %s, result %q, %d queued", pix.State, pix.Result, len(rows))
 	}
@@ -594,7 +606,7 @@ func TestStartupRecoveryRunsApprovedCallsAndLeavesUnpaidOrDeniedOnes(t *testing.
 			t.Fatal(err)
 		}
 		if st != interactions.StateSubmitted {
-			if _, err := prov.ix.SetState(id, st); err != nil {
+			if _, err := prov.ix.SetState(id, st, interactions.CauseProviderEnd.When(st)); err != nil {
 				t.Fatal(err)
 			}
 		}

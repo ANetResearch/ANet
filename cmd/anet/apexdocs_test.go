@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // apexDir holds what agentnetwork.org.cn serves from its release root:
@@ -266,12 +268,9 @@ func apexSiteSource(t *testing.T) siteJSON {
 const apexSkillURL = "https://agentnetwork.org.cn/SKILL.md"
 
 // agentHintJoin is ux §3.4 (g) agent_hint.join in English: SKILL.md is
-// English, and site.json carries the same sentence as SKILL.md.
-//
-// v030-todo(UX-5): compare with a2ashape.Sentence("agent_hint.join", English,
-// nil) once reasons.go has the row, and delete this copy (ux: the sentence
-// lives only in reasons.go and the three published files).
-const agentHintJoin = "Join with anet hub-register even without a terminal; relay each line it prints to the user as is (passphrase reminder, admit line); do not register again. Only the user, not you, sets the passphrase, via anet identity protect in a terminal."
+// English, and site.json carries the same sentence as SKILL.md. The
+// sentence lives in the reason table and the three published files only.
+var agentHintJoin = a2ashape.Sentence("agent_hint.join", a2ashape.English, nil)
 
 // The source is what publish.sh can extend: exactly the served keys but
 // "version", and a first line publish.sh puts "version" after.
@@ -396,16 +395,17 @@ func TestSkillCarriesSentence(t *testing.T) {
 }
 
 // What the website tells an agent is ux §3.4 (g) agent_hint.join, the same
-// sentence SKILL.md and llms.txt carry.
+// sentence SKILL.md and llms.txt carry (a first join that needs no terminal).
 func TestSiteJSONAgentHintMatchesSkill(t *testing.T) {
 	s := apexSiteSource(t)
 	if s.AgentHint != agentHintJoin {
 		t.Errorf("site.json agent_hint is not agent_hint.join:\n got:  %q\n want: %q", s.AgentHint, agentHintJoin)
 	}
-	if !apexCarries(readApex(t, "SKILL.md"), s.AgentHint) {
-		// v030-todo(EXE-13): EXE-13 puts agent_hint.join into SKILL.md
-		// (LEC §4.10) and deletes this skip.
-		t.Skip("v030-todo(EXE-13): SKILL.md does not carry agent_hint.join yet")
+	// SKILL.md and llms.txt tell an agent the same sentence (LEC §4.10).
+	for _, doc := range []string{"SKILL.md", "llms.txt"} {
+		if !apexCarries(readApex(t, doc), agentHintJoin) {
+			t.Errorf("%s does not carry agent_hint.join word for word: %q", doc, agentHintJoin)
+		}
 	}
 }
 
@@ -728,6 +728,32 @@ func TestNginxServesSiteJSONNoCache(t *testing.T) {
 		if strings.Contains(body, banned) {
 			t.Errorf("location = /site.json must not use %s:\n%s", banned, body)
 		}
+	}
+	// /install.sh and /SKILL.md are revalidated on every use the same way,
+	// and keep the server block's security headers: expires epoch, no
+	// add_header (UX-16 left them with add_header, which dropped them).
+	for _, loc := range []string{"/install.sh", "/SKILL.md"} {
+		body, ok := apexNginxLocation(conf, "=", loc)
+		if !ok {
+			t.Errorf("nginx-locations.conf has no `location = %s`", loc)
+			continue
+		}
+		directives := map[string]bool{}
+		for _, d := range strings.Split(body, ";") {
+			directives[strings.Join(strings.Fields(d), " ")] = true
+		}
+		if !directives["expires epoch"] {
+			t.Errorf("location = %s lacks `expires epoch;`:\n%s", loc, body)
+		}
+		for _, banned := range []string{"add_header", "Cache-Control", "proxy_", "try_files"} {
+			if strings.Contains(body, banned) {
+				t.Errorf("location = %s must not use %s:\n%s", loc, banned, body)
+			}
+		}
+	}
+	// No location in the file drops the server block's headers.
+	if strings.Contains(regexp.MustCompile(`(?m)^\s*#.*$`).ReplaceAllString(conf, ""), "add_header") {
+		t.Error("nginx-locations.conf uses add_header, which drops the server block's security headers")
 	}
 	// The website points agents at SKILL.md through skill_url: it is served.
 	if _, ok := apexNginxLocation(conf, "=", strings.TrimPrefix(apexSkillURL, "https://agentnetwork.org.cn")); !ok {

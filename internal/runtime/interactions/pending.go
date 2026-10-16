@@ -65,54 +65,83 @@ type PendingItem struct {
 	// delegation's envelope message id in hex, the id the requester
 	// recorded it under (an internal note item). Empty on items held before it was kept.
 	MsgID string
+	// PeerRK is the rk the delegation carried (coredet(RK)), or nil. An
+	// approval records it on the task in the same transaction (New.PeerRK,
+	// FS-R4).
+	PeerRK []byte
+
+	// sealedAtts and sealedFollowups are the stored attachments and
+	// followups columns, as read, until openPending decrypts them.
+	sealedAtts, sealedFollowups string
 }
 
-func (s *Store) migratePending() error {
-	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS pending (
-		   ix TEXT PRIMARY KEY,
-		   from_aid TEXT NOT NULL,
-		   arrived_at INTEGER NOT NULL,
-		   msg_ts INTEGER NOT NULL DEFAULT 0,
-		   key_state INTEGER NOT NULL DEFAULT 0,
-		   capability TEXT NOT NULL DEFAULT '',
-		   request_cid TEXT NOT NULL DEFAULT '',
-		   bytes INTEGER NOT NULL DEFAULT 0,
-		   delegate BLOB NOT NULL,
-		   kel BLOB,
-		   keys BLOB,
-		   context_id TEXT NOT NULL DEFAULT '',
-		   attachments TEXT NOT NULL DEFAULT '',
-		   followups TEXT NOT NULL DEFAULT ''
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_pending_from ON pending(from_aid)`,
-		`CREATE INDEX IF NOT EXISTS idx_pending_arrived ON pending(arrived_at)`,
-	} {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate pending: %w", err)
-		}
-	}
-	return addColumn(s.db, "pending", "msg_id", "TEXT NOT NULL DEFAULT ''")
+// pendingSchema is the approval queue. delegate, attachments and followups
+// hold data-key ciphertext (dek.go, FS-L2).
+var pendingSchema = []string{
+	`CREATE TABLE pending (
+	   ix TEXT PRIMARY KEY,
+	   from_aid TEXT NOT NULL,
+	   arrived_at INTEGER NOT NULL,
+	   msg_ts INTEGER NOT NULL DEFAULT 0,
+	   key_state INTEGER NOT NULL DEFAULT 0,
+	   capability TEXT NOT NULL DEFAULT '',
+	   request_cid TEXT NOT NULL DEFAULT '',
+	   bytes INTEGER NOT NULL DEFAULT 0,
+	   delegate BLOB NOT NULL,
+	   kel BLOB,
+	   keys BLOB,
+	   context_id TEXT NOT NULL DEFAULT '',
+	   attachments BLOB NOT NULL DEFAULT X'',
+	   followups BLOB NOT NULL DEFAULT X'',
+	   msg_id TEXT NOT NULL DEFAULT '',
+	   peer_rk BLOB
+	 )`,
+	`CREATE INDEX idx_pending_from ON pending(from_aid)`,
+	`CREATE INDEX idx_pending_arrived ON pending(arrived_at)`,
 }
 
-const pendingColumns = `ix,from_aid,arrived_at,msg_ts,key_state,capability,request_cid,bytes,delegate,kel,keys,context_id,attachments,followups,msg_id`
+const pendingColumns = `ix,from_aid,arrived_at,msg_ts,key_state,capability,request_cid,bytes,delegate,kel,keys,context_id,attachments,followups,msg_id,peer_rk`
 
 func scanPending(sc scanner) (*PendingItem, error) {
 	var p PendingItem
 	var ts, ks int64
 	var atts, fus string
 	if err := sc.Scan(&p.IX, &p.FromAID, &p.ArrivedAt, &ts, &ks, &p.Capability, &p.RequestCID, &p.Bytes,
-		&p.Delegate, &p.KEL, &p.Keys, &p.ContextID, &atts, &fus, &p.MsgID); err != nil {
+		&p.Delegate, &p.KEL, &p.Keys, &p.ContextID, &atts, &fus, &p.MsgID, &p.PeerRK); err != nil {
 		return nil, err
 	}
 	p.MsgTS, p.KeyState = uint64(ts), uint64(ks)
+	p.sealedAtts, p.sealedFollowups = atts, fus
+	return &p, nil
+}
+
+// openPending replaces the stored delegation, attachments and followups of
+// a held item scanPending read with their plaintext, under the item's data
+// key (ErrContentGone without one).
+func openPending(e execer, p *PendingItem) error {
+	b, err := boxOf(e, p.IX)
+	if err != nil {
+		return err
+	}
+	if p.Delegate, err = b.get(ColPendingDelegate, p.Delegate); err != nil {
+		return err
+	}
+	atts, err := b.getText(ColPendingAttachments, p.sealedAtts)
+	if err != nil {
+		return err
+	}
+	fus, err := b.getText(ColPendingFollowups, p.sealedFollowups)
+	if err != nil {
+		return err
+	}
+	p.sealedAtts, p.sealedFollowups = "", ""
 	if atts != "" {
 		_ = json.Unmarshal([]byte(atts), &p.Attachments)
 	}
 	if fus != "" {
 		_ = json.Unmarshal([]byte(fus), &p.Followups)
 	}
-	return &p, nil
+	return nil
 }
 
 // PutPending holds a delegation for approval, inside the transaction that
@@ -145,9 +174,23 @@ func (t *Tx) PutPending(p PendingItem, maxTotal, maxPerPeer int) error {
 	if err != nil {
 		return err
 	}
-	_, err = t.tx.Exec(`INSERT INTO pending(`+pendingColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	// The held item's data key commits with it (FS-L1); an approval hands
+	// it to the interaction (TakePending).
+	b, err := ensureDEK(t.tx, p.IX, t.now)
+	if err != nil {
+		return err
+	}
+	delegate, err := b.put(ColPendingDelegate, p.Delegate)
+	if err != nil {
+		return err
+	}
+	sealedAtts, err := b.putText(ColPendingAttachments, string(atts))
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.Exec(`INSERT INTO pending(`+pendingColumns+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.IX, p.FromAID, p.ArrivedAt, int64(p.MsgTS), int64(p.KeyState), p.Capability, p.RequestCID, p.Bytes,
-		p.Delegate, p.KEL, p.Keys, p.ContextID, string(atts), "", p.MsgID)
+		delegate, p.KEL, p.Keys, p.ContextID, sealedAtts, []byte{}, p.MsgID, nilIfEmpty(p.PeerRK))
 	return err
 }
 
@@ -166,7 +209,13 @@ func getPending(e execer, ix string) (*PendingItem, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return p, err
+	if err != nil {
+		return nil, err
+	}
+	if err := openPending(e, p); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // AppendPendingFollowup adds a message to a held item, at most max per item.
@@ -186,22 +235,35 @@ func (t *Tx) AppendPendingFollowup(ix string, f PendingFollowup, max int) error 
 		return ErrPendingFollowupsFull
 	}
 	p.Followups = append(p.Followups, f)
-	b, err := json.Marshal(p.Followups)
+	plain, err := json.Marshal(p.Followups)
 	if err != nil {
 		return err
 	}
-	_, err = t.tx.Exec(`UPDATE pending SET followups=? WHERE ix=?`, string(b), ix)
+	b, err := boxOf(t.tx, ix)
+	if err != nil {
+		return err
+	}
+	sealed, err := b.putText(ColPendingFollowups, string(plain))
+	if err != nil {
+		return err
+	}
+	_, err = t.tx.Exec(`UPDATE pending SET followups=? WHERE ix=?`, sealed, ix)
 	return err
 }
 
 // DeletePending removes a held item inside the transaction and reports
-// whether it existed.
+// whether it existed. Its data key goes with it (FS-L9) unless something
+// stored still needs the key (ReleaseDEK); an approval uses TakePending,
+// which keeps the key for the interaction.
 func (t *Tx) DeletePending(ix string) (bool, error) {
 	res, err := t.tx.Exec(`DELETE FROM pending WHERE ix=?`, ix)
 	if err != nil {
 		return false, err
 	}
 	n, _ := res.RowsAffected()
+	if _, err := releaseDEK(t.tx, ix); err != nil {
+		return false, err
+	}
 	return n > 0, nil
 }
 
@@ -222,23 +284,50 @@ func (s *Store) ListPending() ([]*PendingItem, error) {
 }
 
 // ExpiredPending returns the held items that arrived before cutoff (unix ms).
+// An item whose data key is gone is returned too, with its content (the
+// delegation, attachments and follow-ups) empty: its expiry reads none of
+// it, and an item left out here would never expire and would hold a place
+// in the queue for ever.
 func (s *Store) ExpiredPending(cutoff int64) ([]*PendingItem, error) {
-	return s.queryPending(`SELECT `+pendingColumns+` FROM pending WHERE arrived_at < ? ORDER BY arrived_at`, cutoff)
+	return s.readPending(true, `SELECT `+pendingColumns+` FROM pending WHERE arrived_at < ? ORDER BY arrived_at`, cutoff)
 }
 
+// queryPending reads the held items q selects. One whose data key is gone
+// (deleted with it since the query ran) is left out.
 func (s *Store) queryPending(q string, args ...any) ([]*PendingItem, error) {
+	return s.readPending(false, q, args...)
+}
+
+// readPending is queryPending; keyless keeps an item whose data key is gone,
+// its content left empty.
+func (s *Store) readPending(keyless bool, q string, args ...any) ([]*PendingItem, error) {
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []*PendingItem
+	var items []*PendingItem
 	for rows.Next() {
 		p, err := scanPending(rows)
 		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		items = append(items, p)
+	}
+	if err := closeRows(rows); err != nil {
+		return nil, err
+	}
+	out := items[:0]
+	for _, p := range items {
+		switch err := openPending(s.db, p); {
+		case errors.Is(err, ErrContentGone) && keyless:
+			p.Delegate, p.Attachments, p.Followups, p.sealedAtts, p.sealedFollowups = nil, nil, nil, "", ""
+		case errors.Is(err, ErrContentGone):
+			continue
+		case err != nil:
 			return nil, err
 		}
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	return out, nil
 }

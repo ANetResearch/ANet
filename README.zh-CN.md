@@ -298,11 +298,10 @@ hub 托管的额度;或者你不能依赖中继——ANet 需要 hub,而 hub 看
 <br/>
 
 二进制**能**做什么在构建时决定,不是配置项。大多数子系统默认编入,用 `-tags no_x402`、`no_p2p`、`no_mcp`、
-`no_a2a`、`no_service`、`no_cas`、`no_org`、`no_blackboard`、`no_anetlink` 去掉。有两个方向相反,不点名就不在:
+`no_a2a`、`no_service`、`no_cas`、`no_org`、`no_blackboard`、`no_anetlink` 去掉。有一个方向相反,不点名就不在:
 
 - `shell`——让节点为运营者列出的调用方执行运营者批准的命令(安装脚本的 `--shell` 装的就是这个变体)。三道
   独立闸门:构建 tag、`modules.shell` 配置块、调用方名单;默认分别是没有、没有、空。见 [docs/SHELL-zh.md](docs/SHELL-zh.md)。
-- `taskboard`——hub 共享任务板的客户端;任务板把标题与备注明文存在 hub 上。
 
 `bash scripts/tagcheck.sh all` 按各自方向核对每个 tag;`anet version` 打印从二进制本身读出的模块集合。发布构建
 (四个平台、两个变体、签名清单):`deploy/release/build-release.sh`。

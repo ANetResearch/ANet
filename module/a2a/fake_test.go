@@ -35,9 +35,29 @@ type fakeSeam struct {
 	// waiting as the kernel says a quote above the automatic tier waits
 	// (anet.reason needs_operator_approval).
 	quote map[string]any
+	// quoteReason and quoteNote, when set, are the decision the kernel took
+	// on the quote (HPP PAY-D1): its anet.reason and its sentence, which is
+	// both status.message and anet.payment_note.
+	quoteReason, quoteNote string
 	// hold answers payment-submitted as the kernel does above the agent
 	// tier: the task, still waiting, told the operator decides (§8.3).
 	hold bool
+	// gate is what SendGate answers (and Send with it): nil sends.
+	gate error
+	// refuse, when set, answers a send after it is recorded in sends, as
+	// the kernel answers a messageId already used for other content.
+	refuse func(module.TaskSend) error
+	// ext answers ExtendedCard by AID: the extended agent, or the error;
+	// an AID it has no entry for is extended_card_not_offered.
+	ext map[string]fakeExt
+	// extCalls counts ExtendedCard calls.
+	extCalls int
+}
+
+// fakeExt is one scripted answer of ExtendedCard.
+type fakeExt struct {
+	agent module.ExtendedAgent
+	err   error
 }
 
 type fakeTask struct {
@@ -129,9 +149,25 @@ func (f *fakeSeam) answer(id, text string) {
 	f.status(ft)
 }
 
+// SendGate answers f.gate, as the kernel answers its join state (LEC AD-6).
+func (f *fakeSeam) SendGate(context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gate
+}
+
 func (f *fakeSeam) Send(ctx context.Context, peer string, req module.TaskSend) (module.Task, error) {
+	if err := f.SendGate(ctx); err != nil {
+		return module.Task{}, err
+	}
 	f.mu.Lock()
 	f.sends = append(f.sends, req)
+	if f.refuse != nil {
+		if err := f.refuse(req); err != nil {
+			f.mu.Unlock()
+			return module.Task{}, err
+		}
+	}
 	msg := req.Message
 	var ft *fakeTask
 	if msg.TaskID != "" && hasX402(msg.Metadata) {
@@ -164,13 +200,21 @@ func (f *fakeSeam) Send(ctx context.Context, peer string, req module.TaskSend) (
 		f.tasks[id] = ft
 		f.setState(ft, a2ashape.TaskStateSubmitted, nil)
 		if f.quote != nil {
+			text, reason := "payment required", x402a2a.ReasonNeedsOperatorApproval
+			if f.quoteNote != "" {
+				text, reason = f.quoteNote, f.quoteReason
+			}
 			q := a2ashape.Message{ID: "quote-" + id, Role: a2ashape.RoleAgent, TaskID: id, ContextID: ctxID,
-				Parts:    []a2ashape.Part{a2ashape.TextPart("payment required")},
-				Metadata: map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentRequired, a2ashape.KeyX402Required: f.quote}}
+				Parts: []a2ashape.Part{a2ashape.TextPart(text)},
+				Metadata: map[string]any{a2ashape.KeyX402Status: a2ashape.PaymentRequired, a2ashape.KeyX402Required: f.quote,
+					a2ashape.KeyReason: reason}}
 			f.setState(ft, a2ashape.TaskStateInputRequired, &q)
 			ft.t.Metadata[a2ashape.KeyX402Status] = a2ashape.PaymentRequired
 			ft.t.Metadata[a2ashape.KeyX402Required] = f.quote
-			ft.t.Metadata[a2ashape.KeyReason] = x402a2a.ReasonNeedsOperatorApproval
+			ft.t.Metadata[a2ashape.KeyReason] = reason
+			if f.quoteNote != "" {
+				ft.t.Metadata[a2ashape.KeyPaymentNote] = f.quoteNote
+			}
 			t := copyTask(ft.t)
 			f.mu.Unlock()
 			return t, nil
@@ -296,6 +340,16 @@ func (f *fakeSeam) Card(_ context.Context, aid string) (module.RemoteAgent, erro
 		return ra, nil
 	}
 	return module.RemoteAgent{AID: aid, Verification: unverified}, nil
+}
+
+func (f *fakeSeam) ExtendedCard(_ context.Context, aid string) (module.ExtendedAgent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.extCalls++
+	if e, ok := f.ext[aid]; ok {
+		return e.agent, e.err
+	}
+	return module.ExtendedAgent{}, a2ashape.Refuse("extended_card_not_offered", nil)
 }
 
 func (f *fakeSeam) Pay(_ context.Context, peer, id string, d module.PayDecision) (module.Task, error) {

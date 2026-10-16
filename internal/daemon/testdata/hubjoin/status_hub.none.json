@@ -1,0 +1,8 @@
+{
+  "url": "",
+  "state": "none",
+  "reason": "no_hub_yet",
+  "message": "Not joined to a hub yet, so nothing can be sent or received; run anet hub-register https://hub.agentnetwork.org.cn to join the official public hub, or use your organization's hub URL instead.",
+  "next": "anet hub-register https://hub.agentnetwork.org.cn",
+  "since": "<STARTED>"
+}

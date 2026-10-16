@@ -166,6 +166,12 @@ func fillConfig(raw []byte) ([]InitChange, []byte, error) {
 	for _, block := range []string{"inbound", "payments"} {
 		changes = append(changes, fillMissing(cur, def, block, block)...)
 	}
+	// How long task content is kept, written out like the other defaults
+	// (FS §5.1): 30 days.
+	if v, ok := cur["content_retention"]; !ok || v == nil {
+		cur["content_retention"] = def["content_retention"]
+		changes = append(changes, InitChange{Key: "content_retention", Action: "added", Value: def["content_retention"]})
+	}
 	if ar, ok := cur["auto_reply"].(map[string]any); ok {
 		if _, has := ar["untrusted"]; !has {
 			ar["untrusted"] = UntrustedOff
@@ -350,8 +356,8 @@ func ReadPolicy(l Layout) (PolicyState, error) {
 		}
 		return filepath.Join(l.Root, name)
 	}
-	st.AllowPath, st.DenyPath, st.TrustPath = resolve(st.Inbound.AllowFile), resolve(st.Inbound.DenyFile), resolve(st.Inbound.TrustFile)
-	st.PayeesPath = resolve(st.Payments.PayeesFile)
+	st.AllowPath, st.DenyPath, st.TrustPath = resolve(peersAllowFile), resolve(peersDenyFile), resolve(peersTrustFile)
+	st.PayeesPath = resolve(payeesFile)
 	read := func(path string) []string {
 		m, err := readPeerFile(path)
 		if err != nil {
@@ -385,7 +391,6 @@ var SI5Keys = []string{
 	"payments.auto_max",
 	"payments.agent_max",
 	"payments.agent_daily_max",
-	"payments.payees_file",
 	"payments.payees",
 }
 
@@ -399,7 +404,6 @@ var si5DefaultText = map[string]string{
 	"payments.auto_max":           "0",
 	"payments.agent_max":          "0",
 	"payments.agent_daily_max":    "0",
-	"payments.payees_file":        "set (payee list on)",
 	"payments.payees":             "empty",
 }
 
@@ -426,7 +430,6 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 		"payments.auto_max":           st.Payments.AutoMax,
 		"payments.agent_max":          st.Payments.AgentMax,
 		"payments.agent_daily_max":    st.Payments.AgentDailyMax,
-		"payments.payees_file":        st.Payments.PayeesFile,
 		"payments.payees":             nonNil(st.Payees),
 	}
 	safe := map[string]bool{
@@ -438,7 +441,6 @@ func (st PolicyState) SI5() (values map[string]any, changed []string) {
 		"payments.auto_max":           st.Payments.AutoMax == 0,
 		"payments.agent_max":          st.Payments.AgentMax == 0,
 		"payments.agent_daily_max":    st.Payments.AgentDailyMax == 0,
-		"payments.payees_file":        st.Payments.PayeesFile != "",
 		"payments.payees":             len(st.Payees) == 0,
 	}
 	for _, k := range SI5Keys {

@@ -17,18 +17,7 @@ package interactions
 import (
 	"errors"
 	"fmt"
-	"strings"
 )
-
-// migratePeerCardHash adds card_hash to a peer_identity table created
-// before it was kept.
-func (s *Store) migratePeerCardHash() error {
-	if _, err := s.db.Exec(`ALTER TABLE peer_identity ADD COLUMN card_hash BLOB`); err != nil &&
-		!strings.Contains(err.Error(), "duplicate column name") {
-		return fmt.Errorf("interactions: migrate peer card hash: %w", err)
-	}
-	return nil
-}
 
 // UpdatePeerCardMark reads the card high-water mark stored for aid and
 // passes it to fn, then stores what fn returns, in one transaction. fn gets

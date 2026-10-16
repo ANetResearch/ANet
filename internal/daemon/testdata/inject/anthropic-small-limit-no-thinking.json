@@ -1,0 +1,41 @@
+{
+  "upstream": "anthropic",
+  "model": "claude-haiku-5-5",
+  "request": {
+    "method": "POST",
+    "target": "/v1/messages",
+    "header": {
+      "anthropic-version": "2023-06-01",
+      "x-api-key": "anet-sandbox"
+    },
+    "body": "{\"model\":\"haiku\",\"max_tokens\":512,\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":1024},\"messages\":[{\"role\":\"user\",\"content\":\"title this\"}]}"
+  },
+  "forwarded": {
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages",
+    "header": {
+      "Accept-Encoding": [
+        "identity"
+      ],
+      "Anthropic-Version": [
+        "2023-06-01"
+      ],
+      "Content-Type": [
+        "application/json"
+      ],
+      "X-Api-Key": [
+        "operator-key-golden"
+      ]
+    },
+    "body": {
+      "max_tokens": 512,
+      "messages": [
+        {
+          "content": "title this",
+          "role": "user"
+        }
+      ],
+      "model": "claude-haiku-5-5"
+    }
+  }
+}

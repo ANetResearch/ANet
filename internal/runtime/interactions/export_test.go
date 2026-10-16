@@ -1,5 +1,7 @@
 package interactions
 
+import "errors"
+
 // SetPruneBatch sets the batch size of PruneTerminal for a test and returns
 // the function that restores it.
 func SetPruneBatch(n int) (restore func()) {
@@ -45,8 +47,8 @@ func (s *Store) explain(q string, args []any) ([]string, error) {
 	return out, rows.Err()
 }
 
-// ExplainFindByClientMessage is the query plan of FindByClientMessage for q.
-func (s *Store) ExplainFindByClientMessage(q ClientMessageQuery) ([]string, error) {
+// ExplainFindByClientKey is the query plan of FindByClientKey for q.
+func (s *Store) ExplainFindByClientKey(q ClientKeyQuery) ([]string, error) {
 	sql, args := q.findSQL()
 	return s.explain(sql, args)
 }
@@ -66,4 +68,32 @@ func SetBetweenListSteps(fn func()) (restore func()) {
 	old := betweenListSteps
 	betweenListSteps = fn
 	return func() { betweenListSteps = old }
+}
+
+// CheckpointTruncate runs PRAGMA wal_checkpoint(TRUNCATE), as the daemon does
+// after it deletes a key (FS-L8), so a test can read what the files hold.
+func (s *Store) CheckpointTruncate() error {
+	var busy, frames, done int
+	if err := s.db.QueryRow(`PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &frames, &done); err != nil {
+		return err
+	}
+	if busy != 0 {
+		return errors.New("wal checkpoint: busy")
+	}
+	return nil
+}
+
+// SetCancelTombCaps lowers the cancel tombstone bounds for a test and
+// returns the function that restores them.
+func SetCancelTombCaps(perSender, total int) (restore func()) {
+	old := cancelTombCaps
+	cancelTombCaps.perSender, cancelTombCaps.total = perSender, total
+	return func() { cancelTombCaps = old }
+}
+
+// CancelTombCount is the number of cancel tombstones stored, expired or not.
+func (s *Store) CancelTombCount() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM cancel_tomb`).Scan(&n)
+	return n, err
 }

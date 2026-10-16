@@ -64,10 +64,10 @@ func newAutoReplyFixture(t *testing.T, cfg AutoReplyConfig, api *fakeOpenAI) *au
 
 	req := newTestDaemon(t, hub.URL, false)
 	prov := newTestDaemon(t, hub.URL, true)
-	if err := req.RegisterWithHub(ctx, hub.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, hub.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, hub.URL, "Vision Bot", []string{"vision"}, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, hub.URL, "Vision Bot", []string{"vision"}); err != nil {
 		t.Fatal(err)
 	}
 	// Re-stop the relay loops HubRegister restarted; the test polls explicitly.
@@ -80,7 +80,11 @@ func newAutoReplyFixture(t *testing.T, cfg AutoReplyConfig, api *fakeOpenAI) *au
 		d.mu.Unlock()
 	}
 
-	cfg.APIBase = apiSrv.URL + "/v1"
+	// The fake service is the openai backend's and a chat agent's model service. A sandboxed claude speaks
+	// only the Anthropic API, and any other api_base would be refused (LEC UP-2): it is given none.
+	if cfg.Backend != "exec" || cfg.Agent != agentClaude {
+		cfg.APIBase = apiSrv.URL + "/v1"
+	}
 	replier, err := newAutoReplier(cfg, prov.layout)
 	if err != nil {
 		t.Fatal(err)
@@ -275,6 +279,9 @@ func TestAutoReplyCapProposesEnd(t *testing.T) {
 		t.Fatalf("want 1 backend call, got %d", got)
 	}
 	// Peer sends again; we are at the cap → propose end, no new backend call.
+	// It hears from its hub first that the delegation arrived: a follow-up
+	// goes only once it did (engine ENG-O2).
+	askHubNow(t, f.req)
 	if err := f.req.SendMessage(f.ctx, id, "q2", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +474,7 @@ func TestExecRunsOnlyForTrustedPeers(t *testing.T) {
 		}
 	}
 	// Taken off the trust list, the peer stops reaching the agent at the next turn.
-	if err := os.WriteFile(f.prov.peerFile(f.prov.config().inbound().TrustFile), nil, 0o600); err != nil {
+	if err := os.WriteFile(f.prov.peerFile(peersTrustFile), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.req.SendMessage(f.ctx, id, "again", nil); err != nil {

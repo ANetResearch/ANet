@@ -6,9 +6,13 @@ on:
   # The joint job below runs only when asked; see there.
   workflow_dispatch:
 
-# The Go jobs build exactly what go.mod names (ANetCore v0.15.0). The
-# workspace bridge used while v0.15.0 was untagged (.github/actions/anetcore,
-# A2A-DESIGN §18) was removed when go.mod moved to the tag.
+# The Go jobs build exactly what go.mod names. Until the release, go.mod
+# names an ANetCore release candidate (v0.16.0-rc.N) that is not on the
+# module proxy: the same steps run locally in a Go workspace with ANetCore
+# checked out beside this repository, and here once go.mod names the
+# published v0.16.0. The workspace bridge used while v0.15.0 was untagged
+# (.github/actions/anetcore, A2A-DESIGN §18) was removed when go.mod moved
+# to that tag.
 #
 # Jobs that build the hub check ANetHub out at a pinned ref [C37]: v0.2.1,
 # the wire-2 hub released with anet 0.2.1 (a patch of v0.2.0, the same wire).
@@ -33,6 +37,20 @@ jobs:
         run: go vet ./...
       - name: tests
         run: go test ./...
+      # SI-38 at run time: TestDaemonNeverOpensRecoveryFile watches every
+      # open of the recovery files with inotify, which only Linux has, and
+      # skips that half elsewhere. This job runs on Linux, so here a skip is
+      # a failure, and the run-time half must have passed.
+      - name: the daemon opens no recovery file, watched at run time
+        shell: bash
+        run: |
+          go test -count=1 -v -run '^TestDaemonNeverOpensRecoveryFile$' ./internal/daemon/ | tee /tmp/recoveryscope.out
+          if grep -- '--- SKIP' /tmp/recoveryscope.out; then
+            echo "a recovery file test skipped; here that is a failure" >&2
+            exit 1
+          fi
+          grep -q -- '--- PASS: TestDaemonNeverOpensRecoveryFile/run_time' /tmp/recoveryscope.out \
+            || { echo "the run-time recovery file check did not run" >&2; exit 1; }
       # SI-8: the kernel and the MCP server never depend on the A2A SDK,
       # whatever module/a2a does with it. On the import graph, not on a
       # binary, and in the no_a2a build too.
@@ -56,18 +74,16 @@ jobs:
         # test binary (CONTRIBUTING.md, build.sh).
         run: |
           go test -race -timeout 45m ./...
-          go test -race -tags shell,taskboard ./module/shell/... ./module/taskboard/... ./cmd/anet/...
+          go test -race -tags shell ./module/shell/... ./cmd/anet/...
 
   # The opt-in tags, which are checked the other way round.
   #
   # Every module in the matrix below is in by default and subtracted with
-  # `no_<name>`. `shell` and `taskboard` are the exceptions. shell executes
-  # commands on the machine hosting the daemon; taskboard is the client for
-  # a board that keeps callers' titles and notes in the clear and shows
-  # them to anyone, which the default hub no longer builds (A2A-DESIGN §9,
-  # §16). For both, the default build must not contain them and a build
-  # must ask. That inverts the assertion — the DEFAULT binary is the one
-  # whose symbol count has to be zero — and inverts what a mistake costs. A
+  # `no_<name>`. `shell` is the exception: it executes commands on the
+  # machine hosting the daemon (A2A-DESIGN §16), so the default build must
+  # not contain it and a build must ask. That inverts the assertion — the
+  # DEFAULT binary is the one whose symbol count has to be zero — and
+  # inverts what a mistake costs. A
   # broken subtractive tag ships a module somebody wanted removed; a broken
   # opt-in tag ships the module to everybody who never asked for it, which
   # is why it is a separate job rather than another row in the matrix.
@@ -78,7 +94,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tag: ["shell", "taskboard"]
+        tag: ["shell"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -180,6 +196,168 @@ jobs:
   # user namespaces — so everywhere else "fails closed in both directions"
   # has never actually run. Here a skip is a failure.
   #
+  # Who is on the other end of a Unix socket (internal/peercred, LEC PC-1):
+  # the tests that put a second account there — root listening on a socket
+  # file this user owns (J10: refused, then accepted with peer_check
+  # "path-only"), another user connecting to anetpeer's daemon socket — on
+  # Linux (SO_PEERCRED) and macOS (LOCAL_PEERCRED). The hosted runners have
+  # passwordless sudo and python3; ANET_TEST_SUDO=1 makes the tests use
+  # them, and a skip here is a failure.
+  peercred:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    env:
+      CGO_ENABLED: "0"
+      ANET_TEST_SUDO: "1"
+      # The tests make their sockets under t.TempDir(). macOS's own TMPDIR
+      # (/var/folders/…/T/) plus a test's name passes the 104 bytes a socket
+      # path may have there, and every bind would fail.
+      TMPDIR: /tmp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: another account on the far end of a socket, none skipped
+        shell: bash
+        run: |
+          go test -count=1 -v -run 'AnotherAccount|ThatIsNotTheExpectedUser|PlatformThatCannotTell|NothingDials|SessionWriteHasADeadline' \
+            ./internal/peercred/ ./internal/backendconn/ ./tools/anetpeer/ ./module/p2p/ | tee /tmp/peercred.out
+          if grep -- '--- SKIP' /tmp/peercred.out; then
+            echo "a peercred test skipped; here that is a failure" >&2
+            exit 1
+          fi
+          for t in TestOfReportsAListenerOfAnotherAccount TestOfReportsAClientOfAnotherAccount \
+                   TestAListenerOfAnotherAccountIsRefusedUnlessPathOnly TestADaemonSocketConnectionOfAnotherAccountIsClosed; do
+            grep -q -- "--- PASS: $t" /tmp/peercred.out || { echo "$t did not run" >&2; exit 1; }
+          done
+
+  # The macOS sandbox (Seatbelt, LEC §4.3.8 MS-7): the self-check's five
+  # items, the agent confined in the real sandbox, the keychain out of its
+  # reach (a cgo helper looks up the security daemon's Mach service from
+  # inside), what Seatbelt allows by default refused, what the agent leaves
+  # in its process group ended with the run, and the profile vector. A release gate: a skip here is a failure, and
+  # each test's PASS line is required, so a -run pattern that matched
+  # nothing cannot pass. TMPDIR is short for the Unix socket the
+  # confinement test puts in its data directory (104 bytes at most here).
+  seatbelt:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+    runs-on: ${{ matrix.os }}
+    env:
+      CGO_ENABLED: "0"
+      TMPDIR: /tmp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # J8's subset runs the real claude in the sandbox against a scripted model service on this host
+      # (TestSeatbeltClaudeCompletesATask); nothing reaches a real model service.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: the claude CLI
+        shell: bash
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.295
+          echo "ANET_TEST_CLAUDE=$(command -v claude)" >> "$GITHUB_ENV"
+      - name: the Seatbelt sandbox on this Mac, none skipped
+        shell: bash
+        run: |
+          go test -count=1 -v -timeout 30m -run 'Seatbelt|Darwin' ./internal/daemon/ | tee /tmp/seatbelt.out
+          if grep -- '--- SKIP' /tmp/seatbelt.out; then
+            echo "a Seatbelt test skipped; here that is a failure" >&2
+            exit 1
+          fi
+          for t in TestSeatbeltProbeFiveItems TestSeatbeltIntegrationConfinesTheAgent \
+                   TestSeatbeltIntegrationReachesTheModelOnlyThroughTheNode TestSeatbeltIntegrationHoldsNoSecret \
+                   TestSeatbeltKeychainIsOutOfReach TestSeatbeltEndsWhatTheAgentLeftInItsGroup \
+                   TestSeatbeltRefusesWhatItWouldAllowByDefault \
+                   TestSeatbeltProfileGolden TestSeatbeltMachServicesAvoidForbiddenNames TestSeatbeltExecSystemIsReadable \
+                   TestSeatbeltLaunchRunsTheAgentThroughTheKeyedEndpoint TestDarwinAgentConfigsCarryTheKeyedRoute \
+                   TestSeatbeltClaudeCompletesATask TestSeatbeltPythonRuntimeOutsideTheExecutableSystem \
+                   TestSeatbeltLaunchShowsAPythonEnvironment; do
+            grep -q -- "--- PASS: $t" /tmp/seatbelt.out || { echo "$t did not run" >&2; exit 1; }
+          done
+      - name: init, the keyed egress endpoint and doctor on macOS
+        run: go test -count=1 -run 'SandboxInit|SandboxSpec|EgressKeyed|EgressUnkeyed|SandboxEgressEnv|Doctor' ./internal/daemon/ ./cmd/anet/
+      - name: the agents' configurations and command lines on macOS
+        run: go test -count=1 -run 'UpstreamCombinationsFailClosed|SystemPromptStartingWithADash|AgentSandbox|AgentCommandLines|EgressUpstream|UnsupportedAgentsFailClosed' ./internal/daemon/
+
+  # The platforms the release builds for, and one it does not: peercred is
+  # read on Linux, macOS and FreeBSD, and on OpenBSD everything builds and
+  # every Unix socket backend fails closed (peer_cred_unsupported).
+  cross:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build and vet for darwin, freebsd and openbsd
+        run: |
+          for os in darwin freebsd openbsd; do
+            echo "== $os"
+            GOOS=$os go build ./...
+            GOOS=$os go vet ./internal/peercred/... ./internal/backendconn/ ./tools/anetpeer/ ./module/p2p/
+            GOOS=$os go test -c -o /dev/null ./internal/peercred
+            GOOS=$os go test -c -o /dev/null ./internal/backendconn
+            GOOS=$os go vet ./internal/daemon/ ./cmd/anet/
+            GOOS=$os go test -c -o /dev/null ./internal/daemon
+          done
+
+  # C1-1 across the two repositories: the C1 v1 golden vectors in
+  # provider/anetlink/testdata/c1v1 are byte for byte ANetLink's, at the
+  # ANetLink release that ANETLINK_REF names. anet and ANetLink are built on
+  # different ANetCore versions, and each encodes and decodes these bytes
+  # with its own (provider/anetlink/golden_test.go here, northbound/c1serv
+  # there); this job holds the two copies equal. A difference is never fixed
+  # by copying one side over the other: it is a wire change, made in both
+  # repositories, and ANETLINK_REF moves with it.
+  c1-golden-xrepo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: the ANetLink release the vectors come from
+        id: ref
+        run: echo "ref=$(head -n 1 provider/anetlink/testdata/c1v1/ANETLINK_REF)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ANetResearch/ANetLink
+          ref: ${{ steps.ref.outputs.ref }}
+          path: .anetlink
+      - name: the two copies are the same files, byte for byte
+        shell: bash
+        run: |
+          set -euo pipefail
+          ours=provider/anetlink/testdata/c1v1
+          theirs=.anetlink/northbound/c1serv/testdata/c1v1
+          (cd "$ours" && sha256sum -c --quiet SHA256SUMS)
+          (cd "$theirs" && sha256sum -c --quiet SHA256SUMS)
+          diff <(cd "$ours" && ls | grep -vx ANETLINK_REF) <(cd "$theirs" && ls)
+          for f in "$theirs"/*; do cmp "$f" "$ours/$(basename "$f")"; done
+          echo "C1-1: $(ls "$theirs" | wc -l) files, the same in both repositories"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: each side's Go test, the cross-repository one not skipped
+        shell: bash
+        run: |
+          ANETLINK_DIR="$PWD/.anetlink" go test -count=1 -v -run 'C1Golden|StrictDecoderIsANetLinks' ./provider/anetlink/ | tee /tmp/c1golden.out
+          if grep -- '--- SKIP' /tmp/c1golden.out; then
+            echo "a C1-1 test skipped; here that is a failure" >&2
+            exit 1
+          fi
+          grep -q -- '--- PASS: TestC1GoldenIsANetLinks' /tmp/c1golden.out || { echo "TestC1GoldenIsANetLinks did not run" >&2; exit 1; }
+
   # continue-on-error until it has run green on the hosted runners once:
   # whether their kernel lets bwrap make namespaces after the sysctl is a
   # property of the runner image, not of this tree.

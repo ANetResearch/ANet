@@ -56,9 +56,7 @@ func TestRedteamSI10_AttachmentWriteFailureLeavesTheMessageForRedelivery(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
-	}
+	confirmDelegation(t, req, prov) // the follow-up goes once it is confirmed (engine ENG-O2)
 	path := filepath.Join(t.TempDir(), "contract.pdf")
 	if err := os.WriteFile(path, []byte("%PDF-1.4 the only copy of the contract"), 0o600); err != nil {
 		t.Fatal(err)

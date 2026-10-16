@@ -25,7 +25,7 @@ func (h moduleHost) SignProxyCard(card []byte) ([]byte, error) {
 	if err := checkProxyCard(card); err != nil {
 		return nil, err
 	}
-	return a2acard.SignWithController(card, h.d.self, "")
+	return a2acard.SignWithSnapshot(card, h.d.self.Snapshot(), "")
 }
 
 var _ module.ProxyCardSigner = moduleHost{}

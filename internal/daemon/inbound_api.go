@@ -3,6 +3,12 @@ package daemon
 // inbound_api.go holds the control-plane handlers of the inbound policy and
 // the peer lists (A2A-DESIGN §5). All of them are bearer-only routes.
 //
+// A peer list edit withdraws the delivery credentials it takes away from
+// the peer (sealed-sender §4.3.8 item 1) after the list file is written and
+// before the route answers: the operator who removed or denied a peer is
+// told once the change is in force. A stop between the two is made good at
+// the next start (reconcileCapsWithLists).
+//
 // The routes that grant (peers/allow, peers/trust, inbound/approve) do not
 // themselves require a TTY: the daemon cannot tell how its caller obtained
 // the control token. The CLI commands that call them read a confirmation
@@ -15,6 +21,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // errAcceptOn is the answer to the wire-1 "accept on" switch.
@@ -37,11 +45,6 @@ func readAID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return strings.TrimSpace(req.AID), true
 }
 
-// hPeersList reports the inbound policy and the three peer lists.
-func (d *Daemon) hPeersList(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, d.InboundStatus())
-}
-
 func (d *Daemon) hPeersAllow(w http.ResponseWriter, r *http.Request) { d.peersGrant(w, r, ListAllow) }
 func (d *Daemon) hPeersTrust(w http.ResponseWriter, r *http.Request) { d.peersGrant(w, r, ListTrust) }
 
@@ -55,6 +58,10 @@ func (d *Daemon) peersGrant(w http.ResponseWriter, r *http.Request, list string)
 	res, err := d.AllowPeer(ctx, aid, list)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := d.withdrawAfterListEdit(aid, listEditAllow); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -72,6 +79,10 @@ func (d *Daemon) hPeersDeny(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	if err := d.withdrawAfterListEdit(aid, listEditDeny); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -83,6 +94,10 @@ func (d *Daemon) hPeersRemove(w http.ResponseWriter, r *http.Request) {
 	res, err := d.RemovePeer(aid)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := d.withdrawAfterListEdit(aid, listEditRemove); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
@@ -102,17 +117,29 @@ func (d *Daemon) hInboundPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Policy != "" {
 		if err := d.SetInboundPolicy(strings.TrimSpace(req.Policy)); err != nil {
-			writeJSON(w, policyErrorCode(err), map[string]string{"error": err.Error()})
+			writePolicyError(w, err)
 			return
 		}
 	}
 	if req.PublicCapabilities != nil {
 		if err := d.SetPublicCapabilities(*req.PublicCapabilities); err != nil {
-			writeJSON(w, policyErrorCode(err), map[string]string{"error": err.Error()})
+			writePolicyError(w, err)
 			return
 		}
 	}
 	writeJSON(w, http.StatusOK, d.InboundStatus())
+}
+
+// writePolicyError answers a refused inbound write: a value the daemon
+// would not start with is config_invalid, 409, in the reason table's
+// words (CUX §2.10); a conflict with the backends 409; anything else 400.
+func writePolicyError(w http.ResponseWriter, err error) {
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		writeRefusal(w, http.StatusConflict, ref)
+		return
+	}
+	writeJSON(w, policyErrorCode(err), map[string]string{"error": err.Error()})
 }
 
 func policyErrorCode(err error) int {
@@ -146,6 +173,12 @@ func (d *Daemon) hInboundApprove(w http.ResponseWriter, r *http.Request) {
 	ix, err := d.ApprovePending(strings.TrimSpace(req.InteractionID))
 	if errors.Is(err, ErrNotPending) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		// key_state.approve (KEL D-25): the reason table's sentence.
+		writeRefusal(w, http.StatusConflict, ref)
 		return
 	}
 	if err != nil {

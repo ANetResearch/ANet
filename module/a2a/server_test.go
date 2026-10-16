@@ -32,6 +32,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
@@ -51,7 +52,7 @@ const (
 type testSigner struct{ c *identity.Controller }
 
 func (s testSigner) SignProxyCard(card []byte) ([]byte, error) {
-	return a2acard.SignWithController(card, s.c, "")
+	return a2acard.SignWithSnapshot(card, s.c, "")
 }
 
 type env struct {
@@ -64,7 +65,7 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	ctl, err := identity.Incept()
+	ctl, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,8 +544,13 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+// publicPricingURI is the public price list of 0.2 (anet-pricing/v1). A
+// 0.3.0 card does not carry it; a remote card that still does has it left
+// out of the proxy card.
+const publicPricingURI = "https://agentnetwork.org.cn/a2a/ext/anet-pricing/v1"
+
 // verifiedRemote is a network card for agent A that this node verified,
-// declaring a2a-x402 and anet-pricing.
+// declaring a2a-x402 and, as a 0.2 card did, anet-pricing.
 func verifiedRemote(aid string) module.RemoteAgent {
 	card := map[string]any{
 		"name": "Echo", "description": "Echoes things.", "version": "1.2.0",
@@ -552,7 +558,7 @@ func verifiedRemote(aid string) module.RemoteAgent {
 			"protocolVersion": "1.0", "tenant": aid}},
 		"capabilities": map[string]any{"streaming": false, "pushNotifications": false, "extensions": []any{
 			map[string]any{"uri": a2ashape.X402ExtensionURI, "required": true},
-			map[string]any{"uri": extPricingURI, "params": map[string]any{"network": "hub:x", "prices": []any{
+			map[string]any{"uri": publicPricingURI, "params": map[string]any{"network": "hub:x", "prices": []any{
 				map[string]any{"skillId": "text.stats", "amount": "5"}}, "empty": ""}},
 			map[string]any{"uri": a2acard.ExtCardURI, "params": map[string]any{"aid": aid, "seq": "1"}},
 		}},
@@ -598,8 +604,12 @@ func TestProxyCard(t *testing.T) {
 	if _, ok := uris[a2acard.ExtCardURI]; ok {
 		t.Fatal("the remote's anet-card extension was copied into the proxy card")
 	}
-	if p, ok := uris[extPricingURI]; !ok || p.Params["network"] != "hub:x" || p.Params["empty"] != nil {
-		t.Fatalf("anet-pricing: %+v", p)
+	// No price is passed on: the remote's says only that it takes payment.
+	if p, ok := uris[publicPricingURI]; ok {
+		t.Fatalf("the remote's public price list was copied into the proxy card: %+v", p)
+	}
+	if strings.Contains(string(raw), `"prices"`) || strings.Contains(string(raw), "hub:x") {
+		t.Fatalf("the proxy card carries the remote's prices: %s", raw)
 	}
 	origin := uris[ExtOriginURI].Params
 	if origin["aid"] != agentA || origin["originVerification"] != verified {
@@ -727,7 +737,7 @@ func TestAgentList(t *testing.T) {
 	}
 	base := "http://127.0.0.1:" + e.port + agentsPath + "/" + agentB
 	want := agentEntry{AID: agentB, URL: base, CardURL: base + "/.well-known/agent-card.json",
-		Verification: unverified, VerificationError: "INVALID_SIGNATURE", Official: true}
+		Verification: unverified, VerificationError: "INVALID_SIGNATURE", Official: true, KeyState: "stale"}
 	if got := out.Agents[1]; got != want {
 		t.Fatalf("unverified entry %+v, want %+v", got, want)
 	}
@@ -1087,11 +1097,12 @@ func TestStreamOfARefusedPayment(t *testing.T) {
 	}
 }
 
-// §8.7: a quote above the automatic tier waits with anet.reason
-// needs_operator_approval; a client that did not activate a2a-x402 is told
-// payment_extension_not_activated instead, on every operation, because it
-// cannot answer the quote itself. The request decides, not the task.
-func TestPaymentReasonDependsOnTheExtension(t *testing.T) {
+// HPP PAY-D9 (M-PAY-49): a task that waits on a payment decision says the
+// same to every client — anet.reason, status.message and the payment
+// sentence — whether or not it activated a2a-x402; what one client asked
+// for changes nothing in what it is told about the task. The standard
+// A2A-Extensions header alone says whether the extension was activated.
+func TestThePaymentSentenceDoesNotDependOnTheExtension(t *testing.T) {
 	e := newEnv(t)
 	e.seam.quote = map[string]any{"x402Version": 2, "accepts": []any{map[string]any{"amount": "5"}}}
 	hdr := func(activate bool) map[string]string {
@@ -1105,13 +1116,15 @@ func TestPaymentReasonDependsOnTheExtension(t *testing.T) {
 		Result struct {
 			Task struct {
 				ID       string         `json:"id"`
+				Status   any            `json:"status"`
 				Metadata map[string]any `json:"metadata"`
 			} `json:"task"`
 			ID       string         `json:"id"`
+			Status   any            `json:"status"`
 			Metadata map[string]any `json:"metadata"`
 		} `json:"result"`
 	}
-	call := func(activate bool, body string) (string, any) {
+	call := func(activate bool, body string) (string, any, string) {
 		t.Helper()
 		resp, raw := e.raw("POST", agentsPath+"/"+agentA+"/jsonrpc", hdr(activate), body)
 		var out rpcTask
@@ -1119,32 +1132,29 @@ func TestPaymentReasonDependsOnTheExtension(t *testing.T) {
 			t.Fatalf("%d %s", resp.StatusCode, raw)
 		}
 		if out.Result.Task.ID != "" { // SendMessage wraps the task
-			return out.Result.Task.ID, out.Result.Task.Metadata[a2ashape.KeyReason]
+			st, _ := json.Marshal(out.Result.Task.Status)
+			return out.Result.Task.ID, out.Result.Task.Metadata[a2ashape.KeyReason], string(st)
 		}
-		return out.Result.ID, out.Result.Metadata[a2ashape.KeyReason]
+		st, _ := json.Marshal(out.Result.Status)
+		return out.Result.ID, out.Result.Metadata[a2ashape.KeyReason], string(st)
 	}
 	send := `{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"m%d","role":"ROLE_USER","parts":[{"text":"paid work"}]}}}`
-	id, reason := call(false, fmt.Sprintf(send, 1))
-	if reason != x402a2a.ReasonExtensionNotActivated {
+	id, reason, _ := call(false, fmt.Sprintf(send, 1))
+	if reason != x402a2a.ReasonNeedsOperatorApproval {
 		t.Fatalf("send without the extension: reason %v", reason)
 	}
-	if _, reason = call(true, fmt.Sprintf(send, 2)); reason != x402a2a.ReasonNeedsOperatorApproval {
+	if _, reason, _ = call(true, fmt.Sprintf(send, 2)); reason != x402a2a.ReasonNeedsOperatorApproval {
 		t.Fatalf("send with the extension: reason %v", reason)
 	}
 	get := `{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"` + id + `"}}`
-	if _, reason = call(false, get); reason != x402a2a.ReasonExtensionNotActivated {
-		t.Fatalf("get without the extension: reason %v", reason)
-	}
-	if _, reason = call(true, get); reason != x402a2a.ReasonNeedsOperatorApproval {
-		t.Fatalf("get with the extension: reason %v", reason)
-	}
-	// The kernel's task is not changed by what one client was told.
-	if tk, _ := e.seam.Get(context.Background(), agentA, id, nil); tk.Metadata[a2ashape.KeyReason] != x402a2a.ReasonNeedsOperatorApproval {
-		t.Fatalf("the kernel's task now says %v", tk.Metadata[a2ashape.KeyReason])
+	_, without, statusWithout := call(false, get)
+	_, with, statusWith := call(true, get)
+	if without != x402a2a.ReasonNeedsOperatorApproval || with != without || statusWith != statusWithout {
+		t.Fatalf("get: reason %v / %v, status %s / %s", without, with, statusWithout, statusWith)
 	}
 	// A task that waits for nothing is left alone.
 	e.seam.quote = nil
-	if _, reason = call(false, fmt.Sprintf(send, 3)); reason != nil {
+	if _, reason, _ = call(false, fmt.Sprintf(send, 3)); reason != nil {
 		t.Fatalf("an unpriced task: reason %v", reason)
 	}
 }
@@ -1210,5 +1220,82 @@ func TestAHeldPaymentIsTheTask(t *testing.T) {
 				t.Fatal("a held payment reached a decision")
 			}
 		})
+	}
+}
+
+// UX-T1 for ux D1 at the local A2A interface (HPP PAY-D9, SI-79): for every
+// sentence a payment decision leaves a quote to a person with, a client that
+// activated a2a-x402 and one that did not read the same anet.reason, the
+// same status.message and the same anet.payment_note — the kernel's, word
+// for word what the CLI's payment line and MCP show.
+func TestEveryD1SentenceReachesBothClientsAlike(t *testing.T) {
+	five := uint64(5)
+	n := 0
+	for _, r := range a2ashape.Rows() {
+		key := r.Key()
+		if !a2ashape.PayNoteWaits(key) || key == "module_absent.payment" {
+			continue
+		}
+		n++
+		note := a2ashape.PayNote{Code: key, Amount: 12, Price: &five, Tier: "auto", Single: 10, Left: 44,
+			Key: "explicit_max", Value: &five, Why: "timeout", Peer: agentA, Task: "ix_1"}
+		sentence := a2ashape.PaymentNote(note, a2ashape.Lang())
+		e := newEnv(t)
+		e.seam.quote = map[string]any{"x402Version": 2, "accepts": []any{map[string]any{"amount": "12"}}}
+		e.seam.quoteReason, e.seam.quoteNote = a2ashape.ReasonCode(key), sentence
+		// call answers one JSON-RPC request with or without a2a-x402
+		// activated and checks the task it returns says the decision.
+		call := func(activate bool, body string) (string, string) {
+			t.Helper()
+			h := map[string]string{"Authorization": "Bearer " + testToken, "Content-Type": "application/json"}
+			if activate {
+				h["A2A-Extensions"] = a2ashape.X402ExtensionURI
+			}
+			resp, raw := e.raw("POST", agentsPath+"/"+agentA+"/jsonrpc", h, body)
+			var out struct {
+				Result json.RawMessage `json:"result"`
+			}
+			if resp.StatusCode != 200 || json.Unmarshal(raw, &out) != nil {
+				t.Fatalf("%s: %d %s", key, resp.StatusCode, raw)
+			}
+			var wrapped struct {
+				Task json.RawMessage `json:"task"`
+			}
+			taskRaw := out.Result
+			if json.Unmarshal(out.Result, &wrapped) == nil && len(wrapped.Task) > 0 {
+				taskRaw = wrapped.Task
+			}
+			var task struct {
+				ID     string `json:"id"`
+				Status struct {
+					Message struct {
+						Parts    []struct{ Text string } `json:"parts"`
+						Metadata map[string]any          `json:"metadata"`
+					} `json:"message"`
+				} `json:"status"`
+				Metadata map[string]any `json:"metadata"`
+			}
+			if err := json.Unmarshal(taskRaw, &task); err != nil {
+				t.Fatal(err)
+			}
+			m := task.Status.Message
+			if len(m.Parts) != 1 || m.Parts[0].Text != sentence || task.Metadata[a2ashape.KeyPaymentNote] != sentence ||
+				task.Metadata[a2ashape.KeyReason] != a2ashape.ReasonCode(key) || m.Metadata[a2ashape.KeyReason] != a2ashape.ReasonCode(key) {
+				t.Fatalf("%s (activated %v): %s", key, activate, taskRaw)
+			}
+			return task.ID, string(taskRaw)
+		}
+		send := `{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{"message":{"messageId":"m%d","role":"ROLE_USER","parts":[{"text":"paid work"}]}}}`
+		id, _ := call(false, fmt.Sprintf(send, 1))
+		call(true, fmt.Sprintf(send, 2))
+		get := `{"jsonrpc":"2.0","id":1,"method":"GetTask","params":{"id":"` + id + `"}}`
+		_, without := call(false, get)
+		_, with := call(true, get)
+		if without != with {
+			t.Errorf("%s: the two clients were told different tasks:\n%s\n%s", key, without, with)
+		}
+	}
+	if n < 7 {
+		t.Fatalf("only %d sentences of ux D1", n)
 	}
 }

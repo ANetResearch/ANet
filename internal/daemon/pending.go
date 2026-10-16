@@ -21,7 +21,7 @@ package daemon
 // rotation grace. An approved item becomes an interaction with
 // trust=approved and follows the ordinary execution path.
 //
-// A held item that is not decided within ttl_hours expires and the
+// A held item that is not decided within 72 hours (pendingTTL) expires and the
 // requester is told status{rejected, anet.reason=pending_expired}.
 
 import (
@@ -30,7 +30,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/delegation"
@@ -38,6 +37,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
@@ -61,7 +61,6 @@ var ErrNotPending = errors.New("anet: no held delegation with that id")
 
 // holdDelegate is step 10 for a delegation the approve policy holds.
 func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
-	in := d.config().inbound()
 	requestCID, err := anetcid.Sum(m.tdBytes)
 	if err != nil {
 		return d.drop(dropBadTaskDoc, err)
@@ -86,15 +85,22 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 	}
 	capID, _, _ := capabilityCall(m.td)
 	item := interactions.PendingItem{
-		IX: m.ix, FromAID: m.from, ArrivedAt: int64(d.nowMS()), MsgTS: m.ts, KeyState: m.ksn,
+		// Its arrival (KEL D-20) is kept: an approval judges the sender's
+		// key state at it (KEL D-25, engine §4.7 item 8).
+		IX: m.ix, FromAID: m.from, ArrivedAt: int64(m.arrival), MsgTS: m.ts, KeyState: m.keySeq,
 		Capability: capID, RequestCID: requestCID, Bytes: int64(len(m.body)),
 		Delegate: delegateBytes, KEL: kelBytes, Keys: keys, ContextID: m.dr.ContextID, Attachments: atts,
 		MsgID: wireMsgID("", m.mid),
+		// The rk it carried waits with it: an approval records it on the
+		// task (FS-R4). No key of this node's is made for a held task: one
+		// is made only if it is approved (FS-X2).
+		PeerRK: m.rk,
 	}
 	res := d.commitRx(m, func(tx *interactions.Tx) error {
-		if err := tx.PutPending(item, in.Pending.MaxTotal, in.Pending.MaxPerPeer); err != nil {
+		if err := tx.PutPending(item, pendingMaxTotal, pendingMaxPerPeer); err != nil {
 			if errors.Is(err, interactions.ErrPendingFull) {
-				return rxPermanent(dropRefusedPrefix+reasonPendingFull, err)
+				return &rxPermanentErr{reason: dropRefusedPrefix + reasonPendingFull, err: err,
+					note: refusalNote(reasonPendingFull, 0, d.nowMS())}
 			}
 			return err
 		}
@@ -102,15 +108,16 @@ func (d *Daemon) holdDelegate(m *rxMsg) rxResult {
 	})
 	switch {
 	case res.class == rxAccepted:
-		d.sendNoticeStatus(m, delegation.StateSubmitted, "this node holds the task for its operator's approval",
-			map[string]any{"anet.inbound": "pending_approval"})
-	case res.reason == dropRefusedPrefix+reasonPendingFull:
-		if r := d.recordRefusal(m); r != nil {
-			return *r
+		// The requester hears that its task waits for approval, through the
+		// queue and only under a credential it gave (engine ENG-Q7).
+		if body, err := noticeBodyMeta(delegation.StateSubmitted, "this node holds the task for its operator's approval",
+			map[string]any{"anet.inbound": "pending_approval"}, d.nowMS()); err == nil {
+			d.queueNotice(m.from, m.ix, rowKindPendingApproval, body)
 		}
-		d.noteRefusedEnvelope(m)
+	case res.reason == dropRefusedPrefix+reasonPendingFull:
+		// Refused: told in its token (pending_full) once step 11 has
+		// recorded it (engine §4.5 row 1).
 		d.noteRefused(m.from, m.ix, m.typ, reasonPendingFull, capID)
-		d.replyRejected(m, reasonPendingFull, 0)
 	}
 	return res
 }
@@ -132,7 +139,7 @@ func (d *Daemon) routePendingMessage(m *rxMsg) rxResult {
 	return d.commitRx(m, func(tx *interactions.Tx) error {
 		err := tx.AppendPendingFollowup(m.ix, f, pendingFollowupsMax)
 		if errors.Is(err, interactions.ErrPendingFollowupsFull) {
-			return rxPermanent("pending-followups-full", err)
+			return rxPermanent(dropPendingFollowupsFull, err)
 		}
 		return err
 	})
@@ -144,7 +151,7 @@ func (d *Daemon) PendingList() ([]PendingView, error) {
 	if err != nil {
 		return nil, err
 	}
-	ttl := int64(d.config().inbound().Pending.TTLHours) * 3600 * 1000
+	ttl := pendingTTL.Milliseconds()
 	out := make([]PendingView, 0, len(items))
 	for _, p := range items {
 		out = append(out, PendingView{
@@ -176,6 +183,16 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 		return nil, fmt.Errorf("anet: %s is from %s, which is on the deny list; not approved", ixID, item.FromAID)
 	}
 	dr, td, tdBytes, kel, keys, err := d.reverifyPending(item)
+	if errors.Is(err, errHeldKeyState) {
+		// The task may not be the sender's (KEL D-25): refused and
+		// removed, and the sender is told nothing — the real sender ended
+		// it when it rotated (E1).
+		if _, derr := d.ix.DeletePending(ixID); derr != nil {
+			return nil, derr
+		}
+		d.recordPolicyChange("inbound.pending", ixID, "rejected", map[string]any{"requester_aid": item.FromAID, "reason": "key_state"})
+		return nil, a2ashape.Refuse(keyStateApprove, nil)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("anet: %s no longer verifies, not approved: %w", ixID, err)
 	}
@@ -189,11 +206,20 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 	}
 	capID, _, isCap := capabilityCall(td)
 	goal := delegation.TaskGoal(td)
+	// E_p, stored with the task the approval makes (FS-X2); the rk the held
+	// delegation carried becomes the task's peer_rk in the same transaction
+	// (FS-R4).
+	ep, err := newOwnIXKey(ixID, item.FromAID)
+	if err != nil {
+		return nil, err
+	}
+	defer wipeIXKey(ep)
 	var goalSeq int64
 	var held []heldMessage
 	err = d.ix.Update(func(tx *interactions.Tx) error {
 		held = held[:0]
-		ok, err := tx.DeletePending(ixID)
+		// The held item's data key becomes the interaction's (FS-L1).
+		ok, err := tx.TakePending(ixID)
 		if err != nil {
 			return err
 		}
@@ -207,7 +233,11 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 		}
 		if err := tx.Create(interactions.New{ID: ixID, Role: interactions.RoleInbound, PeerAID: item.FromAID,
 			Goal: goal, RequestCID: requestCID, RequestDoc: tdBytes, ContextID: item.ContextID,
-			Trust: interactions.TrustApproved, IsCapability: isCap, TaskNonce: taskNonce(td)}); err != nil {
+			Trust: interactions.TrustApproved, IsCapability: isCap, TaskNonce: taskNonce(td),
+			PeerRK: item.PeerRK}); err != nil {
+			return err
+		}
+		if err := putOwnIXKeyTx(tx, ep); err != nil {
 			return err
 		}
 		// Under the delegation's envelope id and with the requester's
@@ -244,7 +274,7 @@ func (d *Daemon) ApprovePending(ixID string) (*interactions.Interaction, error) 
 	d.publishState(ixID)
 	if isCap {
 		_, args, _ := capabilityCall(td)
-		d.goBackground(func() { d.runCapabilityCall(ixID, capID, args, dr.Payment, nil) })
+		d.goBackground(func() { d.runCapabilityCall(ixID, capID, args, nil) })
 	} else {
 		d.kickAutoReply()
 		for _, f := range item.Followups {
@@ -298,8 +328,15 @@ func (d *Daemon) reverifyPending(item *interactions.PendingItem) (*delegation.De
 	if signer != item.FromAID {
 		return nil, nil, nil, nil, nil, fmt.Errorf("TaskDoc signed by %s", signer)
 	}
+	// Both of the sender's signatures — the message's (item.KeyState) and
+	// the TaskDoc's — are judged at the arrival kept with the item, under
+	// the latest KEL this node knows of the sender (KEL D-25).
+	arrival := uint64(max(item.ArrivedAt, 0))
+	if err := keyStateUsable(kel, item.KeyState, arrival); err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
 	if dr.Envelope != nil {
-		if err := d.keyStateUsable(kel, dr.Envelope.KeyStateSeq); err != nil {
+		if err := keyStateUsable(kel, dr.Envelope.KeyStateSeq, arrival); err != nil {
 			return nil, nil, nil, nil, nil, err
 		}
 	}
@@ -314,27 +351,35 @@ func (d *Daemon) reverifyPending(item *interactions.PendingItem) (*delegation.De
 	return dr, td, tdBytes, kel, keys, nil
 }
 
-// keyStateUsable applies the key-state rule of §3.6 step 7 at the current
-// time: a signature by the active key state is usable; one by a retired key
-// state only within the rotation grace after its retirement.
-func (d *Daemon) keyStateUsable(kel []identity.SignedEvent, ksn uint64) error {
+// errHeldKeyState is a held delegation whose sender's signing key state
+// is no longer usable at the arrival kept with it (KEL D-25): an emergency
+// rotation or a deactivation replaced it while the task waited.
+var errHeldKeyState = errors.New("the sender's signing key was replaced in an emergency after the task arrived")
+
+// keyStateUsable is KEL D-25: the key state seq of kel — the latest KEL
+// this node knows of the sender — must be usable for something that
+// arrived at arrival (identity.SenderKeyUsable, C-13). A state an
+// emergency rot or a dip replaced never is, whatever arrival says; one a
+// scheduled rotation replaced is when the task arrived within the grace,
+// however long the operator took to approve it. A seq past the KEL is an
+// error of its own; an unusable state is errHeldKeyState.
+func keyStateUsable(kel []identity.SignedEvent, seq, arrival uint64) error {
 	states, err := identity.Replay(kel)
 	if err != nil {
 		return err
 	}
-	if ksn >= uint64(len(states)) {
-		return fmt.Errorf("key state %d beyond the KEL", ksn)
+	if seq >= uint64(len(states)) {
+		return fmt.Errorf("key state %d beyond the KEL", seq)
 	}
-	ks := states[ksn]
-	if ks.Status == identity.StatusActive {
-		return nil
-	}
-	grace := uint64(d.rotationGrace() / time.Millisecond)
-	if now := d.nowMS(); ks.SupersededAt == 0 || (now > ks.SupersededAt && now-ks.SupersededAt > grace) {
-		return fmt.Errorf("signed by key state %d, retired at %d, beyond the rotation grace", ksn, ks.SupersededAt)
+	if !identity.SenderKeyUsable(states[seq], arrival) {
+		return fmt.Errorf("%w (key state %d)", errHeldKeyState, seq)
 	}
 	return nil
 }
+
+// keyStateApprove is the refusal of an approval KEL D-25 turns down: code
+// key_state, the sentence of its approve variant (ux C).
+const keyStateApprove = "key_state.approve"
 
 // RejectPending removes a held delegation and tells the requester
 // status{rejected, anet.reason=operator_rejected}.
@@ -363,7 +408,7 @@ func (d *Daemon) expirePending() { d.expirePendingAt(int64(d.nowMS())) }
 
 // expirePendingAt is expirePending with the current time given (unix ms).
 func (d *Daemon) expirePendingAt(now int64) {
-	ttl := int64(d.config().inbound().Pending.TTLHours) * 3600 * 1000
+	ttl := pendingTTL.Milliseconds()
 	cutoff := now - ttl
 	items, err := d.ix.ExpiredPending(cutoff)
 	if err != nil {
@@ -380,43 +425,17 @@ func (d *Daemon) expirePendingAt(now int64) {
 	}
 }
 
-// tellHeldRequester sends status{rejected} to the requester of a held item,
-// sealed to the key set the delegation carried. It is attempted once and
-// not queued; it goes through the same per-peer and daemon-wide limit as
-// every other refusal.
+// tellHeldRequester tells the requester of a held item that it was not
+// accepted: status{rejected} with anet.reason, queued under a credential the
+// requester gave and within the notice limit (engine ENG-Q1, Q7).
 func (d *Daemon) tellHeldRequester(item *interactions.PendingItem, reason string) {
-	if len(item.Keys) == 0 || !d.notices.allow(item.FromAID, d.nowMS()) {
-		d.count(noticeSuppressed)
-		return
+	kind := rowKindPendingExpired
+	if reason == reasonOperatorRejected {
+		kind = rowKindOperatorReject
 	}
-	kel, err := identity.UnmarshalKEL(item.KEL)
+	body, err := noticeBody(delegation.StateRejected, "this node did not accept the task: "+reason, reason, d.nowMS())
 	if err != nil {
 		return
 	}
-	signed, err := seal.UnmarshalSignedEncKeySet(item.Keys)
-	if err != nil {
-		return
-	}
-	set, err := seal.VerifyEncKeySet(signed, item.FromAID, kel, d.nowMS())
-	if err != nil {
-		return
-	}
-	meta, _ := json.Marshal(map[string]any{"anet.reason": reason})
-	body, err := (&delegation.StatusMsg{State: delegation.StateRejected,
-		Text: "this node did not accept the task: " + reason, Metadata: meta, At: d.nowMS()}).Marshal()
-	if err != nil {
-		return
-	}
-	d.count(noticeSent)
-	d.goBackground(func() {
-		env, err := d.sealWith(item.FromAID, seal.TypeStatus, item.IX, body, set)
-		if err != nil {
-			return
-		}
-		cctx, cancel := context.WithTimeout(d.ctx, hubCallTimeoutShort)
-		defer cancel()
-		if err := d.deliverEnvelope(cctx, item.FromAID, env); err != nil {
-			d.logOnce("notice:"+item.FromAID, "anet: refusal notice to %s not delivered: %v", item.FromAID, err)
-		}
-	})
+	d.queueNotice(item.FromAID, item.IX, kind, body)
 }

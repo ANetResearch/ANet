@@ -1,14 +1,27 @@
-//go:build !linux
+//go:build !linux && !darwin
 
 package daemon
 
-// sandbox_other.go: the §6 sandbox exists only on Linux (bubblewrap). On other platforms every
-// sandboxed run fails closed; A2A-DESIGN §21 item 14 lists non-Linux sandboxes as out of scope.
+// sandbox_other.go: there is a sandbox on Linux (bubblewrap, sandbox_linux.go) and on macOS (Seatbelt,
+// sandbox_darwin.go) only. Everywhere else every sandboxed run fails closed with platform_unsupported
+// (LEC OP-1).
+
+// sandboxCodePlatformUnsupported is the local reason (ux §1.4 H) a sandboxed run is refused with here.
+const sandboxCodePlatformUnsupported = "platform_unsupported"
 
 func (p *sandboxPlan) prepare() error {
-	return sandboxUnavailable("the sandbox is implemented only on Linux (bubblewrap)")
+	return &sandboxProbeError{Code: sandboxCodePlatformUnsupported, Detail: "the sandbox runs only on Linux (bubblewrap) and macOS (Seatbelt)"}
 }
 
-func (p *sandboxPlan) wrap(workDir, bin string, args []string) (string, []string, error) {
-	return "", nil, sandboxUnavailable("the sandbox is implemented only on Linux (bubblewrap)")
+func (p *sandboxPlan) command(workDir string, argv, env []string, stdin []byte) (*sandboxLaunch, error) {
+	return nil, p.prepare()
 }
+
+// sandboxKind: no sandbox runs here.
+const sandboxKind = ""
+
+// sandboxLimits: no sandbox, no limits to report.
+func sandboxLimits() string { return "" }
+
+// removeSandboxLeftovers: no sandbox runs here, so none left anything.
+func removeSandboxLeftovers(string) {}

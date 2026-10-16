@@ -1,0 +1,19 @@
+{
+  "upstream": "openai",
+  "model": "gpt-6-luna",
+  "request": {
+    "method": "POST",
+    "target": "/v1/responses",
+    "body": "{\"input\":\"x\",\"previous_response_id\":\"resp_1\"}"
+  },
+  "refused": {
+    "status": 403,
+    "body": {
+      "error": {
+        "code": "policy_field",
+        "message": "anet: the request field previous_response_id is not allowed in the sandbox.",
+        "type": "invalid_request_error"
+      }
+    }
+  }
+}

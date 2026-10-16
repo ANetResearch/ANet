@@ -10,8 +10,10 @@ package daemon
 // not loopback) obtained full control of the daemon, including local code execution through /autoreply
 // (found in the 2026-09 A2A security survey of the control plane).
 //
-// The page reads public registry data (/graph, /stats, /agents/{aid}) cross-origin from the configured
-// hub, whose CORS is open; the Content-Security-Policy allows exactly that origin in connect-src.
+// The page reads the hub's public statistics (/stats) cross-origin from the configured hub, whose CORS
+// is open; the Content-Security-Policy allows exactly that origin in connect-src. The agents — the list
+// and one agent's card — come through this daemon (/agents/list, /agents/card), which names no agent to
+// the hub (sealed-sender SSR-D17).
 
 import (
 	"bytes"
@@ -103,7 +105,7 @@ func (d *Daemon) consoleHandler() http.HandlerFunc {
 // read the kernel's socket table and must not send the token to a listener it has not verified
 // (internal/localpeer, A2A-DESIGN §7 item 10 [redteam:F18]). The proof is bound to the listener address the
 // request arrived on, so a squatter relaying the challenge here gets an answer for the wrong address.
-func (d *Daemon) pingHandler(token string) http.HandlerFunc {
+func (d *Daemon) pingHandler(auth *ctlAuth) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// The build is reported here as well as the identity. A check
@@ -114,7 +116,7 @@ func (d *Daemon) pingHandler(token string) http.HandlerFunc {
 			"anet": true, "aid": d.AID(), "name": d.config().Name,
 			"version": Version, "commit": BuildCommit, "built_at": BuildAt, "tags": BuildTags,
 		}
-		if p, ok := localpeer.Answer(r, token); ok {
+		if p, ok := localpeer.Answer(r, auth.bearer()); ok {
 			out["proof"] = p
 			w.Header().Set("Cache-Control", "no-store")
 		}

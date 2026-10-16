@@ -176,7 +176,7 @@ func FuzzX402Quote(f *testing.F) {
 				}
 			}
 		}
-		_ = x402a2a.PayBind(home, string(accept))
+		_, _ = x402a2a.PayBind(home, string(accept))
 	})
 }
 

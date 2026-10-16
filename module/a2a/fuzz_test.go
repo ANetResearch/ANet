@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 )
 
 var fuzzMethods = []string{http.MethodPost, http.MethodGet, http.MethodDelete, http.MethodPut, http.MethodPatch}
@@ -80,13 +80,17 @@ func FuzzServer(f *testing.F) {
 		{0, agentA + "/rest/tasks/task1:cancel", "application/json", "", "", "{}", true},
 		{1, agentA + "/rest/tasks/task1:subscribe", "", "", "", "", true},
 		{1, agentA + "/.well-known/agent-card.json", "", "", "", "", true},
+		{0, rpc, "application/json", "", "", `{"jsonrpc":"2.0","id":6,"method":"GetExtendedAgentCard","params":{}}`, true},
+		{0, rpc, "application/json", "", "", `{"jsonrpc":"2.0","id":{},"method":"GetExtendedAgentCard"}`, true},
+		{1, agentA + "/rest/extendedAgentCard", "", "1.0", "", "", true},
+		{0, agentA + "/rest/extendedAgentCard", "application/json", "", "", "{}", true},
 		{1, "", "", "", "", "", true},
 		{1, "?skill=x&limit=-1&cursor=zz", "", "", "", "", true},
 	}
 	for _, s := range seeds {
 		f.Add(s.method, s.path, s.ct, s.version, s.ext, []byte(s.body), s.auth)
 	}
-	ctl, err := identity.Incept()
+	ctl, err := identitytest.Hub()
 	if err != nil {
 		f.Fatal(err)
 	}

@@ -1,0 +1,27 @@
+{
+  "input": {
+    "tier": "auto",
+    "amount": 3,
+    "capability": "translate",
+    "signed_price": 3,
+    "single": 5,
+    "left": 6,
+    "manual_single": 10,
+    "manual_left": 6,
+    "spent_today": 44,
+    "payees_readable": true,
+    "payee_listed": false
+  },
+  "snapshot": {
+    "code": "needs_operator_approval.payee_not_allowed",
+    "amount": 3,
+    "price": 3,
+    "tier": "auto",
+    "single": 5,
+    "left": 6,
+    "peer": "bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz",
+    "at": "2026-10-10T09:30:00Z"
+  },
+  "zh": "报价 3 credits，收款方不在付款名单里，没有自动付款；请执行 anet pay t_9f3c（以后要自动付给它：anet payees add bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz）。",
+  "en": "Quoted 3 credits; the payee is not on your payee list, so nothing was paid automatically; run anet pay t_9f3c (to pay it automatically from now on: anet payees add bafyreixtplpft7v4seh2kvj72ceuvw75efr6edt4sywb5wkh7d6kx2wxyz)."
+}

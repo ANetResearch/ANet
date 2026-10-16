@@ -8,23 +8,26 @@ package daemon
 //	POST /tasks/cancel  CancelTask
 //	POST /tasks/wait    wait until the task is terminal or waits for this node (newer than after_seq)
 //	POST /tasks/reply   the provider's answer on a task delegated to this node
-//	POST /agents/list   discovery: verified network cards by skill/tag, free text matched here
-//	POST /agents/card   one agent's network card (original bytes) and this node's verification
+//	POST /agents/list   discovery: verified network cards, skill, tag and free text matched here
+//	POST /agents/card   one agent's network card (original bytes), this node's verification, and its signed prices
+//	POST /agents/kel    one agent's key history (anet verify), from this node's record or the directory
 //
 // They return the internal/a2ashape projection and share taskseam.go with
 // the A2A interface, without the per-agent scope: the control token is the
 // node's full authority. (/tasks/pay and /tasks/pay-manual belong to the
 // payment work package.)
 //
-// All of them are bearer-only. None is on the console session allowlist
-// (ctlsec.go, §7.3), and TestEveryRouteIsAllowlistedOrRefusedForASession
-// names them explicitly.
+// All of them are bearer-only but /agents/list and /agents/card, which the
+// console reads (ctlsec.go sessionRoutes, sealed-sender SSR-D17);
+// TestEveryRouteIsAllowlistedOrRefusedForASession names them explicitly.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ANetResearch/ANet/internal/a2ashape"
@@ -56,11 +59,19 @@ func (d *Daemon) registerTaskRoutes(api *routeMux) {
 	api.HandleFunc("POST /tasks/reply", d.hTasksReply)
 	api.HandleFunc("POST /agents/list", d.hAgentsList)
 	api.HandleFunc("POST /agents/card", d.hAgentsCard)
+	api.HandleFunc("POST /agents/kel", d.hAgentsKEL)
 }
 
 // writeTaskError answers a task operation's error with a status code and
 // the A2A error name.
 func writeTaskError(w http.ResponseWriter, err error) {
+	var ref *a2ashape.Refusal
+	if errors.As(err, &ref) {
+		// A refusal of the reason table (the send gate, LEC AD-6; a strict
+		// send, engine ENG-U5): its sentence, code and command (ux UX-R9).
+		writeRefusal(w, refusalStatus(ref), ref)
+		return
+	}
 	code := http.StatusInternalServerError
 	switch {
 	case errors.Is(err, a2ashape.ErrTaskNotFound):
@@ -75,6 +86,18 @@ func writeTaskError(w http.ResponseWriter, err error) {
 		code = http.StatusGatewayTimeout
 	}
 	writeJSON(w, code, map[string]string{"error": err.Error(), "code": a2ashape.ErrorName(err)})
+}
+
+// refusalStatus is the control plane's status for a refusal: a send gate's
+// is 409 (LEC AD-6); a strict send's is the REST status its row gives
+// (engine ENG-U5: 400 for a recipient no hub knows, 503 for one that does
+// not verify).
+func refusalStatus(ref *a2ashape.Refusal) int {
+	switch ref.Code() {
+	case reasonRecipientUnknown, reasonRecipientUnverifiable:
+		return ref.A2A(a2ashape.Lang()).HTTPStatus
+	}
+	return http.StatusConflict
 }
 
 func badTaskRequest(w http.ResponseWriter, format string, a ...any) {
@@ -125,6 +148,51 @@ type tasksSendReq struct {
 	MaxTaskBytes int `json:"max_task_bytes"`
 }
 
+// readJSONNumbers is readJSON keeping the numbers of the message, its
+// metadata and a capability call's args as the client wrote them
+// (json.Number): a retry is judged on the literal content (correctness-ux
+// CUX-D1), and args go to the provider as written. A number no double holds
+// (1e400) is refused, as it is everywhere else: a client of the projection
+// that reads numbers as doubles could not read the task.
+func readJSONNumbers(r *http.Request, req *tasksSendReq) error {
+	dec := json.NewDecoder(r.Body)
+	dec.UseNumber()
+	if err := dec.Decode(req); err != nil {
+		return err
+	}
+	var msgMeta map[string]any
+	if req.Message != nil {
+		msgMeta = req.Message.Metadata
+	}
+	return doubleNumbers(req.Args, req.Metadata, msgMeta)
+}
+
+// doubleNumbers is an error naming the first number in vs that no double
+// holds, nil when there is none.
+func doubleNumbers(vs ...any) error {
+	for _, v := range vs {
+		switch x := v.(type) {
+		case json.Number:
+			if _, err := x.Float64(); err != nil {
+				return fmt.Errorf("the number %s is out of range", x)
+			}
+		case map[string]any:
+			for _, e := range x {
+				if err := doubleNumbers(e); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for _, e := range x {
+				if err := doubleNumbers(e); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // maxTaskBytes is the optional max_task_bytes of a route that returns one
 // task: above 0 the task is held to about that many bytes as JSON, what is
 // cut replaced by a notice of its size that says how to read it whole
@@ -168,7 +236,7 @@ func (r *tasksSendReq) message() a2ashape.Message {
 func (d *Daemon) hTasksSend(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, taskBodyMax)
 	var req tasksSendReq
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSONNumbers(r, &req); err != nil {
 		badTaskRequest(w, "body: %v", err)
 		return
 	}
@@ -358,10 +426,10 @@ type replyReq struct {
 	// State is what the answer does to the task:
 	//   input-required (default)  a message; the requester is asked to answer
 	//   working                   a progress message; the task stays working
-	//   completed                 the message (if any, as the final reply:
-	//                             anet.state=working, anet.final, 0017
-	//                             Q30), then completion: a receipt is
-	//                             signed over the transcript
+	//   completed                 completion: a receipt is signed over the
+	//                             transcript, which ends with the message
+	//                             (if any); the result carries it as its
+	//                             reply (completeWithReply, CUX-R4)
 	//   failed, rejected          a status with the text as the reason
 	//   canceled                  the provider cancels
 	State string `json:"state"`
@@ -447,18 +515,14 @@ func (d *Daemon) replyTask(ctx context.Context, req replyReq) (a2ashape.Task, er
 			_, err = d.sendMessage(sctx, ix.ID, text, in.atts, map[string]any{a2ashape.KeyState: string(interactions.StateWorking)})
 		}
 	case interactions.StateCompleted:
-		if in != nil {
-			// The final reply (an internal note item): a conversation turn, so the
-			// transcript the receipt covers ends with it and it becomes the
-			// anet.reply artifact, sent with anet.state=working so the
-			// requester stays working until the result arrives rather than
-			// stopping at an input-required between the two (a blocking
-			// SendMessage would return there, without the answer).
-			if _, err = d.sendMessage(sctx, ix.ID, text, in.atts, a2ashape.FinalReplyMetadata()); err != nil {
-				break
-			}
+		if in == nil {
+			err = d.CompleteTask(sctx, ix.ID)
+			break
 		}
-		err = d.CompleteTask(sctx, ix.ID)
+		// The reply and the completion are one write and one message to
+		// the requester (CUX-R4, R5): the result carries the reply, so the
+		// requester's blocking SendMessage returns completed with it.
+		err = d.completeWithReply(sctx, ix.ID, text, in.atts)
 	case interactions.StateFailed, interactions.StateRejected:
 		err = d.SendStatus(sctx, ix.ID, state, text, nil)
 	case interactions.StateCanceled:
@@ -498,19 +562,72 @@ func (d *Daemon) hAgentsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"agents": agents, "nextCursor": next})
 }
 
-// hAgentsCard returns one agent's network card (MCP get_agent_card).
+// hAgentsCard returns one agent's network card (MCP get_agent_card, anet
+// card), with the prices of its extended card when CORE-K23 rule 2 holds
+// (HPP §2.7, PAY-C10 case 1): from the cache, or asked of the agent, which
+// may take up to 10 seconds. "prices": false leaves the agent alone — what
+// a confirmation prompt asks when it wants only the agent's name.
 func (d *Daemon) hAgentsCard(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		AID string `json:"aid"`
+		AID    string `json:"aid"`
+		Prices *bool  `json:"prices"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		badTaskRequest(w, "body: %v", err)
 		return
 	}
-	ra, err := d.agentCard(r.Context(), req.AID)
+	var ra module.RemoteAgent
+	var err error
+	if req.Prices != nil && !*req.Prices {
+		ra, err = d.agentCard(r.Context(), req.AID)
+	} else {
+		ra, _, err = d.agentCardWithPrices(r.Context(), req.AID)
+	}
 	if err != nil {
 		writeTaskError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, ra)
+}
+
+// fillStatusText sets each thread's StatusText (threadStatusText).
+func (d *Daemon) fillStatusText(ts []Thread) {
+	for i := range ts {
+		switch interactions.State(ts[i].State) {
+		case interactions.StateFailed, interactions.StateRejected, interactions.StateCanceled,
+			interactions.StateInputRequired:
+		default:
+			continue
+		}
+		ix, err := d.ix.Get(ts[i].InteractionID)
+		if err != nil {
+			continue
+		}
+		ts[i].StatusText = d.threadStatusText(ix)
+	}
+}
+
+// threadStatusText is the text of a task's status.message as its A2A
+// projection words it (ux UX-W1, UX-C6): the reason of a failed, rejected or
+// canceled task, and the payment sentence of a quote that waits for a
+// decision. The console shows it as it is and words no reason of its own;
+// when the projection's wording changes, the console follows. "" for any
+// other state, and for the question of an input-required task that is not
+// about payment: the conversation shows that already.
+func (d *Daemon) threadStatusText(ix *interactions.Interaction) string {
+	none := 0
+	t, err := d.taskView(ix, viewOpts{historyLen: &none})
+	if err != nil || t.Status.Message == nil {
+		return ""
+	}
+	if ix.State == interactions.StateInputRequired && t.Status.Message.Metadata[a2ashape.KeyX402Status] == nil {
+		return ""
+	}
+	var parts []string
+	for _, p := range t.Status.Message.Parts {
+		if p.Kind == a2ashape.PartText && strings.TrimSpace(p.Text) != "" {
+			parts = append(parts, strings.TrimSpace(p.Text))
+		}
+	}
+	return strings.Join(parts, " ")
 }

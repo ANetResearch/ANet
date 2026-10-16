@@ -2,7 +2,8 @@ package daemon
 
 // The (context or agent, client messageId) dedupe of SendMessage
 // (A2A-DESIGN §11.5) matches only messages this node wrote for its own
-// client [redteam:F33], and only tasks still open (an internal note item).
+// client [redteam:F33], and a finished task only in the narrow window of
+// correctness-ux CUX-D4 (an internal note item); clientdedupe_test.go has the rest.
 
 import (
 	"context"
@@ -44,15 +45,16 @@ func TestAProviderCannotPlantTheClientsMessageIDs(t *testing.T) {
 		_ = req.pollOnce(ctx)
 		return countMsgs(t, req, task.ID) >= 3
 	})
-	// However the provider's key got into a stored row, it is not the
-	// client's.
+	// However the provider's key got into a stored row — its metadata, or
+	// the client-key column itself — it is not the client's.
 	if _, _, err := req.ix.AddMessageRecord(interactions.MessageRecord{InteractionID: task.ID, SenderAID: prov.AID(),
-		Kind: interactions.MsgText, Body: "legacy", Metadata: []byte(`{"a2a.messageId":"msg-4"}`)}); err != nil {
+		Kind: interactions.MsgText, Body: "legacy", Metadata: []byte(`{"a2a.messageId":"msg-4"}`),
+		ClientKey: clientKey("msg-4"), ClientDigest: []byte("planted")}); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"msg-2", "msg-3", "msg-4"} {
-		if _, err := req.ix.FindByClientMessage(interactions.ClientMessageQuery{Role: interactions.RoleOutbound,
-			PeerAID: prov.AID(), ClientMsgID: id}); err == nil {
+		if _, err := req.ix.FindByClientKey(interactions.ClientKeyQuery{Key: clientKey(id),
+			PeerAID: prov.AID()}); err == nil {
 			t.Fatalf("the provider's %s matched the client's dedupe", id)
 		}
 	}
@@ -113,7 +115,7 @@ func TestAMessageIDSeenOnAFinishedTaskStartsANewOne(t *testing.T) {
 		t.Fatalf("retry while open = %s (%v), %d tasks; want %s", retry.ID, err, outboundCount(t, req), first.ID)
 	}
 	if err := req.ix.Finish(first.ID, interactions.Finish{State: interactions.StateCompleted, Result: []byte("done"),
-		Verified: interactions.VerificationUnknown}); err != nil {
+		Verified: interactions.VerificationUnknown}, interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 	again, err := seam.Send(ctx, prov.AID(), send)
@@ -137,7 +139,7 @@ func TestAMessageIDSeenOnAFinishedTaskStartsANewOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := req.ix.Finish(c1.ID, interactions.Finish{State: interactions.StateFailed, Result: []byte("x"),
-		Verified: interactions.VerificationUnknown}); err != nil {
+		Verified: interactions.VerificationUnknown}, interactions.CausePeerEnded); err != nil {
 		t.Fatal(err)
 	}
 	if c2, err := seam.Send(ctx, prov.AID(), withCtx); err != nil || c2.ID == c1.ID {

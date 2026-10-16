@@ -7,11 +7,14 @@
 // encoding, and for an org id invalidates every credential that references
 // it.
 //
-// The org id is pinned to the value anet3 produces for the same inception.
-// That is the point of having it here: the org layer was carried across
-// from anet3 rather than rewritten, and a migration that quietly changed
-// the wire would have been a migration that silently forked the family.
-// The number below is anet3's, copied from its own golden test.
+// The org id, the unit id and the credential CID are pinned to the encoding
+// of 0.3.0 (core §2.19): each object's preimage carries its type tag in
+// key 0 (L41, L43, L42), which is why they differ from the ids anet3 and
+// 0.2 produced for the same content; 0.3.0 does not migrate those (an org
+// is created again). The values below were computed by ANetCore's
+// golden/py/gen_v016.py (org_genesis_bytes, cogunit_body, org_cred_body),
+// which shares no code with these packages. MODOBJ-1 covers the same
+// objects with signatures and negatives.
 package golden_test
 
 import (
@@ -26,18 +29,18 @@ import (
 )
 
 const (
-	// From anet3 internal/v3rt/golden. Identical inception, identical id.
-	goldenOrgID = "bafyreicaw2uaernqv2rnhunxgkjwgsxrundhy4o2f2v423i27bk6yjh7ge"
+	// The CID of coredet(OrgGenesis) for the inception below (L41).
+	goldenOrgID = "bafyreihkfy6q5gnpyhyo47pgy4li4kylmtvxaime365wnnd5zakdw2ovge"
 
-	// A CogUnit's id is the CID of its unsigned preimage (keys 1-7); the
-	// envelope rides the wire but is never signed over, so this id is
-	// reproducible without a key. Also anet3's, for the same unit.
-	goldenCogUnitID = "bafyreier4cem3uktuiq55mjtci45i5gblsog2gi4d6dk6jsowg737kworu"
+	// A CogUnit's id is the CID of its body, coredet(CogUnitBody) (keys 0-7);
+	// the envelope rides the wire beside it but is never signed over, so this
+	// id is reproducible without a key.
+	goldenCogUnitID = "bafyreie7zzgeqk7mfxf6yi2czjysxrk6b4fe6wkos4pq26mbm5sneacc5i"
 
-	// A membership credential's CID, over its preimage. This is what a
-	// revocation list names, so drift here means every revocation stops
-	// matching the credential it was meant to revoke.
-	goldenCredentialCID = "bafyreidll3nwldeihlehpfe2qttfltu4prttnzwf4uf2fqctm4ojmsokbq"
+	// A membership credential's CID, over its body coredet(OrgCredBody). This
+	// is what a revocation list names, so drift here means every revocation
+	// stops matching the credential it was meant to revoke.
+	goldenCredentialCID = "bafyreihj4a2td267pq74gry74qbfanqmq27q3ipiz7u2gwdk65zlfen5ym"
 
 	// The CID content-addressed storage derives from fixed bytes. Drift
 	// means two nodes store the same blob under different names and neither
@@ -45,7 +48,7 @@ const (
 	goldenBlobCID = "bafyreihbs6iekk25duzvzv4cegoszfkuxav2zlovji44xgbv3ggui2y2n4"
 )
 
-func TestOrgIDMatchesAnet3(t *testing.T) {
+func TestOrgIDIsPinned(t *testing.T) {
 	g := &org.Genesis{
 		GovernanceRoot: []string{"did:anet:bgolden0founder0aid0000000000000000000000000000"},
 		M:              1,
@@ -56,7 +59,7 @@ func TestOrgIDMatchesAnet3(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != goldenOrgID {
-		t.Fatalf("org id drifted from anet3:\n got %s\nwant %s\n"+
+		t.Fatalf("org id drifted:\n got %s\nwant %s\n"+
 			"An org id is the hash of its founding set. If this moved, every credential "+
 			"referencing the old id is now for an org that does not exist.", got, goldenOrgID)
 	}
@@ -94,7 +97,7 @@ func TestCogUnitIDIgnoresTheEnvelope(t *testing.T) {
 	}
 }
 
-func TestCredentialCIDMatchesAnet3(t *testing.T) {
+func TestCredentialCIDIsPinned(t *testing.T) {
 	cred := &org.Credential{
 		OrgID:    goldenOrgID,
 		Subject:  "did:anet:bgolden0subject0aid00000000000000000000000000",
@@ -107,7 +110,7 @@ func TestCredentialCIDMatchesAnet3(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != goldenCredentialCID {
-		t.Fatalf("credential cid drifted from anet3:\n got %s\nwant %s", got, goldenCredentialCID)
+		t.Fatalf("credential cid drifted:\n got %s\nwant %s", got, goldenCredentialCID)
 	}
 }
 

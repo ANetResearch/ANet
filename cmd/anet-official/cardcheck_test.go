@@ -18,6 +18,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 )
 
 // a2aCard is a minimal A2A 1.0 AgentCard with every required field.
@@ -349,7 +350,7 @@ func anetCard(t *testing.T, c *identity.Controller, now int64) []byte {
 		"defaultInputModes": []any{"application/json"}, "defaultOutputModes": []any{"application/json"},
 		"skills": []any{map[string]any{"id": "text.digest", "name": "Text digest", "description": "Hashes text.", "tags": []any{"hash"}}},
 	}
-	signed, err := a2acard.SignWithController(mustJSON(t, card), c, "https://hub.example/agents/"+aid+"/jwks.json")
+	signed, err := a2acard.SignWithSnapshot(mustJSON(t, card), c, "https://hub.example/agents/"+aid+"/jwks.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +358,7 @@ func anetCard(t *testing.T, c *identity.Controller, now int64) []byte {
 }
 
 func TestAnetCard(t *testing.T) {
-	c, err := identity.Incept()
+	c, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +394,7 @@ func TestAnetCard(t *testing.T) {
 	}
 
 	// Another identity's KEL does not verify it.
-	other, _ := identity.Incept()
+	other, _ := identitytest.Hub()
 	res = checkCard(card, nil, other.KEL(), now)
 	if res.Anet.Result != "rejected" || res.Signatures[0].Result == "verified" {
 		t.Errorf("wrong KEL: %+v %+v", res.Anet, res.Signatures[0])
@@ -460,9 +461,9 @@ func TestCardWorkIsBounded(t *testing.T) {
 		t.Errorf("past the deadline: err = %v, want the budget error", err)
 	}
 
-	c, _ := identity.Incept()
+	c, _ := identitytest.Hub()
 	for i := 0; i < maxKELEvents; i++ {
-		if err := c.Rotate(uint64(1_790_000_000_000 + i)); err != nil {
+		if err := identitytest.Rotate(c, uint64(1_790_000_000_000+i)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -479,7 +480,7 @@ func TestCardWorkIsBounded(t *testing.T) {
 // An anet card with more signatures than a hub admits is rejected by the
 // anet rules, and still only the first signatures are verified.
 func TestAnetCardWithTooManySignatures(t *testing.T) {
-	c, _ := identity.Incept()
+	c, _ := identitytest.Hub()
 	const now = 1_790_000_000_000
 	var card map[string]any
 	if err := json.Unmarshal(anetCard(t, c, now), &card); err != nil {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/moduletest"
@@ -234,7 +235,7 @@ func TestDisabledBoardRegistersNothing(t *testing.T) {
 // newController mints an identity to author contributions with.
 func newController(t *testing.T) *identity.Controller {
 	t.Helper()
-	c, err := identity.Incept()
+	c, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}

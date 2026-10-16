@@ -5,6 +5,7 @@ package org
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/effect"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/module"
 	"github.com/ANetResearch/ANet/module/moduletest"
@@ -36,12 +38,12 @@ var _ module.Host = (*orgHost)(nil)
 // founded builds an org with one founder and starts the module for it.
 func founded(t *testing.T) (*Module, *orgHost, *identity.Controller) {
 	t.Helper()
-	founder, err := identity.Incept()
+	founder, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
 	g := &Genesis{GovernanceRoot: []string{founder.AID()}, M: 1, Nonce: "n1"}
-	raw, err := coredet.Marshal(g)
+	raw, err := g.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +111,7 @@ func TestOrgIDComesFromTheFoundingSet(t *testing.T) {
 // same rule as the blackboard, for the same reason.
 func TestCredentialFromUnknownIssuerIsRefused(t *testing.T) {
 	m, h, _ := founded(t)
-	stranger, err := identity.Incept()
+	stranger, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,5 +222,30 @@ func TestGenesisIsRequired(t *testing.T) {
 	err = m.Start(context.Background(), &orgHost{reg: provider.NewRegistry()})
 	if err == nil || !strings.Contains(err.Error(), "genesis") {
 		t.Fatalf("a malformed genesis must be refused, got %v", err)
+	}
+}
+
+// A genesis written by 0.2 has no type tag. 0.3.0 does not migrate it: the
+// module does not start, and the error says what the genesis is and what to
+// do (core CORE-K26).
+func TestA02GenesisDoesNotStart(t *testing.T) {
+	type genesisV02 struct {
+		GovernanceRoot []string `cbor:"1,keyasint"`
+		M              uint64   `cbor:"2,keyasint"`
+		Nonce          string   `cbor:"3,keyasint,omitempty"`
+	}
+	raw, err := coredet.Marshal(genesisV02{GovernanceRoot: []string{"founder"}, M: 1, Nonce: "n1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &Module{cfg: Config{Genesis: base64.StdEncoding.EncodeToString(raw)}}
+	err = m.Start(context.Background(), &orgHost{reg: provider.NewRegistry()})
+	if !errors.Is(err, ErrGenesisV02) {
+		t.Fatalf("a 0.2 genesis: %v, want ErrGenesisV02", err)
+	}
+	for _, s := range []string{"0.2", "does not migrate", "create the organization again"} {
+		if !strings.Contains(err.Error(), s) {
+			t.Errorf("the error does not say %q: %v", s, err)
+		}
 	}
 }

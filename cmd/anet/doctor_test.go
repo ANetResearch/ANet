@@ -69,7 +69,6 @@ func TestAFreshInitIsSafeByDoctorJSON(t *testing.T) {
 		"payments.auto_max":           func(v any) bool { return v == float64(0) },
 		"payments.agent_max":          func(v any) bool { return v == float64(0) },
 		"payments.agent_daily_max":    func(v any) bool { return v == float64(0) },
-		"payments.payees_file":        func(v any) bool { s, _ := v.(string); return s != "" },
 		"payments.payees":             emptyList,
 	}
 	for _, k := range daemon.SI5Keys {
@@ -89,8 +88,8 @@ func TestAFreshInitIsSafeByDoctorJSON(t *testing.T) {
 	if !emptyList(out["si5_changed"]) || out["ok"] != true {
 		t.Fatalf("si5_changed %v, ok %v", out["si5_changed"], out["ok"])
 	}
-	// The payee list is on and its file exists, empty.
-	if fi, err := os.Stat(filepath.Join(layout.Root, si5["payments.payees_file"].(string))); err != nil || fi.Size() != 0 {
+	// The payee list (always payees.allow, always on) exists, empty.
+	if fi, err := os.Stat(filepath.Join(layout.Root, "payees.allow")); err != nil || fi.Size() != 0 {
 		t.Fatalf("payees file: %v", err)
 	}
 }
@@ -138,7 +137,6 @@ func TestDoctorReportsEachSI5KeyThatChanged(t *testing.T) {
 		"payments.auto_max":        cfgEdit(func(m map[string]any) { block(m, "payments")["auto_max"] = 1 }),
 		"payments.agent_max":       cfgEdit(func(m map[string]any) { block(m, "payments")["agent_max"] = 1 }),
 		"payments.agent_daily_max": cfgEdit(func(m map[string]any) { block(m, "payments")["agent_daily_max"] = 1 }),
-		"payments.payees_file":     cfgEdit(func(m map[string]any) { block(m, "payments")["payees_file"] = "" }),
 		"payments.payees":          listFile("payees.allow"),
 	}
 	for _, key := range daemon.SI5Keys {

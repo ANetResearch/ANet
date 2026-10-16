@@ -1,11 +1,18 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
+	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
 // Config is the daemon's persisted configuration (config.json). v0.1 is centralized: the daemon is a
@@ -26,31 +33,21 @@ type Config struct {
 	// Caps is this agent's advertised capability list (shown + searchable on the Hub via `find`).
 	Caps []string `json:"caps,omitempty"`
 	// Profile is this agent's self-authored description published to the Hub (set via `anet profile set`,
-	// typically by the operator's agent, not hand-written). Pricing is display-only text in v0.1.
+	// typically by the operator's agent, not hand-written). It carries no price (0.3.0: the setting
+	// "pricing" is a removed key, refused at start).
 	Summary string `json:"summary,omitempty"` // one-line description
 	Readme  string `json:"readme,omitempty"`  // longer markdown description
-	Pricing string `json:"pricing,omitempty"` // free-form pricing text (no settlement in v0.1)
-	// Providers configures C1 capability providers. ANetLink connects the
-	// physical-world runtime over its UDS socket (anetlinkd --c1-socket).
-	Providers *ProvidersConfig `json:"providers,omitempty"`
 	// Modules configures optional subsystems by name (see module.Module).
 	Modules ModulesConfig `json:"modules,omitempty"`
 	// Inbound is the inbound policy (A2A-DESIGN §5.1): who may delegate to
 	// this node, who may drive its local agents, and which capabilities are
 	// public. A config without the block is given the defaults of
-	// defaultInbound (policy closed) at load; see migrateInbound.
+	// defaultInbound (policy closed) at load; see fillInbound.
 	Inbound *InboundConfig `json:"inbound,omitempty"`
-	// LegacyAcceptDelegations is the wire-1 accept_delegations key. It is
-	// read only to migrate it (A2A-DESIGN §5.1: absent or true → closed,
-	// false → closed) and is never written back.
-	LegacyAcceptDelegations *bool `json:"accept_delegations,omitempty"`
-	// migratedInbound is set by LoadConfig when it created the inbound
-	// block from a wire-1 config that said accept_delegations=true; New
-	// logs it once. rewriteConfig is set when the file on disk lacks the inbound or
-	// payments block or still carries accept_delegations; New saves the
-	// migrated config.
-	migratedInbound bool
-	rewriteConfig   bool
+	// rewriteConfig is set when the file on disk lacks the inbound or
+	// payments block; New saves the config with the block written out, so
+	// the file states the defaults explicitly (SI-5).
+	rewriteConfig bool
 	// AutoReply, when set, turns this daemon into a SELF-DRIVING provider: a background loop watches
 	// inbound conversations and answers them by calling the operator's own service (e.g. a self-hosted
 	// small model behind an OpenAI-compatible REST API). This keeps anet's core promise — anet itself
@@ -63,13 +60,6 @@ type Config struct {
 	// the block is given defaultPayments at load and rewritten, so the file
 	// states the limits explicitly (SI-5).
 	Payments *PaymentsConfig `json:"payments,omitempty"`
-	// RotationGrace is how long after a peer's key rotation a message
-	// signed by its previous key, and time-stamped before the rotation, is
-	// still accepted (A2A-DESIGN §3.6 step 7). A Go duration such as "1h";
-	// empty means 1h. A longer grace lets older mailbox messages through
-	// and lets a stolen pre-rotation key sign back-dated messages for as
-	// long.
-	RotationGrace string `json:"rotation_grace,omitempty"`
 	// NoResponseAfter is how long a task this node sent may sit submitted
 	// with nothing at all from its peer — no status, no message, no result
 	// — once its delegation has left this node, before it is failed with
@@ -79,6 +69,15 @@ type Config struct {
 	// notice past its rate limit, §2 X2) otherwise leaves the task, and
 	// every client waiting on it, waiting for ever.
 	NoResponseAfter string `json:"no_response_after,omitempty"`
+	// ContentRetention is how long the content of a finished task that is
+	// not public is kept on this node (FS §4.6.2, ux §2.2): "<N>d" for N
+	// from 1 to 3650, or "forever". A fresh config.json says "30d", which is
+	// also what a config without the key gets. A public task is kept 7 days,
+	// or this when it is shorter, whatever it says. `anet retention set`
+	// changes it, after a confirmation typed on a terminal; a value that is
+	// neither a number of days nor forever stops the daemon from starting
+	// (retention_invalid).
+	ContentRetention RetentionValue `json:"content_retention,omitempty"`
 }
 
 // AutoReplyConfig configures the daemon's built-in auto-reply loop (see autoreply.go). Backend selects
@@ -94,6 +93,10 @@ type AutoReplyConfig struct {
 	// which fails closed when the sandbox is unavailable). The openai
 	// backend runs no local program and is not gated by it.
 	Untrusted string `json:"untrusted,omitempty"`
+	// Trusted says how the exec backend runs for a peer on the trust list
+	// (LEC GT-1): "direct" (the default; as the operator's user) or
+	// "sandbox" (in the sandbox, outside the run budget).
+	Trusted string `json:"trusted,omitempty"`
 	// --- "openai" backend ---
 	APIBase      string `json:"api_base,omitempty"` // e.g. http://127.0.0.1:11434/v1
 	APIKey       string `json:"api_key,omitempty"`  // bearer key, if the endpoint needs one
@@ -114,6 +117,40 @@ type AutoReplyConfig struct {
 	MaxHistory          int `json:"max_history,omitempty"`           // max conversation turns sent to the backend (default 20)
 	APITimeoutSeconds   int `json:"api_timeout_seconds,omitempty"`   // one backend call (default 180)
 	MaxAutoReplies      int `json:"max_auto_replies,omitempty"`      // runaway guard: max messages we auto-send per interaction before proposing end (default 30)
+	// Sandbox configures the sandbox's network and its run budget (LEC §3.2, ux §2.2); absent, the
+	// defaults apply: no network beyond the model route, and the default budget.
+	Sandbox *AutoReplySandboxConfig `json:"sandbox,omitempty"`
+}
+
+// AutoReplySandboxConfig is auto_reply.sandbox.
+type AutoReplySandboxConfig struct {
+	// EgressAllow is the CONNECT allowlist (LEC CN-1): the hosts, each by its exact name, that a
+	// sandboxed agent may reach on port 443. Empty, the default: none. Each one is a way for the
+	// untrusted peer's task to send data out, so adding one is confirmed on a terminal (UX-C12);
+	// removing one is not.
+	EgressAllow []string `json:"egress_allow,omitempty"`
+	// RunsPerDay and RunsPerPeerPerDay are the run budget for untrusted
+	// peers per local calendar day (LEC BU-3): 20 and 5 when unset, 0 for
+	// no runs (sandbox_budget.go).
+	RunsPerDay        *BudgetValue `json:"runs_per_day,omitempty"`
+	RunsPerPeerPerDay *BudgetValue `json:"runs_per_peer_per_day,omitempty"`
+}
+
+// empty reports a sandbox block that sets nothing.
+func (s *AutoReplySandboxConfig) empty() bool {
+	return s == nil || (len(s.EgressAllow) == 0 && s.RunsPerDay == nil && s.RunsPerPeerPerDay == nil)
+}
+
+// The egress allowlist is checked when the daemon starts (CN-1, LEC §3.2): a config.json edited by hand
+// to hold an address, a wildcard or a model host does not start.
+func init() { configChecks = append(configChecks, checkEgressAllowConfig) }
+
+func checkEgressAllowConfig(c Config, _ map[string]any) *a2ashape.Refusal {
+	if c.AutoReply == nil || c.AutoReply.Sandbox == nil {
+		return nil
+	}
+	_, ref := checkEgressAllow(c.AutoReply.Sandbox.EgressAllow, c.AutoReply.APIBase)
+	return ref
 }
 
 // Values of AutoReplyConfig.Untrusted.
@@ -131,6 +168,21 @@ func (c AutoReplyConfig) UntrustedMode() string {
 	return UntrustedOff
 }
 
+// Values of AutoReplyConfig.Trusted.
+const (
+	TrustedDirect  = "direct"
+	TrustedSandbox = "sandbox"
+)
+
+// TrustedMode is the effective auto_reply.trusted value: "direct" unless
+// the operator set "sandbox".
+func (c AutoReplyConfig) TrustedMode() string {
+	if c.Trusted == TrustedSandbox {
+		return TrustedSandbox
+	}
+	return TrustedDirect
+}
+
 // DefaultConfig is the out-of-the-box daemon config. The inbound block is
 // explicit and closed, and the payments block pays nothing without a person
 // (SI-5): a fresh install accepts no delegation, runs nothing for anyone and
@@ -143,7 +195,8 @@ func (c AutoReplyConfig) UntrustedMode() string {
 func DefaultConfig() Config {
 	in := defaultInbound()
 	pay := defaultPayments()
-	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in, Payments: &pay, NoResponseAfter: defaultNoResponseAfterText}
+	return Config{ControlAddr: "127.0.0.1:39811", Inbound: &in, Payments: &pay, NoResponseAfter: defaultNoResponseAfterText,
+		ContentRetention: RetentionValue(interactions.DefaultRetention().String())}
 }
 
 // freshConfig is the config a data dir with no config.json is created with: DefaultConfig, but with a
@@ -207,27 +260,20 @@ func LoadConfig(l Layout) (Config, error) {
 	if c.ControlAddr == "" {
 		c.ControlAddr = DefaultConfig().ControlAddr
 	}
-	migrateInbound(&c)
+	fillInbound(&c)
 	migratePayments(&c)
 	return c, nil
 }
 
-// migrateInbound gives a config without an inbound block the closed default
-// and drops the wire-1 accept_delegations key (A2A-DESIGN §5.1). Every
-// value of the old key maps to closed: "accept" used to mean "anyone", and
-// no allow list exists yet to carry that forward to.
-func migrateInbound(c *Config) {
-	c.rewriteConfig = c.Inbound == nil || c.LegacyAcceptDelegations != nil
+// fillInbound gives a config without an inbound block the closed default
+// (A2A-DESIGN §5.1). The wire-1 accept_delegations key is not read: 0.3.0
+// refuses to start with it (ux §2.3), and migrates nothing.
+func fillInbound(c *Config) {
+	c.rewriteConfig = c.Inbound == nil
 	if c.Inbound == nil {
 		in := defaultInbound()
 		c.Inbound = &in
-		// Told only to an operator whose config carried the old key set to
-		// accept: accept_delegations=false asked for what closed does, and
-		// a config without the key (a minimal one, or one `anet init`
-		// wrote) replaced nothing, so the notice would only mislead.
-		c.migratedInbound = c.LegacyAcceptDelegations != nil && *c.LegacyAcceptDelegations
 	}
-	c.LegacyAcceptDelegations = nil
 	c.Inbound.normalize()
 }
 
@@ -251,16 +297,6 @@ func SaveConfig(l Layout, c Config) error {
 // the daemon a typed field for it.
 type ModulesConfig map[string]json.RawMessage
 
-// ProvidersConfig wires capability providers into the daemon.
-type ProvidersConfig struct {
-	ANetLink *ANetLinkProviderConfig `json:"anetlink,omitempty"`
-}
-
-// ANetLinkProviderConfig points at a running anetlinkd C1 socket.
-type ANetLinkProviderConfig struct {
-	Socket string `json:"socket"`
-}
-
 // updateConfig is one write of config.json from the running daemon: under
 // cfgWrite, change edits a copy of the config (an error refuses the write),
 // the copy is saved, and only once it is saved does apply put the change in
@@ -281,4 +317,355 @@ func (d *Daemon) updateConfig(change func(*Config) error, apply func(*Config)) (
 	apply(&d.cfg)
 	d.mu.Unlock()
 	return next, nil
+}
+
+// --- What the daemon refuses to start with (ux UX-D3, §2.3) ---
+
+// RemovedSetting is a config.json key that 0.3.0 removed (ux §2.3), as found
+// in a file: where it is, and the id of the {instead} phrase that says what
+// to do instead (a2ashape, config_key_removed).
+type RemovedSetting struct {
+	// Path names the key as the user finds it in the file, with the index of
+	// an array element: "inbound.allow_file",
+	// "inbound.public_capabilities[2].evidence".
+	Path string
+	// Key is the entry of ux §2.3 it matched, "[]" standing for any element:
+	// "inbound.public_capabilities[].evidence".
+	Key     string
+	Instead string
+	// Pending is the work item that still writes this key itself, as the
+	// marker of an open work item (wire.TodoMarker); until it deletes its code,
+	// the key does not stop the daemon. Empty: the key is refused.
+	Pending string
+}
+
+// removedSettings is ux §2.3: each removed key, where it sits in config.json
+// ("name[]" is every element of that array) and its {instead} phrase.
+var removedSettings = []struct{ key, instead string }{
+	{"pricing", "pricing"},
+	{"payments.publish_prices", "publish_prices"},
+	{"modules.x402.voucher_addr", "voucher"},
+	{"modules.x402.voucher_url", "voucher"},
+	{"modules.x402.witness_hub", "witness_hub"},
+	{"modules.x402.witness_every_seconds", "witness_hub"},
+	{"providers", "providers"},
+	{"accept_delegations", "accept_delegations"},
+	{"rotation_grace", "rotation_grace"},
+	{"inbound.allow_file", "list_files"},
+	{"inbound.deny_file", "list_files"},
+	{"inbound.trust_file", "list_files"},
+	{"inbound.reject_notice", "reject_notice"},
+	{"inbound.pending", "pending"},
+	{"inbound.public_capabilities[].evidence", "evidence"},
+	{"auto_reply.require_image", "require_image"},
+	{"auto_reply.usage_hint", "require_image"},
+	{"auto_reply.error_reply", "error_reply"},
+	{"auto_reply.poll_interval_seconds", "fixed_auto_reply"},
+	{"auto_reply.max_auto_replies", "fixed_auto_reply"},
+	{"payments.payees_file", "payees_file"},
+	{"modules.anetlink.timeout_s", "anetlink_timeout"},
+	{"modules.service.expected_uid", "expected_uid"},
+	{"modules.a2a.backends[].expected_uid", "expected_uid"},
+	{"modules.anetlink.expected_uid", "expected_uid"},
+	{"modules.p2p.dial_timeout_ms", "p2p_timeouts"},
+	{"modules.p2p.reach_timeout_ms", "p2p_timeouts"},
+	{"modules.taskboard", "taskboard"},
+}
+
+// InviteEnv is the one removed item that is not a key: the environment
+// variable that carried an invite. It does not stop the daemon (it is
+// ignored); doctor's config.removed warns about it (ux §2.3).
+const InviteEnv = "ANET_INVITE"
+
+// removedStillWritten are the removed keys this binary still writes itself
+// (the defaults of a fresh config.json, or a command that is still there), or
+// whose replacement does not work yet. A daemon refusing them would refuse
+// its own files, so each waits for the work item that deletes its code,
+// which also deletes its line here (R-5).
+var removedStillWritten = map[string]string{
+	// `anet autoreply set --require-image|--usage-hint|--error-reply|
+	// --poll-interval|--max-auto-replies` still write these.
+	"auto_reply.require_image":         "v030-todo(UX-9)",
+	"auto_reply.usage_hint":            "v030-todo(UX-9)",
+	"auto_reply.error_reply":           "v030-todo(UX-9)",
+	"auto_reply.poll_interval_seconds": "v030-todo(UX-9)",
+	"auto_reply.max_auto_replies":      "v030-todo(UX-9)",
+}
+
+// FindRemovedSettings lists the removed keys a config.json holds, in the
+// order of ux §2.3; a key that is there with any value counts, null too. A
+// file that is not a JSON object is an error.
+func FindRemovedSettings(raw []byte) ([]RemovedSetting, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var top any
+	if err := dec.Decode(&top); err != nil {
+		return nil, err
+	}
+	if _, ok := top.(map[string]any); !ok {
+		return nil, errors.New("config.json is not a JSON object")
+	}
+	var out []RemovedSetting
+	for _, rs := range removedSettings {
+		for _, path := range findKey(top, strings.Split(rs.key, "."), "") {
+			out = append(out, RemovedSetting{Path: path, Key: rs.key, Instead: rs.instead, Pending: removedStillWritten[rs.key]})
+		}
+	}
+	return out, nil
+}
+
+// findKey is where the dotted key segs sits under v: one path per match,
+// with the index of each array element it passes through, spelled as the
+// file spells it. A key matches whatever its case: encoding/json reads
+// "Rotation_Grace" into the field of "rotation_grace" (it folds case like
+// strings.EqualFold), so a removed key in another case would otherwise still
+// take effect, or be ignored without a word (UX-D3).
+func findKey(v any, segs []string, at string) []string {
+	obj, ok := v.(map[string]any)
+	if !ok || len(segs) == 0 {
+		return nil
+	}
+	name, each := strings.CutSuffix(segs[0], "[]")
+	var names []string
+	for k := range obj {
+		if strings.EqualFold(k, name) {
+			names = append(names, k)
+		}
+	}
+	slices.Sort(names)
+	var out []string
+	for _, k := range names {
+		path := k
+		if at != "" {
+			path = at + "." + k
+		}
+		out = append(out, findUnder(obj[k], segs, each, path)...)
+	}
+	return out
+}
+
+// findUnder continues findKey below the value of the key segs[0] matched.
+func findUnder(child any, segs []string, each bool, path string) []string {
+	if !each {
+		if len(segs) == 1 {
+			return []string{path}
+		}
+		return findKey(child, segs[1:], path)
+	}
+	arr, ok := child.([]any)
+	if !ok {
+		return nil
+	}
+	var out []string
+	for i, el := range arr {
+		p := path + "[" + strconv.Itoa(i) + "]"
+		if len(segs) == 1 {
+			out = append(out, p)
+			continue
+		}
+		out = append(out, findKey(el, segs[1:], p)...)
+	}
+	return out
+}
+
+// ConfigCheck is one validation of config.json that refuses to start: it
+// returns config_invalid (or nil) for a value the daemon cannot run with.
+// The area that owns a setting appends its check to configChecks; the
+// daemon, doctor and the deployment-template test all run them through
+// CheckConfigForStart (CUX-V10).
+type ConfigCheck func(c Config, raw map[string]any) *a2ashape.Refusal
+
+// configChecks are the validations of config.json.
+var configChecks []ConfigCheck
+
+// ConfigRefusal is why the daemon will not start with a config.json: one
+// refusal per problem, so that every key can be fixed at once. A data
+// directory an earlier anet wrote is refused the same way, with the one
+// refusal identity_v02 (CheckDataDirForStart).
+type ConfigRefusal struct {
+	Refusals []*a2ashape.Refusal
+}
+
+// Sentences are the refusals' sentences in a language, one each.
+func (e *ConfigRefusal) Sentences(lang a2ashape.Language) []string {
+	out := make([]string, len(e.Refusals))
+	for i, r := range e.Refusals {
+		out[i] = a2ashape.Sentence(r.Key, lang, r.Args)
+	}
+	return out
+}
+
+// Error is the refusals' sentences in this process's language, one a line.
+func (e *ConfigRefusal) Error() string {
+	return strings.Join(e.Sentences(a2ashape.Lang()), "\n")
+}
+
+// CheckConfigForStart is the check the daemon makes before it starts: no
+// removed key (config_key_removed) and every ConfigCheck. A missing
+// config.json passes (the daemon writes the defaults). The error is a
+// *ConfigRefusal, or the error reading or parsing the file.
+func CheckConfigForStart(l Layout) error {
+	raw, err := os.ReadFile(l.ConfigPath())
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("anet: read config: %w", err)
+	}
+	found, err := FindRemovedSettings(raw)
+	if err != nil {
+		return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
+	}
+	var refusals []*a2ashape.Refusal
+	for _, f := range found {
+		if f.Pending == "" {
+			refusals = append(refusals, RemovedSettingRefusal(f))
+		}
+	}
+	if len(configChecks) > 0 {
+		var c Config
+		var m map[string]any
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
+		}
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
+		}
+		for _, check := range configChecks {
+			if r := check(c, m); r != nil {
+				refusals = append(refusals, r)
+			}
+		}
+	}
+	if len(refusals) > 0 {
+		return &ConfigRefusal{Refusals: refusals}
+	}
+	return nil
+}
+
+// RemovedSettingRefusal is config_key_removed for a key found in a file.
+func RemovedSettingRefusal(f RemovedSetting) *a2ashape.Refusal {
+	return a2ashape.Refuse("config_key_removed", a2ashape.Args{"key": f.Path, "instead": f.Instead})
+}
+
+// --- content_retention (FS §4.6.2, §5.1) ---
+
+// RetentionValue is content_retention as config.json holds it. Any JSON
+// value decodes into it, so that one that is not a setting — a number, a
+// list, "30" without its d — is refused with retention_invalid, whose
+// sentence says how to write it, rather than making the whole file
+// unreadable. A value that is not a string is kept as its JSON text, which
+// is never a setting.
+type RetentionValue string
+
+// UnmarshalJSON keeps any JSON value: a string as it is, null as absent,
+// anything else as its JSON text.
+func (v *RetentionValue) UnmarshalJSON(p []byte) error {
+	var s string
+	if err := json.Unmarshal(p, &s); err == nil {
+		*v = RetentionValue(s)
+		return nil
+	}
+	*v = RetentionValue(p)
+	return nil
+}
+
+// contentRetention is the setting in force: the configured one, 30 days
+// when config.json has none. A value that is not a setting stops the daemon
+// from starting, so a running daemon holds one only if something wrote it
+// past the checks; it then keeps every task that is not public, since
+// nothing should go that the operator may have meant to keep.
+func (c Config) contentRetention() interactions.Retention {
+	if c.ContentRetention == "" {
+		return interactions.DefaultRetention()
+	}
+	if r, ok := interactions.ParseRetention(string(c.ContentRetention)); ok {
+		return r
+	}
+	return interactions.RetentionForever
+}
+
+// The setting is checked when the daemon starts (FS §5.1): a config.json
+// edited by hand to an unreadable retention does not start, and says how to
+// write it (retention_invalid). An absent key, or null, is the default.
+func init() { configChecks = append(configChecks, checkContentRetention) }
+
+func checkContentRetention(_ Config, raw map[string]any) *a2ashape.Refusal {
+	v, ok := raw["content_retention"]
+	if !ok || v == nil {
+		return nil
+	}
+	if s, isText := v.(string); isText {
+		if _, ok := interactions.ParseRetention(s); ok {
+			return nil
+		}
+	}
+	return a2ashape.Refuse("retention_invalid", nil)
+}
+
+// ParseContentRetention reads a content_retention value as the daemon does:
+// "<N>d" (1 to 3650) or "forever".
+func ParseContentRetention(s string) (interactions.Retention, bool) {
+	return interactions.ParseRetention(s)
+}
+
+// ContentRetentionInFile is the content_retention l's config.json sets, read
+// without creating or changing anything: the setting, and the text the file
+// holds ("" when it has none, or no config.json). A value that is not a
+// setting is retention_invalid.
+func ContentRetentionInFile(l Layout) (interactions.Retention, string, *a2ashape.Refusal, error) {
+	raw, err := os.ReadFile(l.ConfigPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return interactions.DefaultRetention(), "", nil, nil
+	}
+	if err != nil {
+		return interactions.Retention{}, "", nil, fmt.Errorf("anet: read config: %w", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return interactions.Retention{}, "", nil, fmt.Errorf("anet: parse config %s: not a JSON object", l.ConfigPath())
+	}
+	v, ok := m["content_retention"]
+	if !ok || v == nil {
+		return interactions.DefaultRetention(), "", nil, nil
+	}
+	text, _ := json.Marshal(v)
+	if s, isText := v.(string); isText {
+		if r, ok := interactions.ParseRetention(s); ok {
+			return r, s, nil, nil
+		}
+		return interactions.Retention{}, s, a2ashape.Refuse("retention_invalid", nil), nil
+	}
+	return interactions.Retention{}, string(text), a2ashape.Refuse("retention_invalid", nil), nil
+}
+
+// SetContentRetentionInFile writes content_retention = r into l's
+// config.json while no daemon runs (`anet retention set` with the daemon
+// stopped, FS §5.2 step 5): that key alone changes, every other key stays as
+// it is written, and the file is replaced at once (0600). A data directory
+// without a config.json gets one first, as every command gives it. The
+// daemon reads the new value when it next starts.
+func SetContentRetentionInFile(l Layout, r interactions.Retention) error {
+	if !r.Valid() {
+		return fmt.Errorf("anet: content_retention: %w", interactions.ErrBadInput)
+	}
+	if _, err := os.Stat(l.ConfigPath()); errors.Is(err, os.ErrNotExist) {
+		if _, err := LoadConfig(l); err != nil {
+			return err
+		}
+	}
+	raw, err := os.ReadFile(l.ConfigPath())
+	if err != nil {
+		return fmt.Errorf("anet: read config: %w", err)
+	}
+	cur, err := decodeObject(raw)
+	if err != nil {
+		return fmt.Errorf("anet: parse config %s: %w", l.ConfigPath(), err)
+	}
+	cur["content_retention"] = r.String()
+	out, err := json.MarshalIndent(cur, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(l.ConfigPath(), out, 0o600)
 }

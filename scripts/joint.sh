@@ -942,10 +942,16 @@ ORG_ID=$(sed 's/^org id: //' "$RUN/orgid.txt")
 # terminal, which a script does not have. The daemon reads the file on every decision. The
 # stranger is on no list.
 peer_allow "$PROV/.anet" "$REQ_AID"
+peer_allow "$REQ/.anet" "$PROV_AID"
 
 # Two peer processes sharing a rendezvous directory. Without them the p2p module is the one module
 # that changes how delegations travel and the one module no joint run could exercise.
 # The requester's keeps a copy of every envelope it carried (--tee-dir), for the replay section (9/11).
+# A node dials a peer directly only with the address that peer put in the contact delivery credential
+# it gave the node (modules.p2p.advertise, sealed-sender SSR-P2): so each node advertises one, and
+# allows the other, whose credential then carries it. On one machine the peer processes find each
+# other through the directory instead of dialling that address (--rendezvous, for tests only): the
+# addresses are names under .invalid, which nothing resolves.
 mkdir -p "$RUN/rv" "$RUN/peer"
 ( cd "$RUN" && exec setsid "$BIN/anetpeer" --socket "$RUN/peer/req.sock" --peer "$RUN/peer/req.wire" \
     --rendezvous "$RUN/rv" --tee-dir "$RUN/tee" ) >"$RUN/peer-req.log" 2>&1 </dev/null 9>&- &
@@ -963,7 +969,7 @@ m = {
     "cas":        {"dir": run + "/cas"},
     "blackboard": {"enabled": True},
     "org":        {"genesis": genesis},
-    "p2p":        {"socket": run + "/peer/prov.sock"},
+    "p2p":        {"socket": run + "/peer/prov.sock", "advertise": "prov.joint.invalid:39100"},
 }
 if devices == "1":
     m["anetlink"] = {"socket": link}
@@ -971,7 +977,7 @@ print(json.dumps(m))
 PY
 )
 node_config prov "$PROV_MODULES"
-node_config req "{\"p2p\":{\"socket\":\"$RUN/peer/req.sock\"}}"
+node_config req "{\"p2p\":{\"socket\":\"$RUN/peer/req.sock\",\"advertise\":\"req.joint.invalid:39100\"}}"
 node_config str '{}'
 
 for n in req prov str; do start_node $n "$RUN/$n.log"; done
@@ -1085,12 +1091,12 @@ I=$(cap org.info '{}')
 # INV-2: which org a node belongs to is not public. The realistic leak is not a field someone
 # added on purpose — it is prose the agent wrote about itself, so the check belongs at the
 # publish chokepoint.
-LEAK=$(pc /profile "{\"summary\":\"I coordinate work for $ORG_ID\",\"readme\":\"\",\"pricing\":\"\"}")
+LEAK=$(pc /profile "{\"summary\":\"I coordinate work for $ORG_ID\",\"readme\":\"\"}")
 echo "$LEAK" | grep -qi "inv2\|refusing to publish" && ok "publishing the org id is refused (INV-2)" \
   || no "the node published its org membership: $(echo "$LEAK" | head -c 200)"
 # Judged by the answer it gives, not by the absence of an error: a provider that is down answers
 # nothing, and nothing contains no error.
-CLEAN=$(pc /profile '{"summary":"I operate devices over ANetLink","readme":"","pricing":""}')
+CLEAN=$(pc /profile '{"summary":"I operate devices over ANetLink","readme":""}')
 [ "$(printf '%s' "$CLEAN" | jget status)" = profile_set ] && ok "an ordinary profile still publishes" \
   || no "an ordinary profile did not publish: $(printf '%s' "${CLEAN:-<no answer>}" | head -c 200)"
 
@@ -1194,19 +1200,15 @@ for _ in $(seq 1 40); do [ "$(in_inbox "${OIX:-none}")" = peer ] && break; sleep
 sleep 1   # the acceptance's evidence record is written after the inbox row
 EV0=$(chain_len prov); IN0=$(inbox_n); FM0=$(rx from-mismatch); BS0=$(rx bad-sig)
 
-# A delegation that claims the requester and carries the stranger's own KEL. Sent with relay-sign and
-# curl, which is also the check that the fixture's relay v2 headers are what a wire-2 hub accepts.
+# A delegation that claims the requester and carries the stranger's own KEL, sent as the stranger's first
+# contact (a session it opened with its own signature; the hub sees no inner sender).
 FDEL=$("$FIX" seal --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --type delegate \
          --as "$REQ_AID" --kel self --text "forged: run this for the requester" 2>"$RUN/forge-del.txt")
 FDIX=$(sed -n 's/^ix: //p' "$RUN/forge-del.txt")
-printf '{"to_aid":"%s","envelope":"%s"}' "$PROV_AID" "$FDEL" > "$RUN/forge-del.json"
-"$FIX" relay-sign --home "$STR/.anet" --hub "$HUB_URL" --action send --method POST --path /relay/send \
-  --body-file "$RUN/forge-del.json" > "$RUN/forge-del.hdr" 2>"$RUN/forge-del.err"
-CODE=$(curl -s -o "$RUN/forge-del.out" -w '%{http_code}' -m 20 -H @"$RUN/forge-del.hdr" \
-         -H 'Content-Type: application/json' --data-binary @"$RUN/forge-del.json" "$HUB_URL/relay/send")
-[ -n "$FDEL" ] && [ "$CODE" = 200 ] \
-  && ok "the hub took the stranger's send, signed by anetfixture relay-sign (it cannot see inside)" \
-  || no "the relay-sign request was refused ($CODE): $(head -c 200 "$RUN/forge-del.out") $(head -c 200 "$RUN/forge-del.err") $(head -c 200 "$RUN/forge-del.txt")"
+R=$("$FIX" relay-send --home "$STR/.anet" --hub "$HUB_URL" --to "$PROV_AID" --envelope "${FDEL:-none}" 2>&1)
+[ -n "$FDEL" ] && [ "$(took "$R" hub)" = yes ] \
+  && ok "the hub took the stranger's first contact (it cannot see inside)" \
+  || no "the stranger's send was refused: $(printf '%s' "$R" | head -c 200) $(head -c 200 "$RUN/forge-del.txt")"
 FM1=$(rx_above from-mismatch "$FM0")
 [ "$FM1" -gt "$FM0" ] && ok "the provider refused it at step 6: from-mismatch $FM0 → $FM1" \
   || no "from-mismatch stayed at $FM1; receive counters: $(pc /status '{}' | jget receive | head -c 300)"

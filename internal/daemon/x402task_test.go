@@ -26,6 +26,7 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 	"github.com/ANetResearch/ANet/internal/x402a2a"
 	"github.com/ANetResearch/ANet/module"
@@ -41,7 +42,7 @@ func payPolicy(t *testing.T, d *Daemon, pc PaymentsConfig, payees ...string) {
 	d.cfg.Payments = &pc
 	d.mu.Unlock()
 	if len(payees) > 0 {
-		appendPeerFile(t, d, d.config().Payments.limits().PayeesFile, payees...)
+		appendPeerFile(t, d, payeesFile, payees...)
 	}
 }
 
@@ -100,7 +101,23 @@ func paidPair(t *testing.T, work *meteredWork) (string, *Daemon, *Daemon) {
 		t.Fatal(err)
 	}
 	grantOn(srv.URL, req.AID(), 500)
+	cardPriced(t, req, prov, "work.do")
 	return srv.URL, req, prov
+}
+
+// cardPriced publishes caps on prov's public card and has req keep prov's
+// extended card, as a payment asks for it (PAY-C10 case 2): the price prov
+// signed, which the automatic and the agent tier compare a quote with (HPP
+// PAY-D2). Without it those tiers ask prov when the quote arrives.
+func cardPriced(t *testing.T, req, prov *Daemon, caps ...string) {
+	t.Helper()
+	setPublic(prov, caps...)
+	p := whilePolling(t, func() cardPrice {
+		return req.signedPriceFor(context.Background(), prov.AID(), caps[0], 0)
+	}, req, prov)
+	if !p.Have {
+		t.Fatalf("%s's extended card: %+v", prov.AID(), p)
+	}
 }
 
 func poll(t *testing.T, ds ...*Daemon) {
@@ -155,7 +172,7 @@ func TestAQuotedTaskIsPaidAndCompletedOnTheSameTask(t *testing.T) {
 		t.Fatalf("requester after paying: %s / %q / %v", rix.State, rix.PayState, rix.PayAuthIDs)
 	}
 	_, auth, authID, err := payloadAuth(rix.PayPayload)
-	if err != nil || auth.InteractionID != x402a2a.PayBind(id, rix.TaskNonce) || authID != rix.PayAuthIDs[0] {
+	if err != nil || auth.InteractionID != mustPayBind(t, id, rix.TaskNonce) || authID != rix.PayAuthIDs[0] {
 		t.Fatalf("the authorization is not bound to the task: %v %+v", err, auth)
 	}
 	ev := lastLedgerPayload(t, req, EvPaymentAuthorized)
@@ -263,50 +280,56 @@ func TestAQuoteAboveTheAutoTierWaitsForADecision(t *testing.T) {
 		_ = json.Unmarshal(b, &out)
 		return resp.StatusCode, out
 	}
-	// Above the agent tier the answer is not an error (§8.3): 200, the task
-	// still waiting (input-required, payment-required) with anet.reason
-	// needs_operator_approval, the policy's code, and a message that says
-	// the operator pays with `anet pay <task>`.
-	//
-	// `anet pay` is bound by explicit_max, daily_max and the payee list as
-	// well, so the message names what the operator has to change first; on
-	// a new node (payee list on and empty) that is `anet payees add`.
+	// A decision the agent tier leaves to a person is not an error (HPP
+	// PAY-D3): 200, the task still waiting (input-required,
+	// payment-required) with the decision's anet.reason, the first check
+	// that did not pass (spend_refusal), and its sentence as message and
+	// note — the task's anet.payment_note, word for word. The sentence's
+	// command works as it says: when `anet pay` would be refused too, it
+	// names the setting to raise first (manual_limit, P-PAY-6 ②).
 	submit := `{"task_id":"` + id + `","decision":"submit"}`
-	addPayee := "`anet payees add " + prov.AID() + "`"
-	held := func(what, code string, first ...string) {
+	held := func(what, code, variant string) {
 		t.Helper()
 		status, out := pay(submit)
 		msg, _ := out["message"].(string)
 		if status != http.StatusOK || out["anet.reason"] != x402a2a.ReasonNeedsOperatorApproval ||
 			out["spend_refusal"] != code || out["state"] != string(interactions.StateInputRequired) ||
-			out[x402a2a.KeyStatus] != x402a2a.StatusRequired || !strings.Contains(msg, "anet pay "+id) {
+			out[x402a2a.KeyStatus] != x402a2a.StatusRequired || out["note"] != msg {
 			t.Fatalf("%s: %d %v", what, status, out)
 		}
-		payAt := strings.Index(msg, "`anet pay "+id+"`")
-		for _, f := range first {
-			if i := strings.Index(msg, f); i < 0 || i > payAt {
-				t.Fatalf("%s: the message does not name %s before `anet pay`: %q", what, f, msg)
-			}
+		n, ok := storedPayNote(getIX(t, req, id))
+		if !ok || n.Code != "needs_operator_approval."+variant || n.Tier != a2ashape.PayTierAgent ||
+			msg != a2ashape.PaymentNote(n, a2ashape.Lang()) {
+			t.Fatalf("%s: the stored decision %+v (%v) for %q", what, n, ok, msg)
 		}
-		if len(first) == 0 && strings.Contains(msg, ", then ") {
-			t.Fatalf("%s: the message names steps that are not needed: %q", what, msg)
+		if task := getTaskProjection(t, req, id); task.Metadata[a2ashape.KeyPaymentNote] != msg ||
+			task.Status.Message == nil || len(task.Status.Message.Parts) != 1 || task.Status.Message.Parts[0].Text != msg {
+			t.Fatalf("%s: the task does not say the sentence: %+v", what, task)
 		}
 	}
-	held("agent tier at agent_max 0", SpendOverSingle, addPayee)
+	held("agent tier at agent_max 0", SpendOverSingle, "off")
 	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10})
-	held("a payee not on the list", SpendPayeeNotAllowed, addPayee)
-	// The manual tier has no one above it: its refusal stays a refusal.
+	held("a payee not on the list", SpendPayeeNotAllowed, "payee_not_allowed")
+	// The manual tier has no one above it: its refusal stays a refusal,
+	// said in its sentence (ux D4); it is not held to the payee list.
+	three := uint64(3)
+	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10, ExplicitMax: &three})
 	manual, mb := p.req(t, "POST", "/tasks/pay-manual", `{"task_id":"`+id+`","decision":"submit"}`, p.bearer)
-	if manual.StatusCode != http.StatusForbidden || !strings.Contains(string(mb), SpendPayeeNotAllowed) {
-		t.Fatalf("the manual tier to a payee not on the list: %d %s", manual.StatusCode, mb)
+	var body a2ashape.ErrorBody
+	if manual.StatusCode != http.StatusForbidden || json.Unmarshal(mb, &body) != nil || body.Reason != SpendOverSingle ||
+		body.Next != "anet payments set explicit_max=5" ||
+		body.Error != a2ashape.Sentence(SpendOverSingle, a2ashape.Lang(), a2ashape.Args{"amount": 5, "single": 3, "key": "explicit_max"}) {
+		t.Fatalf("the manual tier above explicit_max: %d %s", manual.StatusCode, mb)
 	}
 	// With the payee on the list, `anet pay` alone is what the operator
 	// runs; above explicit_max as well, raising it comes first.
 	payPolicy(t, req, PaymentsConfig{AgentMax: 1, AgentDailyMax: 10}, prov.AID())
-	held("over agent_max, payee listed", SpendOverSingle)
-	three := uint64(3)
+	held("over agent_max, payee listed", SpendOverSingle, "over_limit")
 	payPolicy(t, req, PaymentsConfig{AgentMax: 1, AgentDailyMax: 10, ExplicitMax: &three})
-	held("over agent_max and explicit_max", SpendOverSingle, "`anet payments set explicit_max=5`")
+	held("over agent_max and explicit_max", SpendOverSingle, "manual_limit")
+	if task := getTaskProjection(t, req, id); task.Metadata[a2ashape.KeyNext] != "anet payments set explicit_max=5" {
+		t.Fatalf("anet.next of manual_limit: %v", task.Metadata[a2ashape.KeyNext])
+	}
 	payPolicy(t, req, PaymentsConfig{AgentMax: 10, AgentDailyMax: 10})
 	if n := chainEvents(t, req, EvPaymentAuthorized); n != 0 {
 		t.Fatalf("refused payments were recorded as authorized: %d", n)
@@ -339,6 +362,12 @@ func TestAQuoteAboveTheAutoTierWaitsForADecision(t *testing.T) {
 	}
 	if ev := lastLedgerPayload(t, req, EvPaymentAuthorized); ev["purpose"] != module.PurposeTaskAgent {
 		t.Errorf("purpose = %v, want task-agent", ev["purpose"])
+	}
+	// The agent tier's payment is said as paid.agent, in the answer (MCP
+	// submit_payment's note) and on the task alike (UX-T1, ux D2).
+	if n, ok := storedPayNote(getIX(t, req, id)); !ok || n.Code != "paid.agent" || out["note"] != a2ashape.PaymentNote(n, a2ashape.Lang()) ||
+		getTaskProjection(t, req, id).Metadata[a2ashape.KeyPaymentNote] != out["note"] {
+		t.Errorf("the agent's payment: %+v, note %v", n, out["note"])
 	}
 	// One payment in flight per task (§8.3).
 	if code, _ := pay(submit); code != http.StatusConflict {
@@ -408,7 +437,7 @@ func TestManualPaymentAndRejection(t *testing.T) {
 func TestTheSpendingPolicyTiers(t *testing.T) {
 	srv := newFakeHub(t)
 	d := newTestDaemon(t, srv.URL, false)
-	if err := d.RegisterWithHub(context.Background(), srv.URL, "Spender", nil, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), srv.URL, "Spender", nil); err != nil {
 		t.Fatal(err)
 	}
 	payPolicy(t, d, PaymentsConfig{AutoMax: 10, AgentMax: 20, AgentDailyMax: 25, ExplicitMax: u64(30),
@@ -423,16 +452,20 @@ func TestTheSpendingPolicyTiers(t *testing.T) {
 		{"did:anet:b", 5, module.PurposeTaskAuto, SpendPayeeNotAllowed},
 		{"did:anet:a", 0, module.PurposeTaskAuto, SpendZeroAmount},
 		{"did:anet:a", 1, "whatever", SpendUnknownPurpose},
+		{"did:anet:a", 1, "gateway", SpendUnknownPurpose}, // the gateway tier is gone (0.3.0)
 		{"did:anet:a", 10, module.PurposeTaskAuto, ""},
 		{"did:anet:a", 10, module.PurposeTaskAuto, ""},
-		{"did:anet:a", 10, module.PurposeTaskAuto, SpendOverAgentDaily}, // auto payments split up still meet agent_daily_max
+		// The automatic tier counts against daily_max alone, not
+		// agent_daily_max (HPP PAY-D6, countsAgentDaily).
+		{"did:anet:a", 10, module.PurposeTaskAuto, ""},
 		{"did:anet:a", 21, module.PurposeTaskAgent, SpendOverSingle},
 		{"did:anet:a", 5, module.PurposeTaskAgent, ""},
-		{"did:anet:a", 1, module.PurposeTaskAgent, SpendOverAgentDaily},
+		{"did:anet:a", 1, module.PurposeTaskAgent, ""},
+		{"did:anet:a", 20, module.PurposeTaskAgent, SpendOverAgentDaily}, // 6 + 20 > 25
 		{"did:anet:a", 31, module.PurposeTaskManual, SpendOverSingle},
-		{"did:anet:a", 30, module.PurposeTaskManual, ""},
-		{"did:anet:a", 6, module.PurposeGateway, SpendOverDaily},
-		{"did:anet:hub-not-a-payee", 5, module.PurposeRedeem, ""}, // redeem is not held to the payee list
+		{"did:anet:b", 19, module.PurposeTaskManual, ""}, // a person's payment is not held to the payee list
+		{"did:anet:a", 6, module.PurposeTaskManual, SpendOverDaily},
+		{"did:anet:hub-not-a-payee", 5, module.PurposeRedeem, ""}, // nor is a redemption
 		{"did:anet:hub-not-a-payee", 1, module.PurposeRedeem, SpendOverDaily},
 	}
 	for i, s := range steps {
@@ -447,7 +480,8 @@ func TestTheSpendingPolicyTiers(t *testing.T) {
 			t.Errorf("step %d (%s %d to %s): %q, want %q", i, s.purpose, s.amount, s.payTo, got, s.want)
 		}
 	}
-	if st := d.SpendStatus(); st.Spent24h != 60 || st.AgentSpent24h != 25 {
+	if st := d.SpendStatus(); st.SpentToday != 60 || st.AgentSpentToday != 6 || st.LeftToday != 0 ||
+		st.AgentLeftToday != 0 || st.Payees != 1 {
 		t.Errorf("totals = %+v", st)
 	}
 	// Through the module: a refusal signs and records nothing.
@@ -520,7 +554,7 @@ func reopen(t *testing.T, d *Daemon) *Daemon {
 func TestSpendTotalsAreRebuiltAtStart(t *testing.T) {
 	srv := newFakeHub(t)
 	d := newTestDaemon(t, srv.URL, false)
-	if err := d.RegisterWithHub(context.Background(), srv.URL, "Spender", nil, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), srv.URL, "Spender", nil); err != nil {
 		t.Fatal(err)
 	}
 	pc := PaymentsConfig{AgentMax: 10, AgentDailyMax: 10, ExplicitMax: u64(10), DailyMax: u64(20)}
@@ -529,7 +563,7 @@ func TestSpendTotalsAreRebuiltAtStart(t *testing.T) {
 		return payment.PaymentOption{Scheme: payment.SchemeCredit, Network: payment.CreditNetwork(hubAIDOf(srv.URL)),
 			Amount: payment.Amount(n), Asset: payment.AssetCredit, PayTo: "did:anet:a"}
 	}
-	if _, err := d.payer().Authorize(opt(7), "ix1", "b1", module.PurposeGateway); err != nil {
+	if _, err := d.payer().Authorize(opt(7), "ix1", "b1", module.PurposeTaskManual); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.payer().Authorize(opt(3), "ix2", "b2", module.PurposeTaskAgent); err != nil {
@@ -539,7 +573,7 @@ func TestSpendTotalsAreRebuiltAtStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	d = reopen(t, d)
-	if st := d.SpendStatus(); st.Spent24h != 10 || st.AgentSpent24h != 3 {
+	if st := d.SpendStatus(); st.SpentToday != 10 || st.AgentSpentToday != 3 {
 		t.Fatalf("after a restart: %+v, want 10 in total and 3 in the agent tiers", st)
 	}
 	if err := d.AdmitSpend("did:anet:a", 8, module.PurposeTaskAgent); err == nil {
@@ -572,17 +606,17 @@ func TestAWrongPaymentIsRefusedBeforeSettlement(t *testing.T) {
 	poll(t, prov, req)
 	rix := getIX(t, req, id)
 	opt := storedQuote(rix).Accepts[0]
-	bind := x402a2a.PayBind(id, rix.TaskNonce)
+	bind := mustPayBind(t, id, rix.TaskNonce)
 
 	for i, tc := range []struct {
 		name, bind, amount, code, reason string
 	}{
-		{"bound to other work", x402a2a.PayBind("ix_other", rix.TaskNonce), "50", "SETTLEMENT_FAILED", "binding_mismatch"},
+		{"bound to other work", mustPayBind(t, "ix_other", rix.TaskNonce), "50", "SETTLEMENT_FAILED", "binding_mismatch"},
 		{"underpaid", bind, "49", "INVALID_AMOUNT", payment.ReasonInvalidAmount},
 	} {
 		o := opt
 		o.Amount = tc.amount
-		raw, err := req.payer().Authorize(o, id, tc.bind, module.PurposeGateway)
+		raw, err := req.payer().Authorize(o, id, tc.bind, module.PurposeTaskManual)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -601,7 +635,7 @@ func TestAWrongPaymentIsRefusedBeforeSettlement(t *testing.T) {
 		t.Fatalf("a refused payment reached the hub (%d) or ran the work (%d)", n, work.invoked.Load())
 	}
 	// The right payment is taken after the wrong ones.
-	raw, err := req.payer().Authorize(opt, id, bind, module.PurposeGateway)
+	raw, err := req.payer().Authorize(opt, id, bind, module.PurposeTaskManual)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -609,11 +643,57 @@ func TestAWrongPaymentIsRefusedBeforeSettlement(t *testing.T) {
 	if pix := getIX(t, prov, id); pix.State != interactions.StateCompleted || work.invoked.Load() != 1 {
 		t.Fatalf("the right payment: %s, ran %d", pix.State, work.invoked.Load())
 	}
-	// A second payment on a settled task is not presented.
-	raw2, _ := req.payer().Authorize(opt, id, bind, module.PurposeGateway)
-	sendPayment(t, req, prov, id, raw2, "msg_again")
+	// A second payment on a settled task is not presented: the task has
+	// ended, and the payment is refused task_ended (engine §4.5).
+	raw2, _ := req.payer().Authorize(opt, id, bind, module.PurposeTaskManual)
+	meta2, _ := json.Marshal(map[string]any{x402a2a.KeyStatus: x402a2a.StatusSubmitted, x402a2a.KeyPayload: json.RawMessage(raw2)})
+	body2, _ := (&delegation.ChatMsg{Kind: delegation.ChatText, MsgID: "msg_again", Metadata: meta2}).Marshal()
+	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeMessage, id, body2)); r.reason != dropAfterTerminal {
+		t.Fatalf("a payment after the end: %+v, want %s", r, dropAfterTerminal)
+	}
 	if n := len(settleBodiesOn(hub)); n != 1 || debitsOn(hub, req.AID()) != 1 {
 		t.Errorf("after a second payment: %d settle calls, %d debits", n, debitsOn(hub, req.AID()))
+	}
+}
+
+// A task whose id or nonce holds U+0000 has no payment binding (core
+// CORE-E9: PayBind refuses such a field), so its terms carry an empty Bind.
+// The merchant check refuses every payment against those terms, an
+// authorization bound to nothing among them: an empty binding matches no
+// payment, it never matches an empty one.
+func TestATaskWithoutABindingTakesNoPayment(t *testing.T) {
+	work := &meteredWork{price: 50}
+	_, req, prov := paidPair(t, work)
+	payPolicy(t, req, PaymentsConfig{ExplicitMax: u64(100), DailyMax: u64(1000)}, prov.AID())
+	id, _ := req.DelegateCapability(context.Background(), prov.AID(), "work.do", nil)
+	poll(t, prov, req)
+	opt := storedQuote(getIX(t, req, id)).Accepts[0]
+	unbound, err := req.payer().Authorize(opt, id, "", module.PurposeTaskManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pix := getIX(t, prov, id)
+	if terms := prov.paymentTerms(pix); terms.Bind == "" {
+		t.Fatal("the task's own terms have no binding")
+	} else if chk := prov.payer().CheckPayment(unbound, terms); chk.Reason != "binding_mismatch" {
+		t.Fatalf("a payment bound to nothing, against the task's terms: %+v", chk)
+	}
+	for name, edit := range map[string]func(ix *interactions.Interaction){
+		"id":    func(ix *interactions.Interaction) { ix.ID += "\x00" },
+		"nonce": func(ix *interactions.Interaction) { ix.TaskNonce = "\x00" + ix.TaskNonce },
+	} {
+		ix := *pix
+		edit(&ix)
+		terms := prov.paymentTerms(&ix)
+		if terms.Bind != "" {
+			t.Fatalf("%s holding U+0000: the terms bind to %q", name, terms.Bind)
+		}
+		if chk := prov.payer().CheckPayment(unbound, terms); chk.Reason != "binding_mismatch" || chk.Code != "SETTLEMENT_FAILED" {
+			t.Errorf("%s holding U+0000: a payment bound to nothing: %+v", name, chk)
+		}
+	}
+	if work.invoked.Load() != 0 {
+		t.Fatal("the work ran")
 	}
 }
 
@@ -757,7 +837,7 @@ func TestCancelAndPaymentRaces(t *testing.T) {
 		id, _ := req.DelegateCapability(ctx, prov.AID(), "work.do", nil)
 		poll(t, prov, req)
 		// The task ended here while its payment was on its way.
-		if _, err := req.ix.SetState(id, interactions.StateCanceled); err != nil {
+		if _, err := req.ix.SetState(id, interactions.StateCanceled, interactions.CauseLocalEnded); err != nil {
 			t.Fatal(err)
 		}
 		poll(t, prov, req, req)
@@ -910,7 +990,7 @@ func TestAStrangerPaysForAPublicCapability(t *testing.T) {
 	// The payment, with a note in its text part.
 	six := getIX(t, stranger, id)
 	opt := storedQuote(six).Accepts[0]
-	raw, err := stranger.payer().Authorize(opt, id, x402a2a.PayBind(id, six.TaskNonce), module.PurposeTaskAgent)
+	raw, err := stranger.payer().Authorize(opt, id, mustPayBind(t, id, six.TaskNonce), module.PurposeTaskAgent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -942,10 +1022,35 @@ func TestAStrangerPaysForAPublicCapability(t *testing.T) {
 	}
 	poll(t, prov)
 	pix := getIX(t, prov, id2)
-	if pix.State != interactions.StateCanceled || pix.PayState != interactions.PayRejected || len(pix.PeerKEL) != 0 {
-		t.Fatalf("provider after the rejection: %s / %q / kel %d", pix.State, pix.PayState, len(pix.PeerKEL))
+	if pix.State != interactions.StateCanceled || pix.PayState != interactions.PayRejected {
+		t.Fatalf("provider after the rejection: %s / %q", pix.State, pix.PayState)
 	}
-	if q, _ := prov.ix.Outbox(id2); len(q) != 0 {
-		t.Errorf("the canceled notice is stuck in the queue: %+v", q[0])
+	// The caller's KEL goes with the last answer queued for it (engine
+	// ENG-S7): once the caller took the canceled notice and the provider
+	// heard so.
+	waitUntil(t, "the canceled notice confirmed and the caller's KEL dropped", func() bool {
+		settleDelivery(t, prov, stranger)
+		q, _ := prov.ix.OutboxRows(id2)
+		return len(q) == 0 && len(getIX(t, prov, id2).PeerKEL) == 0
+	})
+}
+
+// mustPayBind is x402a2a.PayBind for an interaction id and a nonce that hold no U+0000.
+func mustPayBind(tb testing.TB, ix, nonce string) string {
+	tb.Helper()
+	b, err := x402a2a.PayBind(ix, nonce)
+	if err != nil {
+		tb.Fatal(err)
 	}
+	return b
+}
+
+// getTaskProjection is the task as the control plane's /tasks/get shows it.
+func getTaskProjection(t *testing.T, d *Daemon, id string) a2ashape.Task {
+	t.Helper()
+	task, err := d.getTask(controlScope, id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return task
 }

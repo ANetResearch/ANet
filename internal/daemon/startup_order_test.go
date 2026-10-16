@@ -74,7 +74,7 @@ func (p *startupProbe) Start(ctx context.Context, h module.Host) error {
 	}
 	rctx, cancel := context.WithTimeout(ctx, p.wait)
 	defer cancel()
-	err := th.Inbound().Receive(rctx, p.env)
+	err := recvErr(th.Inbound(), rctx, p.env)
 	p.mu.Lock()
 	p.returned, p.err = true, err
 	p.mu.Unlock()
@@ -168,7 +168,7 @@ func TestADeliveryDuringStartupWaitsForRecovery(t *testing.T) {
 
 	// The sender tries again once the node is up: new work, run once, and
 	// its real result kept.
-	if err := prov2.Inbound().Receive(ctx, env); err != nil {
+	if err := recvErr(prov2.Inbound(), ctx, env); err != nil {
 		t.Fatalf("the delivery after start-up: %v", err)
 	}
 	<-slow.started

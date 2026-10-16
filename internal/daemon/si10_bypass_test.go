@@ -7,7 +7,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"sync/atomic"
 	"testing"
@@ -16,7 +15,6 @@ import (
 	"github.com/ANetResearch/ANetCore/seal"
 
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
-	"github.com/ANetResearch/ANet/module"
 )
 
 // directTo is a direct transport to one daemon: Send hands the envelope to
@@ -32,13 +30,14 @@ type directTo struct {
 
 func (p *directTo) Name() string                           { return "p2p-direct" }
 func (p *directTo) Reachable(context.Context, string) bool { return true }
-func (p *directTo) Send(ctx context.Context, _ string, env []byte) error {
+func (p *directTo) Send(ctx context.Context, _ string, env []byte) ([]byte, bool, error) {
 	if p.refuse.Add(-1) >= 0 {
-		return fmt.Errorf("p2p: receiving daemon refused the delivery for now: %w", module.ErrNotDelivered)
+		return nil, false, errors.New("p2p: receiving daemon refused the delivery for now")
 	}
 	p.refuse.Store(0)
 	p.sent.Add(1)
-	return p.to.Inbound().Receive(ctx, env)
+	dack, err := p.to.Inbound().Receive(ctx, env)
+	return dack, true, err
 }
 
 // [redteam:F25][redteam:F23] bypass: a follow-up from a sender the provider
@@ -53,7 +52,9 @@ func (p *directTo) Send(ctx context.Context, _ string, env []byte) error {
 // was failed by the notice — while the delegation behind it was taken and
 // worked on. Over a direct path a message for a task the node does not
 // know is refused for now instead, whoever sent it: it goes through the hub
-// after the delegation already there, and arrives in order.
+// after the delegation already there, and arrives in order. And the
+// requester sends no follow-up at all until its delegation is confirmed
+// (engine ENG-O2): the follow-up cannot overtake it on any path.
 func TestADirectFollowUpThatOvertakesItsDelegationArrivesAfterIt(t *testing.T) {
 	srv := newFakeHub(t)
 	ctx := context.Background()
@@ -74,18 +75,27 @@ func TestADirectFollowUpThatOvertakesItsDelegationArrivesAfterIt(t *testing.T) {
 	if err := stranger.SendMessage(ctx, id, "and one more thing", nil); err != nil {
 		t.Fatalf("follow-up: %v", err)
 	}
+	if direct.sent.Load() != 0 {
+		t.Fatalf("the follow-up went before its delegation was confirmed")
+	}
+	if rows := outboxRows(t, stranger, id); len(rows) != 2 {
+		t.Fatalf("the requester's queue: %+v, want the delegation and the follow-up waiting behind it", rows)
+	}
+	// The provider collects its mail (the delegation), the requester hears
+	// it arrived, and the follow-up goes, here over the direct path, whose
+	// ack carries its token (engine ENG-V2): confirmed there.
+	settleDelivery(t, stranger, prov)
+	if rows := outboxRows(t, stranger, id); len(rows) > 0 {
+		if err := stranger.deliverQueued(ctx, rows[0].ID); err != nil {
+			t.Fatalf("follow-up after the confirmation: %v", err)
+		}
+	}
+	waitUntil(t, "the follow-up to go and be confirmed", func() bool { return len(outboxRows(t, stranger, id)) == 0 })
 	if direct.sent.Load() != 1 {
-		t.Fatalf("setup: the follow-up was not tried over the direct path")
+		t.Fatalf("the follow-up went %d times over the direct path, want once", direct.sent.Load())
 	}
 	if n := counter(prov, dropUnknownIX); n != 0 {
 		t.Fatalf("the direct follow-up was answered TaskNotFound and dropped (%v)", prov.ReceiveStats())
-	}
-	if rows, _ := stranger.ix.Outbox(id); len(rows) != 0 {
-		t.Fatalf("the follow-up is still queued: %+v", rows)
-	}
-	// The provider collects its mail: the delegation, then the follow-up.
-	if err := prov.pollOnce(ctx); err != nil {
-		t.Fatal(err)
 	}
 	msgs, err := prov.ix.Messages(id)
 	if err != nil {
@@ -123,15 +133,14 @@ func TestADirectFollowUpThatOvertakesItsDelegationArrivesAfterIt(t *testing.T) {
 // everything queued behind them — every new message for this node — waited
 // until the held ones turned permanent, however often the node polled. Pages
 // are short when envelopes are large (the hub's poll byte budget), so a few
-// dozen held envelopes are enough; a peer the node deals with may hold 32
-// at a time, and can send them again when they expire. Now the rounds that
+// dozen held envelopes are enough — here signed by a sender whose witness
+// the node does not know yet (step 6½, witness-unknown). Now the rounds that
 // go back over held envelopes keep their own place, and the rounds between
 // them read on from the forward cursor, which never goes back.
 func TestHeldPagesDoNotStarveNewMail(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
-	peer := newStranger(t)
-	allowPeers(t, prov, peer.aid)
+	peer, _ := unknownWitnessSender(t)
 	const held = 2*relayHeadEvery + 4
 	for i := 0; i < held; i++ {
 		injectEnvelope(t, srv, prov.AID(), craft(t, peer, prov, seal.TypeMessage,
@@ -162,14 +171,14 @@ func TestHeldPagesDoNotStarveNewMail(t *testing.T) {
 	// page read its one envelope again and again, as many times, and left
 	// the rest where they were (mutation fx24-2, an internal note).
 	heldIDs := mailboxIDsFor(srv.URL, prov.AID())
-	before := counter(prov, transientUnknownIX)
+	before := counter(prov, seal.ReasonWitnessUnknown)
 	servedBefore := len(relayServedFor(srv.URL, prov.AID()))
 	for i := 0; i < 2*held+2; i++ {
 		if err := prov.pollOnce(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if n := counter(prov, transientUnknownIX) - before; n < held {
+	if n := counter(prov, seal.ReasonWitnessUnknown) - before; n < held {
 		t.Fatalf("%d held envelopes read %d times in %d rounds; not every one was gone back to", held, n, 2*held+2)
 	}
 	readAgain := map[int64]bool{}
@@ -201,10 +210,10 @@ func (p *deliverThenDie) Name() string { return "p2p-sender-dies" }
 func (p *deliverThenDie) Reachable(context.Context, string) bool {
 	return p.on.Load()
 }
-func (p *deliverThenDie) Send(ctx context.Context, _ string, env []byte) error {
+func (p *deliverThenDie) Send(ctx context.Context, _ string, env []byte) ([]byte, bool, error) {
 	_ = p.to.receiveEnvelope(ctx, env)
 	p.die()
-	return errors.New("p2p: no answer within the send timeout")
+	return nil, true, errors.New("p2p: no answer within the send timeout")
 }
 
 // [redteam:F23][redteam:F12] bypass: a delegation row is marked "may have
@@ -246,19 +255,19 @@ func TestADelegationWhoseAttemptWasNeverRecordedIsNotWithdrawn(t *testing.T) {
 	// The process comes back; the direct path is gone, the hub still down.
 	recovered()
 	direct.on.Store(false)
-	rows, err := req.ix.Outbox(id)
-	if err != nil || len(rows) != 1 {
-		t.Fatalf("setup: outbox %+v (%v), want the delegation", rows, err)
+	rows := outboxRows(t, req, id)
+	if len(rows) != 1 {
+		t.Fatalf("setup: outbox %+v, want the delegation", rows)
 	}
-	if !rows[0].MaybeDelivered {
-		t.Fatalf("a delegation whose attempt's outcome was never recorded counts as never delivered")
+	if !rows[0].Attempting && rows[0].HandedAt == 0 {
+		t.Fatalf("a delegation whose attempt's outcome was never recorded counts as never handed over")
 	}
 
 	if _, err := req.CancelTask(ctx, id); err != nil {
 		t.Fatalf("cancel: %v", err)
 	}
-	rows, _ = req.ix.Outbox(id)
-	if len(rows) != 2 {
+	rows = outboxRows(t, req, id)
+	if len(rows) != 2 || !rows[0].Frozen {
 		t.Fatalf("outbox after the cancel: %d rows, want the delegation and the cancel behind it (withdrawn?)", len(rows))
 	}
 	// The hub is back: the cancel reaches the provider, after the
@@ -289,28 +298,32 @@ func TestADelegationWhoseAttemptWasNeverRecordedIsNotWithdrawn(t *testing.T) {
 // which anyone who can reach the peer process piles up work and memory.
 // The limit is applied first now: over it, a delivery is refused at once
 // (the sender goes to the hub), starting or not.
+//
+// The limiter runs on the daemon's clock, held still here: the bucket holds
+// p2pRxSharedBurst tokens and gets none back however long the goroutines take to
+// reach it (on the wall clock a busy machine refilled it between them, and
+// fewer than `over` were refused within the second the test allowed). No
+// deadline decides the outcome: a delivery over the limit that waited for
+// start-up instead returns only when ctx ends, with something other than
+// errP2PRateLimited.
 func TestTheDirectRateLimitHoldsDuringStartUp(t *testing.T) {
 	_, req, prov := registeredPair(t)
 	prov.ready = make(chan struct{}) // start-up not finished
 	env := craft(t, senderOf(req), prov, seal.TypeMessage, "ix_during_start", chatBody(t, "x", ""), nil)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	now := prov.nowMS()
+	prov.setClock(func() uint64 { return now })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	// A first contact (kind 0) is charged to the shared bucket.
 	const over = 5
-	errc := make(chan error, p2pBurst+over)
-	for i := 0; i < p2pBurst+over; i++ {
-		go func() { errc <- prov.Inbound().Receive(ctx, env) }()
+	errc := make(chan error, p2pRxSharedBurst+over)
+	for i := 0; i < p2pRxSharedBurst+over; i++ {
+		go func() { errc <- recvErr(prov.Inbound(), ctx, env) }()
 	}
-	limited := 0
-	timeout := time.After(time.Second)
-	for limited < over {
-		select {
-		case err := <-errc:
-			if !errors.Is(err, errP2PRateLimited) {
-				t.Fatalf("a delivery during start-up returned %v before start-up finished", err)
-			}
-			limited++
-		case <-timeout:
-			t.Fatalf("%d deliveries over the rate limit refused at once, want %d: the rest wait for start-up", limited, over)
+	for limited := 0; limited < over; limited++ {
+		if err := <-errc; !errors.Is(err, errP2PRateLimited) {
+			t.Fatalf("%d deliveries over the rate limit refused at once, then one returned %v before start-up finished; "+
+				"want %d refused at once and the rest waiting for start-up", limited, err, over)
 		}
 	}
 	// The ones within the limit still wait for start-up, then go through.
@@ -320,7 +333,7 @@ func TestTheDirectRateLimitHoldsDuringStartUp(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 	close(prov.ready)
-	for i := 0; i < p2pBurst; i++ {
+	for i := 0; i < p2pRxSharedBurst; i++ {
 		if err := <-errc; errors.Is(err, errNotReady) || errors.Is(err, errP2PRateLimited) {
 			t.Fatalf("a delivery within the limit, after start-up: %v", err)
 		}
@@ -336,17 +349,19 @@ func TestTheDirectRateLimitHoldsDuringStartUp(t *testing.T) {
 // delegation this node holds and runs at its next start. Once committed,
 // the answer is an ack whatever came after.
 func TestACommittedDirectDeliveryIsNeverRefused(t *testing.T) {
-	committed := make(chan struct{})
+	committed := make(chan []byte, 1)
 	stopping := rxResult{class: rxTransient, reason: transientStopping}
-	if err := directAnswer(committed, stopping); err == nil {
+	if _, err := directAnswer(committed, stopping); err == nil {
 		t.Fatal("an uncommitted envelope refused for now was acknowledged")
 	}
-	close(committed)
-	if err := directAnswer(committed, stopping); err != nil {
-		t.Fatalf("a committed envelope was refused: %v", err)
+	tok1 := []byte("the commit's token")
+	committed <- tok1
+	if dack, err := directAnswer(committed, stopping); err != nil || string(dack) != string(tok1) {
+		t.Fatalf("a committed envelope was refused or answered without its token: %q %v", dack, err)
 	}
-	if err := directAnswer(committed, rxResult{class: rxDropped, reason: dropDuplicate}); err != nil {
-		t.Fatalf("a committed duplicate was refused: %v", err)
+	committed <- tok1
+	if dack, err := directAnswer(committed, rxResult{class: rxDropped, reason: dropDuplicate}); err != nil || string(dack) != string(tok1) {
+		t.Fatalf("a committed duplicate was refused or answered without its token: %q %v", dack, err)
 	}
 }
 
@@ -360,7 +375,7 @@ func TestACommittedDirectDeliveryIsNeverRefused(t *testing.T) {
 func TestARedeliveredDelegationHurriesTheWholeAnswerQueue(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
-	clk := &sharedClock{now: uint64(time.Now().UnixMilli())}
+	clk := newSharedClock(uint64(time.Now().UnixMilli()))
 	prov.setClock(clk.fn())
 	id, err := req.Delegate(ctx, prov.AID(), "a text task", nil)
 	if err != nil {
@@ -379,11 +394,11 @@ func TestARedeliveredDelegationHurriesTheWholeAnswerQueue(t *testing.T) {
 	if err := prov.CompleteTask(ctx, id); err != nil {
 		t.Logf("complete: %v", err)
 	}
-	rows, _ := prov.ix.Outbox(id)
+	rows := outboxRows(t, prov, id)
 	if len(rows) != 2 || rows[1].Type != seal.TypeResult {
 		t.Fatalf("setup: provider outbox %+v, want a status and then the result", rows)
 	}
-	if uint64(rows[0].NextAt) <= clk.now {
+	if uint64(rows[0].NextAt) <= clk.now() {
 		t.Fatalf("setup: the status is due already")
 	}
 	// The hub is back, and the requester sends its delegation again.
@@ -393,8 +408,10 @@ func TestARedeliveredDelegationHurriesTheWholeAnswerQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	prov.flushOutbox(ctx)
-	if rows, _ := prov.ix.Outbox(id); len(rows) != 0 {
-		t.Fatalf("after the redelivery %d answers still wait (the first due at +%d ms)", len(rows), rows[0].NextAt-int64(clk.now))
+	if n := len(queuedFor(t, srv, req.AID())); n != 2 {
+		rows := outboxRows(t, prov, id)
+		t.Fatalf("after the redelivery %d answers reached the hub, want both (the first due at +%d ms)", n,
+			rows[0].NextAt-int64(clk.now()))
 	}
 	if err := req.pollOnce(ctx); err != nil {
 		t.Fatal(err)

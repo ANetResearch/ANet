@@ -12,7 +12,10 @@ import (
 	"time"
 )
 
-// HLC is a Hybrid Logical Clock providing causal ordering. Order: Wall → Logical → NodeID.
+// HLC is a Hybrid Logical Clock providing causal ordering. Order: Wall → Logical → NodeID. It is
+// a unit's stamp, so it is encoded inside the signed body (core §2.19 HLC).
+//
+//anet:wire HLC
 type HLC struct {
 	Wall    int64  `cbor:"1,keyasint"`           // unix-millis
 	Logical uint16 `cbor:"2,keyasint,omitempty"` // Lamport counter within one ms

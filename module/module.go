@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
@@ -91,11 +92,9 @@ type Host interface {
 	// signing is the payment.
 	//
 	// So the trade is deliberate: signing leaves the kernel, and in
-	// exchange 800 lines of facilitator client, voucher door and
-	// redemption path leave with it — including a PUBLIC listener, which
-	// is a security posture nothing else in the kernel has. A build with
-	// -tags no_x402 has none of it, which it could not claim while the
-	// code sat in the kernel being linked in regardless.
+	// exchange the facilitator client and the redemption path leave with
+	// it. A build with -tags no_x402 has none of it, which it could not
+	// claim while the code sat in the kernel being linked in regardless.
 	PaymentSeam() (PaymentSeam, bool)
 
 	// HubSeam hands over the ability to act as this node against its own
@@ -117,27 +116,6 @@ type Host interface {
 	// node's behalf. That is what a hub client is for and it is not a
 	// detail to leave implicit.
 	HubSeam() (HubSeam, bool)
-
-	// Admit is the kernel's admission check for a capability call that
-	// arrives through a door the inbound policy does not otherwise see
-	// (A2A-DESIGN §5.4). It applies the deny list (read at the moment of
-	// the call), membership of inbound.public_capabilities, the per-caller
-	// and global quotas, the in-flight bound and the argument size limit,
-	// all as configured for the kernel's own relay path.
-	//
-	// Added for the voucher door of the payment module. A voucher proves
-	// that somebody paid the hub; it does not make the capability public,
-	// and without this check that door served any priced capability to any
-	// payer, deny list and quotas included. Implementing the policy inside
-	// the module would give the node two copies of it that could disagree,
-	// and the kernel is the one that owns the lists and the counters.
-	//
-	// On success it returns a release function the caller must call once
-	// when the invocation ends, and an empty refusal. On refusal it returns
-	// a nil release and a reason code (denied, capability_not_public,
-	// args_too_large, quota_caller_per_min, quota_caller_per_day,
-	// quota_global_per_min, max_inflight), which the caller records.
-	Admit(callerAID, capID string, argsLen int) (release func(), refusal string)
 
 	// DeclareUntrustedBackend tells the kernel that this module will forward
 	// work from peers that are not on the inbound trust list to a local
@@ -216,6 +194,13 @@ type TaskSeam interface {
 	// delegation or input that expires undelivered, or that the hub
 	// refuses for good, fails the task with anet.reason=undeliverable.
 	Send(ctx context.Context, peerAID string, req TaskSend) (Task, error)
+	// SendGate is nil when this node may send now, and otherwise the
+	// refusal Send would answer with (an *a2ashape.Refusal: the node is not
+	// registered at its hub, LEC AD-6). The local A2A interface asks it
+	// before the binding runs, so the refusal reaches the client in the
+	// two-ErrorInfo form (ux UX-R10) rather than through the binding's own
+	// error encoding.
+	SendGate(ctx context.Context) error
 	// Get is GetTask. historyLen bounds the history (nil: all of it).
 	Get(ctx context.Context, peerAID, taskID string, historyLen *int) (Task, error)
 	// List is ListTasks over this node's tasks with peerAID, most recent
@@ -232,8 +217,16 @@ type TaskSeam interface {
 	// Agents lists the remote agents a client may address.
 	Agents(ctx context.Context, q AgentQuery) ([]RemoteAgent, error)
 	// Card is one remote agent, with its verified network card if it has
-	// one.
+	// one. It never contacts the agent: Charge is read from the public
+	// card, and ExtendedOffered says whether ExtendedCard would.
 	Card(ctx context.Context, aid string) (RemoteAgent, error)
+	// ExtendedCard is GetExtendedAgentCard (HPP §4.7, core CORE-K23): the
+	// agent's extended card, verified here, from this node's cache or
+	// fetched end to end within 10 seconds — only when CORE-K23 rule 2
+	// holds for it. Every other outcome is an *a2ashape.Refusal of the
+	// extended_card_* codes (or the node's own state), with RetryAfter for
+	// a passing one; the CLI and MCP show the same sentence.
+	ExtendedCard(ctx context.Context, aid string) (ExtendedAgent, error)
 	// Pay answers a payment-required task (§8.7): submit signs an
 	// authorization within the agent-tier limits and sends it; reject
 	// declines. The purpose is always task-agent.
@@ -349,12 +342,70 @@ type RemoteAgent struct {
 	Quiet       bool     `json:"quiet,omitempty"`
 	ReviewCount int      `json:"reviewCount,omitempty"`
 	AvgRating   any      `json:"avgRating,omitempty"`
+	// KeyState is KeyStateFresh when the directory's entry for the agent
+	// carried a notice its witness hub signed, checked here and fresh, about
+	// the tip of its key history; KeyStateStale otherwise. It says whether
+	// the agent's hub confirmed its current key, not whether its card
+	// verified (Verification), and a stale one does not stop a send: the
+	// send waits for a fresh confirmation itself (KEL D-26, D-28).
+	KeyState string `json:"key_state,omitempty"`
 	// Official is true when AID is listed in the official-agent manifest
 	// built into this binary, signed with the release key (A2A-DESIGN §15,
 	// internal/official). The AID alone decides it: a name, a card or a
 	// hub's word never does. It is a label; it grants the agent nothing.
 	Official bool `json:"anet.official,omitempty"`
+	// Charge is free, partial or paid (HPP PAY-C15), read from the
+	// standard a2a-x402 declaration of the card shown: the extended card
+	// when one was fetched and verified, the public card otherwise. Only
+	// for a VERIFIED card.
+	Charge string `json:"charge,omitempty"`
+	// Prices are every skill of the verified extended card, in its order,
+	// a free one at "0" (HPP §2.7); only when that card was had.
+	// PricesFetchedAt is when it was fetched (RFC 3339, milliseconds).
+	Prices          []SkillPrice `json:"prices,omitempty"`
+	PricesFetchedAt string       `json:"pricesFetchedAt,omitempty"`
+	// PriceNote is the sentence of extended_card_unavailable (or its
+	// .bad_signature variant) when the extended card should have been
+	// fetched and was not (CORE-K23 rule 4); the CLI's last line and the
+	// local A2A error message say the same.
+	PriceNote string `json:"priceNote,omitempty"`
+	// ExtendedOffered says CORE-K23 rule 2 holds: the agent's public card
+	// declares an extended card, and either declares a2a-x402 or this node
+	// holds a contact capability the agent issued it. Only then is the
+	// agent ever asked for its extended card for a display, and only then
+	// does its proxy card declare one (rule 3). Not on the wire.
+	ExtendedOffered bool `json:"-"`
 }
+
+// Charge values (HPP PAY-C15): what a card's a2a-x402 declaration says.
+const (
+	ChargeFree    = "free"    // no declaration
+	ChargePartial = "partial" // declared, required omitted
+	ChargePaid    = "paid"    // declared required
+)
+
+// SkillPrice is one skill of an extended card and the price its signer
+// put on it: Amount is a decimal string of credits, "0" for a free skill.
+type SkillPrice struct {
+	Skill  string `json:"skill"`
+	Amount string `json:"amount"`
+	Unit   string `json:"unit"`
+}
+
+// ExtendedAgent is a remote agent with its extended card (TaskSeam.
+// ExtendedCard): Agent as Card gives it, with Charge and Prices from the
+// extended card, and Card the extended card's bytes exactly as its signer
+// signed them, verified here.
+type ExtendedAgent struct {
+	Agent RemoteAgent
+	Card  json.RawMessage
+}
+
+// RemoteAgent.KeyState values (KEL D-28).
+const (
+	KeyStateFresh = "fresh"
+	KeyStateStale = "stale"
+)
 
 // PayDecision answers a payment-required task.
 type PayDecision struct {
@@ -385,6 +436,8 @@ type HubSeam interface {
 	Sign(preimage []byte) (sig []byte, keyStateSeq uint64)
 	// HubURL is where this node's hub lives.
 	HubURL() string
+	// HubDo sends one request to this node's hub; see PaymentSeam.HubDo.
+	HubDo(req *http.Request) (*http.Response, error)
 }
 
 // PaymentSeam is exactly what a payment subsystem needs of the node.
@@ -408,10 +461,9 @@ type PaymentSeam interface {
 	// event type.
 	//
 	// Here rather than on Host because it is the read half of a write
-	// Host already grants, and because the payment module has the one use
-	// that needs it: a voucher is spent once, the guard must survive a
-	// restart, and the chain is where the redemption was recorded. A
-	// control nobody can consult is not a control — the alternative was a
+	// Host already grants, and because only the payment module needs it:
+	// reconciliation and the issuance audit compare the hub's ledger with
+	// what this node recorded of its own payments. The alternative was a
 	// second persistence layer holding the same facts, which is how two
 	// records of one event start disagreeing.
 	ReadEvidence(eventType string, limit int) []map[string]any
@@ -430,9 +482,21 @@ type PaymentSeam interface {
 	// decides its own limits is a module that has no limits. So the module
 	// asks, and signs only on a yes.
 	//
-	// purpose is one of task-auto, task-agent, task-manual, gateway and
-	// redeem; the kernel refuses any other.
+	// purpose is one of task-auto, task-agent, task-manual and redeem;
+	// the kernel refuses any other.
 	AdmitSpend(payTo string, amount uint64, purpose string) error
+
+	// HubDo sends one request to this node's hub (HubURL) the way the node
+	// sends its own: with the hub wire version, a fixed User-Agent, no
+	// cookies, and on the connection side its route belongs to — the side
+	// that names this node (a signed request, this node's own records) or
+	// the side that does not (sealed-sender §4.3.11). A module that opened
+	// connections of its own would put a signed request and an anonymous
+	// one on the same connection, and the connection would name the sender
+	// the anonymous one hides. A request to anything but this node's hub,
+	// or to a route the node does not send, is refused before anything is
+	// sent. The caller closes the response body.
+	HubDo(req *http.Request) (*http.Response, error)
 }
 
 // Spending purposes: the tiers of A2A-DESIGN §8.6, named by the surface a
@@ -442,7 +506,6 @@ const (
 	PurposeTaskAuto   = "task-auto"   // the daemon paying a quote on its own, within auto_max
 	PurposeTaskAgent  = "task-agent"  // POST /tasks/pay: MCP submit_payment, a local A2A client
 	PurposeTaskManual = "task-manual" // POST /tasks/pay-manual: `anet pay` after a terminal confirmation
-	PurposeGateway    = "gateway"     // /x402-authorize, /delegate pay:true
 	PurposeRedeem     = "redeem"      // /redeem: credit given back to the hub
 )
 
@@ -500,6 +563,10 @@ type Payer interface {
 	// Price reports what a capability costs here and whether it costs
 	// anything. Free is (0, false), never (0, true).
 	Price(capID string) (uint64, bool)
+	// HasPrices reports whether any capability this node serves has a
+	// price, from the same answers as Price: the pay flag of the
+	// capabilities this node gives its peers (core X-SS-8).
+	HasPrices() bool
 	// Quote builds the PAYMENT_REQUIRED body for a priced capability.
 	Quote(capID string, price uint64) *payment.PaymentRequired
 	// Authorize signs a payment for one interaction and returns the
@@ -550,9 +617,6 @@ type Payer interface {
 	// of the hub this node settles on now, else ErrRedeemPayee and nothing
 	// is signed.
 	Redeem(ctx context.Context, amount uint64, reference, payTo string) (map[string]any, error)
-	// RedeemURL is this node's public voucher face, or empty. It goes in
-	// the signed card so a gateway can tell buyers where to collect.
-	RedeemURL() string
 	// HomeNetwork is the ledger this node's own credits live on, so a
 	// caller offered several rails can pick the one it can actually pay
 	// from. Empty when this node has no hub.
@@ -570,8 +634,9 @@ type Payer interface {
 	// own chain. Opt-in — see the module's own documentation for why a
 	// trimmed node should not be made to do this.
 	WitnessHub(ctx context.Context) (uint64, string, error)
-	// Serve brings up whatever public face the module needs. Called once,
-	// after Start, by the kernel that owns the process lifetime.
+	// Serve starts the module's background work. Called once, after
+	// Start, by the kernel that owns the process lifetime. It opens no
+	// listener: the payment module has no public door.
 	Serve(ctx context.Context) error
 }
 

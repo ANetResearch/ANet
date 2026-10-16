@@ -173,7 +173,7 @@ func TestTheNetworkCardGolden(t *testing.T) {
 	s = strings.ReplaceAll(s, h.URL, "<hub>")
 	s = strings.ReplaceAll(s, `"version":"`+Version+`"`, `"version":"<version>"`)
 
-	const golden = `{"capabilities":{"extensions":[` +
+	const golden = `{"capabilities":{"extendedAgentCard":true,"extensions":[` +
 		`{"description":"anet identity (AID) and card sequence; the card is signed under the AID's current KEL key",` +
 		`"params":{"aid":"<aid>","issuedAt":"<issuedAt>","notBefore":"<notBefore>","seq":"<seq>"},` +
 		`"uri":"https://agentnetwork.org.cn/a2a/ext/anet-card/v1"},` +
@@ -189,7 +189,7 @@ func TestTheNetworkCardGolden(t *testing.T) {
 	if s != golden {
 		t.Fatalf("network card changed\n got  %s\n want %s", s, golden)
 	}
-	for _, uri := range []string{module.ExtX402URI, module.ExtPricingURI} {
+	for _, uri := range []string{module.ExtX402URI, publicPricingURI} {
 		if bytes.Contains(raw, []byte(uri)) {
 			t.Fatalf("a card with no payment module carries %s", uri)
 		}
@@ -229,7 +229,7 @@ func TestNoPublicSkillMeansNoCardAndARegistrationWithoutOne(t *testing.T) {
 	if _, _, err := d.networkCard(h.URL); err != errNoPublicSkill {
 		t.Fatalf("an unserved public capability built a card: %v", err)
 	}
-	if err := d.RegisterWithHub(context.Background(), h.URL, "Nobody", nil, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), h.URL, "Nobody", nil); err != nil {
 		t.Fatal(err)
 	}
 	fh := fakeHubAt(t, h.URL)
@@ -258,7 +258,7 @@ func TestRegistrationPublishesTheCardAndRepeatsItUnchanged(t *testing.T) {
 		return fh.a2aCards[d.AID()], fh.registerCards[d.AID()], fh.a2aMarks[d.AID()]
 	}
 
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	first, status, mark1 := stored()
@@ -269,7 +269,7 @@ func TestRegistrationPublishesTheCardAndRepeatsItUnchanged(t *testing.T) {
 		t.Fatalf("publication status %+v", pub)
 	}
 
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	second, status, mark2 := stored()
@@ -287,7 +287,7 @@ func TestRegistrationPublishesTheCardAndRepeatsItUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	setPublic(d2, lampCap)
-	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	if third, status, _ := stored(); status != hubapi.CardStatusUnchanged || !bytes.Equal(first, third) {
@@ -297,7 +297,7 @@ func TestRegistrationPublishesTheCardAndRepeatsItUnchanged(t *testing.T) {
 	d2.mu.Lock()
 	d2.cfg.Summary = "Now also dims."
 	d2.mu.Unlock()
-	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d2.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, status, mark3 := stored(); status != hubapi.CardStatusOK || mark3.Seq <= mark1.Seq {
@@ -312,7 +312,7 @@ func TestAConflictIsResolvedWithAFreshSeq(t *testing.T) {
 	d := lampNode(t)
 	fh := fakeHubAt(t, h.URL)
 	ctx := context.Background()
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	fh.mu.Lock()
@@ -322,7 +322,7 @@ func TestAConflictIsResolvedWithAFreshSeq(t *testing.T) {
 	fh.a2aMarks[d.AID()] = m
 	fh.mu.Unlock()
 
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	fh.mu.Lock()
@@ -369,7 +369,7 @@ func TestContributionsEnterTheCardInPublishForm(t *testing.T) {
 		},
 		ext: []map[string]any{
 			{"uri": module.ExtX402URI, "required": false, "description": ""},
-			{"uri": module.ExtPricingURI, "params": map[string]any{"network": "hub:x", "prices": []any{map[string]any{"skillId": lampCap, "amount": 5}}}},
+			{"uri": publicPricingURI, "params": map[string]any{"network": "hub:x", "prices": []any{map[string]any{"skillId": lampCap, "amount": 5}}}},
 			{"uri": a2acard.ExtCardURI, "params": map[string]any{"aid": "someone"}},
 			{"uri": "https://example.org/ext", "params": map[string]any{}, "required": true},
 		},
@@ -422,8 +422,9 @@ func TestContributionsEnterTheCardInPublishForm(t *testing.T) {
 }
 
 // list_agents free text stays on this node: the hub is asked for the
-// listing, and the match is made here.
-func TestFindMatchesLocallyAndDoesNotSendTheQuery(t *testing.T) {
+// listing, and the match is made here. `anet find` asks the same question
+// (/agents/list; the v1 /find route is gone).
+func TestTheAgentListMatchesLocallyAndDoesNotSendTheQuery(t *testing.T) {
 	h := newFakeHub(t)
 	a := newCardDaemon(t, "Translator", "")
 	b := newCardDaemon(t, "Painter", "")
@@ -434,39 +435,37 @@ func TestFindMatchesLocallyAndDoesNotSendTheQuery(t *testing.T) {
 		caps []string
 	}{{a, "Translator", []string{"text.translate"}}, {b, "Painter", []string{"image.paint"}}} {
 		setPublic(x.d, x.caps...) // only public capabilities are published (an internal note item)
-		if err := x.d.RegisterWithHub(ctx, h.URL, x.name, x.caps, ""); err != nil {
+		if err := x.d.RegisterWithHub(ctx, h.URL, x.name, x.caps); err != nil {
 			t.Fatal(err)
 		}
 	}
 	a.mu.Lock()
 	a.cfg.HubURL = h.URL
 	a.mu.Unlock()
-	fh := fakeHubAt(t, h.URL)
-	fh.mu.Lock()
-	fh.agentsQueries = nil
-	fh.mu.Unlock()
+	before := len(hubRequests(t, h.URL))
 
-	got, err := a.Find(ctx, "TRANSLATE")
+	got, _, err := a.listAgents(ctx, module.AgentQuery{Query: "TRANSLATE", IncludeUncarded: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].AID != a.AID() {
-		t.Fatalf("got %v", got)
+		t.Fatalf("got %+v", got)
 	}
-	fh.mu.Lock()
-	queries := fh.agentsQueries
-	fh.mu.Unlock()
-	for _, q := range queries {
-		if strings.Contains(strings.ToLower(q), "translate") {
-			t.Fatalf("the free text reached the hub: %q", q)
+	listings := 0
+	for _, r := range hubRequests(t, h.URL)[before:] {
+		if strings.Contains(strings.ToLower(r.query+" "+string(r.body)), "translate") {
+			t.Fatalf("the free text reached the hub: %s %s?%s %s", r.method, r.path, r.query, r.body)
+		}
+		if r.path == "/agents" {
+			listings++
 		}
 	}
-	if len(queries) != 1 {
-		t.Fatalf("want one listing request, got %v", queries)
+	if listings != 1 {
+		t.Fatalf("want one directory listing, got %d", listings)
 	}
-	all, err := a.Find(ctx, "")
+	all, _, err := a.listAgents(ctx, module.AgentQuery{IncludeUncarded: true})
 	if err != nil || len(all) != 2 {
-		t.Fatalf("empty query: %v %v", all, err)
+		t.Fatalf("empty query: %+v %v", all, err)
 	}
 }
 
@@ -481,10 +480,10 @@ func (*cardPricedWork) Capabilities(context.Context) ([]string, error) {
 func (*cardPricedWork) Price(c string) (uint64, bool) { return 5, c == "work.priced" }
 
 // A priced public skill: with the payment module in the build, the card
-// declares a2a-x402 (required, since every skill is priced) and the signed
-// price list; a -tags no_x402 build refuses every call to a priced
-// capability, so it lists no such skill and carries neither URI. Run under
-// both.
+// declares a2a-x402 (required, since every skill is priced) and carries no
+// price (what a skill costs is in the quote); a -tags no_x402 build
+// refuses every call to a priced capability, so it lists no such skill and
+// carries neither URI. Run under both.
 func TestPaymentOnTheCardFollowsTheBuild(t *testing.T) {
 	h := newFakeHub(t)
 	d := newCardDaemon(t, "Worker", "")
@@ -516,7 +515,7 @@ func TestPaymentOnTheCardFollowsTheBuild(t *testing.T) {
 		if len(v.Skills) != 1 || v.Skills[0].ID != lampCap {
 			t.Fatalf("skills %+v, want only the free %s", v.Skills, lampCap)
 		}
-		if bytes.Contains(raw, []byte("x402")) || bytes.Contains(raw, []byte(module.ExtPricingURI)) {
+		if bytes.Contains(raw, []byte("x402")) || bytes.Contains(raw, []byte(publicPricingURI)) {
 			t.Fatalf("a no_x402 build published a payment URI:\n%s", raw)
 		}
 		return
@@ -539,15 +538,10 @@ func TestPaymentOnTheCardFollowsTheBuild(t *testing.T) {
 	if !ok || x["required"] != true {
 		t.Fatalf("a2a-x402 declaration %v; want required true", x)
 	}
-	hubAID, _, err := d.hubIdentity(context.Background(), h.URL)
-	if err != nil {
-		t.Fatal(err)
+	if len(exts) != 3 || x["params"] != nil {
+		t.Fatalf("extensions %v: want anet-card, anet-evidence and a2a-x402 alone, without params", exts)
 	}
-	want := map[string]any{"network": "hub:" + hubAID,
-		"prices": []any{map[string]any{"skillId": "work.priced", "amount": "5"}}}
-	if p := exts[module.ExtPricingURI]; p == nil || !reflect.DeepEqual(p["params"], want) {
-		t.Fatalf("pricing %v, want params %v", p, want)
-	}
+	assertNoPublicPrice(t, raw, "5")
 }
 
 // A node that cannot take payment (no payment module, as in a -tags
@@ -584,7 +578,7 @@ func TestAPricedSkillIsLeftOffWhenThisNodeCannotCharge(t *testing.T) {
 func TestTheCardCarriesTheRegisteredName(t *testing.T) {
 	h := newFakeHub(t)
 	d := lampNode(t) // configured name "Lamp Agent"
-	if err := d.RegisterWithHub(context.Background(), h.URL, "Desk Lamp", nil, ""); err != nil {
+	if err := d.RegisterWithHub(context.Background(), h.URL, "Desk Lamp", nil); err != nil {
 		t.Fatal(err)
 	}
 	fh := fakeHubAt(t, h.URL)
@@ -599,8 +593,8 @@ func TestTheCardCarriesTheRegisteredName(t *testing.T) {
 // The first hub-register of a node with a priced public skill: the payment
 // module reads the hub from the config, which HubRegister writes after the
 // hub answered, so the node publishes again and the hub ends up with the
-// price list.
-func TestAFirstHubRegisterEndsWithThePriceListPublished(t *testing.T) {
+// a2a-x402 declaration — and no price.
+func TestAFirstHubRegisterEndsWithThePaymentDeclarationPublished(t *testing.T) {
 	compiled := false
 	for _, n := range module.Compiled() {
 		compiled = compiled || n == "x402"
@@ -614,7 +608,7 @@ func TestAFirstHubRegisterEndsWithThePriceListPublished(t *testing.T) {
 		t.Fatal(err)
 	}
 	setPublic(d, "work.priced")
-	if err := d.HubRegister(context.Background(), h.URL, "Worker", nil, ""); err != nil {
+	if err := d.HubRegister(context.Background(), h.URL, "Worker", nil); err != nil {
 		t.Fatal(err)
 	}
 	fh := fakeHubAt(t, h.URL)
@@ -623,12 +617,13 @@ func TestAFirstHubRegisterEndsWithThePriceListPublished(t *testing.T) {
 		fh.mu.Lock()
 		raw := fh.a2aCards[d.AID()]
 		fh.mu.Unlock()
-		if bytes.Contains(raw, []byte(module.ExtPricingURI)) {
+		if bytes.Contains(raw, []byte(module.ExtX402URI)) {
 			verifyOwn(t, d, raw)
+			assertNoPublicPrice(t, raw, "5")
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the hub never received the price list:\n%s", raw)
+			t.Fatalf("the hub never received the a2a-x402 declaration:\n%s", raw)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -643,7 +638,7 @@ func TestSettingPublicCapabilitiesRepublishesTheCard(t *testing.T) {
 	if err := d.Providers().Register(ctx, &lampProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, h.URL, "Lamp Agent", nil); err != nil {
 		t.Fatal(err)
 	}
 	d.mu.Lock()

@@ -19,13 +19,13 @@ import (
 	"github.com/ANetResearch/ANet/provider"
 )
 
-// cutLinkd serves /v0/invoke by acting and then losing the answer the way
+// cutLinkd serves /v1/invoke by acting and then losing the answer the way
 // cut says.
 func cutLinkd(t *testing.T, acted *atomic.Int32, cut func(w http.ResponseWriter)) string {
 	t.Helper()
 	sock := filepath.Join(t.TempDir(), "l.sock")
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v0/invoke", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("POST /v1/invoke", func(w http.ResponseWriter, _ *http.Request) {
 		acted.Add(1) // the door opens
 		cut(w)
 	})
@@ -51,16 +51,17 @@ func TestALostDeviceAnswerIsAnUnknownOutcome(t *testing.T) {
 	}{
 		{"before the reply", hangUp},
 		{"mid-reply", func(w http.ResponseWriter) {
+			w.Header().Set("Content-Type", contentCBOR)
 			w.Header().Set("Content-Length", "64")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"stat`))
+			_, _ = w.Write([]byte{0xa1, 0x01, 0x62, 'O'})
 			w.(http.Flusher).Flush()
 			hangUp(w)
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			var acted atomic.Int32
-			p := New("link", cutLinkd(t, &acted, c.cut))
+			p := newClient(t, cutLinkd(t, &acted, c.cut))
 			_, err := p.Invoke(context.Background(), provider.Call{Capability: "door.open@sim/front"})
 			var unknown *provider.OutcomeUnknownError
 			if !errors.As(err, &unknown) || unknown.Reason != provider.ReasonConnectionLost {
@@ -73,9 +74,9 @@ func TestALostDeviceAnswerIsAnUnknownOutcome(t *testing.T) {
 	}
 }
 
-// A socket nobody serves had nothing attempted: still a plain error.
+// A socket nobody serves had nothing attempted: never an unknown outcome.
 func TestAnUnreachableLinkdIsNotAnUnknownOutcome(t *testing.T) {
-	p := New("link", filepath.Join(t.TempDir(), "absent.sock"))
+	p := newClient(t, filepath.Join(t.TempDir(), "absent.sock"))
 	_, err := p.Invoke(context.Background(), provider.Call{Capability: "door.open@sim/front"})
 	if err == nil {
 		t.Fatal("no error")

@@ -1,0 +1,78 @@
+{
+  "upstream": "anthropic",
+  "model": "claude-haiku-5-5",
+  "request": {
+    "method": "POST",
+    "target": "/v1/messages?beta=true",
+    "header": {
+      "User-Agent": "claude-cli/2",
+      "X-Forwarded-For": "203.0.113.7",
+      "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-05-14,mcp-client-2025-11-20,web-fetch-2025-09-10",
+      "anthropic-version": "2023-06-01",
+      "x-api-key": "anet-sandbox"
+    },
+    "body": "{\"model\":\"opus\",\"max_tokens\":64000,\"stream\":true,\"thinking\":{\"type\":\"enabled\",\"budget_tokens\":60000},\"system\":[{\"type\":\"text\",\"text\":\"You are a coding agent.\"}],\"messages\":[{\"role\":\"user\",\"content\":\"fix the test\"}],\"tools\":[{\"type\":\"bash_20250124\",\"name\":\"bash\"},{\"type\":\"text_editor_20250728\",\"name\":\"str_replace_based_edit_tool\"},{\"name\":\"Read\",\"description\":\"read a file\",\"input_schema\":{\"type\":\"object\"}}]}"
+  },
+  "forwarded": {
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages?beta=true",
+    "header": {
+      "Accept-Encoding": [
+        "identity"
+      ],
+      "Anthropic-Beta": [
+        "claude-code-20250219,interleaved-thinking-2025-05-14"
+      ],
+      "Anthropic-Version": [
+        "2023-06-01"
+      ],
+      "Content-Type": [
+        "application/json"
+      ],
+      "User-Agent": [
+        "claude-cli/2"
+      ],
+      "X-Api-Key": [
+        "operator-key-golden"
+      ]
+    },
+    "body": {
+      "max_tokens": 8192,
+      "messages": [
+        {
+          "content": "fix the test",
+          "role": "user"
+        }
+      ],
+      "model": "claude-haiku-5-5",
+      "stream": true,
+      "system": [
+        {
+          "text": "You are a coding agent.",
+          "type": "text"
+        }
+      ],
+      "thinking": {
+        "budget_tokens": 4096,
+        "type": "enabled"
+      },
+      "tools": [
+        {
+          "name": "bash",
+          "type": "bash_20250124"
+        },
+        {
+          "name": "str_replace_based_edit_tool",
+          "type": "text_editor_20250728"
+        },
+        {
+          "description": "read a file",
+          "input_schema": {
+            "type": "object"
+          },
+          "name": "Read"
+        }
+      ]
+    }
+  }
+}

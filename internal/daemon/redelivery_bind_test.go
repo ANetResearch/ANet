@@ -14,6 +14,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/seal"
@@ -37,6 +38,27 @@ func assertSwapRefused(t *testing.T, prov *Daemon, r rxResult, lamp *lampProvide
 	t.Helper()
 	if r.class != rxDropped || r.reason != dropIXCollision {
 		t.Fatalf("swapped delegation: %+v, want dropped as %s", r, dropIXCollision)
+	}
+	waitUntil(t, "no call running", func() bool {
+		_, running := prov.running.Load(ix)
+		return !running
+	})
+	if n := len(lamp.invoked); n != 0 {
+		t.Fatalf("the swapped-in capability ran %d times", n)
+	}
+}
+
+// assertSwapNotRun is assertSwapRefused for a swap sealed under the message
+// id of the accepted delegation: the replay table holds it, so it is
+// answered as the copy it claims to be (tok(1), engine ENG-V13) and nothing
+// is done for it — counted redelivery-not-authorized (ENG-V18).
+func assertSwapNotRun(t *testing.T, prov *Daemon, r rxResult, before uint64, lamp *lampProvider, ix string) {
+	t.Helper()
+	if r.class != rxDropped || r.reason != dropDuplicate {
+		t.Fatalf("swapped delegation: %+v, want taken as the %s it claims to be", r, dropDuplicate)
+	}
+	if n := counter(prov, redeliveryNotAuthorized) - before; n != 1 {
+		t.Fatalf("redelivery-not-authorized %d, want 1", n)
 	}
 	waitUntil(t, "no call running", func() bool {
 		_, running := prov.running.Load(ix)
@@ -206,7 +228,7 @@ func TestARevokedPeerCannotUseItsOldInteraction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	op, err := seal.Open(onlyQueuedEnvelope(t, srv, prov.AID()), prov.AID(), prov.enc)
+	op, err := seal.Open(onlyQueuedEnvelope(t, srv, prov.AID()), prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,9 +256,16 @@ func TestARevokedPeerCannotUseItsOldInteraction(t *testing.T) {
 	r := receive(t, prov, sealFrom(t, req, prov, seal.TypeDelegate, id, delegateBody(t, req.self, id, "x", lampCap)))
 	assertSwapRefused(t, prov, r, lamp, id)
 	// The accepted request itself, sealed again under a new message id: the
-	// allow list is checked as for a message.
-	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeDelegate, id, accepted)); r.reason != dropNotAllowed {
-		t.Fatalf("redelivery by a revoked peer: %+v, want %s", r, dropNotAllowed)
+	// allow list is checked as for a message — and since this node did
+	// accept that request, the copy is answered as taken (tok(1)), with
+	// nothing done for it (engine ENG-V18): the requester must not read a
+	// refusal of what this node accepted (E-T14).
+	before := counter(prov, redeliveryNotAuthorized)
+	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeDelegate, id, accepted)); r.class != rxAccepted {
+		t.Fatalf("redelivery by a revoked peer: %+v, want taken", r)
+	}
+	if n := counter(prov, redeliveryNotAuthorized) - before; n != 1 {
+		t.Fatalf("redelivery by a revoked peer: %d not authorized, want 1", n)
 	}
 }
 
@@ -253,16 +282,6 @@ func fillDelegate(t *testing.T, m *rxMsg) {
 		t.Fatal(err)
 	}
 	m.dr, m.td, m.tdBytes = dr, td, dr.TaskDoc
-}
-
-// A node upgraded from wire 1 keeps an inbound row accepted under the old
-// accept-anyone default, with no request CID. A delegation on its id is a
-// collision: the stored row names no request it could be a redelivery of.
-func TestARedeliveryOnAMigratedRowCannotRunACapability(t *testing.T) {
-	srv := newFakeHub(t)
-	stranger := registered(t, srv.URL, "stranger")
-	prov, legacyIX, lamp := migratedV01Node(t, srv.URL, stranger)
-	assertSwapRefused(t, prov, swapDelegate(t, stranger, prov, legacyIX, lampCap), lamp, legacyIX)
 }
 
 // redeliveredDelegate, reached without step 9's comparison (the replay
@@ -289,7 +308,7 @@ func TestARedeliveryRunsTheRecordedCallNotTheEnvelopes(t *testing.T) {
 	// whose TaskDoc names the capability.
 	swap := &rxMsg{from: s.aid, typ: seal.TypeDelegate, ix: ix}
 	env := craft(t, s, prov, seal.TypeDelegate, ix, delegateBody(t, s.ctrl, ix, "x", lampCap), nil)
-	op, err := seal.Open(env, prov.AID(), prov.enc)
+	op, err := seal.Open(env, prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,21 +390,35 @@ func TestAnApprovedCallRedeliveredIsAnsweredAgainNotRun(t *testing.T) {
 		ix, err := prov.ix.Get(id)
 		return err == nil && len(ix.Receipt) > 0
 	})
-	// Everything the approval sent has left the outbox (the answer queues
-	// behind the status rows of its task, F23) before it is lost.
-	waitUntil(t, "the approved call's answers sent", func() bool {
-		rows, err := prov.ix.Outbox(id)
-		return err == nil && len(rows) == 0
+	// Everything the approval sent has reached the hub (the answer queues
+	// behind the status rows of its task, F23) before it is lost; the rows
+	// wait for the requester's tokens.
+	sent := 0
+	waitUntil(t, "the approved call's answers at the hub", func() bool {
+		rows, err := prov.ix.OutboxRows(id)
+		if err != nil || len(rows) == 0 {
+			return false
+		}
+		for _, r := range rows {
+			if r.HandedAt == 0 || r.Attempting {
+				return false
+			}
+		}
+		sent = len(rows)
+		return len(queuedFor(t, srv, req.AID())) == sent
 	})
 	clearMailbox(t, srv, req.AID()) // the held notice and the answer are lost
 
+	// The same envelope again: the answer queue is hurried, its status asked,
+	// and what the hub no longer holds is sent again, once.
 	if r := receive(t, prov, env); !r.ack() || r.reason != dropDuplicate {
 		t.Fatalf("the same envelope again: %+v", r)
 	}
-	if n := len(queuedFor(t, srv, req.AID())); n != 1 {
-		t.Fatalf("%d answers re-sent for the redelivered envelope, want 1", n)
+	waitUntil(t, "the answers sent again", func() bool { return len(queuedFor(t, srv, req.AID())) >= sent })
+	if n := len(queuedFor(t, srv, req.AID())); n != sent {
+		t.Fatalf("%d answers re-sent for the redelivered envelope, want %d", n, sent)
 	}
-	op, err := seal.Open(env, prov.AID(), prov.enc)
+	op, err := seal.Open(env, prov.AID(), prov.enc, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -393,8 +426,10 @@ func TestAnApprovedCallRedeliveredIsAnsweredAgainNotRun(t *testing.T) {
 	if r := receive(t, prov, resealed); r.class != rxAccepted {
 		t.Fatalf("the same request under a new message id: %+v", r)
 	}
-	if n := len(queuedFor(t, srv, req.AID())); n != 2 {
-		t.Fatalf("%d answers queued after the re-sealed copy, want 2", n)
+	// The hub holds the answers sent again: none is sent twice.
+	time.Sleep(100 * time.Millisecond)
+	if n := len(queuedFor(t, srv, req.AID())); n != sent {
+		t.Fatalf("%d answers queued after the re-sealed copy, want the %d the hub holds", n, sent)
 	}
 	if n := len(lamp.invoked); n != 1 {
 		t.Fatalf("the approved call ran %d times", n)

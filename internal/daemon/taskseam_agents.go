@@ -6,14 +6,17 @@ package daemon
 //
 // The hub's statement that a card verified is recorded (hubVerification)
 // but not relied on: every card is checked again with ANetCore a2acard
-// against the signer's KEL, and the card must be signed by the AID it is
+// against the signer's KEL — the one the entry carries, verified here, or
+// this node's record of it — and the card must be signed by the AID it is
 // listed under. A card must also not be older than one this process has
 // already admitted for that agent (the params.seq high-water rule, §10.3):
 // a hub serving an earlier, validly signed card is refused. The mark is
 // kept in peer_identity for a peer this node has a row for, so it survives
-// a restart, and in memory for anyone else (card_highwater.go). Free-text
-// search never leaves this node: the hub is asked by skill and tag only,
-// and the text is matched locally against the cards it returned.
+// a restart, and in memory for anyone else (card_highwater.go). Nothing
+// looked for leaves this node: the registry is read a page at a time, with
+// no query, and skill, tag and free text are matched here (sealed-sender
+// SSR-D16). One agent's card comes from the directory without naming the
+// agent (peer_resolve.go).
 //
 // A card that does not verify here is not passed on (an internal note item): its entry
 // carries the AID, UNVERIFIED with the a2acard code of the refusal, and the
@@ -27,12 +30,12 @@ package daemon
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,13 +73,27 @@ const uncardedCursor = "uncarded:"
 // with cards.
 const registryWalkPages = 50
 
+// CardUnknownAgent is the verificationError of an agent no hub's directory
+// holds (agentCard): NONE, and not because it publishes no card.
+const CardUnknownAgent = "no hub knows this agent"
+
 // uncardedNote is what a NONE entry says of itself.
 const uncardedNote = "the agent publishes no network card; all here but the aid is the hub's statement, not signed by the agent"
 
-// listAgents asks the hub registry for agents by skill and tag, verifies
-// each card here, and applies the free-text query locally. With
-// q.IncludeUncarded the agents without a card follow the registry's last
-// page (uncardedAgents).
+// registryCursor begins the cursor of a listing that stopped inside a page
+// of the registry: the offset into that page, a colon, and the registry's
+// own cursor of the page ("" for the first).
+const registryCursor = "registry:"
+
+// listAgents lists the hub registry's agents a page at a time, verifies
+// each card here, and matches skill, tag and free text here: the hub is
+// asked for its pages with no query of any kind (sealed-sender SSR-D16;
+// what an operator looks for says what they are about to do). An agent
+// whose card claims the skill or tag is listed even when its card does not
+// verify here — UNVERIFIED, its AID alone (an internal note item) — and the free text is
+// matched against what is shown. Every agent whose card verifies is kept as
+// a discovery (SSR-D15 step 2). With q.IncludeUncarded the agents without a
+// card follow the registry's last page (uncardedAgents).
 func (d *Daemon) listAgents(ctx context.Context, q module.AgentQuery) ([]module.RemoteAgent, string, error) {
 	hub := d.config().HubURL
 	if hub == "" {
@@ -104,58 +121,65 @@ func (d *Daemon) listAgents(ctx context.Context, q module.AgentQuery) ([]module.
 		}
 		return d.uncardedAgents(hctx, hub, q, carded, off, limit)
 	}
-	var page hubapi.A2AAgentList
-	err := d.hubGet(hctx, hub, hubapi.RegistryAgentsPath, registryQuery(q, q.Cursor, limit), &page)
-	if hubStatus(err) == http.StatusNotFound {
-		// A hub without the A2A registry: none of its agents has a card
-		// there, so its directory is the uncarded list, given on request.
-		if !q.IncludeUncarded {
-			return []module.RemoteAgent{}, "", nil
-		}
-		return d.uncardedAgents(hctx, hub, q, nil, 0, limit)
-	}
+	cursor, skip, err := parseRegistryCursor(q.Cursor)
 	if err != nil {
-		return nil, "", a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
+		return nil, "", err
 	}
-	resolve := d.cardKELResolver(hctx)
-	out := make([]module.RemoteAgent, 0, len(page.Agents))
-	for _, e := range page.Agents {
-		if !validAgentID(e.AID) {
-			// Not an agent id. Its card cannot verify for it, and the AID
-			// is all an unverified entry shows (an internal note item): a hub's text in
-			// its place is not passed on either.
-			continue
-		}
-		ra := module.RemoteAgent{AID: e.AID, Card: e.Card}
-		d.verifyCardInto(&ra, resolve)
-		if ra.Verification == cardVerified {
-			ra.HubVerification, ra.HomeHub, ra.LastSeen, ra.Quiet = e.CardVerification, e.HomeHub, e.LastSeen, e.Quiet
-			ra.ReviewCount, ra.AvgRating = e.ReviewCount, e.AvgRating
-		}
-		// The text is matched against what is shown: an unverified card's
-		// words are neither shown nor searched, only its AID.
-		if q.Query != "" && !cardMatches(ra.Card, e.AID, q.Query) {
-			continue
-		}
-		d.markOfficial(&ra)
-		out = append(out, ra)
+	// Unfiltered, a page of the registry is a page of the answer; filtered,
+	// the registry is read in its largest pages and matched here.
+	size := agentsPageMax
+	if q.Skill == "" && q.Tag == "" && q.Query == "" {
+		size = limit
 	}
-	if page.NextCursor != "" || !q.IncludeUncarded {
-		return out, page.NextCursor, nil
+	out := make([]module.RemoteAgent, 0, limit)
+	now := d.nowMS()
+	for pages := 0; ; pages++ {
+		if pages == registryWalkPages {
+			// Read far enough for one answer; the listing goes on from here.
+			return out, registryCursor + "0:" + cursor, nil
+		}
+		var page hubapi.A2AAgentList
+		err := d.hubGet(hctx, hub, hubapi.RegistryAgentsPath, registryPage(cursor, size), &page)
+		if pages == 0 && hubStatus(err) == http.StatusNotFound {
+			// A hub without the A2A registry: none of its agents has a card
+			// there, so its directory is the uncarded list, given on request.
+			if !q.IncludeUncarded {
+				return []module.RemoteAgent{}, "", nil
+			}
+			return d.uncardedAgents(hctx, hub, q, nil, 0, limit)
+		}
+		if err != nil {
+			return nil, "", a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
+		}
+		for i := min(skip, len(page.Agents)); i < len(page.Agents); i++ {
+			ra, ok := d.listedAgent(page.Agents[i], q, now)
+			if !ok {
+				continue
+			}
+			out = append(out, ra)
+			if len(out) < limit {
+				continue
+			}
+			switch {
+			case i+1 < len(page.Agents):
+				return out, registryCursor + strconv.Itoa(i+1) + ":" + cursor, nil
+			case page.NextCursor != "":
+				return out, registryCursor + "0:" + page.NextCursor, nil
+			}
+		}
+		skip = 0
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if !q.IncludeUncarded {
+		return out, "", nil
 	}
 	// The registry's last page: the agents without a card follow it.
-	carded := map[string]bool{}
-	for _, e := range page.Agents {
-		carded[e.AID] = true
-	}
-	if q.Cursor != "" || q.Tag != "" {
-		// Earlier pages listed agents with cards too, and a tag leaves out
-		// the carded agents whose skills lack it, which the directory
-		// (asked by capability only) still lists: none of them is
-		// uncarded.
-		if carded, err = d.cardedAIDs(hctx, hub, q); err != nil {
-			return nil, "", err
-		}
+	carded, err := d.cardedAIDs(hctx, hub, q)
+	if err != nil {
+		return nil, "", err
 	}
 	tail, next, err := d.uncardedAgents(hctx, hub, q, carded, 0, limit-len(out))
 	if err != nil {
@@ -164,36 +188,156 @@ func (d *Daemon) listAgents(ctx context.Context, q module.AgentQuery) ([]module.
 	return append(out, tail...), next, nil
 }
 
-// registryQuery is the registry request for q: skill and tag, never the
-// free text.
-func registryQuery(q module.AgentQuery, cursor string, limit int) url.Values {
+// parseRegistryCursor reads a listing's cursor: the registry's cursor of the
+// page to read and how many entries of it were listed already. A cursor of
+// another form is the registry's own, as an earlier listing gave it.
+func parseRegistryCursor(c string) (string, int, error) {
+	rest, ok := strings.CutPrefix(c, registryCursor)
+	if !ok {
+		return c, 0, nil
+	}
+	n, hubCursor, ok := strings.Cut(rest, ":")
+	skip, err := strconv.Atoi(n)
+	if !ok || err != nil || skip < 0 || skip > agentsPageMax {
+		return "", 0, a2ashape.Errorf(a2ashape.ErrInvalidParams, "cursor %q is not one this node gave; list again from the start", c)
+	}
+	return hubCursor, skip, nil
+}
+
+// registryPage is the registry request of one page: the cursor and the
+// page size, nothing about what is looked for.
+func registryPage(cursor string, size int) url.Values {
 	v := url.Values{}
-	if q.Skill != "" {
-		v.Set("skill", q.Skill)
-	}
-	if q.Tag != "" {
-		v.Set("tag", q.Tag)
-	}
 	if cursor != "" {
 		v.Set("cursor", cursor)
 	}
-	v.Set("limit", strconv.Itoa(limit))
+	v.Set("limit", strconv.Itoa(size))
 	return v
 }
 
-// cardedAIDs is every agent the registry lists for q's skill: the agents
-// with a card, which the uncarded list leaves out. Not by q's tag: the
-// directory the uncarded list comes from is asked by capability alone and
-// has no tags, so an agent whose card lacks the tag is still in it, and
-// must not be taken there for one without a card. Empty for a hub without
-// the registry.
+// listedAgent is one registry entry as listAgents shows it, and whether q
+// keeps it: its card's skills and tags must hold q's (as the card claims
+// them, verified or not), and what is shown must hold the free text. Its
+// key history, key set and notice come with the entry and are verified here
+// (registryMaterial); an agent whose card verifies is kept as a discovery.
+func (d *Daemon) listedAgent(e hubapi.A2AAgentEntry, q module.AgentQuery, now uint64) (module.RemoteAgent, bool) {
+	if !validAgentID(e.AID) {
+		// Not an agent id. Its card cannot verify for it, and the AID is
+		// all an unverified entry shows (an internal note item): a hub's text in its
+		// place is not passed on either.
+		return module.RemoteAgent{}, false
+	}
+	if !cardClaims(e.Card, q.Skill, q.Tag) {
+		return module.RemoteAgent{}, false
+	}
+	m, kerr := d.registryMaterial(e, now)
+	stored, haveStored := d.peerKEL(e.AID)
+	ra := module.RemoteAgent{AID: e.AID, Card: e.Card, KeyState: keyStateOf(kerr == nil && m.NoticeOK)}
+	d.verifyCardInto(&ra, func(aid string) ([]identity.SignedEvent, error) {
+		switch {
+		case aid != e.AID:
+			return nil, fmt.Errorf("no key history for %s here", aid)
+		case kerr == nil:
+			return m.KEL, nil
+		case haveStored:
+			return stored, nil
+		}
+		return nil, kerr
+	})
+	if ra.Verification == cardVerified {
+		// The list's charge is the public card's, always (PAY-C15): a
+		// list never asks anyone for an extended card (PAY-C10).
+		ra.Charge = chargeOf(ra.Card)
+		ra.HubVerification, ra.HomeHub, ra.LastSeen, ra.Quiet = e.CardVerification, e.HomeHub, e.LastSeen, e.Quiet
+		ra.ReviewCount, ra.AvgRating = e.ReviewCount, e.AvgRating
+		if kerr == nil {
+			m.Card = append(json.RawMessage(nil), ra.Card...)
+			d.discover(m)
+		}
+	}
+	// The text is matched against what is shown: an unverified card's
+	// words are neither shown nor searched, only its AID.
+	if q.Query != "" && !cardMatches(ra.Card, e.AID, q.Query) {
+		return module.RemoteAgent{}, false
+	}
+	d.markOfficial(&ra)
+	return ra, true
+}
+
+// registryMaterial is what a registry entry says of its agent besides the
+// card, verified here (SSR-D15 step 2): the key history must replay to the
+// entry's AID and not fork from this node's record (the longer of the two
+// is taken); the key set, when it verifies against that history and does
+// not roll back this node's, is kept; the notice is checked by C-51 at
+// arrival = now.
+func (d *Daemon) registryMaterial(e hubapi.A2AAgentEntry, now uint64) (peerMaterial, error) {
+	m := peerMaterial{AID: e.AID}
+	raw, err := hubapi.DecodeB64(e.KEL, -1)
+	if err != nil || len(raw) == 0 {
+		return m, errors.New("the registry entry carries no readable key history")
+	}
+	kel, err := seal.ParseKEL(raw)
+	if err != nil {
+		return m, err
+	}
+	if got, err := replayedAID(kel); err != nil || got != e.AID {
+		return m, fmt.Errorf("the registry's key history for %s does not replay to it", e.AID)
+	}
+	m.KEL = kel
+	if rawKeys, err := hubapi.DecodeB64(e.Keys, -1); err == nil && len(rawKeys) > 0 {
+		if signed, err := seal.UnmarshalSignedEncKeySet(rawKeys); err == nil {
+			if set, err := seal.VerifyEncKeySet(signed, e.AID, kel, now); err == nil {
+				m.Keys, m.Epoch = &peerKeySet{signed: rawKeys, set: set}, set.Mbox.Epoch
+			}
+		}
+	}
+	if notice, err := hubapi.DecodeB64(e.KeyStateNotice, -1); err == nil && len(notice) > 0 && len(notice) <= seal.MaxNoticeBytes {
+		m.Notice = notice
+		m.NoticeOK = d.dirNoticeOK(d.ctx, notice, kel, now)
+	}
+	if d.againstRecord(&m, now) != verdictFound {
+		return m, m.Err
+	}
+	return m, nil
+}
+
+// cardClaims reports whether the card claims a skill of id skill and a
+// skill tagged tag ("" matches anything), as the hub's registry indexes
+// them: read from the card as it is, before it is verified. The skill is
+// matched as the directory's capabilities are (capListed): exactly, or a
+// family "x.*" that a listed id falls in.
+func cardClaims(card json.RawMessage, skill, tag string) bool {
+	if skill == "" && tag == "" {
+		return true
+	}
+	var c struct {
+		Skills []struct {
+			ID   string   `json:"id"`
+			Tags []string `json:"tags"`
+		} `json:"skills"`
+	}
+	if json.Unmarshal(card, &c) != nil {
+		return false
+	}
+	hasSkill, hasTag := skill == "", tag == ""
+	for _, s := range c.Skills {
+		hasSkill = hasSkill || capListed([]string{s.ID}, skill)
+		hasTag = hasTag || slices.Contains(s.Tags, tag)
+	}
+	return hasSkill && hasTag
+}
+
+// cardedAIDs is every agent the registry lists whose card claims q's skill:
+// the agents with a card, which the uncarded list leaves out. Not by q's
+// tag: the directory the uncarded list comes from has no tags, so an agent
+// whose card lacks the tag is still in it, and must not be taken there for
+// one without a card. Empty for a hub without the registry.
 func (d *Daemon) cardedAIDs(ctx context.Context, hub string, q module.AgentQuery) (map[string]bool, error) {
 	out := map[string]bool{}
 	cursor := ""
-	bySkill := module.AgentQuery{Skill: q.Skill}
 	for range registryWalkPages {
 		var page hubapi.A2AAgentList
-		err := d.hubGet(ctx, hub, hubapi.RegistryAgentsPath, registryQuery(bySkill, cursor, agentsPageMax), &page)
+		err := d.hubGet(ctx, hub, hubapi.RegistryAgentsPath, registryPage(cursor, agentsPageMax), &page)
 		if hubStatus(err) == http.StatusNotFound {
 			return out, nil
 		}
@@ -201,7 +345,9 @@ func (d *Daemon) cardedAIDs(ctx context.Context, hub string, q module.AgentQuery
 			return nil, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
 		}
 		for _, e := range page.Agents {
-			out[e.AID] = true
+			if cardClaims(e.Card, q.Skill, "") {
+				out[e.AID] = true
+			}
 		}
 		if page.NextCursor == "" {
 			return out, nil
@@ -209,7 +355,7 @@ func (d *Daemon) cardedAIDs(ctx context.Context, hub string, q module.AgentQuery
 		cursor = page.NextCursor
 	}
 	return nil, a2ashape.Errorf(a2ashape.ErrUnavailable,
-		"more than %d agents with a card match; narrow the search with skill to list the ones without",
+		"more than %d agents with a card are listed; narrow the search with skill to list the ones without",
 		registryWalkPages*agentsPageMax)
 }
 
@@ -228,19 +374,15 @@ type hubDirEntry struct {
 }
 
 // uncardedAgents is a page of the agents registered at the hub that
-// publish no card (an internal note item): the /agents directory, asked by capability
-// when q has a skill, less the agents the registry lists (carded), with the
-// tag and the free text matched here against what the hub says. Each is
-// NONE; up to limit from off, and the cursor of the rest.
+// publish no card (an internal note item): the /agents directory, asked whole, less the
+// agents the registry lists (carded), with the skill, the tag and the free
+// text matched here against what the hub says (SSR-D16). Each is NONE; up
+// to limit from off, and the cursor of the rest.
 func (d *Daemon) uncardedAgents(ctx context.Context, hub string, q module.AgentQuery, carded map[string]bool, off, limit int) ([]module.RemoteAgent, string, error) {
 	var resp struct {
 		Agents []hubDirEntry `json:"agents"`
 	}
-	v := url.Values{}
-	if q.Skill != "" {
-		v.Set("cap", q.Skill)
-	}
-	if err := d.hubGet(ctx, hub, "/agents", v, &resp); err != nil {
+	if err := d.hubGet(ctx, hub, "/agents", nil, &resp); err != nil {
 		return nil, "", a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
 	}
 	var matched []module.RemoteAgent
@@ -250,10 +392,22 @@ func (d *Daemon) uncardedAgents(ctx context.Context, hub string, q module.AgentQ
 			continue
 		}
 		seen[a.AID] = true
-		if q.Tag != "" && !containsFold(strings.Join(a.Caps, " "), q.Tag) {
+		// An official AID is matched against what the signed manifest says
+		// of it, never against what the hub wrote: the hub's words neither
+		// show beside the mark (uncardedAgent) nor make the official agent
+		// turn up for a search [redteam:F39]. Any other entry is matched
+		// against the hub's statement, as it is shown.
+		name, summary, caps := a.Name, a.Summary, a.Caps
+		if mName, mCaps, official := d.officialSays(a.AID); official {
+			name, summary, caps = mName, "", mCaps
+		}
+		if q.Skill != "" && !capListed(caps, q.Skill) {
 			continue
 		}
-		if q.Query != "" && !containsFold(strings.Join(append([]string{a.AID, a.Name, a.Summary}, a.Caps...), "\n"), q.Query) {
+		if q.Tag != "" && !containsFold(strings.Join(caps, " "), q.Tag) {
+			continue
+		}
+		if q.Query != "" && !containsFold(strings.Join(append([]string{a.AID, name, summary}, caps...), "\n"), q.Query) {
 			continue
 		}
 		matched = append(matched, d.uncardedAgent(a))
@@ -272,47 +426,99 @@ func (d *Daemon) uncardedAgents(ctx context.Context, hub string, q module.AgentQ
 // official agent publishes a card, and an entry without one carries only
 // what a hub wrote, which is not shown beside the mark (an internal note item).
 func (d *Daemon) uncardedAgent(a hubDirEntry) module.RemoteAgent {
+	// The directory listing carries no notice: its key state is stale
+	// (KEL D-28), which does not stop a send.
 	if official := d.IsOfficial(a.AID); official {
 		return module.RemoteAgent{AID: a.AID, Verification: cardNone, Official: official,
-			VerificationError: "the agent publishes no network card"}
+			VerificationError: "the agent publishes no network card", KeyState: module.KeyStateStale}
 	}
-	ra := module.RemoteAgent{AID: a.AID, Verification: cardNone, VerificationError: uncardedNote}
+	ra := module.RemoteAgent{AID: a.AID, Verification: cardNone, VerificationError: uncardedNote, KeyState: module.KeyStateStale}
 	ra.Name, ra.Caps, ra.Summary = a.Name, a.Caps, a.Summary
 	ra.HomeHub, ra.LastSeen, ra.Quiet = a.HomeHub, a.LastSeen, a.Quiet
 	ra.ReviewCount, ra.AvgRating = a.ReviewCount, a.AvgRating
 	return ra
 }
 
-// agentCard fetches one agent's network card and verifies it here. An
-// agent without a card is not an error: it is returned NONE with an empty
-// card, and the caller describes it by its AID (§11.3); a card that does
-// not verify is returned UNVERIFIED, without its bytes.
+// capListed reports whether the directory lists capability id among caps:
+// that id, or a family "x.*" that a listed id falls in.
+func capListed(caps []string, id string) bool {
+	if family, ok := strings.CutSuffix(id, "*"); ok && strings.HasSuffix(family, ".") {
+		return slices.ContainsFunc(caps, func(c string) bool { return strings.HasPrefix(c, family) })
+	}
+	return slices.Contains(caps, id)
+}
+
+// agentCard is one agent's network card, verified here. It comes from the
+// directory (resolvePeer: the discovery cache, else a bucket), never from a
+// request that names the agent (SSR-D16). An agent without a card is not an
+// error: it is returned NONE with an empty card, and the caller describes it
+// by its AID (§11.3); a card that does not verify is returned UNVERIFIED,
+// without its bytes; an agent no hub knows is NONE and says so.
+//
+// It never contacts the agent: the charge is the public card's, and
+// ExtendedOffered says whether a display would ask the agent for its
+// extended card (CORE-K23 rule 2; agentCardWithPrices asks).
 func (d *Daemon) agentCard(ctx context.Context, aid string) (module.RemoteAgent, error) {
+	ra, _, err := d.resolveAgentCard(ctx, aid)
+	return ra, err
+}
+
+// publicCardFacts are what a verified public card and the key history it
+// verified under tell the extended card's fetch and check (PAY-C13, C14):
+// the card's seq and the agent's KEL.
+type publicCardFacts struct {
+	Seq uint64
+	KEL []identity.SignedEvent
+	// Skills are the public card's skill ids.
+	Skills []string
+}
+
+// resolveAgentCard is agentCard, with the facts of a VERIFIED card (nil
+// for any other).
+func (d *Daemon) resolveAgentCard(ctx context.Context, aid string) (module.RemoteAgent, *publicCardFacts, error) {
 	if !validAgentID(aid) {
-		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrInvalidParams, "%q is not an agent id", aid)
+		return module.RemoteAgent{}, nil, a2ashape.Errorf(a2ashape.ErrInvalidParams, "%q is not an agent id", aid)
 	}
-	hub := d.config().HubURL
-	if hub == "" {
-		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "this node has no hub (run `anet hub-register` first)")
+	if d.config().HubURL == "" {
+		return module.RemoteAgent{}, nil, a2ashape.Errorf(a2ashape.ErrUnavailable, "this node has no hub (run `anet hub-register` first)")
 	}
-	hctx, cancel := context.WithTimeout(ctx, hubCallTimeout)
-	defer cancel()
-	var card json.RawMessage
-	// With aid in the body: reading a peer's card is what an A2A client
-	// does before it writes to the peer (hubLookup) [redteam:F3].
-	err := d.hubLookup(hctx, hub, hubapi.CardLookupPath,
-		hubapi.RegistryAgentsPath+"/"+url.PathEscape(aid)+"/card", aid, &card)
-	switch {
-	case hubStatus(err) == http.StatusNotFound:
-		return module.RemoteAgent{AID: aid, Verification: cardNone, Official: d.IsOfficial(aid),
-			VerificationError: "the agent publishes no network card"}, nil
-	case err != nil:
-		return module.RemoteAgent{}, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", err)
+	official := d.IsOfficial(aid)
+	m, v := d.resolvePeer(ctx, aid, resolveOpts{need: needCard})
+	switch v {
+	case verdictNotFound:
+		return module.RemoteAgent{AID: aid, Verification: cardNone, Official: official,
+			VerificationError: CardUnknownAgent, KeyState: module.KeyStateStale}, nil, nil
+	case verdictUnverifiable:
+		return module.RemoteAgent{AID: aid, Verification: cardUnverified, Official: official,
+			VerificationError: "the directory's entries for this agent do not verify", KeyState: module.KeyStateStale}, nil, nil
+	case verdictFound:
+	default:
+		return module.RemoteAgent{}, nil, a2ashape.Errorf(a2ashape.ErrUnavailable, "%v", &peerResolveError{AID: aid, Verdict: v, Cause: m.Err})
 	}
-	ra := module.RemoteAgent{AID: aid, Card: card}
-	d.verifyCardInto(&ra, d.cardKELResolver(hctx))
+	// Whether the agent's hub confirmed its current key, checked now: the
+	// entry may come from the discovery cache (KEL D-28).
+	keyState := keyStateOf(d.noticeFresh(ctx, &m, d.nowMS()))
+	if len(m.Card) == 0 {
+		ra := module.RemoteAgent{AID: aid, Verification: cardNone, Official: official,
+			VerificationError: "the agent publishes no network card", KeyState: keyState}
+		if m.CardErr != "" {
+			ra.Verification, ra.VerificationError = cardUnverified, m.CardErr
+		}
+		return ra, nil, nil
+	}
+	ra := module.RemoteAgent{AID: aid, Card: m.Card, KeyState: keyState}
+	pv := d.verifyCardInto(&ra, singleKEL(aid, m.KEL))
 	d.markOfficial(&ra)
-	return ra, nil
+	if pv == nil {
+		return ra, nil, nil
+	}
+	facts := &publicCardFacts{Seq: pv.Seq, KEL: m.KEL}
+	for _, sk := range pv.Skills {
+		facts.Skills = append(facts.Skills, sk.ID)
+	}
+	ra.Charge = chargeOf(ra.Card)
+	ra.ExtendedOffered = d.extendedOffered(aid, ra.Card, d.nowMS())
+	return ra, facts, nil
 }
 
 // validAgentID reports whether aid has the form of an agent id: the
@@ -329,12 +535,13 @@ func validAgentID(aid string) bool {
 // served under this AID is refused. A card that does not verify is dropped
 // from ra (an internal note item): what is kept is the AID, UNVERIFIED and the reason,
 // in words of this node's or the a2acard code, never an error's detail,
-// which can quote the card or the hub.
-func (d *Daemon) verifyCardInto(ra *module.RemoteAgent, resolve a2acard.Resolver) {
+// which can quote the card or the hub. It returns what a2acard.Verify
+// read of a card that verified, nil otherwise.
+func (d *Daemon) verifyCardInto(ra *module.RemoteAgent, resolve a2acard.Resolver) *a2acard.Verified {
 	ra.Verification = cardUnverified
 	if len(ra.Card) == 0 {
 		ra.VerificationError = "no card"
-		return
+		return nil
 	}
 	v, err := a2acard.Verify(ra.Card, resolve, d.nowMS())
 	switch {
@@ -351,9 +558,10 @@ func (d *Daemon) verifyCardInto(ra *module.RemoteAgent, resolve a2acard.Resolver
 		}
 		ra.Verification = cardVerified
 		ra.Name = v.Name
-		return
+		return v
 	}
 	ra.Card, ra.Name = nil, ""
+	return nil
 }
 
 // verificationReason names why a card did not verify: the a2acard code
@@ -415,41 +623,6 @@ func (c *cardMarkCache) admit(self string, v *a2acard.Verified) error {
 		c.m[key] = v.Mark()
 	}
 	return nil
-}
-
-// cardKELResolver resolves a card signer's KEL: the one this node holds
-// for the peer, else the hub's copy, which must replay to the AID and not
-// fork from anything stored. Nothing fetched here is stored: reading a
-// directory is not contact with the agent.
-func (d *Daemon) cardKELResolver(ctx context.Context) a2acard.Resolver {
-	return func(aid string) ([]identity.SignedEvent, error) {
-		stored, haveStored := d.peerKEL(aid)
-		if haveStored {
-			return stored, nil
-		}
-		hub := d.config().HubURL
-		if hub == "" {
-			return nil, errors.New("no hub to fetch the key history from")
-		}
-		var resp struct {
-			KEL string `json:"kel"`
-		}
-		if err := d.hubLookup(ctx, hub, hubapi.KELLookupPath, "/agents/"+url.PathEscape(aid)+"/kel", aid, &resp); err != nil {
-			return nil, err
-		}
-		raw, err := base64.StdEncoding.DecodeString(resp.KEL)
-		if err != nil {
-			return nil, fmt.Errorf("undecodable key history: %w", err)
-		}
-		kel, err := seal.ParseKEL(raw)
-		if err != nil {
-			return nil, err
-		}
-		if got, err := replayedAID(kel); err != nil || got != aid {
-			return nil, fmt.Errorf("the hub's key history for %s does not replay to it", aid)
-		}
-		return kel, nil
-	}
 }
 
 // cardMatches reports whether the free-text query occurs (case-folded) in

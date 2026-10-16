@@ -1,37 +1,31 @@
 package daemon
 
-// undelivered.go ends a task this node asked for when the retry queue
-// abandons what it sent the provider (retry.go, an internal note item).
+// undelivered.go ends a task this node is a party to when the outbound
+// engine gives up what it sent (engine ENG-X1, ENG-X2; an internal note item).
 //
-// Every message a requester sends goes through the retry queue, so a send
-// succeeds once it is recorded and the provider being unreachable only
-// delays it. When the queue gives a row up — its deadline passed, or the
-// hub refused it for good — the provider never saw the delegation, or never
-// saw the input the task now waits on, and no answer can come. The task is
-// then failed with anet.reason=undeliverable, rather than left submitted or
-// working forever:
+// Every message goes through the outbound queue, so a send succeeds once it
+// is recorded, and the peer being out of reach only delays it. When the
+// engine gives a row up — its deadline passed, the hub refused it for good,
+// the no-response scan ended its delegation — the task waiting on it is
+// failed with the reason, rather than left submitted or working forever:
 //
-//   - the delegation itself: always;
-//   - a text message or a payment message: the task waits on the provider's
-//     answer to it;
-//   - an end request on a text task: the provider completes on it;
-//   - a cancel changes nothing here: the task was canceled locally when it
-//     was sent, or it waits on a paid provider that decides (§4.2).
+//   - a delegation: always;
+//   - a text, payment or end_request message of a task this node asked for:
+//     the task waits on the answer to it (an end_request of a capability
+//     call does not: its result comes whether or not it arrives);
+//   - a cancel changes nothing: the task was canceled when it was sent, or
+//     waits on a paid provider that decides (§4.2);
+//   - a provider's status or result changes nothing on this side.
 //
-// A capability call that was never delivered did not run, so its effect
-// status is UNAVAILABLE rather than UNVERIFIED — but only when no attempt
-// may have delivered it. An attempt over a direct transport can reach the
-// provider and still fail (its answer timed out; module.Transport has such
-// a Send report failure), and the provider may have run the call: such a
-// row (OutboxItem.MaybeDelivered) fails the task with effect UNVERIFIED
-// ([redteam:F12]).
-//
-// A row from before rows kept their message id cannot be matched to its
-// message and fails nothing but a delegation.
+// The effect of a capability call is decided by whether any of it left
+// this node and nothing else (ENG-X2, SI-21): never handed over, it did not
+// run (UNAVAILABLE); handed over, it may have (UNVERIFIED), whatever the
+// hub said after (ENG-H1).
 //
 // The task is failed in the transaction that deletes the row
-// (abandonOutbox): a crash between the two would otherwise leave a task
-// waiting forever on a row that is gone.
+// (abandonOutbox), through the unified terminal write (ENG-C4): a delegation
+// that never left deletes the task's interaction key at once, any other end
+// keeps it for a late answer (ENG-X4).
 
 import (
 	"encoding/hex"
@@ -45,85 +39,62 @@ import (
 	"github.com/ANetResearch/ANet/internal/runtime/interactions"
 )
 
-// undelivered is what abandoning a row does to the task it left waiting.
-type undelivered struct {
-	ix *interactions.Interaction
-	// firstSeq is the task's first message, whose client message id is
-	// taken off when the delegation itself was abandoned; 0 otherwise.
-	firstSeq int64
-}
-
-// undeliveredTask reports the outbound task an abandoned row leaves
-// waiting, if any. It only reads; failUndeliveredTx writes.
-func (d *Daemon) undeliveredTask(it *interactions.OutboxItem) (*undelivered, bool) {
-	if it.Type != seal.TypeDelegate && it.Type != seal.TypeMessage {
-		return nil, false
+// failUndeliveredTx fails the task row leaves waiting with anet.reason
+// reason, inside the transaction that gives the row up. handed says whether
+// any of the row left this node. It reports whether it failed one: a task
+// that ended meanwhile (its answer came first), or one the row does not
+// hold up, is left as it is.
+func failUndeliveredTx(tx *interactions.Tx, row *interactions.OutboxRow, reason string, handed bool) (bool, error) {
+	if row.Type != seal.TypeDelegate && row.Type != seal.TypeMessage {
+		return false, nil
 	}
-	ix, err := d.ix.Get(it.IX)
-	if err != nil || ix.Role != interactions.RoleOutbound || ix.IsTerminal() {
-		return nil, false
+	ix, err := tx.Get(row.IX)
+	if errors.Is(err, interactions.ErrNotFound) || errors.Is(err, interactions.ErrContentGone) {
+		return false, nil
 	}
-	if it.Type == seal.TypeMessage {
-		if len(it.MID) == 0 {
-			return nil, false
-		}
-		msg, err := d.ix.MessageByMsgID(ix.ID, hex.EncodeToString(it.MID))
-		if err != nil {
-			return nil, false
-		}
-		switch msg.Kind {
-		case interactions.MsgText, interactions.MsgPayment:
-		case interactions.MsgEndRequest:
+	if err != nil {
+		return false, err
+	}
+	if ix.Role != interactions.RoleOutbound || ix.IsTerminal() {
+		return false, nil
+	}
+	if row.Type == seal.TypeMessage {
+		switch row.Kind {
+		case rowKindText, rowKindPayment:
+		case rowKindEndRequest:
 			if ix.IsCapability {
-				return nil, false // the result comes whether or not the end request arrives
+				return false, nil // the result comes whether or not the end request arrives
 			}
 		default:
-			return nil, false
+			return false, nil
 		}
-		return &undelivered{ix: ix}, true
+		if _, err := tx.MessageByMsgID(ix.ID, hex.EncodeToString(row.MID)); err != nil {
+			if errors.Is(err, interactions.ErrNotFound) {
+				return false, nil
+			}
+			return false, err
+		}
 	}
-	u := &undelivered{ix: ix}
-	// The client's message id is taken off the first message: the task
-	// never reached the provider, and the client's retry of the same
-	// message must be a new attempt, not this failed task returned as its
-	// duplicate.
-	if first, ok := d.firstOwnMessage(ix.ID); ok {
-		u.firstSeq = first
-	}
-	return u, true
-}
-
-// failUndeliveredTx fails u's task with anet.reason=undeliverable inside
-// the transaction that drops the row. It reports whether it did: a task
-// that ended meanwhile (its answer came first) is left as it is.
-func failUndeliveredTx(tx *interactions.Tx, u *undelivered, it *interactions.OutboxItem, reason string) (bool, error) {
-	m := map[string]any{a2ashape.KeyState: string(interactions.StateFailed), a2ashape.KeyReason: a2ashape.ReasonUndeliverable}
-	result := "not delivered to " + it.ToAID + " (" + reason + ")"
-	if it.MaybeDelivered {
-		result = "delivery to " + it.ToAID + " not confirmed (" + reason +
-			"); an earlier attempt may have reached it, so whether it ran is not known"
-	}
-	if u.ix.IsCapability {
-		if it.MaybeDelivered {
+	m := map[string]any{a2ashape.KeyState: string(interactions.StateFailed), a2ashape.KeyReason: reason}
+	if ix.IsCapability {
+		if handed {
 			m[a2ashape.KeyEffectStatus] = string(effect.Unverified)
 		} else {
 			m[a2ashape.KeyEffectStatus] = string(effect.Unavailable)
 		}
 	}
 	meta, _ := json.Marshal(m)
-	err := tx.Finish(u.ix.ID, interactions.Finish{State: interactions.StateFailed,
-		Result: []byte(result), Verified: interactions.VerificationUnknown, Meta: meta})
+	// A delegation that never left this node can bring no answer; anything
+	// else may still be answered (ENG-X4).
+	cause := interactions.CauseLocalEnded
+	if row.Type == seal.TypeDelegate && !handed {
+		cause = interactions.CauseNeverSent
+	}
+	err = tx.Finish(ix.ID, interactions.Finish{State: interactions.StateFailed,
+		Result: []byte(a2ashape.Sentence(reason, a2ashape.English, nil)), Verified: interactions.VerificationUnknown,
+		Meta: meta}, cause)
 	if errors.Is(err, interactions.ErrTerminal) {
 		return false, nil
 	}
-	if err != nil {
-		return false, err
-	}
-	if u.firstSeq > 0 {
-		if err := tx.MergeMessageMeta(u.ix.ID, u.firstSeq, map[string]any{a2ashape.KeyMessageID: nil}); err != nil &&
-			!errors.Is(err, interactions.ErrNotFound) {
-			return false, err
-		}
-	}
-	return true, nil
+	return err == nil, err
 }

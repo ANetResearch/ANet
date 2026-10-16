@@ -1,0 +1,22 @@
+{
+  "upstream": "anthropic",
+  "model": "claude-haiku-5-5",
+  "request": {
+    "method": "POST",
+    "target": "/v1/messages",
+    "header": {
+      "x-api-key": "anet-sandbox"
+    },
+    "body": "{\"model\":\"claude-haiku-5-5\",\"max_tokens\":1024,\"messages\":[],\"tools\":[{\"type\":\"web_search_20260209\",\"name\":\"web_search\"}]}"
+  },
+  "refused": {
+    "status": 403,
+    "body": {
+      "error": {
+        "message": "anet: the server-side model tool web_search_20260209 is not allowed in the sandbox (it would bypass this node's network limits); use a local tool instead.",
+        "type": "permission_error"
+      },
+      "type": "error"
+    }
+  }
+}

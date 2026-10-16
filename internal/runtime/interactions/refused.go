@@ -27,11 +27,20 @@ package interactions
 // all without a reply [redteam:F5]. The floors are bounded too: past Floors
 // of them, the ones that expire first are forgotten, and a replay of a
 // refusal whose row and floor both went is judged again (§21).
+//
+// A row keeps the reason the refusal was told with (DLV-ST-8): the note
+// reason code of its delivery token, or "" for none. A replay is answered
+// with the same outcome and the same reason, so what the requester reads
+// does not change with the copy that reached this node (engine ENG-V13).
+// A floor stands for rows that went, and their reasons went with them: a
+// delegation refused by its floor is refused without one.
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/ANetResearch/ANetCore/seal"
 )
 
 // Default bounds of the refused table. A row is a few hundred bytes with
@@ -72,12 +81,19 @@ func (s *Store) SetRefusedCaps(c RefusedCaps) {
 }
 
 // RecordRefused records that the delegation (from, mid), sent at ts and
-// valid until exp (unix ms), was refused. Recording it again is a no-op.
-// Rows past the bounds are evicted into their senders' floors, and floors
-// past theirs are forgotten, in the same transaction.
-func (s *Store) RecordRefused(from string, mid []byte, ts, exp uint64) error {
+// valid until exp (unix ms), was refused, and why: reason is the note
+// reason code it was refused with, or "" for none. A reason that is not a
+// reason code (CORE-K19: [a-z][a-z0-9_]*, at most 30 bytes) is an error
+// and nothing is written. Recording the same delegation again is a no-op:
+// the first reason stays. Rows past the bounds are evicted into their
+// senders' floors, and floors past theirs are forgotten, in the same
+// transaction.
+func (s *Store) RecordRefused(from string, mid []byte, ts, exp uint64, reason string) error {
 	if from == "" || len(mid) == 0 {
 		return fmt.Errorf("%w: a refused row needs a sender and a message id", ErrBadInput)
+	}
+	if reason != "" && !seal.ValidNoteReason(reason) {
+		return fmt.Errorf("%w: refusal reason %q is not a reason code", ErrBadInput, reason)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -93,8 +109,8 @@ func (s *Store) RecordRefused(from string, mid []byte, ts, exp uint64) error {
 		return fmt.Errorf("interactions: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	res, err := tx.Exec(`INSERT OR IGNORE INTO refused(from_aid, mid, ts, exp) VALUES(?,?,?,?)`,
-		from, mid, int64(ts), int64(exp))
+	res, err := tx.Exec(`INSERT OR IGNORE INTO refused(from_aid, mid, ts, exp, reason) VALUES(?,?,?,?,?)`,
+		from, mid, int64(ts), int64(exp), reason)
 	if err != nil {
 		return err
 	}
@@ -174,17 +190,17 @@ func trimRefusedFloors(tx *sql.Tx, limit int) error {
 }
 
 // Refused reports whether the delegation (from, mid) is in the refused
-// table, and the sender's floor, 0 when it has none. The caller treats a
-// delegation whose message time is at or below the floor, and that the
-// replay table does not hold, as refused.
-func (s *Store) Refused(from string, mid []byte) (exact bool, floor uint64, err error) {
-	var one int
-	switch err = s.db.QueryRow(`SELECT 1 FROM refused WHERE from_aid=? AND mid=?`, from, mid).Scan(&one); {
+// table and the reason it was recorded with, and the sender's floor, 0
+// when it has none. The caller treats a delegation whose message time is
+// at or below the floor, and that the replay table does not hold, as
+// refused, without a reason.
+func (s *Store) Refused(from string, mid []byte) (exact bool, reason string, floor uint64, err error) {
+	switch err = s.db.QueryRow(`SELECT reason FROM refused WHERE from_aid=? AND mid=?`, from, mid).Scan(&reason); {
 	case err == nil:
 		exact = true
 	case errors.Is(err, sql.ErrNoRows):
 	default:
-		return false, 0, err
+		return false, "", 0, err
 	}
 	var f int64
 	switch err = s.db.QueryRow(`SELECT ts FROM refused_floor WHERE from_aid=?`, from).Scan(&f); {
@@ -194,9 +210,9 @@ func (s *Store) Refused(from string, mid []byte) (exact bool, floor uint64, err 
 		}
 	case errors.Is(err, sql.ErrNoRows):
 	default:
-		return false, 0, err
+		return false, "", 0, err
 	}
-	return exact, floor, nil
+	return exact, reason, floor, nil
 }
 
 // RefusedCount is the number of refused rows, and of floors, stored.
@@ -231,29 +247,24 @@ func (s *Store) PurgeRefused(cutoff uint64) (int64, error) {
 	return n, nil
 }
 
-// migrateRefused creates the refused table and its floors.
-func (s *Store) migrateRefused() error {
-	for _, q := range []string{
-		`CREATE TABLE IF NOT EXISTS refused (
-		   from_aid TEXT NOT NULL,
-		   mid BLOB NOT NULL,
-		   ts INTEGER NOT NULL,
-		   exp INTEGER NOT NULL,
-		   PRIMARY KEY (from_aid, mid)
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_refused_exp ON refused(exp)`,
-		`CREATE INDEX IF NOT EXISTS idx_refused_sender_ts ON refused(from_aid, ts)`,
-		`CREATE INDEX IF NOT EXISTS idx_refused_ts ON refused(ts)`,
-		`CREATE TABLE IF NOT EXISTS refused_floor (
-		   from_aid TEXT PRIMARY KEY,
-		   ts INTEGER NOT NULL,
-		   exp INTEGER NOT NULL
-		 )`,
-		`CREATE INDEX IF NOT EXISTS idx_refused_floor_exp ON refused_floor(exp)`,
-	} {
-		if _, err := s.db.Exec(q); err != nil {
-			return fmt.Errorf("interactions: migrate refused: %w", err)
-		}
-	}
-	return nil
+// refusedSchema is the refused table, with each row's reason (DLV §3.1),
+// and the senders' floors.
+var refusedSchema = []string{
+	`CREATE TABLE refused (
+	   from_aid TEXT NOT NULL,
+	   mid BLOB NOT NULL,
+	   ts INTEGER NOT NULL,
+	   exp INTEGER NOT NULL,
+	   reason TEXT NOT NULL DEFAULT '',
+	   PRIMARY KEY (from_aid, mid)
+	 )`,
+	`CREATE INDEX idx_refused_exp ON refused(exp)`,
+	`CREATE INDEX idx_refused_sender_ts ON refused(from_aid, ts)`,
+	`CREATE INDEX idx_refused_ts ON refused(ts)`,
+	`CREATE TABLE refused_floor (
+	   from_aid TEXT PRIMARY KEY,
+	   ts INTEGER NOT NULL,
+	   exp INTEGER NOT NULL
+	 )`,
+	`CREATE INDEX idx_refused_floor_exp ON refused_floor(exp)`,
 }

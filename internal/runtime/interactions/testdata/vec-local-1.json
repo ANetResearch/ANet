@@ -1,0 +1,308 @@
+{
+  "id": "LOCAL-1",
+  "description": "The local data key of a task (core L35, L36; FS §4.6.1): aead_key and mac_key derived from ix_dek, and one stored field per encrypted column (FS-L2) under fixed nonces. A stored field is 0x01 || nonce(12) || AES-256-GCM(aead_key, nonce, plaintext, aad), aad = coredet({1: \"anet-local/v1\", 2: ix, 3: \"<table>.<column>\"}). Every negative must fail to open under this ix_dek.",
+  "labels": {
+    "field": "anet-local/v1",
+    "aead_key": "anet-local-aead/v1",
+    "mac_key": "anet-local-mac/v1"
+  },
+  "seeds": "ix_dek = seed(LOCAL-1, \"ix_dek\"); ix = \"ix_\" + hex(seed(LOCAL-1, \"ix\")[0:16]); the nonce of a column = seed(LOCAL-1, \"nonce/<table>.<column>\")[0:12]; bytes plaintexts are read in column order from the stream SHA-256(\"anet-golden/v016/LOCAL-1/plaintext\" || u64be(i))",
+  "ix": "ix_02bd97a4a3089171ba0262455d09093b",
+  "ix_dek": "af919c3fba20b304cf5e7bbb33d220154c36a641726714e9b15c6ddff66dfdb3",
+  "keys": {
+    "aead_key": {
+      "info": "anet-local-aead/v1",
+      "salt": "",
+      "key": "45c4a4fcc1f0e452758cb4b895cb6fe4cfb3cfccb3923f0c0c852214be043de6"
+    },
+    "mac_key": {
+      "info": "anet-local-mac/v1",
+      "salt": "",
+      "key": "0cfc6b0164124852e340aa066b50ba967a6cfa58e62b1c0abb287a8c326c6e08"
+    }
+  },
+  "fields": [
+    {
+      "column": "interaction.goal",
+      "kind": "text",
+      "plaintext": "53756d6d61726973652074686520617474616368656420717561727465726c79207265706f727420696e2074687265652062756c6c657420706f696e74732e",
+      "nonce": "38a2cd0cb95f399bdc98480e",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f30326264393761346133303839313731626130323632343535643039303933620370696e746572616374696f6e2e676f616c",
+      "stored": "0138a2cd0cb95f399bdc98480ebb671b66a9efa83ffd5a4dc7416e0f3b081139465d0bde6fa29621c18507a6dc7f0050e136c11893b61c88c43a242c33d7080b637d9cd9959eacde020a597c7f8d9614ef574a46d0d08b68e80fe570"
+    },
+    {
+      "column": "interaction.request_doc",
+      "kind": "bytes",
+      "plaintext": "cfe5737956ab43a2d1178f08417f62bae9a6e65c2ca2dde3261ce899d5d922fedd2db1b35f16a5757a04ebc7ab355379c9f0c02e09f4661f7ebb980886fd6e0203b91a84f826dbdc43c2ac322d9c770b60a92a052173f5b2b4c998a335d28880",
+      "nonce": "3947ba24083bd46b3b67ed77",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f30326264393761346133303839313731626130323632343535643039303933620377696e746572616374696f6e2e726571756573745f646f63",
+      "stored": "013947ba24083bd46b3b67ed77a4816cfda8b3828ee3a99c4bde05ea1b4febcca429bd71864c613da0229c707a0a50c71d8ffe132aa7a9cbd235a508e498fcfef0a2fb7f78535b420f8fb05feab0705edb482c2738731eda3007b33e49afe6f7c0fd9554346ad65ff04ad90fea7abdee07aa25aa8b98dadc7fa96f3f74"
+    },
+    {
+      "column": "interaction.result",
+      "kind": "text",
+      "plaintext": "526576656e7565207570203420253b20636f73747320666c61743b20686972696e672070617573656420756e74696c20746865207365636f6e642068616c662e",
+      "nonce": "402567b8c73f71c093c2e38d",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f30326264393761346133303839313731626130323632343535643039303933620372696e746572616374696f6e2e726573756c74",
+      "stored": "01402567b8c73f71c093c2e38d509fa5b00af65bfe9ce2c1f26d4f27f207200f024b135811b578467da5142901f0c8796bc14f885ed8b2c53bd7efcfe83ee4194c8574c32474593240397f41b83d9010ec7ffe2abfef4fef72626ccfee"
+    },
+    {
+      "column": "interaction.result_meta",
+      "kind": "text",
+      "plaintext": "7b22616e65742e726561736f6e223a22636f6d706c65746564227d",
+      "nonce": "10b4283b8f9b089bc7529599",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f30326264393761346133303839313731626130323632343535643039303933620377696e746572616374696f6e2e726573756c745f6d657461",
+      "stored": "0110b4283b8f9b089bc752959950cf3e6c713b62ed4c8e8423de3cd50f606fe947a58b0420ed1d747b51620cade7c5734b5c2bd34a8d4579"
+    },
+    {
+      "column": "interaction.review",
+      "kind": "bytes",
+      "plaintext": "10c8a089b438e2dd63fbad30b442c8f6f370dddf69b645e389557cd98b49cfd4d09698dfcde3dba08f2a7bdc5bb1c5a195cbb2505469a1dda5af100b44abf96f14c75d1c7b922ab9d937763f4a0c7744",
+      "nonce": "4d2da6b377eb254d31649204",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f30326264393761346133303839313731626130323632343535643039303933620372696e746572616374696f6e2e726576696577",
+      "stored": "014d2da6b377eb254d31649204fc19abb7d4ca94da0f2a9137ce28243896562ea53ec6cb3482366f6d88c8518c0f2a8902e6b4b81fc85a7b96fe891a714889881af762cea72c6bd7b22ea1a8c000526e1c2001e41cfde285d9ac8782f5f9053837b37cdc22bf0cc96c18b125d7"
+    },
+    {
+      "column": "message.body",
+      "kind": "text",
+      "plaintext": "436f756c6420796f75206164642061206f6e652d6c696e652073756d6d6172792061732077656c6c3f204d657263692c2064c3a96ac3a0207472c3a873207574696c6520e29c93",
+      "nonce": "26c02044898f5f20784daead",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f3032626439376134613330383931373162613032363234353564303930393362036c6d6573736167652e626f6479",
+      "stored": "0126c02044898f5f20784daead167b0f6cc42495ca1ba8ac8ef8489fd81372f0871a1449dd9a023450a60d2f995b6b69293f646597173c24ee5a078bbc5da931240e41d08c0a795e474c8cac8a61345bbfebabd05ebfe49affa44192b647c4e545e4d843"
+    },
+    {
+      "column": "message.metadata",
+      "kind": "text",
+      "plaintext": "7b226132612e6d6573736167654964223a226d2d30303031227d",
+      "nonce": "e3e4ad2a1c02d23a23b71a9e",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f303262643937613461333038393137316261303236323435356430393039336203706d6573736167652e6d65746164617461",
+      "stored": "01e3e4ad2a1c02d23a23b71a9e0519e7fa48c90112e51c2a62e4953d0ba3f62b2191a2caab1d0de0e5938aade30b4e60daa832ea122164"
+    },
+    {
+      "column": "attachment.name",
+      "kind": "text",
+      "plaintext": "7265706f72742d71332e706466",
+      "nonce": "cf2f8cb758dfb1e4c80abb43",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f3032626439376134613330383931373162613032363234353564303930393362036f6174746163686d656e742e6e616d65",
+      "stored": "01cf2f8cb758dfb1e4c80abb4358292d041b0e0e06644446fcd115d354fa52fa5c7366f128eab5dab61b"
+    },
+    {
+      "column": "attachment.mime",
+      "kind": "text",
+      "plaintext": "6170706c69636174696f6e2f706466",
+      "nonce": "91e227702b5018a60a7958e8",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f3032626439376134613330383931373162613032363234353564303930393362036f6174746163686d656e742e6d696d65",
+      "stored": "0191e227702b5018a60a7958e893203901b93f7129e9770f919c6f6a71d895f7e88258ffbbd4650b960c5c99"
+    },
+    {
+      "column": "attachment.data",
+      "kind": "bytes",
+      "plaintext": "dd78aec29d1f1c114459cef931f5f42640bd7abcd5153c624b38fac0b8561eec43d022f1324e74ef5867940ae5608db997eb7e919ec243a71a5b3b405712bdbf",
+      "nonce": "b4219bda7f3e5770ca83619a",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f3032626439376134613330383931373162613032363234353564303930393362036f6174746163686d656e742e64617461",
+      "stored": "01b4219bda7f3e5770ca83619a9477ab3658a9ea6bfcc974ec526ff1c285492c41a4240785c13def85a401708da765c798d6ff26124af16789e1d3c4e2e3dcf0e5d2948bc058592ca647c097c06b04d3cdee7d03803334d7b40a496a0b"
+    },
+    {
+      "column": "pending.delegate",
+      "kind": "bytes",
+      "plaintext": "f0b0872dc65509471c30b3d01610924bac0e9139cf4df79fa24a5dd3e4817e2c42494091c9d437d66c67282dd764239b2f4c674d2cbee2d63dd9f6b330ccd87b8ff0afa2000ebe23e217e3b8453d35bdf94f8614b5d1975936a235e93ab9a9248a1bb1441823f4943a2372fb1b212beba9db5e8c79fc3684",
+      "nonce": "a77254507e69204df958e16d",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f3032626439376134613330383931373162613032363234353564303930393362037070656e64696e672e64656c6567617465",
+      "stored": "01a77254507e69204df958e16d31f14cd50e24202f8b0088e1d58fa479220c732a430d2502c7abf3d8c7770238b9dd48b17a761f1b5bf36554b579a99f8198c9f0e790558232dda244af4a3a7733392f09b095b64be05fa04dce95b14507ef0701f0d6fb5308f012ba9359895623a8242b1a8b6cbe1ee5981d4ef2222bba7ea2c0bfa7cdaaa8b1bbb780b501870fd9e9cc9dc0831d"
+    },
+    {
+      "column": "pending.attachments",
+      "kind": "text",
+      "plaintext": "5b7b226e616d65223a227265706f72742d71332e706466222c226d696d65223a226170706c69636174696f6e2f706466222c2273697a65223a36342c22636964223a226261666b71616161227d5d",
+      "nonce": "50331dd7d41244e77fa272e7",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f3032626439376134613330383931373162613032363234353564303930393362037370656e64696e672e6174746163686d656e7473",
+      "stored": "0150331dd7d41244e77fa272e789e08278669ca382addcda1f2fb6ceb80ac5b511272867b00663e7ce65668caeb305c196ec34021bb2bfd40a79ac4b204f5757c2dd9eb8be17aecbeec96fdcc89cd6109cf5ec7ccf083c0b0e63fbd890ea18453b455c211bdf4fb5b3b00c"
+    },
+    {
+      "column": "pending.followups",
+      "kind": "text",
+      "plaintext": "5b7b226b696e64223a2274657874222c22626f6479223a22416e79207570646174653f222c226174223a313736373232353630303030307d5d",
+      "nonce": "72ab46ff138ed4ec31f70031",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f3032626439376134613330383931373162613032363234353564303930393362037170656e64696e672e666f6c6c6f77757073",
+      "stored": "0172ab46ff138ed4ec31f70031719fd9a4644c7af08dfb010a54bd3ef319db1c9b1ce4d18cdcb243397a9ff17a37d0177d890b043e7f018152cd54cf57ad5bb3a0aa4c2616b72967f5aed72f914a552a8cb11a5507ed"
+    },
+    {
+      "column": "outbox.body",
+      "kind": "bytes",
+      "plaintext": "cac2f9a01db2458f6aa3292c5c4971897c276d0287ab78435a42dffa5a75cea5595a77d6b12d80988a14a17e30d9e4245f9413c7bcf15d2e50f0623f44160e62056a9d9ad74a1430",
+      "nonce": "938f5f582be35bc4741441e9",
+      "aad": "a3016d616e65742d6c6f63616c2f763102782369785f3032626439376134613330383931373162613032363234353564303930393362036b6f7574626f782e626f6479",
+      "stored": "01938f5f582be35bc4741441e993159de96715d34486011f05334309a3a0818f2a96df7d4477362ee45b0e1eca5aae86b447f1c9aef9e94b0bf4ff845c42a1b0856c48fbbf987f02d325cbacf60fb206d0315782cc26c84ab0d6214f8f630791b9e902542a"
+    }
+  ],
+  "empty": {
+    "column": "message.metadata",
+    "kind": "text",
+    "plaintext": "",
+    "nonce": "86f9aa7523ed5ed0015cf612",
+    "aad": "a3016d616e65742d6c6f63616c2f763102782369785f303262643937613461333038393137316261303236323435356430393039336203706d6573736167652e6d65746164617461",
+    "stored": "0186f9aa7523ed5ed0015cf612271d3ab7ad1388a24f031c964feb48e9"
+  },
+  "negatives": [
+    {
+      "name": "byte_flipped",
+      "note": "the last byte of the goal's stored field changed",
+      "ix": "ix_02bd97a4a3089171ba0262455d09093b",
+      "column": "interaction.goal",
+      "stored": "0138a2cd0cb95f399bdc98480ebb671b66a9efa83ffd5a4dc7416e0f3b081139465d0bde6fa29621c18507a6dc7f0050e136c11893b61c88c43a242c33d7080b637d9cd9959eacde020a597c7f8d9614ef574a46d0d08b68e80fe571"
+    },
+    {
+      "name": "nonce_flipped",
+      "note": "the first nonce byte of the goal's stored field changed",
+      "ix": "ix_02bd97a4a3089171ba0262455d09093b",
+      "column": "interaction.goal",
+      "stored": "0139a2cd0cb95f399bdc98480ebb671b66a9efa83ffd5a4dc7416e0f3b081139465d0bde6fa29621c18507a6dc7f0050e136c11893b61c88c43a242c33d7080b637d9cd9959eacde020a597c7f8d9614ef574a46d0d08b68e80fe570"
+    },
+    {
+      "name": "other_column",
+      "note": "the goal's stored field read as message.body: the aad names the column",
+      "ix": "ix_02bd97a4a3089171ba0262455d09093b",
+      "column": "message.body",
+      "stored": "0138a2cd0cb95f399bdc98480ebb671b66a9efa83ffd5a4dc7416e0f3b081139465d0bde6fa29621c18507a6dc7f0050e136c11893b61c88c43a242c33d7080b637d9cd9959eacde020a597c7f8d9614ef574a46d0d08b68e80fe570"
+    },
+    {
+      "name": "other_task",
+      "note": "the goal's stored field read as another task's goal: the aad names the task",
+      "ix": "ix_eea81b746295f3f39ac102c640a8dc78",
+      "column": "interaction.goal",
+      "stored": "0138a2cd0cb95f399bdc98480ebb671b66a9efa83ffd5a4dc7416e0f3b081139465d0bde6fa29621c18507a6dc7f0050e136c11893b61c88c43a242c33d7080b637d9cd9959eacde020a597c7f8d9614ef574a46d0d08b68e80fe570"
+    },
+    {
+      "name": "version_2",
+      "note": "the goal's stored field with first byte 0x02",
+      "ix": "ix_02bd97a4a3089171ba0262455d09093b",
+      "column": "interaction.goal",
+      "stored": "0238a2cd0cb95f399bdc98480ebb671b66a9efa83ffd5a4dc7416e0f3b081139465d0bde6fa29621c18507a6dc7f0050e136c11893b61c88c43a242c33d7080b637d9cd9959eacde020a597c7f8d9614ef574a46d0d08b68e80fe570"
+    },
+    {
+      "name": "truncated",
+      "note": "a stored field shorter than 0x01, the nonce and the tag",
+      "ix": "ix_02bd97a4a3089171ba0262455d09093b",
+      "column": "interaction.goal",
+      "stored": "0138a2cd0cb95f399bdc98480ebb671b66a9efa83ffd5a4dc7416e0f"
+    },
+    {
+      "name": "empty_after_version",
+      "note": "the version byte alone",
+      "ix": "ix_02bd97a4a3089171ba0262455d09093b",
+      "column": "interaction.goal",
+      "stored": "01"
+    },
+    {
+      "name": "raw_ix_dek",
+      "note": "the goal sealed with ix_dek itself as the AES key, not aead_key (CORE-L2; FS mutation 31)",
+      "ix": "ix_02bd97a4a3089171ba0262455d09093b",
+      "column": "interaction.goal",
+      "stored": "0138a2cd0cb95f399bdc98480e4a31030259edbdfc852fd8724e85e8983bbf753a66d2eb0fab9037ad0635fe1250660fc9a3b0ed6ead6c023aca7af3f300c4b504626ef28375d1b1eaa9d94281459510d992d5960a177bc4e883e72b"
+    },
+    {
+      "name": "mac_key_as_aead_key",
+      "note": "the goal sealed under mac_key: the two derivations are not interchangeable",
+      "ix": "ix_02bd97a4a3089171ba0262455d09093b",
+      "column": "interaction.goal",
+      "stored": "0138a2cd0cb95f399bdc98480e8e26d16929e04b52f228d7099afa90759727755d5a7929f0a51423a9227dd0b213578869698713d6f513d49fd179cbb8ff390d7591c2a6452055381e177c363a2d44e47b3565009dbb2908993250c8"
+    },
+    {
+      "name": "aad_without_label",
+      "note": "the goal sealed with an aad that leaves out key 1 (\"anet-local/v1\")",
+      "ix": "ix_02bd97a4a3089171ba0262455d09093b",
+      "column": "interaction.goal",
+      "stored": "0138a2cd0cb95f399bdc98480ebb671b66a9efa83ffd5a4dc7416e0f3b081139465d0bde6fa29621c18507a6dc7f0050e136c11893b61c88c43a242c33d7080b637d9cd9959eacde020a597c6723fac87ca9ee924b17e38b8b4c926c"
+    }
+  ],
+  "client": {
+    "description": "A local client's retry key (core L37, L38; correctness-ux CUX-D1): client_key = SHA-256(\"anet-client-key/v1\" || 0x00 || messageId); client_digest = HMAC-SHA256(mac_key, \"anet-client-msg/v1\" || 0x00 || canon), mac_key = keys.mac_key. canon is the message's content: {v, kind, texts, files, meta, ext} for text, {v, kind, skill, args, files, meta, ext} for a capability call, {v, kind, x402: {status, accept?}, meta, ext} for a payment decision; meta without a2a.*, anet.* and x402.* keys; ext sorted, each once, without the preview extension; members in RFC 8785 order, strings escaped as RFC 8785 does, numbers as the client wrote them. message is the client's message as JSON text, extensions the extensions it activated.",
+    "labels": {
+      "client_key": "anet-client-key/v1",
+      "client_digest": "anet-client-msg/v1"
+    },
+    "messages": [
+      {
+        "name": "text",
+        "note": "the four kinds: a text message with metadata of its own and of anet's, two extensions activated",
+        "message": "{\"messageId\":\"m-text-1\",\"role\":\"ROLE_USER\",\"contextId\":\"ctx-1\",\"parts\":[{\"text\":\"Book the small room for Friday 10:00.\"},{\"text\":\"Two people, \\\"quiet\\\" please\\n\\u0001 — merci\"}],\"metadata\":{\"trace\":\"t-7\",\"b\":[1,2.50,true,null],\"a2a.messageId\":\"x\",\"anet.preview_mode\":\"on\"}}",
+        "extensions": [
+          "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2",
+          "https://agentnetwork.org.cn/a2a/ext/anet-preview/v1",
+          "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2"
+        ],
+        "canon": "{\"ext\":[\"https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2\"],\"files\":[],\"kind\":\"text\",\"meta\":{\"b\":[1,2.50,true,null],\"trace\":\"t-7\"},\"texts\":[\"Book the small room for Friday 10:00.\",\"Two people, \\\"quiet\\\" please\\n\\u0001 — merci\"],\"v\":1}",
+        "client_key": "f3e897e081f0945f265203123bfb85a3ae080f0f13be3c85429de3c6a9d5ec8b",
+        "client_digest": "5216cf1ea7a54a383b993c695df46957f4094f477c80e4717ed979b231c865ed"
+      },
+      {
+        "name": "skill_big",
+        "note": "the four kinds: a capability call whose args hold 9007199254740993",
+        "message": "{\"messageId\":\"m-skill-1\",\"role\":\"ROLE_USER\",\"parts\":[{\"data\":{\"skill\":\"calc.add\",\"args\":{\"a\":9007199254740993,\"z\":{\"\\u00fc\":true,\"\\ud83d\\ude00\":0,\"\\ue000\":1},\"b\":-0}}}]}",
+        "extensions": [],
+        "canon": "{\"args\":{\"a\":9007199254740993,\"b\":-0,\"z\":{\"ü\":true,\"😀\":0,\"\":1}},\"ext\":[],\"files\":[],\"kind\":\"skill\",\"meta\":{},\"skill\":\"calc.add\",\"v\":1}",
+        "client_key": "ac2135ab726f16695cf5202139677643f6f2796c9d75d1a8bb983262babf725b",
+        "client_digest": "3cfe933a07f7ebef1f62fbbf323c250224cf82b9803ccec20b844987897873f3"
+      },
+      {
+        "name": "skill_big_neighbour",
+        "note": "skill_big with 9007199254740992: a double holds neither, and the digests differ",
+        "message": "{\"messageId\":\"m-skill-1\",\"role\":\"ROLE_USER\",\"parts\":[{\"data\":{\"skill\":\"calc.add\",\"args\":{\"a\":9007199254740992,\"z\":{\"\\u00fc\":true,\"\\ud83d\\ude00\":0,\"\\ue000\":1},\"b\":-0}}}]}",
+        "extensions": [],
+        "canon": "{\"args\":{\"a\":9007199254740992,\"b\":-0,\"z\":{\"ü\":true,\"😀\":0,\"\":1}},\"ext\":[],\"files\":[],\"kind\":\"skill\",\"meta\":{},\"skill\":\"calc.add\",\"v\":1}",
+        "client_key": "ac2135ab726f16695cf5202139677643f6f2796c9d75d1a8bb983262babf725b",
+        "client_digest": "aeb1427024f73cb5ae718fc44b771dbd83590508e57207caf1e84a60b2c33f3f"
+      },
+      {
+        "name": "skill_one",
+        "note": "a capability call with the number 1",
+        "message": "{\"messageId\":\"m-one\",\"role\":\"ROLE_USER\",\"parts\":[{\"data\":{\"skill\":\"calc.add\",\"args\":{\"n\":1}}}]}",
+        "extensions": [],
+        "canon": "{\"args\":{\"n\":1},\"ext\":[],\"files\":[],\"kind\":\"skill\",\"meta\":{},\"skill\":\"calc.add\",\"v\":1}",
+        "client_key": "29ed236311e42b1a8f94bffba7962805930d9d724fcbe77cb2397019fe538d37",
+        "client_digest": "1ea3ce702c3c04a430af52df9c2fa7f7ead7a521df7ae7f98252556130633d5d"
+      },
+      {
+        "name": "skill_one_point_zero",
+        "note": "skill_one with 1.0: the same double, another literal, another digest",
+        "message": "{\"messageId\":\"m-one\",\"role\":\"ROLE_USER\",\"parts\":[{\"data\":{\"skill\":\"calc.add\",\"args\":{\"n\":1.0}}}]}",
+        "extensions": [],
+        "canon": "{\"args\":{\"n\":1.0},\"ext\":[],\"files\":[],\"kind\":\"skill\",\"meta\":{},\"skill\":\"calc.add\",\"v\":1}",
+        "client_key": "29ed236311e42b1a8f94bffba7962805930d9d724fcbe77cb2397019fe538d37",
+        "client_digest": "e6edf4a50b7bd6795422da9703ff9332177a8fb2271c838220503c35febe1bcd"
+      },
+      {
+        "name": "files",
+        "note": "the four kinds: a text message with two files",
+        "message": "{\"messageId\":\"m-files-1\",\"role\":\"ROLE_USER\",\"parts\":[{\"text\":\"Compare the faces.\"},{\"raw\":\"/9j/4OtOxtRI7oCVKn3uklpnqpfekChiE8gH07KD+BhTmEDJcBzmPtEvGM6JkqULvEFjkUx+hJau3SD25hsoJQ==\",\"filename\":\"photos/a.jpg\",\"mediaType\":\"image/jpeg\"},{\"raw\":\"iVBORw0KGgpKxsFGqux6WGTWppC1nBxAA6esn9qCMgGXag5zjH7iZ9Dp4BCTIv15fzLgikPADRtj4Sh8Ugq3Wg==\",\"filename\":\"b.png\",\"mediaType\":\"image/png\"}]}",
+        "extensions": [],
+        "canon": "{\"ext\":[],\"files\":[{\"cid\":\"bafkreiayjggblrfdipl7ziqcf74ubkgceeidz6nonwiymv22ceuo5eblmi\",\"mime\":\"image/jpeg\",\"name\":\"a.jpg\"},{\"cid\":\"bafkreihj3efzwzka4ydl6ntg3uf6cwuo2sn4stzjuzpjgenev7pbb55qfy\",\"mime\":\"image/png\",\"name\":\"b.png\"}],\"kind\":\"text\",\"meta\":{},\"texts\":[\"Compare the faces.\"],\"v\":1}",
+        "client_key": "d7698d2fff3e22a5f025fdc5233fb30bce3dc1750067463e1b5501be2056a545",
+        "client_digest": "1206eb1a21c8bc73435a0bb61a31cf8c246dd8733ce7be7aa3becde2fc5b34a7"
+      },
+      {
+        "name": "payment_submit",
+        "note": "the four kinds: a payment decision; its parts are not part of it",
+        "message": "{\"messageId\":\"m-pay-1\",\"role\":\"ROLE_USER\",\"taskId\":\"ix_0\",\"parts\":[{\"text\":\"paying\"}],\"metadata\":{\"x402.payment.status\":\"payment-submitted\",\"anet.payment.accept\":{\"scheme\":\"exact\",\"network\":\"anet:hub\",\"amount\":\"3\",\"asset\":\"credits\",\"payTo\":\"bafyrei33f6be445b96706a843a961273b1141e21be0b47b0b2abb971ab\",\"maxTimeoutSeconds\":600}}}",
+        "extensions": [
+          "https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2"
+        ],
+        "canon": "{\"ext\":[\"https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2\"],\"kind\":\"payment\",\"meta\":{},\"v\":1,\"x402\":{\"accept\":{\"amount\":\"3\",\"asset\":\"credits\",\"maxTimeoutSeconds\":600,\"network\":\"anet:hub\",\"payTo\":\"bafyrei33f6be445b96706a843a961273b1141e21be0b47b0b2abb971ab\",\"scheme\":\"exact\"},\"status\":\"payment-submitted\"}}",
+        "client_key": "662c283ea701b8ed5b613540657c13d2ab3a9889f81149963ecbb585b188da6f",
+        "client_digest": "be860d97ae92488911219b9112c525617c6e5538a22f80b2f543b4357526674b"
+      }
+    ],
+    "pairs": [
+      {
+        "a": "skill_big",
+        "b": "skill_big_neighbour",
+        "note": "one messageId, two contents: the digests differ"
+      },
+      {
+        "a": "skill_one",
+        "b": "skill_one_point_zero",
+        "note": "one messageId, two contents: the digests differ"
+      }
+    ]
+  }
+}

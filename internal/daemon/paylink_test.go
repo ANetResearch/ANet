@@ -31,10 +31,10 @@ func TestPricedWorkIsRefusedWhenThisBuildCannotCharge(t *testing.T) {
 	// the requester keeps one so the test exercises "they cannot charge",
 	// not "we cannot pay".
 	withoutPayments(prov)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Payer", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Worker", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -72,14 +72,6 @@ func TestThePayingSurfacesSayWhenThereIsNoPaymentSupport(t *testing.T) {
 	}{
 		{"balance", func() error { _, err := d.Balance(ctx); return err }},
 		{"redeem", func() error { _, err := d.RedeemCredit(ctx, 10, "ref", ""); return err }},
-		{"pay-and-retry", func() error {
-			_, err := d.PayAndRetry(ctx, "did:anet:x", "work.do", nil, nil)
-			return err
-		}},
-		{"delegate-and-pay", func() error {
-			_, _, err := d.DelegateAndPay(ctx, "did:anet:x", "work.do", nil)
-			return err
-		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call()

@@ -26,8 +26,8 @@
 //
 // What this surface may reach is closed (paths.go): the control token is
 // the node's full authority, and the MCP server must never call the
-// manual, gateway or redemption payment routes (§8.6), whatever a tool
-// handler is later changed to do.
+// manual or redemption payment routes (§8.6), whatever a tool handler is
+// later changed to do.
 package mcpserv
 
 import (
@@ -38,6 +38,8 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/ANetResearch/ANet/internal/a2ashape"
 )
 
 // Control is the daemon's local control plane, as much of it as the tools
@@ -70,6 +72,11 @@ func (e *DaemonError) Error() string {
 	msg := e.Message
 	if msg == "" {
 		msg = fmt.Sprintf("daemon returned %d", e.Status)
+	}
+	if e.Message != "" && isReasonCode(e.Reason) {
+		// A refusal of the reason table (ux UX-R9): the tool error is the
+		// control plane's sentence, nothing added (UX-M4, LEC MC-2).
+		return msg
 	}
 	var tags []string
 	if e.Code != "" && !strings.Contains(msg, e.Code) {
@@ -177,4 +184,14 @@ func endsTask() *mcp.ToolAnnotations {
 // spends is a tool that spends this node's credit.
 func spends() *mcp.ToolAnnotations {
 	return &mcp.ToolAnnotations{DestructiveHint: ptr(true), OpenWorldHint: ptr(true)}
+}
+
+// isReasonCode reports whether code is a code of the reason table, whose
+// sentence the control plane already wrote.
+func isReasonCode(code string) bool {
+	if code == "" {
+		return false
+	}
+	r, ok := a2ashape.Lookup(code)
+	return ok && r.Code == code
 }

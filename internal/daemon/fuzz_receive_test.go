@@ -18,10 +18,10 @@ import (
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/anetcid"
 	"github.com/ANetResearch/ANetCore/coredet"
 	"github.com/ANetResearch/ANetCore/delegation"
-	"github.com/ANetResearch/ANetCore/evidence"
 	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
@@ -44,7 +44,7 @@ func newRxFuzz(f *testing.F) *rxFuzz {
 	quietLog(f) // a log line per refused envelope, millions of times, is most of what a worker would do
 	srv, req, prov := registeredPair(f)
 	oth := newTestDaemon(f, srv.URL, false)
-	if err := oth.RegisterWithHub(context.Background(), srv.URL, "Oth", nil, ""); err != nil {
+	if err := oth.RegisterWithHub(context.Background(), srv.URL, "Oth", nil); err != nil {
 		f.Fatal(err)
 	}
 	kel, err := identity.MarshalKEL(req.self.KEL())
@@ -216,7 +216,7 @@ func FuzzReceiveInner(f *testing.F) {
 		{route: routeToProvider, verb: delegation.ChatText, meta: []byte(`{"x402.payment.status":"payment-submitted","x402.payment.payload":{"x402Version":1}}`)},
 		{route: routeToProvider, verb: delegation.KindCancel},
 		{route: routeToProvider, verb: delegation.ChatEndRequest},
-		{route: routeToRequester, typ: 0, verb: delegation.ChatText, text: "reply", meta: []byte(`{"anet.state":"working","anet.final":true}`)},
+		{route: routeToRequester, typ: 0, verb: delegation.ChatText, text: "reply", meta: []byte(`{"anet.state":"working"}`)},
 		{route: routeToRequester, typ: 1, verb: delegation.StateInputRequired, text: "pay", capID: "text.echo",
 			meta: []byte(`{"x402.payment.status":"payment-required","x402.payment.required":{"x402Version":1,"accepts":[{"scheme":"exact","network":"anet","maxAmountRequired":"100","payTo":"x","asset":"credit","resource":"r","description":"d","mimeType":"application/json","maxTimeoutSeconds":60}]}}`)},
 		{route: routeToRequester, typ: 1, verb: delegation.StateFailed, meta: []byte(`{"anet.effect_status":"OK","anet.receipt_verified":"verified"}`)},
@@ -308,7 +308,6 @@ func FuzzReceiveInner(f *testing.F) {
 				rr := &delegation.ResultResp{Status: verb, Deliverable: deliverable, Metadata: meta}
 				if receiptOK {
 					rr.Receipt = signedReceipt(t, x, id, deliverable)
-					rr.KEL, _ = identity.MarshalKEL(provKEL)
 				}
 				body, err = rr.Marshal()
 			}
@@ -320,7 +319,7 @@ func FuzzReceiveInner(f *testing.F) {
 			}
 			sealType = seal.TypeDelegate
 			body, err = (&delegation.DelegateReq{TaskDoc: doc, Envelope: td.Envelope, InteractionID: id,
-				Attachments: atts, Payment: deliverable, ContextID: msgID}).Marshal()
+				Attachments: atts, ContextID: msgID}).Marshal()
 		}
 		if err != nil {
 			return // a body the sender could not have encoded either
@@ -378,13 +377,15 @@ func FuzzReceiveInner(f *testing.F) {
 
 // craftE is craft that returns seal.Seal's refusal instead of failing.
 func craftE(t *testing.T, s sender, to *Daemon, typ, ix string, body []byte, edit func(*seal.SealedInner)) ([]byte, error) {
+	trustSuiteWitness(t, to)
 	now := uint64(time.Now().UnixMilli())
 	kel, err := identity.MarshalKEL(s.kel)
 	if err != nil {
 		t.Fatal(err)
 	}
 	in := &seal.SealedInner{From: s.aid, KeyStateSeq: s.ksn, To: to.AID(), Type: typ, IX: ix,
-		MID: seal.NewMID(), TS: now, Exp: now + messageLifetimeMS, Body: body, KEL: kel, Keys: s.keys}
+		MID: seal.NewMID(), TS: now, Exp: now + messageLifetimeMS, Body: body, KEL: kel, Keys: s.keys,
+		Notices: s.notices(t)}
 	if edit != nil {
 		edit(in)
 	}
@@ -392,7 +393,11 @@ func craftE(t *testing.T, s sender, to *Daemon, typ, ix string, body []byte, edi
 	if err != nil {
 		t.Fatal(err)
 	}
-	return seal.Seal(in, key, s.sign)
+	env, _, err := seal.Seal(in, key, s.sign, seal.SealOpts{})
+	if err != nil {
+		return nil, err
+	}
+	return seal.SetAccess(env, &seal.Access{Kind: seal.AccessKindSession})
 }
 
 // FuzzReceiveEnvelope: bytes where an envelope should be, from the hub
@@ -422,7 +427,7 @@ func FuzzReceiveEnvelope(f *testing.F) {
 			if r.class < rxAccepted || r.class > rxTransient {
 				t.Fatalf("receive answered class %d (%s)", r.class, r.reason)
 			}
-			if _, oerr := seal.Open(env, to.AID(), to.enc); oerr != nil {
+			if _, oerr := seal.Open(env, to.AID(), to.enc, nil); oerr != nil {
 				want := rxDropped
 				if direct {
 					want = rxTransient

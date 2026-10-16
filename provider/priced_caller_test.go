@@ -10,17 +10,18 @@ import (
 	"testing"
 )
 
-// A provider that implements Priced is one the voucher door serves, and at
-// that door Call.CallerAID is the payer the hub attested, not an
-// authenticated caller (A2A-DESIGN §5.4). Such a provider must not read
-// CallerAID at all: authorizing on it would let whoever holds a voucher act
-// as its payer.
+// A provider that implements Priced takes money for its work, so it is the
+// kind with the most reason to tie what it does to who asked. Call.CallerAID
+// is an authenticated caller only on the relay door, and a priced provider
+// learns the caller through Call.VerifiedCaller, never by reading CallerAID:
+// the one accessor answers only for a caller the daemon authenticated, and
+// a door added later (the hub's voucher door was one, until 0.3.0) cannot
+// hand such a provider an identity it did not check.
 //
 // The check is structural: every package in this module that declares both
 // an Invoke method and a Price(string) (uint64, bool) method is a priced
 // provider, and its non-test sources must not select a field named
-// CallerAID. Such a provider learns the caller through Call.VerifiedCaller,
-// which is empty at the voucher door (TestVerifiedCallerIsEmptyAtTheVoucherDoor).
+// CallerAID (TestVerifiedCallerIsOnlyTheRelayCaller).
 func TestNoPricedProviderReadsCallerAID(t *testing.T) {
 	root, err := filepath.Abs("..")
 	if err != nil {
@@ -63,7 +64,7 @@ func TestNoPricedProviderReadsCallerAID(t *testing.T) {
 			ast.Inspect(f, func(n ast.Node) bool {
 				if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "CallerAID" {
 					rel, _ := filepath.Rel(root, dir)
-					t.Errorf("%s: priced provider package %s reads CallerAID; at the voucher door it is not an authenticated caller",
+					t.Errorf("%s: priced provider package %s reads CallerAID; it is an authenticated caller only on the relay door (use VerifiedCaller)",
 						fset.Position(sel.Pos()), rel)
 				}
 				return true

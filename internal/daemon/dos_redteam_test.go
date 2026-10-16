@@ -30,22 +30,22 @@ package daemon
 // replays per envelope with no rate limit gating a burst.
 
 import (
-	"crypto/ed25519"
 	"testing"
 	"time"
 
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/seal"
 )
 
-// growSenderKEL grows base's KEL with self-signed drt events (which do not
-// change the signing key) until its encoding nears the message-path byte
-// cap, so the sealed envelope still passes seal.ParseKEL and reaches the
-// authorization step. An attacker builds this offline.
+// growSenderKEL grows base's KEL with rotations of its own keys until its
+// encoding nears the message-path byte cap, so the sealed envelope still
+// passes seal.ParseKEL and reaches the authorization step. An attacker
+// builds this offline: it holds every key of its own identity.
 func growSenderKEL(t *testing.T, base sender, targetBytes int) sender {
 	t.Helper()
-	pub, _, _ := ed25519.GenerateKey(nil)
-	for {
+	kel := base.ctrl.KEL()
+	for ts := kel[len(kel)-1].Event.Timestamp + 1; ; ts++ {
 		b, err := identity.MarshalKEL(base.ctrl.KEL())
 		if err != nil {
 			t.Fatal(err)
@@ -53,7 +53,7 @@ func growSenderKEL(t *testing.T, base sender, targetBytes int) sender {
 		if len(b) >= targetBytes {
 			break
 		}
-		if err := base.ctrl.Delegate(pub, 1); err != nil {
+		if err := identitytest.Rotate(base.ctrl, ts); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -139,33 +139,34 @@ func TestRedteamClosedNodeKELReplayExhaustion(t *testing.T) {
 // to fail as class T for the 10-minute unknown-ix window whoever sent it: not
 // acknowledged, never reaching step 10's replay table, so every hub
 // redelivery ran the full decrypt and several KEL replays again, for up to
-// ten minutes, for one envelope a stranger sent. A stranger's message is now
-// answered TaskNotFound (rate limited) and acknowledged at once, and the
-// refusal is remembered: a redelivery is dropped before step 6, without any
-// KEL replay.
+// ten minutes, for one envelope a stranger sent. Every sender's message is
+// now refused at once (engine ENG-V10): acknowledged and answered tok(2)
+// task_not_found, which sends nothing, and the refusal is remembered: a
+// redelivery is answered the same before step 6, without any KEL replay.
 func TestRedteamUnknownIXFromAStrangerIsNotReworked(t *testing.T) {
-	_, _, prov := registeredPair(t)
+	srv, _, prov := registeredPair(t)
 
 	attacker := growSenderKEL(t, newStranger(t), seal.MaxKELBytes-2000)
 
 	// A message for an interaction this node has never seen.
-	env := craft(t, attacker, prov, seal.TypeMessage, "no-such-ix", chatBody(t, "hello", "m1"), nil)
+	env, ack := craftAck(t, attacker, prov, seal.TypeMessage, "no-such-ix", chatBody(t, "hello", "m1"), nil)
 
+	sent := relayCountFor(srv.URL)
 	first := receive(t, prov, env)
 	if first.class != rxDropped || first.reason != dropUnknownIX || !first.ack() {
 		t.Fatalf("first delivery: class=%d reason=%q; want a permanent %q, acknowledged", first.class, first.reason, dropUnknownIX)
 	}
+	wantToken(t, first, ack, seal.OutcomeRefused, seal.NoteTaskNotFound)
 	const redeliveries = 3
 	for i := 0; i < redeliveries; i++ {
-		if r := receive(t, prov, env); r.class != rxDropped || r.reason != dropRefusedReplay {
-			t.Fatalf("redelivery %d: class=%d reason=%q; want %q (no KEL replay, no second answer)",
+		r := receive(t, prov, env)
+		if r.class != rxDropped || r.reason != dropRefusedReplay {
+			t.Fatalf("redelivery %d: class=%d reason=%q; want %q (no KEL replay, the same answer)",
 				i, r.class, r.reason, dropRefusedReplay)
 		}
+		wantToken(t, r, ack, seal.OutcomeRefused, seal.NoteTaskNotFound)
 	}
-	if n := counter(prov, transientUnknownIX); n != 0 {
-		t.Fatalf("a stranger's message was held %d times", n)
-	}
-	if n := counter(prov, noticeTaskNotFound); n > 1 {
-		t.Fatalf("%d TaskNotFound notices for one message", n)
+	if n := relayCountFor(srv.URL) - sent; n != 0 {
+		t.Fatalf("refusing a stranger's message sent %d envelopes; want none (ENG-V15)", n)
 	}
 }

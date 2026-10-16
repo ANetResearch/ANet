@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ANetResearch/ANetCore/seal"
 )
 
 // The transport list is walked on every delegation, message and result, so
@@ -40,13 +43,14 @@ func BenchmarkTransportDispatchFallThrough(b *testing.B) {
 
 	d := benchDaemon(b)
 	d.RegisterTransport(&benchTransport{name: "direct", reachable: true, fail: errors.New("unreachable")})
-	d.RegisterTransport(&benchTransport{name: "fallback", reachable: true}) // stands in for the hub
 	ctx := context.Background()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if err := d.deliverEnvelope(ctx, "aid-peer", benchPayload); err != nil {
-			b.Fatal(err)
+		// No hub behind it: the direct path fails, and the fall-through ends
+		// at the missing hub without a network call.
+		if err := d.deliverEnvelope(ctx, "aid-peer", benchPayload); err == nil {
+			b.Fatal("no path took it, yet it was delivered")
 		}
 	}
 }
@@ -61,12 +65,40 @@ func BenchmarkTransportDispatchHubOnly(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = d.transports()
+		_ = d.directTransports()
 		_ = ctx
 	}
 }
 
 var benchPayload = make([]byte, 4096)
+
+// deliverEnvelope hands one envelope to its recipient once: a direct path
+// first, then the hub, with the same bytes. Nothing in the daemon calls it
+// any more (a message that is not queued goes through oneShotSend); the
+// benchmarks below keep it to measure the dispatch seam, and it obeys the
+// outbound gate like every send (ENG-K13): while it is closed nothing goes.
+func (d *Daemon) deliverEnvelope(ctx context.Context, toAID string, envelope []byte) error {
+	if g := d.identityGate(); !g.Open {
+		return &gateClosedError{state: g.State}
+	}
+	if t := d.p2pPath(ctx, toAID, d.nowMS()); t != nil {
+		_, _, err := t.Send(ctx, toAID, envelope)
+		d.noteTransport(t.Name(), err)
+		if err == nil {
+			return nil
+		}
+	}
+	hub := d.configuredHub()
+	if hub == "" {
+		return fmt.Errorf("anet: no hub configured")
+	}
+	choice := AccessChoice{Send: true, Kind: seal.AccessKindSession}
+	if c, err := d.accessChoiceFor(toAID, "", false, accessOrdinary, d.nowMS()); err == nil && c.Kind == seal.AccessKindSession {
+		choice.HintHome = c.HintHome
+	}
+	_, _, err := d.relaySendV3(ctx, envelope, choice)
+	return err
+}
 
 func quietLog(b testing.TB) {
 	b.Helper()
@@ -86,8 +118,8 @@ type benchTransport struct {
 
 func (t *benchTransport) Name() string                           { return t.name }
 func (t *benchTransport) Reachable(context.Context, string) bool { return t.reachable }
-func (t *benchTransport) Send(context.Context, string, []byte) error {
-	return t.fail
+func (t *benchTransport) Send(context.Context, string, []byte) ([]byte, bool, error) {
+	return nil, true, t.fail
 }
 
 // benchDaemon builds a daemon with no hub, so the fake transports carry
@@ -110,6 +142,9 @@ func benchDaemon(b *testing.B) *Daemon {
 		d.relayStop = nil
 	}
 	d.mu.Unlock()
+	// What is measured is the dispatch: the gate (engine ENG-K13) is held
+	// open, as for a node its witness confirmed.
+	d.setIdentityGate(func() GateState { return GateState{Open: true, State: IdentityOK} })
 	b.Cleanup(func() { d.Close() })
 	return d
 }

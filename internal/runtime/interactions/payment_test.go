@@ -53,7 +53,7 @@ func TestPaymentColumns(t *testing.T) {
 		t.Fatalf("auth ids = %v", ix.PayAuthIDs)
 	}
 	// Receipts append, and a terminal row still takes one.
-	if _, err := s.SetState("ix1", interactions.StateCanceled); err != nil {
+	if _, err := s.SetState("ix1", interactions.StateCanceled, interactions.CauseProviderEnd); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 70; i++ {

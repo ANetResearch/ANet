@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/ANetResearch/ANetCore/ael"
-	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 	"github.com/ANetResearch/ANetCore/payment"
 
 	"github.com/ANetResearch/ANet/module"
@@ -21,15 +21,15 @@ import (
 // an amount debited the payee and credited the payer (red team si9; the
 // hub fix is ANetHub internal/aghub/amount.go). This node's own lines of
 // defence refuse such an amount too, so they do not depend on the hub
-// having the fix: the merchant check, the voucher door, the signer, and
-// the audit that reads the hub's issuance chain.
+// having the fix: the merchant check, the signer, and the audit that reads
+// the hub's issuance chain.
 
 // The red team's PoC (b7470a8), kept with its own inputs: 2^64-5000
 // against a quote of 120 passed the merchant check.
 func TestRedteamSI9MerchantCheckRefusesAnOverflowingAmount(t *testing.T) {
 	h := newHost(t)
 	m := newModule(t, h)
-	payer, err := identity.Incept()
+	payer, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,28 +56,6 @@ func TestRedteamSI9MerchantCheckRefusesAnOverflowingAmount(t *testing.T) {
 	if chk := m.CheckPayment(signAuth(t, payer, a, o), module.PaymentTerms{Quoted: quote, Bind: "bind-1",
 		Payer: payer.AID(), QuoteExpiresAt: now + 3600_000, Now: now}); chk.Reason != "" {
 		t.Errorf("an overpayment of MaxInt64 was refused: %+v", chk)
-	}
-}
-
-// A voucher is the hub's statement that it moved the amount it names, so
-// a voucher for more than any ledger can hold is a statement about a
-// movement that ran backwards — the provider would do the work and be the
-// one charged.
-func TestRedeemRefusesAVoucherForMoreThanALedgerCanHold(t *testing.T) {
-	for _, amount := range []uint64{1 << 63, math.MaxUint64, math.MaxUint64 - 999} {
-		h := newHost(t)
-		m := newModule(t, h)
-		w := withWork(t, h, 120)
-		v := mintVoucherAmount(t, h.hub, h.AID(), "work.do", "buyer-huge", "nonce-huge",
-			payment.CreditNetwork(h.hub.AID()), amount)
-		res, code := m.RedeemVoucher(context.Background(), redeemRequest{
-			Voucher: v, Capability: "work.do", Args: map[string]any{"n": 1}})
-		if code != 402 {
-			t.Errorf("voucher for %d: code = %d %v, want 402", amount, code, res)
-		}
-		if w.invoked != 0 {
-			t.Errorf("voucher for %d: the work ran %d times", amount, w.invoked)
-		}
 	}
 }
 
@@ -150,7 +128,7 @@ func TestAuditReportsAnAmountNoLedgerShouldHold(t *testing.T) {
 		{"missing", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			hub, err := identity.Incept()
+			hub, err := identitytest.Hub()
 			if err != nil {
 				t.Fatal(err)
 			}

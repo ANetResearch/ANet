@@ -122,18 +122,19 @@ func TestTheServiceModuleMountsThisBackend(t *testing.T) {
 	if !strings.Contains(eff.Evidence.ObservedState, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824") {
 		t.Errorf("answer: %s", eff.Evidence.ObservedState)
 	}
-	if l := logs.String(); !strings.Contains(l, "caller=aid-caller") || !strings.Contains(l, "call=ix-contract") || !strings.Contains(l, "via=relay") {
+	if l := logs.String(); !strings.Contains(l, "caller=aid-caller") || !strings.Contains(l, "call=ix-contract") {
 		t.Errorf("the backend did not receive the caller headers: %s", l)
 	}
 
-	// At the voucher door the payer is not presented as the caller.
+	// A call through no authenticated door does not present its CallerAID
+	// as the caller.
 	logs.Reset()
 	if _, err := p.Invoke(context.Background(), provider.Call{Capability: "demo.digest.paid", Args: map[string]any{"text": "hello"},
-		CallID: "voucher-1", CallerAID: "aid-payer", Via: provider.ViaVoucher}); err != nil {
+		CallID: "local-1", CallerAID: "aid-unchecked"}); err != nil {
 		t.Fatal(err)
 	}
-	if l := logs.String(); strings.Contains(l, "aid-payer") || !strings.Contains(l, "caller=- call=voucher-1 via=voucher") {
-		t.Errorf("voucher call log: %s", l)
+	if l := logs.String(); strings.Contains(l, "aid-unchecked") || !strings.Contains(l, "caller=- call=local-1") {
+		t.Errorf("unauthenticated call log: %s", l)
 	}
 
 	// A daemon holding another token gets nowhere.

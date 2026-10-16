@@ -27,7 +27,7 @@ func TestAStoreFailureOnTheP2PCopyThenRedeliveryThroughTheHubIsProcessedOnce(t *
 	env := onlyQueuedEnvelope(t, srv, prov.AID())
 
 	prov.setRxFault(func(string) error { return errors.New("injected store failure") })
-	err = prov.Inbound().Receive(ctx, env)
+	err = recvErr(prov.Inbound(), ctx, env)
 	prov.setRxFault(nil)
 	if err == nil {
 		t.Fatal("a delivery whose store write failed was acknowledged over p2p; the sender would not fall back")
@@ -56,7 +56,7 @@ func TestAStoreFailureOnTheP2PCopyThenRedeliveryThroughTheHubIsProcessedOnce(t *
 	// A late p2p copy of the same envelope.
 	dups := counter(prov, dropDuplicate)
 	msgs := countMsgs(t, prov, id)
-	if err := prov.Inbound().Receive(ctx, env); err != nil {
+	if err := recvErr(prov.Inbound(), ctx, env); err != nil {
 		t.Fatalf("a duplicate over p2p was not acknowledged: %v", err)
 	}
 	if n := len(lamp.invoked); n != 1 {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -120,8 +121,11 @@ func TestACanceledTaskGetsNoReceipt(t *testing.T) {
 	if n := chainEvents(t, prov, EvReceipt); n != 0 {
 		t.Fatalf("%d receipts on the provider chain for a canceled task", n)
 	}
-	if rows, _ := prov.ix.Outbox(id); len(rows) != 0 {
-		t.Fatalf("a result is queued for a canceled task: %+v", rows)
+	rows, _ := prov.ix.OutboxRows(id)
+	for _, r := range rows {
+		if r.Type == seal.TypeResult {
+			t.Fatalf("a result is queued for a canceled task: %+v", rows)
+		}
 	}
 	if n := len(queuedFor(t, srv, req.AID())); n != 0 {
 		t.Fatalf("%d messages reached the hub for the requester after the cancel", n)
@@ -300,7 +304,7 @@ func TestWatchDeliversEachStateChangeOnce(t *testing.T) {
 	if err := d.ix.Put("ix_w", interactions.RoleOutbound, "did:anet:p", "g", "", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ix.SetState("ix_w", interactions.StateWorking); err != nil {
+	if _, err := d.ix.SetState("ix_w", interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	snap, ch, cancel, err := d.Watch("ix_w")
@@ -308,7 +312,7 @@ func TestWatchDeliversEachStateChangeOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.publishState("ix_w") // the event of the write already in the snapshot
-	if _, err := d.ix.SetState("ix_w", interactions.StateInputRequired); err != nil {
+	if _, err := d.ix.SetState("ix_w", interactions.StateInputRequired, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	d.publishState("ix_w")
@@ -342,8 +346,8 @@ func TestWatchDeliversEachStateChangeOnce(t *testing.T) {
 }
 
 // After a terminal state only new input is refused (A2A-DESIGN §4.2): a
-// text message for a completed task is acknowledged and not stored, and a
-// wire-1 end_accept is dropped.
+// text message for a completed task is acknowledged and not stored, and an
+// end_accept (a retired kind) is dropped as a malformed body.
 func TestInputAfterTheEndIsRefused(t *testing.T) {
 	_, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -365,9 +369,9 @@ func TestInputAfterTheEndIsRefused(t *testing.T) {
 	if countMsgs(t, prov, id) != before || counter(prov, dropAfterTerminal) != 1 {
 		t.Fatalf("late input was stored (%d → %d) or not counted", before, countMsgs(t, prov, id))
 	}
-	accept, _ := (&delegation.ChatMsg{Kind: delegation.ChatEndAccept, MsgID: "msg_ea"}).Marshal()
-	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeMessage, id, accept)); !r.ack() || counter(prov, dropEndAccept) != 1 {
-		t.Fatalf("end_accept: %+v, counted %d", r, counter(prov, dropEndAccept))
+	accept, _ := (&delegation.ChatMsg{Kind: "end_accept", MsgID: "msg_ea"}).Marshal()
+	if r := receive(t, prov, sealFrom(t, req, prov, seal.TypeMessage, id, accept)); !r.ack() || r.reason != dropBadBody {
+		t.Fatalf("end_accept: %+v, want acknowledged as %s", r, dropBadBody)
 	}
 	if st := stateOf(t, prov, id); st != interactions.StateCompleted {
 		t.Fatalf("state changed to %s", st)
@@ -502,8 +506,9 @@ func mustJSON(t *testing.T, v any) []byte {
 }
 
 // The outbound retry queue survives a restart (A2A-DESIGN §4.2): a result
-// the hub refused to carry is kept with its envelope bytes and delivered by
-// the next process.
+// the hub refused to carry is kept with its version and delivered by the
+// next process, the same version (engine ENG-A2: its env_digest, which key
+// 7 does not change), and confirmed once the requester took it.
 func TestTheRetryQueueSurvivesARestart(t *testing.T) {
 	srv, req, prov := registeredPair(t)
 	ctx := context.Background()
@@ -515,18 +520,31 @@ func TestTheRetryQueueSurvivesARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := fakeHubAt(t, srv.URL)
+	var refusing atomic.Bool
+	refusing.Store(true) // every further send: 429
 	fake.mu.Lock()
-	fake.sendsBy[prov.AID()] = 1 // every further send by the provider: 429
-	fake.senderLimit = 1
+	fake.sendHook = func([]byte) fakeSendAnswer {
+		if refusing.Load() {
+			return fakeSendAnswer{kind: fakeSendRefuse, status: 429, code: "rate_limited", retryAfter: "1"}
+		}
+		return fakeSendAnswer{}
+	}
 	fake.mu.Unlock()
 	if err := prov.CompleteTask(ctx, id); err != nil {
 		t.Fatal(err)
 	}
-	rows, _ := prov.ix.Outbox(id)
-	if len(rows) != 1 || len(rows[0].Envelope) == 0 || rows[0].Attempts != 1 {
+	rows, _ := prov.ix.OutboxRows(id)
+	if len(rows) != 1 || rows[0].CurVer != 1 || rows[0].Attempts != 1 {
 		t.Fatalf("outbox after a refused send = %+v", rows)
 	}
-	sealed := append([]byte(nil), rows[0].Envelope...)
+	_, env, err := prov.ix.OutboxContent(rows[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := seal.EnvDigest(env)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if n := len(queuedFor(t, srv, req.AID())); n != 0 {
 		t.Fatalf("%d messages reached the hub while it refused sends", n)
 	}
@@ -534,9 +552,7 @@ func TestTheRetryQueueSurvivesARestart(t *testing.T) {
 	if err := prov.Close(); err != nil {
 		t.Fatal(err)
 	}
-	fake.mu.Lock()
-	fake.senderLimit = 0
-	fake.mu.Unlock()
+	refusing.Store(false)
 	prov2, err := New(layout)
 	if err != nil {
 		t.Fatal(err)
@@ -546,15 +562,12 @@ func TestTheRetryQueueSurvivesARestart(t *testing.T) {
 	waitUntil(t, "the queued result to be delivered by the restarted daemon", func() bool {
 		return len(queuedFor(t, srv, req.AID())) == 1
 	})
-	if got := queuedFor(t, srv, req.AID())[0]; string(got) != string(sealed) {
-		t.Fatal("the retry sent different envelope bytes than the first attempt")
+	if got, err := seal.EnvDigest(queuedFor(t, srv, req.AID())[0]); err != nil || got != sealed {
+		t.Fatal("the retry sent another version than the first attempt")
 	}
-	waitUntil(t, "the delivered row to leave the queue", func() bool {
-		rows, _ := prov2.ix.Outbox(id)
-		return len(rows) == 0
-	})
-	if err := req.pollOnce(ctx); err != nil {
-		t.Fatal(err)
+	settleDelivery(t, prov2, req)
+	if rows, _ := prov2.ix.OutboxRows(id); len(rows) != 0 {
+		t.Fatalf("the confirmed row is still queued: %+v", rows)
 	}
 	if st := stateOf(t, req, id); st != interactions.StateCompleted {
 		t.Fatalf("requester state = %s", st)
@@ -583,7 +596,7 @@ func TestAnInterruptedLongCallIsReportedAtStart(t *testing.T) {
 		TaskNonce: "bm9uY2U"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prov.ix.SetState(id, interactions.StateWorking); err != nil {
+	if _, err := prov.ix.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	if err := req.ix.Create(interactions.New{ID: id, Role: interactions.RoleOutbound, PeerAID: prov.AID(),

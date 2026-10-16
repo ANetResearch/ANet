@@ -62,8 +62,8 @@ type sessionRule struct {
 // sessionRoutes is the complete set of control routes a browser console session may call, keyed by the
 // registered ServeMux pattern (A2A-DESIGN §7.3). It matches what console.html actually calls, plus the
 // read-only routes the design lists. Everything else is bearer-only, including /pull, /autoreply*,
-// policy and peer writes, /hub-register, /hub-leave, /visibility, /p2p-advertise, /shutdown,
-// /x402-authorize, /redeem, /reconcile and /console/ticket.
+// policy and peer writes, /hub-register, /hub-leave, /visibility, /shutdown,
+// /redeem, /reconcile and /console/ticket.
 var sessionRoutes = map[string]sessionRule{
 	"GET /status":          {},
 	"POST /status":         {},
@@ -74,13 +74,20 @@ var sessionRoutes = map[string]sessionRule{
 	"POST /evidence":       {},
 	"POST /balance":        {},
 	"POST /identities":     {},
-	"POST /find":           {},
 	"GET /attachment":      {noCSRF: true},
 	"POST /delegate":       {jsonFields: []string{"provider", "goal"}, multipart: true},
 	"POST /message":        {jsonFields: []string{"interaction_id", "body"}, multipart: true},
 	"POST /end":            {jsonFields: []string{"interaction_id"}},
 	"POST /review":         {jsonFields: []string{"interaction_id", "rating", "comment"}},
 	"POST /console/switch": {jsonFields: []string{"aid"}},
+	// Read only (KEL P-4). /identity/rotate and /identity/deactivate are
+	// bearer-only, like /hub-register (KEL P-3).
+	"POST /identity/status": {},
+	// Read only: the console's agent list and agent detail go through this
+	// node, which names no agent to the hub; the page used to ask the hub
+	// for /agents/<aid> itself (sealed-sender SSR-D17, UX-W2).
+	"POST /agents/list": {jsonFields: []string{"limit", "cursor", "include_uncarded"}},
+	"POST /agents/card": {jsonFields: []string{"aid"}},
 }
 
 // publicRoutes are the only top-level routes reachable without the bearer token or a session. /console
@@ -126,15 +133,18 @@ type controlPlane struct {
 
 // secureControlPlane wraps the authenticated route table api with the console routes, the
 // authentication gate and the Host/Origin guard.
-func (d *Daemon) secureControlPlane(token string, api *routeMux) *controlPlane {
+func (d *Daemon) secureControlPlane(auth *ctlAuth, api *routeMux) *controlPlane {
 	cs := newConsoleSessions()
+	auth.mu.Lock()
+	auth.sessions = cs
+	auth.mu.Unlock()
 	api.HandleFunc("GET /attachment", d.attachmentHandler())
 	api.HandleFunc("POST /console/ticket", d.hConsoleTicket(cs))
 	api.HandleFunc("POST /console/switch", d.hConsoleSwitch)
 
 	top := newRouteMux()
 	top.HandleFunc("GET /console", d.consoleHandler())
-	top.HandleFunc("GET /ping", d.pingHandler(token))
+	top.HandleFunc("GET /ping", d.pingHandler(auth))
 	top.HandleFunc("POST /console/session", d.hConsoleSession(cs))
 	// A browser landing on the bare root (typed URL, bookmark) is sent to the console page, which tells
 	// the operator to run `anet console` when it has no ticket. ({$} matches ONLY "/", so the gate keeps
@@ -142,7 +152,7 @@ func (d *Daemon) secureControlPlane(token string, api *routeMux) *controlPlane {
 	top.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/console", http.StatusFound)
 	})
-	top.Handle("/", d.authGate(token, cs, api))
+	top.Handle("/", d.authGate(auth, cs, api))
 	return &controlPlane{Handler: d.hostGuard(top), top: top, api: api, sessions: cs}
 }
 
@@ -201,12 +211,13 @@ func sessionRefusal(w http.ResponseWriter, why string) {
 }
 
 // authGate authenticates a request by bearer token or console session and applies the session route
-// allowlist.
-func (d *Daemon) authGate(token string, cs *consoleSessions, api *routeMux) http.Handler {
-	want := []byte("Bearer " + token)
+// allowlist. The token is the one in force for this request (auth): one that rotateLocalTokens replaced
+// is refused from then on (LEC AV-10).
+func (d *Daemon) authGate(auth *ctlAuth, cs *consoleSessions, api *routeMux) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if auth := r.Header.Get("Authorization"); auth != "" {
-			if subtle.ConstantTimeCompare([]byte(auth), want) != 1 {
+		if bearer := r.Header.Get("Authorization"); bearer != "" {
+			want := []byte("Bearer " + auth.bearer())
+			if subtle.ConstantTimeCompare([]byte(bearer), want) != 1 {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}

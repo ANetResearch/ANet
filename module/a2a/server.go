@@ -12,6 +12,9 @@ package a2a
 //	POST /a2a/v1/agents/{aid}/jsonrpc/                    the same
 //	     /a2a/v1/agents/{aid}/rest/...                    A2A HTTP+JSON binding
 //
+// GetExtendedAgentCard, on either binding, is answered before the binding
+// (extcard.go).
+//
 // The bare /a2a/v1/agents/{aid} serves the card too because that is the URL
 // clients are configured with (Hermes' a2a_agents), and a2a-go's card
 // resolver fetches a base URL with a path as it is, without appending the
@@ -37,10 +40,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -60,6 +65,10 @@ const agentsPath = "/a2a/v1/agents"
 
 type serverConfig struct {
 	token string
+	// tokenFile, when set, is where the token is kept (a2a_token.txt): the interface accepts the token
+	// the file holds now, so a token the daemon replaced (rotateLocalTokens, LEC AV-10) is refused from
+	// the next request on. token is then only the value the file held at start.
+	tokenFile string
 	// host and port are the listener's own address, which the URLs in the
 	// cards and the agent list name: an address bound on [::1] is not
 	// reached at 127.0.0.1. An empty host is 127.0.0.1.
@@ -78,10 +87,11 @@ func listenerURLHost(host, port string) string {
 }
 
 type server struct {
-	cfg   serverConfig
-	seam  module.TaskSeam
-	cards *cardCache
-	mux   *http.ServeMux
+	cfg    serverConfig
+	tokens *tokenSource
+	seam   module.TaskSeam
+	cards  *cardCache
+	mux    *http.ServeMux
 	// h is the handler behind both bindings, which precheckStream asks
 	// before a stream opens.
 	h *handler
@@ -89,8 +99,11 @@ type server struct {
 
 func newServer(seam module.TaskSeam, cfg serverConfig) *server {
 	s := &server{cfg: cfg, seam: seam}
+	if cfg.tokenFile != "" {
+		s.tokens = &tokenSource{path: cfg.tokenFile}
+	}
 	s.cards = newCardCache(seam, cardBuilder{host: cfg.host, port: cfg.port}, cfg.signer)
-	h := &handler{seam: seam}
+	h := &handler{seam: seam, extended: s.extendedAgentCard}
 	s.h = h
 	opts := []a2asrv.TransportOption{
 		a2asrv.WithTransportKeepAlive(15 * time.Second),
@@ -159,15 +172,49 @@ func (s *server) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
-// authorized compares the bearer with the token in constant time.
+// authorized compares the bearer with the token in force, in constant time.
 func (s *server) authorized(r *http.Request) bool {
+	token := s.cfg.token
+	if s.tokens != nil {
+		token = s.tokens.current()
+	}
 	h := r.Header.Get("Authorization")
 	scheme, cred, ok := strings.Cut(h, " ")
-	if !ok || !strings.EqualFold(scheme, "Bearer") || s.cfg.token == "" {
+	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
 		return false
 	}
 	cred = strings.TrimSpace(cred)
-	return subtle.ConstantTimeCompare([]byte(cred), []byte(s.cfg.token)) == 1
+	return subtle.ConstantTimeCompare([]byte(cred), []byte(token)) == 1
+}
+
+// tokenSource is the token the token file holds now. It is read again whenever the file is not the one
+// last read (another inode, size or modification time): the daemon replaces it by renaming a new file
+// over it. A file that is gone or does not hold a token accepts nothing until it does.
+type tokenSource struct {
+	path string
+	mu   sync.Mutex
+	fi   os.FileInfo
+	tok  string
+}
+
+func (ts *tokenSource) current() string {
+	fi, err := os.Lstat(ts.path)
+	if err != nil || !fi.Mode().IsRegular() {
+		return ""
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.fi != nil && os.SameFile(ts.fi, fi) && fi.Size() == ts.fi.Size() && fi.ModTime().Equal(ts.fi.ModTime()) {
+		return ts.tok
+	}
+	b, err := readSmallFile(ts.path)
+	tok := strings.TrimSpace(b)
+	if err != nil || len(tok) < 32 || strings.ContainsAny(tok, " \t\r\n\"'\\") {
+		ts.fi, ts.tok = nil, ""
+		return ""
+	}
+	ts.fi, ts.tok = fi, tok
+	return tok
 }
 
 // aidRe is the form of an AID in a path: the character set of the base32
@@ -247,6 +294,17 @@ func (s *server) binding(next http.Handler, jsonrpc bool) http.Handler {
 			}
 		}
 		r = r.WithContext(withInfo(r.Context(), info))
+		// GetExtendedAgentCard is answered here, its refusals in the form
+		// of core G1 (extcard.go). A version the interface does not speak
+		// is the binding's to refuse.
+		if info.versionErr == nil && s.precheckExtendedCard(w, r, aid, jsonrpc) {
+			return
+		}
+		// A send while this node is not registered at its hub is refused
+		// with the join state's sentence, nothing created (sendgate.go).
+		if s.precheckSendGate(w, r, aid, jsonrpc) {
+			return
+		}
 		// A streaming call that cannot start is answered with an ordinary
 		// error, not a stream holding one (precheck.go, an internal note item).
 		r, answered := s.precheckStream(w, r, aid, jsonrpc)
@@ -507,13 +565,17 @@ func (s *server) listAgents(w http.ResponseWriter, r *http.Request) {
 		}
 		base := s.baseURL(a.AID)
 		e := agentEntry{AID: a.AID, URL: base, CardURL: base + "/.well-known/agent-card.json",
-			Verification: a.Verification, VerificationError: a.VerificationError, Official: a.Official}
+			Verification: a.Verification, VerificationError: a.VerificationError, Official: a.Official,
+			KeyState: originKeyState(a)}
 		if a.Verification == verified {
 			// Only a verified agent is described: of any other, what a
 			// hub says is not shown beside the official mark (an internal note item),
 			// and its proxy card is the one made from the AID.
 			e.Name, e.HubVerification, e.HomeHub, e.LastSeen = a.Name, a.HubVerification, a.HomeHub, a.LastSeen
 			e.Quiet, e.ReviewCount, e.AvgRating = a.Quiet, a.ReviewCount, a.AvgRating
+			// The public card's charge (HPP PAY-C15): a list never asks
+			// for an extended card.
+			e.Charge = a.Charge
 		}
 		out.Agents = append(out.Agents, e)
 	}
@@ -548,6 +610,14 @@ type agentEntry struct {
 	// Official: the agent's AID is on this node's official manifest
 	// (module.RemoteAgent.Official).
 	Official bool `json:"anet.official,omitempty"`
+	// KeyState is fresh when the agent's hub confirmed its current key,
+	// stale otherwise (module.RemoteAgent.KeyState, KEL D-28). A stale one
+	// does not stop a send.
+	KeyState string `json:"keyState"`
+	// Charge is free, partial or paid as the agent's public card declares
+	// a2a-x402 (module.RemoteAgent.Charge, HPP PAY-C15); only of a verified
+	// agent, as anet find and MCP list_agents show it.
+	Charge string `json:"charge,omitempty"`
 }
 
 func (s *server) baseURL(aid string) string {
@@ -580,17 +650,20 @@ const cardMaxAge = 300
 // a2a-tck CARD-CACHE-001/002). Every other response of this interface is
 // no-store (ServeHTTP).
 func writeCacheable(w http.ResponseWriter, r *http.Request, body []byte) {
-	sum := sha256.Sum256(body)
-	etag := `"` + base64.RawURLEncoding.EncodeToString(sum[:18]) + `"`
+	etag := setCacheHeaders(w, body)
 	h := w.Header()
-	h.Set("Cache-Control", "private, max-age="+strconv.Itoa(cardMaxAge))
-	h.Set("ETag", etag)
 	if etagMatch(r.Header.Get("If-None-Match"), etag) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	h.Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
+}
+
+// cardETag is the ETag of a card's bytes.
+func cardETag(body []byte) string {
+	sum := sha256.Sum256(body)
+	return `"` + base64.RawURLEncoding.EncodeToString(sum[:18]) + `"`
 }
 
 // etagMatch reports whether an If-None-Match value names etag: "*", or the

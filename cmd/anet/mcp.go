@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -37,16 +38,10 @@ import (
 // whichever daemon started last (A2A-DESIGN §7.8). An MCP client configured for one identity must not
 // end up driving another.
 func runMCP(layout daemon.Layout, explicit bool) error {
-	resolve := daemon.ResolveControl
-	if explicit {
-		resolve = daemon.ResolveControlStrict
-	}
-	base, token, err := resolve(layout)
+	c, err := newControlClient(layout, explicit)
 	if err != nil {
-		return diagnoseNoDaemon("http://"+daemon.LocalControlAddr(layout), layout.Root, err)
+		return err
 	}
-	c := &controlClient{c: &client{base: base, token: token,
-		timeout: 15 * time.Minute, dataDir: layout.Root}}
 
 	// A quick liveness check, for the reason above.
 	if err := c.Call(context.Background(), "/status", map[string]any{}, new(json.RawMessage)); err != nil {
@@ -66,7 +61,79 @@ func runMCP(layout daemon.Layout, explicit bool) error {
 
 // controlClient adapts the CLI's control-plane client to the narrow face
 // the tool surface is allowed to reach.
-type controlClient struct{ c *client }
+//
+// It outlives the control token it started with. `anet mcp` runs as long as
+// the coding agent's session, and the daemon replaces its token on a
+// restart and when it rotates its local credentials (rotateLocalTokens,
+// after an emergency rotation, LEC AV-10): from then on the old token is
+// answered 401, and a session that kept it would fail every tool call until
+// it was restarted. On a 401 the client finds the daemon again the way
+// `anet mcp` did at start — the token file of the same identity — and, when
+// that gives another token for the same address, sends the call once more
+// with it. A 401 is answered before a route does anything, so the second
+// attempt is the first one the daemon acts on.
+//
+// The address does not change mid-session. A 401 comes from a daemon of
+// this user's at the address the session has used (the listener is checked
+// before the token is sent), so the daemon that rotated is at that address;
+// a lookup that names another one has found another daemon — without an
+// explicit identity, ResolveControl falls back to whichever daemon started
+// last — and following it would have the agent's tool calls, its tasks and
+// payments among them, act as another identity from one call to the next.
+type controlClient struct {
+	mu sync.Mutex
+	c  *client
+	// resolve finds the daemon again: base and token, as at start; nil
+	// keeps the token it has.
+	resolve func() (base, token string, err error)
+}
+
+// newControlClient is the control client of `anet mcp` for layout: with an
+// explicitly selected identity it resolves strictly, only that identity's
+// own daemon (A2A-DESIGN §7.8), the first time and after a 401.
+func newControlClient(layout daemon.Layout, explicit bool) (*controlClient, error) {
+	resolve := daemon.ResolveControl
+	if explicit {
+		resolve = daemon.ResolveControlStrict
+	}
+	base, token, err := resolve(layout)
+	if err != nil {
+		return nil, diagnoseNoDaemon("http://"+daemon.LocalControlAddr(layout), layout.Root, err)
+	}
+	return &controlClient{
+		c:       &client{base: base, token: token, timeout: 15 * time.Minute, dataDir: layout.Root},
+		resolve: func() (string, string, error) { return resolve(layout) },
+	}, nil
+}
+
+// current is the client to send with now.
+func (cc *controlClient) current() client {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	return *cc.c
+}
+
+// refreshed finds the daemon again after a 401 that used was answered
+// with: the client to send with, and whether it differs from used (another
+// token at the same address; see controlClient). Concurrent calls that were
+// all refused share one lookup's result.
+func (cc *controlClient) refreshed(used client) (client, bool) {
+	if cc.resolve == nil {
+		return used, false
+	}
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	if cc.c.token != used.token {
+		// Another call found the new token already.
+		return *cc.c, true
+	}
+	base, token, err := cc.resolve()
+	if err != nil || base != used.base || token == used.token {
+		return used, false
+	}
+	cc.c.token = token
+	return *cc.c, true
+}
 
 func (cc *controlClient) Call(ctx context.Context, path string, body, out any) error {
 	raw, code, err := cc.fetch(ctx, path, body)
@@ -102,6 +169,8 @@ func (cc *controlClient) Call(ctx context.Context, path string, body, out any) e
 // fetch is client.fetch bound to the tool call's context: a client that
 // cancels a call (or goes away) ends the request, rather than leaving a
 // wait_task blocked in the daemon until its own bound.
+//
+// A 401 is retried once with the token found again (see controlClient).
 func (cc *controlClient) fetch(ctx context.Context, path string, body any) ([]byte, int, error) {
 	var buf bytes.Buffer
 	if body != nil {
@@ -109,12 +178,24 @@ func (cc *controlClient) fetch(ctx context.Context, path string, body any) ([]by
 			return nil, 0, err
 		}
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cc.c.base+path, &buf)
+	used := cc.current()
+	out, code, err := post(ctx, used, path, buf.Bytes())
+	if err == nil && code == http.StatusUnauthorized {
+		if fresh, ok := cc.refreshed(used); ok {
+			return post(ctx, fresh, path, buf.Bytes())
+		}
+	}
+	return out, code, err
+}
+
+// post sends one control call with c's address and token.
+func post(ctx context.Context, c client, path string, body []byte) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+cc.c.token)
-	resp, err := cc.c.http().Do(req) // verified to be this user's daemon first (client.http)
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	resp, err := c.http().Do(req) // verified to be this user's daemon first (client.http)
 	if err != nil {
 		return nil, 0, err
 	}

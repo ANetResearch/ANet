@@ -13,10 +13,9 @@ import (
 	"testing"
 	"time"
 
+	evidence "github.com/ANetResearch/ANet/internal/evidencev1" // v030-todo(PAY-14): evidence v2
 	"github.com/ANetResearch/ANetCore/delegation"
 	"github.com/ANetResearch/ANetCore/effect"
-	"github.com/ANetResearch/ANetCore/evidence"
-	"github.com/ANetResearch/ANetCore/identity"
 	"github.com/ANetResearch/ANetCore/seal"
 	"github.com/ANetResearch/ANetCore/tsir"
 
@@ -81,10 +80,10 @@ func TestCapabilityDelegationRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", []string{"devices"}, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", []string{"devices"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -135,10 +134,10 @@ func TestCapabilityUnresolvableIsAnsweredWithAutoReplyConfigured(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Plain Bot", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Plain Bot", nil); err != nil {
 		t.Fatal(err)
 	}
 	prov.mu.Lock()
@@ -181,10 +180,10 @@ func TestBothSidesRecordEvidence(t *testing.T) {
 
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Requester", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Requester", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "Provider", []string{"haiku"}, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "Provider", []string{"haiku"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -273,10 +272,10 @@ func TestEvidenceProvenanceReachesTheChain(t *testing.T) {
 	if err := prov.Providers().Register(ctx, quirkyProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.DelegateCapability(ctx, prov.AID(),
@@ -330,10 +329,10 @@ func TestAReadReturnsWhatItRead(t *testing.T) {
 	if err := prov.Providers().Register(ctx, quirkyProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.DelegateCapability(ctx, prov.AID(),
@@ -439,10 +438,10 @@ func TestCapabilityCallIsReachableThroughTheControlAPI(t *testing.T) {
 	if err := prov.Providers().Register(ctx, lamp); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -522,10 +521,10 @@ func TestAnAcceptedResultWasActuallyVerified(t *testing.T) {
 	if err := prov.Providers().Register(ctx, &lampProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
@@ -558,10 +557,10 @@ func TestAResultForDifferentContentIsRefused(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1", nil)
@@ -581,13 +580,9 @@ func TestAResultForDifferentContentIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kel, err := identity.MarshalKEL(prov.self.KEL())
-	if err != nil {
-		t.Fatal(err)
-	}
 	payload, err := (&delegation.ResultResp{
 		Status: delegation.StatusDone, Deliverable: []byte(`{"status":"OK"}`),
-		Receipt: receipt, KEL: kel,
+		Receipt: receipt,
 	}).Marshal()
 	if err != nil {
 		t.Fatal(err)
@@ -634,10 +629,10 @@ func TestARedeliveredDelegationIsNotExecutedTwice(t *testing.T) {
 	if err := prov.Providers().Register(ctx, lamp); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
@@ -726,10 +721,10 @@ func TestARedeliveredResultIsRecordedOnce(t *testing.T) {
 	if err := prov.Providers().Register(ctx, &lampProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "Alice", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "LinkBox", nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := req.DelegateCapability(ctx, prov.AID(), "light.onoff@sim/lamp-1",
@@ -778,7 +773,7 @@ func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
 	}
 	advertised := func() []string {
 		t.Helper()
-		agents, err := d.Find(ctx, "")
+		agents, err := hubDirectory(ctx, d)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -799,7 +794,7 @@ func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
 	}
 
 	// Served, not public: nothing is published.
-	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}, ""); err != nil {
+	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}); err != nil {
 		t.Fatal(err)
 	}
 	if caps := advertised(); has(caps, "light.onoff@sim/lamp-1") || has(caps, "devices") {
@@ -809,7 +804,7 @@ func TestRegistrationAdvertisesWhatIsActuallyServed(t *testing.T) {
 	// Public: the id this node will actually answer is published; the
 	// operator's label, not a public capability, still is not.
 	setPublic(d, "light.onoff@sim/lamp-1")
-	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}, ""); err != nil {
+	if err := d.HubRegister(ctx, srv.URL, "LinkBox", []string{"devices"}); err != nil {
 		t.Fatal(err)
 	}
 	caps := advertised()
@@ -833,10 +828,10 @@ func TestARedeliveredChatMessageIsStoredOnce(t *testing.T) {
 	ctx := context.Background()
 	req := newTestDaemon(t, srv.URL, false)
 	prov := newTestDaemon(t, srv.URL, true)
-	if err := req.RegisterWithHub(ctx, srv.URL, "A", nil, ""); err != nil {
+	if err := req.RegisterWithHub(ctx, srv.URL, "A", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := prov.RegisterWithHub(ctx, srv.URL, "B", nil, ""); err != nil {
+	if err := prov.RegisterWithHub(ctx, srv.URL, "B", nil); err != nil {
 		t.Fatal(err)
 	}
 	id, err := req.Delegate(ctx, prov.AID(), "do a thing", nil)
@@ -916,7 +911,7 @@ func TestTheRefreshLogNamesOnlyWhatWasPublished(t *testing.T) {
 	if err := d.Providers().Register(ctx, &lampProvider{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := d.RegisterWithHub(ctx, srv.URL, "LinkBox", nil, ""); err != nil {
+	if err := d.RegisterWithHub(ctx, srv.URL, "LinkBox", nil); err != nil {
 		t.Fatal(err)
 	}
 	w := &syncBuffer{}

@@ -14,13 +14,14 @@ import (
 
 	"github.com/ANetResearch/ANetCore/a2acard"
 	"github.com/ANetResearch/ANetCore/identity"
+	"github.com/ANetResearch/ANetCore/identity/identitytest"
 
 	"github.com/ANetResearch/ANet/module"
 )
 
 func controller(t *testing.T) *identity.Controller {
 	t.Helper()
-	c, err := identity.Incept()
+	c, err := identitytest.Hub()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +43,7 @@ func signedCard(t *testing.T, c *identity.Controller) ([]byte, a2a.AgentCardSign
 	card := []byte(`{"name":"n","description":"d","version":"1","supportedInterfaces":[{"url":"http://127.0.0.1:1/x","protocolBinding":"JSONRPC","protocolVersion":"1.0"}],` +
 		`"capabilities":{"streaming":true,"pushNotifications":false},"defaultInputModes":["text/plain"],"defaultOutputModes":["text/plain"],` +
 		`"skills":[{"id":"chat","name":"chat","description":"d","tags":["chat"]}]}`)
-	signed, err := a2acard.SignWithController(card, c, "https://hub.example/agents/x/jwks.json")
+	signed, err := a2acard.SignWithSnapshot(card, c, "https://hub.example/agents/x/jwks.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestVerifiesWithTheKELNotTheJKU(t *testing.T) {
 		t.Fatalf("verify: %v", err)
 	}
 	key, err := kels(map[string][]identity.SignedEvent{c.AID(): c.KEL()}).ResolveKey(context.Background(), a2acard.KID(c.AID(), c.CurrentSeq()), "https://evil.example/jwks.json")
-	if err != nil || !key.(ed25519.PublicKey).Equal(c.CurrentPrivateKey().Public()) {
+	if err != nil || !key.(ed25519.PublicKey).Equal(ed25519.PublicKey(c.KEL()[len(c.KEL())-1].Event.Keys[0])) {
 		t.Fatalf("resolved %v %v", key, err)
 	}
 }
@@ -84,7 +85,7 @@ func TestRefusals(t *testing.T) {
 		t.Fatal("verified with another AID's key history")
 	}
 	// A rotated key is not current.
-	if err := c.Rotate(1); err != nil {
+	if err := identitytest.Rotate(c, 2); err != nil {
 		t.Fatal(err)
 	}
 	v = a2acrypto.NewVerifier(a2acrypto.VerifierConfig{KeyResolver: kels(map[string][]identity.SignedEvent{c.AID(): c.KEL()})})

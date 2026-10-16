@@ -54,7 +54,7 @@ func TestAPaidShortCallLeftWorkingRunsAgainAtStart(t *testing.T) {
 	prov.stopRelayLoop()
 	const id = "ix_paid_cut_off"
 	leftOpen(t, req, prov, id, "work.do")
-	if _, err := prov.ix.SetState(id, interactions.StateWorking); err != nil {
+	if _, err := prov.ix.SetState(id, interactions.StateWorking, interactions.CauseNotTerminal); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := prov.ix.SetPayment(id, interactions.PayUpdate{State: interactions.PayState(interactions.PayCompleted),

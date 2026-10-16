@@ -1,6 +1,15 @@
 # supp.py: A2A-DESIGN §17 supplementary rows — mutation list for scripts/mutations/unitmut.py (see its header for the format).
 # Written for an internal note (each row at least one mutation); a mutation that no longer applies reports APPLY-ERR: fix its
 # edit to the moved code rather than dropping it.
+#
+# Retired with the code they guarded (engine §7, ENG-L2; ENG-1c, 2026-10-10):
+#   c19-1, c19-2 — the unknown-interaction wait window (C19: ten minutes before TaskNotFound) is gone; a message for an
+#   interaction this node does not hold is refused at once with task_not_found (engine ENG-V10). Covered by ENG-M32
+#   (engine.py) and fixwave.py's retirement note for fx25.
+#   c33-2 — "re-queue an answer that is still queued": the fallback it edited (queue the answer again when it is no
+#   longer queued) is gone (engine ENG-V18: an answer no longer queued was confirmed or given up, and is never sealed
+#   again). Its successor is ENG-M21 (engine.py, TestET16_AnAnsweredDelegationRedeliveredIsAnsweredOnce); c33-3 keeps
+#   "hurry and also queue another".
 
 MUTS = [
  dict(
@@ -61,16 +70,16 @@ MUTS = [
   id='c1-3', group='C1', repo='ANet',
   desc='redeliveredDelegate: 短调用不重跑(破坏至少一次)',
   edits=[
-   ('internal/daemon/delegation.go', '\treturn d.runCapabilityCall(m.ix, capID, args, m.dr.Payment, nil)\n}', '\t_ = args\n\treturn true\n}'),
+   ('internal/daemon/delegation.go', '\treturn d.runCapabilityCall(m.ix, capID, args, nil)', '\t_ = args\n\treturn true'),
   ],
   tests=[('ANet:./internal/daemon', 'TestAStopDoesNotAnswerAShortCallItCutOff|TestAStopBeforeAnUnservedCallIsAnsweredLeavesItUnacknowledged|TestAStoreFailureThenRedeliveryIsProcessedOnce')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
   id='c12-1', group='C12', repo='ANet',
-  desc='recordSenderIdentity: public_cap 请求方写入 peer_identity',
+  desc='recordSenderTx: public_cap 请求方写入 peer_identity',
   edits=[
-   ('internal/daemon/receive.go', '\t\tcase ix.Trust == interactions.TrustApproved:\n\t\t\tauthorized = true', '\t\tcase ix.Trust == interactions.TrustApproved, ix.Trust == interactions.TrustPublicCap:\n\t\t\tauthorized = true'),
+   ('internal/daemon/receive.go', '\tcase ix.Trust == interactions.TrustApproved:\n\t\tauthorized = true', '\tcase ix.Trust == interactions.TrustApproved, ix.Trust == interactions.TrustPublicCap:\n\t\tauthorized = true'),
   ],
   tests=[('ANet:./internal/daemon', 'TestATruncatedKELIsRefusedAfterTableChurnAndRestart')],
   full=['ANet:./internal/daemon'],
@@ -122,24 +131,6 @@ MUTS = [
   full=['ANet:./internal/daemon'],
  ),
  dict(
-  id='c19-1', group='C19', repo='ANet',
-  desc='未知 ix 的 message 不等待,立即 TaskNotFound',
-  edits=[
-   ('internal/daemon/receive.go', '\t\tif int64(now)-int64(m.ts) <= unknownIXWait.Milliseconds() {', '\t\tif false && int64(now)-int64(m.ts) <= unknownIXWait.Milliseconds() {'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestAMessageForAnUnknownTaskGetsTaskNotFound|TestHeldBackEnvelopesDoNotBlockNewerMail|TestAHeldEnvelopeIsRetriedAtOnePollPerRound')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
-  id='c19-2', group='C19', repo='ANet',
-  desc='未知 ix 等待窗口常量 10 分钟 → 100 分钟',
-  edits=[
-   ('internal/daemon/receive.go', 'const unknownIXWait = 10 * time.Minute', 'const unknownIXWait = 100 * time.Minute'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestAMessageForAnUnknownTaskGetsTaskNotFound|TestHeldBackEnvelopesDoNotBlockNewerMail|TestAHeldEnvelopeIsRetriedAtOnePollPerRound|TestADeniedPeerWritingToAnUnknownTaskIsAnsweredLikeAStranger|TestTheUnknownTaskWindowIsTenMinutes')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
   id='c6-1', group='C6/C29', repo='ANet',
   desc='public_cap 交互上的 payment-submitted 文本消息被当作文本拒收',
   edits=[
@@ -176,15 +167,10 @@ MUTS = [
   tests=[('ANet:./internal/daemon', 'TestExecAutoReplyOnBothSidesStaysOutOfAPaidCall|TestAutoReplyCapProposesEnd|TestAPublicCapabilityCallTakesNoText')],
   full=['ANet:./internal/daemon'],
  ),
- dict(
-  id='c8-1', group='C8/C9', repo='ANet',
-  desc='validatePolicy: open 与 exec untrusted=sandbox 不再冲突',
-  edits=[
-   ('internal/daemon/inbound.go', '\tif ar := c.AutoReply; ar != nil && ar.Backend == "exec" && ar.UntrustedMode() != UntrustedOff {', '\tif ar := c.AutoReply; false && ar != nil && ar.Backend == "exec" && ar.UntrustedMode() != UntrustedOff {'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestOpenAndExecForUntrustedPeersConflict')],
-  full=['ANet:./internal/daemon'],
- ),
+ # c8-1 (open together with exec for untrusted peers no longer refused) is retired with that rule: v0.3.0
+ # allows the combination (LEC GT-5; the sandbox has no network, no key and a daily budget).
+ # TestOpenWithTheSandboxForUntrustedPeers holds it saved and started, and exec.py m-gt-5 puts the old
+ # conflict back and is killed by it; the A2A backend half of the rule stays covered by c9-*.
  dict(
   id='c9-1', group='C8/C9', repo='ANet',
   desc='backendTakes: 未声明 untrusted 的后端也接 allow 但不在 trust 的对端',
@@ -198,7 +184,7 @@ MUTS = [
   id='c9-2', group='C8/C9', repo='ANet',
   desc='exec 自动回复: untrusted=off 时仍为非信任对端运行',
   edits=[
-   ('internal/daemon/autoreply.go', '\t\tif !gate.trusted && cfg.UntrustedMode() == UntrustedOff {\n\t\t\treturn nil', '\t\tif false && !gate.trusted && cfg.UntrustedMode() == UntrustedOff {\n\t\t\treturn nil'),
+   ('internal/daemon/autoreply.go', '\tcase trusted:\n\t\tg.mode = modeDirect\n\tcase cfg.UntrustedMode() == UntrustedSandbox:', '\tcase trusted || cfg.UntrustedMode() == UntrustedOff:\n\t\tg.mode = modeDirect\n\tcase cfg.UntrustedMode() == UntrustedSandbox:'),
   ],
   tests=[('ANet:./internal/daemon', 'TestExecRunsOnlyForTrustedPeers|TestInboundTasksReachTheBackendOnlyFromTrustedPeers')],
   full=['ANet:./internal/daemon'],
@@ -250,30 +236,21 @@ MUTS = [
  ),
  dict(
   id='c33-1', group='C33', repo='ANet',
-  desc='重投的 delegate 不重发已签回执的结果',
+  desc='重投的已答复委派不催现存答复队列',
   edits=[
-   ('internal/daemon/delegation.go', '\t\tlog.Printf("anet: %s redelivered; re-sending the answer we already signed", m.ix)\n\t\td.resendResult(m, prior)\n', '\t\tlog.Printf("anet: %s redelivered; re-sending the answer we already signed", m.ix)\n'),
+   ('internal/daemon/delegation.go', '\t\tlog.Printf("anet: %s redelivered; hurrying the answer we already signed", m.ix)\n\t\td.resendResult(prior)\n', '\t\tlog.Printf("anet: %s redelivered; hurrying the answer we already signed", m.ix)\n'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestARedeliveredDelegateResendsTheAnswer|TestAQueuedAnswerIsNotQueuedAgainForARedelivery|TestAnEndedPublicCallAnswersARedeliveredDelegateOnce|TestARedeliveredPaidCallResendsItsReceipts')],
-  full=['ANet:./internal/daemon'],
- ),
- dict(
-  id='c33-2', group='C33', repo='ANet',
-  desc='resendResult: 队列里已有结果时仍再封装一份(重发两次)',
-  edits=[
-   ('internal/daemon/delegation.go', '\t\t\tfor _, r := range queue {\n\t\t\t\td.hurryQueued(r, keys)\n\t\t\t}\n\t\t\treturn\n', '\t\t\tfor _, r := range queue {\n\t\t\t\td.hurryQueued(r, keys)\n\t\t\t}\n'),
-  ],
-  tests=[('ANet:./internal/daemon', 'TestAQueuedAnswerIsNotQueuedAgainForARedelivery|TestARedeliveredDelegateResendsTheAnswer')],
+  tests=[('ANet:./internal/daemon', 'TestARedeliveredDelegateResendsTheAnswer|TestARedeliveredDelegationHurriesTheWholeAnswerQueue|TestARedeliveredPaidCallResendsItsReceipts')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
   id='c33-3', group='C33', repo='ANet',
   desc='重投时结果已在队列: 既催队列又另排一份(且 outbox 不去重)',
   edits=[
-   ('internal/daemon/delegation.go', '\t\t\tfor _, r := range queue {\n\t\t\t\td.hurryQueued(r, keys)\n\t\t\t}\n\t\t\treturn\n', '\t\t\tfor _, r := range queue {\n\t\t\t\td.hurryQueued(r, keys)\n\t\t\t}\n'),
-   ('internal/runtime/interactions/outbox.go', '\tif len(it.Digest) > 0 {\n\t\tvar prior int64', '\tif false && len(it.Digest) > 0 {\n\t\tvar prior int64'),
+   ('internal/daemon/delegation.go', 'func (d *Daemon) resendResult(ix *interactions.Interaction) {\n\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n}', 'func (d *Daemon) resendResult(ix *interactions.Interaction) {\n\td.hurryAnswerQueue(ix.ID, ix.PeerAID)\n\tif payload, err := (&delegation.ResultResp{Status: delegation.StatusDone, Deliverable: ix.Result, Receipt: ix.Receipt}).Marshal(); err == nil {\n\t\tqctx, cancel := context.WithTimeout(d.ctx, hubCallTimeout)\n\t\tif id, err := d.queueSendAs(qctx, wireSend{to: ix.PeerAID, typ: seal.TypeResult, ix: ix.ID, body: payload}, nil); err == nil {\n\t\t\t_ = d.deliverQueued(qctx, id)\n\t\t}\n\t\tcancel()\n\t}\n}'),
+   ('internal/runtime/interactions/outbox.go', 'AND typ=? AND kind=? AND digest=? ORDER BY id LIMIT 1`', 'AND typ=? AND kind=? AND digest=? AND 0 ORDER BY id LIMIT 1`'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAQueuedAnswerIsNotQueuedAgainForARedelivery|TestARedeliveredDelegateResendsTheAnswer')],
+  tests=[('ANet:./internal/daemon', 'TestAQueuedAnswerIsNotQueuedAgainForARedelivery|TestET16_AnAnsweredDelegationRedeliveredIsAnsweredOnce')],
   full=[],
  ),
  dict(
@@ -316,7 +293,7 @@ MUTS = [
   id='c35-3', group='C35', repo='ANet',
   desc='阻塞式追问不等 provider 的新回复(after 置 0)',
   edits=[
-   ('internal/daemon/taskseam.go', '\trelease()\n\treturn d.finishSend(ctx, sc, ix.ID, after, req, wait)\n}', '\trelease()\n\t_ = after\n\treturn d.finishSend(ctx, sc, ix.ID, 0, req, wait)\n}'),
+   ('internal/daemon/taskseam.go', '\trelease()\n\treturn d.finishSend(ctx, sc, ix.ID, after, req, wait, mark)\n}', '\trelease()\n\t_ = after\n\treturn d.finishSend(ctx, sc, ix.ID, 0, req, wait, mark)\n}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestABlockingFollowUpWaitsForTheNextReply|TestAFollowUpWaitsForANewerStateEvent')],
   full=['ANet:./internal/daemon'],
@@ -342,9 +319,9 @@ MUTS = [
  ),
  dict(
   id='c27-1', group='C27', repo='ANet',
-  desc='agentTier: auto 档不计入 agent_daily_max',
+  desc='countsAgentDaily: agent 档也不计入 agent_daily_max(HPP PAY-D6 之后自动档本来就不计入,PAY-12 改锚)',
   edits=[
-   ('internal/daemon/spend.go', '\treturn purpose == module.PurposeTaskAuto || purpose == module.PurposeTaskAgent', '\treturn purpose == module.PurposeTaskAgent'),
+   ('internal/daemon/spend.go', '\treturn purpose == module.PurposeTaskAgent\n}', '\treturn false\n}'),
   ],
   tests=[('ANet:./internal/daemon', 'TestTheSpendingPolicyTiers|TestATaskIsPaidAutomaticallyAtMostOnce'), ('ANet:./module/x402', 'TestARefusedSpendSignsAndRecordsNothing')],
   full=['ANet:./internal/daemon'],
@@ -353,7 +330,7 @@ MUTS = [
   id='c27-2', group='C27', repo='ANet',
   desc='AdmitSpend: 检查与记录不在一把锁下',
   edits=[
-   ('internal/daemon/spend.go', '\tb := &d.spend\n\tb.mu.Lock()\n\tdefer b.mu.Unlock()\n\td.loadSpendLocked()\n\tnow := time.Now().UnixMilli()', '\tb := &d.spend\n\td.loadSpendLocked()\n\tnow := time.Now().UnixMilli()'),
+   ('internal/daemon/spend.go', '\tb := &d.spend\n\tb.mu.Lock()\n\tdefer b.mu.Unlock()\n\td.loadSpendLocked()\n\tnow := d.now()', '\tb := &d.spend\n\td.loadSpendLocked()\n\tnow := d.now()'),
   ],
   tests=[('ANet:./internal/daemon', 'TestConcurrentSpendsDoNotBothPass'), ('ANet:sh go test -race -count=1 -run TestConcurrentSpendsDoNotBothPass ./internal/daemon', '')],
   full=['ANet:./internal/daemon'],
@@ -362,7 +339,7 @@ MUTS = [
   id='c27-3', group='C27', repo='ANet',
   desc='AdmitSpend: 通过后不记账(日累计永不增长)',
   edits=[
-   ('internal/daemon/spend.go', '\tb.records = append(b.records, spendRecord{at: now, amount: amount, purpose: purpose})\n\treturn nil', '\treturn nil'),
+   ('internal/daemon/spend.go', '\tb.records = append(b.records, spendRecord{at: now.UnixMilli(), amount: amount, purpose: purpose})\n\treturn nil', '\treturn nil'),
   ],
   tests=[('ANet:./internal/daemon', 'TestTheSpendingPolicyTiers|TestConcurrentSpendsDoNotBothPass')],
   full=['ANet:./internal/daemon'],
@@ -398,7 +375,7 @@ MUTS = [
   id='m-deny-3', group='m(deny)', repo='ANet',
   desc='自动回复不再每轮读 deny 名单',
   edits=[
-   ('internal/daemon/autoreply.go', '\tps := d.readPeers()\n\tif ps.denied(th.Peer) {\n\t\treturn nil\n\t}\n\t// The exec backend', '\tps := d.readPeers()\n\t// The exec backend'),
+   ('internal/daemon/autoreply.go', '\tps := d.readPeers()\n\tif ps.denied(th.Peer) {\n\t\treturn nil\n\t}\n\t// How this turn runs', '\tps := d.readPeers()\n\t// How this turn runs'),
   ],
   tests=[('ANet:./internal/daemon', 'TestDenyingAPeerCancelsItsInteractions|TestTheOpenAIBackendReadsTheDenyListEveryTurn|TestAReplyIsNotSentToAPeerDeniedWhileTheBackendWorked')],
   full=['ANet:./internal/daemon'],
@@ -423,11 +400,11 @@ MUTS = [
  ),
  dict(
   id='c2-1', group='C2', repo='ANet',
-  desc='recipientKeys: 超过缓存时限即只信 hub(hub 404 时丢掉仍有效的已存密钥)',
+  desc='recipientKeys: 超过复核时限即只信目录(目录不再列出对方时丢掉仍有效的已存密钥)',
   edits=[
-   ('internal/daemon/seal_send.go', '\t\t\tif now-uint64(row.KeysCheckedAt) > keysRevalidateMS {\n\t\t\t\td.revalidateKeys(toAID, pin)\n\t\t\t}', '\t\t\tif now-uint64(row.KeysCheckedAt) > keysRevalidateMS {\n\t\t\t\treturn d.fetchRecipientKeys(ctx, d.config().HubURL, toAID, pin)\n\t\t\t}'),
+   ('internal/daemon/seal_send.go', '\t\tif _, serr := seal.SelectKey(ks.set, now); serr == nil {\n\t\t\td.recheckActiveContact(row, pin, now)', '\t\tif _, serr := seal.SelectKey(ks.set, now); serr == nil && now-uint64(row.KeysCheckedAt) <= activeRecheckMS {\n\t\t\td.recheckActiveContact(row, pin, now)'),
   ],
-  tests=[('ANet:./internal/daemon', 'TestAStoredKeySetIsRecheckedAfterTenMinutes|TestAStoredKeySetThatNoLongerVerifiesIsReplaced|TestTheApprovalQueue|TestAStoredKeySetOutlivesAHubThatNoLongerAnswersForIt')],
+  tests=[('ANet:./internal/daemon', 'TestActiveContactRevalidatedOncePer24h|TestAStoredKeySetThatNoLongerVerifiesIsReplaced|TestTheApprovalQueue|TestAStoredKeySetOutlivesAHubThatNoLongerAnswersForIt')],
   full=['ANet:./internal/daemon'],
  ),
  dict(
@@ -439,40 +416,35 @@ MUTS = [
   tests=[('ANet:./internal/daemon', 'TestTheApprovalQueue|TestApprovalVerifiesTheDelegationAgain|TestApprovalAppliesTheRotationGraceNow|TestAnApprovedTaskIsAnsweredWithTheKeysItWasHeldWith')],
   full=['ANet:./internal/daemon'],
  ),
- dict(
-  id='c32-1', group='C32', repo='ANetHub',
-  desc='hKeysGet: 不做 /fed/v2/keys 联邦查询',
-  edits=[
-   ('internal/aghub/keys.go', '\tif s.fedKeys != nil {\n\t\t// The federated lookup', '\tif false && s.fedKeys != nil {\n\t\t// The federated lookup'),
-  ],
-  tests=[('ANetHub:./internal/aghub', 'TestAHubLocalAgentOnAPeerCanBeReachedEncrypted|TestKeysLookupSources')],
-  full=['ANetHub:./internal/aghub'],
- ),
- dict(
-  id='c32-2', group='C32', repo='ANetHub',
-  desc='-test-no-fed-key-lookup 开关失效(scenario.sh 8.6 的 mutation 不再生效)',
-  edits=[
-   ('cmd/anet-hub/wire_federation.go', '\t\t\tif !d.noFedKeyLookup {', '\t\t\tif true {'),
-  ],
-  tests=[('ANetHub:./cmd/anet-hub', 'TestTheTestSwitchTurnsOffOnlyTheFederatedKeyLookup')],
-  full=['ANetHub:./cmd/anet-hub'],
- ),
+ # c32-1 (hKeysGet stopped asking the peers over /fed/v2/keys) is retired with that lookup: sealed-sender
+ # §2.7 removed it (SS-5), and GET /agents/{aid}/keys now answers for this hub's own agents only
+ # (TestAHubServesKeysOnlyForItsOwnAgents, TestAHubLocalAgentOnAPeerCanBeReachedEncrypted). A sender reads
+ # a peer's agent from a directory bucket (mutations ss-m20-hub-*, ss-m31, ss5-* in sealed_sender.py).
+ # c32-2 (the -test-no-fed-key-lookup switch stopped working) is retired with the switch: sealed-sender
+ # SSR-H20 removed it, and anet-hub now refuses it with hub_flag_removed.fixed (TestRemovedRelayFlagsRefuse,
+ # mutation ss3-flag-fixed in sealed_sender.py). The federated key lookup itself is gone since (c32-1
+ # above); scenario.sh's C32 is rewritten for directory buckets (SS-14).
  dict(
   id='m-p2p-1', group='m(p2p 旧帧)', repo='ANet',
-  desc='anetpeer: 无 V 的旧帧也交给 daemon',
+  desc='anetpeer: 另一帧版本(含无 V)的投递帧也交给 daemon',
   edits=[
-   ('tools/anetpeer/main.go', '\tif f.V < wireVersion {\n\t\t// A sender from before sealed envelopes.', '\tif false && f.V < wireVersion {\n\t\t// A sender from before sealed envelopes.'),
+   # Both checks: the strict reader's (SS-11, core CORE-K13a) refuses the version first, and receive's
+   # is the second line behind it, so taking out either one alone changes nothing a test can see.
+   ('tools/anetpeer/main.go', '\tif f.V != wireVersion {\n\t\treturn f, versionRefused(f.V), nil\n\t}', '\tif false && f.V != wireVersion {\n\t\treturn f, versionRefused(f.V), nil\n\t}'),
+   ('tools/anetpeer/main.go', '\tif f.V != wireVersion {\n\t\t// A sender of another frame version', '\tif false && f.V != wireVersion {\n\t\t// A sender of another frame version'),
   ],
   tests=[('ANet:./tools/anetpeer', 'TestAnUnversionedDeliveryIsRefused')],
   full=['ANet:./tools/anetpeer'],
  ),
  dict(
   id='m-p2p-2', group='m(p2p 旧帧)', repo='ANet',
-  desc='module/p2p: 无 V 的投递帧也调用 Receive',
+  desc='module/p2p: 另一帧版本(含无 V)的投递帧也调用 Receive',
   edits=[
-   ('module/p2p/transport.go', '\tif f.V < WireVersion {\n\t\tlog.Printf("anet: p2p: ignoring a delivery frame of version', '\tif false && f.V < WireVersion {\n\t\tlog.Printf("anet: p2p: ignoring a delivery frame of version'),
+   # Both checks, as in m-p2p-1: the strict reader's, then checkRecv's.
+   ('module/p2p/transport.go', '\tif f.V != WireVersion {\n\t\treturn f, has, versionRefused(f.V), nil\n\t}', '\tif false && f.V != WireVersion {\n\t\treturn f, has, versionRefused(f.V), nil\n\t}'),
+   ('module/p2p/transport.go', '\tif f.V != WireVersion {\n\t\treturn nil, versionRefused(f.V)\n\t}', '\tif false && f.V != WireVersion {\n\t\treturn nil, versionRefused(f.V)\n\t}'),
   ],
-  tests=[('ANet:./module/p2p', 'TestAnUnversionedDeliveryIsNotHandedToTheDaemon')],
+  tests=[('ANet:./module/p2p', 'TestADeliveryOfAnotherVersionIsNotHandedToTheDaemon')],
   full=['ANet:./module/p2p'],
  ),
  dict(

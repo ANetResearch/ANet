@@ -8,7 +8,7 @@ package daemon
 // Provider (inbound):
 //
 //	priced call, no payment   persist the quote (24 h) → status{input-required, payment-required}
-//	payment-submitted          dispatched like a capability call (runCapabilityCall), then
+//	payment-submitted          dispatched like a capability call (runPaidCapabilityCall), then
 //	                           merchant check (§8.4) → pay_state=submitted + auth id + payload
 //	                           → POST /x402/settle {paymentPayload, paymentRequirements}
 //	    settled                → status{working, payment-verified} → execute → result{payment-completed, receipts}
@@ -179,7 +179,7 @@ func (d *Daemon) providerStatus(ctx context.Context, ixID, peer string, state in
 			return err
 		}
 		if move {
-			_, err = tx.SetState(ixID, state)
+			_, err = tx.SetState(ixID, state, interactions.CauseProviderEnd.When(state))
 		}
 		return err
 	})
@@ -272,9 +272,13 @@ func (d *Daemon) quoteCapability(ctx context.Context, ix *interactions.Interacti
 	return true
 }
 
-// paymentTerms is what a payment for ix is checked against.
+// paymentTerms is what a payment for ix is checked against. A task whose id
+// or nonce holds U+0000 has no binding (core CORE-E9; the decoders refuse
+// such fields first): Bind stays empty and CheckPayment refuses every
+// payment for it as binding_mismatch.
 func (d *Daemon) paymentTerms(ix *interactions.Interaction) module.PaymentTerms {
-	return module.PaymentTerms{Quoted: storedQuote(ix), Bind: x402a2a.PayBind(ix.ID, ix.TaskNonce), Payer: ix.PeerAID,
+	bind, _ := x402a2a.PayBind(ix.ID, ix.TaskNonce)
+	return module.PaymentTerms{Quoted: storedQuote(ix), Bind: bind, Payer: ix.PeerAID,
 		QuoteExpiresAt: ix.QuoteExpiresAt, Now: time.Now().UnixMilli()}
 }
 
@@ -631,7 +635,7 @@ func (d *Daemon) runPaidCall(ixID string) {
 	if !ok {
 		return
 	}
-	d.runCapabilityCall(ixID, capID, args, nil, nil)
+	d.runCapabilityCall(ixID, capID, args, nil)
 }
 
 // paidViewOf is the settlement of a paid task, for the deliverable.
@@ -745,7 +749,7 @@ func (d *Daemon) onRequesterPayment(ctx context.Context, ixID string, prior *int
 		}
 		// Dispatched like the call itself (§8.3 [C29]): the same short and
 		// long paths and the same bound on long calls. Never auto-reply.
-		d.runCapabilityCall(ixID, capID, args, raw, nil)
+		d.runPaidCapabilityCall(ixID, capID, args, raw)
 	}
 }
 
@@ -879,6 +883,9 @@ type providerPayment struct {
 	quote    []byte
 	expires  int64
 	receipts *receiptPlan
+	// failNote is the snapshot a payment-failed leaves on the task (HPP
+	// PAY-U5, ux D3); nil for any other status.
+	failNote []byte
 
 	// Filled by applyTx.
 	prior    string // pay_state before the status
@@ -906,7 +913,43 @@ func (d *Daemon) planProviderPayment(ixID string, meta []byte) *providerPayment 
 		pp.expires = int64(v)
 	}
 	pp.receipts = d.planReceipts(ixID, m, false)
+	if pp.status == x402a2a.StatusFailed {
+		pp.failNote = d.failureSnapshot(ixID, m)
+	}
 	return pp
+}
+
+// failureSnapshot is the pay_note of a payment the provider says did not
+// settle (ux D3; failureNote), for ixID's payment as this node sent it:
+// INVALID_SIGNATURE on an authorization signed under a key this node has
+// rotated away since is the .rotated variant (KEL §5.3).
+func (d *Daemon) failureSnapshot(ixID string, m map[string]any) []byte {
+	reason, _ := m[x402a2a.KeyReason].(string)
+	code, _ := m[x402a2a.KeyError].(string)
+	var amount uint64
+	var signedSeq uint64
+	signed := false
+	ix, err := d.ix.Get(ixID)
+	if err != nil {
+		return nil
+	}
+	if _, auth, _, err := payloadAuth(ix.PayPayload); err == nil && auth != nil {
+		amount = auth.Amount
+		if auth.Envelope != nil {
+			signedSeq, signed = auth.Envelope.KeyStateSeq, true
+		}
+	}
+	n := failureNote(reason, code, amount, ix.PeerAID, d.now())
+	if n.Code == "x402:"+x402a2a.CodeInvalidSignature && signed && d.self != nil {
+		if tip, err := kelTipSeq(d.self.KEL()); err == nil && signedSeq < tip {
+			n.Code += ".rotated"
+		}
+	}
+	b, err := json.Marshal(n)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // quoteOf is the quote a provider's status metadata carries: the
@@ -965,7 +1008,7 @@ func (pp *providerPayment) applyTx(tx *interactions.Tx, ixID string) error {
 		// again: pay_payload is cleared, so a quote repeated after this is
 		// paid, if at all, with a new authorization and a decision (Q11).
 		upd := interactions.PayUpdate{From: []string{interactions.PaySubmitted, interactions.PayRequired, interactions.PayFailed},
-			State: interactions.PayState(interactions.PayFailed), Payload: []byte{}}
+			State: interactions.PayState(interactions.PayFailed), Payload: []byte{}, Note: pp.failNote}
 		if pp.quote != nil {
 			expires := pp.expires
 			upd.Required, upd.QuoteExpiresAt = pp.quote, &expires
@@ -989,18 +1032,19 @@ func (d *Daemon) triesAutoPay(pp *providerPayment) bool {
 }
 
 // afterProviderPayment does what follows the commit of a status carrying
-// a payment part.
+// a payment part. announce tells the task's watchers about the status (its
+// message and the state); it is called once, when this is done.
 //
 // A quote this node tries to pay by itself is not announced before the
 // attempt (an internal note F1): the task is stored input-required with the
 // quote, and a waiter woken there — a blocking send, /tasks/wait, MCP
-// wait_task, an A2A stream — answered its client input-required,
-// needs_operator_approval, "pay it", for a payment already being made (§8.3,
-// §8.7: within the auto tier the node pays and the client is not asked).
-// autoPay announces the working state its payment message sets; when it does
-// not pay (above the tier, a payee off the list), the caller announces the
-// input-required afterwards (ingestStatus).
-func (d *Daemon) afterProviderPayment(ctx context.Context, ixID string, pp *providerPayment) {
+// wait_task, an A2A stream — answered its client input-required, "pay it",
+// for a payment already being made (§8.3, §8.7: within the auto tier the
+// node pays and the client is not asked). The status is announced after
+// the decision (autoPay): on the working state its payment message sets, or
+// on input-required with the decision's sentence when it leaves the quote
+// to a person.
+func (d *Daemon) afterProviderPayment(ctx context.Context, ixID string, pp *providerPayment, announce func()) {
 	switch {
 	case pp.status == x402a2a.StatusRequired && pp.quoted:
 		auto := d.triesAutoPay(pp)
@@ -1009,11 +1053,14 @@ func (d *Daemon) afterProviderPayment(ctx context.Context, ixID string, pp *prov
 		}
 		d.recordReceipts(pp.receipts)
 		if pp.prior == interactions.PaySubmitted && d.carryOutRequestedCancel(ctx, ixID) {
+			announce()
 			return
 		}
 		if auto {
-			d.autoPay(ctx, ixID, pp.prior == interactions.PaySubmitted)
+			d.autoPay(ctx, ixID, pp.prior == interactions.PaySubmitted, announce)
+			return
 		}
+		announce()
 		return
 	case pp.status == x402a2a.StatusFailed:
 		d.publishState(ixID)
@@ -1022,24 +1069,52 @@ func (d *Daemon) afterProviderPayment(ctx context.Context, ixID string, pp *prov
 	if pp.status == x402a2a.StatusFailed {
 		d.carryOutRequestedCancel(ctx, ixID)
 	}
+	announce()
 }
 
-// autoPay pays a stored quote within the auto tier, or leaves the task for
-// an operator. With resend set (a quote again after a payment was
-// submitted) it only sends the same authorization again: the one already
-// sent has no definite outcome, and a new one is not signed until it has
-// (§8.3 [C13][C25]).
-func (d *Daemon) autoPay(ctx context.Context, ixID string, resend bool) {
+// autoPay pays a stored quote at the automatic tier when decidePay says
+// so, or leaves it to a person with the decision's sentence (HPP PAY-D2).
+// With resend set (a quote again after a payment was submitted) it only
+// sends the same authorization again: the one already sent has no
+// definite outcome, and a new one is not signed until it has (§8.3
+// [C13][C25]). announce is called once the decision is made.
+//
+// A decision that has to ask the payee for its signed price waits for the
+// answer (at most 10 seconds), and the answer arrives on the same receive
+// path that called this: that decision is taken off it, in the background.
+// One the cache can answer is taken here, before the status is announced.
+func (d *Daemon) autoPay(ctx context.Context, ixID string, resend bool, announce func()) {
 	if d.payer() == nil {
+		announce()
 		return
 	}
+	if !resend && d.autoPayAsksForAPrice(ixID) {
+		if d.goBackground(func() {
+			d.autoPayNow(d.ctx, ixID, false)
+			announce()
+		}) {
+			return
+		}
+	}
+	d.autoPayNow(ctx, ixID, resend)
+	announce()
+}
+
+// autoPayNow is autoPay's decision, here and now.
+func (d *Daemon) autoPayNow(ctx context.Context, ixID string, resend bool) {
 	_, err := d.PayTask(ctx, PayRequest{TaskID: ixID, Decision: PayDecisionSubmit, Purpose: module.PurposeTaskAuto,
 		resendOnly: resend})
+	logAutoPay(ixID, err)
+}
+
+// logAutoPay notes in the daemon log why the automatic tier did not pay.
+func logAutoPay(ixID string, err error) {
 	if err == nil {
 		return
 	}
-	if r, ok := isSpendRefusal(err); ok {
-		log.Printf("anet: %s: the quote needs an operator's decision (%s); pay it with `anet pay %s`", ixID, r.Code, ixID)
+	var hold *PayHold
+	if errors.As(err, &hold) {
+		log.Printf("anet: %s: the quote waits for a decision (%s); pay it with `anet pay %s`", ixID, hold.Note.Code, ixID)
 		return
 	}
 	if errors.Is(err, errAutoPaidOnce) || errors.Is(err, errNoResend) {
@@ -1049,12 +1124,117 @@ func (d *Daemon) autoPay(ctx context.Context, ixID string, resend bool) {
 	log.Printf("anet: %s: not paid automatically: %v", ixID, err)
 }
 
+// autoPayAsksForAPrice reports whether the automatic decision on ixID's
+// quote would ask the payee for its signed price (PAY-C10 case 2): the tier
+// is on, the task calls a capability, and no fresh card this node keeps
+// answers it — none, or one more than a minute old whose price is below
+// the quote (signedPriceFor asks again then).
+func (d *Daemon) autoPayAsksForAPrice(ixID string) bool {
+	if d.config().Payments.limits().AutoMax == 0 {
+		return false
+	}
+	ix, err := d.ix.Get(ixID)
+	if err != nil {
+		return false
+	}
+	capID := taskCapability(ix)
+	if capID == "" {
+		return false
+	}
+	pr := storedQuote(ix)
+	if pr == nil || len(pr.Accepts) == 0 {
+		return false
+	}
+	kel, _ := d.peerKEL(ix.PeerAID)
+	now := d.nowMS()
+	c, ok := d.cachedExtCard(ix.PeerAID, kel, now)
+	if !ok {
+		return true
+	}
+	quote := uint64(0)
+	for _, o := range pr.Accepts {
+		quote = max(quote, quoteAmount(o))
+	}
+	return quote > c.Prices[capID] && now-min(now, c.FetchedAt) > uint64(priceRefetchAge.Milliseconds())
+}
+
+// signedPriceArrived is PAY-D5's wake-up: aid's extended card was just
+// kept, and each task of aid's that waits in input-required with a
+// card_price_unavailable snapshot for want of an answer (timeout), its
+// quote unexpired, has its payment decided again, once, at the tier that
+// decided it, with the price the card gives. Off the receive path: a
+// decision that pays sends a message.
+func (d *Daemon) signedPriceArrived(aid string) {
+	if d.ix == nil || d.payer() == nil {
+		return
+	}
+	list, err := d.ix.ListPayState(interactions.RoleOutbound,
+		[]string{interactions.PayRequired, interactions.PayFailed}, true)
+	if err != nil {
+		log.Printf("anet: the tasks waiting for %s's price: %v", aid, err)
+		return
+	}
+	for _, ix := range list {
+		if ix.PeerAID != aid || !lateCardWaits(ix, time.Now().UnixMilli()) {
+			continue
+		}
+		id := ix.ID
+		d.goBackground(func() { d.decideOnALateCard(id) })
+	}
+}
+
+// lateCardWaits reports a task PAY-D5 decides again: input-required on a
+// quote that has not lapsed, with a decision that had no signed price for
+// want of an answer.
+func lateCardWaits(ix *interactions.Interaction, nowMS int64) bool {
+	if ix.State != interactions.StateInputRequired || (ix.QuoteExpiresAt > 0 && nowMS > ix.QuoteExpiresAt) {
+		return false
+	}
+	n, ok := storedPayNote(ix)
+	return ok && n.Code == "card_price_unavailable" && n.Why == priceWhyTimeout &&
+		(n.Tier == a2ashape.PayTierAuto || n.Tier == a2ashape.PayTierAgent)
+}
+
+// decideOnALateCard is PAY-D5 for one task: the decision again, at the
+// tier of the one it replaces, with the price of the card just kept (never
+// asked for again: at most one more decision per card). PayTask checks
+// under its lock that the task still waits for that card.
+func (d *Daemon) decideOnALateCard(ixID string) {
+	ix, err := d.ix.Get(ixID)
+	if err != nil {
+		return
+	}
+	n, ok := storedPayNote(ix)
+	if !ok {
+		return
+	}
+	kel, _ := d.peerKEL(ix.PeerAID)
+	c, ok := d.cachedExtCard(ix.PeerAID, kel, d.nowMS())
+	if !ok {
+		return
+	}
+	price := cardPrice{Have: true, Price: c.Prices[taskCapability(ix)]}
+	purpose := module.PurposeTaskAuto
+	if n.Tier == a2ashape.PayTierAgent {
+		purpose = module.PurposeTaskAgent
+	}
+	_, err = d.PayTask(d.ctx, PayRequest{TaskID: ixID, Decision: PayDecisionSubmit, Purpose: purpose,
+		price: &price, lateCard: true})
+	logAutoPay(ixID, err)
+}
+
 // PaymentReason is the anet.reason of an outbound task that waits on a
-// payment decision: needs_operator_approval while a quote stands unpaid
-// and the task is input-required, "" otherwise.
+// payment decision, while a quote stands unpaid and the task is
+// input-required: the code of the decision's sentence when it left the
+// quote to a person (ux D1: needs_operator_approval, quote_above_card_price,
+// card_price_unavailable), otherwise needs_operator_approval (no decision
+// yet, or the last payment did not settle: ux D3 says why). "" otherwise.
 func PaymentReason(ix *interactions.Interaction) string {
 	if ix.Role == interactions.RoleOutbound && ix.State == interactions.StateInputRequired &&
 		(ix.PayState == interactions.PayRequired || ix.PayState == interactions.PayFailed) {
+		if n, ok := storedPayNote(ix); ok && a2ashape.PayNoteWaits(n.Code) {
+			return a2ashape.ReasonCode(n.Code)
+		}
 		return x402a2a.ReasonNeedsOperatorApproval
 	}
 	return ""
@@ -1161,10 +1341,18 @@ type PayRequest struct {
 	// (a2a.messageId, never sent to the peer), so the same message sent
 	// again finds this one instead of deciding twice (§11.5).
 	ClientMsgID string
+	// client is that message's retry key (clientdedupe.go), stored with the
+	// payment message in the same transaction; nil without a messageId.
+	client *clientMark
 	// resendOnly allows only the authorization sent last, on the same
 	// terms; set for the automatic answer to a quote repeated after a
 	// payment was submitted.
 	resendOnly bool
+	// price, when set, is the signed price to decide with instead of
+	// asking the payee; lateCard says the decision is PAY-D5's, which goes
+	// ahead only while the task still waits for a card (lateCardWaits).
+	price    *cardPrice
+	lateCard bool
 }
 
 // PayOutcome is what a decision did.
@@ -1179,11 +1367,16 @@ type PayOutcome struct {
 	// Reused is set when the authorization sent is one signed earlier for
 	// the same terms (§8.3: a re-quote on the same terms).
 	Reused bool `json:"reused,omitempty"`
-	// SpendRefusal and Message are set on a decision held for the operator
-	// (PayHold): the spending policy's code, and what happens now, for a
-	// person or an agent to read.
+	// SpendRefusal and Message are set on a decision left to a person
+	// (PayHold): the first check that did not pass (ux D4's code for a
+	// limit or the payee list, quote_above_card_price or
+	// card_price_unavailable for the price; payCheck), and what happens
+	// now, for a person or an agent to read: the decision's sentence.
 	SpendRefusal string `json:"spend_refusal,omitempty"`
 	Message      string `json:"message,omitempty"`
+	// Note is the payment sentence of the decision taken (ux D1 or D2;
+	// MCP submit_payment's note, HPP §4.6), the task's anet.payment_note.
+	Note string `json:"note,omitempty"`
 }
 
 // Errors of PayTask.
@@ -1215,24 +1408,22 @@ func (e *PayRefusal) Error() string {
 	return fmt.Sprintf("anet: payment refused: %s (%s)", e.Outcome.Error, e.Outcome.Reason)
 }
 
-// PayHold is an agent-tier decision to pay that the spending policy did
-// not allow and an operator can (§8.3, §8.6, operatorDecides): above
-// agent_max, agent_daily_max or daily_max, or to a payee not on the list.
-// Nothing was signed or sent, and the task goes on
-// waiting, input-required with anet.reason needs_operator_approval, for
-// the operator's `anet pay` on a terminal. It is the answer, not a
-// failure: /tasks/pay returns Outcome with 200 and the local A2A interface
-// returns the task (a2ashape.PaymentHold). Unwrap gives the refusal.
+// PayHold is a decision to pay that decidePay left to a person (HPP
+// PAY-D2, PAY-D3): the tier's limit, its left today, the payee list or the
+// payee's signed price did not let it through. Nothing was signed or sent,
+// and the task goes on waiting, input-required with the decision's
+// anet.reason and sentence, for the operator's `anet pay` on a terminal (or
+// what the sentence says to run first). It is the answer, not a failure:
+// /tasks/pay returns Outcome with 200 and the local A2A interface returns
+// the task (a2ashape.PaymentHold); the automatic tier only logs it.
 type PayHold struct {
 	Outcome PayOutcome
-	Refusal *SpendRefusal
+	Note    a2ashape.PayNote
 }
 
 func (e *PayHold) Error() string {
-	return fmt.Sprintf("anet: payment held for the operator: %v", e.Refusal)
+	return fmt.Sprintf("anet: payment left to a person: %s", e.Note.Code)
 }
-
-func (e *PayHold) Unwrap() error { return e.Refusal }
 
 // operatorDecides reports a spending-policy refusal that an operator can
 // overrule: a limit or the payee list. A quote for nothing (zero_amount)
@@ -1245,64 +1436,47 @@ func operatorDecides(code string) bool {
 	return false
 }
 
-// holdForOperator is the PayHold for a refused agent-tier payment of opt
-// on ix.
-func (d *Daemon) holdForOperator(ix *interactions.Interaction, opt payment.PaymentOption, r *SpendRefusal) *PayHold {
+// holdPayment keeps a decision that left ix's quote to a person — its
+// snapshot on the task — and is its answer (PayHold). check is the first
+// check that failed (payCheck).
+func (d *Daemon) holdPayment(ix *interactions.Interaction, n a2ashape.PayNote, check string) (PayOutcome, error) {
+	d.storePayNote(ix.ID, n)
+	n.Task = ix.ID
+	text := a2ashape.PaymentNote(n, a2ashape.Lang())
 	out := PayOutcome{TaskID: ix.ID, State: string(ix.State), PayState: ix.PayState,
-		Reason: x402a2a.ReasonNeedsOperatorApproval, SpendRefusal: r.Code}
-	out.Status, _ = d.PaymentStatusMeta(ix)[x402a2a.KeyStatus].(string)
+		Reason: a2ashape.ReasonCode(n.Code), SpendRefusal: check, Message: text, Note: text}
+	if cur, err := d.ix.Get(ix.ID); err == nil {
+		out.State, out.PayState = string(cur.State), cur.PayState
+		out.Status, _ = d.PaymentStatusMeta(cur)[x402a2a.KeyStatus].(string)
+	}
 	if out.Status == "" {
 		out.Status = x402a2a.StatusRequired
 	}
-	out.Message = operatorApprovalText(ix.ID, opt, r, d.manualTierSteps(opt))
-	return &PayHold{Outcome: out, Refusal: r}
+	return out, &PayHold{Outcome: out, Note: n}
 }
 
-// manualTierSteps is what the operator has to change before `anet pay`
-// can pay opt: the manual tier is bound by explicit_max, daily_max and the
-// payee list as well (§8.6), so a hold that named only `anet pay` would
-// lead the operator into a second refusal — on a new node, where the payee
-// list is on and empty, every time. It reads the policy as it stands; the
-// operator's command checks it again.
-func (d *Daemon) manualTierSteps(opt payment.PaymentOption) []string {
-	lim := d.config().Payments.limits()
-	var steps []string
-	if lim.PayeesFile != "" {
-		payees, err := readPeerFile(d.peerFile(lim.PayeesFile))
-		switch {
-		case err != nil:
-			steps = append(steps, "repair the payee list "+lim.PayeesFile)
-		case !payees[opt.PayTo]:
-			steps = append(steps, "`anet payees add "+plainText(opt.PayTo, 256)+"`")
-		}
+// refusalNote is the sentence of a refusal AdmitSpend gave after decidePay
+// had said to sign — the limits or the list moved in between — for the
+// tier that asked: the decision again on what they are now, or, should
+// that still say to sign, the D1 sentence of the refusal itself.
+func (d *Daemon) refusalNote(ctx context.Context, ix *interactions.Interaction, amount uint64, payTo, purpose string,
+	price cardPrice, r *SpendRefusal) (a2ashape.PayNote, string) {
+	in := d.payInput(ctx, ix, amount, payTo, purpose, &price)
+	n := decidePay(in)
+	if !payNoteSigns(n) && n.Code != "" {
+		return n, payCheck(in)
 	}
-	amount, err := payment.ParseAmount(opt.Amount)
-	if err != nil {
-		return steps
+	n = a2ashape.PayNote{Amount: amount, Tier: tierName(purpose), Single: in.Single, Left: in.Left, Peer: payTo,
+		At: in.At.UTC()}
+	switch r.Code {
+	case SpendPayeeNotAllowed:
+		n.Code = "needs_operator_approval.payee_not_allowed"
+	case SpendPayeesUnread:
+		n.Code = "needs_operator_approval.payees_unreadable"
+	default:
+		n.Code = "needs_operator_approval.over_limit"
 	}
-	if amount > lim.ExplicitMax {
-		steps = append(steps, fmt.Sprintf("`anet payments set explicit_max=%d`", amount))
-	}
-	if total := spendSum(d.SpendStatus().Spent24h, amount); total > lim.DailyMax {
-		steps = append(steps, fmt.Sprintf("`anet payments set daily_max=%d` (or wait until less was paid in the "+
-			"last 24 hours)", total))
-	}
-	return steps
-}
-
-// operatorApprovalText says why an agent's payment was not made and who
-// can make it, and how: first steps, then `anet pay`. The amount and the
-// payee are the quote's, as stored; the provider wrote them, so they are
-// made plain before they become text a model reads (the payee was already
-// checked to be the task's peer).
-func operatorApprovalText(ixID string, opt payment.PaymentOption, r *SpendRefusal, first []string) string {
-	how := "`anet pay " + ixID + "`"
-	if len(first) > 0 {
-		how = strings.Join(first, ", ") + ", then " + how
-	}
-	return fmt.Sprintf("Payment not submitted: %s. The quote (%s %s to %s) is still open: the operator of this "+
-		"node has to approve it in a terminal: %s. Nothing was signed or sent.",
-		r.Detail, plainText(opt.Amount, 40), plainText(opt.Asset, 40), plainText(opt.PayTo, 256), how)
+	return n, r.Code
 }
 
 // plainText is peer-written s without control or bidirectional
@@ -1354,7 +1528,7 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 	}
 	switch req.Decision {
 	case PayDecisionReject:
-		return d.rejectQuote(ctx, ix, req.ClientMsgID)
+		return d.rejectQuote(ctx, ix, req.ClientMsgID, req.client)
 	case PayDecisionSubmit:
 	default:
 		return out, fmt.Errorf("anet: decision must be %q or %q", PayDecisionSubmit, PayDecisionReject)
@@ -1406,6 +1580,10 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 		// anyone else could never be shown to have paid for this task.
 		return out, ErrPayeeNotPeer
 	}
+	if req.lateCard && !lateCardWaits(ix, time.Now().UnixMilli()) {
+		// Decided since the card was asked for (PAY-D5 decides once).
+		return out, ErrNoQuote
+	}
 	raw, authID, reused := d.reusablePayment(ix, *opt)
 	if raw == nil && req.resendOnly {
 		return out, errNoResend
@@ -1419,16 +1597,36 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 		// second payment and stays automatic.
 		return out, errAutoPaidOnce
 	}
+	var note a2ashape.PayNote
 	if raw == nil {
-		signed, err := p.Authorize(*opt, ix.ID, x402a2a.PayBind(ix.ID, ix.TaskNonce), req.Purpose)
+		// A new authorization: the decision first (HPP PAY-D1). The
+		// automatic and the agent tier sign only what decidePay says to;
+		// anything else waits for a person, with its sentence. The manual
+		// tier is decided by its limits alone (PAY-D4), which AdmitSpend
+		// enforces as it records the payment.
+		amount := quoteAmount(*opt)
+		manual := req.Purpose == module.PurposeTaskManual
+		var in PayInput
+		if amount > 0 && (manual || req.Purpose == module.PurposeTaskAuto || req.Purpose == module.PurposeTaskAgent) {
+			in = d.payInput(ctx, ix, amount, opt.PayTo, req.Purpose, req.price)
+			note = decidePay(in)
+			if !manual && !payNoteSigns(note) {
+				return d.holdPayment(ix, note, payCheck(in))
+			}
+		}
+		bind, err := x402a2a.PayBind(ix.ID, ix.TaskNonce)
+		if err != nil {
+			return out, err
+		}
+		signed, err := p.Authorize(*opt, ix.ID, bind, req.Purpose)
 		if err != nil {
 			if r, ok := isSpendRefusal(err); ok {
 				logSpendRefusal(ix.ID, r)
-				if req.Purpose == module.PurposeTaskAgent && operatorDecides(r.Code) {
-					// Above the agent tier the decision is the operator's
-					// (§8.3): the task waits for it, told why.
-					h := d.holdForOperator(ix, *opt, r)
-					return h.Outcome, h
+				if !manual && note.Code != "" && operatorDecides(r.Code) {
+					// The limits or the list moved since the decision:
+					// decided again on what they are now.
+					n, check := d.refusalNote(ctx, ix, amount, opt.PayTo, req.Purpose, in.Price, r)
+					return d.holdPayment(ix, n, check)
 				}
 				return out, r
 			}
@@ -1438,13 +1636,21 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 		if _, _, authID, err = payloadAuth(raw); err != nil {
 			return out, err
 		}
+		if payNoteSigns(note) {
+			// What is left after this payment (ux D2), now that it is
+			// recorded.
+			st := d.SpendStatus()
+			note.Left, note.At = st.tierLeft(req.Purpose), d.now().UTC()
+		} else {
+			note = a2ashape.PayNote{}
+		}
 	}
 	meta, err := json.Marshal(map[string]any{x402a2a.KeyStatus: x402a2a.StatusSubmitted,
 		x402a2a.KeyPayload: json.RawMessage(raw)})
 	if err != nil {
 		return out, err
 	}
-	if err := d.requesterPaymentMessage(ctx, ix, meta, req.ClientMsgID, interactions.StateWorking, func(tx *interactions.Tx) error {
+	if err := d.requesterPaymentMessage(ctx, ix, meta, req.ClientMsgID, req.client, interactions.StateWorking, func(tx *interactions.Tx) error {
 		cur, err := tx.Get(ix.ID)
 		if err != nil {
 			return err
@@ -1452,9 +1658,17 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 		if cur.PayState == interactions.PaySubmitted {
 			return ErrPaymentPending
 		}
-		applied, err := tx.SetPayment(ix.ID, interactions.PayUpdate{
+		upd := interactions.PayUpdate{
 			From:  []string{interactions.PayRequired, interactions.PayFailed},
-			State: interactions.PayState(interactions.PaySubmitted), AddAuthID: authID, Payload: raw})
+			State: interactions.PayState(interactions.PaySubmitted), AddAuthID: authID, Payload: raw}
+		if note.Code != "" {
+			b, err := json.Marshal(note)
+			if err != nil {
+				return err
+			}
+			upd.Note = b
+		}
+		applied, err := tx.SetPayment(ix.ID, upd)
 		if err == nil && !applied {
 			return ErrNoQuote
 		}
@@ -1467,14 +1681,18 @@ func (d *Daemon) PayTask(ctx context.Context, req PayRequest) (PayOutcome, error
 		out.State, out.PayState = string(cur.State), cur.PayState
 	}
 	out.Status, out.AuthID, out.Reused = x402a2a.StatusSubmitted, authID, reused
+	if note.Code != "" {
+		note.Task = ix.ID
+		out.Note = a2ashape.PaymentNote(note, a2ashape.Lang())
+	}
 	return out, nil
 }
 
 // rejectQuote declines a task's quote: payment-rejected to the provider,
 // the task canceled here (§8.3).
-func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction, clientMsgID string) (PayOutcome, error) {
+func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction, clientMsgID string, cm *clientMark) (PayOutcome, error) {
 	meta, _ := json.Marshal(map[string]any{x402a2a.KeyStatus: x402a2a.StatusRejected})
-	err := d.requesterPaymentMessage(ctx, ix, meta, clientMsgID, interactions.StateCanceled, func(tx *interactions.Tx) error {
+	err := d.requesterPaymentMessage(ctx, ix, meta, clientMsgID, cm, interactions.StateCanceled, func(tx *interactions.Tx) error {
 		applied, err := tx.SetPayment(ix.ID, interactions.PayUpdate{
 			From:  []string{interactions.PayRequired, interactions.PayFailed},
 			State: interactions.PayState(interactions.PayRejected)})
@@ -1496,9 +1714,10 @@ func (d *Daemon) rejectQuote(ctx context.Context, ix *interactions.Interaction, 
 // requesterPaymentMessage sends a payment message for an outbound task
 // through the retry queue, storing it (metadata only, kind payment) and
 // moving the task to state in the same transaction as write. A local
-// client's messageId, when given, is added to the stored copy only.
+// client's messageId, when given, is added to the stored copy only, with its
+// retry key cm (clientdedupe.go).
 func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.Interaction, meta []byte,
-	clientMsgID string, state interactions.State, write func(tx *interactions.Tx) error) error {
+	clientMsgID string, cm *clientMark, state interactions.State, write func(tx *interactions.Tx) error) error {
 	// The message id is the envelope's inner id (an internal note item), the same on
 	// both sides.
 	mid, msgID := newWireMID()
@@ -1527,11 +1746,15 @@ func (d *Daemon) requesterPaymentMessage(ctx context.Context, ix *interactions.I
 		if err := write(tx); err != nil {
 			return err
 		}
-		if seq, _, err = tx.AddMessageRecord(interactions.MessageRecord{InteractionID: ix.ID, SenderAID: d.AID(),
-			Kind: interactions.MsgPayment, MsgID: msgID, Metadata: stored}); err != nil {
+		rec := interactions.MessageRecord{InteractionID: ix.ID, SenderAID: d.AID(),
+			Kind: interactions.MsgPayment, MsgID: msgID, Metadata: stored}
+		if err := cm.stamp(tx, ix.ID, &rec); err != nil {
 			return err
 		}
-		_, err = tx.SetState(ix.ID, state)
+		if seq, _, err = tx.AddMessageRecord(rec); err != nil {
+			return err
+		}
+		_, err = tx.SetState(ix.ID, state, interactions.CauseLocalEnded.When(state))
 		return err
 	})
 	if err != nil {
@@ -1655,7 +1878,7 @@ func (d *Daemon) reusablePayment(ix *interactions.Interaction, opt payment.Payme
 	got.Extra = nil
 	a, _ := json.Marshal(want)
 	b, _ := json.Marshal(got)
-	if !bytes.Equal(a, b) || auth.InteractionID != x402a2a.PayBind(ix.ID, ix.TaskNonce) {
+	if bind, err := x402a2a.PayBind(ix.ID, ix.TaskNonce); err != nil || !bytes.Equal(a, b) || auth.InteractionID != bind {
 		return nil, "", false
 	}
 	// Enough of the window left for the provider to present it.
