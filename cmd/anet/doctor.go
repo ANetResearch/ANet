@@ -563,6 +563,9 @@ func collectDoctor(layout daemon.Layout, env doctorEnv) (*doctorReport, error) {
 		len(st.Payees), st.PayeesPath)
 	add("payments", stOK, payDetail, "")
 	paymentsCardCheck(say, add, rep, env, layout) // doctor_payments.go
+	paymentsAuditCheck(say, add, rep, env, layout)
+	hubProbationCheck(say, add, rep, env, layout)
+	clockRetriesCheck(say, add, rep, env, layout)
 
 	// Tasks this node sends (§4.2): how long one may hear nothing at all
 	// from its peer before it fails as no_response.

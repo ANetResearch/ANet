@@ -127,8 +127,10 @@ type fakeHub struct {
 	// the custody note in pay.go — the fake holds them the same way.
 	self    *identity.Controller
 	balance map[string]uint64
-	entries map[string][]map[string]any
-	settled map[string]string // authorization id → transaction, so replay is idempotent
+	// acctExtra is what /agents/{aid}/balance adds for an account: probation_until, trial.
+	acctExtra map[string]map[string]any
+	entries   map[string][]map[string]any
+	settled   map[string]string // authorization id → transaction, so replay is idempotent
 	// settledReceipt is each settled authorization's signed receipt, so a
 	// replay answers with the original (A2A-DESIGN §8.5).
 	settledReceipt map[string]string
@@ -2615,8 +2617,11 @@ func (h *fakeHub) hBalance(w http.ResponseWriter, r *http.Request) {
 	// different key is a fake that certifies a wire the system does not
 	// have — which is exactly how the daemon shipped reading a balance of
 	// zero off a funded account.
-	fakeHubJSON(w, http.StatusOK, map[string]any{
-		"aid": r.PathValue("aid"), "credits": h.balance[r.PathValue("aid")]})
+	out := map[string]any{"aid": r.PathValue("aid"), "credits": h.balance[r.PathValue("aid")]}
+	for k, v := range h.acctExtra[r.PathValue("aid")] {
+		out[k] = v // probation_until and trial, for an account that came in on a window
+	}
+	fakeHubJSON(w, http.StatusOK, out)
 }
 
 func (h *fakeHub) hLedgerRead(w http.ResponseWriter, r *http.Request) {
